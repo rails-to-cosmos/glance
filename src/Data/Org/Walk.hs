@@ -63,16 +63,10 @@ data LoadFailure
   deriving (Eq, Ord, Show)
 
 -- | Derived buffers under a @.org-glance@ directory.  @data@ is absent on purpose.
---
--- @trash@ is here because a DELETED blob must not come back as a live row, and
--- the denylist is what says so: the trash keeps @.gz@ files, which
--- 'isDocument' declines anyway, but resting on the extension would make the
--- rule an accident of how the bytes are stored rather than a fact about the
--- directory ('Data.Org.Trash').
+-- @trash@ is a fact about the DIRECTORY, never about the @.gz@ ('Data.Org.Trash').
 derivedDirs :: [FilePath]
 derivedDirs = ["overviews", metaDir, trashDir]
 
--- | org-glance's store layout, spelled once for the rules and callers below.
 orgGlanceDir, storeDir, configDir, occurrenceDir, blobFile, trashDir :: FilePath
 orgGlanceDir = ".org-glance"
 storeDir = "data"
@@ -81,8 +75,6 @@ occurrenceDir = "occurrences"
 blobFile = "data.org"
 trashDir = "trash"
 
--- | What sits under each @.org-glance@ component of PATH, one entry each.  The
--- 'namesOrgGlance' guard is what makes it affordable over ~703k walk entries.
 orgGlanceTails :: FilePath -> [[FilePath]]
 orgGlanceTails path
   | not (namesOrgGlance path) = []
@@ -95,8 +87,7 @@ orgGlanceRoot path
                             | below@(d : _above) <- tails (reverse parts), d == orgGlanceDir ]
   where parts = splitDirectories path
 
--- | Does PATH spell @.org-glance@ anywhere, as characters?  Spelled out rather
--- than 'Data.List.isInfixOf' for the @Char#@ comparisons — ~0.4 s of the walk.
+-- | Does PATH spell @.org-glance@ anywhere?  Hand-rolled for the @Char#@ comparisons.
 namesOrgGlance :: FilePath -> Bool
 namesOrgGlance ('.' : 'o' : 'r' : 'g' : '-' : 'g' : 'l' : 'a' : 'n' : 'c' : 'e' : _rest) = True
 namesOrgGlance (_c : rest) = namesOrgGlance rest
@@ -128,8 +119,7 @@ configTail :: [FilePath] -> Bool
 configTail (d : _rest) = d == configDir
 configTail []          = False
 
--- | Is PATH in the canonical store, a blob's history excluded?  An occurrence
--- carries the LIVE entry's id, so ranking it canonical made the pair a tie.
+-- | Is PATH in the canonical store?  An occurrence carries the LIVE entry's id.
 isCanonical :: FilePath -> Bool
 isCanonical path = not (any occurrenceTail ts)
                 && or [ d == storeDir | d : _ : _rest <- ts ]
@@ -171,20 +161,12 @@ walk opts acc dir = do
     Left e      -> pure $! keepDirErr dir (errText e) acc
     Right names -> foldM (visit opts dir) acc names
 
--- | Classify NAME inside DIR: recurse, keep, or ignore.  The accumulator is
--- forced per entry, and ONE @lstat@ classifies it — a symlink pays a second.
 -- | WHAT ONE DIRECTORY ENTRY IS, by a single 'getSymbolicLinkStatus' that never
--- follows — the reading every traversal in this program takes an entry by.
---
--- A failed @lstat@ answers 'Regular', which is the keep-on-name branch: a
--- dangling @.org@ symlink is walked and its load fails as a @ReadFailed@,
--- counted once for the life of the process.
+-- follows.  A failed @lstat@ answers 'Regular', which is the keep-on-name branch.
 data Entry = Dir | Regular | Linked
   deriving (Eq, Show)
 
--- | 'Entry' for PATH.  ONE stat: whoever needs to know what a LINK points at
--- pays a second one of their own, and only where the answer could change what
--- they collect.
+-- | 'Entry' for PATH.  ONE stat: a caller needing a LINK's target pays its own.
 entryOf :: FilePath -> IO Entry
 entryOf path = do
   probe <- try (getSymbolicLinkStatus path) :: IO (Either IOException FileStatus)
@@ -232,10 +214,9 @@ keepDerived path acc = acc { foundDerived = path : foundDerived acc }
 keepConfig :: FilePath -> Found -> Found
 keepConfig path acc = acc { foundConfig = path : foundConfig acc }
 
--- Reading what the walk found
 
--- | ACT over PATHS on a pool of 'getNumCapabilities' workers, answering in
--- PATHS' order.  Every file parses from 'defaultContext'; ACT must force.
+-- | ACT over PATHS on a pool of 'getNumCapabilities' workers, in PATHS' order.
+-- ACT must force: the pool is bounded by what a worker returns.
 mapFilesConcurrently :: (FilePath -> IO a) -> [FilePath] -> IO [a]
 mapFilesConcurrently act paths = case paths of
   []    -> pure []

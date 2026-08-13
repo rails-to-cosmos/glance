@@ -1,28 +1,16 @@
 # KNOWN-EQUIVALENT SITES, one per line, and each one is a claim a human made.
-#
-# TSV: file <TAB> line <TAB> rule <TAB> digest — DIGEST is the target's blob
-# digest at the revision the claim was made against, first 12 chars, which is
-# what makes an entry EXPIRE: edit the file and the digest moves, so the entry
-# stops silencing a line that has since changed and the survivor is reported
-# again.  `tools/mutate' prints the exact rows to paste under every survivor.
-#
-# EQUIVALENT IS NOT SURVIVED.  A survivor is a claim about the SUITE; an
-# equivalent mutant is a rewrite with no observable difference at all, so it is
-# counted apart and left out of the score.  Putting a real hole here hides it.
+# TSV: file <TAB> line <TAB> rule <TAB> digest — the target's blob digest when the
+# claim was made, first 12 chars, which is what makes an entry EXPIRE: edit the
+# file and the digest moves, so the survivor is reported again.
+# EQUIVALENT IS NOT SURVIVED — a survivor is a claim about the SUITE.  Putting a
+# real hole here hides it.
 
 # --- src-web/Glance/Web/Filter.hs @ 0d3f71693bfe, graded 2026-08-11 ---------
-#
 # `matchesFilter''s one-test arm is an OPTIMIZATION: `all ($ r) [test]' is
-# `test r', so exchanging the two alternatives is a rewrite with no observable
-# difference.  Order is a fact where the patterns OVERLAP — and here the second
-# arm subsumes the first exactly.
+# `test r', and the second arm subsumes the first exactly.
 src-web/Glance/Web/Filter.hs	197	arms	0d3f71693bfe
-#
 # THE `Order' ARM IS UNREACHABLE BY CONSTRUCTION and kept for TOTALITY: `compile'
-# drops every term whose key is a view key (`sort:', `columns:', `view:') before
-# a test is ever built, so no value reaches `valueFor Order' or
-# `keyTest _ _ Order'.  Verified by mutating both and running the whole suite
-# green.  AGENTS.hs keeps the arm on purpose — `valueFor' spells its five, and
-# the catch-all that made `Field' half-enforced is gone.
+# drops every view-key term before a test is built.  Verified by mutating both
+# and running the whole suite green.
 src-web/Glance/Web/Filter.hs	229	identity	0d3f71693bfe
 src-web/Glance/Web/Filter.hs	255	bool	0d3f71693bfe

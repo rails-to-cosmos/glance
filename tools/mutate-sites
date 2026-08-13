@@ -1,24 +1,12 @@
 #!/usr/bin/env perl
 # THE SITE GENERATOR AND THE SUBSTITUTION, one file so the two cannot disagree
-# about what a site is.  A SITE IS A HALF-OPEN CHAR RANGE plus the bytes that
-# stand there and the bytes that replace them, which is the repo's own span
-# discipline read one layer out.
+# about what a site is: a SITE IS A HALF-OPEN CHAR RANGE plus the bytes that
+# stand there and the bytes that replace them.  COMMENTS AND STRING LITERALS
+# ARE MASKED before any rule is asked.  A TSV row is start end line col rule
+# context before after, with BEFORE and AFTER escaped (\\ \t \n \r).
 #
 #   mutate-sites sites RULES FILE   -> one TSV row per site, on stdout
-#   mutate-sites apply FILE START END BEFORE AFTER
-#                                   -> in-place substitution, VERIFYING BEFORE
-#
-# The apply half re-reads BEFORE off the file and refuses when it differs, so a
-# stale site list can never write bytes nobody predicted.
-#
-# COMMENTS AND STRING LITERALS ARE MASKED before any rule is asked.  A rewrite
-# inside a comment is a survivor by construction and says nothing; the mask is
-# what keeps the report signal.  The masker is also the only reader that knows
-# where a string literal ENDS, which is why `zero' is its rule rather than a row.
-#
-# TSV row: start end line col rule context before after
-# BEFORE and AFTER are escaped (\\ \t \n \r), so a row is one line whatever it
-# carries.
+#   mutate-sites apply FILE START END BEFORE AFTER  -> in-place, VERIFYING BEFORE
 
 use strict;
 use warnings;
@@ -55,17 +43,11 @@ sub lang_of {
   die "mutate-sites: no rules for $path — .hs, .elm and .js are the languages\n";
 }
 
-# --- masking ---------------------------------------------------------------
-#
-# Answers CODE — the source with every comment and literal masked, newlines and
-# LENGTHS kept, so an offset into CODE is the same offset into the source — and
-# LITS, the string-literal ranges `zero' rewrites.
+# --- masking: CODE (comments and literals masked, LENGTHS kept, so an offset
+# into CODE is an offset into the source) and LITS, the ranges `zero' rewrites.
 
-# A COMMENT MASKS TO SPACE AND A LITERAL DOES NOT.  A literal is a TOKEN, and
-# spaces where one stood let a boundary regex cross it: masked to blanks,
-# `| x == "a" = e' reads as a guard ending at `==', and the negation goes out
-# half-written.  \x01 is non-space and non-word, so `\s+' and `\b' stop at it
-# exactly where the quote stood, and no rule can match inside one.
+# A COMMENT MASKS TO SPACE AND A LITERAL DOES NOT: blanks let a boundary regex
+# cross a literal, so \x01 stops `\s+' and `\b' exactly where the quote stood.
 sub blank_into {
   my ($code, $src, $a, $b, $fill) = @_;
   $fill = ' ' unless defined $fill;
@@ -87,13 +69,8 @@ sub eat_string {           # a "…" literal, backslash-escaped, ended by the li
   return $j;
 }
 
-# A CPP-GUARDED LINE IS NO SITE, whichever branch is live.  This runner grades
-# the build `cabal test' makes, and which arm of an `#ifdef' that build compiles
-# is a FLAG's answer rather than the file's — so a mutant inside one can rewrite
-# a line GHC never saw and SURVIVE for the wrong reason (`pure-crypto' did
-# exactly that, and the score paid for it).  The whole block goes, live arm
-# included: declining a site this cannot reason about costs a few sites, and
-# grading dead code costs the number its own meaning.
+# A CPP-GUARDED LINE IS NO SITE: which arm the build compiles is a FLAG's
+# answer, so a mutant inside one rewrites a line GHC never saw and SURVIVES.
 sub mask_cpp {
   my ($code) = @_;
   my $depth = 0;
@@ -144,8 +121,7 @@ sub mask_haskellish {      # hs and elm: `--' to eol, nested {- -}, "…", '…'
       }
       blank_into(\$code, $src, $i, $j); $i = $j; next;
     }
-    # `--' opens a comment only where the operator run is all dashes: `-->' is
-    # an operator and `--|' is not a comment either.
+    # `--' opens a comment only where the operator run is all dashes.
     if (substr($src, $i, 2) eq '--'
         && ($i == 0 || substr($src, $i - 1, 1) !~ m{[-!#\$%&*+./<=>?\@\\^|~:]})) {
       my ($j) = $i;
@@ -196,10 +172,8 @@ sub mask_js {              # `//' to eol, /* */, '…' "…" `…`
   return ($code, \@lits);
 }
 
-# --- context ---------------------------------------------------------------
-#
-# The name a reader needs to place a site: the nearest binding at column 1
-# above it.  Report chrome, never read back.
+# --- context: the nearest binding at column 1 above a site.  Report chrome,
+# never read back.
 
 sub contexts {
   my ($code, $lang) = @_;
@@ -256,8 +230,8 @@ sub read_rules {
   return \@rows;
 }
 
-# An operator token is bounded by the LANGUAGE'S operator charset, which is the
-# lexer's own rule: `<' inside `<$>' is not the token `<'.
+# An operator token is bounded by the LANGUAGE'S operator charset, the lexer's
+# own rule: `<' inside `<$>' is not the token `<'.
 my %OPCHARS = ( hs  => q{-!#\$%&*+./<=>?\@\\\\^|~:},
                 elm => q{-!#\$%&*+./<=>?\@\\\\^|~:},
                 js  => q{-!%&*+/<=>|^~?:=} );
@@ -277,8 +251,7 @@ sub table_sites {
 }
 
 # `zero' — a literal loses what it says.  The STRING half is the masker's own
-# reading; the NUMERIC half is a regex over code, and a literal already zero is
-# no rewrite.
+# reading; a literal already zero is no rewrite.
 sub zero_sites {
   for my $lit (@$LITS) {
     my ($a, $b) = @$lit;
@@ -292,18 +265,13 @@ sub zero_sites {
   }
 }
 
-# `guard' — the condition is negated where it stands.  Haskell takes the guard
-# bar; the other two take `if'.  A guard carrying a comma, a pattern bind or a
-# `let' is a BINDING rather than a condition and is left alone.
-#
-# THE OFFSETS ARE THE MASK'S AND THE TEXT IS THE SOURCE'S: a condition read off
-# CODE would come back with its own string literals blanked to spaces.
+# `guard' — the condition negated where it stands; a guard carrying a comma, a
+# pattern bind or a `let' is a BINDING.  OFFSETS ARE THE MASK'S, TEXT THE SOURCE'S.
 sub guard_sites {
   if ($LANG eq 'hs') {
     my $pos = 0;
     for my $line (split /(?<=\n)/, $CODE) {
-      # The FIRST bar on the line, nothing barred ahead of it, so `||' is no
-      # opener and a guard trailing a case pattern is still one.
+      # The FIRST bar on the line, nothing barred ahead of it, so `||' is no opener.
       if ($line =~ /^([^|\n]*\|\s+)(?!otherwise\b)(\S.*?)(\s+(?:=|->)(?:\s|$))/) {
         my ($a, $b) = ($pos + $-[2], $pos + $+[2]);
         my $cond = substr($SRC, $a, $b - $a);
@@ -336,28 +304,9 @@ sub guard_sites {
 }
 
 # `arms' — two adjacent single-line alternatives exchanged, so the FIRST match
-# wins somewhere else.  Both lines must sit at one indentation and neither may
-# carry a signature's own arrow.
-#
-# TWO REFUSALS, and each names a class the exchange says NOTHING about, both
-# measured on src/Data/Org/Trash.hs:
-#
-#   DISJOINT CONSTRUCTORS ARE EQUIVALENT BY CONSTRUCTION.  `Left'/`Right' and
-#   `Dir'/`Regular' match no value in common, so their order is not a fact and
-#   the swap is a rewrite with no observable difference at all.  Order is a fact
-#   where the patterns OVERLAP — a catch-all, a guard, a literal — which is
-#   where this rule is left pointing.
-#
-#   A LAYOUT-OPENING RHS IS INVALID BY CONSTRUCTION.  `Just d -> do' owns the
-#   indented block under it; carry the line up and the block belongs to the arm
-#   above, which is a parse error every time.
-# ARE THE TWO PATTERNS DISJOINT — do they match no value in common?  Asked of
-# every TUPLE COMPONENT rather than of the pattern's first token: the
-# discriminating constructor is often nested, and `(_a, _b, Just e)' beside
-# `(a, b, Nothing)' is as equivalent-by-construction as `Left'/`Right' is.
-# Two named constructors that differ ANYWHERE make the pair disjoint; a
-# variable or a wildcard in that slot makes it overlap, and the order is a fact
-# again.
+# wins somewhere else.  TWO REFUSALS: DISJOINT CONSTRUCTORS ARE EQUIVALENT BY
+# CONSTRUCTION, so their order is not a fact; and a LAYOUT-OPENING RHS carried
+# up takes its indented block with it, which is a parse error every time.
 sub disjoint {
   my ($a, $b) = @_;
   my @x = components($a);
@@ -373,8 +322,7 @@ sub disjoint {
   return 0;
 }
 
-# A PATTERN'S TOP-LEVEL COMPONENTS: a tuple's parts, or the pattern itself.
-# Split at commas OUTSIDE any bracket, so `(a, Just (b, c))' is two.
+# A PATTERN'S TOP-LEVEL COMPONENTS: a tuple's parts, split at commas OUTSIDE any bracket.
 sub components {
   my ($p) = @_;
   $p =~ s/^\s+|\s+$//g;
@@ -414,9 +362,8 @@ sub arms_sites {
   }
 }
 
-# `body' — a whole binding replaced by its result type's zero.  The coarsest
-# rule and the most informative: a survivor names a function nothing depends on
-# the answer of.  Haskell alone, since it is the signature that says the zero.
+# `body' — a whole binding replaced by its result type's zero: a survivor names
+# a function nothing depends on the answer of.  Haskell alone.
 my %ZERO = ( 'Bool' => 'False', 'Int' => '0', 'Integer' => '0', 'Double' => '0',
              'Text' => 'mempty', 'String' => 'mempty', 'FilePath' => 'mempty' );
 
@@ -456,7 +403,6 @@ sub body_sites {
     my ($sigpos, $sig) = @{$lines[$k]};
     next unless $sig =~ /^([a-z]\w*)\s*::/;
     my $name = $1;
-    # The signature runs to the next line opening at column 1.
     my $text = $sig;
     my $j = $k + 1;
     $j++, $text .= $lines[$j - 1][1] while $j <= $#lines && $lines[$j][1] =~ /^\s/;
@@ -467,13 +413,11 @@ sub body_sites {
     my $zero = result_zero(pop @parts);
     next unless defined $zero;
     my $arity = scalar @parts;
-    # The equations: from the first line opening with the name to the last line
-    # before the next column-1 opener.
+    # The equations run to the next line opening at column 1.
     my $first = $j;
     $first++ while $first <= $#lines && $lines[$first][1] !~ /^\Q$name\E(?![\w'])/;
     next if $first > $#lines;
-    # EVERY EQUATION, not the first: a gutted head with the rest left standing
-    # would leave the others as dead alternatives and the mutant unreadable.
+    # EVERY EQUATION: a gutted head with the rest standing leaves dead alternatives.
     my $end = $first + 1;
     $end++ while $end <= $#lines
               && $lines[$end][1] =~ /^(?:\s|$)|^\Q$name\E(?![\w'])/;
@@ -499,8 +443,7 @@ sub cmd_sites {
   arms_sites();
   body_sites();
 
-  # Line and column off the offsets, one pass, so a site carries where a reader
-  # would look for it.
+  # Line and column off the offsets, one pass.
   my @starts = (0);
   while ($SRC =~ /\n/g) { push @starts, $+[0] }
   my %seen;

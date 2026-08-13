@@ -1,6 +1,5 @@
--- | The facade under test.  Everything here goes through 'Glance.Query': the
--- module imports no parser internals, so a wire shape that needs one fails to
--- compile instead of failing a renderer.
+-- | The facade under test: everything goes through 'Glance.Query', so a wire
+-- shape needing a parser internal fails to compile.
 module TestQuery (spec) where
 
 import Control.Concurrent (getNumCapabilities, rtsSupportsBoundThreads)
@@ -76,9 +75,7 @@ withRecordsOf = withDoc "view" "tree.org"
 withViewOf :: Text -> (Value -> Assertion) -> Assertion
 withViewOf doc k = withRecordsOf doc (k . viewJSON viewTitle)
 
--- | An outline with a level at every depth: a root with a child and a
--- grandchild, a second child under the same root, and a second root.  Two rows
--- come out of it, the golden's fixture being flat.
+-- | An outline with a level at every depth; two rows come out of it.
 nested :: Text
 nested = T.unlines
   [ "* one", "** two", "*** three", "** four", "* five" ]
@@ -97,9 +94,7 @@ boolOf :: Value -> IO Bool
 boolOf (Bool b) = pure b
 boolOf v = assertFailure ("expected a boolean, got " <> show v)
 
--- | L as the pair the DISPLAY rule answers with: where it points and what it
--- shows.  The span is the other half of a link and has cases of its own, so a
--- case about the grammar reads through this and says nothing about offsets.
+-- | L as the DISPLAY rule's pair: where it points and what it shows.
 linkPair :: OrgLink -> (Text, Text)
 linkPair l = (olTarget l, linkShown l)
 
@@ -107,8 +102,7 @@ linkPair l = (olTarget l, linkShown l)
 shown :: Text -> [(Text, Text)]
 shown = map linkPair . orgLinks
 
--- | The links TEXT holds, each cut back out of TEXT by its own span — which is
--- the whole claim a span makes.
+-- | The links TEXT holds, each cut back out of TEXT by its own span.
 spelled :: Text -> [Text]
 spelled text' = [ cut text' (olSpan l) | l <- orgLinks text' ]
 
@@ -120,8 +114,7 @@ cut text' sp = T.take (spanEnd sp - spanStart sp) (T.drop (spanStart sp) text')
 each :: Text -> Text -> Value -> IO [Value]
 each arr k v = listAt arr v >>= mapM (field k)
 
--- | KEY of V as a boolean, or 'Nothing' where V does not carry it — an
--- optional flag, so its absence is an answer rather than a failure.
+-- | KEY of V as a boolean, 'Nothing' where V does not carry it.
 maybeBoolAt :: Text -> Value -> IO (Maybe Bool)
 maybeBoolAt key (Object o) = case KM.lookup (Key.fromText key) o of
   Nothing       -> pure Nothing
@@ -140,33 +133,20 @@ spec = testGroup "Query"
   , viewSpec, schemaSpec, commandSpec, lensSpec, entrySpec, captureSpec
   , repeatSpec ]
 
--- | ORG'S REPEATER, shifted.  The parse side has always read the three cookies;
--- this is the arithmetic under a repeat, and the shape is TEXTUAL — only the
--- dates and their weekdays move, so a time, a warning cookie, a range end and
--- the brackets ride through as the author wrote them.
+-- | ORG'S REPEATER, shifted.  The shape is TEXTUAL: only the dates move.
 repeatSpec :: TestTree
 repeatSpec = testGroup "Repeats"
   [ testCase "the three cookies differ in where the count starts" $ do
-      -- `+N' adds ONE interval to the stamp, so an entry three weeks overdue
-      -- lands one week on and stays overdue: org's behaviour, kept.
       shifts "<2026-08-08 Sat +1w>" "<2026-08-15 Sat +1w>"
       shifts "<2026-07-11 Sat +1w>" "<2026-07-18 Sat +1w>"
-      -- `++N' adds intervals until the stamp is past today.
       shifts "<2026-07-11 Sat ++1w>" "<2026-08-15 Sat ++1w>"
-      -- `.+N' is today plus one, and forgets the stamp.
       shifts "<2026-07-11 Sat .+1w>" "<2026-08-15 Sat .+1w>"
 
   , testCase "the weekday is recomputed and everything else rides through" $ do
-      -- A Saturday two days on is a Monday, and the time, the warning cookie
-      -- and the repeater are the author's bytes.
       shifts "<2026-08-08 Sat 09:30 +2d -3d>" "<2026-08-10 Mon 09:30 +2d -3d>"
-      -- An inactive stamp keeps its brackets.
       shifts "[2026-08-08 Sat +1d]" "[2026-08-09 Sun +1d]"
 
-    -- ORG DOES NOT PAD: `tsDayParser' reads each part with `MPL.decimal', so a
-    -- one-digit day is a timestamp this library reads and the scanner must read
-    -- it too.  A fixed-width window cuts a character short, eats the space and
-    -- leaves the weekday saying the old day.
+    -- ORG DOES NOT PAD, so a fixed-width date window eats the space behind the day.
   , testCase "a date org did not pad still moves, weekday and all" $ do
       shifts "<2026-08-8 Sat +2d>" "<2026-08-10 Mon +2d>"
       shifts "<2026-8-8 Sat +2d>" "<2026-08-10 Mon +2d>"
@@ -192,20 +172,12 @@ repeatSpec = testGroup "Repeats"
 probeToday :: Time.Day
 probeToday = Time.fromGregorian 2026 8 8
 
--- | Where a row points: what @GET \/links@ serves, as the pure function under
--- it.
---
--- The rule is the DISPLAY rule, so the two halves are stated together — what
--- 'displayText' shows for a link is what a link's description is here, and the
--- one parser answers both.  Everything else is the plain-URL half, which the
--- display rule never had to have an opinion about.
+-- | Where a row points: the pure function under @GET \/links@, on the DISPLAY rule.
 linkSpec :: TestTree
 linkSpec = testGroup "Links"
   [ testCase "a bracket link is its target and what it shows" $ do
       assertEqual "described" [("https://x/y", "table-view")]
                   (shown "[[https://x/y][table-view]]")
-      -- The two spellings with no description of their own fall back to the
-      -- target, which is exactly what the table shows for them.
       assertEqual "bare" [("https://x/y", "https://x/y")] (shown "[[https://x/y]]")
       assertEqual "empty description" [("file:a.org", "file:a.org")]
                   (shown "[[file:a.org][]]")
@@ -244,18 +216,13 @@ linkSpec = testGroup "Links"
   , testCase "text that never closes a link holds no link" $ do
       assertEqual "unclosed" [] (shown "[[oops")
       assertEqual "not a link" [] (shown "[[a]x]")
-      -- And the scan carries on past it: an unclosed `[[' is two characters
-      -- skipped rather than the end of the text.
       assertEqual "and the one after it survives"
                   [("https://x.org", "https://x.org")] (shown "[[oops https://x.org")
 
   , testCase "a row with nothing to follow has no links" $
       assertEqual "none" [] (shown "* TODO plain headline\nwith a body\n")
 
-    -- EVERY LINK CARRIES ITS SPAN, which is the half-open CHAR range it occupies
-    -- in the text scanned — what `/links' hands out and what `edit-link' splices
-    -- back.  Read as a slice here, so what is asserted is that the range cuts
-    -- the link out of the very text it was found in.
+    -- EVERY LINK CARRIES ITS SPAN, asserted by cutting the link back out of the text.
   , testCase "a link spans exactly the characters that spell it" $ do
       let text = "see [[file:R.md][readme]] and https://x.org/a."
       assertEqual "the bracket link whole, and the bare URL without the full stop"
@@ -269,13 +236,7 @@ linkSpec = testGroup "Links"
         (map olShape (orgLinks
            "[[file:a][readme]] [[file:b]] [[file:c][]] https://x.org"))
 
-    -- The dedup key is the pair a reader can SEE.  One target under two
-    -- descriptions is two entries — the descriptions are what the popup lists,
-    -- and keying on the target alone swallowed every spelling after the first
-    -- (a tree writing one elisp: command under `pnl' and `alpha:grafana'
-    -- served pnl and read as the second link not parsing).  The same target
-    -- under the SAME description is still one entry, the FIRST: its span, so
-    -- an edit through it edits the first spelling and the others stand.
+    -- The dedup key is the pair a reader can SEE; the target alone swallowed spellings.
   , testCase "one entry per (target, shown) pair, keeping the first spelling" $ do
       assertEqual "distinct descriptions are distinct entries"
         [("https://x.org", "first"), ("https://x.org", "second")]
@@ -300,10 +261,7 @@ linkSpec = testGroup "Links"
            , ("https://c.example", "https://c.example") ]]
           (map (map linkPair . subtreeLinks) recs)
 
-    -- A ROW'S SPANS ARE THE DOCUMENT'S.  The scan runs over the subtree slice
-    -- and every span is shifted by where that slice starts, so the range is one
-    -- `Data.Org.Edit' can splice — asserted by cutting the link back out of the
-    -- whole file rather than out of the subtree.
+    -- Spans are shifted by where the subtree slice starts, so 'Data.Org.Edit' can splice.
   , testCase "a row's link spans are offsets into the document it was read from" $
       withRecordsOf (T.unlines
         [ "* first", "nothing here", "* second [[https://a.example][A]]"
@@ -312,24 +270,15 @@ linkSpec = testGroup "Links"
           [[], ["[[https://a.example][A]]", "https://b.example"]]
           [ [ cut (hrDoc r) (olSpan l) | l <- subtreeLinks r ] | r <- recs ]
 
-    -- `hrLinks' is the same subtree read for a narrower question: which ROWS it
-    -- points at.  A URL is not one of them, which is what keeps the field small
-    -- enough to carry on every record — the corpus writes 4.5k row references
-    -- against 4.1k `file:'/`http' links, and only the first kind is kept.
+    -- A URL is no reference, which keeps 'hrLinks' small enough for every record.
   , testCase "a row's links are the references its subtree carries" $
       withRecordsOf (T.unlines
         [ "* parent [[org-glance-visit:alpha][A]]"
         , "body https://b.example and [[org-glance-overview:tag][a tag]]"
         , "** child [[org-glance-open:beta][B]]" ]) $ \recs ->
-        -- The child's reference is the parent's, the URL and the overview link
-        -- are nobody's, and the two id protocols answer alike.
         assertEqual "the references alone" [["alpha", "beta"]] (map hrLinks recs)
 
-    -- 'hrLinked' is the WIDER question the same scan answers: is there anywhere
-    -- to go from this row, which is what @o@ follows and what the title's
-    -- underline says.  A URL is a link and no reference at all, so the two
-    -- fields disagree on most linked rows — ~/sync at 2026-08-02 carries 4976
-    -- linked rows and 1824 referencing ones.
+    -- 'hrLinked' is the WIDER question: is there anywhere to go, which @o@ follows.
   , testCase "a row whose only link is a URL is linked and references nothing" $
       withRecordsOf "* plain\nsee https://x.example for the rest\n" $ \recs -> do
         assertEqual "linked" [True] (map hrLinked recs)
@@ -343,20 +292,13 @@ linkSpec = testGroup "Links"
       withRecordsOf "* plain\njust prose, no link in it\n" $ \recs ->
         assertEqual "nowhere to go" [False] (map hrLinked recs)
 
-    -- THE TYPE, which is one rule read off the target's PREFIX: the scheme,
-    -- lowercased, with the whole `org-glance-' family folded into one word.  The
-    -- six the popup declares badges for are the ones the corpus spells; none of
-    -- them is named in the function, and that is the point — they fall out of
-    -- the scheme.
+    -- The type is the target's PREFIX folded, the @org-glance-@ family one word.
   , testCase "a link's type is its scheme, folded" $ do
       let types = map linkType
       assertEqual "the six the corpus spells"
         ["https", "http", "mailto", "id", "file"]
         (types [ "https://x.example/a", "http://x.example", "mailto:t@x.org"
                , "id:E1B2", "file:notes.org" ])
-      -- Every org-glance protocol is ONE type.  The four that name a row and the
-      -- two that name a tag or a keyword are the same KIND of destination, and
-      -- which of them points at a row is `refPrefixes'' different question.
       assertEqual "and every org-glance protocol is one word"
         ["glance", "glance", "glance", "glance"]
         (types [ "org-glance-visit:E1", "org-glance-open:E1"
@@ -366,35 +308,23 @@ linkSpec = testGroup "Links"
       assertEqual "the word itself" ["ftp", "doi", "gopher", "denote"]
         (map linkType ["ftp://x.example", "doi:10.1/2", "gopher://x", "denote:2026"])
 
-    -- The case of a scheme is not part of it, and org files spell one either
-    -- way.  Folded here so the popup's badge and `followable' both answer about
-    -- the same word.
   , testCase "the scheme is folded, so a shouted URL is still followable" $
       assertEqual "lowercased" ["https", "mailto"]
                   (map linkType ["HTTPS://X.EXAMPLE", "MailTo:t@x.org"])
 
-    -- ONE catch-all, reached two ways: no colon at all, and a word before the
-    -- colon that is not scheme-SHAPED — a leading digit, an empty word, a space
-    -- in it — RFC 3986 opening a scheme with a letter.
+    -- One catch-all: no colon at all, and a word before it that is not scheme-SHAPED.
   , testCase "a target with no scheme is other, internal links included" $
       assertEqual "nothing to read"
         (replicate 8 "other")
         (map linkType [ "Some Headline", "*Some Headline", "./notes.org", "/etc/hosts"
                       , "2026:review", ":leading", "a b:c", "" ])
 
-    -- The honest cost of reading the PREFIX and nothing else.  Org's internal
-    -- links name a place inside the tree rather than a protocol and a relative
-    -- path says nothing about being a file, so both are `other' above — and a
-    -- scheme-SHAPED word before a colon IS the type here, whether or not the
-    -- author meant a protocol.  A registry of known schemes is the rule this
-    -- deliberately is not: an unlisted scheme would then read as prose.
+    -- A registry of known schemes is deliberately not the rule: an unlisted one would read as prose.
   , testCase "and a scheme-shaped word in prose is taken at its word" $
       assertEqual "the word before the colon" ["meeting", "todo"]
                   (map linkType ["Meeting: notes", "TODO:tomorrow"])
 
-    -- The VOCABULARY and the DERIVER agree: every value the popup's badge column
-    -- declares a hue for is a word `linkType' can actually answer with.  A badge
-    -- naming a type nothing produces would be a colour no cell ever wears.
+    -- A badge naming a type nothing produces would be a colour no cell ever wears.
   , testCase "every declared badge value is a type linkType can produce" $ do
       declared <- traverse (textAt "value")
               =<< listAt "badges" =<< columnOf "type" (object ["columns" .= linkColumns])
@@ -405,17 +335,9 @@ linkSpec = testGroup "Links"
              declared)
   ]
 
--- | The subtree lens: a subtree split into the parts a client edits and the
--- parts the server keeps, and put back.
---
--- One rule under all of it — every byte of a subtree has one owner.  So the
--- assertions are about bytes rather than about shapes: what the body keeps, what
--- a part that nobody touched is written back as, and that decompose followed
--- by recompose is the identity on the file.
---
--- Three regions come out and four things go back in.  The hidden properties and
--- the logbook are the SERVER's, and the cases below are generic over
--- 'hiddenProperties' rather than spelling @ORG_GLANCE_ID@ into an assertion.
+-- | The subtree lens: every byte of a subtree has one owner, so the assertions
+-- are about bytes.  The hidden properties and the logbook are the SERVER's, and
+-- the cases are generic over 'hiddenProperties'.
 lensSpec :: TestTree
 lensSpec = testGroup "Subtree lens"
   [ testGroup "decompose"
@@ -435,9 +357,7 @@ lensSpec = testGroup "Subtree lens"
           assertEqual "the body is the subtree" (subtreeText r) (hpBody (headlineParts r))
           assertEqual "and there is nothing to show" [] (hpProperties (headlineParts r))
 
-      -- The identity property is not a pair a client may edit: it is the row id
-      -- the table keys its updates off, so the server keeps it out of what it
-      -- hands over and puts it back itself.
+      -- The identity property is the row id, so the server keeps it back and writes it in itself.
     , testCase "a hidden property is in neither pane, whatever the file says" $
         withParts drawered $ \r -> do
           let parts = headlineParts r
@@ -460,8 +380,7 @@ lensSpec = testGroup "Subtree lens"
         withParts drawered $ \r ->
           assertEqual "none" [] (hpPlanning (headlineParts r))
 
-      -- The logbook is located textually rather than parsed: it is the drawer
-      -- named LOGBOOK sitting past the title line and ahead of the first child.
+      -- The logbook is located textually: the LOGBOOK drawer past the title, ahead of the first child.
     , testCase "the logbook is a region of its own, verbatim" $
         withParts logged $ \r -> do
           let parts = headlineParts r
@@ -480,8 +399,7 @@ lensSpec = testGroup "Subtree lens"
           assertContains "the child keeps its own" ":LOGBOOK:\nCLOCK: kid\n:END:\n"
                          (hpBody parts)
 
-      -- The lens is over ONE headline: a child's drawer belongs to the child's
-      -- own lens and is body text here, byte for byte.
+      -- The lens is over ONE headline: a child's drawer is body text here.
     , testCase "a child's drawer stays in the body untouched" $
         withParts drawered $ \r -> do
           let parts = headlineParts r
@@ -499,8 +417,6 @@ lensSpec = testGroup "Subtree lens"
                       [("CATEGORY", "письма")]
                       (hpProperties (headlineParts r))
 
-      -- The drawer's own spelling is the drawer's business: the pairs a client
-      -- sees are stripped, and the file keeps whatever it wrote.
     , testCase "odd spacing is stripped out of the pairs and left in the file" $
         withParts oddly $ \r ->
           assertEqual "the pairs as a panel would show them"
@@ -509,43 +425,32 @@ lensSpec = testGroup "Subtree lens"
     ]
 
   , testGroup "recompose"
-      -- BYTE FOR BYTE UP TO THE LINE END, which is the whole of what a write
-      -- spells differently: everything else about a subtree nobody edited comes
-      -- back as the file wrote it.
+      -- BYTE FOR BYTE UP TO THE LINE END, which is all a write spells differently.
     [ testCase "decompose then recompose is the subtree, its line ends trimmed" $
         mapM_ roundTrips [ drawered, planned, unicoded, oddly, indented, crlf
                          , logged, childLogged, permuted, stamped
                          , T.unlines ["* TODO Bare", "body"]
                          , "* Ends at the drawer\n:PROPERTIES:\n:A: 1\n:END:" ]
 
-      -- A WRITE SPELLS NO TRAILING SPACE, over the three regions at once: the
-      -- body's own line, a property line nobody touched, and the logbook the
-      -- server preserves.  The CRLF case is the trap — a strip that took the
-      -- carriage return would leave the file spelling its endings two ways.
+      -- The CRLF trap: a strip taking the carriage return spells a file's endings two ways.
     , testCase "no line a recompose writes ends in horizontal space" $
         mapM_ trimsEveryLine
           [ "* TODO Trails   \n:PROPERTIES:\n:A: one \t\n:END:\nbody \nmore\t\n"
           , "* TODO Trails  \r\n:PROPERTIES:\r\n:A: one \r\n:END:\r\nbody \r\n"
           , logged ]
 
-      -- INSIDE a line is content: a src block's indentation and a table's
-      -- alignment are horizontal space no reader typed by accident, and neither
-      -- is reachable from the end of a line.
+      -- Horizontal space INSIDE a line is content and is not reachable from the end.
     , testCase "horizontal space inside a line is left alone" $
         withParts (T.unlines ["* TODO Kept", "| a | b |", "#+begin_src", "    indented", "#+end_src"]) $ \r ->
           assertEqual "the interior spacing is the file's"
                       (subtreeText r) (recomposedSubtree r (headlineParts r))
 
-      -- The three keywords permute freely on their line, so a round trip that
-      -- reordered them would be a spurious hunk on every scheduled headline.
     , testCase "a permuted planning line comes back in its own order" $
         withParts permuted $ \r ->
           assertContains "the file's own order"
                          "CLOSED: [2026-07-30 Thu] SCHEDULED: <2026-08-01 Sat>"
                          (recomposedSubtree r (headlineParts r))
 
-      -- The line's own spacing survives and its TRAILING run does not, which is
-      -- one fixture holding both halves of the rule.
     , testCase "a property nobody touched keeps its own line, odd spacing and all" $
         withParts oddly $ \r -> do
           let parts = headlineParts r
@@ -580,9 +485,7 @@ lensSpec = testGroup "Subtree lens"
           assertEqual "the server's own line is what is left"
                       [":PROPERTIES:", ":ORG_GLANCE_ID: first", ":END:"] (drawerOf back)
 
-      -- A hidden property survives a client that never mentioned it, in its own
-      -- place and byte for byte: it is the server's, so an empty list empties
-      -- the client's half and nothing else.
+      -- A hidden property is the server's, so an empty list empties the client's half alone.
     , testCase "a hidden property survives a sync that never mentioned it" $
         withParts drawered $ \r -> do
           let back = recomposedSubtree r (headlineParts r) { hpProperties = [] }
@@ -590,9 +493,7 @@ lensSpec = testGroup "Subtree lens"
           assertBool "and the edited half is gone"
                      (not (":EFFORT:" `T.isInfixOf` back))
 
-      -- The list has more than one entry in it, so "hidden" is the list rather
-      -- than one key's special case: a captured row's creation time is kept the
-      -- same way its id is, and both come back at the indices they sat on.
+      -- More than one entry, so "hidden" is the LIST rather than one key's case.
     , testCase "every hidden key survives, at the line it sat on" $
         withParts stamped $ \r -> do
           let parts = headlineParts r
@@ -603,7 +504,6 @@ lensSpec = testGroup "Subtree lens"
                       , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:" ]
                       (drawerOf (recomposedSubtree r parts { hpProperties = [] }))
 
-      -- And a client that sends one anyway writes nothing.
     , testCase "a client naming a hidden key does not move it" $
         withParts drawered $ \r -> do
           let back = recomposedSubtree r (headlineParts r)
@@ -634,9 +534,6 @@ lensSpec = testGroup "Subtree lens"
                                  , ":PROPERTIES:", ":NEW: 1", ":END:", "after" ])
                       (recomposedSubtree r (headlineParts r) { hpProperties = [("NEW", "1")] })
 
-      -- The drawer's line is counted from the top of the subtree, which is the
-      -- one place a client cannot have moved it from: the lines above it are the
-      -- headline's own and the planning line.
     , testCase "an edit further down the body leaves the drawer where it was" $
         withParts drawered $ \r -> do
           let parts = headlineParts r
@@ -696,8 +593,6 @@ lensSpec = testGroup "Subtree lens"
           assertEqual "and the drawer moved up under the title"
                       ":PROPERTIES:" (T.lines back !! 1)
 
-      -- A drawer for a headline that had no planning goes under the title; add
-      -- a planning entry in the same commit and the two cannot both be line one.
     , testCase "a planning line added beside a new drawer takes the line above it" $
         withParts (T.unlines ["* TODO Bare", "body line"]) $ \r ->
           assertEqual "planning, then the drawer, then the body"
@@ -714,7 +609,6 @@ lensSpec = testGroup "Subtree lens"
         assertBool "space around it is stripped" (readsAsTimestamp "  <2026-08-01 Sat>  ")
         mapM_ (\bad -> assertBool ("refused: " <> show bad) (not (readsAsTimestamp bad)))
               [ "", "tomorrow", "2026-08-01"
-              -- A second line would be a second line, and a planning line is one.
               , "<2026-08-01 Sat>\nSCHEDULED: <2026-08-02 Sun>" ]
     ]
 
@@ -755,26 +649,20 @@ lensSpec = testGroup "Subtree lens"
                   (T.count "\r\n" (subtreeText r)) (T.count "\r\n" back)
 
 -- | TEXT as a write spells it: each line's trailing horizontal run off, its
--- terminator kept.
---
--- An INDEPENDENT spelling of the rule 'recomposedSubtree' enforces rather than
--- the export of it, this suite's own idiom: a trim that took the carriage return
--- with the spaces, or missed the last line for want of a newline, passes over
--- there and fails here.
+-- terminator kept.  An INDEPENDENT spelling of what 'recomposedSubtree'
+-- enforces rather than the export of it.
 asWritten :: Text -> Text
 asWritten = T.intercalate "\n" . map line . T.splitOn "\n"
   where line l = case T.stripSuffix "\r" l of
           Just body -> T.dropWhileEnd (`elem` (" \t" :: String)) body <> "\r"
           Nothing   -> T.dropWhileEnd (`elem` (" \t" :: String)) l
 
--- | The drawer TEXT holds, line by line and stripped — what a drawer says,
--- where the byte-level cases say how it is written.
+-- | The drawer TEXT holds, line by line and stripped.
 drawerOf :: Text -> [Text]
 drawerOf text' = takeWhile (/= ":END:") opened <> [":END:"]
   where opened = dropWhile (/= ":PROPERTIES:") (map T.strip (T.lines text'))
 
--- | Run K over the FIRST record DOC loads to, which is the headline every case
--- here is about.
+-- | Run K over the FIRST record DOC loads to.
 withParts :: Text -> (HeadlineRecord -> Assertion) -> Assertion
 withParts doc k = withDoc "lens" "lens.org" doc first'
   where first' rs = case rs of
@@ -796,9 +684,7 @@ drawered = T.unlines
   , ":END:"
   , "child body" ]
 
--- | What a capture leaves behind: the row id and the creation time it was
--- written with, both of them the server's, with one pair of the client's
--- between them.
+-- | What a capture leaves behind: the server's id and creation time around a client pair.
 stamped :: Text
 stamped = T.unlines
   [ "* TODO Buy milk :errands:"
@@ -827,8 +713,7 @@ unicoded = T.unlines
   , ":END:"
   , "тело письма" ]
 
--- | Spacing org never writes and a file can still hold: no space after the
--- colon, a valueless key, and a padded value.
+-- | Spacing org never writes and a file can still hold.
 oddly :: Text
 oddly = T.unlines
   [ "* TODO Odd", ":PROPERTIES:", ":A:one", ":B:", ":C:   three   ", ":END:", "body" ]
@@ -846,8 +731,7 @@ logged = T.unlines
   , ":END:"
   , "body line" ]
 
--- | A logbook belonging to the CHILD: past the first child's stars, so it is
--- body text as far as this headline's lens is concerned.
+-- | A logbook belonging to the CHILD, so this headline's lens reads it as body.
 childLogged :: Text
 childLogged = T.unlines
   [ "* TODO Parent"
@@ -858,16 +742,14 @@ childLogged = T.unlines
   , ":END:"
   , "child body" ]
 
--- | The three planning keywords out of org's own order, which a file may write
--- and a round trip must not tidy.
+-- | The three planning keywords out of org's own order.
 permuted :: Text
 permuted = T.unlines
   [ "* TODO Permuted"
   , "CLOSED: [2026-07-30 Thu] SCHEDULED: <2026-08-01 Sat>"
   , "body" ]
 
--- | The indentation org used to write drawers under, which a rendered line has
--- to match rather than replace.
+-- | The indentation org wrote drawers under, which a rendered line matches.
 indented :: Text
 indented = T.unlines
   [ "* TODO Indented", "  :PROPERTIES:", "  :A: 1", "  :B:  2", "  :END:", "body" ]
@@ -876,23 +758,13 @@ crlf :: Text
 crlf = T.intercalate "\r\n"
   [ "* TODO Windows", ":PROPERTIES:", ":A: 1", ":END:", "body", "" ]
 
--- | The pool answers what one thread answered.
---
--- The load reads its files on a pool ('Data.Org.Walk.mapFilesConcurrently')
--- and 'loadDirFilesSerially' is the same load with the pool taken out, so the
--- two are comparable directly — and everything else the library says about a
--- directory is a fold of that pair, which is why asserting it here covers the
--- rows, the counts and the id resolution at once.
---
--- The fixture is deliberately wider than any pool: forty documents, so work is
--- handed out rather than taken by one worker, plus one file of each failure
--- kind so a bucket cannot be compared on the happy path alone.
+-- | The pool answers what one thread answered: 'loadDirFilesSerially' is the
+-- same load with the pool taken out.  The fixture is wider than any pool, plus
+-- one file of each failure kind.
 parallelSpec :: TestTree
 parallelSpec = testGroup "Parallel load"
   [ testCase "the suite runs on the threaded runtime" $ do
-      -- A non-threaded runtime has one capability whatever @-N@ says, and the
-      -- pool silently degrades to a serial loop: every assertion below would
-      -- still pass and none of them would be about parallelism.
+      -- A non-threaded runtime has one capability whatever @-N@ says, and every assertion below still passes.
       assertBool "-threaded" rtsSupportsBoundThreads
       caps <- getNumCapabilities
       assertBool ("capabilities: " <> show caps) (caps >= 1)
@@ -909,8 +781,6 @@ parallelSpec = testGroup "Parallel load"
   , testCase "and the failures bucket the same way, in the same order" $ withCorpus $ \dir -> do
       (parallel, _) <- loadDirFilesWith defaultWalk dir
       (serial, _) <- loadDirFilesSerially defaultWalk dir
-      -- Order-independent counts first — a bucket is a count in the wire
-      -- headers — then the listing, which is deterministic by path sort.
       forM_ [ReadFailed, DecodeFailed, ParseFailed] $ \kind ->
         assertEqual ("count of " <> show kind)
                     (length (failuresOf kind serial)) (length (failuresOf kind parallel))
@@ -921,9 +791,7 @@ parallelSpec = testGroup "Parallel load"
                   | kind <- [ReadFailed, DecodeFailed, ParseFailed] ]
 
   , testCase "a tree narrower than the pool loads whole" $ withTempDirNamed "narrow" $ \dir -> do
-      -- The chunking edge: fewer files than there are workers, so most of them
-      -- find the queue already empty.  One file is the file watch's own shape
-      -- and skips the pool outright; zero files must not hang or fabricate a row.
+      -- Fewer files than workers, and one file skips the pool outright.
       empty <- loadDirFilesWith defaultWalk dir
       assertEqual "no files at all" ([], 0) (shapes empty)
       _ <- orgFile dir "one.org" (entryAs "solo" "TODO solo")
@@ -934,11 +802,7 @@ parallelSpec = testGroup "Parallel load"
 
   , testCase "the sequence is the same on every run, ids resolved and all" $
       withCorpus $ \dir -> do
-        -- Determinism where completion order could reach an answer:
-        -- 'resolveIds' is first-wins over the sequence, and the corpus carries
-        -- two files claiming one id with neither of them canonical, so the
-        -- winner is decided by path sort alone.  A pool that reassembled by
-        -- completion order would hand the id to whichever thread finished first.
+        -- 'resolveIds' is first-wins, so reassembling by completion order would move the winner.
         runs <- replicateM 5 (loadDir dir)
         assertEqual "one row order" 1 (length (nub (map (map hrId . qrRecords) runs)))
         assertEqual "one set of counts" 1
@@ -951,8 +815,7 @@ parallelSpec = testGroup "Parallel load"
                     (length (qrIdCollisions (head runs)))
   ]
 
--- | DIR loaded both ways under WHAT: the pool's answer is the serial one,
--- record for record, and it carries FILES files.
+-- | DIR loaded both ways under WHAT, record for record, carrying FILES files.
 poolEqualsSerial :: String -> Int -> FilePath -> Assertion
 poolEqualsSerial what files dir = do
   parallel <- shapes <$> loadDirFilesWith defaultWalk dir
@@ -960,9 +823,7 @@ poolEqualsSerial what files dir = do
   assertEqual what serial parallel
   assertEqual (what <> ": all loaded") files (length (fst parallel))
 
--- | A tree wider than any pool: forty documents, two files claiming one id
--- between them, and one file of each failure kind — a parse failure, bytes that
--- are not UTF-8, and a dangling symlink the walk keeps and the read refuses.
+-- | A tree wider than any pool: forty documents, one shared id, one file per failure kind.
 withCorpus :: (FilePath -> IO a) -> IO a
 withCorpus act = withTempDirNamed "parallel" $ \dir -> do
   forM_ [1 .. 40 :: Int] $ \i ->
@@ -977,10 +838,7 @@ withCorpus act = withTempDirNamed "parallel" $ \dir -> do
   act dir
   where pad i = let s = show i in replicate (2 - length s) '0' <> s
 
--- | R as the strings a comparison reads it by: every cell the wire carries, the
--- file it came from, and the extent and digest the write path pins to it.  The
--- parsed headline stays out — the facade keeps its type private, and the cells
--- and the extent are what a caller can see of it anyway.
+-- | R as the strings a comparison reads it by; the parsed headline stays out.
 shapeOf :: HeadlineRecord -> [Text]
 shapeOf r = map T.pack
   [ hrFile r, show (hrId r), show (hrCategory r), show (hrDigest r)
@@ -992,8 +850,7 @@ shapeOf r = map T.pack
 outcomeShape :: Either LoadFailure [HeadlineRecord] -> Either LoadFailure [[Text]]
 outcomeShape = fmap (map shapeOf)
 
--- | A per-file load as the pair a test compares: the shaped outcomes and the
--- count of directories the walk could not list.
+-- | A per-file load as the pair a test compares: shaped outcomes and unlistable directories.
 shapes :: ([(FilePath, Either LoadFailure [HeadlineRecord])], Int)
        -> ([(FilePath, Either LoadFailure [[Text]])], Int)
 shapes (files, dirErrs) = ([ (path, outcomeShape o) | (path, o) <- files ], dirErrs)
@@ -1026,24 +883,9 @@ loadSpec = testGroup "Load"
       assertEqual "categories" (replicate 6 "sample") (map hrCategory recs)
   ]
 
--- | What the walk crosses and what it declines, over a tree carrying every
--- shape at once.  One @lstat@ classifies an entry ('Data.Org.Walk'), and a
--- symlink pays a second stat to classify its TARGET, so the four answers are:
--- a symlinked DIRECTORY is never followed, a symlinked FILE is walked like a
--- real one, a link whose target is missing is walked and fails on the read, and
--- Emacs's lock is refused by NAME before either stat is asked.
---
--- Asserted as the sorted file list rather than as a count, because the two ways
--- this breaks look alike in a total: a tree entered twice through a link adds
--- files, and a file quietly dropped removes one.  The links point OUTSIDE the
--- walked root for the same reason — a followed one shows up as a path that
--- could not have been reached any other way.
--- The paths are asserted first and on their own, because they are the half a
--- reader can act on: a matrix failure reads as one missing or one extra path
--- long before it reads as an outcome list.  The dangling link is then the one
--- the walk keeps on purpose and the read refuses — a genuine .org symlink its
--- author broke is a real file — while Emacs's lock is the case that must never
--- get that far, and does not, never becoming a path at all.
+-- | What the walk crosses and what it declines.  Asserted as the sorted file
+-- list: a tree entered twice through a link and a file quietly dropped look
+-- alike in a total.  The links point OUTSIDE the walked root for that reason.
 walkSpec :: TestTree
 walkSpec = testGroup "Walk"
   [ testCase "the symlink matrix, as the files walked and what they loaded to" $
@@ -1062,8 +904,7 @@ walkSpec = testGroup "Walk"
         assertEqual "files walked" [store </> "data" </> "ab" </> "cd" </> "data.org"]
                     (map fst files)
 
-    -- The walk and the watch read ONE predicate, so a file no walk collected
-    -- can never arrive by inotify and splice a row of history into the table.
+    -- The walk and the watch read ONE predicate, so no uncollected file arrives by inotify.
   , testCase "and the watch declines it through the same predicate" $
       withStoreTree $ \store _files -> do
         let occurrence = store </> "data" </> "ab" </> "cd" </> "occurrences"
@@ -1074,13 +915,7 @@ walkSpec = testGroup "Walk"
                    (not (derivedPath (store </> "data" </> "ab" </> "cd" </> "data.org")))
   ]
 
--- | Run ACT over an org-glance store and the files a load of its tree turned
--- up.  The blob and its history carry the SAME @ORG_GLANCE_ID@, which is the
--- hazard: both sit inside the canonical store, so before the rule the pair tied
--- and walk order decided which one a table showed and a command wrote to.
---
--- The overview mirror is written beside them so the case covers the whole
--- denylist rather than its new clause alone.
+-- | Run ACT over an org-glance store: the blob and its history share one @ORG_GLANCE_ID@.
 withStoreTree :: (FilePath -> [(FilePath, Either LoadFailure [HeadlineRecord])] -> Assertion)
               -> Assertion
 withStoreTree act = withTempDirNamed "store" $ \root -> do
@@ -1095,14 +930,7 @@ withStoreTree act = withTempDirNamed "store" $ \root -> do
   where withProperty headline =
           headline <> ":PROPERTIES:\n:ORG_GLANCE_ID: abcd\n:END:\n"
 
--- | Run ACT over a walked root and the files a load of it turned up.  Every
--- link points into a sibling directory the walk is never given, so a followed
--- one is a path in the answer rather than a duplicate of one.
---
--- Two names carry their own case.  @realdir.org@ is a real DIRECTORY spelled
--- like a document, so the type decides and the walk enters it; @dirlink.org@ is
--- a symlink to a directory spelled the same way, so the name alone would keep
--- it and the target's type is what refuses it.
+-- | Run ACT over a walked root; every link points into a directory the walk is never given.
 withSymlinkTree :: (FilePath -> [(FilePath, Either LoadFailure [HeadlineRecord])] -> Assertion)
                 -> Assertion
 withSymlinkTree act = withTempDirNamed "walk" $ \root -> do
@@ -1123,14 +951,7 @@ withSymlinkTree act = withTempDirNamed "walk" $ \root -> do
   createSymbolicLink "dmitry@host.4242:1750000000" (tree </> ".#notes.org")
   act tree . fst =<< loadDirFilesWith defaultWalk tree
 
--- | Which headlines become rows.  The table is a list of top entries: one row
--- per level-one headline, and everything under one reachable by materializing
--- it rather than by a row of its own.
---
--- The consequences are the cases, because each of them is a thing a reader can
--- notice and none of them is an oversight: a child's words leave the search
--- index, a child's @ORG_GLANCE_ID@ stops addressing anything, and a file whose
--- outline never reaches level one contributes nothing at all.
+-- | Which headlines become rows: one per level-one headline, the rest materialized.
 levelSpec :: TestTree
 levelSpec = testGroup "Top entries"
   [ testCase "a nested outline is one record per level-one headline" $
@@ -1143,15 +964,12 @@ levelSpec = testGroup "Top entries"
                     ["* one\n** two\n*** three\n** four\n", "* five\n"]
                     (map subtreeText recs)
 
-    -- The rule is the star count rather than "shallowest headline in the
-    -- file": a file that opens at level two has no top entry to show, and
-    -- answers the way a file with no headlines does.
+    -- The rule is the star count: a file opening at level two has no top entry.
   , testCase "a file that never reaches level one contributes no rows" $
       withRecordsOf (T.unlines ["** two", "*** three"]) $ \recs ->
         assertEqual "rows" [] (map hrTitle recs)
 
-    -- Intended, and the reason it is pinned: an id on a deeper headline names
-    -- nothing the table can address, so it is neither a row id nor a collision.
+    -- An id on a deeper headline is neither a row id nor a collision.
   , testCase "an ORG_GLANCE_ID under a child is not a row id" $
       withRecordsOf (T.unlines [ "* parent", "** child", ":PROPERTIES:"
                                , ":ORG_GLANCE_ID: kid", ":END:" ]) $ \recs -> do
@@ -1160,17 +978,7 @@ levelSpec = testGroup "Top entries"
                    ("kid" `notElem` map hrId recs)
   ]
 
--- | The other half of the row rule: a top entry with nothing in any of the six
--- columns is not a row.  The file keeps it — org is the source of truth — and
--- the table skips it, so what used to be a line of six empty cells is now no
--- line.
---
--- The cases are the boundary from both sides.  One filled column is enough, and
--- nothing the table has no column for rescues an entry: a @CLOSED:@ stamp, a
--- drawer, a body, children.  The two costs are pinned rather than described —
--- a blank entry has no id, so no command can address it, and the ordinal counts
--- rows rather than entries, so an entry going blank renumbers the ones behind
--- it.
+-- | A top entry with none of the six columns is no row: the file keeps it, the table skips it.
 blankSpec :: TestTree
 blankSpec = testGroup "Blank entries"
   [ testCase "an entry with nothing to show is no row" $
@@ -1179,9 +987,6 @@ blankSpec = testGroup "Blank entries"
             [ ("stars and a space", "* \n")
             , ("stars alone",       "*\n") ]
 
-    -- One case per column, and the assertion names the column: a row whose
-    -- state is filled and whose other five are empty is what "the todo alone
-    -- keeps it" means.
   , testCase "one filled column is enough, and it is the one that was filled" $
       mapM_ (\(want, doc) -> withRecordsOf doc $ \recs ->
                 assertEqual (T.unpack want) [[want]] (map filledColumns recs))
@@ -1191,10 +996,7 @@ blankSpec = testGroup "Blank entries"
             , ("scheduled", "* \nSCHEDULED: <2026-08-01 Sat>\n")
             , ("deadline",  "* \nDEADLINE: <2026-08-01 Sat>\n") ]
 
-    -- The tags clause of the rule never fires alone, and this is why: org
-    -- spells tags after a title, so the parser reads a headline that is nothing
-    -- but colons as a TITLE of colons.  Either way the entry shows something
-    -- and stays a row.
+    -- Org spells tags after a title, so a headline of nothing but colons is a TITLE of colons.
   , testCase "a headline of nothing but tags is a title of colons" $
       withRecordsOf "* :work:\n" $ \recs -> do
         assertEqual "columns" [["title"]] (map filledColumns recs)
@@ -1204,10 +1006,7 @@ blankSpec = testGroup "Blank entries"
       withRecordsOf "* a title :work:\n" $ \recs ->
         assertEqual "columns" [["title", "tag"]] (map filledColumns recs)
 
-    -- What a row shows is what a column can carry, so everything else leaves
-    -- the entry blank however much of it there is.  The drawer case costs the
-    -- most: a blank entry has no row id, so an ORG_GLANCE_ID on one addresses
-    -- nothing and no command can reach it.
+    -- A blank entry has no row id, so an @ORG_GLANCE_ID@ on one addresses nothing.
   , testCase "nothing outside the six columns rescues an entry" $
       mapM_ (\(what, doc) -> withRecordsOf doc $ \recs ->
                 assertEqual what [] (map hrId recs))
@@ -1216,26 +1015,19 @@ blankSpec = testGroup "Blank entries"
             , ("body",     "* \nsome text under it\n")
             , ("children", "* \n** TODO a child\n") ]
 
-    -- The ordinal numbers EMITTED rows ('rowId'), so a blank entry spends none
-    -- and every K behind it is one lower than the entry count would give.  Same
-    -- class as the reorder churn: an entry going blank is a removal, and
-    -- clearing the last keyword off a title-less row is how a reader gets there.
+    -- The ordinal numbers EMITTED rows, so a blank entry spends none.
   , testCase "a blank entry spends no ordinal" $
       withRecordsOf (T.unlines ["* one", "* ", "* two"]) $ \recs -> do
         assertEqual "titles" ["one", "two"] (map hrTitle recs)
         assertEqual "ids" [ T.pack (hrFile r) <> k | (r, k) <- zip recs ["#0", "#1"] ]
                     (map hrId recs)
 
-    -- The rule stated over the records rather than over the headlines it is
-    -- computed from: the two layers agree, and this is what that agreement
-    -- looks like from the outside.
   , testCase "so no row the loader emits has six empty cells" $ withRecords $ \recs -> do
       assertEqual "the fixture's rows" 6 (length recs)
       assertEqual "blank rows" [] [ hrId r | r <- recs, null (filledColumns r) ]
   ]
 
--- | The column keys R fills, in column order.  Six cells, and a row exists
--- because at least one of them is not empty.
+-- | The column keys R fills, in column order.
 filledColumns :: HeadlineRecord -> [Text]
 filledColumns r =
   [ key | (key, cell) <- zip ["state", "priority", "title", "scheduled", "deadline", "tag"]
@@ -1244,14 +1036,9 @@ filledColumns r =
         , not (T.null cell) ]
   where opt = fromMaybe ""
 
--- | The search text a filter runs over, and the display semantics it mirrors.
---
--- The expected strings are written down rather than taken from the renderer,
--- because agreeing with it is the whole point: @table-view.js@'s @displayText@
--- shows a bracket link by its description and squashes every run of control
--- characters to one space, and a server-side filter that did anything else
--- would answer a query differently from the same query typed into a renderer
--- holding its own rows.
+-- | The search text a filter runs over.  The expected strings are written down
+-- rather than taken from the renderer: agreeing with @table-view.js@'s
+-- @displayText@ is the whole point.
 searchSpec :: TestTree
 searchSpec = testGroup "Search text"
   [ testCase "a bracket link shows its description" $ do
@@ -1269,13 +1056,9 @@ searchSpec = testGroup "Search text"
 
   , testCase "a run of control characters is one space" $ do
       assertEqual "newlines" "a b" (displayText "a\n\n\tb")
-      -- The trailing run is the one the collapse above does not reach: it ends
-      -- the string rather than separating two words, and it still leaves a space.
       assertEqual "trailing" "a " (displayText "a\n")
 
-    -- The tags field is the CELL's, so the haystack carries the sorted spelling
-    -- and not the file's `:web:glance:'.  There is no third answer to keep in
-    -- step: `searchTextOf' joins `viewCells', which reads the column accessors.
+    -- The tags field is the CELL's, so the haystack carries the sorted spelling.
   , testCase "the row's search text is its cells, lowercased" $ withRecords $ \recs -> do
       let first' = head recs
       assertEqual "the whole row, cell by cell"
@@ -1287,19 +1070,14 @@ searchSpec = testGroup "Search text"
         let matching q = length (filter (matchesSearch q) recs)
         assertEqual "case" 1 (matching "SHIP THE TABLE")
         assertEqual "trimmed" 1 (matching "  ship the table  ")
-        -- One row each, stated apart: a sum of two counts is met by 2 + 0.
         assertEqual "unicode, cyrillic mid-title" 1 (matching "печатник")
         assertEqual "unicode, cyrillic title" 1 (matching "Привет")
         assertEqual "an empty query is every row" 6 (matching "")
         assertEqual "blank is empty too" 6 (matching "   ")
-        -- The cells are joined by a character no cell can hold, so the end of
-        -- one and the start of the next never read as one string.
+        -- The cells are joined by a character no cell can hold.
         assertEqual "across the join" 0 (matching "next a")
 
-    -- INTENDED, and pinned because it is the visible cost of rows being top
-    -- entries: the index is built out of the cells of the rows that exist, so a
-    -- word only a child carries reaches nothing.  What surfaces the child is
-    -- materializing the entry it belongs to.
+    -- The visible cost of rows being top entries: a word only a child carries reaches nothing.
   , testCase "a word only a child carries matches nothing" $
       withRecordsOf (T.unlines ["* parent", "** subterranean child"]) $ \recs -> do
         assertEqual "the entry is a row" 1 (length (filter (matchesSearch "parent") recs))
@@ -1308,8 +1086,7 @@ searchSpec = testGroup "Search text"
                    (all (T.isInfixOf "subterranean" . subtreeText) recs)
   ]
 
--- | Cells are cut from the source, and dates are spelled the way the wire
--- wants them rather than the way org does.
+-- | Cells are cut from the source, dates spelled the way the wire wants them.
 cellSpec :: TestTree
 cellSpec = testGroup "Cells"
   [ testCase "titles and tags come from the source, unicode included" $ withRecords $ \recs -> do
@@ -1318,22 +1095,17 @@ cellSpec = testGroup "Cells"
                   , "Plain headline without a state", "Drop the old renderer"
                   , "Read the schema" ]
                   (map hrTitle recs)
-      -- The FIELD is the file's own order.  It is what `classify' reads, and
-      -- there the order decides which tag's config governs the row.
+      -- The FIELD is the file's own order, which 'classify' reads.
       assertEqual "tags"
                   [":web:glance:", ":unicode:", "", "", ":cleanup:", ":web:"]
                   (map hrTags recs)
 
-    -- A reader scanning a column reads it as a list, and a list whose order is
-    -- the author's typing order is a list they have to scan whole.  So the CELL
-    -- sorts, case-folded, and the field it is cut from does not.
+    -- The CELL sorts, case-folded, and the field it is cut from does not.
   , testCase "the tags CELL sorts, case-folded, where the field keeps the file" $ do
       assertEqual "the sample row's own cell"
                   ":glance:web:" (sortedTagsCell ":web:glance:")
       assertEqual "folded, so a capital does not sort ahead of every lowercase"
                   ":admin:Work:" (sortedTagsCell ":Work:admin:")
-      -- Stable, so two spellings folding alike keep the order the file put them
-      -- in and the cell is a function of the file rather than of a tie-break.
       assertEqual "and stable under a fold tie"
                   ":a:Work:work:" (sortedTagsCell ":Work:work:a:")
       assertEqual "an untagged cell is handed straight back" "" (sortedTagsCell "")
@@ -1369,11 +1141,7 @@ cellSpec = testGroup "Cells"
   , testCase "an ORG_GLANCE_ID is the row id" $ withRecords $ \recs ->
       assertEqual "id" ["ship-table-view"] (map hrId (take 1 recs))
 
-    -- FILE#K, K counted over the file's TOP ENTRIES: the sample's first row
-    -- carries an ORG_GLANCE_ID and the rest do not, so the ordinals run 1..5
-    -- with 0 spent on the entry that did not need it.  Numbering the entries
-    -- rather than the ids is what keeps a K meaningful — it is a position in
-    -- the file, whatever the rows around it are called.
+    -- K is a position in the FILE's top entries, whatever the rows around it are called.
   , testCase "without one the row id is FILE#K, K the entry's place in the file" $
       withRecords $ \recs ->
         assertEqual "ids" (map (\k -> T.pack (viewDir </> "sample.org") <> "#" <> k)
@@ -1387,9 +1155,7 @@ cellSpec = testGroup "Cells"
                     (map hrId recs)
   ]
 
--- | The view document itself.  The golden pins every value in it, so what is
--- left to state separately is the one thing a regenerated golden would carry
--- along without anyone noticing: the column order five other places index by.
+-- | The view document; the golden pins every value, so the column order is stated apart.
 viewSpec :: TestTree
 viewSpec = testGroup "View"
   [ testCase "matches test/fixtures/sample-view.json" $ do
@@ -1403,19 +1169,13 @@ viewSpec = testGroup "View"
       assertEqual "column keys"
         ["state", "priority", "title", "scheduled", "deadline", "tag"] keys
 
-  -- SCHEMA.md makes `sortable' opt-in and this producer opts every column in:
-  -- order means something in all six, and the flag is what a READER's `^' or a
-  -- header click reads before it will sort one.  Stated as the whole list, so a
-  -- column added without it fails here rather than arriving unsortable.
+  -- Stated as the whole list, so a column added without @sortable@ fails here.
   , testCase "every column opts into sorting" $ withView $ \v -> do
       keys <- columnKeysOf v
       flags <- listAt "columns" v >>= mapM (maybeBoolAt "sortable")
       assertEqual "one sortable per column" (map (const (Just True)) keys) flags
 
-  -- The renderer stopped drawing an outline, so the producer stopped
-  -- describing one: a row is an id and its cells, and nothing says where it
-  -- sits among the others.  Asked of a fixture that HAS an outline, the
-  -- golden's being flat.
+  -- A row is an id and its cells; nothing says where it sits among the others.
   , testCase "no row carries a depth, as a field or as a cell" $
       withViewOf nested $ \v -> do
         cols <- columnKeysOf v
@@ -1433,8 +1193,7 @@ schemaSpec = testGroup "Schema conformance"
   [ testCase "every cell key is a column key" $ withView $ \v -> do
       cols <- columnKeysOf v
       rows <- listAt "rows" v
-      -- Over no rows the claim below is met by saying nothing, so the fixture's
-      -- own count is what makes it one.
+      -- Over no rows the claim below is met by saying nothing.
       assertEqual "the fixture's rows" 6 (length rows)
       mapM_ (\r -> do
                 ks <- field "cells" r >>= keysOf
@@ -1447,10 +1206,7 @@ schemaSpec = testGroup "Schema conformance"
       assertEqual "the fixture's rows" 6 (length ids)
       assertBool ("blank id in " <> show ids) (not (any T.null ids))
 
-    -- An ADDITIVE row field (@table-view/SCHEMA.md@): a renderer that never
-    -- learns it renders as it always did, which is what SPARSE buys — @true@ or
-    -- absent, never @false@, so a row with nowhere to go is the row it was
-    -- before the field existed.
+    -- An ADDITIVE row field (@table-view\/SCHEMA.md@): @true@ or absent, never @false@.
   , testCase "a linked row says so, and a bare one says nothing at all" $
       withViewOf (T.unlines [ "* linked", "see https://x.example", "* bare" ]) $ \v -> do
         rows <- listAt "rows" v
@@ -1473,20 +1229,14 @@ schemaSpec = testGroup "Schema conformance"
       assertBool "badges are empty" (not (null badges))
 
   , testCase "and the two group values a filter can name" $ withView $ \v -> do
-      -- Vocabulary rather than cell text: no row's state cell holds either, so
-      -- they travel as `values' beside the badges, and a renderer completing
-      -- the column offers the keywords and these.
+      -- Vocabulary rather than cell text: no row's state cell holds either.
       state <- columnOf "state" v
       values <- listAt "values" state >>= mapM text
       assertEqual "values" ["*active*", "*inactive*"] values
 
   , testCase "the multi-valued column says so, and it is the only one"
       $ withView $ \v -> do
-      -- Declared rather than sampled: the renderer decides which column holds a
-      -- LIST from up to 40 non-empty cells, and a page with fewer than two
-      -- tagged rows finds none at all — where `tag:*archive*' would be a
-      -- literal matching nothing while this producer reads it as the whole tag.
-      -- The declaration is what settles it.
+      -- Declared rather than sampled: a page with under two tagged rows finds no list column.
       cols <- listAt "columns" v
       keys <- mapM (textAt "key") cols
       multi <- mapM (maybeBoolAt "multi") cols
@@ -1504,32 +1254,24 @@ schemaSpec = testGroup "Schema conformance"
         assertEqual "every key ascends" (map (const True) keys) ascs
 
   , testCase "the rows are served in the order the chain declares" $ do
-      -- The declaration and the arrangement are one list read twice; a page cut
-      -- out of a different order than the one declared is a different set of
-      -- rows than the table would have put there.
+      -- The declaration and the arrangement are one list read twice.
       let doc = T.unlines [ "* TODO beta", "* echo", "* DONE alpha"
                           , "* TODO Alpha", "* delta" ]
       withRecordsOf doc $ \records ->
-        -- State by palette order (org's cycle: TODO before DONE, the stateless
-        -- row behind both), then the title folded inside each state.
         assertEqual "state by palette order, then title folded"
                     ["TODO Alpha", "TODO beta", "DONE alpha", "delta", "echo"]
                     [ maybe "" (<> " ") (hrState r) <> hrTitle r
                     | r <- sortedForView records ]
 
   , testCase "an empty cell sorts to the end of its own key" $
-      -- Nulls are settled per key and outside the direction, so a row with no
-      -- state is behind every row that has one where the titles tie.
+      -- Nulls are settled per key and outside the direction.
       withRecordsOf (T.unlines ["* same", "* TODO same", "* DONE same"]) $
         \records ->
           assertEqual "the stateless row last"
                       [Just "TODO", Just "DONE", Nothing]
                       (map hrState (sortedForView records))
 
-    -- THE CELL WEARS ORG'S BRACKETS AND THE COMPARATOR READS THROUGH THEM, which
-    -- is the same rule the filter matches by.  The bracketed text happens to
-    -- order the same way today, so what this pins is the READING: a comparator
-    -- over `[#A]' as text is one spelling away from ordering by punctuation.
+    -- The comparator reads THROUGH org's brackets, the rule the filter matches by.
   , testCase "priority orders by its letter, through the brackets" $
       withRecordsOf (T.unlines [ "* [#C] gamma", "* [#A] alpha", "* beta", "* [#B] delta" ]) $
         \records ->
@@ -1548,24 +1290,12 @@ schemaSpec = testGroup "Schema conformance"
       assertEqual "fields" [["command", "key", "label"]] (map sort fields)
   ]
 
--- Commands
---
--- The span math the structured commands run on.  It lives in the facade
--- because 'Data.Org.HeadlineSpans' does not leave the private sublibrary, and
--- it is asserted here for the same reason: this module imports no parser
--- internals, so what these cases see is what the daemon sees.
---
--- Every case splices the edits itself rather than through
--- 'Data.Org.Edit.applyEdits' — an oracle that shares the engine would agree
--- with a wrong offset — and then asserts the WHOLE document, so the bytes
--- around the edit are checked by the same assertion as the edit.
+-- Commands: the span math the structured commands run on.  Every case splices
+-- the edits itself rather than through 'Data.Org.Edit.applyEdits' — an oracle
+-- sharing the engine would agree with a wrong offset — and asserts the WHOLE
+-- document.
 
--- | DOC with EDITS applied, right to left so an earlier offset is never moved
--- by a later splice.  The suite's own splice: four lines, no engine.
---
--- The order is taken rather than assumed, since 'Data.Org.Edit.applyEdits'
--- sorts too and a command handing its edits back ascending — @remove-tag@ over
--- a tag a file spells twice — is not a caller mistake this oracle may punish.
+-- | DOC with EDITS applied, right to left so an earlier offset is never moved.
 splice :: Text -> [(Span, Text)] -> Text
 splice doc edits = foldl' one doc (sortOn (negate . spanStart . fst) edits)
   where one text (Span s e, new) = T.take s text <> new <> T.drop e text
@@ -1576,55 +1306,42 @@ withRecord doc k = withDoc "command" "one.org" doc one
   where one [r] = k r
         one rs  = assertFailure ("expected one headline, got " <> show (length rs))
 
--- | Run K over the FIRST of the records DOC parses to, for a case whose point
--- is what the headline BELOW is: a keyword at the end of its line keeps the
--- newline, and the way to say so is a document with a line under it.
+-- | Run K over the FIRST of DOC's records, for a case about the headline BELOW.
 withFirstRecord :: Text -> (HeadlineRecord -> Assertion) -> Assertion
 withFirstRecord doc k = withDoc "command" "one.org" doc one
   where one (r:_) = k r
         one []    = assertFailure "expected a headline, got none"
 
--- | WHAT: DOC with @set-state KEYWORD@ applied to its one headline is WANTED.
--- Under 'noConfig', so the chain the legality check reads is the file's own
--- @#+TODO:@ over org's built-in cycle and nothing else.
+-- | WHAT: DOC with @set-state KEYWORD@ on its one headline is WANTED, under 'noConfig'.
 setStateIs :: String -> Text -> Maybe Text -> Text -> Assertion
 setStateIs what doc keyword = triedEditsAre what doc (setStateEdits noConfig keyword)
 
--- | @set-state KEYWORD@ on R under 'layered' is refused, and the refusal spells
--- the keyword it turned down, the row it turned it down for, and every word of
--- WORDS — enough of the chain to say what the row could have taken instead.
+-- | @set-state KEYWORD@ on R under 'layered' is refused, naming keyword, row and WORDS.
 refusalNames :: HeadlineRecord -> Text -> [Text] -> Assertion
 refusalNames r keyword words' = case setStateEdits layered (Just keyword) r of
   Right edits -> assertFailure ("expected a refusal, got " <> show edits)
   Left why    -> mapM_ (\w -> assertContains "names" w why) (keyword : hrId r : words')
 
--- | @set-state@ on R under 'layered' takes each of WORDS.  The accepting half
--- of 'refusalNames', and the keyword is its own label.
+-- | @set-state@ on R under 'layered' takes each of WORDS.
 accepts :: HeadlineRecord -> [Text] -> Assertion
 accepts r = mapM_ (\w -> either (assertFailure . ((T.unpack w <> ": ") <>) . T.unpack)
                                 (const (pure ()))
                                 (setStateEdits layered (Just w) r))
 
--- | A config with a cycle per tag and one in @system.org@, so the legality
--- check has a chain longer than one file to be right about.
+-- | A config with a cycle per tag and one in @system.org@.
 layered :: ConfigLayers
 layered = noConfig
   { clSystem = TodoKeywords ["STARTED"] []
   , clTags   = [ ("book", TodoKeywords ["READING"] ["READ"])
                , ("film", TodoKeywords ["WATCHING"] ["WATCHED"]) ]
-    -- Recognition unions both tags, which is exactly what no longer makes
-    -- either of them settable anywhere.
   , clSeed   = TodoKeywords ["STARTED", "READING", "WATCHING"] ["READ", "WATCHED"] }
 
--- | WHAT: DOC with EDITS applied to its one headline is WANTED.  The whole
--- document is asserted, so the bytes around the edit are checked by the same
--- assertion as the edit.
+-- | WHAT: DOC with EDITS applied to its one headline is WANTED, asserted whole.
 editsAre :: String -> Text -> (HeadlineRecord -> [(Span, Text)]) -> Text -> Assertion
 editsAre what doc edits wanted =
   withRecord doc (assertEqual what wanted . splice doc . edits)
 
--- | 'editsAre' for the commands whose span math can REFUSE: the refusal fails
--- the case naming it, so a caller writes the landing and nothing else.
+-- | 'editsAre' for the commands whose span math can REFUSE.
 triedEditsAre :: String -> Text -> (HeadlineRecord -> Either Text [(Span, Text)])
               -> Text -> Assertion
 triedEditsAre what doc edits wanted = withRecord doc $ \r ->
@@ -1645,7 +1362,6 @@ removeTagIs :: String -> Text -> Text -> Text -> Assertion
 removeTagIs what doc tag = editsAre what doc (removeTagEdits tag)
 
 -- | WHAT: DOC with its FIRST link retargeted to TARGET under DESC is WANTED.
--- The span is the scan's own, which is where a client's comes from.
 editLinkIs :: String -> Text -> Text -> Maybe (Maybe Text) -> Text -> Assertion
 editLinkIs what doc target desc = triedEditsAre what doc $ \r ->
   case subtreeLinks r of
@@ -1656,13 +1372,11 @@ editLinkIs what doc target desc = triedEditsAre what doc $ \r ->
 renameTagIs :: String -> Text -> Text -> Text -> Text -> Assertion
 renameTagIs what doc from to = editsAre what doc (renameTagEdits from to)
 
--- | Is TEXT a tag, as 'tagText' answers?  The predicate is the parser's own
--- charset, so what this pins is the pair agreeing rather than a second list.
+-- | Is TEXT a tag, as 'tagText' answers?  The charset is the parser's own.
 tagIs :: (Text, Bool) -> Assertion
 tagIs (text, wanted) = assertEqual (show text) wanted (isRight (tagText text))
 
--- | A document declaring keywords past org's own two, so the legality check
--- has something to be right about.
+-- | A document declaring keywords past org's own two.
 keyworded :: Text -> Text
 keyworded rest = "#+TODO: NEXT WAITING | CANCELLED\n" <> rest
 
@@ -1673,21 +1387,14 @@ commandSpec = testGroup "Commands"
         setStateIs "replaced" (keyworded "* NEXT [#A] Ship it :web:\n") (Just "WAITING")
                               (keyworded "* WAITING [#A] Ship it :web:\n")
 
-      -- The insertion point is the stars', which is the one offset a headline
-      -- always has: a priority, a title and tags are each optional.
     , testCase "with no keyword, inserts one right after the stars" $
         setStateIs "inserted" "* [#B] Plain :tag:\n" (Just "TODO")
                               "* TODO [#B] Plain :tag:\n"
 
-      -- The smallest headline a command can reach.  Stars and nothing else is
-      -- no row at all ('blankEntry'), so it carries no id and nothing addresses
-      -- it; one shown attribute is what it takes, and the insertion point is
-      -- still the stars'.
+      -- Stars and nothing else is no row at all ('blankEntry').
     , testCase "into a headline whose only content is a priority" $
         setStateIs "bare" "* [#B]\n" (Just "TODO") "* TODO [#B]\n"
 
-      -- The space behind the keyword goes with it, so the title closes up
-      -- rather than starting a column late.
     , testCase "a null keyword takes the word and the space behind it" $
         setStateIs "cleared" (keyworded "* NEXT Ship it :web:\n") Nothing
                              (keyworded "* Ship it :web:\n")
@@ -1696,11 +1403,7 @@ commandSpec = testGroup "Commands"
         setStateIs "cleared wide" (keyworded "*   NEXT   Ship it\n") Nothing
                                   (keyworded "*   Ship it\n")
 
-      -- Horizontal only: a keyword at the end of its line keeps the newline
-      -- that ends it, or the headline would swallow the line below.
-      -- TWO headlines, which is the assertion: the first ends at its newline
-      -- and the second is its own row.  This read as ONE until the parser
-      -- stopped letting a trailing keyword eat the line under it.
+      -- A keyword ending its line keeps the newline, or the headline swallows the line below.
     , testCase "a keyword ending its line keeps the newline" $
         let doc = keyworded "* NEXT\n* NEXT Second\n" in
         withFirstRecord doc $ \r ->
@@ -1716,8 +1419,7 @@ commandSpec = testGroup "Commands"
         withRecord "* Plain\n" $ \r ->
           assertEqual "no edits" (Right []) (setStateEdits noConfig Nothing r)
 
-      -- Per CHAIN, and the file is its nearest scope: the same word is a
-      -- keyword in one document and the first word of a title in the next.
+      -- Per CHAIN, and the file is its nearest scope.
     , testCase "a keyword the chain does not declare is refused, by name" $
         withRecord "* TODO Plain\n" $ \r ->
           refusalNames r "WAITING" ["TODO", "DONE"]
@@ -1726,16 +1428,11 @@ commandSpec = testGroup "Commands"
         setStateIs "declared" (keyworded "* TODO Plain\n") (Just "WAITING")
                               (keyworded "* WAITING Plain\n")
 
-      -- Every rung of the chain is settable, which is the regression the
-      -- tightening had to leave standing: the file's own #+TODO:, its tag's
-      -- config, the system layer, org's own cycle.
     , testCase "each scope of the chain is settable on a row that reaches it" $
         withRecord (keyworded "* TODO Plain :book:\n") $ \r ->
           accepts r ["NEXT", "READING", "STARTED", "DONE"]
 
-      -- The union's death, from the settability side: `film''s cycle parses
-      -- here — the seed carries it — and no scope this row reaches declares it,
-      -- so it is not a state this row may be put into.
+      -- @film@'s cycle parses here — the seed carries it — and no scope this row reaches declares it.
     , testCase "another tag's keyword is refused on a row that does not carry it" $
         withRecord "* TODO Plain\n" $ \r ->
           refusalNames r "WATCHING" ["STARTED"]
@@ -1744,9 +1441,7 @@ commandSpec = testGroup "Commands"
         withRecord "* TODO Plain :book:\n" $ \r ->
           refusalNames r "WATCHING" ["READING"]
 
-      -- The offer and the wall are one chain, and since `settableStates' IS
-      -- `keywordSources' flattened they agree by construction — so this is the
-      -- regression guard for that derivation rather than a property test.
+      -- 'settableStates' IS 'keywordSources' flattened, so this guards the derivation.
     , testCase "everything the palette shows for a row is settable on it" $
         withRecord (keyworded "* NEXT Plain :book:\n") $ \r -> do
           let shown = [ w | (_source, kw) <- keywordSources layered [r]
@@ -1759,10 +1454,6 @@ commandSpec = testGroup "Commands"
                       shown
           accepts r shown
 
-      -- What the chain's ORDER costs a write: nothing.  The scopes were
-      -- reordered widest-first and the offer is their union either way, so the
-      -- words this row may be put into are the words it could be put into
-      -- before — only the source each is shown under moved.
     , testCase "and the reorder moved which source shows a word, never the set" $
         withRecord (keyworded "* NEXT Plain :book:\n") $ \r ->
           assertEqual "the same eight words the nearest-scope chain offered"
@@ -1770,8 +1461,6 @@ commandSpec = testGroup "Commands"
                             , "STARTED", "TODO", "DONE" ])
                       (sort (settableStates layered r))
 
-      -- The state column ships these two as filter vocabulary beside its
-      -- badges.  No file declares one, so no file can be put into one.
     , testCase "the state column's group meta-values are not keywords" $
         withRecord (keyworded "* NEXT Plain\n") $ \r ->
           mapM_ (\meta -> case setStateEdits noConfig (Just meta) r of
@@ -1788,9 +1477,7 @@ commandSpec = testGroup "Commands"
     , testCase "with no tags, is appended to the title line" $
         archiveIs "untagged" "* TODO Ship it\n" "* TODO Ship it :ARCHIVE:\n"
 
-      -- `hsFull' ends at the LAST part in span order, which here is a timestamp
-      -- on the next line and a drawer two lines below that.  Appending there
-      -- would put the tag inside the drawer.
+      -- 'hsFull' ends at the LAST part in span order: appending there lands inside the drawer.
     , testCase "past a planning line and a drawer, still on the title line" $
         archiveIs "planned" (T.unlines
                     [ "* TODO Ship it"
@@ -1813,7 +1500,6 @@ commandSpec = testGroup "Commands"
           assertBool "reads as archived" (archived r)
           assertEqual "no edits" [] (archiveEdits r)
 
-      -- The tag is matched the way the filter matches one, which folds case.
     , testCase "however the file spells the tag" $
         withRecord "* TODO Ship it :archive:\n" $ \r ->
           assertEqual "no edits" [] (archiveEdits r)
@@ -1822,8 +1508,7 @@ commandSpec = testGroup "Commands"
         withRecord "* TODO Ship it :web:\n"
                    (assertBool "not archived" . not . archived)
 
-      -- Archiving IS adding one tag, so the two are one function and there is
-      -- no second insertion rule that could drift out of step with this one.
+      -- Archiving IS adding one tag, so there is no second insertion rule to drift.
     , testCase "archive is add-tag at org's own name" $
         mapM_ (\doc -> withRecord doc $ \r ->
                  assertEqual (T.unpack doc) (addTagEdits "ARCHIVE" r) (archiveEdits r))
@@ -1831,21 +1516,15 @@ commandSpec = testGroup "Commands"
               , "* TODO Ship it :ARCHIVE:\n", "* TODO\n" ]
     ]
 
-    -- The pair the tag palette commits.  Both are idempotent, from opposite
-    -- sides — adding what is there and removing what is not each cost no edit —
-    -- which is what lets a bulk toggle be pressed at.
+    -- Both are idempotent from opposite sides, which lets a bulk toggle be pressed at.
   , testGroup "add-tag"
     [ -- The written run is the FILE's, in the file's own order: this row's CELL
-      -- reads `:glance:web:' and the splice still lands after `glance:', because
-      -- the edit is measured in the span and the sort is the column's alone.
+      -- reads @:glance:web:@ and the splice still lands after @glance:@.
       testCase "joins the run, ahead of its closing colon" $
         addTagIs "into the run" "* TODO Ship it :web:glance:\n" "work"
                                 "* TODO Ship it :web:glance:work:\n"
 
-      -- The other side of the same rule, and the one an alphabetical write would
-      -- get wrong in a way no cell could show: `glance' is the FIRST entry of
-      -- the sorted cell and the SECOND of the file, and it is the file's offsets
-      -- that decide which bytes come out.
+      -- The file's offsets decide which bytes come out; an alphabetical write would not.
     , testCase "and a removal cuts the file's entry, not the cell's" $
         removeTagIs "the first of the file's run" "* TODO Ship it :web:glance:\n"
                     "web" "* TODO Ship it :glance:\n"
@@ -1853,8 +1532,6 @@ commandSpec = testGroup "Commands"
     , testCase "with no run, opens one at the end of the title line" $
         addTagIs "creating" "* TODO Ship it\n" "work" "* TODO Ship it :work:\n"
 
-      -- `hsFull' ends at the LAST part in span order, which here is a timestamp
-      -- on the next line: appending there would put the tag on the wrong one.
     , testCase "past a planning line, still on the title line" $
         addTagIs "planned" (T.unlines [ "* TODO Ship it"
                                       , "SCHEDULED: <2026-08-01 Sat>" ])
@@ -1867,8 +1544,6 @@ commandSpec = testGroup "Commands"
           assertBool "reads as tagged" (tagged "work" r)
           assertEqual "no edits" [] (addTagEdits "work" r)
 
-      -- Presence folds, the way the filter's vocabulary does, so the palette
-      -- never offers to write a second spelling of a tag the row has.
     , testCase "however the file spells it" $
         withRecord "* TODO Ship it :Work:\n" $ \r -> do
           assertBool "reads as tagged" (tagged "work" r)
@@ -1883,8 +1558,6 @@ commandSpec = testGroup "Commands"
     , testCase "the last entry takes the run and its space with it" $
         removeTagIs "emptying" "* TODO Ship it :work:\n" "work" "* TODO Ship it\n"
 
-      -- The run is the only thing on the title line past the title, so the
-      -- horizontal space in front of it is the separator and comes off too.
     , testCase "and a wider gap comes off whole" $
         removeTagIs "spaced" "* TODO Ship it    :work:\n" "work" "* TODO Ship it\n"
 
@@ -1910,16 +1583,12 @@ commandSpec = testGroup "Commands"
         withRecord "* TODO Ship it\n" $ \r ->
           assertEqual "no edits" [] (removeTagEdits "work" r)
 
-      -- Folded, and EVERY entry spelling it, so what "removed" means is that
-      -- the row does not answer to 'tagged' afterwards — which a file spelling
-      -- one tag twice would otherwise break.
+      -- Folded, and EVERY entry spelling it, so a file spelling one tag twice comes out clean.
     , testCase "however the file spells it, and however often" $ do
         removeTagIs "folded" "* TODO Ship it :Work:\n" "work" "* TODO Ship it\n"
         removeTagIs "twice" "* TODO Ship it :work:web:Work:\n" "work"
                             "* TODO Ship it :web:\n"
 
-      -- Add then remove is the identity on the bytes, which is the property a
-      -- toggle rests on: a mis-press costs a write and no text.
     , testCase "removing what was just added puts the file back" $ do
         let doc = "* TODO Ship it :web:\n"
         withRecord doc $ \r -> do
@@ -1929,10 +1598,7 @@ commandSpec = testGroup "Commands"
             assertEqual "and back" doc (splice added (removeTagEdits "work" r'))
     ]
 
-    -- The third tag command, and the one that is a command rather than a
-    -- composition: a remove and an add spliced together APPLY — the spans touch
-    -- and 'applyEdits' rejects only overlap — and what they write is the tag on
-    -- the title, or the entry moved to the end of the run.
+    -- A command rather than a composition: the edit sets touch, and 'applyEdits' rejects only overlap.
   , testGroup "rename-tag"
     [ testCase "replaces the entry where it stands, colon and all left alone" $ do
         renameTagIs "in the middle" "* TODO Ship it :web:glance:work:\n"
@@ -1942,15 +1608,11 @@ commandSpec = testGroup "Commands"
         renameTagIs "alone" "* TODO Ship it :work:\n"
                     "work" "projects" "* TODO Ship it :projects:\n"
 
-      -- The property the popup's cursor rests on and a composition cannot have:
-      -- the run's ORDER is untouched, so the union it draws does not reshuffle
-      -- under the reader's hands.
+      -- The run's ORDER is untouched, so the popup's union does not reshuffle under the cursor.
     , testCase "and the run's order is what it was" $
         renameTagIs "kept" "* TODO Ship it :a:b:c:\n" "a" "z"
                            "* TODO Ship it :z:b:c:\n"
 
-      -- Every other byte of the document, which is the write-back invariant
-      -- read at this layer.
     , testCase "the lines under the headline are untouched" $
         renameTagIs "planned" (T.unlines [ "* TODO Ship it :work:"
                                          , "SCHEDULED: <2026-08-01 Sat>"
@@ -1972,42 +1634,29 @@ commandSpec = testGroup "Commands"
         withRecord "* TODO Ship it\n" $ \r ->
           assertEqual "no edits" [] (renameTagEdits "work" "projects" r)
 
-      -- Matching FOLDS, the way presence does, so a change of SPELLING is a
-      -- rename like any other.
     , testCase "the old name is matched folded, and the new one written as given" $ do
         renameTagIs "folded" "* TODO Ship it :Work:\n" "work" "projects"
                              "* TODO Ship it :projects:\n"
         renameTagIs "respelled" "* TODO Ship it :Work:\n" "work" "work"
                                 "* TODO Ship it :work:\n"
 
-      -- ONE TAG ONCE, which is what 'removeTagEdits' keeps by cutting every
-      -- entry that spells its tag: the first becomes the new name and the rest
-      -- go, so a file spelling one tag twice comes out clean.
+      -- ONE TAG ONCE: 'removeTagEdits' cuts every entry that spells its tag.
     , testCase "a tag spelled twice comes out spelled once" $
         renameTagIs "deduplicated" "* TODO Ship it :work:web:Work:\n" "work" "projects"
                                    "* TODO Ship it :projects:web:\n"
 
-      -- And where the row ALREADY carries the new name, the rename is a
-      -- removal: writing it would leave the run holding it twice.  The entry
-      -- that survives is the one the file already had, in its own place.
+      -- Where the row ALREADY carries the new name the rename is a removal.
     , testCase "a row already carrying the new name loses the old one instead" $ do
         renameTagIs "merged" "* TODO Ship it :web:work:\n" "web" "work"
                              "* TODO Ship it :work:\n"
         renameTagIs "merged the other way" "* TODO Ship it :web:work:\n" "work" "web"
                                            "* TODO Ship it :web:\n"
 
-      -- Which never empties the run: the entry carrying the new name is one of
-      -- the ones left standing, so there is no whole-run branch to reach.
     , testCase "and the run and its separator stand" $
         renameTagIs "run kept" "* TODO Ship it  :a:b:\n" "a" "b"
                                "* TODO Ship it  :b:\n"
 
-      -- The composition this replaces, spelled out.  The two edit sets apply
-      -- together — the removal ends exactly where the addition inserts, and
-      -- touching spans are what 'Data.Org.Edit.applyEdits' allows ('TestEdit',
-      -- "touching edits are accepted") — and the addition's anchor was measured
-      -- BEFORE the removal, so the tag lands flush against the title the removal
-      -- just closed up to.
+      -- The removal ends where the addition inserts, and the anchor was measured BEFORE it.
     , testCase "the composition it replaces writes the tag onto the title" $ do
         let doc = "* TODO Ship it :work:\n"
         withRecord doc $ \r -> do
@@ -2018,15 +1667,10 @@ commandSpec = testGroup "Commands"
                       (splice doc (renameTagEdits "work" "projects" r))
     ]
 
-    -- @edit-link@: the one command whose args name a row's own BYTES.  The span
-    -- comes out of the scan here, which is where a client's comes from — the
-    -- popup edits the ranges `/links' handed it — so what these cases drive is
-    -- the round trip, read and written by one grammar.
+    -- @edit-link@: the one command whose args name a row's own BYTES, spanned by the scan.
   , testGroup "edit-link"
     [ -- THE FORM TABLE.  A bracketed link stays bracketed and a plain URL stays
-      -- plain, so an entry keeps the way its author wrote it; a description
-      -- ARRIVING is the one thing that changes a shape, since a plain URL has
-      -- nowhere to write one.
+      -- plain; a description ARRIVING is the one thing that changes a shape.
       testCase "the shape is preserved, and only an arriving description moves it" $
         mapM_ (\(what, wrote, target, desc, wanted) ->
                  editLinkIs what ("* one " <> wrote <> "\n") target desc
@@ -2045,19 +1689,12 @@ commandSpec = testGroup "Commands"
             , "https://b.example", Just Nothing, "[[https://b.example]]" )
           , ( "plain URL, target alone", "https://a.example"
             , "https://b.example", Nothing, "https://b.example" )
-            -- The one shape change: a description has nowhere to live in a
-            -- plain URL, so one arriving brackets it.
           , ( "plain URL, description added", "https://a.example"
             , "https://b.example", Just (Just "B"), "[[https://b.example][B]]" )
           , ( "plain URL, description off", "https://a.example"
             , "https://b.example", Just Nothing, "https://b.example" ) ]
 
-      -- ABSENT IS NOT NULL, which is the `args' discipline this route turns on
-      -- (`.:!' rather than `.:?'): a request that says nothing about the
-      -- description leaves the author's, and a null takes it off.  A
-      -- description that SHOWS nothing is the null spelled another way, since
-      -- `[[T][]]' shows its target — and an untouched empty section is still
-      -- the author's bytes, so it stands.
+      -- ABSENT IS NOT NULL (@.:!@ rather than @.:?@): silence leaves the author's description.
     , testCase "a description that shows nothing is the null spelled another way" $ do
         editLinkIs "empty string" "* one [[https://a.example][A]]\n"
                    "https://b.example" (Just (Just "")) "* one [[https://b.example]]\n"
@@ -2066,17 +1703,12 @@ commandSpec = testGroup "Commands"
         editLinkIs "an empty section nobody touched stands"
                    "* one [[https://a.example][]]\n"
                    "https://b.example" Nothing "* one [[https://b.example][]]\n"
-        -- The emptiness test strips and the VALUE is written verbatim, which is
-        -- the target's own rule: neither is content, and content is nobody's to
-        -- trim.
+        -- The emptiness test strips and the VALUE is written verbatim: content is nobody's to trim.
         editLinkIs "a description with content keeps its spacing"
                    "* one [[https://a.example][A]]\n"
                    "https://b.example" (Just (Just " spaced "))
                    "* one [[https://b.example][ spaced ]]\n"
 
-      -- A description is written as it was given, trimmed of the whitespace a
-      -- field leaves behind — the bytes around the link are the author's and
-      -- this moves none of them.
     , testCase "the link is the only thing that moves" $
         editLinkIs "the prose either side stands"
                    "* one\nsee [[https://a.example][A]] and stop.\n"
@@ -2090,9 +1722,7 @@ commandSpec = testGroup "Commands"
                    "https://b.example" Nothing
                    "* one\n** child [[https://b.example][A]]\n"
 
-      -- THE FIRST WALL: the span has to sit inside the ROW's own subtree and
-      -- cover exactly one link, edge to edge.  A span a character short of the
-      -- real one is refused rather than spliced into the middle of a link.
+      -- THE FIRST WALL: the span sits inside the ROW's subtree and covers one link edge to edge.
     , testCase "a span that does not cover exactly one link is refused" $
         withRecord "* one\nsee [[https://a.example][A]] and https://b.example\n" $ \r -> do
           let refused what sp = case editLinkEdits sp "https://c.example" Nothing r of
@@ -2112,10 +1742,7 @@ commandSpec = testGroup "Commands"
               assertContains "names the span" "[900,950)" why
               assertContains "and the row" (hrId r) why
 
-      -- THE SECOND WALL: the replacement has to READ BACK as THE LINK IT CLAIMS
-      -- TO BE.  The write engine is content-agnostic by law, so this is the
-      -- layer that owes the check — a target that would spell something else on
-      -- the next load is refused rather than written.
+      -- THE SECOND WALL: the write engine is content-agnostic by law, so this layer owes the reparse.
     , testCase "a replacement that would not read as one link is refused" $
         mapM_ (\(what, wrote, target) ->
                  withRecord ("* one " <> wrote <> "\n") $ \r ->
@@ -2125,18 +1752,11 @@ commandSpec = testGroup "Commands"
                                                        <> show edits)
                        Left why -> assertContains what "does not read as one link" why
                      [] -> assertFailure (what <> ": no link to edit"))
-          -- A bracket in the target closes the link early.
           [ ("a bracket in the target", "[[https://a.example][A]]", "https://a]b")
-          -- A plain URL keeps its shape, and a target no plain-link scheme reads
-          -- would be prose on the next load.
           , ("a bare link swapped for a path", "https://a.example", "file:notes.org")
           , ("a bare link given a space", "https://a.example", "https://a b") ]
 
-      -- REPARSING ALONE IS NOT THE WALL, and this is the case that says why: a
-      -- target spelling `a][b' renders a link that IS one link — pointing at
-      -- `a', described `b', neither of them what the request named.  The check
-      -- compares the reparse against what was ASKED for, so the grammar cannot
-      -- be escaped by spelling it.
+      -- REPARSING ALONE IS NOT THE WALL: @a][b@ renders one link the request never named.
     , testCase "a target that reparses as another link is refused, naming both" $
         withRecord "* one [[https://a.example]]\n" $ \r ->
           case subtreeLinks r of
@@ -2147,10 +1767,7 @@ commandSpec = testGroup "Commands"
                 assertContains "and what it was asked to point at" "https://a][b" why
             [] -> assertFailure "no link to edit"
 
-      -- A NEWLINE is the one thing reparsing cannot catch: this scanner has no
-      -- line rule, so the link reads back as itself — and lands a column-1 star
-      -- in the file, which the ORG parser reads as a new headline.  Refused in
-      -- both halves, since neither spans lines in org.
+      -- A NEWLINE reparses as itself and lands a column-1 star the ORG parser reads as a headline.
     , testCase "a newline in either half is refused before anything is written" $
         withRecord "* one [[https://a.example][A]]\n" $ \r ->
           case subtreeLinks r of
@@ -2165,16 +1782,12 @@ commandSpec = testGroup "Commands"
             [] -> assertFailure "no link to edit"
     ]
 
-    -- The wall both tag commands put up, and it is the PARSER's own charset:
-    -- what this server writes has to reparse here, and a tag carrying a
-    -- character `tagsP' declines takes the whole run down into title text.
+    -- The PARSER's own charset: a character @tagsP@ declines takes the run down into title text.
   , testGroup "the tags add-tag and remove-tag take"
     [ testCase "each spelling, and whether it is one" $ mapM_ tagIs
         [ ("work", True), ("WORK", True), ("work_2", True), ("a-b", True)
         , ("@home", True), ("c#", True), ("2026", True)
-        -- Org's own set carries `%' (org-tag-re) and, since the parser reads
-        -- it, so does this wall; the hyphen above is the one divergence left,
-        -- kept because the wild corpus writes it.
+        -- Org's own set carries @%@; the hyphen is the one divergence, kept for the wild corpus.
         , ("50%", True)
         , ("", False), ("two words", False), (":work:", False), ("a.b", False) ]
 
@@ -2184,29 +1797,19 @@ commandSpec = testGroup "Commands"
           Left why   -> assertContains "names the input" "a.b" why
     ]
 
-    -- The date a key collects, worked out against a fixed today so the answers
-    -- can be written down.  What is pinned is that a value which does not
-    -- REPARSE is refused rather than written: a planning line that stops being
-    -- one is body text on the next load, and the entry the author set is gone.
+    -- A value that does not REPARSE is refused: the planning line would be body text.
   , testGroup "the dates set-planning takes"
     [ testCase "each spelling, and what it renders as" $ mapM_ reads'
-        -- Org's own, taken exactly as written once it reparses — so a repeater
-        -- and a range survive rather than being canonicalized away.
+        -- Org's own form, taken exactly as written once it reparses.
         [ ("<2026-08-05 Wed>",      "<2026-08-05 Wed>")
         , ("<2026-08-05 Wed 09:30>", "<2026-08-05 Wed 09:30>")
         , ("<2026-08-05 Wed +1w>",  "<2026-08-05 Wed +1w>")
-        -- A wrong weekday in the file's own form stands: the value is the
-        -- author's, and reparsing is the whole of the bar.
         , ("<2026-08-05 Mon>",      "<2026-08-05 Mon>")
-        -- BOTH of org's openers are org's own form, so an inactive stamp is
-        -- kept verbatim the way an active one is.
         , ("[2026-08-05 Wed]",      "[2026-08-05 Wed]")
-        -- ISO, with the weekday computed rather than typed.
         , ("2026-08-05",            "<2026-08-05 Wed>")
         , ("2026-08-05 09:30",      "<2026-08-05 Wed 09:30>")
         , ("2026-08-05 9:05",       "<2026-08-05 Wed 09:05>")
         , ("  2026-08-05  ",        "<2026-08-05 Wed>")
-        -- Relative to the day the request was made, once for the whole request.
         , ("today",                 "<2026-08-01 Sat>")
         , ("TODAY",                 "<2026-08-01 Sat>")
         , ("tomorrow",              "<2026-08-02 Sun>")
@@ -2214,15 +1817,10 @@ commandSpec = testGroup "Commands"
         , ("+3d",                   "<2026-08-04 Tue>")
         , ("+2w",                   "<2026-08-15 Sat>")
         , ("+1m",                   "<2026-09-01 Tue>")
-        -- ORG'S WHOLE CHARSET: the parser reads four units, so this reader
-        -- takes four.  `+1y' parsed as a repeater and was refused here alone.
+        -- ORG'S WHOLE CHARSET: the parser reads four units, so this reader takes four.
         , ("+1y",                   "<2027-08-01 Sun>") ]
 
-      -- THE COMPUTED BRANCH CHECKS NOTHING OF ITS OWN.  Only an already-
-      -- bracketed value is reparsed before it is kept, so what the other three
-      -- spellings RENDER is asserted here rather than trusted: a stamp org does
-      -- not read back turns the planning line into body text on the next load,
-      -- and the entry the author set is gone with it.
+      -- Only an already-bracketed value is reparsed, so what the rest RENDER is asserted here.
     , testCase "and everything it computes reads back as a timestamp" $
         mapM_ (\text' -> case planningTimestamp today text' of
                  Left why    -> assertFailure (T.unpack text' <> " refused: " <> T.unpack why)
@@ -2231,9 +1829,7 @@ commandSpec = testGroup "Commands"
               [ "today", "tomorrow", "+3d", "+2w", "+1m", "+1y"
               , "2026-08-05", "2026-08-05 09:30", "2026-08-05 9:05" ]
 
-      -- AND THE REFUSAL LISTS WHAT IT TAKES, derived off `TimestampUnit' rather
-      -- than spelled: a unit the parser gains is offered here rather than
-      -- silently missing from the sentence.
+      -- Derived off 'TimestampUnit', so a unit the parser gains is offered rather than missing.
     , testCase "the refusal names every relative form there is" $
         case planningTimestamp today "next tuesday" of
           Right stamp -> assertFailure ("accepted: " <> T.unpack stamp)
@@ -2243,8 +1839,6 @@ commandSpec = testGroup "Commands"
 
     , testCase "and everything else is refused, by name" $ mapM_ refuses
         [ "", "   ", "next tuesday", "05/08/2026", "2026-13-01", "+3", "+3x", "-3d"
-        -- A bracketed value that does not reparse is refused like any other:
-        -- what the brackets buy is being taken verbatim, not being trusted.
         , "<not a date>", "<2026-08-05 Wed", "2026-08-05 25:00" ]
     ]
 
@@ -2261,30 +1855,24 @@ commandSpec = testGroup "Commands"
           (T.unlines ["* TODO Ship it :web:", "body"])
           (T.unlines ["* TODO Ship it :web:", "SCHEDULED: <2026-08-09 Sun>", "body"])
 
-      -- Under the TITLE line rather than at `hsFull''s end, which for a
-      -- drawered headline is its `:END:' two lines further down.
+      -- Under the TITLE line rather than at 'hsFull''s end, which here is the drawer's @:END:@.
     , testCase "and it goes above the drawer, not into it" $
         planningIs "over a drawer" "DEADLINE" (Just "<2026-08-09 Sun>")
           (T.unlines ["* TODO Ship it", ":PROPERTIES:", ":A: 1", ":END:"])
           (T.unlines ["* TODO Ship it", "DEADLINE: <2026-08-09 Sun>", ":PROPERTIES:"
                      , ":A: 1", ":END:"])
 
-      -- An added entry joins the END of the line, behind whatever it already
-      -- carries — the lens's own rule for an entry that moved.
     , testCase "beside an entry the line already has, it joins the end" $
         planningIs "joined" "DEADLINE" (Just "<2026-08-09 Sun>")
           (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat>"])
           (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat> DEADLINE: <2026-08-09 Sun>"])
 
-      -- Clearing takes the space that separated the entry with it, so the line
-      -- closes up rather than keeping a gap where an entry was.
     , testCase "clearing the first of two closes the line up" $
         planningIs "cleared first" "SCHEDULED" Nothing
           (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat> DEADLINE: <2026-08-05 Wed>"])
           (T.unlines ["* TODO Ship it", "DEADLINE: <2026-08-05 Wed>"])
 
-      -- The last entry on a line has no trailing run to take, so the LEADING
-      -- one goes instead — take both and the neighbours would be glued.
+      -- The last entry has no trailing run to take, so the LEADING one goes; both would glue.
     , testCase "and clearing the last of two takes the space in front of it" $
         planningIs "cleared last" "DEADLINE" Nothing
           (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat> DEADLINE: <2026-08-05 Wed>"])
@@ -2298,14 +1886,11 @@ commandSpec = testGroup "Commands"
           (T.unlines [ "* TODO Ship it"
                      , "SCHEDULED: <2026-08-01 Sat> CLOSED: [2026-07-30 Thu]" ])
 
-      -- The lens's rule: a planning line with no entries left is not one, so
-      -- the whole line goes rather than an empty keyword being left behind.
     , testCase "clearing the only entry takes the line with it" $
         planningIs "line dropped" "SCHEDULED" Nothing
           (T.unlines ["* TODO Ship it", "SCHEDULED: <2026-08-01 Sat>", "body"])
           (T.unlines ["* TODO Ship it", "body"])
 
-      -- CLOSED is an entry for that purpose even though no key sets one.
     , testCase "but a CLOSED beside it keeps the line standing" $
         planningIs "closed stays" "SCHEDULED" Nothing
           (T.unlines ["* TODO Ship it", "CLOSED: [2026-07-30 Thu] SCHEDULED: <2026-08-01 Sat>"])
@@ -2315,8 +1900,7 @@ commandSpec = testGroup "Commands"
         withRecord "* TODO Plain\n" $ \r ->
           assertEqual "no edits" (Right []) (setPlanningEdits "DEADLINE" Nothing r)
 
-      -- Only the two a key sets.  CLOSED is org's own bookkeeping, and a
-      -- keyword org never reads is not one at all.
+      -- Only the two a key sets: @CLOSED@ is org's own bookkeeping.
     , testCase "a keyword no key sets is refused, by name" $
         withRecord "* TODO Plain\n" $ \r ->
           mapM_ (\keyword -> case setPlanningEdits keyword (Just "<2026-08-05 Wed>") r of
@@ -2334,16 +1918,13 @@ commandSpec = testGroup "Commands"
                             , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:" ]))
           (captured "* TODO old\n" "TODO Buy milk :errands:")
 
-      -- A target that is not there yet is the empty document, and the entry is
-      -- the whole file: creation is the ordinary write under the empty pin.
     , testCase "into a file that is not there yet, the entry is the file" $
         assertEqual "no leading blank"
           (Right (T.unlines [ "* read the docs", ":PROPERTIES:"
                             , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:" ]))
           (captured "" "read the docs")
 
-      -- Appended bare to a file whose last line has no newline, the stars would
-      -- land on the end of a live line and be no headline at all.
+      -- Appended bare to a file with no closing newline, the stars would be no headline at all.
     , testCase "a file not closed with a newline gets one first" $
         assertEqual "the newline is the first thing written"
           (Right (T.unlines [ "tail", "* note", ":PROPERTIES:"
@@ -2354,8 +1935,6 @@ commandSpec = testGroup "Commands"
         assertContains "written as spelled" "* [#A] TODO ship :web:\n"
           (fromRight "" (captured "" "  [#A] TODO ship :web:  "))
 
-      -- The entry's lines end the way the target's own do, so a capture into a
-      -- CRLF file leaves one rather than a file with two kinds of line in it.
     , testCase "into a CRLF file, the entry is CRLF too" $
         assertEqual "every line the target's own ending"
           (Right (T.intercalate "\r\n"
@@ -2363,8 +1942,6 @@ commandSpec = testGroup "Commands"
                     , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:", "" ]))
           (captured "* old\r\n" "note")
 
-      -- The entry this command promises is ONE headline, so the two ways of
-      -- making it something else are refused rather than written.
     , testCase "an empty line and a multi-line one are refused" $
         mapM_ (\(what, text') -> case captured "" text' of
                  Right doc -> assertFailure (what <> ": wrote " <> show doc)
@@ -2372,29 +1949,21 @@ commandSpec = testGroup "Commands"
               [ ("empty", ""), ("blank", "   ")
               , ("two headlines", "one\n* two"), ("a body line", "one\nbody") ]
 
-      -- The stamp is org's INACTIVE form: a creation time is a record of when a
-      -- row was written rather than something to turn up on an agenda.
+      -- Org's INACTIVE form: a creation time is a record rather than agenda work.
     , testCase "the stamp is org's inactive timestamp, to the minute" $
         assertEqual "as org-glance's own store spells it"
                     "[2026-08-01 Sat 09:30]" (captureStamp stampedAt)
 
-      -- And it is a stamp ORG READS.  Nothing else asks: the capture renders
-      -- this straight into the drawer, so a bracket org does not know would be
-      -- written and only noticed by the next load.
     , testCase "and org reads the stamp back" $
         assertBool "the creation stamp reparses" (readsAsTimestamp (captureStamp stampedAt))
     ]
 
-    -- ORG'S PRIORITY TOKEN, which a key CYCLES rather than a reader types.  The
-    -- three shapes are `set-state''s three read one part along, and every case
-    -- asserts the whole document: what the edit must NOT touch is the keyword in
-    -- front of it and the title behind it.
+    -- ORG'S PRIORITY TOKEN, which a key CYCLES; every case asserts the whole document.
   , testGroup "set-priority"
     [ testCase "over a token already there, replaces exactly it" $
         setPriorityIs "replaced" (keyworded "* NEXT [#A] Ship it :web:\n") (Just "B")
                                  (keyworded "* NEXT [#B] Ship it :web:\n")
 
-      -- Org writes `* TODO [#A] Title', so the token follows the state.
     , testCase "with none, inserts behind the keyword" $
         setPriorityIs "after the keyword" (keyworded "* NEXT Ship it\n") (Just "A")
                                           (keyworded "* NEXT [#A] Ship it\n")
@@ -2402,7 +1971,6 @@ commandSpec = testGroup "Commands"
     , testCase "and behind the stars where there is no keyword" $
         setPriorityIs "after the stars" "* Ship it\n" (Just "C") "* [#C] Ship it\n"
 
-      -- The horizontal run goes with it, so the title closes up.
     , testCase "a null takes the token and the space behind it" $
         setPriorityIs "cleared" (keyworded "* NEXT [#A] Ship it\n") Nothing
                                 (keyworded "* NEXT Ship it\n")
@@ -2410,7 +1978,6 @@ commandSpec = testGroup "Commands"
     , testCase "and the whole run of it, however wide" $
         setPriorityIs "cleared wide" "* [#A]   Ship it\n" Nothing "* Ship it\n"
 
-      -- Which is what lets the ring's wrap THROUGH NONE be pressed twice.
     , testCase "clearing a headline that carries none costs no edit" $
         withRecord "* Plain\n" $ \r ->
           assertEqual "no edits" (Right []) (setPriorityEdits Nothing r)
@@ -2418,8 +1985,6 @@ commandSpec = testGroup "Commands"
     , testCase "the letter is uppercased and stripped" $
         setPriorityIs "folded" "* Plain\n" (Just "  b  ") "* [#B] Plain\n"
 
-      -- One ASCII letter, and the CYCLE is the reader's: a tree using `D' is
-      -- writable here and simply carries no badge.
     , testCase "anything that is not one letter is refused, by name" $
         mapM_ (\(text', wanted) ->
                  assertEqual (show text') wanted (isRight (priorityText text')))
@@ -2427,9 +1992,7 @@ commandSpec = testGroup "Commands"
               , ("AB", False), ("1", False), ("[#A]", False) ]
     ]
 
-    -- The one CELL a reader edits as text.  The span is the title's own, so
-    -- every case here asserts the whole document: what the edit must NOT touch
-    -- is the keyword in front of it and the tag run behind it.
+    -- The one CELL a reader edits as text; every case asserts the whole document.
   , testGroup "set-title"
     [ testCase "replaces exactly the title, between the keyword and the tags" $
         setTitleIs "replaced" (keyworded "* NEXT [#A] Ship it :web:\n") "Ship it now"
@@ -2438,10 +2001,7 @@ commandSpec = testGroup "Commands"
     , testCase "over a bare title" $
         setTitleIs "bare" "* Plain\n" "Renamed" "* Renamed\n"
 
-      -- The insertion goes behind the last part org writes AHEAD of a title, so
-      -- a headline that has none grows one where org would have written it.
-      -- 'titleLineEnd' cannot serve: its answer includes the TAGS, and a title
-      -- written past a run would be read back as tag text on the next load.
+      -- 'titleLineEnd' cannot serve: its answer includes the TAGS, so a title would read as tag text.
     , testCase "a headline with no title grows one behind its priority" $
         setTitleIs "after the priority" "* TODO [#B]\n" "Ship it"
                                         "* TODO [#B] Ship it\n"
@@ -2449,18 +2009,12 @@ commandSpec = testGroup "Commands"
     , testCase "and behind its keyword where it has no priority" $
         setTitleIs "after the keyword" "* TODO\n" "Ship it" "* TODO Ship it\n"
 
-      -- With neither in front of it the separator is the run org already writes
-      -- after the stars, so the title goes PAST it rather than growing a second
-      -- space.  The one shape that reaches this and is still a row: a headline
-      -- whose only content is a planning entry.
+      -- With neither in front the separator is the run org already writes after the stars.
     , testCase "and past the stars' own space where it has neither" $
         setTitleIs "after the stars" "* \nSCHEDULED: <2026-08-05 Wed>\n" "Ship it"
                                      "* Ship it\nSCHEDULED: <2026-08-05 Wed>\n"
 
-      -- A titleless headline carrying TAGS is not a shape org writes: the parser
-      -- hands `* TODO :web:' its colons as the TITLE, which is the same rule
-      -- 'blankEntry' rests on.  So the tags branch is unreachable from this side
-      -- as well, and the case below is what it looks like instead.
+      -- The parser hands @* TODO :web:@ its colons as the TITLE, so the tags branch is unreachable.
     , testCase "a run of colons with no title in front of it IS the title" $
         setTitleIs "the colons were the title" "* TODO :web:\n" "Ship it"
                                                "* TODO Ship it\n"
@@ -2468,12 +2022,7 @@ commandSpec = testGroup "Commands"
     , testCase "the text is stripped" $
         setTitleIs "stripped" "* Plain\n" "   Renamed  " "* Renamed\n"
 
-      -- Two rules and no third: a headline with no title is a blank entry and
-      -- no longer a row, and a second line is not part of this one.
-      -- BY NAME means the message says which rule refused, and a non-empty
-      -- string says only that something did: every refusal in this module
-      -- passed that, so the claim in the case's own name went unchecked.  The
-      -- two rules name themselves — a title is needed, and it is one line.
+      -- BY NAME: a non-empty refusal says only that something refused, so each rule names itself.
     , testCase "an empty title and a multi-line one are refused, by name" $
         withRecord "* Plain\n" $ \r ->
           mapM_ (\(what, text', named) -> case setTitleEdits text' r of
@@ -2484,8 +2033,6 @@ commandSpec = testGroup "Commands"
                 , ("blank", "   ", "needs a title")
                 , ("two lines", "one\ntwo", "is one line") ]
 
-      -- The wall is one function, so what the route refuses ahead of the write
-      -- and what the span math refuses are the same answer.
     , testCase "the wall is titleText, and the route reads the same one" $
         mapM_ (\(text', wanted) ->
                  assertEqual (show text') wanted (isRight (titleText text')))
@@ -2494,14 +2041,11 @@ commandSpec = testGroup "Commands"
     ]
   ]
 
--- | WHAT: DOC with @set-planning KEYWORD STAMP@ applied to its one headline is
--- WANTED.
+-- | WHAT: DOC with @set-planning KEYWORD STAMP@ on its one headline is WANTED.
 planningIs :: String -> Text -> Maybe Text -> Text -> Text -> Assertion
 planningIs what keyword stamp doc = triedEditsAre what doc (setPlanningEdits keyword stamp)
 
--- | The day every relative date here is worked out from, and the moment every
--- capture is stamped with: a Saturday, so @+1m@ lands on a different weekday and
--- the computed one is doing work.
+-- | The day every relative date is worked out from and every capture stamped with.
 today :: Time.Day
 today = Time.fromGregorian 2026 8 1
 
@@ -2531,18 +2075,11 @@ setPriorityIs what doc letter = triedEditsAre what doc (setPriorityEdits letter)
 setTitleIs :: String -> Text -> Text -> Text -> Assertion
 setTitleIs what doc title = triedEditsAre what doc (setTitleEdits title)
 
--- Subtree entries
---
--- The sub-addressing @?child=K@ rests on: which headlines are inside a row's
--- subtree, in what order they are numbered, what each one hangs under, and where
--- each one's own extent runs.  A row keeps only its own headline, so all four
--- come out of a re-parse, and what is asserted here is that the re-parse agrees
--- with the load — the extents are org's outline rule over the whole document,
--- the same one the rows themselves are cut by.
+-- Subtree entries: which headlines are inside a row's subtree, how they are
+-- numbered, what each hangs under and where each extent runs — all out of a
+-- re-parse, asserted to agree with the load.
 
--- | An outline with a level jump in it, which is what makes the parent rule
--- more than "one level up": @four@ hangs under @one@ across the gap that
--- @three@ leaves, and the second root is outside the first's subtree entirely.
+-- | An outline with a level jump in it, so the parent rule is more than one level up.
 deep :: Text
 deep = T.unlines
   [ "* TODO one :top:"
@@ -2571,14 +2108,11 @@ entrySpec = testGroup "Subtree entries"
       withEntries deep $ \_r entries ->
         assertEqual "the stars counted" [2, 3, 2] (map seLevel entries)
 
-    -- The nearest SHALLOWER entry, which is what a level jump needs: `four'
-    -- hangs under the row across the gap `three' left open.
+    -- The nearest SHALLOWER entry, which is what a level jump needs.
   , testCase "each one's parent is the nearest shallower entry" $
       withEntries deep $ \_r entries ->
         assertEqual "-1 is the row itself" [-1, 0, -1] (map seParent entries)
 
-    -- The extent is org's outline rule, so a child's slice covers its own
-    -- descendants and stops at the next headline at its level or shallower.
   , testCase "each one's extent is its own subtree" $
       withEntries deep $ \_r entries ->
         assertEqual "two carries three, three carries its body, four is one line"
@@ -2587,8 +2121,7 @@ entrySpec = testGroup "Subtree entries"
           , "** four\n" ]
           (map (subtreeText . seRecord) entries)
 
-    -- The lens over a child is the lens: the same three regions, cut out of the
-    -- child's own extent.
+    -- The lens over a child is the lens: three regions out of the child's own extent.
   , testCase "a child materializes through the same lens the row does" $
       withEntries (T.unlines [ "* one", "** two", "SCHEDULED: <2026-08-05 Wed>"
                              , ":PROPERTIES:", ":EFFORT: 0:30", ":END:"
@@ -2603,8 +2136,6 @@ entrySpec = testGroup "Subtree entries"
                         [("SCHEDULED", "<2026-08-05 Wed>")] (hpPlanning parts)
           [] -> assertFailure "expected one entry"
 
-    -- Decompose then recompose is the identity on a CHILD too, which is what
-    -- makes a child commit a splice of its own extent rather than a rewrite.
   , testCase "and decompose then recompose is the identity on it" $
       withEntries deep $ \_r entries ->
         mapM_ (\e -> let rec' = seRecord e
@@ -2613,14 +2144,12 @@ entrySpec = testGroup "Subtree entries"
                                     (recomposedSubtree rec' (headlineParts rec')))
               entries
 
-    -- The digest is the FILE's, so a child's write is pinned to the same lock
-    -- the row's is: one file, one digest, whichever entry the sheet is on.
+    -- The digest is the FILE's: one file, one lock, whichever entry the sheet is on.
   , testCase "a child pins the file's own digest" $
       withEntries deep $ \r entries ->
         assertEqual "the row's" (replicate (length entries) (hrDigest r))
                     (map (hrDigest . seRecord) entries)
 
-    -- The id exists to be readable in a refusal; nothing resolves one.
   , testCase "a child's id is the row's with its index behind it" $
       withEntries deep $ \r entries ->
         assertEqual "row/K" [ hrId r <> "/" <> T.pack (show k) | k <- [0 :: Int, 1, 2] ]
@@ -2637,8 +2166,6 @@ entrySpec = testGroup "Subtree entries"
       withEntries "* one\nbody\n" $ \_r entries ->
         assertEqual "none" 0 (length entries)
 
-    -- The cells are the loader's: a child carries a keyword the file declares,
-    -- and the same tag reading a row's does.
   , testCase "a child's cells are read the way a row's are" $
       withEntries (keyworded (T.unlines ["* one", "** NEXT [#B] two :web:x:"])) $
         \_r entries -> case entries of
@@ -2651,12 +2178,7 @@ entrySpec = testGroup "Subtree entries"
           [] -> assertFailure "expected one entry"
   ]
 
--- | CAPTURE: the template grammar, the blob a tagged capture composes, and the
--- store layout it writes to.
---
--- The expansion subset is the whole of what this repo reads out of
--- org-capture's language, so every code it names has a case and so does the
--- rule for everything it does not.
+-- | CAPTURE: the template grammar, the blob a tagged capture composes, the store layout.
 captureSpec :: TestTree
 captureSpec = testGroup "Capture"
   [ testGroup "The expansion subset"
@@ -2669,8 +2191,6 @@ captureSpec = testGroup "Capture"
           assertEqual "active" (Right "* x <2026-08-04 Tue 09:30>")
                       (expanded [] "x" "* %? %T")
 
-        -- The weekday is COMPUTED, like every other stamp this library writes,
-        -- and the two differ in their brackets and in nothing else.
       , testCase "a template spelling one twice stamps one moment" $
           assertEqual "one clock read per request"
                       (Right "* x [2026-08-04 Tue 09:30] [2026-08-04 Tue 09:30]")
@@ -2680,16 +2200,12 @@ captureSpec = testGroup "Capture"
           assertEqual "the answer, verbatim" (Right "* x\n:AUTHOR: Frank Herbert")
                       (expanded [("Author", "Frank Herbert")] "x" "* %?\n:AUTHOR: %^{Author}")
 
-        -- One question, both places filled: a prompt spelled twice is asked once
-        -- and answered everywhere it stands.
       , testCase "a prompt spelled twice is one ask and two fills" $ do
           assertEqual "asked once" ["Author"] (templatePrompts "* %? %^{Author} %^{Author}")
           assertEqual "filled twice" (Right "* x a a")
                       (expanded [("Author", "a")] "x" "* %? %^{Author} %^{Author}")
 
-        -- EVERYTHING ELSE COPIES THROUGH, which is the rule that keeps a
-        -- template using a code this server has never heard of readable rather
-        -- than silently emptied.
+        -- EVERYTHING ELSE COPIES THROUGH, so a template using an unknown code stays readable.
       , testCase "a code outside the subset is written as it stands" $
           mapM_ (\template ->
                    assertEqual (T.unpack template) (Right ("* x" <> T.drop 4 template))
@@ -2699,12 +2215,7 @@ captureSpec = testGroup "Capture"
       , testCase "and a % that opens nothing is a %" $
           assertEqual "trailing" (Right "* x %") (expanded [] "x" "* %? %")
 
-        -- THE LIST AND THE GRAMMAR ARE TWO SPELLINGS.  'captureCodes' is what
-        -- @GET /capture@ serves and the settings box completes over; the scan
-        -- spells the same four out as a case and never consults the list.  So
-        -- every code the list advertises is put through the scan here: one the
-        -- list gained and the scan did not would copy through as itself, which
-        -- is an expansion offered to a reader and written literally.
+        -- THE LIST AND THE GRAMMAR ARE TWO SPELLINGS: the scan never consults 'captureCodes'.
       , testCase "every advertised code is one the scan expands" $
           mapM_ (\(code, _means) ->
                    assertBool (T.unpack code <> " copied through as itself")
@@ -2725,8 +2236,6 @@ captureSpec = testGroup "Capture"
                      (either (T.isInfixOf "Author") (const False)
                              (expanded [] "x" "* %? %^{Author}"))
 
-        -- The refusal is the WHOLE request's: half an entry with a hole in it is
-        -- worse than none of one.
       , testCase "one unanswered ask refuses the whole expansion" $
           assertBool "refused"
                      (either (const True) (const False)
@@ -2747,8 +2256,7 @@ captureSpec = testGroup "Capture"
       , testCase "a file with no heading has none" $
           assertEqual "pragmas alone" Nothing (captureTemplateOf "#+TITLE: Book\n#+TODO: A | B\n")
 
-        -- The tag's own layer first, the system layer's next, and nothing after
-        -- that: the same chain the keywords beside it are resolved by.
+        -- The tag's own layer first, the system layer's next, and nothing after that.
       , testCase "the tag's layer beats the system layer" $ do
           assertEqual "the tag's own" (Just "* Book\n*** Notes\n    %?")
                       (captureTemplateIn "book" layers)
@@ -2763,9 +2271,7 @@ captureSpec = testGroup "Capture"
       ]
 
   , testGroup "Editing a template"
-        -- The file's own last newline is OUTSIDE the extent, so a replacement
-        -- leaves it: what the sheet edits is the template, never the byte that
-        -- ends the file.
+        -- The file's own last newline is OUTSIDE the extent, so a replacement leaves it.
       [ testCase "a template already there is replaced where it stands" $
           assertEqual "the pragmas above it keep their bytes"
                       (Right "#+TITLE: Book\n#+TODO: TODO | DONE\n\n* %? %U\n")
@@ -2782,16 +2288,12 @@ captureSpec = testGroup "Capture"
       , testCase "and clearing a file that has none costs no edit" $
           assertEqual "no edit" (Right []) (captureTemplateEdits "#+TITLE: Book\n" "")
 
-        -- ONE WALL, and it is what keeps a blob's first headline the entry
-        -- org-glance keys it by.
       , testCase "a template that is not one top entry is refused" $
           mapM_ (\want -> assertBool (T.unpack want)
                             (either (const True) (const False)
                                     (captureTemplateEdits bookLayer want)))
                 ["body text", "** %?", "*%?", "  * %?"]
 
-        -- A ROUND TRIP: what the settings sheet is shown is what it can write
-        -- back, byte for byte.
       , testCase "read then written back leaves the file alone" $
           assertEqual "byte for byte" (Right bookLayer)
                       (templated bookLayer (fromMaybe "" (captureTemplateOf bookLayer)))
@@ -2807,8 +2309,7 @@ captureSpec = testGroup "Capture"
                                         , ":END:" ]))
                       (blobDocument (BlobSeed "book" "i-1" "[2026-08-04 Tue 09:30]") "* milk")
 
-        -- A template carrying a drawer of its own keeps it, and the two
-        -- properties join it rather than opening a second one.
+        -- A template carrying a drawer keeps it; the two properties join it.
       , testCase "a drawer the template wrote is joined rather than doubled" $
           assertEqual "one drawer"
                       (Right (T.unlines [ "* milk :book:"
@@ -2834,15 +2335,12 @@ captureSpec = testGroup "Capture"
                      (either (const False) (T.isInfixOf "* milk :web:book:")
                              (blobDocument (BlobSeed "book" "i-1" "[s]") "* milk :web:"))
 
-        -- The template's own children ride along: a blob is the whole entry.
       , testCase "the template's children are the entry's" $
           assertBool "the child survives"
                      (either (const False) (T.isInfixOf "*** Notes")
                              (blobDocument (BlobSeed "book" "i-1" "[s]") "* Book\n*** Notes\n    milk"))
 
-        -- THE DRAWER GOES UNDER THE PLANNING LINE, which is where org puts one:
-        -- spliced between the headline and its `SCHEDULED:' the planning line
-        -- stops being the line after the title and is read as body text.
+        -- Spliced between the headline and its @SCHEDULED:@, the planning line becomes body text.
       , testCase "a template with a planning line keeps it under the title" $
           assertEqual "planning first, drawer second"
                       (Right (T.unlines [ "* milk :book:"
@@ -2859,11 +2357,7 @@ captureSpec = testGroup "Capture"
                      (either (const False) (T.isSuffixOf "\n")
                              (blobDocument (BlobSeed "book" "i-1" "[s]") "* milk"))
 
-        -- A WRITE SPELLS NO TRAILING SPACE, and a blob is the case with no
-        -- untouched bytes to weigh it against: the file is composed whole out of
-        -- the template, so a template line closing with a run writes one line
-        -- shorter.  The TAG lands ahead of the run it is trimmed with, since
-        -- 'titleLineEnd' is past the tags and short of the space behind them.
+        -- A blob is composed whole, so no untouched bytes weigh the trailing-space rule.
       , testCase "a template's trailing runs do not reach the file" $
           assertEqual "every line ends at its last word"
                       (Right (T.unlines [ "* milk :book:"
@@ -2883,8 +2377,7 @@ captureSpec = testGroup "Capture"
                       "/o/.org-glance/data/04/a14d10-41c1-4a3d/data.org"
                       (blobPathIn "/o/.org-glance" "04a14d10-41c1-4a3d")
 
-        -- NOT FOLDED: org-glance's own store carries `Pa', `Pe' and `al' shards
-        -- side by side, an id being an opaque string wherever it is read.
+        -- NOT FOLDED: an id is an opaque string wherever it is read.
       , testCase "the shard is not folded" $
           assertEqual "Password- shards under Pa"
                       "/o/.org-glance/data/Pa/ssword-1/data.org"
@@ -2897,8 +2390,7 @@ captureSpec = testGroup "Capture"
       , testCase "the store root is the served root's own" $
           assertEqual "one tree, one store" "/o/.org-glance" (storeRootIn "/o")
 
-        -- A blob path is one this walk COLLECTS and this note-taker names, which
-        -- is what makes the row arrive and the EXTERNAL line get written.
+        -- A blob path is one this walk COLLECTS, which is what makes the row arrive.
       , testCase "a composed path is a blob the walk keeps" $
           assertBool "walked and not derived"
                      (documentPath (blobPathIn (storeRootIn "/o") "abcdef")
@@ -2929,15 +2421,12 @@ captureSpec = testGroup "Capture"
       ]
   ]
   where
-    -- ONE clock for every expansion case, so a stamp is an assertion rather than
-    -- a moving target.
+    -- ONE clock for every expansion case, so a stamp is an assertion rather than a target.
     noon = Time.ZonedTime (Time.LocalTime (Time.fromGregorian 2026 8 4)
                                           (Time.TimeOfDay 9 30 0))
                           Time.utc
     expanded answers text = expandTemplate noon answers text
-    -- The module's own splice, which every other command case here asserts
-    -- through: an oracle that shared the write engine would agree with a wrong
-    -- offset.
+    -- The module's own splice: an oracle sharing the write engine would agree with a wrong offset.
     templated doc want = splice doc <$> captureTemplateEdits doc want
     bookLayer = "#+TITLE: Book\n#+TODO: TODO | DONE\n\n* Book\n*** Notes\n    %?\n"
     layers =

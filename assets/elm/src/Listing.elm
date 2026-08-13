@@ -1,23 +1,9 @@
 port module Listing exposing (main)
 
-{-| THE SHELL'S SMALL LISTS, all four of them: the sheet's property panel, the
-link popup, the tags popup and the settings sheet's states table.
-
-Each is a list of RECORDS under declared columns, with a cursor, optional delete
-flags, a click that selects and a `/` narrow over the cells it draws — which is
-the whole widget. What a row MEANS stays with the shell, as it always did: this
-draws them and says where point is.
-
-The one list that is NOT here is the table at `#app`. That one is the renderer's
-own job — hundreds of virtualized rows, filtering, sorting, marks and the crumb
-trail — and it stays where it is.
-
-The markup is the renderer's, class for class, because the served stylesheet is
-written against it.
-
-Four instances of one program: `Elm.Listing.init` per host, each with ports of
-its own.
-
+{-| THE SHELL'S SMALL LISTS: the sheet's property panel, the link popup, the tags
+popup and the settings sheet's states table — records under declared columns,
+with a cursor, flags and a `/` narrow. The markup is the renderer's class for
+class, because the served stylesheet is written against it. AGENTS.hs.
 -}
 
 import Browser
@@ -30,7 +16,6 @@ import Scan
 
 
 
--- MODEL
 
 
 type alias Badge =
@@ -68,13 +53,10 @@ type Msg
 
 
 
--- UPDATE
 
 
-{-| SUBSTRING, CASE-FOLDED, over the cells this list DRAWS — the producer's own
-rule for free text (`substring:`, AGENTS.hs), and no grammar of any kind: a bar,
-a colon and a leading `-` are the characters they spell. The cells are joined by
-the unit separator `hrSearch` joins them with, so a match never spans two.
+{-| SUBSTRING, CASE-FOLDED over the cells DRAWN — the producer's `substring:`
+rule with no grammar: a bar, a colon and a leading `-` are literal characters.
 -}
 holds : String -> Model -> Row -> Bool
 holds want m r =
@@ -84,8 +66,7 @@ holds want m r =
         )
 
 
-{-| The rows on screen. A narrow nobody opened is every row, and an OPEN one
-holding nothing is too — the field is up and has narrowed nothing yet.
+{-| A narrow nobody opened is every row, and an OPEN one holding nothing is too.
 -}
 shown : Model -> List Row
 shown m =
@@ -160,8 +141,7 @@ update msg model =
             told { model | flags = [] }
 
         -- THE CURSOR LANDS ON THE FIRST MATCH where the narrow takes its row
-        -- away, and stays on it where it survives. The FLAGS are id-keyed and
-        -- untouched, as they are under the table's own filter.
+        -- away. FLAGS are id-keyed and untouched, as under the table's filter.
         Narrow want ->
             let
                 held =
@@ -189,14 +169,12 @@ told m =
 
 
 
--- PORTS
 
 
 port listIn : (D.Value -> msg) -> Sub msg
 
 
-{-| Where point is and what is flagged, after every change: the shell mirrors it
-for the readers that cannot wait a turn for a port.
+{-| The shell mirrors this for readers that cannot wait a turn for a port.
 -}
 port listState : E.Value -> Cmd msg
 
@@ -219,9 +197,6 @@ stateJSON m =
         ]
 
 
-{-| A cell arrives as whatever the surface holds — the tags popup's count is a
-NUMBER — and is drawn as text either way.
--}
 badgeD : D.Decoder Badge
 badgeD =
     D.map2 Badge (D.field "value" D.string) (D.field "color" D.string)
@@ -289,11 +264,9 @@ msgD =
 
 
 
--- VIEW
 
 
-{-| The classes a row wears at display index I, the renderer's own derivation:
-the zebra stripe is index-borne, the cursor and the flag are the row's.
+{-| The renderer's own derivation: the stripe is index-borne, the rest the row's.
 -}
 rowClass : Model -> Int -> Row -> String
 rowClass m i r =
@@ -336,8 +309,7 @@ cellOf r key =
 
 
 {-| A BADGE CELL IS A PILL, the renderer's own markup: the palette hue tints the
-ground and writes the label, so one hue carries it in either scheme. A value the
-palette does not name stays plain text.
+ground and writes the label, so one hue carries it in either scheme.
 -}
 viewCell : Row -> Column -> Html Msg
 viewCell r c =
@@ -380,10 +352,8 @@ head c =
         ]
 
 
-{-| THE FIELD IS THE LIST'S OWN, one line at its head, and it is drawn only
-while a narrow is open — a list nobody narrowed carries no filter chrome, which
-is the renderer's own palette rule. The dress is the renderer's too, class for
-class, so this is the box a reader already knows from the table.
+{-| THE FIELD IS THE LIST'S OWN, drawn only while a narrow is open, in the
+renderer's own dress class for class — the box a reader knows from the table.
 -}
 bar : Model -> List (Html Msg)
 bar m =
@@ -435,12 +405,10 @@ view m =
 
 
 
--- MAIN
 
 
-{-| FLAGS ARE DECODED BY HAND rather than by field name: a column carries `type`
-and `badges` where a caller has them and neither where it does not, and the
-automatic decoding would refuse the shorter shape.
+{-| BY HAND, since a column carries `type` and `badges` only where the caller has
+them, and automatic decoding by field name would refuse the shorter shape.
 -}
 flagsD : D.Decoder ( List Column, String )
 flagsD =

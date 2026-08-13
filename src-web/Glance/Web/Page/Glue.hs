@@ -1,15 +1,4 @@
--- | The shell's configuration blob — every server value the script reads,
--- as ONE JSON object the page emits ahead of it.
---
--- The script itself is @assets\/glue.js@, a real JavaScript file compiled
--- into the binary the way the renderer is ('Glance.Web.Routes'); this module
--- is what is left of the 5.2k-line Haskell string list it used to be
--- (docs\/proposals\/2026-08-05-glue-extraction.done.md).  Eight members are
--- per-build constants off the library; @views@ is the one per-request value and
--- the reason the blob is the PAGE's to emit.  The blob rides a
--- @\<script type="application\/json"\>@ element — the keymap blob's own
--- pattern — so the page still inlines no executable JS beyond the file it
--- names.
+-- | The shell's configuration blob: every server value @assets\/glue.js@ reads, as ONE JSON object the page emits ahead of it.
 module Glance.Web.Page.Glue (glueConfig) where
 
 import Data.Aeson (Value, object, (.=))
@@ -19,16 +8,12 @@ import Glance.Query ( archiveTag, captureCodes, followableTypes, linkColumns
                     , planningKeywords, tagColumns )
 import Glance.Web.Base (jsonValue, logLinesDefault, logLinesMax, logLinesMin)
 
--- | The blob for VIEWS, the tree's saved views in registry order.  Member names are the
--- script's @CFG.*@ reads; a member added here without its read is inert, one
--- read without its member is an undefined the suite's boot catches.
+-- | The blob for VIEWS, the tree's saved views in registry order.  Member names are the script's @CFG.*@ reads.
 glueConfig :: [(Text, Text)] -> Text
 glueConfig views = jsonValue $ object
   [ "views"        .= [ object ["id" .= i, "query" .= q] | (i, q) <- views ]
   , "dcells"       .= (["state", "priority", "title", "tags"] :: [Text])
   , "planning"     .= planningKeywords
-    -- The tag `archive' adds and `delete' reads: ONE spelling, the server's, so
-    -- the page cannot come to believe in a different one.
   , "archiveTag"   .= archiveTag
   , "followable"   .= followableTypes
   , "codes"        .= codeList
@@ -40,9 +25,6 @@ glueConfig views = jsonValue $ object
                              , "max" .= logLinesMax ]
   ]
 
--- | 'captureCodes' as the objects the page's own completion reads: the code and
--- the one line saying what it does, in the order the list declares them.  The
--- same shape @GET \/capture@ serves, so a client that reads it there and this
--- blob's copy cannot come to describe two different subsets.
+-- | 'captureCodes' as objects: the code and the one line saying what it does, the shape @GET \/capture@ serves.
 codeList :: [Value]
 codeList = [ object ["code" .= code, "means" .= means] | (code, means) <- captureCodes ]

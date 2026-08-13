@@ -1,23 +1,4 @@
--- | The laws @AGENTS.hs@ writes as UNIVERSALS, asked as universals.
---
--- Every group here restates a rule the repo already pins with a hand-chosen
--- example list and hands it a generator instead.  Three kinds, and the kind
--- decides which alphabet 'TestGen' draws from:
---
--- * ANSWER — the generator computed the offsets, so the assertion is an equality
---   against a value the parser never saw.  Plain alphabet.
--- * ALGEBRA — self-consistency and round-trips, which need no answer, so they
---   take the adversarial alphabet too.
--- * NEGATIVE — the documented refusals.
---
--- WHAT THE GROUPS DO NOT BUY IS STATED PLAINLY: the nesting and well-formedness
--- properties ask the corpus's own questions of a hundred generated headlines
--- where @glance scan@ asks them of 12630 real ones, and what they add over it is
--- OFFLINE and SHRINKING.  The reparse, the lens, @applyEdits@' algebra, the
--- timestamps and the level sequences are unreachable from a read-only scan.
---
--- The seed is fixed ('TestDefaults.testProperty'), so a red run replays from the
--- commit alone; @GLANCE_QC_SEED@ unfixes it.
+-- | @AGENTS.hs@'s laws asked as universals; @GLANCE_QC_SEED@ unfixes the seed.
 module TestProperties (spec) where
 
 import Data.Char (isAlpha, isDigit)
@@ -66,11 +47,7 @@ spec = testGroup "Properties"
 
 -- The instrument, asserted before anything is read through it
 
--- | A property that generates nothing interesting passes forever.  This group
--- lands FIRST and says what the image holds; the counts are over ONE
--- deterministic sample, so the census is a fact about the generator rather than
--- about the run that read it — @groundSweep@\'s idiom, which asserts what it
--- swept before reading through it.
+-- | A generator with a narrow image passes forever, so this group lands FIRST.
 generatorSpec :: TestTree
 generatorSpec = testGroup "Generator"
   [ testCase "the image is wide" $ do
@@ -85,9 +62,7 @@ generatorSpec = testGroup "Generator"
                     <> show [ (name, seen name) | (name, _floor) <- shapeFloors ])
                  (null short)
 
-    -- A generated document the PARSER refuses, or one whose entries do not each
-    -- come back as a headline, would make every property below vacuous in the
-    -- quiet direction.
+    -- A document the parser refuses makes every property below vacuous.
   , testCase "every document it spells parses, and yields the entries it spelled" $ do
       let bad = [ (why, rdText r) | ds <- docSample sampleSize
                                   , let r = render ds
@@ -101,9 +76,6 @@ generatorSpec = testGroup "Generator"
                     <> show sampleSize <> ")")
                  (null bad)
 
-    -- The acceptance property below is an EQUALITY and cannot go vacuous, but
-    -- the three guarded by 'legal' can, so both sides of the boundary are
-    -- counted here off the very generator they read through.
   , testCase "the edit sets reach both sides of the acceptance boundary" $ do
       let sets = editSample sampleSize
           legals = length [ () | (doc, es) <- sets, legal doc es ]
@@ -114,9 +86,7 @@ generatorSpec = testGroup "Generator"
 
 -- ANSWER properties
 
--- | Equalities against offsets the generator counted.  The first assertions in
--- this repo that are not self-consistent: every span-slice assertion in
--- @TestSpans@ checks a slice against the component the SAME parse produced.
+-- | Equalities against offsets the generator counted: NOT self-consistent.
 answerSpec :: TestTree
 answerSpec = testGroup "Spans, against the offsets they were written at"
   [ testProperty "every sub-span is where the generator spelled it" $ \ds ->
@@ -124,11 +94,7 @@ answerSpec = testGroup "Spans, against the offsets they were written at"
       in  withParse r $ \_ctx elems ->
             map spans (headlinesOf elems) === map exSpans (rdEntries r)
 
-    -- 'hsFull' is a LEFT FOLD over 'spanParts' seeded with the stars, ending at
-    -- the LAST present part in SOURCE order — never a maximum over ends.  The
-    -- two agree exactly while that list is in source order and diverge the
-    -- moment it is not, which is the failure mode AGENTS.hs describes and
-    -- one fixture samples.
+    -- Fold and maximum agree exactly while 'spanParts' is in source order.
   , testProperty "hsFull is the fold, and the fold is the maximum" $ \(Wild ds) ->
       let r = render ds
       in  withParse r $ \_ctx elems -> conjoin
@@ -140,11 +106,7 @@ answerSpec = testGroup "Spans, against the offsets they were written at"
                   full = hsFull hs
                   present = mapMaybe ($ hs) (map snd namedSubSpans) ]
 
-    -- Subtree extents TILE, computed over EVERY headline though only top
-    -- entries keep records.  A BLANK top entry is left out of this ON PURPOSE:
-    -- it keeps its extent and loses its record, and the survivors then do NOT
-    -- meet — see the delivery note in
-    -- docs/proposals/2026-08-11-property-tests.done.md.
+    -- A BLANK top entry is left out ON PURPOSE: it keeps its extent, loses its record.
   , testPropertyWith 60 "top entries tile the document, and meet exactly" $ \ds ->
       let r = render ds
           want = [ sp | (e, sp) <- zip (rdEntries r)
@@ -163,8 +125,7 @@ answerSpec = testGroup "Spans, against the offsets they were written at"
 algebraSpec :: TestTree
 algebraSpec = testGroup "Spans, as an algebra"
   [ -- 'assertInvariants' (TestSpans) with its 24 documents replaced by a
-    -- generator: containment, source order, non-overlap, and the drawer closing
-    -- the headline.
+    -- generator.
     testProperty "sub-spans nest inside hsFull, in order, never overlapping" $ \(Wild ds) ->
       let r = render ds
       in  withParse r $ \_ctx elems -> conjoin (map nested (headlinesOf elems))
@@ -176,10 +137,7 @@ algebraSpec = testGroup "Spans, as an algebra"
             | h <- headlinesOf elems
             , let slice = sliceSpan (rdText r) (hsFull (spans h)) ]
 
-    -- Threaded with the parse's OWN final context, which is what a generated
-    -- '#+TODO:' line makes load-bearing: a slice carrying a custom keyword
-    -- reparsed under 'defaultContext' reads that keyword as title text.  One
-    -- fixture wide today.
+    -- The parse's OWN context: under 'defaultContext' a '#+TODO:' keyword reads as title.
   , testProperty "hsFull reparses to the headline it came from" $ \(Wild ds) ->
       let r = render ds
       in  withParse r $ \ctx elems -> conjoin
@@ -191,10 +149,7 @@ algebraSpec = testGroup "Spans, as an algebra"
       in  withParse r $ \ctx elems -> conjoin
             [ reparses ctx (sliceSpan (rdText r) (spanOf e)) (valueOf e) | e <- elems ]
 
-    -- The SEMANTIC half of 'stripSpans', which the compiler cannot state: move
-    -- the document by a preamble and the stripped elements must not move.  A
-    -- constructor that leaks a span fails this and nothing else — and ~150
-    -- span-insensitive assertions read elements through 'bare'.
+    -- The SEMANTIC half of 'stripSpans': a leaked span fails this and nothing else.
   , testProperty "stripSpans leaves no offset behind" $ \(Wild ds) pad ->
       let doc = rdText (render ds)
           ahead = preamble pad
@@ -202,7 +157,6 @@ algebraSpec = testGroup "Spans, as an algebra"
             bareOf doc === drop (length (bareOf ahead)) (bareOf (ahead <> doc))
   ]
 
--- | Every rule 'assertInvariants' states, over one headline.
 nested :: Headline -> Property
 nested h = conjoin (inside <> ordered <> drawerClosesIt)
   where
@@ -220,9 +174,7 @@ nested h = conjoin (inside <> ordered <> drawerClosesIt)
                          (spanEnd sp === spanEnd full)
                      | Just sp <- [hsProperties hs] ]
 
--- | HS's present sub-spans in SOURCE order: five of them positional, and the
--- three PLANNING entries sorted by offset, since org lets one line permute them
--- freely.  The rule 'spanParts' answers, written out rather than read off it.
+-- | Written out rather than read off 'spanParts', which it is the oracle for.
 sourceOrder :: HeadlineSpans -> [(String, Span)]
 sourceOrder hs = there before <> sortOn (spanStart . snd) (there planning) <> there after
   where
@@ -232,14 +184,7 @@ sourceOrder hs = there before <> sortOn (spanStart . snd) (there planning) <> th
 
 -- applyEdits
 
--- | 'applyEdits' sorts and checks NEIGHBOURS, which is a reduction from the
--- quadratic pairwise rule its docstring states.  'legal' below is that rule
--- written out — the specification — and the acceptance property is what asks the
--- reduction to justify itself.
---
--- The three properties guarded by @legal@ are their own coverage oracle: a
--- generator that stopped producing legal sets would exceed QuickCheck's discard
--- ratio and the shim would fail them.
+-- | 'applyEdits' checks NEIGHBOURS; 'legal' is the quadratic rule it reduces.
 editSpec :: TestTree
 editSpec = testGroup "applyEdits"
   [ testProperty "accepts exactly the disjoint sets" $ \ds plan texts ->
@@ -248,10 +193,7 @@ editSpec = testGroup "applyEdits"
       in  counterexample (show es) (isRight (applyEdits doc es) === legal doc es)
 
   , -- The two below take sets that are DISJOINT BY CONSTRUCTION rather than by a
-    -- guard: over the adversarial sets above only a fifth are legal, and a
-    -- precondition that discards four cases in five is a property mostly not
-    -- being run.  Legality is asserted rather than assumed, so a construction
-    -- that stopped producing legal sets says so.
+    -- guard: a precondition discarding four cases in five is barely run.
     testProperty "the answer does not depend on the order they were named" $ \ds plan texts k ->
       let doc = rdText (render ds)
           es = disjointEdits doc plan texts
@@ -266,8 +208,6 @@ editSpec = testGroup "applyEdits"
             .&&. (T.length <$> applyEdits doc es)
                    === Right (T.length doc + sum (map delta es))
 
-    -- "untouched bytes stay byte-identical" (AGENTS.hs) as a
-    -- universal.  TestEdit's ten splice cases are four points of this algebra.
   , testProperty "replacing a span with its own text is the document" $ \ds a b ->
       let doc = rdText (render ds)
           sp = spanIn doc a b
@@ -284,16 +224,7 @@ editSpec = testGroup "applyEdits"
 
 -- The subtree lens
 
--- | Decompose → recompose is byte-identical UP TO THE LINE END, over region
--- PRESENCE (three independent bits), region STYLE (indentation × line ending ×
--- ordering) and a body the client has changed — the last being the half that
--- exercises the subtraction the region indices are computed by.  Twelve
--- fixtures under one @testCase@ is the whole of it today.
---
--- The law used to be plain identity and the trailing space the generator draws
--- ('esTrail', 'esHeadTrail') is what narrowed it: a write spells no trailing
--- space, so a subtree carrying one comes back one run shorter and one carrying
--- none comes back byte for byte, which is the same statement.
+-- | Byte-identical UP TO THE LINE END: a write spells no trailing space.
 lensSpec :: TestTree
 lensSpec = testGroup "Subtree lens"
   [ testPropertyWith 60 "decompose then recompose is the subtree, its line ends trimmed" $ \ds ->
@@ -305,10 +236,6 @@ lensSpec = testGroup "Subtree lens"
       let r = render ds
       in  ioProperty (withLoaded r (\_doc recs -> conjoin (map ownsEachByte recs)))
 
-    -- Re-decomposing a body the client changed must answer the parts it was
-    -- given: a region goes back on the line it sat on less the lines every
-    -- region ahead of it took out, and the failure mode is a region landing one
-    -- line late.
   , testPropertyWith 20 "re-decomposing an edited body answers the parts it was given" $ \ds ->
       let r = render ds
       in  lensRepresentable ds ==> ioProperty (withLoaded r
@@ -317,9 +244,7 @@ lensSpec = testGroup "Subtree lens"
 
 -- Timestamps
 
--- | The value round-trip is the direction that is TOTAL: render → parse → equal.
--- Text → render is lossy by design, the weekday being recomputed, which is why
--- @TestRoundtrip@ spells canonical stamps in all 26 of its rows.
+-- | The TOTAL direction is render → parse → equal; text → render is lossy.
 timestampSpec :: TestTree
 timestampSpec = testGroup "Timestamps"
   [ testProperty "a value survives render then parse" $ \(TsImage ts) ->
@@ -329,19 +254,13 @@ timestampSpec = testGroup "Timestamps"
       counterexample (T.unpack (showt ts))
         ((showt <$> readTimestamp (showt ts)) === Just (showt ts))
 
-    -- The weekday slot takes a run of LETTERS in any script, any length, and
-    -- drops it: display-only, so a locale's word is as good as org's.  One Dutch
-    -- fixture and a seven-word list are the whole of it today.
   , testProperty "any weekday spelling reads to the same value" $ \(TsImage ts) word ->
       let source = showt ts
           reworded = respellWeekday (weekdayWord word) source
       in  counterexample (T.unpack source <> " -> " <> T.unpack reworded)
             (readTimestamp reworded === Just ts)
 
-    -- 'compactly' guards the compact render with three conditions — the flag,
-    -- both ends timed, one day — of which AGENTS.hs records that ONLY THE
-    -- FLAG is exercised.  A flag the ends cannot hold takes the '--' arm and the
-    -- value comes back with the flag cleared and nothing else moved.
+    -- 'compactly' guards on three conditions and only the FLAG is exercised.
   , testProperty "a compact flag the ends cannot hold comes back cleared" $ \(TsAny ts) ->
       tsCompactRange ts && not (compactible ts) ==>
         counterexample (T.unpack (showt ts))
@@ -350,10 +269,7 @@ timestampSpec = testGroup "Timestamps"
 
 -- Negative
 
--- | A sub-parser stopping mid-word fails the WHOLE file, and @orgParse@ on error
--- returns zero elements AND the caller's context untouched — the second half
--- being what a document declaring a @#+TODO:@ cycle makes worth asking, since a
--- successful parse of it would have moved the context.
+-- | A refusal returns zero elements AND the caller's context untouched.
 negativeSpec :: TestTree
 negativeSpec = testGroup "Refusals"
   [ testProperty "a mismatched range fails the whole file and leaves the context" $
@@ -365,7 +281,6 @@ negativeSpec = testGroup "Refusals"
                 counterexample "expected a refusal" (property False)
   ]
 
--- | DS with the mismatched range spliced into entry K's body.
 breakAt :: Int -> DocSpec -> DocSpec
 breakAt k ds = ds { dsEntries = zipWith at [0 ..] (dsEntries ds) }
   where n = max 1 (length (dsEntries ds))
@@ -374,18 +289,13 @@ breakAt k ds = ds { dsEntries = zipWith at [0 ..] (dsEntries ds) }
 
 -- Helpers
 
--- | The eight sub-spans in the order 'spanParts' spells them for a headline
--- whose planning entries are written in org's own order.  Named here rather than
--- read off 'headlineSpanParts': an oracle derived from the library would agree
--- with any change to it.
+-- | Named here rather than read off 'headlineSpanParts', which it is the oracle for.
 namedSubSpans :: [(String, HeadlineSpans -> Maybe Span)]
 namedSubSpans =
   [ ("hsTodo", hsTodo), ("hsPriority", hsPriority), ("hsTitle", hsTitle), ("hsTags", hsTags)
   , ("hsSchedule", hsSchedule), ("hsDeadline", hsDeadline), ("hsClosed", hsClosed)
   , ("hsProperties", hsProperties) ]
 
--- | Run K over R's parse, failing the property on a parse error and showing the
--- text either way — which is what a reader pastes into a file.
 withParse :: Rendered -> (Context -> [Spanned Element] -> Property) -> Property
 withParse r k = counterexample (T.unpack (rdText r)) $
   case orgParse defaultContext (rdText r) of
@@ -401,17 +311,13 @@ bareOf :: Text -> [Element]
 bareOf t = case orgParse defaultContext t of
   (elems, _ctx, _err) -> bare elems
 
--- | SLICE parsed in CTX is exactly the one element it was cut from.
 reparses :: Context -> Text -> Element -> Property
 reparses ctx slice want = counterexample (T.unpack slice) $
   case orgParse ctx slice of
     (elems, _ctx, Nothing) -> bare elems === [stripSpans want]
     (_elems, _ctx, Just _err) -> counterexample "parse error" (property False)
 
--- | R written to a file and loaded the way the store loads one, so the records
--- under test are the ones the daemon would hold.  Bytes rather than
--- 'TestDefaults.orgFile': the documents carry unicode and the decode on the way
--- back in is UTF-8 whatever the locale is.
+-- | Bytes rather than 'TestDefaults.orgFile': the decode must be UTF-8.
 withLoaded :: Rendered -> (Text -> [HeadlineRecord] -> Property) -> IO Property
 withLoaded r k = withTempDirNamed "prop" $ \dir -> do
   let doc = rdText r
@@ -422,10 +328,7 @@ withLoaded r k = withTempDirNamed "prop" $ \dir -> do
     Right recs -> k doc recs
     Left why -> counterexample ("load failed: " <> show why) (property False)
 
--- | The body's lines are the subtree's own, in order, with the three regions
--- taken out — the whole-line cutting rule, which is what one-owner-per-byte buys
--- on the side the lens exposes.  The region SPANS are module-private, so this is
--- the subsequence rather than the tiling equation.
+-- | The region SPANS are module-private, so this is the subsequence alone.
 ownsEachByte :: HeadlineRecord -> Property
 ownsEachByte r = counterexample (show (subtreeText r, hpBody parts)) $
   property (subsequence (T.lines (hpBody parts)) (T.lines (subtreeText r)))
@@ -434,23 +337,11 @@ ownsEachByte r = counterexample (show (subtreeText r, hpBody parts)) $
                       || not (T.strip (hpLogbook parts) `T.isInfixOf` hpBody parts)))
   where parts = headlineParts r
 
--- | PARTS as a write leaves them: line ends trimmed, and the logbook's
--- terminator off.  A region that was the file's LAST line and no longer is must
--- GAIN one, which is the splice being right rather than wrong; a trailing run a
--- write took is the rule rather than a move; nothing else may shift.
---
--- The two pair lists need neither: a planning span is the timestamp alone and a
--- property's value is stripped as it is read, so no trailing run reaches them.
 settled :: HeadlineParts -> HeadlineParts
 settled parts = parts { hpBody    = asWritten (hpBody parts)
                       , hpLogbook = T.stripEnd (asWritten (hpLogbook parts)) }
 
--- | TEXT as a write spells it: each line's trailing horizontal run off, its
--- terminator kept.
---
--- An INDEPENDENT spelling of the rule 'recomposedSubtree' enforces rather than
--- the export of it: a trim that took the carriage return along with the spaces
--- passes over there and fails here, and the generator draws CRLF documents.
+-- | An INDEPENDENT spelling of what 'recomposedSubtree' enforces, CRLF included.
 asWritten :: Text -> Text
 asWritten = T.intercalate "\n" . map line . T.splitOn "\n"
   where line l = case T.stripSuffix "\r" l of
@@ -464,8 +355,6 @@ subsequence _ [] = False
 subsequence (x : xs) (y : ys) | x == y = subsequence xs ys
                               | otherwise = subsequence (x : xs) ys
 
--- | R's parts with one line appended to the body, recomposed, spliced back into
--- DOC and re-read: the parts must come back exactly as they were handed over.
 reDecomposes :: Text -> HeadlineRecord -> Property
 reDecomposes doc r = ioProperty $ withTempDirNamed "prop-lens" $ \dir -> do
   let parts = headlineParts r
@@ -485,8 +374,7 @@ reDecomposes doc r = ioProperty $ withTempDirNamed "prop-lens" $ \dir -> do
       (q : _) -> settled (headlineParts q) === settled parts'
       [] -> counterexample "the edited row is gone" (property False)
 
--- | The QUADRATIC rule 'applyEdits' reduces to a neighbour check: every span
--- inside the document, and no two of them overlapping.
+-- | The QUADRATIC rule 'applyEdits' reduces to a neighbour check.
 legal :: Text -> [Edit] -> Bool
 legal doc es = all inBounds es && and [ apart a b | (a, b) <- pairs (map editSpan es) ]
   where
@@ -496,8 +384,6 @@ legal doc es = all inBounds es && and [ apart a b | (a, b) <- pairs (map editSpa
     tailsOf [] = []
     tailsOf xs@(_ : rest) = xs : tailsOf rest
 
--- | Are the sort keys distinct?  Two edits sharing one, and only those, are the
--- pair the STABLE sort keeps in list order.
 distinctKeys :: [Edit] -> Bool
 distinctKeys es = length (dedup keys) == length keys
   where keys = [ (spanStart sp, spanEnd sp) | Edit sp _ <- es ]
@@ -506,9 +392,6 @@ distinctKeys es = length (dedup keys) == length keys
 delta :: Edit -> Int
 delta (Edit (Span s e) new) = T.length new - (e - s)
 
--- | Up to four edits over DOC: an offset near the document and a WIDTH that may
--- be negative, so out-of-bounds, backwards and overlapping sets are all
--- reachable and legal ones stay common ('editSample' counts both sides).
 editsOver :: Text -> [(Int, Int)] -> [String] -> [Edit]
 editsOver doc plan texts =
   [ Edit (Span at (at + width b)) (T.pack (take 6 t))
@@ -517,9 +400,7 @@ editsOver doc plan texts =
   where len = T.length doc
         width b = (b `mod` 12) - 1
 
--- | A DETERMINISTIC sample of the very edit sets the properties draw, taken
--- through QuickCheck's own generator so the census describes the distribution
--- they see rather than one spelled a second time here.
+-- | Drawn through QuickCheck's own generator: the distribution properties see.
 editSample :: Int -> [(Text, [Edit])]
 editSample n = [ (doc, editsOver doc plan texts)
                | (i, ds) <- zip [1 ..] (docSample n)
@@ -527,9 +408,7 @@ editSample n = [ (doc, editsOver doc plan texts)
                      (plan, texts) = drawn i ]
   where drawn i = unGen (variant i arbitrary) (mkQCGen 7) (4 + i `mod` 24)
 
--- | Up to four edits over DOC that are DISJOINT AND IN BOUNDS by construction:
--- each starts where the last one ended or later, and none runs past the
--- document.  Zero-width inserts are reachable, since a width may be 0.
+-- | DISJOINT AND IN BOUNDS by construction; zero-width inserts are reachable.
 disjointEdits :: Text -> [(Int, Int)] -> [String] -> [Edit]
 disjointEdits doc plan texts = go 0 (zip (take 4 plan) (cycle (texts <> ["x"])))
   where
@@ -561,23 +440,7 @@ firstOf :: [a] -> Maybe a
 firstOf (x : _rest) = Just x
 firstOf [] = Nothing
 
--- | Can the lens hold every byte DS spells?  TWO shapes it cannot, each found by
--- the byte-identity property above and each reported rather than weakened away:
---
--- * an EMPTY property drawer — @HeadlineParts@ carries no bit for a drawer's
---   PRESENCE, so a drawer holding no pair at all reads as a client that emptied
---   one, and the recompose takes it off;
---
--- * a planning line closed by HORIZONTAL SPACE — the region is the whole line,
---   but it is rebuilt from each entry's raw text plus the line ending, and
---   whatever trails the LAST entry is in neither;
---
--- * a planning line spelling one KEYWORD TWICE — the parse keeps the last stamp
---   alone, the region is the whole line, and the recompose writes the one entry
---   that survived;
---
--- * a file whose LAST line is an unterminated planning line — the recompose
---   closes it with the line ending, so the subtree comes back one byte longer.
+-- | The shapes the lens cannot hold, reported rather than weakened away.
 lensRepresentable :: DocSpec -> Bool
 lensRepresentable ds = all holdable (dsEntries ds) && terminated
   where
@@ -591,18 +454,14 @@ lensRepresentable ds = all holdable (dsEntries ds) && terminated
                      && esLogbook e == Nothing && esProperties e == Nothing
     repeatedKey e = length (nub (map fst (esPlanning e))) /= length (esPlanning e)
 
--- | Has R a BLANK top entry — one carrying none of the six column sub-spans?
--- Such an entry keeps its outline extent and loses its record, so the surviving
--- extents no longer meet.  Excluded from the tiling property, and reported.
+-- | A BLANK entry keeps its extent and loses its record, so survivors do not meet.
 noBlankTopEntry :: Rendered -> Bool
 noBlankTopEntry r = not (any blank (rdEntries r))
   where blank e = exLevel e == 1 && exBlank e
 
 -- Timestamp helpers
 
--- | T read as the one timestamp it spells, 'Nothing' where it spells anything
--- else.  The only door in: the parser exposes no timestamp entry point of its
--- own, and 'orgParse' over the bracketed text is what every fixture uses.
+-- | The only door in: the parser exposes no timestamp entry point of its own.
 readTimestamp :: Text -> Maybe Timestamp
 readTimestamp t = case orgParse defaultContext t of
   (elems, _ctx, Nothing) -> case bare elems of
@@ -610,22 +469,16 @@ readTimestamp t = case orgParse defaultContext t of
     _other -> Nothing
   (_elems, _ctx, Just _err) -> Nothing
 
--- | Can TS's compact flag be SPELLED?  Both ends timed and on one day — the two
--- guards beside the flag itself.
 compactible :: Timestamp -> Bool
 compactible ts = maybe False both (tsEnd ts)
   where both e = tsmHasTime (tsStart ts) && tsmHasTime e
                  && Time.utctDay (tsmTime (tsStart ts)) == Time.utctDay (tsmTime e)
 
--- | A word for the weekday slot: letters in any script, any length.
 weekdayWord :: Int -> Text
 weekdayWord n = words' !! (abs n `mod` length words')
   where words' = ["M", "Mon", "Monday", "do", "понедельник", "月曜日", "Xyzzy"]
 
--- | SOURCE with every weekday slot respelled WORD.  The slot is the letter run
--- behind a digit and a space, which in a stamp is the weekday and nothing else:
--- a repeater's unit sits behind a DIGIT with no space, and its cookie opens with
--- @.@, @+@, @-@ or a digit.
+-- | The slot is the letter run behind a digit AND A SPACE; a repeater's unit has none.
 respellWeekday :: Text -> Text -> Text
 respellWeekday word source = T.pack (go (T.unpack source))
   where
@@ -635,8 +488,6 @@ respellWeekday word source = T.pack (go (T.unpack source))
     go (c : cs) = c : go cs
     go [] = []
 
--- | A preamble ahead of a generated document, ending in whitespace so the
--- element behind it cannot merge with the document's first.
 preamble :: Int -> Text
 preamble n = pads !! (abs n `mod` length pads)
   where pads = ["", "pad\n", "#+TITLE: t\n", "* Pad\n\n", "<2024-01-15 Mon>\n\n"]

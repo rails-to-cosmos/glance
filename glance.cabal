@@ -29,11 +29,9 @@ extra-source-files:
     CHANGELOG.md
     -- The renderer glance-web compiles in; vendored by `make sync-renderer'.
     assets/table-view.js
-    -- And the shell, one widget per file, concatenated by the TH splice in the
-    -- order `Glance.Web.Base.gluePartFiles' declares.
+    -- And the shell, one widget per file, in `Glance.Web.Base.gluePartFiles' order.
     assets/glue/*.js
-    -- The Elm programs -- the property panel and the sheet's document pane --
-    -- compiled to one file by `make elm'.
+    -- The Elm programs, compiled to one file by `make elm'.
     assets/elm.js
     test/fixtures/*.js
     test/fixtures/*.json
@@ -47,35 +45,22 @@ source-repository head
   type: git
   location: https://github.com/rails-to-cosmos/glance
 
--- Build `glance desktop''s own WebKitGTK window instead of borrowing a
--- browser.  Off by default and manual, because on it the solver pulls the
--- haskell-gi tree -- some 28 packages, 25 of them under gi-gtk 3, each
--- generated at build time from the machine's own typelibs -- and the build
--- needs GTK3 and WebKitGTK development files.  Off, nothing above resolves,
--- the suite runs without GTK, and `glance desktop' is exactly stage 1.
---
--- The flag alone is not enough: Hackage's gi-webkit2 binds WebKit2 4.0, and
--- `vendored/' carries it repointed at 4.1.  Turning the flag on therefore
--- means the project file that names those packages, and `make native' is that
--- project file plus the GIR search path it needs.
+-- Build `glance desktop''s own WebKitGTK window.  Off and manual: on, the solver
+-- pulls the haskell-gi tree and the build needs GTK3/WebKitGTK headers.
+-- The flag alone is not enough -- `make native' adds `vendored/' and the GIR path.
 flag native-window
   description: Build the native WebKitGTK window (gi-gtk 3 + gi-webkit2).
   default: False
   manual: True
 
--- The WASM build's crypto seam
--- (docs/proposals/2026-08-05-native-ports.draft.md): crypton is
--- unbuildable on wasm32-wasi in both directions -- current versions lean on
--- mmap through `ram', older ones on basement's cbits -- and the core uses it
--- for exactly two things, the SHA-256 digest and sixteen random bytes.  On,
--- both come from pure Haskell (SHA, random); off, nothing changes.
+-- crypton is unbuildable on wasm32-wasi; on, the SHA-256 digest and the sixteen
+-- random bytes come from pure Haskell (docs/proposals/2026-08-05-native-ports.draft.md).
 flag pure-crypto
   description: Pure-Haskell digest and entropy (wasm32-wasi has no crypton).
   default: False
   manual: True
 
--- The parser and its AST.  Private: only this package's own components may
--- depend on it, so a future daemon or web target cannot reach past the facade.
+-- The parser and its AST.  Private: nothing outside this package reaches past the facade.
 library glance-internal
   visibility: private
   exposed-modules:
@@ -101,10 +86,8 @@ library glance-internal
   ghc-options: -Wall -Werror=incomplete-patterns -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.7 && <5
-    -- Read-only, and for ONE foreign format: org-glance's JSONL index, which
-    -- 'Data.Org.Index' folds so the scan can say where the two disagree.  No
-    -- internal type gains a 'ToJSON' by it -- the wire contract stays hand-built
-    -- in 'Glance.Query' (AGENTS.hs).
+    -- Read-only, and for ONE foreign format: org-glance's JSONL index.  No internal
+    -- type gains a 'ToJSON' by it -- the wire stays hand-built (AGENTS.hs).
     , aeson
     , async
     , bytestring
@@ -118,8 +101,7 @@ library glance-internal
     , text-show
     , time
     , unix
-    -- The trash keeps a deleted blob compressed; already in the plan behind
-    -- wai-extra's gzip middleware, so naming it fetches nothing.
+    -- Already in the plan behind wai-extra's gzip middleware; naming it fetches nothing.
     , zlib
   if flag(pure-crypto)
     build-depends:
@@ -131,8 +113,7 @@ library glance-internal
         crypton
   default-language: Haskell2010
 
--- The public library: the query facade and nothing else.  Everything outside
--- this package sees only 'Glance.Query'.
+-- The public library: everything outside this package sees only 'Glance.Query'.
 library
   exposed-modules:
       Glance.Query
@@ -152,10 +133,8 @@ library
     , time
   default-language: Haskell2010
 
--- The web layer.  Private, and depends on the public library alone: the
--- facade constraint (AGENTS.hs) is a solver error here
--- rather than a review note -- adding Data.Org.* to this stanza is impossible
--- without naming glance-internal, which would show up in this build-depends.
+-- The web layer.  Private, on the public library alone: the facade constraint
+-- (AGENTS.hs) is a solver error here, since reaching Data.Org.* would show up below.
 library glance-web
   visibility: private
   exposed-modules:
@@ -196,8 +175,7 @@ library glance-web
     , http-types
     , process
     , stm
-    -- `Routes' folds `gluePartFiles' into one embed per part, which is a TH
-    -- list expression; the splice itself was always here.
+    -- `Routes' folds `gluePartFiles' into one embed per part, a TH list expression.
     , template-haskell
     , text
     , time
@@ -208,10 +186,8 @@ library glance-web
     , websockets
   default-language: Haskell2010
 
--- The native window and nothing else: no daemon, no store, no glance module in
--- its build-depends.  Always built and trivial when `native-window' is off,
--- which is what keeps the flag out of every other stanza -- the rest of the
--- program asks it one question, `nativeAvailable', and gets a Bool.
+-- The native window and nothing else.  Always built and trivial when
+-- `native-window' is off, which keeps the flag out of every other stanza.
 library glance-desktop-native
   visibility: private
   exposed-modules:
@@ -223,30 +199,23 @@ library glance-desktop-native
       base >=4.7 && <5
   if flag(native-window)
     cpp-options: -DNATIVE_WINDOW
-    -- gi-gtk3/gi-gdk3 rather than gi-gtk/gi-gdk: same modules, and they are
-    -- the names gi-webkit2 depends on, so the unambiguous spelling is what
-    -- keeps one GI.Gtk in the plan instead of two packages claiming it.
+    -- gi-gtk3/gi-gdk3 are the names gi-webkit2 depends on; the other spelling
+    -- puts two packages claiming GI.Gtk in one plan.
     build-depends:
         gi-gdk3 >=3.0 && <3.1
       , gi-glib >=2.0 && <2.1
       , gi-gtk3 >=3.0 && <3.1
-      -- gi-javascriptcore reads the URL a patched `window.open' posts back
-      -- out of the JavaScript world; gi-webkit2 pulls it anyway.
+      -- Reads the URL a patched `window.open' posts back; gi-webkit2 pulls it anyway.
       , gi-javascriptcore >=4.0 && <4.1
       , gi-webkit2 >=4.0 && <4.1
-      -- The one non-generated package here, and every gi-* already pulls it:
-      -- `castTo' is what turns a WebKitPolicyDecision into the navigation one
-      -- that carries the URI, which is what routes a new window to the system
-      -- browser instead of losing it.
+      -- `castTo' downcasts a WebKitPolicyDecision; every gi-* already pulls it.
       , haskell-gi-base >=0.26 && <0.27
       , text
       , unix
   default-language: Haskell2010
 
--- The WASM probe: the core run inside a WASI runtime — `make run-wasm`.
--- Buildable only under `pure-crypto`, which is the wasm project's flag, so no
--- other build ever sees it and the app/ directory stays one executable
--- everywhere else.
+-- The WASM probe: the core inside a WASI runtime — `make run-wasm`.  Buildable
+-- only under `pure-crypto`, so app/ stays one executable in every other build.
 executable glance-wasm-probe
   main-is: WasmProbe.hs
   hs-source-dirs:
@@ -314,9 +283,8 @@ test-suite glance-test
       TestTextShow
       TestSpans
       TestSpec
-    -- The domain model itself (AGENTS.hs at the repo root), compiled so
-    -- 'TestSpec' can ask its registries of the real code.  The test stanza is
-    -- the only one that names it: no library may depend on the spec.
+    -- The domain model itself (AGENTS.hs at the repo root), compiled so 'TestSpec'
+    -- can ask its registries of the real code.  No library may depend on the spec.
       AGENTS
   hs-source-dirs:
       test

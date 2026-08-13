@@ -1,138 +1,29 @@
-// Boots the shell's inline glue under node and reports what it asked the
-// server for and what survived what happened to it next.  The glue is the
-// page's own, extracted from a rendered `/' by TestServe; the browser around it
-// is stubbed down to what a boot touches, so what this measures is the page's
-// behaviour — which string-matching the glue cannot answer, since a call that
-// is present and never reached matches just the same.
+// Boots the shell's inline glue under node and reports what the page asked the
+// server for and what survived: a call that is present and never reached matches
+// a string search just the same.  The glue is the page's own, extracted from a
+// rendered `/' by TestServe.
 //
-//   node shell-harness.js DIR SEARCH TOTAL [KEYS] [ACTS]
+//   node shell-harness.js DIR SEARCH TOTAL [KEYS] [ACTS] [STORE]
 //
-// DIR holds `shell.js' (the glue), `keys.json' (the page's keymap blob) and
-// `cfg.json' (the configuration blob the glue reads as CFG).
-// SEARCH is `location.search' the page opens on and TOTAL what the server
-// reports as `X-Glance-Total', which is what decides whether the boot pulls
-// the rest of the set in behind the first page.  KEYS is an optional
-// space-separated list of `KeyboardEvent.key' names pressed over the table once
-// the boot has settled — a `%CODE' tail naming the physical key under the
-// character, the way a non-Latin layout delivers one (`т%KeyN').  Both overlays
-// are opened through the page's own keys:
-// `Enter' materializes the first row and `/' raises the filter palette.  ACTS
-// is what happens after that, one verb at a time, each settled before the next:
-//
-//   close:REASON  the socket closes, the way the server closes one
-//   sheet:TEXT    TEXT typed into the open sheet's textarea
-//   dtin:TEXT     TEXT typed into the document's title overlay, one field
-//                 over the headline's title; `RET' has to have opened it over
-//                 the headline at point first
-//   dpara:TEXT    TEXT typed into the paragraph overlay, which is a textarea
-//                 over the block at point; `RET' opens one.  `_' is a space,
-//                 `|' a newline and `~' a literal bar — an org table row
-//                 spells itself `~a~b~'
+// DIR holds `shell.js', `keys.json', `cfg.json' and `elm.js'.  KEYS are pressed
+// once the boot has settled; ACTS run one at a time, each settled before the
+// next, and their vocabulary is `ACTIONS' below.  NOTATION, shared by both:
+// `C-'/`S-'/`M-' are the modifiers, a `%CODE' tail is the PHYSICAL key under
+// the character (`т%KeyN'), and in typed text `_' is a space, `|' a newline
+// and `~' a literal bar.
 
-//   pkey:I=TEXT   TEXT typed into property row I's key field, the row having
-//                 been opened for editing first — a closed one has no fields
-//   pval:I=TEXT   TEXT typed into property row I's value field, likewise
-//   filter:TEXT   TEXT typed into the raised palette
-//   frame:OP=IDS  row frames delivered down the LIVE SOCKET, the way the
-//                 watcher delivers them — `frame:upsert=r1' re-sends a row that
-//                 moved, `frame:delete=r1,r2' says two are gone and the served
-//                 set loses them
-//   unserved:IDS  the applied query stops matching IDS: /headlines answers
-//                 without them and the tag steps, the rows staying the store's
-//   moved         the store moves: a new ETag, and a row more to fetch
-//   recolumn      the store moves and its columns move with it
-//   rewritten     the file behind the open sheet moves: a new digest
-//   press:KEY     KEY pressed, so a key can follow an act rather than precede
-//                 it; `C-x' and `S-Tab' spell the modifiers and `т%KeyN' the
-//                 physical key under a character
-//   stuck:KEY     KEY down with no release and `repeat' unset — the native
-//                 window's lying auto-repeat; two in a row are one held key
-//   click:I       row I of the modal mount that is up clicked, which is the one
-//                 way a cursor moves out from under an open edit overlay
-//   theme:NAME    NAME picked in the settings sheet's theme select, event and all
-//   pinclick      the chip strip's pin button clicked, which is the touch door
-//                 to whatever the consumer wired into `onPin'
-//   type:TEXT     TEXT typed into the value palette's field, which narrows it —
-//                 `/' has to have put the palette in that mode first
-//   narrow:TEXT   TEXT typed into whichever small list `/' has narrowed — one
-//                 list holds the keys at a time, so no host is named
-//   tname:TEXT    TEXT typed into the tags popup's rename overlay, which `RET'
-//                 has to have opened over the tag at point first
-//   ktag:TEXT     TEXT typed into the capture form's tag field, `+' having
-//   ktext:TEXT    raised the form; `ktext' is its line, and `kf:TEXT' types
-//   kf:TEXT       into whichever grown template field holds the focus
-//   ltitle:TEXT   TEXT typed into the link popup's edit overlay, whose two
-//   lurl:TEXT     fields are what the entry calls the link and where it points;
-//                 `RET' has to have opened it over the link at point first
-//   assign:A,B,C  the which-key assignment run over that cycle, as the pure
-//                 function it is
-//   cells:K@C     the edit overlay's cell resolution run over the keys K
-//                 against the column keys C, likewise as the pure function
-//   priorities:P  per-row priority cells, positional and comma-separated:
-//                 `priorities:A,,C' is `[#A]', none, `[#C]' — which is the mixed
-//                 set org's per-entry cycle is about
-//   refuse        the next /command refuses — every row it named, or the
-//                 capture whole, which names none
-//   bare          the mounted handle loses its mark calls, the way an older
-//                 table-view.js never had them
-//   pageless      and its pager calls, the way one older still never had those
-//   sortless      and its programmatic sort, which `^' and the agenda ask for
-//   crumbless     and its crumb trail, which `@' needs before it will drill
-//   onemailto     the row points at one link that is not http(s)
-//   partly        two of the three rows carry `web' and the third does not,
-//                 which is the mixed set manage-tags normalizes up
-//   untagged      no row carries a tag at all
-//   unknownrows   the store knows none of the rows the palette named
-//   onelink       the row `o' names points at exactly one place
-//   nolinks       and at none at all — three is the default, which is the popup
-//   everytype     one link of every type the server derives, so the popup's
-//                 badge column and the commit's judgement span the vocabulary
-//   noreferences  nothing points at the row `@' names
-//   rows:N        the store holds N rows rather than the three at the top
-//   paged:N       the renderer shows N of them a page, so there are pages to
-//                 turn and ends of a page to reach
-//   spam:N        N distinct lines appended to the page's event log, which is
-//                 the only way to reach a ring that holds five hundred
-//   offline       the daemon goes away: every request after this fails
-//   online        and comes back, which is what the retry finds
-//   hang          /headlines stops answering, so a swap can be watched in flight
-//   deliver       and answers everything held since
-//   wait:MS       MS milliseconds pass, which is what a delayed state needs
-//
-// The answer is what the page asked for and what it still holds afterwards.
 const fs = require("fs");
-// STORE is what the browser already REMEMBERS, `KEY=VALUE' pairs joined by
-// commas.  It is argv rather than an act because a preference the BOOT reads is
-// unreachable from an act: every act runs after the glue has been eval'd.
+// Argv: the BOOT reads a stored preference and every act runs after the eval.
 const [dir, search, total, keys, acts, store] = process.argv.slice(2);
 
-// Every /headlines URL the page asked for, in order, and the tags it sent with
-// them — a revalidation is what a cheap reconnect looks like from the server.
 const asked = [];
 const tags = [];
-// The store this harness stands in for, and the tag that says which version of
-// it callers hold.  `moved' and `recolumn' step it.
-// Three, because a walk needs somewhere to walk to: `m' marks and steps, so a
-// one-row store cannot tell marking from advancing.
-// A TOTAL OF NONE IS AN EMPTY STORE, since the count the server reports is the
-// count of the set it is answering with: a boot told there are no matches
-// cannot also be handed rows.  Argv rather than an act, because an act cannot
-// reach it in time — every one of them runs after the boot has painted.
+// A TOTAL OF NONE IS AN EMPTY STORE, and argv since every act runs after the boot.
 let rows = +total === 0 ? [] : ["one", "two", "three"].map((title, i) =>
   ({ id: `r${i + 1}`, cells: { state: "TODO", title, tag: ":web:" } }));
-// The rows the APPLIED QUERY no longer matches: still the store's — the socket
-// carries a row op whatever the client asked for — and out of what /headlines
-// answers, which is what an archived row looks like to a client filtered to the
-// active ones.  `unserved' moves them here and a frame can still be built from
-// one afterwards.
 let hidden = [];
-// The state column carries its badge palette, which is where the value palette
-// C-c C-t raises reads its COLOURS — the keywords themselves are /keywords'
-// answer, and a keyword no badge names simply carries no hue.
-// ONE of the two declares `sortable', which is the renderer's opt-in: `^' has
-// to reach a column that sorts and refuse one that does not, and a pair with
-// one of each is what makes both answers reachable.  The real producer opts
-// every column in.
+// ONE column declares `sortable' where the real producer opts every column in,
+// so `^' can reach a column that sorts and one that refuses.
 let columns = [
   { key: "state", sortable: true,
     badges: [ { value: "TODO", color: "#e0af68", group: "active" }
@@ -140,39 +31,15 @@ let columns = [
             , { value: "DONE", color: "#73daca", group: "inactive" } ] },
   { key: "tag" },
 ];
-// The view's own sort, which a mount takes its order from — the producer always
-// declares one, over a column this stub has (the real one's is `scheduled').
-// It is what the first `^' on that column REVERSES.
 const declaredSort = { column: "state", ascending: true };
 let tag = "\"t0\"";
-// Set by `noreferences': nothing points at the row `@' names, so the ref query
-// answers empty — which is what the drill's probe reads before it applies
-// anything.  Targeted at the ref query alone, so the boot and the parity
-// baseline still answer for the whole store.
+// `noreferences' aims at the ref query alone: the boot still answers for all.
 let unreferenced = false;
 let served = +total;
-// The subtree behind /headline, in the two shapes the route serves it in — the
-// raw text, and the body with the three regions lifted out — plus the cells of
-// the headline itself, the entries hanging under it, and the digest a write is
-// pinned to.  The split is the server's, so what the sheet gets here is what a
-// real one would hand it.
-//
-// `ORG_GLANCE_ID' is in the org text and NOT in the properties: it is a hidden
-// key the server keeps for itself, so the sheet never sees it and never sends
-// it back.  The planning line and the logbook are the other two regions.
-//
-// IT HAS A CHILD, which is what the sub-addressing walks into: `?child=0' is the
-// entry `** two', and the row's own body stops where that child's stars begin —
-// `ownLines', so the same bytes are never drawn twice, once as a paragraph and
-// once as the child that owns them.
-// THE GRAINY BODY, which `grain' swaps in: a lead-in paragraph, a three-item
-// list with one item carrying a continuation line and a nested sub-item, a
-// `#+begin_quote' block of two paragraphs, and a closing paragraph.  Every stop
-// kind the walk has is in it, and in the order the walk meets them.
-//
-// The list's second item is separated by a BLANK LINE, which org lets stand
-// inside a list and 1173 item pairs of the corpus rely on — so the run is one
-// list rather than two.
+// `ORG_GLANCE_ID' is in the org text and NOT in the properties: a hidden key
+// the server keeps for itself, and `?child=0' walks into the child.  The
+// grainy list's second item is separated by a BLANK LINE, which org lets
+// stand inside a list — so the run is one list.
 const grainBody = [ "* TODO one",
                     "lead in",
                     "- alpha",
@@ -191,9 +58,6 @@ const grainBody = [ "* TODO one",
                     "tail para",
                     "** two",
                     "child body", "" ].join("\n");
-// THE CHECKY BODY, which `checky' swaps in: a four-item list wearing org's
-// three checkbox states and one bare item — what `SPC' and `C-c C-c' toggle,
-// and the stop that refuses.
 const checkyBody = [ "* TODO one",
                      "- [ ] alpha",
                      "- [X] beta",
@@ -201,13 +65,7 @@ const checkyBody = [ "* TODO one",
                      "- delta",
                      "** two",
                      "child body", "" ].join("\n");
-// THE TABLED BODY, which `tabled' swaps in: a lead-in paragraph, a FOUR-LINE
-// org table with a `|---+---|' rule among its rows, a two-item list and a
-// closing paragraph.  MIXED on purpose — the count of stops end to end is what
-// says the table takes its place in the one walk rather than a walk of its own.
-//
-// A LINE IS A LEAF, rule included: the table is one coarse stop and then its
-// four rows, which is the list's shape with the item rule at a line.
+// MIXED on purpose: the end-to-end stop count says the table rides the one walk.
 const tabledBody = [ "* TODO one",
                      "lead in",
                      "| a | b |",
@@ -221,20 +79,8 @@ const tabledBody = [ "* TODO one",
                      "tail para",
                      "** two",
                      "child body", "" ].join("\n");
-// THE LINKY BODY, which `linky' swaps in beside its `linkylinks': every shape
-// the display rule has to tell apart, in the two places that draw one.
-//
-//   line 0  the headline, whose TITLE holds `[[T][D]]'
-//   line 1  a paragraph with `[[T][D]]' and `[[T]]' in it
-//   line 3  a paragraph with a BARE url written TWICE — where the answer holds
-//           ONE entry, `/links' keeping the FIRST spelling of a target and no
-//           other (`Glance.Query.orgLinks'), so the second occurrence has no
-//           span and is drawn as the text it is
-//
-// The spans below are the ones a scan of this text measures, worked out once
-// and written down; `desc' is what `Glance.Query.linkShown' answers for each,
-// since the DISPLAY rule is the server's and the page only draws what it is
-// handed.
+// The bare url is written TWICE where the answer holds ONE entry, so the
+// second occurrence has no span.
 const linkyBody = [ "* TODO one [[https://t.example/][the title link]]",
                     "see [[https://a.example/][alpha]] and [[https://b.example/]] here",
                     "",
@@ -260,15 +106,9 @@ const properties = [["EFFORT", "0:30"]];
 const planning = [["SCHEDULED", "<2026-08-01 Sat>"]];
 const logbook = ":LOGBOOK:\n- moved here\n:END:\n";
 let digest = "d0";
-/** The priority the MATERIALIZED entry carries, which `priorities' moves with
- * the store's own cell — the sheet reads its cells off the answer rather than
- * off a table row, so a case about the document owes both. */
 let headPriority = null;
-/** What GET /headline answers with, for the ROW and for the one entry under it.
- * The navigation fields are the whole of the sub-addressing contract: `child' is
- * the index this answer is FOR, `parent' the one DEL climbs to (null being the
- * row) and `children' the entries hanging under it with the index each answers
- * to. */
+/** GET /headline's answer: `child' is the index this answer is FOR, `parent'
+ * the one DEL climbs to, null being the row. */
 const subtree = (child) => (child === null
   ? { id: "r1", file: "a.org", child: null, parent: null, path: ["one"],
       cells: { state: "TODO", priority: headPriority,
@@ -276,21 +116,8 @@ const subtree = (child) => (child === null
       children: [ { index: 0, level: 2, state: null, priority: null,
                     title: "two", tags: ":web:" } ],
       level: 1, properties, planning, logbook, digest,
-      // Where the TITLE CELL starts in the file, which is what lets the page
-      // tell which of the row's links are inside that cell.  The server has the
-      // sub-span; this stands in for it.
       titleAt: linky ? 7 : 11,
-      // THE SUBTREE'S OWN EXTENT, which is what turns an element's LINE range
-      // into the FILE range `o' filters links by.  The grainy body is served as
-      // its own org text, so the two differ by nothing and the arithmetic is
-      // readable in the case.
-      // The row's link scan rides the materialize, the server's own shape:
-      // one answer, so the display is compact from the first frame and the
-      // suite sees links with no second fetch to wait on.  The list is the
-      // same `links' variable the `/links' stub serves — one source, like the
-      // server's one scanner — configured by `linky'/`grainlinks'; the plain
-      // fixtures carry none, their canned spans describing the table popup's
-      // own text.
+      // The link scan rides the materialize, one source with the `/links' stub.
       links: linky || grainy ? links : [],
       org: linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody
            : checky ? checkyBody : org,
@@ -307,34 +134,13 @@ const subtree = (child) => (child === null
       body: "** two :web:\nchild body\n", ownLines: 3, level: 2,
       properties: [], planning: [], logbook: "", digest,
       links: linky || grainy ? links : [] });
-/** Every subtree a POST was aimed at, as `id' or `id#child' — which is the whole
- * of what says WHICH extent a commit named. */
 const wroteAt = [];
-/** And every subtree a GET asked for, the same way: the sheet re-reads itself
- * after a commit and whenever a socket frame names the row it is standing on, so
- * what says a re-read HAPPENED is the request rather than the answer — the
- * canned one never moves. */
 const readAt = [];
-// Every POST /headline body, which is the whole of what a sync can be observed
-// to have written: the rows come back over a socket this harness does not run.
 const writes = [];
-// Every structured command the page posted, as the body it sent — which is the
-// whole of what a key like `D' can be observed to have done, the rows coming
-// back over a socket this harness does not run.
 const commands = [];
 let refusing = false;
-// The keyword layers behind /config, and every write to one.  The system layer
-// carries no digest: it is a file that does not exist yet, which is the shape
-// the settings sheet has to be able to create.
-//
-// SERVED OUT OF ALPHABET, on purpose: the server's order is the walk's — where
-// the directories turned up — and the sheet's is system first and then the tags
-// in their own alphabet, so a fixture already in order could not tell the two
-// apart.
-// `keywords' is the same lines PARSED, which the server serves beside them so
-// the states table reads structure where the keywords box reads text.  Canned
-// here like the lines, and kept in step with them by hand — the point of a
-// fixture is to be an independent statement of what an answer looks like.
+// SERVED OUT OF ALPHABET on purpose: the server's order is the walk's and the
+// sheet's is system-then-tags, so a fixture in order could not tell them apart.
 let layers = [
   { path: "/o/.org-glance/config/system.org", tag: null,
     lines: ["#+TODO: TODO | DONE"],
@@ -351,32 +157,13 @@ let layers = [
 ];
 const configWrites = [];
 let configTick = 1;
-// What /keywords resolves for the rows a command names: the classification
-// chain, widest source first, each source holding what it is the widest to
-// declare.  Canned, the way the layers above are: the resolution is the
-// server's and TestConfig is where the rule itself is tested — what the page
-// owes is drawing whatever comes back, in the order it comes back.
 let sources = [
   { source: "default", active: ["TODO"],    inactive: ["DONE"] },
   { source: "book",    active: ["READING"], inactive: ["READ"] },
   { source: "file",    active: ["LATER"],   inactive: [] },
 ];
-// Every /keywords URL the page asked for, which is the whole of what says WHICH
-// rows it resolved the palette for.  `stalling' holds one out forever.
 const resolved = [];
 let stalling = false;
-// What /links answers for the row `o' names.  Canned like the layers and the
-// resolution above: the extraction is the server's and TestQuery is where the
-// rule is tested — what the page owes is the gesture over whatever comes back,
-// which is why `onelink' and `nolinks' are acts.
-// The TYPE is the server's own word for the target (`Glance.Query.linkType'):
-// canned here like the rest of the answer, since the derivation is TestQuery's
-// and what the page owes is the badge cell and the commit it decides.
-// The SPAN is the half-open char range the link occupies in its file, which is
-// what makes the answer writeable: `RET' sends it back as the range to splice.
-// Canned like the rest — the offsets are the scanner's and TestQuery is where
-// they are measured — so what the page owes is handing back the range it was
-// given, under the digest it came with.
 let links = [
   { target: "https://one.example/a", desc: "First reference", type: "https",
     span: [10, 48] },
@@ -385,89 +172,40 @@ let links = [
   { target: "mailto:t@example.org", desc: "mailto:t@example.org", type: "mailto",
     span: [120, 140] },
 ];
-// And the digest that answer carried, which an edit pins: the spans describe
-// the file as the store read it, so a file that has moved refuses.
 let linkDigest = "d0";
-// Every /links URL asked for, and every tab the page opened.
 const linked = [];
 const opened = [];
-// What /tags answers for the rows a tag command names: each row's own tags,
-// folded the way the store reports them, plus the tree's whole vocabulary,
-// which is what `/' over the palette narrows.  Canned like the resolution
-// above — the reading is the server's and TestQuery is where the rule is
-// tested; what the page owes is the union, the partial counts and the toggle
-// over whatever comes back.
-//
-// A tag command does NOT move this, deliberately: the route never writes the
-// store, so a palette that re-read after a commit would answer with what the
-// files said before it.  What the list shows next has to come out of the
-// command's own per-id answer.
+// A tag command does NOT move this: the route never writes the store.
 let rowTags = { r1: ["web"], r2: ["web"], r3: ["web"] };
 let vocabulary = ["archive", "book", "web", "work"];
-// And how many ROWS the whole tree has under each of them, which is the popup's
-// third column and the one number no arithmetic over the rows in hand recovers.
-// Canned like the rest: the count is the store's and TestServe's route cases are
-// where it is measured.
 const tagCounts = { archive: 12, book: 3, web: 40, work: 7 };
-// Every /tags URL asked for, which is what says WHICH rows the palette
-// resolved for.
 const tagged = [];
-// The SAVED VIEWS `system.org' names, which `g' and `a' apply and `P' writes.
-// A view is a LINE of that file, so an emptied one is a line TAKEN OFF and what
-// the answer then carries is the registry's own built-in — the fallback modelled
-// here because the reset half of the pin is exactly that write.
+// An emptied view is a LINE TAKEN OFF, so the answer falls back to the built-in.
 const BUILTIN = { default: "state:*active*"
                 , agenda: "state:*active* -planned:*empty* sort:scheduled" };
 let viewQuery = BUILTIN.default;
 let agendaQuery = BUILTIN.agenda;
-// And the tree's per-theme state hues, the flat list the answer serves.
 let stateHues = [];
-// And the capture target it names, which is the other line of that file the
-// sheet edits — plus the path the server resolves it to, which is what a
-// capture reports back and the log names.
 let captureLine = "";
 const captureTarget = "/o/inbox.org";
-// The row a capture makes, which is what point lands on when the watch delivers
-// it: a minted `ORG_GLANCE_ID' for a blob, the target file's ordinal for a line
-// in the inbox.
 const capturedId = "r3";
-// What `/capture' answers.  The codes are the expansion subset the settings box
-// completes over, and the prompts are what a tag's own template asks — `book'
-// has one, every other tag has none, so the chain can be walked with a step in
-// the middle and without one.
 const captureCodes = [
   { code: "%?", means: "where the text you type lands" },
   { code: "%U", means: "the moment of capture, inactive" },
 ];
-// A tag whose layer configures a template ASKS nothing unless its template
-// spells a `%^{PROMPT}', so `template' and a non-empty `prompts' are two facts
-// — the server answers them apart and this stub does too.  `film' is the tag
-// with a template and no ask.
+// `template' and a non-empty `prompts' are two facts: `film' has one and no ask.
 const capturePrompts = { book: ["Author"] };
 const captureTemplates = ["book", "film"];
-// Every /capture URL asked for, which is what says whether the chain resolved
-// the tag before it asked the reader anything.
 const captureAsked = [];
 
 globalThis.location = { search, protocol: "http:", host: "h", pathname: "/" };
 globalThis.history = {
-  // The page writes its applied query here; the search string it leaves behind
-  // is the link a reload would come back to.
   replaceState: (_state, _title, url) => {
     location.search = String(url).startsWith("?") ? url : "";
   },
 };
-/**
- * EVERY TIMER THE PAGE SETS, and when it was due.  A loaded machine fires a
- * timer late, so an act that slept for a fixed span could sail past work the
- * page had already scheduled inside it — which is a flake rather than a
- * failure, and the one this exists to remove.  `wait' and `settle' drain on
- * this instead of on the clock: they run until nothing DUE BY THEN is still
- * owed, however long the machine takes to get there.
- *
- * Long timers are untouched: a 30s reconnect backoff is not owed to a 900ms
- * wait, and the drain never looks at it.
- */
+/** EVERY TIMER THE PAGE SET, with when it was due: `wait'/`settle' drain on the
+ * page's SCHEDULE, and a 30s reconnect backoff is never owed to a short wait. */
 const owing = new Set();
 const realTimeout = globalThis.setTimeout, realClear = globalThis.clearTimeout;
 globalThis.setTimeout = (fn, ms, ...rest) => {
@@ -480,7 +218,6 @@ globalThis.clearTimeout = (id) => {
   for (const box of owing) if (box.id === id) { owing.delete(box); break; }
   return realClear(id);
 };
-/** Let the page's schedule catch up to WHEN, whatever the machine is doing. */
 const drainTo = async (when) => {
   for (let turn = 0; turn < 600; turn += 1) {
     let due = false;
@@ -489,15 +226,9 @@ const drainTo = async (when) => {
     await new Promise((go) => realTimeout(go, 2));
   }
 };
-/**
- * And FOLLOW THE CHAIN: a fetch that lands schedules a paint, which schedules
- * the next thing, each a turn or two out.  Draining to a fixed instant lets the
- * first of those through and sails past the rest, so the window moves with the
- * clock — anything the page owes SOON keeps the drain going, and a long timer
- * (the echo's fade, a reconnect backoff) never does.
- */
+/** And FOLLOW THE CHAIN: a landed fetch schedules a paint which schedules the
+ * next thing, so the window moves with the clock. */
 const SOON = 30;
-/** What one act is given before its own drain: a turn of the loop, not a wager. */
 const TURN = 20;
 const drainSoon = async () => {
   for (let turn = 0; turn < 600; turn += 1) {
@@ -516,23 +247,12 @@ const answer = (status, body, headers) => Promise.resolve({
   json: () => Promise.resolve(body),
   text: () => Promise.resolve(""),
 });
-// Set by `offline' and taken back by `online': the daemon is gone and every
-// request fails at the network.
 let down = false;
-// Set by `hang': /headlines answers nothing until `deliver' lets it go, which
-// is the only way to observe the page WHILE a swap is in flight — everything
-// else here settles as a microtask and one turn of the loop is past it.
+// The only way to observe a swap in flight: everything else settles as a microtask.
 let hanging = false;
 const held = [];
-// The same pair over `POST /config', which is what lets a script type into the
-// settings sheet while its own write is out.
 let changing = false;
 const cheld = [];
-/**
- * The rows a URL asks for.  The server caps a `limit=' fetch, so a page-sized
- * first paint really is one page: a swap that asks for the whole set can be
- * told from a boot that asks for a page by what each of them gets back.
- */
 const capped = (url, list) => {
   const at = /[?&]limit=(\d+)/.exec(String(url));
   return at ? list.slice(0, Number(at[1])) : list;
@@ -544,7 +264,6 @@ globalThis.fetch = (url, init) => {
     asked.push(url);
     if (sent) tags.push(sent);
     const send = () => {
-      // The server's own answer to a tag it still stands behind: no body at all.
       if (sent === tag) return answer(304, null, {});
       const empty = unreferenced && String(url).indexOf("q=ref%3A") !== -1;
       return answer(200, { title: "t", columns, sort: declaredSort,
@@ -557,8 +276,6 @@ globalThis.fetch = (url, init) => {
   if (String(url) === "/command") {
     const sent = JSON.parse((init || {}).body || "{}");
     commands.push(sent);
-    // Capture names no row, so it answers in its own shape: the file the
-    // server picked and the digest that file carries now.
     if (sent.name === "capture")
       return refusing
         ? answer(400, { error: "inbox.org changed on disk" })
@@ -584,9 +301,7 @@ globalThis.fetch = (url, init) => {
   }
   if (String(url).startsWith("/keywords?ids=")) {
     resolved.push(url);
-    // Never settling, which is the only way to observe the moment the overlay
-    // is up and the resolution is not: everything else here answers as a
-    // microtask, and one turn of the loop is past it.
+    // Never settling: the one way to observe the overlay up and the answer not.
     if (stalling) return new Promise(() => {});
     return refusing ? answer(400, { error: "GET /keywords?ids=<row id>" })
                     : answer(200, { sources, unknown: [] });
@@ -619,34 +334,23 @@ globalThis.fetch = (url, init) => {
                            keywords: { active: ["TODO"], inactive: ["DONE"] } });
     const sent = JSON.parse((init || {}).body || "{}");
     configWrites.push(sent);
-    // The digest is the whole of the lock, an absent file's empty one included,
-    // so a layer whose digest has moved refuses exactly as the server's does.
     const layer = layers.find((l) => l.path === sent.path);
     if (!layer || layer.digest !== sent.digest)
       return answer(409, { reason: "drift", digest: (layer || {}).digest || "",
                            error: "the config file changed on disk since it was read" });
     layer.lines = (sent.lines || []).filter(Boolean);
-    // The server re-parses what it wrote, so the fixture does too: one line,
-    // actives before the bar and done-like after.
     if (sent.lines !== undefined) {
       const body = (layer.lines[0] || "").replace(/^#\+TODO:/, "");
       const [act, done] = body.split("|");
       const words = (t) => String(t || "").split(/\s+/).filter(Boolean);
       layer.keywords = { active: words(act), inactive: words(done) };
     }
-    // The saved views and the capture target are lines of the same file, so
-    // they ride in one write under one digest — never a second request, which
-    // a second digest would refuse anyway.  Each view is named on its own, so
-    // one moved leaves the others where they are.
     const views = sent.views || {};
     if (views.default !== undefined) viewQuery = views.default || BUILTIN.default;
     if (views.agenda !== undefined) agendaQuery = views.agenda || BUILTIN.agenda;
     if (sent.colors !== undefined) stateHues = sent.colors;
     if (sent.capture !== undefined) captureLine = sent.capture;
     layer.digest = `c${(configTick += 1)}`;
-    // Held by `chang', the settings sheet's half of `hang': `C-x C-s' syncs
-    // mid-edit, so the state a script has to be able to sit inside is a write in
-    // flight under a reader who is still typing.
     const send = () => answer(200, { path: sent.path, digest: layer.digest });
     if (changing) return new Promise((go) => cheld.push(() => go(send())));
     return send();
@@ -657,12 +361,8 @@ globalThis.fetch = (url, init) => {
     if ((init || {}).method === "POST") {
       writes.push(JSON.parse((init || {}).body || "{}"));
       wroteAt.push(child === null ? "r1" : `r1#${child}`);
-      // THE 200 CARRIES THE POST-WRITE DIGEST AND THE STORE LAGS IT: the real
-      // server re-digests the file it just wrote, while `GET /headline' goes
-      // on serving the store's PRE-write copy until the watch catches up.
-      // This stub models the lag at its worst — the GET never catches up — so
-      // a reload that trusts it reverts the pane and poisons the pin, which
-      // is the regression the stale-drop cases hold shut.
+      // THE STORE LAGS THE WRITE IT ANSWERS FOR, and this models the lag at its
+      // worst — the GET never catches up, so a reload that trusts it reverts.
       return refusing
         ? answer(409, { reason: "drift", digest,
                         error: "a.org changed on disk since this subtree was materialized" })
@@ -675,101 +375,48 @@ globalThis.fetch = (url, init) => {
   }
   return answer(404, {});
 };
-// The live socket, kept so a close can be delivered to it the way the server
-// delivers one — with the reason that says which close it is.
 let socket = null;
 globalThis.WebSocket = function () {
   socket = this;
   this.close = () => { socket = null; };
-  // A socket opens on a later turn than the one it was constructed in — the
-  // page assigns `onopen' after the constructor returns — and the wash's other
-  // half is cleared by that event, so a stub that never fired one would show a
-  // reconnect that never finished.
+  // A socket opens on a LATER turn than its constructor: the page assigns
+  // `onopen' after it returns, and the wash's other half is cleared by it.
   setTimeout(() => { if (socket === this && this.onopen) this.onopen(); }, 0);
 };
-// FOUR MOUNTS.  The page builds the table in `#app', the sheet's property panel
-// in `#mptable', the link popup in its own overlay and the tags popup in its
-// own, so everything a renderer holds PER MOUNT is held per instance here rather
-// than once for the page: the cursor and its column, the page, the marks, the
-// flags, the applied query and the crumb trail.  A remount replaces the table's
-// instance and leaves the other three standing, which is what the shell relies
-// on when it puts a sheet back up.
-//
-// The sheet's OTHER pane is not one of them: the structured document is the
-// page's own widget, drawn into `#dlist', and it is read here off what it DREW.
-//
-// They differ in ONE thing, and it is the rows.  The table's are the STORE's —
-// its `setRows' is a count and the rows it shows are `rows' above, which is what
-// lets an act move the store and the table follow.  The two popups' are the
-// shell's own models and arrive through `setRows', so those instances keep what
-// they are handed.
+// Everything a renderer holds is held PER INSTANCE, and the table's rows are
+// the STORE's — which is what lets an act move the store and the table follow.
 let mounts = 0, sets = 0, raises = 0;
 let lmounts = 0, tmounts = 0, tsets = 0;
-// Every row count the shell has ever handed the TABLE, in order: one entry per
-// mount and one per `setRows'.  A view swapping on its answer is one entry and
-// a view painted before its answer is two, so what a reader would have seen
-// flash is what this reads out.
 const paints = [];
-// And every row op the shell SPLICED into the table rather than refetching for,
-// as `OP ID' in order — the unfiltered half of what a socket frame costs.  A
-// shell that landed on the right row without ever splicing reads the same off
-// the rows alone, so the calls are recorded as well as their effect.
+// Row ops SPLICED, recorded as well as their effect: landing right without
+// splicing reads the same off the rows alone.
 const spliced = [];
-// The last programmatic sort asked of a handle, which is the whole of what the
-// agenda's own ordering can be observed to have done — and HOW MANY have been
-// asked for, which is what says a sort was left alone: the renderer keeps its
-// order across a `setRows', so a refetch that re-asserted one would show up
-// here as a second call.
 let sorted = null, sortCalls = 0, sortChain = [];
-/** Q's tokens, on the separators the grammar names. */
 const tokensOf = (q) => String(q || "").split(/[\s&]+/).filter(Boolean);
-/**
- * The chain Q names, [] when it names none — the renderer's `sortsIn' over the
- * one token shape the shell can produce.  A `sort:' token names one column and
- * an optional direction, written order is precedence, and everything else in
- * the query is somebody else's business.
- */
 const sortTokensIn = (q) => tokensOf(q)
   .filter((t) => t.startsWith("sort:") && t.length > "sort:".length)
   .map((t) => t.slice("sort:".length).split(":"))
   .map(([column, dir]) => ({ column, ascending: dir !== "desc" }));
-/** Q with CHAIN's tokens in place of whatever sort tokens it carried. */
 const withSort = (q, chain) => tokensOf(q)
   .filter((t) => !t.startsWith("sort:"))
   .concat(chain.map((k) => `sort:${k.column}${k.ascending ? "" : ":desc"}`))
   .join(" ");
-/** The live table instance, the live panel instance and the two live popups.
- * The table starts as a standing empty one so a boot that never got to mount —
- * the indexing poll, an offline daemon — still answers about a table rather
- * than throwing. */
 let main = null;
-/** COL as a real column index, or null for the whole-row look — which is what a
- * column outside the table IS.  The real one's `cellCol', mirrored here because
- * the shell's cell movement hands the index one past an end straight back. */
 const cellCol = (cols, col) => {
   if (col === null || col === undefined) return null;
   const at = Math.trunc(col);
   return at >= 0 && at < cols.length ? at : null;
 };
-/** Set by `bare', `pageless', `sortless' and `crumbless': this asset never had
- * those calls, remounts included. */
+/** Set by `bare', `pageless', `sortless' and `crumbless', remounts included. */
 let markless = false, pagerless = false, sortnone = false, crumbless = false;
-/**
- * One mount, with its own everything.  OWN is the row list it keeps for itself,
- * or null for the instance whose rows are the store's.
- */
 const makeMount = (host, view, options, own) => {
   const o = options || {};
   const m = {
     own,
-    // The columns the SHELL declared, per instance, rather than a second copy
-    // spelled here: a column added to either mount reaches the stub for free,
-    // where a hardcoded pair would silently go on agreeing.  The table's mount
-    // is handed the store's view, so `recolumn' reaches it through a remount.
+    // Per instance and never a second copy: a hardcoded pair would go on agreeing.
     cols: (view || {}).columns || [],
-    // The chain in force is the QUERY's where it names any `sort:' token, and
-    // the view's declared `sort' where it names none — the renderer's own rule,
-    // mirrored because the shell's `^' and its canned views both rest on it.
+    // The chain in force is the QUERY's where it names a `sort:' token, else the
+    // view's own.
     _seedSort: (() => {
       const named = sortTokensIn(o.initialQuery || "");
       const d = (view || {}).sort;
@@ -783,65 +430,35 @@ const makeMount = (host, view, options, own) => {
     flagsOn: o.flags === undefined ? o.marks === true : o.flags === true,
     hintsOn: o.actionHints !== false,
     flagHelp: o.flagHelp || "",
-    // The page size is the mount's, the way the real one takes it, so a script
-    // that never asks for pages gets the one the shell always requests.
     pageSize: o.pageSize || 0,
-    // WHERE THE CURSOR IS, in the two terms the renderer keeps it in: the visual
-    // place, and the row that was standing there.  Both, because rows go away
-    // under a mount — spliced out by a frame, dropped by an answer — and the
-    // real one's `keepSelection' keeps the ROW while it is still on the page and
-    // falls back to the PLACE, clamped, when it is not.
+    // Two terms, because rows go away under a mount: `keepSelection' keeps the
+    // ROW while it is on the page and falls back to the PLACE, clamped.
     cursor: 0, rowId: null, selCol: null, pageAt: 0,
     marks: new Set(), flags: new Set(), crumbs: [],
-    // The pin button-badge: whether the badge is on, and the click the
-    // consumer wired.  `pinclick' is the act that presses it.
     pinned: !!o.pinned, onPin: typeof o.onPin === "function" ? o.onPin : null,
     onFilter: typeof o.onFilter === "function" ? o.onFilter : null,
   };
-  /** Every row this mount holds: its own, or the store's. */
   const all = () => (m.own ? m.own : rows);
   const pageMax = () =>
     (m.pageSize ? Math.max(1, Math.ceil(all().length / m.pageSize)) : 1);
-  /** The rows on show: one page's worth, or the whole set when there are none.
-   * The page is CLAMPED rather than reset, the way the renderer clamps it, so a
-   * set that shrank out from under the last page shows the new last one. */
   const onPage = () => {
     if (!m.pageSize) return all();
     m.pageAt = Math.max(0, Math.min(m.pageAt, pageMax() - 1));
     return all().slice(m.pageAt * m.pageSize, (m.pageAt + 1) * m.pageSize);
   };
-  /**
-   * `keepSelection' verbatim, and the reason the pair above is kept rather than
-   * an index alone: a row still on the page keeps the cursor whatever moved
-   * around it, and one that went takes its PLACE with it, clamped.  The place
-   * is the last index something explicitly landed on — it is deliberately NOT
-   * re-derived while the row is still there, which is what makes a run of rows
-   * going from ABOVE point land the fallback lower than the row point was on.
-   * Called wherever the real one renders with the rows moved: `setRows' and the
-   * two frame ops.
-   */
-  // A MOUNT NOTHING HAS SELECTED IN HAS NO SELECTION: `rowId' null is the real
-  // one's `state.selected === null', and every answer below reads it as such —
-  // `keepSelection' returns at the guard, `indexOfSelected' answers -1 and
-  // `getSelection' answers a null id.  The renderer selects nothing of its own
-  // (`selectFirstVisible' has one caller and it is the filter box handing
-  // over), so a page that wants a cursor on its first row has to land one.
-  // Everything below the guard is `keepSelection' line for line.
+  /** `keepSelection' verbatim: the place is the last index something landed on
+   * and is NOT re-derived while the row is there, so rows going from ABOVE
+   * point land the fallback lower. */
   const keep = () => {
     if (m.rowId === null) return;
     const on = onPage();
-    // Emptied: the row, the column and the PLACE all go, and the place going is
-    // what makes the next set land on row 0 rather than where this one stood.
+    // The place going is what makes the next set land on row 0.
     if (!on.length) { m.rowId = null; m.selCol = null; m.cursor = -1; return; }
     if (on[m.cursor] && on[m.cursor].id === m.rowId) return;
     if (on.some((r) => r.id === m.rowId)) return;
     m.cursor = Math.max(0, Math.min(m.cursor, on.length - 1));
     m.rowId = on[m.cursor].id;
   };
-  /** Where the cursor sits now — `indexOfSelected', -1 with nothing selected,
-   * falling back to the clamp for the one state the real one cannot be in: rows
-   * moved by an ACT, which the store shares with this mount and no call
-   * announces. */
   const held = () => {
     const on = onPage();
     if (m.rowId === null || !on.length) return -1;
@@ -849,18 +466,11 @@ const makeMount = (host, view, options, own) => {
     const i = on.findIndex((r) => r.id === m.rowId);
     return i !== -1 ? i : Math.max(0, Math.min(m.cursor, on.length - 1));
   };
-  /** Put the cursor on index I of the page in hand, remembering the row. */
   const sit = (i) => {
     const on = onPage();
     m.cursor = on.length ? Math.max(0, Math.min(i, on.length - 1)) : 0;
     m.rowId = on.length ? on[m.cursor].id : null;
   };
-  /**
-   * Turn to page TO, counting from zero, landing the cursor on the end it
-   * arrives at — FIRST says which.  The column rides across untouched, which is
-   * what lets the shell read it back rather than carry it.  False when there is
-   * no such page, which is how a stop at either end is told from a turn.
-   */
   const pageTo = (to, first) => {
     const at = Math.max(0, Math.min(pageMax() - 1, to));
     if (at === m.pageAt) return false;
@@ -872,28 +482,14 @@ const makeMount = (host, view, options, own) => {
   m.at = held;
   m.sit = sit;
   m.handle = {
-    // The root the mount drew into, which the real handle publishes and the
-    // sheet's edit overlay reads a row's box through.  Nothing here has a
-    // layout, so the query finds no row and the overlay stays where it was —
-    // the geometry is the one thing this harness cannot stand in for.
     el: host || { querySelector: () => null },
-    // The table's `setRows' is a count: its rows are the store's and an act is
-    // what moves them.  The panel's are the shell's model, and the whole of what
-    // the panel shows, so that instance keeps them.  Either way the cursor is
-    // kept the way the real one keeps it — `renderRows' runs `keepSelection'
-    // first, whatever the rows were handed to it.
+    // A count for the table, whose rows are the store's; a model mount keeps them.
     setRows: (list) => {
       if (m.own) {
         m.own = (list || []).slice();
       } else { sets += 1; paints.push((list || []).length); }
       keep();
     },
-    // The row ops a socket frame carries, which is the whole of what an
-    // unfiltered client applies without asking the server again.  The table's
-    // rows ARE the store's, so these move the store; `keep' is what holds the
-    // cursor afterwards, which is the renderer's own `keepSelection'.
-    // Recorded, because a shell that landed the right row without ever splicing
-    // would read the same off the rows alone.
     upsertRow: (row) => {
       spliced.push(`upsert ${row.id}`);
       const list = all(), at = list.findIndex((r) => r.id === row.id);
@@ -917,18 +513,12 @@ const makeMount = (host, view, options, own) => {
       m.held = tokensOf(m.held).slice(0, -1).join(" ");
       return true;
     },
-    // The selection is the renderer's, both halves of it, and the shell reads
-    // the row id back out of here to materialize one.
     getSelection: () => {
       const at = held();
       return { id: at === -1 ? null : onPage()[at].id, col: m.selCol };
     },
     getVisible: () => onPage(),
-    // Clamped, never wrapped, and false at the end — which is what tells the
-    // shell that a mark on the last row has nowhere to walk to.  From NO
-    // selection it lands on the end it is stepping away from, the way the real
-    // one does with `state.selected' null: forward takes the first row, back
-    // the last.
+    // Clamped, never wrapped; from NO selection it lands on the end it steps from.
     selectStep: (step) => {
       const on = onPage();
       if (!on.length) return false;
@@ -939,11 +529,8 @@ const makeMount = (host, view, options, own) => {
       sit(to);
       return true;
     },
-    // A row of the page in hand, and the column to land in.  Null is a
-    // WHOLE-ROW selection, and so is a column index OUTSIDE the table — the
-    // real one's `cellCol' reads both the same way, which is what makes
-    // walking off the last cell a landing rather than a wall.  False for a row
-    // this page is not showing; the row is what the bool answers about.
+    // A column index OUTSIDE the table is a WHOLE-ROW selection, which makes
+    // walking off the last cell a landing.
     select: (id, col) => {
       const at = onPage().findIndex((r) => r.id === id);
       if (at === -1) return false;
@@ -951,8 +538,6 @@ const makeMount = (host, view, options, own) => {
       m.selCol = cellCol(m.cols, col);
       return true;
     },
-    // The pager, landing the cursor on the end it arrives at — the new page's
-    // first row going forward, its last coming back.
     nextPage: () => pageTo(m.pageAt + 1, true),
     previousPage: () => pageTo(m.pageAt - 1, false),
     pageInfo: () => {
@@ -961,7 +546,6 @@ const makeMount = (host, view, options, own) => {
                from: all().length ? m.pageAt * size + 1 : 0,
                to: Math.min(all().length, (m.pageAt + 1) * size), total: all().length };
     },
-    // Marks are the renderer's, keyed by id.
     toggleMark: (id) => {
       const on = !m.marks.has(id);
       if (on) m.marks.add(id); else m.marks.delete(id);
@@ -970,34 +554,17 @@ const makeMount = (host, view, options, own) => {
     getMarked: () => [...m.marks],
     clearMarks: () => m.marks.clear(),
     markedCount: () => m.marks.size,
-    // The count AFTER, which is the handle's documented answer — a stub
-    // returning nothing would let a caller read `undefined' and pass.
+    // The count AFTER, which is the handle's documented answer.
     markAll: () => { for (const r of all()) m.marks.add(r.id); return m.marks.size; },
-    // Archive flags, keyed by id the way marks are: `d' puts one on and a
-    // second `d' on the same row is what archives it.
     flagRow: (id) => m.flags.add(id),
     unflagRow: (id) => m.flags.delete(id),
     getFlagged: () => [...m.flags],
     clearFlags: () => m.flags.clear(),
-    // What the renderer's palette does: the overlay goes up and its field
-    // takes focus, which is the whole of what the shell can see of it.
     openFilter: () => { raises += 1; field("filter").focus(); },
-    // A PRODUCER's sort: it states an order and writes no query.  Recorded
-    // rather than performed — the ORDER is the renderer's and TableView's own
-    // suite is where it is tested — and nothing in the shell calls it any more,
-    // a canned view carrying its order as a `sort:' token instead.
     sortBy: (column, ascending) => { sorted = { column, ascending }; sortCalls += 1;
       sortChain = [{ column, ascending }]; },
-    // The promotion rule verbatim: head ascending, dedup below; the leader
-    // flips alone.  getSort answers copies, the way the renderer documents.
-    //
-    // And it WRITES THE QUERY, which is the half the shell can see: the new
-    // chain replaces whatever `sort:' tokens were applied and the query is
-    // delivered, so a press arrives at `onFilter' as an ordinary commit.
-    //
-    // `sortable' is enforced HERE, the way the renderer enforces it, and the
-    // answer is what the shell reads its refusal off: false when the column
-    // opts out, true when the chain moved.
+    // The promotion rule verbatim, and it WRITES THE QUERY: the press arrives at
+    // `onFilter' as an ordinary commit.
     sortPromote: (column) => {
       const col = (m.cols || []).find((c) => c.key === column);
       if (!col || col.sortable !== true) return false;
@@ -1016,10 +583,7 @@ const makeMount = (host, view, options, own) => {
     },
     getSort: () => sortChain.map((k) => ({ column: k.column, ascending: k.ascending })),
     setSort: (chain) => { sortChain = (chain || []).map((k) => ({ column: k.column, ascending: k.ascending !== false })); },
-    // The drill-down trail.  `popCrumb' pops and RETURNS — it never applies —
-    // because whoever owns the fetching owns what a query means, which is the
-    // whole reason the shell has a ladder to walk rather than the renderer.
-    // `getCrumbs' answers with copies, so a reader cannot move the strip.
+    // `popCrumb' pops and RETURNS: whoever owns the fetching owns what a query means.
     setCrumbs: (list) => {
       m.crumbs = (Array.isArray(list) ? list : [])
         .filter((c) => c && typeof c === "object")
@@ -1033,17 +597,12 @@ const makeMount = (host, view, options, own) => {
 };
 main = makeMount(null, null, {}, null);
 globalThis.TableView = {
-  // WHICH mount this is, by the element it was given: the sheet's panel hosts
-  // itself in `#mptable', the link popup in `#ltable', the tags popup in
-  // `#ttable' and the table in `#app'.  Told apart by the host rather than by
-  // call order, since a remount builds a second table long after any of the
-  // others went up.
   mount: (host, view, options) => {
     const inst = makeMount(host, view, options, null);
     {
       mounts += 1; main = inst; paints.push(((view || {}).rows || []).length);
-      // The renderer draws its filter box inside the mount, and the page finds
-      // it by selector — so the stub has to put one where that selector looks.
+      // The renderer draws its filter box inside the mount and the page finds it
+      // by selector.
       const box = field("filter");
       box.className = "tv-filter";
       if (host) host.appendChild(box);
@@ -1054,11 +613,8 @@ globalThis.TableView = {
     if (crumbless) strip(inst.handle, CRUMB_CALLS);
     return inst.handle;
   },
-  // A TOKEN SPLIT, not the renderer's grammar: whitespace-separated, `-'
-  // negating and the first `:' or `=' cutting a key off — which is enough for
-  // the two readers on this page (the parity tripwire's free-text scan and the
-  // capture form's tag seed) and stops the stub answering `no tokens' to
-  // questions the real renderer answers with some.
+  // A plain token split: it stops the stub answering `no tokens' where the real
+  // renderer answers with some.
   parseQuery: (q) => String(q || "").split(/\s+/).filter(Boolean).map((raw) => {
     const negated = raw.startsWith("-");
     const body = negated ? raw.slice(1) : raw;
@@ -1070,30 +626,20 @@ globalThis.TableView = {
   }),
   displayText: (s) => String(s || ""),
 };
-/** The mark calls off the live handle: what an older table-view.js looks like. */
 const MARK_CALLS = [ "toggleMark", "getMarked", "clearMarks", "markedCount"
                    , "markAll", "flagRow", "unflagRow", "getFlagged", "clearFlags" ];
-/** And the pager's, which an asset that old has none of either. */
 const PAGE_CALLS = ["nextPage", "previousPage", "pageInfo"];
-/** And the programmatic sort, which the agenda asks for. */
 const SORT_CALLS = ["sortBy", "sortPromote", "getSort", "setSort"];
-/** And the crumb trail, which `@' needs before it will drill at all. */
 const CRUMB_CALLS = ["setCrumbs", "getCrumbs", "pushCrumb", "popCrumb"];
 const strip = (h, names) => { for (const name of names) delete h[name]; };
-/** An older asset is one asset: every mount loses the calls it never had. */
 const stripLive = (names) => {
   if (main) strip(main.handle, names);
 };
-// The one thing a key here does that leaves nothing on the page: the tab `o'
-// opens.  Recorded whole — the target, the tab name and the features — since
-// `noopener' is half of what makes following a link safe.
+// Recorded whole: `noopener' is half of what makes following a link safe.
 globalThis.open = (url, target, features) => {
   opened.push({ url, target, features });
   return null;   // what a browser answers for a `noopener' window
 };
-// A real one, in memory: the theme is a stored preference and "it persisted" is
-// a question about what is in here after the pick, which a stub swallowing every
-// write cannot answer.
 const stored = {};
 for (const pair of (store || "").split(",").filter(Boolean)) {
   const at = pair.indexOf("=");
@@ -1102,57 +648,30 @@ for (const pair of (store || "").split(",").filter(Boolean)) {
 globalThis.localStorage = {
   getItem: (k) => (Object.prototype.hasOwnProperty.call(stored, k) ? stored[k] : null),
   setItem: (k, v) => { stored[k] = String(v); },
-  // A preference EMPTIED is one that is not there, which a stub writing `""'
-  // could not tell from one set to the empty string.
   removeItem: (k) => { delete stored[k]; },
 };
 globalThis.matchMedia = () => ({ matches: false, addEventListener: () => {} });
 
-// One element that answers to anything: the boot reads and writes chrome this
-// harness has no opinion about, and the keymap blob is the one thing it has to
-// hand back for real.
 const KEYS = fs.readFileSync(dir + "/keys.json", "utf8");
-// And the configuration blob the glue boots from — the page's second JSON
-// script element, extracted the same way.
 const CFGJSON = fs.readFileSync(dir + "/cfg.json", "utf8");
-/** Whichever element holds the focus: what `document.activeElement' answers. */
 let active = null;
 const fields = {};
-// The tag matters: `typing()' reads it off `document.activeElement' to decide
-// whether a key belongs to the table or to whatever has focus.
+// The tag matters: `typing()' reads it off `document.activeElement'.
 const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
                dtin: "input", dtext: "textarea",
                pkey: "input", pval: "input",
                tname: "input", themesel: "select",
                ltitle: "input", lurl: "input",
                ctarget: "input", clog: "input",
-               // The capture form: the tag field and the line; the template's
-               // grown fields are page-made nodes the acts reach through the
-               // focus.
                ktag: "input", ktext: "textarea",
-               // The keywords panel: one select over the layers and one box
-               // showing the selected one's lines.
                clayer: "select", ctext: "textarea", ctpl: "textarea" };
-/**
- * Enough of a `CSSStyleDeclaration': a named property is an ordinary field the
- * page writes and reads back (the palette's badge hues), and a CUSTOM property
- * goes through the pair a real one answers to — which is how the log's cap is
- * written, as a number onto the element rather than a length.
- */
 const styleOf = () => ({
   custom: {},
   setProperty(name, value) { this.custom[name] = String(value); },
   getPropertyValue(name) { return this.custom[name] || ""; },
 });
-/**
- * A REAL NODE TREE.  The page's chrome is built out of these, so what it drew
- * is read back rather than guessed at, and a write to an element nobody modelled
- * lands somewhere instead of vanishing into a proxy.  Text nodes, parents,
- * siblings, attributes and a selector engine — everything but an HTML parser,
- * which only `innerHTML' needs and the glue never writes one.
- */
+/** A REAL NODE TREE, minus the HTML parser only `innerHTML' needs. */
 const ELEMENT_NODE = 1, TEXT_NODE = 3, FRAGMENT_NODE = 11;
-// Every `scrollIntoView' the page made, oldest first.
 const scrolls = [];
 const isEl = (n) => n && n.nodeType === ELEMENT_NODE;
 function unlink(n) {
@@ -1172,18 +691,14 @@ const makeText = (data) => {
   for (const name of ["textContent", "nodeValue"])
     Object.defineProperty(t, name,
       { get: () => t.data, set: (v) => { t.data = String(v); } });
-  // A virtual DOM rewrites a text node as `replaceData(0, node.length, text)',
-  // so the count it passes is this.
+  // A virtual DOM rewrites a text node as `replaceData(0, node.length, text)'.
   Object.defineProperty(t, "length", { get: () => t.data.length });
   Object.defineProperty(t, "up", { get: () => t.parentNode });
   return t;
 };
 
-/**
- * The selector subset this page and its renderer write: a comma list of
- * descendant chains, each step a tag, `#id', `.class' and `:not(...)' in any
- * combination.  No child or sibling combinator, since nothing here asks for one.
- */
+/** The selector subset written here: descendant chains of tag, `#id', `.class'
+ * and `:not(...)'. */
 const parseSel = (sel) => String(sel).split(",")
   .map((alt) => alt.trim().split(/\s+/).filter(Boolean).map((step) => {
     const s = { tag: "", id: "", cls: [], not: [] };
@@ -1200,8 +715,6 @@ const stepHits = (el, s) => isEl(el)
   && (!s.id || el.id === s.id)
   && s.cls.every((c) => el.classList.contains(c))
   && s.not.every((inner) => !selHits(el, parseSel(inner)));
-// A chain matches EL when its last step does and every step above it is an
-// ancestor, in order — the descendant combinator and nothing else.
 const chainHits = (el, chain) => {
   if (!stepHits(el, chain[chain.length - 1])) return false;
   let up = el.parentNode, k = chain.length - 2;
@@ -1214,7 +727,6 @@ function descend(root, into) {
   return into;
 }
 
-/** A stand-in element, enough of one for the page to build its own chrome in. */
 const make = (tag) => {
   const e = {
     nodeType: ELEMENT_NODE,
@@ -1226,14 +738,11 @@ const make = (tag) => {
     parentNode: null, childNodes: [],
     scrollTop: 0, scrollLeft: 0,
     clientHeight: 0, scrollHeight: 0, clientTop: 0, clientLeft: 0,
-    // A field's caret, which the template box reads to splice a code in at.
     selectionStart: 0, selectionEnd: 0,
     setSelectionRange(from, to) { this.selectionStart = from; this.selectionEnd = to; },
     focus() { active = this; },
     blur() { if (active === this) active = null; },
-    // Kept rather than dropped: the value palette narrows on its field's own
-    // `input' event, and the property panel grows a row on one — neither of
-    // which a document-level press can stand in for.
+    // Kept: a palette narrows on its field's own `input', which no document press gives.
     on: {},
     addEventListener(type, fn) { (this.on[type] = this.on[type] || []).push(fn); },
     removeEventListener(type, fn) {
@@ -1258,8 +767,7 @@ const make = (tag) => {
     },
     removeChild(child) { return unlink(child); },
     remove() { unlink(this); },
-    // `id' and `class' live on the properties alone, so `attributes' below
-    // cannot report either of them twice.
+    // `id'/`class' stay on the properties, so `attributes' cannot report them twice.
     setAttribute(name, value) {
       if (name === "id") this.id = String(value);
       else if (name === "class") this.className = String(value);
@@ -1285,18 +793,13 @@ const make = (tag) => {
       return descend(this, []).filter((el) => selHits(el, chains));
     },
     select() {},
-    // Geometry is beyond this harness — nothing here has a layout, so whether an
-    // element IS out of view can never be answered.  What can be answered is
-    // whether the page ASKED, which is the half that is this page's.
+    // Geometry is beyond this harness; whether the page ASKED can be answered.
     scrollIntoView(opts) { scrolls.push({ className: this.className, opts }); },
     getBoundingClientRect: () => ({ top: 0, left: 0, right: 0, bottom: 0,
                                     width: 0, height: 0, x: 0, y: 0 }),
   };
-  // `children' is the ELEMENT children, which is what a real one answers and
-  // what every probe below walks.
   Object.defineProperty(e, "children", { get: () => e.childNodes.filter(isEl) });
-  // A `NamedNodeMap' as far as anything reads one: a length and `{name, value}'
-  // by index, which is how a virtual DOM takes an existing element over.
+  // A `NamedNodeMap' as far as anything reads one: how a virtual DOM takes over.
   Object.defineProperty(e, "attributes", { get: () => {
     const out = Object.keys(e.attrs).map((name) => ({ name, value: e.attrs[name] }));
     if (e.id) out.push({ name: "id", value: e.id });
@@ -1312,8 +815,6 @@ const make = (tag) => {
   Object.defineProperty(e, "up", { get: () => e.parentNode });
   Object.defineProperty(e, "parentElement",
     { get: () => (isEl(e.parentNode) ? e.parentNode : null) });
-  // A real element's `classList', which the page uses where it means "set one
-  // class, keep the rest" — the sheet's shape flag riding beside its size tier.
   e.classList = {
     contains: (name) => String(e.className).split(" ").indexOf(name) !== -1,
     add: (name) => { if (!e.classList.contains(name)) e.className = `${e.className} ${name}`.trim(); },
@@ -1326,15 +827,10 @@ const make = (tag) => {
       return on;
     },
   };
-  // Every value the text was SET to, in order.  A pill that is last-writer-wins
-  // on screen — the echo — leaves no trace of a second identical write, so a
-  // case asking "did this run twice" has nothing to read; the history is that
-  // trace, and it costs one push per set.
+  // Every value the text was SET to: a repeat write leaves no other trace.
   e.wrote = [];
   Object.defineProperty(e, "textContent", {
-    // The whole SUBTREE's text, which is what an element drawn as segments —
-    // text, link, text — reads as.  Setting it drops the children, so the two
-    // halves never double-count.
+    // The whole SUBTREE's text; a set drops the children, so nothing double-counts.
     get: () => e.childNodes.map((n) => n.textContent).join(""),
     set: (v) => {
       e.wrote.push(String(v));
@@ -1344,15 +840,9 @@ const make = (tag) => {
   });
   return e;
 };
-/** The tree every id-named element hangs under. */
 const docBody = make("body");
-/**
- * The element an id names, made on demand.  Every id the page asks for exists —
- * an unmodelled one would crash the page rather than teach anything — and each
- * lands under `body', so a document-level selector has a tree to walk.  FLAT,
- * where the served page nests: reproducing `Page.hs''s nesting here would be a
- * second copy of it to keep in step.
- */
+/** Every id the page asks for exists, hanging FLAT off `body' where the served
+ * page nests. */
 const field = (id) => {
   if (fields[id]) return fields[id];
   const e = make(TAGS[id] || "div");
@@ -1361,10 +851,6 @@ const field = (id) => {
   docBody.appendChild(e);
   return e;
 };
-// The document element, which is where the stale wash lands and where the theme
-// pins its attribute.  Its class list records every transition, because
-// the wash IS a class going on and coming off and a run that armed and cleared
-// reads differently from one that never armed.
 const root = make("html");
 root.appendChild(docBody);
 const washed = [];
@@ -1380,11 +866,9 @@ root.classList = {
     return on;
   },
 };
-// The page's own key dispatch, kept so a press can be delivered to it.
 const pressed = [];
 const released = [];
 globalThis.document = {
-  // The two JSON blobs are the page's own script elements rather than chrome.
   getElementById: (id) =>
     id === "keys" ? { textContent: KEYS }
       : id === "cfg" ? { textContent: CFGJSON }
@@ -1411,26 +895,17 @@ globalThis.document = {
   title: "",
   location: { href: "http://127.0.0.1/" },
 };
-// Elm's virtual DOM schedules its paints on this; the page's own `soon' already
-// falls back to `setTimeout' when it is absent, so both take the same turn.
+// Elm's virtual DOM schedules its paints on this; `soon' falls back to `setTimeout'.
 globalThis.requestAnimationFrame = (fn) => setTimeout(() => fn(0), 0);
 globalThis.window = globalThis;
 globalThis.addEventListener = () => {};
 
-/**
- * THE PROPERTY PANEL IS AN ELM PROGRAM, loaded ahead of the shell the way the
- * page loads it.  Indirect eval, since its output publishes onto `this'.
- *
- * `init' and the messages the shell sends it are counted here, because the two
- * questions the mount counters used to answer — was it built once, and did
- * every drawer arrive as one hand-over — are still worth asking of a program.
- */
+/** THE SMALL LISTS ARE ONE ELM PROGRAM; indirect eval, its output publishing
+ * onto `this'. */
 (0, eval)(fs.readFileSync(dir + "/elm.js", "utf8"));
 let pinits = 0, pfills = 0;
 const elmInit = globalThis.Elm.Listing.init;
 globalThis.Elm.Listing.init = (opts) => {
-  // WHICH LIST this is, by the element it was given — the same question the
-  // mount counters used to answer, asked of one program with four instances.
   const host = opts && opts.node && opts.node.up ? opts.node.up.id : "";
   if (host === "mptable") pinits += 1;
   if (host === "ltable") lmounts += 1;
@@ -1448,106 +923,59 @@ globalThis.Elm.Listing.init = (opts) => {
 };
 eval(fs.readFileSync(dir + "/shell.js", "utf8"));
 
-// A `C-' prefix is the chord the page's own `keyName' spells that way, so a
-// sequence like `C-c C-t' is two of these and needs no other notation here.
-// `S-' is the shift held with it — `S-Tab' is the crossing back out of the
-// sheet's property panel, which the page tells from `Tab' by the modifier
-// alone.  `M-' is the meta the page reads off `altKey', and it is `M-RET''s
-// whole difference from `S-RET': one puts a newline in the open box and the
-// other commits it.
-//
-// A `%CODE' tail is the PHYSICAL key under the character, which is the one
-// thing a layout changes: `т%KeyN' is the key a Latin layout writes `n' on,
-// pressed on a Cyrillic one, and `S-В%KeyD' is that key's shifted half.  A name
-// without one carries no `code' at all — the fallback a browser that sends none
-// leaves the page with, and what every other press here is.
-//
-// Whether the dispatch CLAIMED a key is recorded, because that is the half of
-// the reserved-chord rule behaviour can otherwise not show: a chord the page
-// leaves to the browser and one it takes both look like nothing happening.  It
-// is recorded under the name the script PRESSED, tail and all.
+// Whether the dispatch CLAIMED a key is recorded under the name the script
+// PRESSED: a chord left to the browser and one taken both look like nothing.
 const press = (name, repeating, held) => {
-  // A tail wants both halves, so a `%' with nothing either side of it is the
-  // key it spells rather than a separator.
   const cut = name.indexOf("%"), tailed = cut > 0 && cut < name.length - 1;
   const code = tailed ? name.slice(cut + 1) : undefined;
   const spelled = tailed ? name.slice(0, cut) : name;
   const ctrl = spelled.startsWith("C-"), shift = spelled.startsWith("S-"),
         alt = spelled.startsWith("M-");
-  // Acts split on whitespace, so the space BAR is spelled `Space' here and
-  // cooked to the " " a browser actually sends — the glue never learns a
-  // key name no browser speaks.
+  // `Space' is cooked to the " " a browser sends; the glue learns no new name.
   const bare = ctrl || shift || alt ? spelled.slice(2) : spelled;
   const event = {
     key: bare === "Space" ? " " : bare,
     code,
     ctrlKey: ctrl, altKey: alt, metaKey: false, shiftKey: shift,
     repeat: !!repeating, target: active || docBody,
-    // The DOM's own record of "a listener has handled this", which the later
-    // listeners on one document read to stay off a key an earlier one took.
     defaultPrevented: false,
     preventDefault: () => { prevented.push(name); event.defaultPrevented = true; },
   };
   for (const handler of pressed) handler(event);
-  // And the browser's OWN default for the one key whose default a field needs:
-  // a `Backspace' no listener claimed erases a character out of whatever field
-  // has the focus.  Without it "the page left this key to the field" is
-  // indistinguishable from "nothing happened", which is exactly the rule a
-  // popup's nav-mode DEL has to be told apart from.
+  // The browser's OWN default for the one key a field needs it for: without it
+  // "the page left this key to the field" and "nothing happened" read alike.
   if (spelled === "Backspace" && !event.defaultPrevented && active
       && (active.tagName === "INPUT" || active.tagName === "TEXTAREA"))
     active.value = String(active.value).slice(0, -1);
-  // The KEYUP the browser always sends and the page's derived-repeat set
-  // waits for.  A HELD key sends none — which is what `stuck:' models: the
-  // native window's GTK quirk delivers auto-repeat keydowns with `repeat'
-  // unset, and the derivation must catch the second press by the missing
-  // release alone.
+  // The KEYUP the page's derived-repeat set waits for; a HELD key sends none,
+  // which is the native window's GTK auto-repeat with `repeat' unset.
   if (!held)
     for (const handler of released)
       handler({ key: event.key, code: event.code });
 };
 const prevented = [];
 
-// The store moving is a new tag: a client holding the old one is answered with
-// a body rather than a 304, which is the reconnect that has rows to apply.
+// The store moving is a new tag: a client holding the old one gets a body.
 const step = () => { tag = `"t${Number(tag.slice(2, -1)) + 1}"`; };
-/** TEXT typed into the settings sheet's fixed field ID, the sheet being open —
- * a closed one shows no field, so a script that types into one means nothing. */
 const typeSetting = (id, text) => {
   if (field("config").className !== "on")
     throw new Error(`the settings sheet is not open: ${id}`);
   typed(field(id), text);
 };
-/** TEXT typed into BOX, event and all — which is what a reader does to a field
- * and what the widgets narrowing on one are listening for. */
 const typed = (box, text) => {
   box.value = text;
-  // The caret ends up AFTER what was typed, which is where a reader's is and
-  // what a key splicing at the caret then reads.
   box.selectionStart = text.length;
   box.selectionEnd = text.length;
-  // A REAL EVENT, because a real listener calls back into it: Elm's `onInput'
-  // is a `stopPropagationOn', so an object carrying the target alone throws
-  // where a browser's event answers.
+  // A REAL EVENT, because a real listener calls back into it: Elm's `onInput' is
+  // a `stopPropagationOn', which throws on an object carrying the target alone.
   box.fire("input", { target: box,
                       stopPropagation: () => {}, preventDefault: () => {} });
 };
-/**
- * Type into one of the document's two edit overlays.  A closed one has no
- * fields, so a script that types without pressing RET first is typing into
- * nothing on a real page: say so rather than write where no reader could have.
- */
 const typeIn = (box, which, text) => {
   if (field(box).className !== "on")
     throw new Error(`the document has no ${box} open: ${which}`);
   typed(field(which), text);
 };
-/**
- * Type into the property panel's edit overlay: ARG is `INDEX=TEXT', INDEX being
- * the row the script means.  A closed panel has no fields, and an overlay open
- * over another row is a script that means nothing on a real page — say so rather
- * than write where no reader could have.
- */
 const typeOver = (which, arg) => {
   const at = arg.indexOf("=");
   if (field("pedit").className !== "on")
@@ -1556,36 +984,18 @@ const typeOver = (which, arg) => {
     throw new Error(`panel row ${patAt()} is open, not ${arg}`);
   typed(field(which), arg.slice(at + 1));
 };
-/**
- * Type into the link popup's edit overlay.  A closed overlay has no fields, so a
- * script that types without pressing RET first is typing into nothing on a real
- * page: say so rather than write where no reader could have.
- */
 const typeLink = (which, text) => {
   if (field("ledit").className !== "on")
     throw new Error(`no link is open for editing: ${which}`);
   typed(field(which), text);
 };
-/**
- * What INST is showing: KEYS' cells, one array per row.  Read off the MOUNT
- * rather than off any DOM, because the two model-owning mounts ARE their models
- * — the shell hands each a row list and that list is the whole of what it shows.
- * An open row is not in it: the overlay holds the edit and the model holds the
- * committed text, which is what makes a commit the only thing that means yes.
- */
-/** The keywords panel on screen, which is where its controls are typeable. */
 const onKeywords = () => {
   const tab = field("ctabs").children.find((t) => t.textContent === "keywords");
   if (tab && tab.className !== "ctab on") tab.fire("click", {});
 };
 const cellsOf = (inst, keys) =>
   (inst ? inst.own.map((r) => keys.map((k) => r.cells[k])) : []);
-/** Which row wears INST's cursor, and -1 when there is no such mount yet — or
- * when nothing has been selected in it, which its own answer already is. */
 const curOf = (inst) => (inst ? inst.at() : -1);
-/** What INST was mounted with and what it keeps, under PREFIX: its columns, the
- * four options a popup is handed, and its two id sets.  Every mount answers all
- * eight, and one that is not up answers each field's own empty. */
 const mountFields = (prefix, inst) => ({
   [`${prefix}cols`]: inst ? inst.cols : [],
   [`${prefix}marks`]: inst ? inst.marksOn : null,
@@ -1596,27 +1006,14 @@ const mountFields = (prefix, inst) => ({
   [`${prefix}marked`]: inst ? [...inst.marks] : [],
   [`${prefix}flagged`]: inst ? [...inst.flags] : [],
 });
-/**
- * THE STRUCTURED DOCUMENT, read off what it DREW.  It is the page's own widget
- * rather than a mount, so there is no model to ask: `#dlist' holds one element
- * per row, each wearing its KIND as a class and holding its parts as spans, and
- * what a reader has in front of them is exactly that.
- *
- * An element reads as `[KIND, ...parts]' — a headline line as its four cells, a
- * planning or property row as its key and its value, a paragraph as its text.
- */
+/** THE STRUCTURED DOCUMENT, read off what it DREW: `#dlist' holds one element
+ * per row wearing its KIND as a class, reading as `[KIND, ...parts]'. */
 const kindOf = (cls) => String(cls).split(" ")
   .filter((c) => c.startsWith("d-")).map((c) => c.slice(2)).join(":");
 const wears = (e, cls) => String(e.className).split(" ").indexOf(cls) !== -1;
-/** THE WALK, FLATTENED OUT OF THE DRAW.  A composite is drawn ONCE with its
- * leaves inside it and a leaf with children draws THEM inside itself — the
- * grain ladder — so the elements are a tree on screen and a flat sequence to
- * the cursor.  Document order IS the builder's emission order, and taking it
- * off the selector rather than a walk leaves the pane free to wear a wrapper —
- * which it does now, being an Elm program mounted inside `#dlist'. */
+/** THE WALK, FLATTENED OUT OF THE DRAW, off a SELECTOR so the pane is free to
+ * wear the wrapper an Elm mount adds. */
 const flatRows = () => field("dlist").querySelectorAll(".de");
-/** Which row each stop hangs under, by place in the walk — the IMMEDIATE
- * parent up the ladder, -1 for a top-level stop. */
 const ownerOf = () => {
   const rows = flatRows();
   return rows.map((row) => {
@@ -1625,9 +1022,6 @@ const ownerOf = () => {
     return -1;
   });
 };
-/** Every drawn piece of ROW's text, as `CLASS:TEXT' in draw order — `dt' for
- * plain text and `dl' for a link, so a test can read the interleaving.  An
- * element with no link in it is drawn as text outright and has no pieces. */
 const segsOf = (row) => {
   const out = [];
   const walk = (e) => {
@@ -1643,26 +1037,18 @@ const segsOf = (row) => {
 const docRows = () => flatRows().map((row) =>
   [kindOf(row.className)].concat(row.children
     .filter((p) => !wears(p, "de")).map((p) => p.textContent)));
-/** Which element wears the cursor, and which of its CELLS — -1 for neither.
- * Counted over the `dc' parts alone: a headline line opens with its org-cleaned
- * stars, which are chrome ahead of the first cell rather than a cell, so `f'/`b'
- * walk straight past them and so does this. */
+/** Which element wears the cursor, and which of its CELLS.  Over the `dc' parts
+ * alone: a headline's org-cleaned stars are chrome that `f'/`b' walk past. */
 const docAt = () => flatRows().findIndex((row) => wears(row, "dat"));
 const docCell = () => {
   const row = flatRows()[docAt()];
   if (!row) return -1;
   return row.children.filter((p) => wears(p, "dc")).findIndex((p) => wears(p, "don"));
 };
-/** And which elements wear a deletion flag, by their place in the document. */
 const docFlagged = () => flatRows()
   .map((row, i) => (wears(row, "dfl") ? i : -1))
   .filter((i) => i !== -1);
-/**
- * THE PROPERTY PANEL, READ OFF WHAT IT DREW.  It is an Elm program rather than
- * a mount, so there is no model here to ask: `#mptable' holds the renderer's own
- * markup, class for class, and what a reader has in front of them is exactly
- * that.  The same turn the document pane took when it stopped being a mount.
- */
+/** THE PROPERTY PANEL, READ OFF WHAT IT DREW: there is no model here to ask. */
 const listEls = (host) => field(host).querySelectorAll("tbody tr");
 const listCells = (host) =>
   listEls(host).map((tr) => tr.children.map((td) => td.textContent));
@@ -1671,91 +1057,51 @@ const listFlagged = (host) => listEls(host).filter((tr) => wears(tr, "tv-flagged
   .map((tr) => tr.getAttribute("data-id"));
 const listHint = (host) =>
   (field(host).querySelector(".tv-hint") || { textContent: "" }).textContent;
-/** THE FOUR SMALL LISTS, by the element each hangs under — every one of them a
- * `listing' mount, so `/' narrows each and this reads them all the same way. */
 const LISTS = ["ltable", "ttable", "mptable", "cstates"];
-/** The narrow's own field, which the LIST draws and only while one is open. */
 const narrowIn = (host) => field(host).querySelector("input.tv-filter");
-/** Which lists are narrowed and to what, in the order above: a list with no
- * field is not here at all, so "no narrow anywhere" reads as the empty list. */
 const narrows = () => LISTS.map((h) => [h, narrowIn(h)])
   .filter(([, box]) => box).map(([h, box]) => [h, String(box.value)]);
 const listCols = (host) =>
   field(host).querySelectorAll("thead .tv-hn").map((h) => h.textContent);
 const panel = () => listCells("mptable");
 const patAt = () => listAt("mptable");
-/**
- * Which field has the focus, named the way an act names one: `mtext' for raw
- * mode's textarea, and the document's or a popup's overlay fields by their own
- * names.  Nothing focused is the state the document holds the keys in, which is
- * what leaves every printable key free.
- */
 const FOCUSABLE = ["mtext", "dtin", "dtext", "ltitle", "lurl", "tname",
                    "pinput", "ktag", "ktext"];
 const focused = () => {
   if (!active) return "";
-  // A small list's narrow field, named by the list it belongs to: it is drawn
-  // by the program that holds the rows, so it carries no id of its own.
+  // Drawn by the program that holds the rows, so it carries no id of its own.
   const list = LISTS.find((h) => narrowIn(h) === active);
   if (list) return `narrow:${list}`;
-  // The panel's two fields carry the row they are laid over, since the overlay
-  // is ONE pair over whichever row the panel's cursor is on.
   const which = active === field("pkey") ? "pkey"
     : active === field("pval") ? "pval" : "";
   if (which) return `${which}:${patAt()}`;
   return FOCUSABLE.find((id) => active === field(id)) || "";
 };
-/** Everything under E with CLS, by class the way `docRows' reads the document:
- * the producer labels each part, so one added later cannot be mistaken for
- * another. */
 const parts = (e, cls) =>
   e.children.filter((x) => x.className.split(" ").indexOf(cls) !== -1);
-/** A bare word where an entry is read: the header's column names, and the line
- * the palette stands on while the resolution is out. */
 const asWord = (word) => ({ key: "", word, color: "", hint: "", mark: "" });
-/**
- * One palette entry as it is drawn: the key token it claimed, its word spelled
- * with the BOLD letter in brackets where it sits (`DELEGAT[E]D'), and the
- * colour read back off the inline style, which is where the badge's own hue is
- * written.
- */
+/** One palette entry as drawn: the key token, the word with its BOLD letter
+ * bracketed (`DELEGAT[E]D'), and the badge hue off the inline style. */
 const paletteEntry = (e) => {
   const token = parts(e, "pk")[0], word = parts(e, "pw")[0], aside = parts(e, "pt")[0];
   const hot = word.children.find((p) => p.tagName === "B");
   return {
-    // Empty for every entry but the one whose key names no position in a word:
-    // the letter is marked INSIDE the keyword and there is no token column.
+    // Empty for every entry but the one whose key names no position in a word.
     key: token ? token.textContent : "",
     word: word.children.length
       ? word.children.map((p) => (p.tagName === "B" ? `[${p.textContent}]`
                                                     : p.textContent)).join("")
       : word.textContent,
     color: word.style.color || "",
-    // The rule under the claimed letter, which takes that state's badge hue —
-    // the only place a reader is told which key commits now that the token
-    // column is gone.
     mark: hot ? hot.style.textDecorationColor || "" : "",
-    // The muted aside: the tag palette's partial count.  Empty where the entry
-    // has none, which is what a tag every target already carries looks like.
     hint: aside ? aside.textContent : "",
   };
 };
-/** One table cell's entries.  The header's cells hold a word rather than
- * entries and read as one; an empty cell reads as nothing. */
 const paletteCell = (cell) =>
   cell.children.length ? cell.children.map(paletteEntry)
     : cell.textContent ? [asWord(cell.textContent)] : [];
-/**
- * The value palette's list as it stands: per ROW of `#plist', its class, the
- * source it names, and the entries in its Active and Inactive halves.  The
- * hairlines between rows are the rows' own borders, so what is observable here
- * is the table's shape rather than a divider.
- *
- * Three row shapes, told apart by what the producer put in them.  A table row
- * carries its two cells.  A row holding ONE entry is the meta's, or the
- * fallback mode's own body, and reads as that entry in the active half.  A row
- * holding neither is the standing line, and reads as its text.
- */
+/** The value palette's list, per ROW of `#plist'.  Three shapes: two cells,
+ * ONE entry (the meta's or the fallback mode's body), or the standing line. */
 const paletteRows = () => field("plist").children.map((row) => {
   const cells = parts(row, "pc"), own = parts(row, "pe")[0] || row;
   const [active, inactive] = cells.length ? cells.map(paletteCell)
@@ -1768,73 +1114,44 @@ const paletteRows = () => field("plist").children.map((row) => {
   };
 });
 
-/**
- * The log strip as it stands: a line's severity class and the text it renders,
- * the parts joined by the space that separates them on screen.  The repeat
- * counter is empty until a line repeats, which is why the empty parts go.
- */
 const logged = () => field("log").children.map((line) => ({
   sev: line.className,
   text: line.children.map((part) => part.textContent).filter(Boolean).join(" "),
 }));
 
-// What `assign' worked out, as `LETTER@INDEX' per entry and `-' for one that
-// claimed nothing.
 let assigned = [];
 
-// What `cells' worked out: the column indices an edit overlay's shape resolves
-// to as `FROM,TO', `«none»' where one of its keys names no column in the list,
-// and null where the act never ran.
+// What `cells' worked out: `FROM,TO', `«none»' for a key naming no column.
 let span = null;
 
-/** A stored value as the answer spells it, `«unset»' for a key that is not
- * there — which is a different state from one holding the empty string. */
+/** A stored value, `«unset»' for a key that is not there — a state apart from
+ * one holding the empty string. */
 const unset = (v) => (v === null ? "«unset»" : v);
 
 const ACTIONS = {
   close: (reason) => { if (socket && socket.onclose) socket.onclose({ reason }); },
-  // The which-key assignment driven as the pure function it is: a comma-separated
-  // cycle in, the claimed letters out.  The glue is eval'd into this scope, so
-  // its own function is what answers — no second copy of the rule here.
+  // The glue is eval'd into this scope, so its own function answers here.
   assign: (arg) => {
     const labels = arg.split(",");
     assigned = whichKeys(labels).map((at, i) =>
       (at === -1 ? "-" : `${letterAt(labels[i], at)}@${at}`));
   },
-  // And the edit overlay's cell resolution, likewise driven as the pure function
-  // it is: `KEYS@COLUMNS', both comma-separated, the column list being the KEYS
-  // of the columns the server declared for that popup.  The glue's own function
-  // answers — there is no second copy of the rule here.
   cells: (arg) => {
     const [keys, cols] = arg.split("@");
     const at = cellSpan(keys ? keys.split(",") : [],
                         (cols ? cols.split(",") : []).map((key) => ({ key })));
     span = at ? at.join(",") : "«none»";
   },
-  // The resolution never arrives, which is what leaves the palette standing in
-  // the state between the press that raised it and the answer that fills it.
   stall: () => { stalling = true; },
-  // The resolution a marked set spanning two tags comes back as: org's own pair
-  // and then two tag sources, in the order the server put them, and no file
-  // layer at all.
-  // The mixed set normalize-up is about: two of the three rows carry `web' and
-  // the third does not, so the first press over the set is the levelling one.
   partly: () => { rowTags = { r1: ["web"], r2: ["web"], r3: [] }; },
-  // ARCHIVED ROWS: the cell org writes, since `D' reads the tag rather than
-  // asking the server what it means.  `archived:r1,r2' names the ones that
-  // carry it; everything else keeps the fixture's own `:web:'.
   archived: (which) => {
     const want = new Set(String(which).split(",").filter(Boolean));
-    // The tag the SERVER names, off the same blob the page reads it from —
-    // org's own `ARCHIVE', which a second spelling here would get wrong.
+    // Off the same blob the page reads it from; a second spelling would drift.
     const tag = JSON.parse(CFGJSON).archiveTag;
     for (const r of rows)
       if (want.has(r.id)) r.cells.tag = `:web:${tag}:`;
   },
-  // Rows with no tags at all, which is where a first `:' has nothing to list
-  // and `/' is the only way in.
   untagged: () => { rowTags = { r1: [], r2: [], r3: [] }; },
-  // A store that knows none of the rows the palette named.
   unknownrows: () => { rowTags = {}; },
   twotags: () => {
     sources = [
@@ -1845,9 +1162,6 @@ const ACTIONS = {
   },
   sheet: (text) => { field("mtext").value = text; },
   filter: (text) => { field("filter").value = text; },
-  // A QUERY COMMITTED the way a reader commits one: the renderer hands the text
-  // to `onFilter', which is the shell's one door for a typed query.  `_' is a
-  // space, the way every other act here spells one.
   commit: (text) => {
     if (!main) throw new Error("no table to commit a query to");
     const q = String(text).replace(/_/g, " ");
@@ -1861,14 +1175,6 @@ const ACTIONS = {
     served += 1;
   },
   recolumn: () => { step(); columns = columns.concat([{ key: "deadline" }]); },
-  // ROW FRAMES, delivered down the LIVE SOCKET the way the watcher delivers
-  // them: `socket.onmessage' is the page's own door and this is the only way
-  // in, so what a frame reaches is the shell's real handling of one.
-  // `frame:upsert=r1' re-sends a row that moved — which is what an ARCHIVE puts
-  // on the wire, the row still being the store's — and `frame:delete=r1,r2'
-  // says two rows are gone, so the served set loses them with the frame.
-  // An unfiltered client splices these straight in; a filtered one reads none
-  // of them and refetches, which is what `unserved' is for.
   frame: (arg) => {
     const at = arg.indexOf("=");
     const op = at === -1 ? arg : arg.slice(0, at);
@@ -1878,10 +1184,8 @@ const ACTIONS = {
       throw new Error(`no socket to carry a frame: frame:${arg}`);
     for (const id of (at === -1 ? "" : arg.slice(at + 1)).split(",").filter(Boolean)) {
       if (op === "delete") {
-        // The frame FIRST, so an unfiltered client's own `deleteRow' is what
-        // takes the row out and a shell that ignored the frame is visible in
-        // what is left.  The store loses it either way: a `delete-row' IS the
-        // store having lost it, and a filtered client never splices.
+        // The frame FIRST, so an unfiltered client's own `deleteRow' takes the row
+        // out and a shell that ignored the frame is visible in what is left.
         socket.onmessage({ data: JSON.stringify({ op: "delete-row", id }) });
         rows = rows.filter((r) => r.id !== id);
         served -= 1;
@@ -1894,13 +1198,7 @@ const ACTIONS = {
       socket.onmessage({ data: JSON.stringify({ op: "upsert-row", row }) });
     }
   },
-  // The applied query stops matching IDS: /headlines answers without them and
-  // the tag steps, so a revalidation comes back with rows rather than a 304.
-  // It describes an APPLIED QUERY, so pairing it with an unfiltered boot means
-  // nothing — an unfiltered client splices a frame back in and undoes it.
-  // The rows themselves stay the store's, which is what lets a frame still
-  // carry one — an archive is an upsert on the wire and an absence in the
-  // answer, and this is the second half.
+  // It describes an APPLIED QUERY: an unfiltered client splices a frame back in.
   unserved: (arg) => {
     const ids = arg.split(",").filter(Boolean);
     hidden = hidden.concat(rows.filter((r) => ids.indexOf(r.id) !== -1));
@@ -1910,18 +1208,9 @@ const ACTIONS = {
   },
   rewritten: () => { digest = "d1"; },
   press: (key) => press(key),
-  // A MOUSE CLICK landing on another row of a modal MOUNT, which is the ONE
-  // thing that can move a cursor out from under an open edit overlay — no key
-  // can, which is why every other act here is a key.  `click:2' is the reader
-  // clicking row 2 of whichever popup is up: the link popup, then the tags one.
-  // The structured document is not a mount and binds no click at all, so it has
-  // no such hazard and no act for it.  The renderer moves its own cursor and
-  // tells this page nothing, so what this measures is whether a commit still
-  // writes the row the overlay OPENED over.
+  // The ONE thing that can move a cursor out from under an open edit overlay.
   click: (at) => {
     const i = Number(at);
-    // Every small list draws its own rows, so the click goes to the ROW — the
-    // path a reader's takes, and the widget's own handler answers it.
     const host = field("modal").className === "on" ? "mptable"
       : field("links").className === "on" ? "ltable" : "ttable";
     const rows = listEls(host);
@@ -1929,27 +1218,15 @@ const ACTIONS = {
       throw new Error(`no row ${at} to click in ${host}`);
     rows[i].fire("click", { target: rows[i] });
   },
-  // The settings sheet's theme select, driven the way a reader drives it: focus
-  // it, pick a theme, and let the change event fire.  What it is here to show is
-  // what happens AFTER — the theme applied, the choice stored, and the sheet
-  // still standing over the table it was raised from.
   theme: (name) => {
     const box = field("themesel");
     box.focus();
     box.value = name;
     box.fire("change", { target: box });
   },
-  // The same key delivered as an AUTO-REPEAT, which is what the ONCE list is
-  // about: the dispatch claims it either way and runs it only when it is not
-  // one of the commands a hold must not repeat.
   repeat: (key) => press(key, true),
-  // A keydown with NO keyup and `repeat' UNSET: the lying auto-repeat the
-  // native window's GTK layer produces.  Two of these in a row are one held
-  // key however the event spells it.
+  // A keydown with NO keyup and `repeat' UNSET: the native window's own quirk.
   stuck: (key) => press(key, false, true),
-  // The field is the fallback mode's and is hidden until `/' raises it, so a
-  // script that types without pressing `/' first is typing into nothing on a
-  // real page: say so rather than narrow a list no reader could have narrowed.
   type: (text) => {
     if (field("pbox").className !== "narrow")
       throw new Error("the value palette is not in its typing mode");
@@ -1957,32 +1234,20 @@ const ACTIONS = {
     box.value = text;
     box.fire("input", { target: box });
   },
-  // Typing into whichever small list is narrowed, which `/' has to have opened:
-  // one list holds the keys at a time, so no host is owed.  A script typing with
-  // no field up is typing into nothing on a real page — say so.
   narrow: (text) => {
     const host = LISTS.find((h) => narrowIn(h));
     if (!host) throw new Error("no list is narrowed: press / first");
     typed(narrowIn(host), String(text).replace(/_/g, " "));
   },
-  // Typing into the tags popup's rename overlay, which is one field over the tag
-  // at point.  A closed overlay has no field, so a script that types without
-  // pressing RET first is typing into nothing on a real page: say so.
   tname: (text) => {
     if (field("tedit").className !== "on")
       throw new Error("no tag is open for renaming");
     typed(field("tname"), text);
   },
-  // The pin button: a click on the strip's far edge, reaching whatever the
-  // consumer wired.  A mount without the wire is a page without the button,
-  // so pressing it is a script error rather than a silent nothing.
   pinclick: () => {
     if (!main.onPin) throw new Error("no onPin was wired: pinclick");
     main.onPin();
   },
-  // Typing into the capture form.  The tag and the line are its own markup; a
-  // template's grown fields are page-made nodes, so `kf:' types into whichever
-  // of them holds the focus — the way a reader reaches one.
   ktag: (text) => {
     if (field("capture").className !== "on")
       throw new Error("the capture form is not open: ktag");
@@ -2004,34 +1269,17 @@ const ACTIONS = {
     box.focus();
     typed(box, text);
   },
-  // And into the link popup's edit overlay, which is two fields over the link at
-  // point: `ltitle' is what the entry calls it and `lurl' where it points.  A
-  // closed overlay has neither, for the rename's reason.
   ltitle: (text) => typeLink("ltitle", text),
   lurl: (text) => typeLink("lurl", text),
-  // Typing into the document's edit overlays: `dtin' is the one field a
-  // headline's title opens as, and `dpara' is the textarea a paragraph opens
-  // as.  Each is laid over the element at point, so no index is owed — no key
-  // can move the cursor while one is open, and the document binds no click.
   dtin: (text) => typeIn("dtitle", "dtin", text),
-  // ACTS SPLIT ON WHITESPACE, so a paragraph with a space or a line break in it
-  // is spelled `_' and `|' here and cooked back on the way in.  A stop the walk
-  // takes over several lines — a list item, a whole block — cannot be typed any
-  // other way.
-  // `_' is a space and `|' a newline, an act carrying neither; `~' is a
-  // LITERAL bar, put back after the newlines so an org table row can be typed
-  // into a paragraph that spells its own line breaks with the same character.
+  // `~' is a LITERAL bar, put back after the newlines so an org table row can be
+  // typed into a paragraph spelling its line breaks with the same character.
   dpara: (text) => typeIn("dpara", "dtext",
     String(text).replace(/_/g, " ").replace(/\|/g, "\n").replace(/~/g, "|")),
   pkey: (arg) => typeOver("pkey", arg),
   pval: (arg) => typeOver("pval", arg),
-  // And into the settings sheet: `ctext:#+TODO:_A_|_B' is the keywords panel's
-  // one box, holding the SELECTED layer's `#+TODO:' lines as the sheet edits
-  // them.  Which layer that is comes off `clayer' below.
   ctext: (text) => (onKeywords(), typeSetting("ctext", text)),
-  // TAKING AN EDIT BACK: the layer's own lines typed in again, which is what a
-  // reader does and what the acts cannot spell — an act splits on spaces and a
-  // `#+TODO:' line is mostly spaces.
+  // TAKING AN EDIT BACK: an act splits on spaces and a `#+TODO:' line is spaces.
   crevert: () => {
     onKeywords();
     const at = Number(field("clayer").value) || 0;
@@ -2040,10 +1288,6 @@ const ACTIONS = {
                    || String(a.tag).localeCompare(String(b.tag)))[at];
     typed(field("ctext"), (shown.lines || []).join("\n"));
   },
-  // Picking a layer, the way a reader picks one: the select takes the focus, the
-  // value moves, and the change event fires.  What it is here to show is that
-  // the box under it swaps and an edit in the layer being left is still there on
-  // the way back.
   clayer: (at) => {
     if (field("config").className !== "on")
       throw new Error("the settings sheet is not open: clayer");
@@ -2053,10 +1297,7 @@ const ACTIONS = {
     box.value = String(at);
     box.fire("change", { target: box });
   },
-  // THE KEYWORDS PANEL, brought on screen where an act needs it there.  A box
-  // is only typeable while its own tab shows — the page reads a box back only
-  // then, since two editors write one cycle now — so an act naming that panel's
-  // controls says so rather than every case spelling the tab press.
+  // A box is typeable only while its own tab shows, two editors writing one cycle.
   ctab: (name) => {
     if (field("config").className !== "on")
       throw new Error("the settings sheet is not open: ctab");
@@ -2064,35 +1305,23 @@ const ACTIONS = {
     if (!tab) throw new Error(`no settings tab called ${name}`);
     tab.fire("click", {});
   },
-  // Landing the states table's cursor on the row for one keyword.
   sat: (state) => {
     const rows = listEls("cstates");
     const row = rows.find((tr) => tr.children[1].textContent === state);
     if (!row) throw new Error(`no state row for ${state}`);
     row.fire("click", { target: row });
   },
-  // And what the open edit overlay's three fields hold: `sfields:NAME/GROUP/HUE'
-  // — an empty part leaves that field as it was.
   sfields: (spec) => {
     const [name, group, hue] = String(spec).split("/");
     if (name !== undefined && name !== "") field("sname").value = name;
     if (group !== undefined && group !== "") field("sgroup").value = group;
     if (hue !== undefined && hue !== "") field("shue").value = hue;
   },
-  // And the general panel's two fields, which are fixed rows rather than a
-  // layer's: the capture target, bound to the system layer and posted in its
-  // write, and the log knob, which is stored here and posted nowhere.  They are
-  // markup rather than a drawn row, so typing into them with the sheet shut
-  // would write where no reader could have.
   ccap: (text) => typeSetting("ctarget", text),
   clog: (text) => typeSetting("clog", text),
-  // Every config layer moves out from under the sheet, which is the drift a
-  // second writer causes.
   cmoved: () => { for (const l of layers) l.digest = "gone"; },
-  // Per-row priority cells, comma-separated and positional: `priorities:A,,C'
-  // gives row one `[#A]', row two none and row three `[#C]'.  A cell the store
-  // does not hold is what an entry with no priority IS, which is the ring's own
-  // `none' stop — so a MIXED set is one act.
+  // A cell the store does not hold is what an entry with NO priority is, so the
+  // ring's mixed set is one act.
   priorities: (arg) => {
     arg.split(",").forEach((p, i) => {
       if (!rows[i]) return;
@@ -2101,20 +1330,11 @@ const ACTIONS = {
       if (i === 0) headPriority = p ? `[#${p.toUpperCase()}]` : null;
     });
   },
-  // The body the GRAIN walk is measured over — see `grainBody'.  Set before the
-  // sheet opens, since the document is built out of the answer.
+  // Set before the sheet opens: the document is built out of the answer.
   grain: () => { grainy = true; },
-  // And the body the CHECKBOX toggle is measured over — see `checkyBody'.
   checky: () => { checky = true; },
-  // And the body the TABLE grain is measured over — see `tabledBody'.  Set
-  // before the sheet opens, since the document is built out of the answer.
   tabled: () => { tabled = true; },
-  // The body every link shape is in, and the scan that goes with it.
   linky: () => { linky = true; links = linkyLinks; },
-  // Two links in the grainy body: one inside the list's FIRST item and one
-  // inside its second.  Which is what makes `o' at a leaf and `o' at the whole
-  // list two different questions — the same answer, narrowed by the stop's own
-  // extent.
   grainlinks: () => {
     links = [ { target: "https://alpha.example/", desc: "in alpha",
                 type: "https", span: [21, 40] },
@@ -2122,39 +1342,17 @@ const ACTIONS = {
                 type: "https", span: [53, 58] } ];
   },
   refuse: () => { refusing = true; },
-  // Nothing refers to the row `@' names, which is the answer that leaves the
-  // table standing rather than replacing it with an empty view.
   noreferences: () => { unreferenced = true; },
-  // A click on an open sheet's own chrome — its header, its file line — takes
-  // the focus off whatever field had it without closing anything.  That is when
-  // `typing()' goes false again and every `table' row comes back to life over a
-  // sheet that is still up, which no other act reaches.
+  // `typing()' goes false again over a sheet still up, which no other act reaches.
   blur: () => { if (active) active.blur(); },
-  // An asset that never had marking: the calls are simply not on the handle,
-  // which is the shape the shell's feature detection is written against. It
-  // sticks, so a remount later in the same script does not hand them back and
-  // quietly turn the fallback case into the ordinary one.
+  // It STICKS, so a remount does not hand the calls back.
   bare: () => { markless = true; stripLive(MARK_CALLS); },
-  // And one that never had paging, which is what leaves the buffer-end keys
-  // their within-page half and nothing to climb with.
   pageless: () => { pagerless = true; stripLive(PAGE_CALLS); },
-  // And one with no programmatic sort, which is what leaves the agenda with
-  // the order the view declares and nothing to insist on it.
   sortless: () => { sortnone = true; stripLive(SORT_CALLS); },
-  // And one with no crumb trail, which is what leaves `@' nowhere to leave a
-  // step behind: the drill is refused outright rather than applying a view a
-  // reader would have no way back out of.
   crumbless: () => { crumbless = true; stripLive(CRUMB_CALLS); },
-  // What the row `o' names points at: one link, or none at all.  The gesture
-  // is different for each — one opens without asking, none refuses — and the
-  // three-link default is what raises the popup.
   onelink: () => { links = links.slice(0, 1); },
   nolinks: () => { links = []; },
-  // One link that is not http(s): `o' takes the no-popup path straight to the
-  // commit, which is where a link type this page cannot follow is refused.
   onemailto: () => { links = links.slice(2, 3); },
-  // Every type the server derives, one link each, so the popup's badge column
-  // and the commit's judgement can both be read over the whole vocabulary.
   everytype: () => {
     links = [ { target: "https://a.example", desc: "secure", type: "https" },
               { target: "http://b.example", desc: "plain", type: "http" },
@@ -2164,9 +1362,6 @@ const ACTIONS = {
               { target: "file:notes.org", desc: "a file", type: "file" },
               { target: "Some Headline", desc: "Some Headline", type: "other" } ];
   },
-  // A store with pages in it: N rows in place of the three at the top, and the
-  // renderer showing SIZE of them at a time.  Acts rather than argv, so every
-  // script that wants neither reads exactly as it did.
   rows: (n) => {
     rows = Array.from({ length: Number(n) }, (_x, i) =>
       ({ id: `r${i + 1}`, cells: { state: "TODO", title: `row ${i + 1}`, tag: ":web:" } }));
@@ -2174,44 +1369,23 @@ const ACTIONS = {
     main.sit(0);
   },
   paged: (n) => { main.pageSize = Number(n); main.pageAt = 0; main.sit(0); },
-  // N distinct lines through the page's own `append': the glue is eval'd into
-  // this scope, so its functions are reachable from here.  The ring holds five
-  // hundred and nothing a key presses writes them faster than one at a time, so
-  // a script that overran it any other way would be longer than the cap.
   spam: (n) => {
     for (let i = 0; i < Number(n); i += 1) append("boot", "info", `line ${i}`);
   },
-  // The daemon goes away: every request after this fails at the network, which
-  // is what the reconnect's error line and the retry behind it are written for.
   offline: () => { down = true; },
-  // And comes back, which is what the retry behind the backoff finds.
   online: () => { down = false; },
-  // /headlines stops answering, so a view application can be observed WHILE it
-  // is in flight — the state the wash is armed by and the one turn of the loop
-  // every other answer here is already past.
   hang: () => { hanging = true; },
-  // And answers: every request held since, in the order they were made.
   deliver: () => {
     hanging = false;
     while (held.length) held.shift()();
   },
-  // The same pair over the settings sheet's own write: `C-x C-s' syncs mid-edit,
-  // so a reader can go on typing while it is out, and what lands afterwards must
-  // not paint over what they typed.
   chang: () => { changing = true; },
   cdeliver: () => {
     changing = false;
     while (cheld.length) cheld.shift()();
   },
-  // Time passing, which is the one thing a delayed state needs and no other act
-  // can stand in for: the wash arms on a timer and a script has to be able to
-  // sit either side of it.
-  /**
-   * WAIT FOR THE THING, not for a span: poll until the wash is on or off, or
-   * give up after a cap and let the assertion say what it found.  A duration
-   * cannot express "once the reconnect lands" — the page's own backoff decides
-   * when that is, and a machine under load moves it.
-   */
+  /** WAIT FOR THE THING: a duration cannot express "once the reconnect lands" —
+   * the page's own backoff decides when that is and load moves it. */
   until: async (spec) => {
     const [what, want] = String(spec).split("=");
     const reads = { stale: () => (root.classList.contains("stale") ? "on" : "off") };
@@ -2220,8 +1394,7 @@ const ACTIONS = {
     for (let turn = 0; turn < 400 && read() !== want; turn += 1)
       await new Promise((go) => realTimeout(go, 25));
   },
-  // MS of the PAGE'S schedule rather than of the clock: sleep the span, then
-  // let everything that fell due inside it actually run.
+  // MS of the PAGE'S schedule: sleep the span, then let what fell due run.
   wait: async (ms) => {
     const until = Date.now() + Number(ms);
     await new Promise((done) => realTimeout(done, Number(ms)));
@@ -2230,11 +1403,8 @@ const ACTIONS = {
   },
 };
 
-// Every fetch here settles as a microtask, so one turn of the event loop is
-// past the whole boot — the arming fetch chained behind the set included.  The
-// keys go in after that, then the acts one at a time, and the answer last: a
-// close leads to a fetch which leads to a mount, and each of those needs its
-// own turn before the next act can mean anything.
+// Every fetch settles as a microtask, so one turn of the loop is past the whole
+// boot; a close leads to a fetch which leads to a mount, each owed a turn.
 const settle = async () => {
   await new Promise((done) => realTimeout(done, TURN));
   await drainSoon();
@@ -2247,87 +1417,47 @@ const settle = async () => {
     const at = act.indexOf(":");
     const verb = at === -1 ? act : act.slice(0, at);
     if (!ACTIONS[verb]) throw new Error(`no such act: ${act}`);
-    // Awaited, so an act that takes time — `wait' is the only one — is over
-    // before the next reads the page.
     await ACTIONS[verb](at === -1 ? "" : act.slice(at + 1));
     await settle();
   }
   await settle();
   const said = JSON.stringify({
     asked, tags, url: location.search, mounts, sets, raises,
-    // The stale wash: every transition of the class, oldest first, and whether
-    // it is on at the end.  A page that was never dimmed reports neither.
     washed, stale: root.classList.contains("stale"),
-    // And every row count the table was handed, which is what says whether a
-    // view arrived in one piece, plus every row op it spliced in without one.
     paints, spliced,
     sheet: field("mtext").value, state: field("mnote").className,
     modal: field("modal").className,
     palette: field("filter").value,
-    // THE STRUCTURED DOCUMENT: every element it drew, where the cursor is and
-    // which cell of that element it is in, which elements wear a deletion flag,
-    // whether an edit overlay is open and what its fields hold, and the
-    // breadcrumb saying where in the outline the sheet is standing.
     doc: docRows(), dat: docAt(), dcol: docCell(), dflagged: docFlagged(),
     dopen: field("dtitle").className === "on",
     dparaopen: field("dpara").className === "on",
-    // How many lines tall the box has grown to, which is a NUMBER the shell
-    // writes and the stylesheet does the arithmetic on.
     dprows: field("mdoc").style.getPropertyValue("--g-doc-rows"),
     dtin: field("dtin").value,
     dtext: field("dtext").value,
-    // And WHERE POINT STANDS in it, which a seeded marker decides: at the end
-    // of a lead, inside the first cell of a table row.
     dcaret: field("dtext").selectionStart,
-    // The sheet's crumb strip: one entry per step of the descent, the LAST
-    // wearing the full-ink class that says where the reader stands.  Read as
-    // the parts it drew rather than as one string, since the bar is a row of
-    // chips and the ink is what tells the standing one from the trail.
     where: field("mwhere").children.map((c) => c.textContent),
     whereAt: field("mwhere").children
       .map((c, i) => (wears(c, "wat") ? i : -1)).filter((i) => i !== -1),
-    // Which pane holds the keys: the document until TAB crosses, the panel
-    // after it, and each says so on its own frame.
     dactive: field("mdoc").className === "on",
-    // The column CONTENT lines start at, written onto the pane as a number the
-    // stylesheet does the arithmetic over — the width of the head's own star
-    // prefix, so the content sits under the title text rather than under the
-    // stars (`org-startup-indented').
     dindent: field("mdoc").style.getPropertyValue("--g-doc-indent"),
-    // Every element the page asked to be scrolled to, by class, and what the
-    // last one asked for.  Geometry is beyond the stub, so the CALL is the
-    // whole of what these pin.
-    // Which STOP KIND each element of the walk is: `element' for a plain
-    // paragraph and for the headline and child lines, `composite' for a whole
-    // list or block, `leaf' for one item or one paragraph inside one.
     dgrains: flatRows().map((row) => (wears(row, "d-comp") ? "composite"
       : wears(row, "d-item") ? "leaf" : "element")),
-    // And who each leaf hangs under, by place in the walk — `-1' for a stop
-    // that is nobody's leaf.
     downers: ownerOf(),
-    // What the document drew as links, and how each element was cut up.
     dsegs: flatRows().map(segsOf),
-    // THE HUE THE HEADLINE'S BADGE CELLS WEAR.  The column declares it and the
-    // cell is handed it; a pane looking one up for itself would be a second
-    // palette to keep in step.
     dhues: ["state", "priority"].map((key) => {
       const head = flatRows()[0];
       const cell = head && head.children.find((c) => wears(c, `dc-${key}`));
       return cell ? String(cell.style.color || "") : "";
     }),
-    // The head row's title cell's OWN text node.  A browser shows textContent
-    // and appended children side by side, so a cell that drew segments must
-    // hold no raw text of its own — the double-draw this field exists to see.
+    // A browser shows textContent and appended children side by side, so a cell
+    // that drew segments must hold no raw text of its own.
     dtitleraw: (() => {
       const head = flatRows()[0];
       const cell = head && head.children.find((c) => wears(c, "dc-title"));
       return cell ? String(cell.textContent || "") : "";
     })(),
-    // THE HARNESS'S OWN DOM, ASSERTED RATHER THAN ASSUMED.  The selector engine
-    // above is this file's, and one broken by an edit would answer `null'
-    // forever while every case that never queries went on passing.  Built and
-    // read here, over one tree, so every shape the page and the renderer write
-    // is exercised each run.
+    // THE HARNESS'S OWN DOM, ASSERTED EACH RUN: a broken selector engine would
+    // answer `null' forever while every case that never queries went on passing.
     dom: (() => {
       const box = make("div");
       box.className = "tv-root";
@@ -2361,136 +1491,66 @@ const settle = async () => {
     })(),
     scrolled: scrolls.map((s) => s.className),
     scrollAsked: scrolls.length ? scrolls[scrolls.length - 1].opts : null,
-    // The sheet's other pane: every row the panel is showing, where its cursor
-    // is, whether it is the thing holding the keys, and which of its rows carry
-    // a delete flag — plus the mount options the gesture reads.
     props: panel(), pat: patAt(), pnav: field("mprops").className === "on",
     pinits, pfills, pflagged: listFlagged("mptable"),
-    // The columns it draws, and the line naming the flag keys.  Both empty
-    // until a sheet opens: the program is built on the first materialize.
     pcols: listCols("mptable"), pflagHelp: listHint("mptable"),
-    // Which small lists carry a narrow, and what each is holding — one entry
-    // per list with a field up, none at all where no reader pressed `/'.
     narrows: narrows(),
     focus: focused(),
-    // Every POST the syncs sent, and which SUBTREE each was aimed at — the row,
-    // or an entry inside it — beside every subtree a GET asked for.
     wroteAt, readAt,
-    // What holds the keyboard, as its tag — empty for nothing, which is the
-    // state the table's own keys are live in.
     holding: active ? active.tagName : "",
-    // The logbook strip: shown, never focusable, never written.
     logbook: field("mlog").textContent,
     shape: field("sheet").className, writes,
-    // The renderer's side of marking, and the last thing the echo pill said —
-    // which is where a key that could not do what it was asked reports it.
     marksOn: main.marksOn, hintsOn: main.hintsOn, flagHelp: main.flagHelp,
     marked: [...main.marks], flagged: [...main.flags], cursor: main.at(),
-    // Where the cursor is in terms a page-local index cannot give: the row it
-    // sits on, the column it is in, and the page it is reading.  A table
-    // nothing has selected in reports -1 and a null row, which is a boot that
-    // landed nothing.
     selected: main.at() === -1 ? null : main.onPage()[main.at()].id,
     col: main.selCol,
     page: main.pageAt + 1,
     echo: field("echo").textContent, echoes: field("echo").wrote,
-    // The event strip, which is append-only: what is here is everything the
-    // page has said since it booted, oldest first.
     log: logged(),
-    // The value palette: whether it is up, which mode it is in, what it is
-    // setting, the resolution it drew, which rows it resolved for, the keys it
-    // names, and what a commit posted.
     prompt: field("prompt").className, phead: field("phead").textContent,
     pmode: field("pbox").className, plist: paletteRows(), resolved,
     pfoot: field("pfoot").textContent, assigned, commands, span,
-    // Following a link: which rows were asked about, which tabs were opened,
-    // the last sort a call asked for and how many were asked for, and the CHAIN
-    // in force — which the query names and no call has to have made.
     linked, opened, sorted, sortCalls, chain: sortChain, tagged,
-    // The pin badge, as the consumer last set it.
     pinned: main.pinned,
-    // The capture form: whether it is up, its head, the tag field, the grown
-    // template fields as [label, value] pairs, and the line.
     capture: field("capture").className, khead: field("khead").textContent,
     ktag: field("ktag").value, ktext: field("ktext").value,
     kfields: field("kfields").children.map((row) => [
       (row.children[0] || {}).textContent || "",
       (row.children[1] || {}).value || "" ]),
-    // The link popup, which is the page's THIRD mount: whether it is up, the two
-    // lines of chrome it draws, how many times it was built and re-set, the rows
-    // it is showing, where its cursor is, and the read-only options it was
-    // mounted with — no marks, no flags, no hint line, no page.
     popup: field("links").className, lhead: field("lhead").textContent,
     lfoot: field("lfoot").textContent, lmounts,
     llinks: listCells("ltable"), lat: listAt("ltable"),
     lcols: listCols("ltable"), lflagged: listFlagged("ltable"),
     lflagHelp: listHint("ltable"),
-    // The link popup's edit overlay: whether a link is open for editing and what
-    // its two fields are holding.
     lopen: field("ledit").className === "on",
     ltitle: field("ltitle").value, lurl: field("lurl").value,
-    // The tags popup, which is the page's FOURTH mount and the one that WRITES:
-    // whether it is up, its two lines of chrome, how many times it was built and
-    // re-set, the rows it shows with their coverage and their store-wide counts,
-    // where its cursor is, which tags wear a removal flag, and the options it
-    // was mounted with — no marks, flags on, no hint line, no page.
     tagpop: field("tags").className, thead: field("thead").textContent,
     tfoot: field("tfoot").textContent, tmounts, tsets,
-    // Spelled, since the count cell is a number and the other two are words:
-    // one shape for a reader to assert against.
     ttags: listCells("ttable"), tat: listAt("ttable"),
     tcols: listCols("ttable"), tflagged: listFlagged("ttable"),
     tflagHelp: listHint("ttable"),
-    // The rename overlay: whether a tag is open for editing and what its one
-    // field is holding.
     trename: field("tedit").className === "on", tname: field("tname").value,
-    // The drill-down trail as the strip would draw it, labels alone — the
-    // queries behind them are the shell's business and the URL already carries
-    // them.
     crumbs: main.crumbs.map((c) => c.label),
-    // Which keys the dispatch took off the browser, in press order.
     prevented,
-    // The settings sheet: whether it is up, the one word it wears, the union it
-    // previews, and every write it sent.
     settings: field("config").className, cstate: field("cnote").className,
-    // The keywords panel: the layers the select offers in the order it offers
-    // them, which one is picked, the lines the one box is showing, the label
-    // over it, and whatever the server last said about a write to that layer.
-    // A layer's OTHER text is in memory and off screen, which is what switching
-    // back shows.
     clayers: field("clayer").children.map((o) => o.textContent),
     cat: field("clayer").value, cshown: field("ctext").value,
     clab: field("clab").textContent, clerr: field("clerr").textContent,
-    // The panels, by the header each wears, in the order the sheet draws them.
-    // The tabs, and which one is showing: one panel at a time now.
     csecs: field("ctabs").children.map((t) => t.textContent),
     ctab: (field("ctabs").children.find((t) => t.className === "ctab on")
              || { textContent: "" }).textContent,
-    // What the capture field is showing, and what the server holds now — the
-    // saved views included, which is where a pin lands.
     ccap: field("ctarget").value,
     served: viewQuery, servedAgenda: agendaQuery,
     servedCapture: captureLine, capturing: captureAsked,
-    // The states table: one `TAG|STATE|GROUP|COLOUR' per row, in the order the
-    // mount holds them, plus how many times it was mounted and where its
-    // cursor is.
     chues: listCells("cstates").map((c) => c.join("|")),
     sat: listAt("cstates"), sflagged: listFlagged("cstates"),
-    // The states table's edit overlay, and what its three fields hold.
     sedit: field("sedit").className,
     sfields: [field("sname").value, field("sgroup").value, field("shue").value],
     servedHues: stateHues,
     ctpl: field("ctpl").value,
     ceff: field("ceff").textContent, configWrites,
-    // The log knob: what the field holds, what was stored under it, and the
-    // number the page wrote onto the strip — which is the cap taking effect.
-    // A key that is NOT THERE reads as the sentinel rather than as "": emptying
-    // the field removes the preference, and "no preference" and "a preference
-    // spelling the empty string" are the two states that has to be told apart.
     clog: field("clog").value, logStored: unset(localStorage.getItem("glance-log")),
     logn: field("log").style.getPropertyValue("--g-logn"),
-    // The theme panel: what is stamped on the document element and what was
-    // stored under it — `auto' is the attribute coming OFF, so it reads as "".
     theme: root.dataset.theme || "",
     themeStored: localStorage.getItem("glance-theme"),
   });

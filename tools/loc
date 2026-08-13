@@ -1,23 +1,10 @@
 #!/usr/bin/env bash
-# WHAT THE REPOSITORY IS MADE OF — code, comment-only lines, blanks, prose, and
-# the bytes nobody here wrote.  `make loc'.
-#
-# A COMMENT-ONLY LINE is one whose first non-blank character opens a comment.
-# A line carrying code AND a trailing comment counts as CODE — the same cut
-# `/decomment' operates on, so the ratio here is the one that pass moves.
-# Block comments are counted by their delimiter lines alone, which undercounts
-# a long `{- … -}'; the shape of the number is right and its last digit is not.
-#
-# VENDORED and GENERATED files are counted apart: `assets/table-view.js' comes
-# from the sibling checkout and `assets/elm.js' from `make elm', so folding
-# them into the totals would report other people's lines as this repo's.
+# WHAT THE REPOSITORY IS MADE OF.  A line carrying code AND a trailing comment is CODE.
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 
-# `git ls-files' is the file list: it already knows the ignores, and an
-# untracked scratch file is not the repository.
 if ! git rev-parse --git-dir >/dev/null 2>&1; then
   echo "loc: not a git repository -- SKIPPED" >&2
   exit 0
@@ -26,14 +13,11 @@ fi
 git ls-files -z | awk -v RS='\0' '
 function bucket(path,   b) {
   # NO APOSTROPHE BELOW -- the awk program is single-quoted.
-  # vendored/ is upstream packages carried verbatim (gi-webkit2,
-  # gi-javascriptcore4, text-show), so their prose belongs to them.
   if (path ~ /^vendored\//)          return "vendored"
   if (path == "assets/table-view.js") return "vendored"
   if (path == "assets/elm.js")        return "generated"
   if (path ~ /^test\/fixtures\//)     return "fixtures"
-  # AGENTS.hs IS the design document, in Haskell rather than markdown: it
-  # replaced CLAUDE.md and docs/invariants.md, which this bucket already held.
+  # AGENTS.hs IS the design document, written in Haskell.
   if (path == "AGENTS.hs")            return "docs"
   if (path ~ /^docs\//)               return "docs"
   if (path ~ /^(README|CHANGELOG)/)   return "docs"
@@ -61,9 +45,6 @@ END {
       n++
       stripped = line
       sub(/^[ \t]+/, "", stripped)
-      # A BLOCK RUNS TO ITS CLOSER, body included: an Elm doc comment and a
-      # JSDoc block are prose, and counting only the delimiters read them as
-      # code.  No apostrophe below -- the awk program is single-quoted.
       if (inblock) {
         c++
         if ((inblock == 1 && stripped ~ /-\}/) || (inblock == 2 && stripped ~ /\*\//)) inblock = 0
@@ -86,18 +67,14 @@ END {
     code = lines[b] - comments[b] - blanks[b]
     pct  = lines[b] ? (100 * comments[b] / lines[b]) : 0
     printf "%-11s %6d %8d %9d %8d %6.1f%%\n", b, count[b], lines[b], code, comments[b], pct
-    # DOCS ARE PROSE THROUGHOUT, so their lines are no denominator for a
-    # comment:code ratio -- counting markdown as code flatters it by however
-    # much documentation the repo has.  Generated and vendored are other
-    # peoples lines.  What is left is the code this repo wrote.
+    # DOCS ARE PROSE, so their lines are no denominator for a comment:code ratio.
     if (b == "source" || b == "tests" || b == "fixtures") {
       tf += count[b]; tl += lines[b]; tc += comments[b]; tb += blanks[b]
     }
   }
   printf "%-11s %6d %8d %9d %8d %6.1f%%\n", "code", tf, tl, tl - tc - tb, tc,
          tl ? (100 * tc / tl) : 0
-  # THE TARGET IS COMMENT:CODE, 10%.  The per-bucket column above is
-  # comment:lines, which blanks flatter.
+  # THE TARGET IS COMMENT:CODE, 10%; the per-bucket column is comment:lines.
   acode = tl - tc - tb
   budget = int(acode / 10)
   printf "\ncomment:code  %.1f%%   target 10%% (%d lines)   ", acode ? 100 * tc / acode : 0, budget

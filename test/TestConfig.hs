@@ -1,10 +1,5 @@
 -- | The keyword configuration layer: what @.org-glance\/config@ makes the
 -- parser recognize, and how a row's active-ness is classified once it has.
---
--- The two questions are tested apart on purpose, because they answer
--- differently.  Recognition is a UNION over every layer and reaches every file
--- under the root; classification is WIDEST SCOPE and reaches one headline.  A
--- change that collapses them passes half of this module and fails the other.
 module TestConfig (spec) where
 
 import Control.Monad ((<=<))
@@ -49,9 +44,7 @@ spec = testGroup "Config"
 
 -- Fixtures
 
--- | The tag config the live tree carries, verbatim: org-glance writes a title,
--- a keyword cycle and a capture template, and the template is the reason the
--- pragma lines are read on their own.
+-- | The tag config the live tree carries verbatim: title, cycle, template.
 bookConfig :: Text
 bookConfig = T.unlines
   [ "#+TITLE: Book"
@@ -61,9 +54,7 @@ bookConfig = T.unlines
   , "*** Notes"
   , "    %?" ]
 
--- | A tag config that does not parse, for the same reason two of the three in
--- ~/sync do not: a hyphen inside a COMMENTED @#+TODO:@.  Its real pragma has to
--- survive that.
+-- | A config that does not parse: a hyphen inside a COMMENTED @#+TODO:@.
 commentedConfig :: Text
 commentedConfig = T.unlines
   [ "# Config for the `film' tag (the file name is the tag)."
@@ -72,10 +63,7 @@ commentedConfig = T.unlines
   , ""
   , "* %?" ]
 
--- | A tree laid out the way org-glance lays one out, under a root of its own.
--- SYSTEM is @config\/system.org@ when given, TAGS are @config\/tags\/NAME@, and
--- DOCS are ordinary documents at the root.  STORE is the directory the config
--- hangs off, which is the root itself unless a case wants it nested.
+-- | SYSTEM is @config\/system.org@, TAGS @config\/tags\/NAME@, DOCS root documents.
 withTreeUnder :: FilePath -> Maybe Text -> [(FilePath, Text)] -> [(FilePath, Text)]
               -> (FilePath -> IO a) -> IO a
 withTreeUnder store system tags docs k = withTempDirNamed "config" $ \dir -> do
@@ -87,19 +75,15 @@ withTreeUnder store system tags docs k = withTempDirNamed "config" $ \dir -> do
   mapM_ (\(n, t) -> TIO.writeFile (dir </> n) t) docs
   k dir
 
--- | 'withTreeUnder' with the config directly under the root.
 withTree :: Maybe Text -> [(FilePath, Text)] -> [(FilePath, Text)]
          -> (FilePath -> IO a) -> IO a
 withTree = withTreeUnder "."
 
--- | DIR's config and its rows, in walk order.
 loaded :: FilePath -> IO (ConfigLayers, [HeadlineRecord])
 loaded dir = do
   (cfg, files, _dirErrs) <- loadDirWithConfig defaultWalk dir
   pure (cfg, concat [ rs | (_path, Right rs) <- files ])
 
--- | Each row as its state and whether that state is active here — the pair the
--- whole classification chain exists to answer.
 states :: [HeadlineRecord] -> [(Maybe Text, Maybe Bool)]
 states = map (\r -> (hrState r, hrActive r))
 
@@ -107,14 +91,12 @@ states = map (\r -> (hrState r, hrActive r))
 titles :: [HeadlineRecord] -> [Text]
 titles = map hrTitle
 
--- | The rows DOCS make under the tree SYSTEM and TAGS configure.
 withRows :: Maybe Text -> [(FilePath, Text)] -> [(FilePath, Text)]
          -> ([HeadlineRecord] -> Assertion) -> Assertion
 withRows system tags docs k = withTree system tags docs (k . snd <=< loaded)
 
 -- Discovery
 
--- | Where the config is found, and what finding it costs the table.
 discoverySpec :: TestTree
 discoverySpec = testGroup "Discovery"
   [ testCase "config files are read and are never rows" $
@@ -125,7 +107,6 @@ discoverySpec = testGroup "Discovery"
       assertEqual "files" 1 (qrFiles qr)
       assertEqual "rows" 1 (length (qrRecords qr))
       assertEqual "the row is the note" ["a note"] (titles (qrRecords qr))
-      -- The capture template in book.org holds two headlines; neither is a row.
       assertBool "a config file reached the table"
                  (all ((== (dir </> "notes.org")) . hrFile) (qrRecords qr))
 
@@ -136,8 +117,7 @@ discoverySpec = testGroup "Discovery"
       assertEqual "rows" 1 (length (qrRecords qr))
 
   , testCase "the store hangs off wherever it sits, not off the root" $
-      -- ~/sync's own shape: the walk root is the tree and the org-glance store
-      -- is one directory down.  Discovery follows the walk, so it finds it.
+      -- ~/sync's own shape: the store is one directory down, and discovery follows the walk.
       withTreeUnder "views" Nothing [("book.org", bookConfig)]
                     [("notes.org", "* READING War and Peace\n")] $ \dir -> do
       (cfg, rows) <- loaded dir
@@ -174,26 +154,21 @@ discoverySpec = testGroup "Discovery"
       assertBool "a tag config is one too" (configPath tag)
       assertBool "an ordinary file is not" (not (configPath "/o/notes.org"))
       assertBool "and neither is the store" (not (configPath "/o/.org-glance/data/x.org"))
-      -- Watched on purpose: the walk never handed it over, and a change to it
-      -- changes every file that WAS handed over.
+      -- Watched on purpose: a change to it changes every file that WAS handed over.
       assertBool "the watch takes system.org" (watched defaultWalk system)
       assertBool "and the tag config" (watched defaultWalk tag)
-      -- The sidecar rule still applies: the live tags directory holds one.
       assertBool "an autosave beside a tag config is not watched"
                  (not (watched defaultWalk "/o/.org-glance/config/tags/#book.org#"))
   ]
 
 -- Recognition
 
--- | A keyword any layer names is a keyword in every file under the root.  This
--- is the half that has to be a SUPERSET: the same headline reading as a state
--- in one file and as a title in the next is the bug the layer exists to close.
+-- | A SUPERSET: one headline reading as a state here and a title there is the bug.
 recognitionSpec :: TestTree
 recognitionSpec = testGroup "Recognition"
   [ testCase "a keyword only a tag config names parses as a state elsewhere" $
       withRows Nothing [("book.org", bookConfig)]
-               -- No `:book:' tag, no `#+TODO:' of its own: nothing in this file
-               -- says READING is a keyword except the config.
+               -- Nothing in this file says READING is a keyword except the config.
                [("a.org", "* READING War and Peace\n")] $ \rows -> do
       assertEqual "state" [(Just "READING", Just True)] (states rows)
       assertEqual "and the title kept the rest" ["War and Peace"] (titles rows)
@@ -204,20 +179,13 @@ recognitionSpec = testGroup "Recognition"
       assertEqual "title" ["READING War and Peace"] (titles rows)
 
   , testCase "the STARTED class: a system keyword used bare in a data file" $
-      -- The corpus case this landed for.  64 headlines under ~/sync open with
-      -- STARTED and three files in the whole tree carry a `#+TODO:' line, so
-      -- without a layer above the file the word is title text everywhere.
+      -- The corpus case: with no layer above the file the word is title text everywhere.
       withRows (Just "#+TODO: TODO STARTED | DONE CANCELLED\n") []
                [("a.org", "* STARTED refactor the walk\n")] $ \rows -> do
       assertEqual "recognized and classified" [(Just "STARTED", Just True)] (states rows)
       assertEqual "title" ["refactor the walk"] (titles rows)
 
     -- Recognition reaches every file; classification does not follow it there.
-    -- ABANDONED and WATCHED parse as states in files that carry neither tag,
-    -- which is the whole point of the seed — and no scope those untagged rows
-    -- reach declares either, so both take the unclassified fallback.  What is
-    -- pinned here is the first half: the word is a STATE rather than the first
-    -- word of a title.
   , testCase "recognition is the union of every layer, and classification is not" $
       withRows (Just "#+TODO: STARTED |\n")
                [("book.org", bookConfig), ("film.org", commentedConfig)]
@@ -233,7 +201,6 @@ recognitionSpec = testGroup "Recognition"
   , testCase "a file's own pragma still adds on top, and only below itself" $
       withRows Nothing [("book.org", bookConfig)]
                [("a.org", "* LATER one\n#+TODO: LATER |\n* LATER two\n")] $ \rows -> do
-      -- Append-only and positional: the pragma reaches what follows it.
       assertEqual "before the pragma, after it"
                   [(Nothing, Nothing), (Just "LATER", Just True)] (states rows)
       assertEqual "titles" ["LATER one", "two"] (titles rows)
@@ -244,13 +211,7 @@ recognitionSpec = testGroup "Recognition"
                    [TodoKeywords ["TODO", "READING", "LATER"] ["DONE", "READ", "ABANDONED"]]
                    (map hrKeywords rows)
 
-    -- And a redeclaration is still RECOGNIZED once the union is ordered: the
-    -- file puts READING after the bar where book.org puts it before, and the
-    -- word stays in the union — in the ACTIVE half, where its first declaration
-    -- put it, since 'mergeKeywords' resolves a disagreement that way.  So the
-    -- headline is a state rather than the first word of a title.  Which bucket
-    -- the ROW lands in is 'classify''s separate question, answered here by the
-    -- file, this row carrying no tag that would reach book.org's opinion.
+    -- A redeclaration stays RECOGNIZED, in the half its FIRST declaration put it.
   , testCase "a shadowed redeclaration is still in the union, in its first place" $
       withRows Nothing [("book.org", bookConfig)]
                [("a.org", "#+TODO: LATER | READING\n* READING one\n")] $ \rows -> do
@@ -263,16 +224,12 @@ recognitionSpec = testGroup "Recognition"
 
 -- Classification
 
--- | Whether a recognized keyword is active is answered by the WIDEST scope:
--- org's TODO\/DONE, then the system layer, then the headline's tags in order,
--- then the file's own @#+TODO:@.  The union answers nowhere.
+-- | WIDEST scope answers: org's pair, system, the row's tags, then the file.
 classificationSpec :: TestTree
 classificationSpec = testGroup "Classification"
   [ testCase "the tag config outranks the file's own pragma" $
       withRows Nothing [("book.org", bookConfig)]
-               -- book.org calls READING active; this file calls it done-like,
-               -- and the headline wears the tag.  The tag is the wider scope, so
-               -- the file's private opinion about a shared word is not applied.
+               -- The tag is the wider scope, so the file's own opinion does not apply.
                [("a.org", "#+TODO: | READING\n* READING done with it :book:\n")] $ \rows ->
       assertEqual "the tag wins" [(Just "READING", Just True)] (states rows)
 
@@ -280,15 +237,11 @@ classificationSpec = testGroup "Classification"
       withRows (Just "#+TODO: | READING\n") [("book.org", bookConfig)]
                [ ("a.org", "* READING tagged :book:\n")
                , ("b.org", "* READING untagged\n") ] $ \rows ->
-      -- The tree said READING is done-like, so it is done-like in both rows:
-      -- carrying the `book' tag no longer buys a row a different answer about a
-      -- word the layer above it already settled.
+      -- The tree settled READING, so carrying `book' buys the row no other answer.
       assertEqual "the system layer, tagged or not"
                   [(Just "READING", Just False), (Just "READING", Just False)] (states rows)
 
   , testCase "org's own TODO and DONE outrank every layer under them" $
-      -- The system layer puts TODO after the bar; org's pair is the widest
-      -- scope and answers first, so TODO is work here as it is everywhere.
       withRows (Just "#+TODO: | TODO\n") [] [("a.org", "* TODO still work here\n")] $ \rows ->
       assertEqual "the default pair wins" [(Just "TODO", Just True)] (states rows)
 
@@ -297,10 +250,7 @@ classificationSpec = testGroup "Classification"
       assertEqual "TODO active, DONE not"
                   [(Just "TODO", Just True), (Just "DONE", Just False)] (states rows)
 
-    -- The reorder's cost, pinned where a reader meets it: a file redeclaring a
-    -- word a wider scope already settled keeps the word RECOGNIZED and loses
-    -- the redefinition.  Under the old nearest-scope chain both of these
-    -- classified the file's way.
+    -- A file redeclaring a word a wider scope settled loses the redefinition.
   , testCase "a file redeclaring a wider scope's word does not move its rows" $
       withRows (Just "#+TODO: STARTED | SHELVED\n") []
                [ ("a.org", "#+TODO: | TODO\n* TODO org's answer stands\n")
@@ -321,8 +271,7 @@ classificationSpec = testGroup "Classification"
       withRows Nothing [("book.org", reading), ("pile.org", shelved)]
                [ ("a.org", "* READING one :book:pile:\n")
                , ("b.org", "* READING two :pile:book:\n")
-                 -- A first tag that says nothing about the keyword does not
-                 -- claim it: the next tag that does is the one that answers.
+                 -- A first tag saying nothing about the keyword does not claim it.
                , ("c.org", "* READING three :nosuch:pile:\n") ] $ \rows ->
         assertEqual "tag order decides"
                     [ (Just "READING", Just True), (Just "READING", Just False)
@@ -330,10 +279,7 @@ classificationSpec = testGroup "Classification"
                     (states rows)
 
   , testCase "a keyword no scope here claims is recognized and unclassified" $
-      -- ABANDONED is book.org's and this headline is not a book.  It is still
-      -- recognized — the seed is what keeps it out of the title — and the layer
-      -- that named it is not a scope of this row, so nothing here calls it
-      -- done-like and it takes the fallback.
+      -- Recognized through the seed, claimed by no scope this row reaches: the fallback.
       withRows Nothing [("book.org", bookConfig)] [("a.org", "* ABANDONED a plan\n")] $ \rows -> do
       assertEqual "a state, and active by default"
                   [(Just "ABANDONED", Just True)] (states rows)
@@ -349,9 +295,7 @@ classificationSpec = testGroup "Classification"
         \rows -> assertEqual "neither" [(Nothing, Nothing)] (states rows)
 
   , testCase "the resolver is the rule, and it is total" $ do
-      -- The chain, exercised where the fixtures cannot reach: every rung is the
-      -- winner over a narrower one that disagrees, and a keyword in no layer
-      -- whatsoever still has to come back with an answer.
+      -- Every rung wins over a narrower disagreement; an unnamed keyword still answers.
       let cfg = ConfigLayers { clSystem  = TodoKeywords [] ["TODO", "STARTED"]
                              , clTags    = [("book", TodoKeywords ["READING"] [])]
                              , clSeed    = TodoKeywords ["READING", "STARTED"] ["TODO"]
@@ -363,42 +307,28 @@ classificationSpec = testGroup "Classification"
       assertEqual "then the system layer" False (classify cfg file ["book"] "STARTED")
       assertEqual "then the tag" True (classify cfg file ["book"] "READING")
       assertEqual "and last the file" False (classify cfg file [] "READING")
-      -- And no fifth scope: the seed names READING and the chain stops at the
-      -- file, so a row reaching neither takes the fallback rather than the
-      -- layer that happened to declare it.
+      -- And no fifth scope: the chain stops at the file.
       assertEqual "the seed is not a scope" True (classify cfg noKeywords [] "READING")
       assertEqual "and a word nothing names is active" True (classify cfg noKeywords [] "NOPE")
   ]
 
 -- Palette
 
--- | The badge palette is the union with the config leading, which is what
--- makes its order — and so the state column's sort priority — independent of
--- which file the walk reached first.
---
--- ORDER IS THE ORG FILES'.  Every list here is 'keywordScopes' precedence by
--- segment — org's own pair, @system.org@, the tag configs by name, then
--- whatever a file adds — and each layer's own left-to-right spelling inside its
--- segment.  A repeat keeps its FIRST place, so a word two layers name sorts
--- where the wider one put it.
+-- | ORDER IS THE ORG FILES': 'keywordScopes' precedence by segment, each layer's
+-- own left-to-right spelling inside it, a repeat keeping its FIRST place.
 paletteSpec :: TestTree
 paletteSpec = testGroup "Palette"
   [ testCase "the config's keywords lead and the files add to them" $
       withTree (Just "#+TODO: TODO STARTED | DONE\n") [("book.org", bookConfig)]
                [("a.org", "#+TODO: LATER |\n* LATER one\n")] $ \dir -> do
       store <- loadStore dir
-      -- system spells TODO STARTED | DONE, book.org TODO READING | READ
-      -- ABANDONED, a.org LATER — and TODO is org's own, so it leads whoever
-      -- names it.
       assertEqual "system, then tags, then whatever a file adds"
                   (TodoKeywords ["TODO", "STARTED", "READING", "LATER"]
                                 ["DONE", "READ", "ABANDONED"])
                   (storeKeywords store)
 
   , testCase "and reordering one #+TODO: line reorders the palette" $ do
-      -- One tree spelled twice, the two cycles differing only in their order.
-      -- The palette follows the line, which is the whole claim: the org file is
-      -- the state column's comparator config.
+      -- One tree spelled twice: the org file is the state column's comparator config.
       let spelled cycle' k =
             withTree (Just cycle') [] [("a.org", "* STARTED one\n")] (k <=< loadStore)
       spelled "#+TODO: STARTED WAITING | CANCELLED DONE\n" $
@@ -425,8 +355,7 @@ paletteSpec = testGroup "Palette"
 
 -- Reload
 
--- | A config edit is the one watch event that reaches past its own path: it
--- moves what every other file RECOGNIZES, so the answer is a reseed.
+-- | A config edit moves what every other file RECOGNIZES, so the answer is a reseed.
 reloadSpec :: TestTree
 reloadSpec = testGroup "Reload"
   [ testCase "an edited config reseeds the store and reparses the rows" $
@@ -459,21 +388,17 @@ reloadSpec = testGroup "Reload"
         \dir -> do
       store <- loadStore dir
       let systemFile = systemFileIn dir
-      -- A title added above the pragma: the file moved, the keywords did not.
       TIO.writeFile systemFile "#+TITLE: States\n#+TODO: TODO STARTED | DONE\n"
       (next, frames) <- afterEdit store dir
       assertEqual "nothing to say" [] frames
       assertBool "and the generation stayed put" (stGen next == stGen store)
-      -- The tag still moves, because the fingerprint covers the config: the
-      -- bytes deciding what these rows MEAN are not the same bytes any more.
+      -- The fingerprint covers the config: the bytes deciding what these rows MEAN moved.
       assertBool "the fingerprint moved on its own" (stPrint next /= stPrint store)
 
   , testCase "a data edit under a reseed streams rows rather than a close" $
       withTree (Just "#+TODO: TODO STARTED | DONE\n") [] [("a.org", "* STARTED one\n")] $ \dir -> do
       store <- loadStore dir
       let systemFile = systemFileIn dir
-      -- The keywords are unchanged, so the palette holds and the ordinary ops
-      -- are what a client gets — which is the branch ViewChanged replaces.
       TIO.writeFile systemFile "#+TITLE: States\n#+TODO: TODO STARTED | DONE\n"
       TIO.writeFile (dir </> "a.org") "* STARTED one renamed\n"
       (next, frames) <- afterEdit store dir
@@ -494,11 +419,8 @@ reloadSpec = testGroup "Reload"
       assertEqual "and to org's own two"
                   (TodoKeywords ["TODO"] ["DONE"]) (storeKeywords next)
 
-    -- A CONFIG IN THE WINDOW IS A RESEED, and the unannounced file is what
-    -- observes it: `c.org' is written and never named to `settle', so it can
-    -- only be in the store if the step RE-WALKED the tree.  Asserting the two
-    -- announced files alone would pass under two ordinary per-file re-reads,
-    -- which is the mechanism this case exists to tell apart.
+    -- A RESEED, observed through `c.org': written and never announced, so it can
+    -- only be in the store if the step RE-WALKED the tree.
   , testCase "a config among the paths reseeds the whole tree, once" $
       withTree (Just "#+TODO: TODO | DONE\n") [] [("a.org", "* STARTED one\n")] $ \dir -> do
       store <- loadStore dir
@@ -507,7 +429,6 @@ reloadSpec = testGroup "Reload"
       TIO.writeFile systemFile "#+TODO: TODO STARTED | DONE\n"
       _ <- orgFile dir "b.org" "* STARTED two\n"
       _ <- orgFile dir "c.org" "* STARTED unannounced\n"
-      -- Both announced paths ripen together; the reseed covers the pair.
       settle defaultWalk dir hub [dir </> "b.org", systemFile]
       next <- readTVarIO (hubStore hub)
       assertEqual "every file, every keyword recognized"
@@ -515,9 +436,7 @@ reloadSpec = testGroup "Reload"
       assertEqual "the unannounced file arrived on the re-walk"
                   ["one", "two", "unannounced"] (sort (titles (storeRecords next)))
 
-    -- The converse, observed the same way: with no config among the paths the
-    -- step touches the ONE file it was told about, so a file that appeared on
-    -- disk without an event stays out until something announces it.
+    -- The converse: with no config among the paths, an unannounced file stays out.
   , testCase "an ordinary edit with no config among them is still one file" $
       withTree (Just "#+TODO: TODO STARTED | DONE\n") [] [("a.org", "* STARTED one\n")] $ \dir -> do
       store <- loadStore dir
@@ -528,30 +447,22 @@ reloadSpec = testGroup "Reload"
       next <- readTVarIO (hubStore hub)
       assertEqual "re-read under the store's own config"
                   [(Just "STARTED", Just True)] (states (storeRecords next))
-      -- One row, so `c.org' never arrived: a step with no config among its
-      -- paths touches the files it was told about and re-walks nothing.
       assertEqual "title" ["one renamed"] (titles (storeRecords next))
   ]
 
--- | DIR loaded again and diffed against BEFORE — the pure half of what the
--- watch does with a config event, which is where the frames are readable.
+-- | DIR loaded again and diffed against BEFORE: the pure half of a config event.
 afterEdit :: Store -> FilePath -> IO (Store, [Frame])
 afterEdit before dir = (`reseeded` before) <$> loadStore dir
 
 -- Writing a layer
 
--- | A config file is edited the way every other file is: the @#+TODO:@ lines
--- are located as spans and spliced, so a capture template around them is bytes
--- the write never names.  The grammar of what may go in is checked ahead of
--- the write, since a layer that parses as nothing looks configured and does
--- nothing.
+-- | The @#+TODO:@ lines are spliced as spans, so a template around them is untouched.
 writeSpec :: TestTree
 writeSpec = testGroup "Writing a layer"
   [ testCase "the lines a layer declares are the ones it is edited by" $ do
       assertEqual "the live tag config's, verbatim"
                   ["#+TODO:  TODO READING | READ ABANDONED"] (todoLines bookConfig)
-      -- The commented one opens with `#', not `#+', so it is not a line here
-      -- either — the same rule that keeps it out of 'todoPragmas'.
+      -- The commented one opens with `#' where a pragma opens with `#+', so it is no line.
       assertEqual "a commented pragma is not one"
                   ["#+TODO: TODO WATCHING | WATCHED"] (todoLines commentedConfig)
       assertEqual "a file with none" [] (todoLines "* TODO a note\n")
@@ -561,11 +472,7 @@ writeSpec = testGroup "Writing a layer"
                   (Right "#+TITLE: Book\n#+TODO: TODO NEXT | DONE\n\n* Book\n*** Notes\n    %?\n")
                   (spliced bookConfig ["#+TODO: TODO NEXT | DONE"])
 
-    -- ABSENT lines leave the block standing — the optional regions' own rule,
-    -- and what a pin rides: the filter line alone, no cycle restated.  The
-    -- pin shipped against a server that still REQUIRED the field, every shell
-    -- test driving a harness stub — this is the server-side case that was
-    -- missing.
+    -- ABSENT lines leave the block standing, which is what a pin rides on.
   , testCase "absent lines write the filter alone, the cycle untouched" $ do
       assertEqual "the filter line joins, every other byte where it was"
         (Right ("#+TITLE: Book\n#+TODO:  TODO READING | READ ABANDONED\n"
@@ -579,8 +486,6 @@ writeSpec = testGroup "Writing a layer"
         (Right []) (configEdits (systemLayer bookConfig) Nothing noParts)
 
   , testCase "a file spelling its cycle twice comes back spelling it once" $
-      -- The first line's offset is kept and every later one goes: a block is
-      -- what the sheet edits, so what it writes is the whole of the file's.
       assertEqual "one line, where the first one was"
                   (Right "#+TITLE: X\n#+TODO: A | B\ntail\n")
                   (spliced "#+TITLE: X\n#+TODO: A |\n#+TODO: | B\ntail\n" ["#+TODO: A | B"])
@@ -591,12 +496,9 @@ writeSpec = testGroup "Writing a layer"
                   (spliced "#+TITLE: Film\n\n* %?\n" ["#+TODO: A | B"])
       assertEqual "at the top when it opens with content"
                   (Right "#+TODO: A | B\n* %?\n") (spliced "* %?\n" ["#+TODO: A | B"])
-      -- The shape a create takes: the block is the whole file.
       assertEqual "and a file that is not there yet is all block"
                   (Right "#+TODO: A | B\n") (spliced "" ["#+TODO: A | B"])
-      -- The one insertion point that is not a line start: a document of nothing
-      -- but header, not closed with a newline.  Appended bare, the block would
-      -- land on the end of a live line and be no pragma at all.
+      -- A header with no closing newline: appended bare, the block would land on a live line.
       assertEqual "a header with no newline gets one first"
                   (Right "#+TITLE: X\n#+TODO: A | B\n")
                   (spliced "#+TITLE: X" ["#+TODO: A | B"])
@@ -608,10 +510,7 @@ writeSpec = testGroup "Writing a layer"
       assertEqual "blank lines are not lines" (Right "#+TITLE: X\n")
                   (spliced "#+TITLE: X\n" ["", "  "])
 
-    -- A config file's own line ending, for the block AND for the opening a
-    -- header with no newline owes: an LF block spliced into a CRLF file left
-    -- one file speaking two conventions, with the line the reader just typed
-    -- the odd one out.
+    -- The file's own line ending; an LF block in a CRLF file mixes conventions.
   , testCase "a CRLF layer keeps its own line endings" $ do
       assertEqual "the block replaced in place"
                   (Right "#+TITLE: Book\r\n#+TODO: A | B\r\n\r\n* Book\r\n")
@@ -632,26 +531,16 @@ writeSpec = testGroup "Writing a layer"
             , ("nor is a title", ["#+TITLE: no"])
             , ("a pragma declaring nothing", ["#+TODO:"])
             , ("one bad line spoils the block", ["#+TODO: A | B", "oops"])
-              -- The pragma test is a PREFIX test, so an entry smuggling a
-              -- newline would pass it and write everything behind that newline
-              -- into the file unread.  One line per line is the whole of what
-              -- makes this a #+TODO:-only splice.
+              -- A PREFIX test, so a smuggled newline would write everything behind it unread.
             , ("a line carrying a newline of its own", ["#+TODO: A | B\n* not a pragma"])
-              -- The parser's keyword token is letters and underscores, so the
-              -- filter's group names cannot be declared as keywords at all —
-              -- the same wall `setStateEdits' puts up from the other side.
+              -- Keyword tokens are letters and underscores, so a group name cannot be one.
             , ("the filter's group names", ["#+TODO: *active* | *inactive*"])
             , ("and a starred word beside real ones", ["#+TODO: TODO *x* | DONE"]) ]
       assertBool "a cycle with fast-access keys is a block"
                  (either (const False) (const True)
                          (configEdits (systemLayer bookConfig) (Just ["#+TODO: TODO(t) | DONE(d)"]) noParts))
 
-    -- The two tree-wide lines of `system.org'.  One reader finds either
-    -- ('lastPragmaValue') and one splice writes either ('pragmaLineEdits'), so
-    -- the two cases over 'treePragmas' are one claim about the pair rather than
-    -- two blocks that have to be kept in step.  Absent means the built-in,
-    -- which is what keeps a tree that has never been configured opening on its
-    -- unfinished work and capturing into its own inbox.
+    -- One reader finds either line and one splice writes either; absent is the built-in.
   , testCase "the tree-wide lines are read off the system layer" $
       mapM_ (\(key, value, other, rd, _wr) -> do
                let says what = T.unpack key <> ": " <> what
@@ -660,14 +549,11 @@ writeSpec = testGroup "Writing a layer"
                assertEqual (says "folded, the way org reads a pragma key")
                            (Just value) (rd (pragmaLine (T.toLower key) value))
                assertEqual (says "a file with no line names none") Nothing (rd bookConfig)
-               -- A LAST-line rule: a reader scrolling the file reads the one at
-               -- the bottom, and so does this.
                assertEqual (says "the last one wins") (Just other)
                            (rd (pragmaLine key value <> pragmaLine key other)))
             treePragmas
 
-    -- A line naming nothing is a query naming nothing, which is the whole
-    -- store; only an ABSENT line falls back.
+    -- A line naming nothing is a query naming nothing; only an ABSENT line falls back.
   , testCase "and a default view line with nothing on it is the empty query" $
       assertEqual "the empty query"
                   (Just "") (viewOf defaultSaved "#+GLANCE_DEFAULT_FILTER:\n")
@@ -685,8 +571,7 @@ writeSpec = testGroup "Writing a layer"
         assertEqual "read at load" (Just "tag:work") (lookup "default" (tsViews (clTree cfg)))
         assertEqual "and it is what answers" "tag:work" (defaultFilter cfg)
 
-    -- ONE ENTRY POINT PER TREE.  No layer names it, so there is no path a
-    -- config can aim a capture at and no refusal to make.
+    -- ONE ENTRY POINT PER TREE: no layer names it, so there is no refusal to make.
   , testCase "the capture target is the tree's own inbox, under the served root" $ do
       assertEqual "the served root's own" "/o/inbox.org" (captureTargetIn "/o")
       assertEqual "and it follows the root" "/other/inbox.org" (captureTargetIn "/other")
@@ -697,8 +582,7 @@ writeSpec = testGroup "Writing a layer"
         _ <- loaded dir
         assertEqual "the pragma is inert" (dir </> "inbox.org") (captureTargetIn dir)
 
-    -- One file, one write, one lock: the cycle and both tree-wide lines are
-    -- lines of the same document, so they ride in one splice under one digest.
+    -- One file, one write, one lock: cycle and both tree-wide lines ride one splice.
   , testCase "the tree-wide lines are written by the same splice as the cycle" $
       mapM_ (\(key, value, other, _rd, wr) -> do
                let says what = T.unpack key <> ": " <> what
@@ -710,18 +594,13 @@ writeSpec = testGroup "Writing a layer"
                assertEqual (says "an existing line is replaced where it stands")
                            (Right (pragmaLine key other <> "#+TODO: A | B\ntail\n"))
                            (wr held block (Just other))
-               -- An empty value takes the line away, which is that setting's
-               -- built-in back: the active group, and the tree's own inbox.
                assertEqual (says "an empty one takes the line away")
                            (Right "#+TODO: A | B\ntail\n") (wr held block (Just ""))
-               -- Absent and empty differ: a tag layer's write names neither
-               -- line, and the system layer's are none of its business.
+               -- Absent and empty differ: a tag layer's write names neither line.
                assertEqual (says "and naming none leaves the line exactly as it is")
                            (Right held) (wr held block Nothing))
             treePragmas
 
-    -- Pragmas a file lacks are inserted at ONE offset, which the engine
-    -- resolves in list order rather than refusing.
   , testCase "a file with none of them takes them in the order they are named" $ do
       assertEqual "the cycle, then the default view"
                   (Right "#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n* %?\n")
@@ -738,8 +617,7 @@ writeSpec = testGroup "Writing a layer"
                   [[], ["#+TODO:  TODO READING | READ ABANDONED"]]
                   (map (todoLines . lfText) files)
 
-    -- The whole loop, without the socket: a write lands, the watch sees a
-    -- config path and reseeds, and the palette a client would be handed moves.
+    -- The whole loop without the socket: write, config path, reseed, palette moves.
   , testCase "a layer written by hand reseeds the tree the watch is holding" $
       withTree Nothing [] [("a.org", "* STARTED refactor\n")] $ \dir -> do
       store <- loadStore dir
@@ -757,11 +635,7 @@ writeSpec = testGroup "Writing a layer"
       assertEqual "and the palette carries it"
                   (TodoKeywords ["TODO", "STARTED"] ["DONE"]) (storeKeywords next)
 
-    -- THE ORG FILE IS THE COMPARATOR CONFIG, end to end.  One tree, two writes
-    -- of one cycle differing only in the order it spells its two states: the
-    -- route's own splice lands it, the watch reseeds, the palette follows the
-    -- line and the table follows the palette.  The titles run the OTHER way in
-    -- both halves, so a sort settling on them would answer the same twice.
+    -- THE ORG FILE IS THE COMPARATOR CONFIG; the titles run the OTHER way in both halves.
   , testCase "a reordered cycle reorders the table" $
       withTree Nothing [] [("a.org", "* STARTED beta\n* WAITING alpha\n")] $ \dir -> do
       hub <- newHub =<< loadStore dir
@@ -784,19 +658,13 @@ writeSpec = testGroup "Writing a layer"
                   , ["alpha", "beta"] )
         =<< reseedWith "#+TODO: WAITING STARTED | DONE"
 
-    -- THE SWEEP ASSERTS WHAT IT SWEPT.  Every case below quantifies over
-    -- 'configSettings', so it covers a member nobody has written yet — but only
-    -- while `everyPart' names every row, and a row it does not name would write
-    -- nothing and pass every claim vacuously.
+    -- THE SWEEP ASSERTS WHAT IT SWEPT: a row `everyPart' misses passes vacuously.
   , testCase "the write shape names every setting the registry carries" $
       mapM_ (\s -> assertBool (T.unpack (csName s) <> " is named by no test write")
                               (not (null (partEdits s bookConfig))))
             configSettings
 
-    -- THE SCOPE HAZARD, closed by quantification.  A tree-wide setting omitted
-    -- from the mask let a TAG layer's write set a TREE-WIDE value silently, and
-    -- the only guard was a hand-written case per member — which is what member
-    -- #3 shipped without.  The mask is 'csScope' now, so this covers member #4.
+    -- THE SCOPE HAZARD: a tree-wide setting off the mask let a TAG layer set it.
   , testCase "a tag layer's write reaches no tree-wide setting" $ do
       let after = written (tagLayer bookConfig)
       mapM_ (\s -> do
@@ -808,8 +676,7 @@ writeSpec = testGroup "Writing a layer"
                                        (l `notElem` T.lines after)) lines')
             [ s | s <- configSettings, csScope s == TreeWide ]
 
-    -- And the mask is not a blanket one: what a tag layer OWNS still lands, or
-    -- the refusal above would be indistinguishable from a write that stopped.
+    -- The mask is no blanket: what a tag layer OWNS still lands.
   , testCase "and every per-layer setting still lands in one" $ do
       let after = written (tagLayer bookConfig)
       mapM_ (\s -> mapM_ (\l -> assertBool (T.unpack (csName s) <> " was masked: " <> show l)
@@ -824,11 +691,7 @@ writeSpec = testGroup "Writing a layer"
                          (addedLines bookConfig (partEdits s bookConfig)))
             configSettings
 
-    -- ONE FOLD, TWO CONSUMERS.  The load caches the tree-wide values for every
-    -- reader downstream of the store and `GET /config' computes them off files
-    -- it has just re-read, because the digest it hands out is the lock a write
-    -- presents back.  Both are owed, and a member picks neither: it joins
-    -- 'TreeSettings' and both answers move.
+    -- ONE FOLD, TWO CONSUMERS: the load caches it; `GET /config' recomputes it.
   , testCase "the load and the settings route read the tree through one fold" $
       withTree (Just "#+TODO: TODO | DONE\n\
                      \#+GLANCE_DEFAULT_FILTER: tag:work\n\
@@ -845,77 +708,61 @@ writeSpec = testGroup "Writing a layer"
                     ( tsViews (clTree cfg), tsColors (clTree cfg) )
   ]
 
--- | A write naming EVERY setting 'configSettings' carries.  A member left out
--- of this is what the sweep above refuses.
+-- | A write naming EVERY setting 'configSettings' carries.
 everyPart :: ConfigParts
 everyPart = ConfigParts { cpViews    = [("default", "tag:work")]
                         , cpColors   = Just [("light", [("TODO", "#7B1FA2")])]
                         , cpTemplate = Just "* %?" }
 
--- | DOC as the tree's own @system.org@, and as one tag's config.  A layer is
--- what 'configEdits' reads the scope off, so a case picks its side by picking
--- one of these.
+-- | DOC as the tree's @system.org@ and as one tag's config: the scope 'configEdits' reads.
 systemLayer, tagLayer :: Text -> ConfigLayerFile
 systemLayer doc = ConfigLayerFile "system.org" Nothing "d" doc
 tagLayer doc = ConfigLayerFile "tags/book.org" (Just "book") "d" doc
 
--- | Setting S's own edits over DOC, out of the registry rather than by name.
 partEdits :: ConfigSetting -> Text -> [(Span, Text)]
 partEdits s doc = either (const []) id (csEdits s doc everyPart)
 
--- | 'everyPart' written into LAYER, the whole write and nothing hand-masked.
 written :: ConfigLayerFile -> Text
 written layer = either (\why -> error ("TestConfig: " <> T.unpack why)) id $ do
   edits <- configEdits layer Nothing everyPart
   first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
   where doc = lfText layer
 
--- | The lines EDITS put into DOC that were not in it.
 addedLines :: Text -> [(Span, Text)] -> [Text]
 addedLines doc edits = case applyEdits doc [ Edit sp new | (sp, new) <- edits ] of
   Left why    -> error ("TestConfig: " <> show why)
   Right after -> [ l | l <- T.lines after, l `notElem` T.lines doc ]
 
--- | DOC with LINES as its @#+TODO:@ block, spliced the way the route splices
--- it: 'configEdits' for the spans and the write engine's own 'applyEdits' for
--- the result, so what is asserted is the document a write would leave behind.
+-- | DOC with LINES as its @#+TODO:@ block, spliced the way the route splices it.
 spliced :: Text -> [Text] -> Either Text Text
 spliced doc lines' = splicedWith doc lines' Nothing
 
--- | 'spliced', also setting the default view to WANT.
 splicedWith :: Text -> [Text] -> Maybe Text -> Either Text Text
 splicedWith doc lines' want = splicing doc lines' want
 
--- | 'spliced' over the system layer's tree-wide lines.
 splicing :: Text -> [Text] -> Maybe Text -> Either Text Text
 splicing doc lines' want = do
   edits <- configEdits (systemLayer doc) (Just lines')
              noParts { cpViews = maybe [] (\q -> [("default", q)]) want }
   first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
 
--- | The system layer's two tree-wide lines: each spelled key, two values of the
--- shape that line takes, the reader that finds it and the splice that writes
--- it.  The keys are spelled here rather than read off the library, so a renamed
--- pragma is a failure rather than a rename the suite follows.
+-- | The keys are spelled here, never read off the library: a rename must fail.
 treePragmas :: [( Text, Text, Text, Text -> Maybe Text
                 , Text -> [Text] -> Maybe Text -> Either Text Text )]
 treePragmas =
   [ ("#+GLANCE_DEFAULT_FILTER", "tag:work", "tag:home", viewOf defaultSaved, splicedWith) ]
 
--- | The default view's registry entry, which every build carries.
 defaultSaved :: SavedView
 defaultSaved = case savedView "default" of
   Just v  -> v
   Nothing -> error "TestConfig: no default view in savedViews"
 
--- | The line KEY spells VALUE on, newline and all.
 pragmaLine :: Text -> Text -> Text
 pragmaLine key value = key <> ": " <> value <> "\n"
 
 -- Absence
 
--- | With no config anywhere, every answer has to be the one this repo gave
--- before the layer existed.
+-- | With no config anywhere, every answer is the one this repo gave before.
 absenceSpec :: TestTree
 absenceSpec = testGroup "No config"
   [ testCase "a tree without one loads exactly as loadFile does" $
@@ -958,11 +805,7 @@ paritySpec = testGroup "Parity"
       assertEqual "rows"
                   [ map shape rs | (_p, Right rs) <- serial ]
                   [ map shape rs | (_p, Right rs) <- parallel ]
-      -- And what the tree actually reads as, so the equality above is not two
-      -- copies of a wrong answer.
-      -- c.org's ABANDONED is book.org's word on an untagged row: recognized
-      -- through the seed and claimed by no scope this headline reaches, so it
-      -- takes the unclassified fallback rather than book.org's opinion.
+      -- And what the tree actually reads as, so the equality is no shared wrong answer.
       let rows = concat [ rs | (_p, Right rs) <- parallel ]
       assertEqual "states"
                   [ (Just "STARTED", Just True), (Just "READING", Just True)

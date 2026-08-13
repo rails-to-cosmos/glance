@@ -1,7 +1,5 @@
--- | org-glance's write-ahead index, read only, and the drift instrument
--- comparing it against the blobs this parser reads.  The fold is
--- @org-glance-graph--latest-records@ read forwards: sealed segments oldest
--- first, the open one LAST, latest record per id winning, tombstoned ids gone.
+-- | org-glance's write-ahead index, read only, and the drift instrument over
+-- it.  The fold is @org-glance-graph--latest-records@ read forwards.
 module Data.Org.Index ( BlobEntry (..)
                       , IndexDrift (..)
                       , IndexFold (..)
@@ -43,7 +41,6 @@ manifestFile = "MANIFEST"
 driftSamples :: Int
 driftSamples = 10
 
--- Records
 
 data IndexRecord = IndexRecord
   { irId       :: !Text          -- ^ the @ORG_GLANCE_ID@ the record is keyed by.
@@ -65,7 +62,6 @@ blobEntryOf path headlines = do
   i <- ident
   pure (BlobEntry i state arch path)
 
--- Folding the log
 
 data IndexFold = IndexFold
   { ifRecords    :: !(Map Text IndexRecord)  -- ^ id to its latest record, tombstoned ids removed.
@@ -148,7 +144,6 @@ truthy _other = True
 splitLines :: BC.ByteString -> [BC.ByteString]
 splitLines = filter (not . BC.null) . BC.split '\n'
 
--- Comparing
 
 data IndexDrift = IndexDrift
   { dfStore      :: !FilePath  -- ^ the @.org-glance@ directory the index belongs to.
@@ -164,8 +159,7 @@ data IndexDrift = IndexDrift
   } deriving (Eq, Show)
 
 -- | Compare STORE's folded index against the BLOBS the walk parsed under it.
--- An idless blob is neither indexed nor unindexed: it is counted ('dfIdless'),
--- which is what keeps 'dfRecordless' from reading as index lag.
+-- An idless blob is counted ('dfIdless'), which keeps 'dfRecordless' honest.
 driftOf :: FilePath -> IndexFold -> [(FilePath, Maybe BlobEntry)] -> IndexDrift
 driftOf store folded blobs = IndexDrift
   { dfStore      = store
@@ -203,7 +197,6 @@ archiveNote rec blob =
   maybe "" (\flag -> disagreement "archived" yesNo flag (beArchived blob)) (irArchived rec)
   where yesNo b = if b then "true" else "false"
 
--- Reporting
 
 -- | DRIFT as the scan prints it: the verdict line, three rows of counts, samples.
 indexReportLines :: IndexDrift -> [Text]

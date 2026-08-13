@@ -1,13 +1,5 @@
--- | @POST \/command@: the structured writes, as ONE table.
---
--- A command is one entry in 'commands' — what its request's shape owes, whether
--- its date is resolved against today, and what it does to a row — so adding one
--- is adding a row rather than a name in a list, two guards and a case arm.  The
--- edits themselves are 'Glance.Query''s: a headline's spans belong to the
--- private sublibrary and this layer cannot see them.
--- `commandNames' rides out for the SUITE, which asks the join between this
--- table and the shell's own log phrases — a command landing here with no
--- phrase over there logs another command's sentence.
+-- | @POST \/command@: the structured writes, as ONE table ('commands'); the
+-- edits are 'Glance.Query''s.  `commandNames' rides out for the SUITE alone.
 module Glance.Web.Commands (commandNames, runCommand) where
 
 import Control.Concurrent.STM (readTVarIO)
@@ -49,12 +41,7 @@ import Glance.Web.Store ( Hub, Store (stConfig), headlinesIn, hubStore, layersFo
                         , recordsUnder, storeDocument, storeRecords )
 import Glance.Web.Watch (nudge, writeSpans)
 
--- Commands
 
--- | What a command request asks for.  A 'Command' cannot be built without its
--- 'CommandSpec' ('parseCommand'), which puts the unknown-name refusal ahead of
--- everything else: what reaches the planner is a command this server
--- implements, and the NAME has no reader left past the lookup that resolved it.
 data Command = Command
   { cmdName    :: !Text             -- ^ the name it resolved BY; two commands edit nothing.
   , cmdSpec    :: !CommandSpec      -- ^ its entry in 'commands'.
@@ -63,20 +50,7 @@ data Command = Command
   , cmdDigests :: !(Map Text Text)  -- ^ id to the digest the client holds for its file.
   }
 
--- | The @args@ object, read once for every command that takes one.  Twelve
--- fields between them and a request naming one command leaves the rest absent:
--- @keyword@ (@set-state@'s state and @set-planning@'s keyword, one field the
--- wire spells both ways), @date@, @text@, @tag@, @fields@, @from@\/@to@, and
--- @edit-link@'s @span@\/@target@\/@desc@.
---
--- THE NESTED 'Maybe's are the distinction the command layer turns on: ABSENT
--- said nothing, NULL asked for the value to come off.  An absent @keyword@ or
--- @date@ is a 400; an absent @desc@ is @edit-link@'s ordinary case.  The flat
--- fields belong to commands with no value to clear.
---
--- @rename-tag@ spells @from@\/@to@ rather than reusing @tag@ for one half, and
--- @set-title@ spells @title@ rather than @text@: a capture's line is a whole
--- headline as org, a title one component of one.
+-- | THE NESTED 'Maybe's: ABSENT said nothing, NULL asked for the value off.
 data Args = Args
   { agKeyword :: !(Maybe (Maybe Text))
   , agDate    :: !(Maybe (Maybe Text))
@@ -92,8 +66,6 @@ data Args = Args
   , agDesc    :: !(Maybe (Maybe Text))
   }
 
--- | One file's share of a command: the write it costs, and the ids it answers
--- for.  Every row of a file shares the file's digest, so the plan carries one.
 data FilePlan = FilePlan
   { fpPath   :: !FilePath
   , fpDigest :: !Text
@@ -101,46 +73,24 @@ data FilePlan = FilePlan
       -- ^ row id, what it writes, and the ledger line riding its success.
   }
 
--- | What a command asks of ONE row: the spans it moves, and the line it leaves
--- in the ledger where it leaves one.
---
--- ONE ANSWER rather than two fields that must agree.  `set-state`'s repeat
--- decides both halves, and asking for them apart ran `repeatOn` — and so
--- `keywordSources` — twice a row for one write.
+-- | ONE ANSWER rather than two fields that must agree: asking the spans and the
+-- ledger line apart ran `repeatOn' -- and so `keywordSources' -- twice a row.
 data RowWrite = RowWrite
   { rwEdits :: ![(Span, Text)]
   , rwNote  :: !(Maybe (Text, Text))  -- ^ the state landed on, and its next occurrence.
   }
 
--- | The plain answer: spans, nothing recorded.  Nine of the eleven commands.
 plain :: [(Span, Text)] -> Either Text RowWrite
 plain edits = Right (RowWrite edits Nothing)
 
--- | The span edits a command asks for on ONE row, under the store's config and
--- the timestamp the request resolved to ('resolveAsked').  A refusal here is the
--- WHOLE request's, since half a write over a marked set is worse than none of
--- one.
 type RowEdits = ConfigLayers -> Asked -> Args -> HeadlineRecord
               -> Either Text RowWrite
 
--- | What a request resolved BEFORE any row was touched: the clock, read once.
--- A record rather than a widening argument list, `ConfigParts`' reason — the
--- next request-level value joins here and no row function changes shape.
 data Asked = Asked
   { askToday :: !Time.Day      -- ^ the day every date is worked out against.
   , askStamp :: !(Maybe Text)  -- ^ @set-planning@'s date, already rendered.
   }
 
--- | One command, as its three fields.  'Nothing' for the edits is the command
--- that names no rows — it MAKES one, so there is no row function to hold and no
--- ids rule to apply.
---
--- 'csArgs' is handed the IDS beside the @args@ because a shape refusal is about
--- the request rather than the @args@ object alone: @edit-link@ carries a span,
--- which means nothing to a second row and a different range in each file, so
--- "one row" is part of what its SHAPE owes.  Ten of the eleven entries ignore
--- the list — a rule only one command has, kept out of a flag every entry would
--- answer.
 data CommandSpec = CommandSpec
   { csArgs  :: [Text] -> Args -> Maybe Text
       -- ^ why the request's shape is refused, where it is.
@@ -148,15 +98,6 @@ data CommandSpec = CommandSpec
   , csKind  :: CommandKind         -- ^ what it does to the rows it names.
   }
 
--- | WHAT A COMMAND DOES TO THE ROWS IT NAMES.  A CLOSED SET, so the dispatch is
--- total and a fourth kind is named by the compiler at every site rather than
--- falling through to whichever arm a catch-all reaches.
---
--- It was a @Maybe RowEdits@ while one command sat on the @Nothing@ side, which
--- made the bit and the member the same fact; a second one made it two, and the
--- type stopped saying which.  What said it instead was a string test at the
--- dispatch and another at the id wall, in different parts of this file and
--- agreeing by nobody's enforcement.
 data CommandKind
   = Splices RowEdits
     -- ^ edits each named row in place; the nine that write spans.
@@ -165,44 +106,20 @@ data CommandKind
   | Moves
     -- ^ moves a file out of the tree: @delete@.
 
--- | Does a command of this KIND name the rows it works on?  Every kind but
--- 'Makes', which makes one instead — total, so a fourth answers here.
 namesRows :: CommandKind -> Bool
 namesRows Makes = False
 namesRows (Splices _) = True
 namesRows Moves = True
 
--- | The commands this route implements, which is also the whole of what @args@
--- can mean: @set-state@ @{"keyword": "DONE"}@ or @{"keyword": null}@,
--- @set-planning@ @{"keyword": "SCHEDULED", "date": "+3d"}@ or a null date,
--- @capture@ @{"text": "TODO Buy milk :errands:"}@ with an optional @tag@ and
--- the @fields@ its template asks for, @add-tag@ and @remove-tag@
--- @{"tag": "work"}@, @rename-tag@ @{"from": "work", "to": "projects"}@,
--- @edit-link@ @{"span": [S, E], "target": "https:\/\/x", "desc": "…"}@, and
--- @archive@ nothing.
---
--- ONE table: 'commandNames' is its keys, 'parseCommand' refuses a name it does
--- not carry and asks the entry's own 'csArgs' for the rest, and 'runCommand'
--- reads the edits off the entry the name resolved to.  A lookup past the parse
--- cannot miss, so there is no arm for a command that is not there.
 commands :: [(Text, CommandSpec)]
 commands =
   [ ("add-tag", CommandSpec (overIds (wantsTag "add-tag")) False
       (Splices (\_cfg _asked args r -> plain (addTagEdits (tagOf args) r))))
-    -- @archive@ is 'addTagEdits' at a fixed name, and it takes no @tag@ of its
-    -- own: the name is org's and a client cannot aim it elsewhere.  Idempotent,
-    -- so a row already tagged costs no edit and still answers @ok@.
   , ("archive", CommandSpec (overIds (const Nothing)) False
       (Splices (\_cfg _asked _args r -> plain (archiveEdits r))))
   , ("capture", CommandSpec (overIds wantsText) False Makes)
-    -- The ONE command whose args describe a row's own TEXT rather than a
-    -- property of it, so its shape includes the ROW COUNT ('wantsLink', which
-    -- refuses a missing span or target too, so neither can refuse per row).
-    -- THE ONE DESTRUCTIVE COMMAND, and the second with no row function: it moves
-    -- a FILE rather than splicing spans, so the edits are 'Nothing' and the
-    -- dispatch reaches it by NAME.  Every wall it has is per row and checked
-    -- HERE as well as in the shell, so a hand-made request cannot reach a live
-    -- entry ('deleteRows').
+    -- THE ONE DESTRUCTIVE COMMAND: it moves a FILE rather than splicing spans,
+    -- and every wall it has is per row and checked HERE as well as in the shell.
   , ("delete", CommandSpec (overIds (const Nothing)) False Moves)
   , ("edit-link", CommandSpec wantsLink False
       (Splices (\_cfg _asked args r ->
@@ -210,54 +127,32 @@ commands =
                                        (word agTarget args) (agDesc args) r)))
   , ("remove-tag", CommandSpec (overIds (wantsTag "remove-tag")) False
       (Splices (\_cfg _asked args r -> plain (removeTagEdits (tagOf args) r))))
-    -- One command rather than a @remove-tag@ and an @add-tag@ fired in turn:
-    -- the rename is ONE drift-locked write per file, and the pair it would
-    -- compose from spells the tag onto the title ('Glance.Query.renameTagEdits').
   , ("rename-tag", CommandSpec (overIds wantsRename) False
       (Splices (\_cfg _asked args r ->
                plain (renameTagEdits (word agFrom args) (word agTo args) r))))
-    -- The keyword is there and the date has been resolved: 'csArgs' refuses a
-    -- @set-planning@ without either, so neither can refuse per row.
   , ("set-planning", CommandSpec (overIds wantsPlanning) True
       (Splices (\_cfg asked args r ->
                plain =<< setPlanningEdits (fromMaybe "" (join (agKeyword args)))
                                           (askStamp asked) r)))
-    -- A REPEAT IS A `set-state', and the one command that RECORDS anything: a
-    -- row completed into an inactive keyword while a planning stamp carries a
-    -- repeater shifts and resets in ONE write, and the ledger line rides its
-    -- success ('Glance.Query.repeatOn').
+    -- A REPEAT IS A `set-state', and the one command that RECORDS anything.
   , ("set-state", CommandSpec (overIds wantsState) False
       (Splices stateEdits))
-    -- The title is the one CELL a reader edits as text, so it is a command
-    -- rather than a subtree write: 'Glance.Query.setTitleEdits' replaces the
-    -- title's own span and leaves the keyword, the priority and the tags around
-    -- it their bytes, where a recomposed subtree would rewrite the line.  The
-    -- priority is org's own token rather than a cell a reader types, so the key
-    -- CYCLES it and this takes the letter that cycle landed on — nullable for
-    -- the reason @set-state@ is, the wrap going through NONE.
   , ("set-priority", CommandSpec (overIds wantsPriority) False
       (Splices (\_cfg _asked args r -> plain =<< setPriorityEdits (join (agPriority args)) r)))
   , ("set-title", CommandSpec (overIds wantsTitle) False
       (Splices (\_cfg _asked args r -> plain =<< setTitleEdits (word agTitle args) r)))
   ]
   where
-    -- A shape that has nothing to say about HOW MANY rows were named, which is
-    -- ten of the eleven.
     overIds = const
-    -- `set-state', with org's repeat folded in: a row that repeats shifts its
-    -- stamp and resets its keyword in one set, and anything else takes the
-    -- plain path with the refusal surface unchanged.
     stateEdits cfg asked args r = case repeating cfg asked args r of
-      -- ONE `repeatOn': the spans and the line it records come off the same
-      -- answer, so the two cannot be worked out twice or come apart.
+      -- ONE `repeatOn': the spans and the line recorded come off one answer.
       Just rp -> Right (RowWrite (rpEdits rp) (Just (rpState rp, rpShifted rp)))
       Nothing -> plain =<< setStateEdits cfg (join (agKeyword args)) r
     repeating cfg asked args r =
       join (agKeyword args) >>= \keyword -> repeatOn cfg (askToday asked) keyword r
     word field = fromMaybe "" . field
     tagOf = word agTag
-    -- The one command whose keyword may be NULL: that is how a state comes off,
-    -- so what it owes is the FIELD rather than a value ('Args').
+    -- The one command whose keyword may be NULL: that is how a state comes off.
     wantsState args
       | Nothing <- agKeyword args =
           Just "set-state wants args {\"keyword\": \"DONE\"}, or a null keyword to clear it"
@@ -268,24 +163,13 @@ commands =
       | Nothing <- agDate args =
           Just "set-planning wants a date, or a null one to take the entry off"
       | otherwise = Nothing
-    -- @capture@'s @tag@ is optional and its charset is the ordinary tag wall:
-    -- absent files into the tree's inbox, present files a BLOB into the store.
-    -- A word that is not a tag names no directory to write and no vocabulary to
-    -- join, so it is refused with the rest of the request's shape.
     wantsText args
       | Nothing <- agText args =
           Just "capture wants args {\"text\": \"TODO Buy milk :errands:\"}"
       | Just given <- agTag args = either Just (const Nothing) (tagText given)
       | otherwise = Nothing
-    -- A link points SOMEWHERE, so an empty target is refused with the rest of
-    -- the request's shape: it is no more a link for one row than for another.
-    -- PADDING is refused beside it, so the string this tests and the string
-    -- 'Glance.Query.editLinkEdits' writes are one — a target is written
-    -- verbatim, and a bracketed link would otherwise take the spaces a bare one
-    -- is refused for.  The description is not asked for: absent is the ordinary
-    -- request and leaves the link the one it has.  THE ROW COUNT IS FIRST as the
-    -- coarsest thing wrong — a caller naming three rows has misunderstood the
-    -- command, and a missing span would answer the smaller question.
+    -- PADDING is refused here, so the string tested is the string written.
+    -- THE ROW COUNT IS FIRST: the coarsest thing wrong.
     wantsLink ids args
       | length ids > 1 =
           Just "edit-link names one row: its args describe that row's own text"
@@ -298,19 +182,12 @@ commands =
           Just ("edit-link wants a target with no leading or trailing space: "
                   <> T.strip given)
       | otherwise = Nothing
-    -- The charset is a property of the STRING, so it is refused with the rest
-    -- of the request's shape: a word that is not a tag is not a tag for any row.
     wantsTag name args = case agTag args of
       Nothing    -> Just (name <> " wants args {\"tag\": \"work\"}")
       Just given -> either Just (const Nothing) (tagText given)
-    -- BOTH ends take the charset wall: a @from@ org could not have written
-    -- names nothing, and a @to@ it could not read would take the whole run down
-    -- into title text on the next load.
     wantsRename args = case (agFrom args, agTo args) of
       (Just from, Just to) -> either Just (const Nothing) (tagText from >> tagText to)
       _absent -> Just "rename-tag wants args {\"from\": \"work\", \"to\": \"projects\"}"
-    -- Charset, emptiness and the one-line rule are properties of the STRING
-    -- too, so they are refused with the shape rather than once per row.
     wantsPriority args = case agPriority args of
       Nothing        -> Just "set-priority wants args {\"priority\": \"A\"},\
                              \ or a null one to take it off"
@@ -320,71 +197,29 @@ commands =
       Nothing    -> Just "set-title wants args {\"title\": \"Buy milk\"}"
       Just given -> either Just (const Nothing) (titleText given)
 
--- | The names 'commands' carries, in the order it carries them — which is the
--- order a refusal lists them in.
 commandNames :: [Text]
 commandNames = map fst commands
 
--- | @POST \/command@ with body @{"name", "ids", "args"}@: a structured write
--- over the rows the client names.  @"id"@ is an @"ids"@ of one.  The edits are
--- 'Glance.Query''s; this route owns which rows, which file, and what the answer
--- says.
---
--- BATCHING IS PER FILE: ids group by their row's file and each file is written
--- ONCE under its own digest, so a marked set spanning three files is three
--- atomic writes, each all-or-nothing.  Rollback ACROSS files is impossible, so
--- the answer reports per id.
---
--- A bad body, an unimplemented name, no ids, and a keyword some named row's
--- chain does not declare are 400 with nothing written — the keyword refuses the
--- WHOLE request deliberately, half a state change over a marked set being worse
--- than none.  Per id: an unknown id, and a file whose digest moved.  So a 200
--- is "the command ran" rather than "every row moved".
---
--- Nothing here touches the store: the write goes to the file and the watch
--- streams the rows, so a browser command reaches every tab by an editor's path.
+-- | @POST \/command@ over the rows the client names.  BATCHING IS PER FILE: one
+-- drift-locked write per file, no rollback across files, so the answer is per
+-- id; a shape or keyword refusal is the WHOLE request's.  The store is untouched.
 runCommand :: ServeOptions -> Hub -> Request -> IO Response
 runCommand opts hub request = withBody request $ \raw -> do
   st <- readTVarIO (hubStore hub)
   case parseCommand raw of
     Left why -> pure (jsonError status400 why)
-    -- ONE TOTAL CASE over the kinds there are, so a fourth is named by the
-    -- compiler here rather than falling through to whichever arm a catch-all
-    -- would reach.  The kind is destructured ONCE, so nothing below has an arm
-    -- for a command that edits no row.
+    -- ONE TOTAL CASE over the kinds there are; the kind is destructured ONCE.
     Right cmd -> case csKind (cmdSpec cmd) of
       Moves -> deleteRows opts hub st cmd
       Makes -> captureInto opts hub st cmd
-      -- The clock is read ONCE per request, ahead of any row ('resolveDate'),
-      -- and everything that can refuse is decided before a file is opened,
-      -- leaving the 400 or the IO that writes.
       Splices edits -> do
         asked <- resolveAsked cmd
         either (pure . jsonError status400) id
                (asked >>= \at -> overRows opts hub st at edits cmd)
 
--- | CMD's rows deleted: each blob gzipped into the store's trash and taken out
--- of the live tree ('Data.Org.Trash.trashBlob'), answered per id in the order
--- the ids were named.
---
--- THREE WALLS PER ROW, and they are here rather than only in the shell because
--- a request is a request whoever wrote it:
---
---   * a row the store does not hold,
---   * a row NOT CARRYING the archive tag — archiving is the step before this
---     one, so a live entry cannot be reached by asking twice as fast, and
---   * a row whose file is not a BLOB — a shared org file is many rows'
---     document, and moving it would take the others with it.
---
--- The path is NUDGED on success: this is the write door's sixth site and the
--- only one that splices no spans, so it queues the path itself or the row would
--- sit in the table until a restart.
---
--- AND THE TOMBSTONE IS NOT NUDGED'S NEIGHBOUR HERE.  Splicing no spans also
--- means reaching no 'Glance.Query.replaceSpans', so the line telling org-glance
--- to drop the record rides 'Glance.Query.trashBlob''s own success branch, where
--- the document is still readable and the path the note is keyed by is in hand.
--- This route asks for the move and spells no JSON.
+-- | CMD's rows moved into the store's trash, answered per id in the order named.
+-- THREE WALLS PER ROW, checked HERE as well as in the shell.  Splicing no spans,
+-- the tombstone rides 'trashBlob''s own branch and this door nudges the path.
 deleteRows :: ServeOptions -> Hub -> Store -> Command -> IO Response
 deleteRows opts hub st cmd =
   jsonResponse status200 . pure . ("results" .=) <$> mapM (either pure taken) (namedRows st cmd)
@@ -400,45 +235,24 @@ deleteRows opts hub st cmd =
               nudge (walkFor opts) hub (hrFile r)
               pure (object [ "id" .= hrId r, "ok" .= True, "trash" .= T.pack dest ])
 
--- | CMD's ids in the order they were NAMED, each an answer already or a row to
--- work on.
---
--- THE ORDER IS THE WIRE'S — SCHEMA.md's @{results: […]}@ is answered in the
--- order the ids were named, so a caller can zip the results against what it
--- asked for — and it is kept HERE rather than by each caller's choice of
--- traversal, which is how one of them came to keep it as a property of `mapM'
--- and the other on purpose.  An id the store does not hold is refused the same
--- way wherever it is asked for, for the same reason.
+-- | CMD's ids in the order NAMED, which is the wire's order and is kept HERE.
 namedRows :: Store -> Command -> [Either Value HeadlineRecord]
 namedRows st cmd =
   [ maybe (Left (refused rid (noSuchRow rid))) Right (lookup rid found)
   | rid <- cmdIds cmd ]
   where found = [ (hrId r, r) | r <- fst (headlinesIn (storeRecords st) (cmdIds cmd)) ]
 
--- | CMD's rows written, as the IO that writes them or the 400 that stops it.
--- STAMP is @set-planning@'s date already worked out, and is nothing to every
--- other name.
 overRows :: ServeOptions -> Hub -> Store -> Asked -> RowEdits -> Command
          -> Either Text (IO Response)
 overRows opts hub st asked edits cmd = do
   (plans, said) <- planCommand st asked edits cmd
   pure $ do
     written <- mapM (writeOne opts hub) plans
-    -- Answered in the order the client named the ids, so a caller can zip the
-    -- results against what it asked for.
     let outcomes = said <> concat written
     pure (jsonResponse status200
             ["results" .= [ v | rid <- cmdIds cmd, Just v <- [lookup rid outcomes] ]])
 
--- | The timestamp CMD's rows are to carry: its date text rendered against the
--- server's today ('Glance.Query.planningTimestamp'), 'Nothing' where the
--- request asked for the entry to come off or where the command has no date.
---
--- Worked out ONCE, before any row is planned: a marked set crossing midnight
--- would otherwise land on two days, and a text no date parser reads is the
--- WHOLE request's 400 the way an undeclared keyword is ('RowEdits').  The
--- answer is handed on as a value rather than written back into 'Args', so
--- @agDate@ means the text the client typed at every point in the request.
+-- | ONE clock read, before any row: a marked set must not cross midnight.
 resolveAsked :: Command -> IO (Either Text Asked)
 resolveAsked cmd = do
   today <- Time.localDay . Time.zonedTimeToLocalTime <$> Time.getZonedTime
@@ -446,35 +260,11 @@ resolveAsked cmd = do
     Just text | csDated (cmdSpec cmd) -> Asked today . Just <$> planningTimestamp today text
     _nothingToResolve                 -> Right (Asked today Nothing)
 
--- | @capture@: CMD's line written as a new top entry, and WHERE decides which
--- of two shapes it takes.
---
--- NO TAG is the tree's inbox, deliberately bare: the target comes off the
--- config, which also refuses one this daemon will not write to, so a misspelled
--- pragma is a 400 naming itself rather than a file written outside the tree.
--- The entry is @* TEXT@ under a creation stamp, no template consulted.
---
--- A TAG is a BLOB in the store ('captureBlob').
---
--- The document and digest come off the STORE where it holds the file and off a
--- fresh read where it does not — a missing target reads as the empty document
--- under the empty digest, which is what 'editFile' creates under.  Either way
--- the offset and the lock describe one text.
---
--- Both leave through 'Glance.Web.Watch.writeSpans', so the path each wrote is
--- queued for the drain loop — a nudge rather than a store update, and what
--- makes a captured row arrive live rather than at the next restart.
 captureInto :: ServeOptions -> Hub -> Store -> Command -> IO Response
 captureInto opts hub st cmd =
-  -- 'wantsText' has already put every @tag@ past 'tagText', which refuses the
-  -- empty string and every character a tag may not hold, so ABSENT is the whole
-  -- of what "no tag" means here and there is nothing left to strip or test.
-  -- The 'Command' is read ONCE, here: neither path below asks anything of the
-  -- name or the ids, a capture naming no row.
   maybe (captureInbox opts hub st args) (captureBlob opts hub st args) (agTag args)
   where args = cmdArgs cmd
 
--- | @capture@ with no tag: ARGS' line appended to the tree's inbox.
 captureInbox :: ServeOptions -> Hub -> Store -> Args -> IO Response
 captureInbox opts hub st args = do
     (doc, digest) <- maybe (currentDocument inbox) pure (storeDocument inbox st)
@@ -485,41 +275,11 @@ captureInbox opts hub st args = do
                        <$> writeSpans (walkFor opts) hub inbox digest edits
   where
     inbox = captureTargetIn (soDir opts)
-    -- The row the entry BECOMES, so the page can land its cursor on it when the
-    -- watch delivers it.  A captured entry joins the END of the file and every
-    -- ordinal ahead of it is already spent, so K is how many rows the store
-    -- holds for this file ('Glance.Query.rowIdIn', one spelling of the
-    -- separator).  A RACE, and an honest one: @\/command@ never writes the
-    -- store, so this counts what the last load saw, and an entry appended by
-    -- another writer between that load and this one shifts the answer by one.
-    -- The cost is a cursor that does not move, the shell landing nothing for a
-    -- row its view has not got.
-    --
-    -- 'recordsUnder' rather than a filter over 'storeRecords': that one is
-    -- 'Glance.Query.resolveIds' over the WHOLE store, which is a pass over ten
-    -- thousand rows per capture AND the wrong list — a row that lost an id
-    -- collision is dropped from it, where the ordinal was handed out before any
-    -- resolution ran.
+    -- A RACE, honestly: @\/command@ never writes the store, so K is the last
+    -- load's count.  'recordsUnder', since 'storeRecords' drops a collision loser.
     landed path fresh = captured path fresh (rowIdIn path (length (recordsUnder path st)))
 
--- | @capture@ under a TAG: a new blob in the served root's own store.
---
--- FOUR REFUSALS, all decided before a byte is written, coarsest first.  The
--- store root must be there — a capture that MADE one would be this daemon
--- deciding a tree is an org-glance store.  The tag's template comes off the
--- config layers read HERE rather than off the loaded config, so what a settings
--- sheet shows is what a capture expands; a tag no layer configures takes
--- 'bareTemplate'.  The expansion refuses a template with no @%?@ and an ask
--- nobody answered, and the composition one that expands to no headline.
---
--- The id is minted and the path is org-glance's sharded one; the write goes out
--- under the EMPTY digest, which creates the file and DRIFTS rather than
--- overwrites should anything sit there.  Minting ahead of the last refusal
--- costs nothing — nothing is reserved, so an unwritten id is one nobody sees.
---
--- The @EXTERNAL.jsonl@ note costs nothing either: @data.org@ under a store's
--- @data\/@ is a blob, so 'replaceSpans' appends the line on its way out.  Blob
--- first, line second, the order the contract asks for.
+-- | The write goes out under the EMPTY digest, so an occupied path DRIFTS.
 captureBlob :: ServeOptions -> Hub -> Store -> Args -> Text -> IO Response
 captureBlob opts hub st args tag = do
   there <- doesDirectoryExist store
@@ -535,10 +295,6 @@ captureBlob opts hub st args tag = do
           blobDocument (BlobSeed tag ident (captureStamp now)) expanded
     case composed of
       Left why  -> pure (jsonError status400 why)
-      -- Every write leaves through 'writeSpans', which is what delivers this
-      -- one: a blob's @\<shard>\/\<rest>\/@ pair is one
-      -- @createDirectoryIfMissing True@, so it lands under a directory fsnotify
-      -- armed and never entered, and no event is coming for it now or later.
       Right doc -> answerWrite (captureMoved path) (landed path ident)
                      <$> writeSpans (walkFor opts) hub path "" [(Span 0 0, doc)]
   where
@@ -547,31 +303,13 @@ captureBlob opts hub st args tag = do
     noStore = T.pack store <> " is not there, so this tree keeps no org-glance store;\
                                \ capture with no tag to file into the inbox instead"
 
--- | The line ARGS captures, which every capture path writes and no path may be
--- without ('wantsText').
 capturedText :: Args -> Text
 capturedText = fromMaybe "" . agText
 
--- | What a capture answers with: the FILE it wrote, that file's FRESH digest,
--- and the id of the row it made.  One spelling for both paths, since a client
--- reads one shape whichever it asked for; the id itself is each path's own —
--- the blob's is minted, the inbox row's is an ordinal.
 captured :: FilePath -> Text -> Text -> [Pair]
 captured path fresh ident =
   ["ok" .= True, "file" .= path, "digest" .= fresh, "id" .= ident]
 
--- | ARGS' captured line and its @fields@ answers, each past the one-headline
--- wall, or the whole request's refusal naming the field that failed it.
---
--- THE INBOX WALL REACHES THE TAGGED PATH TOO.  A template's @%?@ and each of
--- its @%^{PROMPT}@ holes are spliced into the same document, so a newline in any
--- of them lands a column-1 star the parser reads as a second entry — and a blob
--- holds ONE entry, which is the headline org-glance keys it by.  An empty
--- answer writes a template with a hole in it.
---
--- Answers come back in 'Data.Map.Strict' key order, which is what
--- 'Glance.Query.expandTemplate' looks a prompt up in; order means nothing to a
--- lookup.
 capturedParts :: Args -> Either Text (Text, [(Text, Text)])
 capturedParts args =
   (,) <$> captureText (capturedText args)
@@ -581,17 +319,11 @@ capturedParts args =
       (,) want <$> first (\why -> "the answer to " <> want <> ": " <> why)
                          (captureText value)
 
--- | PLAN's file written once, and what that came to for each of its ids.  Both
--- outcomes are shared by the whole group, because the write is: the batch lands
--- or the file is untouched.
 writeOne :: ServeOptions -> Hub -> FilePlan -> IO [(Text, Value)]
 writeOne opts hub plan = do
   written <- writeSpans (walkFor opts) hub (fpPath plan) (fpDigest plan) spliced
-  -- THE LEDGER RIDES THE SUCCESS BRANCH: the file is renamed into place by now,
-  -- so a note that cannot be written changes nothing about the write that
-  -- landed.  HERE rather than in `replaceSpans' beside `noteExternalWrite',
-  -- because a completion is keyed off the SERVED ROOT and no write door carries
-  -- one -- `WalkOptions' is a newtype over a Bool.
+  -- THE LEDGER RIDES THE SUCCESS BRANCH.  HERE rather than in `replaceSpans'
+  -- beside `noteExternalWrite': a completion is keyed off the SERVED ROOT.
   case written of
     Right _digest -> mapM_ record (fpRows plan)
     Left _refused -> pure ()
@@ -605,10 +337,6 @@ writeOne opts hub plan = do
                                <> T.take 12 found <> "… now); nothing was written to it"
     why (WriteRefused spelled) = spelled
 
--- | CMD as the files to write and the ids refused without opening one, or as
--- the 400 that stops it.  Two refusals are decided here rather than in the IO
--- above: an unknown id, and a digest the client pinned that the store no longer
--- holds — @POST \/headline@'s own @stale@ check, per file because a digest is.
 planCommand :: Store -> Asked -> RowEdits -> Command
             -> Either Text ([FilePlan], [(Text, Value)])
 planCommand st asked rowEdits cmd = do
@@ -619,13 +347,9 @@ planCommand st asked rowEdits cmd = do
        , missing <> [ (hrId r, refused (hrId r) (staleWhy path))
                     | (path, rs) <- groups, stale rs, (r, _w) <- rs ] )
   where
-    -- One resolution for the whole set rather than one per id, which is what
-    -- keeps a marked set of a hundred rows off a hundred passes of the store.
     (held, absent) = headlinesIn (storeRecords st) (cmdIds cmd)
     withEdits r = (,) r <$> rowEdits (stConfig st) asked (cmdArgs cmd) r
-    -- The ledger line the row's OWN answer carried, keyed by the entry's
-    -- `ORG_GLANCE_ID' -- an ordinal names a different row a week on, so a row
-    -- without one records nothing and still writes.
+    -- Keyed by `ORG_GLANCE_ID': an ordinal names a different row a week on.
     noted r w = do
       (state, shifted) <- rwNote w
       ident <- rowOrgId r
@@ -636,29 +360,15 @@ planCommand st asked rowEdits cmd = do
     staleWhy path = T.pack path
                       <> " has been re-read since these rows were fetched; ask for them again"
 
--- | One row's outcome: the file's new digest, so a caller can pin its next
--- write without re-reading.
 done :: Text -> Text -> Value
 done rid digest = object [ "id" .= rid, "ok" .= True, "digest" .= digest ]
 
--- | One row's refusal, shaped like the success it replaces.
 refused :: Text -> Text -> Value
 refused rid why = object [ "id" .= rid, "ok" .= False, "error" .= why ]
 
--- | XS grouped by KEY: each group in arrival order, the groups in first-seen
--- order.  Quadratic in the number of distinct files, which is the marked set's
--- size and not the store's.
 groupOn :: Eq k => (a -> k) -> [a] -> [(k, [a])]
 groupOn key xs = [ (k, [ x | x <- xs, key x == k ]) | k <- nub (map key xs) ]
 
--- | RAW as a command, or what is wrong with it.  Every refusal that is the
--- request's shape rather than the tree's state is decided here, so what reaches
--- 'planCommand' is a name it implements with rows to run it over.  The name
--- resolves to its entry in 'commands' FIRST and the 'Command' is built out of
--- that entry, so an unimplemented name never reaches a rule that would have to
--- guess what it takes; what is left is the entry's own two — whether it names
--- rows, and what the request's shape owes it ('csArgs', handed the ids beside
--- the @args@).
 parseCommand :: BL.ByteString -> Either Text Command
 parseCommand raw = bodyObject "command" command raw >>= checked
   where
@@ -667,14 +377,8 @@ parseCommand raw = bodyObject "command" command raw >>= checked
       one <- o .:? "id"
       several <- o .:? "ids"
       digests <- o .:? "digests"
-      -- @.:!@ rather than @.:?@ for the nullable fields, and that is the whole
-      -- of how ABSENT is told from NULL: @.:?@ folds a null into an absence,
-      -- which would make @{"args": {}}@ an instruction to clear.  A request
-      -- with no @args@ at all reads as an empty one — no second shape to carry.
+      -- @.:!@ rather than @.:?@, which folds a NULL into an absence.
       a <- fromMaybe mempty <$> (o .:? "args" :: Parser (Maybe Object))
-      -- The span arrives as the half-open pair it is, @[START, END]@, and is a
-      -- 'Span' from here on: the offsets are the parser's own currency and
-      -- nothing below this line reads them as a tuple.
       sp <- fmap (uncurry Span) <$> (a .:? "span" :: Parser (Maybe (Int, Int)))
       parsed <- Args <$> a .:! "keyword" <*> a .:! "date" <*> a .:? "text"
                      <*> a .:? "title" <*> a .:! "priority" <*> a .:? "tag"
@@ -686,9 +390,6 @@ parseCommand raw = bodyObject "command" command raw >>= checked
       Nothing -> Left ("no such command: " <> name <> "; this server runs "
                          <> T.intercalate " and " commandNames)
       Just spec
-        -- `Makes' is the ONE kind that owes no ids: it makes a row rather than
-        -- naming one.  Asked of the KIND rather than of the name, so a command
-        -- added to the table declares this with the rest of what it is.
         | namesRows (csKind spec), null ids ->
             Left "a command names rows: {\"ids\": [\"…\"]}, or {\"id\": \"…\"} for one"
         | Just why <- csArgs spec ids args -> Left why

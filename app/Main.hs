@@ -67,17 +67,11 @@ parse ("serve":args) = run "serve" serveUsage serve (serveOptions args)
 parse ("desktop":args) = run "desktop" desktopUsage runDesktop (desktopOptions args)
 
 parse (filename:_) = do
-  -- 'readDocument' rather than a decode of this REPL's own: every other reader
-  -- in the codebase takes UTF-8 through it, and the latin-1 round trip this
-  -- replaces gave a non-ASCII file mojibake titles and latin-1 offsets where
-  -- the parser's spans are characters.
+  -- A latin-1 round trip gave mojibake titles and byte offsets where spans are chars.
   content <- readDocument filename
 
   case content of
     Nothing -> do
-      -- 'readDocument' answers 'Nothing' for a file that is not there, one
-      -- that cannot be read, and one whose bytes are not UTF-8, so the sentence
-      -- names all three rather than claiming the first.
       hPutStrLn stderr ("glance: cannot read " <> filename <> " as UTF-8 org")
       exitFailure
     Just (text, _digest) ->
@@ -86,9 +80,7 @@ parse (filename:_) = do
            context
       where (_elements, context, maybeErr) = orgParse defaultContext text
 
--- | Greet with MESSAGES, print NOTES under the banner and hand the terminal to
--- the REPL under CONTEXT.  The four steps both entry points take, in the one
--- order they take them.
+-- | Greet with MESSAGES, print NOTES, hand the terminal to the REPL under CONTEXT.
 repl :: [Text] -> [Text] -> Context -> IO a
 repl messages notes context = do
   settings <- replSettings
@@ -118,13 +110,11 @@ desktopUsage = "usage: glance desktop --dir DIR [--port N (default "
             <> ")] [--assets PATH] [--browser CMD] [--dry-run] [--keep-serving]"
             <> " [--include-derived]"
 
--- | One desktop session: this build's own window when it has one and nothing
--- names a browser, and stage 1's app-mode browser otherwise.
+-- | One desktop session: this build's own window, else stage 1's app-mode browser.
 runDesktop :: Desktop -> IO ()
 runDesktop d = desktopWith nativeAvailable nativeWindow (dKeepServing d) (dWindow d)
 
--- | Everything @glance desktop@ takes: the window options, plus the flag that
--- means something only when the window is this process's own.
+-- | Everything @glance desktop@ takes.
 data Desktop = Desktop
   { dWindow      :: !DesktopOptions  -- ^ the daemon and the two stage-1 window flags.
   , dKeepServing :: !Bool            -- ^ @--keep-serving@: outlive the window.
@@ -156,9 +146,7 @@ desktopOptions = go (Desktop (DesktopOptions bare Nothing False) False)
     window d f = go d { dWindow = f (dWindow d) }
     serving d f = window d (\w -> w { doServe = f (doServe w) })
 
--- | ARGS as serve options: the desktop parser, minus the three flags that only
--- mean something with a window in front of the server.  One flag table for the
--- two commands, and a rejection that names the command the flag belongs to.
+-- | ARGS as serve options: the desktop parser, minus the three window-only flags.
 serveOptions :: [String] -> Either String ServeOptions
 serveOptions args = do
   d <- desktopOptions args

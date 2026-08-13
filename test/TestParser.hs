@@ -64,9 +64,7 @@ testCases =
       (initialState `withTodo` (["TODO", "foo"], ["DONE"]))
 
     -- org's two older spellings of the same line (test-org/test-org-todo):
-    -- both configure the cycle exactly as #+TODO: does, so a headline below
-    -- recognizes the keyword.  Before the alias, each fell through to a
-    -- generic pragma and `* NEXT Foo' kept NEXT as title text.
+    -- both configure the cycle exactly as #+TODO: does.
   , ending "SEQ_TODO pragma is the TODO line" ["#+SEQ_TODO: NEXT | SHIPPED", "* NEXT Foo"]
       [ EPragma (PTodo ["NEXT"] ["SHIPPED"])
       , EHeadline (titled "Foo") { todo = Just Todo { name = "NEXT", active = True } } ]
@@ -76,11 +74,8 @@ testCases =
       [ EPragma (PTodo ["Fred"] ["DONE"]) ]
       (initialState `withTodo` (["TODO", "Fred"], ["DONE"]))
 
-    -- The two-cookie stamp behind a planning keyword: the warning used to
-    -- block the closing bracket, fail the timestamp, and demote the LINE to
-    -- body — taking the drawer behind it out of the headline (the class the
-    -- Dutch weekday loss documented).  The planning line and the drawer both
-    -- survive it now.
+    -- A warning cookie must not fail the timestamp: the LINE would demote to
+    -- body and take the drawer behind it out of the headline.
   , plain "Planning line survives a warning cookie"
       [ "* Task", "SCHEDULED: <2024-01-01 Mon +1m -3d>"
       , ":PROPERTIES:", ":MARKER: kept", ":END:" ]
@@ -185,11 +180,10 @@ testCases =
   , plain "Skip multiple spaces" ["a", " ", " ", "b"] [EToken "a", EToken "b"]
   ]
 
--- | 2024-01-01, date only.
 day2024 :: Timestamp
 day2024 = plainTs TimestampActive (on "2024-01-01 00:00:00")
 
--- | 2024-06-01, date only: a second date, to catch a misfiled planning entry.
+-- | A second date, to catch a misfiled planning entry.
 jun2024 :: Timestamp
 jun2024 = plainTs TimestampActive (on "2024-06-01 00:00:00")
 

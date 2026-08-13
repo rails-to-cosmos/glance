@@ -1,11 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | The spec asked of the tree.  @AGENTS.hs@ is glance's domain written as
--- types and registries; every case below compares one of those registries with
--- the code's own -- the route table, the command table, the columns, the cabal
--- stanzas -- so the model and the tree cannot drift apart in silence.  What the
--- spec once checked against itself is asked here instead, where one case
--- reaches both.
+-- | The spec asked of the tree: every case compares one of @AGENTS.hs@'s registries with the code's own, so the model and the tree cannot drift apart in silence.
 module TestSpec (spec) where
 
 import qualified AGENTS as Spec
@@ -95,23 +90,14 @@ import Data.Maybe (fromMaybe)
 import qualified Glance.Web.Base as WB (gluePartFiles)
 import AGENTS (BuildAsset (baSplice), CabalFlag (flCpp, flManual, flName, flOn, flStanza), Component (coName, coVis), Proj (DefaultProj, NativeProj), Status, Vis (Public), WMod (WBase, WDesktop, WNative, WRoutes, WWeb), authorEmail, buildAssets, compDeps, components, flags, giSpellings, gluePartFiles, negationReveal, projBuildDir, projFlags, projGir, projPackages, sdistExtras, statusWord, vendoredGirs, versionSites, webExposed, webTargets, wimports, wmods, wname)
 
--- | Parse: the headline's sub-spans, the extent they fold to, and what the
--- parser keeps, drops and folds on its way in.
---
--- The ORDER is the spec's registry ("AGENTS") and the parts are
--- 'Data.Org.Types.headlineSpanParts'', so the two cannot drift; everything
--- below it is the parser's own answer, read off one source apiece.
+-- | Parse: the headline's sub-spans, the extent they fold to, and what the parser keeps, drops and folds on its way in.
 specGroup03 :: TestTree
 specGroup03 = testGroup "Parse"
   [ testCase "sub-span order: todo < priority < title < tags < planning < properties" $
-      -- 'headlineSpanParts' lists every part with its 'Maybe Span', so the
-      -- absent ones are still named and the ORDER is readable off a headline
-      -- carrying no span at all.
       assertEqual "the spec's sub-span order and headlineSpanParts have drifted"
                   (concatMap subLabels Spec.subOrder) (partLabels defaultHeadline)
 
-    -- The stars are 'hsFull''s fold SEED and the one unconditional span, so
-    -- they are no entry of the part list.
+    -- The stars are 'hsFull''s fold SEED and the one unconditional span, so they are no entry of the part list.
   , testCase "Stars is the seed, subOrder the other six" $ do
       assertBool "the fold's seed became a part: hsStars is among the sub-spans"
                  ("hsStars" `notElem` partLabels defaultHeadline)
@@ -121,8 +107,7 @@ specGroup03 = testGroup "Parse"
                   (length (concatMap subLabels Spec.subOrder))
                   (length (partLabels defaultHeadline))
 
-    -- The title runs PAST the tags here, which is the one shape that tells a
-    -- left fold from a maximum: a maximum over ends would answer Span 0 30.
+    -- The title runs PAST the tags here, the one shape that tells a left fold from a maximum over ends.
   , testCase "hsFull is a fold, never a maximum over ends" $
       assertEqual "hsFull answered the widest end rather than the LAST part's"
                   (Span 0 23)
@@ -130,16 +115,13 @@ specGroup03 = testGroup "Parse"
                                                    , hsTitle = Just (Span 12 30)
                                                    , hsTags  = Just (Span 18 23) }))
 
-    -- A subtree runs from a headline's stars, so the pragmas above the first
-    -- one are in nobody's extent.  No fixture carries a preamble, which leaves
-    -- this half of the geometry resting on the rule alone.
+    -- No fixture carries a preamble, so this half of the geometry rests on the rule alone.
   , testCase "the #+ preamble sits ahead of the first extent" $
       withDoc "spec-preamble" "pre.org" "#+TODO: A | B\n* one\nbody\n" $ \recs ->
         assertEqual "the pragma line landed inside a subtree extent"
                     ["* one\nbody\n"] (map subtreeText recs)
 
-    -- 'tsBodyParser' reads a LIST of cookies and takes the first of each kind;
-    -- no other case doubles one, so the rule is unasserted without this.
+    -- No other case doubles a cookie, so the first-of-each-kind rule is unasserted without this.
   , testCase "at most one repeater and one warning, first of each winning" $ do
       assertEqual "a second repeater outranked the first"
                   (Just (Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus)))
@@ -148,8 +130,7 @@ specGroup03 = testGroup "Parse"
                   (Just (Just (TimestampWarningInterval False 3 Days)))
                   (tsWarning <$> timestampIn "<2024-01-15 Mon -3d --7d>")
 
-    -- The flag alone is what the suite exercises; these are its other two
-    -- conditions, each of which would render a range's end DATE away.
+    -- The flag alone is what the suite exercises; these are its other two conditions.
   , testCase "compactly wants the flag, both ends timed, and one day" $ do
       assertEqual "a range spanning two days rendered compact"
                   "<2024-01-15 Mon 10:30>--<2024-01-16 Tue 11:30>"
@@ -166,9 +147,7 @@ specGroup03 = testGroup "Parse"
                   (showt ((plainTs TimestampActive (at "2024-01-15 10:30:00"))
                             { tsCompactRange = True }))
 
-    -- Three lexemes, three folds, each read off one lowercase spelling: org
-    -- matches keywords case-sensitively, and uppercasing a property key is what
-    -- lets the reserved-name guard terminate the drawer.
+    -- Uppercasing a property key is what lets the reserved-name guard terminate the drawer.
   , testCase "TODO keywords are verbatim; pragma and property keys uppercase" $ do
       assertEqual "a pragma key is no longer uppercased"
                   ["TITLE"]
@@ -189,8 +168,7 @@ specGroup03 = testGroup "Parse"
                   [Spec.Verbatim, Spec.Uppercased, Spec.Uppercased]
                   (map Spec.casing [minBound .. maxBound])
 
-    -- The parser's own drop.  'Data.Org.Config.todoPragmas' is pinned for this
-    -- elsewhere, which is a different reader over the same line.
+    -- 'Data.Org.Config.todoPragmas' is pinned elsewhere: a different reader over the same line.
   , testCase "a fast-access selector is dropped" $
       case orgParse defaultContext "#+TODO: TODO(t!) NEXT(n) | DONE(d!)" of
         (elems, ctx, _err) -> do
@@ -202,10 +180,7 @@ specGroup03 = testGroup "Parse"
                       [Spec.Kw "TODO", Spec.Kw "NEXT", Spec.Kw "DONE"]
                       (map Spec.ptodoWord ["TODO(t!)", "NEXT(n)", "DONE(d!)"])
 
-    -- Spans are the lossless channel, so the WRITE engine and the WIRE reach
-    -- for the re-serializer nowhere.  Both regions are clean today and nothing
-    -- but this says they stay so.  Comments are exempt, as they are in
-    -- 'TestSelfContained''s own sweeps: naming the rule is no use of it.
+    -- Comments are exempt, as they are in 'TestSelfContained''s own sweeps: naming the rule is no use of it.
   , testCase "TextShow is never a write-back channel" $ do
       files <- ("src/Data/Org/Edit.hs" :) <$> sourcesUnder "src-web"
       assertBool ("too few sources swept: " <> show (length files)) (length files >= 13)
@@ -216,8 +191,7 @@ specGroup03 = testGroup "Parse"
     partLabels :: Headline -> [Text]
     partLabels h = [ l | (l, _sp, _ok) <- headlineSpanParts h ]
 
-    -- The spec's `Sub' spelled as the record's own field names: `Planning'
-    -- stands for the three that permute on one line, and the seed for none.
+    -- The spec's `Sub' as the record's own field names; `Planning' stands for the three that permute on one line.
     subLabels :: Spec.Sub -> [Text]
     subLabels Spec.Stars      = []
     subLabels Spec.Todo       = ["hsTodo"]
@@ -247,21 +221,11 @@ specGroup03 = testGroup "Parse"
                         , any (`T.isInfixOf` stripped) ["TextShow", "showt", "showb"]
                         , not ("--" `T.isPrefixOf` stripped) ]
 
--- | THE SCAN AND THE TWO LEDGERS: the read pool both loaders share, the store
--- the walk finds by DECLINING it, the WAL fold's two truth rules, org's repeat,
--- and where each ledger line is keyed.
---
--- The registries are the SPEC's — @AGENTS.rtsOpts@, @AGENTS.planStamps@,
--- @AGENTS.cmds@ and @AGENTS.ledgerFile@ — asked of the real code rather than
--- restated beside it, so a rule that moves in one of the two places fails the
--- build instead of going quietly out of step.
+-- | THE SCAN AND THE TWO LEDGERS: the read pool both loaders share, the store the walk finds by DECLINING it, the WAL fold's truth rules, org's repeat, and where each ledger line is keyed.
 specGroup04 :: TestTree
 specGroup04 = testGroup "Scan and the ledgers"
   [ -- ONE POOL, TWO CALLERS.  'Data.Org.Walk.mapFilesConcurrently' is the read
-    -- pool 'Glance.Query.loadDirFilesWith' and the scan share; a third
-    -- implementation would be a second answer about worker width and about the
-    -- order results reassemble in.  Nothing in the types says so, which is why
-    -- it is swept for.
+    -- pool 'Glance.Query.loadDirFilesWith' and the scan share; nothing in the types says so, which is why it is swept for.
     testCase "the pool is one implementation with two callers" $ do
       files <- sweptSources
       assertBool ("too few sources swept: " <> show (length files)) (length files >= 12)
@@ -271,8 +235,7 @@ specGroup04 = testGroup "Scan and the ledgers"
       assertEqual "callers of the one pool"
                   ["app/Scan.hs", "src-query/Glance/Query.hs"] (sort (nub callers))
 
-    -- A load of one file forks nothing: the pool costs a worker per capability
-    -- and the walk hands it single files often enough for that to matter.
+    -- A load of one file forks nothing: the pool costs a worker per capability.
   , testCase "a path list of one skips the pool" $ do
       me <- myThreadId
       ts <- mapFilesConcurrently (const myThreadId) ["only.org"]
@@ -280,10 +243,7 @@ specGroup04 = testGroup "Scan and the ledgers"
       none <- mapFilesConcurrently (const myThreadId) []
       assertEqual "and an empty one forks nothing" ([] :: [ThreadId]) none
 
-    -- AND THE POOL IS WORTH NOTHING WITHOUT THE RUNTIME UNDER IT: with one
-    -- capability 'mapFilesConcurrently' falls back to 'mapM'.  The DAEMON's
-    -- stanza is the half no running test can see — the suite can only ask about
-    -- the runtime it is itself in.
+    -- The DAEMON's stanza is the half no running test can see; a suite asks only about the runtime it is itself in.
   , testCase "both stanzas ask for the threaded runtime" $ do
       cabalText <- TIO.readFile "glance.cabal"
       assertBool "the spec names no RTS options" (not (null Spec.rtsOpts))
@@ -293,10 +253,7 @@ specGroup04 = testGroup "Scan and the ledgers"
         forM_ Spec.rtsOpts $ \o ->
           assertBool (T.unpack stanza <> " lost " <> o) (T.pack o `elem` opts)
 
-    -- A STORE IS FOUND BY BEING DECLINED.  The scan folds each root's own
-    -- @.org-glance/meta@ plus every @meta@ the walk refused to enter, so a
-    -- nested store costs nothing to find — and @--include-derived@ walks into it
-    -- instead, which is exactly how it goes missing.
+    -- A STORE IS FOUND BY BEING DECLINED, and @--include-derived@ walks into it, which is exactly how it goes missing.
   , testCase "a declined store is found, and missed under --include-derived" $
       withTempDirNamed "derived" $ \dir -> do
         let store = dir </> ".org-glance" </> metaDir
@@ -307,11 +264,7 @@ specGroup04 = testGroup "Scan and the ledgers"
         assertEqual "--include-derived enters it, so nothing reports it as a store"
                     [] (foundDerived opened)
 
-    -- TWO FILES, TWO READERS, AND THEY DIVERGE.  'Data.Org.Index.recordOf' tests
-    -- @tombstone@ with elisp's non-nil rule, so the STRING drops a record;
-    -- @archived@ is elisp's own @(eq t VALUE)@, so the same string is false.
-    -- Writers here spell @true@ as a literal because that is the one spelling
-    -- both readers agree on.
+    -- TWO FILES, TWO READERS, AND THEY DIVERGE: writers spell @true@ as a literal, the one spelling both readers agree on.
   , testCase "the WAL reader is loose where elisp's flag is strict" $ do
       let folded = foldSegments
             [(True, "{\"id\":\"a\",\"tombstone\":\"true\"}\n\
@@ -321,8 +274,7 @@ specGroup04 = testGroup "Scan and the ledgers"
       assertEqual "and the same string is no archive flag (flagOf)"
                   (Just (Just False)) (irArchived <$> Map.lookup "b" (ifRecords folded))
 
-    -- @{}@ is how org-glance's writer spells nil, and it is the one object both
-    -- readers call false.
+    -- @{}@ is how org-glance's writer spells nil, and the one object both readers call false.
   , testCase "elisp's nil, written {}, is false under both" $ do
       let folded = foldSegments [(True, "{\"id\":\"a\",\"tombstone\":{},\"archived\":{}}\n")]
       assertEqual "nil is no tombstone" ["a"] (Map.keys (ifRecords folded))
@@ -330,16 +282,13 @@ specGroup04 = testGroup "Scan and the ledgers"
       assertEqual "nil is no archive flag either"
                   (Just (Just False)) (irArchived <$> Map.lookup "a" (ifRecords folded))
 
-    -- The guard 'repeatDay' opens with, and the whole of what keeps the @++@
-    -- until-loop terminating: a zero-width interval takes the @+N@ arm.
+    -- A zero-width interval takes the @+N@ arm, which is what keeps the @++@ until-loop terminating.
   , testCase "a zero-width interval takes the +N arm" $
       assertEqual "a zero interval stands still rather than looping"
         (Just "<2026-08-08 Sat ++0w>")
         (shiftRepeat (Time.fromGregorian 2026 8 8) "<2026-08-08 Sat ++0w>")
 
-    -- ORG REPEATS A PLAN RATHER THAN A RECORD OF ONE.  The bracket is the
-    -- ACTIVE one on all three so the timestamp kind cannot be what spares
-    -- @CLOSED:@; what spares it is which planning slots a repeat reads.
+    -- The bracket is the ACTIVE one on all three, so what spares @CLOSED:@ is which planning slots a repeat reads.
   , testCase "CLOSED: is never shifted" $
       withTempDirNamed "closed" $ \dir -> do
         assertEqual "the spec names org's three planning keywords" 3 (length Spec.planStamps)
@@ -353,8 +302,7 @@ specGroup04 = testGroup "Scan and the ledgers"
         assertEqual "the plan alone moves, beside the keyword's own reset"
                     2 (length (maybe [] rpEdits (repeatOn noConfig today "DONE" both)))
 
-    -- ORG'S OWN CONDITION IS BOTH HALVES: an inactive keyword, and a planning
-    -- stamp carrying a repeater.  Either alone is a plain state change.
+    -- ORG'S OWN CONDITION IS BOTH HALVES: an inactive keyword, and a planning stamp carrying a repeater.
   , testCase "a repeat needs BOTH halves" $
       withTempDirNamed "halves" $ \dir -> do
         row <- rowOf dir "r.org" repeatingRow
@@ -366,9 +314,7 @@ specGroup04 = testGroup "Scan and the ledgers"
         assertEqual "and an inactive keyword with no repeater is one too"
                     Nothing (repeatOn noConfig today "DONE" unrepeating)
 
-    -- ONE WRITE, ONE DIGEST, ONE EVENT: the shifted stamp and the reset keyword
-    -- are one edit set, and 'applyEdits' takes it because the spans are
-    -- disjoint.  Two writes would be two digests over one act.
+    -- ONE WRITE, ONE DIGEST, ONE EVENT: 'applyEdits' takes the shift and the reset because the spans are disjoint.
   , testCase "the shift and the reset are ONE set of disjoint spans" $
       withTempDirNamed "oneset" $ \dir -> do
         r <- rowOf dir "r.org" repeatingRow
@@ -381,11 +327,7 @@ specGroup04 = testGroup "Scan and the ledgers"
                     (Right "* TODO t\nSCHEDULED: <2020-01-13 Mon +1w>\n")
                     (applyEdits (hrDoc r) [ Edit sp t | (sp, t) <- rpEdits rp ])
 
-    -- A ROW'S ANSWER CARRIES BOTH — the spans a command moves and the ledger
-    -- line riding their success — and exactly one command ever fills the second
-    -- half.  Every command is fired at ONE repeating blob, which is the row that
-    -- would record if any of them could; the 200 is what keeps a request refused
-    -- for its shape from reading as a command that records nothing.
+    -- Every command is fired at ONE repeating blob, and the 200 keeps a request refused for its shape from reading as a command that records nothing.
   , testCase "nine commands answer through plain and one records" $ do
       assertEqual "the command table the spec carries and the one that runs"
                   (sort (map T.pack Spec.commandNames)) (sort commandNames)
@@ -406,9 +348,7 @@ specGroup04 = testGroup "Scan and the ledgers"
       assertEqual "the spec's count of commands that record"
                   Spec.recordingCommands (length (filter snd recorded))
 
-    -- TWO NOTES, TWO KEYS.  The write note is keyed off the PATH the bytes moved
-    -- at, so a blob inside a nested store is noted in THAT store; the completion
-    -- is keyed off the SERVED root, which no write door carries.
+    -- TWO NOTES, TWO KEYS: the write note follows the PATH the bytes moved at, the completion the SERVED root.
   , testCase "they sit at different layers and are keyed differently" $
       withTempDirNamed "served" $ \served -> do
         createDirectoryIfMissing True (served </> ".org-glance" </> metaDir)
@@ -424,19 +364,14 @@ specGroup04 = testGroup "Scan and the ledgers"
           =<< completionsPathOf served
   ]
   where
-    -- The pool's own module, left out of the sweep: it is the implementation and
-    -- its export list, so it names the symbol without calling it.
+    -- The pool's own module, left out of the sweep: it names the symbol without calling it.
     poolModule = "src/Data/Org/Walk.hs"
 
-    -- One day past the fixture's stamp, so a @+1w@ lands a week on and the
-    -- shifted text is worth pinning.
+    -- One day past the fixture's stamp, so a @+1w@ lands a week on and the shifted text is worth pinning.
     today = Time.fromGregorian 2020 1 8
     repeatingRow = "* TODO t\nSCHEDULED: <2020-01-06 Mon +1w>\n"
 
-    -- A blob as org-glance stores one: repeating, id-bearing, and carrying a
-    -- link, so every command in the sweep has something of its own to move.
-    -- Spelled out rather than composed, the planning line being the ONE line
-    -- after the title and before any drawer.
+    -- Spelled out, the planning line being the ONE line after the title and before any drawer.
     repeatingEntry = "* TODO Water " <> linkLiteral <> "\n\
                      \SCHEDULED: <2020-01-06 Mon +1w>\n\
                      \  :PROPERTIES:\n\
@@ -457,8 +392,7 @@ specGroup04 = testGroup "Scan and the ledgers"
                                , "target" .= ("https://y.example" :: Text) ]
       _takesNoArgs   -> object []
 
-    -- Write ID's blob under DIR's store and answer its path.  The layout is the
-    -- LIBRARY's, so the fixture shards an id the way the writer does.
+    -- Write ID's blob under DIR's store: the layout is the LIBRARY's, so the fixture shards an id the way the writer does.
     blobIn dir ident text = do
       createDirectoryIfMissing True (takeDirectory path)
       TIO.writeFile path text
@@ -473,8 +407,7 @@ specGroup04 = testGroup "Scan and the ledgers"
 
     theRepeat = maybe (assertFailure "the fixture no longer repeats") pure
 
-    -- Every Haskell file this package builds from, the vendored GTK bindings
-    -- out: they are upstream's and are not built unless @-f native-window@ is.
+    -- The vendored GTK bindings are out: upstream's, and unbuilt unless @-f native-window@ is.
     sweptSources =
       concat <$> mapM under ["src", "src-query", "src-web", "src-desktop-native", "app"]
       where
@@ -484,17 +417,14 @@ specGroup04 = testGroup "Scan and the ledgers"
           nested <- mapM under =<< filterM doesDirectoryExist entries
           pure (filter ((== ".hs") . takeExtension) files <> concat nested)
 
-    -- TestSelfContained's own @calls@ idiom: PATH once per non-comment line
-    -- naming SYMBOL, so a caller is NAMED rather than counted.
+    -- TestSelfContained's own @calls@ idiom: PATH once per non-comment line naming SYMBOL.
     callsIn symbol path = report . T.lines <$> TIO.readFile path
       where
         report ls = [ path | l <- ls, let stripped = T.strip l
                            , symbol `T.isInfixOf` stripped
                            , not ("--" `T.isPrefixOf` stripped) ]
 
-    -- The @ghc-options:@ line under STANZA's own header.  By whole stripped
-    -- lines rather than by 'T.breakOn': @executable glance@ is a prefix of
-    -- @executable glance-wasm-probe@, which declares no RTS options at all.
+    -- By whole stripped lines: @executable glance@ is a prefix of @executable glance-wasm-probe@, which declares no RTS options.
     ghcOptionsOf stanza body = case dropWhile (/= stanza) (map T.strip (T.lines body)) of
       _header : rest -> firstOf rest
       [] -> ""
@@ -504,13 +434,7 @@ specGroup04 = testGroup "Scan and the ledgers"
           (opts : _) -> opts
           _noneUnderIt -> ""
 
--- | Walk: what the denylist names, where each name is asked for, and what the
--- walk records when it declines a directory.
---
--- The registries are the SPEC's ("AGENTS") and the predicates are the code's,
--- so each case is a comparison rather than a second copy: a name added to
--- 'Spec.everyDenied' and not to 'Data.Org.Walk' fails here, and so does the
--- reverse.
+-- | Walk: what the denylist names, where each name is asked for, and what the walk records when it declines a directory.
 specGroup05 :: TestTree
 specGroup05 = testGroup "Walk"
   [ testCase "the denylist names five, and data is not one of them" $ do
@@ -528,9 +452,7 @@ specGroup05 = testGroup "Walk"
                  (not (isDerived (blobStore </> blobFile))
                     && not (isConfig (blobStore </> blobFile)))
 
-    -- @occurrences@ is asked for ANYWHERE under @data@, a two-character id
-    -- being unsharded; the other four are asked for directly under
-    -- @.org-glance@ and mean nothing further in.
+    -- @occurrences@ is asked for ANYWHERE under @data@; the other four are asked for directly under @.org-glance@ and mean nothing further in.
   , testCase "the blob's history is the one name asked for anywhere under data" $ do
       assertEqual "an occurrence directory the walk no longer declines" []
                   [ p | p <- [ blobStore </> "occurrences" </> "s.org"
@@ -554,9 +476,7 @@ specGroup05 = testGroup "Walk"
                   [ p | p <- Spec.wSample
                       , isJust (Spec.deniedBy Spec.walkAll p) /= isConfig p ]
 
-    -- The occurrence carries the LIVE entry's own @ORG_GLANCE_ID@, so ranking
-    -- it canonical made the pair a tie and walk order decided which document a
-    -- command wrote to.
+    -- The occurrence carries the LIVE entry's own @ORG_GLANCE_ID@, so ranking it canonical made the pair a tie.
   , testCase "an occurrence loses the id rather than tying with its blob" $ do
       let blob = blobStore </> blobFile
           occurrence = blobStore </> "occurrences" </> "2026-08-02.org"
@@ -581,8 +501,7 @@ specGroup05 = testGroup "Walk"
                   \differently" []
                   [ p | p <- Spec.wSample, Spec.isWalked p /= isWalked p ]
 
-    -- One predicate serves the walk and the watch, so a file the walk never
-    -- loaded cannot arrive by inotify.
+    -- One predicate serves the walk and the watch, so a file the walk never loaded cannot arrive by inotify.
   , testCase "the watch reaches these rules through the facade, never a second copy" $ do
       sweptSample
       assertEqual "a path the facade and the walk answer differently" []
@@ -590,9 +509,7 @@ specGroup05 = testGroup "Walk"
                       , (derivedPath p, documentPath p, configPath p)
                           /= (isDerived p, isDocument p, isConfig p) ]
 
-    -- 'foundDerived' and 'foundConfig' hold DIRECTORIES: a file under a
-    -- declined one is dropped with no record of its own, the directory never
-    -- being entered.
+    -- 'foundDerived' and 'foundConfig' hold DIRECTORIES; a file under a declined one is dropped with no record of its own.
   , testCase "a declined directory is recorded, a file dropped on its path is not" $
       withTempDirNamed "walk-denied" $ \root -> do
         let store  = root </> orgGlanceDir
@@ -610,9 +527,7 @@ specGroup05 = testGroup "Walk"
         assertEqual "a file under a declined directory reached the walk's files"
                     [root </> "notes.org"] (foundFiles found)
 
-    -- A root the walk cannot read is reported through 'foundDirErrs'; a
-    -- symlinked directory is never followed and raises nothing, whether its
-    -- name would have kept it or not.
+    -- A symlinked directory is never followed and raises nothing, whether its name would have kept it or not.
   , testCase "a root the walk cannot read IS reported, a symlinked directory vanishes" $
       withTempDirNamed "walk-roots" $ \base -> do
         let tree = base </> "tree"
@@ -631,8 +546,7 @@ specGroup05 = testGroup "Walk"
         assertEqual "a symlinked directory was followed"
                     [tree </> "notes.org"] (foundFiles linked)
 
-    -- The ordinal numbers EMITTED rows, so an entry going blank spends none;
-    -- an id names its row whatever stands above it.
+    -- The ordinal numbers EMITTED rows, so an entry going blank spends none.
   , testCase "an ORG_GLANCE_ID is the only immunity" $ do
       let entry = "* one\n:PROPERTIES:\n:ORG_GLANCE_ID: x\n:END:\n"
       withDoc "walk-id" "notes.org" entry $ \alone ->
@@ -642,16 +556,14 @@ specGroup05 = testGroup "Walk"
           assertEqual "an entry going blank ahead of it renamed the row"
                       (map hrId alone) (map hrId withBlank)
 
-    -- A walked path always ends in its @.org@ extension, so the separator needs
-    -- no rule of its own.
+    -- A walked path always ends in its @.org@ extension, so the separator needs no rule of its own.
   , testCase "FILE#K is recoverable at its LAST hash" $ do
       assertEqual "the ordinal id is spelled another way"
                   "a#b/n.org#3" (rowIdIn "a#b/n.org" 3)
       assertEqual "a file name carrying a hash no longer splits at the last one"
                   ("a#b/n.org#", "3") (T.breakOnEnd "#" (rowIdIn "a#b/n.org" 3))
 
-    -- Nothing parses a row id apart, so an ORG_GLANCE_ID spelling one is an
-    -- ordinary duplicate and is reported as one.
+    -- Nothing parses a row id apart, so an ORG_GLANCE_ID spelling one is an ordinary duplicate.
   , testCase "an id spelling another row's FILE#K is an ordinary collision" $
       withTempDirNamed "walk-collide" $ \dir -> do
         let ordinal = rowIdIn (dir </> "a.org") 0
@@ -665,8 +577,7 @@ specGroup05 = testGroup "Walk"
                     \ordinal"
                     [ordinal] (map icId (qrIdCollisions qr))
 
-    -- The name is asked for anywhere under @data@, so an id whose REMAINDER
-    -- spells it takes its own blob out of the walk.
+    -- The name is asked for anywhere under @data@, so an id whose REMAINDER spells it is declined.
   , testCase "the depth is left open: a remainder spelling occurrences is declined" $ do
       let store = storeRootIn "/t"
       assertBool "a blob whose id remainder spells occurrences is walked"
@@ -680,24 +591,16 @@ specGroup05 = testGroup "Walk"
     sweptSample = assertBool ("too few paths swept: " <> show (length Spec.wSample))
                              (length Spec.wSample >= 10)
 
--- Keyword configuration
---
--- The registries a tree's configuration is read through, pinned as DATA: the
--- saved views, the tree-wide settings, and the two folds that read a
--- @system.org@ line.  Each case is an equality against the real registry rather
--- than a property over it, so a member added, renamed or rescoped fails here
--- and names itself.
+-- Keyword configuration: the registries a tree's configuration is read through, pinned as DATA, each case an equality against the real registry.
 
--- | A @system.org@ layer at PATH holding TEXT.  The digest is the path's own —
--- 'treeSettings' reads neither, and two layers still have to be told apart.
+-- | A @system.org@ layer at PATH holding TEXT.  The digest is the path's own, two layers still having to be told apart.
 systemLayer :: FilePath -> Text -> ConfigLayerFile
 systemLayer path = ConfigLayerFile path Nothing (T.pack path)
 
 specGroup06 :: TestTree
 specGroup06 = testGroup "Keyword configuration"
   [ testCase "a keyword token is letters and underscores" $
-      -- The POSITIVE half of 'Data.Org.Parser.keywordTextP''s charset; the
-      -- suite's other cases are the starred refusals, which say what it lacks.
+      -- The POSITIVE half of 'Data.Org.Parser.keywordTextP''s charset.
       assertEqual "an underscored keyword no longer parses as one"
         (TodoKeywords ["IN_PROGRESS"] ["DONE"])
         (todoPragmas "#+TODO: IN_PROGRESS | DONE\n")
@@ -710,8 +613,7 @@ specGroup06 = testGroup "Keyword configuration"
         [ (svId v, svPragma v, svBuiltin v) | v <- savedViews ]
 
   , testCase "every saved view is a GLANCE_ pragma" $
-      -- Quantified over the registry, so a fourth view is covered with no case
-      -- of its own.
+      -- Quantified over the registry, so a fourth view is covered with no case of its own.
       mapM_ (\v -> assertBool (T.unpack (svId v) <> " names a pragma outside the GLANCE_ namespace: "
                                  <> T.unpack (svPragma v))
                               ("GLANCE_" `T.isPrefixOf` svPragma v))
@@ -730,8 +632,7 @@ specGroup06 = testGroup "Keyword configuration"
           , systemLayer "b/system.org" "#+GLANCE_DEFAULT_FILTER: tag:y\n" ]))
 
   , testCase "the colours take every system layer's lines" $
-      -- The asymmetry inside the one fold: a view is the first layer's, a hue
-      -- every layer's, since a tree names one line per theme.
+      -- The asymmetry inside the one fold: a view is the first layer's, a hue every layer's.
       assertEqual "a system layer's hues were dropped"
         [("light", [("TODO", "#111")]), ("dark", [("TODO", "#eee")])]
         (tsColors (treeSettings
@@ -745,27 +646,20 @@ specGroup06 = testGroup "Keyword configuration"
                        \#+GLANCE_STATE_COLORS: light TODO=#2\n")
 
   , testCase "three settings, named and scoped as written" $
-      -- Names and scopes together: the list is non-empty and its names unique
-      -- by being this list, and a member rescoped fails the equality rather
-      -- than slipping past a mask nobody wrote a case for.
+      -- Names and scopes together, so a member rescoped fails the equality.
       assertEqual "the config setting registry moved"
         [("views", TreeWide), ("colors", TreeWide), ("template", PerLayer)]
         [ (csName s, csScope s) | s <- configSettings ]
   ]
 
--- | The store as the wire sees it, the watch step that keeps it current, and
--- the HTTP surface over both.  The route table is compared against the model's
--- own registry ('AGENTS.routes') rather than restated here, so a route added on
--- either side fails the build.
+-- | The store as the wire sees it, the watch step that keeps it current, and the HTTP surface over both.
 specGroup07 :: TestTree
 specGroup07 = testGroup "Store, watch, HTTP surface"
   [ testCase "stTags counts files, so two rows of one file are one vote" $
       withStoreOf [("a.org", "* TODO one :web:\n* TODO two :web:\n")] $ \_dir _path st ->
       assertEqual "one vote per file" (Just 1) (Map.lookup "web" (stTags st))
 
-    -- The fingerprint stamps each file with its FIRST row's digest, so a file
-    -- that contributes none contributes its path and an empty stamp.  Rewriting
-    -- it moves no tag, and a client's 304 survives an edit no answer carries.
+    -- The fingerprint stamps each file with its FIRST row's digest, so a rowless file stands in it as its path alone.
   , testCase "a rowless file stands in the fingerprint as its path alone" $
       withTempDir $ \dir -> do
       _ <- orgFile dir "empty.org" "#+TITLE: one\n"
@@ -783,10 +677,7 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
                            <> "-g" <> BSC.pack (show (stGen st)) <> "\""))
                   (header "ETag" r)
 
-    -- b.org keeps the palette standing, so what the step produces is rows
-    -- rather than the `view-changed' a moved keyword set would replace them
-    -- with.  Blanking the first entry renumbers the second onto its ordinal:
-    -- one upsert, one delete, and the upsert goes first.
+    -- b.org keeps the palette standing, so the step produces rows: one upsert, one delete, and the upsert goes first.
   , testCase "upserts lead deletes in a step" $
       withStoreOf [ ("a.org", "* TODO one\n* TODO two\n")
                   , ("b.org", "* TODO keeps the palette\n") ] $ \_dir path store -> do
@@ -802,8 +693,7 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
                   ["view-changed", "resync"] spoken
       assertEqual "each reason spells a word of its own" (nub spoken) spoken
 
-    -- POST is a method @/headlines@ never takes, so a loaded store answers it
-    -- 405.  While the walk runs the gate answers first.
+    -- POST is a method @/headlines@ never takes; while the walk runs the gate answers first.
   , testCase "the load gate runs ahead of the method check" $ do
       a <- loadingApp
       r <- postTo a "/headlines" ""
@@ -915,8 +805,7 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
       assertEqual "a refused write queues no path" [] . Map.keys
         =<< readTVarIO (hubPending hub)
 
-    -- The composed shapes are trimmed where they are composed; the raw @{org}@
-    -- door hands a whole document back, so the trim is owed at the route.
+    -- The raw @{org}@ door hands a whole document back, so the trim is owed at the route.
   , testCase "the raw {org} door trims the trailing run like the composers" $
       withCommitted $ \a path v -> do
       org <- textAt "org" v
@@ -981,8 +870,7 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
     bodyCap :: Int
     bodyCap = 1024 * 1024
 
-    -- | Run K over a store loaded from a directory holding FILES, handing it
-    -- the directory, the FIRST file's path and the store.
+    -- | Run K over a store loaded from a directory holding FILES.
     withStoreOf :: [(FilePath, T.Text)] -> (FilePath -> FilePath -> Store -> IO a) -> IO a
     withStoreOf files k = withTempDir $ \dir -> do
       paths <- mapM (uncurry (orgFile dir)) files
@@ -1008,9 +896,7 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
       , "* TODO Second"
       , "tail" ]
 
-    -- | A server holding 'committable' with its first headline materialized:
-    -- the app, the hub behind it, the file on disk, and the answer a commit has
-    -- to present back.
+    -- | A server holding 'committable' with its first headline materialized.
     withCommittedHub :: (Application -> Hub -> FilePath -> Value -> Assertion) -> Assertion
     withCommittedHub k = withTempDir $ \dir -> do
       path <- orgFile dir "notes.org" committable
@@ -1025,15 +911,7 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
     decoded r = either (\e -> assertFailure ("response JSON: " <> e)) pure
                        (eitherDecode (simpleBody r))
 
--- | The query language's four registries — the view's columns, the tokens that
--- state a VIEW rather than narrow one, the default order, and the column set a
--- @columns:@ token picks — each read against @AGENTS@'s model of it.
---
--- The spec's tables are plain data, so a case here compares the two lists
--- rather than restating either: a column, a view token or a chain key that
--- moves on one side alone fails the build.  What the spec cannot hold — a
--- record, a loaded fixture, the encoder's own JSON — is asked of the real code
--- directly.
+-- | The query language's four registries — the view's columns, the tokens that state a VIEW, the default order, and the column set a @columns:@ token picks.
 specGroup08 :: TestTree
 specGroup08 = testGroup "Query language"
   [ testCase "viewColumns names every column once, in order" $
@@ -1041,10 +919,7 @@ specGroup08 = testGroup "Query language"
         [ (key, header, kind) | (key, header, kind, _cell) <- Q.viewColumns ]
         [ (T.pack (cKey c), T.pack (cHead c), kindWord c) | c <- viewColumns ]
 
-    -- The whole-tag meta is keyed by the CELL's index rather than by the key
-    -- name, which is what puts it out of `planned''s reach: `planned' names the
-    -- two date cells, so a starred value there is an ordinary prefix and
-    -- matches nothing.
+    -- The whole-tag meta is keyed by the CELL's index, which is what puts it out of @planned@'s reach.
   , testCase "the whole-tag meta is keyed by the cell, so planned cannot reach it" $
       withDocDir "spec-query" "a.org"
                  "* filed :archive:\nSCHEDULED: <2026-08-01 Sat>\n" $ \recs ->
@@ -1058,9 +933,7 @@ specGroup08 = testGroup "Query language"
             assertBool "planned: no longer prefix-matches a date cell"
                        (matchesFilter emptyEnv "planned:2026-08" r)
 
-    -- Both halves over the SAME rows and the same absurd value, so the two
-    -- lists differ in nothing but the key: a view token leaves the set whole
-    -- and every predicate key empties it.
+    -- Both halves over the SAME rows and the same absurd value, so the two lists differ in nothing but the key.
   , testCase "the three view tokens narrow nothing, and everything else narrows" $ do
       recs <- Q.qrRecords <$> Q.loadDir viewDir
       assertBool ("too few fixture rows swept: " <> show (length recs))
@@ -1094,9 +967,7 @@ specGroup08 = testGroup "Query language"
         Q.defaultSortChain
         [ (T.pack (keyOf c), d == Asc) | (c, d) <- defaultSortChain ]
 
-    -- The palette names two of the four keywords, so `WAIT' and `HOLD' rank one
-    -- past its end and TIE — and the sort being stable, the tie keeps walk
-    -- order rather than falling to the text.
+    -- @WAIT@ and @HOLD@ rank one past the palette's end and TIE; the sort being stable, the tie keeps walk order.
   , testCase "an unlisted keyword ties at the back of the palette" $
       withRows (T.unlines [ "#+TODO: TODO WAIT HOLD | DONE"
                           , "* TODO a", "* WAIT b", "* DONE c", "* HOLD d" ]) $ \recs -> do
@@ -1113,9 +984,7 @@ specGroup08 = testGroup "Query language"
           [ last (map Q.hrState (Q.sortedForViewWith palette [("state", asc)] recs))
           | asc <- [True, False] ]
 
-    -- The dedup folds the name as WRITTEN, and `Tags' is the tag column's
-    -- header where `tag' is its key: two spellings that fold apart, so both
-    -- survive the grammar and both resolve to one column.
+    -- The dedup folds the name as WRITTEN, and @Tags@ and @tag@ fold apart onto one column.
   , testCase "the dedup reads the name as written, so key and header pick twice" $ do
       assertEqual "columns:Tags,tag" (Right (Just ["Tags", "tag"]))
                   (columnNamesIn "columns:Tags,tag")
@@ -1137,8 +1006,7 @@ specGroup08 = testGroup "Query language"
       assertEqual "effort:x resolved to a filter key" [Nothing]
                   [ tmKey t | t <- parseFilter "effort:x" ]
 
-    -- The title column is INJECTED ahead of a set that names it nowhere, so the
-    -- four rows read are title, state, tag, effort.
+    -- The title column is INJECTED ahead of a set that names it nowhere.
   , testCase "extras ride the key and a custom column has none" $ do
       view <- decoded (Q.viewJSONTextFor (Q.resolveColumns ["state", "tag", "Effort"])
                                          [] Q.defaultSortChain "t" palette [])
@@ -1155,31 +1023,21 @@ specGroup08 = testGroup "Query language"
     kindWord :: Column -> Text
     kindWord c = if cCellKind c == KBadge then "badge" else "text"
 
-    -- The palette the badge column is ranked against: two keywords, so a third
-    -- a fixture declares is one this does not name.
+    -- The palette the badge column is ranked against: two keywords, so a fixture's third is one this does not name.
     palette :: Q.TodoKeywords
     palette = Q.TodoKeywords ["TODO"] ["DONE"]
 
     withRows doc k = withDoc "spec-query" "a.org" doc k
 
-    -- The wire's own encoder read back, so what is asserted is the JSON a
-    -- client receives rather than the 'Data.Aeson.Value' behind it.
+    -- The wire's own encoder read back, so what is asserted is the JSON a client receives.
     decoded lazy = either (assertFailure . ("the view JSON did not parse: " <>)) pure
                           (eitherDecode (TLE.encodeUtf8 lazy))
 
-    -- V's field names, sorted: field order is the encoder's business and no
-    -- part of the contract.
+    -- V's field names, sorted: field order is the encoder's business and no part of the contract.
     keysOf (Object o) = pure (sort (map Key.toText (KM.keys o)))
     keysOf other = assertFailure ("expected a column object, got " <> show other)
 
--- | The one command route's table, the request shapes it refuses before a byte
--- moves, and the palette every answer is drawn in.
---
--- The registries are the SPEC's (@AGENTS@) and the answers are the code's, so a
--- case compares the two rather than restating either: a command, a nullable
--- field, a role or a theme that moves on one side alone fails the build.  What
--- the spec cannot hold — a refusal's own words, a loaded record, the CSS the
--- emitters produce — is asked of the real code directly.
+-- | The one command route's table, the request shapes it refuses before a byte moves, and the palette every answer is drawn in.
 specGroup09 :: TestTree
 specGroup09 = testGroup "Commands and writes"
   [ testCase "eleven commands, each spelled once" $ do
@@ -1187,9 +1045,7 @@ specGroup09 = testGroup "Commands and writes"
         (sort (map (T.pack . Spec.cWire) Spec.cmds)) (sort commandNames)
       assertEqual "the command count moved" 11 (length commandNames)
 
-    -- The ids wall runs off the KIND, ahead of the entry's own @csArgs@, so a
-    -- request naming nothing but a name reaches it for every command that owes
-    -- rows and for none that does not.
+    -- The ids wall runs off the KIND, ahead of the entry's own @csArgs@.
   , testCase "capture is the one id-less command" $ do
       assertEqual "the spec no longer names capture the one id-less command"
         ["capture"] idless
@@ -1199,9 +1055,7 @@ specGroup09 = testGroup "Commands and writes"
           assertEqual (T.unpack n <> ": the ids wall and the spec's Ids disagree")
             (n `elem` idless) (not ("a command names rows" `T.isInfixOf` bodyText r))
 
-    -- @edit-link@'s args name a row's own TEXT, so a span means nothing to a
-    -- second row and the ROW COUNT is the coarsest thing wrong with the
-    -- request — which is why its shape is the one handed the ids.
+    -- @edit-link@'s args name a row's own TEXT, so the ROW COUNT is the coarsest thing wrong with the request.
   , testCase "edit-link is the one naming ONE row" $ do
       assertEqual "the spec no longer names edit-link the one single-row command"
         ["edit-link"] single
@@ -1212,9 +1066,7 @@ specGroup09 = testGroup "Commands and writes"
           assertEqual (T.unpack n <> ": the row-count wall and the spec's Ids disagree")
             (n `elem` single) ("names one row" `T.isInfixOf` bodyText r)
 
-    -- 'Glance.Query.repeatOn' is the ledger line's whole trigger, and org's
-    -- condition is both halves: an INACTIVE keyword and a planning stamp
-    -- carrying a repeater.  Either alone is a plain state change.
+    -- org's condition is both halves: an INACTIVE keyword and a planning stamp carrying a repeater.
   , testCase "only set-state's answer records" $ do
       assertEqual "the spec no longer names set-state the one recording command"
         [Spec.SetState] [Spec.cName c | c <- Spec.cmds, Spec.cRecords c]
@@ -1229,10 +1081,7 @@ specGroup09 = testGroup "Commands and writes"
           assertEqual "a stamp with no repeater records"
             noRepeat (repeatOn noConfig today "CANCELLED" r)
 
-    -- The @.:!@ \/ @.:?@ split asked of the ROUTE: every arg nulled in turn with
-    -- the rest of its request well formed, so a fifth nullable field cannot
-    -- arrive unnamed and a Req one cannot quietly start clearing.  The ids name
-    -- no row on purpose — what is under test is decided before one is looked up.
+    -- The @.:!@ \/ @.:?@ split asked of the ROUTE; the ids name no row, what is under test being decided ahead of one.
   , testCase "one nullable field per clearing command" $ do
       assertEqual "the spec's nullable fields moved"
         [ (Spec.SetState, "keyword"), (Spec.SetPlanning, "date")
@@ -1248,16 +1097,14 @@ specGroup09 = testGroup "Commands and writes"
             (arity == Spec.Req)
             (status r == 400 && T.pack f `T.isInfixOf` bodyText r)
 
-    -- 'Data.Org.isTagChar' has no star, which is what makes a starred word
-    -- undeclarable as a tag and keeps the meta family total.
+    -- 'Data.Org.isTagChar' has no star, which is what keeps the starred meta family total.
   , testCase "no starred meta is a legal tag" $ do
       assertBool "the spec's meta family is empty" (not (null Spec.metas))
       assertEqual "a starred meta the tag wall now accepts" []
         [ w | m <- Spec.metas, let w = Spec.metaWord m, not (isLeft (tagText (T.pack w))) ]
       assertBool "the star became a tag character" (not (isTagChar '*'))
 
-    -- The emitters ('pageTokens', 'tableTokens') are private, so the spec's role
-    -- table is bound to the CSS they produce rather than to a second list.
+    -- The emitters are private, so the spec's role table is bound to the CSS they produce.
   , testCase "every role reaches a namespace" $ do
       assertBool "the spec's role table is empty" (not (null Spec.roles))
       assertEqual "a role reaching neither namespace" []
@@ -1277,8 +1124,7 @@ specGroup09 = testGroup "Commands and writes"
       assertEqual "the spec's theme ids and the build's have drifted"
         (map T.pack Spec.themeIds) themeIds
 
-    -- 'Glance.Web.Theme.defaultFor' errors on a mode no theme answers, so the
-    -- claim is spelled out here rather than crashed into at request time.
+    -- 'Glance.Web.Theme.defaultFor' errors on a mode no theme answers, so the claim is spelled out here.
   , testCase "a build carries a theme per mode" $ do
       assertEqual "the build no longer carries exactly one light theme"
         1 (length [ t | t <- themes, thMode t == Light ])
@@ -1289,8 +1135,7 @@ specGroup09 = testGroup "Commands and writes"
       assertEqual "a theme the spec and the build spell differently"
         [ T.pack i | Spec.Theme i _ _ <- Spec.themes ] (map thId themes)
 
-    -- A theme fills exactly the slots the WIRE names, however many hues it
-    -- declares: fewer repeat, more are never reached.
+    -- A theme fills exactly the slots the WIRE names: fewer hues repeat, more are never reached.
   , testCase "a slot is its place modulo the wire's count" $ do
       assertEqual "the wire's state slot count moved" Spec.stateSlots stateSlots
       assertEqual "org's priority cycle length moved" Spec.prioritySlots prioritySlots
@@ -1312,9 +1157,7 @@ specGroup09 = testGroup "Commands and writes"
       assertEqual "one LINE now dedups its own pairs"
         [("light", [("TODO", "#a"), ("TODO", "#c")])]
         (stateColorsOf "#+GLANCE_STATE_COLORS: light TODO=#a TODO=#c\n")
-      -- KNOWN DIVERGENCE: the spec folds last-wins INSIDE a line where
-      -- 'Data.Org.Config.stateColorsOf' folds it across lines alone.  Pinned
-      -- from both sides so closing it names the decision.
+      -- KNOWN DIVERGENCE: the spec folds last-wins INSIDE a line where 'stateColorsOf' folds it across lines alone.
       assertEqual "the spec's per-line fold stopped deduping"
         (Just ("light", [("TODO", "#c")])) (Spec.stateColorsOf "light TODO=#a TODO=#c")
 
@@ -1335,8 +1178,7 @@ specGroup09 = testGroup "Commands and writes"
         <> [ "--g-state-i" <> T.pack (show i) | i <- [0 .. stateSlots - 1] ]
         <> [ "--g-priority-" <> T.pack (show i) | i <- [0 .. prioritySlots - 1] ]
 
--- | Does some theme declare TOKEN?  The emitted block spells @name:value;@, so
--- the colon is what tells @--tv-col@ from @--tv-col-wash@.
+-- | Does some theme declare TOKEN?  The colon is what tells @--tv-col@ from @--tv-col-wash@.
 declares :: T.Text -> Bool
 declares token = (token <> ":") `T.isInfixOf` themeCSS
 
@@ -1344,8 +1186,7 @@ declares token = (token <> ":") `T.isInfixOf` themeCSS
 bodyText :: SResponse -> T.Text
 bodyText = TE.decodeUtf8 . BL.toStrict . simpleBody
 
--- | A server over a tree of one row, for the cases that ask the ROUTE what it
--- refuses.  A capture that lands writes into the temp directory and goes with it.
+-- | A server over a tree of one row, for the cases that ask the ROUTE what it refuses.
 withCommandServer :: (Application -> Assertion) -> Assertion
 withCommandServer k = withTempDirNamed "spec-command" $ \dir -> do
   _ <- orgFile dir "notes.org" "* TODO first\n"
@@ -1357,14 +1198,12 @@ withFirst :: [a] -> (a -> Assertion) -> Assertion
 withFirst [] _ = assertFailure "the fixture loaded no rows"
 withFirst (x : _) k = k x
 
--- | One entry over a cycle naming an active and an inactive word, carrying
--- STAMP: the file's own @#+TODO:@ is the chain 'repeatOn' resets from.
+-- | One entry carrying STAMP; the file's own @#+TODO:@ is the chain 'repeatOn' resets from.
 repeating :: T.Text -> T.Text
 repeating stamp = T.unlines
   [ "#+TODO: NEXT | CANCELLED", "* NEXT ship", "SCHEDULED: " <> stamp ]
 
--- | ARGS with FIELD nulled and every other one legal, so a refusal is about the
--- null rather than about what the request left out.
+-- | ARGS with FIELD nulled and every other one legal, so a refusal is about the null.
 nulling :: String -> [Spec.Arg] -> [(String, Value)]
 nulling field args = [ (k, if k == field then Null else argValue k) | Spec.Arg k _ <- args ]
 
@@ -1384,13 +1223,7 @@ argValue "target"   = "https://example.org"
 argValue "desc"     = "the link"
 argValue other      = error ("no fixture value for the arg " <> other)
 
--- | Shell: keys, table gestures, surfaces.
---
--- Both rules here are figures written down TWICE — the log knob in
--- 'Glance.Web.Base' and again in the spec's 'Spec.logKnob', the z band in the
--- stylesheet and again in the spec's 'Spec.zOf' — with the renderer's own
--- levels the third party to the second.  Each case compares the copies rather
--- than restating one of them, so a figure moved on either side fails here.
+-- | Shell: keys, table gestures, surfaces.  Both rules here are figures written down TWICE, and each case compares the copies.
 specGroup10 :: TestTree
 specGroup10 = testGroup "Shell"
   [ testCase "the default sits in the band" $ do
@@ -1401,21 +1234,17 @@ specGroup10 = testGroup "Shell"
                   , Spec.kMax Spec.logKnob )
       assertBool "the log-height default sits inside its own band"
                  (logLinesMin <= logLinesDefault && logLinesDefault <= logLinesMax)
-      -- The band is validated in the shell against the key the blob names, so
-      -- the three figures are only reachable under that one spelling.
+      -- The three figures are only reachable under the one storage key the blob names.
       assertBool ("the storage key the spec names is not the one the blob carries: "
                     <> Spec.kKey Spec.logKnob)
                  (T.pack (show (Spec.kKey Spec.logKnob)) `T.isInfixOf` glueConfig [])
 
-    -- The cross-repo constraint: the backdrop pair has to clear the renderer's
-    -- sticky header and completion list, which are the asset's own values and
-    -- move without this repo being told.
+    -- Cross-repo: the backdrop pair has to clear the renderer's own sticky header and completion list.
   , testCase "the backdrop clears the renderer's chrome" $ do
       rend <- TIO.readFile "assets/table-view.js"
       let asset = levels rend
           shell = sort (nub (levels (page "" [] "t" "")))
           band = map Spec.zOf [minBound .. maxBound :: Spec.Z]
-      -- A sweep over nothing passes, so it says what it swept first.
       assertBool ("too few z levels read out of the renderer: " <> show asset)
                  (length asset >= 4)
       assertEqual "a renderer level reaching the shell's band" []
@@ -1435,20 +1264,11 @@ specGroup10 = testGroup "Shell"
     levels t = [ n | (_, r) <- T.breakOnAll zKey t
                    , Right (n, _) <- [T.Read.decimal (T.strip (T.drop (T.length zKey) r))] ]
 
--- | Sheets, the document pane, and the small lists Elm draws.
---
--- Three of these are a figure written down TWICE — the narrow's separator, the
--- panel's three planning rows, the browser ladder's candidates — so each case
--- compares the copies rather than restating one of them, and a figure moved on
--- either side fails here.  The fourth is the guarantee @Doc.elm@'s @drawText@
--- rests on and nothing checked: it is asked of the real scanner.
+-- | Sheets, the document pane, and the small lists Elm draws; each case compares two copies of one figure.
 specGroup11 :: TestTree
 specGroup11 = testGroup "Sheets, document pane, Elm"
   [ -- @drawText@ walks the segments in order and SILENTLY drops a link opening
-    -- inside the one before it, so what it rests on is the producer's: spans
-    -- ascending and pairwise disjoint.  The nested shape is the one that could
-    -- break it — the outer bracket fails to close and the rescan picks the
-    -- inner link up one bracket late.
+    -- inside the one before it, so what it rests on is spans ascending and pairwise disjoint.
     testCase "a link opening inside the previous one is dropped" $ do
       let nested = orgLinks "see [[https://a][x [[https://b][y]] z]] and https://c end"
       assertEqual "the nested shape stopped yielding the links drawText walks"
@@ -1457,15 +1277,12 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
                   [] (overlaps nested)
       withDocDir "spec-links" "links.org" linkDoc $ \recs -> do
         let scanned = map subtreeLinks recs
-        -- A sweep over nothing passes, so it says what it swept first.
         assertEqual "the link fixture stopped yielding both rows' links"
                     [4, 4] (map length scanned)
         assertEqual "subtreeLinks answered a link opening inside the one before it"
                     [] (concatMap overlaps scanned)
 
-    -- @Listing.elm@ joins the cells it DREW with U+001F and 'searchTextOf'
-    -- joins 'hrSearch' with 'cellSep'; matching ACROSS the join is what pins
-    -- the spec's own separator to the producer's character.
+    -- Matching ACROSS the join pins the spec's own separator to 'Glance.Query.cellSep'.
   , testCase "the narrow folds case and reads the cells the list draws" $ do
       assertBool ("the narrow's separator and Glance.Query.cellSep " <> show cellSep
                     <> " have drifted")
@@ -1496,8 +1313,7 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
                   | (p, q) <- zip ls (drop 1 ls)
                   , spanEnd (olSpan p) > spanStart (olSpan q) ]
 
-    -- Both bracket shapes, a bare URL, one target respelled under another
-    -- description, and the nested shape, spread over two rows.
+    -- Both bracket shapes, a bare URL, one target respelled, and the nested shape, over two rows.
     linkDoc :: Text
     linkDoc = T.unlines
       [ "* one [[https://a][alpha]] and [[https://b]]"
@@ -1509,16 +1325,9 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
     onPath (Spec.OnPath _) = True
     onPath _other          = False
 
--- Build and discipline
---
--- The registries the build is described by, bound to the files that carry it:
--- @glance.cabal@'s stanzas, the web layer's own import graph, the two project
--- files, the proposals directory and the changelog.  Each case reads the real
--- file and compares it to the spec's list, so a stanza added, a dependency
--- widened, a module renamed or a status invented fails here and names itself.
+-- Build and discipline: the registries the build is described by, bound to the files that carry it.
 
--- | A line opening a stanza, in the spelling 'coName' uses: the unqualified
--- @library@ is the package's own name, an executable wears an @exe:@ prefix.
+-- | A line opening a stanza, in 'coName''s spelling: bare @library@ is the package's own name, an executable wears @exe:@.
 stanzaHeader :: Text -> Maybe String
 stanzaHeader l
   | indented l = Nothing
@@ -1535,16 +1344,13 @@ indented l = maybe False (isSpace . fst) (T.uncons l)
 stanzaNames :: Text -> [String]
 stanzaNames = mapMaybe stanzaHeader . T.lines
 
--- | The body of NAME's stanza: everything under its header up to the next line
--- at column 1, which is where the next stanza or its comment begins.
+-- | The body of NAME's stanza: everything under its header up to the next line at column 1.
 cabalStanza :: String -> Text -> [Text]
 cabalStanza name =
   takeWhile (\l -> T.null (T.strip l) || indented l)
     . drop 1 . dropWhile ((/= Just name) . stanzaHeader) . T.lines
 
--- | The indented values under FIELD.  Blank and comment lines are stepped over
--- rather than ending the run — @extra-source-files@ carries three comments
--- between its entries — and the run ends at the next field or the next stanza.
+-- | The indented values under FIELD; blank and comment lines are stepped over, and the run ends at the next field or stanza.
 fieldBlock :: Text -> [Text] -> [String]
 fieldBlock field ls = case break ((field `T.isPrefixOf`) . T.strip) ls of
   (_, _ : rest) -> go rest
@@ -1557,8 +1363,7 @@ fieldBlock field ls = case break ((field `T.isPrefixOf`) . T.strip) ls of
       | otherwise                               = T.unpack s : go more
       where s = T.strip l
 
--- | The FIRST @build-depends:@ of a stanza's body — the unconditional one, so
--- @glance-desktop-native@ answers with what it needs whatever the flag says.
+-- | The FIRST @build-depends:@ of a stanza's body — the unconditional one, whatever the flag says.
 buildDepends :: [Text] -> [Text]
 buildDepends ls = case break (("build-depends:" `T.isPrefixOf`) . T.strip) ls of
   (_, _ : rest) -> run True [ s | l <- rest, let s = T.strip l
@@ -1571,8 +1376,7 @@ buildDepends ls = case break (("build-depends:" `T.isPrefixOf`) . T.strip) ls of
       | "," `T.isPrefixOf` x = T.strip (T.drop 1 x) : run False xs
       | otherwise            = []
 
--- | The components a dependency entry names inside this package: @glance:X@,
--- @glance:{A, B}@, and the bare package name, which is the public library.
+-- | The components a dependency entry names inside this package; the bare package name is the public library.
 sublibsOf :: Text -> [String]
 sublibsOf entry = case T.stripPrefix "glance:" entry of
   Just r -> case T.stripPrefix "{" (T.strip r) of
@@ -1592,8 +1396,7 @@ exposedModulesOf who cab = fieldBlock "exposed-modules:" (cabalStanza (fromMaybe
 extraSourceFiles :: Text -> [String]
 extraSourceFiles = fieldBlock "extra-source-files:" . T.lines
 
--- | Every @flag@ block with the two words that decide whether the solver may
--- turn it on by itself.
+-- | Every @flag@ block with the two words deciding whether the solver may turn it on by itself.
 flagStanzas :: Text -> [(String, Bool, Bool)]
 flagStanzas cab =
   [ (T.unpack n, says "manual:" body, says "default:" body)
@@ -1617,8 +1420,7 @@ cabalField field t =
     (v : _) -> v
     []      -> ""
 
--- | A project file's packages, the value's own line and the indented lines
--- continuing it.
+-- | A project file's packages: the value's own line and the indented lines continuing it.
 packagesOf :: Text -> [Text]
 packagesOf = go . T.lines
   where
@@ -1646,13 +1448,11 @@ statusPart n = case reverse (T.splitOn "." (T.pack n)) of
   (_ : st : _ : _) -> Just (T.unpack st)
   _                -> Nothing
 
--- | Emacs's editor state declares nothing, which is 'Data.Org.Walk.isSidecar''s
--- rule one directory over.  The sweep still reads the DIRECTORY.
+-- | Emacs's editor state declares nothing, which is 'Data.Org.Walk.isSidecar''s rule one directory over.
 proposalSidecar :: FilePath -> Bool
 proposalSidecar n = (".#" `isPrefixOf` n) || ("#" `isPrefixOf` n && "#" `isPrefixOf` reverse n)
 
--- | The @Glance.Web.*@ and @Glance.Desktop*@ modules a source reads.
--- 'Glance.Query' is another component's business and is dropped.
+-- | The @Glance.Web.*@ and @Glance.Desktop*@ modules a source reads; 'Glance.Query' is dropped.
 webImportsOf :: Text -> [String]
 webImportsOf src =
   [ T.unpack m
@@ -1664,9 +1464,7 @@ webImportsOf src =
 modPath :: WMod -> FilePath
 modPath m = "src-web" </> map (\c -> if c == '.' then '/' else c) (wname m) <> ".hs"
 
--- | Every Haskell file this package builds from.  'TestSelfContained' sweeps
--- the same set for its own reasons and exports only its 'TestTree', so the
--- sweep is written twice.
+-- | Every Haskell file this package builds from.  'TestSelfContained' sweeps the same set for its own reasons, so the sweep is written twice.
 buildSources :: IO [FilePath]
 buildSources = concat <$> mapM under ["src", "src-query", "src-web", "src-desktop-native", "app"]
   where
@@ -1676,16 +1474,14 @@ buildSources = concat <$> mapM under ["src", "src-query", "src-web", "src-deskto
       nested <- mapM under =<< filterM doesDirectoryExist entries
       pure (filter ((== ".hs") . takeExtension) files <> concat nested)
 
--- | The lines of PATH carrying NEEDLE, each with its file and number, so a
--- failure says where to look.
+-- | The lines of PATH carrying NEEDLE, each with its file and number.
 namesIn :: Text -> FilePath -> IO [String]
 namesIn needle path = report . T.lines <$> TIO.readFile path
   where
     report ls = [ path <> ":" <> show n <> ": " <> T.unpack (T.strip l)
                 | (n, l) <- zip [1 :: Int ..] ls, needle `T.isInfixOf` l ]
 
--- | The COMMENT lines of PATH written as a negation reveal, by the spec's own
--- detector, so the rule and what enforces it are one function.
+-- | The COMMENT lines of PATH written as a negation reveal, by the spec's own detector.
 revealingComments :: FilePath -> IO [String]
 revealingComments path = report . T.lines <$> TIO.readFile path
   where
@@ -1735,8 +1531,7 @@ specGroup12 = testGroup "Build and discipline"
       assertEqual "Glance.Web.Base imports a module above it" [] (webImportsOf src)
       assertEqual "and the spec's floor gained an edge" [] (wimports WBase)
 
-    -- The door half falls out of the whole table: `Glance.Web' is read by
-    -- `Glance.Desktop' and `Glance.Desktop.Native' and by nothing else.
+    -- The door half falls out of the whole table.
   , testCase "the door is read by the desktop pair alone" $ do
       real <- forM wmods $ \m -> (,) (wname m) . sort . nub . webImportsOf <$> TIO.readFile (modPath m)
       assertEqual "the web layer's import graph"
@@ -1767,8 +1562,7 @@ specGroup12 = testGroup "Build and discipline"
         [] [ p | p <- sdistExtras, p `notElem` extras ]
 
   , testCase "the shell is seven parts, folded in their numbered order" $
-      -- ORDER INCLUDED: a part added, renamed or reordered in `Glance.Web.Base'
-      -- fails here, and the on-disk half is `TestSelfContained''s.
+      -- ORDER INCLUDED; the on-disk half is 'TestSelfContained''s.
       assertEqual "the shell's parts, as the spec and the build fold them"
         gluePartFiles WB.gluePartFiles
 
@@ -1781,8 +1575,7 @@ specGroup12 = testGroup "Build and discipline"
         [] [ n | f <- flags, (n, m, d) <- flagStanzas cab, n == flName f
                , (m, d) /= (flManual f, flOn f) ]
 
-    -- Per flag rather than over the list, so the case says the same thing about
-    -- however many flags the spec grows.
+    -- Per flag, so the case says the same thing about however many flags the spec grows.
   , testCase "one stanza sees it, and all it does there is a define and its dependencies" $ do
       cab <- TIO.readFile "glance.cabal"
       assertBool "the spec declares no flag" (not (null flags))

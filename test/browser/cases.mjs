@@ -1,12 +1,5 @@
-// THE CASES, each a COMPUTED reading the text suite provably cannot take, and
-// each naming the bug it exists for (docs/proposal-browser-driver.md).
-//
-// FIGURES ARE RELATIONAL — does B start below A's bottom, is this colour that
-// colour — so no case depends on a font's advance width.  An absolute pixel
-// figure in a case here is a bug in the case.
-//
-// A case RETURNS the numbers it measured, which the report prints on the green
-// line too: a case whose reading nobody sees is a case nobody can doubt.
+// THE CASES, each a COMPUTED reading the text suite cannot take, and each
+// naming the bug it exists for.  FIGURES ARE RELATIONAL; a case RETURNS them.
 
 const assert = (ok, why) => { if (!ok) throw new Error(why); };
 const px = (n) => `${Math.round(n * 10) / 10}px`;
@@ -22,18 +15,14 @@ async function sheet(p, base, row) {
 
 export default [
 
-// cb6db85.  THE BOX GREW AND STOOD OVER THE DOCUMENT: ten typed lines covered
-// the nine under them, with 1781 tests green.  TestServe.hs asserts the STRING
-// "min-height:calc(var(--g-doc-rows, 0)"; where the next line ENDS UP is
-// unaskable there, the node harness returning zeros from every rect
-// (shell-harness.js: "Geometry is beyond this harness").
+// cb6db85.  THE BOX GREW AND STOOD OVER THE DOCUMENT.  Where the next line
+// ENDS UP is unaskable in TestServe.hs: the node harness returns zeroed rects.
 { name: "an open edit moves the line under it down, never covers it",
   async run(p, base) {
     await sheet(p, base, "drv-box");
     await p.press("n");                                   // onto the paragraph
     await p.press("RET");                                 // open it
-    // `placeEdit' sizes the box off the BLOCK a turn after the raise, so the
-    // reading waits for the two to agree rather than for a duration.
+    // `placeEdit' sizes the box a turn after the raise, so wait for the two to agree.
     await p.until(() => {
       const b = document.getElementById("dpara");
       const at = document.querySelector("#mdoc .de.dat");
@@ -75,15 +64,9 @@ export default [
       + `the line under it moved from ${px(before.under)} to ${px(seen.starts)}`];
   } },
 
-// d7ba44b, Style.hs's `.d-draft'.  A paragraph drawn before it is written holds
-// nothing and `:empty' cannot find it — Elm emits an empty text node — so the
-// floor is DECLARED.  Nothing measured the declaration, and a collapsed row is
-// a cursor standing on nothing.
-//
-// TWO READINGS, because `+' leaves the draft AT POINT and `.de.dat' carries a
-// floor of its own while an edit is open: the real row answers the user-visible
-// question, and a PROBE wearing the draft's classes without `.dat' attributes
-// the height to `.d-draft' itself.
+// d7ba44b, Style.hs's `.d-draft'.  Elm emits an empty text node, so `:empty'
+// cannot find a drawn-but-unwritten paragraph and the floor is DECLARED.  TWO
+// READINGS: `.de.dat' carries a floor of its own, so a PROBE isolates `.d-draft'.
 { name: "a paragraph drawn before it is written still owns a line",
   async run(p, base) {
     await sheet(p, base, "drv-box");
@@ -112,16 +95,8 @@ export default [
       + `.d-draft alone is ${px(seen.probe)}, one line is ${px(seen.line)}`];
   } },
 
-// 14e13d9.  THE PANE DREW ITS FLAG IN `--g-warn' at a strength of its own, so
-// `d' over the table and `d' over the pane — ONE gesture over ONE queue —
-// looked like two states.  `paletteSweep' compares the two NAMESPACES in the
-// served TEXT; it cannot mount the renderer, whose palette is injected into
-// <head> AT MOUNT TIME at zero specificity, so what a flagged row PAINTS is
-// unaskable there (the harness's TableView is a stub).
-//
-// EVERY COLOUR IS RESOLVED BY THE ENGINE, both sides: a hex token and a
-// computed shadow string are the same colour only once something has painted
-// them.
+// 14e13d9.  ONE gesture over ONE queue must paint one red on both surfaces,
+// which `paletteSweep' cannot ask: it compares the served TEXT, never a mount.
 { name: "a flag paints one red on both surfaces, and draws its inset edge",
   async run(p, base) {
     await p.goto(`${base}/`);
@@ -134,7 +109,6 @@ export default [
       const rgb = (v) => { const d = document.createElement("div");
         d.style.color = v; document.body.append(d);
         const c = getComputedStyle(d).color; d.remove(); return c; };
-      // The renderer injects its palette AT MOUNT TIME at zero specificity, so
       // `--tv-*' lives on `.tv-root' and `--g-*' on the document element.
       const root = getComputedStyle(document.documentElement);
       const tv = getComputedStyle(document.querySelector("#app .tv-root"));
@@ -164,8 +138,7 @@ export default [
       return { edge: getComputedStyle(fl).boxShadow,
                ground: getComputedStyle(fl).backgroundColor };
     });
-    // Both strings came out of the same engine, so the red is compared as the
-    // engine spells it rather than re-parsed.
+    // Both strings came out of the same engine, so the red is compared as spelled.
     assert(pane.edge.includes(table.flag) && /inset/.test(pane.edge),
       `the pane's flag edge is "${pane.edge}", the table's red is ${table.flag}`);
     assert(pane.ground !== "rgba(0, 0, 0, 0)",
@@ -175,15 +148,12 @@ export default [
             `the pane's edge is "${pane.edge}"`];
   } },
 
-// AGENTS.hs: "The page never scrolls: body is 100vh, overflow:hidden ... the
-// key line is flex:none and scrolls sideways" — the KEY LINE is the one
-// sideways scroller and is exempt; the reading is the DOCUMENT's scroller.
-// Every surface opens by its OWN URL (SURFACES / bootPage), so this sweep keeps
-// no copy of the keymap.
+// The KEY LINE is the one sideways scroller and is exempt; the reading is the
+// DOCUMENT's scroller.  Every surface opens by its OWN URL, so no keymap copy.
 { name: "the page never scrolls, sideways or down, at any width or surface",
   async run(p, base) {
-    // A SURFACE THAT NEVER ROSE would have this sweep measure the table three
-    // times over and report ok, so each one is waited for BY ITS OWN CONTAINER.
+    // A SURFACE THAT NEVER ROSE would have this measure the table three times
+    // over and report ok, so each is waited for BY ITS OWN CONTAINER.
     const HOST = { sheet: "#modal", config: "#config", tags: "#tags", links: "#links" };
     const seen = [];
     for (const [w, h] of [[360, 720], [800, 900], [1400, 900]]) {
@@ -215,21 +185,9 @@ export default [
     return [`sideways/down overflow, per surface and width: ${seen.join("  ")}`];
   } },
 
-// A POPUP CLAMPS AND SCROLLS INSIDE, as a CHAIN: `--g-pop-max' is
-// `min(90vh, calc(100vh - 2 * var(--g-pop-top)))', the foot margin derived from
-// the HEAD's rather than spelled as a second figure (Style.hs).  Nothing
-// measures the chain, and a box taller than the viewport is a reader who cannot
-// reach its foot.
-//
-// THIS CASE FOUND A DEFECT ON ITS FIRST RUN and it is the reason the driver
-// exists: `.pop-sheet' set `height:var(--g-pop-max)' with no
-// `box-sizing:border-box' — the reset spelled it for `body' and `#app,#log'
-// alone — so `#sheet' drew its own 14px padding and 1px border OUTSIDE the cap
-// and stood 30px taller than it was told to.  `5vh + 90vh + 30px > 100vh'
-// wherever the viewport is under 600px tall, which put the sheet's foot off
-// screen on a split window and on any phone in landscape.  Fixed by the
-// `.pop-band,.pop-sheet' pair in `Glance.Web.Page.Style'; 1838 text-level tests
-// were green over it, and no reading this suite can make would have caught it.
+// A POPUP CLAMPS AND SCROLLS INSIDE, as a CHAIN: `--g-pop-max' derives the foot
+// margin from the HEAD's (Style.hs).  Nothing measures the chain, and a box
+// taller than the viewport is a reader who cannot reach its foot.
 { name: "a popup clamps inside the viewport at every height",
   async run(p, base) {
     const seen = [];
@@ -258,12 +216,8 @@ export default [
     return [seen.join("  ")];
   } },
 
-// 80c3732: "THE STATE BADGE LOST ITS COLOUR ... the Elm view invented a CSS
-// variable name" — invisible to 1737 tests.  The hue is handed over WITH the
-// cell (`badgeColor(value, key)'), worn as an inline `color' on
-// `span.dc.dc-state'.  The table's own pill is the renderer's, drawn by
-// something no text case mounts.  ONE KEYWORD, TWO SURFACES, ONE PAINTED
-// COLOUR.
+// 80c3732: the Elm view invented a CSS variable name and the state badge lost
+// its colour.  ONE KEYWORD, TWO SURFACES, ONE PAINTED COLOUR.
 { name: "a badge in the sheet paints the hue its column paints in the table",
   async run(p, base) {
     await p.goto(`${base}/`);
@@ -292,12 +246,8 @@ export default [
       + `against the page's own ${table.plain}`];
   } },
 
-// AND CONTENT SITS UNDER THE TITLE TEXT: a paragraph starts at the head's own
-// title column rather than at its stars, the width DERIVED from `dstars' and
-// written onto `#mdoc' as a NUMBER (AGENTS.hs).  PADDING rather than a
-// margin — a margin would take the selection wash off the left of the line —
-// which is a rule about where two boxes' LEFT EDGES sit, and nothing measured
-// either.
+// AND CONTENT SITS UNDER THE TITLE TEXT (AGENTS.hs).  PADDING rather than a
+// margin — a margin would take the selection wash off the left of the line.
 { name: "a paragraph is indented under the title text, and keeps its full ground",
   async run(p, base) {
     await sheet(p, base, "drv-box");
@@ -324,10 +274,7 @@ export default [
   } },
 
 // EVERY SELECTION IN THE PANE IS A GROUND, never a line (AGENTS.hs).
-// `groundSweep' cuts the four rules out of the SERVED TEXT and greps them for
-// `border'/`outline'/`text-decoration'/`box-shadow'; what the cursor row
-// actually PAINTS — a ground that differs from the row above it — is a
-// reading only an engine takes.
+// `groundSweep' greps the served TEXT; what the row PAINTS needs an engine.
 { name: "the cursor in the pane is a ground, and the pane that lost the keys draws none",
   async run(p, base) {
     await sheet(p, base, "drv-box");
@@ -358,12 +305,8 @@ export default [
     return [`cursor ${seen.on} against ${seen.off}; with the keys away it paints ${gone}`];
   } },
 
-// A LEAF IS ONE LINE OF THE FIELD THAT COVERS IT.  `.de' pads every stop by
-// 1px and a composite's leaves each spent it AGAIN inside it, so the drawn
-// lines walked 2px per leaf away from the textarea's uniform line box: measured
-// 0/2/4/6 over four items, and a sixteen-line list stood a line and a half out
-// by its foot.  The OUTER boxes agreed throughout — the field is sized to the
-// row — which is why every case that compared them stayed green.
+// A LEAF IS ONE LINE OF THE FIELD THAT COVERS IT.  `.de' pads every stop and a
+// composite's leaves spent it AGAIN, walking 2px per leaf off the field's grid.
 { name: "a composite's drawn lines sit on the same grid as the field over it",
   async run(p, base) {
     await sheet(p, base, "drv-plan");
@@ -405,13 +348,8 @@ export default [
     return out;
   } },
 
-// AN EDIT BOX IS THE BLOCK IT COVERS, and nothing measured the two TOGETHER:
-// the drawn row's own geometry is pinned above and the ground rules are swept
-// out of the served text, but no case compared `#dpara' to the `.de.dat' it is
-// laid over.  Both padding cases matter — `.d-para' and the whole-list
-// composite carry the title indent, every `.d-item' carries none — and so does
-// a CYRILLIC item that WRAPS, the width at which a line breaks being the one
-// thing a font can move under this rule.
+// AN EDIT BOX IS THE BLOCK IT COVERS, and nothing measured the two TOGETHER.
+// Both padding cases matter, and so does a CYRILLIC item that WRAPS.
 { name: "the open box covers its row edge to edge, at the row's own metrics",
   async run(p, base) {
     const read = () => {
@@ -433,18 +371,15 @@ export default [
     };
     await sheet(p, base, "drv-plan");
     const out = [];
-    // The PADDED stops first: a paragraph and the whole-list composite both
-    // carry the title indent, where every leaf carries none.
+    // A paragraph and the whole-list composite carry the title indent; leaves do not.
     const walk = ["n", "n", "f", "n", "n", "n"];
     for (let i = 0; i < walk.length; i += 1) {
       await p.press(walk[i]);
       await p.press("RET");
       await p.until(() => document.getElementById("dpara").classList.contains("on"),
                     "the edit to open");
-      // `placeEdit' sizes the box a turn after the raise, off the row: waiting
-      // for the two to AGREE is waiting for it to have run, which is what the
-      // readings below are about. An unsized box is one line tall over however
-      // many the row has, and its field then wraps inside a scrollbar.
+      // `placeEdit' sizes the box a turn after the raise: waiting for the two to
+      // AGREE is waiting for it to have run.  An unsized box is one line tall.
       await p.until(() => {
         const b = document.getElementById("dpara").getBoundingClientRect();
         const at = document.querySelector("#mdoc .de.dat");
@@ -469,8 +404,7 @@ export default [
       assert(s.field.padL === row.padL,
         `the field is inset unlike its row, so its text sits elsewhere — ${note}`);
       // A SCROLLBAR THAT TAKES LAYOUT WIDTH WRAPS THE FIELD NARROWER than the
-      // div it covers, so the same bytes take more lines inside the box than
-      // under it.  Chromium overlays its own and measures 0 here.
+      // div it covers.  Chromium overlays its own and measures 0 here.
       assert(s.field.bar === 0,
         `the field carries a ${s.field.bar}px scrollbar, so it wraps narrower `
         + `than the row it covers — ${note}`);

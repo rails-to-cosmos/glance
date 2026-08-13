@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
--- | The write-back engine: replace half-open CHAR spans and write back through
--- temp+rename under an optimistic lock.  The rename REPLACES A SYMLINK.
+-- | The write-back engine: replace half-open CHAR spans, temp+rename under an
+-- optimistic lock.  The rename REPLACES A SYMLINK.
 module Data.Org.Edit ( Edit (..)
                      , EditError (..)
                      , EditIOError (..)
@@ -51,7 +51,6 @@ import Data.Org.Types (Context, Element, Span (..), Spanned, spanFaults)
 -- Qualified: 'Walk.LoadFailure' spells two constructors the way 'EditIOError' does.
 import qualified Data.Org.Walk as Walk
 
--- Edits
 
 -- | Replace 'editSpan' with 'editText'; zero-width inserts, empty text deletes.
 data Edit = Edit { editSpan :: !Span, editText :: !Text }
@@ -64,8 +63,8 @@ data EditError
   deriving (Eq, Show)
 
 -- | DOC with EDITS applied, every offset read against DOC itself.  Any order,
--- pairwise non-overlapping; the sort is stable, so two INSERTIONS at one offset
--- land in LIST order.
+-- pairwise non-overlapping; the stable sort lands two INSERTIONS at one offset
+-- in LIST order.
 applyEdits :: Text -> [Edit] -> Either EditError Text
 applyEdits doc edits = do
   mapM_ (checkSpan (T.length doc) . editSpan) edits
@@ -73,8 +72,7 @@ applyEdits doc edits = do
   pure (T.concat (splice 0 doc ordered))
   where key e = (spanStart (editSpan e), spanEnd (editSpan e))
 
--- | Reject SP against a document of LEN characters.  The backwards arm reads
--- 'Data.Org.Types.spanFaults'\'s LABEL — rename it there and this downgrades.
+-- | Reject SP against LEN characters; the backwards arm reads 'spanFaults'\'s LABEL.
 checkSpan :: Int -> Span -> Either EditError ()
 checkSpan len sp = case spanFaults len sp of
   []     -> Right ()
@@ -93,8 +91,7 @@ lineSpansIn t = go 0 (linesWith t)
   where go _at []      = []
         go at (l : ls) = (Span at (at + T.length l), l) : go (at + T.length l) ls
 
--- | The line ending T's first line uses, @"\\n"@ when it has none: spliced
--- text has to end its lines the way the document does.
+-- | The line ending T's first line uses, @"\\n"@ when it has none.
 eolOf :: Text -> Text
 eolOf t = case T.breakOn "\n" t of
   (before, rest) | not (T.null rest), "\r" `T.isSuffixOf` before -> "\r\n"
@@ -118,7 +115,6 @@ splice at rest (Edit (Span s e) new : es) = kept : new : splice e dropped es
   where (kept, from) = T.splitAt (s - at) rest
         dropped      = T.drop (e - s) from
 
--- Snapshots
 
 data Snapshot = Snapshot { snapPath :: !FilePath, snapDigest :: !Text }
   deriving (Eq, Show)
@@ -140,8 +136,7 @@ takeSnapshot :: FilePath -> IO (Either EditIOError Snapshot)
 takeSnapshot path =
   either (Left . ReadFailed path) (Right . Snapshot path . digestOf) <$> readBytes path
 
--- | PATH's text and the digest of the bytes it decoded from.  ONE read, so the
--- offsets and the pin describe the same bytes; 'Nothing' is "create it".
+-- | PATH's text and the digest of the SAME bytes; 'Nothing' is "create it".
 readDocument :: FilePath -> IO (Maybe (Text, Text))
 readDocument path = do
   raw <- readBytes path
@@ -163,7 +158,6 @@ digestOf bytes = T.pack (show (hash bytes :: Digest SHA256))
 digestOfText :: Text -> Text
 digestOfText = digestOf . TE.encodeUtf8
 
--- Reading
 
 data ParsedDocument = ParsedDocument
   { pdText     :: !Text                -- ^ the decoded document, which spans are offsets into.
@@ -172,8 +166,7 @@ data ParsedDocument = ParsedDocument
   , pdContext  :: !Context             -- ^ the context the document's own pragmas left behind.
   }
 
--- | PATH read, decoded and parsed from SEED, or which rung it fell off and why.
--- 'evaluate' inside 'try' to WHNF, so a partial function fails this file alone.
+-- | PATH read, decoded and parsed from SEED; 'evaluate' inside 'try' fails this file alone.
 readParsed :: Context -> FilePath -> IO (Either (Walk.LoadFailure, Text) ParsedDocument)
 readParsed seed path = do
   raw <- readBytes path
@@ -197,7 +190,6 @@ parseReason err = T.unwords (take 1 ls ++ take 1 diagnostics)
   where ls = map T.stripEnd (T.lines (T.pack (errorBundlePretty err)))
         diagnostics = [l | l <- ls, any (`T.isPrefixOf` l) ["unexpected", "expecting"]]
 
--- Writing
 
 -- | Apply EDITS to SNAP's file: drift or a rejected edit leaves it untouched.
 editFile :: Snapshot -> [Edit] -> IO (Either EditIOError EditReceipt)
@@ -209,8 +201,7 @@ editFile snap edits = runExceptT $ do
   pure (EditReceipt (Snapshot path (digestOf written)) edited)
   where path = snapPath snap
 
--- | The document SNAP's edits are measured against, or why there is none.  The
--- EMPTY digest says NOTHING IS THERE, so creation is this path under that pin.
+-- | The document SNAP's edits are measured against; the EMPTY digest is "create it".
 currentText :: Snapshot -> IO (Either EditIOError Text)
 currentText snap = do
   there <- doesFileExist path
@@ -225,14 +216,9 @@ readBytes :: FilePath -> IO (Either Text BS.ByteString)
 readBytes path = report <$> (try (BS.readFile path) :: IO (Either IOException BS.ByteString))
   where report = either (Left . Walk.errText) Right
 
--- | Put BYTES at PATH atomically: a temp in PATH's own directory, renamed over.
--- | What a half-written document is called, and it is LOAD-BEARING.
--- 'openBinaryTempFile' splits its template at the LAST dot, so this suffix is
--- what the leftover's EXTENSION becomes: @notes.org@ names
--- @notes\<rand\>.glance-tmp@, which 'Data.Org.Walk.isDocument' declines.  Drop
--- it and the template splits at org's own dot instead — @notes\<rand\>.org@, a
--- file the walk COLLECTS, PARSES and SERVES AS ROWS if a write is interrupted
--- between the create and the rename.
+-- | What a half-written document is called, and it is LOAD-BEARING:
+-- 'openBinaryTempFile' splits its template at the LAST dot, so without this the
+-- leftover is @notes\<rand\>.org@, which the walk COLLECTS, PARSES and SERVES AS ROWS.
 tempSuffix :: String
 tempSuffix = ".glance-tmp"
 

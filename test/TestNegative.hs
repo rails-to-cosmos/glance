@@ -162,10 +162,8 @@ spec = testGroup "Negative / Edge cases"
     ]
 
     -- A property KEY is org's own charset — any run without whitespace or a
-    -- colon — which is wider than the TODO-keyword wall on purpose: a digit
-    -- (:TELE2:) and a non-Latin key (:ЖКХ:) both live in the corpus, and
-    -- either one used to fail the drawer mid-parse, taking every later
-    -- property with it.
+    -- colon — wider than the TODO-keyword wall on purpose: :TELE2: and :ЖКХ:
+    -- both live in the corpus and used to fail the drawer mid-parse.
   , testGroup "Property key charset"
     [ testCase "Digits and non-Latin keys keep the drawer whole" $
         withHeadline "* Tanik\n:PROPERTIES:\n:TELE2: +7 999\n\
@@ -177,12 +175,9 @@ spec = testGroup "Negative / Edge cases"
           assertBool "the id BEHIND them survives" ("ORG_GLANCE_ID" `elem` keysOf)
     ]
 
-    -- The weekday slot is display-only — every render recomputes the word from
-    -- the date — so the parser reads any run of letters there and drops it.
-    -- Exactly three letters made the slot English-only, and ~/sync writes Dutch:
-    -- a two-letter abbreviation failed the timestamp, which failed the planning
-    -- line, which left the drawer no longer next and took the headline's
-    -- properties whole.  28 of the corpus's blobs lost their id that way.
+    -- The weekday slot is display-only — every render recomputes the word — so
+    -- the parser reads any run of letters there and drops it.  Exactly three
+    -- letters made it English-only and cost ~/sync's Dutch blobs their ids.
   , testGroup "Timestamp weekday charset"
     [ testCase "A foreign weekday keeps the planning line and the drawer whole" $
         withHeadline "* Task\nCLOSED: [2025-12-04 do 22:34]\n:PROPERTIES:\n\
@@ -191,9 +186,7 @@ spec = testGroup "Negative / Edge cases"
           assertBool "the id BEHIND the stamp survives"
                      ("ORG_GLANCE_ID" `elem` propertyKeys h)
 
-      -- Every spelling ~/sync writes, plus the two the locale has that it does
-      -- not: the census found ma, do, zo, vr and za, and di and wo belong to
-      -- the same seven.
+      -- Every spelling ~/sync writes, plus the two of the same seven it does not.
     , testCase "Every weekday spelling the corpus writes" $
         sequence_ [ withHeadline ("* Task\nCLOSED: [2025-12-04 " <> wd <> " 22:34]") $ \h ->
                       assertBool (T.unpack wd <> " read") (isJust (closed h))
@@ -204,10 +197,8 @@ spec = testGroup "Negative / Edge cases"
                       assertBool (T.unpack wd <> " read") (isJust (schedule h))
                   | wd <- ["M", "Mon", "Monday", "понедельник", "月曜日"] ]
 
-      -- Dropping the word is what keeps the recompute rule true: a Dutch stamp
-      -- comes back out in org's own English, so only a span splice carries the
-      -- source spelling anywhere.  The compact range spelling is untouched by
-      -- the slot ahead of it.
+      -- Dropping the word keeps the recompute rule true: a Dutch stamp comes back
+      -- out in org's own English, so only a span splice carries the source spelling.
     , testCase "A foreign weekday re-renders recomputed, compact range and all" $
         sequence_
           [ case bareParse defaultContext input of

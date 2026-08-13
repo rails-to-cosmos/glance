@@ -18,8 +18,7 @@
       { name: "prompt", momentary: true, up: () => !!promptNow(), off: unask },
       { name: "capture", momentary: true, up: capUp, off: shutCapture,
         open: () => openCapture(RESTORED) },
-      // The rowed three open the way their keys do, over the row `bootPage'
-      // has already landed on — `targets()' and `focusedId()' answer for it.
+      // The rowed three open over the row `bootPage' has already landed on.
       { name: "links", momentary: true, up: linking, off: shutLinks,
         edit: lediting, shut: cancelLinkEdit, rowed: true,
         narrow: () => narrowed(linkMount()), wide: () => widen(linkMount(), "ESC"),
@@ -36,12 +35,8 @@
         narrow: () => narrowed(smount), wide: () => widen(smount, "ESC"),
         panel: () => (SECTIONS[ctab] || {}).title },
     ];
-    // What a restored surface echoes as: no key was pressed, so `said' is given
-    // the URL as the thing that asked.
     const RESTORED = { seq: "?page", command: "restore-view" };
-    // Read off the list, so a surface added there is shareable with no edit here.
     const surfaceUp = () => SURFACES.find((s) => s.up()) || null;
-    // ONE WRITER for the address, called by every raise and every close.
     function remembered() {
       const p = params(), s = surfaceUp();
       if (!s || !s.open) { p.delete("page"); p.delete("row"); }
@@ -50,17 +45,14 @@
         const id = s.rowed && focusedId();
         if (id) p.set("row", id); else p.delete("row");
       }
-      // The panel rides as the FRAGMENT, so a closed sheet leaves neither behind.
       const at = s && s.panel && s.panel();
       history.replaceState(null, "", `?${p.toString()}${at ? `#${at}` : ""}`);
     }
-    // AND BACK: raised once the rows are in hand, so a rowed surface has a row.
     function bootPage() {
       const want = params().get("page");
       const s = SURFACES.find((x) => x.name === want && x.open);
       if (!s) return;
       const id = params().get("row");
-      // The fragment names the panel, where the surface has panels.
       const at = (location.hash || "").replace(/^#/, "");
       if (at && s.panel) wantPanel = at;
       if (s.rowed) {
@@ -73,7 +65,6 @@
     // The list ORDER breaks one tie: `+' over the tags popup leaves both up.
     const momentary = () =>
       (SURFACES.find((s) => s.momentary && s.up()) || {}).name || null;
-    // KEEP exempts a field a surface raises for ITSELF: `+' over the tags popup.
     function sole(keep) {
       if (keep) return;
       for (const s of SURFACES) if (s.momentary && s.up()) s.off();
@@ -108,7 +99,6 @@
       said(b, alsoFlags ? "all marks and flags cleared" : String(n));
       return true;
     }
-    // A binding wearing the NAME of the command it delegates to, for the echo.
     const named = (b, command) => ({ seq: b.seq, command });
     const HANDLERS = {
       nextRow: () => move(1),
@@ -138,12 +128,7 @@
       unmarkAll: (b) => clearMarking(b, true),
       markAll: (b) => {
         if (!wants(b, "mark-all", "toggleMark", "markAll")) return;
-        // AND IT TOGGLES. `markAll' only ADDS, so a count that did not move
-        // says every row was already carrying a mark — and the second press of
-        // a key means the opposite of the first rather than the same number
-        // twice.  Read off the COUNT rather than off the set, which is the
-        // renderer's; `clearMarks' takes the marks a filter is hiding too,
-        // exactly as `U' does.
+        // AND IT TOGGLES: `markAll' only ADDS, so an unmoved count means all marked.
         const was = table.markedCount();
         table.markAll();
         const now = table.markedCount();
@@ -181,8 +166,7 @@
         if (host) { host.postMessage("quit"); return; }
         append("cmd", "info", "q quits the native window; a browser tab closes itself");
       },
-      // THREE RUNGS PER SURFACE, innermost first: the open edit, the narrow its
-      // list is under, then the surface itself.
+      // THREE RUNGS PER SURFACE, innermost first: the edit, the narrow, the surface.
       cancel: () => {
         for (const s of SURFACES) {
           if (s.edit && s.edit()) { s.shut(); return; }
@@ -254,9 +238,7 @@
         const hit = promptNow().choices.find((c) => c.key === k);
         if (k === "/")
           fieldMode("RET sets it · C-n/C-p walks · ESC leaves");
-        // DEL is the popups' own rung — out of a surface with no inner ladder —
-        // wherever no entry CLAIMS it; the state palette's `*empty*' claims it
-        // and keeps its landed meaning.
+        // DEL is the popups' own rung wherever no entry CLAIMS it.
         else if (!hit) {
           if (k !== "DEL") return;
           unask();
@@ -279,8 +261,6 @@
         if (momentary() !== name || e.defaultPrevented) return;
         const k = keyName(e);
         if (!k) return;
-        // The narrow's field holds the letters while it has the focus, so `o',
-        // `d' and `+' are typing until it gives them back.
         if (narrowTyping(mount())) {
           if (narrowPress(k, mount())) e.preventDefault();
           return;
@@ -290,9 +270,8 @@
           const step = rowStep(k);
           if (step) stepIn(mount(), step);
           else if (k === "DEL" || k === "q") {
-            // A NARROW IS A RUNG UNDER THE POPUP, so `DEL' — which erases the
-            // last structure standing — clears one before it steps out.  `q' is
-            // `quit-window' and leaves whatever the list was narrowed to.
+            // A NARROW IS A RUNG UNDER THE POPUP, so `DEL' clears one before it
+            // steps out; `q' is `quit-window' and leaves the narrow standing.
             if (k !== "DEL" || !widen(mount(), k)) {
               const surface = SURFACES.find((s) => s.name === name);
               if (surface && surface.off) surface.off();
@@ -341,14 +320,12 @@
 
     function apply(frame) {
       const moved = frame.op === "delete-row" ? frame.id : (frame.row || {}).id;
-      // `reload' rebuilds both panes, so it must not run over an open edit,
-      // unflushed work, or the panel's own cursor.
+      // `reload' rebuilds both panes, so never over an open edit or unflushed work.
       if (editing && !raw && !sheetOpen() && !dirty() && !pnav()
           && moved === editing.id)
         reload();
       if (!table) return;
-      // Only the server knows whether the changed row still matches, and this
-      // refetch is where a filtered client's archived rows go — hence `settled'.
+      // Only the server knows whether the changed row still matches.
       if (query) return void (clearTimeout(requeryAt),
         requeryAt = setTimeout(() => fetchRows(settled), 250));
       if (frame.op === "upsert-row") table.upsertRow(frame.row);
@@ -392,22 +369,16 @@
       setTimeout(resync, backoff);
       backoff = Math.min(backoff * 2, 30000);
     }
-    // A BOOT THAT BEGAN BLIND OWES ONE RE-READ.  `/' does not wait on the walk —
-    // the shell has to render while it runs — so a store still loading serves a
-    // page carrying no config, and the boot query is the BUILT-IN default rather
-    // than the tree's own.  Nothing re-read it, so the reader's saved view
-    // arrived only on a manual refresh, which a native window cannot do.
+    // A BOOT THAT BEGAN BLIND OWES ONE RE-READ: `/' does not wait on the walk,
+    // so a store still loading serves a page carrying no config.
     let blind = false;
     function indexing(b) {
       blind = true;
       append("boot", "info", `indexing … ${b.elapsed}s · the table opens when the walk lands`);
       setTimeout(resync, 1000);
     }
-    /**
-     * The tree's saved views, once there is a store to read them from.  The
-     * default is RE-APPLIED only where the reader has not made the query theirs
-     * — a `q' in the URL is their intent, and so is anything typed since.
-     */
+    // The tree's saved views, once there is a store to read them from.  The
+    // default is RE-APPLIED only where the reader has not made the query theirs.
     function adopt() {
       blind = false;
       getJSON("/config").then((cfg) => {
@@ -424,17 +395,14 @@
     function start(after) {
       const asked = (query = bootQuery());
       if (!params().has("q")) remember(asked);
-      // A boot takes the first page it can get; a re-application asks for the
-      // whole answer, so a full table is never replaced by a partial one.
+      // A boot takes the first page it can get; a re-application asks for all.
       const swap = !!table;
       const narrow = asking(asked) + (asked ? "&" : "?");
       viewing(load(swap ? asking(asked) : `${narrow}limit=${PAGE}`)).then((a) => {
         if (blind) adopt();
         mount(a.view);
         if (after) after(a.total); else land(null);
-        // AFTER THE ROWS ARE IN HAND, so a rowed surface has a row to land on.
-        // A boot only: a re-application is a view the reader asked for here,
-        // and raising a popup over it would be answering a question nobody put.
+        // AFTER THE ROWS ARE IN HAND, so a rowed surface has a row.  Boot only.
         if (!swap) bootPage();
         listen();
         if (!swap && a.total > (a.view.rows || []).length)

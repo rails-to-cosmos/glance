@@ -1,14 +1,6 @@
 -- | The note this daemon leaves org-glance when it writes or deletes a stored
--- blob: @\<store\>\/.org-glance\/meta\/EXTERNAL.jsonl@.
---
--- Two layers, and the split is deliberate.  The DOOR cases go through the two
--- functions that move a blob's bytes — 'Glance.Query.replaceSpans', which every
--- write leaves through, and 'Data.Org.Trash.trashBlob', which the one delete
--- does — so they state each rule once for all of that door's callers.  The
--- ROUTE cases then drive the real HTTP surface — a structured command, a
--- materialize commit, a capture, a delete — to show that those callers really
--- are those functions' callers, and that the doors are therefore where the
--- rules can live.
+-- blob: @\<store\>\/.org-glance\/meta\/EXTERNAL.jsonl@.  The DOOR cases state
+-- each rule once; the ROUTE cases show the real callers reach those doors.
 module TestExternal (spec) where
 
 import Control.Concurrent.Async (mapConcurrently_)
@@ -46,16 +38,11 @@ import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString.Lazy as BL
 import Glance.Query (Span (Span), WriteFailure, blobPathIn, replaceSpans, storeRootIn)
 
--- Fixtures
 
--- | An entry as org-glance stores one: a level-one headline in STATE whose
--- drawer names the id IDENT the index keys its record by, over a line of body.
 entry :: Text -> Text -> Text
 entry ident state = entryAs ident (state <> " Entry " <> ident) <> "body\n"
 
--- | Write ID's blob under DIR's store and answer its path.  The layout is the
--- LIBRARY's ('Glance.Query.blobPathIn' over 'storeRootIn'), so a fixture and the
--- writer it stands in for shard an id the same way.
+-- | Write ID's blob under DIR's store, sharded by the LIBRARY's own rule.
 blobIn :: FilePath -> Text -> Text -> IO FilePath
 blobIn dir ident text = do
   createDirectoryIfMissing True (takeDirectory path)
@@ -63,71 +50,50 @@ blobIn dir ident text = do
   pure path
   where path = blobPathIn (storeRootIn dir) ident
 
--- | A temp directory to stand a store up in.
 withStore :: (FilePath -> Assertion) -> Assertion
 withStore = withTempDirNamed "external"
 
--- | DIR's notification file, whether or not it is there.
 notePath :: FilePath -> FilePath
 notePath dir = dir </> ".org-glance" </> metaDir </> externalFile
 
--- | The lines DIR's notification file holds, none when there is no file.
 noteLines :: FilePath -> IO [ByteString]
 noteLines dir = do
   there <- doesFileExist (notePath dir)
   if there then BC.lines <$> BC.readFile (notePath dir) else pure []
 
--- | The @id@ of each line the notification file holds, in file order.
---
--- Read by prefix rather than by a JSON decode, which is the point: the field
--- ORDER is part of the frozen contract, so a reader here that accepted any
--- order would not be reading the contract at all.  A line that does not open
--- @{"id":"@ fails the case by yielding a name no assertion expects.
+-- | Read by PREFIX: the field ORDER is the frozen contract, which a JSON decode
+-- would bless away.
 notedIds :: FilePath -> IO [Text]
 notedIds dir = map idOf <$> noteLines dir
   where idOf line = maybe ("MALFORMED: " <> TE.decodeUtf8 line) (T.takeWhile (/= '"'))
                           (T.stripPrefix "{\"id\":\"" (TE.decodeUtf8 line))
 
--- | Each line's @id@ paired with whether that line is a TOMBSTONE, in file
--- order.
---
--- A tombstone opens exactly as a plain line does, so 'notedIds' cannot tell the
--- two apart and telling them apart is its own reader.  Read by literal for
--- 'notedIds'' reason: the field order is the frozen contract, and a JSON decode
--- here would bless whatever order the writer happened to emit.
+-- | Whether each line is a TOMBSTONE, read by literal for the same reason.
 notedShapes :: FilePath -> IO [(Text, Bool)]
 notedShapes dir = zip <$> notedIds dir <*> (map tombstoned <$> noteLines dir)
   where tombstoned = BC.isSuffixOf ",\"tombstone\":true}"
 
--- | The span NEEDLE occupies in TEXT, which is how these cases name an edit.
 spanOf :: Text -> Text -> Span
 spanOf text needle = Span at (at + T.length needle)
   where at = T.length (fst (T.breakOn needle text))
 
--- | Replace FROM with TO in PATH through the write door, failing the case when
--- the write does not land.
 splice :: FilePath -> Text -> Text -> Assertion
 splice path from to = do
   text <- document path
   digest <- digestOnDisk path
   landed =<< replaceSpans path digest [(spanOf text from, to)]
 
--- | Fail unless a write landed.
 landed :: Either WriteFailure Text -> Assertion
 landed = either (assertFailure . ("the write was refused: " <>) . show) (const (pure ()))
 
--- | Delete PATH's blob out of ROOT through the move door, failing the case
--- where the move does not land.
 trashed :: FilePath -> FilePath -> Assertion
 trashed root path =
   either (assertFailure . ("the delete was refused: " <>) . T.unpack) (const (pure ()))
     =<< trashBlob root path
 
--- | Fail unless a delete was refused.
 refusedMove :: Either Text FilePath -> Assertion
 refusedMove = either (const (pure ())) (assertFailure . ("the delete landed at " <>))
 
--- The door
 
 doorSpec :: TestTree
 doorSpec = testGroup "The write door"
@@ -137,9 +103,7 @@ doorSpec = testGroup "The write door"
         splice path "TODO" "DONE"
         assertEqual "one line, naming the blob's id" ["abcdef"] =<< notedIds dir
 
-    -- The id is the BLOB's rather than the edit's: an edit under a child moves
-    -- the entry org-glance keyed the file by, and that is the record a refresh
-    -- replaces.
+    -- The id is the BLOB's: an edit under a child moves the entry the file is keyed by.
   , testCase "an edit under a child is noted under the entry's id" $
       withStore $ \dir -> do
         path <- blobIn dir "abcdef"
@@ -148,8 +112,7 @@ doorSpec = testGroup "The write door"
         splice path "TODO Child" "DONE Child"
         assertEqual "the entry's id" ["abcdef"] =<< notedIds dir
 
-    -- A command over several rows of one file is ONE `editFile', so it is one
-    -- line: the id names the entry, not the edit.
+    -- A command over several rows of one file is ONE `editFile', so one line.
   , testCase "one write of several spans is one line" $
       withStore $ \dir -> do
         path <- blobIn dir "abcdef" (entry "abcdef" "TODO" <> "** TODO Child\n")
@@ -160,8 +123,7 @@ doorSpec = testGroup "The write door"
                      , (spanOf text "TODO Child", "DONE Child") ]
         assertEqual "one line for one write" ["abcdef"] =<< notedIds dir
 
-    -- Each case below is a file this daemon legitimately writes and must not
-    -- note, and they are the four shapes that reach the door.
+    -- The four shapes this daemon legitimately writes and must not note.
   , testCase "an ordinary document outside the store is not noted" $
       withStore $ \dir -> do
         let path = dir </> "notes.org"
@@ -178,9 +140,7 @@ doorSpec = testGroup "The write door"
         splice path "TODO |" "TODO NEXT |"
         assertEqual "nothing noted" [] =<< noteLines dir
 
-    -- Inside `data/' and still not the blob: `data.org' is the one file
-    -- org-glance keys an entry by, so another document beside it has no record
-    -- to refresh.
+    -- `data.org' is the one file org-glance keys an entry by.
   , testCase "another org file in a blob's own directory is not noted" $
       withStore $ \dir -> do
         blob <- blobIn dir "abcdef" (entry "abcdef" "TODO")
@@ -195,8 +155,7 @@ doorSpec = testGroup "The write door"
         splice path "TODO" "DONE"
         assertEqual "nothing noted" [] =<< noteLines dir
 
-    -- The refusal happens before anything is renamed into place, so there is no
-    -- write to note.
+    -- The refusal happens before anything is renamed into place.
   , testCase "a write that drifts notes nothing" $
       withStore $ \dir -> do
         path <- blobIn dir "abcdef" (entry "abcdef" "TODO")
@@ -213,12 +172,9 @@ doorSpec = testGroup "The write door"
         assertBool "created" =<< doesFileExist (notePath dir)
   ]
 
--- The move door
 
--- | A DELETE IS THE OTHER DOOR: it splices no spans, so it reaches
--- 'Glance.Query.replaceSpans' never and takes its own note on
--- 'Data.Org.Trash.trashBlob''s success branch.  Every case here is about the
--- line; what the move does with the bytes is @Trash@'s own group below.
+-- | A DELETE IS THE OTHER DOOR: it splices no spans, so its note rides
+-- 'Data.Org.Trash.trashBlob''s success branch instead.
 moveSpec :: TestTree
 moveSpec = testGroup "The move door"
   [ testCase "a deleted blob appends one line, and it is the tombstone" $
@@ -228,8 +184,7 @@ moveSpec = testGroup "The move door"
         assertEqual "one tombstone, naming the blob's id" [("abcdef", True)]
           =<< notedShapes dir
 
-    -- NO ID, NO LINE, the write's own rule: a blob claiming none names no
-    -- record, so there is nothing to tell org-glance to drop.
+    -- NO ID, NO LINE: a blob claiming none names no record to drop.
   , testCase "a blob claiming no id is deleted in silence" $
       withStore $ \dir -> do
         path <- blobIn dir "abcdef" "* DONE Anonymous\n"
@@ -237,8 +192,7 @@ moveSpec = testGroup "The move door"
         assertEqual "nothing noted" [] =<< noteLines dir
         assertBool "and no file made" . not =<< doesFileExist (notePath dir)
 
-    -- ONE FILE CARRIES BOTH SHAPES, in the order the two acts happened, so a
-    -- reader folding it left to right refreshes the record and then drops it.
+    -- ONE FILE CARRIES BOTH SHAPES, in the order the two acts happened.
   , testCase "a write then a delete leaves two lines in that order" $
       withStore $ \dir -> do
         path <- blobIn dir "abcdef" (entry "abcdef" "TODO")
@@ -247,8 +201,7 @@ moveSpec = testGroup "The move door"
         assertEqual "the write, then the delete"
                     [("abcdef", False), ("abcdef", True)] =<< notedShapes dir
 
-    -- ONLY A BLOB, and the gate is the PATH's — the same one the write note
-    -- asks, so a document that is not a blob has no record to drop either.
+    -- ONLY A BLOB, and the gate is the PATH's — the write note's own.
   , testCase "a document that is not a blob is refused and notes nothing" $
       withStore $ \dir -> do
         let path = dir </> "notes.org"
@@ -256,8 +209,7 @@ moveSpec = testGroup "The move door"
         refusedMove =<< trashBlob dir path
         assertEqual "nothing noted" [] =<< noteLines dir
 
-    -- A SECOND DELETION OF ONE ID is refused, and a tombstone on a refusal
-    -- would tell org-glance to drop a record whose document is still here.
+    -- A tombstone on a refusal would drop a record whose document is still here.
   , testCase "a second deletion of one id is refused and notes nothing more" $
       withStore $ \dir -> do
         path <- blobIn dir "abcdef" (entry "abcdef" "DONE")
@@ -268,8 +220,7 @@ moveSpec = testGroup "The move door"
           =<< notedShapes dir
         assertEqual "the second is still in the tree" True =<< doesFileExist path
 
-    -- The line is keyed off the PATH deleted, the way a write's is, so a nested
-    -- store's delete lands in the nested store's own meta directory.
+    -- Keyed off the PATH deleted, so a nested store's delete lands in its own.
   , testCase "a nested store's delete is noted in its own meta directory" $
       withStore $ \dir -> do
         let inner = storeRootIn dir </> "data" </> "ab" </> "cd"
@@ -279,7 +230,6 @@ moveSpec = testGroup "The move door"
         assertEqual "and the outer one has nothing" [] =<< noteLines dir
   ]
 
--- The line
 
 formatSpec :: TestTree
 formatSpec = testGroup "The line, as frozen"
@@ -288,8 +238,7 @@ formatSpec = testGroup "The line, as frozen"
                   "{\"id\":\"abcdef\",\"at\":\"2026-08-03T04:21:07Z\"}\n"
                   (externalLine "abcdef" (stamp "2026-08-03T04:21:07"))
 
-    -- The values go through the JSON encoder and the keys do not, which is what
-    -- fixes the order without leaving an id unescaped.
+    -- The values go through the encoder and the keys do not, which fixes the order.
   , testCase "an id carrying JSON metacharacters is escaped" $
       assertEqual "escaped"
                   "{\"id\":\"a\\\"b\\\\c\",\"at\":\"2026-08-03T04:21:07Z\"}\n"
@@ -300,16 +249,13 @@ formatSpec = testGroup "The line, as frozen"
                   "{\"id\":\"i\",\"at\":\"2026-08-03T04:21:07Z\"}\n"
                   (externalLine "i" (Time.addUTCTime 0.75 (stamp "2026-08-03T04:21:07")))
 
-    -- THE DELETE'S LINE IS THE WRITE'S PLUS ONE FIELD, in that order, and the
-    -- third is a literal: `true' is its only legal value, so absence is how a
-    -- plain write is spelled and there is no `"tombstone":false' to read.
+    -- `true' is a literal and its only legal value, so absence spells a plain write.
   , testCase "a tombstone is those two fields plus a third" $
       assertEqual "golden"
                   "{\"id\":\"abcdef\",\"at\":\"2026-08-03T04:21:07Z\",\"tombstone\":true}\n"
                   (tombstoneLine "abcdef" (stamp "2026-08-03T04:21:07"))
 
-    -- ONE SPELLING OF THE PREFIX: the two renderers share it, so a tombstone is
-    -- byte for byte the plain line with the field spliced before the brace.
+    -- ONE SPELLING OF THE PREFIX: the two renderers share it.
   , testCase "and its first two fields are the plain line's, byte for byte" $
       assertEqual "the plain line with one field spliced before the brace"
         (fmap (<> ",\"tombstone\":true}\n")
@@ -322,15 +268,12 @@ formatSpec = testGroup "The line, as frozen"
                   (blobIdOf ("* Anonymous\n" <> entry "kid" "TODO"))
       assertEqual "no headline" Nothing (blobIdOf "just text\n")
 
-    -- The parse is seeded from `defaultContext', so a keyword only a tag config
-    -- declares folds into the title.  The id is a property and does not care,
-    -- which is what lets one seed serve every store.
+    -- Seeded from `defaultContext', and the id is a property that does not care.
   , testCase "an unrecognised keyword costs the id nothing" $
       assertEqual "still found" (Just "abcdef") (blobIdOf (entry "abcdef" "READING"))
   ]
   where stamp = Time.parseTimeOrError True Time.defaultTimeLocale "%Y-%m-%dT%H:%M:%S"
 
--- Where a write is noted
 
 pathSpec :: TestTree
 pathSpec = testGroup "Where a write is noted"
@@ -338,8 +281,7 @@ pathSpec = testGroup "Where a write is noted"
       assertEqual "path" (Just ("/home/me/sync/.org-glance/meta/" <> externalFile))
                   (externalPathOf "/home/me/sync/.org-glance/data/ab/cdef/data.org")
 
-    -- org-glance falls back to `data/<id>' for an id of two characters or
-    -- fewer, so the shard is no part of the rule.
+    -- org-glance falls back to `data/<id>' under three characters.
   , testCase "an unsharded blob lands in the same place" $
       assertEqual "path" (Just ("/s/.org-glance/meta/" <> externalFile))
                   (externalPathOf "/s/.org-glance/data/ab/data.org")
@@ -358,7 +300,6 @@ pathSpec = testGroup "Where a write is noted"
             ] $ \(what, path) -> assertEqual what Nothing (externalPathOf path)
   ]
 
--- Append-only
 
 appendSpec :: TestTree
 appendSpec = testGroup "Append-only"
@@ -371,8 +312,7 @@ appendSpec = testGroup "Append-only"
           assertEqual ("lines after write " <> show n) n . length =<< noteLines dir
         assertEqual "one per write, same id" (replicate 3 "abcdef") =<< notedIds dir
 
-    -- Nothing already in the file is ever rewritten, so a reader's leftovers
-    -- and a hand-written line both survive a write.
+    -- Nothing already in the file is ever rewritten.
   , testCase "a line already in the file survives" $
       withStore $ \dir -> do
         createDirectoryIfMissing True (takeDirectory (notePath dir))
@@ -381,8 +321,7 @@ appendSpec = testGroup "Append-only"
         splice path "TODO" "DONE"
         assertEqual "the old line kept its place" ["earlier", "abcdef"] =<< notedIds dir
 
-    -- The other files under `meta' are org-glance's write-ahead log, and this
-    -- daemon must never be the reason a record moved.
+    -- The other files under `meta' are org-glance's write-ahead log.
   , testCase "no other file under meta is touched" $
       withStore $ \dir -> do
         let wal = takeDirectory (notePath dir) </> "headlines.jsonl"
@@ -393,9 +332,7 @@ appendSpec = testGroup "Append-only"
         assertEqual "the log is the log" "{\"id\":\"abcdef\",\"state\":\"TODO\"}\n"
           =<< BC.readFile wal
 
-    -- One open and one write per call, in append mode, so lines interleave
-    -- whole: a torn one would hand the reader a record it cannot parse and the
-    -- refresh would stop on it.
+    -- One open and one write per call, in append mode, so lines interleave whole.
   , testCase "concurrent writes land as whole lines" $
       withStore $ \dir -> do
         paths <- traverse (\i -> blobIn dir (ident i) (entry (ident i) "TODO")) [1 .. 8]
@@ -406,7 +343,6 @@ appendSpec = testGroup "Append-only"
   ]
   where ident i = T.pack ("id" <> show (i :: Int) <> "0000")
 
--- The routes that write
 
 routeSpec :: TestTree
 routeSpec = testGroup "The routes that write"
@@ -428,8 +364,7 @@ routeSpec = testGroup "The routes that write"
         assertEqual "status" 200 (status r)
         assertEqual "noted" ["abcdef"] =<< notedIds dir
 
-    -- A capture writes the tree's inbox, which is an ordinary document: the one
-    -- write route that has no blob to name.
+    -- A capture writes the tree's inbox: the one write route with no blob to name.
   , testCase "a capture notes nothing" $
       withStore $ \dir -> do
         _ <- blobIn dir "abcdef" (entry "abcdef" "TODO")
@@ -437,8 +372,7 @@ routeSpec = testGroup "The routes that write"
         assertOk =<< postTo a "/command" (capture "Fresh")
         assertEqual "nothing noted" [] =<< noteLines dir
 
-    -- The fourth route, and the one that leaves the other shape: `delete'
-    -- splices no spans, so its line comes off the move door instead.
+    -- `delete' splices no spans, so its line comes off the move door.
   , testCase "POST /command delete leaves a tombstone" $
       withStore $ \dir -> do
         _ <- blobIn dir "abcdef" (entryAs "abcdef" "DONE Entry :archive:")
@@ -447,8 +381,6 @@ routeSpec = testGroup "The routes that write"
         assertEqual "noted, and as a tombstone" [("abcdef", True)] =<< notedShapes dir
   ]
 
--- | A server over DIR, loaded the way @glance serve@ loads one.  No @--assets@:
--- nothing here asks for a page.
 serverOver :: FilePath -> IO Application
 serverOver dir = fst <$> serverAt Nothing dir
 
@@ -457,10 +389,8 @@ spec = testGroup "External"
   [ doorSpec, moveSpec, formatSpec, pathSpec, appendSpec, routeSpec
   , completionSpec, trashSpec ]
 
--- | DELETION IS A MOVE, never an unlink.  A blob is the canonical document and
--- the index is its projection, so the one destructive command this daemon has
--- takes the bytes out of the live tree and keeps them: compressed, under
--- @trash\/@, with the shard the id is spelled by carried over.
+-- | DELETION IS A MOVE, never an unlink: the bytes come out of the live tree
+-- and are kept, gzipped under @trash\/@ with the id's own shard carried over.
 trashSpec :: TestTree
 trashSpec = testGroup "Trash"
   [ testCase "a blob's trash path keeps the shard the id is spelled by" $
@@ -468,8 +398,7 @@ trashSpec = testGroup "Trash"
         (Just (storeRootIn "/t" </> "trash" </> "a7" </> "92f0" </> "data.org.gz"))
         (trashPathFor "/t" (blobPathIn (storeRootIn "/t") "a792f0"))
 
-    -- Only a blob: a row in a shared org file is many rows' document, and
-    -- moving it would take the others with it.
+    -- Only a blob: a row in a shared org file is many rows' document.
   , testCase "and nothing else has one" $
       assertEqual "not a blob" Nothing (trashPathFor "/t" "/t/inbox.org")
 
@@ -485,10 +414,7 @@ trashSpec = testGroup "Trash"
         kept <- GZip.decompress <$> BL.readFile dest
         assertEqual "byte for byte" "* TODO one :archive:\n" kept
 
-    -- THE HISTORY GOES WITH IT.  org-glance keeps a blob's occurrences beside
-    -- its document, and leaving them would make a deleted entry a directory
-    -- nothing reads and nothing prunes.  Each file lands under the mirror of
-    -- its own path, so what comes back out is the directory that went in.
+    -- THE HISTORY GOES WITH IT, each file under the mirror of its own path.
   , testCase "the occurrences go with the document, and the directory with them" $
       withTempDirNamed "trash-history" $ \root -> do
         let blob = blobPathIn (storeRootIn root) "a792f0"
@@ -507,10 +433,8 @@ trashSpec = testGroup "Trash"
         was <- GZip.decompress <$> BL.readFile keptPast
         assertEqual "byte for byte" "* TODO one, as it was\n" was
 
-    -- ONE TRAVERSAL POLICY.  A symlinked directory is never followed — the
-    -- walk's own rule, read from the walk ('Data.Org.Walk.entryOf') rather
-    -- than guessed at again here.  Followed, a link's whole target tree would
-    -- be copied into the trash while the removal took only the link.
+    -- A symlinked directory is never followed — the walk's own rule
+    -- ('Data.Org.Walk.entryOf'), else a link's whole target tree is copied in.
   , testCase "a symlinked directory in a blob is declined, not followed" $
       withTempDirNamed "trash-link" $ \root -> do
         let blob = blobPathIn (storeRootIn root) "a792f0"
@@ -531,8 +455,7 @@ trashSpec = testGroup "Trash"
         assertEqual "which is still where it was" True
           =<< doesFileExist (away </> "deep" </> "secret.org")
 
-    -- A SECOND DELETION OF ONE ID is the first one's bytes being asked for
-    -- again: refused, and what is already kept is what stays.
+    -- A SECOND DELETION OF ONE ID is refused, and the first one's bytes stay.
   , testCase "a trash that already holds the id keeps what it has" $
       withTempDirNamed "trash-twice" $ \root -> do
         let blob = blobPathIn (storeRootIn root) "a792f0"
@@ -551,17 +474,14 @@ trashSpec = testGroup "Trash"
                   (fromJust (trashPathFor root blob))
         assertEqual "and the first is what is kept" "first\n" kept
 
-    -- THE TRASH IS NOT WALKED, and gets that from the denylist rather than from
-    -- the extension: a `.org' put there is still declined.
+    -- The denylist decides, so a `.org' put under trash is still declined.
   , testCase "nothing under trash is walked" $
       assertEqual "declined like every other derived name" True
         (isDerived (storeRootIn "/t" </> "trash" </> "a7" </> "92f0" </> "data.org"))
   ]
 
--- | THE SECOND LEDGER, and the first one keyed by something other than a blob:
--- one line per completion of a repeating entry, under the SERVED root's own
--- store.  Derived, never truth — the org file already carries the shifted stamp
--- and the reset keyword, so a tree with no store repeats and records nothing.
+-- | THE SECOND LEDGER, keyed by the SERVED root's own store.  Derived, never
+-- truth: a tree with no store repeats and records nothing.
 completionSpec :: TestTree
 completionSpec = testGroup "Completions"
   [ testCase "four fields, in the order the contract froze" $
@@ -577,8 +497,7 @@ completionSpec = testGroup "Completions"
         \\"shifted\":\"x\"}\n"
         (completionLine (Completion "a\"b" "A\\B" "x") (stamp "2026-08-03T04:21:07"))
 
-    -- A tree with no `.org-glance' keeps org's own behaviour and no ledger: no
-    -- daemon makes a store directory it was not given.
+    -- No daemon makes a store directory it was not given.
   , testCase "a tree with no store has nowhere to record, and none is made" $
       withTempDirNamed "no-store" $ \dir -> do
         assertEqual "nothing to write to" Nothing =<< completionsPathOf dir
@@ -593,21 +512,18 @@ completionSpec = testGroup "Completions"
         assertEqual "the path it answers with" (Just note) =<< completionsPathOf dir
         noteCompletion dir (Completion "i" "TODO" "<2026-08-15 Sat +1w>")
         noteCompletion dir (Completion "j" "NEXT" "<2026-08-16 Sun +1d>")
-        -- APPEND-ONLY: the second line joins the first rather than replacing it.
+        -- APPEND-ONLY: the second line joins the first, which stays where it is.
         lines' <- T.lines <$> document note
         assertEqual "one line per completion" 2 (length lines')
         assertBool "the first is still there" ("\"id\":\"i\"" `T.isInfixOf` head lines')
         assertBool "and the second followed it" ("\"id\":\"j\"" `T.isInfixOf` last lines')
 
 
-    -- END TO END: a repeating row completed through the write route.  ONE write
-    -- moves the stamp and resets the keyword, and the ledger line rides its
-    -- success -- so the file stays org's own and the history sits beside it.
+    -- END TO END: ONE write shifts the stamp, resets the keyword, and records it.
   , testCase "completing a repeating row shifts it, resets it and records it" $
       withStore $ \dir -> do
         -- The planning line is the ONE line after the title and BEFORE any
-        -- drawer, so the fixture is spelled out rather than built from
-        -- `entryAs', which puts the drawer straight under the headline.
+        -- drawer, which `entryAs' cannot spell.
         let repeating = "* TODO Water the plants\n\
                         \SCHEDULED: <2020-01-06 Mon +1w>\n\
                         \  :PROPERTIES:\n\
@@ -630,8 +546,7 @@ completionSpec = testGroup "Completions"
         assertBool ("and the state it reset to: " <> show recorded)
                    ("\"state\":\"TODO\"" `T.isInfixOf` head recorded)
 
-    -- A row with no repeater takes the plain path and records nothing, so the
-    -- ledger describes repeats and only repeats.
+    -- No repeater takes the plain path, so the ledger describes repeats only.
   , testCase "an ordinary state change records no completion" $
       withStore $ \dir -> do
         _ <- blobIn dir "abcdef" (entry "abcdef" "TODO")

@@ -1,18 +1,5 @@
--- | The default theme, light and dark.
---
--- Its faces are the author's Emacs theme (../danneskjold-theme), which is why
--- a tree reads the same in both places; nothing else here depends on that.
---
--- Four values are deliberately off those faces:
---
---   * light 'pMuted' #7F8C8D -> #667071 and light 'pAccent' #4CB5F5 ->
---     #31769F, lightness only, hue held: 3.5:1 -> 5.1:1 and 2.3:1 -> 5.0:1 on
---     white.  Muted text is read; a focus frame is looked for.
---   * 'pLink' is that same correction on the accent, measured against the
---     grounds a ROW can wear.
---   * 'pBorder' goes the other way, QUIETER than the theme's own (1.25:1 and
---     1.5:1 against 1.8:1): a hairline carries nothing, so a visible rule is
---     noise.
+-- | The default theme, light and dark.  Its faces are the author's Emacs theme
+-- (../danneskjold-theme); four values are corrected for contrast, hue held.
 module Glance.Web.Theme.Default (defaultLight, defaultDark) where
 
 import Glance.Web.Theme.Types (Palette (..))
@@ -36,7 +23,6 @@ defaultLight = Palette
   , pBad       = "#E74C3C"
   , pVeil      = "#00000066"
   , pShadow    = "#00000033"
-  -- A lit ground takes a hue further before it reads as tinted.
   , pChipWash  = "45%"
   , pChipEdge  = "95%"
   , pMarkWash  = "8%"
@@ -46,10 +32,7 @@ defaultLight = Palette
   , pSortWash  = "52%"
   , pColsWash  = "52%"
     -- DARK ENOUGH TO BE INK.  A pill draws its hue as text over a 15% wash of
-    -- itself, and on a SELECTED row that wash sits on golden — so a light
-    -- theme's state hues are the deep ends of their families rather than the
-    -- mid-tones a white-only ground would take.  All clear 4.5:1 on white and
-    -- stay legible over the selection.
+    -- itself, and on a SELECTED row that wash sits on golden.
   , pActive    = ["#9A3412", "#B45309", "#B91C1C", "#7C2D12"]
   , pInactive  = ["#166534", "#0F766E", "#1D4ED8", "#4B5563"]
   , pPriority  = ["#B91C1C", "#A16207", "#15803D"]
@@ -74,7 +57,6 @@ defaultDark = Palette
   , pBad       = "#E74C3C"
   , pVeil      = "#00000099"
   , pShadow    = "#00000077"
-  -- And a dark one has less room, so every wash is the shorter journey.
   , pChipWash  = "18%"
   , pChipEdge  = "34%"
   , pMarkWash  = "30%"
@@ -83,8 +65,6 @@ defaultDark = Palette
   , pCellWash  = "9%"
   , pSortWash  = "18%"
   , pColsWash  = "18%"
-    -- And a dark ground takes the light ends, which is the palette this table
-    -- has always worn.
   , pActive    = ["#E0AF68", "#FF9E64", "#F7768E", "#FFC777"]
   , pInactive  = ["#9ECE6A", "#73DACA", "#41A6B5", "#7C86BF"]
   , pPriority  = ["#E74C3C", "#FFCC00", "#27AE60"]

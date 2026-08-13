@@ -1,26 +1,5 @@
 -- | WHERE A DELETED BLOB GOES, and the move that puts it there:
--- @\<store\>\/.org-glance\/trash\/\<shard\>\/\<rest\>\/data.org.gz@.
---
--- DELETION IS A MOVE, never an unlink.  A blob is the canonical document — the
--- index is its projection and can be rebuilt, the document cannot — so the one
--- destructive command this daemon has takes the bytes out of the live tree and
--- keeps them.  Compressed because a trash that costs nothing is one nobody
--- empties, and the shard path is preserved because an id is what a restore
--- would be asked for.
---
--- THE TRASH IS NOT WALKED, and the DENYLIST is what says so:
--- 'Data.Org.Walk.derivedDirs' names it beside @overviews@ and @meta@.  The
--- @.gz@ would keep it out of 'Data.Org.Walk.isDocument' anyway, but resting on
--- that would make the rule an accident of how the bytes are stored rather than
--- a fact about the directory.
---
--- AND THIS IS A DOOR org-glance IS NOTED THROUGH, the second of two.
--- 'Glance.Query.replaceSpans' is the one every write leaves by and takes
--- 'Data.Org.External.noteExternalWrite' on its success branch; a delete splices
--- no spans and reaches it never, so the move takes
--- 'Data.Org.External.noteExternalDelete' on its own.  Both notes are keyed by
--- the PATH that moved, which is why they sit at the two doors that move bytes
--- rather than in the routes above them.
+-- @\<store\>\/.org-glance\/trash\/\<shard\>\/\<rest\>\/data.org.gz@.  See AGENTS.hs.
 module Data.Org.Trash ( trashDirIn
                       , trashPathFor
                       , trashBlob
@@ -42,19 +21,10 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
--- | The trash directory of the store at ROOT.  Beside @data@ and @meta@ rather
--- than inside one: what is in it is no longer data, and 'Data.Org.Index' reads
--- @meta@ line by line.
 trashDirIn :: FilePath -> FilePath
 trashDirIn root = storeRootIn root </> trashDir
 
--- | Where the blob at PATH is to be kept, or 'Nothing' where PATH is not a blob
--- at all — the only thing this command deletes.
---
--- The SHARD is carried over verbatim: @data\/a7\/92f0…\/data.org@ becomes
--- @trash\/a7\/92f0…\/data.org.gz@, so the id a restore names is still spelled by
--- the path.  Read off the path rather than off an id, since the path is what
--- the walk found and an id is what a headline claims.
+-- | Where the blob at PATH is to be kept, or 'Nothing' where PATH is not a blob.
 trashPathFor :: FilePath -> FilePath -> Maybe FilePath
 trashPathFor root path
   | not (isBlob path) = Nothing
@@ -66,25 +36,8 @@ trashPathFor root path
       _                                  -> Nothing
 
 -- | Move the blob at PATH into ROOT's trash, compressed, and take the original
--- out of the live tree.  Answers where it was put, or why it was not.
---
--- THE WHOLE BLOB DIRECTORY GOES, not the document alone: org-glance keeps a
--- blob's history beside it in @occurrences\/@, and leaving that behind would
--- make a deleted entry a directory nothing reads and nothing prunes.  Each file
--- lands under the mirror of its own path, so what comes back out is the
--- directory that went in.
---
--- THE COPY LANDS BEFORE THE ORIGINAL GOES, so a failure at either step leaves
--- the document somewhere: a write that cannot finish is a blob still in the
--- tree, never one in neither place.  A destination that already exists is a
--- second deletion of the same id — the first one's bytes are what is kept, and
--- saying so is better than overwriting them.
---
--- THE TOMBSTONE RIDES SUCCESS AND ITS ID IS READ AHEAD OF IT.  Every 'Left'
--- here leaves the blob in the live tree, so a line on one of them would tell
--- org-glance to drop a record whose document is still there; and the id lives
--- in the document the removal takes away, so it is read while the bytes are
--- still here and spent afterwards.
+-- out of the live tree.  THE COPY LANDS BEFORE THE ORIGINAL GOES, and the
+-- tombstone's id is read while the document the move takes away is still here.
 trashBlob :: FilePath -> FilePath -> IO (Either Text FilePath)
 trashBlob root path = case trashPathFor root path of
   Nothing   -> pure (Left (T.pack path <> " is not a blob: only a blob is deleted"))
@@ -104,18 +57,11 @@ trashBlob root path = case trashPathFor root path of
           Right () -> do mapM_ (noteExternalDelete path) doc
                          pure (Right dest)
   where
-    -- ONE FILE OF THE BLOB, under the mirror of its own directory: a stamp in
-    -- @occurrences\/@ lands at @occurrences\/\<STAMP\>.org.gz@, so what comes
-    -- back out is the directory that went in.
     keep from to file = do
       let dest = to </> makeRelative from file <> ".gz"
       createDirectoryIfMissing True (takeDirectory dest)
       BL.readFile file >>= BL.writeFile dest . GZip.compress
 
--- | PATH's text, or 'Nothing' where it cannot be read or does not decode.
---
--- The note it feeds is a hint, so an unreadable document costs the line and
--- nothing else — the deletion itself reads bytes it never decodes.
 documentAt :: FilePath -> IO (Maybe Text)
 documentAt path = do
   raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
@@ -123,14 +69,8 @@ documentAt path = do
     Left _unreadable -> Nothing
     Right bytes      -> either (const Nothing) Just (TE.decodeUtf8' bytes)
 
--- | Every regular file under DIR, at any depth.  A blob is @data.org@ plus
--- whatever history org-glance keeps beside it, and the whole directory goes.
---
--- THE WALK'S OWN READING ('Data.Org.Walk.entryOf'), and its symlink rule with
--- it: a link pays a SECOND stat, and one pointing at a directory is DECLINED —
--- it is not the blob's content, and following it would copy a whole foreign
--- tree into the trash while the removal took only the link.  A link to a FILE
--- is read as the file it names, which is what a file symlink means.
+-- | Every regular file under DIR, at any depth.  A symlinked DIRECTORY is
+-- DECLINED: following one would copy a foreign tree into the trash.
 filesUnder :: FilePath -> IO [FilePath]
 filesUnder dir = do
   names <- listDirectory dir

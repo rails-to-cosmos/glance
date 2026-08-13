@@ -1,26 +1,4 @@
--- | The web layer: headlines out of a directory, into a browser tab, and kept
--- current there.  This module is the daemon — bind, walk, watch — and the door
--- the rest of the program comes through.
---
--- This component's build-depends names the public @glance@ library alone, so
--- @Data.Org.*@ is out of scope here and reaching for it means writing the
--- dependency where anyone reading the stanza sees it.  The facade invariant,
--- kept where the solver can check it.
---
--- Below it in dependency order: 'Glance.Web.Base' (what one server serves),
--- 'Glance.Web.Keymap', 'Glance.Web.Theme', 'Glance.Web.Page' (@.Style@ the
--- stylesheet, @.Glue@ the script), 'Glance.Web.Commands', and
--- 'Glance.Web.Routes' over all of it.
---
--- THE WALK DOES NOT HAPPEN FIRST.  Warp binds, the banner prints, and the one
--- full parse runs on its own thread; the store routes answer 503 until it lands
--- and the watch starts after it, so it never sees a store the walk has not
--- finished writing.  A 15-second walk used to be 15 seconds of refused
--- connections.
---
--- The listener binds 127.0.0.1 and nothing else: until an unauthenticated
--- connection is read-only by construction, the loopback interface is the whole
--- access-control story.
+-- | The web layer: the daemon — bind, walk, watch — and the door the rest of the program comes through.  It binds 127.0.0.1 alone.
 module Glance.Web ( ServeOptions (..)
                   , defaultPort
                   , application
@@ -49,26 +27,12 @@ import Glance.Web.Store ( Hub, finishLoading, loadStoreWith
                         , newLoadingHub, storeResult )
 import Glance.Web.Watch (say, watchOrgTree)
 
--- Server
 
 -- | Serve OPTS until killed.
 serve :: ServeOptions -> IO ()
 serve opts = serveAs "serve" opts (pure ())
 
--- | Serve OPTS until killed, running LISTENING once the socket is bound.  A
--- missing org directory fails here rather than per request: the operator learns
--- at startup, where a 500 would tell them too late.
---
--- MODE is the subcommand that asked — one daemon either way, and what the
--- banner and the startup failure call it, so @glance desktop@ does not report
--- itself as @glance serve@.
---
--- The walk runs on its own thread: the store routes answer 503 until it lands
--- ('indexing') and the watch starts after it, so it never sees a half-written
--- store.  LISTENING is what @glance desktop@ opens its window from, and the
--- socket is where a window is wanted — the indexing page is the point of
--- serving before the load.  It runs on its own thread; the accept loop waits
--- for no window.
+-- | Serve OPTS until killed, running LISTENING once the socket is bound.  MODE is the subcommand that asked; a missing org directory fails here.
 serveAs :: String -> ServeOptions -> IO () -> IO ()
 serveAs mode opts listening = do
   ok <- doesDirectoryExist (soDir opts)
@@ -88,9 +52,7 @@ serveAs mode opts listening = do
       say (bannerLines mode opts assets)
       void (forkIO listening)
 
--- | What OPTS announces at startup under MODE, ASSETS saying whether the
--- renderer was found.  Pure, the way @Glance.Desktop@'s @--dry-run@ lines are:
--- what the operator is told is worth a test that runs no server.
+-- | What OPTS announces at startup under MODE, ASSETS saying whether the renderer was found.
 bannerLines :: String -> ServeOptions -> Bool -> [String]
 bannerLines mode opts assets =
   [ "glance " <> mode <> " — http://127.0.0.1:" <> show (soPort opts) <> "/"
@@ -103,10 +65,7 @@ bannerLines mode opts assets =
   , "  indexing — /headlines, /headline and /ws answer 503 until the walk lands."
   ]
 
--- | Walk and parse OPTS's directory into HUB, then watch it.  Runs off the
--- main thread from STARTED, and keeps the two in order: the watch's first
--- event must land on a store the walk has finished building, or a re-parse
--- would be folded into a store that is about to be replaced wholesale.
+-- | Walk and parse OPTS's directory into HUB, then watch it: the watch's first event must land on a store the walk has finished building.
 indexTree :: ServeOptions -> Hub -> Double -> IO ()
 indexTree opts hub started = do
   store <- loadStoreWith (walkFor opts) (soDir opts)
@@ -117,14 +76,11 @@ indexTree opts hub started = do
     [ "  loaded:  " <> show (length (qrRecords stats)) <> " rows from "
         <> show (qrFiles stats) <> " files in " <> seconds (loaded - started)
         <> collisionNote (qrIdCollisions stats)
-    -- Where `+' would write, said once at startup.
     , "  capture: " <> captureTargetIn (soDir opts)
     ]
   watchOrgTree (walkFor opts) (soDir opts) hub
 
--- | What to say about CLASHES on the startup banner: nothing when there are
--- none, and the count with one example when there are — two files claiming one
--- id is a tree worth looking at, and the header carries the number for a client.
+-- | What to say about CLASHES on the startup banner: the count with one example.
 collisionNote :: [IdCollision] -> String
 collisionNote [] = ""
 collisionNote (c : rest) =

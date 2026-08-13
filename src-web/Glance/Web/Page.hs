@@ -13,8 +13,6 @@ import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Page.Glue (glueConfig)
 import Glance.Web.Page.Style (fontFace, page)
 
--- | The shell: the DOM the glue addresses and nothing else — one mount point,
--- the event strip, the key line, and the overlays that stand over them.
 
 demoShell :: ServeOptions -> Maybe FilePath -> [(Text, [(Text, Text)])]
           -> [(Text, Text)] -> Text
@@ -135,7 +133,6 @@ popupFrame name p tier overlay =
 field :: Text -> Text
 field name = "<input id=\"" <> name <> "\" spellcheck=\"false\">"
 
--- | One row of the settings sheet: LABEL beside CONTROL.
 crow :: Text -> Text -> Text
 crow label control = "        <div class=\"crow\">" <> label <> control <> "</div>"
 

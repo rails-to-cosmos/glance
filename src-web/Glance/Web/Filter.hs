@@ -1,8 +1,5 @@
 -- | The filter query language: @?q=@ as SCHEMA.md's micro-syntax.
---
--- A port term by term of @table-view.js@'s @scanQuery@, @parseQuery@ and
--- @tokenTest@ — parity is the contract.  The grammar, the starred metas and
--- every known divergence are in AGENTS.hs and @table-view\/SCHEMA.md@.
+-- A port term for term of @table-view.js@; the grammar, the starred metas and every known divergence are in AGENTS.hs.
 module Glance.Web.Filter ( FilterEnv
                          , Term (..)
                          , Token (..)
@@ -43,8 +40,7 @@ import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
 dateKeys :: [Text]
 dateKeys = ["scheduled", "deadline"]
 
--- | @ref:ROWID@ — rows whose subtree points at the row named.  Producer-only,
--- and the one predicate whose value is NOT folded: a row id is exact-string.
+-- | @ref:ROWID@ — rows whose subtree points at the row named.  Producer-only, and the one predicate value that is NOT folded.
 refKey :: Text
 refKey = "ref"
 
@@ -65,10 +61,7 @@ columnsKey = "columns"
 viewKeys :: [Text]
 viewKeys = [sortKey, columnsKey, viewKey]
 
--- | @view:NAME@ — the saved view a query names.  A VIEW TOKEN like its two
--- siblings, so it narrows nothing here: what a name MEANS is the shell's, which
--- expands it before the fetch, and a query that reaches this side still holding
--- one is answered with every row rather than with a guess.
+-- | @view:NAME@ — the saved view a query names.  A VIEW TOKEN, so it narrows nothing here: the shell expands it ahead of the fetch.
 viewKey :: Text
 viewKey = "view"
 
@@ -85,7 +78,6 @@ data Token = Token
 refusedOn :: Text -> Term -> Text -> Text
 refusedOn key t why = why <> ": '" <> spellingOf key t <> "'"
 
--- | T as the reader wrote it under KEY, negation and all.
 spellingOf :: Text -> Term -> Text
 spellingOf key t = (if tmNegated t then "-" else "") <> key <> ":" <> tmValue t
 
@@ -142,21 +134,18 @@ tagsKey = "tag"
 archiveKey :: Text
 archiveKey = T.toLower archiveTag
 
--- | The archive tag as the META — the one query that lifts the exclusion.
 archiveMeta :: Text
 archiveMeta = metaWord MArchive
 
 emptyMeta :: Text
 emptyMeta = metaWord MEmpty
 
--- | VALUE's word where VALUE is a starred meta; a bare word is never one.
 metaOf :: Text -> Maybe Text
 metaOf value = do
   inner <- T.stripSuffix "*" =<< T.stripPrefix "*" value
   if T.null inner then Nothing else Just inner
 
--- | Does Q name 'archiveMeta' through the @tag@ column?  Any spelling counts,
--- alternatives included, and the STARRED spelling alone.
+-- | Does Q name 'archiveMeta' through the @tag@ column?  Any spelling counts, alternatives included, and the STARRED spelling alone.
 namesArchive :: Text -> Bool
 namesArchive = any names . parseFilter
   where names t = tmKey t == Just tagsKey
@@ -184,7 +173,6 @@ newtype FilterEnv = FilterEnv
 emptyEnv :: FilterEnv
 emptyEnv = FilterEnv (const Nothing)
 
--- | The environment ROWS answer as; already id-resolved, so first match wins.
 storeEnv :: [HeadlineRecord] -> FilterEnv
 storeEnv rows = FilterEnv resolve
   where resolve rid = (\r -> RefRow (hrId r) (refSpellings r))
@@ -220,8 +208,7 @@ compile env = map inverted . filter ((`notElem` map Just viewKeys) . tmKey)
   where inverted t | tmNegated t = not . termTest env t
                    | otherwise   = termTest env t
 
--- ONE EQUATION PER CONSTRUCTOR and no wildcard, so a fifth key is named HERE by
--- the compiler rather than folded into the column arm and silently case-folded.
+-- ONE EQUATION PER CONSTRUCTOR and no wildcard, so a fifth key is named HERE by the compiler.
 valueFor :: Field -> Term -> Text
 valueFor Ref       = tmValue
 valueFor (Col _)   = T.toLower . tmValue
@@ -254,14 +241,11 @@ keyTest env _key Ref value = case feRef env value of
   Just row -> \r -> hrId r /= rrId row && any (`elem` hrLinks r) (rrTargets row)
 keyTest _env _key Order _value = const True
 keyTest _env _key Whole value = freeTest value
--- The two that read a row's CELLS, spelled rather than left to a wildcard: a
--- fifth key falling in here would read `fieldCells'' empty list and match
--- nothing, with no warning.
+-- The two that read a row's CELLS, spelled out: a fifth key falling in here would read an empty cell list and match nothing, with no warning.
 keyTest _env key field@(Col _) value = cellsTest key field value
 keyTest _env key field@Planned value = cellsTest key field value
 
--- | The cell reading `Col' and `Planned' share: every cell the key names, the
--- empty meta asking whether all of them are empty.
+-- | The cell reading `Col' and `Planned' share: every cell the key names, the empty meta asking whether all of them are empty.
 cellsTest :: Text -> Field -> Text -> HeadlineRecord -> Bool
 cellsTest key field value
   | value == emptyMeta = \r -> all (T.null . (`cellOf` r)) cells
@@ -281,8 +265,7 @@ cellsTest key field value
     -- Keyed by the CELL's index, so @planned@ can never reach this meta.
     tagMeta i | i == tagsColumn = metaOf value
               | otherwise       = Nothing
-    -- @*active*@ ORs in the EMPTY cell and @*inactive*@ does not, so the two
-    -- do not partition the column.
+-- @*active*@ ORs in the EMPTY cell where @*inactive*@ does not, so the two do not partition the column.
     state cell r | value == activeMeta   = hrActive r == Just True || T.null (cell r)
                  | value == inactiveMeta = hrActive r == Just False
                  | otherwise             = priorityLetter (cell r) == priorityLetter value
@@ -293,7 +276,6 @@ cellOf n = cellAt n . hrSearch
 tagsColumn :: Int
 tagsColumn = length (takeWhile (/= tagsKey) filterKeys)
 
--- | Field N of HAY ('Glance.Query.hrSearch'); cut rather than split.
 cellAt :: Int -> Text -> Text
 cellAt n hay = T.takeWhile (/= cellSep) (skip n hay)
   where skip k t | k <= 0    = t

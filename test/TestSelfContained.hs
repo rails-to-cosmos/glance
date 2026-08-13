@@ -1,21 +1,4 @@
--- | Repo hygiene rather than behaviour: nothing this package builds names a
--- path outside the repository, and the one file it vendors has a way to be
--- refreshed.  Both were bought at a price — the renderer was read at run time
--- out of one machine's home directory until 2026-08-02, so a correct build
--- served a table-less page on every other machine — and neither is visible to a
--- test that drives the server, which is why they live in a module of their own
--- rather than beside the routes.
---
--- A ROUTE RESOLVING THE STORE TWICE was the third rule here and is gone.  It
--- gave the right answer and cost double, which is exactly why no test that
--- drove the server could see it: @\/tags@ owes two folds over the rows, and
--- every 'Glance.Web.Store.storeRecords' is a whole id resolution (~28 ms over
--- the 10435-row @~\/sync@ tree, 2026-08-03).  A grep over @tagsView@'s own
--- source lines guarded it until 2026-08-03, when the design took the hazard
--- away instead: 'Glance.Web.Store' offers nothing that takes a 'Store' and
--- answers about an id, so a second resolution has no spelling left.  The rule
--- is that module's export list now, and a test reading source text for it would
--- be re-asserting the type checker.
+-- | Repo hygiene, and what no test that drives the server can see.
 module TestSelfContained (spec) where
 
 import Control.Monad (filterM, forM, forM_)
@@ -31,41 +14,25 @@ import TestDefaults (holdsAll)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
--- | The parts converted to step C, each with the shell state it must not name.
--- The renderer handle and the shell's own view state are what a widget would
--- reach for around its arguments, and what a port to another language could
--- not take with it.
 wrappedWidgets :: [(FilePath, [T.Text])]
 wrappedWidgets =
   [ ("05-keys.js", [ "table.", "cols", "query", "editing", "prompting"
                    , "SURFACES", "MAPS", "socket" ])
-    -- The popups take `edit' as the ACCESSOR `editNow', so the `let' itself is
-    -- on the list; `!!edit' and `edit.o' name it where `openEdit' and
-    -- `lediting' merely contain the letters.
+    -- `!!edit' and `edit.o' name the `let'; `openEdit' merely holds the letters.
   , ("40-popups.js", [ "table.", "query", "prompting", "SURFACES", "MAPS"
                      , "socket", "!!edit", "edit.o", "drows", "crows" ])
-    -- The capture form takes the query, the columns, the entry on show and the
-    -- landing anchor as accessors, so the bindings themselves are on its list.
   , ("30-capture.js", [ "can(table", "table.get", "SURFACES", "MAPS", "socket"
                       , "crows", "drows", "editing.", "arriving =" ]) ]
 
--- | The widget\'s BODY: what sits inside the wrapper, with the call site that
--- SUPPLIES the dependencies left out. The call site names the very bindings the
--- widget may not reach — that is what it is for — so checking the whole file
--- would report every accessor it was handed.
+-- | Inside the wrapper alone — the call site names the very forbidden bindings.
 widgetBody :: T.Text -> T.Text
 widgetBody = T.unlines . takeWhile (not . T.isPrefixOf "    return {") . T.lines
 
--- | What a proposal's header declares for MARKER, CUT to the field's own
--- shape.  Off the FIRST line carrying the marker rather than off a line it
--- leads: @**Status:**@ opens its line and @**Date:**@ as often trails a status
--- on one.
 declares :: T.Text -> (T.Text -> T.Text) -> T.Text -> Maybe T.Text
 declares marker cut body = listToMaybe
   [ cut (T.drop (T.length marker) rest)
   | l <- T.lines body, let rest = snd (T.breakOn marker l), not (T.null rest) ]
 
--- | The two cuts: a status is one word, a date is @YYYY-MM-DD@.
 word, day :: T.Text -> T.Text
 word = T.takeWhile (/= ' ')
 day  = T.take 10
@@ -79,18 +46,14 @@ spec :: TestTree
 spec = testGroup "Self-containment"
   [ testCase "no absolute home path anywhere in the sources" $ do
       files <- haskellSources
-      -- A sweep over nothing passes, so it says what it swept first: the module
-      -- the path used to live in, and a package's worth of files around it.
+      -- A sweep over nothing passes, so it says what it swept first.
       assertBool "the sweep missed the module that carried the path"
                  ("src-web/Glance/Web.hs" `elem` files)
       assertBool ("too few sources swept: " <> show (length files)) (length files >= 12)
       hits <- concat <$> mapM homePaths files
       assertEqual "sources naming an absolute home directory" [] hits
 
-    -- AND `tsc' READS THE SAME SEVEN.  `assets/jsconfig.json' names the parts a
-    -- second time, for a tool that reports clean over whatever it was handed —
-    -- so a part added to the build and forgotten there is checked by nothing,
-    -- which is the shape `checkJs' without `allowJs' already had.
+    -- tsc reports clean over whatever it is handed, so its own list is checked.
   , testCase "the type checker reads the parts the build does" $ do
       conf <- TIO.readFile "assets/jsconfig.json"
       assertBool "the part list is empty" (length gluePartFiles >= 2)
@@ -98,24 +61,8 @@ spec = testGroup "Self-containment"
                   [ part | part <- gluePartFiles
                          , not (T.pack ("glue/" <> part) `T.isInfixOf` conf) ]
 
-    -- A PROPOSAL'S NAME TELLS ITS DATE AND ITS STATUS, and the name is the
-    -- SECOND place each fact is written — so both are CHECKED rather than kept
-    -- in step by hand, which is the failure this repo keeps finding in its own
-    -- documents.  Each header field is read off the first line carrying its
-    -- marker, so the comparison is a string equality and no table of prose
-    -- spellings sits between the two.
-    --
-    -- THE SWEEP READS THE DIRECTORY.  Everything under @docs\/proposals@ IS a
-    -- proposal, so nothing is filtered and a document cannot escape the check
-    -- by being named wrong — which the old @proposal-@ prefix filter allowed,
-    -- it being the very name under test.  The sweep still says what it swept,
-    -- since an empty directory would otherwise pass.
+    -- The NAME is the second place each fact is written, so both are checked.
   , testCase "every proposal's name is the date and status it declares" $ do
-      -- AN EMACS SIDECAR IS NOT A DOCUMENT, which is the rule
-      -- 'Data.Org.Walk.isSidecar' already states for org files: @#name#@ is an
-      -- auto-save and @.#name@ a lock, both editor state, neither tracked, and
-      -- a name that declares nothing.  The sweep still reads the DIRECTORY, so
-      -- a proposal cannot escape it by being misnamed.
       let sidecar n = (("#" `isPrefixOf` n) && ("#" `isPrefixOf` reverse n))
                         || (".#" `isPrefixOf` n)
       names <- filter (not . sidecar) <$> listDirectory "docs/proposals"
@@ -134,9 +81,6 @@ spec = testGroup "Self-containment"
                | declaredDate /= Just (day stem) ]
       assertEqual "a proposal whose name and header disagree" [] wrong
 
-    -- ONE SOURCE FOR THE SHELL.  The parts are what the build reads and what a
-    -- served directory concatenates, so a whole `glue.js' beside them would be
-    -- a second copy to keep in step.
   , testCase "the shell's parts are the whole of the shell" $ do
       assertBool "the part list is empty" (length gluePartFiles >= 2)
       missing <- filterM (fmap not . doesFileExist . ("assets/glue" </>)) gluePartFiles
@@ -146,41 +90,22 @@ spec = testGroup "Self-containment"
       stray <- doesFileExist "assets/glue.js"
       assertBool "assets/glue.js is back — the parts are the source" (not stray)
 
-    -- A WIDGET REACHES ONLY WHAT IT WAS HANDED — and JS does nothing to hold
-    -- that, since the parts share one script scope and an IIFE still sees every
-    -- name around it.  The argument list DOCUMENTS the boundary; this keeps it.
-    --
-    -- A MUST-NOT-APPEAR LIST rather than an allowlist, the idiom this suite
-    -- already uses for renderer internals: an allowlist over a shared scope
-    -- cannot tell a local `t' from a foreign one without a parser, where a
-    -- denylist over the names that MATTER is exact.  What matters is the state
-    -- a widget must not reach around its arguments for.
-    --
-    -- `docs/proposals/2026-08-08-widget-files.partial.md' step C.  A part joins
-    -- by being wrapped and listed here, one widget at a time.
+    -- A MUST-NOT-APPEAR LIST: an allowlist over a shared script scope cannot
+    -- tell a local `t' from a foreign one without a parser.  AGENTS.hs, step C.
   , testCase "a wrapped widget reaches around its arguments for nothing" $
       forM_ wrappedWidgets $ \(part, forbidden) -> do
         body <- widgetBody <$> glueCode part
         let reached = [ name | name <- forbidden, name `T.isInfixOf` body ]
         assertEqual (part <> " reaches past its argument list") [] reached
 
-    -- And the wrapper says what it takes, so the list above and the code agree.
   , testCase "a wrapped widget declares its dependencies in its header" $
       forM_ wrappedWidgets $ \(part, _forbidden) -> do
         body <- glueCode part
         assertBool (part <> " is not wrapped: no `((deps) => {' header")
                    ("= ((" `T.isInfixOf` body && "})(" `T.isInfixOf` body)
 
-    -- A vendored file with no way to refresh it is a fork, so the loop that
-    -- ends in `assets/table-view.js' has to stay written down somewhere the
-    -- next reader runs into.
-    -- THE COMMITTED ELM IS WHAT SHIPS, and nothing here rebuilds it: the suite
-    -- reads `assets/elm.js' off disk, so a `make elm' that has stopped working
-    -- goes green.  It bit once already — test dependencies added by hand left
-    -- the indirect list short and elm refused the whole set.  What CAN be
-    -- asserted offline is that the asset carries every program the target
-    -- names, and that each of those sources is on disk; a module renamed,
-    -- added or dropped without a rebuild fails here.
+    -- NOTHING HERE REBUILDS THE ELM, so a broken `make elm' ships green.  What
+    -- is assertable offline: the asset carries every program the target names.
   , testCase "the committed Elm carries every program the build names" $ do
       makefile <- TIO.readFile "Makefile"
       let target = T.takeWhile (/= '\n')
@@ -203,21 +128,8 @@ spec = testGroup "Self-containment"
                ["sync-renderer:", "../table-view/web/table-view.js", "assets/table-view.js"]
                makefile
 
-    -- THE SPLICE DOOR IS ONE FUNCTION.  Every write that SPLICES SPANS leaves
-    -- through 'Glance.Web.Watch.writeSpans', which queues the path it just wrote
-    -- — a blob's shard is created and never watched, so a route splicing through
-    -- 'Glance.Query.replaceSpans' itself would write the file correctly and
-    -- deliver nothing until a restart.  Nothing in the types says so and the
-    -- import is one line, which is why the rule is swept for rather than relied
-    -- on.  Comments are exempt: four of them name the function to explain it.
-    --
-    -- WHAT THIS SWEEPS is 'Glance.Query.replaceSpans' call sites under
-    -- @src-web\/@, which is the splice door and the whole of it.  It is NOT
-    -- every way this daemon moves bytes: @delete@ splices no spans and MOVES a
-    -- blob directory through 'Data.Org.Trash.trashBlob', which lives outside
-    -- @src-web\/@ and so is outside this sweep by construction rather than by
-    -- oversight.  That second door carries its own note and its own rule; see
-    -- "ONE DOOR PER WAY BYTES MOVE" in AGENTS.hs.
+    -- The splice door is 'Glance.Web.Watch.writeSpans'; comments are exempt.
+    -- @delete@ MOVES a blob and is outside this sweep — see AGENTS.hs.
   , testCase "replaceSpans is spliced through the watch and nowhere else" $ do
       files <- filter ("src-web/" `isPrefixOf`) <$> haskellSources
       assertBool ("too few web sources swept: " <> show (length files)) (length files >= 12)
@@ -227,8 +139,6 @@ spec = testGroup "Self-containment"
       assertEqual "web modules splicing outside the write door" [] hits
   ]
 
--- | The lines of PATH that CALL @replaceSpans@ — every mention of it that is
--- not a comment — each with its file and number.
 calls :: FilePath -> IO [String]
 calls path = report . T.lines <$> TIO.readFile path
   where
@@ -238,8 +148,6 @@ calls path = report . T.lines <$> TIO.readFile path
                 , "replaceSpans" `T.isInfixOf` stripped
                 , not ("--" `T.isPrefixOf` stripped) ]
 
--- | Every Haskell file this package builds from.  The vendored GTK bindings are
--- out: they are upstream's, and are not built unless @-f native-window@ is.
 haskellSources :: IO [FilePath]
 haskellSources =
   concat <$> mapM under ["src", "src-query", "src-web", "src-desktop-native", "app"]
@@ -250,8 +158,6 @@ haskellSources =
       nested <- mapM under =<< filterM doesDirectoryExist entries
       pure (filter ((== ".hs") . takeExtension) files <> concat nested)
 
--- | The lines of PATH naming an absolute home directory, each with its file and
--- number, so a failure says where to look.
 homePaths :: FilePath -> IO [String]
 homePaths path = report . T.lines <$> TIO.readFile path
   where

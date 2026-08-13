@@ -16,8 +16,7 @@ repeating :: TsMoment -> TimestampRepeaterInterval -> Timestamp
 repeating moment interval = (plainTs TimestampActive moment) { tsInterval = Just interval }
 
 -- | One row per source that must parse to a timestamp and nothing more: LABEL,
--- INPUT, and what INPUT must parse to.  A case asserting something else — a
--- projection out of the parse, a render — stays a case of its own below.
+-- INPUT, and what INPUT must parse to.
 parseCases :: [(String, Text, Maybe Timestamp)]
 parseCases =
   [ ( "Active date with time", "<2024-01-15 Mon 10:30>"
@@ -58,16 +57,12 @@ parseCases =
              { tsInterval = Just (TimestampRepeaterInterval Restart 1 Weeks TRSPlus) } )
 
     -- '-' opens both a range end and a warning cookie; only the time's colon
-    -- separates them, so "-1d" backtracks out of the range and stays a cookie
-    -- whether or not a space precedes it.  org's grammar: a lone "-1d" is the
-    -- agenda warning, never a repeater.
+    -- separates them, so "-1d" backtracks out of the range.  org's grammar.
   , ( "A warning cookie is not a range end", "<2024-01-15 Mon 10:30-1d>"
     , Just ((plainTs TimestampActive (at "2024-01-15 10:30:00"))
               { tsWarning = Just (TimestampWarningInterval False 1 Days) }) )
 
-    -- org's canonical two-cookie stamp: repeater and warning side by side —
-    -- the second cookie used to block the closing bracket, failing the whole
-    -- timestamp and, behind a planning keyword, demoting the line to body.
+    -- org's canonical two-cookie stamp: repeater and warning side by side.
   , ( "Repeater and warning together (test-org-element/timestamp-parser)"
     , "<2024-01-15 Mon +1m -3d>"
     , Just ((repeating (on "2024-01-15 00:00:00")
@@ -80,8 +75,8 @@ parseCases =
                        (TimestampRepeaterInterval Cumulative 2 Days TRSPlus))
               { tsWarning = Just (TimestampWarningInterval True 7 Days) }) )
 
-    -- org-element reads the cookies in either order; the conventional
-    -- repeater-then-warning is what a re-render spells.
+    -- org-element reads the cookies in either order; a re-render spells
+    -- repeater-then-warning.
   , ( "Warning written before the repeater", "<2024-01-15 Mon -3d +1m>"
     , Just ((repeating (on "2024-01-15 00:00:00")
                        (TimestampRepeaterInterval Restart 1 Months TRSPlus))
@@ -118,8 +113,7 @@ spec = testGroup "Timestamp"
   [ testGroup "Parses" (map parseCase parseCases)
 
   , testGroup "Ranges"
-    -- A half not followed by a matching "--[" leaves tsEnd unset; the
-    -- mismatched-bracket document itself fails to parse (see TestNegative).
+    -- The mismatched-bracket document itself fails to parse (see TestNegative).
     [ testCase "A lone half is not a range" $
         assertEqual "" (Just Nothing) (tsEnd <$> parseTimestamp "[2023-07-15 Sat 15:54] tail")
 

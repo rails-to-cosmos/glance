@@ -1,10 +1,4 @@
--- | What more than one test module needs: fixture builders, the temp-directory
--- scaffolding the on-disk cases run in, the JSON accessors every wire assertion
--- reads a response through, and the one corpus gate.
---
--- The JSON accessors live here rather than beside their callers because four
--- modules were reading the same shapes four ways; each fails the test with what
--- it found instead, which is the whole reason not to use a partial pattern.
+-- | What more than one test module needs: fixture builders, the temp-directory scaffolding the on-disk cases run in, the JSON accessors every wire assertion reads a response through, and the one corpus gate.
 module TestDefaults ( assertContains
                     , assertParts
                     , at
@@ -65,9 +59,7 @@ import Control.Exception (IOException, finally, throwIO, try)
 import Data.Aeson (Value (Bool, Null, Number, Object, String), parseJSON)
 import Data.Aeson.Types (parseEither)
 import Data.List (sort)
--- 'headlinesOf' is hidden and spelled again below ON PURPOSE: the suite's copy
--- is an INDEPENDENT ORACLE for the span groups that read it, and one derived
--- from the library would agree with any change to it.
+-- 'headlinesOf' is hidden and spelled again below ON PURPOSE: the suite's copy is an INDEPENDENT ORACLE for the span groups that read it.
 import Data.Org hiding (headlinesOf)
 import Data.Org.Config (configDirIn, configPaths)
 import Data.Org.Walk (findOrgFiles, foundFiles)
@@ -100,7 +92,6 @@ import Glance.Query (HeadlineRecord, QueryResult (qrRecords), digestOfText, load
 
 -- Time
 
--- | The UTC time T spells as "%Y-%m-%d %H:%M:%S".
 strptime :: Text -> UTCTime
 strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (T.unpack t)
 
@@ -112,7 +103,6 @@ at t = TsMoment (strptime t) True
 on :: Text -> TsMoment
 on t = TsMoment (strptime t) False
 
--- | A timestamp of STATUS at MOMENT: no repeater, no range end.
 plainTs :: TimestampStatus -> TsMoment -> Timestamp
 plainTs status moment = Timestamp { tsStatus = status
                                   , tsInterval = Nothing
@@ -121,7 +111,6 @@ plainTs status moment = Timestamp { tsStatus = status
                                   , tsEnd = Nothing
                                   , tsCompactRange = False }
 
--- | A compact same-day range of STATUS: START through END in one bracket pair.
 compactTs :: TimestampStatus -> TsMoment -> TsMoment -> Timestamp
 compactTs status start end = (plainTs status start) { tsEnd = Just end
                                                     , tsCompactRange = True }
@@ -140,13 +129,10 @@ withTodo ctx (actives, inactives) =
 
 -- Documents
 
--- | The suite's sample directory: one sample document and one that is not
--- UTF-8, six headlines between them.  The facade, the filter and the server all
--- answer questions about this one tree, so they all name it here.
+-- | The suite's sample directory, named here because the facade, the filter and the server all answer questions about this one tree.
 viewDir :: FilePath
 viewDir = "test/fixtures/view"
 
--- | A headline titled NAME carrying IDENT in an ORG_GLANCE_ID drawer.
 withId :: Text -> Text -> Text
 withId name' ident = T.intercalate "\n"
   [ "* " <> name'
@@ -154,8 +140,6 @@ withId name' ident = T.intercalate "\n"
   , ":ORG_GLANCE_ID: " <> ident
   , ":END:" ]
 
--- | A whole entry: the title line TITLE, an indented drawer carrying IDENT, and
--- the newline that ends it — the shape the store's fixtures are files of.
 entryAs :: Text -> Text -> Text
 entryAs ident title' = T.unlines
   [ "* " <> title'
@@ -163,29 +147,16 @@ entryAs ident title' = T.unlines
   , "  :ORG_GLANCE_ID: " <> ident
   , "  :END:" ]
 
--- | 'entryAs' for the common fixture: a @TODO NAME@ entry whose id is NAME, so
--- a frame naming an id names the headline it came from.
+-- | 'entryAs' for the common fixture: a @TODO NAME@ entry whose id is NAME, so a frame naming an id names the headline it came from.
 entry :: Text -> Text
 entry name' = entryAs name' ("TODO " <> name')
 
--- | A default headline whose title is the single token T.
 titled :: Text -> Headline
 titled t = defaultHeadline { title = Title [OrgLineToken (Token t)] }
 
 -- Files
 
--- | Run ACT over a directory of its own, removed afterwards whatever happens.
--- A test whose subject is files on disk — the store, the watch, the write path
--- — writes real ones; the suite depends on @directory@ already and gains
--- nothing from a temp-file package for this.
---
--- LABEL names the directory, so one a killed run left behind says which group
--- made it.  The name also carries the process id and a per-process unique, and
--- the directory is created with 'createDirectory' rather than
--- 'createDirectoryIfMissing': a name already taken is retried under a fresh one
--- rather than shared.  Two suites running at once, or a stale directory from a
--- run that died before its @finally@, would otherwise write into each other's
--- fixtures and fail somewhere else entirely.
+-- | Run ACT over a directory of its own, removed afterwards whatever happens.  LABEL, the process id and a unique name it; 'createDirectory' retries a name already taken, so two runs never share one.
 withTempDirNamed :: String -> (FilePath -> IO a) -> IO a
 withTempDirNamed label act = do
   base <- getTemporaryDirectory
@@ -202,64 +173,46 @@ withTempDirNamed label act = do
         Left e | isAlreadyExistsError e, tries > 0  -> create base pid (tries - 1)
                | otherwise                          -> throwIO (e :: IOException)
 
--- | 'withTempDirNamed' under the suite's own label.
 withTempDir :: (FilePath -> IO a) -> IO a
 withTempDir = withTempDirNamed "test"
 
--- | Write TEXT to DIR/NAME and yield the path.
 orgFile :: FilePath -> FilePath -> Text -> IO FilePath
 orgFile dir name text = path <$ TIO.writeFile path text
   where path = dir </> name
 
--- | PATH's text, decoded the way the loader decodes it.
 document :: FilePath -> IO Text
 document path = TE.decodeUtf8 <$> BS.readFile path
 
--- | PATH's records, or its load failure as a test failure.  The watcher's own
--- read.  A file that loads with no rows fails too: every caller uses the result
--- as an oracle, and an empty one makes the comparison it feeds vacuous.
+-- | PATH's records, or its load failure as a test failure.  A file that loads with no rows fails too: an empty oracle makes the comparison it feeds vacuous.
 recordsOf :: FilePath -> IO [HeadlineRecord]
 recordsOf path = loadFile path >>= either (assertFailure . whyNot) rows
   where whyNot failure = "expected " <> path <> " to load, got " <> show failure
         rows [] = assertFailure ("expected " <> path <> " to load with rows, got none")
         rows rs = pure rs
 
--- | Run K over the records DOC alone loads to, written to NAME in a directory
--- of its own so the load path is the ordinary one.  LABEL names that directory,
--- so leftovers say which group made them.  A document that loads with no rows
--- reaches K as an empty list, which is an answer here rather than a failure.
+-- | Run K over the records DOC alone loads to, written to NAME in LABEL's own directory.  A document that loads with no rows reaches K as an empty list.
 withDoc :: String -> FilePath -> Text -> ([HeadlineRecord] -> IO a) -> IO a
 withDoc label name doc k = withTempDirNamed label $ \dir -> do
   path <- orgFile dir name doc
   loadFile path >>= either (assertFailure . show) k
 
--- | 'withDoc' read through 'loadDir' rather than 'loadFile': the same one-file
--- tree, with the id resolution a directory load runs over it.
+-- | 'withDoc' read through 'loadDir': the same one-file tree, with the id resolution a directory load runs over it.
 withDocDir :: String -> FilePath -> Text -> ([HeadlineRecord] -> IO a) -> IO a
 withDocDir label name doc k = withTempDirNamed label $ \dir -> do
   _ <- orgFile dir name doc
   k . qrRecords =<< loadDir dir
 
--- Config layout
---
--- Read off 'configDirIn'/'configPaths' rather than spelled again, so a layout
--- the library moves takes every fixture with it.
+-- Config layout, read off 'configDirIn'/'configPaths', so a layout the library moves takes every fixture with it.
 
--- | DIR's system layer.
 systemFileIn :: FilePath -> FilePath
 systemFileIn = fst . configPaths . configDirIn
 
--- | DIR's per-tag layer directory.
 tagsDirIn :: FilePath -> FilePath
 tagsDirIn = snd . configPaths . configDirIn
 
--- | DIR's layer for TAG.
 tagFileIn :: FilePath -> FilePath -> FilePath
 tagFileIn dir tag = tagsDirIn dir </> tag <> ".org"
 
--- | Write DIR's config LAYERS: 'Nothing' is @system.org@ and @Just TAG@ is that
--- tag's file.  The directory is made first, so a tree that has never had a
--- config takes the same call as one being edited.
 writeLayers :: FilePath -> [(Maybe FilePath, Text)] -> IO ()
 writeLayers dir layers = do
   createDirectoryIfMissing True (tagsDirIn dir)
@@ -268,17 +221,7 @@ writeLayers dir layers = do
 
 -- Corpus
 
--- | Run K over a sample of the org files under @GLANCE_CORPUS@, and answer how
--- many things it checked.  LABEL names the check.
---
--- The gate is env-gated because the walk is what costs — seconds over a real
--- tree, against hundredths for the rest of the suite.  What it must not be is
--- silent: with the variable unset the group passed and read as green, so every
--- claim resting on it was unverified on any machine that had not set it.  It
--- now says on stderr that it was skipped, which is the cheapest form of the
--- truth.  A variable naming a directory that is not there stays a loud failure,
--- and a run that samples nothing is one too — a gate that found nothing to
--- check is not a gate that passed.
+-- | Run K over a sample of the org files under @GLANCE_CORPUS@, and answer how many things it checked.  An unset variable SAYS SO on stderr; a variable naming a missing directory, and a run that samples nothing, are loud failures.
 withCorpusSample :: String -> ([FilePath] -> IO Int) -> Assertion
 withCorpusSample label k = do
   asked <- lookupEnv "GLANCE_CORPUS"
@@ -289,30 +232,19 @@ withCorpusSample label k = do
       checked <- k (sample (sort (foundFiles found)))
       assertBool (label <> ": nothing sampled under " <> root) (checked > 0)
     Just root -> assertFailure ("GLANCE_CORPUS names no directory: " <> root)
-    -- The newline is so the line starts at a column of its own: tasty's own
-    -- progress output is on stdout and the two share a terminal.
+    -- The newline starts the line at a column of its own: tasty's progress output is on stdout and the two share a terminal.
     Nothing   -> hPutStrLn stderr ("\nSKIPPED — GLANCE_CORPUS is unset: " <> label)
   where
     sample paths = every (max 1 (length paths `div` 64)) paths
     every n = map snd . filter ((== 0) . (`mod` n) . fst) . zip [0 :: Int ..]
 
--- Properties
---
--- No @tasty-quickcheck@: its whole buy is three CLI flags and a report line, and
--- it is the one package this suite would have had to FETCH.  QuickCheck itself
--- is in the store for this compiler, so the property groups resolve offline the
--- way every other dependency does.
+-- Properties.  No @tasty-quickcheck@: it is the one package this suite would have had to FETCH.
 
--- | The seed every property run starts from unless @GLANCE_QC_SEED@ names
--- another.  FIXED so a green run gates a commit and a red one replays from the
--- commit alone: a random seed makes @cabal test@ a different test each run.
+-- | The seed every property run starts from unless @GLANCE_QC_SEED@ names another.  FIXED, so a red run replays from the commit alone.
 propertySeed :: Int
 propertySeed = 20260811
 
--- | Run PROP as one HUnit case over COUNT cases.  A failure prints the seed, the
--- reason and the SHRUNK counterexample — which is a 'TestGen.DocSpec' and the
--- org text it rendered to, so a reader can paste one into a file and the other
--- into the suite.
+-- | Run PROP as one HUnit case over COUNT cases.  A failure prints the seed, the reason and the SHRUNK counterexample.
 testPropertyWith :: QC.Testable p => Int -> String -> p -> TestTree
 testPropertyWith count name p = testCase name $ do
   seed <- maybe (pure propertySeed) readSeed =<< lookupEnv "GLANCE_QC_SEED"
@@ -331,32 +263,21 @@ testPropertyWith count name p = testCase name $ do
     readSeed asked = maybe (assertFailure ("GLANCE_QC_SEED is not a number: " <> asked))
                            pure (readMaybe asked)
 
--- | 'testPropertyWith' at the count every pure property runs, twice
--- QuickCheck's own default: the documents are small and the whole group is
--- under a second.
 testProperty :: QC.Testable p => String -> p -> TestTree
 testProperty = testPropertyWith 200
 
 -- Text assertions
 
--- | WHAT: NEEDLE is somewhere in HAYSTACK.
---
--- The haystack is truncated in the message: the served pages this reads are
--- tens of thousands of characters wide, and a failure that prints one buries
--- itself.  The cap is wide enough for a whole subtree, which is the other kind
--- of haystack here — cutting those at 400 hid the end of what a recompose
--- wrote, which is the half a failure is usually about.
+-- | WHAT: NEEDLE is somewhere in HAYSTACK.  The haystack is truncated in the message, a served page being tens of thousands of characters wide.
 assertContains :: String -> Text -> Text -> Assertion
 assertContains what needle haystack =
   assertBool (what <> ": no " <> show needle <> " in " <> show (T.take 2000 haystack))
              (needle `T.isInfixOf` haystack)
 
--- | WHAT: every one of NEEDLES is in HAYSTACK.
 holdsAll :: String -> [Text] -> Text -> Assertion
 holdsAll what needles haystack = mapM_ (\n -> assertContains what n haystack) needles
 
--- | WHAT: none of NEEDLES is in HAYSTACK.  Each of them names a design the page
--- superseded, so one coming back means two are live at once.
+-- | WHAT: none of NEEDLES is in HAYSTACK.  Each of them names a design the page superseded, so one coming back means two are live at once.
 holdsNone :: String -> [Text] -> Text -> Assertion
 holdsNone what needles haystack =
   mapM_ (\n -> assertBool (what <> ": " <> show n <> " survives in the page")
@@ -365,20 +286,17 @@ holdsNone what needles haystack =
 
 -- JSON accessors, each failing the test with what it found instead
 
--- | V's value at KEY.
 field :: Text -> Value -> IO Value
 field k (Object o) = maybe (assertFailure ("missing key " <> show k))
                            pure (KM.lookup (Key.fromText k) o)
 field k v = assertFailure ("expected an object with " <> show k <> ", got " <> show v)
 
--- | The string at KEY of V.
 textAt :: Text -> Value -> IO Text
 textAt k v = field k v >>= string
   where string (String t) = pure t
         string other = assertFailure ("expected a string at " <> show k
                                         <> ", got " <> show other)
 
--- | The query V's @views@ array carries for the view ID.
 viewText :: Text -> Value -> IO Text
 viewText vid v = do
   entries <- listAt "views" v
@@ -387,81 +305,59 @@ viewText vid v = do
     (e:_) -> textAt "query" e
     []    -> assertFailure ("no view called " <> show vid <> " in " <> show v)
 
--- | The number at KEY of V, as an offset.
 intAt :: Text -> Value -> IO Int
 intAt k v = field k v >>= number
   where number (Number n) = pure (round n)
         number other = assertFailure ("expected a number at " <> show k
                                         <> ", got " <> show other)
 
--- | The boolean at KEY of V.
 boolAt :: Text -> Value -> IO Bool
 boolAt k v = field k v >>= flag
   where flag (Bool b) = pure b
         flag other = assertFailure ("expected a boolean at " <> show k
                                       <> ", got " <> show other)
 
--- | V's value at KEY, 'Nothing' where V carries no such key at all.
---
--- The accessor for a SPARSE field — one a producer emits only when it has
--- something to say, the way a row's @linked@ and a capture's @tag@ are emitted —
--- where 'field' fails on the absence and 'maybeTextAt' reads a null.
+-- | V's value at KEY, 'Nothing' where V carries no such key at all — the accessor for a SPARSE field, where 'field' fails on the absence and 'maybeTextAt' reads a null.
 sparseAt :: Text -> Value -> IO (Maybe Value)
 sparseAt k (Object o) = pure (KM.lookup (Key.fromText k) o)
 sparseAt k v = assertFailure ("expected an object with " <> show k <> ", got " <> show v)
 
--- | The string at KEY of V, where the key is there and its value may be null.
 maybeTextAt :: Text -> Value -> IO (Maybe Text)
 maybeTextAt k v = field k v >>= stringOrNull k
 
--- | The string at KEY of V, 'Nothing' where the key is ABSENT as well as where
--- it is null — the accessor for a field a producer emits only when it has
--- something to say ('sparseAt' beside 'field' is the whole difference).
+-- | The string at KEY of V, 'Nothing' where the key is ABSENT as well as where it is null.
 sparseTextAt :: Text -> Value -> IO (Maybe Text)
 sparseTextAt k v = maybe (pure Nothing) (stringOrNull k) =<< sparseAt k v
 
--- | V read as a string or a null, failing the case where it is neither.  The
--- reading both accessors above share; they differ only in how an absent key is
--- taken.
 stringOrNull :: Text -> Value -> IO (Maybe Text)
 stringOrNull _k Null = pure Nothing
 stringOrNull _k (String t) = pure (Just t)
 stringOrNull k other = assertFailure ("expected a string or null at " <> show k
                                         <> ", got " <> show other)
 
--- | Fail unless OUTCOME is a refusal naming every one of WORDS.  WHAT labels
--- the case; an outcome that LANDED is shown, since what it produced is what a
--- reader needs to see.
 refusedNaming :: Show a => String -> [Text] -> Either Text a -> Assertion
 refusedNaming what words' outcome = case outcome of
   Right landed -> assertFailure (what <> ": was read as " <> show landed)
   Left why     -> mapM_ (\w -> assertBool (what <> ": " <> T.unpack why)
                                           (w `T.isInfixOf` why)) words'
 
--- | The array at KEY of V.
 listAt :: Text -> Value -> IO [Value]
 listAt k v = field k v >>= read'
   where read' x = either (\e -> assertFailure ("array at " <> show k <> ": " <> e)) pure
                          (parseEither parseJSON x)
 
--- | The SHA-256 of the bytes PATH holds now.  Taken off the FILE rather than
--- through a load: the digest a receipt reports is what a client pins its next
--- edit to, and an oracle that re-runs the loader agrees with it whatever the
--- loader digested.
+-- | The SHA-256 of the bytes PATH holds now, taken off the FILE so the oracle agrees with a receipt whatever the loader digested.
 digestOnDisk :: FilePath -> IO Text
 digestOnDisk path = digestOfText <$> document path
 
--- | The array of strings at KEY of V.
 textsAt :: Text -> Value -> IO [Text]
 textsAt k v = field k v >>= read'
   where read' x = either (\e -> assertFailure ("strings at " <> show k <> ": " <> e)) pure
                          (parseEither parseJSON x)
 
--- | V's column keys, in view order.
 columnKeysOf :: Value -> IO [Text]
 columnKeysOf v = listAt "columns" v >>= mapM (textAt "key")
 
--- | The column of V keyed KEY.
 columnOf :: Text -> Value -> IO Value
 columnOf key v = do
   cols <- listAt "columns" v
@@ -472,31 +368,24 @@ columnOf key v = do
 
 -- Parsing
 
--- | Drop the spans ELEMS carry, for span-insensitive comparison.
 bare :: [Spanned Element] -> [Element]
 bare = map (stripSpans . valueOf)
 
--- | The elements INPUT parses to in CTX, spans dropped.
 bareParse :: Context -> Text -> [Element]
 bareParse ctx input = case orgParse ctx input of
   (elems, _ctx, _err) -> bare elems
 
--- | The headlines among ELEMS, in source order.
 headlinesOf :: [Spanned Element] -> [Headline]
 headlinesOf elems = [h | e <- elems, EHeadline h <- [valueOf e]]
 
--- | Run K on the one headline INPUT parses to in CTX; fail otherwise.
 withHeadlineIn :: Context -> Text -> (Headline -> Assertion) -> Assertion
 withHeadlineIn ctx input k = case bareParse ctx input of
   [EHeadline h] -> k h
   es -> assertFailure ("expected one headline in " <> show input <> ", got: " <> show es)
 
--- | 'withHeadlineIn', starting from 'defaultContext'.
 withHeadline :: Text -> (Headline -> Assertion) -> Assertion
 withHeadline = withHeadlineIn defaultContext
 
--- | The elements and final context INPUT parses to; a parse error is LABEL's
--- failure.
 parsedIn :: String -> Text -> IO ([Spanned Element], Context)
 parsedIn label input = case orgParse defaultContext input of
   (elems, ctx, Nothing) -> pure (elems, ctx)
@@ -504,21 +393,16 @@ parsedIn label input = case orgParse defaultContext input of
 
 -- Headline spans
 
--- | The sub-spans H actually carries, in source order.
 presentSpans :: Headline -> [(String, Span)]
 presentSpans h = [(T.unpack label, s) | (label, Just s, _ok) <- headlineSpanParts h]
 
--- | H's labelled spans: 'hsFull' and every sub-span it carries.
 spansOf :: Headline -> [(String, Span)]
 spansOf h = ("hsFull", hsFull (spans h)) : presentSpans h
 
--- | The property keys H declares, in source order.
 propertyKeys :: Headline -> [Text]
 propertyKeys h = case properties h of
   Properties ps -> [k | Property (Keyword k) _ <- ps]
 
--- | Every sub-span H carries slices back to the component it stands for.  SAY
--- decorates the failure, the two callers naming a headline two ways.
 assertParts :: (String -> String) -> Text -> Headline -> Assertion
 assertParts say doc h = sequence_
   [ assertBool (say (T.unpack part <> " sliced " <> show slice)) (ok slice)

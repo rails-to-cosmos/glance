@@ -1,7 +1,5 @@
 -- | The in-memory projection of the org tree, and the sockets watching it.
---
--- Keyed by PATH so 'Data.Map.Strict.elems' is walk order.  A parse failure
--- KEEPS the file's rows: 'orgParse' is all-or-nothing.
+-- Keyed by PATH so 'Data.Map.Strict.elems' is walk order.
 module Glance.Web.Store
   ( -- * The store
     Store (..)
@@ -88,8 +86,7 @@ emptyStore = Store Map.empty Map.empty 0 0 "" noConfig
 loadStore :: FilePath -> IO Store
 loadStore = loadStoreWith defaultWalk
 
--- | 'loadStore' over the tree OPTS asks for.  The config is read first and
--- kept, so a row arriving by inotify is the row the walk would have produced.
+-- | 'loadStore' over the tree OPTS asks for.  The config is read first and kept.
 loadStoreWith :: WalkOptions -> FilePath -> IO Store
 loadStoreWith opts dir = do
   (cfg, files, dirErrs) <- loadDirWithConfig opts dir
@@ -98,7 +95,7 @@ loadStoreWith opts dir = do
   where seed st (path, outcome) = putFile path outcome st
 
 -- | What tree ST is: one digest over the config and every file's path and load
--- digest.  The half of the @ETag@ that survives a restart; 'stGen' starts at 0.
+-- digest.  The half of the @ETag@ that survives a restart.
 fingerprintOf :: Store -> Text
 fingerprintOf st =
   digestOfText (T.unlines (("config\t" <> clPrint (stConfig st))
@@ -125,8 +122,7 @@ storeResult st = QueryResult
         (rows, clashes)  = resolveIds (storeRows st)
         failures f       = length (filter ((== Just f) . feFailure) entries)
 
--- | IDS looked up over rows ALREADY RESOLVED.  It takes the rows rather than
--- the store, so every route resolves once at its own door ('storeRecords').
+-- | IDS looked up over rows ALREADY RESOLVED, so every route resolves once.
 headlinesIn :: [HeadlineRecord] -> [Text] -> ([HeadlineRecord], [Text])
 headlinesIn resolved ids =
   partitionEithers [ maybe (Right rid) Left (Map.lookup rid held) | rid <- ids ]
@@ -157,8 +153,7 @@ applyFile path outcome = guarded path (streamed path (putFile path outcome))
 dropFile :: FilePath -> Store -> (Store, [Frame])
 dropFile path = guarded path (streamed path (removeFile path))
 
--- | ST replaced by FRESH, and the frames that costs — the ordinary ops over
--- every id on both sides.  The generation is ST's: FRESH itself carries zero.
+-- | ST replaced by FRESH, and the frames that costs.  The generation is ST's.
 reseeded :: Store -> Store -> (Store, [Frame])
 reseeded fresh st = installed st fresh (outcomes st /= outcomes fresh) out
   where
@@ -195,8 +190,7 @@ guarded path step st = installed st next (outcome st /= outcome next) out
     declared = fmap hrKeywords . (listToMaybe . feRecords <=< Map.lookup path) . stFiles
     outcome  = fmap feFailure . Map.lookup path . stFiles
 
--- | UPDATE applied, and the frames the ids under PATH owe.  Both sides are
--- read through the store's id resolution, so a streamed row is a served row.
+-- | UPDATE applied, and the frames the ids under PATH owe, id-resolved.
 streamed :: FilePath -> (Store -> Store) -> Store -> (Store, [Frame])
 streamed path update st = (next, rowFrames touched before after)
   where
@@ -236,13 +230,8 @@ tagsOf :: [HeadlineRecord] -> Set Text
 tagsOf = Set.fromList . concatMap (tagsOfCell . hrTags)
 
 
--- | What a live client receives.  A ROW OP travels as a message; a CLOSE
--- travels as a reason, and 'guarded' REPLACES a step's ops with one — rows
--- built against a view that has already moved are rows a client draws wrong.
---
--- TWO CONSTRUCTORS rather than a row op that happens to encode as no JSON: the
--- distinction was carried by 'frameJSON' answering 'Nothing', which is a
--- convention a reader has to know rather than a thing the compiler checks.
+-- | What a live client receives.  TWO CONSTRUCTORS so a message and a close are
+-- told apart by the compiler; 'guarded' REPLACES a step's ops with a close.
 data Frame
   = Op !RowOp             -- ^ a row op, as JSON.
   | Close !CloseReason    -- ^ the socket is to be closed, and why.
@@ -255,15 +244,12 @@ data RowOp
   | DeleteRow !Text    -- ^ one row's @id@, dropped.
   deriving (Eq, Show)
 
--- | THE WHOLE VOCABULARY OF A SERVER-INITIATED CLOSE.  'Bounded' and 'Enum' so
--- the list is generated where two hand-typed strings used to sit, and a third
--- reason joins by being a constructor.
+-- | THE WHOLE VOCABULARY OF A SERVER-INITIATED CLOSE.
 data CloseReason
   = ViewChanged   -- ^ the columns moved; reconnect and re-fetch the view.
   | Resync        -- ^ the mailbox filled; the backlog is gone, so re-ask.
   deriving (Eq, Show, Enum, Bounded)
 
--- | The word a close reason travels as.
 closeReason :: CloseReason -> Text
 closeReason ViewChanged = "view-changed"
 closeReason Resync      = "resync"
@@ -284,7 +270,6 @@ bootstrapFrame = Op . SetRows . map rowJSON . storeRecords
 
 
 -- | The live store, its sockets, and the paths waiting to be re-read.
--- 'hubPending' is filled by inotify AND by every write route on its way out.
 data Hub = Hub
   { hubStore   :: !(TVar Store)
   , hubClients :: !(TVar (Map Int Client))
@@ -298,8 +283,7 @@ data LoadState
   | Loaded           -- ^ the store is the directory.
   deriving (Eq, Show)
 
--- | One socket's mailbox, bounded on purpose: a browser that stopped reading
--- must not hold the watcher's transaction up.  A full one closes the socket.
+-- | One socket's mailbox, bounded so a stalled browser cannot hold the watcher up.
 data Client = Client
   { clQueue   :: !(TBQueue Frame)
   , clDropped :: !(TVar Bool)
@@ -337,7 +321,6 @@ subscribe hub = do
 unsubscribe :: Hub -> Int -> IO ()
 unsubscribe hub cid = atomically (modifyTVar' (hubClients hub) (Map.delete cid))
 
--- | C's next frame, or 'Nothing' once dropped; the flag is read first.
 nextFrame :: Client -> STM (Maybe Frame)
 nextFrame c = do
   dropped <- readTVar (clDropped c)

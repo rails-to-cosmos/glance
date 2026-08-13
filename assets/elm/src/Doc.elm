@@ -1,16 +1,12 @@
 port module Doc exposing (main)
 
-{-| The materialize sheet's LEFT pane: a subtree's headline line, the body's own
-structure, and the child headlines under it.
+{-| The materialize sheet's LEFT pane. It owns the parse, the rows, the two-axis
+cursor, the grain and the delete flags; the shell keeps the keys, the edit
+overlays and the writes.
 
-It owns the parse, the rows, the two-axis cursor, the grain and the delete
-flags, and it draws them. The shell keeps the keys, the edit overlays and the
-writes, and mirrors the state pushed back here.
-
-The markup is the one the harness and the stylesheet read: `#dlist` holds one
-`.de` per stop, wearing its KIND as a `d-*` class, `.dat` where point is, `.dfl`
-where a flag is, cells as `.dc.dc-KEY` with `.don` on the one under point, text
-as `.dt` and a link's shown text as `.dl`, and whatever no rung claims as `.dg`.
+The markup is the harness's and the stylesheet's: `#dlist` holds one `.de` per
+stop wearing its KIND as a `d-*` class, `.dat` at point, `.dfl` on a flag,
+`.dc.dc-KEY` with `.don`, `.dt`/`.dl` for text, `.dg` for the unclaimed.
 
 -}
 
@@ -70,8 +66,8 @@ type alias Model =
     , titleAt : Maybe Int
     , child : Bool
 
-    -- THE LINE A CURSOR IS OWED at the next fill, where the row it must land
-    -- on does not exist yet: an insert's paragraph is minted by the RESCAN.
+    -- THE LINE A CURSOR IS OWED at the next fill: an insert's paragraph has no
+    -- row until the RESCAN mints one.
     , landing : Maybe Int
     }
 
@@ -255,10 +251,7 @@ broader m =
 
         Just r ->
             -- MIRRORS `finer', which walks the cells RIGHTWARD one at a time:
-            -- climbing out of them in one press whatever the column made `b'
-            -- read as a reset rather than as the other half of `f'.  Walking
-            -- off the LEFT end is what leaves the cells, exactly as walking off
-            -- the right end does.
+            -- walking off the LEFT end leaves them as walking off the right does.
             if m.col /= Nothing then
                 moveCol -1 m
 
@@ -302,21 +295,17 @@ broader m =
                 ( m, "grain-broader (the whole entry)" )
 
             else
-                -- REVERSED EXPAND-REGION, and this is its widest step: out of
-                -- the cells, out of a leaf to its owner, and out of an element
-                -- to THE ENTRY'S OWN LINE, which is what the whole subtree
-                -- hangs off.  `b' climbing to a refusal was a rung with nothing
-                -- above it.
+                -- REVERSED EXPAND-REGION at its widest step: out of the cells, out
+                -- of a leaf to its owner, out of an element to THE ENTRY'S OWN LINE.
                 ( { m | at = placeOf m "H", col = Nothing, grain = "element" }
                 , "grain-broader (the headline)"
                 )
 
 
 
--- SPANS
---
--- OFFSETS ARE IN CHARACTERS. The three regions the lens lifts out sit ABOVE the
--- paragraphs, so a body offset past the title line is displaced by one constant.
+-- SPANS.  OFFSETS ARE IN CHARACTERS: the three regions the lens lifts out sit
+-- ABOVE the paragraphs, so a body offset past the title line is displaced by
+-- one constant.
 
 
 charOf : Model -> Int -> Int
@@ -376,8 +365,7 @@ update msg model =
             told empty
 
         Fill fresh ->
-            -- The cursor comes back to the row it stood on where that row
-            -- survives, which is what makes a re-read leave point alone.
+            -- The cursor comes back to the row it stood on where that row survives.
             let
                 was =
                     Maybe.map .id (rowAt model)
@@ -385,8 +373,7 @@ update msg model =
                 landed =
                     case model.landing of
                         -- A LANDING IS OWED and is spent here: the paragraph an
-                        -- insert made has no id until this rescan mints one, so
-                        -- the cursor is owed the LINE it starts at instead.
+                        -- insert made has no id until this rescan mints one.
                         Just line ->
                             placeOfLine fresh line
 
@@ -419,9 +406,7 @@ update msg model =
             spoke (moveCol by model)
 
         Flag id ->
-            -- OLDEST FIRST, which is the rule for every flag surface: a
-            -- caller firing one command per flag runs them the way the
-            -- reader pressed them.  `Listing' spells it the same way.
+            -- OLDEST FIRST, the rule for every flag surface; `Listing' spells it so.
             told { model | flags = List.filter ((/=) id) model.flags ++ [ id ] }
 
         Unflag id ->
@@ -430,8 +415,7 @@ update msg model =
         ClearFlags ->
             told { model | flags = [] }
 
-        -- The body a write sends is composed HERE, since a deletion cannot be
-        -- rebuilt out of the model it just changed.
+        -- Composed HERE: a deletion cannot be rebuilt out of the model it changed.
         Delete ids ->
             let
                 taken =
@@ -461,16 +445,13 @@ update msg model =
             in
             composed { model | rows = List.map write model.rows }
 
-        -- `+' DRAWS THE PARAGRAPH BEFORE IT IS WRITTEN, so the reader fills a
-        -- line of their own rather than the one they were standing on.  The row
-        -- is zero-width and empty, which `bodyText' passes over, and the cursor
-        -- goes to it: the box is laid over whatever `dat' names.
+        -- `+' DRAWS THE PARAGRAPH BEFORE IT IS WRITTEN, so the reader fills a line
+        -- of their own.  The row is zero-width, which `bodyText' passes over.
         Draft id caret ->
             case ( drafted model id caret, joinWord model id caret ) of
                 ( Just rows, Just word ) ->
-                    -- THE WORD IS THE MODEL'S, said with the draw: which region
-                    -- the caret stands in is `Scan''s answer and the shell
-                    -- echoes it.
+                    -- THE WORD IS THE MODEL'S: which region the caret stands in is
+                    -- `Scan''s answer, and the shell echoes it.
                     spoke
                         ( { model | rows = rows, at = placeOf { model | rows = rows } draftId, col = Nothing }
                         , word
@@ -479,10 +460,8 @@ update msg model =
                 _ ->
                     ( model, docSaid (E.string "nothing here takes a paragraph") )
 
-        -- And the same row filled, which IS the write: zero-width, so the
-        -- splice already written puts the lines in rather than replacing any.
-        -- The cursor stays where it is — on the paragraph just made — and the
-        -- LINE it starts at is what the rescan will be asked to land on.
+        -- And the same row filled, which IS the write: zero-width, so the splice
+        -- puts the lines in rather than replacing any.  The cursor stays put.
         Insert id caret written ->
             case ( insertion model id caret written, joinLine model id caret ) of
                 ( Just rows, line ) ->
@@ -491,9 +470,8 @@ update msg model =
                 ( Nothing, _ ) ->
                     ( model, docSaid (E.string "nothing here takes a paragraph") )
 
-        -- ESC, and an empty commit: what it leaves behind is what it found,
-        -- point included — the STOP is named rather than a place counted back
-        -- to, a leaf's draft standing past its whole composite.
+        -- ESC, and an empty commit: what it leaves behind is what it found, point
+        -- included — the STOP is NAMED rather than a place counted back to.
         Undraft id ->
             let
                 rows =
@@ -507,9 +485,8 @@ told m =
     ( m, docState (stateJSON m) )
 
 
-{-| A model whose rows have MOVED: the state the mirror keeps, and the body the
-write that follows is made of. BOTH, always — a `docBody' with no`docState'
-would leave the shell's own copy a flush behind the file.
+{-| A model whose rows have MOVED. BOTH ports, always — a `docBody' with no
+`docState' would leave the shell's own copy a flush behind the file.
 -}
 composed : Model -> ( Model, Cmd Msg )
 composed m =
@@ -538,8 +515,6 @@ port docState : E.Value -> Cmd msg
 port docSaid : E.Value -> Cmd msg
 
 
-{-| The body a paragraph edit composed, for the write that follows it.
--}
 port docBody : E.Value -> Cmd msg
 
 
@@ -605,9 +580,8 @@ stateJSON m =
         , ( "flags", E.list E.string m.flags )
         , ( "lines", E.int (List.length m.lines) )
 
-        -- WHERE POINT GOES in the marker a draft was drawn wearing, which is
-        -- this side's answer like the marker itself: the shell seeds its box
-        -- with both and spells no org grammar of its own.
+        -- WHERE POINT GOES in the marker a draft was drawn wearing; the shell seeds
+        -- its box with both and spells no org grammar of its own.
         , ( "caret"
           , E.int (caretIn (Maybe.withDefault "" (Maybe.map .text (rowById m draftId))))
           )
@@ -638,8 +612,7 @@ linkD =
 
 
 {-| A fill carries the subtree the server served plus what only the shell knows:
-where the entry's span starts, how far the body is displaced inside it, and the
-depth the stars are drawn relative to.
+where the span starts, how far the body is displaced, and the depth of the stars.
 -}
 fillD : D.Decoder Model
 fillD =
@@ -679,9 +652,8 @@ kidD =
 
 {-| THE LINE THE CARET STOOD ON, and a NUMBER is the whole of what the shell
 sends: WHICH REGION holds that line is asked here, and the region says both what
-the new stop opens with and where it goes. ABSENT is `+' pressed with no box open
-and so no caret to read, where the sibling rides past the whole structure — which
-line 0 is not, being a line a reader stood on.
+the new stop opens with and where it goes. ABSENT is `+' with no box open and so
+no caret to read; line 0 is a line a reader stood on.
 -}
 caretD : D.Decoder (Maybe Int)
 caretD =

@@ -1,14 +1,10 @@
-// THE LINK AND TAGS POPUPS, and the popup chrome both wear
-// (docs/proposals/2026-08-08-widget-files.partial.md, step C).  Twenty-two of
-// its dependencies are `const'/`function' and destructure safely; `edit' is a
-// `let' the panel reassigns, so it arrives as the ACCESSOR `editNow' -- a
-// destructured `let' is a copy of whatever it held at boot.
+// THE LINK AND TAGS POPUPS, and the popup chrome both wear (AGENTS.hs).
+// `edit' is a `let' the panel reassigns, so it arrives as the ACCESSOR `editNow'.
 const Popups = ((deps) => {
     const { CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, listing,
             openEdit, remembered, rowsWord, said, selectedId, shortly, shutEdit,
             sole, soon, stepIn, tagFrom, unlogged, unnarrow } = deps;
     const editNow = deps.editNow;
-    // The link and tags popups.  Full rules live in AGENTS.hs.
     const LCOLS = CFG.lcols;
     let lmount = null, lrows = [], opening = null, lfor = null, lpin = "";
     const linking = () => !!opening;
@@ -232,13 +228,10 @@ const Popups = ((deps) => {
       flag: "tag-flag (d again removes)",
     };
 
-    // The binding the popup was RAISED by, which `o' inside it needs to echo
-    // through.  An answer rather than the `let': a handle carrying a mutable
-    // by value hands out whatever it held at boot.
+    // The binding the popup was RAISED by, as an answer: a handle carrying a
+    // mutable by value hands out whatever it held at boot.
     const openedBy = () => opening;
-    // The mounts are made on first raise, so they leave as ANSWERS too: a
-    // handle carrying a `let' by value hands out the `null' it held at boot,
-    // and the popups' own `n'/`p' would step nothing forever.
+    // The mounts are made on first raise, so they leave as ANSWERS too.
     const linkMount = () => lmount;
     const tagMount = () => tmount;
     return { openedBy, linkMount, tagMount, addFlow, cancelLinkEdit, cancelRename, commitLink, landing, lediting,

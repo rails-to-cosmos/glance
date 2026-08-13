@@ -1,10 +1,5 @@
 -- | The filter query language: the tokenizer as a pure function, and the
--- semantics over a loaded fixture.
---
--- The grammar is @table-view\/SCHEMA.md@'s ("Filter query") and the renderer
--- implements it too, so what is asserted here is the contract rather than this
--- port of it: the expected tokens and the expected matches are written down,
--- not derived from the code under test.
+-- semantics over a loaded fixture.  The grammar is @table-view\/SCHEMA.md@'s.
 module TestFilter (spec) where
 
 import Control.Monad (unless)
@@ -31,14 +26,9 @@ import Glance.Web.Filter ( Term (..), Token (..), alternatives, archiveKey
                          , tagsKey )
 import Glance.Web.Sort (noOrder, sortChainIn)
 
--- Fixtures
---
--- 'viewDir' is the suite's sample directory: six headlines, five states between
--- them, one of them stateless, and a @#+TODO:@ line that puts three keywords in
--- the active set and two in the done-like one.
+-- 'viewDir': six headlines, five states between them, one of them stateless.
 
--- | The titles of the fixture's rows, in walk order — what a match is reported
--- as, since four of the six rows have only their offset for an id.
+-- | The fixture's rows, in walk order; four of six have only an offset for an id.
 data Row = Ship | Privet | Reply | Plain | Drop | Schema
   deriving (Bounded, Enum, Eq, Ord, Show)
 
@@ -50,9 +40,7 @@ titleOf Plain  = "Plain headline without a state"
 titleOf Drop   = "Drop the old renderer"
 titleOf Schema = "Read the schema"
 
--- | The tags the fixture's rows carry, derived here the way the store derives
--- its own list.  No predicate reads it any more — an org tag is not a key — and
--- what it is still for is saying so ('tagsSpec').
+-- | The tags the fixture's rows carry, derived as the store derives its own.
 vocabularyOf :: [HeadlineRecord] -> [Text]
 vocabularyOf = sort . nub . concatMap (tagsOfCell . hrTags)
 
@@ -82,12 +70,6 @@ spec = testGroup "Filter"
   , targetSpec, refSpec
   , layoutSpec ]
 
--- References: extraction
---
--- The forms are the ones ~/sync spells, counted over the walked corpus at
--- 2026-08-02 and written down in 'Glance.Query.refPrefixes'.  These cases are
--- that census in miniature: what the corpus HAS is matched, and the two
--- org-glance protocols that name something other than a row are turned away.
 
 -- | One link target normalized, or refused.
 targetSpec :: TestTree
@@ -97,8 +79,7 @@ targetSpec = testGroup "Reference targets"
         [ ("org-glance-visit:task-spbm-1-2-3-0",    "task-spbm-1-2-3-0")
         , ("org-glance-open:Pets-20210816-eee5a4",  "Pets-20210816-eee5a4")
         , ("org-glance-material:contact-25053-3",   "contact-25053-3")
-        -- Org's own, which the corpus does not use at all: in the list because
-        -- it is org's own, and this is the case that says so.
+        -- Org's own, unused by the corpus and listed because it is org's own.
         , ("id:9f8e7d6c",                           "9f8e7d6c")
         -- The case is the id's: a fold here would put `Password-…' out of reach.
         , ("org-glance-visit:Password-20210516-d9", "Password-20210516-d9") ]
@@ -110,13 +91,9 @@ targetSpec = testGroup "Reference targets"
 
   , testCase "a protocol that names something other than a row is refused" $
       mapM_ (\raw -> assertEqual (T.unpack raw) Nothing (refTargetOf raw))
-        -- `org-glance-overview:' names a TAG and `org-glance-state:' a keyword:
-        -- 2726 and 880 links in the walked corpus, and between them not one
-        -- target that is an ORG_GLANCE_ID.
+        -- `org-glance-overview:' names a TAG and `org-glance-state:' a keyword.
         [ "org-glance-overview:bookmark", "org-glance-state:STARTED"
         , "file:notes.org", "https://x.example/a", "mailto:a@b.example"
-        -- A bare target holding a slash is a path, which is org's implicit file
-        -- link rather than a headline.
         , "docs/plan.org", "" ]
 
   , testCase "a subtree's targets are deduplicated and keep their order" $ do
@@ -125,51 +102,28 @@ targetSpec = testGroup "Reference targets"
             , "body [[org-glance-overview:tag][skipped]] and [[*Beta]]"
             , "** child [[org-glance-open:alpha][A again]]"
             , "trailing https://x.example/z" ]
-      -- `alpha' arrives twice under two protocols and is kept once; the
-      -- overview link and the bare URL are not references at all.
       assertEqual "targets" ["alpha", "Beta"] (refTargets text')
 
   , testCase "a subtree with nothing to point at yields no targets" $
       assertEqual "none" [] (refTargets "* plain\njust prose, and https://x.example\n")
 
-    -- KNOWN LIMIT, inherited rather than introduced.  A link written INSIDE
-    -- another link's description defeats the scanner twice over: the OUTER link
-    -- fails to close (its description breaks at the inner link's first `]', and
-    -- what follows is `][' rather than `]]'), and the rescan that follows picks
-    -- the inner one up one bracket late, so its target arrives spelled `[org-…'
-    -- and is refused for the leading bracket.  Neither end is a reference.
-    --
-    -- org-glance's own "Referred from" footer writes exactly this shape, and it
-    -- is the whole of what `ref:' misses on the corpus: for the most-referenced
-    -- contact in ~/sync it costs 2 files of 128 (2026-08-02, the other 126
-    -- answered, 2 of them archived).  It is the `/links' grammar's own rule —
-    -- `orgLinks' reports the same bracketed target — and it is reused rather
-    -- than worked around, since a second scanner here would be a second grammar
-    -- to keep in step with SCHEMA.md's link rule.
+    -- KNOWN LIMIT the `/links' grammar owns: a link written INSIDE another
+    -- link's description defeats the scanner at both ends.
   , testCase "a reference nested in another link's description is not found" $
       assertEqual "neither the outer nor the inner" []
         (refTargets "- Referred from [[org-glance-visit:Meeting-1][\
                     \[[org-glance-visit:Contact-2][Wrike]] Goals]] on [2021-10-08 Fri]")
   ]
 
--- References: resolution
---
--- `ref:ROWID' is the one predicate a row cannot answer alone — it needs the
--- store, to learn how a link may SPELL the row named.  The fixture is three
--- rows: a target carrying an id, a referrer reaching it by that id, a referrer
--- reaching a second target by its title, and the target's own self-link.
 
--- | K over the fixture's records: a target carrying an id, a referrer reaching
--- it by that id, a referrer reaching a second target by its title, the target's
--- own self-link, and a row pointing nowhere.
+-- | K over a fixture: a target with an id, two referrers, a self-link, a bare row.
 withRefTree :: ([HeadlineRecord] -> IO a) -> IO a
 withRefTree = withDocDir "test" "a.org" (T.unlines
   [ "* Target"
   , ":PROPERTIES:"
   , ":ORG_GLANCE_ID: alpha"
   , ":END:"
-  -- The target links to ITSELF, which org-glance's own materialize footer
-  -- writes: the rule says this must not make it its own referrer.
+  -- The target links to ITSELF, which org-glance's materialize footer writes.
   , "see [[org-glance-visit:alpha][myself]]"
   , "* By id"
   , "points at [[org-glance-visit:alpha][the target]]"
@@ -184,8 +138,7 @@ refMatching :: Text -> IO [Text]
 refMatching q = withRefTree $ \records ->
   pure [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
 
--- | The id of the row titled NAME.  Looked up rather than spelled: a row with
--- no @ORG_GLANCE_ID@ falls back to @PATH#K@, and the path is a temp directory's.
+-- | The id of the row titled NAME; the @PATH#K@ fallback names a temp directory.
 idOf :: Text -> [HeadlineRecord] -> IO Text
 idOf name records = case [ hrId r | r <- records, hrTitle r == name ] of
   [one]  -> pure one
@@ -196,8 +149,6 @@ refSpec = testGroup "References"
   [ testCase "the key is spelled once, and it is not a column" $ do
       assertEqual "the key" "ref" refKey
       assertBool "and no column carries it" (refKey `notElem` filterKeys)
-      -- Named by the grammar, the way `planned' is: the store decides what it
-      -- RESOLVES to, never whether it parses.
       assertEqual "a predicate wherever it is written"
                   [Term False (Just "ref") "alpha"] (parsed "ref:alpha")
 
@@ -205,30 +156,20 @@ refSpec = testGroup "References"
       assertEqual "by id" ["By id"] =<< refMatching "ref:alpha"
 
   , testCase "a row is not its own reference" $ do
-      -- `Target' links to itself and is the row being asked about, so the one
-      -- answer is the OTHER row — a list of referrers that always holds the row
-      -- you came from holds one useless entry.
       hit <- refMatching "ref:alpha"
       assertBool "the target is not in its own answer" ("Target" `notElem` hit)
 
   , testCase "a title link resolves against the target's title" $
-      -- `Second' carries no ORG_GLANCE_ID, so its row id is the @PATH#K@
-      -- fallback — which no file can hold a link to — and the only spelling
-      -- that reaches it is its title.
+      -- `Second' carries no ORG_GLANCE_ID, so its title is the only spelling.
       withRefTree $ \records -> do
         rid <- idOf "Second" records
         assertEqual "by title" ["By title"]
           [ hrTitle r | r <- records, matchesFilter (storeEnv records) ("ref:" <> rid) r ]
 
   , testCase "an id no row claims matches nothing, and does not fail" $
-      -- A filter rather than a command: an unresolvable id narrows to the empty
-      -- table the way `tag:nosuchtag' does, and nothing 400s.  This is what a
-      -- stale `ref:' in a bookmarked URL lands on.
       assertEqual "unknown" [] =<< refMatching "ref:no-such-row"
 
   , testCase "the value keeps its case, alone among the predicates" $ do
-      -- Every other predicate folds; a row id is exact-string, and the corpus
-      -- carries ids spelled with capitals.
       assertEqual "as written" ["By id"] =<< refMatching "ref:alpha"
       assertEqual "folded differently" [] =<< refMatching "ref:ALPHA"
 
@@ -242,8 +183,6 @@ refSpec = testGroup "References"
       assertBool "and the target is still here" ("Target" `elem` hit)
 
   , testCase "two refs AND like any two tokens, and either is one token" $
-      -- Every token narrows, so naming two is a row pointing at both — which no
-      -- row here does — and the union is the alternation.
       withRefTree $ \records -> do
         rid <- idOf "Second" records
         let hit q = [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
@@ -251,34 +190,23 @@ refSpec = testGroup "References"
         assertEqual "either" ["By id", "By title"] (hit ("ref:alpha|" <> rid))
 
   , testCase "without a store behind it a ref resolves to nothing" $ do
-      -- `emptyEnv' is what a caller holding no rows answers with: the term
-      -- still parses as a predicate, and matches no row.
       records <- qrRecords <$> loadDir viewDir
       assertEqual "no rows" []
         [ hrTitle r | r <- records, matchesFilter emptyEnv "ref:alpha" r ]
   ]
 
--- | @planned@: the virtual key over the two date columns together.
---
--- Decidable from a row's own cells, which is what makes it a key both sides of
--- the wire can carry — no keyword set, no vocabulary and no clock.  The
--- fixture has one row with both dates, one with a schedule, one with a
--- deadline, one with a @CLOSED:@ stamp and no column at all, and two with
--- nothing, so every branch has a row of its own.
+-- | @planned@: the virtual key over both date columns, decidable from a row's cells.
 plannedSpec :: TestTree
 plannedSpec = testGroup "Planned"
   [ testCase "the key is spelled once, and it is not a column" $ do
       assertEqual "the key" "planned" plannedKey
       assertBool "and no column carries it" (plannedKey `notElem` filterKeys)
-      -- Named by the grammar rather than by the tree: it stands over the
-      -- columns, and nothing a tree carries can add a key or take one away.
       assertEqual "a predicate with nothing loaded"
                   [Term False (Just "planned") "*empty*"] (parsed "planned:*empty*")
 
   , testCase "a row is planned when either date cell holds anything" $ do
       matches "-planned:*empty*" [Ship, Privet, Reply]
-      -- Ship carries both, Privet a schedule, Reply a deadline.  Drop's
-      -- `CLOSED:' is neither column, so it is not a plan.
+      -- Ship carries both, Privet a schedule, Reply a deadline, Drop a `CLOSED:'.
       matches "planned:*empty*" [Plain, Drop, Schema]
 
   , testCase "and neither date column alone answers the same question" $ do
@@ -287,10 +215,8 @@ plannedSpec = testGroup "Planned"
 
   , testCase "a value is the date prefix, asked of both cells at once" $ do
       matches "planned:2026-08" [Ship, Privet, Reply]
-      -- The month a schedule falls in, and the month a deadline falls in.
       matches "planned:2026-08-0" [Ship, Privet]
       matches "planned:2026-08-10" [Reply]
-      -- Prefix, like the columns it stands over: no substring out of the middle.
       matches "planned:03" []
 
   , testCase "an empty value narrows nothing, as every key's does" $ do
@@ -298,40 +224,27 @@ plannedSpec = testGroup "Planned"
       matches "planned:" every
 
   , testCase "two of them AND like any two tokens, and either is one token" $ do
-      -- Privet's schedule and Reply's deadline, which no row carries both of.
       matches "planned:2026-08-03 planned:2026-08-10" []
       matches "planned:2026-08-03|2026-08-10" [Privet, Reply]
-      -- Ship carries a schedule AND a deadline, so it is the row two tokens
-      -- can answer — the key reads both cells, and a row may fill each.
       matches "planned:2026-08-01 planned:2026-08-05" [Ship]
 
   , testCase "negation composes with everything else" $ do
-      -- The agenda's own query: the active rows carrying a date.
       matches "state:*active* -planned:*empty*" [Ship, Privet, Reply]
       matches "state:*inactive* -planned:*empty*" []
       matches "-planned:2026-08" [Plain, Drop, Schema]
 
-    -- NO TREE CAN TAKE THE KEY AWAY, and the reason is structural rather than
-    -- scenario-shaped: key resolution is 'fieldOf' over a CLOSED list, so a tag
-    -- named `planned' is not a key and has nothing to shadow.  What is asserted
-    -- is that closure — every key a query can name, enumerated — since a
-    -- resolution assertion alone repeats the case above it, and a comparison of
-    -- two environments would pass whatever the tree carried ('storeEnv' answers
-    -- `ref:' and nothing else, so it holds no tag for a tree to reach).
+    -- NO TREE CAN TAKE THE KEY AWAY: key resolution is over a CLOSED list.
   , testCase "no tree can take the key away, the keys being a closed list" $ do
       assertEqual "still the date key" [Term False (Just "planned") "*empty*"]
                   (parsed "planned:*empty*")
       records <- qrRecords <$> loadDir viewDir
-      -- The fixture DOES carry tags, and not one of them is a key: every token
-      -- `TAG:x' over them comes back as free text.
       let carried = vocabularyOf records
       assertBool "the fixture carries tags to offer" (length carried >= 2)
       assertEqual "and no tag the tree carries is a key" []
                   [ tag | tag <- carried
                         , Term _neg key _v <- parsed (tag <> ":x")
                         , key /= Nothing ]
-      -- The whole vocabulary a query may name, so a key added or lost fails
-      -- here rather than being noticed by a reader typing one.
+      -- The whole vocabulary a query may name, so a key added or lost fails here.
       assertEqual "the keys are exactly the columns plus the ones the grammar owns"
                   (sort (filterKeys <> grammarKeys))
                   (sort [ k | k <- filterKeys <> grammarKeys
@@ -339,9 +252,7 @@ plannedSpec = testGroup "Planned"
   ]
   where grammarKeys = [plannedKey, refKey, sortKey, substringKey]
 
--- | FREE TEXT UNDER A KEY.  @substring:V@ is what @V@ alone means, so the
--- grammar reads @KEY:VALUE@ throughout and a bare word is that spelling with
--- the key elided.  One matcher answers both, which is what the cases pin.
+-- | FREE TEXT UNDER A KEY: @substring:V@ is what @V@ alone means, one matcher for both.
 substringSpec :: TestTree
 substringSpec = testGroup "Substring"
   [ testCase "the key is spelled once, and it is not a column" $ do
@@ -356,8 +267,6 @@ substringSpec = testGroup "Substring"
             ["ship", "renderer", "2026-08", "zzz", ""]
 
   , testCase "and the machinery a predicate has comes with it" $ do
-      -- A negation, an alternation and the half-typed key, none of them
-      -- spelled here: they are the token rules, and the key inherits them.
       matches "-substring:ship" [Privet, Reply, Plain, Drop, Schema]
       matches "substring:ship|renderer" [Ship, Drop]
       everything <- matching ""
@@ -365,20 +274,12 @@ substringSpec = testGroup "Substring"
         =<< matching "substring:"
 
   , testCase "a quoted value may spell what a bare word cannot" $
-      -- The point of the key: a leading `-' is the token's negation when it
-      -- opens a bare word, and the value's own text under quotes.
+      -- The point of the key: a leading `-' negates a bare word, and is text here.
       assertEqual "the hyphen is text here"
                   [Term False (Just "substring") "-x"] (parsed "substring:\"-x\"")
   ]
 
--- | The ORDER token: @sort:COL@, @sort:COL:desc@.
---
--- Two halves, and they meet in the query: it NARROWS NOTHING here, whatever it
--- names, and what it says about the order is 'Glance.Web.Sort.sortChainIn's
--- answer to the same string.  The cases are SCHEMA.md's and the parity vectors'
--- (@fixtures\/parity\/sort-tokens.json@) — what is asserted is the contract
--- rather than this port of it.  Where the chain lands the ROWS is
--- @\/headlines@' (@TestServe@).
+-- | The ORDER token @sort:COL[:desc]@: it narrows nothing; the chain is 'sortChainIn's.
 sortSpec :: TestTree
 sortSpec = testGroup "Sort tokens"
   [ testCase "the key is spelled once, and it is not a column" $ do
@@ -395,8 +296,7 @@ sortSpec = testGroup "Sort tokens"
         , "sort:", "sort:nosuchcolumn", "sort:deadline:sideways" ]
 
   , testCase "and never as free text, which is what would narrow" $ do
-      -- The letters are in no row, so a token read as text would empty the
-      -- table — which is exactly what a producer without the key would do.
+      -- The letters are in no row, so a token read as text would empty the table.
       matches "sort:title" =<< matching ""
       assertEqual "the token resolved to the key"
                   [Term False (Just "sort") "title"] (parsed "sort:title")
@@ -409,8 +309,6 @@ sortSpec = testGroup "Sort tokens"
       matches "\"sort:title\"" []
       assertEqual "free text" [Term False Nothing "sort:title"] (parsed "\"sort:title\"")
 
-  -- The chain the same query states.  Written order is precedence, repeats
-  -- compose, and a query naming none leaves the view's declared chain standing.
   , testCase "a query naming no sort key leaves the declared chain standing" $ do
       assertEqual "the default" (Right defaultSortChain)
                   (sortChainIn "state:TODO tag:web")
@@ -431,8 +329,6 @@ sortSpec = testGroup "Sort tokens"
                   (sortChainIn "sort:deadline:asc")
       assertEqual "and the word is folded" (Right [("deadline", False)])
                   (sortChainIn "sort:deadline:DESC")
-      -- A trailing colon is the direction half-typed, and an unspelled
-      -- direction ascends — the renderer's own reading of the same token.
       assertEqual "a trailing colon is no direction at all"
                   (Right [("deadline", True)])
                   (sortChainIn "sort:deadline:")
@@ -443,15 +339,11 @@ sortSpec = testGroup "Sort tokens"
       assertEqual "the other way round"
                   (Right [("deadline", False), ("state", True)])
                   (sortChainIn "sort:deadline:desc sort:state")
-      -- The tokens need not be adjacent: a chain is the sort tokens in the
-      -- order the query spells them, whatever stands between them.
       assertEqual "with predicates between them"
                   (Right [("state", True), ("title", True)])
                   (sortChainIn "sort:state tag:web sort:title")
 
-  -- @->@ chains a token's columns, and it is the tokens said once.  SUGAR, so
-  -- every case here is asserted against the spelling it is sugar FOR: what is
-  -- pinned is that the two are one query rather than that either is right.
+  -- @->@ is SUGAR: each case is asserted against the spelling it is sugar FOR.
   , testCase "an arrow chains one token's columns" $
       mapM_ (\(chained, spelled') ->
                assertEqual (T.unpack chained <> " vs " <> T.unpack spelled')
@@ -460,12 +352,10 @@ sortSpec = testGroup "Sort tokens"
         , ("sort:state->title:desc",       "sort:state sort:title:desc")
         , ("sort:state:desc->title",       "sort:state:desc sort:title")
         , ("sort:state->title->deadline",  "sort:state sort:title sort:deadline")
-          -- The two spellings mix, and precedence reads straight through.
         , ("sort:state sort:title->deadline",
            "sort:state sort:title sort:deadline")
         , ("sort:state->title tag:web sort:deadline",
            "sort:state sort:title tag:web sort:deadline")
-          -- A segment half typed is the `key:' rule, like the token it is one of.
         , ("sort:state->",                 "sort:state sort:")
         , ("sort:->state",                 "sort: sort:state")
         , ("sort:->",                      "sort: sort:") ]
@@ -481,14 +371,11 @@ sortSpec = testGroup "Sort tokens"
       assertEqual "the key: rule" (Right []) (sortChainIn "sort:")
       assertEqual "and so does a half-typed segment" (Right []) (sortChainIn "sort:->")
 
-  -- `*none*' is the query's whole vocabulary for document order, and it
-  -- replaced `?order=document'.  It is a STARRED META like `*active*' and
-  -- `*archive*': no column is called it and no cell can hold it.
+  -- `*none*' is a STARRED META: no column is called it and no cell can hold it.
   , testCase "sort:*none* is the empty chain" $ do
       assertEqual "alone" (Right []) (sortChainIn "sort:*none*")
       assertEqual "beside predicates, which narrow as they always do"
                   (Right []) (sortChainIn "state:TODO sort:*none* tag:web")
-      -- The half-typed token names nothing either way, so it is no companion.
       assertEqual "and beside the half-typed token"
                   (Right []) (sortChainIn "sort: sort:*none*")
 
@@ -497,10 +384,7 @@ sortSpec = testGroup "Sort tokens"
         [ "sort:*none* sort:title"
         , "sort:title sort:*none*"
         , "sort:*none* sort:*none*"
-          -- The empty chain has no key in it to reverse.
         , "sort:*none*:desc"
-          -- A SEGMENT is a companion like any other, so the same pair written
-          -- once is the same refusal.
         , "sort:*none*->title"
         , "sort:title->*none*"
         , "sort:*none*->*none*"
@@ -512,19 +396,14 @@ sortSpec = testGroup "Sort tokens"
         , ("sort:title|state",        "sort:title|state")
         , ("sort:nosuchcolumn",       "nosuchcolumn")
         , ("sort:title:sideways",     "sort:title:sideways")
-          -- Each refusal again as ONE token, the whole of it named back.  The
-          -- negation covers every segment, being written before the key.
+          -- The negation covers every segment, being written before the key.
         , ("-sort:title->state",      "-sort:title->state")
         , ("sort:title|state->deadline", "sort:title|state->deadline")
         , ("sort:state->nosuchcolumn", "nosuchcolumn")
         , ("sort:nosuchcolumn->state", "nosuchcolumn")
         , ("sort:state->title:sideways", "sort:state->title:sideways") ]
 
-    -- A REPEATED column is no refusal on either side: the first spelling wins
-    -- and the later key drops — the renderer's own rule, and SCHEMA.md's.  A
-    -- duplicate names an order the chain already has, so nothing a reader
-    -- could have meant is lost.  First-wins spans the segments and the token
-    -- boundaries alike.
+    -- A REPEATED column is no refusal: first-wins dedup is the renderer's rule too.
   , testCase "a repeated column folds to its first spelling" $
       mapM_ (\(q, want) ->
                case sortChainIn q of
@@ -546,17 +425,7 @@ sortSpec = testGroup "Sort tokens"
                          (sortChainIn "sort:title->nosuchcolumn"))
   ]
 
--- | Which queries turn the served view's archive exclusion off
--- ('Glance.Web.Filter.namesArchive').  The exclusion itself is
--- @\/headlines@'s (@TestServe@); what belongs here is the reading of the
--- query, since it is the grammar answering.
--- Columns tokens
---
--- The COLUMN SET half of the view grammar ('Glance.Web.Columns'), the sort
--- token's twin: what it never does is narrow, and what it names is
--- 'columnNamesIn''s answer to the same string.  Where the picked set lands on
--- the wire is @\/headlines@' (@TestServe@); 'resolveColumns' is the name
--- resolution both share.
+-- | The COLUMN SET half of the view grammar, the sort token's twin: it narrows nothing.
 columnsSpec :: TestTree
 columnsSpec = testGroup "Columns tokens"
   [ testCase "the key is spelled once, and it is not a column" $ do
@@ -581,7 +450,6 @@ columnsSpec = testGroup "Columns tokens"
       assertEqual "free text"
                   [Term False Nothing "columns:title"] (parsed "\"columns:title\"")
 
-  -- The names the same query states.
   , testCase "a query naming no columns token names no set" $ do
       assertEqual "none" (Right Nothing) (columnNamesIn "state:TODO tag:web")
       assertEqual "and an empty query is a query naming none"
@@ -611,8 +479,7 @@ columnsSpec = testGroup "Columns tokens"
       refusedNaming "alternation" ["commas", "columns:a|b"]
                     (columnNamesIn "columns:a|b")
 
-  -- Resolution: what a name becomes.  The cell functions are opaque, so the
-  -- cases read the three describable fields.
+  -- Resolution: the cell functions are opaque, so the cases read three fields.
   , testCase "names resolve case-insensitively, headers included" $ do
       assertEqual "keys and headers both name a column"
                   [("state", "State"), ("title", "Title"), ("tag", "Tags")]
@@ -650,32 +517,20 @@ archiveSpec = testGroup "Archive key"
                              (namesArchive q))
             [ "tag:*archive*", "-tag:*archive*", "state:DONE tag:*archive*"
             , "tag=*archive*", "tag:\"*archive*\"", "tag:*ARCHIVE*"
-            -- An ALTERNATIVE names it too: the reader has asked for archived
-            -- rows, and the exclusion would answer a different question.
+            -- An ALTERNATIVE names it too: archived rows have been asked for.
             , "tag:*archive*|web", "tag:web|*archive*", "-tag:web|*archive*" ]
 
   , testCase "and a query that says nothing about it does not" $
       mapM_ (\q -> assertBool (show q <> " read as naming the tag")
                              (not (namesArchive q)))
-            -- Free text is not a predicate, quoted text never is, another
-            -- column is another cell, and the bare tag key is gone: with tags
-            -- out of the grammar, `archive:draft' is text like any other.
+            -- With tags out of the grammar, `archive:draft' is text like any other.
             [ "", "*archive*", "\"tag:*archive*\"", "archive:", "archive:draft"
             , "state:DONE", "title:*archive*"
-            -- THE STARRED SPELLING ALONE.  `tag:archive' is the ordinary
-            -- substring predicate every other tag gets, so a tree using the
-            -- word for something of its own filters on it and the rows the
-            -- default view hides stay hidden.
+            -- THE STARRED SPELLING ALONE: `tag:archive' is the ordinary substring.
             , "tag:archive", "-tag:archive", "tag:arch", "tag:archived" ]
   ]
 
--- The starred family
---
--- `*word*' marks a value with semantics of its own, and a bare word marks
--- nothing — which is the property this fixture is built to catch: it spells
--- both reserved words as ordinary org, a state called @NONE@ and tags called
--- @none@, @archive@ and @archived@, and every one of them has to be reachable
--- as itself.
+-- The starred family: this fixture spells both reserved words as ordinary org.
 
 -- | Run K over a tree that uses the reserved words as its own vocabulary.
 withMetaTree :: ([HeadlineRecord] -> IO a) -> IO a
@@ -691,14 +546,10 @@ metaMatching :: Text -> IO [Text]
 metaMatching q = withMetaTree $ \records ->
   pure [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
 
--- | TWO RULES AGENTS.hs STATES AND NOTHING ASKED, both named by a surviving
--- mutant over `Glance.Web.Filter' (87%, 2026-08-11).
+-- | TWO RULES AGENTS.hs STATES AND NOTHING ASKED, each named by a surviving mutant.
 foldSpec :: TestTree
 foldSpec = testGroup "The folds and the lone hyphen"
-  -- A BARE `-' IS A NEGATED EMPTY TERM, and an empty term matches everything,
-  -- so a lone hyphen EMPTIES the result set.  The `seen' this arm sets is the
-  -- whole of it: without it `flush' emits no token, the query is empty, and the
-  -- table comes back whole — the opposite answer, quietly.
+  -- A BARE `-' IS A NEGATED EMPTY TERM, and an empty term matches everything.
   [ testCase "a lone hyphen empties the result set" $ do
       assertEqual "the token it parses to" [(True, "")]
                   [ (tmNegated t, tmValue t) | t <- parseFilter "-" ]
@@ -708,10 +559,7 @@ foldSpec = testGroup "The folds and the lone hyphen"
       assertEqual "the token is not negated" [(False, "x")]
                   [ (tmNegated t, tmValue t) | t <- parseFilter "x" ]
 
-    -- VALUES ARE FOLDED ON BOTH SIDES, and FREE TEXT is the arm nothing asked.
-    -- The cell side folds at load (`hrSearch' is lowercased), so the query's own
-    -- fold is the whole of what makes a shouted word match a quiet cell — drop
-    -- it and the word matches nothing, which reads as a query that worked.
+    -- VALUES ARE FOLDED ON BOTH SIDES; the cell side folds at load.
   , testCase "free text is folded, whatever case it is written in" $ do
       lower <- matching "todo"
       upper <- matching "TODO"
@@ -723,8 +571,7 @@ foldSpec = testGroup "The folds and the lone hyphen"
       keyed <- matching "substring:TODO"
       assertEqual "`substring:VALUE' is what VALUE alone means" bare keyed
 
-    -- A KEY, though, is case-SENSITIVE on both sides — so a shouted one is not
-    -- a key at all and falls through to the free text it spells.
+    -- A KEY is case-SENSITIVE on both sides, so a shouted one is free text.
   , testCase "a key shouted is no key, and reads as the text it is" $ do
       keyed <- matching "state:TODO"
       shouted <- matching "STATE:TODO"
@@ -734,19 +581,11 @@ foldSpec = testGroup "The folds and the lone hyphen"
 
 metaSpec :: TestTree
 metaSpec = testGroup "Starred metas"
-  -- THE ROSTER IS THE FAMILY, and this case is what ties its two halves
-  -- together: every starred word the code spells is one of 'metas', and every
-  -- one of 'metas' is spelled by a constant somewhere.  A sixth meta added to
-  -- the type and to nothing else fails here rather than shipping as a word no
-  -- predicate evaluates; one spelled by a constant and left off the type fails
-  -- here too.  The family was doctrine with no list until the type carried it.
+  -- THE ROSTER IS THE FAMILY: the type and the constants have to name one set.
   [ testCase "the roster is every starred word the code spells" $ do
       assertEqual "the family, in the order the type declares it"
         [activeMeta, inactiveMeta, emptyMeta, archiveMeta, noOrder]
         (map metaWord metas)
-      -- And each wears the stars 'metaOf' reads back off a value, so no member
-      -- can be a bare word — which is what keeps every cell spelling reachable
-      -- as itself.
       mapM_ (\m -> assertBool (show m <> " is not a starred word")
                               (maybe False (not . T.null) (metaOf (metaWord m))))
             metas
@@ -762,9 +601,7 @@ metaSpec = testGroup "Starred metas"
       assertEqual "planned" 4 . length =<< metaMatching "planned:*empty*"
 
   , testCase "and the bare word it replaced is a value like any other" $ do
-      -- The shadow this cost: `none' was every key's word for the empty cell,
-      -- so a cell reading `none' could not be asked for.  Both spellings are
-      -- reachable now, and they answer different rows.
+      -- The shadow this cost: `none' was every key's word for the empty cell.
       assertEqual "a state spelled NONE"
                   ["Filed away", "Not filed"] =<< metaMatching "state:none"
       assertEqual "a tag spelled none"
@@ -772,8 +609,6 @@ metaSpec = testGroup "Starred metas"
 
   , testCase "a starred word on the tags column is the whole tag" $ do
       assertEqual "the tag itself" ["Filed away"] =<< metaMatching "tag:*archive*"
-      -- Where the bare word is the substring the column matches by, which is
-      -- the reading a tag key used to have and the one `tag:' has now.
       assertEqual "the substring beside it"
                   ["Filed away", "Not filed"] =<< metaMatching "tag:archive"
       assertEqual "negated, the near miss survives"
@@ -783,49 +618,36 @@ metaSpec = testGroup "Starred metas"
   , testCase "and two of them AND, the way two tokens do" $ do
       assertEqual "both tags" ["Filed away"] =<< metaMatching "tag:*web* tag:*archive*"
       assertEqual "one it lacks" [] =<< metaMatching "tag:*none* tag:*archive*"
-      -- Either of them is the one token, metas alternating like any values.
       assertEqual "either tag" ["Filed away", "A state spelled like the tag"]
         =<< metaMatching "tag:*none*|*archive*"
 
   , testCase "what a meta IS: one matched pair with a word inside it" $
-      -- The rule every branch above reads, spelled once ('metaOf'): the stars
-      -- have to match and there has to be something between them, which is
-      -- @table-view.js@'s @META@ regex and its @starless@ in one answer.
+      -- The rule every branch above reads, spelled once ('metaOf').
       mapM_ (\(value, want) -> assertEqual (T.unpack value) want (metaOf value))
             [ ("*empty*", Just "empty"), ("*archive*", Just "archive")
             , ("empty", Nothing), ("*empty", Nothing), ("empty*", Nothing)
             , ("**", Nothing), ("*", Nothing), ("", Nothing) ]
 
   , testCase "a starred word anywhere else is the literal it spells" $ do
-      -- The tags column is the only multi-valued one, so nothing else reads a
-      -- starred value as an entry; and the state column's own metas are the
-      -- two groups and nothing more.
+      -- The tags column is the only multi-valued one, so nothing else reads a star.
       assertEqual "a keyword" [] =<< metaMatching "state:*NONE*"
       assertEqual "a title word" [] =<< metaMatching "title:*filed*"
   ]
 
--- Tags are not keys
 
--- | An org tag names no filter key.  @tag:course@ is the one spelling, and the
--- facet-then-search a tag tree gives an org user is the two tokens
--- @tag:course text@ — a predicate reads one cell, free text reads the row.  The
--- fixture's tags are @cleanup@, @glance@, @unicode@ and @web@, and none of them
--- is a key.
+-- | An org tag names no filter key; @tag:course text@ is the facet-then-search.
 tagsSpec :: TestTree
 tagsSpec = testGroup "Tags are not keys"
   [ testCase "a tag key is free text, colon and all" $ do
       assertEqual "a tag of the tree" [Term False Nothing "web:ship"] (parsed "web:ship")
       assertEqual "and one it does not carry" [Term False Nothing "contact:tanik"]
                                               (parsed "contact:tanik")
-      -- What the facet used to answer, and what the text now does.
       matches "web:schema" []
       matches "web:ship" []
       matches "contact:tanik" []
 
   , testCase "and matched as the text it is, org's own colons included" $
-      -- A coincidence worth writing down: org spells a tags cell `:web:', so
-      -- the free text `web:' is inside the cell of every row carrying the tag.
-      -- The facet is gone all the same — a value after it no longer scopes.
+      -- org spells a tags cell `:web:', so the free text `web:' is inside it.
       matches "web:" [Ship, Schema]
 
   , testCase "tag: is the one spelling, and it is the column's" $ do
@@ -835,8 +657,6 @@ tagsSpec = testGroup "Tags are not keys"
       matches "tag:*empty*" [Reply, Plain]
 
   , testCase "the facet and the search are two tokens now" $ do
-      -- `web:schema' was one; `tag:web schema' is what it meant, and reads the
-      -- same rows.  The text is the whole row, so it searches every cell.
       matches "tag:web schema" [Schema]
       matches "tag:web ship" [Ship]
       matches "tag:web 2026-08-01" [Ship]
@@ -844,41 +664,26 @@ tagsSpec = testGroup "Tags are not keys"
       matches "tag:web renderer" []
 
   , testCase "which costs the whole-tag reading, the column being a substring" $ do
-      -- `glan:' was no tag and matched nothing; `tag:glan' is a substring of
-      -- the cell and matches.  The wider reading is the tag column's own, and it
-      -- is the reading the renderer has for that column too.
+      -- `tag:glan' is a substring of the cell, the tag column's own reading.
       matches "glan:" []
       matches "tag:glan" [Ship]
 
-    -- The CELL sorts and the FILE does not, so the one row carrying two tags
-    -- spells them `:web:glance:' and reads `:glance:web:'.  Nothing a query can
-    -- ask depends on which: a predicate is a substring of ONE tag or membership
-    -- of the whole list, and the row is reached under either name and under both
-    -- at once.
+    -- The CELL sorts and the FILE does not, and no query can depend on which.
   , testCase "a predicate is order-independent, whichever way the row spells it" $ do
       matches "tag:web" [Ship, Schema]
       matches "tag:glance" [Ship]
       matches "tag:web tag:glance" [Ship]
       matches "tag:glance tag:web" [Ship]
-      -- The whole-tag meta reads the cell as a LIST, which has no order in it.
       matches "tag:*empty*" [Reply, Plain]
-      -- And the free-text half sees the cell as the table draws it: sorted, so
-      -- the two tags read across the join in that order and no other.
+      -- The free-text half sees the cell as the table draws it: sorted.
       matches "glance:web" [Ship]
       matches "web:glance" []
 
   , testCase "the tags a tree carries change no answer at all" $ do
-      -- The one divergence this removal was for: the keys a query could name
-      -- were the loaded rows' tags on one side of the wire and the whole
-      -- store's on the other.  Now neither side has any, and the environment a
-      -- query is matched in cannot carry a tag list to disagree over — it is
-      -- the rows alone ('storeEnv'), which is what makes this structural rather
-      -- than a pair of answers that happen to agree.
+      -- The environment a query is matched in is the rows alone: no tag list.
       records <- qrRecords <$> loadDir viewDir
       assertEqual "the fixture's tags" ["cleanup", "glance", "unicode", "web"]
                   (vocabularyOf records)
-      -- Every one of those tags, spelled as the key it used to be, resolves to
-      -- free text — including the two a column shares no name with.
       assertEqual "no tag is a key"
         [ [Term False Nothing (t <> ":x")] | t <- vocabularyOf records ]
         [ parsed (t <> ":x") | t <- vocabularyOf records ]
@@ -889,12 +694,8 @@ tagsSpec = testGroup "Tags are not keys"
       assertEqual "the tag, as text" [Term False Nothing "glance:x"] (parsed "glance:x")
   ]
 
--- Tokenizer
 
--- | What the scanner cuts out of a query, and what the tokens resolve to
--- against the view's columns.  Org text is the trap this grammar is shaped
--- around: a tag string and a verbatim run both carry the separator characters,
--- and neither is a predicate.
+-- | What the scanner cuts out of a query, and what the tokens resolve to.
 tokenSpec :: TestTree
 tokenSpec = testGroup "Tokens"
   [ testCase "a bare word is free text" $
@@ -956,74 +757,53 @@ tokenSpec = testGroup "Tokens"
       assertEqual "columns" keys filterKeys
   ]
 
--- | Q parsed: the tokenizer's own subject, where the only thing that makes a
--- predicate is a column, @planned@ or @ref@.
+-- | Q parsed: only a column, @planned@ or @ref@ makes a predicate.
 parsed :: Text -> [Term]
 parsed = parseFilter
 
--- Field predicates
 
--- | One group per column type SCHEMA.md names, plus the two meta-values this
--- producer adds and the @none@ every type shares.
+-- | One group per column type SCHEMA.md names, plus this producer's metas.
 predicateSpec :: TestTree
 predicateSpec = testGroup "Predicates"
   [ testCase "state is a whole value, case-insensitively" $ do
       matches "state:TODO" [Privet]
       matches "state:todo" [Privet]
       matches "state:DONE" [Schema]
-      -- Whole value, so a prefix of a keyword is not one of them.
       matches "state:TOD" []
-      -- The whole-value arm folds org's priority decoration on both sides,
-      -- because the renderer's badge matching does (per column TYPE, never
-      -- per key).  A query nobody writes, closed for parity's sake.
+      -- The whole-value arm folds org's priority decoration, as the renderer does.
       matches "state:[#TODO]" [Privet]
 
   , testCase "the two group metas are the file's keyword groups" $ do
-      -- #+TODO: NEXT WAITING | CANCELLED, over the seeded TODO/DONE.  The
-      -- stateless row rides with the active ones; see below.
+      -- #+TODO: NEXT WAITING | CANCELLED, over the seeded TODO/DONE.
       matches "state:*active*" [Ship, Privet, Reply, Plain]
       matches "state:*inactive*" [Drop, Schema]
-      -- The stars are the whole of what makes a meta, so the bare words are
-      -- keyword text: no file here declares one, and nothing matches.
       matches "state:active" []
       matches "state:inactive" []
 
   , testCase "the stateless row is active, and it is not inactive" $ do
-      -- No scope classifies a headline that carries no keyword, so it is in
-      -- neither group — and `*active*' takes it anyway, since an entry nobody
-      -- has stated is live work and the default view is what would otherwise
-      -- hide it.  `*inactive*' does not: an entry nobody marked done is not
-      -- done, so the two groups do not partition the column.
+      -- No scope classifies a keywordless headline, and `*active*' takes it anyway.
       matches "state:*empty*" [Plain]
       matches "state:*active*" [Ship, Privet, Reply, Plain]
       matches "state:*inactive*" [Drop, Schema]
-      -- Which makes `*empty*' a subset of `*active*' rather than a third group,
-      -- and makes the negation drop the empty cell along with the keywords.
+      -- Which makes `*empty*' a subset of `*active*' and no third group.
       matches "-state:*active*" [Drop, Schema]
       matches "-state:*inactive*" [Ship, Privet, Reply, Plain]
 
   , testCase "a meta is folded like every value, and is no glob" $ do
       matches "state:*ACTIVE*" [Ship, Privet, Reply, Plain]
-      -- The metas are a fixed vocabulary rather than a pattern: a starred
-      -- keyword is the literal badge text `*todo*', which no cell holds.
       matches "state:*TODO*" []
       matches "state:*none*" []
-      -- One matched pair, so a half-starred value is literal too.
       matches "state:*active" []
       matches "state:active*" []
 
-    -- The CELL wears org's own `[#A]' and the match reads THROUGH the brackets,
-    -- on both sides: display wears the decoration and matching reads through it.
-    -- So the letter a reader types and the cell they are looking at are one
-    -- query, and neither spelling is the privileged one.
+    -- The CELL wears org's `[#A]' and the match reads THROUGH the brackets.
   , testCase "priority is the letter, case-insensitively and through the brackets" $ do
       matches "priority:A" [Ship]
       matches "priority:a" [Ship]
       matches "priority:c" [Drop]
       matches "priority:[#A]" [Ship]
       matches "priority:[#a]" [Ship]
-      -- Still EXACT past the fold: a letter is one character, so nothing here
-      -- is a substring test and a half-spelled bracket matches nothing.
+      -- Still EXACT past the fold: a letter is one character.
       matches "priority:[#" []
       matches "priority:AB" []
       matches "priority:*empty*" [Reply, Plain, Schema]
@@ -1034,12 +814,10 @@ predicateSpec = testGroup "Predicates"
       matches "title:привет" [Privet]
       matches "tag:web" [Ship, Schema]
       matches "tag:*empty*" [Reply, Plain]
-      -- A predicate reads one cell: the word is in another row's title.
       matches "tag:renderer" []
 
   , testCase "a title predicate sees the cell as it displays" $ do
       matches "title:schema" [Schema]
-      -- The scheduled cell holds this, and the title does not.
       matches "title:2026" []
 
   , testCase "dates match by prefix, so a month is a month" $ do
@@ -1047,14 +825,12 @@ predicateSpec = testGroup "Predicates"
       matches "scheduled:2026-08-03" [Privet]
       matches "deadline:2026" [Ship, Reply]
       matches "scheduled:*empty*" [Reply, Plain, Drop, Schema]
-      -- Prefix, so the day is not matched out of the middle of the cell.
       matches "scheduled:03" []
 
   , testCase "a value with nothing typed narrows nothing" $ do
       every <- matching ""
       matches "state:" every
       matches "scheduled:" every
-      -- Which is the state the suggestion list exists to serve.
       matches "state: title:the" [Ship, Reply, Drop, Schema]
 
   , testCase "a negated predicate fails the row it matches" $ do
@@ -1063,29 +839,21 @@ predicateSpec = testGroup "Predicates"
       matches "-priority:*empty*" [Ship, Privet, Drop]
   ]
 
--- AND/OR shape
 
--- | One combination rule: TOKENS AND, ALTERNATIVES OR ('alternationSpec' is the
--- OR half).  Every token narrows, whether or not another token names its key,
--- so a second @state:@ empties a query where it once widened one.
+-- | One combination rule: TOKENS AND, ALTERNATIVES OR.  Every token narrows.
 shapeSpec :: TestTree
 shapeSpec = testGroup "Shape"
   [ testCase "every token narrows, whether or not another names its key" $ do
       matches "state:TODO" [Privet]
       matches "state:DONE" [Schema]
-      -- A cell holding ONE value cannot hold two, so this is no row at all.
-      -- The either it used to mean is one token now: `state:TODO|DONE'.
+      -- A cell holding ONE value cannot hold two; the either is `state:TODO|DONE'.
       matches "state:TODO state:DONE" []
       matches "state:TODO state:DONE state:NEXT" []
       matches "priority:a priority:c" []
-      -- The same value twice is that value, which is what makes this a rule
-      -- about tokens rather than a rule about two DIFFERENT values.
       matches "state:TODO state:TODO" [Privet]
 
   , testCase "and a cell holding a list can meet all of them" $ do
-      -- The tags cell is a list, so two tokens intersect where two states
-      -- cannot.  The answer is the one it always had, under a rule the state
-      -- column now obeys too.
+      -- The tags cell is a list, so two tokens intersect where two states cannot.
       matches "tag:web" [Ship, Schema]
       matches "tag:glance" [Ship]
       matches "tag:web tag:glance" [Ship]
@@ -1116,8 +884,7 @@ shapeSpec = testGroup "Shape"
       matches "cancelled" [Drop]         -- a state
 
   , testCase "free-text tokens and together, in any order" $ do
-      -- The renderer's rule: each token is its own substring of the row, so
-      -- words out of order still match where the old single substring would not.
+      -- Each token is its own substring of the row, so words out of order match.
       matches "ship view" [Ship]
       matches "view ship" [Ship]
       matches "\"the table\"" [Ship]
@@ -1133,35 +900,24 @@ shapeSpec = testGroup "Shape"
       matches "   " every
   ]
 
--- Alternation
 
--- | @key:A|B@ — the OR half of the one combination rule.  A predicate's VALUE
--- splits on @|@ and each alternative is read as that key's own value, so the
--- bar means the same thing on every key and every kind of value.
+-- | @key:A|B@ — the OR half: a VALUE splits on @|@, uniformly over every key.
 alternationSpec :: TestTree
 alternationSpec = testGroup "Alternation"
   [ testCase "what a value splits into, and what an empty alternative costs" $
       mapM_ (\(value, want) -> assertEqual (T.unpack value) want (alternatives value))
-            -- An empty alternative is dropped, so every half-typed form is the
-            -- value without it.
             [ ("a|b", ["a", "b"]), ("a", ["a"])
             , ("a|", ["a"]), ("|a", ["a"]), ("a||b", ["a", "b"])
-            -- And a value that is bars alone is left with none, which is the
-            -- `key:' rule: a predicate with nothing to narrow by.
             , ("", []), ("|", []), ("||", []) ]
 
   , testCase "each alternative is read as that key's own value" $ do
-      -- A badge is whole-value, a priority is exact, a title and a tag are
-      -- substrings of their cell.
       matches "state:TODO|DONE" [Privet, Schema]
       matches "priority:A|C" [Ship, Drop]
       matches "title:ship|schema" [Ship, Schema]
       matches "tag:glance|unicode" [Ship, Privet]
-      -- A date is a prefix, on its column and over both columns at once.
       matches "scheduled:2026-08-01|2026-08-03" [Ship, Privet]
       matches "planned:2026-08-03|2026-08-10" [Privet, Reply]
-      -- The semantics stay the key's: a badge is no substring, not even as one
-      -- alternative of two.
+      -- The semantics stay the key's: a badge is no substring.
       matches "state:TOD|DON" []
 
   , testCase "a meta joins the alternatives like any other value" $ do
@@ -1171,8 +927,7 @@ alternationSpec = testGroup "Alternation"
 
   , testCase "a negation covers the whole token" $ do
       matches "-state:TODO|DONE" [Ship, Reply, Plain, Drop]
-      -- Neither alternative — which De Morgan makes the two negations too, and
-      -- that agreement is the reading worth pinning.
+      -- De Morgan makes the two negations one answer, which is what is pinned.
       matches "-tag:web|glance" [Privet, Reply, Plain, Drop]
       matches "-tag:web -tag:glance" [Privet, Reply, Plain, Drop]
 
@@ -1186,17 +941,13 @@ alternationSpec = testGroup "Alternation"
       matches "tag:||" every
 
   , testCase "the bar is a predicate's, so free text is the text it spells" $ do
-      -- No row's display text holds a bar, so both free-text spellings are
-      -- empty where the predicate beside them answers two rows.
       matches "title:ship|schema" [Ship, Schema]
       matches "ship|schema" []
       matches "\"ship|schema\"" []
   ]
 
--- Degenerate case
 
--- | With no predicate in it a query is the substring search it always was, and
--- the two paths agree row by row.
+-- | With no predicate in it a query is the substring search it always was.
 degenerateSpec :: TestTree
 degenerateSpec = testGroup "Plain text"
   [ testCase "one word answers exactly what matchesSearch answers" $ do
@@ -1215,33 +966,23 @@ degenerateSpec = testGroup "Plain text"
       assertEqual "no row carries it" [] (hit q)
       assertBool "and it is not read as a predicate"
                  (all ((== Nothing) . tmKey) (parseFilter q))
-      -- THE POSITIVE HALF, which an empty answer cannot give: a token whose key
-      -- nothing declares over text a row DOES spell.  A schedule cell carries a
-      -- time, so `09:30' is key `09' — no key at all — over text the Ship row
-      -- holds, and it matches that row as the free text it is.  It answers row
-      -- for row with the same string QUOTED, which is free text by the grammar.
+      -- THE POSITIVE HALF: `09:30' is key `09' — no key — over text Ship holds.
       assertBool ("an unknown key over text a row carries finds it: "
                     <> show (hit "09:30"))
                  (not (null (hit "09:30")))
       assertEqual "the whole token is the needle, colon included"
                   (hit "\"09:30\"") (hit "09:30")
-      -- And the KEY is part of the needle rather than dropped: a reading that
-      -- searched the value alone would answer this with most of the fixture.
+      -- The KEY is part of the needle; searching the value alone answers most rows.
       assertEqual "the value alone is not what was searched for" [] (hit "nosuchkey:e")
       assertBool "though the value alone matches plenty" (length (hit "e") >= 3)
   ]
 
--- Haystack layout
 
--- | A predicate reads one field of the row's search text, so the field order
--- has to be the column order and the field contents have to be the display
--- cells the free-text search already agrees with.
+-- | A predicate reads one field of the search text, so field order is column order.
 layoutSpec :: TestTree
 layoutSpec = testGroup "Search text layout"
   [ -- The hand-written oracle: six cells named here, in the order this suite
-    -- says they go in.  It is a real oracle now that the search text is built
-    -- out of 'Glance.Query.viewColumns' — the list it is compared against is
-    -- the only copy of the layout that is not derived from that table.
+    -- says they go in — an INDEPENDENT oracle, the layout's only underived copy.
     testCase "field i of the search text is column i as it displays" $ do
       records <- qrRecords <$> loadDir viewDir
       mapM_ (\r -> mapM_ (check r) (zip [0 ..] (cellsOf r))) records
@@ -1250,31 +991,13 @@ layoutSpec = testGroup "Search text layout"
       records <- qrRecords <$> loadDir viewDir
       mapM_ (assertEqual "field 6" "" . cellAt (length filterKeys) . hrSearch) records
 
-    -- THE APPEND.  The oracle above names its six cells by hand; this one is
-    -- quantified over 'filterKeys', cell text and all, so a SEVENTH column
-    -- appended to 'viewColumns' is covered the day it lands: whatever a row
-    -- shows under a key, the predicate spelling that key finds the row it was
-    -- read off, and finds no row whose own cell for that key is empty.  What
-    -- made the append the hole is that the search text used to be a positional
-    -- list written out beside the record, which a seventh column left six
-    -- fields long — every predicate past it then reading the wrong field.
-    --
-    -- The values come off the wire rather than out of the haystack, which is
-    -- what makes this an end-to-end claim rather than a restatement of how the
-    -- haystack was cut.  They are quoted, since a cell holds spaces; the
-    -- fixture's cells carry no quote and no bar, the scanner's other two
-    -- characters, and the scanner is 'tokenSpec''s subject anyway.
+    -- THE APPEND: quantified over 'filterKeys', and the values come off the WIRE.
   , testCase "every column is reachable by the key it declares" $ do
       records <- qrRecords <$> loadDir viewDir
       sequence_ [ reachable records r key | r <- records, key <- filterKeys ]
   ]
   where
-    -- The tags entry is the CELL rather than the field: `hrTags' is the file's
-    -- order and the column sorts it, which is the one place the two differ and
-    -- the one place this oracle has to say so out loud.  Sorted HERE rather than
-    -- through `sortedTagsCell', so the list stays an independent oracle: calling
-    -- the producer's own function would make this a mirror of the code it is
-    -- meant to check.
+    -- Sorted HERE by hand, so this list stays an independent oracle.
     cellsOf r = [ unset (hrState r), unset (hrPriority r), hrTitle r
                 , unset (hrScheduled r), unset (hrDeadline r)
                 , sortedTags (hrTags r) ]

@@ -1,14 +1,7 @@
 module ScanTest exposing (suite)
 
-{-| THE SCANNER, ASKED DIRECTLY. Every case here is a rule the pane's behaviour
-rests on that costs a booted page to reach through the Haskell suite — org's
-one-blank-line rule, a block closing by NAME, an indented `*` being an item
-where a column-1 one is a headline, and the splice's "one grain speaks for a
-range".
-
-The body always opens with a headline line, because `blocksIn` starts at index
-1: the line the entry wears is the sheet's headline row, never a paragraph.
-
+{-| THE SCANNER, ASKED DIRECTLY: the rules the pane rests on that cost a booted
+page to reach through the Haskell suite. A body opens with a headline line.
 -}
 
 import Array
@@ -17,9 +10,6 @@ import Scan exposing (Grain(..), Kind(..), RegionKind(..), Row, blank)
 import Test exposing (Test, describe, test)
 
 
-{-| A body as the sheet holds it: lines, and how many of them are this entry's
-own rather than a child's.
--}
 scan : List String -> List ( Int, Int, String )
 scan lines =
     List.map (\b -> ( b.from, b.to, grainOf b.grain ++ Maybe.withDefault "" (Maybe.map ((++) ":") b.name) ))
@@ -57,9 +47,6 @@ indentOf line =
     Maybe.map .indent (Scan.listOpener line)
 
 
-{-| A model the splice can be asked of: the rows a body scans to, over the lines
-they came from.
--}
 model : List String -> { rows : List Row, lines : List String }
 model lines =
     { rows = Scan.rowsFrom lines (List.length lines) [] []
@@ -67,8 +54,6 @@ model lines =
     }
 
 
-{-| The same, with ROW's text rewritten — what an edit does before a flush.
--}
 edited : String -> String -> List String -> { rows : List Row, lines : List String }
 edited id written lines =
     let
@@ -89,9 +74,8 @@ edited id written lines =
     }
 
 
-{-| WHAT EVERY `d`/`D` LEAVES: the body each stop's own deletion composes, one
-per stop in row order. A stop the pane draws is a stop a reader can take, so a
-fixture asks about ALL of them rather than about the one that was reported.
+{-| WHAT EVERY `d`/`D` LEAVES, in row order — ALL of them rather than the one
+that was reported.
 -}
 takes : List String -> List String
 takes lines =
@@ -103,17 +87,13 @@ takes lines =
         (List.filter (\r -> r.kind == Para) m.rows)
 
 
-{-| THE BODIES THAT DO NOT PAIR UP, out of every one a `d`/`D` composes. An
-opener left without its closer is what a phantom stop's deletion leaves behind,
-and it is what a stop set alone cannot say.
+{-| THE BODIES THAT DO NOT PAIR UP, which a stop set alone cannot say.
 -}
 unpaired : List String -> List String
 unpaired bodies =
     List.filter (not << pairsUp) bodies
 
 
-{-| A stop's own text, which is what the pane draws inside it.
--}
 textOf : String -> List String -> String
 textOf id lines =
     List.foldr
@@ -129,10 +109,7 @@ textOf id lines =
 
 
 {-| A LINE COUNT, never org's parser, and the name says only what it checks:
-every `#+begin_` has a `#+end_` and every drawer opener an `:END:`. It is blind
-to the NAMES matching, to ordering, and to what a line landed in the middle of —
-`tableRuns` is the second reading beside it, and the rest is asserted case by
-case.
+every `#+begin_` has a `#+end_` and every drawer opener an `:END:`.
 -}
 pairsUp : String -> Bool
 pairsUp body =
@@ -147,9 +124,8 @@ pairsUp body =
         && (List.length (List.filter drawerOpens lines) == spells ":end:")
 
 
-{-| A drawer's opener, org's charset and all — EVERY drawer rather than
-`:LOGBOOK:` alone. Spelled again here so the oracle is the suite's own reading
-rather than the code it is judging.
+{-| A drawer's opener, org's charset and all. Spelled again here so the oracle
+is the suite's own reading rather than the code it is judging.
 -}
 drawerOpens : String -> Bool
 drawerOpens line =
@@ -168,11 +144,8 @@ drawerOpens line =
         /= "end"
 
 
-{-| HOW MANY TABLES A BODY SPELLS, counted as RUNS of pipe rows. A blank line —
-or a bullet, or a source line — landing between two rows ENDS the table and opens
-another, which is org's own `[1 table] -> [2 tables]`. A second independent
-reading beside `pairsUp`, and the one that catches a marker no block ever lost a
-closer over.
+{-| HOW MANY TABLES A BODY SPELLS, counted as RUNS of pipe rows. A second
+independent reading beside `pairsUp`.
 -}
 tableRuns : String -> Int
 tableRuns body =
@@ -195,8 +168,6 @@ tableRuns body =
         |> Tuple.first
 
 
-{-| The REGION holding LINE of a body, as its kind and its extent.
--}
 regionOf : Int -> List String -> ( String, Int, Int )
 regionOf line lines =
     let
@@ -206,8 +177,6 @@ regionOf line lines =
     ( regionWord reg.kind, reg.from, reg.to )
 
 
-{-| And what that region says a new line inside it opens with.
--}
 markerOf : Int -> List String -> String
 markerOf line lines =
     Scan.markerFor (Array.fromList lines) (Scan.regionAt (Array.fromList lines) 1 (List.length lines) line)
@@ -232,10 +201,7 @@ regionWord k =
             "drawer"
 
 
-{-| EVERY CARET IN A BODY, one entry per line: the region holding it, that
-region's extent, and the marker it spells. A fixture states the whole walk in ONE
-expectation rather than the one line that was reported, so a kind that stopped
-being re-entered names its own line.
+{-| EVERY CARET IN A BODY: its region, that region's extent, and its marker.
 -}
 carets : List String -> List String
 carets all =
@@ -263,9 +229,8 @@ carets all =
         (List.range 1 (List.length all - 1))
 
 
-{-| EVERY CARET A READER CAN ACTUALLY PUT DOWN: every stop the pane draws, and
-every line of that stop. What each one writes is the box SEEDED with its region's
-own marker plus a word, which is what the shell hands back.
+{-| EVERY CARET A READER CAN ACTUALLY PUT DOWN, each writing the box SEEDED
+with its region's own marker.
 -}
 everyCaret : List String -> List String
 everyCaret lines =
@@ -282,17 +247,11 @@ everyCaret lines =
         (List.filter (\r -> r.kind == Para) m.rows)
 
 
-{-| The writes that SPLIT A TABLE: a body spelling more table runs than the one
-it was written into.
--}
 splits : List String -> List String
 splits lines =
     List.filter (\b -> tableRuns b > tableRuns (String.join "\n" lines)) (everyCaret lines)
 
 
-{-| The MARKER the row \`+' draws wears, over the stop's line CARET — what the
-shell seeds its box with, read off the draw the way the page reads it.
--}
 leadAt : String -> Maybe Int -> List String -> String
 leadAt id caret lines =
     List.foldr
@@ -307,23 +266,12 @@ leadAt id caret lines =
         (Maybe.withDefault [] (Scan.drafted (model lines) id caret))
 
 
-{-| The same, with a paragraph spelling WRITTEN joined under ROW — what \`+' does
-before a flush, a key pressed with no box open naming no caret. The rows come
-back unchanged where the stop takes none.
--}
 inserted : String -> String -> List String -> { rows : List Row, lines : List String }
 inserted id written lines =
     insertedAt id Nothing written lines
 
 
-{-| And with the box opened over the stop's line CARET, which is where `S-RET'
-opens one.
-
-WHAT THE SHELL DOES: `+' draws the row and SEEDS THE BOX with its marker, the
-reader types after it, and the whole line goes back. So WRITTEN is what the
-READER typed and the marker is taken from the draw, which is where the page takes
-it from too.
-
+{-| The box opened over the stop's line CARET, where `S-RET' opens one.
 -}
 insertedAt :
     String
@@ -343,10 +291,7 @@ insertedAt id caret written lines =
     }
 
 
-{-| THE BOX HOLDS THE MARKER AND THE READER EDITS IT, so a write carries one
-WHOLE line. `insertedAt' is the case where they typed AFTER the marker; this is
-the case where the marker itself is what they changed — a table row, a source
-line, a clock entry.
+{-| THE BOX HOLDS THE MARKER AND THE READER EDITS IT: one WHOLE line goes back.
 -}
 typedAt :
     String
@@ -362,8 +307,6 @@ typedAt id caret written lines =
     { m | rows = Maybe.withDefault m.rows (Scan.insertion m id caret written) }
 
 
-{-| The draft as it is DRAWN: the line it takes and the rung it hangs off.
--}
 drawnAt : String -> Maybe Int -> List String -> Maybe ( Int, Maybe String )
 drawnAt id caret lines =
     Scan.drafted (model lines) id caret
@@ -371,8 +314,6 @@ drawnAt id caret lines =
         |> Maybe.map (\r -> ( r.from, r.owner ))
 
 
-{-| And the line the WRITE put it on, found in the body that write composed.
--}
 wroteAt : String -> Maybe Int -> String -> List String -> Maybe Int
 wroteAt id caret written lines =
     Scan.bodyText (insertedAt id caret written lines) []
@@ -383,8 +324,7 @@ wroteAt id caret written lines =
         |> Maybe.map Tuple.first
 
 
-{-| A BODY WITH A CHILD IN IT, whose bytes are outside this window: two lines of
-the entry's own and a `** kid` under them, which no gesture here may reach.
+{-| A BODY WITH A CHILD IN IT, whose bytes no gesture here may reach.
 -}
 withKid : { rows : List Row, lines : List String }
 withKid =
@@ -393,9 +333,7 @@ withKid =
     }
 
 
-{-| A REAL DOCUMENT, off the corpus: the lens's own `body` for one entry, blank
-last line and all. TWO top-level items, each carrying a nested run, and one of
-those carrying a third level — where every other fixture here has one.
+{-| A REAL DOCUMENT off the corpus, blank last line and all; three levels deep.
 -}
 chores : List String
 chores =
@@ -419,16 +357,12 @@ chores =
     ]
 
 
-{-| That body with LINES put in at I: an expectation stating what MOVED, so
-every byte the splice left alone is asserted rather than restated.
--}
 spliced : Int -> List String -> String
 spliced i lines =
     String.join "\n" (List.take i chores ++ lines ++ List.drop i chores)
 
 
-{-| THE CASE AS IT WAS REPORTED: a nested run inside ONE stop, where `S-RET' from
-a box over the whole item used to land the new item past everything.
+{-| THE CASE AS IT WAS REPORTED: a nested run inside ONE stop.
 -}
 pets : List String
 pets =
@@ -472,25 +406,20 @@ logbook =
     [ "* head", "notes", ":LOGBOOK:", "CLOCK: [2026-08-12 Wed 10:00]", ":END:" ]
 
 
-{-| The proposal's own table, alignment and rule row and all.
--}
 grid : List String
 grid =
     [ "* head", "| alpha | beta  |", "|-------+-------|", "| one   | two   |" ]
 
 
-{-| A TABLE NOBODY ALIGNED: two rows spelling two widths per column, so a new
-row is padded to the WIDER of each. An aligned fixture says nothing about which
-of the two the rule takes.
+{-| A TABLE NOBODY ALIGNED, which is what says WHICH width: org pads to the
+WIDER.
 -}
 ragged : List String
 ragged =
     [ "* head", "| a | bb |", "| ccc | d |" ]
 
 
-{-| THE SPEC'S OWN MOTIVATING EXAMPLE: a `#+begin_src` run riding inside a list
-item, with a line of the item's under it so the block's closer is not also the
-item's last.
+{-| THE SPEC'S OWN MOTIVATING EXAMPLE: a `#+begin_src` inside a list item.
 -}
 itemSrc : List String
 itemSrc =
@@ -505,15 +434,11 @@ itemSrc =
     ]
 
 
-{-| The same nesting one kind over: a table inside an item.
--}
 itemGrid : List String
 itemGrid =
     [ "* head", "- alpha", "  | a | bb |", "  | c | d  |", "- beta" ]
 
 
-{-| And a drawer inside one, `:LOGBOOK:` being the drawer a subtree carries.
--}
 itemBook : List String
 itemBook =
     [ "* head"
@@ -525,30 +450,23 @@ itemBook =
     ]
 
 
-{-| THE REPORTED BUG'S OWN BODY: a bullet inside a `#+begin_src` inside a list
-item. The scanner hunted an item's raw lines for openers knowing nothing of
-blocks, so this one was minted as a STOP whose span ran to the block's own
-closer — `d` then `D` over it took the `#+end_src` out and left the block open.
+{-| THE REPORTED BUG'S OWN BODY: a bullet inside a `#+begin_src` inside an item.
 -}
 itemSrcBullet : List String
 itemSrcBullet =
     [ "* head", "- a", "  #+begin_src sh", "  - not an item", "  #+end_src", "- b" ]
 
 
-{-| THE DRAWER TWIN, AND IT IS NOT THE SAME. A drawer is a GREATER element, so
-its contents ARE elements and this bullet IS an item — which is how the corpus's
-own `:LOGBOOK:` state lines read. Only the STOPS match the block twin: a region
-nested inside an item mints none.
+{-| THE DRAWER TWIN, AND IT IS NOT THE SAME. A drawer is GREATER, so its
+contents ARE elements and this bullet IS an item; only the STOPS match.
 -}
 itemBookItem : List String
 itemBookItem =
     [ "* head", "- a", "  :LOGBOOK:", "  - an item", "  :END:", "- b" ]
 
 
-{-| A PIPE ROW INSIDE A VERBATIM BLOCK IS SOURCE. Org reads a table by its own
-grammar and `src` suspends it, so the row is a line of the block wherever it
-rides. `quoteGrid` below is the same pairing over a block where a pipe row CAN be
-a table, which is where the rule can fail.
+{-| A PIPE ROW INSIDE A VERBATIM BLOCK IS SOURCE: `src` suspends org's table
+grammar. `quoteGrid` is the same pairing where a pipe row CAN be a table.
 -}
 itemSrcPipes : List String
 itemSrcPipes =
@@ -560,8 +478,7 @@ srcPipes =
     [ "* head", "#+begin_src org", "| a | b |", "#+end_src" ]
 
 
-{-| A BLOCK INSIDE A DRAWER. The drawer takes the run whole as a STOP question,
-and the walk re-enters it, so the block's own lines are the BLOCK's.
+{-| A BLOCK INSIDE A DRAWER, which the walk re-enters: the lines are the BLOCK's.
 -}
 itemDrawerBlock : List String
 itemDrawerBlock =
@@ -582,20 +499,12 @@ drawerBlock =
 
 
 
--- ORG'S GREATER/LESSER SPLIT, ASKED OVER EVERY PAIRING
---
--- A GREATER region contains elements and the walk re-enters it; a LESSER one
--- holds none and is opaque.  So every container is paired here with every kind
--- it can hold, at TOP LEVEL and inside an ITEM, and each is asked both ways: the
--- stops it yields, and what every caret in it writes.
+-- ORG'S GREATER/LESSER SPLIT: every container paired with every kind it holds,
+-- at TOP LEVEL and inside an ITEM, each asked for its stops and for its writes.
 
 
-{-| THE CORPUS'S OWN SHAPE, off
-`~/sync/views/.org-glance/data/gy/m-25044-…/data.org` — a `#+begin_pin`, a tag's
-own SPECIAL block, holding a list and then a table. The lines are that file's,
-with the schedule and the table cut short and the closer pulled up. A caret
-anywhere in the table used to be answered with the BLOCK's empty line, which org
-read as `[1 table, 21 rows] -> [2 tables, 21 rows]`.
+{-| THE CORPUS'S OWN SHAPE, off `views/.org-glance/data/gy/m-25044-…/data.org`:
+a `#+begin_pin` SPECIAL block holding a list and a table.
 -}
 pinned : List String
 pinned =
@@ -612,8 +521,7 @@ pinned =
     ]
 
 
-{-| A GREATER BLOCK holding each kind in turn. `quote` is org's own; a block org
-does not name is a SPECIAL block and greater the same way.
+{-| A GREATER BLOCK holding each kind; an unnamed block is SPECIAL and greater.
 -}
 quoteGrid : List String
 quoteGrid =
@@ -635,9 +543,6 @@ quoteSrc =
     [ "* head", "#+begin_quote", "#+begin_src sh", "- echo", "#+end_src", "#+end_quote" ]
 
 
-{-| A DRAWER holding a table, and one holding a list. `:RESULTS:` because a
-drawer is a drawer whatever it is called.
--}
 bookGrid : List String
 bookGrid =
     [ "* head", ":LOGBOOK:", "| a | bb |", "| c | d  |", ":END:" ]
@@ -648,8 +553,6 @@ bookList =
     [ "* head", ":RESULTS:", "- a", "- b", ":END:" ]
 
 
-{-| The nested twins: the same two containers riding inside a list item.
--}
 itemQuoteGrid : List String
 itemQuoteGrid =
     [ "* head"
@@ -675,10 +578,7 @@ itemBookGrid =
 
 
 {-| THE FIVE VERBATIM BLOCKS — the names `org-element-greater-elements` leaves
-out — each holding a bullet and a pipe row. Org parses no element inside one, so
-both are lines of the block, and one name dropped from that list makes its
-fixture's bullet an item. `comment` is the name org's LIST rule
-(`org-list-forbidden-blocks`, four names) spares and the element rule does not.
+out. `comment` is the one org's `org-list-forbidden-blocks` spares.
 -}
 verbatims : List ( String, List String )
 verbatims =
@@ -686,9 +586,7 @@ verbatims =
         [ "comment", "example", "export", "src", "verse" ]
 
 
-{-| THE OTHER POLARITY, over the same body: org's own two greater blocks and a
-tree's own special one, where the bullet IS an item. Membership is a list, so
-both sides of it are asked.
+{-| THE OTHER POLARITY over the same body, where the bullet IS an item.
 -}
 greaters : List ( String, List String )
 greaters =
@@ -700,9 +598,7 @@ blockAround name =
     [ "* head", "#+begin_" ++ name, "- a", "| x | y |", "#+end_" ++ name ]
 
 
-{-| A BLOCK STRADDLING AN ITEM BOUNDARY. Org reads ONE `#+begin_src` here and one
-item over all of it; hunting bullets THROUGH the block cut the item at `- b`, and
-taking that item carried the opener off without its closer.
+{-| A BLOCK STRADDLING AN ITEM BOUNDARY: org reads ONE block and one item.
 -}
 straddleSrc : List String
 straddleSrc =
@@ -716,24 +612,21 @@ straddleBook =
     [ "* head", "- a", "  :LOGBOOK:", "  clocked", "- b", "  :END:", "- c" ]
 
 
-{-| AND THE TOP LEVEL IS ITS OWN PATH — nothing there asks the walk, so a bullet
-inside a block is the block's because the block was already taken whole.
+{-| AND THE TOP LEVEL IS ITS OWN PATH: a block is taken whole there already.
 -}
 topBlockBullet : List String
 topBlockBullet =
     [ "* head", "#+begin_src sh", "- not an item", "echo", "#+end_src", "after" ]
 
 
-{-| ONE BLANK LINE STAYS IN, org's rule, and here it stays in a NESTED run: the
-line belongs to the item above it and to no stop.
+{-| ONE BLANK LINE STAYS IN, org's rule, and here it stays in a NESTED run.
 -}
 gapRun : List String
 gapRun =
     [ "* head", "- a", "  - x", "", "  - y", "- b" ]
 
 
-{-| A DEEPLY-INDENTED ITEM WITH A WRAPPED CONTINUATION. Only the two column-1
-bullets open an item; `beta`'s last two lines are prose of its own.
+{-| A DEEPLY-INDENTED ITEM WITH A WRAPPED CONTINUATION: two column-1 bullets.
 -}
 wrapRun : List String
 wrapRun =
@@ -746,9 +639,6 @@ wrapRun =
     ]
 
 
-{-| EVERY BODY WHOSE WRITES ORG MUST STILL READ — every pairing this suite
-carries.
--}
 sweep : List (List String)
 sweep =
     [ itemSrcBullet
@@ -775,10 +665,7 @@ sweep =
         ++ List.map Tuple.second greaters
 
 
-{-| And the ones whose TAKES it must read too. A TOP-LEVEL DRAWER WITH STRUCTURE
-IN IT is out, `drawerBlock` for the same reason: a drawer is no stop up there, so
-its opener and its closer land in separate paragraph stops and taking one leaves
-the other standing. That asymmetry is open, and its own cases pin it.
+{-| And the ones whose TAKES it must read: a top-level drawer is out, no stop.
 -}
 takeable : List (List String)
 takeable =
@@ -932,8 +819,6 @@ suite =
             [ test "a moved composite silences the leaves under it" <|
                 \_ ->
                     -- The list is B0 and its items B1 and B2 over the same lines.
-                    -- Rewriting the whole list must not then splice the items in
-                    -- on top of it.
                     Expect.equal "* head\n- rewritten whole"
                         (Scan.bodyText
                             (edited "B0" "- rewritten whole" [ "* head", "- alpha", "- beta" ])
@@ -941,20 +826,14 @@ suite =
                         )
             , test "a GOING composite silences them, alone or flagged with one" <|
                 \_ ->
-                    -- The pair's real occasion is the second: without the
-                    -- silencing the item would splice at a range the list's own
-                    -- deletion has already taken out.
+                    -- Without the silencing the item splices at a range the deletion took out.
                     Expect.equal [ "* head", "* head" ]
                         [ Scan.bodyText (model [ "* head", "- alpha", "- beta" ]) [ "B0" ]
                         , Scan.bodyText (model [ "* head", "- alpha", "- beta" ]) [ "B0", "B1" ]
                         ]
             , test "an edited item under an edited list is the LIST's text" <|
                 \_ ->
-                    -- The rule's real occasion is the GROWING edit.  Bottom-up
-                    -- ordering alone keeps most of these right, because the
-                    -- list's range covers the item's and lands last; what it
-                    -- cannot survive is a leaf splice that CHANGES THE LINE
-                    -- COUNT under it.
+                    -- Bottom-up ordering cannot survive a leaf splice CHANGING THE LINE COUNT.
                     let
                         under written =
                             let
@@ -992,9 +871,7 @@ suite =
                     Expect.equal "* head\nalpha\n\nmid\n\nbeta"
                         (Scan.bodyText (inserted "B0" "mid" [ "* head", "alpha", "", "beta" ]) [])
 
-            -- THE BLANK BELOW IS DECIDED, never spelled: prose at the carrier's
-            -- end reads back as ONE paragraph with what was written, so the
-            -- separator is asked of the line rather than fixed at "\n\n".
+            -- THE BLANK BELOW IS DECIDED: the separator is asked of the line.
             , test "and a blank below where what follows is prose" <|
                 \_ ->
                     Expect.equal "* head\n- a\n\nnote\n\nafter"
@@ -1008,12 +885,8 @@ suite =
                     Expect.equal "* head\nfirst\n"
                         (Scan.bodyText (inserted "H" "first" [ "* head", "" ]) [])
 
-            -- AN ITEM JOINS STRICTLY BELOW THE STOP, wearing the stop's own
-            -- prefix.  The typed text is what the READER typed, so the lead
-            -- appears in the expectation and never in the argument.  ORG'S OWN
-            -- `M-RET': the reader walked to an item and the new one belongs
-            -- under THAT one, never at a bottom they would walk back up from, so
-            -- the run below it stays where it is however long.
+            -- AN ITEM JOINS STRICTLY BELOW THE STOP, wearing the stop's own prefix
+            -- — org's own `M-RET'.  The lead is never in the argument.
             , test "an item's joins STRICTLY BELOW the stop, the run untouched" <|
                 \_ ->
                     Expect.equal
@@ -1028,16 +901,13 @@ suite =
                             []
                         ]
 
-            -- ONE BLANK STAYS INSIDE THE RUN (org's rule, `listRun'), and a
-            -- sibling of the stop goes above it, the blank belonging to what
-            -- follows rather than to the item being joined.
+            -- ONE BLANK STAYS INSIDE THE RUN (org's rule), and a sibling goes above it.
             , test "a blank line inside the run stays under the new item" <|
                 \_ ->
                     Expect.equal "* head\n- alpha\n- note\n\n- beta"
                         (Scan.bodyText (inserted "B1" "note" [ "* head", "- alpha", "", "- beta" ]) [])
 
-            -- THE INDENT IS THE CURSOR'S: the nested run's own bottom, two
-            -- spaces in.
+            -- THE INDENT IS THE CURSOR'S: the nested run's own bottom.
             , test "a nested item's joins the NESTED run, at the stop's indent" <|
                 \_ ->
                     Expect.equal "* head\n- alpha\n  - deep\n  - note\n- beta"
@@ -1046,20 +916,14 @@ suite =
                             []
                         )
 
-            -- AND AN OUTER ITEM'S BOTTOM IS PAST ITS OWN NESTED RUN, `joined'
-            -- walking everything the last sibling owns.
+            -- AN OUTER ITEM'S BOTTOM IS PAST ITS OWN NESTED RUN.
             , test "an item carrying a nested run keeps it above the new sibling" <|
                 \_ ->
                     Expect.equal "* head\n- alpha\n  - deep\n- note"
                         (Scan.bodyText (inserted "B1" "note" [ "* head", "- alpha", "  - deep" ]) [])
 
-            -- A NUMBER CONTINUES OFF THE LAST ITEM: the stop's own number
-            -- spelled at the bottom is a duplicate, which is what makes org
-            -- renumber.
-            -- THE NUMBER IS THE STOP'S, ONE ON, and the item below keeps the
-            -- one it had — a duplicate, which is org's own `M-RET' answer and
-            -- what `org-list-repair' is for.  Counting from the run's bottom
-            -- would spell a number two items away from where this lands.
+            -- THE NUMBER IS THE STOP'S, ONE ON, and the item below keeps the one it
+            -- had — org's own `M-RET' answer, what `org-list-repair' is for.
             , test "a numbered item takes the stop's number, one on" <|
                 \_ ->
                     Expect.equal "* head\n1. alpha\n2. note\n2. beta"
@@ -1075,13 +939,7 @@ suite =
                     Expect.equal "* head\n- [X] alpha\n- [ ] note"
                         (Scan.bodyText (inserted "B1" "note" [ "* head", "- [X] alpha" ]) [])
 
-            -- A TABLE LINE AND A BLOCK RUN KEEP THE COMPOSITE'S LANDING WITH NO
-            -- CARET, and the reason is the GRAIN: `+' with no box open names no
-            -- line, so there is nothing to be inside and the answer is a sibling
-            -- of the STOP.  A caret is what makes a region's interior
-            -- addressable, and the cases above are where it does.  Each is asked
-            -- twice, since the blank BELOW is decided rather than spelled: with
-            -- prose after the structure, and with the structure ending the body.
+            -- WITH NO CARET the answer is a sibling of the STOP, `+' naming no line.
             , test "a table's line rides the table, which stays whole" <|
                 \_ ->
                     Expect.equal
@@ -1123,10 +981,7 @@ suite =
                         (Scan.insertion (model [ "* head", "alpha" ]) "B9" Nothing "note")
             ]
 
-        -- `+' DRAWS THE ROW BEFORE ANYTHING IS WRITTEN.  It is zero-width and
-        -- empty, so its text has not moved off its `was' and the splice passes
-        -- it over: the reader sees the line they are about to fill and the file
-        -- is the file it was.
+        -- `+' DRAWS THE ROW BEFORE ANYTHING IS WRITTEN, zero-width and passed over.
         , describe "drafted — a paragraph drawn before it is written"
             [ test "the drawn row writes nothing at all" <|
                 \_ ->
@@ -1186,11 +1041,7 @@ suite =
                         (List.map .id (Scan.undrafted { m | rows = rows }))
             ]
 
-        -- WHERE THE CURSOR IS OWED after the write: block ids are POSITIONAL,
-        -- so the row an insert makes has no id until the rescan mints one and
-        -- the LINE it starts at is what names it instead.
-        -- TWO FAULTS THE TEXT SUITE COULD NOT SEE, both found by driving a real
-        -- browser over a nested run.  Each is stated here as the rule it broke.
+        -- WHERE THE CURSOR IS OWED: block ids are POSITIONAL, so a LINE names it.
         , describe "a drafted item is a leaf of the run it joins"
             [ test "it owns what its siblings own, so the composite still draws it" <|
                 \_ ->
@@ -1205,14 +1056,11 @@ suite =
                             List.map (\r -> ( r.id, r.owner ))
                                 (List.filter (\r -> r.id == Scan.draftId) drawn)
                     in
-                    -- `Doc.viewKids' walks a composite's kids while their owner
-                    -- is its own; a draft owning NOBODY breaks that walk and the
-                    -- leaves past it are drawn a second time as the gap text.
+                    -- A draft owning NOBODY breaks the `Doc.viewKids' walk.
                     Expect.equal [ ( "D", Just "B1" ) ] held
             , test "and a multi-line item rides inside itself" <|
                 \_ ->
-                    -- A continuation at column 1 closes the run: org reads it as
-                    -- a paragraph, so the reader's ONE item became two things.
+                    -- A continuation at column 1 closes the run: org reads a paragraph.
                     Expect.equal "* head\n- alpha\n- one\n  two"
                         (Scan.bodyText
                             (inserted "B1" "one\ntwo" [ "* head", "- alpha" ])
@@ -1226,18 +1074,13 @@ suite =
                             []
                         )
             ]
-        -- THE CARET PICKS THE LINE THE LEAD IS SPELLED OFF.  A stop can hold
-        -- several lines, and `S-RET' in a box over one hands the next stop the
-        -- prefix of the line the press was made on rather than the prefix of
-        -- the line the stop opens with.  The shell sends a NUMBER and nothing
-        -- else: the grammar is all on this side.
+        -- THE CARET PICKS THE LINE THE LEAD IS SPELLED OFF; the shell sends a NUMBER.
         , describe "the caret's line — which line a lead is spelled off"
             [ test "a deeper line yields its own indent and its own bullet" <|
                 \_ ->
                     Expect.equal "  + "
                         (leadAt "B1" (Just 1) [ "* head", "- alpha", "  + beta", "- gamma" ])
-            -- AN ABSENT INDEX IS `+' PRESSED WITH NO BOX OPEN, so there is no
-            -- caret to read and the stop's first line spells the lead.
+            -- AN ABSENT INDEX IS `+' WITH NO BOX OPEN: the stop's first line leads.
             , test "and an absent one stays the stop's first" <|
                 \_ ->
                     Expect.equal "- "
@@ -1253,11 +1096,7 @@ suite =
                     Expect.equal "  - "
                         (leadAt "B1" (Just 9) [ "* head", "- alpha", "  - beta" ])
 
-            -- THE INDEX CHANGES WHICH LINE IS CONSULTED, NEVER WHETHER A LEAD
-            -- EXISTS.  A run's deeper lines can be continuations rather than
-            -- items, and the stop's first line is what spells the prefix there
-            -- — without the fallback the whole stop loses its grammar and the
-            -- sibling leaves as a paragraph past the list.
+            -- THE INDEX CHANGES WHICH LINE IS CONSULTED, NEVER WHETHER A LEAD EXISTS.
             , test "a continuation line spells no item, so the stop's first does" <|
                 \_ ->
                     Expect.equal ( "- ", "* head\n- alpha\n  more of alpha\n- note\n- beta" )
@@ -1271,9 +1110,7 @@ suite =
                             []
                         )
 
-            -- A PARAGRAPH'S LINES ARE ONE VALUE rather than a sequence of
-            -- slots, so its region answers the same wherever the caret stood:
-            -- a paragraph of its own, past the prose.
+            -- A PARAGRAPH'S LINES ARE ONE VALUE: its region answers alike anywhere.
             , test "a paragraph takes none, at any index" <|
                 \_ ->
                     let
@@ -1282,10 +1119,7 @@ suite =
                     in
                     Expect.equal (Scan.drafted m "B0" (Just 0)) (Scan.drafted m "B0" (Just 2))
 
-            -- THE WRITE MEASURES THE SAME LEAD.  `draftRow' indents a
-            -- multi-line item's continuations by the lead's own width, so a
-            -- draw at one line and a write at another would ride the reader's
-            -- second line under a bullet it never wore.
+            -- THE WRITE MEASURES THE SAME LEAD AS THE DRAW.
             , test "and the write rides continuations under the bullet drawn" <|
                 \_ ->
                     Expect.equal "* head\n- alpha\n  - beta\n  - one\n    two\n- gamma"
@@ -1299,10 +1133,7 @@ suite =
                         )
             ]
 
-        -- THE CARET'S LINE ANCHORS THE INSERT, and the reported case is the
-        -- fixture: a run nested inside ONE stop, a box open over the whole of
-        -- it, and `S-RET' pressed on a line in the middle.  The new item used
-        -- to land past everything.
+        -- THE CARET'S LINE ANCHORS THE INSERT, over a run nested inside ONE stop.
         , describe "the caret's line — where the sibling lands"
             [ test "a caret mid-run splits it, and what was below stays below" <|
                 \_ ->
@@ -1314,9 +1145,7 @@ suite =
                         )
                         (Scan.bodyText (insertedAt "B1" (Just 6) "Ошейник" pets) [])
 
-            -- THE CASE THAT KEEPS THE CHANGE HONEST: at the run's last line the
-            -- split and the old bottom-of-the-structure answer are one line, so
-            -- the two rules can only be told apart in the middle.
+            -- THE TWO RULES CAN ONLY BE TOLD APART IN THE MIDDLE of the run.
             , test "at the run's LAST line the split is the bottom" <|
                 \_ ->
                     Expect.equal ( Just 10, Just 10 )
@@ -1333,8 +1162,7 @@ suite =
                         )
                         (Scan.bodyText (insertedAt "B1" (Just 8) "Ошейник" pets) [])
 
-            -- LINE 0 IS A LINE A READER STOOD ON, which is the whole reason an
-            -- absent index cannot be spelled as one.
+            -- LINE 0 IS A LINE A READER STOOD ON, so absence is spelled otherwise.
             , test "a caret on line 0 lands under line 0, not past the structure" <|
                 \_ ->
                     Expect.equal
@@ -1345,8 +1173,7 @@ suite =
                         )
                         (Scan.bodyText (insertedAt "B1" (Just 0) "Ошейник" pets) [])
 
-            -- AND `+' WITH NO BOX OPEN RIDES PAST THE WHOLE STRUCTURE, which is
-            -- right where nothing named a line to split.
+            -- `+' WITH NO BOX OPEN RIDES PAST THE WHOLE STRUCTURE.
             , test "an absent index still rides past the whole structure" <|
                 \_ ->
                     Expect.equal
@@ -1357,9 +1184,7 @@ suite =
                         )
                         (Scan.bodyText (inserted "B1" "Ошейник" pets) [])
 
-            -- ONE LINE, TWO READERS.  The draft is DRAWN before it is written
-            -- and the write composes the body a second time; a draw at one line
-            -- and a splice at another is the fault this pins.
+            -- ONE LINE, TWO READERS: the draw and the splice must agree.
             , test "the drawn draft and the written line are one line" <|
                 \_ ->
                     Expect.equal ( Just ( 8, Just "B5" ), Just 8, Just 8 )
@@ -1368,23 +1193,15 @@ suite =
                         , Scan.joinLine (model pets) "B1" (Just 6)
                         )
 
-            -- AND IT STANDS IN THE ROW ORDER ITS BYTES ARE IN.  `Doc.viewKids'
-            -- walks a composite's kids while their owner is its own and reads
-            -- the gap off each one's `to', so a draft drawn past the rungs it
-            -- was written above has them drawn a SECOND time under it.
+            -- AND IT STANDS IN THE ROW ORDER ITS BYTES ARE IN.
             , test "and in the row order its bytes are in" <|
                 \_ ->
                     Expect.equal
                         (Just [ "H", "B0", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "D", "B8", "B9" ])
                         (Maybe.map (List.map .id) (Scan.drafted (model pets) "B1" (Just 6)))
             ]
-        -- REPORTED AGAINST THE RUNNING APP over the body above: the region "is
-        -- not considered as a list", and `S-RET' in it "resolves into empty
-        -- row".  The scanner reads it as one list and always did; what answered
-        -- with no lead is the stop a reader meets FIRST — one `n' off the
-        -- headline is the whole-list composite, and a box opened there covers
-        -- every line of it.  A LINE INSIDE A LIST BELONGS TO AN ITEM however
-        -- wide the stop laid over it, so the caret is what decides.
+        -- A LINE INSIDE A LIST BELONGS TO AN ITEM however wide the stop laid over
+        -- it, so the caret is what decides.
         , describe "a real list, and the box laid over the whole of it"
             [ test "the reported body is ONE list, over two top-level runs" <|
                 \_ ->
@@ -1406,13 +1223,10 @@ suite =
                         , ( 14, 15, "leaf" )
                         , ( 15, 16, "leaf" )
                         ]
-                        -- 16 is the lens's own `ownLines'; the blank last line
-                        -- is outside it and closes the run either way.
+                        -- 16 is the lens's own `ownLines'; the blank last line is outside it.
                         (scanOwn 16 chores)
 
-            -- A SHALLOWER ITEM UNDER A DEEPER ONE ENDS THE DEEPER RUN EXACTLY,
-            -- which is what puts `Записать к грумеру' back under `Пёсики'
-            -- rather than under `Для зубов'.
+            -- A SHALLOWER ITEM UNDER A DEEPER ONE ENDS THE DEEPER RUN EXACTLY.
             , test "and the ladder holds, three levels down and back up" <|
                 \_ ->
                     Expect.equal
@@ -1432,10 +1246,7 @@ suite =
                         , leadAt "B11" Nothing chores
                         ]
 
-            -- THE REPORTED SYMPTOM.  The stop is the whole list and the caret
-            -- names a line two levels in, so the item wears THAT line's prefix
-            -- and joins THAT run — the same answer the leaf under the caret
-            -- gives, which is what makes the width of the box stop mattering.
+            -- The caret's line decides, so the width of the box stops mattering.
             , test "S-RET in a box over the whole list writes the caret line's own item" <|
                 \_ ->
                     Expect.equal ( "    - [ ] ", spliced 8 [ "    - [ ] Ошейник" ] )
@@ -1447,9 +1258,7 @@ suite =
                     Expect.equal (Just ( 8, Just "B5" ))
                         (drawnAt "B0" (Just 6) chores)
 
-            -- THE RULE STAYS THE GRAIN'S WHERE NOTHING NAMED A LINE.  `+' with
-            -- no box open rides past the whole structure, which is the only way
-            -- to put a paragraph after a list — one `b' from any item.
+            -- THE RULE STAYS THE GRAIN'S WHERE NOTHING NAMED A LINE.
             , test "and `+' with no box open still lands a paragraph past the list" <|
                 \_ ->
                     Expect.equal ( "", spliced 16 [ "", "note" ] )
@@ -1457,11 +1266,8 @@ suite =
                         , Scan.bodyText (inserted "B0" "note" chores) []
                         )
 
-            -- AND THE REGION IS ASKED ABOUT, never the line alone.  A source
-            -- block can hold a line that OPENS LIKE AN ITEM, and the block's
-            -- own answer is what it takes: X's grammar is X's, and a list rule
-            -- that accepts more than org does is the worse bug.  The line lands
-            -- INSIDE, which is where the reader was standing.
+            -- AND THE REGION IS ASKED ABOUT, never the line alone: a source block can
+            -- hold a line that OPENS LIKE AN ITEM, and the block's answer wins.
             , test "a block line that looks like an item still spells no bullet" <|
                 \_ ->
                     let
@@ -1475,11 +1281,7 @@ suite =
                         ( leadAt "B1" (Just 0) src
                         , Scan.bodyText (insertedAt "B1" (Just 0) "note" src) []
                         )
-            -- A CONTINUATION LINE NAMES NO ITEM, and over a whole-list box the
-            -- stop's own first line is the LIST's first item — a column-1
-            -- bullet spliced into the middle of a nested run.  The rung HOLDING
-            -- the line spells it instead, which is the row `anchored' hangs the
-            -- sibling off, so one row answers both.
+            -- A CONTINUATION LINE NAMES NO ITEM: the rung HOLDING the line spells it.
             , test "a caret on a continuation takes the rung that holds it" <|
                 \_ ->
                     let
@@ -1491,11 +1293,7 @@ suite =
                         , Scan.bodyText (insertedAt "B0" (Just 2) "note" riding) []
                         )
             ]
-        -- ONE QUESTION — WHICH REGION HOLDS THE CARET — AND ONE ANSWER PER
-        -- REGION.  The reported bug was a caret on a non-item line splicing an
-        -- ITEM into the middle of a `#+begin_src' run and cutting the block in
-        -- half: the list's rule was the only rule there was, and every other
-        -- kind fell through it.
+        -- ONE QUESTION — WHICH REGION HOLDS THE CARET — AND ONE ANSWER PER REGION.
         , describe "the region holding the caret, and what it says a line is"
             [ test "each kind is recognized as itself" <|
                 \_ ->
@@ -1512,9 +1310,7 @@ suite =
                     Expect.equal [ "", "- ", "|   |", "", "" ]
                         (List.map (\i -> markerOf i kinds) [ 1, 2, 3, 5, 8 ])
 
-            -- THE FIRST REPORTED BUG.  `- NEW' spliced between two source lines
-            -- is a block cut in half, and the box a reader holds over the run
-            -- puts their only caret inside it.
+            -- `- NEW' spliced between two source lines is a block cut in half.
             , test "a caret inside a #+begin_src adds an EMPTY line inside it" <|
                 \_ ->
                     Expect.equal ( "", Just ( 3, Just "B1" ) )
@@ -1526,8 +1322,7 @@ suite =
                     Expect.equal "* head\n#+begin_src sh\necho one\necho mid\necho two\n#+end_src"
                         (Scan.bodyText (typedAt "B1" (Just 0) "echo mid" srcBlock) [])
 
-            -- A DRAWER IS NO STOP — the scanner leaves it inside the paragraph
-            -- it sits in — so recognizing it is what makes this row reachable.
+            -- A DRAWER IS NO STOP: the scanner leaves it inside its paragraph.
             , test "a drawer takes the same answer, :LOGBOOK: included" <|
                 \_ ->
                     Expect.equal
@@ -1555,28 +1350,21 @@ suite =
                           )
                         ]
 
-            -- ORG'S OWN ALIGNMENT, measured off the rows the table already
-            -- spells.  A BLANK LINE ENDS A TABLE, so an empty line is no
-            -- continuation of one.
+            -- ORG'S OWN ALIGNMENT, measured off the rows the table already spells.
             , test "a table's is an EMPTY ROW at the table's own widths" <|
                 \_ ->
                     Expect.equal "|       |       |" (markerOf 1 grid)
             , test "and the RULE ROWS are out of the measurement" <|
                 \_ ->
-                    -- `|-------+-------|' is seven wide in a column of three;
-                    -- measuring it would pad every new row to the dashes.
+                    -- Measuring the rule row would pad every new row to its dashes.
                     Expect.equal "|   |   |"
                         (markerOf 1 [ "* head", "| a | b |", "|-------+-------|", "| c | d |" ])
 
-            -- A RAGGED TABLE is what says WHICH width: org pads to the WIDER,
-            -- so every row of the table stays as wide as its widest cell.  An
-            -- aligned fixture answers the same under either rule.
+            -- A RAGGED TABLE is what says WHICH width: org pads to the WIDER.
             , test "a ragged table pads each column to its WIDEST cell" <|
                 \_ ->
                     Expect.equal "|     |    |" (markerOf 1 ragged)
-            -- A MARKER IS A LEAD AND POINT GOES AFTER IT — except a table row,
-            -- which is a WHOLE row: typing past its closing pipe opens a column
-            -- org's own align would then keep, so point goes in the first cell.
+            -- A MARKER IS A LEAD AND POINT GOES AFTER IT — except a table row.
             , test "and point lands where the reader types, one space into a row" <|
                 \_ ->
                     Expect.equal [ 2, 6, 0, 2, 4, 1 ]
@@ -1600,11 +1388,8 @@ suite =
                         )
                         ( body, scan (String.split "\n" body) )
 
-            -- A CLOSER IS THE REGION'S LAST LINE and a caret on it asks for
-            -- what comes AFTER: a line past a closer is outside the region, and
-            -- outside every region is prose.  A TABLE HAS NO CLOSER, so its
-            -- last row keeps the new row inside — which is how a table is
-            -- actually built.
+            -- A CLOSER IS THE REGION'S LAST LINE and a caret on it asks for what comes
+            -- AFTER.  A TABLE HAS NO CLOSER, so its last row keeps the new row inside.
             , test "a caret on #+end_X lands AFTER the block" <|
                 \_ ->
                     let
@@ -1625,8 +1410,7 @@ suite =
                         (Scan.bodyText (typedAt "B0" (Just 2) "after" book) [])
             , test "where a table's last row is a line INSIDE it" <|
                 \_ ->
-                    -- The table lands at its own bottom, the block a blank line
-                    -- past the closer: same index, two regions, two answers.
+                    -- Same index, two regions, two answers.
                     Expect.equal ( Just 4, Just 5 )
                         ( Scan.joinLine (model grid) "B0" (Just 2)
                         , Scan.joinLine
@@ -1635,8 +1419,7 @@ suite =
                             (Just 2)
                         )
 
-            -- ORG'S OWN `M-RET': the number continues off the CARET'S line, and
-            -- the duplicate below is what `org-list-repair' is for.
+            -- ORG'S OWN `M-RET': the number continues off the CARET'S line.
             , test "a numbered list continues from the caret's own number" <|
                 \_ ->
                     let
@@ -1659,8 +1442,7 @@ suite =
                             [ 0, 1, 2, 3 ]
                         )
 
-            -- AND THE RULE WIDENS NOTHING.  Text org declines is text here too,
-            -- and a caret on it takes the PROSE answer.
+            -- AND THE RULE WIDENS NOTHING: text org declines takes the PROSE answer.
             , test "a bullet with no space after it is prose" <|
                 \_ ->
                     Expect.equal ( ( "plain", 1, 3 ), "" )
@@ -1675,17 +1457,14 @@ suite =
                         )
             , test "a pipe row under a blank line opens a table of its own" <|
                 \_ ->
-                    -- Out of the region AND out of the measurement: a five-wide
-                    -- cell below the blank leaves the widths above it alone.
+                    -- Out of the region AND out of the measurement.
                     Expect.equal ( ( "table", 1, 2 ), "|   |    |" )
                         ( regionOf 1 [ "* head", "| a | bb |", "", "| ccccc |" ]
                         , markerOf 1 [ "* head", "| a | bb |", "", "| ccccc |" ]
                         )
             , test "and `:a:b:' is no drawer — org's own charset holds" <|
                 \_ ->
-                    -- EVERY FIXTURE CLOSES, or the line declined for its NAME
-                    -- would be declined for the missing `:END:' anyway and the
-                    -- charset would be asserting nothing.
+                    -- EVERY FIXTURE CLOSES, or the charset would be asserting nothing.
                     Expect.equal
                         [ ( "plain", 1, 4 ), ( "plain", 1, 4 ), ( "drawer", 1, 4 ) ]
                         [ regionOf 1 [ "* head", ":a:b:", "x", ":END:" ]
@@ -1693,22 +1472,14 @@ suite =
                         , regionOf 1 [ "* head", ":ok-name_1:", "x", ":END:" ]
                         ]
 
-            -- ORG CLOSES A DRAWER ON `:end:' TOO, its reader folding the word
-            -- where the opener's charset does not.
+            -- ORG CLOSES A DRAWER ON `:end:' TOO, folding where the opener does not.
             , test "and a lowercase :end: closes one" <|
                 \_ ->
                     Expect.equal ( "drawer", 1, 4 )
                         (regionOf 2 [ "* head", ":LOGBOOK:", "clocked", ":end:" ])
 
-            -- A CONTINUATION LINE TAKES THE ITEM HOLDING IT, which is the rule
-            -- that keeps a column-1 bullet out of a nested run — and it is also
-            -- what makes a caret on `beta's wrapped prose answer with `beta's
-            -- own bullet, so `S-RET' there cuts the paragraph in two and org
-            -- reads a THIRD item.  Today's answer, pinned as it stands:
-            -- an adversarial sweep found 612 such writes over about four corpus
-            -- documents, and whether that is org's `M-RET' (which does open an
-            -- item from a continuation line) or a paragraph split is a decision
-            -- nobody has taken.  A change here names it by turning this red.
+            -- A CONTINUATION LINE TAKES THE ITEM HOLDING IT, so `S-RET' on wrapped prose
+            -- cuts the paragraph.  Today's answer, pinned so a change names it.
             , test "a continuation line answers with its item's own bullet" <|
                 \_ ->
                     Expect.equal
@@ -1728,11 +1499,8 @@ suite =
                         (Scan.bodyText (typedAt "B2" (Just 1) "  - NEW" wrapRun) [])
             ]
 
-        -- AN ITEM'S LINES ARE A BODY OF THEIR OWN, and the walk used to stop at
-        -- the item: a caret inside a block riding under `- alpha' was answered
-        -- with `- ', which spliced an item into the middle of the block and left
-        -- it open.  Every kind gets its nested twin here, since 108 cases tested
-        -- each of them at TOP LEVEL alone.
+        -- AN ITEM'S LINES ARE A BODY OF THEIR OWN, so every kind gets its nested
+        -- twin here where the cases before it asked TOP LEVEL alone.
         , describe "a region nested inside an ITEM — the walk re-enters it"
             [ test "a #+begin_src under an item is the BLOCK, not the item" <|
                 \_ ->
@@ -1780,9 +1548,7 @@ suite =
                         , Scan.bodyText (typedAt "B1" (Just 2) "  CLOCK: later" itemBook) []
                         )
 
-            -- A CLOSER ASKS FOR WHAT COMES AFTER IT, and inside an item that is
-            -- the ITEM: the new line is a sibling landing under the block, where
-            -- the prose answer would have put it past the whole list.
+            -- A CLOSER ASKS FOR WHAT COMES AFTER IT — inside an item, the ITEM.
             , test "a caret on the nested closer lands after the block, inside the item" <|
                 \_ ->
                     Expect.equal
@@ -1796,33 +1562,23 @@ suite =
                         , Scan.bodyText (typedAt "B1" (Just 4) "- NEW" itemSrc) []
                         )
 
-            -- WHAT NO NESTED REGION CLAIMS IS THE ITEM'S, which is also what
-            -- says the walk came back out of the block it went into.
+            -- WHAT NO NESTED REGION CLAIMS IS THE ITEM'S.
             , test "and a line under the block is the item's own again" <|
                 \_ ->
                     Expect.equal ( ( "item", 1, 7 ), "- " )
                         ( regionOf 6 itemSrc, markerOf 6 itemSrc )
 
-            -- THE SCANNER NEEDS NO MATCHING RECURSION, and this is why: it
-            -- finds no stop inside an item but a deeper LIST OPENER, so the
-            -- block is part of the item's own lines and the draft hangs off the
-            -- ITEM.  Stops there would move the grain instead.
+            -- THE SCANNER NEEDS NO MATCHING RECURSION; stops would move the grain.
             , test "the drawn row hangs off the ITEM, the one stop there is" <|
                 \_ ->
                     Expect.equal (Just ( 4, Just "B1" )) (drawnAt "B1" (Just 2) itemSrc)
             ]
 
-        -- ONE WALK, TWO CONSUMERS.  The structure scanner used to hunt an item's
-        -- raw lines for openers knowing nothing of `blockName' or `drawerName',
-        -- so a bullet inside a nested block was minted as a STOP: the pane drew
-        -- it, `f' descended onto it, and `d' then `D' took the block's own
-        -- closer out with it.  Three rounds of green suites missed it because no
-        -- fixture put a bullet inside a nested region — so these do, each asked
-        -- BOTH ways: the stops it yields, and the body every take leaves.
+        -- ONE WALK, TWO CONSUMERS.  These fixtures put a bullet inside a nested
+        -- region, each asked BOTH ways: the stops, and the body every take leaves.
         , describe "the walk says what a nested stop may be"
             [ -- THE SAME THREE STOPS WHATEVER RIDES INSIDE THE ITEM: a block, a
-              -- drawer, and a verbatim block holding pipe rows are each one of
-              -- the item's own lines.
+              -- drawer or a verbatim block holding pipe rows are the item's own lines.
               test "a bullet, a drawer or a pipe row inside one mints no stop" <|
                 \_ ->
                     Expect.equal
@@ -1862,9 +1618,7 @@ suite =
                         [ ( 1, 8, "composite:list" ), ( 1, 7, "leaf" ), ( 7, 8, "leaf" ) ]
                         (scan itemDrawerBlock)
 
-            -- THE TOP LEVEL IS ITS OWN PATH and never reached `pushItem', so it
-            -- was right already: a block is taken whole there, and a bullet
-            -- inside one is a line of the block's own run.
+            -- THE TOP LEVEL IS ITS OWN PATH: a block is taken whole there.
             , test "a bullet inside a TOP-LEVEL block is a run of the block" <|
                 \_ ->
                     Expect.equal
@@ -1879,12 +1633,8 @@ suite =
                         ]
                         (takes topBlockBullet)
 
-            -- THE WALK'S OWN HALF: the same lines, asked what region holds them.
-            -- The scanner reads exactly this, so a stop that disagreed with it
-            -- is the bug that was.  Two of them go DEEPER than the region the
-            -- line rides in, which is org's greater/lesser split: a drawer
-            -- contains elements, so a bullet in one is an item and the block in
-            -- one is a block, where `src' suspends the grammar and holds lines.
+            -- THE WALK'S OWN HALF: the same lines, asked what region holds them.  Two
+            -- go DEEPER than the region the line rides in, which is greater/lesser.
             , test "and the WALK hands each of those lines to the region holding it" <|
                 \_ ->
                     Expect.equal
@@ -1903,10 +1653,7 @@ suite =
                         , ( regionOf 2 srcPipes, markerOf 2 srcPipes )
                         ]
 
-            -- ORG'S VERDICT over every stop and every caret of every fixture at
-            -- once, and the COUNTS beside it so a sweep that swept nothing
-            -- cannot pass.  TWO INDEPENDENT LINE READINGS: an opener without its
-            -- closer, and a table that came back as two.
+            -- ORG'S VERDICT over every fixture at once, the COUNTS beside it.
             , test "no take and no write over any of them breaks org's grammar" <|
                 \_ ->
                     Expect.equal
@@ -1923,14 +1670,8 @@ suite =
                             ]
                         }
 
-            -- THE ONE ASYMMETRY, AND IT IS OPEN.  A DRAWER IS NO STOP: the
-            -- scanner reads `kindAt' like the walk and its `Drawer' arm sends
-            -- the line to prose, so a drawer's opener and closer are ordinary
-            -- paragraph lines up here and a block inside one splits them into
-            -- three stops.  Taking the first leaves `:END:' standing alone.
-            -- Closing it means that arm becoming a stop, which reshapes the
-            -- pane over every drawer in the corpus — a bigger decision than
-            -- this bug.
+            -- THE ONE ASYMMETRY, AND IT IS OPEN.  A DRAWER IS NO STOP at the top level:
+            -- its opener and its closer are ordinary paragraph lines up here.
             , test "a block inside a TOP-LEVEL drawer splits it into three stops" <|
                 \_ ->
                     Expect.equal
@@ -1951,9 +1692,7 @@ suite =
                         (takes drawerBlock)
             , test "where the WALK re-enters it and finds the block inside" <|
                 \_ ->
-                    -- THE ASYMMETRY IS THE STOPS', never the walk's: the drawer
-                    -- takes the opener, the closer and the `#+end_src' asking
-                    -- for what follows it, and the block takes its own lines.
+                    -- THE ASYMMETRY IS THE STOPS', never the walk's.
                     Expect.equal
                         [ "1 drawer 1-6 «»"
                         , "2 block 2-5 «»"
@@ -1963,10 +1702,7 @@ suite =
                         ]
                         (carets drawerBlock)
 
-            -- A REGION TILES THE RUN IT SITS IN, so org's one-blank-line rule
-            -- leaves no line inside a list unowned and a caret on that blank
-            -- continues the NESTED item under it.  A STOP cut from one gives
-            -- the blank back, or the item would draw a line it does not own.
+            -- A REGION TILES THE RUN IT SITS IN; a STOP cut from one gives the blank back.
             , test "a blank org keeps inside a nested run is the item's, not a stop's" <|
                 \_ ->
                     Expect.equal
@@ -1981,10 +1717,7 @@ suite =
                         )
                         ( scan gapRun, textOf "B2" gapRun, ( regionOf 3 gapRun, markerOf 3 gapRun ) )
 
-            -- AND THE PANE'S OWN SHAPE, pinned over a body wearing all five
-            -- kinds: a future walk cannot quietly re-cut what a reader steps
-            -- through.  The drawer is the paragraph it sits in, which is the
-            -- rule that says a region need not be a stop.
+            -- AND THE PANE'S OWN SHAPE, pinned over a body wearing all five kinds.
             , test "the top-level stop set of a five-kind body is what it was" <|
                 \_ ->
                     Expect.equal
@@ -2000,23 +1733,13 @@ suite =
                         (scan kinds)
             ]
 
-        -- ORG'S OWN GREATER/LESSER SPLIT (`org-element-greater-elements'),
-        -- which is the whole rule and closes both holes the item-only walk
-        -- left.  A GREATER element CONTAINS elements, so the walk re-enters it:
-        -- an ITEM, a DRAWER, and every block org parses the contents of.  A
-        -- LESSER one holds none and is OPAQUE: the five VERBATIM blocks that
-        -- list leaves out.  A TABLE is greater in org and a leaf here, its only
-        -- child being a row, which is what the Table marker spells anyway.
-        -- Every container is paired here with every kind it can hold, at TOP
-        -- LEVEL and inside an ITEM, and each is asked both ways — the stops it
-        -- yields and what every caret writes.
+        -- ORG'S OWN GREATER/LESSER SPLIT (`org-element-greater-elements'): a GREATER
+        -- element CONTAINS elements and the walk re-enters it, a LESSER one is
+        -- OPAQUE.  A TABLE is greater in org and a leaf here, its child being a row.
         , describe "org's greater/lesser split — what the walk re-enters"
             [ -- THE CORPUS'S OWN BUG, off
-              -- `views/.org-glance/data/gy/m-25044-.../data.org'.  `#+begin_pin'
-              -- is a SPECIAL block, so its contents are elements: the list is a
-              -- list and the table is a TABLE.  Answered with the block's own
-              -- empty line, a caret anywhere in those rows was org's
-              -- `[1 table, 21 rows] -> [2 tables, 21 rows]'.
+              -- `views/.org-glance/data/gy/m-25044-.../data.org'.  `#+begin_pin' is
+              -- SPECIAL, so its contents are elements: the table is a TABLE.
               test "a special block holds a list and a table, each answering for itself" <|
                 \_ ->
                     Expect.equal
@@ -2056,9 +1779,7 @@ suite =
                         )
                         ( tableRuns body, body )
 
-            -- A QUOTE BLOCK IS ORG'S OWN GREATER BLOCK, and it is paired here
-            -- with all four kinds.  What each one holds is the kind, never the
-            -- block's own empty line.
+            -- A QUOTE BLOCK IS ORG'S OWN GREATER BLOCK, paired with all four kinds.
             , test "a quote block holds a table, a list, a drawer and a block" <|
                 \_ ->
                     Expect.equal
@@ -2096,8 +1817,7 @@ suite =
                         ]
                         (List.map scan [ quoteGrid, quoteList, quoteBook, quoteSrc ])
 
-            -- A DRAWER IS GREATER TOO, which is what makes a `:LOGBOOK:'s own
-            -- state lines a list.
+            -- A DRAWER IS GREATER TOO, which makes a `:LOGBOOK:'s state lines a list.
             , test "a drawer holds a table, and a drawer holds a list" <|
                 \_ ->
                     Expect.equal
@@ -2114,9 +1834,7 @@ suite =
                         ]
                         (List.map carets [ bookGrid, bookList ])
 
-            -- AND THE FIVE ORG NAMES HOLD NOTHING.  One name dropped from that
-            -- list turns its fixture's bullet into an item and its pipe row into
-            -- a table, which is a bullet spliced into source.
+            -- AND THE FIVE ORG NAMES HOLD NOTHING; one dropped is a bullet in source.
             , test "the five VERBATIM blocks hold no element at all" <|
                 \_ ->
                     Expect.equal
@@ -2133,12 +1851,8 @@ suite =
                             verbatims
                         )
 
-            -- THE MEMBERSHIP ITSELF, both polarities in one expectation, over
-            -- one body whose only difference is the block's NAME.  The list is
-            -- the five `org-element-greater-elements' leaves out; org's LIST
-            -- rule, `org-list-forbidden-blocks', names four and spares
-            -- `comment', and reading THAT one here left `#+begin_comment'
-            -- holding an item and a table.
+            -- THE MEMBERSHIP ITSELF, both polarities over one body differing only in the
+            -- block's NAME.  `org-list-forbidden-blocks' spares `comment'.
             , test "which names are opaque is the element list, not the list one" <|
                 \_ ->
                     Expect.equal
@@ -2157,8 +1871,7 @@ suite =
                         , List.map (\( name, body ) -> ( name, regionOf 2 body )) greaters
                         )
 
-            -- THE NESTED TWINS.  An item is greater and so is what rides inside
-            -- it, so the walk goes two deep and the innermost answer stands.
+            -- THE NESTED TWINS: the walk goes two deep and the innermost answer stands.
             , test "nested: an item's quote block and its drawer still hold their tables" <|
                 \_ ->
                     Expect.equal
@@ -2186,11 +1899,7 @@ suite =
                         )
                         (List.map scan [ itemQuoteGrid, itemBookGrid ])
 
-            -- FINDING 2, AND IT IS ORG'S `org-list-struct': a block or a drawer
-            -- is one syntactic unit, so the item run steps over it whole rather
-            -- than hunting bullets through it.  Cut at the `- b' inside, the
-            -- item ended mid-block and taking it carried the opener off without
-            -- its closer.
+            -- ORG'S `org-list-struct': a block or a drawer is one syntactic unit.
             , test "a block straddling an item boundary is ONE item, not two" <|
                 \_ ->
                     Expect.equal
@@ -2210,9 +1919,7 @@ suite =
                         ( scan straddleSrc, takes straddleSrc, carets straddleSrc )
             , test "and the drawer twin is one item too, its own contents elements" <|
                 \_ ->
-                    -- THE TWO HALVES OF THE RULE IN ONE FIXTURE: the run steps
-                    -- over the drawer whole, and the walk then re-enters it, so
-                    -- the `- b' the boundary must not be cut at is an ITEM.
+                    -- THE TWO HALVES OF THE RULE IN ONE FIXTURE.
                     Expect.equal
                         ( [ ( 1, 7, "composite:list" ), ( 1, 6, "leaf" ), ( 6, 7, "leaf" ) ]
                         , [ "* head"
@@ -2229,11 +1936,8 @@ suite =
                         )
                         ( scan straddleBook, takes straddleBook, carets straddleBook )
 
-            -- A LINE NO REGION CLAIMS IS PROSE OF ITS OWN, which is `regionAt's
-            -- own last arm.  TWO kinds of line reach it: a BLANK between two
-            -- regions, and the opener or closer of a greater region the walk has
-            -- just re-entered — neither being an interior line, and the second
-            -- being how a re-entered region hands itself back.
+            -- A LINE NO REGION CLAIMS IS PROSE OF ITS OWN, `regionAt's last arm: a BLANK
+            -- between regions, or a re-entered region's own edge lines.
             , test "a line no region claims is prose of its own, one line wide" <|
                 \_ ->
                     Expect.equal
@@ -2245,8 +1949,7 @@ suite =
                 \_ ->
                     Expect.equal (Just 3)
                         (Scan.joinLine (model [ "* head", "alpha", "", "beta" ]) "B0" Nothing)
-            -- AN ITEM OWES NO BLANK, so its landing is the line under the stop
-            -- exactly, where a paragraph's is one past the blank written above.
+            -- AN ITEM OWES NO BLANK: its landing is the line under the stop.
             , test "an item lands on the line under the stop" <|
                 \_ ->
                     Expect.equal (Just 2)

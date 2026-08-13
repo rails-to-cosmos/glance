@@ -1,21 +1,8 @@
-# THE REWRITE TABLE, and it is DATA — one row per rewrite, the house answer for
-# `gluePartFiles' applied one file over
-# (docs/proposals/2026-08-11-mutation-runner.done.md, open decision 4).  Rule
-# eleven is one row here; a language joins by widening a `langs' field.
-#
-# TSV, four fields: rule <TAB> langs <TAB> kind:needle <TAB> replacement.
-#   langs   comma list of hs, js, elm, or * for all three.
-#   kind    tok  — an operator token, bounded by the LANGUAGE'S operator charset,
-#                  so `<' never matches inside `<=', `<-', `<>' or `<$>'.
-#           word — an identifier, bounded by \b.
-#           re   — a raw perl regex.  LOOKAROUNDS ONLY, no capture groups: the
-#                  replacement is a literal string, so a row cannot grow a
-#                  program of its own.
-#   replacement is taken verbatim; an empty fourth field deletes the match.
-#
-# The four STRUCTURAL rules — zero, guard, arms, body — are not rows: each needs
-# the masker's own reading of where a literal, a guard or a binding ends, and a
-# regex cannot say it.  They live in tools/mutate-sites.
+# TSV: rule <TAB> langs <TAB> kind:needle <TAB> replacement.  langs = comma list
+# of hs, js, elm or *; kind = tok (operator token, bounded by the language's
+# operator charset), word (\b identifier) or re (perl regex, LOOKAROUNDS ONLY,
+# no capture groups); an empty replacement deletes the match.  The four
+# STRUCTURAL rules — zero, guard, arms, body — live in tools/mutate-sites.
 
 rel	hs,elm	tok:<=	<
 rel	hs,elm	tok:<	<=

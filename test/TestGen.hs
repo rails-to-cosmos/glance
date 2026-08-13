@@ -1,38 +1,8 @@
 -- | The document generator: a 'DocSpec' says WHAT to spell, 'render' spells it
--- out and RECORDS where every component landed.  So a property can compare the
--- parser's spans against offsets counted by code the parser never ran — the
--- suite's independent-oracle idiom ('TestDefaults.headlinesOf',
--- @TestFilter@'s layout list) carried down to the span layer.
---
--- A RENDERER IS A SPELLING, A PARSER IS A RECOGNITION.  Org's spelling is fixed
--- and small — stars, a space, a keyword, @[#A]@, words, @:a:b:@, a planning
--- line, a drawer.  Its recognition is where every subtlety in @AGENTS.hs@'s
--- Parser section lives, and that is the half a generated document is worth
--- asking about.  NEVER 'TextShow': that is the lossy REPL re-serializer, and
--- rendering through it would test the parser against its own inverse and hide
--- every bug the two share.
---
--- OFFSETS ARE COUNTED IN CHARACTERS, which is what a 'Span' is — so a generator
--- that spells @Привет@ and a parser that answers 6 rather than 12 agree by
--- construction.
---
--- TWO ALPHABETS, and the property kind picks one.  'arbitrary' draws words whose
--- parse the generator can PREDICT; 'Wild' draws words that CHANGE the parse and
--- is for the properties needing no predicted answer.
---
--- WHAT THE GENERATOR WILL NOT SPELL ('normEntry'), each because the parser reads
--- it in a way an oracle would have to MIRROR rather than predict:
---
--- * a headline with no title but with tags — @* :a:b:@ hands the colons to the
---   TITLE, org spelling tags only after one (@blankEntry@'s own note);
---
--- A HEADLINE WITH NO TITLE BUT WITH A KEYWORD OR A PRIORITY IS DRAWN, and was
--- not until the parser stopped letting one eat the line under it: 'lexemeP'
--- takes horizontal space now, so @* TODO@ ends where its line does.  The
--- exclusion that used to sit here is what this case is the guard for.
---
--- Trailing horizontal space likewise goes on ANY line, a title's included: it
--- detached the planning line under it until @planningP@ skipped it.
+-- out and RECORDS where every component landed — an INDEPENDENT ORACLE, the
+-- parser never having run.  NEVER 'TextShow', the lossy REPL re-serializer: it
+-- would test the parser against its own inverse.  Offsets are CHARACTERS, which
+-- is what a 'Span' is.  What the generator will not spell is 'normEntry'.
 module TestGen ( Broken (..)
                , DocSpec (..)
                , Eol (..)
@@ -88,7 +58,6 @@ eolText CRLF = "\r\n"
 data PlanKey = KScheduled | KDeadline | KClosed
   deriving (Eq, Ord, Show, Enum, Bounded)
 
--- | The word org opens KEY's planning entry with.
 planWord :: PlanKey -> Text
 planWord KScheduled = "SCHEDULED"
 planWord KDeadline  = "DEADLINE"
@@ -118,8 +87,7 @@ data EntrySpec = EntrySpec
   , esGap        :: !Int                       -- ^ blank lines before the next entry.
   } deriving (Eq, Show)
 
--- | A timestamp as SOURCE TEXT to spell.  The generator predicts only WHERE it
--- lands, so nothing here has to name the value the parser will read.
+-- | A timestamp as SOURCE TEXT to spell, never the value the parser reads back.
 data TsSpec = TsSpec
   { tspActive  :: !Bool
   , tspDate    :: !(Integer, Int, Int)
@@ -134,8 +102,7 @@ data TsRange = Compact (Int, Int)
              | Dashed (Integer, Int, Int) Text (Maybe (Int, Int))
   deriving (Eq, Show)
 
--- | The recognized keywords a document's entries may spell: org's own pair plus
--- whatever its @#+TODO:@ line declares ('setTodo' unions).
+-- | The recognized keywords a document's entries may spell.
 keywordsOf :: DocSpec -> [Text]
 keywordsOf ds = ["TODO", "DONE"] <> maybe [] (uncurry (<>)) (dsKeywords ds)
 
@@ -145,8 +112,7 @@ keywordsOf ds = ["TODO", "DONE"] <> maybe [] (uncurry (<>)) (dsKeywords ds)
 data Rendered = Rendered { rdText :: !Text, rdEntries :: ![Expected] }
   deriving (Eq, Show)
 
--- | Where one entry landed: the spans the parser owes for it, its level, and
--- whether it is a blank entry (no column sub-span, so no row).
+-- | Where one entry landed, and whether it is a blank entry (no column, no row).
 data Expected = Expected
   { exSpans :: !HeadlineSpans
   , exLevel :: !Int
@@ -154,8 +120,8 @@ data Expected = Expected
   , exBlank :: !Bool
   } deriving (Eq, Show)
 
--- | A writer over a character counter.  Hand-rolled rather than @mtl@'s: the
--- suite's build-depends grow by QuickCheck alone.
+-- | A writer over a character counter, hand-rolled: the suite's build-depends
+-- grow by QuickCheck alone.
 newtype Emit a = Emit { runEmit :: (Int, [Text]) -> (a, (Int, [Text])) }
 
 instance Functor Emit where
@@ -169,12 +135,10 @@ instance Applicative Emit where
 instance Monad Emit where
   Emit g >>= k = Emit (\s -> case g s of (a, s1) -> runEmit (k a) s1)
 
--- | Write T and answer the span it occupies.
 emit :: Text -> Emit Span
 emit t = Emit (\(at, out) -> (Span at (at + T.length t), (at + T.length t, t : out)))
 
--- | 'emit', for text whose offsets nobody records — the whitespace BETWEEN
--- components, which is what makes "sub-spans are tight" checkable.
+-- | 'emit', for text whose offsets nobody records — the whitespace BETWEEN parts.
 emit_ :: Text -> Emit ()
 emit_ t = () <$ emit t
 
@@ -208,8 +172,7 @@ entryE eol e = do
     []   -> pure Nothing
     tags -> do emit_ " "
                Just <$> emit (":" <> T.intercalate ":" tags <> ":")
-  -- CLOSING THE TITLE LINE, which detached the planning line under it until
-  -- `planningP' skipped it.  After the tags, so neither span covers it.
+  -- After the tags, so neither span covers the title line's trailing run.
   emit_ (T.replicate (esHeadTrail e) " ")
   plan <- planningE eol (esPlanning e)
   drawSp <- drawerE eol ind (esProperties e)
@@ -231,8 +194,7 @@ entryE eol e = do
   pure Expected { exSpans = hs
                 , exLevel = esLevel e
                 , exStart = spanStart stars
-                  -- A repeated planning keyword keeps its LAST timestamp, so a
-                  -- span the line spelled twice is the second one's.
+                  -- A repeated planning keyword keeps its LAST timestamp.
                 , exBlank = all (== Nothing) [ todoSp, prioSp, titleSp, tagsSp
                                              , lastFor KScheduled plan
                                              , lastFor KDeadline plan ]
@@ -247,7 +209,6 @@ optionalE :: Maybe a -> (a -> Emit Span) -> Emit (Maybe Span)
 optionalE Nothing _ = pure Nothing
 optionalE (Just a) k = Just <$> k a
 
--- | WORDS separated by one space, spanned first to last.
 emitWords :: [Text] -> Emit (Maybe Span)
 emitWords = go Nothing
   where
@@ -257,8 +218,7 @@ emitWords = go Nothing
       sp <- emit w
       go (Just (maybe sp (<> sp) acc)) ws
 
--- | The planning LINE: every entry on one line, each span the bracketed stamp
--- alone — the keyword is not part of it.
+-- | The planning LINE: each span the bracketed stamp alone, keyword excluded.
 planningE :: Text -> [(PlanKey, TsSpec)] -> Emit [(PlanKey, Span)]
 planningE _eol [] = pure []
 planningE eol entries = do
@@ -269,8 +229,7 @@ planningE eol entries = do
     sp <- emit (renderTs ts)
     pure (k, sp)
 
--- | The drawer, spanned from the LINE START of @:PROPERTIES:@ — indentation
--- included — through @:END:@ and no further.
+-- | The drawer, spanned from the LINE START of @:PROPERTIES:@ through @:END:@.
 drawerE :: Text -> Text -> Maybe [(Text, Text)] -> Emit (Maybe Span)
 drawerE _eol _ind Nothing = pure Nothing
 drawerE eol ind (Just pairs) = do
@@ -281,8 +240,7 @@ drawerE eol ind (Just pairs) = do
   closed <- emit (ind <> ":END:")
   pure (Just (Span (spanStart opened) (spanEnd closed)))
 
--- | The logbook, which the PARSER never reads: it is body text here, and only
--- the subtree lens locates it, textually.
+-- | The logbook, which the PARSER never reads: it is body text here.
 logbookE :: Text -> Text -> Maybe [Text] -> Emit ()
 logbookE _eol _ind Nothing = pure ()
 logbookE eol ind (Just ls) = do
@@ -306,12 +264,9 @@ renderTs t = case tspRange t of
     clock h m = pad 2 h <> ":" <> pad 2 m
     pad n v = T.justifyRight n '0' (T.pack (show v))
 
--- | Where each entry's outline extent runs over a document of LEN characters:
--- from its own stars to the next entry at its level or shallower, else to EOF.
---
--- ORG'S RULE SPELLED A SECOND TIME, deliberately: a quadratic scan forward
--- rather than @subtreeSpans@' right-to-left stack fold, so the two agree only
--- if the rule is right.
+-- | Where each entry's outline extent runs over a document of LEN characters.
+-- ORG'S RULE SPELLED A SECOND TIME, deliberately: a forward scan rather than
+-- @subtreeSpans@' stack fold, so the two agree only if the rule is right.
 expectedExtents :: Int -> [Expected] -> [Span]
 expectedExtents len entries =
   [ Span (exStart e) (endOf (exLevel e) rest)
@@ -327,9 +282,7 @@ expectedExtents len entries =
 plainWords :: [Text]
 plainWords = ["a", "task", "Привет", "проверка", "note"]
 
--- | Words that CHANGE the parse.  Every one of them still PARSES: a document
--- that fails the parser makes the algebra properties vacuous rather than sharp,
--- and refusal is 'Broken'\'s subject.
+-- | Words that CHANGE the parse.  Every one still PARSES; refusal is 'Broken'\'s.
 wildWords :: [Text]
 wildWords = plainWords <>
   [ "TODO", "DONE", "*bold*", "[[https://x][y]]", ":a:", "<2026-01-01 Thu>"
@@ -355,7 +308,6 @@ customKeywords = ["NEXT", "STARTED", "WAITING", "SKIP", "CANCELLED"]
 
 -- Generators
 
--- | The PLAIN generator: every answer property reads through this one.
 instance Arbitrary DocSpec where
   arbitrary = genDoc plainWords plainTags
   shrink = shrinkDoc
@@ -368,8 +320,7 @@ instance Arbitrary Wild where
   arbitrary = Wild <$> genDoc wildWords wildTags
   shrink (Wild ds) = map Wild (shrinkDoc ds)
 
--- | A document with a MISMATCHED RANGE spliced into one entry's body: org's
--- documented mid-word refusal, which fails the WHOLE file.
+-- | A document with a MISMATCHED RANGE spliced into one entry's body.
 data Broken = Broken DocSpec Int
   deriving (Eq, Show)
 
@@ -377,8 +328,7 @@ instance Arbitrary Broken where
   arbitrary = Broken <$> genDoc plainWords plainTags <*> choose (0, 8)
   shrink (Broken ds k) = [Broken ds' k | ds' <- shrinkDoc ds]
 
--- | The text org refuses: a range whose halves disagree about the bracket kind,
--- so the timestamp ends mid-word and the top loop finds no whitespace after it.
+-- | The text org refuses: a range whose halves disagree about the bracket kind.
 brokenRange :: Text
 brokenRange = "[2023-07-15 Sat 15:54]--<2023-07-15 Sat 17:10>"
 
@@ -430,9 +380,8 @@ genEntry words' tags keywords = do
                             , esTrail = trail
                             , esGap = gap })
 
--- | A LOGBOOK line, which is body text to the parser.  Never a bare @:END:@ and
--- never opening a drawer of its own, either of which would close the region
--- early or open a second one.
+-- | A LOGBOOK line, body text to the parser.  Never a bare @:END:@ and never
+-- opening a drawer of its own, either of which would cut the region short.
 genLogLine :: [Text] -> Gen Text
 genLogLine words' = do
   ws <- resize 3 (listOf1 (elements words'))
@@ -447,8 +396,7 @@ genPlanning = frequency
   , (4, do keys <- sublist 1 3 [minBound .. maxBound]
            order <- shuffled keys
            mapM (\k -> (,) k <$> genTsSpec) order)
-    -- A keyword the line spells twice: the LAST stamp wins, and only a
-    -- generated document reaches it.
+    -- A keyword the line spells twice: the LAST stamp wins.
   , (1, do k <- elements [minBound .. maxBound]
            a <- genTsSpec
            b <- genTsSpec
@@ -481,11 +429,9 @@ genDate = (,,) <$> choose (2020, 2030) <*> choose (1, 12) <*> choose (1, 28)
 genClock :: Gen (Int, Int)
 genClock = (,) <$> choose (0, 23) <*> choose (0, 59)
 
--- | 'Just' with probability WEIGHT in OF.
 maybeGen :: Int -> Int -> Gen a -> Gen (Maybe a)
 maybeGen weight from g = frequency [(from - weight, pure Nothing), (weight, Just <$> g)]
 
--- | LO to HI distinct members of XS, in the order XS spells them.
 sublist :: Eq a => Int -> Int -> [a] -> Gen [a]
 sublist lo hi xs = do
   n <- choose (lo, min hi (length xs))
@@ -507,24 +453,19 @@ shuffled xs = do
     (y : ys) -> (y :) <$> shuffled (before <> ys)
     []       -> pure before
 
--- | What the generator refuses to spell, applied to every entry it makes and
--- every entry a shrink proposes.  Both clauses are the module header's.
+-- | What the generator refuses to spell, over every entry it makes and shrinks.
 normEntry :: EntrySpec -> EntrySpec
 normEntry e
   | null (esTitle e) = e { esTags = [] }
   | otherwise        = e
 
--- Shrinking
---
--- Shrink the SPEC, never the text: a text-level shrinker produces bytes that
--- need not be a legal org document, and a minimal counterexample that does not
+-- Shrinking: the SPEC, never the text — a minimal counterexample that does not
 -- parse teaches nothing.
 
 shrinkDoc :: DocSpec -> [DocSpec]
 shrinkDoc ds = concat
   [ [ ds { dsEntries = es } | es <- shrinkList shrinkEntry (dsEntries ds), not (null es) ]
-    -- The cycle and the keywords that name it move TOGETHER: a custom keyword
-    -- left standing over a dropped '#+TODO:' line is title text.
+    -- A custom keyword left over a dropped '#+TODO:' line is title text.
   , [ ds { dsKeywords = Nothing, dsEntries = map plainTodo (dsEntries ds) }
     | isJust (dsKeywords ds) ]
   , [ ds { dsEol = LF } | case dsEol ds of { CRLF -> True; LF -> False } ]
@@ -553,27 +494,18 @@ shrinkEntry e = map normEntry . filter (/= e) $ concat
   , [ e { esGap = 0 } | esGap e > 0 ]
   ]
 
--- Timestamp VALUES
---
--- A different question from the text above: these are the values 'TextShow'
--- renders and the parser reads back.
+-- Timestamp VALUES: what 'TextShow' renders and the parser reads back.
 
--- | A timestamp inside the PARSER'S OWN IMAGE — one some org text could have
--- produced.  The value space is wider than the image in three places, each of
--- which the render is DOCUMENTED to normalise rather than preserve:
---
--- * an untimed moment holding anything but midnight (the render drops the time);
--- * 'tsCompactRange' over ends the compact spelling cannot hold ('TsAny');
--- * a 'Restart' repeater signed 'TRSMinus', which renders @-3d@ — org's WARNING
---   cookie, which the parser tries first.
+-- | A timestamp inside the PARSER'S OWN IMAGE.  The value space is wider in
+-- three places the render normalises: an untimed non-midnight moment, a compact
+-- range the spelling cannot hold, and a 'Restart' repeater signed 'TRSMinus'.
 newtype TsImage = TsImage Timestamp
   deriving (Eq, Show)
 
 instance Arbitrary TsImage where
   arbitrary = TsImage <$> genTimestamp True
 
--- | A timestamp whose 'tsCompactRange' may be one the compact spelling cannot
--- hold, which is what reaches @compactly@'s other two guards.
+-- | A timestamp whose 'tsCompactRange' the compact spelling may not hold.
 newtype TsAny = TsAny Timestamp
   deriving (Eq, Show)
 
@@ -614,8 +546,7 @@ genMoment = do
                 , tsmHasTime = hasTime }
 
 -- | A repeater the parser could have READ.  @Restart@ is spelled by the absence
--- of a type character, so a minus sign on one is org's warning cookie and never
--- comes back as a repeater at all.
+-- of a type character, so a minus sign on one is org's warning cookie.
 genRepeater :: Gen TimestampRepeaterInterval
 genRepeater = do
   (kind, sign) <- elements [ (Restart, TRSPlus)
@@ -672,10 +603,8 @@ entryShapes e = concat
   ]
   where keys = map fst (esPlanning e)
 
--- | What a sample of 400 must hold at least this many of.  A property that
--- generates nothing interesting passes forever, which is the failure mode
--- @groundSweep@ and @paletteSweep@ answer in their own way; this is the answer
--- here, and it lands ahead of everything read through the generator.
+-- | What a sample of 400 must hold at least this many of: a property that
+-- generates nothing interesting passes forever.
 shapeFloors :: [(String, Int)]
 shapeFloors =
   [ ("custom cycle", 80), ("crlf", 80), ("no final eol", 40), ("several entries", 40)
@@ -686,8 +615,7 @@ shapeFloors =
   , ("gap", 80), ("trailing space", 50)
   ]
 
--- | A DETERMINISTIC sample of N documents, so the census is a fact about the
--- generator rather than about the run that read it.
+-- | A DETERMINISTIC sample of N documents, a fact about the generator.
 docSample :: Int -> [DocSpec]
 docSample n = [ unGen (variant i (arbitrary :: Gen DocSpec)) (mkQCGen 1) (size i)
               | i <- [1 .. n] ]

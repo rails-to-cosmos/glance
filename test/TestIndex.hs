@@ -1,13 +1,6 @@
 -- | The drift instrument: how org-glance's write-ahead index is folded, and
--- what the scan says when the fold and the blobs disagree.
---
--- The fold's cases run over a real store written to a temp directory — a
--- MANIFEST, a sealed segment and an open one — because the fold's whole
--- content is WHICH FILES in WHICH ORDER, and a hand-built list of segments
--- would test the part that was never in doubt.  The comparison's cases build
--- their blob entries directly: the scan derives one from a headline it already
--- parsed, and putting a parser in the middle of these would only be able to
--- fail for reasons 'TestParser' owns.
+-- what the scan says when the fold and the blobs disagree.  The fold's cases
+-- run over a real store, its whole content being WHICH FILES in WHICH ORDER.
 module TestIndex (spec) where
 
 import Control.Monad (filterM)
@@ -26,10 +19,8 @@ import Data.Org.Index ( BlobEntry (..), IndexDrift (..), IndexFold (..)
                       , IndexRecord (..), blobEntryOf, driftOf, foldSegments
                       , indexReportLines, manifestFile, openSegment, segmentNames )
 
--- Fixtures
 
--- | One JSON record line, as org-glance writes it: the two fields this reads,
--- and the empty objects it spells @nil@ with everywhere else.
+-- | One JSON record line as org-glance writes it, @nil@ spelled @{}@.
 record :: Text -> Text -> Text
 record ident state =
   "{\"id\":\"" <> ident <> "\",\"state\":\"" <> state
@@ -41,15 +32,11 @@ archivedRecord ident state flag =
   "{\"id\":\"" <> ident <> "\",\"state\":\"" <> state <> "\",\"archived\":"
     <> (if flag then "true" else "{}") <> "}"
 
--- | A deletion, which is what org-glance appends instead of rewriting a log.
 tombstone :: Text -> Text
 tombstone ident = "{\"id\":\"" <> ident <> "\",\"tombstone\":true}"
 
--- | Write a store's meta directory under DIR: SEALED as @seg-NNN.jsonl@ files
--- named by a MANIFEST, and OPEN as @headlines.jsonl@.  Answer the meta path.
---
--- OPEN is written verbatim, so a caller can leave its last line unterminated
--- and get the torn append a crash leaves behind.
+-- | Write a store's meta directory under DIR and answer the meta path.  OPEN
+-- is written verbatim, so a caller can leave the torn tail a crash makes.
 metaStore :: FilePath -> [[Text]] -> Text -> IO FilePath
 metaStore dir sealed open = do
   createDirectoryIfMissing True meta
@@ -67,8 +54,7 @@ metaStore dir sealed open = do
         <> mconcat [ sep <> "\"" <> n <> "\"" | (sep, n) <- zip ("" : repeat ",") names ]
         <> "]}\n"
 
--- | Fold META the way the scan does: the MANIFEST's segments then the open one,
--- each read as bytes, the open one flagged so its torn tail is forgiven.
+-- | Fold META the way the scan does, the open segment last and forgiven.
 foldStore :: FilePath -> IO IndexFold
 foldStore meta = do
   manifest <- readBytes (meta </> manifestFile)
@@ -78,22 +64,18 @@ foldStore meta = do
 readBytes :: FilePath -> IO BC.ByteString
 readBytes = BC.readFile
 
--- | A blob entry as the scan builds one, paired with the file it came from.
 blob :: Text -> Text -> Bool -> (FilePath, Maybe BlobEntry)
 blob ident state arch = (path, Just (BlobEntry ident state arch path))
   where path = "/store/data/" <> T.unpack ident <> "/data.org"
 
--- | A blob this parser read no id out of, which is a fourth answer beside
--- indexed, unindexed and recordless.
+-- | A blob no id was read out of: a fourth answer beside indexed and unindexed.
 idless :: FilePath -> (FilePath, Maybe BlobEntry)
 idless path = (path, Nothing)
 
--- | The drift between a fold of RECORDS and BLOBS, under a fixed store name.
 drift :: [IndexRecord] -> [(FilePath, Maybe BlobEntry)] -> IndexDrift
 drift records = driftOf "/store" folded
   where folded = IndexFold (Map.fromList [ (irId r, r) | r <- records ]) (length records) 0 0
 
--- The fold
 
 foldSpec :: TestTree
 foldSpec = testGroup "Folding the write-ahead log"
@@ -104,9 +86,7 @@ foldSpec = testGroup "Folding the write-ahead log"
         assertEqual "b" (Just "TODO") (stateOf "b" folded)
         assertEqual "records read" 3 (ifRead folded)
 
-    -- The open segment is read LAST, so it wins over every sealed one however
-    -- the MANIFEST is ordered.  Reverse the two and the table shows what the
-    -- store held before the last edit.
+    -- The open segment is read LAST, whatever order the MANIFEST is in.
   , testCase "the open segment is newer than every sealed one" $
       withStore [[record "a" "DONE"]] (T.unlines [record "a" "STARTED"]) $ \folded ->
         assertEqual "a" (Just "STARTED") (stateOf "a" folded)
@@ -141,9 +121,8 @@ foldSpec = testGroup "Folding the write-ahead log"
         assertEqual "live ids" ["a"] (Map.keys (ifRecords folded))
         assertEqual "malformed" 1 (ifMalformed folded)
 
-    -- Elisp writes `nil' as `{}', so only JSON true is a set flag -- the decode
-    -- is `(eq t VALUE)'.  A record with no `archived' key at all predates the
-    -- field and states nothing, which is a third answer rather than false.
+    -- Elisp writes `nil' as `{}', so only JSON true is a set flag; an absent
+    -- key predates the field and states nothing, a third answer.
   , testCase "the archive flag is true, false, or unstated" $
       withStore [] (T.unlines [ archivedRecord "yes" "" True
                               , archivedRecord "no" "" False
@@ -159,8 +138,8 @@ foldSpec = testGroup "Folding the write-ahead log"
         folded <- foldStore meta
         assertEqual "live ids" ["a"] (Map.keys (ifRecords folded))
 
-    -- The MANIFEST is the whole commit protocol, so a name it lists that is not
-    -- a sealed segment is not a file to open.
+    -- The MANIFEST is the commit protocol: a name that is not a sealed
+    -- segment is not a file to open.
   , testCase "the MANIFEST can only name seg-<digits>.jsonl" $ do
       assertEqual "traversal refused" [openSegment]
                   (segmentNames (Just "{\"segments\":[\"../../secrets\"]}"))
@@ -175,7 +154,6 @@ foldSpec = testGroup "Folding the write-ahead log"
     stateOf i folded = irState <$> Map.lookup i (ifRecords folded)
     archivedOf i folded = irArchived <$> Map.lookup i (ifRecords folded)
 
--- The comparison
 
 driftSpec :: TestTree
 driftSpec = testGroup "Index against blobs"
@@ -192,8 +170,7 @@ driftSpec = testGroup "Index against blobs"
       assertEqual "archived" 0 (dfArchived d)
       assertEqual "sample" ["a: state wal=DONE blob=TODO"] (dfSamples d)
 
-    -- Both sides spell "no keyword" as the empty string, so the sample has to
-    -- name the absence rather than print nothing at all.
+    -- Both sides spell "no keyword" empty, so the sample names the absence.
   , testCase "an absent keyword on either side reads as none" $ do
       let d = drift [rec "a" "" Nothing] [blob "a" "TODO" False]
       assertEqual "sample" ["a: state wal=none blob=TODO"] (dfSamples d)
@@ -207,14 +184,12 @@ driftSpec = testGroup "Index against blobs"
       assertEqual "archived" 1 (dfArchived d)
       assertEqual "sample" ["a: archived wal=false blob=true"] (dfSamples d)
 
-    -- The field joined the schema late, so a record from before it says
-    -- nothing about archiving and cannot be wrong about it.
+    -- A record from before the field says nothing and cannot be wrong.
   , testCase "a record that predates the field is never archive drift" $ do
       let d = drift [rec "a" "" Nothing] [blob "a" "" True]
       assertEqual "rows" 0 (dfRows d)
       assertEqual "archived" 0 (dfArchived d)
 
-    -- One row, two disagreements: the row is counted once and both are named.
   , testCase "a row can disagree in both terms at once" $ do
       let d = drift [rec "a" "DONE" (Just True)] [blob "a" "TODO" False]
       assertEqual "rows" 1 (dfRows d)
@@ -235,10 +210,8 @@ driftSpec = testGroup "Index against blobs"
       assertEqual "unindexed" 0 (dfUnindexed d)
       assertEqual "rows" 0 (dfRows d)
 
-    -- The instrument turned on itself: a blob this parser read but found no id
-    -- in cannot be matched at all, so it is counted on its own and the record
-    -- naming it stays recordless.  Reported, because otherwise a parser gap
-    -- reads as org-glance indexing something that is not there.
+    -- The instrument turned on itself: an idless blob matches nothing, so a
+    -- parser gap cannot read as index lag.
   , testCase "a blob carrying no id is counted apart and matches nothing" $ do
       let d = drift [rec "a" "" Nothing, rec "b" "" Nothing]
                     [blob "a" "" False, idless "/store/data/b/data.org"]
@@ -256,12 +229,11 @@ driftSpec = testGroup "Index against blobs"
   ]
   where rec = IndexRecord
 
--- The blob's own entry
 
 blobSpec :: TestTree
 blobSpec = testGroup "What a blob says"
   [ -- A blob holds one entry, and it is the file's first headline: six of
-    -- ~/sync's blobs open at level two, so a depth test would lose them.
+    -- ~/sync's blobs that open at level two, so a depth test would lose them.
     testCase "the first headline is the entry, whatever depth it opens at" $
       assertEqual "id" (Just "wanted")
                   (beId <$> blobEntryOf "b.org"
@@ -273,9 +245,8 @@ blobSpec = testGroup "What a blob says"
       assertEqual "archived" (Just True) (beArchived <$> entry)
       assertEqual "file" (Just "b.org") (beFile <$> entry)
 
-    -- Never a CHILD's id.  A blob whose own drawer this parser lost would
-    -- otherwise be compared under its child's id, against a record describing
-    -- the parent -- a disagreement invented by the instrument.
+    -- Never a CHILD's id, or a blob whose drawer this parser lost would be
+    -- compared against a record describing its parent.
   , testCase "a child's id is not the blob's" $
       assertEqual "entry" Nothing
                   (beId <$> blobEntryOf "b.org"
@@ -285,7 +256,6 @@ blobSpec = testGroup "What a blob says"
       assertEqual "entry" Nothing (beId <$> blobEntryOf "b.org" [])
   ]
 
--- The report
 
 reportSpec :: TestTree
 reportSpec = testGroup "The scan's index report"

@@ -1,12 +1,6 @@
 // THE DRIVER — a real engine measures the page, because nothing else in this
-// repo renders anything (docs/proposals/2026-08-11-browser-driver.done.md).
-// ONE WIDGET, ONE FILE: browser launch, CDP client, daemon lifecycle, the
-// six-call page handle and the report.  ZERO DEPENDENCIES — node's global
-// WebSocket onto Chrome's `/json/version', which is the whole transport.
-//
-// TEARDOWN IS A `finally' AND IT IS THE TARGET'S LIFE: a leaked daemon or a
-// hung browser on a red run is what gets a check deleted.  Every wait is a
-// CONDITION with a cap, never a duration (AGENTS.hs's `until:stale=off' rule).
+// repo renders anything.  ZERO DEPENDENCIES: node's global WebSocket onto CDP.
+// Every wait is a CONDITION with a cap, never a duration (AGENTS.hs).
 //
 //   GLANCE_BIN   the daemon to serve with          (else `cabal list-bin')
 //   CHROME       the browser binary to drive       (else ~/.cache/ms-playwright)
@@ -27,11 +21,9 @@ const TURN = 25;              // the poll, in ms — the watch's own drain rate
 const READY = 30_000;         // the daemon's walk, capped
 const SETTLE = 8_000;         // a page condition, capped
 
-// ---------------------------------------------------------------- utilities
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** A port nothing holds: bind 0, read what the kernel gave, close. */
 const freePort = () => new Promise((ok, no) => {
   const s = createServer();
   s.on("error", no);
@@ -41,7 +33,6 @@ const freePort = () => new Promise((ok, no) => {
   });
 });
 
-/** Poll FN until it answers truthy, or fail naming WHAT was waited for. */
 async function poll(fn, cap, what) {
   const till = Date.now() + cap;
   let last;
@@ -73,52 +64,36 @@ async function browserPath() {
   return walk(root, 0);
 }
 
-// ------------------------------------------------------------------- breaks
 
-/**
- * A CASE NOBODY HAS SEEN FAIL IS NOT EVIDENCE, and no source file has to move
- * to see one: each entry takes ONE rule out of the served page with a
- * stylesheet injected at document start, and names the case it should turn
- * red.  `make browser-check BREAK=edit-covers' is the proof.
- */
+/** A CASE NOBODY HAS SEEN FAIL IS NOT EVIDENCE: each entry takes ONE rule out
+ * of the served page and names the case it should turn red. */
 const BREAKS = {
   // 1 — the box stands over the document instead of pushing it down (cb6db85).
   "edit-covers": ["1", "#dpara.on{height:220px !important}"],
-  // 5 — the tier stops clamping, which is the defect this case was born from:
-  // `.pop-sheet' drew its padding and border OUTSIDE `--g-pop-max' until the
-  // `box-sizing' pair landed, so a popup stood 30px past its own cap.
+  // 5 — the tier stops clamping (`.pop-sheet' once drew its box outside the cap).
   "pop-clamp": ["5", ".pop-band,.pop-sheet{box-sizing:content-box !important;"
                    + "height:96vh !important;max-height:96vh !important}"],
-  // 1 — the block keeps a one-line floor whatever is typed into it.
   "edit-floor": ["1", ".de.dat{min-height:0 !important}"],
   // 2 — the drawn paragraph collapses to nothing (d7ba44b).
   "draft-floor": ["2", ".d-draft{min-height:0 !important}"],
   // 3 — the pane draws its flag in `--g-warn' at a strength of its own (14e13d9).
   "flag-red": ["3", ".de.dfl{box-shadow:inset 3px 0 0 var(--g-warn) !important}"],
-  // 4 — something wide, and the viewport told to scroll to it.
   "no-clip": ["4", "html,body{overflow:visible !important}"
                  + "#log{width:220vw !important}"],
   // 6 — the sheet's state cell falls back to the page's own ink (80c3732).
   "badge-hue": ["6", "#mdoc .dc-state{color:var(--g-fg) !important}"],
-  // 7 — content sits at the stars rather than under the title text.
   "para-indent": ["7", "#mdoc .d-para{padding-left:0 !important}"],
-  // 8 — the cursor is drawn as a line rather than as a ground.
   "cursor-line": ["8", "#mdoc.on .de.dat{background:transparent !important;"
                      + "text-decoration:underline !important}"],
 };
 
-// ---------------------------------------------------------------- CDP client
 
-/**
- * The whole protocol surface: one socket, one id counter, one session.
- * `flatten' puts the page session on the browser socket, so there is one
- * connection to close and one place a failure can leak from.
- */
+/** One socket, one id counter, one session: `flatten' puts the page session on
+ * the browser socket, so there is one connection to close. */
 class CDP {
   constructor(ws) {
     this.ws = ws; this.n = 0; this.waiting = new Map();
-    // EVENTS ARE DROPPED: every wait here is a CONDITION polled in the page, so
-    // nothing subscribes and a protocol event owes this client nothing.
+    // EVENTS ARE DROPPED: every wait here is a CONDITION polled in the page.
     ws.addEventListener("message", (m) => {
       const msg = JSON.parse(m.data);
       const w = msg.id === undefined ? null : this.waiting.get(msg.id);
@@ -149,13 +124,9 @@ class CDP {
   close() { try { this.ws.close(); } catch { /* already gone */ } }
 }
 
-// ---------------------------------------------------------- the page handle
 
-/**
- * SIX CALLS AND NO MORE — `goto', `eval', `until', `press', `type', `size',
- * plus the two artifacts a failure owes (`shot', `strip').  Swapping CDP for
- * playwright or BiDi later is one adapter behind these names.
- */
+/** SIX CALLS AND NO MORE, plus the two artifacts a failure owes.  Swapping CDP
+ * for playwright or BiDi later is one adapter behind these names. */
 function pageHandle(cdp, sid) {
   const call = (m, p) => cdp.send(m, p, sid);
   const evaluate = async (fn, ...args) => {
@@ -168,8 +139,7 @@ function pageHandle(cdp, sid) {
     return r.result.value;
   };
   // A LETTER BINDING NAMES A PHYSICAL KEY, so a press carries `code' beside
-  // `key' and an uppercase binding is shift + the same code — which is exactly
-  // what `keyName' (assets/glue/05-keys.js) reads back.
+  // `key' — which is what `keyName' (assets/glue/05-keys.js) reads back.
   const NAMED = { RET: ["Enter", "Enter"], TAB: ["Tab", "Tab"], SPC: [" ", "Space"],
     ESC: ["Escape", "Escape"], DEL: ["Backspace", "Backspace"],
     "<up>": ["ArrowUp", "ArrowUp"], "<down>": ["ArrowDown", "ArrowDown"],
@@ -224,9 +194,7 @@ function pageHandle(cdp, sid) {
       await writeFile(path, Buffer.from(r.data, "base64"));
       return path;
     },
-    // THE PAGE'S OWN TESTIMONY: the log strip is the shell's append-only
-    // account of what it did, and a failing geometry case wants it beside
-    // the picture.
+    // THE PAGE'S OWN TESTIMONY, wanted beside the picture on a red run.
     strip() {
       return evaluate(() => {
         const box = document.getElementById("log");
@@ -237,7 +205,6 @@ function pageHandle(cdp, sid) {
   };
 }
 
-// ---------------------------------------------------------------- lifecycle
 
 async function main() {
   const only = process.env.ONLY || "";
@@ -261,25 +228,22 @@ async function main() {
 
   const shots = await mkdtemp(join(tmpdir(), "glance-drive-"));
   const tree = join(shots, "tree");
-  // THE CASES WRITE: paragraph edits and flags land in a COPY, so the repo's
-  // fixtures stay byte-identical whatever a run does.
+  // THE CASES WRITE, so the repo's fixtures stay byte-identical.
   await cp(join(HERE, "tree"), tree, { recursive: true });
 
   const port = await freePort();
   let daemon = null, profile = null, browser = null, cdp = null, failed = 0, daemonSaid = "";
   const started = Date.now();
   try {
-    // The daemon's own stderr is HELD rather than inherited: a socket the
-    // driver closes between cases is one `CloseRequest' line each, which would
-    // bury the report.  It is printed whole where the run went red.
+    // The daemon's stderr is HELD rather than inherited: a socket closed between
+    // cases is one `CloseRequest' line each, which would bury the report.
     daemon = spawn(bin, ["serve", "--dir", tree, "--port", String(port)],
                    { stdio: ["ignore", "ignore", "pipe"] });
     daemon.stderr.on("data", (d) => { daemonSaid += d; });
     daemon.on("error", (e) => { throw e; });
     const base = `http://127.0.0.1:${port}`;
-    // THE BIND IS NOT THE LOAD: `/' and the assets serve while the walk runs
-    // and `/headlines' answers 503 + Retry-After until it lands, so readiness
-    // is the route that NEEDS the store.
+    // THE BIND IS NOT THE LOAD, so readiness is the route that NEEDS the store:
+    // `/' and the assets serve while `/headlines' answers 503 + Retry-After.
     const rows = await poll(async () => {
       const r = await fetch(`${base}/headlines?limit=1`).catch(() => null);
       return r && r.status === 200 ? r.json() : null;
@@ -329,8 +293,7 @@ async function main() {
       n += 1;
       const at = Date.now();
       // A `known' CASE IS EXPECTED RED and IS NOT AN XFAIL THAT SILENCES: a
-      // GREEN one is itself a failure, so the day the defect is fixed the
-      // target says to take the field off.  The reading still prints.
+      // GREEN one is itself a failure.  The reading still prints.
       try {
         const said = await c.run(p, base);
         if (c.known) {
@@ -357,8 +320,6 @@ async function main() {
           console.log(`not ok ${n} — ${c.name}`);
         }
       }
-      // Every case starts from a fresh page: a surface one left up is not the
-      // next one's problem.
       await p.goto("about:blank").catch(() => {});
       await p.size(1400, 900);
     }
@@ -383,14 +344,11 @@ async function main() {
     if (browser) await end(browser);
     if (daemon) await end(daemon);
     if (profile) await rm(profile, { recursive: true, force: true }).catch(() => {});
-    // The artifacts of a RED run stay, named in the report; a green one leaves
-    // nothing behind.
     if (!keep && !failed) await rm(shots, { recursive: true, force: true }).catch(() => {});
   }
   process.exit(failed ? 1 : 0);
 }
 
-/** SIGTERM, then SIGKILL at 5 s: nothing this run started outlives it. */
 function end(proc) {
   if (proc.exitCode !== null || proc.signalCode) return Promise.resolve();
   return new Promise((ok) => {

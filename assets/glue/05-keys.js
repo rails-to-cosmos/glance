@@ -1,7 +1,5 @@
-// KEY NAMING AND THE ECHO PILL, the shell's first widget behind an argument
-// list (docs/proposals/2026-08-08-widget-files.partial.md, step C).  It takes
-// `el' and nothing else, so what it may reach is stated rather than inherited
-// from the script scope every other part still shares.
+// KEY NAMING AND THE ECHO PILL.  Takes `el' and nothing else, so what it may
+// reach is stated rather than inherited from the shared script scope.
 const Keys = ((el) => {
     const NAMED = { Enter: "RET", Tab: "TAB", " ": "SPC", Escape: "ESC",
       Backspace: "DEL", Delete: "<delete>", ArrowUp: "<up>", ArrowDown: "<down>",
@@ -53,11 +51,9 @@ const Keys = ((el) => {
       pendingAt = setTimeout(() => { pending = []; echo(`${shown} - timed out`); }, 2000);
     }
 
-    // `pending' is the widget's own and leaves as an ANSWER rather than as the
-    // array: the dispatch reads what is held, `prefix' is the only way to move it.
+    // `pending' leaves as an ANSWER; `prefix' is the only way to move it.
     const pendingKeys = () => pending.slice();
     return { echo, keyName, prefix, pendingKeys, repeating };
 })(el);
-// Consumers keep their spelling: the boundary is what the widget may SEE, and
-// renaming forty call sites would buy nothing the argument list has not.
+// Consumers keep their spelling: the boundary is what the widget may SEE.
 const { echo, keyName, prefix, pendingKeys, repeating } = Keys;

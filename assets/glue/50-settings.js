@@ -37,8 +37,6 @@
       takeLayer();
       showTab(i);
       if (SECTIONS[i].enter) SECTIONS[i].enter();
-      // THE PANEL IS THE FRAGMENT (`?page=config#theme'), written by the one
-      // URL writer so a closed sheet leaves no stale hash behind.
       remembered();
     }
     // TAB walks the panels; its listener registers ahead of the key dispatch.
@@ -58,7 +56,6 @@
     /** @type {LayerRow[]} */
     let crows = [];
     let settings = false, cat = 0;
-    // The panel a booted `#fragment' asked for, spent on the next open.
     let wantPanel = "";
     const configSheet = {
       noteId: "cnote", scope: "config", state: "synced",
@@ -83,7 +80,6 @@
         drawLayers(b);
         cnote("synced");
         el("config").className = "on";
-        // A URL naming a panel opens on it.
         if (wantPanel) {
           const at = SECTIONS.findIndex((x) => x.title === wantPanel);
           wantPanel = "";
@@ -251,7 +247,6 @@
     document.addEventListener("keydown", (e) => {
       if (!settings || momentary() || !smount || !showing("theme")) return;
       const k = keyName(e);
-      // The narrow's field holds the letters while it has the focus.
       if (narrowTyping(smount)) {
         if (narrowPress(k, smount)) e.preventDefault();
         return;
@@ -359,18 +354,7 @@
      * @property {(r: LayerRow) => any} send  the wire value.
      * @property {(r: LayerRow, was: string) => void} kept  take the receipt.
      */
-    /**
-     * ONE ROW PER SETTING the sheet writes beside the cycle — the shell half of
-     * the server's `configSettings'.  A row says whether this LAYER carries the
-     * setting, what it holds NOW, what it was SERVED as, what the write names it
-     * by, and how a receipt is taken.  `cmoved' and `flushConfig' fold it, so a
-     * fourth setting is a row here and no edit in either.
-     *
-     * `now' is the COMPARABLE — a string, since the model behind `colors' is an
-     * object — and `send' is the wire value.  Both are read before the await, so
-     * a keystroke landing mid-write leaves the sheet dirty.
-     * @type {CField[]}
-     */
+    /** @type {CField[]} */
     const CFIELDS = [
       { key: "template", on: () => true,
         now: (r) => r.tpl, was: (r) => r.tplBase, send: (r) => r.tpl,
@@ -383,8 +367,6 @@
     const cnote = (next, message) => note(configSheet, next, message);
     const cdirty = () => (takeLayer(), crows.some(cmoved));
     const cmoved = (r) => r.text !== r.base || cfmoved(r).length > 0;
-    // A pin landed: the live view moves, and the badge with it where the
-    // DEFAULT is what moved — the renderer's badge says "this is the default".
     function viewLanded(id, q) {
       saved[id] = q;
       if (id === "default" && can(table, "setPinned"))
@@ -398,8 +380,7 @@
         if (!cmoved(r)) { r.err = ""; continue; }
         // Snapshotted before the await: a keystroke landing mid-write stays dirty.
         const sent = r.text;
-        // NAMED ONLY WHERE IT MOVED: always sending the template hits the
-        // one-top-entry wall on a layer whose heading nobody touched.
+        // NAMED ONLY WHERE IT MOVED: always sending the template hits the one-top-entry wall.
         const moved = cfmoved(r).map((f) => ({ f, was: f.now(r), body: f.send(r) }));
         /** @type {Record<string, any>} */
         const body = { path: r.path, lines: sent.split("\n"), digest: r.digest };
@@ -417,7 +398,6 @@
           append("config", "error", `${layerName(r)} · ${r.path}: ${r.err}`);
         }
       }
-      // The box stands where nothing was refused: `C-x C-s' syncs mid-edit.
       if (landed === -1) showAround();
       else { takeLayer(); showLayer(landed); }
       cnote(ok ? "synced" : clashed ? "conflict" : "error");
@@ -452,7 +432,6 @@
     }
     function stash() {
       stashed = {
-        // A pristine sheet survives the remount: it is a sibling of `#app'.
         sheet: editing && dirty()
           ? { id: editing.id, child: editing.child, raw,
               text: el("mtext").value, props: props(), plan: planning(),
@@ -494,22 +473,17 @@
       }).catch((e) => append("sync", "error", `sheet restore failed: ${e.message}`));
     }
     function reopenEdit(o) {
-      // AN INSERT NAMES THE STOP it was raised from and holds none of the
-      // file's text, so it is rebuilt rather than looked up as a paragraph —
-      // reopened as one, RET would REPLACE the paragraph it meant to join.
+      // AN INSERT holds none of the file's text: reopened as a paragraph, RET would REPLACE it.
       const stop = o.box === "dpara" ? docRowById(o.id) : null;
       const r = o.box !== "dpara" ? { id: o.id, val: o.val }
               : !stop ? null
               : o.add ? { id: stop.id, text: "", add: true }
               : stop;
       if (!r) return;
-      // The row an insert was filling is the model's, and the remount refilled
-      // it away — so it is drawn again under the stop it was raised from.
       if (o.add) redraft(r);
       openEdit(o.box === "dpara" ? DPARA : DTITLE, r);
       el(o.box === "dpara" ? "dtext" : "dtin").value = o.val;
     }
-    // Both anchors belong to the view being thrown away, so they go with it.
     function remount(after) { leaving = arriving = null; stash(); start(after); }
     // `onclose' goes first, or the reconnect timer opens a second socket.
     function applyView(b, q, landing, sel) {
@@ -519,10 +493,6 @@
       remember(q);
       remount((total) => { land(sel || null); if (landing) landing(total); });
     }
-    // SAVE-EXCURSION: going home is a view change rather than a place change, so
-    // point stays on the row it was on wherever the default still holds it.
-    // `land' is the whole rule — the row named, else row one, else an empty
-    // table has nowhere to land at all.
     function applyDefault(b) {
       const here = { id: focusedId(), col: column() };
       if (crumbing()) table.setCrumbs([]);
@@ -530,29 +500,14 @@
       crumbSels = [];
       applyView(b, savedQuery("default"), undefined, here);
     }
-    /**
-     * THE VIEW A QUERY NAMED, applied by the door its key uses: `default' is
-     * home and throws the crumbs away, and every other view is one application.
-     * The registry is the server's, so a view it grows is applicable here with
-     * nothing named on this page.
-     */
     function applyNamed(id) {
-      // The TOKEN is what asked, so the echo names it where a key would be.
       const b = { seq: `view:${id}`, command: NAMED_VIEW[id] || `apply-view:${id}` };
       if (id === "default") { applyDefault(b); return; }
       applyView(b, savedQuery(id), (total) => said(b, `${id} · ${rowsWord(total)}`));
     }
     const NAMED_VIEW = { default: "apply-default-filter", agenda: "org-glance-agenda" };
     const PIN = "set-saved-view";
-    // THE PIN ASKS WHICH SAVED VIEW the applied query becomes.  The list is the
-    // registry's own, off the boot blob, so the palette goes up filled and a
-    // view the server grows is offered with nothing here to name it.
-    //
-    // `-' IS A FLAG, magit's own shape: it toggles RESET on and off over the
-    // same list, and with it armed a letter puts that view's BUILT-IN back
-    // rather than pinning.  Toggling re-raises, which is how the flag reaches
-    // the head, the foot and the rung's own line; a commit closes the palette,
-    // so the flag never outlives the question it was set on.
+    // `-' IS A FLAG, magit's own shape: armed, a letter puts the BUILT-IN back.
     function askView(byKey, take, back) {
       const q = back || !can(table, "getQuery") ? "" : table.getQuery().trim();
       const mine = ask(back ? "reset · which view" : `pin · ${q || "all rows"}`,
@@ -560,8 +515,7 @@
                                        : take(String(c.tag), q)),
                        back ? "a letter resets it · - pins again · / to search · ESC leaves"
                             : "a letter pins it · - resets one · / to search · ESC leaves");
-      // The BUTTON raises it with no keydown behind it to spend the guard, and
-      // so does the `-' that re-raises it: that press is already answered.
+      // The BUTTON has no keydown behind it to spend the guard, nor does the `-'.
       mine.raising = byKey;
       const views = (CFG.views || []).map((v) =>
         ({ label: v.id, hint: savedQuery(v.id) || "all rows", tag: v.id }));
@@ -569,10 +523,6 @@
                             hint: back ? "on · a letter puts the built-in back"
                                        : "off · put a view's built-in back" }]));
     }
-    // ONE WRITE for both halves: `views' names ONE view, so the others' lines
-    // stay where they are, and an EMPTY query TAKES THE LINE OFF — which is how
-    // a view goes back to its built-in.  What that built-in IS is the server's,
-    // so that half re-reads rather than guessing.
     function writeView(id, q, spoke) {
       return getJSON("/config").then((a) => {
         const sys = (a.layers || []).find((l) => !l.tag);
@@ -599,8 +549,6 @@
       askView(true, (id, q) =>
         writeView(id, q, (w) => said(b, w)).catch(failed(b, PIN)));
     }
-    // The chip strip's button, which no keymap row fired: it spells the command
-    // by hand, the way every other buttoned door does.
     function pinHere() {
       askView(false, (id, q) =>
         writeView(id, q, (w) => echo(`pin → ${PIN} (${w})`))

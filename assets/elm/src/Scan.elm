@@ -32,11 +32,7 @@ module Scan exposing
 
 {-| THE DOCUMENT PANE'S PURE HALF: the structure a subtree's body has, the rows
 it becomes, the splice that composes one back, and the readings a cursor is
-moved by.
-
-Split out of `Doc` so it can be tested as what it is — functions over lines —
-rather than only through a page that has to be booted to ask.
-
+moved by. Split out of `Doc` so it can be tested as functions over lines.
 -}
 
 import Array exposing (Array)
@@ -72,9 +68,7 @@ type alias Row =
     , index : Int
     , level : Int
 
-    -- WHAT THE REGION SAID about its continuation: a paragraph stands between
-    -- blank lines and every other region's lines sit against their neighbours.
-    -- The draft carries it because the SPLICE is what writes the separator.
+    -- The SPLICE is what writes the separator, so the draft carries this.
     , alone : Bool
     }
 
@@ -86,11 +80,6 @@ blank =
 
 
 -- THE LINE PREDICATES
---
--- What counts as an opener, a block, a drawer, a table and a run, settled once
--- and read by everything below. A port of the shell's own, rule for rule: the
--- openers are the corpus's — `-`, `1.`/`1)`, `+`, and an INDENTED `*`, a `* ` at
--- column 1 being a headline.
 
 
 {-| An item's opener: how far in it sits, and what it OPENS WITH — the token
@@ -120,8 +109,6 @@ listOpener line =
                 Just "*"
 
             else
-                -- `numberedAt' answers the DIGITS; the punctuation is the
-                -- character behind them, and both are the token.
                 Maybe.map
                     (\d -> d ++ String.slice (String.length d) (String.length d + 1) rest)
                     (numberedAt rest)
@@ -146,9 +133,6 @@ listOpener line =
             Just (opened token)
 
 
-{-| The horizontal run a token is followed by, ONE SPACE where the line ends at
-the token — `-' alone opens an item, and a sibling of it owes a space.
--}
 gapAfter : String -> String
 gapAfter after =
     let
@@ -164,8 +148,6 @@ gapAfter after =
         run
 
 
-{-| `1.` or `1)` followed by a space or the line's end.
--}
 numberedAt : String -> Maybe String
 numberedAt rest =
     let
@@ -192,8 +174,6 @@ numberedAt rest =
         Nothing
 
 
-{-| The NUMBER a numbered item opens with, off its whole line.
--}
 numberAt : String -> Maybe Int
 numberAt line =
     let
@@ -244,10 +224,6 @@ endsBlock name line =
     String.toLower (String.trim line) == "#+end_" ++ name
 
 
-{-| A DRAWER'S NAME: `:NAME:` alone on its line, org's own charset. `:END:` is
-the closer rather than an opener, and a colon inside the name declines the line
-— `:a:b:` is text, as org reads it.
--}
 drawerName : String -> Maybe String
 drawerName line =
     let
@@ -281,9 +257,6 @@ drawerEnds line =
     String.toUpper (String.trim line) == ":END:"
 
 
-{-| Where the drawer opened at I closes, or -1 — `blockRun`'s rule with org's
-one closer in place of a named one.
--}
 drawerRun : Array String -> Int -> Int -> Int
 drawerRun lines i end =
     let
@@ -305,9 +278,6 @@ isTable line =
     String.startsWith "|" (String.trimLeft line)
 
 
-{-| Where a table's run of pipe rows ends. A BLANK LINE ENDS A TABLE, so a pipe
-row under one opens a table of its own.
--}
 tableEnd : Array String -> Int -> Int -> Int
 tableEnd lines end j =
     if j < end && isTable (at j lines) then
@@ -317,8 +287,6 @@ tableEnd lines end j =
         j
 
 
-{-| The horizontal run a line opens with, which is what a continuation wears.
--}
 indentOf : String -> String
 indentOf line =
     String.left (String.length line - String.length (String.trimLeft line)) line
@@ -329,33 +297,24 @@ isBlank line =
     String.trim line == ""
 
 
-{-| A line that RIDES INSIDE the item above it: an opener of its own, or an
-indented continuation.
--}
 rides : String -> Bool
 rides line =
     listOpener line /= Nothing || String.startsWith " " line || String.startsWith "\t" line
 
 
-{-| The Nth of a list, which ten sites were spelling out.
--}
 nth : Int -> List a -> Maybe a
 nth i xs =
     List.head (List.drop i xs)
 
 
-{-| THE NTH LINE OF THE BODY, and it reads an `Array` because the walks below ask
-for one line after another: `List.drop i` is O(i), which made a 2,178-line body
-cost nine million cons cells and 75 ms where an array costs 11.
+{-| THE NTH LINE OF THE BODY, off an `Array`: the walks ask for one line after
+another and `List.drop i` is O(i). The SPLICE keeps a `List` (`blankAt`).
 -}
 at : Int -> Array String -> String
 at i xs =
     Maybe.withDefault "" (Array.get i xs)
 
 
-{-| Whether the Nth line of the SPLICE'S OWN list is blank. The splice COMPOSES
-lines where the walks step through them, so it keeps the shape the model holds.
--}
 blankAt : Int -> List String -> Bool
 blankAt i xs =
     isBlank (Maybe.withDefault "" (nth i xs))
@@ -366,8 +325,6 @@ cut lines a b =
     String.join "\n" (List.take (b - a) (List.drop a lines))
 
 
-{-| Where the block opened at I closes, or -1.
--}
 blockRun : Array String -> Int -> Int -> String -> Int
 blockRun lines i end name =
     let
@@ -385,11 +342,6 @@ blockRun lines i end name =
 
 
 -- WHAT A LINE OPENS
---
--- ONE RECOGNIZER, and every walk below reads it: which kind a line opens, where
--- that kind ends, and whether it carries a closer. Three total cases over one
--- sum, so a sixth kind fails the build in each. Two of them spelled their set
--- as a comparison once, and a comparison answers silently.
 
 
 type RegionKind
@@ -400,10 +352,8 @@ type RegionKind
     | Drawer
 
 
-{-| THE KIND THE LINE AT I OPENS, `Plain` where it opens nothing. The five kinds
-read the SAME predicates everything else does (`drawerName`, `blockName`,
-`isTable`, `listOpener`), so what counts as a drawer, a block, a table or a list
-is settled here and nothing below widens it.
+{-| THE KIND THE LINE AT I OPENS, `Plain` where it opens nothing. The five read
+the SAME predicates everything else does, and nothing below widens them.
 -}
 kindAt : Array String -> Int -> RegionKind
 kindAt lines i =
@@ -428,9 +378,7 @@ kindAt lines i =
 
 
 {-| THE STRUCTURE SCANNER'S OWN READING, and its ONE divergence from the region
-walk: a DRAWER opens no stop, so its opener and its closer are prose lines and
-what it holds is whatever else those lines spell. Stated here once, where the
-walk and the scanner meet.
+walk: a DRAWER opens no stop, so its opener and its closer are prose lines.
 -}
 stopKindAt : Array String -> Int -> RegionKind
 stopKindAt lines i =
@@ -442,11 +390,6 @@ stopKindAt lines i =
             kind
 
 
-{-| WHICH KINDS CARRY A CLOSER, asked wherever a boundary line is the question:
-what a region's INTERIOR is (`interiorEnd`), whether a line is its CLOSING one
-(`closerAt`), and whether an opener is one a run must step over whole
-(`closedRun`).
--}
 closes : RegionKind -> Bool
 closes kind =
     case kind of
@@ -466,10 +409,6 @@ closes kind =
             False
 
 
-{-| ONE PAST THE LAST LINE of the KIND opened at I, and `-1` where a kind that
-CLOSES never does. A caller wanting an ITEM's own boundaries reads `listRun` for
-them; this answers where its whole RUN ends.
--}
 extentOf : Array String -> Int -> Int -> RegionKind -> Int
 extentOf lines end i kind =
     case kind of
@@ -489,9 +428,8 @@ extentOf lines end i kind =
             drawerRun lines i end
 
 
-{-| Where a prose run ends: the next blank line, or the next line that opens
-something — READ THROUGH THE CALLER'S OWN CLASSIFIER, which is what makes the
-scanner's paragraph run past a drawer where the walk's stops at one.
+{-| Where a prose run ends, READ THROUGH THE CALLER'S OWN CLASSIFIER — which is
+what makes the scanner's paragraph run past a drawer where the walk's stops.
 -}
 proseEnd : (Array String -> Int -> RegionKind) -> Array String -> Int -> Int -> Int
 proseEnd kind lines end j =
@@ -502,10 +440,6 @@ proseEnd kind lines end j =
         proseEnd kind lines end (j + 1)
 
 
-{-| Where the region opened at J closes, or `Nothing` — asked of the kinds that
-CLOSE, so a caller wanting "is this line the opener of something that ends?" asks
-once.
--}
 closedRun : Array String -> Int -> Int -> Maybe Int
 closedRun lines end j =
     let
@@ -530,12 +464,8 @@ type alias Run =
     { to : Int, items : List ( Int, Int ) }
 
 
-{-| ONE BLANK LINE STAYS IN — org's rule. Two close the list, as does a blank
-with something that does not ride under it.
-
-AND A BLOCK OR A DRAWER RIDING INSIDE THE RUN IS STEPPED OVER WHOLE, so no item
-boundary is cut through one — org's `org-list-struct` again.
-
+{-| ONE BLANK LINE STAYS IN — org's rule. A BLOCK OR A DRAWER RIDING INSIDE THE
+RUN IS STEPPED OVER WHOLE, org's `org-list-struct` again.
 -}
 listRun : Array String -> Int -> Int -> Run
 listRun lines i end =
@@ -581,13 +511,8 @@ listRun lines i end =
 
                     Nothing ->
                         if rides (at j lines) then
-                            -- A BLOCK OR A DRAWER IS ONE SYNTACTIC UNIT, so an
-                            -- item boundary is never cut through one: the run
-                            -- steps over it whole.  org's own `org-list-struct'
-                            -- does exactly this ("skip block or drawer at point,
-                            -- and move to next line"), and without it a `- b'
-                            -- between two source lines ended the item above,
-                            -- leaving the `#+begin_src' with no closer in it.
+                            -- ONE SYNTACTIC UNIT: org's `org-list-struct' skips
+                            -- a block or a drawer at point whole.
                             case closedRun lines end j of
                                 Just shut ->
                                     go shut from shut items
@@ -609,36 +534,15 @@ listRun lines i end =
 
 
 -- THE REGION WALK
---
--- ONE QUESTION — WHICH REGION HOLDS THIS LINE — and both consumers read the one
--- answer: the STRUCTURE SCANNER asks it before minting a stop INSIDE a stop, and
--- the MARKER rule asks it what a new line there opens with. The two walked
--- separately once and disagreed, which is what every bug in this area was: a
--- bullet inside a nested block was an ITEM to the scanner and the BLOCK's line to
--- the marker rule, so the pane grew a stop whose deletion left the block open.
---
--- HOW DEEP IT GOES IS ORG'S GREATER/LESSER SPLIT (`greater'): the walk RE-ENTERS
--- a greater region and treats a lesser one as OPAQUE. Re-entering the item alone
--- left a table inside a `#+begin_pin' answered with the block's empty line, which
--- split the table in two.
 
 
-{-| A region's kind and the lines it covers — `to` one past the last, so the
-CLOSER of a kind that has one is `to - 1`. The MARKER is derived rather than
-stored (`markerFor`), a table's being measured off the rows it already spells.
--}
 type alias Region =
     { kind : RegionKind, from : Int, to : Int }
 
 
 {-| THE REGIONS between FROM and END, in line order, each holding its own lines.
-The kind of every one is `kindAt`'s, so what counts as a list, a table, a block
-or a drawer is settled in one place and this widens none of it.
-
-ITEMS TILE THE RUN they sit in, since org keeps one blank line inside a list and
-a line no item opened is the item above it. A STOP cut from an item is `snug`,
-which gives those blanks back.
-
+ITEMS TILE THE RUN they sit in, org keeping one blank line inside a list; a STOP
+cut from an item is `snug`.
 -}
 regionsIn : Array String -> Int -> Int -> List Region
 regionsIn lines from end =
@@ -671,8 +575,7 @@ regionsIn lines from end =
                     Drawer ->
                         held Drawer i out
 
-        -- A kind that CLOSES is the run it closes, and an unclosed opener is the
-        -- text org reads it as.
+        -- A kind that CLOSES is the run it closes; an unclosed opener is text.
         held kind i out =
             let
                 to =
@@ -699,20 +602,8 @@ regionsIn lines from end =
     go from []
 
 
-{-| ORG'S OWN GREATER/LESSER SPLIT (`org-element-greater-elements`), and it is
-what decides re-entry. A GREATER element CONTAINS other elements, so the walk
-asks the same question inside it: an ITEM, a DRAWER, and every block org parses
-the contents of — `center`, `quote`, and any SPECIAL block a tree spells a name
-of its own. A LESSER element holds no elements and is OPAQUE: the VERBATIM
-blocks, where org SUSPENDS its own grammar — which is why an empty line is the
-right continuation in one and why a bullet inside one is source rather than an
-item.
-
-A TABLE IS GREATER IN ORG and a leaf here, the one name where this walk departs
-from that list. Org's `table` contains `table-row` and nothing else, so
-re-entering it would answer a caret with a row — which is what the Table marker
-already spells.
-
+{-| ORG'S OWN GREATER/LESSER SPLIT (`org-element-greater-elements`), which
+decides re-entry. A TABLE IS GREATER IN ORG and a leaf here, the one departure.
 -}
 greater : Array String -> Region -> Bool
 greater lines reg =
@@ -733,33 +624,15 @@ greater lines reg =
             False
 
 
-{-| THE VERBATIM BLOCKS, and the list is the five names
-`org-element-greater-elements` leaves out: org parses no element inside one, so
-nothing there is a table, a drawer or an item either. Every other `#+begin_X` is
-a SPECIAL block and greater, so a tree's own `#+begin_pin` holding a table holds
-a TABLE.
-
-ORG'S LIST RULE IS A DIFFERENT VARIABLE AND A SHORTER LIST.
-`org-list-forbidden-blocks` — "names of blocks where lists are not allowed" —
-names four, sparing `comment`, and it answers about LISTS alone. The question
-here is the ELEMENT one, so the element list is what it takes.
-
+{-| THE VERBATIM BLOCKS: the five names `org-element-greater-elements` leaves
+out. ORG'S LIST RULE IS A DIFFERENT VARIABLE — `org-list-forbidden-blocks` names
+four, spares `comment`, and answers about LISTS alone.
 -}
 verbatim : String -> Bool
 verbatim name =
     List.member name [ "comment", "example", "export", "src", "verse" ]
 
 
-{-| The region holding LINE, sought between FROM and END — the stop's own
-structure, so a region never reaches into a child's lines.
-
-A LINE NO REGION CLAIMS IS PROSE OF ITS OWN, and two kinds of line reach that
-answer: a BLANK line between two regions, which no region tiles, and the OPENER
-or the CLOSER of a greater region the walk has just re-entered, neither being an
-interior line. In the second case `within` reads the `Plain` and hands the region
-itself back.
-
--}
 regionAt : Array String -> Int -> Int -> Int -> Region
 regionAt lines from end line =
     case List.filter (\r -> r.from <= line && line < r.to) (regionsIn lines from end) of
@@ -774,16 +647,6 @@ regionAt lines from end line =
             Region Plain line (line + 1)
 
 
-{-| THE WALK RE-ENTERS A GREATER REGION. Its contents are elements — an item's
-lines are a body of their own, and so are a drawer's and a quote block's — so the
-same question is asked again inside it and a nested region's answer stands.
-
-WHAT NO NESTED REGION CLAIMS IS THE GREATER ONE'S, and so is the CLOSING line of
-a nested region: it asks for what comes AFTER that region, and inside a greater
-one that is the greater one. The span shrinks at every step, so the recursion
-ends where the nesting does.
-
--}
 within : Array String -> Region -> Int -> Region
 within lines reg line =
     let
@@ -797,10 +660,6 @@ within lines reg line =
         nested
 
 
-{-| ONE PAST A REGION'S LAST INTERIOR LINE. A kind that CLOSES keeps its closer
-out of them and every other kind's contents run to its end — so a caret on either
-boundary line finds no interior region and falls back to the region itself.
--}
 interiorEnd : Region -> Int
 interiorEnd reg =
     if closes reg.kind then
@@ -810,17 +669,11 @@ interiorEnd reg =
         reg.to
 
 
-{-| A region's CLOSING line, where the kind has one. A TABLE has none, so a
-caret on its last row keeps the new row inside it.
--}
 closerAt : Region -> Int -> Bool
 closerAt reg line =
     closes reg.kind && line == reg.to - 1
 
 
-{-| A STOP ENDS AT ITS LAST LINE WITH SOMETHING ON IT, where a region tiles the
-run it sits in. One rule, asked wherever a stop is cut from a region.
--}
 snug : Array String -> Int -> Int -> Int
 snug lines from to =
     if to > from && isBlank (at (to - 1) lines) then
@@ -832,15 +685,8 @@ snug lines from to =
 
 
 -- THE STRUCTURE SCANNER
---
--- What the pane STOPS on: the composites, their leaves, and the ladder between
--- them. It reads `kindAt' at the top level and `regionsIn' inside a stop, so the
--- recognition is the walk's throughout and only the SHAPE of what each kind
--- becomes is this section's.
 
 
-{-| The non-blank runs between A and B, each as its own leaf.
--}
 runsIn : Array String -> Int -> Int -> List ( Int, Int )
 runsIn lines a b =
     let
@@ -868,23 +714,10 @@ type alias Stop =
     { from : Int, to : Int, grain : Grain, name : Maybe String, up : Maybe Int }
 
 
-{-| The body's structure, emitted INLINE as `[whole, leaf1..leafN]` — the walk
-reads that order. `up` indexes OUT, at the leaf's IMMEDIATE owner, so the grain
-is a ladder. OWN is the server's `ownLines`, which is what keeps a child's bytes
-out of the body's paragraphs.
-
-A DRAWER IS NO STOP — it is a REGION, drawn as the paragraph it sits in — and
-NEITHER IS A BLOCK OR A TABLE RIDING INSIDE AN ITEM: such an item is ONE stop
-holding every one of its lines. Stops there would move the GRAIN — what `n`/`p`
-steps and what `d` takes — which is a different question from where a new line
-goes.
-
-INSIDE A STOP THE REGION WALK SAYS WHAT MAY BECOME ONE (`regionsIn`), which
-names the regions at ONE level and stops: a nested block or drawer is that one
-region, so nothing it holds mints a stop of its own. At the TOP level the kinds
-are `kindAt`'s, and the ONE divergence is the `Drawer` arm below — its opener and
-its closer are the paragraph's lines, which is `stopKindAt`.
-
+{-| The body's structure, emitted INLINE as `[whole, leaf1..leafN]`. `up` indexes
+OUT, at the leaf's IMMEDIATE owner, so the grain is a ladder. A DRAWER IS NO
+STOP, and neither is a block or a table riding INSIDE an item: stops there would
+move the GRAIN, a different question from where a new line goes.
 -}
 blocksIn : Array String -> Int -> List Stop
 blocksIn lines own =
@@ -892,7 +725,6 @@ blocksIn lines own =
         end =
             max 0 (min own (Array.length lines))
 
-        -- A list item, plus any ITEM the walk names inside it.
         pushItem from to up out =
             let
                 here =
@@ -927,8 +759,7 @@ blocksIn lines own =
 
             else
                 case kindAt lines i of
-                    -- A DRAWER IS NO STOP, so its opener falls to the paragraph
-                    -- and `stopKindAt' carries the rest of its lines there.
+                    -- A DRAWER IS NO STOP: `stopKindAt' takes its lines to prose.
                     Drawer ->
                         plain i out
 
@@ -1039,10 +870,7 @@ rowsFrom lines own headCells kids =
 
 
 -- THE SPLICE
---
--- ONE GRAIN SPEAKS FOR A RANGE: a composite and its leaves cover the same
--- lines, so a moved or going ancestor silences every rung under it. Bottom-up,
--- so an earlier range is never moved by a later splice.
+-- ONE GRAIN SPEAKS FOR A RANGE; bottom-up, so a later splice moves no earlier one.
 
 
 ownersOf : { a | rows : List Row } -> String -> List String
@@ -1086,14 +914,8 @@ bodyText m gone =
             else if r.text /= r.was then
                 List.take r.from out
                     ++ (if r.alone then
-                            -- A PARAGRAPH STANDS APART, and the blanks that keep
-                            -- it one are the SPLICE's rather than the text's: a
-                            -- zero-width range ADDS lines instead of replacing
-                            -- any, and what is drawn is content.  Every other
-                            -- region's continuation sits against its neighbours
-                            -- — a blank above an item would put the run's own
-                            -- separator in front of a sibling, and a blank
-                            -- inside a table would END it.
+                            -- The blanks that keep a paragraph one are the
+                            -- SPLICE's: a zero-width range ADDS lines.
                             apart out r.from (String.split "\n" r.text)
 
                         else
@@ -1109,23 +931,10 @@ bodyText m gone =
 
 
 -- THE MARKERS
---
--- ONE ANSWER PER REGION, off the one walk above: what a new line inside it
--- opens with.
 
 
-{-| ONE ANSWER PER REGION: what a new line inside it opens with.
-
-  - bullet item — its own bullet, org's `M-RET`
-  - checkbox item — bullet plus an EMPTY box, a new task being undone
-  - numbered item — the next number, the duplicate below being
-    `org-list-repair`'s business
-  - table — an empty ROW aligned to the table's own widths, a blank line
-    ending a table
-  - `#+begin_X` block — empty, at the block's indent, source being no org markup
-  - drawer, `:LOGBOOK:` included — empty, at the drawer's indent
-  - paragraph — empty, and the blank lines that set it apart are the splice's
-
+{-| ONE ANSWER PER REGION: what a new line inside it opens with, org's own in
+each case — a checkbox item's box arrives EMPTY, a table row aligned.
 -}
 markerFor : Array String -> Region -> String
 markerFor lines reg =
@@ -1150,9 +959,6 @@ markerFor lines reg =
             indent
 
 
-{-| INDENT AND BULLET ARE THE ITEM'S OWN, which is org's `org-insert-item` and
-what keeps a `[2/4]` cookie counting the same kind of thing.
--}
 itemMarker : Array String -> Int -> String
 itemMarker lines from =
     let
@@ -1169,9 +975,6 @@ itemMarker lines from =
                 ++ boxAfter (String.dropLeft (o.indent + String.length o.bullet) line)
 
 
-{-| That line's own bullet, except where the run is NUMBERED: there the number
-continues off the line consulted, and only the punctuation is the line's.
--}
 nextBullet : String -> Opener -> String
 nextBullet line o =
     let
@@ -1186,8 +989,6 @@ nextBullet line o =
             o.bullet
 
 
-{-| An EMPTY box where what follows the bullet is one, whatever state it is in.
--}
 boxAfter : String -> String
 boxAfter after =
     if List.member (String.left 3 after) [ "[ ]", "[X]", "[x]", "[-]" ] then
@@ -1197,10 +998,6 @@ boxAfter after =
         ""
 
 
-{-| ORG'S OWN ALIGNMENT: a pipe, then each column padded to the width the table
-already spells, pipe-separated. RULE ROWS are out of the measurement — their
-dashes are as wide as the column and say nothing about it.
--}
 tableRow : Array String -> Int -> Int -> String
 tableRow lines from to =
     Array.toList (Array.slice from to lines)
@@ -1212,16 +1009,11 @@ tableRow lines from to =
         |> (++) "|"
 
 
-{-| org's `|---+---|`, which its dashes make as wide as the column.
--}
 isRule : String -> Bool
 isRule line =
     String.startsWith "|-" (String.trimLeft line)
 
 
-{-| What sits BETWEEN a row's pipes, the empty tail a closing pipe leaves
-dropped.
--}
 tableCells : String -> List String
 tableCells line =
     let
@@ -1238,10 +1030,8 @@ tableCells line =
         cells
 
 
-{-| WHERE POINT GOES IN A MARKER: at its end, a marker being a LEAD the reader
-types after — except a TABLE ROW, which is a whole row and closes with a pipe.
-Typing past that pipe opens a column org's own align would then keep, so point
-goes inside the FIRST CELL, one space in where the cell has the room.
+{-| WHERE POINT GOES IN A MARKER: its end, except a TABLE ROW — typing past the
+closing pipe would open a column org's align then keeps, so point goes inside.
 -}
 caretIn : String -> Int
 caretIn marker =
@@ -1273,30 +1063,17 @@ widest new acc =
 
 
 
--- THE INSERT
---
--- `+' ADDS A SIBLING OF THE STOP, and a sibling is a MARKER plus the reader's
--- own text. It is DRAWN before it is written: a ZERO-WIDTH row goes in wearing
--- the marker alone, and `bodyText' passes it over because its text has not
--- moved off its `was'. So the reader sees the line they are about to fill as
--- the item it will be, and not a byte is owed until they fill it.
+-- THE INSERT — DRAWN before it is written: a ZERO-WIDTH row wearing the marker
+-- alone, which `bodyText' passes over, its text not having moved off its `was'.
 
 
-{-| The row a paragraph waits in before it says anything.
--}
 draftId : String
 draftId =
     "D"
 
 
 {-| WHERE a sibling joins: the row it goes in under, the BODY LINE it takes, the
-MARKER it opens wearing before a character is typed, whether it is a paragraph
-the splice owes blank lines to, and THE WORD FOR IT, which the shell echoes.
-
-The word rides here because every branch below already knows it: a second
-reading on the page called a table row inside a list item "an item at this
-level".
-
+MARKER it opens wearing, whether the splice owes it blank lines, and THE WORD.
 -}
 type alias Join =
     { under : String
@@ -1308,17 +1085,11 @@ type alias Join =
     }
 
 
-{-| THE WORD FOR WHERE `+' WOULD LAND, and `Nothing` where nothing takes a
-paragraph — a CHILD, or an id no row wears.
--}
 joinWord : { a | rows : List Row, lines : List String } -> String -> Maybe Int -> Maybe String
 joinWord m id caret =
     Maybe.map .word (joinAt m id caret)
 
 
-{-| WHAT A PARAGRAPH RIDING PAST A STOP IS CALLED: the structure it clears where
-the stop belongs to one, and the stop itself where it does not.
--}
 pastWord : Row -> String
 pastWord top =
     case top.name of
@@ -1333,9 +1104,6 @@ pastWord top =
                 "after this paragraph"
 
 
-{-| AND WHAT A LINE JOINING A REGION IS CALLED, one per kind. `Plain` is the
-region a paragraph rides past, which `inside` answers before it asks here.
--}
 regionWord : RegionKind -> String
 regionWord kind =
     case kind of
@@ -1355,14 +1123,8 @@ regionWord kind =
             "a line here"
 
 
-{-| WHERE `+' joins. The HEADLINE's leads the body at line 1, under the line the
-entry wears, which is the one place nothing is owed above. `Nothing` for a CHILD,
-whose bytes are outside this window, and for an id no row wears.
-
-A CARET is a line INSIDE the stop, where `S-RET' was pressed in a box holding
-several lines, and it is what makes a region's interior addressable. Without one
-there is nothing to be inside, so the answer is a sibling of the STOP.
-
+{-| WHERE `+' joins. A CARET is a line INSIDE the stop, where `S-RET' was
+pressed; without one there is nothing to be inside, so it is a sibling of it.
 -}
 joinAt : { a | rows : List Row, lines : List String } -> String -> Maybe Int -> Maybe Join
 joinAt m id caret =
@@ -1389,11 +1151,8 @@ joinAt m id caret =
                         )
 
 
-{-| `+' WITH NO BOX OPEN NAMES NO LINE, so THE GRAIN IS THE SELECTOR: a LEAF of a
-list takes a sibling of the stop, wearing the stop's own opener and joining past
-its whole nested run, and everything else rides past the structure it belongs to
-— the paragraph after a list is one `b' from any item and is reachable no other
-way.
+{-| `+' WITH NO BOX OPEN NAMES NO LINE, so THE GRAIN IS THE SELECTOR: a list
+LEAF takes a sibling of the stop, everything else rides past its structure.
 -}
 sibling : { a | rows : List Row, lines : List String } -> Row -> Join
 sibling m r =
@@ -1413,20 +1172,9 @@ sibling m r =
         Join top.id top.to "" Nothing True (pastWord top)
 
 
-{-| THE REGION HOLDING THE CARET'S LINE ANSWERS, and it answers both halves: its
-marker is what the new line opens with, and its interior is where that line goes
-— immediately under the caret's own, so the run splits where the reader stands
-and everything below it stays below.
-
-A CLOSING LINE (`#+end_X`, `:END:`) is the region's last and a caret on it asks
-for what comes AFTER: the line lands past the region, wearing the continuation of
-whatever holds it there — prose at the top level, the ITEM where the region rode
-inside one. A TABLE has no closer, so a caret on its last row keeps the new row
-inside it, which is how a table is actually built.
-
-A PARAGRAPH takes the same answer it always did — a paragraph of its own past the
-prose — since its lines are one value rather than a sequence of slots.
-
+{-| THE REGION HOLDING THE CARET'S LINE ANSWERS BOTH HALVES: its marker is what
+the new line opens with, its interior is where that line goes. A CLOSING LINE
+asks for what comes AFTER; a TABLE has none, which is how a table is built.
 -}
 inside : { a | rows : List Row, lines : List String } -> Row -> Int -> Join
 inside m r line =
@@ -1447,11 +1195,8 @@ inside m r line =
         anchored m r (line + 1) (markerFor lines reg) (regionWord reg.kind)
 
 
-{-| THE OWNER IS THE ANCHORED LINE'S — the deepest stop holding the line above
-it, or that stop's owner where the sibling clears it. `Doc.viewKids' walks a
-composite's kids only while their owner is its own, so an owner disagreeing with
-the line breaks the walk and the leaves past it are drawn a SECOND time as the
-gap text. Every byte on screen exactly once is the rule that says so.
+{-| THE OWNER IS THE ANCHORED LINE'S. `Doc.viewKids' walks a composite's kids
+while their owner is its own, so a disagreeing owner draws leaves twice.
 -}
 anchored : { a | rows : List Row } -> Row -> Int -> String -> String -> Join
 anchored m r line marker word =
@@ -1472,16 +1217,11 @@ anchored m r line marker word =
         word
 
 
-{-| THE LINE A CARET NAMES, absolute and clamped to the stop's own last.
--}
 caretLine : Row -> Int -> Int
 caretLine r off =
     r.from + clamp 0 (max 0 (r.to - r.from - 1)) off
 
 
-{-| The DEEPEST stop holding LINE: the rung nested furthest inside R that still
-covers it, R itself where none does.
--}
 holding : { a | rows : List Row } -> Row -> Int -> Row
 holding m r line =
     List.foldl
@@ -1505,26 +1245,16 @@ holding m r line =
         )
 
 
-{-| ROWS with an EMPTY paragraph drawn in under the stop ID, for \`+' to open a
-box over. It is zero-width and holds its MARKER and nothing else, so its text has
-not moved off its `was' and no write any other gesture composes can carry it out.
+{-| ROWS with an EMPTY paragraph drawn in under the stop ID. Zero-width and
+holding its MARKER alone, so its text has not moved off its `was`.
 -}
 drafted : { a | rows : List Row, lines : List String } -> String -> Maybe Int -> Maybe (List Row)
 drafted m id caret =
     Maybe.map (\j -> joined m j.under (draftRow j j.marker)) (joinAt m id caret)
 
 
-{-| ROWS with that paragraph filled with TEXT, which is the write.
-
-THE SEPARATOR IS DECIDED rather than spelled: a blank ABOVE unless the headline
-is the line above, and one BELOW only where the line the row takes is prose that
-would otherwise read back as ONE paragraph with this.
-
-It takes the DRAFT'S OWN CARET, since `draftRow' measures the marker to indent a
-multi-line item's continuations by: reading a different line here would ride the
-reader's second line under a bullet it never wore, and land the write somewhere
-the draw never drew.
-
+{-| ROWS with that paragraph filled with TEXT, which is the write. It takes the
+DRAFT'S OWN CARET, `draftRow` measuring the marker to indent continuations by.
 -}
 insertion :
     { a | rows : List Row, lines : List String }
@@ -1537,19 +1267,13 @@ insertion m id caret text =
 
 
 {-| The FIRST LINE the paragraph joined under ID would take, for a cursor that
-must land on a row the rescan has not minted: block ids are POSITIONAL, so no
-id names it until the body comes back.
-
-It asks under the CARET the write went out under, the two answering one question.
-
+must land before the rescan mints a row: block ids are POSITIONAL.
 -}
 joinLine : { a | rows : List Row, lines : List String } -> String -> Maybe Int -> Maybe Int
 joinLine m id caret =
     Maybe.map
         (\j ->
-            -- A REGION'S OWN LINE owes no blank above, so its landing is the
-            -- line it takes exactly, where a paragraph's is one past the blank
-            -- written over it.
+            -- A REGION'S OWN LINE owes no blank above, where a paragraph's does.
             if j.alone && j.line > 1 && not (blankAt (j.line - 1) m.lines) then
                 j.line + 1
 
@@ -1559,8 +1283,6 @@ joinLine m id caret =
         (joinAt m id caret)
 
 
-{-| The structure a stop belongs to, itself where it belongs to none.
--}
 outermost : { a | rows : List Row } -> Row -> Row
 outermost m r =
     case List.reverse (ownersOf m r.id) of
@@ -1572,11 +1294,7 @@ outermost m r =
 
 
 {-| WRITTEN wearing the blank lines that keep it a paragraph of its own at LINE.
-
-One ABOVE unless line 0 is what sits there — the entry's own headline line, and
-the one place nothing is owed — and one BELOW where the line it lands on is
-prose that would otherwise read back as ONE paragraph with this.
-
+Line 0 is the entry's own headline, the one place nothing is owed above.
 -}
 apart : List String -> Int -> List String -> List String
 apart lines line written =
@@ -1595,14 +1313,8 @@ apart lines line written =
            )
 
 
-{-| The row a draft stands in, wearing TEXT exactly.
-
-WHAT THE BOX HOLDS IS WHAT IS WRITTEN. The marker is drawn into the box the
-moment `+' is pressed, so it arrives back as part of the line and this prepends
-NOTHING: a reader who edits `- [ ] ' into `- DONE' gets `- DONE', where a prepend
-would have made it `- [ ] - DONE'. `was' stays the MARKER, which is what keeps an
-untouched draft out of `bodyText'.
-
+{-| The row a draft stands in, wearing TEXT exactly: the marker is already in the
+box, so this prepends NOTHING and `was` stays the MARKER.
 -}
 draftRow : Join -> String -> Row
 draftRow j text =
@@ -1626,10 +1338,7 @@ draftRow j text =
 
 
 {-| TEXT with every line but the first indented by N, so a multi-line item stays
-ONE item: a continuation at column 1 closes the run in org and reads back as a
-paragraph, where a line opening in space RIDES INSIDE the item above it. An
-empty MARKER indents nothing, a paragraph owing its neighbours blank lines
-rather than an indent.
+ONE item: a continuation at column 1 closes the run in org.
 -}
 riding : Int -> String -> String
 riding n text =
@@ -1641,13 +1350,7 @@ riding n text =
 
 
 {-| ROWS with ROW put in after UNDER and everything UNDER owns UP TO ROW'S OWN
-LINE, with any draft already standing taken out first, so a second ask draws one
-paragraph rather than two.
-
-THE LINE IS WHERE THE WALK STOPS, which is what puts a sibling splitting a nested
-run in the row order its bytes will be in. Past the whole structure the walk
-takes every rung, since every one of them opens above the line.
-
+LINE, any standing draft taken out first — the row order its bytes will be in.
 -}
 joined : { a | rows : List Row } -> String -> Row -> List Row
 joined m under row =
@@ -1677,8 +1380,6 @@ joined m under row =
     place [] kept
 
 
-{-| Where the row taking LINE as its first stands, for the landing above.
--}
 placeOfLine : { a | rows : List Row, at : Int } -> Int -> Int
 placeOfLine m line =
     List.indexedMap Tuple.pair m.rows
@@ -1688,9 +1389,6 @@ placeOfLine m line =
         |> Maybe.withDefault m.at
 
 
-{-| ROWS with no draft standing: what \`ESC' leaves behind, which is what it
-found.
--}
 undrafted : { a | rows : List Row } -> List Row
 undrafted m =
     List.filter (\r -> r.id /= draftId) m.rows

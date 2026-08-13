@@ -45,12 +45,8 @@
      */
     const el = (id) =>
       /** @type {any} */ (document.getElementById(id));
-    // THE FLOOR'S OWN HELPERS, moved down from the panel where they had settled
-    // (docs/proposals/2026-08-08-widget-files.partial.md, step C).  Each reads
-    // `echo', `append' or the renderer handle and nothing of the panel's, and
-    // living ABOVE the parts that need them is what made those parts
-    // unwrappable: a `const' declared later is a TDZ error in an eagerly built
-    // dependency object.
+    // THE FLOOR'S OWN HELPERS, above the parts that need them: a `const'
+    // declared later is a TDZ error in an eagerly built dependency object.
     const keySaid = (k) => (what) => echo(`${k} → ${what}`);
     const cells = () => can(table, "getSelection");
     const column = () => (cells() ? table.getSelection().col : null);
@@ -73,8 +69,6 @@
       return m ? m[1].toUpperCase() : (t ? t.toUpperCase() : null);
     };
     const priorityOf = (id) => priorityIn((rowOf(id).cells || {}).priority);
-    // Three more of the floor's, for the same reason: a constant, a lookup into
-    // the view's own badges, and a row by id over the rows this file holds.
     const EMPTY = "*empty*";
     const badgeColor = (value, key) =>
       (((cols.find((c) => c.key === (key || "state")) || {}).badges || [])
@@ -109,15 +103,9 @@
           this.on.view || this.on.socket);
       },
     };
-    // WHETHER MOUNT CARRIES EVERY NAME.  Variadic because a capability is
-    // usually a PAIR the shell needs whole — a pager is `nextPage' with
-    // `pageInfo', crumbs are three calls — and one question is what the
-    // graceful floor asks: an asset carrying half of one can do neither half.
+    // Variadic because a capability is usually a PAIR the shell needs whole.
     const can = (mount, ...names) =>
       !!mount && names.every((n) => typeof mount[n] === "function");
-    // THE REFUSAL SENTENCE, SPELLED ONCE.  `wants' is the guard-and-say pair
-    // every capability handler opens with; `lacks' is the same sentence for a
-    // surface that declares its refusal as data (`flagKey''s `missing').
     const lacks = (what) => `this table-view.js has no ${what}`;
     const wants = (b, what, ...names) =>
       can(table, ...names) || (said(b, lacks(what)), false);
@@ -217,32 +205,19 @@
 
     const params = () => new URLSearchParams(location.search);
     const urlQuery = () => params().get("q") || "";
-    // THE SAVED VIEWS, LIVE, keyed by the registry's own ids: seeded from the
-    // boot blob and moved by a pin, so `g' and `a' apply what the last write
-    // landed rather than the constant this page booted on.  A view the server
-    // grows joins by being in the blob — nothing here names one.
+    // THE SAVED VIEWS, LIVE: seeded from the boot blob and moved by a pin.
     /** @type {Record<string, string>} */
     const saved = {};
     const seedViews = (views) =>
       (views || []).forEach((v) => { saved[v.id] = String(v.query || "").trim(); });
     seedViews(CFG.views);
     const savedQuery = (id) => saved[id] || "";
-    /**
-     * `view:NAME' IS A MACRO rather than a predicate: it stands for the query
-     * that view holds, so choosing one does what `g' and `a' do and the token
-     * never survives into the applied query — the chips a reader ends up with
-     * are the view's own.  A name no view carries is left alone, which is what
-     * it already looks like to the renderer: `view' is none of its query keys,
-     * so the token reaches here as free text either way.
-     */
     const VIEW_AT = /(?:^|\s)view:([A-Za-z0-9_-]+)(?=\s|$)/;
     function viewNamed(q) {
       const m = VIEW_AT.exec(String(q || ""));
       return m && Object.prototype.hasOwnProperty.call(saved, m[1]) ? m[1] : null;
     }
-    // NOT A CONSTANT: the page is served BEFORE the walk lands, so a boot that
-    // began while the store was loading carries the BUILT-IN default and the
-    // tree's own arrives later (`adopt').
+    // NOT A CONSTANT: the tree's own default arrives after the walk (`adopt').
     let bootedOn = savedQuery("default");
     function bootQuery() {
       const q = params().has("q") ? urlQuery() : bootedOn;
@@ -274,8 +249,7 @@
       const t = trail(), labels = Object.keys(crumbLabels).length ? crumbLabels : null;
       if (!t.length && !labels) p.delete("crumbs");
       else p.set("crumbs", JSON.stringify( { trail: t, labels: crumbLabels, sels: selsFit() ? crumbSels : [] }));
-      // `page'/`row'/the fragment are `remembered''s and survive: a query
-      // committed under an open popup leaves it named in the URL.
+      // `page'/`row'/the fragment are `remembered''s and survive.
       history.replaceState(null, "", `?${p.toString()}${location.hash || ""}`);
       if (can(table, "setPinned")) table.setPinned(q.trim() === savedQuery("default"));
     }
@@ -344,12 +318,7 @@
     const post = (id, digest, asked, extra, child) =>
       postJSON(at(id, child), { ...asked, digest }, extra);
 
-    // THE TABLE'S OWN CURSOR, PAGING, MARKS AND FLAGS.  They rode into the
-    // sheet file with the panel and came back here
-    // (docs/proposals/2026-08-09-elm-sheet.partial.md).
     // dired's `d'/`D'/`x'/`u' over five surfaces, each declaring a SHAPE — AGENTS.hs.
-    // SHOWN uppercase, since a wall should read as one, and MATCHED folded —
-    // what a reader types to get past it is their own business.
     const YES = "YES";
     function flagKey(k, s, say) {
       const m = s.mount();
@@ -364,13 +333,8 @@
         return;
       }
       if (!flagsOn(m)) { say(s.missing); return; }
-      // `x' IS `dired-do-flagged-delete': the FLAGS alone — never the row at
-      // point, which is what makes it the deliberate half of the pair `D' is
-      // the quick half of — and it ASKS, naming the count.
-      //
-      // ONE QUESTION, WEIGHTED TO THE ACT.  A take that raises a wall of its
-      // own — the table's typed `delete' over a set already archived — is not
-      // asked about twice, and its wall is the stronger of the two anyway.
+      // `x' takes the FLAGS alone and ASKS, naming the count.  ONE QUESTION,
+      // WEIGHTED TO THE ACT: a take raising a wall of its own is not asked twice.
       if (k === "x") {
         if (!flags.length) { say(s.idle); return; }
         const go = () => {
@@ -417,7 +381,6 @@
       const list = visible(), at = list.findIndex((r) => r.id === focusedId());
       pick(list, at === -1 ? (step > 0 ? 0 : list.length - 1) : at + step);
     }
-    // The COMMAND is verbatim — a rebinding config addresses a function by this string.
     const pager = () => can(table, "nextPage", "pageInfo");
     const pageNow = () => (pager() ? table.pageInfo().page : 1);
     function turnPage(b, step) {

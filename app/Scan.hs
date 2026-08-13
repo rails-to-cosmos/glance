@@ -1,7 +1,4 @@
--- | Corpus scan: parse every .org file under a set of roots and report parse
--- coverage together with span-invariant violations, plus — where a root holds
--- an org-glance store — how far that store's index has drifted from the blobs
--- it indexes.
+-- | Corpus scan: parse every .org file under a set of roots and report parse coverage, span-invariant violations, and how far each org-glance store's index has drifted from the blobs it indexes.
 module Scan (runScan) where
 
 import Control.Exception (SomeException, evaluate, try)
@@ -33,26 +30,12 @@ import Data.Org.Walk ( Found (..), LoadFailure (..), WalkOptions (..), claimById
 
 import qualified Data.Map.Strict as Map
 
--- | How many entries of each failure listing to print.
 sampleLimit :: Int
 sampleLimit = 20
 
--- Entry point
 
--- | Scan ROOTS for .org files as OPTS asks, parse each one, and print a
--- summary report.
---
--- Every file is parsed from the same seed the loader uses — org's TODO\/DONE
--- plus every keyword the roots' @.org-glance\/config@ names ('loadConfigDirs') —
--- so the counts describe the tree the daemon serves rather than a stricter
--- reading of it.  Without it the scan would report a keyword the browser shows
--- as a state as the first word of a title.
---
--- The files are read on the loader's own pool ('mapFilesConcurrently'), which
--- forces each 'FileResult' in the worker that produced it; the fold that turns
--- them into 'Totals' stays here and stays serial, over the sorted path list, so
--- the id index, the capped failure listings and every count are what a
--- one-file-at-a-time run produced.  The walk ahead of it is serial too.
+-- | Scan ROOTS for .org files as OPTS asks, parse each one, and print a summary report.
+-- Files are read on the loader's own pool; the fold into 'Totals' stays serial, so every count is what a one-file-at-a-time run produced.
 runScan :: WalkOptions -> [FilePath] -> IO ()
 runScan opts roots = do
   started <- getCurrentTime
@@ -73,20 +56,15 @@ runScan opts roots = do
          (elapsed started walked) (elapsed started finished) drifts
   where visitFile t (path, result) = merge t path result
 
--- Per-file scan
 
--- | What the report calls FAILURE.  The three ways a file fails to become
--- elements are 'LoadFailure'\'s — the loader's own rungs, so the scan counts
--- what the daemon counts — and this is the only thing the report adds to them.
+-- | What the report calls FAILURE — the loader's own three rungs, so the scan counts what the daemon counts.
 failureLabel :: LoadFailure -> Text
 failureLabel ReadFailed = "read failures"
 failureLabel DecodeFailed = "decode failures"
 failureLabel ParseFailed = "parse failures"
 
--- | Which bucket a file landed in, with the reason when it failed.
 data Bucket = BOk | BFailed !LoadFailure !Text
 
--- | What one file contributed to the run.
 data FileResult = FileResult
   { frBucket     :: !Bucket
   , frElements   :: !Int
@@ -97,13 +75,8 @@ data FileResult = FileResult
   , frBlob       :: !(Maybe BlobEntry)   -- ^ set only for a blob; see 'blobEntryOf'.
   }
 
--- | Read, decode and parse PATH from SEED, forcing the result before returning
--- it.
---
--- The ladder is 'readParsed', which the store loader climbs too; what stays here
--- is the second hardening, around the TALLY — 'readParsed' forces only far
--- enough to know the parse succeeded, and the fold below is what walks into
--- every element.
+-- | Read, decode and parse PATH from SEED, forcing the result before returning it.
+-- 'readParsed' forces only far enough to know the parse succeeded; the fold below is what walks into every element.
 scanFile :: Context -> FilePath -> IO FileResult
 scanFile seed path = do
   parsed <- readParsed seed path
@@ -127,16 +100,13 @@ analyse path pd =
         acc   = foldl' (step path doc (T.length doc)) (Acc 0 0 0 [] (Cursor 0 doc)) elems
         heads = headlinesOf elems
 
--- | H as the index comparison reads it: its id, its TODO keyword and whether it
--- is archived, each copied out of the document so no blob entry pins the text
--- it was sliced from.
+-- | H as the index comparison reads it, each field copied out of the document so no blob entry pins the text it was sliced from.
 indexTerms :: Headline -> (Maybe Text, Text, Bool)
 indexTerms h = ( T.copy <$> identity h
                , maybe "" (T.copy . name) (todo h)
                , archiveTag `elem` tagList (tags h) )
   where tagList (Tags ts) = ts
 
--- | Running tally over one file's elements.
 data Acc = Acc
   { accElements   :: !Int
   , accHeadlines  :: !Int
@@ -163,14 +133,11 @@ forceResult :: FileResult -> FileResult
 forceResult r =
   frBucket r `seq` frElements r `seq` frHeadlines r `seq` frViolations r
               `seq` foldr seq (foldr seq (blob `seq` r) (frIds r)) (frSample r)
-  -- To WHNF and no further: 'BlobEntry' has strict fields, so applying the
-  -- constructor is what forces the cells out of the document.
+-- To WHNF and no further: 'BlobEntry' has strict fields, so applying the constructor forces the cells out of the document.
   where blob = maybe () (`seq` ()) (frBlob r)
 
--- Span checks
 
--- | A slicer that remembers where it stopped, so left-to-right slicing of one
--- document stays linear in its length.
+-- | A slicer that remembers where it stopped, so left-to-right slicing of one document stays linear in its length.
 data Cursor = Cursor !Int !Text
 
 -- | Slice SP out of DOC, reusing CUR when SP starts at or after it.
@@ -181,7 +148,6 @@ sliceWith doc cur@(Cursor off rest) sp
   | otherwise    = (sliceSpan doc sp, cur)
   where start = spanStart sp
 
--- | Span violations of EL, and the cursor left after slicing its parts.
 elementViolations :: FilePath -> Text -> Int -> Cursor -> Spanned Element -> ([Text], Cursor)
 elementViolations path doc len cur el = case valueOf el of
   EHeadline h -> let (vs, cur') = headlineViolations path doc len cur h
@@ -214,7 +180,6 @@ headlineViolations path doc len cur h = (concat parts, cur')
                | (label, sp, ok, txt) <- sliced, not (ok txt) ]
       ]
 
--- | Slice each labelled span in source order, threading one cursor.
 sliceAll :: Text -> Cursor
          -> [(Text, Span, Text -> Bool)]
          -> ([(Text, Span, Text -> Bool, Text)], Cursor)
@@ -227,19 +192,14 @@ sliceAll doc cur parts = (sliced, cur')
 note :: FilePath -> Span -> Text -> Text
 note path sp kind = T.pack path <> ":" <> TS.showt (spanStart sp) <> " " <> kind
 
--- Totals
 
--- | HOW MANY, and a capped sample of them.  Five of this run's counts are a
--- count paired with a listing, and each pair spelled apart is a pair that can
--- be stepped apart: the count says one thing and the section under it another.
+-- | HOW MANY, and a capped sample of them: a count and its listing spelled apart can be stepped apart.
 data Tally a = Tally !Int ![a]
 
 emptyTally :: Tally a
 emptyTally = Tally 0 []
 
--- | N more counted, with NEW offered to the sample as far as 'sampleLimit'
--- allows.  N is separate from @length NEW@ because a file contributes one to
--- the file counts and as many violations as it has.
+-- | N more counted, with NEW offered to the sample as far as 'sampleLimit' allows.  N is separate from @length NEW@.
 add :: Int -> [a] -> Tally a -> Tally a
 add n new (Tally seen sample) = Tally (seen + n) (capped sample new)
 
@@ -257,16 +217,13 @@ data Totals = Totals
   , tViolations :: !(Tally Text)
   , tIds        :: !(Map.Map Text FilePath)  -- ^ every id seen, and the file that keeps it.
   , tCollisions :: !(Tally Text)
-    -- Every blob the walk parsed and what was read out of it, in REVERSE walk
-    -- order; 'blobsOf' turns it back.  Undeduplicated on purpose — 'driftOf'
-    -- keys these by id and that is where the tie rule belongs.
+    -- Every blob the walk parsed and what was read out of it, in REVERSE walk order; undeduplicated, 'driftOf' owning the tie rule.
   , tBlobs      :: ![(FilePath, Maybe BlobEntry)]
   }
 
 emptyTotals :: Totals
 emptyTotals = Totals 0 Map.empty 0 0 emptyTally Map.empty emptyTally []
 
--- | T's tally for FAILURE, empty where nothing landed in it.
 failed :: LoadFailure -> Totals -> Tally (FilePath, Text)
 failed kind = Map.findWithDefault emptyTally kind . tFailed
 
@@ -283,9 +240,7 @@ merge t path r = case frBucket r of
         blob acc | isBlob path = acc { tBlobs = (path, frBlob r) : tBlobs acc }
                  | otherwise   = acc
 
--- | ID from PATH folded into ACC's index.  The same rule the rows are resolved
--- by ('Glance.Query.resolveIds'): a canonical path takes the id, otherwise the
--- first file in walk order keeps it, and the loser is reported.
+-- | ID from PATH folded into ACC's index, by the rule the rows are resolved by ('Glance.Query.resolveIds').
 claim :: FilePath -> Totals -> Text -> Totals
 claim path t i = case Map.lookup i (tIds t) of
   Nothing   -> t { tIds = Map.insert i path (tIds t) }
@@ -296,21 +251,9 @@ claim path t i = case Map.lookup i (tIds t) of
                                       <> ", dropped " <> T.pack dropped ]
                                 (tCollisions t) }
 
--- The org-glance index
 
--- | Compare every org-glance index this run can see against BLOBS, one
--- 'IndexDrift' per store in the order the stores were found.
---
--- WHICH STORES.  Each root's own @.org-glance\/meta@, plus every @meta@
--- directory the WALK declined — 'foundDerived' holds them already, so a store
--- nested anywhere under a root is compared without a second traversal.  The
--- roots are asked separately because @--include-derived@ walks the mirrors
--- instead of declining them, and a run pointed straight at a tree must still
--- answer for that tree's own store.  A nested store under that flag is the one
--- shape this misses.
---
--- A store with no meta directory is silently no store, which is what makes the
--- instrument free for a tree org-glance never touched.
+-- | Compare every org-glance index this run can see against BLOBS, one 'IndexDrift' per store in the order the stores were found.
+-- Each root's own @.org-glance\/meta@ plus every @meta@ the WALK declined; a nested store under @--include-derived@ is the one shape this misses.
 indexDrifts :: [FilePath] -> [FilePath] -> [(FilePath, Maybe BlobEntry)] -> IO [IndexDrift]
 indexDrifts roots derived blobs = do
   metas <- filterM doesDirectoryExist (storeMetaDirs roots derived)
@@ -325,21 +268,17 @@ indexDrifts roots derived blobs = do
     under dataDir = [ b | b@(path, _) <- blobs, (dataDir <> "/") `isPrefixOf` path ]
     orEmpty = fromMaybe BS.empty
 
--- | T's blobs in walk order, which is the order 'driftOf' resolves a shared id
--- in.  The fold prepends, so this is the one place that reverses.
+-- | T's blobs in walk order, which is the order 'driftOf' resolves a shared id in.
 blobsOf :: Totals -> [(FilePath, Maybe BlobEntry)]
 blobsOf = reverse . tBlobs
 
--- | The meta directories to compare, deduplicated and in the order they were
--- named.  Textual, like every other rule the walk reads off a path: nothing
--- canonicalizes a root, so a store reached two ways is compared twice.
+-- | The meta directories to compare, deduplicated and in the order they were named.  Textual, so a store reached two ways is compared twice.
 storeMetaDirs :: [FilePath] -> [FilePath] -> [FilePath]
 storeMetaDirs roots derived =
   nub ([ metaDirIn (storeRootIn root) | root <- roots ]
         ++ [ d | d <- derived, takeFileName d == metaDir ])
 
--- | PATH's bytes, or 'Nothing' when it cannot be read.  The instrument never
--- fails a scan: an index it cannot open is an index it says nothing about.
+-- | PATH's bytes, or 'Nothing' when it cannot be read: an index it cannot open is an index it says nothing about.
 bytesOf :: FilePath -> IO (Maybe BS.ByteString)
 bytesOf path = either (const Nothing) Just <$> readBytes path
 
@@ -349,13 +288,8 @@ capped old new
   | length old >= sampleLimit = old
   | otherwise = let kept = take sampleLimit (old ++ new) in length kept `seq` kept
 
--- Reporting
 
--- | The run's summary.  WALKSECS is how much of SECS the serial directory walk
--- took, which is the half of the wall the pool cannot touch — worth a row of
--- its own now that the reads are parallel and the walk stays serial.  SEED is
--- the config's recognition union, reported because it is the one input to these
--- counts that is not a file under a root.
+-- | The run's summary.  WALKSECS is how much of SECS the serial directory walk took; SEED is the config's recognition union, the one input to these counts that is no file under a root.
 report :: [FilePath] -> Int -> Totals -> [(FilePath, Text)] -> [FilePath] -> [FilePath]
        -> TodoKeywords -> Double -> Double -> [IndexDrift] -> IO ()
 report roots files t dirErrs derived configDirs seed walkSecs secs drifts = do
@@ -379,9 +313,7 @@ report roots files t dirErrs derived configDirs seed walkSecs secs drifts = do
     , row "wall seconds"    (fixed 2 secs)
     , row "files/sec"       (fixed 1 rate)
     ]
-  -- The read-failure SECTION lists the unreadable directories beside the
-  -- unreadable files and totals both, where the rows above keep them apart.
-  -- The rows are per bucket and a directory is not a file in any of them.
+  -- The read-failure SECTION totals the unreadable directories with the files, where the rows above keep them apart.
   section (failureLabel ReadFailed) (count ReadFailed + length dirErrs)
           (paths (capped (tallySample (failed ReadFailed t)) dirErrs))
   section (failureLabel DecodeFailed) (count DecodeFailed)
@@ -393,7 +325,6 @@ report roots files t dirErrs derived configDirs seed walkSecs secs drifts = do
   section "derived skipped" (length derived) (map T.pack (take sampleLimit derived))
   section "config skipped" (length configDirs) (map T.pack (take sampleLimit configDirs))
   section "config keywords" (length keywords) [T.unwords keywords]
-  -- No store, no line: a tree org-glance never indexed says nothing about one.
   mapM_ (\d -> TIO.putStrLn "" >> mapM_ TIO.putStrLn (indexReportLines d)) drifts
   where rate | secs > 0  = fromIntegral files / secs
              | otherwise = 0

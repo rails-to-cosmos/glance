@@ -1,16 +1,11 @@
-// The two globals the shell reads and does not define: the renderer's mount
-// (vendored beside this file) and the page's own config blob element.  Typed
-// loosely on purpose — the renderer's real surface is its own repo's jsconfig,
-// and CFG's shape is Glance.Web.Page.Glue's.
+// Typed loosely on purpose: the renderer's surface is its own repo's jsconfig.
 declare const TableView: any;
 
-// The WebKit message bridge the native window injects, and only there: the
-// page asks whether it is running inside one before it posts anything.
+// Injected by the native window, and only there.
 interface Window {
   webkit?: { messageHandlers?: Record<string, { postMessage(v: any): void }> };
 }
 
-/** ONE ROW of a small list: an id, its cells by column key, and an optional ink. */
 interface ListRow {
   id: string;
   cells: Record<string, string | number>;
@@ -68,8 +63,7 @@ interface DocPorts {
   };
 }
 
-// The Elm programs, compiled from `assets/elm' and served beside the shell: the
-// small-list widget (four instances) and the sheet's document pane.
+// Compiled from `assets/elm', served beside the shell.
 declare const Elm: {
   Listing: {
     init(opts: {

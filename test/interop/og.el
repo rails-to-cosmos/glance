@@ -2,17 +2,9 @@
 
 ;; ONE JOB PER INVOCATION, and the whole interface is the environment: `ICMD'
 ;; names the step, `IROOT' the store, `IID'/`ITEXT' whatever it needs.  Every
-;; step prints ONE JSON object on stdout and nothing else, so the driver parses
-;; a line rather than scraping a session.  A step that cannot run prints
-;; {"error": …} and exits 1.
-;;
-;; It lives in glance's repo and reads org-glance's LIVE sources -- never the
-;; copies `eask install' left under .eask/elpa, which are as old as the last
-;; release.  `OG_HOME' names the checkout; the deps beside it are eask's.
-;;
-;; THIS FILE ONLY REPORTS.  Every assertion is the driver's -- it prints what
-;; Emacs says and lets the other side compare, so a step that quietly agreed
-;; with itself is impossible.
+;; step prints ONE JSON object on stdout; a step that cannot run prints
+;; {"error": …} and exits 1.  THIS FILE ONLY REPORTS -- every assertion is
+;; the driver's, so a step cannot agree with itself.
 
 (setq load-prefer-newer t)          ; a stale .elc must never answer for a .el
 
@@ -139,15 +131,13 @@ correctly and POLLS it by size alone leaves a re-laid file unfolded forever.
   "Run the step `ICMD' names."
   (let* ((cmd (og-env "ICMD")))
     (pcase cmd
-      ;; A STORE ORG-GLANCE MADE, not one this harness hand-wrote: the tag's
-      ;; own config layer, then two entries through the public capture path.
+      ;; A STORE ORG-GLANCE MADE rather than one this harness hand-wrote.
       ("seed"
        (let* ((graph (og-graph))
               (tag (og-env "ITAG"))
               (layer (org-glance-graph:config-file graph (format "tags/%s.org" tag))))
          (make-directory (file-name-directory layer) t)
-         ;; The layer org-glance itself writes for a tag: the cycle, then the
-         ;; bare `* %?' skeleton (`org-glance-tag-config' calls it the stub).
+         ;; The layer org-glance itself writes for a tag: the cycle, then the stub.
          (with-temp-file layer
            (insert (format "#+TITLE: %s\n#+TODO: TODO READING | READ\n\n* %%?\n" tag)))
          (og-capture graph (og-env "IALPHA") "* TODO alpha\n")
@@ -157,26 +147,17 @@ correctly and POLLS it by size alone leaves a re-laid file unfolded forever.
                        :alpha (org-glance-graph:content-path graph (og-env "IALPHA"))
                        :beta (org-glance-graph:content-path graph (og-env "IBETA"))))))
 
-      ;; Where org-glance looks for ID's blob, and where it looks for the
-      ;; notification file.  Both as STRINGS, for the other side to compare.
+      ;; Both as STRINGS, for the other side to compare.
       ("paths"
        (og-unfolding
          (let ((graph (og-graph)))
            (og-say (list :content (org-glance-graph:content-path graph (og-env "IID"))
                          :external (org-glance-graph:external-path graph))))))
 
-      ;; The notification file as org-glance READS it -- the ids it has still to
-      ;; fold, in file order, the KIND it read each one as beside them, and the
-      ;; pending text.  No fold: this only reports.  `og-external-entry'
-      ;; normalizes whichever shape the peer answers, so the two vectors are
-      ;; that list split -- `ids' stays what it always was and `kinds' is the
-      ;; third field's whole visible effect on this side, reading "edit"
-      ;; throughout against a peer that cannot see the field.  `bytes' is the
-      ;; file's own size and `cursor' how much of it is spent (null where the
-      ;; peer keeps none), so the driver can read BOTH facts the fold moved: the
-      ;; file keeps its bytes, and the ids in them stop being owed.  `pending'
-      ;; is the READ PATH's own answer beside them -- what an ordinary read
-      ;; would do, which is not recoverable from the other three.
+      ;; The notification file as org-glance READS it, with no fold.
+      ;; `og-external-entry' normalizes whichever shape the peer answers.
+      ;; `cursor' is null where the peer keeps none, and `pending' is the READ
+      ;; PATH's own answer, which is not recoverable from the other three.
       ("read-external"
        (og-unfolding
          (let* ((graph (og-graph))
@@ -197,17 +178,14 @@ correctly and POLLS it by size alone leaves a re-laid file unfolded forever.
                          :ids (vconcat (mapcar #'car entries))
                          :kinds (vconcat (mapcar #'cdr entries)))))))
 
-      ;; The fold itself, unthrottled.
       ("refresh"
        (let ((graph (og-graph)))
          (og-say (list :n (org-glance-graph:refresh-external graph)))))
 
-      ;; What the WAL says about ID, with no fold in front of it.
       ("field"
        (og-unfolding (og-say (og-field (og-graph) (og-env "IID")))))
 
-      ;; org-glance writing a blob of its own -- the Emacs->browser leg, and it
-      ;; names no notification file at all.
+      ;; The Emacs->browser leg, which names no notification file at all.
       ("put"
        (og-unfolding
          (let* ((graph (og-graph))
@@ -217,8 +195,8 @@ correctly and POLLS it by size alone leaves a re-laid file unfolded forever.
            (unless (file-exists-p path) (error "no blob at %s" path))
            (org-glance-graph:put-content
             graph (org-glance-headline--from-string text))
-           ;; The clock AFTER the rename, so the driver's latency is the watch's
-           ;; own and not this process's start-up.
+           ;; The clock AFTER the rename, so the driver's latency is the
+           ;; watch's own and not this process's start-up.
            (og-say (list :path path :bytes (length text)
                          :at (round (* 1000 (float-time))))))))
 

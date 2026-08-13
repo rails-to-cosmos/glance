@@ -22,11 +22,9 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
--- Fixtures
 
 -- | The replacement every span-exactness check splices in: absent from org
--- syntax, and a different length from anything it replaces, so a splice that
--- shifts by the wrong amount cannot come out right by accident.
+-- syntax and a different length from what it replaces, so a wrong shift shows.
 marker :: Text
 marker = "⟦MARK⟧"
 
@@ -69,27 +67,22 @@ fixtures = [ ("planning, drawer and unicode", plannedDoc)
            , ("drawers and a unicode title", drawerDoc)
            ]
 
--- | Documents the generated multi-edit cases run over: ascii, two scripts of
--- unicode, and one carrying newlines and a drawer.
+-- | Documents the generated multi-edit cases run over.
 randomDocs :: [(String, Text)]
 randomDocs = [ ("ascii", "the quick brown fox jumps over the lazy dog")
              , ("unicode", "Привет мир, こんにちは мир")
              , ("lines", plannedDoc)
              ]
 
--- Helpers
 
--- | Fail with LABEL when E is a 'Left', else yield its value.
 expectRight :: Show e => String -> Either e a -> IO a
 expectRight label = either (\e -> assertFailure (label <> ": " <> show e)) pure
 
--- | The elements INPUT parses to, failing when it does not parse.
 parsed :: String -> Text -> IO [Spanned Element]
 parsed label = fmap fst . parsedIn label
 
--- | The span of the first @TODO@ keyword in DOC.  Read out of the parse rather
--- than written down: an offset typed into a test is one the fixture can drift
--- away from.
+-- | The span of the first @TODO@ keyword in DOC, read out of the parse: an
+-- offset typed into a test is one the fixture can drift away from.
 todoSpan :: Text -> IO Span
 todoSpan doc = do
   elems <- parsed "fixture" doc
@@ -100,11 +93,8 @@ todoSpan doc = do
     []    -> assertFailure "the fixture carries no TODO keyword"
 
 -- | The exactly-the-span property: replacing SP with 'marker' changes SP and
--- nothing else.  Every character ahead of the span survives at its own offset,
--- every character past it survives shifted by the length difference, and the
--- spliced region is the marker itself.  This is S8's surgical exit bar stated
--- on the text, ahead of any command that will have to meet it as a one-hunk
--- diff.
+-- nothing else — prefix at its own offsets, suffix shifted by the difference.
+-- S8's surgical exit bar stated on the text.
 assertExactSplice :: String -> Text -> Span -> Assertion
 assertExactSplice label doc sp = do
   out <- expectRight label (applyEdits doc [Edit sp marker])
@@ -117,8 +107,7 @@ assertExactSplice label doc sp = do
 
 -- | Apply EDITS one at a time, the last of them first — 'foldr' over the sorted
 -- list runs right to left — so the offsets ahead of each are still the original
--- document's.  Quadratic and obviously correct: the oracle 'applyEdits' is
--- checked against.
+-- document's.  An INDEPENDENT ORACLE: quadratic and obviously correct.
 referenceApply :: Text -> [Edit] -> Text
 referenceApply doc edits = foldr (flip splice1) doc (sortOn key edits)
   where key e = (spanStart (editSpan e), spanEnd (editSpan e))
@@ -130,8 +119,7 @@ lcg :: Int -> Int
 lcg s = (1664525 * s + 1013904223) `mod` 2147483648
 
 -- | Non-overlapping edits over a document of LEN characters, drawn from SEED.
--- Gaps of zero produce touching edits and widths of zero produce insertions,
--- both of which are legal and both of which the oracle has to agree on.
+-- Zero gaps give touching edits and zero widths insertions, both legal.
 randomEdits :: Int -> Int -> [Edit]
 randomEdits seed len = go (lcg seed) 0
   where
@@ -149,13 +137,11 @@ randomEdits seed len = go (lcg seed) 0
 writeDoc :: FilePath -> Text -> IO ()
 writeDoc path = BS.writeFile path . TE.encodeUtf8
 
--- | Assert PATH holds exactly BYTES.
 assertBytes :: String -> BS.ByteString -> FilePath -> Assertion
 assertBytes label want path = do
   found <- BS.readFile path
   assertEqual (label <> ": bytes at " <> path) want found
 
--- Spec
 
 -- | What `openBinaryTempFile' leaves where a write was interrupted: its template
 -- split at the LAST dot, with its own randomness in the middle.
@@ -179,7 +165,6 @@ spec = testGroup "Edit"
   , testGroup "Corpus" [corpusCase]
   ]
 
--- Single splice
 
 -- | A document, one edit, and what the edit must make of it.
 data SpliceCase = SpliceCase { scName :: String
@@ -222,7 +207,6 @@ spliceCase SpliceCase{..} = testCase scName $ do
               (T.length scDoc - (spanEnd scSpan - spanStart scSpan) + T.length scNew)
               (T.length out)
 
--- Validation
 
 validationSpec :: [TestTree]
 validationSpec =
@@ -274,7 +258,6 @@ validationSpec =
   ]
   where doc = "hello world"
 
--- Multi-edit
 
 multiEditSpec :: [TestTree]
 multiEditSpec =
@@ -303,19 +286,16 @@ multiEditSpec =
   where doc = "hello world"
         growth (Edit (Span s e) new) = T.length new - (e - s)
 
--- Exactly the span
 
 -- | Every span H carries — 'hsFull' and each sub-span — splices exactly.
 headlineSplices :: String -> Text -> Headline -> Assertion
 headlineSplices name doc h =
   sequence_ [ assertExactSplice (name <> ", " <> part) doc sp | (part, sp) <- spansOf h ]
 
--- Round-trip with the parser
 
 -- | Replacing a headline's TODO span re-parses to the same document with that
--- one keyword changed: the elements are equal modulo spans and that field, and
--- every span of the re-parse still slices to its own component, which is what
--- the shifted offsets after a longer keyword would break.
+-- one keyword changed, and every span of the re-parse still slices to its own
+-- component — what the shifted offsets after a longer keyword would break.
 toggleCase :: String -> (Text, Bool) -> TestTree
 toggleCase label (keyword, isActive) = testCase label $ do
   elems <- parsed label plannedDoc
@@ -335,7 +315,6 @@ toggleCase label (keyword, isActive) = testCase label $ do
           EHeadline h { todo = Just (Todo keyword isActive) }
         swapTodo e = e
 
--- Digests
 
 digestSpec :: [TestTree]
 digestSpec =
@@ -359,7 +338,6 @@ digestSpec =
         assertEqual "digest" (Right (snapshotOf path plannedDoc)) taken
   ]
 
--- Files
 
 fileSpec :: [TestTree]
 fileSpec =
@@ -426,13 +404,9 @@ fileSpec =
         mode <- accessMode path
         assertEqual "mode" private mode
 
-    -- AND THE NAME A HALF-WRITTEN ONE WOULD WEAR IS THE POINT OF THE SUFFIX.
-    -- `openBinaryTempFile' splits its template at the LAST dot, so the suffix
-    -- IS the leftover's extension; without it the split lands on org's own dot
-    -- and an interrupted write leaves `notes<rand>.org' — a file the walk
-    -- COLLECTS, PARSES and SERVES AS ROWS.  The case above cannot see this: it
-    -- lists the directory after a write that SUCCEEDED, where there is nothing
-    -- left to name.
+    -- `openBinaryTempFile' splits its template at the LAST dot, so the suffix IS
+    -- the leftover's extension; without it an interrupted write leaves
+    -- `notes<rand>.org', which the walk COLLECTS, PARSES and SERVES AS ROWS.
   , testCase "a half-written document is named out of the walk's reach" $ do
       assertBool ("a leftover the walk would collect: " <> leftover)
                  (not (isDocument leftover))
@@ -464,19 +438,10 @@ fileSpec =
     isReadFailure (Left (ReadFailed _ _)) = True
     isReadFailure _                       = False
 
--- Corpus
 
--- | Sampled real files: every span of every sampled headline splices exactly,
--- against the text the file actually holds.  A failure here is a parser span
--- bug rather than an engine one — a span that does not slice back cleanly is a
--- span write-back must not be handed.  Read-only, and provably so: each file is
--- snapshotted before and after the pure splices and the two must agree.
---
--- Behind @GLANCE_CORPUS@, which names the root to walk:
--- @GLANCE_CORPUS=~/sync cabal test@.  The walk is what costs — 12.8 s over
--- 690k entries for 6308 files, against 0.03 s for the rest of this suite — so
--- it stays a command of its own, the way @glance scan@ does.  Unset, it says on
--- stderr that it was skipped: a green run is not evidence for the corpus half.
+-- | Sampled real files: every span of every sampled headline splices exactly.
+-- A failure here is a PARSER span bug.  Read-only, and provably so: each file
+-- is snapshotted before and after.  Behind @GLANCE_CORPUS@, skipped loudly.
 corpusCase :: TestTree
 corpusCase = testCase "sampled headlines splice exactly (GLANCE_CORPUS=<root>)" $
   withCorpusSample "the splice canary" $ \paths -> do

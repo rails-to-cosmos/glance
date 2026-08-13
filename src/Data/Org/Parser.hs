@@ -66,20 +66,15 @@ spannedP p = do
   pure (Spanned (Span s e) x)
 
 -- | P, spanning it alone, then the horizontal space behind it.  NEVER
--- 'MPC.space', for 'indentP''s reason one part along: a keyword or a priority
--- that ENDS ITS LINE would eat the newline and take the line under it as its
--- own — the next headline as a title, a planning line as a title, a drawer as
--- loose text with the id inside it.
+-- 'MPC.space': a part ENDING ITS LINE would eat the newline and the line under.
 lexemeP :: StatefulParser a -> StatefulParser (Spanned a)
 lexemeP p = spannedP p <* MPC.hspace
 
--- | Span from the first to the last of SPANS; Nothing when empty.  Forced at
--- every step: a thunk chain here would outlive the document it points into.
+-- | Forced at every step: a thunk chain would outlive the document it points into.
 spanRange :: [Span] -> Maybe Span
 spanRange = foldl' (\acc sp -> Just $! maybe sp (<> sp) acc) Nothing
 
--- | Elements until ENDPARSER or end of line, spanned first to last.  ENDPARSER
--- comes FIRST: it may claim the horizontal space the eol branch would swallow.
+-- | ENDPARSER comes FIRST: it may claim the hspace the eol branch would swallow.
 spannedContainerUntil :: (Parse element)
                       => ([element] -> container)
                       -> StatefulParser end
@@ -136,9 +131,8 @@ instance Parse Headline where
 
     return headline
 
--- | Parse the stars, spanning them alone.  Org's @org-outline-regexp@ is @\\*+ @,
--- so the run must END — hspace or eol — else @*bold*@ opens a row.  Never
--- 'MPC.space': eating the eol ran an empty title on into the next line.
+-- | Org's @org-outline-regexp@ is @\\*+ @, so the run must END — hspace or eol
+-- — else @*bold*@ opens a row.  Never 'MPC.space': an empty title would run on.
 indentP :: StatefulParser (Spanned Indent)
 indentP = spannedP (Indent . length <$> MP.some (MPC.char '*'))
           <* (void MPC.hspace1 <|> lookAhead (void eol <|> eof))
@@ -191,9 +185,8 @@ data Planning = Planning { plScheduled :: !(Maybe (Spanned Timestamp))
 noPlanning :: Planning
 noPlanning = Planning Nothing Nothing Nothing
 
--- | The planning line, the one line after a headline's title line; a repeated
--- keyword keeps its LAST timestamp.  A failed entry backtracks over the hspace
--- it skipped: the top loop needs whitespace between elements.
+-- | The one line after the title line, last-wins per keyword.  A failed entry
+-- backtracks over the hspace it skipped: the top loop needs it between elements.
 planningP :: StatefulParser Planning
 planningP = foldl' assign noPlanning <$> (MPC.hspace *> MPC.eol *> some (try entryP))
   where entryP = do
@@ -218,13 +211,11 @@ instance Parse Property where
     where reserved :: Keyword -> Bool
           reserved (Keyword k) = k `elem` ["PROPERTIES", "END"]
 
--- | A property KEY: org's own rule, any run without whitespace or a colon.
--- WIDER than 'keywordTextP', whose narrower charset walls off a starred meta.
+-- | Org's own rule; WIDER than 'keywordTextP', which walls off a starred meta.
 propertyKeyP :: StatefulParser Keyword
 propertyKeyP = Keyword . T.toUpper . T.pack
            <$> some (MP.satisfy (\c -> not (isSpace c) && c /= ':'))
 
--- | A property drawer; the span runs from the drawer line to just past ":END:".
 propertiesP :: StatefulParser (Spanned Properties)
 propertiesP = MPC.hspace *> MPC.eol *> spannedP drawer
   where drawer = do
@@ -250,8 +241,7 @@ tagsP = do
     return (if null ts then Nothing else Just sp, Tags ts)
     where tag = takeWhile1P (Just "tag") isTagChar <* char ':'
 
--- | Is C a character an org tag is spelled with?  Exported so a command layer
--- writes what this reads back.  Differs from @org-tag-re@ by @-@ and @%@.
+-- | Exported so a command layer writes what this reads; @org-tag-re@ plus @-@ and @%@.
 isTagChar :: Char -> Bool
 isTagChar c = isAlphaNum c || c == '_' || c == '-' || c == '@' || c == '#' || c == '%'
 
@@ -276,8 +266,7 @@ instance Parse Token where
 
 -- Timestamp sub-parsers
 
--- | A timestamp, optionally a range: @<a>--<b>@ or the compact same-day
--- @<date wd 10:30-11:30>@.  'tsCompactRange' records which the source used.
+-- | @<a>--<b>@ or the compact @<date wd 10:30-11:30>@; 'tsCompactRange' records which.
 tsParser :: StatelessParser Timestamp
 tsParser = do
   tsStatus <- tsStatusParser
@@ -317,8 +306,7 @@ tsBodyParser status = do
          , listToMaybe [ w | CookieWarn w <- cookies ] )
   where midnight = Time.TimeOfDay 0 0 0
 
--- | One agenda cookie.  The warning arm is tried FIRST, which re-homes a lone
--- @-3d@ to org's warning cookie; first of each kind wins.
+-- | The warning arm is tried FIRST, which re-homes a lone @-3d@ to org's cookie.
 data TsCookie = CookieRepeat !TimestampRepeaterInterval
               | CookieWarn !TimestampWarningInterval
 
@@ -326,7 +314,6 @@ tsCookieParser :: StatelessParser TsCookie
 tsCookieParser = (CookieWarn <$> MP.try tsWarningParser)
              <|> (CookieRepeat <$> MP.try tsRepeaterParser)
 
--- | Parse a warning\/delay cookie: @-3d@, or @--3d@ spelled first-only.
 tsWarningParser :: StatelessParser TimestampWarningInterval
 tsWarningParser = do
   void $ MPC.char '-'
@@ -356,16 +343,13 @@ tsTimeParser = do
   guard (tsHour <= 23 && tsMinute <= 59 && tsSecond < 60) <|> fail "Time out of range"
   return (Time.TimeOfDay tsHour tsMinute (fromInteger tsSecond))
 
--- | Skip the weekday: a run of letters in any script, any length, display-only.
--- LETTERS alone — a repeater opens with @.@, @+@, @-@ or a digit.
+-- | Display-only.  LETTERS alone: a repeater opens with @.@, @+@, @-@ or a digit.
 tsWeekdayParser :: StatelessParser ()
 tsWeekdayParser = void (takeWhile1P (Just "weekday") isAlpha) <* MPC.space
 
--- | The value whose character SPELL names, matched over every value there is.
 byChar :: (Bounded a, Enum a) => (a -> Maybe Char) -> StatelessParser a
 byChar spell = choice [ v <$ char c | v <- [minBound ..], Just c <- [spell v] ]
 
--- | Parse a repeater such as ".+3d".
 tsRepeaterParser :: StatelessParser TimestampRepeaterInterval
 tsRepeaterParser = do
   repType <- MP.optional (MP.try (byChar typeChar))
@@ -375,11 +359,8 @@ tsRepeaterParser = do
 
   return TimestampRepeaterInterval {
     repeaterValue = repValue,
-    -- TOTAL over the kind, so a fourth cookie is a warning here rather than a
-    -- silent downgrade: `byChar typeChar' accepts any kind's character already,
-    -- and a wildcard would rewrite the new one to `Restart' unread.  `+' is both
-    -- `CatchUp''s prefix and the SIGN, so a lone one leaves a plain repeater and
-    -- only a second `+' makes it catch-up.
+    -- TOTAL over the kind: a wildcard would rewrite a new one to `Restart'
+    -- unread.  `+' is both `CatchUp''s prefix and the SIGN.
     repeaterType = case repType of
                      Nothing         -> Restart
                      Just Restart    -> Restart

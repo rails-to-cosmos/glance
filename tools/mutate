@@ -1,37 +1,18 @@
 #!/usr/bin/env bash
 # THE MUTATION RUNNER — docs/proposals/2026-08-11-mutation-runner.done.md.  It
-# grades the SUITE, never the product: a rewrite that leaves the suite green
-# names an assertion nobody wrote.
+# grades the SUITE: a rewrite that leaves it green names an assertion nobody
+# wrote.  It reads what is COMMITTED; the working tree is never read or written.
 #
 #   tools/mutate TARGET=src/Data/Org/Edit.hs [SAMPLE=40] [REV=HEAD]
 #
-# Knobs, all environment or `make'-style arguments:
-#   TARGET    the one file to mutate.  ONE TARGET PER INVOCATION: the cold build
-#             is paid once, so a target is a sitting.
-#   SAMPLE    how many mutants (default 40, 0 = every site).  Seeded by the
-#             TARGET'S OWN BLOB DIGEST, so a re-run over an unchanged file
-#             repeats the same mutants and an EDITED file draws a different set
-#             — which is how the remainder gets covered over weeks.
-#   REV       the revision mutated (default HEAD).  The runner measures what is
-#             COMMITTED; the working tree is never read and never written.
-#   SCRATCH   where the worktree and the build dir live (default
-#             $TMPDIR/glance-mutate).
-#   KEEP      1 leaves the scratch worktree warm for the next invocation, which
-#             skips the ~2 min cold build.  Default 0 removes it.
-#   LIST      1 prints the sites and exits, no build, no suite.
-#   JSON      where the machine-readable report goes (default under SCRATCH).
-#   ALLOW     the known-equivalent list (default tools/mutate.allow).
+#   TARGET one file per sitting, the cold build being paid once.  SAMPLE mutants
+#   to draw (0 = every site), seeded by TARGET'S OWN BLOB DIGEST so an edited
+#   file draws a different set.  SCRATCH worktree and build dir, KEEP=1 leaving
+#   it warm.  LIST=1 prints the sites and exits.  JSON report, ALLOW equivalents.
 #
-# ISOLATION IS A GIT WORKTREE plus its own --builddir, and it buys three things
-# an in-place `git checkout --' loop does not: the developer's dist-newstyle is
-# untouched so an ordinary `cabal test' can run alongside; an interrupted run
-# CANNOT leave a mutant in the working tree; and the postcondition is checkable
-# — `git diff --quiet' after every mutant, and a run that fails it stops.
-#
-# -O0 IS THE WHOLE REASON THIS IS AFFORDABLE.  A body change at the bottom of
-# the module graph re-keys its .hi through cross-module unfoldings and puts the
-# package back through GHC: 4:36 a mutant at -O2 against 22 s at -O0, and the
-# suite is green at both, so the level buys a 12x speedup and costs no verdict.
+# ISOLATION IS A GIT WORKTREE plus its own --builddir, so an interrupted run
+# cannot leave a mutant in the working tree and `git diff --quiet' is checkable.
+# -O0 is why this is affordable: 4:36 a mutant at -O2 against 22 s, same verdict.
 
 set -euo pipefail
 
@@ -72,10 +53,7 @@ case "$TARGET" in
 esac
 
 
-# --- LISTING NEEDS NO WORKTREE, and taking one was destructive: the EXIT trap
-# removes the shared `SCRATCH' worktree, so a `make mutate-list' against the
-# default path killed a concurrent `make mutate' mid-run.  The sites come out of
-# the file's TEXT, which the revision already holds.
+# LISTING NEEDS NO WORKTREE: the EXIT trap removes the shared one, killing a concurrent run.
 
 if [ "$LIST" = 1 ]; then
   LTMP=$(mktemp -d)
@@ -101,7 +79,6 @@ fi
 
 mkdir -p "$SCRATCH"
 
-# --- the worktree ----------------------------------------------------------
 
 if [ -d "$WT/.git" ] || [ -f "$WT/.git" ]; then
   git -C "$WT" reset --hard --quiet "$REV"
@@ -111,9 +88,7 @@ else
   git -C "$ROOT" worktree add --detach --quiet "$WT" "$REV"
 fi
 
-# THE MUTATED FILE is the worktree's for hs/js and the elm COPY's for elm:
-# elm-test writes elm-stuff beside the source it compiles, and a build cache
-# inside the worktree would fight the `git diff --quiet' postcondition.
+# elm-test writes elm-stuff beside the source, which would fight `git diff --quiet'.
 if [ "$KIND" = elm ]; then
   rm -rf "$ELM"
   cp -r "$WT/assets/elm" "$ELM"
@@ -143,8 +118,7 @@ revert() {
   fi
 }
 
-# THE POSTCONDITION, asked after every mutant: the file is back and nothing else
-# moved.  A run that cannot say this stops rather than reporting.
+# THE POSTCONDITION, asked after every mutant.  A run that cannot say this stops.
 verify_clean() {
   if [ "$KIND" = elm ]; then
     cmp -s "$SCRATCH/pristine" "$MUT" || { echo "mutate: $MUT did not revert" >&2; exit 1; }
@@ -155,7 +129,6 @@ verify_clean() {
 
 trap cleanup EXIT INT TERM
 
-# --- the sites -------------------------------------------------------------
 
 SITES="$SCRATCH/sites.tsv"
 "$TOOLS/mutate-sites" sites "$TOOLS/mutate.rules" "$MUT" > "$SITES"
@@ -166,8 +139,7 @@ DIGEST=$(git -C "$ROOT" rev-parse "$REV:$TARGET")
 
 PICKED="$SCRATCH/picked.tsv"
 if [ "$SAMPLE" -gt 0 ] && [ "$TOTAL" -gt "$SAMPLE" ]; then
-  # `awk NR<=' rather than `head': head closes the pipe and SIGPIPEs sort, which
-  # under `pipefail' ends the run before it has said anything.
+  # `head' SIGPIPEs sort and `pipefail' then ends the run, so `awk NR<=' cuts.
   perl -MDigest::MD5=md5_hex -ne 'BEGIN { $s = shift @ARGV } chomp; print md5_hex("$s\0$_"), "\t$_\n"' \
        "$DIGEST" "$SITES" | sort -k1,1 | awk -v n="$SAMPLE" 'NR<=n' | cut -f2- \
      | sort -t"$(printf '\t')" -k1,1n > "$PICKED"
@@ -176,12 +148,7 @@ else
 fi
 PICKED_N=$(wc -l < "$PICKED")
 
-# --- the suite -------------------------------------------------------------
-#
-# TWO COMMANDS, not one, and that is what tells INVALID from KILLED: a build
-# that fails is a mutant that does not typecheck, a test run that fails is a
-# mutant the suite caught.  One command would leave the runner grepping GHC's
-# output for the difference.
+# TWO COMMANDS is what tells INVALID (does not typecheck) from KILLED (suite caught it).
 
 TMO=600
 
@@ -205,11 +172,7 @@ run_suite() {   # -> green | red | invalid | timeout
   [ "$rc" = 124 ] && { echo timeout; return; }
   [ "$rc" = 0 ]   || { echo invalid; return; }
   set +e
-  # A NON-TERMINATING MUTANT IS BOUNDED TWICE.  The timeout catches it in wall
-  # time and counts it killed; without a heap cap it first takes the box's
-  # memory with it — 7.8 GB and into swap, measured — which slows every
-  # neighbouring mutant's verdict.  The suite is built `-rtsopts', so the cap
-  # is one flag.
+  # Without the heap cap a non-terminating mutant takes 7.8 GB and the box's swap.
   ( cd "$WT" && timeout "$TMO" cabal test --builddir="$D0" --disable-optimization \
       --test-options='+RTS -M2G -RTS' ) >> "$LOG" 2>&1
   rc=$?
@@ -219,10 +182,7 @@ run_suite() {   # -> green | red | invalid | timeout
   echo red
 }
 
-# --- the baseline ----------------------------------------------------------
-#
-# A BASELINE RUN COMES FIRST and a red baseline reports nothing, the way
-# TestDefaults.withCorpusSample refuses to pass over a missing corpus.
+# A BASELINE RUN COMES FIRST and a red baseline reports nothing.
 
 printf 'mutate: %s @ %s — %d sites, %d mutants, rev %s\n' \
   "$TARGET" "${DIGEST:0:12}" "$TOTAL" "$PICKED_N" "$(git -C "$ROOT" rev-parse --short "$REV")"
@@ -238,7 +198,6 @@ if [ "$BASE" != green ]; then
 fi
 printf 'mutate: baseline green in %ds\n\n' "$BASE_WALL"
 
-# Warm wall, which is what a mutant costs: re-run once with nothing changed.
 T0=$(date +%s)
 run_suite > /dev/null
 WARM=$(( $(date +%s) - T0 ))
@@ -246,7 +205,6 @@ WARM=$(( $(date +%s) - T0 ))
 TMO=$(( WARM * TIMEOUT_FACTOR + 30 ))
 printf 'mutate: warm suite %ds, timeout %ds a mutant (a timeout IS a kill)\n\n' "$WARM" "$TMO"
 
-# --- the loop --------------------------------------------------------------
 
 : > "$RESULTS"
 K=0; I=0; S=0; E=0
@@ -277,7 +235,6 @@ while IFS=$'\t' read -r start end line col rule ctx before after; do
     "$STATE" "$line" "$col" "$rule" "$ctx" "$WALL" "$before" "$after" "$VERDICT" >> "$RESULTS"
 done < "$PICKED"
 
-# --- the report ------------------------------------------------------------
 
 printf '\n'
 if [ "$S" -gt 0 ]; then

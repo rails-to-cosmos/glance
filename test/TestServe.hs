@@ -1,8 +1,4 @@
--- | The server, driven as a WAI 'Application'.  No socket is bound: every case
--- here is a request handed straight to the app, so the suite stays free of
--- ports and of the races that come with them.  The websocket route is the one
--- thing an upgrade-less request cannot reach, and the frames it would carry
--- are TestStore's subject.
+-- | The server, driven as a WAI 'Application'.  No socket is bound.
 module TestServe (spec) where
 
 import Control.Monad (filterM, forM_, (<=<))
@@ -60,24 +56,14 @@ import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
                        , newLoadingHub, publish )
 
 -- Fixtures
---
--- 'viewDir' is the directory TestQuery loads: one sample document and one that
--- is not UTF-8, six headlines between them.
 
--- | The document those six headlines come from.
 sampleFile :: FilePath
 sampleFile = viewDir <> "/sample.org"
 
--- | @sha256sum test\/fixtures\/view\/sample.org@.  Written down rather than
--- computed here: the digest the server hands out is what a client pins its
--- edit to, and an oracle that runs the same code as the server proves nothing
--- about it.
+-- | @sha256sum test\/fixtures\/view\/sample.org@ — an INDEPENDENT ORACLE, never computed here.
 sampleDigest :: T.Text
 sampleDigest = "ba16aa19887a04a410a1f0047b4fcee147818d0c8471e4e1db60f5bc7dfe22dc"
 
--- | A file whose first headline is materialized, edited and written back.  The
--- id is in the drawer, so it stays the same across the temp directory's name
--- and across the edit.
 committable :: T.Text
 committable = T.unlines
   [ "#+CATEGORY: notes"
@@ -90,85 +76,58 @@ committable = T.unlines
   , "tail"
   ]
 
--- | An assets directory holding a stub renderer.
 assetsDir :: FilePath
 assetsDir = "test/fixtures/assets"
 
--- | A path with no renderer under it, and no directory either.
 missingAssetsDir :: FilePath
 missingAssetsDir = "test/fixtures/assets-not-here"
 
--- | The renderer the binary compiles in, as it sits in the tree.  The suite
--- runs from the package root, so this is the same path @Glance.Web@'s splice
--- read at build time.
 vendoredRenderer :: FilePath
 vendoredRenderer = "assets/table-view.js"
 
 served :: FilePath -> ServeOptions
 served assets = builtIn { soAssets = Just assets }
 
--- | What a plain @glance serve@ runs: no @--assets@, so every asset is the
--- binary's own.
 builtIn :: ServeOptions
 builtIn = ServeOptions { soDir = viewDir, soPort = defaultPort, soAssets = Nothing
                        , soDerived = False }
 
--- | The app a server with ASSETS runs, over a store loaded the way 'serve'
--- loads one.  A fresh store per request is the suite's convenience; the server
--- keeps one for its lifetime.
 app :: FilePath -> IO Application
 app assets = appOf (served assets)
 
--- | The app OPTS runs, over a store loaded from the directory OPTS names.  It
--- reads @soDir@ rather than 'viewDir' outright: every caller here passes a
--- 'ServeOptions' whose directory IS 'viewDir', so the answer is unmoved, and a
--- caller that points one somewhere else now gets the tree it asked for instead
--- of the fixture quietly answering for it.
+-- | The app OPTS runs, over a store loaded from the directory OPTS names.
 appOf :: ServeOptions -> IO Application
 appOf opts = application opts <$> (newHub =<< loadStore (soDir opts))
 
--- | A server over DIR, with this suite's assets.
 serverOver :: FilePath -> IO (Application, Hub)
 serverOver = serverAt (Just assetsDir)
 
--- | GET PATH from a server configured with ASSETS.
 get :: FilePath -> ByteString -> IO SResponse
 get assets = getOf (served assets)
 
--- | GET PATH from a server started without @--assets@.
 getBuiltIn :: ByteString -> IO SResponse
 getBuiltIn = getOf builtIn
 
--- | GET PATH from a server running OPTS.
 getOf :: ServeOptions -> ByteString -> IO SResponse
 getOf opts path = do
   application' <- appOf opts
   getFrom application' path
 
--- | GET PATH from APPLICATION'.
 getFrom :: Application -> ByteString -> IO SResponse
 getFrom application' path = getWith application' path []
 
--- | GET PATH from APPLICATION', sending HEADERS — the conditional and the
--- content-negotiation cases are all one request header apart.
 getWith :: Application -> ByteString -> RequestHeaders -> IO SResponse
 getWith application' path headers =
   runSession (request (setPath defaultRequest path) { requestHeaders = headers }) application'
 
--- | @\/headline?id=…@ with ID percent-encoded, the way a client builds it: a
--- row id is @FILE#K@ and carries both the slashes a path segment would fight
--- over and the hash a raw URL would read as a fragment.
+-- | @\/headline?id=…@ percent-encoded: a row id is @FILE#K@, slashes and hash included.
 headlinePath :: T.Text -> ByteString
 headlinePath rid = "/headline" <> renderQuery True [("id", Just (TE.encodeUtf8 rid))]
 
--- | @\/headline?id=RID&child=K@: the K-th entry inside RID's subtree, which is
--- the sub-addressing a sheet walks the outline by.
 childPath :: T.Text -> Int -> ByteString
 childPath rid k = "/headline" <> renderQuery True
   [("id", Just (TE.encodeUtf8 rid)), ("child", Just (BSC.pack (show k)))]
 
--- | A nested document: a row with two children and a grandchild under the
--- first, so an index has both a level jump and a sibling to be right about.
 nestedDoc :: T.Text
 nestedDoc = T.unlines
   [ "* TODO parent", ":PROPERTIES:", ":ORG_GLANCE_ID: top", ":END:"
@@ -180,24 +139,17 @@ nestedDoc = T.unlines
   , "** child two"
   ]
 
--- | A commit body: the subtree text and the digest it was materialized with.
 commitBody :: T.Text -> T.Text -> BL.ByteString
 commitBody org digest = encode (object ["org" .= org, "digest" .= digest])
 
--- | A commit body in the other shape: the parts a lens client edits, and the
--- same digest.  The server composes them back into one subtree, putting its own
--- regions — the hidden properties and the logbook — back beside them.
+-- | The lens-shaped commit body; the server puts its own regions back beside the parts.
 splitBody :: T.Text -> [[T.Text]] -> T.Text -> BL.ByteString
 splitBody body props = planningBody body props []
 
--- | 'splitBody', also naming the planning entries.
 planningBody :: T.Text -> [[T.Text]] -> [[T.Text]] -> T.Text -> BL.ByteString
 planningBody body props plan digest = encode (object
   [ "body" .= body, "properties" .= props, "planning" .= plan, "digest" .= digest ])
 
--- | Run K over a server holding 'committable' with its first headline already
--- materialized: the app, the file on disk, and the materialize response a
--- commit to it has to present back.  Six cases opened with those five lines.
 withCommitted :: (Application -> FilePath -> Value -> Assertion) -> Assertion
 withCommitted k = withTempDir $ \dir -> do
   path <- orgFile dir "notes.org" committable
@@ -210,15 +162,10 @@ withCommitted k = withTempDir $ \dir -> do
 header :: HeaderName -> SResponse -> Maybe ByteString
 header name r = lookup name (simpleHeaders r)
 
--- | The @ETag@ R carries.
 etagOf :: SResponse -> IO ByteString
 etagOf r = maybe (assertFailure "no ETag on the response") pure (header "ETag" r)
 
--- | WHAT: is TAG the entity tag of a store at generation GEN — a quoted
--- @\<fingerprint\>-g\<n\>@, the fingerprint being sixteen hex digits of the
--- loaded tree's digest?  Written out here rather than taken from the server,
--- since an oracle that formats the tag the way the server formats it agrees
--- with whatever the server does.
+-- | WHAT: is TAG a store's tag at generation GEN?  Spelled out here rather than taken from the server.
 assertTreeTag :: String -> Int -> ByteString -> Assertion
 assertTreeTag what gen tag = do
   assertBool (what <> ": no tree fingerprint in " <> show tag)
@@ -227,107 +174,73 @@ assertTreeTag what gen tag = do
   assertEqual (what <> ": generation") ("-g" <> BSC.pack (show gen) <> "\"") rest
   where (fingerprint, rest) = BSC.splitAt 16 (BSC.drop 1 tag)
 
--- | TAG with its generation half replaced by N: what the same tree would carry
--- N updates in.
 atGeneration :: Int -> ByteString -> ByteString
 atGeneration n tag = BSC.takeWhile (/= '-') tag <> "-g" <> BSC.pack (show n) <> "\""
 
--- | A fingerprint no tree has: the tag half that stands for another daemon's
--- store.
 zeroes :: ByteString
 zeroes = BSC.replicate 16 '0'
 
 body :: SResponse -> T.Text
 body = TE.decodeUtf8 . BL.toStrict . simpleBody
 
--- The three fields the harness's answer is read for most.  Each is
--- @assertEqual@ over one 'textAt', and between them they carry a third of this
--- file's shell assertions — the echo widget alone speaks every command's
--- receipt, so it is read once per command the page has.
 
--- | WHAT: ANSWER's echo widget says SAID.
 echoIs :: String -> T.Text -> Value -> Assertion
 echoIs what said = assertEqual what said <=< textAt "echo"
 
--- | WHAT: the URL ANSWER settled on is WANTED.
 urlIs :: String -> T.Text -> Value -> Assertion
 urlIs what wanted = assertEqual what wanted <=< textAt "url"
 
--- | WHAT: the row selected in ANSWER is the one with id WANTED.
 rowIs :: String -> T.Text -> Value -> Assertion
 rowIs what wanted = assertEqual what wanted <=< textAt "selected"
 
--- | R's body as a JSON 'Value', or the decode error as a test failure.
 decoded :: SResponse -> IO Value
 decoded r = either (\e -> assertFailure ("response JSON: " <> e)) pure
                    (eitherDecode (simpleBody r))
 
--- | R's @rows@ array.
 rowsOf :: SResponse -> IO [Value]
 rowsOf r = listAt "rows" =<< decoded r
 
--- | KEY of V, decoded into whatever the case wants back.
 decodedAt :: FromJSON a => T.Text -> Value -> IO a
 decodedAt key v = do
   raw <- field key v
   either (\e -> assertFailure (T.unpack key <> ": " <> e)) pure (parseEither parseJSON raw)
 
--- | KEY of V as pairs of strings — the shape @\/headline@ carries a drawer in.
 pairsAt :: T.Text -> Value -> IO [[T.Text]]
 pairsAt = decodedAt
 
--- | KEY of every @POST \/headline@ body the sheet sent, as pairs.  Six cases
--- ask what a sync wrote into one of the two lists.
 wroteAt :: T.Text -> Value -> IO [[[T.Text]]]
 wroteAt key = traverse (pairsAt key) <=< listAt "writes"
 
--- | The @SCHEDULED@ stamp the shell harness's fixture headline carries.
 sheetStamp :: T.Text
 sheetStamp = "<2026-08-01 Sat>"
 
--- | What the sheet's property panel shows over that fixture: org's three
--- planning rows with @SCHEDULED@ holding SCHED, then PROPS.  Fifteen cases
--- assert some shape of this one drawer, so it is spelled once here.
 panelRows :: T.Text -> [[T.Text]] -> [[T.Text]]
 panelRows sched props =
   [["SCHEDULED", sched], ["DEADLINE", ""], ["CLOSED", ""]] <> props
 
--- | WHAT: ANSWER's property panel is 'panelRows' over SCHED and PROPS.  The
--- three lines those fifteen cases each spelled, as one.
 panelIsAt :: String -> T.Text -> [[T.Text]] -> Value -> Assertion
 panelIsAt what sched props answer =
   assertEqual what (panelRows sched props) =<< pairsAt "props" answer
 
--- | 'panelIsAt' under the stamp the harness's fixture headline carries.
 panelIs :: String -> [[T.Text]] -> Value -> Assertion
 panelIs what = panelIsAt what sheetStamp
 
--- | The subtree the shell harness serves, in the two shapes @GET \/headline@
--- hands it over in.  It carries one of every kind the document draws — a
--- headline line, a planning entry, a property, two paragraphs and a child — so a
--- case that asserts what a sync WROTE names the whole of it once here.
 fixtureOrg, fixtureBody :: T.Text
 fixtureOrg = "* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
   <> ":ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n:LOGBOOK:\n- moved here\n:END:\n"
   <> "first para\n\nsecond para\n** two\nchild body\n"
 fixtureBody = "* TODO one\nfirst para\n\nsecond para\n** two\nchild body\n"
 
--- | The harness's TABLED body with WAS replaced by NOW — the whole document, so
--- a case asserting a one-line splice is asserting every other byte with it.
+-- | 'tabledBody' with WAS replaced by NOW — the whole document, so every other byte is asserted with it.
 tabledAfter :: T.Text -> T.Text -> T.Text
 tabledAfter was now = T.replace was now tabledBody
 
--- | The body the @tabled@ act serves: a lead-in paragraph, a four-line table
--- with a rule among its rows, a two-item list and a closing paragraph.
 tabledBody :: T.Text
 tabledBody = T.unlines
   [ "* TODO one", "lead in", "| a | b |", "|---+---|", "| 1 | 2 |", "| 3 | 4 |"
   , "", "- alpha", "- beta", "", "tail para", "** two", "child body" ]
 
--- | The structured document as the sheet DREW it: one entry per element, its
--- KIND and then its parts — a headline line as its four cells, a paragraph as
--- its text.  Read off the draw rather than out of a model, since the draw is
--- what a reader has in front of them.
+-- | The structured document as the sheet DREW it, read off the draw rather than out of a model.
 docOf :: Value -> IO [[T.Text]]
 docOf = traverse parts <=< listAt "doc"
   where parts v = mapM text' =<< listOf v
@@ -336,22 +249,17 @@ docOf = traverse parts <=< listAt "doc"
         text' (String t)  = pure t
         text' v           = assertFailure ("expected a string, got " <> show v)
 
--- | The PARTS of every element of KIND in ROWS, each element's own joined by
--- newlines — the texts a stop of that kind is showing.
 partsOf :: T.Text -> [[T.Text]] -> [T.Text]
 partsOf kind rows = [ T.intercalate "\n" (drop 1 r) | r <- rows, take 1 r == [kind] ]
 
--- | Where the document's cursor is: the element, and which of its cells — @-1@
--- for the whole-element look, which is what an element with no cells always has.
+-- | Where the document's cursor is: the element, and its cell — @-1@ for the whole-element look.
 pointOf :: Value -> IO (Int, Int)
 pointOf answer = (,) <$> intAt "dat" answer <*> intAt "dcol" answer
 
--- | Which of the document's elements wear a deletion flag, by their place in it.
 flaggedOf :: Value -> IO [Int]
 flaggedOf = flaggedAt "dflagged"
 
--- | The priority each posted @set-priority@ carried, in the order they went
--- out: the LETTER, or 'Nothing' for the null that takes the token off.
+-- | Each posted @set-priority@'s letter, 'Nothing' for the null that takes the token off.
 prioritiesOf :: Value -> IO [Maybe T.Text]
 prioritiesOf = traverse one <=< argsOf
   where one v = spelled =<< field "priority" v
@@ -359,19 +267,16 @@ prioritiesOf = traverse one <=< argsOf
         spelled (String t) = pure (Just t)
         spelled other      = assertFailure ("expected a priority, got " <> show other)
 
--- | A list of INDICES the harness reports under KEY.
 flaggedAt :: T.Text -> Value -> IO [Int]
 flaggedAt key = traverse whole <=< listAt key
   where whole (Number n) = pure (round n)
         whole v          = assertFailure ("expected a number, got " <> show v)
 
--- | V's own field names.  An absent field is an answer here rather than a
--- failure — @sort@ is the one the document order leaves out.
+-- | V's own field names; an absent field is an answer here rather than a failure.
 fieldsOf :: Value -> IO [T.Text]
 fieldsOf (Object o) = pure (map Key.toText (KM.keys o))
 fieldsOf v = assertFailure ("expected an object, got " <> show v)
 
--- | ROW's @id@, or the whole row when it has none — a failure that reads.
 rowId :: Value -> T.Text
 rowId row = case row of
   Object o -> case KM.lookup "id" o of
@@ -379,19 +284,7 @@ rowId row = case row of
     _noId           -> T.pack (show row)
   _notARow -> T.pack (show row)
 
--- | ROW under the first two keys of the chain the view declares
--- ('Glance.Query.defaultSortChain'): its STATE by palette position, then its
--- title folded.  Every row of this fixture carries a different state, so the
--- leading key settles the order on its own and the tie-breakers behind it never
--- fire; the title is here because the ONE stateless row would otherwise tie
--- with itself.  An empty state sorts past every keyword, which is the nulls
--- rule read for this one key.
---
--- A page has to come out of that order — @\/headlines@ with no @limit@ answers
--- in walk order for the client to sort, so this is what a paged answer is
--- measured against.  An independent oracle rather than a call: it spells the
--- fixture's own palette out ('samplePalette') instead of asking the code under
--- test which order it meant.
+-- | ROW by the view's first two sort keys — an INDEPENDENT ORACLE rather than a call.
 sortKeyOf :: Value -> (Int, T.Text)
 sortKeyOf row = (statePos (cellOf "state"), T.toCaseFold (cellOf "title"))
   where
@@ -404,18 +297,10 @@ sortKeyOf row = (statePos (cellOf "state"), T.toCaseFold (cellOf "title"))
         _noCells -> ""
       _notARow -> ""
 
--- | The keywords @test\/fixtures\/view@ recognizes, in the order the badge
--- palette carries them — and so the order the state column sorts in.
---
--- The chain, spelled out: org's own pair leads, then the fixture's
--- @#+TODO: NEXT WAITING | CANCELLED@ in the order that line spells it.  This
--- list read @NEXT TODO WAITING | CANCELLED DONE@ while the union was
--- Set-shaped, which is alphabetical rather than declared and is the defect the
--- ordered chain fixed.
+-- | @test\/fixtures\/view@'s keywords in palette order: org's pair, then the file's @#+TODO:@ line.
 samplePalette :: [T.Text]
 samplePalette = ["TODO", "NEXT", "WAITING", "DONE", "CANCELLED"]
 
--- | The state column's badge values, in palette order.
 badgeValues :: Value -> IO [T.Text]
 badgeValues view = do
   cols <- listAt "columns" view
@@ -425,7 +310,6 @@ badgeValues view = do
   where keyIs k (Object o) = KM.lookup "key" o == Just (String k)
         keyIs _ _notAColumn = False
 
--- | What sits between OPEN and CLOSE in HAYSTACK, when both are in it.
 between :: T.Text -> T.Text -> T.Text -> Maybe T.Text
 between open close haystack
   | T.null after = Nothing
@@ -435,17 +319,9 @@ between open close haystack
         (inner, rest)    = T.breakOn close (T.drop (T.length open) after)
 
 -- Spec
---
--- One shell is rendered for the whole group and handed to every case that reads
--- it ('withResource'): the page is a pure function of the options and the
--- store, and thirty-odd cases were each loading the fixture directory again to
--- get the same string back.
 
 spec :: TestTree
--- The fixture is the page PLUS the script it names: before the extraction
--- (docs/proposals/2026-08-05-glue-extraction.done.md) the glue was inline and
--- every text sweep read one universe, so the fixture restores exactly that
--- universe — the served page with the embedded asset's bytes behind it.
+-- The fixture is the page PLUS the script it names, so a text sweep reads one universe.
 spec = withResource ((<>) <$> (body <$> get assetsDir "/")
                           <*> (stripGlueComments <$> glueSource))
                     (const (pure ())) $ \shell ->
@@ -469,14 +345,7 @@ spec = withResource ((<>) <$> (body <$> get assetsDir "/")
     , touchSpec shell
     , shellFontSpec shell, assetSpec, embeddedSpec, errorSpec ]
 
--- | One boot of the shell's glue, run: the address bar it opens on, what the
--- server answers as @X-Glance-Total@, the @\/headlines@ URLs that have to
--- follow in order, and the search string the page settles the URL on.
---
--- Reading the glue as text cannot answer this: a call that is written and never
--- reached matches a string search exactly as well as one that runs.  The boot
--- is where that matters most — which query the page opens on, and whether the
--- parity baseline is ever fetched under a filtered one.
+-- | One boot of the shell's glue, RUN: a call written and never reached matches a text search too.
 data Boot = Boot
   { boLabel  :: String
   , boSearch :: T.Text
@@ -490,9 +359,6 @@ shellBoots :: [Boot]
 shellBoots =
   [ Boot "a bare boot opens on the active view and arms the check"
       "" 500 ""
-      -- The default, a page of it; the rest of that answer behind the paint;
-      -- and the unfiltered set the parity check needs, which no filtered paint
-      -- can supply.
       [ "/headlines?q=state%3A*active*&limit=100"
       , "/headlines?q=state%3A*active*"
       , "/headlines" ]
@@ -511,22 +377,16 @@ shellBoots =
 
   , Boot "an empty q is a reader asking for everything, and no default lands on it"
       "?q=" 500 ""
-      -- Unfiltered from the first fetch, so the paint is its own baseline and
-      -- there is nothing to arm.
       [ "/headlines?limit=100", "/headlines" ]
       "?q="
 
-  -- DEL is the applied query's own backspace, and the default is subject to it
-  -- like any other token: one press and the whole store is on screen.
   , Boot "DEL over the table strips the default and shows everything"
       "" 500 "Backspace"
       [ "/headlines?q=state%3A*active*&limit=100"
       , "/headlines?q=state%3A*active*"
       , "/headlines"
       , "/headlines" ]
-      -- `remember("")' writes `q' PRESENT and empty, which is what tells the
-      -- next boot that a reader cleared this rather than never filtered it.
-      -- Taking the parameter out instead is what re-injected the default.
+      -- `remember("")' writes `q' PRESENT and empty: a reader who cleared, rather than never filtered.
       "?q="
 
   , Boot "and strips a deep link the same way, leaving the rest of the URL"
@@ -540,24 +400,13 @@ shellBoots =
       [ "/headlines?limit=100", "/headlines" ]
       "?q="
 
-  -- `g' applies the tree's own default view, and applies it the way every other
-  -- query is applied: into the URL, then asked of the server, then mounted as
-  -- the renderer's chips.  It goes through the mount because the chips are the
-  -- renderer's and only a mount can be handed a query it did not commit itself.
   , Boot "g applies the tree's default view over a cleared one"
       "?q=" 500 "g"
       [ "/headlines?limit=100", "/headlines"
-      -- The boot's two, then the remount's ONE.  A re-application has a whole
-      -- table standing, so it asks for the whole answer and swaps on it —
-      -- where the boot's page-sized fetch buys a first paint, this one would
-      -- buy a complete table replaced by a partial one.  It arms nothing
-      -- either: the parity baseline was fetched by the boot and a remount does
-      -- not throw it away.
+      -- The boot's two, then the remount's ONE: a re-application swaps on the whole answer.
       , "/headlines?q=state%3A*active*" ]
       "?q=state%3A*active*"
 
-  -- On a page already showing it, `g' is the same round trip rather than a
-  -- no-op: it is a remount, and the URL it lands on is the one it wrote.
   , Boot "and re-applies it over a deep link that narrowed past it"
       "?q=tanik" 500 "g"
       [ "/headlines?q=tanik&limit=100", "/headlines?q=tanik", "/headlines"
@@ -565,7 +414,6 @@ shellBoots =
       "?q=state%3A*active*"
   ]
 
--- | The boots above, run where the machine has a node to run them.
 bootSpec :: IO T.Text -> TestTree
 bootSpec shell = testGroup "Shell boot"
   ([ testCase boLabel $ bootOf shell boSearch boTotal boKeys "" $ \answer -> do
@@ -574,18 +422,7 @@ bootSpec shell = testGroup "Shell boot"
    | Boot{..} <- shellBoots ]
    <> [ domSpec shell ])
 
--- | THE HARNESS'S OWN DOM, ASSERTED BEFORE ANYTHING IS READ THROUGH IT.  The
--- node tree and the selector engine in @shell-harness.js@ are that file's own
--- code, and a broken one would answer @null@ for every query while every case
--- that never asks went on passing — the same reason 'TestSelfContained' asserts
--- what it swept.  The harness builds one tree per run and reports what it finds
--- in it; this reads that back.
---
--- The shapes are the ones the page and the renderer actually write: a
--- descendant chain, a tag with a class, @:not(.class)@ for the gutterless cell
--- run, an alternation, plus 'closest' and 'matches'.  What it does NOT cover is
--- @innerHTML@, which needs an HTML parser and which the glue never writes —
--- only the renderer does, and the renderer is stubbed here.
+-- | THE HARNESS'S OWN DOM, ASSERTED BEFORE ANYTHING IS READ THROUGH IT.
 domSpec :: IO T.Text -> TestTree
 domSpec shell = overBoot shell "" "" $ \booted ->
   atBoot booted "the harness's own DOM answers the selectors the page writes" $
@@ -597,8 +434,7 @@ domSpec shell = overBoot shell "" "" $ \booted ->
       assertEqual "`:not' takes the gutter cell out of the run" ["c0", "c1", "c2"]
         =<< textsAt "gutterless" dom
       assertEqual "an alternation is the union" 3 =<< intAt "list" dom
-      -- The tree carries a DECOY wearing the class outside any `tbody', so the
-      -- chain above is answered by its ancestors rather than by its last step.
+      -- The tree carries a DECOY outside any `tbody', so the chain is answered by its ancestors.
       assertEqual "and the class alone reaches the decoy too" 2
         =<< intAt "decoyed" dom
       assertEqual "`closest' climbs to the root it is under" True
@@ -610,13 +446,7 @@ domSpec shell = overBoot shell "" "" $ \booted ->
       assertEqual "and the subtree's text is every text node in order" "decoyc0c1c2"
         =<< textAt "text" dom
 
--- | What happens to a booted page when the socket goes, and what it still holds
--- afterwards.  The distinction the whole group is about is 'lvMounts': a
--- reconnect that rebuilds the mount is the page reloading under the reader,
--- which is what an editor writing a whole tree used to look like from here.
---
--- 'lvActs' is the harness's own script — a close with the reason the server
--- would send, a keystroke into the sheet, a store that moved underneath.
+-- | What a booted page holds after the socket goes; 'lvMounts' is the distinction.
 data Live = Live
   { lvLabel  :: String
   , lvSearch :: T.Text
@@ -630,65 +460,46 @@ data Live = Live
   , lvUrl    :: T.Text
   }
 
--- | The boot's three fetches, which every case here starts with.
 booted :: [T.Text]
 booted = [ "/headlines?q=state%3A*active*&limit=100"
          , "/headlines?q=state%3A*active*"
          , "/headlines" ]
 
--- | The applied query, asked for again — what a reconnect costs when it costs
--- anything.
 reasked :: T.Text
 reasked = "/headlines?q=state%3A*active*"
 
 shellLives :: [Live]
 shellLives =
   [ -- The storm case, and the reason this group exists.  The server abandons a
-    -- backlog it cannot deliver and closes with `resync'; the page revalidates,
-    -- is told 304, re-attaches, and never touches its mount.
+    -- backlog it cannot deliver and closes with `resync'; the page revalidates and keeps its mount.
     Live "a dropped backlog costs one revalidation and keeps the mount"
       "" "" "close:resync"
       (booted <> [reasked]) ["\"t0\""] 1 "" "" "?q=state%3A*active*"
 
-    -- The store moved while the socket was down: the same one fetch, and its
-    -- rows go into the table standing there.
   , Live "a store that moved refreshes the rows under the same mount"
       "" "" "moved close:resync"
       (booted <> [reasked]) ["\"t0\""] 1 "" "" "?q=state%3A*active*"
 
-    -- The one thing rows cannot carry.  No `view-changed' was sent here — this
-    -- is the daemon-restart shape, where the columns moved with no socket open
-    -- to say so — and the reconnect finds it by comparing what it fetched.
-    -- The remount asks ONE fetch, not the boot's pair: the table it is
-    -- replacing is already whole, so it swaps on the whole answer.
+    -- No `view-changed' here: the daemon-restart shape, the columns moved with no socket to say so.
   , Live "columns that moved rebuild the mount, close reason or none"
       "" "" "recolumn close:resync"
       (booted <> [reasked, reasked]) ["\"t0\""] 2 "" "" "?q=state%3A*active*"
 
-    -- The killing case: a `view-changed' close mid-edit.  The mount goes, and
-    -- the text the reader had not saved comes back with it.
   , Live "view-changed mid-edit rebuilds the mount and keeps the sheet's text"
       "" "Enter" "press:C-c press:' sheet:hello close:view-changed"
-      -- THE OPEN SHEET IS IN THE URL: a remount carries the surface across, so
-      -- the address still names the sheet and the row it stands on.
       (booted <> [reasked]) [] 2 "hello" "synced"
       "?q=state%3A*active*&page=sheet&row=r1"
 
-    -- And when the file moved under the open sheet, the restore says so rather
-    -- than flushing over it later: the text stands, at `conflict'.
   , Live "a sheet restored over a moved file lands in the conflict flow"
       "" "Enter" "press:C-c press:' sheet:hello rewritten close:view-changed"
       (booted <> [reasked]) [] 2 "hello" "conflict"
       "?q=state%3A*active*&page=sheet&row=r1"
 
-    -- A cleared filter is a `?q=' in the URL and nothing re-injects the default
-    -- over it — which is what the reader saw as the filter resetting itself.
   , Live "a cleared filter stays cleared through a reconnect"
       "" "Backspace" "close:resync"
       (booted <> ["/headlines", "/headlines"]) ["\"t0\""] 1 "" "" "?q="
   ]
 
--- | The cases above, run where the machine has a node to run them.
 liveSpec :: IO T.Text -> TestTree
 liveSpec shell = testGroup "Shell reconnect"
   [ testCase lvLabel $ bootOf shell lvSearch 500 lvKeys lvActs $ \answer -> do
@@ -702,123 +513,67 @@ liveSpec shell = testGroup "Shell reconnect"
       urlIs (lvLabel <> ": the URL") lvUrl answer
   | Live{..} <- shellLives ]
 
--- | LABEL's case: ACTS over a boot leave the wash making the transitions
--- WASHED, and standing at STALE.  Six of 'washSpec''s nine cases are that one
--- shape, and each keeps the comment saying which hazard it is.
 washes :: IO T.Text -> String -> T.Text -> [T.Text] -> Bool -> TestTree
 washes shell label acts washed stale = keyed shell label "" acts $ \answer -> do
   assertEqual "the transitions" washed =<< textsAt "washed" answer
   assertEqual "left on" stale =<< boolAt "stale" answer
 
--- | THE STALE WASH, and the paint discipline under it.
---
--- Two things stop what is on screen being known to be current — a view being
--- replaced, and a socket that would deliver a change being gone — and they wear
--- one look, carried by one class on the document element.  Each arms on a delay,
--- which is the whole of what keeps it off a page that is working; whoever arms
--- one is who clears it.
---
--- What the harness can see of the CSS is nothing, so the selectors and the
--- exemptions are 'shellGlue''s rows.  What it can see is the class going on and
--- coming off, and the row counts the table was handed on the way, which is where
--- the paint discipline is: a view swaps ON ITS ANSWER, in one mount.
+-- | THE STALE WASH: one class on the document element, armed on a delay; whoever arms one clears it.
 washSpec :: IO T.Text -> TestTree
 washSpec shell = testGroup "Shell wash"
   [ -- The bug this group exists for.  `g' over a table that is already whole
-    -- used to fetch a PAGE, mount that, and pull the rest in behind it, so a
-    -- complete view was replaced by a hundred rows and reflowed a moment later.
-    -- One fetch, one mount, and the count the table was handed never drops.
+    -- used to fetch a PAGE and mount that, replacing a complete view with a hundred rows.
     keyed shell "g swaps a view in one mount, and never through a partial one"
       "" "rows:150 press:g" $ \answer -> do
         paints <- paintsOf answer
-        -- The boot's page and the boot's rest over three rows, the store grown
-        -- to a hundred and fifty, then the swap — ONE entry.  A page-sized
-        -- fetch here would put a `100' between the last two, which is the
-        -- complete table replaced by a partial one.
+        -- A page-sized fetch here would put a `100' between the last two.
         assertEqual "the boot's two, then the swap" [3, 3, 150] paints
         assertEqual "the table was built twice" 2 =<< intAt "mounts" answer
         assertBool ("no paint was empty: " <> show paints) (0 `notElem` paints)
 
-    -- A commit REPAINTS rather than remounting, and the answer is ONE
-    -- `setRows': the rows standing are the last answer until the next one is in
-    -- hand.  `DEL' is the commit this suite can drive — it strips a token and
-    -- commits what is left, the same door a palette commit goes through.
   , keyedAt shell "?q=tanik%20web" 500 "a commit that repaints hands over one set of rows"
       "" "rows:150 press:Backspace" $ \answer -> do
         paints <- paintsOf answer
         assertEqual "the boot's two, then the commit's one" [3, 3, 150] paints
         assertEqual "and no remount" 1 =<< intAt "mounts" answer
 
-    -- The grace is the whole of what keeps the wash off a page that is working.
-    -- Every answer here is a microtask, so this is the ordinary case: a boot, a
-    -- swap and a reconnect, and nothing is ever dimmed.
   , washes shell "a page that answers dims nothing at all" "press:g close:resync" [] False
 
-    -- A view whose answer is out past the grace: the rows standing are stale
-    -- and say so, and the answer takes it back.
   , washes shell "a swap out past the grace dims the page, and its answer clears it"
            "hang press:g wait:400 deliver" ["on", "off"] False
 
-    -- The COUNT is what the second half of that is for: `load' aborts the fetch
-    -- before it, so an abort and the fetch replacing it overlap, and a boolean
-    -- would clear the wash the replacement still wants.  Two swaps under one
-    -- hang is exactly that overlap.
+    -- The COUNT: an abort and the fetch replacing it overlap, so a boolean would clear a wash still wanted.
   , washes shell "an abort hands the wash to the fetch that replaced it"
            "hang press:g wait:400 press:g wait:100 deliver" ["on", "off"] False
 
-    -- The other half of the grace: a reconnect that costs one revalidation is
-    -- over long before the socket's delay, so a blip dims nothing.
   , washes shell "a socket blip inside its delay dims nothing" "close:resync wait:500" [] False
 
-    -- A socket that stays gone is the one a reader can sit in for minutes: the
-    -- page goes on showing rows nothing can correct, and the wash is what says
-    -- so.  The daemon comes back, the retry behind the backoff finds it, and
-    -- the socket that opens is what takes the wash off.
   , washes shell "a socket that stays gone dims the page, and the reconnect clears it"
            "offline close:x wait:500 online until:stale=off" ["on", "off"] False
 
-    -- And it stays on for as long as the socket is gone: the arming is not a
-    -- flash that goes by itself.
   , washes shell "and stays on while it is still gone" "offline close:x wait:500" ["on"] True
 
-    -- A sheet open over stale rows is stale with them.  The class is the
-    -- DOCUMENT's, so it reaches the overlays without this page naming one —
-    -- which selectors it reaches them by is `shellGlue''s row.
   , keyed shell "an open sheet is washed with the rows under it"
       "Enter" "offline close:x wait:500" $ \answer -> do
         assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
         assertEqual "and the page is washed" True =<< boolAt "stale" answer
   ]
 
--- | Every row count the page handed the TABLE, in order: one per mount and one
--- per @setRows@.  A view arriving in one piece is one entry.
 paintsOf :: Value -> IO [Int]
 paintsOf answer = traverse count =<< listAt "paints" answer
   where count (Number n) = pure (round n)
         count other = assertFailure ("expected a row count, got " <> show other)
 
--- | A half-typed palette outlives a remount too, and comes back raised.  Its
--- own case: the palette's lifecycle is the renderer's and what this page can
--- see of it is the field and the one call that raises it, so both are what get
--- asserted.  @\/@ raises it here, the same key a reader presses.
 paletteSpec :: IO T.Text -> TestTree
 paletteSpec shell = testGroup "Shell palette"
   [ keyed shell "a half-typed palette is raised again after a remount"
       "/" "filter:tan close:view-changed" $ \answer -> do
         assertEqual "mounted twice" 2 =<< intAt "mounts" answer
-        -- Once for the key, once for the restore: the shell has no second way
-        -- into the palette and does not grow one here.
         assertEqual "raised again" 2 =<< intAt "raises" answer
         assertEqual "with what was typed in it" "tan" =<< textAt "palette" answer
   ]
 
--- | The buffer-end keys, driven through the presses a reader makes.  Reading
--- the glue cannot answer this: the whole change is what the SECOND press does,
--- and both presses run the same line of source.  The store is nine rows over
--- three pages, which is the smallest set with a page in front, a page behind
--- and an end to stop at.
---
--- 'moveScript' opens every case, so a script reads as the presses alone.
+-- | The buffer-end keys as presses: the change is what the SECOND press does.
 moveSpec :: IO T.Text -> TestTree
 moveSpec shell = testGroup "Shell movement"
   [ -- Off the end, `<' is the within-page jump it always was.
@@ -828,22 +583,17 @@ moveSpec shell = testGroup "Shell movement"
         assertEqual "the page it stayed on" 1 =<< intAt "page" answer
         echoIs "the echo" "< → first-row" answer
 
-    -- On it, the same key climbs — and lands on the FIRST row of the page it
-    -- turned to, where the renderer's own turn lands on the last.
   , keyed shell "< on the first row turns back a page and lands on its first row"
       "" (moveScript "press:] press:] press:<") $ \answer -> do
         rowIs "the row" "r4" answer
         assertEqual "the page" 2 =<< intAt "page" answer
         echoIs "the echo names it" "< → first-row (page 2/3)" answer
 
-    -- The chain, to the top and then nowhere: page three's first row, page
-    -- two's, page one's, and a fourth press that moves nothing.
   , keyed shell "and stops on page one's first row"
       "" (moveScript "press:] press:] press:< press:< press:<") $
         \answer -> do
           rowIs "the row" "r1" answer
           assertEqual "the page" 1 =<< intAt "page" answer
-          -- A stop is the plain echo: nothing moved, so no page is named.
           echoIs "the echo" "< → first-row" answer
 
   , keyed shell "> takes the page's last row" "" (moveScript "press:>") $ \answer -> do
@@ -851,15 +601,13 @@ moveSpec shell = testGroup "Shell movement"
         assertEqual "the page it stayed on" 1 =<< intAt "page" answer
         echoIs "the echo" "> → last-row" answer
 
-    -- The asymmetric half: `nextPage' lands on the new page's FIRST row, so
-    -- without the follow-up select this answers `r4'.
+    -- `nextPage' lands on the new page's FIRST row, so without the follow-up select this answers `r4'.
   , keyed shell "> on the last row turns a page and lands on its last row"
       "" (moveScript "press:> press:>") $ \answer -> do
         rowIs "the row" "r6" answer
         assertEqual "the page" 2 =<< intAt "page" answer
         echoIs "the echo names it" "> → last-row (page 2/3)" answer
 
-    -- vi's spelling of the same command, walked to the bottom and held there.
   , keyed shell "G is that key, and the last page's last row is the end of it"
       "" (moveScript "press:G press:G press:G press:G") $
         \answer -> do
@@ -867,33 +615,23 @@ moveSpec shell = testGroup "Shell movement"
           assertEqual "the page" 3 =<< intAt "page" answer
           echoIs "the echo" "G → last-row" answer
 
-    -- The arrows walk BOTH axes, and silently: the key line shows a command's
-    -- first binding, so `<right>' sits behind `f' the way `<down>' has always
-    -- sat behind `n'.  Same handler, so walking off the last cell is the
-    -- LANDING it is for the letters — the renderer reads a column index outside
-    -- the table as no column at all — rather than a wall this page invents.
   , testCase "the arrows step the column too, and land off the ends" $ do
       onTable "press:ArrowRight" $ \answer -> do
         assertEqual "the first column, from the whole-row look" 0 =<< intAt "col" answer
         echoIs "named by the header over it" "<right> → next-column (state)" answer
       onTable "press:ArrowRight press:ArrowRight" $
         assertEqual "and the next one" 1 <=< intAt "col"
-      -- Two columns, so the third step walks off the end and lands.
       onTable "press:ArrowRight press:ArrowRight press:ArrowRight" $ \answer -> do
         assertEqual "off the cells" Null =<< field "col" answer
         echoIs "which the echo says is a landing" "<right> → next-column (row mode)" answer
       onTable "press:ArrowLeft" $
         assertEqual "and the other arrow lands on the first column too" 0 <=< intAt "col"
 
-    -- The column is the renderer's across a turn, and this page hands it back
-    -- rather than keeping one: `f' picks column 0 and it survives the climb.
   , keyed shell "a climb keeps the column the cursor was in"
       "" (moveScript "press:f press:> press:>") $ \answer -> do
         rowIs "the row" "r6" answer
         assertEqual "the column" 0 =<< intAt "col" answer
 
-    -- An asset with no pager keeps the half it can do, and says it the same
-    -- way: a key that cannot climb still reports the row it took.
   , keyed shell "an asset without a pager keeps the within-page jump"
       "" (moveScript "press:] pageless press:< press:<") $
         \answer -> do
@@ -903,25 +641,13 @@ moveSpec shell = testGroup "Shell movement"
 
   ]
 
--- | Nine rows over three pages, then SCRIPT.  Every case here needs a set with
--- pages in it, and the harness's three rows are one page whatever the size.
   where
     onTable = bootOf shell "" 500 ""
 
 moveScript :: T.Text -> T.Text
 moveScript script = "rows:9 paged:3 " <> script
 
--- | @^@: the order the rows are in, over the column the cell keys picked.
---
--- Three rules, and the renderer decides all three.  WHICH column is the cell
--- selection's, so a whole-row selection is a refusal rather than a guess.
--- WHETHER it sorts is the column's own @sortable@ — the renderer's opt-in,
--- which @sortPromote@ gates but this page still names, so the refusal can
--- speak.  @^@ PROMOTES: the column at point heads the chain ascending (the
--- rest shift down, deduped), and on the column already leading it flips that
--- key alone — composing a chain is pressing over columns in reverse priority
--- order, the web's spelling of table-view.el's @C-u ^@.  The record of what
--- is in force is the handle's own (@getSort@); this page keeps none.
+-- | @^@ PROMOTES: the column at point heads the chain, and on the leading one it flips that key.
 sortKeySpec :: IO T.Text -> TestTree
 sortKeySpec shell = testGroup "Shell sort"
   [ keyed shell "sorts by the column at point: the leader flips in place" "f ^" "" $ \answer -> do
@@ -937,17 +663,13 @@ sortKeySpec shell = testGroup "Shell sort"
       bootOf shell "" 500 "f ^ ^ ^" "" $
         assertEqual "and round again" (Just ("state", False)) <=< sortOf
 
-    -- The column is the renderer's, so a selection that names none is a
-    -- question this page cannot answer: it says which key answers it instead of
-    -- picking a column on the reader's behalf.
   , keyed shell "a whole-row selection names no column, and the key says which picks one"
       "^" "" $ \answer -> do
         assertEqual "nothing was asked of the renderer" 0 =<< intAt "sortCalls" answer
         echoIs "the echo names the key that picks a column"
           "^ → toggle-sort (no column selected — f/l to pick one)" answer
 
-    -- `sortable' gates what a READER may reach and `sortBy' ignores it, so a
-    -- page driving a reader's key is the only thing that can honour it.
+    -- `sortable' gates what a READER may reach and `sortBy' ignores it.
   , keyed shell "a column that declares no sortable is left alone" "f f ^" "" $ \answer -> do
         assertEqual "the column the cursor is in" 1 =<< intAt "col" answer
         assertEqual "nothing was asked of the renderer" 0 =<< intAt "sortCalls" answer
@@ -958,11 +680,6 @@ sortKeySpec shell = testGroup "Shell sort"
         assertEqual "no sort was asked for" Nothing =<< sortOf answer
         echoIs "the echo" "^ → toggle-sort (this table-view.js has no sort)" answer
 
-    -- The renderer keeps its sort keys across a `setRows' — it drops the
-    -- derived orders and nothing else — so a reconnect that repaints the rows
-    -- lands them in the order the reader put the table in, and this page
-    -- re-asserts nothing.  The record survives with it: the next press
-    -- continues the cycle rather than starting it over.
   , testCase "a refetch keeps the sort, and nothing re-asserts it" $ do
       bootOf shell "" 500 "f ^" "moved close:resync" $ \answer -> do
         assertEqual "one sort asked for, at the press" 1 =<< intAt "sortCalls" answer
@@ -973,33 +690,21 @@ sortKeySpec shell = testGroup "Shell sort"
                     (Just ("state", True)) =<< sortOf answer
         echoIs "the echo" "^ → toggle-sort (state ▲)" answer
 
-    -- A REMOUNT re-reads the chain off the query it mounts under, which now
-    -- carries the order: the press after one continues the chain the reader
-    -- built rather than starting the declared one over.
   , keyed shell "a remount re-seeds the chain off the query it mounts under"
       "f ^" "close:view-changed press:f press:^" $
         echoIs "the leader the query named, flipped back" "^ → toggle-sort (state ▲)"
 
-    -- THE PRESS IS A QUERY EDIT.  The renderer writes the chain into the applied
-    -- query and delivers it, so it arrives here as an ordinary commit: the URL
-    -- is rewritten and the server is asked for the order it was just told about,
-    -- which is what makes page one of a limited answer the right hundred rows.
+    -- THE PRESS IS A QUERY EDIT: the renderer writes the chain into the applied query and delivers it.
   , testCase "the press writes the order into the query and asks for it" $
-      -- A bare boot opens on the default view, so the press lands beside the
-      -- query that was already applied rather than over it.
       bootOf shell "" 500 "f ^" "" $ \answer -> do
         urlIs "the URL carries the order" "?q=state%3A*active*+sort%3Astate%3Adesc" answer
         assertEqual "and the server was asked for it"
                     (Just "/headlines?q=state%3A*active*%20sort%3Astate%3Adesc")
           . lastOf =<< textsAt "asked" answer
 
-    -- And it composes with a filter rather than replacing it: the sort tokens
-    -- are the query's own, so a narrowed view stays narrowed.
   , keyedAt shell "?q=state%3ATODO" 500 "the order joins a filter already applied" "f ^" "" $
         urlIs "the predicate, then the order" "?q=state%3ATODO+sort%3Astate%3Adesc"
 
-    -- DEL takes it off like any other token, which is the whole of the way home:
-    -- with no sort token the answer comes back in the view's declared order.
   , keyedAt shell "?q=state%3ATODO" 500 "DEL takes the order back off"
       "f ^" "press:Backspace" $ \answer -> do
         urlIs "the query the strip left" "?q=state%3ATODO" answer
@@ -1008,53 +713,38 @@ sortKeySpec shell = testGroup "Shell sort"
           =<< textsAt "asked" answer
   ]
 
--- | Marking, driven through the keys a reader presses.  The renderer holds the
--- marks and this page holds the keys, so what is asserted here is the half that
--- is the page's: that @m@ walks as it marks, that @u@ is not a toggle, that the
--- count comes back out of the renderer, and that a table-view.js without the
--- calls is told about rather than crashed into.
+-- | Marking through the keys a reader presses: the renderer holds the marks, this page the keys.
 markSpec :: IO T.Text -> TestTree
 markSpec shell =
   overBoot shell "" "" $ \plain ->
   testGroup "Shell marks"
   [ -- DEL'S FIRST RUNG: ERASE THE LAST STRUCTURE STANDING, which is the
-    -- backspace's own rhyme lifted one more level.  A MARKED SET is a structure
-    -- a reader put there, so while there are marks the key takes them off and
-    -- stops — the query is not touched, and the next press is the one that
-    -- reaches it.
+    -- backspace's own rhyme; a MARKED SET is one, so the key takes the marks off and stops.
     testCase "DEL clears the marks first, and leaves the query alone" $ do
       bootOf shell "?q=state%3ATODO+web" 500 "m m Backspace" "" $ \answer -> do
         assertEqual "the marks are gone" ([] :: [T.Text]) =<< textsAt "marked" answer
         urlIs "and the query is untouched" "?q=state%3ATODO+web" answer
-        -- The pill names `unmark-all', which is the command that RAN: DEL
-        -- delegates to `U''s own implementation and says so.
         echoIs "the pill names the command that ran and counts it" "DEL → unmark-all (2)" answer
 
-      -- The SECOND press finds no marks and falls through to the rung it always
-      -- had, in silence — a rung with nothing under it does not speak.
+      -- The SECOND press falls through to the rung it always had, in silence.
     , keyedAt shell "?q=state%3ATODO+web" 500 "and the second DEL drops a token, as it always did"
         "m m Backspace Backspace" "" $ \answer -> do
           urlIs "one token off" "?q=state%3ATODO" answer
           echoIs "and the pill is the filter's again"
             "DEL → filter-drop-token (filter: \"state:TODO\")" answer
 
-      -- FLAGS ARE NOT MARKS and the rung leaves them where they are: a flag is
-      -- the archive queue, and a backspace that emptied it would throw away a
-      -- set a reader built to write with.
+      -- FLAGS ARE NOT MARKS: a flag is the archive queue, and the rung leaves it where it is.
     , keyedAt shell "?q=state%3ATODO+web" 500
         "and the flags stand, being the archive queue rather than a mark"
         "d m m Backspace" "" $ \answer -> do
           assertEqual "the marks went" ([] :: [T.Text]) =<< textsAt "marked" answer
           assertEqual "the flag stayed" ["r1"] =<< textsAt "flagged" answer
 
-      -- With NO marks the ladder is the one it always was, first press included.
     , keyedAt shell "?q=state%3ATODO+web" 500 "with nothing marked the first press is still the filter's"
         "Backspace" "" $ \answer -> do
           urlIs "one token off" "?q=state%3ATODO" answer
           echoIs "and it said so" "DEL → filter-drop-token (filter: \"state:TODO\")" answer
 
-      -- An asset with no marks at all has no rung to run, and the key falls
-      -- through without saying anything about marks.
     , keyedAt shell "?q=state%3ATODO+web" 500 "an asset with no marks falls straight through"
         "" "bare press:Backspace" $ \answer -> do
           urlIs "one token off" "?q=state%3ATODO" answer
@@ -1064,34 +754,24 @@ markSpec shell =
   ,  atBoot plain "the mount asks for them" $
         assertEqual "marks:true reached the renderer" True <=< boolAt "marksOn"
 
-    -- The flag's own hint, drawn by the renderer over the row wearing one: the
-    -- keys are this page's, so the wording is too.
   , atBoot plain "and names the keys a flagged row answers to" $
         assertEqual "flagHelp reached the renderer" "d/D archive · u unflag"
           <=< textAt "flagHelp"
 
-    -- The renderer's per-row hint says RET materializes, which the resident key
-    -- line under the table already says — and says for every command rather
-    -- than for the one.  One place, so the mount turns the other off.
+    -- One place, so the mount turns the renderer's per-row hint off.
   , atBoot plain "and asks for no per-row hints, the key line saying it once" $
         assertEqual "actionHints:false reached the renderer" False <=< boolAt "hintsOn"
 
-    -- Dired's walk: two presses mark two rows rather than one row twice, and
-    -- the count in the echo is the renderer's own.
   , keyed shell "m marks the row it is on and steps to the next" "m m" "" $ \answer -> do
         assertEqual "the rows it marked" ["r1", "r2"] =<< textsAt "marked" answer
         assertEqual "and where it left the cursor" 2 =<< intAt "cursor" answer
         echoIs "counting as it went" "m → mark-toggle (marked · 2)" answer
 
-    -- The same key on the same row takes it back off, which is what makes it a
-    -- toggle: `m' twice over one row leaves nothing, since the second press is
-    -- on the row the first one stepped to.
   , keyed shell "m on a marked row unmarks it" "m" "press:ArrowUp press:m" $ \answer -> do
         assertEqual "nothing marked" [] =<< textsAt "marked" answer
         echoIs "and it says so" "m → mark-toggle (unmarked · 0)" answer
 
-    -- `u' only ever takes a mark off.  After `m' the cursor is on an unmarked
-    -- row, so a toggle would mark it and the count would read 2.
+    -- After `m' the cursor is on an unmarked row, so a toggle would mark it and the count read 2.
   , keyed shell "u never marks a row, it only unmarks one" "m u" "" $ \answer -> do
         assertEqual "the first mark stands alone" ["r1"] =<< textsAt "marked" answer
         echoIs "and the count did not grow" "u → unmark (unmarked · 1)" answer
@@ -1100,17 +780,13 @@ markSpec shell =
         assertEqual "nothing left" [] =<< textsAt "marked" answer
         echoIs "the echo" "U → unmark-all (all marks and flags cleared)" answer
 
-    -- `M' is the renderer's call because the SET is the renderer's: a page it is
-    -- not showing is marked too, which is the whole reason a shell-side loop
-    -- over the visible rows would be the wrong answer.
+    -- `M' is the renderer's call because the SET is: a page it is not showing is marked too.
   , keyed shell "M marks every row loaded, not the page on show" "M" "" $ \answer -> do
         assertEqual "all three" ["r1", "r2", "r3"] =<< textsAt "marked" answer
         echoIs "counted by the renderer" "M → mark-all (marked · 3)" answer
         assertEqual "and the cursor stayed where it was" 0 =<< intAt "cursor" answer
 
-    -- AND THE SECOND PRESS MEANS THE OPPOSITE. `markAll' only ADDS, so a count
-    -- that did not move says every row was already carrying one — read off the
-    -- COUNT rather than off the set, which is the renderer's.
+    -- `markAll' only ADDS, so a count that did not move says every row already carried one.
   , keyed shell "and M again takes them all off" "M" "press:M" $ \answer -> do
         assertEqual "nothing marked" [] =<< textsAt "marked" answer
         echoIs "and it says which way it went" "M → mark-all (unmarked · 3)" answer
@@ -1123,40 +799,28 @@ markSpec shell =
         assertEqual "all three" ["r1", "r2", "r3"] =<< textsAt "marked" answer
         echoIs "" "M → mark-all (marked · 3)" answer
 
-    -- dired's flag, in two presses: the first marks the row for archiving and
-    -- the second is the confirmation.  One press writes nothing at all.
   , testCase "d flags the row, and a second d archives it" $ do
       bootOf shell "" 500 "d" "" $ \answer -> do
         assertEqual "the row is flagged" ["r1"] =<< textsAt "flagged" answer
         assertEqual "and nothing was written" [] =<< postedOf answer
         echoIs "the pill says what the next press costs"
           "d → archive-flag (flagged — d again archives)" answer
-        -- The two sets are the renderer's own and stay apart: flagging a row
-        -- leaves the marked set exactly where it was.
         assertEqual "and no mark went on with it" [] =<< textsAt "marked" answer
-      -- One flag is a set of one, so the single-row flow is the general one and
-      -- reads as it: the second press is `D', and `D' names the set it ran over.
+      -- One flag is a set of one, so the single-row flow is the general one.
       bootOf shell "" 500 "d d" "" $ \answer -> do
         assertEqual "one flag is a set of one, so the second press takes it"
                     [("archive", ["r1"])] =<< postedOf answer
         assertEqual "and the flag is spent" [] =<< textsAt "flagged" answer
         echoIs "counted" "d → archive-flag (archived · 1 flagged)" answer
 
-    -- AN ARCHIVED ROW SPENDS ITS MARK, the way it spends its flag.  A mark
-    -- survives a `setRows' and a filter that hides its row — which is what makes
-    -- it useful, and what would otherwise leave an archived row marked where no
-    -- reader can see it: the count would carry it, `U' would answer about it,
-    -- and it would come back marked under `tag:*archive*'.
+    -- AN ARCHIVED ROW SPENDS ITS MARK, the way it spends its flag.
   , testCase "archiving takes the archived rows' marks with their flags" $ do
-      -- `m' marks and STEPS, so the two presses mark r1 and r2 and leave the
-      -- cursor past them; `p p' walks back to the row the flag is for.
+      -- `m' marks and STEPS, so `p p' walks back to the row the flag is for.
       bootOf shell "" 500 "m m p p d d" "" $ \answer -> do
         assertEqual "the row that was archived" [("archive", ["r1"])] =<< postedOf answer
         assertEqual "keeps neither its flag" [] =<< textsAt "flagged" answer
         assertEqual "nor its mark, and the other row keeps its own" ["r2"]
           =<< textsAt "marked" answer
-      -- `D' with nothing flagged takes the row at point, which the three marks
-      -- left on the last one: the marks it did not reach are untouched.
       bootOf shell "" 500 "m m m D" "" $ \answer -> do
         assertEqual "the row at point went" [("archive", ["r3"])] =<< postedOf answer
         assertEqual "and the marks the archive did not reach stand"
@@ -1168,22 +832,18 @@ markSpec shell =
         assertEqual "the mark on the OTHER row is untouched" ["r2"]
           =<< textsAt "marked" answer
 
-    -- A refused write archived nothing, so it spends nothing either.
   , keyed shell "a refused archive leaves the mark where it was"
       "" "refuse press:m press:p press:d press:d" $ \answer -> do
         assertEqual "the command went" [("archive", ["r1"])] =<< postedOf answer
         assertEqual "and the mark stands" ["r1"] =<< textsAt "marked" answer
 
-    -- The flag stays on the ROW rather than following the cursor, so a walk
-    -- between the two presses is a walk back before the second one lands.
+    -- The flag stays on the ROW rather than following the cursor.
   , keyed shell "d on one row and d on another flags both and archives neither"
       "d n d" "" $ \answer -> do
         assertEqual "two rows flagged" ["r1", "r2"] =<< textsAt "flagged" answer
         assertEqual "and nothing written" [] =<< postedOf answer
 
-    -- dired's `dd': the second press is `D', so it takes the WHOLE flagged set
-    -- rather than the row under it.  `d n d n d' flags r1, r2 and r3 and leaves
-    -- the cursor on r3; the press after that archives all three at once.
+    -- dired's `dd': the second press is `D' and takes the WHOLE flagged set.
   , keyed shell "the second d archives every flagged row, not just the one under it"
       "d n d n d" "press:d" $ \answer -> do
         assertEqual "all three, in one request"
@@ -1191,8 +851,6 @@ markSpec shell =
         assertEqual "and no flag is left" [] =<< textsAt "flagged" answer
         echoIs "named the way D names it" "d → archive-flag (archived · 3 flagged)" answer
 
-    -- The same set, the same request, the same pill: `D' is `d' without the
-    -- flagging press in front of it, and there is one implementation.
   , keyed shell "D on that same set does exactly what the second d does"
       "d n d n d" "press:D" $ \answer -> do
         assertEqual "the same three" [("archive", ["r1", "r2", "r3"])]
@@ -1200,21 +858,16 @@ markSpec shell =
         echoIs "the same pill, under its own key"
           "D → org-glance-overview:delete (archived · 3 flagged)" answer
 
-    -- `d' is in ONCE, and this is why: a HELD key reaching the handler twice
-    -- would flag a row and archive it from one press, which is exactly the
-    -- confirmation the two-press shape exists to be.
+    -- `d' is in ONCE: a HELD key reaching the handler twice would flag a row and archive it from one press.
   , keyed shell "a held d flags and stops there" "d" "repeat:d repeat:d repeat:d" $ \answer -> do
         assertEqual "still just flagged" ["r1"] =<< textsAt "flagged" answer
         assertEqual "and the burst wrote nothing" [] =<< postedOf answer
 
-    -- `u' takes the flag off first: it is the more recent thing a reader put on
-    -- the row, and the one that would otherwise write a file.
+    -- `u' takes the flag off first: it is the more recent thing a reader put on the row.
   , testCase "u clears an archive flag before it touches a mark" $ do
       bootOf shell "" 500 "d" "press:ArrowUp press:u" $ \answer -> do
         assertEqual "the flag is off" [] =<< textsAt "flagged" answer
         echoIs "and it says which" "u → unmark (flag cleared)" answer
-      -- `m' marks r1 and steps; `d' flags r2 where it landed.  `u' on r2 takes
-      -- the flag, and `u' back on r1 takes the mark — one key, flag first.
       bootOf shell "" 500 "m d" "press:u press:ArrowUp press:ArrowUp press:u" $ \answer -> do
         assertEqual "the flag went" [] =<< textsAt "flagged" answer
         assertEqual "and the mark after it" [] =<< textsAt "marked" answer
@@ -1223,51 +876,24 @@ markSpec shell =
         assertEqual "no marks" [] =<< textsAt "marked" answer
         assertEqual "and no flags" [] =<< textsAt "flagged" answer
 
-    -- An asset predating the flag calls is named rather than crashed into, the
-    -- same way the mark calls are: the write must never be the fallback.
   , keyed shell "a table-view.js without the flag calls is named, not crashed into"
       "" "bare press:d" $ \answer -> do
         assertEqual "nothing was written" [] =<< postedOf answer
         echoIs "and it said why"
           "d → archive-flag (this table-view.js has no archive flags)" answer
 
-    -- An asset predating the calls: the key says what is missing rather than
-    -- throwing, the same way the pager and the token strip do.  A throw would
-    -- fail the harness outright, so what this pins is the wording — and that
-    -- `m' left the cursor alone, since a key that cannot do its job must not
-    -- half-do it.
+    -- A throw would fail the harness outright, so what this pins is the wording.
   , keyed shell "a table-view.js without the calls is named, not crashed into"
       "" "bare press:m press:U" $ \answer -> do
         assertEqual "and it did not walk on regardless" 0 =<< intAt "cursor" answer
         echoIs "the last key said why" "U → unmark-all (this table-view.js has no marks)" answer
   ]
 
--- | Where point ends up: on the BOOT, and after an archive takes its row out
--- of the view.
---
--- The boot opens the group because it is the landing every other one is
--- measured against — a mount has no cursor of its own, so a page that landed
--- nothing opened with every row key answering @no row@.
---
--- The archive's rows leave by one of two doors and both are driven here: an
--- unfiltered client SPLICES the socket's row ops straight in, and a filtered
--- one reads none of them and refetches.  The anchor is worked out at FIRE time,
--- while the view still holds the rows about to go, and lands at whichever door
--- they actually left by.
---
--- The remaining landing rules are somebody else's cases and stay there: an
--- applied view lands on row one (@moveSpec@, @drillSpec@) and a pop puts back
--- the row its drill was launched from (@drillSpec@).  The one archive case that
--- touches them pins that an applied view still lands on row one immediately
--- after an anchor landed somewhere else.
+-- | Where point ends up: on the BOOT, and after an archive takes its row out of the view.
 landingSpec :: IO T.Text -> TestTree
 landingSpec shell = testGroup "Shell landing"
   [ -- A BOOT IS AN APPLIED VIEW, so it lands where every applied view lands.
-    -- The renderer selects nothing until it is asked to, so the cursor on row
-    -- one here is this page's own landing and nothing else.  The total is 500
-    -- over a three-row store, so the whole set arrives behind the first page:
-    -- the landing is taken on the FIRST paint and the swap behind it keeps it,
-    -- which is the one landing per mount.
+    -- The renderer selects nothing until asked, so row one here is this page's own landing.
     keyed shell "a boot lands on row one, like every other applied view" "" "" $ \answer -> do
         assertEqual "the first row of the answer" (Just "r1")
           =<< maybeTextAt "selected" answer
@@ -1275,16 +901,11 @@ landingSpec shell = testGroup "Shell landing"
         assertEqual "and the whole set arrived behind the first page" 2 . length
           =<< listAt "paints" answer
 
-    -- Which is the whole point of it: the first key a reader presses has a row
-    -- to work on, with no `n' spent to reach one.
   , keyed shell "so the first key pressed already has a row to work on" "d d" "" $ \answer -> do
         assertEqual "the row the boot landed on" [("archive", ["r1"])]
           =<< postedOf answer
         echoIs "and the pill named the write" "d → archive-flag (archived · 1 flagged)" answer
 
-    -- AND AN EMPTY ANSWER LANDS NOTHING.  `land' selects nothing where there is
-    -- no row to select, so the keys that want one say so rather than writing
-    -- over a row that is not there.
   , keyedAt shell "" 0 "an empty answer leaves nothing selected, and d says so"
       "d" "" $ \answer -> do
         assertEqual "no row is on" Nothing =<< maybeTextAt "selected" answer
@@ -1293,17 +914,12 @@ landingSpec shell = testGroup "Shell landing"
         assertEqual "nothing was flagged" [] =<< textsAt "flagged" answer
         assertEqual "and nothing was written" [] =<< postedOf answer
 
-    -- RET is the other key with a row in its hand, and it names the key that
-    -- would pick one rather than opening a sheet over nothing.
   , keyedAt shell "" 0 "and RET says which key would pick one" "Enter" "" $ \answer -> do
         assertEqual "the strip says what to press"
                     (Just "no row focused — n or p picks one") =<< lastLog answer
         assertEqual "and no sheet opened" "" =<< textAt "modal" answer
 
-    -- A LANDING SOMEBODY ASKED FOR OUTRANKS THE BOOT'S.  A pop carries the row
-    -- its drill was launched from, and it arrives through `applyView', whose
-    -- own landing runs in place of this door's — so the trail's remembered row
-    -- is not overwritten by row one on the way past.
+    -- A LANDING SOMEBODY ASKED FOR OUTRANKS THE BOOT'S.
   , keyedAt shell ("?q=ref%3Ar1&crumbs="
                     <> bootedSels) 500 "a pop out of a booted trail still lands on the remembered row"
       "Backspace" "" $
@@ -1312,10 +928,6 @@ landingSpec shell = testGroup "Shell landing"
             =<< maybeTextAt "selected" answer
           urlIs "over the crumb's own query, which is what was applied" "?q=" answer
 
-    -- dired's: the row point was standing on goes, and point goes to the one
-    -- after it.  Under a filter that means the refetch the frame scheduled,
-    -- which is where the rows leave for a filtered reader — and the frame the
-    -- server sent was an UPSERT, the row still being the store's.
   , keyed shell "an archived row mid-table lands point on the next surviving row"
       "n d d" "unserved:r2 frame:upsert=r2 wait:300" $ \answer -> do
         assertEqual "the row at point was archived"
@@ -1327,23 +939,14 @@ landingSpec shell = testGroup "Shell landing"
         assertEqual "the rows came back over the wire, not off the frame"
                     [] =<< textsAt "spliced" answer
 
-    -- Nothing below point to scan to, so the anchor walks back UP to the
-    -- nearest surviving row — the new last row, which is the landing a reader
-    -- deleting from the bottom of a buffer expects.  That branch always agrees
-    -- with the renderer's own keeping (point is past every survivor, so the
-    -- place it stood clamps to the same row), so what this pins is the outcome
-    -- rather than which of the two produced it.
+    -- That branch always agrees with the renderer's own keeping, so what this pins is the outcome.
   , keyed shell "archiving the last row lands point on the new last"
       "n n d d" "unserved:r3 frame:upsert=r3 wait:300" $ \answer -> do
         assertEqual "the last row went" [("archive", ["r3"])] =<< postedOf answer
         assertEqual "and point is on the one above it"
                     (Just "r2") =<< maybeTextAt "selected" answer
 
-    -- THE CASE THE RENDERER'S OWN KEEPING GETS WRONG, and the reason the anchor
-    -- is taken at fire time at all.  Six rows, `r1' and `r4' flagged, point on
-    -- `r4': the next surviving row is `r5', but rows went from ABOVE point too,
-    -- so the visual PLACE point stood in — index 3 — is `r6' once they have
-    -- gone.  A landing that only knew where point had been would skip a row.
+    -- THE CASE THE RENDERER'S OWN KEEPING GETS WRONG, and the reason the anchor is taken at fire time.
   , keyed shell "the anchor is the next surviving row, not the place point stood"
       "" ("rows:6 press:d press:n press:n press:n press:d press:D"
            <> " unserved:r1,r4 frame:upsert=r1 frame:upsert=r4 wait:300") $ \answer -> do
@@ -1353,29 +956,19 @@ landingSpec shell = testGroup "Shell landing"
         assertEqual "the row under the one that went, not the one two below it"
                     (Just "r5") =<< maybeTextAt "selected" answer
 
-    -- And with point on a row that SURVIVES the set, nothing is owed: no
-    -- anchor is armed at all, so it stays exactly where it stood — which is what
-    -- "where point was" means when point did not have to move.
   , keyed shell "a set archived from a surviving row leaves point on that row"
       "" ("rows:5 press:n press:d press:n press:n press:d press:p press:D"
            <> " unserved:r2,r4 frame:upsert=r2 frame:upsert=r4 wait:300") $
         assertEqual "the row point was on is still under it"
                     (Just "r3") <=< maybeTextAt "selected"
 
-    -- And no anchor is left ARMED behind it either.  The anchor belongs to the
-    -- archive that took point's row away, so an archive that took some other
-    -- row must leave nothing lying in wait: when point's row later goes for
-    -- some unrelated reason, the renderer's own keeping is the whole rule.
+    -- And no anchor is left ARMED behind it: an anchor belongs to the archive that took point's row.
   , keyedAt shell "?q=" 500 "and arms nothing for a later removal to land on"
       "" ("rows:6 press:d press:n press:n press:n press:d press:p press:D"
            <> " frame:delete=r1,r4 frame:delete=r3") $
         assertEqual "the row that took r3's place, not the archive's own anchor"
                     (Just "r6") <=< maybeTextAt "selected"
 
-    -- A page where every row is leaving has nowhere to land, so the anchor is
-    -- nothing and the empty view selects nothing — which is what an applied
-    -- view with no rows in it already did, and what the renderer does when the
-    -- last row goes out from under the cursor.
   , keyed shell "archiving every row leaves nothing selected"
       "d n d n d" ("press:d unserved:r1,r2,r3"
                     <> " frame:upsert=r1 frame:upsert=r2 frame:upsert=r3 wait:300") $ \answer -> do
@@ -1384,33 +977,19 @@ landingSpec shell = testGroup "Shell landing"
         assertEqual "and there is no row to be on" Nothing
           =<< maybeTextAt "selected" answer
 
-    -- THE CARVE.  A refetch the watch caused is the view the reader already
-    -- had, arriving again because a file moved: it lands nothing of its own, so
-    -- somebody else's edit no longer yanks a reader back to row one.  Only the
-    -- archive that took the rows away may override where the renderer kept the
-    -- cursor, and it says so by arming the anchor.
+    -- THE CARVE: a refetch the watch caused lands nothing of its own.
   , keyed shell "a watch refetch under a filter leaves point where it was"
       "n n" "frame:upsert=r1 wait:300" $ \answer -> do
         assertEqual "the frame was re-asked for" 3 . length =<< listAt "paints" answer
         assertEqual "and point did not move for it"
                     (Just "r3") =<< maybeTextAt "selected" answer
 
-    -- A refused write moved no row, so the landing it armed goes with the marks
-    -- it did not spend: the row point was on is still there.  When it later
-    -- goes for some other reason the renderer's own keeping is the whole rule,
-    -- which lands on the row that took its PLACE rather than on the one the
-    -- archive would have picked.
   , keyedAt shell "?q=" 500 "a refused archive arms no landing"
       "" "refuse press:d press:n press:d press:p press:D frame:delete=r1" $
         assertEqual "the row that took r1's place, not the anchor's r3"
                     (Just "r2") <=< maybeTextAt "selected"
 
-    -- THE ANCHOR ITSELF VANISHING between the fire and the landing, which is
-    -- what the remembered PLACE is for: `r3' is archived from under point and
-    -- `r4', the row it was to land on, goes to somebody else's edit first.
-    -- `select' answers false for a row the view no longer holds, so the landing
-    -- falls through to where the anchor WOULD have been sitting once the
-    -- archived rows had gone — index 1 of what is left — rather than to row one.
+    -- THE ANCHOR ITSELF VANISHING between the fire and the landing, which is what the remembered PLACE is for.
   , keyed shell "an anchor the view lost falls back to the place it would have had"
       "" ("rows:4 press:n press:d press:d unserved:r2,r3"
            <> " frame:upsert=r2 wait:300") $ \answer -> do
@@ -1418,11 +997,7 @@ landingSpec shell = testGroup "Shell landing"
         assertEqual "the place, since the row it named is gone too"
                     (Just "r4") =<< maybeTextAt "selected" answer
 
-    -- An archive is an UPSERT on the wire — `Store.streamed` emits a delete
-    -- only for an id that left the store, and archiving adds a tag to a row
-    -- that stays — so an unfiltered client keeps the row it just archived:
-    -- `/headlines` would not have served it, and the socket is not filtered.
-    -- Nothing left the view, so point does not move.
+    -- An archive is an UPSERT on the wire, so an unfiltered client keeps the row it just archived.
   , keyedAt shell "?q=" 500 "an archived row an unfiltered client keeps does not move point"
       "n d d" "frame:upsert=r2" $ \answer -> do
         assertEqual "the row was spliced back in" ["upsert r2"]
@@ -1430,12 +1005,7 @@ landingSpec shell = testGroup "Shell landing"
         assertEqual "and point is still on it" (Just "r2")
           =<< maybeTextAt "selected" answer
 
-    -- Which is what the splice door is FOR: it cannot land an archive's anchor,
-    -- because the archive's own frames leave every row where it was — what it
-    -- does is SPEND it, so the anchor describes one watch step and no more.
-    -- Here the rows go later, for somebody else's reason, and the landing is
-    -- the renderer's own keeping (the visual place, `r6`) rather than the
-    -- archive's anchor (`r5`), which was spent when its own frames arrived.
+    -- The splice door SPENDS the anchor rather than landing it, so it describes ONE watch step.
   , keyedAt shell "?q=" 500 "and its frames spend the anchor rather than landing it"
       "" ("rows:6 press:d press:n press:n press:n press:d press:D"
            <> " frame:upsert=r1 frame:upsert=r4 frame:delete=r1,r4") $ \answer -> do
@@ -1445,30 +1015,18 @@ landingSpec shell = testGroup "Shell landing"
         assertEqual "the renderer's place, the anchor having been spent"
                     (Just "r6") =<< maybeTextAt "selected" answer
 
-    -- The carve reaches the WATCH's refetch and nothing else: `g' is a new
-    -- question answered by its own rule, immediately after an anchor landed
-    -- somewhere else.  Point is where `g' kept it, never where the anchor was.
   , keyed shell "an applied view lands by its own rule after an anchor did not"
       "n d d" "unserved:r2 frame:upsert=r2 wait:300 press:g" $
         assertEqual "g kept the row it was on" (Just "r3")
           <=< maybeTextAt "selected"
 
-    -- An anchor belongs to the VIEW it was taken in, and a mount thrown away
-    -- takes it with it.  Reachable because an archive under NO filter leaves
-    -- its row on screen — the socket carries an upsert whatever the query — so
-    -- the anchor is still armed when `g' rebuilds the table.  Left standing, it
-    -- would fire on the next frame and pull the cursor off the row the new view
-    -- had just landed it on.
+    -- An anchor belongs to the VIEW it was taken in, and a mount thrown away takes it with it.
   , keyedAt shell "?q=" 500 "a remount drops an anchor the archive never spent"
       "n d d" "press:g frame:delete=r2 wait:300" $
         assertEqual "where g landed it, never where the old view's anchor pointed"
                     (Just "r3") <=< maybeTextAt "selected"
 
-    -- `visible()` is ONE PAGE, so "the row point was on has left the view" is
-    -- only answerable about the page the anchor was taken on.  A reader who
-    -- turned a page between the write and its watch event would otherwise be
-    -- told every row of that page had gone, and be landed on the new page's
-    -- row `at`.
+    -- `visible()' is ONE PAGE, so the question is only answerable about the page the anchor was taken on.
   , keyed shell "an anchor is not landed on a page it was not taken on"
       "" ("rows:6 paged:3 press:n press:n press:d press:d press:] press:n"
            <> " unserved:r3 frame:upsert=r3 wait:300") $ \answer -> do
@@ -1477,37 +1035,23 @@ landingSpec shell = testGroup "Shell landing"
         assertEqual "and on the row it walked to, not the other page's anchor"
                     (Just "r5") =<< maybeTextAt "selected" answer
 
-    -- The third road the same rows can arrive without them: a socket that was
-    -- down while the write landed, and a reconnect whose answer is the first
-    -- this page has seen since.  `resync` repaints the same view, so it settles
-    -- the anchor exactly as the watch's own refetch would have.
   , keyed shell "a reconnect's repaint lands the anchor too"
       "" ("rows:6 press:d press:n press:n press:n press:d press:D"
            <> " unserved:r1,r4 close:resync") $
         assertEqual "the next surviving row, not the renderer's place"
                     (Just "r5") <=< maybeTextAt "selected"
 
-    -- And the other door that replaces a view without rebuilding the mount: a
-    -- COMMIT.  `^` writes its chain into the query, which is a commit like any
-    -- other, so the anchor taken under the query being left goes with it.
   , keyedAt shell "?q=" 500 "and so does a commit, which replaces the view without a remount"
       "n d d" "press:f press:^ frame:delete=r2 wait:300" $
         assertEqual "where the commit landed it, not the old view's anchor"
                     (Just "r1") <=< maybeTextAt "selected"
   ]
 
--- | The two structured commands, driven through the keys a reader presses.
--- What is asserted is this page's half: which rows a command names — the
--- FLAGGED set for archiving and the MARKED one for a state, each falling back
--- to the row at point — what the value palette
--- offers and commits, and what the pill says when the server refuses.  The
--- edits themselves are @TestQuery@'s subject and the route is
--- @POST \/command@'s; nothing here re-states either.
+-- | The two structured commands as keys: which rows each names, what the palette commits, what the pill says.
 commandKeySpec :: IO T.Text -> TestTree
 commandKeySpec shell = testGroup "Shell commands"
   [ -- ORG'S PRIORITY RING, pressed.  Up runs `none → C → B → A → none' and down
-    -- the reverse, and the WRAP IS THROUGH NONE, which is what makes the key
-    -- that sets a priority the key that takes it off.
+    -- the reverse, and the WRAP IS THROUGH NONE, which makes the key that sets a priority the key that takes it off.
     testCase "S-up cycles the priority, and wraps through none" $ do
       bootOf shell "" 500 "S-ArrowUp" "" $ \answer -> do
         assertEqual "an entry with none takes the lowest"
@@ -1534,10 +1078,7 @@ commandKeySpec shell = testGroup "Shell commands"
       onTable "priorities:C press:S-ArrowDown" $
         assertEqual "and C to none" [Nothing] <=< prioritiesOf
 
-    -- EACH ROW CYCLES FROM ITS OWN VALUE, which is org's per-entry semantics —
-    -- and the one thing a single request cannot carry, `args' being one object
-    -- for the call.  So a MIXED marked set is one command per landing value,
-    -- each over the rows that land there, and the set stays mixed.
+    -- EACH ROW CYCLES FROM ITS OWN VALUE, so a MIXED set is one command per LANDING value.
   , keyed shell "a mixed marked set is one command per landing, and stays mixed"
       "" "priorities:A,,C press:m press:m press:m press:S-ArrowUp" $ \answer -> do
         assertEqual "three rows, three landings"
@@ -1546,7 +1087,6 @@ commandKeySpec shell = testGroup "Shell commands"
         assertEqual "A wrapped, none climbed to C, C climbed to B"
                     [Nothing, Just "C", Just "B"] =<< prioritiesOf answer
 
-    -- A set that AGREES is the common press and costs one request.
   , keyed shell "and a set that agrees is one"
       "" "priorities:B,B,B press:m press:m press:m press:S-ArrowUp" $ \answer -> do
         assertEqual "one command over all three"
@@ -1564,12 +1104,8 @@ commandKeySpec shell = testGroup "Shell commands"
         echoIs "and the pill says which"
           "D → org-glance-overview:delete (archived · row)" answer
 
-    -- The FLAGGED set is what `D' runs over. A flag is a selection made for
-    -- archiving; a mark is the generic bulk selection a reader lays down to set
-    -- a state over a run of rows, and letting the archive key inherit one would
-    -- make every mark a loaded gun.
+    -- The FLAGGED set is what `D' runs over: letting the archive key inherit a mark would make every mark a loaded gun.
   , testCase "D archives the flagged set, and leaves the marks where they are" $
-      -- `m m' marks r1 and r2 and steps to r3; `d' flags r3.
       bootOf shell "" 500 "m m d" "press:D" $ \answer -> do
         assertEqual "the flagged row, and only it"
                     [("archive", ["r3"])] =<< postedOf answer
@@ -1577,10 +1113,7 @@ commandKeySpec shell = testGroup "Shell commands"
           "D → org-glance-overview:delete (archived · 1 flagged)" answer
         assertEqual "the marks are untouched" ["r1", "r2"] =<< textsAt "marked" answer
 
-    -- The flags are spent, the way a second `d' spends the one it fires over.
-    -- They have to be: the renderer keeps a flag whose row a filter is hiding,
-    -- so a set left standing would be archived again by the next press and the
-    -- row at point would never be reachable again.
+    -- The flags are spent: the renderer keeps a flag whose row a filter is hiding.
   , keyed shell "D spends the flags it fired over, and the next D is the point row"
       "d" "press:D press:D" $ \answer -> do
         assertEqual "the flagged row, then the row under the cursor"
@@ -1596,8 +1129,6 @@ commandKeySpec shell = testGroup "Shell commands"
         echoIs "said as the point row" "D → org-glance-overview:delete (archived · row)" answer
         assertEqual "and the marks stand" ["r1", "r2"] =<< textsAt "marked" answer
 
-    -- The other half of that split, unchanged: `set-state' is the command that
-    -- DOES read the marked set, so the two selections stay apart on both sides.
   , keyed shell "set-state still runs over the marked set"
       "m m d" "press:C-c press:C-t press:t" $ \answer -> do
         assertEqual "the marked pair, and not the flagged row"
@@ -1608,14 +1139,10 @@ commandKeySpec shell = testGroup "Shell commands"
   , keyed shell "a server that refuses is counted out and logged"
       "" "refuse press:D" $ \answer -> do
         assertEqual "the command still went" 1 . length =<< postedOf answer
-        -- The set name gives way to the bare count: "row" over zero rows would
-        -- read as a write that landed.
+        -- The set name gives way to the bare count: "row" over zero rows would read as a write that landed.
         echoIs "nothing landed" "D → org-glance-overview:delete (archived · 0)" answer
 
-    -- C-c C-t is a chord, so this also exercises the prefix path: the first key
-    -- opens it and the second completes it, over a table with no field focused.
-    -- The letter is the whole gesture: the palette IS the confirmation, so
-    -- there is no RET behind it.
+    -- The letter is the whole gesture: the palette IS the confirmation, so there is no RET behind it.
   , keyed shell "C-c C-t raises the palette and a letter commits on its own"
       "C-c C-t" "press:t" $ \answer -> do
         assertEqual "the palette said what it was setting and over how many"
@@ -1627,27 +1154,17 @@ commandKeySpec shell = testGroup "Shell commands"
         echoIs "the pill names the state" "C-c C-t → org-glance-overview:todo (TODO · 1)" answer
         assertEqual "and the overlay is down" "" =<< textAt "prompt" answer
 
-    -- The reserved-chord rule, and the half no other case can see: `C-t' is in
-    -- RESERVED, so a press that opened nothing would be left to the browser.
-    -- Completing a bound sequence outranks that, and what says so is the
-    -- dispatch claiming BOTH chords.  This is the page's whole guarantee about
-    -- the sequence: a browser that owns `Ctrl+T' above the document (Chromium
-    -- does) never delivers the second press, and nothing here can reach that.
+    -- Completing a bound sequence outranks RESERVED, and the dispatch claiming BOTH chords is what says so.
   , keyed shell "the completing chord is claimed, reserved or not" "C-c C-t" "" $ \answer -> do
         assertEqual "the palette is up" "on" =<< textAt "prompt" answer
         assertEqual "neither chord was left to the browser"
                     ["C-c", "C-t"] =<< textsAt "prevented" answer
 
-    -- RET is nobody's here: it commits in the fallback mode alone, and a reader
-    -- who pressed it out of habit gets the palette still standing rather than a
-    -- write they did not name.
   , keyed shell "RET commits nothing in letter mode" "C-c C-t" "press:Enter" $ \answer -> do
         assertEqual "no command went" [] =<< postedOf answer
         assertEqual "and the palette is still up" "on" =<< textAt "prompt" answer
 
-    -- `t' raises the palette AND is a letter inside it, and this listener sits
-    -- BEHIND the dispatch — so the one press that opened the overlay arrives in
-    -- it next.  Two presses, two jobs.
+    -- This listener sits BEHIND the dispatch, so the press that opened the overlay arrives in it next.
   , testCase "the press that raises the palette is not a key in it" $ do
       onTable "press:t" $ \answer -> do
         assertEqual "the first press only opened it" [] =<< postedOf answer
@@ -1657,20 +1174,14 @@ commandKeySpec shell = testGroup "Shell commands"
           =<< postedOf answer
         assertEqual "as TODO" [Just "TODO"] =<< keywordsOf answer
 
-    -- The `ONCE' rule, owed by the palette rather than by the map: a HELD `t'
-    -- would open and then commit through what it opened.  The dispatch's list
-    -- cannot reach that — it governs rows, and the repeat arrives while every
-    -- row is already dead.
+    -- The `ONCE' rule is the palette's: a HELD `t' would open and then commit through what it opened.
   , keyed shell "a held t opens the palette and stops there"
       "" "press:t repeat:t repeat:t" $ \answer -> do
         assertEqual "nothing was written" [] =<< postedOf answer
         assertEqual "and the palette is waiting for a real press" "on"
           =<< textAt "prompt" answer
 
-    -- The exclusivity the letters need: while the palette is up every `table'
-    -- row is dead, so `n' moves nothing and `d' — dired's archive flag out
-    -- there — is DONE in here.  The gating is `typing()', which the palette
-    -- turns on with no field focused at all.
+    -- While the palette is up every `table' row is dead; the gating is `typing()', with no field focused.
   , keyed shell "the table's own letters are the palette's while it is up"
       "C-c C-t" "press:n press:d" $ \answer -> do
         assertEqual "the cursor never moved" 0 =<< intAt "cursor" answer
@@ -1678,8 +1189,7 @@ commandKeySpec shell = testGroup "Shell commands"
         assertEqual "and d set a state" [("set-state", ["r1"])] =<< postedOf answer
         assertEqual "the one it names" [Just "DONE"] =<< keywordsOf answer
 
-    -- `*empty*' answers to DEL, which already MEANS take-it-off wherever this
-    -- page binds one, and claims no letter — so the a-z pool is the keywords'.
+    -- `*empty*' answers to DEL and claims no letter, so the a-z pool is the keywords'.
   , keyed shell "the meta entry clears the keyword rather than setting one"
       "C-c C-t" "press:Backspace" $ \answer -> do
         assertEqual "a null keyword" [Nothing] =<< keywordsOf answer
@@ -1690,16 +1200,14 @@ commandKeySpec shell = testGroup "Shell commands"
         assertEqual "the narrowed choice" [Just "DONE"] =<< keywordsOf answer
         echoIs "the pill" "C-c C-t → org-glance-overview:todo (DONE · 1)" answer
 
-    -- C-n is a reserved chord the map never claims; the palette claims it while
-    -- its own field has focus, the way a focused select keeps its arrows.
+    -- C-n is a reserved chord the map never claims; the palette claims it while its own field has focus.
   , testCase "C-n walks the fallback list, and the arrows do the same" $
       mapM_ (\key -> bootOf shell "" 500 "C-c C-t" ("press:/ press:" <> key)
                (assertEqual (T.unpack key <> ": stepped to the second entry")
                             [Just "DONE"] <=< keywordsOf))
             ["C-n press:Enter", "ArrowDown press:Enter"]
 
-    -- One door out of either mode: `/' is entered and never left, so ESC is
-    -- what closes the palette wherever a reader is standing in it.
+    -- `/' is entered and never left, so ESC is the one door out of either mode.
   , testCase "ESC leaves the palette from either mode and writes nothing" $
       mapM_ (\acts -> bootOf shell "" 500 "C-c C-t" acts $ \answer -> do
                assertEqual (T.unpack acts <> ": no command went")
@@ -1713,12 +1221,7 @@ commandKeySpec shell = testGroup "Shell commands"
           =<< textAt "phead" answer
   ]
 
--- | @:@ — the manage-tags popup, which is the page's FOURTH table-view mount
--- and the only MUTABLE one.
---
--- What is pinned here is the page's half: the mount it raises and the shape of
--- it, the coverage column, the removal gesture, the add flow and the rename.
--- The span math is @TestQuery@'s and the routes are @tagCommandSpec@'s.
+-- | @:@ — the manage-tags popup, the page's FOURTH table-view mount and the only MUTABLE one.
   where
     onTable = bootOf shell "" 500 ""
 
@@ -1737,9 +1240,7 @@ tagKeySpec shell =
         assertEqual "under the headers the shell declared" ["Tag", "On", "Rows"]
           =<< textsAt "tcols" answer
 
-    -- A ROW IS A RECORD: the tag, how much of the set carries it, and what the
-    -- whole tree has under it.  The third is the server's count and the one
-    -- number no arithmetic over the rows in hand recovers.
+    -- The tree's count is the server's and the one number no arithmetic over the rows in hand recovers.
   , atBoot tagged "a row is the tag, its coverage and the tree's count" $ \answer -> do
         assertEqual "one row per tag" [["web", "all", "40"]] =<< pairsAt "ttags" answer
         assertEqual "the cursor lands on the first" 0 =<< intAt "tat" answer
@@ -1747,32 +1248,24 @@ tagKeySpec shell =
                     "RET renames · d flags · D removes · + adds · / narrows · ESC leaves"
           =<< textAt "tfoot" answer
 
-    -- MUTABLE, and the flag gesture is what says so.  There is no mark column
-    -- and no page: the set this runs over is the TABLE's and was settled before
-    -- it went up, and every tag of it is on screen.
+    -- MUTABLE, and the flag gesture says so: no mark column and no page.
   , atBoot tagged "the list is mutable: it flags, and says which keys do it" $ \answer -> do
         assertEqual "nothing flagged before a key says so" []
           =<< textsAt "tflagged" answer
         assertEqual "and the flag's own hint names the two keys that answer it"
                     "d/D remove · u unflag" =<< textAt "tflagHelp" answer
 
-    -- The same rows every other keyed write runs over: the marked set where
-    -- there is one, the row at point otherwise.
   , keyed shell "over a marked set it names the whole set, in one request"
       "m m :" "" $ \answer -> do
         assertEqual "the title counts them" "tags · 2 rows" =<< textAt "thead" answer
         assertEqual "and the resolution is one request"
                     ["/tags?ids=r1&ids=r2"] =<< textsAt "tagged" answer
 
-    -- COVERAGE, which is what the letter palette wrote into a muted aside and
-    -- this one gives a column: `all' where the set is level, `k/n' where it is
-    -- not.  `partly' leaves the third row without `web'.
+    -- COVERAGE: `all' where the set is level, `k/n' where it is not.
   , keyed shell "a tag part of the set carries says so in its own cell"
       "" "partly press:m press:m press:m press::" $
         assertEqual "two of the three rows" [["web", "2/3", "40"]] <=< pairsAt "ttags"
 
-    -- The popup browses on the same keys the property panel and the link popup
-    -- do, which is `rowStep' in one place.
   , testCase "n and p walk it, in both spellings" $ do
       let two = "press:m press:m press:: press:+ type:work press:Enter"
       onTable two $ \answer -> do
@@ -1784,8 +1277,6 @@ tagKeySpec shell =
       onTable (two <> " press:k press:j") $
         assertEqual "and back" 1 <=< intAt "tat"
 
-    -- THE DELETION GESTURE, dired's and the page's: `d' flags, `d' again on the
-    -- flagged row IS `D', and the removal goes to every target CARRYING the tag.
   , keyed shell "d flags the tag at point and writes nothing" ":" "press:d" $ \answer -> do
         assertEqual "flagged" ["web"] =<< textsAt "tflagged" answer
         assertEqual "nothing written" [] =<< postedOf answer
@@ -1796,8 +1287,7 @@ tagKeySpec shell =
       "m m m :" "press:d press:d" $ \answer -> do
         assertEqual "over all three" [("remove-tag", ["r1", "r2", "r3"])]
           =<< postedOf answer
-        -- Mounted once and kept, like the panel and the link popup: a write is
-        -- a `setRows' over the same instance, never a second mount.
+        -- Mounted once and kept: a write is a `setRows' over the same instance.
         assertEqual "still one list" 1 =<< intAt "tmounts" answer
         assertEqual "and a repaint for the raise and for what landed" 2
           =<< intAt "tsets" answer
@@ -1815,8 +1305,7 @@ tagKeySpec shell =
         assertEqual "nothing posted on the press alone" [] =<< namesOf answer
         assertEqual "the question is up" "on" =<< textAt "prompt" answer
         assertContains "naming what it will do" "delete" =<< textAt "phead" answer
-        -- THE WORD IS SHOWN UPPERCASE, a wall reading as one, and MATCHED
-        -- FOLDED — what a reader types to get past it is their own business.
+        -- THE WORD IS SHOWN UPPERCASE, a wall reading as one, and MATCHED FOLDED.
         assertContains "and the word to type is spelled as the wall it is"
                        "type DELETE and RET" =<< textAt "pfoot" answer
 
@@ -1830,29 +1319,22 @@ tagKeySpec shell =
                     [("delete", ["r1"])] =<< postedOf answer
         assertEqual "and the question is gone" "" =<< textAt "prompt" answer
 
-    -- ANYTHING BUT THE WORD WRITES NOTHING.  The prompt is the whole of what
-    -- stands between two keystrokes and a file leaving the tree.
   , keyed shell "and anything else writes nothing"
       "" "archived:r1 press:D type:yes press:Enter" $ \answer -> do
         assertEqual "nothing posted" [] =<< namesOf answer
         echoIs "and it says so" "D → org-glance-overview:delete (not deleted)" answer
 
-    -- A MIXED SET ARCHIVES, which moves the whole set one step rather than
-    -- doing two things in one press.  FLAGGED, never marked: `D' reads the
-    -- flags alone, which is what keeps a mark from being a loaded gun.
+    -- A MIXED SET ARCHIVES, one step for the whole set; FLAGGED, never marked.
   , keyed shell "a set only partly archived is archived, not deleted"
       "" "archived:r1 press:d press:n press:d press:D" $ \answer -> do
         assertEqual "archive, over both" [("archive", ["r1", "r2"])] =<< postedOf answer
         assertEqual "and nothing was asked" "" =<< textAt "prompt" answer
 
-    -- And a set EVERY row of which is archived asks, once, for the whole set.
   , keyed shell "a wholly archived set is asked for once"
       "" "archived:r1,r2 press:d press:n press:d press:D type:delete press:Enter" $ \answer -> do
         assertEqual "one delete over both" [("delete", ["r1", "r2"])] =<< postedOf answer
 
-    -- `x' IS `dired-do-flagged-delete', the deliberate half of the pair `D' is
-    -- the quick half of: the FLAGS alone — never the row at point — and it asks
-    -- first, naming the count.
+    -- `x' IS `dired-do-flagged-delete': the FLAGS alone, never the row at point, and it asks first.
   , keyed shell "x takes the flags and asks, naming the count"
       "" "press:d press:n press:d press:x" $ \answer -> do
         assertEqual "nothing posted on the press alone" [] =<< namesOf answer
@@ -1874,17 +1356,13 @@ tagKeySpec shell =
         assertEqual "the flags are where they were" ["r1", "r2"]
           =<< textsAt "flagged" answer
 
-    -- FLAGS ALONE.  `D' falls back to the row at point and `x' does not, which
-    -- is the whole of what makes it the deliberate one.
   , keyed shell "x with nothing flagged writes nothing and says dired's words"
       "" "press:x" $ \answer -> do
         assertEqual "nothing posted" [] =<< namesOf answer
         assertEqual "and nothing asked" "" =<< textAt "prompt" answer
         echoIs "" "x → dired-do-flagged-delete (no deletions requested)" answer
 
-    -- ONE QUESTION, WEIGHTED TO THE ACT.  A wholly archived set is the delete
-    -- path, which has a word of its own — so `x' does not ask twice, and what
-    -- it asks for is the stronger word rather than `yes'.
+    -- ONE QUESTION, WEIGHTED TO THE ACT: a wholly archived set asks for the stronger word instead.
   , keyed shell "x over a wholly archived set asks for the delete word, once"
       "" "archived:r1,r2 press:d press:n press:d press:x" $ \answer -> do
         assertEqual "nothing posted yet" [] =<< namesOf answer
@@ -1901,10 +1379,7 @@ tagKeySpec shell =
         assertEqual "both rows" [("remove-tag", ["r1", "r2"])] =<< postedOf answer
         assertEqual "and the popup stands" "on" =<< textAt "tagpop" answer
 
-    -- Several flags are several commands, since a command names ONE tag — each
-    -- its own per-file batch of atomic writes — and every one of them is aimed
-    -- at the rows carrying THAT tag.  `partly' leaves the third row without
-    -- `web', so the two removals name different sets.
+    -- A command names ONE tag, so several flags are several commands, each over the rows carrying that tag.
   , keyed shell "D over several flagged tags is one command each, over its own rows"
       "" ("partly press:m press:m press:m press:: press:+ type:work press:Enter"
            <> " press:d press:p press:d press:D") $ \answer -> do
@@ -1922,16 +1397,12 @@ tagKeySpec shell =
         assertEqual "nothing written" [] =<< postedOf answer
         echoIs "and the echo says which" "u → tag-unflag (flag cleared)" answer
 
-    -- A HELD `d' must not flag a tag and remove it from ONE press, which is the
-    -- confirmation the two-press shape exists to be.
   , keyed shell "a held d flags once and never removes"
       ":" "press:d repeat:d repeat:d" $ \answer -> do
         assertEqual "nothing written" [] =<< postedOf answer
         assertEqual "and the flag is still just a flag" ["web"]
           =<< textsAt "tflagged" answer
 
-    -- `+' — the add flow, unchanged: one field over the ADDABLE vocabulary,
-    -- which is the tree's tags less the ones every target already carries.
   , keyed shell "+ raises the field over what can be added" ":" "press:+" $ \answer -> do
         assertEqual "the palette is up over the popup" "on" =<< textAt "prompt" answer
         assertEqual "in its typing mode" "narrow" =<< textAt "pmode" answer
@@ -1944,8 +1415,6 @@ tagKeySpec shell =
         assertEqual "and the foot names what RET does there"
                     "RET adds it · C-n/C-p walks · ESC leaves" =<< textAt "pfoot" answer
 
-    -- A tag only SOME of the targets carry stays offered, wearing the coverage
-    -- that says who lacks it: adding it levels the set up, which is a write.
   , keyed shell "a tag some of the set carries is still addable, and says so"
       "" "partly press:m press:m press:m press:: press:+" $
         assertEqual "offered first, wearing its coverage"
@@ -1965,10 +1434,7 @@ tagKeySpec shell =
         assertEqual "the store was not asked again" ["/tags?ids=r1&ids=r2"]
           =<< textsAt "tagged" answer
 
-    -- The field's own RET must not reach the popup underneath it.  The palette
-    -- closes as it commits and its listener runs AHEAD of the popup's, so
-    -- without the claimed-key guard the same press would land on a popup with
-    -- no prompt on it and open the rename over the tag it had just written.
+    -- Without the claimed-key guard the RET that adds would open the rename over the tag it had just written.
   , keyed shell "the RET that adds does not open the rename behind it"
       ":" "press:+ type:work press:Enter" $ \answer -> do
         assertEqual "the tag was added" [("add-tag", ["r1"])] =<< postedOf answer
@@ -1988,8 +1454,6 @@ tagKeySpec shell =
         echoIs "and the pill says why"
           ": → org-agenda-set-tags (:web: is on every row already)" answer
 
-    -- RET IS THE RENAME, through the property panel's edit model: the tag cell
-    -- becomes a field over itself, opened on the text it holds.
   , keyed shell "RET opens the tag at point over itself" ":" "press:Enter" $ \answer -> do
         assertEqual "the overlay is up" True =<< boolAt "trename" answer
         assertEqual "holding the tag it opened on" "web" =<< textAt "tname" answer
@@ -2014,8 +1478,7 @@ tagKeySpec shell =
                     ["headline \"one\" retagged web→code", "headline \"two\" retagged web→code"]
                     (drop (length lines' - 2) lines')
 
-    -- The typed name is folded, because presence is, and a name that does not
-    -- move costs no round trip.
+    -- The typed name is folded, because presence is, and a name that does not move costs no round trip.
   , testCase "a rename to the same name writes nothing" $
       mapM_ (\typed -> bootOf shell "" 500 ":" ("press:Enter tname:" <> typed
                                                 <> " press:Enter") $ \answer -> do
@@ -2025,8 +1488,6 @@ tagKeySpec shell =
                            ": → org-agenda-set-tags (unchanged)" =<< textAt "echo" answer)
             ["web", "WEB", ""]
 
-    -- ESC over the overlay is the ROW's, and only from the popup does the key
-    -- reach the popup — the ladder the property panel's open row already walks.
   , testCase "ESC leaves the rename a rung at a time" $ do
       bootOf shell "" 500 ":" "press:Enter tname:code press:Escape" $ \answer -> do
         assertEqual "nothing was written" [] =<< postedOf answer
@@ -2037,11 +1498,7 @@ tagKeySpec shell =
       bootOf shell "" 500 ":" "press:Enter press:Escape press:Escape" $
         assertEqual "a second ESC closes it" "" <=< textAt "tagpop"
 
-    -- THE TAG A COMMIT RENAMES IS THE TAG THE OVERLAY OPENED OVER.  No key can
-    -- move the cursor while the field is up, but a MOUSE CLICK can, and a commit
-    -- that re-read the cursor would rename whichever tag the reader landed on
-    -- with the name typed for another.  The overlay snapshots at open, and the
-    -- property panel's row edit now answers the same way off the same mechanism.
+    -- THE TAG A COMMIT RENAMES IS THE TAG THE OVERLAY OPENED OVER: no key moves the cursor under a field, a MOUSE CLICK does.
   , keyed shell "a click under an open rename still renames the tag it opened on"
       "" ("press:m press:m press:: press:+ type:work press:Enter"
            <> " press:Enter tname:renamed click:0 press:Enter") $ \answer -> do
@@ -2065,16 +1522,13 @@ tagKeySpec shell =
         assertEqual "nothing was written" [] =<< postedOf answer
         assertEqual "the popup is down" "" =<< textAt "tagpop" answer
 
-    -- THE LETTERS ARE GONE.  The state palette keeps them; a tag list is read
-    -- rather than committed from memory, so a bare letter here is nobody's.
+    -- THE LETTERS ARE GONE: a tag list is read rather than committed from memory.
   , keyed shell "a letter commits nothing, the which-key list having gone"
       ":" "press:w press:a press:b" $ \answer -> do
         assertEqual "no command went" [] =<< postedOf answer
         assertEqual "no value palette either" "" =<< textAt "prompt" answer
         assertEqual "and the popup is still up" "on" =<< textAt "tagpop" answer
 
-    -- While it is up every `table' row is dead, so the keys the popup does not
-    -- claim reach nothing at all.
   , keyed shell "the table's own keys are inert while the popup is up"
       ":" "press:m press:M press:U press:t" $ \answer -> do
         assertEqual "nothing was marked" [] =<< textsAt "marked" answer
@@ -2082,9 +1536,7 @@ tagKeySpec shell =
         assertEqual "no command was posted" [] =<< namesOf answer
         assertEqual "and no state palette went up" "" =<< textAt "prompt" answer
 
-    -- And the popup's own keys are dead while its `+' field is up, which is
-    -- what the listener's `prompting' guard buys: `d' narrows the field rather
-    -- than flagging the tag underneath it.
+    -- The popup's own keys are dead under its `+' field, which is the listener's `prompting' guard.
   , keyed shell "and the popup's own keys are dead under its field"
       ":" "press:+ press:d" $ \answer -> do
         assertEqual "nothing was flagged" [] =<< textsAt "tflagged" answer
@@ -2098,9 +1550,6 @@ tagKeySpec shell =
                     "nothing tagged here · + adds one · ESC leaves"
           =<< textAt "tfoot" answer
 
-    -- And `RET' over it opens NOTHING and names the command that had no row —
-    -- the one guard both browsing popups raise their overlay through, so an
-    -- empty list cannot get a field laid over a row that is not there.
   , keyed shell "and RET over an empty one opens nothing and says so"
       "" "untagged press:: press:Enter" $ \answer -> do
         assertEqual "no overlay" False =<< boolAt "trename" answer
@@ -2118,10 +1567,7 @@ tagKeySpec shell =
         assertEqual "no popup" "" =<< textAt "tagpop" answer
         echoIs "the pill says which" ": → org-agenda-set-tags (no such row)" answer
 
-    -- THE LIST REFRESHES FROM THE ANSWER, never from a re-read: `/command' does
-    -- not write the store — the watch does, a debounce later — so asking
-    -- `/tags' again would report what the files said BEFORE the write.  The
-    -- fake store still says every row carries `web' when this reads the list.
+    -- THE LIST REFRESHES FROM THE ANSWER: `/command' does not write the store, so `/tags' would report the pre-write files.
   , keyed shell "the list is what landed, and the store is not asked twice"
       "m m :" "press:d press:d" $ \answer -> do
         assertEqual "the one resolution, and no second" ["/tags?ids=r1&ids=r2"]
@@ -2130,7 +1576,6 @@ tagKeySpec shell =
           =<< pairsAt "ttags" answer
   ]
 
--- | The pair each posted @rename-tag@ carried.
   where
     onTable = bootOf shell "" 500 ""
 
@@ -2138,24 +1583,13 @@ renamesPosted :: Value -> IO [(T.Text, T.Text)]
 renamesPosted = traverse one <=< argsOf
   where one v = (,) <$> textAt "from" v <*> textAt "to" v
 
--- | The tag each posted command carried.
 tagsPosted :: Value -> IO [T.Text]
 tagsPosted = traverse (textAt "tag") <=< argsOf
 
--- | The two keys that collect a LINE rather than pick from a list: @+@ and the
--- reschedule chords.  They raise the same overlay the value palette does, in
--- its text mode — no list, no letters, RET commits what was typed.
---
--- What is pinned here is the page's half: which body each key posts, that both
--- chords are claimed off the browser, and that the log names what landed.  The
--- date grammar is the server's and is @TestQuery@'s subject.
+-- | The two keys that collect a LINE rather than pick from a list: @+@ and the reschedule chords.
 promptKeySpec :: IO T.Text -> TestTree
 promptKeySpec shell = testGroup "Shell capture and reschedule"
-    -- `+' RAISES ONE FORM, whole: tag field, the template's grown fields, the
-    -- line.  The chain of palettes it replaces closed and reopened the overlay
-    -- per step, which read as a blink.  An immediate RET settles the EMPTY tag
-    -- — the untagged inbox path exactly as it was — and RET at the line is the
-    -- capture, after which the form is down.
+    -- `+' RAISES ONE FORM, whole: tag field, the template's grown fields, the line.
   [ keyed shell "+ is one form, and an empty tag is the inbox"
       "+" "press:Enter ktext:milk press:Enter" $ \answer -> do
         assertEqual "the vocabulary came off the server" ["/capture"]
@@ -2170,10 +1604,7 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
           =<< lastLog answer
         assertEqual "the form is down on the 200" "" =<< textAt "capture" answer
 
-    -- A TAG WITH A TEMPLATE grows that template's own fields in place, in the
-    -- order the server named them, and the answers ride in `fields'.  This
-    -- page holds no template grammar: what it asks is what `/capture?tag='
-    -- said to ask — and the form stays up throughout, one surface end to end.
+    -- This page holds no template grammar: what it asks is what `/capture?tag=' said to ask.
   , keyed shell "a tag's template grows its fields in place"
       "+" "ktag:book press:Enter kf:Herbert press:Enter ktext:Dune press:Enter"
       $ \answer -> do
@@ -2187,19 +1618,13 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         echoIs "the pill names the tag rather than a file"
           "+ → org-glance-overview:capture (captured · :book:)" answer
 
-    -- THE VIEW'S OWN TAG IS THE DEFAULT.  Capturing from a table filtered to one
-    -- tag almost always means another entry of that kind, so the field opens
-    -- carrying it and its template is the one that expands — settled at once,
-    -- so the asks are on screen before the reader types.  A SUGGESTION: the
-    -- field is focused and ordinary, so backspacing to the inbox is one key.
+    -- THE VIEW'S OWN TAG IS THE DEFAULT, and a SUGGESTION: backspacing to the inbox is one key.
   , keyedAt shell "?q=tag%3Abook" 500 "the capture form opens on the filter's tag"
       "" "press:+" $ \answer -> do
         assertEqual "the field carries it" "book" =<< textAt "ktag" answer
         assertEqual "and it was resolved without a keystroke"
                     ["/capture", "/capture?tag=book"] =<< textsAt "capturing" answer
 
-    -- Only for a tag a capture could WEAR.  A negation says which kind this is
-    -- not, an alternation names no one kind, and a starred word is a meta.
   , keyedAt shell "?q=-tag%3Abook%20tag%3Aa%7Cb%20tag%3A*archive*" 500
       "a negated, alternated or starred tag seeds nothing"
       "" "press:+" $ \answer -> do
@@ -2207,8 +1632,6 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         assertEqual "and nothing was resolved" ["/capture"]
           =<< textsAt "capturing" answer
 
-    -- A tag NOBODY configured grows nothing: the server answers no prompts and
-    -- the settle moves the focus straight to the line.
   , keyed shell "a tag with no template goes straight to the line"
       "+" "ktag:web press:Enter ktext:milk press:Enter" $ \answer -> do
         assertEqual "resolved all the same" ["/capture", "/capture?tag=web"]
@@ -2216,8 +1639,7 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         assertEqual "the line as typed" ["milk"] =<< capturedOf answer
         assertEqual "under the tag" [Just "web"] =<< taggedOf answer
 
-    -- ESC ANYWHERE CLOSES THE FORM with nothing sent — one surface, one door
-    -- out, the keymap's own `cancel' through `SURFACES'.
+    -- ESC ANYWHERE CLOSES THE FORM: one surface, one door out, the keymap's own `cancel'.
   , keyed shell "ESC at the tag field writes nothing"
       "+" "press:Escape" $ \answer -> do
         assertEqual "no command went" [] =<< namesOf answer
@@ -2235,8 +1657,7 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         assertEqual "no command went" [] =<< namesOf answer
         assertEqual "the form is down" "" =<< textAt "capture" answer
 
-    -- An empty line is refused on the spot and the form STAYS: what is typed
-    -- is kept for fixing, and the 200 alone closes it.
+    -- The form STAYS on a refusal, everything typed kept; the 200 alone closes it.
   , keyed shell "an empty line captures nothing and says so"
       "+" "press:Enter press:Enter" $ \answer -> do
         assertEqual "no command went" [] =<< namesOf answer
@@ -2251,21 +1672,12 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
           =<< lastLog answer
         assertEqual "everything typed is still there" "on" =<< textAt "capture" answer
 
-    -- THE LANDING: the answer names the row the write made, and point goes to it
-    -- when the watch delivers it.  `land''s ordinary rule and no second one — a
-    -- row the view has not got leaves the cursor where it stands.
   , keyed shell "the captured row is where point lands when it arrives"
       "+" "press:Enter ktext:milk press:Enter frame:upsert=r3 wait:300" $ \answer ->
         assertEqual "point is on the row the capture made" (Just "r3")
           =<< maybeTextAt "selected" answer
 
-    -- THE WHOLE FORM FOR A TAGGED CAPTURE, which is the one the daemon's nudge
-    -- unblocked: the blob it writes sits under directories fsnotify never
-    -- entered, so before the nudge no frame was coming and this landing had
-    -- nothing to land on until a restart.  Every link is asserted here — the
-    -- tag resolved, the command posted under it, the answer's id kept, the
-    -- frame delivering that very row, and point moving off the boot's row one
-    -- onto it.
+    -- THE WHOLE FORM FOR A TAGGED CAPTURE: the blob sits under directories fsnotify never entered, so the nudge is what delivers it.
   , keyed shell "a tagged capture lands point on the blob when the watch delivers it"
       "+" "ktag:book press:Enter kf:Herbert press:Enter ktext:Dune press:Enter\
           \ frame:upsert=r3 wait:300" $ \answer -> do
@@ -2275,13 +1687,8 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         assertEqual "point left the row the boot landed on" (Just "r3")
           =<< maybeTextAt "selected" answer
         assertEqual "which is the third row" 2 =<< intAt "cursor" answer
-        -- The boot is the default view, so it is FILTERED: the frame schedules
-        -- the refetch rather than splicing, and the landing still holds across
-        -- it because `arriving' is spent at whichever of the three doors comes.
         assertEqual "nothing was spliced under the filter" [] =<< textsAt "spliced" answer
 
-    -- The chords survive the browser where `C-c C-t' does not, and what the
-    -- page owes is the same: both halves claimed off it.
   , testCase "both reschedule chords are claimed, and name the keyword" $
       mapM_ (\(keys, chord, keyword) ->
                bootOf shell "" 500 keys "" $ \answer -> do
@@ -2304,8 +1711,6 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         assertEqual "and the log names the row"
                     (Just "headline \"one\" scheduled +3d") =<< lastLog answer
 
-    -- An empty line is the clear: the entry comes off, and the server drops the
-    -- line with it when it was the last one.
   , keyed shell "an empty line clears the entry" "C-c C-d" "press:Enter" $ \answer -> do
         assertEqual "a null date" [("DEADLINE", Nothing)] =<< plannedOf answer
         echoIs "the pill says which"
@@ -2313,7 +1718,6 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         assertEqual "and so does the log"
                     (Just "headline \"one\" deadline cleared") =<< lastLog answer
 
-    -- The marked set, like every other command that names rows.
   , keyed shell "over a marked set it names the whole set"
       "m m C-c C-s" "type:today press:Enter" $ \answer -> do
         assertEqual "the marked pair" [("set-planning", ["r1", "r2"])] =<< postedOf answer
@@ -2321,47 +1725,31 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
           =<< textAt "phead" answer
   ]
 
--- | The command names the page posted, in order — what a capture is read by,
--- since it names no rows for 'postedOf' to report.
 namesOf :: Value -> IO [T.Text]
 namesOf answer = traverse (textAt "name") =<< listAt "commands" answer
 
--- | The @args@ object of each posted command, which the three readers below cut
--- their own field out of.
 argsOf :: Value -> IO [Value]
 argsOf answer = traverse (field "args") =<< listAt "commands" answer
 
--- | The line each posted capture carried.
 capturedOf :: Value -> IO [T.Text]
 capturedOf = traverse (textAt "text") <=< argsOf
 
--- | The tag each posted @capture@ filed under, 'Nothing' for the inbox path —
--- a SPARSE field, absent rather than null where there is none.
+-- | The tag each posted @capture@ filed under, 'Nothing' for the inbox — a SPARSE field, absent rather than null.
 taggedOf :: Value -> IO [Maybe T.Text]
 taggedOf = traverse (sparseTextAt "tag") <=< argsOf
 
--- | What each posted command answered for the template prompt NAME, 'Nothing'
--- where its args carried no @fields@ at all or no answer for that one.
 answeredOf :: T.Text -> Value -> IO [Maybe T.Text]
 answeredOf name = traverse one <=< argsOf
   where one v = maybe (pure Nothing) (sparseTextAt name) =<< sparseAt "fields" v
 
--- | The keyword and date each posted @set-planning@ carried.
 plannedOf :: Value -> IO [(T.Text, Maybe T.Text)]
 plannedOf = traverse one <=< argsOf
   where one v = (,) <$> textAt "keyword" v <*> maybeTextAt "date" v
 
--- | The message on the last line of the event strip, or 'Nothing' where it has
--- none.
 lastLog :: Value -> IO (Maybe T.Text)
 lastLog answer = fmap (message . cut) . listToMaybe . reverse <$> logOf answer
 
--- | @o@: what the row points at, followed.
---
--- The gesture is decided by the ANSWER — none refuses, one opens without
--- asking, several raise the POPUP — so every case here runs the fetch and
--- reads what came of it.  Which links a subtree holds is @TestQuery@'s
--- ("Links") and the route's shape is @linksSpec@'s; this is the keystroke.
+-- | @o@: what the row points at, followed — the ANSWER decides the gesture.
 openKeySpec :: IO T.Text -> TestTree
 openKeySpec shell =
   overBoot shell "o" "" $ \opened ->
@@ -2372,9 +1760,7 @@ openKeySpec shell =
 
   , keyed shell "! is the same command, and reaches it the same way" "!" "" $ \answer -> do
         assertEqual "the same request" ["/links?id=r1"] =<< textsAt "linked" answer
-        -- Raising a palette is not a landing, so the pill still carries what
-        -- `run\' says of the row — the command and its help — the way it does
-        -- while the state palette is up.  The landing is the letter.
+        -- Raising a palette is not a landing, so the pill still carries what `run' says of the row.
         assertEqual "under the same name"
                     ("! → org-glance-overview:open · open links: the row here,"
                        <> " the element in the sheet; several list them")
@@ -2395,10 +1781,7 @@ openKeySpec shell =
         assertEqual "no palette either" "" =<< textAt "prompt" answer
         echoIs "and the pill says why" "o → org-glance-overview:open (no links)" answer
 
-    -- Several is the POPUP, and the popup is the page's THIRD table-view mount.
-    -- A list of links is a list of RECORDS — a kind, a name, a destination —
-    -- and reading it is how a reader picks one, which is the browse gesture a
-    -- which-key letter is the wrong shape for.
+    -- Several is the POPUP: a list of links is a list of RECORDS, which a which-key letter is the wrong shape for.
   , atBoot opened "several raise the popup, which is a table-view mount" $ \answer -> do
         assertEqual "raised" "on" =<< textAt "popup" answer
         assertEqual "no value palette went up" "" =<< textAt "prompt" answer
@@ -2408,9 +1791,6 @@ openKeySpec shell =
         assertEqual "under the headers the shell declared" ["Type", "Title", "Target"]
           =<< textsAt "lcols" answer
 
-    -- The rows carry the server's own three answers, in the order the subtree
-    -- writes them: the type it derived, the description the entry itself wrote,
-    -- and where it points.
   , atBoot opened "the rows are the answer, type and all" $ \answer -> do
         assertEqual "one row per link"
           [ ["https", "First reference", "https://one.example/a"]
@@ -2421,14 +1801,11 @@ openKeySpec shell =
         assertEqual "and the foot names the three keys that work"
                     "RET edits · o opens it · / narrows · ESC leaves" =<< textAt "lfoot" answer
 
-    -- READ-ONLY: nothing here writes, so there is no flag hint to draw and no
-    -- gesture the popup would answer with one.
+    -- READ-ONLY: nothing here writes, so there is no flag hint to draw.
   , atBoot opened "the list is read-only: it names no flag keys" $ \answer ->
         assertEqual "no flag hint under it" "" =<< textAt "lflagHelp" answer
 
-    -- The whole point of `typing()' counting the popup: every `table' row is
-    -- dead under it, so the keys that WRITE do nothing at all while a reader is
-    -- browsing links.  Asserted over the four that would otherwise cost a file.
+    -- The whole point of `typing()' counting the popup: every `table' row is dead under it.
   , keyed shell "the write keys are inert while the popup is up"
       "o" "press:d press:D press:m press:M press:u press:U" $
         \answer -> do
@@ -2447,8 +1824,6 @@ openKeySpec shell =
       bootOf shell "" 500 "o" "press:ArrowDown" $
         assertEqual "the arrows too" 1 <=< intAt "lat"
 
-    -- `o' is the key that raised this, carried inside: it opens the link the
-    -- cursor is on rather than the row's first, and closes.
   , keyed shell "o opens the link at point and closes the popup"
       "o" "press:n press:o" $ \answer -> do
         assertEqual "the second one" [("https://two.example/b", "_blank", "noopener")]
@@ -2461,10 +1836,7 @@ openKeySpec shell =
         assertEqual "nothing opened" [] =<< openedOf answer
         assertEqual "the popup is down" "" =<< textAt "popup" answer
 
-    -- `RET' EDITS the link at point in place: the row's own title and url cells
-    -- become fields over themselves, which is the property panel's edit model
-    -- and the third surface to declare a shape for it.  The type cell is the
-    -- server's word for the target and never opens.
+    -- `RET' EDITS the link at point in place, on the property panel's edit model.
   , keyed shell "RET opens the link at point over its own two cells"
       "o" "press:Enter" $ \answer -> do
         assertEqual "the overlay is up" True =<< boolAt "lopen" answer
@@ -2483,10 +1855,7 @@ openKeySpec shell =
       bootOf shell "" 500 "o" "press:Enter press:Tab press:Tab" $
         assertEqual "and back" "lurl" <=< textAt "focus"
 
-    -- THE COMMIT is `edit-link' over the SPAN the server handed out, pinned to
-    -- the digest that same answer carried: this page holds no bracket grammar
-    -- and no offsets of its own, so what it sends back is the range it was
-    -- given and the two strings a reader typed.
+    -- This page holds no bracket grammar and no offsets of its own: it sends back the range it was given.
   , atBoot committed "RET commits the span the server gave, under the digest it came with" $
         \answer -> do
           assertEqual "one command, naming the row the popup was raised over"
@@ -2499,10 +1868,7 @@ openKeySpec shell =
           assertEqual "and the digest that answer carried" "d0"
             =<< textAt "r1" =<< field "digests" cmd
 
-    -- ABSENT IS NOT NULL, and the field the reader left alone is what says so:
-    -- the description field opens on what the link SHOWS, which for a link with
-    -- none of its own is its target, so sending that back would spell the
-    -- target into a description.
+    -- ABSENT IS NOT NULL: the description field opens on what the link SHOWS, which for a desc-less link is its target.
   , atBoot committed "a description nobody moved is not sent at all" $
         \answer -> do
           [cmd] <- listAt "commands" answer
@@ -2524,10 +1890,7 @@ openKeySpec shell =
           args <- field "args" cmd
           assertEqual "the text" "renamed" =<< textAt "desc" args
 
-    -- The popup CLOSES on the press, both outcomes alike, which is `o'\''s own
-    -- rule — and it has to: the spans it holds describe the file as it was, and
-    -- the write has just moved it.  `o' again is one keystroke and comes back
-    -- with fresh ones.
+    -- The popup CLOSES on the press, both outcomes alike: the spans describe a file the write has just moved.
   , atBoot committed "the commit closes the popup, and the log names both ends" $
         \answer -> do
           assertEqual "the popup is down" "" =<< textAt "popup" answer
@@ -2564,11 +1927,7 @@ openKeySpec shell =
   , keyed shell "and a second ESC closes the popup" "o" "press:Enter press:Escape press:Escape" $
         assertEqual "down" "" <=< textAt "popup"
 
-    -- THE HAZARD THE SHARED MECHANISM ANSWERS, on the third surface: no KEY can
-    -- move the cursor under an open field, but a MOUSE CLICK can, and a commit
-    -- that re-read the cursor would send the text typed for one link against
-    -- another link's span.  The commit is handed the row the overlay OPENED
-    -- over, so the click moves nothing.
+    -- No KEY can move the cursor under an open field, but a MOUSE CLICK can.
   , keyed shell "a click under an open link cannot redirect the write"
       "o" "press:Enter lurl:https://new.example click:2 press:Enter" $
         \answer -> do
@@ -2579,8 +1938,7 @@ openKeySpec shell =
           assertEqual "and the target is what was typed for it" "https://new.example"
             =<< textAt "target" args
 
-    -- A held key must not be a browser tab per repeat, which is why the command
-    -- is on the ONCE list beside the writes.
+    -- A held key must not be a browser tab per repeat, which is why the command is on the ONCE list.
   , keyed shell "a held o asks once" "o" "repeat:o repeat:o repeat:o" $
         assertEqual "one request" ["/links?id=r1"] <=< textsAt "linked"
 
@@ -2591,12 +1949,7 @@ openKeySpec shell =
         assertEqual "and the log carries the server's own words"
                     (Just "open failed: no headline with id r1") =<< lastLog answer
 
-    -- A tab can be pointed at http(s) and at nothing else, and the TYPE is what
-    -- says so — the server's own word rather than a regex this page runs over
-    -- the target a second time.  Org writes plenty of other link types and
-    -- `/links' reports them all, so the COMMIT is where the judgement lands,
-    -- which is one function for both paths: the lone link that opens without
-    -- asking and the popup row `o' picks.
+    -- A tab can be pointed at http(s) and nothing else, and the TYPE says so — the server's own word.
   , keyed shell "a single link that is not http(s) opens nothing and says so"
       "" "onemailto press:o" $ \answer -> do
         assertEqual "no tab" [] =<< openedOf answer
@@ -2608,8 +1961,6 @@ openKeySpec shell =
                     (Just "link type not implemented: mailto:t@example.org")
           =<< lastLog answer
 
-    -- The popup still LISTS every link the row holds — that is what teaches a
-    -- reader what is in the entry — and `o' is where the answer is given.
   , keyed shell "an o on a non-http row refuses the same way"
       "o" "press:n press:n press:o" $ \answer -> do
         assertEqual "nothing opened" [] =<< openedOf answer
@@ -2621,20 +1972,12 @@ openKeySpec shell =
         assertEqual "the first one" [("https://one.example/a", "_blank", "noopener")]
           <=< openedOf
 
-    -- Every type the server derives, drawn.  The badge column carries whatever
-    -- word came back — the six the palette declares hues for and the catch-all
-    -- alike — because a type this page has never seen is still a fact about the
-    -- link and hiding it would teach less than showing it uncoloured.
+    -- A type this page has never seen is still a fact about the link, so it is drawn uncoloured.
   , keyed shell "every type the server derives reaches the badge cell" "" "everytype press:o" $
         assertEqual "one word per row"
           ["https", "http", "glance", "mailto", "id", "file", "other"]
           . map head <=< pairsAt "llinks"
 
-    -- One walk down the same popup, `o' on every row: the two followable rows
-    -- open the tab that row points at and the five others open none, each
-    -- saying so by name.  The steps are the table's own, so what this asserts
-    -- is `followable' reading the type — one rule over seven values rather than
-    -- two cases and a list of exceptions.
   , testCase "and only the followable ones open a tab" $
       forM_ [ (0 :: Int, "https://a.example", True)
             , (1, "http://b.example",         True)
@@ -2653,13 +1996,7 @@ openKeySpec shell =
                   (Just ("link type not implemented: " <> target)) =<< lastLog answer
   ]
 
--- | @\/@: the narrow every small list takes.
---
--- ONE PROGRAM, FOUR MOUNTS, so the gesture is asserted over two of them — the
--- link popup, which is read-only, and the sheet's property panel, which writes
--- — plus the tags popup where a narrow matches nothing at all.  What is being
--- read is the LIST's own field: it is drawn by the program that holds the rows,
--- so a mount that never went up has none.
+-- | @\/@: the narrow every small list takes — ONE PROGRAM, FOUR MOUNTS.
 narrowSpec :: IO T.Text -> TestTree
 narrowSpec shell =
   overBoot shell "o" "press:/" $ \opened ->
@@ -2675,16 +2012,13 @@ narrowSpec shell =
         echoIs "the pill names the table's own command, one list in"
                "/ → filter-rows" answer
 
-    -- SUBSTRING, CASE-FOLDED, over the cells the list DRAWS — the producer's
-    -- own rule for free text, and no grammar of any kind.
+    -- SUBSTRING, CASE-FOLDED, over the cells the list DRAWS, and no grammar of any kind.
   , atBoot narrowed "it narrows to the rows the text is in, folded" $ \answer -> do
         assertEqual "the one whose title spells it"
           [["https", "Second reference", "https://two.example/b"]]
           =<< pairsAt "llinks" answer
         assertEqual "and the cursor is on it" 0 =<< intAt "lat" answer
 
-    -- The field holds the LETTERS while it has the focus, so every key the
-    -- popup binds is the reader's typing until `RET' gives them back.
   , keyed shell "the popup's own keys are suspended under the field"
       "o" "press:/ narrow:second press:o press:d press:q" $ \answer -> do
         assertEqual "no tab was opened" [] =<< openedOf answer
@@ -2706,8 +2040,7 @@ narrowSpec shell =
         assertEqual "`o' opens the match rather than the row `/' was pressed on"
           [("https://two.example/b", "_blank", "noopener")] =<< openedOf answer
 
-    -- ESC IS A LADDER: the narrow is a rung under the popup, so the first press
-    -- clears it and the second steps out.
+    -- ESC IS A LADDER: the narrow is a rung under the popup.
   , keyed shell "ESC clears the narrow and leaves the popup up"
       "o" "press:/ narrow:second press:Escape" $ \answer -> do
         assertEqual "no field is left" [] =<< pairsAt "narrows" answer
@@ -2720,29 +2053,25 @@ narrowSpec shell =
       "o" "press:/ narrow:second press:Escape press:Escape" $
         assertEqual "the popup is down" "" <=< textAt "popup"
 
-    -- `DEL' is the same ladder, since it is already the popup's step-out key.
   , keyed shell "DEL clears the narrow before it closes the popup"
       "o" "press:/ narrow:second press:Enter press:Backspace" $ \answer -> do
         assertEqual "the narrow went" [] =<< pairsAt "narrows" answer
         assertEqual "the popup stands" "on" =<< textAt "popup" answer
 
-    -- Under the FIELD it is the field's own erase, which is the one place the
-    -- ladder does not reach: a character is being taken back.
+    -- Under the FIELD it is the field's own erase, the one place the ladder does not reach.
   , keyed shell "DEL inside the field erases rather than steps out"
       "o" "press:/ narrow:second press:Backspace" $ \answer -> do
         assertEqual "the popup is untouched" "on" =<< textAt "popup" answer
         assertEqual "and the field still holds the keys"
                     "narrow:ltable" =<< textAt "focus" answer
 
-    -- A NARROW BELONGS TO THE QUESTION IT WAS TYPED OVER: the next raise is
-    -- another row's links.
+    -- A NARROW BELONGS TO THE QUESTION IT WAS TYPED OVER.
   , keyed shell "a popup that closes takes its narrow with it"
       "o" "press:/ narrow:second press:Enter press:q press:o" $ \answer -> do
         assertEqual "the field is gone" [] =<< pairsAt "narrows" answer
         assertEqual "and the list came back whole" 3 . length
           =<< pairsAt "llinks" answer
 
-    -- THE SECOND MOUNT: the sheet's property panel, which writes.
   , keyed shell "the sheet's property panel narrows the same way"
       "Enter" "press:Tab press:/ narrow:eff" $ \answer -> do
         assertEqual "the one row spelling it" [["EFFORT", "0:30"]]
@@ -2751,9 +2080,7 @@ narrowSpec shell =
         assertEqual "and the panel's field is the one holding the keys"
                     "narrow:mptable" =<< textAt "focus" answer
 
-    -- FLAGS ARE ID-KEYED AND SURVIVE A NARROW, exactly as they do under the
-    -- table's own filter: a row the narrow is hiding is still in the set `D'
-    -- takes.
+    -- FLAGS ARE ID-KEYED AND SURVIVE A NARROW, as they do under the table's own filter.
   , keyed shell "a flag laid before the narrow is still taken by D"
       "Enter" "press:Tab press:d press:/ narrow:eff press:Enter press:D press:Escape" $
         \answer -> do
@@ -2761,8 +2088,6 @@ narrowSpec shell =
                     [["EFFORT", "0:30"]] answer
           assertEqual "and the flag was spent" [] =<< textsAt "pflagged" answer
 
-    -- AND THE FOURTH MOUNT, the settings sheet's states table: one program, so
-    -- the gesture arrived there with nothing written for it.
   , keyed shell "the states table narrows too, over the cells it draws"
       "," "ctab:theme press:/ narrow:read" $ \answer -> do
         assertEqual "the two states spelling it, in the layer's own order"
@@ -2771,8 +2096,7 @@ narrowSpec shell =
         assertEqual "and it is the states table's own field"
                     [["cstates", "read"]] =<< pairsAt "narrows" answer
 
-    -- A NARROW MATCHING NOTHING has no cursor to offer, and the surface says so
-    -- rather than acting on a row nobody can see.
+    -- A NARROW MATCHING NOTHING has no cursor to offer, and the surface says so.
   , keyed shell "a narrow that matches nothing leaves no row to act on"
       "" "press:: press:/ narrow:zzz press:Enter press:d" $ \answer -> do
         assertEqual "no rows are drawn" [] =<< pairsAt "ttags" answer
@@ -2781,23 +2105,16 @@ narrowSpec shell =
                "d → org-toggle-tag (no tag)" answer
   ]
 
--- | The @span@ an @edit-link@ body carries, as the pair of offsets it is.
 spanOf :: Value -> IO [Int]
 spanOf args = traverse number =<< listAt "span" args
   where number (Number n) = pure (round n)
         number other = assertFailure ("expected a number in span, got " <> show other)
 
--- | Every tab the page opened: the URL, the target name and the window features
--- — @noopener@ being half of what makes following a link safe.
 openedOf :: Value -> IO [(T.Text, T.Text, T.Text)]
 openedOf answer = traverse one =<< listAt "opened" answer
   where one v = (,,) <$> textAt "url" v <*> textAt "target" v <*> textAt "features" v
 
--- | @a@: the agenda, which is a canned VIEW rather than a mode.
---
--- One query through the door @g@ uses — into the URL, asked of the server,
--- mounted as the renderer's chips — and its ORDER is a token of that query
--- rather than a call behind the answer, so the whole view is one string.
+-- | @a@: the agenda, a canned VIEW rather than a mode, applied through the door @g@ uses.
 agendaSpec :: IO T.Text -> TestTree
 agendaSpec shell = testGroup "Shell agenda"
   [ keyedAt shell "?q=" 500 "applies its query the way g applies the tree's default"
@@ -2809,10 +2126,7 @@ agendaSpec shell = testGroup "Shell agenda"
         urlIs "and the URL it settles on is that query"
           "?q=state%3A*active*+-planned%3A*empty*+sort%3Ascheduled" answer
 
-    -- The order is IN the query, so the server answers page one in it and the
-    -- renderer reads the chain off the same string.  Nothing is asked of the
-    -- handle: a canned view that had to call for its order could state one the
-    -- query it applied did not.
+    -- The order is IN the query, so nothing is asked of the handle: a call could state an order the query did not.
   , keyedAt shell "?q=" 500 "the rows land in scheduled order, and the query is what says so"
       "A" "" $ \answer -> do
         assertEqual "the chain the query named" [("scheduled", True)]
@@ -2820,9 +2134,6 @@ agendaSpec shell = testGroup "Shell agenda"
         assertEqual "and no sort was asked of the renderer" 0
           =<< intAt "sortCalls" answer
 
-    -- DEL walks out of the order the way it walks out of the filter: the sort
-    -- token is the query's last one, so one press takes it off and the answer
-    -- comes back in the view's own order.
   , keyedAt shell "?q=" 500 "and DEL takes the order back off, one token like any other"
       "A" "press:Backspace" $ \answer -> do
         urlIs "the query the strip left" "?q=state%3A*active*+-planned%3A*empty*" answer
@@ -2838,33 +2149,21 @@ agendaSpec shell = testGroup "Shell agenda"
   , keyedAt shell "?q=" 1 "one row is one row" "A" "" $
         echoIs "singular" "A → org-glance-agenda (agenda · 1 row)"
 
-    -- An asset with no sort calls at all applies the same view: the order is a
-    -- token of the query, so there is nothing for this page to ask for and
-    -- nothing to feature-detect on the way in.  What an old asset loses is the
-    -- ORDER, which the server still answers in.
   , keyedAt shell "?q=" 500 "an asset without a programmatic sort still applies the view"
       "" "sortless press:A" $ \answer -> do
         assertEqual "no sort was asked for" Nothing =<< sortOf answer
         urlIs "the query still went, order and all"
           "?q=state%3A*active*+-planned%3A*empty*+sort%3Ascheduled" answer
 
-    -- `g' is the way home, and it is the way home from here like anywhere else.
   , keyedAt shell "?q=" 500 "g returns to the tree's default view" "a g" "" $
         urlIs "the last query asked for is the default's" "?q=state%3A*active*"
 
-    -- The landing is armed for ONE boot: a second remount that nobody asked an
-    -- agenda of must not re-sort and must not echo a count.
+    -- The landing is armed for ONE boot: a second remount must not re-sort or echo a count.
   , keyedAt shell "?q=" 500 "the landing is spent by the boot it was armed for"
       "A" "close:view-changed" $ \answer -> do
         echoIs "the remount behind the close echoed no agenda"
           "A → org-glance-agenda (agenda · 500 rows)" answer
-        -- The echo pill's FINAL text cannot see this regression: it is
-        -- last-writer-wins, so an unspent landing re-runs the agenda and writes
-        -- the very string above.  Neither can the fetches — the remount
-        -- revalidates the APPLIED query either way — nor `sortCalls', the order
-        -- being a token of the query rather than a call.  The one trace a
-        -- second run leaves is a second WRITE, so the assertion is over the
-        -- echo's history.
+        -- The pill is last-writer-wins, so the one trace a second run leaves is a second WRITE.
         wrote <- textsAt "echoes" answer
         assertEqual ("the agenda landed once: " <> show wrote)
                     1 (length (filter ("(agenda · " `T.isInfixOf`) wrote))
@@ -2876,37 +2175,21 @@ agendaSpec shell = testGroup "Shell agenda"
           <=< textsAt "asked"
   ]
 
--- | @\@@: the drill, and the ladder DEL walks back down it.
---
--- One semantic at two grains.  A JUMP pushes a crumb and applies a whole new
--- query; a REFINEMENT edits the query in place and pushes nothing.  DEL undoes
--- whichever is nearest: tokens while the query has any, then one crumb.
---
--- The stack is the RENDERER's — this page keeps no copy — and it crosses a
--- remount through the URL, which is the only channel it has and the reason
--- @stash@\/@restore@ say nothing about it.
+-- | @\@@: the drill, and the ladder DEL walks back down it.  The stack is the RENDERER's.
 drillSpec :: IO T.Text -> TestTree
 drillSpec shell = testGroup "Shell drill"
   [ keyed shell "@ applies a ref view over the row at point and leaves a crumb"
       "@" "" $ \answer -> do
-        -- The boot's three, then the drill's PROBE, then the view it applied:
-        -- `@' asks whether there is anything to land on before it lands.
         assertEqual "the boot's three, the probe, then the drill's"
           [ "/headlines?q=state%3A*active*&limit=100", "/headlines?q=state%3A*active*"
           , "/headlines", "/headlines?q=ref%3Ar1&limit=1"
           , "/headlines?q=ref%3Ar1" ]
           =<< textsAt "asked" answer
-        -- The crumb records where the reader was STANDING, so the label is the
-        -- query being left rather than the one being applied.
+        -- The crumb records where the reader was STANDING, so the label is the query being left.
         assertEqual "one crumb, naming the view it came from"
                     ["state:*active*"] =<< textsAt "crumbs" answer
 
-    -- A drill out of the EMPTY query pushes NOTHING, because "all rows" IS the
-    -- empty filter: the ladder's first rung already lands there — strip the
-    -- `ref:' token, the query goes empty, and with no trail behind it the key
-    -- clears the filter — so a crumb would restore the view DEL reaches anyway.
-    -- What goes with it is the remembered row: the walk back lands on the first
-    -- row, like every applied view that is not a pop.
+    -- A drill out of the EMPTY query pushes NOTHING: "all rows" IS the empty filter, which DEL already reaches.
   , keyedAt shell "?q=" 500 "@ out of an empty query leaves no crumb, and DEL is still the way back"
       "@" "" $ \answer -> do
         assertEqual "the view is applied all the same"
@@ -2915,9 +2198,6 @@ drillSpec shell = testGroup "Shell drill"
           =<< textsAt "asked" answer
         assertEqual "and the strip carries no chip" [] =<< textsAt "crumbs" answer
 
-    -- Pressed as an ACT, so the drill's remount has landed before the key that
-    -- walks back out of it: with no crumb to pop, DEL has only the mounted
-    -- query to strip and the old mount's was empty.
   , keyedAt shell "?q=" 500 "and that DEL lands on all rows, first row selected"
       "@" "press:Backspace" $ \answer -> do
         url <- textAt "url" answer
@@ -2926,11 +2206,7 @@ drillSpec shell = testGroup "Shell drill"
         echoIs "named as the clearing it is" "DEL → filter-drop-token (filter cleared)" answer
         assertEqual "on the first row" (Just "r1") =<< maybeTextAt "selected" answer
 
-    -- ZERO REFERENCES IS NO JUMP.  The drill is PROBED — the same query under
-    -- `limit=1', which is a count — and nothing pointing at the row leaves the
-    -- table, the filter and the trail exactly where they were: an empty view is
-    -- the one landing a reader can read nothing off, and walking back out of it
-    -- costs a keystroke to undo a keystroke.
+    -- ZERO REFERENCES IS NO JUMP: the drill is PROBED under `limit=1', and an empty view is unreadable.
   , keyed shell "@ onto a row nothing refers to applies no view at all"
       "" "noreferences press:@" $ \answer -> do
         assertEqual "the probe, and nothing behind it"
@@ -2955,9 +2231,6 @@ drillSpec shell = testGroup "Shell drill"
         assertBool ("the trail rides with it: " <> T.unpack url)
                    ("crumbs=" `T.isInfixOf` url)
 
-    -- The ladder's second rung.  The drill left `ref:r1' as the whole query, so
-    -- ONE DEL empties it and walks back out — a step out and a step back rather
-    -- than a step and a half.
   , keyed shell "DEL on an emptied query pops the crumb and applies it"
       "@" "press:Backspace" $ \answer -> do
         urlIs "back on the view the drill left" "?q=state%3A*active*" answer
@@ -2965,10 +2238,6 @@ drillSpec shell = testGroup "Shell drill"
         echoIs "the pill names where it landed"
           "DEL → filter-drop-token (back to state:*active*)" answer
 
-    -- The first rung is unchanged: while the query still has tokens, DEL takes
-    -- one off and the trail is not touched.  A REFINEMENT edits the query in
-    -- place, so undoing one is a token rather than a crumb — which is the whole
-    -- of what makes the two grains one key.
   , keyedAt shell ("?q=ref%3Ar1%20tanik&crumbs="
                     <> bootedTrail) 500 "DEL over a refined drill strips a token before it pops"
       "Backspace" ""
@@ -2979,8 +2248,6 @@ drillSpec shell = testGroup "Shell drill"
         assertBool ("the ref token survived the strip: " <> T.unpack url)
                    ("q=ref%3Ar1" `T.isInfixOf` url)
 
-    -- With no trail behind it the key does what it always did, which is the
-    -- rung that was there before the ladder had a second one.
   , keyed shell "DEL with an empty stack clears the filter as it always has"
       "Backspace" "" $ \answer -> do
         urlIs "the cleared query, present and empty" "?q=" answer
@@ -2991,19 +2258,15 @@ drillSpec shell = testGroup "Shell drill"
         urlIs "and the URL is the default view, with no trail on it"
           "?q=state%3A*active*" answer
 
-    -- A `view-changed' close rebuilds the mount, and `setView' drops the crumbs
-    -- with the world they described.  The URL is what puts them back.
+    -- `setView' drops the crumbs with the world they described; the URL is what puts them back.
   , keyed shell "a remount restores the trail and the labels"
       "@" "close:view-changed" $ \answer -> do
-        -- The boot, the drill's own remount, and the one the close caused.
         assertEqual "mounted three times" 3 =<< intAt "mounts" answer
         assertEqual "the crumb survived the remount" ["state:*active*"]
           =<< textsAt "crumbs" answer
         assertEqual "and the ref view is still what is applied"
                     "?q=ref%3Ar1" . T.takeWhile (/= '&') =<< textAt "url" answer
 
-    -- And the restored trail is LIVE rather than decorative: DEL walks back
-    -- down it after the remount the same way it would have before one.
   , keyed shell "and the trail a remount put back can still be walked"
       "@" "close:view-changed press:Backspace" $ \answer -> do
         urlIs "back on the view the drill left" "?q=state%3A*active*" answer
@@ -3021,11 +2284,7 @@ drillSpec shell = testGroup "Shell drill"
         urlIs "landed on the crumb's own query" "?q=" answer
         echoIs "naming it by its label" "DEL → filter-drop-token (back to everything)" answer
 
-    -- A crumb remembers the SELECTION it was pushed from, so walking back puts
-    -- the cursor where the reader left it rather than at the top of a view they
-    -- had moved down into.  It rides BESIDE the trail: the renderer's `crumbOf'
-    -- keeps a crumb's label and query and drops everything else, so a selection
-    -- put inside one would never come back out of `getCrumbs()'.
+    -- A selection rides BESIDE the trail: the renderer's `crumbOf' keeps a label and a query and drops the rest.
   , keyed shell "a pop puts the cursor back on the row the drill was launched from"
       "n n @" "press:Backspace" $ \answer -> do
         rowIs "back on the third row" "r3" answer
@@ -3036,8 +2295,7 @@ drillSpec shell = testGroup "Shell drill"
         rowIs "the row" "r2" answer
         assertEqual "and the cell it was on" 0 =<< intAt "col" answer
 
-    -- Never force a missing id: a row the popped answer no longer holds falls
-    -- through to the ordinary landing rather than being selected in absentia.
+    -- Never force a missing id: a row the popped answer no longer holds falls through to the ordinary landing.
   , keyed shell "a remembered row the answer lost falls back to the first row"
       "n n @" "rows:2 press:Backspace" $ \answer -> do
         rowIs "the store lost r3, so the landing is row one" "r1" answer
@@ -3047,16 +2305,7 @@ drillSpec shell = testGroup "Shell drill"
         assertBool ("the pair is carried: " <> T.unpack url)
                    ("sels" `T.isInfixOf` url)
 
-    -- `g' IS SAVE-EXCURSION: going home is a view change rather than a place
-    -- change, so point stays on the row it was on wherever the answer still
-    -- holds it.  `land' is the whole rule and its fallbacks are the other two
-    -- halves — row one where the row has gone, nothing at all where the answer
-    -- is empty.
-    -- AND THE TAGS COLUMN OFFERS NO META.  `tag:*archive*' was the one it
-    -- declared, and the ARCHIVE VIEW is the door now: a reader reaches those
-    -- rows by NAME rather than by knowing that the stars are what lifts the
-    -- exclusion.  The PREDICATE is untouched, which the filter suite pins —
-    -- what changed is that nothing offers it.
+    -- THE TAGS COLUMN OFFERS NO META: the ARCHIVE VIEW is the door, and the PREDICATE is untouched.
   , testCase "the tags column declares no metas, the archive view being the door" $ do
       v <- get assetsDir "/headlines" >>= decoded
       cols <- listAt "columns" v
@@ -3065,9 +2314,7 @@ drillSpec shell = testGroup "Shell drill"
         (c:_) -> assertEqual "no values declared" Nothing =<< sparseAt "values" c
         []    -> assertFailure "no tag column"
 
-    -- THE VOCABULARY IS THE SERVER'S, which is what makes a custom view cost
-    -- the renderer nothing: the view JSON declares every saved view by name
-    -- with the query it holds NOW, and `view:' completes from that.
+    -- THE VOCABULARY IS THE SERVER'S: the view JSON declares every saved view with the query it holds NOW.
   , testCase "the view JSON declares the saved views view: completes from" $ do
       v <- get assetsDir "/headlines" >>= decoded
       views <- listAt "views" v
@@ -3078,11 +2325,7 @@ drillSpec shell = testGroup "Shell drill"
                   , "tag:*archive*" ]
         =<< traverse (textAt "query") views
 
-    -- `view:NAME' IS A MACRO: it stands for the query that view holds, so a
-    -- reader who types one gets what the key does, and the chips they end up
-    -- with are the VIEW's own — the token never survives into the applied
-    -- query.  Which is what makes a custom view need nothing here: the registry
-    -- is the server's.
+    -- `view:NAME' IS A MACRO: the token never survives into the applied query.
   , keyed shell "view:agenda applies the agenda, and leaves no token behind"
       "" "commit:view:agenda" $ \answer -> do
         urlIs "the agenda's own query, not the token that asked for it"
@@ -3093,30 +2336,22 @@ drillSpec shell = testGroup "Shell drill"
         \answer -> do
           urlIs "the tree's default view" "?q=state%3A*active*" answer
           assertEqual "and the trail it threw away" [] =<< textsAt "crumbs" answer
-    -- A name no view carries is left alone: `view' is none of the renderer's
-    -- query keys, so the token is free text on both sides.
   , keyed shell "a view nobody carries stays the text it is" "" "commit:view:nope" $
         urlIs "committed as written" "?q=view%3Anope"
 
   , keyed shell "g keeps point where its answer still holds the row" "n n g" "" $
         rowIs "the row the reader was on" "r3"
 
-    -- A commit REPAINTS rather than remounting, so without the rule the cursor
-    -- would sit wherever it was over a set that may not hold that row at all.
-    -- `DEL' is the commit this suite can drive: it strips a token and commits
-    -- what is left, which is the same door a palette commit goes through.
+    -- A commit REPAINTS rather than remounting, so without the rule the cursor sits over a set that may not hold its row.
   , keyedAt shell "?q=tanik%20web" 500 "a commit that repaints lands on the first row too"
       "n n Backspace" "" $ \answer -> do
         rowIs "row one" "r1" answer
         urlIs "and it was a strip rather than a pop" "?q=tanik" answer
 
-    -- A held `@' is a remount per repeat, each leaving a crumb behind, which is
-    -- why the command is on the ONCE list beside the other view keys.
+    -- A held `@' is a remount per repeat, each leaving a crumb behind: hence the ONCE list.
   , keyed shell "a held @ drills once" "@" "repeat:@ repeat:@" $
         assertEqual "one crumb, not three" ["state:*active*"] <=< textsAt "crumbs"
 
-    -- An asset predating the trail is told so rather than being made to apply a
-    -- view the reader would have no way back out of.
   , keyed shell "an asset with no crumbs refuses the drill and stays put"
       "" "crumbless press:@" $ \answer -> do
         assertEqual "the boot's fetches and no more"
@@ -3126,83 +2361,44 @@ drillSpec shell = testGroup "Shell drill"
           "@ → org-glance-overview:relations (this table-view.js has no crumbs)" answer
   ]
 
--- | A trail as an address bar carries it: one crumb standing for the unfiltered
--- view, and the label the live @ref:@ chip wears.
 bootedTrail :: T.Text
 bootedTrail = "%7B%22trail%22%3A%5B%7B%22label%22%3A%22everything%22%2C%22query%22%3A%22%22%7D%5D%2C%22labels%22%3A%7B%7D%7D"
 
--- | The same trail with the SELECTION the crumb was pushed from beside it,
--- which is what a pop puts back — and what the boot's own landing must not
--- write over.  @landingSpec@ reads it.
 bootedSels :: T.Text
 bootedSels = "%7B%22trail%22%3A%5B%7B%22label%22%3A%22everything%22%2C%22query%22%3A%22%22%7D%5D%2C%22labels%22%3A%7B%7D%2C%22sels%22%3A%5B%7B%22id%22%3A%22r3%22%2C%22col%22%3Anull%7D%5D%7D"
 
--- | The sort the agenda asked the renderer for, if any.  Through `field', so a
--- harness that stopped reporting the call at all fails loudly rather than
--- reading as a page that asked for none.
+-- | The sort the agenda asked for.  Through `field', so a harness that stopped reporting it fails loudly.
 sortOf :: Value -> IO (Maybe (T.Text, Bool))
 sortOf answer = field "sorted" answer >>= said
   where said Null   = pure Nothing
         said sorted = Just <$> orderKeyOf sorted
 
--- | The CHAIN in force, highest priority first — which the applied query names
--- and no call has to have made.
 chainOf :: Value -> IO [(T.Text, Bool)]
 chainOf answer = traverse orderKeyOf =<< listAt "chain" answer
 
--- | One key of a sort chain, wherever it is read from: the wire's @sort@ array,
--- the harness's chain, or the last sort a call asked for.
 orderKeyOf :: Value -> IO (T.Text, Bool)
 orderKeyOf key = (,) <$> textAt "column" key <*> boolAt "ascending" key
 
--- | The last of XS, or 'Nothing' where there is none.
 lastOf :: [a] -> Maybe a
 lastOf = listToMaybe . reverse
 
--- | The which-key letters: the assignment, driven as the pure function it is,
--- and the list it draws.  The letters are what a reader learns by heart, so
--- what is pinned is that one cycle always yields the same ones — the rule is
--- order-only and each entry claims the first still-free letter of its OWN
--- spelling.  Which rows a commit names is @commandKeySpec@'s subject.
+-- | The which-key letters, driven as the pure function they are: order-only, first still-free letter of the entry's own spelling.
 whichKeySpec :: IO T.Text -> TestTree
 whichKeySpec shell =
   overBoot shell "C-c C-t" "" $ \palette ->
   testGroup "Shell which-key"
   [ testCase "the assignment, cycle by cycle" $ mapM_ (assigns shell)
-      -- The chain as the resolver now draws it: org's pair leads, so TODO takes
-      -- `t' and DONE takes `d' whatever a narrower scope declares, and
-      -- DELEGATED falls through to its own `e'.  The letters a reader learns
-      -- for the two words every tree has are the same in every tree.
+      -- org's pair leads, so TODO takes `t' and DONE takes `d' in every tree.
       [ ( "TODO,DONE,DELEGATED", ["t@0", "d@0", "e@1"] )
-      -- The same three words drawn the other way round, which is what the old
-      -- nearest-scope order did to a tree whose file or tag declared DELEGATED:
-      -- it claimed `d' and DONE was pushed off it.  Order-only, so the rule did
-      -- not have to change for this to stop happening — the chain did.
       , ( "DELEGATED,TODO,DONE", ["d@0", "t@0", "o@1"] )
-      -- A whole tree's, in the order the producer sends it — actives as
-      -- declared, then the done-like ones.  Nothing is special-cased: DONE is
-      -- `o' for the reason DELEGATED is `e'.  `*empty*' is not in it: the meta
-      -- answers to DEL and is kept out of the pool by `offer', so this is what a
-      -- palette actually hands the rule.
+      -- `*empty*' is not in the pool: the meta answers to DEL and `offer' keeps it out.
       , ( "TODO,NEXT,STARTED,WAITING,DELEGATED,CANCELLED,DONE"
         , ["t@0", "n@0", "s@0", "w@0", "d@0", "c@0", "o@1"] )
-      -- Synthetic, since no real cycle exhausts a letter pool: an entry with
-      -- nothing left is UNBOUND rather than stealing one, which is what keeps
-      -- the letters above it where they were.
+      -- Synthetic, since no real cycle exhausts a letter pool: an entry with nothing left is UNBOUND.
       , ( "ON,NO,NOON", ["o@0", "n@0", "-"] )
-      -- The letter `*empty*' used to take is the one a cycle keeps now that the
-      -- meta answers to DEL: `CANCELLED' claims `c' outright where it once had
-      -- to share the pool with a word spelled `*empty*'.
       , ( "CANCELLED,CLOSED",     ["c@0", "l@1"] ) ]
 
-    -- What the reader sees, and why: one row per SOURCE in precedence order,
-    -- widest first, its keywords in the Active and Inactive cells, each an
-    -- accent-boxed key token and the word with the claimed letter BOLD WHERE IT
-    -- SITS — which is the whole of the teaching.  The table IS the classify
-    -- chain: `TODO' under `default' and `READING' under `book' say which scope
-    -- answered for each.  Every source is drawn under the NAME it arrives
-    -- under, so the page keeps no table of labels.  The meta spans a row of its
-    -- own at the foot, in the muted italic every starred value wears.
+    -- One row per SOURCE in precedence order: the table IS the classify chain, under the NAME each arrives under.
   , atBoot palette "the table draws one row per source, keywords in their cells" $ \answer -> do
         assertEqual "the header, the sources in order, and the meta last"
           [ ("pr ph", "source",   ["active"],      ["inactive"])
@@ -3214,12 +2410,7 @@ whichKeySpec shell =
                     "a letter sets it · / to search · ESC leaves"
           =<< textAt "pfoot" answer
 
-    -- The palette resolves for the rows the command would run over, which is
-    -- the marked set where there is one — the same rows `overTargets' counts in
-    -- the title, asked of the server as one request.
-    -- One parameter per id rather than the comma list a caller types by hand:
-    -- the fallback row id is a path, and a comma in one would split it on the
-    -- other side.
+    -- One parameter per id rather than a comma list: the fallback row id is a path.
   , testCase "the resolution is asked for the rows the command names" $ do
       bootOf shell "" 500 "C-c C-t" "" $
         assertEqual "the row at point" ["/keywords?ids=r1"] <=< textsAt "resolved"
@@ -3227,9 +2418,6 @@ whichKeySpec shell =
         assertEqual "the marked set, in one request"
                     ["/keywords?ids=r1&ids=r2"] <=< textsAt "resolved"
 
-    -- Two tags, two rows: the order is the server's and this page draws it as
-    -- it arrives, which is what makes the table the resolution rather than a
-    -- rendering of it.
   , keyed shell "a set spanning two tags shows both tag sources" "" "twotags press:t" $
         assertEqual "the default pair, then book, then film"
           [ ("pr ph", "source",   ["active"],       ["inactive"])
@@ -3238,35 +2426,18 @@ whichKeySpec shell =
           , ("pr",    "film",     ["[W]ATCHING"], ["W[A]TCHED"])
           , ("pr pm", "",         ["DEL *empty*"],  []) ] <=< paletteOf
 
-    -- The hues are the producer's and travel on the state column; the
-    -- resolution names keywords alone, so the palette goes and looks each one
-    -- up.  A keyword no badge names carries none, and is drawn all the same.
-    -- The claimed letter is marked INSIDE the keyword — there is no token
-    -- column — and the rule under it takes that state's own badge hue, so the
-    -- one thing telling a reader which key commits is drawn in the colour the
-    -- word is already wearing.  `*empty*' is the exception and says why: DEL
-    -- names no position in a word to be marked at, so that row alone keeps a
-    -- token.
+    -- The letter is marked INSIDE the keyword in that state's own badge hue; `*empty*' alone keeps a token.
   , atBoot palette "the letter is marked in the word, and only *empty* wears a token"
       $ \answer -> do
         assertEqual "one token in the whole table, on the meta row"
                     ["DEL"] . filter (not . T.null) . map snd
           =<< paletteField "key" answer
-        -- The rule takes the badge hue by value, so a keyword the palette
-        -- names without one is marked by weight alone.
         assertEqual "and the rule under each letter is that keyword's own hue"
           [ ("[T]ODO", "#e0af68"), ("[D]ONE", "#73daca"), ("[R]EADING", "#bb9af7") ]
                     . filter (not . T.null . snd)
           =<< paletteField "mark" answer
 
-    -- DEL is `*empty*'\''s, and the state palette is the only one carrying such
-    -- an entry.  Over the tags popup's own field the press is the field's text
-    -- editing and nothing else: it commits nothing, it does not reach the popup
-    -- underneath, and the map's own DEL is already dead under `typing()'.
-    -- DEL ERASES THE LAST STRUCTURE STANDING, and over a popup that is the
-    -- popup: neither the link list nor the tag list has an inner ladder, so the
-    -- key closes it exactly as ESC does.  The backspace's own rhyme, one surface
-    -- in from the table's marks-then-token-then-crumb ladder.
+    -- DEL ERASES THE LAST STRUCTURE STANDING, and over a popup with no inner ladder that is the popup.
   , testCase "DEL closes a popup that has nothing inside it to erase" $ do
       bootOf shell "" 500 "o" "press:Backspace" $ \answer -> do
         assertEqual "the link popup is gone" "" =<< textAt "popup" answer
@@ -3274,8 +2445,7 @@ whichKeySpec shell =
       bootOf shell "" 500 ":" "press:Backspace" $ \answer -> do
         assertEqual "and so is the tag popup" "" =<< textAt "tagpop" answer
         echoIs "under the same line" "DEL → keyboard-quit" answer
-      -- IN NAV ALONE.  Inside an OPEN edit the key is the field's own erase: the
-      -- page declines it, which is what leaves the browser's default standing.
+      -- IN NAV ALONE: inside an OPEN edit the key is the field's own erase and the page declines it.
       bootOf shell "" 500 "o" "press:Enter press:Backspace" $ \answer -> do
         assertEqual "the popup stands" "on" =<< textAt "popup" answer
         assertEqual "with its edit still open" True =<< boolAt "lopen" answer
@@ -3300,18 +2470,13 @@ whichKeySpec shell =
           [ ("[T]ODO", "#e0af68"), ("[D]ONE", "#73daca"), ("[R]EADING", "#bb9af7") ]
           <=< paletteHues
 
-    -- The overlay goes up on the keypress and the answer fills it, so the guard
-    -- that makes the raising press not a letter is unmoved and ESC works from
-    -- the moment the key lands.
+    -- The overlay goes up on the keypress and the answer fills it, so ESC works from the moment the key lands.
   , keyed shell "the palette is up before the resolution is" "" "stall press:t" $ \answer -> do
         assertEqual "raised" "on" =<< textAt "prompt" answer
         assertEqual "with a line saying what it is waiting for"
                     [("pnone", "", ["resolving…"], [])] =<< paletteOf answer
 
-    -- The fallback is FLAT — every entry, whichever source it came from, under
-    -- no table at all — and drops the token column outright: no letter commits
-    -- there, so drawing one would be a lie about what typing it does.  The
-    -- cursor is this list's own, and it opens on the first row.
+    -- The fallback is FLAT and drops the token column: no letter commits there, so drawing one would lie.
   , keyed shell "/ flattens the table, drops the letters and names its own keys"
       "C-c C-t" "press:/" $ \answer -> do
         assertEqual "the box says which mode it is in" "narrow"
@@ -3332,9 +2497,6 @@ whichKeySpec shell =
           [ ("pe pat", "", ["READING"], [])
           , ("pe",     "", ["READ"],    []) ] <=< paletteOf
 
-    -- A resolution that does not arrive takes the overlay down rather than
-    -- leaving a palette with nothing in it: there is no state to pick, and the
-    -- log is where the reason goes.
   , keyed shell "a refused resolution closes the palette and says so"
       "" "refuse press:t" $ \answer -> do
         assertEqual "the overlay is down" "" =<< textAt "prompt" answer
@@ -3343,41 +2505,18 @@ whichKeySpec shell =
           =<< lastLog answer
   ]
 
--- | The sheet's two panes, driven through the keys a reader presses.  What is
--- asserted here is the half the page owns: what the DOCUMENT draws and how it is
--- walked, what the PANEL shows and how it is opened and grown, what a sync sends,
--- and which of the two shapes the sheet is in.  The cut between the panes is the
--- server's and is @TestQuery@'s subject; nothing here re-states it.
---
--- BOTH panes are modal and neither focuses anything: the document holds the keys
--- when the sheet opens (@dactive@), @TAB@ crosses to the panel (@pnav@), and
--- @focus@ names a field only while a row or an element is open.
---
--- @Enter@ materializes the first row, which is where every case starts.  The
--- fixture subtree has a planning entry, one property, two paragraphs and one
--- child, so every kind the document draws is in it.
+-- | The sheet's two panes as keys: what the DOCUMENT draws and how it is walked, what the PANEL shows, what a sync sends.
 sheetSpec :: IO T.Text -> TestTree
 sheetSpec shell =
   overBoot shell "Enter" "" $ \sheet ->
   testGroup "Shell sheet"
   [ -- A BADGE CELL WEARS THE COLUMN'S OWN HUE, which is the THEME's: the wire
-    -- carries a slot (`var(--g-state-a0)') rather than a colour, so a theme
-    -- switched client-side moves the pane with it.  The pane looks nothing up —
-    -- the cell is handed the hue the column declared, since a palette read here
-    -- would be a second copy to keep in step.
-    --
-    -- Both badge columns, because only `state' was ever coloured and `priority'
-    -- was the half nobody drew.
+    -- carries a SLOT (`var(--g-state-a0)') rather than a colour, so a theme switched client-side moves the pane with it.
     atBoot sheet "the headline's badge cells wear the theme's own hues" $ \answer -> do
-        -- The FIXTURE's own declared badge, which is the whole point: the cell
-        -- wears what the column said, whatever that is.  A tree serving slots
-        -- (`var(--g-state-a0)') reaches the pane the same way.
         assertEqual "the declared hue, and nothing for an absent priority"
                     ["#e0af68", ""] =<< textsAt "dhues" answer
 
-    -- RE-OPENING IS A FRESH FILL, and the pane has to survive the close: it is
-    -- an Elm program mounted INSIDE `#dlist', so emptying that element used to
-    -- take the program's node with it and every later sheet opened blank.
+    -- The pane is an Elm program mounted INSIDE `#dlist', so emptying that element takes the program's node with it.
   , keyed shell "the sheet closed and opened again still draws its document"
       "Enter" "press:Escape press:Enter" $ \answer -> do
         assertEqual "the document is there the second time"
@@ -3392,13 +2531,7 @@ sheetSpec shell =
           =<< pairsAt "props" answer
 
   , atBoot sheet "materialize opens two panes over one subtree" $ \answer -> do
-        -- The left pane is the subtree's TEXT as its elements: the headline
-        -- line, the body's own paragraphs, and the child under it.  Every
-        -- headline line opens with its STARS, org-cleaned — every star but the
-        -- last drawn as a space, so the root reads `* ' and the child ` * ',
-        -- which is `org-hide-leading-stars' with `org-startup-indented'.  A part
-        -- the headline has NOT got renders nothing at all: this entry has no
-        -- priority and no tags, and there is no placeholder for either.
+        -- Every headline line opens with its STARS, org-cleaned: `org-hide-leading-stars' with `org-startup-indented'.
         assertEqual "the document draws the headline, the paragraphs and the child"
           [ ["head", "* ", "TODO", "one"]
           , ["para", "first para"]
@@ -3407,33 +2540,22 @@ sheetSpec shell =
         assertEqual "with the cursor on the headline and no cell picked yet"
                     (0, -1) =<< pointOf answer
         assertEqual "and the document holding the keys" True =<< boolAt "dactive" answer
-        -- THE CRUMB STRIP STANDS: the row alone is one crumb, so the bar is a
-        -- place rather than something that appears on the way down.
         assertEqual "the trail is the row, and it is where the reader stands"
                     (["one"], [0]) =<< ((,) <$> textsAt "where" answer
                                             <*> flaggedAt "whereAt" answer)
         assertEqual "the textarea is behind it, empty until C-c '"
                     "" =<< textAt "sheet" answer
-        -- The three planning rows first, in org's own order and empty where the
-        -- headline has no entry, then the drawer in file order.
         panelIs "the panel holds the planning rows and then the drawer"
                 [["EFFORT", "0:30"]] answer
-        -- Read-only, full width under the panes, and never sent back.  The
-        -- drawer's INTERIOR alone: the widget being the drawer says what it is,
-        -- so the two delimiter lines would be spent saying it twice.
+        -- The drawer's INTERIOR alone: the widget being the drawer says what it is.
         assertEqual "the logbook is shown, its delimiters left off"
                     "- moved here" =<< textAt "logbook" answer
         assertEqual "and the sheet is in its two-pane shape" "" =<< textAt "shape" answer
-        -- The panel is read-only text until it is crossed into: the keys are
-        -- the document's, and the panel's cursor is waiting on its first row.
         assertEqual "the keys are in the document pane" False =<< boolAt "pnav" answer
         assertEqual "with nothing focused, which is what frees the letters"
                     "" =<< textAt "focus" answer
         assertEqual "and the panel's cursor at the top" 0 =<< intAt "pat" answer
 
-    -- MOVEMENT IS THE TABLE'S LETTERS EXACTLY, over the elements: both
-    -- spellings and the vertical arrows walk them, and the walk stops at the
-    -- ends rather than wrapping.
   , testCase "the document walks its elements on n/p, j/k and the arrows" $ do
       insheet "press:n press:n" $
         assertEqual "two elements down" (2, -1) <=< pointOf
@@ -3446,45 +2568,26 @@ sheetSpec shell =
       insheet "press:n press:n press:n press:n" $
         assertEqual "and the child the end of the walk down" (3, -1) <=< pointOf
 
-    -- THE CURSOR CARRIES ITS PANE'S SCROLL, which is the table's own discipline
-    -- over the one scroller this page owns.  `#mdoc' clamps at the sheet's
-    -- bound, so an element under the fold is reachable by `n' and invisible
-    -- without this.
-    --
-    -- GEOMETRY IS BEYOND THE STUB: nothing in the harness has a layout, so
-    -- whether the element WAS out of view cannot be asked and is not asserted.
-    -- What is asserted is that the page ASKED — the same caveat, and the same
-    -- shape of pin, as the overlay's placing.
+    -- GEOMETRY IS BEYOND THE STUB, so what is asserted is that the page ASKED.
   , testCase "the element under point asks its pane's scroller" $ do
       insheet "press:n press:n" $ \answer -> do
         seen <- textsAt "scrolled" answer
         assertEqual "the last ask was made on the element under point"
                     (Just "de d-para dat") (listToMaybe (reverse seen))
-        -- `block:"nearest"' IS the scrolloff band as the platform spells it: an
-        -- element already in view stays where it is, one past an edge comes
-        -- just inside, and the pane never re-centres under a walk.
+        -- `block:"nearest"' IS the scrolloff band as the platform spells it.
         assertEqual "and it asked for the band, not a re-centring"
                     (object [ "block" .= ("nearest" :: T.Text) ])
           =<< field "scrollAsked" answer
-      -- Every draw carries it, the first one included, so a sheet reopened onto
-      -- a cursor left far down lands with it in view rather than at the top.
       insheet "" $ \answer -> do
         seen <- textsAt "scrolled" answer
         assertEqual "the materialize itself asked, on the headline"
                     (Just "de d-head dat") (listToMaybe seen)
 
-    -- CELLS ARE THE HEADLINE'S FINER GRAIN, and the stops are the parts that
-    -- are THERE: this entry has a state and a title and neither a priority nor
-    -- tags, so it is two stops and the absent pair are not walked onto at all.
-    -- `f' enters the grain and walks RIGHT, `l'/`h' and the arrows walk within
-    -- it, and `b' is `f' read backwards.  Off EITHER end is the whole-element
-    -- look, which is what leaves the cells: `b' climbing out in one press
-    -- whatever the column read as a reset rather than as the other half of `f'.
+    -- The stops are the parts that are THERE, and off EITHER end is the whole-element look.
   , testCase "f enters the cells, l/h and the arrows walk the PRESENT ones" $ do
       insheet "press:f" $ \answer -> do
         assertEqual "the first cell" (0, 0) =<< pointOf answer
         echoIs "named by its key" "f → next-column (state)" answer
-      -- The second stop is the TITLE, not the priority the entry has not got.
       insheet "press:f press:l" $ \answer -> do
         assertEqual "two across is the title" (0, 1) =<< pointOf answer
         echoIs "the absent priority was no stop" "l → next-column (title)" answer
@@ -3500,36 +2603,25 @@ sheetSpec shell =
         echoIs "which is what leaves the cells" "b → next-column (element mode)" answer
       insheet "press:f press:ArrowRight" $
         assertEqual "the arrows are the within-grain walk" (0, 1) <=< pointOf
-      -- A paragraph has no finer grain at all, so the key says so and moves
-      -- nothing.
       insheet "press:n press:f" $ \answer -> do
         assertEqual "nothing moved" (1, -1) =<< pointOf answer
         echoIs "and the key said why" "f → grain-finer (nothing finer here)" answer
-      -- And the column goes when the cursor leaves an element that had one.
       insheet "press:f press:n" $
         assertEqual "the cell went with the element" (1, -1) <=< pointOf
 
-    -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE, and its POSITION is not: the
-    -- wash is CSS gated on the pane that holds them, so what behaviour can say
-    -- is which pane wears the gate and that neither cursor MOVED while the other
-    -- had the keys.  The gating rules themselves are asserted as text in "Shell
-    -- glue" — nothing here has a stylesheet.
+    -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the gating rules themselves are asserted as text in "Shell glue".
   , testCase "each pane's cursor waits where it was while the other has the keys" $ do
-      -- Both cursors are somewhere from the moment the sheet opens; only the
-      -- document's is drawn.
       insheet "press:n" $ \answer -> do
         assertEqual "the document has the keys" (True, False)
           =<< ((,) <$> boolAt "dactive" answer <*> boolAt "pnav" answer)
         assertEqual "its cursor moved" 1 =<< intAt "dat" answer
         assertEqual "and the panel's is waiting at its top" 0 =<< intAt "pat" answer
-      -- Crossing hands the gate over and moves NEITHER position.
       insheet "press:n press:Tab press:n press:n" $ \answer -> do
         assertEqual "the panel has them now" (False, True)
           =<< ((,) <$> boolAt "dactive" answer <*> boolAt "pnav" answer)
         assertEqual "the document's cursor is where it was left" 1
           =<< intAt "dat" answer
         assertEqual "and the panel's has moved under them" 2 =<< intAt "pat" answer
-      -- And back: the gate returns to the document and both are still there.
       insheet "press:n press:Tab press:n press:n press:Tab" $
         \answer -> do
           assertEqual "the document has them again" (True, False)
@@ -3537,12 +2629,7 @@ sheetSpec shell =
           assertEqual "with its cursor untouched" 1 =<< intAt "dat" answer
           assertEqual "and the panel's kept where it got to" 2 =<< intAt "pat" answer
 
-    -- ONE GRID: THE CHILD'S STAR SITS IN THE PARENT'S BODY COLUMN.  That is the
-    -- whole of org-indent's arithmetic here — two spaces a level, so the stars
-    -- are indented TO the body level rather than beside it — and it is asserted
-    -- as the EQUALITY of two numbers this page produces independently: the
-    -- column the child's own prefix puts its star at, and the column the
-    -- paragraphs under the head are padded to.
+    -- Asserted as the EQUALITY of two numbers this page produces independently.
   , atBoot sheet "a child's star sits in the parent's body column" $ \answer -> do
         rows <- docOf answer
         body <- textAt "dindent" answer
@@ -3553,13 +2640,7 @@ sheetSpec shell =
         assertEqual "and its star stands in the column the body starts at"
                     (Just (read (T.unpack body) :: Int)) (T.findIndex (== '*') prefix)
 
-    -- ORG-STARTUP-INDENTED'S OTHER HALF: content sits under the TITLE TEXT
-    -- rather than under the stars, so the column is the width of the head's own
-    -- star prefix.  The head is the ROOT of its own document whatever entry the
-    -- sheet walked into — it always draws `* ' — so the answer is the same two
-    -- at every depth; what this pins is that it is DERIVED from `dstars' rather
-    -- than a 2 spelled beside it, and the child case is where a hand-written
-    -- one would have gone wrong first.
+    -- What this pins is that the indent is DERIVED from `dstars' rather than a 2 spelled beside it.
   , testCase "content lines start at the title's column, at either depth" $ do
       insheet "" $
         assertEqual "the row's own document" "2" <=< textAt "dindent"
@@ -3567,11 +2648,7 @@ sheetSpec shell =
         assertEqual "and a child, which is the root of its own" "2"
           <=< textAt "dindent"
 
-    -- NO PLACEHOLDERS, EVER.  An absent part renders nothing in every state —
-    -- at rest, with the element under point, and with the cursor in a cell
-    -- beside it — so what a reader sees is the entry as org spells it and the
-    -- only thing that marks structure is the cursor.  Setting an absent part is
-    -- `t' and `:', below, rather than a cell that has to be drawn to be reached.
+    -- NO PLACEHOLDERS, EVER: an absent part renders nothing in every state.
   , testCase "an absent part renders nothing, in every state" $
       mapM_ (\(what, keys) ->
                insheet keys $ \answer -> do
@@ -3584,13 +2661,9 @@ sheetSpec shell =
             , ("in the state cell", "press:f"), ("in the title cell", "press:f press:f")
             , ("on the child", "press:n press:n press:n") ]
 
-    -- RET IS BY KIND, and a CHILD is the one that moves the sheet: it
-    -- re-materializes into that entry, which is the same route under the index
-    -- the server handed over.  The breadcrumb is what says where it landed.
+    -- RET IS BY KIND, and a CHILD re-materializes into that entry under the index the server handed over.
   , testCase "RET on a child materializes into it, and DEL climbs back" $ do
       insheet "press:n press:n press:n press:Enter" $ \answer -> do
-        -- The child is the ROOT of its own document, so its stars read `* ' and
-        -- the depth a reader sees is relative to the entry they are looking at.
         assertEqual "the child's own document"
           [ ["head", "* ", "two", ":web:"]
           , ["para", "child body"] ] =<< docOf answer
@@ -3606,33 +2679,21 @@ sheetSpec shell =
           =<< pointOf answer
         echoIs "and the pill names the climb" "DEL → org-glance-overview:up (one)" answer
 
-    -- At the top there is nothing above the row, so DEL is the sheet's door —
-    -- and the table's own DEL must not also fire, or the filter under the sheet
-    -- would lose a token to the same press.
+    -- The table's own DEL must not also fire, or the filter under the sheet would lose a token to the same press.
   , keyed shell "DEL at the top closes the sheet and nothing else"
       "Enter" "press:Backspace" $ \answer -> do
         assertEqual "the sheet is closed" "" =<< textAt "modal" answer
         urlIs "and the applied query is where it was" "?q=state%3A*active*" answer
 
-    -- A PARAGRAPH opens as text, and `RET' COMMITS it — org's `C-c C-c' under
-    -- another name, since the region is a value being handed back rather than a
-    -- buffer being typed into.  `S-RET' commits it too and puts a SIBLING in
-    -- behind the write, and `M-RET' is the newline.  `C-x C-s' still writes it,
-    -- being the BUFFER's own key.
-    -- What goes back is the BODY with that block's own lines spliced over, every
-    -- other byte where it was.
+    -- `RET' COMMITS an open paragraph — org's `C-c C-c' under another name; `S-RET' adds a sibling and `M-RET' is the newline.
   , testCase "q closes the sheet, and is a letter inside an open edit" $ do
-      -- `quit-window' ONE WINDOW IN: over the table it closes the app's window,
-      -- over the sheet it closes the sheet's.  Free here because the document
-      -- pane holds the keys with NOTHING focused.
+      -- `quit-window' ONE WINDOW IN: free here because the document pane holds the keys with NOTHING focused.
       insheet "press:q" $ \answer -> do
         assertEqual "the sheet is shut" "" =<< textAt "modal" answer
         echoIs "named as the command it is" "q → quit-window" answer
-      -- Inside the paragraph textarea it is a character, so the sheet stands.
       bootOf shell "" 500 "Enter" "press:n press:Enter press:q" $ \answer -> do
         assertEqual "the sheet stands" "on" =<< textAt "modal" answer
         assertEqual "and the edit with it" True =<< boolAt "dparaopen" answer
-      -- And over an open panel row, where the fields have the keys.
       bootOf shell "" 500 "Enter" "press:Tab press:Enter press:q" $ \answer ->
         assertEqual "the sheet stands over an open row" "on" =<< textAt "modal" answer
 
@@ -3643,31 +2704,25 @@ sheetSpec shell =
             ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
             =<< traverse (textAt "body") =<< listAt "writes" answer
           assertEqual "and the edit is shut" False =<< boolAt "dparaopen" answer
-      -- `S-RET' COMMITS THE SAME BYTES, the sibling it asks for behind them
-      -- being what the key adds rather than what it replaces.
+      -- `S-RET' COMMITS THE SAME BYTES; the sibling it asks for is what the key adds.
       bootOf shell "" 500 "Enter" "press:n press:Enter dpara:rewritten press:S-Enter" $
         \answer ->
           assertEqual "the same body, under the key that asks for another"
             ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
             =<< traverse (textAt "body") =<< listAt "writes" answer
-      -- The META press writes a newline INTO the field and commits nothing.
       bootOf shell "" 500 "Enter" "press:n press:Enter dpara:one press:M-Enter" $
         \answer -> do
           assertEqual "nothing was written" [] =<< textsAt "wroteAt" answer
           assertEqual "the edit is still open" True =<< boolAt "dparaopen" answer
           assertEqual "with a newline at the caret" "one\n" =<< textAt "dtext" answer
 
-    -- THE BOX GROWS WITH WHAT IS TYPED, to a cap.  `placeEdit' sizes it to the
-    -- BLOCK it covers, which for a paragraph being ADDED is one line, so a
-    -- reader writing three lines would otherwise see one.  The shell writes the
-    -- count as a NUMBER and the stylesheet owns the arithmetic.
+    -- THE BOX GROWS WITH WHAT IS TYPED, to a cap: the shell writes the count, the stylesheet owns the arithmetic.
   , testCase "the paragraph box stands as tall as what is in it, up to ten" $ do
       insheet "press:n press:Enter" $
         assertEqual "one line to open with" "1" <=< textAt "dprows"
       insheet "press:n press:Enter dpara:one|two|three" $
         assertEqual "three where three were typed" "3" <=< textAt "dprows"
-      -- The META key is a door of its own: it splices at the caret rather
-      -- than going through the field's own event.
+      -- The META key splices at the caret rather than going through the field's own event.
       insheet "press:n press:Enter dpara:one press:M-Enter" $
         assertEqual "and M-RET grows it by the line it just made" "2"
           <=< textAt "dprows"
@@ -3675,22 +2730,14 @@ sheetSpec shell =
                <> T.intercalate "|" (map (T.pack . show) [1 :: Int .. 14])) $
         assertEqual "capped, so the document under it stays readable" "10"
           <=< textAt "dprows"
-      -- An INSERT opens over a row holding nothing, which is the case the
-      -- growth exists for: the block is one line whatever is written.
       insheet "press:n press:+ dpara:one|two|three|four" $
         assertEqual "an added paragraph grows the same way" "4" <=< textAt "dprows"
-      -- AND THE BLOCK GIVES THE ROOM BACK, to ZERO rather than to one: the
-      -- field's metrics are 13px/1.5 where the pane's row is 13px/1.6, so a
-      -- floor of one field-line stands a cursor row three quarters of a pixel
-      -- taller than every other row and the highlight reads as sitting high.
-      -- A HIGHLIGHT MOVES NO BOX, so the floor is inert with nothing open.
+      -- The room goes back to ZERO rather than to one: the field's metrics differ from the pane's row.
       insheet "press:n press:Enter dpara:one|two|three press:Escape" $
         assertEqual "no floor at all once the edit is gone" "0" <=< textAt "dprows"
       insheet "press:n press:Enter dpara:one|two|three press:Enter" $
         assertEqual "and a commit gives it back too" "0" <=< textAt "dprows"
-      -- A sheet that never opened an edit never writes the number at all, and
-      -- the STYLESHEET's own `0' fallback is what covers it — which is why the
-      -- fallback is the value it is rather than a spelling of the same thing.
+      -- A sheet that never opened an edit writes no number, and the STYLESHEET's own `0' covers it.
       insheet "" $
         assertEqual "a sheet with nothing open never wrote one" ""
           <=< textAt "dprows"
@@ -3709,10 +2756,7 @@ sheetSpec shell =
           =<< traverse (textAt "body") =<< listAt "writes" answer
         assertEqual "and the sheet is synced" "synced" =<< textAt "state" answer
 
-    -- `+' ADDS A PARAGRAPH, in the widget `RET' edits one with.  The overlay
-    -- opens EMPTY and NOTHING moves until `RET', so `ESC' is a no-op by
-    -- construction and no unwritten paragraph can ride out on a flush some
-    -- other key fired.  WHERE it lands is `Scan.insertion'.
+    -- The overlay opens EMPTY and nothing moves until `RET', so `ESC' is a no-op by construction.
   , testCase "+ opens an empty paragraph and writes nothing yet" $
       insheet "press:n press:+" $ \answer -> do
         assertEqual "the overlay is up" True =<< boolAt "dparaopen" answer
@@ -3723,9 +2767,7 @@ sheetSpec shell =
         echoIs "the echo names where it would land"
                "+ \8594 org-insert-element (after this paragraph)" answer
 
-    -- THE PARAGRAPH IS DRAWN BEFORE IT IS WRITTEN, so the reader fills a line
-    -- of their own rather than the one they were standing on.  The row is
-    -- zero-width and empty, which `bodyText' passes over.
+    -- THE PARAGRAPH IS DRAWN BEFORE IT IS WRITTEN; the row is zero-width, which `bodyText' passes over.
   , testCase "+ draws the empty paragraph, and point goes to it" $
       insheet "press:n press:+" $ \answer -> do
         assertEqual "a line of its own, under the one point stood on"
@@ -3734,10 +2776,7 @@ sheetSpec shell =
         assertEqual "holding nothing" [""] . partsOf "draft:para" =<< docOf answer
         assertEqual "and the cursor is on it" 2 =<< intAt "dat" answer
 
-    -- AND AN ITEM IS DRAWN AS THE ITEM IT WILL BE: the row wears the LEAD, so
-    -- the line the reader is about to fill reads as a sibling of the stop.  A
-    -- top-level item's run ends where the list does, so the DRAWING is where it
-    -- always was and only the lead is new.
+    -- AND AN ITEM IS DRAWN AS THE ITEM IT WILL BE: the row wears the LEAD.
   , testCase "+ on an item draws the item it will be" $ do
       onTable "grain press:Enter press:n press:n press:f press:+" $ \answer -> do
         assertEqual "drawn STRICTLY BELOW the stop, never at the run's bottom"
@@ -3764,17 +2803,12 @@ sheetSpec shell =
           ["* TODO one\nfirst para\n\nadded\n\nsecond para\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
         assertEqual "the overlay is shut" False =<< boolAt "dparaopen" answer
-        -- AND POINT IS ON THE PARAGRAPH JUST MADE, which it never left: the
-        -- row `+' drew is the row the text went into.
         assertEqual "the pane shows it where it was drawn"
                     ["added"] . partsOf "draft:para" =<< docOf answer
         assertEqual "with the cursor still on it" 2 =<< intAt "dat" answer
         echoIs "" "RET \8594 org-ctrl-c-ctrl-c (paragraph added)" answer
 
-    -- THE SEPARATOR IS DECIDED rather than spelled: under the LAST block the
-    -- line at its end is the child's headline, so the blank below is written.
-    -- Prose there would otherwise read back as ONE paragraph with what was
-    -- typed, which is the case a fixed "\n\n" gets wrong.
+    -- THE SEPARATOR IS DECIDED rather than spelled: a fixed "\n\n" reads the prose back as one paragraph.
   , testCase "+ under the last paragraph keeps a blank before the child" $
       insheet "press:n press:n press:+ dpara:added press:Enter" $ \answer ->
         assertEqual ""
@@ -3790,9 +2824,7 @@ sheetSpec shell =
           ["* TODO one\nopener\n\nfirst para\n\nsecond para\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
 
-    -- `+' ADDS A SIBLING OF THE STOP, and THE GRAIN IS THE SELECTOR: `f' put
-    -- the reader inside the list, so what joins is an ITEM at the bottom of the
-    -- run they are standing in, wearing that stop's own prefix.
+    -- `+' ADDS A SIBLING OF THE STOP, and THE GRAIN IS THE SELECTOR.
   , testCase "+ inside a list adds an item at the list's bottom" $
       onTable "grain press:Enter press:n press:n press:f press:+ dpara:-_note press:Enter" $
         \answer ->
@@ -3802,8 +2834,6 @@ sheetSpec shell =
               <> "#+end_quote\n\ntail para\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
-    -- ONE RUNG FURTHER, which is the ask itself: the INDENT is the cursor's and
-    -- the LINE is the nested run's own bottom.
   , testCase "+ on a nested item joins the NESTED run, at its own indent" $ do
       onTable "grain press:Enter press:n press:n press:f press:f press:+" $ \answer -> do
         assertEqual "drawn under the nested item, inside alpha"
@@ -3813,11 +2843,7 @@ sheetSpec shell =
         assertEqual "wearing the nested indent" ["  - "]
           . partsOf "draft:item" =<< docOf answer
         assertEqual "and the cursor is on it" 5 =<< intAt "dat" answer
-        -- EVERY BYTE ON SCREEN EXACTLY ONCE, which a draft owning nobody broke:
-        -- `viewKids' walks a composite's kids while their owner is its own, so
-        -- a draft in the MIDDLE of a run ended the walk and the leaves past it
-        -- were drawn AGAIN as the composite's gap text.  `downers' is the
-        -- reading that sees it; the flat `.de' walk cannot.
+        -- EVERY BYTE ON SCREEN EXACTLY ONCE; `downers' is the reading that sees it, where the flat `.de' walk cannot.
         assertEqual "the leaves past it are still the composite's own"
                     [-1, -1, -1, 2, 3, 3, 2, 2, -1, 8, 8, -1, -1]
           =<< flaggedAt "downers" answer
@@ -3829,9 +2855,6 @@ sheetSpec shell =
             <> "#+end_quote\n\ntail para\n** two\nchild body\n" ]
           =<< traverse (textAt "body") =<< listAt "writes" answer
 
-    -- AND THE OLD LANDING IS ONE `b' AWAY: over the COMPOSITE, `+' lands a
-    -- paragraph past the whole structure, which is the bytes it wrote from the
-    -- leaf before the grain decided.
   , testCase "the composite still lands a paragraph past the whole list" $ do
       onTable "grain press:Enter press:n press:n press:+ dpara:note press:Enter" $
         \answer ->
@@ -3844,10 +2867,7 @@ sheetSpec shell =
         echoIs "and the echo is the structure's, as it was"
                "+ \8594 org-insert-element (after the list)"
 
-    -- A CHECKBOX COMES ALONG EMPTY, org's own `org-insert-item': the box is
-    -- part of what the line OPENS with, so it falls out of the prefix rule.
-    -- What it buys is the cookie — `[2/4]' counts boxes, so a box-less item
-    -- joining a list of tasks moves the denominator's meaning.
+    -- A CHECKBOX COMES ALONG EMPTY, org's own `org-insert-item': the box is part of what the line OPENS with.
   , testCase "a checkbox item's new sibling comes along boxed and empty" $
       onTable "checky press:Enter press:n press:f press:+ dpara:-_[_]_epsilon press:Enter" $
         \answer ->
@@ -3856,10 +2876,7 @@ sheetSpec shell =
               <> "- delta\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
-    -- AN ITEM'S TOKEN IS ON SCREEN WHILE IT IS TYPED.  The box is laid over the
-    -- drawn row exactly and opaquely, so a reader typing into it used to see an
-    -- EMPTY field and the bullet only on `RET' — the row said `- ' underneath
-    -- and nothing showed it.  The box carries the lead now.
+    -- AN ITEM'S TOKEN IS ON SCREEN WHILE IT IS TYPED: the box is laid over the drawn row exactly and opaquely.
   , testCase "the box opens wearing the token the row was drawn with" $ do
       onTable "grain press:Enter press:n press:n press:f press:+" $ \answer -> do
         assertEqual "the bullet is in the field, not only under it" "- "
@@ -3873,11 +2890,7 @@ sheetSpec shell =
         assertEqual "and a PARAGRAPH opens empty, owing no token" ""
           <=< textAt "dtext"
 
-    -- AND POINT LANDS WHERE THE READER TYPES.  A marker is a LEAD everywhere
-    -- but a TABLE, whose row is whole and closes with a pipe: point at the end
-    -- of `|   |   |' makes the first character typed a THIRD column, which
-    -- org's own align then keeps.  Elm answers both halves — the marker and the
-    -- offset into it — so this page still spells no org grammar.
+    -- A marker is a LEAD everywhere but a TABLE, whose row closes with a pipe — point at its end types a THIRD column.
   , testCase "point stands inside a seeded table row, past a seeded lead" $ do
       onTable "tabled press:Enter press:n press:n press:f press:Enter press:S-Enter" $
         \answer -> do
@@ -3889,8 +2902,7 @@ sheetSpec shell =
         assertEqual "where a bullet is a lead and point follows it" 2
           <=< intAt "dcaret"
 
-    -- AND THE LEAD GOES BACK OFF ON THE WAY OUT, so a reader who types AFTER
-    -- the token writes what a reader who replaced the field writes.
+    -- AND THE LEAD GOES BACK OFF ON THE WAY OUT.
   , testCase "what the reader adds is what the wire carries" $ do
       onTable "checky press:Enter press:n press:f press:+ dpara:-_[_]_epsilon press:Enter" $
         \answer ->
@@ -3904,12 +2916,7 @@ sheetSpec shell =
           assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
           echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
 
-    -- EVERY COMMAND THAT NAMES ROWS OWES A LOG PHRASE, and the join between the
-    -- two tables is checked rather than kept by hand.  `set-state' was the
-    -- FALLBACK, so `delete' — the eleventh command, landed after the join was
-    -- proposed — logged "state cleared" over every file it moved out of the
-    -- tree, in the strip that is this page's own audit surface. The echo pill
-    -- was right, which is what let it stand.
+    -- EVERY COMMAND THAT NAMES ROWS OWES A LOG PHRASE, and the join between the two tables is checked rather than kept by hand.
   , testCase "every command that names rows spells its own log phrase" $ do
       page <- shell
       let phraseless = ["capture"]   -- makes a row rather than naming one
@@ -3922,9 +2929,7 @@ sheetSpec shell =
       assertEqual "a command whose rows would log another command's phrase" []
                   [ n | n <- owed, not (spelled n) ]
 
-    -- WHAT THE BOX HOLDS IS WHAT IS WRITTEN, and these two are the reports it
-    -- was rewritten for.  The lead used to be PREPENDED by the composer, so a
-    -- reader who edited the token got BOTH — `- [ ] ' plus their own `- DONE'.
+    -- WHAT THE BOX HOLDS IS WHAT IS WRITTEN: a prepended lead gave the reader both.
   , testCase "a token the reader edits is the token that is written" $ do
       onTable "checky press:Enter press:n press:f press:+ dpara:-_DONE_ship_it press:Enter" $
         \answer ->
@@ -3932,8 +2937,6 @@ sheetSpec shell =
             [ "* TODO one\n- [ ] alpha\n- DONE ship it\n- [X] beta\n- [-] gamma\n"
               <> "- delta\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
-      -- AND A PLAIN `-' RUN CONTINUES AS ONE, which is the same rule read the
-      -- other way: the box opens wearing `- ' and that is what goes.
       onTable "grain press:Enter press:n press:n press:f press:+" $
         assertEqual "the plain run's own token, drawn before a key is struck"
           "- " <=< textAt "dtext"
@@ -3945,9 +2948,7 @@ sheetSpec shell =
               <> "#+end_quote\n\ntail para\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
-    -- AND THE BOUNDARY IS THE CARET'S: `+' with no box open names no line, so
-    -- there is nothing to be inside and the answer is a sibling of the STOP.
-    -- The region's interior is reachable from `S-RET' alone.
+    -- `+' with no box open names no line, so the region's interior is reachable from `S-RET' alone.
   , testCase "a table's line keeps the composite's landing" $
       onTable "tabled press:Enter press:n press:n press:f press:+ dpara:note press:Enter" $
         \answer ->
@@ -3975,8 +2976,6 @@ sheetSpec shell =
         echoIs ""
           "+ \8594 org-insert-element (a child's body is its own \8212 RET opens it)" answer
 
-    -- NO PLACEHOLDERS, EVER, at the one place it could be broken: a paragraph
-    -- with nothing in it is not one, and no row was ever made.
   , testCase "an empty + adds nothing, and ESC undoes nothing" $ do
       insheet "press:n press:+ press:Enter" $ \answer -> do
         assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
@@ -3989,24 +2988,14 @@ sheetSpec shell =
                     ["first para", "second para"] . partsOf "para" =<< docOf answer
         echoIs "" "ESC \8594 keyboard-quit (element unchanged)" answer
 
-    -- AND THE LEAD IS WHAT MAKES THAT LOAD-BEARING RATHER THAN TIDY: the wall
-    -- reads the TEXTAREA, which holds what the reader TYPED, and the lead never
-    -- reaches it — so `+' then `RET' on an item writes no bare bullet.
+    -- The wall reads the TEXTAREA, which holds what the reader TYPED, and the lead never reaches it.
   , testCase "an empty + on an item writes no bare bullet" $
       onTable "grain press:Enter press:n press:n press:f press:+ press:Enter" $
         \answer -> do
           assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
           echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
 
-    -- MOVEMENT IS TWO AXES, the table's habit read into the document.  A list
-    -- and a `#+begin_'/`#+end_' block each take TWO KINDS OF STOP over the same
-    -- bytes, laid out in document order as `[whole, item1..itemN]' and inline
-    -- among everything else — the MODEL is unchanged; what moved is the walk:
-    -- `n'/`p' step SIBLINGS at the cursor's grain and never dive, so a
-    -- composite is ONE stop and holding `n' skims, and `f'/`b' move the grain
-    -- itself — finer into the leaves, broader back to the whole.  RET stays
-    -- pure edit at either grain, DEL stays the sheet's own ladder, and `d'
-    -- flags whatever the stop is.
+    -- MOVEMENT IS TWO AXES: `n'/`p' step SIBLINGS at the cursor's grain, `f'/`b' move the grain itself.
   , testCase "a list and a block are the whole thing, then their parts" $ do
       onTable "grain press:Enter" $ \answer -> do
         assertEqual "the walk, kind by kind"
@@ -4017,14 +3006,9 @@ sheetSpec shell =
                     [ "element", "element", "composite", "leaf", "leaf", "leaf", "leaf"
                     , "composite", "leaf", "leaf", "element", "element" ]
           =<< textsAt "dgrains" answer
-        -- Each leaf hangs under the composite it was drawn inside, which is
-        -- what makes the two grains one range rather than two.
         assertEqual "and who it hangs under" [-1, -1, -1, 2, 3, 2, 2, -1, 7, 7, -1, -1]
           =<< flaggedAt "downers" answer
 
-    -- THE SKIM: at the element grain a composite is ONE stop, so the whole
-    -- fixture — head, para, list of three, quote of two, para, child — is six
-    -- stops down, and `p' is that read backwards with no leaf ever walked.
   , testCase "n skims the composites whole, and p is the skim reversed" $ do
       onTable "grain press:Enter press:n press:n press:n" $
         assertEqual "three down crosses the list whole to the quote" (7, -1)
@@ -4037,10 +3021,7 @@ sheetSpec shell =
         assertEqual "and p steps back over the list without entering it" (2, -1)
           <=< pointOf
 
-    -- THE GRAIN AXIS: `f' on a composite enters its leaves and `n'/`p' then
-    -- walk THAT run, clamped to it; `b' re-selects the whole.  At the finest
-    -- and at the floor the keys refuse with an echo rather than move — going
-    -- OUT of the sheet stays DEL's.
+    -- At the finest and at the floor the keys refuse with an echo; going OUT of the sheet stays DEL's.
   , testCase "f enters a composite's leaves, n/p walk them, b re-selects the whole" $ do
       onTable "grain press:Enter press:n press:n press:f" $ \answer -> do
         assertEqual "f lands on the first item" (3, -1) =<< pointOf answer
@@ -4052,11 +3033,7 @@ sheetSpec shell =
           <=< pointOf
       onTable "grain press:Enter press:n press:n press:f press:p" $
         assertEqual "p clamps at the first the same way" (3, -1) <=< pointOf
-      -- BACKWARD OVER A NESTED RUN: beta's previous sibling is alpha, and the
-      -- nested item drawn inside alpha sits between them in the flat order —
-      -- the walk steps past a sibling's descendants coming back exactly as it
-      -- steps past its own going forward.  No case crossed a nested run
-      -- backward until this one.
+      -- The walk steps past a sibling's descendants coming back exactly as it steps past its own going forward.
       onTable "grain press:Enter press:n press:n press:f press:n press:p" $
         assertEqual "p from beta crosses the nested run to alpha" (3, -1)
           <=< pointOf
@@ -4064,9 +3041,6 @@ sheetSpec shell =
         assertEqual "b is the whole list again, from any item" (2, -1)
           =<< pointOf answer
         echoIs "named by its kind" "b → grain-broader (list)" answer
-      -- `f' on an item WITH a nested run descends one more rung — the ladder —
-      -- and the walk clamps to that run; `b' climbs back to the item, and one
-      -- more to the list.
       onTable "grain press:Enter press:n press:n press:f press:f" $ \answer -> do
         assertEqual "the nested item is one rung down" (4, -1) =<< pointOf answer
         echoIs "counted under its parent" "f → grain-finer (item 1/1)" answer
@@ -4082,20 +3056,15 @@ sheetSpec shell =
         assertEqual "the entry's own line is the floor" (0, -1) =<< pointOf answer
         echoIs "b never closes" "b → grain-broader (the whole entry)" answer
 
-    -- REVERSED EXPAND-REGION, and this is its widest step: `b' out of an
-    -- element goes to THE ENTRY'S OWN LINE, which the whole subtree hangs off.
-    -- It used to refuse there — a rung with nothing above it.
+    -- REVERSED EXPAND-REGION: `b' out of an element goes to THE ENTRY'S OWN LINE.
   , testCase "b out of an element marks the whole headline" $ do
       onTable "grain press:Enter press:n press:b" $ \answer -> do
         assertEqual "up from the lead paragraph" (0, -1) =<< pointOf answer
         echoIs "" "b → grain-broader (the headline)" answer
-      -- From INSIDE a list it is two rungs: the item to its list, the list to
-      -- the headline, so nothing is skipped on the way out.
       onTable "grain press:Enter press:n press:n press:f press:b press:b" $ \answer ->
         assertEqual "the item, its list, then the entry" (0, -1) =<< pointOf answer
 
-    -- THREE DIALECTS, ONE AXIS: `l'/`h' and the horizontal arrows are ALIASES
-    -- of `f'/`b' rather than a second axis of their own.
+    -- THREE DIALECTS, ONE AXIS: `l'/`h' and the horizontal arrows are ALIASES of `f'/`b'.
   , testCase "l/h and the horizontal arrows are f/b" $ do
       onTable "grain press:Enter press:n press:n press:l" $ \answer -> do
         assertEqual "l dives like f" (3, -1) =<< pointOf answer
@@ -4108,15 +3077,7 @@ sheetSpec shell =
       onTable "grain press:Enter press:n press:ArrowLeft" $
         assertEqual "and so does the left arrow" (0, -1) <=< pointOf
 
-    -- AND AN ORG TABLE IS THAT SAME SHAPE, which is the whole of what it is: a
-    -- run of `|' lines is ONE COARSE STOP and then its rows, drawn inline in the
-    -- one sequence, so `n' from above meets the table and walks into it and `p'
-    -- from below walks the rows and meets it on the way out.  No cell grain and
-    -- no column awareness: 101 of the corpus's 6337 files hold table rows, so
-    -- the case for a second walk to teach is not there.
-    --
-    -- A LINE IS A LEAF, the `|---+---|' RULE included: a line is a line, and
-    -- editing or deleting one is the same act whichever kind of row it is.
+    -- AN ORG TABLE IS THAT SAME SHAPE: one coarse stop, then its rows.  A LINE IS A LEAF, the `|---+---|' rule included.
   , keyed shell "a table is one stop, then its rows" "" "tabled press:Enter" $ \answer -> do
         assertEqual "the walk, kind by kind, over a MIXED body"
                     [ "head", "para", "comp:table", "item", "item", "item", "item"
@@ -4126,12 +3087,9 @@ sheetSpec shell =
                     [ "element", "element", "composite", "leaf", "leaf", "leaf"
                     , "leaf", "composite", "leaf", "leaf", "element", "element" ]
           =<< textsAt "dgrains" answer
-        -- Each row hangs under the table it was drawn inside, the way a list's
-        -- items hang under theirs.
         assertEqual "and who each row hangs under"
                     [-1, -1, -1, 2, 2, 2, 2, -1, 7, 7, -1, -1]
           =<< flaggedAt "downers" answer
-        -- The rule is a stop like any other, and it shows what the file says.
         assertEqual "the four rows, the rule among them"
                     [["| a | b |"], ["|---+---|"], ["| 1 | 2 |"], ["| 3 | 4 |"]]
           . map (drop 1) . take 4 . drop 3 =<< docOf answer
@@ -4150,10 +3108,7 @@ sheetSpec shell =
       onTable "tabled press:Enter press:n press:n press:f press:n press:b" $
         assertEqual "and b is the table whole again" (2, -1) <=< pointOf
 
-    -- A ROW EDIT IS A LINE SPLICE, which is the decompose/recompose property one
-    -- grain in: the row remembers the line it came out of, so what goes back is
-    -- the body with that ONE line replaced and every other byte where it was —
-    -- the rule and the rows around it included.
+    -- A ROW EDIT IS A LINE SPLICE: the row remembers the line it came out of.
   , testCase "editing a table row splices that line and nothing else" $ do
       bootOf shell "" 500 ""
              ("tabled press:Enter press:n press:n press:f press:n press:n"
@@ -4161,25 +3116,17 @@ sheetSpec shell =
         assertEqual "the body with that row replaced and nothing else"
                     [tabledAfter "| 1 | 2 |" "|9|9|"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
-      -- AND THE RULE IS EDITABLE THE SAME WAY: it is a leaf, so RET opens it and
-      -- the commit puts its own line back.
       bootOf shell "" 500 ""
              ("tabled press:Enter press:n press:n press:f press:n"
                 <> " press:Enter dpara:~-+-~ press:C-x press:C-s") $ \answer ->
         assertEqual "the rule replaced, and the rows around it untouched"
                     [tabledAfter "|---+---|" "|-+-|"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
-      -- RET on the WHOLE table opens the whole block, which is the composite's
-      -- own rule and the reason both grains are stops.
       onTable "tabled press:Enter press:n press:n press:Enter" $
         assertEqual "the block whole, rule and all"
                     "| a | b |\n|---+---|\n| 1 | 2 |\n| 3 | 4 |" <=< textAt "dtext"
 
-    -- ORG'S CHECKBOX, on the stop under point: `SPC' — and `C-c C-c' with no
-    -- element open, org's own second meaning of the key — toggles an item's
-    -- `[ ]'/`[X]', writes the body with that box respelled and nothing else,
-    -- and refuses with an echo where the stop opens with no box.  `[-]', the
-    -- partial state a parent inherits, checks the way org checks it.
+    -- ORG'S CHECKBOX on the stop under point, `[-]' checking the way org checks it.
   , testCase "SPC toggles a checkbox item and writes the box alone" $ do
       bootOf shell "" 500 ""
              "checky press:Enter press:n press:f press:Space" $ \answer -> do
@@ -4200,15 +3147,7 @@ sheetSpec shell =
                     ["* TODO one\n- [ ] alpha\n- [X] beta\n- [X] gamma\n- delta\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
 
-    -- THE STORE LAGS THE WRITE IT ANSWERS FOR, and the harness models the lag
-    -- at its worst: `POST /headline' answers the post-write digest while `GET
-    -- /headline' goes on serving the pre-write subtree for ever.  The reload a
-    -- 200 fires must therefore DROP the stale answer — before it did, the pane
-    -- reverted to the box the file just left and the sheet's pin reverted with
-    -- it, so the NEXT toggle 409'd at `conflict' (the reported bug).  Held
-    -- shut here from both ends: the box stays flipped on screen, the sheet
-    -- stays `synced', and a second toggle writes under the FIRST write's
-    -- receipt rather than the store's stale pin.
+    -- THE STORE LAGS THE WRITE IT ANSWERS FOR, so the reload a 200 fires DROPS any answer that is not the write's own receipt.
   , testCase "the toggle survives its own reload: the stale store answer is dropped" $ do
       bootOf shell "" 500 ""
              "checky press:Enter press:n press:f press:Space" $ \answer -> do
@@ -4228,14 +3167,7 @@ sheetSpec shell =
                     ["d0", "w1"] =<< traverse (textAt "digest") writes
         assertEqual "and still synced" "synced" =<< textAt "state" answer
 
-    -- AND A CELL EDIT RE-PINS OFF ITS OWN ANSWER — the same lag one route
-    -- over.  `/command' moves the file and answers the fresh digest per id;
-    -- the store spells the old one until the watch lands, and the frame that
-    -- re-reads is guarded off under the panel's keys or an open edit.  So the
-    -- sheet takes the digest off the command's own 200 (the tags popup's
-    -- documented rule), and a subtree commit right behind a title edit writes
-    -- under the command's receipt rather than 409ing at `conflict' for the
-    -- reader's own landed write.
+    -- AND A CELL EDIT RE-PINS OFF ITS OWN ANSWER: the sheet takes the digest off the command's 200.
   , testCase "a command from the sheet re-pins the digest its answer carries" $
       insheet ("press:Enter dtin:renamed press:Enter"
                  <> " press:n press:Enter dpara:rewritten press:C-x press:C-s") $
@@ -4245,9 +3177,6 @@ sheetSpec shell =
           assertEqual "and lands synced, never conflict"
                       "synced" =<< textAt "state" answer
 
-    -- The same drop guards every element commit: a paragraph rewritten and
-    -- flushed stays REWRITTEN on screen — the stale re-read used to put the
-    -- old text back under a `synced' header.
   , testCase "a paragraph commit keeps the pane's text over the stale re-read" $
       insheet "press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
         assertEqual "the pane holds what was written"
@@ -4270,54 +3199,26 @@ sheetSpec shell =
         echoIs "under its own name"
                "C-c C-c → org-ctrl-c-ctrl-c ([X])" answer
 
-    -- ORG LINKS RENDER, and the rule is ORG'S OWN DISPLAY-VS-SOURCE MODEL: what
-    -- is SHOWN is the description — `[[T][D]]' shows `D', `[[T]]' shows `T', a
-    -- bare URL shows itself — and what `RET' opens is the RAW org, brackets and
-    -- all.  The display never becomes the source, so an edit is always over
-    -- what the file says.
-    --
-    -- NO SECOND PARSER.  The shown text is the server's `desc' verbatim and the
-    -- range is the server's `span': one scan, in `Glance.Query', and this page
-    -- does arithmetic on the answer.  Which is why a bare URL is drawn too —
-    -- it is in the same answer — and why one URL written twice is drawn twice,
-    -- each where it stands rather than wherever a search first found it.
+    -- ORG'S DISPLAY-VS-SOURCE MODEL, and NO SECOND PARSER: the shown text is the server's `desc' and the range its `span'.
   , keyed shell "a paragraph shows its links' descriptions, in link ink"
       "" "linky press:Enter" $ \answer -> do
         segs <- pairsAt "dsegs" answer
-        -- `[[T][D]]' shows D and `[[T]]' shows T, each in its place, with the
-        -- text between them left exactly as written.
         assertEqual "the paragraph, cut into text and links"
           [ "dt:see ", "dl:alpha", "dt: and ", "dl:https://b.example/", "dt: here" ]
           (segs !! 1)
-        -- A BARE URL is a link too, coming back in the same answer.  Written
-        -- TWICE under one look it is marked ONCE: `/links' dedups by the
-        -- (target, shown) pair (`Glance.Query.orgLinks') and a bare URL shows
-        -- itself, so its repeats collapse to the first — and this draw follows
-        -- the SPANS it was given rather than searching the text for what it
-        -- just drew, so the second occurrence is the text it is.  A
-        -- consequence of the scan's rule, visible here because the display is
-        -- downstream of it.
+        -- `/links' dedups by the (target, shown) pair, so a bare URL written twice under one look is marked ONCE.
         assertEqual "the first spelling is marked, the second reads as text"
           [ "dt:bare ", "dl:https://c.example/", "dt: then https://c.example/ twice" ]
           (segs !! 2)
-        -- What the element READS as, once the pieces are put together: the
-        -- brackets are gone from the DISPLAY.  Where they are still there is
-        -- the file, and the next case is what opens it.
         assertEqual "and reads as the descriptions"
           ["para", "see alpha and https://b.example/ here"] . (!! 1) =<< docOf answer
-      -- What RET opens, spelled out: the display is not the source.
   , keyed shell "RET opens the raw org, not what was shown"
       "" "linky press:Enter press:n press:Enter" $
         assertEqual "brackets and all"
           "see [[https://a.example/][alpha]] and [[https://b.example/]] here"
           <=< textAt "dtext"
 
-    -- THE LINKS RIDE THE MATERIALIZE, so the display is compact from the
-    -- FIRST frame and stays so across every re-fill — a second request used
-    -- to open an async gap each fill bridged, and the frames in between drew
-    -- the brackets raw.  Held shut from both ends: into the child and back,
-    -- two fills later, the paragraph reads compact, and the sheet asked
-    -- `/links' for NOTHING — the route is the table popup's now.
+    -- THE LINKS RIDE THE MATERIALIZE: compact from the FIRST frame, with no second fetch to bridge.
   , keyed shell "the links ride the materialize: compact on every fill, no second fetch"
       "" ("linky press:Enter press:n press:n press:n press:Enter"
             <> " press:Backspace") $ \answer -> do
@@ -4330,40 +3231,25 @@ sheetSpec shell =
         assertEqual "and the sheet never asked /links" ([] :: [T.Text])
           =<< textsAt "linked" answer
 
-    -- THE TITLE CELL RENDERS THE SAME WAY, its links being in the same answer.
-    -- The server sends where the cell starts (`titleAt') because only it has
-    -- that sub-span; everything else is the same arithmetic.
+    -- The server sends where the cell starts (`titleAt') because only it has that sub-span.
   , keyed shell "the headline's title cell shows its link too"
       "" "linky press:Enter" $ \answer -> do
         segs <- pairsAt "dsegs" answer
         assertEqual "the title, cut the same way"
                     ["dt:one ", "dl:the title link"] (head segs)
-        -- EXACTLY ONE path writes the cell.  The raw value used to be preset
-        -- as the cell's own text node and the segments appended beside it, so
-        -- the whole cell READ as `one [[url][the title link]]one the title
-        -- link' — the raw brackets standing ahead of the display.  This field
-        -- is the browser's reading of the cell (own text plus children), and
-        -- what it must never carry is the source spelling.
+        -- EXACTLY ONE path writes the cell, and what it must never carry is the source spelling.
         raw <- textAt "dtitleraw" answer
         assertEqual "the cell reads as the display alone"
                     "one the title link" raw
 
-    -- A LINK IS NOT A STOP and binds no mouse: `o' is the opener, here as over
-    -- the table, so the marks say "there is a reference in this text" and
-    -- nothing more.  The walk is the same walk it was.
+    -- A LINK IS NOT A STOP and binds no mouse: `o' is the opener.
   , keyed shell "links are drawn, and are no stop" "" "linky press:Enter press:n" $ \answer -> do
         assertEqual "one step down is the paragraph, links and all" (1, -1)
           =<< pointOf answer
         assertEqual "nothing was opened by drawing them" [] =<< openedOf answer
 
-    -- `o' SCOPES TO THE STOP, whatever the grain: the span it asks over is the
-    -- element's own line range, so one item's links and the whole list's are
-    -- two different questions asked with one key.  The range is worked out on
-    -- this side — every lifted region sits above the paragraphs, so the body's
-    -- lines and the file's differ by one constant — which is why a new grain
-    -- needed no new server field.
+    -- `o' SCOPES TO THE STOP: every lifted region sits above the paragraphs, so body lines and file lines differ by one constant.
   , testCase "o asks over the stop the cursor is on" $ do
-      -- At the first ITEM there is one link inside it, so `o' opens it outright.
       bootOf shell "" 500 ""
              "grain grainlinks press:Enter press:n press:n press:f press:o" $
         \answer -> do
@@ -4371,38 +3257,26 @@ sheetSpec shell =
                       [("https://alpha.example/", "_blank", "noopener")]
             =<< openedOf answer
           assertEqual "and no popup was needed" "" =<< textAt "popup" answer
-      -- At the WHOLE LIST both are inside, so the same key raises the popup —
-      -- one gesture, and the stop is what decides which answer it has.
       bootOf shell "" 500 ""
              "grain grainlinks press:Enter press:n press:n press:o" $ \answer -> do
         assertEqual "nothing opened outright" [] =<< openedOf answer
         assertEqual "both links are listed" ["in alpha", "in beta"]
           =<< map (!! 1) <$> pairsAt "llinks" answer
-      -- And at a stop with no link under it, the honest refusal.
       onTable "grain grainlinks press:Enter press:n press:o" $
-        -- The pill names the COMMAND, and the sequence is the keymap row's own
-        -- spelling of it rather than the key that was pressed.
+        -- The pill names the COMMAND, and the sequence is the keymap row's own spelling of it.
         \answer -> assertEqual "the lead-in reaches neither"
                                "RET → org-glance-overview:open (no links)"
                      =<< textAt "echo" answer
 
-    -- ONE BLANK LINE STAYS IN A LIST, which is org's rule and the corpus's:
-    -- 1173 item pairs are separated by exactly one.  `beta' after a blank is
-    -- the SAME list's second item rather than a second list, and the deeper
-    -- `- nested' rides inside `alpha' rather than taking a stop — v1's grain.
+    -- ONE BLANK LINE STAYS IN A LIST, which is org's rule and the corpus's.
   , keyed shell "a blank line and a nested item stay inside their list"
       "" "grain press:Enter press:n press:n press:f" $ \answer -> do
-        -- The item's OWN text is its head — the nested run is a stop of its
-        -- own one rung down, drawn inside it.
         assertEqual "four stops: alpha's head, the nested run, beta, gamma"
                     ["- alpha\n  more alpha", "  - nested", "- beta", "- gamma"]
           =<< partsOf "item" . take 7 <$> docOf answer
         assertEqual "the cursor is on the first of them" (3, -1) =<< pointOf answer
 
-    -- WHAT NO LEAF CLAIMS IS STILL DRAWN, and drawn inert: a block's own
-    -- `#+begin_'/`#+end_' lines are inside the composite and belong to no
-    -- paragraph in it, so they are on screen exactly once and nothing lands on
-    -- them.  The lens's one-owner-per-byte rule, one grain down.
+    -- WHAT NO LEAF CLAIMS IS STILL DRAWN, and drawn inert: the lens's one-owner-per-byte rule, one grain down.
   , keyed shell "a block's delimiters are drawn, and are no stop"
       "" "grain press:Enter" $ \answer -> do
         rows <- docOf answer
@@ -4411,9 +3285,7 @@ sheetSpec shell =
         assertEqual "and its paragraphs are the stops inside it"
                     ["quoted one", "quoted two"] (partsOf "item" (drop 7 rows))
 
-    -- RET IS PURE EDIT AT EITHER GRAIN: a leaf opens its own lines, a composite
-    -- opens the whole block's, and each commit splices exactly the range its
-    -- stop covers.
+    -- RET IS PURE EDIT AT EITHER GRAIN, and each commit splices exactly the range its stop covers.
   , testCase "RET edits a leaf's own lines, and splices only those" $ do
       onTable "grain press:Enter press:n press:n press:f press:Enter" $
         \answer -> assertEqual "the item, as it stands"
@@ -4441,15 +3313,12 @@ sheetSpec shell =
             <> "quoted one\n\nquoted two\n#+end_quote\n\ntail para\n** two\nchild body\n" ]
           body
 
-    -- `d' FLAGS WHATEVER THE STOP IS, which is the same rule at both grains and
-    -- is why the grain needed no key of its own: the reader is already standing
-    -- on the thing they mean.
+    -- `d' FLAGS WHATEVER THE STOP IS, which is why the grain needed no key of its own.
   , testCase "d flags one item, or the whole list" $ do
       onTable "grain press:Enter press:n press:n press:f press:d" $
         assertEqual "the item alone" [3] <=< flaggedOf
       onTable "grain press:Enter press:n press:n press:d" $
         assertEqual "or the composite alone" [2] <=< flaggedOf
-      -- And the delete splices the range the flag was laid on.
       onTable "grain press:Enter press:n press:n press:d press:d" $
         \answer -> do
           body <- traverse (textAt "body") =<< listAt "writes" answer
@@ -4457,8 +3326,7 @@ sheetSpec shell =
             [ "* TODO one\nlead in\n#+begin_quote\nquoted one\n\nquoted two\n"
               <> "#+end_quote\n\ntail para\n** two\nchild body\n" ] body
 
-    -- ESC over an open element is the ELEMENT's and puts back what it held; the
-    -- next one reaches the sheet's own ladder.
+    -- ESC over an open element is the ELEMENT's; the next one reaches the sheet's own ladder.
   , testCase "ESC puts an open paragraph back, and the next one closes the sheet" $ do
       insheet "press:n press:Enter dpara:rewritten press:Escape" $
         \answer -> do
@@ -4469,9 +3337,6 @@ sheetSpec shell =
       insheet "press:n press:Enter press:Escape press:Escape" $
         assertEqual "the second one is the sheet's" "" <=< textAt "modal"
 
-    -- THE DELETION GESTURE IS KIND-AWARE, and over the document it is the
-    -- paragraphs: `d' flags, a second `d' takes every flagged block out of the
-    -- body, and the write is one splice.
   , testCase "d flags a paragraph and d again splices it out of the body" $ do
       insheet "press:n press:d" $ \answer -> do
         assertEqual "the block wears the flag" [1] =<< flaggedOf answer
@@ -4484,15 +3349,12 @@ sheetSpec shell =
                     ["* TODO one\nsecond para\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
         echoIs "and the pill counted the set" "D → org-delete-element (1 flagged taken)" answer
-      -- A HELD `d' must not flag and delete from one press, which is the
-      -- confirmation the two-press shape exists to be.
+      -- A HELD `d' must not flag and delete from one press.
       insheet "press:n press:d repeat:d" $ \answer -> do
         assertEqual "the flag is still there" [1] =<< flaggedOf answer
         assertEqual "and nothing was written" ([] :: [Value]) =<< listAt "writes" answer
 
-    -- AND `x' IS THE SAME GESTURE HERE, one surface over: the FLAGS alone, and
-    -- it asks first.  `flagPress' is the one door, so the sheet's four surfaces
-    -- answer it the way the table does without spelling it again.
+    -- AND `x' IS THE SAME GESTURE HERE: `flagPress' is the one door for the sheet's four surfaces.
   , testCase "x over the document asks before it splices" $ do
       insheet "press:n press:d press:x" $ \answer -> do
         assertEqual "nothing written on the press alone" ([] :: [Value])
@@ -4513,8 +3375,6 @@ sheetSpec shell =
           =<< listAt "writes" answer
         echoIs "" "x → dired-do-flagged-delete (no deletions requested)" answer
 
-    -- A HEADLINE is refused: deleting an entry is not what this sheet is for,
-    -- and there is no command behind it.  It says so rather than doing nothing.
   , keyed shell "a headline is not deleted from the document, and says so"
       "Enter" "press:n press:n press:n press:D" $ \answer -> do
         assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
@@ -4522,9 +3382,7 @@ sheetSpec shell =
           (Just "a headline is not deleted from the sheet — this writes elements only")
           =<< lastLog answer
 
-    -- THE HEADLINE'S CELLS ARE THE ROW'S, and a row is what `/command'
-    -- addresses: the state cell raises the page's own value palette over THIS
-    -- row, and the tags cell raises the tags popup over it.
+    -- THE HEADLINE'S CELLS ARE THE ROW'S, and a row is what `/command' addresses.
   , keyed shell "RET on the state cell raises the palette over this row"
       "Enter" "press:f press:Enter" $ \answer -> do
         assertEqual "the palette is up" "on" =<< textAt "prompt" answer
@@ -4537,10 +3395,7 @@ sheetSpec shell =
         assertEqual "the command it posted"
           [("set-state", ["r1"])] <=< postedOf
 
-    -- `t' AND `:' WORK AT THE ELEMENT, which is what makes an ABSENT part
-    -- settable: this entry carries no tags, so there is no tags cell to walk
-    -- onto, and the question is asked of the headline instead.  No cell point is
-    -- needed and none is read.
+    -- `t' AND `:' WORK AT THE ELEMENT, which is what makes an ABSENT part settable.
   , testCase "t and : fire from the element, whatever the cell point" $ do
       insheet "press:t" $ \answer -> do
         assertEqual "the palette is up" "on" =<< textAt "prompt" answer
@@ -4549,48 +3404,31 @@ sheetSpec shell =
       insheet "press::" $ \answer -> do
         assertEqual "the popup is up" "on" =<< textAt "tagpop" answer
         assertEqual "named for the entry" "tags · one" =<< textAt "thead" answer
-      -- With a cell under point they mean the same thing: the element is what
-      -- they name, and the column is not read.
       insheet "press:f press:t" $
         assertEqual "a cell point changes nothing" "on" <=< textAt "prompt"
-      -- And from a paragraph they say which line takes them.
       insheet "press:n press:t" $ \answer -> do
         assertEqual "nothing raised" "" =<< textAt "prompt" answer
         echoIs "and it said where to stand" "the headline line takes this — n/p to it" answer
 
-    -- A POPUP RAISED FROM THE DOCUMENT GETS THE KEYS, and the document does not
-    -- keep them.  The sheet is the FLOOR of the surface stack — everything here
-    -- can be raised over it — so its listener declines while anything above it
-    -- is up.  Without that the document eats the very letter the palette was
-    -- raised to read: it ran its own binding for it AND claimed the press, so
-    -- the popup behind it saw a key already handled.
+    -- The sheet is the FLOOR of the surface stack, so its listener declines while anything above it is up.
   , keyed shell "a palette raised from the document has the letters, and it alone"
       "Enter" "press:t press:d" $ \answer -> do
         assertEqual "the letter committed" [("set-state", ["r1"])] =<< postedOf answer
-        -- `d' is the document's delete-flag key.  If the document had still been
-        -- listening it would have flagged the element under point on the way.
         assertEqual "and flagged nothing on the way" ([] :: [Int])
           =<< flaggedOf answer
 
   , keyed shell "and the tags popup raised from it takes its own d, not the document's"
       "Enter" "press:: press:d" $ \answer -> do
         assertEqual "the popup is up" "on" =<< textAt "tagpop" answer
-        -- `d' is the flag key on BOTH surfaces, which is what makes it the
-        -- sharpest press to test with: it landed on the popup's tag.
         assertEqual "the tag wears the flag" ["web"] =<< textsAt "tflagged" answer
         assertEqual "and no element of the document does" ([] :: [Int])
           =<< flaggedOf answer
 
-    -- THE SAME RULE FROM THE TABLE, which is the regression the reorder owes:
-    -- with no sheet open the floor is not up at all and nothing changes.
   , keyed shell "and a palette raised from the TABLE still has them" "t" "press:d" $ \answer -> do
         assertEqual "the letter committed" [("set-state", ["r1"])] =<< postedOf answer
         assertEqual "the sheet never opened" "" =<< textAt "modal" answer
 
-    -- THE TITLE EDITS IN PLACE AND THE HEADLINE KEEPS ITS DRESS: one field
-    -- over the title text alone, committing `set-title' — a span splice over
-    -- the title's own characters rather than a rewrite of the subtree around
-    -- it — with the stars, the state badge and the tags still on screen.
+    -- THE TITLE EDITS IN PLACE AND THE HEADLINE KEEPS ITS DRESS: one field over the title text alone.
   , testCase "RET on the title cell opens it, and RET commits set-title" $ do
       insheet "press:f press:f press:Enter" $ \answer -> do
         assertEqual "the overlay is open" True =<< boolAt "dopen" answer
@@ -4605,10 +3443,7 @@ sheetSpec shell =
         assertEqual "nothing went through the lens" ([] :: [Value])
           =<< listAt "writes" answer
 
-    -- AND THE HEADLINE LINE ITSELF IS THE SAME DOOR: the whole line's edit is
-    -- its title — state and tags have popups, the priority ring is pressed —
-    -- so RET at the element grain opens the title without an `f' spent
-    -- picking the cell.
+    -- The whole line's edit is its title, so RET at the element grain spends no `f' picking the cell.
   , testCase "RET on the headline line itself opens the title" $ do
       insheet "press:Enter" $ \answer -> do
         assertEqual "the overlay is open" True =<< boolAt "dopen" answer
@@ -4619,34 +3454,20 @@ sheetSpec shell =
         assertEqual "one set-title over this row"
                     [("set-title", ["r1"])] =<< postedOf answer
 
-    -- TWO KEYS COMMIT AN OPEN ELEMENT, and org's is one of them: `C-c C-c' is
-    -- `org-ctrl-c-ctrl-c', its own "do the thing here", and here the thing is
-    -- whatever element is open — the paragraph's textarea and the title
-    -- overlay alike.  `C-x C-s' keeps the half that is a BUFFER's: with nothing
-    -- open it flushes the sheet and on a conflict it overwrites, which is why
-    -- the two are not one row under two spellings.
-    --
-    -- `Ctrl+C' reaches the page — it is a page default action rather than a
-    -- chrome shortcut — and COPY is untouched, prefix opening being guarded by
-    -- `selecting()': with anything selected the first press is the browser's,
-    -- which is exactly when a reader means to copy.
+    -- TWO KEYS COMMIT AN OPEN ELEMENT: `C-c C-c' stops where the element does, `C-x C-s' keeps the BUFFER's half.
   , testCase "C-c C-c commits the open element, where C-x C-s does" $ do
-      -- The paragraph, both ways, writing the same body.
       let wrote acts = insheet acts $ \answer ->
             assertEqual "the block replaced and nothing else"
                         ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
               =<< traverse (textAt "body") =<< listAt "writes" answer
       wrote "press:n press:Enter dpara:rewritten press:C-x press:C-s"
       wrote "press:n press:Enter dpara:rewritten press:C-c press:C-c"
-      -- And the overlay, likewise: the same command over the same row.
       bootOf shell "" 500 "Enter"
              "press:f press:f press:Enter dtin:renamed press:C-c press:C-c" $
         \answer -> do
           assertEqual "one set-title over this row"
                       [("set-title", ["r1"])] =<< postedOf answer
           assertEqual "the overlay is closed" False =<< boolAt "dopen" answer
-      -- THE ECHO NAMES THE COMMAND THAT RAN, so the two keys are told apart by
-      -- what they say as well as by what they are.
       bootOf shell "" 500 "Enter"
              "press:n press:Enter press:C-c press:C-c" $
         echoIs "org's own name, on an element nothing changed in"
@@ -4654,16 +3475,11 @@ sheetSpec shell =
       insheet "press:n press:Enter press:C-x press:C-s" $
         echoIs "and the buffer's name where that key ran"
           "C-x C-s → save-buffer (paragraph unchanged)"
-      -- With NOTHING open it is not the sheet's flush: that is `save-buffer''s
-      -- half, and this key stops where the element does.
       insheet "press:C-c press:C-c" $ \answer -> do
         assertEqual "nothing was written" ([] :: [Value]) =<< listAt "writes" answer
         echoIs "and it said so" "C-c C-c → org-ctrl-c-ctrl-c (nothing open here)" answer
 
-    -- EVERY COMMIT RE-READS THE ENTRY IT WROTE, so the model the reader is
-    -- looking at is the SERVER's reading of what landed rather than this page's
-    -- guess at it — and it re-reads the entry the sheet is standing on rather
-    -- than the row.
+    -- EVERY COMMIT RE-READS THE ENTRY IT WROTE, and the entry the sheet stands on rather than the row.
   , testCase "a commit re-materializes the entry it wrote" $ do
       bootOf shell "" 500 "Enter"
              "press:n press:Enter dpara:rewritten press:C-x press:C-s" $
@@ -4675,14 +3491,7 @@ sheetSpec shell =
         assertEqual "the row, the child, and the child again"
                     ["r1", "r1#0", "r1#0"] <=< textsAt "readAt"
 
-    -- A STATE SET FROM THE SHEET LANDS ON SCREEN.  Setting one on a headline
-    -- carrying NONE used to leave the pane showing no state at all: the
-    -- `/command' wrote the file, the frame fired the re-read, and the re-read
-    -- took the STORE's copy — which the watch had not refreshed yet — so the
-    -- sheet redrew the entry exactly as it was before the write.  The stale
-    -- drop refuses that answer now and the retry behind it brings the real one,
-    -- so what is asserted here is that the write and the re-read both happen
-    -- off one press.
+    -- A STATE SET FROM THE SHEET LANDS ON SCREEN: the write and the re-read both happen off one press.
   , testCase "a state set from the sheet writes and re-reads the entry" $
       insheet "press:t press:t frame:upsert=r1" $ \answer -> do
         assertEqual "one set-state over this row"
@@ -4691,24 +3500,15 @@ sheetSpec shell =
                     ["r1", "r1"] =<< textsAt "readAt" answer
         assertEqual "and the palette is gone" "" =<< textAt "prompt" answer
 
-    -- A `/command' NEVER WRITES THE STORE — the watch does, a debounce later —
-    -- so a cell edit made from this sheet leaves it holding what the file said
-    -- before.  The frame naming this row is when there is something fresher to
-    -- read, which is the same channel the table's own rows arrive by.
+    -- A `/command' NEVER WRITES THE STORE — the watch does, a debounce later.
   , testCase "a socket frame naming this row re-reads the sheet" $ do
       insheet "frame:upsert=r1" $
         assertEqual "opened once, then re-read on the frame"
                     ["r1", "r1"] <=< textsAt "readAt"
-      -- Not while an edit is open: a re-read would pull the model out from
-      -- under the fields the reader is typing into.
+      -- Not while an edit is open: a re-read would pull the model out from under the fields.
       insheet "press:n press:Enter frame:upsert=r1" $
         assertEqual "left alone under an open element" ["r1"] <=< textsAt "readAt"
-      -- Nor over an open PANEL row, nor over drawer work the reader has
-      -- committed to the model and not yet flushed: `reload' rebuilds `prows'
-      -- and re-pins `baseProps', so a re-read there throws the edit away under a
-      -- `synced' header — and the reader's own `t' or `S-<up>' from inside the
-      -- sheet is what CAUSES the frame, so it is the ordinary case rather than a
-      -- race.
+      -- Nor over an open PANEL row: `reload' rebuilds `prows' and re-pins `baseProps'.
       insheet "press:Tab press:Enter frame:upsert=r1" $
         assertEqual "left alone under an open panel row" ["r1"] <=< textsAt "readAt"
       bootOf shell "" 500 "Enter"
@@ -4718,13 +3518,10 @@ sheetSpec shell =
                       ["r1"] =<< textsAt "readAt" answer
           assertBool "with the edit still on screen"
             . elem ["SCHEDULED", "tomorrow"] =<< pairsAt "props" answer
-      -- And a frame for some other row says nothing about this sheet.
       insheet "frame:upsert=r2" $
         assertEqual "another row is not this one" ["r1"] <=< textsAt "readAt"
 
-    -- THE RING REACHES THE DOCUMENT, over the entry the sheet is standing on:
-    -- the same command and the same wrap, read off the ANSWER's own cells rather
-    -- than off a table row the page may not be showing.
+    -- THE RING REACHES THE DOCUMENT, read off the ANSWER's own cells rather than a table row.
   , testCase "S-up cycles the priority of the entry the sheet is on" $ do
       insheet "press:S-ArrowUp" $ \answer -> do
         assertEqual "one command over this row"
@@ -4732,19 +3529,13 @@ sheetSpec shell =
         assertEqual "the fixture entry has none, so it lands on C"
                     [Just "C"] =<< prioritiesOf answer
         echoIs "and the pill names the key that ran it" "S-<up> → priority-up ([#C] · 1)" answer
-      -- Refused on a child, for its cells' own reason: no row id to name.
       bootOf shell "" 500 "Enter"
              "press:n press:n press:n press:Enter press:S-ArrowUp" $ \answer -> do
         assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
         echoIs "and it said which key climbs out"
           "a child is not settable yet — DEL opens its parent" answer
 
-    -- AND A HELD ONE ASKS ONCE.  This listener runs AHEAD of the dispatch and
-    -- claims what it takes, so the map's own ONCE list can never reach a key of
-    -- its own: without a guard here a leaned-on `S-<up>' was one `/command' per
-    -- repeat, each measured against a cell the answer before it had already
-    -- moved — a burst of 409s off one press.  Movement keeps its repeat, which
-    -- is how a reader crosses the pane.
+    -- This listener runs AHEAD of the dispatch, so the map's ONCE list can never reach a key of its own.
   , testCase "a held S-up cycles once" $ do
       bootOf shell "" 500 "Enter"
              "press:S-ArrowUp repeat:S-ArrowUp repeat:S-ArrowUp" $ \answer -> do
@@ -4753,10 +3544,6 @@ sheetSpec shell =
       insheet "press:n repeat:n repeat:n" $
         assertEqual "and a held movement key still walks" 3 <=< intAt "dat"
 
-    -- RET ON THE PRIORITY CELL STILL REFUSES, and now for a reason rather than
-    -- for want of one: a ring of three is pressed, not picked from a list, so
-    -- there is no popup a cell could raise that the two keys do not already
-    -- answer faster.
   , keyed shell "and RET on the priority cell still has no popup to raise"
       "" "priorities:A press:Enter press:f press:f press:Enter" $
         \answer -> do
@@ -4764,25 +3551,20 @@ sheetSpec shell =
           echoIs "and the pill says the keys that do it"
             "RET → priority cycles on S-<up>/S-<down>" answer
 
-    -- A CHILD'S cells are read-only in v1: a child has no row id, so no
-    -- `/command' can address it, and the echo says which key reaches the entry
-    -- that owns them.
+    -- A CHILD'S cells are read-only: no row id, so no `/command' can address it.
   , testCase "a child's cells are not settable yet, and the echo says so" $ do
       bootOf shell "" 500 "Enter"
              "press:n press:n press:n press:Enter press:f press:Enter" $ \answer -> do
         assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
         echoIs "and the pill named the way out"
           "RET → a child's title is not settable yet — DEL opens its parent" answer
-      -- And the element keys are refused there for the same reason: a child has
-      -- no row id, so no `/command' can name it.
       insheet "press:n press:n press:n press:Enter press:t" $
         \answer -> do
           assertEqual "nothing raised" "" =<< textAt "prompt" answer
           echoIs "and it said which key climbs out"
             "a child is not settable yet — DEL opens its parent" answer
 
-    -- A CHILD'S OWN PARTS are editable, through the lens that materialized it:
-    -- the write is aimed at that entry's extent rather than at the row's.
+    -- A CHILD'S OWN PARTS are editable through the lens that materialized it, at that entry's extent.
   , keyed shell "a child's paragraph writes the child's own extent"
       "Enter" ("press:n press:n press:n press:Enter press:n press:Enter"
                 <> " dpara:reworded press:C-x press:C-s") $ \answer -> do
@@ -4792,15 +3574,10 @@ sheetSpec shell =
                     ["** two :web:\nreworded\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
 
-    -- The row id is the SERVER's: it never reaches this page, so there is no
-    -- row to warn about and no note to draw.  The file still has it, which
-    -- TestQuery's lens group is what shows.
   , atBoot sheet "the identity property never reaches the panel" $ \answer -> do
         rows <- pairsAt "props" answer
         assertEqual "no row names it" [] [ r | r <- rows, take 1 r == ["ORG_GLANCE_ID"] ]
 
-    -- TAB crosses the panes and nothing else, so the panel keeps its cursor:
-    -- two stops, and the same key comes back to the row it left.
   , testCase "TAB crosses to the panel and back, and the cursor is remembered" $ do
       insheet "press:Tab" $ \answer -> do
         assertEqual "the panel has the keys" True =<< boolAt "pnav" answer
@@ -4814,22 +3591,16 @@ sheetSpec shell =
       insheet "press:Tab press:n press:Tab press:Tab" $
         assertEqual "which is where the next crossing lands" 1 <=< intAt "pat"
 
-    -- Two stops make the direction say nothing, so S-TAB is that one toggle
-    -- rather than a second walk with an end of its own to fall off.
   , testCase "S-TAB is the same crossing, both ways" $ do
       insheet "press:S-Tab" $
         assertEqual "into the panel" True <=< boolAt "pnav"
       insheet "press:Tab press:S-Tab" $
         assertEqual "and out of it" True <=< boolAt "dactive"
 
-    -- Nothing is focused in nav, so every printable key is free: both profiles'
-    -- movement is bound at once, and the arrows ask for no profile at all.
   , testCase "nav moves on n/p, j/k and the arrows, and stops at the ends" $ do
       insheet "press:Tab press:n press:n" $ \answer -> do
         assertEqual "two rows down" 2 =<< intAt "pat" answer
-        -- The panel holding the keys with nothing focused is a focus of its own
-        -- as far as the map is concerned, or these letters would move the table
-        -- under the sheet as well.
+        -- The panel holding the keys with nothing focused is a focus of its own as far as the map is concerned.
         assertEqual "and the table's own row did not move" 0 =<< intAt "cursor" answer
       insheet "press:Tab press:j press:j press:k" $
         assertEqual "vi's pair walks the same rows" 1 <=< intAt "pat"
@@ -4840,16 +3611,13 @@ sheetSpec shell =
       insheet "press:Tab press:n press:n press:n press:n" $
         assertEqual "and the last property the end of the walk down" 3 <=< intAt "pat"
 
-    -- Editing a row that is there is almost always editing its value; a
-    -- planning row has no editable key at all, org owning that half of it.
   , testCase "RET opens the row at point, and a planning row opens its value" $ do
       insheet "press:Tab press:Enter" $
         assertEqual "the value of the planning row at point" "pval:0" <=< textAt "focus"
       insheet "press:Tab press:n press:n press:n press:Enter" $
         assertEqual "and of the property under them" "pval:3" <=< textAt "focus"
 
-    -- One row, two fields: TAB has nothing else to mean inside an open row, so
-    -- the pane crossing is suspended for as long as one is open.
+    -- TAB has nothing else to mean inside an open row, so the pane crossing is suspended.
   , testCase "TAB hops the open row's two fields rather than leaving" $ do
       insheet "press:Tab press:Enter press:Tab" $ \answer -> do
         assertEqual "over to the key" "pkey:0" =<< textAt "focus" answer
@@ -4867,13 +3635,7 @@ sheetSpec shell =
           assertEqual "the panel still has the keys" True =<< boolAt "pnav" answer
           assertEqual "and the cursor stayed on the row" 3 =<< intAt "pat" answer
 
-    -- THE ROW A COMMIT WRITES IS THE ROW THE OVERLAY OPENED OVER, and the hazard
-    -- is the one thing that can move a cursor while a row is open: a MOUSE
-    -- CLICK.  No key can — the panel's listener sends every key to the fields
-    -- while `pediting()' — so a commit that re-read the cursor would take the
-    -- text typed for one row and write it into whichever row the reader landed
-    -- on, silently.  The tags popup's rename guarded this from the start and the
-    -- panel did not; the shared overlay snapshots at open, so both do.
+    -- THE ROW A COMMIT WRITES IS THE ROW THE OVERLAY OPENED OVER; the hazard is a MOUSE CLICK.
   , keyed shell "a click under an open row commits the row that was opened"
       "Enter" ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
                 <> " click:0 press:Enter") $ \answer -> do
@@ -4881,18 +3643,12 @@ sheetSpec shell =
                 [["EFFORT", "0:45"]] answer
         assertEqual "the overlay closed" "" =<< textAt "focus" answer
 
-    -- The same hazard from the other side: a click that lands on a row whose
-    -- KEY the commit would have rewritten.  The add-row is the case with the
-    -- most to lose — its key is the thing being typed — so a redirected commit
-    -- would name a property after a planning keyword.
   , keyed shell "and a click cannot redirect the key an add-row is writing"
       "Enter" ("press:Tab press:+ pkey:4=OWNER pval:4=ada" <> " click:3 press:Enter") $
         panelIs "the added row took both fields and EFFORT stands"
                 [["EFFORT", "0:30"], ["OWNER", "ada"]]
 
-    -- `+' is the add affordance, and the whole of it: keyboard-first means the
-    -- key IS the offer, where a row that is always empty was chrome every
-    -- reader of the panel had to filter back out.
+    -- `+' is the add affordance and the whole of it: keyboard-first means the key IS the offer.
   , testCase "+ adds a property at the end and opens it" $ do
       insheet "press:Tab press:+" $ \answer -> do
         panelIs "an empty row at the end" [["EFFORT", "0:30"], ["", ""]] answer
@@ -4903,8 +3659,6 @@ sheetSpec shell =
         panelIs "and committing it is a property" [["EFFORT", "0:30"], ["ADDED", ""]] answer
         assertEqual "with nothing grown under it" 4 =<< intAt "pat" answer
 
-    -- ESC over an open row is the ROW's, and puts back the text it was opened
-    -- on; only from nav does the key reach the sheet's own ladder.
   , testCase "ESC puts an open row back, and the next one closes the sheet" $ do
       bootOf shell "" 500 "Enter"
              "press:Tab press:n press:n press:n press:Enter pval:3=0:45 press:Escape" $ \answer -> do
@@ -4916,18 +3670,12 @@ sheetSpec shell =
              "press:Tab press:n press:n press:n press:Enter press:Escape press:Escape" $
         assertEqual "the second one is the sheet's" "" <=< textAt "modal"
 
-    -- What a sync sends is the committed panel, which is what makes the commit
-    -- the thing that means yes.
   , keyed shell "a sync sends the panes apart, and an empty planning row is not one"
       "Enter" ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
                 <> " press:Enter press:C-x press:C-s") $
         \answer -> do
-          -- The BODY goes back whole, every byte of it: the panel moved and the
-          -- document did not, so nothing in the text was touched.
           assertEqual "one write" [fixtureBody] =<< traverse (textAt "body")
                                                 =<< listAt "writes" answer
-          -- The identity is the server's and is in neither list; the two empty
-          -- planning rows are entries the headline has not got.
           assertEqual "carrying the drawer, edit and all"
                       [[["EFFORT", "0:45"]]]
                       =<< wroteAt "properties" answer
@@ -4936,25 +3684,19 @@ sheetSpec shell =
                       =<< wroteAt "planning" answer
           assertEqual "and it landed" "synced" =<< textAt "state" answer
 
-    -- Emptying every planning row is how the line comes off, which the server
-    -- reads as "no planning" rather than as "leave it alone".
   , keyed shell "an emptied planning row is an entry taken off"
       "Enter" "press:Tab press:Enter pval:0= press:Enter press:C-x press:C-s" $
         assertEqual "nothing left to write" [[]]
                     <=< wroteAt "planning"
 
-    -- Emptying a key is how a property is deleted: there is no key to press for
-    -- it, and none is owed — the row simply stops naming anything.
+    -- Emptying a key is how a property is deleted: the row stops naming anything.
   , keyed shell "an emptied key is a property deleted"
       "Enter" ("press:Tab press:n press:n press:n press:Enter pkey:3="
                 <> " press:Enter press:C-x press:C-s") $
         assertEqual "the drawer the write asks for" [[]]
                     <=< wroteAt "properties"
 
-    -- C-c ' is org's `edit-special' rhyme.  It re-materializes rather than
-    -- converting anything locally, which is what keeps an org parser out of
-    -- this page: the raw text it shows is the server's `org', not a join done
-    -- here.
+    -- C-c ' RE-MATERIALIZES rather than converting locally, which keeps an org parser out of this page.
   , testCase "C-c ' shows the raw subtree, and again shows the panes" $ do
       insheet "press:C-c press:'" $ \answer -> do
         assertEqual "the whole subtree, every region spelled out"
@@ -4968,9 +3710,6 @@ sheetSpec shell =
         assertEqual "with both panes back" "" =<< textAt "shape" answer
         echoIs "the pill" "C-c ' → org-edit-special (structured document)" answer
 
-    -- A re-read cannot carry unsaved work, and converting locally would need the
-    -- parser this design exists to avoid.  So the toggle is refused, and says
-    -- which key would let it through.
   , testCase "a dirty sheet is refused the toggle, in either pane" $ do
       insheet "press:C-c press:' sheet:hello press:C-c press:'" $
         \answer -> do
@@ -4984,16 +3723,13 @@ sheetSpec shell =
           assertEqual "a committed panel edit is dirty too" "" =<< textAt "shape" answer
           echoIs "same refusal" "C-c ' → org-edit-special (sync first — C-x C-s)" answer
 
-    -- The other half of that rule: an edit nobody committed is not one, so the
-    -- toggle goes through exactly as it would over a sheet nobody touched.
+    -- An edit nobody committed is not one.
   , keyed shell "an open row is not an edit until it is committed"
       "Enter" ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
                 <> " press:C-c press:'") $ \answer -> do
         assertEqual "the toggle went through" "raw" =<< textAt "shape" answer
         echoIs "and said so" "C-c ' → org-edit-special (raw org)" answer
 
-    -- A remount takes the sheet down and puts it back: both panes, and the work
-    -- in either of them.
   , keyed shell "a remount carries the panel across it"
       "Enter" ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
                 <> " press:Enter close:view-changed") $
@@ -5003,8 +3739,6 @@ sheetSpec shell =
           assertEqual "still dirty against the file, and still synced-looking"
                       "synced" =<< textAt "state" answer
 
-    -- One pane, nothing to cross to: the key goes back to the browser, which is
-    -- the whole of what raw mode changes here.
   , keyed shell "raw mode leaves TAB to the browser"
       "Enter" "press:C-c press:' press:Tab" $ \answer -> do
         assertEqual "the focus stayed in the text" "mtext" =<< textAt "focus" answer
@@ -5012,26 +3746,16 @@ sheetSpec shell =
         assertBool "nor the key off the browser"
           . notElem "Tab" =<< textsAt "prevented" answer
 
-    -- AND A BLURRED RAW SHEET STILL HOLDS THEM.  Clicking the sheet's own
-    -- chrome takes the focus off its textarea without closing anything, and a
-    -- surface that stopped counting there left every `table' row live under an
-    -- open sheet — `d' among them, which flags the row BEHIND it for archiving.
-    -- The sheet is a surface whenever it is up, in either shape.
+    -- A blurred raw sheet is still a SURFACE: a click on its chrome takes the focus off without closing anything.
   , testCase "a raw sheet keeps the keys with its textarea blurred" $ do
       insheet "press:C-c press:' blur press:d" $ \answer -> do
         assertEqual "nothing focused" "" =<< textAt "focus" answer
         assertEqual "and no row flagged behind the sheet"
                     ([] :: [T.Text]) =<< textsAt "flagged" answer
-      -- What that costs is `q', which is scope `table': with a sheet up it is
-      -- dead, so the sheet's doors are ESC and the backdrop.
       insheet "press:C-c press:' blur press:q" $
         assertEqual "and the sheet is still up" "on" <=< textAt "modal"
 
-    -- ONE FOCUS LANGUAGE ACROSS BOTH PANES, and NEITHER focuses anything: each
-    -- holds the keys with nothing focused, which is what leaves every printable
-    -- key free to be movement and a command.  So the mark is the FRAME's on both
-    -- sides — one class each — and it has to leave when the keys do, whichever
-    -- way they go.
+    -- ONE FOCUS LANGUAGE, and NEITHER pane focuses anything: the mark is the FRAME's, and it leaves when the keys do.
   , testCase "the pane holding the keys wears it, and only while it does" $ do
       insheet "" $ \answer -> do
         assertEqual "the document opens with the keys" True
@@ -5045,26 +3769,18 @@ sheetSpec shell =
       insheet "press:Tab press:Tab" $ \answer -> do
         assertEqual "crossing back unmarks the panel" False =<< boolAt "pnav" answer
         assertEqual "and the document has it again" True =<< boolAt "dactive" answer
-      -- The leak this closes: the sheet used to clear the nav FLAG and leave
-      -- the class on, so a panel closed from nav stayed marked behind the
-      -- backdrop until the next materialize redrew it.
       insheet "press:Tab press:Escape" $ \answer -> do
         assertEqual "the sheet is closed" "" =<< textAt "modal" answer
         assertEqual "and both marks went with it" (False, False)
           =<< ((,) <$> boolAt "pnav" answer <*> boolAt "dactive" answer)
 
-    -- Where the cursor was left belongs to the sheet that was open: the next
-    -- materialize is a fresh drawer, read-only and at the top of itself.
   , keyed shell "the panel opens at the top again when the sheet is reopened"
       "Enter" "press:Tab press:n press:Escape press:Enter" $
         \answer -> do
           assertEqual "the cursor is back on the first row" 0 =<< intAt "pat" answer
           assertEqual "and the keys back in the body" False =<< boolAt "pnav" answer
 
-    -- THE PANEL IS AN ELM PROGRAM, and this is what it draws: the renderer's own
-    -- markup, class for class, since the served stylesheet is written against it
-    -- (`#mprops:not(.on) .tv-table tbody tr.tv-sel' and the rest).  Read off the
-    -- DOM rather than out of a mount's bookkeeping — there is no mount to ask.
+    -- THE PANEL IS AN ELM PROGRAM drawing the renderer's markup class for class, read off the DOM.
   , atBoot sheet "the panel is an Elm program drawing the renderer's markup" $
         \answer -> do
           assertEqual "one panel program" 1 =<< intAt "pinits" answer
@@ -5072,32 +3788,20 @@ sheetSpec shell =
                       ["Key", "Value"] =<< textsAt "pcols" answer
           assertEqual "naming the two keys a flagged row answers to"
                       "d/D delete · u unflag" =<< textAt "pflagHelp" answer
-          -- No marks and no page size: nothing here reads a mark, and a drawer
-          -- is short enough that every row of it is on screen.
           assertEqual "and nothing is flagged before a key says so" []
             =<< textsAt "pflagged" answer
 
-    -- The table is rebuilt by a remount and the panel is not: it is a sibling of
-    -- `#app' like the sheet around it, so what a reopened sheet costs is one
-    -- `fill' rather than a second program with a second subscription behind it.
+    -- The panel is a sibling of `#app', so a reopened sheet costs one `fill' rather than a second program.
   , testCase "the panel is built once and filled per sheet" $
-      -- ESC closes the sheet and leaves the body pane focused, which is a focus
-      -- of its own as far as the map is concerned; the click that takes it off
-      -- is what puts the table's own keys back.
       bootOf shell "" 500 "Enter"
              ("press:Escape blur press:Enter press:Escape blur press:Enter"
                 <> " close:view-changed") $
         \answer -> do
           assertEqual "the table was rebuilt" 2 =<< intAt "mounts" answer
           assertEqual "the panel never was" 1 =<< intAt "pinits" answer
-          -- Three sheets opened, three drawers handed over: the view is a
-          -- function of the model and a new model is one `fill'.
           assertEqual "and every drawer arrived as one fill" 3
             =<< intAt "pfills" answer
 
-    -- Deletion is the TABLE's gesture over the panel's rows, and the same
-    -- renderer state answers it: `d' lays a flag down and the row wears the
-    -- wash the mount draws for one.
   , keyed shell "d flags the row at point rather than deleting it"
       "Enter" "press:Tab press:n press:n press:n press:d" $
         \answer -> do
@@ -5106,14 +3810,10 @@ sheetSpec shell =
           panelIs "and the drawer is untouched" [["EFFORT", "0:30"]] answer
           echoIs "the pill says what the second press will do"
             "d → delete-flag (d again deletes)" answer
-          -- The proof that `pnav' kills the table's own rows: `d' over the table
-          -- is `archive-flag', and a second one would post an archive.
+          -- `d' over the table is `archive-flag', so this is the proof that `pnav' kills the table's own rows.
           assertEqual "and the table's own d never ran" ([] :: [Value])
                       =<< listAt "commands" answer
 
-    -- `dd' is dired's, and the second press is `D': it takes EVERY flagged row
-    -- rather than the one under it, which is what makes the flag the
-    -- confirmation.
   , testCase "d again deletes the flagged property, and D is that press alone" $ do
       bootOf shell "" 500 "Enter"
              "press:Tab press:n press:n press:n press:d press:d" $ \answer -> do
@@ -5126,35 +3826,26 @@ sheetSpec shell =
           panelIs "D needs no flag: the row at point is the set" [] answer
           echoIs "and says so" "D → org-delete-property (row)" answer
 
-    -- The three planning rows are org's keys rather than the author's, so a
-    -- delete CLEARS the entry and the row stands — which is already how an entry
-    -- is absent, and how the whole line comes off.
+    -- The three planning rows are org's keys, so a delete CLEARS the entry and the row stands.
   , keyed shell "deleting a planning row clears the entry and keeps the row"
       "Enter" "press:Tab press:d press:d press:C-x press:C-s" $ \answer -> do
         panelIsAt "the row is still there, empty" "" [["EFFORT", "0:30"]] answer
         assertEqual "and the write carries no planning entry" [[]]
                     =<< wroteAt "planning" answer
 
-    -- `u' is the way back off a flag, and it walks on the way the table's does.
   , keyed shell "u takes a flag off and steps on"
       "Enter" "press:Tab press:n press:n press:n press:d press:u press:D" $ \answer -> do
         assertEqual "nothing was flagged when D ran" ([] :: [T.Text])
                     =<< textsAt "pflagged" answer
-        -- `u' stepped off the last row and stayed, so `D' took the row at point:
-        -- the property, and not one of org's three.
         panelIs "so D took the row at point" [] answer
 
-    -- A held `d' would flag a row and delete it from ONE press, which is the
-    -- confirmation the two-press shape exists to be.  The dispatch's own ONCE
-    -- list cannot reach a key this listener owns, so the guard is the panel's.
+    -- The dispatch's own ONCE list cannot reach a key this listener owns, so the guard is the panel's.
   , keyed shell "a held d flags once and never deletes what it flagged"
       "Enter" "press:Tab press:n press:n press:n press:d repeat:d repeat:d" $
         \answer -> do
         assertEqual "still flagged" ["P0"] =<< textsAt "pflagged" answer
         panelIs "and still there" [["EFFORT", "0:30"]] answer
 
-    -- A deletion moves the model, so the sheet is dirty and the way out is a
-    -- write — the same rule a committed edit answers to.
   , testCase "a deletion is an edit, and a cancelled one is not" $ do
       bootOf shell "" 500 "Enter"
              "press:Tab press:n press:n press:n press:d press:d press:C-x press:C-s" $
@@ -5168,10 +3859,7 @@ sheetSpec shell =
                       =<< listAt "writes" answer
           assertEqual "and the sheet closed without one" "" =<< textAt "modal" answer
 
-    -- ONE PAIR OF FIELDS, over whichever row is at point.  The mount rewrites
-    -- its own rows as it scrolls, so an edit cannot live inside one — it sits
-    -- over the panel and is anchored to the row the cursor is on, which is why
-    -- opening a second row moves the same overlay rather than growing another.
+    -- The mount rewrites its own rows as it scrolls, so the edit sits over the panel and is anchored to the cursor's row.
   , keyed shell "the edit overlay is one pair of fields over the row at point"
       "Enter" ("press:Tab press:Enter press:Escape"
                 <> " press:n press:n press:n press:Enter pval:3=0:45 press:Enter") $
@@ -5179,9 +3867,7 @@ sheetSpec shell =
           panelIs "the overlay went with the cursor" [["EFFORT", "0:45"]] answer
           assertEqual "and closed behind it" "" =<< textAt "focus" answer
 
-    -- The hidden properties are not rowed, so they are not flaggable and no
-    -- gesture can reach them.  The identity is the case that matters: a key that
-    -- deleted it would break the row id every update is keyed off.
+    -- The hidden properties are not rowed, so a key cannot delete the identity the row id is keyed off.
   , keyed shell "nothing hidden is rowed, so nothing hidden is flaggable"
       "Enter" "press:Tab press:n press:n press:n press:D" $
         \answer -> do
@@ -5192,14 +3878,7 @@ sheetSpec shell =
                       3 (length rows)
   ]
 
--- | The settings sheet, driven through the keys a reader presses.  What is
--- asserted is this page's half: that the chord raises it in PANELS over the
--- layers @\/config@ served, that the one box holds the SELECTED file's
--- @#+TODO:@ lines verbatim and that switching layers costs no edit, that the
--- two preference panels apply without touching the server, that closing it is
--- the save, and that a pristine one costs no request.  The splice itself is
--- @configSpec@'s subject and the grammar is @TestConfig@'s; nothing here
--- re-states either.
+-- | The settings sheet as keys: PANELS over the layers @\/config@ served, one box holding the SELECTED file's lines.
   where
     insheet = bootOf shell "" 500 "Enter"
     onTable = bootOf shell "" 500 ""
@@ -5216,9 +3895,7 @@ settingsSpec shell =
         assertEqual "and it opens synced" "synced" =<< textAt "cstate" answer
         assertEqual "with nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
 
-    -- ONE SELECT over the layers, system first and then the tags in their own
-    -- alphabet.  The server's order is the walk's, so the sheet's is its own —
-    -- the fixture serves `film' ahead of `book' precisely so the two differ.
+    -- The server's order is the walk's, so the sheet's is its own: the fixture serves `film' ahead of `book'.
   , atBoot settings "the layers are a select: system first, then the tags in alphabet"
       $ \answer -> do
         assertEqual "system, then book, then film"
@@ -5228,8 +3905,6 @@ settingsSpec shell =
                     "system · /o/.org-glance/config/system.org · not created yet"
           =<< textAt "clab" answer
 
-    -- The one box is a VIEW of the selected layer, so picking another swaps what
-    -- is in it and nothing else.
   , keyed shell "picking a layer swaps the box to that file's lines" "," "clayer:1" $ \answer -> do
         assertEqual "book's lines" "#+TODO: TODO READING | READ"
           =<< textAt "cshown" answer
@@ -5237,18 +3912,13 @@ settingsSpec shell =
           =<< textAt "clab" answer
         assertEqual "with nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
 
-    -- THE RULE THE STACK OF BOXES USED TO GIVE FOR FREE: an edit belongs to its
-    -- layer, and a reader who looks at another one comes back to it.
   , keyed shell "a switch away and back keeps the edit"
       "," "ctext:#+TODO:_A_|_B clayer:1 clayer:0" $ \answer -> do
         assertEqual "the edit is still there" "#+TODO:_A_|_B" =<< textAt "cshown" answer
         assertEqual "and nothing was written on the way" ([] :: [Value])
           =<< listAt "configWrites" answer
 
-    -- READING A LAYER IS NOT EDITING IT.  Walking the whole select and coming
-    -- back is the shape a reader looking for one tag makes, and every layer's
-    -- bytes have been through the box by the end of it: nothing may be written,
-    -- and what is on screen must be the file's own text down to the spacing.
+    -- READING A LAYER IS NOT EDITING IT: every layer's bytes go through the box and nothing may be written.
   , keyed shell "walking every layer and back writes nothing"
       "," "clayer:1 clayer:2 clayer:0 press:Escape" $ \answer -> do
         assertEqual "no write" ([] :: [Value]) =<< listAt "configWrites" answer
@@ -5257,8 +3927,7 @@ settingsSpec shell =
         assertEqual "book's line, spacing and bar included"
                     "#+TODO: TODO READING | READ" <=< textAt "cshown"
 
-    -- And every layer edited on the way is written, one drift-locked call per
-    -- FILE — which is what the boxes were doing and what one box must not lose.
+    -- Every layer edited on the way is written, one drift-locked call per FILE.
   , keyed shell "every layer edited is written, one call each"
       "," "ctext:#+TODO:_A_|_B clayer:2 ctext:#+TODO:_C_|_D press:Escape" $
         \answer -> do
@@ -5272,11 +3941,7 @@ settingsSpec shell =
                       [["#+TODO:_A_|_B"], ["#+TODO:_C_|_D"]]
             =<< traverse (textsAt "lines") writes
 
-    -- ONE list draws the tabs and the order, so a fourth panel is an entry
-    -- there rather than a second place that has to hear about it.  The order is
-    -- the tab order too: the sheet keeps native tabbing, so the DOM says which
-    -- field Tab reaches next — and a panel that is not showing is out of the
-    -- flow, so its fields are out of that walk with it.
+    -- ONE list draws the tabs and the order, and a panel that is not showing is out of the flow with its fields.
   , atBoot settings "it is two panels, each named by its own tab" $
         assertEqual "theme, keywords" ["theme", "keywords"]
           <=< textsAt "csecs"
@@ -5284,11 +3949,7 @@ settingsSpec shell =
   , atBoot settings "and the sheet opens on the first of them" $
         assertEqual "theme" "theme" <=< textAt "ctab"
 
-    -- THE THEME SELECT IS THE REGISTRY'S: one option per `Glance.Web.Theme.themes'
-    -- entry, under `auto', which names the media query rather than a palette.
-    -- The derived oracle for the same list the CSS blocks and the boot script's
-    -- id test read, so a theme added to the record list reaches the sheet with
-    -- no second edit — and a hard-coded option here fails.
+    -- THE THEME SELECT IS THE REGISTRY'S: a DERIVED oracle, so a hard-coded option here fails.
   , testCase "the theme select is one option per theme this build carries" $ do
       page <- shell
       holdsAll "auto leads, then the registry in its own order"
@@ -5296,9 +3957,7 @@ settingsSpec shell =
         <> [ "<option value=\"" <> thId t <> "\">" <> thLabel t <> "</option>"
            | t <- themes ]) page
 
-    -- EVERY POPUP HAS A URL.  `?page=NAME' beside `q', written by every raise
-    -- and every close, with the panel as the FRAGMENT — so a reader can send
-    -- the view they are looking at rather than describing it.
+    -- EVERY POPUP HAS A URL: `?page=NAME' beside `q', with the panel as the FRAGMENT.
   , keyed shell "the settings sheet says so in the URL, panel and all"
       "," "ctab:theme" $ \answer -> do
         urlIs "the surface, and the panel it is showing"
@@ -5308,11 +3967,7 @@ settingsSpec shell =
       "," "press:Escape" $ \answer ->
         urlIs "the query alone again" "?q=state%3A*active*" answer
 
-    -- AND THE CAPTURE FORM LEAVES BY THE DOOR IT CAME IN BY.  It opened through
-    -- `showPopup' and used to close by clearing its own class, so the raise
-    -- wrote `?page=capture' and nothing took it off: a reader who captured and
-    -- carried on was sending a URL that reopened a form they had left.  ONE
-    -- WRITER means one door at each end.
+    -- ONE WRITER means one door at each end: a raise that wrote `?page=' and no close left it standing.
   , keyed shell "the capture form says so in the URL"
       "+" "" $ \answer ->
         urlIs "the surface" "?q=state%3A*active*&page=capture" answer
@@ -5325,7 +3980,6 @@ settingsSpec shell =
       "," "ctab:theme" $ \answer ->
         assertEqual "the theme panel" "theme" =<< textAt "ctab" answer
 
-    -- TAB IS THE TAB KEY: it walks the panels and wraps, `S-TAB' walks back.
   , keyed shell "TAB walks the panels and wraps"
       "," "press:Tab" $ \answer ->
         assertEqual "one on from theme" "keywords" =<< textAt "ctab" answer
@@ -5336,31 +3990,17 @@ settingsSpec shell =
       "," "press:Tab press:Tab" $ \answer ->
         assertEqual "theme again" "theme" =<< textAt "ctab" answer
 
-    -- THE TREE'S STATE HUES are `system.org''s third tree-wide line, edited
-    -- under THE THEME ON SCREEN: there is ONE theme control, so which theme is
-    -- being coloured is DERIVED from the reader's own pick rather than asked a
-    -- second time.  A field per keyword of the tree's cycle, filled from the
-    -- answer and posted flat.
-    -- IT IS A TABLE-VIEW MOUNT, the page's FIFTH and its second mutable one:
-    -- `tag | state | group | colour', one row per keyword the tree knows, by
-    -- LAYER and then in that layer's own cycle order.  A keyword no config
-    -- layer declares is listed under the tag `file' — the tree recognizes it
-    -- and this sheet cannot move it, so it is here to be COLOURED.
+    -- WHICH theme the hues describe is DERIVED from the reader's own pick; the table is by LAYER, then cycle order.
   , keyed shell "the states table is every keyword the tree knows, by layer"
       "," "ctab:theme" $ \answer -> do
-        -- System first then the tags alphabetically — the layer select's own
-        -- order — and inside a layer its `#+TODO:' line left to right, actives
-        -- before the done-like.  A word TWO layers declare is TWO rows: a state
-        -- belongs to a file, and `d' on one leaves the other standing.
+        -- A word TWO layers declare is TWO rows: a state belongs to a file.
         assertEqual "every layer's cycle, in its own order" ["system|TODO|active|", "system|DONE|inactive|"
                     , "tag:book|TODO|active|", "tag:book|READING|active|"
                     , "tag:book|READ|inactive|", "tag:film|WATCHING|active|"
                     , "tag:film|WATCHED|inactive|"]
           =<< textsAt "chues" answer
 
-    -- RET OPENS A ROW into the property panel's own overlay one surface over,
-    -- and a commit moves the MODEL.  A colour is the TREE's, so it lands in
-    -- `system.org''s own line whatever layer the state belongs to.
+    -- A colour is the TREE's, so it lands in `system.org''s line whatever layer the state belongs to.
   , keyed shell "RET edits a state's colour, and it rides the system write"
       "," "ctab:theme sat:TODO press:Enter sfields://#7B1FA2 press:Enter press:Escape"
       $ \answer -> do
@@ -5382,8 +4022,6 @@ settingsSpec shell =
         assertEqual "and nothing was written on the way" ([] :: [Value])
           =<< listAt "configWrites" answer
 
-    -- `+' ADDS A STATE to the layer the cursor stands in, and the write is that
-    -- layer's own `#+TODO:' line.
   , keyed shell "+ adds a state to its layer's cycle"
       "," "ctab:theme sat:TODO press:+ sfields:WAITING/active/ press:Enter press:Escape"
       $ \answer -> do
@@ -5392,7 +4030,6 @@ settingsSpec shell =
         assertEqual "the cycle carries it now"
                     ["#+TODO: TODO WAITING | DONE"] =<< textsAt "lines" (head writes)
 
-    -- AND `d' TWICE TAKES ONE OUT, dired's gesture over the renderer's flags.
   , keyed shell "dd removes a state from its layer's cycle"
       "," "ctab:theme sat:TODO press:d press:d press:Escape" $ \answer -> do
         writes <- listAt "configWrites" answer
@@ -5405,29 +4042,19 @@ settingsSpec shell =
         assertEqual "pristine, so nothing went" ([] :: [Value])
           =<< listAt "configWrites" answer
 
-    -- THE LOG HEIGHT IS A DEV PREFERENCE: no field reaches it, and the boot
-    -- still applies whatever `localStorage' holds.
-    -- The default is the stylesheet's declared value, so a page nobody has
-    -- touched shows seven and stores nothing.
   , atBoot settings "and it opens on seven, with nothing stored" $ \answer -> do
         assertEqual "the boot wrote the default" "7" =<< textAt "logn" answer
         assertEqual "and the key is not there" "«unset»" =<< textAt "logStored" answer
 
-    -- THE BOOT READS THE PREFERENCE, which no act can reach: every act runs
-    -- after the page has already applied it, so the browser has to arrive
-    -- remembering one.
+    -- THE BOOT READS THE PREFERENCE, which no act can reach: the browser has to arrive remembering one.
   , keyedWith shell "glance-log=21" "" 500 "a browser that remembers one boots at it"
       "" "" $ \answer -> do
         assertEqual "the cap is the stored one" "21" =<< textAt "logn" answer
 
-    -- A stored value the band no longer takes — an older build's, a hand-edited
-    -- one — falls back rather than being applied.
   , keyedWith shell "glance-log=900" "" 500 "a stored value outside the band boots at the default"
       "" "" $
         assertEqual "the default" "7" <=< textAt "logn"
 
-    -- The theme is a preference rather than a write: it applies as it is
-    -- picked, it is stored, and the sheet it was picked in stays where it is.
   , keyed shell "the theme panel applies and persists without closing the sheet"
       "," "theme:dark" $ \answer -> do
         assertEqual "stamped on the document element" "dark" =<< textAt "theme" answer
@@ -5436,16 +4063,12 @@ settingsSpec shell =
         assertEqual "and nothing was written" ([] :: [Value])
           =<< listAt "configWrites" answer
 
-    -- `auto' is the attribute coming OFF rather than a third value written into
-    -- it, which is what lets the media query decide again.
+    -- `auto' is the attribute coming OFF rather than a third value written into it.
   , keyed shell "and auto takes the attribute back off" "," "theme:dark theme:auto" $ \answer -> do
         assertEqual "no attribute" "" =<< textAt "theme" answer
         assertEqual "but the choice is remembered" "auto" =<< textAt "themeStored" answer
 
-    -- The focus rule, both halves.  A `SELECT' inside a popup KEEPS the focus —
-    -- the popup is a legitimate holder and the table's keys are dead under it —
-    -- and the way the keys come back is closing the popup, which is what a
-    -- hand-written `blur()' on a control outside one was standing in for.
+    -- A `SELECT' inside a popup KEEPS the focus, and closing the popup is how the keys come back.
   , keyed shell "the sheet's theme select keeps the keys away from the table"
       "," "theme:dark press:n" $ \answer -> do
         assertEqual "the select holds the keyboard" "SELECT" =<< textAt "holding" answer
@@ -5456,8 +4079,7 @@ settingsSpec shell =
         assertEqual "nothing holds the keyboard" "" =<< textAt "holding" answer
         rowIs "and the key moved the cursor" "r2" answer
 
-    -- The sheet's own rule, and the reason it has no buttons: the way out is
-    -- the save.  Only the layer that moved is written.
+    -- The way out is the save, and only the layer that moved is written.
   , keyed shell "ESC syncs the layers that moved and closes"
       "," "ctext:#+TODO:_TODO_STARTED_|_DONE press:Escape" $
         \answer -> do
@@ -5467,8 +4089,7 @@ settingsSpec shell =
             =<< textAt "path" (head writes)
           assertEqual "its lines, as typed" ["#+TODO:_TODO_STARTED_|_DONE"]
             =<< textsAt "lines" (head writes)
-          -- The empty digest is the pin an absent file carries, handed straight
-          -- back: creating the first layer is a write like any other.
+          -- The empty digest is the pin an absent file carries, handed straight back.
           assertEqual "pinned to the digest it was read with" ""
             =<< textAt "digest" (head writes)
           assertEqual "and the sheet is down" "" =<< textAt "settings" answer
@@ -5478,11 +4099,7 @@ settingsSpec shell =
         assertEqual "no write" ([] :: [Value]) =<< listAt "configWrites" answer
         assertEqual "the sheet is down" "" =<< textAt "settings" answer
 
-    -- `P' IS THE PIN, and it ASKS WHICH SAVED VIEW the applied query becomes.
-    -- The palette is the registry drawn as a plain list — one entry per view,
-    -- its own which-key letter marked inside its name, and the query that view
-    -- holds NOW as the aside — so what a press is about to replace is on screen
-    -- ahead of the press.  Nothing is written by the raise.
+    -- `P' IS THE PIN, and it ASKS WHICH SAVED VIEW the applied query becomes.  Nothing is written by the raise.
   , keyed shell "P asks which saved view the applied query becomes"
       "" "press:P" $ \answer -> do
         assertEqual "the palette is up" "on" =<< textAt "prompt" answer
@@ -5497,9 +4114,6 @@ settingsSpec shell =
         assertEqual "and the question wrote nothing" ([] :: [Value])
           =<< listAt "configWrites" answer
 
-    -- The letter commits on its own — the palette IS the confirmation — through
-    -- the same drift-locked `/config' write the sheet rides, under the digest
-    -- `/config' just served.
   , keyed shell "and a letter pins the query into that view"
       "" "press:P press:d" $ \answer -> do
         writes <- listAt "configWrites" answer
@@ -5519,10 +4133,7 @@ settingsSpec shell =
         assertEqual "nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
         assertEqual "and the palette is down" "" =<< textAt "prompt" answer
 
-    -- AND `DEL' IS THE SAME DOOR, the popups' rung: a palette no entry of which
-    -- claims the key is a surface with no inner ladder, so the backspace steps
-    -- out of it.  The state palette is the exception and keeps its landed
-    -- meaning, because `*empty*' CLAIMS the key — the case below it.
+    -- A palette no entry of which claims DEL is a surface with no inner ladder, so the backspace steps out.
   , keyed shell "DEL steps out of the question the way it leaves a popup"
       "" "press:P press:Backspace" $ \answer -> do
         assertEqual "nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
@@ -5534,11 +4145,7 @@ settingsSpec shell =
         assertEqual "the keyword came off" [Nothing] =<< keywordsOf answer
         assertEqual "and the palette is down" "" =<< textAt "prompt" answer
 
-    -- AND `-' IS A FLAG over that same list, magit's own shape: armed, a letter
-    -- puts that view's BUILT-IN back instead of pinning.  The write is the empty
-    -- query, which takes the tree's line off; what the built-in then IS belongs
-    -- to the server, so the page re-reads rather than guessing, and the words
-    -- say which half ran.
+    -- AND `-' IS A FLAG over that list, magit's own shape: armed, a letter puts that view's BUILT-IN back.
   , keyedAt shell "?q=tag%3Awork" 500 "- arms the reset, and a letter puts the built-in back"
       "" "press:P press:d press:P press:- press:d" $ \answer -> do
         writes <- listAt "configWrites" answer
@@ -5550,9 +4157,6 @@ settingsSpec shell =
         echoIs "the pill says which half ran, and what landed"
           "P → set-saved-view (default reset · state:*active*)" answer
 
-    -- A FLAG STAYS A FLAG: the same list stands under it, the rung says which
-    -- way it is set, and a second `-' puts it back — nothing is written by
-    -- either press.
   , keyed shell "- toggles, and the list under it does not move"
       "" "press:P press:-" $ \answer -> do
         assertEqual "the question says what a letter will do now"
@@ -5572,16 +4176,12 @@ settingsSpec shell =
           =<< textAt "phead" answer
         assertEqual "nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
 
-    -- AND THE FLAG DIES WITH THE QUESTION IT WAS SET ON: a commit closes the
-    -- palette, so the next raise is the pin's, never a reset armed a minute ago.
+    -- AND THE FLAG DIES WITH THE QUESTION IT WAS SET ON: a commit closes the palette.
   , keyedAt shell "?q=tag%3Awork" 500 "the flag is off again on the next raise"
       "" "press:P press:- press:d press:P" $ \answer ->
         assertEqual "the pin question, with the flag spent"
                     "pin · tag:work" =<< textAt "phead" answer
 
-    -- `/' is the same fallback the state palette has: the list flattens into a
-    -- field, typing narrows it and RET commits — one mechanism, whatever the
-    -- letter mode drew.
   , keyed shell "/ falls back to the completing read over the same list"
       "" "press:P press:/ type:agen press:Enter" $ \answer -> do
         writes <- listAt "configWrites" answer
@@ -5589,8 +4189,7 @@ settingsSpec shell =
         assertEqual "into the view the typing left" "state:*active*"
           =<< wroteView "agenda" (head writes)
 
-    -- EVERY REGISTRY ENTRY TAKES THE PIN, and the write names that view ALONE,
-    -- so pinning the agenda leaves the default's line exactly where it was.
+    -- EVERY REGISTRY ENTRY TAKES THE PIN, and the write names that view ALONE.
   , keyedAt shell "?q=tag%3Awork" 500 "another letter pins it into the agenda"
       "" "press:P press:a" $ \answer -> do
         writes <- listAt "configWrites" answer
@@ -5606,20 +4205,13 @@ settingsSpec shell =
         echoIs "and the pill names the agenda"
           "P → set-saved-view (agenda · tag:work)" answer
 
-    -- `A' APPLIES THE TREE'S OWN AGENDA: it is a saved view like the default,
-    -- so a pin under a running page is what the next press applies.  `g' in
-    -- between is what makes the last press say something — it lands the page on
-    -- the default first.  The FIRST `a' is the pin palette's own which-key
-    -- letter for the agenda view, which is a letter rather than this binding.
+    -- The FIRST `a' is the pin palette's own which-key letter for the agenda view rather than this binding.
   , keyedAt shell "?q=tag%3Awork" 500 "A applies the agenda the pin just wrote"
       "" "press:P press:a press:g press:A" $ \answer ->
         urlIs "the freshly pinned agenda, not the built-in"
               "?q=tag%3Awork" answer
 
-    -- THE SORT RIDES THE PIN, because the order is the grammar's: a query
-    -- carrying `sort:' tokens pins whole, and `g' a moment later applies the
-    -- LIVE pinned query rather than the boot-baked constant — which is what
-    -- made a fresh pin look like it had dropped its sorting.
+    -- THE SORT RIDES THE PIN, and `g' applies the LIVE pinned query rather than the boot-baked constant.
   , keyedAt shell "?q=tag%3Awork%20sort%3Adeadline" 500
       "the pinned view keeps its sort, and g applies it live"
       "" "press:P press:d press:g" $ \answer -> do
@@ -5630,10 +4222,7 @@ settingsSpec shell =
           "?q=tag%3Awork+sort%3Adeadline" answer
         assertEqual "and the badge held" True =<< boolAt "pinned" answer
 
-    -- AND THE COLUMNS RIDE IT THE SAME WAY: the query is the ONE carrier of a
-    -- view — filter, order, column set — so the pin persists all three in the
-    -- system layer's one line and `g' applies all three back.  Nothing here
-    -- knows a token from a token; that is the design being asserted.
+    -- The query is the ONE carrier of a view — filter, order, column set — and nothing here knows a token from a token.
   , keyedAt shell "?q=tag%3Awork%20columns%3Astate%2Ctitle%20sort%3Adeadline" 500
       "the pinned view keeps its columns too, and g applies the whole view"
       "" "press:P press:d press:g" $ \answer -> do
@@ -5645,17 +4234,13 @@ settingsSpec shell =
           "?q=tag%3Awork+columns%3Astate%2Ctitle+sort%3Adeadline" answer
         assertEqual "and the badge held" True =<< boolAt "pinned" answer
 
-    -- THE BADGE IS A BOOLEAN OVER THE APPLIED VIEW: on while the view on show
-    -- is the pinned one, off the moment the query diverges — DEL's token drop
-    -- is a divergence like any other.
+    -- THE BADGE IS A BOOLEAN OVER THE APPLIED VIEW, off the moment the query diverges.
   , keyedAt shell "?q=tag%3Awork" 500 "the badge follows the applied view"
       "" "press:P press:d press:Backspace" $ \answer ->
         assertEqual "a diverged query takes the badge off" False
           =<< boolAt "pinned" answer
 
-    -- `q' IS THE OTHER DOOR OUT OF A BROWSING POPUP, dired's own: same rung and
-    -- same `off' as DEL, and the same exception — the value palette keeps its
-    -- letters, `q' there being a keyword's initial like any other.
+    -- `q' IS THE OTHER DOOR OUT OF A BROWSING POPUP, dired's own; the value palette keeps its letters.
   , keyed shell "q closes a browsing popup, and the palette keeps its letters"
       "" "press:o press:q" $ \answer -> do
         assertEqual "the link popup is gone" "" =<< textAt "popup" answer
@@ -5664,11 +4249,7 @@ settingsSpec shell =
       "" "press:t press:q" $ \answer ->
         assertBool "the palette stands" . not . T.null =<< textAt "prompt" answer
 
-    -- THE BUTTON IS THE TOUCH DOOR: the renderer reports the click, this page
-    -- asks the same question, and the echo spells the command by hand since no
-    -- keymap row fired.  A CLICK has no keydown behind it for the raising guard
-    -- to spend, so the very next letter commits — the half a key press covers
-    -- for itself and this door has to clear by hand.
+    -- A CLICK has no keydown behind it for the raising guard to spend, so this door clears it by hand.
   , keyed shell "the pin button asks the same question, and the next letter answers"
       "" "pinclick press:d" $ \answer -> do
         writes <- listAt "configWrites" answer
@@ -5680,23 +4261,13 @@ settingsSpec shell =
                     "pin → set-saved-view (default · state:*active*)"
           =<< textAt "echo" answer
 
-    -- Two sheets over one page would leave `C-x C-s' and `ESC' guessing which
-    -- one they meant.  `typing()' is not what keeps them apart, which is the
-    -- point of the case: a click on the open sheet's own header blurs its
-    -- textarea, and every `table' row is live again the moment it does.  So the
-    -- refusal is stated in `openSettings' rather than left to the focus.
+    -- `typing()' is not what keeps the two sheets apart, so the refusal is stated in `openSettings'.
   , keyed shell "it will not open over the materialize sheet" "Enter" "blur press:," $ \answer -> do
         assertEqual "the settings sheet stayed down" "" =<< textAt "settings" answer
         assertEqual "and the subtree is still the one open" "on"
           =<< textAt "modal" answer
 
-    -- AND IT IS A SURFACE WHILE IT STANDS, which is the half `openSettings''s
-    -- refusal cannot cover.  The sheet opens with a field focused, so `typing()'
-    -- used to catch it by the FOCUS — and a click on the sheet's own chrome
-    -- takes that focus away without closing anything, which left every `table'
-    -- row live under an open settings sheet, `d' among them: one press flags the
-    -- row behind it and the next archives it.  The sheet is one entry in
-    -- `SURFACES' now, so it is up whether or not anything in it is focused.
+    -- AND IT IS A SURFACE WHILE IT STANDS, whether or not anything in it is focused.
   , keyed shell "the settings sheet holds the keys with its fields blurred"
       "," "blur press:d" $ \answer -> do
         assertEqual "the sheet is up" "on" =<< textAt "settings" answer
@@ -5712,9 +4283,6 @@ settingsSpec shell =
           assertEqual "the sheet is still up" "on" =<< textAt "settings" answer
           assertEqual "and it is synced again" "synced" =<< textAt "cstate" answer
 
-    -- A file that moved under the sheet is a 409 and the sheet stays open at
-    -- `conflict', where C-x C-s overwrites and ESC discards — the materialize
-    -- sheet's flow, over config files.
   , keyed shell "a layer that moved underneath lands at conflict, and ESC discards"
       "," "clayer:1 ctext:#+TODO:_A_|_B cmoved press:C-x press:C-s" $
         \answer -> do
@@ -5727,24 +4295,16 @@ settingsSpec shell =
           assertEqual "no second write" 1 . length =<< listAt "configWrites" answer
           assertEqual "the sheet is down" "" =<< textAt "settings" answer
 
-    -- `C-x C-s' SYNCS MID-EDIT, so the reader is still typing while the write is
-    -- out — and a flush that landed must leave the box exactly as they left it.
-    -- The old stack of boxes could not get this wrong; one box redrawn from the
-    -- text the flush snapshotted can.
+    -- `C-x C-s' SYNCS MID-EDIT, so a flush that landed must leave the box exactly as the reader left it.
   , keyed shell "a sync that lands does not paint over what is being typed"
       "," "clayer:1 ctext:#+TODO:_A_|_B chang press:C-x press:C-s\
           \ ctext:#+TODO:_A_|_B_C cdeliver" $ \answer -> do
         assertEqual "one write went out" 1 . length =<< listAt "configWrites" answer
         assertEqual "and the keystrokes behind it stand" "#+TODO:_A_|_B_C"
           =<< textAt "cshown" answer
-        -- Still dirty against what was sent, so the way out writes it.
         assertEqual "the sheet is up" "on" =<< textAt "settings" answer
 
-    -- WITH ONE BOX, a refusal has to bring its own layer with it: the sheet
-    -- SELECTS the file that was refused and shows the server's words under it,
-    -- since a message under a box showing another layer describes a file the
-    -- reader cannot see.  The edit was made on `book' and the reader walked on
-    -- to `film' before syncing.
+    -- WITH ONE BOX, a refusal SELECTS the file it refused: a message under another layer describes a file the reader cannot see.
   , keyed shell "a 409 selects the layer it refused and names it"
       "," "clayer:1 ctext:#+TODO:_A_|_B clayer:2 cmoved press:C-x press:C-s" $
         \answer -> do
@@ -5754,14 +4314,11 @@ settingsSpec shell =
           assertContains "with the server's own words under it" "changed on disk"
             =<< textAt "clerr" answer
           assertEqual "and the sheet waits" "conflict" =<< textAt "cstate" answer
-          -- And the log names it, since one box can show one refusal.
           strip <- logOf answer
           assertBool "the log names the refused layer"
             (any (T.isInfixOf "tags/book.org" . snd) strip)
 
-    -- The label carries the DIGEST, so a layer this sheet just created has to
-    -- stop saying it is not there yet — the sheet is still open on it and the
-    -- line above the box is the only thing that says whether the file exists.
+    -- The label carries the DIGEST, so a layer this sheet just created must stop saying it is not there yet.
   , atBoot settings "a layer the sheet creates stops saying it is not there yet" $
         assertEqual "the system layer has no file behind it"
                     "system · /o/.org-glance/config/system.org · not created yet"
@@ -5773,8 +4330,6 @@ settingsSpec shell =
         assertEqual "and the box was left as it was" "#+TODO:_A_|_B"
           =<< textAt "cshown" answer
 
-    -- A refusal describes a WRITE, so an edit taken back takes its refusal with
-    -- it: the layer matches the file again and there is nothing left to explain.
   , keyed shell "reverting an edit drops the refusal it earned"
       "," "ctext:#+TODO:_A_|_B cmoved press:C-x press:C-s\
            \ crevert press:C-x press:C-s" $
@@ -5784,10 +4339,7 @@ settingsSpec shell =
           assertEqual "the line under the box is gone" "" =<< textAt "clerr" answer
           assertEqual "and the sheet is synced" "synced" =<< textAt "cstate" answer
 
-    -- The one that matters most here: writing a layer is what moves the
-    -- columns, so the close that follows a successful save is `view-changed'.
-    -- The sheet is a sibling of `#app' and outlives the remount by where it
-    -- sits — asserted rather than assumed, since it is a layout fact.
+    -- The sheet is a sibling of `#app' and outlives the remount by where it sits — a layout fact.
   , keyed shell "a view-changed remount leaves the sheet standing"
       "," "clayer:1 ctext:#+TODO:_A_|_B close:view-changed" $
         \answer -> do
@@ -5798,12 +4350,7 @@ settingsSpec shell =
           assertEqual "on the layer it was made in" "1" =<< textAt "cat" answer
   ]
 
--- | The event strip, driven through the keys and the acts that write to it.
--- The widget's own contract is what is asserted: the shape of a line, that
--- nothing ever takes one away, that the ring drops from the front, that a
--- repeat is counted rather than repeated, and that a write names the rows it
--- landed on.  Reading the glue cannot answer any of it — every one of these is
--- a fact about what a sequence of calls leaves on screen.
+-- | The event strip: the shape of a line, the ring, the counted repeat, and a write naming the rows it landed on.
 logSpec :: IO T.Text -> TestTree
 logSpec shell = testGroup "Shell log"
   [ -- The boot line is an ordinary line: the mount used to clear the strip, so
@@ -5815,16 +4362,11 @@ logSpec shell = testGroup "Shell log"
         assertBool ("a clock opens it: " <> show strip)
                    (all (stamped . stampOf . snd) strip)
 
-    -- Every line, whatever wrote it: a clock, one of the three severities —
-    -- SPELLED uppercase in the line and WORN lowercase as its class, so the
-    -- colour and the word can never disagree — and one of the six scopes.
+    -- The severity is SPELLED uppercase in the line and WORN lowercase as its class.
   , keyed shell "every line is a stamp, a severity and a scope"
       "d q" "offline close:resync" $ \answer -> do
         strip <- logOf answer
-        -- Every assertion below is quantified over the strip, so an EMPTY one
-        -- passes all four.  The acts above write a `cmd', a `ws' and a boot
-        -- line, and the sweeps elsewhere in this file all guard the same way:
-        -- a gate that found nothing to check is not a gate that passed.
+        -- Every assertion below is quantified over the strip, so an EMPTY one would pass all four.
         assertBool "the acts wrote lines to sweep" (length strip >= 3)
         assertBool ("stamped: " <> show strip)
                    (all (stamped . stampOf . snd) strip)
@@ -5836,10 +4378,7 @@ logSpec shell = testGroup "Shell log"
           [ scope | (_sev, scope, _msg) <- map cut strip
                   , scope `notElem` ["ws", "sync", "cmd", "filter", "config", "boot"] ]
 
-    -- Five hundred lines, and the OLDEST is what goes: a reader scrolled back
-    -- into the strip is reading the recent past, and dropping from the far end
-    -- of it is what a ring is for.  Five hundred and one appended over the boot
-    -- line takes two off the front.
+    -- Five hundred lines, and the OLDEST is what goes.
   , keyed shell "the ring holds five hundred and drops from the front" "" "spam:501" $ \answer -> do
         strip <- map cut <$> logOf answer
         assertEqual "capped" 500 (length strip)
@@ -5848,9 +4387,7 @@ logSpec shell = testGroup "Shell log"
         assertEqual "and the newest stands" ["line 500"]
                     [ m | (_s, _c, m) <- drop 499 strip ]
 
-    -- The one mutation an append-only strip allows: a message identical to the
-    -- one before it is counted on that line.  A retry loop otherwise fills the
-    -- ring with one sentence and takes everything else out of reach.
+    -- The one mutation an append-only strip allows: a message identical to the one before is counted on that line.
   , keyed shell "a repeat is counted on its line rather than written under it"
       "q q q" "" $ \answer -> do
         strip <- map cut <$> logOf answer
@@ -5859,8 +4396,6 @@ logSpec shell = testGroup "Shell log"
                     [("info", "cmd", "q quits the native window; a browser tab closes itself ×3")]
                     (drop 1 strip)
 
-    -- A message that is not the LAST one is a new line, so a repeat interrupted
-    -- by anything else starts counting again rather than reaching back.
   , keyed shell "and only against the line it follows" "q d q" "" $ \answer -> do
         strip <- map cut <$> logOf answer
         assertEqual "three lines under the boot's" 4 (length strip)
@@ -5868,8 +4403,6 @@ logSpec shell = testGroup "Shell log"
                     "q quits the native window; a browser tab closes itself"
                     (message (last strip))
 
-    -- The connection's two severities, over a daemon that went away: the fetch
-    -- that failed is an error and the retry behind it is a warning.
   , keyed shell "a dead daemon logs the failure and the retry"
       "" "offline close:resync" $ \answer -> do
         strip <- map cut <$> logOf answer
@@ -5878,9 +4411,6 @@ logSpec shell = testGroup "Shell log"
                     , ("warn", "ws", "disconnected · retrying in 1s") ]
                     (drop 1 strip)
 
-    -- dired's flag, said in words: the pill says what the key did and the strip
-    -- says which row it did it to, which is the half that survives the next
-    -- keystroke.
   , keyed shell "d names the row it flagged, and u names it unflagging one" "d u" "" $ \answer -> do
         strip <- map cut <$> logOf answer
         assertEqual "the row, by its title"
@@ -5888,8 +4418,7 @@ logSpec shell = testGroup "Shell log"
                     , ("info", "cmd", "headline \"one\" unmarked for deletion") ]
                     (drop 1 strip)
 
-    -- One line per ROW rather than per request: a set spanning three files can
-    -- come back two-thirds applied, so what landed is named row by row.
+    -- One line per ROW rather than per request: a set spanning three files can come back two-thirds applied.
   , testCase "every archived row is named, one line each" $ do
       bootOf shell "" 500 "d d" "" $ \answer -> do
         strip <- map message . drop 1 . map cut <$> logOf answer
@@ -5906,7 +4435,6 @@ logSpec shell = testGroup "Shell log"
                     , "headline \"two\" archived"
                     , "headline \"three\" archived" ] strip
 
-    -- The state a row landed on, and the clear that is not a keyword.
   , testCase "a state that landed names the row and the keyword" $ do
       bootOf shell "" 500 "C-c C-t" "press:t" $ \answer -> do
         strip <- map message . drop 1 . map cut <$> logOf answer
@@ -5920,8 +4448,6 @@ logSpec shell = testGroup "Shell log"
         assertEqual "the clear is not a keyword"
                     ["headline \"one\" state cleared"] strip
 
-    -- A refusal is the error the pill's count cannot carry: which row, and what
-    -- the server said about it.
   , keyed shell "a refused write is an error line and names no landing"
       "" "refuse press:D" $ \answer -> do
         strip <- map cut <$> logOf answer
@@ -5929,48 +4455,34 @@ logSpec shell = testGroup "Shell log"
                     [("error", "cmd", "r1: a.org changed on disk")] (drop 1 strip)
   ]
 
--- | The event strip out of a harness answer: the severity class each line
--- wears, and the text it renders.
 logOf :: Value -> IO [(T.Text, T.Text)]
 logOf answer = traverse one =<< listAt "log" answer
   where one v = (,) <$> textAt "sev" v <*> textAt "text" v
 
--- | A line as it reads: its severity class, the scope it names, and the message
--- the rest of it is.  The stamp is a clock and is checked by 'stamped'.
 cut :: (T.Text, T.Text) -> (T.Text, T.Text, T.Text)
 cut (sev, text) = case T.words text of
   (_stamp : _sev : scope : rest) -> (sev, scope, T.unwords rest)
   _shapeless                     -> (sev, "", text)
 
--- | The message a cut line carries, for the cases that assert only that.
 message :: (T.Text, T.Text, T.Text) -> T.Text
 message (_sev, _scope, m) = m
 
--- | The clock a line opens with, and the severity it spells after it.
 stampOf, sevOf :: T.Text -> T.Text
 stampOf = fromMaybe "" . listToMaybe . T.words
 sevOf   = fromMaybe "" . listToMaybe . drop 1 . T.words
 
--- | Whether T is an @HH:MM:SS@ clock, which is how every line opens.
 stamped :: T.Text -> Bool
 stamped t = T.length t == 8 && T.index t 2 == ':' && T.index t 5 == ':'
             && T.all (\c -> isDigit c || c == ':') t
 
--- | The commands the page posted, as the name and the ids each one named.
 postedOf :: Value -> IO [(T.Text, [T.Text])]
 postedOf answer = traverse one =<< listAt "commands" answer
   where one v = (,) <$> textAt "name" v <*> textsAt "ids" v
 
--- | The keyword each posted command carried, for the @set-state@ cases.
 keywordsOf :: Value -> IO [Maybe T.Text]
 keywordsOf = traverse (maybeTextAt "keyword") <=< argsOf
 
--- | The value palette as it is drawn: per ROW of the resolution table, its
--- classes, the source it names, and the entries in its Active and Inactive
--- cells.  An entry is spelled @KEY WORD@, the word carrying the bolded letter
--- bracketed where it sits; a fallback-mode row is one entry with no token in
--- the active cell.  The hairlines between rows are the rows' own borders, so
--- what reads out of this is the table's shape.
+-- | The value palette as drawn: per ROW, its classes, the source it names, and the Active and Inactive entries.
 paletteOf :: Value -> IO [(T.Text, T.Text, [T.Text], [T.Text])]
 paletteOf answer = traverse one =<< listAt "plist" answer
   where one v = (,,,) <$> textAt "cls" v <*> textAt "source" v
@@ -5981,21 +4493,13 @@ paletteOf answer = traverse one =<< listAt "plist" answer
           word <- textAt "word" e
           pure (if T.null key then word else key <> " " <> word)
 
--- | Every badge hue the palette wrote, as the word and the colour, in draw
--- order.  The hues are the producer's and ride on the state column, so what
--- this pins is that the palette goes and finds them for keywords the resolution
--- names without them.
+-- | Every badge hue the palette wrote.  The hues are the producer's and ride on the state column.
 paletteHues :: Value -> IO [(T.Text, T.Text)]
 paletteHues = fmap (filter (not . T.null . snd)) . paletteField "color"
 
--- | Every entry the palette drew, as its word and the muted aside beside it —
--- the tag palette's partial count.  Empty where the entry has none, which is
--- what a tag every target already carries looks like.
 paletteHints :: Value -> IO [(T.Text, T.Text)]
 paletteHints = paletteField "hint"
 
--- | Every entry the palette drew, as its word and KEY, flattened out of the
--- table in draw order — each row's active cell, then its inactive one.
 paletteField :: T.Text -> Value -> IO [(T.Text, T.Text)]
 paletteField key answer = do
   rows <- listAt "plist" answer
@@ -6003,17 +4507,12 @@ paletteField key answer = do
   traverse (\e -> (,) <$> textAt "word" e <*> textAt key e) entries
   where halves v = (<>) <$> listAt "active" v <*> listAt "inactive" v
 
--- | WHAT: the which-key assignment over a comma-separated CYCLE is EXPECTED —
--- one @LETTER\@INDEX@ per entry, and @-@ where an entry claimed nothing.  The
--- rule runs under the harness as the pure function it is, over no page at all.
+-- | WHAT: the which-key assignment over CYCLE is EXPECTED, run as the pure function it is over no page at all.
 assigns :: IO T.Text -> (T.Text, [T.Text]) -> Assertion
 assigns shell (keywords, expected) =
   bootOf shell "" 500 "" ("assign:" <> keywords)
          (assertEqual (T.unpack keywords) expected <=< textsAt "assigned")
 
--- | An edit overlay's cell resolution, likewise driven as the pure function it
--- is: the KEYS its shape names, resolved against COLUMNS, come out as
--- @\"FROM,TO\"@ — or @«none»@ where one of them names no column there.
 resolves :: IO T.Text -> ([T.Text], [T.Text], T.Text) -> Assertion
 resolves shell (keys, cols, expected) =
   bootOf shell "" 500 ""
@@ -6021,96 +4520,64 @@ resolves shell (keys, cols, expected) =
          (assertEqual (show keys <> " over " <> show cols) (Just expected)
             <=< maybeTextAt "span")
 
--- | The KEYS of the columns a popup's shape is resolved against, out of the
--- SERVER's own declaration — so what the cases below check is the real list
--- rather than a copy of it here.
+-- | The KEYS a popup's shape is resolved against, out of the SERVER's own declaration rather than a copy.
 columnKeys :: [Value] -> IO [T.Text]
 columnKeys = traverse (textAt "key")
 
--- | WHERE AN EDIT OVERLAY LANDS, resolved BY KEY.  A shape names the columns it
--- covers and the resolution turns them into the indices the placement reads, so
--- a column list that moves takes the box with it — where the shape used to
--- carry a positional pair and reordering those columns put the box over the
--- wrong cells, greenly.  The rule is pure and order-only, which is what lets it
--- be checked against the server's own declaration under the harness, over no
--- page at all.
+-- | WHERE AN EDIT OVERLAY LANDS, resolved BY KEY: pure and order-only, so a column list that moves takes the box with it.
 cellSpanSpec :: IO T.Text -> TestTree
 cellSpanSpec shell = testGroup "Shell cell resolution"
   [ testCase "the two popups' own shapes, against the columns the server declares" $ do
       links <- columnKeys linkColumns
       tags <- columnKeys tagColumns
-      -- The link popup edits the description and the target; `type' is derived
-      -- and leads the list, which is exactly why the pair is not 0,1.
+      -- `type' is derived and leads the list, which is exactly why the pair is not 0,1.
       resolves shell (["title", "url"], links, "1,2")
-      -- And the tags popup edits the tag cell alone, a run of one.
       resolves shell (["title"], tags, "0,0")
 
   , testCase "an unknown key resolves to nothing, so the placement is a no-op" $ do
       links <- columnKeys linkColumns
       resolves shell (["title", "nosuchcolumn"], links, "«none»")
       resolves shell (["nosuchcolumn"], links, "«none»")
-      -- Naming no column at all is the same answer: there is nothing to cover.
       resolves shell ([], links, "«none»")
 
-    -- The run is drawn from one EDGE to the other, so it is the columns' order
-    -- rather than the shape's: a shape spelling its keys the other way round
-    -- means the same two cells and gets the same box.
+    -- The run is drawn EDGE to EDGE, so it is the columns' order rather than the shape's.
   , testCase "the run follows the columns' order, whatever order the shape spelled" $ do
       links <- columnKeys linkColumns
       resolves shell (["url", "title"], links, "1,2")
       resolves shell (["type", "url"], links, "0,2")
   ]
 
--- | SHELL's glue booted under node on SEARCH, with the server reporting TOTAL
--- matches, KEYS pressed over the table once it settled and ACTS run after
--- those, then CHECK over the harness's whole answer.  A machine with no node
--- runs nothing and passes: the boot is checked wherever there is one, and the
--- glue group still reads the same page as text.
+-- | SHELL's glue booted under node.  A machine with no node runs nothing and passes.
 bootOf :: IO T.Text -> T.Text -> Int -> T.Text -> T.Text -> (Value -> Assertion)
        -> Assertion
 bootOf shell = bootWith shell ""
 
--- | LABEL's case over a boot of the default page — no search, 500 matches —
--- with KEYS pressed and ACTS run.  The page the great majority of these cases
--- want, so the two lines that spelled it are one.
 keyed :: IO T.Text -> String -> T.Text -> T.Text -> (Value -> Assertion) -> TestTree
 keyed shell label keys acts = testCase label . bootOf shell "" 500 keys acts
 
--- | 'keyed' over a page the boot asked SEARCH for, with the server reporting
--- TOTAL matches.
 keyedAt :: IO T.Text -> T.Text -> Int -> String -> T.Text -> T.Text
         -> (Value -> Assertion) -> TestTree
 keyedAt shell search total label keys acts =
   testCase label . bootOf shell search total keys acts
 
--- | 'keyedAt' over a browser that already remembers STORE.
 keyedWith :: IO T.Text -> T.Text -> T.Text -> Int -> String -> T.Text -> T.Text
           -> (Value -> Assertion) -> TestTree
 keyedWith shell store search total label keys acts =
   testCase label . bootWith shell store search total keys acts
 
--- | 'bootOf' over a browser that already REMEMBERS something: STORE is
--- @KEY=VALUE@ pairs joined by commas, seeded into @localStorage@ ahead of the
--- glue.  A preference the BOOT reads is unreachable from an act, every act
--- running after the page has already applied it.
+-- | 'bootOf' over a browser that already REMEMBERS something: a preference the BOOT reads is unreachable from an act.
 bootWith :: IO T.Text -> T.Text -> T.Text -> Int -> T.Text -> T.Text
          -> (Value -> Assertion) -> Assertion
 bootWith shell store search total keys acts check =
   reading check =<< bootedPage shell store search total keys acts
 
--- | The harness's answer to one boot, without a check over it: 'Nothing' where
--- there is no node, and the harness's own complaint as a 'Left'.  Named apart
--- from 'bootWith' so 'overBoot' can acquire ONE answer for a run of cases that
--- drive the same page — the boot is a temp directory, two writes and a node
--- process, and four cases reading four fields of one page paid for four of them.
+-- | The harness's answer to one boot, named apart so 'overBoot' can acquire ONE answer for a run of cases.
 bootedPage :: IO T.Text -> T.Text -> T.Text -> Int -> T.Text -> T.Text
            -> IO (Maybe (Either String Value))
 bootedPage shell store search total keys acts = do
   node <- findExecutable "node"
   case node of
-    -- SAY SO.  331 of this file's cases route through here, and a machine with
-    -- no node ran every one of them green having asserted nothing at all.
-    -- 'TestDefaults.withCorpusSample' answers the same silence the same way.
+    -- SAY SO: a machine with no node ran every case green having asserted nothing at all.
     Nothing  -> Nothing <$ hPutStrLn stderr "\nSKIPPED - node is not on PATH: shell boot"
     Just exe -> withTempDir $ \dir -> do
       page <- shell
@@ -6126,73 +4593,47 @@ bootedPage shell store search total keys acts = do
                               (eitherDecode (BL.fromStrict (TE.encodeUtf8 (T.pack out))))
         _failed     -> Left ("the boot harness said: " <> err)
 
--- | Run CHECK over a 'bootedPage' answer: nothing to check where there was no
--- node, and the harness's complaint as the failure.
 reading :: (Value -> Assertion) -> Maybe (Either String Value) -> Assertion
 reading check = maybe (pure ()) (either assertFailure check)
 
--- | Run K under ONE boot of the default page with KEYS and ACTS, acquired once
--- for every 'atBoot' case in the tree K builds and released after the last.
--- Wraps a group rather than nesting one inside it, so no case is renamed and
--- none is merged into another: what goes is the repeated node process.
+-- | Run K under ONE boot.  Wraps a group rather than nesting one inside it, so no case is renamed or merged.
 overBoot :: IO T.Text -> T.Text -> T.Text
          -> (IO (Maybe (Either String Value)) -> TestTree) -> TestTree
 overBoot shell keys acts =
   withResource (bootedPage shell "" "" 500 keys acts) (const (pure ()))
 
--- | LABEL's case over the page an enclosing 'overBoot' booted.
 atBoot :: IO (Maybe (Either String Value)) -> String -> (Value -> Assertion) -> TestTree
 atBoot page label check = testCase label (reading check =<< page)
 
--- | The commands a held key delivers once, as the map declares them.  Named
--- rather than spelled twice: two cases read the list, one for the dispatch that
--- honours it and one for the rule that every entry is a bound command.
---
--- The first five write or destroy; the rest do neither and are here because
--- a leaned-on key is ruinous either way — `o' is a browser tab per repeat and
--- `a' a remount per repeat.
+-- | The commands a held key delivers once, as the map declares them.  Named rather than spelled twice.
 onceNames :: [T.Text]
 onceNames = [ "filter-drop-token", "unmark-all", "mark-all"
             , "archive-flag", "org-glance-overview:delete"
-              -- A held `x' re-raises its question over a page whose RET commits
-              -- a write, the same hazard the pin has.
+              -- A held `x' re-raises its question over a page whose RET commits a write.
             , "dired-do-flagged-delete"
-              -- A held pin re-raises its question per repeat, over a page whose
-              -- letters commit a config write.
+              -- A held pin re-raises its question over a page whose letters commit a config write.
             , "set-saved-view"
             , "org-glance-overview:open", "org-glance-agenda"
-              -- A held `@' is a remount per repeat, each leaving a crumb behind
-              -- for DEL to walk back one at a time.
+              -- A held `@' is a remount per repeat, each leaving a crumb behind.
             , "org-glance-overview:relations"
-              -- A held priority key would walk the ring round and land wherever
-              -- the repeat count left it, which is the reversing key's problem
-              -- one ring wider.
+              -- A held priority key walks the ring round and lands wherever the repeat count leaves it.
             , "priority-up", "priority-down"
-              -- And a held `^' re-sorts per repeat and lands on whichever
-              -- direction the parity of the count leaves it.
+              -- And a held `^' re-sorts per repeat, landing on whichever direction the parity leaves.
             , "toggle-sort" ]
 
--- | The browser the boot runs in, stubbed down to what it touches.
 harness :: FilePath
 harness = "test/fixtures/shell-harness.js"
 
--- | A claim about a page this server serves: strings it must carry, and strings
--- it must not.
+-- | A claim about a page this server serves: strings it must carry, and strings it must not.
 data Glue = Glue { glLabel :: String, glHas :: [T.Text], glGone :: [T.Text] }
 
--- | A claim with nothing to forbid.
 glue :: String -> [T.Text] -> Glue
 glue label has = Glue label has []
 
--- | The shell's inline glue, checked as the data it is.  Every row is a case
--- that read the same rendered page and asserted a list of strings into it; as
--- rows they share the render and the two assertion shapes, and adding one is
--- adding a line.
 glueSpec :: IO T.Text -> TestTree
 glueSpec shell = testGroup "Shell glue"
   ([ testCase glLabel $ do
-       -- The fixture is page-plus-script, the same one universe the sweeps
-       -- read when the glue was inline, so a row may pin either side.
+       -- The fixture is page-plus-script, one universe, so a row may pin either side.
        b <- shell
        holdsAll glLabel glHas b
        holdsNone glLabel glGone b
@@ -6201,22 +4642,7 @@ glueSpec shell = testGroup "Shell glue"
       , scrollSweep shell, containSweep shell, logColumnSweep shell
       , paletteSweep shell ])
 
--- | THE EDIT BOX IS THE BLOCK, WEARING A DIFFERENT GROUND.  `RET' over a
--- paragraph must move NOTHING: the textarea takes the block's font, its line
--- height, its full width and no margin, and draws no border and no outline.
--- The ground and the caret are the whole of the signal.
---
--- WHAT IT GUARDS IS THE FALLBACK, on the horizontal axis: `placeEdit' sets the
--- live padding from the ROW's own computed style, so the paddings named here
--- are what a box over an unmeasured row stands at — `.d-item' carries none of
--- its own and takes the pane's.
---
--- Asserted as RELATIONS over the declarations rather than as copied strings: the
--- box must READ the block's own expressions (`font:inherit', `--g-doc-pad',
--- the indent `calc'), since a figure restated here is exactly the drift this
--- exists to catch — a literal @13px\/1.5@ against the pane's
--- @--g-doc-fs@\/@--g-doc-lh@ put every line after the first on another rhythm.
--- A CSS sweep cannot measure geometry; it pins what the page DECLARES.
+-- | THE EDIT BOX IS THE BLOCK, WEARING A DIFFERENT GROUND.  Asserted as RELATIONS over the declarations rather than as copied strings.
 editIndentSweep :: IO T.Text -> TestTree
 editIndentSweep shell = testCase "the paragraph's edit box is the block it covers" $ do
   page <- shell
@@ -6225,39 +4651,23 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
   box <- need "the edit box's rule" (between "  #dpara textarea{" "}" page)
   assertBool ("the box is indented by what the block is: " <> T.unpack box)
              (("padding-left:" <> para) `T.isInfixOf` box)
-  -- The block's own type, read rather than restated.
   assertBool ("the box takes the block's type: " <> T.unpack box)
              ("font:inherit" `T.isInfixOf` box)
-  -- The block's own grid inset, on the axes the indent does not name, and the
-  -- block's own wrapping, so a long token breaks in the same place.
   assertBool ("the box takes the grid inset: " <> T.unpack box)
              ("padding:1px var(--g-doc-pad)" `T.isInfixOf` box)
   assertBool ("the box takes the block's wrap: " <> T.unpack box)
              ("overflow-wrap:anywhere" `T.isInfixOf` box)
-  -- And nothing of its own that would move the text or draw a line — a floor of
-  -- its own included, since `placeEdit' sizes the box off the block and the
-  -- BLOCK is what an edit grows.
   mapM_ (\decl -> assertBool ("the box declares " <> T.unpack decl <> ": " <> T.unpack box)
                              (decl `T.isInfixOf` box))
         ["width:100%", "margin:0", "border:none", "resize:none"]
   assertEqual "a figure the box restates instead of reading" []
               [ n | n <- ["13px", "12px", "1.5 var", "padding:1px 6px", "min-height:2em"]
                   , n `T.isInfixOf` box ]
-  -- REGISTRATION, which the declarations above cannot give: the overlay is
-  -- absolutely positioned against the pane's PADDING box while the text it
-  -- covers sits inside the CONTENT box, so it has to answer for the pane's own
-  -- horizontal inset — and `placeEdit' has to take the pane's border and its
-  -- scroll offset back out of the vertical.  A bare delta put the box 10px left
-  -- and 1px high over `#mdoc', and walked it further on every scroll.
+  -- REGISTRATION: the overlay is positioned against the pane's PADDING box while the text it covers sits in the CONTENT box.
   span' <- need "the paragraph overlay's span" (between "  #dpara{" "}" page)
   assertEqual "the paragraph overlay spans the pane's content box"
               "left:var(--g-doc-padx);right:var(--g-doc-padx)" span'
-  -- AND THE EDIT IS INLINE: what grows with the typing is the BLOCK, so the
-  -- lines under it move down rather than being covered, and the box is still
-  -- the block's size and nothing of its own.  The floor is DERIVED from a
-  -- number the shell writes — the cap is spelled in the shell and nowhere else
-  -- — and the metrics are READ rather than restated, so a page whose glue never
-  -- ran still stands one line tall.
+  -- AND THE EDIT IS INLINE: what grows is the BLOCK, and the cap is spelled in the shell and nowhere else.
   block <- need "the block's floor" (between "  .de.dat{" "}" page)
   assertBool ("the block's floor is the line count it was handed: " <> T.unpack block)
              ("min-height:calc(var(--g-doc-rows, 0)" `T.isInfixOf` block)
@@ -6267,26 +4677,17 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
              ("padding:var(--g-doc-pady) var(--g-doc-padx)" `T.isInfixOf` page)
   assertBool "the placement takes the pane's border and scroll back out"
              ("a.top - b.top - pane.clientTop + pane.scrollTop" `T.isInfixOf` page)
-  -- FOCUS DRAWS NO LINE.  The three CELL overlays keep their underline; the
-  -- document's box is read as text and must not grow one.
+  -- FOCUS DRAWS NO LINE: the document's box is read as text and must not grow one.
   focus <- need "the box's focus rule" (between "  #dpara textarea:focus,#dtin:focus{" "}" page)
   assertEqual "a line the document box would grow on focus" []
               [ n | n <- ["border-bottom-color", "border-bottom:"], n `T.isInfixOf` focus ]
-  -- THE GROUND IS THE SIGNAL, and it is one the block is not already wearing:
-  -- the edit opens on the document CURSOR, which is `--g-sel' already.
+  -- THE GROUND IS THE SIGNAL, and one the block is not already wearing.
   ground <- need "the box's ground" (between "  #dpara,#dtitle{" "}" page)
   assertEqual "the edit ground is the page's input surface"
               "background:var(--g-surface)" ground
   where need what = maybe (assertFailure ("no " <> what <> " in the page")) pure
 
--- | THE LOG'S SEVERITY AND SCOPE ARE COLUMNS, each as wide as its own longest
--- word, so every message in the strip starts at one x position.
---
--- Derived rather than copied: the words are gathered off the page's OWN
--- @append@ calls and the longest of each is measured in characters, so a scope
--- longer than @config@ — or a severity beyond @error@ — fails here rather than
--- quietly wrapping the strip.  The vocabulary is not a list in the code, and
--- this is what stands in for one.
+-- | THE LOG'S SEVERITY AND SCOPE ARE COLUMNS, derived off the page's OWN @append@ calls rather than copied.
 logColumnSweep :: IO T.Text -> TestTree
 logColumnSweep shell = testCase "the log's severity and scope are columns" $ do
   page <- shell
@@ -6307,16 +4708,7 @@ logColumnSweep shell = testCase "the log's severity and scope are columns" $ do
     [ "  #log .lv,#log .lc{display:inline-block}"
     , "  #log .lv{width:5ch}", "  #log .lc{width:6ch}" ]
 
--- | ONE @scrollIntoView@, AND IT IS THE DOCUMENT'S.  The call is forbidden over
--- the TABLE's rows, which belong to the renderer — it owns their scroller,
--- their page and their selection, so reaching into them that way is this page
--- working around an interface it already has.  The document's rows are the
--- SHELL's, drawn into a scroller this page declares, so the call is ordinary
--- there and the movement code needs it.
---
--- The distinction is kept by COUNTING rather than by wording: one occurrence,
--- and it is the document cursor's.  A second has nowhere legitimate to be, so
--- it would have to be a reach into something this page does not own.
+-- | ONE @scrollIntoView@, AND IT IS THE DOCUMENT'S — kept by COUNTING rather than by wording.
 scrollSweep :: IO T.Text -> TestTree
 scrollSweep shell = testCase "the one scrollIntoView is the document's own" $ do
   page <- shell
@@ -6326,58 +4718,22 @@ scrollSweep shell = testCase "the one scrollIntoView is the document's own" $ do
               (T.count "scrollIntoView" code)
   assertContains "and it is the document cursor's"
     "        row.scrollIntoView({ block: \"nearest\" });" page
-  -- THE BAND IS CSS, which is what keeps that one call one call.  `nearest'
-  -- honours `scroll-margin', so the scrolloff is declared on the elements and
-  -- the movement code measures nothing.
+  -- THE BAND IS CSS: `nearest' honours `scroll-margin', so the movement code measures nothing.
   assertContains "the band rides the elements" "  .de{scroll-margin-block:var(--g-doc-off);" page
-  -- And it is counted in the pane's OWN lines rather than in pixels, off the
-  -- two numbers the pane is set in — the same relation-not-copy discipline the
-  -- star gutter and the body indent are held to.
   assertContains "three of the pane's lines"
     "    --g-doc-off:calc(3 * var(--g-doc-fs) * var(--g-doc-lh));" page
   assertContains "and the pane is set in those same two"
     "    font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);" page
 
--- | A POPUP CLAMPS AT ITS BOUND AND SCROLLS INSIDE IT.  The bound is one figure
--- and every tier reads it; what makes it hold is the CHAIN from the bounded box
--- down to whichever element owns each scroll, and a chain is exactly what a
--- stray declaration breaks silently — the box keeps its @max-height@ and the
--- content paints straight past it.
---
--- Two links are pinned by their absence as much as their presence:
---
--- * The panes ROW carries @overflow:hidden@.  @flex:1;min-height:0@ lets the
---   row be SIZED by the box; it does not stop the row's own content painting
---   past that size.  Under @flex-wrap@ the flex LINE is content-sized and
---   @align-items:stretch@ stretches the panes to the LINE rather than to the
---   box, so a tall subtree grew the line and the line escaped — with the panes'
---   own @overflow@ never coming into it, their heights never having been
---   bounded.
---
--- * NO PANE CARRIES A FLOOR.  A @min-height@ on a flex child is a refusal to
---   shrink, which is the classic way a bounded box is pushed open from inside.
---   The measure is the TIER's (@.pop-sheet@), where it is one number.
+-- | A POPUP CLAMPS AT ITS BOUND AND SCROLLS INSIDE IT, and the CHAIN is what a stray declaration breaks silently.
+-- Two links pinned by absence: the panes row's @overflow:hidden@, and NO PANE CARRYING A FLOOR.
 containSweep :: IO T.Text -> TestTree
 containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
   page <- shell
-  -- THE BOUND IS CAPPED. A viewport tall enough makes the arithmetic exceed
-  -- what a reader can take in, so 90vh is the ceiling whatever it works out to.
+  -- THE BOUND IS CAPPED: 90vh is the ceiling whatever the arithmetic works out to.
   assertContains "the bound caps at 90vh"
     "    --g-pop-max:min(90vh," page
-  -- RULE-SCOPED, the way `tierSweep' and `groundSweep' read their rules: each
-  -- declaration is looked for inside the BODY of the selector that owes it.  A
-  -- flat `isInfixOf' over the page cannot say which rule answered, and one of
-  -- these pairs could not be anchored at all — `#mdoc' and `#mprops' open with
-  -- the same three declarations, so the document pane's needle was satisfied by
-  -- the panel and the document was never asserted at all.
-  --
-  -- WHAT IT SWEPT IS ASSERTED FIRST, so a renamed or regrouped selector fails
-  -- loudly rather than passing over nothing.
-  --
-  -- EVERY rule the selector appears in, not the first: a box's declarations are
-  -- split between the card rule every working surface SHARES and the short one
-  -- saying what only it wants, and the question is what the selector ends up
-  -- declaring.
+  -- RULE-SCOPED and asserted first: a flat `isInfixOf' cannot say which rule answered, and EVERY rule the selector appears in is read.
   let swept = [ (sel, bodies) | (sel, _decls) <- clamps
               , let bodies = rulesIn sel page, not (null bodies) ]
   assertEqual "the sweep found a rule for every selector it names"
@@ -6389,8 +4745,6 @@ containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
                     (any (d `T.isInfixOf`) bodies))
                  decls)
         (zip clamps swept)
-  -- AND NEITHER HAS THE BOX.  A fixed height is the whole tier now, so a floor
-  -- anywhere would be a second opinion about the same measure.
   assertEqual "a floor under the working box, whose height is fixed" []
               [ line | line <- T.lines page, ".pop-sheet{" `T.isInfixOf` line
                      , "min-height" `T.isInfixOf` line ]
@@ -6400,37 +4754,22 @@ containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
            , "min-height:" `T.isInfixOf` line
            , not ("min-height:0" `T.isInfixOf` line) ]
   where
-    -- Every box and pane that has to CONTAIN what it holds, and the
-    -- declarations that make it do so: a flex child shrinks to its parent only
-    -- with the floor taken off (@min-height:0@), and the scroll then belongs to
-    -- whichever element the content is inside.
+    -- A flex child shrinks to its parent only with the floor taken off (@min-height:0@).
     clamps =
       [ -- The panes row: sized by the box, and CONTAINING what it is sized to.
         ("#mpanes", ["flex:1", "min-height:0", "overflow:hidden"])
-        -- The raw pane has no floor of its own — it is the one that had.
       , ("#mtext", ["min-height:0"])
-        -- The document pane is its own scroller, and can shrink to be one.
       , ("#mdoc", ["min-height:0", "overflow:auto"])
-        -- The panel clamps and hands its scroll to the mount inside it.
       , ("#mprops", ["min-height:0", "overflow:hidden"])
       , ("#mptable", ["flex:1", "min-height:0"])
-        -- The link and tag popups, the same arrangement one tier up.
       , ("#tpane", ["min-height:0", "overflow:hidden"])
       , ("#ltable", ["min-height:0", "overflow:hidden"])
-        -- The settings sheet and the palette list scroll in their own right.
       , ("#cbox", ["overflow-y:auto"])
       , ("#plist", ["max-height:40vh", "overflow-y:auto"])
-        -- And the logbook strip, which is bounded rather than shrinkable.
       , ("#mlog", ["flex:0 0 auto", "max-height:22vh", "overflow:auto"])
       ]
 
--- | ONE GRID, ONE BASE: the head's star gutter and a paragraph's indent are the
--- SAME arithmetic rather than the same glyph count, so a bold or a fallback face
--- with a different advance cannot move one without moving the other.
---
--- Asserted as the relation between the two declarations rather than as two
--- copied strings: the paragraph's padding is the base plus the gutter, and the
--- gutter is what the head's prefix is given outright.
+-- | ONE GRID, ONE BASE, asserted as the relation between the two declarations rather than as two copied strings.
 gridSweep :: IO T.Text -> TestTree
 gridSweep shell = testCase "the star gutter and the body indent are one arithmetic" $ do
   page <- shell
@@ -6441,34 +4780,13 @@ gridSweep shell = testCase "the star gutter and the body indent are one arithmet
   assertEqual "the paragraph is padded by the base plus the gutter"
               ("padding-left:calc(var(--g-doc-pad) + " <> gutter <> ")")
               (T.strip (T.replace "\n" "" (T.replace "  " "" para)))
-  -- And the element every one of them sits in is inset by that same base, so
-  -- the two are counted from one place.
   assertContains "the base is the element's own inset"
                  "    padding:1px var(--g-doc-pad);" page
   assertBool ("the base is a length: " <> T.unpack base) (not (T.null base))
   where need what = maybe (assertFailure ("no " <> what <> " in the page")) pure
 
--- | POPUP SIZE IS A TIER, and this is what makes the rule enforceable rather
--- than stated: every box wears exactly one of the three, and NO rule naming a
--- box declares a width or a height.  Swept, so a popup that grew a size of its
--- own fails here rather than being noticed by a reader with two windows open.
---
--- The sweep asserts what it swept first — every box found, every tier defined —
--- so a renamed id or a dropped tier fails loudly rather than passing over
--- nothing.
--- | ONE PALETTE, TWO NAMESPACES.  The page draws itself in @--g-*@ and the
--- renderer it mounts draws the table in @--tv-*@, and both are emitted from
--- one 'Glance.Web.Theme.Palette' per theme — so a role that both spell has
--- ONE value, in every theme, by construction rather than by a comment asking
--- for a matching edit.
---
--- DERIVED, and that is the point: the values are read out of the served page
--- and COMPARED, so this asserts the property rather than mirroring the
--- literals a second time.  Each token appears once per theme block and the
--- blocks are emitted in one order, so the two lists agree exactly where the
--- palettes do.  What is hardcoded here is the ROLE PAIRING — which page token
--- and which renderer token are the same thing — since that is the claim, and
--- an oracle deriving it from the emitter would agree with any pairing.
+-- | POPUP SIZE IS A TIER: every box wears one of the three and no box rule declares a size.
+-- | ONE PALETTE, TWO NAMESPACES, DERIVED: the values are read out of the served page and COMPARED.
 paletteSweep :: IO T.Text -> TestTree
 paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
   page <- shell
@@ -6476,9 +4794,7 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
         [ T.dropWhileEnd (== ';') rest
         | line <- T.lines page
         , Just rest <- [T.stripPrefix (name <> ":") (T.strip line)] ]
-  -- Four blocks per namespace: the two the media query picks between, and one
-  -- per theme `data-theme' names.  A palette that stopped being emitted would
-  -- read as agreement between two empty lists, so the count is asserted first.
+  -- The count is asserted first: a palette that stopped being emitted would read as agreement between two empty lists.
   assertEqual "every theme declares the selection" 4 (length (valuesOf "--g-sel"))
   mapM_ (\(g, tv) ->
            assertEqual (T.unpack (g <> " is " <> tv))
@@ -6488,14 +4804,8 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
         , ("--g-border", "--tv-border"), ("--g-accent", "--tv-accent")
         , ("--g-sel", "--tv-sel"), ("--g-link", "--tv-link")
         , ("--g-col", "--tv-col"), ("--g-cell-wash", "--tv-cell-wash")
-        -- One red for an error and for the archive flag, at one strength: the
-        -- sheet's own flag is the table's gesture over the same queue, so it
-        -- wears the table's hue washed the way the table washes it.
         , ("--g-bad", "--tv-flag"), ("--g-flag-wash", "--tv-flag-wash") ]
-  -- A BADGE HUE IS THE THEME'S, so the wire carries a SLOT and every theme
-  -- declares it.  Derived both ways: the slots the served ROWS name are read
-  -- off the view document and each must be declared in the page, and the count
-  -- is asserted so a wire that stopped naming any would not read as agreement.
+  -- A BADGE HUE IS THE THEME'S, so the wire carries a SLOT and the slots the served ROWS name are read off the view document.
   view <- get assetsDir "/headlines" >>= decoded
   cols <- listAt "columns" view
   named <- concat <$> mapM (\c -> do
@@ -6504,9 +4814,7 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
                Nothing -> pure []
                Just _  -> mapM (textAt "color") =<< listAt "badges" c) cols
   assertBool "the badges name slots at all" (not (null named))
-  -- Each colour is `var(--g-<value>, var(--g-<slot>))': the tree's own override
-  -- if some theme declares one, else the slot every theme does.  What is
-  -- asserted is the FALLBACK, since that is the half this build owes.
+  -- Each colour is `var(--g-<value>, var(--g-<slot>))', and what is asserted is the FALLBACK.
   mapM_ (\colour -> do
            assertBool (T.unpack (colour <> " opens a fallback chain"))
                       ("var(--g-" `T.isPrefixOf` colour && ", var(--g-" `T.isInfixOf` colour)
@@ -6514,11 +4822,7 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
            assertBool (T.unpack (slot <> " is declared by every theme"))
                       (length (T.breakOnAll (slot <> ":") page) >= 4))
         named
-  -- A THEME SPELLS AS MANY HUES AS IT LIKES.  The slot COUNT is the wire's, so
-  -- what a theme declares is cycled to fill it: the tokens are all there
-  -- whatever the list length, and a theme that named none at all would still
-  -- paint (its ink).  Asserted over the shipped themes by counting the slots
-  -- rather than the hues behind them.
+  -- The slot COUNT is the wire's, so a theme's own list is cycled to fill it.
   mapM_ (\(token, n) ->
            assertEqual (T.unpack (token <> " is declared once per theme"))
                        (4 * n)
@@ -6526,10 +4830,7 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
                             | i <- [0 .. n - 1] ]))
         [ ("--g-state-a", stateSlots), ("--g-state-i", stateSlots)
         , ("--g-priority-", prioritySlots) ]
-  -- AND THE RENDERER'S OWN VALUES ARE DEFAULTS.  Its palette blocks carry no
-  -- specificity (`:where'), so these ordinary rules win whatever order the two
-  -- stylesheets land in — the renderer injects its own at mount time, which is
-  -- after the page's.
+  -- The renderer's palette blocks carry no specificity (`:where'), so these ordinary rules win.
   renderer <- TIO.readFile "assets/table-view.js"
   mapM_ (\needle -> assertContains "the renderer's palette is a default" needle renderer)
         [ ":where(.tv-root){"
@@ -6539,27 +4840,16 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
 tierSweep :: IO T.Text -> TestTree
 tierSweep shell = testCase "every popup wears one size tier, and declares none" $ do
   page <- shell
-  -- Each box, and the tier it is dressed in.
   mapM_ (\(box, tier) ->
            assertContains "the box wears its tier"
                           ("id=\"" <> box <> "\" class=\"" <> tier <> "\"") page)
         tiers
-  -- The two are defined, once, and nothing else is — `pop-wide' included, which
-  -- was the third until fixing its height made its definition `pop-sheet''s
-  -- character for character.
   mapM_ (\tier -> assertContains "the tier is defined" ("." <> tier <> "{") page)
         (nub (map snd tiers))
   assertEqual "no tier beyond the two the list names" []
               [ t | t <- ["pop-wide", "pop-fullscreen", "pop-compact", "pop-eighty"]
                   , ("." <> t <> "{") `T.isInfixOf` page ]
-  -- And no rule naming a BOX declares a size.  Read out of the rule's own body,
-  -- so a `min-height' inside a pane it holds is nobody's business here.
-  --
-  -- WHAT IT SWEPT IS ASSERTED FIRST, which is the half this was missing: the
-  -- selectors are GROUPED in the page, a literal `#pbox{' matched none of them,
-  -- and the `Just body <-' guard dropped three of the five boxes with no
-  -- complaint at all.  A box with no rule to read is now a failure rather than a
-  -- silent pass over nothing.
+  -- WHAT IT SWEPT IS ASSERTED FIRST: a box with no rule to read is a failure rather than a silent pass.
   let swept = [ (box, body) | (box, _tier) <- tiers, Just body <- [ruleIn ("#" <> box) page] ]
   assertEqual "the sweep found a rule for every box it names"
               (map fst tiers) (map fst swept)
@@ -6568,17 +4858,11 @@ tierSweep shell = testCase "every popup wears one size tier, and declares none" 
               | (box, body) <- swept
               , prop <- ["width:", "height:"]
               , prop `T.isInfixOf` body ]
-  -- ONE TOP LINE, and every backdrop reads it.  A shallow palette and a tall
-  -- sheet open with their top borders on the same rule, so raising one after
-  -- another does not walk the reader's eye down the window; growth is downward
-  -- and every tier's ceiling is what the anchor leaves, so no box runs off the
-  -- bottom.  The four per-backdrop anchors this replaced are asserted GONE.
+  -- ONE TOP LINE, and every backdrop reads it, so growth is downward and no box runs off the bottom.
   assertContains "the anchor is declared once" "--g-pop-top:5vh;" page
   assertContains "and what it leaves is derived from it"
                  "--g-pop-max:min(90vh," page
-  -- SYMMETRIC: the foot margin is the head's, derived from the anchor rather
-  -- than spelled as a second figure — a tall box stopping short of the bottom by
-  -- a different amount reads as one that ran out of room.
+  -- SYMMETRIC: the foot margin is the head's, derived from the anchor rather than spelled as a second figure.
   assertContains "and the bound is the anchor twice over"
                  "calc(100vh - 2 * var(--g-pop-top))" page
   assertEqual "no second figure under the box" []
@@ -6590,31 +4874,15 @@ tierSweep shell = testCase "every popup wears one size tier, and declares none" 
               [ n | n <- ["align-items:center;justify-content:center"
                         , "padding-top:15vh", "padding-top:12vh", "padding-top:8vh" ]
                   , n `T.isInfixOf` page ]
-  -- And every tier's own bounds are measured against it rather than against the
-  -- window, which is what keeps the growth inside the room the anchor left.
   mapM_ (\needle -> assertContains "a tier bounded by the anchor's room" needle page)
         [ ".pop-band{width:min(560px,100%);max-height:var(--g-pop-max)}"
         , ".pop-sheet{width:min(80vw,100%);height:var(--g-pop-max)}" ]
   where
-    -- FOUR OF THE FIVE ARE WORKING SURFACES and wear the one tier for it: the
-    -- materialize sheet, the link and tag popups, and the settings sheet.  The
-    -- state palette is the odd one — a list of single words, which is what the
-    -- band is.  `pop-wide' stood between them until its height went fixed and
-    -- its definition became `pop-sheet''s outright.
-    -- The tag manager wears the BAND: three short columns are narrower than
-    -- the palette, and a sheet-wide box drew 80vw of ground around them.
+    -- The tag manager wears the BAND: three short columns are narrower than the palette.
     tiers = [ ("pbox", "pop-band"), ("lbox", "pop-sheet"), ("tbox", "pop-band")
             , ("sheet", "pop-sheet"), ("cbox", "pop-sheet") ]
 
--- | EVERY SELECTION IN THE DOCUMENT IS A GROUND.  Swept rather than listed: the
--- rules are cut out of the rendered page by their selectors and each body is
--- asserted to name a background and nothing that draws a LINE — no underline, no
--- border, no outline.  A locator that adds a line to a row of text moves the
--- text, and a document is read as text; the table's own crosshair is two grounds
--- for the same reason.
---
--- The sweep asserts what it swept first, so a selector renamed out from under it
--- fails loudly rather than passing over nothing.
+-- | EVERY SELECTION IN THE DOCUMENT IS A GROUND, swept rather than listed, and what it swept is asserted first.
 groundSweep :: IO T.Text -> TestTree
 groundSweep shell = testCase "every document selection is a ground, never a line" $ do
   page <- shell
@@ -6628,46 +4896,23 @@ groundSweep shell = testCase "every document selection is a ground, never a line
                     (T.unpack sel <> " draws a " <> T.unpack line <> ": " <> T.unpack body)
                     (not (line `T.isInfixOf` body)))
                  ["underline", "outline", "border", "text-decoration"]
-           -- A SHADOW ONLY INSET.  The rule is that a locator must not MOVE
-           -- the text, and an inset shadow paints over the ground inside the
-           -- box rather than taking width from it; a drop shadow sits outside
-           -- the line box, which is the shape this still refuses.
+           -- A SHADOW ONLY INSET: a locator must not MOVE the text, and a drop shadow sits outside the line box.
            assertBool (T.unpack sel <> " draws a shadow outside its box: " <> T.unpack body)
                       (not ("box-shadow" `T.isInfixOf` body)
                          || "box-shadow:inset" `T.isInfixOf` body))
         bodies
-  -- AND THE FLAG OWNS THE SECOND CHANNEL, which is what makes the permission
-  -- above load-bearing rather than merely allowed: the cursor wins the one
-  -- background slot, so a flagged row under point says FLAG with its edge or
-  -- stops saying it at all.  The renderer's own rule, in the renderer's own
-  -- red.
+  -- AND THE FLAG OWNS THE SECOND CHANNEL: the cursor wins the one background slot.
   flag <- maybe (assertFailure "no .de.dfl rule in the page") pure (ruleIn ".de.dfl" page)
   mapM_ (\decl -> assertBool (".de.dfl drops " <> T.unpack decl <> ": " <> T.unpack flag)
                              (decl `T.isInfixOf` flag))
         ["box-shadow:inset 3px 0 0 var(--g-bad)", "var(--g-flag-wash)"]
   where
-    -- The three states a document element or one of its cells can be in.  The
-    -- CURSOR AND A FLAG TOGETHER need no rule of their own: the background is
-    -- one slot and the cursor's outranks the flag's, which is exactly why the
-    -- flag owns a channel the cursor never writes.
     selectors = [".de.dat", ".de.dfl", ".dc.don"]
 
--- | The body of the first rule whose SELECTOR LIST names SEL, or 'Nothing' when
--- no rule does.
---
--- GROUPED SELECTORS ARE THE POINT.  A literal @"#pbox{"@ match found NOTHING
--- where the page writes @#pbox,#lbox,#tbox{...}@, and both sweeps read this
--- through a @Just body <-@ pattern guard, so the box dropped out in SILENCE:
--- three of the five boxes went unswept while the group's own comment claimed it
--- asserted what it swept.  SEL counts as named when the character after it
--- opens the body or ends a list entry, and only while no @}@ has intervened,
--- which is what keeps a mention inside some other rule's body from answering
--- for it.  One definition, since the two sweeps had a copy each.
+-- | The body of the first rule whose SELECTOR LIST names SEL.  GROUPED SELECTORS ARE THE POINT: a literal @"#pbox{"@ matched none.
 ruleIn :: T.Text -> T.Text -> Maybe T.Text
 ruleIn sel = listToMaybe . rulesIn sel
 
--- | The body of EVERY rule in PAGE whose selector list names SEL, in source
--- order.
 rulesIn :: T.Text -> T.Text -> [T.Text]
 rulesIn sel page
   | T.null rest         = []
@@ -6688,18 +4933,13 @@ shellGlue =
       , "if (!swap && a.total > (a.view.rows || []).length)"
       , "if (table && query === asked) paint(b)" ]
 
-  -- SWAP ON THE ANSWER.  The two-phase fetch is the BOOT's, where the first
-  -- page is the difference between a table and a blank page; a re-application
-  -- has a whole table standing and asks for the whole answer, so the rows go
-  -- in one mount rather than a page's worth reflowing a moment later.
+  -- SWAP ON THE ANSWER: the two-phase fetch is the BOOT's, and a re-application asks for the whole answer.
   , glue "a view already on screen is replaced in one mount"
       [ "const swap = !!table;"
       , "viewing(load(swap ? asking(asked) : `${narrow}limit=${PAGE}`)).then((a) => {"
       , "else arm(a.total);" ]
 
-  -- THE WASH: one state holder, two reasons, one class.  The view reason is
-  -- STEPPED, since an abort overlaps the fetch that replaced it; the socket's
-  -- is SET, since a connection refused closes without ever having opened.
+  -- THE WASH: the view reason is STEPPED, since an abort overlaps its replacement; the socket's is SET.
   , Glue "the wash is one holder over two reasons"
       [ "const WASH = { view: 300, socket: 400 };"
       , "      n: { view: 0, socket: 0 }, at: { view: 0, socket: 0 },"
@@ -6709,17 +4949,10 @@ shellGlue =
       , "backoff = 1000; wash.want(\"socket\", 0);"
       , "wash.want(\"socket\", 1);"
       , "document.documentElement.classList.toggle(\"stale\"," ]
-      -- One class, and the page reads it nowhere: the look is the stylesheet's
-      -- whole business, so no branch here may ask whether the wash is on.
+      -- The page reads the class nowhere: the look is the stylesheet's whole business.
       [ "classList.contains", "wash.on.view ?", "if (wash.on" ]
 
-  -- What it dims, and what it must not.  The table and the whole modal band go
-  -- under it — a sheet open over stale rows is stale with them — and the parts
-  -- that EXPLAIN the state stay legible, since dimming the answer along with
-  -- the question leaves the page saying nothing.  ONE property: no blur, since
-  -- a stale row is still the row, and no `filter' of any kind, since a filter
-  -- would make `#app' the containing block for the renderer's own fixed palette
-  -- backdrop and clip it inside the table's box.
+  -- ONE property: no blur, and no `filter' of any kind — a filter would make `#app' the containing block for the fixed palette backdrop.
   , Glue "the wash dims the table and the overlays, and exempts what explains"
       [ "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
       , "  html.stale #links,html.stale #tags,html.stale #capture{opacity:.55}"
@@ -6728,22 +4961,15 @@ shellGlue =
       , "html.stale #echo", "html.stale body", "stale #app{filter", "filter:blur"
       , "filter:saturate", "filter:grayscale" ]
 
-  -- The page opens on a view rather than on everything.  It is a query like
-  -- any other: in the URL, mounted as a chip, asked of the server — so DEL
-  -- takes it off and the whole store is one keystroke away.
   , glue "a bare boot opens on the active view"
       [ "let bootedOn = savedQuery(\"default\");"
       -- A `q' in the address bar is the reader's own, empty or not.
       , "      const q = params().has(\"q\") ? urlQuery() : bootedOn;"
       , "const asked = (query = bootQuery());"
-      -- Injected, then committed: what the page shows and what the address bar
-      -- says are the same query from the first paint on.
       , "if (!params().has(\"q\")) remember(asked);"
       , "initialQuery: query," ]
 
-  -- The check compares a filtered answer against an unfiltered one, and this
-  -- page can open filtered — a link, or the default view.  A paint under a
-  -- query arms nothing, so the baseline is fetched once behind the table.
+  -- A paint under a query arms nothing, so the parity baseline is fetched once behind the table.
   , glue "the parity baseline is armed even when the boot was filtered"
       [ "function arm(total) {", "if (!query || all.length) return;"
       , "load(\"\").then((a) => { all = a.view.rows || []; parity(total); })"
@@ -6753,16 +4979,11 @@ shellGlue =
   , glue "hands the filter to the server and aborts stale fetches"
       [ "onFilter: filter", "new AbortController()", "inflight.abort()"
       , "signal: inflight.signal", "load(asking(query))"
-      -- One spelling of the query string, so a revalidation cannot be answered
-      -- 304 against rows some other question was asked.
+      -- One spelling of the query string, so a revalidation cannot be answered 304 against other rows.
       , "const asking = (q) => (q ? `?q=${encodeURIComponent(q)}` : \"\");"
       , "e.name !== \"AbortError\""
-      -- The string as typed: the grammar is the server's to parse.
       , "      if (named) { applyNamed(named); return; }" ]
 
-  -- A key the columns do not name is a producer virtual key, which is the one
-  -- place the renderer's suggestions and the server's parser can be different
-  -- versions.  The check reads the rows the page already holds.
   , glue "an empty answer to a virtual key is checked locally"
       [ "function parity(total)", "if (total !== 0 || !query || !all.length) return;"
       , "TableView.parseQuery(query, keys)"
@@ -6771,205 +4992,120 @@ shellGlue =
       , "console.warn(note, { query, server: total, local })"
       , "if (!query) all = rows;" ]
 
-  -- Present-and-empty is a reader who took the filter off; absent is a page
-  -- nobody has filtered yet, and only that one has the default injected over
-  -- it.  Deleting the parameter is what made a cleared view come back filtered
-  -- on the next remount, so the write is unconditional.
+  -- Present-and-empty is a reader who took the filter off; absent is a page nobody has filtered, and only that gets the default.
   , Glue "the applied query lives in the URL, an empty one included"
       [ "history.replaceState(null, \"\", `?${p.toString()}${location.hash || \"\"}`);"
       , "p.set(\"q\", q);"
-      -- `keys' rides in the same query string and has to survive a commit.
       , "new URLSearchParams(location.search)"
       , "const urlQuery = () => params().get(\"q\") || \"\";"
-      -- A ?q= in the address bar is applied on load, and DEL strips it token
-      -- by token through the renderer, default or not.
       , "const asked = (query = bootQuery());"
       , "table.stripLastToken()", "const left = table.getQuery().trim();"
       , "commit(left);" ]
       ["p.delete(\"q\")"]
 
-  -- `/' asks the renderer to raise its palette instead of reaching for a box on
-  -- the page: `openFilter' is mode-agnostic, so the one call covers an asset in
-  -- any of them.  The renderer keeps `omnibox' for consumers that want the
-  -- control resident; this shell is off it.
+  -- `openFilter' is mode-agnostic, so the one call covers an asset in any of them.
   , Glue "the filter is summoned rather than resident"
       [ "palette: true,"
       , "const summons = () => can(table, \"openFilter\");"
       , "if (summons()) { table.openFilter(); return; }"
-      -- An asset predating the call has a resident box; focus that.  The field
-      -- is named once, since the fallback, the restore and the stash all want
-      -- it and none of them may reach further into the renderer's chrome.
+      -- The field is named once, since the fallback, the restore and the stash all want it.
       , "(document.querySelector(\"#app .tv-filter\"));"
       , "const box = filterBox();"
       , "if (box) { box.focus(); box.select(); }"
-      -- And the map says what the key does now, which is what the echo pill
-      -- prints when it runs.
       , "summon the filter palette" ]
       ["omnibox: true,"]
 
-  -- Marking is the renderer's: it draws the boxes, keys the marks by id and
-  -- counts them, so this page holds no set of its own and asks for the count
-  -- rather than keeping one.  What is the page's is dired's advance — the key
-  -- that marks is the key that walks — and the rule that `u' is not a toggle.
+  -- Marking is the renderer's: this page holds no set and asks for the count rather than keeping one.
   , Glue "marks are the renderer's, and m/u/U are this page's keys"
-      -- What the keys DO is asserted by driving them, in "Shell marks"; the
-      -- needles here are the two things behaviour cannot show. First, that the
-      -- page asks the renderer for the count rather than deriving one, and
-      -- reads its answer for the state a toggle landed in.
+      -- What the keys DO is asserted by driving them; the needles here are what behaviour cannot show.
       [ "marks: true,"
       , "let on = table.toggleMark(id);"
       , "· ${table.markedCount()}`);"
-      -- And that a flagged row's hint is the two keys that answer the flag,
-      -- spelled here and drawn there.
       , "flagHelp: \"d/D archive · u unflag\"," ]
-      -- And second, that no set, count or membership test is kept on this side.
-      -- `getMarked()' is not one: a command asks the renderer which rows are
-      -- marked at the moment it runs, which is the opposite of keeping a copy.
+      -- `getMarked()' is not a copy: a command asks the renderer which rows are marked at the moment it runs.
       ["let marked", "const marked = new Set", "marks.add", "marks.has"]
 
-  -- The value palette's letters. What they DO is asserted by driving them, in
-  -- "Shell which-key"; the needles here are the two things behaviour cannot
-  -- show. First, that the rule lives in ONE pure function over the ordered
-  -- labels — the display and the dispatch both read its answer, so a letter
-  -- drawn and a letter honoured cannot drift.
+  -- The rule lives in ONE pure function, so a letter drawn and a letter honoured cannot drift.
   , Glue "the which-key letters are one pure function's answer"
       [ "function whichKeys(labels) {"
       , "function letterAt(label, at) {"
-      -- Folded into each entry once and IN PLACE, so the table's cells and the
-      -- flat list hold the same objects and the drawing and the dispatch read
-      -- one field rather than agreeing on a parallel array's indices.
+      -- Folded into each entry once and IN PLACE, so the drawing and the dispatch read one field.
       , "        pool[i].key = letterAt(pool[i].label, cut);"
-      -- The pool is the entries with no key of their own, so `*empty*' — which
-      -- answers to DEL — spends none of it and a wide cycle keeps the letter
-      -- the meta used to take.
+      -- The pool is the entries with no key of their own, so `*empty*' spends none of it.
       , "      const pool = list.filter((c) => !c.fixed);"
-      -- A badge hue is written inline, so it has to be told to give way under
-      -- the fallback's cursor row — `--g-sel' is a bright yellow in the light
-      -- theme, and this is the one declaration on the page that outranks one.
+      -- A badge hue is written inline, so it has to be told to give way under the fallback's cursor row.
       , "#plist .pat .pw{color:var(--g-fg)!important}"
-      -- The claimed letter is marked INSIDE the keyword and nowhere else: bold,
-      -- underlined, and the rule in that state's own badge hue — written inline
-      -- per entry, since only the entry knows the hue.  The key-token column
-      -- that used to carry the letter is gone with it.
+      -- The claimed letter is marked INSIDE the keyword and nowhere else, in that state's own badge hue.
       , "const hot = part(word, \"b\", \"\", c.label[c.cut]);"
       , "if (c.color) hot.style.textDecorationColor = c.color;"
       , ".pw b{font-weight:700;text-decoration:underline;"
       , "text-decoration-thickness:2px;text-underline-offset:2px}"
-      -- One entry keeps a token, and it is the one whose key names no position
-      -- in a word.
       , "if (!prompting.narrow && c.fixed) part(row, \"span\", \"pk\", c.key);"
-      -- And second, that both modes commit through one call, so the letter and
-      -- the fallback's RET are the same delivery.
+      -- Both modes commit through one call, so the letter and the fallback's RET are the same delivery.
       , "else if (!repeating(e)) takeChoice(hit);"
       , "else if (k === \"RET\") takeChoice(promptNow().shown[promptNow().at] || freely());" ]
-      -- No second copy of the assignment, no confirmation step behind a letter
-      -- (the palette IS the confirmation), no underline as an element of its
-      -- own, and no token slot for an entry that claimed nothing.
       ["const LETTERS", "confirm(", ".pw u{", "part(word, \"u\"", ".pk.off{"
       , "\"pk off\""]
 
-  -- The resolution table's chrome, which behaviour cannot show: the hairline
-  -- between two source rows is that row's own top border rather than a divider
-  -- element of its own, and the source column wears the muted small lowercase
-  -- a tag wears everywhere else on this page.
+  -- The hairline between two source rows is that row's own top border rather than a divider element.
   , Glue "the palette's hairlines are the table's own borders"
       [ "#plist.ptable{display:grid;"
       , ".ptable>.pr{display:grid;grid-template-columns:subgrid;grid-column:1/-1}"
       , ".pr+.pr{border-top:1px solid var(--g-border)}"
       , ".ph,.ps{font-size:11px;color:var(--g-mute)}"
-      -- `*empty*' spans, since no source declares taking a keyword off.
       , ".pr.pm{grid-template-columns:1fr}" ]
-      -- The flat list's divider went with the flat list, and so did the page's
-      -- own idea of what the states are: the keywords are the server's answer.
-      -- No cell coordinate on an entry either — a cell HOLDS its entries.
       [".psep", "stateChoices", "x.cell ===", "c.at ==="]
 
-  -- The tags popup's rules behaviour cannot show.  First, the union is
-  -- FIRST-SEEN rather than sorted: an added tag joins at the END, so a commit
-  -- moves no row that was already on screen, where an alphabetical insert in
-  -- the middle would take one out from under the cursor.
+  -- The tag union is FIRST-SEEN: an alphabetical insert would take a row out from under the cursor.
   , Glue "the tag union is first-seen, and the refresh is the answer"
       [ "for (const r of ttargets) for (const t of r.tags)"
       , "if (seen.indexOf(t) === -1) seen.push(t);"
-      -- And second, that what the list shows next comes out of the command's
-      -- own per-id answer.  It has to: `/command' never writes the store — the
-      -- watch does, a debounce later — so a re-read here would answer with what
-      -- the files said BEFORE the write.
+      -- `/command' never writes the store, so a re-read here would answer with what the files said BEFORE the write.
       , "const landedIds = (results) =>"
       , "new Set((results || []).filter((x) => x.ok).map((x) => x.id));" ]
-      -- No sort over the union, and no second resolution behind a commit.
       ["seen.sort(", "tagsOf(over", "tagsOf(prompting", "tagsOf(ttargets"]
 
-  -- The tags popup is a MOUNT, and a mutable one: three columns declared
-  -- server-side, the removal gesture's flags asked for, marks refused, and the
-  -- rename overlay laid over the tag CELL — which behaviour cannot show,
-  -- because the suite's page has no layout for a geometry read to find.
+  -- The tags popup is a MOUNT and a mutable one, with the rename overlay laid over the tag CELL.
   , Glue "the tags popup is a mutable mount with a rename overlay"
       [ "const TCOLS = "
       , "tmount = listing(\"ttable\", TCOLS, \"d/D remove · u unflag\", \"tpane\");"
       , "tmount = listing(\"ttable\", TCOLS, \"d/D remove · u unflag\", \"tpane\");"
       , "const managing = () => !!tagging;"
-      -- The overlay is the SHARED mechanism over one cell: the popup declares a
-      -- shape and nothing about the gesture is spelled twice.
       , "cells: [\"title\"], cols: TCOLS,"
       , "const renaming = () => { const e = editNow(); return !!e && e.o === TROW; };"
-      -- Raised over the tag at point, through the guard both browsing popups
-      -- open their overlay by: a row or the refusal, never a box over nothing.
       , "openOver(TROW, tagAt(), \"org-rename-tag (no tag)\")"
-      -- And the write is ONE command rather than a remove and an add composed,
-      -- over the tag the overlay OPENED on rather than the one under the cursor.
+      -- The write is ONE command over the tag the overlay OPENED on rather than the one under the cursor.
       , "renameTag(edit.row, el(\"tname\").value);"
       , "fire(tagging, \"rename-tag\", over.map((r) => r.id), { from, to },"
       , "`retagged ${args.from}→${args.to}`" ]
-      -- THE LETTERS ARE GONE from this list, and with them the palette that
-      -- stayed open over its own writes.  No second copy of the tag sets here
-      -- either: the popup's rows are derived from the targets on every repaint —
-      -- and no second copy of the ROWS, a tag being its own row id.  The rename
-      -- overlay's own placer, shutter and snapshot are gone into the shared
-      -- mechanism, so their names coming back means two implementations are live.
+      -- The names below coming back means two implementations are live.
       [ "tagChoices", "tagVocabulary", "tagCommit", "landedTags", "letterMode"
       , "prompting.sticky", "a letter toggles it", "prompting.letters"
       , "trows", "tagRows()", "placeTag", "shutRename", "renamingFrom"
       , "function tflag" ]
 
-  -- ONE EDIT OVERLAY, over three surfaces.  The property panel opens a row's two
-  -- fields, the tags popup one cell as a field over itself and the link popup
-  -- two; the class, the anchor, the blur and the SNAPSHOT are one
-  -- implementation, and a shape says what differs.
+  -- ONE EDIT OVERLAY over three surfaces: the class, the anchor, the blur and the SNAPSHOT are one implementation.
   , Glue "the edit overlay is one mechanism the four surfaces declare a shape for"
       [ "function openEdit(o, row) {"
       , "edit = { o, row };"
       , "el(o.box).className = \"on\";"
       , "o.fill(row);"
       , "o.focus(row);"
-      -- The anchor is the SHAPE's: a mount names its published root and the
-      -- renderer's own selected row, and the structured document — which is no
-      -- mount — names the element under point.  One reader either way.
+      -- The anchor is the SHAPE's: a mount names its root and selected row, the document names the element under point.
       , "const anchorOf = (o) => {"
       , "return m ? m.el.querySelector(\"tbody tr.tv-sel\") : null;"
       , "const tr = anchorOf(o);"
-      -- And the shape names BY KEY which of the row's own cells the box covers,
-      -- resolved against the column list the server declared, so a column that
-      -- moves takes the box with it.
+      -- The shape names BY KEY, resolved against the column list the server declared, so a column that moves takes the box.
       , "const span = o.cells && cellSpan(o.cells, o.cols);"
       , "const tds = span && [...tr.querySelectorAll(\"td:not(.tv-box)\")];"
       , "const from = tds && tds[span[0]], to = tds && tds[span[1]];"
       , "s.width = `${rt.right - l.left}px`;"
-      -- The window resize moves whichever overlay is up, and is registered once
-      -- rather than per mount.
+      -- The window resize is registered once rather than per mount.
       , "window.addEventListener(\"resize\", placeEdit);"
-      -- THE SNAPSHOT, which is the bug this retired: a commit reads the row the
-      -- overlay OPENED over, never the cursor, so a click that moved the cursor
-      -- under an open field cannot redirect the write.
+      -- THE SNAPSHOT: a commit reads the row the overlay OPENED over, never the cursor.
       , "const r = edit.row;"
       , "const dediting = () => !!edit && edit.o === DTITLE;"
-      -- SHARING THE STATE MUST NOT SHARE THE SHUTTER.  The tags popup can stand
-      -- over an open materialize sheet — clicking the sheet's chrome blurs its
-      -- textarea and every `table' row goes live again — so an unscoped shut
-      -- would let the sheet's `fill'/`shut' cancel an open tag rename. Each
-      -- caller names its own shape, which is the isolation the two hand-written
-      -- shutters had, and ESC names it through the one sentence every surface
-      -- words the event with.
+      -- SHARING THE STATE MUST NOT SHARE THE SHUTTER: an unscoped shut would cancel another surface's open edit.
       , "function shutEdit(o) {"
       , "if (!edit || edit.o !== o) return;"
       , "for (const o of shapes) shutEdit(o);"
@@ -6977,48 +5113,24 @@ shellGlue =
       , "cancelEdit(\"row\", PROW)"
       , "cancelEdit(\"tag\", TROW)"
       , "cancelEdit(\"link\", LROW)" ]
-      -- The live cursor read the commit used to make, the per-surface copies of
-      -- the gesture, and the unscoped shut that would reach across surfaces.
       [ "drows[docAt()]", "function place()", "function shutRename"
       , "shutEdit();" ]
 
-  -- THE DOCUMENT'S OWN RULES, as the data they are.  What is DRIVEN is in
-  -- "Shell sheet"; what is read here is the three things behaviour cannot show
-  -- from the outside: that the body is cut at the child that owns it, that the
-  -- dispatch stands aside for a key this listener has already claimed, and that
-  -- the cursor carries a grain nothing spends yet.
+  -- What is read here is the three things behaviour cannot show from the outside.
   , Glue "the document is elements, cut where the outline under it begins"
-      -- ONE OWNER PER BYTE, one level down: the lens hands over the whole
-      -- subtree's body, so the paragraphs stop at `ownLines' and the children
-      -- are drawn from the entries the server named.  Without the cut the same
-      -- lines would be a paragraph AND the child that owns them.
+      -- ONE OWNER PER BYTE: without the cut the same lines are a paragraph AND the child that owns them.
       [ "own: h.ownLines === undefined ? body.split(\"\\n\").length : h.ownLines,"
-      -- The commit is a SPLICE, and it is the Doc program's — see 'docRules'.
-      -- What the shell keeps is that the body a write sends is the ANSWER to
-      -- the edit rather than a reconstruction on this side.
+      -- The body a write sends is the ANSWER to the edit rather than a reconstruction on this side.
       , "const editPara = (r, text, say) => {"
       , "dcommit = say;"
       -- DEL IS UP, and at the top it is the sheet's door.
       , "if (editing.child === null) { leaveSheet(); return; }"
       , "reread(up === null ? undefined : up, (h, fresh) => {"
-      -- A KEY THIS LISTENER CLAIMED IS NOT THE MAP'S.  `DEL' closes the sheet
-      -- from here, and without this the table's own `DEL' would strip a filter
-      -- token off the view underneath on the same press.
+      -- A KEY THIS LISTENER CLAIMED IS NOT THE MAP'S, or the table's own `DEL' would strip a token on the same press.
       , "if (e.defaultPrevented) return;"
-      -- The cursor's GRAIN: one element today, and the field is what a future
-      -- expand-region moves rather than every reader of the cursor learning
-      -- about it twice.
       , "let drows = [], dat = 0, dcol = null, dgrain = \"element\";"
       , "dgrain = now.grain; dflags = now.flags; dbody = now.body;"
-      -- A HEADLINE LINE IS LAID OUT AS ORG LAYS ONE OUT: the two headline kinds
-      -- are flex rows, the title takes the room the line has left, and the tags
-      -- are flushed to the far edge (`org-tags-column').  A paragraph beside
-      -- them is flowing text and takes none of it.
-      -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE: both panes' cursor washes
-      -- are gated on the pane holding them, and the panel's costs two rules
-      -- because the wash it suppresses is the RENDERER's and the stripe under
-      -- it has to be put back.  A FLAG is not a cursor and keeps its ground
-      -- either way — it is a queue, and it has to read from the other pane.
+      -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the panel's costs two rules, the wash it suppresses being the RENDERER's.
       , "#mdoc.on .de.dat{"
       , "#mdoc.on .dc.don{"
       , "#mprops:not(.on) .tv-table tbody tr.tv-sel{background:transparent}"
@@ -7026,24 +5138,14 @@ shellGlue =
       , ".d-head,.d-child{display:flex;align-items:baseline}"
       , ".dc-title{flex:1 1 auto;min-width:0}"
       , "margin-left:auto;margin-right:0}"
-      -- And content sits under the TITLE TEXT, which is the other half of
-      -- `org-startup-indented'.  PADDING rather than a margin — a margin would
-      -- shrink the element's box and take the selection wash off the left of the
-      -- line — and the width is written onto the pane as a NUMBER, with the
-      -- arithmetic in the stylesheet, the way the log's cap is.
+      -- PADDING rather than a margin: a margin would take the selection wash off the left of the line.
       , "el(\"mdoc\").style.setProperty(\"--g-doc-indent\","
       , "el(\"mdoc\").style.setProperty(\"--g-doc-indent\", String(\"* \".length));"
       , "padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}" ]
       -- The document is not a mount and never asks the renderer to draw it.
       [ "TableView.mount(el(\"mdoc\")", "TableView.mount(el(\"dlist\")" ]
 
-  -- ONE `d'/`D'/`u' GESTURE, likewise, and over FOUR surfaces now: the
-  -- two-press rule, the feature detection, the set-or-row choice, the spending
-  -- of the flags and the walk after `u' are written once, and each surface names
-  -- the phrases it says them in, the mount they live on, what "take these"
-  -- means and what it logs.  The document's `mount' is not a renderer's at all
-  -- — four calls over a Set of element ids — which is what says the gesture asks
-  -- a mount for four things and never what kind of mount it is.
+  -- ONE `d'/`D'/`u' GESTURE over FOUR surfaces, each naming its phrases, its mount and what "take these" means.
   , Glue "the flag gesture is one implementation over four surfaces"
       [ "function flagKey(k, s, say) {"
       , "if (k === \"D\" || (k === \"d\" && flags.indexOf(at) !== -1)) {"
@@ -7053,18 +5155,12 @@ shellGlue =
       , "unflag: \"delete-unflag (flag cleared)\","
       , "none: \"org-toggle-tag (no tag)\","
       , "unflag: \"tag-unflag (flag cleared)\","
-      -- And the table's own shape, which is a function of the BINDING because
-      -- `said' spells the binding's command name: one gesture, two names.
       , "const XFLAGS = (b) => ({"
       , "flag: \"flagged — d again archives\","
       , "flagPress(k, e, DFLAGS)", "flagPress(k, e, TFLAGS)"
       , "archiveFlag: (b) => flagKey(\"d\", XFLAGS(b), (what) => said(b, what)),"
       , "archiveRows: (b) => flagKey(\"D\", XFLAGS(b), (what) => said(b, what)),"
       , "flagKey(\"u\", XFLAGS(b), (what) => said(b, what)); return; }" ]
-      -- The three hand-written copies it replaced: the panel's, the popup's, and
-      -- the table's — which was an `archiveFlag' of its own, a fork inside
-      -- `archive' choosing between the flagged set and the row at point, and a
-      -- flag branch inside `mark'.
       [ "function dflag", "function tflag", "d → delete-flag (d again deletes)"
       , "d → tag-flag (d again removes)"
       , "if (isFlagged(id)) { archive(b); return; }"
@@ -7072,47 +5168,31 @@ shellGlue =
       , "const flags = flagging() ? table.getFlagged() : [];"
       , "archiveRows: archive," ]
 
-  -- `@' asks before it applies: a row nothing points at leaves the table, the
-  -- filter and the trail where they were.  The probe is a COUNT — one row —
-  -- since the number is the whole of what it reads.
+  -- The drill is probed with a COUNT — one row — since the number is the whole of what it reads.
   , glue "the drill is probed before it is applied"
       [ "load(`${asking(token)}&limit=1`).then((a) => {"
       , "if (!a.total) {"
       , "drill(b, token, name);" ]
 
-  -- The overlay is raised and dissolved by the renderer, whose own input stops
-  -- ESC and DEL before this page's document handler sees them.  What keeps the
-  -- shell's rows off the palette either way is `typing()': every `table' row is
-  -- dead while a field has focus, and the one `any' row — ESC — closes the sheet
-  -- and otherwise only blurs whatever is typing.
+  -- `typing()' is what keeps the shell's rows off the palette: every `table' row is dead while a field has focus.
   , Glue "the palette's lifecycle stays the renderer's"
       [ "const live = (b) => b.scope === \"any\""
       , "|| (b.scope === \"table\" && !typing());"
       , "a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
       , "cancel: () => {"
       , "else if (typing()) active().blur();" ]
-      -- The CLASS, not the token: `--tv-veil' is the renderer's theming API
-      -- and this page declares it like every other ('Glance.Web.Theme'); what
-      -- it may not do is reach for the element wearing it.
+      -- The CLASS, not the token: `--tv-veil' is the renderer's theming API and this page may not reach the element.
       ["closeFilter", ".tv-veil", ".tv-panel"]
 
-  -- With `bootstrap=off' no `set-rows' frame can arrive, so the branch that
-  -- would have applied one is gone rather than left unreachable.
+  -- With `bootstrap=off' no `set-rows' frame can arrive, so the branch that applied one is gone.
   , Glue "opens a socket and applies the streaming ops"
       [ "new WebSocket(", "/ws?bootstrap=off", "table.setRows("
       , "\"upsert-row\"", "table.upsertRow(", "\"delete-row\"", "table.deleteRow("
-      -- Under a filter the rows are the server's answer to a query, so a row
-      -- frame is re-asked for rather than spliced into them — and the refetch
-      -- lands the archive's anchor rather than the first row every other
-      -- caller of `fetchRows' takes.
+      -- Under a filter a row frame is re-asked for rather than spliced, and the refetch lands the archive's anchor.
       , "setTimeout(() => fetchRows(settled), 250)" ]
       ["\"set-rows\""]
 
-  -- A close costs rows; only the columns moving costs the mount.  The
-  -- reconnect revalidates the applied query against the tag the last answer
-  -- carried, re-attaches, and leaves the page — sheet, palette, selection, URL
-  -- — exactly where it was.  A dropped backlog under an editor's write storm
-  -- arrives here, which is why a storm is a row refresh rather than a reload.
+  -- A close costs rows; only the columns moving costs the mount.
   , Glue "a close is a reconnect, and only view-changed is a remount"
       [ "socket.onclose = (e) => {"
       , "if (e && e.reason === \"view-changed\") remount(); else resync();"
@@ -7122,30 +5202,20 @@ shellGlue =
       , "if (a.view && query === asked) { paint(a); settled(); }"
       , "listen();"
       , "setTimeout(resync,", "Math.min(backoff * 2, 30000)"
-      -- The revalidation is this page's, not the browser cache's, so the 304
-      -- comes back as the answer it is.
+      -- The revalidation is this page's rather than the browser cache's, so the 304 comes back as the answer it is.
       , "init.headers = { \"if-none-match\": tag }; init.cache = \"no-store\";"
       , "r.status === 304 ? { view: null, total: 0 }"
       , "etag = r.headers.get(\"ETag\") || etag;"
-      -- A daemon restarted while the page was away had no socket to send
-      -- `view-changed' down, so the columns are checked rather than trusted.
+      -- A daemon restarted while the page was away had no socket to send `view-changed' down.
       , "if (a.view && !sameColumns(a.view.columns || [])) { remount(); return; }"
       , "const sameColumns = (next) => JSON.stringify(next) === JSON.stringify(cols);" ]
-      -- The old door: every close went through the boot, which re-read the URL
-      -- and rebuilt the mount.
       ["socket.onclose = () => {", "setTimeout(start,"]
 
-  -- What a remount takes down goes back up: the palette with what was typed in
-  -- it, the sheet with work the reader has not saved — both panes of it, in the
-  -- shape it was showing.  The sheet's digest is re-read rather than remembered,
-  -- so a file that moved underneath opens the conflict flow instead of being
-  -- overwritten by the restore.
+  -- The sheet's digest is re-read rather than remembered, so a file that moved opens the conflict flow.
   , glue "a real remount carries the sheet and the palette across it"
       [ "function remount(after) { leaving = arriving = null; stash(); start(after); }"
       , "function stash() {"
-      -- A structured sheet is never dirty — every element commits on its own —
-      -- so what a remount would lose is where the reader was STANDING and
-      -- whatever an open edit is holding, and both ride across.
+      -- A structured sheet is never dirty — every element commits on its own.
       , "sheet: editing"
       , "? { id: editing.id, child: editing.child, raw,"
       , "at: docCursor().at, col: docCursor().col,"
@@ -7159,16 +5229,9 @@ shellGlue =
       , "el(\"mtext\").value = s.text;"
       , "if (s.open) reopenEdit(s.open);"
       , "if (h.digest !== s.digest) sync(\"conflict\");"
-      -- The one place a new table appears, so the one place a restore belongs.
       , "restore();" ]
 
-  -- A cold daemon answers the boot fetch with 503 while it walks the tree; the
-  -- page it is answering is this one, so it says so and asks again.
-  -- A cold daemon on the boot, and a restarted one under a live page: both
-  -- poll through the reconnect, so the page a reader had is still on screen
-  -- while the walk runs.
-    -- The event strip is the whole of what says so, the status dot having gone
-    -- with the corner it sat in.
+  -- A cold daemon answers 503 while it walks; the boot and the reconnect both poll out of it.
   , glue "shows the indexing state and polls out of it"
       [ "r.status === 503", "{ indexing: b }", "if (e.indexing) return indexing("
       , "indexing … ${b.elapsed}s", "setTimeout(resync, 1000)" ]
@@ -7176,14 +5239,9 @@ shellGlue =
   , glue "materializes a row and syncs it back"
       [ "\"materialize\"", "/headline?id=${encodeURIComponent(", "<textarea id=\"mtext\""
       , "method: \"POST\"", "flush(editing.digest)", "a.status === 409"
-      -- The sheet's exits are keymap rows: ESC closes it, C-x C-s syncs it from
-      -- inside the textarea.
       , "keyboard-quit", "C-x C-s" ]
 
-  -- Two panes over one subtree, and the cut between them is the SERVER's: this
-  -- page reads `body' and `properties' off the route and hands them back the
-  -- same way.  Nothing here looks for a drawer in org text — there is no parser
-  -- on this side, and C-c ' re-materializes rather than converting locally.
+  -- Two panes over one subtree, and the cut between them is the SERVER's: there is no parser on this side.
   , Glue "the sheet is a structured document and a property panel"
       [ "<div id=\"mpanes\">", "<div id=\"mdoc\"><div id=\"dlist\"></div>"
       , "<div id=\"mprops\"><div id=\"mptable\"></div>"
@@ -7191,87 +5249,50 @@ shellGlue =
       , "docFill(h, raw);"
       , "drawProps(raw ? [] : h.properties || [], raw ? [] : h.planning || []);"
       , "{ body: dbody, properties: props(), planning: planning() }"
-      -- THE DOCUMENT IS NOT A MOUNT, and that is the doctrine line: the
-      -- renderer's list widget draws a list of RECORDS, one shape per row, and
-      -- this is a list of KINDS.  It is an Elm program of its own, so the model
-      -- is over in 'docRules' and what stands here is the fill and the mirror.
+      -- THE DOCUMENT IS NOT A MOUNT: the renderer's list widget draws RECORDS and this is a list of KINDS.
       , "dport = Elm.Doc.init({ node: part(el(\"dlist\"), \"div\", \"\") }).ports;"
       , "drows = now.rows; dat = now.at; dcol = now.col;"
       , "kids: (h.children || []).map((c) =>"
-      -- AND THE PANEL IS AN ELM PROGRAM, which owns the rows, the cursor and the
-      -- flags and draws them.  This side keeps a MIRROR of what it pushes back,
-      -- since a port round trip costs a macrotask and every reader here is
-      -- synchronous.
+      -- This side keeps a MIRROR of what it pushes back: a port round trip costs a macrotask.
       , "pmount = listing(\"mptable\", PCOLS, \"d/D delete · u unflag\", \"mprops\");"
       , "const repaint = (at) => mounted().setRows(prowsOf(), at);"
       , "        Object.assign(seen, now);"
       , "const prowsOf = () =>"
       , "function addProperty() {"
       , "else if (k === \"+\") addProperty();"
-      -- Trimmed both sides, since the server hands them over trimmed: what the
-      -- panel can show is exactly what it can write.
       , "[r.key.trim(), r.val.trim()]"
       , ".filter((p) => p[0] !== \"\");"
-      -- The logbook: shown, and out of everything a commit is made of.
       , "function drawLog(text) {"
       , "<pre id=\"mlog\"></pre>"
-      -- Display-only: what goes back is the whole drawer, and this page never
-      -- sends it at all.
+      -- Display-only: what goes back is the whole drawer, and this page never sends it.
       , ".split(\"\\n\").slice(1, -1).join(\"\\n\")"
-      -- The toggle re-reads rather than converting, and refuses a dirty sheet.
       , "if (dirty()) { said(b, \"sync first — C-x C-s\"); return; }"
       , "reread(editing.child, (_h, fresh) => {"
-      -- The panel's own keys: TAB crosses the panes and hops the open row's two
-      -- fields, nav movement is both spellings of the map's own letters and the
-      -- arrows, and RET opens a row and commits it.  Movement is the MOUNT's
-      -- step, so the cursor a reader moves is the renderer's.
+      -- Movement is the MOUNT's step, so the cursor a reader moves is the renderer's.
       , "const k = keyName(e), crossing = k === \"TAB\" || k === \"S-TAB\";"
       , "const rowStep = (k) => (k === \"<down>\" || k === \"n\" || k === \"j\" ? 1"
       , "else if (rowStep(k)) stepIn(pmount, rowStep(k));"
       , "      } else if (pnav()) {"
       , "const pnav = () => el(\"mprops\").className === \"on\";"
       , "el(\"mprops\").className = \"on\"; el(\"mdoc\").className = \"\";"
-      -- Nav holds the keys with nothing focused, so the map has to be told.  It
-      -- is the FIRST of the modal surfaces, its listener registering ahead of
-      -- the dispatch, and `typing()' reads that one list rather than naming any
-      -- of them.
+      -- Nav holds the keys with nothing focused, so the map has to be told; it is the FIRST of the modal surfaces.
       , "{ name: \"sheet\", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit,"
       , "return SURFACES.some((s) => s.up())"
-      -- The panel stacks under the text when there is no room beside it, which
-      -- is a wrap rather than a second breakpoint to keep in step.
       , "#mpanes{flex:1;min-height:0;overflow:hidden;"
       , "#sheet.raw #mprops{display:none}"
-      -- The pane hosts the mount and positions the overlay, and that is the
-      -- whole of what it styles: `.tv-root' brings the frame and draws the rows.
       , "#mprops{flex:1 1 240px;min-width:0;min-height:0;position:relative;"
       , "#mptable .tv-root,#ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
-      -- The open row's fields sit OVER the row, since the mount rewrites its own
-      -- rows as it scrolls, and they land on the text they replace.
+      -- The open row's fields sit OVER the row, since the mount rewrites its own rows as it scrolls.
       , "#dtitle,#dpara,#pedit,#sedit,#tedit,#ledit{display:none;position:absolute;"
-      -- The document's box is NOT in that list: `#dpara textarea' takes
-      -- `font:inherit' so an edit renders in the PANE's line box, which is
-      -- what the block's own floor reserves for it.  Listing it here as well
-      -- left two rules of one specificity deciding by source order.
+      -- The document's box is NOT in that list: `#dpara textarea' takes `font:inherit' so an edit renders in the PANE's line box.
       , "#pedit input,#sedit input,#tedit input,#ledit input{"
-      -- A planning row's key is org's rather than the author's, and says so.
       , "#pkey[readonly]{color:var(--g-mute)}"
-      -- ONE FOCUS LANGUAGE: whichever pane holds the keys wears the accent on
-      -- its own frame.  Declared for both rather than left to the browser,
-      -- which can only dress the one that takes a real focus.
+      -- ONE FOCUS LANGUAGE, declared for both panes: the browser can only dress the one that takes a real focus.
       , "#mtext:focus{outline:none;border-color:var(--g-accent)}"
       , "#mprops.on .tv-root,#mdoc.on{border-color:var(--g-accent)}" ]
-      -- No rows of this page's own: the row element, the stripe, the cursor
-      -- class and the movement that painted them are the renderer's now, and a
-      -- second spelling of any of them is the thing this replaced.  No tab index
-      -- either, and no parser — the page never goes looking for a drawer in the
-      -- text it holds.
       [ "tabindex", ":PROPERTIES:", ":END:"
       , ".prow", "pcur", "drawRow", "addRow(" ]
 
-  -- The author's Emacs theme in one set of custom properties: white on true
-  -- black in the dark variant, black on white in the light one.  The hairline is
-  -- the renderer's own `--tv-border', so the page draws one weight of chrome;
-  -- the theme's own border faces frame instead.
   , Glue "the page wears the default theme and the sheet wears Hack"
       [ "    --g-bg:#FFFFFF;", "    --g-fg:#000000;", "    --g-border:#E3E6EA;"
       , "  @media (prefers-color-scheme:dark){"
@@ -7280,130 +5301,76 @@ shellGlue =
       , "#mtext::selection{background:var(--g-sel);color:var(--g-fg)}"
       , "#mnote.conflict,#mnote.error{color:var(--g-bad)}"
       , "border:1px solid var(--g-border)"
-      -- The sheet asks for the author's Emacs font by name; the page keeps the
-      -- stack it had.
       , "--dk-mono:\"Hack\", var(--glance-mono)"
       , "font:14px/1.5 var(--glance-mono)"
-      -- THE LINK INK IS THE RENDERER'S, hand-copied per theme the way the
-      -- hairline is: `--tv-link' is declared on `.tv-root' rather than on the
-      -- document element, so a live `var()' read resolves to nothing in a pane
-      -- beside the mount.
+      -- `--tv-link' is declared on `.tv-root', so a live `var()' read resolves to nothing in a pane beside the mount.
       , "--g-link:#30739B;", "--g-link:#7CC9F8;" ]
-      -- ALIASED, NOT RESPELLED: every use reads the name.  A hex at a use site
-      -- is what makes a renderer change N edits instead of one, so the two
-      -- values may appear only where the palette declares them.
+      -- ALIASED, NOT RESPELLED: a hex at a use site makes a renderer change N edits instead of one.
       [ "--g-border:#BDC3C7", "--g-border:#223959"
       , "color:#30739B", "color:#7CC9F8", "text-decoration:underline;color:#" ]
 
-  -- One rule sets both widths, so the strip cannot drift from the table above
-  -- it; the hairline, the radius and the surface tint are `.tv-root''s, which is
-  -- what makes it read as the same thing.
-  --
-  -- ITS HEIGHT IS STATIC: N line boxes whatever it is holding, so the table
-  -- above it never resizes under a reader's cursor because a write logged a
-  -- line, and a quiet page reads the same as a busy one.  The collapse, the
-  -- hand-reserved line, the ten-line cap and the flexible strip that grew to its
-  -- content are all superseded designs.
+  -- One rule sets both widths.  ITS HEIGHT IS STATIC: N line boxes whatever it is holding.
   , Glue "the log wears the table's container under it, at a static height"
       [ "#app,#log{width:100%;box-sizing:border-box}"
       , "border:1px solid var(--g-border);border-radius:8px;"
-      -- The table is the flexible one and takes the whole of the rest.
       , "#app{flex:1 1 auto;min-height:0}"
       , "background:var(--g-surface);flex:none;overflow-y:auto}"
-      -- N of its own line boxes exactly, computed off the rule's own font
-      -- size (`em', so it is not restated) and the padding above it rather than
-      -- eyeballed.  N is a CUSTOM PROPERTY declared at the default here, so the
-      -- arithmetic is in one place and the settings sheet writes a NUMBER onto
-      -- the element.
+      -- N is a CUSTOM PROPERTY declared at the default, so the arithmetic is in one place.
       , "    --g-logn:7;"
       , "height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px);"
-      -- The end of a long message is scrolled to unless the reader has scrolled
-      -- up to hold a place.
       , "box.scrollTop + box.clientHeight >= box.scrollHeight - 4"
       , "if (end) box.scrollTop = box.scrollHeight;" ]
       [ "#log:empty", "min-height:1.4em", "max-height:10em"
       , "max-height:calc(var(--g-logn)" ]
 
-  -- Connection, sync outcomes, the parity warning and errors: what a reader
-  -- could not have seen otherwise.  The row count is the renderer's hint line
-  -- and the keys are the resident key line's; the strip repeated both.
   , Glue "the log carries events and nothing the page shows anyway"
       [ "append(\"ws\", \"warn\", `disconnected · retrying in ${Math.round(backoff / 1000)}s`)"
       , "append(\"boot\", \"info\", `indexing … ${b.elapsed}s"
       , "append(\"ws\", \"error\", `load failed: ${e.message}`)"
-      -- A sheet closing on trouble says so under its OWN scope, which is the
-      -- one thing the shared ladder takes from the sheet it is closing.
       , "append(s.scope, \"info\", s.closed);"
       , "scope: \"sync\", state: \"synced\","
       , "closed: \"closed without writing — the file is as it was\","
       , "scope: \"config\", state: \"synced\","
       , "closed: \"settings closed — the files are as they were\","
       , "filter parity divergence — asset/daemon version skew"
-      -- The boot line is a line like any other: the strip opens holding it and
-      -- nothing takes it away, so the page's first second is still readable an
-      -- hour later.
       , "<div id=\"log\"></div>"
       , "append(\"boot\", \"info\", \"loading …\");"
       ]
-      -- The clearing dance is gone with the placeholder it existed to take
-      -- away: an append-only strip has no way to say less than it has said.
       [ "const say = () =>", "say();", "getRows().length"
       , "matching ${query}", "${profile} keys"
       , "log(\"\")", "<div id=\"log\">loading …</div>" ]
 
-  -- The strip's own machinery: a stamp, a bounded ring dropping from the front,
-  -- and a repeat counted on the line it repeats rather than written under it.
   , glue "the log is a bounded ring of stamped lines"
       [ "const LOGCAP = 500;"
       , "new Date().toTimeString().slice(0, 8)"
       , "while (box.children.length > LOGCAP) box.removeChild(box.children[0]);"
       , "logLast.count.textContent = `×${(logLast.n += 1)}`;"
-      -- A message is one line: whatever control characters it carries collapse.
       , "String(message).replace(/[\\x00-\\x1f]+/g, \" \")"
-      -- The severity is the one part that changes colour, so a warning is
-      -- findable in a screenful of chatter.
       , "#log .warn .lv{color:var(--g-warn)}"
       , "#log .error .lv{color:var(--g-bad)}" ]
 
-  -- `table-view.js' gives its sticky header `z-index:1' and its completion list
-  -- `5'; an unnumbered backdrop painted under both.  The page's own echo pill
-  -- stays below the backdrop and dims with everything else.  THREE levels now:
-  -- the corner held the third and went with it.
+  -- `table-view.js' gives its sticky header `z-index:1' and its completion list `5'; an unnumbered backdrop painted under both.
   , Glue "the sheet's backdrop covers the renderer's chrome"
       [ "position:fixed;inset:0;z-index:100;", "position:relative;z-index:101;"
       , "#echo{position:fixed;right:14px;bottom:12px;z-index:2;" ]
       [ "z-index:3" ]
 
   , glue "the theme is a three-way switch the page honours"
-      -- The selector and its three options, under the settings sheet's own
-      -- theme panel.
       [ "id=\"themesel\""
       , "<option value=\"auto\">auto</option><option value=\"light\">light</option>"
       , "<option value=\"dark\">dark</option>"
-      -- `auto' is the media query; the other two pin the attribute the
-      -- renderer's own overrides read.
       , ":root[data-theme=\"light\"]{", ":root[data-theme=\"dark\"]{"
-      -- And the renderer's own namespace beside each, since the page themes
-      -- the table it mounts rather than leaving it to agree by hand.
       , ":root[data-theme=\"light\"] .tv-root{"
       , ":root[data-theme=\"dark\"] .tv-root{"
       , "if (name === \"auto\") delete document.documentElement.dataset.theme;"
       , "else document.documentElement.dataset.theme = name;"
       , "const themed = pref(\"glance-theme\", \"auto\");"
       , "el(\"themesel\").addEventListener(\"change\""
-      -- And the head applies it before anything paints.
       , "<script>try{var t=localStorage.getItem(\"glance-theme\");" ]
 
-  -- The log's height, the page's SECOND `localStorage' preference and the
-  -- general panel's one field that asks no server.  The stylesheet owns the
-  -- arithmetic; what the knob writes is the number, onto the element.  A value
-  -- outside the band is declined rather than clamped, and blank is how a reader
-  -- asks for the default back.
+  -- A value outside the band is declined rather than clamped, and blank is how a reader asks for the default back.
   , glue "the log's height is a stored preference no field reaches"
       [ "const LOG = CFG.log;"
-      -- The numbers ride the cfg blob now, the declared Haskell constants
-      -- still the source: the fixture is page-plus-script, so the blob's
-      -- members are pinned beside the read.
       , "\"def\":7", "\"min\":1", "\"max\":50", "\"key\":\"glance-log\""
       , "if (!t) return LOG.def;"
       , "return /^[0-9]+$/.test(t) && +t >= LOG.min && +t <= LOG.max ? +t : null;"
@@ -7411,51 +5378,33 @@ shellGlue =
       , "localStorage.setItem(key, v)"
       , "el(\"log\").style.setProperty(\"--g-logn\", String(n));"
       , "setLogLines(logLines(logPref.get()) || LOG.def);"
-      -- An EMPTIED field is a preference that is not there.
       , "else localStorage.removeItem(key); } catch (e)" ]
 
-  -- THE KEYWORDS PANEL IS ONE SELECT AND ONE BOX.  A tree has as many config
-  -- files as it has tags, and a stack of boxes was as tall as that number.  The
-  -- text lives on the LAYER rather than in the box, which is what makes a switch
-  -- free; every door takes the box back to its layer first, and the flush still
-  -- posts one drift-locked call per file.
+  -- THE KEYWORDS PANEL IS ONE SELECT AND ONE BOX: the text lives on the LAYER, which is what makes a switch free.
   , Glue "the keyword layers are a select over one box"
       [ "id=\"clayer\"", "<textarea id=\"ctext\" class=\"ctext\""
       , "crows = (b.layers || []).map(layerRow).sort(byLayer);"
-      -- System first, then the tags in their own alphabet — the server's order
-      -- is the walk's.
       , "const byLayer = (a, b) => (a.tag === null ? 0 : 1) - (b.tag === null ? 0 : 1)"
       , "|| String(a.tag).localeCompare(String(b.tag));"
       , "crows[cat].text = el(\"ctext\").value;"
       , "el(\"clayer\").addEventListener(\"change\""
       , "const cdirty = () => (takeLayer(), crows.some(cmoved));"
-      -- ONE LIST for every setting the sheet writes beside the cycle: `cmoved'
-      -- and the flush fold `CFIELDS', so a fourth one is a row and no edit here.
+      -- ONE LIST for every setting the sheet writes beside the cycle: `cmoved' and the flush fold `CFIELDS'.
       , "const cmoved = (r) => r.text !== r.base || cfmoved(r).length > 0;"
       , "const cfmoved = (r) => CFIELDS.filter((f) => f.on(r) && f.now(r) !== f.was(r));"
-      -- The layer's SECOND box: the capture template, a region of the same file
-      -- riding in the same write, kept on the layer the way its cycle is.
       , "<textarea id=\"ctpl\" class=\"ctext\""
       , "crows[cat].tpl = el(\"ctpl\").value;"
       , "tpl: layer.template || \"\", tplBase: layer.template || \"\","
       , "{ key: \"template\", on: () => true,"
-      -- One POST per layer that moved, each awaited, each under its own digest.
-      -- A layer with nothing to send drops the refusal it was carrying, since
-      -- the edit that earned it has been taken back.
+      -- One POST per layer that moved, each under its own digest.
       , "if (!cmoved(r)) { r.err = \"\"; continue; }"
       , "postJSON(\"/config\", body)"
       , "for (const m of moved) body[m.f.key] = m.body;"
-      -- A refusal brings its layer with it, since one box shows one file; a
-      -- flush that refused nothing redraws what sits AROUND the box and leaves
-      -- the box alone, since `C-x C-s' syncs mid-edit and a redraw there would
-      -- paint over what is being typed.
+      -- A flush that refused nothing leaves the box alone: `C-x C-s' syncs mid-edit and a redraw would paint over the typing.
       , "if (landed === -1) landed = crows.indexOf(r);"
       , "      if (landed === -1) showAround();"
       , "      else { takeLayer(); showLayer(landed); }"
-      -- The label is redrawn too: a layer this sheet just CREATED has a digest
-      -- now and must stop saying it is not there yet.
       , "+ (r.digest ? \"\" : \" · not created yet\") : \"\";" ]
-      -- No box per layer, and no second copy of the text on an element.
       [ "createElement(\"textarea\")", "r.box.value", "r.note.textContent" ]
 
   , Glue "the dispatch and the echo widget read that blob and no other map"
@@ -7463,47 +5412,33 @@ shellGlue =
       , "JSON.parse(el(\"keys\").textContent)"
       , "MAPS.rows.filter(live)"
       , "HANDLERS[b.handler]" ]
-      -- One map: no profile to remember, to ask for, or to offer.
       [ "MAPS.profiles", "MAPS.default", "glance-keys", "keysel", "setProfile" ]
 
-  -- The tree's own default view, embedded by the daemon and applied by `g'
-  -- through the ordinary commit path: into the URL, then asked of the server.
-  -- `g' reads the LIVE default (`saved', keyed by the registry's own ids,
-  -- seeded from the blob and moved by a pin), so a fresh pin is applied without
-  -- a page reload.
+  -- `g' reads the LIVE default, so a fresh pin is applied without a page reload.
   , Glue "the default view is the tree's, and `g' applies it"
       [ "const savedQuery = (id) => saved[id] || \"\";"
       , "let bootedOn = savedQuery(\"default\");"
       , "      const q = params().has(\"q\") ? urlQuery() : bootedOn;"
       , "applyView(b, savedQuery(\"default\"), undefined, here);"
-      -- `g' is HOME, so it is not a step on the trail: the crumbs and the
-      -- labels naming them go with it, where DEL walks back one rung at a time.
+      -- `g' is HOME rather than a step on the trail: the crumbs and their labels go with it.
       , "if (crumbing()) table.setCrumbs([]);"
       , "crumbLabels = {};"
       , "remember(q);"
       , "remount();" ]
-      -- `g' replaced the refresh key outright: one door through the mount.
       [ "function refresh()", "refreshing …", "org-glance-overview:refresh" ]
 
-  -- The second canned view, applied through the same door and differing in one
-  -- thing: it carries its own ORDER, which is a token of the query like any
-  -- other rather than a call behind the answer.
+  -- The second canned view carries its own ORDER, which is a token of the query rather than a call behind the answer.
   , Glue "`a' is the agenda query through the same door, its own sort included"
       [ "    seedViews(CFG.views);"
       , "applyAgenda: (b) => applyView(b, savedQuery(\"agenda\"), (total) => landedAgenda(b, total)),"
       , "said(b, `agenda · ${rowsWord(total)}`);"
-      -- The landing is an ARGUMENT of the boot it belongs to, so a boot that
-      -- never lands cannot leave one behind for the next.
+      -- The landing is an ARGUMENT of the boot it belongs to, so a boot that never lands leaves none behind.
       , "function start(after) {"
       , "if (after) after(a.total);" ]
-      -- A view rather than a mode: no state saying the agenda is on, no sort
-      -- asked for behind the query that already states it, and no variable this
-      -- arms and disarms by hand.
       [ "agendaMode", "let agenda =", "sortKeys", "let landed"
       , "sortRows", "table.sortBy(" ]
 
-  -- `o' follows the row.  The extraction is the server's — the page holds no
-  -- org parser — and how many links come back decides the whole gesture.
+  -- `o' follows the row: the extraction is the server's, and how many links come back decides the gesture.
   , Glue "`o' follows the row's links, and the server is what finds them"
       [ "const linksOf = (id) => getJSON(`/links?id=${encodeURIComponent(id)}`);"
       , "if (!links.length) { said(b, \"no links\"); return; }"
@@ -7511,52 +5446,31 @@ shellGlue =
       , "showLinks(b, id, a);"
       , "window.open(link.target, \"_blank\", \"noopener\");"
       , "append(\"cmd\", \"info\", `link ${JSON.stringify(link.target)} opened`);"
-      -- SEVERAL is a table-view MOUNT, and the followable set is the SERVER's
-      -- list spliced in rather than a regex this page runs over the target a
-      -- second time.  What the mount was given and what the foot says are the
-      -- popup cases' business, which read them off behaviour.
       , "lmount = listing(\"ltable\", LCOLS, \"\", \"lpane\");"
       , "const followable = (l) => FOLLOWABLE.indexOf(l.type) !== -1;" ]
-      -- No bracket grammar here: `[[T][D]]' is read where `displayText' is.  No
-      -- which-key letters either: the popup replaced them, so nothing assigns
-      -- one over a link and nothing narrows a link list.
       [ "\\\\[\\\\[", "linkAt("
       , "linkChoices", "a letter opens it", "c.target" ]
 
-  -- And `RET' WRITES one: the link at point becomes two fields over its own
-  -- cells, and the commit is `edit-link' over the SPAN the server handed out,
-  -- pinned to the digest that answer carried.  The third surface on the shared
-  -- overlay, so what is spelled here is the shape and the commit.
+  -- `RET' WRITES one: `edit-link' over the SPAN the server handed out, pinned to the digest that answer carried.
   , Glue "the link popup edits in place, over the range the server gave it"
       [ "box: \"ledit\", pane: \"lpane\", fields: [\"ltitle\", \"lurl\"],"
-      -- BY KEY, against the column list the server declared: reordering those
-      -- columns takes the box with them, where a positional pair had nothing
-      -- tying it to the list it indexed.
+      -- BY KEY against the column list the server declared, so reordering those columns takes the box with them.
       , "cells: [\"title\", \"url\"], cols: LCOLS,"
       , "const lediting = () => { const e = editNow(); return !!e && e.o === LROW; };"
       , "openOver(LROW, pointedRow(), \"org-insert-link (no link)\")"
       , "else if (k === \"RET\") commitLink(edit.row);"
       , "const args = { span: link.span, target };"
-      -- ABSENT IS NOT NULL: only a description field the reader moved says
-      -- anything, and one they emptied is the null that takes it off.
+      -- ABSENT IS NOT NULL: only a description field the reader moved says anything.
       , "if (typed !== link.desc) args.desc = typed || null;"
       , "fire(b, \"edit-link\", [id], args," ]
-      -- No link SPELLED here — the shape is the server's, so this page sends a
-      -- target and a description and never a rendered link — and no offsets of
-      -- its own: the range came out of the answer and goes back as it came.  No
-      -- re-read behind the commit either: `/command' never writes the store, so
-      -- asking again here would answer with what the file said BEFORE the write.
+      -- No offsets of its own and no re-read behind the commit: `/command' never writes the store.
       [ "arrives with the link span", "renderLink", "linksOf(lfor"
       , "link.span[0] +", "repaintLinks" ]
 
   , glue "a binding with no handler names what it is waiting for"
       [ "arrives with daemon commands (M4)" ]
 
-  -- ONE ENVELOPE PER VERB.  The routes that read a value share the unwrap that
-  -- throws the server's own error, and the routes that write share the POST's
-  -- method, header and encoding — so what a refusal looks like and what a body
-  -- is sent as are each decided once.  `/config' assembles its own body inline
-  -- and is the one that does.
+  -- ONE ENVELOPE PER VERB: what a refusal looks like and what a body is sent as are each decided once.
   , Glue "the JSON verbs are written once"
       [ "const unwrap = (r) => r.json().then((b) => {"
       , "const getJSON = (url) => fetch(url).then(unwrap);"
@@ -7565,14 +5479,9 @@ shellGlue =
       , "const outcome = (r) => r.json().then((b) => ({ status: r.status, body: b }));"
       , "postJSON(at(id, child), { ...asked, digest }, extra);"
       , "const postCommand = (body) => postJSON(\"/command\", body).then(unwrap);" ]
-      -- And no hand-rolled envelope left but `/config\''s, which assembles its
-      -- own body inline.
       [ "method: \"POST\",\n  , \"        headers:" ]
 
-  -- THE SUBTREE WRITE'S ANSWER, once: a 200 re-pins the digest and hands the
-  -- caller its line, and under that is one ladder for a moved file, a refused
-  -- planning entry and a request that never landed.  `commitDoc' is
-  -- `commitDocWith' with the body rebuilt out of the model.
+  -- THE SUBTREE WRITE'S ANSWER, once: a 200 re-pins the digest, and under it is one ladder for every refusal.
   , glue "one ladder answers every subtree write"
       [ "function landed(h, onOk) {"
       , "const commitDoc = (body) => {"
@@ -7581,10 +5490,7 @@ shellGlue =
       , ".then((a) => { if (editing === h && landed(h, say)(a)) reload(); })"
       , ".then(landed(h, () => {" ]
 
-  -- THE SHARED READINGS: a mount's cursor as an id, guarded once for the three
-  -- surfaces that ask; the TAB hop off the shape's own field list; and the log
-  -- verb as a table beside the route's names rather than a ladder inside the
-  -- one shared write path.
+  -- THE SHARED READINGS: a mount's cursor as an id, the TAB hop off the shape's field list, and the log verb as a table.
   , Glue "the page reads a cursor, a hop and a verb in one place each"
       [ "const selectedId = (mount) =>"
       , "(can(mount, \"getSelection\") ? (mount.getSelection() || {}).id : null) || null;"
@@ -7596,9 +5502,7 @@ shellGlue =
       , "const VERBED = {"
       , "const verbed = (name, args, verb) => (VERBED[name] || ((_args, v) => v))(args, verb);"
       , "const what = verbed(name, args, verb);"
-      -- Exclusivity is walked off the one list rather than restated by hand.
       , "for (const s of SURFACES) if (s.momentary && s.up()) s.off();" ]
-      -- The hand-written copies these replaced.
       [ "pmount.getSelection().id", "(lmount.getSelection() || {}).id"
       , "(tmount.getSelection() || {}).id"
       , "active() === el(\"pkey\") ? el(\"pval\")"
@@ -7606,9 +5510,7 @@ shellGlue =
       , "name === \"edit-link\" ? verb"
       , "if (linking()) shutLinks();" ]
 
-  -- ONE LISTENER SHAPE FOR THE TWO BROWSING POPUPS, and the guard that was one
-  -- popup's is now both's: a key another listener has already CLAIMED is nobody
-  -- else's.  The `e.repeat' guard stays in the chain that owns it.
+  -- ONE LISTENER SHAPE FOR THE TWO BROWSING POPUPS: a key another listener has already CLAIMED is nobody else's.
   , Glue "the two browsing popups share one listener"
       [ "function popupKeys(name, mount, o) {"
       , "if (momentary() !== name || e.defaultPrevented) return;"
@@ -7618,9 +5520,6 @@ shellGlue =
       [ "if (momentary() !== \"links\") return;"
       , "if (momentary() !== \"tags\" || e.defaultPrevented) return;" ]
 
-  -- THE FOLLOW GESTURE AND THE ASKING, each written once: `o' at the row's
-  -- grain and at the element's are one function over different sets, and the
-  -- two keys that ask before writing differ only in where the rows come from.
   , glue "the follow gesture and the two askers are one each"
       [ "function followLinks(b, id, a, links) {"
       , "linksOf(id).then((a) => followLinks(b, id, a, a.links || []))"
@@ -7633,62 +5532,40 @@ shellGlue =
       , "manageTags: (b) => overTargets(b, \"tags\", askTags),"
       , "docTargets(docBinding(\"org-glance-overview:todo\"), \"set state\", askState);"
       , "docTargets(docBinding(\"org-agenda-set-tags\"), \"tags\", askTags);"
-      -- And the raise both palette doors take.
       , "function raise(title, state, value, cls, foot) {" ]
 
-  -- THE DOCUMENT'S OWN ARITHMETIC.  Spans are CHAR offsets, so the pane counts
-  -- characters rather than UTF-16 units; the overlay is anchored to the element
-  -- the DRAW marked rather than to the `dat'-th child of the list, which a
-  -- composite's nested leaves make a different element; and the element ordinal
-  -- is the BUILD's, spent by a loop rather than kept in module scope.
+  -- Spans are CHAR offsets, so the pane counts characters rather than UTF-16 units.
   , Glue "the document counts characters and anchors what it drew"
       [ "const clen = (s) => Array.from(String(s)).length;"
       , "const bodyShift = (h) => clen(h.org || \"\") - clen(h.body || \"\");"
       , "const linksIn = (at, links) => (links || dlinks).filter((l) =>"
-      -- The anchor is READ off what was drawn rather than remembered by the
-      -- draw, since the draw is the Doc program's; `.dat' is the one marker,
-      -- and it is not `#dlist''s `dat'-th child — a composite draws its leaves
-      -- inside itself.
+      -- The anchor is READ off what was drawn: `.dat' is not `#dlist''s `dat'-th child, a composite drawing its leaves inside itself.
       , "const docElAt = () => el(\"dlist\").querySelector(\".dat\");"
-      -- And the cell at point is READ rather than assumed: a stash put back over
-      -- a headline that has since lost one names a column that is not there.
       , "const c = dcol === null ? null : shown(r)[dcol];"
-      -- The ownership chain and the element ordinals are the Doc program's, so
-      -- what stands here is the span it hands back per row.
       , "const spanOf = (r) => (r && r.span) || null;" ]
-      -- The UTF-16 readings and the two positional reaches they replaced.
       [ "(editing.org || \"\").length", "n + l.length, 0"
       , "text.slice(cut, a)", "at + text.length"
       , "el(\"dlist\").children || [])[dat]", "let dseq = 0" ]
 
-  -- THE BOX'S TIER SURVIVES A RAISE.  `#pbox' carries its size tier as a class
-  -- and the mode is a second one, so the mode is TOGGLED — a wholesale write
-  -- dropped the tier on the first raise, silently, since only a live page is a
-  -- size.  The markup still ships it, which `tierSweep' is what asserts.
+  -- THE BOX'S TIER SURVIVES A RAISE: the mode is TOGGLED, where a wholesale write dropped the tier silently.
   , Glue "raising the palette keeps the box's tier"
       [ "el(\"pbox\").classList.toggle(\"narrow\", cls === \"narrow\");" ]
       [ "el(\"pbox\").className = cls;" ]
 
-  -- EVERY VEIL IS A DOOR.  The two sheets leave through their own ladder and
-  -- the two momentary popups are answered and gone, so what a backdrop click
-  -- does differs by surface — but every backdrop has one.
+  -- EVERY VEIL IS A DOOR, and what a backdrop click does differs by surface.
   , glue "the momentary veils are backdrops too"
       [ "for (const id of [\"modal\", \"config\"])"
       , "if (e.target === el(id)) leaveSheet();"
       , "const backdrops = [[\"links\", () => shutLinks()], [\"tags\", () => shutTags()]];"
       , "if (e.target === el(id)) off();" ]
 
-  -- ONE COMMAND AT A TIME where a press makes several: rows sharing a FILE are
-  -- written under ONE drift lock, so two requests fired together are each
-  -- measured against a digest the other is moving.
+  -- ONE COMMAND AT A TIME: rows sharing a FILE are written under ONE drift lock.
   , Glue "a press that makes several commands sends them in turn"
       [ "async function cyclePriority(b, step) {"
       , "await fire(b, \"set-priority\", over, { priority: key || null },"
       , "async function removeTags(list) {"
       , "for (const tag of list)"
-        -- Guarded, so a refusal on one tag does not abandon the tags behind it:
-        -- `fire' throws on a whole-request refusal and the flags are already
-        -- spent by the time this runs.
+        -- Guarded, so a refusal on one tag does not abandon the tags behind it.
       , "await Promise.resolve(untag(tag)).catch(failed(tagging, \"remove-tag\"));" ]
       [ "for (const tag of list) untag(tag);" ]
 
@@ -7696,46 +5573,29 @@ shellGlue =
       [ "<div id=\"echo\"", "#echo{position:fixed", "is undefined", "timed out"
       , "Enter: \"RET\"", "Escape: \"ESC\"", "ArrowUp: \"<up>\"" ]
 
-  -- A row step is `selectStep': it carries the column and turns the page at
-  -- either end, and `getVisible()' is one page's worth, so arithmetic over it
-  -- here would stop dead at a boundary.  The index walk stays as the fallback
-  -- for an asset predating the call — which has no pages either.  The selected
-  -- row is then marked once, by the renderer's own secondary-highlight
-  -- background: the accent stripe this page drew over it is a superseded design
-  -- (#26), a second mark for the same fact.
+  -- A row step is `selectStep': `getVisible()' is one page's worth, so arithmetic over it here would stop at a boundary.
   , Glue "row movement drives the renderer's own selection"
       [ "const steps = () => can(table, \"selectStep\");"
       , "if (visible().length) table.selectStep(step);"
-      -- Which row is on is the renderer's answer too, with the DOM read left as
-      -- the fallback for an asset predating that call.
       , "tbody tr.tv-sel", "table.getVisible()", "table.select(id, column())", ".tv-filter"
       , "if (cells()) return table.getSelection().id;" ]
       [ "tr.click()", "rowEls("
       , "box-shadow:inset 2px 0 0 var(--tv-accent)", "tr.tv-sel{box-shadow" ]
 
-  -- `scrollIntoView' WAS on that forbidden list outright, and the document pane
-  -- took it off; `scrollSweep' below is where the rule went.
+  -- `scrollIntoView' WAS on that forbidden list outright; `scrollSweep' below is where the rule went.
 
   , glue "the set is paged, and the brackets turn one"
-      -- One number for the boot's limit and the renderer's page, so the first
-      -- paint is exactly page one.
+      -- One number for the boot's limit and the renderer's page, so the first paint is exactly page one.
       [ "const PAGE = 100;   // rows in the first paint, and rows to a page"
       , "pageSize: PAGE,"
       , "swap ? asking(asked) : `${narrow}limit=${PAGE}`"
-      -- The turn is the renderer's, and the bracket says where it landed:
-      -- `] → next-page (page 3/129)'.
       , "nextPage: (b) => turnPage(b, 1),"
       , "previousPage: (b) => turnPage(b, -1),"
       , "if (step > 0) table.nextPage(); else table.previousPage();"
       , "said(b, `page ${at.page}/${at.pages}`);"
-      -- An asset without a pager says so rather than throwing.
       , "wants(b, \"pager\", \"nextPage\", \"pageInfo\")" ]
 
-  -- The buffer ends climb: the page's end row first, and the same key again
-  -- turns onto the next page's.  The landing is a select of its own in BOTH
-  -- directions, since the renderer arrives at the far end of the page it turned
-  -- to — and the column is read back out of the selection the turn kept rather
-  -- than carried across in a local of this page's.
+  -- The buffer ends climb, and the landing is a select of its own in BOTH directions.
   , Glue "the buffer ends are progressive across pages"
       [ "firstRow: (b) => endStop(b, false),"
       , "lastRow: (b) => endStop(b, true),"
@@ -7743,141 +5603,89 @@ shellGlue =
       , "if (!pager() || focusedId() !== end(list)) {"
       , "if (!(last ? table.nextPage() : table.previousPage())) { said(b, \"\"); return; }"
       , "if (turned.length) table.select(end(turned), column());" ]
-      -- The column stays the renderer's across a turn: no local carries it.
       ["const col = ", "let col = "]
 
-  -- ONE CAPABILITY DOOR.  Every optional renderer call is feature-detected
-  -- before use, and the refusal is ONE sentence: `can' asks whether a mount
-  -- carries every name, `lacks' spells the sentence, `wants' is the two of them
-  -- as the guard a handler opens with.  The needles below pin the CALL rather
-  -- than the words, so the spelling can only be changed here.
+  -- ONE CAPABILITY DOOR: the needles pin the CALL rather than the words, so the spelling changes here alone.
   , Glue "the capability door is one question and one refusal sentence"
       [ "const can = (mount, ...names) =>"
       , "names.every((n) => typeof mount[n] === \"function\")"
       , "const lacks = (what) => `this table-view.js has no ${what}`;"
       , "const wants = (b, what, ...names) =>"
       , "can(table, ...names) || (said(b, lacks(what)), false);" ]
-      -- No handler spells the sentence itself, and no alias survives whose only
-      -- reader was the guard that now asks `wants'.
       [ "said(b, \"this table-view.js has no"
       , "const strips = ", "const sorts = " ]
 
-  -- The column is the renderer's to hold: the shell reads it back out of
-  -- `getSelection()' every time, which is why it survives a profile switch and
-  -- goes when the selection does.  No second copy of it lives here.
+  -- The column is the renderer's to hold: the shell reads it back out of `getSelection()' and keeps no copy.
   , Glue "cell movement is that selection with a column, and no state here"
       [ "const column = () => (cells() ? table.getSelection().col : null);"
       , "nextColumn: (b) => moveCol(b, 1),"
       , "previousColumn: (b) => moveCol(b, -1),"
-      -- A whole-row selection has no column, and either direction lands on the
-      -- first one from there.
       , "const at = column(), want = at === null ? 0 : at + step;"
       , "table.select(id, want)"
-      -- An asset without cell selection says so rather than throwing.
       , "can(table, \"getSelection\")"
       , "wants(b, \"cell selection\", \"getSelection\")"
-      -- The row is handed to its handler so the echo can open the same way.
       , "if (handler) handler(b);" ]
       ["let col = ", "selCol", "lastColumn"]
 
-  -- `^' sorts by the column the cell selection is standing in, and the press is
-  -- a QUERY EDIT: the renderer composes the chain, writes it into the applied
-  -- query as `sort:' tokens and delivers it, so the press comes back through
-  -- `onFilter' as an ordinary commit — URL, refetch and all.  This page names no
-  -- order and remembers none.
+  -- `^' IS A QUERY EDIT: the renderer writes the chain into the applied query, so the press arrives as an ordinary commit.
   , Glue "`^' promotes the column at point to the chain's head"
       [ "toggleSort: (b) => {"
-      -- The column comes out of the renderer's selection like every other key's.
       , "const at = column(), c = at === null ? null : cols[at];"
       , "if (!c) { said(b, \"no column selected — f/l to pick one\"); return; }"
-      -- `sortPromote' is where `sortable' is enforced, so the refusal is read
-      -- off the call — one gate — and the key SPEAKS it.
+      -- `sortPromote' is where `sortable' is enforced, so the refusal is read off the call and the key SPEAKS it.
       , "if (!table.sortPromote(c.key)) { said(b, `${named} does not sort`); return; }"
       , "const chain = table.getSort() || [], head = chain[0];"
-      -- An asset with no promotion says so rather than throwing.
       , "wants(b, \"sort\", \"sortPromote\")" ]
-      -- No sort record and no sort CALL survive: `sortAt' was the page's copy of
-      -- what the handle publishes, and `sortBy' was how a canned view stated an
-      -- order the query now carries.  The header marks stay the renderer's
-      -- drawing.
       [ "sortAt", "tv-arrow", "sortRows", "table.sortBy(" ]
 
-  -- `f → next-column (Headline)', and `f → next-column (row mode)' where the
-  -- walk left the cells.  Walking off an end is a LANDING rather than a wall:
-  -- the renderer reads a column index outside the table as no column at all, so
-  -- the step is handed over out of range and comes back as the whole-row look.
-  -- The column is read back out of `column()' — the renderer's answer decides,
-  -- and `want' is only what was asked for.
+  -- Walking off an end is a LANDING rather than a wall: the renderer reads an out-of-range column as no column.
   , Glue "the landing column is echoed by its header, or the row mode it left for"
       [ "const now = column();"
       , "said(b, now === null ? \"row mode\" : (cols[now].header || cols[now].key));"
       , "said(b, \"no row\")"
-      -- The headers are the mounted view's, and parity cuts the keys out of the
-      -- same list where it needs them.
       , "cols = view.columns || [];"
       , "const keys = cols.map((c) => c.key);" ]
-      -- The clamp this page used to keep, and must not grow back: an edge test
-      -- here would swallow the key at a wall the renderer does not have.
+      -- The clamp this page used to keep, and must not grow back: it swallowed the key at a wall the renderer does not have.
       [ "at first", "at last", "want >= cols.length" ]
 
-  -- The rules: a finger's 44px, and a word saying what the row is while no chip
-  -- has filled it.  The renderer hides an empty row with an inline
-  -- `display:none', which `!important' outranks.
+  -- The renderer hides an empty chip row with an inline `display:none', which `!important' outranks.
   , glue "a coarse pointer taps the chip row to summon the filter"
       [ "@media (pointer:coarse){"
       , "#app .tv-chips{min-height:44px;cursor:pointer}"
       , "#app .tv-chips:empty{display:flex!important;align-items:center}"
       , "content:\"filter …\""
-      -- The handler: delegated from #app so it survives a re-mount, and through
-      -- the same `focusFilter' the key runs.
+      -- Delegated from #app so it survives a re-mount, through the same `focusFilter' the key runs.
       , "el(\"app\").addEventListener(\"click\""
       , "matchMedia(\"(pointer: coarse)\").matches"
       , "if (!coarse()) return;"
       , "t.closest(\".tv-chips\")"
-      -- A tap on a chip is that chip's own removal and stays the renderer's.
       , "t.closest(\".tv-chip\")"
       , "focusFilter();" ]
 
-  -- Under 16px, focusing a field zooms the page in and nothing zooms it back
-  -- out.  The renderer's own input is the renderer's problem; the sheet's
-  -- textarea and its property fields are this page's, and they keep their 12px
-  -- everywhere else.  All of them in the one block, which is where every rule
-  -- a touch device gets lives — the panes stacking there included.
+  -- Under 16px, focusing a field zooms the page in and nothing zooms it back out.
   , glue "a coarse pointer gets fields iOS will not zoom into"
       [ "#mtext,#pinput,#dtin,#pedit input,#sedit input,#tedit input,#ledit input,"
       , "#dpara textarea,"
       , ".ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
       , "#mpanes{flex-direction:column}" ]
 
-  -- THE SETTINGS SHEET IS UNREACHABLE ON A TOUCH DEVICE, and it is a KNOWN GAP
-  -- rather than an oversight: the gear that opened it lived in the status
-  -- corner, and the corner is gone.  Asserted from both sides so the gap cannot
-  -- be half-closed by accident — no gear anywhere, and the comment that owns the
-  -- question in the one media block.
+  -- THE SETTINGS SHEET IS UNREACHABLE ON A TOUCH DEVICE, a KNOWN GAP asserted from both sides.
   , Glue "the settings door a coarse pointer had went with the corner"
-      -- The block itself is intact, so what is asserted is a missing DOOR
-      -- rather than a missing block.
       [ "  @media (pointer:coarse){", "#app .tv-chips{min-height:44px;cursor:pointer}" ]
       [ "id=\"gear\"", "#gear{", "\9881" ]
 
   , glue "asks for one font stack, everywhere in the page"
       [ "--glance-mono:\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
-      -- The renderer injects `.tv-root{font:…}' from its own script, which lands
-      -- after this page's style element; the extra selector step wins.
+      -- The renderer injects `.tv-root{font:…}' after this page's style element, so the extra selector step wins.
       , "#app .tv-root{font-family:var(--glance-mono)}"
       , "font:14px/1.5 var(--glance-mono)", "font:12px/1.5 var(--dk-mono)"
-      -- The sheet asks for the author's Emacs font first and falls back through
-      -- the page's own stack, so there is still one list.
       , "--dk-mono:\"Hack\", var(--glance-mono)" ]
 
-  -- The assets directory this shell is rendered against holds no font file, so
-  -- the declaration must not be there to point at one.
+  -- The assets directory holds no font file, so the declaration must not be there to point at one.
   , Glue "with no font file to serve, says nothing about one" [] ["@font-face"]
   ]
 
--- | The window between @bind@ and the end of the startup walk.  The server
--- listens through it, so every route has an answer: the three that read the
--- store say they cannot yet, and the page that says so is served.
+-- | The window between @bind@ and the end of the startup walk: every route has an answer through it.
 indexingSpec :: TestTree
 indexingSpec = testGroup "Indexing (bind before load)"
   [ testCase "/headlines is a 503 that says when to come back" $ do
@@ -7889,8 +5697,7 @@ indexingSpec = testGroup "Indexing (bind before load)"
                   (Just "application/json; charset=utf-8") (header "Content-Type" r)
       loading <- decoded r
       assertEqual "loading" (Bool True) =<< field "loading" loading
-      -- Seconds, rounded to a tenth: the shell prints them as `indexing … 0.3s',
-      -- so a raw double would put fifteen digits on the page.
+      -- Seconds, rounded to a tenth: a raw double would put fifteen digits on the page.
       elapsed <- field "elapsed" loading
       case elapsed of
         Number n -> do
@@ -7898,7 +5705,6 @@ indexingSpec = testGroup "Indexing (bind before load)"
           assertEqual "elapsed is not rounded to a tenth"
                       (fromInteger (round (n * 10)) / 10) n
         other -> assertFailure ("expected a number of seconds, got " <> show other)
-      -- And no query parameter makes the store readable early.
       q <- getFrom application' "/headlines?q=meeting&limit=10&offset=5"
       assertEqual "with parameters" 503 (status q)
 
@@ -7906,8 +5712,7 @@ indexingSpec = testGroup "Indexing (bind before load)"
       application' <- indexingApp
       r <- getFrom application' (headlinePath "sample.org#0")
       assertEqual "GET /headline" 503 (status r)
-      -- A commit before the load would be refused as a headline the file does
-      -- have: the 503 is the honest answer, and the retriable one.
+      -- The 503 is the honest answer, and the retriable one.
       w <- postTo application' (headlinePath "sample.org#0") (commitBody "* x\n" "deadbeef")
       assertEqual "POST /headline" 503 (status w)
       assertEqual "retry" (Just "1") (header "Retry-After" w)
@@ -7917,9 +5722,7 @@ indexingSpec = testGroup "Indexing (bind before load)"
       r <- getFrom application' "/ws"
       assertEqual "status" 503 (status r)
 
-    -- The resolution is the store's — the rows it names and the config they
-    -- were parsed under — so serving it early would answer for a row the walk
-    -- has not reached with a chain it has not read.
+    -- The resolution is the store's, so serving it early would answer for a row the walk has not reached.
   , testCase "/keywords waits for the store the rows come out of" $ do
       application' <- indexingApp
       r <- getFrom application' "/keywords?ids=sample.org%230"
@@ -7932,9 +5735,7 @@ indexingSpec = testGroup "Indexing (bind before load)"
       assertEqual "status" 503 (status r)
       assertEqual "retry" (Just "1") (header "Retry-After" r)
 
-    -- The layer list comes off the store's own `clDirs' — the config
-    -- directories the WALK met — so serving it early would answer with the
-    -- fallback guess and hand a client digests for files it had not looked at.
+    -- The layer list comes off the store's own `clDirs' — the config directories the WALK met.
   , testCase "/config waits for the walk, since the layers are what it found" $ do
       application' <- indexingApp
       r <- getFrom application' "/config"
@@ -7944,11 +5745,7 @@ indexingSpec = testGroup "Indexing (bind before load)"
       assertEqual "retry" (Just "1") (header "Retry-After" w)
 
   , testCase "the elapsed seconds are the load's age, rounded to a tenth" $ do
-      -- The case above pins the shape against an age of microseconds, where
-      -- every rounding agrees on 0.0; this one gives the load a real age, so
-      -- the tenth is a digit that has to be there and the hundredth one that
-      -- must not be.  12.37 s sits inside the [12.35, 12.45) bucket, leaving
-      -- the in-process request 80 ms before the answer moves.
+      -- 12.37 s sits inside the [12.35, 12.45) bucket, leaving the in-process request 80 ms before the answer moves.
       hub <- newLoadingHub . subtract 12.37 =<< getMonotonicTime
       r <- getFrom (application (served assetsDir) hub) "/headlines"
       assertEqual "status" 503 (status r)
@@ -7973,22 +5770,14 @@ indexingSpec = testGroup "Indexing (bind before load)"
       finishLoading hub =<< loadStore viewDir
       after <- getFrom application' "/headlines"
       assertEqual "after" 200 (status after)
-      -- That the body is the view the load produced is 'headlineSpec''s claim
-      -- over the same directory; what is this case's is that the routes opened
-      -- onto a loaded store rather than an empty one.
       assertEqual "the rows the walk found" (Just "6") (header "X-Glance-Rows" after)
-      -- The tag is the loaded tree's, at the generation a store loaded at
-      -- startup starts on.
       etagOf after >>= assertTreeTag "the store the walk landed" 0
   ]
 
--- | A server whose startup walk has not finished — the state 'Glance.Web.serve'
--- binds its socket in.
 indexingApp :: IO Application
 indexingApp = application (served assetsDir) <$> (newLoadingHub =<< getMonotonicTime)
 
--- | @\/headlines@ is the facade's view document — the same 'Value' 'viewJSON'
--- builds from the same directory, so the server adds nothing to the wire.
+-- | @\/headlines@ is the facade's view document — the same 'Value' 'viewJSON' builds, so the server adds nothing to the wire.
 headlineSpec :: TestTree
 headlineSpec = testGroup "GET /headlines"
   [ testCase "is the view JSON for the served directory, rendered from the store" $ do
@@ -8015,11 +5804,7 @@ headlineSpec = testGroup "GET /headlines"
       assertEqual "X-Glance-Rows" (Just "6") (header "X-Glance-Rows" r)
   ]
 
--- | The load counts ride in headers; the body stays SCHEMA.md's field set.
--- | The startup banner.  Pure, so the one thing worth asserting about it costs
--- no server: the first line names the SUBCOMMAND the operator ran, since the
--- daemon `glance desktop' starts is the same one `glance serve' does and the
--- banner was the only place saying which.
+-- | The startup banner.  Pure, so the one thing worth asserting costs no server: the first line names the SUBCOMMAND.
 bannerSpec :: TestTree
 bannerSpec = testGroup "Startup banner"
   [ testCase "names the subcommand that started it" $ do
@@ -8028,8 +5813,6 @@ bannerSpec = testGroup "Startup banner"
       assertEqual "under desktop" "glance desktop — http://127.0.0.1:7777/"
                   (head (bannerLines "desktop" opts True))
 
-    -- The rest of the banner is the same daemon's either way, and a missing
-    -- renderer is the one thing that changes a line.
   , testCase "and says the same about the daemon under both" $ do
       assertEqual "every line but the first"
                   (tail (bannerLines "serve" opts True))
@@ -8038,8 +5821,6 @@ bannerSpec = testGroup "Startup banner"
                  ("(missing — /headlines only)" `isInfixOf`
                     unlines (bannerLines "serve" opts False))
 
-    -- With no `--assets' there is no directory to name, and nothing that can
-    -- go missing: the binary carries the renderer.
   , testCase "and says where the renderer came from" $ do
       assertEqual "under --assets" "  assets:  /a"
                   (bannerLines "serve" opts True !! 2)
@@ -8060,8 +5841,7 @@ statsSpec = testGroup "Load stats"
       assertEqual "id collisions" (Just "0") (header "X-Glance-Id-Collisions" r)
 
   , testCase "count the rows two files claimed one id for" $ withTempDir $ \dir -> do
-      -- The org-glance shape: a canonical store and a mirror of it.  Both are
-      -- named here, so the walk's own exclusion is not what is under test.
+      -- Both are named here, so the walk's own exclusion is not what is under test.
       let shared = "* TODO one\n:PROPERTIES:\n:ORG_GLANCE_ID: shared-id\n:END:\n"
       _ <- orgFile dir "canonical.org" shared
       _ <- orgFile dir "mirror.org" shared
@@ -8080,13 +5860,7 @@ statsSpec = testGroup "Load stats"
         _        -> assertFailure ("expected an object, got " <> show v)
   ]
 
--- | The @ETag@ is the tree's fingerprint and the store's generation: which
--- documents were loaded, and how far they have moved since.  The watcher moves
--- the generation; a restart moves the fingerprint or leaves it, which is the
--- half a client's cached copy is revalidated against across one.  Every query
--- variant shares the tag — the parameters are in the URL, and an HTTP cache is
--- keyed by URL, so each variant revalidates against the tag it was itself
--- given.
+-- | The @ETag@ is the tree's fingerprint and the store's generation, and every query variant shares it.
 cacheSpec :: TestTree
 cacheSpec = testGroup "GET /headlines cache validation"
   [ testCase "carries a tree tag and a generation, and says to revalidate" $ do
@@ -8102,7 +5876,6 @@ cacheSpec = testGroup "GET /headlines cache validation"
       assertEqual "status" 304 (status again)
       assertEqual "body" "" (simpleBody again)
       assertEqual "the tag comes back" (Just tag) (header "ETag" again)
-      -- Nothing else is owed on a 304, and Content-Type least of all.
       assertEqual "no content type" Nothing (header "Content-Type" again)
 
   , testCase "a weak tag, or one in a list, still matches" $ do
@@ -8120,11 +5893,7 @@ cacheSpec = testGroup "GET /headlines cache validation"
       assertEqual "X-Glance-Rows" (Just "6") (header "X-Glance-Rows" r)
 
   , testCase "and so is one from another tree at this very generation" $ do
-      -- The restart: a client holding the tag a daemon gave out before it was
-      -- restarted over a tree that has changed since.  The generation is back
-      -- at zero and says nothing about that, so the fingerprint is the whole of
-      -- what refuses the 304 — with the generation alone, both tags read "g0"
-      -- and the client keeps a table that is nowhere any more.
+      -- Across a restart the generation is back at zero, so the fingerprint is the whole of what refuses the 304.
       a <- app assetsDir
       tag <- etagOf =<< getFrom a "/headlines"
       let elsewhere = "\"" <> zeroes <> "-g0\""
@@ -8139,8 +5908,7 @@ cacheSpec = testGroup "GET /headlines cache validation"
       (a, hub) <- serverOver dir
       before <- getFrom a "/headlines"
       let tag = fromMaybe "" (header "ETag" before)
-      -- The watch's own step, taken here without a watcher: re-load the file
-      -- and publish it, which is the one path that updates the store.
+      -- The watch's own step, taken here without a watcher: re-load the file and publish it.
       _ <- orgFile dir "notes.org" (committable <> "* TODO Third\n")
       outcome <- loadFile path
       _ <- publish hub (applyFile path outcome)
@@ -8166,14 +5934,11 @@ cacheSpec = testGroup "GET /headlines cache validation"
       filtered <- getFrom a "/headlines?q=table"
       assertEqual "the paged tag" (header "ETag" full) (header "ETag" paged)
       assertEqual "the filtered tag" (header "ETag" full) (header "ETag" filtered)
-      -- The bodies differ, which is what the distinct URLs are for.
       assertBool "one URL's answer served for another"
                  (simpleBody full /= simpleBody paged)
   ]
 
--- | Compression: on for the text this server sends, off for a body too small
--- to gain by it, and always with the @Vary@ that keeps the two encodings from
--- being confused for each other.
+-- | Compression: off for a body too small to gain by it, and always with the @Vary@ that keeps the encodings apart.
 gzipSpec :: TestTree
 gzipSpec = testGroup "Compression"
   [ testCase "the view JSON is gzipped for a client that asks" $ do
@@ -8210,8 +5975,6 @@ gzipSpec = testGroup "Compression"
       assertEqual "Content-Encoding" (Just "gzip") (header "Content-Encoding" r)
   ]
 
--- | @q@, @limit@ and @offset@: filter first, then page, and report what the
--- page covers in the header family the load counts already use.
 querySpec :: TestTree
 querySpec = testGroup "GET /headlines filter and paging"
   [ testCase "no parameters is the whole set, as it always was" $ do
@@ -8229,8 +5992,6 @@ querySpec = testGroup "GET /headlines filter and paging"
 
   , testCase "q matches a bracket link by its description, not its target" $
       withTempDir $ \dir -> do
-        -- What the row shows is what a filter searches, the way the renderer
-        -- searches its own cached display text (table-view.js `displayText').
         _ <- orgFile dir "links.org"
                "* TODO Read [[file:table-view/SCHEMA.md][the schema]]\n"
         (a, _hub) <- serverOver dir
@@ -8248,21 +6009,12 @@ querySpec = testGroup "GET /headlines filter and paging"
   , testCase "q reaches the filter grammar intact" $ do
       a <- app assetsDir
       let total path = fmap TE.decodeUtf8 . header "X-Glance-Total" <$> getFrom a path
-      -- This route's subject is transport: TestFilter is the grammar's home and
-      -- states every rule over the same fixture.  What is this route's own
-      -- contract is that a `?q=' arrives at the parser as it was typed, so three
-      -- shapes are enough — a predicate, a negation of one, and org cell text
-      -- carrying the separator that must not become one.
+      -- This route's subject is transport; TestFilter is the grammar's home and states every rule.
       assertEqual "a predicate" (Just "1") =<< total "/headlines?q=state:DONE"
       assertEqual "a negation drops what it matches" (Just "5")
         =<< total "/headlines?q=-state:DONE"
       assertEqual "a tag string stays text" (Just "2") =<< total "/headlines?q=:web:"
 
-    -- The default view over a tree holding one of each: the boot query is
-    -- `state:*active*' and the row it exists to show is the one nobody has put
-    -- a keyword on, which the active group takes along with the keywords it
-    -- names.  TestFilter states the rule; what this asserts is the rule
-    -- arriving through the route the shell actually boots on.
   , testCase "the default view carries the entry nobody stated" $
       withTempDir $ \dir -> do
         _ <- orgFile dir "notes.org" (T.unlines
@@ -8278,7 +6030,6 @@ querySpec = testGroup "GET /headlines filter and paging"
           =<< titles "/headlines?q=state%3A*inactive*"
         assertEqual "the empty meta is that one entry, asked for by name"
                     ["Jotted and never stated"] =<< titles "/headlines?q=state%3A*empty*"
-        -- And the bare word is a keyword nobody declared, so it finds nothing.
         assertEqual "where the word it replaced is a value" []
           =<< titles "/headlines?q=state%3Anone"
         assertEqual "so negating the default view drops it too" ["Shipped"]
@@ -8289,8 +6040,6 @@ querySpec = testGroup "GET /headlines filter and paging"
       whole <- rowsOf =<< getFrom a "/headlines?q=state:*active*"
       one <- getFrom a "/headlines?q=state:*active*&limit=2&offset=0"
       two <- getFrom a "/headlines?q=state:*active*&limit=2&offset=2"
-      -- Three keywords in the file's active set, plus the stateless row the
-      -- group takes with them (TestFilter, "the stateless row is active").
       assertEqual "the union" 4 (length whole)
       assertEqual "the total is the match count, not the page" (Just "4")
                   (header "X-Glance-Total" one)
@@ -8305,8 +6054,6 @@ querySpec = testGroup "GET /headlines filter and paging"
       whole <- rowsOf =<< getFrom a "/headlines"
       page <- rowsOf =<< getFrom a "/headlines?limit=3"
       assertEqual "page size" 3 (length page)
-      -- The page is the first three of the chain the view declares, not the
-      -- first three the walk found.
       assertEqual "the sort the view declares"
                   (take 3 (map rowId (sortOn sortKeyOf whole)))
                   (map rowId page)
@@ -8369,17 +6116,7 @@ querySpec = testGroup "GET /headlines filter and paging"
       assertEqual "rows" 6 . length =<< rowsOf r
   ]
 
--- | Document order, which is @?q=sort:*none*@ — a QUERY TOKEN rather than a
--- parameter of its own, and a starred meta like @*active*@ and @*archive*@.  It
--- moves both halves of the ordering at once: the rows stay in walk order under a
--- limit, and the view carries no @sort@ field for a renderer to re-apply.  What
--- it orders is top entries, so it is the order the files list them in rather
--- than an outline.
---
--- @?order=@ was the older spelling and is GONE.  It is refused rather than
--- ignored, which is the whole reason it was ever spelled out: a parameter this
--- server no longer reads would otherwise serve the default order and look
--- exactly like a working request.
+-- | Document order is @?q=sort:*none*@, a QUERY TOKEN and a starred meta.  @?order=@ is GONE and refused rather than ignored.
 orderSpec :: TestTree
 orderSpec = testGroup "GET /headlines?q=sort:*none*"
   [ testCase "the default still declares the view's sort" $ do
@@ -8388,16 +6125,12 @@ orderSpec = testGroup "GET /headlines?q=sort:*none*"
 
   , testCase "document order declares none at all" $ do
       v <- get assetsDir "/headlines?q=sort:*none*" >>= decoded
-      -- `views' rides whatever the order is: it is the `view:' token's
-       -- vocabulary, which no query turns off.
       assertEqual "top-level keys" ["actions", "columns", "rows", "title", "views"]
         . sort =<< fieldsOf v
 
   , testCase "and the page it cuts is walk order, where the default's is sorted" $ do
       a <- app assetsDir
       walk <- map rowId <$> (rowsOf =<< getFrom a "/headlines")
-      -- The whole fixture under a limit, since its first rows are in the same
-      -- order either way and a shorter page cannot tell the two apart.
       byState <- map rowId <$> (rowsOf =<< getFrom a "/headlines?limit=6")
       doc <- map rowId <$> (rowsOf =<< getFrom a "/headlines?q=sort:*none*&limit=6")
       assertEqual "the walk itself" walk doc
@@ -8405,8 +6138,7 @@ orderSpec = testGroup "GET /headlines?q=sort:*none*"
       assertBool ("the fixture cannot tell them apart: " <> show byState)
                  (byState /= doc)
 
-    -- The empty chain admits no companions: a key beside it is two orders in one
-    -- query, and a reader who wrote both meant one of them.
+    -- The empty chain admits no companions: a reader who wrote both meant one of them.
   , testCase "a sort key beside it is a 400 naming the meta" $ do
       a <- app assetsDir
       mapM_ (\path -> do
@@ -8417,8 +6149,6 @@ orderSpec = testGroup "GET /headlines?q=sort:*none*"
             , "/headlines?q=sort:title%20sort:*none*"
             , "/headlines?q=sort:*none*:desc" ]
 
-    -- The retired parameter, in every spelling that used to work and one that
-    -- never did: all of them 400, and the refusal names what replaced it.
   , testCase "order= is gone, and the refusal names its replacement" $ do
       a <- app assetsDir
       mapM_ (\path -> do
@@ -8428,21 +6158,12 @@ orderSpec = testGroup "GET /headlines?q=sort:*none*"
                assertContains "and its replacement" "sort:*none*" (body r))
             [ "/headlines?order=document", "/headlines?order=scheduled"
             , "/headlines?order=walk", "/headlines?order=" ]
-      -- A parameter with no value reads as absent, here as everywhere: `?order'
-      -- asks for no order and is not a request for the retired one.
+      -- A parameter with no value reads as absent, here as everywhere.
       bare <- getFrom a "/headlines?order"
       assertEqual "a bare parameter is an absent one" 200 (status bare)
   ]
 
--- | The ORDER a query states: @?q=@'s @sort:@ tokens, served AND declared.
---
--- The server sorts, which is what makes a limited answer's page one the right
--- rows: the client asks for a hundred and gets the first hundred of the order
--- it asked for.  And what the view declares is the EFFECTIVE chain — the
--- query's where it names one, the default where it does not — so the renderer
--- and the header ordinals describe the order the rows are actually in.
---
--- The grammar itself is @TestFilter@'s; what is asserted here is the answer.
+-- | The ORDER a query states, served AND declared: what the view declares is the EFFECTIVE chain.
 sortQuerySpec :: TestTree
 sortQuerySpec = testGroup "GET /headlines?q=sort:"
   [ testCase "no sort token leaves the default chain, and says nothing about it" $ do
@@ -8455,8 +6176,7 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
       v <- get assetsDir "/headlines?q=sort:deadline:desc" >>= decoded
       assertEqual "the chain declared" [("deadline", False)] =<< chainDeclaredBy v
 
-    -- The arrow form is SUGAR, so what is asserted is that the answer is the
-    -- answer to the spelling it is sugar for — rows and declaration both.
+    -- The arrow form is SUGAR, so the answer is the answer to the spelling it is sugar for.
   , testCase "an arrow-chained token is the tokens it is sugar for" $ do
       a <- app assetsDir
       let asked q = do r <- getFrom a ("/headlines?q=" <> q)
@@ -8471,8 +6191,7 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
   , testCase "and the rows come back in it" $ do
       a <- app assetsDir
       whole <- rowsOf =<< getFrom a "/headlines?q=sort:deadline&limit=6"
-      -- Three of the six carry a deadline; the empty cells settle behind them,
-      -- outside the direction, and keep walk order among themselves.
+      -- The empty cells settle behind, outside the direction, keeping walk order among themselves.
       assertEqual "earliest deadline first, the undated behind them"
         [ "ship-table-view", "test/fixtures/view/sample.org#2"
         , "test/fixtures/view/sample.org#1", "test/fixtures/view/sample.org#3"
@@ -8485,8 +6204,7 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
         , "test/fixtures/view/sample.org#4", "test/fixtures/view/sample.org#5" ]
         (map rowId down)
 
-    -- The boot's own shape: a page-sized first answer has to be the first page
-    -- of the order asked for, or the reader reads the wrong hundred rows.
+    -- A page-sized first answer has to be the first page of the order asked for.
   , testCase "page one of a limited answer is the first page of that order" $ do
       a <- app assetsDir
       whole <- map rowId <$> (rowsOf =<< getFrom a "/headlines?q=sort:title&limit=6")
@@ -8506,10 +6224,7 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
       assertEqual "alone" plain sorted'
       assertEqual "and beside a predicate" beside also
 
-    -- ONE COLUMN, ONE DIRECTION.  A token that is not a chain key is the whole
-    -- request's 400 naming it, where a renderer drops the key: the rows a
-    -- refused query would have served are the rows it asked for in an order
-    -- nobody can give.
+    -- ONE COLUMN, ONE DIRECTION: a token that is no chain key is the whole request's 400, where a renderer drops the key.
   , testCase "a token that is no chain key is a 400 naming it" $ do
       a <- app assetsDir
       mapM_ (\(q, named) -> do
@@ -8520,8 +6235,7 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
         , ("sort:title|state",         "sort:title|state")
         , ("sort:nosuchcolumn",        "nosuchcolumn")
         , ("sort:title:sideways",      "sort:title:sideways")
-          -- A SEGMENT is refused the way the token it is one of would be, and
-          -- the whole token as written is what comes back.
+          -- A SEGMENT is refused the way its token would be, and the whole token as written comes back.
         , ("sort:title-%3Enosuchcolumn", "nosuchcolumn") ]
 
   , testCase "and a half-typed one is no refusal at all" $ do
@@ -8530,8 +6244,6 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
       half <- ok =<< get assetsDir "/headlines?q=sort:title-%3E"
       assertEqual "a half-typed segment either" 6 . length =<< rowsOf half
 
-    -- The empty chain is a sort token like any other, so it is refused for the
-    -- same reason a column named twice is: two orders in one query.
   , testCase "and it cannot state two orders at once" $ do
       r <- get assetsDir "/headlines?q=sort:title%20sort:*none*"
       assertEqual "status" 400 (status r)
@@ -8541,17 +6253,13 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
       assertContains "and names the meta" "*none*" (body mid)
   ]
 
--- | The chain VIEW declares, highest priority first — the @sort@ array, or none
--- where the view has no such field.
 chainDeclaredBy :: Value -> IO [(T.Text, Bool)]
 chainDeclaredBy view = do
   fields <- fieldsOf view
   if "sort" `notElem` fields then pure []
     else traverse orderKeyOf =<< listAt "sort" view
 
--- | @\/ws?bootstrap=off@: the opening @set-rows@ dropped for a client that
--- fetched the rows over HTTP.  Checked on the parser, since the suite binds no
--- socket — the decision is the whole of what the query controls.
+-- | @\/ws?bootstrap=off@, checked on the parser: the suite binds no socket, and the decision is the whole of what the query controls.
 bootstrapSpec :: TestTree
 bootstrapSpec = testGroup "Socket bootstrap control"
   [ testCase "is wanted by default, and by every query but the one" $
@@ -8565,8 +6273,6 @@ bootstrapSpec = testGroup "Socket bootstrap control"
             ["/ws?bootstrap=off", "/ws?keys=vim&bootstrap=off", "/ws?bootstrap=off&x=1"]
   ]
 
--- | @GET \/headline@: one subtree out of the read model, with the coordinates
--- a write back to it needs.
 materializeSpec :: TestTree
 materializeSpec = testGroup "GET /headline"
   [ testCase "is the raw subtree, the file it came from and its digest" $ do
@@ -8598,14 +6304,11 @@ materializeSpec = testGroup "GET /headline"
       end <- intAt "end" extent
       doc <- document sampleFile
       assertEqual "slice" (T.take (end - start) (T.drop start doc)) org
-      -- The extent starts at the stars, so the file's own header belongs to no
-      -- subtree and a commit cannot take it with the headline.
+      -- The extent starts at the stars, so the file's own header belongs to no subtree.
       assertEqual "the preamble sits ahead of the first subtree"
                   "#+CATEGORY: sample\n#+TODO: NEXT WAITING | CANCELLED\n\n" (T.take start doc)
 
-    -- Rows are top entries, so a child has no row of its own and materialize is
-    -- the whole of how a client reaches one.  What comes back is the outline,
-    -- children included — which is the claim the filtering rests on.
+    -- Rows are top entries, so materialize is the whole of how a client reaches a child.
   , testCase "a top entry materializes with its children in it" $ withTempDir $ \dir -> do
       let doc = T.unlines [ "* TODO parent", ":PROPERTIES:", ":ORG_GLANCE_ID: top"
                           , ":END:", "** child", "child body", "*** grandchild" ]
@@ -8614,16 +6317,12 @@ materializeSpec = testGroup "GET /headline"
       assertEqual "one row for the file" 1 . length =<< rowsOf =<< getFrom a "/headlines"
       v <- getFrom a (headlinePath "top") >>= decoded
       assertEqual "the whole outline" doc =<< textAt "org" v
-      -- A child's drawer is body text here, so the split leaves the descendants
-      -- in the pane a client edits.
+      -- A child's drawer is body text here, so the split leaves the descendants in the pane a client edits.
       assertEqual "and the body keeps them"
                   (T.unlines ["* TODO parent", "** child", "child body", "*** grandchild"])
                   =<< textAt "body" v
 
-    -- SUB-ADDRESSING.  A child has no row of its own, so the ROW's id plus an
-    -- INDEX is the whole of how one is named — document order over the subtree,
-    -- which is what makes a grandchild one number away from the row rather than
-    -- a path a client has to walk.
+    -- SUB-ADDRESSING: the ROW's id plus an INDEX in document order over the subtree.
   , testCase "the row names the entries hanging under it, and how to reach them"
       $ withTempDir $ \dir -> do
       _ <- orgFile dir "tree.org" nestedDoc
@@ -8632,8 +6331,7 @@ materializeSpec = testGroup "GET /headline"
       assertEqual "standing on the row itself" Null =<< field "child" v
       assertEqual "with nothing above it" Null =<< field "parent" v
       assertEqual "the trail is the row alone" ["parent"] =<< textsAt "path" v
-      -- The DIRECT children, each with the index `?child=' names it by: the
-      -- grandchild hangs under the first and is not one of these.
+      -- The DIRECT children: the grandchild hangs under the first and is not one of these.
       assertEqual "its own two children, by index" [0, 2]
         =<< traverse (intAt "index") =<< listAt "children" v
       assertEqual "and their cells" ["child one", "child two"]
@@ -8655,8 +6353,7 @@ materializeSpec = testGroup "GET /headline"
       assertEqual "its own planning line, lifted out"
                   [["SCHEDULED", "<2026-08-05 Wed>"]] =<< pairsAt "planning" v
       assertEqual "its own cells" "child one" =<< textAt "title" =<< field "cells" v
-      -- The id and the digest are the ROW's: one file, one lock, whichever
-      -- entry the sheet is standing on.
+      -- The id and the digest are the ROW's: one file, one lock.
       assertEqual "the row's id" "top" =<< textAt "id" v
       rowDigest <- textAt "digest" row
       assertEqual "and the file's digest" rowDigest =<< textAt "digest" v
@@ -8676,9 +6373,7 @@ materializeSpec = testGroup "GET /headline"
       assertEqual "the whole trail" ["parent", "child one", "grandchild"]
         =<< textsAt "path" v
 
-    -- The body a client edits stops where the outline under it begins, or the
-    -- same bytes would be drawn twice — once as this entry's last paragraph and
-    -- once as the child that owns them.
+    -- The body stops where the outline under it begins, or the same bytes would be drawn twice.
   , testCase "ownLines is where the entry's own body stops" $ withTempDir $ \dir -> do
       _ <- orgFile dir "tree.org" nestedDoc
       (a, _hub) <- serverOver dir
@@ -8700,9 +6395,7 @@ materializeSpec = testGroup "GET /headline"
       assertEqual "status" 404 (status r)
       assertContains "names what it holds" "holds 3" =<< textAt "error" =<< decoded r
 
-    -- A number that is not one is a 400 rather than a quiet fall back to the
-    -- row: a mistyped index that served the parent would look exactly like a
-    -- working request, and a write pinned to it would splice the wrong subtree.
+    -- A mistyped index that served the parent would look exactly like a working request.
   , testCase "and a child that is not a number is a 400" $ withTempDir $ \dir -> do
       _ <- orgFile dir "tree.org" nestedDoc
       (a, _hub) <- serverOver dir
@@ -8711,11 +6404,7 @@ materializeSpec = testGroup "GET /headline"
       assertEqual "status" 400 (status r)
       assertContains "says what one is" "whole number" =<< textAt "error" =<< decoded r
 
-    -- A row id with no ORG_GLANCE_ID is FILE#K, so it carries slashes and a
-    -- HASH.  The hash is the one that would bite: spelled into a URL raw it
-    -- opens a fragment and the id arrives truncated at the first slash-free
-    -- half of it.  The query string plus percent-encoding is what makes it a
-    -- non-issue, on this side and in the shell (`encodeURIComponent').
+    -- A row id is FILE#K, so it carries slashes and a HASH; the query string plus percent-encoding is what makes it a non-issue.
   , testCase "an id carrying a hash and slashes round-trips" $ do
       (a, _hub) <- serverOver viewDir
       let rid = T.pack sampleFile <> "#1"
@@ -8726,17 +6415,13 @@ materializeSpec = testGroup "GET /headline"
       assertEqual "id" rid back
       assertContains "subtree" "Привет мир" org
 
-    -- The same subtree, split: the drawer lifted out of the text and named
-    -- beside it, so a client can edit the two apart without an org parser.  The
-    -- whole `org' rides along untouched — the split is an addition.
+    -- The whole `org' rides along untouched — the split is an addition.
   , testCase "the drawer arrives beside the body, lifted out of it" $ do
       (a, _hub) <- serverOver viewDir
       v <- getFrom a (headlinePath "ship-table-view") >>= decoded
       assertEqual "the body is the subtree with every region's lines gone"
                   (T.unlines ["* NEXT [#A] Ship the table view :web:glance:"])
                   =<< textAt "body" v
-      -- The one property this drawer holds is the identity, which is the
-      -- server's: the pane a client edits is empty and the file still has it.
       assertEqual "and the hidden one is not offered" [] =<< pairsAt "properties" v
       assertEqual "the planning line arrives as entries"
                   [ ["SCHEDULED", "<2026-08-01 Sat 09:30>"]
@@ -8764,13 +6449,9 @@ materializeSpec = testGroup "GET /headline"
       (a, _hub) <- serverOver viewDir
       r <- getFrom a "/headline"
       assertEqual "status" 400 (status r)
-      -- The whole hint: `id=' on its own rides every id-bearing URL the page
-      -- builds, so a body naming the method and the parameter is what tells a
-      -- client with the wrong URL what to write.
       assertContains "hint" "GET /headline?id=<row id>" (body r)
   ]
 
--- | @POST \/headline@: the subtree written back, and every way that is refused.
 commitSpec :: TestTree
 commitSpec = testGroup "POST /headline"
   [ testCase "writes the edited subtree and leaves the rest of the file alone" $
@@ -8792,12 +6473,7 @@ commitSpec = testGroup "POST /headline"
         expected <- digestOnDisk path
         assertEqual "the reported digest is the file's" expected fresh
 
-    -- A WRITE SPELLS NO TRAILING SPACE, asserted where the bytes land rather
-    -- than on the text a route composes: the two-pane sheet is where a reader's
-    -- typing arrives, so the run comes off between the textarea and the file.
-    -- The neighbours are the other half — the write is still surgical, so
-    -- nothing outside the subtree is re-spelled however it is spelled, and the
-    -- hidden property the drawer carries survives the trim like any other line.
+    -- A WRITE SPELLS NO TRAILING SPACE, asserted where the bytes land rather than on the text a route composes.
   , testCase "a committed subtree lands with its line ends trimmed" $
       withCommitted $ \a path v -> do
         body <- textAt "body" v
@@ -8816,10 +6492,7 @@ commitSpec = testGroup "POST /headline"
         assertEqual "the file is otherwise the one it was"
                     before (T.replace "typed over\n" "" after)
 
-    -- A CHILD IS WRITTEN THE WAY THE ROW IS: the same route under a `child=',
-    -- splicing that entry's OWN extent and pinning the same file digest.  What
-    -- the assertion is about is the extent — everything ahead of the child and
-    -- everything past it is the string it was.
+    -- A CHILD IS WRITTEN THE WAY THE ROW IS: the same route under a `child=', splicing that entry's OWN extent.
   , testCase "a child commit splices the child's extent alone" $ withTempDir $ \dir -> do
       path <- orgFile dir "tree.org" nestedDoc
       (a, _hub) <- serverOver dir
@@ -8838,8 +6511,6 @@ commitSpec = testGroup "POST /headline"
       assertEqual "the digest it reports is the file's"
                   expected =<< textAt "digest" =<< decoded r
 
-    -- The lens over a child is the lens: the parts go back the same way, and the
-    -- server's own regions are put back beside them.
   , testCase "and its parts recompose into the same extent" $ withTempDir $ \dir -> do
       path <- orgFile dir "tree.org" nestedDoc
       (a, _hub) <- serverOver dir
@@ -8864,9 +6535,7 @@ commitSpec = testGroup "POST /headline"
         before <- document (dir </> "tree.org")
         r <- postTo a (childPath "top" 9) (commitBody "** nope\n" digest)
         assertEqual "status" 404 (status r)
-        -- The NAME promises the commit did not land, and a status alone says
-        -- only that the answer was refused.  Every sibling refusal here asserts
-        -- the file too.
+        -- The NAME promises the commit did not land, and every sibling refusal here asserts the file too.
         assertEqual "and nothing was written" before =<< document (dir </> "tree.org")
 
   , testCase "leaves the store alone — the watch is what updates rows" $
@@ -8874,8 +6543,6 @@ commitSpec = testGroup "POST /headline"
         org <- textAt "org" before
         digest <- textAt "digest" before
         assertOk =<< postTo a (headlinePath "first") (commitBody (org <> "a line\n") digest)
-        -- No watcher runs in this suite, so the store still holds the load it
-        -- started with: the route wrote to the file and to nothing else.
         after <- decoded =<< getFrom a (headlinePath "first")
         assertEqual "the store's subtree" (Just org) . Just =<< textAt "org" after
         assertEqual "the store's digest" (Just digest) . Just =<< textAt "digest" after
@@ -8912,9 +6579,7 @@ commitSpec = testGroup "POST /headline"
         after <- document path
         assertEqual "untouched" committable after
 
-    -- The other shape of the same write: the body and the drawer named apart,
-    -- composed here.  What it buys is exactly the byte rule — the property
-    -- nobody touched goes back as the line it came in on.
+    -- The split shape buys exactly the byte rule: a property nobody touched goes back as the line it came in on.
   , testCase "the split shape writes the same subtree, verbatim where nothing moved" $
       withCommitted $ \a path v -> do
         digest <- textAt "digest" v
@@ -8936,8 +6601,7 @@ commitSpec = testGroup "POST /headline"
         body' <- textAt "body" v
         assertOk =<< postTo a (headlinePath "first") (splitBody body' [] digest)
         after <- document path
-        -- The identity property is the SERVER's, so emptying the list empties
-        -- the client's half of the drawer and leaves that one line standing.
+        -- The identity property is the SERVER's, so emptying the list leaves that one line standing.
         assertEqual "the subtree is its body and the server's own line"
                     (T.unlines [ "#+CATEGORY: notes", "* TODO First :one:", ":PROPERTIES:"
                                , ":ORG_GLANCE_ID: first", ":END:", "body of first"
@@ -8966,9 +6630,7 @@ commitSpec = testGroup "POST /headline"
         assertEqual "reason" "drift" =<< textAt "reason" =<< decoded r
         assertEqual "the file is the meddler's" meddled =<< document path
 
-    -- A planning value no timestamp parser would read back is refused BEFORE
-    -- the write, and the refusal names the field: letting one through is silent,
-    -- since the line stops being a planning line on the next load.
+    -- A planning value no timestamp parser would read back is refused BEFORE the write, naming the field.
   , testCase "a planning entry that does not reparse is a 409 naming the field" $
       withCommitted $ \a path v -> do
         digest <- textAt "digest" v
@@ -8981,11 +6643,9 @@ commitSpec = testGroup "POST /headline"
         assertEqual "which field" "SCHEDULED" =<< textAt "field" b
         assertContains "and what it wanted" "timestamp org would read back"
           =<< textAt "error" b
-        -- No digest on this one: nothing about it is a lock, and a client
-        -- reading `digest' off a 409 is reading what its next write would pin.
+        -- No digest on this one: nothing about it is a lock.
         assertEqual "the fields it carries" ["error", "field", "reason"] =<< fieldsOf b
         assertEqual "untouched" committable =<< document path
-        -- A keyword org does not know is refused the same way.
         bad <- postTo a (headlinePath "first")
                  (planningBody body' [] [["WHENEVER", "<2026-08-01 Sat>"]] digest)
         assertEqual "status" 409 (status bad)
@@ -8997,13 +6657,9 @@ commitSpec = testGroup "POST /headline"
         missing <- postTo a (headlinePath "first") (encode (object ["org" .= ("x" :: T.Text)]))
         assertEqual "malformed" 400 (status broken)
         assertEqual "incomplete" 400 (status missing)
-        -- The parse error names the missing field, rather than the word
-        -- appearing anywhere in a body that also carries the digest itself.
         assertContains "says which" "key \\\"digest\\\" not found" (body missing)
 
-    -- Which of two texts to write is not a thing to guess at, and a `body' with
-    -- no `properties' beside it would read as "drop the drawer" — too much to
-    -- infer from a field a client forgot to send.
+    -- A `body' with no `properties' beside it would read as "drop the drawer" — too much to infer.
   , testCase "the two shapes are told apart, and neither is half-given" $
       withCommitted $ \a path v -> do
         digest <- textAt "digest" v
@@ -9027,8 +6683,7 @@ commitSpec = testGroup "POST /headline"
         r <- postTo a (headlinePath "first") huge
         assertEqual "status" 413 (status r)
         assertContains "the cap" "body over" (body r)
-        -- BEFORE IT IS READ is the claim, and a status cannot carry it: the
-        -- file standing untouched is what says the body never reached a write.
+        -- BEFORE IT IS READ is the claim, and a status cannot carry it: the untouched file is what says so.
         assertEqual "and nothing was written" committable =<< document path
 
   , testCase "an id no row carries is a 404, and no id a 400" $
@@ -9040,9 +6695,7 @@ commitSpec = testGroup "POST /headline"
         assertContains "the hint" "POST /headline?id=<row id>" (body anonymous)
   ]
 
--- | The rows a structured command names, and the two files they live in.  Ids
--- are in drawers so they survive both the temp directory's name and every edit
--- made to the text above them.
+-- | The rows a structured command names.  Ids are in drawers, so they survive the temp directory's name and every edit.
 commandable :: T.Text
 commandable = T.unlines
   [ "#+TODO: NEXT WAITING | CANCELLED"
@@ -9056,9 +6709,7 @@ commandable = T.unlines
   , ":END:"
   ]
 
--- | A second file, declaring no keywords of its own — so a keyword legal in
--- 'commandable' is illegal here, which is what makes legality per file
--- observable.
+-- | A second file declaring no keywords of its own, which is what makes legality per file observable.
 elsewhereOrg :: T.Text
 elsewhereOrg = T.unlines
   [ "* TODO Third"
@@ -9067,23 +6718,17 @@ elsewhereOrg = T.unlines
   , ":END:"
   ]
 
--- | @add-tag@ and @remove-tag@'s argument.  Flat rather than nullable: a tag
--- comes off through the other command rather than through a null.
+-- | @add-tag@ and @remove-tag@'s argument.  Flat rather than nullable: a tag comes off through the other command.
 tagArg :: T.Text -> Value
 tagArg tag = object ["tag" .= tag]
 
--- | @set-title@'s argument.  Flat for @tagArg@'s reason: a headline with no
--- title is a blank entry and no longer a row, so there is nothing to clear.
+-- | @set-title@'s argument.  Flat for @tagArg@'s reason: a headline with no title is a blank entry.
 titleArg :: T.Text -> Value
 titleArg title = object ["title" .= title]
 
--- | @rename-tag@'s argument, which names both ends.
 renameArg :: T.Text -> T.Text -> Value
 renameArg from to = object ["from" .= from, "to" .= to]
 
--- | Run K over a server holding both files: the app, the hub whose store it
--- answers from — the write cases look at that store afterwards, and the
--- idempotence case steps it the way the watch would — and the two paths.
 withCommandable :: (Application -> Hub -> FilePath -> FilePath -> Assertion) -> Assertion
 withCommandable k = withTempDir $ \dir -> do
   here <- orgFile dir "notes.org" commandable
@@ -9091,39 +6736,30 @@ withCommandable k = withTempDir $ \dir -> do
   (a, hub) <- serverOver dir
   k a hub here there
 
--- | The watch's own step, taken here without a watcher: PATH re-loaded into HUB
--- and published, which is the one path that updates the store.  A command
--- computes its spans and its digest from the store, so a second command over a
--- file the first one wrote needs this in between — exactly as a live daemon
--- does, and refuses with a drift error without it.
+-- | The watch's own step, taken here without a watcher: a command computes its spans and digest from the store.
 watchStep :: Hub -> FilePath -> Assertion
 watchStep hub path = do
   outcome <- loadFile path
   _ <- publish hub (applyFile path outcome)
   pure ()
 
--- | R's results as id and whether the row landed, in the order they arrived.
 outcomesOf :: SResponse -> IO [(T.Text, Bool)]
 outcomesOf r = do
   results <- listAt "results" =<< decoded r
   traverse (\v -> (,) <$> textAt "id" v <*> boolAt "ok" v) results
 
--- | The reasons R gives for the rows it refused, joined — what a per-id refusal
--- is asserted against, the way 'digestsOf' is for the ones that landed.
 errorOf :: SResponse -> IO T.Text
 errorOf r = do
   results <- listAt "results" =<< decoded r
   bad <- filterM (fmap not . boolAt "ok") results
   T.unwords <$> traverse (textAt "error") bad
 
--- | The digest R reports for each row that landed.
 digestsOf :: SResponse -> IO [T.Text]
 digestsOf r = do
   results <- listAt "results" =<< decoded r
   ok <- filterM (boolAt "ok") results
   traverse (textAt "digest") ok
 
--- | @POST \/command@: the structured writes, per file and per id.
 commandSpec :: TestTree
 commandSpec = testGroup "POST /command"
   [ testCase "set-state replaces the keyword and moves no other byte" $
@@ -9132,16 +6768,12 @@ commandSpec = testGroup "POST /command"
         r <- ok =<< postTo a "/command" (command "set-state" ["first"] (keywordArg (Just "WAITING")))
         assertEqual "the row landed" [("first", True)] =<< outcomesOf r
         after <- document path
-        -- Stated as the whole file: everything ahead of the keyword and past it
-        -- is the same string it was, by the same assertion as the edit.
         assertEqual "the file is the old one with one word replaced"
                     (T.replace "* NEXT First" "* WAITING First" before) after
         onDisk <- digestOnDisk path
         assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
 
-    -- SET-TITLE, which is the one CELL a reader edits as text.  The span is the
-    -- title's own, so what the assertion is really about is what it did NOT
-    -- touch: the keyword in front of it and the tag run behind it.
+    -- The span is the title's own, so the assertion is about what it did NOT touch.
   , testCase "set-title replaces the title and nothing around it" $
       withCommandable $ \a _hub path _other -> do
         before <- document path
@@ -9183,9 +6815,7 @@ commandSpec = testGroup "POST /command"
         assertEqual "the file closed up" (T.replace "* NEXT First" "* First" before)
           =<< document path
 
-    -- Two rows of one file are ONE editFile, and the proof is that the second
-    -- one landed at all: a write per row would pin the second to the digest the
-    -- first invalidated, and drift.  The shared digest says the same thing.
+    -- Two rows of one file are ONE editFile: a write per row would pin the second to the digest the first invalidated.
   , testCase "two rows of one file are one write, and both land" $
       withCommandable $ \a _hub path _other -> do
         before <- document path
@@ -9210,8 +6840,7 @@ commandSpec = testGroup "POST /command"
         assertContains "the tag joined the list" "* NEXT First :one:ARCHIVE:" =<< document path
         assertContains "and started one" "* TODO Third :ARCHIVE:" =<< document other
 
-    -- No cross-file rollback, and none is possible: the answer says which rows
-    -- landed instead.
+    -- No cross-file rollback, and none is possible: the answer says which rows landed instead.
   , testCase "a file that moved refuses its rows while the others land" $
       withCommandable $ \a _hub path other -> do
         meddled <- (<> "* TODO Someone else\n") <$> document other
@@ -9225,14 +6854,11 @@ commandSpec = testGroup "POST /command"
   , testCase "an id no row carries is refused on its own" $
       withCommandable $ \a _hub path _other -> do
         r <- ok =<< postTo a "/command" (command "archive" ["nowhere", "first"] (object []))
-        -- Answered in the order the ids were named, whichever of them was work.
         assertEqual "in the order asked"
                     [("nowhere", False), ("first", True)] =<< outcomesOf r
         assertContains "the real row still landed" ":one:ARCHIVE:" =<< document path
 
-    -- Legality is per ROW's chain, whose nearest scope is its file, and a
-    -- set-state some named row would refuse is refused whole: half a state
-    -- change over a marked set is worse than none.
+    -- Legality is per ROW's chain, and half a state change over a marked set is worse than none.
   , testCase "a keyword one named row's chain lacks refuses the request" $
       withCommandable $ \a _hub path other -> do
         before <- document path
@@ -9244,10 +6870,7 @@ commandSpec = testGroup "POST /command"
         assertEqual "the first file is untouched" before =<< document path
         assertEqual "and so is the second" elsewhereOrg =<< document other
 
-    -- The union's death, from the write side.  `film''s cycle is RECOGNIZED in
-    -- every file under this root — that is what keeps the word out of a title —
-    -- and no scope an untagged row reaches declares it, so it is not a state
-    -- that row may be put into.  It used to pass, on the file's recognized set.
+    -- `film''s cycle is RECOGNIZED under this root, and no scope an untagged row reaches declares it.
   , testCase "another tag's keyword is refused on a row that does not reach it" $
       withLayeredTree $ \a -> do
         r <- postTo a "/command" (command "set-state" ["bare"] (keywordArg (Just "WATCHING")))
@@ -9255,10 +6878,7 @@ commandSpec = testGroup "POST /command"
         assertContains "names the keyword" "WATCHING" (body r)
         assertContains "and the row" "bare" (body r)
 
-    -- Each row against ITS OWN chain, so a set spanning two tags is refused for
-    -- the member the keyword does not fit — and the member it does fit takes it
-    -- when asked on its own.  This is the cost of the palette merging several
-    -- rows into one table, stated as what a reader sees.
+    -- Each row against ITS OWN chain, which is the cost of the palette merging several rows into one table.
   , testCase "a marked set spanning tags is refused for the row that cannot take it" $
       withLayeredTree $ \a -> do
         r <- postTo a "/command"
@@ -9269,9 +6889,7 @@ commandSpec = testGroup "POST /command"
         assertEqual "and the one it fits, alone" 200 (status ok)
         assertEqual "landed" [("tagged", True)] =<< outcomesOf ok
 
-    -- The regression the tightening had to leave standing: every rung of the
-    -- chain still writes.  A tree apiece, since two writes to one file drift in
-    -- a suite that runs no watch.
+    -- A tree apiece, since two writes to one file drift in a suite that runs no watch.
   , testCase "each rung of the chain is settable on a row that reaches it" $
       mapM_ (\(rid, keyword) -> withLayeredTree $ \a -> do
                r <- postTo a "/command" (command "set-state" [rid] (keywordArg (Just keyword)))
@@ -9329,8 +6947,6 @@ commandSpec = testGroup "POST /command"
         before <- decoded =<< getFrom a (headlinePath "first")
         assertOk =<< postTo a "/command" (command "archive" ["first"] (object []))
         after <- decoded =<< getFrom a (headlinePath "first")
-        -- No watcher runs in this suite, so the store still holds the load it
-        -- started with: the route wrote to the file and to nothing else.
         assertEqual "the store answers exactly what it did" before after
         onDisk <- digestOnDisk path
         pinned <- textAt "digest" before
@@ -9369,8 +6985,7 @@ commandSpec = testGroup "POST /command"
         before <- document path
         r <- postTo a "/command" (BL.fromStrict (BS.replicate (1024 * 1024 + 1) 0x78))
         assertEqual "status" 413 (status r)
-        -- The cap outranks every other refusal, so nothing downstream of it
-        -- ran; the file is where that is readable.
+        -- The cap outranks every other refusal, so nothing downstream of it ran.
         assertEqual "and no row moved" before =<< document path
 
   , testCase "the route takes POST and nothing else" $
@@ -9380,9 +6995,7 @@ commandSpec = testGroup "POST /command"
         assertContains "hint" "/command takes POST" (body r)
   ]
 
--- | @set-planning@: the reschedule keys' half of the command route.  What is
--- pinned here is the request's shape and the whole-request refusal; the span
--- math itself is @TestQuery@'s "set-planning" group and is not restated.
+-- | @set-planning@: the request's shape and the whole-request refusal; the span math is @TestQuery@'s.
 planningSpec :: TestTree
 planningSpec = testGroup "POST /command set-planning"
   [ testCase "a date lands as an active timestamp with the weekday computed" $
@@ -9408,8 +7021,7 @@ planningSpec = testGroup "POST /command set-planning"
         assertEqual "the file is what it was before the first command"
                     (T.replace "DEADLINE: <2026-08-05 Wed>\n" "" before) =<< document path
 
-    -- Two files, two writes, one date: the clock is read once for the request,
-    -- so a marked set cannot land on two days.
+    -- The clock is read once for the request, so a marked set cannot land on two days.
   , testCase "over rows in two files, each file is its own write" $
       withCommandable $ \a _hub path other -> do
         r <- ok =<< postTo a "/command"
@@ -9421,8 +7033,6 @@ planningSpec = testGroup "POST /command set-planning"
         let dayOf = T.takeWhile (/= '\n') . T.drop 1 . T.dropWhile (/= '<')
         assertEqual "and the same day in both" (dayOf here) (dayOf there)
 
-    -- The whole request, the way an undeclared keyword refuses one: half a
-    -- reschedule over a marked set is worse than none of one.
   , testCase "a date no parser reads refuses the request, naming it" $
       withCommandable $ \a _hub path other -> do
         before <- document path
@@ -9443,8 +7053,7 @@ planningSpec = testGroup "POST /command set-planning"
         assertContains "names the keyword" "CLOSED" (body r)
         assertEqual "nothing written" before =<< document path
 
-    -- Absent is not null: one says nothing about the entry and the other asks
-    -- for it to come off, and a client that forgot the field is told so.
+    -- Absent is not null: one says nothing about the entry and the other asks for it to come off.
   , testCase "a request with no date at all is a 400" $
       withCommandable $ \a _hub _path _other -> do
         r <- postTo a "/command"
@@ -9460,11 +7069,7 @@ planningSpec = testGroup "POST /command set-planning"
         assertContains "asks for one" "keyword" (body r)
   ]
 
--- | @add-tag@ and @remove-tag@: the pair the manage-tags palette commits.
---
--- The span math is @TestQuery@'s ("Commands"), which drives the two pure
--- functions; what belongs here is the route — the batching, the per-id answer,
--- and the refusals that are the request's shape rather than a row's state.
+-- | @add-tag@ and @remove-tag@: the route — the batching, the per-id answer, and the request-shape refusals.
 tagCommandSpec :: TestTree
 deleteCommandSpec :: TestTree
 deleteCommandSpec = testGroup "POST /command delete"
@@ -9479,9 +7084,7 @@ deleteCommandSpec = testGroup "POST /command delete"
         assertEqual "byte for byte" archivedBlob . TE.decodeUtf8 . BL.toStrict
           . GZip.decompress =<< BL.readFile kept
 
-    -- AND ONE EXTERNAL.jsonl LINE NAMING IT, in the delete's own shape: the
-    -- record org-glance holds points at bytes that are now in the trash, so the
-    -- line says DROP rather than re-derive.
+    -- The record org-glance holds points at bytes that are now in the trash, so the line says DROP.
   , testCase "and it leaves one tombstone naming the row" $
       withDeletable $ \a root _archived _live _shared -> do
         assertOk =<< postTo a "/command" (command "delete" ["gone"] (object []))
@@ -9490,8 +7093,7 @@ deleteCommandSpec = testGroup "POST /command delete"
         assertContains "naming the row" "\"id\":\"gone\"" (head noted)
         assertContains "and saying it is gone" ",\"tombstone\":true}" (head noted)
 
-    -- ARCHIVING IS THE STEP BEFORE THIS ONE, so a live entry cannot be reached
-    -- by asking twice as fast.  The wall is the SERVER's as much as the shell's.
+    -- ARCHIVING IS THE STEP BEFORE THIS ONE, and the wall is the SERVER's as much as the shell's.
   , testCase "a row that is not archived is refused, and stands" $
       withDeletable $ \a root _archived live _shared -> do
         r <- ok =<< postTo a "/command" (command "delete" ["here"] (object []))
@@ -9500,8 +7102,7 @@ deleteCommandSpec = testGroup "POST /command delete"
         assertEqual "and the blob stands" True =<< doesFileExist live
         assertEqual "so nothing is noted" [] =<< noteLinesIn root
 
-    -- A SHARED ORG FILE IS MANY ROWS' DOCUMENT, and moving it would take the
-    -- others with it.  Archived or not, only a blob is deleted.
+    -- A SHARED ORG FILE IS MANY ROWS' DOCUMENT, and moving it would take the others with it.
   , testCase "an archived row in a shared file is refused, and stands" $
       withDeletable $ \a root _archived _live shared -> do
         r <- ok =<< postTo a "/command" (command "delete" ["shared"] (object []))
@@ -9516,8 +7117,7 @@ deleteCommandSpec = testGroup "POST /command delete"
         assertEqual "refused" [("nope", False)] =<< outcomesOf r
         assertEqual "so nothing is noted" [] =<< noteLinesIn root
 
-    -- It NAMES ROWS, which `capture' alone does not: its edits are `Nothing'
-    -- because it moves a file, and the id wall reads the name rather than that.
+    -- It NAMES ROWS, and the id wall reads the NAME rather than "has edits".
   , testCase "and it owes ids" $
       withDeletable $ \a _root _archived _live _shared -> do
         r <- postTo a "/command" (encode (object ["name" .= ("delete" :: T.Text)]))
@@ -9525,20 +7125,14 @@ deleteCommandSpec = testGroup "POST /command delete"
         assertContains "asks for them" "names rows" (body r)
   ]
 
--- | The lines ROOT's store holds in @meta\/EXTERNAL.jsonl@, none where the file
--- is not there.
---
--- THE FORMAT IS @TestExternal@'s SUBJECT; what these cases ask is whether the
--- route left a line at all, and which of the two shapes it is.
+-- | The lines ROOT's store holds in @meta\/EXTERNAL.jsonl@.  THE FORMAT IS @TestExternal@'s SUBJECT.
 noteLinesIn :: FilePath -> IO [T.Text]
 noteLinesIn root = do
   there <- doesFileExist note
   if there then T.lines <$> document note else pure []
   where note = storeRootIn root </> "meta" </> "EXTERNAL.jsonl"
 
--- | A tree with the three shapes @delete@ tells apart: an archived blob, a live
--- blob, and an archived row in a file other rows share.  K is handed the ROOT,
--- which is what every trash function takes — the store dir is derived from it.
+-- | A tree with the three shapes @delete@ tells apart.  K is handed the ROOT, which is what every trash function takes.
 withDeletable :: (Application -> FilePath -> FilePath -> FilePath -> FilePath -> Assertion)
               -> Assertion
 withDeletable k = withTempDir $ \dir -> do
@@ -9586,8 +7180,7 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
         assertEqual "the run went with its last entry"
                     (T.replace "* NEXT First :one:" "* NEXT First" before)
           =<< document path
-        -- The store has to catch up before a second command can measure a span
-        -- in this file, exactly as it does for a live daemon.
+        -- The store has to catch up before a second command can measure a span in this file.
         watchStep hub path
         _ <- postTo a "/command" (command "add-tag" ["first"] (tagArg "work"))
         watchStep hub path
@@ -9597,8 +7190,7 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
         _ <- postTo a "/command" (command "remove-tag" ["first"] (tagArg "work"))
         assertContains "and one after the cut" "* NEXT First :home:" =<< document path
 
-    -- Both directions are idempotent, so a palette may commit the same letter
-    -- twice without the second press meaning anything.
+    -- Both directions are idempotent, so a palette may commit the same letter twice.
   , testCase "adding what is there and removing what is not both land, changing nothing" $
       withCommandable $ \a _hub path _other -> do
         before <- document path
@@ -9608,9 +7200,6 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
         assertEqual "and so did the other" [("second", True)] =<< outcomesOf gone
         assertEqual "and the file says what it always said" before =<< document path
 
-    -- Two rows of one file are ONE editFile, and the proof is that the second
-    -- landed: a write per row would pin the second to the digest the first
-    -- invalidated.
   , testCase "two rows of one file are one write, and both land" $
       withCommandable $ \a _hub path _other -> do
         before <- document path
@@ -9632,10 +7221,7 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
         assertContains "the tag joined the run" "* NEXT First :one:work:" =<< document path
         assertContains "and opened one" "* TODO Third :work:" =<< document other
 
-    -- The normalize-up half the PALETTE decides: it sends an add to the rows
-    -- LACKING the tag, so the route sees a set that is uniform in what it needs.
-    -- Sending it the whole set is safe all the same, since the row that has it
-    -- costs no edit.
+    -- The PALETTE normalizes up; sending the whole set is safe, since the row that has it costs no edit.
   , testCase "a mixed set is levelled up whichever rows are named" $
       withCommandable $ \a _hub path other -> do
         r <- postTo a "/command" (command "add-tag" ["first", "second", "third"]
@@ -9674,10 +7260,7 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
         assertContains "and the row that is there moved" "* NEXT First :one:work:"
           =<< document path
 
-    -- The route writes the FILE; the watch is what updates rows, so a tag is
-    -- reachable through neither the cell nor the vocabulary until the file has
-    -- been read again.  Then all three move together: the cell, the row's own
-    -- search text, and the virtual filter key the store keeps beside its rows.
+    -- The route writes the FILE; the watch is what updates rows, and then all three move together.
   , testCase "the row arrives over the watch, and the vocabulary with it" $
       withCommandable $ \a hub path _other -> do
         _ <- postTo a "/command" (command "add-tag" ["second"] (tagArg "work"))
@@ -9693,11 +7276,7 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
           . map rowId =<< rowsOf =<< getFrom a "/headlines?q=work"
   ]
 
--- | @rename-tag@: the command the tags popup's @RET@ commits.
---
--- The span math is @TestQuery@'s ("rename-tag"); what belongs here is the
--- route — the argument shape, the two walls it puts up, and that a rename over
--- several rows of one file is still ONE atomic write.
+-- | @rename-tag@: the argument shape, the two walls, and one atomic write over several rows of one file.
 renameCommandSpec :: TestTree
 renameCommandSpec = testGroup "POST /command rename-tag"
   [ testCase "replaces the entry where it stands, moving no other byte" $
@@ -9711,9 +7290,7 @@ renameCommandSpec = testGroup "POST /command rename-tag"
         onDisk <- digestOnDisk path
         assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
 
-    -- BOTH DIRECTIONS from one edit set: the entry is replaced rather than cut
-    -- and re-appended, so a rename and its inverse put the file back byte for
-    -- byte — the property a remove-then-add composition cannot have.
+    -- BOTH DIRECTIONS from one edit set, which a remove-then-add composition cannot have.
   , testCase "and renaming it back puts the file where it was" $
       withCommandable $ \a hub path _other -> do
         before <- document path
@@ -9722,8 +7299,7 @@ renameCommandSpec = testGroup "POST /command rename-tag"
         assertOk =<< postTo a "/command" (command "rename-tag" ["first"] (renameArg "two" "one"))
         assertEqual "byte for byte" before =<< document path
 
-    -- A row that does not carry the old name costs no edit, which is what makes
-    -- the command safe to send over the whole set the popup was raised on.
+    -- A row that does not carry the old name costs no edit.
   , testCase "a row that never carried it lands, changing nothing" $
       withCommandable $ \a _hub path _other -> do
         before <- document path
@@ -9731,9 +7307,6 @@ renameCommandSpec = testGroup "POST /command rename-tag"
         assertEqual "the row landed" [("second", True)] =<< outcomesOf r
         assertEqual "and the file says what it always said" before =<< document path
 
-    -- Two rows of one file are ONE editFile, and the proof is that the second
-    -- landed: a write per row would pin the second to the digest the first
-    -- invalidated.
   , testCase "two rows of one file are one write, and both land" $
       withCommandable $ \a hub path _other -> do
         _ <- postTo a "/command" (command "add-tag" ["first", "second"] (tagArg "work"))
@@ -9760,8 +7333,7 @@ renameCommandSpec = testGroup "POST /command rename-tag"
         assertContains "here" "* NEXT First :one:projects:" =<< document path
         assertContains "and there" "* TODO Third :projects:" =<< document other
 
-    -- The charset wall is the request's, and it stands at BOTH ends: a string
-    -- that is not a tag is not a tag for any row.
+    -- The charset wall is the request's and stands at BOTH ends.
   , testCase "a name no parser reads refuses the request, naming it" $
       mapM_ (\(from, to, named) ->
                withCommandable $ \a _hub path _other -> do
@@ -9792,8 +7364,6 @@ renameCommandSpec = testGroup "POST /command rename-tag"
         assertContains "and the row that is there moved" "* NEXT First :two:"
           =<< document path
 
-    -- The route writes the FILE; the watch is what updates rows, so the new
-    -- name is a filter key only once the file has been read again.
   , testCase "the row arrives over the watch, under its new name" $
       withCommandable $ \a hub path _other -> do
         _ <- postTo a "/command" (command "rename-tag" ["first"] (renameArg "one" "two"))
@@ -9806,17 +7376,12 @@ renameCommandSpec = testGroup "POST /command rename-tag"
           =<< traverse (cellAt "tag") =<< rowsOf r
   ]
 
--- | ROW's cell under KEY, empty where it has none.
 cellAt :: T.Text -> Value -> IO T.Text
 cellAt key row = do
   cells <- field "cells" row
   fromMaybe "" <$> maybeTextAt key cells
 
--- | @GET \/tags@: what the rows a tag command names are tagged with.
---
--- The reading rule is @TestQuery@'s; what belongs here is the route — the
--- shape, the order, the vocabulary beside it, and the two refusals it shares
--- with @\/keywords@.
+-- | @GET \/tags@: the route — the shape, the order, the vocabulary beside it, and the refusals it shares with @\/keywords@.
 tagsSpec :: TestTree
 tagsSpec = testGroup "GET /tags"
   [ testCase "is a row's own tags, folded, in the order the file spells them" $
@@ -9835,20 +7400,13 @@ tagsSpec = testGroup "GET /tags"
                     [("both", ["web", "work"]), ("bare", [])]
           =<< tagRowsOf =<< getFrom a "/tags?ids=both,bare"
 
-    -- The whole store's, not the named rows': a completing read has to reach a
-    -- tag none of the targets carries, and the rows a page holds are a fraction
-    -- of the tree.
+    -- The whole store's, not the named rows': a completing read has to reach a tag none of the targets carries.
   , testCase "the vocabulary is the tree's, whichever row was asked about" $
       withTaggedTree $ \a ->
         assertEqual "every tag in the store, sorted" ["archive", "shelf", "web", "work"]
           =<< textsAt "vocabulary" =<< decoded =<< getFrom a "/tags?ids=bare"
 
-    -- The COUNTS are the tree's rows per tag, which is what the popup's third
-    -- column shows.  Rows rather than files, and rows rather than the named
-    -- set: the store's own `stTags' counts FILES, so this is a different
-    -- question and no arithmetic recovers it.  `web' is on two rows of one
-    -- file, `archive' on one row of another, and the fold is the presence
-    -- rule's — `:Web:' counts as `web'.
+    -- The COUNTS are ROWS per tag: `stTags' counts FILES, so no arithmetic recovers this.
   , testCase "the counts are the tree's rows per tag, folded" $
       withTaggedTree $ \a -> do
         counts <- field "counts" =<< decoded =<< getFrom a "/tags?ids=bare"
@@ -9884,19 +7442,15 @@ tagsSpec = testGroup "GET /tags"
       assertEqual "status" 405 (status r)
   ]
 
--- | Each row the answer names, with the tags it carries.
 tagRowsOf :: SResponse -> IO [(T.Text, [T.Text])]
 tagRowsOf = traverse one <=< rowsOf
   where one v = (,) <$> textAt "id" v <*> textsAt "tags" v
 
--- | The tags a counts object names, sorted: JSON object order is nobody's
--- contract, and what each of them counts is read with 'intAt'.
+-- | The tags a counts object names, sorted: JSON object order is nobody's contract.
 countedTags :: Value -> IO [T.Text]
 countedTags = fmap sort . fieldsOf
 
--- | A tree whose rows disagree about their tags, and which holds one tag no row
--- the palette would resolve for carries — so the vocabulary being the STORE's
--- rather than the answer's is observable.
+-- | A tree holding one tag no resolved row carries, so the vocabulary being the STORE's is observable.
 withTaggedTree :: (Application -> IO a) -> IO a
 withTaggedTree k = withTempDir $ \dir -> do
   _ <- orgFile dir "a.org" (T.unlines
@@ -9908,13 +7462,11 @@ withTaggedTree k = withTempDir $ \dir -> do
   (a, _hub) <- serverOver dir
   k a
 
--- | @capture@: the one command that names no row, and the one write whose
--- target comes out of the config rather than out of the request.
+-- | @capture@: the one command that names no row, and the one write whose target comes out of the config.
 captureSpec :: TestTree
 captureSpec = testGroup "POST /command capture"
   [ -- The target may not exist: the empty digest is the pin for that, so the
-    -- first capture into a tree creates the file and the entry is the whole of
-    -- it.
+    -- first capture into a tree creates the file and the entry is the whole of it.
     testCase "creates the target and the entry is the whole file" $
       withCaptureTree $ \a _hub dir -> do
         r <- ok =<< postTo a "/command" (capture "TODO Buy milk :errands:")
@@ -9931,7 +7483,6 @@ captureSpec = testGroup "POST /command capture"
         onDisk <- digestOnDisk (dir </> "inbox.org")
         assertEqual "and the digest it reports is the file's" onDisk =<< textAt "digest" v
 
-    -- The stamp is org's inactive form, to the minute, in the server's zone.
   , testCase "the creation time reparses as org's own inactive timestamp" $
       withCaptureTree $ \a _hub dir -> do
         _ <- postTo a "/command" (capture "read the docs")
@@ -9943,7 +7494,6 @@ captureSpec = testGroup "POST /command capture"
         assertEqual "and the shape org writes" (T.length "[2026-08-01 Sat 09:30]")
                     (T.length stamp)
 
-    -- Appended, so a file that already holds work keeps every byte of it.
   , testCase "a second capture appends and moves no byte of the first" $
       withCaptureTree $ \a _hub dir -> do
         _ <- postTo a "/command" (capture "first thing")
@@ -9953,7 +7503,6 @@ captureSpec = testGroup "POST /command capture"
         assertBool ("appended: " <> show after) (before `T.isPrefixOf` after)
         assertContains "and the second entry is there" "* second thing" after
 
-    -- The watch is the one thing that updates rows, here as everywhere.
   , testCase "the row arrives over the watch, not out of the route" $
       withCaptureTree $ \a hub dir -> do
         _ <- postTo a "/command" (capture "TODO Buy milk")
@@ -9964,8 +7513,7 @@ captureSpec = testGroup "POST /command capture"
         assertBool ("the captured row is in it: " <> show rows)
                    (any (("Buy milk" `T.isInfixOf`) . T.pack . show) rows)
 
-    -- The entry a capture promises is ONE headline, so the two ways of making
-    -- it something else are 400 with nothing written.
+    -- The entry a capture promises is ONE headline, so the two ways of making it something else are 400.
   , testCase "an empty line and a multi-line one are refused" $
       withCaptureTree $ \a _hub dir ->
         mapM_ (\(what, text') -> do
@@ -9982,15 +7530,11 @@ captureSpec = testGroup "POST /command capture"
         assertEqual "status" 400 (status r)
         assertContains "names the field" "text" (body r)
 
-    -- It is the one command that needs none, so the rule that every other one
-    -- names rows must not reach it.
   , testCase "it names no rows, and is not refused for that" $
       withCaptureTree $ \a _hub _dir -> do
         assertOk =<< postTo a "/command" (capture "no ids here")
 
-    -- THE ID THE ANSWER CARRIES is where point lands when the watch delivers
-    -- the row, so it has to be the id the next load spells: the target file's
-    -- path and the ordinal behind the rows the store already holds.
+    -- THE ID THE ANSWER CARRIES has to be the id the next load spells.
   , testCase "the answer names the row the capture made" $
       withCaptureTree $ \a hub dir -> do
         r <- ok =<< postTo a "/command" (capture "TODO Buy milk")
@@ -10001,11 +7545,7 @@ captureSpec = testGroup "POST /command capture"
         assertBool ("the store spells the same id: " <> show (map rowId rows))
                    ((T.pack (dir </> "inbox.org") <> "#0") `elem` map rowId rows)
 
-    -- The inbox CREATES too, where the target is not there yet, so it queues
-    -- its path by the same rule the blob does.  The directory over it is the
-    -- served root and is watched, so the nudge is the redundant one of the two
-    -- — and that is the point: it is one rule for both shapes rather than a
-    -- special case for the one that needed it.
+    -- One rule for both shapes rather than a special case for the one that needed it.
   , testCase "a capture that creates its target delivers the row itself" $
       withCaptureTree $ \a hub dir -> do
         rid <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" (capture "TODO Buy milk")
@@ -10015,11 +7555,7 @@ captureSpec = testGroup "POST /command capture"
                    (rid `elem` map rowId rows)
   ]
 
--- | A TAGGED capture: the blob in the store, org-glance's own citizen.
---
--- What is pinned here is the whole path from the request to the two files it
--- leaves — the sharded blob and the @EXTERNAL.jsonl@ line naming it — plus the
--- refusals, which are decided before a byte is written.
+-- | A TAGGED capture: the whole path from the request to the sharded blob and the @EXTERNAL.jsonl@ line naming it.
 blobCaptureSpec :: TestTree
 blobCaptureSpec = testGroup "POST /command capture, under a tag"
   [ testCase "writes a blob at org-glance's own sharded path" $
@@ -10037,12 +7573,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         assertContains "and the id is the drawer's" (":ORG_GLANCE_ID: " <> ident) written
         assertContains "beside the creation time" ":ORG_GLANCE_CREATION_TIME: [" written
 
-    -- THE ROW ARRIVES LIVE, and this case names no path to make it.  A blob's
-    -- `<shard>/<rest>/' pair is one `createDirectoryIfMissing True', which
-    -- fsnotify arms without traversing into, so no event is ever coming for it:
-    -- the daemon queues the path itself at write time and the drain loop reads
-    -- the QUEUE.  `drain' is handed the directory and the hub and nothing else,
-    -- so this passes only because the capture put its own blob there.
+    -- fsnotify arms a blob's fresh shard without traversing into it, so the daemon queues the path itself at write time.
   , testCase "and the row arrives with no event behind it" $
       withStoreTree $ \a hub dir -> do
         ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
@@ -10051,12 +7582,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         assertBool ("the blob is a row: " <> show (map rowId rows))
                    (ident `elem` map rowId rows)
 
-    -- AND SO DOES EVERY WRITE AFTER IT, which "the writes that CREATE" got
-    -- wrong: the shard is unwatched for the life of the daemon, so a state set
-    -- on the row the capture just made was written correctly to the file and
-    -- never reached the table.  Every write route leaves through
-    -- `Glance.Web.Watch.writeSpans', so the rule is the daemon queueing every
-    -- path it writes rather than a list of the ones that create.
+    -- AND SO DOES EVERY WRITE AFTER IT: the shard is unwatched for the daemon's life.
   , testCase "and so does a later write to that same blob" $
       withStoreTree $ \a hub dir -> do
         ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
@@ -10068,8 +7594,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         state <- traverse (cellAt "state") [ r | r <- rows, rowId r == ident ]
         assertEqual "the table caught up with the file" ["READING"] state
 
-    -- The note rides the write door every other write leaves through, so a
-    -- capture costs no rule of its own: blob first, line second.
+    -- The note rides the write door every other write leaves through: blob first, line second.
   , testCase "and one EXTERNAL.jsonl line naming it" $
       withStoreTree $ \a _hub dir -> do
         ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
@@ -10077,10 +7602,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         assertEqual "one line" 1 (length (T.lines noted))
         assertContains "naming the blob's own id" ("{\"id\":\"" <> ident <> "\"") noted
 
-    -- AND SO DOES A MATERIALIZE COMMIT, which is the fifth write site and the
-    -- one no case pinned: `POST /headline' leaves through the same door, so a
-    -- subtree rewritten inside a shard fsnotify never entered still reaches the
-    -- table.  `drain' is handed the directory and the hub and names no path.
+    -- AND SO DOES A MATERIALIZE COMMIT, the fifth write site, through the same door.
   , testCase "and so does a materialize commit into that shard" $
       withStoreTree $ \a hub dir -> do
         ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
@@ -10095,8 +7617,6 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         state <- traverse (cellAt "state") [ r | r <- rows, rowId r == ident ]
         assertEqual "the table caught up with the commit" ["READING"] state
 
-    -- The tag's TEMPLATE is what a blob is shaped by, and the answers ride in
-    -- `fields'.
   , testCase "the tag's template is expanded, prompts and all" $
       withStoreTree $ \a _hub _dir -> do
         v <- decoded =<< ok =<< postTo a "/command"
@@ -10114,8 +7634,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
                     [ "* a link :web:", ":PROPERTIES:", ":END:" ]
                     [ l | l <- T.lines written, not (":ORG_GLANCE_" `T.isPrefixOf` l) ]
 
-    -- THREE REFUSALS, each of them the whole request's and each of them ahead of
-    -- any write.
+    -- THREE REFUSALS, each the whole request's and each ahead of any write.
   , testCase "an unanswered prompt is a 400 naming it, and writes nothing" $
       withStoreTree $ \a _hub dir -> do
         r <- postTo a "/command" (captureAs "book" [] "Dune")
@@ -10131,10 +7650,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         assertContains "naming the code" "%?" (body r)
         assertEqual "and no blob was written" [] =<< blobsIn dir
 
-    -- THE ONE-HEADLINE WALL REACHES THE TAGGED PATH.  Both the line and every
-    -- `fields' answer are spliced into the same document, so a newline in either
-    -- lands a column-1 star the parser reads as a second entry — and a blob
-    -- holds ONE entry, the headline org-glance keys it by.
+    -- THE ONE-HEADLINE WALL REACHES THE TAGGED PATH: a newline lands a column-1 star the parser reads as a second entry.
   , testCase "a captured line carrying a newline is a 400, and writes nothing" $
       withStoreTree $ \a _hub dir -> do
         r <- postTo a "/command" (captureAs "book" [("Author", "Herbert")] "a\n* b")
@@ -10162,8 +7678,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         assertEqual "status" 400 (status r)
         assertEqual "and no blob was written" [] =<< blobsIn dir
 
-    -- A tree with no store is not made into one by asking: those directories
-    -- are org-glance's and a daemon that made them would be deciding for it.
+    -- A tree with no store is not made into one by asking.
   , testCase "a tree with no store refuses a tagged capture, naming it" $
       withCaptureTree $ \a _hub dir -> do
         r <- postTo a "/command" (captureAs "book" [] "Dune")
@@ -10171,8 +7686,6 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         assertContains "naming the directory" ".org-glance" (body r)
         assertEqual "and no blob was written" [] =<< blobsIn dir
 
-    -- The untagged path is untouched by all of it, which is the whole point of
-    -- the tag being optional.
   , testCase "and with no tag it is still the inbox, bare" $
       withStoreTree $ \a _hub dir -> do
         v <- decoded =<< ok =<< postTo a "/command" (capture "TODO Buy milk")
@@ -10184,7 +7697,6 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
                     [ l | l <- T.lines written, not (":ORG_GLANCE_" `T.isPrefixOf` l) ]
   ]
 
--- | @GET \/capture@: what a capture will ask for before it asks it.
 captureViewSpec :: TestTree
 captureViewSpec = testGroup "GET /capture"
   [ testCase "a tag's template names its prompts, in template order" $
@@ -10199,23 +7711,19 @@ captureViewSpec = testGroup "GET /capture"
         assertEqual "none" False =<< boolAt "template" v
         assertEqual "and nothing to ask" [] =<< textsAt "prompts" v
 
-    -- With no tag it is the untagged path's own shape: the inbox capture stays
-    -- bare, so there is nothing to resolve and the answer says so.
   , testCase "with no tag at all it is the bare shape" $
       withStoreTree $ \a _hub _dir -> do
         v <- decoded =<< ok =<< getFrom a "/capture"
         assertEqual "no template" False =<< boolAt "template" v
         assertEqual "no prompts" [] =<< textsAt "prompts" v
 
-    -- The vocabulary is what the tag prompt completes over, and it is the
-    -- TREE's rather than any row's — a capture names no rows to ask about.
+    -- The vocabulary is the TREE's rather than any row's — a capture names no rows to ask about.
   , testCase "the tag vocabulary is the tree's" $
       withStoreTree $ \a _hub _dir ->
         assertEqual "every tag the store holds" ["book"]
           =<< textsAt "tags" =<< decoded =<< getFrom a "/capture"
 
-    -- ONE spelling of the expansion subset: what this serves is what expands and
-    -- what the settings box completes over.
+    -- ONE spelling of the expansion subset: what this serves is what expands.
   , testCase "the codes are the expansion subset, each with its meaning" $
       withStoreTree $ \a _hub _dir -> do
         codes <- listAt "codes" =<< decoded =<< getFrom a "/capture"
@@ -10230,8 +7738,6 @@ captureViewSpec = testGroup "GET /capture"
         assertEqual "status" 405 (status r)
   ]
 
--- | Run K over a server whose tree keeps an org-glance store and a @book@ layer
--- carrying a capture template with an ask in it.
 withStoreTree :: (Application -> Hub -> FilePath -> Assertion) -> Assertion
 withStoreTree k = withTempDir $ \dir -> do
   writeLayers dir
@@ -10243,10 +7749,7 @@ withStoreTree k = withTempDir $ \dir -> do
   (a, hub) <- serverOver dir
   k a hub dir
 
--- | Every file under DIR's store, which is how a refusal is checked to have
--- written nothing.  Spelled out rather than taken off the walk: the walk is the
--- subject of other cases here, and an oracle derived from it would agree with
--- any change to it.
+-- | Every file under DIR's store.  Spelled out rather than taken off the walk, which an oracle would then agree with.
 blobsIn :: FilePath -> IO [FilePath]
 blobsIn dir = under (dir </> ".org-glance" </> "data")
   where
@@ -10255,12 +7758,9 @@ blobsIn dir = under (dir </> ".org-glance" </> "data")
       if not isDir then pure [ at | at /= dir </> ".org-glance" </> "data" ] else
         concat <$> (mapM (under . (at </>)) . sort =<< listDirectory at)
 
--- | The fixture's own tagged capture, with its template's one ask answered.
 dune :: BL.ByteString
 dune = captureAs "book" [("Author", "Herbert")] "Dune"
 
--- | A capture as the shell sends a TAGGED one: the tag, the answers its
--- template asked for, and the line.
 captureAs :: T.Text -> [(T.Text, T.Text)] -> T.Text -> BL.ByteString
 captureAs tag answers text' = encode (object
   [ "name" .= ("capture" :: T.Text)
@@ -10268,24 +7768,16 @@ captureAs tag answers text' = encode (object
                         <> [ "fields" .= object [ Key.fromText k .= v | (k, v) <- answers ]
                            | not (null answers) ]) ])
 
--- | @set-planning@'s arguments: which keyword, and the date text or the null
--- that takes the entry off.
 planningArg :: T.Text -> Maybe T.Text -> Value
 planningArg keyword date = object ["keyword" .= keyword, "date" .= date]
 
--- | Run K over a server holding one document and, where TARGET names one, a
--- system config naming it as the capture target.  The hub comes with it, since
--- what a capture leaves for the WATCH is half of what there is to check.
 withCaptureTree :: (Application -> Hub -> FilePath -> Assertion) -> Assertion
 withCaptureTree k = withTempDir $ \dir -> do
   _ <- orgFile dir "notes.org" "* TODO Already here\n"
   (a, hub) <- serverOver dir
   k a hub dir
 
--- | The keyword layers, read and written.  @GET@ lists every config file the
--- served tree has — plus the @system.org@ it could have — and @POST@ puts one
--- layer's @#+TODO:@ block back, through the same engine, the same lock and the
--- same atomic rename every other write uses.
+-- | The keyword layers, read and written: @GET@ lists every config file the tree has, plus the @system.org@ it could have.
 configSpec :: TestTree
 configSpec = testGroup "GET and POST /config"
   [ testCase "lists each layer with its lines and the digest a write pins" $
@@ -10301,19 +7793,12 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "the lines, verbatim"
                     [[], ["#+TODO:  TODO READING | READ ABANDONED"], []]
           =<< traverse (textsAt "lines") layers
-        -- The union is the store's own palette, so the preview and the badges
-        -- a reader is looking at cannot disagree — including the ORDER, which
-        -- is org's own pair and then the line above spelled left to right.
+        -- The union is the store's own palette, ORDER included, so the preview and the badges cannot disagree.
         keywords <- field "keywords" v
         assertEqual "active" ["TODO", "READING"] =<< textsAt "active" keywords
         assertEqual "inactive" ["DONE", "READ", "ABANDONED"] =<< textsAt "inactive" keywords
 
-    -- A tree that has never had a system layer still has the place for one, and
-    -- the empty digest is what says so: it is the pin an absent file carries,
-    -- so the record a reader is handed is the lock a writer presents back.
-    -- The default view rides beside the layers because it is a line of one of
-    -- them: shown off the same read the digests were taken from, so a sheet
-    -- cannot show one file and pin its write to another.
+    -- The empty digest is the pin an absent file carries, so the record a reader is handed is the lock a writer presents back.
   , testCase "the default view rides beside the layers" $
       withConfigTree $ \a _dir -> do
         v <- decoded =<< getFrom a "/config"
@@ -10329,9 +7814,7 @@ configSpec = testGroup "GET and POST /config"
         v <- decoded =<< getFrom a "/config"
         assertEqual "and the next read says so" "tag:work" =<< viewText "default" v
 
-    -- A SECOND SAVED VIEW is the registry's whole cost: its own pragma, its own
-    -- built-in, and the same three-valued write.  Naming one leaves the other's
-    -- line where it was, which is what makes the sheet's per-view write honest.
+    -- Naming one view leaves the other's line where it was, which is what makes the sheet's per-view write honest.
   , testCase "the agenda view is a line of its own" $
       withConfigTree $ \a dir -> do
         v <- decoded =<< getFrom a "/config"
@@ -10351,10 +7834,7 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "the default view is untouched" "state:*active*"
           =<< viewText "default" fresh
 
-    -- THE TREE'S STATE HUES are a third tree-wide line, and the wire carries
-    -- them FLAT — one `{theme, keyword, hue}' entry each — in both directions,
-    -- so no client iterates keys to read back what it wrote.  The file keeps a
-    -- line per theme, which is what `stateColorsOf' reads.
+    -- THE TREE'S STATE HUES ride the same write and travel FLAT in both directions, so no client iterates keys.
   , testCase "state colours ride the same write and come back served" $
       withConfigTree $ \a dir -> do
         v <- decoded =<< getFrom a "/config"
@@ -10387,12 +7867,7 @@ configSpec = testGroup "GET and POST /config"
         assertContains "naming the view and what this build has"
           "no view is called weekly" =<< textAt "error" =<< decoded answer
 
-    -- THE PIN'S OWN SHAPE: no `lines' key at all — the block stands untouched
-    -- and the filter line joins, sort tokens and all.  This is the request the
-    -- shell's `P' sends, and it shipped against a server that still REQUIRED
-    -- the field: every pin test drove the harness stub, no test posted the
-    -- route, and the 400 was swallowed by a fetch that resolves refusals — a
-    -- pin that logged success while the file never moved.
+    -- THE PIN'S OWN SHAPE: no `lines' key at all — the block stands untouched and the filter line joins.
   , testCase "a write with no lines key leaves the block and pins the filter" $
       withConfigTree $ \a dir -> do
         digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
@@ -10413,13 +7888,7 @@ configSpec = testGroup "GET and POST /config"
           "state:*active* columns:state,title sort:state->priority->title"
           =<< viewText "default" =<< decoded =<< getFrom a "/config"
 
-    -- THE FIRST CONFIG DIRECTORY IN A TREE THAT HAD NONE, which was a known gap
-    -- and is now the same door a capture uses.  `.org-glance/config/' is two
-    -- directories minted at once, and fsnotify arms a new directory without
-    -- traversing into it, so nothing was ever going to deliver that write; the
-    -- route queues the path it wrote and the drain loop reads the QUEUE, which
-    -- is why this case names no path to `drain'.  A config path settles as a
-    -- RESEED, so what moves is the whole tree's classification.
+    -- `.org-glance/config/' is two directories minted at once, which fsnotify arms without entering; a config path settles as a RESEED.
   , testCase "the first config layer in a tree reseeds it with no event behind it" $
       withTempDir $ \dir -> do
         _ <- orgFile dir "a.org" "* STARTED refactor\n"
@@ -10446,10 +7915,7 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "so the built-in answers again" "state:*active*"
           =<< viewText "default" =<< decoded =<< getFrom a "/config"
 
-    -- THE CAPTURE TEMPLATE is a REGION of the same file, so it is served beside
-    -- the lines and written in the same drift-locked call: one file, one digest.
-    -- Every layer may carry one, which is what tells it from the two tree-wide
-    -- lines beside it.
+    -- THE CAPTURE TEMPLATE is a REGION of the same file: one file, one digest, and every layer may carry one.
   , testCase "each layer's capture template is served verbatim" $
       withConfigTree $ \a _dir -> do
         layers <- listAt "layers" =<< decoded =<< getFrom a "/config"
@@ -10482,8 +7948,7 @@ configSpec = testGroup "GET and POST /config"
                     "#+TITLE: Book\n#+TODO: TODO READING | READ ABANDONED\n\n"
           =<< document (T.unpack (tagAt dir "book"))
 
-    -- ONE WALL, and it is what keeps a blob's first headline the entry
-    -- org-glance keys it by.
+    -- ONE WALL, keeping a blob's first headline the entry org-glance keys it by.
   , testCase "a template that is not one top entry is a 400 that writes nothing" $
       withConfigTree $ \a dir -> do
         before <- document (T.unpack (tagAt dir "book"))
@@ -10496,11 +7961,7 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "and the file is untouched" before
           =<< document (T.unpack (tagAt dir "book"))
 
-    -- A TREE-WIDE SETTING BELONGS TO A TREE rather than to a tag, and the route
-    -- takes that off the LAYER it looked up: 'Glance.Query.configEdits' folds
-    -- 'configSettings' and drops the tree-wide rows for a tag layer, so this
-    -- covers a member nobody has written yet.  A hand-written case per setting
-    -- is what member #3 shipped without.
+    -- A TREE-WIDE SETTING BELONGS TO A TREE rather than to a tag, and the route takes that off the LAYER it looked up.
   , testCase "a tag layer's write reaches no tree-wide setting" $
       withConfigTree $ \a dir -> do
         assertEqual "the body names every setting the registry carries"
@@ -10511,19 +7972,13 @@ configSpec = testGroup "GET and POST /config"
            , "lines" .= (["#+TODO: TODO | DONE"] :: [T.Text]) ]
              <> [ Key.fromText k .= v | (k, v) <- everySetting ])))
         after <- document (T.unpack (tagAt dir "book"))
-        -- Every tree-wide member is a `#+GLANCE_' line of `system.org', so the
-        -- claim is over the family rather than over three spellings.
+        -- Every tree-wide member is a `#+GLANCE_' line, so the claim is over the family rather than three spellings.
         assertBool ("a tree-wide line reached a tag layer: " <> show after)
                    (not ("#+GLANCE_" `T.isInfixOf` after))
-        -- And the mask is not a blanket one, or the claim above would hold for
-        -- a route that wrote nothing at all.
+        -- And the mask is not a blanket one, or the claim above would hold for a route that wrote nothing.
         assertContains "while the template, which every layer owns, landed"
                        "* %?" after
 
-    -- The page carries it as DEFAULT_QUERY, read off the store at request time.
-    -- The store is the read model for everything else the page shows, and the
-    -- watch reseeds it when a config file moves, so a live daemon converges the
-    -- way it does for the badge palette.
   , testCase "the served page carries the tree's default view" $ do
       withConfigTree $ \a _dir ->
         assertContains "the built-in, where nothing configures one"
@@ -10558,8 +8013,7 @@ configSpec = testGroup "GET and POST /config"
                     (T.replace "#+TODO:  TODO READING | READ ABANDONED"
                                "#+TODO: TODO READING NEXT | READ" before)
                     after
-        -- The receipt is the file's new digest, so a second write needs no
-        -- second read.
+        -- The receipt is the file's new digest, so a second write needs no second read.
         receipt <- textAt "digest" =<< decoded r
         onDisk <- digestOnDisk (T.unpack (tagAt dir "book"))
         assertEqual "the receipt is the file's new digest" onDisk receipt
@@ -10569,8 +8023,6 @@ configSpec = testGroup "GET and POST /config"
         let path = T.unpack (tagAt dir "film")
         digest <- digestOnDisk path
         assertOk =<< postTo a "/config" (configBody (tagAt dir "film") ["#+TODO: A | B"] digest)
-        -- After the `#+TITLE:' run the file opens with, which is where org
-        -- would have put it, and ahead of everything that is not a header.
         assertEqual "placed under the header"
                     "#+TITLE: Film\n#+TODO: A | B\n\n* %?\n" =<< document path
 
@@ -10598,8 +8050,7 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "reason" "drift" =<< textAt "reason" =<< decoded r
         assertEqual "the file is as it was" before =<< document path
 
-    -- The empty digest means "nothing is there", so a file that turned up
-    -- meanwhile refuses the way a moved one does rather than being overwritten.
+    -- The empty digest means "nothing is there", so a file that turned up meanwhile refuses the way a moved one does.
   , testCase "creating over a file that exists is the same refusal" $
       withConfigTree $ \a dir -> do
         r <- postTo a "/config" (configBody (tagAt dir "book") ["#+TODO: A | B"] "")
@@ -10614,9 +8065,7 @@ configSpec = testGroup "GET and POST /config"
         mapM_ (\(what, lines') -> do
                  r <- postTo a "/config" (configBody (tagAt dir "book") lines' digest)
                  assertEqual what 400 (status r))
-              -- ONE ROW, because WHAT a block may say is `configEdits'' rule and
-              -- `TestConfig' enumerates it there; what this route owes is that
-              -- the refusal is a 400 and that nothing was written.
+              -- ONE ROW, because WHAT a block may say is `configEdits'' rule and `TestConfig' enumerates it there.
               [ ("a headline is not a pragma", ["* TODO not a pragma"]) ]
         assertEqual "and nothing was written" before =<< document path
 
@@ -10640,16 +8089,13 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "content type"
                     (Just "application/json; charset=utf-8") (header "Content-Type" r)
 
-    -- The route is a writer like the other two, so it leaves the store alone:
-    -- the rows and the palette arrive when the watch has seen the config move.
+    -- The route is a writer like the other two, so it leaves the store alone.
   , testCase "leaves the store alone — the watch is what reseeds" $
       withConfigTree $ \a dir -> do
         before <- badgeValues =<< decoded =<< getFrom a "/headlines"
         digest <- digestOnDisk (T.unpack (tagAt dir "book"))
         _ <- postTo a "/config"
                (configBody (tagAt dir "book") ["#+TODO: TODO READING NEXT | READ"] digest)
-        -- The files say the new thing at once, since @/config@ reads them; the
-        -- palette is the store's and cannot move until the watch has run.
         layers <- listAt "layers" =<< decoded =<< getFrom a "/config"
         assertEqual "the file"
                     [[], ["#+TODO: TODO READING NEXT | READ"], []]
@@ -10659,9 +8105,6 @@ configSpec = testGroup "GET and POST /config"
         assertBool "and NEXT is not among them" ("NEXT" `notElem` before)
   ]
 
--- | A tree laid out the way org-glance lays one out: a tag config with a cycle
--- and a capture template, one with a header and no cycle, no system layer at
--- all, and one ordinary document.
 withConfigTree :: (Application -> FilePath -> Assertion) -> Assertion
 withConfigTree k = withTempDir $ \dir -> do
   let tags = tagsDirIn dir
@@ -10673,24 +8116,13 @@ withConfigTree k = withTempDir $ \dir -> do
   (a, _hub) <- serverOver dir
   k a dir
 
--- | @GET \/keywords@: the classification chain behind the rows a command names,
--- which is what the state palette draws.
---
--- The chain itself is 'Data.Org.Config.classify' and @TestConfig@ is where the
--- rule is tested; what is pinned here is the resolution READ FORWARDS — a
--- keyword under the WIDEST source that declares it and nowhere below it — plus
--- how several rows merge and what the route refuses.
+-- | @GET \/keywords@: the resolution READ FORWARDS — a keyword under the WIDEST source that declares it and nowhere below.
 keywordsSpec :: TestTree
 keywordsSpec = testGroup "GET /keywords"
   [ testCase "the default pair leads and every source below it loses those words" $
       withLayeredTree $ \a -> do
         r <- ok =<< getFrom a "/keywords?ids=filed"
-        -- READING is the file's, book's AND pile's; book is the widest of the
-        -- three to declare it, which leaves pile and the file with nothing and
-        -- so no rows.  READ is the system layer's and book's, and stays with the
-        -- WIDER of the two.  The chain ENDS at the file: `film''s cycle is
-        -- recognized here, since recognition is a superset, and no scope this
-        -- row reaches claims it — so it is neither shown nor settable.
+        -- The chain ENDS at the file: `film''s cycle is recognized here and no scope this row reaches claims it.
         assertEqual "org's own, then the system layer, then book"
           [ ("default", ["TODO"],      ["DONE"])
           , ("system",  ["STARTED"],   ["READ"])
@@ -10698,10 +8130,7 @@ keywordsSpec = testGroup "GET /keywords"
         assertEqual "and nothing was asked for that is not there" [] =<< textsAt "unknown"
           =<< decoded r
 
-    -- The reorder's display consequence, pinned: `filed' declares READING in its
-    -- own `#+TODO:' and `tagged' does not, and the two now answer ALIKE — the
-    -- word belongs to `book', the widest scope that names it, either way.  Under
-    -- the old chain the file's own line pulled it into a `file' row.
+    -- A file redeclaring a wider scope's word gets no row of its own: the word belongs to the widest scope that names it.
   , testCase "a file redeclaring a wider scope's word gets no row of its own" $
       withLayeredTree $ \a -> do
         filed <- sourcesOf =<< getFrom a "/keywords?ids=filed"
@@ -10712,8 +8141,6 @@ keywordsSpec = testGroup "GET /keywords"
 
   , testCase "the first tag that declares a keyword is the one that keeps it" $
       withLayeredTree $ \a -> do
-        -- The same two tags with no file pragma over them: book is named first
-        -- on the headline, so READING is book's and pile drops out entirely.
         assertEqual "book, and no pile row at all"
           [ ("default", ["TODO"],     ["DONE"])
           , ("system",  ["STARTED"],  ["READ"])
@@ -10722,16 +8149,11 @@ keywordsSpec = testGroup "GET /keywords"
 
   , testCase "a row no scope speaks for is offered org's own and the system layer" $
       withLayeredTree $ \a ->
-        -- Untagged, in a file that declares nothing: the tags' cycles parse
-        -- here and no scope this row reaches names one, so the palette stops
-        -- where the chain does and neither READING nor WATCHING is on offer.
         assertEqual "org's own and the system layer, and nothing under them"
           [ ("default", ["TODO"],    ["DONE"])
           , ("system",  ["STARTED"], ["READ"]) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=bare"
 
-    -- The marked set: one answer over every row it holds, and a tag any of them
-    -- carries is a source of its own.
   , testCase "two rows under different tags bring both tag sources" $
       withLayeredTree $ \a ->
         assertEqual "book from one, film from the other"
@@ -10741,10 +8163,7 @@ keywordsSpec = testGroup "GET /keywords"
           , ("film",    ["WATCHING"],  ["WATCHED"]) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=tagged,filmed"
 
-    -- The merge's one cost, stated: WATCHED is `film''s alone and READ is the
-    -- system layer's, so a set spanning the two rows shows each word under the
-    -- WIDEST source any member reaches it by.  The table describes the set
-    -- rather than any one member of it.
+    -- The table describes the SET rather than any one member of it.
   , testCase "a keyword wider in one row than another lands in the wider source" $
       withLayeredTree $ \a ->
         assertEqual "one answer over both rows, widest source first"
@@ -10753,9 +8172,7 @@ keywordsSpec = testGroup "GET /keywords"
           , ("book",    ["READING"],  []) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=tagged,filed"
 
-    -- The command route's convention: an id the store has no row for is named
-    -- rather than refused, so a marked set that has gone stale still answers
-    -- for the rows that are there.
+    -- An id the store has no row for is named rather than refused, so a stale marked set still answers.
   , testCase "an id the store does not hold is named and left out" $
       withLayeredTree $ \a -> do
         r <- ok =<< getFrom a "/keywords?ids=nosuch,tagged"
@@ -10771,10 +8188,7 @@ keywordsSpec = testGroup "GET /keywords"
         assertEqual "no sources" [] =<< sourcesOf r
         assertEqual "and both halves of why" ["nosuch"] =<< textsAt "unknown" =<< decoded r
 
-    -- Three spellings of one list: the comma form a caller types out, the
-    -- repeated parameter the shell writes (an id may hold a comma, and the
-    -- split happens after decoding, so percent-encoding cannot save it), and
-    -- the singular key `POST /command' also takes.
+    -- An id may hold a comma and the split happens after decoding, so the repeated parameter is what the shell writes.
   , testCase "ids repeat, ids comma-separate, id is one, and none is a 400" $
       withLayeredTree $ \a -> do
         let both = [ ("default", ["TODO"],     ["DONE"])
@@ -10799,11 +8213,7 @@ keywordsSpec = testGroup "GET /keywords"
       r <- withLayeredTree (\a -> postTo a "/keywords" "{}")
       assertEqual "status" 405 (status r)
 
-    -- A tree may configure a tag called `system', and the three reserved names
-    -- are not taken out of the tag namespace to stop it.  The entries stay
-    -- apart — a tag keeps its tag RANK, so it sits BELOW the system layer the
-    -- way any other tag does — and the precedence order is what tells the two
-    -- rows named alike apart.
+    -- A tag keeps its tag RANK, so a tag spelled `system' sits BELOW the system layer.
   , testCase "a tag spelled like a reserved source keeps its own rank" $
       withTempDir $ \dir -> do
         writeLayers dir [ (Nothing,       "#+TODO: STARTED | SHELVED\n")
@@ -10817,11 +8227,7 @@ keywordsSpec = testGroup "GET /keywords"
           , ("system",  ["PLANNED"], []) ]
           =<< sourcesOf =<< getFrom a "/keywords?ids=only"
 
-    -- The SOURCES are the chain's order and the WORDS INSIDE ONE are its
-    -- layer's own, left to right off the `#+TODO:' line.  Both cells here are
-    -- spelled against the alphabet on purpose: this answer is what the state
-    -- palette draws and what its letters are assigned over, so a sorted one
-    -- would move a reader's keys every time a tree added a word.
+    -- Both cells are spelled against the alphabet on purpose: the palette's letters are assigned over this order.
   , testCase "a source's keywords arrive in the order its line spells them" $
       withTempDir $ \dir -> do
         writeLayers dir
@@ -10837,12 +8243,7 @@ keywordsSpec = testGroup "GET /keywords"
           =<< sourcesOf =<< getFrom a "/keywords?ids=only"
   ]
 
--- | @POST \/command edit-link@: the link write the popup's @RET@ commits.
---
--- The span math and the form table are @TestQuery@'s ("edit-link"); what
--- belongs here is the ROUND TRIP a client makes — the range comes out of
--- @GET \/links@ and goes back into @POST \/command@ — and the refusals that are
--- the route's rather than the math's.
+-- | @POST \/command edit-link@: the ROUND TRIP a client makes, and the refusals that are the route's rather than the math's.
 editLinkSpec :: TestTree
 editLinkSpec = testGroup "POST /command edit-link"
   [ testCase "the range /links handed out is the range the write splices" $
@@ -10860,10 +8261,7 @@ editLinkSpec = testGroup "POST /command edit-link"
         onDisk <- digestOnDisk path
         assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
 
-    -- The three forms over one row, each through the range the route itself
-    -- reported: a bracketed link keeps its description, a description ARRIVING
-    -- brackets a plain URL, and a null takes one off.  The table is
-    -- @TestQuery@'s; what this pins is that the offsets survive the wire.
+    -- Each form goes through the range the route itself reported, so what this pins is that the offsets survive the wire.
   , testCase "a description added, kept and taken off, over the wire" $ do
       withLinkable $ \a _hub path -> do
         before <- document path
@@ -10900,9 +8298,7 @@ editLinkSpec = testGroup "POST /command edit-link"
           (T.replace "[[https://a.example][A]]" "[[https://a.example]]" before)
           =<< document path
 
-    -- THE PIN.  The spans describe the text the store last read, so a client
-    -- holding a digest the store no longer has is refused — per id, since a
-    -- digest is per file — rather than splicing a range that has moved.
+    -- THE PIN: a digest the store no longer has is refused per id, since a digest is per file.
   , testCase "a span measured against a text the store no longer holds is refused" $
       withLinkable $ \a _hub path -> do
         (sp, _digest) <- pinnedSpan a "first" 0
@@ -10914,10 +8310,7 @@ editLinkSpec = testGroup "POST /command edit-link"
         assertEqual "the row did not land" [("first", False)] =<< outcomesOf r
         assertEqual "and nothing was written" before =<< document path
 
-    -- The subtree wall's interesting half: a span that IS in the file, and IS a
-    -- link, and belongs to ANOTHER ROW.  The digest is per file, so nothing but
-    -- this wall stands between one row's write and a link no reader of that row
-    -- was ever shown.
+    -- The digest is per file, so nothing but the subtree wall stands between one row's write and another row's link.
   , testCase "a link belonging to another row of the same file is refused" $
       withLinkable $ \a _hub path -> do
         before <- document path
@@ -10931,9 +8324,7 @@ editLinkSpec = testGroup "POST /command edit-link"
         assertContains "and the extent that does not hold it" "subtree" (body r)
         assertEqual "nothing was written" before =<< document path
 
-    -- A SPAN NAMES ONE ROW's own text, so the command names one row.  Over two it
-    -- would mean a different range in each file, and in one of them very likely
-    -- a link the reader never saw.
+    -- A SPAN NAMES ONE ROW's own text, so the command names one row.
   , testCase "two ids are refused, since a span names one row's own text" $
       withLinkable $ \a _hub path -> do
         before <- document path
@@ -10947,11 +8338,7 @@ editLinkSpec = testGroup "POST /command edit-link"
         assertContains "and the rule" "one row" (body r)
         assertEqual "nothing was written" before =<< document path
 
-    -- THE ROW COUNT IS THE COARSEST THING WRONG with the request, so it is what
-    -- the refusal names: a caller that named three rows has misunderstood the
-    -- command, and telling it about a missing span instead would answer the
-    -- smaller question.  It is `csArgs' asking, the same function the span and
-    -- the target go through — there is no separate ids rule above it.
+    -- THE ROW COUNT IS THE COARSEST THING WRONG, and it is `csArgs' asking — there is no separate ids rule above it.
   , testCase "and the count outranks everything else its args owe" $
       withLinkable $ \a _hub _path -> do
         r <- postTo a "/command"
@@ -10959,10 +8346,6 @@ editLinkSpec = testGroup "POST /command edit-link"
         assertEqual "status" 400 (status r)
         assertContains "the count outranks the missing span" "one row" (body r)
 
-    -- The refusals, all 400 with the file untouched: a link that points nowhere,
-    -- a padded target, a missing range, a range the row does not hold, a range
-    -- that is not a link, and a target that would not read back as the link it
-    -- claims to be.
   , testCase "every refusal is a 400, and each names what it turned down" $
       mapM_ (\(what, args, named) ->
                withLinkable $ \a _hub path -> do
@@ -10997,10 +8380,7 @@ editLinkSpec = testGroup "POST /command edit-link"
           , \sp -> object ["span" .= sp, "target" .= ("https://z\n* B" :: T.Text)]
           , "one line" ) ]
 
-    -- The route writes the FILE; the watch is what updates rows.  A link in the
-    -- TITLE is a cell, so the edit reaches the table the way every other write
-    -- does — and one in the body moves no cell at all, which is the store's own
-    -- rule and why the popup re-asks rather than expecting a frame.
+    -- A link in the TITLE is a cell; one in the body moves no cell at all, which is why the popup re-asks.
   , testCase "a title link reaches the row over the watch" $
       withLinkable $ \a hub path -> do
         (sp, digest) <- pinnedSpan a "first" 0
@@ -11016,8 +8396,6 @@ editLinkSpec = testGroup "POST /command edit-link"
           ["one [[https://a.example][Alpha]]", "two [[https://e.example][E]]"]
           =<< traverse (cellAt "title") =<< rowsOf r
 
-    -- And the links themselves are re-read: the popup asks again and gets the
-    -- new target, its span moved by what the edit cost.
   , testCase "and /links answers with the edited link once the watch has run" $
       withLinkable $ \a hub path -> do
         (sp, digest) <- pinnedSpan a "first" 0
@@ -11037,11 +8415,7 @@ editLinkSpec = testGroup "POST /command edit-link"
           . map (charSpan text) =<< spansOf =<< getFrom a "/links?id=first"
   ]
 
--- | A row pointing three ways — a described bracket link on the title, a
--- desc-less one in the body and a plain URL beside it — so the form table has
--- one of each to be right about, and a second row with a link of its OWN: the
--- ids rule needs a second row, and the subtree wall needs a span that IS in this
--- file and IS a link and belongs to somebody else.
+-- | A row pointing three ways, and a second row with a link of its OWN: the ids rule and the subtree wall each need one.
 linkable :: T.Text
 linkable = T.unlines
   [ "* one [[https://a.example][A]]"
@@ -11056,17 +8430,13 @@ linkable = T.unlines
   , "nothing else to follow"
   ]
 
--- | Run K over a server holding 'linkable': the app, the hub whose store it
--- answers from — the watch cases step it the way a live daemon does — and the
--- file.
 withLinkable :: (Application -> Hub -> FilePath -> Assertion) -> Assertion
 withLinkable k = withTempDir $ \dir -> do
   path <- orgFile dir "notes.org" linkable
   (a, hub) <- serverOver dir
   k a hub path
 
--- | The span A reports for ROW's link at AT, and the digest that answer carried
--- — which is exactly what the popup holds and sends back.
+-- | The span A reports for ROW's link at AT, and the digest that answer carried — what the popup holds and sends back.
 pinnedSpan :: Application -> ByteString -> Int -> IO (Value, T.Text)
 pinnedSpan a rid at = do
   answer <- decoded =<< getFrom a ("/links?id=" <> rid)
@@ -11074,18 +8444,13 @@ pinnedSpan a rid at = do
   sp <- field "span" (links !! at)
   (,) sp <$> textAt "digest" answer
 
--- | A command as the LINK POPUP sends one: 'command' under the digests it was
--- measured against, which the commands naming a property of a row send none of.
+-- | A command as the LINK POPUP sends one: under the digests it was measured against.
 linkCommand :: T.Text -> [T.Text] -> Value -> [(T.Text, T.Text)] -> BL.ByteString
 linkCommand name ids args digests = encode (object
   [ "name" .= name, "ids" .= ids, "args" .= args
   , "digests" .= object [ Key.fromText rid .= digest | (rid, digest) <- digests ] ])
 
--- | @GET \/links@: where one row points.
---
--- The extraction rule is @TestQuery@'s ("Links"), which drives the pure
--- function; what belongs here is the route — the id it takes, the shape it
--- answers in, and the two refusals it shares with materialize.
+-- | @GET \/links@: the route — the id it takes, the shape it answers in, and the refusals it shares with materialize.
 linksSpec :: TestTree
 linksSpec = testGroup "GET /links"
   [ testCase "is the row's links, in the order its subtree writes them" $
@@ -11097,10 +8462,7 @@ linksSpec = testGroup "GET /links"
           , ["https://z.example/c", "https://z.example/c", "https"] ]
           =<< linksOf r
 
-    -- The type is the SERVER's word for the target, which is what the popup's
-    -- badge column draws and what `o' reads to decide whether a tab can be
-    -- pointed anywhere.  The derivation is `TestQuery''s ("Links"); what belongs
-    -- here is that the route carries it, over targets no tab can follow.
+    -- The type is the SERVER's word for the target; the derivation is `TestQuery''s.
   , testCase "every link carries its type, followable or not" $
       withLinkTree $ \a _dir ->
         assertEqual "one word per link"
@@ -11127,10 +8489,7 @@ linksSpec = testGroup "GET /links"
       withLinkTree $ \a _dir ->
         assertEqual "no links" [] =<< linksOf =<< getFrom a "/links?id=bare"
 
-    -- EVERY LINK CARRIES ITS SPAN, and the span is into the FILE: it is what
-    -- makes the answer writeable, since `edit-link' takes that range back and
-    -- splices it.  Asserted by cutting each range out of the file on disk, which
-    -- is the claim a span makes and the one a client acts on.
+    -- EVERY LINK CARRIES ITS SPAN, into the FILE: asserted by cutting each range out of the file on disk.
   , testCase "every link carries the file range that spells it" $
       withLinkTree $ \a dir -> do
         r <- getFrom a "/links?id=linked"
@@ -11140,10 +8499,7 @@ linksSpec = testGroup "GET /links"
           , "https://z.example/c" ]
           . map (charSpan text) =<< spansOf r
 
-    -- And the answer carries the file's DIGEST, which is the lock an edit is
-    -- pinned to: the spans describe the text the store last read, so a client
-    -- that sends it back is refused rather than spliced blind once the file has
-    -- moved.
+    -- And the file's DIGEST, which is the lock an edit is pinned to.
   , testCase "and the digest those spans were measured against" $
       withLinkTree $ \a dir -> do
         r <- getFrom a "/links?id=linked"
@@ -11155,26 +8511,20 @@ linksSpec = testGroup "GET /links"
       assertEqual "status" 405 (status r)
   ]
 
--- | The answer's links as @[target, desc]@ pairs.
 linksOf :: SResponse -> IO [[T.Text]]
 linksOf r = traverse one =<< listAt "links" =<< decoded r
   where one v = sequence [textAt "target" v, textAt "desc" v, textAt "type" v]
 
--- | The half-open char range each of R's links reports.
 spansOf :: SResponse -> IO [(Int, Int)]
 spansOf r = traverse one =<< listAt "links" =<< decoded r
   where one v = listAt "span" v >>= pair
         pair [Number from, Number to] = pure (round from, round to)
         pair other = assertFailure ("expected a [start, end] span, got " <> show other)
 
--- | TEXT's half-open char range, which is what a span claims to be.
 charSpan :: T.Text -> (Int, Int) -> T.Text
 charSpan text (from, to) = T.take (to - from) (T.drop from text)
 
--- | A tree with one row worth following, one holding a link of every type the
--- popup draws a badge for, and one with nothing in it.  The first has a bracket
--- link on the title, a bare URL in the body and one more under a child, so the
--- route's answer shows it read the SUBTREE.
+-- | The first row has a link under a child, so the route's answer shows it read the SUBTREE.
 withLinkTree :: (Application -> FilePath -> IO a) -> IO a
 withLinkTree k = withTempDir $ \dir -> do
   _ <- orgFile dir "a.org" (T.unlines
@@ -11198,19 +8548,11 @@ withLinkTree k = withTempDir $ \dir -> do
   (a, _hub) <- serverOver dir
   k a dir
 
--- | Each source the answer names, with the keywords it is the nearest to
--- declare.
 sourcesOf :: SResponse -> IO [(T.Text, [T.Text], [T.Text])]
 sourcesOf r = traverse one =<< listAt "sources" =<< decoded r
   where one v = (,,) <$> textAt "source" v <*> textsAt "active" v <*> textsAt "inactive" v
 
--- | A tree whose every layer has something to say about the same few keywords,
--- so which one ANSWERS is observable at each rung: a system layer, two tag
--- configs that disagree about @READING@, a third for a tag nothing else names,
--- and four rows reaching the chain at four different depths.
---
--- Polymorphic in what K yields, so the one case that wants the response rather
--- than an assertion needs no second name for the same tree.
+-- | A tree whose every layer says something about the same keywords, so which one ANSWERS is observable at each rung.
 withLayeredTree :: (Application -> IO a) -> IO a
 withLayeredTree k = withTempDir $ \dir -> do
   writeLayers dir
@@ -11218,12 +8560,9 @@ withLayeredTree k = withTempDir $ \dir -> do
     , (Just "book",   "#+TODO: READING | READ\n")
     , (Just "pile",   "#+TODO: | READING\n")
     , (Just "film",   "#+TODO: WATCHING | WATCHED\n") ]
-  -- The file declares READING itself, and its row wears both tags that also do.
   _ <- orgFile dir "a.org" (T.unlines
          [ "#+TODO: READING |", "* READING one :book:pile:"
          , ":PROPERTIES:", ":ORG_GLANCE_ID: filed", ":END:" ])
-  -- The same two tags with nothing above them, a third tag on its own, and a
-  -- row that reaches no scope nearer than the system layer.
   _ <- orgFile dir "b.org" (T.unlines
          [ "* two :book:pile:", ":PROPERTIES:", ":ORG_GLANCE_ID: tagged", ":END:"
          , "* three :film:", ":PROPERTIES:", ":ORG_GLANCE_ID: filmed", ":END:"
@@ -11231,43 +8570,24 @@ withLayeredTree k = withTempDir $ \dir -> do
   (a, _hub) <- serverOver dir
   k a
 
--- | LAYERS written under DIR's config directory: 'Nothing' is @system.org@ and
--- a tag is its file beside it.  The layout is 'systemAt' and 'tagAt', so no
--- case here spells it a second time.
--- | DIR's system layer and its layer for TAG.  Read off the library's own
--- layout ('Data.Org.Config.configDirIn'), so a layout that moves takes these
--- fixtures with it rather than leaving them building a tree the server no
--- longer reads as config.
---
--- The cost is that fixture and route now travel together, so no case reached
--- through here can fail on a layout move.  What catches one is the LITERAL
--- spelling in @\"says which paths there are\"@ above, and @TestConfig@'s own:
--- this group has ONE pin on the layout rather than a case each.
+-- | DIR's system layer and its layer for TAG, off the library's own layout ('Data.Org.Config.configDirIn').
 systemAt :: FilePath -> T.Text
 systemAt = T.pack . systemFileIn
 
 tagAt :: FilePath -> FilePath -> T.Text
 tagAt dir tag = T.pack (tagFileIn dir tag)
 
--- | A layer write: which file, the lines to put in it, and the digest it was
--- read with.
 configBody :: T.Text -> [T.Text] -> T.Text -> BL.ByteString
 configBody path lines' = layerBody path lines' Nothing Nothing
 
--- | 'configBody', also setting the default view.
 viewBody :: T.Text -> [T.Text] -> Maybe T.Text -> T.Text -> BL.ByteString
 viewBody path lines' want = layerBody path lines' want Nothing
 
--- | 'configBody', also setting the capture target.
--- | The query a captured @POST \/config@ body names for the view ID.  The
--- request's @views@ is an OBJECT keyed by id, three-valued per view, where the
--- ANSWER's is an ordered array: two shapes for two jobs, and this is the write's.
+-- | The query a captured @POST \/config@ body names for view ID: the WRITE's shape, an OBJECT keyed by id.
 wroteView :: T.Text -> Value -> IO T.Text
 wroteView vid v = field "views" v >>= textAt vid
 
--- | A write naming EVERY setting 'configSettings' carries, in the shapes the
--- wire spells them.  The names are asserted against the registry where this is
--- used, so a member left out of it fails rather than passing vacuously.
+-- | A write naming EVERY setting 'configSettings' carries.  The names are asserted against the registry where this is used.
 everySetting :: [(T.Text, Value)]
 everySetting =
   [ ("views",    object ["default" .= ("tag:work" :: T.Text)])
@@ -11277,13 +8597,10 @@ everySetting =
   , ("template", toJSON ("* %?" :: T.Text))
   ]
 
--- | A layer write over all three of its lines.  Absent leaves a line alone; the
--- three ride in one request because they are lines of one file.
+-- | A layer write over all three of its lines; the three ride in one request because they are lines of one file.
 layerBody :: T.Text -> [T.Text] -> Maybe T.Text -> Maybe T.Text -> T.Text -> BL.ByteString
 layerBody path lines' want target = templateBody path lines' want target Nothing
 
--- | 'layerBody' also naming the layer's CAPTURE TEMPLATE, which is a region of
--- the same file and rides in the same drift-locked write.
 templateBody :: T.Text -> [T.Text] -> Maybe T.Text -> Maybe T.Text -> Maybe T.Text
              -> T.Text -> BL.ByteString
 templateBody path lines' want target template digest = encode (object
@@ -11292,13 +8609,7 @@ templateBody path lines' want target template digest = encode (object
      <> [ "capture" .= c | Just c <- [target] ]
      <> [ "template" .= t | Just t <- [template] ]))
 
--- | Archived rows are out of the view unless the query asks for them.  @D@
--- archives rather than deletes, so this is what keeps the default table from
--- growing without bound — and what must never hide the key that reaches them.
--- | @?q=columns:@ shapes the COLUMN SET the answer declares and fills — the
--- sort token's twin for what the table shows ('Glance.Web.Columns',
--- 'Glance.Query.resolveColumns').  The grammar's own cases are @TestFilter@'s;
--- these are the wire's.
+-- | @?q=columns:@ shapes the COLUMN SET the answer declares and fills.  The grammar's own cases are @TestFilter@'s.
 columnsQuerySpec :: TestTree
 columnsQuerySpec = testGroup "GET /headlines?q=columns:"
   [ testCase "no columns token serves the default six" $ do
@@ -11363,8 +8674,7 @@ columnsQuerySpec = testGroup "GET /headlines?q=columns:"
       assertEqual "status" 400 (status alt)
       assertContains "naming the token" "columns:a|b" (body alt)
 
-    -- The badge palette rides the KEY, so a picked state column still carries
-    -- it — which is what keeps the state cells drawn as badges in a shaped view.
+    -- The badge palette rides the KEY, so a picked state column still carries it.
   , testCase "a picked state column keeps its badges" $ do
       v <- get assetsDir "/headlines?q=columns:state,title" >>= decoded
       col <- columnOf "state" v
@@ -11387,8 +8697,6 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
         implicit <- rowsOf =<< getFrom a "/headlines"
         explicit <- getFrom a "/headlines?q=-tag%3A*archive*"
         assertEqual "the same rows" (map rowId implicit) . map rowId =<< rowsOf explicit
-        -- A query that says it itself is not one this server also says: the
-        -- count is zero because nothing was withheld from it.
         assertEqual "nothing hidden from it" (Just "0")
                     (header "X-Glance-Archived" explicit)
 
@@ -11404,25 +8712,17 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
               , ("/headlines?q=tag%3A*archive*%20filed", ["filed"])
               , ("/headlines?q=state%3ADONE%20tag%3A*archive*", ["filed"]) ]
 
-    -- THE COUPLING IS THE META'S ALONE.  The bare word is an ordinary tag
-    -- predicate: it filters, it reveals nothing, and the count says a row was
-    -- withheld from it — which is what a tree using `archive' for something of
-    -- its own needs, and what makes the two spellings tell apart.  `near'
-    -- carries `:archived:', which the column matches by substring.
+    -- THE COUPLING IS THE META'S ALONE: the bare word is an ordinary tag predicate and reveals nothing.
   , testCase "the plain tag predicate filters without lifting the exclusion" $
       withArchived $ \a -> do
         plain <- getFrom a "/headlines?q=tag%3Aarchive"
         assertEqual "the rows it reaches" ["near"] . map rowId =<< rowsOf plain
         assertEqual "and the archived one it does not" (Just "1")
                     (header "X-Glance-Archived" plain)
-        -- Which the meta reaches, over the same word, in the same column.
         meta <- getFrom a "/headlines?q=tag%3A*archive*"
         assertEqual "the meta is the whole tag" ["filed"] . map rowId =<< rowsOf meta
 
-    -- The vocabulary is the WHOLE store's, which is what makes the predicate
-    -- reach what the default hides.  A spelling no row carries as text is the
-    -- proof: as free text `tag:*archive*' matches nothing, so a match is the
-    -- predicate reading the tags cell.
+    -- As free text `tag:*archive*' matches nothing, so a match is the predicate reading the tags cell.
   , testCase "the predicate survives the exclusion that hides its rows" $
       withArchived $ \a -> do
         faceted <- getFrom a "/headlines?q=tag%3A*archive*"
@@ -11435,11 +8735,6 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
       assertEqual "X-Glance-Archived" (Just "0") (header "X-Glance-Archived" r)
       assertEqual "and every row is served" (Just "6") (header "X-Glance-Total" r)
 
-    -- And naming the meta there costs nothing: with the tag nowhere in the
-    -- tree there is no exclusion to lift, so the query is the ordinary tags
-    -- predicate it spells and answers with the rows carrying that whole tag,
-    -- which is none.  The vocabulary is the exclusion's own half of the
-    -- question ('Glance.Web.Filter.namesArchive' asks the query's).
   , testCase "and naming the meta against it lifts nothing" $ do
       r <- get assetsDir "/headlines?q=tag%3A*archive*"
       assertEqual "no row carries the tag" (Just "0") (header "X-Glance-Total" r)
@@ -11454,9 +8749,7 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
         assertEqual "and more follows" (Just "true") (header "X-Glance-Has-Next" r)
   ]
 
--- | Run K over a server holding four rows: one tagged @ARCHIVE@, and one whose
--- own tag merely HOLDS the word, which is what tells the meta from the plain
--- predicate.
+-- | Four rows, one tagged @ARCHIVE@ and one whose own tag merely HOLDS the word — which tells the meta from the predicate.
 withArchived :: (Application -> Assertion) -> Assertion
 withArchived k = withTempDir $ \dir -> do
   _ <- orgFile dir "notes.org" (T.unlines
@@ -11479,16 +8772,12 @@ withArchived k = withTempDir $ \dir -> do
   (a, _hub) <- serverOver dir
   k a
 
--- | @\/@ in both modes: a shell that mounts the renderer, and a page that
--- explains where the renderer went.
 pageSpec :: IO T.Text -> TestTree
 pageSpec shell = testGroup "GET /"
   [ testCase "with assets, is a shell that fetches and mounts" $ do
       r <- ok =<< get assetsDir "/"
       assertEqual "content type" (Just "text/html; charset=utf-8") (header "Content-Type" r)
       assertContains "renderer" "src=\"table-view.js\"" (body r)
-      -- The script is its own asset now: the page names it, and the code the
-      -- two needles used to find inline is read off the served file.
       assertContains "the shell's script" "src=\"glue.js\"" (body r)
       g <- ok =<< get assetsDir "/glue.js"
       assertContains "fetch glue" "fetch(`/headlines${params}`" (body g)
@@ -11496,87 +8785,65 @@ pageSpec shell = testGroup "GET /"
 
   , testCase "with assets, the restored query is the renderer's own chips" $ do
       b <- shell
-      -- The mount is handed the applied query; the renderer tokenizes it into
-      -- committed chips and delivers nothing, since the rows in hand are
-      -- already the server's answer to it.
       holdsAll "restore glue"
             [ "initialQuery: query,"
-            -- An asset predating the option drops it silently, so the mount
-            -- asks whether it took and stuffs the box when it did not.
+            -- An asset predating the option drops it silently, so the mount asks whether it took.
             , "const holds = (q) => can(table, \"getQuery\")"
             , "&& table.getQuery() === q;"
             , "if (query && !holds(query)) showQuery();"
             , "function showQuery() {" ] b
-      -- One restoration point: `start' re-fetches and re-mounts for every way
-      -- back in, so it does not restore the query a second time itself.
+      -- One restoration point: `start' re-fetches and re-mounts for every way back in.
       assertEqual "showQuery is called from the mount alone" 1
                   (T.count "!holds(query)) showQuery();" b)
       assertEqual "showQuery is defined once" 1 (T.count "function showQuery()" b)
 
   , testCase "with assets, DEL takes the last token off through the renderer" $ do
       b <- shell
-      -- The chips are the renderer's, so the strip is too: the shell asks and
-      -- then follows, rather than recomposing a query the chips would outlive.
+      -- The chips are the renderer's, so the strip is too: the shell asks and then follows.
       mapM_ (\needle -> assertContains "DEL glue" needle b)
             [ "table.stripLastToken()", "table.getQuery().trim()"
             , "filterDrop: (b) => {", "said(b, \"no filter\")"
             , "said(b, left ? `filter: ${JSON.stringify(left)}` : \"filter cleared\");"
-            -- An asset without the pair says so instead of guessing.
             , "wants(b, \"filter tokens\", \"stripLastToken\", \"getQuery\")"
             , "wants(b, \"filter tokens\", \"stripLastToken\", \"getQuery\")"
-            -- One press, one token: a held DEL claims the key and runs once,
-            -- where held movement keeps repeating.  The table is the blob's.
+            -- One press, one token: a held DEL claims the key and runs once, where held movement keeps repeating.
             , "if (!(repeating(e) && MAPS.once.indexOf(hit.command) !== -1)) run(hit);" ]
-      -- `D' is on the list for a different reason than the other two: it
-      -- writes files, so a held key must not be a hundred /command requests.
       onceOf b >>= assertEqual "the commands auto-repeat is off for" onceNames
       -- The guard is per command, so it cannot take auto-repeat off movement.
       assertBool "the repeat guard is blanket rather than per command"
                  (not ("if (e.repeat) return" `T.isInfixOf` b))
-      -- Neither of the two designs this replaced survives.
       holdsNone "a superseded filter path" ["glance-filter-history", "function withoutLast"] b
 
   , testCase "with assets, the sheet is buttonless and syncs on the way out" $ do
       b <- shell
       holdsAll "sheet glue"
-            -- Dirty against the materialized original decides everything, and
-            -- EITHER pane moving is dirty: a pristine close is no request at all.
+            -- EITHER pane moving is dirty, and a pristine close is no request at all.
             [ "const dirty = () => editing !== null"
             , "&& (raw ? el(\"mtext\").value !== base : edited() !== baseProps);"
-            -- The close ladder is the SHEET's rather than this sheet's: one
-            -- pristine/dirty/troubled rule over whichever of the two is up, and
-            -- the subtree sheet's entry is where its own flush is pinned.
+            -- The close ladder is the SHEET's rather than this sheet's: one rule over whichever of the two is up.
             , "if (!s.dirty()) { s.shut(); return; }"
             , "if (s.state !== \"syncing\") s.flush().then((ok) => ok && s.shut());"
             , "flush: () => flush(editing.digest),"
             -- The backdrop is the mouse's ESC.
             , "if (e.target === el(id)) leaveSheet();"
-            -- The receipt chains: the 200's digest is the next flush's lock, and
-            -- both baselines move to what was actually sent.
+            -- The receipt chains: the 200's digest is the next flush's lock.
             , "h.digest = a.body.digest;"
             , "base = raw ? sent.org : base;"
             , "baseProps = raw ? null : JSON.stringify([sent.properties, sent.planning]);"
-            -- A conflict keeps the sheet open and names the two keys.
             , "if (a.status === 409 && a.body.reason !== \"planning\") sync(\"conflict\");"
             , "conflict — C-x C-s overwrite · ESC discard"
             , "if (s.state === \"conflict\" || s.state === \"error\") {"
             , "append(s.scope, \"info\", s.closed);"
             , "closed: \"closed without writing — the file is as it was\","
-            -- And a tab closing on an edited sheet still owes the file.
             , "addEventListener(\"beforeunload\""
             , "post(editing.id, editing.digest, asked(), { keepalive: true }, editing.child)" ] b
-      -- One word carries a sheet's state, `note' is its only writer, and the
-      -- states that wait for a key say which key.  No buttons to reach them
-      -- with.  The retry line is one constant: three copies of it were three
-      -- chances for the header to say a key that is not bound.
+      -- One word carries a sheet's state, `note' is its only writer, and the retry line is one constant.
       holdsAll "sync status"
             [ "synced: \"synced\"", "syncing: \"syncing…\"", "id=\"mnote\""
             , "const RETRY = \" — C-x C-s retry · ESC discard\";"
             , "error: \"error\" + RETRY };"
             , "function note(s, next, message) {", "s.state = next;"
             , "const sync = (next, message) => note(subtreeSheet, next, message);" ] b
-      -- Nothing else writes the word, so no header can disagree with its own
-      -- sheet — one writer over BOTH of them now.
       assertEqual "note is the only writer" 1 (T.count "      s.state = next;" b)
       assertEqual "and the retry line is spelled once" 1
                   (T.count " — C-x C-s retry · ESC discard" b)
@@ -11587,16 +8854,10 @@ pageSpec shell = testGroup "GET /"
       b <- shell
       holdsAll "column"
             [ "height:100vh;box-sizing:border-box;overflow:hidden;"
-            -- One padding, all four sides: the extra top was the fixed corner's
-            -- room and nothing floats over the table's top edge now.
             , "padding:24px;display:flex;flex-direction:column;gap:14px}"
-            -- The table asks for its height and can give it back; the key line
-            -- never gives any of its own up, so a short window squeezes the
-            -- table rather than clipping the line.
+            -- The key line never gives its height up, so a short window squeezes the table rather than clipping the line.
             , "#app{flex:1 1 auto;min-height:0}"
             , "#kbd{flex:none;" ] b
-      -- Table, log, key line, in that order — the pill is fixed and out of the
-      -- column, and the sheet is display:none until it is not.
       let at needle = T.length (fst (T.breakOn needle b))
       assertBool ("app, log, kbd in that order: "
                    <> show (at "id=\"app\"", at "id=\"log\"", at "id=\"kbd\""))
@@ -11610,62 +8871,42 @@ pageSpec shell = testGroup "GET /"
             -- A staged row has no handler and is no offer.
             , "return b && b.handler ? b.seq : null;"
             , "el(\"kbd\").textContent = MAPS.hints" ] b
-      -- Commands, not keys, in the order the line reads them: the table is the
-      -- blob's and each spelling comes out of the one map.
+      -- Commands, not keys, in the order the line reads them: each spelling comes out of the one map.
       hints <- hintsOf b
       assertEqual "the key line's table"
         [ (["next-row", "previous-row"], "rows")
         , (["next-column", "previous-column"], "cells")
-        -- The page pair reads open-then-close, so the line says `[/]' where
-        -- the two above it read forward first.
         , (["previous-page", "next-page"], "pages")
-        -- The one label carrying a second sentence: without it a reader takes
-        -- `<' for a within-page key and never finds out that it climbs.
+        -- Without the second sentence a reader takes `<' for a within-page key and never finds out that it climbs.
         , (["first-row", "last-row"], "first/last row, again = page up/down")
-        -- Beside the movement group: what it sorts by is the column the cell
-        -- keys picked.
         , (["toggle-sort"], "sort")
         , (["org-glance-overview:materialize"], "materialize")
-        -- What a row points AT, beside what it IS: `RET' opens the entry and
-        -- `o' follows it out.
         , (["org-glance-overview:open"], "open link")
-        -- Four keys, one word: the line says `m/u/U/M mark' the way it says
-        -- `n/p rows', since the group is one idea.
         , (["mark-toggle", "unmark", "unmark-all", "mark-all"], "mark")
-        -- The structured commands, beside the keys that choose what they run
-        -- over.
         , (["org-glance-overview:todo"], "state")
         , (["priority-up", "priority-down"], "priority")
         , (["org-agenda-set-tags"], "tags")
         , (["org-glance-overview:schedule", "org-glance-overview:deadline"]
           , "schedule/deadline")
-        -- The one that names no row, so it is beside the others rather than
-        -- among the keys that pick a set.
         , (["org-glance-overview:capture"], "capture")
-        -- `state' runs over the MARKED set; archiving runs over the FLAGGED
-        -- one, and reads as the two steps it is.
+        -- `state' runs over the MARKED set; archiving runs over the FLAGGED one.
         , (["archive-flag"], "flag for archive")
         , (["archive-flag", "org-glance-overview:delete"], "archive flagged")
         , (["filter-rows"], "filter")
         , (["apply-default-filter"], "default view")
-        -- The second canned view, next to the one `g' applies: both are a
-        -- query, and the line says so by putting them together.
         , (["org-glance-agenda"], "agenda")
-        -- The drill, named beside the key that walks back out of it: a reader
-        -- shown only the way in has no way home.
+        -- The drill, named beside the key that walks back out of it: a reader shown only the way in has no way home.
         , (["org-glance-overview:relations"], "references")
         , (["filter-drop-token"], "unmark/drop token/back")
         , (["customize"], "settings")
         , (["quit-window"], "quit")
         ] hints
-      -- And every command it names is one the map binds, in the table scope,
-      -- with a handler behind it.  A hint for anything else is an empty offer.
+      -- Every command it names is one the map binds, in the table scope, with a handler behind it.
       rows <- keymapOf b
       let offered = [ c | (_k, _s, c, Just _h, "table", _help) <- rows ]
       assertEqual "hinted but unbound" []
         [ c | (cs, _label) <- hints, c <- cs, c `notElem` offered ]
       -- No literal key in the line: only the blob knows which key runs what.
-      -- Nor does the transient log repeat what the resident line already says.
       holdsNone "the key line spells a key itself"
                 ["\"n/p rows", "\"j/k rows", "RET materializes"] b
 
@@ -11680,30 +8921,13 @@ pageSpec shell = testGroup "GET /"
                  (not ("TableView.mount(" `T.isInfixOf` body r))
   ]
 
--- | A keymap row as the suite spells it: the keys the dispatch matches, the
--- notation the echo widget shows, the command name, the handler behind it (or
--- none, for a binding no daemon command backs yet), the scope it is live in,
--- and the help line the echo widget adds where the command name is an Emacs
--- name for something narrower.
+-- | A keymap row: the keys the dispatch matches, the notation the echo shows, the command, the handler, the scope, the help.
 type Row = ([T.Text], T.Text, T.Text, Maybe T.Text, T.Text, Maybe T.Text)
 
--- | The shell's keymap, checked as the data it is.  The page carries the map
--- as a JSON blob and its own dispatch parses that blob, so reading it here
--- reads what the browser reads rather than what a grep for handler names would
--- find.
---
--- The expected map is written down rather than imported: the point of the
--- assertion is that the sequences and the org-glance command names are the
--- ones @org-glance-overview-mode-map@ spells, and an oracle taken from the
--- code under test would agree with any of them.
---
--- ONE map.  The movement profiles are gone: @n@\/@j@ both step a row and
--- @f@\/@l@ both step a cell, which is two rows apiece and no selector, no
--- stored choice and no URL parameter.
+-- | The shell's keymap as the data it is.  The expected map is written down rather than imported: an oracle from the code would agree with anything.
 expectedRows :: [Row]
 expectedRows =
-  -- The letters lead: the resident key line shows the first row bound to a
-  -- command, and `n/p rows' reads better there than `<down>/<up> rows'.
+  -- The letters lead: the resident key line shows the first row bound to a command.
   [ (["n"],          "n",       "next-row",                        Just "nextRow",        "table", Nothing)
   , (["p"],          "p",       "previous-row",                    Just "previousRow",    "table", Nothing)
   , (["j"],          "j",       "next-row",                        Just "nextRow",        "table", Nothing)
@@ -11721,8 +8945,6 @@ expectedRows =
   , (["G"],          "G",       "last-row",                        Just "lastRow",        "table", endHelp)
   , (["]"],          "]",       "next-page",                       Just "nextPage",       "table", Nothing)
   , (["["],          "[",       "previous-page",                   Just "previousPage",   "table", Nothing)
-  -- table-view's own key for the same question, in both renderers: `^' sorts by
-  -- the column point is in.
   , (["^"],          "^",       "toggle-sort",                     Just "toggleSort",     "table",
        Just "put this column at the head of the order; again reverses it")
   , (["RET"],        "RET",     "org-glance-overview:materialize", Just "materializeRow", "table", Nothing)
@@ -11744,37 +8966,24 @@ expectedRows =
        Just "mark every row loaded")
   , (["q"],          "q",       "quit-window",                     Just "quitWindow",     "table", Nothing)
   , (["TAB"],        "TAB",     "org-cycle",                       Nothing,               "table", Nothing)
-  -- Where the row points, out of its own subtree.  Two spellings of one
-  -- command, so one help line.
+  -- Two spellings of one command, so one help line.
   , (["o"],          "o",       "org-glance-overview:open",        Just "openLinks",      "table", openHelp)
   , (["!"],          "!",       "org-glance-overview:open",        Just "openLinks",      "table", openHelp)
-  -- A canned VIEW rather than a mode: one query, applied the way `g' applies
-  -- the tree's default.
   , (["A"],          "A",       "org-glance-agenda",               Just "applyAgenda",    "table",
        Just "the active rows carrying a date, earliest first")
-  -- The drill: the rows pointing AT the one at point, applied as a `ref:' view
-  -- with a crumb left behind for DEL to walk back along.
   , (["@"],          "@",       "org-glance-overview:relations",   Just "relations",      "table",
        Just "the rows referring to this one; DEL walks back")
-  -- The one write that names no row: it makes one, in the tree's own inbox.
   , (["+"],          "+",       "org-glance-overview:capture",     Just "capture",        "table",
        Just "a headline for the inbox, typed as org")
-  -- dired's flag, in two presses: the first marks the row for archiving and the
-  -- second does it.  Plain @d@ is never a write on its own.
   , (["d"],          "d",       "archive-flag",                    Just "archiveFlag",    "table",
        Just "flag for archive; d again archives all flagged")
-  -- org-glance's own name for dired's key, and a help line because the name
-  -- covers TWO steps: a live row is TAGGED, and a row already carrying the tag
-  -- is one step from gone, so the same key takes that step over it.
+  -- org-glance's own name for dired's key, with a help line because the name covers TWO steps.
   , (["D"],          "D",       "org-glance-overview:delete",      Just "archiveRows",    "table",
        Just "archive the flagged; an already-archived row deletes, on a typed word")
-    -- Org's own priority keys, and they CYCLE: a ring of three plus none, so a
-    -- dired's OTHER half of the pair: `D' is the quick one and takes the row at
-    -- point where nothing is flagged; `x' takes the FLAGS alone and asks first,
-    -- naming the count.
+    -- dired's OTHER half of the pair: `x' takes the FLAGS alone and asks first, naming the count.
   , (["x"],          "x",       "dired-do-flagged-delete",         Just "flaggedDelete",  "table",
        Just "act on the flagged rows, after asking; d flags, D is the quick one")
-    -- press is the answer where a palette would be a list of three to read.
+    -- Org's own priority keys, and they CYCLE: a ring of three plus none, so a press is the answer.
   , (["S-<up>"],     "S-<up>",  "priority-up",                     Just "priorityUp",     "table",
        Just "cycle the priority of the marked rows, or the row at point")
   , (["S-<down>"],   "S-<down>", "priority-down",                  Just "priorityDown",   "table",
@@ -11783,18 +8992,15 @@ expectedRows =
        Just "set the state of the marked rows, or the row at point")
   , (["C-c", "C-t"], "C-c C-t", "org-glance-overview:todo",        Just "setState",       "table",
        Just "the org spelling, where the browser lets it through")
-  -- The agenda's own key for the same question over there, and the one palette
-  -- that stays up: managing tags is several ops where setting a state is one.
+  -- The one palette that stays up: managing tags is several ops where setting a state is one.
   , ([":"],          ":",       "org-agenda-set-tags",             Just "manageTags",     "table",
        Just "add or drop tags over the marked rows, or the row at point")
-  -- Both of these survive the browser where @C-c C-t@ does not: @Ctrl+S@ and
-  -- @Ctrl+D@ are page default actions rather than chrome shortcuts.
+  -- Both of these survive the browser where @C-c C-t@ does not: they are page default actions.
   , (["C-c", "C-s"], "C-c C-s", "org-glance-overview:schedule",    Just "schedulePlan",   "table",
        planHelp)
   , (["C-c", "C-d"], "C-c C-d", "org-glance-overview:deadline",    Just "deadlinePlan",   "table",
        planHelp)
-  -- Emacs's own name, since org-glance has no settings command and inventing
-  -- one would put a name in this table that no map anywhere carries.
+  -- Emacs's own name, since org-glance has no settings command and inventing one would put a name in this table no map carries.
   , ([","],          ",",       "customize",                       Just "openSettings",   "table",
        Just "the settings sheet: general, theme, keyword cycles")
   , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "modal",
@@ -11813,35 +9019,25 @@ expectedRows =
         planHelp  = Just "a date over the marked rows, or the row at point; empty clears it"
         openHelp  = Just "open links: the row here, the element in the sheet; several list them"
 
--- | The keymap blob out of SHELL, parsed.  Everything the dispatch reads is in
--- here, so the assertions below are over data rather than over the spelling of
--- a JS literal.
 blobOf :: T.Text -> IO Value
 blobOf shell = keysOf shell >>= \raw ->
   either (\e -> assertFailure ("keymap JSON: " <> e)) pure
          (eitherDecode (BL.fromStrict (TE.encodeUtf8 raw)))
 
--- | SHELL's keymap blob as it stands in the page, undecoded — what the glue
--- itself parses out of the document.
 keysOf :: T.Text -> IO T.Text
 keysOf shell = maybe (assertFailure "no keymap blob in the shell") pure
                      (between "<script id=\"keys\" type=\"application/json\">" "</script>" shell)
 
--- | The resident key line's table out of SHELL: the commands it names, in the
--- order the line reads them, each with its label.
 hintsOf :: T.Text -> IO [([T.Text], T.Text)]
 hintsOf shell = traverse one =<< listAt "hints" =<< blobOf shell
   where one v = (,) <$> textsAt "commands" v <*> textAt "label" v
 
--- | The chords SHELL's blob declares never claimed.
 reservedOf :: T.Text -> IO [T.Text]
 reservedOf shell = textsAt "reserved" =<< blobOf shell
 
--- | The commands SHELL's blob declares auto-repeat is off for.
 onceOf :: T.Text -> IO [T.Text]
 onceOf shell = textsAt "once" =<< blobOf shell
 
--- | The keymap blob out of SHELL: the one row list the dispatch reads.
 keymapOf :: T.Text -> IO [Row]
 keymapOf shell = traverse row =<< listAt "rows" =<< blobOf shell
   where
@@ -11849,15 +9045,6 @@ keymapOf shell = traverse row =<< listAt "rows" =<< blobOf shell
                     <*> maybeTextAt "handler" v <*> textAt "scope" v
                     <*> maybeTextAt "help" v
 
--- | The shell's inline glue, on its own — what a syntax check is run over.
--- | The shell's script is a FILE now
--- (docs/proposals/2026-08-05-glue-extraction.done.md): the
--- page names it in a src tag and the bytes are the committed asset's, so the
--- sweeps read the source of the embed rather than scraping served HTML.  The
--- page argument stays so every caller still proves it served a shell first.
--- | The glue with its comment lines dropped: the sweeps count and forbid
--- CODE, and the extraction moved ~1.9k comment lines into the file — prose
--- that mentions `scrollIntoView' must not count as a call.
 stripGlueComments :: T.Text -> T.Text
 stripGlueComments =
   T.unlines . filter (not . T.isPrefixOf "//" . T.stripStart) . T.lines
@@ -11867,21 +9054,14 @@ glueOf shell = do
   assertBool "the page names glue.js" ("src=\"glue.js\"" `T.isInfixOf` shell)
   stripGlueComments <$> glueSource
 
--- | The Elm programs as the build embeds them, asserted to be the script the
--- page names.  Read off disk rather than out of the served page: a committed
--- build input like the renderer, refreshed by @make elm@.
 elmOf :: T.Text -> IO T.Text
 elmOf shell = do
   assertBool "the page names elm.js" ("src=\"elm.js\"" `T.isInfixOf` shell)
   TIO.readFile "assets/elm.js"
 
--- | The shell as the build reads it: the parts, in `gluePartFiles`' order.
 glueSource :: IO T.Text
 glueSource = T.concat <$> mapM (TIO.readFile . ("assets/glue" </>)) gluePartFiles
 
--- | The configuration blob the glue boots from, as served: the JSON between
--- the cfg script tags, which the node boots hand to the harness beside the
--- keymap's.
 cfgOf :: T.Text -> IO T.Text
 cfgOf shell = maybe (assertFailure "no cfg blob in the shell") pure
                     (between "<script id=\"cfg\" type=\"application/json\">"
@@ -11898,16 +9078,9 @@ keymapSpec shell = testGroup "Shell keymap"
       holdsNone "a movement profile"
         [ "MAPS.profiles", "MAPS.default", "\"profiles\":", "\"shared\":"
         , "glance-keys", "keysel", "setProfile", "?keys=" ] b
-      -- The dispatch and the key line read the one list.
       holdsAll "the one list" ["MAPS.rows.filter(live)", "MAPS.rows.find("] b
 
-    -- The echo speaks the FUNCTION NAME, verbatim.  A rebinding config will
-    -- address a command by exactly this string, so a reader who learns one off
-    -- the pill has to be able to type it — which rules out the prose spelling
-    -- (`> → last row' for `last-row').  Two halves, and together they close it:
-    -- every emission puts `${b.command}' in the slot after the arrow, and no
-    -- command in the blob carries a space, so the slot cannot hold prose.  What
-    -- follows is a bracketed outcome and is prose on purpose.
+    -- The echo speaks the FUNCTION NAME, verbatim: a rebinding config addresses a command by exactly this string.
   , testCase "every echo names the command it ran, verbatim" $ do
       inline <- glueOf =<< shell
       let after = drop 1 (T.splitOn "${b.seq} → " inline)
@@ -11916,9 +9089,7 @@ keymapSpec shell = testGroup "Shell keymap"
                  (not (null slots))
       assertEqual "an arrow slot that is not the command" []
                   [ s | s <- slots, not ("${b.command}" `T.isPrefixOf` s) ]
-      -- The one echo written without a binding in hand names its command too.
-      -- It is written ONCE for the four surfaces, so the slot after the arrow is
-      -- the literal command and what varies is the bracketed outcome behind it.
+      -- The one echo written without a binding in hand names its command too, once for the four surfaces.
       assertContains "ESC's own echo"
                      "ESC → keyboard-quit (${what} unchanged)" inline
       rows <- keymapOf =<< shell
@@ -11929,13 +9100,11 @@ keymapSpec shell = testGroup "Shell keymap"
       rows <- keymapOf =<< shell
       let bound = [ k | (k, _, _, _, _, _) <- rows ]
           twice = [ k | k <- nub bound, length (filter (== k) bound) > 1 ]
-          -- A complete sequence that also opens a longer one would match first
-          -- and leave the longer one unreachable.
+          -- A complete sequence that also opens a longer one would match first and leave the longer unreachable.
           eaten = [ (k, l) | k <- bound, l <- bound, k /= l, k == take (length k) l ]
       assertEqual "bound twice" [] twice
       assertEqual "swallows a longer sequence" [] eaten
-      -- Two spellings of one command is the point of the unified map, so the
-      -- pairs are asserted rather than left to the absence of a duplicate.
+      -- Two spellings of one command is the point, so the pairs are asserted rather than left to an absence.
       assertEqual "row movement has both spellings, the letter first"
         [["n"], ["j"], ["<down>"]]
         [ k | (k, _s, c, _h, _scope, _help) <- rows, c == "next-row" ]
@@ -11943,45 +9112,28 @@ keymapSpec shell = testGroup "Shell keymap"
         [["f"], ["l"], ["<right>"]]
         [ k | (k, _s, c, _h, _scope, _help) <- rows, c == "next-column" ]
 
-    -- THERE IS NO STATUS CORNER.  What it held is said twice over without it —
-    -- the socket's state is the stale wash and the strip's own `ws' lines — and
-    -- what it cost was a fixed box, a z-level, a top padding to keep clear of,
-    -- and the standing hazard of a control put there: outside a popup, one that
-    -- keeps the focus eats `n' and `p' as type-ahead.  Asserted as an ABSENCE,
-    -- so the box cannot come back by another name and bring the rule with it.
+    -- THERE IS NO STATUS CORNER, asserted as an ABSENCE so the box cannot come back by another name.
   , testCase "the page has no status corner, and nothing focusable outside a popup" $ do
       b <- shell
       holdsNone "the shell"
         [ "id=\"corner\"", "#corner", "id=\"dot\"", "#dot", "dot(\"live\")"
         , "dot(\"down\")", "dot(\"wait\")", "id=\"gear\"", "#gear" ] b
-      -- Every control the page carries is inside one of the popups, which is
-      -- what makes the sheet's one `blur()' on close the whole focus rule.  The
-      -- page's own COLUMN — table, log, key line — is what the popups are not,
-      -- and it holds nothing a browser will focus.
+      -- The page's own COLUMN — table, log, key line — is what the popups are not, and it holds nothing focusable.
       column <- maybe (assertFailure "no modal band in the shell") pure
                       (between "<body>" "<div id=\"modal\">" b)
       holdsNone "the page's column"
         ["<select", "<input", "<textarea", "<button", "<a "] column
-      -- And what follows the popups: the echo pill, which is a readout, up to
-      -- the first script.  Both ends of the markup are swept, so a control can
-      -- be added neither above the overlays nor below them.
+      -- Both ends of the markup are swept, so a control can be added neither above the overlays nor below them.
       after <- maybe (assertFailure "no keymap blob in the shell") pure
                      (between "<div id=\"echo\"" "<script id=\"keys\"" b)
       holdsNone "under the popups"
         ["<select", "<input", "<textarea", "<button", "<a "] after
-      -- And the theme lives in the settings sheet, under its own panel.
       sheet <- maybe (assertFailure "no settings sheet in the shell") pure
                      (between "<div id=\"config\">" "<div id=\"echo\"" b)
       holdsAll "the theme panel" ["id=\"ctheme\"", "id=\"themesel\""] sheet
-      -- No control gives the keys back on its own change: the sheet does it once
-      -- when it closes, so there is no per-control `blur()' left to keep in step.
       holdsNone "the shell" ["e.target.blur();"] b
 
-    -- The panels are a list of headers joined to the markup BY ID, and the join
-    -- is the one thing a string can get wrong: a `parts' id the markup does not
-    -- carry throws at boot and takes the whole inline script with it, and the
-    -- harness cannot see it (its stub answers every id).  So the ids are read
-    -- back out of the list the page ships and checked against the page.
+    -- A `parts' id the markup does not carry throws at boot and takes the inline script with it, and the harness cannot see it.
   , testCase "every panel body the sections list names is an id the markup carries" $ do
       b <- shell
       let named = concatMap quotedIn (drop 1 (T.splitOn "parts: [" b))
@@ -11993,13 +9145,10 @@ keymapSpec shell = testGroup "Shell keymap"
 
   , testCase "the view title is the tab's alone, and nothing on the page repeats it" $ do
       b <- shell
-      -- The table is the top of the page; a heading repeating the tab title put
-      -- the same string on screen twice.
       assertContains "palette" "palette: true," b
       assertBool ("a heading survives in the shell: " <> show (between "<h1>" "</h1>" b))
                  (not ("<h1>" `T.isInfixOf` b))
-      -- Written down rather than taken from the code that writes it into the
-      -- page: an oracle calling 'viewTitleFor' agrees with whatever it returns.
+      -- Written down rather than taken from the code: an oracle calling 'viewTitleFor' agrees with whatever it returns.
       assertEqual "the tab title" "test/fixtures/view — glance" (viewTitleFor viewDir)
       assertEqual "the title, once in the document" 1
                   (T.count "test/fixtures/view — glance" b)
@@ -12007,25 +9156,17 @@ keymapSpec shell = testGroup "Shell keymap"
   , testCase "the prefix keys are claimed only where they are ours" $ do
       b <- shell
       holdsAll "chord policy"
-        -- A selection keeps C-c and C-x as copy and cut; the reserved chords
-        -- reach the browser when they abandon a claimed prefix, which is why
-        -- neither profile moves on C-n or C-p.
+        -- A selection keeps C-c and C-x as copy and cut; the reserved chords reach the browser when they abandon a prefix.
         [ "if (!selecting()) { e.preventDefault();"
         , "if (MAPS.reserved.indexOf(k) === -1) e.preventDefault();" ] b
       reservedOf b >>= assertEqual "the chords never claimed on their own"
         ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
-      -- None of them is bound, so the guard is the only thing that decides.
       rows <- keymapOf b
       reserved <- reservedOf b
       assertEqual "a reserved chord is bound" []
         [ k | (k, _s, _c, _h, _scope, _help) <- rows, k `elem` map pure reserved ]
 
-    -- REPEAT IS DERIVED, never just read: WebKitGTK's auto-repeat arrives
-    -- with `repeat' unset, which read as a fresh press at every ONCE guard —
-    -- a held DEL stripped the whole query, and a held `d' would have flagged
-    -- and archived in one press.  `stuck:' is that lying event: keydown, no
-    -- keyup, `repeat' false.  Two of them are one held key by the missing
-    -- release alone.
+    -- REPEAT IS DERIVED, never just read: WebKitGTK's auto-repeat arrives with `repeat' unset.
   , keyedAt shell "?q=tag%3Awork%20state%3ATODO" 500
       "a held DEL strips one token, even when the event lies"
       "" "stuck:Backspace stuck:Backspace" $ \answer ->
@@ -12044,9 +9185,6 @@ keymapSpec shell = testGroup "Shell keymap"
 
   , testCase "the writes are the commands auto-repeat is off for" $ do
       b <- shell
-      -- `d' most of all: a held key that survived here would flag a row and
-      -- archive it from ONE press, which is the confirmation the two-press
-      -- shape exists to be.
       onceOf b >>= assertEqual "once" onceNames
       rows <- keymapOf b
       once <- onceOf b
@@ -12056,9 +9194,7 @@ keymapSpec shell = testGroup "Shell keymap"
   , testCase "the inline glue is JavaScript, where there is a node to say so" $ do
       node <- findExecutable "node"
       case node of
-        -- No node on this machine: the syntax of the glue is checked wherever
-        -- there is one, and the rest of this group still reads it as text.  The
-        -- skip SAYS so, as every other one here does.
+        -- The syntax of the glue is checked wherever there is a node, and the skip SAYS so.
         Nothing  -> hPutStrLn stderr "\nSKIPPED - node is not on PATH: glue syntax"
         Just exe -> withTempDir $ \dir -> do
           inline <- glueOf =<< shell
@@ -12068,16 +9204,7 @@ keymapSpec shell = testGroup "Shell keymap"
           assertEqual ("node --check said: " <> err) ExitSuccess code
   ]
 
--- | A LETTER IS A PHYSICAL KEY, so a keyboard writing another alphabet drives
--- this page.  The rule lives in @keyName@ alone — the one function every
--- listener names a press through — and the split it draws is the whole of it:
--- @KeyA@..@KeyZ@ answer as the letter that key sits at, and everything else is
--- the CHARACTER @e.key@ reported, punctuation included.
---
--- The presses here carry both halves the way a browser delivers them: @т%KeyN@
--- is ЙЦУКЕН's @т@ on the key a Latin layout writes @n@ on.  Every OTHER case in
--- this file presses a character with no @code@ at all, which is the fallback
--- half — a browser that sends none, and the suite's own events.
+-- | A LETTER IS A PHYSICAL KEY: @KeyA@..@KeyZ@ answer as the letter that key sits at, and everything else is @e.key@'s character.
 layoutSpec :: IO T.Text -> TestTree
 layoutSpec shell = testGroup "Shell layout"
   [ -- The complaint this answers: a reader with the Cyrillic layout up pressed
@@ -12085,8 +9212,7 @@ layoutSpec shell = testGroup "Shell layout"
     keyed shell "a Cyrillic press moves on the key the letter sits at"
       "т%KeyN т%KeyN" "" $ \answer -> do
         rowIs "two rows down" "r3" answer
-        -- The pill speaks the BINDING's own spelling, which is what says the
-        -- press resolved to the map rather than to the character.
+        -- The pill speaks the BINDING's own spelling, which says the press resolved to the map.
         echoIs "under the map's own name for the key" "n → next-row" answer
 
   , keyed shell "and both movement dialects are the keys they sit at"
@@ -12094,9 +9220,7 @@ layoutSpec shell = testGroup "Shell layout"
         rowIs "down twice on vim's pair, back up once" "r2" answer
         echoIs "the last press" "k → previous-row" answer
 
-    -- SHIFT IS THE UPPERCASE BINDING rather than an `S-' modifier, which is
-    -- what keeps `d' and `D' the two rows they are: one flags and the other
-    -- writes, and a layout must not be able to collapse them into each other.
+    -- SHIFT IS THE UPPERCASE BINDING rather than an `S-' modifier, which keeps `d' and `D' two rows.
   , testCase "shift picks the uppercase binding, and the lowercase one stays its own" $ do
       bootOf shell "" 500 "в%KeyD" "" $ \answer -> do
         assertEqual "the row is flagged and nothing is written" [] =<< postedOf answer
@@ -12108,17 +9232,12 @@ layoutSpec shell = testGroup "Shell layout"
         echoIs "and names the command it ran"
           "D → org-glance-overview:delete (archived · row)" answer
 
-    -- PUNCTUATION IS THE CHARACTER.  `:' is Shift+Semicolon on a US layout and
-    -- Shift+Digit6 on the Russian one — there is no position to bind — so the
-    -- character is the honest answer and the key reaches the tag palette from
-    -- either.
+    -- PUNCTUATION IS THE CHARACTER: there is no position to bind, `:' sitting on a different key per layout.
   , keyed shell "punctuation answers to the character, whatever key it sits on"
       "S-:%Digit6" "" $ \answer -> do
         assertEqual "the tag popup is up" "on" =<< textAt "tagpop" answer
         assertEqual "over the row at point" "tags · 1 row" =<< textAt "thead" answer
 
-    -- A chord's second key is a letter, so it comes through the same door: the
-    -- reserved-chord rule is unmoved and both presses are still claimed.
   , keyed shell "a chord completes on the physical key too" "C-c C-е%KeyT" "" $ \answer -> do
         assertEqual "the palette is up" "on" =<< textAt "prompt" answer
         assertEqual "resolved for the row the command names"
@@ -12126,19 +9245,13 @@ layoutSpec shell = testGroup "Shell layout"
         assertEqual "and neither chord was left to the browser"
                     ["C-c", "C-е%KeyT"] =<< textsAt "prevented" answer
 
-    -- The which-key letters are `keyName''s too, and the pool is a-z by
-    -- construction — so a Cyrillic press arrives already spelled in the
-    -- alphabet the palette assigned from, and the letter commits.
   , keyed shell "a palette letter commits from a Cyrillic press"
       "t" "press:е%KeyT" $ \answer -> do
         assertEqual "one set-state over the row at point"
                     [("set-state", ["r1"])] =<< postedOf answer
         assertEqual "as the keyword that letter names" [Just "TODO"] =<< keywordsOf answer
 
-    -- A FIELD KEEPS ITS CHARACTERS.  The dispatch runs outside `typing()' and
-    -- the fallback field claims arrows and RET alone, so a letter over one is
-    -- neither a command nor a commit — it is text, and the page leaves the
-    -- press to it.
+    -- A FIELD KEEPS ITS CHARACTERS: the dispatch runs outside `typing()' and the fallback field claims arrows and RET alone.
   , keyed shell "a focused field is left the character it was sent"
       "t /" "press:т%KeyN" $ \answer -> do
         assertEqual "the palette is in its typing mode" "narrow" =<< textAt "pmode" answer
@@ -12147,24 +9260,15 @@ layoutSpec shell = testGroup "Shell layout"
         assertBool "the key was left to the field"
           . notElem "т%KeyN" =<< textsAt "prevented" answer
 
-    -- The other half of the split, pressed: a `code' the rule does not read.
   , keyed shell "a press carrying no code at all is the character it always was"
       "n j" "" $ rowIs "two rows down" "r3"
 
-    -- The split is one function's, and this is what says so: the RAW event
-    -- fields are read inside `keyName' and nowhere else, so the dispatch, the
-    -- sheet, the value palette and the popups cannot answer the question their
-    -- own way — they name a press or they have no name for it.  Asserted as an
-    -- absence over the glue with that function cut out of it, which no count of
-    -- readers could say.
+    -- The RAW event fields are read inside `keyName' and nowhere else, asserted as an absence over the glue with it cut out.
   , testCase "the raw event is read in one place, and every listener inherits it" $ do
       inline <- glueOf =<< shell
       named <- maybe (assertFailure "no keyName in the glue") pure
                      (between "function keyName(e) {" "\n    }" inline)
-      -- `keyToken' is keyName's one sibling: the derived-repeat set is keyed
-      -- by the PHYSICAL key for keyName's own reason — a shift released
-      -- mid-hold changes `e.key' and not the key — so the raw event has two
-      -- sanctioned readers, both spelled here and nothing else.
+      -- `keyToken' is keyName's one sibling, keyed by the PHYSICAL key: a shift released mid-hold changes `e.key' and not the key.
       token <- maybe (assertFailure "no keyToken in the glue") pure
                      (between "const keyToken = (e) =>" ";" inline)
       holdsAll "the letter rule" ["const LETTER = /^Key([A-Z])$/;"] inline
@@ -12174,16 +9278,13 @@ layoutSpec shell = testGroup "Shell layout"
         ["e.code", "e.key"] (T.replace token "" (T.replace named "" inline))
   ]
 
--- | What a coarse pointer gets, and what a fine one is spared.  Keys are the
--- interface wherever there are keys; a touch device is the one place they
--- cannot reach, so the filter earns a tap target there and nowhere else.
+-- | What a coarse pointer gets: a touch device is the one place keys cannot reach.
 touchSpec :: IO T.Text -> TestTree
 touchSpec shell = testGroup "Touch"
   [ testCase "every page this server serves lays out at the device's own width" $ do
       withAssets <- shell
       bare <- body <$> get missingAssetsDir "/"
-      -- Without it a phone lays the page out at 980px and scales it down, so
-      -- the table renders at a third of the size it asked for.
+      -- Without it a phone lays the page out at 980px and scales it down.
       mapM_ (\(what, page') ->
                assertContains what
                  "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
@@ -12192,14 +9293,9 @@ touchSpec shell = testGroup "Touch"
 
   , testCase "a fine pointer sees none of it" $ do
       b <- shell
-      -- Everything above is inside the query, and the handler asks the same
-      -- query before it runs: with a mouse the page is what it always was.
       let (before, coarse') = T.breakOn "@media (pointer:coarse){" b
       assertBool "no coarse block in the page" (not (T.null coarse'))
-      -- EACH NEEDLE IS WITNESSED INSIDE THE BLOCK FIRST.  An absence over a
-      -- string the page cannot hold is a test that can never fail, which is what
-      -- the 16px one had become: the field roll grew and `#mtext,#pinput{' with
-      -- it, so the needle named a rule that no longer exists anywhere.
+      -- EACH NEEDLE IS WITNESSED INSIDE THE BLOCK FIRST: an absence over a string the page cannot hold can never fail.
       mapM_ (\needle -> do
                assertBool ("the query does not carry it: " <> show needle)
                           (needle `T.isInfixOf` coarse')
@@ -12210,7 +9306,6 @@ touchSpec shell = testGroup "Touch"
                   (T.count "@media (pointer:coarse){" b)
   ]
 
--- | The shell is monospace, and gets there without asking the network for it.
 shellFontSpec :: IO T.Text -> TestTree
 shellFontSpec shell = testGroup "Shell type"
   [ testCase "a font in the assets directory is declared and served" $
@@ -12232,7 +9327,6 @@ shellFontSpec shell = testGroup "Shell type"
             [("the shell", withAssets), ("the JSON-only page", bare)]
   ]
 
--- | Assets come out of the configured directory, and only from there.
 assetSpec :: TestTree
 assetSpec = testGroup "Assets"
   [ testCase "the renderer is served as JavaScript" $ do
@@ -12249,10 +9343,7 @@ assetSpec = testGroup "Assets"
       assertEqual "status" 404 (status r)
   ]
 
--- | The renderer the binary carries.  Without @--assets@ there is no directory
--- to find and nothing to find it in: a @glance@ copied anywhere serves the same
--- page, which is what makes @--assets@ a development flag rather than the way
--- the program is normally run.
+-- | The renderer the binary carries, which is what makes @--assets@ a development flag rather than the normal way to run.
 embeddedSpec :: TestTree
 embeddedSpec = testGroup "Embedded renderer"
   [ testCase "with no --assets, /table-view.js is the vendored file byte for byte" $ do
@@ -12260,8 +9351,7 @@ embeddedSpec = testGroup "Embedded renderer"
       vendored <- BS.readFile vendoredRenderer
       assertEqual "the bytes `make sync-renderer' put in the tree"
                   vendored (BL.toStrict (simpleBody r))
-      -- Big enough that a truncated or placeholder embed cannot pass the
-      -- comparison above by both sides being empty.
+      -- Big enough that a truncated or placeholder embed cannot pass by both sides being empty.
       assertBool "and it is a renderer" (BS.length vendored > 100000)
 
   , testCase "served with the content type and the length a file would be" $ do
@@ -12294,8 +9384,7 @@ embeddedSpec = testGroup "Embedded renderer"
       assertBool "which is not the compiled-in one" (stub /= vendored)
 
   , testCase "with no --assets the renderer is the only asset there is" $ do
-      -- Nothing else is compiled in, so nothing else can be asked for: the
-      -- font stays an `--assets' affordance and is not invented here.
+      -- Nothing else is compiled in: the font stays an `--assets' affordance and is not invented here.
       mapM_ (\name -> do r <- getBuiltIn name
                          assertEqual (show name) 404 (status r))
             ["/table-view.css", "/JetBrainsMono-Regular.woff2", "/.."]

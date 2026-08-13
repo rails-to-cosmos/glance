@@ -1,8 +1,7 @@
 module TestSpans (spec) where
 
 import Data.Maybe (isJust)
--- The suite's own 'headlinesOf' is the oracle these groups read; see
--- 'TestDefaults'.
+-- The suite's own 'headlinesOf' is the oracle these groups read; see 'TestDefaults'.
 import Data.Org hiding (headlinesOf)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -12,9 +11,7 @@ import TestDefaults ( assertParts, bareParse, headlinesOf, parsedIn, presentSpan
                     , propertyKeys, titled )
 import qualified TextShow as TS
 
--- Test inputs
 
--- | A document and the label its assertions carry.
 data Case = Case { caseName :: !String, caseInput :: !Text }
 
 mixedDocument :: Text
@@ -33,8 +30,7 @@ clockDocument = T.intercalate "\n"
   , "SCHEDULED: <2024-01-15 Mon>--<2024-01-19 Fri>"
   ]
 
--- | A planning line whose keywords run opposite to the record's field order,
--- so the span table has to sort them back into source order.
+-- | Planning keywords in the opposite order to the record's fields.
 planningDocument :: Text
 planningDocument = T.intercalate "\n"
   [ "* TODO Task :x:"
@@ -78,31 +74,25 @@ cases =
   , Case "indented drawer"                  "* H\n  :PROPERTIES:\n  :K: v  \n  :END:  "
   ]
 
--- Helpers
 
--- | Run K over the elements and final context of CASE, failing on a parse error.
 onDoc :: Case -> (Text -> Context -> [Spanned Element] -> Assertion) -> TestTree
 onDoc c k = testCase (caseName c) $ do
   (elems, ctx) <- parsedIn (caseName c) (caseInput c)
   k (caseInput c) ctx elems
 
--- | Every sub-span H carries, sliced out of INPUT, in source order.
 slicesOf :: Text -> Headline -> [(String, Text)]
 slicesOf input h = [ (label, sliceSpan input s) | (label, s) <- presentSpans h ]
 
--- | H's planning components: label, span, and the timestamp stored under it.
 planningParts :: Headline -> [(Text, Maybe Span, Maybe Timestamp)]
 planningParts h = [ ("hsSchedule", hsSchedule hs, schedule h)
                   , ("hsDeadline", hsDeadline hs, deadline h)
                   , ("hsClosed",   hsClosed hs,   closed h) ]
   where hs = spans h
 
--- | Describe LABEL of headline H inside INPUT for an assertion message.
 about :: Text -> Headline -> String -> String
 about input h label =
   label <> " of " <> show (TS.showt h) <> " in " <> show input
 
--- | Parse SLICE in CTX, expecting exactly EXPECTED modulo spans.
 assertReparse :: String -> Context -> Element -> Text -> Assertion
 assertReparse label ctx expected slice = case orgParse ctx slice of
   (_, _, Just _err) -> assertFailure (label <> ": parse error reparsing " <> show slice)
@@ -111,19 +101,11 @@ assertReparse label ctx expected slice = case orgParse ctx slice of
                 [stripSpans expected]
                 (map (stripSpans . valueOf) elems)
 
--- Assertions
 
--- | Every present sub-span slices back to the component it stands for, and
--- every component the headline carries has a sub-span: a dropped one would
--- leave the slice assertions with nothing to check.  Planning spans get the
--- exact check 'headlineSpanParts' cannot state, having no parser to hand: the
--- slice re-parses to the very timestamp the headline stores.
---
--- Each predicate is checked against text that is not the component too.  The
--- predicates are the span spec, and this suite is what reads it: one that
--- accepted anything would leave every slice assertion here — and the scan's
--- @slice-mismatch@ report, which reads the same list — passing over any span at
--- all.  'literalSlicesSpec' pins the slices themselves.
+-- | Every present sub-span slices back to its component, and every component
+-- carried has a sub-span.  Each predicate is also checked against text that is
+-- NOT the component: one that accepted anything would leave every slice
+-- assertion here passing.  'literalSlicesSpec' pins the slices themselves.
 assertSlices :: Text -> Headline -> Assertion
 assertSlices input h = do
   assertParts say input h
@@ -204,7 +186,6 @@ assertOrdered label parts = mapM_ check (zip parts (drop 1 parts))
           assertBool (label <> ": " <> na <> " must end before " <> nb <> " starts")
                      (spanEnd a <= spanStart b)
 
--- Spec
 
 spec :: TestTree
 spec = testGroup "Spans"
@@ -233,10 +214,8 @@ spec = testGroup "Spans"
     | c <- cases ]
   ]
 
--- | What each fixture's first headline slices to, spelled out: the fixture's
--- name, and its sub-spans in source order.  'assertSlices' checks a span
--- against the headline's own components, so a span and the component it stands
--- for can only move together; these literals are what a move has to agree with.
+-- | What each fixture's first headline slices to, spelled out — an INDEPENDENT
+-- oracle, since 'assertSlices' lets a span and its component move together.
 literalCases :: [(String, [(String, Text)])]
 literalCases =
   [ ( "todo, priority, title and tags"
@@ -250,8 +229,7 @@ literalCases =
   , ( "unicode title and tags"
     , [ ("hsTodo", "TODO"), ("hsTitle", "Привет мир"), ("hsTags", ":тег:") ] )
 
-  -- The drawer runs from the line start of ":PROPERTIES:" through ":END:", so
-  -- an indented one keeps its indent and neither keeps what follows.
+  -- The drawer runs from the line start of ":PROPERTIES:" through ":END:".
   , ( "property drawer"
     , [ ("hsTitle", "Hello")
       , ("hsProperties", ":PROPERTIES:\n:TITLE: New title\n:END:") ] )
@@ -314,12 +292,9 @@ trailingWhitespaceSpec = testGroup "Trailing whitespace"
                   [EHeadline (titled "H") { properties = drawer }]
                   (bareParse defaultContext "* H\n  :PROPERTIES:\n  :K: v  \n  :END:  ")
 
-    -- A TITLE MAY CARRY A TIMESTAMP, and `TextShow' recomputes a weekday — so a
+    -- A TITLE MAY CARRY A TIMESTAMP, and `TextShow' recomputes a weekday, so a
     -- source stamp with none renders one word longer than the slice it came
-    -- from.  The predicate compares BRACKETED RUNS collapsed, which is
-    -- `timestampSlice''s reasoning one field along: what a render recomputes is
-    -- not what a span is asked about.  Found by the corpus at 0 violations for
-    -- nine days, the moment a note carried `[2026-08-11]' in a heading.
+    -- from.  The predicate compares BRACKETED RUNS collapsed.
   , testCase "a title carrying a bracketed date slices back" $ do
       let slicesBack input = do
             (elems, _ctx) <- parsedIn "title stamp" input
@@ -327,8 +302,7 @@ trailingWhitespaceSpec = testGroup "Trailing whitespace"
       slicesBack "* Decided [2026-08-11]\nbody\n"
       slicesBack "* Decided [2026-08-11 Tue]\nbody\n"
       slicesBack "* Met <2026-08-11> and <2026-08-12 Wed> both\n"
-      -- And the prose half is still compared word for word: `assertSlices'
-      -- asserts each predicate REFUSES a slice that is not the component.
+      -- And the prose half is still compared word for word.
       slicesBack "* Plain title\n"
 
   , testCase "spans stop before the trailing space" $ do
@@ -357,8 +331,7 @@ clockRangeSpans = onDoc (Case "ranges span both halves" clockDocument) check
       es -> assertFailure ("expected two ranges, got " <> show (length es))
     ranges elems = [e | e <- elems, ETimestamp t <- [valueOf e], isJust (tsEnd t)]
 
--- | Stars alone carry no component: every sub-span is absent and 'hsFull'
--- covers the stars, not the space after them.
+-- | Stars alone carry no component; 'hsFull' covers the stars, not the space.
 starsOnlySpans :: TestTree
 starsOnlySpans = onDoc (Case "stars alone carry no sub-span" "* ") check
   where

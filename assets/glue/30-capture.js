@@ -1,16 +1,10 @@
-// THE CAPTURE FORM AND THE VALUE PALETTE, behind an argument list
-// (docs/proposals/2026-08-08-widget-files.partial.md, step C).  What it takes
-// from the shell and the sheet -- the applied query, the view's columns, the
-// entry on show, and where point is owed after a capture -- arrives as
-// accessors, since a handle cannot carry a `let'.
+// THE CAPTURE FORM AND THE VALUE PALETTE, behind an argument list (AGENTS.hs).
+// What it takes from the shell arrives as accessors: a handle cannot carry a `let'.
 const Capture = ((deps) => {
     const { CFG, EMPTY, active, append, askFailed, badgeColor, cells, docTitle, el,
             failed, fire, getJSON, headline, keyName, part, planning, postCommand,
             said, shown, targetOf, targets } = deps;
     const { queryNow, colsNow, entryNow, arrivingNow, setArriving } = deps;
-    // THE FORM'S OWN STATE, which the step-B seam had left in the sheet's file
-    // (docs/proposals/2026-08-08-widget-files.partial.md): it is up or it is
-    // not, and shutting it empties the fields the form itself drew.
     let capping = null;   // the capture form's state while it is up
     const capUp = () => !!capping;
     function shutCapture() {
@@ -345,7 +339,6 @@ const Capture = ((deps) => {
       prompting && !prompting.text && narrowTo(targetOf(e).value));
     el("prompt").addEventListener("click", (e) =>
       { if (e.target === el("prompt")) unask(); });
-    // A starred meta (AGENTS.hs): commits a null keyword under DEL.
     // ONE parameter per id: a fallback row id is a path, a comma in one would
     // split it, and encoding cannot help — the server splits after decoding.
     const askIds = (route, ids) =>
@@ -404,6 +397,5 @@ const { CODES, ask, askFrom, askState, askTags, askText, capUp, docTargets, entr
         rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
         walkChoices } = Capture;
 // The suite drives these two as the pure functions they are, through a direct
-// `eval' -- where a `const' stays in the eval's own scope and a `var' reaches
-// the caller's.  The widget keeps them; this is how the harness sees them.
+// `eval' -- where a `var' reaches the caller's scope and a `const' does not.
 var whichKeys = Capture.whichKeys, letterAt = Capture.letterAt;

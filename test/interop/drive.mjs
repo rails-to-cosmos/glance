@@ -1,31 +1,14 @@
-// THE INTEROP DRIVER — ONE STORE, TWO PROGRAMS, BOTH DIRECTIONS.
+// THE INTEROP DRIVER — ONE STORE, TWO PROGRAMS, BOTH DIRECTIONS (AGENTS.hs).
 //
-// glance and org-glance each test their own half of the EXTERNAL.jsonl contract
-// and neither has ever fed the other.  This stands up ONE org-glance store,
-// lets Emacs seed it, lets the daemon write it, and asks Emacs what it sees —
-// then turns the traffic around and lets Emacs write while the daemon watches.
-// Every case below names the CLAIM it closes, from the reader's census of what
-// was "asserted by NEITHER".
-//
-// THE ORDER IS THE STORY: one store carries every case, and a step's assertion
-// is about the state the step before it left.  A
-// failure is reported and the run continues, because the steps after it are
-// still evidence — but the FIRST red line is the one to read.
-//
-// ZERO DEPENDENCIES: node's global fetch and WebSocket, `emacs -Q -batch', and
-// the daemon.  Teardown is ONE function reached by the normal exit, by a thrown
-// case and by a signal alike, and it is the target's life — a leaked daemon or
-// a temp store on a red run is what gets a check deleted.
+// THE ORDER IS THE STORY: one store carries every case, and a step asks about
+// the state the one before it left; a failure is reported and the run goes on,
+// so the FIRST red line is the one to read.  There is no `ONLY'.
 //
 //   GLANCE_BIN   the daemon to serve with       (else `cabal list-bin')
 //   OG_HOME      the org-glance checkout        (else ../org-glance)
 //   EMACS_RUN    `host' (default) or `podman'
 //   BREAK=name   take ONE step out of the harness — see `BREAKS'
 //   KEEP=1       leave the store behind, named in the report
-//
-// There is no `ONLY': the cases share one store and one order, so a case cut
-// out of the middle would leave the ones after it asking about a state that
-// was never reached.
 
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
@@ -41,13 +24,11 @@ const TURN = 25;              // the poll, in ms — the watch's own drain rate
 const READY = 30_000;         // the daemon's walk, capped
 const WATCH = 10_000;         // a watch step: debounce + parse + publish, capped
 
-// The two ids the seed mints by hand.  Spelled as org's own uuid form, since
-// that is what `org-id-uuid' produces and what both sides shard by.
+// Org's own uuid form: what `org-id-uuid' produces and what both sides shard by.
 const ALPHA = "aaaa1111-2222-3333-4444-555566667777";
 const BETA = "bbbb1111-2222-3333-4444-555566667777";
 const TAG = "book";
 
-// ---------------------------------------------------------------- utilities
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -83,68 +64,35 @@ function ok(cond, what) {
   return true;
 }
 
-/** A JSONL blob's non-empty lines. */
 const jsonl = (text) => text.split("\n").filter(Boolean);
 
-/**
- * The peer's fold cursor, refusing a peer that keeps none.  ABSENCE IS NOT
- * ZERO: 0 is a real offset a fold can leave, so a step reading the two alike
- * would assert a cursor had reached the end of a file nothing ever folded —
- * which is the shape the harness exists to make impossible.
- */
+/** The peer's fold cursor.  ABSENCE IS NOT ZERO: 0 is a real offset a fold leaves. */
 function cursorOf(seen, what) {
   ok(seen.cursor !== null, `${what}: this peer keeps no fold cursor at all`);
   return seen.cursor;
 }
 
-/**
- * Assert the peer is done with the file it names, naming WHERE.  TWO ANSWERS,
- * because the fold and the READ PATH ask different questions of one cursor: the
- * offset reaches the file's end, and the peer's own poll agrees nothing is owed.
- * A peer that verifies what a fold consumes and polls by SIZE alone passes the
- * first and fails the second the moment a file is re-laid at its own length.
- */
+/** The peer is done with the file: the offset reaches its end AND its own poll agrees. */
 function drained(seen, what) {
   eq(cursorOf(seen, what), seen.bytes, `${what}: the cursor against the file`);
   ok(seen.pending !== null, `${what}: this peer has no pending predicate at all`);
   eq(seen.pending, false, `${what}: what the peer's read path says is owed`);
 }
 
-// ------------------------------------------------------------------- breaks
-//
-// A CASE NOBODY HAS SEEN FAIL IS NOT EVIDENCE, and browser-check's `BREAK'
-// is the idiom: each entry takes ONE step out of the HARNESS and names the
-// case that must turn red.  These prove the assertions are not vacuous —
-// that they read what the other program did rather than what this one set up.
-// They do NOT prove the daemon's wiring; for that, break the daemon (the
-// target's own comment names the line).
+// BREAKS: each entry takes ONE step out of the HARNESS and names the case that
+// must turn red, proving an assertion reads what the OTHER program did.
 const BREAKS = {
-  // Nothing is written, so there is nothing for Emacs to adopt.
   "no-write": "external-bytes",
-  // The line is left standing, and only Emacs's fold moves the WAL.
   "no-refresh": "emacs-adopts",
-  // Emacs never writes, so the watch has nothing to deliver.
   "no-put": "browser-sees-emacs",
-  // Emacs is asked where a DIFFERENT id lives.
   "wrong-id": "blob-path-agrees",
-  // Something writes the WAL behind glance's back.
   "meta-moved": "meta-untouched",
-  // The tombstone line is left standing, so the record it names stays live.
   "no-delete-fold": "delete-tombstones-the-record",
-  // The line the rewrite moves ahead of the cursor is never written, so the
-  // re-fold has nothing new to adopt and the keyword never arrives.
   "no-owed-write": "bytes-move-under-a-live-cursor",
 };
 
-// ------------------------------------------------------------- the two sides
 
-/**
- * The peer's own HEAD, short.  A CONTRACT is asserted against a VERSION of the
- * other program, and the report is the only place that fact can be read — so a
- * case that goes red after the peer moved says which peer it was measured on.
- * The checkout stays a sibling rather than a submodule: the deps beside it are
- * eask's and a pin would not bring them, and both repos move in one sitting.
- */
+/** The peer's own HEAD, short: a CONTRACT is asserted against a VERSION of it. */
 function peerHead(ogHome) {
   const r = spawnSync("git", ["-C", ogHome, "describe", "--always", "--dirty"],
                       { encoding: "utf8" });
@@ -160,12 +108,7 @@ function run(argv, env) {
   return { code: r.status, out: r.stdout || "", err: r.stderr || "" };
 }
 
-/**
- * The Emacs half.  `host' is `emacs -Q -batch' on PATH — fast, and the peer is
- * a sibling checkout; `podman' is org-glance's OWN Containerfile, pinned, with
- * the store bind-mounted at ITS OWN PATH so every path string this harness
- * compares means the same thing on both sides of the mount.
- */
+/** The Emacs half; `podman' bind-mounts the store at ITS OWN PATH so paths compare. */
 function emacsRunner(mode, ogHome, image) {
   if (mode === "podman")
     return (root, env) => [
@@ -183,11 +126,7 @@ function emacsRunner(mode, ogHome, image) {
   ];
 }
 
-/**
- * ONE STEP OF THE EMACS HALF.  Its stdout is one JSON object; its stderr is
- * org-glance's own `message' output, which a failure prints because that is
- * where "refresh-external skips X" lives.
- */
+/** ONE STEP OF THE EMACS HALF: stdout one JSON object, stderr org-glance's `message'. */
 function emacs(runner, root, cmd, env = {}) {
   const [argv, e] = runner(root, { ICMD: cmd, ...env });
   const r = run(argv, e);
@@ -202,7 +141,6 @@ function emacs(runner, root, cmd, env = {}) {
   return said;
 }
 
-/** POST /command, returning the parsed answer whatever the status. */
 async function command(base, body) {
   const r = await fetch(`${base}/command`, { method: "POST", body: JSON.stringify(body) });
   return { status: r.status, ...(await r.json()) };
@@ -214,30 +152,20 @@ const getJSON = async (url) => {
   return r.json();
 };
 
-/** `glance scan ROOT' as lines, so the index verdict can be read off it. */
 function scan(bin, root) {
   const r = run([bin, "scan", root], {});
   if (r.code !== 0) throw new Error(`glance scan exited ${r.code}\n${r.err}`);
   return r.out.split("\n").map((l) => l.trim());
 }
 
-/**
- * The one line of SCAN's output opening with WHAT, with its column padding
- * collapsed: the report lays its labels out in a fixed width, which is a
- * question about the report rather than about the index.
- */
 function scanLine(lines, what) {
   const hit = lines.find((l) => l.startsWith(what));
   if (!hit) throw new Error(`glance scan printed no "${what}" line:\n${lines.join("\n")}`);
   return hit.replace(/\s+/g, " ").trim();
 }
 
-// ---------------------------------------------------------------- the socket
 
-/**
- * A CLIENT LIKE THE BROWSER'S: `?bootstrap=off', so every frame it holds is a
- * frame the WATCH produced rather than the snapshot a subscription opens with.
- */
+/** A CLIENT LIKE THE BROWSER'S: `?bootstrap=off', so every frame is the WATCH's. */
 async function socket(base) {
   const ws = new WebSocket(`${base.replace("http", "ws")}/ws?bootstrap=off`);
   const frames = [];
@@ -248,14 +176,12 @@ async function socket(base) {
   ws.addEventListener("message", (m) => frames.push(JSON.parse(m.data)));
   return {
     frames,
-    /** Wait for a frame WANT accepts, or fail naming what never arrived. */
     until: (want, what, cap = WATCH) =>
       poll(() => frames.find(want) || false, cap, what),
     close: () => { try { ws.close(); } catch { /* already gone */ } },
   };
 }
 
-// ------------------------------------------------------------------ the run
 
 async function main() {
   const keep = process.env.KEEP === "1";
@@ -271,8 +197,6 @@ async function main() {
     process.exit(0);
   }
   const ogHome = process.env.OG_HOME || resolve(REPO, "..", "org-glance");
-  // The target guards this too; the driver keeps its own so `node drive.mjs'
-  // skips rather than crashing halfway through a store it made.
   if (!existsSync(join(ogHome, "src", "data"))) {
     console.error(`interop: no org-glance checkout at ${ogHome} — SKIPPED`);
     process.exit(0);
@@ -281,8 +205,7 @@ async function main() {
   const image = process.env.OG_IMAGE || "org-glance-test:emacs-29.1";
   const runner = emacsRunner(mode, ogHome, image);
 
-  // THE PORT IS TAKEN BEFORE THE STORE IS MADE, so nothing that can throw sits
-  // between the temp directory and the `try' whose teardown removes it.
+  // Taken first, so nothing that can throw sits between the temp dir and its `try'.
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
   const root = await mkdtemp(join(tmpdir(), "glance-interop-"));
@@ -292,15 +215,7 @@ async function main() {
   let daemon = null, ws = null, daemonSaid = "";
   const started = Date.now();
 
-  /**
-   * TEARDOWN IS ONE PATH AND EVERY EXIT REACHES IT.  A `finally' covers the
-   * normal end and a thrown case and covers no signal at all, which is how a
-   * run piped through `head' left `glance serve' holding a temp store for
-   * hours.  So this is both the `finally' body and the signal handler, and it
-   * runs AT MOST ONCE: the first caller keeps the promise and every later one
-   * awaits that same promise, since a SIGINT can land while the normal path is
-   * already inside `rm'.
-   */
+  /** TEARDOWN IS ONE PATH, run AT MOST ONCE: a SIGINT can land inside `rm'. */
   let torn = null;
   const teardown = () => (torn ??= (async () => {
     if (ws) { try { ws.close(); } catch { /* already gone */ } }
@@ -308,12 +223,8 @@ async function main() {
     if (!keep) await rm(root, { recursive: true, force: true }).catch(() => {});
   })());
 
-  // A SIGNAL IS AN EXIT LIKE ANY OTHER.  `head' closing the pipe is the case
-  // that got here, and node reports THAT as an EPIPE on stdout rather than as a
-  // signal — an unhandled one is an uncaught exception, which ends the process
-  // with the `finally' unrun — so it is wired beside the two.  Each leaves by
-  // the conventional 128+N.  Nothing is printed on the way out: the pipe this
-  // was reached through may be the thing that is gone.
+  // A SIGNAL IS AN EXIT LIKE ANY OTHER, and `head' closing the pipe arrives as an
+  // EPIPE on stdout.  Nothing is printed on the way out: the pipe may be gone.
   const bye = (code) => {
     const leave = () => process.exit(code);
     teardown().then(leave, leave);
@@ -339,7 +250,6 @@ async function main() {
   const taken = (what) => broke === what;
 
   try {
-    // ------------------------------------------------------ seed, then serve
     const seeded = emacs(runner, root, "seed",
       { ITAG: TAG, IALPHA: ALPHA, IBETA: BETA });
     console.log(`interop: ${mode} emacs, org-glance ${peerHead(ogHome)}, `
@@ -357,8 +267,7 @@ async function main() {
     ok(boot.rows.length === 2,
        `the daemon served ${boot.rows.length} rows off the seeded store, wanted 2`);
 
-    // Asked FIRST, while nothing has been archived and nothing deleted: what a
-    // tree org-glance built looks like to the walk.
+    // Asked FIRST, while nothing has been archived: the tree as org-glance built it.
     await step("sidecars-are-not-rows", "CLAIM 20", async () => {
       const all = await getJSON(`${base}/headlines?limit=20000`);
       const files = [];
@@ -395,11 +304,7 @@ async function main() {
         eq(r.results[0].ok, true, "set-state over the blob");
       }
       const seen = emacs(runner, root, "read-external");
-      // CLAIM 3: the file org-glance's own `external-path' names is the file
-      // glance appended to — asked by reading it THROUGH that accessor.
       eq(seen.exists, true, "org-glance finds a notification file where it looks");
-      // CLAIM 2: the bytes glance produced are the bytes org-glance's reader
-      // accepts, and the ids it takes out of them are glance's own.
       eq(Array.from(seen.ids), [ALPHA], "the ids org-glance reads out of the file");
       const raw = await readFile(externalPath, "utf8");
       eq(seen.text, raw, "the text org-glance read vs the file on disk");
@@ -434,16 +339,10 @@ async function main() {
       return [`refresh-external folded ${n.n}; the WAL now says DONE`];
     });
 
-    // THE FOLD MOVES A CURSOR AND REWRITES NOTHING, which is the contract's own
-    // half of that: this side appends and never truncates, and the other side
-    // now never truncates either.  So the file is NOT emptied — it keeps every
-    // byte the daemon wrote — and what a fold spends is the cursor beside it.
+    // THE FOLD MOVES A CURSOR AND REWRITES NOTHING: the file keeps every byte.
     await step("cursor-advances-and-the-bytes-stay", "CLAIM 8", async () => {
-      // ONE: the fold spent every byte and took none away.  `drained' is the
-      // whole of that — the text and the ids still owed are what it says.
       const spent = emacs(runner, root, "read-external");
       drained(spent, "after the first fold");
-      // TWO: a second write lands PAST that cursor and is the only thing owed.
       const r = await command(base, { name: "set-state", ids: [BETA],
                                       args: { keyword: "READING" } });
       eq(r.results[0].ok, true, "the second write, over the tagged blob");
@@ -452,7 +351,6 @@ async function main() {
       eq(cursorOf(again, "after the second write"), spent.cursor,
          "the cursor, which no fold has moved since");
       eq(again.inode, spent.inode, "the inode, which nothing rotated");
-      // THREE: both lines are still on disk, oldest first.
       const lines = jsonl(await readFile(externalPath, "utf8"));
       eq(lines.length, 2, "the lines on disk");
       ok(lines[0].includes(ALPHA) && lines[1].includes(BETA),
@@ -465,21 +363,15 @@ async function main() {
       const n = emacs(runner, root, "refresh");
       eq(n.n, 1, "the entries folded for the tagged blob");
       const field = emacs(runner, root, "field", { IID: BETA });
-      // A keyword only the tag's own `#+TODO:' declares: without the cycle in
-      // scope org folds it into the TITLE, which is the failure this asks about.
+      // Without the tag's cycle in scope org folds the keyword into the TITLE.
       eq(field.state, "READING", "the keyword only book.org's cycle declares");
       eq(field.title, "beta", "the title, which must not have swallowed it");
       eq(Array.from(field.tags), [TAG], "the tags");
       return [`READING survived as a state under the tag's own cycle`];
     });
 
-    // THE CURSOR IS A CLAIM ABOUT BYTES, and this is the case that reads it.
-    // Every case above passes against a reader whose cursor is an OFFSET
-    // ALONE, so none of them constrains the prefix digest at all — they only
-    // ever grow the file, which is the one event an offset survives.  Here the
-    // bytes MOVE under a live cursor and the row still has to arrive.
+    // Every case above passes against an offset-only cursor; here the bytes MOVE.
     await step("bytes-move-under-a-live-cursor", "CLAIM 22", async () => {
-      // ONE: a write folded, so a cursor comes to stand over its line.
       const pinning = await command(base, { name: "set-state", ids: [ALPHA],
                                             args: { keyword: "TODO" } });
       eq(pinning.results[0].ok, true, "the write the cursor comes to stand on");
@@ -487,20 +379,14 @@ async function main() {
       const pinned = emacs(runner, root, "read-external");
       drained(pinned, "before the bytes move");
 
-      // TWO: a second write, LEFT UNFOLDED.  Its line sits past the cursor.
       if (!taken("no-owed-write")) {
         const owedWrite = await command(base, { name: "set-state", ids: [BETA],
                                                 args: { keyword: "READ" } });
         eq(owedWrite.results[0].ok, true, "the write that is left owed");
       }
 
-      // THREE: THE BYTES MOVE UNDER THE CURSOR.  This is the git union merge's
-      // own layout — the other machine's unfolded line laid AHEAD of the prefix
-      // this store already spent — written here rather than by standing up two
-      // clones and merging them, which would be a larger apparatus than the
-      // fact it shows.  Every line is the same length (both ids are 36
-      // characters and the stamp is fixed-width), so the recorded OFFSET still
-      // lands on a line boundary: nothing but the digest can tell.
+      // THE BYTES MOVE UNDER THE CURSOR — the git union merge's own layout.
+      // Every line is one length, so nothing but the digest can tell.
       const was = await readFile(externalPath, "utf8");
       const lines = jsonl(was).map((l) => l + "\n");
       const owed = lines.pop();
@@ -508,19 +394,10 @@ async function main() {
       const now = await readFile(externalPath, "utf8");
       eq(now.length, was.length, "the length a re-laying leaves");
 
-      // A READER WITH NO DIGEST resumes at the offset it recorded, which now
-      // sits at the end of a line it never read: it re-folds what it already
-      // folded and the moved line is skipped for good.  The digest refuses the
-      // offset instead, and the whole file is owed again.
       const after = emacs(runner, root, "read-external");
       eq(cursorOf(after, "after the rewrite"), 0,
          "the cursor a moved prefix leaves standing");
-      // AND THE READ PATH HAS TO SEE IT TOO, which is the other half and the
-      // one no fold can answer for.  The re-laying above left the length alone
-      // — `noteLine' spells fixed-width lines, so that is the TYPICAL shape
-      // rather than a contrivance — so a peer that polls by size alone calls
-      // this file drained, folds nothing, and never reaches the assertions
-      // below however many times it is read.
+      // AND THE READ PATH HAS TO SEE IT TOO: a peer polling by SIZE calls this drained.
       eq(after.pending, true, "what the peer's read path says is owed");
       eq(after.text, now, "what the fold is owed after the rewrite");
       const folded = emacs(runner, root, "refresh");
@@ -533,17 +410,13 @@ async function main() {
     });
 
     // --------------------------------------------------------- direction two
-    // org-glance writes a blob; the daemon's watch delivers the row.  No
-    // notification file is involved in this direction at all — this is the leg
-    // that rests entirely on `watchOrgTree', which no offline suite drives.
+    // The watch delivers org-glance's write; the leg that rests on `watchOrgTree'.
 
     await step("browser-sees-emacs", "CLAIM 19", async () => {
       ws = await socket(base);
       const wrote = `* DONE alpha, edited in emacs\n:PROPERTIES:\n`
         + `:ORG_GLANCE_ID: ${ALPHA}\n:END:\n`;
-      // THE LATENCY IS THE WATCH'S, so it is measured from the clock Emacs read
-      // once the rename had landed — a batch Emacs costs half a second to
-      // start, and none of that is the daemon's.
+      // Measured from the clock Emacs read: a batch Emacs costs half a second to start.
       const put = taken("no-put") ? { at: Date.now() }
         : emacs(runner, root, "put", { IID: ALPHA, ITEXT: wrote });
       const frame = await ws.until(
@@ -562,8 +435,7 @@ async function main() {
     });
 
     // ---------------------------------------------------- both sides at rest
-    // Everything above has moved; these two ask whether the WAL and the blobs
-    // still describe one another.
+    // Whether the WAL and the blobs still describe one another.
 
     await step("archive-flag-round-trips", "CLAIM 14", async () => {
       const r = await command(base, { name: "archive", ids: [ALPHA], args: {} });
@@ -572,9 +444,7 @@ async function main() {
       const field = emacs(runner, root, "field", { IID: ALPHA });
       eq(field.archived, true, "the archive flag org-glance derived from the blob");
       const lines = scan(bin, root);
-      // org-glance has no boolean kind: a false flag serializes as `{}', which
-      // is what glance's `(eq t VALUE)' reading exists for.  A true one has to
-      // read back as true through the same reading.
+      // org-glance has no boolean kind: a false flag serializes as `{}'.
       eq(scanLine(lines, "org-glance index:"),
          "org-glance index: 0 rows disagree (0 state, 0 archived)",
          "glance's verdict on the flag org-glance serialized");
@@ -597,13 +467,7 @@ async function main() {
     });
 
     // ------------------------------------------- the lifecycle at both ends
-    // Create and delete were the two blob-lifecycle events the notification
-    // file did not carry.  DELETE IS CLOSED — a third field, `"tombstone":true',
-    // and the case below reads the record org-glance dropped for it.  CREATE IS
-    // STILL A HOLE and is pinned AS IT STANDS: a fresh id names no record, so
-    // the fold has nothing to replace and drops the line.  Closing it turns its
-    // case red, which is the point — it names the decision rather than letting
-    // it drift.
+    // DELETE IS CLOSED; CREATE IS A HOLE pinned AS IT STANDS, so closing it reddens its case.
 
     await step("HOLE: a tagged capture never reaches the WAL", "CLAIM 17", async () => {
       const made = await command(base, { name: "capture",
@@ -611,7 +475,6 @@ async function main() {
       ok(made.ok, `the capture: ${JSON.stringify(made)}`);
       const seen = emacs(runner, root, "read-external");
       eq(Array.from(seen.ids), [made.id], "the id the capture notified");
-      // …and the fold drops it, because there is no record to replace.
       const fold = emacs(runner, root, "refresh");
       eq(fold.n, 0, "the entries a fresh id folds");
       const field = emacs(runner, root, "field", { IID: made.id });
@@ -628,16 +491,12 @@ async function main() {
       eq(emacs(runner, root, "refresh").n, 1, "the archive folded");
       const gone = await command(base, { name: "delete", ids: [BETA], args: {} });
       eq(gone.results[0].ok, true, "the delete");
-      // THE THIRD FIELD, and it is the whole of what a delete adds to the wire:
-      // the frozen two fields, then `"tombstone":true' before the brace.  The
-      // LAST line, since every line this run wrote is still on disk in front of
-      // it — nothing shortens this file any more.
+      // THE THIRD FIELD, and the LAST line: nothing shortens this file any more.
       const raw = await readFile(externalPath, "utf8");
       const last = jsonl(raw).pop() + "\n";
       ok(new RegExp(`^\\{"id":"${BETA}","at":"\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ"`
                     + `,"tombstone":true\\}\\n$`).test(last),
          `the frozen delete line: ${JSON.stringify(last)}`);
-      // And this is org-glance READING those bytes, through its own accessor.
       const seen = emacs(runner, root, "read-external");
       eq(Array.from(seen.ids), [BETA], "the ids org-glance takes out of the delete line");
       eq(Array.from(seen.kinds), ["tombstone"], "the kind org-glance reads the line as");
@@ -649,9 +508,7 @@ async function main() {
       eq(field.tombstone, true, "whether org-glance holds a tombstone for it");
       eq(emacs(runner, root, "content", { IID: BETA }).exists, false,
          "whether the blob the record named is still there");
-      // A TOMBSTONED ID LEAVES THE FOLD (`Data.Org.Index.recordOf' answers
-      // `Nothing' on it), so it can no longer be a record without a blob — and
-      // glance reads back the tombstone org-glance wrote because glance asked.
+      // A TOMBSTONED ID LEAVES THE FOLD, so it is no longer a record without a blob.
       const lines = scan(bin, root);
       eq(scanLine(lines, "unmatched"),
          "unmatched 1 unindexed blobs, 0 records without blobs",
@@ -669,7 +526,6 @@ async function main() {
     await teardown();
   }
 
-  // ---------------------------------------------------------------- report
   const failed = results.filter((r) => !r.ok);
   const wall = ((Date.now() - started) / 1000).toFixed(1);
   console.log("");

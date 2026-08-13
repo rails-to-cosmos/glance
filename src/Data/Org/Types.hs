@@ -79,7 +79,6 @@ headlineIdProperty = "ORG_GLANCE_ID"
 archiveTag :: Text
 archiveTag = "ARCHIVE"
 
--- Typeclasses
 
 class Display a where
   display :: a -> Text
@@ -213,8 +212,7 @@ data Headline = Headline { indent     :: !Indent
                          , spans      :: !HeadlineSpans
                          } deriving (Show, Eq)
 
--- | Spans of a headline's mutable parts, tight: no surrounding whitespace.  The
--- whole extent is 'hsFull', derived off these rather than stored beside them.
+-- | Spans of a headline's mutable parts, tight; the extent is 'hsFull', derived.
 data HeadlineSpans = HeadlineSpans
   { hsStars      :: !Span          -- ^ the stars alone, where the headline begins.
   , hsTodo       :: !(Maybe Span)  -- ^ keyword text exactly, e.g. "TODO".
@@ -255,8 +253,7 @@ spanPartLabel SpDeadline   = "hsDeadline"
 spanPartLabel SpClosed     = "hsClosed"
 spanPartLabel SpProperties = "hsProperties"
 
--- | HS's keyed sub-spans in SOURCE order.  The three planning entries sort by
--- offset: org writes them in any order on the planning line.
+-- | HS's keyed sub-spans in SOURCE order; the three planning entries sort by offset.
 spanParts :: HeadlineSpans -> [(SpanPart, Maybe Span)]
 spanParts hs = before ++ sortOn (fmap spanStart . snd) planning ++ after
   where before   = [ (SpTodo, hsTodo hs), (SpPriority, hsPriority hs)
@@ -265,13 +262,11 @@ spanParts hs = before ++ sortOn (fmap spanStart . snd) planning ++ after
                    , (SpClosed, hsClosed hs) ]
         after    = [ (SpProperties, hsProperties hs) ]
 
--- | The stars through the end of the LAST component present, never the
--- whitespace after it.  Derived, so it cannot disagree with 'spanParts'.
+-- | The stars through the LAST component present, never the whitespace after it.
 hsFull :: HeadlineSpans -> Span
 hsFull hs = foldl' (<>) (hsStars hs) [ sp | (_part, Just sp) <- spanParts hs ]
 
--- | H's labelled sub-spans in source order, each with the predicate its slice
--- must satisfy.  Order and tests are both total over 'SpanPart'.
+-- | H's labelled sub-spans in source order, each with the predicate its slice satisfies.
 headlineSpanParts :: Headline -> [(Text, Maybe Span, Text -> Bool)]
 headlineSpanParts h = [ (spanPartLabel p, sp, slices p) | (p, sp) <- spanParts (spans h) ]
   where slices SpTodo       = (== maybe "" name (todo h))
@@ -285,14 +280,9 @@ headlineSpanParts h = [ (spanPartLabel p, sp, slices p) | (p, sp) <- spanParts (
         drawer t = ":PROPERTIES:" `T.isPrefixOf` stripped && ":END:" `T.isSuffixOf` stripped
           where stripped = T.strip t
 
--- | T's words with every BRACKETED RUN collapsed to its own opener.
---
--- A title may CARRY a timestamp, and 'TextShow' recomputes a weekday — so
--- @[2026-08-11]@ in the source renders as @[2026-08-11 Tue]@ and a word-for-word
--- test calls the span wrong over a slice that is exactly right.  This is
--- 'timestampSlice''s reasoning one field along: what a render recomputes is not
--- what a SPAN is asked about.  The prose half still compares word for word,
--- which is what the test is for.
+-- | T's words with every BRACKETED RUN collapsed to its own opener: 'TextShow'
+-- recomputes a weekday, so a title CARRYING a timestamp fails a word-for-word
+-- test over a slice that is exactly right.
 stamped :: Text -> [Text]
 stamped = go . T.words
   where
@@ -307,8 +297,7 @@ stamped = go . T.words
       Just ('<', _) -> Just ">"
       _             -> Nothing
 
--- | Can a slice be TS's source spelling?  Structural: a render recomputes the
--- weekday, so a source stamp carrying a stale one never equals its own render.
+-- | Can a slice be TS's source spelling?  Structural: a render recomputes the weekday.
 timestampSlice :: Maybe Timestamp -> Text -> Bool
 timestampSlice Nothing = T.null
 timestampSlice (Just ts) = \t -> T.length t > 2 && T.head t == open && T.last t == close
@@ -374,7 +363,6 @@ instance TextShow Headline where
     where spaced :: TextShow a => a -> Builder
           spaced = (<> showbSpace) . showb
 
--- Indent
 
 newtype Indent = Indent Int
   deriving stock (Show, Eq)
@@ -392,7 +380,6 @@ instance TextShow Indent where
 levelOf :: Headline -> Int
 levelOf h = case indent h of Indent n -> n
 
--- Keyword
 
 newtype Keyword = Keyword Text
   deriving stock (Show, Eq)
@@ -400,7 +387,6 @@ newtype Keyword = Keyword Text
 instance TextShow Keyword where
   showb (Keyword k) = TS.fromText k
 
--- Pragma
 
 -- | A pragma line.  @#+TODO:@ keeps both halves as LISTS in line order — that
 -- order is the tree's whole say over how a state column sorts and a palette draws.
@@ -415,7 +401,6 @@ instance TextShow Pragma where
 instance Display Pragma where
   display = showt
 
--- Priority
 
 newtype Priority = Priority Char
   deriving stock (Show, Eq)
@@ -423,7 +408,6 @@ newtype Priority = Priority Char
 instance TextShow Priority where
   showb (Priority p) = "[#" <> B.singleton p <> "]"
 
--- Property / Properties
 
 data Property = Property { key :: !Keyword, val :: !OrgLine }
   deriving (Show, Eq)
@@ -461,7 +445,6 @@ newtype OrgLine = OrgLine [OrgLineElement]
 instance TextShow OrgLine where
   showb (OrgLine xs) = showbSpaced xs
 
--- Tags
 
 type Tag = Text
 
@@ -569,9 +552,8 @@ unitChar Weeks = 'w'
 unitChar Months = 'm'
 unitChar Years = 'y'
 
--- | The unit LETTER spells, 'unitChar' read backwards -- org's whole charset,
--- so a reader of a relative date and the parser answer over one list and a
--- fifth unit reaches both.
+-- | The unit LETTER spells, 'unitChar' read backwards -- org's whole charset, so
+-- the relative-date reader and the parser answer over one list.
 unitOf :: Char -> Maybe TimestampUnit
 unitOf c = find ((== c) . unitChar) [minBound ..]
 
@@ -582,8 +564,7 @@ addUnit Weeks  n = Time.addDays (7 * n)
 addUnit Months n = Time.addGregorianMonthsClip n
 addUnit Years  n = Time.addGregorianYearsClip n
 
--- | The relative forms a reader may spell, as the sentence a refusal lists --
--- derived, so a unit added to 'TimestampUnit' is offered rather than forgotten.
+-- | The relative forms a reader may spell, derived so a new unit is offered.
 relativeForms :: Text
 relativeForms = T.intercalate ", " [ "+1" <> T.singleton (unitChar u) | u <- [minBound ..] ]
 
@@ -613,7 +594,6 @@ repeaterFormat TimestampRepeaterInterval{..} =
     <> showt repeaterValue
     <> T.singleton (unitChar repeaterUnit)
 
--- Title
 
 newtype Title = Title [OrgLineElement]
   deriving stock (Show, Eq)
@@ -622,7 +602,6 @@ newtype Title = Title [OrgLineElement]
 instance TextShow Title where
   showb (Title xs) = showbSpaced xs
 
--- Todo
 
 -- | A headline's TODO keyword as the parser read it.  NAME is authoritative;
 -- ACTIVE is a by-product of recognition — 'Data.Org.Config.classify' decides.
@@ -632,7 +611,6 @@ data Todo = Todo { name :: Text, active :: Bool }
 instance TextShow Todo where
   showb a = TS.fromText (name a)
 
--- Token
 
 newtype Token = Token Text
   deriving stock (Show, Eq)
