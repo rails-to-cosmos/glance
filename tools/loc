@@ -25,9 +25,16 @@ fi
 
 git ls-files -z | awk -v RS='\0' '
 function bucket(path,   b) {
+  # NO APOSTROPHE BELOW -- the awk program is single-quoted.
+  # vendored/ is upstream packages carried verbatim (gi-webkit2,
+  # gi-javascriptcore4, text-show), so their prose belongs to them.
+  if (path ~ /^vendored\//)          return "vendored"
   if (path == "assets/table-view.js") return "vendored"
   if (path == "assets/elm.js")        return "generated"
   if (path ~ /^test\/fixtures\//)     return "fixtures"
+  # AGENTS.hs IS the design document, in Haskell rather than markdown: it
+  # replaced CLAUDE.md and docs/invariants.md, which this bucket already held.
+  if (path == "AGENTS.hs")            return "docs"
   if (path ~ /^docs\//)               return "docs"
   if (path ~ /^(README|CHANGELOG)/)   return "docs"
   if (path ~ /\.(md|org)$/)           return "docs"
@@ -79,11 +86,15 @@ END {
     code = lines[b] - comments[b] - blanks[b]
     pct  = lines[b] ? (100 * comments[b] / lines[b]) : 0
     printf "%-11s %6d %8d %9d %8d %6.1f%%\n", b, count[b], lines[b], code, comments[b], pct
-    if (b != "generated" && b != "vendored") {
+    # DOCS ARE PROSE THROUGHOUT, so their lines are no denominator for a
+    # comment:code ratio -- counting markdown as code flatters it by however
+    # much documentation the repo has.  Generated and vendored are other
+    # peoples lines.  What is left is the code this repo wrote.
+    if (b == "source" || b == "tests" || b == "fixtures") {
       tf += count[b]; tl += lines[b]; tc += comments[b]; tb += blanks[b]
     }
   }
-  printf "%-11s %6d %8d %9d %8d %6.1f%%\n", "authored", tf, tl, tl - tc - tb, tc,
+  printf "%-11s %6d %8d %9d %8d %6.1f%%\n", "code", tf, tl, tl - tc - tb, tc,
          tl ? (100 * tc / tl) : 0
   # THE TARGET IS COMMENT:CODE, 10%.  The per-bucket column above is
   # comment:lines, which blanks flatter.
