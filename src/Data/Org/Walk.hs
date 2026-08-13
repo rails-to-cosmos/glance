@@ -1,5 +1,5 @@
 -- | Discovery of .org files under a set of roots, and the pool that reads them.
--- What it refuses is CLAUDE.md (Walk): mirrors, blob history, @config@ always.
+-- What it refuses is AGENTS.hs: mirrors, blob history, @config@ always.
 module Data.Org.Walk ( Found (..)
                      , LoadFailure (..)
                      , WalkOptions (..)
@@ -258,7 +258,7 @@ mapFilesConcurrently act paths = case paths of
     pop []            = ([], Nothing)
     pop (item : more) = (more, Just item)
 
--- | Would the walk collect PATH?  ALL THREE predicates matter (CLAUDE.md, Walk).
+-- | Would the walk collect PATH?  ALL THREE predicates matter (AGENTS.hs).
 isWalked :: FilePath -> Bool
 isWalked path = isDocument path && not (any declined (orgGlanceTails path))
   where declined t = configTail t || derivedTail t

@@ -18,6 +18,7 @@ import qualified TestSpans as Spans
 import qualified TestQuery as Query
 import qualified TestSelfContained as SelfContained
 import qualified TestServe as Serve
+import qualified TestSpec as Spec
 import qualified TestStore as Store
 import qualified TestSubtree as Subtree
 
@@ -42,6 +43,7 @@ tests = testGroup "Tests"
   , Config.spec
   , Desktop.spec
   , Properties.spec
+  , Spec.spec
   ]
 
 main :: IO ()

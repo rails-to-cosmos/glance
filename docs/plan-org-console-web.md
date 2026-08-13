@@ -1,6 +1,6 @@
 # Plan — org-console-web
 
-**Companion to:** [proposal-org-console-web.md](proposal-org-console-web.md) · **Date:** 2026-07-30
+**Companion to:** [2026-07-30-org-console-web.draft.md](proposals/2026-07-30-org-console-web.draft.md) · **Date:** 2026-07-30
 
 Steps ship in order unless marked parallel. Each step has an exit bar: every
 box checked = step done. Perf budgets derive from the S1 baseline; steps
@@ -10,7 +10,7 @@ record actual numbers next to the boxes as they close.
 
 The tree this plan was written against, kept as the baseline the steps below
 measure from. It is not a description of the repo today; for that, read
-[../CLAUDE.md](../CLAUDE.md) and [invariants.md](invariants.md), which are
+[../AGENTS.hs](../AGENTS.hs), which are
 maintained against the code.
 
 - glance: parser 278 + types 531 lines, 9 test modules; no source offsets, no
@@ -183,7 +183,7 @@ Exit:
 - [x] Daemon restart: browser re-attaches and re-syncs the full view
       unattended. The shell re-fetches `/headlines` and reconnects, backing off
       1 s → 30 s. *Revised since:* only `view-changed` remounts; a restart and a
-      `resync` revalidate and keep the mount. See docs/invariants.md.
+      `resync` revalidate and keep the mount. See AGENTS.hs.
 - [x] Create + delete file cases handled (row appears / disappears). Actual,
       against a live server over a scratch directory: a new two-headline file →
       `upsert-row` ×2; `rm` of it → `delete-row` ×2; a `#+TODO:` line
@@ -238,7 +238,7 @@ frames is recoverable, stalling the file watch is not.
 *Revised since:* the mailbox is 1024 frames and the close is named `resync`.
 S5's 256 was sized for one editor's save; an Emacs bulk write is a step per
 file with nothing coalescing across them, and overran it every few seconds.
-See docs/invariants.md.
+See AGENTS.hs.
 
 **Parse failure keeps the file's rows.** `orgParse` is all-or-nothing, so a save
 caught mid-write is indistinguishable from a file whose headlines all vanished.
@@ -455,7 +455,7 @@ Exit:
       `"<fingerprint>-gN"`, the fingerprint a digest of the loaded tree taken in
       `loadStoreWith`. The generation starts at zero in every process, so the
       tag as shipped here 304'd a client into a stale table across a restart —
-      docs/invariants.md, Architecture. The measurements below are of the
+      AGENTS.hs. The measurements below are of the
       generation-only tag they were taken with.)
 - [x] One tag for every query variant. `q`, `limit` and `offset` are in the URL
       and an HTTP cache is keyed by URL, so each variant is its own entry
@@ -750,8 +750,8 @@ Exit:
 - [x] Round-trip demo: toggle TODO in browser → Emacs `auto-revert` shows it;
       edit in Emacs → browser row updates. Both directions. Actual, and it is a
       TARGET rather than a sitting: `make interop`
-      (docs/proposal-interop-check.done.md) stands up ONE org-glance store,
-      lets Emacs seed it and the daemon serve it, and runs twelve cases both
+      (docs/proposals/2026-08-12-interop-check.done.md) stands up ONE org-glance
+      store, lets Emacs seed it and the daemon serve it, and runs its cases both
       ways. Browser→Emacs is stronger than `auto-revert` — a `POST /command
       set-state` over a blob leaves the notification line org-glance's own
       `--read-external` parses, out of the file its own `external-path` names,
@@ -759,8 +759,8 @@ Exit:
       Emacs rather than a re-read buffer. Emacs→browser is org-glance's own
       `put-content` reaching an open `?bootstrap=off` socket as `upsert-row` in
       **142 ms**, measured from the clock Emacs read once its rename had landed,
-      beside S5's 105–107 ms for a plain editor write. 12/12, 21.3 s wall, host
-      Emacs 30.2 against org-glance `4e644e9`. The leg that had never been
+      beside S5's 105–107 ms for a plain editor write. 13/13, 29.5 s wall, host
+      Emacs 30.2 against org-glance `1c03b09`. The leg that had never been
       tested is the Emacs one: `watchOrgTree` has one call site in the repo and
       zero in `test/`, and severing its inotify callback leaves the whole
       Haskell suite green (1857 when this was run, 1867 today) while
@@ -953,13 +953,13 @@ Suite: 301 → **378 tests** at the engine. The bars the engine alone could not
 close are answered by the command layer above.
 
 **The round trip closed M4 (2026-08-12), and it is a target rather than a
-sitting.** `make interop` (docs/proposal-interop-check.done.md) is the first
-check in this repo that runs the PEER: `test/interop/og.el` drives org-glance's
-live sources under `emacs -Q -batch`, `test/interop/drive.mjs` drives the
-daemon, and both work over ONE store in a temp directory that is removed on
-success and on failure alike. Twelve cases, each closing a contract claim
-neither project's suite had ever asked, since each side pins the format twice
-independently and by hand: the path both compute for one id; the bytes
+sitting.** `make interop` (docs/proposals/2026-08-12-interop-check.done.md) is
+the first check in this repo that runs the PEER: `test/interop/og.el` drives
+org-glance's live sources under `emacs -Q -batch`, `test/interop/drive.mjs`
+drives the daemon, and both work over ONE store in a temp directory that is
+removed on success and on failure alike. Twelve cases, each closing a contract
+claim neither project's suite had ever asked, since each side pins the format
+twice independently and by hand: the path both compute for one id; the bytes
 org-glance's reader takes out of the file its own accessor names; the fold, the
 emptying, the kept inode and the second append; a keyword only a tag's
 `#+TODO:` declares surviving as a STATE; every other file in `meta/`
@@ -1048,7 +1048,7 @@ Exit:
 
 **2026-07-31.** Every headline count above — 13337, 13338, 13343, 13344, 13359,
 13384 as the corpus grew — was taken with org-glance's derived mirrors in the
-walk. They are gone from it now (`docs/invariants.md`, Walk): inside a
+walk. They are gone from it now (`AGENTS.hs`, Walk): inside a
 `.org-glance` directory, `overviews` and `meta` are skipped and `data`, the
 canonical store, is kept. The `~/sync` run reads **6290 files and 12870
 headlines** where it read 6313 and 13384, and 11 parse failures where it read 14
@@ -1105,7 +1105,7 @@ either width, so that cost sits in the syscalls too. That penalty eats most of t
 pool's gain on `scan`, which is why `scan`'s wall barely moves while `serve`'s
 drops 2.8 s. The next lever is one `getSymbolicLinkStatus` per entry answering
 both questions, and it moves the symlinked-directory rule
-(`docs/invariants.md`, Walk), so it is a decision rather than a tidy-up.
+(`AGENTS.hs`, Walk), so it is a decision rather than a tidy-up.
 
 ## Walk on lstat (2026-08-01) — and what it did not buy
 
@@ -1191,7 +1191,7 @@ now.
 Rows carried an outline `depth` and the server could serve them in the order
 they nest. Both halves were marked experimental in the places that would
 otherwise bind them: SCHEMA.md's Row object, `Glance.Query.ViewOrder`, the
-renderer's header and both READMEs, and neither was in `docs/invariants.md` — a
+renderer's header and both READMEs, and neither was in `AGENTS.hs` — a
 thing with no dependents has no invariant to state.
 
 The exit criteria were (1) read it on ~/sync, (2) decide whether the degradation

@@ -691,7 +691,7 @@ metaMatching :: Text -> IO [Text]
 metaMatching q = withMetaTree $ \records ->
   pure [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
 
--- | TWO RULES CLAUDE.md STATES AND NOTHING ASKED, both named by a surviving
+-- | TWO RULES AGENTS.hs STATES AND NOTHING ASKED, both named by a surviving
 -- mutant over `Glance.Web.Filter' (87%, 2026-08-11).
 foldSpec :: TestTree
 foldSpec = testGroup "The folds and the lone hyphen"

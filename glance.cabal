@@ -63,7 +63,8 @@ flag native-window
   default: False
   manual: True
 
--- The WASM build's crypto seam (docs/proposal-native-ports.md): crypton is
+-- The WASM build's crypto seam
+-- (docs/proposals/2026-08-05-native-ports.draft.md): crypton is
 -- unbuildable on wasm32-wasi in both directions -- current versions lean on
 -- mmap through `ram', older ones on basement's cbits -- and the core uses it
 -- for exactly two things, the SHA-256 digest and sixteen random bytes.  On,
@@ -103,7 +104,7 @@ library glance-internal
     -- Read-only, and for ONE foreign format: org-glance's JSONL index, which
     -- 'Data.Org.Index' folds so the scan can say where the two disagree.  No
     -- internal type gains a 'ToJSON' by it -- the wire contract stays hand-built
-    -- in 'Glance.Query' (docs/invariants.md, Architecture).
+    -- in 'Glance.Query' (AGENTS.hs).
     , aeson
     , async
     , bytestring
@@ -152,7 +153,7 @@ library
   default-language: Haskell2010
 
 -- The web layer.  Private, and depends on the public library alone: the
--- facade constraint (docs/invariants.md, Architecture) is a solver error here
+-- facade constraint (AGENTS.hs) is a solver error here
 -- rather than a review note -- adding Data.Org.* to this stanza is impossible
 -- without naming glance-internal, which would show up in this build-depends.
 library glance-web
@@ -312,8 +313,14 @@ test-suite glance-test
       TestNegative
       TestTextShow
       TestSpans
+      TestSpec
+    -- The domain model itself (AGENTS.hs at the repo root), compiled so
+    -- 'TestSpec' can ask its registries of the real code.  The test stanza is
+    -- the only one that names it: no library may depend on the spec.
+      AGENTS
   hs-source-dirs:
       test
+      .
   default-extensions:
       OverloadedStrings
       RecordWildCards

@@ -184,7 +184,7 @@ instance TextShow Element where
   showb (EToken a) = TS.showb a
 
 -- | Reset the spans an element carries, for span-insensitive comparison.  NO
--- catch-all: a fifth constructor carrying spans must extend this (CLAUDE.md).
+-- catch-all: a fifth constructor carrying spans must extend this (AGENTS.hs).
 stripSpans :: Element -> Element
 stripSpans (EHeadline a) = EHeadline a { spans = emptyHeadlineSpans }
 stripSpans e@(EPragma _) = e

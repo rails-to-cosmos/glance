@@ -11,7 +11,53 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Changed
+
+- **A capture always lands in the tree's own `inbox.org`.**
+  `#+GLANCE_CAPTURE_TARGET:` is no longer read, and a tree still carrying the
+  line captures into the inbox anyway. One entry point per tree, so there is no
+  path a config can aim a write at, and the three refusals it used to earn — an
+  absolute path, one climbing out through `..`, and a name the walk would
+  decline — are gone with the setting.
+- **The settings sheet is two panels, theme and keywords.** GENERAL held the
+  capture target and the log height and holds neither now, so it went with them;
+  `TAB` walks the two and the sheet opens on the theme panel.
+- **The log's height is a developer preference.** No field reaches it; the boot
+  still applies whatever `glance-log` holds in `localStorage`, within the same
+  band, so a page nobody has touched still opens at seven lines.
+
+### Fixed
+
+- **An open edit sits on the same line grid as the text under it.** Every stop
+  carried a pixel of vertical padding, and a list's items each spent it again
+  inside the list, so the drawn lines walked 2px per item away from the field
+  laid over them — measured 0, 2, 4 and 6 across four items, and over a
+  sixteen-line list the foot stood more than a full line out. The outer box
+  always matched, which is why nothing caught it.
+
 ### Added
+
+- **Every region of a subtree says what a new line inside it looks like.**
+  `S-RET` in the materialize sheet asks which region the caret stands in and
+  writes that region's own continuation: a bullet item its own bullet, a
+  checkbox item an empty box, a numbered item the next number, a TABLE an empty
+  row aligned to the table's own column widths, a `#+begin_X` BLOCK or a DRAWER
+  (`:LOGBOOK:` among them) an empty line at its indent, a paragraph an empty
+  line with a blank above. The line lands immediately under the caret's own,
+  inside the region — so a run splits where the reader stands, a block still
+  closes and a table still parses — and a caret on a closing line (`#+end_X`,
+  `:END:`) lands past the region instead. `+` with no box open reads no caret
+  and rides past the whole structure as it always did.
+- **A region nested inside a list item answers for itself.** A `#+begin_src`
+  run, a table or a drawer riding under `- alpha` is asked about in its own
+  right, so a caret in the source adds an empty source line and a caret in a
+  `:LOGBOOK:` adds a clock line. A line no nested region claims is still the
+  item's, and so is a caret on the nested block's closer — the new item lands
+  right under the block rather than past the whole list.
+- **The box a `+` opens puts point where the reader types.** At the end of a
+  lead (`- `, `1. `, `- [ ] `) as before, and one space INSIDE the first cell of
+  a seeded table row: point at the end of `|   |   |` made the first character
+  typed a third column, which org's own align then kept.
 
 - **A browser delete now tells Emacs, so the record leaves with the bytes.**
   Deleting a row moves its blob to the trash and appends one line to
@@ -35,7 +81,7 @@ section groups a feature arc, and its date is that arc's last commit.
 - **`make test` runs the Elm scanner's suite too, and `make typecheck` asks all
   three languages at once.** `make test` is now every suite that runs off this
   tree alone: `cabal test` first, so the first red line is a Haskell one where
-  there is one, then `make elm-test`'s 65 cases, which sat behind their own
+  there is one, then `make elm-test`'s cases, which sat behind their own
   target for the network reason and were run by nobody else. `make typecheck`
   is new — `cabal build all`, then `make check-glue`'s tsc over the shell, then
   the Elm compiler at `--output=/dev/null`, since Elm's compiler is its
@@ -44,12 +90,13 @@ section groups a feature arc, and its date is that arc's last commit.
   `interop` and `mutate` stay out: a chromium, an Emacs plus the peer checkout,
   and a runtime measured in minutes.
 - **`make interop` runs glance and Emacs against ONE org-glance store, in both
-  directions.** Emacs seeds a store, the daemon serves it, and twelve cases ask
-  the one question neither project's own suite can: that the bytes one program
-  writes are the bytes the other reads. Browser to Emacs — a `set-state` over a
+  directions.** Emacs seeds a store, the daemon serves it, and its cases
+  ask the one question neither project's own suite can: that the bytes one
+  program writes are the bytes the other reads. Browser to Emacs — a `set-state` over a
   blob leaves a notification line org-glance's own reader parses, out of the
-  file its own accessor names, and `refresh-external` folds it into the WAL; the
-  file is then emptied, kept, and appended to again; a keyword only a tag's
+  file its own accessor names, and `refresh-external` folds it into the WAL and
+  moves its cursor past the line, leaving the bytes where they were; a keyword
+  only a tag's
   `#+TODO:` cycle declares comes back as a state rather than as title text; a
   glance write leaves every other file in `meta/` byte-identical. Emacs to
   browser — org-glance writing a blob of its own reaches an open socket as an
@@ -59,8 +106,11 @@ section groups a feature arc, and its date is that arc's last commit.
   which is the whole index-reading side proven against the real writer instead
   of against hand-written fixtures. One case PINS a known contract hole rather
   than blessing it: a browser capture mints an id Emacs's fold skips. Deletion
-  was the second such hole and is closed above, read back end to end by the
-  twelfth case. It is OUT of `cabal test` for `make browser-check`'s reason — it
+  was the second such hole and is closed above, read back end to end by the last
+  case. And one case moves the notification file's BYTES under a live cursor
+  between two folds, which is the only thing in either repo that would notice
+  the cursor's prefix digest going missing — every other case here only ever
+  grows the file, and an offset alone survives that. It is OUT of `cabal test` for `make browser-check`'s reason — it
   needs Emacs, a sibling org-glance checkout and a daemon — and SKIPS LOUDLY,
   naming which is missing. Host Emacs is the default; `EMACS_RUN=podman` runs
   the same cases on org-glance's own pinned image. `BREAK=name` takes one
@@ -72,6 +122,141 @@ section groups a feature arc, and its date is that arc's last commit.
   on failure and on a signal alike: teardown is one function the normal exit and
   `SIGINT`/`SIGTERM`/`EPIPE` all reach, so a run piped into `head` no longer
   leaves a daemon serving a temp store.
+
+### Changed
+
+- **`M-RET` outside an open box is `+`.** Org's own `org-insert-item`, so all
+  three of `+`, `S-RET` and `M-RET` add a sibling of the stop at point. Inside
+  an open paragraph `M-RET` stays the newline and `S-RET` stays the commit that
+  asks for another one.
+
+### Fixed
+
+- **The `+` echo names what the caret actually lands on.** The word for where a
+  sibling joins is the model's now, said with the draw, where the page used to
+  work it out a second time off the row's fields: a caret on a table row inside
+  a list item said `an item at this level`, and a caret on a `#+end_src` said
+  `a line here` for a paragraph landing past the block. It reads `a row in this
+  table`, `a line in this block` and `a line in this drawer` where those are what
+  joins.
+- **A large subtree opens without the pause.** The document pane's scanner asked
+  for the Nth line of a list, which costs N steps, so its work grew with the
+  square of the body: the largest subtree in a 6,331-file corpus took 28 ms to
+  scan and now takes 4. Typing in an open box no longer re-measures the row it
+  covers on every character, either — a row's padding cannot move while the box
+  is over it.
+- **A bullet inside a block or drawer nested in a list item is no longer a stop
+  of its own.** The document pane's structure scanner hunted an item's raw lines
+  for bullets knowing nothing of `#+begin_X` or `:LOGBOOK:`, so a `- ` inside a
+  nested block became a row the pane drew, `f` descended onto, and `d` then `D`
+  took — carrying the block's `#+end_src` out with it and leaving the block
+  unclosed. The scanner and the region walk now answer one question between
+  them, so a line a nested region holds is that region's wherever it is asked
+  about; a bullet in a `:LOGBOOK:` under an item behaved the same way and is
+  fixed by the same join.
+- **A caret inside a block, a table or a drawer nested in a list item no longer
+  writes a bullet into it.** The region walk settled on the item the moment the
+  list run held the caret's line and never looked inside it, so `S-RET` in a
+  `#+begin_src` under `- alpha` spliced `- NEW` between two source lines and
+  left the block unclosed; a table under an item gained a second table and a
+  drawer under one took a list INSIDE `:LOGBOOK:`.
+- **A caret in a table inside a `#+begin_pin` no longer splits the table.** How
+  deep the document pane's walk looks is org's own greater/lesser split now: it
+  re-enters a GREATER region — an item, a drawer, and every block org parses the
+  contents of, `quote` and a tree's own special blocks among them — and treats a
+  LESSER one as opaque, those being tables and the five VERBATIM blocks
+  `org-element-greater-elements` leaves out (`comment`, `example`, `export`,
+  `src`, `verse`). It re-entered the ITEM alone, so a table riding in any other
+  block was answered with the block's own empty line and org read the result as
+  two tables. Six files in this corpus carry the shape. Two answers move with
+  the rule and both are org's: a block inside a nested drawer is the BLOCK's
+  lines, and a bullet inside a `:LOGBOOK:` is an ITEM — which is how that
+  drawer's own state lines read.
+- **A `#+begin_comment` block holds no items and no tables.** The opaque list
+  was org's LIST rule, `org-list-forbidden-blocks`, which names four and spares
+  `comment`; the split this walk asks is the ELEMENT one, and
+  `org-element-greater-elements` leaves out five. A caret inside a comment block
+  wrote a bullet or a table row into it where org parses neither. Nothing in
+  this corpus spells the shape; it was reachable by typing it.
+- **A block or a drawer straddling a list item no longer cuts the item in two.**
+  The item run hunted bullets THROUGH a block it knew nothing about, so a `- b`
+  written between two source lines ended the item above it and minted a stop
+  whose `d`/`D` carried the `#+begin_src` off without its `#+end_src`. A region
+  is one syntactic unit and the run steps over it whole, which is org's own
+  `org-list-struct`. Nothing in this corpus spells the shape; it was reachable
+  by typing it.
+- **A caret on a non-item line no longer cuts the structure it stands in.**
+  Inside a `#+begin_src` run, `S-RET` used to splice a bulleted item into the
+  middle of the block and leave it unclosed; blocks and tables now answer with
+  their own continuation instead of the list's.
+- **`S-RET` over a list in the materialize sheet writes an item, whatever the
+  stop over it.** One `n` off the headline lands on the whole list as ONE stop,
+  so a box opened there covers every line of it — and the sibling it committed
+  came out with no bullet at all, which reads as the region not being a list.
+  A line inside a list belongs to an item however wide the stop laid over it:
+  the new item wears the caret line's own indent and bullet and joins that
+  line's own run. A caret on a continuation line takes the prefix of the item
+  holding it rather than the list's first, so a column-1 bullet is never
+  written into a nested run. `+` with no box open reads no caret and still
+  lands a paragraph past the whole list, which is the only way to one.
+- **An open paragraph edit no longer clips its own text or highlights past the
+  row.** The block reserved 19.5px a line while the field rendered 20.8px, so a
+  fourth typed line scrolled out of sight; the floor is counted in the pane's
+  own metrics now, which is the pair the field inherits. And the box is the
+  block it covers on all four edges: over a list item — whose row carries no
+  horizontal padding, the nesting being the file's own spaces — the highlight
+  used to start 22px left of the row, at the beginning of the line.
+- **`S-RET` in the materialize sheet now puts the new item under the line the
+  caret stands on.** Editing a list item that carries a nested run, the sibling
+  it committed wore the caret line's own indent and bullet and then landed past
+  the whole structure — a checkbox typed halfway down a run arrived at the
+  bottom of it. The caret's line is the anchor now as well as the prefix: the
+  item lands immediately under that line, everything below it stays below, and
+  the row drawn before the write stands exactly where the write puts it. `+`
+  pressed with no box open reads no caret and rides past the whole structure as
+  it always did, which is right where nothing named a line to split.
+- **A delete this daemon reports is no longer lost while Emacs is folding
+  it.** Nothing here changed: the peer stopped rewriting
+  `<store>/.org-glance/meta/EXTERNAL.jsonl` and now reads from a byte cursor
+  beside it, so a line appended between its read and its write — which used to
+  be destroyed, taking a tombstone with it and leaving a live record over bytes
+  in the trash — is simply past the offset that fold recorded. The daemon's
+  half of the argument is `appendLine`: it opens the path per line and holds no
+  descriptor, which is what makes the peer's rotation safe, a rename landing
+  mid-write putting that line in the rotated file rather than into an unlinked
+  inode. `make interop`'s sixth case reads the new contract — the cursor
+  advanced, the file kept every byte, and a second write landed past it.
+  The cursor's own price is paid on the peer's side too: an offset says how far
+  without saying which bytes, and this store is git-synced with the cursor
+  tracked beside the file, so a union merge could put another machine's lines
+  ahead of it and resume a fold mid-line. The peer's cursor now carries the sha1
+  of the prefix it measured and re-folds whenever that no longer holds, and its
+  git conflict resolver — which rewrote every `meta/*.jsonl` at graph open, this
+  file included — now names the WAL's own files positively, so this daemon's two
+  files there are out of its reach by construction rather than by exclusion.
+  That sha1 is taken over the bytes the fold READ, out of the ONE read it slices
+  its lines from, so a checkout landing while a fold runs costs a re-fold too;
+  and the peer deletes an old notification generation only once that
+  generation's own cursor says it is drained, where deleting the oldest by
+  position took the deletes an unread generation still owed. `make interop`'s
+  `bytes-move-under-a-live-cursor` re-lays the file under a live cursor between
+  two folds and asks whether the keyword still arrives — the only thing on THIS
+  side of the wire that would notice the digests going missing, the peer's own
+  suite reddening three cases without it.
+- **An outside write is no longer missed when that file is replaced at its own
+  length.** Nothing here changed again: the peer asked whether a fold was owed
+  by comparing its cursor with the file's SIZE, and `Data.Org.External.noteLine`
+  spells fixed-width lines — one length for every write, another for every
+  delete — so a synced store replacing a 58-byte tombstone with another 58-byte
+  tombstone left the second id live through any number of reads. Its poll
+  verifies the last 4 KiB before the cursor and that the cursor ends a line, at
+  a cost flat in the file's size, and every fold that consumes anything verifies
+  the whole prefix out of the buffer it had already read. The same predicate
+  guards the peer's rotation, which used to unlink a re-laid generation and
+  every delete note in it. `bytes-move-under-a-live-cursor` asks the peer for
+  that answer now beside the cursor it always read: its re-laying leaves the
+  length alone, so a peer that verifies what a fold consumes and polls by size
+  passes every assertion the case already had.
 
 ## 0.6.0.0 - 2026-08-11
 

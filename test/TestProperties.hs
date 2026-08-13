@@ -1,4 +1,4 @@
--- | The laws @CLAUDE.md@ writes as UNIVERSALS, asked as universals.
+-- | The laws @AGENTS.hs@ writes as UNIVERSALS, asked as universals.
 --
 -- Every group here restates a rule the repo already pins with a hand-chosen
 -- example list and hands it a generator instead.  Three kinds, and the kind
@@ -127,7 +127,7 @@ answerSpec = testGroup "Spans, against the offsets they were written at"
     -- 'hsFull' is a LEFT FOLD over 'spanParts' seeded with the stars, ending at
     -- the LAST present part in SOURCE order — never a maximum over ends.  The
     -- two agree exactly while that list is in source order and diverge the
-    -- moment it is not, which is the failure mode invariants.md describes and
+    -- moment it is not, which is the failure mode AGENTS.hs describes and
     -- one fixture samples.
   , testProperty "hsFull is the fold, and the fold is the maximum" $ \(Wild ds) ->
       let r = render ds
@@ -143,7 +143,8 @@ answerSpec = testGroup "Spans, against the offsets they were written at"
     -- Subtree extents TILE, computed over EVERY headline though only top
     -- entries keep records.  A BLANK top entry is left out of this ON PURPOSE:
     -- it keeps its extent and loses its record, and the survivors then do NOT
-    -- meet — see the delivery note in docs/proposal-property-tests.done.md.
+    -- meet — see the delivery note in
+    -- docs/proposals/2026-08-11-property-tests.done.md.
   , testPropertyWith 60 "top entries tile the document, and meet exactly" $ \ds ->
       let r = render ds
           want = [ sp | (e, sp) <- zip (rdEntries r)
@@ -265,7 +266,7 @@ editSpec = testGroup "applyEdits"
             .&&. (T.length <$> applyEdits doc es)
                    === Right (T.length doc + sum (map delta es))
 
-    -- "untouched bytes stay byte-identical" (CLAUDE.md, Architecture) as a
+    -- "untouched bytes stay byte-identical" (AGENTS.hs) as a
     -- universal.  TestEdit's ten splice cases are four points of this algebra.
   , testProperty "replacing a span with its own text is the document" $ \ds a b ->
       let doc = rdText (render ds)
@@ -338,7 +339,7 @@ timestampSpec = testGroup "Timestamps"
             (readTimestamp reworded === Just ts)
 
     -- 'compactly' guards the compact render with three conditions — the flag,
-    -- both ends timed, one day — of which invariants.md records that ONLY THE
+    -- both ends timed, one day — of which AGENTS.hs records that ONLY THE
     -- FLAG is exercised.  A flag the ends cannot hold takes the '--' arm and the
     -- value comes back with the flag cleared and nothing else moved.
   , testProperty "a compact flag the ends cannot hold comes back cleared" $ \(TsAny ts) ->

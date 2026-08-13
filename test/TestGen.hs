@@ -6,7 +6,7 @@
 --
 -- A RENDERER IS A SPELLING, A PARSER IS A RECOGNITION.  Org's spelling is fixed
 -- and small — stars, a space, a keyword, @[#A]@, words, @:a:b:@, a planning
--- line, a drawer.  Its recognition is where every subtlety in @CLAUDE.md@'s
+-- line, a drawer.  Its recognition is where every subtlety in @AGENTS.hs@'s
 -- Parser section lives, and that is the half a generated document is worth
 -- asking about.  NEVER 'TextShow': that is the lossy REPL re-serializer, and
 -- rendering through it would test the parser against its own inverse and hide

@@ -1,20 +1,37 @@
 * Glance
 
-Org-mode projections: the org files are the source of truth, and everything
-else is a projection of them. Glance is one
-of two front ends over one set of bytes — Emacs's
-[[https://github.com/rails-to-cosmos/org-glance][org-glance]] for editing and
-history, this for the table, the filter and the keyboard; neither is
-authoritative, each notifies the other through =meta/EXTERNAL.jsonl=, and
-=make interop= runs the two against one store to keep them honest.
+Serves an org tree as a table in a browser tab, and writes back into the files
+by span splice.
 
-Serves an org tree as a keyboard-driven table in a browser tab and writes back
-into the files by span splice. Org files stay the single source of truth: one
-walk into an in-memory projection, a websocket streaming every change as the
-file watch re-parses, and every write replacing the exact characters a headline
-occupies — optimistic lock, temp-plus-rename, every other byte identical.
-Underneath sits =Data.Org=, a megaparsec org-mode grammar where every element
-carries a half-open character span into its document.
+*Keyboard-first, for Emacs and vim users.* Every feature ships with a key path;
+buttons exist only where keys cannot reach, and there is no chrome outside the
+popups.
+
+- Commands are named as elisp functions and the echo speaks them verbatim —
+  =d= is =archive-flag=, =,= is =customize=, =q= is =quit-window= one window in.
+- Sequences are org-glance's and Emacs's own: =C-c C-t=, =C-c C-s=, =C-x C-s=,
+  =C-c C-c=, =C-c '=.
+- Movement carries both dialects — =n=/=p= and =j=/=k= step rows, =f=/=b= and
+  =l=/=h= step cells, and the arrows alias both.
+- dired's gestures where dired has one: =m=/=u=/=M=/=U= mark, =d= flags, =x=
+  acts on the flagged, =D= is the quick half.
+- A letter binds the *physical key*, so a Cyrillic layout navigates unchanged.
+
+Under it:
+
+- Org files are the single source of truth; the store, the index and every view
+  are projections, rebuildable from the text.
+- One walk into an in-memory projection, a websocket streaming each change as
+  the file watch re-parses.
+- A write replaces the exact characters a headline occupies: optimistic lock,
+  temp-plus-rename, every other byte identical.
+- Underneath, =Data.Org= — a megaparsec org grammar where every element carries
+  a half-open character span into its document.
+- Two front ends over one set of bytes: Emacs's
+  [[https://github.com/rails-to-cosmos/org-glance][org-glance]] for editing and
+  history, this for the table, the filter and the keyboard. Neither is
+  authoritative; each notifies the other through =meta/EXTERNAL.jsonl=, and
+  =make interop= runs the two against one store.
 
 - *Author:* Dmitry Akatov · *License:* BSD3 · *Version:* =0.6.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
 - *Upstream:* https://github.com/rails-to-cosmos/glance
@@ -27,11 +44,10 @@ cabal run glance -- desktop --dir ~/org     # same daemon, app window
 make native                                 # build the WebKitGTK window in
 #+end_src
 
-=serve= takes =--dir=, =--port= (7777), =--assets PATH=, =--include-derived=;
+=serve=: =--dir=, =--port= (7777), =--assets PATH=, =--include-derived=.
 =desktop= adds =--browser CMD=, =--dry-run=, =--keep-serving=. Binds
 =127.0.0.1= only, and binds *before* the ~10 s walk — store routes answer 503
-with a loading body until it lands, so the page paints an indexing state and
-polls out of it.
+with a loading body until it lands.
 
 #+begin_src sh
 curl -s localhost:7777/headlines | jq '.rows | length'
@@ -41,7 +57,7 @@ curl -s 'localhost:7777/headlines?q=tag:work%20sort:deadline&limit=100' | jq '.s
 ** Queries, by example
 
 One string states both the narrowing and the order ([[https://github.com/rails-to-cosmos/table-view][table-view]]'s grammar,
-ported term for term; divergences enumerated in [[file:docs/invariants.md][docs/invariants.md]]).
+ported term for term; divergences enumerated in [[file:AGENTS.hs][AGENTS.hs]]).
 
 | query                               | rows served                                  |
 |-------------------------------------+----------------------------------------------|
@@ -60,16 +76,15 @@ ported term for term; divergences enumerated in [[file:docs/invariants.md][docs/
 | =columns:State,Title,Tags=          | those columns, in that order                 |
 | =view:agenda=                       | a saved view by NAME, standing for its query |
 
-Written order is precedence; a query naming any =sort:= replaces the default
+Written order is precedence. A query naming any =sort:= replaces the default
 chain (state · title · deadline · scheduled, state in the tree's own =#+TODO:=
-order). =:work:= and ~=code=~ stay text — only column keys, =planned=, =ref=
-and =sort= are predicates.
+order). =:work:= and ~=code=~ stay text: only column keys, =planned=, =ref= and
+=sort= are predicates.
 
 ** Keys, the dozen that matter
 
-The keymap is data (=Glance.Web.Keymap=): the served page's last line is the
-whole map, and the echo pill names every press =SEQ → command=. Letters bind
-the *physical key*, so =т з о л= navigates on a Cyrillic layout.
+The keymap is data (=Glance.Web.Keymap=): the page's last line is the whole
+map. =т з о л= navigates on a Cyrillic layout.
 
 | =n= =p= / =f= =b= | rows / cells — and in the document, siblings / grain    |
 | =RET=             | materialize the row; in the document, edit the element  |
@@ -85,8 +100,9 @@ the *physical key*, so =т з о л= navigates on a Cyrillic layout.
 ** Capture
 
 =+= is one form: a tag field completing over the tree's vocabulary, the
-template's own fields grown in place when the tag settles, the line last. RET
-moves forward and captures; empty tag = plain inbox line; ESC leaves whole.
+template's own fields grown in place when the tag settles, the line last. =RET=
+moves forward and captures; an empty tag is the inbox; =ESC= leaves it whole.
+Untagged captures land in =<root>/inbox.org=, always.
 
 A tag's template is the first heading of its config layer:
 
@@ -107,20 +123,23 @@ that Emacs adopts on its next refresh.
 
 ** The material document
 
-=RET= opens the row's subtree as a document + property panel. Movement is the
-table's two axes: =n=/=p= walk siblings at the current grain — a list, block
-or table is *one* stop, so holding =n= skims — and =f=/=b= go a grain finer /
-broader (a composite's items, a headline's cells). Every element commits on
-its own (=C-x C-s= / =C-c C-c=), =RET= on a child drills in, =DEL= walks out,
-a moved file is a 409 the sheet waits on. =ORG_GLANCE_ID=, the creation stamp
-and the =:LOGBOOK:= drawer are server-preserved — shown or hidden, never
-round-tripped through the client.
+=RET= opens the row's subtree as a document plus property panel.
+
+- Movement is the table's two axes: =n=/=p= walk siblings at the current grain,
+  =f=/=b= go a grain finer / broader (a composite's items, a headline's cells).
+- A list, block or table is *one* stop, so holding =n= skims.
+- Every element commits on its own (=C-x C-s= / =C-c C-c=); =RET= on a child
+  drills in, =DEL= walks out.
+- A moved file is a 409 the sheet waits on.
+- =ORG_GLANCE_ID=, the creation stamp and =:LOGBOOK:= are server-preserved:
+  never round-tripped through the client.
 
 ** Commands
 
 =POST /command {name, id | ids, args, digests?}= — ids group by file, one
 drift-locked atomic write per file, per-id answers. Refusals are 400 with
-nothing written.
+nothing written; the route never writes the store, so rows come back over the
+file watch.
 
 | name           | args                             | writes                            |
 |----------------+----------------------------------+-----------------------------------|
@@ -143,8 +162,6 @@ curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
                                       "fields": {"Author": "Herbert"}}}'
 #+end_src
 
-The route never writes the store; rows come back over the file watch.
-
 ** Config
 
 Org files under =<root>/.org-glance/config/=, never a row source:
@@ -153,26 +170,28 @@ Org files under =<root>/.org-glance/config/=, never a row source:
 # .org-glance/config/system.org — the tree-wide layer
 #+TODO: TODO STARTED | DONE CANCELLED
 #+GLANCE_DEFAULT_FILTER: state:*active* -tag:someday
-#+GLANCE_CAPTURE_TARGET: inbox.org
+#+GLANCE_STATE_COLORS: light TODO=#7B1FA2 DONE=#00695C
 #+end_src
 
-=tags/TAG.org= adds a per-tag cycle (and a capture template, above).
-Recognition unions every layer; classification is widest-scope
-(built-in > system > tags > file), so a file redeclaring =TODO= cannot make it
-done-like. The settings sheet (=,=) edits the layers; the saved views are
-written from the table with =P=, which asks which one takes the applied query.
+=tags/TAG.org= adds a per-tag cycle and a capture template. Recognition unions
+every layer; classification is widest-scope (built-in > system > tags > file),
+so a file redeclaring =TODO= cannot make it done-like. The settings sheet (=,=)
+edits the layers and the state hues; saved views are written from the table
+with =P=.
 
 ** org-glance interop
 
-Reads and writes the same tree Emacs's org-glance does: walks the canonical
-=data/= store, declines the derived =overviews/=, =meta/=, =trash/= and
-=occurrences/=
-(=--include-derived= turns that off), resolves shared ids in the store's
-favour. Every daemon write into a blob appends to =meta/EXTERNAL.jsonl=, and a
-delete appends the same line wearing ="tombstone":true=; =M-x
-org-glance-graph:refresh-external= folds both back. =glance scan= reads
-org-glance's index read-only and reports drift. Details: [[file:docs/invariants.md][docs/invariants.md]]
-(Scan, Walk).
+Reads and writes the same tree Emacs's org-glance does.
+
+- Walks the canonical =data/= store; declines the derived =overviews/=, =meta/=,
+  =trash/= and =occurrences/= (=--include-derived= turns that off).
+- Resolves shared ids in the store's favour.
+- Every daemon write into a blob appends to =meta/EXTERNAL.jsonl=; a delete
+  appends the same line wearing ="tombstone":true=. =M-x
+  org-glance-graph:refresh-external= folds both back.
+- =glance scan= reads org-glance's index read-only and reports drift.
+
+Details: [[file:AGENTS.hs][AGENTS.hs]] (Scan, Walk).
 
 ** Build and verify
 
@@ -191,21 +210,22 @@ make elm                             # rebuild assets/elm.js (reproduces the com
 make elm-test                        # the scanner's own tests; fetches, so it is out of cabal test
 make check-glue                      # tsc over the shell's parts
 make browser                         # Chromium into ~/.cache/ms-playwright, no root
+make browser-check                   # the cases a real engine measures
+make interop                         # the peer, run against one store
 #+end_src
 
-Standing oracle over =~/sync=, 2026-08-11: 6302 files, 12634 headlines, *0
-span violations*, walk ~10 s. =assets/table-view.js= and =assets/elm.js= are
-committed build inputs compiled into the binary — the renderer, and the Elm
-program the materialize sheet and the small lists are drawn by; neither is
-rebuilt by =cabal build=, so a source change owes its =make= step.
-=--assets ../table-view/web= serves the
-sibling checkout live for renderer hacking. =vendored/= exists because Arch
-ships WebKit2 4.1 typelibs only — =cabal get NAME-VERSION && diff -r= shows
-the whole patch.
+- Standing oracle over =~/sync=, 2026-08-11: 6302 files, 12634 headlines, *0
+  span violations*, walk ~10 s.
+- =assets/table-view.js= and =assets/elm.js= are committed build inputs compiled
+  into the binary. Neither is rebuilt by =cabal build=, so a source change owes
+  its =make= step.
+- =--assets ../table-view/web= serves the sibling checkout live.
+- =vendored/= exists because Arch ships WebKit2 4.1 typelibs only;
+  =cabal get NAME-VERSION && diff -r= shows the whole patch.
 
 ** Docs
 
-- [[file:CLAUDE.md][CLAUDE.md]] / [[file:docs/invariants.md][docs/invariants.md]] — the rules the code silently enforces, brief and full.
-- [[file:docs/proposal-org-console-web.draft.md][proposal-org-console-web.md]] / [[file:docs/plan-org-console-web.md][plan-org-console-web.md]] — why, and the steps.
+- [[file:AGENTS.hs][AGENTS.hs]] — the rules the code silently enforces, brief and full.
+- [[file:docs/proposals/2026-07-30-org-console-web.draft.md][2026-07-30-org-console-web.draft.md]] / [[file:docs/plan-org-console-web.md][plan-org-console-web.md]] — why, and the steps.
 - [[file:docs/design-rhymes.md][design-rhymes.md]] — the shapes this UI repeats on purpose.
 - [[file:CHANGELOG.md][CHANGELOG.md]] — what each cut carries.

@@ -2,7 +2,7 @@
 --
 -- A port term by term of @table-view.js@'s @scanQuery@, @parseQuery@ and
 -- @tokenTest@ — parity is the contract.  The grammar, the starred metas and
--- every known divergence are in CLAUDE.md and @table-view\/SCHEMA.md@.
+-- every known divergence are in AGENTS.hs and @table-view\/SCHEMA.md@.
 module Glance.Web.Filter ( FilterEnv
                          , Term (..)
                          , Token (..)

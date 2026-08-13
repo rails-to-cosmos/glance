@@ -67,7 +67,6 @@ module Glance.Query ( BlobSeed (..)
                     , captureStamp
                     , captureText
                     , captureTargetIn
-                    , captureTargetOf
                     , captureTemplateEdits
                     , captureTemplateIn
                     , captureTemplateOf
@@ -214,8 +213,8 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , addUnit, relativeForms, repeaterFormat, tags, title, todo
                 , tsBrackets, unitOf )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
-                       , builtinAgenda, builtinFilter, captureTargetEdits, captureTargetIn
-                       , captureTargetOf, classify, configDirIn, configDirsIn
+                       , builtinAgenda, builtinFilter, captureTargetIn
+                       , classify, configDirIn, configDirsIn
                        , declaredKeywords
                        , SavedView (..), defaultCaptureFile, defaultFilter
                        , isTodoPragma, savedView, savedViews, stateColorsEdits
@@ -381,7 +380,7 @@ loadFile = loadFileWith noConfig
 -- The rows come back forced: a caller running this on a pool needs the work
 -- done by the worker that took the file, and a caller of any kind needs the
 -- document dropped rather than retained under an unevaluated cell
--- (docs\/invariants.md, Scan).
+-- (AGENTS.hs).
 --
 -- The ladder itself is 'Edit.readParsed', which the corpus scan climbs too, so
 -- the digest a row is pinned by is of the very bytes the parse read.  Only the
@@ -1835,7 +1834,7 @@ forceRecord r =
 -- Write-back
 
 -- | Why a 'replaceSpans' did not land.  Either way the file is byte-identical
--- to what it held before the call (docs/invariants.md, Architecture).
+-- to what it held before the call (AGENTS.hs).
 data WriteFailure
   = WriteDrift !Text    -- ^ the digest the file holds now, which is not the pinned one.
   | WriteRefused !Text  -- ^ read, decode, splice or rename trouble, spelled for a caller to show.
@@ -2699,7 +2698,7 @@ timestampOpeners = map fst [activeBrackets, inactiveBrackets]
 -- so a planning entry and a creation stamp cannot disagree about the shape.
 --
 -- The weekday is COMPUTED here, which is the same rule the renderer keeps
--- (docs\/invariants.md, Parser): a weekday is a function of the date and asking
+-- (AGENTS.hs): a weekday is a function of the date and asking
 -- anyone to type one is asking them to get it wrong.
 orgStamp :: (Text, Text) -> Time.Day -> Maybe Text -> Text
 orgStamp (open, close) day time =
@@ -3074,13 +3073,12 @@ data ConfigParts = ConfigParts
   { cpViews    :: ![(Text, Text)]  -- ^ saved views by id, the system layer's alone; an id absent leaves that view.
   , cpColors   :: !(Maybe [(Text, [(Text, Text)])])
       -- ^ @#+GLANCE_STATE_COLORS:@ by theme, likewise; the empty list deletes the block.
-  , cpCapture  :: !(Maybe Text)  -- ^ @#+GLANCE_CAPTURE_TARGET:@, likewise.
   , cpTemplate :: !(Maybe Text)  -- ^ the capture template, which EVERY layer may carry.
   } deriving (Eq, Show)
 
 -- | A layer write asking for nothing but its cycle.
 noParts :: ConfigParts
-noParts = ConfigParts [] Nothing Nothing Nothing
+noParts = ConfigParts [] Nothing Nothing
 
 -- | WHOSE FILE a setting is.  A 'TreeWide' one belongs to the tree and lives in
 -- @system.org@; a 'PerLayer' one is every layer's own.  This is the whole of the
@@ -3113,7 +3111,6 @@ data ConfigSetting = ConfigSetting
 configSettings :: [ConfigSetting]
 configSettings =
   [ ConfigSetting "views"    TreeWide viewPartEdits
-  , ConfigSetting "capture"  TreeWide (\doc p -> Right (maybe [] (captureTargetEdits doc) (cpCapture p)))
   , ConfigSetting "colors"   TreeWide (\doc p -> Right (maybe [] (stateColorsEdits doc) (cpColors p)))
   , ConfigSetting "template" PerLayer (\doc p -> maybe (Right []) (captureTemplateEdits doc) (cpTemplate p))
   ]
