@@ -42,7 +42,7 @@ question the user has been answering by eye all session.
 
 ## Depends on the driver
 
-docs/proposal-browser-driver.done.md owns the toolchain question whole, and this
+docs/proposals/2026-08-11-browser-driver.done.md owns the toolchain question whole, and this
 proposal is worth nothing before it lands. Its measured starting point stands
 here unargued: no Chromium, Chrome, Brave or Vivaldi on this machine, no
 playwright or puppeteer cache, three spikes at Firefox's Remote Agent that never
@@ -240,7 +240,7 @@ and one woff2.
 ## Risk
 
 - **Downstream of an unproven driver.** Nothing here runs until
-  docs/proposal-browser-driver.done.md lands, and on this machine today it has not.
+  docs/proposals/2026-08-11-browser-driver.done.md lands, and on this machine today it has not.
 - **The first binaries in the repo.** All 324 tracked files are text today
   (measured: `file --mime` over `git ls-files` finds only JSON outside `text/`)
   and `.git` is 19 MB. 18 PNGs plus a woff2 is ~1.1 MB — 6% of the history at

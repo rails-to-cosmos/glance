@@ -133,7 +133,7 @@ it: **settle on the CONDITION with a cap, never on a duration** (CLAUDE.md's
 The driver talks to the page through six calls — `goto`, `eval`, `until`,
 `press`, `size`, `shot` — so swapping the CDP client for playwright or BiDi
 later is one adapter behind six names. Same rule as the transport surface in
-`docs/proposal-native-ports.draft.md`.
+`docs/proposals/2026-08-05-native-ports.draft.md`.
 
 ## The design
 

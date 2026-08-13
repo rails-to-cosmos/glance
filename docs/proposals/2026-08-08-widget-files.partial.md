@@ -2,7 +2,7 @@
 
 **Status:** partial — proposed · **Date:** 2026-08-08 · **Origin:** fixme.org item 8,
 "UX refactor: each reusable widget in a separate file" · **Successor to:**
-`docs/proposal-glue-extraction.done.md`, which made the shell a real `.js` file
+`docs/proposals/2026-08-05-glue-extraction.done.md`, which made the shell a real `.js` file
 and stopped there
 
 ## The measurement
@@ -338,7 +338,7 @@ poked. That is a coherent thing to port. CORRECTION: the "zero synchronous rende
 calls" figure written here was measured on `10-document.js` ALONE, before the
 merge; the merged file makes 27, of which 20 belong to table machinery that
 rode in with the panel and 7 to the property panel's own mount. See
-`docs/proposal-elm-sheet.partial.md`, which plans around the real number.
+`docs/proposals/2026-08-09-elm-sheet.partial.md`, which plans around the real number.
 
 What still stands between it and a port is its size (1225 lines) and its reach
 (seven forward dependencies plus a wide floor). A port would have to take the

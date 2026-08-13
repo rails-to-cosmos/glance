@@ -2,13 +2,13 @@
 
 **Status:** proposed · **Date:** 2026-08-08
 
-Successor to [docs/proposal-capture.done.md](proposal-capture.md), delivered
+Successor to [docs/proposals/2026-08-03-capture.done.md](2026-08-03-capture.done.md), delivered
 2026-08-04, which asked WHERE a capture goes and answered it.  This asks
 WHAT a capture can say, and answers fixme 11 and 12 together — one
 question from two sides.  Element meanings are the org manual's own, off
 [Template expansion](https://orgmode.org/manual/Template-expansion.html).
-Siblings: `docs/proposal-generalize-ask-kinds.proposed.md` (stage 2 is its fourth
-caller) and `docs/proposal-generalize-capture-shapes.proposed.md`.
+Siblings: `docs/proposals/2026-08-04-generalize-ask-kinds.proposed.md` (stage 2 is its fourth
+caller) and `docs/proposals/2026-08-04-generalize-capture-shapes.proposed.md`.
 
 ## What ships today
 
@@ -234,7 +234,7 @@ is how the form knows to draw a line or a box, and it falls out of
    BESIDE, dropping `prompts` once the shell and the harness read `asks`.
    Two producers of one fact for one release costs less than a wire
    change landing in three files at once.
-6. **Does the untagged path get a template?**  proposal-capture.md took
+6. **Does the untagged path get a template?**  2026-08-03-capture.done.md took
    this as "stay bare" and the body change is the reason to keep it so —
    the quick-jot path is one field.  RECOMMEND KEEPING IT BARE: a reader
    wanting a shape names a tag, which is what a tag is for.

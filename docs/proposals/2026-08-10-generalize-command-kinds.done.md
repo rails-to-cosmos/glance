@@ -93,7 +93,7 @@ nothing then dispatches on it.
   MEASURED on implementing, by adding a fourth constructor: **six sites**, not
   the three estimated. They are `-Wincomplete-patterns` WARNINGS rather than
   errors, there being no `-Werror` in any stanza — which is exactly what
-  `docs/proposal-generalize-closed-sums.done.md` asks for, and this finding now
+  `docs/proposals/2026-08-04-generalize-closed-sums.done.md` asks for, and this finding now
   depends on it for the guarantee to be a wall rather than a log line.
 
 ## Risk
@@ -108,6 +108,6 @@ is the check.
 The repo already does this and says why: `Data.Org.Types:184-187` keeps
 `Element`'s sum closed with no catch-all so that a fifth constructor is named
 by the compiler at three sites, and `Glance.Web.Store.frameJSON`
-(`Store.hs:448-452`) does the same for `Frame`. `docs/proposal-generalize-closed-sums.done.md`
+(`Store.hs:448-452`) does the same for `Frame`. `docs/proposals/2026-08-04-generalize-closed-sums.done.md`
 argues for closing the two sums that still carry catch-alls; this is the same
 argument one step earlier — a sum that has not been written down yet.

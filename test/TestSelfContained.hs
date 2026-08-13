@@ -56,6 +56,20 @@ wrappedWidgets =
 widgetBody :: T.Text -> T.Text
 widgetBody = T.unlines . takeWhile (not . T.isPrefixOf "    return {") . T.lines
 
+-- | What a proposal's header declares for MARKER, CUT to the field's own
+-- shape.  Off the FIRST line carrying the marker rather than off a line it
+-- leads: @**Status:**@ opens its line and @**Date:**@ as often trails a status
+-- on one.
+declares :: T.Text -> (T.Text -> T.Text) -> T.Text -> Maybe T.Text
+declares marker cut body = listToMaybe
+  [ cut (T.drop (T.length marker) rest)
+  | l <- T.lines body, let rest = snd (T.breakOn marker l), not (T.null rest) ]
+
+-- | The two cuts: a status is one word, a date is @YYYY-MM-DD@.
+word, day :: T.Text -> T.Text
+word = T.takeWhile (/= ' ')
+day  = T.take 10
+
 -- | PART with its comment-only lines out, so a name in prose is not a reach.
 glueCode :: FilePath -> IO T.Text
 glueCode part = strip <$> TIO.readFile ("assets/glue" </> part)
@@ -84,26 +98,41 @@ spec = testGroup "Self-containment"
                   [ part | part <- gluePartFiles
                          , not (T.pack ("glue/" <> part) `T.isInfixOf` conf) ]
 
-    -- A PROPOSAL'S NAME TELLS ITS STATUS, and the name is the SECOND place that
-    -- fact is written — so it is CHECKED rather than kept in step by hand, which
-    -- is the failure this repo keeps finding in its own documents.  The status
-    -- line LEADS with the token so the comparison is a string equality and no
-    -- table of prose spellings sits between the two.  The sweep says what it
-    -- swept, since an empty docs directory would otherwise pass.
-  , testCase "every proposal's name is the status it declares" $ do
-      names <- filter ("proposal-" `isPrefixOf`) <$> listDirectory "docs"
-      assertBool ("too few proposals swept: " <> show (length names)) (length names >= 20)
+    -- A PROPOSAL'S NAME TELLS ITS DATE AND ITS STATUS, and the name is the
+    -- SECOND place each fact is written — so both are CHECKED rather than kept
+    -- in step by hand, which is the failure this repo keeps finding in its own
+    -- documents.  Each header field is read off the first line carrying its
+    -- marker, so the comparison is a string equality and no table of prose
+    -- spellings sits between the two.
+    --
+    -- THE SWEEP READS THE DIRECTORY.  Everything under @docs\/proposals@ IS a
+    -- proposal, so nothing is filtered and a document cannot escape the check
+    -- by being named wrong — which the old @proposal-@ prefix filter allowed,
+    -- it being the very name under test.  The sweep still says what it swept,
+    -- since an empty directory would otherwise pass.
+  , testCase "every proposal's name is the date and status it declares" $ do
+      -- AN EMACS SIDECAR IS NOT A DOCUMENT, which is the rule
+      -- 'Data.Org.Walk.isSidecar' already states for org files: @#name#@ is an
+      -- auto-save and @.#name@ a lock, both editor state, neither tracked, and
+      -- a name that declares nothing.  The sweep still reads the DIRECTORY, so
+      -- a proposal cannot escape it by being misnamed.
+      let sidecar n = (("#" `isPrefixOf` n) && ("#" `isPrefixOf` reverse n))
+                        || (".#" `isPrefixOf` n)
+      names <- filter (not . sidecar) <$> listDirectory "docs/proposals"
+      assertBool ("too few proposals swept: " <> show (length names)) (length names >= 35)
       wrong <- fmap concat . forM names $ \name -> do
-        body <- TIO.readFile ("docs" </> name)
-        let declared = case T.lines body of
-              ls -> listToMaybe
-                      [ T.takeWhile (/= ' ') rest
-                      | l <- ls, Just rest <- [T.stripPrefix "**Status:** " l] ]
-            named = case reverse (T.splitOn "." (T.pack (dropExtension name))) of
+        body <- TIO.readFile ("docs/proposals" </> name)
+        let stem = T.pack (dropExtension name)
+            namedStatus = case reverse (T.splitOn "." stem) of
               (st:_) -> Just st
               []     -> Nothing
-        pure [ (name, declared, named) | declared /= named ]
-      assertEqual "a proposal whose name and status disagree" [] wrong
+            declaredStatus = declares "**Status:** " word body
+            declaredDate = declares "**Date:** " day body
+        pure $ [ (name, "status" :: T.Text, declaredStatus, namedStatus)
+               | declaredStatus /= namedStatus ]
+            <> [ (name, "date", declaredDate, Just (day stem))
+               | declaredDate /= Just (day stem) ]
+      assertEqual "a proposal whose name and header disagree" [] wrong
 
     -- ONE SOURCE FOR THE SHELL.  The parts are what the build reads and what a
     -- served directory concatenates, so a whole `glue.js' beside them would be
@@ -127,8 +156,8 @@ spec = testGroup "Self-containment"
     -- denylist over the names that MATTER is exact.  What matters is the state
     -- a widget must not reach around its arguments for.
     --
-    -- `docs/proposal-widget-files.partial.md' step C.  A part joins by being wrapped
-    -- and listed here, one widget at a time.
+    -- `docs/proposals/2026-08-08-widget-files.partial.md' step C.  A part joins
+    -- by being wrapped and listed here, one widget at a time.
   , testCase "a wrapped widget reaches around its arguments for nothing" $
       forM_ wrappedWidgets $ \(part, forbidden) -> do
         body <- widgetBody <$> glueCode part
@@ -188,7 +217,7 @@ spec = testGroup "Self-containment"
     -- blob directory through 'Data.Org.Trash.trashBlob', which lives outside
     -- @src-web\/@ and so is outside this sweep by construction rather than by
     -- oversight.  That second door carries its own note and its own rule; see
-    -- "ONE DOOR PER WAY BYTES MOVE" in docs/invariants.md.
+    -- "ONE DOOR PER WAY BYTES MOVE" in AGENTS.hs.
   , testCase "replaceSpans is spliced through the watch and nowhere else" $ do
       files <- filter ("src-web/" `isPrefixOf`) <$> haskellSources
       assertBool ("too few web sources swept: " <> show (length files)) (length files >= 12)

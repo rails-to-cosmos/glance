@@ -492,7 +492,7 @@ written. A tabled case joins them, over `tabledBody`
 Where the drawn lead SITS on screen — a drafted item at two spaces should line
 up with the run it joins, and the harness returns zeros from every
 `getBoundingClientRect` (`shell-harness.js:1289`). That is
-`docs/proposal-browser-driver.done.md`'s class, and one case there would cover it.
+`docs/proposals/2026-08-11-browser-driver.done.md`'s class, and one case there would cover it.
 
 ## Files
 
@@ -564,7 +564,7 @@ Elm's answer.
   untouched around it.
 - **THE OLD BEHAVIOUR STAYS REACHABLE** is `priority`'s: it left the default
   sort chain and stayed reachable as `sort:priority`, rather than being removed.
-- **REVISING A STATED RULE, in the open**: `docs/proposal-generalize-capabilities.done.md`
+- **REVISING A STATED RULE, in the open**: `docs/proposals/2026-08-05-generalize-capabilities.done.md`
   re-validated its own pattern and recorded that it had GROWN. This one says
   which sentence changes and why the reason behind it no longer covers the case.
 
