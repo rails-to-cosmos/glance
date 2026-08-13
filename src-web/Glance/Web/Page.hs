@@ -6,8 +6,7 @@ import Data.Text (Text)
 
 import qualified Data.Text as T
 
-import Glance.Query (defaultCaptureFile)
-import Glance.Web.Base ( ServeOptions (..), escape, glueAsset, logLinesBand, logLinesDefault
+import Glance.Web.Base ( ServeOptions (..), escape, glueAsset
                        , elmAsset, rendererAsset, viewTitleFor )
 import Glance.Web.Keymap (keyBindingsJSON)
 import Glance.Web.Theme (Theme (..), themes)
@@ -78,16 +77,6 @@ demoShell opts font colours views =
       <> "<span id=\"cnote\"></span></div>"
   , "      <div id=\"ctabs\"></div>"
   , "      <div id=\"csecs\"></div>"
-  , "      <div id=\"cgen\" class=\"cpart\">"
-  , crow (clab "capture target")
-         (cinput "ctarget" ""
-                 ("where + captures; empty is " <> T.pack defaultCaptureFile))
-  -- A `localStorage' preference `cmoved' never sees, so it costs no request.
-  , crow (clab "log lines")
-         (cinput "clog" " inputmode=\"numeric\""
-                 ("how tall the log grows, " <> logLinesBand <> "; empty is "
-                    <> T.pack (show logLinesDefault)))
-  , "      </div>"
   , "      <div id=\"ctheme\" class=\"cpart\">"
   -- THE OPTIONS ARE THE REGISTRY'S: a theme is a record in `Glance.Web.Theme'.
   , crow (clab "theme")
@@ -153,11 +142,6 @@ crow label control = "        <div class=\"crow\">" <> label <> control <> "</di
 clab :: Text -> Text
 clab word = "<div class=\"clab\">" <> word <> "</div>"
 
--- | A settings field: ID, EXTRA attributes, HINT the placeholder and fallback.
-cinput :: Text -> Text -> Text -> Text
-cinput name extra hint =
-  "<input id=\"" <> name <> "\" class=\"cview\" spellcheck=\"false\"" <> extra
-    <> " placeholder=\"" <> escape hint <> "\">"
 
 -- | The page a browser gets when DIR — the @--assets@ directory — holds no
 -- renderer: what still works, and the two ways out.

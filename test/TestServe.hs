@@ -443,9 +443,9 @@ between open close haystack
 
 spec :: TestTree
 -- The fixture is the page PLUS the script it names: before the extraction
--- (docs/proposal-glue-extraction.done.md) the glue was inline and every text sweep
--- read one universe, so the fixture restores exactly that universe — the
--- served page with the embedded asset's bytes behind it.
+-- (docs/proposals/2026-08-05-glue-extraction.done.md) the glue was inline and
+-- every text sweep read one universe, so the fixture restores exactly that
+-- universe — the served page with the embedded asset's bytes behind it.
 spec = withResource ((<>) <$> (body <$> get assetsDir "/")
                           <*> (stripGlueComments <$> glueSource))
                     (const (pure ())) $ \shell ->
@@ -2247,7 +2247,7 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
       "" "refuse press:+ press:Enter ktext:milk press:Enter" $ \answer -> do
         assertEqual "the command still went" ["capture"] =<< namesOf answer
         assertEqual "and the log carries the server's own words"
-                    (Just "capture failed: #+GLANCE_CAPTURE_TARGET: /x.org is an absolute path")
+                    (Just "capture failed: inbox.org changed on disk")
           =<< lastLog answer
         assertEqual "everything typed is still there" "on" =<< textAt "capture" answer
 
@@ -3616,8 +3616,9 @@ sheetSpec shell =
 
     -- A PARAGRAPH opens as text, and `RET' COMMITS it — org's `C-c C-c' under
     -- another name, since the region is a value being handed back rather than a
-    -- buffer being typed into.  `S-RET' is the newline.  `C-x C-s' still writes
-    -- it, being the BUFFER's own key.
+    -- buffer being typed into.  `S-RET' commits it too and puts a SIBLING in
+    -- behind the write, and `M-RET' is the newline.  `C-x C-s' still writes it,
+    -- being the BUFFER's own key.
     -- What goes back is the BODY with that block's own lines spliced over, every
     -- other byte where it was.
   , testCase "q closes the sheet, and is a letter inside an open edit" $ do
@@ -3635,15 +3636,22 @@ sheetSpec shell =
       bootOf shell "" 500 "Enter" "press:Tab press:Enter press:q" $ \answer ->
         assertEqual "the sheet stands over an open row" "on" =<< textAt "modal" answer
 
-  , testCase "RET commits the open paragraph and S-RET is the newline" $ do
+  , testCase "RET commits the open paragraph and M-RET is the newline" $ do
       bootOf shell "" 500 "Enter" "press:n press:Enter dpara:rewritten press:Enter" $
         \answer -> do
           assertEqual "the body with that block replaced"
             ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
             =<< traverse (textAt "body") =<< listAt "writes" answer
           assertEqual "and the edit is shut" False =<< boolAt "dparaopen" answer
-      -- The shifted press writes a newline INTO the field and commits nothing.
-      bootOf shell "" 500 "Enter" "press:n press:Enter dpara:one press:S-Enter" $
+      -- `S-RET' COMMITS THE SAME BYTES, the sibling it asks for behind them
+      -- being what the key adds rather than what it replaces.
+      bootOf shell "" 500 "Enter" "press:n press:Enter dpara:rewritten press:S-Enter" $
+        \answer ->
+          assertEqual "the same body, under the key that asks for another"
+            ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
+            =<< traverse (textAt "body") =<< listAt "writes" answer
+      -- The META press writes a newline INTO the field and commits nothing.
+      bootOf shell "" 500 "Enter" "press:n press:Enter dpara:one press:M-Enter" $
         \answer -> do
           assertEqual "nothing was written" [] =<< textsAt "wroteAt" answer
           assertEqual "the edit is still open" True =<< boolAt "dparaopen" answer
@@ -3658,10 +3666,10 @@ sheetSpec shell =
         assertEqual "one line to open with" "1" <=< textAt "dprows"
       insheet "press:n press:Enter dpara:one|two|three" $
         assertEqual "three where three were typed" "3" <=< textAt "dprows"
-      -- The shifted key is a door of its own: it splices at the caret rather
+      -- The META key is a door of its own: it splices at the caret rather
       -- than going through the field's own event.
-      insheet "press:n press:Enter dpara:one press:S-Enter" $
-        assertEqual "and S-RET grows it by the line it just made" "2"
+      insheet "press:n press:Enter dpara:one press:M-Enter" $
+        assertEqual "and M-RET grows it by the line it just made" "2"
           <=< textAt "dprows"
       insheet ("press:n press:Enter dpara:"
                <> T.intercalate "|" (map (T.pack . show) [1 :: Int .. 14])) $
@@ -3865,6 +3873,22 @@ sheetSpec shell =
         assertEqual "and a PARAGRAPH opens empty, owing no token" ""
           <=< textAt "dtext"
 
+    -- AND POINT LANDS WHERE THE READER TYPES.  A marker is a LEAD everywhere
+    -- but a TABLE, whose row is whole and closes with a pipe: point at the end
+    -- of `|   |   |' makes the first character typed a THIRD column, which
+    -- org's own align then keeps.  Elm answers both halves — the marker and the
+    -- offset into it — so this page still spells no org grammar.
+  , testCase "point stands inside a seeded table row, past a seeded lead" $ do
+      onTable "tabled press:Enter press:n press:n press:f press:Enter press:S-Enter" $
+        \answer -> do
+          assertEqual "the row is drawn at the table's own widths" "|   |   |"
+            =<< textAt "dtext" answer
+          assertEqual "with point one space into its first cell" 2
+            =<< intAt "dcaret" answer
+      onTable "grain press:Enter press:n press:n press:f press:+" $
+        assertEqual "where a bullet is a lead and point follows it" 2
+          <=< intAt "dcaret"
+
     -- AND THE LEAD GOES BACK OFF ON THE WAY OUT, so a reader who types AFTER
     -- the token writes what a reader who replaced the field writes.
   , testCase "what the reader adds is what the wire carries" $ do
@@ -3921,8 +3945,9 @@ sheetSpec shell =
               <> "#+end_quote\n\ntail para\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
-    -- AND THE BOUNDARY: a TABLE line keeps the composite's landing, a pipe row
-    -- being no prefix — its cells sit BETWEEN pipes, so nothing spells one.
+    -- AND THE BOUNDARY IS THE CARET'S: `+' with no box open names no line, so
+    -- there is nothing to be inside and the answer is a sibling of the STOP.
+    -- The region's interior is reachable from `S-RET' alone.
   , testCase "a table's line keeps the composite's landing" $
       onTable "tabled press:Enter press:n press:n press:f press:+ dpara:note press:Enter" $
         \answer ->
@@ -5252,12 +5277,12 @@ settingsSpec shell =
     -- the tab order too: the sheet keeps native tabbing, so the DOM says which
     -- field Tab reaches next — and a panel that is not showing is out of the
     -- flow, so its fields are out of that walk with it.
-  , atBoot settings "it is three panels, each named by its own tab" $
-        assertEqual "general, theme, keywords" ["general", "theme", "keywords"]
+  , atBoot settings "it is two panels, each named by its own tab" $
+        assertEqual "theme, keywords" ["theme", "keywords"]
           <=< textsAt "csecs"
 
   , atBoot settings "and the sheet opens on the first of them" $
-        assertEqual "general" "general" <=< textAt "ctab"
+        assertEqual "theme" "theme" <=< textAt "ctab"
 
     -- THE THEME SELECT IS THE REGISTRY'S: one option per `Glance.Web.Theme.themes'
     -- entry, under `auto', which names the media query rather than a palette.
@@ -5303,13 +5328,13 @@ settingsSpec shell =
     -- TAB IS THE TAB KEY: it walks the panels and wraps, `S-TAB' walks back.
   , keyed shell "TAB walks the panels and wraps"
       "," "press:Tab" $ \answer ->
-        assertEqual "one on from general" "theme" =<< textAt "ctab" answer
+        assertEqual "one on from theme" "keywords" =<< textAt "ctab" answer
   , keyed shell "and S-TAB walks back, wrapping the other way"
       "," "press:S-Tab" $ \answer ->
         assertEqual "the last panel" "keywords" =<< textAt "ctab" answer
-  , keyed shell "three presses come home"
-      "," "press:Tab press:Tab press:Tab" $ \answer ->
-        assertEqual "general again" "general" =<< textAt "ctab" answer
+  , keyed shell "two presses come home"
+      "," "press:Tab press:Tab" $ \answer ->
+        assertEqual "theme again" "theme" =<< textAt "ctab" answer
 
     -- THE TREE'S STATE HUES are `system.org''s third tree-wide line, edited
     -- under THE THEME ON SCREEN: there is ONE theme control, so which theme is
@@ -5380,23 +5405,12 @@ settingsSpec shell =
         assertEqual "pristine, so nothing went" ([] :: [Value])
           =<< listAt "configWrites" answer
 
-    -- THE LOG KNOB, the general panel's one field that asks no server: it is a
-    -- `localStorage' preference like the theme, it applies as it is typed, and
-    -- the number lands on the strip itself where the stylesheet's arithmetic
-    -- reads it.
-  , keyed shell "the log knob applies as it is typed, and is remembered"
-      "," "clog:12" $ \answer -> do
-        assertEqual "the cap is on the strip" "12" =<< textAt "logn" answer
-        assertEqual "and remembered" "12" =<< textAt "logStored" answer
-        assertEqual "the sheet is still up" "on" =<< textAt "settings" answer
-        assertEqual "and nothing was written" ([] :: [Value])
-          =<< listAt "configWrites" answer
-
+    -- THE LOG HEIGHT IS A DEV PREFERENCE: no field reaches it, and the boot
+    -- still applies whatever `localStorage' holds.
     -- The default is the stylesheet's declared value, so a page nobody has
     -- touched shows seven and stores nothing.
   , atBoot settings "and it opens on seven, with nothing stored" $ \answer -> do
         assertEqual "the boot wrote the default" "7" =<< textAt "logn" answer
-        assertEqual "the field is empty" "" =<< textAt "clog" answer
         assertEqual "and the key is not there" "«unset»" =<< textAt "logStored" answer
 
     -- THE BOOT READS THE PREFERENCE, which no act can reach: every act runs
@@ -5405,41 +5419,12 @@ settingsSpec shell =
   , keyedWith shell "glance-log=21" "" 500 "a browser that remembers one boots at it"
       "" "" $ \answer -> do
         assertEqual "the cap is the stored one" "21" =<< textAt "logn" answer
-        assertEqual "and the sheet shows it" "" =<< textAt "clog" answer
-  , keyedWith shell "glance-log=21" "" 500 "and the sheet opens on it" "," "" $
-        assertEqual "the field is the stored value" "21" <=< textAt "clog"
 
     -- A stored value the band no longer takes — an older build's, a hand-edited
     -- one — falls back rather than being applied.
   , keyedWith shell "glance-log=900" "" 500 "a stored value outside the band boots at the default"
       "" "" $
         assertEqual "the default" "7" <=< textAt "logn"
-
-    -- Emptying it is how a reader asks for the default back, which is why blank
-    -- is a value this page takes rather than one it refuses.  What is stored is
-    -- NOTHING, since a preference spelling the empty string is a preference.
-  , keyedWith shell "glance-log=12" "" 500 "blanking it restores the default and removes the preference"
-      "," "clog:" $ \answer -> do
-        assertEqual "back to seven" "7" =<< textAt "logn" answer
-        assertEqual "with the key gone" "«unset»" =<< textAt "logStored" answer
-
-    -- A value outside the band is DECLINED rather than clamped: the cap a reader
-    -- had stands, and the box is redrawn from the preference on the next open.
-  , keyed shell "a value outside the band is declined, and the cap stands"
-      "," "clog:12 clog:999" $ \answer -> do
-        assertEqual "the cap did not move" "12" =<< textAt "logn" answer
-        assertEqual "nor did the storage" "12" =<< textAt "logStored" answer
-  , keyed shell "and so is a value that is no number at all"
-      "," "clog:12 clog:tall clog:0 clog:-3 clog:3.5" $ \answer -> do
-        assertEqual "the cap did not move" "12" =<< textAt "logn" answer
-        assertEqual "nor did the storage" "12" =<< textAt "logStored" answer
-
-    -- Reopening draws the stored preference over whatever was left in the box,
-    -- which is what makes a refused value cost nothing past the keystroke.
-  , keyed shell "reopening draws the preference back over a refused value"
-      "," "clog:12 clog:999 press:Escape press:," $ \answer -> do
-        assertEqual "the field shows the preference" "12" =<< textAt "clog" answer
-        assertEqual "and the cap is still it" "12" =<< textAt "logn" answer
 
     -- The theme is a preference rather than a write: it applies as it is
     -- picked, it is stored, and the sheet it was picked in stays where it is.
@@ -5492,23 +5477,6 @@ settingsSpec shell =
       "," "press:Escape" $ \answer -> do
         assertEqual "no write" ([] :: [Value]) =<< listAt "configWrites" answer
         assertEqual "the sheet is down" "" =<< textAt "settings" answer
-
-    -- The general panel's two fields are `system.org''s two tree-wide LINES,
-    -- drawn under their own header and posted in that layer's own write: one
-    -- file, one digest, one splice, wherever on the sheet they are shown.
-  , keyed shell "the capture target is a general field, and rides the system write"
-      "," "ccap:notes/in.org press:Escape" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write, for the layer that moved" 1 (length writes)
-        assertEqual "the system layer" "/o/.org-glance/config/system.org"
-          =<< textAt "path" (head writes)
-        assertEqual "carrying the target" "notes/in.org" =<< textAt "capture" (head writes)
-        assertEqual "and the server holds it now" "notes/in.org"
-          =<< textAt "servedCapture" answer
-
-  , keyed shell "and it opens on what the server serves"
-      "," "ccap:notes/in.org press:C-x press:C-s" $
-        assertEqual "the field shows what was typed" "notes/in.org" <=< textAt "ccap"
 
     -- `P' IS THE PIN, and it ASKS WHICH SAVED VIEW the applied query becomes.
     -- The palette is the registry drawn as a plain list — one entry per view,
@@ -6235,9 +6203,13 @@ glueSpec shell = testGroup "Shell glue"
 
 -- | THE EDIT BOX IS THE BLOCK, WEARING A DIFFERENT GROUND.  `RET' over a
 -- paragraph must move NOTHING: the textarea takes the block's font, its line
--- height, all four paddings — the grid inset and the title-column indent among
--- them — its full width and no margin, and draws no border and no outline.  The
--- ground and the caret are the whole of the signal.
+-- height, its full width and no margin, and draws no border and no outline.
+-- The ground and the caret are the whole of the signal.
+--
+-- WHAT IT GUARDS IS THE FALLBACK, on the horizontal axis: `placeEdit' sets the
+-- live padding from the ROW's own computed style, so the paddings named here
+-- are what a box over an unmeasured row stands at — `.d-item' carries none of
+-- its own and takes the pane's.
 --
 -- Asserted as RELATIONS over the declarations rather than as copied strings: the
 -- box must READ the block's own expressions (`font:inherit', `--g-doc-pad',
@@ -7276,7 +7248,11 @@ shellGlue =
       -- The open row's fields sit OVER the row, since the mount rewrites its own
       -- rows as it scrolls, and they land on the text they replace.
       , "#dtitle,#dpara,#pedit,#sedit,#tedit,#ledit{display:none;position:absolute;"
-      , "#pedit input,#sedit input,#tedit input,#ledit input,#dpara textarea{"
+      -- The document's box is NOT in that list: `#dpara textarea' takes
+      -- `font:inherit' so an edit renders in the PANE's line box, which is
+      -- what the block's own floor reserves for it.  Listing it here as well
+      -- left two rules of one specificity deciding by source order.
+      , "#pedit input,#sedit input,#tedit input,#ledit input{"
       -- A planning row's key is org's rather than the author's, and says so.
       , "#pkey[readonly]{color:var(--g-mute)}"
       -- ONE FOCUS LANGUAGE: whichever pane holds the keys wears the accent on
@@ -7423,9 +7399,8 @@ shellGlue =
   -- arithmetic; what the knob writes is the number, onto the element.  A value
   -- outside the band is declined rather than clamped, and blank is how a reader
   -- asks for the default back.
-  , glue "the log's height is a stored preference the general panel edits"
-      [ "id=\"clog\""
-      , "const LOG = CFG.log;"
+  , glue "the log's height is a stored preference no field reaches"
+      [ "const LOG = CFG.log;"
       -- The numbers ride the cfg blob now, the declared Haskell constants
       -- still the source: the fixture is page-plus-script, so the blob's
       -- members are pinned beside the read.
@@ -7436,11 +7411,6 @@ shellGlue =
       , "localStorage.setItem(key, v)"
       , "el(\"log\").style.setProperty(\"--g-logn\", String(n));"
       , "setLogLines(logLines(logPref.get()) || LOG.def);"
-      -- Applied as it is TYPED, so the field is a knob rather than a form.
-      , "el(\"clog\").addEventListener(\"input\""
-      , "if (n === null) return;"
-      -- And the sheet draws the preference back over a value that was refused.
-      , "el(\"clog\").value = logPref.get();"
       -- An EMPTIED field is a preference that is not there.
       , "else localStorage.removeItem(key); } catch (e)" ]
 
@@ -9946,7 +9916,7 @@ captureSpec = testGroup "POST /command capture"
     -- first capture into a tree creates the file and the entry is the whole of
     -- it.
     testCase "creates the target and the entry is the whole file" $
-      withCaptureTree Nothing $ \a _hub dir -> do
+      withCaptureTree $ \a _hub dir -> do
         r <- ok =<< postTo a "/command" (capture "TODO Buy milk :errands:")
         v <- decoded r
         assertEqual "it says where it wrote" (T.pack (dir </> "inbox.org"))
@@ -9963,7 +9933,7 @@ captureSpec = testGroup "POST /command capture"
 
     -- The stamp is org's inactive form, to the minute, in the server's zone.
   , testCase "the creation time reparses as org's own inactive timestamp" $
-      withCaptureTree Nothing $ \a _hub dir -> do
+      withCaptureTree $ \a _hub dir -> do
         _ <- postTo a "/command" (capture "read the docs")
         written <- document (dir </> "inbox.org")
         stamp <- maybe (assertFailure ("no stamp in " <> show written)) pure
@@ -9975,7 +9945,7 @@ captureSpec = testGroup "POST /command capture"
 
     -- Appended, so a file that already holds work keeps every byte of it.
   , testCase "a second capture appends and moves no byte of the first" $
-      withCaptureTree Nothing $ \a _hub dir -> do
+      withCaptureTree $ \a _hub dir -> do
         _ <- postTo a "/command" (capture "first thing")
         before <- document (dir </> "inbox.org")
         _ <- postTo a "/command" (capture "second thing")
@@ -9983,27 +9953,9 @@ captureSpec = testGroup "POST /command capture"
         assertBool ("appended: " <> show after) (before `T.isPrefixOf` after)
         assertContains "and the second entry is there" "* second thing" after
 
-  , testCase "the tree's own target is where it goes" $
-      withCaptureTree (Just "notes/in.org") $ \a _hub dir -> do
-        r <- ok =<< postTo a "/command" (capture "a note")
-        assertEqual "the configured file" (T.pack (dir </> "notes/in.org"))
-          =<< textAt "file" =<< decoded r
-        assertContains "written there" "* a note" =<< document (dir </> "notes/in.org")
-
-    -- Refused where the config is read, so a misconfigured tree says so rather
-    -- than writing outside itself.
-  , testCase "a target outside the served root is refused, and writes nothing" $
-      mapM_ (\target -> withCaptureTree (Just target) $ \a _hub dir -> do
-               r <- postTo a "/command" (capture "a note")
-               assertEqual (T.unpack target <> ": status") 400 (status r)
-               assertContains (T.unpack target) "GLANCE_CAPTURE_TARGET" (body r)
-               there <- doesFileExist (dir </> "inbox.org")
-               assertBool "and no inbox was written instead" (not there))
-            ["/tmp/glance-escape.org", "../escape.org", "inbox.txt"]
-
     -- The watch is the one thing that updates rows, here as everywhere.
   , testCase "the row arrives over the watch, not out of the route" $
-      withCaptureTree Nothing $ \a hub dir -> do
+      withCaptureTree $ \a hub dir -> do
         _ <- postTo a "/command" (capture "TODO Buy milk")
         assertEqual "the store has not moved" 1 . length =<< rowsOf =<< getFrom a "/headlines"
         watchStep hub (dir </> "inbox.org")
@@ -10015,7 +9967,7 @@ captureSpec = testGroup "POST /command capture"
     -- The entry a capture promises is ONE headline, so the two ways of making
     -- it something else are 400 with nothing written.
   , testCase "an empty line and a multi-line one are refused" $
-      withCaptureTree Nothing $ \a _hub dir ->
+      withCaptureTree $ \a _hub dir ->
         mapM_ (\(what, text') -> do
                  r <- postTo a "/command" (capture text')
                  assertEqual (what <> ": status") 400 (status r)
@@ -10024,7 +9976,7 @@ captureSpec = testGroup "POST /command capture"
               [("empty", ""), ("blank", "   "), ("two lines", "one\n* two")]
 
   , testCase "and a body with no text at all says what one is" $
-      withCaptureTree Nothing $ \a _hub _dir -> do
+      withCaptureTree $ \a _hub _dir -> do
         r <- postTo a "/command"
                (encode (object ["name" .= ("capture" :: T.Text), "args" .= object []]))
         assertEqual "status" 400 (status r)
@@ -10033,14 +9985,14 @@ captureSpec = testGroup "POST /command capture"
     -- It is the one command that needs none, so the rule that every other one
     -- names rows must not reach it.
   , testCase "it names no rows, and is not refused for that" $
-      withCaptureTree Nothing $ \a _hub _dir -> do
+      withCaptureTree $ \a _hub _dir -> do
         assertOk =<< postTo a "/command" (capture "no ids here")
 
     -- THE ID THE ANSWER CARRIES is where point lands when the watch delivers
     -- the row, so it has to be the id the next load spells: the target file's
     -- path and the ordinal behind the rows the store already holds.
   , testCase "the answer names the row the capture made" $
-      withCaptureTree Nothing $ \a hub dir -> do
+      withCaptureTree $ \a hub dir -> do
         r <- ok =<< postTo a "/command" (capture "TODO Buy milk")
         assertEqual "the file's own path and the next ordinal"
                     (T.pack (dir </> "inbox.org") <> "#0") =<< textAt "id" =<< decoded r
@@ -10055,7 +10007,7 @@ captureSpec = testGroup "POST /command capture"
     -- — and that is the point: it is one rule for both shapes rather than a
     -- special case for the one that needed it.
   , testCase "a capture that creates its target delivers the row itself" $
-      withCaptureTree Nothing $ \a hub dir -> do
+      withCaptureTree $ \a hub dir -> do
         rid <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" (capture "TODO Buy milk")
         drainNow dir hub
         rows <- rowsOf =<< getFrom a "/headlines"
@@ -10213,7 +10165,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
     -- A tree with no store is not made into one by asking: those directories
     -- are org-glance's and a daemon that made them would be deciding for it.
   , testCase "a tree with no store refuses a tagged capture, naming it" $
-      withCaptureTree Nothing $ \a _hub dir -> do
+      withCaptureTree $ \a _hub dir -> do
         r <- postTo a "/command" (captureAs "book" [] "Dune")
         assertEqual "status" 400 (status r)
         assertContains "naming the directory" ".org-glance" (body r)
@@ -10324,20 +10276,11 @@ planningArg keyword date = object ["keyword" .= keyword, "date" .= date]
 -- | Run K over a server holding one document and, where TARGET names one, a
 -- system config naming it as the capture target.  The hub comes with it, since
 -- what a capture leaves for the WATCH is half of what there is to check.
-withCaptureTree :: Maybe T.Text -> (Application -> Hub -> FilePath -> Assertion) -> Assertion
-withCaptureTree target k = withTempDir $ \dir -> do
+withCaptureTree :: (Application -> Hub -> FilePath -> Assertion) -> Assertion
+withCaptureTree k = withTempDir $ \dir -> do
   _ <- orgFile dir "notes.org" "* TODO Already here\n"
-  mapM_ (writeSystemConfig dir) target
   (a, hub) <- serverOver dir
   k a hub dir
-
--- | DIR's system layer, naming TARGET as the tree's capture target.  The path
--- is 'systemAt''s, so no case here spells the config layout a second time.
-writeSystemConfig :: FilePath -> T.Text -> IO ()
-writeSystemConfig dir target = do
-  createDirectoryIfMissing True (takeDirectory path)
-  TIO.writeFile path ("#+GLANCE_CAPTURE_TARGET: " <> target <> "\n")
-  where path = T.unpack (systemAt dir)
 
 -- | The keyword layers, read and written.  @GET@ lists every config file the
 -- served tree has — plus the @system.org@ it could have — and @POST@ puts one
@@ -10576,32 +10519,6 @@ configSpec = testGroup "GET and POST /config"
         -- a route that wrote nothing at all.
         assertContains "while the template, which every layer owns, landed"
                        "* %?" after
-
-    -- The capture target is the second tree-wide line of the same file, and it
-    -- travels the same way: read off the layers, written in their write.
-  , testCase "the capture target rides beside the layers too" $
-      withConfigTree $ \a _dir ->
-        assertEqual "with no line anywhere, nothing" ""
-          =<< textAt "capture" =<< decoded =<< getFrom a "/config"
-
-  , testCase "and it is written in the system layer's own write" $
-      withConfigTree $ \a dir -> do
-        digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
-        assertOk =<< postTo a "/config" (captureBody (systemAt dir) [] (Just "notes/in.org") digest)
-        assertContains "the line is in the file" "#+GLANCE_CAPTURE_TARGET: notes/in.org"
-          =<< document (T.unpack (systemAt dir))
-        assertEqual "and the next read says so" "notes/in.org"
-          =<< textAt "capture" =<< decoded =<< getFrom a "/config"
-
-  , testCase "an emptied capture target takes the line away" $
-      withConfigTree $ \a dir -> do
-        digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
-        _ <- postTo a "/config" (captureBody (systemAt dir) [] (Just "notes/in.org") digest)
-        fresh <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
-        assertOk =<< postTo a "/config" (captureBody (systemAt dir) [] (Just "") fresh)
-        after <- document (T.unpack (systemAt dir))
-        assertBool ("the line is gone: " <> show after)
-                   (not ("GLANCE_CAPTURE_TARGET" `T.isInfixOf` after))
 
     -- The page carries it as DEFAULT_QUERY, read off the store at request time.
     -- The store is the read model for everything else the page shows, and the
@@ -11342,9 +11259,6 @@ viewBody :: T.Text -> [T.Text] -> Maybe T.Text -> T.Text -> BL.ByteString
 viewBody path lines' want = layerBody path lines' want Nothing
 
 -- | 'configBody', also setting the capture target.
-captureBody :: T.Text -> [T.Text] -> Maybe T.Text -> T.Text -> BL.ByteString
-captureBody path lines' = layerBody path lines' Nothing
-
 -- | The query a captured @POST \/config@ body names for the view ID.  The
 -- request's @views@ is an OBJECT keyed by id, three-valued per view, where the
 -- ANSWER's is an ordered array: two shapes for two jobs, and this is the write's.
@@ -11357,7 +11271,6 @@ wroteView vid v = field "views" v >>= textAt vid
 everySetting :: [(T.Text, Value)]
 everySetting =
   [ ("views",    object ["default" .= ("tag:work" :: T.Text)])
-  , ("capture",  toJSON ("notes/in.org" :: T.Text))
   , ("colors",   toJSON [ object [ "theme" .= ("light" :: T.Text)
                                  , "keyword" .= ("TODO" :: T.Text)
                                  , "hue" .= ("#7B1FA2" :: T.Text) ] ])
@@ -11843,8 +11756,7 @@ expectedRows =
   -- with a crumb left behind for DEL to walk back along.
   , (["@"],          "@",       "org-glance-overview:relations",   Just "relations",      "table",
        Just "the rows referring to this one; DEL walks back")
-  -- The one write that names no row: it makes one, in the file the tree's own
-  -- @#+GLANCE_CAPTURE_TARGET:@ names.
+  -- The one write that names no row: it makes one, in the tree's own inbox.
   , (["+"],          "+",       "org-glance-overview:capture",     Just "capture",        "table",
        Just "a headline for the inbox, typed as org")
   -- dired's flag, in two presses: the first marks the row for archiving and the
@@ -11938,7 +11850,8 @@ keymapOf shell = traverse row =<< listAt "rows" =<< blobOf shell
                     <*> maybeTextAt "help" v
 
 -- | The shell's inline glue, on its own — what a syntax check is run over.
--- | The shell's script is a FILE now (docs/proposal-glue-extraction.done.md): the
+-- | The shell's script is a FILE now
+-- (docs/proposals/2026-08-05-glue-extraction.done.md): the
 -- page names it in a src tag and the bytes are the committed asset's, so the
 -- sweeps read the source of the embed rather than scraping served HTML.  The
 -- page argument stays so every caller still proves it served a shell first.

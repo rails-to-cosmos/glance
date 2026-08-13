@@ -17,7 +17,7 @@ import Data.Aeson (Object, Value, object, (.:), (.:!), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
 import Data.List (nub)
 import Data.Map.Strict (Map)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Network.HTTP.Types (status200, status400)
 import Network.Wai (Request, Response)
@@ -474,18 +474,17 @@ captureInto opts hub st cmd =
   maybe (captureInbox opts hub st args) (captureBlob opts hub st args) (agTag args)
   where args = cmdArgs cmd
 
--- | @capture@ with no tag: ARGS' line appended to the tree's capture target.
+-- | @capture@ with no tag: ARGS' line appended to the tree's inbox.
 captureInbox :: ServeOptions -> Hub -> Store -> Args -> IO Response
-captureInbox opts hub st args = case captureTargetIn (soDir opts) (stConfig st) of
-  Left why   -> pure (jsonError status400 why)
-  Right path -> do
-    (doc, digest) <- maybe (currentDocument path) pure (storeDocument path st)
+captureInbox opts hub st args = do
+    (doc, digest) <- maybe (currentDocument inbox) pure (storeDocument inbox st)
     now <- Time.getZonedTime
     case captureEdits doc (captureStamp now) (capturedText args) of
       Left why    -> pure (jsonError status400 why)
-      Right edits -> answerWrite (captureMoved path) (landed path)
-                       <$> writeSpans (walkFor opts) hub path digest edits
+      Right edits -> answerWrite (captureMoved inbox) (landed inbox)
+                       <$> writeSpans (walkFor opts) hub inbox digest edits
   where
+    inbox = captureTargetIn (soDir opts)
     -- The row the entry BECOMES, so the page can land its cursor on it when the
     -- watch delivers it.  A captured entry joins the END of the file and every
     -- ordinal ahead of it is already spent, so K is how many rows the store

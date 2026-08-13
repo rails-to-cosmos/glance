@@ -13,7 +13,6 @@ module Glance.Web.Base ( ServeOptions (..)
                        , logLinesDefault
                        , logLinesMin
                        , logLinesMax
-                       , logLinesBand
                        , glueAsset
                        , elmAsset
                        , gluePartFiles
@@ -92,8 +91,6 @@ logLinesMin = 1
 logLinesMax = 50
 
 -- | The band as the settings field's placeholder shows it.
-logLinesBand :: Text
-logLinesBand = T.pack (show logLinesMin <> "–" <> show logLinesMax)
 
 -- | The asset the demo shell loads.  Served from 'Glance.Web.Routes.embeddedRenderer' by default;
 -- under @--assets@ its presence in that directory decides which page @\/@ serves.

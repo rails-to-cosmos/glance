@@ -31,7 +31,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), ConfigParts (..)
                     , SavedView (..), savedView, savedViews, viewOf
                     , HeadlineRecord (..)
                     , QueryResult (..), WalkOptions (..), builtinFilter
-                    , captureTargetIn, captureTargetOf, configEdits
+                    , captureTargetIn, configEdits
                     , configPath, defaultFilter, defaultSortChain
                     , defaultWalk, loadDir
                     , loadDirFilesSerially, loadDirWith, loadDirWithConfig, loadFile
@@ -685,37 +685,17 @@ writeSpec = testGroup "Writing a layer"
         assertEqual "read at load" (Just "tag:work") (lookup "default" (tsViews (clTree cfg)))
         assertEqual "and it is what answers" "tag:work" (defaultFilter cfg)
 
-    -- Where a capture lands is decided HERE, when the config is read, and not
-    -- when a `+' arrives: a tree misconfigured in January says so at startup.
-  , testCase "the capture target resolves against the served root, or is refused" $ do
-      assertEqual "with no line, the tree's own inbox"
-                  (Right "/o/inbox.org") (captureTargetIn "/o" noConfig)
-      assertEqual "named, resolved against the root"
-                  (Right "/o/notes/in.org") (captureTargetIn "/o" (naming "notes/in.org"))
-      assertEqual "and an empty line is the default again"
-                  (Right "/o/inbox.org") (captureTargetIn "/o" (naming "  "))
-      -- Three refusals, all textual the way every other path rule here is.
-      mapM_ (\(what, target, needle) ->
-               refusedNaming what [needle] (captureTargetIn "/o" (naming target)))
-            [ ("an absolute path", "/etc/passwd.org", "absolute")
-            , ("a path climbing out", "../elsewhere.org", "outside")
-            , ("one deeper down", "notes/../../out.org", "outside")
-            -- A file the walk would not collect is a capture that vanishes: the
-            -- entry is written and no watch ever delivers a row for it.  All
-            -- THREE of the walk's predicates, since an org file under
-            -- `.org-glance' is exactly the case an extension test would bless.
-            , ("a name the walk skips", "inbox.txt", "walks")
-            , ("one of Emacs's sidecars", ".#inbox.org", "walks")
-            , ("the config the walk reads by path", ".org-glance/config/system.org", "walks")
-            , ("and a derived mirror", ".org-glance/overviews/inbox.org", "walks") ]
+    -- ONE ENTRY POINT PER TREE.  No layer names it, so there is no path a
+    -- config can aim a capture at and no refusal to make.
+  , testCase "the capture target is the tree's own inbox, under the served root" $ do
+      assertEqual "the served root's own" "/o/inbox.org" (captureTargetIn "/o")
+      assertEqual "and it follows the root" "/other/inbox.org" (captureTargetIn "/other")
 
-  , testCase "and a tree that names one loads it" $
+  , testCase "a tree still naming a capture target captures into the inbox anyway" $
       withTree (Just "#+TODO: TODO | DONE\n#+GLANCE_CAPTURE_TARGET: notes/in.org\n")
                [] [("a.org", "* TODO x\n")] $ \dir -> do
-        (cfg, _rows) <- loaded dir
-        assertEqual "read at load" (Just "notes/in.org") (tsCapture (clTree cfg))
-        assertEqual "and it is what a capture would write to"
-                    (Right (dir </> "notes/in.org")) (captureTargetIn dir cfg)
+        _ <- loaded dir
+        assertEqual "the pragma is inert" (dir </> "inbox.org") (captureTargetIn dir)
 
     -- One file, one write, one lock: the cycle and both tree-wide lines are
     -- lines of the same document, so they ride in one splice under one digest.
@@ -746,10 +726,6 @@ writeSpec = testGroup "Writing a layer"
       assertEqual "the cycle, then the default view"
                   (Right "#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n* %?\n")
                   (splicedWith "* %?\n" ["#+TODO: A | B"] (Just "tag:work"))
-      assertEqual "and all three where all three are named"
-                  (Right "#+TODO: A | B\n#+GLANCE_DEFAULT_FILTER: tag:work\n\
-                         \#+GLANCE_CAPTURE_TARGET: in.org\n* %?\n")
-                  (splicing "* %?\n" ["#+TODO: A | B"] (Just "tag:work") (Just "in.org"))
 
   , testCase "the layers are read as files, absent ones included" $
       withTree Nothing [("book.org", bookConfig)] [] $ \dir -> do
@@ -864,10 +840,9 @@ writeSpec = testGroup "Writing a layer"
         assertEqual "what the store holds is what a fresh read answers"
                     (treeSettings files) (clTree cfg)
         assertEqual "and every member of it came back"
-                    ( [("default", "tag:work")], Just "notes/in.org"
+                    ( [("default", "tag:work")]
                     , [("light", [("TODO", "#7B1FA2")])] )
-                    ( tsViews (clTree cfg), tsCapture (clTree cfg)
-                    , tsColors (clTree cfg) )
+                    ( tsViews (clTree cfg), tsColors (clTree cfg) )
   ]
 
 -- | A write naming EVERY setting 'configSettings' carries.  A member left out
@@ -875,7 +850,6 @@ writeSpec = testGroup "Writing a layer"
 everyPart :: ConfigParts
 everyPart = ConfigParts { cpViews    = [("default", "tag:work")]
                         , cpColors   = Just [("light", [("TODO", "#7B1FA2")])]
-                        , cpCapture  = Just "notes/in.org"
                         , cpTemplate = Just "* %?" }
 
 -- | DOC as the tree's own @system.org@, and as one tag's config.  A layer is
@@ -910,21 +884,13 @@ spliced doc lines' = splicedWith doc lines' Nothing
 
 -- | 'spliced', also setting the default view to WANT.
 splicedWith :: Text -> [Text] -> Maybe Text -> Either Text Text
-splicedWith doc lines' want = splicing doc lines' want Nothing
+splicedWith doc lines' want = splicing doc lines' want
 
--- | A config naming TARGET as its capture target and nothing else.
-naming :: Text -> ConfigLayers
-naming target = noConfig { clTree = noTreeSettings { tsCapture = Just target } }
-
--- | 'spliced', also setting the capture target to TARGET.
-splicedCapture :: Text -> [Text] -> Maybe Text -> Either Text Text
-splicedCapture doc lines' = splicing doc lines' Nothing
-
--- | 'spliced' over both of the system layer's tree-wide lines.
-splicing :: Text -> [Text] -> Maybe Text -> Maybe Text -> Either Text Text
-splicing doc lines' want target = do
+-- | 'spliced' over the system layer's tree-wide lines.
+splicing :: Text -> [Text] -> Maybe Text -> Either Text Text
+splicing doc lines' want = do
   edits <- configEdits (systemLayer doc) (Just lines')
-             noParts { cpViews = maybe [] (\q -> [("default", q)]) want, cpCapture = target }
+             noParts { cpViews = maybe [] (\q -> [("default", q)]) want }
   first (T.pack . show) (applyEdits doc [ Edit sp new | (sp, new) <- edits ])
 
 -- | The system layer's two tree-wide lines: each spelled key, two values of the
@@ -934,8 +900,7 @@ splicing doc lines' want target = do
 treePragmas :: [( Text, Text, Text, Text -> Maybe Text
                 , Text -> [Text] -> Maybe Text -> Either Text Text )]
 treePragmas =
-  [ ("#+GLANCE_DEFAULT_FILTER", "tag:work", "tag:home", viewOf defaultSaved, splicedWith)
-  , ("#+GLANCE_CAPTURE_TARGET", "a.org", "b.org", captureTargetOf, splicedCapture) ]
+  [ ("#+GLANCE_DEFAULT_FILTER", "tag:work", "tag:home", viewOf defaultSaved, splicedWith) ]
 
 -- | The default view's registry entry, which every build carries.
 defaultSaved :: SavedView

@@ -4,8 +4,8 @@
 -- The script itself is @assets\/glue.js@, a real JavaScript file compiled
 -- into the binary the way the renderer is ('Glance.Web.Routes'); this module
 -- is what is left of the 5.2k-line Haskell string list it used to be
--- (docs\/proposal-glue-extraction.md).  Eight members are per-build
--- constants off the library; @views@ is the one per-request value and
+-- (docs\/proposals\/2026-08-05-glue-extraction.done.md).  Eight members are
+-- per-build constants off the library; @views@ is the one per-request value and
 -- the reason the blob is the PAGE's to emit.  The blob rides a
 -- @\<script type="application\/json"\>@ element — the keymap blob's own
 -- pattern — so the page still inlines no executable JS beyond the file it

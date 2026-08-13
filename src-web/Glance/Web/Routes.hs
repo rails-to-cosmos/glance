@@ -118,8 +118,9 @@ embeddedRenderer :: BS.ByteString
 embeddedRenderer = $(makeRelativeToProject "assets/table-view.js" >>= embedFile)
 
 -- | The shell's own script, embedded the same way and in PARTS: one file per
--- widget under @assets\/glue\/@ (docs\/proposal-widget-files.md), concatenated
--- in the order 'gluePartFiles' declares.  The parts are FRAGMENTS of one script
+-- widget under @assets\/glue\/@
+-- (docs\/proposals\/2026-08-08-widget-files.partial.md), concatenated in the
+-- order 'gluePartFiles' declares.  The parts are FRAGMENTS of one script
 -- scope rather than modules, so the join is plain concatenation and the split
 -- is byte-provable against the single file it came from.
 --
@@ -936,10 +937,6 @@ configView opts hub = do
           , "themes"   .= themeIds
           , "colors"   .= [ object [ "theme" .= theme, "keyword" .= kw, "hue" .= hue ]
                           | (theme, pairs) <- tsColors tree, (kw, hue) <- pairs ]
-          -- Empty rather than null where no layer names one: the fallback here
-          -- is a PATH this server computes rather than a value to show, and the
-          -- settings field's placeholder is what says so.
-          , "capture"  .= fromMaybe "" (tsCapture tree)
           ])
 
 -- | One layer as a settings client holds it.  @template@ is the layer's capture
@@ -1031,8 +1028,7 @@ noSuchLayer path layers =
 parseConfigWrite :: BL.ByteString -> Either Text LayerWrite
 parseConfigWrite = bodyObject "config write" shape
   where shape o = LayerWrite <$> o .: "path" <*> o .:? "lines"
-                             <*> (ConfigParts <$> views o <*> colours o <*> o .:? "capture"
-                                              <*> o .:? "template")
+                             <*> (ConfigParts <$> views o <*> colours o <*> o .:? "template")
                              <*> o .: "digest"
         -- @views@ is an OBJECT keyed by view id, three-valued per view the way
         -- every other optional region is: an id absent leaves that view alone,

@@ -35,9 +35,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , TodoKeywords (..)
                        , builtinAgenda
                        , builtinFilter
-                       , captureTargetEdits
                        , captureTargetIn
-                       , captureTargetOf
                        , stateColorsEdits
                        , stateColorsOf
                        , classify
@@ -85,7 +83,7 @@ import Data.Org.Edit (digestOfText, eolOf, lineSpansIn, openingFor, readDocument
 import Data.Org.Parser (orgParse)
 import Data.Org.Types ( Context, Element (EPragma), Pragma (PTodo), Span (..), Spanned (valueOf)
                       , defaultContext, setTodo, todoActive, todoInactive )
-import Data.Org.Walk (configDir, isDocument, isWalked, orgGlanceDir)
+import Data.Org.Walk (configDir, isDocument, orgGlanceDir)
 
 -- Keywords
 
@@ -229,9 +227,8 @@ savedView vid = find ((== vid) . svId) savedViews
 -- as the pragma keys they are spelled with.  Each name is written ONCE: a
 -- reader folds it and a writer renders it, and the pair drifting apart is a
 -- line a settings sheet rewrites into a line nothing reads.
-captureTargetKey, stateColorsKey :: Text
-captureTargetKey = "GLANCE_CAPTURE_TARGET"
-stateColorsKey   = "GLANCE_STATE_COLORS"
+stateColorsKey :: Text
+stateColorsKey = "GLANCE_STATE_COLORS"
 
 -- | Does a line open KEY's pragma?  The reader's half of a setting name, folded
 -- once so the writer below can render the same name in org's own casing.
@@ -269,16 +266,10 @@ viewOf = settingOf . svPragma
 
 -- The capture target
 
--- | Where a capture lands when no layer names a file: one entry point per tree,
--- at the root, under the name org-capture templates have always used.
+-- | Where a capture lands: one entry point per tree, at the root, under the
+-- name org-capture templates have always used.
 defaultCaptureFile :: FilePath
 defaultCaptureFile = "inbox.org"
-
--- | The file DOC's @#+GLANCE_CAPTURE_TARGET:@ line names, or 'Nothing' when it
--- carries none — which is what makes 'defaultCaptureFile' the fallback rather
--- than a value written into every tree.
-captureTargetOf :: Text -> Maybe Text
-captureTargetOf = settingOf captureTargetKey
 
 -- State colours
 
@@ -326,40 +317,14 @@ stateColorsEdits doc colours =
                    <> [ k <> "=" <> v | (k, v) <- pairs ])
     | (theme, pairs) <- colours, not (null pairs) ]
 
--- | Where a capture under ROOT lands given CFG, or why this daemon will not
--- write there.
+-- | Where a capture under ROOT lands: @\<root\>\/inbox.org@, always.
 --
--- Absent, the target is @\<root\>\/inbox.org@; named, it resolves against the
--- SERVED ROOT rather than the config directory, because a nested store still
--- captures into the tree being served.
---
--- CHECKED HERE, where the config is read, rather than when a capture arrives: a
--- tree misconfigured in January should say so at startup.  Three textual
--- refusals: an absolute path, one climbing out through @..@, and a name the
--- walk would not collect — a capture there writes a file no watch delivers a
--- row for.  That third is 'isWalked' rather than 'isDocument', and the
--- difference is load-bearing: @.org-glance\/config\/x.org@ is an org file the
--- walk declines, so stopping at the extension would bless exactly the paths
--- this refusal exists for.
-captureTargetIn :: FilePath -> ConfigLayers -> Either Text FilePath
-captureTargetIn root cfg = case fmap T.strip (tsCapture (clTree cfg)) of
-  Just want | not (T.null want) -> checked want
-  _unconfigured                 -> Right (root </> defaultCaptureFile)
-  where
-    checked want
-      | isAbsolute path = Left (refused want "an absolute path; name one under the served root")
-      | ".." `elem` splitDirectories path = Left (refused want "outside the served root")
-      | not (isWalked target) = Left (refused want "not a file this tree walks, so no watch\
-                                                   \ would ever deliver the rows it captured")
-      | otherwise = Right target
-      where path   = T.unpack want
-            target = root </> path
-    refused want why = "#+" <> captureTargetKey <> ": " <> want <> " is " <> why
-
--- | The span edits setting DOC's capture target to WANT.  An EMPTY value
--- deletes the line, which is the tree going back to 'defaultCaptureFile'.
-captureTargetEdits :: Text -> Text -> [(Span, Text)]
-captureTargetEdits = settingEdits captureTargetKey
+-- ONE ENTRY POINT PER TREE, resolved against the SERVED ROOT rather than the
+-- config directory, because a nested store still captures into the tree being
+-- served.  No layer names it, so no request can aim a write at a path the walk
+-- would decline and no watch would deliver a row for.
+captureTargetIn :: FilePath -> FilePath
+captureTargetIn root = root </> defaultCaptureFile
 
 -- | The value of the LAST line of DOC that MINE accepts, or 'Nothing' when it
 -- has none.  Last wins, the way a reader scrolling a config file reads it, and
@@ -455,14 +420,13 @@ data ConfigLayers = ConfigLayers
 -- it off 'clTree' and the settings route takes it off 'treeSettings' over files
 -- it has just read, so a member owes ONE line and both paths have it.
 data TreeSettings = TreeSettings
-  { tsViews   :: ![(Text, Text)]                -- ^ the saved views @system.org@ names, by id; see 'viewQueryIn'.
-  , tsCapture :: !(Maybe Text)                  -- ^ the capture target it names; see 'captureTargetIn'.
-  , tsColors  :: ![(Text, [(Text, Text)])]      -- ^ per-theme keyword hues; see 'stateColorsOf'.
+  { tsViews  :: ![(Text, Text)]                 -- ^ the saved views @system.org@ names, by id; see 'viewQueryIn'.
+  , tsColors :: ![(Text, [(Text, Text)])]       -- ^ per-theme keyword hues; see 'stateColorsOf'.
   } deriving (Eq, Show)
 
 -- | A tree that configures none of them.
 noTreeSettings :: TreeSettings
-noTreeSettings = TreeSettings [] Nothing []
+noTreeSettings = TreeSettings [] []
 
 -- | What LAYERS say about every tree-wide setting.
 --
@@ -475,11 +439,10 @@ noTreeSettings = TreeSettings [] Nothing []
 -- neither is a place a member picks.
 treeSettings :: [ConfigLayerFile] -> TreeSettings
 treeSettings files = TreeSettings
-  { tsViews   = [ (svId v, q) | v <- savedViews, Just q <- [systemSetting (viewOf v) files] ]
-  , tsCapture = systemSetting captureTargetOf files
+  { tsViews  = [ (svId v, q) | v <- savedViews, Just q <- [systemSetting (viewOf v) files] ]
   -- EVERY system layer's lines rather than the first that says anything: a tree
   -- names one line per theme, and a second config directory adds to them.
-  , tsColors  = concat [ stateColorsOf (lfText f) | f <- files, isSystem f ]
+  , tsColors = concat [ stateColorsOf (lfText f) | f <- files, isSystem f ]
   }
 
 -- | The query view ID applies given TS: what @system.org@'s line for it names,

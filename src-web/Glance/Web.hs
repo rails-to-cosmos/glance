@@ -45,7 +45,7 @@ import Glance.Query (IdCollision (..), QueryResult (..), captureTargetIn)
 import Glance.Web.Base ( ServeOptions (..), defaultPort, tenths, viewTitleFor
                        , walkFor )
 import Glance.Web.Routes (application, bootstrapWanted, hasRenderer)
-import Glance.Web.Store ( Hub, Store (stConfig), finishLoading, loadStoreWith
+import Glance.Web.Store ( Hub, finishLoading, loadStoreWith
                         , newLoadingHub, storeResult )
 import Glance.Web.Watch (say, watchOrgTree)
 
@@ -117,11 +117,8 @@ indexTree opts hub started = do
     [ "  loaded:  " <> show (length (qrRecords stats)) <> " rows from "
         <> show (qrFiles stats) <> " files in " <> seconds (loaded - started)
         <> collisionNote (qrIdCollisions stats)
-    -- Where `+' would write, said once at startup rather than discovered on the
-    -- first capture: a target this daemon will not write to is a misconfigured
-    -- tree, and the operator learns it here.
-    , "  capture: " <> either (\why -> T.unpack why <> " — + is refused until it moves")
-                              id (captureTargetIn (soDir opts) (stConfig store))
+    -- Where `+' would write, said once at startup.
+    , "  capture: " <> captureTargetIn (soDir opts)
     ]
   watchOrgTree (walkFor opts) (soDir opts) hub
 
