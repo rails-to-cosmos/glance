@@ -28,7 +28,7 @@
 // was never reached.
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
@@ -83,6 +83,33 @@ function ok(cond, what) {
   return true;
 }
 
+/** A JSONL blob's non-empty lines. */
+const jsonl = (text) => text.split("\n").filter(Boolean);
+
+/**
+ * The peer's fold cursor, refusing a peer that keeps none.  ABSENCE IS NOT
+ * ZERO: 0 is a real offset a fold can leave, so a step reading the two alike
+ * would assert a cursor had reached the end of a file nothing ever folded —
+ * which is the shape the harness exists to make impossible.
+ */
+function cursorOf(seen, what) {
+  ok(seen.cursor !== null, `${what}: this peer keeps no fold cursor at all`);
+  return seen.cursor;
+}
+
+/**
+ * Assert the peer is done with the file it names, naming WHERE.  TWO ANSWERS,
+ * because the fold and the READ PATH ask different questions of one cursor: the
+ * offset reaches the file's end, and the peer's own poll agrees nothing is owed.
+ * A peer that verifies what a fold consumes and polls by SIZE alone passes the
+ * first and fails the second the moment a file is re-laid at its own length.
+ */
+function drained(seen, what) {
+  eq(cursorOf(seen, what), seen.bytes, `${what}: the cursor against the file`);
+  ok(seen.pending !== null, `${what}: this peer has no pending predicate at all`);
+  eq(seen.pending, false, `${what}: what the peer's read path says is owed`);
+}
+
 // ------------------------------------------------------------------- breaks
 //
 // A CASE NOBODY HAS SEEN FAIL IS NOT EVIDENCE, and browser-check's `BREAK'
@@ -104,6 +131,9 @@ const BREAKS = {
   "meta-moved": "meta-untouched",
   // The tombstone line is left standing, so the record it names stays live.
   "no-delete-fold": "delete-tombstones-the-record",
+  // The line the rewrite moves ahead of the cursor is never written, so the
+  // re-fold has nothing new to adopt and the keyword never arrives.
+  "no-owed-write": "bytes-move-under-a-live-cursor",
 };
 
 // ------------------------------------------------------------- the two sides
@@ -257,6 +287,7 @@ async function main() {
   const base = `http://127.0.0.1:${port}`;
   const root = await mkdtemp(join(tmpdir(), "glance-interop-"));
   const store = join(root, ".org-glance");
+  const externalPath = join(store, "meta", "EXTERNAL.jsonl");
   const results = [];
   let daemon = null, ws = null, daemonSaid = "";
   const started = Date.now();
@@ -370,7 +401,7 @@ async function main() {
       // CLAIM 2: the bytes glance produced are the bytes org-glance's reader
       // accepts, and the ids it takes out of them are glance's own.
       eq(Array.from(seen.ids), [ALPHA], "the ids org-glance reads out of the file");
-      const raw = await readFile(join(store, "meta", "EXTERNAL.jsonl"), "utf8");
+      const raw = await readFile(externalPath, "utf8");
       eq(seen.text, raw, "the text org-glance read vs the file on disk");
       ok(/^\{"id":"[^"]+","at":"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"\}\n$/.test(raw),
          `the frozen line shape: ${JSON.stringify(raw)}`);
@@ -403,17 +434,31 @@ async function main() {
       return [`refresh-external folded ${n.n}; the WAL now says DONE`];
     });
 
-    await step("file-emptied-and-reused", "CLAIM 8", async () => {
+    // THE FOLD MOVES A CURSOR AND REWRITES NOTHING, which is the contract's own
+    // half of that: this side appends and never truncates, and the other side
+    // now never truncates either.  So the file is NOT emptied — it keeps every
+    // byte the daemon wrote — and what a fold spends is the cursor beside it.
+    await step("cursor-advances-and-the-bytes-stay", "CLAIM 8", async () => {
+      // ONE: the fold spent every byte and took none away.  `drained' is the
+      // whole of that — the text and the ids still owed are what it says.
       const spent = emacs(runner, root, "read-external");
-      eq(spent.exists, true, "the file survives the fold");
-      eq(spent.bytes, 0, "the bytes left after the fold");
+      drained(spent, "after the first fold");
+      // TWO: a second write lands PAST that cursor and is the only thing owed.
       const r = await command(base, { name: "set-state", ids: [BETA],
                                       args: { keyword: "READING" } });
       eq(r.results[0].ok, true, "the second write, over the tagged blob");
       const again = emacs(runner, root, "read-external");
-      eq(Array.from(again.ids), [BETA], "the ids the file holds after the second write");
-      eq(again.inode, spent.inode, "the inode, which Emacs rewrote in place");
-      return [`emptied to 0 B, inode ${spent.inode} kept, then ${again.bytes} B again`];
+      eq(Array.from(again.ids), [BETA], "the ids owed after the second write");
+      eq(cursorOf(again, "after the second write"), spent.cursor,
+         "the cursor, which no fold has moved since");
+      eq(again.inode, spent.inode, "the inode, which nothing rotated");
+      // THREE: both lines are still on disk, oldest first.
+      const lines = jsonl(await readFile(externalPath, "utf8"));
+      eq(lines.length, 2, "the lines on disk");
+      ok(lines[0].includes(ALPHA) && lines[1].includes(BETA),
+         `both writes are on disk in write order: ${JSON.stringify(lines)}`);
+      return [`${again.bytes} B on disk over 2 lines, cursor at ${again.cursor}`,
+              `inode ${spent.inode} kept; the fold rewrote nothing`];
     });
 
     await step("tag-cycle-survives", "CLAIM 7", async () => {
@@ -426,6 +471,65 @@ async function main() {
       eq(field.title, "beta", "the title, which must not have swallowed it");
       eq(Array.from(field.tags), [TAG], "the tags");
       return [`READING survived as a state under the tag's own cycle`];
+    });
+
+    // THE CURSOR IS A CLAIM ABOUT BYTES, and this is the case that reads it.
+    // Every case above passes against a reader whose cursor is an OFFSET
+    // ALONE, so none of them constrains the prefix digest at all — they only
+    // ever grow the file, which is the one event an offset survives.  Here the
+    // bytes MOVE under a live cursor and the row still has to arrive.
+    await step("bytes-move-under-a-live-cursor", "CLAIM 22", async () => {
+      // ONE: a write folded, so a cursor comes to stand over its line.
+      const pinning = await command(base, { name: "set-state", ids: [ALPHA],
+                                            args: { keyword: "TODO" } });
+      eq(pinning.results[0].ok, true, "the write the cursor comes to stand on");
+      eq(emacs(runner, root, "refresh").n, 1, "that line folded");
+      const pinned = emacs(runner, root, "read-external");
+      drained(pinned, "before the bytes move");
+
+      // TWO: a second write, LEFT UNFOLDED.  Its line sits past the cursor.
+      if (!taken("no-owed-write")) {
+        const owedWrite = await command(base, { name: "set-state", ids: [BETA],
+                                                args: { keyword: "READ" } });
+        eq(owedWrite.results[0].ok, true, "the write that is left owed");
+      }
+
+      // THREE: THE BYTES MOVE UNDER THE CURSOR.  This is the git union merge's
+      // own layout — the other machine's unfolded line laid AHEAD of the prefix
+      // this store already spent — written here rather than by standing up two
+      // clones and merging them, which would be a larger apparatus than the
+      // fact it shows.  Every line is the same length (both ids are 36
+      // characters and the stamp is fixed-width), so the recorded OFFSET still
+      // lands on a line boundary: nothing but the digest can tell.
+      const was = await readFile(externalPath, "utf8");
+      const lines = jsonl(was).map((l) => l + "\n");
+      const owed = lines.pop();
+      await writeFile(externalPath, owed + lines.join(""));
+      const now = await readFile(externalPath, "utf8");
+      eq(now.length, was.length, "the length a re-laying leaves");
+
+      // A READER WITH NO DIGEST resumes at the offset it recorded, which now
+      // sits at the end of a line it never read: it re-folds what it already
+      // folded and the moved line is skipped for good.  The digest refuses the
+      // offset instead, and the whole file is owed again.
+      const after = emacs(runner, root, "read-external");
+      eq(cursorOf(after, "after the rewrite"), 0,
+         "the cursor a moved prefix leaves standing");
+      // AND THE READ PATH HAS TO SEE IT TOO, which is the other half and the
+      // one no fold can answer for.  The re-laying above left the length alone
+      // — `noteLine' spells fixed-width lines, so that is the TYPICAL shape
+      // rather than a contrivance — so a peer that polls by size alone calls
+      // this file drained, folds nothing, and never reaches the assertions
+      // below however many times it is read.
+      eq(after.pending, true, "what the peer's read path says is owed");
+      eq(after.text, now, "what the fold is owed after the rewrite");
+      const folded = emacs(runner, root, "refresh");
+      eq(folded.n, 2, "the entries the re-fold took");
+      const field = emacs(runner, root, "field", { IID: BETA });
+      eq(field.state, "READ", "the keyword the re-fold adopted for the moved line");
+      drained(emacs(runner, root, "read-external"), "after the re-fold");
+      return [`${lines.length + 1} lines re-laid under a cursor at ${pinned.cursor}`,
+              `the fold refused the offset, took the file whole and adopted READ`];
     });
 
     // --------------------------------------------------------- direction two
@@ -447,8 +551,9 @@ async function main() {
                && f.row.cells.title === "alpha, edited in emacs",
         "the watch to deliver org-glance's own write as a row");
       const ms = Date.now() - put.at;
-      const empty = emacs(runner, root, "read-external");
-      eq(empty.bytes, 0, "the notification file, which this direction never uses");
+      const idle = emacs(runner, root, "read-external");
+      eq(idle.text, "", "what the notification file owes — this direction never uses it");
+      drained(idle, "with nothing written this direction");
       const served = await getJSON(`${base}/headlines?limit=20000`);
       eq(served.rows.find((r) => r.id === ALPHA).cells.title, "alpha, edited in emacs",
          "the row /headlines serves after the watch step");
@@ -524,19 +629,21 @@ async function main() {
       const gone = await command(base, { name: "delete", ids: [BETA], args: {} });
       eq(gone.results[0].ok, true, "the delete");
       // THE THIRD FIELD, and it is the whole of what a delete adds to the wire:
-      // the frozen two fields, then `"tombstone":true' before the brace.
-      const raw = await readFile(join(store, "meta", "EXTERNAL.jsonl"), "utf8");
+      // the frozen two fields, then `"tombstone":true' before the brace.  The
+      // LAST line, since every line this run wrote is still on disk in front of
+      // it — nothing shortens this file any more.
+      const raw = await readFile(externalPath, "utf8");
+      const last = jsonl(raw).pop() + "\n";
       ok(new RegExp(`^\\{"id":"${BETA}","at":"\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ"`
-                    + `,"tombstone":true\\}\\n$`).test(raw),
-         `the frozen delete line: ${JSON.stringify(raw)}`);
+                    + `,"tombstone":true\\}\\n$`).test(last),
+         `the frozen delete line: ${JSON.stringify(last)}`);
       // And this is org-glance READING those bytes, through its own accessor.
       const seen = emacs(runner, root, "read-external");
       eq(Array.from(seen.ids), [BETA], "the ids org-glance takes out of the delete line");
       eq(Array.from(seen.kinds), ["tombstone"], "the kind org-glance reads the line as");
       const folded = taken("no-delete-fold") ? { n: 0 } : emacs(runner, root, "refresh");
       eq(folded.n, 1, "the entries a delete folds");
-      const spent = emacs(runner, root, "read-external");
-      eq(spent.bytes, 0, "the notification file after the fold");
+      drained(emacs(runner, root, "read-external"), "after the delete folded");
       const field = emacs(runner, root, "field", { IID: BETA });
       eq(field.live, false, "whether org-glance still holds a live record for it");
       eq(field.tombstone, true, "whether org-glance holds a tombstone for it");
@@ -552,7 +659,7 @@ async function main() {
       ok(scanLine(lines, "records").includes("1 tombstones"),
          `the tombstones glance's fold reads: ${scanLine(lines, "records")}`);
       return [`${BETA} is tombstoned in the WAL and its blob is in the trash`,
-              `line: ${raw.trim()}`,
+              `line: ${last.trim()}  (last of ${jsonl(raw).length})`,
               scanLine(lines, "records"),
               scanLine(lines, "unmatched")
                 + "  (the unindexed blob is the capture hole, still open)"];

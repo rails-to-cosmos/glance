@@ -109,6 +109,32 @@ skip loudly."
       (cons (car entry) (symbol-name (cdr entry)))
     (cons entry "edit")))
 
+(defun og-external-pending (graph)
+  "GRAPH's unfolded notification bytes, every source in the fold's own order.
+Each source's tail, which is what the fold would take next -- rotated
+generations first and the live file last."
+  (mapconcat (lambda (path) (car (org-glance-graph--external-tail path)))
+             (org-glance-graph--external-sources graph) ""))
+
+(defun og-external-cursor (graph)
+  "How many of GRAPH's live notification file's bytes have been folded.
+ABSENCE IS REPORTED AS ABSENCE: a peer that keeps no cursor answers `:null'
+rather than 0, 0 being a real offset a fold can leave.  Reporting the two alike
+let a step assert a cursor had reached the end of a file nothing had folded."
+  (if (fboundp 'org-glance-graph--external-folded)
+      (org-glance-graph--external-folded (org-glance-graph:external-path graph))
+    :null))
+
+(defun og-external-pending-p (graph)
+  "Whether GRAPH's READ PATH would fold, as `t' or `:false'.
+The other half of the cursor, and the one the fold cannot answer for: a read
+folds only what this predicate says is owed, so a peer that reads the file
+correctly and POLLS it by size alone leaves a re-laid file unfolded forever.
+`:null' where the peer has no such predicate at all."
+  (if (fboundp 'org-glance-graph--external-pending-p)
+      (if (org-glance-graph--external-pending-p graph) t :false)
+    :null))
+
 (defun og-main ()
   "Run the step `ICMD' names."
   (let* ((cmd (og-env "ICMD")))
@@ -139,28 +165,35 @@ skip loudly."
            (og-say (list :content (org-glance-graph:content-path graph (og-env "IID"))
                          :external (org-glance-graph:external-path graph))))))
 
-      ;; The notification file as org-glance READS it -- ids in file order,
-      ;; the KIND it read each one as beside them, and the raw text.  No fold:
-      ;; this only reports.  `og-external-entry' normalizes whichever shape the
-      ;; peer answers, so the two vectors are that list split -- `ids' stays
-      ;; what it always was and `kinds' is the third field's whole visible
-      ;; effect on this side, reading "edit" throughout against a peer that
-      ;; cannot see the field.
+      ;; The notification file as org-glance READS it -- the ids it has still to
+      ;; fold, in file order, the KIND it read each one as beside them, and the
+      ;; pending text.  No fold: this only reports.  `og-external-entry'
+      ;; normalizes whichever shape the peer answers, so the two vectors are
+      ;; that list split -- `ids' stays what it always was and `kinds' is the
+      ;; third field's whole visible effect on this side, reading "edit"
+      ;; throughout against a peer that cannot see the field.  `bytes' is the
+      ;; file's own size and `cursor' how much of it is spent (null where the
+      ;; peer keeps none), so the driver can read BOTH facts the fold moved: the
+      ;; file keeps its bytes, and the ids in them stop being owed.  `pending'
+      ;; is the READ PATH's own answer beside them -- what an ordinary read
+      ;; would do, which is not recoverable from the other three.
       ("read-external"
        (og-unfolding
          (let* ((graph (og-graph))
                 (path (org-glance-graph:external-path graph))
-                (read (org-glance-graph--read-external graph))
-                (entries (mapcar #'og-external-entry (cdr read))))
-           (og-say (list :exists (if (file-exists-p path) t :false)
-                         :bytes (if (file-exists-p path)
-                                    (file-attribute-size (file-attributes path))
-                                  -1)
-                         :inode (if (file-exists-p path)
+                (there (file-exists-p path))
+                (entries (mapcar #'og-external-entry
+                                 (plist-get (org-glance-graph--read-external graph)
+                                            :entries))))
+           (og-say (list :exists (if there t :false)
+                         :bytes (if there (org-glance--file-size path) -1)
+                         :cursor (og-external-cursor graph)
+                         :pending (og-external-pending-p graph)
+                         :inode (if there
                                     (format "%s" (file-attribute-inode-number
                                                   (file-attributes path)))
                                   "")
-                         :text (car read)
+                         :text (og-external-pending graph)
                          :ids (vconcat (mapcar #'car entries))
                          :kinds (vconcat (mapcar #'cdr entries)))))))
 

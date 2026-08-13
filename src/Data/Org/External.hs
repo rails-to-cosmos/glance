@@ -7,7 +7,8 @@
 -- behind — the drift the instrument counts.  Here the two sides meet: the
 -- writer names the ids it moved and says of each whether the blob is still
 -- there, and @M-x org-glance-graph:refresh-external@ re-derives a record for
--- every id whose blob survived, tombstones the rest, and takes those lines off.
+-- every id whose blob survived, tombstones the rest, and moves a CURSOR past
+-- the bytes it read (@meta\/EXTERNAL.cursor@) without rewriting this file.
 --
 -- THE CONTRACT, frozen.  One JSON object per line, newline-terminated.  A write
 -- is two fields in this order:
@@ -37,15 +38,22 @@
 -- a new @op@ vocabulary.  A NEW glance against an OLD org-glance degrades to
 -- exactly today's behaviour: @--read-external@ reads @id@ alone and ignores
 -- what it does not know, so the id is read, the blob it names is gone, and the
--- line is skipped as "no stored blob" and dropped.  An OLD glance against a NEW
--- org-glance never writes the field, so nothing changes.
+-- line is skipped as "no stored blob" — spent by the cursor like any other line
+-- and left on disk, nothing being dropped or removed.  An OLD glance against a
+-- NEW org-glance never writes the field, so nothing changes.
 --
--- THE CRASH RULE.  The reader appends every re-derived record BEFORE shortening
--- this file, so a crash between the two costs a repeated refresh and nothing
--- else — re-deriving from an unmoved blob appends an equal record and the fold
--- keeps the latest per id.  Idempotent by construction, which is what lets the
--- two steps be unsynchronised; the reader drops exactly the prefix it read, so
--- a line appended mid-refresh survives.
+-- THE CRASH RULE.  The reader appends every re-derived record BEFORE moving its
+-- cursor forward, so a crash between the two costs a repeated refresh and
+-- nothing else — re-deriving from an unmoved blob appends an equal record and
+-- the fold keeps the latest per id.  Idempotent by construction, which is what
+-- lets the two steps be unsynchronised; the reader spends BYTES it already had
+-- rather than taking any away, so a line appended mid-refresh is simply past
+-- the offset that refresh recorded.
+--
+-- AND THE CURSOR IS VERIFIED BEFORE IT IS TRUSTED, which is the peer's
+-- invariant 34 and is stated there.  What THIS side owes it is the append-only
+-- rule above: a prefix a fold measured cannot move under an APPENDER, so an
+-- append costs no re-fold and every other event does.
 --
 -- WHAT IS NOT PROMISED.  A plain line is a HINT that a blob moved; a tombstone
 -- says the blob is GONE, so the record is to be dropped rather than re-derived
