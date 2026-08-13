@@ -624,8 +624,13 @@ moveSpec shell = testGroup "Shell movement"
       onTable "press:ArrowRight press:ArrowRight press:ArrowRight" $ \answer -> do
         assertEqual "off the cells" Null =<< field "col" answer
         echoIs "which the echo says is a landing" "<right> → next-column (row mode)" answer
-      onTable "press:ArrowLeft" $
-        assertEqual "and the other arrow lands on the first column too" 0 <=< intAt "col"
+      -- BACKWARD OUT OF A WHOLE ROW IS A NO-OP: there is no cell to its left,
+      -- and landing on the first column made the two directions one press.
+      onTable "press:ArrowLeft" $ \answer -> do
+        assertEqual "a whole row stays whole" Null =<< field "col" answer
+        echoIs "and the echo names no landing" "<left> → previous-column" answer
+      onTable "press:ArrowRight press:ArrowLeft" $
+        assertEqual "while a cell still steps back out" Null <=< field "col"
 
   , keyed shell "a climb keeps the column the cursor was in"
       "" (moveScript "press:f press:> press:>") $ \answer -> do
@@ -9013,7 +9018,7 @@ expectedRows =
        Just "close the sheet, syncing an edited one; again to discard")
   ]
   where rightHelp = Just "the cell to the right; row movement keeps the column"
-        leftHelp  = Just "the cell to the left; from a whole row, the first column"
+        leftHelp  = Just "the cell to the left; a whole row has none"
         topHelp   = Just "first row, again = page up"
         endHelp   = Just "last row, again = page down"
         planHelp  = Just "a date over the marked rows, or the row at point; empty clears it"

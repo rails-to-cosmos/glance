@@ -1,0 +1,200 @@
+#    -*- mode: org -*-
+
+
+Archived entries from file /home/akatovda/sync/stuff/glance/glance.org
+
+
+* CANCELLED Main
+CLOSED: [2026-08-13 Thu 22:47]
+:PROPERTIES:
+:ARCHIVE_TIME: 2026-08-13 Thu 22:47
+:ARCHIVE_FILE: ~/sync/stuff/glance/glance.org
+:ARCHIVE_CATEGORY: glance
+:ARCHIVE_TODO: CANCELLED
+:END:
+:LOGBOOK:
+- State "CANCELLED"  from              [2026-08-13 Thu 22:47]
+:END:
+** CANCELLED [#C] optparse-applicative
+CLOSED: [2026-08-13 Thu 22:47]
+:LOGBOOK:
+- State "CANCELLED"  from "TODO"       [2026-08-13 Thu 22:47]
+:END:
+
+* REPL [2/2]
+  :PROPERTIES:
+  :ARCHIVE_TIME: 2026-08-13 Thu 22:47
+  :ARCHIVE_FILE: ~/sync/stuff/glance/glance.org
+  :ARCHIVE_CATEGORY: glance
+  :END:
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-07-15 Sat 15:14]
+:END:
+
+** DONE Some commands (like pragmas) should apply on eol
+CLOSED: [2023-09-10 Sun 23:26]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-09-10 Sun 23:26]
+:END:
+
+** DONE Pretty print
+CLOSED: [2026-08-13 Thu 22:47]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2026-08-13 Thu 22:47]
+:END:
+
+* DONE Data
+CLOSED: [2026-08-13 Thu 22:47]
+:PROPERTIES:
+:ARCHIVE_TIME: 2026-08-13 Thu 22:47
+:ARCHIVE_FILE: ~/sync/stuff/glance/glance.org
+:ARCHIVE_CATEGORY: glance
+:ARCHIVE_TODO: DONE
+:END:
+:LOGBOOK:
+- State "DONE"       from              [2026-08-13 Thu 22:47]
+:END:
+** TODO Tags: change List to Set
+** TODO Graph representation
+*** https://github.com/haskell/fgl
+*** https://github.com/travitch/haggle
+
+* DONE Parser [16/22]
+CLOSED: [2026-08-13 Thu 22:47]
+:PROPERTIES:
+:ARCHIVE_TIME: 2026-08-13 Thu 22:47
+:ARCHIVE_FILE: ~/sync/stuff/glance/glance.org
+:ARCHIVE_CATEGORY: glance
+:ARCHIVE_TODO: DONE
+:END:
+:LOGBOOK:
+- State "DONE"       from              [2026-08-13 Thu 22:47]
+- State "STARTED"    from "TODO"       [2023-08-05 Sat 10:08]
+:END:
+
+** TODO Parse comments (from # to eol)
+** TODO Parse links
+** TODO Parse tables
+** TODO Parse commented/archived headlines (type: ordinary/commented/archived)
+** TODO Parse encrypted headlines (meta: encrypted regions)
+** TODO Parse closed headlines
+
+** DONE OrgLine parsing
+CLOSED: [2023-07-15 Sat 17:10]
+:LOGBOOK:
+- State "DONE"       from "STARTED"    [2023-07-15 Sat 17:10]
+- State "STARTED"    from "TODO"       [2023-07-15 Sat 15:54]
+CLOCK: [2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10] =>  1:16
+:END:
+** DONE [#A] Implement stateful todo-state parsing
+CLOSED: [2023-07-21 Fri 09:45]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-07-21 Fri 09:45]
+:END:
+** DONE Parse pragmas that change contexts
+CLOSED: [2023-07-21 Fri 22:52]
+:LOGBOOK:
+- State "DONE"       from "PENDING"    [2023-07-21 Fri 22:52]
+- State "PENDING"    from "TODO"       [2023-07-21 Fri 22:05]
+:END:
+** DONE Parse category
+CLOSED: [2023-07-21 Fri 22:52]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-07-21 Fri 22:52]
+:END:
+** DONE Parse properties
+CLOSED: [2023-07-22 Sat 18:49]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-07-22 Sat 18:49]
+:END:
+** DONE Parse todo (simple)
+CLOSED: [2023-07-22 Sat 18:49]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-07-22 Sat 18:49]
+:END:
+** DONE Extend todo pragma parser
+CLOSED: [2023-07-23 Sun 11:14]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-07-23 Sun 11:14]
+:END:
+** DONE Explicit headline metadata
+CLOSED: [2023-07-25 Tue 08:46]
+:LOGBOOK:
+- State "DONE"       from "PENDING"    [2023-07-25 Tue 08:46]
+- State "PENDING"    from "STARTED"    [2023-07-24 Mon 09:11]
+- State "STARTED"    from "TODO"       [2023-07-24 Mon 09:08]
+CLOCK: [2023-07-24 Mon 09:08]--[2023-07-24 Mon 09:11] =>  0:03
+:END:
+** DONE Parse timestamps
+CLOSED: [2023-08-01 Tue 11:07]
+:LOGBOOK:
+- State "DONE"       from "PENDING"    [2023-08-01 Tue 11:07]
+- State "PENDING"    from "STARTED"    [2023-07-25 Tue 10:06]
+- State "STARTED"    from "TODO"       [2023-07-25 Tue 10:06]
+:END:
+** DONE Timestamp list → meta
+CLOSED: [2023-08-01 Tue 11:08]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-08-01 Tue 11:08]
+:END:
+** DONE [#A] Recursive parsing of elements and context derivation
+CLOSED: [2023-08-09 Wed 08:50]
+:LOGBOOK:
+- State "DONE"       from "PENDING"    [2023-08-09 Wed 08:50]
+- State "PENDING"    from "STARTED"    [2023-08-06 Sun 10:05]
+- State "STARTED"    from "TODO"       [2023-08-05 Sat 21:44]
+CLOCK: [2023-08-05 Sat 21:44]--[2023-08-06 Sun 10:05] => 12:21
+:END:
+** DONE Refactor gADTs to the simple type classes
+CLOSED: [2023-08-15 Tue 14:16]
+:LOGBOOK:
+- State "DONE"       from "STARTED"    [2023-08-15 Tue 14:16]
+- State "STARTED"    from "TODO"       [2023-08-13 Sun 10:35]
+:END:
+** DONE Multiline property block parser
+CLOSED: [2023-08-31 Thu 10:12]
+:LOGBOOK:
+- State "DONE"       from "STARTED"    [2023-08-31 Thu 10:12]
+- State "STARTED"    from "TODO"       [2023-08-30 Wed 17:11]
+:END:
+** DONE Fix multiline parsing
+CLOSED: [2023-09-04 Mon 23:54]
+:LOGBOOK:
+- State "DONE"       from "STARTED"    [2023-09-04 Mon 23:54]
+- State "STARTED"    from "TODO"       [2023-09-04 Mon 23:29]
+CLOCK: [2023-09-04 Mon 23:29]--[2023-09-04 Mon 23:54] =>  0:25
+:END:
+#+begin_quote
+ * TODO Hello there\n:PROPERTIES:\n:CATEGORY: Hello\n:END:
+#+end_quote
+** DONE [#C] Align corrupted tag parser with org-mode parser
+CLOSED: [2023-08-01 Tue 11:09]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-08-01 Tue 11:09]
+:END:
+** DONE [#C] Optimize headline parser
+CLOSED: [2023-08-01 Tue 11:09]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-08-01 Tue 11:09]
+:END:
+
+* DONE Persistent [1/3]
+CLOSED: [2026-08-13 Thu 22:48]
+:PROPERTIES:
+:ARCHIVE_TIME: 2026-08-13 Thu 22:48
+:ARCHIVE_FILE: ~/sync/stuff/glance/glance.org
+:ARCHIVE_CATEGORY: glance
+:ARCHIVE_TODO: DONE
+:END:
+:LOGBOOK:
+- State "DONE"       from              [2026-08-13 Thu 22:48]
+:END:
+** DONE Understand ID/UUIDs
+CLOSED: [2023-07-25 Tue 09:16]
+:LOGBOOK:
+- State "DONE"       from "TODO"       [2023-07-25 Tue 09:16]
+:END:
+
+title + tags + timestamps
+** TODO Simple crud
+** TODO Kuzu

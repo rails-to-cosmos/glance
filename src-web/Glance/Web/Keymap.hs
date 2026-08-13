@@ -121,7 +121,7 @@ keyBindings =
 
 nextColumnHelp, previousColumnHelp :: Text
 nextColumnHelp     = "the cell to the right; row movement keeps the column"
-previousColumnHelp = "the cell to the left; from a whole row, the first column"
+previousColumnHelp = "the cell to the left; a whole row has none"
 
 firstRowHelp, lastRowHelp :: Text
 firstRowHelp = "first row, again = page up"
