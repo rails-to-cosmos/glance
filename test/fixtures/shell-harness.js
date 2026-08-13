@@ -656,15 +656,18 @@ const KEYS = fs.readFileSync(dir + "/keys.json", "utf8");
 const CFGJSON = fs.readFileSync(dir + "/cfg.json", "utf8");
 let active = null;
 const fields = {};
-// The tag matters: `typing()' reads it off `document.activeElement'.
-const TAGS = { mtext: "textarea", filter: "input", pinput: "input",
-               dtin: "input", dtext: "textarea",
-               pkey: "input", pval: "input",
-               tname: "input", themesel: "select",
-               ltitle: "input", lurl: "input",
-               ctarget: "input", clog: "input",
-               ktag: "input", ktext: "textarea",
-               clayer: "select", ctext: "textarea", ctpl: "textarea" };
+// The tag matters: `typing()' reads it off `document.activeElement', so a field
+// minted as a div answers that the keys belong to the TABLE -- the reverse of
+// the truth, asserted green.  READ OFF THE SERVED MARKUP rather than kept as a
+// second list: a field added to `Page.hs' and forgotten here is the bug.
+const PAGE = fs.readFileSync(dir + "/page.html", "utf8");
+const TAGS = (() => {
+  const got = {};
+  for (const tag of ["input", "textarea", "select"])
+    for (const m of PAGE.matchAll(new RegExp(`<${tag}\\b[^>]*\\bid="([^"]+)"`, "g")))
+      got[m[1]] = tag;
+  return got;
+})();
 const styleOf = () => ({
   custom: {},
   setProperty(name, value) { this.custom[name] = String(value); },

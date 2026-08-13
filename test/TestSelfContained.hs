@@ -137,7 +137,43 @@ spec = testGroup "Self-containment"
       assertBool "the sweep missed the one legitimate call" (not (null inWatch))
       hits <- concat <$> mapM calls [ f | f <- files, f /= "src-web/Glance/Web/Watch.hs" ]
       assertEqual "web modules splicing outside the write door" [] hits
+
+    -- ONE VERSION, FOUR PLACES, and a cut moves them together.  The cabal file
+    -- is the truth; the rest are copies, and a copy nobody compares drifts.
+    -- Same shape as the proposal-name rule above: the second place a fact is
+    -- written is CHECKED rather than trusted.
+  , testCase "the version agrees wherever it is written" $ do
+      cabalV <- valueAfter "version:" <$> TIO.readFile "glance.cabal"
+      readmeV <- between "*Version:* =" "=" <$> TIO.readFile "README.org"
+      logV <- newestRelease <$> TIO.readFile "CHANGELOG.md"
+      elmV <- between "\"elm-version\": \"" "\"" <$> TIO.readFile "assets/elm/elm.json"
+      assertBool "glance.cabal names no version" (maybe False (not . T.null) cabalV)
+      assertEqual "README.org against glance.cabal" cabalV readmeV
+      assertEqual "CHANGELOG.md's newest release against glance.cabal" cabalV logV
+      -- 0.19.1 is a hard refusal, so the pin is asserted rather than compared.
+      assertEqual "assets/elm/elm.json's compiler pin" (Just "0.19.2") elmV
   ]
+
+-- | The value FIELD names on the first line carrying it, stripped.
+valueAfter :: T.Text -> T.Text -> Maybe T.Text
+valueAfter field body = listToMaybe
+  [ T.strip rest
+  | l <- T.lines body, Just rest <- [T.stripPrefix field (T.stripStart l)] ]
+
+-- | What sits between OPEN and the next CLOSE, first occurrence.
+between :: T.Text -> T.Text -> T.Text -> Maybe T.Text
+between open close body = case T.breakOn open body of
+  (_, rest) | not (T.null rest) ->
+    Just (fst (T.breakOn close (T.drop (T.length open) rest)))
+  _noneOfIt -> Nothing
+
+-- | The newest @## X - DATE@ heading, X alone.  @## Unreleased@ names no
+-- version and carries no separator, so it is skipped rather than filtered.
+newestRelease :: T.Text -> Maybe T.Text
+newestRelease body = listToMaybe
+  [ T.strip v
+  | l <- T.lines body, Just rest <- [T.stripPrefix "## " l]
+  , let v = fst (T.breakOn " - " rest), v /= rest ]
 
 calls :: FilePath -> IO [String]
 calls path = report . T.lines <$> TIO.readFile path

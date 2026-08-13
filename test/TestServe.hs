@@ -4590,6 +4590,10 @@ bootedPage shell store search total keys acts = do
       elmOf page >>= TIO.writeFile (dir </> "elm.js")
       keysOf page >>= TIO.writeFile (dir </> "keys.json")
       cfgOf page >>= TIO.writeFile (dir </> "cfg.json")
+      -- THE MARKUP, so the harness DERIVES which ids are fields rather than
+      -- keeping a second list by hand: one forgotten row there had `typing()'
+      -- read a div and answer that the keys belonged to the table.
+      TIO.writeFile (dir </> "page.html") page
       (code, out, err) <- readProcessWithExitCode exe
                             [ harness, dir, T.unpack search, show total
                             , T.unpack keys, T.unpack acts, T.unpack store ] ""

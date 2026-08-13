@@ -68,25 +68,31 @@ async function browserPath() {
 /** A CASE NOBODY HAS SEEN FAIL IS NOT EVIDENCE: each entry takes ONE rule out
  * of the served page and names the case it should turn red. */
 const BREAKS = {
-  // 1 — the box stands over the document instead of pushing it down (cb6db85).
-  "edit-covers": ["1", "#dpara.on{height:220px !important}"],
-  // 5 — the tier stops clamping (`.pop-sheet' once drew its box outside the cap).
-  "pop-clamp": ["5", ".pop-band,.pop-sheet{box-sizing:content-box !important;"
-                   + "height:96vh !important;max-height:96vh !important}"],
-  "edit-floor": ["1", ".de.dat{min-height:0 !important}"],
-  // 2 — the drawn paragraph collapses to nothing (d7ba44b).
-  "draft-floor": ["2", ".d-draft{min-height:0 !important}"],
-  // 3 — the pane draws its flag in `--g-warn' at a strength of its own (14e13d9).
-  "flag-red": ["3", ".de.dfl{box-shadow:inset 3px 0 0 var(--g-warn) !important}"],
-  "no-clip": ["4", "html,body{overflow:visible !important}"
-                 + "#log{width:220vw !important}"],
-  // 6 — the sheet's state cell falls back to the page's own ink (80c3732).
-  "badge-hue": ["6", "#mdoc .dc-state{color:var(--g-fg) !important}"],
-  "para-indent": ["7", "#mdoc .d-para{padding-left:0 !important}"],
-  "cursor-line": ["8", "#mdoc.on .de.dat{background:transparent !important;"
-                     + "text-decoration:underline !important}"],
+  "edit-covers": ["an open edit moves the line under it down",
+                  "#dpara.on{height:220px !important}"],
+  "edit-floor": ["an open edit moves the line under it down",
+                 ".de.dat{min-height:0 !important}"],
+  // The drawn paragraph collapses to nothing (d7ba44b).
+  "draft-floor": ["a paragraph drawn before it is written",
+                  ".d-draft{min-height:0 !important}"],
+  // The pane draws its flag in `--g-warn' at a strength of its own (14e13d9).
+  "flag-red": ["a flag paints one red on both surfaces",
+               ".de.dfl{box-shadow:inset 3px 0 0 var(--g-warn) !important}"],
+  "no-clip": ["the page never scrolls",
+              "html,body{overflow:visible !important}#log{width:220vw !important}"],
+  // The tier stops clamping (`.pop-sheet' once drew its box outside the cap).
+  "pop-clamp": ["a popup clamps inside the viewport",
+                ".pop-band,.pop-sheet{box-sizing:content-box !important;"
+                  + "height:96vh !important;max-height:96vh !important}"],
+  // The sheet's state cell falls back to the page's own ink (80c3732).
+  "badge-hue": ["a badge in the sheet paints the hue",
+                "#mdoc .dc-state{color:var(--g-fg) !important}"],
+  "para-indent": ["a paragraph is indented under the title text",
+                  "#mdoc .d-para{padding-left:0 !important}"],
+  "cursor-line": ["the cursor in the pane is a ground",
+                  "#mdoc.on .de.dat{background:transparent !important;"
+                    + "text-decoration:underline !important}"],
 };
-
 
 /** One socket, one id counter, one session: `flatten' puts the page session on
  * the browser socket, so there is one connection to close. */
@@ -209,6 +215,7 @@ function pageHandle(cdp, sid) {
 async function main() {
   const only = process.env.ONLY || "";
   const keep = process.env.KEEP === "1";
+  let lied = false;   // a BREAK whose claim this run did not bear out
   const broke = process.env.BREAK || "";
   if (broke && !BREAKS[broke]) {
     console.error(`browser-check: no break named "${broke}" — `
@@ -282,7 +289,7 @@ async function main() {
         + `s.textContent=${JSON.stringify(css)};document.head.append(s);};`
         + `if(document.head)put();else addEventListener("DOMContentLoaded",put);})()`
       }, sessionId);
-      console.log(`BREAK=${broke} — case ${expect} is the one that should go red\n`);
+      console.log(`BREAK=${broke} — "${expect}" is the case that should go red\n`);
     }
 
     const { default: cases } = await import(join(HERE, "cases.mjs"));
@@ -339,6 +346,22 @@ async function main() {
       + (known ? `, ${known} of them a KNOWN defect this repo has not fixed` : "")
       + `, ${wall}s wall` + (failed ? `, artifacts under ${shots}` : ""));
     if (failed) console.log(`browser-check: ${failed} FAILED`);
+    // A BREAK IS A CLAIM ABOUT A CASE, so the run checks it. Keyed by NAME
+    // because an ordinal is computed over the ONLY-filtered list and rots the
+    // moment a case moves.
+    if (broke) {
+      const [want] = BREAKS[broke];
+      const hit = lines.filter((l) => l.name.includes(want));
+      if (!hit.length) {
+        console.log(`browser-check: BREAK=${broke} names "${want}", which no case `
+          + `run here is — rename it in BREAKS or drop ONLY`);
+        lied = true;
+      } else if (hit.every((l) => l.ok)) {
+        console.log(`browser-check: BREAK=${broke} left "${want}" GREEN, so the `
+          + `break proves nothing: that case does not measure what it took away`);
+        lied = true;
+      }
+    }
   } finally {
     if (cdp) cdp.close();
     if (browser) await end(browser);
@@ -346,7 +369,7 @@ async function main() {
     if (profile) await rm(profile, { recursive: true, force: true }).catch(() => {});
     if (!keep && !failed) await rm(shots, { recursive: true, force: true }).catch(() => {});
   }
-  process.exit(failed ? 1 : 0);
+  process.exit(lied ? 2 : failed ? 1 : 0);
 }
 
 function end(proc) {

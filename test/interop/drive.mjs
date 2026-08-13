@@ -539,8 +539,25 @@ async function main() {
   console.log(`\n${results.length - failed.length}/${results.length} cases, `
     + `${wall}s wall, ${mode} emacs`
     + (keep ? `, store kept at ${root}` : ""));
-  if (broke)
-    console.log(`BREAK=${broke} — "${BREAKS[broke]}" is the case that should be red`);
+  if (broke) {
+    // A BREAK IS A CLAIM ABOUT A CASE, so the run checks the claim. Naming a
+    // case that no longer exists, or one this run left GREEN, is a break that
+    // proves nothing -- and the target exists to prove the assertion reads what
+    // the OTHER program did.
+    const want = BREAKS[broke];
+    const hit = results.find((r) => r.name === want);
+    console.log(`BREAK=${broke} — "${want}" is the case that should be red`);
+    if (!hit) {
+      console.log(`interop: BREAK=${broke} names "${want}", which is no case in `
+        + `this run — rename it in BREAKS or restore the case`);
+      process.exit(2);
+    }
+    if (hit.ok) {
+      console.log(`interop: BREAK=${broke} left "${want}" GREEN, so the break `
+        + `proves nothing: that case does not read what the break took away`);
+      process.exit(2);
+    }
+  }
   if (failed.length) console.log(`interop: ${failed.length} FAILED`);
   process.exit(failed.length ? 1 : 0);
 }

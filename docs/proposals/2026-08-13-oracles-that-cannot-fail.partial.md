@@ -1,6 +1,7 @@
 # Proposal — the checks that report green when they should report red
 
-**Status:** proposed — found 2026-08-13 by a generalizer sweep over both repos ·
+**Status:** partial — items 1-4 landed 2026-08-14, each proven by making it
+fail; items 5-7 are decisions and stay open ·
 **Date:** 2026-08-13 · **Origin:** `/generalizer`, future-variant-cost angle,
 after a session in which nine adversarial rounds each ran against a green
 suite.
