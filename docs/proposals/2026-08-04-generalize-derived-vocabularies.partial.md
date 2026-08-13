@@ -1,6 +1,14 @@
 # Proposal — a sentence that lists a list should read it
 
-**Status:** proposed · **Date:** 2026-08-04
+**Status:** partial — 1 and 2 landed; 3 and 4 open · **Date:** 2026-08-04
+
+**Revisited 2026-08-14.** Item 1 had already been fixed by the time this was
+re-read: the refusal reads `relativeForms`, and `shifted` goes through `unitOf`,
+so `+1y` parses and the sentence lists what the table accepts. Item 2 landed
+2026-08-14 — `writeHint` is built from the route table's `methodPost` entries,
+with a case asserting the hint names `/headline`, `/command` and `/config`.
+Items 3 (`statsHeaders` against `LoadFailure`) and 4 (log scopes and severities)
+are untouched.
 
 Four places in the daemon spell a vocabulary twice: once as the code that
 decides, and once as English that tells a reader what was decided.  One of the

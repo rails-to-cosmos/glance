@@ -7004,6 +7004,17 @@ commandSpec = testGroup "POST /command"
         r <- getFrom a "/command"
         assertEqual "status" 405 (status r)
         assertContains "hint" "/command takes POST" (body r)
+
+    -- THE WRITE HINT NAMES EVERY WRITE ROUTE, being derived from the route
+    -- table: a hand-written sentence had missed /config, which takes POST too.
+    -- Asked of a path that takes no POST at all, so the hint is what answers.
+  , testCase "a refused method names every route that does write" $
+      withCommandable $ \a _hub _path _other -> do
+        r <- postTo a "/headlines" (encode (object []))
+        assertEqual "status" 405 (status r)
+        forM_ ["/headline", "/command", "/config"] $ \route ->
+          assertContains ("the hint omits " <> T.unpack route)
+                         ("POST " <> route) (body r)
   ]
 
 -- | @set-planning@: the request's shape and the whole-request refusal; the span math is @TestQuery@'s.

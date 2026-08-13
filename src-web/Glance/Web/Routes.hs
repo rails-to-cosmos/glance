@@ -151,7 +151,12 @@ httpApp opts hub request respond = route >>= respond
           [name] | safeName name -> asset opts (T.unpack name)
           _other                 -> pure (plain status404 notFound)
     wsHint    = "/ws is a websocket endpoint; connect with Upgrade: websocket"
-    writeHint = "method not allowed; POST /headline?id=… and POST /command write"
+    -- DERIVED, like `notFound' under it: the table above knows which entries
+    -- carry `methodPost', and a hand-written sentence had missed /config.
+    writeHint = "method not allowed; " <> T.intercalate " and "
+                  [ "POST /" <> T.intercalate "/" p
+                  | (p, _, _, ms) <- named, isJust (lookup methodPost ms) ]
+                  <> " write"
     -- Derived from the table above, so a route added there cannot go missing here.
     notFound  = "not found: "
                   <> T.intercalate ", " [ "/" <> T.intercalate "/" p | (p, _, _, _) <- named ]
