@@ -44,7 +44,7 @@
     }
     // OFFSETS ARE IN CHARACTERS (AGENTS.hs); JS counts UTF-16 units.
     const clen = (s) => Array.from(String(s)).length;
-    // The lifted regions sit ABOVE the paragraphs: one constant displaces a body offset.
+    // The lifted title and properties sit ABOVE the paragraphs: one constant displaces a body offset.
     const bodyShift = (h) => clen(h.org || "") - clen(h.body || "");
     const linksIn = (at, links) => (links || dlinks).filter((l) =>
       l.span && l.span[0] >= at[0] && l.span[1] <= at[1]);

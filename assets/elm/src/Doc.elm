@@ -303,7 +303,7 @@ broader m =
 
 
 
--- SPANS.  OFFSETS ARE IN CHARACTERS: the three regions the lens lifts out sit
+-- SPANS.  OFFSETS ARE IN CHARACTERS: the title, body and properties the lens lifts out sit
 -- ABOVE the paragraphs, so a body offset past the title line is displaced by
 -- one constant.
 

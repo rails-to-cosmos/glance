@@ -539,7 +539,7 @@ keywordsJSON = object . keywordsPair
 keywordsPair :: TodoKeywords -> [Pair]
 keywordsPair kw = ["active" .= tkActive kw, "inactive" .= tkInactive kw]
 
--- | @POST \/config@: one layer's regions replaced.  @path@ must be a layer @GET \/config@ listed, which is the whole traversal defence.
+-- | @POST \/config@: one layer's PARTS replaced.  @path@ must be a layer @GET \/config@ listed, which is the whole traversal defence.
 configWrite :: ServeOptions -> Hub -> Request -> IO Response
 configWrite opts hub request = withBody request $ \raw -> do
   st <- readTVarIO (hubStore hub)
@@ -566,7 +566,7 @@ noSuchLayer path layers =
   "no config layer at " <> path <> "; this tree has "
     <> T.intercalate ", " [ T.pack (lfPath f) | f <- layers ]
 
--- | RAW as a layer write.  Every optional region is three-valued and rides one request: they are regions of one file.
+-- | RAW as a layer write.  Every optional PART is three-valued and rides one request: they are parts of one file.
 parseConfigWrite :: BL.ByteString -> Either Text LayerWrite
 parseConfigWrite = bodyObject "config write" shape
   where shape o = LayerWrite <$> o .: "path" <*> o .:? "lines"
@@ -588,9 +588,9 @@ data LayerWrite = LayerWrite
   { lwPath   :: !Text          -- ^ which layer, and it must be one @GET \/config@ listed.
   , lwLines  :: !(Maybe [Text])
       -- ^ the @#+TODO:@ block, one entry per line; ABSENT leaves it standing
-      -- (the optional regions' own rule — a pin writes the filter alone),
+      -- (the optional parts' own rule — a pin writes the filter alone),
       -- and the EMPTY list is still the deletion.
-  , lwParts  :: !ConfigParts   -- ^ the three optional regions riding in the same write.
+  , lwParts  :: !ConfigParts   -- ^ the three optional parts riding in the same write.
   , lwDigest :: !Text          -- ^ the pin, empty for a layer that is not there yet.
   }
 

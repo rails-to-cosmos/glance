@@ -66,6 +66,17 @@ data Proof = Typed | Test | Corpus | Interop | Browser | Elm | Comment | Docs | 
 data Note = Note Why [Proof]
 -- ^ A tier-three rule: prose, and what would notice it going wrong.
 
+-- ** Words this file reserves
+--
+-- REGION is the scanner's structural run alone (`RegionKind'). A config write
+-- moves PARTS (`ConfigParts'); the lens lifts a title, a body and properties.
+-- NOTE is this file's rule-with-proof alone; a ledger writes a LINE
+-- (`LedgerLine') at a SITE (`LineSite').
+-- A KIND is a closed set this program mints and is a sum; a NAME is open text
+-- an author wrote and is a String. Sharing one field between them lets an
+-- author spell a kind by accident, which `Stop.name' does today
+-- (2026-08-14-stop-kind-vs-org-name.proposed.md).
+
 -- * Checks
 --
 -- A tier-two rule.  The `Bool' is computed from the registries, so a spec edit
@@ -629,22 +640,22 @@ data Keyed = ByPath | ByServedRoot deriving (Eq, Show)
 keyedBy :: Ledger -> Keyed
 keyedBy ExternalL    = ByPath
 keyedBy CompletionsL = ByServedRoot
-data NoteSite = AtReplaceSpans | AtWriteOne deriving (Eq, Show)
-noteSite :: Ledger -> NoteSite
-noteSite ExternalL    = AtReplaceSpans
-noteSite CompletionsL = AtWriteOne
+data LineSite = AtReplaceSpans | AtWriteOne deriving (Eq, Show)
+lineSite :: Ledger -> LineSite
+lineSite ExternalL    = AtReplaceSpans
+lineSite CompletionsL = AtWriteOne
 
-data NoteKind = Noted | Tombstoned deriving (Eq, Show, Enum, Bounded)
+data LedgerLine = Written | Tombstoned deriving (Eq, Show, Enum, Bounded)
 jsonStr :: String -> String
 jsonStr s = "\"" ++ s ++ "\""
 stampWidth :: Int
 stampWidth = length "2026-08-13T09:41:07Z"
-noteLine :: NoteKind -> Id -> String -> String
+noteLine :: LedgerLine -> Id -> String -> String
 -- ^ Keys hand-assembled so the field order is frozen; only VALUES go through
 -- the encoder, and @true@ is a LITERAL spliced in.  Absence IS the plain line.
 noteLine k (Id i) at = "{" ++ jsonStr "id" ++ ":" ++ jsonStr i
                     ++ "," ++ jsonStr "at" ++ ":" ++ jsonStr at ++ extra k ++ "}"
-  where extra Noted      = ""
+  where extra Written    = ""
         extra Tombstoned = "," ++ jsonStr "tombstone" ++ ":true"
 completionLine :: Completion -> String -> String
 completionLine (Completion (Id i) (Kw st) sh) at =
@@ -659,8 +670,8 @@ noteBlob underStore p (Just i) | underStore, "data.org" `isSuffixOf` p = Just (B
 noteBlob _ _ _ = Nothing
 data ByteDoor = DoorSplice | DoorTrash deriving (Eq, Show, Enum, Bounded)
 -- ^ bytes move two ways: `replaceSpans' splices, `Data.Org.Trash.trashBlob' moves.
-doorNote :: ByteDoor -> NoteKind
-doorNote DoorSplice = Noted
+doorNote :: ByteDoor -> LedgerLine
+doorNote DoorSplice = Written
 doorNote DoorTrash  = Tombstoned
 noteFor :: ByteDoor -> Blobbed -> String -> String
 noteFor d (Blobbed _ i) = noteLine (doorNote d) i
