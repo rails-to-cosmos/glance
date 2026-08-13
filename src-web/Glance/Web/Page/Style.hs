@@ -212,10 +212,17 @@ page head' colours title body = T.unlines
       -- THE POPUP FIELDS' METRICS ARE NOT AMONG THEM: this box takes the PANE's
       -- pair through `font:inherit', so naming it above as well left two rules
       -- of equal specificity disagreeing and SOURCE ORDER settling it.
+  -- A SCROLLBAR THAT TAKES LAYOUT WIDTH WRAPS THE FIELD NARROWER than the row
+  -- it covers, so the same bytes break at a different column inside the box and
+  -- under it.  The box is sized to its content up to `DOCROWS', and a row that
+  -- is exactly one line box tall rounds into an overflow of a thousandth of a
+  -- pixel — enough for 15px of gutter.  Scrolling still works by key and wheel.
   , "  #dpara textarea{flex:1;resize:none;border:none;margin:0;font:inherit;"
   , "    background:transparent;color:var(--g-fg);min-width:0;"
   , "    width:100%;overflow-wrap:anywhere;padding:1px var(--g-doc-pad);"
+  , "    scrollbar-width:none;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
+  , "  #dpara textarea::-webkit-scrollbar{width:0;height:0}"
   , "  #pedit input:focus,#sedit input:focus,#tedit input:focus,"
   , "  #ledit input:focus{outline:none;border-bottom-color:var(--g-border)}"
   , "  #dpara textarea:focus,#dtin:focus{outline:none;border:none}"

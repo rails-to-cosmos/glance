@@ -24,7 +24,7 @@ export default [
 
 // cb6db85.  THE BOX GREW AND STOOD OVER THE DOCUMENT: ten typed lines covered
 // the nine under them, with 1781 tests green.  TestServe.hs asserts the STRING
-// "min-height:calc(var(--g-doc-rows, 1)"; where the next line ENDS UP is
+// "min-height:calc(var(--g-doc-rows, 0)"; where the next line ENDS UP is
 // unaskable there, the node harness returning zeros from every rect
 // (shell-harness.js: "Geometry is beyond this harness").
 { name: "an open edit moves the line under it down, never covers it",
@@ -45,13 +45,13 @@ export default [
       const at = document.querySelector("#mdoc .de.dat");
       const cs = getComputedStyle(document.getElementById("mdoc"));
       return { box: document.getElementById("dpara").getBoundingClientRect().height,
-               line: parseFloat(cs.getPropertyValue("--g-edit-fs"))
-                   * parseFloat(cs.getPropertyValue("--g-edit-lh")),
+               line: parseFloat(cs.getPropertyValue("--g-doc-fs"))
+                   * parseFloat(cs.getPropertyValue("--g-doc-lh")),
                under: at.nextElementSibling.getBoundingClientRect().top };
     });
     for (let i = 0; i < 10; i += 1) {
       await p.type(`typed line ${i}`);
-      if (i < 9) await p.press("S-RET");
+      if (i < 9) await p.press("M-RET");   // the newline; S-RET commits
     }
     const seen = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
@@ -61,7 +61,7 @@ export default [
       return { box: box.height, ends: box.bottom, block: a.height, blockEnds: a.bottom,
                starts: b.top, under: under.textContent.trim().slice(0, 32) };
     });
-    assert(before.line > 0, `the box declares no line box: --g-edit-fs * --g-edit-lh = ${before.line}`);
+    assert(before.line > 0, `the pane declares no line box: --g-doc-fs * --g-doc-lh = ${before.line}`);
     assert(seen.box - before.box >= before.line * 5,
       `the box never grew for ten lines: ${px(before.box)} -> ${px(seen.box)}, `
       + `under five of its own ${px(before.line)} lines`);
