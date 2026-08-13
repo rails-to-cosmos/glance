@@ -412,7 +412,7 @@
       // cell; backward has nowhere to go, and landing on the first column made
       // the two directions the same press.
       if (at === null && step < 0) { said(b, ""); return; }
-      const want = at + step;
+      const want = at === null ? 0 : at + step;
       // Out of range on purpose: the renderer nulls it and gives the whole-row look.
       const id = focusedId();
       if (!id || !table.select(id, want)) { said(b, "no row"); return; }

@@ -5625,7 +5625,9 @@ shellGlue =
       [ "const column = () => (cells() ? table.getSelection().col : null);"
       , "nextColumn: (b) => moveCol(b, 1),"
       , "previousColumn: (b) => moveCol(b, -1),"
-      , "const at = column(), want = at === null ? 0 : at + step;"
+      , "const want = at === null ? 0 : at + step;"
+      -- A whole row has no cell to its LEFT, so back out of one is a no-op.
+      , "if (at === null && step < 0) { said(b, \"\"); return; }"
       , "table.select(id, want)"
       , "can(table, \"getSelection\")"
       , "wants(b, \"cell selection\", \"getSelection\")"
