@@ -231,7 +231,7 @@ make interop                         # the peer, run against one store
 
 ** Docs
 
-- [[file:AGENTS.hs][AGENTS.hs]] — the rules the code silently enforces, brief and full.
-- [[file:docs/proposals/2026-07-30-org-console-web.draft.md][2026-07-30-org-console-web.draft.md]] / [[file:docs/plan-org-console-web.md][plan-org-console-web.md]] — why, and the steps.
-- [[file:docs/design-rhymes.md][design-rhymes.md]] — the shapes this UI repeats on purpose.
-- [[file:CHANGELOG.md][CHANGELOG.md]] — what each cut carries.
+| [[file:AGENTS.hs][AGENTS.hs]]                                                     | the rules the code silently enforces, brief and full |
+| [[file:docs/proposals/2026-07-30-org-console-web.draft.md][2026-07-30-org-console-web.draft.md]] / [[file:docs/plan-org-console-web.md][plan-org-console-web.md]] | why, and the steps                                   |
+| [[file:docs/design-rhymes.md][design-rhymes.md]]                                              | the shapes this UI repeats on purpose                |
+| [[file:CHANGELOG.md][CHANGELOG.md]]                                                  | what each cut carries                                |
