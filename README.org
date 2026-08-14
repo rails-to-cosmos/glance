@@ -16,7 +16,7 @@ metadata.
 Applications that shaped it, among others:
 
 | [[https://www.gnu.org/software/emacs/][emacs]] / [[https://www.vim.org/][vim]]   | navigation, philosophy                            |
-| [[https://orgmode.org/][org-mode]]      | the format                                        |
+| [[https://orgmode.org/][org-mode]]      | the format, configuration and capture             |
 | [[https://magit.vc/][magit]]         | UX                                                |
 | [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html][dired]]         | marks, flags, and the keyboard habits around them |
 | [[https://github.com/magnars/expand-region.el][expand-region]] | this inspired the material widget navigation      |
