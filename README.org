@@ -19,6 +19,8 @@ Applications that shaped it, among others:
 In [[https://www.gnu.org/software/emacs/][emacs]] I still use [[https://github.com/rails-to-cosmos/org-glance][org-glance]] and I guarantee the compatibility of
 metadata.
 
+Design:
+
 - UX that stood the test of time for me personally.
 - [[https://webkit.org/][WebKit]] in mind from the very beginning: should run in browser and as
   a standalone portable application.
