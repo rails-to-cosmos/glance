@@ -1,5 +1,7 @@
 * Glance
 
+- *Version:* =0.7.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
+
 I am distilling my [[https://orgmode.org/][org-mode]] experience, habits and best practices into
 this app: the project is experimental, and I will publish it once it
 suits my everyday work well.
@@ -8,18 +10,20 @@ I use LLM agents in this project, mostly for prototyping and
 shaping. I avoid pure vibe-coding, so ownership and knowledge of the
 codebase stay with me.
 
-In [[https://www.gnu.org/software/emacs/][emacs]] I still use [[https://github.com/rails-to-cosmos/org-glance][org-glance]] and I guarantee the compatibility of
+In [[https://www.gnu.org/software/emacs/][Emacs]] I still use [[https://github.com/rails-to-cosmos/org-glance][org-glance]] and I guarantee the compatibility of
 metadata.
 
 Applications that shaped it, among others:
 - [[https://www.gnu.org/software/emacs/][emacs]] / [[https://www.vim.org/][vim]] :: navigation, philosophy
-- [[https://magit.vc/][magit]] :: UX habits
+- [[https://orgmode.org/][org-mode]] :: the format
+- [[https://magit.vc/][magit]] :: UX
 - [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html][dired]] :: marks, flags, and the keyboard habits around them
 - [[https://github.com/magnars/expand-region.el][expand-region]] :: this inspired the material widget navigation
-- [[https://github.com/atlas-engineer/nyxt][nyxt]] :: Emacs-style keys over web browsing
+- [[https://github.com/atlas-engineer/nyxt][nyxt]] :: an idea of Emacs-style keys over web browsing
 
 ** Design
 
+- Essentially an org-mode database viewed as a keyboard-navigatable table.
 - UX that stood the test of time for me personally.
 - [[https://webkit.org/][WebKit]] in mind from the very beginning: should run in browser and as a standalone portable application.
 - Keyboard-first, familiar to emacs&vim users.
