@@ -220,11 +220,9 @@ make browser-check                   # the cases a real engine measures
 make interop                         # the peer, run against one store
 #+end_src
 
-- Standing oracle over =~/sync=, 2026-08-11: 6302 files, 12634 headlines, *0
-  span violations*, walk ~10 s.
-- =assets/table-view.js= and =assets/elm.js= are committed build inputs compiled
-  into the binary. Neither is rebuilt by =cabal build=, so a source change owes
-  its =make= step.
+- =assets/table-view.js= and =assets/elm.js= are committed build inputs
+  compiled into the binary. Neither is rebuilt by =cabal build=, so a
+  source change owes its =make= step.
 - =--assets ../table-view/web= serves the sibling checkout live.
 - =vendored/= exists because Arch ships WebKit2 4.1 typelibs only;
   =cabal get NAME-VERSION && diff -r= shows the whole patch.
