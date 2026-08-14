@@ -218,51 +218,74 @@ and only its own end closes it: a `#+begin_quote' inside a src block is text.
 -}
 closers : List String -> List String
 closers lines =
-    List.map .closer (List.foldl closerStep [] lines)
+    let
+        ( stack, empty ) =
+            List.foldl closerStep ( [], False ) lines
+    in
+    (if empty then
+        [ "" ]
+
+     else
+        []
+    )
+        ++ List.map .closer stack
 
 
 type alias Opened =
     { shut : String -> Bool, opaque : Bool, closer : String }
 
 
-closerStep : String -> List Opened -> List Opened
-closerStep line stack =
+{-| The stack, and whether the LAST line opened what sits on top of it — which
+is what makes the innermost region EMPTY and earns it a line to type on.
+-}
+closerStep : String -> ( List Opened, Bool ) -> ( List Opened, Bool )
+closerStep line ( stack, _ ) =
     case stack of
         top :: below ->
             if top.shut line then
-                below
+                ( below, False )
 
             else if top.opaque then
-                stack
+                ( stack, False )
 
             else
-                closerOpen line stack
+                closerPush line stack
 
         [] ->
-            closerOpen line stack
+            closerPush line stack
 
 
-closerOpen : String -> List Opened -> List Opened
-closerOpen line stack =
+closerPush : String -> List Opened -> ( List Opened, Bool )
+closerPush line stack =
+    case closerOpen line of
+        Just open ->
+            ( open :: stack, True )
+
+        Nothing ->
+            ( stack, False )
+
+
+closerOpen : String -> Maybe Opened
+closerOpen line =
     case blockName line of
         Just name ->
-            { shut = endsBlock name
-            , opaque = verbatim name
-            , closer = indentOf line ++ closerWord line name
-            }
-                :: stack
+            Just
+                { shut = endsBlock name
+                , opaque = verbatim name
+                , closer = indentOf line ++ closerWord line name
+                }
 
         Nothing ->
             case drawerName line of
                 Just _ ->
-                    { shut = drawerEnds
-                    , opaque = False
-                    , closer = indentOf line ++ ":END:"
-                    }
-                        :: stack
+                    Just
+                        { shut = drawerEnds
+                        , opaque = False
+                        , closer = indentOf line ++ ":END:"
+                        }
 
                 Nothing ->
-                    stack
+                    Nothing
 
 
 {-| The opener's own spelling, turned around: `#+BEGIN_SRC' earns `#+END_SRC',

@@ -383,6 +383,9 @@ export default [
     // The ARGUMENTS are the opener's alone.
     assert(!seen.text.includes("#+end_src elisp"),
       `the closer carried the opener's arguments: ${JSON.stringify(seen.text)}`);
+    // AN EMPTY BLOCK GETS A LINE TO TYPE ON, so the two are never adjacent.
+    assert(/#\+begin_src elisp\n\n#\+end_src/.test(seen.text),
+      `the empty block has no line to type on: ${JSON.stringify(seen.text)}`);
     return [`row ${seen.at} of ${seen.rows} reads ${JSON.stringify(seen.text)}`];
   } },
 

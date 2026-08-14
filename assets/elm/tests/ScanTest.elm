@@ -677,17 +677,25 @@ suite : Test
 suite =
     describe "Scan"
         [ describe "closers — a commit closes what the typing opened"
-            [ test "an opener with no closer earns one" <|
-                \_ -> Expect.equal [ "#+end_src" ] (Scan.closers [ "#+begin_src" ])
+            [ test "an opener with no closer earns one, and a line to type on" <|
+                \_ -> Expect.equal [ "", "#+end_src" ] (Scan.closers [ "#+begin_src" ])
+            , test "a block with content earns no blank" <|
+                \_ ->
+                    Expect.equal [ "#+end_src" ]
+                        (Scan.closers [ "#+begin_src", "code" ])
             , test "text that closes itself earns none" <|
                 \_ ->
                     Expect.equal []
                         (Scan.closers [ "#+begin_src", "code", "#+end_src" ])
             , test "NESTING closes innermost first" <|
                 \_ ->
-                    Expect.equal [ "#+end_src", "#+end_quote" ]
+                    Expect.equal [ "", "#+end_src", "#+end_quote" ]
                         (Scan.closers [ "#+begin_quote", "#+begin_src" ])
             , test "an inner block already closed leaves only the outer" <|
+                \_ ->
+                    Expect.equal [ "#+end_quote" ]
+                        (Scan.closers [ "#+begin_quote", "#+begin_src", "#+end_src" ])
+            , test "an OUTER block holding an inner one is not empty" <|
                 \_ ->
                     Expect.equal [ "#+end_quote" ]
                         (Scan.closers [ "#+begin_quote", "#+begin_src", "#+end_src" ])
@@ -701,16 +709,16 @@ suite =
                         (Scan.closers [ "#+begin_src", ":LOGBOOK:" ])
             , test "a NON-verbatim block does not suspend it" <|
                 \_ ->
-                    Expect.equal [ "#+end_quote", "#+end_quote" ]
+                    Expect.equal [ "", "#+end_quote", "#+end_quote" ]
                         (Scan.closers [ "#+begin_quote", "#+begin_quote" ])
             , test "CASE is the opener's own" <|
-                \_ -> Expect.equal [ "#+END_SRC" ] (Scan.closers [ "#+BEGIN_SRC" ])
+                \_ -> Expect.equal [ "", "#+END_SRC" ] (Scan.closers [ "#+BEGIN_SRC" ])
             , test "ARGUMENTS are dropped: a closer names only its block" <|
-                \_ -> Expect.equal [ "#+end_src" ] (Scan.closers [ "#+begin_src elisp -n" ])
+                \_ -> Expect.equal [ "", "#+end_src" ] (Scan.closers [ "#+begin_src elisp -n" ])
             , test "INDENT is the opener's own" <|
-                \_ -> Expect.equal [ "    #+end_src" ] (Scan.closers [ "    #+begin_src" ])
+                \_ -> Expect.equal [ "", "    #+end_src" ] (Scan.closers [ "    #+begin_src" ])
             , test "a DRAWER earns its END, at its own indent" <|
-                \_ -> Expect.equal [ "  :END:" ] (Scan.closers [ "  :LOGBOOK:" ])
+                \_ -> Expect.equal [ "", "  :END:" ] (Scan.closers [ "  :LOGBOOK:" ])
             , test "a drawer that closes itself earns none" <|
                 \_ -> Expect.equal [] (Scan.closers [ ":LOGBOOK:", ":END:" ])
             , test "`:END:' opens nothing" <|

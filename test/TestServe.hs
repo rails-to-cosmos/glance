@@ -2094,7 +2094,7 @@ narrowSpec shell =
           assertEqual "and the flag was spent" [] =<< textsAt "pflagged" answer
 
   , keyed shell "the states table narrows too, over the cells it draws"
-      "," "ctab:theme press:/ narrow:read" $ \answer -> do
+      "," "ctab:ui press:/ narrow:read" $ \answer -> do
         assertEqual "the two states spelling it, in the layer's own order"
                     ["tag:book|READING|active|", "tag:book|READ|inactive|"]
           =<< textsAt "chues" answer
@@ -3948,11 +3948,11 @@ settingsSpec shell =
 
     -- ONE list draws the tabs and the order, and a panel that is not showing is out of the flow with its fields.
   , atBoot settings "it is two panels, each named by its own tab" $
-        assertEqual "theme, keywords" ["theme", "keywords"]
+        assertEqual "ui, keywords" ["ui", "keywords"]
           <=< textsAt "csecs"
 
   , atBoot settings "and the sheet opens on the first of them" $
-        assertEqual "theme" "theme" <=< textAt "ctab"
+        assertEqual "ui" "ui" <=< textAt "ctab"
 
     -- THE THEME SELECT IS THE REGISTRY'S: a DERIVED oracle, so a hard-coded option here fails.
   , testCase "the theme select is one option per theme this build carries" $ do
@@ -3964,9 +3964,9 @@ settingsSpec shell =
 
     -- EVERY POPUP HAS A URL: `?page=NAME' beside `q', with the panel as the FRAGMENT.
   , keyed shell "the settings sheet says so in the URL, panel and all"
-      "," "ctab:theme" $ \answer -> do
+      "," "ctab:ui" $ \answer -> do
         urlIs "the surface, and the panel it is showing"
-              "?q=state%3A*active*&page=config#theme" answer
+              "?q=state%3A*active*&page=config#ui" answer
 
   , keyed shell "and closing it takes the parameter off"
       "," "press:Escape" $ \answer ->
@@ -3982,22 +3982,22 @@ settingsSpec shell =
         urlIs "the query alone again" "?q=state%3A*active*" answer
 
   , keyed shell "a tab shows its own panel and no other"
-      "," "ctab:theme" $ \answer ->
-        assertEqual "the theme panel" "theme" =<< textAt "ctab" answer
+      "," "ctab:ui" $ \answer ->
+        assertEqual "the ui panel" "ui" =<< textAt "ctab" answer
 
   , keyed shell "TAB walks the panels and wraps"
       "," "press:Tab" $ \answer ->
-        assertEqual "one on from theme" "keywords" =<< textAt "ctab" answer
+        assertEqual "one on from ui" "keywords" =<< textAt "ctab" answer
   , keyed shell "and S-TAB walks back, wrapping the other way"
       "," "press:S-Tab" $ \answer ->
         assertEqual "the last panel" "keywords" =<< textAt "ctab" answer
   , keyed shell "two presses come home"
       "," "press:Tab press:Tab" $ \answer ->
-        assertEqual "theme again" "theme" =<< textAt "ctab" answer
+        assertEqual "ui again" "ui" =<< textAt "ctab" answer
 
     -- WHICH theme the hues describe is DERIVED from the reader's own pick; the table is by LAYER, then cycle order.
   , keyed shell "the states table is every keyword the tree knows, by layer"
-      "," "ctab:theme" $ \answer -> do
+      "," "ctab:ui" $ \answer -> do
         -- A word TWO layers declare is TWO rows: a state belongs to a file.
         assertEqual "every layer's cycle, in its own order" ["system|TODO|active|", "system|DONE|inactive|"
                     , "tag:book|TODO|active|", "tag:book|READING|active|"
@@ -4007,7 +4007,7 @@ settingsSpec shell =
 
     -- A colour is the TREE's, so it lands in `system.org''s line whatever layer the state belongs to.
   , keyed shell "RET edits a state's colour, and it rides the system write"
-      "," "ctab:theme sat:TODO press:Enter sfields://#7B1FA2 press:Enter press:Escape"
+      "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2 press:Enter press:Escape"
       $ \answer -> do
         writes <- listAt "configWrites" answer
         assertEqual "one write, for the system layer" 1 (length writes)
@@ -4017,7 +4017,7 @@ settingsSpec shell =
                  =<< listAt "colors" (head writes))
 
   , keyed shell "and the colour column follows the theme on screen"
-      "," "ctab:theme sat:TODO press:Enter sfields://#7B1FA2 press:Enter theme:dark"
+      "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2 press:Enter theme:dark"
       $ \answer -> do
         assertEqual "dark names no hue of its own yet" ["system|TODO|active|", "system|DONE|inactive|"
                     , "tag:book|TODO|active|", "tag:book|READING|active|"
@@ -4028,7 +4028,7 @@ settingsSpec shell =
           =<< listAt "configWrites" answer
 
   , keyed shell "+ adds a state to its layer's cycle"
-      "," "ctab:theme sat:TODO press:+ sfields:WAITING/active/ press:Enter press:Escape"
+      "," "ctab:ui sat:TODO press:+ sfields:WAITING/active/ press:Enter press:Escape"
       $ \answer -> do
         writes <- listAt "configWrites" answer
         assertEqual "one write, for the system layer" 1 (length writes)
@@ -4036,14 +4036,14 @@ settingsSpec shell =
                     ["#+TODO: TODO WAITING | DONE"] =<< textsAt "lines" (head writes)
 
   , keyed shell "dd removes a state from its layer's cycle"
-      "," "ctab:theme sat:TODO press:d press:d press:Escape" $ \answer -> do
+      "," "ctab:ui sat:TODO press:d press:d press:Escape" $ \answer -> do
         writes <- listAt "configWrites" answer
         assertEqual "one write, for the system layer" 1 (length writes)
         assertEqual "the cycle is short one keyword"
                     ["#+TODO:  | DONE"] =<< textsAt "lines" (head writes)
 
   , keyed shell "an untouched states table rides no write"
-      "," "ctab:theme press:Escape" $ \answer ->
+      "," "ctab:ui press:Escape" $ \answer ->
         assertEqual "pristine, so nothing went" ([] :: [Value])
           =<< listAt "configWrites" answer
 

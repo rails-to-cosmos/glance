@@ -7491,54 +7491,72 @@ var $author$project$Scan$verbatim = function (name) {
 		_List_fromArray(
 			['comment', 'example', 'export', 'src', 'verse']));
 };
-var $author$project$Scan$closerOpen = F2(
-	function (line, stack) {
-		var _v0 = $author$project$Scan$blockName(line);
-		if (!_v0.$) {
-			var name = _v0.a;
-			return A2(
-				$elm$core$List$cons,
+var $author$project$Scan$closerOpen = function (line) {
+	var _v0 = $author$project$Scan$blockName(line);
+	if (!_v0.$) {
+		var name = _v0.a;
+		return $elm$core$Maybe$Just(
+			{
+				au: _Utils_ap(
+					$author$project$Scan$indentOf(line),
+					A2($author$project$Scan$closerWord, line, name)),
+				aC: $author$project$Scan$verbatim(name),
+				aH: $author$project$Scan$endsBlock(name)
+			});
+	} else {
+		var _v1 = $author$project$Scan$drawerName(line);
+		if (!_v1.$) {
+			return $elm$core$Maybe$Just(
 				{
-					au: _Utils_ap(
-						$author$project$Scan$indentOf(line),
-						A2($author$project$Scan$closerWord, line, name)),
-					aC: $author$project$Scan$verbatim(name),
-					aH: $author$project$Scan$endsBlock(name)
-				},
-				stack);
+					au: $author$project$Scan$indentOf(line) + ':END:',
+					aC: false,
+					aH: $author$project$Scan$drawerEnds
+				});
 		} else {
-			var _v1 = $author$project$Scan$drawerName(line);
-			if (!_v1.$) {
-				return A2(
-					$elm$core$List$cons,
-					{
-						au: $author$project$Scan$indentOf(line) + ':END:',
-						aC: false,
-						aH: $author$project$Scan$drawerEnds
-					},
-					stack);
-			} else {
-				return stack;
-			}
+			return $elm$core$Maybe$Nothing;
+		}
+	}
+};
+var $author$project$Scan$closerPush = F2(
+	function (line, stack) {
+		var _v0 = $author$project$Scan$closerOpen(line);
+		if (!_v0.$) {
+			var open = _v0.a;
+			return _Utils_Tuple2(
+				A2($elm$core$List$cons, open, stack),
+				true);
+		} else {
+			return _Utils_Tuple2(stack, false);
 		}
 	});
 var $author$project$Scan$closerStep = F2(
-	function (line, stack) {
+	function (line, _v0) {
+		var stack = _v0.a;
 		if (stack.b) {
 			var top = stack.a;
 			var below = stack.b;
-			return top.aH(line) ? below : (top.aC ? stack : A2($author$project$Scan$closerOpen, line, stack));
+			return top.aH(line) ? _Utils_Tuple2(below, false) : (top.aC ? _Utils_Tuple2(stack, false) : A2($author$project$Scan$closerPush, line, stack));
 		} else {
-			return A2($author$project$Scan$closerOpen, line, stack);
+			return A2($author$project$Scan$closerPush, line, stack);
 		}
 	});
 var $author$project$Scan$closers = function (lines) {
-	return A2(
-		$elm$core$List$map,
-		function ($) {
-			return $.au;
-		},
-		A3($elm$core$List$foldl, $author$project$Scan$closerStep, _List_Nil, lines));
+	var _v0 = A3(
+		$elm$core$List$foldl,
+		$author$project$Scan$closerStep,
+		_Utils_Tuple2(_List_Nil, false),
+		lines);
+	var stack = _v0.a;
+	var empty = _v0.b;
+	return _Utils_ap(
+		empty ? _List_fromArray(
+			['']) : _List_Nil,
+		A2(
+			$elm$core$List$map,
+			function ($) {
+				return $.au;
+			},
+			stack));
 };
 var $elm$core$Maybe$andThen = F2(
 	function (callback, maybeValue) {

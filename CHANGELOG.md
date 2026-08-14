@@ -18,7 +18,9 @@ section groups a feature arc, and its date is that arc's last commit.
   a drawer opener arrives with its `:END:`. Nesting closes innermost first, a
   verbatim block suspends the rule inside it so a `#+begin_quote` in a src block
   stays text, the closer takes the opener's own case and indent and never its
-  arguments, and text that already closes itself is written unchanged.
+  arguments, and text that already closes itself is written unchanged. An EMPTY
+  block arrives with a blank line between its ends, so there is a line to type
+  on; a block that already holds something does not.
 
 ### Changed
 

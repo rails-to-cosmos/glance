@@ -1,10 +1,11 @@
     // The settings sheet: panels, config layers, state hues.  Rules in AGENTS.hs.
-    const SECTIONS = [
-      { title: "theme", parts: ["ctheme"],
-        enter: () => { if (srows.length) repaintStates(null); } },
-      { title: "keywords", parts: ["clayers", "ceff", "cfoot"],
-        enter: () => { if (crows[cat]) showLayer(cat); } },
-    ];
+const SECTIONS = [
+    { title: "ui", parts: ["ctheme"],
+      enter: () => { if (srows.length) repaintStates(null); } },
+    { title: "keywords", parts: ["clayers", "ceff", "cfoot"],
+      enter: () => { if (crows[cat]) showLayer(cat); } },
+];
+
     const showing = (title) => (SECTIONS[ctab] || {}).title === title;
     const csecs = el("csecs"), ctabs = el("ctabs");
     const cpanes = SECTIONS.map((s) => {
@@ -245,7 +246,7 @@
       at: () => { const i = satAt(); return i === -1 ? null : srows[i].id; },
     };
     document.addEventListener("keydown", (e) => {
-      if (!settings || momentary() || !smount || !showing("theme")) return;
+      if (!settings || momentary() || !smount || !showing("ui")) return;
       const k = keyName(e);
       if (narrowTyping(smount)) {
         if (narrowPress(k, smount)) e.preventDefault();
