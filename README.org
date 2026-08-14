@@ -1,21 +1,36 @@
 * Glance
 
-Serves an org tree as a table in a browser tab, and writes back into the files
-by span splice.
+- *Author:* Dmitry Akatov · *License:* BSD3 · *Version:* =0.6.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
 
-*Keyboard-first, for Emacs and vim users.* Every feature ships with a key path;
-buttons exist only where keys cannot reach, and there is no chrome outside the
-popups.
+I am distilling my [[https://orgmode.org/][org-mode]] experience, habits and best practices into
+this app: the project is experimental, and I will publish it once it suits
+my everyday work well.
 
-- Commands are named as elisp functions and the echo speaks them verbatim —
-  =d= is =archive-flag=, =,= is =customize=, =q= is =quit-window= one window in.
-- Sequences are org-glance's and Emacs's own: =C-c C-t=, =C-c C-s=, =C-x C-s=,
-  =C-c C-c=, =C-c '=.
+Applications that shaped it, among others:
+- emacs / vim :: navigation, philosophy
+- magit :: UX habits
+- dired :: marks, flags, and the keyboard habits around them
+- expand-region :: reversed — the material widget starts wide and narrows
+- nyxt :: Emacs-style keys over web browsing
+
+In emacs I still use [[https://github.com/rails-to-cosmos/org-glance][org-glance]] and I guarantee the compatibility of
+metadata.
+
+- UX that stood the test of time for me personally.
+- [[https://webkit.org/][WebKit]] in mind from the very beginning: should run in browser and as
+  a standalone portable application.
+- Keyboard-first, familiar to emacs&vim users.
+- Commands are named as elisp functions and the echo speaks them
+  verbatim — =d= is =archive-flag=, =,= is =customize=, =q= is =quit-window= one
+  window in.
+- Sequences are org-glance's and Emacs's own: =C-c C-t=, =C-c C-s=, =C-x
+  C-s=, =C-c C-c=, =C-c '=.
 - Movement carries both dialects — =n=/=p= and =j=/=k= step rows, =f=/=b= and
   =l=/=h= step cells, and the arrows alias both.
 - dired's gestures where dired has one: =m=/=u=/=M=/=U= mark, =d= flags, =x=
   acts on the flagged, =D= is the quick half.
-- A letter binds the *physical key*, so a Cyrillic layout navigates unchanged.
+- A letter binds the *physical key*, so a Cyrillic layout should
+  navigate unchanged.
 
 Under it:
 
@@ -32,9 +47,6 @@ Under it:
   history, this for the table, the filter and the keyboard. Neither is
   authoritative; each notifies the other through =meta/EXTERNAL.jsonl=, and
   =make interop= runs the two against one store.
-
-- *Author:* Dmitry Akatov · *License:* BSD3 · *Version:* =0.6.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
-- *Upstream:* https://github.com/rails-to-cosmos/glance
 
 ** Quickstart
 
@@ -59,22 +71,22 @@ curl -s 'localhost:7777/headlines?q=tag:work%20sort:deadline&limit=100' | jq '.s
 One string states both the narrowing and the order ([[https://github.com/rails-to-cosmos/table-view][table-view]]'s grammar,
 ported term for term; divergences enumerated in [[file:AGENTS.hs][AGENTS.hs]]).
 
-| query                               | rows served                                  |
-|-------------------------------------+----------------------------------------------|
-| =milk=                              | substring anywhere in the row                |
-| =state:TODO=                        | exactly that keyword                         |
-| =state:TODO\vert{}DONE=             | either (alternatives OR)                     |
-| =tag:work tag:home=                 | both tags (tokens AND)                       |
-| =-tag:work=                         | rows without the tag                         |
-| =tag:*empty*=                       | untagged rows (=*word*= is a meta, never text) |
-| =state:*active*=                    | active keywords + stateless — the default view |
-| =tag:*archive*=                     | the archived rows every other query hides    |
-| =-planned:*empty* sort:scheduled=   | the agenda: dated rows, earliest first       |
-| =ref:ROW-ID=                        | rows whose subtree links to that row (=@= drills) |
-| =sort:state->title:desc=            | order by cycle, ties by title reversed       |
-| =sort:*none*=                       | document order, no sort at all               |
-| =columns:State,Title,Tags=          | those columns, in that order                 |
-| =view:agenda=                       | a saved view by NAME, standing for its query |
+| query                           | rows served                                     |
+|---------------------------------+-------------------------------------------------|
+| =milk=                            | substring anywhere in the row                   |
+| =state:TODO=                      | exactly that keyword                            |
+| =state:TODO\vert{}DONE=           | either (alternatives OR)                        |
+| =tag:work tag:home=               | both tags (tokens AND)                          |
+| =-tag:work=                       | rows without the tag                            |
+| =tag:*empty*=                     | untagged rows (=*word*= is a meta, never text)    |
+| =state:*active*=                  | active keywords + stateless — the default view  |
+| =tag:*archive*=                   | the archived rows every other query hides       |
+| =-planned:*empty* sort:scheduled= | the agenda: dated rows, earliest first          |
+| =ref:ROW-ID=                      | rows whose subtree links to that row (=@= drills) |
+| =sort:state->title:desc=          | order by cycle, ties by title reversed          |
+| =sort:*none*=                     | document order, no sort at all                  |
+| =columns:State,Title,Tags=        | those columns, in that order                    |
+| =view:agenda=                     | a saved view by NAME, standing for its query    |
 
 Written order is precedence. A query naming any =sort:= replaces the default
 chain (state · title · deadline · scheduled, state in the tree's own =#+TODO:=
@@ -86,16 +98,16 @@ order). =:work:= and ~=code=~ stay text: only column keys, =planned=, =ref= and
 The keymap is data (=Glance.Web.Keymap=): the page's last line is the whole
 map. =т з о л= navigates on a Cyrillic layout.
 
-| =n= =p= / =f= =b= | rows / cells — and in the document, siblings / grain    |
-| =RET=             | materialize the row; in the document, edit the element  |
-| =DEL=             | the ladder: unmark, else drop a query token, else pop a drill |
-| =t= =:= =d d= =D= | state palette · tag popup · flag-then-archive           |
-| =x=               | act on the flagged, after asking · =D= is the quick one |
-| =m= =u= =M= =U=   | dired's marks                                           |
-| =o=               | follow the row's links (one opens, several list)        |
-| =+=               | capture · =g= default view · =A= agenda · =P= pin into one |
-| =@=               | drill into referring rows; =DEL= walks back             |
-| =/=               | filter palette · =,= settings · =C-x C-s= sync the sheet |
+| =n= =p= / =f= =b= | rows / cells — and in the document, siblings / grain          |
+| =RET=       | materialize the row; in the document, edit the element        |
+| =DEL=       | the ladder: unmark, else drop a query token, else pop a drill |
+| =t= =:= =d d= =D= | state palette · tag popup · flag-then-archive                 |
+| =x=         | act on the flagged, after asking · =D= is the quick one         |
+| =m= =u= =M= =U=   | dired's marks                                                 |
+| =o=         | follow the row's links (one opens, several list)              |
+| =+=         | capture · =g= default view · =A= agenda · =P= pin into one          |
+| =@=         | drill into referring rows; =DEL= walks back                     |
+| =/=         | filter palette · =,= settings · =C-x C-s= sync the sheet          |
 
 ** Capture
 
@@ -141,18 +153,18 @@ drift-locked atomic write per file, per-id answers. Refusals are 400 with
 nothing written; the route never writes the store, so rows come back over the
 file watch.
 
-| name           | args                             | writes                            |
-|----------------+----------------------------------+-----------------------------------|
-| =set-state=    | ={keyword}=, nullable            | the keyword span                  |
-| =set-priority= | ={priority}=, nullable           | org's =[#A]= token                |
-| =set-title=    | ={title}=                        | the title span alone              |
-| =set-planning= | ={keyword, date}=, date nullable | one =SCHEDULED=/=DEADLINE= entry  |
-| =add-tag= / =remove-tag= | ={tag}=                | the tag on / off                  |
-| =rename-tag=   | ={from, to}=                     | both ends, one write per file     |
-| =archive=      | ={}=                             | =add-tag ARCHIVE=; idempotent     |
-| =capture=      | ={text, tag?, fields?}=          | a headline, or a store blob       |
-| =edit-link=    | ={span, target, desc?}=          | one link's own range              |
-| =delete=       | ={}=                             | an archived blob, gzipped to =trash/= |
+| name                 | args                           | writes                              |
+|----------------------+--------------------------------+-------------------------------------|
+| =set-state=            | ={keyword}=, nullable            | the keyword span                    |
+| =set-priority=         | ={priority}=, nullable           | org's =[#A]= token                    |
+| =set-title=            | ={title}=                        | the title span alone                |
+| =set-planning=         | ={keyword, date}=, date nullable | one =SCHEDULED=/=DEADLINE= entry      |
+| =add-tag= / =remove-tag= | ={tag}=                          | the tag on / off                    |
+| =rename-tag=           | ={from, to}=                     | both ends, one write per file       |
+| =archive=              | ={}=                             | =add-tag ARCHIVE=; idempotent         |
+| =capture=              | ={text, tag?, fields?}=          | a headline, or a store blob         |
+| =edit-link=            | ={span, target, desc?}=          | one link's own range                |
+| =delete=               | ={}=                             | an archived blob, gzipped to =trash/= |
 
 #+begin_src sh
 curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
