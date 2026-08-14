@@ -1,14 +1,15 @@
 * Glance
 
-*Version:* =0.7.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
+*Version:* =0.7.0.1= ([[file:CHANGELOG.md][CHANGELOG.md]])
 
 I am distilling my [[https://orgmode.org/][org-mode]] experience, habits and best practices into
 this app: the project is experimental, and I will publish it once it
 suits my everyday work well.
 
-I use LLM agents in this project, mostly for prototyping and
-shaping. I avoid pure vibe-coding, so ownership and knowledge of the
-codebase stay with me.
+I use LLM agents in this project, mostly for prototyping, shaping and
+testing (expect some sloppy tests which I'll fight eventually). I
+avoid pure vibe-coding, so ownership and knowledge of the codebase
+stay with me.
 
 In [[https://www.gnu.org/software/emacs/][Emacs]] I still use [[https://github.com/rails-to-cosmos/org-glance][org-glance]] and I guarantee the compatibility of
 metadata.
@@ -24,7 +25,7 @@ Applications that shaped it, among others:
 
 ** Design
 
-- Essentially an org-mode database viewed as a keyboard-navigatable read-only table.
+- Essentially an org database viewed as a keyboard-navigatable read-only table.
 - UX that stood the test of time for me personally.
 - [[https://webkit.org/][WebKit]] in mind from the very beginning: should run in browser and as a standalone portable application.
 - Keyboard-first, familiar to emacs&vim users.
@@ -45,15 +46,15 @@ Applications that shaped it, among others:
 ** Quickstart
 
 #+begin_src sh
+cabal run glance                            # the commands and their flags
 cabal run glance -- serve   --dir ~/org     # http://127.0.0.1:7777/
 cabal run glance -- desktop --dir ~/org     # same daemon, app window
+cabal run glance -- repl    ~/org/todo.org  # the parser at a prompt
 make native                                 # build the WebKitGTK window in
 #+end_src
 
-=serve=: =--dir=, =--port= (7777), =--assets PATH=, =--include-derived=.
-=desktop= adds =--browser CMD=, =--dry-run=, =--keep-serving=. Binds
-=127.0.0.1= only, and binds *before* the ~10 s walk — store routes answer 503
-with a loading body until it lands.
+Flags are the program's own: a bare =glance= prints them, and =--help= follows
+any command. Binds =127.0.0.1= only.
 
 #+begin_src sh
 curl -s localhost:7777/headlines | jq '.rows | length'
@@ -218,8 +219,11 @@ make check-glue                      # tsc over the shell's parts
 make browser                         # Chromium into ~/.cache/ms-playwright, no root
 make browser-check                   # the cases a real engine measures
 make interop                         # the peer, run against one store
+make major | make minor | make patch # cut: bump every version site, date the changelog
 #+end_src
 
+- =frontend/= is front-end source — =glue/= for the shell, =elm/= for the two
+  programs. =assets/= holds only bytes the binary embeds.
 - =assets/table-view.js= and =assets/elm.js= are committed build inputs
   compiled into the binary. Neither is rebuilt by =cabal build=, so a
   source change owes its =make= step.

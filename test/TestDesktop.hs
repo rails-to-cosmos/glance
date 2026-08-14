@@ -8,19 +8,16 @@ import Control.Concurrent.MVar (MVar, newEmptyMVar, newMVar, putMVar, takeMVar, 
 import Control.Exception (finally, throwIO, try)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (isInfixOf)
-import Data.Maybe (listToMaybe)
 import GHC.IO.Handle (hDuplicate, hDuplicateTo)
-import System.Directory ( doesDirectoryExist, doesFileExist, getPermissions
-                        , listDirectory, setOwnerExecutable, setPermissions )
-import System.Environment (getEnvironment, lookupEnv)
+import System.Directory (doesFileExist, getPermissions, setOwnerExecutable, setPermissions)
+import System.Environment (getEnvironment)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.FilePath ((</>))
-import System.IO ( IOMode (WriteMode), hClose, hFlush, hPutStrLn, stderr, stdout
-                 , withFile )
+import System.IO (IOMode (WriteMode), hClose, hFlush, stdout, withFile)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (withTempDir)
+import TestDefaults (withGlanceBinary, withTempDir)
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -207,16 +204,11 @@ dryRunSpec = testGroup "--dry-run"
 -- @glance desktop --dry-run@ printed there; EXTRA leads that environment.
 withBuiltBinary :: [String] -> (FilePath -> [(String, String)])
                 -> (FilePath -> String -> Assertion) -> Assertion
-withBuiltBinary names extra k = do
-  built <- glanceBinary
-  case built of
-    -- A SKIP SAYS SO.  `glanceBinary' globs one build directory, so a
-    -- `--builddir' run would make these cases green having asserted nothing.
-    Nothing  -> hPutStrLn stderr "\nSKIPPED - no glance binary built: desktop probe"
-    Just exe -> withTempDir $ \dir -> do
-      fakeBrowsers dir names
-      controlled <- pathOnly dir
-      k dir =<< probe exe (extra dir <> controlled)
+withBuiltBinary names extra k =
+  withGlanceBinary "desktop probe" $ \exe -> withTempDir $ \dir -> do
+    fakeBrowsers dir names
+    controlled <- pathOnly dir
+    k dir =<< probe exe (extra dir <> controlled)
 
 -- | A failure names the exit and stderr, since the assertions read stdout alone.
 probe :: FilePath -> [(String, String)] -> IO String
@@ -234,14 +226,6 @@ pathOnly dir = do
   inherited <- getEnvironment
   pure (("PATH", dir) : [ kv | kv@(name, _) <- inherited, name `notElem` controlled ])
   where controlled = ["PATH", "GLANCE_BROWSER"]
-
-glanceBinary :: IO (Maybe FilePath)
-glanceBinary = do
-  named <- lookupEnv "GLANCE_BIN"
-  case named of
-    Just path -> pure (Just path)
-    Nothing   -> listToMaybe <$> globPath "dist-newstyle/build"
-                   ["*", "*", "*", "x", "glance", "build", "glance", "glance"]
 
 
 nativeSpec :: TestTree
@@ -362,14 +346,3 @@ waitUntil what check = go (200 :: Int)
 stillServing :: IORef Bool -> IO Bool
 stillServing stopped = threadDelay 200000 >> (not <$> readIORef stopped)
 
--- | The paths under ROOT matching STEPS, @*@ any one directory — cabal's layout.
-globPath :: FilePath -> [String] -> IO [FilePath]
-globPath root [] = do
-  there <- doesFileExist root
-  pure [ root | there ]
-globPath root ("*" : rest) = do
-  isDir <- doesDirectoryExist root
-  if not isDir then pure [] else do
-    entries <- listDirectory root
-    concat <$> mapM (\e -> globPath (root </> e) rest) entries
-globPath root (step : rest) = globPath (root </> step) rest

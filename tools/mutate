@@ -47,9 +47,9 @@ JSON=${JSON:-$SCRATCH/report-$SLUG.json}
 RESULTS="$SCRATCH/results.tsv"
 
 case "$TARGET" in
-  assets/elm/*.elm) KIND=elm ;;
-  *.hs|*.js)        KIND=hs  ;;   # a glue part reaches the suite through the TH splice
-  *) echo "mutate: $TARGET is neither a .hs, a .js under assets/glue nor an .elm under assets/elm" >&2; exit 2 ;;
+  frontend/elm/*.elm) KIND=elm ;;
+  *.hs|*.js)          KIND=hs  ;;   # a glue part reaches the suite through the TH splice
+  *) echo "mutate: $TARGET is neither a .hs, a .js under frontend/glue nor an .elm under frontend/elm" >&2; exit 2 ;;
 esac
 
 
@@ -91,8 +91,8 @@ fi
 # elm-test writes elm-stuff beside the source, which would fight `git diff --quiet'.
 if [ "$KIND" = elm ]; then
   rm -rf "$ELM"
-  cp -r "$WT/assets/elm" "$ELM"
-  MUT="$ELM/${TARGET#assets/elm/}"
+  cp -r "$WT/frontend/elm" "$ELM"
+  MUT="$ELM/${TARGET#frontend/elm/}"
   cp "$MUT" "$SCRATCH/pristine"
 else
   MUT="$WT/$TARGET"

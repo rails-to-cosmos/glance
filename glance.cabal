@@ -1,7 +1,7 @@
 cabal-version: 3.0
 
 name:           glance
-version:        0.7.0.0
+version:        0.7.0.1
 synopsis:       A browser front end for org-mode files: a keyboard-driven table that writes back by span splice
 description:    Org-mode projections: the org files are the source of truth, and
                 everything else is a projection of them.
@@ -30,7 +30,7 @@ extra-source-files:
     -- The renderer glance-web compiles in; vendored by `make sync-renderer'.
     assets/table-view.js
     -- And the shell, one widget per file, in `Glance.Web.Base.gluePartFiles' order.
-    assets/glue/*.js
+    frontend/glue/*.js
     -- The Elm programs, compiled to one file by `make elm'.
     assets/elm.js
     test/fixtures/*.js
@@ -260,6 +260,7 @@ test-suite glance-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      TestCli
       TestConfig
       TestDefaults
       TestEdit

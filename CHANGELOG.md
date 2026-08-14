@@ -9,6 +9,43 @@ and this project adheres to the
 Versions 0.1 through 0.4 were cut retroactively over one dense build: each
 section groups a feature arc, and its date is that arc's last commit.
 
+## 0.7.0.1 - 2026-08-14
+
+### Added
+
+- **`glance --help`, and `--help` after any command.** It printed
+  `cannot read --help as UTF-8 org` and exited 1, the flags being documented in
+  the README instead of in the program. Every command now answers `--help`,
+  `-h` and `help` with its own block — each flag on a line of its own, plus the
+  facts a reader needs before pointing a browser at it: `serve` binds
+  `127.0.0.1` alone, and binds before the walk, so store routes answer 503
+  until the tree lands. Asking outranks running: `serve --help` prints without
+  `--dir`.
+
+- **`make major`, `make minor` and `make patch` cut a release.** A cut has to
+  move three files that spell the version and rename the changelog's
+  `## Unreleased` to the version and today's date; done by hand, one of them
+  drifts. PVP decides which digit moves: `major` for a breaking change (`0.7` →
+  `0.8`), `minor` for an addition, `patch` for a fix. Cutting an empty
+  `Unreleased` is refused. Nothing is committed or tagged.
+
+### Changed
+
+- **A bare `glance` prints the usage, and the REPL is `glance repl`.** Running
+  the command with no argument opened an org prompt, and a first argument that
+  was not a command name was read as a document to load — so a mistyped command
+  dropped the reader into a REPL rather than saying what it did not recognise.
+  Every command is now asked for by name, `repl` among them (`glance repl FILE`
+  for the old one-argument form), an unknown one is a complaint plus the usage,
+  and no argument at all is the question the usage answers.
+
+- **Front-end source moved out of `assets/` and into `frontend/`.** The glue
+  needs no build step, so its source bytes are the embedded bytes and
+  `assets/glue/` read as honest; Elm arrived later and its `src/` was parked
+  beside its output, leaving 5000 lines of Elm source and tests plus a build
+  cache in a directory named for shipped bytes. `assets/` now holds `elm.js` and
+  `table-view.js` alone.
+
 ## 0.7.0.0 - 2026-08-14
 
 ### Added

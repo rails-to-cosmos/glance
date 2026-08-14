@@ -23,7 +23,9 @@ import Control.Monad (forM, forM_)
 import Data.Aeson (object, (.=))
 import Data.List (nub, sortOn)
 import Data.Maybe (isJust)
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (copyFile, createDirectoryIfMissing)
+import System.Exit (ExitCode (ExitSuccess))
+import System.Process (CreateProcess (cwd), proc, readCreateProcessWithExitCode)
 import System.FilePath (takeDirectory)
 import Test.Tasty.HUnit (assertFailure)
 import TestDefaults (orgFile, withTempDirNamed)
@@ -51,7 +53,7 @@ import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
 import Network.Wai.Test (SResponse (simpleBody, simpleHeaders), request, runSession, setPath)
 import System.Directory (removeFile)
 import Test.Tasty.HUnit (Assertion)
-import TestDefaults (assertContains, document, textAt, viewDir, withTempDir)
+import TestDefaults (assertContains, document, textAt, valueAfter, viewDir, withTempDir)
 import TestWire (assertOk)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
@@ -88,7 +90,7 @@ import Data.Char (isAlphaNum, isDigit, isSpace, toLower)
 import Data.List (isPrefixOf, (\\))
 import Data.Maybe (fromMaybe)
 import qualified Glance.Web.Base as WB (gluePartFiles)
-import AGENTS (BuildAsset (baSplice), CabalFlag (flCpp, flManual, flName, flOn, flStanza), Component (coName, coVis), Proj (DefaultProj, NativeProj), Status, Vis (Public), WMod (WBase, WDesktop, WNative, WRoutes, WWeb), authorEmail, buildAssets, compDeps, components, flags, giSpellings, gluePartFiles, negationReveal, projBuildDir, projFlags, projGir, projPackages, sdistExtras, statusWord, vendoredGirs, versionSites, webExposed, webTargets, wimports, wmods, wname)
+import AGENTS (BuildAsset (baPath, baSplice), CabalFlag (flCpp, flManual, flName, flOn, flStanza), Component (coName, coVis), Proj (DefaultProj, NativeProj), Status, Vis (Public), WMod (WBase, WDesktop, WNative, WRoutes, WWeb), authorEmail, buildAssets, compDeps, components, flags, giSpellings, gluePartFiles, negationReveal, projBuildDir, projFlags, projGir, projPackages, sdistExtras, statusWord, vendoredGirs, versionSites, webExposed, webTargets, wimports, wmods, wname)
 
 -- | Parse: the headline's sub-spans, the extent they fold to, and what the parser keeps, drops and folds on its way in.
 specGroup03 :: TestTree
@@ -1415,10 +1417,7 @@ stanzasNaming needle cab =
   [ n | n <- stanzaNames cab, any (T.pack needle `T.isInfixOf`) (cabalStanza n cab) ]
 
 cabalField :: Text -> Text -> Text
-cabalField field t =
-  case [ T.strip v | l <- T.lines t, Just v <- [T.stripPrefix field (T.strip l)] ] of
-    (v : _) -> v
-    []      -> ""
+cabalField field = fromMaybe "" . valueAfter field
 
 -- | A project file's packages: the value's own line and the indented lines continuing it.
 packagesOf :: Text -> [Text]
@@ -1554,6 +1553,15 @@ specGroup12 = testGroup "Build and discipline"
       assertEqual "the modules the spec's assets are spliced into"
         [wname WRoutes] (map wname (nub (mapMaybe baSplice buildAssets)))
 
+    -- `assets/' IS THE EMBEDDED BYTES AND NOTHING ELSE: front-end source lives
+    -- under `frontend/', and a source file put back beside the bytes goes red
+    -- here rather than in a reader's head.
+  , testCase "assets holds what the spec says it embeds and no more" $ do
+      there <- sort <$> listDirectory "assets"
+      assertEqual "assets against the spec's own list"
+        (sort [ drop (length ("assets/" :: String)) p
+              | p <- map baPath buildAssets, "assets/" `isPrefixOf` p ]) there
+
   , testCase "and rides in extra-source-files, so a splice recompiles and sdist carries it" $ do
       cab <- TIO.readFile "glance.cabal"
       let extras = extraSourceFiles cab
@@ -1643,13 +1651,15 @@ specGroup12 = testGroup "Build and discipline"
       assertEqual "a proposal wearing a status the spec does not spell" [] (worn \\ spelled)
       assertEqual "a status word no proposal wears" [] (spelled \\ worn)
 
-  , testCase "a cut takes every entry and leaves Unreleased empty" $ do
+    -- A cut empties Unreleased, and whether the emptied heading is written or
+    -- dropped carries nothing, so both shapes pass.  Its PLACE is the claim.
+  , testCase "Unreleased heads the changelog when it is there at all" $ do
       ch <- TIO.readFile "CHANGELOG.md"
       let heads = changelogHeadings ch
-      assertEqual "the section a cut promotes" ["Unreleased"] (take 1 heads)
-      assertEqual "Unreleased headings" 1 (length (filter (== "Unreleased") heads))
-      assertEqual "a released heading that is not `VERSION - YYYY-MM-DD'"
-        [] [ T.unpack h | h <- drop 1 heads, isNothing (releaseOf h) ]
+      assertEqual "an Unreleased heading below the top"
+        [] (filter (== "Unreleased") (drop 1 heads))
+      assertEqual "a heading that is neither Unreleased nor `VERSION - YYYY-MM-DD'"
+        [] [ T.unpack h | h <- heads, h /= "Unreleased", isNothing (releaseOf h) ]
 
   , testCase "and a dated release cannot be cut again" $ do
       ch <- TIO.readFile "CHANGELOG.md"
@@ -1669,6 +1679,29 @@ specGroup12 = testGroup "Build and discipline"
       assertBool ("README.org does not spell " <> T.unpack v) (("=" <> v <> "=") `T.isInfixOf` rd)
       assertBool ("CHANGELOG.md has no `## " <> T.unpack v <> " - ' section")
         (("## " <> v <> " - ") `T.isInfixOf` ch)
+
+    -- THE TOOL IS THE CUT, so the sites cannot drift apart by hand.  Run over
+    -- copies in a temp directory: `tools/cut' resolves its own root, and the
+    -- one in the repo would bump the repo.
+  , testCase "`make patch' moves every site together and dates the promotion" $
+      withTempDir $ \dir -> do
+        createDirectoryIfMissing True (dir </> "tools")
+        copyFile "tools/cut" (dir </> "tools" </> "cut")
+        let wrote = [ ("glance.cabal", "version:        1.2.3.4\n")
+                    , ("README.org",   "*Version:* =1.2.3.4=\n")
+                    , ("CHANGELOG.md", "## Unreleased\n\n- a thing\n\n## 1.2.3.4 - 2026-01-01\n") ]
+        assertEqual "the fixture against the sites the spec names"
+          (sort versionSites) (sort (map fst wrote))
+        forM_ wrote $ \(name, body) -> TIO.writeFile (dir </> name) body
+        (code, out, err) <- readCreateProcessWithExitCode
+          (proc "bash" [dir </> "tools" </> "cut", "minor", "2026-01-02"]) { cwd = Just dir } ""
+        assertEqual ("tools/cut said: " <> err <> out) ExitSuccess code
+        forM_ versionSites $ \name -> do
+          body <- TIO.readFile (dir </> name)
+          assertBool (name <> " does not spell the cut version") ("1.2.4.0" `T.isInfixOf` body)
+        ch <- TIO.readFile (dir </> "CHANGELOG.md")
+        assertEqual "the headings a cut leaves"
+          ["1.2.4.0 - 2026-01-02", "1.2.3.4 - 2026-01-01"] (changelogHeadings ch)
 
   , testCase "the author is one address, and it is the protonmail one" $ do
       cab <- TIO.readFile "glance.cabal"

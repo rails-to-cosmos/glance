@@ -1068,11 +1068,13 @@ data Counted = Roots | Directories | FilesWalked deriving (Eq, Show)
 scanCounts :: ScanRow -> Counted
 scanCounts DirsScanned    = Roots
 scanCounts DerivedSkipped = Directories
-data Cli = CliScan | CliServe | CliDesktop deriving (Eq, Show, Enum, Bounded)
+-- | The commands, each asked for BY NAME: a bare @glance@ prints the usage.
+data Cli = CliScan | CliServe | CliDesktop | CliRepl deriving (Eq, Show, Enum, Bounded)
 permissiveArgs :: Cli -> Bool
 permissiveArgs CliScan    = True
 permissiveArgs CliServe   = False
 permissiveArgs CliDesktop = False
+permissiveArgs CliRepl    = True
 data ScanArg = ArgFlag | ArgRoot Path deriving (Eq, Show)
 scanArg :: String -> ScanArg
 scanArg "--include-derived" = ArgFlag
@@ -4388,16 +4390,19 @@ webExposed =
 
 -- ** Assets: what the binary embeds, and who may touch it
 
+-- | @assets/@ holds the BYTES a build embeds and nothing else; front-end SOURCE
+-- lives under @frontend/@.  The glue is both at once — its source bytes are the
+-- embedded bytes, no build step between them — and it is filed as source.
 data Origin = Hand | Sibling | Built deriving (Eq, Show)
 data BuildAsset = BuildAsset
   { baPath :: Path, baOrigin :: Origin, baRefresh :: Maybe String, baSplice :: Maybe WMod }
 
 buildAssets :: [BuildAsset]
 buildAssets =
-  [ BuildAsset "assets/table-view.js" Sibling (Just "make sync-renderer") (Just WRoutes)
-  , BuildAsset "assets/elm.js"        Built   (Just "make elm")           (Just WRoutes)
-  , BuildAsset "assets/glue/*.js"     Hand    Nothing                     (Just WRoutes)
-  , BuildAsset "assets/jsconfig.json" Hand    Nothing                     Nothing
+  [ BuildAsset "assets/table-view.js"   Sibling (Just "make sync-renderer") (Just WRoutes)
+  , BuildAsset "assets/elm.js"          Built   (Just "make elm")           (Just WRoutes)
+  , BuildAsset "frontend/glue/*.js"     Hand    Nothing                     (Just WRoutes)
+  , BuildAsset "frontend/jsconfig.json" Hand    Nothing                     Nothing
   ]
 
 -- | ORDER IS DATA: the splice folds this, `tsc' checks the same files, and a

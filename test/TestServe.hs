@@ -9082,7 +9082,7 @@ elmOf shell = do
   TIO.readFile "assets/elm.js"
 
 glueSource :: IO T.Text
-glueSource = T.concat <$> mapM (TIO.readFile . ("assets/glue" </>)) gluePartFiles
+glueSource = T.concat <$> mapM (TIO.readFile . ("frontend/glue" </>)) gluePartFiles
 
 cfgOf :: T.Text -> IO T.Text
 cfgOf shell = maybe (assertFailure "no cfg blob in the shell") pure

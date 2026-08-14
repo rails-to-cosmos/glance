@@ -146,8 +146,8 @@ and off the `taken` list at `:4373-4374`, and carry the sign in `head` at
 `:4681`, so the domain re-opens after a sign. Worth doing, owed by nothing.
 
 The shell needs nothing either: it composes no `columns:` token anywhere
-(`grep columns: assets/glue/*.js` is empty), and a set arriving different is
-already a remount (`assets/glue/70-shell.js:358`, `00-core.js:82,297`).
+(`grep columns: frontend/glue/*.js` is empty), and a set arriving different is
+already a remount (`frontend/glue/70-shell.js:358`, `00-core.js:82,297`).
 
 ### 7. REFUSALS, AND HOW THE TWO MINUSES ARE TOLD APART
 

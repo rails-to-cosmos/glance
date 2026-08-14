@@ -94,7 +94,7 @@ embeddedRenderer = $(makeRelativeToProject "assets/table-view.js" >>= embedFile)
 -- | The shell, embedded in PARTS: FRAGMENTS of one script scope, joined in 'gluePartFiles' order.
 embeddedGlue :: BS.ByteString
 embeddedGlue = BS.concat
-  $(listE [ makeRelativeToProject ("assets/glue/" <> part) >>= embedFile
+  $(listE [ makeRelativeToProject ("frontend/glue/" <> part) >>= embedFile
           | part <- gluePartFiles ])
 
 embeddedElm :: BS.ByteString

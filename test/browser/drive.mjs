@@ -145,7 +145,7 @@ function pageHandle(cdp, sid) {
     return r.result.value;
   };
   // A LETTER BINDING NAMES A PHYSICAL KEY, so a press carries `code' beside
-  // `key' — which is what `keyName' (assets/glue/05-keys.js) reads back.
+  // `key' — which is what `keyName' (frontend/glue/05-keys.js) reads back.
   const NAMED = { RET: ["Enter", "Enter"], TAB: ["Tab", "Tab"], SPC: [" ", "Space"],
     ESC: ["Escape", "Escape"], DEL: ["Backspace", "Backspace"],
     "<up>": ["ArrowUp", "ArrowUp"], "<down>": ["ArrowDown", "ArrowDown"],

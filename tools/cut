@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# CUT A RELEASE: bump the version at every site that spells it and promote the
+# changelog's Unreleased section.  Writes files; commits and tags nothing.
+set -euo pipefail
+
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+kind=${1:-}
+day=${2:-$(date +%Y-%m-%d)}
+
+case "$kind" in
+  major|minor|patch) ;;
+  *) echo "usage: tools/cut major|minor|patch [YYYY-MM-DD]" >&2; exit 2 ;;
+esac
+
+old=$(sed -n 's/^version:[[:space:]]*//p' glance.cabal | head -1)
+if [[ ! "$old" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+  echo "cut: glance.cabal spells its version '$old', which is no A.B.C.D" >&2
+  exit 1
+fi
+a=${BASH_REMATCH[1]} b=${BASH_REMATCH[2]} c=${BASH_REMATCH[3]} d=${BASH_REMATCH[4]}
+
+# PVP: A.B TOGETHER are the major version, C the minor, D the patch.  A breaking
+# change moves B, which is why `major' leaves A alone.
+case "$kind" in
+  major) new="$a.$((b + 1)).0.0" ;;
+  minor) new="$a.$b.$((c + 1)).0" ;;
+  patch) new="$a.$b.$c.$((d + 1))" ;;
+esac
+
+heading=$(grep -m1 '^## ' CHANGELOG.md || true)
+if [ "$heading" != "## Unreleased" ]; then
+  echo "cut: the changelog opens at '$heading'; a cut promotes '## Unreleased'" >&2
+  exit 1
+fi
+
+entries=$(awk '/^## /{ section++; next } section == 1 && /^- /' CHANGELOG.md | wc -l)
+if [ "$entries" -eq 0 ]; then
+  echo "cut: Unreleased carries no entries, so there is nothing to promote" >&2
+  exit 1
+fi
+
+escaped=${old//./\\.}
+sed -i -E "s/^(version:[[:space:]]*)$escaped\$/\1$new/" glance.cabal
+sed -i "s/\*Version:\* =$escaped=/*Version:* =$new=/" README.org
+
+# THE HEADING BECOMES THE RELEASE: what it collected is what was cut, so the
+# section is renamed where it stands rather than copied under an empty one.
+promoted=$(mktemp)
+awk -v cut="## $new - $day" '
+  !moved && /^## Unreleased$/ { print cut; moved = 1; next }
+  { print }
+' CHANGELOG.md > "$promoted"
+mv "$promoted" CHANGELOG.md
+
+for site in glance.cabal README.org CHANGELOG.md; do
+  grep -q -- "$new" "$site" || { echo "cut: $site still does not spell $new" >&2; exit 1; }
+done
+
+echo "cut: $old -> $new ($kind), $entries promoted, dated $day"
+echo "cut: glance.cabal, README.org and CHANGELOG.md written; nothing committed"

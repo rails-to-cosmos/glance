@@ -9,7 +9,7 @@ import System.FilePath (dropExtension, takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Glance.Web.Base (gluePartFiles)
-import TestDefaults (holdsAll)
+import TestDefaults (holdsAll, valueAfter)
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -39,7 +39,7 @@ day  = T.take 10
 
 -- | PART with its comment-only lines out, so a name in prose is not a reach.
 glueCode :: FilePath -> IO T.Text
-glueCode part = strip <$> TIO.readFile ("assets/glue" </> part)
+glueCode part = strip <$> TIO.readFile ("frontend/glue" </> part)
   where strip = T.unlines . filter (not . T.isPrefixOf "//" . T.stripStart) . T.lines
 
 spec :: TestTree
@@ -55,7 +55,7 @@ spec = testGroup "Self-containment"
 
     -- tsc reports clean over whatever it is handed, so its own list is checked.
   , testCase "the type checker reads the parts the build does" $ do
-      conf <- TIO.readFile "assets/jsconfig.json"
+      conf <- TIO.readFile "frontend/jsconfig.json"
       assertBool "the part list is empty" (length gluePartFiles >= 2)
       assertEqual "a part the build reads and jsconfig.json does not" []
                   [ part | part <- gluePartFiles
@@ -83,12 +83,12 @@ spec = testGroup "Self-containment"
 
   , testCase "the shell's parts are the whole of the shell" $ do
       assertBool "the part list is empty" (length gluePartFiles >= 2)
-      missing <- filterM (fmap not . doesFileExist . ("assets/glue" </>)) gluePartFiles
+      missing <- filterM (fmap not . doesFileExist . ("frontend/glue" </>)) gluePartFiles
       assertEqual "parts the build names and the repo lacks" [] missing
-      found <- filter ((== ".js") . takeExtension) <$> listDirectory "assets/glue"
+      found <- filter ((== ".js") . takeExtension) <$> listDirectory "frontend/glue"
       assertEqual "a part on disk the build never reads" [] (found \\ gluePartFiles)
-      stray <- doesFileExist "assets/glue.js"
-      assertBool "assets/glue.js is back — the parts are the source" (not stray)
+      stray <- doesFileExist "frontend/glue.js"
+      assertBool "frontend/glue.js is back — the parts are the source" (not stray)
 
     -- A MUST-NOT-APPEAR LIST: an allowlist over a shared script scope cannot
     -- tell a local `t' from a foreign one without a parser.  AGENTS.hs, step C.
@@ -116,7 +116,7 @@ spec = testGroup "Self-containment"
                  (length mains >= 2)
       built <- TIO.readFile "assets/elm.js"
       forM_ mains $ \m -> do
-        there <- doesFileExist ("assets/elm/src" </> T.unpack m <> ".elm")
+        there <- doesFileExist ("frontend/elm/src" </> T.unpack m <> ".elm")
         assertBool ("the target names src/" <> T.unpack m <> ".elm, which is not there") there
         assertBool ("assets/elm.js carries no " <> T.unpack m
                       <> " — `make elm' has not been run since it was named")
@@ -146,19 +146,13 @@ spec = testGroup "Self-containment"
       cabalV <- valueAfter "version:" <$> TIO.readFile "glance.cabal"
       readmeV <- between "*Version:* =" "=" <$> TIO.readFile "README.org"
       logV <- newestRelease <$> TIO.readFile "CHANGELOG.md"
-      elmV <- between "\"elm-version\": \"" "\"" <$> TIO.readFile "assets/elm/elm.json"
+      elmV <- between "\"elm-version\": \"" "\"" <$> TIO.readFile "frontend/elm/elm.json"
       assertBool "glance.cabal names no version" (maybe False (not . T.null) cabalV)
       assertEqual "README.org against glance.cabal" cabalV readmeV
       assertEqual "CHANGELOG.md's newest release against glance.cabal" cabalV logV
       -- 0.19.1 is a hard refusal, so the pin is asserted rather than compared.
-      assertEqual "assets/elm/elm.json's compiler pin" (Just "0.19.2") elmV
+      assertEqual "frontend/elm/elm.json's compiler pin" (Just "0.19.2") elmV
   ]
-
--- | The value FIELD names on the first line carrying it, stripped.
-valueAfter :: T.Text -> T.Text -> Maybe T.Text
-valueAfter field body = listToMaybe
-  [ T.strip rest
-  | l <- T.lines body, Just rest <- [T.stripPrefix field (T.stripStart l)] ]
 
 -- | What sits between OPEN and the next CLOSE, first occurrence.
 between :: T.Text -> T.Text -> T.Text -> Maybe T.Text

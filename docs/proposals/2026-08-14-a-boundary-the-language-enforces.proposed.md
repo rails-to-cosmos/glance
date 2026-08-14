@@ -48,7 +48,7 @@ That mutual reaching is the unreadability. It is not syntax.
 
 ## TypeScript is already here, and that is the point
 
-`assets/jsconfig.json` runs `tsc` with `checkJs: true` over all seven parts —
+`frontend/jsconfig.json` runs `tsc` with `checkJs: true` over all seven parts —
 `make check-glue` is a standing gate and it is clean. What it is NOT doing:
 
 ```json

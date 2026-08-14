@@ -38,6 +38,7 @@ module TestDefaults ( assertContains
                     , testPropertyWith
                     , writeLayers
                     , textAt
+                    , valueAfter
                     , viewText
                     , textsAt
                     , titled
@@ -46,6 +47,7 @@ module TestDefaults ( assertContains
                     , withCorpusSample
                     , withDoc
                     , withDocDir
+                    , withGlanceBinary
                     , withHeadline
                     , withHeadlineIn
                     , withId
@@ -59,6 +61,7 @@ import Control.Exception (IOException, finally, throwIO, try)
 import Data.Aeson (Value (Bool, Null, Number, Object, String), parseJSON)
 import Data.Aeson.Types (parseEither)
 import Data.List (sort)
+import Data.Maybe (fromMaybe, listToMaybe)
 -- 'headlinesOf' is hidden and spelled again below ON PURPOSE: the suite's copy is an INDEPENDENT ORACLE for the span groups that read it.
 import Data.Org hiding (headlinesOf)
 import Data.Org.Config (configDirIn, configPaths)
@@ -67,7 +70,8 @@ import Data.Text (Text)
 import Data.Time (UTCTime, defaultTimeLocale, parseTimeOrError)
 import Data.Unique (hashUnique, newUnique)
 import System.Directory ( createDirectory, createDirectoryIfMissing, doesDirectoryExist
-                        , getTemporaryDirectory, removeDirectoryRecursive )
+                        , doesFileExist, getTemporaryDirectory, listDirectory
+                        , removeDirectoryRecursive )
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 import System.IO (hPutStrLn, stderr)
@@ -408,3 +412,49 @@ assertParts say doc h = sequence_
   [ assertBool (say (T.unpack part <> " sliced " <> show slice)) (ok slice)
   | (part, Just sp, ok) <- headlineSpanParts h
   , let slice = sliceSpan doc sp ]
+
+-- The built CLI
+
+-- | @$GLANCE_BIN@, else the binary cabal's default layout holds for the version
+-- being built.  'Nothing' is a SKIP the caller must say out loud: a
+-- @--builddir@ run finds none, and a case that quietly passes without the
+-- binary has asserted nothing.
+glanceBinary :: IO (Maybe FilePath)
+glanceBinary = do
+  named <- lookupEnv "GLANCE_BIN"
+  case named of
+    Just path -> pure (Just path)
+    -- THE VERSION IS A STEP OF THE PATH and a tree keeps every version it has
+    -- ever built, so a bare @*@ there hands back whichever cabal made first —
+    -- for weeks, a binary four cuts old.
+    Nothing   -> do
+      v <- cabalVersion
+      listToMaybe <$> globPath "dist-newstyle/build"
+        ["*", "*", "glance-" <> T.unpack v, "x", "glance", "build", "glance", "glance"]
+
+-- | K over the built binary, or a skip naming WHAT went unasserted.
+withGlanceBinary :: String -> (FilePath -> Assertion) -> Assertion
+withGlanceBinary what k = glanceBinary >>=
+  maybe (hPutStrLn stderr ("\nSKIPPED - no glance binary built: " <> what)) k
+
+-- | The version @glance.cabal@ names, empty when there is none to read.
+cabalVersion :: IO Text
+cabalVersion = fromMaybe "" . valueAfter "version:" <$> TIO.readFile "glance.cabal"
+
+-- | The value NAME leads on the first line carrying it, stripped.
+valueAfter :: Text -> Text -> Maybe Text
+valueAfter name body = listToMaybe
+  [ T.strip rest
+  | l <- T.lines body, Just rest <- [T.stripPrefix name (T.stripStart l)] ]
+
+-- | The paths under ROOT matching STEPS, @*@ any one directory — cabal's layout.
+globPath :: FilePath -> [String] -> IO [FilePath]
+globPath root [] = do
+  there <- doesFileExist root
+  pure [ root | there ]
+globPath root ("*" : rest) = do
+  isDir <- doesDirectoryExist root
+  if not isDir then pure [] else do
+    entries <- listDirectory root
+    concat <$> mapM (\e -> globPath (root </> e) rest) entries
+globPath root (step : rest) = globPath (root </> step) rest

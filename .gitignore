@@ -32,5 +32,5 @@ devenv.local.nix
 /vendored/*/GI/
 
 # elm's own build cache, written beside the source it compiles.
-/assets/elm/elm-stuff/
-/assets/elm/tests/elm-stuff/
+/frontend/elm/elm-stuff/
+/frontend/elm/tests/elm-stuff/

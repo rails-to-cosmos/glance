@@ -10,6 +10,7 @@ import qualified TestParser as Parser
 import qualified TestProperties as Properties
 import qualified TestRoundtrip as Roundtrip
 import qualified TestTimestamp as Timestamp
+import qualified TestCli as Cli
 import qualified TestContext as Context
 import qualified TestDesktop as Desktop
 import qualified TestNegative as Negative
@@ -42,6 +43,7 @@ tests = testGroup "Tests"
   , Store.spec
   , Config.spec
   , Desktop.spec
+  , Cli.spec
   , Properties.spec
   , Spec.spec
   ]

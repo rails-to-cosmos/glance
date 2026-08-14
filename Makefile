@@ -1,12 +1,15 @@
-.PHONY: test typecheck loc native elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
+.PHONY: test typecheck loc major minor patch native elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 -include .env
 GLANCE_DIR ?= ~/sync/views
 GLANCE_PORT ?= 7777
 
 # THE GATE; `browser-check', `interop' and `mutate' are each their own sitting.
+# The exe is built by name because `cabal test' does not, and the cases that
+# probe the CLI would otherwise measure whatever binary the tree still holds.
 test:
-	cabal test
+	cabal build -v0 exe:glance
+	GLANCE_BIN="$$(cabal list-bin -v0 exe:glance)" cabal test
 	@$(MAKE) --no-print-directory elm-test
 
 # Elm's compiler IS its typechecker.  `--output=/dev/null' because committed
@@ -15,24 +18,30 @@ typecheck:
 	cabal build all
 	@$(MAKE) --no-print-directory check-glue
 	@if command -v npx >/dev/null 2>&1; then \
-	  cd assets/elm && npx --yes elm make src/Listing.elm src/Doc.elm \
+	  cd frontend/elm && npx --yes elm make src/Listing.elm src/Doc.elm \
 	    --output=/dev/null && echo "typecheck: elm clean"; \
 	else echo "typecheck: no npx on PATH -- elm skipped"; fi
 
 loc:
 	@tools/loc
 
+# A CUT MOVES EVERY SITE TOGETHER (`AGENTS.hs' versionSites) and promotes the
+# changelog's Unreleased section.  PVP: `major' is a breaking change and moves
+# A.B, `minor' moves C, `patch' moves D.  Nothing is committed or tagged.
+major minor patch:
+	@tools/cut $@
+
 RENDERER := ../table-view/web/table-view.js
 # Committed like the renderer, so the bytes a build embeds are the bytes in the tree.
 elm:
 	@if command -v npx >/dev/null 2>&1; then \
-	  cd assets/elm && npx --yes elm make src/Listing.elm src/Doc.elm --optimize --output=../elm.js; \
+	  cd frontend/elm && npx --yes elm make src/Listing.elm src/Doc.elm --optimize --output=../../assets/elm.js; \
 	else echo "elm: no npx on PATH -- assets/elm.js left as committed"; fi
 
 # OUT of `cabal test': elm-test fetches its dependency at run time.
 elm-test:
 	@if command -v npx >/dev/null 2>&1; then \
-	  cd assets/elm && npx --yes -p elm -p elm-test elm-test; \
+	  cd frontend/elm && npx --yes -p elm -p elm-test elm-test; \
 	else echo "elm-test: no npx on PATH -- skipped"; fi
 
 # SAMPLE=0 takes every site; SAMPLE=N is seeded by the target's own blob digest.
@@ -144,6 +153,6 @@ run-wasm:
 
 check-glue:
 	@if command -v npx >/dev/null 2>&1; then \
-	  npx --yes -p typescript tsc -p assets/jsconfig.json --pretty false && \
+	  npx --yes -p typescript tsc -p frontend/jsconfig.json --pretty false && \
 	    echo "check-glue: clean"; \
 	else echo "check-glue: no npx on PATH -- skipped"; fi
