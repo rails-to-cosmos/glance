@@ -1,17 +1,30 @@
 {
+  // `make check-glue' runs this.  The parts are FRAGMENTS of one script scope,
+  // so they are checked together and the list is asserted against the build's
+  // own `gluePartFiles' by TestSelfContained.
   "compilerOptions": {
     "checkJs": true,
     "noEmit": true,
     "target": "ES2020",
-    "lib": [
-      "ES2020",
-      "DOM"
-    ],
-    "strict": false,
-    "strictNullChecks": false,
+    "lib": ["ES2020", "DOM"],
     "skipLibCheck": true,
     "allowJs": true,
-    "noImplicitAny": false
+
+    // ON, and free: measured 0 errors on 2026-08-14.  This buys
+    // strictBindCallApply, strictFunctionTypes, noImplicitThis, alwaysStrict
+    // and useUnknownInCatchVariables.
+    "strict": true,
+
+    // STAGED, with what they cost measured rather than guessed.
+    //
+    // 1034 errors.  The glue is written without annotations, so this is a
+    // per-parameter job across 3236 lines.
+    "noImplicitAny": false,
+    // 272 errors, and 110 of them are FIVE module-level mutables that are
+    // honestly null until something mounts: `table' (48), `prompting' (31),
+    // `editing' (12), `edit' (10), `box' (9).  Those are real latent
+    // dereferences rather than noise, and worth paying for deliberately.
+    "strictNullChecks": false
   },
   "files": [
     "glue/00-core.js",
