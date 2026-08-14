@@ -24,7 +24,7 @@ Applications that shaped it, among others:
 
 ** Design
 
-- Essentially an org-mode database viewed as a keyboard-navigatable table.
+- Essentially an org-mode database viewed as a keyboard-navigatable read-only table.
 - UX that stood the test of time for me personally.
 - [[https://webkit.org/][WebKit]] in mind from the very beginning: should run in browser and as a standalone portable application.
 - Keyboard-first, familiar to emacs&vim users.
