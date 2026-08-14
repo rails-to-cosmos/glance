@@ -6,6 +6,9 @@ I am distilling my [[https://orgmode.org/][org-mode]] experience, habits and bes
 this app: the project is experimental, and I will publish it once it suits
 my everyday work well.
 
+I use LLM agents in this project, mostly for prototyping and shaping. I avoid
+pure vibe-coding, so ownership and knowledge of the codebase stay with me.
+
 Applications that shaped it, among others:
 - emacs / vim :: navigation, philosophy
 - magit :: UX habits
