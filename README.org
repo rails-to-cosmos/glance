@@ -1,5 +1,3 @@
-- *Author:* Dmitry Akatov · *License:* BSD3 · *Version:* =0.6.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
-
 * Glance
 
 I am distilling my [[https://orgmode.org/][org-mode]] experience, habits and best practices into
@@ -13,7 +11,7 @@ Applications that shaped it, among others:
 - [[https://www.gnu.org/software/emacs/][emacs]] / [[https://www.vim.org/][vim]] :: navigation, philosophy
 - [[https://magit.vc/][magit]] :: UX habits
 - [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html][dired]] :: marks, flags, and the keyboard habits around them
-- [[https://github.com/magnars/expand-region.el][expand-region]] :: reversed — the material widget starts wide and narrows
+- [[https://github.com/magnars/expand-region.el][expand-region]] :: this inspired the material widget navigation
 - [[https://github.com/atlas-engineer/nyxt][nyxt]] :: Emacs-style keys over web browsing
 
 In [[https://www.gnu.org/software/emacs/][emacs]] I still use [[https://github.com/rails-to-cosmos/org-glance][org-glance]] and I guarantee the compatibility of

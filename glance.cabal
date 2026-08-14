@@ -1,7 +1,7 @@
 cabal-version: 3.0
 
 name:           glance
-version:        0.6.0.0
+version:        0.7.0.0
 synopsis:       A browser front end for org-mode files: a keyboard-driven table that writes back by span splice
 description:    Org-mode projections: the org files are the source of truth, and
                 everything else is a projection of them.

@@ -9,42 +9,7 @@ and this project adheres to the
 Versions 0.1 through 0.4 were cut retroactively over one dense build: each
 section groups a feature arc, and its date is that arc's last commit.
 
-## Unreleased
-
-### Added
-
-- **A commit closes what the typing opened.** Type `#+begin_src` in the
-  materialize document and commit, and the block arrives with its `#+end_src`;
-  a drawer opener arrives with its `:END:`. Nesting closes innermost first, a
-  verbatim block suspends the rule inside it so a `#+begin_quote` in a src block
-  stays text, the closer takes the opener's own case and indent and never its
-  arguments, and text that already closes itself is written unchanged. An EMPTY
-  block arrives with a blank line between its ends, so there is a line to type
-  on; a block that already holds something does not.
-
-### Changed
-
-- **A capture always lands in the tree's own `inbox.org`.**
-  `#+GLANCE_CAPTURE_TARGET:` is no longer read, and a tree still carrying the
-  line captures into the inbox anyway. One entry point per tree, so there is no
-  path a config can aim a write at, and the three refusals it used to earn — an
-  absolute path, one climbing out through `..`, and a name the walk would
-  decline — are gone with the setting.
-- **The settings sheet is two panels, theme and keywords.** GENERAL held the
-  capture target and the log height and holds neither now, so it went with them;
-  `TAB` walks the two and the sheet opens on the theme panel.
-- **The log's height is a developer preference.** No field reaches it; the boot
-  still applies whatever `glance-log` holds in `localStorage`, within the same
-  band, so a page nobody has touched still opens at seven lines.
-
-### Fixed
-
-- **An open edit sits on the same line grid as the text under it.** Every stop
-  carried a pixel of vertical padding, and a list's items each spent it again
-  inside the list, so the drawn lines walked 2px per item away from the field
-  laid over them — measured 0, 2, 4 and 6 across four items, and over a
-  sixteen-line list the foot stood more than a full line out. The outer box
-  always matched, which is why nothing caught it.
+## 0.7.0.0 - 2026-08-14
 
 ### Added
 
@@ -134,12 +99,34 @@ section groups a feature arc, and its date is that arc's last commit.
   `SIGINT`/`SIGTERM`/`EPIPE` all reach, so a run piped into `head` no longer
   leaves a daemon serving a temp store.
 
+- **A commit closes what the typing opened.** Type `#+begin_src` in the
+  materialize document and commit, and the block arrives with its `#+end_src`;
+  a drawer opener arrives with its `:END:`. Nesting closes innermost first, a
+  verbatim block suspends the rule inside it so a `#+begin_quote` in a src block
+  stays text, the closer takes the opener's own case and indent and never its
+  arguments, and text that already closes itself is written unchanged. An EMPTY
+  block arrives with a blank line between its ends, so there is a line to type
+  on; a block that already holds something does not.
+
 ### Changed
 
 - **`M-RET` outside an open box is `+`.** Org's own `org-insert-item`, so all
   three of `+`, `S-RET` and `M-RET` add a sibling of the stop at point. Inside
   an open paragraph `M-RET` stays the newline and `S-RET` stays the commit that
   asks for another one.
+
+- **A capture always lands in the tree's own `inbox.org`.**
+  `#+GLANCE_CAPTURE_TARGET:` is no longer read, and a tree still carrying the
+  line captures into the inbox anyway. One entry point per tree, so there is no
+  path a config can aim a write at, and the three refusals it used to earn — an
+  absolute path, one climbing out through `..`, and a name the walk would
+  decline — are gone with the setting.
+- **The settings sheet is two panels, theme and keywords.** GENERAL held the
+  capture target and the log height and holds neither now, so it went with them;
+  `TAB` walks the two and the sheet opens on the theme panel.
+- **The log's height is a developer preference.** No field reaches it; the boot
+  still applies whatever `glance-log` holds in `localStorage`, within the same
+  band, so a page nobody has touched still opens at seven lines.
 
 ### Fixed
 
@@ -268,6 +255,13 @@ section groups a feature arc, and its date is that arc's last commit.
   that answer now beside the cursor it always read: its re-laying leaves the
   length alone, so a peer that verifies what a fold consumes and polls by size
   passes every assertion the case already had.
+
+- **An open edit sits on the same line grid as the text under it.** Every stop
+  carried a pixel of vertical padding, and a list's items each spent it again
+  inside the list, so the drawn lines walked 2px per item away from the field
+  laid over them — measured 0, 2, 4 and 6 across four items, and over a
+  sixteen-line list the foot stood more than a full line out. The outer box
+  always matched, which is why nothing caught it.
 
 ## 0.6.0.0 - 2026-08-11
 
