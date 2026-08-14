@@ -20,7 +20,6 @@ In [[https://www.gnu.org/software/emacs/][emacs]] I still use [[https://github.c
 metadata.
 
 Design:
-
 - UX that stood the test of time for me personally.
 - [[https://webkit.org/][WebKit]] in mind from the very beginning: should run in browser and as
   a standalone portable application.
@@ -34,24 +33,23 @@ Design:
   =l=/=h= step cells, and the arrows alias both.
 - dired's gestures where dired has one: =m=/=u=/=M=/=U= mark, =d= flags, =x=
   acts on the flagged, =D= is the quick half.
-- A letter binds the *physical key*, so a Cyrillic layout should
-  navigate unchanged.
+- A letter binds the *physical key*, so navigation should work for any
+  layout if possible.
 
 Under it:
-
-- Org files are the single source of truth; the store, the index and every view
-  are projections, rebuildable from the text.
-- One walk into an in-memory projection, a websocket streaming each change as
-  the file watch re-parses.
-- A write replaces the exact characters a headline occupies: optimistic lock,
-  temp-plus-rename, every other byte identical.
-- Underneath, =Data.Org= — a megaparsec org grammar where every element carries
-  a half-open character span into its document.
-- Two front ends over one set of bytes: Emacs's
-  [[https://github.com/rails-to-cosmos/org-glance][org-glance]] for editing and
-  history, this for the table, the filter and the keyboard. Neither is
-  authoritative; each notifies the other through =meta/EXTERNAL.jsonl=, and
-  =make interop= runs the two against one store.
+- Org files are the single source of truth; the store, the index and
+  every view are projections, rebuildable from the text.
+- One walk into an in-memory projection, a websocket streaming each
+  change as the file watch re-parses.
+- A write replaces the exact characters a headline occupies:
+  optimistic lock, temp-plus-rename, every other byte identical.
+- Underneath, =Data.Org= — a megaparsec org grammar where every element
+  carries a half-open character span into its document.
+- Two front ends over one set of bytes: Emacs's [[https://github.com/rails-to-cosmos/org-glance][org-glance]] for editing
+  and history, this for the table, the filter and the
+  keyboard. Neither is authoritative; each notifies the other through
+  =meta/EXTERNAL.jsonl=, and =make interop= runs the two against one
+  store.
 
 ** Quickstart
 
