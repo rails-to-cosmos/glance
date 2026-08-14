@@ -1,6 +1,7 @@
 # Proposal — a commit closes what the typing opened
 
-**Status:** proposed · **Date:** 2026-08-14 · **Origin:** user — typing
+**Status:** partial — landed 2026-08-14; the corpus oracle is still owed ·
+**Date:** 2026-08-14 · **Origin:** user — typing
 `#+begin_src` and committing should leave a block, not a stray line.
 
 ## What it does
@@ -167,3 +168,28 @@ Step one moves 39 functions to `Body.elm` and re-homes two helpers. Then
 path; `ScanTest.elm` gains the edge table; `assets/elm.js` is rebuilt, which is
 a committed build input, so `make elm` owes its step. No Haskell changes, no new
 vocabulary, no second copy of anything.
+
+
+## What landed, 2026-08-14
+
+Step one and the completion, both green. `Scan.closers` folds a stack over the
+lines and `Body`'s splice appends what it returns to the row the reader just
+moved, so the completion reaches exactly the text that was typed and no other.
+
+Sixteen `elm-test` cases cover the edge table — nesting, verbatim suppression,
+case, arguments, indent, drawers, stray `#+end_`, prose, and idempotence — and
+one browser case reads the round trip back off the pane:
+`"#+begin_src elisp\n#+end_src"`, the arguments the opener's alone.
+
+Gates: 1976 tests, browser 11/11, elm-test 157, interop 13/13, check-glue clean.
+
+**STILL OWED: the corpus oracle.** This document proposed running the completion
+over every body in `~/sync` and asserting it changes nothing, and that was NOT
+built — `closers` is Elm, and no harness runs it over the tree. What stands in
+its place is the measurement taken while designing: blocks balanced in every
+file, and no bare `:word:` line used as prose in 6365 files. That covers the
+same risk by inspection rather than by execution, which is weaker, and the
+difference is worth keeping visible.
+
+**Where point lands is untouched.** After a commit the reader is on the block,
+not inside it, exactly as before.

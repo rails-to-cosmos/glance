@@ -350,6 +350,42 @@ export default [
 
 // AN EDIT BOX IS THE BLOCK IT COVERS, and nothing measured the two TOGETHER.
 // Both padding cases matter, and so does a CYRILLIC item that WRAPS.
+// A COMMIT CLOSES WHAT THE TYPING OPENED.  The completion is the SCANNER's, so
+// only an engine running the compiled Elm can see it: `Scan.closers' is unit
+// tested over lines, and this is the one reading where a TYPED line reaches it.
+{ name: "a committed block opener arrives with its closer",
+  async run(p, base) {
+    await sheet(p, base, "drv-box");
+    await p.press("n");                                   // onto the paragraph
+    await p.press("+");                                   // a new one under it
+    await p.until(() => !!document.querySelector("#dpara.on"),
+                  "the draft edit to open");
+    await p.type("#+begin_src elisp");
+    await p.press("RET");                                 // commit
+    // THE WATCH DELIVERS, so the reading waits for the row rather than a duration.
+    await p.until(() => [...document.querySelectorAll("#mdoc .de")]
+                          .some((e) => e.textContent.includes("#+end_src")),
+                  "the closer to arrive over the watch");
+    // ONE STOP: balanced, the two lines are a BLOCK, which the scanner draws as
+    // a single region — so the order is read INSIDE the row rather than across.
+    const seen = await p.eval(() => {
+      const rows = [...document.querySelectorAll("#mdoc .de")].map((e) => e.textContent);
+      const at = rows.findIndex((t) => t.includes("#+begin_src"));
+      const text = at === -1 ? "" : rows[at];
+      return { at, text, opens: text.indexOf("#+begin_src"),
+               shuts: text.indexOf("#+end_src"), rows: rows.length };
+    });
+    assert(seen.at !== -1, "the opener never landed in any row");
+    assert(seen.shuts !== -1,
+      `the closer was never written: the row reads ${JSON.stringify(seen.text)}`);
+    assert(seen.shuts > seen.opens,
+      `the closer precedes its opener: ${JSON.stringify(seen.text)}`);
+    // The ARGUMENTS are the opener's alone.
+    assert(!seen.text.includes("#+end_src elisp"),
+      `the closer carried the opener's arguments: ${JSON.stringify(seen.text)}`);
+    return [`row ${seen.at} of ${seen.rows} reads ${JSON.stringify(seen.text)}`];
+  } },
+
 { name: "the open box covers its row edge to edge, at the row's own metrics",
   async run(p, base) {
     const read = () => {

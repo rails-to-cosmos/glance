@@ -676,7 +676,59 @@ takeable =
 suite : Test
 suite =
     describe "Scan"
-        [ describe "listOpener — the corpus's openers, and the one that is not"
+        [ describe "closers — a commit closes what the typing opened"
+            [ test "an opener with no closer earns one" <|
+                \_ -> Expect.equal [ "#+end_src" ] (Scan.closers [ "#+begin_src" ])
+            , test "text that closes itself earns none" <|
+                \_ ->
+                    Expect.equal []
+                        (Scan.closers [ "#+begin_src", "code", "#+end_src" ])
+            , test "NESTING closes innermost first" <|
+                \_ ->
+                    Expect.equal [ "#+end_src", "#+end_quote" ]
+                        (Scan.closers [ "#+begin_quote", "#+begin_src" ])
+            , test "an inner block already closed leaves only the outer" <|
+                \_ ->
+                    Expect.equal [ "#+end_quote" ]
+                        (Scan.closers [ "#+begin_quote", "#+begin_src", "#+end_src" ])
+            , test "VERBATIM suspends the grammar: a quote inside src is text" <|
+                \_ ->
+                    Expect.equal [ "#+end_src" ]
+                        (Scan.closers [ "#+begin_src", "#+begin_quote" ])
+            , test "and a drawer inside src is text too" <|
+                \_ ->
+                    Expect.equal [ "#+end_src" ]
+                        (Scan.closers [ "#+begin_src", ":LOGBOOK:" ])
+            , test "a NON-verbatim block does not suspend it" <|
+                \_ ->
+                    Expect.equal [ "#+end_quote", "#+end_quote" ]
+                        (Scan.closers [ "#+begin_quote", "#+begin_quote" ])
+            , test "CASE is the opener's own" <|
+                \_ -> Expect.equal [ "#+END_SRC" ] (Scan.closers [ "#+BEGIN_SRC" ])
+            , test "ARGUMENTS are dropped: a closer names only its block" <|
+                \_ -> Expect.equal [ "#+end_src" ] (Scan.closers [ "#+begin_src elisp -n" ])
+            , test "INDENT is the opener's own" <|
+                \_ -> Expect.equal [ "    #+end_src" ] (Scan.closers [ "    #+begin_src" ])
+            , test "a DRAWER earns its END, at its own indent" <|
+                \_ -> Expect.equal [ "  :END:" ] (Scan.closers [ "  :LOGBOOK:" ])
+            , test "a drawer that closes itself earns none" <|
+                \_ -> Expect.equal [] (Scan.closers [ ":LOGBOOK:", ":END:" ])
+            , test "`:END:' opens nothing" <|
+                \_ -> Expect.equal [] (Scan.closers [ ":END:" ])
+            , test "a stray `#+end_' opens nothing and closes nothing" <|
+                \_ -> Expect.equal [] (Scan.closers [ "#+end_src" ])
+            , test "prose earns nothing" <|
+                \_ -> Expect.equal [] (Scan.closers [ "just a line", "- an item" ])
+            , test "IDEMPOTENT: completing twice is completing once" <|
+                \_ ->
+                    let
+                        once =
+                            [ "#+begin_quote", "#+begin_src" ]
+                                ++ Scan.closers [ "#+begin_quote", "#+begin_src" ]
+                    in
+                    Expect.equal [] (Scan.closers once)
+            ]
+        , describe "listOpener — the corpus's openers, and the one that is not"
             [ test "a dash opens an item" <|
                 \_ -> Expect.equal (Just 0) (indentOf "- alpha")
             , test "so does a plus, and a number under either punctuation" <|

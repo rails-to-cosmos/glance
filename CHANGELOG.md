@@ -11,6 +11,15 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Added
+
+- **A commit closes what the typing opened.** Type `#+begin_src` in the
+  materialize document and commit, and the block arrives with its `#+end_src`;
+  a drawer opener arrives with its `:END:`. Nesting closes innermost first, a
+  verbatim block suspends the rule inside it so a `#+begin_quote` in a src block
+  stays text, the closer takes the opener's own case and indent and never its
+  arguments, and text that already closes itself is written unchanged.
+
 ### Changed
 
 - **A capture always lands in the tree's own `inbox.org`.**

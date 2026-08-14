@@ -1,5 +1,6 @@
 module Scan exposing
     ( Grain(..)
+    , closers
     , Opener
     , Region
     , RegionKind(..)
@@ -207,6 +208,84 @@ drawerChar c =
 drawerEnds : String -> Bool
 drawerEnds line =
     String.toUpper (String.trim line) == ":END:"
+
+
+{-| The closers LINES open and never write, INNERMOST FIRST, so appending them
+in order closes the stack.  Text that closes itself yields none.
+
+A VERBATIM BLOCK SUSPENDS ORG'S GRAMMAR, so nothing inside one opens anything
+and only its own end closes it: a `#+begin_quote' inside a src block is text.
+-}
+closers : List String -> List String
+closers lines =
+    List.map .closer (List.foldl closerStep [] lines)
+
+
+type alias Opened =
+    { shut : String -> Bool, opaque : Bool, closer : String }
+
+
+closerStep : String -> List Opened -> List Opened
+closerStep line stack =
+    case stack of
+        top :: below ->
+            if top.shut line then
+                below
+
+            else if top.opaque then
+                stack
+
+            else
+                closerOpen line stack
+
+        [] ->
+            closerOpen line stack
+
+
+closerOpen : String -> List Opened -> List Opened
+closerOpen line stack =
+    case blockName line of
+        Just name ->
+            { shut = endsBlock name
+            , opaque = verbatim name
+            , closer = indentOf line ++ closerWord line name
+            }
+                :: stack
+
+        Nothing ->
+            case drawerName line of
+                Just _ ->
+                    { shut = drawerEnds
+                    , opaque = False
+                    , closer = indentOf line ++ ":END:"
+                    }
+                        :: stack
+
+                Nothing ->
+                    stack
+
+
+{-| The opener's own spelling, turned around: `#+BEGIN_SRC' earns `#+END_SRC',
+and the ARGUMENTS are dropped so a closer names only its block.
+-}
+closerWord : String -> String -> String
+closerWord line name =
+    let
+        raw =
+            String.trimLeft line
+
+        begin =
+            String.slice 2 7 raw
+    in
+    "#+"
+        ++ (if begin == String.toUpper begin then
+                "END"
+
+            else
+                "end"
+           )
+        ++ "_"
+        ++ String.slice 8 (8 + String.length name) raw
 
 
 drawerRun : Array String -> Int -> Int -> Int

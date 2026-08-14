@@ -30,6 +30,7 @@ cursor is moved by.  Reads `Scan' for the structure; nothing here reads back.
 
 import Array exposing (Array)
 import Scan exposing (Grain(..), Opener, Region, RegionKind(..), at, blankAt,
+        closers,
         blocksIn, closerAt, cut, indentOf, isTable, listOpener, nth, numberAt,
         regionAt, takeWhileList)
 
@@ -164,14 +165,23 @@ bodyText m gone =
                 List.take r.from out ++ List.drop (r.to + spare) out
 
             else if r.text /= r.was then
+                let
+                    typed =
+                        String.split "\n" r.text
+
+                    -- A COMMIT CLOSES WHAT THE TYPING OPENED: an opener with no
+                    -- closer gets one, innermost first.  Balanced text gains none.
+                    written =
+                        typed ++ closers typed
+                in
                 List.take r.from out
                     ++ (if r.alone then
                             -- The blanks that keep a paragraph one are the
                             -- SPLICE's: a zero-width range ADDS lines.
-                            apart out r.from (String.split "\n" r.text)
+                            apart out r.from written
 
                         else
-                            String.split "\n" r.text
+                            written
                        )
                     ++ List.drop r.to out
 
