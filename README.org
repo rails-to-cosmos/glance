@@ -1,6 +1,6 @@
 * Glance
 
-- *Version:* =0.7.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
+*Version:* =0.7.0.0= ([[file:CHANGELOG.md][CHANGELOG.md]])
 
 I am distilling my [[https://orgmode.org/][org-mode]] experience, habits and best practices into
 this app: the project is experimental, and I will publish it once it
