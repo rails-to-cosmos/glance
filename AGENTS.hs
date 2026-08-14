@@ -73,9 +73,9 @@ data Note = Note Why [Proof]
 -- NOTE is this file's rule-with-proof alone; a ledger writes a LINE
 -- (`LedgerLine') at a SITE (`LineSite').
 -- A KIND is a closed set this program mints and is a sum; a NAME is open text
--- an author wrote and is a String. Sharing one field between them lets an
--- author spell a kind by accident, which `Stop.name' does today
--- (2026-08-14-stop-kind-vs-org-name.proposed.md).
+-- an author wrote and is a String. `Stop.name' carries both, which is a shape
+-- worth knowing and has cost nothing measured
+-- (2026-08-14-stop-kind-vs-org-name.expired.md).
 
 -- * Checks
 --

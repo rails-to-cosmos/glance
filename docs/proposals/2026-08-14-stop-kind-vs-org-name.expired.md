@@ -1,8 +1,34 @@
 # Proposal — a stop's KIND and its org NAME are different things
 
-**Status:** proposed · **Date:** 2026-08-14 · **Origin:** `/domain-modeling`
-over `AGENTS.hs`'s glossary, which found the model already states the rule this
-code breaks.
+**Status:** expired — EXPIRED the day it was written · **Date:** 2026-08-14 ·
+**Origin:** `/domain-modeling` over `AGENTS.hs`'s glossary.
+
+## Why this expired
+
+**The premise was wrong, and it was never checked.** This document claimed that
+`#+begin_list` corrupts a block by making `S-RET` insert a list item inside it.
+The author asked for it in the tool and found the opposite:
+
+```org
+#+begin_list
+- hello
+- hey
+- hello
+#+end_list
+```
+
+adds a list item, which is the DESIGN. An unknown `#+begin_X` is a special
+block, whose contents org parses, so the items inside are real list items and
+treating them as items is right.
+
+What follows is kept as written, because the mechanism it describes is real
+even though the harm it alleged is not: `Stop.name` does carry both a closed set
+the scanner mints and the open set an author writes. Nobody has shown that costs
+anything, and a rename with no failing case behind it is churn. Reopen it with
+one.
+
+The lesson is the document, not the code: a proposal asserting a bug owes a
+reproduction, and this one shipped without running the case it named.
 
 ## The bug, exactly
 
