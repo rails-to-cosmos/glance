@@ -6,7 +6,9 @@ const SECTIONS = [
       enter: () => { if (crows[cat]) showLayer(cat); } },
 ];
 
-    const showing = (title) => (SECTIONS[ctab] || {}).title === title;
+    // A GUARD ASKS FOR THE PART IT NEEDS, never a tab's LABEL: a part id the
+    // markup lacks throws at boot, where a renamed label fails in silence.
+    const showingPart = (id) => ((SECTIONS[ctab] || {}).parts || []).includes(id);
     const csecs = el("csecs"), ctabs = el("ctabs");
     const cpanes = SECTIONS.map((s) => {
       const sec = part(csecs, "div", "csec");
@@ -246,7 +248,7 @@ const SECTIONS = [
       at: () => { const i = satAt(); return i === -1 ? null : srows[i].id; },
     };
     document.addEventListener("keydown", (e) => {
-      if (!settings || momentary() || !smount || !showing("ui")) return;
+      if (!settings || momentary() || !smount || !showingPart("ctheme")) return;
       const k = keyName(e);
       if (narrowTyping(smount)) {
         if (narrowPress(k, smount)) e.preventDefault();
@@ -308,7 +310,7 @@ const SECTIONS = [
     const layerName = (r) => (r.tag ? `tag:${r.tag}` : "system");
     // Read back only while its panel shows: the states table writes the same `text'.
     function takeLayer() {
-      if (!crows[cat] || !showing("keywords")) return;
+      if (!crows[cat] || !showingPart("clayers")) return;
       crows[cat].text = el("ctext").value;
       crows[cat].tpl = el("ctpl").value;
     }
