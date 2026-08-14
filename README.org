@@ -15,8 +15,6 @@ metadata.
 
 Applications that shaped it, among others:
 
-| Tool          | Description                                       |
-|---------------+---------------------------------------------------|
 | [[https://www.gnu.org/software/emacs/][emacs]] / [[https://www.vim.org/][vim]]   | navigation, philosophy                            |
 | [[https://orgmode.org/][org-mode]]      | the format                                        |
 | [[https://magit.vc/][magit]]         | UX                                                |
