@@ -1,11 +1,15 @@
 * Glance
 
 I am distilling my [[https://orgmode.org/][org-mode]] experience, habits and best practices into
-this app: the project is experimental, and I will publish it once it suits
-my everyday work well.
+this app: the project is experimental, and I will publish it once it
+suits my everyday work well.
 
-I use LLM agents in this project, mostly for prototyping and shaping. I avoid
-pure vibe-coding, so ownership and knowledge of the codebase stay with me.
+I use LLM agents in this project, mostly for prototyping and
+shaping. I avoid pure vibe-coding, so ownership and knowledge of the
+codebase stay with me.
+
+In [[https://www.gnu.org/software/emacs/][emacs]] I still use [[https://github.com/rails-to-cosmos/org-glance][org-glance]] and I guarantee the compatibility of
+metadata.
 
 Applications that shaped it, among others:
 - [[https://www.gnu.org/software/emacs/][emacs]] / [[https://www.vim.org/][vim]] :: navigation, philosophy
@@ -14,40 +18,22 @@ Applications that shaped it, among others:
 - [[https://github.com/magnars/expand-region.el][expand-region]] :: this inspired the material widget navigation
 - [[https://github.com/atlas-engineer/nyxt][nyxt]] :: Emacs-style keys over web browsing
 
-In [[https://www.gnu.org/software/emacs/][emacs]] I still use [[https://github.com/rails-to-cosmos/org-glance][org-glance]] and I guarantee the compatibility of
-metadata.
-
 Design:
 - UX that stood the test of time for me personally.
-- [[https://webkit.org/][WebKit]] in mind from the very beginning: should run in browser and as
-  a standalone portable application.
+- [[https://webkit.org/][WebKit]] in mind from the very beginning: should run in browser and as a standalone portable application.
 - Keyboard-first, familiar to emacs&vim users.
-- Commands are named as elisp functions and the echo speaks them
-  verbatim — =d= is =archive-flag=, =,= is =customize=, =q= is =quit-window= one
-  window in.
-- Sequences are org-glance's and Emacs's own: =C-c C-t=, =C-c C-s=, =C-x
-  C-s=, =C-c C-c=, =C-c '=.
-- Movement carries both dialects — =n=/=p= and =j=/=k= step rows, =f=/=b= and
-  =l=/=h= step cells, and the arrows alias both.
-- dired's gestures where dired has one: =m=/=u=/=M=/=U= mark, =d= flags, =x=
-  acts on the flagged, =D= is the quick half.
-- A letter binds the *physical key*, so navigation should work for any
-  layout if possible.
+- Commands are named as elisp functions and the echo speaks them verbatim — =d= is =archive-flag=, =,= is =customize=, =q= is =quit-window= one window in.
+- Sequences are org-glance's and Emacs's own: =C-c C-t=, =C-c C-s=, =C-x C-s=, =C-c C-c=, =C-c '=.
+- Movement carries both dialects — =n=/=p= and =j=/=k= step rows, =f=/=b= and l=/=h= step cells, and the arrows alias both.
+- dired's gestures where dired has one: =m=/=u=/=M=/=U= mark, =d= flags, =x= acts on the flagged, =D= is the quick half.
+- A letter binds the *physical key*, so navigation should work for any layout if possible.
 
 Under it:
-- Org files are the single source of truth; the store, the index and
-  every view are projections, rebuildable from the text.
-- One walk into an in-memory projection, a websocket streaming each
-  change as the file watch re-parses.
-- A write replaces the exact characters a headline occupies:
-  optimistic lock, temp-plus-rename, every other byte identical.
-- Underneath, =Data.Org= — a megaparsec org grammar where every element
-  carries a half-open character span into its document.
-- Two front ends over one set of bytes: Emacs's [[https://github.com/rails-to-cosmos/org-glance][org-glance]] for editing
-  and history, this for the table, the filter and the
-  keyboard. Neither is authoritative; each notifies the other through
-  =meta/EXTERNAL.jsonl=, and =make interop= runs the two against one
-  store.
+- Org files are the single source of truth; the store, the index and every view are projections, rebuildable from the text.
+- One walk into an in-memory projection, a websocket streaming each change as the file watch re-parses.
+- A write replaces the exact characters a headline occupies: optimistic lock, temp-plus-rename, every other byte identical.
+- Underneath, =Data.Org= — a megaparsec org grammar where every element carries a half-open character span into its document.
+- Two front ends over one set of bytes: Emacs's [[https://github.com/rails-to-cosmos/org-glance][org-glance]] for editing and history, this for the table, the filter and the keyboard. Neither is authoritative; each notifies the other through =meta/EXTERNAL.jsonl=, and =make interop= runs the two against one store.
 
 ** Quickstart
 
