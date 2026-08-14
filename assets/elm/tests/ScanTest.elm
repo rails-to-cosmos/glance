@@ -6,7 +6,8 @@ page to reach through the Haskell suite. A body opens with a headline line.
 
 import Array
 import Expect
-import Scan exposing (Grain(..), Kind(..), RegionKind(..), Row, blank)
+import Body exposing (Kind(..), Row, blank)
+import Scan exposing (Grain(..), RegionKind(..))
 import Test exposing (Test, describe, test)
 
 
@@ -49,7 +50,7 @@ indentOf line =
 
 model : List String -> { rows : List Row, lines : List String }
 model lines =
-    { rows = Scan.rowsFrom lines (List.length lines) [] []
+    { rows = Body.rowsFrom lines (List.length lines) [] []
     , lines = lines
     }
 
@@ -83,7 +84,7 @@ takes lines =
         m =
             model lines
     in
-    List.map (\r -> Scan.bodyText m [ r.id ])
+    List.map (\r -> Body.bodyText m [ r.id ])
         (List.filter (\r -> r.kind == Para) m.rows)
 
 
@@ -179,7 +180,7 @@ regionOf line lines =
 
 markerOf : Int -> List String -> String
 markerOf line lines =
-    Scan.markerFor (Array.fromList lines) (Scan.regionAt (Array.fromList lines) 1 (List.length lines) line)
+    Body.markerFor (Array.fromList lines) (Scan.regionAt (Array.fromList lines) 1 (List.length lines) line)
 
 
 regionWord : RegionKind -> String
@@ -223,7 +224,7 @@ carets all =
                 ++ "-"
                 ++ String.fromInt reg.to
                 ++ " «"
-                ++ Scan.markerFor lines reg
+                ++ Body.markerFor lines reg
                 ++ "»"
         )
         (List.range 1 (List.length all - 1))
@@ -241,7 +242,7 @@ everyCaret lines =
     List.concatMap
         (\r ->
             List.map
-                (\o -> Scan.bodyText (insertedAt r.id (Just o) "NEW" lines) [])
+                (\o -> Body.bodyText (insertedAt r.id (Just o) "NEW" lines) [])
                 (List.range 0 (r.to - r.from - 1))
         )
         (List.filter (\r -> r.kind == Para) m.rows)
@@ -256,14 +257,14 @@ leadAt : String -> Maybe Int -> List String -> String
 leadAt id caret lines =
     List.foldr
         (\r acc ->
-            if r.id == Scan.draftId then
+            if r.id == Body.draftId then
                 r.text
 
             else
                 acc
         )
         ""
-        (Maybe.withDefault [] (Scan.drafted (model lines) id caret))
+        (Maybe.withDefault [] (Body.drafted (model lines) id caret))
 
 
 inserted : String -> String -> List String -> { rows : List Row, lines : List String }
@@ -287,7 +288,7 @@ insertedAt id caret written lines =
     { m
         | rows =
             Maybe.withDefault m.rows
-                (Scan.insertion m id caret (leadAt id caret lines ++ written))
+                (Body.insertion m id caret (leadAt id caret lines ++ written))
     }
 
 
@@ -304,19 +305,19 @@ typedAt id caret written lines =
         m =
             model lines
     in
-    { m | rows = Maybe.withDefault m.rows (Scan.insertion m id caret written) }
+    { m | rows = Maybe.withDefault m.rows (Body.insertion m id caret written) }
 
 
 drawnAt : String -> Maybe Int -> List String -> Maybe ( Int, Maybe String )
 drawnAt id caret lines =
-    Scan.drafted (model lines) id caret
-        |> Maybe.andThen (List.filter (\r -> r.id == Scan.draftId) >> List.head)
+    Body.drafted (model lines) id caret
+        |> Maybe.andThen (List.filter (\r -> r.id == Body.draftId) >> List.head)
         |> Maybe.map (\r -> ( r.from, r.owner ))
 
 
 wroteAt : String -> Maybe Int -> String -> List String -> Maybe Int
 wroteAt id caret written lines =
-    Scan.bodyText (insertedAt id caret written lines) []
+    Body.bodyText (insertedAt id caret written lines) []
         |> String.split "\n"
         |> List.indexedMap Tuple.pair
         |> List.filter (\( _, line ) -> String.contains written line)
@@ -328,7 +329,7 @@ wroteAt id caret written lines =
 -}
 withKid : { rows : List Row, lines : List String }
 withKid =
-    { rows = Scan.rowsFrom [ "* head", "mine", "** kid" ] 2 [] [ ( 0, 2, [] ) ]
+    { rows = Body.rowsFrom [ "* head", "mine", "** kid" ] 2 [] [ ( 0, 2, [] ) ]
     , lines = [ "* head", "mine", "** kid" ]
     }
 
@@ -776,23 +777,23 @@ suite =
             [ test "a model nobody touched gives the body back verbatim" <|
                 \_ ->
                     Expect.equal "* head\nalpha\n\nbeta"
-                        (Scan.bodyText (model [ "* head", "alpha", "", "beta" ]) [])
+                        (Body.bodyText (model [ "* head", "alpha", "", "beta" ]) [])
             , test "one changed paragraph replaces its lines and nothing else" <|
                 \_ ->
                     Expect.equal "* head\nrewritten\n\nbeta"
-                        (Scan.bodyText (edited "B0" "rewritten" [ "* head", "alpha", "", "beta" ]) [])
+                        (Body.bodyText (edited "B0" "rewritten" [ "* head", "alpha", "", "beta" ]) [])
             , test "a replacement of several lines splices them all in" <|
                 \_ ->
                     Expect.equal "* head\none\ntwo\n\nbeta"
-                        (Scan.bodyText (edited "B0" "one\ntwo" [ "* head", "alpha", "", "beta" ]) [])
+                        (Body.bodyText (edited "B0" "one\ntwo" [ "* head", "alpha", "", "beta" ]) [])
             , test "a deletion takes its lines, and the blank under them" <|
                 \_ ->
                     Expect.equal "* head\nbeta"
-                        (Scan.bodyText (model [ "* head", "alpha", "", "beta" ]) [ "B0" ])
+                        (Body.bodyText (model [ "* head", "alpha", "", "beta" ]) [ "B0" ])
             , test "the LAST paragraph leaves the blank above it standing" <|
                 \_ ->
                     Expect.equal "* head\nalpha\n"
-                        (Scan.bodyText (model [ "* head", "alpha", "", "beta" ]) [ "B1" ])
+                        (Body.bodyText (model [ "* head", "alpha", "", "beta" ]) [ "B1" ])
             , test "two edits both land, and neither moves the other's range" <|
                 \_ ->
                     let
@@ -813,14 +814,14 @@ suite =
                                         m.rows
                             }
                     in
-                    Expect.equal "* head\nfirst\n\nsecond" (Scan.bodyText both [])
+                    Expect.equal "* head\nfirst\n\nsecond" (Body.bodyText both [])
             ]
         , describe "ONE GRAIN SPEAKS FOR A RANGE"
             [ test "a moved composite silences the leaves under it" <|
                 \_ ->
                     -- The list is B0 and its items B1 and B2 over the same lines.
                     Expect.equal "* head\n- rewritten whole"
-                        (Scan.bodyText
+                        (Body.bodyText
                             (edited "B0" "- rewritten whole" [ "* head", "- alpha", "- beta" ])
                             []
                         )
@@ -828,8 +829,8 @@ suite =
                 \_ ->
                     -- Without the silencing the item splices at a range the deletion took out.
                     Expect.equal [ "* head", "* head" ]
-                        [ Scan.bodyText (model [ "* head", "- alpha", "- beta" ]) [ "B0" ]
-                        , Scan.bodyText (model [ "* head", "- alpha", "- beta" ]) [ "B0", "B1" ]
+                        [ Body.bodyText (model [ "* head", "- alpha", "- beta" ]) [ "B0" ]
+                        , Body.bodyText (model [ "* head", "- alpha", "- beta" ]) [ "B0", "B1" ]
                         ]
             , test "an edited item under an edited list is the LIST's text" <|
                 \_ ->
@@ -840,7 +841,7 @@ suite =
                                 m =
                                     edited "B0" "- whole" [ "* head", "- alpha", "- beta" ]
                             in
-                            Scan.bodyText
+                            Body.bodyText
                                 { m
                                     | rows =
                                         List.map
@@ -860,7 +861,7 @@ suite =
             , test "an untouched composite lets its own leaf speak" <|
                 \_ ->
                     Expect.equal "* head\n- alpha\n- rewritten"
-                        (Scan.bodyText
+                        (Body.bodyText
                             (edited "B2" "- rewritten" [ "* head", "- alpha", "- beta" ])
                             []
                         )
@@ -869,21 +870,21 @@ suite =
             [ test "under the paragraph at point, one blank between" <|
                 \_ ->
                     Expect.equal "* head\nalpha\n\nmid\n\nbeta"
-                        (Scan.bodyText (inserted "B0" "mid" [ "* head", "alpha", "", "beta" ]) [])
+                        (Body.bodyText (inserted "B0" "mid" [ "* head", "alpha", "", "beta" ]) [])
 
             -- THE BLANK BELOW IS DECIDED: the separator is asked of the line.
             , test "and a blank below where what follows is prose" <|
                 \_ ->
                     Expect.equal "* head\n- a\n\nnote\n\nafter"
-                        (Scan.bodyText (inserted "B0" "note" [ "* head", "- a", "after" ]) [])
+                        (Body.bodyText (inserted "B0" "note" [ "* head", "- a", "after" ]) [])
             , test "the headline's leads the body" <|
                 \_ ->
                     Expect.equal "* head\ntop\n\nalpha\n\nbeta"
-                        (Scan.bodyText (inserted "H" "top" [ "* head", "alpha", "", "beta" ]) [])
+                        (Body.bodyText (inserted "H" "top" [ "* head", "alpha", "", "beta" ]) [])
             , test "and a body with no block at all is seeded with one" <|
                 \_ ->
                     Expect.equal "* head\nfirst\n"
-                        (Scan.bodyText (inserted "H" "first" [ "* head", "" ]) [])
+                        (Body.bodyText (inserted "H" "first" [ "* head", "" ]) [])
 
             -- AN ITEM JOINS STRICTLY BELOW THE STOP, wearing the stop's own prefix
             -- — org's own `M-RET'.  The lead is never in the argument.
@@ -893,10 +894,10 @@ suite =
                         [ "* head\n- alpha\n- note\n- beta"
                         , "* head\n- alpha\n- note\n- beta\n- gamma"
                         ]
-                        [ Scan.bodyText
+                        [ Body.bodyText
                             (inserted "B1" "note" [ "* head", "- alpha", "- beta" ])
                             []
-                        , Scan.bodyText
+                        , Body.bodyText
                             (inserted "B1" "note" [ "* head", "- alpha", "- beta", "- gamma" ])
                             []
                         ]
@@ -905,13 +906,13 @@ suite =
             , test "a blank line inside the run stays under the new item" <|
                 \_ ->
                     Expect.equal "* head\n- alpha\n- note\n\n- beta"
-                        (Scan.bodyText (inserted "B1" "note" [ "* head", "- alpha", "", "- beta" ]) [])
+                        (Body.bodyText (inserted "B1" "note" [ "* head", "- alpha", "", "- beta" ]) [])
 
             -- THE INDENT IS THE CURSOR'S: the nested run's own bottom.
             , test "a nested item's joins the NESTED run, at the stop's indent" <|
                 \_ ->
                     Expect.equal "* head\n- alpha\n  - deep\n  - note\n- beta"
-                        (Scan.bodyText
+                        (Body.bodyText
                             (inserted "B2" "note" [ "* head", "- alpha", "  - deep", "- beta" ])
                             []
                         )
@@ -920,24 +921,24 @@ suite =
             , test "an item carrying a nested run keeps it above the new sibling" <|
                 \_ ->
                     Expect.equal "* head\n- alpha\n  - deep\n- note"
-                        (Scan.bodyText (inserted "B1" "note" [ "* head", "- alpha", "  - deep" ]) [])
+                        (Body.bodyText (inserted "B1" "note" [ "* head", "- alpha", "  - deep" ]) [])
 
             -- THE NUMBER IS THE STOP'S, ONE ON, and the item below keeps the one it
             -- had — org's own `M-RET' answer, what `org-list-repair' is for.
             , test "a numbered item takes the stop's number, one on" <|
                 \_ ->
                     Expect.equal "* head\n1. alpha\n2. note\n2. beta"
-                        (Scan.bodyText (inserted "B1" "note" [ "* head", "1. alpha", "2. beta" ]) [])
+                        (Body.bodyText (inserted "B1" "note" [ "* head", "1. alpha", "2. beta" ]) [])
             , test "and the punctuation is the stop's own" <|
                 \_ ->
                     Expect.equal "* head\n1) alpha\n2) note"
-                        (Scan.bodyText (inserted "B1" "note" [ "* head", "1) alpha" ]) [])
+                        (Body.bodyText (inserted "B1" "note" [ "* head", "1) alpha" ]) [])
 
             -- A CHECKBOX COMES ALONG EMPTY, org's own `org-insert-item'.
             , test "a checkbox item's sibling wears an empty box" <|
                 \_ ->
                     Expect.equal "* head\n- [X] alpha\n- [ ] note"
-                        (Scan.bodyText (inserted "B1" "note" [ "* head", "- [X] alpha" ]) [])
+                        (Body.bodyText (inserted "B1" "note" [ "* head", "- [X] alpha" ]) [])
 
             -- WITH NO CARET the answer is a sibling of the STOP, `+' naming no line.
             , test "a table's line rides the table, which stays whole" <|
@@ -946,10 +947,10 @@ suite =
                         [ "* head\n| a |\n| b |\n\nnote\n\nafter"
                         , "* head\n| a |\n| b |\n\nnote"
                         ]
-                        [ Scan.bodyText
+                        [ Body.bodyText
                             (inserted "B2" "note" [ "* head", "| a |", "| b |", "", "after" ])
                             []
-                        , Scan.bodyText
+                        , Body.bodyText
                             (inserted "B1" "note" [ "* head", "| a |", "| b |" ])
                             []
                         ]
@@ -959,13 +960,13 @@ suite =
                         [ "* head\n#+begin_src\nx\n#+end_src\n\nnote\n\nafter"
                         , "* head\n#+begin_src sh\necho one\n#+end_src\n\nnote"
                         ]
-                        [ Scan.bodyText
+                        [ Body.bodyText
                             (inserted "B1"
                                 "note"
                                 [ "* head", "#+begin_src", "x", "#+end_src", "", "after" ]
                             )
                             []
-                        , Scan.bodyText
+                        , Body.bodyText
                             (inserted "B1"
                                 "note"
                                 [ "* head", "#+begin_src sh", "echo one", "#+end_src" ]
@@ -974,11 +975,11 @@ suite =
                         ]
             , test "a child takes none, its bytes being outside this window" <|
                 \_ ->
-                    Expect.equal Nothing (Scan.insertion withKid "C0" Nothing "note")
+                    Expect.equal Nothing (Body.insertion withKid "C0" Nothing "note")
             , test "nor an id no row wears" <|
                 \_ ->
                     Expect.equal Nothing
-                        (Scan.insertion (model [ "* head", "alpha" ]) "B9" Nothing "note")
+                        (Body.insertion (model [ "* head", "alpha" ]) "B9" Nothing "note")
             ]
 
         -- `+' DRAWS THE ROW BEFORE ANYTHING IS WRITTEN, zero-width and passed over.
@@ -990,10 +991,10 @@ suite =
                             model [ "* head", "alpha", "", "beta" ]
 
                         rows =
-                            Maybe.withDefault m.rows (Scan.drafted m "B0" Nothing)
+                            Maybe.withDefault m.rows (Body.drafted m "B0" Nothing)
                     in
                     Expect.equal ( 4, "* head\nalpha\n\nbeta" )
-                        ( List.length rows, Scan.bodyText { m | rows = rows } [] )
+                        ( List.length rows, Body.bodyText { m | rows = rows } [] )
             , test "the drawn item writes nothing at all either" <|
                 \_ ->
                     -- Its text IS its `was', which is what makes the lead free.
@@ -1002,10 +1003,10 @@ suite =
                             model [ "* head", "- alpha" ]
 
                         rows =
-                            Maybe.withDefault m.rows (Scan.drafted m "B1" Nothing)
+                            Maybe.withDefault m.rows (Body.drafted m "B1" Nothing)
                     in
                     Expect.equal ( 4, "* head\n- alpha" )
-                        ( List.length rows, Scan.bodyText { m | rows = rows } [] )
+                        ( List.length rows, Body.bodyText { m | rows = rows } [] )
             , test "and it stands directly under the stop, inside the list" <|
                 \_ ->
                     let
@@ -1013,7 +1014,7 @@ suite =
                             model [ "* head", "- alpha", "- beta", "", "after" ]
                     in
                     Expect.equal (Just [ "H", "B0", "B1", "D", "B2", "B3" ])
-                        (Maybe.map (List.map .id) (Scan.drafted m "B1" Nothing))
+                        (Maybe.map (List.map .id) (Body.drafted m "B1" Nothing))
             , test "a second ask draws one paragraph rather than two" <|
                 \_ ->
                     let
@@ -1021,13 +1022,13 @@ suite =
                             model [ "* head", "alpha" ]
 
                         once =
-                            Maybe.withDefault m.rows (Scan.drafted m "B0" Nothing)
+                            Maybe.withDefault m.rows (Body.drafted m "B0" Nothing)
 
                         twice =
-                            Maybe.withDefault once (Scan.drafted { m | rows = once } "B0" Nothing)
+                            Maybe.withDefault once (Body.drafted { m | rows = once } "B0" Nothing)
                     in
                     Expect.equal 1
-                        (List.length (List.filter (\r -> r.id == Scan.draftId) twice))
+                        (List.length (List.filter (\r -> r.id == Body.draftId) twice))
             , test "and undrafted leaves behind what it found" <|
                 \_ ->
                     let
@@ -1035,10 +1036,10 @@ suite =
                             model [ "* head", "alpha" ]
 
                         rows =
-                            Maybe.withDefault m.rows (Scan.drafted m "B0" Nothing)
+                            Maybe.withDefault m.rows (Body.drafted m "B0" Nothing)
                     in
                     Expect.equal (List.map .id m.rows)
-                        (List.map .id (Scan.undrafted { m | rows = rows }))
+                        (List.map .id (Body.undrafted { m | rows = rows }))
             ]
 
         -- WHERE THE CURSOR IS OWED: block ids are POSITIONAL, so a LINE names it.
@@ -1050,11 +1051,11 @@ suite =
                             model [ "* head", "- alpha", "  - nested", "- beta" ]
 
                         drawn =
-                            Maybe.withDefault [] (Scan.drafted m "B2" Nothing)
+                            Maybe.withDefault [] (Body.drafted m "B2" Nothing)
 
                         held =
                             List.map (\r -> ( r.id, r.owner ))
-                                (List.filter (\r -> r.id == Scan.draftId) drawn)
+                                (List.filter (\r -> r.id == Body.draftId) drawn)
                     in
                     -- A draft owning NOBODY breaks the `Doc.viewKids' walk.
                     Expect.equal [ ( "D", Just "B1" ) ] held
@@ -1062,14 +1063,14 @@ suite =
                 \_ ->
                     -- A continuation at column 1 closes the run: org reads a paragraph.
                     Expect.equal "* head\n- alpha\n- one\n  two"
-                        (Scan.bodyText
+                        (Body.bodyText
                             (inserted "B1" "one\ntwo" [ "* head", "- alpha" ])
                             []
                         )
             , test "where a paragraph keeps its blank lines and no indent" <|
                 \_ ->
                     Expect.equal "* head\npara\n\none\ntwo"
-                        (Scan.bodyText
+                        (Body.bodyText
                             (inserted "B0" "one\ntwo" [ "* head", "para" ])
                             []
                         )
@@ -1101,7 +1102,7 @@ suite =
                 \_ ->
                     Expect.equal ( "- ", "* head\n- alpha\n  more of alpha\n- note\n- beta" )
                         ( leadAt "B1" (Just 1) [ "* head", "- alpha", "  more of alpha", "- beta" ]
-                        , Scan.bodyText
+                        , Body.bodyText
                             (insertedAt "B1"
                                 (Just 1)
                                 "note"
@@ -1117,13 +1118,13 @@ suite =
                         m =
                             model [ "* head", "one", "two" ]
                     in
-                    Expect.equal (Scan.drafted m "B0" (Just 0)) (Scan.drafted m "B0" (Just 2))
+                    Expect.equal (Body.drafted m "B0" (Just 0)) (Body.drafted m "B0" (Just 2))
 
             -- THE WRITE MEASURES THE SAME LEAD AS THE DRAW.
             , test "and the write rides continuations under the bullet drawn" <|
                 \_ ->
                     Expect.equal "* head\n- alpha\n  - beta\n  - one\n    two\n- gamma"
-                        (Scan.bodyText
+                        (Body.bodyText
                             (insertedAt "B1"
                                 (Just 1)
                                 "one\ntwo"
@@ -1143,14 +1144,14 @@ suite =
                             ++ "    - [X] Зубные щётки Эрику и Юмику\n    - [ ] Ошейник\n"
                             ++ "  - [X] Записать к грумеру\n  - [ ] Постричь когти"
                         )
-                        (Scan.bodyText (insertedAt "B1" (Just 6) "Ошейник" pets) [])
+                        (Body.bodyText (insertedAt "B1" (Just 6) "Ошейник" pets) [])
 
             -- THE TWO RULES CAN ONLY BE TOLD APART IN THE MIDDLE of the run.
             , test "at the run's LAST line the split is the bottom" <|
                 \_ ->
                     Expect.equal ( Just 10, Just 10 )
-                        ( Scan.joinLine (model pets) "B1" (Just 8)
-                        , Scan.joinLine (model pets) "B1" Nothing
+                        ( Body.joinLine (model pets) "B1" (Just 8)
+                        , Body.joinLine (model pets) "B1" Nothing
                         )
             , test "and the item it writes there wears that line's own indent" <|
                 \_ ->
@@ -1160,7 +1161,7 @@ suite =
                             ++ "    - [X] Зубные щётки Эрику и Юмику\n  - [X] Записать к грумеру\n"
                             ++ "  - [ ] Постричь когти\n  - [ ] Ошейник"
                         )
-                        (Scan.bodyText (insertedAt "B1" (Just 8) "Ошейник" pets) [])
+                        (Body.bodyText (insertedAt "B1" (Just 8) "Ошейник" pets) [])
 
             -- LINE 0 IS A LINE A READER STOOD ON, so absence is spelled otherwise.
             , test "a caret on line 0 lands under line 0, not past the structure" <|
@@ -1171,7 +1172,7 @@ suite =
                             ++ "    - [X] Зубная паста\n    - [X] Зубные щётки Эрику и Юмику\n"
                             ++ "  - [X] Записать к грумеру\n  - [ ] Постричь когти"
                         )
-                        (Scan.bodyText (insertedAt "B1" (Just 0) "Ошейник" pets) [])
+                        (Body.bodyText (insertedAt "B1" (Just 0) "Ошейник" pets) [])
 
             -- `+' WITH NO BOX OPEN RIDES PAST THE WHOLE STRUCTURE.
             , test "an absent index still rides past the whole structure" <|
@@ -1182,7 +1183,7 @@ suite =
                             ++ "    - [X] Зубные щётки Эрику и Юмику\n  - [X] Записать к грумеру\n"
                             ++ "  - [ ] Постричь когти\n- [ ] Ошейник"
                         )
-                        (Scan.bodyText (inserted "B1" "Ошейник" pets) [])
+                        (Body.bodyText (inserted "B1" "Ошейник" pets) [])
 
             -- ONE LINE, TWO READERS: the draw and the splice must agree.
             , test "the drawn draft and the written line are one line" <|
@@ -1190,7 +1191,7 @@ suite =
                     Expect.equal ( Just ( 8, Just "B5" ), Just 8, Just 8 )
                         ( drawnAt "B1" (Just 6) pets
                         , wroteAt "B1" (Just 6) "Ошейник" pets
-                        , Scan.joinLine (model pets) "B1" (Just 6)
+                        , Body.joinLine (model pets) "B1" (Just 6)
                         )
 
             -- AND IT STANDS IN THE ROW ORDER ITS BYTES ARE IN.
@@ -1198,7 +1199,7 @@ suite =
                 \_ ->
                     Expect.equal
                         (Just [ "H", "B0", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "D", "B8", "B9" ])
-                        (Maybe.map (List.map .id) (Scan.drafted (model pets) "B1" (Just 6)))
+                        (Maybe.map (List.map .id) (Body.drafted (model pets) "B1" (Just 6)))
             ]
         -- A LINE INSIDE A LIST BELONGS TO AN ITEM however wide the stop laid over
         -- it, so the caret is what decides.
@@ -1251,7 +1252,7 @@ suite =
                 \_ ->
                     Expect.equal ( "    - [ ] ", spliced 8 [ "    - [ ] Ошейник" ] )
                         ( leadAt "B0" (Just 6) chores
-                        , Scan.bodyText (insertedAt "B0" (Just 6) "Ошейник" chores) []
+                        , Body.bodyText (insertedAt "B0" (Just 6) "Ошейник" chores) []
                         )
             , test "and the row is drawn in the run it was written into" <|
                 \_ ->
@@ -1263,7 +1264,7 @@ suite =
                 \_ ->
                     Expect.equal ( "", spliced 16 [ "", "note" ] )
                         ( leadAt "B0" Nothing chores
-                        , Scan.bodyText (inserted "B0" "note" chores) []
+                        , Body.bodyText (inserted "B0" "note" chores) []
                         )
 
             -- AND THE REGION IS ASKED ABOUT, never the line alone: a source block can
@@ -1279,7 +1280,7 @@ suite =
                         , "* head\n#+begin_src\n- not an item\nnote\nx\n#+end_src\nafter"
                         )
                         ( leadAt "B1" (Just 0) src
-                        , Scan.bodyText (insertedAt "B1" (Just 0) "note" src) []
+                        , Body.bodyText (insertedAt "B1" (Just 0) "note" src) []
                         )
             -- A CONTINUATION LINE NAMES NO ITEM: the rung HOLDING the line spells it.
             , test "a caret on a continuation takes the rung that holds it" <|
@@ -1290,7 +1291,7 @@ suite =
                     in
                     Expect.equal ( "  - ", "* head\n- alpha\n  - deep\n    inside deep\n  - note\n- beta" )
                         ( leadAt "B0" (Just 2) riding
-                        , Scan.bodyText (insertedAt "B0" (Just 2) "note" riding) []
+                        , Body.bodyText (insertedAt "B0" (Just 2) "note" riding) []
                         )
             ]
         -- ONE QUESTION — WHICH REGION HOLDS THE CARET — AND ONE ANSWER PER REGION.
@@ -1320,7 +1321,7 @@ suite =
             , test "and what is written there lands inside, the block still closing" <|
                 \_ ->
                     Expect.equal "* head\n#+begin_src sh\necho one\necho mid\necho two\n#+end_src"
-                        (Scan.bodyText (typedAt "B1" (Just 0) "echo mid" srcBlock) [])
+                        (Body.bodyText (typedAt "B1" (Just 0) "echo mid" srcBlock) [])
 
             -- A DRAWER IS NO STOP: the scanner leaves it inside its paragraph.
             , test "a drawer takes the same answer, :LOGBOOK: included" <|
@@ -1330,7 +1331,7 @@ suite =
                         , "* head\nnotes\n:LOGBOOK:\nCLOCK: [2026-08-12 Wed 10:00]\nCLOCK: later\n:END:"
                         )
                         ( leadAt "B0" (Just 2) logbook
-                        , Scan.bodyText (typedAt "B0" (Just 2) "CLOCK: later" logbook) []
+                        , Body.bodyText (typedAt "B0" (Just 2) "CLOCK: later" logbook) []
                         )
             , test "and each wears its OWN indent where it carries one" <|
                 \_ ->
@@ -1368,14 +1369,14 @@ suite =
             , test "and point lands where the reader types, one space into a row" <|
                 \_ ->
                     Expect.equal [ 2, 6, 0, 2, 4, 1 ]
-                        (List.map Scan.caretIn
+                        (List.map Body.caretIn
                             [ "- ", "- [ ] ", "", "|   |   |", "  |   |    |", "||" ]
                         )
             , test "the row it writes keeps the table one table" <|
                 \_ ->
                     let
                         body =
-                            Scan.bodyText (typedAt "B0" (Just 2) "| three | four  |" grid) []
+                            Body.bodyText (typedAt "B0" (Just 2) "| three | four  |" grid) []
                     in
                     Expect.equal
                         ( "* head\n| alpha | beta  |\n|-------+-------|\n| one   | two   |\n| three | four  |"
@@ -1398,7 +1399,7 @@ suite =
                     in
                     Expect.equal ( "", "* head\n#+begin_src sh\necho one\n#+end_src\n\nafter" )
                         ( leadAt "B0" (Just 2) src
-                        , Scan.bodyText (typedAt "B0" (Just 2) "after" src) []
+                        , Body.bodyText (typedAt "B0" (Just 2) "after" src) []
                         )
             , test "and one on :END: lands after the drawer" <|
                 \_ ->
@@ -1407,13 +1408,13 @@ suite =
                             [ "* head", ":LOGBOOK:", "clocked", ":END:" ]
                     in
                     Expect.equal "* head\n:LOGBOOK:\nclocked\n:END:\n\nafter"
-                        (Scan.bodyText (typedAt "B0" (Just 2) "after" book) [])
+                        (Body.bodyText (typedAt "B0" (Just 2) "after" book) [])
             , test "where a table's last row is a line INSIDE it" <|
                 \_ ->
                     -- Same index, two regions, two answers.
                     Expect.equal ( Just 4, Just 5 )
-                        ( Scan.joinLine (model grid) "B0" (Just 2)
-                        , Scan.joinLine
+                        ( Body.joinLine (model grid) "B0" (Just 2)
+                        , Body.joinLine
                             (model [ "* head", "#+begin_src sh", "echo one", "#+end_src" ])
                             "B0"
                             (Just 2)
@@ -1428,7 +1429,7 @@ suite =
                     in
                     Expect.equal ( "3. ", "* head\n1. one\n2. two\n3. mid\n3. three" )
                         ( leadAt "B0" (Just 1) nums
-                        , Scan.bodyText (insertedAt "B0" (Just 1) "mid" nums) []
+                        , Body.bodyText (insertedAt "B0" (Just 1) "mid" nums) []
                         )
             , test "and a checkbox comes back EMPTY whatever the caret line's state" <|
                 \_ ->
@@ -1496,7 +1497,7 @@ suite =
                         ("* head\n- alpha\n  - beta\n    wrapped over\n  - NEW\n"
                             ++ "    two more lines\n- gamma"
                         )
-                        (Scan.bodyText (typedAt "B2" (Just 1) "  - NEW" wrapRun) [])
+                        (Body.bodyText (typedAt "B2" (Just 1) "  - NEW" wrapRun) [])
             ]
 
         -- AN ITEM'S LINES ARE A BODY OF THEIR OWN, so every kind gets its nested
@@ -1510,7 +1511,7 @@ suite =
                 \_ ->
                     let
                         body =
-                            Scan.bodyText (typedAt "B1" (Just 2) "  echo mid" itemSrc) []
+                            Body.bodyText (typedAt "B1" (Just 2) "  echo mid" itemSrc) []
 
                         back =
                             String.split "\n" body
@@ -1526,7 +1527,7 @@ suite =
                 \_ ->
                     let
                         body =
-                            Scan.bodyText (typedAt "B1" (Just 1) "  | e | ff |" itemGrid) []
+                            Body.bodyText (typedAt "B1" (Just 1) "  | e | ff |" itemGrid) []
                     in
                     Expect.equal
                         ( "  |   |    |"
@@ -1545,7 +1546,7 @@ suite =
                             ++ "  CLOCK: later\n  :END:\n- beta"
                         )
                         ( ( regionOf 3 itemBook, markerOf 3 itemBook )
-                        , Scan.bodyText (typedAt "B1" (Just 2) "  CLOCK: later" itemBook) []
+                        , Body.bodyText (typedAt "B1" (Just 2) "  CLOCK: later" itemBook) []
                         )
 
             -- A CLOSER ASKS FOR WHAT COMES AFTER IT — inside an item, the ITEM.
@@ -1558,8 +1559,8 @@ suite =
                             ++ "  #+end_src\n- NEW\n  tail\n- beta"
                         )
                         ( ( regionOf 5 itemSrc, markerOf 5 itemSrc )
-                        , Scan.joinLine (model itemSrc) "B1" (Just 4)
-                        , Scan.bodyText (typedAt "B1" (Just 4) "- NEW" itemSrc) []
+                        , Body.joinLine (model itemSrc) "B1" (Just 4)
+                        , Body.bodyText (typedAt "B1" (Just 4) "- NEW" itemSrc) []
                         )
 
             -- WHAT NO NESTED REGION CLAIMS IS THE ITEM'S.
@@ -1600,7 +1601,7 @@ suite =
                         ("* head\n- a\n  #+begin_src sh\n  - not an item\n  - nor this\n"
                             ++ "  #+end_src\n- b"
                         )
-                        (Scan.bodyText (typedAt "B1" (Just 2) "  - nor this" itemSrcBullet) [])
+                        (Body.bodyText (typedAt "B1" (Just 2) "  - nor this" itemSrcBullet) [])
             , test "and taking its item keeps :LOGBOOK: and :END: together" <|
                 \_ ->
                     Expect.equal
@@ -1758,7 +1759,7 @@ suite =
                 \_ ->
                     let
                         body =
-                            Scan.bodyText
+                            Body.bodyText
                                 (typedAt "B0"
                                     (Just 6)
                                     "| Day 23  Tuesday   | Handstand          |"
@@ -1948,25 +1949,25 @@ suite =
             [ test "under a paragraph the text lands a blank on" <|
                 \_ ->
                     Expect.equal (Just 3)
-                        (Scan.joinLine (model [ "* head", "alpha", "", "beta" ]) "B0" Nothing)
+                        (Body.joinLine (model [ "* head", "alpha", "", "beta" ]) "B0" Nothing)
             -- AN ITEM OWES NO BLANK: its landing is the line under the stop.
             , test "an item lands on the line under the stop" <|
                 \_ ->
                     Expect.equal (Just 2)
-                        (Scan.joinLine (model [ "* head", "- alpha", "- beta" ]) "B1" Nothing)
+                        (Body.joinLine (model [ "* head", "- alpha", "- beta" ]) "B1" Nothing)
             , test "and under the headline it leads the body with no blank owed" <|
                 \_ ->
                     Expect.equal (Just 1)
-                        (Scan.joinLine (model [ "* head", "alpha", "", "beta" ]) "H" Nothing)
+                        (Body.joinLine (model [ "* head", "alpha", "", "beta" ]) "H" Nothing)
             , test "a child owes none" <|
                 \_ ->
-                    Expect.equal Nothing (Scan.joinLine withKid "C0" Nothing)
+                    Expect.equal Nothing (Body.joinLine withKid "C0" Nothing)
             , test "and the row taking that line is the one point lands on" <|
                 \_ ->
                     let
                         m =
                             model [ "* head", "alpha", "", "mid", "", "beta" ]
                     in
-                    Expect.equal 2 (Scan.placeOfLine { rows = m.rows, at = 0 } 3)
+                    Expect.equal 2 (Body.placeOfLine { rows = m.rows, at = 0 } 3)
             ]
         ]

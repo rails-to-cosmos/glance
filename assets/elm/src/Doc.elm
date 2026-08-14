@@ -15,17 +15,15 @@ import Html exposing (Html, div, span, text)
 import Html.Attributes exposing (class, style)
 import Json.Decode as D
 import Json.Encode as E
-import Scan
+import Body
     exposing
         ( Cell
-        , Grain(..)
         , Kind(..)
         , Row
         , blank
         , bodyText
         , caretIn
         , cellCount
-        , cut
         , draftId
         , drafted
         , insertion
@@ -33,7 +31,6 @@ import Scan
         , joinWord
         , kidsOf
         , kindWord
-        , nth
         , placeOf
         , placeOfLine
         , rowAt
@@ -42,6 +39,7 @@ import Scan
         , shown
         , undrafted
         )
+import Scan exposing (Grain(..), cut, nth)
 
 
 
