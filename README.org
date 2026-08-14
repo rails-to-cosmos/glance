@@ -10,13 +10,13 @@ I use LLM agents in this project, mostly for prototyping and shaping. I avoid
 pure vibe-coding, so ownership and knowledge of the codebase stay with me.
 
 Applications that shaped it, among others:
-- emacs / vim :: navigation, philosophy
-- magit :: UX habits
-- dired :: marks, flags, and the keyboard habits around them
-- expand-region :: reversed — the material widget starts wide and narrows
-- nyxt :: Emacs-style keys over web browsing
+- [[https://www.gnu.org/software/emacs/][emacs]] / [[https://www.vim.org/][vim]] :: navigation, philosophy
+- [[https://magit.vc/][magit]] :: UX habits
+- [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Dired.html][dired]] :: marks, flags, and the keyboard habits around them
+- [[https://github.com/magnars/expand-region.el][expand-region]] :: reversed — the material widget starts wide and narrows
+- [[https://github.com/atlas-engineer/nyxt][nyxt]] :: Emacs-style keys over web browsing
 
-In emacs I still use [[https://github.com/rails-to-cosmos/org-glance][org-glance]] and I guarantee the compatibility of
+In [[https://www.gnu.org/software/emacs/][emacs]] I still use [[https://github.com/rails-to-cosmos/org-glance][org-glance]] and I guarantee the compatibility of
 metadata.
 
 - UX that stood the test of time for me personally.
