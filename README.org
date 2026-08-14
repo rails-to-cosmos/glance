@@ -18,7 +18,8 @@ Applications that shaped it, among others:
 - [[https://github.com/magnars/expand-region.el][expand-region]] :: this inspired the material widget navigation
 - [[https://github.com/atlas-engineer/nyxt][nyxt]] :: Emacs-style keys over web browsing
 
-Design:
+** Design
+
 - UX that stood the test of time for me personally.
 - [[https://webkit.org/][WebKit]] in mind from the very beginning: should run in browser and as a standalone portable application.
 - Keyboard-first, familiar to emacs&vim users.
@@ -28,7 +29,8 @@ Design:
 - dired's gestures where dired has one: =m=/=u=/=M=/=U= mark, =d= flags, =x= acts on the flagged, =D= is the quick half.
 - A letter binds the *physical key*, so navigation should work for any layout if possible.
 
-Under it:
+** Under it
+
 - Org files are the single source of truth; the store, the index and every view are projections, rebuildable from the text.
 - One walk into an in-memory projection, a websocket streaming each change as the file watch re-parses.
 - A write replaces the exact characters a headline occupies: optimistic lock, temp-plus-rename, every other byte identical.
