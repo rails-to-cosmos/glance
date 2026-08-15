@@ -537,7 +537,7 @@ tagColumns =
 
 -- | The protocols naming a row.  @org-glance-overview:@/@-state:@ name a tag and a keyword.
 refPrefixes :: [Text]
-refPrefixes = ["org-glance-visit:", "org-glance-open:", "org-glance-material:", "id:"]
+refPrefixes = ["org-glance-visit:", "org-glance-open:", "org-glance-material:", "id:", "glance:"]
 
 refTargets :: Text -> [Text]
 refTargets = refTargetsOf . orgLinks

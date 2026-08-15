@@ -6,13 +6,13 @@ import Data.Text (Text)
 
 import Glance.Query ( archiveTag, captureCodes, followableTypes, linkColumns
                     , planningKeywords, tagColumns )
-import Glance.Web.Base (jsonValue, logLinesDefault, logLinesMax, logLinesMin)
+import Glance.Web.Base (docCells, jsonValue, logLinesDefault, logLinesMax, logLinesMin)
 
 -- | The blob for VIEWS, the tree's saved views in registry order.  Member names are the script's @CFG.*@ reads.
 glueConfig :: [(Text, Text)] -> Text
 glueConfig views = jsonValue $ object
   [ "views"        .= [ object ["id" .= i, "query" .= q] | (i, q) <- views ]
-  , "dcells"       .= (["state", "priority", "title", "tags"] :: [Text])
+  , "dcells"       .= map fst docCells
   , "planning"     .= planningKeywords
   , "archiveTag"   .= archiveTag
   , "followable"   .= followableTypes

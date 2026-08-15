@@ -13,7 +13,7 @@ import System.FilePath ((</>), makeRelative, splitDirectories, takeDirectory)
 
 import Data.Org.Blob (storeRootIn)
 import Data.Org.External (noteExternalDelete)
-import Data.Org.Walk (Entry (..), entryOf, isBlob, trashDir)
+import Data.Org.Walk (Entry (..), entryOf, isBlob, storeDir, trashDir)
 
 import qualified Codec.Compression.GZip as GZip
 import qualified Data.ByteString as BS
@@ -31,8 +31,8 @@ trashPathFor root path
   | otherwise         = (\shard -> trashDirIn root </> shard <> ".gz")
                           <$> afterData (splitDirectories path)
   where
-    afterData parts = case break (== "data") parts of
-      (_, "data":rest) | not (null rest) -> Just (foldr1 (</>) rest)
+    afterData parts = case break (== storeDir) parts of
+      (_, _store:rest) | not (null rest) -> Just (foldr1 (</>) rest)
       _                                  -> Nothing
 
 -- | Move the blob at PATH into ROOT's trash, compressed, and take the original

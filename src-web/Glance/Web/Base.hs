@@ -11,6 +11,7 @@ module Glance.Web.Base ( ServeOptions (..)
                        , rendererAsset
                        , viewTitleFor
                        , tenths
+                       , docCells
                          -- * Bodies
                        , withBody
                        , bodyObject
@@ -34,7 +35,7 @@ module Glance.Web.Base ( ServeOptions (..)
                        , jsonValue
                        ) where
 
-import Data.Aeson (Object, ToJSON, eitherDecode', encode, object, withObject, (.=))
+import Data.Aeson (Object, ToJSON, Value, eitherDecode', encode, object, toJSON, withObject, (.=))
 import Data.Aeson.Types (Pair, Parser, parseEither)
 import Data.Bifunctor (first)
 import Data.Text (Text)
@@ -49,7 +50,8 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
-import Glance.Query (WalkOptions (..), WriteFailure (..))
+import Glance.Query ( HeadlineRecord, WalkOptions (..), WriteFailure (..)
+                    , hrPriority, hrState, hrTags, hrTitle )
 
 
 -- | What one server serves.
@@ -97,6 +99,16 @@ gluePartFiles =
 
 tenths :: Double -> Double
 tenths s = fromIntegral (round (s * 10) :: Int) / 10
+
+-- | The doc pane's cells, ONE list: the route builds the values off it and the
+-- shell's config blob takes its keys from it, and the pane indexes the one by
+-- the other.  Spelled apart, a key added to the route was never drawn and a key
+-- renamed drew an empty cell, both in silence.
+docCells :: [(Text, HeadlineRecord -> Value)]
+docCells = [ ("state",    toJSON . hrState)
+           , ("priority", toJSON . hrPriority)
+           , ("title",    toJSON . hrTitle)
+           , ("tags",     toJSON . hrTags) ]
 
 bodyLimit :: Int
 bodyLimit = 1024 * 1024

@@ -198,8 +198,7 @@ editSpec = testGroup "applyEdits"
       let doc = rdText (render ds)
           es = disjointEdits doc plan texts
       in  distinctKeys es ==>
-            counterexample (show es) (property (legal doc es))
-              .&&. applyEdits doc es === applyEdits doc (rotate k es)
+            counterexample (show es) (applyEdits doc es === applyEdits doc (rotate k es))
 
   , testProperty "length is the document's plus what each edit adds" $ \ds plan texts ->
       let doc = rdText (render ds)

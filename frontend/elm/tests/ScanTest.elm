@@ -697,8 +697,12 @@ suite =
                         (Scan.closers [ "#+begin_quote", "#+begin_src", "#+end_src" ])
             , test "an OUTER block holding an inner one is not empty" <|
                 \_ ->
-                    Expect.equal [ "#+end_quote" ]
-                        (Scan.closers [ "#+begin_quote", "#+begin_src", "#+end_src" ])
+                    -- THE CLAIM IS THE MISSING BLANK, so it is asserted apart
+                    -- from the closer list above: spelled as the same equality
+                    -- it could never fail on its own.
+                    Scan.closers [ "#+begin_quote", "#+begin_src", "#+end_src" ]
+                        |> List.head
+                        |> Expect.notEqual (Just "")
             , test "VERBATIM suspends the grammar: a quote inside src is text" <|
                 \_ ->
                     Expect.equal [ "#+end_src" ]

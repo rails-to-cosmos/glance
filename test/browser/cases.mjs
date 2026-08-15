@@ -332,6 +332,9 @@ export default [
     });
     const out = [`line ${s.line}px, row h${s.h}, field h${s.fieldH} scroll${s.scrollH}, `
       + `${s.text} text lines, row padTop ${s.atPad}`];
+    // EVERY ASSERTION BELOW RIDES THIS LIST, so an empty one reports green
+    // having measured nothing.
+    assert(s.leaves.length > 0, "the pane drew no leaves to measure");
     let uniform = parseFloat(s.atPad);
     for (const l of s.leaves) {
       const drift = +(l.drawn - uniform).toFixed(1);

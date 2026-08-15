@@ -5078,7 +5078,6 @@ shellGlue =
   , Glue "the tags popup is a mutable mount with a rename overlay"
       [ "const TCOLS = "
       , "tmount = listing(\"ttable\", TCOLS, \"d/D remove · u unflag\", \"tpane\");"
-      , "tmount = listing(\"ttable\", TCOLS, \"d/D remove · u unflag\", \"tpane\");"
       , "const managing = () => !!tagging;"
       , "cells: [\"title\"], cols: TCOLS,"
       , "const renaming = () => { const e = editNow(); return !!e && e.o === TROW; };"
@@ -5488,7 +5487,10 @@ shellGlue =
       , "const outcome = (r) => r.json().then((b) => ({ status: r.status, body: b }));"
       , "postJSON(at(id, child), { ...asked, digest }, extra);"
       , "const postCommand = (body) => postJSON(\"/command\", body).then(unwrap);" ]
-      [ "method: \"POST\",\n  , \"        headers:" ]
+      -- The must-not-appear half was a botched edit: a Haskell list separator
+      -- had leaked INTO the needle, so no page could ever carry it.  What is
+      -- left above pins the one spelling.
+      []
 
   -- THE SUBTREE WRITE'S ANSWER, once: a 200 re-pins the digest, and under it is one ladder for every refusal.
   , glue "one ladder answers every subtree write"

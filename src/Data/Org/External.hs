@@ -58,11 +58,9 @@ data Completion = Completion
   } deriving (Eq, Show)
 
 completionLine :: Completion -> Time.UTCTime -> BS.ByteString
-completionLine c at = BL.toStrict
-  (  "{\"id\":" <> encode (coIdent c)
-  <> ",\"at\":" <> encode (spelled "%Y-%m-%dT%H:%M:%SZ" at)
-  <> ",\"state\":" <> encode (coState c)
-  <> ",\"shifted\":" <> encode (coShifted c) <> "}\n" )
+completionLine c = noteLine [ ",\"state\":" <> encode (coState c)
+                            , ",\"shifted\":" <> encode (coShifted c) ]
+                            (coIdent c)
 
 noteCompletion :: FilePath -> Completion -> IO ()
 noteCompletion root c =

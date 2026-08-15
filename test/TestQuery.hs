@@ -2,7 +2,7 @@
 -- shape needing a parser internal fails to compile.
 module TestQuery (spec) where
 
-import Control.Concurrent (getNumCapabilities, rtsSupportsBoundThreads)
+import Control.Concurrent (rtsSupportsBoundThreads)
 import Control.Monad (forM_, replicateM, (<=<))
 import Data.Aeson (Value (Bool, Object, String), eitherDecodeFileStrict', object, (.=))
 import Data.Either (fromRight, isRight)
@@ -766,8 +766,6 @@ parallelSpec = testGroup "Parallel load"
   [ testCase "the suite runs on the threaded runtime" $ do
       -- A non-threaded runtime has one capability whatever @-N@ says, and every assertion below still passes.
       assertBool "-threaded" rtsSupportsBoundThreads
-      caps <- getNumCapabilities
-      assertBool ("capabilities: " <> show caps) (caps >= 1)
 
   , testCase "record for record, the pool load is the serial load" $ withCorpus $ \dir -> do
       (parallel, parErrs) <- loadDirFilesWith defaultWalk dir

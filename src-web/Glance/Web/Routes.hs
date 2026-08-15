@@ -10,6 +10,7 @@ import Control.Exception (SomeException, displayException, evaluate, finally, tr
 import Control.Monad (filterM, forever, void, when)
 import Data.Aeson (FromJSON (..), Value, encode, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
+import qualified Data.Aeson.Key as Key
 import Data.Bifunctor (first)
 import Data.List (find, nub)
 import Data.Map.Strict (Map)
@@ -42,8 +43,7 @@ import qualified Network.WebSockets as WS
 
 import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , HeadlineParts (..)
-                    , HeadlineRecord ( hrDigest, hrFile, hrId, hrPriority, hrState
-                                     , hrSubtree, hrTags, hrTitle )
+                    , HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree, hrTags, hrTitle)
                     , OrgLink (olSpan, olTarget)
                     , QueryResult (..), SortChain
                     , Span (spanEnd, spanStart)
@@ -64,7 +64,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , resolveColumns, savedViews, todoLines, viewColumns
                     , viewJSONTextFor )
 import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
-                       , conflict, glueAsset, gluePartFiles, html, jsonError
+                       , conflict, docCells, glueAsset, gluePartFiles, html, jsonError
                        , elmAsset
                        , jsonResponse, jsonType
                        , noSuchRow
@@ -351,10 +351,7 @@ levelOf :: Focus -> Int
 levelOf = maybe 1 seLevel . focusEntry
 
 cells :: HeadlineRecord -> [Pair]
-cells r = [ "state"    .= hrState r
-          , "priority" .= hrPriority r
-          , "title"    .= hrTitle r
-          , "tags"     .= hrTags r ]
+cells r = [ Key.fromText k .= f r | (k, f) <- docCells ]
 
 childJSON :: Int -> SubtreeEntry -> Value
 childJSON i e = object ([ "index" .= i, "level" .= seLevel e
