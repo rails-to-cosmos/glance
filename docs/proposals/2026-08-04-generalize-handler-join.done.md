@@ -1,6 +1,11 @@
 # Proposal — the keymap/glue join, checked
 
-**Status:** proposed · **Date:** 2026-08-04
+**Status:** done — the `VERBED` case landed as `TestServe.hs` "every command
+that names rows spells its own log phrase"; the `HANDLERS` case landed
+2026-08-15, proven by typing one `kbHandler` wrong and watching it go red.
+The optional second step (`kbWrites`) is declined: it moves the served keymap
+blob, which is a wire change wearing a test's clothes ·
+**Date:** 2026-08-04
 
 `Glance.Web.Keymap` and `Glance.Web.Page.Glue` are two hand-maintained lists of
 ~50 identifiers in two languages inside ONE component, joined by string equality

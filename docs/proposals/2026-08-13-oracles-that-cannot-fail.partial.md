@@ -1,7 +1,9 @@
 # Proposal — the checks that report green when they should report red
 
-**Status:** partial — items 1-4 landed 2026-08-14, each proven by making it
-fail; items 5-7 are decisions and stay open ·
+**Status:** partial — items 1-4 landed whole, each proven by making it fail:
+1-3 and two thirds of 4 on 2026-08-14, and 4's last third — `glue.d.ts`'s port
+interfaces against Elm's own `port` declarations — on 2026-08-15.  Items 5-7
+are decisions and stay open ·
 **Date:** 2026-08-13 · **Origin:** `/generalizer`, future-variant-cost angle,
 after a session in which nine adversarial rounds each ran against a green
 suite.

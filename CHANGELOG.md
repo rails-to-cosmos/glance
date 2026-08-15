@@ -24,7 +24,15 @@ section groups a feature arc, and its date is that arc's last commit.
 
 - **`make major`, `make minor` and `make patch` cut a release.** A cut has to
   move three files that spell the version and rename the changelog's
-  `## Unreleased` to the version and today's date; done by hand, one of them
+  `## Unreleased
+
+### Fixed
+
+- **A reference carrying a kind resolves again.** Emacs's org-glance writes an
+  edge as `org-glance-material:ID?kind=SLUG`; the daemon kept the whole tail as
+  the target, so every such link pointed at nothing — `ref:` queries missed the
+  rows, and the subtree that named them showed no reference. The target is now
+  the id, cut at the first `?`. A title keeps its own question mark, being text.` to the version and today's date; done by hand, one of them
   drifts. PVP decides which digit moves: `major` for a breaking change (`0.7` →
   `0.8`), `minor` for an addition, `patch` for a fix. Cutting an empty
   `Unreleased` is refused. Nothing is committed or tagged.

@@ -1,6 +1,11 @@
 # Proposal — one address, a declared kind, an index, and the shape
 
-**Status:** proposed — five decisions taken 2026-08-12; nothing built ·
+**Status:** partial — five decisions taken 2026-08-12.  One slice of stage 1
+landed 2026-08-15: `refTargetOf` now cuts a protocol target at its first `?`,
+so an edge the peer wrote as `…:ID?kind=SLUG` resolves to `ID` rather than to
+nothing (`TestFilter.hs`, "a kind suffix rides off a protocol target").  A
+title keeps its own `?`.  The `Ref` TYPE, `refKind` on the wire, the reverse
+index, `@`, `/graph` and `glance migrate` are all still unbuilt ·
 **Date:** 2026-08-12 · **Origin:** the relations census over `~/sync`
 (10452 rows, 3524 edges), and the user's framing of the project as *org-mode
 under the hood, source of truth, the user operates views: filtering / schema

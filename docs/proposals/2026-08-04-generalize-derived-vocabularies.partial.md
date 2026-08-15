@@ -1,6 +1,9 @@
 # Proposal — a sentence that lists a list should read it
 
-**Status:** partial — 1 and 2 landed; 3 and 4 open · **Date:** 2026-08-04
+**Status:** partial — 1 and 2 landed; 3 and 4 open.  Item 2 had a second
+half nobody had counted: `AGENTS.hs` kept its OWN hand-written `writeHint`,
+naming two of three POST routes, and no case compared it to the served one.
+Derived and pinned 2026-08-15 · **Date:** 2026-08-04
 
 **Revisited 2026-08-14.** Item 1 had already been fixed by the time this was
 re-read: the refusal reads `relativeForms`, and `shifted` goes through `unitOf`,

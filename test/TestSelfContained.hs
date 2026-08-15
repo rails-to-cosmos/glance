@@ -37,6 +37,20 @@ word, day :: T.Text -> T.Text
 word = T.takeWhile (/= ' ')
 day  = T.take 10
 
+-- | The members of every @…Ports@ interface: a name whose type opens a brace,
+-- which is what an Elm port compiles to.  A member may span lines, so the
+-- interface is what bounds the read.
+portsIn :: T.Text -> [T.Text]
+portsIn = go False . map T.strip . T.lines
+  where
+    go _ [] = []
+    go inside (l:ls)
+      | "interface " `T.isPrefixOf` l = go ("Ports {" `T.isSuffixOf` l) ls
+      | inside && l == "}"            = go False ls
+      | inside, (name, rest) <- T.breakOn ":" l
+      , "{" `T.isPrefixOf` T.strip (T.drop 1 rest) = T.strip name : go inside ls
+      | otherwise                     = go inside ls
+
 -- | PART with its comment-only lines out, so a name in prose is not a reach.
 glueCode :: FilePath -> IO T.Text
 glueCode part = strip <$> TIO.readFile ("frontend/glue" </> part)
@@ -121,6 +135,22 @@ spec = testGroup "Self-containment"
         assertBool ("assets/elm.js carries no " <> T.unpack m
                       <> " — `make elm' has not been run since it was named")
                    (("'" <> m <> "':") `T.isInfixOf` built)
+
+    -- `tsc' READS ONE SIDE.  It catches the glue calling a port Elm lacks; a
+    -- port DECLARED here and absent there typechecks and dies at boot with
+    -- `undefined.subscribe is not a function', so the two lists are joined.
+  , testCase "the ports the glue is typed against are the ports Elm declares" $ do
+      declared <- portsIn <$> TIO.readFile "frontend/glue.d.ts"
+      elmSrc <- mapM (TIO.readFile . ("frontend/elm/src" </>)) ["Doc.elm", "Listing.elm"]
+      let exposed = [ T.takeWhile (/= ' ') (T.strip rest)
+                    | l <- concatMap T.lines elmSrc
+                    , Just rest <- [T.stripPrefix "port " l]
+                    , not ("module" `T.isPrefixOf` T.strip rest) ]
+      assertBool ("too few ports swept: " <> show declared) (length declared >= 5)
+      assertEqual "a port glue.d.ts declares and no Elm module has"
+        [] [ T.unpack p | p <- declared, p `notElem` exposed ]
+      assertEqual "a port Elm exposes and glue.d.ts never types"
+        [] [ T.unpack p | p <- exposed, p `notElem` declared ]
 
   , testCase "the vendored renderer has a target that refreshes it" $ do
       makefile <- TIO.readFile "Makefile"

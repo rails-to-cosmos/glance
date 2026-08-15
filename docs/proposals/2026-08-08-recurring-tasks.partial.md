@@ -1,6 +1,12 @@
 # Proposal — recurring tasks
 
-**Status:** partial — proposed · **Date:** 2026-08-08
+**Status:** partial — BUILT and tested, bar one rename.  `repeatOn`,
+`shiftRepeat`, `repeatDay`, `Completion`, `completionLine` and `noteCompletion`
+all shipped, wired through `Commands.writeOne` and covered by
+`TestExternal.hs`'s "Completions" group and `TestSpec.hs`.  Decision 5 was
+taken against the text below — `CLOSED:` is never shifted (`planStamps`), and
+`:LAST_REPEAT:` was not written.  Only decision 6, the repeater-type rename,
+is owed · **Date:** 2026-08-08
 
 Repeating entries are the one org feature this daemon parses whole and
 cannot act on: marking a repeating row DONE stops the repeat dead.  Take

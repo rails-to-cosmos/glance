@@ -59,7 +59,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.Encoding as TE
-import AGENTS (Method (GET), RefusalBody (JsonRefusal), notFoundText, pageHeaders, rMethods, rNeeds, rPath, rRefusal, routeAt, routes, statsHeaders, takesText)
+import AGENTS (Method (GET), RefusalBody (JsonRefusal), notFoundText, pageHeaders, rMethods, rNeeds, rPath, rRefusal, routeAt, routes, statsHeaders, takesText, writeHint)
 import Glance.Web (ServeOptions (..), application, defaultPort)
 import Glance.Web.Store (CloseReason, Frame (Op), Hub (hubPending, hubStore), RowOp (DeleteRow, UpsertRow), Store (stGen, stPrint, stTags), applyFile, closeReason, loadStore, newHub, newLoadingHub, recordsUnder, storeRecords)
 import Glance.Web.Watch (settle)
@@ -754,6 +754,14 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
       bad <- getFrom a "/command"
       assertContains "the 405 sentence is the entry's own"
                      (T.pack (maybe "" takesText (routeAt "/command"))) (body bad)
+      -- AND A TEXT REFUSAL'S HINT names every POST the table carries; spelled
+      -- by hand it had missed /config, and nothing compared the two.
+      mapM_ (\r -> do
+               resp <- runSession (request (setPath defaultRequest (BSC.pack (rPath r)))
+                                     { requestMethod = methodDelete }) a
+               assertEqual (rPath r <> ": the 405 hint names the table's writers")
+                           (T.pack writeHint) (T.stripEnd (body resp)))
+            [ r | r <- routes, rRefusal r /= JsonRefusal ]
 
   , testCase "the asset route refuses the traversal pair and a separator" $ do
       a <- app assetsDir

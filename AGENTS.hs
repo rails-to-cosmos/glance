@@ -1766,8 +1766,10 @@ takesText :: Route -> String
 takesText r = rPath r ++ " takes " ++ intercalate " and " (map show (rMethods r))
 notFoundText :: String
 notFoundText = "not found: " ++ intercalate ", " (map rPath routes) ++ ", or an asset name"
-writeHint :: String
-writeHint = "method not allowed; POST /headline?id=… and POST /command write"
+writeHint :: String                               -- ^ DERIVED, like `notFoundText'; spelled by hand it had missed @/config@
+writeHint = "method not allowed; "
+         ++ intercalate " and " [ "POST " ++ rPath r | r <- routes, POST `elem` rMethods r ]
+         ++ " write"
 wsHint :: String
 wsHint = "/ws is a websocket endpoint; connect with Upgrade: websocket"
 

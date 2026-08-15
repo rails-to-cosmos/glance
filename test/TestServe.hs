@@ -6,7 +6,7 @@ import Data.Aeson ( FromJSON, Value (Array, Bool, Null, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, toJSON, (.=) )
 import Data.Aeson.Types (parseEither)
 import Data.ByteString (ByteString)
-import Data.Char (isDigit, isLower)
+import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isSpace)
 import Data.Foldable (toList)
 import Data.List (elemIndex, find, isInfixOf, nub, sort, sortOn)
 import Data.Maybe (fromJust, fromMaybe, listToMaybe)
@@ -9071,6 +9071,37 @@ stripGlueComments :: T.Text -> T.Text
 stripGlueComments =
   T.unlines . filter (not . T.isPrefixOf "//" . T.stripStart) . T.lines
 
+-- | The identifiers at key position in the object literal @NAME = {@ opens,
+-- shorthand members counted.  The walk steps over strings and trailing
+-- comments, since either may carry an unbalanced brace, and counts parens
+-- because a comma inside an argument list opens no member.
+objectKeys :: T.Text -> T.Text -> [T.Text]
+objectKeys name src = go (1 :: Int) (0 :: Int) True (T.drop 1 body) []
+  where
+    body = snd (T.breakOn "{" (snd (T.breakOn (name <> " = {") src)))
+    go braces parens fresh t acc = case T.uncons t of
+      Nothing -> reverse acc
+      Just (c, rest)
+        | c == '}' && braces == 1 -> reverse acc
+        | c == '/', "/" `T.isPrefixOf` rest -> go braces parens fresh (T.dropWhile (/= '\n') rest) acc
+        | c `elem` ("\"'`" :: String) -> go braces parens False (past c rest) acc
+        | c == '}'                -> go (braces - 1) parens False rest acc
+        | c == '{'                -> go (braces + 1) parens False rest acc
+        | c == ')' || c == ']'    -> go braces (parens - 1) False rest acc
+        | c == '(' || c == '['    -> go braces (parens + 1) False rest acc
+        | c == ','                -> go braces parens (braces == 1 && parens == 0) rest acc
+        | isSpace c               -> go braces parens fresh rest acc
+        | fresh && braces == 1 && parens == 0 && (isAlpha c || c == '_') ->
+            let (ident, after) = T.span (\x -> isAlphaNum x || x == '_') t
+            in go braces parens False after (ident : acc)
+        | otherwise               -> go braces parens False rest acc
+    -- What follows the closing QUOTE, escapes honoured.
+    past q t = case T.uncons t of
+      Nothing            -> t
+      Just ('\\', after) -> past q (T.drop 1 after)
+      Just (c, after) | c == q    -> after
+                      | otherwise -> past q after
+
 glueOf :: T.Text -> IO T.Text
 glueOf shell = do
   assertBool "the page names glue.js" ("src=\"glue.js\"" `T.isInfixOf` shell)
@@ -9204,6 +9235,19 @@ keymapSpec shell = testGroup "Shell keymap"
       "released and pressed again is two honest presses"
       "" "press:Backspace press:Backspace" $ \answer ->
         urlIs "both tokens gone" "?q=" answer
+
+    -- A JOIN THE COMPILER CANNOT SEE: the keymap names a shell function and the
+    -- shell answers by string equality, so a typo is bound, documented, drawn on
+    -- the key line, echoed — and dead, printing the same M4 line a deliberately
+    -- unhandled row prints.  Nothing else tells the two apart.
+  , testCase "a binding names a handler the shell carries" $ do
+      b <- shell
+      rows <- keymapOf b
+      handlers <- objectKeys "HANDLERS" <$> glueOf b
+      assertBool ("the sweep found handlers: " <> show (length handlers))
+                 (length handlers >= 20)
+      assertEqual "bound to a handler the glue does not define" []
+        [ h | (_k, _s, _c, Just h, _scope, _help) <- rows, h `notElem` handlers ]
 
   , testCase "the writes are the commands auto-repeat is off for" $ do
       b <- shell

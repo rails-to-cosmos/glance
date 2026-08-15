@@ -84,6 +84,19 @@ targetSpec = testGroup "Reference targets"
         -- The case is the id's: a fold here would put `Password-…' out of reach.
         , ("org-glance-visit:Password-20210516-d9", "Password-20210516-d9") ]
 
+    -- THE PEER SPELLS A KIND ON THE EDGE — org-glance's `--edge->link-path'
+    -- appends `?kind=SLUG' — and the id alone names the row.  Kept, it dangles.
+  , testCase "a kind suffix rides off a protocol target, leaving the id" $ do
+      mapM_ (\(raw, want) -> assertEqual (T.unpack raw) (Just want) (refTargetOf raw))
+        [ ("org-glance-material:contact-25053-3?kind=author", "contact-25053-3")
+        , ("org-glance-visit:task-spbm-1-2-3-0?kind=blocked-by", "task-spbm-1-2-3-0")
+        , ("id:9f8e7d6c?kind=", "9f8e7d6c") ]
+      assertEqual "a kind with no id before it names nothing"
+                  Nothing (refTargetOf "org-glance-material:?kind=author")
+      -- A TITLE IS TEXT, so its question mark is its own.
+      assertEqual "a starred title keeps its question mark"
+                  (Just "Why not") (refTargetOf "*Why not")
+
   , testCase "the two title forms lose their star and keep their text" $ do
       assertEqual "starred" (Just "Hacking the renderer")
                   (refTargetOf "*Hacking the renderer")

@@ -547,7 +547,10 @@ refTargetsOf = nub . map detach . mapMaybe (refTargetOf . olTarget)
 
 refTargetOf :: Text -> Maybe Text
 refTargetOf target
-  | Just rest <- firstJust (`T.stripPrefix` target) refPrefixes = nonEmpty rest
+    -- A KIND RIDES ON THE EDGE, not on the row: org-glance writes
+    -- @?kind=SLUG@ after the id, and a target keeping it resolves to nothing.
+    -- A TITLE is text, so its own @?@ stays.
+  | Just rest <- firstJust (`T.stripPrefix` target) refPrefixes = nonEmpty (T.takeWhile (/= '?') rest)
   | Just rest <- T.stripPrefix "*" target                       = nonEmpty rest
   | T.any (\c -> c == ':' || c == '/') target                   = Nothing
   | otherwise                                                   = nonEmpty target
