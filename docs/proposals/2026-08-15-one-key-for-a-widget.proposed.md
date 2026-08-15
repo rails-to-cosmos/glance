@@ -1,12 +1,17 @@
-# Proposal — one key for a widget, and two bugs the three vocabularies hid
+# Proposal — one key for a widget, and two names that promise more than they do
 
 **Status:** proposed · **Date:** 2026-08-15 · **Origin:** `/generalizer`,
-cross-cut angle.  Two live defects fell out of the measurement; they are stated
-first because they are worth fixing whatever happens to the shape.
+cross-cut angle.  Two findings the sweep called defects are stated first, checked back
+down to what they actually are.
 
-## Two bugs, found by asking what member N+1 costs
+## Two name mismatches, first reported here as bugs and checked back down
 
-### `sole(keep)` is a complete no-op whenever it is given an argument
+Both were raised by the sweep as defects.  Reading the surrounding code shows
+neither changes what a reader sees.  They are recorded because each is a place
+where a NAME promises something the code does not do, which is what the registry
+below is for.
+
+### `sole(keep)`'s parameter is a flag wearing an except-this name
 
 `AGENTS.hs:3183` models it as `sole :: [Surface] -> [Surface]`, no argument.
 The code (`frontend/glue/70-shell.js:68-71`) is:
@@ -15,27 +20,39 @@ The code (`frontend/glue/70-shell.js:68-71`) is:
 function sole(keep) { if (keep) return; for (const s of SURFACES) if (s.momentary && s.up()) s.off(); }
 ```
 
-The intent is plainly *close every momentary surface except `keep`*.  Any truthy
-argument returns immediately.  `frontend/glue/30-capture.js:20` calls
-`sole("capture")` and `:192` calls `sole(over)` — **so raising the capture form
-closes no momentary surface.**  The spec and the code disagree in arity and
-nothing compares them.
+`keep` reads as *close every momentary surface except this one*.  What it does is
+boolean: `sole()` closes them all, `sole(anything)` closes none.
 
-### The `archive` saved view shipped without a way to reach it
+**It is used correctly at every site.**  `askFrom` passes `true` and its comment
+says why — *"Raised OVER the popup that asked for it: this is that popup's own
+field"* (`30-capture.js:240`).  `openCapture`'s `sole("capture")` means the same
+"close nothing", and the resulting overlap is documented: `70-shell.js:65` says
+*"The list ORDER breaks one tie: `+' over the tags popup leaves both up."*
+`popupKeys` (`:261`) guards on `momentary() !== name`, so the earlier surface in
+`SURFACES` owns the keyboard while both are visible.  That is the design.
 
-`savedViews` grew 2 → 3 on 2026-08-10.  Most of the fan-out is derived and cost
-nothing — `TreeSettings`, `viewQueryIn`, the write dispatch, `GET /config`, the
-pin palette.  Two steps are not derived, and both were missed:
+What is owed is the name and the model: `keep` should be `quiet`, or the
+except-this semantics its name promises should exist, and `AGENTS.hs:3183`'s
+arity should match either way.
 
-- `frontend/glue/50-settings.js:511` — `const NAMED_VIEW = { default: …, agenda: … }`
-  — **two entries for three views.**  `archive` falls through to
-  `apply-view:archive`, a command name nothing binds.
-- `src-web/Glance/Web/Keymap.hs:66` binds `g` to `default` and `:84` binds `A`
-  to `agenda`.  **`archive` has no key**, no `keyHints` row, no `onceCommands`
-  entry.
+### `archive` is reachable; what it lacks is a key and an elisp name
 
-The view has been reachable only through the pin palette for five days, and
-`cabal test` is green throughout.
+`savedViews` grew 2 → 3 on 2026-08-10, and most of the fan-out is derived and
+cost nothing — `TreeSettings`, `viewQueryIn`, the write dispatch, `GET /config`,
+the pin palette.  Two steps are not derived:
+
+- `50-settings.js:511` — `NAMED_VIEW = { default: …, agenda: … }`, two entries
+  for three views.  `archive` falls through to the generic
+  `apply-view:archive`, so **its echo names no elisp command** where its two
+  siblings do.
+- `Keymap.hs:66` binds `g` to `default`, `:84` binds `A` to `agenda`.
+  `archive` has **no key**, no `keyHints` row, no `onceCommands` entry.
+
+Applying it works: `filter()` resolves `view:archive` through `viewNamed` and
+calls `applyNamed` (`00-core.js:285`), which is the documented `view:NAME`
+grammar.  Whether the third view earns a key is a decision, not a defect — but
+the registry cannot say it was taken, because `svKey` does not exist to hold a
+declared `Nothing`.
 
 ## The shape underneath
 
@@ -110,8 +127,7 @@ data SavedView = SavedView
 ## LOC
 
 Widgets: added ~35 (registry + one dispatcher), removed ~70 (six guard
-preambles, the three-way name plumbing, four lazy-mount closures, `sole`'s
-broken parameter).  Saved per member: **~18 lines → ~4.**
+preambles, the three-way name plumbing, four lazy-mount closures).  Saved per member: **~18 lines → ~4.**
 Saved views: added ~10, removed ~6; saved per member: three edits in two
 languages → one row.
 
@@ -122,7 +138,9 @@ dispatcher moves real key handling, and this repo's own scar is a glue refactor
 that left `n`/`p` stepping nothing while `tsc` stayed clean.  Land the registry
 and the projections first, measure, and take the dispatcher separately.
 
-The two bug fixes are independent of all of it and should go first.
+The two name mismatches above are independent of all of it: `sole`'s parameter
+and `AGENTS.hs:3183`'s arity can be settled in one edit, and `archive`'s key is
+a decision to record rather than work to do.
 
 ## Overlap, stated
 
