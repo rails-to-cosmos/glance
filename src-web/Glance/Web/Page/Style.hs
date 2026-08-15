@@ -73,8 +73,13 @@ page head' colours title body = T.unlines
   , "  #log .lm{color:var(--g-fg)}"
   , "  #log .warn .lv{color:var(--g-warn)}"
   , "  #log .error .lv{color:var(--g-bad)}"
+  -- The strip is one nowrap line and is WIDER THAN THE WINDOW AT EVERY SIZE, so
+  -- `overflow-x:auto' drew a bar under it always — 15px of chrome under a hint
+  -- nobody drags. It still scrolls; it draws nothing. Both spellings, as
+  -- `#dpara textarea' below.
   , "  #kbd{flex:none;font-size:11px;color:var(--g-mute);white-space:nowrap;"
-  , "    overflow-x:auto;padding:0 2px}"
+  , "    overflow-x:auto;scrollbar-width:none;padding:0 2px}"
+  , "  #kbd::-webkit-scrollbar{width:0;height:0}"
   -- These two z-levels clear the renderer's sticky header (1) and list (5).
   , "  #modal,#prompt,#config,#links,#tags,#capture{--dk-mono:\"Hack\", var(--glance-mono);"
   , "    display:none;position:fixed;inset:0;z-index:100;background:var(--g-veil);"

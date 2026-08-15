@@ -2996,6 +2996,7 @@ cmdNotes =
   , Note "delete's three walls are checked on the SERVER as well as in the shell, because a request is a request whoever wrote it." [Test]
   , Note "The renderer ships its palette at ZERO specificity (:where(.tv-root)), which is what lets the page's ordinary rules win whatever order the stylesheets land in." [Docs]
   , Note "A pill draws its hue as INK over a 15% wash of itself over the ROW's ground, so a theme picks hues readable over its own pBg AND pSelection." [Docs]
+  , Note "A COLUMN'S TEXT IS `ch' AND ITS GROUNDS ARE `px', each in the unit the stylesheet spends it in: a pill's 16px of padding allowed for as 2 characters is exact at one font size and short at every other. The allowance carries a further px because a column width lands DOWN on the engine's 1/64 grid, and a pill is an inline-block `text-overflow' cannot cut — so a hair short draws the whole badge with an ellipsis behind it." [Browser]
   , Note "`paletteSweep' is the DERIVED oracle: it reads the served page and compares the two namespaces role by role, and counts the slots the served rows name." [Test]
   , Note "A tree's state hues are the SYSTEM layer's alone and are emitted per REQUEST after `themeCSS', coming off the store's config rather than out of the build." [Test]
   -- Tier two until the checks moved into the suite: what no gate asks.
@@ -4171,6 +4172,10 @@ sheetNotes =
   , Note "No popup box declares a width or a height of its own; `#mpanes' hides its\
          \ overflow and no pane carries a floor, `#mdoc' owning its scroll and the mounts\
          \ inside the other panes owning theirs." [Test]
+  , Note "SCROLLING IS SILENT: the surfaces that scroll — `.tv-scroll' and `#kbd' —\
+         \ hide the bar in both spellings, `scrollbar-width' for Firefox and the\
+         \ `::-webkit-scrollbar' pseudo for Chromium.  A classic bar takes LAYOUT width,\
+         \ which the fill column then loses and the sideways scroll begins a bar early." [Browser]
   , Note "The left pane is a list of KINDS, so it is no table-view mount." [Docs]
   , Note "The openers are the corpus's — `-', `1.'/`1)', `+' and an INDENTED `*' — and a\
          \ block is any `#+begin_X' with a matching `#+end_X' BY NAME." [Elm]

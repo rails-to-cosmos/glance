@@ -458,4 +458,78 @@ export default [
     }
     return out;
   } },
+
+// A COLUMN SIZED BY ITS OWN BADGE CAME UP A FIFTH OF A PIXEL SHORT.  The pill's
+// 16px of padding was allowed for as 2 characters, which is 15.6px at a 13px
+// monospace face; the pill is an inline-block and cannot be cut, so what
+// `text-overflow' drew was the WHOLE badge with an ellipsis after it — `[#A]…'
+// in the priority column, whose widest cell IS the badge.  Every other badge
+// column hid it, sized by a cell longer than its pill.  Unaskable in
+// TestServe.hs: the node harness returns zeroed rects.
+{ name: "a badge sized by its own pill is drawn whole, never ellipsized",
+  async run(p, base) {
+    const seen = [];
+    for (const [w, h] of [[1400, 900], [1024, 768]]) {
+      await p.size(w, h);
+      await p.goto(`${base}/`);
+      await p.until(() => document.querySelectorAll("#app td .tv-pill").length > 0,
+                    `a badge to draw at ${w}px`);
+      const at = await p.eval(() => [...document.querySelectorAll("#app td .tv-pill")].map((n) => {
+        const td = n.closest("td"), cs = getComputedStyle(td);
+        // FRACTIONAL: `clientWidth' is a rounded integer and rounds the fifth of
+        // a pixel this case exists for out of the reading.
+        const inner = td.getBoundingClientRect().width
+          - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+          - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth);
+        return { text: n.textContent, pill: n.getBoundingClientRect().width, inner };
+      }));
+      for (const b of at)
+        assert(b.pill <= b.inner + 0.001,
+          `the "${b.text}" pill measures ${px(b.pill)} in a cell holding ${px(b.inner)} `
+          + `at ${w}px, so an ellipsis is drawn beside a badge that cannot be cut`);
+      seen.push(...at.map((b) => `${b.text}@${w}: ${px(b.pill)} in ${px(b.inner)}`));
+    }
+    return [`each pill against its cell's content box: ${seen.join("  ")}`];
+  } },
+
+// THE PAGE NEVER SCROLLS AND NOTHING DRAWS A BAR SAYING IT MIGHT.  Two surfaces
+// did: `.tv-scroll', whose rows are driven by key and wheel, and `#kbd', one
+// nowrap line wider than the window at every size — 15px of chrome under a hint
+// nobody drags, and 15px the fill column no longer has.  The sibling case above
+// asks whether the DOCUMENT scrolls; this asks what CHROME the surfaces draw,
+// which is a bar's width of layout either way.
+{ name: "no surface on the page draws a scrollbar of its own",
+  async run(p, base) {
+    const seen = [];
+    for (const [w, h] of [[1400, 900], [1024, 768], [800, 900]]) {
+      await p.size(w, h);
+      await p.goto(`${base}/`);
+      await p.until(() => !!document.querySelector("#app table tbody tr"),
+                    `the table to mount at ${w}px`);
+      const bars = await p.eval(() => {
+        const out = [];
+        for (const n of document.querySelectorAll("body *")) {
+          const cs = getComputedStyle(n);
+          // An INLINE box reports a meaningless `clientWidth' of 0; a box that
+          // cannot clip cannot draw a bar. Neither is asked.
+          if (cs.display === "inline") continue;
+          if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+          const gy = n.offsetWidth - n.clientWidth
+            - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth);
+          const gx = n.offsetHeight - n.clientHeight
+            - parseFloat(cs.borderTopWidth) - parseFloat(cs.borderBottomWidth);
+          if (gx > 1 || gy > 1)
+            out.push({ el: n.id ? "#" + n.id
+                         : n.tagName.toLowerCase() + "." + String(n.className).split(/\s+/)[0],
+                       gx: Math.round(gx), gy: Math.round(gy) });
+        }
+        return out;
+      });
+      assert(!bars.length,
+        `at ${w}x${h} a scrollbar takes layout space on `
+        + bars.map((b) => `${b.el} (${b.gy}px wide, ${b.gx}px tall)`).join(", "));
+      seen.push(`${w}x${h}: none`);
+    }
+    return [`surfaces taking a bar's width: ${seen.join("  ")}`];
+  } },
 ];

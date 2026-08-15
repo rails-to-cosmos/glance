@@ -92,6 +92,14 @@ const BREAKS = {
   "cursor-line": ["the cursor in the pane is a ground",
                   "#mdoc.on .de.dat{background:transparent !important;"
                     + "text-decoration:underline !important}"],
+  // The pill outgrows the ground `applyWidths' bought it (`PILL_PAD').
+  "pill-ground": ["a badge sized by its own pill is drawn whole",
+                  ".tv-pill{padding:0 14px !important}"],
+  // Both surfaces draw the classic bar back, layout width and all.
+  "bar-space": ["no surface on the page draws a scrollbar of its own",
+                ".tv-scroll,#kbd{scrollbar-width:auto !important}"
+                  + ".tv-scroll::-webkit-scrollbar,#kbd::-webkit-scrollbar"
+                  + "{width:15px !important;height:15px !important}"],
 };
 
 /** One socket, one id counter, one session: `flatten' puts the page session on
