@@ -267,9 +267,12 @@ page head' colours title body = T.unlines
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
   , "  .ctext{height:7em;resize:vertical}"
   , "  .ctext::selection{background:var(--g-sel);color:var(--g-fg)}"
-  , "  #themesel,#clayer{background:var(--g-bg);align-self:flex-start;"
+    -- A `<select>' with a TRANSPARENT ground keeps the UA's own control paint,
+    -- which reads as a light box among dark fields.  Every select says the ground.
+  , "  #themesel,#clayer,#nspace,#ngroup{background:var(--g-bg);align-self:flex-start;"
   , "    max-width:100%;min-width:10em}"
-  , "  #themesel option,#clayer option{background:var(--g-bg);color:var(--g-fg)}"
+  , "  #themesel option,#clayer option,#nspace option,#ngroup option{"
+  , "    background:var(--g-bg);color:var(--g-fg)}"
   , "  .cerr{font-size:11px;color:var(--g-bad)}"
   , "  .cerr:empty{display:none}"
   , "  #ceff{font-size:12px;padding-top:8px;border-top:1px solid var(--g-border)}"
