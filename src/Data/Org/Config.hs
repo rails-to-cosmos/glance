@@ -30,6 +30,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , keywordScopes
                        , loadConfigDirs
                        , mergeKeywords
+                       , mintableLayer
                        , noConfig
                        , noKeywords
                        , readConfigLayers
@@ -47,13 +48,13 @@ import Data.List (find, foldl', sort)
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import System.Directory (listDirectory)
-import System.FilePath (isAbsolute, splitDirectories, takeBaseName, (</>))
+import System.FilePath (takeBaseName, takeDirectory, takeFileName, (</>))
 
 import qualified Data.Set as Set
 import qualified Data.Text as T
 
 import Data.Org.Edit (digestOfText, eolOf, lineSpansIn, openingFor, readDocument)
-import Data.Org.Parser (orgParse)
+import Data.Org.Parser (isTagChar, orgParse)
 import Data.Org.Types ( Context, Element (EPragma), Pragma (PTodo), Span (..), Spanned (valueOf)
                       , defaultContext, setTodo, todoActive, todoInactive )
 import Data.Org.Walk (configDir, isDocument, orgGlanceDir)
@@ -314,6 +315,23 @@ filesIn dir = do
     layerAt tag path = held <$> readDocument path
       where held = maybe (ConfigLayerFile path tag "" "")
                          (\(text, digest) -> ConfigLayerFile path tag digest text)
+
+-- | PATH as a TAG LAYER THAT IS NOT THERE YET, under DIR's own @tags\/@.
+-- 'filesIn' can only list what exists, and @system.org@ is listed absent so a
+-- writer can create it ('loadConfigDirs'); this is that same rule for a tag,
+-- and it is the ONLY way a tag layer comes into being.  The empty digest is
+-- what 'editFile' reads as "create it".  A basename org cannot read back as a
+-- tag is refused HERE, or 'tagOf' would name a layer nothing ever selects.
+mintableLayer :: FilePath -> FilePath -> Maybe ConfigLayerFile
+mintableLayer dir path
+  | takeDirectory path == tagsDir
+  , isDocument (takeFileName path)
+  , not (T.null tag)
+  , T.all isTagChar tag
+  = Just (ConfigLayerFile path (Just tag) "" "")
+  | otherwise = Nothing
+  where tagsDir = snd (configPaths dir)
+        tag     = tagOf (takeFileName path)
 
 listOrg :: FilePath -> IO [FilePath]
 listOrg dir = do

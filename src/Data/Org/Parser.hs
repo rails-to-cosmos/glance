@@ -1,4 +1,5 @@
 module Data.Org.Parser ( Parse (..)
+                       , isKeywordChar
                        , isTagChar
                        , orgParse
                        ) where
@@ -141,7 +142,11 @@ instance Parse Keyword where
   parse = Keyword . T.toUpper <$> keywordTextP
 
 keywordTextP :: StatefulParser Text
-keywordTextP = T.pack <$> some (MP.satisfy (\c -> isAlpha c || c == '_'))
+keywordTextP = T.pack <$> some (MP.satisfy isKeywordChar)
+
+-- | Exported so a command layer writes what this reads; org's own @#+TODO:@ word.
+isKeywordChar :: Char -> Bool
+isKeywordChar c = isAlpha c || c == '_'
 
 instance Parse Pragma where
   parse = do

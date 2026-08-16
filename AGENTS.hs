@@ -1554,6 +1554,27 @@ configNotes =
   , Note "default drawing first gives TODO the letter t and DONE the letter d in every tree; an empty store's palette is org's own pair." [Test]
   , Note "hrDeclared is stored beside the union and FORCED: a TodoKeywords field is strict to WHNF alone, so a thunk would pin the whole parse for the process's life." [Test, Corpus]
   , Note "set-state legality is the row's own chain: a keyword any named row's chain lacks refuses the WHOLE request, naming the keyword and the row." [Test]
+  , Note "`+' IN THE STATE PALETTE DECLARES BEFORE IT SETS: the state is written\
+         \ into a config layer, the store's reread is WAITED FOR, and only then is\
+         \ `set-state' fired — the chain wall above is walked THROUGH rather than\
+         \ around.  A word the store has not reread yet is reported as declared." [Test]
+  , Note "THE NAMESPACE IS WHERE THE DECLARATION GOES: `system' the tree, `tag:X'\
+         \ the rows carrying X.  The select is `system', the tags the applied query\
+         \ names — the rows on screen are the rows that filter chose — then the tag\
+         \ layers the tree already has.  `default' is org's builtin pair, which is\
+         \ CODE and has no file to write into, so it is no namespace here." [Test]
+  , Note "A TAG LAYER IS MINTED BY BEING WRITTEN TO, the rule `system.org' already\
+         \ had: `filesIn' can only list what exists, so a state could never be added\
+         \ to a tag with no file.  Only under the FIRST config dir's own `tags/',\
+         \ and only where org can read the basename back as a tag." [Test]
+  , Note "A STATE'S SPELLING IS CHECKED ON THE WAY IN, before the count: a word\
+         \ org cannot read makes `todoPragmas' yield nothing, so without the wall\
+         \ the writer is told the block declares nothing rather than which word\
+         \ did it.  The charset is the PARSER's own `isKeywordChar'." [Test]
+  , Note "A HUE IS ASKED FOR ONCE PER THEME.  The colour config is keyed by theme\
+         \ end to end, so a form with one field edits whichever theme is on and\
+         \ leaves the other on a palette slot.  A colour is the SYSTEM layer's, so\
+         \ a state minted under a tag moves two files." [Test]
   , Note "GET /keywords reads every ids/id occurrence, so ?ids=a&ids=b says what ?ids=a,b says — the repeated form is what an id containing a comma owes." [Test]
   , Note "GET /tags answers PER ROW — {rows, vocabulary, counts, unknown} — the vocabulary the whole store's and counts ROWS per tag, counted per request because stTags counts FILES." [Test]
   , Note "GET /config reads the FILES rather than the loaded layers, the digest it hands out being the lock; it serves each layer's lines, keywords, template and digest beside the tree's settings and the build's theme names." [Test]

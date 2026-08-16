@@ -15,6 +15,10 @@
      */
     /** @type {Surface[]} */
     const SURFACES = [
+      // OVER THE PALETTE, WHICH STANDS: `+' asks for a state the store has not
+      // got, and ESC hands the palette back.  First in the list, so ESC walks
+      // out of this one before the palette under it.
+      { name: "mint", momentary: true, up: mintUp, off: () => shutMint(null) },
       { name: "prompt", momentary: true, up: () => !!promptNow(), off: unask },
       // The picker hangs at the caret and takes no tier, but it is momentary
       // like the rest: ESC walks out of it before anything else.
@@ -228,6 +232,8 @@
     });
     document.addEventListener("keydown", (e) => {
       if (!promptNow()) return;
+      // The mint form is OVER this one and its fields take letters.
+      if (mintUp()) return;
       // The press that RAISED this lands here next — `t' is a letter in it too.
       if (promptNow().raising) { promptNow().raising = false; return; }
       const k = keyName(e);
@@ -239,6 +245,12 @@
         return;
       }
       if (!promptNow().narrow) {
+        // `+' is out of the a-z pool `whichKeys' draws from, so no entry claims it.
+        if (k === "+" && promptNow().states) {
+          e.preventDefault();
+          openMint();
+          return;
+        }
         const hit = promptNow().choices.find((c) => c.key === k);
         if (k === "/")
           fieldMode("RET sets it · C-n/C-p walks · ESC leaves");

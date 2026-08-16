@@ -157,6 +157,26 @@ let layers = [
 ];
 const configWrites = [];
 let configTick = 1;
+const TAGS_DIR = "/o/.org-glance/config/tags";
+/** PATH as a tag layer this tree does not have yet, or null. */
+const mintable = (path) => {
+  const at = String(path).lastIndexOf("/");
+  const name = String(path).slice(at + 1);
+  const tag = name.replace(/\.org$/, "").toLowerCase();
+  if (String(path).slice(0, at) !== TAGS_DIR) return null;
+  if (!/\.org$/.test(name) || !/^[a-z0-9_@#%-]+$/.test(tag)) return null;
+  return { path, tag, lines: [], keywords: { active: [], inactive: [] },
+           template: "", digest: "" };
+};
+/** LAYER's chain as `/keywords' answers it once the store has reread. */
+const reseed = (layer) => {
+  const name = layer.tag === null ? "system" : layer.tag;
+  const held = sources.find((s) => s.source === name);
+  const fresh = { source: name, active: (layer.keywords || {}).active || [],
+                  inactive: (layer.keywords || {}).inactive || [] };
+  if (held) Object.assign(held, fresh); else sources.push(fresh);
+};
+
 let sources = [
   { source: "default", active: ["TODO"],    inactive: ["DONE"] },
   { source: "book",    active: ["READING"], inactive: ["READ"] },
@@ -326,7 +346,7 @@ globalThis.fetch = (url, init) => {
   }
   if (String(url) === "/config") {
     if ((init || {}).method !== "POST")
-      return answer(200, { layers,
+      return answer(200, { layers, tagsDir: TAGS_DIR,
                            views: [ { id: "default", query: viewQuery }
                                   , { id: "agenda", query: agendaQuery } ],
                            themes: ["light", "dark"], colors: stateHues,
@@ -334,9 +354,17 @@ globalThis.fetch = (url, init) => {
                            keywords: { active: ["TODO"], inactive: ["DONE"] } });
     const sent = JSON.parse((init || {}).body || "{}");
     configWrites.push(sent);
-    const layer = layers.find((l) => l.path === sent.path);
-    if (!layer || layer.digest !== sent.digest)
-      return answer(409, { reason: "drift", digest: (layer || {}).digest || "",
+    // A TAG LAYER IS MINTED BY BEING WRITTEN TO, as `mintableLayer' does it: only
+    // under this tree's own `tags/', and only where org can read the basename back.
+    let layer = layers.find((l) => l.path === sent.path);
+    if (!layer) {
+      const minted = mintable(sent.path);
+      if (!minted) return answer(400, { error: `no config layer at ${sent.path}` });
+      layers.push(minted);
+      layer = minted;
+    }
+    if (layer.digest !== sent.digest)
+      return answer(409, { reason: "drift", digest: layer.digest || "",
                            error: "the config file changed on disk since it was read" });
     layer.lines = (sent.lines || []).filter(Boolean);
     if (sent.lines !== undefined) {
@@ -344,6 +372,9 @@ globalThis.fetch = (url, init) => {
       const [act, done] = body.split("|");
       const words = (t) => String(t || "").split(/\s+/).filter(Boolean);
       layer.keywords = { active: words(act), inactive: words(done) };
+      // THE STORE REREADS: `/keywords' answers the new chain, which is what makes
+      // a minted state settable.  Modelled, or the page waits on a reseed forever.
+      reseed(layer);
     }
     const views = sent.views || {};
     if (views.default !== undefined) viewQuery = views.default || BUILTIN.default;
@@ -943,6 +974,9 @@ const press = (name, repeating, held) => {
     repeat: !!repeating, target: active || docBody,
     defaultPrevented: false,
     preventDefault: () => { prevented.push(name); event.defaultPrevented = true; },
+    // A REAL EVENT: a surface that goes FIRST claims its key outright, and the
+    // page calls this.  Phases are not modelled — registration order stands in.
+    stopPropagation: () => {},
   };
   for (const handler of pressed) handler(event);
   // The browser's OWN default for the one key a field needs it for: without it
@@ -1314,11 +1348,19 @@ const ACTIONS = {
     if (!row) throw new Error(`no state row for ${state}`);
     row.fire("click", { target: row });
   },
+  nfields: (spec) => {
+    const named = String(spec).split("/");
+    const ids = ["nspace", "nname", "ngroup", "nlight", "ndark"];
+    ids.forEach((id, i) => {
+      if (named[i] !== undefined && named[i] !== "") field(id).value = named[i];
+    });
+  },
   sfields: (spec) => {
-    const [name, group, hue] = String(spec).split("/");
+    const [name, group, hue, dark] = String(spec).split("/");
     if (name !== undefined && name !== "") field("sname").value = name;
     if (group !== undefined && group !== "") field("sgroup").value = group;
     if (hue !== undefined && hue !== "") field("shue").value = hue;
+    if (dark !== undefined && dark !== "") field("sdark").value = dark;
   },
   ccap: (text) => typeSetting("ctarget", text),
   clog: (text) => typeSetting("clog", text),
@@ -1548,7 +1590,11 @@ const settle = async () => {
     chues: listCells("cstates").map((c) => c.join("|")),
     sat: listAt("cstates"), sflagged: listFlagged("cstates"),
     sedit: field("sedit").className,
-    sfields: [field("sname").value, field("sgroup").value, field("shue").value],
+    mint: field("mint").className,
+    nspaces: field("nspace").children.map((o) => o.textContent),
+    nfields: ["nspace", "nname", "ngroup", "nlight", "ndark"].map((id) => field(id).value),
+    sfields: [field("sname").value, field("sgroup").value, field("shue").value,
+              field("sdark").value],
     servedHues: stateHues,
     ctpl: field("ctpl").value,
     ceff: field("ceff").textContent, configWrites,

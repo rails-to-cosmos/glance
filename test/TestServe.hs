@@ -2412,8 +2412,77 @@ whichKeySpec shell =
           , ("pr",    "file",     ["[L]ATER"],   [])
           , ("pr pm", "",         ["DEL *empty*"], []) ] =<< paletteOf answer
         assertEqual "and the foot names the keys the list cannot draw"
-                    "a letter sets it · / to search · ESC leaves"
+                    "a letter sets it · + adds one · / to search · ESC leaves"
           =<< textAt "pfoot" answer
+
+    -- `+' ASKS FOR A STATE THE STORE HAS NOT GOT.  It is DECLARED in a config
+    -- layer first, and only then set: `set-state' refuses a keyword outside the
+    -- row's own chain, which is the wall this walks through rather than around.
+  , keyed shell "+ raises the mint form, and the palette stands behind it"
+      "t" "press:+" $ \answer -> do
+        assertEqual "the form is up" "on" =<< textAt "mint" answer
+        assertEqual "over a palette that did not go" "on" =<< textAt "prompt" answer
+        assertEqual "the namespaces: the tree, then the tag layers it has"
+                    ["system", "tag:film", "tag:book"] =<< textsAt "nspaces" answer
+
+    -- The rows on screen are the rows that filter chose, so its tags are the
+    -- namespaces in play and the first of them is what the form opens on.
+  , keyedAt shell "?q=tag%3Abook" 500 "a tag: filter puts its tag in the select, and first"
+      "t" "press:+" $ \answer -> do
+        assertEqual "the query's tag leads, and the tree's own follow"
+                    ["system", "tag:book", "tag:film"] =<< textsAt "nspaces" answer
+        assertEqual "opened on the tag the filter named, active, with no hue"
+                    ["tag:book", "", "active", "", ""] =<< textsAt "nfields" answer
+
+  , keyed shell "the minted state is declared in its layer, then set on the rows"
+      "t" "press:+ nfields:tag:book/HANDED/active// press:Enter" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write, for the layer the namespace named" 1 (length writes)
+        assertEqual "into that layer's own file"
+                    "/o/.org-glance/config/tags/book.org" =<< textAt "path" (head writes)
+        assertEqual "the cycle carries it now"
+                    ["#+TODO: TODO READING HANDED | READ"] =<< textsAt "lines" (head writes)
+        assertEqual "and the state landed on the row" ["set-state"]
+          =<< traverse (textAt "name") =<< listAt "commands" answer
+        assertEqual "the form went with it" "" =<< textAt "mint" answer
+
+    -- The tag has no file, so the write is what brings the layer into being.
+  , keyed shell "a namespace with no layer file yet is minted by the write"
+      "t" "press:+ nfields:tag:cinema/QUEUED/inactive// press:Enter" $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write, at the path a tag layer takes" 1 (length writes)
+        assertEqual "under the tree's own tags directory"
+                    "/o/.org-glance/config/tags/cinema.org" =<< textAt "path" (head writes)
+        assertEqual "declaring the state on the done side of the bar"
+                    ["#+TODO:  | QUEUED"] =<< textsAt "lines" (head writes)
+        assertEqual "with the empty digest, which is what a write reads as create"
+                    "" =<< textAt "digest" (head writes)
+
+    -- A COLOUR IS THE SYSTEM LAYER'S, so a state minted under a tag moves two files.
+  , keyed shell "a hue per theme rides a second write, to the system layer"
+      "t" "press:+ nfields:tag:book/HANDED/active/#7B1FA2/#D0A0FF press:Enter"
+      $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "two writes: the cycle, then the colours" 2 (length writes)
+        assertEqual "the second at the system layer"
+                    "/o/.org-glance/config/system.org" =<< textAt "path" (writes !! 1)
+        assertEqual "carrying a line's worth per theme"
+                    [["light", "HANDED", "#7B1FA2"], ["dark", "HANDED", "#D0A0FF"]]
+          =<< (traverse (\h -> traverse (`textAt` h) ["theme", "keyword", "hue"])
+                 =<< listAt "colors" (writes !! 1))
+
+  , keyed shell "ESC leaves the mint and hands the palette back"
+      "t" "press:+ press:Escape" $ \answer -> do
+        assertEqual "the form went" "" =<< textAt "mint" answer
+        assertEqual "the palette did not" "on" =<< textAt "prompt" answer
+        assertEqual "and nothing was written" ([] :: [Value])
+          =<< listAt "configWrites" answer
+
+  , keyed shell "a word org cannot read back is refused before the write"
+      "t" "press:+ nfields:system/IN-PROGRESS/active// press:Enter" $ \answer -> do
+        assertEqual "nothing went" ([] :: [Value]) =<< listAt "configWrites" answer
+        assertEqual "the form stands, for the word to be fixed" "on"
+          =<< textAt "mint" answer
 
     -- One parameter per id rather than a comma list: the fallback row id is a path.
   , testCase "the resolution is asked for the rows the command names" $ do
@@ -4026,6 +4095,24 @@ settingsSpec shell =
           =<< textsAt "chues" answer
         assertEqual "and nothing was written on the way" ([] :: [Value])
           =<< listAt "configWrites" answer
+
+    -- ONE FIELD PER THEME: the colour config is keyed by theme, so a form with one
+    -- field would edit whichever theme was on and leave the other on a palette slot.
+  , keyed shell "a state's hue is asked for once per theme, and both are written"
+      "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2/#D0A0FF press:Enter press:Escape"
+      $ \answer -> do
+        writes <- listAt "configWrites" answer
+        assertEqual "one write, for the system layer" 1 (length writes)
+        assertEqual "carrying a line's worth per theme"
+                    [["light", "TODO", "#7B1FA2"], ["dark", "TODO", "#D0A0FF"]]
+          =<< (traverse (\h -> traverse (`textAt` h) ["theme", "keyword", "hue"])
+                 =<< listAt "colors" (head writes))
+
+  , keyed shell "and the form reads back both, whichever theme is on"
+      "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2/#D0A0FF press:Enter theme:dark sat:TODO press:Enter"
+      $ \answer ->
+        assertEqual "the two hues, beside the name and the group"
+                    ["TODO", "active", "#7B1FA2", "#D0A0FF"] =<< textsAt "sfields" answer
 
   , keyed shell "+ adds a state to its layer's cycle"
       "," "ctab:ui sat:TODO press:+ sfields:WAITING/active/ press:Enter press:Escape"
@@ -5683,6 +5770,14 @@ shellGlue =
       , "#dpara textarea,"
       , ".ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
       , "#mpanes{flex-direction:column}" ]
+
+  -- These two boxes write ORG into the user's own files, so a remembered value, a
+  -- capitalised first letter or a "corrected" quote would be a silent edit.
+  , glue "the two document boxes decline every offer the browser makes"
+      [ "<input id=\"dtin\" spellcheck=\"false\" autocomplete=\"off\""
+          <> " autocapitalize=\"off\" autocorrect=\"off\">"
+      , "<textarea id=\"dtext\" spellcheck=\"false\" autocomplete=\"off\""
+          <> " autocapitalize=\"off\" autocorrect=\"off\"></textarea>" ]
 
   -- THE SETTINGS SHEET IS UNREACHABLE ON A TOUCH DEVICE, a KNOWN GAP asserted from both sides.
   , Glue "the settings door a coarse pointer had went with the corner"
@@ -7913,6 +8008,51 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "served on the next read"
           "state:*active* columns:state,title sort:state->priority->title"
           =<< viewText "default" =<< decoded =<< getFrom a "/config"
+
+    -- A TAG LAYER IS MINTED BY BEING WRITTEN TO: `filesIn' can only list what is
+    -- there, so without this a state can never be added to a tag that has no file.
+  , testCase "a write to a tag with no layer file mints one" $
+      withConfigTree $ \a dir -> do
+        listed <- traverse (textAt "path") =<< listAt "layers" =<< decoded =<< getFrom a "/config"
+        assertBool ("film.org was already listed: " <> show listed)
+                   (tagAt dir "cinema" `notElem` listed)
+        assertOk =<< postTo a "/config"
+          (configBody (tagAt dir "cinema") ["#+TODO: QUEUED | SEEN"] "")
+        assertContains "the minted layer declares what it was written"
+          "#+TODO: QUEUED | SEEN" =<< document (tagFileIn dir "cinema")
+        fresh <- listAt "layers" =<< decoded =<< getFrom a "/config"
+        paths <- traverse (textAt "path") fresh
+        assertBool ("the minted layer is not served back: " <> show paths)
+                   (tagAt dir "cinema" `elem` paths)
+        again <- textAt "digest" . head
+                   =<< filterM (fmap (== tagAt dir "cinema") . textAt "path") fresh
+        assertOk =<< postTo a "/config"
+          (configBody (tagAt dir "cinema") ["#+TODO: QUEUED WATCHING | SEEN"] again)
+        assertContains "and a second write appends to the file it minted"
+          "#+TODO: QUEUED WATCHING | SEEN" =<< document (tagFileIn dir "cinema")
+
+  , testCase "a path outside the tree's own tags directory is still refused" $
+      withConfigTree $ \a dir -> do
+        answer <- postTo a "/config"
+          (configBody (T.pack (dir </> "elsewhere.org")) ["#+TODO: A | B"] "")
+        assertEqual "refused" 400 (status answer)
+        assertContains "naming the layers this tree has"
+          "no config layer at" =<< textAt "error" =<< decoded answer
+        gone <- doesFileExist (dir </> "elsewhere.org")
+        assertBool "and it wrote nothing there" (not gone)
+
+    -- A malformed word makes `todoPragmas' yield NOTHING, so without the wall the
+    -- writer is told the block came to nothing rather than which word did it.
+  , testCase "a state org cannot read back is refused by name" $
+      withConfigTree $ \a dir -> do
+        digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
+        answer <- postTo a "/config"
+          (configBody (systemAt dir) ["#+TODO: TODO IN-PROGRESS | DONE"] digest)
+        assertEqual "refused" 400 (status answer)
+        assertContains "naming the word rather than the block"
+          "IN-PROGRESS is not a TODO state" =<< textAt "error" =<< decoded answer
+        wrote <- doesFileExist (systemFileIn dir)
+        assertBool "and a refused write minted no layer" (not wrote)
 
     -- `.org-glance/config/' is two directories minted at once, which fsnotify arms without entering; a config path settles as a RESEED.
   , testCase "the first config layer in a tree reseeds it with no event behind it" $

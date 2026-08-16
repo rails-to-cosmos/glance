@@ -33,15 +33,18 @@ const Capture = ((deps) => {
       if (seed) settleTag();
     }
 
-    // The ONE tag the applied query names: the first positive `tag:' predicate
-    // over a single ordinary value.  A starred word is a meta (`*archive*').
-    function filteredTag() {
-      if (!queryNow() || typeof TableView.parseQuery !== "function") return "";
-      const named = TableView.parseQuery(queryNow(), colsNow().map((c) => c.key))
+    // EVERY tag the applied query names, in the order it names them: the positive
+    // `tag:' predicates over a single ordinary value.  A starred word is a meta
+    // (`*archive*'), and an alternation names no one tag.
+    function filteredTags() {
+      if (!queryNow() || typeof TableView.parseQuery !== "function") return [];
+      return TableView.parseQuery(queryNow(), colsNow().map((c) => c.key))
         .filter((t) => t.key === "tag" && !t.negated
-                    && t.value && !t.value.includes("|") && !/^\*.*\*$/.test(t.value));
-      return named.length ? named[0].value : "";
+                    && t.value && !t.value.includes("|") && !/^\*.*\*$/.test(t.value))
+        .map((t) => t.value);
     }
+    // A capture goes under ONE tag, so it takes the first of them.
+    const filteredTag = () => filteredTags()[0] || "";
     function drawTagList(typed) {
       if (!capping) return;
       const want = foldTag(typed);
@@ -143,9 +146,21 @@ const Capture = ((deps) => {
       const mine = ask(title,
         (c) => fire(b, "set-state", ids, { keyword: c.keyword },
                     c.keyword === null ? EMPTY : c.keyword),
-        "a letter sets it · / to search · ESC leaves");
+        "a letter sets it · + adds one · / to search · ESC leaves");
+      // WHAT `+' NEEDS: the rows to set it on once the state has been declared.
+      mine.states = { b, ids, title };
       keywordSources(ids).then((answer) => {
         if (prompting === mine) setChoices(answer.sources);
+      }).catch(askFailed(mine, "keywords"));
+    }
+    /** The palette redrawn from the store AS IT IS NOW, a mint having moved it. */
+    function restate() {
+      const mine = prompting;
+      if (!mine || !mine.states) return Promise.resolve(false);
+      return keywordSources(mine.states.ids).then((answer) => {
+        if (prompting !== mine) return false;
+        setChoices(answer.sources);
+        return true;
       }).catch(askFailed(mine, "keywords"));
     }
     function askTags(b, ids, title) {
@@ -377,9 +392,10 @@ const Capture = ((deps) => {
     const promptNow = () => prompting;
     return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags, askText,
              capUp, docTargets, entry,
-             fieldMode, foldTag, followLinks, freely, linksOf, mode, offer,
+             fieldMode, filteredTags, foldTag, followLinks, freely, linksOf, mode, offer,
+             keywordSources,
              openCapture, openLink, overTargets, planRows, promptNow, raise,
-             rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
+             restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
              walkChoices };
 })({ CFG, EMPTY, active, append, askFailed, badgeColor, cells, docTitle, el,
      failed, fire, getJSON, headline, keyName, part, planning, postCommand,
@@ -392,9 +408,10 @@ const Capture = ((deps) => {
      queryNow: () => query, colsNow: () => cols, entryNow: () => editing,
      arrivingNow: () => arriving, setArriving: (id) => { arriving = id; } });
 const { CODES, ask, askFrom, askState, askTags, askText, capUp, docTargets, entry,
-        fieldMode, foldTag, followLinks, freely, linksOf, mode, offer,
+        fieldMode, filteredTags, foldTag, followLinks, freely, linksOf, mode, offer,
+        keywordSources,
         openCapture, openLink, overTargets, planRows, promptNow, raise,
-        rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
+        restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
         walkChoices } = Capture;
 // The suite drives these two as the pure functions they are, through a direct
 // `eval' -- where a `var' reaches the caller's scope and a `const' does not.

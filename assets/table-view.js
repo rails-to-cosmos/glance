@@ -1070,7 +1070,7 @@
   align-items:center;
 }
 .tv-inline .tv-scroll{
-  max-height:calc(8 * 2.05em);
+  max-height:calc(12 * 2.05em);
 }
 .tv-inline th .tv-arrow{
   display:none;

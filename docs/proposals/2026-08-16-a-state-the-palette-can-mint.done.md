@@ -1,6 +1,6 @@
 # Proposal — a state the palette can mint, in the namespace the filter already names
 
-**Status:** proposed · **Date:** 2026-08-16 · **Origin:** asked for directly —
+**Status:** done · **Date:** 2026-08-16 · **Origin:** asked for directly —
 `+` in the set-state popup adds a custom TODO state, and each `tag:` filter in
 the global filter offers its tag as a namespace.
 
@@ -205,3 +205,62 @@ Server: the tag-layer mint in `writeLayer`, `keywordText`, and their tests.
 Existing rows to extend: `test/TestServe.hs:1173-1227` (the palette),
 `:4030-4048` (`+` in the settings sheet), `:7865-7885` (colour round trip),
 `:8219-8265` (`/keywords`), `test/TestConfig.hs:103-353` (layer merge).
+
+---
+
+## What landed, 2026-08-17
+
+All six gaps are closed and `+` in the state palette mints a state end to end.
+The decisions taken where the proposal left a choice:
+
+**§1 — the second option.** `POST /config` mints a tag layer by being written
+to (`mintableLayer`, `src/Data/Org/Config.hs`), under the FIRST config dir's own
+`tags/` and only where org can read the basename back as a tag. `GET /config`
+grew one field, `tagsDir`, so the path rule stays the server's rather than being
+composed on the page.
+
+**§2 — `filteredTags`.** `filteredTag()` is now `filteredTags()[0] || ""`, so
+capture's behaviour did not move.
+
+**§3 — `default` is not offered.** The select is `system`, then the tags the
+query names, then the tag layers the tree already has. Offering the existing
+layers goes past what was asked and is worth a look: it is what makes the form
+useful from a table with no `tag:` filter applied. **The `default` omission is
+the one thing still owed a review** — org's builtin pair is code
+(`builtinKeywords`), so there is no file behind it to write into.
+
+**§4 — `keywordText`.** Beside `tagText`, on the `configEdits` path, over the
+words AS WRITTEN (`todoWords`) rather than what `todoPragmas` reads back — the
+malformed word is exactly the one the reader silently drops. The charset is the
+parser's own, now exported as `isKeywordChar` so the wall and the parser cannot
+drift.
+
+**§5 — the reseed is waited for.** The form writes, then polls `/keywords` until
+the chain holds the state (20 tries, 120 ms apart), then redraws the palette and
+fires `set-state`. A store that has not reread in that window leaves the
+declaration standing and says so.
+
+**§6 — one hue field per theme**, in the mint form and in the settings sheet's
+own state editor, which had the same gap. `#sedit` gained `sdark`.
+
+### Where it is
+
+| | |
+|---|---|
+| `src/Data/Org/Config.hs` | `mintableLayer` |
+| `src/Data/Org/Parser.hs` | `isKeywordChar`, exported |
+| `src-query/Glance/Query.hs` | `keywordText`, `todoWords`, the wall in `configEdits` |
+| `src-web/Glance/Web/Routes.hs` | `tagsDir`, the mint in `writeLayer` |
+| `src-web/Glance/Web/Page.hs` | the `#mint` surface, `nrow`, `#sedit`'s second hue |
+| `frontend/glue/30-capture.js` | `filteredTags`, `restate`, `+` in the palette's foot |
+| `frontend/glue/50-settings.js` | `openMint`, `mintState`, `mintLayer`, `mintHues`, `awaitState`, `HUE_FIELDS` |
+| `frontend/glue/70-shell.js` | the `mint` surface and the `+` rung |
+
+### What catches it going wrong
+
+Nine cases in `TestServe.hs` (the form, the namespaces, the query's tag leading,
+the declaration, the mint of an absent layer, the two-file colour write, ESC,
+the refused spelling, and the two per-theme hue cases), three in the config
+write group (the mint, the path wall, the refused spelling on the way in), and
+one browser case — `+ over the state palette draws a form over a palette that
+stands`, with `BREAK=one-hue` turning it red. Five notes in `AGENTS.hs`.

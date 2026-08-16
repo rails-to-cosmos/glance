@@ -104,6 +104,9 @@ const BREAKS = {
   // The picker's filter editor is resident again, no summoning needed.
   "filter-resident": ["ESC in the picker's filter drops the edit",
                       ".tv-inline .tv-bar{display:flex !important}"],
+  // The mint form goes back to one hue field, for whichever theme is on.
+  "one-hue": ["+ over the state palette draws a form",
+              ".nrow-ndark{display:none !important}"],
   // Both surfaces draw the classic bar back, layout width and all.
   "bar-space": ["no surface on the page draws a scrollbar of its own",
                 ".tv-scroll,#kbd{scrollbar-width:auto !important}"

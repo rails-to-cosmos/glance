@@ -16,6 +16,7 @@ import qualified Data.Aeson.Key as Key
 import Data.Bifunctor (first)
 import Data.List (find, nub, sortOn)
 import Data.Map.Strict (Map)
+import Control.Applicative ((<|>))
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.FileEmbed (embedFile, makeRelativeToProject)
 import Language.Haskell.TH (listE)
@@ -45,19 +46,19 @@ import qualified Network.WebSockets as WS
 
 import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , HeadlineParts (..)
-                    , HeadlineRecord ( hrDigest, hrFile, hrId, hrPriority, hrState
-                                     , hrSubtree, hrTags, hrTitle )
+                    , HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree, hrTags, hrTitle)
                     , rowOrgId
                     , OrgLink (olSpan, olTarget)
                     , QueryResult (..), SortChain
                     , Span (spanEnd, spanStart)
                     , SubtreeEntry (..)
                     , TodoKeywords (..)
-                    , SavedView (..), archived, captureCodes, configDirsIn
+                    , SavedView (..), archived, captureCodes, configDirsIn, configPaths
                     , captureTemplateIn, captureTemplateOf
                     , ConfigLayers (clTree), TreeSettings (..), treeSettings
                     , configEdits, viewQuery, viewQueryIn
                     , headlineParts, keywordSources, linkShown, linkType
+                    , mintableLayer
                     , planningKeywords, readConfigLayers, readsAsTimestamp
                     , untrailed
                     , recomposedSubtree
@@ -555,6 +556,11 @@ configView opts hub = do
   let tree = treeSettings layers
   pure (jsonResponse status200
           [ "layers"   .= map layerJSON layers
+            -- WHERE A TAG LAYER GOES that has no file yet.  Served rather than
+            -- composed on the page: the path rule is this server's, and
+            -- 'mintableLayer' is the same rule again on the way back in.
+          , "tagsDir"  .= maybe "" (snd . configPaths)
+                                (listToMaybe (configDirsIn (soDir opts) (stConfig st)))
           , "keywords" .= keywordsJSON (storeKeywords st)
           , "views"    .= [ object [ "id" .= svId v, "query" .= viewQueryIn (svId v) tree ]
                           | v <- savedViews ]
@@ -590,7 +596,10 @@ configWrite opts hub request = withBody request $ \raw -> do
 writeLayer :: ServeOptions -> Hub -> [FilePath] -> LayerWrite -> IO Response
 writeLayer opts hub dirs want = do
   layers <- readConfigLayers dirs
-  case find ((== path) . T.pack . lfPath) layers of
+  -- A TAG LAYER IS MINTED BY BEING WRITTEN TO.  Only under the FIRST config
+  -- dir's own `tags/', so a write still cannot name a path this tree does not own.
+  case find ((== path) . T.pack . lfPath) layers
+         <|> (listToMaybe dirs >>= \d -> mintableLayer d (T.unpack path)) of
     Nothing -> pure (jsonError status400 (noSuchLayer path layers))
     -- THE SCOPE MASK RIDES THE FILE: 'configEdits' folds 'configSettings' off the layer's tag.
     Just f  -> case configEdits f (lwLines want) (lwParts want) of

@@ -176,13 +176,17 @@ const SECTIONS = [
     };
     const showHues = () => { if (srows.length) repaintStates(null); };
     const satAt = () => srows.findIndex((r) => r.id === selectedId(smount));
+    // THE HUE IS PER THEME, so the form asks for each: one field would edit
+    // whichever theme happened to be on and leave the other on a palette slot.
+    const HUE_FIELDS = [["light", "shue"], ["dark", "sdark"]];
     const SROW = {
-      box: "sedit", pane: "cstates", fields: ["sname", "sgroup", "shue"],
+      box: "sedit", pane: "cstates", fields: ["sname", "sgroup", "shue", "sdark"],
       mount: () => smount,
       fill: (r) => {
         el("sname").value = r.state;
         el("sgroup").value = r.group;
-        el("shue").value = (hues[hueTheme()] || {})[r.state] || "";
+        for (const [theme, id] of HUE_FIELDS)
+          el(id).value = (hues[theme] || {})[r.state] || "";
         el("sname").readOnly = r.fixed;
         el("sgroup").readOnly = r.fixed;
       },
@@ -201,10 +205,12 @@ const SECTIONS = [
         if (name) r.layer.kw[group].push(name);
         writeCycle(r.layer);
       }
-      const at = (hues[hueTheme()] = hues[hueTheme()] || {});
-      const hue = el("shue").value.trim();
-      delete at[was];
-      if (hue && r.state) at[r.state] = hue;
+      for (const [theme, id] of HUE_FIELDS) {
+        const at = (hues[theme] = hues[theme] || {});
+        const hue = el(id).value.trim();
+        delete at[was];
+        if (hue && r.state) at[r.state] = hue;
+      }
       shutEdit(SROW);
       repaintStates(r.id);
     }
@@ -405,6 +411,143 @@ const SECTIONS = [
       cnote(ok ? "synced" : clashed ? "conflict" : "error");
       return ok;
     }
+    // `+' IN THE STATE PALETTE mints a state the store does not have yet: it is
+    // DECLARED in a config layer, and only then set on the rows the palette was
+    // raised over.  The namespace is where the declaration goes — `system' is the
+    // tree, `tag:X' is the rows carrying X — and `default' is org's own builtin
+    // pair, which is code and has no file to write into.
+    let minting = null;
+    const mintUp = () => !!minting;
+    const NFIELDS = ["nspace", "nname", "ngroup", "nlight", "ndark"];
+
+    function shutMint(why) {
+      if (!minting) return;
+      minting = null;
+      el("mint").className = "";
+      for (const id of NFIELDS) el(id).blur();
+      if (why) append("config", "info", `state: ${why}`);
+    }
+    // `system', then the tags the applied query names — the rows on screen are the
+    // rows that filter chose — then any tag layer the tree already has.
+    function mintSpaces(cfg) {
+      const held = (cfg.layers || []).map((l) => l.tag).filter(Boolean);
+      const named = filteredTags();
+      return ["system"].concat([...new Set(named.concat(held))].map((t) => `tag:${t}`));
+    }
+    // THE BINDING IS THE PALETTE'S: a failure here is answered where `t' was pressed.
+    function openMint() {
+      const asking = promptNow();
+      if (!asking || !asking.states) return;
+      const b = asking.states.b;
+      config().then((cfg) => {
+        if (promptNow() !== asking) return;   // the palette went while /config was out
+        minting = { b, cfg, asking };
+        const pick = el("nspace");
+        pick.textContent = "";
+        const spaces = mintSpaces(cfg);
+        for (const name of spaces) part(pick, "option", "", name).value = name;
+        pick.value = spaces[1] || "system";   // the filter's own tag, where it named one
+        el("nname").value = "";
+        el("ngroup").value = "active";
+        el("nlight").value = ""; el("ndark").value = "";
+        el("mint").className = "on";
+        el("nname").focus();
+        echo("+ → org-todo-add-state");
+      }).catch(failed(b, "config"));
+    }
+    // The layer the namespace names, MINTED where the tag has no file: an absent
+    // layer is a path and an empty digest, which is what a write reads as "create".
+    function mintLayer(cfg, space) {
+      const layers = cfg.layers || [];
+      if (space === "system") return layers.find((l) => !l.tag) || null;
+      const tag = space.slice(4);
+      const held = layers.find((l) => l.tag === tag);
+      if (held) return held;
+      if (!cfg.tagsDir) return null;
+      return { path: `${cfg.tagsDir}/${tag}.org`, tag, digest: "", lines: [],
+               keywords: { active: [], inactive: [] }, template: "" };
+    }
+    // A HUE PER THEME, over the colours already declared: the write replaces the
+    // whole `#+GLANCE_STATE_COLORS:' block, so what is kept is sent again.
+    function mintHues(cfg, name) {
+      const want = [["light", el("nlight").value.trim()], ["dark", el("ndark").value.trim()]]
+        .filter(([, hue]) => hue);
+      if (!want.length) return null;
+      return (cfg.colors || []).filter((c) => c.keyword !== name)
+        .concat(want.map(([theme, hue]) => ({ theme, keyword: name, hue })));
+    }
+    const wroteConfig = (body) =>
+      postJSON("/config", body).then(outcome).then((a) => {
+        if (a.status !== 200) throw new Error((a.body || {}).error || `sync failed (${a.status})`);
+        return a.body;
+      });
+    // The write nudges a RESEED, so the chain the store answers with lags the file
+    // by a settle.  Asked again until it holds the state, then given up on.
+    function awaitState(ids, name, tries) {
+      return keywordSources(ids).then((answer) => {
+        const has = (answer.sources || []).some((s) =>
+          (s.active || []).includes(name) || (s.inactive || []).includes(name));
+        if (has || tries <= 0) return has;
+        return new Promise((go) => setTimeout(go, 120))
+          .then(() => awaitState(ids, name, tries - 1));
+      });
+    }
+    function mintState() {
+      const { b, cfg, asking } = minting;
+      const name = el("nname").value.trim();
+      if (!/^[A-Za-z_]+$/.test(name)) {
+        append("config", "warn",
+               `${name || "a state"} is not a TODO state: a state is letters and _`);
+        el("nname").focus();
+        return;
+      }
+      const layer = mintLayer(cfg, el("nspace").value);
+      if (!layer) { append("config", "warn", "no config layer to add a state to"); return; }
+      const r = layerRow(layer);
+      const group = el("ngroup").value === "inactive" ? "inactive" : "active";
+      r.kw.active = r.kw.active.filter((k) => k !== name);
+      r.kw.inactive = r.kw.inactive.filter((k) => k !== name);
+      r.kw[group].push(name);
+      writeCycle(r);
+      const hues = mintHues(cfg, name);
+      /** @type {Record<string, any>} */
+      const body = { path: r.path, lines: r.text.split("\n"), digest: r.digest };
+      // A COLOUR IS THE SYSTEM LAYER'S; a state minted under a tag moves two files.
+      const system = cfg.layers.find((l) => !l.tag);
+      const rides = hues && r.tag === null;
+      if (rides) body.colors = hues;
+      const ids = asking.states.ids;
+      shutMint(null);
+      wroteConfig(body)
+        .then(() => (hues && !rides && system
+                       ? wroteConfig({ path: system.path, digest: system.digest, colors: hues })
+                       : null))
+        .then(() => awaitState(ids, name, 20))
+        .then((has) => {
+          if (!has) { append("config", "warn", `${name} declared; the store has not reread yet`); return; }
+          if (!promptNow()) { said(b, `${name} added`); return; }
+          restate().then(() => takeChoice({ keyword: name, label: name }));
+        })
+        .catch((e) => append("config", "error", `state: ${e.message}`));
+    }
+    document.addEventListener("keydown", (e) => {
+      if (!minting || e.defaultPrevented) return;
+      const k = keyName(e);
+      if (k === "TAB" || k === "S-TAB") {
+        e.preventDefault();
+        const at = NFIELDS.findIndex((id) => el(id) === active());
+        const step = k === "TAB" ? 1 : NFIELDS.length - 1;
+        el(NFIELDS[(at + step + NFIELDS.length) % NFIELDS.length]).focus();
+        return;
+      }
+      if (k === "RET" && !repeating(e)) { e.preventDefault(); mintState(); return; }
+      if (k === "ESC") {
+        e.preventDefault(); e.stopPropagation();
+        shutMint(null);
+        echo("ESC → keyboard-quit (no state added)");
+      }
+    }, true);
+
     function shutSettings() {
       el("config").className = ""; settings = false; crows = []; cat = 0;
       unnarrow(smount);

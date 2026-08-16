@@ -50,6 +50,7 @@ module Glance.Query ( BlobSeed (..)
                     , configDirsIn
                     , configEdits
                     , configPath
+                    , configPaths
                     , currentDocument
                     , defaultCaptureFile
                     , SavedView (..)
@@ -85,6 +86,7 @@ module Glance.Query ( BlobSeed (..)
                     , matchesSearch
                     , mergeKeywords
                     , mintBlobId
+                    , mintableLayer
                     , noConfig
                     , noKeywords
                     , noParts
@@ -137,6 +139,7 @@ module Glance.Query ( BlobSeed (..)
                     , tagColumns
                     , tagRunEntries
                     , tagText
+                    , keywordText
                     , tagged
                     , stateColorsOf
                     , prioritySlots
@@ -184,14 +187,14 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , TimestampUnit (Days, Months, Weeks, Years), Todo (name)
                 , TsMoment (tsmHasTime, tsmTime), archiveTag, deadline, defaultContext
                 , firstHeadlineOf, headlineIdProperty, headlinesOf, hsFull, identity
-                , isTagChar, levelOf
+                , isKeywordChar, isTagChar, levelOf
                 , metaCategory
                 , orgParse, priority, schedule, shiftSpan, sliceSpan, spans, spelled
                 , addUnit, relativeForms, repeaterFormat, tags, title, todo
                 , tsBrackets, unitOf )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
                        , builtinAgenda, builtinFilter, captureTargetIn
-                       , classify, configDirIn, configDirsIn
+                       , classify, configDirIn, configDirsIn, configPaths
                        , declaredKeywords
                        , SavedView (..), defaultCaptureFile, defaultFilter
                        , isTodoPragma, savedView, savedViews, stateColorsEdits
@@ -200,7 +203,7 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , viewEdits, viewOf
                        , viewQuery, viewQueryIn
                        , firstBy, keywordScopes
-                       , loadConfigDirs, mergeKeywords, noConfig, noKeywords
+                       , loadConfigDirs, mergeKeywords, mintableLayer, noConfig, noKeywords
                        , readConfigLayers, recognizedKeywords, seedContext
                        , systemSetting, todoLineEdits, todoLines, todoPragmas )
 import Data.Org.External (Completion (..))
@@ -1098,6 +1101,16 @@ tagText text
   | otherwise              = Left (text <> " is not an org tag: a tag is letters,"
                                      <> " digits, and _ - @ # or %")
 
+-- | TEXT as a TODO keyword.  The charset is the PARSER's ('isKeywordChar'): a
+-- word org will not read back declares nothing, and the writer is told WHICH
+-- word rather than that the block came to nothing.
+keywordText :: Text -> Either Text Text
+keywordText text
+  | T.null text              = Left "a state is at least one character"
+  | T.all isKeywordChar text = Right text
+  | otherwise                = Left (text <> " is not a TODO state: a state is"
+                                       <> " letters and _")
+
 -- | The classification chain behind ROWS, one entry per SOURCE.  DEDUP IS THE
 -- CLASSIFICATION RULE.  Rows merge by source NAME, so a keyword one reaches by
 -- file and another by tag lands in the WIDER (AGENTS.hs).
@@ -1682,6 +1695,9 @@ configEdits layer asked parts
     -- ABSENT lines leave the block standing; an EMPTY list is still the deletion.
   | isNothing asked    = partEdits
   | null lines'        = block []
+    -- THE SPELLING IS CHECKED BEFORE THE COUNT, so a word org cannot read is
+    -- named rather than reported as a block that came to nothing.
+  | Left why <- spelt  = Left why
   | null declared      = Left declaresNothing
   | otherwise          = block lines'
   where
@@ -1694,6 +1710,9 @@ configEdits layer asked parts
     strange  = filter (\l -> not (isTodoPragma l) || T.isInfixOf "\n" l) lines'
     keywords = todoPragmas (T.unlines lines')
     declared = tkActive keywords <> tkInactive keywords
+    -- Over the WORDS AS WRITTEN: `todoPragmas' answers what org would READ, which
+    -- silently drops the very word the writer got wrong.
+    spelt    = traverse keywordText (concatMap todoWords lines')
 
 data ConfigParts = ConfigParts
   { cpViews    :: ![(Text, Text)]  -- ^ saved views by id, the system layer's alone; an id absent leaves that view.
@@ -1735,6 +1754,15 @@ viewPartEdits doc parts = concat <$> traverse one (cpViews parts)
       Just v  -> Right (viewEdits v doc want)
       Nothing -> Left ("no view is called " <> vid <> "; this build has "
                         <> T.intercalate ", " (map svId savedViews))
+
+-- | The words a @#+TODO:@ line DECLARES, as WRITTEN.  The key and the bar are
+-- structure — and the bar needs no space around it — where a @(k)@ fast key is
+-- org's own and no part of the word.
+todoWords :: Text -> [Text]
+todoWords line =
+  [ T.takeWhile (/= '(') w
+  | chunk <- T.split (== '|') (T.drop 1 (T.dropWhile (/= ':') line))
+  , w <- T.words chunk ]
 
 declaresNothing :: Text
 declaresNothing =

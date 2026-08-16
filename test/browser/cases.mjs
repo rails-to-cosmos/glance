@@ -748,4 +748,54 @@ export default [
     }
     return [`surfaces taking a bar's width: ${seen.join("  ")}`];
   } },
+
+// THE MINT FORM STANDS OVER THE PALETTE THAT RAISED IT.  Two readings the text
+// suite cannot take: the box is drawn inside the viewport at the height it
+// wants, and the palette under it is still painted rather than merely `on'.
+{ name: "+ over the state palette draws a form over a palette that stands",
+  async run(p, base) {
+    await p.goto(`${base}/`);
+    await p.until(() => !!document.querySelector("#app table tbody tr"),
+                  "the table to mount rows");
+    await p.press("t");
+    await p.until(() => !!document.querySelector("#plist .pr"),
+                  "the state palette to draw its sources");
+    await p.press("+");
+    await p.until(() => document.getElementById("mint").classList.contains("on"),
+                  "the mint form to raise");
+    const seen = await p.eval(() => {
+      const box = document.getElementById("nbox").getBoundingClientRect();
+      const under = document.getElementById("pbox").getBoundingClientRect();
+      // DRAWN, rather than merely present: a row the stylesheet hides is a field
+      // the reader has not got, and the count alone cannot tell the two apart.
+      const rows = [...document.querySelectorAll("#nbox .krow")]
+        .filter((r) => r.getBoundingClientRect().height > 0);
+      return { top: box.top, bottom: box.bottom, left: box.left, right: box.right,
+               vh: window.innerHeight, vw: window.innerWidth,
+               rows: rows.length,
+               labels: rows.map((r) => r.querySelector(".klab").textContent),
+               // The palette is BEHIND it, drawn, rather than merely flagged on.
+               palette: under.width > 0 && under.height > 0,
+               over: box.top >= 0 };
+    });
+    assert(seen.rows === 5,
+      `the form drew ${seen.rows} rows of the five it asks for`);
+    assert(seen.labels.filter((l) => /hue/.test(l)).length === 2,
+      `one hue field per theme, and the form has ${JSON.stringify(seen.labels)}`);
+    assert(seen.top >= 0 && seen.bottom <= seen.vh + 1,
+      `the form is outside the viewport: ${px(seen.top)}..${px(seen.bottom)} `
+      + `in ${px(seen.vh)}`);
+    assert(seen.left >= 0 && seen.right <= seen.vw + 1,
+      `the form is off the side: ${px(seen.left)}..${px(seen.right)} in ${px(seen.vw)}`);
+    assert(seen.palette, "the palette under it drew nothing");
+
+    await p.press("ESC");
+    await p.until(() => !document.getElementById("mint").classList.contains("on"),
+                  "the mint to go on ESC");
+    const after = await p.eval(() =>
+      document.getElementById("prompt").classList.contains("on"));
+    assert(after, "ESC took the palette with it; it was raised over one that stands");
+    return [`${seen.rows} rows (${seen.labels.join(", ")}), `
+      + `the box ${px(seen.top)}..${px(seen.bottom)} inside ${px(seen.vh)}`];
+  } },
 ];

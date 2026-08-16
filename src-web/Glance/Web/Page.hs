@@ -29,8 +29,13 @@ demoShell opts font colours views =
   , "      <div id=\"mpanes\">"
   , "        <textarea id=\"mtext\" spellcheck=\"false\"></textarea>"
   , "        <div id=\"mdoc\"><div id=\"dlist\"></div>"
-      <> "<div id=\"dtitle\"><input id=\"dtin\" spellcheck=\"false\"></div>"
-      <> "<div id=\"dpara\"><textarea id=\"dtext\" spellcheck=\"false\"></textarea></div>"
+      -- THE BROWSER OFFERS NOTHING HERE.  These two boxes write ORG back to the
+      -- user's own files, so a remembered value, a capitalised first letter or a
+      -- "corrected" quote is a silent edit to a document nobody asked it to make.
+      <> "<div id=\"dtitle\"><input id=\"dtin\" spellcheck=\"false\" autocomplete=\"off\""
+      <> " autocapitalize=\"off\" autocorrect=\"off\"></div>"
+      <> "<div id=\"dpara\"><textarea id=\"dtext\" spellcheck=\"false\" autocomplete=\"off\""
+      <> " autocapitalize=\"off\" autocorrect=\"off\"></textarea></div>"
       <> "</div>"
   , "        <div id=\"mprops\"><div id=\"mptable\"></div>"
       <> "<div id=\"pedit\"><input id=\"pkey\" spellcheck=\"false\">"
@@ -48,6 +53,26 @@ demoShell opts font colours views =
   , "      <input id=\"pinput\" spellcheck=\"false\" autocomplete=\"off\">"
   , "      <div id=\"plist\"></div>"
   , "      <div id=\"pfoot\"></div>"
+  , "    </div>"
+  , "  </div>"
+  ]
+  -- RAISED OVER THE PALETTE, which stands: `+' asks for a state the store does
+  -- not have yet, and ESC hands the palette back rather than closing both.
+  <>
+  [ "  <div id=\"mint\">"
+  , "    <div id=\"nbox\" class=\"pop-band\">"
+  , "      <div id=\"nhead\">new TODO state</div>"
+  , nrow "nspace" "namespace" "<select id=\"nspace\" class=\"cview\"></select>"
+  , nrow "nname" "state" ("<input id=\"nname\" spellcheck=\"false\" autocomplete=\"off\""
+                            <> " autocapitalize=\"off\" placeholder=\"letters and _\">")
+  , nrow "ngroup" "group" ("<select id=\"ngroup\" class=\"cview\">"
+                             <> "<option value=\"active\">active</option>"
+                             <> "<option value=\"inactive\">inactive</option></select>")
+  -- ONE HUE PER THEME: the colour config is keyed by theme, so a state minted
+  -- under one theme owes the other a colour or it falls back to a palette slot.
+  , nrow "nlight" "light hue" (hueField "nlight")
+  , nrow "ndark" "dark hue" (hueField "ndark")
+  , "      <div id=\"nfoot\">TAB walks · RET adds it · ESC leaves</div>"
   , "    </div>"
   , "  </div>"
   ]
@@ -94,9 +119,12 @@ demoShell opts font colours views =
             <> "</select>")
   -- A state rides its config LAYER's write, a COLOUR rides `system.org''s.
   , "      <div id=\"chues\" class=\"cpart\"><div id=\"cstates\"></div>"
+      -- ONE HUE PER THEME: the colour config is keyed by theme, so a sheet
+      -- offering one field would edit whichever theme happened to be on.
       <> "<div id=\"sedit\"><input id=\"sname\" spellcheck=\"false\">"
       <> "<input id=\"sgroup\" spellcheck=\"false\">"
-      <> "<input id=\"shue\" spellcheck=\"false\"></div></div>"
+      <> "<input id=\"shue\" spellcheck=\"false\" title=\"light hue\">"
+      <> "<input id=\"sdark\" spellcheck=\"false\" title=\"dark hue\"></div></div>"
   , "      </div>"
   -- ONE LAYER AT A TIME; every layer's text is kept and the sync writes all.
   , "      <div id=\"clayers\" class=\"cpart\">"
@@ -141,6 +169,20 @@ popupFrame name p tier overlay =
 
 field :: Text -> Text
 field name = "<input id=\"" <> name <> "\" spellcheck=\"false\">"
+
+-- | A labelled row of the mint form, in the capture form's own two classes.
+-- The row NAMES ITS FIELD, so a stylesheet can reach one row: the browser suite
+-- takes a field away that way to prove the case measures the fields it draws.
+nrow :: Text -> Text -> Text -> Text
+nrow name label control =
+  "      <div class=\"krow nrow-" <> name <> "\"><label class=\"klab\">"
+    <> label <> "</label>" <> control <> "</div>"
+
+-- | A hue field: EMPTY means the state keeps the palette slot it was given.
+hueField :: Text -> Text
+hueField name =
+  "<input id=\"" <> name <> "\" spellcheck=\"false\" autocomplete=\"off\""
+    <> " placeholder=\"#RRGGBB — empty keeps the palette's own\">"
 
 crow :: Text -> Text -> Text
 crow label control = "        <div class=\"crow\">" <> label <> control <> "</div>"
