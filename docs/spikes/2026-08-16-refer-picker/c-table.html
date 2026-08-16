@@ -1,0 +1,946 @@
+<title>Refer Table Picker</title>
+<style>
+  :root{
+    --glance-mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --dk-mono:"Hack",var(--glance-mono);
+    --g-bg:#FFFFFF; --g-fg:#000000; --g-surface:#F8F8FF; --g-mute:#667071;
+    --g-border:#E3E6EA; --g-accent:#31769F; --g-sel:#FFD600; --g-shadow:#00000033;
+    --g-frost:#D0E1F9; --g-ok:#27AE60; --g-bad:#E74C3C; --g-warn:#FFA500;
+    --g-doc-fs:13px; --g-doc-lh:1.6; --g-doc-padx:10px; --g-doc-pady:8px;
+    --pill-pad:7px;                 /* a badge's own inset, spent twice: see #achead */
+    /* The badge palette, Theme/Default.hs: four active slots, four inactive,
+       three priorities.  A pill is its hue as INK over a 15% wash of itself. */
+    --s-todo:#9A3412; --s-next:#B45309; --s-wait:#B91C1C;
+    --s-done:#166534; --s-cancel:#4B5563;
+    --p-a:#B91C1C; --p-b:#A16207; --p-c:#15803D;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+      --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-shadow:#000000AA;
+      --s-todo:#E0AF68; --s-next:#FF9E64; --s-wait:#F7768E;
+      --s-done:#9ECE6A; --s-cancel:#7C86BF;
+      --p-a:#E74C3C; --p-b:#FFCC00; --p-c:#27AE60;
+    }
+  }
+  :root[data-theme="dark"]{
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-shadow:#000000AA;
+    --s-todo:#E0AF68; --s-next:#FF9E64; --s-wait:#F7768E;
+    --s-done:#9ECE6A; --s-cancel:#7C86BF;
+    --p-a:#E74C3C; --p-b:#FFCC00; --p-c:#27AE60;
+  }
+
+  body{
+    margin:0; background:var(--g-bg); color:var(--g-fg);
+    font:14px/1.5 var(--glance-mono);
+    min-height:100vh; box-sizing:border-box; padding:20px;
+    display:flex; flex-direction:column; gap:14px;
+  }
+  h1{font-size:15px; margin:0; font-weight:600; letter-spacing:.02em}
+  .sub{font-size:12px; color:var(--g-mute); margin:0; max-width:80ch}
+  code{font-size:12px; color:var(--g-mute)}
+  kbd{
+    font:11px/1 var(--dk-mono); border:1px solid var(--g-border);
+    border-radius:3px; padding:2px 5px; color:var(--g-fg); white-space:nowrap;
+  }
+  [hidden]{display:none !important}
+
+  .rig{
+    display:flex; flex-wrap:wrap; gap:22px; align-items:flex-start;
+    border:1px dashed var(--g-border); border-radius:8px; padding:12px 14px;
+    background:var(--g-surface);
+  }
+  .verbs{font-size:12px; display:flex; flex-direction:column; gap:6px}
+  .verbs div{display:flex; gap:8px; align-items:baseline}
+  .verbs span{color:var(--g-mute); font-size:11px}
+
+  .cfg{display:flex; flex-direction:column; gap:5px; font-size:11px}
+  .cfg .cfglab{
+    font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--g-mute); margin-top:4px;
+  }
+  .cfg label{display:flex; gap:6px; align-items:baseline; cursor:pointer}
+  .cfg label span{color:var(--g-mute)}
+  .cfg input[type=checkbox]{accent-color:var(--g-accent); margin:0}
+  #cfgfilter{
+    font:11px/1.5 var(--dk-mono); padding:2px 6px; border-radius:4px;
+    border:1px solid var(--g-border); background:transparent; color:inherit; width:26ch;
+  }
+  /* What each mount option would ADD, drawn so the option's owner is visible. */
+  .gut{color:var(--g-mute)}
+  .row.flagged{box-shadow:inset 3px 0 0 var(--g-warn)}
+  #acacts{
+    border-top:1px solid var(--g-border); padding:3px 8px;
+    font-size:10px; color:var(--g-mute); display:flex; gap:12px;
+  }
+  #acacts b{font-weight:600; color:var(--g-fg)}
+
+  .pane-wrap{display:flex; flex-direction:column; gap:5px; flex:0 0 auto}
+  .pane-label{font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--g-mute)}
+  #mdoc{
+    border:1px solid var(--g-border); border-radius:8px;
+    background:var(--g-bg); padding:var(--g-doc-pady) var(--g-doc-padx);
+    display:flex; flex-direction:column; min-height:210px;
+  }
+  #dpara{
+    flex:1 1 auto; resize:none; border:none; outline:none; margin:0; width:100%;
+    box-sizing:border-box; background:transparent; color:inherit;
+    font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+    padding:1px 6px; overflow-wrap:anywhere; scrollbar-width:none;
+  }
+  #dpara::-webkit-scrollbar{width:0; height:0}
+
+  /* ---- THE WIDGET: the table the reader already reads, shrunk and hung under
+     the caret.  Same schema, same badge hues, same golden cursor, same `/'.
+     NO GUTTER: this picks ONE row, so there is nothing to mark. ---- */
+  #ac{
+    position:fixed; z-index:5; display:none;
+    width:min(680px, calc(100vw - 24px));
+    background:var(--g-bg); color:var(--g-fg);
+    border:1px solid var(--g-border); border-radius:6px;
+    box-shadow:0 4px 14px var(--g-shadow);
+    font-family:var(--dk-mono); overflow:hidden;
+  }
+  #ac.on{display:block}
+
+  /* The chip strip, as the table wears it: the applied query as frost chips. */
+  #acbar{
+    display:flex; gap:6px; align-items:center; flex-wrap:wrap;
+    padding:5px 8px; border-bottom:1px solid var(--g-border);
+    background:var(--g-surface); font-size:11px;
+  }
+  .chip{
+    display:inline-flex; align-items:center; padding:1px 8px; border-radius:999px;
+    border:1px solid var(--g-border); background:var(--g-frost); color:#12314a;
+  }
+  :root[data-theme="dark"] .chip, :root:not([data-theme="light"]) .chip{
+    background:color-mix(in srgb, var(--g-accent) 22%, transparent); color:var(--g-fg);
+  }
+  /* THREE ROLES, THREE READINGS — the renderer's own rule.  An applied filter is
+     a ROUND FROST chip; the kind is not a filter at all, it states what is being
+     MADE, so it takes the badge treatment instead: squared, filled with its own
+     hue over a wash of itself, the way a state pill is drawn. */
+  .kindchip{
+    display:inline-flex; align-items:center; padding:1px 8px; border-radius:4px;
+    font-weight:600; color:var(--g-accent);
+    background:color-mix(in srgb, var(--g-accent) 15%, transparent);
+    border:1px solid color-mix(in srgb, var(--g-accent) 40%, transparent);
+  }
+  #acbox{
+    flex:1 1 8ch; min-width:8ch; font:11px/1.5 var(--dk-mono);
+    border:none; outline:none; background:transparent; color:inherit; padding:1px 2px;
+  }
+  #acslash{color:var(--g-mute)}
+
+  /* The suggestion list, as the main view's sits under its filter box: the row
+     it opens on is what RET takes. */
+  #acsugg{
+    border-bottom:1px solid var(--g-border); background:var(--g-bg);
+    max-height:calc(7 * 1.85em); overflow-y:auto; scrollbar-width:none;
+  }
+  #acsugg::-webkit-scrollbar{width:0}
+  .sg{
+    padding:3px 8px; font-size:12px; display:flex; justify-content:space-between;
+    gap:12px; cursor:default;
+  }
+  .sg.at{background:var(--g-sel)}
+  .sg em{font-style:normal; color:var(--g-mute); font-variant-numeric:tabular-nums; flex:none}
+  .sg.at em{color:inherit; opacity:.75}
+  .sg b{font-weight:600}
+
+  /* The head and the rows: one grid, so the columns line up as a table's do. */
+  /* ONE set of tracks for the head and every row, measured once from the widest
+     cell and written in `ch' — the face is monospace, so a character is an exact
+     unit and no column has to be measured in pixels.  Per-row `max-content'
+     tracks were the bug: each row sized itself and no two agreed. */
+  .row{
+    display:grid; grid-template-columns:var(--cols); gap:10px;
+    align-items:baseline; padding:3px 8px; font-size:12px;
+  }
+  #achead{
+    border-bottom:1px solid var(--g-border); color:var(--g-mute);
+    font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+  }
+  #acrows{max-height:calc(8 * 2.05em); overflow-y:auto; scrollbar-width:none}
+  #acrows::-webkit-scrollbar{width:0}
+  /* THE CURSOR IS A GROUND, and nothing else — no outline, no border, and no
+     restyling of what it crosses.  A state pill and a priority pill keep their
+     own hue and their own wash on the cursor row, which is how the main table
+     draws it: the band sits UNDER the cells rather than repainting them. */
+  .row.at{background:var(--g-sel)}
+  .ttl{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .pill{
+    display:inline-block; padding:0 var(--pill-pad); border-radius:999px;
+    font-weight:600; font-size:11px;
+    color:var(--hue); background:color-mix(in srgb, var(--hue) 15%, transparent);
+  }
+  /* WHAT A READER SCANS IS THE COLUMN OF WORDS, not the column of grounds.  A
+     pill's own padding sets its text in from the track edge, so the header of a
+     badge column is set in by the same amount and the first letters line up —
+     `STATE' over `TODO', `#' over `[#A]'. */
+  #achead .badgecol{padding-left:var(--pill-pad)}
+  .tags{color:var(--g-mute); font-size:11px; text-transform:lowercase}
+  .none{padding:6px 8px; font-size:12px; color:var(--g-mute)}
+  #acfoot{
+    border-top:1px solid var(--g-border); padding:2px 8px;
+    font-size:10px; color:var(--g-mute); display:flex; justify-content:space-between; gap:10px;
+  }
+  /* The kind stage is a plain list: a kind has no schema to lay out. */
+  .ke{padding:3px 8px; font-size:12px; display:flex; justify-content:space-between; gap:12px}
+  .ke.at{background:var(--g-sel)}
+  .ke em{font-style:normal; color:var(--g-mute); font-variant-numeric:tabular-nums}
+  .ke.at em{color:inherit; opacity:.75}
+
+  #log{
+    font-size:11px; color:var(--g-mute); border:1px solid var(--g-border);
+    border-radius:8px; background:var(--g-surface); padding:6px 10px;
+    height:calc(7 * 1.5em + 12px + 2px); overflow-y:auto; margin:0;
+  }
+  #log div{display:flex; gap:8px}
+  #log .lv{width:9ch; flex:none}
+  #log .fired{color:var(--g-ok)}
+  #log .held{color:var(--g-warn)}
+  #log .wrote{color:var(--g-accent)}
+  #log .clash{color:var(--g-bad)}
+</style>
+
+<h1>Refer — the table, shrunk</h1>
+<p class="sub">
+  The picker IS the table: same four columns, same badge hues, same golden cursor,
+  and <kbd>/</kbd> opens the filter exactly as it does in the main view. It opens
+  on the tree's own default, <code>state:*active*</code>. One row is being picked,
+  so there is no mark gutter and no multi-select.
+</p>
+
+<div class="rig">
+  <div class="verbs">
+    <div><kbd>@</kbd> <span>link — pick a row</span></div>
+    <div><kbd>C-u</kbd> <kbd>@</kbd> <span>relation — kind first, then the row</span></div>
+  </div>
+  <div class="verbs">
+    <div><kbd>n</kbd> <kbd>p</kbd> <span>move · <kbd>j</kbd> <kbd>k</kbd> and arrows too</span></div>
+    <div><kbd>/</kbd> <span>filter · <kbd>RET</kbd> choose · <kbd>ESC</kbd> out one step</span></div>
+  </div>
+  <div class="verbs">
+    <div><span>A bare <kbd>@</kbd> fires only at a WORD BOUNDARY. Select a region
+      first and <kbd>@</kbd> turns it into the link, its own words becoming what
+      the link reads as and seeding the filter.</span></div>
+  </div>
+  <div class="cfg">
+    <div class="cfglab">from the tree's config</div>
+    <label for="cfgfilter"><code>views.default</code></label>
+    <input id="cfgfilter" value="state:*active*" spellcheck="false" autocomplete="off">
+    <div class="cfglab">table-view mount options — the picker ships all three OFF</div>
+    <label><input type="checkbox" id="cfgmarks"> <code>marks</code>
+      <span>the checkbox gutter. One row is being chosen, so there is nothing to mark.</span></label>
+    <label><input type="checkbox" id="cfgflags"> <code>flags</code>
+      <span>the pending-action ground. A picker has no pending action.</span></label>
+    <label><input type="checkbox" id="cfgacts"> <code>actions</code>
+      <span>the <code>KEY label</code> hint line and its dispatch. Picking is not modifying.</span></label>
+  </div>
+</div>
+
+<div class="pane-wrap">
+  <div class="pane-label">materialize sheet · document pane</div>
+  <div id="mdoc">
+    <textarea id="dpara" spellcheck="false" aria-label="document pane"></textarea>
+  </div>
+</div>
+
+<pre id="log" aria-live="polite"></pre>
+
+<div id="ac" role="listbox" aria-label="refer picker">
+  <div id="acbar"></div>
+  <div id="acsugg" hidden></div>
+  <div id="achead" class="row"><span>State</span><span>#</span><span>Title</span><span>Tag</span></div>
+  <div id="acrows"></div>
+  <div id="acacts" hidden></div>
+  <div id="acfoot"><span id="acstage"></span><span id="ackeys"></span></div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const HUE = { TODO: "--s-todo", NEXT: "--s-next", WAITING: "--s-wait",
+                DONE: "--s-done", CANCELLED: "--s-cancel" };
+  const ACTIVE = ["TODO", "NEXT", "WAITING"];
+  const PRIO = { A: "--p-a", B: "--p-b", C: "--p-c" };
+
+  const ROWS = [
+    { id: "…a001", state: "TODO",   prio: "A", title: "Wrike MDE Team", tags: ["work", "team"], refs: 3 },
+    { id: "…a002", state: "TODO",   prio: "",  title: "Wrike MDE onboarding", tags: ["work"], refs: 0 },
+    { id: "…a003", state: "NEXT",   prio: "B", title: "MDE weekly", tags: ["work", "ritual"], refs: 7 },
+    { id: "…a004", state: "TODO",   prio: "",  title: "Quarterly planning 2026 Q3", tags: ["work"], refs: 2 },
+    { id: "…a005", state: "DONE",   prio: "",  title: "org-glance relation model", tags: ["glance"], refs: 11 },
+    { id: "…a006", state: "NEXT",   prio: "A", title: "glance: the protocol decision", tags: ["glance"], refs: 4 },
+    { id: "…a007", state: "TODO",   prio: "C", title: "Reverse index for in-edges", tags: ["glance"], refs: 1 },
+    { id: "…a008", state: "",       prio: "",  title: "Anna Kovalenko", tags: ["person"], refs: 5 },
+    { id: "…a009", state: "",       prio: "",  title: "Dmitry Akatov", tags: ["person"], refs: 9 },
+    { id: "…a010", state: "WAITING",prio: "B", title: "Materialize sheet in Elm", tags: ["glance"], refs: 0 },
+    { id: "…a011", state: "TODO",   prio: "",  title: "Capture templates as forms", tags: ["glance"], refs: 2 },
+    { id: "…a012", state: "CANCELLED", prio: "", title: "Screenshot diffs over the shell", tags: ["glance"], refs: 0 },
+    { id: "…a013", state: "DONE",   prio: "",  title: "Wrike migration notes", tags: ["work"], refs: 1 },
+    { id: "…a014", state: "NEXT",   prio: "",  title: "Berlin office move", tags: ["life"], refs: 0 },
+    { id: "…a015", state: "TODO",   prio: "C", title: "Reading list — distributed systems", tags: ["read"], refs: 6 },
+  ];
+  const KINDS = [
+    { kind: "author", rows: 41 }, { kind: "authorised-by", rows: 2 },
+    { kind: "depends", rows: 18 }, { kind: "blocks", rows: 7 },
+    { kind: "part-of", rows: 33 }, { kind: "mentions", rows: 64 },
+    { kind: "supersedes", rows: 3 }, { kind: "owner", rows: 12 },
+  ];
+  // THE DEFAULT COMES FROM THE TREE'S CONFIG (`views.default', Config.hs
+  // `defaultFilter', falling back to `builtinFilter').  The picker does not
+  // choose it; it inherits it, so the rows it offers are the rows the table
+  // would be showing.  `marks', `flags' and `actions' are table-view's OWN
+  // mount options and the picker ships all three off.
+  const cfg = () => ({
+    filter: el("cfgfilter").value.trim(),
+    marks: el("cfgmarks").checked,
+    flags: el("cfgflags").checked,
+    actions: el("cfgacts").checked,
+  });
+
+  const el = (id) => document.getElementById(id);
+  const pane = el("dpara"), ac = el("ac"), rowsBox = el("acrows"), bar = el("acbar");
+  const head = el("achead"), stageEl = el("acstage"), keysEl = el("ackeys");
+
+  pane.value = "The onboarding doc still points at the old protocol, so the "
+    + "handler list is out of date. Ask ";
+
+  function say(kind, what) {
+    const box = el("log"), row = document.createElement("div");
+    const a = document.createElement("span"); a.className = "lv " + kind; a.textContent = kind;
+    const b = document.createElement("span"); b.textContent = what;
+    row.append(a, b); box.appendChild(row); box.scrollTop = box.scrollHeight;
+  }
+  const slug = (s) => s.trim().toLowerCase().replace(/\s+/g, "-");
+  const fold = (s) => s.trim().toLowerCase();
+
+  // --- state ---------------------------------------------------------------
+  let up = false, at = -1, end = -1, desc = null, hot = 0, shown = [];
+  let wantKind = false, stage = "target", kind = "";
+  // THE FILTER IS A LIST OF TOKENS, not one string: that is what lets DEL walk it
+  // down a chip at a time, which is `stripLastToken' in the main view.
+  let chips = [], q = "", filtering = false;
+  let sugg = [], sHot = 0, listOpen = false;
+  const tokens = (s) => s.trim().split(/\s+/).filter(Boolean);
+
+  // ---- SCHEMA.md's filter grammar, over the four columns this view carries ----
+  // `key:value' where KEY names a column, `-' negates the whole token, `|' splits
+  // a predicate's value into alternatives that OR, quotes make text literal, and
+  // a starred value is a META.  Tokens AND; alternatives OR.  What is NOT here:
+  // `planned' (these rows carry no dates) and `sort:', which orders nothing in a
+  // picker.  Everything else is the grammar the main view takes.
+  // FREE TEXT HAS ITS OWN KEY.  `substring:V' is exactly what a bare `V' means,
+  // so the grammar is KEY:VALUE throughout and a bare word is that spelling with
+  // the key elided — one matcher serves both, and every chip on the strip reads
+  // as a predicate.  Writing it out also buys a value that may spell a separator
+  // under quotes without being read as one.
+  const SUBSTRING_KEY = "substring";
+  const COLUMNS = ["state", "priority", "title", "tag", SUBSTRING_KEY];
+  // A column with a DECLARED domain to complete from.  `substring' has none by
+  // definition; `title' has one, every title being a value a row can be named by.
+  const DOMAINS = ["state", "priority", "tag"];
+  const WITH_DOMAIN = ["state", "priority", "tag", "title"];
+
+  /** Quotes are owed only where a separator would break the token up. */
+  const quoteIf = (v) => (/[\s:|]/.test(v) ? '"' + v + '"' : v);
+  const EMPTY_META = "*empty*", ACTIVE_META = "*active*";
+
+  const wholeRow = (r) => [r.state, r.prio ? "[#" + r.prio + "]" : "", r.title,
+                           r.tags.join(" ")].join(" ");
+  const cellOf = (r, key) =>
+    key === SUBSTRING_KEY ? wholeRow(r)
+    : key === "state" ? r.state
+    : key === "priority" ? (r.prio ? "[#" + r.prio + "]" : "")
+    : key === "title" ? r.title
+    : key === "tag" ? r.tags.join(":")
+    : "";
+
+  /** `[#A]' means `A': display wears the decoration, matching reads through it. */
+  const undecorated = (v) => {
+    const m = /^\[#(.)\]$/.exec(v.trim());
+    return m ? m[1].toLowerCase() : fold(v);
+  };
+  const starless = (v) => (/^\*.*\*$/.test(v) ? v.slice(1, -1) : v);
+
+  /** Split Q into tokens: quotes removed, a leading `-' taken off. */
+  function parseQ(text) {
+    const out = [];
+    // `key:"a value with spaces"' is ONE token, and so is a bare quoted run.
+    for (const raw of (text.match(/-?(?:[A-Za-z]+:)?"[^"]*"|\S+/g) || [])) {
+      let s = raw, neg = false;
+      if (s[0] === "-") { neg = true; s = s.slice(1); }
+      let key = null, value = s;
+      const at = s.indexOf(":");
+      if (at > 0 && COLUMNS.indexOf(fold(s.slice(0, at))) !== -1) {
+        key = fold(s.slice(0, at)); value = s.slice(at + 1);
+      }
+      const quoted = value[0] === '"';
+      if (quoted) value = value.replace(/^"|"$/g, "");
+      // A KEYLESS TOKEN IS THE SUBSTRING KEY WITH ITS KEY ELIDED.
+      out.push({ neg, key: key || SUBSTRING_KEY, value, quoted });
+    }
+    return out;
+  }
+
+  /** ONE alternative of a predicate, read by that column's own semantics. */
+  function oneValue(r, key, v) {
+    const cell = cellOf(r, key);
+    if (v === EMPTY_META) return cell === "";
+    if (key === "state" && v === ACTIVE_META) return ACTIVE.indexOf(r.state) !== -1;
+    if (/^\*.*\*$/.test(v)) {                    // a producer meta, matched literally
+      if (key === "tag") return r.tags.some((g) => fold(g) === fold(starless(v)));
+      return fold(cell) === fold(starless(v));
+    }
+    if (key === SUBSTRING_KEY) return fold(cell).indexOf(fold(v)) !== -1;
+    if (key === "tag") return r.tags.some((g) => fold(g).indexOf(fold(v)) !== -1);
+    if (key === "priority") return undecorated(cell) === undecorated(v);
+    if (key === "state") return fold(cell) === fold(v);
+    return fold(cell).indexOf(fold(v)) !== -1;   // title: substring
+  }
+
+  function testTok(r, tok) {
+    const alts = tok.quoted ? [tok.value] : tok.value.split("|").filter((x) => x !== "");
+    const hit = alts.length ? alts.some((v) => oneValue(r, tok.key, v)) : true;
+    return tok.neg ? !hit : hit;                 // a negation covers the whole token
+  }
+
+  const matches = (text) => ROWS.filter((r) => parseQ(text).every((t) => testTok(r, t)));
+  const targets = () => matches(chips.join(" ") + " " + q).slice(0, 8);
+
+  // ---- the suggestion list, in the renderer's own tier order ----
+  // WHAT THE WORD SPELLS IN FULL LEADS WHAT IT MERELY OPENS.  Counts are taken
+  // under the chips already committed, so a number is what that token would
+  // actually leave standing.
+  function domainOf(key) {
+    const seen = new Map();
+    for (const r of matches(chips.join(" "))) {
+      const vals = key === "tag" ? r.tags : [cellOf(r, key)];
+      for (const v of vals) if (v !== "") seen.set(v, (seen.get(v) || 0) + 1);
+    }
+    const list = [...seen].map(([value, rows]) => ({ value, rows }))
+      .sort((a, b) => b.rows - a.rows || a.value.localeCompare(b.value));
+    if (key === "state") list.unshift({ value: ACTIVE_META, rows: matches(chips.join(" ") + " state:" + ACTIVE_META).length });
+    return list;
+  }
+  /** A token as the grammar spells it: a keyless one wears `substring:'. */
+  function canonical(tok) {
+    const t = parseQ(tok)[0];
+    if (!t) return tok;
+    return (t.neg ? "-" : "") + t.key + ":" + quoteIf(t.value);
+  }
+  const countOf = (tok) => matches(chips.join(" ") + " " + tok).length;
+
+  /** The offers for what is typed, at most seven, row one being what RET takes. */
+  function suggest(text) {
+    const out = [], seen = new Set();
+    // A NEGATION COVERS THE WHOLE TOKEN, so it completes exactly as its positive
+    // form does and the `-' is carried onto every offer.
+    const neg = text.trim()[0] === "-" ? "-" : "";
+    const add = (o) => {
+      const t = neg + o.text;
+      if (!seen.has(t)) { seen.add(t); out.push(Object.assign({}, o, { text: t })); }
+    };
+    const word = text.trim().slice(neg.length);
+    if (!word) {                                  // nothing typed: offer the keys
+      for (const k of COLUMNS) add({ text: k + ":", aside: "column", full: false });
+      return out;
+    }
+    const at = word.indexOf(":");
+    const key = at > 0 ? fold(word.slice(0, at)) : null;
+    if (key && COLUMNS.indexOf(key) !== -1) {     // AFTER `key:' — that column's domain
+      const pre = fold(word.slice(at + 1));
+      // THE TYPED TOKEN IS ALWAYS AN OFFER OF ITS OWN.  Without it a value the
+      // domain cannot enumerate — an alternation, a negation, anything the
+      // reader spelled in full — would have RET commit some OTHER row instead.
+      // The typed token is always an offer of its own, or a value the domain
+      // cannot enumerate — an alternation, a negation — would have RET commit
+      // some OTHER row instead.  `substring' has no domain at all, so it is the
+      // only offer there is.
+      const dom = WITH_DOMAIN.indexOf(key) === -1 ? [] : domainOf(key);
+      const hits = dom.filter((d) => !pre || fold(d.value).indexOf(pre) !== -1
+                                       || undecorated(d.value).indexOf(pre) !== -1);
+      // A domain that CAN complete leads; the typed token is offered behind it,
+      // and leads only where nothing completes — an alternation, say.
+      if (pre && !hits.length) add({ text: word, count: countOf(word), full: true });
+      for (const d of hits) add({ text: key + ":" + quoteIf(d.value), count: d.rows, full: true });
+      if (pre && hits.length && !hits.some((d) => fold(d.value) === pre || undecorated(d.value) === pre))
+        add({ text: word, count: countOf(word), full: true });
+      if (key !== SUBSTRING_KEY)
+        add({ text: key + ":" + EMPTY_META, count: countOf(key + ":" + EMPTY_META), full: true });
+      return out.slice(0, 7);
+    }
+    const w = fold(word);
+    // 1. the value or key it already SPELLS, which needs no more typing
+    for (const k of DOMAINS)
+      for (const d of domainOf(k))
+        if (fold(d.value) === w || undecorated(d.value) === w)
+          add({ text: k + ":" + quoteIf(d.value), count: d.rows, full: true });
+    for (const k of COLUMNS) if (k === w) add({ text: k + ":", aside: "column", full: false });
+    // 2. THE TEXT ITSELF — written as the predicate it is, so what lands on the
+    //    strip is `substring:wrike' and every chip reads KEY:VALUE.
+    add({ text: SUBSTRING_KEY + ":" + quoteIf(word), count: countOf(SUBSTRING_KEY + ":" + quoteIf(word)),
+          full: true });
+    // 3. the column keys it opens
+    for (const k of COLUMNS) if (k.indexOf(w) === 0) add({ text: k + ":", aside: "column", full: false });
+    // 4. the columns whose declared domain holds it as a value, by prefix
+    for (const k of DOMAINS)
+      for (const d of domainOf(k))
+        if (fold(d.value).indexOf(w) === 0 || undecorated(d.value).indexOf(w) === 0)
+          add({ text: k + ":" + quoteIf(d.value), count: d.rows, full: true });
+    // 5. up to five whole TITLES it is inside, as `title:' predicates and quoted
+    //    because a title holds spaces
+    let titles = 0;
+    for (const r of matches(chips.join(" ")))
+      if (fold(r.title).indexOf(w) !== -1 && titles < 5) {
+        add({ text: "title:" + quoteIf(r.title), aside: "title", full: true });
+        titles += 1;
+      }
+    return out.slice(0, 7);
+  }
+  function kinds() {
+    const typed = slug(q);
+    const hits = KINDS.filter((k) => !typed || k.kind.indexOf(fold(q)) !== -1).slice(0, 7);
+    return (typed && !KINDS.some((k) => k.kind === typed)
+              ? [{ kind: typed, rows: null, fresh: true }] : []).concat(hits);
+  }
+
+  function open(from, to, over, withKind) {
+    up = true; at = from; end = to; desc = over;
+    wantKind = withKind; kind = ""; stage = withKind ? "kind" : "target";
+    chips = withKind ? [] : tokens(cfg().filter);
+    q = over || ""; filtering = false; hot = 0;
+    ac.classList.add("on");
+    draw();
+    say("fired", (withKind ? "C-u @" : "@")
+      + (over ? " — over the selected " + JSON.stringify(over) : " — picker under the caret")
+      + " · config default " + JSON.stringify(cfg().filter));
+  }
+  function close(why) {
+    if (!up) return;
+    up = false; filtering = false; ac.classList.remove("on");
+    if (why) say("held", why);
+  }
+  // Giving up on the target gives up the kind with it.
+  function cancel(why) {
+    if (up && kind && stage === "target") say("held", "kind " + JSON.stringify(kind) + " dropped");
+    kind = ""; close(why);
+  }
+
+  // THE LAST RUNG OF THE DEL LADDER: with the strip empty there is nothing left
+  // to walk down but the `@' that opened this, so DEL undoes that too.  Over a
+  // SELECTION no `@' was ever written, and the region is left exactly as it was.
+  function delTrigger() {
+    if (desc === null) {
+      const v = pane.value;
+      pane.value = v.slice(0, at) + v.slice(end);
+      pane.setSelectionRange(at, at);
+      close("DEL — nothing left, so the @ went too");
+    } else {
+      close("DEL — nothing left; the selection is untouched");
+    }
+    pane.focus();
+  }
+
+  function place() {
+    const cs = getComputedStyle(pane);
+    const m = document.createElement("div");
+    for (const p of ["fontFamily","fontSize","fontWeight","letterSpacing","lineHeight",
+                     "paddingTop","paddingRight","paddingBottom","paddingLeft",
+                     "borderTopWidth","borderLeftWidth","boxSizing"]) m.style[p] = cs[p];
+    Object.assign(m.style, { position:"absolute", visibility:"hidden", whiteSpace:"pre-wrap",
+      overflowWrap:"anywhere", top:"0", left:"0", width: pane.clientWidth + "px" });
+    m.textContent = pane.value.slice(0, desc === null ? pane.selectionStart : end);
+    const dot = document.createElement("span"); dot.textContent = "​";
+    m.appendChild(dot); document.body.appendChild(m);
+    const d = dot.getBoundingClientRect(), mr = m.getBoundingClientRect();
+    const tr = pane.getBoundingClientRect();
+    m.remove();
+    const line = parseFloat(cs.lineHeight) || 18;
+    const x = Math.max(8, Math.min(tr.left + (d.left - mr.left), window.innerWidth - ac.offsetWidth - 8));
+    let y = tr.top + (d.top - mr.top) + line + 2;
+    if (y + ac.offsetHeight > window.innerHeight - 8)
+      y = Math.max(8, tr.top + (d.top - mr.top) - ac.offsetHeight - 2);
+    ac.style.left = Math.round(x) + "px";
+    ac.style.top = Math.round(y) + "px";
+  }
+
+  function pill(text, hue) {
+    const s = document.createElement("span");
+    s.className = "pill"; s.style.setProperty("--hue", "var(" + hue + ")");
+    s.textContent = text;
+    return s;
+  }
+
+  function draw() {
+    if (!up) return;
+    const onKind = stage === "kind";
+    shown = onKind ? kinds() : targets();
+    hot = shown.length ? Math.min(Math.max(hot, 0), shown.length - 1) : -1;
+
+    // the chip strip: the default filter, the settled kind, and the live box
+    bar.textContent = "";
+    const chip = (t) => { const c = document.createElement("span"); c.className = "chip"; c.textContent = t; return c; };
+    // The kind leads: it states what is being made, and is not part of the query,
+    // so DEL never reaches it — `C-p' off the top row is what takes it back.
+    if (kind) {
+      const k = document.createElement("span");
+      k.className = "kindchip"; k.textContent = "kind:" + kind;
+      bar.appendChild(k);
+    }
+    if (!onKind) for (const [i, t] of chips.entries()) {
+      const c = chip(t);
+      c.title = "click to drop";
+      c.style.cursor = "pointer";
+      c.addEventListener("mousedown", (ev) => {
+        ev.preventDefault(); chips.splice(i, 1); hot = 0; draw(); pane.focus();
+        say("held", "dropped the chip " + JSON.stringify(t));
+      });
+      bar.appendChild(c);
+    }
+    if (filtering) {
+      const slash = document.createElement("span"); slash.id = "acslash"; slash.textContent = "/";
+      const box = document.createElement("input");
+      box.id = "acbox"; box.value = q; box.spellcheck = false; box.autocomplete = "off";
+      box.addEventListener("input", () => {
+        q = box.value; hot = 0; sHot = 0; listOpen = true; draw();
+      });
+      box.addEventListener("keydown", onKey);
+      bar.append(slash, box);
+    } else if (onKind) {
+      const lead = document.createElement("span");
+      lead.style.color = "var(--g-mute)"; lead.textContent = "relate as ";
+      const typed = document.createElement("b");
+      typed.style.fontWeight = "400";
+      typed.style.borderRight = "1.5px solid var(--g-accent)";
+      typed.textContent = q;
+      bar.append(lead, typed);
+    } else if (q) {
+      bar.appendChild(chip(q));
+    } else {
+      const hint = document.createElement("span");
+      hint.style.color = "var(--g-mute)";
+      hint.textContent = "/ to filter";
+      bar.appendChild(hint);
+    }
+
+    const o = cfg();
+    ac.style.setProperty("--cols", tracks(onKind ? [] : targets(), o.marks));
+    head.textContent = "";
+    if (o.marks) { const g = document.createElement("span"); g.className = "gut"; g.textContent = ""; head.appendChild(g); }
+    for (const [i, h] of ["State", "#", "Title", "Tag"].entries()) {
+      const c = document.createElement("span");
+      if (i < 2) c.className = "badgecol";      // the two columns drawn as pills
+      c.textContent = h;
+      head.appendChild(c);
+    }
+    // The suggestion list: open while the filter box is, and what RET takes.
+    const sbox = el("acsugg");
+    if (!onKind && filtering && listOpen) {
+      sugg = suggest(q);
+      if (sHot >= sugg.length) sHot = 0;
+      sbox.hidden = !sugg.length;
+      sbox.textContent = "";
+      sugg.forEach((o, i) => {
+        const d = document.createElement("div");
+        d.className = i === sHot ? "sg at" : "sg";
+        const a = document.createElement("span");
+        if (o.full) a.textContent = o.text;
+        else { const b = document.createElement("b"); b.textContent = o.text; a.appendChild(b); }
+        const c = document.createElement("em");
+        c.textContent = o.aside ? o.aside : (o.count === undefined ? "" : o.count + " rows");
+        d.append(a, c);
+        d.addEventListener("mousedown", (ev) => { ev.preventDefault(); sHot = i; takeSugg(); });
+        sbox.appendChild(d);
+      });
+    } else { sbox.hidden = true; sugg = []; }
+
+    head.hidden = onKind;
+
+    // `actions' would put the table's own KEY-label hint line here.
+    const acts = el("acacts");
+    acts.hidden = onKind || !o.actions;
+    if (!acts.hidden) {
+      acts.textContent = "";
+      for (const [k, label] of [["RET", "choose"], ["t", "set-state"], ["d", "archive"]]) {
+        const w = document.createElement("span");
+        const b = document.createElement("b"); b.textContent = k;
+        w.append(b, document.createTextNode(" " + label));
+        acts.appendChild(w);
+      }
+    }
+    redrawRows();
+    stageEl.textContent = onKind ? "kind — new kinds welcome"
+                                 : (kind ? "row for kind:" + kind : "row — match required");
+    keysEl.textContent = filtering ? "RET choose · ESC back to the rows"
+                                   : "n/p move · / filter · RET choose · ESC dismiss";
+    place();
+    if (filtering) { const b = el("acbox"); if (b) { b.focus(); b.setSelectionRange(q.length, q.length); } }
+  }
+
+  /** One character, in px, at a face — measured once and cached.
+   *  `ch' RESOLVES AGAINST THE ELEMENT'S OWN FONT SIZE, so the head at 10px and
+   *  a row at 12px turn one track string into two different widths.  That is
+   *  what left the column names sitting off their columns.  The tracks are
+   *  therefore worked out in PX here, where the answer cannot drift. */
+  const CH = {};
+  function chOf(css) {
+    if (CH[css]) return CH[css];
+    const probe = document.createElement("span");
+    probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;font:" + css;
+    probe.textContent = "0".repeat(20);
+    document.body.appendChild(probe);
+    CH[css] = probe.getBoundingClientRect().width / 20;
+    probe.remove();
+    return CH[css];
+  }
+
+  /** The tracks, from the widest cell each column holds.  A pill's ground is
+   *  px — its padding — so it rides beside the character measure, never in it. */
+  function tracks(rows, marks) {
+    const cell = chOf("12px/1.6 var(--dk-mono)");
+    const tagCh = chOf("11px/1.6 var(--dk-mono)");
+    const longest = (fn) => Math.max(0, ...rows.map(fn));
+    const st = longest((r) => (r.state || "").length);
+    const pr = rows.some((r) => r.prio) ? 4 : 0;          // `[#A]'
+    const tg = longest((r) => r.tags.join(" · ").length);
+    const px = (n) => Math.ceil(n) + "px";
+    const pill = (n) => (n ? px(n * cell + 15) : "0px");
+    return (marks ? px(3 * cell) + " " : "")
+      + pill(st) + " " + pill(pr) + " minmax(0, 1fr) "
+      + (tg ? px(tg * tagCh) : "0px");
+  }
+
+  function redrawRows() {
+    const onKind = stage === "kind";
+    shown = onKind ? kinds() : targets();
+    if (!onKind) ac.style.setProperty("--cols", tracks(shown, cfg().marks));
+    if (hot >= shown.length) hot = shown.length - 1;
+    rowsBox.textContent = "";
+    if (!shown.length) {
+      const d = document.createElement("div");
+      d.className = "none";
+      d.textContent = onKind ? "type a kind" : "no addressable row under this filter";
+      rowsBox.appendChild(d);
+      return;
+    }
+    shown.forEach((s, i) => {
+      const d = document.createElement("div");
+      if (onKind) {
+        d.className = i === hot ? "ke at" : "ke";
+        const a = document.createElement("span"); a.textContent = s.kind;
+        const b = document.createElement("em");
+        b.textContent = s.fresh ? "new kind" : s.rows + " rows";
+        d.append(a, b);
+      } else {
+        const o = cfg();
+        d.className = (i === hot ? "row at" : "row") + (o.flags && s.refs > 4 ? " flagged" : "");
+        if (o.marks) {
+          const g = document.createElement("span"); g.className = "gut"; g.textContent = "[ ]";
+          d.appendChild(g);
+        }
+        const st = document.createElement("span");
+        if (s.state) st.appendChild(pill(s.state, HUE[s.state]));
+        const pr = document.createElement("span");
+        if (s.prio) pr.appendChild(pill("[#" + s.prio + "]", PRIO[s.prio]));
+        const ti = document.createElement("span"); ti.className = "ttl"; ti.textContent = s.title;
+        const tg = document.createElement("span"); tg.className = "tags";
+        tg.textContent = s.tags.join(" · ");
+        d.append(st, pr, ti, tg);
+      }
+      d.addEventListener("mousedown", (ev) => { ev.preventDefault(); hot = i; take(); });
+      rowsBox.appendChild(d);
+    });
+  }
+
+  // A FINISHED TOKEN COMMITS; A KEY MERELY OPENS.  `state:' lands in the box with
+  // that column's values already listed, which is the renderer's stage-aware RET.
+  function takeSugg() {
+    const o = sugg[sHot];
+    if (!o) return;
+    if (o.full) {
+      chips.push(o.text); q = ""; filtering = false; listOpen = false; hot = 0; sHot = 0;
+      draw(); pane.focus();
+      say("held", "RET — committed " + JSON.stringify(o.text) + " to a chip");
+    } else {
+      q = o.text; sHot = 0; listOpen = true; draw();
+      say("held", "RET — opened " + JSON.stringify(o.text) + ", its values are listed");
+    }
+  }
+
+  function take() {
+    if (hot < 0) { say("held", "nothing to take — no row under this filter"); return; }
+    if (stage === "kind") {
+      kind = shown[hot].kind;
+      stage = "target"; hot = 0; q = desc || ""; filtering = false;
+      chips = tokens(cfg().filter);
+      draw(); pane.focus();
+      say("fired", "kind settled — " + kind);
+      return;
+    }
+    const row = shown[hot];
+    const target = "glance:" + row.id + (kind ? "?kind=" + kind : "");
+    const label = desc || row.title;
+    const insert = "[[" + target + "][" + label + "]]";
+    const v = pane.value;
+    pane.value = v.slice(0, at) + insert + v.slice(end);
+    close(null);
+    pane.focus();
+    pane.setSelectionRange(at + insert.length, at + insert.length);
+    say("wrote", (kind ? "relation" : "link") + " inserted — " + target
+      + (desc ? " reading " + JSON.stringify(label) : ""));
+  }
+
+  // --- keys ----------------------------------------------------------------
+  const MODIFIER = /^(Shift|Control|Alt|AltGraph|Meta|OS|CapsLock|NumLock|Dead)$/;
+  let prefix = false;
+
+  function onKey(e) {
+    if (!up) return false;
+    const k = e.key;
+
+    // THE KIND STAGE IS NOT A TABLE, so it does not borrow the table's keys: it
+    // is a plain vocabulary, typing narrows it directly, and RET takes what is
+    // highlighted.  `/' is the TABLE's filter key and belongs to the row stage.
+    if (stage === "kind") {
+      if (k === "ArrowDown" || (e.ctrlKey && (k === "n" || k === "N"))) {
+        if (shown.length) { hot = Math.min(hot + 1, shown.length - 1); redrawRows(); }
+        e.preventDefault(); return true;
+      }
+      if (k === "ArrowUp" || (e.ctrlKey && (k === "p" || k === "P"))) {
+        if (shown.length) { hot = Math.max(hot - 1, 0); redrawRows(); }
+        e.preventDefault(); return true;
+      }
+      if (k === "Enter" || (k === "Tab" && !e.shiftKey)) { take(); e.preventDefault(); return true; }
+      if (k === "Escape") {
+        cancel(desc ? "ESC — the selection is untouched" : "ESC — the literal @ is left standing");
+        e.preventDefault(); return true;
+      }
+      if (k === "Backspace") {
+        if (!q) { kind = ""; delTrigger(); e.preventDefault(); return true; }
+        q = q.slice(0, -1); hot = 0; draw();
+        e.preventDefault(); return true;
+      }
+      if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        q += k; hot = 0; draw(); e.preventDefault(); return true;
+      }
+      return false;
+    }
+    const down = k === "ArrowDown" || (!filtering && (k === "n" || k === "j")) || (e.ctrlKey && k === "n");
+    const upK = k === "ArrowUp" || (!filtering && (k === "p" || k === "k")) || (e.ctrlKey && k === "p");
+    if (filtering && listOpen && sugg.length && (down || upK)) {
+      sHot = Math.max(0, Math.min(sHot + (down ? 1 : -1), sugg.length - 1));
+      draw();
+      e.preventDefault(); return true;
+    }
+    if (down) { if (shown.length) { hot = Math.min(hot + 1, shown.length - 1); redrawRows(); } e.preventDefault(); return true; }
+    if (upK) {                       // MOVEMENT, and nothing else: DEL is what
+      if (shown.length) { hot = Math.max(hot - 1, 0); redrawRows(); }
+      e.preventDefault(); return true;   // walks back out of the kind
+    }
+    if (k === "Enter") {
+      // THE TABLE'S RULE: RET commits the box WHOLE, to a chip, and hands the
+      // keyboard back to the rows.  Choosing a row is a SECOND RET, on the row.
+      if (filtering) {
+        if (listOpen && sugg.length) { takeSugg(); e.preventDefault(); return true; }
+        const typed = q.trim();
+        if (typed) { chips.push(canonical(typed)); q = ""; }
+        filtering = false; listOpen = false; hot = 0; draw(); pane.focus();
+        say("held", typed ? "RET — committed " + JSON.stringify(typed) + " to a chip"
+                          : "RET — filter closed, nothing typed");
+        e.preventDefault(); return true;
+      }
+      take(); e.preventDefault(); return true;
+    }
+    if (k === "Escape") {
+      // ESC drops what is half-typed rather than keeping it — the table's ladder.
+      if (filtering && listOpen && sugg.length) {
+        listOpen = false; draw();
+        say("held", "ESC — the suggestions closed, the text kept");
+        e.preventDefault(); return true;
+      }
+      if (filtering) {
+        const had = q; q = ""; filtering = false; hot = 0; draw(); pane.focus();
+        say("held", had ? "ESC — dropped the half-typed " + JSON.stringify(had)
+                        : "ESC — back to the rows");
+      }
+      else cancel(desc ? "ESC — the selection is untouched" : "ESC — the literal @ is left standing");
+      e.preventDefault(); return true;
+    }
+    if (k === "Backspace") {
+      // The table's rule: drop what is half-typed, else the last chip WHOLE.
+      if (filtering) {
+        const box = el("acbox");
+        if (box && box.value.length) return false;      // an ordinary edit
+      } else if (q) {
+        q = ""; hot = 0; draw();
+        say("held", "DEL — dropped the typed text");
+        e.preventDefault(); return true;
+      }
+      // THE QUERY GOES BEFORE THE KIND.  Taking the kind first would strand the
+      // filter: the kind stage draws no chips, so the reader could never reach
+      // the config's default to override it.  So DEL empties the strip left to
+      // right and only then walks out of the kind.
+      if (stage !== "kind" && chips.length) {
+        const gone = chips.pop(); hot = 0; draw();
+        say("held", "DEL — dropped the chip " + JSON.stringify(gone));
+        e.preventDefault(); return true;
+      }
+      if (stage === "target" && kind) {
+        q = kind; kind = ""; stage = "kind"; hot = 0; draw();
+        say("held", "DEL — took the kind back");
+        e.preventDefault(); return true;
+      }
+      delTrigger();
+      e.preventDefault(); return true;
+    }
+    if (!filtering && k === "/") {          // THE TABLE'S OWN FILTER KEY
+      filtering = true; listOpen = true; sHot = 0; draw();
+      say("held", "/ — filtering, the default chip still applied");
+      e.preventDefault(); return true;
+    }
+    return false;
+  }
+
+  pane.addEventListener("keydown", (e) => {
+    if (up) { if (onKey(e)) return; if (!filtering) e.preventDefault(); return; }
+    const k = e.key;
+    if (e.ctrlKey && !e.altKey && (k === "u" || k === "U")) {
+      prefix = true; e.preventDefault();
+      say("clash", "C-u — View Source suppressed to reach the prefix");
+      return;
+    }
+    if (MODIFIER.test(k)) return;
+    if (k === "@") {
+      const p = pane.selectionStart, sel = pane.selectionEnd;
+      const was = prefix; prefix = false;
+      if (sel > p) { e.preventDefault(); open(p, sel, pane.value.slice(p, sel), was); return; }
+      const before = p === 0 ? "" : pane.value[p - 1];
+      if (!was && !(p === 0 || /\s/.test(before))) {
+        say("held", "@ inside a word — left as text (after " + JSON.stringify(before) + ")");
+        return;
+      }
+      e.preventDefault();
+      pane.value = pane.value.slice(0, p) + "@" + pane.value.slice(p);
+      pane.setSelectionRange(p + 1, p + 1);
+      open(p, p + 1, null, was);
+      return;
+    }
+    prefix = false;
+  });
+
+  el("cfgfilter").addEventListener("input", () => {
+    if (up && stage !== "kind") { chips = tokens(cfg().filter); hot = 0; draw(); }
+  });
+  for (const id of ["cfgmarks", "cfgflags", "cfgacts"])
+    el(id).addEventListener("input", () => { if (up) { hot = 0; draw(); } });
+  window.addEventListener("resize", () => { if (up) place(); });
+  say("held", "ready — type in the pane, then @ or C-u @");
+  pane.focus();
+  pane.setSelectionRange(pane.value.length, pane.value.length);
+})();
+</script>

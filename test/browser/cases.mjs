@@ -492,6 +492,44 @@ export default [
     return [`each pill against its cell's content box: ${seen.join("  ")}`];
   } },
 
+// A BADGE COLUMN'S HEADER SITS OVER ITS BADGES' FIRST LETTER.  A pill sets its
+// text in from the cell edge by its own padding, so a header aligned to the CELL
+// is a header sitting a padding's width left of the words underneath it — which
+// is what a reader actually scans.  Unaskable in TestServe.hs: the node harness
+// returns zeroed rects.
+{ name: "a badge column's header lines up with its badges, not with the cell",
+  async run(p, base) {
+    await p.size(1400, 900);
+    await p.goto(`${base}/`);
+    await p.until(() => !!document.querySelector("#app td .tv-pill"),
+                  "a badge to draw");
+    const at = await p.eval(() => {
+      // The TEXT, not the box: a Range over the text node is where letters start.
+      const textX = (n) => {
+        const r = document.createRange();
+        r.selectNodeContents(n);
+        return Math.round(r.getBoundingClientRect().left * 100) / 100;
+      };
+      const out = [];
+      for (const th of document.querySelectorAll("#app th.tv-badge")) {
+        const key = th.dataset.key;
+        const cell = document.querySelector(`#app td[data-key="${key}"] .tv-pill`)
+          || [...document.querySelectorAll("#app tbody tr")]
+               .map((tr) => tr.children[[...th.parentNode.children].indexOf(th)])
+               .map((td) => td && td.querySelector(".tv-pill")).find(Boolean);
+        if (!cell) continue;
+        out.push({ key, head: textX(th.querySelector(".tv-hn")), pill: textX(cell) });
+      }
+      return out;
+    });
+    assert(at.length > 0, "no badge column drew a pill to measure against");
+    for (const c of at)
+      assert(Math.abs(c.head - c.pill) < 0.5,
+        `the "${c.key}" header starts at ${px(c.head)} and its badges at ${px(c.pill)}`);
+    return [`badge header against badge text: `
+      + at.map((c) => `${c.key} ${px(c.head)}/${px(c.pill)}`).join("  ")];
+  } },
+
 // THE PAGE NEVER SCROLLS AND NOTHING DRAWS A BAR SAYING IT MIGHT.  Two surfaces
 // did: `.tv-scroll', whose rows are driven by key and wheel, and `#kbd', one
 // nowrap line wider than the window at every size — 15px of chrome under a hint

@@ -1,0 +1,489 @@
+<title>Refer Inline Completion</title>
+<style>
+  /* glance's own tokens — Theme/Default.hs and Page/Style.hs, verbatim. */
+  :root{
+    --glance-mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --dk-mono:"Hack",var(--glance-mono);
+    --g-bg:#FFFFFF; --g-fg:#000000; --g-surface:#F8F8FF; --g-mute:#667071;
+    --g-border:#E3E6EA; --g-accent:#31769F; --g-sel:#FFD600; --g-shadow:#00000033;
+    --g-ok:#27AE60; --g-bad:#E74C3C; --g-warn:#FFA500;
+    --g-doc-fs:13px; --g-doc-lh:1.6; --g-doc-padx:10px; --g-doc-pady:8px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+      --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-shadow:#000000AA;
+    }
+  }
+  :root[data-theme="dark"]{
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-shadow:#000000AA;
+  }
+
+  body{
+    margin:0; background:var(--g-bg); color:var(--g-fg);
+    font:14px/1.5 var(--glance-mono);
+    min-height:100vh; box-sizing:border-box; padding:20px;
+    display:flex; flex-direction:column; gap:14px;
+  }
+  h1{font-size:15px; margin:0; font-weight:600; letter-spacing:.02em}
+  .sub{font-size:12px; color:var(--g-mute); margin:0; max-width:78ch}
+  code{font-size:12px; color:var(--g-mute)}
+  kbd{
+    font:11px/1 var(--dk-mono); border:1px solid var(--g-border);
+    border-radius:3px; padding:2px 5px; color:var(--g-fg); white-space:nowrap;
+  }
+  [hidden]{display:none !important}
+
+  .rig{
+    display:flex; flex-wrap:wrap; gap:22px; align-items:flex-start;
+    border:1px dashed var(--g-border); border-radius:8px; padding:12px 14px;
+    background:var(--g-surface);
+  }
+  .verbs{font-size:12px; display:flex; flex-direction:column; gap:6px}
+  .verbs div{display:flex; gap:8px; align-items:baseline}
+  .verbs span{color:var(--g-mute); font-size:11px}
+
+  .pane-wrap{display:flex; flex-direction:column; gap:5px; flex:0 0 auto; position:relative}
+  .pane-label{font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--g-mute)}
+  #mdoc{
+    border:1px solid var(--g-border); border-radius:8px;
+    background:var(--g-bg); padding:var(--g-doc-pady) var(--g-doc-padx);
+    display:flex; flex-direction:column; min-height:210px;
+  }
+  #dpara{
+    flex:1 1 auto; resize:none; border:none; outline:none; margin:0; width:100%;
+    box-sizing:border-box; background:transparent; color:inherit;
+    font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+    padding:1px 6px; overflow-wrap:anywhere; scrollbar-width:none;
+  }
+  #dpara::-webkit-scrollbar{width:0; height:0}
+
+  /* ---- THE INLINE WIDGET.  No veil, no focus move: it sits under the caret
+     and the pane keeps the keyboard, so typing never stops.  z-index 5 is the
+     renderer's suggestion tier. ---- */
+  #ac{
+    position:fixed; z-index:5; display:none;
+    width:min(440px, calc(100vw - 24px));
+    background:var(--g-bg); color:var(--g-fg);
+    border:1px solid var(--g-border); border-radius:6px;
+    box-shadow:0 4px 14px var(--g-shadow);
+    font-family:var(--dk-mono); overflow:hidden;
+  }
+  #ac.on{display:block}
+  /* Shown only over a SELECTION, where the query has nowhere in the pane to
+     live: the widget holds it and draws it, and the caret stays in the pane. */
+  #acquery{
+    padding:4px 8px; font-size:12px; color:var(--g-fg);
+    border-bottom:1px solid var(--g-border); background:var(--g-surface);
+  }
+  #acquery i{font-style:normal; color:var(--g-mute)}
+  #acquery b{font-weight:400; border-right:1.5px solid var(--g-accent); padding-right:1px}
+  #aclist{max-height:calc(8 * 1.9em); overflow-y:auto; scrollbar-width:none}
+  #aclist::-webkit-scrollbar{width:0}
+  .ke{
+    padding:3px 8px; font-size:12px; line-height:1.6;
+    display:flex; justify-content:space-between; gap:12px; cursor:default;
+  }
+  .ke.kh{background:var(--g-sel)}
+  .ke em{font-style:normal; color:var(--g-mute); font-variant-numeric:tabular-nums; flex:none}
+  .ke.kh em{color:inherit; opacity:.75}
+  .ke b{font-weight:600}
+  .none{padding:3px 8px; font-size:12px; color:var(--g-mute)}
+  #acfoot{
+    border-top:1px solid var(--g-border); padding:2px 8px;
+    font-size:10px; color:var(--g-mute); display:flex; justify-content:space-between; gap:10px;
+  }
+
+  #log{
+    font-size:11px; color:var(--g-mute); border:1px solid var(--g-border);
+    border-radius:8px; background:var(--g-surface); padding:6px 10px;
+    height:calc(7 * 1.5em + 12px + 2px); overflow-y:auto; margin:0;
+  }
+  #log div{display:flex; gap:8px}
+  #log .lv{width:9ch; flex:none}
+  #log .fired{color:var(--g-ok)}
+  #log .held{color:var(--g-warn)}
+  #log .wrote{color:var(--g-accent)}
+  #log .clash{color:var(--g-bad)}
+  @media (prefers-reduced-motion: reduce){ #ac{transition:none} }
+</style>
+
+<h1>Refer — inline completion</h1>
+<p class="sub">
+  The same verbs, drawn the way an editor draws completion: the list hangs under
+  the caret, the pane keeps the keyboard, and the query is the text you are
+  typing. <kbd>@</kbd> links; <kbd>C-u</kbd> <kbd>@</kbd> asks the kind first.
+  Nothing is modal — carry on typing and the list follows, or ignore it and it
+  stays out of the way.
+</p>
+
+<div class="rig">
+  <div class="verbs">
+    <div><kbd>@</kbd> <span>link — target only, match required</span></div>
+    <div><kbd>C-u</kbd> <kbd>@</kbd> <span>relation — kind first, then target</span></div>
+  </div>
+  <div class="verbs">
+    <div><kbd>C-n</kbd> <kbd>C-p</kbd> <span>walk · <kbd>RET</kbd> or <kbd>TAB</kbd> take</span></div>
+    <div><kbd>ESC</kbd> <span>dismiss — what you typed stays as text</span></div>
+  </div>
+  <div class="verbs">
+    <div><span>A bare <kbd>@</kbd> fires only at a WORD BOUNDARY, so
+      <code>dmitry@example.com</code> stays text. <kbd>C-u</kbd> <kbd>@</kbd> is
+      explicit and fires anywhere.</span></div>
+  </div>
+  <div class="verbs">
+    <div><span>SELECT A REGION FIRST and <kbd>@</kbd> turns it into the link —
+      its own words become what the link reads as, and its text seeds the
+      search. Nothing is written until you take a row.</span></div>
+  </div>
+</div>
+
+<div class="pane-wrap">
+  <div class="pane-label">materialize sheet · document pane</div>
+  <div id="mdoc">
+    <textarea id="dpara" spellcheck="false" aria-label="document pane"></textarea>
+  </div>
+</div>
+
+<pre id="log" aria-live="polite"></pre>
+
+<div id="ac" role="listbox" aria-label="refer completion">
+  <div id="acquery" hidden></div>
+  <div id="aclist"></div>
+  <div id="acfoot"><span id="acstage"></span><span id="ackeys"></span></div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const ROWS = [
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a001", title: "Wrike MDE Team", refs: 3 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a002", title: "Wrike MDE onboarding", refs: 0 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a003", title: "MDE weekly", refs: 7 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a004", title: "Quarterly planning 2026 Q3", refs: 2 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a005", title: "org-glance relation model", refs: 11 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a006", title: "glance: the protocol decision", refs: 4 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a007", title: "Reverse index for in-edges", refs: 1 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a008", title: "Anna Kovalenko", refs: 5 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a009", title: "Dmitry Akatov", refs: 9 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a010", title: "Materialize sheet in Elm", refs: 0 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a011", title: "Capture templates as forms", refs: 2 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a012", title: "Screenshot diffs over the shell", refs: 0 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a013", title: "Wrike migration notes", refs: 1 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a014", title: "Berlin office move", refs: 0 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a015", title: "Reading list — distributed systems", refs: 6 },
+  ];
+  const KINDS = [
+    { kind: "author", rows: 41 }, { kind: "authorised-by", rows: 2 },
+    { kind: "depends", rows: 18 }, { kind: "blocks", rows: 7 },
+    { kind: "part-of", rows: 33 }, { kind: "mentions", rows: 64 },
+    { kind: "supersedes", rows: 3 }, { kind: "owner", rows: 12 },
+  ];
+
+  const el = (id) => document.getElementById(id);
+  const pane = el("dpara"), ac = el("ac"), list = el("aclist");
+  const stageEl = el("acstage"), keysEl = el("ackeys");
+
+  pane.value = "The onboarding doc still points at the old protocol, so the "
+    + "handler list is out of date. Ask ";
+
+  function say(kind, what) {
+    const box = el("log"), row = document.createElement("div");
+    const a = document.createElement("span"); a.className = "lv " + kind; a.textContent = kind;
+    const b = document.createElement("span"); b.textContent = what;
+    row.append(a, b); box.appendChild(row); box.scrollTop = box.scrollHeight;
+  }
+  const slug = (s) => s.trim().toLowerCase().replace(/\s+/g, "-");
+  const fold = (s) => s.trim().toLowerCase();
+
+  // --- caret geometry -------------------------------------------------------
+  // A mirror of the textarea, its text cut at the caret, and a zero-width span
+  // where the caret is: the only way to ask a textarea where its caret is drawn.
+  const MIRRORED = ["fontFamily","fontSize","fontWeight","fontStyle","letterSpacing",
+    "lineHeight","textTransform","wordSpacing","textIndent","paddingTop","paddingRight",
+    "paddingBottom","paddingLeft","borderTopWidth","borderRightWidth","borderBottomWidth",
+    "borderLeftWidth","boxSizing"];
+  function caretAt(ta, pos) {
+    const cs = getComputedStyle(ta);
+    const m = document.createElement("div");
+    for (const p of MIRRORED) m.style[p] = cs[p];
+    Object.assign(m.style, { position:"absolute", visibility:"hidden", whiteSpace:"pre-wrap",
+      overflowWrap:"anywhere", top:"0", left:"0", width: ta.clientWidth + "px" });
+    m.textContent = ta.value.slice(0, pos);
+    const dot = document.createElement("span");
+    dot.textContent = "​";
+    m.appendChild(dot);
+    document.body.appendChild(m);
+    const d = dot.getBoundingClientRect(), mr = m.getBoundingClientRect();
+    const tr = ta.getBoundingClientRect();
+    m.remove();
+    return { x: tr.left + (d.left - mr.left) - ta.scrollLeft,
+             y: tr.top  + (d.top  - mr.top)  - ta.scrollTop,
+             line: parseFloat(cs.lineHeight) || 18 };
+  }
+
+  // --- session state --------------------------------------------------------
+  // Two ways in.  TYPED: an `@' sits in the pane and the run after it is the
+  // query, editable as ordinary text.  OVER A SELECTION: nothing is written
+  // until a row is taken, the selected text IS the query, and it is also what
+  // the finished link will read as.
+  // A SELECTION HAS NO EDITABLE RUN, so the widget owns a small buffer instead
+  // and draws it: the pane is never written to before a row is taken, and the
+  // keyboard still never leaves the pane.
+  let up = false, at = -1, end = -1, segAt = -1, desc = null, buf = null, hot = 0, shown = [];
+  let wantKind = false, stage = "target", kind = "";
+
+  const overSelection = () => desc !== null;
+  const query = () => !up ? "" : buf !== null ? buf
+                                              : pane.value.slice(segAt, pane.selectionStart);
+
+  function targets(q) {
+    const want = fold(q);
+    if (!want) return ROWS.slice(0, 8);
+    const toks = want.split(/\s+/).filter(Boolean);
+    return ROWS.filter((r) => toks.every((t) => fold(r.title).indexOf(t) !== -1)).slice(0, 8);
+  }
+  // The typed text is an offer of its own, so "top row selected" and "a new kind
+  // costs no configuration" hold together.
+  function kinds(q) {
+    const typed = slug(q);
+    const hits = KINDS.filter((k) => !typed || k.kind.indexOf(fold(q)) !== -1).slice(0, 7);
+    const exact = KINDS.some((k) => k.kind === typed);
+    return (typed && !exact ? [{ kind: typed, rows: null, fresh: true }] : []).concat(hits);
+  }
+
+  function open(from, to, over, withKind) {
+    up = true; at = from; end = to; desc = over; segAt = from + 1;
+    buf = over === null ? null : (withKind ? "" : over);
+    wantKind = withKind; kind = "";
+    stage = withKind ? "kind" : "target"; hot = 0;
+    ac.classList.add("on");
+    draw();
+    say("fired", (withKind ? "C-u @" : "@")
+      + (over ? " — over the selected " + JSON.stringify(over)
+              : " — completing inline at offset " + from));
+  }
+
+  function close(why) {
+    if (!up) return;
+    up = false; ac.classList.remove("on");
+    if (why) say("held", why);
+  }
+
+  // GIVING UP ON THE TARGET GIVES UP THE KIND WITH IT.  A settled kind was
+  // written into the run, and a relation with no target is not a thing the
+  // reader asked for — so the kind comes back out.  What they typed toward the
+  // TARGET stays, exactly as it does after a plain `@'.
+  function cancel(why) {
+    if (up && !overSelection() && stage === "target" && kind) {
+      const caret = pane.selectionStart, v = pane.value;
+      const from = at + 1, to = segAt;          // the run holding `kind' + its space
+      pane.value = v.slice(0, from) + v.slice(to);
+      const back = Math.max(from, caret - (to - from));
+      pane.setSelectionRange(back, back);
+      say("held", "kind " + JSON.stringify(kind) + " taken back out");
+    }
+    kind = "";
+    close(why);
+  }
+
+  function place() {
+    // Over a selection the caret is at its head, so hang the list off its END —
+    // under the region being linked rather than over it.
+    const c = caretAt(pane, overSelection() ? end : pane.selectionStart);
+    const w = ac.offsetWidth, h = ac.offsetHeight;
+    let x = Math.min(c.x, window.innerWidth - w - 8);
+    x = Math.max(8, x);
+    let y = c.y + c.line + 2;
+    if (y + h > window.innerHeight - 8) y = Math.max(8, c.y - h - 2);   // flip above
+    ac.style.left = Math.round(x) + "px";
+    ac.style.top = Math.round(y) + "px";
+  }
+
+  function draw() {
+    if (!up) return;
+    const q = query();
+    const onKind = stage === "kind";
+    const qbox = el("acquery");
+    qbox.hidden = buf === null;
+    if (buf !== null) {
+      qbox.textContent = "";
+      const lead = document.createElement("i");
+      lead.textContent = onKind ? "relate as " : "link to ";
+      const typed = document.createElement("b");
+      typed.textContent = buf;
+      qbox.append(lead, typed);
+    }
+    shown = onKind ? kinds(q) : targets(q);
+    hot = shown.length ? Math.min(Math.max(hot, 0), shown.length - 1) : -1;
+    list.textContent = "";
+    if (!shown.length) {
+      const d = document.createElement("div");
+      d.className = "none";
+      d.textContent = onKind ? "type a kind" : "no addressable row matches";
+      list.appendChild(d);
+    }
+    shown.forEach((s, i) => {
+      const d = document.createElement("div");
+      d.className = i === hot ? "ke kh" : "ke";
+      d.setAttribute("role", "option");
+      d.setAttribute("aria-selected", i === hot ? "true" : "false");
+      const a = document.createElement("span");
+      const label = onKind ? s.kind : s.title;
+      // The matched run in bold, the way an editor shows why a row is here.
+      const cut = fold(label).indexOf(fold(q));
+      if (q && cut !== -1) {
+        a.append(label.slice(0, cut));
+        const hitEl = document.createElement("b");
+        hitEl.textContent = label.slice(cut, cut + q.trim().length);
+        a.append(hitEl, label.slice(cut + q.trim().length));
+      } else a.textContent = label;
+      const b = document.createElement("em");
+      b.textContent = onKind ? (s.fresh ? "new kind" : s.rows + " rows")
+                             : (s.refs ? s.refs + " refs" : "");
+      d.append(a, b);
+      d.addEventListener("mousedown", (ev) => { ev.preventDefault(); hot = i; take(); });
+      list.appendChild(d);
+    });
+    stageEl.textContent = onKind ? "kind — new kinds welcome"
+                                 : (kind ? "target for " + kind : "target — match required");
+    keysEl.textContent = "RET take · ESC dismiss";
+    place();
+  }
+
+  function take() {
+    if (hot < 0) { say("held", "nothing to take — the list is empty"); return; }
+    const caret = pane.selectionStart;
+    if (stage === "kind") {
+      kind = shown[hot].kind;
+      if (!overSelection()) {          // rewrite the run so the pane shows the kind
+        const v = pane.value;
+        pane.value = v.slice(0, at) + "@" + kind + " " + v.slice(caret);
+        segAt = at + 1 + kind.length + 1;
+        pane.setSelectionRange(segAt, segAt);
+      } else {
+        buf = desc;                    // the region's words seed the target too
+      }
+      stage = "target"; hot = 0;
+      draw();
+      say("fired", "kind settled — " + kind);
+      return;
+    }
+    const row = shown[hot];
+    const target = "glance:" + row.id + (kind ? "?kind=" + kind : "");
+    const label = overSelection() ? desc : row.title;
+    const insert = "[[" + target + "][" + label + "]]";
+    const stop = overSelection() ? end : caret;
+    const v = pane.value;
+    pane.value = v.slice(0, at) + insert + v.slice(stop);
+    pane.setSelectionRange(at + insert.length, at + insert.length);
+    close(null);
+    say("wrote", (kind ? "relation" : "link") + " inserted — " + target
+      + (overSelection() ? " reading " + JSON.stringify(label) : ""));
+  }
+
+  // --- keys -----------------------------------------------------------------
+  // A PREFIX SURVIVES THE MODIFIERS THAT SPELL THE NEXT KEY: `@' is Shift+2 on a
+  // US layout and AltGr+Q on a German one, so a tracker cleared by every other
+  // keydown is cleared by the very shift that types the `@'.
+  const MODIFIER = /^(Shift|Control|Alt|AltGraph|Meta|OS|CapsLock|NumLock|Dead)$/;
+  let prefix = false;
+
+  pane.addEventListener("keydown", (e) => {
+    const k = e.key;
+
+    if (up) {
+      if (k === "ArrowDown" || (e.ctrlKey && (k === "n" || k === "N"))) {
+        if (shown.length) { hot = Math.min(hot + 1, shown.length - 1); draw(); }
+        e.preventDefault(); return;
+      }
+      if (k === "ArrowUp" || (e.ctrlKey && (k === "p" || k === "P"))) {
+        if (stage === "target" && wantKind && hot === 0) {
+          if (overSelection()) {              // the pane was never written to
+            buf = kind;
+          } else {                            // put the kind back under the caret
+            const caret = pane.selectionStart, v = pane.value;
+            pane.value = v.slice(0, at) + "@" + kind + v.slice(caret);
+            const to = at + 1 + kind.length;
+            pane.setSelectionRange(to, to);
+            segAt = at + 1;
+          }
+          stage = "kind"; kind = ""; hot = 0;
+          draw(); say("held", "back to the kind");
+          e.preventDefault(); return;
+        }
+        if (shown.length) { hot = Math.max(hot - 1, 0); draw(); }
+        e.preventDefault(); return;
+      }
+      if (k === "Enter" || (k === "Tab" && !e.shiftKey)) { take(); e.preventDefault(); return; }
+      if (k === "Escape") {
+        cancel(overSelection() ? "ESC — the selection is untouched"
+                               : "ESC — what was typed stays as text");
+        e.preventDefault(); return;
+      }
+      // OVER A SELECTION the widget owns the query, so a keystroke edits ITS
+      // buffer and the pane is left alone.  ESC hands the keyboard back.
+      if (buf !== null) {
+        if (k === "Backspace") { buf = buf.slice(0, -1); hot = 0; draw(); e.preventDefault(); return; }
+        if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          buf += k; hot = 0; draw(); e.preventDefault(); return;
+        }
+      }
+      // everything else falls through: the pane keeps the keystroke
+    }
+
+    if (e.ctrlKey && !e.altKey && (k === "u" || k === "U")) {
+      prefix = true; e.preventDefault();
+      say("clash", "C-u — View Source suppressed to reach the prefix");
+      return;
+    }
+    if (MODIFIER.test(k)) return;
+
+    if (k === "@" && !up) {
+      const p = pane.selectionStart, q = pane.selectionEnd;
+      const was = prefix; prefix = false;
+
+      // A SELECTED REGION BECOMES THE LINK, and its own text is what the link
+      // will read as.  The pane is not written to until a row is taken.
+      if (q > p) {
+        e.preventDefault();
+        open(p, q, pane.value.slice(p, q), was);
+        return;
+      }
+
+      const before = p === 0 ? "" : pane.value[p - 1];
+      const boundary = p === 0 || /\s/.test(before);
+      if (!was && !boundary) {
+        say("held", "@ inside a word — left as text (after " + JSON.stringify(before) + ")");
+        return;
+      }
+      e.preventDefault();
+      pane.value = pane.value.slice(0, p) + "@" + pane.value.slice(p);
+      pane.setSelectionRange(p + 1, p + 1);
+      open(p, p + 1, null, was);
+      return;
+    }
+    if (!up) prefix = false;
+  });
+
+  // The query IS the document text, so every edit re-reads it.
+  const reread = () => {
+    if (!up || overSelection()) return;   // a selection session owns no run to re-read
+    const caret = pane.selectionStart;
+    if (pane.value[at] !== "@" || caret < segAt) { close("the @ was edited away"); return; }
+    hot = 0;
+    draw();
+  };
+  pane.addEventListener("input", reread);
+  pane.addEventListener("click", reread);
+  pane.addEventListener("blur", () => cancel("focus left the pane"));
+  window.addEventListener("resize", () => { if (up) place(); });
+  window.addEventListener("scroll", () => { if (up) place(); }, true);
+
+  say("held", "ready — type in the pane, then @ or C-u @");
+  pane.focus();
+  pane.setSelectionRange(pane.value.length, pane.value.length);
+})();
+</script>

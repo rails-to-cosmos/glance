@@ -1,0 +1,432 @@
+<title>Refer Picker Rehearsal</title>
+<style>
+  /* glance's own tokens — Theme/Default.hs and Page/Style.hs, verbatim.
+     The prototype scaffolding borrows them so nothing fights the surface
+     being judged. */
+  :root{
+    --glance-mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --dk-mono:"Hack",var(--glance-mono);
+    --g-bg:#FFFFFF; --g-fg:#000000; --g-surface:#F8F8FF; --g-mute:#667071;
+    --g-border:#E3E6EA; --g-accent:#31769F; --g-sel:#FFD600; --g-veil:#00000066;
+    --g-link:#30739B; --g-ok:#27AE60; --g-bad:#E74C3C; --g-warn:#FFA500;
+    --g-doc-fs:13px; --g-doc-lh:1.6; --g-doc-padx:10px; --g-doc-pady:8px;
+    --g-pop-top:5vh; --g-pop-pad:24px;
+    --g-pop-max:min(90vh, calc(100vh - 2 * var(--g-pop-top)));
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+      --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-veil:#000000AA;
+      --g-link:#4CB5F5;
+    }
+  }
+  :root[data-theme="dark"]{
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-veil:#000000AA;
+    --g-link:#4CB5F5;
+  }
+
+  body{
+    margin:0; background:var(--g-bg); color:var(--g-fg);
+    font:14px/1.5 var(--glance-mono);
+    min-height:100vh; box-sizing:border-box; padding:20px;
+    display:flex; flex-direction:column; gap:14px;
+  }
+  h1{font-size:15px; margin:0; font-weight:600; letter-spacing:.02em}
+  .sub{font-size:12px; color:var(--g-mute); margin:0; max-width:78ch}
+  code{font-size:12px; color:var(--g-mute)}
+  kbd{
+    font:11px/1 var(--dk-mono); border:1px solid var(--g-border);
+    border-radius:3px; padding:2px 5px; color:var(--g-fg); white-space:nowrap;
+  }
+  [hidden]{display:none !important}   /* a class setting `display' outranks the UA sheet */
+
+  /* ---- scaffolding: deliberately quiet, and visibly not the app ---- */
+  .rig{
+    display:flex; flex-wrap:wrap; gap:22px; align-items:flex-start;
+    border:1px dashed var(--g-border); border-radius:8px; padding:12px 14px;
+    background:var(--g-surface);
+  }
+  .rig fieldset{border:0; margin:0; padding:0; display:flex; flex-direction:column; gap:6px}
+  .rig legend{
+    font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--g-mute); padding:0; margin-bottom:2px;
+  }
+  .opt{display:flex; gap:7px; align-items:baseline; font-size:12px; cursor:pointer}
+  .opt input{margin:0; accent-color:var(--g-accent)}
+  .opt .why{color:var(--g-mute); font-size:11px}
+  .verbs{font-size:12px; display:flex; flex-direction:column; gap:6px}
+  .verbs div{display:flex; gap:8px; align-items:baseline}
+  .verbs span{color:var(--g-mute); font-size:11px}
+
+  /* ---- the surface under judgement: the sheet's document pane ---- */
+  .pane-wrap{display:flex; flex-direction:column; gap:5px; flex:0 0 auto}
+  .pane-label{font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--g-mute)}
+  #mdoc{
+    border:1px solid var(--g-border); border-radius:8px;
+    background:var(--g-bg); padding:var(--g-doc-pady) var(--g-doc-padx);
+    display:flex; flex-direction:column; min-height:168px;
+  }
+  #dpara{
+    flex:1 1 auto; resize:none; border:none; outline:none; margin:0; width:100%;
+    box-sizing:border-box; background:transparent; color:inherit;
+    font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+    padding:1px 6px; overflow-wrap:anywhere; scrollbar-width:none;
+  }
+  #dpara::-webkit-scrollbar{width:0; height:0}
+
+  /* ---- the picker: .pop-band over the veil, Style.hs:279-281 ---- */
+  #refer{
+    display:none; position:fixed; inset:0; z-index:100; background:var(--g-veil);
+    padding:var(--g-pop-pad); padding-top:var(--g-pop-top);
+    align-items:flex-start; justify-content:center;
+  }
+  #refer.on{display:flex}
+  #rbox{
+    box-sizing:border-box; width:min(560px,100%); max-height:var(--g-pop-max);
+    display:flex; flex-direction:column; gap:6px; padding:10px;
+    border-radius:8px; position:relative; z-index:101;
+    font-family:var(--dk-mono);
+    background:var(--g-bg); color:var(--g-fg); border:1px solid var(--g-border);
+  }
+  #rhead{font-size:12px; color:var(--g-mute); display:flex; justify-content:space-between; gap:12px}
+  #rfoot{font-size:11px; color:var(--g-mute)}
+  #rq{
+    font:12px/1.5 var(--dk-mono); padding:5px 7px; border-radius:4px;
+    border:1px solid var(--g-border); background:transparent; color:inherit;
+    outline:none;
+  }
+  #rq:focus{border-color:var(--g-accent)}
+  .settled{
+    font-size:12px; padding:5px 7px; border:1px solid var(--g-border);
+    border-radius:4px; display:flex; justify-content:space-between; gap:10px;
+  }
+  .settled b{font-weight:600}
+  .settled i{font-style:normal; color:var(--g-ok)}
+  #rlist{overflow-y:auto; font-size:12px; flex:0 1 auto; scrollbar-width:none}
+  #rlist::-webkit-scrollbar{width:0}
+  .ke{padding:2px 7px; display:flex; justify-content:space-between; gap:12px}
+  .ke.kh{background:var(--g-sel)}
+  .ke em{font-style:normal; color:var(--g-mute); font-variant-numeric:tabular-nums}
+  .ke.kh em{color:inherit; opacity:.75}
+  .none{padding:2px 7px; font-size:12px; color:var(--g-bad)}
+
+  /* ---- echo + log ---- */
+  #echo{
+    position:fixed; right:14px; bottom:12px; z-index:200; padding:4px 10px;
+    font-size:11px; border-radius:6px; border:1px solid var(--g-border);
+    background:var(--g-surface); color:var(--g-fg); opacity:0;
+    transition:opacity .18s ease; pointer-events:none; max-width:66ch;
+  }
+  #echo.on{opacity:1}
+  #log{
+    font-size:11px; color:var(--g-mute); border:1px solid var(--g-border);
+    border-radius:8px; background:var(--g-surface); padding:6px 10px;
+    height:calc(7 * 1.5em + 12px + 2px); overflow-y:auto; margin:0;
+  }
+  #log div{display:flex; gap:8px}
+  #log .lv{width:9ch; flex:none}
+  #log .fired{color:var(--g-ok)}
+  #log .held{color:var(--g-warn)}
+  #log .wrote{color:var(--g-accent)}
+  #log .clash{color:var(--g-bad)}
+  @media (prefers-reduced-motion: reduce){ #echo,#refer{transition:none} }
+</style>
+
+<h1>Refer picker — rehearsal</h1>
+<p class="sub">
+  The sheet's document pane at its real metrics, the picker raising as a real
+  <code>.pop-band</code>. <kbd>@</kbd> links; <kbd>C-u</kbd> <kbd>@</kbd> asks the
+  kind first and then links — the peer's own prefix-argument split. The top row is
+  always selected, so <kbd>RET</kbd> takes it. Data is invented; the CSS is glance's.
+</p>
+
+<div class="rig">
+  <div class="verbs">
+    <div><kbd>@</kbd> <span>link — target only, match required</span></div>
+    <div><kbd>C-u</kbd> <kbd>@</kbd> <span>relation — kind first, then target</span></div>
+  </div>
+  <div class="verbs">
+    <div><kbd>C-n</kbd> <kbd>C-p</kbd> <span>walk the list · arrows too</span></div>
+    <div><kbd>RET</kbd> <span>take the highlighted row · <kbd>ESC</kbd> cancel</span></div>
+  </div>
+  <div class="verbs">
+    <div><span>A bare <kbd>@</kbd> fires only at a WORD BOUNDARY — line start or
+      after whitespace — so <code>dmitry@example.com</code> stays text.
+      <kbd>C-u</kbd> <kbd>@</kbd> is explicit and fires anywhere.</span></div>
+  </div>
+  <div class="verbs">
+    <div><span>SELECT A REGION FIRST and <kbd>@</kbd> turns it into the link —
+      its own words become what the link reads as, and its text seeds the
+      search. Nothing is written until you take a row.</span></div>
+  </div>
+</div>
+
+<div class="pane-wrap">
+  <div class="pane-label">materialize sheet · document pane</div>
+  <div id="mdoc">
+    <textarea id="dpara" spellcheck="false" aria-label="document pane"></textarea>
+  </div>
+</div>
+
+<pre id="log" aria-live="polite"></pre>
+
+<div id="refer" role="dialog" aria-modal="true" aria-label="refer">
+  <div id="rbox">
+    <div id="rhead"><span id="rtitle">@ link to…</span><span id="rstage"></span></div>
+    <div id="rsettled" class="settled" hidden><b></b><i>✓</i></div>
+    <input id="rq" spellcheck="false" autocomplete="off">
+    <div id="rlist"></div>
+    <div id="rfoot"></div>
+  </div>
+</div>
+
+<div id="echo"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  const ROWS = [
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a001", title: "Wrike MDE Team", refs: 3 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a002", title: "Wrike MDE onboarding", refs: 0 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a003", title: "MDE weekly", refs: 7 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a004", title: "Quarterly planning 2026 Q3", refs: 2 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a005", title: "org-glance relation model", refs: 11 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a006", title: "glance: the protocol decision", refs: 4 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a007", title: "Reverse index for in-edges", refs: 1 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a008", title: "Anna Kovalenko", refs: 5 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a009", title: "Dmitry Akatov", refs: 9 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a010", title: "Materialize sheet in Elm", refs: 0 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a011", title: "Capture templates as forms", refs: 2 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a012", title: "Screenshot diffs over the shell", refs: 0 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a013", title: "Wrike migration notes", refs: 1 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a014", title: "Berlin office move", refs: 0 },
+    { id: "7db7af20-1c4e-4c2a-9f0a-2b1d55e1a015", title: "Reading list — distributed systems", refs: 6 },
+  ];
+  const KINDS = [
+    { kind: "author", rows: 41 }, { kind: "authorised-by", rows: 2 },
+    { kind: "depends", rows: 18 }, { kind: "blocks", rows: 7 },
+    { kind: "part-of", rows: 33 }, { kind: "mentions", rows: 64 },
+    { kind: "supersedes", rows: 3 }, { kind: "owner", rows: 12 },
+  ];
+
+  const el = (id) => document.getElementById(id);
+  const pane = el("dpara"), pop = el("refer"), rq = el("rq");
+  const list = el("rlist"), foot = el("rfoot"), stage = el("rstage"), head = el("rtitle");
+  const settled = el("rsettled");
+
+  pane.value = "The onboarding doc still points at the old protocol, so the "
+    + "handler list is out of date. Ask ";
+
+  let hold = 0;
+  function echo(text) {
+    const e = el("echo");
+    e.textContent = text; e.classList.add("on");
+    clearTimeout(hold);
+    hold = setTimeout(() => e.classList.remove("on"), 2800);
+  }
+  function say(kind, what) {
+    const box = el("log"), row = document.createElement("div");
+    const a = document.createElement("span"); a.className = "lv " + kind; a.textContent = kind;
+    const b = document.createElement("span"); b.textContent = what;
+    row.append(a, b); box.appendChild(row); box.scrollTop = box.scrollHeight;
+  }
+
+  // The peer's slug rule, mirrored: downcase, whitespace runs to `-'.
+  const slug = (s) => s.trim().toLowerCase().replace(/\s+/g, "-");
+  const fold = (s) => s.trim().toLowerCase();
+
+  // --- picker state -------------------------------------------------------
+  // `at'..`end' is the run the link replaces, and `desc' is what it will read
+  // as: the row's title normally, THE READER'S OWN WORDS when they selected a
+  // region first.  One pair of fields covers both, so `commit' has one shape.
+  let up = false, at = -1, end = -1, desc = null, hot = 0, shown = [], field = "target";
+  let wantKind = false, kind = "";
+
+  function open(from, to, over, withKind) {
+    up = true; at = from; end = to; desc = over; wantKind = withKind; kind = "";
+    field = withKind ? "kind" : "target";
+    hot = 0; rq.value = over || "";
+    settled.hidden = true;
+    pop.classList.add("on");
+    draw(); rq.focus(); rq.setSelectionRange(rq.value.length, rq.value.length);
+    say("fired", (withKind ? "C-u @" : "@")
+      + (over ? " — over the selected " + JSON.stringify(over) : " — picker raised at offset " + from));
+  }
+
+  function shut(why) {
+    up = false; pop.classList.remove("on");
+    pane.focus();
+    pane.setSelectionRange(pane.value.length, pane.value.length);
+    if (why) say("held", why);
+  }
+
+  function targets() {
+    const want = fold(rq.value);
+    if (!want) return ROWS.slice(0, 8);
+    const toks = want.split(/\s+/);
+    return ROWS.filter((r) => toks.every((t) => fold(r.title).indexOf(t) !== -1)).slice(0, 8);
+  }
+
+  // THE TYPED TEXT IS AN OFFER OF ITS OWN, so "top row selected" and "match not
+  // required" hold together: a kind the tree has never seen is row one until an
+  // existing kind spells it exactly.  table-view's `literalOffer' does this.
+  function kinds() {
+    const typed = slug(rq.value);
+    const hits = KINDS.filter((k) => !typed || k.kind.indexOf(fold(rq.value)) !== -1).slice(0, 7);
+    const exact = KINDS.some((k) => k.kind === typed);
+    return (typed && !exact ? [{ kind: typed, rows: null, fresh: true }] : []).concat(hits);
+  }
+
+  function draw() {
+    const onKind = field === "kind";
+    shown = onKind ? kinds() : targets();
+    hot = shown.length ? Math.min(Math.max(hot, 0), shown.length - 1) : -1;
+    list.textContent = "";
+    if (!shown.length) {
+      const d = document.createElement("div");
+      d.className = "none";
+      d.textContent = onKind ? "type a kind" : "no addressable row matches";
+      list.appendChild(d);
+    }
+    shown.forEach((s, i) => {
+      const d = document.createElement("div");
+      d.className = i === hot ? "ke kh" : "ke";
+      const a = document.createElement("span");
+      a.textContent = onKind ? s.kind : s.title;
+      const b = document.createElement("em");
+      b.textContent = onKind ? (s.fresh ? "new kind" : s.rows + " rows")
+                             : (s.refs ? s.refs + " refs" : "");
+      d.append(a, b);
+      d.addEventListener("mousedown", (ev) => { ev.preventDefault(); hot = i; draw(); take(); });
+      list.appendChild(d);
+    });
+    head.textContent = onKind ? "C-u @  relate as…" : (wantKind ? "C-u @  link to…" : "@ link to…");
+    stage.textContent = onKind ? "kind — new kinds welcome" : "target — match required";
+    rq.placeholder = onKind ? "the relationship — author, depends, …"
+                            : "narrow the store — state:TODO wrike";
+    foot.innerHTML = "<kbd>C-n</kbd>/<kbd>C-p</kbd> walk · <kbd>RET</kbd> take"
+      + (onKind ? " · " : (wantKind ? " · <kbd>C-p</kbd> at the top goes back · " : " · "))
+      + "<kbd>ESC</kbd> cancel";
+  }
+
+  function take() {
+    if (hot < 0) {
+      echo(field === "kind" ? "type a kind, or ESC" : "no match — narrow it, or ESC");
+      say("held", "RET refused: the list is empty");
+      return;
+    }
+    if (field === "kind") {
+      kind = shown[hot].kind;
+      settled.hidden = false;
+      settled.firstChild.textContent = kind;
+      // Over a selection the region's own text seeds the target too — it seeded
+      // the kind stage, and clearing it here would search the whole store.
+      field = "target"; hot = 0; rq.value = desc || "";
+      draw(); rq.focus(); rq.setSelectionRange(rq.value.length, rq.value.length);
+      say("fired", "kind settled — " + kind);
+      return;
+    }
+    commit(shown[hot]);
+  }
+
+  function commit(row) {
+    const target = "glance:" + row.id + (kind ? "?kind=" + kind : "");
+    const label = desc || row.title;          // the reader's words win over the title
+    const insert = "[[" + target + "][" + label + "]]";
+    const v = pane.value;
+    pane.value = v.slice(0, at) + insert + v.slice(end);
+    shut(null);
+    pane.setSelectionRange(at + insert.length, at + insert.length);
+    echo("@ → org-glance-material:refer (" + label + (kind ? " · " + kind : "") + ")");
+    say("wrote", (kind ? "relation" : "link") + " inserted — " + target
+      + (desc ? " reading " + JSON.stringify(label) : ""));
+  }
+
+  // --- the trigger --------------------------------------------------------
+  // A PREFIX SURVIVES THE MODIFIERS THAT SPELL THE NEXT KEY.  `@' is Shift+2 on
+  // a US layout and AltGr+Q on a German one, so a tracker that clears on every
+  // other keydown is cleared by the very shift that types the `@'.  That was the
+  // bug: `C-u @' could never complete, on any engine.
+  const MODIFIER = /^(Shift|Control|Alt|AltGraph|Meta|OS|CapsLock|NumLock|Dead)$/;
+  let prefix = false;                   // C-u seen, waiting for @
+
+  pane.addEventListener("keydown", (e) => {
+    if (up) return;
+    const k = e.key;
+
+    // C-u is the peer's universal argument, and the browser's View Source.
+    if (e.ctrlKey && !e.altKey && (k === "u" || k === "U")) {
+      prefix = true; e.preventDefault();
+      say("clash", "C-u — View Source suppressed to reach the prefix");
+      return;
+    }
+    if (MODIFIER.test(k)) return;       // the shift that spells `@' is not a key
+
+    if (k === "@") {
+      const p = pane.selectionStart, q = pane.selectionEnd;
+      const was = prefix; prefix = false;
+
+      // A SELECTED REGION BECOMES THE LINK, and its text becomes what the link
+      // reads as.  Nothing is written to the pane until a row is taken, so ESC
+      // here costs the reader nothing at all.
+      if (q > p) {
+        e.preventDefault();
+        open(p, q, pane.value.slice(p, q), was);
+        return;
+      }
+
+      const before = p === 0 ? "" : pane.value[p - 1];
+      const boundary = p === 0 || /\s/.test(before);
+      // A BARE @ IS AMBIGUOUS AND THE BOUNDARY SETTLES IT; `C-u' is explicit, so
+      // it needs no boundary and fires wherever the caret is.
+      if (!was && !boundary) {
+        say("held", "@ inside a word — left as text (after " + JSON.stringify(before) + ")");
+        return;                          // falls through as an ordinary character
+      }
+      e.preventDefault();
+      pane.value = pane.value.slice(0, p) + "@" + pane.value.slice(p);
+      open(p, p + 1, null, was);
+      return;
+    }
+    prefix = false;                      // any other key ends the prefix
+  });
+
+  function walk(step) {
+    if (!shown.length) return;
+    hot = Math.max(0, Math.min(hot + step, shown.length - 1));
+    draw();
+  }
+
+  rq.addEventListener("keydown", (e) => {
+    const k = e.key;
+    if (k === "ArrowDown" || (e.ctrlKey && (k === "n" || k === "N"))) { walk(1); e.preventDefault(); return; }
+    if (k === "ArrowUp" || (e.ctrlKey && (k === "p" || k === "P"))) {
+      if (field === "target" && wantKind && hot === 0) {   // back to the kind
+        field = "kind"; settled.hidden = true; hot = 0;
+        rq.value = kind; kind = "";
+        draw(); rq.focus(); rq.setSelectionRange(rq.value.length, rq.value.length);
+        say("held", "back to the kind");
+        e.preventDefault(); return;
+      }
+      walk(-1); e.preventDefault(); return;
+    }
+    if (k === "Enter" || (k === "Tab" && !e.shiftKey)) { take(); e.preventDefault(); return; }
+    if (k === "Escape") {
+      const over = !!desc;
+      shut(over ? "ESC — the selection is untouched" : "ESC — the literal @ is left standing");
+      echo(over ? "cancelled — nothing was written" : "cancelled — @ left as text");
+      e.preventDefault(); return;
+    }
+  });
+  rq.addEventListener("input", () => { hot = 0; draw(); });
+  pop.addEventListener("mousedown", (e) => {
+    if (e.target === pop) { shut("backdrop click"); echo("cancelled — @ left as text"); }
+  });
+
+  say("held", "ready — type in the pane, then @ or C-u @");
+  pane.focus();
+  pane.setSelectionRange(pane.value.length, pane.value.length);
+})();
+</script>

@@ -1083,6 +1083,14 @@
    than the cell itself because display:flex on a table-cell stops it being
    one. Nothing here fires without .tv-fill: with no column to fill, the header
    is paid for in the width and there is nothing to squeeze. */
+/* WHAT A READER SCANS IS THE COLUMN OF WORDS, not the column of grounds. A pill
+   sets its text in from the cell edge by its own padding, so a badge column's
+   HEADER is set in by the same amount and the first letters line up: State over
+   TODO, # over [#A]. The mark keeps the right edge, the padding riding on the
+   flex row rather than on the cell. */
+.tv-fill th.tv-badge .tv-hd{
+  padding-left:var(--tv-pill-pad, 8px);
+}
 .tv-fill th .tv-hd{
   display:flex;
   align-items:baseline;
@@ -1294,7 +1302,7 @@
 }
 .tv-pill{
   display:inline-block;
-  padding:0 8px;
+  padding:0 var(--tv-pill-pad, 8px);
   border-radius:999px;
   font-weight:600;
   color:var(--tv-ink,var(--tv-badge));
@@ -2184,7 +2192,8 @@
 
         const th = document.createElement("th");
         th.className = (c.sortable === true ? "tv-sortable" : "")
-          + (c.align === "right" ? " tv-right" : "");
+          + (c.align === "right" ? " tv-right" : "")
+          + (c.type === "badge" ? " tv-badge" : "");
         th.dataset.key = c.key;
         const hd = document.createElement("span");
         hd.className = "tv-hd";
