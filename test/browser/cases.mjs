@@ -798,4 +798,43 @@ export default [
     return [`${seen.rows} rows (${seen.labels.join(", ")}), `
       + `the box ${px(seen.top)}..${px(seen.bottom)} inside ${px(seen.vh)}`];
   } },
+
+// THE MINT, END TO END, AGAINST A REAL TREE.  The node harness serves a FAKE
+// config, so nothing there proves the file is written, the store rereads it, or
+// the state becomes settable — which is the whole of what `+' has to do.  This
+// tree has no `.org-glance/config' at all, so the layer is minted by the write.
+{ name: "+ writes a state into a tree that had no config, then sets it",
+  async run(p, base) {
+    await p.goto(`${base}/`);
+    await p.until(() => !!document.querySelector("#app table tbody tr"),
+                  "the table to mount rows");
+    const row = await p.eval(() => {
+      const tr = document.querySelector("#app tr.tv-sel");
+      return { id: tr.getAttribute("data-id"), text: tr.textContent.trim() };
+    });
+    await p.press("t");
+    await p.until(() => !!document.querySelector("#plist .pr"),
+                  "the state palette to draw its sources");
+    await p.press("+");
+    await p.until(() => document.getElementById("mint").classList.contains("on"),
+                  "the mint form to raise");
+    await p.type("HANDED");
+    await p.press("RET");
+    // THE WHOLE CHAIN: the write, the reseed, `/keywords' answering the new
+    // chain, `set-state', and the socket bringing the row back changed.
+    await p.until((id) => {
+      const tr = document.querySelector(`#app tr[data-id="${id}"]`);
+      return !!tr && /HANDED/.test(tr.textContent);
+    }, "the row to wear the state that did not exist a moment ago", 20000, row.id);
+    const seen = await p.eval((id) => {
+      const tr = document.querySelector(`#app tr[data-id="${id}"]`);
+      return { text: tr.textContent.trim(),
+               mint: document.getElementById("mint").className,
+               prompt: document.getElementById("prompt").className };
+    }, row.id);
+    assert(seen.mint !== "on", "the form is still up over a state it already set");
+    assert(seen.prompt !== "on", "the palette stayed up after the state landed");
+    return [`row ${row.id} wears HANDED, off a config layer that did not exist `
+      + `when the page loaded`];
+  } },
 ];
