@@ -327,8 +327,15 @@ export default [
     await sheet(p, base, "drv-plan");
     await p.press("n"); await p.press("n");      // onto the whole-list composite
     await p.press("RET");
-    await p.until(() => document.getElementById("dpara").classList.contains("on"),
-                  "the edit to open over the list");
+    // THE CLASS FLIPS BEFORE THE PANE HAS DRAWN, as `placeEdit' does in the case
+    // above: waiting on the box alone found an empty composite one run in eight
+    // (docs/bugs/2026-08-17-the-composite-case-measures-an-empty-pane).  The wait
+    // is on the MEASUREMENT, so what is asserted is what was waited for.
+    await p.until(() => {
+      const box = document.getElementById("dpara");
+      const at = document.querySelector("#mdoc .de.dat");
+      return box.classList.contains("on") && !!at && at.querySelectorAll(".de").length > 0;
+    }, "the edit to open over a list with leaves drawn in it");
     const s = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
       const t = document.getElementById("dtext");

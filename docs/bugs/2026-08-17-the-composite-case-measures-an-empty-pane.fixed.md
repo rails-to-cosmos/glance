@@ -1,7 +1,7 @@
 # Bug — the composite case sometimes finds a pane with no leaves in it
 
-**Status:** open · **Reported:** 2026-08-17 · **Browser:** Chromium
-· **Surface:** `make browser-check`, case 9
+**Status:** fixed · **Reported:** 2026-08-17 · **Browser:** Chromium
+· **Surface:** `make browser-check`, case 9 · **Fixed in:** `test/browser/cases.mjs`
 
 ## Symptom
 
@@ -63,3 +63,19 @@ few frames after the raise before changing the wait.
 
 The case predates the `@` picker and the state mint; both were green in every
 run above, red and clean alike. The rate did not move across either change.
+
+## The fix, and what it does not settle
+
+`test/browser/cases.mjs` now waits on the **measurement** rather than on the
+class: the box carrying `on` *and* `#mdoc .de.dat` holding at least one `.de`.
+That is the shape case 1 already uses, and it turns a silent empty reading into
+an ordinary timed-out wait if the leaves never arrive.
+
+Measured: **2 failures in ~18 full runs before, 0 in 35 after.** At the old rate
+a clean 35 has about a 2.5% chance of happening by itself, so the rate moved.
+
+**What is still not settled** is which of the two it was. The wait covers a late
+draw and a momentary emptying equally well, and nothing here distinguishes them
+— if the pane does blank its composite for a frame on every raise, this case no
+longer notices. Anyone touching `#mdoc`'s redraw should log the leaf count
+across the frames after an edit opens before assuming it does not.
