@@ -2434,6 +2434,13 @@ whichKeySpec shell =
         assertEqual "opened on the tag the filter named, active, with no hue"
                     ["tag:book", "", "active", "", ""] =<< textsAt "nfields" answer
 
+    -- `tagOf' lowercases a layer's basename into its tag, so `Book' and `book' are
+    -- ONE layer; offering both would mint the same file twice under two names.
+  , keyedAt shell "?q=tag%3ABook" 500 "a tag named in another case folds onto the layer it is"
+      "t" "press:+" $ \answer -> do
+        assertEqual "one entry for it, folded, and no second spelling"
+                    ["system", "tag:book", "tag:film"] =<< textsAt "nspaces" answer
+
   , keyed shell "the minted state is declared in its layer, then set on the rows"
       "t" "press:+ nfields:tag:book/HANDED/active// press:Enter" $ \answer -> do
         writes <- listAt "configWrites" answer

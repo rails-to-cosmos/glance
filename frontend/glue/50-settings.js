@@ -428,11 +428,14 @@ const SECTIONS = [
       if (why) append("config", "info", `state: ${why}`);
     }
     // `system', then the tags the applied query names — the rows on screen are the
-    // rows that filter chose — then any tag layer the tree already has.
+    // rows that filter chose — then any tag layer the tree already has.  FOLDED,
+    // because `tagOf' lowercases a layer's basename into its tag: `Book' and
+    // `book' name one layer, and offering both would mint the file twice.
     function mintSpaces(cfg) {
       const held = (cfg.layers || []).map((l) => l.tag).filter(Boolean);
       const named = filteredTags();
-      return ["system"].concat([...new Set(named.concat(held))].map((t) => `tag:${t}`));
+      return ["system"]
+        .concat([...new Set(named.concat(held).map(foldTag))].map((t) => `tag:${t}`));
     }
     // THE BINDING IS THE PALETTE'S: a failure here is answered where `t' was pressed.
     function openMint() {
@@ -460,8 +463,8 @@ const SECTIONS = [
     function mintLayer(cfg, space) {
       const layers = cfg.layers || [];
       if (space === "system") return layers.find((l) => !l.tag) || null;
-      const tag = space.slice(4);
-      const held = layers.find((l) => l.tag === tag);
+      const tag = foldTag(space.slice(4));
+      const held = layers.find((l) => foldTag(l.tag) === tag);
       if (held) return held;
       if (!cfg.tagsDir) return null;
       return { path: `${cfg.tagsDir}/${tag}.org`, tag, digest: "", lines: [],
