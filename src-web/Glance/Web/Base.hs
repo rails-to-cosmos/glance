@@ -94,6 +94,7 @@ gluePartFiles =
   , "30-capture.js"    -- the capture form and the value palette
   , "40-popups.js"     -- the link popup and the tags popup
   , "50-settings.js"   -- the settings sheet: tabs, saved views, the states table, the theme
+  , "60-refer.js"      -- `@' in the sheet: the reference picker, a table-view over /refer
   , "70-shell.js"      -- the modal surfaces, the dispatch and the boot
   ]
 

@@ -342,10 +342,9 @@ const SECTIONS = [
     });
     // The palette blurred the box on its way up, so the caret is put back by hand.
     function insertCode(at, to, code) {
-      const box = el("ctpl"), text = box.value;
-      box.value = text.slice(0, at) + code + text.slice(to);
+      const box = el("ctpl");
       box.focus();
-      box.setSelectionRange(at + code.length, at + code.length);
+      spliceIn(box, at, to, code);
       takeLayer();
     }
     /**

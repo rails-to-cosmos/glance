@@ -8,11 +8,13 @@ import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVa
 import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Exception (SomeException, displayException, evaluate, finally, try)
 import Control.Monad (filterM, forever, void, when)
-import Data.Aeson (FromJSON (..), Value, encode, object, withObject, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), Value (Object), encode, object, withObject, (.:), (.:?), (.=))
+import qualified Data.Aeson.KeyMap as KM
+import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair, Parser)
 import qualified Data.Aeson.Key as Key
 import Data.Bifunctor (first)
-import Data.List (find, nub)
+import Data.List (find, nub, sortOn)
 import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
 import Data.FileEmbed (embedFile, makeRelativeToProject)
@@ -43,7 +45,9 @@ import qualified Network.WebSockets as WS
 
 import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , HeadlineParts (..)
-                    , HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree, hrTags, hrTitle)
+                    , HeadlineRecord ( hrDigest, hrFile, hrId, hrPriority, hrState
+                                     , hrSubtree, hrTags, hrTitle )
+                    , rowOrgId
                     , OrgLink (olSpan, olTarget)
                     , QueryResult (..), SortChain
                     , Span (spanEnd, spanStart)
@@ -62,7 +66,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , subtreeText, tagsOfCell
                     , templatePrompts, titleSpan, todoPragmas
                     , resolveColumns, savedViews, todoLines, viewColumns
-                    , viewJSONTextFor )
+                    , viewJSONFor )
 import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
                        , conflict, docCells, glueAsset, gluePartFiles, html, jsonError
                        , elmAsset
@@ -120,6 +124,7 @@ httpApp opts hub request respond = route >>= respond
     named =
       [ ([],            False, textRefusal, [(methodGet, shellPage opts hub)])
       , (["headlines"], True,  textRefusal, [(methodGet, headlines opts hub request)])
+      , (["refer"],     True,  textRefusal, [(methodGet, refer opts hub request)])
       , (["headline"],  True,  jsonRefusal,
           [ (methodGet, materialize hub (queryId request) (queryChild request))
           , (methodPost, commit opts hub (queryId request) (queryChild request) request) ])
@@ -178,7 +183,33 @@ safeName name = not (T.null name)
 
 -- | The view JSON, filtered and paged as REQUEST asks.  Archive exclusion, the order and the @ETag@ are AGENTS.hs.
 headlines :: ServeOptions -> Hub -> Request -> IO Response
-headlines opts hub request = case pageParams request of
+headlines opts hub request = viewPage opts hub request (const True) (const [])
+
+-- | @GET \/refer?q=…[&row=ID]@: the rows a REFERENCE may name — 'headlines''
+-- own view, cut to the addressable rows and never the one asked from.
+refer :: ServeOptions -> Hub -> Request -> IO Response
+refer opts hub request = viewPage opts hub request keep referVocabulary
+  where
+    self = queryText "row" request
+    keep r = isJust (rowOrgId r) && Just (hrId r) /= self
+
+-- | What the picker may complete a @tag:@ from: the tags of every row THE QUERY
+-- MATCHED rather than the page served, commonest first.  The @state@ and
+-- @priority@ domains ride their COLUMNS already ('columnsFor'), so the one
+-- column that declares none is all this owes — and the count is
+-- 'tagRowCounts'', the same rule @\/tags@ answers with.
+referVocabulary :: [HeadlineRecord] -> [Pair]
+referVocabulary rows =
+  [ "vocabulary" .= object [ "tag" .= map fst (sortOn rank counted) ] ]
+  where
+    counted = Map.toList (tagRowCounts rows)
+    rank (tag, n) = (negate n, tag)
+
+-- | ONE PIPELINE, and KEEP is all a door may add: every caller answers the same
+-- shape with the same headers, so a mount cannot tell two doors apart.
+viewPage :: ServeOptions -> Hub -> Request -> (HeadlineRecord -> Bool)
+         -> ([HeadlineRecord] -> [Pair]) -> IO Response
+viewPage opts hub request keep extra = case pageParams request of
   Left why -> pure (jsonError status400 why)
   Right PageAsk {..} -> do
     st <- readTVarIO (hubStore hub)
@@ -189,7 +220,7 @@ headlines opts hub request = case pageParams request of
         let qr      = storeResult st
             -- `ref:' reads the link graph, so the match runs over the store's own rows.
             env     = storeEnv (qrRecords qr)
-            asked   = filter (matchesFilter env paQuery) (qrRecords qr)
+            asked   = filter (\r -> keep r && matchesFilter env paQuery r) (qrRecords qr)
             matched = if hiding then filter (not . archived) asked else asked
             -- The WHOLE store's tags answer first: the cheaper refusal.
             hiding  = archiveKey `elem` storeTags st && not (namesArchive paQuery)
@@ -199,9 +230,10 @@ headlines opts hub request = case pageParams request of
             shown   = maybe matched (\n -> take n (drop paOffset ordered)) paLimit
             hasNext = maybe False (\n -> paOffset + n < total) paLimit
             cols    = maybe viewColumns resolveColumns paPicked
-            body    = TLE.encodeUtf8
-                        (viewJSONTextFor cols (savedViewsIn st) paChain
-                                         (viewTitleFor dir) (storeKeywords st) shown)
+            -- EXTRA rides the ONE encoding, over every row the query MATCHED.
+            view    = viewJSONFor cols (savedViewsIn st) paChain
+                                  (viewTitleFor dir) (storeKeywords st) shown
+            body    = TLE.encodeUtf8 (encodeToLazyText (merged view (extra matched)))
         -- The encode is lazy: an exception in warp's sender would truncate a sent 200.
         forced <- try (evaluate (BL.length body))
         pure $ case forced of
@@ -212,6 +244,12 @@ headlines opts hub request = case pageParams request of
   where dir = soDir opts
         renderError :: SomeException -> Text
         renderError e = "headline render failed: " <> T.pack (displayException e)
+
+-- | VIEW with MORE members: a door that answers more than the table does adds
+-- them here, so there is one encoding and one shape to read.
+merged :: Value -> [Pair] -> Value
+merged (Object o) more = Object (o <> KM.fromList more)
+merged v _more = v
 
 -- | The largest page one request may ask for; over it is a 400 rather than a silent trim.
 limitCap :: Int

@@ -13,6 +13,21 @@ async function sheet(p, base, row) {
                 `${row}'s body to draw more than a headline`);
 }
 
+/** The sheet over ROW with its first paragraph open for editing. */
+async function paraOpen(p, base, row) {
+  await sheet(p, base, row);
+  await p.press("n");                                   // onto the paragraph
+  await p.press("RET");                                 // open it
+  await p.until(() => document.getElementById("dpara").classList.contains("on"),
+                "the paragraph edit box to open");
+}
+
+const pickerUp = (p, why) =>
+  p.until(() => !!document.querySelector("#refer.on .tv-table tbody tr"),
+          why || "the picker to raise with rows");
+const pickerGone = (p, why) =>
+  p.until(() => !document.getElementById("refer").classList.contains("on"), why);
+
 export default [
 
 // cb6db85.  THE BOX GREW AND STOOD OVER THE DOCUMENT.  Where the next line
@@ -490,6 +505,169 @@ export default [
       seen.push(...at.map((b) => `${b.text}@${w}: ${px(b.pill)} in ${px(b.inner)}`));
     }
     return [`each pill against its cell's content box: ${seen.join("  ")}`];
+  } },
+
+// `@' IN THE SHEET LINKS A HEADLINE INTO THE PROSE.  The picker is a table-view
+// mount, so what is asked here is the WIRING: that it raises at the caret over
+// the rows /refer offers, that RET writes the link into the box the sheet
+// commits, and that an `@' mid-word is still an `@'.
+{ name: "@ in the sheet links the row under the cursor into the prose",
+  async run(p, base) {
+    await paraOpen(p, base, "drv-box");
+    await p.type(" see ");
+    await p.press("@");
+    await pickerUp(p);
+    const shown = await p.eval(() => {
+      const box = document.getElementById("rbox").getBoundingClientRect();
+      const pane = document.getElementById("mdoc").getBoundingClientRect();
+      return { rows: document.querySelectorAll("#rmount .tv-table tbody tr").length,
+               // it hangs at the caret rather than centring over the page
+               placed: box.top > pane.top - 200 && box.width > 100,
+               veil: getComputedStyle(document.getElementById("refer")).backgroundColor };
+    });
+    assert(shown.rows > 0, "the picker mounted no rows");
+    assert(shown.placed, "the picker did not hang near the pane");
+    assert(/rgba\(0, 0, 0, 0\)|transparent/.test(shown.veil),
+      `the picker drew a veil (${shown.veil}); it is a completion, not a surface`);
+
+    await p.press("RET");
+    await pickerGone(p, "the picker to close on RET");
+    const wrote = await p.eval(() => document.getElementById("dtext").value);
+    assert(/\[\[glance:[^\]]+\]\[[^\]]+\]\]/.test(wrote),
+      `RET wrote no org link into the box: ${JSON.stringify(wrote)}`);
+    assert(!/@\[\[glance:/.test(wrote),
+      `the link was written BESIDE the @ rather than over it: ${JSON.stringify(wrote)}`);
+
+    assert(await p.eval(() => document.getElementById("dpara").classList.contains("on")),
+      "taking a row closed the paragraph the link was written into");
+
+    // THE `@' IS WRITTEN THE MOMENT IT IS TYPED, and dismissing the picker leaves
+    // it standing: the reader typed a character and must be able to keep it.
+    await p.type(" ");
+    await p.press("@");
+    await pickerUp(p, "the picker to raise a second time");
+    const marked = await p.eval(() => document.getElementById("dtext").value);
+    assert(marked.endsWith("@"),
+      `the @ was not written while the picker stood: ${JSON.stringify(marked.slice(-12))}`);
+    await p.press("ESC");
+    await pickerGone(p, "the picker to go on ESC");
+    const kept = await p.eval(() => document.getElementById("dtext").value);
+    assert(kept.endsWith("@"), `ESC took the @ with it: ${JSON.stringify(kept.slice(-12))}`);
+    // AND `@' IS A CHARACTER FIRST: mid-word it is text, not a command.
+    await p.type("mail me at dmitry");
+    await p.press("@");
+    const after = await p.eval(() => ({
+      up: document.getElementById("refer").classList.contains("on"),
+      text: document.getElementById("dtext").value }));
+    assert(!after.up, "an @ inside a word raised the picker");
+    assert(after.text.endsWith("dmitry@"),
+      `the literal @ was not written: ${JSON.stringify(after.text.slice(-24))}`);
+    return [`the box holds ${JSON.stringify(wrote.slice(0, 60))}`];
+  } },
+
+// A SELECTED REGION BECOMES THE LINK, and its OWN WORDS are what the link reads
+// as.  They are not a query: seeding the filter with the reader's prose narrowed
+// the store by an accident of phrasing.
+{ name: "@ over a selected region links it, and the region is no filter",
+  async run(p, base) {
+    await paraOpen(p, base, "drv-box");
+    await p.type(" the weekly note ");
+    // select `weekly' — the words the link is to read as
+    await p.eval(() => {
+      const box = document.getElementById("dtext");
+      const at = box.value.indexOf("weekly");
+      box.setSelectionRange(at, at + "weekly".length);
+    });
+    await p.press("@");
+    await pickerUp(p, "the picker to raise over the region");
+    const chips = await p.eval(() =>
+      [...document.querySelectorAll("#rmount .tv-chip")].map((n) => n.textContent));
+    assert(!chips.some((c) => c.includes("weekly")),
+      `the region reached the filter as a chip: ${JSON.stringify(chips)}`);
+    await p.press("RET");
+    await pickerGone(p, "the picker to close");
+    const wrote = await p.eval(() => document.getElementById("dtext").value);
+    assert(/\[\[glance:[^\]]+\]\[weekly\]\]/.test(wrote),
+      `the link does not read as the region: ${JSON.stringify(wrote.slice(-70))}`);
+    assert(!/weekly note.*weekly note/.test(wrote), "the region was duplicated");
+    return [`chips ${JSON.stringify(chips)} · box ends ${JSON.stringify(wrote.slice(-46))}`];
+  } },
+
+// `@' WRITES INTO WHATEVER BOX IS OPEN.  Over a title edit that is the TITLE:
+// drafting a body line under it and linking there answers a question nobody asked.
+{ name: "@ in the title editor links into the title itself",
+  async run(p, base) {
+    await sheet(p, base, "drv-box");
+    const before = await p.eval(() => document.querySelectorAll("#mdoc .dline").length);
+    await p.press("RET");                                 // the title edit
+    await p.until(() => document.getElementById("dtin") &&
+                        document.activeElement.id === "dtin",
+                  "the title edit box to take the focus");
+    await p.type(" see ");
+    await p.press("@");
+    await pickerUp(p, "the picker to raise over the title");
+    await p.press("RET");
+    await pickerGone(p, "the picker to close on RET");
+    const got = await p.eval(() => ({
+      title: document.getElementById("dtin") ? document.getElementById("dtin").value : null,
+      body: document.getElementById("dtext") ? document.getElementById("dtext").value : "",
+      lines: document.querySelectorAll("#mdoc .dline").length }));
+    assert(got.title && /\[\[glance:[^\]]+\]\[[^\]]+\]\]/.test(got.title),
+      `the link did not land in the title: ${JSON.stringify(got.title)}`);
+    assert(!/\[\[glance:/.test(got.body), "the link also went into the body");
+    assert(got.lines === before,
+      `linking from the title drew ${got.lines - before} line(s) into the body`);
+    return [`title ${JSON.stringify(got.title.slice(0, 56))}`];
+  } },
+
+// ESC IN THE PICKER'S FILTER IS ONE STEP: the half-typed filter goes AND the
+// cursor lands on a row.  Stopping at an emptied box leaves the reader in an
+// editor they were already done with, and a second ESC away from the rows.
+{ name: "ESC in the picker's filter drops the edit and stands on a row",
+  async run(p, base) {
+    await paraOpen(p, base, "drv-box");
+    await p.type(" ");                    // `@' opens on a word boundary alone
+    await p.press("@");
+    await pickerUp(p);
+    // THE EDITOR IS SUMMONED, NOT RESIDENT: the compact box shows chips alone.
+    const barOf = () => {
+      const bar = document.querySelector("#rmount .tv-bar");
+      return !bar || getComputedStyle(bar).display === "none" ? "away" : "up";
+    };
+    assert(await p.eval(barOf) === "away",
+      "the filter editor sits on the picker before anyone asked for it");
+    await p.press("/");
+    await p.until(() => document.activeElement.tagName === "INPUT" &&
+                        document.getElementById("rmount").contains(document.activeElement),
+                  "the filter box to take the focus");
+    assert(await p.eval(barOf) === "up", "/ summoned no filter editor");
+    // AND IT COMES ON THE CHIPS' OWN LINE, not as a second stripe above them.
+    const oneLine = await p.eval(() => {
+      const bar = document.querySelector("#rmount .tv-bar").getBoundingClientRect();
+      const chips = document.querySelector("#rmount .tv-chips").getBoundingClientRect();
+      const mid = (r) => r.top + r.height / 2;
+      return { gap: Math.round(Math.abs(mid(bar) - mid(chips))),
+               apart: Math.round(bar.left - chips.right) };
+    });
+    assert(oneLine.gap <= 3,
+      `the editor sits on its own line, ${oneLine.gap}px off the chips' middle`);
+    assert(oneLine.apart >= 0, "the editor overlaps the chips");
+    await p.type("zzz");
+    await p.press("ESC");
+    const after = await p.eval(() => ({
+      up: document.getElementById("refer").classList.contains("on"),
+      typing: document.activeElement.tagName === "INPUT" &&
+              document.getElementById("rmount").contains(document.activeElement),
+      text: (document.querySelector("#rmount input") || {}).value || "",
+      rows: document.querySelectorAll("#rmount .tv-table tbody tr").length,
+      at: document.querySelectorAll("#rmount tbody tr.tv-sel").length }));
+    assert(after.up, "one ESC in the filter dismissed the whole picker");
+    assert(!after.typing, "ESC left the keyboard in the filter box");
+    assert(after.text === "", `ESC kept the abandoned edit: ${JSON.stringify(after.text)}`);
+    assert(after.rows > 0, "ESC left no rows to pick from");
+    assert(after.at === 1, `ESC left ${after.at} rows under the cursor, not one`);
+    assert(await p.eval(barOf) === "away", "ESC left the filter editor on the picker");
+    return [`${after.rows} rows, cursor on one, editor away`];
   } },
 
 // A BADGE COLUMN'S HEADER SITS OVER ITS BADGES' FIRST LETTER.  A pill sets its

@@ -4,8 +4,11 @@
 landed 2026-08-15: `refTargetOf` now cuts a protocol target at its first `?`,
 so an edge the peer wrote as `…:ID?kind=SLUG` resolves to `ID` rather than to
 nothing (`TestFilter.hs`, "a kind suffix rides off a protocol target").  A
-title keeps its own `?`.  The `Ref` TYPE, `refKind` on the wire, the reverse
-index, `@`, `/graph` and `glance migrate` are all still unbuilt ·
+title keeps its own `?`.  **Stage 5b's LINK half landed 2026-08-16** — `@` in
+the sheet and `GET /refer`, see
+[`2026-08-15-a-relation-is-a-link-with-a-kind.partial.md`](2026-08-15-a-relation-is-a-link-with-a-kind.partial.md);
+its KIND half waits on stage 1.  The `Ref` TYPE, `refKind` on the wire, the
+reverse index, `/graph` and `glance migrate` are all still unbuilt ·
 **Date:** 2026-08-12 · **Origin:** the relations census over `~/sync`
 (10452 rows, 3524 edges), and the user's framing of the project as *org-mode
 under the hood, source of truth, the user operates views: filtering / schema
@@ -318,7 +321,7 @@ Each stage is independently shippable and independently revertible.
 | 3 | **`glance:` canonical, four aliases read forever**                                              | no corpus change, no peer change yet                                 |
 | 4 | **Reverse index + in-degree on the wire**                                                       | prerequisite for 6                                                   |
 | 5 | **The peer writes `glance:`; interop case pins the round trip**                                 | two-repo, gated on 3                                                 |
-| 5b| **`@` in the sheet, `GET /refer`** — the verb                                                   | gated on 1 for the kind vocabulary; the only item that moves 0.34 edges per row |
+| 5b| **`@` in the sheet, `GET /refer`** — the verb.  THE LINK HALF IS DONE (2026-08-16); the kind half is not | gated on 1 for the kind vocabulary; the only item that moves 0.34 edges per row |
 | 6 | **`GET /graph`, scoped by `?q=`**                                                               | M2, and it is what 4 was for                                         |
 | — | **`glance migrate`, dry run by default**                                                        | optional forever; rewrites the source of truth                       |
 

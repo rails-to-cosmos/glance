@@ -114,6 +114,11 @@
     const stepIn = (mount, step) =>
       can(mount, "selectStep") && mount.selectStep(step);
     const flagsOn = (mount) => can(mount, "flagRow", "getFlagged");
+    /** Put TEXT over [FROM, TO) in BOX and leave the caret after it. */
+    const spliceIn = (box, from, to, text) => {
+      box.value = box.value.slice(0, from) + text + box.value.slice(to);
+      box.setSelectionRange(from + text.length, from + text.length);
+    };
     const selectedId = (mount) =>
       (can(mount, "getSelection") ? (mount.getSelection() || {}).id : null) || null;
     const soon = (fn) =>
@@ -302,7 +307,7 @@
       if (!r.ok) throw new Error(b.error || r.status);
       return b;
     });
-    const getJSON = (url) => fetch(url).then(unwrap);
+    const getJSON = (url, extra) => fetch(url, extra).then(unwrap);
     const postJSON = (url, body, extra) =>
       fetch(url, {
         method: "POST",

@@ -53,6 +53,15 @@ demoShell opts font colours views =
   ]
   <> popupFrame "links" "l" "pop-sheet"
        ("<div id=\"ledit\">" <> field "ltitle" <> field "lurl" <> "</div>")
+  -- The picker hangs at the CARET rather than centring, so it takes no tier.
+  <>
+  [ "  <div id=\"refer\">"
+  , "    <div id=\"rbox\">"
+  , "      <div id=\"rmount\"></div>"
+  , "      <div id=\"rfoot\">n/p move · / filter · DEL drop · RET link · ESC dismiss</div>"
+  , "    </div>"
+  , "  </div>"
+  ]
   <>
   [ "  <div id=\"capture\">"
   , "    <div id=\"kbox\" class=\"pop-sheet\">"

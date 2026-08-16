@@ -109,6 +109,10 @@ keyBindings =
       `helps` planningHelp
   , bind [","]          "customize"                       (Just "openSettings")   "table"
       `helps` "the settings sheet: general, theme, keyword cycles"
+  -- ONE KEY, TWO SURFACES, which is the peer's own split: `@' READS the edges
+  -- from the table and WRITES one from the sheet.
+  , bind ["@"]          "org-glance-material:refer"       (Just "refer")          "modal"
+      `helps` "link a headline into the prose; at a word boundary, so an address stays text"
   , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
       `helps` "sync the sheet now; again to overwrite a conflict"
   , bind ["C-c", "C-c"] "org-ctrl-c-ctrl-c"               (Just "commitEdit")     "modal"

@@ -1263,7 +1263,7 @@ specGroup10 = testGroup "Shell"
                   [ n | n <- [Spec.tvHeader, Spec.tvCompletion], n `notElem` asset ]
       assertEqual "the spec's z band and the page's own values have drifted"
                   band shell
-      assertEqual "the shell's own three" [2, 100, 101] shell
+      assertEqual "the shell's own levels" [2, 100, 101, 102] shell
       assertBool "the status corner's retired level is back on the page"
                  (Spec.zRetired `notElem` shell)
   ]

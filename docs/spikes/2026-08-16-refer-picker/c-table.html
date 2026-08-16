@@ -513,7 +513,11 @@
     up = true; at = from; end = to; desc = over;
     wantKind = withKind; kind = ""; stage = withKind ? "kind" : "target";
     chips = withKind ? [] : tokens(cfg().filter);
-    q = over || ""; filtering = false; hot = 0;
+    // A SELECTED REGION IS THE LINK'S WORDS, NOT A QUERY.  Seeding the filter
+    // with it put the reader's prose on the chip strip, where it narrowed the
+    // store by an accident of phrasing and had to be deleted before the target
+    // could be found.  The region rides in `desc' and is shown, never applied.
+    q = ""; filtering = false; hot = 0;
     ac.classList.add("on");
     draw();
     say("fired", (withKind ? "C-u @" : "@")
@@ -675,7 +679,8 @@
     }
     redrawRows();
     stageEl.textContent = onKind ? "kind — new kinds welcome"
-                                 : (kind ? "row for kind:" + kind : "row — match required");
+      : desc !== null ? "the link will read " + JSON.stringify(desc)
+      : (kind ? "row for kind:" + kind : "row — match required");
     keysEl.textContent = filtering ? "RET choose · ESC back to the rows"
                                    : "n/p move · / filter · RET choose · ESC dismiss";
     place();
@@ -776,7 +781,7 @@
     if (hot < 0) { say("held", "nothing to take — no row under this filter"); return; }
     if (stage === "kind") {
       kind = shown[hot].kind;
-      stage = "target"; hot = 0; q = desc || ""; filtering = false;
+      stage = "target"; hot = 0; q = ""; filtering = false;
       chips = tokens(cfg().filter);
       draw(); pane.focus();
       say("fired", "kind settled — " + kind);

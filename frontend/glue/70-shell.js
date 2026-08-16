@@ -16,6 +16,9 @@
     /** @type {Surface[]} */
     const SURFACES = [
       { name: "prompt", momentary: true, up: () => !!promptNow(), off: unask },
+      // The picker hangs at the caret and takes no tier, but it is momentary
+      // like the rest: ESC walks out of it before anything else.
+      { name: "refer", momentary: true, up: referUp, off: () => shutRefer(null) },
       { name: "capture", momentary: true, up: capUp, off: shutCapture,
         open: () => openCapture(RESTORED) },
       // The rowed three open over the row `bootPage' has already landed on.
@@ -138,6 +141,7 @@
       archiveFlag: (b) => flagKey("d", XFLAGS(b), (what) => said(b, what)),
       priorityUp: (b) => cyclePriority(b, 1),
       priorityDown: (b) => cyclePriority(b, -1),
+      refer: (b) => referKey(b),
       applyDefault, pinView, relations, focusFilter, toggleRaw, openSettings,
       save: saveSheet,
       commitEdit: (b) => { if (docOpen()) commitDocEdit(b);

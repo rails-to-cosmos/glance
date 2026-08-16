@@ -331,7 +331,7 @@ spec = withResource ((<>) <$> (body <$> get assetsDir "/")
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
     , tagCommandSpec, deleteCommandSpec, renameCommandSpec, tagsSpec, captureSpec
     , blobCaptureSpec, captureViewSpec
-    , configSpec, keywordsSpec, linksSpec, editLinkSpec, indexingSpec
+    , configSpec, keywordsSpec, linksSpec, referSpec, editLinkSpec, indexingSpec
     , pageSpec shell, keymapSpec shell, layoutSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
     , paletteSpec shell
@@ -5013,7 +5013,10 @@ shellGlue =
       ["p.delete(\"q\")"]
 
   -- `openFilter' is mode-agnostic, so the one call covers an asset in any of them.
-  , Glue "the filter is summoned rather than resident"
+  -- `omnibox' is the PICKER's, whose filter cannot summon a centred overlay over
+  -- the caret it hangs at.  What is forbidden is the main table taking it, which
+  -- `palette: true' below pins — so there is no must-not-appear half.
+  , glue "the filter is summoned rather than resident"
       [ "palette: true,"
       , "const summons = () => can(table, \"openFilter\");"
       , "if (summons()) { table.openFilter(); return; }"
@@ -5022,7 +5025,6 @@ shellGlue =
       , "const box = filterBox();"
       , "if (box) { box.focus(); box.select(); }"
       , "summon the filter palette" ]
-      ["omnibox: true,"]
 
   -- Marking is the renderer's: this page holds no set and asks for the count rather than keeping one.
   , Glue "marks are the renderer's, and m/u/U are this page's keys"
@@ -5481,7 +5483,7 @@ shellGlue =
   -- ONE ENVELOPE PER VERB: what a refusal looks like and what a body is sent as are each decided once.
   , Glue "the JSON verbs are written once"
       [ "const unwrap = (r) => r.json().then((b) => {"
-      , "const getJSON = (url) => fetch(url).then(unwrap);"
+      , "const getJSON = (url, extra) => fetch(url, extra).then(unwrap);"
       , "const postJSON = (url, body, extra) =>"
       , "headers: { \"content-type\": \"application/json\" },"
       , "const outcome = (r) => r.json().then((b) => ({ status: r.status, body: b }));"
@@ -8474,6 +8476,64 @@ linkCommand name ids args digests = encode (object
   [ "name" .= name, "ids" .= ids, "args" .= args
   , "digests" .= object [ Key.fromText rid .= digest | (rid, digest) <- digests ] ])
 
+-- | The picker's door on to the SAME pipeline @GET \/headlines@ answers with.  What
+-- is asked here is only what the picker adds: the two cuts, and that the shape
+-- did not fork.
+referSpec :: TestTree
+referSpec = testGroup "GET /refer"
+  [ testCase "answers the view /headlines answers, so one mount reads both" $
+      withReferTree $ \a -> do
+        table <- ok =<< getFrom a "/headlines?q=refer-a"
+        pick  <- ok =<< getFrom a "/refer?q=refer-a"
+        cols  <- listAt "columns" =<< decoded table
+        assertEqual "the columns are one table's" cols
+          =<< listAt "columns" =<< decoded pick
+        wanted <- referIds table
+        assertEqual "and the rows the query names are the same rows" wanted
+          =<< referIds pick
+
+  , testCase "a row with no ORG_GLANCE_ID is not offered: it cannot be linked to" $
+      withReferTree $ \a -> do
+        table <- referIds =<< ok =<< getFrom a "/headlines"
+        pick  <- referIds =<< ok =<< getFrom a "/refer"
+        assertBool ("the table did not carry the unaddressable row: " <> show table)
+                   (any ("#" `T.isInfixOf`) table)
+        assertEqual "every offered row is addressable" [] (filter ("#" `T.isInfixOf`) pick)
+
+  , testCase "a row is not its own reference" $
+      withReferTree $ \a -> do
+        with    <- referIds =<< ok =<< getFrom a "/refer"
+        without <- referIds =<< ok =<< getFrom a "/refer?row=refer-a"
+        assertBool "the fixture never offered it" ("refer-a" `elem` with)
+        assertEqual "the row it stands on is gone"
+                    (filter (/= "refer-a") with) without
+
+  , testCase "the query narrows it exactly as it narrows the table" $
+      withReferTree $ \a ->
+        assertEqual "state:*active* over the addressable rows" ["refer-a"]
+          =<< referIds =<< ok =<< getFrom a "/refer?q=state%3A*active*"
+  ]
+
+referIds :: SResponse -> IO [T.Text]
+referIds r = traverse (textAt "id") =<< rowsOf r
+
+-- | Two addressable rows and one without an id, which is the case the picker cuts.
+withReferTree :: (Application -> Assertion) -> Assertion
+withReferTree k = withTempDir $ \dir -> do
+  _ <- orgFile dir "refer.org" $ T.unlines
+    [ "* TODO refer-me alpha"
+    , ":PROPERTIES:"
+    , ":ORG_GLANCE_ID: refer-a"
+    , ":END:"
+    , "* DONE refer-me beta"
+    , ":PROPERTIES:"
+    , ":ORG_GLANCE_ID: refer-b"
+    , ":END:"
+    , "* TODO refer-me with no id at all"
+    ]
+  (a, _hub) <- serverOver dir
+  k a
+
 -- | @GET \/links@: the route — the id it takes, the shape it answers in, and the refusals it shares with materialize.
 linksSpec :: TestTree
 linksSpec = testGroup "GET /links"
@@ -9027,6 +9087,8 @@ expectedRows =
   -- Emacs's own name, since org-glance has no settings command and inventing one would put a name in this table no map carries.
   , ([","],          ",",       "customize",                       Just "openSettings",   "table",
        Just "the settings sheet: general, theme, keyword cycles")
+  , (["@"],          "@",       "org-glance-material:refer",       Just "refer",          "modal",
+       Just "link a headline into the prose; at a word boundary, so an address stays text")
   , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "modal",
        Just "sync the sheet now; again to overwrite a conflict")
   , (["C-c", "C-c"], "C-c C-c", "org-ctrl-c-ctrl-c",               Just "commitEdit",     "modal",
@@ -9153,12 +9215,24 @@ keymapSpec shell = testGroup "Shell keymap"
 
   , testCase "nothing is bound twice, and no sequence hides a longer one" $ do
       rows <- keymapOf =<< shell
-      let bound = [ k | (k, _, _, _, _, _) <- rows ]
-          twice = [ k | k <- nub bound, length (filter (== k) bound) > 1 ]
+      -- WITHIN A SCOPE.  `live' gates by scope, so one sequence may mean two
+      -- things on two surfaces and never both at once: `@' READS the edges from
+      -- the table and WRITES one from the sheet, which is org-glance's own
+      -- split.  `any' is live everywhere, so it clashes with every scope.
+      let bound = [ (k, sc) | (k, _, _, _, sc, _) <- rows ]
+          shares a b = a == b || a == "any" || b == "any"
+          twice = nub [ k | ((k, a), i) <- zip bound [0 :: Int ..]
+                          , ((l, b), j) <- zip bound [0 ..]
+                          , i < j, k == l, shares a b ]
           -- A complete sequence that also opens a longer one would match first and leave the longer unreachable.
-          eaten = [ (k, l) | k <- bound, l <- bound, k /= l, k == take (length k) l ]
-      assertEqual "bound twice" [] twice
+          eaten = [ (k, l) | (k, a) <- bound, (l, b) <- bound
+                           , k /= l, k == take (length k) l, shares a b ]
+      assertEqual "bound twice in one scope" [] twice
       assertEqual "swallows a longer sequence" [] eaten
+      -- The split is the point, so it is asserted rather than left to an absence.
+      assertEqual "@ is the read on the table and the write on the sheet"
+        [(["@"], "table"), (["@"], "modal")]
+        [ (k, sc) | (k, _s, _c, _h, sc, _help) <- rows, k == ["@"] ]
       -- Two spellings of one command is the point, so the pairs are asserted rather than left to an absence.
       assertEqual "row movement has both spellings, the letter first"
         [["n"], ["j"], ["<down>"]]

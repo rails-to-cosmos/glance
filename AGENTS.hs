@@ -1735,6 +1735,7 @@ routes :: [Route]
 routes =
   [ Route "/"          False TextRefusal [GET]
   , Route "/headlines" True  TextRefusal [GET]
+  , Route "/refer"     True  TextRefusal [GET]
   , Route "/headline"  True  JsonRefusal [GET, POST]
   , Route "/command"   True  JsonRefusal [POST]
   , Route "/config"    True  JsonRefusal [GET, POST]
@@ -3067,7 +3068,8 @@ bscope :: Binding -> KeyScope    ; bscope (Binding _ _ s) = s
 seqOf :: Binding -> String                   -- ^ derived: the keys, one space between
 seqOf = unwords . bkeys
 helpOf :: Binding -> Maybe String            -- ^ derived, and optional by construction
-helpOf b = listToMaybe [t | (ss, t) <- keyHelps, seqOf b `elem` ss]
+helpOf b = listToMaybe ([ t | ((s, ss), t) <- scopedHelps, s == bscope b, seqOf b `elem` ss ]
+                     <> [ t | (ss, t) <- keyHelps, seqOf b `elem` ss ])
 
 bindings :: [Binding]
 bindings =
@@ -3116,11 +3118,20 @@ bindings =
   , Binding ["C-c", "C-s"]  (Elisp "org-glance-overview:schedule")    STable
   , Binding ["C-c", "C-d"]  (Elisp "org-glance-overview:deadline")    STable
   , Binding [","]           (Elisp "customize")                       STable
+  -- ONE KEY, TWO SURFACES: `@' READS the edges from the table and WRITES one
+  -- from the sheet, so the scope is what tells the two apart.
+  , Binding ["@"]           (Elisp "org-glance-material:refer")       SModal
   , Binding ["C-x", "C-s"]  (Elisp "save-buffer")                     SModal
   , Binding ["C-c", "C-c"]  (Elisp "org-ctrl-c-ctrl-c")               SModal
   , Binding ["C-c", "'"]    (Elisp "org-edit-special")                SModal
   , Binding ["ESC"]         (Elisp "keyboard-quit")                   SAny
   ]
+
+-- | Where ONE SEQUENCE MEANS TWO THINGS, the scope decides which help it carries.
+scopedHelps :: [((KeyScope, [String]), String)]
+scopedHelps =
+  [ ((SModal, ["@"]), "link a headline into the prose; at a word boundary, so an\
+                      \ address stays text") ]
 
 keyHelps :: [([String], String)]                -- ^ where the command name does not say enough
 keyHelps =
@@ -3360,11 +3371,14 @@ washCovers, washExempt :: [String]
 washCovers = ["#app", "#modal", "#prompt", "#config"]
 washExempt = ["#log", "#keys"]                   -- where a reader finds out why
 
--- ** Three z-indexes, and a fifth overlay costs no band.
+-- ** Four z-indexes, and a fifth overlay costs no band.
 
-data Z = ZEcho | ZBackdrop | ZSheet deriving (Eq, Show, Enum, Bounded)
+-- | `ZRefer' stands OVER the sheet because it is drawn INTO it: the picker hangs
+-- at the caret of the box it is about to write to, so a level under the sheet
+-- would put it behind the prose it is completing.
+data Z = ZEcho | ZBackdrop | ZSheet | ZRefer deriving (Eq, Show, Enum, Bounded)
 zOf :: Z -> Int
-zOf ZEcho = 2 ; zOf ZBackdrop = 100 ; zOf ZSheet = 101
+zOf ZEcho = 2 ; zOf ZBackdrop = 100 ; zOf ZSheet = 101 ; zOf ZRefer = 102
 zRetired :: Int ; zRetired = 3               -- ^ the status corner's, forbidden coming back
 tvHeader, tvCompletion :: Int
 tvHeader = 1 ; tvCompletion = 5              -- the renderer's, which the backdrop must clear
@@ -4172,6 +4186,44 @@ sheetNotes =
   , Note "No popup box declares a width or a height of its own; `#mpanes' hides its\
          \ overflow and no pane carries a floor, `#mdoc' owning its scroll and the mounts\
          \ inside the other panes owning theirs." [Test]
+  , Note "`@' IN THE SHEET IS THE WRITE HALF of the key the table READS with: the\
+         \ overview drills into the rows referring to this one, the sheet links one\
+         \ INTO the prose.  Two scopes, one sequence, and `live' keeps them apart." [Test]
+  , Note "THE PICKER IS THE TABLE, SHRUNK: a table-view mount in the renderer's own\
+         \ `inline' mode over `GET /refer', which is `/headlines'' own pipeline behind\
+         \ `viewPage'.  The columns, the badge hues, the cursor, the filter grammar,\
+         \ its suggestions and DEL arrive built, so no second table lives in the shell." [Browser]
+  , Note "`inline' IS THE RENDERER'S OWN MODE: chips resident and the filter SUMMONED\
+         \ onto their line, no title, no hint line, no sort marks, a capped window.  A\
+         \ compact table drawn beside the renderer would fork the grammar at the first\
+         \ fix." [Docs]
+  , Note "ESC IN `inline' IS ONE STEP: the half-typed filter is dropped AND the cursor\
+         \ lands on a row.  A compact table is a thing to pick FROM, so stopping at an\
+         \ emptied box leaves the reader in an editor they were already done with." [Browser]
+  , Note "TWO CUTS ARE THE PICKER'S, and both are cuts rather than refusals met\
+         \ after choosing: a row with no `ORG_GLANCE_ID' cannot be linked to, and a\
+         \ row is not its own reference." [Test]
+  , Note "`@' IS A CHARACTER FIRST, so it is WRITTEN the moment it is typed and the\
+         \ picker is what happens on top of it.  The binding claimed the key, so the\
+         \ literal is the handler's to write; at a word boundary the picker rides\
+         \ over it, mid-word an address typed into prose stays an address." [Browser]
+  , Note "ESC ABANDONS, DEL DELETES: dismissing the picker leaves the `@' standing —\
+         \ the reader typed a character and keeps it — where DEL's last rung takes it\
+         \ away, the rung after the typed text and the chips.  A REGION IS THE\
+         \ EXCEPTION to both: no `@' is written over the words the link is to read\
+         \ as, so neither key has one to leave or take." [Browser]
+  , Note "A SELECTED REGION BECOMES THE LINK and its own words are what the link\
+         \ READS AS.  They are no query: seeding the filter with them narrows the\
+         \ store by an accident of phrasing and puts the reader's prose on the chip\
+         \ strip.  A region is as explicit as a prefix, so no boundary gates it." [Browser]
+  , Note "ONE BOX TAKES THE WRITE, WHICHEVER IS OPEN: a title edit takes the link into\
+         \ the TITLE, a paragraph at its caret, and with neither open `insertHere' —\
+         \ `+''s own path — draws the row and opens one.  The sheet's existing commit\
+         \ is the only write route." [Browser]
+  , Note "The picker CLAIMS its keys with `stopPropagation', not `preventDefault'\
+         \ alone: taking a row SHUTS it, so a listener further along would find no\
+         \ momentary surface up and read the same RET as its own — the sheet would\
+         \ commit the paragraph the link had just been written into." [Browser]
   , Note "SCROLLING IS SILENT: the surfaces that scroll — `.tv-scroll' and `#kbd' —\
          \ hide the bar in both spellings, `scrollbar-width' for Firefox and the\
          \ `::-webkit-scrollbar' pseudo for Chromium.  A classic bar takes LAYOUT width,\
@@ -4422,12 +4474,12 @@ gluePartFiles =
   , "30-capture.js"   -- the capture form and the value palette
   , "40-popups.js"    -- the link popup and the tags popup
   , "50-settings.js"  -- tabs, saved views, the states table, the theme
+  , "60-refer.js"     -- `@' in the sheet: the reference picker over /refer
   , "70-shell.js"     -- the modal surfaces, the dispatch and the boot
   ]
-jsconfigFiles :: [Path]                 -- ^ the SECOND naming, for `tsc'
-jsconfigFiles =
-  [ "glue/00-core.js", "glue/05-keys.js", "glue/20-sheet.js", "glue/30-capture.js"
-  , "glue/40-popups.js", "glue/50-settings.js", "glue/70-shell.js", "glue.d.ts" ]
+-- | The same list as `tsc' reads it: a part named once cannot drift into two.
+jsconfigFiles :: [Path]
+jsconfigFiles = map ("glue/" <>) gluePartFiles <> ["glue.d.ts"]
 
 sdistExtras :: [Path]
 sdistExtras = ["assets/table-view.js", "assets/elm.js"]

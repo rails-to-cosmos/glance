@@ -235,7 +235,6 @@ export const CASES = [
     async run(p) {
       await select("see weekly notes", 4, 10)(p);
       await p.keys(AT);
-      await p.keys([KEY.Backspace]);              // the seeded text
       await p.keys([KEY.Backspace]);              // the default chip
       await p.keys([KEY.Backspace]);              // nothing left
       return [[await isUp(p), await pane(p)], [false, "see weekly notes"]];
@@ -245,8 +244,19 @@ export const CASES = [
     async run(p) {
       await select("see weekly notes", 4, 10)(p);
       await p.keys(AT);
-      await p.keys([KEY.Enter]);
+      await p.keys(["/"]);                        // the region is NOT the query
+      await p.keys([..."weekly"]);
+      await p.keys([KEY.Enter]);                  // commit the chip
+      await p.keys([KEY.Enter]);                  // take the row
       return [await pane(p), "see [[glance:…a003][weekly]] notes"];
+    } },
+
+  { name: "the region is the link's WORDS, never a filter",
+    async run(p) {
+      await select("see weekly notes", 4, 10)(p);
+      await p.keys(AT);
+      return [[await chips(p), await stageText(p), (await titles(p)).length > 2],
+              [["state:*active*"], 'the link will read "weekly"', true]];
     } },
 
   { name: "DEL drops the last filter chip, as stripLastToken does",

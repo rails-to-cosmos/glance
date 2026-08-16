@@ -92,12 +92,18 @@ const BREAKS = {
   "cursor-line": ["the cursor in the pane is a ground",
                   "#mdoc.on .de.dat{background:transparent !important;"
                     + "text-decoration:underline !important}"],
+  // The picker stops hanging at the caret and centres like a popup instead.
+  "refer-veil": ["@ in the sheet links the row under the cursor",
+                 "#refer{background:var(--g-veil) !important}"],
   // The header goes back to the cell edge, a padding left of its own badges.
   "badge-head": ["a badge column's header lines up with its badges",
                  ".tv-fill th.tv-badge .tv-hd{padding-left:0 !important}"],
   // The pill outgrows the ground `applyWidths' bought it (`PILL_PAD').
   "pill-ground": ["a badge sized by its own pill is drawn whole",
                   ".tv-pill{padding:0 14px !important}"],
+  // The picker's filter editor is resident again, no summoning needed.
+  "filter-resident": ["ESC in the picker's filter drops the edit",
+                      ".tv-inline .tv-bar{display:flex !important}"],
   // Both surfaces draw the classic bar back, layout width and all.
   "bar-space": ["no surface on the page draws a scrollbar of its own",
                 ".tv-scroll,#kbd{scrollbar-width:auto !important}"

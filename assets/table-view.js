@@ -14,6 +14,11 @@
  * - `composer: true' — the bar and the chips ARE the widget, with no table
  *   behind them; the query still commits to `onFilter' and reads back off
  *   `getQuery'.
+ * - `inline: true' — the mount is a small box inside someone else's chrome: the
+ *   chips stay, the filter box is summoned by `openFilter' onto the chips' own
+ *   line, and the title, the hint line, the sort marks and the page furniture
+ *   go. The window is capped rather than filling, and Escape out of the filter
+ *   is ONE step. What a picker hung at a caret wants.
  * - `setPinned(on)' — the chip strip's pin badge, drawn only under `onPin'.
  * - Emits DOM CustomEvents on the container: `tableview-action'
  *   ({detail:{command,id,row}}) and `tableview-link' ({detail:{target,row}}).
@@ -78,6 +83,7 @@
  *             initialQuery?: string,
  *             chipLabel?: (token: string) => string|null,
  *             composer?: boolean,
+ *             inline?: boolean,
  *             onPin?: () => void,
  *             pinned?: boolean }} MountOptions
  * @typedef {{ el: HTMLElement,
@@ -98,6 +104,8 @@
  *             pushCrumb: (c: Crumb) => number,
  *             popCrumb: () => Crumb|null,
  *             stripLastToken: () => boolean,
+ *             filtering: () => boolean,
+ *             destroy: () => void,
  *             openFilter: () => void,
  *             closeFilter: () => void,
  *             selectStep: (step: number) => boolean,
@@ -1049,6 +1057,48 @@
   width:0;
   height:0;
 }
+/* INLINE: the host has already drawn the box, so the mount brings none of its
+   own, caps its window and marks no order — a picker is chosen from, not sorted.
+   THE FILTER BOX IS SUMMONED, NOT RESIDENT, and when it comes it comes ON THE
+   CHIPS' OWN LINE, a grid row the two share, rather than a second stripe of
+   chrome over a box that is already small. */
+.tv-inline{
+  border:none;
+  border-radius:0;
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr);
+  align-items:center;
+}
+.tv-inline .tv-scroll{
+  max-height:calc(8 * 2.05em);
+}
+.tv-inline th .tv-arrow{
+  display:none;
+}
+.tv-inline > .tv-chips{
+  grid-area:1 / 1;
+  padding:5px 8px;
+  border-bottom:none;
+}
+.tv-inline > .tv-chips:empty{
+  display:none;
+}
+.tv-inline > .tv-bar{
+  grid-area:1 / 2;
+  display:none;
+  padding:5px 8px 5px 0;
+}
+.tv-inline.tv-typing > .tv-bar{
+  display:flex;
+}
+.tv-inline > .tv-scroll{
+  grid-area:2 / 1 / 2 / -1;
+  border-top:1px solid var(--tv-border);
+}
+.tv-inline .tv-filter{
+  font-size:12px;
+  padding:2px 6px;
+}
 .tv-table{
   border-collapse:collapse;
   width:100%;
@@ -1402,7 +1452,12 @@
     injectStyle();
     const o = opts || {};   // narrowing sticks in closures (a reassigned param would not)
     const composer = o.composer === true;
-    const omnibox = o.omnibox === true || composer;
+    // INLINE: the mount IS a small box someone else has drawn, so it keeps the
+    // rows and summons the filter, dropping the page furniture — no title, no
+    // hint line, no sort marks, and a capped window.  It is what a PICKER hung
+    // at a caret wants, where the ordinary mount wants the page.
+    const inline = o.inline === true;
+    const omnibox = o.omnibox === true || composer || inline;
     const palette = o.palette === true;
     const marks = o.marks === true;
     /**
@@ -1655,7 +1710,7 @@
     const root = document.createElement("div");
     root.className = classAttr([["tv-root", true], ["tv-marking", marks],
                                 ["tv-calm", calm], ["tv-omni", omnibox && !palette],
-                                ["tv-pal", palette]]);
+                                ["tv-pal", palette], ["tv-inline", inline]]);
     container.innerHTML = "";
     container.appendChild(root);
 
@@ -1666,7 +1721,7 @@
     const input = document.createElement("input");
     input.className = "tv-filter";
     input.type = "search";
-    input.placeholder = `tag:book · state:TODO|DONE · -word · "some phrase"`;
+    input.placeholder = `key:value · status:open|closed · -word · "some phrase"`;
     const chipsEl = document.createElement("div");
     chipsEl.className = "tv-chips";
     const filterWrap = document.createElement("div");
@@ -1709,9 +1764,11 @@
     const hint = document.createElement("div");
     hint.className = "tv-hint";
 
+    const hasHint = !composer && !inline;
     if (!palette) root.appendChild(bar);
     if (omnibox || palette) root.appendChild(chipsEl);
-    if (!composer) { root.appendChild(scroll); root.appendChild(hint); }
+    if (!composer) root.appendChild(scroll);
+    if (hasHint) root.appendChild(hint);
     if (palette) root.appendChild(veil);
 
     /** Per-column <col>, one per column. @type {HTMLElement[]} */
@@ -2357,6 +2414,7 @@
     /** The status line, off the state it reads; clears whoever asked for it. */
     function renderHint() {
       wantHint = false;
+      if (!hasHint) return;             // the node was never appended
       hint.innerHTML = hintHTML(ordered().length);
     }
 
@@ -2752,6 +2810,7 @@
      */
     function openFilter() {
       if (palette) veil.style.display = "";
+      if (inline) root.classList.add("tv-typing");  // before the focus: display:none until
       input.focus();
       if (input.select) input.select();
     }
@@ -2761,6 +2820,30 @@
       closeAc();
       if (palette) veil.style.display = "none";
       input.blur();
+      if (inline) root.classList.remove("tv-typing");
+    }
+
+    /** Drop what is half-typed, answering whether there was any.
+     *  @returns {boolean} */
+    function clearTyped() {
+      if (!input.value) return false;
+      input.value = "";
+      closeAc();
+      deliver();
+      return true;
+    }
+
+    /** True while the filter box holds the keyboard. @returns {boolean} */
+    const filtering = () => document.activeElement === input;
+
+    /**
+     * `inline''s ONE STEP out of the editor: the half-typed filter is dropped AND
+     * the cursor lands on a row.  A compact table is a thing to pick FROM, so an
+     * emptied box is an editor the reader was already done with.
+     */
+    function abandonFilter() {
+      clearTyped();
+      handOver();
     }
 
     /**
@@ -3345,6 +3428,7 @@
           domains.set(col.key, d);
           return d;
         }
+        const fixed = domainValues(col);
         const counts = new Map();
         const found = [];
         for (const r of state.rows) {
@@ -3353,9 +3437,8 @@
           const n = counts.get(lower);
           if (n !== undefined) { counts.set(lower, n + 1); continue; }
           counts.set(lower, 1);
-          if (found.length < DOMAIN_MAX) found.push(displayText((r.cells || {})[col.key]));
+          if (!fixed && found.length < DOMAIN_MAX) found.push(displayText((r.cells || {})[col.key]));
         }
-        const fixed = domainValues(col);
         d = { list: fixed || found.sort(), counts };
         domains.set(col.key, d);
       }
@@ -3692,7 +3775,8 @@
           e.stopPropagation();
           if (down) { moveAc(1); return; }
           if (up) { moveAc(-1); return; }
-          if (e.key === "Escape") { closeAc(); return; }
+          // In `inline' the suggestion list is no rung of its own.
+          if (e.key === "Escape") { closeAc(); if (inline) abandonFilter(); return; }
           const taken = ac.items[acAt];
           const finished = taken.full || ac.stage === "value";
           acceptAc(taken);
@@ -3713,8 +3797,8 @@
       e.preventDefault();               // and, for Escape, the native search-box clear
       e.stopPropagation();
       if (e.key === "Escape") {
-        if (input.value) { input.value = ""; closeAc(); deliver(); }
-        else closeFilter();
+        if (inline) { abandonFilter(); return; }
+        if (!clearTyped()) closeFilter();
         return;
       }
       if (input.value.trim()) {
@@ -3809,13 +3893,16 @@
       dark = now;
       renderRows(true);
     }
-    if (typeof matchMedia === "function") {
-      const q = matchMedia("(prefers-color-scheme: dark)");
-      if (q.addEventListener) q.addEventListener("change", onTheme);
-    }
-    if (typeof MutationObserver === "function" && document.documentElement)
-      new MutationObserver(onTheme).observe(document.documentElement,
-                                            { attributes: true, attributeFilter: ["data-theme"] });
+    /** What `destroy' has to undo: the two theme watchers outlive the DOM. */
+    const themeQuery = typeof matchMedia === "function"
+                     ? matchMedia("(prefers-color-scheme: dark)") : null;
+    if (themeQuery && themeQuery.addEventListener)
+      themeQuery.addEventListener("change", onTheme);
+    const themeWatch = typeof MutationObserver === "function" && document.documentElement
+                     ? new MutationObserver(onTheme) : null;
+    if (themeWatch)
+      themeWatch.observe(document.documentElement,
+                         { attributes: true, attributeFilter: ["data-theme"] });
 
     return {
       el: root,
@@ -3975,6 +4062,19 @@
         return gone;
       },
       stripLastToken,
+      filtering,
+      /**
+       * Let the mount go.  Emptying the container drops the DOM; these two
+       * theme watchers are registered OUTSIDE it and would hold this whole
+       * scope — rows, caches, the detached tree — alive without this.  A
+       * consumer that mounts once a session may skip it; one that mounts per
+       * gesture may not.
+       */
+      destroy() {
+        if (themeQuery && themeQuery.removeEventListener)
+          themeQuery.removeEventListener("change", onTheme);
+        if (themeWatch) themeWatch.disconnect();
+      },
       /**
        * Sort on COLUMN, ascending unless ASCENDING is false, replacing whatever
        * sort is in force.  A header click TOGGLES; this STATES an order.  It

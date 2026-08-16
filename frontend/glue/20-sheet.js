@@ -356,9 +356,8 @@
         ? Math.max(1, Math.min(DOCROWS, el("dtext").value.split("\n").length))
         : 0));
     function newlineIn(id) {
-      const box = el(id), at = box.selectionStart, to = box.selectionEnd;
-      box.value = `${box.value.slice(0, at)}\n${box.value.slice(to)}`;
-      box.setSelectionRange(at + 1, at + 1);
+      const box = el(id);
+      spliceIn(box, box.selectionStart, box.selectionEnd, "\n");
       sizeDocEdit();
     }
     const caretLine = (id) => {

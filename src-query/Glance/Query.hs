@@ -149,6 +149,7 @@ module Glance.Query ( BlobSeed (..)
                     , viewJSON
                     , resolveColumns
                     , viewColumns
+                    , viewJSONFor
                     , viewJSONTextFor
                     ) where
 

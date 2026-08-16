@@ -86,7 +86,7 @@ page head' colours title body = T.unlines
   , "    padding:var(--g-pop-pad);padding-top:var(--g-pop-top);"
   , "    align-items:flex-start;justify-content:center}"
   , "  #modal.on,#prompt.on,#config.on,#links.on,#tags.on,#capture.on{display:flex}"
-  , "  #sheet,#cbox,#pbox,#lbox,#tbox,#kbox{display:flex;flex-direction:column;"
+  , "  #sheet,#cbox,#pbox,#lbox,#tbox,#kbox,#rbox{display:flex;flex-direction:column;"
   , "    border-radius:6px;position:relative;z-index:101;"
   , "    font-family:var(--dk-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
@@ -275,6 +275,19 @@ page head' colours title body = T.unlines
   , "  #ltable,#ttable{flex:1;min-height:0;display:flex;overflow:hidden}"
   , "  #tpane,#lpane{flex:1;position:relative;min-height:0;display:flex;"
   , "    flex-direction:column;overflow:hidden}"
+  -- The picker hangs at the CARET: no veil, no centring, and over the sheet it
+  -- is drawn into (`ZRefer').  The BOX is all this draws — the table inside it
+  -- is the renderer's `inline' mode.
+  -- `--dk-mono' is declared by the popup layers; #refer is none of them, so it
+  -- says the font itself or #rbox inherits the body's.
+  , "  #refer{display:none;position:fixed;inset:0;z-index:102;pointer-events:none;"
+  , "    --dk-mono:\"Hack\", var(--glance-mono)}"
+  , "  #refer.on{display:block}"
+  , "  #rbox{position:fixed;pointer-events:auto;box-sizing:border-box;"
+  , "    width:min(680px,calc(100vw - 24px));"
+  , "    box-shadow:0 4px 14px var(--g-shadow);overflow:hidden}"
+  , "  #rfoot{border-top:1px solid var(--g-border);padding:2px 8px;"
+  , "    font-size:10px;color:var(--g-mute)}"
   -- BORDER-BOX, or the padding and border fall OUTSIDE the `--g-pop-max' cap.
   , "  .pop-band,.pop-sheet{box-sizing:border-box}"
   , "  .pop-band{width:min(560px,100%);max-height:var(--g-pop-max)}"
