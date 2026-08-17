@@ -9060,8 +9060,34 @@ var $author$project$Doc$update = F2(
 						}));
 		}
 	});
-var $author$project$Doc$rowClass = F3(
-	function (m, i, r) {
+var $author$project$Doc$idAtRow = F2(
+	function (m, i) {
+		return A2(
+			$elm$core$Maybe$withDefault,
+			'',
+			A2(
+				$elm$core$Maybe$map,
+				function ($) {
+					return $.c;
+				},
+				A2($author$project$Scan$nth, i, m.y)));
+	});
+var $author$project$Doc$indexOfIn = F2(
+	function (id, ups) {
+		return $elm$core$List$head(
+			A2(
+				$elm$core$List$filterMap,
+				$elm$core$Basics$identity,
+				A2(
+					$elm$core$List$indexedMap,
+					F2(
+						function (k, up) {
+							return _Utils_eq(up, id) ? $elm$core$Maybe$Just(k) : $elm$core$Maybe$Nothing;
+						}),
+					ups)));
+	});
+var $author$project$Doc$rowClass = F4(
+	function (m, i, r, depth) {
 		return _Utils_ap(
 			_Utils_eq(r.c, $author$project$Body$draftId) ? 'de d-draft d-' : 'de d-',
 			_Utils_ap(
@@ -9078,7 +9104,33 @@ var $author$project$Doc$rowClass = F3(
 				}(),
 				_Utils_ap(
 					_Utils_eq(i, m.aJ) ? ' dat' : '',
-					A2($elm$core$List$member, r.c, m.K) ? ' dfl' : '')));
+					_Utils_ap(
+						A2($elm$core$List$member, r.c, m.K) ? ' dfl' : '',
+						_Utils_ap(
+							(depth >= 0) ? (' lvl-' + $elm$core$String$fromInt(
+								A2($elm$core$Basics$min, 11, depth))) : ' lvl-top',
+							function () {
+								var _v1 = r.B;
+								if (!_v1.$) {
+									var up = _v1.a;
+									var _v2 = A2(
+										$author$project$Doc$indexOfIn,
+										up,
+										A2(
+											$author$project$Body$ownersOf,
+											m,
+											A2($author$project$Doc$idAtRow, m, m.aJ)));
+									if (!_v2.$) {
+										var k = _v2.a;
+										return ' up-' + $elm$core$String$fromInt(
+											A2($elm$core$Basics$min, 3, k));
+									} else {
+										return '';
+									}
+								} else {
+									return '';
+								}
+							}())))));
 	});
 var $author$project$Doc$drawText = F3(
 	function (m, body, base) {
@@ -9230,30 +9282,65 @@ var $author$project$Doc$viewCells = F3(
 					}),
 				$author$project$Body$shown(r)));
 	});
+var $author$project$Doc$markerLen = F2(
+	function (m, r) {
+		if (r.H !== 2) {
+			return 0;
+		} else {
+			var _v0 = A2(
+				$elm$core$Maybe$andThen,
+				$author$project$Scan$listOpener,
+				A2($author$project$Scan$nth, r.d, m.ay));
+			if (!_v0.$) {
+				var o = _v0.a;
+				return o.bh + $elm$core$String$length(o.ar);
+			} else {
+				return 0;
+			}
+		}
+	});
 var $author$project$Doc$viewPara = F2(
 	function (m, r) {
+		var k = A2($author$project$Doc$markerLen, m, r);
+		var mark = (k > 0) ? _List_fromArray(
+			[
+				A2(
+				$elm$html$Html$span,
+				_List_fromArray(
+					[
+						$elm$html$Html$Attributes$class('dm')
+					]),
+				_List_fromArray(
+					[
+						$elm$html$Html$text(
+						A2($elm$core$String$left, k, r.W))
+					]))
+			]) : _List_Nil;
+		var rest = A2($elm$core$String$dropLeft, k, r.W);
 		return A2(
 			$elm$html$Html$div,
 			_List_fromArray(
 				[
 					$elm$html$Html$Attributes$class('dp')
 				]),
-			function () {
-				var _v0 = A2($author$project$Doc$elementSpan, m, r);
-				if (!_v0.$) {
-					var _v1 = _v0.a;
-					var a = _v1.a;
-					return A3($author$project$Doc$drawText, m, r.W, a);
-				} else {
-					return _List_fromArray(
-						[
-							$elm$html$Html$text(r.W)
-						]);
-				}
-			}());
+			_Utils_ap(
+				mark,
+				function () {
+					var _v0 = A2($author$project$Doc$elementSpan, m, r);
+					if (!_v0.$) {
+						var _v1 = _v0.a;
+						var a = _v1.a;
+						return A3($author$project$Doc$drawText, m, rest, a + k);
+					} else {
+						return _List_fromArray(
+							[
+								$elm$html$Html$text(rest)
+							]);
+					}
+				}()));
 	});
-var $author$project$Doc$viewKids = F4(
-	function (m, parent, from, at0) {
+var $author$project$Doc$viewKids = F5(
+	function (m, parent, from, at0, depth) {
 		var tail = F2(
 			function (mark, out) {
 				return (_Utils_cmp(mark, parent.j) < 0) ? _Utils_ap(
@@ -9335,7 +9422,7 @@ var $author$project$Doc$viewKids = F4(
 													j: headAt
 												}))
 										]) : _List_Nil;
-									var _v2 = A4($author$project$Doc$viewKids, m, kid, j + 1, headAt);
+									var _v2 = A5($author$project$Doc$viewKids, m, kid, j + 1, headAt, depth + 1);
 									var deeper = _v2.a;
 									var jj = _v2.b;
 									return _Utils_Tuple2(
@@ -9365,7 +9452,7 @@ var $author$project$Doc$viewKids = F4(
 											_List_fromArray(
 												[
 													$elm$html$Html$Attributes$class(
-													A3($author$project$Doc$rowClass, m, j, kid))
+													A4($author$project$Doc$rowClass, m, j, kid, depth))
 												]),
 											inner)
 										])));
@@ -9405,7 +9492,7 @@ var $author$project$Doc$view = function (m) {
 						$author$project$Body$blank,
 						A2($author$project$Scan$nth, i, m.y));
 					if (r.H === 1) {
-						var _v0 = A4($author$project$Doc$viewKids, m, r, i + 1, -1);
+						var _v0 = A5($author$project$Doc$viewKids, m, r, i + 1, -1, 0);
 						var inner = _v0.a;
 						var j = _v0.b;
 						var $temp$i = j,
@@ -9418,7 +9505,7 @@ var $author$project$Doc$view = function (m) {
 									_List_fromArray(
 										[
 											$elm$html$Html$Attributes$class(
-											A3($author$project$Doc$rowClass, m, i, r))
+											A4($author$project$Doc$rowClass, m, i, r, -1))
 										]),
 									inner)
 								]));
@@ -9437,7 +9524,7 @@ var $author$project$Doc$view = function (m) {
 										_List_fromArray(
 											[
 												$elm$html$Html$Attributes$class(
-												A3($author$project$Doc$rowClass, m, i, r))
+												A4($author$project$Doc$rowClass, m, i, r, -1))
 											]),
 										_List_fromArray(
 											[
@@ -9458,7 +9545,7 @@ var $author$project$Doc$view = function (m) {
 										_List_fromArray(
 											[
 												$elm$html$Html$Attributes$class(
-												A3($author$project$Doc$rowClass, m, i, r))
+												A4($author$project$Doc$rowClass, m, i, r, -1))
 											]),
 										A3($author$project$Doc$viewCells, m, i, r))
 									]));

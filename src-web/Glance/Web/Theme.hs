@@ -51,6 +51,7 @@ pageTokens p =
   , ("--g-border",    pBorder p)
   , ("--g-accent",    pAccent p)
   , ("--g-sel",       pSelection p)
+  , ("--g-point",     pPoint p)
   , ("--g-link",      pLink p)
   , ("--g-col",       pColumn p)
   , ("--g-cell-wash", pCellWash p)

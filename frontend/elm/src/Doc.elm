@@ -30,6 +30,7 @@ import Body
         , joinWord
         , kidsOf
         , kindWord
+        , ownersOf
         , placeOf
         , placeOfLine
         , rowAt
@@ -38,6 +39,7 @@ import Body
         , shown
         , undrafted
         )
+import Scan
 import Scan exposing (Grain(..), cut, nth)
 
 
@@ -648,8 +650,13 @@ stars m level =
     String.repeat (max 0 (2 * (level - m.level))) " " ++ "* "
 
 
-rowClass : Model -> Int -> Row -> String
-rowClass m i r =
+{-| The classes a row wears. `lvl-N` is the rung the rail is drawn on, counted in
+tab stops from the list's own text; `up-K` lights the rail of the block point is
+K steps inside. The stylesheet cannot do either arithmetic on a class, and
+`Html.Attributes.style` cannot set a custom property in 0.19.
+-}
+rowClass : Model -> Int -> Row -> Int -> String
+rowClass m i r depth =
     (if r.id == draftId then
         "de d-draft d-"
 
@@ -678,6 +685,53 @@ rowClass m i r =
             else
                 ""
            )
+        ++ (if depth >= 0 then
+                " lvl-" ++ String.fromInt (min 11 depth)
+
+            else
+                -- ELM MOUNTS INSIDE A WRAPPER OF ITS OWN, so `#dlist > .de' names
+                -- nothing and a top-level row says so itself.  NOT `d-top': the
+                -- harness reads a row's KIND off its `d-' classes.
+                " lvl-top"
+           )
+        ++ (case r.owner of
+                Just up ->
+                    case indexOfIn up (ownersOf m (idAtRow m m.at)) of
+                        Just k ->
+                            " up-" ++ String.fromInt (min 3 k)
+
+                        Nothing ->
+                            ""
+
+                Nothing ->
+                    ""
+           )
+
+
+{-| Which id point is on, or @""@ when the model holds no such row.
+-}
+idAtRow : Model -> Int -> String
+idAtRow m i =
+    Maybe.withDefault "" (Maybe.map .id (nth i m.rows))
+
+
+{-| How many steps out ID sits in UPS, nearest first.
+-}
+indexOfIn : String -> List String -> Maybe Int
+indexOfIn id ups =
+    List.head
+        (List.filterMap identity
+            (List.indexedMap
+                (\k up ->
+                    if up == id then
+                        Just k
+
+                    else
+                        Nothing
+                )
+                ups
+            )
+        )
 
 
 {-| Text with its links marked: the shown description is the server's, the range
@@ -732,16 +786,53 @@ drawText m body base =
     go (List.filter inside m.links) 0 []
 
 
+{-| A row's own line. THE MARKER ORG WROTE IS ITS OWN SPAN, so point can light it
+the way a headline lights its stars; `drawText` slices by ABSOLUTE offsets, so the
+prefix moves the base with it rather than being spliced out of the middle.
+-}
 viewPara : Model -> Row -> Html Msg
 viewPara m r =
+    let
+        k =
+            markerLen m r
+
+        rest =
+            String.dropLeft k r.text
+
+        mark =
+            if k > 0 then
+                [ span [ class "dm" ] [ text (String.left k r.text) ] ]
+
+            else
+                []
+    in
     div [ class "dp" ]
-        (case elementSpan m r of
-            Just ( a, _ ) ->
-                drawText m r.text a
+        (mark
+            ++ (case elementSpan m r of
+                    Just ( a, _ ) ->
+                        drawText m rest (a + k)
+
+                    Nothing ->
+                        [ text rest ]
+               )
+        )
+
+
+{-| How many characters of a leaf's own line org spent on its indent and its
+bullet -- `-', `+', `*', `1.' or `1)' -- and nothing when the row is not one.
+-}
+markerLen : Model -> Row -> Int
+markerLen m r =
+    if r.grain /= Leaf then
+        0
+
+    else
+        case Maybe.andThen Scan.listOpener (nth r.from m.lines) of
+            Just o ->
+                o.indent + String.length o.bullet
 
             Nothing ->
-                [ text r.text ]
-        )
+                0
 
 
 viewCells : Model -> Int -> Row -> List (Html Msg)
@@ -778,8 +869,8 @@ viewCells m i r =
 {-| ONE OWNER PER BYTE: a composite is drawn once with its leaves inside it, and
 what no rung claims is drawn INERT (`dg`).
 -}
-viewKids : Model -> Row -> Int -> Int -> ( List (Html Msg), Int )
-viewKids m parent from at0 =
+viewKids : Model -> Row -> Int -> Int -> Int -> ( List (Html Msg), Int )
+viewKids m parent from at0 depth =
     let
         n =
             List.length m.rows
@@ -823,7 +914,7 @@ viewKids m parent from at0 =
                                                 []
 
                                         ( deeper, jj ) =
-                                            viewKids m kid (j + 1) headAt
+                                            viewKids m kid (j + 1) headAt (depth + 1)
                                     in
                                     ( own ++ deeper, jj )
 
@@ -832,7 +923,7 @@ viewKids m parent from at0 =
                         in
                         go jNext
                             kid.to
-                            (out ++ gap ++ [ div [ class (rowClass m j kid) ] inner ])
+                            (out ++ gap ++ [ div [ class (rowClass m j kid depth) ] inner ])
 
                     else
                         ( tail mark out, j )
@@ -875,15 +966,15 @@ view m =
                 if r.grain == Composite then
                     let
                         ( inner, j ) =
-                            viewKids m r (i + 1) -1
+                            viewKids m r (i + 1) -1 0
                     in
-                    go j (out ++ [ div [ class (rowClass m i r) ] inner ])
+                    go j (out ++ [ div [ class (rowClass m i r -1) ] inner ])
 
                 else if r.kind == Para then
-                    go (i + 1) (out ++ [ div [ class (rowClass m i r) ] [ viewPara m r ] ])
+                    go (i + 1) (out ++ [ div [ class (rowClass m i r -1) ] [ viewPara m r ] ])
 
                 else
-                    go (i + 1) (out ++ [ div [ class (rowClass m i r) ] (viewCells m i r) ])
+                    go (i + 1) (out ++ [ div [ class (rowClass m i r -1) ] (viewCells m i r) ])
     in
     div [] (go 0 [])
 

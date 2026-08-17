@@ -13,7 +13,9 @@ data Palette = Palette
   , pMuted     :: !Text  -- ^ ink for what is read past.
   , pBorder    :: !Text  -- ^ every hairline, one weight.
   , pAccent    :: !Text  -- ^ the focus frame: which pane holds the keys.
-  , pSelection :: !Text  -- ^ the cursor row, table and document alike.
+  , pSelection :: !Text  -- ^ the cursor row's ground, in the table and the listings.
+  , pPoint     :: !Text  -- ^ the document's cursor, drawn as a MARK: a ground hue is
+                         --   not an ink, so a dark theme cannot reuse 'pSelection'.
   , pHover     :: !Text  -- ^ the row under the pointer.
   , pLink      :: !Text  -- ^ org link ink, measured against a ROW's grounds.
   , pFrost     :: !Text  -- ^ the applied filter's chips.

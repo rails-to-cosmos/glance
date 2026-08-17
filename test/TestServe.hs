@@ -2654,7 +2654,7 @@ sheetSpec shell =
       insheet "press:n press:n" $ \answer -> do
         seen <- textsAt "scrolled" answer
         assertEqual "the last ask was made on the element under point"
-                    (Just "de d-para dat") (listToMaybe (reverse seen))
+                    (Just "de d-para dat lvl-top") (listToMaybe (reverse seen))
         -- `block:"nearest"' IS the scrolloff band as the platform spells it.
         assertEqual "and it asked for the band, not a re-centring"
                     (object [ "block" .= ("nearest" :: T.Text) ])
@@ -2662,7 +2662,7 @@ sheetSpec shell =
       insheet "" $ \answer -> do
         seen <- textsAt "scrolled" answer
         assertEqual "the materialize itself asked, on the headline"
-                    (Just "de d-head dat") (listToMaybe seen)
+                    (Just "de d-head dat lvl-top") (listToMaybe seen)
 
     -- THE HEADLINE IS ONE STOP: its parts have their own keys and `f' does not
     -- walk into them.
@@ -4937,32 +4937,36 @@ tierSweep shell = testCase "every popup wears one size tier, and declares none" 
     tiers = [ ("pbox", "pop-band"), ("lbox", "pop-sheet"), ("tbox", "pop-band")
             , ("sheet", "pop-sheet"), ("cbox", "pop-sheet") ]
 
--- | EVERY SELECTION IN THE DOCUMENT IS A GROUND, swept rather than listed, and what it swept is asserted first.
+-- | POINT IS A MARK BESIDE THE LINE, swept rather than listed, and what it swept is asserted first.
 groundSweep :: IO T.Text -> TestTree
-groundSweep shell = testCase "every document selection is a ground, never a line" $ do
+groundSweep shell = testCase "point and a flag are marks beside the line, never on it" $ do
   page <- shell
+  -- A ROW SELECTOR WITH NO RULE PAINTS NOTHING, which is the point: the flag kept
+  -- one only while it had a wash to declare.
   let bodies = [ (sel, body) | sel <- selectors, Just body <- [ruleIn sel page] ]
-  assertEqual "the sweep found every rule it names"
-              (length selectors) (length bodies)
   mapM_ (\(sel, body) -> do
-           assertBool (T.unpack sel <> " draws no ground: " <> T.unpack body)
-                      ("background" `T.isInfixOf` body)
-           mapM_ (\line -> assertBool
-                    (T.unpack sel <> " draws a " <> T.unpack line <> ": " <> T.unpack body)
-                    (not (line `T.isInfixOf` body)))
-                 ["underline", "outline", "border", "text-decoration"]
-           -- A SHADOW ONLY INSET: a locator must not MOVE the text, and a drop shadow sits outside the line box.
-           assertBool (T.unpack sel <> " draws a shadow outside its box: " <> T.unpack body)
-                      (not ("box-shadow" `T.isInfixOf` body)
-                         || "box-shadow:inset" `T.isInfixOf` body))
+           -- A GROUND ON A NESTED ROW COVERS THE SUBTREE DRAWN INSIDE IT, which is
+           -- why the document stopped drawing one; the marks below are the answer.
+           mapM_ (\decl -> assertBool
+                    (T.unpack sel <> " draws a " <> T.unpack decl <> ": " <> T.unpack body)
+                    (not (decl `T.isInfixOf` body)))
+                 ["background", "underline", "outline", "border", "text-decoration"])
         bodies
-  -- AND THE FLAG OWNS THE SECOND CHANNEL: the cursor wins the one background slot.
-  flag <- maybe (assertFailure "no .de.dfl rule in the page") pure (ruleIn ".de.dfl" page)
-  mapM_ (\decl -> assertBool (".de.dfl drops " <> T.unpack decl <> ": " <> T.unpack flag)
-                             (decl `T.isInfixOf` flag))
-        ["box-shadow:inset 3px 0 0 var(--g-bad)", "var(--g-flag-wash)"]
+  -- THE MARK IS THE ROW'S OWN COLUMN: thin over what the row carries, bold over the
+  -- line it owns, and a flag says the same in red.
+  mapM_ (\(sel, ink) -> do
+           body <- maybe (assertFailure ("no " <> T.unpack sel <> " rule in the page")) pure
+                         (ruleIn sel page)
+           assertBool (T.unpack sel <> " paints no " <> T.unpack ink <> ": " <> T.unpack body)
+                      (ink `T.isInfixOf` body))
+        marks
   where
     selectors = [".de.dat", ".de.dfl"]
+    marks = [ ("#mdoc.on .de.dat::after", "var(--g-point)")
+            , ("#mdoc.on .de.dat>.dp::before", "var(--g-point)")
+            , (".de.dfl::after", "var(--g-bad)")
+            , (".d-list .d-item::before", "var(--g-fg)")
+            , ("#mdoc.on .up-0::before", "var(--g-accent)") ]
 
 -- | The body of the first rule whose SELECTOR LIST names SEL.  GROUPED SELECTORS ARE THE POINT: a literal @"#pbox{"@ matched none.
 ruleIn :: T.Text -> T.Text -> Maybe T.Text
@@ -5187,7 +5191,7 @@ shellGlue =
       , "let drows = [], dat = 0, dgrain = \"element\";"
       , "dgrain = now.grain; dflags = now.flags; dbody = now.body;"
       -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the panel's costs two rules, the wash it suppresses being the RENDERER's.
-      , "#mdoc.on .de.dat{"
+      , "#mdoc.on .de.dat::after{"
       , "#mprops:not(.on) .tv-table tbody tr.tv-sel{background:transparent}"
       , "#mprops:not(.on) .tv-table tbody tr.tv-sel.tv-alt{background:var(--tv-alt)}"
       , ".d-head,.d-child{display:flex;align-items:baseline}"

@@ -2923,7 +2923,7 @@ linkWalls = [LinkNewline, InSubtree, EdgeToEdge, Reparses]
 -- ONE source: a 'Role' per theme, emitted into BOTH namespaces, so a role the
 -- page and the renderer both spell has ONE value.
 
-data Role = RBg | RFg | RSurface | RMuted | RBorder | RAccent | RSel | RHover | RLink
+data Role = RBg | RFg | RSurface | RMuted | RBorder | RAccent | RSel | RPoint | RHover | RLink
           | RFrost | RCol | ROk | RWarn | RBad | RVeil | RShadow | RChipWash | RChipEdge
           | RMarkWash | RFlagWash | RColWash | RCellWash | RSortWash | RColsWash
   deriving (Eq, Ord, Show, Enum, Bounded)
@@ -2938,6 +2938,7 @@ pageToken RMuted = Just "--g-mute"
 pageToken RBorder = Just "--g-border"
 pageToken RAccent = Just "--g-accent"
 pageToken RSel = Just "--g-sel"
+pageToken RPoint = Just "--g-point"
 pageToken RLink = Just "--g-link"
 pageToken RCol = Just "--g-col"
 pageToken RCellWash = Just "--g-cell-wash"
@@ -2964,6 +2965,8 @@ tableToken RMuted = Just "--tv-muted"
 tableToken RBorder = Just "--tv-border"
 tableToken RAccent = Just "--tv-accent"
 tableToken RSel = Just "--tv-sel"
+-- THE MARK IS THE DOCUMENT'S ALONE: the renderer grounds its cursor row.
+tableToken RPoint = Nothing
 tableToken RHover = Just "--tv-hover"
 tableToken RLink = Just "--tv-link"
 tableToken RFrost = Just "--tv-frost"
@@ -3650,10 +3653,10 @@ docCells :: [String]
 docCells = ["state", "priority", "title", "tags"]
 
 -- | The markup the stylesheet and the harness read: a stop wearing its kind as `d-*',
---   point, a flag, a cell with its key, text, a link's shown half, and what no rung
---   claims.
+--   point, a flag, a cell with its key, the marker org wrote, text, a link's shown half,
+--   and what no rung claims.
 docClasses :: [String]
-docClasses = [".de", ".dat", ".dfl", ".dc", ".dt", ".dl", ".dg"]
+docClasses = [".de", ".dat", ".dfl", ".dc", ".dm", ".dt", ".dl", ".dg"]
 
 -- | Geometry written onto `#mdoc' as NUMBERS, the arithmetic staying in the stylesheet.
 docVars :: [String]
@@ -4361,6 +4364,31 @@ sheetNotes =
   , Note "`placeEdit' sizes the box on all four edges off the row's own rect and computed\
          \ padding; the stylesheet's span is the fallback for a page that measured\
          \ nothing, which stands one line tall." [Test]
+  , Note "POINT IS A MARK BESIDE THE LINE, never a ground.  A NESTED ITEM IS DRAWN\
+         \ INSIDE ITS PARENT, so a ground runs the whole subtree; the mark sits one tab\
+         \ stop LEFT of the row's own text, which is where that block's rail runs, and\
+         \ point rides its own block's rail." [Test, Browser]
+  , Note "ONE INK, TWO WEIGHTS: a row's own text takes the bold stroke and what hangs\
+         \ off it the thin one.  A paragraph carries nothing and is bold over every line\
+         \ it wraps to; a composite IS the stop, so it is bold whole." [Browser]
+  , Note "THE MARKER ORG WROTE IS THE MARKER: a headline under point lights its STARS and\
+         \ draws no mark, the stars sitting in the column the mark would use; an item\
+         \ lights its BULLET as well as drawing one, and the bullet is whatever org\
+         \ wrote -- `-', `+', `*', `1.', `1)'.  `> .dp >' keeps the light on the row's\
+         \ OWN line." [Browser]
+  , Note "THE DOCUMENT IS A BLOCK TOO and its rail runs the whole pane, starting UNDER\
+         \ the headline, whose stars own that column.  Without it the outermost column\
+         \ is drawn beside the list and nowhere else, breaking at every paragraph." [Test]
+  , Note "EVERY RAIL IS OPAQUE: the document's rail and the list's share the outermost\
+         \ column, so a translucent one composites darker along the list than beside a\
+         \ paragraph and the same unhighlighted mark reads as two styles." [Test]
+  , Note "THE RUNG AND THE STEP TRAVEL AS CLASSES -- `lvl-N', `lvl-top', `up-K' -- since\
+         \ `Html.Attributes.style' assigns `style[key]' and browsers ignore that for a\
+         \ custom property.  NOT `d-top': the harness reads a row's KIND off its `d-'\
+         \ classes." [Test]
+  , Note "`--g-point' is the document's cursor ink and `--g-sel' the table's ground: a\
+         \ GROUND HUE IS NOT AN INK, and dark's selection is a slate that vanishes as a\
+         \ 3px mark." [Test]
   , Note "THE HEADLINE IS ONE STOP: `f' does not walk into its parts, since each part\
          \ already has a key -- `t' the state, `:' the tags, S-<up>/S-<down> the priority\
          \ and RET the title.  A cursor over a part would be a second way to say the same\

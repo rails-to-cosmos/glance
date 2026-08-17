@@ -172,19 +172,27 @@ export default [
     await p.press("d");
     await p.until(() => !!document.querySelector("#mdoc .de.dfl"),
                   "the pane's row to wear its flag");
+    // THE TABLE GROUNDS ITS ROW AND THE DOCUMENT MARKS ITS LINE: a ground on a
+    // nested row would cover the subtree drawn inside it, so the pane draws a
+    // rail in the row's own column instead.
     const pane = await p.eval(() => {
       const fl = document.querySelector("#mdoc .de.dfl");
-      return { edge: getComputedStyle(fl).boxShadow,
+      const own = fl.querySelector(":scope > .dp");
+      return { thin: getComputedStyle(fl, "::after").backgroundColor,
+               bold: own ? getComputedStyle(own, "::before").backgroundColor : null,
+               wide: own ? getComputedStyle(own, "::before").width : null,
                ground: getComputedStyle(fl).backgroundColor };
     });
     // Both strings came out of the same engine, so the red is compared as spelled.
-    assert(pane.edge.includes(table.flag) && /inset/.test(pane.edge),
-      `the pane's flag edge is "${pane.edge}", the table's red is ${table.flag}`);
-    assert(pane.ground !== "rgba(0, 0, 0, 0)",
-      `the pane's flagged row has no ground at all: ${pane.ground}`);
+    assert(pane.thin === table.flag,
+      `the pane's flag mark paints ${pane.thin}, the table's red is ${table.flag}`);
+    assert(pane.bold === table.flag,
+      `the flagged line's own stroke paints ${pane.bold}, not ${table.flag}`);
+    assert(pane.ground === "rgba(0, 0, 0, 0)",
+      `the pane's flagged row paints a ground of ${pane.ground}`);
     return [`--g-bad and --tv-flag both paint ${table.flag}`,
             `the table's flagged ground is ${table.ground} against ${table.plain}`,
-            `the pane's edge is "${pane.edge}"`];
+            `the pane's flag is a ${pane.wide} mark in ${pane.thin}`];
   } },
 
 // The KEY LINE is the one sideways scroller and is exempt; the reading is the
@@ -314,7 +322,7 @@ export default [
 
 // EVERY SELECTION IN THE PANE IS A GROUND, never a line (AGENTS.hs).
 // `groundSweep' greps the served TEXT; what the row PAINTS needs an engine.
-{ name: "the cursor in the pane is a ground, and the pane that lost the keys draws none",
+{ name: "the cursor in the pane is a mark, and the pane that lost the keys draws none",
   async run(p, base) {
     await sheet(p, base, "drv-box");
     await p.press("n");
@@ -322,12 +330,26 @@ export default [
       const at = document.querySelector("#mdoc .de.dat");
       const off = [...document.querySelectorAll("#mdoc .de")].find((n) => n !== at);
       const cs = getComputedStyle(at);
-      return { on: cs.backgroundColor, off: getComputedStyle(off).backgroundColor,
+      const point = getComputedStyle(document.documentElement)
+        .getPropertyValue("--g-point").trim();
+      const rgb = (v) => { const d = document.createElement("div");
+        d.style.color = v; document.body.append(d);
+        const c = getComputedStyle(d).color; d.remove(); return c; };
+      return { mark: getComputedStyle(at, "::after").backgroundColor,
+               ink: rgb(point),
+               offMark: getComputedStyle(off, "::after").backgroundColor,
+               ground: cs.backgroundColor,
                deco: cs.textDecorationLine, outline: cs.outlineStyle,
                border: cs.borderTopStyle };
     });
-    assert(seen.on !== seen.off,
-      `the cursor row and an ordinary row both paint ${seen.on}`);
+    assert(seen.mark === seen.ink,
+      `the cursor's mark paints ${seen.mark}, not the point ink ${seen.ink}`);
+    assert(seen.mark !== seen.offMark,
+      `an ordinary row's mark paints ${seen.offMark}, the same as the cursor's`);
+    // A GROUND ON A NESTED ROW COVERS THE SUBTREE DRAWN INSIDE IT, so the pane
+    // draws none at all — and no line on the text either.
+    assert(seen.ground === "rgba(0, 0, 0, 0)",
+      `the cursor row paints a ground of ${seen.ground}`);
     assert(seen.deco === "none" && seen.outline === "none" && seen.border === "none",
       `the cursor row is drawn with a line: decoration ${seen.deco}, `
       + `outline ${seen.outline}, border ${seen.border}`);
@@ -337,11 +359,12 @@ export default [
                   "the panel to take the keys");
     const gone = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
-      return at ? getComputedStyle(at).backgroundColor : null;
+      return at ? getComputedStyle(at, "::after").backgroundColor : null;
     });
-    assert(gone === seen.off,
-      `the pane that lost the keys still paints its cursor ${gone} against ${seen.off}`);
-    return [`cursor ${seen.on} against ${seen.off}; with the keys away it paints ${gone}`];
+    assert(gone === seen.offMark,
+      `the pane that lost the keys still marks its cursor ${gone} against ${seen.offMark}`);
+    return [`the cursor marks ${seen.mark} and an ordinary row ${seen.offMark}; `
+      + `with the keys away it marks ${gone}`];
   } },
 
 // A LEAF IS ONE LINE OF THE FIELD THAT COVERS IT.  `.de' pads every stop and a
@@ -1070,7 +1093,7 @@ export default [
 // `f' goes finer, which is how the cursor reaches an item at all — the list
 // itself is ONE stop at the coarse grain.  The pane's own composite case catches
 // the same structure from the other side, a leaf standing taller than its line.
-{ name: "the cursor on a list item grounds the item, not the subtree under it",
+{ name: "the cursor on a list item is bold on its own line and thin down its subtree",
   async run(p, base) {
     await sheet(p, base, "drv-wide");
     // `n' CROSSES STOPS, `f' GOES FINER — the list is ONE stop at the coarse
@@ -1087,27 +1110,36 @@ export default [
     }, "the cursor to land on an item with rows drawn inside it");
     const seen = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
-      const kid = at.querySelector(".de");
       const own = [...at.children].find((c) => !c.classList.contains("de"));
       const px = (n) => Math.round(n.getBoundingClientRect().height);
+      const thin = getComputedStyle(at, "::after");
+      const bold = getComputedStyle(own, "::before");
       return { nested: true, text: own.textContent.trim().slice(0, 32),
                atBg: getComputedStyle(at).backgroundColor,
-               kidBg: getComputedStyle(kid).backgroundColor,
+               thinInk: thin.backgroundColor, thinW: parseFloat(thin.width),
+               boldInk: bold.backgroundColor, boldW: parseFloat(bold.width),
+               left: thin.left, ownLeft: bold.left,
                ownH: px(own), atH: px(at) };
     });
     assert(seen && seen.nested,
       "`f' did not reach an item with rows drawn inside it, so nothing was measured");
     assert(seen.atH >= seen.ownH * 2,
-      `the item is ${seen.atH}px against its own line's ${seen.ownH}px, so a `
-      + `subtree ground would not be visible either way`);
-    // OPAQUE, not merely a different string: a TRANSPARENT nested row lets the
-    // cursor's ground through, which is the bug wearing another spelling.
-    const clear = /^rgba\(.*,\s*0\)$/.test(seen.kidBg);
-    assert(!clear && seen.atBg !== seen.kidBg,
-      `the row nested under the item paints ${seen.kidBg} against the item's `
-      + `${seen.atBg}, so the cursor's ground runs the subtree`);
-    // AND THE WHOLE LIST IS STILL ONE THING when the cursor is on IT: the
-    // composite IS the stop, so it grounds whole.  `b' goes back out a grain.
+      `the item is ${seen.atH}px against its own line's ${seen.ownH}px, so the two `
+      + `strokes would not be told apart`);
+    // ONE INK, TWO WEIGHTS: the row's own text takes the bold stroke and what
+    // hangs off it the thin one, on ONE column.
+    assert(seen.thinInk === seen.boldInk,
+      `the two strokes paint ${seen.thinInk} and ${seen.boldInk}`);
+    assert(seen.boldW > seen.thinW,
+      `the own line's stroke is ${seen.boldW}px against the subtree's ${seen.thinW}px`);
+    assert(seen.left === seen.ownLeft,
+      `the strokes sit at ${seen.left} and ${seen.ownLeft}, so they are two columns`);
+    // AND NO GROUND ANYWHERE: a ground on this row would cover the subtree drawn
+    // inside it, which is the bug the mark exists to answer.
+    assert(seen.atBg === "rgba(0, 0, 0, 0)",
+      `the item paints a ground of ${seen.atBg}`);
+    // THE WHOLE LIST IS ONE THING when the cursor is on IT: the composite IS the
+    // stop, so it is bold whole.  `b' goes back out a grain.
     await p.press("b");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
@@ -1115,17 +1147,16 @@ export default [
     }, "the cursor to go back out to the list itself");
     const whole = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
-      const kid = at.querySelector(".de");
-      return { atBg: getComputedStyle(at).backgroundColor,
-               kidBg: getComputedStyle(kid).backgroundColor,
-               kids: at.querySelectorAll(".de").length };
+      const thin = getComputedStyle(at, "::after");
+      return { ink: thin.backgroundColor, w: parseFloat(thin.width),
+               kids: at.querySelectorAll(".de").length,
+               h: Math.round(at.getBoundingClientRect().height) };
     });
-    assert(/^rgba\(.*,\s*0\)$/.test(whole.kidBg),
-      `on the list itself a row under it paints ${whole.kidBg} of its own, so the `
-      + `list no longer grounds whole`);
-    return [`"${seen.text}": ${seen.ownH}px of ${seen.atH}px grounded, the nested `
-      + `row painting ${seen.kidBg}; the list itself still grounds all `
-      + `${whole.kids} rows under it`];
+    assert(whole.w === seen.boldW,
+      `the list itself is marked ${whole.w}px, not the ${seen.boldW}px of an own line`);
+    return [`"${seen.text}": ${seen.boldW}px over ${seen.ownH}px of own line and `
+      + `${seen.thinW}px over the rest of ${seen.atH}px, both ${seen.thinInk} at `
+      + `${seen.left}; the list itself is ${whole.w}px over all ${whole.kids} rows`];
   } },,
 
 // THE BOX IS THE LINE IT WRITES.  A nested item is drawn inside its parent, so
@@ -1182,5 +1213,62 @@ export default [
       `the box holds more than the item's own line: ${JSON.stringify(box.text)}`);
     return [`row ${shape.row}px, own line ${box.ownH}px, box ${box.h}px holding `
       + `${JSON.stringify(box.text.slice(0, 34))}`];
+  } },
+{ name: "the marker org wrote lights with the line, and only that line's own",
+  async run(p, base) {
+    await sheet(p, base, "drv-wide");
+    // Onto the list, then into it: the item under point has a nested item drawn
+    // inside it, whose bullet belongs to the nested item and not to this one.
+    await p.press("n"); await p.press("n"); await p.press("n");
+    await p.press("f");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && !!at.querySelector(":scope > .dp > .dm") && !!at.querySelector(".de");
+    }, "the cursor to land on an item that has one drawn inside it");
+    const seen = await p.eval(() => {
+      const rgb = (v) => { const d = document.createElement("div");
+        d.style.color = v; document.body.append(d);
+        const c = getComputedStyle(d).color; d.remove(); return c; };
+      const at = document.querySelector("#mdoc .de.dat");
+      const own = at.querySelector(":scope > .dp > .dm");
+      // `:scope' OR THE OWN BULLET COMES BACK: a descendant combinator may use an
+      // ancestor OUTSIDE the element querySelector was called on, and `at' is a
+      // `.de' itself.
+      const kid = at.querySelector(":scope > .de > .dp > .dm");
+      const plain = [...document.querySelectorAll("#mdoc .de:not(.dat) > .dp > .dm")]
+        .find((n) => !at.contains(n));
+      return { point: rgb(getComputedStyle(document.documentElement)
+                 .getPropertyValue("--g-point").trim()),
+               ink: getComputedStyle(own).color, text: own.textContent,
+               weight: getComputedStyle(own).fontWeight,
+               nested: kid ? getComputedStyle(kid).color : null,
+               other: plain ? getComputedStyle(plain).color : null };
+    });
+    assert(seen.ink === seen.point,
+      `the bullet under point paints ${seen.ink}, not the point ink ${seen.point}`);
+    assert(/^\s*([-+*]|\d+[.)])\s+$/.test(seen.text),
+      `the lit span is "${seen.text}", which is not an org list marker`);
+    assert(seen.nested !== seen.point,
+      `a bullet nested under point paints ${seen.nested} too, so the light runs the subtree`);
+    assert(seen.other !== seen.point,
+      `an ordinary row's bullet paints ${seen.other} as well`);
+    // AND THE HEADLINE WEARS ITS STARS INSTEAD: they sit in the column the mark
+    // would use, so the mark is not drawn at all there.
+    await p.press("b"); await p.press("b");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.classList.contains("d-head");
+    }, "the cursor to climb back to the headline");
+    const head = await p.eval(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return { stars: getComputedStyle(at.querySelector(".ds")).color,
+               mark: getComputedStyle(at, "::after").display };
+    });
+    assert(head.stars === seen.point,
+      `the headline's stars paint ${head.stars}, not the point ink ${seen.point}`);
+    assert(head.mark === "none",
+      `the headline draws a mark as well as lighting its stars`);
+    return [`"${seen.text.trim()}" lights ${seen.ink} at weight ${seen.weight}; `
+      + `nested ${seen.nested}, ordinary ${seen.other}; the headline's stars ${head.stars}`];
   } },
 ];

@@ -124,25 +124,75 @@ page head' colours title body = T.unlines
   , "  #sheet.raw #mprops{display:none}"
   , "  #mptable .tv-root,#ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
   , "    font-family:var(--dk-mono)}"
-  -- EVERY SELECTION IS A GROUND: no underline, border or outline ('TestServe').
-  , "  .de{scroll-margin-block:var(--g-doc-off);"
+  -- POINT IS A MARK BESIDE THE LINE, never a ground.  A NESTED ITEM IS DRAWN
+  -- INSIDE ITS PARENT, so a ground runs the whole subtree; the mark sits one tab
+  -- stop LEFT of the row's own text, which is where that block's rail runs.
+  , "  .de{scroll-margin-block:var(--g-doc-off);position:relative;"
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
-  , "  #mdoc.on .de.dat{background:var(--g-sel);color:var(--g-fg)}"
-    -- A NESTED ITEM IS DRAWN INSIDE ITS PARENT, so the ground would run the
-    -- whole subtree; the cursor is on the item, not on what hangs off it.  A
-    -- COMPOSITE is the exception: the whole list IS the stop, so it grounds
-    -- whole.  `:not(.dfl)' leaves a flagged child its own wash.
-  , "  #mdoc.on .de.dat:not(.d-comp) .de:not(.dfl){background:var(--g-bg)}"
+  , "  .dp{position:relative}"
+  , "  .de::before,.de::after,.de>.dp::before{content:\"\";position:absolute;"
+  , "    width:2px;border-radius:1px;pointer-events:none}"
   , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-doc-fs)"
   , "    * var(--g-doc-lh))}"
-  -- The background is ONE SLOT and the cursor wins it, so a flag says it INSET.
-  , "  .de.dfl{background:color-mix(in srgb, var(--g-bad) var(--g-flag-wash), transparent);"
-  , "    box-shadow:inset 3px 0 0 var(--g-bad)}"
+  -- THE COLUMN IS THE ROW'S OWN, one tab stop left of its text.  A top-level row
+  -- is indented by PADDING and a nested item by its own leading SPACES, so the
+  -- two are counted from different origins and land on one line.
+  , "  .lvl-top{--rail:var(--g-doc-pad)}"
+  , "  .de>.dp::before{left:var(--rail)}"
+  , "  .d-para>.dp::before{left:calc(var(--rail) - var(--g-doc-pad)"
+  , "    - var(--g-doc-indent, 2) * 1ch)}"
+  , "  .de::before,.de::after{left:var(--rail)}"
+  -- A RAIL PER BLOCK, spanning its children; the document is a block too and its
+  -- rail bridges the half-em between top-level rows.  OPAQUE, since the document's
+  -- rail and the list's share the outermost column.
+  , "  .d-list .d-item::before,.lvl-top:not(.d-head)::before{top:0;bottom:0;"
+  , "    background:color-mix(in srgb, var(--g-fg) 12%, var(--g-bg))}"
+  , "  .lvl-top:not(.d-head)::before{top:-.25em;bottom:-.25em}"
+  -- THE BLOCK POINT IS IN is full accent, and a third is shed per step out.
+  , "  #mdoc.on .up-0::before{background:var(--g-accent)}"
+  , "  #mdoc.on .up-1::before{background:color-mix(in srgb, var(--g-accent) 68%,"
+  , "    var(--g-bg))}"
+  , "  #mdoc.on .up-2::before{background:color-mix(in srgb, var(--g-accent) 36%,"
+  , "    var(--g-bg))}"
+  , "  #mdoc.on .up-3::before{background:color-mix(in srgb, var(--g-accent) 22%,"
+  , "    var(--g-bg))}"
+  -- ONE INK, TWO WEIGHTS: the row's own text takes the bold stroke and what hangs
+  -- off it the thin one.  A composite IS the stop, so it is bold whole.
+  , "  #mdoc.on .de.dat::after{top:0;bottom:0;width:1px;background:var(--g-point)}"
+  , "  #mdoc.on .de.dat>.dp::before{top:0;bottom:0;width:3px;"
+  , "    background:var(--g-point)}"
+  , "  #mdoc.on .de.dat.d-comp::after{width:3px}"
+  -- A HEADLINE WEARS THE MARKER ORG WROTE: its stars sit in the column the mark
+  -- would use, so they take the ink and no mark is drawn.
+  , "  #mdoc.on .de.dat.d-head::after{display:none}"
+  , "  #mdoc.on .de.dat.d-head .ds,#mdoc.on .de.dat>.dp>.dm{"
+  , "    color:var(--g-point);font-weight:700}"
+  -- A FLAG OUTRANKS POINT and keeps its mark after point has moved on, so it is
+  -- spelled twice: once ungated, once to win the cascade where point also draws.
+  , "  .de.dfl::after,.de.dfl>.dp::before{background:var(--g-bad)}"
+  , "  .de.dfl::after{top:0;bottom:0;width:1px}"
+  , "  .de.dfl>.dp::before{top:0;bottom:0;width:3px}"
+  , "  .de.dfl.d-head .ds,.de.dfl>.dp>.dm{color:var(--g-bad);font-weight:700}"
+  , "  #mdoc.on .de.dfl::after,#mdoc.on .de.dfl>.dp::before{"
+  , "    background:var(--g-bad)}"
   -- PADDING: a margin would take the selection wash off the left of the line.
   , "  .d-para,.d-comp{margin:.5em 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
   , "  .d-comp,.d-comp .de{padding-top:0;padding-bottom:0}"
+  -- A RUNG PER LEVEL, since a stylesheet cannot do the arithmetic on a class.
+  , "  .d-item.lvl-0{--rail:calc(-2 * 1ch)}"
+  , "  .d-item.lvl-1{--rail:calc(0 * 1ch)}"
+  , "  .d-item.lvl-2{--rail:calc(2 * 1ch)}"
+  , "  .d-item.lvl-3{--rail:calc(4 * 1ch)}"
+  , "  .d-item.lvl-4{--rail:calc(6 * 1ch)}"
+  , "  .d-item.lvl-5{--rail:calc(8 * 1ch)}"
+  , "  .d-item.lvl-6{--rail:calc(10 * 1ch)}"
+  , "  .d-item.lvl-7{--rail:calc(12 * 1ch)}"
+  , "  .d-item.lvl-8{--rail:calc(14 * 1ch)}"
+  , "  .d-item.lvl-9{--rail:calc(16 * 1ch)}"
+  , "  .d-item.lvl-10{--rail:calc(18 * 1ch)}"
+  , "  .d-item.lvl-11{--rail:calc(20 * 1ch)}"
   -- The draft row holds nothing and `:empty' misses it — Elm emits a text node.
   , "  .d-draft{min-height:calc(var(--g-doc-fs) * var(--g-doc-lh))}"
   , "  .d-item{padding-left:0;padding-right:0}"
