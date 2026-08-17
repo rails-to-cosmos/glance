@@ -71,18 +71,24 @@ org-glance's relation model landed 2026-07-18. Its canonical edge is
 `[[org-glance-material:ID?kind=SLUG][Title]]`, kinds slugged on both encode and
 decode, deduplicated by `(target, kind)`, stored in the WAL's `:relations`
 field, rendered in both directions, filterable by `:refers-to`, and inserted by
-hand with `@` / `C-u @` in the material buffer.
+hand with `@` / `C-u @` in the material buffer (the PEER's spelling, in Emacs,
+where `C-u` is the universal argument; glance's own is settled elsewhere).
 
-glance's `refTargetOf` strips the prefix and keeps **everything after it**:
+glance's `refTargetOf` kept **everything after the prefix**, so a typed edge
+resolved to nothing, ever — which is why `org-glance-material:` dangled at
+**34.5%** where `visit:` dangled at 11.6%.
 
-```haskell
-refTargetOf "org-glance-material:contact-25053-3?kind=author"
-  == Just "contact-25053-3?kind=author"     -- resolves to nothing, ever
-```
+**That half is FIXED** (`66cec36`, 2026-08-15). `refTargetOf` now cuts at the
+first `?` on the protocol branch alone — a title's own `?` is text and stays —
+so a typed edge resolves today (`src-query/Glance/Query.hs:552-563`, pinned at
+`test/TestFilter.hs:88-101`).
 
-That is why `org-glance-material:` dangles at **34.5%** where `visit:` dangles
-at 11.6%. Every typed reference the peer writes is invisible to `ref:`, no test
-covers `?kind=`, and the blast radius grows with every `C-u @` pressed.
+What remains is the half this proposal is named for: **the kind is stripped and
+then DISCARDED**. `refTargetOf` answers `Maybe Text`, so `depends` exists
+nowhere downstream, and `refTargetsOf` dedups on the id alone where the peer
+dedups on `(target, kind)` — two typed edges to one row collapse into one. The
+kind survives in exactly one place, unparsed: the raw `olTarget`, which `/links`
+ships verbatim.
 
 And `Data.Org.Index` reads 4 of the 16 keys org-glance writes per record.
 `relations` — typed, directed, deduplicated — sits in the same already-parsed
@@ -90,6 +96,26 @@ JSON object and is dropped on the floor.
 
 **So decision 2 is not speculative.** `RefKind` is what stops glance losing
 edges the peer is already writing.
+
+### What the store actually holds, counted 2026-08-17
+
+Re-counted against `~/sync` (6,345 `.org` files, 6,098 distinct ids) because
+the figures above were computed ad hoc and no census tool is checked in:
+
+| | |
+|---|---|
+| `?kind=` in the store's org files | **5** occurrences, all `roasted-by`, all one authored edge re-rendered by the overview and agenda writers |
+| WAL records carrying `relations` | 61 |
+| relation entries in the WAL | 92, of which **5 carry a kind** |
+| the whole kind vocabulary | `roasted-by` ×4, `by` ×1 — and `by` is an earlier revision of the same coffee row |
+
+**One authored typed edge in the corpus.** That reorders the design of the kind
+stage rather than the model: `kinds` folded off the store answers a one-element
+list, so the completion has nothing to complete against and **free text is the
+primary path, not the fallback**. Every choice about it — the wall, the slug,
+what the echo says — is load-bearing from the first press, where the proposal
+had treated it as a convenience ("free text accepted so a new kind costs no
+configuration").
 
 ## The design
 
@@ -137,7 +163,11 @@ rows, `C-n`/`C-p` and the arrows walking a highlight, `RET` taking it.
 
 1. **the headline** — narrowed over the store, addressable rows only;
 2. **the kind**, optional — narrowed over the kinds the tree already uses,
-   free text accepted so a new kind costs no configuration.
+   free text accepted so a new kind costs no configuration. **`k` while the
+   picker is up asks for it**, settled 2026-08-17: a prefixed `@` cannot be
+   pressed over a selected region, which is the gesture layer 1 exists for. See
+   ["The chord that could not be
+   pressed"](2026-08-15-a-relation-is-a-link-with-a-kind.partial.md).
 
 `RET` moves forward and commits at the last field; an empty kind is a plain
 mention; `ESC` cancels through `SURFACES` like every other momentary surface.

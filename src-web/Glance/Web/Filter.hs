@@ -32,6 +32,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
+                    , refTarget
                     , Meta (..), activeMeta, archiveTag, cellSep, filterKeys
                     , inactiveMeta, metaWord
                     , priorityLetter, refSpellings, tagRunEntries )
@@ -238,7 +239,10 @@ keyTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
 -- An unresolvable id matches nothing; a row is not its own reference.
 keyTest env _key Ref value = case feRef env value of
   Nothing  -> const False
-  Just row -> \r -> hrId r /= rrId row && any (`elem` hrLinks r) (rrTargets row)
+  -- Over the RECORD's references, so the kind beside each one is in reach; the
+  -- target's own spellings are the plain texts a link may name it by.
+  Just row -> \r -> hrId r /= rrId row
+                 && any (\l -> refTarget l `elem` rrTargets row) (hrLinks r)
 keyTest _env _key Order _value = const True
 keyTest _env _key Whole value = freeTest value
 -- The two that read a row's CELLS, spelled out: a fifth key falling in here would read an empty cell list and match nothing, with no warning.

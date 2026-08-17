@@ -100,6 +100,8 @@ module Glance.Query ( BlobSeed (..)
                     , recognizedKeywords
                     , untrailed
                     , recomposedSubtree
+                    , Ref (..)
+                    , kindSlug
                     , refSpellings
                     , refTargetOf
                     , refTargets
@@ -237,7 +239,7 @@ data HeadlineRecord = HeadlineRecord
   , hrScheduled :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
   , hrDeadline  :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
   , hrSearch    :: !Text            -- ^ the cells as they display, lowercased; see 'searchTextOf'.
-  , hrLinks     :: ![Text]          -- ^ the rows this subtree points AT, normalized; see 'refTargets'.
+  , hrLinks     :: ![Ref]           -- ^ the references this subtree makes, normalized; see 'refTargets'.
   , hrLinked    :: !Bool            -- ^ does the subtree hold a link at all — what @o@ follows; see 'subtreeLinks'.
   , hrActive    :: !(Maybe Bool)    -- ^ whether 'hrState' is an active state HERE; see 'Data.Org.Config.classify'.
   } deriving (Show)
@@ -543,24 +545,58 @@ tagColumns =
 refPrefixes :: [Text]
 refPrefixes = ["org-glance-visit:", "org-glance-open:", "org-glance-material:", "id:", "glance:"]
 
-refTargets :: Text -> [Text]
+-- | A reference AS RESOLVED: the row it names, and the KIND its author declared
+-- on the edge.  The kind is the EDGE's, never the row's — which is why it rides
+-- here rather than on 'HeadlineRecord' — and 'Nothing' is a plain mention.
+data Ref = Ref
+  { refTarget :: !Text          -- ^ the id or title the link names, normalized.
+  , refKind   :: !(Maybe Text)  -- ^ @?kind=SLUG@, as the author spelled it.
+  } deriving (Eq, Ord, Show)
+
+refTargets :: Text -> [Ref]
 refTargets = refTargetsOf . orgLinks
 
-refTargetsOf :: [OrgLink] -> [Text]
-refTargetsOf = nub . map detach . mapMaybe (refTargetOf . olTarget)
+-- | DEDUP IS ON THE PAIR, which is the peer's own rule: two typed edges to one
+-- row are two references, where two plain mentions are one.
+refTargetsOf :: [OrgLink] -> [Ref]
+refTargetsOf = nub . map detachRef . mapMaybe (refTargetOf . olTarget)
 
-refTargetOf :: Text -> Maybe Text
+-- | The document is a slice of the file's text, so a reference kept out of it
+-- retains the whole file; 'detach' copies, and the KIND must not reopen that.
+detachRef :: Ref -> Ref
+detachRef (Ref t k) = Ref (detach t) (detach <$> k)
+
+refTargetOf :: Text -> Maybe Ref
 refTargetOf target
     -- A KIND RIDES ON THE EDGE, not on the row: org-glance writes
-    -- @?kind=SLUG@ after the id, and a target keeping it resolves to nothing.
-    -- A TITLE is text, so its own @?@ stays.
-  | Just rest <- firstJust (`T.stripPrefix` target) refPrefixes = nonEmpty (T.takeWhile (/= '?') rest)
-  | Just rest <- T.stripPrefix "*" target                       = nonEmpty rest
+    -- @?kind=SLUG@ after the id, so the id alone names the row and the kind is
+    -- KEPT BESIDE IT.  A TITLE is text, so its own @?@ stays.
+  | Just rest <- firstJust (`T.stripPrefix` target) refPrefixes =
+      let (row, query) = T.breakOn "?" rest
+      in plain row (kindIn (T.drop 1 query))
+  | Just rest <- T.stripPrefix "*" target                       = plain rest Nothing
   | T.any (\c -> c == ':' || c == '/') target                   = Nothing
-  | otherwise                                                   = nonEmpty target
+  | otherwise                                                   = plain target Nothing
   where
-    nonEmpty t = if T.null t then Nothing else Just t
+    plain t k = if T.null t then Nothing else Just (Ref t k)
     firstJust f = listToMaybe . mapMaybe f
+
+-- | The @kind@ of a target's query string; an EMPTY one is no kind at all.
+-- Only the peer's own key is read — anything else it may write is not a kind.
+kindIn :: Text -> Maybe Text
+kindIn query =
+  listToMaybe [ slug | part <- T.splitOn "&" query
+                     , Just v <- [T.stripPrefix "kind=" part]
+                     , let slug = kindSlug v, not (T.null slug) ]
+
+-- | A kind CANONICALIZED, and the rule is the PEER's: downcased, trimmed, runs
+-- of whitespace folded to one @-@ (org-glance's @org-glance--kind-slug@,
+-- @src\/data\/org-glance-utils.el:183-187@).  It slugs on encode AND on read —
+-- its own "invariant 13" — so a hand-typed @Roasted By@ and a written
+-- @roasted-by@ are ONE kind.  Reading them as two would fork the dedup rule and
+-- count one vocabulary twice.
+kindSlug :: Text -> Text
+kindSlug = T.intercalate "-" . T.words . T.toLower
 
 refSpellings :: HeadlineRecord -> [Text]
 refSpellings r = maybe id (:) (identity (hrHeadline r)) [hrTitle r]
@@ -1043,8 +1079,8 @@ forcing ts x = foldr seq x ts
 forceRecord :: HeadlineRecord -> HeadlineRecord
 forceRecord r =
   forcing (hrId r : hrCategory r : hrTitle r : hrTags r : hrDigest r : hrSearch r
-             : hrLinks r <> optional)
-          (foldr seq r (hrActive r))
+             : optional)
+          (forcing (hrLinks r) (foldr seq r (hrActive r)))
   where optional = catMaybes [hrState r, hrPriority r, hrScheduled r, hrDeadline r]
 
 -- Write-back

@@ -17,11 +17,42 @@ them is a dependency here, never a question.
 |-------|------------------------------------------------|--------------------------------------|
 | **0** | the popup machinery                            | already existed; nothing built       |
 | **1** | `@` inserts a **plain org link** to a headline | **shipped 2026-08-16**               |
-| **2** | `C-c @` asks a **kind** first                  | unbuilt; needs `refKind` on the wire |
+| **2** | `k` in the picker asks a **kind**               | unbuilt; needs `refKind` on the wire |
 
 Layer 1 was shippable alone and is: 42% of rows carry no `ORG_GLANCE_ID` and
 cannot be linked to, and the other 58% are exactly what a reader wants to point
 at from a sentence.
+
+## The chord that could not be pressed
+
+Both rehearsals opened the kind stage with a PREFIXED `@` — `C-u @`, org's own
+universal argument. Two findings killed that spelling, 2026-08-17.
+
+**`C-u` is the browser's.** It is view-source, and glance's dispatch calls
+`preventDefault` on any press that merely OPENS a sequence
+(`frontend/glue/70-shell.js:224-226`), so binding `C-u @` would swallow every
+`C-u` in the app — the reader loses view-source at the prefix, before the second
+key decides anything. `C-u` is now a reserved chord (`AGENTS.hs`'s `reserved`).
+
+**`C-c @` cannot be pressed where it is most wanted.** The same dispatch
+declines to claim a prefix while a selection is live — *"a live selection makes
+C-c and C-x copy and cut"* (`70-shell.js:88`, `selecting()` at `:89-93`). So
+over a selected region `C-c` copies, the pending list stays empty, and the
+following `@` matches the PLAIN binding and opens the kind-less picker. Layer
+1's headline feature — **a selected region becomes the link** — and a
+`C-c`-prefixed kind are mutually unreachable, and the reader is told nothing.
+
+**So the kind is a rung of the picker rather than a chord that opens it.** `@`
+raises the picker exactly as it does today; `k` while it is up asks for the
+kind; `RET` links. Nothing is prefixed, so a region behaves identically, and the
+kind stays optional in the way the proposal always wanted — a plain mention is
+still `@` then `RET`.
+
+It also settles an ordering the two proposals disagreed on. The relations
+proposal has the headline first and *"the kind, optional"* second
+([`2026-08-12`](2026-08-12-relations.partial.md), "the verb"); this one had
+*"kind first, then the row"*. **Row first**, which is what the shipped picker
+already opens on, and what "related how?" reads as after a row is in hand.
 
 ## What shipped
 
@@ -112,11 +143,9 @@ mount, so it inherits the filter grammar instead of growing a second one.
 Decisions taken against the rehearsals, each now in the shipped code:
 
 - **the top row is selected**, so RET takes it;
-- **the kind only on a prefixed `@`**, and **kind first**, then the row — the
-  rehearsals spelled that prefix `C-u`, org's universal argument, and the
-  shipped keymap cannot: `C-u` is the browser's view-source and is now a
-  RESERVED chord (`AGENTS.hs`'s `reserved`). It spells itself `C-c @`, the
-  prefix this map already carries (`C-c C-t`, `C-c C-s`, `C-c C-d`);
+- **the kind is a rung of the picker, not a chord that opens it** — settled
+  2026-08-17, against both rehearsals. See "The chord that could not be
+  pressed" below;
 - **`@` only at a word boundary**;
 - **a selected region becomes the link**;
 - **`DEL` walks the query down** — and the shipped ladder SWAPS a rung rather
@@ -167,11 +196,10 @@ Stated plainly, because the original text is still above:
 
 ## What is still owed
 
-- **`C-c @` and the kind stage.** The kind vocabulary is `refKind`, which is
-  stage 1 of the relations proposal — the `Ref` type and the field on the wire.
-  Until it lands there is nothing to complete a kind against. The rehearsal has
-  the whole interaction built and driven (`c-table.html`), so the shell work is
-  a second stage on the picker rather than a design question.
+- **The kind stage.** The kind vocabulary is `refKind`, which is stage 1 of the
+  relations proposal — the `Ref` type and the field on the wire. Until it lands
+  there is nothing to complete a kind against, though the census below says
+  there is next to nothing to complete against either way.
 - **`refs` on the row**, after relations stage 4.
 
 ## What catches it going wrong

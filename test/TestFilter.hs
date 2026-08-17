@@ -14,7 +14,8 @@ import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortChain
                     , activeMeta, displayText, inactiveMeta, metaWord, metas
-                    , loadDir, matchesSearch, refTargetOf, refTargets, resolveColumns
+                    , Ref (..), loadDir, matchesSearch, refTargetOf, refTargets
+                    , resolveColumns
                     , rowJSON
                     , tagsOfCell, viewJSON )
 import Glance.Web.Columns (columnNamesIn)
@@ -71,11 +72,15 @@ spec = testGroup "Filter"
   , layoutSpec ]
 
 
+-- | A reference with no kind on it — what a plain mention resolves to.
+mention :: Text -> Ref
+mention t = Ref t Nothing
+
 -- | One link target normalized, or refused.
 targetSpec :: TestTree
 targetSpec = testGroup "Reference targets"
   [ testCase "the id-bearing protocols are stripped, case preserved" $
-      mapM_ (\(raw, want) -> assertEqual (T.unpack raw) (Just want) (refTargetOf raw))
+      mapM_ (\(raw, want) -> assertEqual (T.unpack raw) (Just (mention want)) (refTargetOf raw))
         [ ("org-glance-visit:task-spbm-1-2-3-0",    "task-spbm-1-2-3-0")
         , ("org-glance-open:Pets-20210816-eee5a4",  "Pets-20210816-eee5a4")
         , ("org-glance-material:contact-25053-3",   "contact-25053-3")
@@ -85,22 +90,33 @@ targetSpec = testGroup "Reference targets"
         , ("org-glance-visit:Password-20210516-d9", "Password-20210516-d9") ]
 
     -- THE PEER SPELLS A KIND ON THE EDGE — org-glance's `--edge->link-path'
-    -- appends `?kind=SLUG' — and the id alone names the row.  Kept, it dangles.
-  , testCase "a kind suffix rides off a protocol target, leaving the id" $ do
+    -- appends `?kind=SLUG' — and the id alone names the row.  The kind is the
+    -- EDGE's own and is kept BESIDE the id rather than dropped with the `?'.
+  , testCase "a kind rides off the id and is kept beside it" $ do
       mapM_ (\(raw, want) -> assertEqual (T.unpack raw) (Just want) (refTargetOf raw))
-        [ ("org-glance-material:contact-25053-3?kind=author", "contact-25053-3")
-        , ("org-glance-visit:task-spbm-1-2-3-0?kind=blocked-by", "task-spbm-1-2-3-0")
-        , ("id:9f8e7d6c?kind=", "9f8e7d6c") ]
+        [ ("org-glance-material:contact-25053-3?kind=author",
+           Ref "contact-25053-3" (Just "author"))
+        , ("org-glance-visit:task-spbm-1-2-3-0?kind=blocked-by",
+           Ref "task-spbm-1-2-3-0" (Just "blocked-by"))
+          -- AN EMPTY KIND IS NO KIND: `?kind=' names nothing to declare.
+        , ("id:9f8e7d6c?kind=", mention "9f8e7d6c")
+          -- Only the peer's own key is a kind; anything else it writes is not.
+        , ("id:9f8e7d6c?other=x", mention "9f8e7d6c")
+        , ("id:9f8e7d6c?other=x&kind=cites", Ref "9f8e7d6c" (Just "cites")) ]
       assertEqual "a kind with no id before it names nothing"
                   Nothing (refTargetOf "org-glance-material:?kind=author")
-      -- A TITLE IS TEXT, so its question mark is its own.
+      -- A TITLE IS TEXT, so its question mark is its own — which is the whole
+      -- reason the strip above is guarded to the PROTOCOL branch.  The fixture
+      -- carries the `?': without one this case cannot fail.
       assertEqual "a starred title keeps its question mark"
-                  (Just "Why not") (refTargetOf "*Why not")
+                  (Just (mention "Why not?")) (refTargetOf "*Why not?")
+      assertEqual "and a bare one does too"
+                  (Just (mention "Why not?")) (refTargetOf "Why not?")
 
   , testCase "the two title forms lose their star and keep their text" $ do
-      assertEqual "starred" (Just "Hacking the renderer")
+      assertEqual "starred" (Just (mention "Hacking the renderer"))
                   (refTargetOf "*Hacking the renderer")
-      assertEqual "bare" (Just "Highlights") (refTargetOf "Highlights")
+      assertEqual "bare" (Just (mention "Highlights")) (refTargetOf "Highlights")
 
   , testCase "a protocol that names something other than a row is refused" $
       mapM_ (\raw -> assertEqual (T.unpack raw) Nothing (refTargetOf raw))
@@ -115,7 +131,34 @@ targetSpec = testGroup "Reference targets"
             , "body [[org-glance-overview:tag][skipped]] and [[*Beta]]"
             , "** child [[org-glance-open:alpha][A again]]"
             , "trailing https://x.example/z" ]
-      assertEqual "targets" ["alpha", "Beta"] (refTargets text')
+      assertEqual "targets" [mention "alpha", mention "Beta"] (refTargets text')
+
+    -- ONE GRAMMAR ACROSS TWO PROGRAMS: the peer slugs a kind on encode AND on
+    -- read (`org-glance--kind-slug', src/data/org-glance-utils.el:183-187, its
+    -- own "invariant 13"), so glance reads what the peer would have read.
+  , testCase "a kind is canonicalized the way the peer canonicalizes it" $ do
+      mapM_ (\(raw, want) -> assertEqual (T.unpack raw) (Just want) (refTargetOf raw))
+        [ ("glance:a?kind=Roasted By",   Ref "a" (Just "roasted-by"))
+        , ("glance:a?kind=ROASTED-BY",   Ref "a" (Just "roasted-by"))
+        , ("glance:a?kind=roasted-by",   Ref "a" (Just "roasted-by"))
+          -- Trimmed and collapsed, so a typed kind and a written one are one.
+        , ("glance:a?kind=  blocked   by  ", Ref "a" (Just "blocked-by"))
+          -- Whitespace ALONE is no kind, the way an empty one is none.
+        , ("glance:a?kind=%20", Ref "a" (Just "%20")) ]
+      assertEqual "a kind of pure space declares nothing"
+                  (Just (mention "a")) (refTargetOf "glance:a?kind= ")
+
+    -- DEDUP IS ON THE PAIR, the peer's own rule: one row, two kinds, two edges.
+  , testCase "two typed edges to one row are two references" $ do
+      let text' = T.unlines
+            [ "* one [[glance:alpha?kind=cites][A]]"
+            , "again [[glance:alpha?kind=refutes][A]]"
+            , "and plainly [[glance:alpha][A]]"
+              -- Slugged first, so this is the SAME edge as the first one.
+            , "and again [[glance:alpha?kind=Cites][A]]" ]
+      assertEqual "the pair is the key"
+        [Ref "alpha" (Just "cites"), Ref "alpha" (Just "refutes"), mention "alpha"]
+        (refTargets text')
 
   , testCase "a subtree with nothing to point at yields no targets" $
       assertEqual "none" [] (refTargets "* plain\njust prose, and https://x.example\n")

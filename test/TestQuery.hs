@@ -24,6 +24,7 @@ import qualified Data.Text as T
 import qualified Data.Time as Time
 
 import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineParts (..)
+                    , refTarget
                     , HeadlineRecord (..)
                     , LinkShape (..), LoadFailure (..), OrgLink (..)
                     , QueryResult (..), Span (..), SubtreeEntry (..)
@@ -276,7 +277,8 @@ linkSpec = testGroup "Links"
         [ "* parent [[org-glance-visit:alpha][A]]"
         , "body https://b.example and [[org-glance-overview:tag][a tag]]"
         , "** child [[org-glance-open:beta][B]]" ]) $ \recs ->
-        assertEqual "the references alone" [["alpha", "beta"]] (map hrLinks recs)
+        assertEqual "the references alone" [["alpha", "beta"]]
+                    (map (map refTarget . hrLinks) recs)
 
     -- 'hrLinked' is the WIDER question: is there anywhere to go, which @o@ follows.
   , testCase "a row whose only link is a URL is linked and references nothing" $
@@ -286,7 +288,8 @@ linkSpec = testGroup "Links"
 
   , testCase "a reference is a link too, so a referencing row is linked" $
       withRecordsOf "* plain\n[[org-glance-visit:alpha][A]]\n" $ \recs ->
-        assertEqual "both" [(True, ["alpha"])] (map (\r -> (hrLinked r, hrLinks r)) recs)
+        assertEqual "both" [(True, ["alpha"])]
+                    (map (\r -> (hrLinked r, map refTarget (hrLinks r))) recs)
 
   , testCase "and a row with nothing to follow is not linked" $
       withRecordsOf "* plain\njust prose, no link in it\n" $ \recs ->

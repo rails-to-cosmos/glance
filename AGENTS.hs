@@ -2296,12 +2296,20 @@ matchOf CTag   = MInfix
 plannedMatch :: Match
 plannedMatch = MPrefix
 
+-- | A REFERENCE IS A LINK WITH A KIND, and the kind is the EDGE's rather than
+-- either row's: org-glance writes it after the id as `?kind=SLUG'.  Nothing is
+-- a plain mention.
+data Ref = Ref { refTarget :: String, refKind :: Maybe String } deriving (Eq, Show)
+
 -- | @ref:@ over a target the store resolved: no row claiming the id matches
 -- nothing, and a row is never its own reference.  SPELLINGS are the target's own
 -- (its `ORG_GLANCE_ID' and its title); LINKS are the candidate's subtree.
-refTest :: Maybe (RowId, [String]) -> RowId -> [String] -> Bool
+-- The KIND is carried past the match rather than tested by it: `ref:' asks
+-- whether one row points at another, which a kind does not change.
+refTest :: Maybe (RowId, [String]) -> RowId -> [Ref] -> Bool
 refTest Nothing              _   _     = False
-refTest (Just (t, spelling)) row links = row /= t && any (`elem` links) spelling
+refTest (Just (t, spelling)) row links =
+  row /= t && any ((`elem` spelling) . refTarget) links
 
 -- | `priorityLetter': org's brackets off, folded — the MATCHER's rule and the
 -- priority column's sort key.
@@ -2565,6 +2573,19 @@ queryNotes =
          \refSpellings, its ORG_GLANCE_ID plus its title, which is what [[Title]] \
          \and [[*Title]] resolve against; FilterEnv carries the store for this key \
          \and carries nothing else, and no locally-filtered path applies one." [Test]
+  , Note "A KIND RIDES THE EDGE, not the row: the peer writes `?kind=SLUG' after \
+         \the id, so `refTargetOf' cuts the row at the first `?' and keeps the kind \
+         \BESIDE it.  A title's own `?' is text and stays, the strip being guarded \
+         \to the protocol branch." [Test]
+  , Note "DEDUP IS ON THE PAIR, which is the peer's own rule: two typed edges to \
+         \one row are two references where two plain mentions are one.  `nub' over \
+         \the whole `Ref' is that rule." [Test]
+  , Note "ONE SLUG ACROSS TWO PROGRAMS: a kind is downcased, trimmed and its \
+         \whitespace runs folded to one `-', which is org-glance's own \
+         \`org-glance--kind-slug' applied on ITS encode and ITS read.  Read as \
+         \written instead, a hand-typed `Roasted By' and a written `roasted-by' \
+         \would be two kinds, forking the dedup rule and counting one vocabulary \
+         \twice." [Test]
   , Note "?order= is gone and present at all is a 400 naming its replacement: a \
          \parameter silently ignored would look like a working request." [Test]
   , Note "view:NAME is a MACRO the shell expands before the fetch; it never \
