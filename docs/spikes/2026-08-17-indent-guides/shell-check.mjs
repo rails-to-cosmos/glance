@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 const p = await firefox();
 const base = "file://" + resolve("index.html");
 let bad = 0;
-for (const key of ["a", "b", "c", "d", "e", "f", "g", "h", "i"]) {
+for (const key of ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"]) {
   await p.goto(base + "#" + key);
   await new Promise((r) => setTimeout(r, 900));
   const seen = await p.eval(() => {
@@ -22,5 +22,5 @@ for (const key of ["a", "b", "c", "d", "e", "f", "g", "h", "i"]) {
   if (!ok) bad++;
 }
 await p.close();
-console.log(bad ? bad + " FAILED" : "\nthe shell mounts all nine");
+console.log(bad ? bad + " FAILED" : "\nthe shell mounts all eleven");
 process.exit(bad ? 1 : 0);

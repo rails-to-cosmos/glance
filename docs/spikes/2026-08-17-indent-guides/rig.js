@@ -53,7 +53,7 @@ var RIG = (function () {
     return { el: el, up: up, kids: [], depth: depth };
   }
 
-  var state = { at: null, roots: [], mdoc: null, paint: null, ch: 8, lh: 16 };
+  var state = { at: null, roots: [], mdoc: null, paint: null, ch: 8, lh: 16, fs: 13 };
 
   // THE MARKER IS ITS OWN SPAN so it can be lit, the way a headline's stars are.
   // Org writes several and the rule may not know which: `-', `+', `*', `1.', `1)'.
@@ -226,6 +226,7 @@ var RIG = (function () {
     var own = state.mdoc.querySelector(".d-list .dp");
     state.textLeft = own ? px(own).left : 0;
     state.lh = parseFloat(getComputedStyle(state.mdoc).lineHeight) || state.ch * 2;
+    state.fs = parseFloat(getComputedStyle(state.mdoc).fontSize) || state.lh;
   }
 
   function repaint() {
@@ -241,9 +242,10 @@ var RIG = (function () {
             : "depth — · paragraph");
     }
     if (state.paint) state.paint({ at: state.at, chain: c, rails: rails,
-                                   px: px, ch: state.ch, lh: state.lh,
+                                   px: px, ch: state.ch, lh: state.lh, fs: state.fs,
                                    left: state.textLeft, mdoc: state.mdoc,
-                                   flagged: flagged() });
+                                   flagged: flagged(),
+                                   rootsOf: function () { return state.roots; } });
   }
 
   function own(r) {
@@ -312,6 +314,7 @@ var RIG = (function () {
   }
 
   return { mount: mount, repaint: repaint, theme: theme,
+           roots: function () { return state.roots; },
            at: function () { return state.at; }, chain: chain, rails: rails,
            MARKER: MARKER };
 })();

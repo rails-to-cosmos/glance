@@ -14,7 +14,8 @@ import { firefox } from "./bidi.mjs";
 import { resolve } from "node:path";
 
 const RAILED = ["b-active.html", "c-bracket.html", "e-ancestry.html",
-                "g-ancestry-path.html", "h-no-ground.html", "i-hook.html"];
+                "g-ancestry-path.html", "h-no-ground.html", "i-hook.html",
+                "j-brackets.html", "k-tree.html"];
 
 const marks = () => [...document.querySelectorAll("#rails i, #ladder u")].map(
   (i) => (i.className || "-") + "@" + Math.round(parseFloat(i.style.left || 0))

@@ -1,4 +1,4 @@
-# Spike — nine ways to say which block the cursor is in
+# Spike — eleven ways to say which block the cursor is in
 
 **Date:** 2026-08-17 · **After:** `269ae41` “A rail per enclosing block, and the
 one you are inside is lit”, taken back out in `98a381d`.
@@ -6,7 +6,7 @@ one you are inside is lit”, taken back out in `98a381d`.
 Navigating a nested list, nothing says where point is beyond the ground on its
 own line — and less than before, since that ground now covers one line rather
 than the whole subtree. The first attempt drew rails and shipped nothing worth
-keeping: **it said how MANY blocks enclose point, never WHICH one.** Nine looks,
+keeping: **it said how MANY blocks enclose point, never WHICH one.** Eleven looks,
 built to be argued with. **Open `index.html`** — they are tabs.
 
 Everything here is throwaway. The fixture is invented; the palette and the pane
@@ -25,6 +25,8 @@ is judged at the real hues and the real metrics.
 | `g-ancestry-path.html` | E and F on one ramp: each block's rail and its crumb carry the same strength |
 | `h-no-ground.html` | G with no ground at all: every level marked by a rail, point's in the selection's hue |
 | `i-hook.html` | H with every rail hung off the line that owns it, so a row you can descend into shows it |
+| `j-brackets.html` | every mark a BRACKET: the line's own, the children it carries, the block it sits in |
+| `k-tree.html` | the connectors `tree` uses — an elbow per row, a run where the branch goes on, a last child that closes it |
 | `rig.js` | the fixture, the model, the keymap, the rail geometry |
 | `pane.css` | the doc pane and both palettes |
 
@@ -82,6 +84,8 @@ ok   f-path.html          4/4 distinct
 ok   g-ancestry-path.html 4/4 distinct
 ok   h-no-ground.html     4/4 distinct
 ok   i-hook.html          4/4 distinct
+ok   j-brackets.html      4/4 distinct
+ok   k-tree.html          4/4 distinct
 ```
 
 `a-rails.html` is the baseline and it is FLAT by construction: the picture is the
@@ -91,7 +95,7 @@ inherited accent is discounted. It stays in the spike as the control.
 ```sh
 node depth-check.mjs                 # every variant
 node depth-check.mjs b-active.html   # one
-node shell-check.mjs                 # the tabbed shell mounts all nine
+node shell-check.mjs                 # the tabbed shell mounts all eleven
 node place-check.mjs                 # every mark is where it says it is
 ```
 
@@ -113,6 +117,35 @@ and a container's covers its subtree.
 What it cannot say: an EMPTY container looks like a leaf. Org writes no such row
 here, so it costs nothing in this fixture and would cost something in a tree that
 has them.
+
+## K, which is the one to build
+
+A rail says how deep. A BRACKET says where a block starts and stops. The
+connectors `tree` draws say both, plus the one thing neither can: **which child is
+the last**, because its branch closes rather than carrying on. K spends no weight
+axis at all — the elbow shape carries the structure and the ink carries the state.
+
+Three sentences, each answering a different question:
+
+- **Point** is gold: its own elbow, and the run below it where its branch goes on.
+- **Its ANCESTORS** are blue on the ramp, brightening inward — the ancestors
+  themselves and not their siblings. Lighting every sibling of every ancestor lit
+  three whole levels and said nothing about the way back.
+- **A composite at point** lights the ROOTS it opens and stops there. A list has no
+  connector of its own, and lighting every descendant painted the pane gold and
+  named no stop in particular.
+
+An ITEM lights itself alone, which is the rule the cursor's ground was given: an
+item is its own line, not what hangs off it. A paragraph is not a branch — nothing
+to elbow into — so it keeps the vertical bar, at the column every outermost row
+marks on.
+
+**The base stroke is auxiliary.** Every connector is a hairline until it is lit;
+a mark that weighs as much as the text competes with it.
+
+`J` is the same idea with brackets instead of elbows and stays for the comparison:
+it says where a block ends, which K says by closing the branch, and it costs a cap
+at both ends of every mark. `H` shipped first (`795d1da`) and is what K replaces.
 
 ## Two placement traps, recorded because each looked like a page bug
 
@@ -145,8 +178,10 @@ counted from different ends, every block a step apart).
 | G both | yes, drawn AND named | both, and they agree | as E, plus F's strip | yes |
 | H no ground | yes, drawn AND named | both, at one column per level | as G, plus a gutter rail; NO ground | yes |
 | I hooks | as H, and which rows have something inside | as H | as H, no more | yes |
+| J brackets | yes, with its ends | by which bracket | three hairline brackets | yes |
+| K tree | yes, and the way back to it | by the branch | an elbow per row | yes |
 
-## G, which is the one to build
+## G, and the ramp it settled
 
 E and F are the same chain said twice, so **G gives them one ramp**: a block's
 rail and its crumb carry the same strength, full at point and a third shed per
@@ -169,7 +204,7 @@ Two details it settles, and both could go the other way:
   blocks and stopping short of point is the alternative: tighter as a legend,
   and it drops the one crumb that says which item.
 
-## H, which is G with the ground taken away
+## H, which took the ground away and shipped
 
 The cursor's golden band is gone and the cursor is a vertical mark like
 everything else — the same width as every rail, separated from them only by its

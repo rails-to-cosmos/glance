@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Indent guides — nine looks</title>
+<title>Indent guides — eleven looks</title>
 <style>
   /* THE SHELL ONLY.  Each variant is its own page; what they share is the rig
      and the pane, which is the point — the tabs differ by look and nothing else. */
@@ -44,7 +44,7 @@
 </head>
 <body>
   <header>
-    <h1>Indent guides <small>nine ways to say which block the cursor is in</small></h1>
+    <h1>Indent guides <small>eleven ways to say which block the cursor is in</small></h1>
     <nav id="tabs" aria-label="variants">
       <a href="#a" data-src="a-rails.html">A · rails</a>
       <a href="#b" data-src="b-active.html">B · active rail</a>
@@ -55,6 +55,8 @@
       <a href="#g" data-src="g-ancestry-path.html">G · ancestry + path</a>
       <a href="#h" data-src="h-no-ground.html">H · no ground</a>
       <a href="#i" data-src="i-hook.html">I · hooks</a>
+      <a href="#j" data-src="j-brackets.html">J · brackets</a>
+      <a href="#k" data-src="k-tree.html">K · tree</a>
     </nav>
   </header>
   <p class="note" id="note"></p>
@@ -86,6 +88,12 @@
     i: "H, with every rail hung off the line that OWNS it rather than off its first "
      + "child. A row you can descend into is the only kind of row a rail leaves; a leaf "
      + "has nothing under it, and the affordance is drawn before <kbd>f</kbd> is pressed.",
+    j: "H with every mark drawn as a BRACKET rather than a bar. A bracket has ends, so it "
+     + "says where a block starts and stops: three nest at three columns — the line's own "
+     + "in gold, the children it carries one step in, the block it sits in one step out.",
+    k: "The connectors CLI <code>tree</code> uses, in ink rather than glyphs: an elbow per "
+     + "row, a run where the branch has more to come, and a LAST CHILD that closes its "
+     + "branch — the one thing a plain rail cannot say.",
   };
   const tabs = [...document.querySelectorAll("#tabs a")];
   const stage = document.getElementById("stage");
@@ -106,7 +114,7 @@
   }
 
   addEventListener("hashchange", () => show(location.hash.slice(1)));
-  show(location.hash.slice(1) || "i");
+  show(location.hash.slice(1) || "k");
 })();
 </script>
 </body>
