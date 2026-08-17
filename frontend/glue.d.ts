@@ -46,7 +46,6 @@ interface DocState {
   rows: DocRow[];
   at: number;
   id: string;
-  col: number | null;
   grain: string;
   flags: string[];
   lines: number;

@@ -3,7 +3,7 @@
     let base = "", baseProps = null, raw = false;
     // THE DOCUMENT PANE IS AN ELM PROGRAM; the MIRROR below is a macrotask behind it — AGENTS.hs.
     const DCELLS = CFG.dcells;
-    let drows = [], dat = 0, dcol = null, dgrain = "element";
+    let drows = [], dat = 0, dgrain = "element";
     let dflags = [], dbody = "", dlinks = [];
     let dport = null, dtook = null, dwrote = null;
     const cellsOf = (o) => DCELLS.map((k) => {
@@ -23,7 +23,7 @@
       if (dport) return dport;
       dport = Elm.Doc.init({ node: part(el("dlist"), "div", "") }).ports;
       dport.docState.subscribe((now) => {
-        drows = now.rows; dat = now.at; dcol = now.col;
+        drows = now.rows; dat = now.at;
         dgrain = now.grain; dflags = now.flags; dbody = now.body;
         // Elm pushes a port BEFORE it paints, so these are read a turn later.
         soon(() => { seedInsert(now.caret); keepInView(docElAt()); placeEdit(); });
@@ -74,20 +74,14 @@
       headEnter(r);
     }
     function headEnter(r) {
-      // A cursor can outlive the cells it was taken on, so the cell is READ.
-      const c = dcol === null ? null : shown(r)[dcol];
       if (editing.child !== null) {
-        echo(`RET → a child's ${c ? c.key : "title"} is not settable yet — DEL opens its parent`);
+        echo("RET → a child's title is not settable yet — DEL opens its parent");
         return;
       }
-      if (c && c.key === "state") { stateHere(); return; }
-      if (c && c.key === "tags") { tagsHere(); return; }
-      if (!c || c.key === "title") {
-        const t = shown(r).find((x) => x.key === "title");
-        openEdit(DTITLE, { id: "CELL:title", val: t ? t.val : "" });
-        return;
-      }
-      echo("RET → priority cycles on S-<up>/S-<down>");
+      // THE HEADLINE IS ONE STOP, so RET opens the title; `t', `:' and
+      // S-<up>/S-<down> are what reach the other parts.
+      const t = shown(r).find((x) => x.key === "title");
+      openEdit(DTITLE, { id: "CELL:title", val: t ? t.val : "" });
     }
     function atElement(act) {
       const r = drows[dat];
@@ -482,12 +476,11 @@
               level: h.level || 1,
               titleAt: typeof h.titleAt === "number" ? h.titleAt : null });
     }
-    const docCursor = () => ({ at: drows[dat] ? drows[dat].id : null, col: dcol });
-    function docRestore(at, col) {
-      dsend({ kind: "restore", id: at, col });
+    const docCursor = () => ({ at: drows[dat] ? drows[dat].id : null });
+    function docRestore(at) {
+      dsend({ kind: "restore", id: at });
       const back = drows.findIndex((r) => r.id === at);
       if (back !== -1) dat = back;
-      dcol = col;
     }
     const docRowById = (id) => drows.find((x) => x.id === id);
     const checkboxHere = () => checkboxAt(drows[dat]);

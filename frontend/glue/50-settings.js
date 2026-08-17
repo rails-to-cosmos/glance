@@ -583,7 +583,7 @@ const SECTIONS = [
         sheet: editing && dirty()
           ? { id: editing.id, child: editing.child, raw,
               text: el("mtext").value, props: props(), plan: planning(),
-              at: docCursor().at, col: docCursor().col,
+              at: docCursor().at,
               open: openEditState(), digest: editing.digest }
           : null,
         palette: typedFilter(),
@@ -614,7 +614,7 @@ const SECTIONS = [
         el("mtext").value = s.text;   // dirty again, against the file now
         if (!s.raw) {
           drawProps(s.props, s.plan);
-          docRestore(s.at, s.col);
+          docRestore(s.at);
           if (s.open) reopenEdit(s.open);
         }
         if (h.digest !== s.digest) sync("conflict");

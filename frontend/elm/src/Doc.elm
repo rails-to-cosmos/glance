@@ -6,7 +6,7 @@ overlays and the writes.
 
 The markup is the harness's and the stylesheet's: `#dlist` holds one `.de` per
 stop wearing its KIND as a `d-*` class, `.dat` at point, `.dfl` on a flag,
-`.dc.dc-KEY` with `.don`, `.dt`/`.dl` for text, `.dg` for the unclaimed.
+`.dc.dc-KEY`, `.dt`/`.dl` for text, `.dg` for the unclaimed.
 
 -}
 
@@ -23,7 +23,6 @@ import Body
         , blank
         , bodyText
         , caretIn
-        , cellCount
         , draftId
         , drafted
         , insertion
@@ -54,7 +53,6 @@ type alias Model =
     { rows : List Row
     , lines : List String
     , at : Int
-    , col : Maybe Int
     , grain : String
     , flags : List String
     , links : List Link
@@ -72,7 +70,7 @@ type alias Model =
 
 empty : Model
 empty =
-    Model [] [] 0 Nothing "element" [] [] Nothing 0 1 Nothing False Nothing
+    Model [] [] 0 "element" [] [] Nothing 0 1 Nothing False Nothing
 
 
 {-| A sibling step at the cursor's own grain. A composite is ONE stop; a leaf
@@ -134,80 +132,15 @@ step by m =
                     let
                         moved =
                             { m | at = i }
-
-                        col =
-                            if cellCount (rowAt moved) == 0 then
-                                Nothing
-
-                            else
-                                m.col
                     in
                     { moved
-                        | col = col
-                        , grain =
-                            if col /= Nothing then
-                                "cell"
-
-                            else if Maybe.map .grain (rowAt moved) == Just Leaf then
+                        | grain =
+                            if Maybe.map .grain (rowAt moved) == Just Leaf then
                                 "leaf"
 
                             else
                                 "element"
                     }
-
-
-{-| The column walk. Out of range on either side is the whole-row look, which is
-what makes `f` at the last cell leave the cells rather than stop on them.
--}
-moveCol : Int -> Model -> ( Model, String )
-moveCol by m =
-    let
-        n =
-            cellCount (rowAt m)
-    in
-    if n == 0 then
-        ( m, "next-column (no cells in this element)" )
-
-    else
-        let
-            want =
-                case m.col of
-                    Nothing ->
-                        if by > 0 then
-                            0
-
-                        else
-                            n - 1
-
-                    Just c ->
-                        c + by
-
-            col =
-                if want < 0 || want >= n then
-                    Nothing
-
-                else
-                    Just want
-
-            named =
-                case ( col, rowAt m ) of
-                    ( Just c, Just r ) ->
-                        Maybe.withDefault "" (Maybe.map .key (nth c (shown r)))
-
-                    _ ->
-                        "element mode"
-        in
-        ( { m
-            | col = col
-            , grain =
-                if col == Nothing then
-                    "element"
-
-                else
-                    "cell"
-          }
-        , "next-column (" ++ named ++ ")"
-        )
 
 
 finer : Model -> ( Model, String )
@@ -231,9 +164,6 @@ finer m =
                 , "grain-finer (" ++ Maybe.withDefault "item" r.name ++ " 1/" ++ String.fromInt kids ++ ")"
                 )
 
-            else if cellCount (Just r) > 0 then
-                moveCol 1 m
-
             else if r.grain == Leaf then
                 ( m, "grain-finer (at the finest)" )
 
@@ -248,15 +178,10 @@ broader m =
             ( m, "" )
 
         Just r ->
-            -- MIRRORS `finer', which walks the cells RIGHTWARD one at a time:
-            -- walking off the LEFT end leaves them as walking off the right does.
-            if m.col /= Nothing then
-                moveCol -1 m
-
-            else if r.grain == Leaf then
+            if r.grain == Leaf then
                 case Maybe.map (placeOf m) r.owner of
                     Nothing ->
-                        ( { m | at = placeOf m "H", col = Nothing, grain = "element" }
+                        ( { m | at = placeOf m "H", grain = "element" }
                         , "grain-broader (the headline)"
                         )
 
@@ -293,9 +218,9 @@ broader m =
                 ( m, "grain-broader (the whole entry)" )
 
             else
-                -- REVERSED EXPAND-REGION at its widest step: out of the cells, out
-                -- of a leaf to its owner, out of an element to THE ENTRY'S OWN LINE.
-                ( { m | at = placeOf m "H", col = Nothing, grain = "element" }
+                -- REVERSED EXPAND-REGION at its widest step: out of a leaf to its
+                -- owner, out of an element to THE ENTRY'S OWN LINE.
+                ( { m | at = placeOf m "H", grain = "element" }
                 , "grain-broader (the headline)"
                 )
 
@@ -337,11 +262,10 @@ type Msg
     = Fill Model
     | Clear
     | Select String
-    | Restore String (Maybe Int)
+    | Restore String
     | Step Int
     | Finer
     | Broader
-    | Col Int
     | Flag String
     | Unflag String
     | ClearFlags
@@ -383,13 +307,13 @@ update msg model =
                                 Nothing ->
                                     0
             in
-            told { fresh | at = landed, col = Nothing, landing = Nothing }
+            told { fresh | at = landed, landing = Nothing }
 
         Select id ->
             told { model | at = placeOf model id }
 
-        Restore id col ->
-            told { model | at = placeOf model id, col = col }
+        Restore id ->
+            told { model | at = placeOf model id }
 
         Step by ->
             told (step by model)
@@ -399,9 +323,6 @@ update msg model =
 
         Broader ->
             spoke (broader model)
-
-        Col by ->
-            spoke (moveCol by model)
 
         Flag id ->
             -- OLDEST FIRST, the rule for every flag surface; `Listing' spells it so.
@@ -451,7 +372,7 @@ update msg model =
                     -- THE WORD IS THE MODEL'S: which region the caret stands in is
                     -- `Scan''s answer, and the shell echoes it.
                     spoke
-                        ( { model | rows = rows, at = placeOf { model | rows = rows } draftId, col = Nothing }
+                        ( { model | rows = rows, at = placeOf { model | rows = rows } draftId }
                         , word
                         )
 
@@ -573,7 +494,6 @@ stateJSON m =
         [ ( "rows", E.list (rowJSON m) m.rows )
         , ( "at", E.int m.at )
         , ( "id", E.string (Maybe.withDefault "" (Maybe.map .id (rowAt m))) )
-        , ( "col", Maybe.withDefault E.null (Maybe.map E.int m.col) )
         , ( "grain", E.string m.grain )
         , ( "flags", E.list E.string m.flags )
         , ( "lines", E.int (List.length m.lines) )
@@ -674,7 +594,7 @@ msgD =
                         D.map Select (D.field "id" D.string)
 
                     "restore" ->
-                        D.map2 Restore (D.field "id" D.string) (D.field "col" (D.nullable D.int))
+                        D.map Restore (D.field "id" D.string)
 
                     "step" ->
                         D.map Step (D.field "by" D.int)
@@ -684,9 +604,6 @@ msgD =
 
                     "broader" ->
                         D.succeed Broader
-
-                    "col" ->
-                        D.map Col (D.field "by" D.int)
 
                     "flag" ->
                         D.map Flag (D.field "id" D.string)
@@ -844,15 +761,7 @@ viewCells m i r =
             (\j c ->
                 span
                     [ class
-                        ("dc dc-"
-                            ++ c.key
-                            ++ (if i == m.at && Just j == m.col then
-                                    " don"
-
-                                else
-                                    ""
-                               )
-                        )
+                        ("dc dc-" ++ c.key)
                     , style "color" c.colour
                     ]
                     (case ( c.key, r.kind, m.titleAt ) of

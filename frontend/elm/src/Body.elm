@@ -5,7 +5,6 @@ module Body exposing
     , blank
     , bodyText
     , caretIn
-    , cellCount
     , draftId
     , drafted
     , insertion
@@ -712,20 +711,6 @@ placeOf m id =
 shown : Row -> List Cell
 shown r =
     List.filter (\c -> c.val /= "") r.cells
-
-
-cellCount : Maybe Row -> Int
-cellCount mr =
-    case mr of
-        Just r ->
-            if r.kind == Head || r.kind == Child then
-                List.length (shown r)
-
-            else
-                0
-
-        Nothing ->
-            0
 
 
 kidsOf : { a | rows : List Row } -> String -> Int

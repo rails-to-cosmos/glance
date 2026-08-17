@@ -155,7 +155,6 @@ page head' colours title body = T.unlines
   , "  .d-head .ds{width:calc(var(--g-doc-indent, 2) * 1ch)}"
   , "  .dc{margin-right:.6em;flex:none}"
   , "  .dc-title{flex:1 1 auto;min-width:0}"
-  , "  #mdoc.on .dc.don{background:color-mix(in srgb, var(--g-col) var(--g-cell-wash), transparent)}"
   , "  .dc-tags{color:var(--g-mute);font-size:11px;margin-left:auto;margin-right:0}"
   , "  #dtitle,#dpara,#pedit,#sedit,#tedit,#ledit{display:none;position:absolute;"
   , "    background:var(--g-sel)}"

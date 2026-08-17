@@ -3644,16 +3644,16 @@ data Stop = Stop
   , stName :: Maybe String, stOwner :: Maybe String
   , stFrom :: Int, stTo :: Int, stText :: String, stWas :: String, stAlone :: Bool }
 
--- | The headline line's cells; a part the headline has not got renders NOTHING and
---   `f'/`b' stop on the present ones alone.
+-- | The headline line's cells; a part the headline has not got renders NOTHING.
+--   THE HEADLINE IS ONE STOP: each part has its own key and no rung walks into them.
 docCells :: [String]
 docCells = ["state", "priority", "title", "tags"]
 
 -- | The markup the stylesheet and the harness read: a stop wearing its kind as `d-*',
---   point, a flag, a cell with its key and its `on', text, a link's shown half, and what
---   no rung claims.
+--   point, a flag, a cell with its key, text, a link's shown half, and what no rung
+--   claims.
 docClasses :: [String]
-docClasses = [".de", ".dat", ".dfl", ".dc", ".don", ".dt", ".dl", ".dg"]
+docClasses = [".de", ".dat", ".dfl", ".dc", ".dt", ".dl", ".dg"]
 
 -- | Geometry written onto `#mdoc' as NUMBERS, the arithmetic staying in the stylesheet.
 docVars :: [String]
@@ -3681,24 +3681,21 @@ siblingRun Leaf      = OwnersRun
 siblingRun Element   = AllStops
 siblingRun Composite = AllStops
 
-data Finer = IntoCells | IntoLeaves | Finest deriving (Eq, Show)
+data Finer = IntoLeaves | Finest deriving (Eq, Show)
 -- | `f' descends ONE rung; `Finest' refuses with an echo.  `l' and the right arrow are
 --   aliases: three dialects, one axis.
-finer :: Grain -> Bool -> Finer
-finer _         True  = IntoCells
-finer Composite False = IntoLeaves
-finer Element   False = Finest
-finer Leaf      False = Finest
+finer :: Grain -> Finer
+finer Composite = IntoLeaves
+finer Element   = Finest
+finer Leaf      = Finest
 
-data Wider = OutOfCells | ToOwner | ToEntryLine deriving (Eq, Show)
--- | `b' is the WIDEST rung, reversed expand-region, and NEVER a close: out of the cells,
---   out of a leaf to its IMMEDIATE owner by id, out of an element to the entry's own line
---   whatever the column.
-wider :: Grain -> Bool -> Wider
-wider _         True  = OutOfCells
-wider Leaf      False = ToOwner
-wider Composite False = ToEntryLine
-wider Element   False = ToEntryLine
+data Wider = ToOwner | ToEntryLine deriving (Eq, Show)
+-- | `b' is the WIDEST rung, reversed expand-region, and NEVER a close: out of a leaf to
+--   its IMMEDIATE owner by id, out of an element to the entry's own line.
+wider :: Grain -> Wider
+wider Leaf      = ToOwner
+wider Composite = ToEntryLine
+wider Element   = ToEntryLine
 
 -- | ONE GRAIN SPEAKS FOR A RANGE: a leaf is left OUT of the splice whenever its owner
 --   moved or is going, so flagging a list and one of its items is one deletion.  A
@@ -3708,9 +3705,9 @@ silenced s moved = stOwner s `elem` map (Just . stId) moved
 
 data Locator = Ground | InsetShadow | Underline | Border | Outline | DropShadow
   deriving (Eq, Show, Enum, Bounded)
--- | EVERY SELECTION IS A GROUND: vertical the ROW language, horizontal the COLUMN's
---   crosshair.  A LOCATOR MUST NOT MOVE THE TEXT, so an inset shadow is permitted and the
---   FLAG is the one thing that draws one.
+-- | EVERY SELECTION IS A GROUND, and the ROW is the language.  A LOCATOR MUST NOT MOVE
+--   THE TEXT, so an inset shadow is permitted and the FLAG is the one thing that draws
+--   one.
 locatorOk :: Locator -> Bool
 locatorOk Ground      = True
 locatorOk InsetShadow = True
@@ -4364,6 +4361,10 @@ sheetNotes =
   , Note "`placeEdit' sizes the box on all four edges off the row's own rect and computed\
          \ padding; the stylesheet's span is the fallback for a page that measured\
          \ nothing, which stands one line tall." [Test]
+  , Note "THE HEADLINE IS ONE STOP: `f' does not walk into its parts, since each part\
+         \ already has a key -- `t' the state, `:' the tags, S-<up>/S-<down> the priority\
+         \ and RET the title.  A cursor over a part would be a second way to say the same\
+         \ thing, and the one that goes stale when the part is absent." [Test]
   , Note "A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the POSITION is not gated, being the\
          \ model's, and a FLAG keeps its ground either way.  The panel's costs two rules,\
          \ the renderer's selection wash and the stripe under it." [Test]

@@ -252,9 +252,9 @@ docOf = traverse parts <=< listAt "doc"
 partsOf :: T.Text -> [[T.Text]] -> [T.Text]
 partsOf kind rows = [ T.intercalate "\n" (drop 1 r) | r <- rows, take 1 r == [kind] ]
 
--- | Where the document's cursor is: the element, and its cell — @-1@ for the whole-element look.
-pointOf :: Value -> IO (Int, Int)
-pointOf answer = (,) <$> intAt "dat" answer <*> intAt "dcol" answer
+-- | Which element the document's cursor is on.
+pointOf :: Value -> IO Int
+pointOf = intAt "dat"
 
 flaggedOf :: Value -> IO [Int]
 flaggedOf = flaggedAt "dflagged"
@@ -2619,7 +2619,7 @@ sheetSpec shell =
           , ["para", "second para"]
           , ["child", "  * ", "two", ":web:"] ] =<< docOf answer
         assertEqual "with the cursor on the headline and no cell picked yet"
-                    (0, -1) =<< pointOf answer
+                    0 =<< pointOf answer
         assertEqual "and the document holding the keys" True =<< boolAt "dactive" answer
         assertEqual "the trail is the row, and it is where the reader stands"
                     (["one"], [0]) =<< ((,) <$> textsAt "where" answer
@@ -2639,15 +2639,15 @@ sheetSpec shell =
 
   , testCase "the document walks its elements on n/p, j/k and the arrows" $ do
       insheet "press:n press:n" $
-        assertEqual "two elements down" (2, -1) <=< pointOf
+        assertEqual "two elements down" 2 <=< pointOf
       insheet "press:j press:j press:k" $
-        assertEqual "vi's pair walks the same elements" (1, -1) <=< pointOf
+        assertEqual "vi's pair walks the same elements" 1 <=< pointOf
       insheet "press:ArrowDown press:ArrowDown press:ArrowUp" $
-        assertEqual "and so do the arrows" (1, -1) <=< pointOf
+        assertEqual "and so do the arrows" 1 <=< pointOf
       insheet "press:p" $
-        assertEqual "the headline is the end of the walk up" (0, -1) <=< pointOf
+        assertEqual "the headline is the end of the walk up" 0 <=< pointOf
       insheet "press:n press:n press:n press:n" $
-        assertEqual "and the child the end of the walk down" (3, -1) <=< pointOf
+        assertEqual "and the child the end of the walk down" 3 <=< pointOf
 
     -- GEOMETRY IS BEYOND THE STUB, so what is asserted is that the page ASKED.
   , testCase "the element under point asks its pane's scroller" $ do
@@ -2664,31 +2664,15 @@ sheetSpec shell =
         assertEqual "the materialize itself asked, on the headline"
                     (Just "de d-head dat") (listToMaybe seen)
 
-    -- The stops are the parts that are THERE, and off EITHER end is the whole-element look.
-  , testCase "f enters the cells, l/h and the arrows walk the PRESENT ones" $ do
+    -- THE HEADLINE IS ONE STOP: its parts have their own keys and `f' does not
+    -- walk into them.
+  , testCase "f on the headline says there is nothing finer" $ do
       insheet "press:f" $ \answer -> do
-        assertEqual "the first cell" (0, 0) =<< pointOf answer
-        echoIs "named by its key" "f → next-column (state)" answer
-      insheet "press:f press:l" $ \answer -> do
-        assertEqual "two across is the title" (0, 1) =<< pointOf answer
-        echoIs "the absent priority was no stop" "l → next-column (title)" answer
-      insheet "press:f press:l press:l" $
-        assertEqual "and off the right end is the whole element" (0, -1) <=< pointOf
-      insheet "press:f press:l press:b" $ \answer -> do
-        assertEqual "b walks back one, the way f walked in" (0, 0)
-          =<< pointOf answer
-        echoIs "and names the cell it landed on" "b → next-column (state)" answer
-      insheet "press:f press:b" $ \answer -> do
-        assertEqual "and off the LEFT end is the whole element, as off the right"
-                    (0, -1) =<< pointOf answer
-        echoIs "which is what leaves the cells" "b → next-column (element mode)" answer
-      insheet "press:f press:ArrowRight" $
-        assertEqual "the arrows are the within-grain walk" (0, 1) <=< pointOf
-      insheet "press:n press:f" $ \answer -> do
-        assertEqual "nothing moved" (1, -1) =<< pointOf answer
+        assertEqual "point did not move" 0 =<< pointOf answer
         echoIs "and the key said why" "f → grain-finer (nothing finer here)" answer
-      insheet "press:f press:n" $
-        assertEqual "the cell went with the element" (1, -1) <=< pointOf
+      insheet "press:n press:f" $ \answer -> do
+        assertEqual "nor on a paragraph" 1 =<< pointOf answer
+        echoIs "same answer" "f → grain-finer (nothing finer here)" answer
 
     -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the gating rules themselves are asserted as text in "Shell glue".
   , testCase "each pane's cursor waits where it was while the other has the keys" $ do
@@ -2739,7 +2723,6 @@ sheetSpec shell =
                  assertEqual (what <> ": nor the child's")
                              ["child", "  * ", "two", ":web:"] (last rows))
             [ ("at rest", ""), ("on the element", "press:p")
-            , ("in the state cell", "press:f"), ("in the title cell", "press:f press:f")
             , ("on the child", "press:n press:n press:n") ]
 
     -- RET IS BY KIND, and a CHILD re-materializes into that entry under the index the server handed over.
@@ -2756,7 +2739,7 @@ sheetSpec shell =
       bootOf shell "" 500 "Enter"
              "press:n press:n press:n press:Enter press:Backspace" $ \answer -> do
         assertEqual "back at the row, one crumb again" ["one"] =<< textsAt "where" answer
-        assertEqual "with the cursor on the child it came out of" (3, -1)
+        assertEqual "with the cursor on the child it came out of" 3
           =<< pointOf answer
         echoIs "and the pill names the climb" "DEL → org-glance-overview:up (one)" answer
 
@@ -3092,71 +3075,71 @@ sheetSpec shell =
 
   , testCase "n skims the composites whole, and p is the skim reversed" $ do
       onTable "grain press:Enter press:n press:n press:n" $
-        assertEqual "three down crosses the list whole to the quote" (7, -1)
+        assertEqual "three down crosses the list whole to the quote" 7
           <=< pointOf
       onTable "grain press:Enter press:n press:n press:n press:n press:n" $
-        assertEqual "five down is the tail child, the document skimmed" (11, -1)
+        assertEqual "five down is the tail child, the document skimmed" 11
           <=< pointOf
       bootOf shell "" 500 ""
              "grain press:Enter press:n press:n press:n press:p" $
-        assertEqual "and p steps back over the list without entering it" (2, -1)
+        assertEqual "and p steps back over the list without entering it" 2
           <=< pointOf
 
     -- At the finest and at the floor the keys refuse with an echo; going OUT of the sheet stays DEL's.
   , testCase "f enters a composite's leaves, n/p walk them, b re-selects the whole" $ do
       onTable "grain press:Enter press:n press:n press:f" $ \answer -> do
-        assertEqual "f lands on the first item" (3, -1) =<< pointOf answer
+        assertEqual "f lands on the first item" 3 =<< pointOf answer
         echoIs "and says where it is" "f → grain-finer (list 1/3)" answer
       onTable "grain press:Enter press:n press:n press:f press:n press:n" $
-        assertEqual "n walks the items" (6, -1) <=< pointOf
+        assertEqual "n walks the items" 6 <=< pointOf
       onTable "grain press:Enter press:n press:n press:f press:n press:n press:n" $
-        assertEqual "and clamps at the last rather than leaving the run" (6, -1)
+        assertEqual "and clamps at the last rather than leaving the run" 6
           <=< pointOf
       onTable "grain press:Enter press:n press:n press:f press:p" $
-        assertEqual "p clamps at the first the same way" (3, -1) <=< pointOf
+        assertEqual "p clamps at the first the same way" 3 <=< pointOf
       -- The walk steps past a sibling's descendants coming back exactly as it steps past its own going forward.
       onTable "grain press:Enter press:n press:n press:f press:n press:p" $
-        assertEqual "p from beta crosses the nested run to alpha" (3, -1)
+        assertEqual "p from beta crosses the nested run to alpha" 3
           <=< pointOf
       onTable "grain press:Enter press:n press:n press:f press:n press:b" $ \answer -> do
-        assertEqual "b is the whole list again, from any item" (2, -1)
+        assertEqual "b is the whole list again, from any item" 2
           =<< pointOf answer
         echoIs "named by its kind" "b → grain-broader (list)" answer
       onTable "grain press:Enter press:n press:n press:f press:f" $ \answer -> do
-        assertEqual "the nested item is one rung down" (4, -1) =<< pointOf answer
+        assertEqual "the nested item is one rung down" 4 =<< pointOf answer
         echoIs "counted under its parent" "f → grain-finer (item 1/1)" answer
       onTable "grain press:Enter press:n press:n press:f press:f press:n" $
-        assertEqual "a run of one clamps at once" (4, -1) <=< pointOf
+        assertEqual "a run of one clamps at once" 4 <=< pointOf
       onTable "grain press:Enter press:n press:n press:f press:f press:b" $ \answer -> do
-        assertEqual "b climbs to the item" (3, -1) =<< pointOf answer
+        assertEqual "b climbs to the item" 3 =<< pointOf answer
         echoIs "named as one" "b → grain-broader (item)" answer
       onTable "grain press:Enter press:n press:n press:f press:n press:f" $ \answer -> do
-        assertEqual "nothing finer than a childless leaf" (5, -1) =<< pointOf answer
+        assertEqual "nothing finer than a childless leaf" 5 =<< pointOf answer
         echoIs "and the key says so" "f → grain-finer (at the finest)" answer
       onTable "grain press:Enter press:b" $ \answer -> do
-        assertEqual "the entry's own line is the floor" (0, -1) =<< pointOf answer
+        assertEqual "the entry's own line is the floor" 0 =<< pointOf answer
         echoIs "b never closes" "b → grain-broader (the whole entry)" answer
 
     -- REVERSED EXPAND-REGION: `b' out of an element goes to THE ENTRY'S OWN LINE.
   , testCase "b out of an element marks the whole headline" $ do
       onTable "grain press:Enter press:n press:b" $ \answer -> do
-        assertEqual "up from the lead paragraph" (0, -1) =<< pointOf answer
+        assertEqual "up from the lead paragraph" 0 =<< pointOf answer
         echoIs "" "b → grain-broader (the headline)" answer
       onTable "grain press:Enter press:n press:n press:f press:b press:b" $ \answer ->
-        assertEqual "the item, its list, then the entry" (0, -1) =<< pointOf answer
+        assertEqual "the item, its list, then the entry" 0 =<< pointOf answer
 
     -- THREE DIALECTS, ONE AXIS: `l'/`h' and the horizontal arrows are ALIASES of `f'/`b'.
   , testCase "l/h and the horizontal arrows are f/b" $ do
       onTable "grain press:Enter press:n press:n press:l" $ \answer -> do
-        assertEqual "l dives like f" (3, -1) =<< pointOf answer
+        assertEqual "l dives like f" 3 =<< pointOf answer
         echoIs "and speaks as the key pressed" "l → grain-finer (list 1/3)" answer
       onTable "grain press:Enter press:n press:n press:ArrowRight" $
-        assertEqual "and so does the right arrow" (3, -1) <=< pointOf
+        assertEqual "and so does the right arrow" 3 <=< pointOf
       onTable "grain press:Enter press:n press:h" $ \answer -> do
-        assertEqual "h climbs like b" (0, -1) =<< pointOf answer
+        assertEqual "h climbs like b" 0 =<< pointOf answer
         echoIs "" "h → grain-broader (the headline)" answer
       onTable "grain press:Enter press:n press:ArrowLeft" $
-        assertEqual "and so does the left arrow" (0, -1) <=< pointOf
+        assertEqual "and so does the left arrow" 0 <=< pointOf
 
     -- AN ORG TABLE IS THAT SAME SHAPE: one coarse stop, then its rows.  A LINE IS A LEAF, the `|---+---|' rule included.
   , keyed shell "a table is one stop, then its rows" "" "tabled press:Enter" $ \answer -> do
@@ -3177,17 +3160,17 @@ sheetSpec shell =
 
   , testCase "the table is one stop, and f walks its rows" $ do
       onTable "tabled press:Enter press:n press:n" $
-        assertEqual "n from the lead-in meets the WHOLE table" (2, -1)
+        assertEqual "n from the lead-in meets the WHOLE table" 2
           <=< pointOf
       onTable "tabled press:Enter press:n press:n press:n" $
-        assertEqual "and the next n crosses it whole to the list" (7, -1)
+        assertEqual "and the next n crosses it whole to the list" 7
           <=< pointOf
       onTable "tabled press:Enter press:n press:n press:f" $
-        assertEqual "f enters the first row" (3, -1) <=< pointOf
+        assertEqual "f enters the first row" 3 <=< pointOf
       onTable "tabled press:Enter press:n press:n press:f press:n press:n press:n" $
-        assertEqual "n walks the rows, the rule among them" (6, -1) <=< pointOf
+        assertEqual "n walks the rows, the rule among them" 6 <=< pointOf
       onTable "tabled press:Enter press:n press:n press:f press:n press:b" $
-        assertEqual "and b is the table whole again" (2, -1) <=< pointOf
+        assertEqual "and b is the table whole again" 2 <=< pointOf
 
     -- A ROW EDIT IS A LINE SPLICE: the row remembers the line it came out of.
   , testCase "editing a table row splices that line and nothing else" $ do
@@ -3325,7 +3308,7 @@ sheetSpec shell =
 
     -- A LINK IS NOT A STOP and binds no mouse: `o' is the opener.
   , keyed shell "links are drawn, and are no stop" "" "linky press:Enter press:n" $ \answer -> do
-        assertEqual "one step down is the paragraph, links and all" (1, -1)
+        assertEqual "one step down is the paragraph, links and all" 1
           =<< pointOf answer
         assertEqual "nothing was opened by drawing them" [] =<< openedOf answer
 
@@ -3355,7 +3338,7 @@ sheetSpec shell =
         assertEqual "four stops: alpha's head, the nested run, beta, gamma"
                     ["- alpha\n  more alpha", "  - nested", "- beta", "- gamma"]
           =<< partsOf "item" . take 7 <$> docOf answer
-        assertEqual "the cursor is on the first of them" (3, -1) =<< pointOf answer
+        assertEqual "the cursor is on the first of them" 3 =<< pointOf answer
 
     -- WHAT NO LEAF CLAIMS IS STILL DRAWN, and drawn inert: the lens's one-owner-per-byte rule, one grain down.
   , keyed shell "a block's delimiters are drawn, and are no stop"
@@ -3465,21 +3448,8 @@ sheetSpec shell =
           (Just "a headline is not deleted from the sheet — this writes elements only")
           =<< lastLog answer
 
-    -- THE HEADLINE'S CELLS ARE THE ROW'S, and a row is what `/command' addresses.
-  , keyed shell "RET on the state cell raises the palette over this row"
-      "Enter" "press:f press:Enter" $ \answer -> do
-        assertEqual "the palette is up" "on" =<< textAt "prompt" answer
-        assertEqual "named for the entry" "set state · one" =<< textAt "phead" answer
-        assertEqual "resolved for the row the sheet is on"
-                    ["/keywords?ids=r1"] =<< textsAt "resolved" answer
-
-  , keyed shell "and a letter there is one set-state over it"
-      "Enter" "press:f press:Enter press:d" $
-        assertEqual "the command it posted"
-          [("set-state", ["r1"])] <=< postedOf
-
     -- `t' AND `:' WORK AT THE ELEMENT, which is what makes an ABSENT part settable.
-  , testCase "t and : fire from the element, whatever the cell point" $ do
+  , testCase "t and : fire from the element, which is where the headline is one stop" $ do
       insheet "press:t" $ \answer -> do
         assertEqual "the palette is up" "on" =<< textAt "prompt" answer
         assertEqual "over the row the sheet is on" ["/keywords?ids=r1"]
@@ -3487,8 +3457,6 @@ sheetSpec shell =
       insheet "press::" $ \answer -> do
         assertEqual "the popup is up" "on" =<< textAt "tagpop" answer
         assertEqual "named for the entry" "tags · one" =<< textAt "thead" answer
-      insheet "press:f press:t" $
-        assertEqual "a cell point changes nothing" "on" <=< textAt "prompt"
       insheet "press:n press:t" $ \answer -> do
         assertEqual "nothing raised" "" =<< textAt "prompt" answer
         echoIs "and it said where to stand" "the headline line takes this — n/p to it" answer
@@ -3512,30 +3480,19 @@ sheetSpec shell =
         assertEqual "the sheet never opened" "" =<< textAt "modal" answer
 
     -- THE TITLE EDITS IN PLACE AND THE HEADLINE KEEPS ITS DRESS: one field over the title text alone.
-  , testCase "RET on the title cell opens it, and RET commits set-title" $ do
-      insheet "press:f press:f press:Enter" $ \answer -> do
-        assertEqual "the overlay is open" True =<< boolAt "dopen" answer
-        assertEqual "and holds the title" "one" =<< textAt "dtin" answer
-        assertEqual "with the focus in it" "dtin" =<< textAt "focus" answer
-      bootOf shell "" 500 "Enter"
-             "press:f press:f press:Enter dtin:renamed press:Enter" $ \answer -> do
-        assertEqual "one set-title over this row"
-                    [("set-title", ["r1"])] =<< postedOf answer
-        assertEqual "and the log named both ends"
-                    (Just "headline \"one\" retitled \"renamed\"") =<< lastLog answer
-        assertEqual "nothing went through the lens" ([] :: [Value])
-          =<< listAt "writes" answer
-
-    -- The whole line's edit is its title, so RET at the element grain spends no `f' picking the cell.
   , testCase "RET on the headline line itself opens the title" $ do
       insheet "press:Enter" $ \answer -> do
         assertEqual "the overlay is open" True =<< boolAt "dopen" answer
         assertEqual "and holds the title" "one" =<< textAt "dtin" answer
         assertEqual "with the focus in it" "dtin" =<< textAt "focus" answer
       bootOf shell "" 500 "Enter"
-             "press:Enter dtin:renamed press:Enter" $ \answer ->
+             "press:Enter dtin:renamed press:Enter" $ \answer -> do
         assertEqual "one set-title over this row"
                     [("set-title", ["r1"])] =<< postedOf answer
+        assertEqual "and the log named both ends"
+                    (Just "headline \"one\" retitled \"renamed\"") =<< lastLog answer
+        assertEqual "nothing went through the lens" ([] :: [Value])
+          =<< listAt "writes" answer
 
     -- TWO KEYS COMMIT AN OPEN ELEMENT: `C-c C-c' stops where the element does, `C-x C-s' keeps the BUFFER's half.
   , testCase "C-c C-c commits the open element, where C-x C-s does" $ do
@@ -3546,7 +3503,7 @@ sheetSpec shell =
       wrote "press:n press:Enter dpara:rewritten press:C-x press:C-s"
       wrote "press:n press:Enter dpara:rewritten press:C-c press:C-c"
       bootOf shell "" 500 "Enter"
-             "press:f press:f press:Enter dtin:renamed press:C-c press:C-c" $
+             "press:Enter dtin:renamed press:C-c press:C-c" $
         \answer -> do
           assertEqual "one set-title over this row"
                       [("set-title", ["r1"])] =<< postedOf answer
@@ -3627,17 +3584,10 @@ sheetSpec shell =
       insheet "press:n repeat:n repeat:n" $
         assertEqual "and a held movement key still walks" 3 <=< intAt "dat"
 
-  , keyed shell "and RET on the priority cell still has no popup to raise"
-      "" "priorities:A press:Enter press:f press:f press:Enter" $
-        \answer -> do
-          assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
-          echoIs "and the pill says the keys that do it"
-            "RET → priority cycles on S-<up>/S-<down>" answer
-
-    -- A CHILD'S cells are read-only: no row id, so no `/command' can address it.
-  , testCase "a child's cells are not settable yet, and the echo says so" $ do
+    -- A CHILD IS READ-ONLY: no row id, so no `/command' can address it.
+  , testCase "a child is not settable yet, and the echo says so" $ do
       bootOf shell "" 500 "Enter"
-             "press:n press:n press:n press:Enter press:f press:Enter" $ \answer -> do
+             "press:n press:n press:n press:Enter press:Enter" $ \answer -> do
         assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
         echoIs "and the pill named the way out"
           "RET → a child's title is not settable yet — DEL opens its parent" answer
@@ -5012,7 +4962,7 @@ groundSweep shell = testCase "every document selection is a ground, never a line
                              (decl `T.isInfixOf` flag))
         ["box-shadow:inset 3px 0 0 var(--g-bad)", "var(--g-flag-wash)"]
   where
-    selectors = [".de.dat", ".de.dfl", ".dc.don"]
+    selectors = [".de.dat", ".de.dfl"]
 
 -- | The body of the first rule whose SELECTOR LIST names SEL.  GROUPED SELECTORS ARE THE POINT: a literal @"#pbox{"@ matched none.
 ruleIn :: T.Text -> T.Text -> Maybe T.Text
@@ -5234,11 +5184,10 @@ shellGlue =
       , "reread(up === null ? undefined : up, (h, fresh) => {"
       -- A KEY THIS LISTENER CLAIMED IS NOT THE MAP'S, or the table's own `DEL' would strip a token on the same press.
       , "if (e.defaultPrevented) return;"
-      , "let drows = [], dat = 0, dcol = null, dgrain = \"element\";"
+      , "let drows = [], dat = 0, dgrain = \"element\";"
       , "dgrain = now.grain; dflags = now.flags; dbody = now.body;"
       -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the panel's costs two rules, the wash it suppresses being the RENDERER's.
       , "#mdoc.on .de.dat{"
-      , "#mdoc.on .dc.don{"
       , "#mprops:not(.on) .tv-table tbody tr.tv-sel{background:transparent}"
       , "#mprops:not(.on) .tv-table tbody tr.tv-sel.tv-alt{background:var(--tv-alt)}"
       , ".d-head,.d-child{display:flex;align-items:baseline}"
@@ -5324,7 +5273,7 @@ shellGlue =
       -- A structured sheet is never dirty — every element commits on its own.
       , "sheet: editing"
       , "? { id: editing.id, child: editing.child, raw,"
-      , "at: docCursor().at, col: docCursor().col,"
+      , "at: docCursor().at,"
       , "open: openEditState(), digest: editing.digest }"
       , "palette: typedFilter(),"
       , "return box && active() === box ? box.value || \"\" : null;"
@@ -5357,7 +5306,7 @@ shellGlue =
       , "{ body: dbody, properties: props(), planning: planning() }"
       -- THE DOCUMENT IS NOT A MOUNT: the renderer's list widget draws RECORDS and this is a list of KINDS.
       , "dport = Elm.Doc.init({ node: part(el(\"dlist\"), \"div\", \"\") }).ports;"
-      , "drows = now.rows; dat = now.at; dcol = now.col;"
+      , "drows = now.rows; dat = now.at;"
       , "kids: (h.children || []).map((c) =>"
       -- This side keeps a MIRROR of what it pushes back: a port round trip costs a macrotask.
       , "pmount = listing(\"mptable\", PCOLS, \"d/D delete · u unflag\", \"mprops\");"
@@ -5650,7 +5599,6 @@ shellGlue =
       , "const linksIn = (at, links) => (links || dlinks).filter((l) =>"
       -- The anchor is READ off what was drawn: `.dat' is not `#dlist''s `dat'-th child, a composite drawing its leaves inside itself.
       , "const docElAt = () => el(\"dlist\").querySelector(\".dat\");"
-      , "const c = dcol === null ? null : shown(r)[dcol];"
       , "const spanOf = (r) => (r && r.span) || null;" ]
       [ "(editing.org || \"\").length", "n + l.length, 0"
       , "text.slice(cut, a)", "at + text.length"

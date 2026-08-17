@@ -1074,14 +1074,9 @@ const segsOf = (row) => {
 const docRows = () => flatRows().map((row) =>
   [kindOf(row.className)].concat(row.children
     .filter((p) => !wears(p, "de")).map((p) => p.textContent)));
-/** Which element wears the cursor, and which of its CELLS.  Over the `dc' parts
- * alone: a headline's org-cleaned stars are chrome that `f'/`b' walk past. */
+/** Which element wears the cursor.  A headline is ONE stop: its parts are
+ * reached by their own keys, never by walking into the line. */
 const docAt = () => flatRows().findIndex((row) => wears(row, "dat"));
-const docCell = () => {
-  const row = flatRows()[docAt()];
-  if (!row) return -1;
-  return row.children.filter((p) => wears(p, "dc")).findIndex((p) => wears(p, "don"));
-};
 const docFlagged = () => flatRows()
   .map((row, i) => (wears(row, "dfl") ? i : -1))
   .filter((i) => i !== -1);
@@ -1473,7 +1468,7 @@ const settle = async () => {
     sheet: field("mtext").value, state: field("mnote").className,
     modal: field("modal").className,
     palette: field("filter").value,
-    doc: docRows(), dat: docAt(), dcol: docCell(), dflagged: docFlagged(),
+    doc: docRows(), dat: docAt(), dflagged: docFlagged(),
     dopen: field("dtitle").className === "on",
     dparaopen: field("dpara").className === "on",
     dprows: field("mdoc").style.getPropertyValue("--g-doc-rows"),
