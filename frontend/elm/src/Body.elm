@@ -142,12 +142,18 @@ this is the one number saying which lines are the row's to show and to replace.
 -}
 ownEnd : List Row -> Row -> Int
 ownEnd rows r =
-    case List.filter (\k -> k.owner == Just r.id) rows of
-        kid :: _ ->
-            kid.from
+    if r.grain == Composite then
+        -- A COMPOSITE IS THE WHOLE THING: the list is one stop, so editing it
+        -- rewrites the list and its leaves are silenced under it.
+        r.to
 
-        [] ->
-            r.to
+    else
+        case List.filter (\k -> k.owner == Just r.id) rows of
+            kid :: _ ->
+                kid.from
+
+            [] ->
+                r.to
 
 
 ownersOf : { a | rows : List Row } -> String -> List String

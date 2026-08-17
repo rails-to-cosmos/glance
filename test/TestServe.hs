@@ -3369,15 +3369,17 @@ sheetSpec shell =
     -- RET IS PURE EDIT AT EITHER GRAIN, and each commit splices exactly the range its stop covers.
   , testCase "RET edits a leaf's own lines, and splices only those" $ do
       onTable "grain press:Enter press:n press:n press:f press:Enter" $
-        \answer -> assertEqual "the item, as it stands"
-                               "- alpha\n  more alpha\n  - nested"
+        \answer -> assertEqual "the item's OWN lines, the nested one being its own stop"
+                               "- alpha\n  more alpha"
                      =<< textAt "dtext" answer
       bootOf shell "" 500 ""
              ("grain press:Enter press:n press:n press:f press:Enter dpara:-_ALPHA"
               <> " press:C-x press:C-s") $ \answer -> do
         body <- traverse (textAt "body") =<< listAt "writes" answer
+        -- THE NESTED ITEM SURVIVES ITS PARENT'S EDIT: it is a stop of its own,
+        -- so the parent's commit replaces the parent's lines and no more.
         assertEqual "the item's lines, and every other byte where it was"
-          [ "* TODO one\nlead in\n- ALPHA\n\n- beta\n- gamma\n\n#+begin_quote\n"
+          [ "* TODO one\nlead in\n- ALPHA\n  - nested\n\n- beta\n- gamma\n\n#+begin_quote\n"
             <> "quoted one\n\nquoted two\n#+end_quote\n\ntail para\n** two\nchild body\n" ]
           body
   , testCase "RET at the whole list edits the whole list" $ do
