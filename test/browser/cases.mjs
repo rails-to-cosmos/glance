@@ -1106,7 +1106,25 @@ export default [
     assert(!clear && seen.atBg !== seen.kidBg,
       `the row nested under the item paints ${seen.kidBg} against the item's `
       + `${seen.atBg}, so the cursor's ground runs the subtree`);
-    return [`"${seen.text}": ${seen.ownH}px of ${seen.atH}px grounded, `
-      + `the nested row painting ${seen.kidBg}`];
+    // AND THE WHOLE LIST IS STILL ONE THING when the cursor is on IT: the
+    // composite IS the stop, so it grounds whole.  `b' goes back out a grain.
+    await p.press("b");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.classList.contains("d-comp");
+    }, "the cursor to go back out to the list itself");
+    const whole = await p.eval(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      const kid = at.querySelector(".de");
+      return { atBg: getComputedStyle(at).backgroundColor,
+               kidBg: getComputedStyle(kid).backgroundColor,
+               kids: at.querySelectorAll(".de").length };
+    });
+    assert(/^rgba\(.*,\s*0\)$/.test(whole.kidBg),
+      `on the list itself a row under it paints ${whole.kidBg} of its own, so the `
+      + `list no longer grounds whole`);
+    return [`"${seen.text}": ${seen.ownH}px of ${seen.atH}px grounded, the nested `
+      + `row painting ${seen.kidBg}; the list itself still grounds all `
+      + `${whole.kids} rows under it`];
   } },
 ];

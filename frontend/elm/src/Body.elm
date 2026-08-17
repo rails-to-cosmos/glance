@@ -117,13 +117,37 @@ rowsFrom lines own headCells kids =
                 , level = level
                 , cells = cells
             }
+        owned r =
+            let
+                stop =
+                    ownEnd body r
+            in
+            if stop == r.to then
+                r
+
+            else
+                { r | text = cut lines r.from stop, was = cut lines r.from stop }
     in
-    (head :: body) ++ List.map child kids
+    (head :: List.map owned body) ++ List.map child kids
 
 
 
 -- THE SPLICE
 -- ONE GRAIN SPEAKS FOR A RANGE; bottom-up, so a later splice moves no earlier one.
+
+
+{-| Where a row's OWN line ends: its first child's start, else its own end. A
+nested item is DRAWN inside its parent and would be WRITTEN as part of it, so
+this is the one number saying which lines are the row's to show and to replace.
+-}
+ownEnd : List Row -> Row -> Int
+ownEnd rows r =
+    case List.filter (\k -> k.owner == Just r.id) rows of
+        kid :: _ ->
+            kid.from
+
+        [] ->
+            r.to
 
 
 ownersOf : { a | rows : List Row } -> String -> List String
@@ -183,7 +207,7 @@ bodyText m gone =
                         else
                             written
                        )
-                    ++ List.drop r.to out
+                    ++ List.drop (ownEnd m.rows r) out
 
             else
                 out
