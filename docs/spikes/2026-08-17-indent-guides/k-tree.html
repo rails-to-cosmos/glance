@@ -37,6 +37,10 @@
                                           calc(var(--near) * 1%), var(--g-bg))}
   #rails i.at.run{background:var(--g-bar)}
   #rails i.at.bend{border-color:var(--g-bar)}
+  /* WHAT POINT CARRIES, IN THE SAME GOLD A SHADE BACK -- J's tier, which says the
+     subtree belongs to the stop without competing with the line that IS it. */
+  #rails i.rest.run{background:color-mix(in srgb, var(--g-bar) 55%, var(--g-bg))}
+  #rails i.rest.bend{border-color:color-mix(in srgb, var(--g-bar) 55%, var(--g-bg))}
   #rails i.bad.run{background:var(--g-bad)}
   #rails i.bad.bend{border-color:var(--g-bad)}
 
@@ -74,6 +78,7 @@
     var t = el.textContent.replace(RIG.MARKER, "").trim();
     return t.length > 24 ? t.slice(0, 23) + "…" : t;
   };
+  var STUB = 0;               // how far the elbow reaches, in characters
   var isItem = function (r) { return r.el.classList.contains("d-item"); };
   var colOf = function (r) { return isItem(r) ? r.depth * 2 : 0; };
 
@@ -118,11 +123,18 @@
       // lights itself alone, the rule the cursor's ground was given.
       var whole = s.at.el.classList.contains("d-comp");
       var carries = function (r) { return whole && r.up === s.at; };
+      // EVERYTHING ELSE POINT HOLDS takes the muted gold: it belongs to the stop,
+      // and it is not the stop.
+      var carried = function (r) {
+        for (var up = r.up; up; up = up.up) if (up === s.at) return true;
+        return false;
+      };
       var inkOf = function (r) {
         if (r.el.classList.contains("dfl")) return { cls: "bad", near: null };
         // WHAT POINT CARRIES IS POINT'S, to the bottom of it: a composite IS
         // everything under it, so standing on the list lights the whole tree.
         if (r === s.at || carries(r)) return { cls: "at", near: null };
+        if (carried(r)) return { cls: "rest", near: null };
         // THE PATH, NOT THE LEVEL: a tree already draws the branch, so what is lit
         // is the ANCESTORS' own connectors -- lighting every sibling of every
         // ancestor lit three whole levels and said nothing about the way back.
@@ -152,9 +164,14 @@
           var tint = ink.near === null ? "" : ";--near:" + ink.near;
           // THE ELBOW: down from the row's top to the middle of its own line, then
           // right to where the text begins.
+          // NO STUB: the tree's horizontal sat at the same height as org's own `-'
+          // and one cell to its left, so the two read as one dashed run.  ORG'S
+          // BULLET IS THE BRANCH'S TIP -- the connector turns and stops, and the
+          // dash the file already carries finishes the reach.  `STUB' is the knob:
+          // 0.45 of a character puts the horizontal back.
           put("bend " + ink.cls,
               "left:" + x + "px;top:" + box.top + "px;height:"
-              + (mid - box.top) + "px;width:" + (s.ch - 2) + "px" + tint);
+              + (mid - box.top) + "px;width:" + (s.ch * STUB) + "px" + tint);
           // THE RUN: a branch that has more to come carries on past this row.
           if (i < kids.length - 1) {
             put("run " + ink.cls,

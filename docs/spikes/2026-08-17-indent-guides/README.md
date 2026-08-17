@@ -136,7 +136,14 @@ Three sentences, each answering a different question:
   named no stop in particular.
 
 An ITEM lights itself alone, which is the rule the cursor's ground was given: an
-item is its own line, not what hangs off it. A paragraph is not a branch — nothing
+item is its own line, not what hangs off it. **What point CARRIES takes the same
+gold a shade back** — J's tier, which says the subtree belongs to the stop without
+competing with the line that IS it.
+
+**Org's bullet is the branch's tip.** The elbow turns and stops: its horizontal
+sat at the same height as the file's own `-`, one cell to the left, and the two
+read as one dashed run rather than as a branch. `STUB` is the knob and it is `0`;
+`0.45` of a character puts the horizontal back. A paragraph is not a branch — nothing
 to elbow into — so it keeps the vertical bar, at the column every outermost row
 marks on.
 
