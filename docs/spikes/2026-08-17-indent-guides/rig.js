@@ -242,7 +242,8 @@ var RIG = (function () {
     }
     if (state.paint) state.paint({ at: state.at, chain: c, rails: rails,
                                    px: px, ch: state.ch, lh: state.lh,
-                                   left: state.textLeft, mdoc: state.mdoc });
+                                   left: state.textLeft, mdoc: state.mdoc,
+                                   flagged: flagged() });
   }
 
   function own(r) {
@@ -261,6 +262,23 @@ var RIG = (function () {
   var NEXT = { n: 1, j: 1, ArrowDown: 1 }, PREV = { p: 1, k: 1, ArrowUp: 1 };
   var IN = { f: 1, l: 1, ArrowRight: 1 }, OUT = { b: 1, h: 1, ArrowLeft: 1 };
 
+  // The pane's own flag, and it stays on the row after point leaves it.
+  function flag() {
+    state.at.el.classList.toggle("dfl");
+    repaint();
+  }
+
+  function flagged() {
+    return state.roots.concat(all(state.roots))
+      .filter(function (r) { return r.el.classList.contains("dfl"); });
+  }
+
+  function all(rs) {
+    return rs.reduce(function (acc, r) {
+      return acc.concat(r.kids, all(r.kids));
+    }, []);
+  }
+
   function keys(e) {
     var k = e.key;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
@@ -269,6 +287,7 @@ var RIG = (function () {
     else if (IN[k]) finer();
     else if (OUT[k]) broader();
     else if (k === "t") theme();
+    else if (k === "d") flag();
     else return;
     e.preventDefault();
   }

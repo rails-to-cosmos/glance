@@ -43,12 +43,17 @@
      and is bold over every line it wraps to, and so is the list, which IS the stop. */
   #rails i.at{width:3px; background:var(--g-bar)}
   #rails i.at.rest{width:1px; background:var(--g-bar)}
+  /* A FLAG IS LOUDER THAN A CURSOR, so it takes the mark's place rather than
+     sitting beside it, and it stays after point has moved on. */
+  #rails i.at.bad{background:var(--g-bad)}
   /* A ROW WEARS THE MARKER ORG ALREADY WROTE.  A headline's stars sit in the
      column a bar would use, so they go gold and no bar is drawn; an item's bullet
      sits clear of the bar, so it goes gold as well as one.  `> .dp >' keeps it to
      the row's OWN line -- a nested item's bullet is not this row's. */
   #mdoc .de.dat.d-head .ds,
   #mdoc .de.dat.d-item > .dp > .dm{color:var(--g-bar); font-weight:700}
+  #mdoc .de.dfl.d-head .ds,
+  #mdoc .de.dfl > .dp > .dm{color:var(--g-bad); font-weight:700}
 
   #path{
     position:sticky; top:calc(-1 * var(--g-doc-pady)); z-index:2;
@@ -73,7 +78,7 @@
   <div id="mdoc" class="on"></div>
   <footer>
     <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
-      <kbd>t</kbd> theme</span>
+      <kbd>t</kbd> theme · <kbd>d</kbd> flag</span>
     <span id="truth"></span>
   </footer>
 <script src="rig.js"></script>
@@ -141,27 +146,32 @@
       // text, which is where that block's rail already runs.  A row at the
       // outermost level has no block above it and marks in the pane's padding, so
       // a paragraph, the list and a top-level item all mark at one x.
-      var box = s.px(s.at.el);
-      var x = (s.left + (colOf(s.at) - 2) * s.ch) + "px";
-      // Only an ITEM has an own line to be solid about, and it wraps as far as it
-      // likes.  Everything else IS the selection whole -- a paragraph over every
-      // line it wraps to, the list over all of it.
-      var ownEl = s.at.el.classList.contains("d-item")
-        ? s.at.el.querySelector(".dp") : null;
-      var head = ownEl ? s.px(ownEl).height : box.height;
-      var mark = function (cls, top, height) {
-        if (height <= 1) return;
-        var i = document.createElement("i");
-        i.className = cls;
-        i.style.left = x;
-        i.style.top = top + "px";
-        i.style.height = height + "px";
-        layer.appendChild(i);
+      // A ROW'S MARK: bold over its own text, thin over what hangs off it.  Only an
+      // ITEM has an own line to be bold about, and it wraps as far as it likes;
+      // everything else IS the stop whole.  A headline draws none -- its stars sit
+      // in the column the mark would use.
+      var markRow = function (r, bad) {
+        if (r.el.classList.contains("d-head")) return;
+        var box = s.px(r.el);
+        var x = (s.left + (colOf(r) - 2) * s.ch) + "px";
+        var ownEl = r.el.classList.contains("d-item") ? r.el.querySelector(".dp") : null;
+        var head = ownEl ? s.px(ownEl).height : box.height;
+        var put = function (cls, top, height) {
+          if (height <= 1) return;
+          var i = document.createElement("i");
+          i.className = bad ? cls + " bad" : cls;
+          i.style.left = x;
+          i.style.top = top + "px";
+          i.style.height = height + "px";
+          layer.appendChild(i);
+        };
+        put("at", box.top, head);
+        put("at rest", box.top + head, box.height - head);
       };
-      if (!s.at.el.classList.contains("d-head")) {
-        mark("at", box.top, head);
-        mark("at rest", box.top + head, box.height - head);
-      }
+      // A FLAG IS DRAWN WHEREVER IT IS, point or not; point goes last so it is on
+      // top, and wears the flag's red when the row it sits on carries one.
+      s.flagged.forEach(function (r) { if (r !== s.at) markRow(r, true); });
+      markRow(s.at, s.at.el.classList.contains("dfl"));
     },
   });
 })();

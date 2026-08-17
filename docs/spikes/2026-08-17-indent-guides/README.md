@@ -34,7 +34,7 @@ fixture and one keymap is what makes two tabs comparable. A variant brings its
 own `<style>` and one `paint` hook.
 
 Keys are the pane's own: `n`/`p` walk siblings, `f`/`b` go in and out, and the
-arrows alias both. `t` swaps the theme. The footer prints the truth — the depth
+arrows alias both. `d` flags the row under point, `t` swaps the theme. The footer prints the truth — the depth
 and the block — so a variant can be checked against what it is meant to say.
 
 ## Why the first attempt could not work
@@ -190,6 +190,12 @@ the earlier variants did not need:
   hangs off it takes the THIN one, both solid — dimming gold toward a dark ground
   darkens it, and a darker yellow is brown. A paragraph carries nothing and is bold
   over every line it wraps to, and so is the list, which IS the stop.
+- **A flag outranks the cursor.** `d` flags the row under point and its mark turns
+  red — the same geometry, `--g-bad` instead of the gold, so a flag takes the
+  mark's place rather than sitting beside it. It is drawn wherever it is, not only
+  under point, so a flagged row you are not on still shows red; point draws last
+  and so wins the overlap. A row that is both wears the flag: the flag is the
+  louder fact.
 - **A row wears the marker org already wrote.** A headline's stars sit in the
   column a bar would use, so a selected headline turns its stars gold and draws no
   bar at all; for the same reason the document's rail starts UNDER the headline.
