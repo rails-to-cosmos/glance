@@ -9165,6 +9165,27 @@ var $author$project$Doc$update = F2(
 						}));
 		}
 	});
+var $author$project$Doc$guideClass = F2(
+	function (m, r) {
+		var inside = function () {
+			var _v0 = $author$project$Body$rowAt(m);
+			if (_v0.$ === 1) {
+				return false;
+			} else {
+				var here = _v0.a;
+				return _Utils_eq(r.c, here.c) || A2(
+					$elm$core$List$member,
+					r.c,
+					A2($author$project$Body$ownersOf, m, here.c));
+			}
+		}();
+		var deep = $elm$core$List$length(
+			A2($author$project$Body$ownersOf, m, r.c));
+		return _Utils_ap(
+			(deep > 0) ? (' lvl-' + $elm$core$String$fromInt(
+				A2($elm$core$Basics$min, 6, deep))) : '',
+			(inside && (deep > 0)) ? ' dan' : '');
+	});
 var $author$project$Doc$rowClass = F3(
 	function (m, i, r) {
 		return _Utils_ap(
@@ -9183,7 +9204,9 @@ var $author$project$Doc$rowClass = F3(
 				}(),
 				_Utils_ap(
 					_Utils_eq(i, m.aK) ? ' dat' : '',
-					A2($elm$core$List$member, r.c, m.L) ? ' dfl' : '')));
+					_Utils_ap(
+						A2($elm$core$List$member, r.c, m.L) ? ' dfl' : '',
+						A2($author$project$Doc$guideClass, m, r)))));
 	});
 var $author$project$Doc$drawText = F3(
 	function (m, body, base) {
