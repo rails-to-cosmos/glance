@@ -853,8 +853,9 @@ viewPara m r =
         )
 
 
-{-| How many characters of a leaf's own line org spent on its indent and its
-bullet -- `-', `+', `*', `1.' or `1)' -- and nothing when the row is not one.
+{-| How many characters of a leaf's own line org spent on its indent, its bullet --
+`-', `+', `*', `1.' or `1)' -- and the checkbox after it; nothing when the row is
+not a list item.
 -}
 markerLen : Model -> Row -> Int
 markerLen m r =
@@ -862,12 +863,33 @@ markerLen m r =
         0
 
     else
-        case Maybe.andThen Scan.listOpener (nth r.from m.lines) of
+        let
+            line =
+                Maybe.withDefault "" (nth r.from m.lines)
+        in
+        case Scan.listOpener line of
             Just o ->
-                o.indent + String.length o.bullet
+                let
+                    k =
+                        o.indent + String.length o.bullet
+                in
+                k + boxLen (String.dropLeft k line)
 
             Nothing ->
                 0
+
+
+{-| The checkbox org may write after a bullet, with the gap that follows it. IT IS
+PART OF THE MARKER: `- [X]` is one thing the reader points at, not a bullet and
+then some text.
+-}
+boxLen : String -> Int
+boxLen rest =
+    if List.member (String.left 3 rest) [ "[ ]", "[X]", "[x]", "[-]" ] then
+        3 + String.length (Scan.indentOf (String.dropLeft 3 rest))
+
+    else
+        0
 
 
 viewCells : Model -> Int -> Row -> List (Html Msg)

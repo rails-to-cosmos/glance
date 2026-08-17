@@ -171,8 +171,10 @@ page head' colours title body = T.unlines
   -- A HEADLINE WEARS THE MARKER ORG WROTE: its stars sit in the column a
   -- connector would use, so they take the ink and none is drawn.
   , "  #mdoc.on .de.dat.d-head::before{display:none}"
-  , "  #mdoc.on .de.dat.d-head .ds,#mdoc.on .de.dat>.dp>.dm{"
-  , "    color:var(--g-point);font-weight:700}"
+  , "  #mdoc.on .de.dat.d-head .ds,#mdoc.on .de.dat>.dp>.dm,"
+  , "  #mdoc.on .mk-root>.dp>.dm{color:var(--g-point);font-weight:700}"
+  -- WHAT POINT CARRIES WEARS ITS MARKER TOO, in the ink its connector takes.
+  , "  #mdoc.on .mk-held>.dp>.dm{color:var(--g-point-dim);font-weight:700}"
   -- A FLAG OUTRANKS POINT and keeps its mark after point has moved on.
   , "  .de.dfl::before,.de.dfl.kin::after,"
   , "  #mdoc.on .de.dfl::before,#mdoc.on .de.dfl.kin::after{background:var(--g-bad)}"

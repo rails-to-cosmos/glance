@@ -1259,7 +1259,9 @@ export default [
     });
     assert(seen.ink === seen.point,
       `the bullet under point paints ${seen.ink}, not the point ink ${seen.point}`);
-    assert(/^\s*([-+*]|\d+[.)])\s+$/.test(seen.text),
+    // THE CHECKBOX IS PART OF THE MARKER: `- [X]' is one thing the reader points
+    // at, not a bullet and then some text.
+    assert(/^\s*([-+*]|\d+[.)])\s+(\[[ xX-]\]\s+)?$/.test(seen.text),
       `the lit span is "${seen.text}", which is not an org list marker`);
     assert(seen.nested !== seen.point,
       `a bullet nested under point paints ${seen.nested} too, so the light runs the subtree`);

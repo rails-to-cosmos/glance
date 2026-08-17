@@ -9322,18 +9322,30 @@ var $author$project$Doc$viewCells = F3(
 					}),
 				$author$project$Body$shown(r)));
 	});
+var $author$project$Doc$boxLen = function (rest) {
+	return A2(
+		$elm$core$List$member,
+		A2($elm$core$String$left, 3, rest),
+		_List_fromArray(
+			['[ ]', '[X]', '[x]', '[-]'])) ? (3 + $elm$core$String$length(
+		$author$project$Scan$indentOf(
+			A2($elm$core$String$dropLeft, 3, rest)))) : 0;
+};
 var $author$project$Doc$markerLen = F2(
 	function (m, r) {
 		if (r.H !== 2) {
 			return 0;
 		} else {
-			var _v0 = A2(
-				$elm$core$Maybe$andThen,
-				$author$project$Scan$listOpener,
+			var line = A2(
+				$elm$core$Maybe$withDefault,
+				'',
 				A2($author$project$Scan$nth, r.d, m.ay));
+			var _v0 = $author$project$Scan$listOpener(line);
 			if (!_v0.$) {
 				var o = _v0.a;
-				return o.bh + $elm$core$String$length(o.ar);
+				var k = o.bh + $elm$core$String$length(o.ar);
+				return k + $author$project$Doc$boxLen(
+					A2($elm$core$String$dropLeft, k, line));
 			} else {
 				return 0;
 			}

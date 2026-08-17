@@ -4395,6 +4395,10 @@ sheetNotes =
          \ INSIDE ITS PARENT, so a ground runs the whole subtree; the mark sits one tab\
          \ stop LEFT of the row's own text, which is where that block's rail runs, and\
          \ point rides its own block's rail." [Test, Browser]
+  , Note "THE CHECKBOX IS PART OF THE MARKER: `- [X]' is one thing the reader points\
+         \ at, not a bullet and then some text, so `.dm' spans the indent, the bullet\
+         \ and the box with its gap.  What point CARRIES wears its marker in the ink\
+         \ its connector takes." [Browser]
   , Note "THE MARKER ORG WROTE IS THE MARKER: a headline under point lights its STARS and\
          \ draws no mark, the stars sitting in the column the mark would use; an item\
          \ lights its BULLET as well as drawing one, and the bullet is whatever org\

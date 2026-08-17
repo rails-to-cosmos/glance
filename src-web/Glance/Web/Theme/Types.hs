@@ -16,8 +16,9 @@ data Palette = Palette
   , pSelection :: !Text  -- ^ the cursor row's ground, in the table and the listings.
   , pPoint     :: !Text  -- ^ the document's cursor, drawn as a MARK: a ground hue is
                          --   not an ink, so a dark theme cannot reuse 'pSelection'.
-  , pPointDim  :: !Text  -- ^ what point CARRIES: the same ink a shade back, PICKED
-                         --   rather than mixed, a darker yellow being brown.
+  , pPointDim  :: !Text  -- ^ what point CARRIES: subordinate to 'pPoint' and nearer
+                         --   grey than gold, PICKED rather than mixed -- a darker
+                         --   yellow is brown.
   , pHover     :: !Text  -- ^ the row under the pointer.
   , pLink      :: !Text  -- ^ org link ink, measured against a ROW's grounds.
   , pFrost     :: !Text  -- ^ the applied filter's chips.
