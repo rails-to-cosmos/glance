@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Indent guides — eleven looks</title>
+<title>Indent guides — fifteen looks</title>
 <style>
   /* THE SHELL ONLY.  Each variant is its own page; what they share is the rig
      and the pane, which is the point — the tabs differ by look and nothing else. */
@@ -44,7 +44,7 @@
 </head>
 <body>
   <header>
-    <h1>Indent guides <small>eleven ways to say which block the cursor is in</small></h1>
+    <h1>Indent guides <small>fifteen ways to say which block the cursor is in</small></h1>
     <nav id="tabs" aria-label="variants">
       <a href="#a" data-src="a-rails.html">A · rails</a>
       <a href="#b" data-src="b-active.html">B · active rail</a>
@@ -57,6 +57,10 @@
       <a href="#i" data-src="i-hook.html">I · hooks</a>
       <a href="#j" data-src="j-brackets.html">J · brackets</a>
       <a href="#k" data-src="k-tree.html">K · tree</a>
+      <a href="#l" data-src="l-marker.html">L · tree as marker</a>
+      <a href="#m" data-src="m-under.html">M · turns under</a>
+      <a href="#n" data-src="n-gutter.html">N · own gutter</a>
+      <a href="#o" data-src="o-weight.html">O · by weight</a>
     </nav>
   </header>
   <p class="note" id="note"></p>
@@ -94,6 +98,18 @@
     k: "The connectors CLI <code>tree</code> uses, in ink rather than glyphs: an elbow per "
      + "row, a run where the branch has more to come, and a LAST CHILD that closes its "
      + "branch — the one thing a plain rail cannot say.",
+    l: "K with the tree doing the marking: the connector reaches the text and org's own "
+     + "bullet steps aside for it. The bullet is hidden rather than removed, so every "
+     + "line stays in the column the file put it in.",
+    m: "The collision answered by MOVING the horizontal: the elbow runs to the foot of "
+     + "the line and turns there, passing below the bullet rather than one cell to its "
+     + "left at the same height. Every character the file wrote is still drawn.",
+    n: "The collision answered by SEPARATION: a character of pane padding the text never "
+     + "enters, every connector half a cell further left, so the horizontal ends with air "
+     + "before the bullet. Costs width, hides nothing.",
+    o: "The collision answered by WEIGHT alone — the control. The horizontal reaches the "
+     + "text as <code>tree</code> draws it and stays a hairline in the faint ink. If this "
+     + "reads, neither the gutter nor the turn is needed.",
   };
   const tabs = [...document.querySelectorAll("#tabs a")];
   const stage = document.getElementById("stage");
@@ -114,7 +130,7 @@
   }
 
   addEventListener("hashchange", () => show(location.hash.slice(1)));
-  show(location.hash.slice(1) || "k");
+  show(location.hash.slice(1) || "n");
 })();
 </script>
 </body>

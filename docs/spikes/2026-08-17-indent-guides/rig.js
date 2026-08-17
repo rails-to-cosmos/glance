@@ -23,6 +23,8 @@ var RIG = (function () {
           ]],
         ]],
         ["cases.mjs mutates one tree, in order", []],
+        ["every case run once, in order", [], "-", " "],
+        ["the tree copied per run", [], "-", "X"],
       ]],
       ["picker", [
         ["the kind stage", [
@@ -32,8 +34,8 @@ var RIG = (function () {
           ]],
         ]],
         ["the row stage", [
-          ["/ opens the filter box", []],
-          ["RET takes the row under the cursor", []],
+          ["/ opens the filter box", [], "-", "X"],
+          ["RET takes the row under the cursor", [], "-", " "],
         ]],
       ]],
       ["theme", [
@@ -45,7 +47,7 @@ var RIG = (function () {
   };
 
   // What org writes in front of a list item: a bullet or a counter.
-  var MARKER = /^\s*([-+*]|\d+[.)])\s+/;
+  var MARKER = /^\s*([-+*]|\d+[.)])\s+(\[[ xX-]\]\s+)?/;
 
   // ------------------------------------------------------------------ model
   // A ROW IS A STOP.  `kids' is what `f' descends into, `up' what `b' climbs to.
@@ -57,16 +59,22 @@ var RIG = (function () {
 
   // THE MARKER IS ITS OWN SPAN so it can be lit, the way a headline's stars are.
   // Org writes several and the rule may not know which: `-', `+', `*', `1.', `1)'.
-  function itemEl(text, depth, mark) {
+  function itemEl(text, depth, mark, box) {
     var d = document.createElement("div");
     d.className = "de d-item";
     d.dataset.depth = String(depth);
     var own = document.createElement("div");
     own.className = "dp";
     own.appendChild(document.createTextNode(new Array(depth + 1).join("  ")));
+    // THE MARKER IS THE BULLET AND THE BOX.  The bullet keeps a span of its own
+    // inside it, so a variant may step it aside without taking the box with it.
     var dm = document.createElement("span");
     dm.className = "dm";
-    dm.textContent = mark + " ";
+    var bul = document.createElement("span");
+    bul.className = "dbul";
+    bul.textContent = mark + " ";
+    dm.appendChild(bul);
+    if (box) dm.appendChild(document.createTextNode("[" + box + "] "));
     own.appendChild(dm);
     own.appendChild(document.createTextNode(text));
     d.appendChild(own);
@@ -75,7 +83,7 @@ var RIG = (function () {
 
   function buildItems(spec, host, up, depth) {
     return spec.map(function (it) {
-      var el = itemEl(it[0], depth, it[2] || "-");
+      var el = itemEl(it[0], depth, it[2] || "-", it[3]);
       host.appendChild(el);
       var r = row(el, up, depth);
       r.kids = buildItems(it[1], el, r, depth + 1);

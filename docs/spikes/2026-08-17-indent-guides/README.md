@@ -1,4 +1,4 @@
-# Spike — eleven ways to say which block the cursor is in
+# Spike — fifteen ways to say which block the cursor is in
 
 **Date:** 2026-08-17 · **After:** `269ae41` “A rail per enclosing block, and the
 one you are inside is lit”, taken back out in `98a381d`.
@@ -6,7 +6,7 @@ one you are inside is lit”, taken back out in `98a381d`.
 Navigating a nested list, nothing says where point is beyond the ground on its
 own line — and less than before, since that ground now covers one line rather
 than the whole subtree. The first attempt drew rails and shipped nothing worth
-keeping: **it said how MANY blocks enclose point, never WHICH one.** Eleven looks,
+keeping: **it said how MANY blocks enclose point, never WHICH one.** Fifteen looks,
 built to be argued with. **Open `index.html`** — they are tabs.
 
 Everything here is throwaway. The fixture is invented; the palette and the pane
@@ -27,6 +27,10 @@ is judged at the real hues and the real metrics.
 | `i-hook.html` | H with every rail hung off the line that owns it, so a row you can descend into shows it |
 | `j-brackets.html` | every mark a BRACKET: the line's own, the children it carries, the block it sits in |
 | `k-tree.html` | the connectors `tree` uses — an elbow per row, a run where the branch goes on, a last child that closes it |
+| `l-marker.html` | K with the tree DOING the marking: the bullet steps aside and the connector reaches the text |
+| `m-under.html` | the horizontal turns at the line's FOOT, passing below the bullet rather than beside it |
+| `n-gutter.html` | the tree takes a column of its own: a character of padding, every connector half a cell left |
+| `o-weight.html` | the control: the horizontal reaches the text and is told apart by WEIGHT alone |
 | `rig.js` | the fixture, the model, the keymap, the rail geometry |
 | `pane.css` | the doc pane and both palettes |
 
@@ -95,7 +99,7 @@ inherited accent is discounted. It stays in the spike as the control.
 ```sh
 node depth-check.mjs                 # every variant
 node depth-check.mjs b-active.html   # one
-node shell-check.mjs                 # the tabbed shell mounts all eleven
+node shell-check.mjs                 # the tabbed shell mounts all fifteen
 node place-check.mjs                 # every mark is where it says it is
 ```
 
@@ -154,6 +158,33 @@ a mark that weighs as much as the text competes with it.
 it says where a block ends, which K says by closing the branch, and it costs a cap
 at both ends of every mark. `H` shipped first (`795d1da`) and is what K replaces.
 
+## N, which is K with room for the tree
+
+`tree`'s horizontal and org's own `-` sat one cell apart at the same height and
+read as a single dashed run. Four answers were built and the choice is between
+what each spends:
+
+- **L** drops the BULLET and lets the connector be the marker. It reads best and
+  costs the most: the pane stops drawing a character the file contains, and a
+  numbered list would lose its numbers, which are content.
+- **M** drops the horizontal to the line's FOOT, so it passes below the bullet.
+  Nothing hidden, but the elbow no longer points at the line it marks.
+- **N** gives the tree a COLUMN OF ITS OWN — a character of pane padding the text
+  never enters, every connector half a cell further left — so the horizontal ends
+  with air before the bullet rather than against it. **This is the one to build.**
+- **O** is the control: the horizontal reaches the text and is told apart by
+  weight alone. It is what the collision looked like before any of this.
+
+N costs a character of width and hides nothing, and the gutter is room the pane
+will want again — for the flag's own shape (see
+[`../../proposals/2026-08-17-hue-is-never-the-only-channel.proposed.md`](../../proposals/2026-08-17-hue-is-never-the-only-channel.proposed.md))
+and for a fold marker if one ever lands.
+
+**The fixture carries checkboxes now**, because `- [X]` is where hiding a bullet
+stops being free: the marker span covers the bullet AND the box, so a variant that
+steps the marker aside takes the box with it unless it names the bullet alone.
+`.dbul` is that name.
+
 ## Two placement traps, recorded because each looked like a page bug
 
 - **A strip written into the pane's flow moves everything below it.** Filling it
@@ -187,6 +218,10 @@ counted from different ends, every block a step apart).
 | I hooks | as H, and which rows have something inside | as H | as H, no more | yes |
 | J brackets | yes, with its ends | by which bracket | three hairline brackets | yes |
 | K tree | yes, and the way back to it | by the branch | an elbow per row | yes |
+| L marker | as K | as K | as K, less the bullet | yes |
+| M under | as K | as K | as K, plus a horizontal | yes |
+| N gutter | as K | as K | as K, plus a character of width | yes |
+| O weight | as K | as K | as K, plus a horizontal | yes |
 
 ## G, and the ramp it settled
 
