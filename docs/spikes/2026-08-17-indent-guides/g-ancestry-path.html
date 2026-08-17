@@ -54,7 +54,7 @@
   var word = function (r) {
     if (r.el.classList.contains("d-comp")) return "list";
     var el = r.el.querySelector(".dp") || r.el;
-    var t = el.textContent.replace(/^\s*-\s*/, "").trim();
+    var t = el.textContent.replace(RIG.MARKER, "").trim();
     return t.length > 24 ? t.slice(0, 23) + "…" : t;
   };
 

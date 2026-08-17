@@ -43,10 +43,12 @@
      and is bold over every line it wraps to, and so is the list, which IS the stop. */
   #rails i.at{width:3px; background:var(--g-bar)}
   #rails i.at.rest{width:1px; background:var(--g-bar)}
-  /* A HEADLINE WEARS ITS OWN MARK.  Its stars sit in the column a bar would use,
-     so the stars go gold and no bar is drawn -- the marker org already writes is
-     the marker. */
-  #mdoc .de.dat.d-head .ds{color:var(--g-bar); font-weight:700}
+  /* A ROW WEARS THE MARKER ORG ALREADY WROTE.  A headline's stars sit in the
+     column a bar would use, so they go gold and no bar is drawn; an item's bullet
+     sits clear of the bar, so it goes gold as well as one.  `> .dp >' keeps it to
+     the row's OWN line -- a nested item's bullet is not this row's. */
+  #mdoc .de.dat.d-head .ds,
+  #mdoc .de.dat.d-item > .dp > .dm{color:var(--g-bar); font-weight:700}
 
   #path{
     position:sticky; top:calc(-1 * var(--g-doc-pady)); z-index:2;
@@ -85,7 +87,7 @@
   var word = function (r) {
     if (r.el.classList.contains("d-comp")) return "list";
     var el = r.el.querySelector(".dp") || r.el;
-    var t = el.textContent.replace(/^\s*-\s*/, "").trim();
+    var t = el.textContent.replace(RIG.MARKER, "").trim();
     return t.length > 24 ? t.slice(0, 23) + "…" : t;
   };
   var colOf = function (r) {

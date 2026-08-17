@@ -37,11 +37,15 @@ var RIG = (function () {
         ]],
       ]],
       ["theme", [
-        ["the hue is per theme, never per tree", []],
+        ["the hue is per theme, never per tree", [], "+"],
+        ["and the ground is a hue the theme owns", [], "+"],
       ]],
     ],
     tail: "A paragraph has no depth, so nothing is drawn beside it.",
   };
+
+  // What org writes in front of a list item: a bullet or a counter.
+  var MARKER = /^\s*([-+*]|\d+[.)])\s+/;
 
   // ------------------------------------------------------------------ model
   // A ROW IS A STOP.  `kids' is what `f' descends into, `up' what `b' climbs to.
@@ -51,20 +55,27 @@ var RIG = (function () {
 
   var state = { at: null, roots: [], mdoc: null, paint: null, ch: 8, lh: 16 };
 
-  function itemEl(text, depth) {
+  // THE MARKER IS ITS OWN SPAN so it can be lit, the way a headline's stars are.
+  // Org writes several and the rule may not know which: `-', `+', `*', `1.', `1)'.
+  function itemEl(text, depth, mark) {
     var d = document.createElement("div");
     d.className = "de d-item";
     d.dataset.depth = String(depth);
     var own = document.createElement("div");
     own.className = "dp";
-    own.textContent = new Array(depth + 1).join("  ") + "- " + text;
+    own.appendChild(document.createTextNode(new Array(depth + 1).join("  ")));
+    var dm = document.createElement("span");
+    dm.className = "dm";
+    dm.textContent = mark + " ";
+    own.appendChild(dm);
+    own.appendChild(document.createTextNode(text));
     d.appendChild(own);
     return d;
   }
 
   function buildItems(spec, host, up, depth) {
     return spec.map(function (it) {
-      var el = itemEl(it[0], depth);
+      var el = itemEl(it[0], depth, it[2] || "-");
       host.appendChild(el);
       var r = row(el, up, depth);
       r.kids = buildItems(it[1], el, r, depth + 1);
@@ -236,7 +247,7 @@ var RIG = (function () {
 
   function own(r) {
     var el = r.el.querySelector(".dp") || r.el;
-    return el.textContent.replace(/^\s*-\s*/, "").trim().slice(0, 28);
+    return el.textContent.replace(MARKER, "").trim().slice(0, 28);
   }
 
   // A composite has no own line of its own to quote, so it answers by its name.
@@ -282,5 +293,6 @@ var RIG = (function () {
   }
 
   return { mount: mount, repaint: repaint, theme: theme,
-           at: function () { return state.at; }, chain: chain, rails: rails };
+           at: function () { return state.at; }, chain: chain, rails: rails,
+           MARKER: MARKER };
 })();

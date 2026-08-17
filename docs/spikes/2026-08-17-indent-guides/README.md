@@ -190,10 +190,12 @@ the earlier variants did not need:
   hangs off it takes the THIN one, both solid — dimming gold toward a dark ground
   darkens it, and a darker yellow is brown. A paragraph carries nothing and is bold
   over every line it wraps to, and so is the list, which IS the stop.
-- **A headline wears its own mark.** Its stars sit in the column a bar would use,
-  so a selected headline turns its stars gold and draws no bar: the marker org
-  already writes is the marker. For the same reason the document's rail starts
-  UNDER the headline — that column belongs to the stars.
+- **A row wears the marker org already wrote.** A headline's stars sit in the
+  column a bar would use, so a selected headline turns its stars gold and draws no
+  bar at all; for the same reason the document's rail starts UNDER the headline.
+  An item's bullet sits clear of the bar, so it goes gold as well as one — and the
+  bullet is whatever org wrote, `-` or `+` or `*` or `1.`, never a hyphen the rule
+  knows in advance.
 - **Every rail is one width and every rail is opaque.** A wider mark reads as a
   different KIND of thing; and since the document's rail and the list's run the
   same column, a translucent rail composites darker along the list than beside a

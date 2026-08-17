@@ -72,6 +72,7 @@ footer{
    where the list's text starts, and its leading spaces do the indenting. */
 .d-item{padding-left:0; padding-right:0}
 .dp{padding:0; white-space:pre-wrap; overflow-wrap:anywhere}
+.dm{white-space:pre}
 /* THE STARS SIT IN THEIR OWN COLUMN, so the headline's first letter lands where
    the body's text does — `.d-head' takes no body indent and the span carries it. */
 .d-head{display:flex; align-items:baseline; font-weight:600}

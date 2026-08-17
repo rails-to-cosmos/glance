@@ -102,7 +102,8 @@ await new Promise((r) => setTimeout(r, 400));
 const readMark = () => {
   const at = [...document.querySelectorAll("#rails i.at")];
   const lh = parseFloat(getComputedStyle(document.getElementById("mdoc")).lineHeight);
-  const stars = document.querySelector("#mdoc .de.dat.d-head .ds");
+  const stars = document.querySelector("#mdoc .de.dat.d-head .ds")
+             || document.querySelector("#mdoc .de.dat.d-item > .dp > .dm");
   const root = getComputedStyle(document.documentElement).getPropertyValue("--g-bar").trim();
   const bar = (() => {                       // resolve the token to what it paints
     const probe = document.createElement("span");
@@ -129,6 +130,7 @@ for (const [name, keys, want] of [
   const ok = want === "split"
     ? m.n === 2 && Math.abs(m.hs[0] - m.lh) <= 2
       && m.solid.every(Boolean) && m.ws[0] === 3 && m.ws[1] === 1
+      && m.stars === true          // and its own bullet is lit, like a headline's stars
     : want === "whole"
     ? m.n === 1 && m.solid[0] && m.ws[0] === 3 && m.hs[0] > m.lh
     : m.n === 0 && m.stars === true;
