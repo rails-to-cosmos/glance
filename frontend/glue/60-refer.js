@@ -1,18 +1,12 @@
-// `@' over the materialize sheet turns a row of the store into a link in the
-// prose.  Rules and consequences: AGENTS.hs.
-//
-// THE WIDGET IS THE RENDERER'S — `inline: true' — and the NARROWING is the
-// server's: `GET /refer' is `/headlines'' own pipeline with two cuts.
+// `@' in the sheet writes a store row into the prose as a link.  Rules: AGENTS.hs.
 
     const REFER_LIMIT = 200;
     const REFER_COLS = ["state", "priority", "title", "tag"];
     let picking = null;
 
     const referUp = () => !!picking;
-    // WHICHEVER BOX IS OPEN: a title edit takes the link into the TITLE.
     const referOpen = () => (dediting() ? "dtin" : dparaing() ? "dtext" : null);
     const referBox = () => el(referOpen());
-    // The run the picker owns: the `@' it wrote, or the region it stands over.
     const referRun = () => picking.at + (picking.desc === null ? 1 : picking.desc.length);
 
     function shutRefer(why) {
@@ -26,7 +20,6 @@
       if (why) append("cmd", "info", `refer: ${why}`);
     }
 
-    /** The caret in the open paragraph — OPENING one where none is. */
     function referAnchor(b) {
       if (!docHolds()) { said(b, "the sheet is not open"); return null; }
       if (!referOpen()) insertHere(null);       // nothing open: `+''s own path
@@ -42,22 +35,17 @@
       if (referAsking) referAsking.abort();
       referAsking = new AbortController();
       const row = editing ? `&row=${encodeURIComponent(editing.id)}` : "";
-      // THE SLUG IS THE SERVER'S: a typed kind rides out raw and comes back
-      // canonical, so the page writes what org-glance would have written.
       const want = kind ? `&kind=${encodeURIComponent(kind)}` : "";
       const asked = `${q} columns:${REFER_COLS.join(",")}`.trim();
       return getJSON(`/refer${asking(asked)}&limit=${REFER_LIMIT}${row}${want}`,
                      { signal: referAsking.signal });
     }
 
-    /** A SUPERSEDED ask is no failure: the next one is already out. */
     const referFailed = (b) => {
       const say = failed(b, "refer");
       return (e) => { if (!e || e.name !== "AbortError") say(e); };
     };
 
-    /** THE DOMAINS ARE THE STORE'S, over the 200 rows to hand.  A column that
-     *  declares its own keeps it, so picker and table complete alike. */
     function stockDomains(view) {
       const vocab = view.vocabulary || {};
       for (const col of view.columns || [])
@@ -66,9 +54,7 @@
 
     const KIND_KEY = "kind";
     /** The kind the query declares, and the query with it TAKEN OUT: `kind:' says
-     *  what the link will be, so it never narrows the rows it is written from.
-     *  The renderer's own tokenizer reads it — quoting and negation included —
-     *  with `kind' declared to the parse, the columns having no such cell. */
+     *  what the link will be, so it never narrows the rows it is written from. */
     function splitKind(q) {
       const text = String(q || "");
       if (typeof TableView.parseQuery !== "function") return { rows: text, kind: null };
@@ -81,17 +67,12 @@
       return { rows: rows.replace(/\s+/g, " ").trim(), kind: last || null };
     }
 
-    /** THE KIND IS THE EDGE'S, so it is drawn apart from the row's own badges:
-     *  a filter chip narrows what is offered, where this says what the link
-     *  being made WILL BE. */
     function drawKind() {
       const badge = el("rkind");
       badge.textContent = picking.kind ? `kind:${picking.kind}` : "";
       badge.className = picking.kind ? "on" : "";
     }
 
-    /** `K': what kind of reference this is — the tree's own kinds to pick from,
-     *  and free text, which is how a kind is minted at all. */
     function askKind() {
       const held = picking, b = held.b;
       const shown = (held.kinds || []).map((k) =>
@@ -103,16 +84,12 @@
                 takeKind(b, String(c.tag || "").trim());
               });
     }
-    /** What an answer says the kind is; the SERVER spells the slug. */
     function tookKind(view) {
       picking.kind = view.kind || null;
       picking.kinds = view.kinds || picking.kinds;
       drawKind();
     }
-    // `K' AND `/ kind:' ARE ONE STATE: the chip is the control — DEL takes it off
-    // like any other — and the badge is the readout.  The canonical spelling
-    // comes back from the server before the chip is written, so the strip reads
-    // `kind:roasted-by' whatever was typed.
+    // `K' AND `/ kind:' ARE ONE STATE; the canonical slug is the server's.
     function takeKind(b, raw) {
       const held = picking, base = splitKind(held.tv.getQuery()).rows;
       if (!raw) { held.tv.setQuery(base); tookKind({}); echo("kind cleared"); return; }
@@ -154,9 +131,7 @@
       pop.style.top = `${Math.round(y)}px`;
     }
 
-    // An older `table-view.js' is NAMED rather than crashed into (`lacks').
-    // `filtering' is LOAD-BEARING: without it the listener below never stands
-    // aside and the filter box gets none of the keys it is for.
+    // `filtering' IS LOAD-BEARING: without it the listener below never stands aside.
     const REFER_VERBS = ["setRows", "getVisible", "getSelection", "select",
                          "getQuery", "stripLastToken", "openFilter", "selectStep",
                          "filtering"];
@@ -165,11 +140,9 @@
       const box = referAnchor(b);
       if (!box) return;
       sole();                             // the picker is a momentary surface too
-      // A SELECTED REGION BECOMES THE LINK and reads as its own words; it is no query.
       const at = box.selectionStart;
       const desc = box.selectionEnd > at ? box.value.slice(at, box.selectionEnd) : null;
-      // `@' IS WRITTEN, ALWAYS, the picker riding on top.  A region is the
-      // exception: an `@' over it would eat the words the link reads as.
+      // NO `@' OVER A REGION: it would eat the words the link is to read as.
       if (desc === null) writeIn(box, at, at, "@");
       referFetch(referDefault()).then((view) => {
         if (!(view.rows || []).length) { said(b, "no addressable row to link to"); return; }
@@ -197,12 +170,10 @@
       }).catch(referFailed(b));
     }
 
-    /** Take the row under the cursor: the run from `@' becomes the link. */
     function referTake() {
       const at = selectedId(picking.tv);
       const row = picking.tv.getVisible().find((r) => r.id === at);
       if (!row) { append("cmd", "info", "refer: no row is under the cursor"); return; }
-      // The reader's own words win over the row's title where they chose some.
       const title = picking.desc !== null ? picking.desc
                                           : ((row.cells || {}).title || row.id);
       const kind = picking.kind ? `?kind=${picking.kind}` : "";
@@ -219,14 +190,10 @@
       box.dispatchEvent(new Event("input", { bubbles: true }));
     }
 
-    /** DEL's rungs OUT HERE: the last chip, then the `@' — what is typed and the
-     *  box itself are the MOUNT's, so it has the keys until they are gone.  It
-     *  re-asks through `onFilter' for every chip it gives up. */
     function referDrop() {
       if (!picking.tv.stripLastToken()) dropMark();
     }
 
-    /** The last rung: the picker goes and takes the `@' it wrote with it. */
     function dropMark() {
       const { box, at, desc } = picking;
       const to = referRun();
@@ -248,14 +215,10 @@
       openRefer(b);
     }
 
-    /** Is the renderer's own filter box holding the keys?  THE MOUNT answers. */
     const referTyping = () => picking.tv.filtering();
 
-    // THE PICKER HOLDS THE KEYBOARD, claimed outright: taking a row SHUTS it, so
-    // a listener further along would read the same RET as its own.
+    // TAKING A ROW SHUTS THE PICKER, so a listener further along would read the same RET.
     document.addEventListener("keydown", (e) => {
-      // A SURFACE RAISED OVER THE PICKER OUTRANKS IT — the kind field is one —
-      // and `SURFACES' order is what says so, the way `popupKeys' asks it.
       if (momentary() !== "refer" || e.defaultPrevented) return;
       const k = keyName(e);
       if (!k) return;
@@ -264,10 +227,7 @@
       e.preventDefault(); e.stopPropagation();
       const step = rowStep(k) || (k === "C-n" ? 1 : k === "C-p" ? -1 : 0);
       if (step) { stepIn(picking.tv, step); return; }
-      // ONE PRESS, ONE PART, past the movement a held key is FOR: a held DEL
-      // reaches here the moment the mount hands the box back, and unguarded
-      // would walk the chip, the picker and the `@' in one key, then eat the
-      // prose behind it.  Every rung below is one-per-press.
+      // ONE PRESS, ONE RUNG: a held DEL would walk chip, picker and `@' in one key.
       if (repeating(e)) return;
       if (k === "/") { picking.tv.openFilter(); return; }
       // `k' IS THE PREVIOUS ROW in the vim dialect, so the kind takes the shift.

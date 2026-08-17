@@ -1,5 +1,4 @@
-// THE DRIVER — a real engine measures the page, because nothing else in this
-// repo renders anything.  ZERO DEPENDENCIES: node's global WebSocket onto CDP.
+// ZERO DEPENDENCIES: node's global WebSocket onto CDP.
 // Every wait is a CONDITION with a cap, never a duration (AGENTS.hs).
 //
 //   GLANCE_BIN   the daemon to serve with          (else `cabal list-bin')
@@ -43,7 +42,6 @@ async function poll(fn, cap, what) {
   }
 }
 
-/** The browser this machine has: $CHROME, then PATH, then the cache. */
 async function browserPath() {
   if (process.env.CHROME) return process.env.CHROME;
   for (const p of ["/usr/bin/chromium", "/usr/bin/google-chrome-stable",
@@ -72,19 +70,19 @@ const BREAKS = {
                   "#dpara.on{height:220px !important}"],
   "edit-floor": ["an open edit moves the line under it down",
                  ".de.dat{min-height:0 !important}"],
-  // The drawn paragraph collapses to nothing (d7ba44b).
+  // The drawn paragraph collapses to nothing.
   "draft-floor": ["a paragraph drawn before it is written",
                   ".d-draft{min-height:0 !important}"],
-  // The pane draws its flag in `--g-warn' at a strength of its own (14e13d9).
+  // The pane draws its flag in `--g-warn' at a strength of its own.
   "flag-red": ["a flag paints one red on both surfaces",
                ".de.dfl{box-shadow:inset 3px 0 0 var(--g-warn) !important}"],
   "no-clip": ["the page never scrolls",
               "html,body{overflow:visible !important}#log{width:220vw !important}"],
-  // The tier stops clamping (`.pop-sheet' once drew its box outside the cap).
+  // The tier stops clamping.
   "pop-clamp": ["a popup clamps inside the viewport",
                 ".pop-band,.pop-sheet{box-sizing:content-box !important;"
                   + "height:96vh !important;max-height:96vh !important}"],
-  // The sheet's state cell falls back to the page's own ink (80c3732).
+  // The sheet's state cell falls back to the page's own ink.
   "badge-hue": ["a badge in the sheet paints the hue",
                 "#mdoc .dc-state{color:var(--g-fg) !important}"],
   "para-indent": ["a paragraph is indented under the title text",
@@ -118,12 +116,9 @@ const BREAKS = {
                   + "{width:15px !important;height:15px !important}"],
 };
 
-/** One socket, one id counter, one session: `flatten' puts the page session on
- * the browser socket, so there is one connection to close. */
 class CDP {
   constructor(ws) {
     this.ws = ws; this.n = 0; this.waiting = new Map();
-    // EVENTS ARE DROPPED: every wait here is a CONDITION polled in the page.
     ws.addEventListener("message", (m) => {
       const msg = JSON.parse(m.data);
       const w = msg.id === undefined ? null : this.waiting.get(msg.id);
@@ -155,8 +150,6 @@ class CDP {
 }
 
 
-/** SIX CALLS AND NO MORE, plus the two artifacts a failure owes.  Swapping CDP
- * for playwright or BiDi later is one adapter behind these names. */
 function pageHandle(cdp, sid) {
   const call = (m, p) => cdp.send(m, p, sid);
   const evaluate = async (fn, ...args) => {
@@ -168,11 +161,8 @@ function pageHandle(cdp, sid) {
         || r.exceptionDetails.text}`);
     return r.result.value;
   };
-  // A LETTER BINDING NAMES A PHYSICAL KEY, so a press carries `code' beside
-  // `key' — which is what `keyName' (frontend/glue/05-keys.js) reads back.
-  // THE THIRD SLOT IS THE BROWSER'S OWN DEFAULT, not the page's listener: without
-  // the virtual-key code a held Backspace deletes no character, and a case
-  // asserting nothing was eaten would pass over a keystroke that never bit.
+  // A press carries `code' beside `key', read by `keyName' (frontend/glue/05-keys.js),
+  // and the vk: without it a held Backspace deletes no character.
   const NAMED = { RET: ["Enter", "Enter", 13], TAB: ["Tab", "Tab", 9],
     SPC: [" ", "Space", 32],
     ESC: ["Escape", "Escape", 27], DEL: ["Backspace", "Backspace", 8],
@@ -200,8 +190,6 @@ function pageHandle(cdp, sid) {
     return { key: rest, code: CODE[rest] || `Key${rest.toUpperCase()}`, vk,
              modifiers: mods, text: rest };
   }
-  /** One press, TIMES auto-repeats, one release.  A plain press is this with
-   *  none: CDP defaults `autoRepeat' to false, so the payload is the same. */
   async function held(name, times) {
     const e = keyEvent(name);
     const down = (autoRepeat) => call("Input.dispatchKeyEvent",
@@ -224,8 +212,6 @@ function pageHandle(cdp, sid) {
       return poll(() => evaluate(fn, ...args), cap, what);
     },
     press: (name) => held(name, 0),
-    /** NAME held down: one press, then TIMES auto-repeats, then the release.
-     *  A held key is its own gesture — `e.repeat' is what a surface guards. */
     hold: held,
     type(text) { return call("Input.insertText", { text }); },
     async size(width, height) {
@@ -237,7 +223,6 @@ function pageHandle(cdp, sid) {
       await writeFile(path, Buffer.from(r.data, "base64"));
       return path;
     },
-    // THE PAGE'S OWN TESTIMONY, wanted beside the picture on a red run.
     strip() {
       return evaluate(() => {
         const box = document.getElementById("log");
@@ -279,15 +264,13 @@ async function main() {
   let daemon = null, profile = null, browser = null, cdp = null, failed = 0, daemonSaid = "";
   const started = Date.now();
   try {
-    // The daemon's stderr is HELD rather than inherited: a socket closed between
-    // cases is one `CloseRequest' line each, which would bury the report.
+    // The daemon's stderr is HELD: a `CloseRequest' per closed socket would bury the report.
     daemon = spawn(bin, ["serve", "--dir", tree, "--port", String(port)],
                    { stdio: ["ignore", "ignore", "pipe"] });
     daemon.stderr.on("data", (d) => { daemonSaid += d; });
     daemon.on("error", (e) => { throw e; });
     const base = `http://127.0.0.1:${port}`;
-    // THE BIND IS NOT THE LOAD, so readiness is the route that NEEDS the store:
-    // `/' and the assets serve while `/headlines' answers 503 + Retry-After.
+    // Readiness is the route that NEEDS the store: the bind lands before the walk ends.
     const rows = await poll(async () => {
       const r = await fetch(`${base}/headlines?limit=1`).catch(() => null);
       return r && r.status === 200 ? r.json() : null;
@@ -336,8 +319,7 @@ async function main() {
     for (const c of picked) {
       n += 1;
       const at = Date.now();
-      // A `known' CASE IS EXPECTED RED and IS NOT AN XFAIL THAT SILENCES: a
-      // GREEN one is itself a failure.  The reading still prints.
+      // A `known' CASE IS EXPECTED RED: a GREEN one is itself a failure.
       try {
         const said = await c.run(p, base);
         if (c.known) {
@@ -383,9 +365,7 @@ async function main() {
       + (known ? `, ${known} of them a KNOWN defect this repo has not fixed` : "")
       + `, ${wall}s wall` + (failed ? `, artifacts under ${shots}` : ""));
     if (failed) console.log(`browser-check: ${failed} FAILED`);
-    // A BREAK IS A CLAIM ABOUT A CASE, so the run checks it. Keyed by NAME
-    // because an ordinal is computed over the ONLY-filtered list and rots the
-    // moment a case moves.
+    // Keyed by NAME: an ordinal over the ONLY-filtered list rots when a case moves.
     if (broke) {
       const [want] = BREAKS[broke];
       const hit = lines.filter((l) => l.name.includes(want));

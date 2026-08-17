@@ -37,7 +37,7 @@ page head' colours title body = T.unlines
   , "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
   , "<title>" <> escape title <> "</title>"
   , "<style>" <> (if T.null head' then "" else "\n" <> head')
-  -- THE PALETTE IS NOT HERE ('Glance.Web.Theme'); what stays here is GEOMETRY.
+  -- Colours live in 'Glance.Web.Theme'; this block is GEOMETRY.
   , "  :root{--glance-mono:" <> monoStack <> ";"
   , "    --g-doc-pad:6px;"
   , "    --g-doc-padx:10px;--g-doc-pady:8px;"
@@ -56,7 +56,6 @@ page head' colours title body = T.unlines
   , "  p{margin:0;max-width:70ch}"
   , "  code{font-size:12px;color:var(--g-mute)}"
   , "  #app{flex:1 1 auto;min-height:0}"
-  -- The renderer injects its own rule from a script and ties on specificity.
   , "  #app .tv-root{font-family:var(--glance-mono)}"
   , "  #app,#log{width:100%;box-sizing:border-box}"
   , "  #log{font-size:12px;color:var(--g-mute);padding:6px 10px;"
@@ -65,7 +64,7 @@ page head' colours title body = T.unlines
   , "    height:calc(var(--g-logn) * 1.5em + 2 * 6px + 2 * 1px);"
   , "    background:var(--g-surface);flex:none;overflow-y:auto}"
   , "  #log div>span{margin-right:6px}"
-    -- Each width is its own longest WORD, which `TestServe' derives and asserts.
+  -- Each width is its own longest WORD, which `TestServe' derives and asserts.
   , "  #log .lv,#log .lc{display:inline-block}"
   , "  #log .lv{width:5ch}"
   , "  #log .lc{width:6ch}"
@@ -73,10 +72,6 @@ page head' colours title body = T.unlines
   , "  #log .lm{color:var(--g-fg)}"
   , "  #log .warn .lv{color:var(--g-warn)}"
   , "  #log .error .lv{color:var(--g-bad)}"
-  -- The strip is one nowrap line and is WIDER THAN THE WINDOW AT EVERY SIZE, so
-  -- `overflow-x:auto' drew a bar under it always — 15px of chrome under a hint
-  -- nobody drags. It still scrolls; it draws nothing. Both spellings, as
-  -- `#dpara textarea' below.
   , "  #kbd{flex:none;font-size:11px;color:var(--g-mute);white-space:nowrap;"
   , "    overflow-x:auto;scrollbar-width:none;padding:0 2px}"
   , "  #kbd::-webkit-scrollbar{width:0;height:0}"
@@ -105,7 +100,6 @@ page head' colours title body = T.unlines
   , "  #mnote{text-align:right;color:var(--g-ok)}"
   , "  #mnote.syncing{color:var(--g-mute)}"
   , "  #mnote.conflict,#mnote.error{color:var(--g-bad)}"
-  -- `overflow:hidden' bounds the flex LINE, or a tall subtree paints outside.
   , "  #mpanes{flex:1;min-height:0;overflow:hidden;"
   , "    display:flex;flex-wrap:wrap;gap:10px}"
   -- NO FLOOR: a `min-height' on a flex child is a refusal to shrink.
@@ -135,7 +129,6 @@ page head' colours title body = T.unlines
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
   , "  #mdoc.on .de.dat{background:var(--g-sel);color:var(--g-fg)}"
-      -- AN EDIT IS INLINE: the block grows with the typing, in the PANE's own line box.
   , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-doc-fs)"
   , "    * var(--g-doc-lh))}"
   -- The background is ONE SLOT and the cursor wins it, so a flag says it INSET.
@@ -144,7 +137,6 @@ page head' colours title body = T.unlines
   -- PADDING: a margin would take the selection wash off the left of the line.
   , "  .d-para,.d-comp{margin:.5em 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
-  -- Zeroed: a leaf would spend the stop padding AGAIN inside its composite and drift.
   , "  .d-comp,.d-comp .de{padding-top:0;padding-bottom:0}"
   -- The draft row holds nothing and `:empty' misses it — Elm emits a text node.
   , "  .d-draft{min-height:calc(var(--g-doc-fs) * var(--g-doc-lh))}"
@@ -160,7 +152,6 @@ page head' colours title body = T.unlines
   , "  .dc-title{flex:1 1 auto;min-width:0}"
   , "  #mdoc.on .dc.don{background:color-mix(in srgb, var(--g-col) var(--g-cell-wash), transparent)}"
   , "  .dc-tags{color:var(--g-mute);font-size:11px;margin-left:auto;margin-right:0}"
-  -- Absolute, over the row: the mount rewrites its rows as it scrolls.
   , "  #dtitle,#dpara,#pedit,#sedit,#tedit,#ledit{display:none;position:absolute;"
   , "    background:var(--g-sel)}"
   , "  #dpara,#dtitle{background:var(--g-surface)}"
@@ -168,7 +159,7 @@ page head' colours title body = T.unlines
   , "  #pedit,#sedit{left:0;right:0}"
   , "  #chues{position:relative}"
   , "  #cstates{overflow:auto;max-height:40vh}"
-      -- The fallback for a page that measured nothing; `placeEdit' uses the ROW's box.
+  -- Fallback only; `placeEdit' places from the ROW's own box.
   , "  #dpara{left:var(--g-doc-padx);right:var(--g-doc-padx)}"
   , "  #dtitle.on,#pedit.on,#sedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
   , "  #dpara.on{display:flex}"
@@ -178,9 +169,7 @@ page head' colours title body = T.unlines
   , "    background:transparent;color:var(--g-fg);min-width:0}"
   , "  #dtin{flex:1;font:inherit;padding:0;border:none;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
-      -- Naming the popup metrics here too tied specificity: this box inherits the PANE's.
-  -- `scrollbar-width:none': a scrollbar taking layout width wraps the field
-  -- narrower than the row under it, and a one-line row overflows by a thousandth.
+  -- Hide the scrollbar: one taking layout width wraps the field narrower than its row.
   , "  #dpara textarea{flex:1;resize:none;border:none;margin:0;font:inherit;"
   , "    background:transparent;color:var(--g-fg);min-width:0;"
   , "    width:100%;overflow-wrap:anywhere;padding:1px var(--g-doc-pad);"
@@ -222,7 +211,6 @@ page head' colours title body = T.unlines
   , "  #ktext{flex:1 1 auto;min-height:0;font:12px/1.5 var(--dk-mono);"
   , "    padding:5px 7px;border-radius:4px;border:1px solid var(--g-border);"
   , "    background:transparent;color:inherit;resize:none}"
-    -- `subgrid': every row borrows the LIST's tracks, so header and values agree.
   , "  #plist.ptable{display:grid;"
   , "    grid-template-columns:6.5em minmax(0,1fr) minmax(0,1fr)}"
   , "  .ptable>.pr{display:grid;grid-template-columns:subgrid;grid-column:1/-1}"
@@ -267,8 +255,7 @@ page head' colours title body = T.unlines
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
   , "  .ctext{height:7em;resize:vertical}"
   , "  .ctext::selection{background:var(--g-sel);color:var(--g-fg)}"
-    -- A `<select>' with a TRANSPARENT ground keeps the UA's own control paint,
-    -- which reads as a light box among dark fields.  Every select says the ground.
+  -- Every <select> says its ground; a transparent one keeps the UA's control paint.
   , "  #themesel,#clayer,#nspace,#ngroup{background:var(--g-bg);align-self:flex-start;"
   , "    max-width:100%;min-width:10em}"
   , "  #themesel option,#clayer option,#nspace option,#ngroup option{"
@@ -279,20 +266,12 @@ page head' colours title body = T.unlines
   , "  #ltable,#ttable{flex:1;min-height:0;display:flex;overflow:hidden}"
   , "  #tpane,#lpane{flex:1;position:relative;min-height:0;display:flex;"
   , "    flex-direction:column;overflow:hidden}"
-  -- The picker hangs at the CARET: no veil, no centring, and over the sheet it
-  -- is drawn into (`ZRefer').  The BOX is all this draws — the table inside it
-  -- is the renderer's `inline' mode.
-  -- `--dk-mono' is declared by the popup layers; #refer is none of them, so it
-  -- says the font itself or #rbox inherits the body's.
   , "  #refer{display:none;position:fixed;inset:0;z-index:102;pointer-events:none;"
   , "    --dk-mono:\"Hack\", var(--glance-mono)}"
   , "  #refer.on{display:block}"
   , "  #rbox{position:fixed;pointer-events:auto;box-sizing:border-box;"
   , "    width:min(1020px,calc(100vw - 24px));"
   , "    box-shadow:0 4px 14px var(--g-shadow);overflow:hidden}"
-  -- AN OUTLINE, WHERE EVERY OTHER BADGE IS A WASHED GROUND: a state or a tag
-  -- describes the row it sits on, and this describes the EDGE about to be
-  -- written.  Reading alike would say they were the same kind of thing.
   , "  #rkind{display:none;align-self:flex-start;margin:4px 8px 0;"
   , "    padding:0 7px;border-radius:999px;font-size:10px;"
   , "    border:1px dashed var(--g-accent);color:var(--g-accent);"
@@ -300,7 +279,6 @@ page head' colours title body = T.unlines
   , "  #rkind.on{display:block}"
   , "  #rfoot{border-top:1px solid var(--g-border);padding:2px 8px;"
   , "    font-size:10px;color:var(--g-mute)}"
-  -- BORDER-BOX, or the padding and border fall OUTSIDE the `--g-pop-max' cap.
   , "  .pop-band,.pop-sheet{box-sizing:border-box}"
   , "  .pop-band{width:min(560px,100%);max-height:var(--g-pop-max)}"
   , "  .pop-sheet{width:min(80vw,100%);height:var(--g-pop-max)}"

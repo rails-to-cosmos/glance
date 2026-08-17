@@ -1,5 +1,4 @@
--- | The two documents this server serves: the shell, and the page that says
--- there is no renderer to mount.
+-- | The two documents this server serves: the shell, and the no-renderer page.
 module Glance.Web.Page (demoShell, assetsMissing) where
 
 import Data.Text (Text)
@@ -29,9 +28,7 @@ demoShell opts font colours views =
   , "      <div id=\"mpanes\">"
   , "        <textarea id=\"mtext\" spellcheck=\"false\"></textarea>"
   , "        <div id=\"mdoc\"><div id=\"dlist\"></div>"
-      -- THE BROWSER OFFERS NOTHING HERE.  These two boxes write ORG back to the
-      -- user's own files, so a remembered value, a capitalised first letter or a
-      -- "corrected" quote is a silent edit to a document nobody asked it to make.
+      -- Autocorrect and friends OFF: these boxes write ORG into the user's files.
       <> "<div id=\"dtitle\"><input id=\"dtin\" spellcheck=\"false\" autocomplete=\"off\""
       <> " autocapitalize=\"off\" autocorrect=\"off\"></div>"
       <> "<div id=\"dpara\"><textarea id=\"dtext\" spellcheck=\"false\" autocomplete=\"off\""
@@ -56,8 +53,7 @@ demoShell opts font colours views =
   , "    </div>"
   , "  </div>"
   ]
-  -- RAISED OVER THE PALETTE, which stands: `+' asks for a state the store does
-  -- not have yet, and ESC hands the palette back rather than closing both.
+  -- RAISED OVER THE PALETTE, which stands beneath: ESC hands it back.
   <>
   [ "  <div id=\"mint\">"
   , "    <div id=\"nbox\" class=\"pop-band\">"
@@ -68,8 +64,7 @@ demoShell opts font colours views =
   , nrow "ngroup" "group" ("<select id=\"ngroup\" class=\"cview\">"
                              <> "<option value=\"active\">active</option>"
                              <> "<option value=\"inactive\">inactive</option></select>")
-  -- ONE HUE PER THEME: the colour config is keyed by theme, so a state minted
-  -- under one theme owes the other a colour or it falls back to a palette slot.
+  -- ONE HUE PER THEME: the colour config is keyed by theme, so two fields.
   , nrow "nlight" "light hue" (hueField "nlight")
   , nrow "ndark" "dark hue" (hueField "ndark")
   , "      <div id=\"nfoot\">TAB walks · RET adds it · ESC leaves</div>"
@@ -83,9 +78,7 @@ demoShell opts font colours views =
   [ "  <div id=\"refer\">"
   , "    <div id=\"rbox\">"
   , "      <div id=\"rmount\"></div>"
-  -- THE KIND IS THE EDGE'S, so it is drawn APART from the row's own badges and
-  -- from the filter's chips: those narrow what is offered, this says what the
-  -- link being made will be.
+  -- THE KIND IS THE EDGE'S: drawn APART from the row's badges and filter chips.
   , "      <div id=\"rkind\"></div>"
   , "      <div id=\"rfoot\">n/p move · / filter or kind: · K kind · DEL drop"
       <> " · RET link · ESC dismiss</div>"
@@ -115,23 +108,18 @@ demoShell opts font colours views =
   , "      <div id=\"ctabs\"></div>"
   , "      <div id=\"csecs\"></div>"
   , "      <div id=\"ctheme\" class=\"cpart\">"
-  -- THE OPTIONS ARE THE REGISTRY'S: a theme is a record in `Glance.Web.Theme'.
   , crow (clab "theme")
          ("<select id=\"themesel\" class=\"cview\" title=\"theme\">"
             <> "<option value=\"auto\">auto</option>"
             <> T.concat [ "<option value=\"" <> thId t <> "\">" <> escape (thLabel t)
                             <> "</option>" | t <- themes ]
             <> "</select>")
-  -- A state rides its config LAYER's write, a COLOUR rides `system.org''s.
   , "      <div id=\"chues\" class=\"cpart\"><div id=\"cstates\"></div>"
-      -- ONE HUE PER THEME: the colour config is keyed by theme, so a sheet
-      -- offering one field would edit whichever theme happened to be on.
       <> "<div id=\"sedit\"><input id=\"sname\" spellcheck=\"false\">"
       <> "<input id=\"sgroup\" spellcheck=\"false\">"
       <> "<input id=\"shue\" spellcheck=\"false\" title=\"light hue\">"
       <> "<input id=\"sdark\" spellcheck=\"false\" title=\"dark hue\"></div></div>"
   , "      </div>"
-  -- ONE LAYER AT A TIME; every layer's text is kept and the sync writes all.
   , "      <div id=\"clayers\" class=\"cpart\">"
   , crow (clab "layer")
          "<select id=\"clayer\" class=\"cview\" title=\"config layer\"></select>"
@@ -158,8 +146,8 @@ demoShell opts font colours views =
   , "  <script src=\"" <> T.pack glueAsset <> "\"></script>"
   ]
 
--- | A table popup's frame: NAME the wrapper the backdrop wears, P the letter
--- every part is prefixed with, TIER the size class, OVERLAY the edit box.
+-- | A table popup's frame: NAME the wrapper, P the prefix every part id wears,
+-- TIER the size class, OVERLAY the edit box.
 popupFrame :: Text -> Text -> Text -> Text -> [Text]
 popupFrame name p tier overlay =
   [ "  <div id=\"" <> name <> "\">"
@@ -175,15 +163,13 @@ popupFrame name p tier overlay =
 field :: Text -> Text
 field name = "<input id=\"" <> name <> "\" spellcheck=\"false\">"
 
--- | A labelled row of the mint form, in the capture form's own two classes.
--- The row NAMES ITS FIELD, so a stylesheet can reach one row: the browser suite
--- takes a field away that way to prove the case measures the fields it draws.
+-- | A labelled row of the mint form, in the capture form's two classes.  The
+-- `nrow-NAME' class is the browser suite's handle for taking one field away.
 nrow :: Text -> Text -> Text -> Text
 nrow name label control =
   "      <div class=\"krow nrow-" <> name <> "\"><label class=\"klab\">"
     <> label <> "</label>" <> control <> "</div>"
 
--- | A hue field: EMPTY means the state keeps the palette slot it was given.
 hueField :: Text -> Text
 hueField name =
   "<input id=\"" <> name <> "\" spellcheck=\"false\" autocomplete=\"off\""
@@ -196,8 +182,7 @@ clab :: Text -> Text
 clab word = "<div class=\"clab\">" <> word <> "</div>"
 
 
--- | The page a browser gets when DIR — the @--assets@ directory — holds no
--- renderer: what still works, and the two ways out.
+-- | The page served when DIR — the @--assets@ directory — holds no renderer.
 assetsMissing :: ServeOptions -> FilePath -> Text
 assetsMissing opts dir = page "" [] "glance — JSON only" $ T.unlines
   [ "  <h1>glance — JSON-only mode</h1>"
