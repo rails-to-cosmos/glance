@@ -11,3 +11,8 @@ An ordinary paragraph after the unbreakable one, carrying
 [[https://example.invalid/second][a second link]] so `?page=links' LISTS rather
 than following: a row with exactly one link is followed, and a followed link is
 a tab this driver never asked for.
+
+- an item whose own line is one line
+  - a nested item, drawn INSIDE its parent, which is what the cursor must not ground
+  - a second nested one
+- a plain item after it

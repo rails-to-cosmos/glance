@@ -129,6 +129,10 @@ page head' colours title body = T.unlines
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
   , "  #mdoc.on .de.dat{background:var(--g-sel);color:var(--g-fg)}"
+    -- A NESTED ITEM IS DRAWN INSIDE ITS PARENT, so the ground would run the
+    -- whole subtree; the cursor is on the item, not on what hangs off it.
+    -- `:not(.dfl)' leaves a flagged child its own wash.
+  , "  #mdoc.on .de.dat .de:not(.dfl){background:var(--g-bg)}"
   , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-doc-fs)"
   , "    * var(--g-doc-lh))}"
   -- The background is ONE SLOT and the cursor wins it, so a flag says it INSET.

@@ -4281,6 +4281,10 @@ sheetNotes =
          \ off like any other — and the badge is the readout.  `kind:' comes OUT of\
          \ the row query before it is sent, the kind saying what the link WILL BE\
          \ rather than narrowing the rows it is written from." [Browser]
+  , Note "THE CURSOR GROUNDS THE ITEM, NOT WHAT HANGS OFF IT: a nested list item\
+         \ is drawn INSIDE its parent, so the parent's element is as tall as its\
+         \ whole subtree and a ground on it runs the lot.  The nested rows take the\
+         \ pane's own ground back; a flagged one keeps its wash." [Browser]
   , Note "THE PLATFORM PAINTS THE FORM CONTROLS, and `color-scheme' is the only\
          \ thing that tells it which way: a `<select>' on a dark page that never\
          \ declares its scheme is drawn from the UA's LIGHT palette, and the page's\

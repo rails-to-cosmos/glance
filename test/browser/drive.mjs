@@ -105,6 +105,9 @@ const BREAKS = {
   // The mint form goes back to one hue field, for whichever theme is on.
   "one-hue": ["+ over the state palette draws a form",
               ".nrow-ndark{display:none !important}"],
+  // The cursor's ground runs the subtree again, as it did before the item rule.
+  "subtree-ground": ["the cursor on a list item grounds the item",
+                     "#mdoc.on .de.dat .de{background:transparent !important}"],
   // The kind badge reads like a row's own badge — a washed ground, no outline.
   "kind-badge": ["K declares the kind",
                  "#rkind{border-style:solid !important;"

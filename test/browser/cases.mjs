@@ -1059,4 +1059,54 @@ export default [
     return [`row ${row.id} wears HANDED, off a config layer that did not exist `
       + `when the page loaded`];
   } },
+
+// A NESTED LIST ITEM IS DRAWN INSIDE ITS PARENT, so a ground on the parent runs
+// the whole subtree — and the cursor is on the ITEM, not on what hangs off it.
+// The pane's own case 9 catches the same structure from the other side: a leaf
+// with kids stands taller than one line box.,
+
+// A NESTED LIST ITEM IS DRAWN INSIDE ITS PARENT, so the cursor's ground ran the
+// whole subtree: the item's own line is one line box and its element is three.
+// `f' goes finer, which is how the cursor reaches an item at all — the list
+// itself is ONE stop at the coarse grain.  The pane's own composite case catches
+// the same structure from the other side, a leaf standing taller than its line.
+{ name: "the cursor on a list item grounds the item, not the subtree under it",
+  async run(p, base) {
+    await sheet(p, base, "drv-wide");
+    // `n' CROSSES STOPS, `f' GOES FINER — the list is ONE stop at the coarse
+    // grain, so reaching an item at all takes the finer key.  This entry is the
+    // one no other case writes to, so the walk is the same every run.
+    await p.press("n");
+    await p.press("n");
+    await p.press("n");
+    await p.press("f");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && !!at.querySelector(".de")
+          && [...at.children].some((c) => !c.classList.contains("de"));
+    }, "the cursor to land on an item with rows drawn inside it");
+    const seen = await p.eval(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      const kid = at.querySelector(".de");
+      const own = [...at.children].find((c) => !c.classList.contains("de"));
+      const px = (n) => Math.round(n.getBoundingClientRect().height);
+      return { nested: true, text: own.textContent.trim().slice(0, 32),
+               atBg: getComputedStyle(at).backgroundColor,
+               kidBg: getComputedStyle(kid).backgroundColor,
+               ownH: px(own), atH: px(at) };
+    });
+    assert(seen && seen.nested,
+      "`f' did not reach an item with rows drawn inside it, so nothing was measured");
+    assert(seen.atH >= seen.ownH * 2,
+      `the item is ${seen.atH}px against its own line's ${seen.ownH}px, so a `
+      + `subtree ground would not be visible either way`);
+    // OPAQUE, not merely a different string: a TRANSPARENT nested row lets the
+    // cursor's ground through, which is the bug wearing another spelling.
+    const clear = /^rgba\(.*,\s*0\)$/.test(seen.kidBg);
+    assert(!clear && seen.atBg !== seen.kidBg,
+      `the row nested under the item paints ${seen.kidBg} against the item's `
+      + `${seen.atBg}, so the cursor's ground runs the subtree`);
+    return [`"${seen.text}": ${seen.ownH}px of ${seen.atH}px grounded, `
+      + `the nested row painting ${seen.kidBg}`];
+  } },
 ];
