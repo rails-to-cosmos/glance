@@ -2923,7 +2923,7 @@ linkWalls = [LinkNewline, InSubtree, EdgeToEdge, Reparses]
 -- ONE source: a 'Role' per theme, emitted into BOTH namespaces, so a role the
 -- page and the renderer both spell has ONE value.
 
-data Role = RBg | RFg | RSurface | RMuted | RBorder | RAccent | RSel | RPoint | RHover | RLink
+data Role = RBg | RFg | RSurface | RMuted | RBorder | RAccent | RSel | RPoint | RPointDim | RHover | RLink
           | RFrost | RCol | ROk | RWarn | RBad | RVeil | RShadow | RChipWash | RChipEdge
           | RMarkWash | RFlagWash | RColWash | RCellWash | RSortWash | RColsWash
   deriving (Eq, Ord, Show, Enum, Bounded)
@@ -2939,6 +2939,7 @@ pageToken RBorder = Just "--g-border"
 pageToken RAccent = Just "--g-accent"
 pageToken RSel = Just "--g-sel"
 pageToken RPoint = Just "--g-point"
+pageToken RPointDim = Just "--g-point-dim"
 pageToken RLink = Just "--g-link"
 pageToken RCol = Just "--g-col"
 pageToken RCellWash = Just "--g-cell-wash"
@@ -2967,6 +2968,7 @@ tableToken RAccent = Just "--tv-accent"
 tableToken RSel = Just "--tv-sel"
 -- THE MARK IS THE DOCUMENT'S ALONE: the renderer grounds its cursor row.
 tableToken RPoint = Nothing
+tableToken RPointDim = Nothing
 tableToken RHover = Just "--tv-hover"
 tableToken RLink = Just "--tv-link"
 tableToken RFrost = Just "--tv-frost"
@@ -4376,13 +4378,23 @@ sheetNotes =
   , Note "THE BROWSER MOVES FOCUS ON TAB, so the key is claimed with `preventDefault'\
          \ and only while the paragraph edit is open -- the sheet's pane crossing keeps\
          \ it everywhere else." [Test]
+  , Note "THE PANE IS DRAWN THE WAY `tree' DRAWS ONE: a connector per row, down from\
+         \ the row's top to the MIDDLE of its own line, and a run below that where the\
+         \ branch has more to come (`kin').  ORG'S BULLET IS THE TIP -- a horizontal\
+         \ reaching the text sat at the same height as the file's own `-' and the two\
+         \ read as one dashed run." [Test, Browser]
+  , Note "THE PATH, NOT THE LEVEL: what lights is point's OWNERS (`up-K'), not every\
+         \ sibling of every owner -- that lit whole levels and said nothing about the\
+         \ way back.  What point CARRIES takes the same ink a shade back (`mk-held'),\
+         \ and a COMPOSITE at point lights the ROOTS it opens (`mk-root') and stops,\
+         \ having no connector of its own." [Browser]
+  , Note "A PARAGRAPH IS NOT A BRANCH: nothing to elbow into, so it wears the bar at\
+         \ the column every outermost row marks on.  A COMPOSITE is drawn as its tree\
+         \ rather than as a bar as well, which said the same thing twice." [Test]
   , Note "POINT IS A MARK BESIDE THE LINE, never a ground.  A NESTED ITEM IS DRAWN\
          \ INSIDE ITS PARENT, so a ground runs the whole subtree; the mark sits one tab\
          \ stop LEFT of the row's own text, which is where that block's rail runs, and\
          \ point rides its own block's rail." [Test, Browser]
-  , Note "ONE INK, TWO WEIGHTS: a row's own text takes the bold stroke and what hangs\
-         \ off it the thin one.  A paragraph carries nothing and is bold over every line\
-         \ it wraps to; a composite IS the stop, so it is bold whole." [Browser]
   , Note "THE MARKER ORG WROTE IS THE MARKER: a headline under point lights its STARS and\
          \ draws no mark, the stars sitting in the column the mark would use; an item\
          \ lights its BULLET as well as drawing one, and the bullet is whatever org\
@@ -4400,7 +4412,8 @@ sheetNotes =
          \ classes." [Test]
   , Note "`--g-point' is the document's cursor ink and `--g-sel' the table's ground: a\
          \ GROUND HUE IS NOT AN INK, and dark's selection is a slate that vanishes as a\
-         \ 3px mark." [Test]
+         \ hairline.  `--g-point-dim' is PICKED rather than mixed -- mixing gold toward\
+         \ a dark ground darkens it, and a darker yellow is brown." [Test]
   , Note "THE HEADLINE IS ONE STOP: `f' does not walk into its parts, since each part\
          \ already has a key -- `t' the state, `:' the tags, S-<up>/S-<down> the priority\
          \ and RET the title.  A cursor over a part would be a second way to say the same\

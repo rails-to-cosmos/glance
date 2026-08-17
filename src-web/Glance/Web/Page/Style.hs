@@ -131,51 +131,52 @@ page head' colours title body = T.unlines
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
   , "  .dp{position:relative}"
-  , "  .de::before,.de::after,.de>.dp::before{content:\"\";position:absolute;"
-  , "    width:2px;border-radius:1px;pointer-events:none}"
+  , "  .de::before,.de::after{content:\"\";position:absolute;left:var(--rail);"
+  , "    width:1px;border-radius:1px;pointer-events:none}"
   , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-doc-fs)"
   , "    * var(--g-doc-lh))}"
   -- THE COLUMN IS THE ROW'S OWN, one tab stop left of its text.  A top-level row
   -- is indented by PADDING and a nested item by its own leading SPACES, so the
   -- two are counted from different origins and land on one line.
   , "  .lvl-top{--rail:var(--g-doc-pad)}"
-  , "  .de>.dp::before{left:var(--rail)}"
-  , "  .d-para>.dp::before{left:calc(var(--rail) - var(--g-doc-pad)"
-  , "    - var(--g-doc-indent, 2) * 1ch)}"
-  , "  .de::before,.de::after{left:var(--rail)}"
-  -- A RAIL PER BLOCK, spanning its children; the document is a block too and its
-  -- rail bridges the half-em between top-level rows.  OPAQUE, since the document's
-  -- rail and the list's share the outermost column.
-  , "  .d-list .d-item::before,.lvl-top:not(.d-head)::before{top:0;bottom:0;"
-  , "    background:color-mix(in srgb, var(--g-fg) 12%, var(--g-bg))}"
-  , "  .lvl-top:not(.d-head)::before{top:-.25em;bottom:-.25em}"
-  -- THE BLOCK POINT IS IN is full accent, and a third is shed per step out.
-  , "  #mdoc.on .up-0::before{background:var(--g-accent)}"
-  , "  #mdoc.on .up-1::before{background:color-mix(in srgb, var(--g-accent) 68%,"
-  , "    var(--g-bg))}"
-  , "  #mdoc.on .up-2::before{background:color-mix(in srgb, var(--g-accent) 36%,"
-  , "    var(--g-bg))}"
-  , "  #mdoc.on .up-3::before{background:color-mix(in srgb, var(--g-accent) 22%,"
-  , "    var(--g-bg))}"
-  -- ONE INK, TWO WEIGHTS: the row's own text takes the bold stroke and what hangs
-  -- off it the thin one.  A composite IS the stop, so it is bold whole.
-  , "  #mdoc.on .de.dat::after{top:0;bottom:0;width:1px;background:var(--g-point)}"
-  , "  #mdoc.on .de.dat>.dp::before{top:0;bottom:0;width:3px;"
+  -- A CONNECTOR PER ROW, drawn the way `tree' draws one: down from the row's top
+  -- to the MIDDLE of its own line, and a run below that where the branch has more
+  -- to come.  ORG'S BULLET IS THE TIP -- a horizontal reaching the text sat at the
+  -- same height as the file's own `-' and the two read as one dashed run.
+  , "  .d-list .d-item::before{top:0;"
+  , "    height:calc(var(--g-doc-fs) * var(--g-doc-lh) / 2);"
+  , "    background:color-mix(in srgb, var(--g-fg) 14%, var(--g-bg))}"
+  , "  .d-list .d-item.kin::after{bottom:0;"
+  , "    top:calc(var(--g-doc-fs) * var(--g-doc-lh) / 2);"
+  , "    background:color-mix(in srgb, var(--g-fg) 14%, var(--g-bg))}"
+  -- A PARAGRAPH IS NOT A BRANCH: nothing to elbow into, so it wears the bar at the
+  -- column every outermost row marks on.  A COMPOSITE is drawn as its tree.
+  , "  .lvl-top:not(.d-head):not(.d-comp)::before{top:0;bottom:0;height:auto;"
+  , "    background:color-mix(in srgb, var(--g-fg) 14%, var(--g-bg))}"
+  -- THE PATH, NOT THE LEVEL: what lights is point's OWNERS, brightening inward.
+  , "  #mdoc.on .up-0::before,#mdoc.on .up-0.kin::after{background:var(--g-accent)}"
+  , "  #mdoc.on .up-1::before,#mdoc.on .up-1.kin::after{"
+  , "    background:color-mix(in srgb, var(--g-accent) 68%, var(--g-bg))}"
+  , "  #mdoc.on .up-2::before,#mdoc.on .up-2.kin::after{"
+  , "    background:color-mix(in srgb, var(--g-accent) 36%, var(--g-bg))}"
+  , "  #mdoc.on .up-3::before,#mdoc.on .up-3.kin::after{"
+  , "    background:color-mix(in srgb, var(--g-accent) 22%, var(--g-bg))}"
+  -- WHAT POINT CARRIES takes the same gold a shade back; the ROOTS a composite
+  -- opens take it whole, a composite having no connector of its own.
+  , "  #mdoc.on .mk-held::before,#mdoc.on .mk-held.kin::after{"
+  , "    background:var(--g-point-dim)}"
+  , "  #mdoc.on .mk-root::before,#mdoc.on .mk-root.kin::after,"
+  , "  #mdoc.on .de.dat::before,#mdoc.on .de.dat.kin::after{"
   , "    background:var(--g-point)}"
-  , "  #mdoc.on .de.dat.d-comp::after{width:3px}"
-  -- A HEADLINE WEARS THE MARKER ORG WROTE: its stars sit in the column the mark
-  -- would use, so they take the ink and no mark is drawn.
-  , "  #mdoc.on .de.dat.d-head::after{display:none}"
+  -- A HEADLINE WEARS THE MARKER ORG WROTE: its stars sit in the column a
+  -- connector would use, so they take the ink and none is drawn.
+  , "  #mdoc.on .de.dat.d-head::before{display:none}"
   , "  #mdoc.on .de.dat.d-head .ds,#mdoc.on .de.dat>.dp>.dm{"
   , "    color:var(--g-point);font-weight:700}"
-  -- A FLAG OUTRANKS POINT and keeps its mark after point has moved on, so it is
-  -- spelled twice: once ungated, once to win the cascade where point also draws.
-  , "  .de.dfl::after,.de.dfl>.dp::before{background:var(--g-bad)}"
-  , "  .de.dfl::after{top:0;bottom:0;width:1px}"
-  , "  .de.dfl>.dp::before{top:0;bottom:0;width:3px}"
+  -- A FLAG OUTRANKS POINT and keeps its mark after point has moved on.
+  , "  .de.dfl::before,.de.dfl.kin::after,"
+  , "  #mdoc.on .de.dfl::before,#mdoc.on .de.dfl.kin::after{background:var(--g-bad)}"
   , "  .de.dfl.d-head .ds,.de.dfl>.dp>.dm{color:var(--g-bad);font-weight:700}"
-  , "  #mdoc.on .de.dfl::after,#mdoc.on .de.dfl>.dp::before{"
-  , "    background:var(--g-bad)}"
   -- PADDING: a margin would take the selection wash off the left of the line.
   , "  .d-para,.d-comp{margin:.5em 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"

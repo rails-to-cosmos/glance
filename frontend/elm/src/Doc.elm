@@ -655,8 +655,8 @@ tab stops from the list's own text; `up-K` lights the rail of the block point is
 K steps inside. The stylesheet cannot do either arithmetic on a class, and
 `Html.Attributes.style` cannot set a custom property in 0.19.
 -}
-rowClass : Model -> Int -> Row -> Int -> String
-rowClass m i r depth =
+rowClass : Model -> Int -> Row -> Int -> Bool -> String
+rowClass m i r depth kin =
     (if r.id == draftId then
         "de d-draft d-"
 
@@ -694,18 +694,53 @@ rowClass m i r depth =
                 -- harness reads a row's KIND off its `d-' classes.
                 " lvl-top"
            )
-        ++ (case r.owner of
-                Just up ->
-                    case indexOfIn up (ownersOf m (idAtRow m m.at)) of
-                        Just k ->
-                            " up-" ++ String.fromInt (min 3 k)
+        ++ (if kin then
+                " kin"
 
-                        Nothing ->
-                            ""
-
-                Nothing ->
-                    ""
+            else
+                ""
            )
+        ++ markOf m i r
+
+
+{-| WHICH TIER A ROW'S CONNECTOR TAKES, and a row takes at most one.
+
+  - `up-K` — the row IS point's K-th owner: THE PATH, not the level. Lighting
+    every sibling of every ancestor lights whole levels and says nothing about
+    the way back.
+  - `mk-root` — point is a COMPOSITE and this is one of the roots it opens. A
+    composite has no connector of its own, and lighting every descendant paints
+    the pane and names no stop in particular.
+  - `mk-held` — point is an owner of this row: what point CARRIES, in the same
+    ink a shade back.
+
+-}
+markOf : Model -> Int -> Row -> String
+markOf m i r =
+    let
+        here =
+            idAtRow m m.at
+
+        ups =
+            ownersOf m r.id
+    in
+    if i == m.at then
+        ""
+
+    else
+        case indexOfIn r.id (ownersOf m here) of
+            Just k ->
+                " up-" ++ String.fromInt (min 3 k)
+
+            Nothing ->
+                if r.owner == Just here && Maybe.map .grain (rowAt m) == Just Composite then
+                    " mk-root"
+
+                else if List.member here ups then
+                    " mk-held"
+
+                else
+                    ""
 
 
 {-| Which id point is on, or @""@ when the model holds no such row.
@@ -920,10 +955,21 @@ viewKids m parent from at0 depth =
 
                                 else
                                     ( [ viewPara m kid ], j + 1 )
+
+                            -- A LATER SIBLING IS WHAT CARRIES THE BRANCH ON past
+                            -- this row: the next row after this one's subtree,
+                            -- owned by the same parent.
+                            kin =
+                                case rowN jNext of
+                                    Just next ->
+                                        next.kind == Para && next.owner == Just parent.id
+
+                                    Nothing ->
+                                        False
                         in
                         go jNext
                             kid.to
-                            (out ++ gap ++ [ div [ class (rowClass m j kid depth) ] inner ])
+                            (out ++ gap ++ [ div [ class (rowClass m j kid depth kin) ] inner ])
 
                     else
                         ( tail mark out, j )
@@ -968,13 +1014,13 @@ view m =
                         ( inner, j ) =
                             viewKids m r (i + 1) -1 0
                     in
-                    go j (out ++ [ div [ class (rowClass m i r -1) ] inner ])
+                    go j (out ++ [ div [ class (rowClass m i r -1 False) ] inner ])
 
                 else if r.kind == Para then
-                    go (i + 1) (out ++ [ div [ class (rowClass m i r -1) ] [ viewPara m r ] ])
+                    go (i + 1) (out ++ [ div [ class (rowClass m i r -1 False) ] [ viewPara m r ] ])
 
                 else
-                    go (i + 1) (out ++ [ div [ class (rowClass m i r -1) ] (viewCells m i r) ])
+                    go (i + 1) (out ++ [ div [ class (rowClass m i r -1 False) ] (viewCells m i r) ])
     in
     div [] (go 0 [])
 

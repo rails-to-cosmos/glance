@@ -174,17 +174,23 @@
     let drung = null;
     const openerIn = (text) => OPENER.exec((text || "").split("\n")[0]);
     const indentOf = (text) => { const o = openerIn(text); return o ? o[1].length : null; };
-    /** The rungs ROW may take from WAS, nearest first: its own, then a child, then
-     * the level out.  A child needs a sibling above it at the same indent. */
+    /** The rungs ROW may take from WAS: its own, then ONE CHILD, then EVERY PARENT
+     * out to the outermost.  A child needs a sibling above it at the same indent to
+     * hang under; a parent is any indent the lines above it actually stand at, so a
+     * tree indented by something other than two is walked as it is written. */
     function rungsFor(row, was) {
       const out = [0];
       const i = drows.findIndex((r) => r.id === row.id);
+      const ups = [];
+      let sib = false, cur = was;
       for (let j = i - 1; j >= 0; j--) {
         const d = indentOf(drows[j].text);
-        if (d === null || d < was) break;
-        if (d === was) { out.push(STEP); break; }
+        if (d === null) break;
+        if (d === cur && cur === was) sib = true;
+        if (d < cur) { ups.push(d); cur = d; }
       }
-      if (was >= STEP) out.push(-STEP);
+      if (sib) out.push(STEP);
+      for (const d of ups) out.push(d - was);
       return out;
     }
     function tabRung() {
@@ -201,7 +207,8 @@
       box.value = lines.join("\n");
       sizeDocEdit();
       said(TABB, want > drung.was ? "one level in"
-                 : want < drung.was ? "one level out" : "back where it was");
+                 : want < drung.was ? "out to column " + want
+                 : "back where it was");
     }
     const INSERT = docBinding("org-insert-element", "+");
     // The same command one key over: `S-RET' is `+' with the commit in front.

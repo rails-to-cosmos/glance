@@ -9116,8 +9116,37 @@ var $author$project$Doc$indexOfIn = F2(
 						}),
 					ups)));
 	});
-var $author$project$Doc$rowClass = F4(
-	function (m, i, r, depth) {
+var $author$project$Doc$markOf = F3(
+	function (m, i, r) {
+		var ups = A2($author$project$Body$ownersOf, m, r.c);
+		var here = A2($author$project$Doc$idAtRow, m, m.aJ);
+		if (_Utils_eq(i, m.aJ)) {
+			return '';
+		} else {
+			var _v0 = A2(
+				$author$project$Doc$indexOfIn,
+				r.c,
+				A2($author$project$Body$ownersOf, m, here));
+			if (!_v0.$) {
+				var k = _v0.a;
+				return ' up-' + $elm$core$String$fromInt(
+					A2($elm$core$Basics$min, 3, k));
+			} else {
+				return (_Utils_eq(
+					r.B,
+					$elm$core$Maybe$Just(here)) && _Utils_eq(
+					A2(
+						$elm$core$Maybe$map,
+						function ($) {
+							return $.H;
+						},
+						$author$project$Body$rowAt(m)),
+					$elm$core$Maybe$Just(1))) ? ' mk-root' : (A2($elm$core$List$member, here, ups) ? ' mk-held' : '');
+			}
+		}
+	});
+var $author$project$Doc$rowClass = F5(
+	function (m, i, r, depth, kin) {
 		return _Utils_ap(
 			_Utils_eq(r.c, $author$project$Body$draftId) ? 'de d-draft d-' : 'de d-',
 			_Utils_ap(
@@ -9139,28 +9168,9 @@ var $author$project$Doc$rowClass = F4(
 						_Utils_ap(
 							(depth >= 0) ? (' lvl-' + $elm$core$String$fromInt(
 								A2($elm$core$Basics$min, 11, depth))) : ' lvl-top',
-							function () {
-								var _v1 = r.B;
-								if (!_v1.$) {
-									var up = _v1.a;
-									var _v2 = A2(
-										$author$project$Doc$indexOfIn,
-										up,
-										A2(
-											$author$project$Body$ownersOf,
-											m,
-											A2($author$project$Doc$idAtRow, m, m.aJ)));
-									if (!_v2.$) {
-										var k = _v2.a;
-										return ' up-' + $elm$core$String$fromInt(
-											A2($elm$core$Basics$min, 3, k));
-									} else {
-										return '';
-									}
-								} else {
-									return '';
-								}
-							}())))));
+							_Utils_ap(
+								kin ? ' kin' : '',
+								A3($author$project$Doc$markOf, m, i, r)))))));
 	});
 var $author$project$Doc$drawText = F3(
 	function (m, body, base) {
@@ -9405,9 +9415,9 @@ var $author$project$Doc$viewKids = F5(
 							kid.B,
 							$elm$core$Maybe$Just(parent.c))) {
 							var under = function () {
-								var _v3 = rowN(j + 1);
-								if (!_v3.$) {
-									var next = _v3.a;
+								var _v4 = rowN(j + 1);
+								if (!_v4.$) {
+									var next = _v4.a;
 									return _Utils_eq(
 										next.B,
 										$elm$core$Maybe$Just(kid.c));
@@ -9469,6 +9479,17 @@ var $author$project$Doc$viewKids = F5(
 							}();
 							var inner = _v1.a;
 							var jNext = _v1.b;
+							var kin = function () {
+								var _v3 = rowN(jNext);
+								if (!_v3.$) {
+									var next = _v3.a;
+									return (next.r === 1) && _Utils_eq(
+										next.B,
+										$elm$core$Maybe$Just(parent.c));
+								} else {
+									return false;
+								}
+							}();
 							var $temp$j = jNext,
 								$temp$mark = kid.g,
 								$temp$out = _Utils_ap(
@@ -9482,7 +9503,7 @@ var $author$project$Doc$viewKids = F5(
 											_List_fromArray(
 												[
 													$elm$html$Html$Attributes$class(
-													A4($author$project$Doc$rowClass, m, j, kid, depth))
+													A5($author$project$Doc$rowClass, m, j, kid, depth, kin))
 												]),
 											inner)
 										])));
@@ -9535,7 +9556,7 @@ var $author$project$Doc$view = function (m) {
 									_List_fromArray(
 										[
 											$elm$html$Html$Attributes$class(
-											A4($author$project$Doc$rowClass, m, i, r, -1))
+											A5($author$project$Doc$rowClass, m, i, r, -1, false))
 										]),
 									inner)
 								]));
@@ -9554,7 +9575,7 @@ var $author$project$Doc$view = function (m) {
 										_List_fromArray(
 											[
 												$elm$html$Html$Attributes$class(
-												A4($author$project$Doc$rowClass, m, i, r, -1))
+												A5($author$project$Doc$rowClass, m, i, r, -1, false))
 											]),
 										_List_fromArray(
 											[
@@ -9575,7 +9596,7 @@ var $author$project$Doc$view = function (m) {
 										_List_fromArray(
 											[
 												$elm$html$Html$Attributes$class(
-												A4($author$project$Doc$rowClass, m, i, r, -1))
+												A5($author$project$Doc$rowClass, m, i, r, -1, false))
 											]),
 										A3($author$project$Doc$viewCells, m, i, r))
 									]));

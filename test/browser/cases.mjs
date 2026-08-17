@@ -177,22 +177,19 @@ export default [
     // rail in the row's own column instead.
     const pane = await p.eval(() => {
       const fl = document.querySelector("#mdoc .de.dfl");
-      const own = fl.querySelector(":scope > .dp");
-      return { thin: getComputedStyle(fl, "::after").backgroundColor,
-               bold: own ? getComputedStyle(own, "::before").backgroundColor : null,
-               wide: own ? getComputedStyle(own, "::before").width : null,
+      return { thin: getComputedStyle(fl, "::before").backgroundColor,
+               bold: getComputedStyle(fl, "::before").backgroundColor,
+               wide: getComputedStyle(fl, "::before").width,
                ground: getComputedStyle(fl).backgroundColor };
     });
     // Both strings came out of the same engine, so the red is compared as spelled.
     assert(pane.thin === table.flag,
-      `the pane's flag mark paints ${pane.thin}, the table's red is ${table.flag}`);
-    assert(pane.bold === table.flag,
-      `the flagged line's own stroke paints ${pane.bold}, not ${table.flag}`);
+      `the pane's flag connector paints ${pane.thin}, the table's red is ${table.flag}`);
     assert(pane.ground === "rgba(0, 0, 0, 0)",
       `the pane's flagged row paints a ground of ${pane.ground}`);
     return [`--g-bad and --tv-flag both paint ${table.flag}`,
             `the table's flagged ground is ${table.ground} against ${table.plain}`,
-            `the pane's flag is a ${pane.wide} mark in ${pane.thin}`];
+            `the pane's flag is a ${pane.wide} connector in ${pane.thin}`];
   } },
 
 // The KEY LINE is the one sideways scroller and is exempt; the reading is the
@@ -335,17 +332,15 @@ export default [
       const rgb = (v) => { const d = document.createElement("div");
         d.style.color = v; document.body.append(d);
         const c = getComputedStyle(d).color; d.remove(); return c; };
-      return { mark: getComputedStyle(at, "::after").backgroundColor,
+      return { mark: getComputedStyle(at, "::before").backgroundColor,
                ink: rgb(point),
-               offMark: getComputedStyle(off, "::after").backgroundColor,
+               offMark: getComputedStyle(off, "::before").backgroundColor,
                ground: cs.backgroundColor,
                deco: cs.textDecorationLine, outline: cs.outlineStyle,
                border: cs.borderTopStyle };
     });
     assert(seen.mark === seen.ink,
       `the cursor's mark paints ${seen.mark}, not the point ink ${seen.ink}`);
-    assert(seen.mark !== seen.offMark,
-      `an ordinary row's mark paints ${seen.offMark}, the same as the cursor's`);
     // A GROUND ON A NESTED ROW COVERS THE SUBTREE DRAWN INSIDE IT, so the pane
     // draws none at all — and no line on the text either.
     assert(seen.ground === "rgba(0, 0, 0, 0)",
@@ -359,12 +354,14 @@ export default [
                   "the panel to take the keys");
     const gone = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
-      return at ? getComputedStyle(at, "::after").backgroundColor : null;
+      return at ? getComputedStyle(at, "::before").backgroundColor : null;
     });
-    assert(gone === seen.offMark,
-      `the pane that lost the keys still marks its cursor ${gone} against ${seen.offMark}`);
-    return [`the cursor marks ${seen.mark} and an ordinary row ${seen.offMark}; `
-      + `with the keys away it marks ${gone}`];
+    // A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE: the row keeps whatever a row with
+    // no cursor keeps, which is a faint connector or nothing at all — never the
+    // point ink.
+    assert(gone !== seen.ink,
+      `the pane that lost the keys still marks its cursor ${gone}`);
+    return [`the cursor marks ${seen.mark}; with the keys away it marks ${gone}`];
   } },
 
 // A LEAF IS ONE LINE OF THE FIELD THAT COVERS IT.  `.de' pads every stop and a
@@ -1093,53 +1090,67 @@ export default [
 // `f' goes finer, which is how the cursor reaches an item at all — the list
 // itself is ONE stop at the coarse grain.  The pane's own composite case catches
 // the same structure from the other side, a leaf standing taller than its line.
-{ name: "the cursor on a list item is bold on its own line and thin down its subtree",
+{ name: "the cursor on a list item lights itself, and what it carries a shade back",
   async run(p, base) {
     await sheet(p, base, "drv-wide");
     // `n' CROSSES STOPS, `f' GOES FINER — the list is ONE stop at the coarse
-    // grain, so reaching an item at all takes the finer key.  This entry is the
-    // one no other case writes to, so the walk is the same every run.
-    await p.press("n");
-    await p.press("n");
-    await p.press("n");
+    // grain, so reaching an item at all takes the finer key.  THE WALK IS
+    // ADAPTIVE: a fixed count lands on a different row once an earlier case has
+    // written to the tree, and the case then measures whatever it found.
+    const on = (what) => p.eval((sel) => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && (sel === "kids"
+                        ? at.classList.contains("d-item") && !!at.querySelector(".de")
+                        : at.classList.contains(sel));
+    }, what);
+    for (let i = 0; i < 8 && !(await on("d-comp")); i++) await p.press("n");
+    assert(await on("d-comp"), "`n' never reached the list itself");
     await p.press("f");
+    // WAITED FOR, NOT ASSUMED: a press lands a round trip later, and the list
+    // answers "has rows inside it" too — so the exit test named the item.
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
-      return !!at && !!at.querySelector(".de")
-          && [...at.children].some((c) => !c.classList.contains("de"));
-    }, "the cursor to land on an item with rows drawn inside it");
+      return !!at && at.classList.contains("d-item");
+    }, "`f' to descend into the list");
+    for (let i = 0; i < 8 && !(await on("kids")); i++) await p.press("n");
+    assert(await on("kids"),
+      "`f' then `n' never reached an item with rows drawn inside it");
     const seen = await p.eval(() => {
+      const rgb = (v) => { const d = document.createElement("div");
+        d.style.color = v; document.body.append(d);
+        const c = getComputedStyle(d).color; d.remove(); return c; };
+      const root = getComputedStyle(document.documentElement);
       const at = document.querySelector("#mdoc .de.dat");
-      const own = [...at.children].find((c) => !c.classList.contains("de"));
-      const px = (n) => Math.round(n.getBoundingClientRect().height);
-      const thin = getComputedStyle(at, "::after");
-      const bold = getComputedStyle(own, "::before");
-      return { nested: true, text: own.textContent.trim().slice(0, 32),
-               atBg: getComputedStyle(at).backgroundColor,
-               thinInk: thin.backgroundColor, thinW: parseFloat(thin.width),
-               boldInk: bold.backgroundColor, boldW: parseFloat(bold.width),
-               left: thin.left, ownLeft: bold.left,
-               ownH: px(own), atH: px(at) };
+      const kid = at.querySelector(":scope > .de");
+      const other = [...document.querySelectorAll("#mdoc .d-list .d-item")]
+        .find((n) => n !== at && !at.contains(n));
+      return { point: rgb(root.getPropertyValue("--g-point").trim()),
+               dim: rgb(root.getPropertyValue("--g-point-dim").trim()),
+               atInk: getComputedStyle(at, "::before").backgroundColor,
+               kidInk: getComputedStyle(kid, "::before").backgroundColor,
+               otherInk: other ? getComputedStyle(other, "::before").backgroundColor : null,
+               ground: getComputedStyle(at).backgroundColor,
+               tall: Math.round(parseFloat(getComputedStyle(at, "::before").height)),
+               line: Math.round(parseFloat(getComputedStyle(
+                 document.getElementById("mdoc")).lineHeight)) };
     });
-    assert(seen && seen.nested,
-      "`f' did not reach an item with rows drawn inside it, so nothing was measured");
-    assert(seen.atH >= seen.ownH * 2,
-      `the item is ${seen.atH}px against its own line's ${seen.ownH}px, so the two `
-      + `strokes would not be told apart`);
-    // ONE INK, TWO WEIGHTS: the row's own text takes the bold stroke and what
-    // hangs off it the thin one, on ONE column.
-    assert(seen.thinInk === seen.boldInk,
-      `the two strokes paint ${seen.thinInk} and ${seen.boldInk}`);
-    assert(seen.boldW > seen.thinW,
-      `the own line's stroke is ${seen.boldW}px against the subtree's ${seen.thinW}px`);
-    assert(seen.left === seen.ownLeft,
-      `the strokes sit at ${seen.left} and ${seen.ownLeft}, so they are two columns`);
+    assert(seen.atInk === seen.point,
+      `the item's connector paints ${seen.atInk}, not the point ink ${seen.point}`);
+    // WHAT POINT CARRIES IS THE SAME INK A SHADE BACK: it belongs to the stop and
+    // it is not the stop.
+    assert(seen.kidInk === seen.dim,
+      `a row under point paints ${seen.kidInk}, not the carried ink ${seen.dim}`);
+    assert(seen.otherInk !== seen.point && seen.otherInk !== seen.dim,
+      `an item outside point's subtree paints ${seen.otherInk} as well`);
     // AND NO GROUND ANYWHERE: a ground on this row would cover the subtree drawn
-    // inside it, which is the bug the mark exists to answer.
-    assert(seen.atBg === "rgba(0, 0, 0, 0)",
-      `the item paints a ground of ${seen.atBg}`);
-    // THE WHOLE LIST IS ONE THING when the cursor is on IT: the composite IS the
-    // stop, so it is bold whole.  `b' goes back out a grain.
+    // inside it, which is the bug the connector exists to answer.
+    assert(seen.ground === "rgba(0, 0, 0, 0)",
+      `the item paints a ground of ${seen.ground}`);
+    // THE CONNECTOR STOPS AT THE MIDDLE OF THE LINE IT MARKS, which is what makes
+    // it an elbow rather than a rail.
+    assert(Math.abs(seen.tall - seen.line / 2) <= 1,
+      `the connector is ${seen.tall}px against a ${seen.line}px line`);
+    // THE LIST LIGHTS THE ROOTS IT OPENS: a composite has no connector of its own.
     await p.press("b");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
@@ -1147,16 +1158,18 @@ export default [
     }, "the cursor to go back out to the list itself");
     const whole = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
-      const thin = getComputedStyle(at, "::after");
-      return { ink: thin.backgroundColor, w: parseFloat(thin.width),
-               kids: at.querySelectorAll(".de").length,
-               h: Math.round(at.getBoundingClientRect().height) };
+      const root = at.querySelector(":scope > .de");
+      const deep = at.querySelector(":scope > .de > .de");
+      return { rootInk: getComputedStyle(root, "::before").backgroundColor,
+               deepInk: deep ? getComputedStyle(deep, "::before").backgroundColor : null };
     });
-    assert(whole.w === seen.boldW,
-      `the list itself is marked ${whole.w}px, not the ${seen.boldW}px of an own line`);
-    return [`"${seen.text}": ${seen.boldW}px over ${seen.ownH}px of own line and `
-      + `${seen.thinW}px over the rest of ${seen.atH}px, both ${seen.thinInk} at `
-      + `${seen.left}; the list itself is ${whole.w}px over all ${whole.kids} rows`];
+    assert(whole.rootInk === seen.point,
+      `a root the list opens paints ${whole.rootInk}, not ${seen.point}`);
+    assert(whole.deepInk !== seen.point,
+      `a row two deep paints ${whole.deepInk} as well, so the light ran the tree`);
+    return [`point ${seen.atInk}, what it carries ${seen.kidInk}, elsewhere `
+      + `${seen.otherInk}; the elbow is ${seen.tall}px of a ${seen.line}px line; `
+      + `the list lights its roots ${whole.rootInk} and stops`];
   } },,
 
 // THE BOX IS THE LINE IT WRITES.  A nested item is drawn inside its parent, so
@@ -1262,12 +1275,12 @@ export default [
     const head = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
       return { stars: getComputedStyle(at.querySelector(".ds")).color,
-               mark: getComputedStyle(at, "::after").display };
+               mark: getComputedStyle(at, "::before").display };
     });
     assert(head.stars === seen.point,
       `the headline's stars paint ${head.stars}, not the point ink ${seen.point}`);
     assert(head.mark === "none",
-      `the headline draws a mark as well as lighting its stars`);
+      `the headline draws a connector as well as lighting its stars`);
     return [`"${seen.text.trim()}" lights ${seen.ink} at weight ${seen.weight}; `
       + `nested ${seen.nested}, ordinary ${seen.other}; the headline's stars ${head.stars}`];
   } },

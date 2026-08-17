@@ -4966,7 +4966,7 @@ tierSweep shell = testCase "every popup wears one size tier, and declares none" 
     tiers = [ ("pbox", "pop-band"), ("lbox", "pop-sheet"), ("tbox", "pop-band")
             , ("sheet", "pop-sheet"), ("cbox", "pop-sheet") ]
 
--- | POINT IS A MARK BESIDE THE LINE, swept rather than listed, and what it swept is asserted first.
+-- | POINT IS A CONNECTOR BESIDE THE LINE, swept rather than listed, and what it swept is asserted first.
 groundSweep :: IO T.Text -> TestTree
 groundSweep shell = testCase "point and a flag are marks beside the line, never on it" $ do
   page <- shell
@@ -4991,9 +4991,10 @@ groundSweep shell = testCase "point and a flag are marks beside the line, never 
         marks
   where
     selectors = [".de.dat", ".de.dfl"]
-    marks = [ ("#mdoc.on .de.dat::after", "var(--g-point)")
-            , ("#mdoc.on .de.dat>.dp::before", "var(--g-point)")
-            , (".de.dfl::after", "var(--g-bad)")
+    marks = [ ("#mdoc.on .de.dat::before", "var(--g-point)")
+            , ("#mdoc.on .mk-held::before", "var(--g-point-dim)")
+            , ("#mdoc.on .mk-root::before", "var(--g-point)")
+            , (".de.dfl::before", "var(--g-bad)")
             , (".d-list .d-item::before", "var(--g-fg)")
             , ("#mdoc.on .up-0::before", "var(--g-accent)") ]
 
@@ -5220,7 +5221,7 @@ shellGlue =
       , "let drows = [], dat = 0, dgrain = \"element\";"
       , "dgrain = now.grain; dflags = now.flags; dbody = now.body;"
       -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the panel's costs two rules, the wash it suppresses being the RENDERER's.
-      , "#mdoc.on .de.dat::after{"
+      , ".d-list .d-item::before{top:0;"
       , "#mprops:not(.on) .tv-table tbody tr.tv-sel{background:transparent}"
       , "#mprops:not(.on) .tv-table tbody tr.tv-sel.tv-alt{background:var(--tv-alt)}"
       , ".d-head,.d-child{display:flex;align-items:baseline}"

@@ -75,7 +75,8 @@ const BREAKS = {
                   ".d-draft{min-height:0 !important}"],
   // The pane draws its flag in `--g-warn' at a strength of its own.
   "flag-red": ["a flag paints one red on both surfaces",
-               ".de.dfl::after{background:var(--g-warn) !important}"],
+               ".de.dfl::before,#mdoc.on .de.dfl::before"
+                 + "{background:var(--g-warn) !important}"],
   "no-clip": ["the page never scrolls",
               "html,body{overflow:visible !important}#log{width:220vw !important}"],
   // The tier stops clamping.
@@ -88,7 +89,7 @@ const BREAKS = {
   "para-indent": ["a paragraph is indented under the title text",
                   "#mdoc .d-para{padding-left:0 !important}"],
   "cursor-line": ["the cursor in the pane is a mark",
-                  "#mdoc.on .de.dat::after{background:transparent !important}"],
+                  "#mdoc.on .de.dat::before{background:transparent !important}"],
   // The picker stops hanging at the caret and centres like a popup instead.
   "refer-veil": ["@ in the sheet links the row under the cursor",
                  "#refer{background:var(--g-veil) !important}"],
@@ -104,10 +105,10 @@ const BREAKS = {
   // The mint form goes back to one hue field, for whichever theme is on.
   "one-hue": ["+ over the state palette draws a form",
               ".nrow-ndark{display:none !important}"],
-  // The two strokes weigh the same again, so the own line is not told from what
-  // hangs off it.
-  "subtree-ground": ["the cursor on a list item is bold on its own line",
-                     "#mdoc.on .de.dat>.dp::before{width:1px !important}"],
+  // What point CARRIES takes point's own ink, so the stop and its subtree read
+  // as one thing again.
+  "carried-ink": ["the cursor on a list item lights itself",
+                  "#mdoc.on .mk-held::before{background:var(--g-point) !important}"],
   // The light runs the whole subtree again, as a ground once did.
   "bullet-subtree": ["the marker org wrote lights with the line",
                      "#mdoc.on .de.dat .dm{color:var(--g-point) !important}"],
