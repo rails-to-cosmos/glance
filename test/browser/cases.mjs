@@ -28,6 +28,30 @@ const pickerUp = (p, why) =>
 const pickerGone = (p, why) =>
   p.until(() => !document.getElementById("refer").classList.contains("on"), why);
 
+/** The picker raised over ROW's first paragraph, at a word boundary. */
+async function pickerOver(p, base, row) {
+  await paraOpen(p, base, row);
+  await p.type(" ");                    // `@' opens on a word boundary alone
+  await p.press("@");
+  await pickerUp(p);
+}
+// A PAGE FUNCTION IS SERIALIZED WHOLE, so it may call nothing of this module's:
+// these are handed to `eval'/`until' entire, and a wrapper that CALLED one would
+// reach the page naming something that is not there.
+/** THE EDITOR IS SUMMONED, NOT RESIDENT: is its bar drawn at all? */
+const barDrawn = () => {
+  const bar = document.querySelector("#rmount .tv-bar");
+  return !!bar && getComputedStyle(bar).display !== "none";
+};
+const barAway = () => {
+  const bar = document.querySelector("#rmount .tv-bar");
+  return !bar || getComputedStyle(bar).display === "none";
+};
+const boxKeys = () => document.activeElement.tagName === "INPUT"
+                   && document.getElementById("rmount").contains(document.activeElement);
+const boxFocused = (p, why) => p.until(boxKeys, why || "the filter box to take the focus");
+const boxAway = (p, why) => p.until(barAway, why || "the summoned editor to go");
+
 export default [
 
 // cb6db85.  THE BOX GREW AND STOOD OVER THE DOCUMENT.  Where the next line
@@ -632,22 +656,12 @@ export default [
 // editor they were already done with, and a second ESC away from the rows.
 { name: "ESC in the picker's filter drops the edit and stands on a row",
   async run(p, base) {
-    await paraOpen(p, base, "drv-box");
-    await p.type(" ");                    // `@' opens on a word boundary alone
-    await p.press("@");
-    await pickerUp(p);
-    // THE EDITOR IS SUMMONED, NOT RESIDENT: the compact box shows chips alone.
-    const barOf = () => {
-      const bar = document.querySelector("#rmount .tv-bar");
-      return !bar || getComputedStyle(bar).display === "none" ? "away" : "up";
-    };
-    assert(await p.eval(barOf) === "away",
+    await pickerOver(p, base, "drv-box");
+    assert(!(await p.eval(barDrawn)),
       "the filter editor sits on the picker before anyone asked for it");
     await p.press("/");
-    await p.until(() => document.activeElement.tagName === "INPUT" &&
-                        document.getElementById("rmount").contains(document.activeElement),
-                  "the filter box to take the focus");
-    assert(await p.eval(barOf) === "up", "/ summoned no filter editor");
+    await boxFocused(p);
+    assert(await p.eval(barDrawn), "/ summoned no filter editor");
     // AND IT COMES ON THE CHIPS' OWN LINE, not as a second stripe above them.
     const oneLine = await p.eval(() => {
       const bar = document.querySelector("#rmount .tv-bar").getBoundingClientRect();
@@ -673,8 +687,80 @@ export default [
     assert(after.text === "", `ESC kept the abandoned edit: ${JSON.stringify(after.text)}`);
     assert(after.rows > 0, "ESC left no rows to pick from");
     assert(after.at === 1, `ESC left ${after.at} rows under the cursor, not one`);
-    assert(await p.eval(barOf) === "away", "ESC left the filter editor on the picker");
+    assert(!(await p.eval(barDrawn)), "ESC left the filter editor on the picker");
     return [`${after.rows} rows, cursor on one, editor away`];
+  } },
+
+// DEL'S RUNGS IN THE PICKER, and an EMPTIED summoned editor is now the rung
+// under the typed text.  The box is the last thing the reader put there, so it
+// is taken back before what is under it; the chips under it belong to the PICKER's own listener,
+// which stands aside while the box holds the keys and so only sees the press
+// once the box has gone.
+{ name: "DEL on the picker's empty filter hides it, and the next DEL takes a chip",
+  async run(p, base) {
+    await pickerOver(p, base, "drv-box");
+    // SELF-CONTAINED: a page function is serialized whole, so it can call no
+    // helper of this module's — only the helpers passed to `eval'/`until' whole.
+    const state = () => ({
+      chips: document.querySelectorAll("#rmount .tv-chip[data-i]").length,
+      typing: document.activeElement.tagName === "INPUT"
+           && document.getElementById("rmount").contains(document.activeElement),
+      up: document.getElementById("refer").classList.contains("on") });
+    const seeded = await p.eval(state);
+    assert(seeded.chips > 0,
+      "the picker opened with no chip to take, so the rungs cannot be told apart");
+
+    await p.press("/");
+    await boxFocused(p);
+    // The FIRST DEL over an empty box: the box goes, and nothing else does.
+    await p.press("DEL");
+    await boxAway(p, "the summoned editor to go on the first DEL");
+    const once = await p.eval(state);
+    assert(once.chips === seeded.chips,
+      `the first DEL took a chip as well as the box: ${seeded.chips} -> ${once.chips}`);
+    assert(!once.typing, "the first DEL left the keyboard in the box it emptied");
+    assert(once.up, "the first DEL dismissed the whole picker");
+
+    // The SECOND, with the box gone, reaches the shell and walks the query down.
+    await p.press("DEL");
+    await p.until((n) => document.querySelectorAll("#rmount .tv-chip[data-i]").length < n,
+                  "the second DEL to take a chip", 8000, seeded.chips);
+    const twice = await p.eval(state);
+    assert(twice.up, "the second DEL dismissed the picker instead of taking a chip");
+    return [`chips ${seeded.chips} → ${once.chips} (box away) → ${twice.chips}`];
+  } },
+
+// ONE PRESS, ONE PART — and the box rung is what made this reachable.  A held
+// DEL over an emptied box hands the keyboard back on the FIRST press, so every
+// repeat after it lands on the picker's own listener, and past that on the
+// prose behind it: unguarded, one key walks the chip, the picker, the `@' and
+// then the reader's sentence.  The renderer's `e.repeat' guard cannot help —
+// by the second repeat the renderer is no longer the one being pressed.
+{ name: "a held DEL over the picker's emptied box takes the box and nothing else",
+  async run(p, base) {
+    await pickerOver(p, base, "drv-box");
+    const before = await p.eval(() => ({
+      chips: document.querySelectorAll("#rmount .tv-chip[data-i]").length,
+      prose: document.getElementById("dtext").value }));
+    assert(before.chips > 0, "no chip to lose, so a runaway hold would look clean");
+    assert(/@$/.test(before.prose), "the @ was not written, so its loss cannot be seen");
+
+    await p.press("/");
+    await boxFocused(p);
+    await p.hold("DEL", 6);
+    await boxAway(p, "the summoned editor to go on the first press of the hold");
+    const after = await p.eval(() => ({
+      chips: document.querySelectorAll("#rmount .tv-chip[data-i]").length,
+      up: document.getElementById("refer").classList.contains("on"),
+      prose: document.getElementById("dtext").value }));
+    assert(after.chips === before.chips,
+      `the hold walked on into the chips: ${before.chips} -> ${after.chips}`);
+    assert(after.up, "the hold closed the picker it was only meant to unsummon");
+    assert(after.prose === before.prose,
+      `the hold reached the prose behind the picker: `
+      + `${JSON.stringify(before.prose.slice(-24))} -> ${JSON.stringify(after.prose.slice(-24))}`);
+    return [`six repeats after the box went: chips ${after.chips}, picker up, `
+      + `prose ${JSON.stringify(after.prose.slice(-12))} unmoved`];
   } },
 
 // A BADGE COLUMN'S HEADER SITS OVER ITS BADGES' FIRST LETTER.  A pill sets its

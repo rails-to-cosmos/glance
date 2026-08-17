@@ -17,8 +17,9 @@
  * - `inline: true' — the mount is a small box inside someone else's chrome: the
  *   chips stay, the filter box is summoned by `openFilter' onto the chips' own
  *   line, and the title, the hint line, the sort marks and the page furniture
- *   go. The window is capped rather than filling, and Escape out of the filter
- *   is ONE step. What a picker hung at a caret wants.
+ *   go. The window is capped rather than filling, Escape out of the filter is
+ *   ONE step, and Backspace over an emptied box puts that box away rather than
+ *   taking a chip. What a picker hung at a caret wants.
  * - `setPinned(on)' — the chip strip's pin badge, drawn only under `onPin'.
  * - Emits DOM CustomEvents on the container: `tableview-action'
  *   ({detail:{command,id,row}}) and `tableview-link' ({detail:{target,row}}).
@@ -1456,9 +1457,12 @@
     // rows and summons the filter, dropping the page furniture — no title, no
     // hint line, no sort marks, and a capped window.  It is what a PICKER hung
     // at a caret wants, where the ordinary mount wants the page.
-    const inline = o.inline === true;
-    const omnibox = o.omnibox === true || composer || inline;
     const palette = o.palette === true;
+    // PALETTE WINS the pair: it draws its own overlay, and the two modes give
+    // Backspace and Escape opposite answers.  One flag decides, so no branch
+    // has to agree with another about which came first.
+    const inline = o.inline === true && !palette;
+    const omnibox = o.omnibox === true || composer || inline;
     const marks = o.marks === true;
     /**
      * Whether the FLAG state is drawn.  Absent it follows `marks', the one
@@ -2805,8 +2809,9 @@
 
     /**
      * Summon the control. In palette mode that means raising the overlay; in
-     * the others the box is on the page already and this only takes it. Either
-     * way it is the one entry point a consumer's key binds to.
+     * `inline' it draws the summoned box onto the chips' line; in the resident
+     * modes the box is on the page already and this only takes it. Either way
+     * it is the one entry point a consumer's key binds to.
      */
     function openFilter() {
       if (palette) veil.style.display = "";
@@ -2819,8 +2824,7 @@
     function closeFilter() {
       closeAc();
       if (palette) veil.style.display = "none";
-      input.blur();
-      if (inline) root.classList.remove("tv-typing");
+      input.blur();          // the blur listener un-summons; one owner for the class
     }
 
     /** Drop what is half-typed, answering whether there was any.
@@ -2837,9 +2841,11 @@
     const filtering = () => document.activeElement === input;
 
     /**
-     * `inline''s ONE STEP out of the editor: the half-typed filter is dropped AND
-     * the cursor lands on a row.  A compact table is a thing to pick FROM, so an
-     * emptied box is an editor the reader was already done with.
+     * Escape's ONE STEP out of `inline''s editor: the half-typed filter is
+     * dropped AND the cursor lands on a row.  A compact table is a thing to pick
+     * FROM, so an emptied box is an editor the reader was already done with.
+     * Backspace over an already-empty box lands in the same place, through
+     * `handOver' alone — there is nothing left for it to drop.
      */
     function abandonFilter() {
       clearTyped();
@@ -2850,6 +2856,7 @@
      * The end of every ladder: the table takes the selection and the control
      * goes. In palette mode going means dissolving, which is the same gesture
      * one step further out — there is no box left on the page to merely blur.
+     * In `inline' it means the summoned editor is gone, the chips staying.
      */
     function handOver() {
       selectFirstVisible();
@@ -3751,7 +3758,14 @@
       const item = t && /** @type {HTMLElement|null} */ (t.closest(".tv-ac-item"));
       if (item && ac) acceptAc(ac.items[Number(item.dataset.i)]);
     });
-    input.addEventListener("blur", closeAc);
+    // A SUMMONED BOX THAT LOST THE KEYS IS NOT SUMMONED.  Tab walks out of it
+    // natively and a row click takes the focus, either of which used to leave
+    // `inline''s editor DRAWN while the keys were elsewhere — a consumer reading
+    // `filtering()' and a reader reading the screen would then disagree.
+    input.addEventListener("blur", () => {
+      closeAc();
+      if (inline) root.classList.remove("tv-typing");
+    });
 
     /**
      * Apply the box now, cancelling whatever the debounce still owes — so the
@@ -3789,6 +3803,13 @@
         e.stopPropagation();
         if (e.repeat) return;
         if (palette) return;
+        // `inline''s editor is SUMMONED, so an EMPTY one is itself the thing to
+        // take away: it was the last thing the reader put there.  This ENDS the
+        // ladder — the box is blurred, so the chips behind it are the consumer's
+        // own key to walk.  A resident box has no such rung and never gets here.
+        // The SAME exit Escape takes, said once: the box is empty by the guard
+        // above, so `abandonFilter' has nothing left to drop.
+        if (inline) { abandonFilter(); return; }
         if (chips.length) dropChip(chips.length - 1);
         else handOver();
         return;
@@ -3872,15 +3893,14 @@
       chips.length = 0;
       if (typeof q === "string" && q.trim())
         for (const t of parseQuery(q, queryKeys())) pushChip(q.slice(t.start, t.end));
-      else renderChips();
+      renderChips();     // `pushChip' fills the array and draws nothing
       lastQuery = effectiveQuery();
       if (!o.onFilter) state.filter = lastQuery;
       state.sortKeys = chainFor(lastQuery);
     }
     if (typeof o.initialQuery === "string" && o.initialQuery.trim())
       seedQuery(o.initialQuery);
-
-    renderChips();
+    else renderChips();
 
     titleEl.textContent = state.view.title || "Table";
     renderHead();

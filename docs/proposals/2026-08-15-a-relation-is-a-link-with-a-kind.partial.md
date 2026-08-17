@@ -13,11 +13,11 @@ them is a dependency here, never a question.
 
 ## The layering, and where it got to
 
-| layer | what it is | state |
-|---|---|---|
-| **0** | the popup machinery | already existed; nothing built |
-| **1** | `@` inserts a **plain org link** to a headline | **shipped 2026-08-16** |
-| **2** | `C-u @` asks a **kind** first | unbuilt; needs `refKind` on the wire |
+| layer | what it is                                     | state                                |
+|-------|------------------------------------------------|--------------------------------------|
+| **0** | the popup machinery                            | already existed; nothing built       |
+| **1** | `@` inserts a **plain org link** to a headline | **shipped 2026-08-16**               |
+| **2** | `C-c @` asks a **kind** first                  | unbuilt; needs `refKind` on the wire |
 
 Layer 1 was shippable alone and is: 42% of rows carry no `ORG_GLANCE_ID` and
 cannot be linked to, and the other 58% are exactly what a reader wants to point
@@ -112,11 +112,18 @@ mount, so it inherits the filter grammar instead of growing a second one.
 Decisions taken against the rehearsals, each now in the shipped code:
 
 - **the top row is selected**, so RET takes it;
-- **the kind only on `C-u @`**, and **kind first**, then the row;
+- **the kind only on a prefixed `@`**, and **kind first**, then the row — the
+  rehearsals spelled that prefix `C-u`, org's universal argument, and the
+  shipped keymap cannot: `C-u` is the browser's view-source and is now a
+  RESERVED chord (`AGENTS.hs`'s `reserved`). It spells itself `C-c @`, the
+  prefix this map already carries (`C-c C-t`, `C-c C-s`, `C-c C-d`);
 - **`@` only at a word boundary**;
 - **a selected region becomes the link**;
-- **`DEL` walks the query down** — typed text, then chips, then the kind, then
-  the `@` itself;
+- **`DEL` walks the query down** — and the shipped ladder SWAPS a rung rather
+  than growing one: the kind stage never shipped, and the summoned filter box
+  became a rung of its own. What is typed, then the box itself, then the chips,
+  then the `@`. The first two are the mount's, taken while it holds the keys;
+  the last two are the picker's.
 - **the region is the link's words and never a filter**: seeding the filter with
   the reader's prose narrows the store by an accident of phrasing and puts prose
   on the chip strip;
@@ -160,7 +167,7 @@ Stated plainly, because the original text is still above:
 
 ## What is still owed
 
-- **`C-u @` and the kind stage.** The kind vocabulary is `refKind`, which is
+- **`C-c @` and the kind stage.** The kind vocabulary is `refKind`, which is
   stage 1 of the relations proposal — the `Ref` type and the field on the wire.
   Until it lands there is nothing to complete a kind against. The rehearsal has
   the whole interaction built and driven (`c-table.html`), so the shell work is
@@ -177,7 +184,9 @@ Stated plainly, because the original text is still above:
 | `test/browser/drive.mjs:96` | `BREAK=refer-veil` turns the first red |
 | `test/browser/cases.mjs:598` | `@` in the title editor links into the title, drawing no body line |
 | `test/browser/cases.mjs:626` | `ESC` while filtering drops the edit and stands on a row |
-| `AGENTS.hs:4179-4205` | ten `[Browser]`/`[Test]`/`[Docs]` notes: the split, the mount and its `inline` mode, the one-step `ESC`, the two cuts, the boundary, the region, the one box, the key claim |
+| `test/browser/cases.mjs:685` | `DEL` over the emptied filter box takes the box; the next takes a chip |
+| `test/browser/cases.mjs:734` | a HELD `DEL` takes the box and stops — it reached the prose without a guard |
+| `AGENTS.hs:4231-4278` | eleven `[Browser]`/`[Test]`/`[Docs]` notes: the split, the mount and its `inline` mode, the one-step `ESC`, the DEL rung the box became, the two cuts, the boundary, the region, the one box, the key claim |
 
 Three defects the repo's own pinning caught while this landed, each a real one:
 the picker at z-index 5 rendered **behind** the sheet; RET both took the row and

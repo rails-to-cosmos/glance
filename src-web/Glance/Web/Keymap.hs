@@ -143,7 +143,7 @@ openHelp = "open links: the row here, the element in the sheet; several list the
 -- | Chords left to the browser unless they complete a bound sequence.  None
 -- is bound on its own, which is what leaves an abandoned prefix to it.
 reservedChords :: [Text]
-reservedChords = ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
+reservedChords = ["C-l", "C-r", "C-t", "C-u", "C-w", "C-n", "C-p", "<f5>"]
 
 -- | The commands auto-repeat is off for, by NAME.  Movement keeps its repeat;
 -- a surviving one on @d@ would flag a row and archive it from ONE press.

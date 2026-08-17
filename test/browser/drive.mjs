@@ -166,10 +166,14 @@ function pageHandle(cdp, sid) {
   };
   // A LETTER BINDING NAMES A PHYSICAL KEY, so a press carries `code' beside
   // `key' — which is what `keyName' (frontend/glue/05-keys.js) reads back.
-  const NAMED = { RET: ["Enter", "Enter"], TAB: ["Tab", "Tab"], SPC: [" ", "Space"],
-    ESC: ["Escape", "Escape"], DEL: ["Backspace", "Backspace"],
-    "<up>": ["ArrowUp", "ArrowUp"], "<down>": ["ArrowDown", "ArrowDown"],
-    "<left>": ["ArrowLeft", "ArrowLeft"], "<right>": ["ArrowRight", "ArrowRight"] };
+  // THE THIRD SLOT IS THE BROWSER'S OWN DEFAULT, not the page's listener: without
+  // the virtual-key code a held Backspace deletes no character, and a case
+  // asserting nothing was eaten would pass over a keystroke that never bit.
+  const NAMED = { RET: ["Enter", "Enter", 13], TAB: ["Tab", "Tab", 9],
+    SPC: [" ", "Space", 32],
+    ESC: ["Escape", "Escape", 27], DEL: ["Backspace", "Backspace", 8],
+    "<up>": ["ArrowUp", "ArrowUp", 38], "<down>": ["ArrowDown", "ArrowDown", 40],
+    "<left>": ["ArrowLeft", "ArrowLeft", 37], "<right>": ["ArrowRight", "ArrowRight", 39] };
   const CODE = { "+": "Equal", ":": "Semicolon", ",": "Comma", "@": "Digit2",
     "!": "Digit1", "<": "Comma", ">": "Period", "[": "BracketLeft",
     "]": "BracketRight", "/": "Slash", "-": "Minus", "^": "Digit6" };
@@ -182,14 +186,28 @@ function pageHandle(cdp, sid) {
       else break;
     }
     if (NAMED[rest]) {
-      const [key, code] = NAMED[rest];
-      return { key, code, modifiers: mods, text: key === " " ? " " : undefined };
+      const [key, code, vk] = NAMED[rest];
+      return { key, code, vk, modifiers: mods, text: key === " " ? " " : undefined };
     }
+    const vk = rest.toUpperCase().charCodeAt(0);
     if (/^[A-Za-z]$/.test(rest))
-      return { key: rest, code: `Key${rest.toUpperCase()}`,
+      return { key: rest, code: `Key${rest.toUpperCase()}`, vk,
                modifiers: mods | (rest === rest.toUpperCase() ? 8 : 0), text: rest };
-    return { key: rest, code: CODE[rest] || `Key${rest.toUpperCase()}`,
+    return { key: rest, code: CODE[rest] || `Key${rest.toUpperCase()}`, vk,
              modifiers: mods, text: rest };
+  }
+  /** One press, TIMES auto-repeats, one release.  A plain press is this with
+   *  none: CDP defaults `autoRepeat' to false, so the payload is the same. */
+  async function held(name, times) {
+    const e = keyEvent(name);
+    const down = (autoRepeat) => call("Input.dispatchKeyEvent",
+      { type: e.text ? "keyDown" : "rawKeyDown", key: e.key, code: e.code,
+        windowsVirtualKeyCode: e.vk, autoRepeat,
+        modifiers: e.modifiers, text: e.modifiers & 2 ? undefined : e.text });
+    await down(false);
+    for (let i = 0; i < times; i += 1) await down(true);
+    await call("Input.dispatchKeyEvent",
+      { type: "keyUp", key: e.key, code: e.code, modifiers: e.modifiers });
   }
   return {
     async goto(url) {
@@ -201,15 +219,10 @@ function pageHandle(cdp, sid) {
     until(fn, what, cap = SETTLE, ...args) {
       return poll(() => evaluate(fn, ...args), cap, what);
     },
-    async press(name) {
-      const e = keyEvent(name);
-      await call("Input.dispatchKeyEvent",
-        { type: e.text ? "keyDown" : "rawKeyDown", key: e.key, code: e.code,
-          windowsVirtualKeyCode: e.key.length === 1 ? e.key.toUpperCase().charCodeAt(0) : 0,
-          modifiers: e.modifiers, text: e.modifiers & 2 ? undefined : e.text });
-      await call("Input.dispatchKeyEvent",
-        { type: "keyUp", key: e.key, code: e.code, modifiers: e.modifiers });
-    },
+    press: (name) => held(name, 0),
+    /** NAME held down: one press, then TIMES auto-repeats, then the release.
+     *  A held key is its own gesture — `e.repeat' is what a surface guards. */
+    hold: held,
     type(text) { return call("Input.insertText", { text }); },
     async size(width, height) {
       await call("Emulation.setDeviceMetricsOverride",

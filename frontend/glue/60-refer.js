@@ -91,8 +91,11 @@
     }
 
     // An older `table-view.js' is NAMED rather than crashed into (`lacks').
+    // `filtering' is LOAD-BEARING: without it the listener below never stands
+    // aside and the filter box gets none of the keys it is for.
     const REFER_VERBS = ["setRows", "getVisible", "getSelection", "select",
-                         "getQuery", "stripLastToken", "openFilter", "selectStep"];
+                         "getQuery", "stripLastToken", "openFilter", "selectStep",
+                         "filtering"];
 
     function openRefer(b) {
       const box = referAnchor(b);
@@ -145,8 +148,9 @@
       box.dispatchEvent(new Event("input", { bubbles: true }));
     }
 
-    /** DEL walks the query down — typed text, last chip, the `@' — and the mount
-     *  re-asks through `onFilter' for every rung it takes. */
+    /** DEL's rungs OUT HERE: the last chip, then the `@' — what is typed and the
+     *  box itself are the MOUNT's, so it has the keys until they are gone.  It
+     *  re-asks through `onFilter' for every chip it gives up. */
     function referDrop() {
       if (!picking.tv.stripLastToken()) dropMark();
     }
@@ -174,7 +178,7 @@
     }
 
     /** Is the renderer's own filter box holding the keys?  THE MOUNT answers. */
-    const referTyping = () => can(picking.tv, "filtering") && picking.tv.filtering();
+    const referTyping = () => picking.tv.filtering();
 
     // THE PICKER HOLDS THE KEYBOARD, claimed outright: taking a row SHUTS it, so
     // a listener further along would read the same RET as its own.
@@ -187,6 +191,11 @@
       e.preventDefault(); e.stopPropagation();
       const step = rowStep(k) || (k === "C-n" ? 1 : k === "C-p" ? -1 : 0);
       if (step) { stepIn(picking.tv, step); return; }
+      // ONE PRESS, ONE PART, past the movement a held key is FOR: a held DEL
+      // reaches here the moment the mount hands the box back, and unguarded
+      // would walk the chip, the picker and the `@' in one key, then eat the
+      // prose behind it.  Every rung below is one-per-press.
+      if (repeating(e)) return;
       if (k === "/") { picking.tv.openFilter(); return; }
       if (k === "DEL") { referDrop(); return; }
       if (k === "RET") { referTake(); return; }

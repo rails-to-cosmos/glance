@@ -3195,7 +3195,7 @@ once = map Elisp
   , "priority-up", "priority-down", "toggle-sort" ]
 
 reserved :: [String]                         -- ^ left to the browser unless a sequence completes
-reserved = ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
+reserved = ["C-l", "C-r", "C-t", "C-u", "C-w", "C-n", "C-p", "<f5>"]
 
 -- ** The modal surfaces are ONE list, and four readers take everything off it.
 
@@ -3297,6 +3297,20 @@ delRung marks toks trail
   | toks == 0              = NoFilter
   | toks == 1, trail > 0   = PopCrumb
   | otherwise              = DropToken
+
+-- ** DEL in the PICKER is its own ladder, and the box is a rung of it.
+
+-- | The picker's rungs, outermost last.  The first two are the RENDERER's, taken
+-- while the summoned editor holds the keys; the two below are the picker's own
+-- listener, which stands aside until the box has gone.
+data ReferDel = EraseChar | ShutBox | DropChip | DropMark deriving (Eq, Show)
+referRung :: Bool -> Bool -> Int -> ReferDel
+-- ^ the box has the keys, the box is empty, chips applied
+referRung True False _      = EraseChar
+referRung True True  _      = ShutBox
+referRung False _    chips
+  | chips > 0               = DropChip
+  | otherwise               = DropMark
 
 -- ** Drill-down: one semantic at two grains, and DEL is the single undo.
 
@@ -3428,6 +3442,15 @@ shellNotes =
   , Note "The echo speaks SEQ then the command verbatim, anything else in brackets after it; the resident key line is curated prose naming a group." [Test]
   , Note "Chromium handles Ctrl+T/N/W above the document, so C-c C-t is dead in the browser however correctly it is dispatched; C-x C-s works because Ctrl+S is a page default action." [Unguarded]
   , Note "A reserved chord reaches the browser unless it completes a bound sequence; what the list buys is the abandoned prefix." [Test]
+  , Note "THE LIST IS ALSO THE REFUSAL A DESIGN READS: a chord the browser owns is\
+         \ one this page does not offer, whatever the elisp original binds.  `C-u' is\
+         \ org's universal argument and the browser's view-source, so a prefixed\
+         \ gesture spells itself `C-c' — the prefix this map already carries." [Test]
+  , Note "BINDING A CHORD IS WHAT TAKES IT, and A PREFIX TAKES IT EVERYWHERE: the\
+         \ dispatch calls `preventDefault' on a matched binding AND on any press that\
+         \ merely OPENS one, so binding `C-u @' would swallow every `C-u' in the app\
+         \ rather than only the gesture — the reader loses view-source at the prefix,\
+         \ before the second key decides anything.  `C-c' has already paid that." [Test]
   , Note "Prefix opening is guarded by selecting(), one predicate over the focused field's range and the document selection, so C-c and C-x stay copy and cut." [Test]
   , Note "The map is QWERTY's POSITIONS, so a Latin layout that moves its letters reads its own a as this map's q; a layout spelling no < or [ cannot reach the punctuation half." [Test]
   , Note "The modal surfaces' keys live outside keyBindings, so each guards e.repeat by hand, hand-spells the SEQ arrow shape, and writes no strip line." [Unguarded]
@@ -4228,9 +4251,15 @@ sheetNotes =
          \ picker is what happens on top of it.  The binding claimed the key, so the\
          \ literal is the handler's to write; at a word boundary the picker rides\
          \ over it, mid-word an address typed into prose stays an address." [Browser]
+  , Note "AN EMPTIED SUMMONED BOX IS DEL'S FIRST RUNG: `inline''s editor was the last\
+         \ thing the reader put there, so it is the first thing taken back.  The chips\
+         \ under it are the PICKER's own rung — its listener, not the table's\
+         \ `filter-drop-token', which is dead while a surface is up — reached once the\
+         \ box has gone.  A RESIDENT box has no such rung and walks the chips from the\
+         \ first press." [Browser]
   , Note "ESC ABANDONS, DEL DELETES: dismissing the picker leaves the `@' standing —\
          \ the reader typed a character and keeps it — where DEL's last rung takes it\
-         \ away, the rung after the typed text and the chips.  A REGION IS THE\
+         \ away, the rung after the typed text, the summoned box and the chips.  A REGION IS THE\
          \ EXCEPTION to both: no `@' is written over the words the link is to read\
          \ as, so neither key has one to leave or take." [Browser]
   , Note "A SELECTED REGION BECOMES THE LINK and its own words are what the link\

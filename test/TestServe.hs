@@ -9436,7 +9436,7 @@ keymapSpec shell = testGroup "Shell keymap"
         [ "if (!selecting()) { e.preventDefault();"
         , "if (MAPS.reserved.indexOf(k) === -1) e.preventDefault();" ] b
       reservedOf b >>= assertEqual "the chords never claimed on their own"
-        ["C-l", "C-r", "C-t", "C-w", "C-n", "C-p", "<f5>"]
+        ["C-l", "C-r", "C-t", "C-u", "C-w", "C-n", "C-p", "<f5>"]
       rows <- keymapOf b
       reserved <- reservedOf b
       assertEqual "a reserved chord is bound" []

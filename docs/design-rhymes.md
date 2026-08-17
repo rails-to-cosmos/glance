@@ -56,6 +56,9 @@ for `DEL` to undo.  Marks go first, being the last structure a reader put there;
 being the archive queue rather than a mark.  In a text field it still erases
 characters — an open rename or link edit inside a popup keeps the field's
 own erase, and only nav-mode `DEL` closes — over structure it erases steps.
+A field the reader SUMMONED is the one exception, and it rhymes rather than
+breaks: emptied, the picker's inline filter box is itself the last structure
+they put there, so `DEL` takes the box before it takes anything under it.
 
 **Deletion is one gesture.**  dired's flag-then-confirm everywhere something
 dies: `d` flags red, `d` on a flagged thing (or `D`) takes every flagged

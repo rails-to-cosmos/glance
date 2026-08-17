@@ -1,5 +1,11 @@
 # Spike — three rehearsals of `@` in the materialize sheet
 
+> **Superseded in one detail, 2026-08-17.** The prefixed `@` below is
+> spelled `C-u @` throughout, org's universal argument. The shipped keymap
+> cannot use it — `C-u` is the browser's view-source and is now a reserved
+> chord — so the live design spells it `C-c @`. The rehearsal is left as it
+> ran.
+
 **Date:** 2026-08-16 · **For:**
 [`../../proposals/2026-08-15-a-relation-is-a-link-with-a-kind.proposed.md`](../../proposals/2026-08-15-a-relation-is-a-link-with-a-kind.proposed.md)
 
