@@ -44,7 +44,6 @@ page head' colours title body = T.unlines
   , "    --g-doc-fs:13px;--g-doc-lh:1.6;"
   , "    --g-doc-off:calc(3 * var(--g-doc-fs) * var(--g-doc-lh));"
   , "    --g-edit-fs:13px;--g-edit-lh:1.5;"
-  , "    --g-guide:var(--g-border);"
   , "    --g-pop-top:5vh;--g-pop-pad:24px;"
   , "    --g-pop-max:min(90vh,"
   , "      calc(100vh - 2 * var(--g-pop-top)))}"
@@ -129,16 +128,16 @@ page head' colours title body = T.unlines
   , "  .de{scroll-margin-block:var(--g-doc-off);"
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
-  , "  #mdoc.on .de.dat{background-color:var(--g-sel);color:var(--g-fg)}"
+  , "  #mdoc.on .de.dat{background:var(--g-sel);color:var(--g-fg)}"
     -- A NESTED ITEM IS DRAWN INSIDE ITS PARENT, so the ground would run the
     -- whole subtree; the cursor is on the item, not on what hangs off it.  A
     -- COMPOSITE is the exception: the whole list IS the stop, so it grounds
     -- whole.  `:not(.dfl)' leaves a flagged child its own wash.
-  , "  #mdoc.on .de.dat:not(.d-comp) .de:not(.dfl){background-color:var(--g-bg)}"
+  , "  #mdoc.on .de.dat:not(.d-comp) .de:not(.dfl){background:var(--g-bg)}"
   , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-doc-fs)"
   , "    * var(--g-doc-lh))}"
   -- The background is ONE SLOT and the cursor wins it, so a flag says it INSET.
-  , "  .de.dfl{background-color:color-mix(in srgb, var(--g-bad) var(--g-flag-wash), transparent);"
+  , "  .de.dfl{background:color-mix(in srgb, var(--g-bad) var(--g-flag-wash), transparent);"
   , "    box-shadow:inset 3px 0 0 var(--g-bad)}"
   -- PADDING: a margin would take the selection wash off the left of the line.
   , "  .d-para,.d-comp{margin:.5em 0;"
@@ -147,22 +146,6 @@ page head' colours title body = T.unlines
   -- The draft row holds nothing and `:empty' misses it — Elm emits a text node.
   , "  .d-draft{min-height:calc(var(--g-doc-fs) * var(--g-doc-lh))}"
   , "  .d-item{padding-left:0;padding-right:0}"
-    -- The grounds above are `background-color', never the shorthand: the
-    -- shorthand resets `background-image', which is where the guides below live.
-    -- INDENT GUIDES.  The indent is in the TEXT, so a rail cannot ride a border:
-    -- it is drawn in `ch', the width of a character in this monospace face, one
-    -- per enclosing block.  A background IMAGE, so the cursor's ground still
-    -- paints under it.  `dan' is the block the cursor is inside.
-  , "  .de[class*=\"lvl-\"]{background-image:repeating-linear-gradient(to right,"
-  , "    var(--g-guide) 0 1px,transparent 1px 2ch);"
-  , "    background-repeat:no-repeat;background-position:0 0}"
-  , "  .lvl-1{background-size:2ch 100%}"
-  , "  .lvl-2{background-size:4ch 100%}"
-  , "  .lvl-3{background-size:6ch 100%}"
-  , "  .lvl-4{background-size:8ch 100%}"
-  , "  .lvl-5{background-size:10ch 100%}"
-  , "  .lvl-6{background-size:12ch 100%}"
-  , "  .de.dan{--g-guide:var(--g-accent)}"
   , "  .dg{padding:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--g-mute)}"
   , "  .dl{color:var(--g-link);text-decoration:underline}"
   , "  .d-head,.d-child{display:flex;align-items:baseline}"

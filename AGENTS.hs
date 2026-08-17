@@ -4281,16 +4281,6 @@ sheetNotes =
          \ off like any other — and the badge is the readout.  `kind:' comes OUT of\
          \ the row query before it is sent, the kind saying what the link WILL BE\
          \ rather than narrowing the rows it is written from." [Browser]
-  , Note "THE INDENT IS IN THE TEXT, not the box: every row shares one left edge\
-         \ and its leading spaces do the indenting, so an indent guide cannot ride a\
-         \ border.  The rails are drawn in `ch' — one character of the monospace\
-         \ face — one per enclosing block, as a background IMAGE so the cursor's\
-         \ ground still paints under it.  Which is why every ground in the pane is\
-         \ `background-color' and never the shorthand." [Browser]
-  , Note "THE LIT RAIL IS THE BLOCK THE CURSOR IS IN, the faint ones the rest: at\
-         \ depth the question is which block you are inside, and a row carries `dan'\
-         \ when the cursor is it or under it.  The colour rides a custom property,\
-         \ so the block's own rows inherit it without a second rule." [Browser]
   , Note "THE CURSOR GROUNDS THE ITEM, NOT WHAT HANGS OFF IT: a nested list item\
          \ is drawn INSIDE its parent, so the parent's element is as tall as its\
          \ whole subtree and a ground on it runs the lot.  The nested rows take the\

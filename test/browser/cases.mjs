@@ -1135,21 +1135,7 @@ export default [
 { name: "the open edit over a nested item covers its own line, not the subtree",
   async run(p, base) {
     await sheet(p, base, "drv-wide");
-    // WALKED, NOT COUNTED: the cases share one tree, so the list sits wherever
-    // the cases before this left the body.  `n' to the first stop drawing rows
-    // inside it — the list — then `f' once, into the item.
-    for (let i = 0; i < 8; i += 1) {
-      const onList = await p.eval(() => {
-        const at = document.querySelector("#mdoc .de.dat");
-        return !!at && !!at.querySelector(".de");
-      });
-      if (onList) break;
-      await p.press("n");
-    }
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && !!at.querySelector(".de");
-    }, "the cursor to reach the list");
+    await p.press("n"); await p.press("n"); await p.press("n");
     await p.press("f");
     // BOTH a nested row AND an own line: a composite has kids too, so waiting on
     // kids alone cannot tell "still on the list" from "now on the item".
@@ -1196,68 +1182,5 @@ export default [
       `the box holds more than the item's own line: ${JSON.stringify(box.text)}`);
     return [`row ${shape.row}px, own line ${box.ownH}px, box ${box.h}px holding `
       + `${JSON.stringify(box.text.slice(0, 34))}`];
-  } },,
-
-// INDENT GUIDES.  The indent lives in the TEXT — every row shares one left edge
-// and its leading spaces do the indenting — so a rail cannot ride a border. It
-// is drawn in `ch', the width of one character in this monospace face, one rail
-// per enclosing block, as a background IMAGE so the cursor's ground still paints
-// under it.  The block the cursor is inside takes the accent; the rest stay
-// faint, which is the whole point: at depth, which block am I in.
-{ name: "every level draws a rail, and the cursor's block draws the lit one",
-  async run(p, base) {
-    await sheet(p, base, "drv-wide");
-    for (let i = 0; i < 8; i += 1) {
-      const onList = await p.eval(() => {
-        const at = document.querySelector("#mdoc .de.dat");
-        return !!at && !!at.querySelector(".de");
-      });
-      if (onList) break;
-      await p.press("n");
-    }
-    await p.press("f");
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      const kid = at && at.querySelector(".de");
-      return !!kid && at.children[0] !== kid;
-    }, "the cursor on an item with rows inside it");
-
-    const seen = await p.eval(() => {
-      const rows = [...document.querySelectorAll("#mdoc .de")];
-      const read = (n) => {
-        const cs = getComputedStyle(n);
-        return { cls: n.className, w: cs.backgroundSize.split(" ")[0],
-                 img: cs.backgroundImage,
-                 ink: cs.getPropertyValue("--g-guide").trim() };
-      };
-      const one = (want) => {
-        const n = rows.find((r) => r.className.split(/\s+/).includes(want));
-        return n ? read(n) : null;
-      };
-      const at = document.querySelector("#mdoc .de.dat");
-      const outside = rows.find((r) => r !== at && !at.contains(r)
-                                    && r.className.includes("lvl-"));
-      return { one: one("lvl-1"), two: one("lvl-2"),
-               head: read(rows[0]),
-               atInk: getComputedStyle(at).getPropertyValue("--g-guide").trim(),
-               outInk: outside
-                 ? getComputedStyle(outside).getPropertyValue("--g-guide").trim() : null };
-    });
-
-    assert(seen.one && seen.two, "the pane drew no nested levels to measure");
-    assert(seen.head.img === "none",
-      `an unnested row draws a rail (${seen.head.img.slice(0, 40)})`);
-    // ONE RAIL PER ENCLOSING BLOCK: the second level is drawn twice as wide.
-    const w1 = parseFloat(seen.one.w), w2 = parseFloat(seen.two.w);
-    assert(w1 > 0 && Math.abs(w2 - w1 * 2) <= 1,
-      `level one rails over ${seen.one.w} and level two over ${seen.two.w}`);
-    assert(/repeating-linear-gradient/.test(seen.one.img),
-      `the rails are not drawn as an image: ${seen.one.img.slice(0, 40)}`);
-    // AND THE LIT ONE IS THE CURSOR'S BLOCK.
-    assert(seen.atInk && seen.outInk && seen.atInk !== seen.outInk,
-      `the cursor's block draws its rail ${seen.atInk}, a row outside it `
-      + `${seen.outInk} — the same, so no block is marked`);
-    return [`level 1 rails over ${seen.one.w}, level 2 over ${seen.two.w}; `
-      + `the cursor's block draws ${seen.atInk} against ${seen.outInk}`];
   } },
 ];

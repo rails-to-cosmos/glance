@@ -31,7 +31,6 @@ import Body
         , joinWord
         , kidsOf
         , kindWord
-        , ownersOf
         , placeOf
         , placeOfLine
         , rowAt
@@ -758,41 +757,6 @@ rowClass m i r =
            )
         ++ (if List.member r.id m.flags then
                 " dfl"
-
-            else
-                ""
-           )
-        ++ guideClass m r
-
-
-{-| THE INDENT IS IN THE TEXT, not the box: a nested row sits at its parent's
-left edge and its leading spaces do the indenting. So the guides are drawn from
-the row's DEPTH, which the class carries — one rail per enclosing block — and the
-row is marked when the cursor is inside that block, so a reader at depth can see
-which one they are in.
--}
-guideClass : Model -> Row -> String
-guideClass m r =
-    let
-        deep =
-            List.length (ownersOf m r.id)
-
-        inside =
-            case rowAt m of
-                Nothing ->
-                    False
-
-                Just here ->
-                    r.id == here.id || List.member r.id (ownersOf m here.id)
-    in
-    (if deep > 0 then
-        " lvl-" ++ String.fromInt (min 6 deep)
-
-     else
-        ""
-    )
-        ++ (if inside && deep > 0 then
-                " dan"
 
             else
                 ""

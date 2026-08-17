@@ -12,7 +12,6 @@ module Body exposing
     , joinLine
     , joinWord
     , kidsOf
-    , ownersOf
     , kindWord
     , markerFor
     , placeOf
