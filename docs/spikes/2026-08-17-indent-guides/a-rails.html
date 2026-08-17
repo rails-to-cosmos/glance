@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A · rails, none lit</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* THE CHEAPEST RAIL THERE IS: no overlay, no measuring, no JS at paint time.
+     A row draws its own guides as a background image, one per enclosing block,
+     and `--lvl' is the only thing the rig has to set. */
+  .dp{
+    background-image:repeating-linear-gradient(
+      to right, var(--rail) 0 1px, transparent 1px 2ch);
+    background-size:calc(var(--lvl, 0) * 2ch) 100%;
+    background-repeat:no-repeat;
+    --rail:color-mix(in srgb, var(--g-fg) 14%, transparent);
+  }
+  /* The cursor's ground is golden and a rail over it turns to dirt, so the row
+     under point drops them: the ground already says where point is. */
+  #mdoc .de.dat > .dp{background-image:none}
+</style>
+</head>
+<body>
+  <h1>A · rails, none lit
+    <small>every enclosing block draws one; depth is a COUNT</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+RIG.mount({
+  setup: function (mdoc) {
+    // Depth is fixed per row, so this runs once and never at paint time.
+    mdoc.querySelectorAll(".d-item").forEach(function (el) {
+      el.querySelector(".dp").style.setProperty("--lvl", el.dataset.depth);
+    });
+  },
+});
+</script>
+</body>
+</html>

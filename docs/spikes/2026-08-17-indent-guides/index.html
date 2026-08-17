@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Indent guides — six looks</title>
+<style>
+  /* THE SHELL ONLY.  Each variant is its own page; what they share is the rig
+     and the pane, which is the point — the tabs differ by look and nothing else. */
+  :root{
+    --mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --bg:#FFFFFF; --fg:#000000; --mute:#667071; --border:#E3E6EA;
+    --accent:#31769F; --surface:#F8F8FF;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --fg:#FFFFFF; --mute:#A4C2EB; --border:#2A2D3D;
+      --accent:#4CB5F5; --surface:#21252B;
+    }
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 var(--mono); display:flex; flex-direction:column;
+  }
+  header{flex:none; border-bottom:1px solid var(--border); background:var(--surface)}
+  h1{margin:0; padding:10px 20px 0; font-size:13px; font-weight:600; letter-spacing:.02em}
+  h1 small{font-weight:400; color:var(--mute); margin-left:8px}
+  nav{display:flex; flex-wrap:wrap; padding:0 20px}
+  nav a{
+    font-size:12px; color:var(--mute); text-decoration:none;
+    border-bottom:2px solid transparent; padding:10px 12px;
+  }
+  nav a:hover{color:var(--fg)}
+  nav a[aria-current="page"]{color:var(--fg); border-bottom-color:var(--accent)}
+  nav a:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  p.note{
+    margin:0; padding:8px 20px; font-size:11px; color:var(--mute);
+    border-bottom:1px solid var(--border); max-width:100ch;
+  }
+  p.note code,p.note kbd{font-size:11px}
+  iframe{flex:1 1 auto; width:100%; border:0; display:block; min-height:0}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Indent guides <small>six ways to say which block the cursor is in</small></h1>
+    <nav id="tabs" aria-label="variants">
+      <a href="#a" data-src="a-rails.html">A · rails</a>
+      <a href="#b" data-src="b-active.html">B · active rail</a>
+      <a href="#c" data-src="c-bracket.html">C · bracket</a>
+      <a href="#d" data-src="d-ladder.html">D · ladder</a>
+      <a href="#e" data-src="e-ancestry.html">E · ancestry</a>
+      <a href="#f" data-src="f-path.html">F · path</a>
+    </nav>
+  </header>
+  <p class="note" id="note"></p>
+  <iframe id="stage" title="variant"></iframe>
+
+<script>
+(() => {
+  "use strict";
+  const NOTE = {
+    a: "Every enclosing block draws a faint rail and none is lit. Depth is a COUNT — "
+     + "the baseline the shipped attempt amounted to, and the one that failed: "
+     + "two rails or three is not something the eye reads without stopping.",
+    b: "Sublime's <code>draw_active</code>. All the rails, exactly one lit: the block "
+     + "point is inside. Depth 1 and depth 2 differ by WHICH line is lit.",
+    c: "The lit rail runs from the line that OPENS the block down to its last child, "
+     + "capped at both ends — it names an extent, not just a column.",
+    d: "Nothing in the prose. A gutter beside the cursor's line alone, one rung per "
+     + "enclosing block, the innermost filled.",
+    e: "Faint everywhere, and every enclosing block lit, brightening inward. The whole "
+     + "ancestry at once rather than the innermost alone.",
+    f: "No marks at all — the ancestry spelled in its own words, riding the top of the "
+     + "pane. It answers WHERE, where a rail answers only HOW DEEP.",
+  };
+  const tabs = [...document.querySelectorAll("#tabs a")];
+  const stage = document.getElementById("stage");
+  const note = document.getElementById("note");
+
+  function show(key) {
+    const tab = tabs.find((t) => t.hash === "#" + key) || tabs[0];
+    for (const t of tabs) {
+      if (t === tab) t.setAttribute("aria-current", "page");
+      else t.removeAttribute("aria-current");
+    }
+    note.innerHTML = NOTE[tab.hash.slice(1)] || "";
+    const src = tab.dataset.src;
+    if (stage.getAttribute("src") !== src) stage.setAttribute("src", src);
+    stage.addEventListener("load", () => {
+      try { stage.contentWindow.focus(); } catch (e) { /* another origin */ }
+    }, { once: true });
+  }
+
+  addEventListener("hashchange", () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || "b");
+})();
+</script>
+</body>
+</html>

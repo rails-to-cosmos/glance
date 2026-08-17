@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D · a ladder in the gutter</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* NOTHING IS DRAWN IN THE PROSE.  The pane keeps a gutter and the cursor's
+     row alone is marked: one rung per enclosing block, the innermost filled.
+     Depth is READ, not counted off lines running down the page. */
+  #mdoc{padding-left:28px}
+  #ladder{
+    position:absolute; left:6px; width:16px; pointer-events:none;
+    display:flex; flex-direction:column; gap:2px; align-items:center;
+    justify-content:center;
+  }
+  #ladder u{
+    display:block; width:12px; height:2px; border-radius:1px;
+    background:color-mix(in srgb, var(--g-fg) 22%, transparent);
+  }
+  #ladder u.here{background:var(--g-accent); width:16px; height:3px}
+</style>
+</head>
+<body>
+  <h1>D · a ladder in the gutter
+    <small>one rung per enclosing block, the one you are in filled</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var lad;
+  RIG.mount({
+    setup: function (mdoc) {
+      lad = document.createElement("div");
+      lad.id = "ladder";
+      lad.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(lad);
+    },
+    paint: function (s) {
+      var own = s.px(s.at.el.querySelector(".dp") || s.at.el);
+      lad.style.top = own.top + "px";
+      lad.style.height = own.height + "px";
+      lad.textContent = "";
+      // A LIST ITEM ONLY.  Prose sits at no depth and gets no ladder, which is
+      // itself the answer when the cursor leaves the list.
+      var rungs = s.at.el.classList.contains("d-item")
+        ? Number(s.at.el.dataset.depth) + 1 : 0;
+      // Outermost at the top, so the ladder grows downward as `f' goes in.
+      for (var i = 0; i < rungs; i++) {
+        var u = document.createElement("u");
+        if (i === rungs - 1) u.className = "here";
+        lad.appendChild(u);
+      }
+    },
+  });
+})();
+</script>
+</body>
+</html>

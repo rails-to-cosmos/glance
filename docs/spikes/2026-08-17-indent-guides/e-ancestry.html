@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E · the ancestry, brightening inward</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* Faint everywhere, and every block ENCLOSING point lit — brightening as it
+     goes in, so the path reads outermost to innermost without a legend.  The
+     ramp is per rail, never inherited: inheritance is what made depth 1 and
+     depth 2 look the same. */
+  #rails{position:absolute; inset:0; pointer-events:none}
+  #rails i{
+    position:absolute; width:1px; display:block;
+    background:color-mix(in srgb, var(--g-fg) 12%, transparent);
+  }
+  #rails i.up{
+    width:2px; border-radius:1px;
+    background:color-mix(in srgb, var(--g-accent)
+                         calc(var(--near) * 1%), transparent);
+  }
+</style>
+</head>
+<body>
+  <h1>E · the ancestry, brightening inward
+    <small>every enclosing block lit, the innermost brightest</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer;
+  RIG.mount({
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "rails";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+    },
+    paint: function (s) {
+      var up = s.chain.slice(0, -1);              // point's own block, and out
+      layer.textContent = "";
+      s.rails().forEach(function (r) {
+        var i = document.createElement("i");
+        var rank = up.indexOf(r.owner);
+        var css = "left:" + r.x + "px;top:" + r.top + "px;height:" + r.height + "px";
+        if (rank >= 0) {
+          i.className = "up";
+          // The innermost is full accent and each step out sheds a third of it.
+          var steps = up.length - 1 - rank;
+          css += ";--near:" + Math.max(20, 100 - steps * 32);
+        }
+        i.style.cssText = css;
+        layer.appendChild(i);
+      });
+    },
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C · the block, bracketed</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* B says WHICH rail; this says WHERE THE BLOCK ENDS.  The lit rail starts at
+     the line that opens the block and closes with a foot, so the bracket names
+     an extent rather than a direction — VS Code's active-guide, roughly. */
+  #rails{position:absolute; inset:0; pointer-events:none}
+  #rails i{
+    position:absolute; width:1px; display:block;
+    background:color-mix(in srgb, var(--g-fg) 10%, transparent);
+  }
+  #rails i.lit{background:var(--g-accent); width:2px; border-radius:1px}
+  #rails i.lit::before,#rails i.lit::after{
+    content:""; position:absolute; left:0; width:5px; height:2px;
+    background:var(--g-accent); border-radius:1px;
+  }
+  #rails i.lit::before{top:0}
+  #rails i.lit::after{bottom:0}
+</style>
+</head>
+<body>
+  <h1>C · the block, bracketed
+    <small>the lit rail runs from the line that opens the block to its last child</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer;
+  RIG.mount({
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "rails";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+    },
+    paint: function (s) {
+      var inside = s.chain[s.chain.length - 2];
+      layer.textContent = "";
+      s.rails().forEach(function (r) {
+        var i = document.createElement("i");
+        var top = r.top, height = r.height;
+        if (r.owner === inside) {
+          i.className = "lit";
+          // UP TO THE LINE THAT OPENS IT: a block starts at its own line, and a
+          // bracket that starts below it brackets the wrong thing.
+          var own = s.px(r.owner.el.querySelector(".dp") || r.owner.el);
+          height = top + height - own.top;
+          top = own.top;
+        }
+        i.style.cssText = "left:" + r.x + "px;top:" + top
+                        + "px;height:" + height + "px";
+        layer.appendChild(i);
+      });
+    },
+  });
+})();
+</script>
+</body>
+</html>

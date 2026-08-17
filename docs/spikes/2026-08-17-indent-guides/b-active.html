@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · the block you are in</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* Sublime's `draw_active': the rails are all there, and EXACTLY ONE is lit —
+     the block the cursor sits inside.  Depth 1 and depth 2 differ by WHICH
+     line is lit, which is a difference a reader can see without counting. */
+  #rails{position:absolute; inset:0; pointer-events:none}
+  #rails i{
+    position:absolute; width:1px; display:block;
+    background:color-mix(in srgb, var(--g-fg) 14%, transparent);
+  }
+  #rails i.lit{
+    background:var(--g-accent);
+    width:2px;
+    box-shadow:0 0 0 1px color-mix(in srgb, var(--g-accent) 18%, transparent);
+  }
+</style>
+</head>
+<body>
+  <h1>B · the block you are in
+    <small>one rail lit, and it is the innermost block enclosing point</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer;
+  RIG.mount({
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "rails";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+    },
+    paint: function (s) {
+      // The chain ends at point, so the one before it OWNS the block point is
+      // in.  Nothing owns prose, and nothing is lit for it.
+      var inside = s.chain[s.chain.length - 2];
+      layer.textContent = "";
+      s.rails().forEach(function (r) {
+        var i = document.createElement("i");
+        if (r.owner === inside) i.className = "lit";
+        i.style.cssText = "left:" + r.x + "px;top:" + r.top
+                        + "px;height:" + r.height + "px";
+        layer.appendChild(i);
+      });
+    },
+  });
+})();
+</script>
+</body>
+</html>

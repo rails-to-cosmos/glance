@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>F · the path, in words</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* NO MARKS AT ALL.  A rail says how deep; a path says WHERE — and the words
+     are already on the screen, so the strip only has to repeat them in order.
+     It rides the top of the pane, so it is where the eye already is. */
+  #path{
+    position:sticky; top:calc(-1 * var(--g-doc-pady)); z-index:2;
+    margin:calc(-1 * var(--g-doc-pady)) calc(-1 * var(--g-doc-padx)) 6px;
+    padding:4px var(--g-doc-padx);
+    background:var(--g-surface); border-bottom:1px solid var(--g-border);
+    font-size:11px; color:var(--g-mute);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  #path b{font-weight:600; color:var(--g-accent)}
+  #path s{text-decoration:none; padding:0 5px; opacity:.6}
+</style>
+</head>
+<body>
+  <h1>F · the path, in words
+    <small>the ancestry named, and nothing drawn beside the text</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var strip;
+  var word = function (r) {
+    var el = r.el.querySelector(".dp") || r.el;
+    var t = el.textContent.replace(/^\s*-\s*/, "").trim();
+    return t.length > 24 ? t.slice(0, 23) + "…" : t;
+  };
+  RIG.mount({
+    setup: function (mdoc) {
+      strip = document.createElement("div");
+      strip.id = "path";
+      // FIRST CHILD OR IT DOES NOT STICK: a sticky box sticks within the flow it
+      // is in, and appended last it would ride the bottom.
+      mdoc.insertBefore(strip, mdoc.firstChild);
+    },
+    paint: function (s) {
+      strip.textContent = "";
+      var crumbs = s.chain.filter(function (r) {
+        return r.el.classList.contains("d-item") || r.el.classList.contains("d-comp");
+      });
+      if (!crumbs.length) { strip.textContent = "prose"; return; }
+      crumbs.forEach(function (r, i) {
+        if (i) strip.appendChild(document.createElement("s")).textContent = "›";
+        var last = i === crumbs.length - 1;
+        var span = document.createElement(last ? "b" : "span");
+        span.textContent = r.el.classList.contains("d-comp") ? "list" : word(r);
+        strip.appendChild(span);
+      });
+    },
+  });
+})();
+</script>
+</body>
+</html>
