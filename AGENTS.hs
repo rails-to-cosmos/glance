@@ -4281,6 +4281,12 @@ sheetNotes =
          \ off like any other — and the badge is the readout.  `kind:' comes OUT of\
          \ the row query before it is sent, the kind saying what the link WILL BE\
          \ rather than narrowing the rows it is written from." [Browser]
+  , Note "THE PLATFORM PAINTS THE FORM CONTROLS, and `color-scheme' is the only\
+         \ thing that tells it which way: a `<select>' on a dark page that never\
+         \ declares its scheme is drawn from the UA's LIGHT palette, and the page's\
+         \ own inherited `color' over that is white on white — which is what the\
+         \ native WebKitGTK window drew.  It rides the PALETTE BLOCKS, so a theme\
+         \ cannot carry tokens without carrying the scheme beside them." [Test, Browser]
   , Note "THE BADGE IS AN OUTLINE where every other badge is a washed ground: a\
          \ state or a tag describes the ROW it sits on, and this describes the EDGE\
          \ about to be written.  Reading alike would say they were one kind of\

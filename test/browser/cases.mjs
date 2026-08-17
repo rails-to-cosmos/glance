@@ -845,6 +845,53 @@ export default [
     return [`${rowsBefore} rows throughout, badge "kind:cites" then cleared`];
   } },
 
+// THE PLATFORM PAINTS THE `<select>', and only `color-scheme' tells it which
+// way.  The native WebKitGTK window drew every dropdown white on white: the
+// page's own `color' was inherited over a control ground the UA painted from
+// its LIGHT palette, because nothing declared the page was dark.  Chromium
+// cannot reproduce GTK's paint, so what is asked here is the declaration the
+// native window reads, and that no dropdown is given one colour twice.
+{ name: "every dropdown declares the scheme its platform paints it in",
+  async run(p, base) {
+    await p.goto(`${base}/`);
+    await p.until(() => !!document.querySelector("#app table tbody tr"),
+                  "the table to mount rows");
+    const SELECTS = ["themesel", "clayer", "nspace", "ngroup"];
+    const read = (theme, ids) => {
+      const root = document.documentElement;
+      const was = root.dataset.theme;
+      if (theme) root.dataset.theme = theme; else delete root.dataset.theme;
+      const scheme = getComputedStyle(root).colorScheme;
+      const boxes = ids.map((id) => {
+        const el = document.getElementById(id);
+        const cs = getComputedStyle(el);
+        return { id, fg: cs.color, bg: cs.backgroundColor };
+      });
+      if (was) root.dataset.theme = was; else delete root.dataset.theme;
+      return { scheme, boxes };
+    };
+    const dark = await p.eval(read, "dark", SELECTS);
+    const light = await p.eval(read, "light", SELECTS);
+
+    assert(/dark/.test(dark.scheme),
+      `a dark page declares ${JSON.stringify(dark.scheme)}, so the platform paints `
+      + `its controls light`);
+    assert(/light/.test(light.scheme) && !/dark/.test(light.scheme),
+      `a light page declares ${JSON.stringify(light.scheme)}`);
+
+    // AND WE DO NOT DO IT TO OURSELVES: a box whose ink is its own ground is
+    // unreadable however the platform paints around it.
+    for (const seen of [dark, light])
+      for (const b of seen.boxes)
+        assert(b.fg !== b.bg,
+          `#${b.id} draws ${b.fg} on ${b.bg} — one colour twice`);
+
+    const missed = SELECTS.filter((id) => !dark.boxes.some((b) => b.id === id));
+    assert(!missed.length, `the page lost a dropdown: ${missed.join(", ")}`);
+    return [`${SELECTS.length} dropdowns · dark declares ${JSON.stringify(dark.scheme)}, `
+      + `light ${JSON.stringify(light.scheme)}`];
+  } },
+
 // A BADGE COLUMN'S HEADER SITS OVER ITS BADGES' FIRST LETTER.  A pill sets its
 // text in from the cell edge by its own padding, so a header aligned to the CELL
 // is a header sitting a padding's width left of the words underneath it — which

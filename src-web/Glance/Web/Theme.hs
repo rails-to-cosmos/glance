@@ -109,8 +109,14 @@ themeCSS = T.concat
   where
     pinned t = ":root[data-theme=\"" <> thId t <> "\"]"
     media css = "  @media (prefers-color-scheme:dark){\n" <> css <> "  }\n"
-    rules pad page table t = block pad page (pageTokens (thPalette t))
+    rules pad page table t = block pad page (scheme t : pageTokens (thPalette t))
                           <> block pad table (tableTokens (thPalette t))
+    -- THE PLATFORM PAINTS THE CONTROLS, and this is the only thing that tells it
+    -- which way.  A `<select>' is drawn by the UA, so a dark page that never
+    -- declares its scheme gets the LIGHT control palette — and with the page's
+    -- own `color' inherited over it, white on white.  It rides the palette
+    -- blocks so the scheme cannot drift from the tokens beside it.
+    scheme t = ("color-scheme", case thMode t of Dark -> "dark"; Light -> "light")
 
 -- | Emitted AFTER 'themeCSS' at the same specificity, so a later rule wins, and
 -- per REQUEST — these come off the store's config, never out of the build.

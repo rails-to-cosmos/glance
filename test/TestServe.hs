@@ -5791,6 +5791,16 @@ shellGlue =
       [ "  @media (pointer:coarse){", "#app .tv-chips{min-height:44px;cursor:pointer}" ]
       [ "id=\"gear\"", "#gear{", "\9881" ]
 
+    -- THE PLATFORM PAINTS THE `<select>', and a page that never declares its
+    -- scheme gets the LIGHT control palette whatever its own colours are — with
+    -- `color' inherited over it that is white on white, which is what the native
+    -- WebKitGTK window drew.  It rides the palette blocks, so every theme says it.
+  , glue "every palette block declares the scheme the platform paints controls in"
+      [ "  :root{\n    color-scheme:light;"
+      , "  @media (prefers-color-scheme:dark){\n    :root{\n      color-scheme:dark;"
+      , "  :root[data-theme=\"light\"]{\n    color-scheme:light;"
+      , "  :root[data-theme=\"dark\"]{\n    color-scheme:dark;" ]
+
   , glue "asks for one font stack, everywhere in the page"
       [ "--glance-mono:\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
       -- The renderer injects `.tv-root{font:…}' after this page's style element, so the extra selector step wins.
