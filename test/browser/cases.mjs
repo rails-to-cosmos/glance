@@ -13,6 +13,30 @@ async function sheet(p, base, row) {
                 `${row}'s body to draw more than a headline`);
 }
 
+/** WALK DOWN TO AN ITEM THAT HAS ROWS DRAWN INSIDE IT, adaptively: `n' crosses
+ * stops and `f' goes finer, and a FIXED key count lands elsewhere the moment a
+ * case above has written to the tree.  A press lands a round trip later, and the
+ * list answers "has rows inside it" too, so the wait names the ITEM. */
+async function intoNestedItem(p, base, row) {
+  await sheet(p, base, row);
+  const on = (what) => p.eval((sel) => {
+    const at = document.querySelector("#mdoc .de.dat");
+    return !!at && (sel === "kids"
+                      ? at.classList.contains("d-item") && !!at.querySelector(".de")
+                      : at.classList.contains(sel));
+  }, what);
+  for (let i = 0; i < 8 && !(await on("d-comp")); i++) await p.press("n");
+  assert(await on("d-comp"), "`n' never reached the list itself");
+  await p.press("f");
+  await p.until(() => {
+    const at = document.querySelector("#mdoc .de.dat");
+    return !!at && at.classList.contains("d-item");
+  }, "`f' to descend into the list");
+  for (let i = 0; i < 8 && !(await on("kids")); i++) await p.press("n");
+  assert(await on("kids"),
+    "`f' then `n' never reached an item with rows drawn inside it");
+}
+
 /** The sheet over ROW with its first paragraph open for editing. */
 async function paraOpen(p, base, row) {
   await sheet(p, base, row);
@@ -145,9 +169,6 @@ export default [
     await p.until(() => !!document.querySelector("#app tr.tv-flagged"),
                   "the table row to wear its flag");
     const table = await p.eval(() => {
-      const rgb = (v) => { const d = document.createElement("div");
-        d.style.color = v; document.body.append(d);
-        const c = getComputedStyle(d).color; d.remove(); return c; };
       // `--tv-*' lives on `.tv-root' and `--g-*' on the document element.
       const root = getComputedStyle(document.documentElement);
       const tv = getComputedStyle(document.querySelector("#app .tv-root"));
@@ -176,13 +197,10 @@ export default [
     // nested row would cover the subtree drawn inside it, so the pane draws a
     // rail in the row's own column instead.
     const pane = await p.eval(() => {
-      const rgb = (v) => { const d = document.createElement("div");
-        d.style.color = v; document.body.append(d);
-        const c = getComputedStyle(d).color; d.remove(); return c; };
       const fl = document.querySelector("#mdoc .de.dfl");
       // THE INK IS THE ROW'S: an elbow spends it on its borders and a run on its
       // background, so the tier is what a case can read either way.
-      return { thin: rgb(getComputedStyle(fl).getPropertyValue("--ink").trim()),
+      return { thin: ink(fl),
                wide: getComputedStyle(fl, "::before").width,
                ground: getComputedStyle(fl).backgroundColor };
     });
@@ -333,12 +351,9 @@ export default [
       const cs = getComputedStyle(at);
       const point = getComputedStyle(document.documentElement)
         .getPropertyValue("--g-point").trim();
-      const rgb = (v) => { const d = document.createElement("div");
-        d.style.color = v; document.body.append(d);
-        const c = getComputedStyle(d).color; d.remove(); return c; };
-      return { mark: rgb(getComputedStyle(at).getPropertyValue("--ink").trim()),
+      return { mark: ink(at),
                ink: rgb(point),
-               offMark: rgb(getComputedStyle(off).getPropertyValue("--ink").trim()),
+               offMark: ink(off),
                ground: cs.backgroundColor,
                deco: cs.textDecorationLine, outline: cs.outlineStyle,
                border: cs.borderTopStyle };
@@ -358,10 +373,7 @@ export default [
                   "the panel to take the keys");
     const gone = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
-      const rgb = (v) => { const d = document.createElement("div");
-        d.style.color = v; document.body.append(d);
-        const c = getComputedStyle(d).color; d.remove(); return c; };
-      return at ? rgb(getComputedStyle(at).getPropertyValue("--ink").trim()) : null;
+      return at ? ink(at) : null;
     });
     // A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE: the row keeps whatever a row with
     // no cursor keeps, which is a faint connector or nothing at all — never the
@@ -889,8 +901,12 @@ export default [
       const was = root.dataset.theme;
       if (theme) root.dataset.theme = theme; else delete root.dataset.theme;
       const scheme = getComputedStyle(root).colorScheme;
+      // A MISSING BOX IS REPORTED, NOT THROWN: `getComputedStyle(null)' raises, and
+      // an eval that raises fails the case with the driver's words rather than with
+      // the name of the dropdown that went.
       const boxes = ids.map((id) => {
         const el = document.getElementById(id);
+        if (!el) return { id, missing: true };
         const cs = getComputedStyle(el);
         return { id, fg: cs.color, bg: cs.backgroundColor };
       });
@@ -906,15 +922,15 @@ export default [
     assert(/light/.test(light.scheme) && !/dark/.test(light.scheme),
       `a light page declares ${JSON.stringify(light.scheme)}`);
 
+    const missed = dark.boxes.filter((b) => b.missing).map((b) => b.id);
+    assert(!missed.length, `the page lost a dropdown: ${missed.join(", ")}`);
+
     // AND WE DO NOT DO IT TO OURSELVES: a box whose ink is its own ground is
     // unreadable however the platform paints around it.
     for (const seen of [dark, light])
       for (const b of seen.boxes)
         assert(b.fg !== b.bg,
           `#${b.id} draws ${b.fg} on ${b.bg} — one colour twice`);
-
-    const missed = SELECTS.filter((id) => !dark.boxes.some((b) => b.id === id));
-    assert(!missed.length, `the page lost a dropdown: ${missed.join(", ")}`);
     return [`${SELECTS.length} dropdowns · dark declares ${JSON.stringify(dark.scheme)}, `
       + `light ${JSON.stringify(light.scheme)}`];
   } },
@@ -1099,33 +1115,8 @@ export default [
 // the same structure from the other side, a leaf standing taller than its line.
 { name: "the cursor on a list item lights itself, and what it carries a shade back",
   async run(p, base) {
-    await sheet(p, base, "drv-wide");
-    // `n' CROSSES STOPS, `f' GOES FINER — the list is ONE stop at the coarse
-    // grain, so reaching an item at all takes the finer key.  THE WALK IS
-    // ADAPTIVE: a fixed count lands on a different row once an earlier case has
-    // written to the tree, and the case then measures whatever it found.
-    const on = (what) => p.eval((sel) => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && (sel === "kids"
-                        ? at.classList.contains("d-item") && !!at.querySelector(".de")
-                        : at.classList.contains(sel));
-    }, what);
-    for (let i = 0; i < 8 && !(await on("d-comp")); i++) await p.press("n");
-    assert(await on("d-comp"), "`n' never reached the list itself");
-    await p.press("f");
-    // WAITED FOR, NOT ASSUMED: a press lands a round trip later, and the list
-    // answers "has rows inside it" too — so the exit test named the item.
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && at.classList.contains("d-item");
-    }, "`f' to descend into the list");
-    for (let i = 0; i < 8 && !(await on("kids")); i++) await p.press("n");
-    assert(await on("kids"),
-      "`f' then `n' never reached an item with rows drawn inside it");
+    await intoNestedItem(p, base, "drv-wide");
     const seen = await p.eval(() => {
-      const rgb = (v) => { const d = document.createElement("div");
-        d.style.color = v; document.body.append(d);
-        const c = getComputedStyle(d).color; d.remove(); return c; };
       const root = getComputedStyle(document.documentElement);
       const at = document.querySelector("#mdoc .de.dat");
       const kid = at.querySelector(":scope > .de");
@@ -1133,10 +1124,10 @@ export default [
         .find((n) => n !== at && !at.contains(n));
       return { point: rgb(root.getPropertyValue("--g-point").trim()),
                dim: rgb(root.getPropertyValue("--g-point-dim").trim()),
-               atInk: rgb(getComputedStyle(at).getPropertyValue("--ink").trim()),
-               kidInk: rgb(getComputedStyle(kid).getPropertyValue("--ink").trim()),
+               atInk: ink(at),
+               kidInk: ink(kid),
                otherInk: other
-                 ? rgb(getComputedStyle(other).getPropertyValue("--ink").trim()) : null,
+                 ? ink(other) : null,
                ground: getComputedStyle(at).backgroundColor,
                tall: Math.round(parseFloat(getComputedStyle(at, "::before").height)),
                line: Math.round(parseFloat(getComputedStyle(
@@ -1168,12 +1159,9 @@ export default [
       const at = document.querySelector("#mdoc .de.dat");
       const root = at.querySelector(":scope > .de");
       const deep = at.querySelector(":scope > .de > .de");
-      const rgb = (v) => { const d = document.createElement("div");
-        d.style.color = v; document.body.append(d);
-        const c = getComputedStyle(d).color; d.remove(); return c; };
-      return { rootInk: rgb(getComputedStyle(root).getPropertyValue("--ink").trim()),
+      return { rootInk: ink(root),
                deepInk: deep
-                 ? rgb(getComputedStyle(deep).getPropertyValue("--ink").trim()) : null };
+                 ? ink(deep) : null };
     });
     assert(whole.rootInk === seen.point,
       `a root the list opens paints ${whole.rootInk}, not ${seen.point}`);
@@ -1182,7 +1170,7 @@ export default [
     return [`point ${seen.atInk}, what it carries ${seen.kidInk}, elsewhere `
       + `${seen.otherInk}; the elbow is ${seen.tall}px of a ${seen.line}px line; `
       + `the list lights its roots ${whole.rootInk} and stops`];
-  } },,
+  } },
 
 // THE BOX IS THE LINE IT WRITES.  A nested item is drawn inside its parent, so
 // the ROW is as tall as the subtree; the edit covers the item's own line, which
@@ -1251,9 +1239,6 @@ export default [
       return !!at && !!at.querySelector(":scope > .dp > .dm") && !!at.querySelector(".de");
     }, "the cursor to land on an item that has one drawn inside it");
     const seen = await p.eval(() => {
-      const rgb = (v) => { const d = document.createElement("div");
-        d.style.color = v; document.body.append(d);
-        const c = getComputedStyle(d).color; d.remove(); return c; };
       const at = document.querySelector("#mdoc .de.dat");
       const own = at.querySelector(":scope > .dp > .dm");
       // `:scope' OR THE OWN BULLET COMES BACK: a descendant combinator may use an
@@ -1262,8 +1247,7 @@ export default [
       const kid = at.querySelector(":scope > .de > .dp > .dm");
       const plain = [...document.querySelectorAll("#mdoc .de:not(.dat) > .dp > .dm")]
         .find((n) => !at.contains(n));
-      return { point: rgb(getComputedStyle(document.documentElement)
-                 .getPropertyValue("--g-point").trim()),
+      return { point: rgb(getComputedStyle(document.documentElement).getPropertyValue("--g-point").trim()),
                ink: getComputedStyle(own).color, text: own.textContent,
                weight: getComputedStyle(own).fontWeight,
                nested: kid ? getComputedStyle(kid).color : null,
@@ -1300,29 +1284,13 @@ export default [
   } },
 { name: "the strip names the way back, and agrees with the connectors",
   async run(p, base) {
-    await sheet(p, base, "drv-wide");
-    const on = (what) => p.eval((sel) => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && (sel === "kids"
-                        ? at.classList.contains("d-item") && !!at.querySelector(".de")
-                        : at.classList.contains(sel));
-    }, what);
-    for (let i = 0; i < 8 && !(await on("d-comp")); i++) await p.press("n");
-    await p.press("f");
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && at.classList.contains("d-item");
-    }, "`f' to descend into the list");
-    for (let i = 0; i < 8 && !(await on("kids")); i++) await p.press("n");
+    await intoNestedItem(p, base, "drv-wide");
     await p.press("f");                                  // one deeper, so the chain is long
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
       return !!at && document.querySelectorAll("#mdoc .dpath .dcr").length >= 3;
     }, "the strip to name three steps or more");
     const seen = await p.eval(() => {
-      const rgb = (v) => { const d = document.createElement("div");
-        d.style.color = v; document.body.append(d);
-        const c = getComputedStyle(d).color; d.remove(); return c; };
       const root = getComputedStyle(document.documentElement);
       const crumbs = [...document.querySelectorAll("#mdoc .dpath .dcr")];
       const at = document.querySelector("#mdoc .de.dat");

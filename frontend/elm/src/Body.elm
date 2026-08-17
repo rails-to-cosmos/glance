@@ -711,11 +711,8 @@ joined m under row =
 
 placeOfLine : { a | rows : List Row, at : Int } -> Int -> Int
 placeOfLine m line =
-    List.indexedMap Tuple.pair m.rows
-        |> List.filter (\( _, r ) -> r.kind == Para && r.from == line)
-        |> List.head
-        |> Maybe.map Tuple.first
-        |> Maybe.withDefault m.at
+    Maybe.withDefault m.at
+        (Scan.indexWhere (\r -> r.kind == Para && r.from == line) m.rows)
 
 
 undrafted : { a | rows : List Row } -> List Row
@@ -739,11 +736,7 @@ rowAt m =
 
 placeOf : { a | rows : List Row, at : Int } -> String -> Int
 placeOf m id =
-    List.indexedMap (\i r -> ( i, r.id )) m.rows
-        |> List.filter (\( _, rid ) -> rid == id)
-        |> List.head
-        |> Maybe.map Tuple.first
-        |> Maybe.withDefault m.at
+    Maybe.withDefault m.at (Scan.indexWhere (\r -> r.id == id) m.rows)
 
 
 shown : Row -> List Cell

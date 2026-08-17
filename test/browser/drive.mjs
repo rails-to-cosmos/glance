@@ -13,34 +13,14 @@ import { existsSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServer } from "node:net";
+import { freePort, polling, sleep } from "../harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TURN = 25;              // the poll, in ms — the watch's own drain rate
+const poll = polling(TURN);
 const READY = 30_000;         // the daemon's walk, capped
 const SETTLE = 8_000;         // a page condition, capped
 
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-const freePort = () => new Promise((ok, no) => {
-  const s = createServer();
-  s.on("error", no);
-  s.listen(0, "127.0.0.1", () => {
-    const { port } = s.address();
-    s.close(() => ok(port));
-  });
-});
-
-async function poll(fn, cap, what) {
-  const till = Date.now() + cap;
-  let last;
-  for (;;) {
-    try { last = await fn(); if (last) return last; } catch (e) { last = String(e); }
-    if (Date.now() > till) throw new Error(`waited ${cap}ms for ${what} (last: ${JSON.stringify(last)})`);
-    await sleep(TURN);
-  }
-}
 
 async function browserPath() {
   if (process.env.CHROME) return process.env.CHROME;
@@ -107,7 +87,7 @@ const BREAKS = {
   // What point CARRIES takes point's own ink, so the stop and its subtree read
   // as one thing again.
   "carried-ink": ["the cursor on a list item lights itself",
-                  "#mdoc.on .mk-held{--ink:var(--g-point) !important}"],
+                  "#mdoc.on .de.dat .de{--ink:var(--g-point) !important}"],
   // The strip stops agreeing with the connectors: its last crumb is ordinary ink.
   "crumb-ink": ["the strip names the way back",
                 "#mdoc.on .cr-0{color:var(--g-mute) !important}"],
@@ -161,8 +141,16 @@ class CDP {
 
 function pageHandle(cdp, sid) {
   const call = (m, p) => cdp.send(m, p, sid);
+  // A PAGE FUNCTION IS SERIALIZED WHOLE and can call nothing of this module, so the
+  // two probes every case wanted ride in ahead of it: `rgb' resolves a colour the way
+  // the engine would paint it, and `ink' reads the tier a row wears.
+  const PRELUDE = 'const rgb=(v)=>{const d=document.createElement("div");'
+    + 'd.style.color=v;document.body.append(d);'
+    + 'const c=getComputedStyle(d).color;d.remove();return c;};'
+    + 'const ink=(n)=>rgb(getComputedStyle(n).getPropertyValue("--ink").trim());';
   const evaluate = async (fn, ...args) => {
-    const src = `(${fn.toString()})(${args.map((a) => JSON.stringify(a)).join(",")})`;
+    const src = `(()=>{${PRELUDE}return (${fn.toString()})(`
+      + `${args.map((a) => JSON.stringify(a)).join(",")});})()`;
     const r = await call("Runtime.evaluate",
       { expression: src, returnByValue: true, awaitPromise: true });
     if (r.exceptionDetails)

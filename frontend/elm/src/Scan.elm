@@ -12,6 +12,7 @@ module Scan exposing
     , indentOf
     , isTable
     , listOpener
+    , indexWhere
     , nth
     , numberAt
     , regionAt
@@ -355,6 +356,24 @@ rides : String -> Bool
 rides line =
     listOpener line /= Nothing || String.startsWith " " line || String.startsWith "\t" line
 
+
+
+{-| The index of the first element PRED holds for. Four callers hand-rolled this
+same `indexedMap`/`filter`/`head` pipeline, differing only in the predicate.
+-}
+indexWhere : (a -> Bool) -> List a -> Maybe Int
+indexWhere pred xs =
+    List.head
+        (List.filterMap
+            (\( i, x ) ->
+                if pred x then
+                    Just i
+
+                else
+                    Nothing
+            )
+            (List.indexedMap Tuple.pair xs)
+        )
 
 nth : Int -> List a -> Maybe a
 nth i xs =

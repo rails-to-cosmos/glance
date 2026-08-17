@@ -80,11 +80,7 @@ shown m =
 
 placeIn : Model -> String -> Maybe Int
 placeIn m id =
-    shown m
-        |> List.indexedMap (\i r -> ( i, r.id ))
-        |> List.filter (\( _, rid ) -> rid == id)
-        |> List.head
-        |> Maybe.map Tuple.first
+    Scan.indexWhere (\r -> r.id == id) (shown m)
 
 
 placeOf : Model -> String -> Int

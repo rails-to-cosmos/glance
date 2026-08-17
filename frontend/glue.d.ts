@@ -29,7 +29,6 @@ interface ListPorts {
 interface DocRow {
   id: string;
   kind: string;
-  grain: string;
   name: string | null;
   owner: string | null;
   from: number;

@@ -16,11 +16,12 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServer } from "node:net";
+import { freePort, polling, sleep } from "../harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..");
 const TURN = 25;              // the poll, in ms — the watch's own drain rate
+const poll = polling(TURN);
 const READY = 30_000;         // the daemon's walk, capped
 const WATCH = 10_000;         // a watch step: debounce + parse + publish, capped
 
@@ -29,29 +30,6 @@ const ALPHA = "aaaa1111-2222-3333-4444-555566667777";
 const BETA = "bbbb1111-2222-3333-4444-555566667777";
 const TAG = "book";
 
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-const freePort = () => new Promise((ok, no) => {
-  const s = createServer();
-  s.on("error", no);
-  s.listen(0, "127.0.0.1", () => {
-    const { port } = s.address();
-    s.close(() => ok(port));
-  });
-});
-
-/** Poll FN until it answers truthy, or fail naming WHAT was waited for. */
-async function poll(fn, cap, what) {
-  const till = Date.now() + cap;
-  let last;
-  for (;;) {
-    try { last = await fn(); if (last) return last; } catch (e) { last = String(e); }
-    if (Date.now() > till)
-      throw new Error(`waited ${cap}ms for ${what} (last saw: ${JSON.stringify(last)})`);
-    await sleep(TURN);
-  }
-}
 
 function eq(got, want, what) {
   const a = JSON.stringify(got), b = JSON.stringify(want);

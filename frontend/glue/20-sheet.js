@@ -3,7 +3,7 @@
     let base = "", baseProps = null, raw = false;
     // THE DOCUMENT PANE IS AN ELM PROGRAM; the MIRROR below is a macrotask behind it — AGENTS.hs.
     const DCELLS = CFG.dcells;
-    let drows = [], dat = 0, dgrain = "element";
+    let drows = [], dat = 0;
     let dflags = [], dbody = "", dlinks = [];
     let dport = null, dtook = null, dwrote = null;
     const cellsOf = (o) => DCELLS.map((k) => {
@@ -24,7 +24,7 @@
       dport = Elm.Doc.init({ node: part(el("dlist"), "div", "") }).ports;
       dport.docState.subscribe((now) => {
         drows = now.rows; dat = now.at;
-        dgrain = now.grain; dflags = now.flags; dbody = now.body;
+        dflags = now.flags; dbody = now.body;
         // Elm pushes a port BEFORE it paints, so these are read a turn later.
         soon(() => { seedInsert(now.caret); keepInView(docElAt()); placeEdit(); });
       });

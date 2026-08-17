@@ -12,7 +12,7 @@ stop wearing its KIND as a `d-*` class, `.dat` at point, `.dfl` on a flag,
 
 import Browser
 import Html exposing (Html, div, span, text)
-import Html.Attributes exposing (class, style)
+import Html.Attributes exposing (attribute, class, style)
 import Json.Decode as D
 import Json.Encode as E
 import Body
@@ -55,7 +55,6 @@ type alias Model =
     { rows : List Row
     , lines : List String
     , at : Int
-    , grain : String
     , flags : List String
     , links : List Link
     , spanAt : Maybe Int
@@ -72,7 +71,7 @@ type alias Model =
 
 empty : Model
 empty =
-    Model [] [] 0 "element" [] [] Nothing 0 1 Nothing False Nothing
+    Model [] [] 0 [] [] Nothing 0 1 Nothing False Nothing
 
 
 {-| A sibling step at the cursor's own grain. A composite is ONE stop; a leaf
@@ -131,18 +130,7 @@ step by m =
                     m
 
                 Just i ->
-                    let
-                        moved =
-                            { m | at = i }
-                    in
-                    { moved
-                        | grain =
-                            if Maybe.map .grain (rowAt moved) == Just Leaf then
-                                "leaf"
-
-                            else
-                                "element"
-                    }
+                    { m | at = i }
 
 
 finer : Model -> ( Model, String )
@@ -162,7 +150,7 @@ finer m =
             in
             if kids > 0 then
                 -- The first child immediately follows its parent in emission order.
-                ( { m | at = m.at + 1, grain = "leaf" }
+                ( { m | at = m.at + 1 }
                 , "grain-finer (" ++ Maybe.withDefault "item" r.name ++ " 1/" ++ String.fromInt kids ++ ")"
                 )
 
@@ -183,7 +171,7 @@ broader m =
             if r.grain == Leaf then
                 case Maybe.map (placeOf m) r.owner of
                     Nothing ->
-                        ( { m | at = placeOf m "H", grain = "element" }
+                        ( { m | at = placeOf m "H" }
                         , "grain-broader (the headline)"
                         )
 
@@ -204,15 +192,7 @@ broader m =
                                         else
                                             kindWord up.kind
                         in
-                        ( { m
-                            | at = i
-                            , grain =
-                                if up.grain == Leaf then
-                                    "leaf"
-
-                                else
-                                    "element"
-                          }
+                        ( { m | at = i }
                         , "grain-broader (" ++ word ++ ")"
                         )
 
@@ -222,7 +202,7 @@ broader m =
             else
                 -- REVERSED EXPAND-REGION at its widest step: out of a leaf to its
                 -- owner, out of an element to THE ENTRY'S OWN LINE.
-                ( { m | at = placeOf m "H", grain = "element" }
+                ( { m | at = placeOf m "H" }
                 , "grain-broader (the headline)"
                 )
 
@@ -264,7 +244,6 @@ type Msg
     = Fill Model
     | Clear
     | Select String
-    | Restore String
     | Step Int
     | Finer
     | Broader
@@ -312,9 +291,6 @@ update msg model =
             told { fresh | at = landed, landing = Nothing }
 
         Select id ->
-            told { model | at = placeOf model id }
-
-        Restore id ->
             told { model | at = placeOf model id }
 
         Step by ->
@@ -496,7 +472,6 @@ stateJSON m =
         [ ( "rows", E.list (rowJSON m) m.rows )
         , ( "at", E.int m.at )
         , ( "id", E.string (Maybe.withDefault "" (Maybe.map .id (rowAt m))) )
-        , ( "grain", E.string m.grain )
         , ( "flags", E.list E.string m.flags )
         , ( "lines", E.int (List.length m.lines) )
 
@@ -596,7 +571,7 @@ msgD =
                         D.map Select (D.field "id" D.string)
 
                     "restore" ->
-                        D.map Restore (D.field "id" D.string)
+                        D.map Select (D.field "id" D.string)
 
                     "step" ->
                         D.map Step (D.field "by" D.int)
@@ -650,10 +625,18 @@ stars m level =
     String.repeat (max 0 (2 * (level - m.level))) " " ++ "* "
 
 
-{-| The classes a row wears. `lvl-N` is the rung the rail is drawn on, counted in
-tab stops from the list's own text; `up-K` lights the rail of the block point is
-K steps inside. The stylesheet cannot do either arithmetic on a class, and
-`Html.Attributes.style` cannot set a custom property in 0.19.
+{-| THE COLUMN A ROW'S CONNECTOR STANDS IN, half a cell left of its own tab stop.
+An attribute rather than `style`, which in 0.19 assigns `style[key]` and is ignored
+for a custom property; twelve stylesheet rules said this before, one per rung.
+-}
+rung : Int -> Html.Attribute Msg
+rung depth =
+    attribute "style" ("--rail:calc(" ++ String.fromInt (2 * depth) ++ "ch - 2.5ch)")
+
+
+{-| The classes a row wears. `up-K` lights the connector of the block point is K steps inside, and `lvl-top`
+says a row is drawn at the pane's own level. The rung itself rides an attribute —
+see `rung`.
 -}
 rowClass : Model -> Int -> Row -> Int -> Bool -> String
 rowClass m i r depth kin =
@@ -686,7 +669,7 @@ rowClass m i r depth kin =
                 ""
            )
         ++ (if depth >= 0 then
-                " lvl-" ++ String.fromInt (min 11 depth)
+                ""
 
             else
                 -- ELM MOUNTS INSIDE A WRAPPER OF ITS OWN, so `#dlist > .de' names
@@ -703,44 +686,26 @@ rowClass m i r depth kin =
         ++ markOf m i r
 
 
-{-| WHICH TIER A ROW'S CONNECTOR TAKES, and a row takes at most one.
+{-| `up-K` — the row IS point's K-th owner: THE PATH, not the level. Lighting
+every sibling of every ancestor lights whole levels and says nothing about the way
+back.
 
-  - `up-K` — the row IS point's K-th owner: THE PATH, not the level. Lighting
-    every sibling of every ancestor lights whole levels and says nothing about
-    the way back.
-  - `mk-root` — point is a COMPOSITE and this is one of the roots it opens. A
-    composite has no connector of its own, and lighting every descendant paints
-    the pane and names no stop in particular.
-  - `mk-held` — point is an owner of this row: what point CARRIES, in the same
-    ink a shade back.
-
+WHAT POINT CARRIES IS NOT SPELLED HERE. A row drawn INSIDE point is what point
+holds, and a composite's own children are the roots it opens, so the stylesheet
+reads both off the nesting rather than Elm saying it again in a class.
 -}
 markOf : Model -> Int -> Row -> String
 markOf m i r =
-    let
-        here =
-            idAtRow m m.at
-
-        ups =
-            ownersOf m r.id
-    in
     if i == m.at then
         ""
 
     else
-        case indexOfIn r.id (ownersOf m here) of
+        case indexOfIn r.id (ownersOf m (idAtRow m m.at)) of
             Just k ->
                 " up-" ++ String.fromInt (min 3 k)
 
             Nothing ->
-                if r.owner == Just here && Maybe.map .grain (rowAt m) == Just Composite then
-                    " mk-root"
-
-                else if List.member here ups then
-                    " mk-held"
-
-                else
-                    ""
+                ""
 
 
 {-| Which id point is on, or @""@ when the model holds no such row.
@@ -754,19 +719,7 @@ idAtRow m i =
 -}
 indexOfIn : String -> List String -> Maybe Int
 indexOfIn id ups =
-    List.head
-        (List.filterMap identity
-            (List.indexedMap
-                (\k up ->
-                    if up == id then
-                        Just k
-
-                    else
-                        Nothing
-                )
-                ups
-            )
-        )
+    Scan.indexWhere ((==) id) ups
 
 
 {-| Text with its links marked: the shown description is the server's, the range
@@ -991,7 +944,12 @@ viewKids m parent from at0 depth =
                         in
                         go jNext
                             kid.to
-                            (out ++ gap ++ [ div [ class (rowClass m j kid depth kin) ] inner ])
+                            (out
+                                ++ gap
+                                ++ [ div (rung depth :: [ class (rowClass m j kid depth kin) ])
+                                        inner
+                                   ]
+                            )
 
                     else
                         ( tail mark out, j )
@@ -1006,14 +964,7 @@ viewKids m parent from at0 depth =
             else
                 out
     in
-    go from
-        (if at0 < 0 then
-            parent.from
-
-         else
-            at0
-        )
-        []
+    go from at0 []
 
 
 view : Model -> Html Msg
@@ -1034,7 +985,7 @@ view m =
                 if r.grain == Composite then
                     let
                         ( inner, j ) =
-                            viewKids m r (i + 1) -1 0
+                            viewKids m r (i + 1) r.from 0
                     in
                     go j (out ++ [ div [ class (rowClass m i r -1 False) ] inner ])
 

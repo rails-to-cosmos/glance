@@ -141,7 +141,9 @@ page head' colours title body = T.unlines
   -- THE COLUMN IS THE ROW'S OWN, one tab stop left of its text.  A top-level row
   -- is indented by PADDING and a nested item by its own leading SPACES, so the
   -- two are counted from different origins and land on one line.
-  , "  .lvl-top{--rail:calc(var(--g-doc-pad) - 0.5ch)}"
+  -- THE COLUMN IS ARITHMETIC, and Elm writes it per row; this is the floor a
+  -- row without one falls back to.
+  , "  .de{--rail:calc(var(--g-doc-pad) - 0.5ch)}"
   -- THE WAY BACK, IN WORDS: the same chain the connectors draw, riding the pane's
   -- top where the eye already is.  STICKY INSIDE THE SCROLLER, so it holds while
   -- the rows move under it; the negative margins take it to the pane's own edges.
@@ -187,36 +189,30 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .up-3{--ink:color-mix(in srgb, var(--g-accent) 22%, var(--g-bg))}"
   -- WHAT POINT CARRIES takes the same ink a shade back; the ROOTS a composite
   -- opens take it whole, a composite having no connector of its own.
-  , "  #mdoc.on .mk-held{--ink:var(--g-point-dim)}"
-  , "  #mdoc.on .mk-root,#mdoc.on .de.dat{--ink:var(--g-point)}"
+  -- OWNERSHIP IS ALREADY IN THE DOM: a row drawn INSIDE point is what point
+  -- carries, and a composite's own children are the roots it opens.  Elm said the
+  -- same thing again in classes until this rule read it off the nesting.
+  , "  #mdoc.on .de.dat .de{--ink:var(--g-point-dim)}"
+  , "  #mdoc.on .de.dat{--ink:var(--g-point)}"
+  , "  #mdoc.on .de.dat.d-comp>.de{--ink:var(--g-point)}"
   -- A HEADLINE WEARS THE MARKER ORG WROTE: its stars sit in the column a
   -- connector would use, so they take the ink and none is drawn.
   , "  #mdoc.on .de.dat.d-head::before{display:none}"
   , "  #mdoc.on .de.dat.d-head .ds,#mdoc.on .de.dat>.dp>.dm,"
-  , "  #mdoc.on .mk-root>.dp>.dm{color:var(--g-point);font-weight:700}"
-  , "  #mdoc.on .mk-held>.dp>.dm{color:var(--g-point-dim);font-weight:700}"
+  , "  #mdoc.on .de.dat.d-comp>.de>.dp>.dm{color:var(--g-point);font-weight:700}"
+  , "  #mdoc.on .de.dat .de>.dp>.dm{color:var(--g-point-dim);font-weight:700}"
   -- A FLAG OUTRANKS POINT and keeps its mark after point has moved on, so it is
   -- spelled twice: once ungated, once to win where point also draws.
+  -- A FLAG INSIDE POINT IS STILL A FLAG, and the rule that carries what point
+  -- holds is one class heavier than the ungated flag, so the flag is spelled to
+  -- outweigh it.
   , "  .de.dfl{--ink:var(--g-bad)}"
-  , "  #mdoc.on .de.dfl{--ink:var(--g-bad)}"
+  , "  #mdoc.on .de.dfl,#mdoc.on .de.dat .de.dfl{--ink:var(--g-bad)}"
   , "  .de.dfl.d-head .ds,.de.dfl>.dp>.dm{color:var(--g-bad);font-weight:700}"
   -- PADDING: a margin would take the selection wash off the left of the line.
   , "  .d-para,.d-comp{margin:.5em 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
   , "  .d-comp,.d-comp .de{padding-top:0;padding-bottom:0}"
-  -- A RUNG PER LEVEL, since a stylesheet cannot do the arithmetic on a class.
-  , "  .d-item.lvl-0{--rail:calc(-2.5 * 1ch)}"
-  , "  .d-item.lvl-1{--rail:calc(-0.5 * 1ch)}"
-  , "  .d-item.lvl-2{--rail:calc(1.5 * 1ch)}"
-  , "  .d-item.lvl-3{--rail:calc(3.5 * 1ch)}"
-  , "  .d-item.lvl-4{--rail:calc(5.5 * 1ch)}"
-  , "  .d-item.lvl-5{--rail:calc(7.5 * 1ch)}"
-  , "  .d-item.lvl-6{--rail:calc(9.5 * 1ch)}"
-  , "  .d-item.lvl-7{--rail:calc(11.5 * 1ch)}"
-  , "  .d-item.lvl-8{--rail:calc(13.5 * 1ch)}"
-  , "  .d-item.lvl-9{--rail:calc(15.5 * 1ch)}"
-  , "  .d-item.lvl-10{--rail:calc(17.5 * 1ch)}"
-  , "  .d-item.lvl-11{--rail:calc(19.5 * 1ch)}"
   -- The draft row holds nothing and `:empty' misses it — Elm emits a text node.
   , "  .d-draft{min-height:calc(var(--g-doc-fs) * var(--g-doc-lh))}"
   , "  .d-item{padding-left:0;padding-right:0}"
