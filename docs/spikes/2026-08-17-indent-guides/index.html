@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Indent guides — six looks</title>
+<title>Indent guides — nine looks</title>
 <style>
   /* THE SHELL ONLY.  Each variant is its own page; what they share is the rig
      and the pane, which is the point — the tabs differ by look and nothing else. */
@@ -44,7 +44,7 @@
 </head>
 <body>
   <header>
-    <h1>Indent guides <small>six ways to say which block the cursor is in</small></h1>
+    <h1>Indent guides <small>nine ways to say which block the cursor is in</small></h1>
     <nav id="tabs" aria-label="variants">
       <a href="#a" data-src="a-rails.html">A · rails</a>
       <a href="#b" data-src="b-active.html">B · active rail</a>
@@ -52,6 +52,9 @@
       <a href="#d" data-src="d-ladder.html">D · ladder</a>
       <a href="#e" data-src="e-ancestry.html">E · ancestry</a>
       <a href="#f" data-src="f-path.html">F · path</a>
+      <a href="#g" data-src="g-ancestry-path.html">G · ancestry + path</a>
+      <a href="#h" data-src="h-no-ground.html">H · no ground</a>
+      <a href="#i" data-src="i-hook.html">I · hooks</a>
     </nav>
   </header>
   <p class="note" id="note"></p>
@@ -68,12 +71,21 @@
      + "point is inside. Depth 1 and depth 2 differ by WHICH line is lit.",
     c: "The lit rail runs from the line that OPENS the block down to its last child, "
      + "capped at both ends — it names an extent, not just a column.",
-    d: "Nothing in the prose. A gutter beside the cursor's line alone, one rung per "
+    d: "Nothing beside the text. A gutter by the cursor's line alone, one rung per "
      + "enclosing block, the innermost filled.",
     e: "Faint everywhere, and every enclosing block lit, brightening inward. The whole "
      + "ancestry at once rather than the innermost alone.",
     f: "No marks at all — the ancestry spelled in its own words, riding the top of the "
      + "pane. It answers WHERE, where a rail answers only HOW DEEP.",
+    g: "E and F on one ramp: a block's rail and its crumb carry the same strength, "
+     + "brightening inward to point. The strip is a legend for the rails and the rails "
+     + "are a picture of the strip.",
+    h: "G with the ladder run to both ends: the outermost block takes a rail in the "
+     + "pane's padding and point takes one at its own column, in the selection's hue. "
+     + "The golden ground is gone — every level is marked the same way.",
+    i: "H, with every rail hung off the line that OWNS it rather than off its first "
+     + "child. A row you can descend into is the only kind of row a rail leaves; a leaf "
+     + "has nothing under it, and the affordance is drawn before <kbd>f</kbd> is pressed.",
   };
   const tabs = [...document.querySelectorAll("#tabs a")];
   const stage = document.getElementById("stage");
@@ -94,7 +106,7 @@
   }
 
   addEventListener("hashchange", () => show(location.hash.slice(1)));
-  show(location.hash.slice(1) || "b");
+  show(location.hash.slice(1) || "i");
 })();
 </script>
 </body>

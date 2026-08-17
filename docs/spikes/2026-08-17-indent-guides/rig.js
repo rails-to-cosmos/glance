@@ -40,7 +40,7 @@ var RIG = (function () {
         ["the hue is per theme, never per tree", []],
       ]],
     ],
-    tail: "Prose has no depth, so nothing is drawn beside it.",
+    tail: "A paragraph has no depth, so nothing is drawn beside it.",
   };
 
   // ------------------------------------------------------------------ model
@@ -49,7 +49,7 @@ var RIG = (function () {
     return { el: el, up: up, kids: [], depth: depth };
   }
 
-  var state = { at: null, roots: [], mdoc: null, paint: null, ch: 8 };
+  var state = { at: null, roots: [], mdoc: null, paint: null, ch: 8, lh: 16 };
 
   function itemEl(text, depth) {
     var d = document.createElement("div");
@@ -79,8 +79,22 @@ var RIG = (function () {
     return d;
   }
 
+  function headEl(text) {
+    var d = document.createElement("div");
+    d.className = "de d-head";
+    var stars = text.slice(0, text.indexOf(" ") + 1);
+    var ds = document.createElement("span");
+    ds.className = "ds";
+    ds.textContent = stars.trimEnd();
+    var title = document.createElement("span");
+    title.textContent = text.slice(stars.length);
+    d.appendChild(ds);
+    d.appendChild(title);
+    return d;
+  }
+
   function build(mdoc) {
-    var head = plain("d-para d-head", DOC.head);
+    var head = headEl(DOC.head);
     var lead = plain("d-para", DOC.lead);
     var list = document.createElement("div");
     list.className = "de d-comp d-list";
@@ -142,13 +156,18 @@ var RIG = (function () {
 
   // A RAIL PER BLOCK, drawn at the tab stop LEFT of its children — which is the
   // parent's own column — and spanning the children alone.  A top-level block
-  // has nothing to its left and so draws nothing, exactly as Sublime does.
-  function rails() {
+  // has nothing to its left and so draws nothing, exactly as Sublime does;
+  // `{outer: true}' hands it the pane's left padding and draws it anyway.
+  function rails(opts) {
     var out = [];
+    var outer = !!(opts && opts.outer);
+    var fromOwn = !!(opts && opts.fromOwn);
     function walk(r) {
-      var c = r.kids.length ? col(r.kids[0]) - 2 : -1;
-      if (c >= 0) {
-        var first = px(r.kids[0].el);
+      var c = r.kids.length ? col(r.kids[0]) - 2 : null;
+      if (c !== null && (c >= 0 || outer)) {
+        // `fromOwn' hangs the rail off the line that OWNS it, so a row with
+        // something inside it is the only kind of row a rail leaves.
+        var first = px(fromOwn ? (r.el.querySelector(".dp") || r.el) : r.kids[0].el);
         var last = px(r.kids[r.kids.length - 1].el);
         out.push({
           owner: r,
@@ -162,6 +181,25 @@ var RIG = (function () {
       r.kids.forEach(walk);
     }
     state.roots.forEach(walk);
+    if (outer && state.roots.length) {
+      // THE DOCUMENT IS A BLOCK TOO, and its rail runs the whole pane: without it
+      // the outermost column is drawn beside the list and nowhere else, so it
+      // breaks at every paragraph.  Owned by nothing, so it is never the block
+      // point is in; first in the list, so the list's own rail sits over it.
+      // THE HEADLINE IS THE DOCUMENT'S OWN LINE, so the rail starts under it --
+      // that column belongs to the stars, and a rail through them is a collision.
+      var body = state.roots.filter(function (r) {
+        return !r.el.classList.contains("d-head");
+      });
+      if (!body.length) return out;
+      var top = px(body[0].el);
+      var end = px(body[body.length - 1].el);
+      out.unshift({
+        owner: null, col: -2, depth: 0,
+        x: state.textLeft - 2 * state.ch,
+        top: top.top, height: end.top + end.height - top.top,
+      });
+    }
     return out;
   }
 
@@ -176,6 +214,7 @@ var RIG = (function () {
     // depth 0 begins, and every rail is counted from there.
     var own = state.mdoc.querySelector(".d-list .dp");
     state.textLeft = own ? px(own).left : 0;
+    state.lh = parseFloat(getComputedStyle(state.mdoc).lineHeight) || state.ch * 2;
   }
 
   function repaint() {
@@ -185,19 +224,24 @@ var RIG = (function () {
     if (truth) {
       truth.textContent = state.at.el.classList.contains("d-comp")
         ? "the list, whole · one stop"
-        : (c.length > 2
+        : (state.at.el.classList.contains("d-item")
             ? "depth " + state.at.depth + " · inside “"
-              + own(c[c.length - 2]) + "”"
-            : "depth — · prose");
+              + label(c[c.length - 2]) + "”"
+            : "depth — · paragraph");
     }
     if (state.paint) state.paint({ at: state.at, chain: c, rails: rails,
-                                   px: px, ch: state.ch, left: state.textLeft,
-                                   mdoc: state.mdoc });
+                                   px: px, ch: state.ch, lh: state.lh,
+                                   left: state.textLeft, mdoc: state.mdoc });
   }
 
   function own(r) {
     var el = r.el.querySelector(".dp") || r.el;
     return el.textContent.replace(/^\s*-\s*/, "").trim().slice(0, 28);
+  }
+
+  // A composite has no own line of its own to quote, so it answers by its name.
+  function label(r) {
+    return r.el.classList.contains("d-comp") ? "the list" : own(r);
   }
 
   // ------------------------------------------------------------------ mount

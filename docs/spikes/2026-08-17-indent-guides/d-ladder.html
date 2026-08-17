@@ -47,8 +47,8 @@
       lad.style.top = own.top + "px";
       lad.style.height = own.height + "px";
       lad.textContent = "";
-      // A LIST ITEM ONLY.  Prose sits at no depth and gets no ladder, which is
-      // itself the answer when the cursor leaves the list.
+      // A LIST ITEM ONLY.  A paragraph sits at no depth and gets no ladder, which
+      // is itself the answer when the cursor leaves the list.
       var rungs = s.at.el.classList.contains("d-item")
         ? Number(s.at.el.dataset.depth) + 1 : 0;
       // Outermost at the top, so the ladder grows downward as `f' goes in.

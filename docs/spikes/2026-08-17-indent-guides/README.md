@@ -1,4 +1,4 @@
-# Spike — six ways to say which block the cursor is in
+# Spike — nine ways to say which block the cursor is in
 
 **Date:** 2026-08-17 · **After:** `269ae41` “A rail per enclosing block, and the
 one you are inside is lit”, taken back out in `98a381d`.
@@ -6,7 +6,7 @@ one you are inside is lit”, taken back out in `98a381d`.
 Navigating a nested list, nothing says where point is beyond the ground on its
 own line — and less than before, since that ground now covers one line rather
 than the whole subtree. The first attempt drew rails and shipped nothing worth
-keeping: **it said how MANY blocks enclose point, never WHICH one.** Six looks,
+keeping: **it said how MANY blocks enclose point, never WHICH one.** Nine looks,
 built to be argued with. **Open `index.html`** — they are tabs.
 
 Everything here is throwaway. The fixture is invented; the palette and the pane
@@ -19,9 +19,12 @@ is judged at the real hues and the real metrics.
 | `a-rails.html` | a faint rail per enclosing block, none lit — depth as a COUNT |
 | `b-active.html` | the same rails, exactly one lit: the block point is in |
 | `c-bracket.html` | the lit rail starts at the line that OPENS the block and closes with a foot |
-| `d-ladder.html` | nothing in the prose; a gutter rung per enclosing block beside point's line |
+| `d-ladder.html` | nothing beside the text; a gutter rung per enclosing block by point's line |
 | `e-ancestry.html` | every enclosing block lit, brightening inward |
 | `f-path.html` | no marks at all — the ancestry spelled in words, riding the pane's top |
+| `g-ancestry-path.html` | E and F on one ramp: each block's rail and its crumb carry the same strength |
+| `h-no-ground.html` | G with no ground at all: every level marked by a rail, point's in the selection's hue |
+| `i-hook.html` | H with every rail hung off the line that owns it, so a row you can descend into shows it |
 | `rig.js` | the fixture, the model, the keymap, the rail geometry |
 | `pane.css` | the doc pane and both palettes |
 
@@ -42,11 +45,11 @@ and the block — so a variant can be checked against what it is meant to say.
   here paints rails individually and never through inheritance.
 - **A rail per row is chopped up.** The rails lived in each row's
   `background-image`, so they restart at every row and break wherever a row has
-  a margin or the cursor's ground takes the box. `b`–`e` draw an overlay layer
-  instead: one element per rail, continuous, and bounded to its block exactly.
+  a margin or the cursor's ground takes the box. `b`–`e` and `g` draw an overlay
+  layer instead: one element per rail, continuous, bounded to its block exactly.
 - **The rail belongs at the tab stop LEFT of the block's children** — Sublime's
   rule, which is the parent's own column. A line at the outermost level has
-  nothing to its left and draws nothing, which is why prose is bare.
+  nothing to its left and draws nothing, which is why a paragraph is bare.
 
 ## The geometry, since it is not the box model
 
@@ -70,12 +73,15 @@ pictures it draws, reading the guide alone and never the cursor's ground — the
 ground moves on every step and would make a blind variant look like a seeing one.
 
 ```
-flat a-rails.html    1/4 distinct
-ok   b-active.html   4/4 distinct
-ok   c-bracket.html  4/4 distinct
-ok   d-ladder.html   4/4 distinct
-ok   e-ancestry.html 4/4 distinct
-ok   f-path.html     4/4 distinct
+flat a-rails.html         1/4 distinct
+ok   b-active.html        4/4 distinct
+ok   c-bracket.html       4/4 distinct
+ok   d-ladder.html        4/4 distinct
+ok   e-ancestry.html      4/4 distinct
+ok   f-path.html          4/4 distinct
+ok   g-ancestry-path.html 4/4 distinct
+ok   h-no-ground.html     4/4 distinct
+ok   i-hook.html          4/4 distinct
 ```
 
 `a-rails.html` is the baseline and it is FLAT by construction: the picture is the
@@ -85,11 +91,46 @@ inherited accent is discounted. It stays in the spike as the control.
 ```sh
 node depth-check.mjs                 # every variant
 node depth-check.mjs b-active.html   # one
-node shell-check.mjs                 # the tabbed shell mounts all six
+node shell-check.mjs                 # the tabbed shell mounts all nine
+node place-check.mjs                 # every mark is where it says it is
 ```
 
 Firefox over WebDriver BiDi, no dependencies — `bidi.mjs` is the refer spike's
 driver, copied so this directory stands alone.
+
+## I, which also says what you can go into
+
+`f` descends and does nothing on a leaf, and until now nothing on the screen said
+which was which before the key was pressed. **I hangs every rail off the line that
+OWNS it** rather than off its first child. A row with something inside is then the
+only kind of row a rail leaves; a leaf is a line with nothing under it. It costs no
+ink that was not already drawn — the same rails, starting one row higher.
+
+Two signals then agree, which is why this is a change to H and not a new language:
+point's own mark spans its whole extent, so a leaf's mark is exactly one line tall
+and a container's covers its subtree.
+
+What it cannot say: an EMPTY container looks like a leaf. Org writes no such row
+here, so it costs nothing in this fixture and would cost something in a tree that
+has them.
+
+## Two placement traps, recorded because each looked like a page bug
+
+- **A strip written into the pane's flow moves everything below it.** Filling it
+  after the rails are measured puts every mark one line high, and the page looks
+  right again the moment a key is pressed — so it survives every check that
+  presses a key first. `place-check.mjs` asserts a repaint that changes nothing
+  changes nothing; reordering the two writes is the fix.
+- **A throw in the rig's own status line takes the paint with it.** One undefined
+  name in the footer's readout and no rail was drawn at any list stop, while the
+  paragraph stops — which took the other branch — drew fine.
+
+`place-check.mjs` holds five: SETTLED (a repaint changes nothing), COLUMN (one x
+per level, whatever the element), OPAQUE (no rail composites with another), HEAD
+(bold over a row's own text, thin over its subtree, and a headline's stars
+instead of a bar), and RAMP (a block's
+rail and its crumb carry the same strength — G shipped an hour with the two
+counted from different ends, every block a step apart).
 
 ## What each costs
 
@@ -100,22 +141,75 @@ driver, copied so this directory stands alone.
 | C bracket | yes, with its extent | by which rail | as B, plus two caps | yes |
 | D ladder | no | yes, read directly | a gutter, one row's worth | yes |
 | E ancestry | yes, whole chain | by how many are lit | rails everywhere, N accents | yes |
-| F path | yes, by NAME | by crumb count | a strip, no marks in prose | yes |
+| F path | yes, by NAME | by crumb count | a strip, nothing beside the text | yes |
+| G both | yes, drawn AND named | both, and they agree | as E, plus F's strip | yes |
+| H no ground | yes, drawn AND named | both, at one column per level | as G, plus a gutter rail; NO ground | yes |
+| I hooks | as H, and which rows have something inside | as H | as H, no more | yes |
 
-**B is the recommendation.** It is the look that was asked for, it answers the
-question the first attempt got wrong, and it adds one accent line to a pane that
-otherwise gains nothing. `C` is B plus the opening line, worth trying at the
-keyboard before choosing between them: the foot tells you where the block ENDS,
-which is the second question after where you are.
+## G, which is the one to build
 
-`F` is orthogonal to the rest and could ship beside any of them — it is the only
-one that answers WHERE rather than HOW DEEP, and it costs no marks in the prose.
-`D` is the cheapest thing that would satisfy the original complaint on its own.
-`E` lights more than it needs to: the whole ancestry is legible, but the innermost
-rail — the only one that answers the question — has to be picked out of a ramp.
+E and F are the same chain said twice, so **G gives them one ramp**: a block's
+rail and its crumb carry the same strength, full at point and a third shed per
+step out. The strip is then a legend for the rails and the rails are a picture of
+the strip, and neither has to be read on its own — the eye that starts at the
+words ends at the line, and the eye that starts at the line ends at the words.
 
-**`b`–`e` are drawn from JS and glance's doc pane is Elm.** Whatever wins, the
-shipping form is either an overlay Elm draws from the rows it already has, or —
-for `B` alone — pure CSS: `.d-item:has(> .dat)` is the block point is in, and it
-can light its own rail without anything measuring anything. That is the first
-thing to try, and it is untested here.
+G draws no rail for the outermost block, so its first crumb names something the
+picture does not show; `H` is what closes that gap.
+
+Two details it settles, and both could go the other way:
+
+- **A crumb mixes toward the muted ink, never toward nothing.** A crumb at a
+  fifth of the accent over transparent is a crumb nobody can read; a rail at a
+  fifth over transparent is exactly right. Text and mark take the same ramp and
+  different grounds.
+- **The last crumb is point itself**, bold and at full accent, which is also
+  where the innermost rail sits — so the two brightest things on the screen are
+  the line you are on and the block that holds it. Naming only the ENCLOSING
+  blocks and stopping short of point is the alternative: tighter as a legend,
+  and it drops the one crumb that says which item.
+
+## H, which is G with the ground taken away
+
+The cursor's golden band is gone and the cursor is a vertical mark like
+everything else — the same width as every rail, separated from them only by its
+hue, which is the selection's own gold. Three things follow, and each is a rule
+the earlier variants did not need:
+
+- **One column per level, whatever the element.** A mark sits one tab stop LEFT
+  of its row's own text, which is where its block's rail already runs — so point
+  rides its block's rail and its own stretch of it turns gold. A paragraph, the
+  headline, the list and a top-level item are all at the outermost level and mark
+  at one x.
+- **The document is a block too**, and its rail runs the whole pane. Without it
+  the outermost column is drawn beside the list and nowhere else, so it breaks at
+  every paragraph.
+- **The point mark spans the row's whole extent**, own line and subtree together,
+  which for a leaf is one line and for the list is the list.
+- **One gold, two weights.** The row's own text takes the BOLD stroke and what
+  hangs off it takes the THIN one, both solid — dimming gold toward a dark ground
+  darkens it, and a darker yellow is brown. A paragraph carries nothing and is bold
+  over every line it wraps to, and so is the list, which IS the stop.
+- **A headline wears its own mark.** Its stars sit in the column a bar would use,
+  so a selected headline turns its stars gold and draws no bar: the marker org
+  already writes is the marker. For the same reason the document's rail starts
+  UNDER the headline — that column belongs to the stars.
+- **Every rail is one width and every rail is opaque.** A wider mark reads as a
+  different KIND of thing; and since the document's rail and the list's run the
+  same column, a translucent rail composites darker along the list than beside a
+  paragraph — the same unhighlighted mark in two styles.
+
+What it costs: the ground was the one mark that could not be missed, and a 2px
+rail in the gutter is a smaller claim on the eye than a golden band. Whether that
+is restraint or a loss is what the tab is for.
+
+The others stay for the record. `B` is Sublime's own answer and the smallest
+thing that works; `C` adds where the block ENDS; `D` is the cheapest, and the
+only one that draws nothing among the words; `A` is the control.
+
+**G is drawn from JS and glance's doc pane is Elm.** The shipping form is an
+overlay Elm draws from the rows it already has — it knows every row's depth and
+owner, which is the whole of the geometry — plus the strip, which is the chain it
+already walks for `b`. `Html.Attributes.style` cannot set `--near`, so the ramp
+travels as a class per step (`up-0` … `up-3`) or as an inline `background` the
+paint computes.

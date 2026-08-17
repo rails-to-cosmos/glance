@@ -10,7 +10,8 @@ import { resolve } from "node:path";
 
 const PAGES = process.argv.slice(2).length ? process.argv.slice(2) : [
   "a-rails.html", "b-active.html", "c-bracket.html",
-  "d-ladder.html", "e-ancestry.html", "f-path.html",
+  "d-ladder.html", "e-ancestry.html", "f-path.html", "g-ancestry-path.html",
+  "h-no-ground.html", "i-hook.html",
 ];
 
 // The rig mounts at depth 2; `b' climbs out and `f' descends.  The four stops
@@ -45,7 +46,7 @@ for (const page of PAGES) {
   const truth = await p.eval(() => document.getElementById("truth").textContent);
   rows.push({ page, distinct, truth });
   console.log(
-    (distinct === 4 ? "ok   " : "flat ") + page.padEnd(16)
+    (distinct === 4 ? "ok   " : "flat ") + page.padEnd(21)
     + distinct + "/4 distinct   last stop: " + truth);
 }
 await p.close();

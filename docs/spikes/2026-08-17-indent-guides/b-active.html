@@ -43,7 +43,7 @@
     },
     paint: function (s) {
       // The chain ends at point, so the one before it OWNS the block point is
-      // in.  Nothing owns prose, and nothing is lit for it.
+      // in.  Nothing owns a paragraph, and nothing is lit for it.
       var inside = s.chain[s.chain.length - 2];
       layer.textContent = "";
       s.rails().forEach(function (r) {

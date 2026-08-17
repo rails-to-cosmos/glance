@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>I · what you can dive into</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* H, with every rail hung off the LINE THAT OWNS IT rather than off its first
+     child.  A row you can descend into is then the only kind of row a rail leaves,
+     and a leaf has nothing under it — the affordance is drawn before `f' is
+     pressed, and it costs no ink that was not already on the screen. */
+  /* THE GROUND HUE IS NOT AN INK.  Dark's selection is a dim slate that vanishes
+     as a 2px bar, so the dark palette's own gold stands in. */
+  /* A TEXTURE, NOT A COUNTER: the dash is short and so is the gap, so the tail
+     reads as one broken stroke rather than a tick per line. */
+  :root{--g-bar:var(--g-sel); --dash-on:8px; --dash-off:3px}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--g-bar:#FFC777}}
+  :root[data-theme="dark"]{--g-bar:#FFC777}
+
+  #mdoc .de.dat{background-color:transparent}
+  #mdoc .de.dat:not(.d-comp) .de{background-color:transparent}
+
+  /* ONE WIDTH FOR EVERY RAIL.  A wider mark reads as a different KIND of thing;
+     what separates point from its ancestry, and the ancestry from the rest, is
+     the hue and the strength alone. */
+  #rails{position:absolute; inset:0; pointer-events:none}
+  /* OPAQUE, NOT TRANSLUCENT.  The document's rail and the list's run the same
+     column, so two translucent rails would composite darker along the list than
+     beside a paragraph and the same mark would read as two styles. */
+  #rails i{
+    position:absolute; width:2px; border-radius:1px; display:block;
+    background:color-mix(in srgb, var(--g-fg) 12%, var(--g-bg));
+  }
+  #rails i.up{
+    background:color-mix(in srgb, var(--g-accent)
+                         calc(var(--near) * 1%), var(--g-bg));
+  }
+  /* ONE GOLD, TWO WEIGHTS.  The row's own text takes the bold stroke and what
+     hangs off it takes the thin one: both solid, since dimming gold toward a dark
+     ground darkens it and a darker yellow is brown.  A paragraph carries nothing
+     and is bold over every line it wraps to, and so is the list, which IS the stop. */
+  #rails i.at{width:3px; background:var(--g-bar)}
+  #rails i.at.rest{width:1px; background:var(--g-bar)}
+  /* A HEADLINE WEARS ITS OWN MARK.  Its stars sit in the column a bar would use,
+     so the stars go gold and no bar is drawn -- the marker org already writes is
+     the marker. */
+  #mdoc .de.dat.d-head .ds{color:var(--g-bar); font-weight:700}
+
+  #path{
+    position:sticky; top:calc(-1 * var(--g-doc-pady)); z-index:2;
+    margin:calc(-1 * var(--g-doc-pady)) calc(-1 * var(--g-doc-padx)) 6px;
+    padding:4px var(--g-doc-padx);
+    background:var(--g-surface); border-bottom:1px solid var(--g-border);
+    font-size:11px; color:var(--g-mute);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    min-height:1.4em;
+  }
+  #path span{color:color-mix(in srgb, var(--g-accent) calc(var(--near) * 1%),
+                             var(--g-mute))}
+  /* The last crumb wears the bar's hue, so the strip names the cursor in the
+     colour the cursor is drawn in. */
+  #path b{font-weight:600; color:var(--g-bar)}
+  #path s{text-decoration:none; padding:0 5px; opacity:.6}
+</style>
+</head>
+<body>
+  <h1>I · what you can dive into
+    <small>a rail leaves the line that owns it, so a leaf is a line with nothing under it</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer, strip;
+  // ONE RAMP, COUNTED FROM POINT: point is 0 and full, its block 1, and each step
+  // out sheds a third.  A block's rail and its crumb take the same step, so the
+  // two readings cannot disagree.
+  var near = function (steps) { return Math.max(22, 100 - steps * 32); };
+  var word = function (r) {
+    if (r.el.classList.contains("d-comp")) return "list";
+    var el = r.el.querySelector(".dp") || r.el;
+    var t = el.textContent.replace(/^\s*-\s*/, "").trim();
+    return t.length > 24 ? t.slice(0, 23) + "…" : t;
+  };
+  var colOf = function (r) {
+    return r.el.classList.contains("d-item") ? r.depth * 2 : 0;
+  };
+
+  RIG.mount({
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "rails";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+      strip = document.createElement("div");
+      strip.id = "path";
+      mdoc.insertBefore(strip, mdoc.firstChild);
+    },
+    paint: function (s) {
+      // THE STRIP IS WRITTEN FIRST.  It sits in the pane's own flow, so filling
+      // it moves every row below it; measuring rails before it is filled places
+      // them a line high, which is what a page looked like until it was touched.
+      strip.textContent = "";
+      var crumbs = s.chain.filter(function (r) {
+        return r.el.classList.contains("d-item") || r.el.classList.contains("d-comp");
+      });
+      if (!crumbs.length) strip.textContent = "paragraph";
+      else crumbs.forEach(function (r, i) {
+        if (i) strip.appendChild(document.createElement("s")).textContent = "›";
+        var last = i === crumbs.length - 1;
+        var span = document.createElement(last ? "b" : "span");
+        span.textContent = word(r);
+        if (!last) span.style.setProperty("--near", near(crumbs.length - 1 - i));
+        strip.appendChild(span);
+      });
+
+      var up = s.chain.slice(0, -1);
+      layer.textContent = "";
+      s.rails({ outer: true, fromOwn: true }).forEach(function (r) {
+        var i = document.createElement("i");
+        var rank = up.indexOf(r.owner);
+        if (rank >= 0) {
+          i.className = "up";
+          i.style.setProperty("--near", near(up.length - rank));
+        }
+        i.style.left = r.x + "px";
+        i.style.top = r.top + "px";
+        i.style.height = r.height + "px";
+        layer.appendChild(i);
+      });
+
+      // POINT RIDES THE RAIL OF THE BLOCK IT IS IN — one tab stop left of its own
+      // text, which is where that block's rail already runs.  A row at the
+      // outermost level has no block above it and marks in the pane's padding, so
+      // a paragraph, the list and a top-level item all mark at one x.
+      var box = s.px(s.at.el);
+      var x = (s.left + (colOf(s.at) - 2) * s.ch) + "px";
+      // Only an ITEM has an own line to be solid about, and it wraps as far as it
+      // likes.  Everything else IS the selection whole -- a paragraph over every
+      // line it wraps to, the list over all of it.
+      var ownEl = s.at.el.classList.contains("d-item")
+        ? s.at.el.querySelector(".dp") : null;
+      var head = ownEl ? s.px(ownEl).height : box.height;
+      var mark = function (cls, top, height) {
+        if (height <= 1) return;
+        var i = document.createElement("i");
+        i.className = cls;
+        i.style.left = x;
+        i.style.top = top + "px";
+        i.style.height = height + "px";
+        layer.appendChild(i);
+      };
+      if (!s.at.el.classList.contains("d-head")) {
+        mark("at", box.top, head);
+        mark("at rest", box.top + head, box.height - head);
+      }
+    },
+  });
+})();
+</script>
+</body>
+</html>

@@ -16,6 +16,7 @@
     background:var(--g-surface); border-bottom:1px solid var(--g-border);
     font-size:11px; color:var(--g-mute);
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    min-height:1.4em;
   }
   #path b{font-weight:600; color:var(--g-accent)}
   #path s{text-decoration:none; padding:0 5px; opacity:.6}
@@ -52,7 +53,7 @@
       var crumbs = s.chain.filter(function (r) {
         return r.el.classList.contains("d-item") || r.el.classList.contains("d-comp");
       });
-      if (!crumbs.length) { strip.textContent = "prose"; return; }
+      if (!crumbs.length) { strip.textContent = "paragraph"; return; }
       crumbs.forEach(function (r, i) {
         if (i) strip.appendChild(document.createElement("s")).textContent = "›";
         var last = i === crumbs.length - 1;
