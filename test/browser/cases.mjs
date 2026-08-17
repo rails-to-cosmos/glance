@@ -176,9 +176,13 @@ export default [
     // nested row would cover the subtree drawn inside it, so the pane draws a
     // rail in the row's own column instead.
     const pane = await p.eval(() => {
+      const rgb = (v) => { const d = document.createElement("div");
+        d.style.color = v; document.body.append(d);
+        const c = getComputedStyle(d).color; d.remove(); return c; };
       const fl = document.querySelector("#mdoc .de.dfl");
-      return { thin: getComputedStyle(fl, "::before").backgroundColor,
-               bold: getComputedStyle(fl, "::before").backgroundColor,
+      // THE INK IS THE ROW'S: an elbow spends it on its borders and a run on its
+      // background, so the tier is what a case can read either way.
+      return { thin: rgb(getComputedStyle(fl).getPropertyValue("--ink").trim()),
                wide: getComputedStyle(fl, "::before").width,
                ground: getComputedStyle(fl).backgroundColor };
     });
@@ -332,9 +336,9 @@ export default [
       const rgb = (v) => { const d = document.createElement("div");
         d.style.color = v; document.body.append(d);
         const c = getComputedStyle(d).color; d.remove(); return c; };
-      return { mark: getComputedStyle(at, "::before").backgroundColor,
+      return { mark: rgb(getComputedStyle(at).getPropertyValue("--ink").trim()),
                ink: rgb(point),
-               offMark: getComputedStyle(off, "::before").backgroundColor,
+               offMark: rgb(getComputedStyle(off).getPropertyValue("--ink").trim()),
                ground: cs.backgroundColor,
                deco: cs.textDecorationLine, outline: cs.outlineStyle,
                border: cs.borderTopStyle };
@@ -354,7 +358,10 @@ export default [
                   "the panel to take the keys");
     const gone = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
-      return at ? getComputedStyle(at, "::before").backgroundColor : null;
+      const rgb = (v) => { const d = document.createElement("div");
+        d.style.color = v; document.body.append(d);
+        const c = getComputedStyle(d).color; d.remove(); return c; };
+      return at ? rgb(getComputedStyle(at).getPropertyValue("--ink").trim()) : null;
     });
     // A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE: the row keeps whatever a row with
     // no cursor keeps, which is a faint connector or nothing at all — never the
@@ -1126,9 +1133,10 @@ export default [
         .find((n) => n !== at && !at.contains(n));
       return { point: rgb(root.getPropertyValue("--g-point").trim()),
                dim: rgb(root.getPropertyValue("--g-point-dim").trim()),
-               atInk: getComputedStyle(at, "::before").backgroundColor,
-               kidInk: getComputedStyle(kid, "::before").backgroundColor,
-               otherInk: other ? getComputedStyle(other, "::before").backgroundColor : null,
+               atInk: rgb(getComputedStyle(at).getPropertyValue("--ink").trim()),
+               kidInk: rgb(getComputedStyle(kid).getPropertyValue("--ink").trim()),
+               otherInk: other
+                 ? rgb(getComputedStyle(other).getPropertyValue("--ink").trim()) : null,
                ground: getComputedStyle(at).backgroundColor,
                tall: Math.round(parseFloat(getComputedStyle(at, "::before").height)),
                line: Math.round(parseFloat(getComputedStyle(
@@ -1160,8 +1168,12 @@ export default [
       const at = document.querySelector("#mdoc .de.dat");
       const root = at.querySelector(":scope > .de");
       const deep = at.querySelector(":scope > .de > .de");
-      return { rootInk: getComputedStyle(root, "::before").backgroundColor,
-               deepInk: deep ? getComputedStyle(deep, "::before").backgroundColor : null };
+      const rgb = (v) => { const d = document.createElement("div");
+        d.style.color = v; document.body.append(d);
+        const c = getComputedStyle(d).color; d.remove(); return c; };
+      return { rootInk: rgb(getComputedStyle(root).getPropertyValue("--ink").trim()),
+               deepInk: deep
+                 ? rgb(getComputedStyle(deep).getPropertyValue("--ink").trim()) : null };
     });
     assert(whole.rootInk === seen.point,
       `a root the list opens paints ${whole.rootInk}, not ${seen.point}`);

@@ -4991,12 +4991,14 @@ groundSweep shell = testCase "point and a flag are marks beside the line, never 
         marks
   where
     selectors = [".de.dat", ".de.dfl"]
-    marks = [ ("#mdoc.on .de.dat::before", "var(--g-point)")
-            , ("#mdoc.on .mk-held::before", "var(--g-point-dim)")
-            , ("#mdoc.on .mk-root::before", "var(--g-point)")
-            , (".de.dfl::before", "var(--g-bad)")
-            , (".d-list .d-item::before", "var(--g-fg)")
-            , ("#mdoc.on .up-0::before", "var(--g-accent)") ]
+    marks = [ ("#mdoc.on .de.dat", "var(--g-point)")
+            , ("#mdoc.on .mk-held", "var(--g-point-dim)")
+            , ("#mdoc.on .mk-root", "var(--g-point)")
+            , (".de.dfl", "var(--g-bad)")
+            , (".de", "var(--g-fg)")
+            , ("#mdoc.on .up-0", "var(--g-accent)")
+            , (".d-list .d-item::before", "var(--ink)")
+            , (".d-list .d-item.kin::after", "var(--ink)") ]
 
 -- | The body of the first rule whose SELECTOR LIST names SEL.  GROUPED SELECTORS ARE THE POINT: a literal @"#pbox{"@ matched none.
 ruleIn :: T.Text -> T.Text -> Maybe T.Text
@@ -5221,7 +5223,7 @@ shellGlue =
       , "let drows = [], dat = 0, dgrain = \"element\";"
       , "dgrain = now.grain; dflags = now.flags; dbody = now.body;"
       -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the panel's costs two rules, the wash it suppresses being the RENDERER's.
-      , ".d-list .d-item::before{top:0;"
+      , ".d-list .d-item::before{top:0;width:1.1ch;"
       , "#mprops:not(.on) .tv-table tbody tr.tv-sel{background:transparent}"
       , "#mprops:not(.on) .tv-table tbody tr.tv-sel.tv-alt{background:var(--tv-alt)}"
       , ".d-head,.d-child{display:flex;align-items:baseline}"

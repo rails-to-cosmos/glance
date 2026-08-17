@@ -4383,6 +4383,14 @@ sheetNotes =
          \ branch has more to come (`kin').  ORG'S BULLET IS THE TIP -- a horizontal\
          \ reaching the text sat at the same height as the file's own `-' and the two\
          \ read as one dashed run." [Test, Browser]
+  , Note "THE TREE HAS A COLUMN OF ITS OWN: the pane keeps a character the text never\
+         \ enters and every connector sits HALF A CELL left of the tab stop, so the\
+         \ elbow's horizontal ends with air before org's own bullet.  The two sat one\
+         \ cell apart at the same height and read as a single dashed run; the room is\
+         \ what the flag's own shape will want next." [Test, Browser]
+  , Note "ONE INK PER ROW: a tier sets `--ink' on the row and the shapes SPEND it, an\
+         \ elbow on its borders and a run on its background.  A case reads the tier\
+         \ rather than the shape, which is why one assertion covers both." [Browser]
   , Note "THE PATH, NOT THE LEVEL: what lights is point's OWNERS (`up-K'), not every\
          \ sibling of every owner -- that lit whole levels and said nothing about the\
          \ way back.  What point CARRIES takes the same ink a shade back (`mk-held'),\
