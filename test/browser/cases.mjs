@@ -1126,5 +1126,52 @@ export default [
     return [`"${seen.text}": ${seen.ownH}px of ${seen.atH}px grounded, the nested `
       + `row painting ${seen.kidBg}; the list itself still grounds all `
       + `${whole.kids} rows under it`];
+  } },,
+
+// THE BOX IS THE LINE IT WRITES.  A nested item is drawn inside its parent, so
+// the ROW is as tall as the subtree; the edit covers the item's own line, which
+// is the only thing it replaces.  A composite draws no own line and keeps the
+// whole box — the list is one stop, and editing it rewrites the list.
+{ name: "the open edit over a nested item covers its own line, not the subtree",
+  async run(p, base) {
+    await sheet(p, base, "drv-wide");
+    await p.press("n"); await p.press("n"); await p.press("n");
+    await p.press("f");
+    // BOTH a nested row AND an own line: a composite has kids too, so waiting on
+    // kids alone cannot tell "still on the list" from "now on the item".
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      if (!at) return false;
+      const kid = at.querySelector(".de");
+      return !!kid && !!at.children[0] && at.children[0] !== kid;
+    }, "the cursor on an item with rows drawn inside it");
+    const shape = await p.eval(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      const px = (n) => Math.round(n.getBoundingClientRect().height);
+      return { row: px(at), own: px(at.children[0]) };
+    });
+    assert(shape.row >= shape.own * 2,
+      `the row is ${shape.row}px against its own line's ${shape.own}px, so a box `
+      + `covering the subtree would look the same as one covering the line`);
+
+    await p.press("RET");
+    await p.until(() => document.getElementById("dpara").classList.contains("on"),
+                  "the edit to open");
+    const box = await p.eval(() => {
+      const b = document.getElementById("dpara").getBoundingClientRect();
+      const at = document.querySelector("#mdoc .de.dat");
+      const own = at.children[0].getBoundingClientRect();
+      return { h: Math.round(b.height), top: Math.round(b.top),
+               ownTop: Math.round(own.top), ownH: Math.round(own.height),
+               text: document.getElementById("dtext").value };
+    });
+    assert(Math.abs(box.h - box.ownH) <= 2,
+      `the box stands ${box.h}px over a ${box.ownH}px line — it covers the subtree`);
+    assert(Math.abs(box.top - box.ownTop) <= 2,
+      `the box opens at ${box.top} against the line's ${box.ownTop}`);
+    assert(!/\n/.test(box.text),
+      `the box holds more than the item's own line: ${JSON.stringify(box.text)}`);
+    return [`row ${shape.row}px, own line ${box.ownH}px, box ${box.h}px holding `
+      + `${JSON.stringify(box.text.slice(0, 34))}`];
   } },
 ];

@@ -336,9 +336,22 @@
       fill: (r) => { el("dtin").value = r.val; },
       focus: () => el("dtin").focus(),
     };
+    // A NESTED ITEM IS DRAWN INSIDE ITS PARENT, so the ROW's box is as tall as
+    // the subtree under it.  The edit covers the item's OWN line, which is what
+    // it writes.  A composite draws no own line and keeps the whole box: the
+    // list is one stop, and editing it rewrites the list.
+    // Elm draws `own ++ deeper', so the own line is the FIRST child and the
+    // first nested row is not; a composite draws no own line and the two are
+    // the same node.
+    const dParaAt = () => {
+      const at = docElAt();
+      if (!at) return at;
+      const kid = at.querySelector(".de"), own = at.children[0];
+      return kid && own && own !== kid ? own : at;
+    };
     const DPARA = {
       box: "dpara", pane: "mdoc", fields: ["dtext"],
-      mount: () => null, anchor: docElAt, block: true,
+      mount: () => null, anchor: dParaAt, block: true,
       fill: (r) => { el("dtext").value = r.text; sizeDocEdit(); },
       focus: () => el("dtext").focus(),
     };
