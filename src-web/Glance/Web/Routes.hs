@@ -46,7 +46,8 @@ import qualified Network.WebSockets as WS
 
 import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , HeadlineParts (..)
-                    , HeadlineRecord (hrDigest, hrFile, hrId, hrSubtree, hrTags, hrTitle)
+                    , HeadlineRecord ( hrDigest, hrFile, hrId, hrLinks, hrSubtree, hrTags
+                                     , hrTitle )
                     , rowOrgId
                     , OrgLink (olSpan, olTarget)
                     , QueryResult (..), SortChain
@@ -59,6 +60,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , configEdits, viewQuery, viewQueryIn
                     , headlineParts, keywordSources, linkShown, linkType
                     , mintableLayer
+                    , kindSlug, refKind
                     , planningKeywords, readConfigLayers, readsAsTimestamp
                     , untrailed
                     , recomposedSubtree
@@ -189,10 +191,22 @@ headlines opts hub request = viewPage opts hub request (const True) (const [])
 -- | @GET \/refer?q=…[&row=ID]@: the rows a REFERENCE may name — 'headlines''
 -- own view, cut to the addressable rows and never the one asked from.
 refer :: ServeOptions -> Hub -> Request -> IO Response
-refer opts hub request = viewPage opts hub request keep referVocabulary
+refer opts hub request = viewPage opts hub request keep (referExtra asked)
   where
     self = queryText "row" request
+    asked = queryText "kind" request
     keep r = isJust (rowOrgId r) && Just (hrId r) /= self
+
+-- | What the picker completes from, over every row THE QUERY MATCHED rather than
+-- the page served.  A reader narrowing the picker narrows what it offers, which
+-- is the same rule the @tag@ half has always had.
+referExtra :: Maybe Text -> [HeadlineRecord] -> [Pair]
+referExtra asked rows = referVocabulary rows <> referKinds rows <> echo
+  where
+    -- THE SLUG IS THE SERVER'S, said once: a kind typed into the picker comes
+    -- back canonical, so the page writes what org-glance would have written and
+    -- no second spelling of the rule lives on the page ('kindSlug').
+    echo = [ "kind" .= kindSlug k | Just k <- [asked], not (T.null (kindSlug k)) ]
 
 -- | What the picker may complete a @tag:@ from: the tags of every row THE QUERY
 -- MATCHED rather than the page served, commonest first.  The @state@ and
@@ -205,6 +219,18 @@ referVocabulary rows =
   where
     counted = Map.toList (tagRowCounts rows)
     rank (tag, n) = (negate n, tag)
+
+-- | THE KINDS THE TREE ALREADY USES, commonest first, counted in ROWS the way
+-- @\/tags@ counts them.  The COUNT is what the picker shows beside each: free
+-- text is how a kind is minted, so an established spelling has to be tellable
+-- from a typo made once, or the vocabulary forks.
+referKinds :: [HeadlineRecord] -> [Pair]
+referKinds rows =
+  [ "kinds" .= [ object ["kind" .= k, "rows" .= n] | (k, n) <- sortOn rank counted ] ]
+  where
+    counted = Map.toList (Map.fromListWith (+)
+      [ (k, 1 :: Int) | r <- rows, k <- nub [ k' | Just k' <- map refKind (hrLinks r) ] ])
+    rank (k, n) = (negate n, k)
 
 -- | ONE PIPELINE, and KEEP is all a door may add: every caller answers the same
 -- shape with the same headers, so a mount cannot tell two doors apart.

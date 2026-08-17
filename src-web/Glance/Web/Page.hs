@@ -83,7 +83,12 @@ demoShell opts font colours views =
   [ "  <div id=\"refer\">"
   , "    <div id=\"rbox\">"
   , "      <div id=\"rmount\"></div>"
-  , "      <div id=\"rfoot\">n/p move · / filter · DEL drop · RET link · ESC dismiss</div>"
+  -- THE KIND IS THE EDGE'S, so it is drawn APART from the row's own badges and
+  -- from the filter's chips: those narrow what is offered, this says what the
+  -- link being made will be.
+  , "      <div id=\"rkind\"></div>"
+  , "      <div id=\"rfoot\">n/p move · / filter or kind: · K kind · DEL drop"
+      <> " · RET link · ESC dismiss</div>"
   , "    </div>"
   , "  </div>"
   ]

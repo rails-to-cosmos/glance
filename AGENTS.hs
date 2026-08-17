@@ -4272,6 +4272,23 @@ sheetNotes =
          \ picker is what happens on top of it.  The binding claimed the key, so the\
          \ literal is the handler's to write; at a word boundary the picker rides\
          \ over it, mid-word an address typed into prose stays an address." [Browser]
+  , Note "`K' DECLARES THE KIND, and `k' is the previous row in the vim dialect —\
+         \ the three movement dialects outrank a mnemonic, so the kind takes the\
+         \ shift.  It takes NO CHORD to reach: a prefixed `@' cannot be pressed over\
+         \ a selected region, the dispatch leaving `C-c' to copy there, and a region\
+         \ becoming the link is what layer 1 is FOR." [Browser]
+  , Note "`K' AND `/ kind:' ARE ONE STATE: the chip is the control — DEL takes it\
+         \ off like any other — and the badge is the readout.  `kind:' comes OUT of\
+         \ the row query before it is sent, the kind saying what the link WILL BE\
+         \ rather than narrowing the rows it is written from." [Browser]
+  , Note "THE BADGE IS AN OUTLINE where every other badge is a washed ground: a\
+         \ state or a tag describes the ROW it sits on, and this describes the EDGE\
+         \ about to be written.  Reading alike would say they were one kind of\
+         \ thing." [Browser]
+  , Note "THE SLUG IS THE SERVER'S, said once: the picker sends a kind as it was\
+         \ typed and writes back what comes home, so `kindSlug' is not spelled a\
+         \ second time on the page and the file holds what org-glance would have\
+         \ written.  `GET /refer' echoes it beside the `kinds' it offers." [Test]
   , Note "AN EMPTIED SUMMONED BOX IS DEL'S FIRST RUNG: `inline''s editor was the last\
          \ thing the reader put there, so it is the first thing taken back.  The chips\
          \ under it are the PICKER's own rung — its listener, not the table's\

@@ -1,9 +1,8 @@
 # Proposal — a relation is a link with a kind, so the link ships first
 
-**Status:** partial — LAYER 1 DELIVERED 2026-08-16: `@` in the sheet links a
-headline into the prose. Layer 2, the kind, is gated on stage 1 of
-[`2026-08-12-relations.partial.md`](2026-08-12-relations.partial.md) and is
-unbuilt · **Date:** 2026-08-15 · **Origin:** user, framing stage 5b of the
+**Status:** done — LAYER 1 DELIVERED 2026-08-16 (`@` links a headline into the
+prose), LAYER 2 DELIVERED 2026-08-17 (`K`, or `kind:` in the picker's own
+filter, declares the kind; the slug is the server's) · **Date:** 2026-08-15 · **Origin:** user, framing stage 5b of the
 relations proposal as a layering: *popups → org-links in the material sheet →
 relations on top, because relations are links.*
 
@@ -17,7 +16,7 @@ them is a dependency here, never a question.
 |-------|------------------------------------------------|--------------------------------------|
 | **0** | the popup machinery                            | already existed; nothing built       |
 | **1** | `@` inserts a **plain org link** to a headline | **shipped 2026-08-16**               |
-| **2** | `k` in the picker asks a **kind**               | unbuilt; needs `refKind` on the wire |
+| **2** | `K` in the picker asks a **kind**               | **shipped 2026-08-17**               |
 
 Layer 1 was shippable alone and is: 42% of rows carry no `ORG_GLANCE_ID` and
 cannot be linked to, and the other 58% are exactly what a reader wants to point
@@ -196,10 +195,13 @@ Stated plainly, because the original text is still above:
 
 ## What is still owed
 
-- **The kind stage.** The kind vocabulary is `refKind`, which is stage 1 of the
-  relations proposal — the `Ref` type and the field on the wire. Until it lands
-  there is nothing to complete a kind against, though the census below says
-  there is next to nothing to complete against either way.
+- ~~**The kind stage.**~~ Shipped 2026-08-17. `Ref` carries the kind
+  (`src-query/Glance/Query.hs`), `GET /refer` answers `kinds` counted in rows and
+  echoes the canonical slug of whatever `&kind=` was asked, and the picker takes
+  it two ways — `K`, or `kind:` typed into its own filter, which is the chip that
+  removes it again. What is still owed is **stage 4 of the relations proposal**,
+  the reverse index: a kind can be written and read, and nothing yet asks *what
+  points at this row, and how*.
 - **`refs` on the row**, after relations stage 4.
 
 ## What catches it going wrong

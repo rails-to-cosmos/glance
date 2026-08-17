@@ -38,12 +38,15 @@
 
     // ONE ASK AT A TIME, or the answer that ARRIVES last wins over the one asked last.
     let referAsking = null;
-    function referFetch(q) {
+    function referFetch(q, kind) {
       if (referAsking) referAsking.abort();
       referAsking = new AbortController();
       const row = editing ? `&row=${encodeURIComponent(editing.id)}` : "";
+      // THE SLUG IS THE SERVER'S: a typed kind rides out raw and comes back
+      // canonical, so the page writes what org-glance would have written.
+      const want = kind ? `&kind=${encodeURIComponent(kind)}` : "";
       const asked = `${q} columns:${REFER_COLS.join(",")}`.trim();
-      return getJSON(`/refer${asking(asked)}&limit=${REFER_LIMIT}${row}`,
+      return getJSON(`/refer${asking(asked)}&limit=${REFER_LIMIT}${row}${want}`,
                      { signal: referAsking.signal });
     }
 
@@ -59,6 +62,67 @@
       const vocab = view.vocabulary || {};
       for (const col of view.columns || [])
         if (!col.values && vocab[col.key]) col.values = vocab[col.key];
+    }
+
+    const KIND_KEY = "kind";
+    /** The kind the query declares, and the query with it TAKEN OUT: `kind:' says
+     *  what the link will be, so it never narrows the rows it is written from.
+     *  The renderer's own tokenizer reads it — quoting and negation included —
+     *  with `kind' declared to the parse, the columns having no such cell. */
+    function splitKind(q) {
+      const text = String(q || "");
+      if (typeof TableView.parseQuery !== "function") return { rows: text, kind: null };
+      const mine = TableView.parseQuery(text, REFER_COLS.concat([KIND_KEY]))
+        .filter((t) => t.key === KIND_KEY && !t.negated);
+      let rows = text;
+      for (let i = mine.length - 1; i >= 0; i -= 1)
+        rows = rows.slice(0, mine[i].start) + rows.slice(mine[i].end);
+      const last = mine.length ? mine[mine.length - 1].value : "";
+      return { rows: rows.replace(/\s+/g, " ").trim(), kind: last || null };
+    }
+
+    /** THE KIND IS THE EDGE'S, so it is drawn apart from the row's own badges:
+     *  a filter chip narrows what is offered, where this says what the link
+     *  being made WILL BE. */
+    function drawKind() {
+      const badge = el("rkind");
+      badge.textContent = picking.kind ? `kind:${picking.kind}` : "";
+      badge.className = picking.kind ? "on" : "";
+    }
+
+    /** `K': what kind of reference this is — the tree's own kinds to pick from,
+     *  and free text, which is how a kind is minted at all. */
+    function askKind() {
+      const held = picking, b = held.b;
+      const shown = (held.kinds || []).map((k) =>
+        ({ label: k.kind, hint: `${k.rows} ${k.rows === 1 ? "row" : "rows"}`, tag: k.kind }));
+      askFrom("kind", shown,
+              "RET takes it · a kind not listed is just typed · DEL clears it · ESC leaves",
+              (c) => {
+                if (picking !== held) return;   // the picker went while it was up
+                takeKind(b, String(c.tag || "").trim());
+              });
+    }
+    /** What an answer says the kind is; the SERVER spells the slug. */
+    function tookKind(view) {
+      picking.kind = view.kind || null;
+      picking.kinds = view.kinds || picking.kinds;
+      drawKind();
+    }
+    // `K' AND `/ kind:' ARE ONE STATE: the chip is the control — DEL takes it off
+    // like any other — and the badge is the readout.  The canonical spelling
+    // comes back from the server before the chip is written, so the strip reads
+    // `kind:roasted-by' whatever was typed.
+    function takeKind(b, raw) {
+      const held = picking, base = splitKind(held.tv.getQuery()).rows;
+      if (!raw) { held.tv.setQuery(base); tookKind({}); echo("kind cleared"); return; }
+      referFetch(base, raw).then((view) => {
+        if (picking !== held) return;
+        held.tv.setRows(view.rows || []);
+        tookKind(view);
+        held.tv.setQuery(picking.kind ? `${base} ${KIND_KEY}:${picking.kind}`.trim() : base);
+        echo(picking.kind ? `${KIND_KEY}:${picking.kind}` : "kind cleared");
+      }).catch(referFailed(b));
     }
 
     /** Under the caret, flipping above it near the foot.  A textarea will not
@@ -113,12 +177,18 @@
         const tv = TableView.mount(el("rmount"), view, {
           inline: true,                  // the renderer's own compact mode
           initialQuery: referDefault(),
-          onFilter: (q) => referFetch(q).then((v) => tv.setRows(v.rows || []))
-                                        .catch(referFailed(b)),
+          onFilter: (q) => {
+            const asked = splitKind(q);
+            return referFetch(asked.rows, asked.kind).then((v) => {
+              tv.setRows(v.rows || []);
+              if (picking) tookKind(v);
+            }).catch(referFailed(b));
+          },
         });
         if (!can(tv, ...REFER_VERBS))
           { el("rmount").textContent = ""; said(b, lacks("a picker")); return; }
-        picking = { tv, at, desc, box };
+        picking = { tv, at, desc, box, b, kind: null, kinds: view.kinds || [] };
+        drawKind();
         el("refer").className = "on";
         referPlace(box);
         const first = tv.getVisible()[0];
@@ -135,7 +205,8 @@
       // The reader's own words win over the row's title where they chose some.
       const title = picking.desc !== null ? picking.desc
                                           : ((row.cells || {}).title || row.id);
-      const link = `[[glance:${row.id}][${title}]]`;
+      const kind = picking.kind ? `?kind=${picking.kind}` : "";
+      const link = `[[glance:${row.id}${kind}][${title}]]`;
       const box = picking.box, from = picking.at, to = referRun();
       shutRefer(null);                    // the run the picker owns — the `@', or the region
       writeIn(box, from, to, link);
@@ -183,7 +254,9 @@
     // THE PICKER HOLDS THE KEYBOARD, claimed outright: taking a row SHUTS it, so
     // a listener further along would read the same RET as its own.
     document.addEventListener("keydown", (e) => {
-      if (!picking || e.defaultPrevented) return;
+      // A SURFACE RAISED OVER THE PICKER OUTRANKS IT — the kind field is one —
+      // and `SURFACES' order is what says so, the way `popupKeys' asks it.
+      if (momentary() !== "refer" || e.defaultPrevented) return;
       const k = keyName(e);
       if (!k) return;
       // The filter box is the RENDERER'S, ESC included; no ladder is rehearsed here.
@@ -197,6 +270,8 @@
       // prose behind it.  Every rung below is one-per-press.
       if (repeating(e)) return;
       if (k === "/") { picking.tv.openFilter(); return; }
+      // `k' IS THE PREVIOUS ROW in the vim dialect, so the kind takes the shift.
+      if (k === "K") { askKind(); return; }
       if (k === "DEL") { referDrop(); return; }
       if (k === "RET") { referTake(); return; }
       if (k === "ESC") { shutRefer(null); return; }

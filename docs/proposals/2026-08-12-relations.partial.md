@@ -6,7 +6,7 @@ so an edge the peer wrote as `…:ID?kind=SLUG` resolves to `ID` rather than to
 nothing (`TestFilter.hs`, "a kind suffix rides off a protocol target").  A
 title keeps its own `?`.  **Stage 5b's LINK half landed 2026-08-16** — `@` in
 the sheet and `GET /refer`, see
-[`2026-08-15-a-relation-is-a-link-with-a-kind.partial.md`](2026-08-15-a-relation-is-a-link-with-a-kind.partial.md);
+[`2026-08-15-a-relation-is-a-link-with-a-kind.done.md`](2026-08-15-a-relation-is-a-link-with-a-kind.done.md);
 its KIND half waits on stage 1.  The `Ref` TYPE, `refKind` on the wire, the
 reverse index, `/graph` and `glance migrate` are all still unbuilt ·
 **Date:** 2026-08-12 · **Origin:** the relations census over `~/sync`
@@ -167,7 +167,7 @@ rows, `C-n`/`C-p` and the arrows walking a highlight, `RET` taking it.
    picker is up asks for it**, settled 2026-08-17: a prefixed `@` cannot be
    pressed over a selected region, which is the gesture layer 1 exists for. See
    ["The chord that could not be
-   pressed"](2026-08-15-a-relation-is-a-link-with-a-kind.partial.md).
+   pressed"](2026-08-15-a-relation-is-a-link-with-a-kind.done.md).
 
 `RET` moves forward and commits at the last field; an empty kind is a plain
 mention; `ESC` cancels through `SURFACES` like every other momentary surface.
@@ -346,12 +346,12 @@ Each stage is independently shippable and independently revertible.
 
 | # | stage                                                                                           | why here                                                             |
 |---|-------------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
-| 1 | **Strip the kind in `refTargetOf`; `Ref` type; `RefKind` on the record and sparse on the wire** | stops losing the peer's typed edges today; one bug fix and one field |
+| 1 | **Strip the kind in `refTargetOf`; `Ref` type; `RefKind` on the record and sparse on the wire** | **DONE** 2026-08-15 (the strip) and 2026-08-17 (the type, the dedup, the slug) |
 | 2 | **Id-only resolution**                                                                          | a deletion; costs 1 edge, removes 11 false positives                 |
 | 3 | **`glance:` canonical, four aliases read forever**                                              | no corpus change, no peer change yet                                 |
 | 4 | **Reverse index + in-degree on the wire**                                                       | prerequisite for 6                                                   |
 | 5 | **The peer writes `glance:`; interop case pins the round trip**                                 | two-repo, gated on 3                                                 |
-| 5b| **`@` in the sheet, `GET /refer`** — the verb.  THE LINK HALF IS DONE (2026-08-16); the kind half is not | gated on 1 for the kind vocabulary; the only item that moves 0.34 edges per row |
+| 5b| **`@` in the sheet, `GET /refer`** — the verb.  **DONE**: the link half 2026-08-16, the kind half 2026-08-17 | the only item a reader notices |
 | 6 | **`GET /graph`, scoped by `?q=`**                                                               | M2, and it is what 4 was for                                         |
 | — | **`glance migrate`, dry run by default**                                                        | optional forever; rewrites the source of truth                       |
 

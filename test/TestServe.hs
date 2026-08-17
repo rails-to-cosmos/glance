@@ -8655,6 +8655,35 @@ referSpec = testGroup "GET /refer"
         assertEqual "the row it stands on is gone"
                     (filter (/= "refer-a") with) without
 
+    -- THE KINDS THE TREE ALREADY USES, counted in ROWS the way `/tags' counts
+    -- them: free text is how a kind is minted, so an established spelling has to
+    -- be tellable from a typo made once.
+  , testCase "the kinds the tree uses come back counted, commonest first" $
+      withReferTree $ \a -> do
+        answer <- decoded =<< ok =<< getFrom a "/refer"
+        kinds <- traverse (\v -> (,) <$> textAt "kind" v <*> intAt "rows" v)
+                   =<< listAt "kinds" answer
+        assertEqual "cites is on two rows, refutes on one" [("cites", 2), ("refutes", 1)] kinds
+
+  , testCase "a plain mention declares no kind, so none is counted for it" $
+      withReferTree $ \a -> do
+        answer <- decoded =<< ok =<< getFrom a "/refer?q=cites%20two"
+        kinds <- traverse (textAt "kind") =<< listAt "kinds" answer
+        assertEqual "the one row asked for makes one typed edge" ["cites"] kinds
+
+    -- ONE SLUG ACROSS TWO PROGRAMS, and the SERVER is where it is spelled: the
+    -- page sends what was typed and writes back what org-glance would have.
+  , testCase "a typed kind comes back canonical, and nothing comes back for none" $
+      withReferTree $ \a -> do
+        let slugOf q = sparseTextAt "kind" =<< decoded =<< ok =<< getFrom a q
+        assertEqual "downcased, trimmed, its spaces folded"
+                    (Just "roasted-by") =<< slugOf "/refer?kind=Roasted%20By"
+        assertEqual "already canonical, unchanged"
+                    (Just "roasted-by") =<< slugOf "/refer?kind=roasted-by"
+        assertEqual "no kind asked for, none answered" Nothing =<< slugOf "/refer"
+        assertEqual "a kind of pure space declares nothing"
+                    Nothing =<< slugOf "/refer?kind=%20"
+
   , testCase "the query narrows it exactly as it narrows the table" $
       withReferTree $ \a ->
         assertEqual "state:*active* over the addressable rows" ["refer-a"]
@@ -8677,6 +8706,18 @@ withReferTree k = withTempDir $ \dir -> do
     , ":ORG_GLANCE_ID: refer-b"
     , ":END:"
     , "* TODO refer-me with no id at all"
+      -- TYPED EDGES, so the kind vocabulary has something to fold: one kind on
+      -- two rows, one on one, and a plain mention that declares none.
+    , "* DONE refer-me cites two"
+    , ":PROPERTIES:"
+    , ":ORG_GLANCE_ID: refer-c"
+    , ":END:"
+    , "sees [[glance:refer-a?kind=cites][alpha]] and [[glance:refer-b][beta]]"
+    , "* DONE refer-me cites and refutes"
+    , ":PROPERTIES:"
+    , ":ORG_GLANCE_ID: refer-d"
+    , ":END:"
+    , "sees [[glance:refer-a?kind=cites][alpha]] and [[glance:refer-b?kind=refutes][beta]]"
     ]
   (a, _hub) <- serverOver dir
   k a

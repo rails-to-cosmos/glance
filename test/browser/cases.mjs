@@ -763,6 +763,88 @@ export default [
       + `prose ${JSON.stringify(after.prose.slice(-12))} unmoved`];
   } },
 
+// THE KIND IS THE EDGE'S, and `K' is what declares it.  `k' is the previous row
+// in the vim dialect, so the kind takes the shift.  The badge is drawn APART
+// from the row's own badges and from the filter's chips — those narrow what is
+// offered, this says what the link about to be written will BE — and the SLUG
+// comes back from the server, so the page writes what org-glance would have.
+{ name: "K declares the kind, and the link is written with the server's own slug",
+  async run(p, base) {
+    await pickerOver(p, base, "drv-box");
+    const before = await p.eval(() => ({
+      badge: document.getElementById("rkind").className,
+      text: document.getElementById("rkind").textContent }));
+    assert(before.badge !== "on", "the picker drew a kind before one was declared");
+
+    await p.press("K");
+    await p.until(() => document.getElementById("prompt").classList.contains("on"),
+                  "the kind field to raise over the picker");
+    // FREE TEXT IS HOW A KIND IS MINTED: this store has none to complete against.
+    await p.type("Roasted By");
+    await p.press("RET");
+    await p.until(() => document.getElementById("rkind").className === "on",
+                  "the kind badge to be drawn");
+    const shown = await p.eval(() => {
+      const b = document.getElementById("rkind");
+      const cs = getComputedStyle(b);
+      const pill = document.querySelector("#rmount .tv-pill");
+      return { text: b.textContent, up: document.getElementById("refer").classList.contains("on"),
+               // It reads as an OUTLINE where a row's badge is a washed ground.
+               edge: cs.borderStyle, ink: cs.color, ground: cs.backgroundColor,
+               rowBadge: pill ? getComputedStyle(pill).backgroundColor : "" };
+    });
+    assert(shown.up, "declaring a kind dismissed the picker");
+    assert(shown.text === "kind:roasted-by",
+      `the server's slug did not come back: ${JSON.stringify(shown.text)}`);
+    assert(/dashed/.test(shown.edge),
+      `the kind badge draws no outline of its own: ${shown.edge}`);
+    assert(/rgba\(0, 0, 0, 0\)|transparent/.test(shown.ground),
+      `the kind badge wears a ground like a row's badge: ${shown.ground}`);
+
+    await p.press("RET");
+    await pickerGone(p, "the picker to close on RET");
+    const wrote = await p.eval(() => document.getElementById("dtext").value);
+    assert(/\[\[glance:[^\]?]+\?kind=roasted-by\]\[[^\]]+\]\]/.test(wrote),
+      `the kind did not reach the link: ${JSON.stringify(wrote.slice(-64))}`);
+    return [`typed "Roasted By", wrote ${JSON.stringify(wrote.slice(-40))}`];
+  } },
+
+// THE FILTER IS THE SECOND ROUTE TO THE SAME KIND.  `kind:' is the EDGE's, so
+// it never narrows the rows it would be written from: it comes OUT of the row
+// query, lands on the badge, and stays in the strip as the chip that removes it.
+{ name: "kind: typed into the picker's filter sets the kind and narrows nothing",
+  async run(p, base) {
+    await pickerOver(p, base, "drv-box");
+    const rowsBefore = await p.eval(() =>
+      document.querySelectorAll("#rmount .tv-table tbody tr").length);
+    await p.press("/");
+    await boxFocused(p);
+    await p.type("kind:cites");
+    await p.press("RET");
+    await p.until(() => document.getElementById("rkind").className === "on",
+                  "the kind badge to follow the filter");
+    const seen = await p.eval(() => ({
+      badge: document.getElementById("rkind").textContent,
+      rows: document.querySelectorAll("#rmount .tv-table tbody tr").length,
+      chips: [...document.querySelectorAll("#rmount .tv-chip[data-i]")].map((c) => c.textContent) }));
+    assert(seen.badge === "kind:cites",
+      `the filter's kind did not reach the badge: ${JSON.stringify(seen.badge)}`);
+    assert(seen.rows === rowsBefore,
+      `kind: narrowed the rows it is written from: ${rowsBefore} -> ${seen.rows}`);
+    assert(seen.chips.some((c) => /kind:cites/.test(c)),
+      `the strip lost the chip that removes it: ${JSON.stringify(seen.chips)}`);
+
+    // THE CHIP IS THE CONTROL: taking it off takes the kind with it.
+    await p.press("DEL");
+    await p.until(() => document.getElementById("rkind").className !== "on",
+                  "the badge to go with the chip");
+    const after = await p.eval(() => ({
+      rows: document.querySelectorAll("#rmount .tv-table tbody tr").length,
+      badge: document.getElementById("rkind").textContent }));
+    assert(after.badge === "", `the badge outlived its chip: ${JSON.stringify(after.badge)}`);
+    return [`${rowsBefore} rows throughout, badge "kind:cites" then cleared`];
+  } },
+
 // A BADGE COLUMN'S HEADER SITS OVER ITS BADGES' FIRST LETTER.  A pill sets its
 // text in from the cell edge by its own padding, so a header aligned to the CELL
 // is a header sitting a padding's width left of the words underneath it — which

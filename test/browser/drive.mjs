@@ -107,6 +107,10 @@ const BREAKS = {
   // The mint form goes back to one hue field, for whichever theme is on.
   "one-hue": ["+ over the state palette draws a form",
               ".nrow-ndark{display:none !important}"],
+  // The kind badge reads like a row's own badge — a washed ground, no outline.
+  "kind-badge": ["K declares the kind",
+                 "#rkind{border-style:solid !important;"
+                   + "background:var(--g-surface) !important}"],
   // Both surfaces draw the classic bar back, layout width and all.
   "bar-space": ["no surface on the page draws a scrollbar of its own",
                 ".tv-scroll,#kbd{scrollbar-width:auto !important}"

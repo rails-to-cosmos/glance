@@ -290,6 +290,14 @@ page head' colours title body = T.unlines
   , "  #rbox{position:fixed;pointer-events:auto;box-sizing:border-box;"
   , "    width:min(1020px,calc(100vw - 24px));"
   , "    box-shadow:0 4px 14px var(--g-shadow);overflow:hidden}"
+  -- AN OUTLINE, WHERE EVERY OTHER BADGE IS A WASHED GROUND: a state or a tag
+  -- describes the row it sits on, and this describes the EDGE about to be
+  -- written.  Reading alike would say they were the same kind of thing.
+  , "  #rkind{display:none;align-self:flex-start;margin:4px 8px 0;"
+  , "    padding:0 7px;border-radius:999px;font-size:10px;"
+  , "    border:1px dashed var(--g-accent);color:var(--g-accent);"
+  , "    background:transparent}"
+  , "  #rkind.on{display:block}"
   , "  #rfoot{border-top:1px solid var(--g-border);padding:2px 8px;"
   , "    font-size:10px;color:var(--g-mute)}"
   -- BORDER-BOX, or the padding and border fall OUTSIDE the `--g-pop-max' cap.
