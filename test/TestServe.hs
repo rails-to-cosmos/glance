@@ -2853,6 +2853,35 @@ sheetSpec shell =
         echoIs "the echo names the level, not the structure"
                "+ \8594 org-insert-element (an item at this level)" answer
 
+    -- TAB WALKS THE RUNGS AN ITEM MAY SIT ON, and it is a TOGGLE: the walk comes
+    -- back where it started, so it is undone from the keyboard alone.
+  , testCase "TAB in an open item walks its levels and comes back" $ do
+      onTable "grain press:Enter press:n press:n press:f press:+ press:Tab" $ \answer -> do
+        assertEqual "the box holds the item one level in" "  - "
+          =<< textAt "dtext" answer
+        echoIs "and the echo names the rung"
+               "TAB \8594 org-metaright (one level in)" answer
+      onTable "grain press:Enter press:n press:n press:f press:+ press:Tab press:Tab" $
+        \answer -> do
+          assertEqual "and around again to where it opened" "- "
+            =<< textAt "dtext" answer
+          echoIs "which the echo says too"
+                 "TAB \8594 org-metaright (back where it was)" answer
+
+    -- AND THE RUNG IS WHAT IS WRITTEN: `+' then TAB is how a child is made, and
+    -- the marker carries the indent it was walked to.
+  , testCase "an item TABbed in is written under the one above it" $
+      onTable "grain press:Enter press:n press:n press:f press:+ press:Tab press:Enter" $
+        \answer -> do
+          wrote <- traverse (textAt "body") =<< listAt "writes" answer
+          assertBool ("the deeper marker was written: " <> show wrote)
+                     (any (T.isInfixOf "\n  - \n") wrote)
+
+  , testCase "TAB has no rung to take where there is no list item" $
+      insheet "press:n press:Enter press:Tab" $ \answer -> do
+        echoIs "the paragraph is not one" "TAB \8594 org-metaright (not a list item)" answer
+        assertEqual "and nothing moved" "first para" =<< textAt "dtext" answer
+
   , testCase "and ESC leaves behind what it found, point included" $
       insheet "press:n press:+ dpara:typed press:Escape" $ \answer -> do
         assertEqual "the drawn row goes with the box"

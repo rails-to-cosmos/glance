@@ -164,6 +164,45 @@
       const now = was === " " ? "X" : was === "-" ? "X" : " ";
       editPara(r, r.text.replace(CHECKBOX, `$1[${now}]`), () => said(b, `[${now}]`));
     }
+    // TAB WALKS THE RUNGS A LIST ITEM MAY SIT ON: its own, one deeper -- which
+    // needs a PREVIOUS SIBLING to hang under -- and one shallower, which needs a
+    // parent.  It is a toggle, so illegal rungs are skipped and the walk comes
+    // back where it started.  The subtree rides along on the commit.
+    const OPENER = /^([ \t]*)(?:[-+*]|\d+[.)])\s/;
+    const TABB = docBinding("org-metaright", "TAB");
+    const STEP = 2;                 // org's own, and the pane's `--g-doc-indent'
+    let drung = null;
+    const openerIn = (text) => OPENER.exec((text || "").split("\n")[0]);
+    const indentOf = (text) => { const o = openerIn(text); return o ? o[1].length : null; };
+    /** The rungs ROW may take from WAS, nearest first: its own, then a child, then
+     * the level out.  A child needs a sibling above it at the same indent. */
+    function rungsFor(row, was) {
+      const out = [0];
+      const i = drows.findIndex((r) => r.id === row.id);
+      for (let j = i - 1; j >= 0; j--) {
+        const d = indentOf(drows[j].text);
+        if (d === null || d < was) break;
+        if (d === was) { out.push(STEP); break; }
+      }
+      if (was >= STEP) out.push(-STEP);
+      return out;
+    }
+    function tabRung() {
+      const box = el("dtext");
+      const lines = box.value.split("\n");
+      const now = indentOf(lines[0]);
+      if (now === null) { said(TABB, "not a list item"); return; }
+      const row = edit.row;
+      if (!drung || drung.id !== row.id)
+        drung = { id: row.id, was: now, rungs: rungsFor(row, now), at: 0 };
+      drung.at = (drung.at + 1) % drung.rungs.length;
+      const want = drung.was + drung.rungs[drung.at];
+      lines[0] = " ".repeat(want) + lines[0].replace(/^[ \t]*/, "");
+      box.value = lines.join("\n");
+      sizeDocEdit();
+      said(TABB, want > drung.was ? "one level in"
+                 : want < drung.was ? "one level out" : "back where it was");
+    }
     const INSERT = docBinding("org-insert-element", "+");
     // The same command one key over: `S-RET' is `+' with the commit in front.
     const NEXT = docBinding("org-insert-element", "S-RET");
@@ -346,7 +385,9 @@
     const DPARA = {
       box: "dpara", pane: "mdoc", fields: ["dtext"],
       mount: () => null, anchor: dParaAt, block: true,
-      fill: (r) => { el("dtext").value = r.text; sizeDocEdit(); },
+      // A FRESH EDIT IS A FRESH WALK: the rungs are counted from where the line
+      // stands when it opens.
+      fill: (r) => { drung = null; el("dtext").value = r.text; sizeDocEdit(); },
       focus: () => el("dtext").focus(),
     };
     const dediting = () => !!edit && edit.o === DTITLE;
@@ -671,6 +712,8 @@
         else if (k === "S-RET")
           { e.preventDefault(); once(() => commitDocEdit(NEXT, caretLine("dtext"))); }
         else if (k === "M-RET") { e.preventDefault(); newlineIn("dtext"); }
+        // THE BROWSER WOULD TAKE THE FOCUS OUT OF THE BOX, so the key is claimed.
+        else if (k === "TAB") { e.preventDefault(); once(tabRung); }
         return;
       }
       // `q' IS `quit-window' ONE WINDOW IN, dead inside an open edit.

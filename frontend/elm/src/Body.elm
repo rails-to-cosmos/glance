@@ -166,6 +166,28 @@ ownersOf m id =
             up :: ownersOf m up
 
 
+{-| The leading spaces of a text's FIRST line, which is the line a row owns.
+-}
+indentIn : String -> Int
+indentIn text =
+    String.length
+        (Scan.indentOf (Maybe.withDefault "" (List.head (String.split "\n" text))))
+
+
+{-| Move LINE by N spaces, never past column zero.
+-}
+nudge : Int -> String -> String
+nudge n line =
+    if n > 0 then
+        String.repeat n " " ++ line
+
+    else if n < 0 then
+        String.dropLeft (min -n (String.length (Scan.indentOf line))) line
+
+    else
+        line
+
+
 bodyText : { a | rows : List Row, lines : List String } -> List String -> String
 bodyText m gone =
     let
@@ -203,6 +225,20 @@ bodyText m gone =
                     -- closer gets one, innermost first.  Balanced text gains none.
                     written =
                         typed ++ closers typed
+
+
+                    -- THE SUBTREE RIDES ALONG.  A row's own line is spliced over
+                    -- its own extent, so re-indenting it without moving what hangs
+                    -- off it would reparent the lot to whatever stands above.
+                    cut =
+                        ownEnd m.rows r
+
+                    shift =
+                        indentIn r.text - indentIn r.was
+
+                    under =
+                        List.map (nudge shift)
+                            (List.take (r.to - cut) (List.drop cut out))
                 in
                 List.take r.from out
                     ++ (if r.alone then
@@ -213,7 +249,8 @@ bodyText m gone =
                         else
                             written
                        )
-                    ++ List.drop (ownEnd m.rows r) out
+                    ++ under
+                    ++ List.drop r.to out
 
             else
                 out

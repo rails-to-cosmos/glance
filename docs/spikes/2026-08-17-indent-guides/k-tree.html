@@ -10,9 +10,14 @@
      ancestor has more to come, an elbow at each row, and a stub reaching from the
      elbow toward the text.  A LAST CHILD CLOSES ITS BRANCH, which is the one thing
      a plain rail cannot say. */
-  :root{--g-bar:var(--g-sel)}
-  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--g-bar:#FFC777}}
-  :root[data-theme="dark"]{--g-bar:#FFC777}
+  /* THE GROUND HUE IS NOT AN INK, and the DIM one is PICKED rather than mixed:
+     mixing gold toward the ground darkens it, and a darker yellow is brown.  Both
+     dims drop CHROMA and keep the light, so what point carries stays yellow. */
+  :root{--g-bar:var(--g-sel); --g-bar-dim:#F6E28C}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){--g-bar:#FFC777; --g-bar-dim:#DCC489}
+  }
+  :root[data-theme="dark"]{--g-bar:#FFC777; --g-bar-dim:#DCC489}
 
   #mdoc .de.dat{background-color:transparent}
   #mdoc .de.dat:not(.d-comp) .de{background-color:transparent}
@@ -39,8 +44,8 @@
   #rails i.at.bend{border-color:var(--g-bar)}
   /* WHAT POINT CARRIES, IN THE SAME GOLD A SHADE BACK -- J's tier, which says the
      subtree belongs to the stop without competing with the line that IS it. */
-  #rails i.rest.run{background:color-mix(in srgb, var(--g-bar) 55%, var(--g-bg))}
-  #rails i.rest.bend{border-color:color-mix(in srgb, var(--g-bar) 55%, var(--g-bg))}
+  #rails i.rest.run{background:var(--g-bar-dim)}
+  #rails i.rest.bend{border-color:var(--g-bar-dim)}
   #rails i.bad.run{background:var(--g-bad)}
   #rails i.bad.bend{border-color:var(--g-bad)}
 

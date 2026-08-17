@@ -4364,6 +4364,18 @@ sheetNotes =
   , Note "`placeEdit' sizes the box on all four edges off the row's own rect and computed\
          \ padding; the stylesheet's span is the fallback for a page that measured\
          \ nothing, which stands one line tall." [Test]
+  , Note "TAB WALKS THE RUNGS AN ITEM MAY SIT ON while its edit is open: its own,\
+         \ one deeper -- which needs a PREVIOUS SIBLING to hang under -- and one\
+         \ shallower, which needs a parent.  Illegal rungs are skipped and the walk\
+         \ WRAPS, so `+' then TAB makes a child and TAB again undoes it from the\
+         \ keyboard alone." [Test]
+  , Note "THE SUBTREE RIDES ALONG.  A row's own line is spliced over its own extent,\
+         \ so re-indenting it without moving what hangs off it reparents the lot to\
+         \ whatever stands above; `bodyText' shifts every line from the own line to\
+         \ `r.to' by the same delta." [Test]
+  , Note "THE BROWSER MOVES FOCUS ON TAB, so the key is claimed with `preventDefault'\
+         \ and only while the paragraph edit is open -- the sheet's pane crossing keeps\
+         \ it everywhere else." [Test]
   , Note "POINT IS A MARK BESIDE THE LINE, never a ground.  A NESTED ITEM IS DRAWN\
          \ INSIDE ITS PARENT, so a ground runs the whole subtree; the mark sits one tab\
          \ stop LEFT of the row's own text, which is where that block's rail runs, and\
