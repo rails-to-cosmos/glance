@@ -1298,4 +1298,53 @@ export default [
     return [`"${seen.text.trim()}" lights ${seen.ink} at weight ${seen.weight}; `
       + `nested ${seen.nested}, ordinary ${seen.other}; the headline's stars ${head.stars}`];
   } },
+{ name: "the strip names the way back, and agrees with the connectors",
+  async run(p, base) {
+    await sheet(p, base, "drv-wide");
+    const on = (what) => p.eval((sel) => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && (sel === "kids"
+                        ? at.classList.contains("d-item") && !!at.querySelector(".de")
+                        : at.classList.contains(sel));
+    }, what);
+    for (let i = 0; i < 8 && !(await on("d-comp")); i++) await p.press("n");
+    await p.press("f");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.classList.contains("d-item");
+    }, "`f' to descend into the list");
+    for (let i = 0; i < 8 && !(await on("kids")); i++) await p.press("n");
+    await p.press("f");                                  // one deeper, so the chain is long
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && document.querySelectorAll("#mdoc .dpath .dcr").length >= 3;
+    }, "the strip to name three steps or more");
+    const seen = await p.eval(() => {
+      const rgb = (v) => { const d = document.createElement("div");
+        d.style.color = v; document.body.append(d);
+        const c = getComputedStyle(d).color; d.remove(); return c; };
+      const root = getComputedStyle(document.documentElement);
+      const crumbs = [...document.querySelectorAll("#mdoc .dpath .dcr")];
+      const at = document.querySelector("#mdoc .de.dat");
+      const own = at.querySelector(":scope > .dp");
+      return { words: crumbs.map((c) => c.textContent),
+               last: getComputedStyle(crumbs[crumbs.length - 1]).color,
+               point: rgb(root.getPropertyValue("--g-point").trim()),
+               said: own ? own.textContent.trim() : "",
+               sticky: getComputedStyle(document.querySelector("#mdoc .dpath")).position };
+    });
+    // THE LAST CRUMB IS POINT, in the ink point's own connector takes.
+    assert(seen.last === seen.point,
+      `the last crumb paints ${seen.last}, not the point ink ${seen.point}`);
+    // AND IT NAMES THE LINE IT IS ON: the marker org wrote is not part of the name.
+    const tail = seen.words[seen.words.length - 1].replace(/…$/, "");
+    assert(seen.said.replace(/^\s*([-+*]|\d+[.)])\s+(\[[ xX-]\]\s+)?/, "").startsWith(tail),
+      `the strip says "${tail}" where the line reads "${seen.said}"`);
+    // THE OUTERMOST IS THE COMPOSITE'S OWN NAME, which is what `d-list' is called.
+    assert(seen.words[0] === "list",
+      `the strip opens on "${seen.words[0]}" rather than the list it is inside`);
+    assert(seen.sticky === "sticky",
+      `the strip is ${seen.sticky}, so it leaves the top when the rows scroll`);
+    return [`${seen.words.join(" › ")} — the last in ${seen.last}`];
+  } },
 ];

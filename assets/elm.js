@@ -9541,6 +9541,102 @@ var $author$project$Doc$viewKids = F5(
 			(at0 < 0) ? parent.d : at0,
 			_List_Nil);
 	});
+var $elm$core$List$append = F2(
+	function (xs, ys) {
+		if (!ys.b) {
+			return xs;
+		} else {
+			return A3($elm$core$List$foldr, $elm$core$List$cons, ys, xs);
+		}
+	});
+var $elm$core$List$concat = function (lists) {
+	return A3($elm$core$List$foldr, $elm$core$List$append, _List_Nil, lists);
+};
+var $author$project$Doc$crumb = F2(
+	function (m, r) {
+		if (r.H === 1) {
+			return A2($elm$core$Maybe$withDefault, 'item', r.ak);
+		} else {
+			var said = $elm$core$String$trim(
+				A2(
+					$elm$core$String$dropLeft,
+					A2($author$project$Doc$markerLen, m, r),
+					r.O));
+			return ($elm$core$String$length(said) > 24) ? (A2($elm$core$String$left, 23, said) + '…') : said;
+		}
+	});
+var $author$project$Doc$viewPath = function (m) {
+	var here = A2($author$project$Doc$idAtRow, m, m.aJ);
+	var named = A2(
+		$elm$core$List$filter,
+		function (r) {
+			return !(!r.H);
+		},
+		A2(
+			$elm$core$List$filterMap,
+			$author$project$Body$rowById(m),
+			$elm$core$List$reverse(
+				A2(
+					$elm$core$List$cons,
+					here,
+					A2($author$project$Body$ownersOf, m, here)))));
+	var n = $elm$core$List$length(named);
+	return A2(
+		$elm$html$Html$div,
+		_List_fromArray(
+			[
+				$elm$html$Html$Attributes$class('dpath')
+			]),
+		(!n) ? _List_fromArray(
+			[
+				A2(
+				$elm$html$Html$span,
+				_List_fromArray(
+					[
+						$elm$html$Html$Attributes$class('dcr cr-0')
+					]),
+				_List_fromArray(
+					[
+						$elm$html$Html$text('paragraph')
+					]))
+			]) : $elm$core$List$concat(
+			A2(
+				$elm$core$List$indexedMap,
+				F2(
+					function (i, r) {
+						return _Utils_ap(
+							(i > 0) ? _List_fromArray(
+								[
+									A2(
+									$elm$html$Html$span,
+									_List_fromArray(
+										[
+											$elm$html$Html$Attributes$class('dsep')
+										]),
+									_List_fromArray(
+										[
+											$elm$html$Html$text('›')
+										]))
+								]) : _List_Nil,
+							_List_fromArray(
+								[
+									A2(
+									$elm$html$Html$span,
+									_List_fromArray(
+										[
+											$elm$html$Html$Attributes$class(
+											'dcr cr-' + $elm$core$String$fromInt(
+												A2($elm$core$Basics$min, 3, (n - 1) - i)))
+										]),
+									_List_fromArray(
+										[
+											$elm$html$Html$text(
+											A2($author$project$Doc$crumb, m, r))
+										]))
+								]));
+					}),
+				named)));
+};
 var $author$project$Doc$view = function (m) {
 	var n = $elm$core$List$length(m.y);
 	var go = F2(
@@ -9623,7 +9719,10 @@ var $author$project$Doc$view = function (m) {
 	return A2(
 		$elm$html$Html$div,
 		_List_Nil,
-		A2(go, 0, _List_Nil));
+		A2(
+			$elm$core$List$cons,
+			$author$project$Doc$viewPath(m),
+			A2(go, 0, _List_Nil)));
 };
 var $author$project$Doc$main = $elm$browser$Browser$element(
 	{

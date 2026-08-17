@@ -1044,7 +1044,68 @@ view m =
                 else
                     go (i + 1) (out ++ [ div [ class (rowClass m i r -1 False) ] (viewCells m i r) ])
     in
-    div [] (go 0 [])
+    div [] (viewPath m :: go 0 [])
+
+
+{-| THE WAY BACK, IN WORDS. The rails say how deep and which branch; the strip
+names the same chain, so the two readings are one thing said twice. It rides the
+pane's top, where the eye already is, and takes the same ramp the connectors do.
+-}
+viewPath : Model -> Html Msg
+viewPath m =
+    let
+        here =
+            idAtRow m m.at
+
+        named =
+            List.filter (\r -> r.grain /= Element)
+                (List.filterMap (rowById m) (List.reverse (here :: ownersOf m here)))
+
+        n =
+            List.length named
+    in
+    div [ class "dpath" ]
+        (if n == 0 then
+            [ span [ class "dcr cr-0" ] [ text "paragraph" ] ]
+
+         else
+            List.concat
+                (List.indexedMap
+                    (\i r ->
+                        (if i > 0 then
+                            [ span [ class "dsep" ] [ text "›" ] ]
+
+                         else
+                            []
+                        )
+                            ++ [ span
+                                    [ class ("dcr cr-" ++ String.fromInt (min 3 (n - 1 - i))) ]
+                                    [ text (crumb m r) ]
+                               ]
+                    )
+                    named
+                )
+        )
+
+
+{-| What a row is called on the strip: a composite by its NAME, anything else by
+its own line with the marker org wrote taken off the front.
+-}
+crumb : Model -> Row -> String
+crumb m r =
+    if r.grain == Composite then
+        Maybe.withDefault "item" r.name
+
+    else
+        let
+            said =
+                String.trim (String.dropLeft (markerLen m r) r.text)
+        in
+        if String.length said > 24 then
+            String.left 23 said ++ "…"
+
+        else
+            said
 
 
 

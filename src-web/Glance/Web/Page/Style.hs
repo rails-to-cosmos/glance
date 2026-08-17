@@ -142,6 +142,26 @@ page head' colours title body = T.unlines
   -- is indented by PADDING and a nested item by its own leading SPACES, so the
   -- two are counted from different origins and land on one line.
   , "  .lvl-top{--rail:calc(var(--g-doc-pad) - 0.5ch)}"
+  -- THE WAY BACK, IN WORDS: the same chain the connectors draw, riding the pane's
+  -- top where the eye already is.  STICKY INSIDE THE SCROLLER, so it holds while
+  -- the rows move under it; the negative margins take it to the pane's own edges.
+  -- NO FLOOR: the strip always names something, `paragraph' when it names nothing
+  -- else, so there is no empty state to hold a height for.
+  , "  .dpath{position:sticky;z-index:2;font-size:11px;line-height:1.5;"
+  , "    top:calc(-1 * var(--g-doc-pady));"
+  , "    margin:calc(-1 * var(--g-doc-pady)) calc(-1 * var(--g-doc-padx)) 6px"
+  , "      calc(-1 * (var(--g-doc-padx) + 1ch));"
+  , "    padding:4px var(--g-doc-padx);color:var(--g-mute);"
+  , "    background:var(--g-surface);border-bottom:1px solid var(--g-border);"
+  , "    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
+  , "  .dsep{padding:0 5px;opacity:.6}"
+  -- THE SAME RAMP THE CONNECTORS TAKE, so a crumb and its rail agree.  TEXT MIXES
+  -- TOWARD THE MUTED INK: a crumb at a fifth of the accent over the ground is a
+  -- crumb nobody can read.
+  , "  #mdoc.on .cr-0{color:var(--g-point);font-weight:600}"
+  , "  #mdoc.on .cr-1{color:color-mix(in srgb, var(--g-accent) 68%, var(--g-mute))}"
+  , "  #mdoc.on .cr-2{color:color-mix(in srgb, var(--g-accent) 36%, var(--g-mute))}"
+  , "  #mdoc.on .cr-3{color:color-mix(in srgb, var(--g-accent) 22%, var(--g-mute))}"
   -- A CONNECTOR PER ROW, drawn the way `tree' draws one: down from the row's top
   -- to the MIDDLE of its own line, then RIGHT, and a run below that where the
   -- branch has more to come.  THE TREE HAS A COLUMN OF ITS OWN -- the pane keeps a

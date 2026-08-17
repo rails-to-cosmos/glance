@@ -108,6 +108,9 @@ const BREAKS = {
   // as one thing again.
   "carried-ink": ["the cursor on a list item lights itself",
                   "#mdoc.on .mk-held{--ink:var(--g-point) !important}"],
+  // The strip stops agreeing with the connectors: its last crumb is ordinary ink.
+  "crumb-ink": ["the strip names the way back",
+                "#mdoc.on .cr-0{color:var(--g-mute) !important}"],
   // The light runs the whole subtree again, as a ground once did.
   "bullet-subtree": ["the marker org wrote lights with the line",
                      "#mdoc.on .de.dat .dm{color:var(--g-point) !important}"],

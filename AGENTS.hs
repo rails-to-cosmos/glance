@@ -3656,9 +3656,9 @@ docCells = ["state", "priority", "title", "tags"]
 
 -- | The markup the stylesheet and the harness read: a stop wearing its kind as `d-*',
 --   point, a flag, a cell with its key, the marker org wrote, text, a link's shown half,
---   and what no rung claims.
+--   what no rung claims, and the strip that names the way back.
 docClasses :: [String]
-docClasses = [".de", ".dat", ".dfl", ".dc", ".dm", ".dt", ".dl", ".dg"]
+docClasses = [".de", ".dat", ".dfl", ".dc", ".dm", ".dt", ".dl", ".dg", ".dpath"]
 
 -- | Geometry written onto `#mdoc' as NUMBERS, the arithmetic staying in the stylesheet.
 docVars :: [String]
@@ -4383,6 +4383,11 @@ sheetNotes =
          \ branch has more to come (`kin').  ORG'S BULLET IS THE TIP -- a horizontal\
          \ reaching the text sat at the same height as the file's own `-' and the two\
          \ read as one dashed run." [Test, Browser]
+  , Note "THE WAY BACK IS NAMED AS WELL AS DRAWN: `.dpath' rides the pane's top,\
+         \ sticky inside the scroller, and names the same chain the connectors draw --\
+         \ a composite by its NAME, anything else by its own line with the marker taken\
+         \ off.  The last crumb is point, in the ink point's own connector takes, so a\
+         \ crumb and its rail agree." [Browser]
   , Note "THE TREE HAS A COLUMN OF ITS OWN: the pane keeps a character the text never\
          \ enters and every connector sits HALF A CELL left of the tab stop, so the\
          \ elbow's horizontal ends with air before org's own bullet.  The two sat one\
