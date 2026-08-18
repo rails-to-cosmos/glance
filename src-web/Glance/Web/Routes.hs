@@ -14,7 +14,7 @@ import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair, Parser)
 import qualified Data.Aeson.Key as Key
 import Data.Bifunctor (first)
-import Data.List (find, nub, sortOn)
+import Data.List (find, foldl', nub, sortOn)
 import Data.Map.Strict (Map)
 import Control.Applicative ((<|>))
 import Data.Maybe (fromMaybe, isJust, listToMaybe)
@@ -38,6 +38,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
+import qualified Data.IntSet as IntSet
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Lazy.Encoding as TLE
@@ -395,7 +396,7 @@ subtreeJSON f =
   , "path"       .= trailTo f
   , "level"      .= levelOf f
   , "cells"      .= object (cells here)
-  , "children"   .= [ childJSON here (hpBody parts) i e | (i, e) <- beneath f ]
+  , "children"   .= [ childJSON here (subtreeText here) (hpBody parts) i e | (i, e) <- beneath f ]
   , "org"        .= subtreeText here
   , "body"       .= hpBody parts
   , "ownLines"   .= ownBodyLines here (hpBody parts) (seRecord . snd <$> listToMaybe (under f))
@@ -419,9 +420,10 @@ cells r = [ Key.fromText k .= f r | (k, f) <- docCells ]
 
 -- | A descendant with WHERE IT STANDS in the lifted body: its headline's line, by
 --   the same subtraction 'ownBodyLines' makes -- every lifted region sits above the
---   first child, so the offset holds for every descendant.
-childJSON :: HeadlineRecord -> Text -> Int -> SubtreeEntry -> Value
-childJSON root body i e = object
+--   first child, so the offset holds for every descendant.  The SUBTREE is passed
+--   in, rendered once for the whole brood.
+childJSON :: HeadlineRecord -> Text -> Text -> Int -> SubtreeEntry -> Value
+childJSON root subtree body i e = object
   ([ "index" .= i, "level" .= seLevel e
    , "line"  .= bodyLine
    , "span" .= extentJSON (seRecord e) ]
@@ -429,27 +431,28 @@ childJSON root body i e = object
   where
     -- Newlines COUNTED on both sides, so any convention cancels: the difference
     -- is the newlines above the child, which is its line.
-    bodyLine = T.count "\n" body - T.count "\n" (T.drop cut (subtreeText root))
+    bodyLine = T.count "\n" body - T.count "\n" (T.drop cut subtree)
     cut = spanStart (hrSubtree (seRecord e)) - spanStart (hrSubtree root)
 
 extentJSON :: HeadlineRecord -> Value
 extentJSON r = object [ "start" .= spanStart (hrSubtree r), "end" .= spanEnd (hrSubtree r) ]
 
 under :: Focus -> [(Int, SubtreeEntry)]
-under f = [ (i, e) | (i, e) <- zip [0 ..] (fcEntries f), seParent e == mine ]
+under f = [ x | x@(_, e) <- beneath f, seParent e == mine ]
   where mine = fromMaybe (-1) (fcAt f)
 
--- | EVERY descendant of the focus, document order: the pane draws whole subtrees,
---   so the walk goes all the way down rather than one shelf.
+-- | EVERY descendant of the focus, document order.  ONE LEFT FOLD: a parent
+--   precedes its child in document order, so each entry asks a set the walk has
+--   already settled -- no per-entry chain, and a malformed pointer cannot loop.
 beneath :: Focus -> [(Int, SubtreeEntry)]
-beneath f = [ (i, e) | (i, e) <- zip [0 ..] entries, reaches (seParent e) ]
+beneath f = [ (i, e) | (i, e) <- zip [0 ..] entries, i `IntSet.member` hit ]
   where
     entries = fcEntries f
     mine = fromMaybe (-1) (fcAt f)
-    reaches p
-      | p == mine = True
-      | p < 0     = False
-      | otherwise = maybe False (reaches . seParent) (subtreeEntryAt entries p)
+    hit = foldl' claim IntSet.empty (zip [0 ..] entries)
+    claim seen (i, e)
+      | seParent e == mine || seParent e `IntSet.member` seen = IntSet.insert i seen
+      | otherwise = seen
 
 upFrom :: Focus -> Maybe Int
 upFrom f = focusEntry f >>= parentOf

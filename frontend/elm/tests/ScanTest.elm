@@ -14,20 +14,20 @@ import Test exposing (Test, describe, test)
 scan : List String -> List ( Int, Int, String )
 scan lines =
     List.map (\b -> ( b.from, b.to, grainOf b.grain ++ Maybe.withDefault "" (Maybe.map ((++) ":") b.name) ))
-        (Scan.blocksIn (Array.fromList lines) (List.length lines))
+        (Scan.blocksInRange (Array.fromList lines) 0 (List.length lines))
 
 
 scanOwn : Int -> List String -> List ( Int, Int, String )
 scanOwn own lines =
     List.map (\b -> ( b.from, b.to, grainOf b.grain ++ Maybe.withDefault "" (Maybe.map ((++) ":") b.name) ))
-        (Scan.blocksIn (Array.fromList lines) own)
+        (Scan.blocksInRange (Array.fromList lines) 0 own)
 
 
 {-| The leaf ownership, which is the grain LADDER: `up` is the IMMEDIATE owner.
 -}
 owners : List String -> List (Maybe Int)
 owners lines =
-    List.map .up (Scan.blocksIn (Array.fromList lines) (List.length lines))
+    List.map .up (Scan.blocksInRange (Array.fromList lines) 0 (List.length lines))
 
 
 grainOf : Grain -> String
@@ -1387,12 +1387,14 @@ suite =
                     Expect.equal "* head\n#+begin_src sh\necho one\necho mid\necho two\n#+end_src"
                         (Body.bodyText (typedAt "B1" (Just 0) "echo mid" srcBlock) [])
 
-            -- A DRAWER IS NO STOP: the scanner leaves it inside its paragraph.
-            , test "a drawer takes the same answer, :LOGBOOK: included" <|
+            -- A DRAWER IS A STOP even against prose: the paragraph ends where it
+            -- opens, so a line typed past the prose lands as a SIBLING before the
+            -- drawer and the drawer stands whole.
+            , test "a drawer against prose keeps its frame, :LOGBOOK: included" <|
                 \_ ->
                     Expect.equal
                         ( ""
-                        , "* head\nnotes\n:LOGBOOK:\nCLOCK: [2026-08-12 Wed 10:00]\nCLOCK: later\n:END:"
+                        , "* head\nnotes\n\nCLOCK: later\n\n:LOGBOOK:\nCLOCK: [2026-08-12 Wed 10:00]\n:END:"
                         )
                         ( leadAt "B0" (Just 2) logbook
                         , Body.bodyText (typedAt "B0" (Just 2) "CLOCK: later" logbook) []

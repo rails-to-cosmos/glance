@@ -3250,7 +3250,7 @@ surfaces =
   , Surface "capture" True  True  True  False False False False
   , Surface "links"   True  True  True  True  True  True  False
   , Surface "tags"    True  True  True  True  True  True  False
-  , Surface "sheet"   False False True  True  True  True  False
+  , Surface "sheet"   False False True  True  True  False False
   , Surface "config"  False False True  False True  True  True
   ]
 momentaryUp :: [Surface] -> Maybe Surface    -- ^ the list ORDER breaks the one tie
@@ -3696,12 +3696,10 @@ docRowsCap = 10
 docRowDoors :: [String]
 docRowDoors = ["the fill", "M-RET's splice at the caret", "the field's own input", "shutEdit"]
 
-data SibRun = OwnersRun deriving (Eq, Show)
--- | A SIBLING SHARES AN OWNER, and that is the whole of the step: `n'/`p' walk the rows
---   owned by what owns point -- a leaf its item run, an element its shelf, a child
---   headline its brothers -- one rule at every grain, clamped at the run's ends.
-siblingRun :: Grain -> SibRun
-siblingRun _ = OwnersRun
+-- A SIBLING SHARES AN OWNER, and that is the whole of the step: `n'/`p' walk the rows
+-- owned by what owns point -- a leaf its item run, an element its shelf, a child
+-- headline its brothers -- one rule at every grain, clamped at the run's ends.  The
+-- rule has no cases left, so it is prose here and a Note below.
 
 data Finer = IntoLeaves | Finest deriving (Eq, Show)
 -- | `f' descends ONE rung; `Finest' refuses with an echo.  `l' and the right arrow are
@@ -4074,20 +4072,18 @@ taken :: PRow -> TakenAs
 taken PlanRow = Cleared
 taken _       = Dropped
 
-data PanelThing = APlanning | AProperty | AHidden | ALogbook deriving (Eq, Show, Enum, Bounded)
+data HeaderThing = APlanning | AProperty | AHidden | ALogbook deriving (Eq, Show, Enum, Bounded)
 -- | The hidden properties are never drawn and never sent back reworded; the logbook is a
 --   read-only strip under the pane, out of `dirty()' and never sent.
-rowed :: PanelThing -> Bool
+rowed :: HeaderThing -> Bool
 rowed APlanning = True
 rowed AProperty = True
 rowed AHidden   = False
 rowed ALogbook  = False
 
--- | `RET' on a pair opens its LINE, org's own spelling `:KEY: value', and a line that
---   opens no key is refused.  `+' ASKS -- the key, then the value, both required -- and
---   the completed pair writes at once.
-pairEditsAsALine :: Bool
-pairEditsAsALine = True
+-- `RET' on a pair opens its LINE, org's own spelling `:KEY: value', and a line that
+-- opens no key is refused.  `+' ASKS -- the key, then the value, both required -- and
+-- the completed pair writes at once.
 
 -- ** The settings sheet
 

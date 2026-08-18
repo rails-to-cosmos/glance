@@ -6,7 +6,6 @@ module Scan exposing
     , RegionKind(..)
     , at
     , blankAt
-    , blocksIn
     , blocksInRange
     , closerAt
     , cut
@@ -452,17 +451,13 @@ kindAt lines i =
         Plain
 
 
-{-| THE STRUCTURE SCANNER'S OWN READING, and its ONE divergence from the region
-walk: a DRAWER opens no stop, so its opener and its closer are prose lines.
+{-| A DRAWER IS A STOP EVERYWHERE, so the structure scanner reads the region
+walk's own classifier: a prose run ends where any region opens, a drawer's
+opener included -- swallowed into a paragraph, the drawer could not fold.
 -}
 stopKindAt : Array String -> Int -> RegionKind
-stopKindAt lines i =
-    case kindAt lines i of
-        Drawer ->
-            Plain
-
-        kind ->
-            kind
+stopKindAt =
+    kindAt
 
 
 closes : RegionKind -> Bool
@@ -786,7 +781,8 @@ runsIn lines a b =
 
 
 {-| A drawer's inner lines as leaves: one per line, blanks skipped, and a nested
-block WHOLE -- a per-line leaf there would let a take strand its closer.
+CLOSED REGION whole -- block or drawer, a per-line leaf there would let a take
+strand its closer.
 -}
 drawerLeaves : Array String -> Int -> Int -> List ( Int, Int )
 drawerLeaves lines a b =
@@ -799,40 +795,25 @@ drawerLeaves lines a b =
                 go (j + 1) out
 
             else
-                case blockName (at j lines) of
-                    Just name ->
-                        let
-                            shut =
-                                blockRun lines j b name
-                        in
-                        if shut == -1 then
-                            go (j + 1) (out ++ [ ( j, j + 1 ) ])
-
-                        else
-                            go shut (out ++ [ ( j, shut ) ])
-
-                    Nothing ->
-                        go (j + 1) (out ++ [ ( j, j + 1 ) ])
+                let
+                    stop =
+                        Maybe.withDefault (j + 1) (closedRun lines b j)
+                in
+                go stop (( j, stop ) :: out)
     in
-    go a []
+    List.reverse (go a [])
 
 
 type alias Stop =
     { from : Int, to : Int, grain : Grain, name : Maybe String, up : Maybe Int }
 
 
-{-| The body's structure, emitted INLINE as `[whole, leaf1..leafN]`. `up` indexes
-OUT, at the leaf's IMMEDIATE owner, so the grain is a ladder. A DRAWER IS NO
-STOP, and neither is a block or a table riding INSIDE an item: stops there would
-move the GRAIN, a different question from where a new line goes.
--}
-blocksIn : Array String -> Int -> List Stop
-blocksIn lines own =
-    blocksInRange lines 0 own
-
-
-{-| 'blocksIn' over a SEGMENT: a child's contents run between two headline
-lines, and the parse is the same one the entry's own lines get.
+{-| The body's structure over a SEGMENT -- an entry's own lines, or a child's
+contents between two headline lines: one parse for both.  Emitted INLINE as
+`[whole, leaf1..leafN]`; `up` indexes OUT, at the leaf's IMMEDIATE owner, so
+the grain is a ladder.  A DRAWER IS A STOP; a block or a table riding INSIDE an
+item is not, since a stop there would move the GRAIN -- a different question
+from where a new line goes.
 -}
 blocksInRange : Array String -> Int -> Int -> List Stop
 blocksInRange lines start own =

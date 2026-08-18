@@ -14,8 +14,9 @@ data Palette = Palette
   , pBorder    :: !Text  -- ^ every hairline, one weight.
   , pAccent    :: !Text  -- ^ the focus frame: which pane holds the keys.
   , pSelection :: !Text  -- ^ the cursor row's ground, in the table and the listings.
-  , pPoint     :: !Text  -- ^ the document's cursor, drawn as a MARK: a ground hue is
-                         --   not an ink, so a dark theme cannot reuse 'pSelection'.
+  , pPoint     :: !Text  -- ^ the RESERVED-TOKEN ink: a drawer's frame and keys, the
+                         --   planning keywords, the strip's last crumb.  A ground hue
+                         --   is no ink, so a theme cannot reuse 'pSelection'.
   , pPointDim  :: !Text  -- ^ what point CARRIES: subordinate to 'pPoint' and nearer
                          --   grey than gold, PICKED rather than mixed -- a darker
                          --   yellow is brown.

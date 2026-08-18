@@ -184,12 +184,9 @@ page head' colours title body = T.unlines
   -- A SIBLING'S OWN SUBTREE COMES WITH IT: the reader is choosing between BRANCHES,
   -- and a branch whose contents are dimmed is a branch they cannot weigh.
   , "  #mdoc.on .up,#mdoc.on .sib,#mdoc.on .sib .de{--ink:var(--g-fg)}"
-  -- OWNERSHIP IS IN THE NESTING: a row drawn inside point is what point carries.  A
-  -- COMPOSITE GROUNDS ITS ROWS, and a connector inside that ground takes the page's
-  -- ink -- point's own hue is the ground's, so the elbows went missing in it.
-  , "  #mdoc.on .de.dat .de{--ink:var(--g-fg)}"
-  -- THE GROUND SAYS WHERE POINT IS; a bar or a tree never wears gold for it.
-  , "  #mdoc.on .de.dat{--ink:var(--g-fg)}"
+  -- THE GROUND SAYS WHERE POINT IS; a bar or a tree never wears gold for it, and
+  -- what point carries -- OWNERSHIP IS IN THE NESTING -- takes the same ink.
+  , "  #mdoc.on .de.dat,#mdoc.on .de.dat .de{--ink:var(--g-fg)}"
   -- FULL INK UNTIL THE READER GOES INTO A LIST.  `focus' rides the program's own
   -- root, so dimming is a MODE rather than the resting look; colour inherits, so the
   -- lit rows name themselves back out of it.
@@ -200,7 +197,10 @@ page head' colours title body = T.unlines
   -- A SIBLING IS THE CHOICE THE READER IS STANDING IN, so it is readable too.
   , "  #mdoc.on .focus .up,#mdoc.on .focus .sib,#mdoc.on .focus .sib .de,"
   , "  #mdoc.on .focus .d-head{color:var(--g-fg)}"
-  , "  #mdoc.on .focus .de.dat .dg,#mdoc.on .focus .up .dg{color:var(--g-mute)}"
+  -- A DRAWER'S FRAME KEEPS ITS TOKEN INK while the reader stands inside it: the
+  -- drawer IS the owner then, and muting its `.dg' muted `:PROPERTIES:' itself.
+  , "  #mdoc.on .focus .de.dat:not(.d-drawer) .dg,"
+  , "  #mdoc.on .focus .up:not(.d-drawer) .dg{color:var(--g-mute)}"
   -- A LINK CARRIES ITS OWN INK, which outranks what it inherits, so a dimmed line
   -- kept a lit link inside it until the link was named too.
   , "  #mdoc.on .focus .dl,#mdoc.on .focus .dbx.on{color:var(--g-point-off)}"
@@ -232,10 +232,8 @@ page head' colours title body = T.unlines
   , "  .de.dfl .de>.dp>.dm{color:var(--g-bad)}"
   -- PADDING: a margin would take the selection wash off the left of the line.
   -- A PAIR IS NOT NESTED: the drawer's lines read as paragraphs, flush under the
-  -- frame, wearing the paragraph's own thin bar -- the bar spends `--ink', so a
-  -- flag reddens it and a pair marked for the drop says so.
-  , "  .d-drawer .d-meta{padding-left:0;padding-right:0}"
-  -- IN THE GUTTER, left of the flush text: the frame owns the text column.
+  -- frame, wearing the paragraph's own thin bar IN THE GUTTER, left of the flush
+  -- text -- the bar spends `--ink', so a flag reddens a pair marked for the drop.
   , "  .d-drawer .d-meta::before{top:0;bottom:0;left:-1ch;width:1px;border:0;"
   , "    border-radius:1px;background:var(--ink)}"
   -- THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink.
@@ -245,7 +243,7 @@ page head' colours title body = T.unlines
   , "  .d-comp,.d-comp .de{padding-top:0;padding-bottom:0}"
   -- The draft row holds nothing and `:empty' misses it — Elm emits a text node.
   , "  .d-draft{min-height:var(--g-doc-lh)}"
-  , "  .d-item{padding-left:0;padding-right:0}"
+  , "  .d-item,.d-drawer .d-meta{padding-left:0;padding-right:0}"
   , "  .dg{padding:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--g-mute)}"
   , "  .dl{color:var(--g-link);text-decoration:underline}"
   -- A TICKED BOX WEARS THE DONE FACE: the first inactive slot is the hue an org

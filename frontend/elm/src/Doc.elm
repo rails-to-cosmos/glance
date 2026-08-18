@@ -10,6 +10,7 @@ stop wearing its KIND as a `d-*` class, `.dat` at point, `.dfl` on a flag,
 
 -}
 
+import Array exposing (Array)
 import Browser
 import Html exposing (Html, div, span, text)
 import Html.Attributes exposing (attribute, class, style)
@@ -55,6 +56,11 @@ type alias Link =
 type alias Model =
     { rows : List Row
     , lines : List String
+
+    -- THE SAME LINES, INDEXED: a row's line and a line's char offset are read per
+    -- row per render, and a list walk there grew with the whole subtree.
+    , arr : Array String
+    , offsets : Array Int
     , at : Int
     , flags : List String
     , links : List Link
@@ -81,7 +87,7 @@ type alias Model =
 
 empty : Model
 empty =
-    Model [] [] 0 [] [] Nothing 0 1 Nothing False Nothing [] [] [] Set.empty
+    Model [] [] Array.empty Array.empty 0 [] [] Nothing 0 1 Nothing False Nothing [] [] [] Set.empty
 
 
 {-| A SIBLING SHARES AN OWNER, and that is the whole of the step: `n'/`p' walk
@@ -131,11 +137,7 @@ finer m =
         Just r ->
             let
                 kids =
-                    if r.kind == Head then
-                        0
-
-                    else
-                        kidsOf m r.id
+                    kidsOf m r.id
             in
             if kids > 0 then
                 -- The first child immediately follows its parent in emission order.
@@ -157,43 +159,38 @@ broader m =
             ( m, "" )
 
         Just r ->
-            if r.owner /= Nothing then
-                case Maybe.map (placeOf m) r.owner of
-                    Nothing ->
+            case Maybe.map (placeOf m) r.owner of
+                Just i ->
+                    let
+                        up =
+                            Maybe.withDefault blank (nth i m.rows)
+
+                        word =
+                            case up.name of
+                                Just w ->
+                                    w
+
+                                Nothing ->
+                                    if up.grain == Leaf then
+                                        "item"
+
+                                    else
+                                        kindWord up.kind
+                    in
+                    ( { m | at = i }
+                    , "grain-broader (" ++ word ++ ")"
+                    )
+
+                Nothing ->
+                    if r.kind == Head then
+                        ( m, "grain-broader (the whole entry)" )
+
+                    else
+                        -- REVERSED EXPAND-REGION at its widest step: out of a row to
+                        -- its owner, out of an owner-less one to THE ENTRY'S OWN LINE.
                         ( { m | at = placeOf m "H" }
                         , "grain-broader (the headline)"
                         )
-
-                    Just i ->
-                        let
-                            up =
-                                Maybe.withDefault blank (nth i m.rows)
-
-                            word =
-                                case up.name of
-                                    Just w ->
-                                        w
-
-                                    Nothing ->
-                                        if up.grain == Leaf then
-                                            "item"
-
-                                        else
-                                            kindWord up.kind
-                        in
-                        ( { m | at = i }
-                        , "grain-broader (" ++ word ++ ")"
-                        )
-
-            else if r.kind == Head then
-                ( m, "grain-broader (the whole entry)" )
-
-            else
-                -- REVERSED EXPAND-REGION at its widest step: out of a leaf to its
-                -- owner, out of an element to THE ENTRY'S OWN LINE.
-                ( { m | at = placeOf m "H" }
-                , "grain-broader (the headline)"
-                )
 
 
 
@@ -202,9 +199,31 @@ broader m =
 -- one constant.
 
 
+{-| Chars before LINE, the line's own newlines counted: a prefix-sum read,
+since the walk it replaced ran once per row per render.
+-}
 charOf : Model -> Int -> Int
 charOf m line =
-    List.sum (List.map String.length (List.take line m.lines)) + line
+    Maybe.withDefault 0 (Array.get line m.offsets)
+
+
+offsetsOf : List String -> Array Int
+offsetsOf lines =
+    Array.fromList
+        (List.reverse
+            (List.foldl
+                (\ln acc ->
+                    case acc of
+                        prev :: _ ->
+                            (prev + String.length ln + 1) :: acc
+
+                        [] ->
+                            acc
+                )
+                [ 0 ]
+                lines
+            )
+        )
 
 
 elementSpan : Model -> Row -> Maybe ( Int, Int )
@@ -285,13 +304,7 @@ update msg model =
                 -- A DRAWER THE READER OPENED STAYS OPEN across the rescan; only
                 -- one they have not touched arrives folded.
                 opened =
-                    Set.fromList
-                        (List.map .id
-                            (List.filter
-                                (\r -> foldable model r && not (Set.member r.id model.shut))
-                                model.rows
-                            )
-                        )
+                    Set.diff (foldables model) model.shut
             in
             told
                 (reveal
@@ -383,12 +396,12 @@ update msg model =
                         remeta { model | props = model.props ++ [ ( key, value ) ] }
 
                     minted =
-                        "PR" ++ String.fromInt (List.length model.props)
+                        Body.propId (List.length model.props)
 
                     m2 =
                         { fresh
                             | at = placeOf fresh minted
-                            , shut = Set.remove "PR" fresh.shut
+                            , shut = Set.remove Body.drawerId fresh.shut
                         }
                 in
                 ( m2
@@ -405,35 +418,39 @@ update msg model =
                 -- A DELETED PAIR LEAVES THROUGH THE LISTS, never the splice: `d' on
                 -- the drawer takes every pair, on the planning line the whole line.
                 keptPlan =
-                    if List.member "PLN" ids then
+                    if List.member Body.planId ids then
                         []
 
                     else
                         model.plan
 
                 keptProps =
-                    if List.member "PR" ids then
+                    if List.member Body.drawerId ids then
                         []
 
                     else
                         List.map Tuple.second
                             (List.filter
-                                (\( j, _ ) -> not (List.member ("PR" ++ String.fromInt j) ids))
+                                (\( j, _ ) -> not (List.member (Body.propId j) ids))
                                 (List.indexedMap Tuple.pair model.props)
                             )
-
-                metaN =
-                    (List.length model.plan - List.length keptPlan)
-                        + (List.length model.props - List.length keptProps)
 
                 model_ =
                     remeta { model | plan = keptPlan, props = keptProps }
 
-                taken =
-                    List.filter (\r -> r.kind == Para && List.member r.id ids) model.rows
-
                 named =
                     List.filter (\r -> List.member r.id ids) model.rows
+
+                taken =
+                    List.filter (\r -> r.kind == Para) named
+
+                -- WHAT THE MODEL REFUSED, by name: a headline is never spliced here.
+                refused =
+                    List.length
+                        (List.filter (\r -> r.kind == Head || r.kind == Child) named)
+
+                metaN =
+                    List.length (List.filter (\r -> r.kind == Meta) named)
 
                 written =
                     bodyText model (List.map .id taken)
@@ -477,21 +494,23 @@ update msg model =
                                             first.owner
                                                 |> Maybe.andThen (rowById model)
                                                 |> Maybe.map .from
+                -- COMPOSED OVER THE MOVED MODEL: `at' re-derived after the rows
+                -- moved, or the shell's mirror lands on the wrong row until the fill.
+                done =
+                    landOn (idAtRow model model.at) { model_ | landing = landsOn }
             in
-            ( { model_ | landing = landsOn, at = keptAt model_ model }
+            ( done
             , Cmd.batch
-                [ docState (stateJSON model_)
+                [ docState (stateJSON done)
                 , docTook
                     (E.object
-                        [ ( "taken", E.list E.string (List.map .id taken) )
-                        , ( "named", E.int (List.length named) )
-                        , ( "meta", E.int metaN )
-                        , ( "body", E.string written )
-                        , ( "properties"
-                          , pairsJSON (List.filter (\( k, _ ) -> k /= "") model_.props)
-                          )
-                        , ( "planning", pairsJSON model_.plan )
-                        ]
+                        ([ ( "taken", E.list E.string (List.map .id taken) )
+                         , ( "refused", E.int refused )
+                         , ( "meta", E.int metaN )
+                         , ( "body", E.string written )
+                         ]
+                            ++ headerJSON done
+                        )
                     )
                 ]
             )
@@ -581,20 +600,21 @@ remeta m =
     }
 
 
-{-| Where point stands after the meta rows moved: its own row where it survives,
-the drawer -- which is always drawn -- where it does not.
+{-| Point lands on ID where its row survives, on the drawer -- always drawn --
+where it does not.
 -}
-keptAt : Model -> Model -> Int
-keptAt fresh old =
-    let
-        id =
-            idAtRow old old.at
-    in
-    if rowById fresh id /= Nothing then
-        placeOf fresh id
+landOn : String -> Model -> Model
+landOn id m =
+    { m
+        | at =
+            placeOf m
+                (if rowById m id /= Nothing then
+                    id
 
-    else
-        placeOf fresh "PR"
+                 else
+                    Body.drawerId
+                )
+    }
 
 
 {-| The nearest foldable stop at or above point.
@@ -616,11 +636,11 @@ keywords, a drawer line as `:KEY: value'.
 -}
 editMeta : Model -> String -> String -> ( Model, Cmd Msg )
 editMeta m id written =
-    if id == "PLN" then
+    if id == Body.planId then
         keep id (remeta { m | plan = Body.readPlanning m.planKeys written })
 
     else
-        case ( Body.readProperty written, String.toInt (String.dropLeft 2 id) ) of
+        case ( Body.readProperty written, Body.propIndex id ) of
             ( Just pair, Just i ) ->
                 keep id
                     (remeta
@@ -644,17 +664,7 @@ editMeta m id written =
 
 keep : String -> Model -> ( Model, Cmd Msg )
 keep id m =
-    composed
-        { m
-            | at =
-                placeOf m
-                    (if rowById m id /= Nothing then
-                        id
-
-                     else
-                        "PR"
-                    )
-        }
+    composed (landOn id m)
 
 
 {-| A model whose rows have MOVED. BOTH ports, always — a `docBody' with no
@@ -709,6 +719,9 @@ rowJSON m r =
     E.object
         [ ( "id", E.string r.id )
         , ( "kind", E.string (kindWord r.kind) )
+
+        -- A FRAME, not a line: what RET may not open and TAB folds.
+        , ( "fold", E.bool (foldable m r) )
         , ( "grain"
           , E.string
                 (case r.grain of
@@ -744,7 +757,7 @@ rowJSON m r =
 stateJSON : Model -> E.Value
 stateJSON m =
     E.object
-        [ ( "rows", E.list (rowJSON m) m.rows )
+        ([ ( "rows", E.list (rowJSON m) m.rows )
         , ( "at", E.int m.at )
         , ( "id", E.string (Maybe.withDefault "" (Maybe.map .id (rowAt m))) )
         , ( "flags", E.list E.string m.flags )
@@ -758,12 +771,9 @@ stateJSON m =
 
         -- The body as it stands, so a flush that follows no edit still has one.
         , ( "body", E.string (bodyText m []) )
-
-        -- THE LISTS ARE WHAT THE WRITE CARRIES; a pair whose key never arrived
-        -- is display only, and never reaches the wire.
-        , ( "properties", pairsJSON (List.filter (\( k, _ ) -> k /= "") m.props) )
-        , ( "planning", pairsJSON m.plan )
         ]
+            ++ headerJSON m
+        )
 
 
 pairsJSON : List ( String, String ) -> E.Value
@@ -771,16 +781,22 @@ pairsJSON =
     E.list (\( k, v ) -> E.list E.string [ k, v ])
 
 
+{-| The header as the wire spells it, ONCE: every write and every state push
+splices these same two fields.
+-}
+headerJSON : Model -> List ( String, E.Value )
+headerJSON m =
+    [ ( "properties", pairsJSON m.props )
+    , ( "planning", pairsJSON m.plan )
+    ]
+
+
 {-| THE COMMIT CARRIES ITS OWN CARGO: a flush reading the shell's mirrors would
 race the state push for them.
 -}
 cargoJSON : Model -> E.Value
 cargoJSON m =
-    E.object
-        [ ( "body", E.string (bodyText m []) )
-        , ( "properties", pairsJSON (List.filter (\( k, _ ) -> k /= "") m.props) )
-        , ( "planning", pairsJSON m.plan )
-        ]
+    E.object (( "body", E.string (bodyText m []) ) :: headerJSON m)
 
 
 
@@ -814,6 +830,8 @@ fillD =
                 seeded =
                     { empty
                         | lines = lines
+                        , arr = Array.fromList lines
+                        , offsets = offsetsOf lines
                         , links = links
                         , spanAt = spanAt
                         , shift = shift
@@ -852,22 +870,17 @@ the synthesized one and any the body spells raw.
 seedMeta : Model -> Model
 seedMeta m =
     let
-        rows =
-            case m.rows of
-                head :: rest ->
-                    head :: Body.metaRows m.plan m.props ++ rest
-
-                [] ->
-                    []
-
         seeded =
-            { m | rows = rows }
+            remeta m
     in
-    { seeded
-        | shut =
-            Set.fromList
-                (List.map .id (List.filter (foldable seeded) seeded.rows))
-    }
+    { seeded | shut = foldables seeded }
+
+
+{-| The ids TAB may fold, over whatever rows stand.
+-}
+foldables : Model -> Set String
+foldables m =
+    Set.fromList (List.filterMap (\r -> if foldable m r then Just r.id else Nothing) m.rows)
 
 
 {-| What TAB can fold: a drawer, synthesized or spelled raw in the body.
@@ -875,9 +888,7 @@ seedMeta m =
 foldable : Model -> Row -> Bool
 foldable m r =
     r.grain == Composite
-        && (r.kind == Meta
-                || Scan.drawerName (Maybe.withDefault "" (nth r.from m.lines)) /= Nothing
-           )
+        && (r.kind == Meta || Scan.drawerName (lineOf m r) /= Nothing)
 
 
 kidD : D.Decoder Body.Kid
@@ -885,9 +896,7 @@ kidD =
     D.map4 Body.Kid
         (D.field "index" D.int)
         (D.field "level" D.int)
-        (D.field "line" (D.nullable D.int)
-            |> D.map (Maybe.withDefault -1)
-        )
+        (D.field "line" D.int)
         (D.field "cells" (D.list cellD))
 
 
@@ -997,8 +1006,22 @@ rung depth =
 says a row is drawn at the pane's own level. The rung itself rides an attribute —
 see `rung`.
 -}
-rowClass : Model -> Int -> Row -> Int -> Bool -> String
-rowClass m i r depth kin =
+type alias Lit =
+    { ups : List String, sib : Maybe String }
+
+
+{-| Point's owners and its owner, computed ONCE per render: `markOf' reads them
+for every row, and deriving them there walked the rows once per row.
+-}
+litOf : Model -> Lit
+litOf m =
+    { ups = ownersOf m (idAtRow m m.at)
+    , sib = Maybe.andThen .owner (rowAt m)
+    }
+
+
+rowClass : Lit -> Model -> Int -> Row -> Int -> Bool -> String
+rowClass lit m i r depth kin =
     (if r.id == draftId then
         "de d-draft d-"
 
@@ -1053,7 +1076,7 @@ rowClass m i r depth kin =
             else
                 ""
            )
-        ++ markOf m i r
+        ++ markOf lit m i r
 
 
 {-| `up` — the row is one of point's OWNERS: THE WAY BACK.  `sib` — the row shares
@@ -1066,15 +1089,15 @@ WHAT POINT CARRIES IS NOT SPELLED HERE. A row drawn INSIDE point is what point
 holds, and a composite's own children are the roots it opens, so the stylesheet
 reads both off the nesting rather than Elm saying it again in a class.
 -}
-markOf : Model -> Int -> Row -> String
-markOf m i r =
+markOf : Lit -> Model -> Int -> Row -> String
+markOf lit m i r =
     if i == m.at then
         ""
 
-    else if List.member r.id (ownersOf m (idAtRow m m.at)) then
+    else if List.member r.id lit.ups then
         " up"
 
-    else if r.owner /= Nothing && r.owner == Maybe.andThen .owner (rowAt m) then
+    else if r.owner /= Nothing && r.owner == lit.sib then
         -- A SIBLING IS WHAT THE READER IS CHOOSING BETWEEN, so it stays readable.
         " sib"
 
@@ -1211,7 +1234,7 @@ viewPara m r =
                         ]
 
                     ( Nothing, Nothing ) ->
-                        if r.id == "PLN" then
+                        if r.id == Body.planId then
                             viewPlanning m
 
                         else
@@ -1256,7 +1279,7 @@ keyOf r =
 -}
 lineOf : Model -> Row -> String
 lineOf m r =
-    Maybe.withDefault "" (nth r.from m.lines)
+    Maybe.withDefault "" (Array.get r.from m.arr)
 
 
 {-| Org's own opener for a LEAF's line; nothing when the row is not a list item.
@@ -1379,8 +1402,8 @@ viewCells m i r =
 {-| ONE OWNER PER BYTE: a composite is drawn once with its leaves inside it, and
 what no rung claims is drawn INERT (`dg`).
 -}
-viewKids : Model -> Row -> Int -> Int -> Int -> ( List (Html Msg), Int )
-viewKids m parent from at0 depth =
+viewKids : Lit -> Model -> Row -> Int -> Int -> Int -> ( List (Html Msg), Int )
+viewKids lit m parent from at0 depth =
     let
         n =
             List.length m.rows
@@ -1424,7 +1447,7 @@ viewKids m parent from at0 depth =
                                                 []
 
                                         ( deeper, jj ) =
-                                            viewKids m kid (j + 1) headAt (depth + 1)
+                                            viewKids lit m kid (j + 1) headAt (depth + 1)
                                     in
                                     ( own ++ deeper, jj )
 
@@ -1446,7 +1469,7 @@ viewKids m parent from at0 depth =
                             kid.to
                             (out
                                 ++ gap
-                                ++ [ div (rung depth :: [ class (rowClass m j kid depth kin) ])
+                                ++ [ div (rung depth :: [ class (rowClass lit m j kid depth kin) ])
                                         inner
                                    ]
                             )
@@ -1470,6 +1493,9 @@ viewKids m parent from at0 depth =
 view : Model -> Html Msg
 view m =
     let
+        lit =
+            litOf m
+
         n =
             List.length m.rows
 
@@ -1486,10 +1512,10 @@ view m =
                     let
                         ( inner, j ) =
                             if r.kind == Meta then
-                                viewMeta m r (i + 1)
+                                viewMeta lit m r (i + 1)
 
                             else
-                                viewKids m r (i + 1) r.from 0
+                                viewKids lit m r (i + 1) r.from 0
 
                         -- FOLDED, THE FRAME IS THE WHOLE OF IT: the opener line
                         -- and org's own ellipsis, the way org draws a shut drawer.
@@ -1502,13 +1528,13 @@ view m =
                             else
                                 inner
                     in
-                    go j (out ++ [ div [ class (rowClass m i r -1 False) ] shown ])
+                    go j (out ++ [ div [ class (rowClass lit m i r -1 False) ] shown ])
 
                 else if r.kind == Para || r.kind == Meta then
-                    go (i + 1) (out ++ [ div [ class (rowClass m i r -1 False) ] [ viewPara m r ] ])
+                    go (i + 1) (out ++ [ div [ class (rowClass lit m i r -1 False) ] [ viewPara m r ] ])
 
                 else
-                    go (i + 1) (out ++ [ div [ class (rowClass m i r -1 False) ] (viewCells m i r) ])
+                    go (i + 1) (out ++ [ div [ class (rowClass lit m i r -1 False) ] (viewCells m i r) ])
     in
     div [ class (if inList m then "focus" else "") ] (viewPath m :: go 0 [])
 
@@ -1517,8 +1543,8 @@ view m =
 lines no rung claims — and each pair is a leaf between them.  Folded, the frame
 is one line with org's own ellipsis.
 -}
-viewMeta : Model -> Row -> Int -> ( List (Html Msg), Int )
-viewMeta m parent from =
+viewMeta : Lit -> Model -> Row -> Int -> ( List (Html Msg), Int )
+viewMeta lit m parent from =
     let
         walk j got =
             case nth j m.rows of
@@ -1535,18 +1561,15 @@ viewMeta m parent from =
         ( kids, next ) =
             walk from []
 
-        n =
-            List.length kids
-
-        leaf _ ( j, kid ) =
-            div [ class (rowClass m j kid 0 False) ] [ viewPara m kid ]
+        leaf ( j, kid ) =
+            div [ class (rowClass lit m j kid 0 False) ] [ viewPara m kid ]
     in
     if Set.member parent.id m.shut then
         ( [ div [ class "dg" ] [ text ":PROPERTIES:…" ] ], next )
 
     else
         ( div [ class "dg" ] [ text ":PROPERTIES:" ]
-            :: List.indexedMap leaf kids
+            :: List.map leaf kids
             ++ [ div [ class "dg" ] [ text ":END:" ] ]
         , next
         )

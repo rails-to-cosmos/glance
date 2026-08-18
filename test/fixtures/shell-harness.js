@@ -102,13 +102,15 @@ let headPriority = null;
  * descendant, document order, each with its headline's LINE in body
  * coordinates -- which is `ownLines', the child opening where the own body
  * stops -- and its file-coordinate span. */
+// One arithmetic for `line' and `ownLines': the child opens where the own body stops.
+const kidLine = () => (grainy ? 16 : tabled ? 11 : checky ? 5 : 4);
 const subtree = (child) => (child === null
   ? { id: "r1", file: "a.org", child: null, parent: null, path: ["one"],
       cells: { state: "TODO", priority: headPriority,
                title: linky ? linkyTitle : "one", tags: "" },
       children: [ { index: 0, level: 2, state: null, priority: null,
                     title: "two", tags: ":web:",
-                    line: grainy ? 16 : tabled ? 11 : checky ? 5 : 4,
+                    line: kidLine(),
                     span: { start: 0, end: 24 } } ],
       level: 1, properties, planning, logbook, digest,
       titleAt: linky ? 7 : 11,
@@ -121,7 +123,7 @@ const subtree = (child) => (child === null
                           : checky ? checkyBody : org).length },
       body: linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody
             : checky ? checkyBody : body,
-      ownLines: grainy ? 16 : tabled ? 11 : checky ? 5 : 4 }
+      ownLines: kidLine() }
   : { id: "r1", file: "a.org", child: 0, parent: null, path: ["one", "two"],
       cells: { state: null, priority: null, title: "two", tags: ":web:" },
       children: [],

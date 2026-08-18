@@ -71,9 +71,9 @@
       const r = drows[dat];
       if (!r) return;
       if (r.kind === "child") { into(r.index); return; }
-      // A drawer's own line is its frame; what RET edits is a pair inside.
-      if (r.kind === "meta" && r.grain === "composite")
-        { echo("RET → f reaches the pairs — TAB folds"); return; }
+      // A FRAME is not a line, the raw drawer's as much as the synthesized one:
+      // what RET edits is a row inside, and TAB folds.
+      if (r.fold) { echo("RET → f reaches the rows inside — TAB folds"); return; }
       if (r.kind === "para" || r.kind === "meta") { openEdit(DPARA, r); return; }
       headEnter(r);
     }
@@ -245,14 +245,12 @@
         askText("property key", "RET · ESC cancels", "", (c) => {
           const key = c.text.trim();
           if (!key) { said(b, "a key is required"); return; }
-          // RAISED FROM A COMMIT rather than a press of its own, so `raising'
-          // is cleared — armed, it would eat the reader's first key.
           askText(`value for :${key}:`, "RET · ESC cancels", "", (v) => {
             const value = v.text.trim();
             if (!value) { said(b, "a value is required"); return; }
             dwrote = (what) => said(b, what);
             dsend({ kind: "addprop", key, value });
-          }).raising = false;
+          }, false);
         });
         return;
       }
@@ -527,9 +525,9 @@
       const how = dtook;
       dtook = null;
       if (!how) return;
-      // A property or a planning pair leaves through the LISTS, counted beside
-      // the body's own; only a CHILD headline is refused.
-      if (answer.named !== answer.taken.length + answer.meta)
+      // A property or a planning line leaves through the LISTS, counted beside
+      // the body's own; the model says outright what it REFUSED -- a headline.
+      if (answer.refused)
         append("sync", "warn",
                "a headline is not deleted from the sheet — this writes elements only");
       const n = answer.taken.length + answer.meta;
@@ -550,15 +548,6 @@
         .catch((e) => stuck(subtreeSheet, e.message));
     }
     const PLANNING = CFG.planning;
-    /**
-     * ONE PANEL ROW: a property or one of the three fixed planning entries.
-     * @typedef {object} PropRow
-     * @property {string} id   stable for the sheet's life: `PLN:KEYWORD` or `P<n>`.
-     * @property {string} key
-     * @property {string} val
-     * @property {boolean} fixed  planning row: org's key, and a delete CLEARS.
-     */
-    /** @type {PropRow[]} */
 
     /** Empty the pane: the sheet shut, so the document it held is gone. */
     function docClear() {
@@ -579,7 +568,7 @@
               planKeys: PLANNING,
               cells: cellsOf(h.cells),
               kids: (h.children || []).map((c) =>
-                ({ index: c.index, level: c.level, line: c.line ?? null,
+                ({ index: c.index, level: c.level, line: c.line,
                    cells: cellsOf(c) })),
               links: dlinks.map((l) =>
                 ({ from: l.span[0], to: l.span[1], desc: l.desc })),
@@ -711,7 +700,8 @@
       }
       if (dediting()) {
         if (k === "RET") once(commitDocEdit);
-        else return;   // ESC is the keymap's, and puts the element back
+        // THE BROWSER WOULD TAKE THE FOCUS OUT OF THE FIELD, so the key is claimed.
+        else if (k !== "TAB") return;   // ESC is the keymap's, and puts the element back
       } else {
         const step = rowStep(k), depth = grainStep(k);
         if (step) docStep(step);
@@ -807,7 +797,7 @@
         .then(outcome)
         .then(landed(h, () => {
           base = raw ? sent.org : base;
-          baseProps = raw ? null : JSON.stringify([sent.properties, sent.planning]);
+          baseProps = raw ? null : stamp(sent.properties, sent.planning);
         }))
         .catch((e) => { stuck(subtreeSheet, e.message); return false; });
     }
@@ -1023,10 +1013,11 @@
       drawLog(raw ? "" : h.logbook || "");
       // THE BASELINE COMES OFF THE FILL ITSELF: the mirrors land a macrotask
       // behind the push, so reading them here called every fresh sheet dirty.
-      baseProps = raw ? null
-        : JSON.stringify([h.properties || [], h.planning || []]);
+      baseProps = raw ? null : stamp(h.properties, h.planning);
     }
-    const edited = () => JSON.stringify([dprops, dplan]);
+    // ONE SPELLING for the baseline and the reading, or the two drift into dirt.
+    const stamp = (props, plan) => JSON.stringify([props || [], plan || []]);
+    const edited = () => stamp(dprops, dplan);
     function drawWhere(path) {
       const bar = el("mwhere");
       bar.textContent = "";

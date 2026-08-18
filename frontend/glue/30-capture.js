@@ -232,11 +232,12 @@ const Capture = ((deps) => {
       flat.push(prompting.meta);
       offer(flat);
     }
-    function askText(title, foot, initial, commit) {
+    /** RAISING declines the press that opened the palette; a prompt raised from
+     * another prompt's COMMIT came through a handled press, so it passes false. */
+    function askText(title, foot, initial, commit, raising = true) {
       sole();
-      const mine = raise(title, { commit, text: true, raising: true }, initial, "narrow", foot);
+      raise(title, { commit, text: true, raising }, initial, "narrow", foot);
       el("pinput").focus();
-      return mine;
     }
     function fieldMode(foot) {
       prompting.narrow = true;

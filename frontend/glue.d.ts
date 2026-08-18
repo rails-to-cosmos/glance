@@ -29,6 +29,7 @@ interface ListPorts {
 interface DocRow {
   id: string;
   kind: string;
+  fold: boolean;
   name: string | null;
   owner: string | null;
   from: number;
@@ -66,7 +67,7 @@ interface DocPorts {
   docBody: { subscribe(f: (cargo: DocCargo) => void): void };
   docTook: {
     subscribe(
-      f: (a: DocCargo & { taken: string[]; named: number; meta: number }) => void
+      f: (a: DocCargo & { taken: string[]; refused: number; meta: number }) => void
     ): void;
   };
 }

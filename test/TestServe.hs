@@ -3665,7 +3665,7 @@ sheetSpec shell =
       insheet shell "press:n press:n press:Enter" $ \answer -> do
         assertEqual "the drawer's own line is its frame, so RET declines"
                     False =<< boolAt "dparaopen" answer
-        echoIs "and names the two doors" "RET → f reaches the pairs — TAB folds" answer
+        echoIs "and names the two doors" "RET → f reaches the rows inside — TAB folds" answer
 
     -- A COMMITTED PAIR EDIT IS A WRITE: the cargo rides the port, body and lists together.
   , keyed shell "a committed pair edit writes at once, the whole header on it"
@@ -5308,11 +5308,11 @@ shellGlue =
       , "drows = now.rows; dat = now.at;"
       -- CHILDREN ARE DRAWN WHOLE: every descendant, with its headline's line in body coordinates.
       , "kids: (h.children || []).map((c) =>"
-      , "({ index: c.index, level: c.level, line: c.line ?? null,"
+      , "({ index: c.index, level: c.level, line: c.line,"
       -- TAB FOLDS, as it does in org: the model says whether anything did.
       , "once(() => dsay(k, { kind: \"tab\" }));"
       -- A drawer's own line is its frame; what RET edits is a pair inside.
-      , "{ echo(\"RET → f reaches the pairs — TAB folds\"); return; }"
+      , "{ echo(\"RET → f reaches the rows inside — TAB folds\"); return; }"
       -- `+' IN THE DRAWER ASKS, org's own way: a KEY and a VALUE, both required.
       , "askText(\"property key\", \"RET · ESC cancels\", \"\", (c) => {"
       , "dsend({ kind: \"addprop\", key, value });"
@@ -5320,10 +5320,11 @@ shellGlue =
       , "{ body: cargo.body, properties: cargo.properties, planning: cargo.planning },"
       , ": { body: dbody, properties: dprops, planning: dplan };"
       -- DIRTY IS THE LISTS AGAINST THEIR BASE; the body's own edits commit element by element.
-      , "const edited = () => JSON.stringify([dprops, dplan]);"
+      , "const edited = () => stamp(dprops, dplan);"
+      , "const stamp = (props, plan) => JSON.stringify([props || [], plan || []]);"
       , "&& (raw ? el(\"mtext\").value !== base : edited() !== baseProps);"
       -- A deleted pair leaves through the LISTS, counted beside the body's own.
-      , "if (answer.named !== answer.taken.length + answer.meta)"
+      , "if (answer.refused)"
       , "function drawLog(text) {"
       , "<pre id=\"mlog\"></pre>"
       -- Display-only: what goes back is the whole drawer, and this page never sends it.
@@ -9030,7 +9031,7 @@ pageSpec shell = testGroup "GET /"
             -- The receipt chains: the 200's digest is the next flush's lock.
             , "h.digest = a.body.digest;"
             , "base = raw ? sent.org : base;"
-            , "baseProps = raw ? null : JSON.stringify([sent.properties, sent.planning]);"
+            , "baseProps = raw ? null : stamp(sent.properties, sent.planning);"
             , "if (a.status === 409 && a.body.reason !== \"planning\") sync(\"conflict\");"
             , "conflict — C-x C-s overwrite · ESC discard"
             , "if (s.state === \"conflict\" || s.state === \"error\") {"

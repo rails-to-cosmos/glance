@@ -1600,11 +1600,7 @@ export default [
     assert(shut.planning.length === 1 && /^DEADLINE: </.test(shut.planning[0]),
       `the planning line reads ${JSON.stringify(shut.planning)}`);
     // Onto the drawer, and TAB opens it.
-    await p.press("n"); await p.press("n");
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && at.classList.contains("d-drawer");
-    }, "point to reach the drawer");
+    await walkTo(p, "d-drawer", "the drawer");
     await p.press("TAB");
     await p.until(() => document.querySelectorAll("#mdoc .d-drawer .d-meta").length > 0,
                   "TAB to open the drawer");
@@ -1648,7 +1644,8 @@ export default [
       return { props: h.properties, plan: h.planning };
     });
     await sheet(p, base, "drv-marks");
-    await p.press("n"); await p.press("n"); await p.press("f");
+    await walkTo(p, "d-drawer", "the drawer");
+    await p.press("f");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
       return !!at && at.classList.contains("d-meta") && /OWNER/.test(at.textContent);
@@ -1684,11 +1681,7 @@ export default [
     }, "the pair to leave the file", 15000);
     // `+' ASKS FROM THE DRAWER; the sheet is reopened so the walk is the reader's own.
     await sheet(p, base, "drv-marks");
-    await p.press("n"); await p.press("n");
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && at.classList.contains("d-drawer");
-    }, "point on the drawer");
+    await walkTo(p, "d-drawer", "the drawer");
     await p.press("+");
     // `+' ASKS, org's way: the key, then the value, both required.
     await p.until(() => /property key/.test(document.getElementById("phead").textContent),

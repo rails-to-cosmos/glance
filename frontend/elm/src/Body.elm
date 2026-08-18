@@ -14,6 +14,10 @@ module Body exposing
     , kidsOf
     , kindWord
     , metaRows
+    , drawerId
+    , planId
+    , propId
+    , propIndex
     , ownersOf
     , markerFor
     , propertyText
@@ -36,7 +40,7 @@ cursor is moved by.  Reads `Scan' for the structure; nothing here reads back.
 import Array exposing (Array)
 import Scan exposing (Grain(..), Opener, Region, RegionKind(..), at, blankAt,
         closers,
-        blocksIn, closerAt, cut, indentOf, isTable, listOpener, nth, numberAt,
+        closerAt, cut, indentOf, isTable, listOpener, nth, numberAt,
         regionAt, takeWhileList)
 
 
@@ -79,6 +83,29 @@ blank =
 
 type alias Kid =
     { index : Int, level : Int, line : Int, cells : List Cell }
+
+
+-- THE SYNTHESIZED IDS, minted here and parsed nowhere by hand.
+
+
+planId : String
+planId =
+    "PLN"
+
+
+drawerId : String
+drawerId =
+    "PR"
+
+
+propId : Int -> String
+propId n =
+    drawerId ++ String.fromInt n
+
+
+propIndex : String -> Maybe Int
+propIndex id =
+    String.toInt (String.dropLeft (String.length drawerId) id)
 
 
 {-| The rows a filled pane holds: the headline, the entry's own blocks, and then
@@ -144,18 +171,23 @@ rowsFrom lines own headCells kids =
             else
                 { r | text = cut lines r.from stop, was = cut lines r.from stop }
 
-        ends =
-            List.drop 1 (List.map .line kids) ++ [ List.length lines ]
+        descend seen ks out =
+            case ks of
+                [] ->
+                    out
 
-        descend seen ks es out =
-            case ( ks, es ) of
-                ( k :: restK, e :: restE ) ->
+                k :: rest ->
                     let
-                        up =
-                            List.head
-                                (List.map Tuple.second
-                                    (List.filter (\( l, _ ) -> l < k.level) seen)
-                                )
+                        stop =
+                            case rest of
+                                next :: _ ->
+                                    next.line
+
+                                [] ->
+                                    List.length lines
+
+                        above =
+                            List.filter (\( l, _ ) -> l < k.level) seen
 
                         cid =
                             "C" ++ String.fromInt k.index
@@ -168,27 +200,16 @@ rowsFrom lines own headCells kids =
                                 , index = k.index
                                 , level = k.level
                                 , cells = k.cells
-                                , owner = up
+                                , owner = Maybe.map Tuple.second (List.head above)
                                 , from = k.line
-                                , to = e
+                                , to = stop
                             }
-
-                        inner =
-                            if k.line < 0 then
-                                []
-
-                            else
-                                rowsIn (cid ++ ":") (Just cid) (k.line + 1) e
                     in
-                    descend (( k.level, cid ) :: List.filter (\( l, _ ) -> l < k.level) seen)
-                        restK
-                        restE
-                        (out ++ row :: inner)
-
-                _ ->
-                    out
+                    descend (( k.level, cid ) :: above)
+                        rest
+                        (out ++ row :: rowsIn (cid ++ ":") (Just cid) (k.line + 1) stop)
     in
-    (head :: List.map owned body) ++ descend [] kids ends []
+    (head :: List.map owned body) ++ descend [] kids []
 
 
 
@@ -210,7 +231,7 @@ metaRows plan props =
 
             else
                 [ { blank
-                    | id = "PLN"
+                    | id = planId
                     , kind = Meta
                     , grain = Element
                     , text = planningText plan
@@ -220,7 +241,7 @@ metaRows plan props =
 
         drawer =
             { blank
-                | id = "PR"
+                | id = drawerId
                 , kind = Meta
                 , grain = Composite
                 , name = Just "properties"
@@ -228,10 +249,10 @@ metaRows plan props =
 
         pair i ( key, value ) =
             { blank
-                | id = "PR" ++ String.fromInt i
+                | id = propId i
                 , kind = Meta
                 , grain = Leaf
-                , owner = Just "PR"
+                , owner = Just drawerId
                 , text = propertyText ( key, value )
                 , was = propertyText ( key, value )
             }
@@ -383,8 +404,10 @@ bodyText m gone =
         spoken =
             List.map .id (List.filter moved m.rows)
 
+        -- Nothing spoke on most pushes, and the owner walk is the pane's cost.
         silenced r =
-            List.any (\o -> List.member o spoken) (ownersOf m r.id)
+            not (List.isEmpty spoken)
+                && List.any (\o -> List.member o spoken) (ownersOf m r.id)
 
         paras =
             List.reverse (List.filter (\r -> r.kind == Para && not (silenced r)) m.rows)
