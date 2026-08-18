@@ -186,19 +186,28 @@ page head' colours title body = T.unlines
   -- root, so dimming is a MODE rather than the resting look; colour inherits, so the
   -- lit rows name themselves back out of it.
   , "  #mdoc.on .focus .de{color:var(--g-point-off)}"
+  -- THE HEADLINE IS THE ROOT OF THE PATH: the way back runs headline, list, owner,
+  -- point, so it keeps its ink whichever list the reader is standing in.
   , "  #mdoc.on .focus .de.dat,#mdoc.on .focus .de.dat .de,"
-  , "  #mdoc.on .focus .up{color:var(--g-fg)}"
+  , "  #mdoc.on .focus .up,#mdoc.on .focus .d-head{color:var(--g-fg)}"
   , "  #mdoc.on .focus .de.dat .dg,#mdoc.on .focus .up .dg{color:var(--g-mute)}"
-  -- A HEADLINE'S STARS SIT IN THE CONNECTOR'S COLUMN: they take the ink, none is drawn.
+  -- A LINK CARRIES ITS OWN INK, which outranks what it inherits, so a dimmed line
+  -- kept a lit link inside it until the link was named too.
+  , "  #mdoc.on .focus .dl{color:var(--g-point-off)}"
+  , "  #mdoc.on .focus .de.dat .dl,#mdoc.on .focus .up .dl,"
+  , "  #mdoc.on .focus .d-head .dl{color:var(--g-link)}"
+  -- A HEADLINE'S STARS SIT IN THE CONNECTOR'S COLUMN: they take the ink, none is
+  -- drawn.  COLOUR ALONE -- a bolder marker sits taller than the line it opens, and
+  -- the pane's business is which line, never which face.
   , "  #mdoc.on .de.dat.d-head::before{display:none}"
   , "  #mdoc.on .de.dat.d-head .ds,#mdoc.on .de.dat>.dp>.dm,"
-  , "  #mdoc.on .de.dat.d-comp>.de>.dp>.dm{color:var(--g-point);font-weight:700}"
-  , "  #mdoc.on .de.dat .de>.dp>.dm{color:var(--g-fg);font-weight:700}"
+  , "  #mdoc.on .de.dat.d-comp>.de>.dp>.dm{color:var(--g-point)}"
+  , "  #mdoc.on .de.dat .de>.dp>.dm{color:var(--g-fg)}"
   -- SPELLED TWICE ON PURPOSE: a flag outranks point and keeps its mark after point has
   -- moved on, so the gated copy outweighs the heavier rule carrying what point holds.
   , "  .de.dfl{--ink:var(--g-bad)}"
   , "  #mdoc.on .de.dfl,#mdoc.on .de.dat .de.dfl{--ink:var(--g-bad)}"
-  , "  .de.dfl.d-head .ds,.de.dfl>.dp>.dm{color:var(--g-bad);font-weight:700}"
+  , "  .de.dfl.d-head .ds,.de.dfl>.dp>.dm{color:var(--g-bad)}"
   -- PADDING: a margin would take the selection wash off the left of the line.
   , "  .d-para,.d-comp{margin:.5em 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"

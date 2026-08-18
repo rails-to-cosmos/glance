@@ -4422,6 +4422,12 @@ sheetNotes =
          \ INSIDE ITS PARENT, so a ground runs the whole subtree; the mark sits one tab\
          \ stop LEFT of the row's own text, which is where that block's rail runs, and\
          \ point rides its own block's rail." [Test, Browser]
+  , Note "A MARKER TAKES COLOUR ALONE.  A bolder bullet sits taller than the line it\
+         \ opens and reads as a different FACE; the pane's business is which line.\
+         \ A link carries its own ink, which outranks what it inherits, so a dimmed\
+         \ line keeps a lit link inside it until the link is named too." [Browser]
+  , Note "THE HEADLINE IS THE ROOT OF THE PATH: the way back runs headline, list,\
+         \ owner, point, so it keeps its ink whichever list the reader stands in." [Browser]
   , Note "THE CHECKBOX IS PART OF THE MARKER: `- [X]' is one thing the reader points\
          \ at, so `.dm' spans the indent, the bullet and the box with its gap.  What\
          \ point CARRIES wears its marker in the ink its connector takes." [Browser]

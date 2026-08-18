@@ -1151,6 +1151,7 @@ export default [
       return { point: rgb(getComputedStyle(document.documentElement).getPropertyValue("--g-point").trim()),
                ink: getComputedStyle(own).color, text: own.textContent,
                weight: getComputedStyle(own).fontWeight,
+               plainWeight: getComputedStyle(own.parentElement).fontWeight,
                nested: kid ? getComputedStyle(kid).color : null,
                other: plain ? getComputedStyle(plain).color : null };
     });
@@ -1178,6 +1179,9 @@ export default [
       `the headline's stars paint ${head.stars}, not the point ink ${seen.point}`);
     assert(head.mark === "none",
       `the headline draws a connector as well as lighting its stars`);
+    // COLOUR ALONE: the marker keeps the face the line is set in.
+    assert(seen.weight === seen.plainWeight,
+      `the lit marker is weight ${seen.weight} against the line's ${seen.plainWeight}`);
     return [`"${seen.text.trim()}" lights ${seen.ink} at weight ${seen.weight}; `
       + `nested ${seen.nested}, ordinary ${seen.other}; the headline's stars ${head.stars}`];
   } },
@@ -1222,9 +1226,17 @@ export default [
     const inks = () => {
       const rows = [...document.querySelectorAll("#mdoc .de")];
       const root = getComputedStyle(document.documentElement);
+      const head = document.querySelector("#mdoc .de.d-head");
+      // A LINK ON A DIMMED LINE: `.dl' carries its own ink and outranks what it
+      // inherits, so it is the one part that can stay lit while its line goes.
+      const link = [...document.querySelectorAll("#mdoc .de .dl")]
+        .find((n) => getComputedStyle(n.closest(".de")).color
+                     === rgb(root.getPropertyValue("--g-point-off").trim()));
       return { fg: rgb(root.getPropertyValue("--g-fg").trim()),
                off: rgb(root.getPropertyValue("--g-point-off").trim()),
                focus: !!document.querySelector("#mdoc .focus"),
+               head: head ? getComputedStyle(head).color : null,
+               link: link ? getComputedStyle(link).color : null,
                inked: rows.map((n) => getComputedStyle(n).color) };
     };
     const rest = await p.eval(inks);
@@ -1239,6 +1251,11 @@ export default [
       "no row dimmed while the reader stands inside a list");
     assert(held.inked.some((c) => c === held.fg),
       "every row dimmed, so the branch the reader is in went with them");
+    // THE HEADLINE IS THE ROOT OF THE PATH, so it keeps its ink.
+    assert(held.head === held.fg,
+      `the headline dimmed to ${held.head} while the reader worked in a list`);
+    assert(held.link === null || held.link === held.off,
+      `a link on a dimmed line still paints ${held.link}`);
     return [`at rest ${rest.inked.length} rows all ${rest.fg}; inside a list `
       + `${held.inked.filter((c) => c === held.off).length} dimmed to ${held.off}, `
       + `${held.inked.filter((c) => c === held.fg).length} kept`];
