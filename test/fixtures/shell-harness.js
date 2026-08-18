@@ -36,57 +36,47 @@ let tag = "\"t0\"";
 // `noreferences' aims at the ref query alone: the boot still answers for all.
 let unreferenced = false;
 let served = +total;
+/** A fixture subtree: HEAD, the MID lines, and the child they all end in. */
+const docWith = (head, ...mid) =>
+  [head, ...mid, "** two", "child body", ""].join("\n");
+const doc = (...mid) => docWith("* TODO one", ...mid);
 // `ORG_GLANCE_ID' is in the org text and NOT in the properties: a hidden key
 // the server keeps for itself, and `?child=0' walks into the child.  The
 // grainy list's second item is separated by a BLANK LINE, which org lets
 // stand inside a list — so the run is one list.
-const grainBody = [ "* TODO one",
-                    "lead in",
-                    "- alpha",
-                    "  more alpha",
-                    "  - nested",
-                    "",
-                    "- beta",
-                    "- gamma",
-                    "",
-                    "#+begin_quote",
-                    "quoted one",
-                    "",
-                    "quoted two",
-                    "#+end_quote",
-                    "",
-                    "tail para",
-                    "** two",
-                    "child body", "" ].join("\n");
-const checkyBody = [ "* TODO one",
-                     "- [ ] alpha",
-                     "- [X] beta",
-                     "- [-] gamma",
-                     "- delta",
-                     "** two",
-                     "child body", "" ].join("\n");
+const grainBody = doc("lead in",
+                      "- alpha",
+                      "  more alpha",
+                      "  - nested",
+                      "",
+                      "- beta",
+                      "- gamma",
+                      "",
+                      "#+begin_quote",
+                      "quoted one",
+                      "",
+                      "quoted two",
+                      "#+end_quote",
+                      "",
+                      "tail para");
+const checkyBody = doc("- [ ] alpha", "- [X] beta", "- [-] gamma", "- delta");
 // MIXED on purpose: the end-to-end stop count says the table rides the one walk.
-const tabledBody = [ "* TODO one",
-                     "lead in",
-                     "| a | b |",
-                     "|---+---|",
-                     "| 1 | 2 |",
-                     "| 3 | 4 |",
-                     "",
-                     "- alpha",
-                     "- beta",
-                     "",
-                     "tail para",
-                     "** two",
-                     "child body", "" ].join("\n");
+const tabledBody = doc("lead in",
+                       "| a | b |",
+                       "|---+---|",
+                       "| 1 | 2 |",
+                       "| 3 | 4 |",
+                       "",
+                       "- alpha",
+                       "- beta",
+                       "",
+                       "tail para");
 // The bare url is written TWICE where the answer holds ONE entry, so the
 // second occurrence has no span.
-const linkyBody = [ "* TODO one [[https://t.example/][the title link]]",
-                    "see [[https://a.example/][alpha]] and [[https://b.example/]] here",
-                    "",
-                    "bare https://c.example/ then https://c.example/ twice",
-                    "** two",
-                    "child body", "" ].join("\n");
+const linkyBody = docWith("* TODO one [[https://t.example/][the title link]]",
+                          "see [[https://a.example/][alpha]] and [[https://b.example/]] here",
+                          "",
+                          "bare https://c.example/ then https://c.example/ twice");
 const linkyTitle = "one [[https://t.example/][the title link]]";
 const linkyLinks = [
   { target: "https://t.example/", desc: "the title link", type: "https", span: [11, 49] },

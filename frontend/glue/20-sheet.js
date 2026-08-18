@@ -161,7 +161,7 @@
       const r = docRowAt();
       const was = checkboxAt(r);
       if (was === null) { said(b, "no checkbox here"); return; }
-      const now = was === " " ? "X" : was === "-" ? "X" : " ";
+      const now = was === " " || was === "-" ? "X" : " ";
       editPara(r, r.text.replace(CHECKBOX, `$1[${now}]`), () => said(b, `[${now}]`));
     }
     // TAB WALKS THE RUNGS A LIST ITEM MAY SIT ON: its own, one deeper -- which
@@ -408,9 +408,30 @@
     const quitBinding = docBinding("quit-window", "q");
     // AT MOST N LINES, AND THE BLOCK IS WHAT GROWS; the arithmetic is the stylesheet's.
     const DOCROWS = 10;   // the knob, and the only place the cap is spelled
+    /** The rows the open edit's text OCCUPIES, wrapping counted.  MEASURED FLAT:
+     * `scrollHeight' never reads under the height the box already stands at, so the
+     * field is collapsed for the reading and put back. */
+    const docRowsDrawn = () => {
+      const t = el("dtext"), s = t.style;
+      // A page with no layout measures nothing, and org's own newlines still count.
+      if (typeof getComputedStyle !== "function" || !t.scrollHeight) return 0;
+      const flex = s.flex, height = s.height;
+      s.flex = "none"; s.height = "0px";
+      const cs = getComputedStyle(t);
+      const lh = parseFloat(cs.lineHeight) || 0;
+      const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      const rows = lh > 0 ? Math.round((t.scrollHeight - pad) / lh) : 0;
+      s.flex = flex; s.height = height;
+      return rows;
+    };
+    // ORG'S OWN NEWLINES ARE THE FLOOR and what wraps takes the rows it occupies:
+    // counting newlines alone left the box a line short over a wrapped item, so what
+    // `M-RET' added was typed out of sight.
     const sizeDocEdit = () => el("mdoc").style.setProperty("--g-doc-rows",
       String(dparaing()
-        ? Math.max(1, Math.min(DOCROWS, el("dtext").value.split("\n").length))
+        ? Math.max(1, Math.min(DOCROWS,
+                               Math.max(el("dtext").value.split("\n").length,
+                                        docRowsDrawn())))
         : 0));
     /** A NEWLINE INSIDE A LIST ITEM LANDS UNDER ITS OWN TEXT: org reads a
      * continuation by its indent, so the spaces the marker occupies are carried
@@ -600,6 +621,8 @@
         },
       };
     }
+    /** The row id AT sits on in ROWS, or null where -1 says nothing is pointed at. */
+    const pointedId = (rows, at) => (at === -1 ? null : rows[at].id);
     /** `/' NARROWS A SMALL LIST, one gesture over every `listing' mount — AGENTS.hs. */
     const narrows = (m) => can(m, "openNarrow", "shutNarrow", "narrowing");
     const narrowed = (m) => narrows(m) && m.narrowing() !== null;
@@ -623,8 +646,7 @@
         said(narrowBinding(k), "");
         return true;
       }
-      const step = k === "C-n" || k === "<down>" ? 1
-                 : k === "C-p" || k === "<up>" ? -1 : 0;
+      const step = walkStep(k);
       if (step) { stepIn(m, step); return true; }
       if (k !== "RET") return false;
       const box = m.narrowBox();
@@ -777,28 +799,32 @@
       e.preventDefault();
     });
     const unlogged = () => {};
-    const PFLAGS = {
-      mount: () => pmount, take: pdelete, note: unlogged,
-      walk: () => stepIn(pmount, 1),
+    /** WHAT EVERY DELETING SURFACE SAYS THE SAME WAY; a shape spreads it and then
+     * names its own mount, its take, and the words that are its alone. */
+    const FLAG_WORDS = {
+      note: unlogged,
       missing: lacks("delete flags"),
-      none: "org-delete-property (no row)",
       idle: "dired-do-flagged-delete (no deletions requested)",
       spared: "dired-do-flagged-delete (left standing)",
-      verb: "drop",
       unflag: "delete-unflag (flag cleared)",
+    };
+    const PFLAGS = {
+      ...FLAG_WORDS,
+      mount: () => pmount, take: pdelete,
+      walk: () => stepIn(pmount, 1),
+      none: "org-delete-property (no row)",
+      verb: "drop",
       flag: "delete-flag (d again deletes)",
-      at: () => { const i = patAt(); return i === -1 ? null : prows[i].id; },
+      at: () => pointedId(prows, patAt()),
     };
     // This mount is a Set of ids rather than a renderer, so `missing' is unreachable.
     const DFLAGS = {
-      mount: () => dmount, take: ddelete, note: unlogged,
+      ...FLAG_WORDS,
+      mount: () => dmount, take: ddelete,
       walk: () => docStep(1),
       missing: "this document has no flags",
       none: "org-delete-element (no element)",
-      idle: "dired-do-flagged-delete (no deletions requested)",
-      spared: "dired-do-flagged-delete (left standing)",
       verb: "delete",
-      unflag: "delete-unflag (flag cleared)",
       flag: "delete-flag (d again deletes)",
       at: () => docCursor().at,
     };

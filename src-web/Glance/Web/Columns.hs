@@ -7,6 +7,7 @@ import Data.Text (Text)
 
 import qualified Data.Text as T
 
+import Glance.Query (firstBy)
 import Glance.Web.Filter ( Term (tmKey, tmNegated, tmValue), columnsKey
                          , parseFilter, refusedOn )
 
@@ -15,14 +16,9 @@ columnNamesIn q = case filter ((== Just columnsKey) . tmKey) (parseFilter q) of
   []     -> Right Nothing
   tokens -> do
     named <- concat <$> traverse namesOf tokens
-    pure $ case foldl extend [] named of
+    pure $ case firstBy T.toCaseFold named of
       []    -> Nothing
       names -> Just names
-  where
-    extend names name
-      | any (same name) names = names
-      | otherwise             = names <> [name]
-    same a b = T.toCaseFold a == T.toCaseFold b
 
 namesOf :: Term -> Either Text [Text]
 namesOf t

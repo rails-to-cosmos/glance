@@ -4,12 +4,11 @@
 -- instead.  Grammar and the starred family in AGENTS.hs.
 module Glance.Web.Sort (noOrder, sortChainIn) where
 
-import Control.Monad (foldM)
 import Data.Text (Text)
 
 import qualified Data.Text as T
 
-import Glance.Query (Meta (..), SortChain, defaultSortChain, metaWord)
+import Glance.Query (Meta (..), SortChain, defaultSortChain, firstBy, metaWord)
 import Glance.Web.Filter ( Term (tmKey, tmNegated, tmValue), filterKeys
                          , parseFilter, refusedOn, sortKey )
 
@@ -30,17 +29,14 @@ sortChainIn q = case filter ((== Just sortKey) . tmKey) (parseFilter q) of
     -- Half-typed segments drop FIRST, so "no companions" counts orders alone.
     let ordering = [ pair | pair@(_t, n) <- named, orders n ]
     case [ t | (t, NoOrder) <- ordering ] of
-      []      -> foldM extend [] [ (c, a) | (_t, Column c a) <- ordering ]
+      -- The DEDUP refuses nothing: a duplicate names an order the chain has.
+      []      -> Right (firstBy fst [ (c, a) | (_t, Column c a) <- ordering ])
       empty : _
         | length ordering > 1 -> Left (alone empty)
         | otherwise           -> Right []
   where
     orders Silent = False
     orders _named = True
-    -- The DEDUP refuses nothing: a duplicate names an order the chain has.
-    extend keys (column, ascending)
-      | any ((== column) . fst) keys = Right keys
-      | otherwise                    = Right (keys <> [(column, ascending)])
 
 data Named
   = Silent               -- ^ @sort:@ half typed: it names no column.

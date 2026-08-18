@@ -7,7 +7,7 @@ import Data.List (sort, sortOn)
 import Data.Org hiding (headlinesOf)
 import Data.Org.Edit
 import Data.Org.Walk (isDocument)
-import System.FilePath (takeExtension)
+import System.FilePath (takeDirectory, takeExtension)
 import Data.Text (Text)
 import System.Directory (listDirectory)
 import System.FilePath ((</>))
@@ -403,6 +403,18 @@ fileSpec =
         assertEqual "directory contents" ["notes.org"] (sort left)
         mode <- accessMode path
         assertEqual "mode" private mode
+
+    -- Every directory this makes is an entry its own parent owes an fsync, so
+    -- the branch that walks up to the first one that exists runs here.
+  , testCase "a document lands under directories the write has to create" $
+      withTempDirNamed "unmade" $ \dir -> do
+        let path = dir </> "deep" </> "deeper" </> "notes.org"
+        receipt <- expectRight "create"
+                     =<< editFile (Snapshot path "") [Edit (Span 0 0) plannedDoc]
+        assertBytes "written" (TE.encodeUtf8 plannedDoc) path
+        left <- listDirectory (takeDirectory path)
+        assertEqual "directory contents" ["notes.org"] (sort left)
+        assertEqual "receipt snapshot" (snapshotOf path plannedDoc) (receiptSnapshot receipt)
 
     -- `openBinaryTempFile' splits its template at the LAST dot, so the suffix IS
     -- the leftover's extension; without it an interrupted write leaves

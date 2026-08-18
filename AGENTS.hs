@@ -2996,6 +2996,19 @@ themes = [Theme "light" "light" TLight, Theme "dark" "dark" TDark]
 themeIds :: [String]                         -- ^ the boot script's test and @#themesel@'s options beside `auto'
 themeIds = [i | Theme i _ _ <- themes]
 
+-- | THE SECOND LOOK THE PAGE REMEMBERS: whether the doc pane draws org's own
+--   unordered bullets.  HIDDEN is the default and is the attribute's ABSENCE, so a
+--   page with no stored choice paints it before any script runs.
+bulletsKey :: String
+bulletsKey = "glance-bullets"
+bulletsShown :: String                       -- ^ the ONE value the boot script stamps, `auto' being the theme's parallel
+bulletsShown = "shown"
+
+-- | The bullets the tree draws as well, which are the ones a stylesheet may empty.
+--   AN ORDINAL IS CONTENT: `1.' and `1)' are never steppable.
+steppable :: [String]
+steppable = ["-", "+", "*"]
+
 stateSlots, prioritySlots :: Int             -- ^ the WIRE's counts, the same for every theme
 stateSlots = 4
 prioritySlots = 3
@@ -3023,6 +3036,7 @@ stateColorsOf line = case words line of
 cmdNotes :: [Note]
 cmdNotes =
   [ Note "A write is temp+rename, so untouched bytes stay byte-identical; the rename replaces the destination NAME, leaving a regular file where a symlinked .org was." [Comment, Unguarded]
+  , Note "The rename is atomic and NOT durable: the containing directory is fsynced after it, and a write that had to create directories syncs each new one's parent, else a crash takes back a write that answered 200." [Comment, Test]
   , Note "`Data.Org.Edit' is content-agnostic BY LAW, which is why the edit-link layer owes all three of its checks." [Typed, Test]
   , Note "No rollback ACROSS files and none is possible: a 200 means the command RAN, never that every row moved." [Test]
   , Note "The route never writes the store; the watch re-reads what was written, so a second command against a file the first wrote drifts under a suite that runs no watch." [Test]
@@ -3657,11 +3671,12 @@ docCells :: [String]
 docCells = ["state", "priority", "title", "tags"]
 
 -- | The markup the stylesheet and the harness read: a stop wearing its kind as `d-*',
---   point, a flag, a cell with its key, the marker org wrote, a checkbox, text, a
---   link's shown half,
+--   point, a flag, a cell with its key, the marker org wrote with its steppable
+--   bullet inside it, a checkbox, text, a link's shown half,
 --   what no rung claims, and the strip that names the way back.
 docClasses :: [String]
-docClasses = [".de", ".dat", ".dfl", ".dc", ".dm", ".dbx", ".dt", ".dl", ".dg", ".dpath"]
+docClasses = [ ".de", ".dat", ".dfl", ".dc", ".dm", ".dbul", ".dbx", ".dt", ".dl"
+             , ".dg", ".dpath" ]
 
 -- | Geometry written onto `#mdoc' as NUMBERS, the arithmetic staying in the stylesheet.
 docVars :: [String]
@@ -4383,9 +4398,9 @@ sheetNotes =
          \ it everywhere else." [Test]
   , Note "THE PANE IS DRAWN THE WAY `tree' DRAWS ONE: a connector per row, down from\
          \ the row's top to the MIDDLE of its own line, and a run below that where the\
-         \ branch has more to come (`kin').  ORG'S BULLET IS THE TIP -- a horizontal\
-         \ reaching the text sat at the same height as the file's own `-' and the two\
-         \ read as one dashed run." [Test, Browser]
+         \ branch has more to come (`kin').  THE HORIZONTAL STOPS SHORT OF ORG'S OWN\
+         \ COLUMN: one reaching the text sits at the height the file's `-' inks, and\
+         \ the two read as one dashed run wherever the reader asks for bullets back." [Test, Browser]
   , Note "ONE LIST OF POPUP SURFACES, `Glance.Web.Page.Popups': the veil, the `.on'\
          \ rule, the box sizing, the stale wash and the tier sweep all join it, so a\
          \ surface added there joins them by itself.  Six readers spelled the\
@@ -4408,13 +4423,19 @@ sheetNotes =
          \ hairline and a hinted glyph land on one device row only when every row\
          \ starts at the same sub-pixel offset, and 13 x 1.6 is 20.8.  The gaps around\
          \ a paragraph are whole pixels for the same reason." [Browser]
-  , Note "A PARAGRAPH CARRIES NOTHING, so it wears the ground the table's cursor\
-         \ wears; what made a ground wrong on an ITEM was the subtree drawn inside\
-         \ it." [Test, Browser]
+  , Note "ONE CURSOR, ONE GROUND: the stop under point wears `--g-sel', the ground the\
+         \ table's cursor wears, whatever kind it is.  A NESTED ROW IS DRAWN INSIDE ITS\
+         \ PARENT, so the page's own ground is given back to it or the cursor would run\
+         \ the whole subtree; a COMPOSITE is the exception, the list itself being the\
+         \ stop, so what it grounds is its rows." [Test, Browser]
   , Note "A CONTINUATION LANDS UNDER THE ITEM'S OWN TEXT, the checkbox counted with\
          \ the bullet: org reads a continuation by its INDENT.  Setting `value' fires\
          \ no `input', so the newline places the box itself -- the listener that\
-         \ re-lays it after typing never runs for `M-RET'." [Test, Browser]
+         \ re-lays it after typing never runs for `M-RET'.  THE BOX MAKES ROOM BY THE\
+         \ ROWS THE TEXT OCCUPIES, wrapping counted: org's newlines alone left it a\
+         \ line short over a wrapped item and the continuation was typed out of sight.\
+         \ `scrollHeight' never reads under the height the box already stands at, so\
+         \ the field is collapsed for the measure and put back." [Test, Browser]
   , Note "A DELETION LANDS ON THE NEXT SIBLING, and on the PARENT only when the branch\
          \ is emptied: the row point stood on is about to stop existing, and the reader\
          \ was working among its siblings.  A LINE rather than an id -- the rescan\
@@ -4429,9 +4450,9 @@ sheetNotes =
   , Note "A SIBLING IS THE CHOICE THE READER IS STANDING IN, so it stays readable and\
          \ ITS OWN BRANCH COMES WITH IT -- a branch whose contents are dimmed is one\
          \ they cannot weigh.  `sib' is the row sharing point's owner." [Browser]
-  , Note "THE ELBOW TURNS ON THE DASH'S OWN INK, not on the middle of the line box: in\
-         \ Hack at 13px the hyphen inks a pixel below the half-line, and the border's\
-         \ own half is another, so the height carries `+ 0.115em'." [Browser]
+  , Note "THE ELBOW TURNS WHERE THE DASH INKS, which is a pixel below the half-line in\
+         \ Hack at 13px, and the border's own half is another -- so the height carries\
+         \ `+ 0.115em'.  The dash keeps that column whether or not it paints." [Browser]
   , Note "FULL INK UNTIL THE READER GOES INTO A LIST.  Dimming answers WHICH BRANCH\
          \ AM I IN, so it engages when point is on an ITEM and leaves the document\
          \ alone otherwise: `focus' rides the program's own root and every row off the\
@@ -4443,14 +4464,15 @@ sheetNotes =
          \ sibling of every owner -- that lit whole levels and said nothing about the\
          \ way back.  FLAT, with no step by distance: dimming the rest is what makes\
          \ the path read.  What point CARRIES takes the page's ink too, read off the\
-         \ nesting, and a COMPOSITE at point lights the ROOTS it opens." [Browser]
+         \ nesting, and a COMPOSITE at point GROUNDS the rows it opens rather than\
+         \ lighting them -- a connector inside that ground takes the page's ink." [Browser]
   , Note "A PARAGRAPH IS NOT A BRANCH: nothing to elbow into, so it wears the bar at\
          \ the column every outermost row marks on.  A COMPOSITE is drawn as its tree\
          \ rather than as a bar as well, which said the same thing twice." [Test]
-  , Note "POINT IS A MARK BESIDE THE LINE, never a ground.  A NESTED ITEM IS DRAWN\
-         \ INSIDE ITS PARENT, so a ground runs the whole subtree; the mark sits one tab\
-         \ stop LEFT of the row's own text, which is where that block's rail runs, and\
-         \ point rides its own block's rail." [Test, Browser]
+  , Note "THE TREE HAS ITS OWN COLUMN, OUTSIDE THE GROUND: the connector sits one tab\
+         \ stop LEFT of the row's own text, which is where that block's rail runs, so\
+         \ point's ground and point's rail never cover each other and the rail keeps\
+         \ point's own hue." [Test, Browser]
   , Note "A TICKED BOX WEARS THE DONE FACE, `--g-state-i0': a settled keyword's hue,\
          \ said in one glyph.  An EMPTY box wears its line's ink, saying nothing yet,\
          \ and a dimmed line dims both -- `> .dp' scopes the exceptions, since rows\
@@ -4458,21 +4480,34 @@ sheetNotes =
          \ the one on its own line." [Browser]
   , Note "THE OUTERMOST RUNG STANDS UNDER THE HEADLINE'S STARS: a connector is drawn\
          \ under the MARKER of the line it hangs off, the stars for the outermost and\
-         \ the parent's bullet below that." [Test]
+         \ the parent's bullet below that -- the COLUMN, whether or not the bullet\
+         \ paints." [Test]
   , Note "A MARKER TAKES COLOUR ALONE.  A bolder bullet sits taller than the line it\
          \ opens and reads as a different FACE; the pane's business is which line.\
          \ A link carries its own ink, which outranks what it inherits, so a dimmed\
          \ line keeps a lit link inside it until the link is named too." [Browser]
+  , Note "WHAT STANDS ON THE GROUND READS OVER IT: a marker on point's own line takes\
+         \ the PAGE's ink, since point's hue is the ground's hue in the light theme and\
+         \ a marker painted in it went missing -- the ordinals with it." [Browser]
   , Note "THE HEADLINE IS THE ROOT OF THE PATH: the way back runs headline, list,\
          \ owner, point, so it keeps its ink whichever list the reader stands in." [Browser]
   , Note "THE CHECKBOX IS PART OF THE MARKER: `- [X]' is one thing the reader points\
-         \ at, so `.dm' spans the indent, the bullet and the box with its gap.  What\
-         \ point CARRIES wears its marker in the ink its connector takes." [Browser]
-  , Note "THE MARKER ORG WROTE IS THE MARKER: a headline under point lights its STARS and\
-         \ draws no mark, the stars sitting in the column the mark would use; an item\
-         \ lights its BULLET as well as drawing one, and the bullet is whatever org\
-         \ wrote -- `-', `+', `*', `1.', `1)'.  `> .dp >' keeps the light on the row's\
-         \ OWN line." [Browser]
+         \ at, so the marker runs the indent, the bullet and the box with its gap --\
+         \ `.dm' over the first two and `.dbx' over the box.  What point CARRIES wears\
+         \ its marker in the ink its connector takes." [Browser]
+  , Note "THE MARKER ORG WROTE IS THE MARKER: a headline under point draws no connector,\
+         \ its stars sitting in the column one would use, and an item keeps whatever org\
+         \ wrote -- `-', `+', `*', `1.', `1)'.  Every one of them reads over point's\
+         \ ground in the page's ink; `> .dp >' keeps the rule on the row's OWN line." [Browser]
+  , Note "THE TREE IS THE MARKER, so a bullet the connector already draws STEPS ASIDE:\
+         \ `-', `+' and `*' are drawn in a `.dbul' of their own and painted TRANSPARENT,\
+         \ which keeps org's own column -- the text stays where the file put it and the\
+         \ reader still copies the line.  WHERE THE CONNECTOR IS DRAWN AND NOWHERE\
+         \ ELSE: `.d-list .dbul', since a dash quoted inside a block wears no elbow and\
+         \ hiding it left that line unmarked.  AN ORDINAL IS CONTENT and has no `.dbul'\
+         \ to empty; so is the box.  The look is the reader's, remembered under\
+         \ `glance-bullets', and HIDDEN is the attribute's ABSENCE -- `shown' is the one\
+         \ value the boot script stamps." [Test, Browser]
   , Note "THE DOCUMENT IS A BLOCK TOO and its rail runs the whole pane, starting UNDER\
          \ the headline, whose stars own that column.  Without it the outermost column\
          \ is drawn beside the list and nowhere else, breaking at every paragraph." [Test]
@@ -4483,10 +4518,11 @@ sheetNotes =
          \ `Html.Attributes.style' assigns `style[key]' and browsers ignore that for a\
          \ custom property.  NOT `d-top': the harness reads a row's KIND off its `d-'\
          \ classes." [Test]
-  , Note "`--g-point' is the document's cursor ink and `--g-sel' the table's ground: a\
+  , Note "`--g-point' is the cursor's INK and `--g-sel' the ground both surfaces wear: a\
          \ GROUND HUE IS NOT AN INK, and dark's selection is a slate that vanishes as a\
-         \ hairline.  `--g-point-dim' is PICKED rather than mixed -- mixing gold toward\
-         \ a dark ground darkens it, and a darker yellow is brown." [Test]
+         \ hairline.  LIGHT SPENDS NO GOLD ON TEXT -- gold is its ground, so its point\
+         \ ink is a deep blue that reads on the page AND on the ground, while dark keeps\
+         \ an amber.  `--g-point-dim' is PICKED per theme for the same reason." [Test]
   , Note "THE HEADLINE IS ONE STOP: `f' does not walk into its parts, since each part\
          \ already has a key -- `t' the state, `:' the tags, S-<up>/S-<down> the priority\
          \ and RET the title.  A cursor over a part would be a second way to say the same\
@@ -4941,6 +4977,9 @@ buildNotes =
   , Note "A status change is a `git mv' plus the line, and the suite says so when only one of the two moves; a rename breaks every link to the old path and past commit messages keep citing it." [Test]
   , Note "Every implemented feature earns a CHANGELOG entry under Unreleased, written as user-visible behaviour, one line per feature." [Docs]
   , Note "The author's address is substituted even where the repo's git config or an existing file header says otherwise." [Unguarded]
+  , Note "APACHE-2.0, with `NOTICE' travelling with the work: it carries the copyright\
+         \ and the MIT notice for `assets/table-view.js', which is vendored rather than\
+         \ written here.  `glance.cabal' spells the SPDX id and ships both files." [Docs]
   -- Tier two until the checks moved into the suite: what no gate asks.
   , Note "Every intra-package dependency names a component." [Unguarded]
   , Note "The component graph is acyclic." [Unguarded]

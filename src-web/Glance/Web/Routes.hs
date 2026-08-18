@@ -54,7 +54,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , Span (spanEnd, spanStart)
                     , SubtreeEntry (..)
                     , TodoKeywords (..)
-                    , SavedView (..), archived, captureCodes, configDirsIn, configPaths
+                    , SavedView (..), archived, configDirsIn, configPaths
                     , captureTemplateIn, captureTemplateOf
                     , ConfigLayers (clTree), TreeSettings (..), treeSettings
                     , configEdits, viewQuery, viewQueryIn
@@ -70,7 +70,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , templatePrompts, titleSpan, todoPragmas
                     , resolveColumns, savedViews, todoLines, viewColumns
                     , viewJSONFor )
-import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, configMoved
+import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, codeList, configMoved
                        , conflict, docCells, glueAsset, gluePartFiles, html, jsonError
                        , elmAsset
                        , jsonResponse, jsonType
@@ -228,8 +228,7 @@ referKinds :: [HeadlineRecord] -> [Pair]
 referKinds rows =
   [ "kinds" .= [ object ["kind" .= k, "rows" .= n] | (k, n) <- sortOn rank counted ] ]
   where
-    counted = Map.toList (Map.fromListWith (+)
-      [ (k, 1 :: Int) | r <- rows, k <- nub [ k' | Just k' <- map refKind (hrLinks r) ] ])
+    counted = Map.toList (countedBy (\r -> [ k | Just k <- map refKind (hrLinks r) ]) rows)
     rank (k, n) = (negate n, k)
 
 -- | ONE PIPELINE, and KEEP is all a door may add: every caller answers the same
@@ -524,9 +523,14 @@ tagsView hub request =
     ]
 
 tagRowCounts :: [HeadlineRecord] -> Map Text Int
-tagRowCounts rows = Map.fromListWith (+)
-  [ (tag, 1 :: Int) | r <- rows, not (T.null (hrTags r))
-                    , tag <- nub (tagsOfCell (hrTags r)) ]
+tagRowCounts = countedBy (tagsOfCell . hrTags)
+
+-- | ROWS per key, a row counted ONCE however often it names one.  The count
+-- @\/tags@ answers with, and the picker's two vocabularies ride it too.
+{-# INLINE countedBy #-}
+countedBy :: Ord k => (HeadlineRecord -> [k]) -> [HeadlineRecord] -> Map k Int
+countedBy keys rows =
+  Map.fromListWith (+) [ (k, 1 :: Int) | r <- rows, k <- nub (keys r) ]
 
 -- Capture
 
@@ -541,8 +545,7 @@ captureView opts hub request = do
           [ "template" .= isJust template
           , "prompts"  .= maybe [] templatePrompts template
           , "tags"     .= storeTags st
-          , "codes"    .= [ object ["code" .= code, "means" .= means]
-                          | (code, means) <- captureCodes ]
+          , "codes"    .= codeList
           ])
 
 -- Links
@@ -776,21 +779,22 @@ statsHeaders qr =
 -- | Where NAME's bytes come from under OPTS.  The two cases are exclusive, and this is the one oracle for what the server has.
 assetSource :: ServeOptions -> FilePath -> IO (Maybe (Either FilePath BS.ByteString))
 assetSource opts name = case soAssets opts of
-  Nothing  -> pure (if name == rendererAsset then Just (Right embeddedRenderer)
-                    else if name == glueAsset then Just (Right embeddedGlue)
-                    else if name == elmAsset then Just (Right embeddedElm)
-                    else Nothing)
+  Nothing  -> pure (Right <$> lookup name [ (rendererAsset, embeddedRenderer)
+                                          , (glueAsset, embeddedGlue)
+                                          , (elmAsset, embeddedElm) ])
   -- THE SHELL IS ITS PARTS in a served directory too, read per request; a whole @glue.js@ would be a second copy.
   Just dir | name == glueAsset -> devGlue dir
-  Just dir -> let path = dir </> name
-              in (\ok -> if ok then Just (Left path) else Nothing) <$> doesFileExist path
+  Just dir -> fileAt (dir </> name)
+
+-- | PATH as a source, where there is a file there at all.
+fileAt :: FilePath -> IO (Maybe (Either FilePath BS.ByteString))
+fileAt path = (\there -> if there then Just (Left path) else Nothing) <$> doesFileExist path
 
 devGlue :: FilePath -> IO (Maybe (Either FilePath BS.ByteString))
 devGlue dir = do
   parts <- filterM doesFileExist [ dir </> "glue" </> p | p <- gluePartFiles ]
   if null parts
-    then let whole = dir </> glueAsset
-         in (\ok -> if ok then Just (Left whole) else Nothing) <$> doesFileExist whole
+    then fileAt (dir </> glueAsset)
     else Just . Right . BS.concat <$> mapM BS.readFile parts
 
 -- | An asset, or a 404 doubling as the route list.  Compiled bytes go through 'sized': no @Content-Length@, no compression.

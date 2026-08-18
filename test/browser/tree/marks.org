@@ -1,0 +1,21 @@
+#+TITLE: Marks
+#+TODO: TODO NEXT | DONE CANCELLED
+
+* TODO Every marker org writes, in one entry                  :driver:marks:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-marks
+:END:
+The entry a case reads when it asks what a marker looks like.
+
+- a dash, the bullet the tree draws too
+  + a plus, one level in
+    * a star, which is a bullet away from column one
+- [ ] a box the reader has not ticked
+- [X] a box the reader has
+
+1. an ordinal, which is content
+2) a second ordinal, spelled the other way
+
+#+begin_quote
+- a dash inside a quote, which no connector marks
+#+end_quote

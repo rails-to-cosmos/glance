@@ -175,7 +175,7 @@ probeToday = Time.fromGregorian 2026 8 8
 
 -- | Where a row points: the pure function under @GET \/links@, on the DISPLAY rule.
 linkSpec :: TestTree
-linkSpec = testGroup "Links"
+linkSpec = testGroup "Links" $
   [ testCase "a bracket link is its target and what it shows" $ do
       assertEqual "described" [("https://x/y", "table-view")]
                   (shown "[[https://x/y][table-view]]")
@@ -294,41 +294,12 @@ linkSpec = testGroup "Links"
   , testCase "and a row with nothing to follow is not linked" $
       withRecordsOf "* plain\njust prose, no link in it\n" $ \recs ->
         assertEqual "nowhere to go" [False] (map hrLinked recs)
-
-    -- The type is the target's PREFIX folded, the @org-glance-@ family one word.
-  , testCase "a link's type is its scheme, folded" $ do
-      let types = map linkType
-      assertEqual "the six the corpus spells"
-        ["https", "http", "mailto", "id", "file"]
-        (types [ "https://x.example/a", "http://x.example", "mailto:t@x.org"
-               , "id:E1B2", "file:notes.org" ])
-      assertEqual "and every org-glance protocol is one word"
-        ["glance", "glance", "glance", "glance"]
-        (types [ "org-glance-visit:E1", "org-glance-open:E1"
-               , "org-glance-material:E1", "org-glance-overview:book" ])
-
-  , testCase "a scheme this has never seen travels under its own name" $
-      assertEqual "the word itself" ["ftp", "doi", "gopher", "denote"]
-        (map linkType ["ftp://x.example", "doi:10.1/2", "gopher://x", "denote:2026"])
-
-  , testCase "the scheme is folded, so a shouted URL is still followable" $
-      assertEqual "lowercased" ["https", "mailto"]
-                  (map linkType ["HTTPS://X.EXAMPLE", "MailTo:t@x.org"])
-
-    -- One catch-all: no colon at all, and a word before it that is not scheme-SHAPED.
-  , testCase "a target with no scheme is other, internal links included" $
-      assertEqual "nothing to read"
-        (replicate 8 "other")
-        (map linkType [ "Some Headline", "*Some Headline", "./notes.org", "/etc/hosts"
-                      , "2026:review", ":leading", "a b:c", "" ])
-
-    -- A registry of known schemes is deliberately not the rule: an unlisted one would read as prose.
-  , testCase "and a scheme-shaped word in prose is taken at its word" $
-      assertEqual "the word before the colon" ["meeting", "todo"]
-                  (map linkType ["Meeting: notes", "TODO:tomorrow"])
-
+  ] ++
+  [ testCase name $ sequence_ [ assertEqual msg want (map linkType targets)
+                              | (msg, targets, want) <- checks ]
+  | (name, checks) <- linkTypeCases ] ++
     -- A badge naming a type nothing produces would be a colour no cell ever wears.
-  , testCase "every declared badge value is a type linkType can produce" $ do
+  [ testCase "every declared badge value is a type linkType can produce" $ do
       declared <- traverse (textAt "value")
               =<< listAt "badges" =<< columnOf "type" (object ["columns" .= linkColumns])
       assertEqual "the six the corpus spells"
@@ -336,6 +307,36 @@ linkSpec = testGroup "Links"
       assertEqual "and each is what its own scheme derives to" declared
         (map (\t -> linkType (if t == "glance" then "org-glance-visit:x" else t <> ":x"))
              declared)
+  ]
+
+-- | Each case's name, then every assertion it makes: the message, the targets,
+-- and the types 'linkType' derives from them.
+linkTypeCases :: [(String, [(String, [Text], [Text])])]
+linkTypeCases =
+    -- The type is the target's PREFIX folded, the @org-glance-@ family one word.
+  [ ( "a link's type is its scheme, folded"
+    , [ ( "the six the corpus spells"
+        , [ "https://x.example/a", "http://x.example", "mailto:t@x.org", "id:E1B2"
+          , "file:notes.org" ]
+        , ["https", "http", "mailto", "id", "file"] )
+      , ( "and every org-glance protocol is one word"
+        , [ "org-glance-visit:E1", "org-glance-open:E1", "org-glance-material:E1"
+          , "org-glance-overview:book" ]
+        , ["glance", "glance", "glance", "glance"] ) ] )
+  , ( "a scheme this has never seen travels under its own name"
+    , [ ( "the word itself", ["ftp://x.example", "doi:10.1/2", "gopher://x", "denote:2026"]
+        , ["ftp", "doi", "gopher", "denote"] ) ] )
+  , ( "the scheme is folded, so a shouted URL is still followable"
+    , [ ("lowercased", ["HTTPS://X.EXAMPLE", "MailTo:t@x.org"], ["https", "mailto"]) ] )
+    -- One catch-all: no colon at all, and a word before it that is not scheme-SHAPED.
+  , ( "a target with no scheme is other, internal links included"
+    , [ ( "nothing to read"
+        , [ "Some Headline", "*Some Headline", "./notes.org", "/etc/hosts", "2026:review"
+          , ":leading", "a b:c", "" ]
+        , replicate 8 "other" ) ] )
+    -- A registry of known schemes is deliberately not the rule: an unlisted one would read as prose.
+  , ( "and a scheme-shaped word in prose is taken at its word"
+    , [ ("the word before the colon", ["Meeting: notes", "TODO:tomorrow"], ["meeting", "todo"]) ] )
   ]
 
 -- | The subtree lens: every byte of a subtree has one owner, so the assertions
@@ -2300,7 +2301,7 @@ captureSpec = testGroup "Capture"
                       (templated bookLayer (fromMaybe "" (captureTemplateOf bookLayer)))
       ]
 
-  , testGroup "The blob a tagged capture composes"
+  , testGroup "The blob a tagged capture composes" $
       [ testCase "the tag joins the headline and the drawer carries the id" $
           assertEqual "org-glance's own two properties"
                       (Right (T.unlines [ "* milk :book:"
@@ -2309,67 +2310,23 @@ captureSpec = testGroup "Capture"
                                         , ":ORG_GLANCE_CREATION_TIME: [2026-08-04 Tue 09:30]"
                                         , ":END:" ]))
                       (blobDocument (BlobSeed "book" "i-1" "[2026-08-04 Tue 09:30]") "* milk")
-
-        -- A template carrying a drawer keeps it; the two properties join it.
-      , testCase "a drawer the template wrote is joined rather than doubled" $
-          assertEqual "one drawer"
-                      (Right (T.unlines [ "* milk :book:"
-                                        , ":PROPERTIES:"
-                                        , ":ORG_GLANCE_ID: i-1"
-                                        , ":ORG_GLANCE_CREATION_TIME: [s]"
-                                        , ":AUTHOR: X"
-                                        , ":END:" ]))
-                      (blobDocument (BlobSeed "book" "i-1" "[s]")
-                                    "* milk\n:PROPERTIES:\n:AUTHOR: X\n:END:\n")
-
-      , testCase "a headline already wearing the tag costs no edit" $
-          assertEqual "the run keeps its bytes"
-                      (Right (T.unlines [ "* milk :book:web:"
-                                        , ":PROPERTIES:"
-                                        , ":ORG_GLANCE_ID: i-1"
-                                        , ":ORG_GLANCE_CREATION_TIME: [s]"
-                                        , ":END:" ]))
-                      (blobDocument (BlobSeed "book" "i-1" "[s]") "* milk :book:web:")
-
-      , testCase "and one wearing others joins the run's end" $
+      ] ++
+      [ testCase name $ assertEqual msg (Right (T.unlines want)) (blobDocument seed template)
+      | (name, msg, template, want) <- blobCases ] ++
+      [ testCase "and one wearing others joins the run's end" $
           assertBool "appended to the run"
                      (either (const False) (T.isInfixOf "* milk :web:book:")
-                             (blobDocument (BlobSeed "book" "i-1" "[s]") "* milk :web:"))
+                             (blobDocument seed "* milk :web:"))
 
       , testCase "the template's children are the entry's" $
           assertBool "the child survives"
                      (either (const False) (T.isInfixOf "*** Notes")
-                             (blobDocument (BlobSeed "book" "i-1" "[s]") "* Book\n*** Notes\n    milk"))
-
-        -- Spliced between the headline and its @SCHEDULED:@, the planning line becomes body text.
-      , testCase "a template with a planning line keeps it under the title" $
-          assertEqual "planning first, drawer second"
-                      (Right (T.unlines [ "* milk :book:"
-                                        , "SCHEDULED: <2026-08-10 Mon>"
-                                        , ":PROPERTIES:"
-                                        , ":ORG_GLANCE_ID: i-1"
-                                        , ":ORG_GLANCE_CREATION_TIME: [s]"
-                                        , ":END:" ]))
-                      (blobDocument (BlobSeed "book" "i-1" "[s]")
-                                    "* milk\nSCHEDULED: <2026-08-10 Mon>\n")
+                             (blobDocument seed "* Book\n*** Notes\n    milk"))
 
       , testCase "the document ends in a newline" $
           assertBool "an org file's last line is ended"
                      (either (const False) (T.isSuffixOf "\n")
-                             (blobDocument (BlobSeed "book" "i-1" "[s]") "* milk"))
-
-        -- A blob is composed whole, so no untouched bytes weigh the trailing-space rule.
-      , testCase "a template's trailing runs do not reach the file" $
-          assertEqual "every line ends at its last word"
-                      (Right (T.unlines [ "* milk :book:"
-                                        , ":PROPERTIES:"
-                                        , ":ORG_GLANCE_ID: i-1"
-                                        , ":ORG_GLANCE_CREATION_TIME: [s]"
-                                        , ":END:"
-                                        , "a note"
-                                        , "    indented survives" ]))
-                      (blobDocument (BlobSeed "book" "i-1" "[s]")
-                                    "* milk  \na note \t\n    indented survives  \n")
+                             (blobDocument seed "* milk"))
       ]
 
   , testGroup "Where a blob sits"
@@ -2430,8 +2387,37 @@ captureSpec = testGroup "Capture"
     -- The module's own splice: an oracle sharing the write engine would agree with a wrong offset.
     templated doc want = splice doc <$> captureTemplateEdits doc want
     bookLayer = "#+TITLE: Book\n#+TODO: TODO | DONE\n\n* Book\n*** Notes\n    %?\n"
+    -- ONE seed for every blob case, so the tag and the id are the constants they are.
+    seed = BlobSeed "book" "i-1" "[s]"
     layers =
       [ ConfigLayerFile "/o/.org-glance/config/system.org" Nothing "s" "#+TITLE: X\n* %? %U\n"
       , ConfigLayerFile "/o/.org-glance/config/tags/book.org" (Just "book") "b" bookLayer
       , ConfigLayerFile "/o/.org-glance/config/tags/film.org" (Just "film") "f" "#+TODO: A | B\n"
       ]
+
+-- | A capture template, and the blob composed from it under the tagged seed:
+-- the tag on the headline, org-glance's own two properties in the drawer.
+blobCases :: [(String, String, Text, [Text])]
+blobCases =
+    -- A template carrying a drawer keeps it; the two properties join it.
+  [ ( "a drawer the template wrote is joined rather than doubled", "one drawer"
+    , "* milk\n:PROPERTIES:\n:AUTHOR: X\n:END:\n"
+    , [ "* milk :book:", ":PROPERTIES:", ":ORG_GLANCE_ID: i-1"
+      , ":ORG_GLANCE_CREATION_TIME: [s]", ":AUTHOR: X", ":END:" ] )
+  , ( "a headline already wearing the tag costs no edit", "the run keeps its bytes"
+    , "* milk :book:web:"
+    , [ "* milk :book:web:", ":PROPERTIES:", ":ORG_GLANCE_ID: i-1"
+      , ":ORG_GLANCE_CREATION_TIME: [s]", ":END:" ] )
+
+    -- Spliced between the headline and its @SCHEDULED:@, the planning line becomes body text.
+  , ( "a template with a planning line keeps it under the title"
+    , "planning first, drawer second", "* milk\nSCHEDULED: <2026-08-10 Mon>\n"
+    , [ "* milk :book:", "SCHEDULED: <2026-08-10 Mon>", ":PROPERTIES:"
+      , ":ORG_GLANCE_ID: i-1", ":ORG_GLANCE_CREATION_TIME: [s]", ":END:" ] )
+
+    -- A blob is composed whole, so no untouched bytes weigh the trailing-space rule.
+  , ( "a template's trailing runs do not reach the file"
+    , "every line ends at its last word", "* milk  \na note \t\n    indented survives  \n"
+    , [ "* milk :book:", ":PROPERTIES:", ":ORG_GLANCE_ID: i-1"
+      , ":ORG_GLANCE_CREATION_TIME: [s]", ":END:", "a note", "    indented survives" ] )
+  ]

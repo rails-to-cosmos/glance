@@ -70,7 +70,7 @@ comments beside the code they document:
   with `--assets assets`, no rebuild per tweak. A new capability, worth its
   own line in the README.
 
-## Later, not now
+## Later
 
 Splitting the file into modules (transport / keys / surfaces / sheet /
 popups / boot) and adopting `checkJs` annotations file-wide are follow-ups —

@@ -8,7 +8,6 @@ module Glance.Query ( BlobSeed (..)
                     , ConfigSetting (..)
                     , SettingScope (..)
                     , configSettings
-                    , settingsFor
                     , TreeSettings (..)
                     , noTreeSettings
                     , treeSettings
@@ -68,6 +67,8 @@ module Glance.Query ( BlobSeed (..)
                     , editLinkEdits
                     , expandTemplate
                     , filterKeys
+                    , fingerprint
+                    , firstBy
                     , followableTypes
                     , headlineParts
                     , hiddenProperties
@@ -141,7 +142,6 @@ module Glance.Query ( BlobSeed (..)
                     , tagColumns
                     , tagRunEntries
                     , tagText
-                    , keywordText
                     , tagged
                     , stateColorsOf
                     , prioritySlots
@@ -186,7 +186,7 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , TimestampRepeaterInterval (repeaterType, repeaterUnit, repeaterValue)
                 , TimestampRepeaterType (CatchUp, Cumulative, Restart)
                 , TimestampStatus (TimestampActive, TimestampInactive)
-                , TimestampUnit (Days, Months, Weeks, Years), Todo (name)
+                , Todo (name)
                 , TsMoment (tsmHasTime, tsmTime), archiveTag, deadline, defaultContext
                 , firstHeadlineOf, headlineIdProperty, headlinesOf, hsFull, identity
                 , isKeywordChar, isTagChar, levelOf
@@ -195,8 +195,8 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , addUnit, relativeForms, repeaterFormat, tags, title, todo
                 , tsBrackets, unitOf )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
-                       , builtinAgenda, builtinFilter, captureTargetIn
-                       , classify, configDirIn, configDirsIn, configPaths
+                       , builtinFilter, captureTargetIn
+                       , classify, configDirsIn, configPaths
                        , declaredKeywords
                        , SavedView (..), defaultCaptureFile, defaultFilter
                        , isTodoPragma, savedView, savedViews, stateColorsEdits
@@ -204,11 +204,11 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , TreeSettings (..), noTreeSettings, treeSettings
                        , viewEdits, viewOf
                        , viewQuery, viewQueryIn
-                       , firstBy, keywordScopes
+                       , fingerprint, firstBy, keywordScopes
                        , loadConfigDirs, mergeKeywords, mintableLayer, noConfig, noKeywords
                        , readConfigLayers, recognizedKeywords, seedContext
                        , systemSetting, todoLineEdits, todoLines, todoPragmas )
-import Data.Org.External (Completion (..))
+import Data.Org.External (Completion (..), noteCompletion)
 import Data.Org.Blob (blobPathIn, mintBlobId, storeRootIn, uuidFrom)
 import Data.Org.Trash (trashBlob, trashDirIn, trashPathFor)
 import Data.Org.Walk ( Found (..), LoadFailure (..), WalkOptions (..), claimById
@@ -1194,9 +1194,6 @@ settableStates cfg r =
   [ word | (_source, kw) <- keywordSources cfg [r], word <- tkActive kw <> tkInactive kw ]
 
 -- Repeating entries
-
-noteCompletion :: FilePath -> External.Completion -> IO ()
-noteCompletion = External.noteCompletion
 
 -- | R's `ORG_GLANCE_ID`.  The ledger's key: an ordinal names another row a week on.
 rowOrgId :: HeadlineRecord -> Maybe Text

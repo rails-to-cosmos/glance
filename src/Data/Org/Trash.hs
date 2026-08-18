@@ -12,14 +12,13 @@ import System.Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFile
 import System.FilePath ((</>), makeRelative, splitDirectories, takeDirectory)
 
 import Data.Org.Blob (storeRootIn)
+import Data.Org.Edit (readDocument)
 import Data.Org.External (noteExternalDelete)
 import Data.Org.Walk (Entry (..), entryOf, isBlob, storeDir, trashDir)
 
 import qualified Codec.Compression.GZip as GZip
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 
 trashDirIn :: FilePath -> FilePath
 trashDirIn root = storeRootIn root </> trashDir
@@ -48,7 +47,7 @@ trashBlob root path = case trashPathFor root path of
       else do
         let blobDir = takeDirectory path
             mirror  = takeDirectory dest
-        doc <- documentAt path
+        doc <- fmap fst <$> readDocument path
         moved <- try (do here <- filesUnder blobDir
                          mapM_ (keep blobDir mirror) here
                          removeDirectoryRecursive blobDir)
@@ -61,13 +60,6 @@ trashBlob root path = case trashPathFor root path of
       let dest = to </> makeRelative from file <> ".gz"
       createDirectoryIfMissing True (takeDirectory dest)
       BL.readFile file >>= BL.writeFile dest . GZip.compress
-
-documentAt :: FilePath -> IO (Maybe Text)
-documentAt path = do
-  raw <- try (BS.readFile path) :: IO (Either IOException BS.ByteString)
-  pure $ case raw of
-    Left _unreadable -> Nothing
-    Right bytes      -> either (const Nothing) Just (TE.decodeUtf8' bytes)
 
 -- | Every regular file under DIR, at any depth.  A symlinked DIRECTORY is
 -- DECLINED: following one would copy a foreign tree into the trash.

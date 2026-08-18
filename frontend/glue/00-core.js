@@ -111,6 +111,9 @@
       can(table, ...names) || (said(b, lacks(what)), false);
     const rowStep = (k) => (k === "<down>" || k === "n" || k === "j" ? 1
                           : k === "<up>" || k === "p" || k === "k" ? -1 : 0);
+    // BESIDE A FIELD the letters are spoken for, so the walk is the arrows and C-n/C-p.
+    const walkStep = (k) => (k === "<down>" || k === "C-n" ? 1
+                           : k === "<up>" || k === "C-p" ? -1 : 0);
     const stepIn = (mount, step) =>
       can(mount, "selectStep") && mount.selectStep(step);
     const flagsOn = (mount) => can(mount, "flagRow", "getFlagged");

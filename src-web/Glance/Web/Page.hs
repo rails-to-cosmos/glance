@@ -43,36 +43,25 @@ demoShell opts font colours views =
   , "    </div>"
   , "  </div>"
   ]
-  <> popupFrame "tags" "t" (tierOf "tbox") ("<div id=\"tedit\">" <> field "tname" <> "</div>")
-  <>
-  [ "  <div id=\"prompt\">"
-  , boxOpen "pbox"
-  , "      <div id=\"phead\"></div>"
-  , "      <input id=\"pinput\" spellcheck=\"false\" autocomplete=\"off\">"
-  , "      <div id=\"plist\"></div>"
-  , "      <div id=\"pfoot\"></div>"
-  , "    </div>"
-  , "  </div>"
-  ]
+  <> tableFrame "tags" "t" ("<div id=\"tedit\">" <> field "tname" <> "</div>")
+  <> popupFrame "prompt" "p" "" ""
+       [ "      <input id=\"pinput\" spellcheck=\"false\" autocomplete=\"off\">"
+       , "      <div id=\"plist\"></div>"
+       ]
   -- RAISED OVER THE PALETTE, which stands beneath: ESC hands it back.
-  <>
-  [ "  <div id=\"mint\">"
-  , boxOpen "nbox"
-  , "      <div id=\"nhead\">new TODO state</div>"
-  , nrow "nspace" "namespace" "<select id=\"nspace\" class=\"cview\"></select>"
-  , nrow "nname" "state" ("<input id=\"nname\" spellcheck=\"false\" autocomplete=\"off\""
-                            <> " autocapitalize=\"off\" placeholder=\"letters and _\">")
-  , nrow "ngroup" "group" ("<select id=\"ngroup\" class=\"cview\">"
-                             <> "<option value=\"active\">active</option>"
-                             <> "<option value=\"inactive\">inactive</option></select>")
-  -- ONE HUE PER THEME: the colour config is keyed by theme, so two fields.
-  , nrow "nlight" "light hue" (hueField "nlight")
-  , nrow "ndark" "dark hue" (hueField "ndark")
-  , "      <div id=\"nfoot\">TAB walks · RET adds it · ESC leaves</div>"
-  , "    </div>"
-  , "  </div>"
-  ]
-  <> popupFrame "links" "l" (tierOf "lbox")
+  <> popupFrame "mint" "n" "new TODO state" "TAB walks · RET adds it · ESC leaves"
+       [ nrow "nspace" "namespace" "<select id=\"nspace\" class=\"cview\"></select>"
+       , nrow "nname" "state" ("<input id=\"nname\" spellcheck=\"false\""
+                                 <> " autocomplete=\"off\" autocapitalize=\"off\""
+                                 <> " placeholder=\"letters and _\">")
+       , nrow "ngroup" "group" ("<select id=\"ngroup\" class=\"cview\">"
+                                  <> "<option value=\"active\">active</option>"
+                                  <> "<option value=\"inactive\">inactive</option></select>")
+       -- ONE HUE PER THEME: the colour config is keyed by theme, so two fields.
+       , nrow "nlight" "light hue" (hueField "nlight")
+       , nrow "ndark" "dark hue" (hueField "ndark")
+       ]
+  <> tableFrame "links" "l"
        ("<div id=\"ledit\">" <> field "ltitle" <> field "lurl" <> "</div>")
   -- The picker hangs at the CARET rather than centring, so it takes no tier.
   <>
@@ -86,20 +75,14 @@ demoShell opts font colours views =
   , "    </div>"
   , "  </div>"
   ]
-  <>
-  [ "  <div id=\"capture\">"
-  , boxOpen "kbox"
-  , "      <div id=\"khead\"></div>"
-  , "      <input id=\"ktag\" spellcheck=\"false\" autocomplete=\"off\""
-      <> " placeholder=\"tag — empty is the inbox\">"
-  , "      <div id=\"klist\"></div>"
-  , "      <div id=\"kfields\"></div>"
-  , "      <textarea id=\"ktext\" spellcheck=\"false\""
-      <> " placeholder=\"a headline, as org\"></textarea>"
-  , "      <div id=\"kfoot\"></div>"
-  , "    </div>"
-  , "  </div>"
-  ]
+  <> popupFrame "capture" "k" "" ""
+       [ "      <input id=\"ktag\" spellcheck=\"false\" autocomplete=\"off\""
+           <> " placeholder=\"tag — empty is the inbox\">"
+       , "      <div id=\"klist\"></div>"
+       , "      <div id=\"kfields\"></div>"
+       , "      <textarea id=\"ktext\" spellcheck=\"false\""
+           <> " placeholder=\"a headline, as org\"></textarea>"
+       ]
   -- Panel bodies wear `cpart'; glue.js's `SECTIONS' wraps them at boot.
   <>
   [ "  <div id=\"config\">"
@@ -147,19 +130,25 @@ demoShell opts font colours views =
   , "  <script src=\"" <> T.pack glueAsset <> "\"></script>"
   ]
 
--- | A table popup's frame: NAME the wrapper, P the prefix every part id wears,
--- TIER the size class, OVERLAY the edit box.
-popupFrame :: Text -> Text -> Text -> Text -> [Text]
-popupFrame name p tier overlay =
+-- | A popup's frame: NAME the wrapper, P the prefix every part id wears, HEAD and
+-- FOOT the chrome's own words, BODY the lines between them.
+popupFrame :: Text -> Text -> Text -> Text -> [Text] -> [Text]
+popupFrame name p head' foot body =
   [ "  <div id=\"" <> name <> "\">"
-  , "    <div id=\"" <> p <> "box\" class=\"" <> tier <> "\">"
-  , "      <div id=\"" <> p <> "head\"></div>"
-  , "      <div id=\"" <> p <> "pane\"><div id=\"" <> p <> "table\"></div>"
-      <> overlay <> "</div>"
-  , "      <div id=\"" <> p <> "foot\"></div>"
-  , "    </div>"
-  , "  </div>"
+  , boxOpen (p <> "box")
+  , "      <div id=\"" <> p <> "head\">" <> head' <> "</div>"
   ]
+  <> body
+  <> [ "      <div id=\"" <> p <> "foot\">" <> foot <> "</div>"
+     , "    </div>"
+     , "  </div>"
+     ]
+
+-- | A table popup: a pane of rows with OVERLAY, its edit box, under them.
+tableFrame :: Text -> Text -> Text -> [Text]
+tableFrame name p overlay = popupFrame name p "" ""
+  [ "      <div id=\"" <> p <> "pane\"><div id=\"" <> p <> "table\"></div>"
+      <> overlay <> "</div>" ]
 
 field :: Text -> Text
 field name = "<input id=\"" <> name <> "\" spellcheck=\"false\">"

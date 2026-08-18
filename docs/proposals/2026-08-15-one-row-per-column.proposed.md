@@ -32,7 +32,7 @@ the model's `columnNamesIn` to the real one, so the spec would rot in silence.
 ## What it costs today
 
 Adding a seventh column is one row plus four arms in three modules, none of them
-compiler-checked.  Two consequences are live, not hypothetical:
+compiler-checked.  Two consequences are live today:
 
 - **`Base.docCells` spells `"tags"` where the view spells `"tag"`**, and it
   crosses the port (`Page/Glue.hs:15` → `20-sheet.js:5`), so the browser learns

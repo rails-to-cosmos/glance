@@ -4,9 +4,7 @@ import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO (..))
 import Control.Monad.State (StateT)
 import qualified Control.Monad.State as State
-import Data.Org (orgParse)
 import qualified Data.Org as Org
-import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Text.IO as TIO
 import System.Console.Haskeline (InputT, Settings, getInputLine, runInputT)
@@ -15,19 +13,14 @@ import qualified TextShow as TS
 
 type Repl a = StateT Org.Context (InputT IO) a
 
-getInput :: Repl Text
-getInput = do
-  input <- State.lift $ getInputLine "> "
-  return $ maybe "" Text.pack input
-
 repl :: Repl ()
 repl = do
   ctx <- State.get
   liftIO $ TIO.putStrLn $ Org.display ctx
-  input <- getInput
+  input <- maybe "" Text.pack <$> State.lift (getInputLine "> ")
 
   unless (input `elem` [":q", "exit", "quit"]) $ do
-    let (elements, ctx', maybeErr) = orgParse ctx input
+    let (elements, ctx', maybeErr) = Org.orgParse ctx input
     liftIO $ do
       TIO.putStrLn $ "Repr: " <> Text.pack (show elements)
       TIO.putStrLn $ "Str: \"" <> Text.intercalate "" (map TS.showt elements) <> "\""

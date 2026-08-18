@@ -242,16 +242,13 @@ const SECTIONS = [
              + `${held ? ` · ${held} is a file's own` : ""})`);
     }
     const SFLAGS = {
-      mount: () => smount, take: sdelete, note: unlogged,
+      ...FLAG_WORDS,
+      mount: () => smount, take: sdelete,
       walk: () => stepIn(smount, 1),
-      missing: lacks("delete flags"),
       none: "org-todo-remove-state (no row)",
-      idle: "dired-do-flagged-delete (no deletions requested)",
-      spared: "dired-do-flagged-delete (left standing)",
       verb: "remove",
-      unflag: "delete-unflag (flag cleared)",
       flag: "delete-flag (d again removes)",
-      at: () => { const i = satAt(); return i === -1 ? null : srows[i].id; },
+      at: () => pointedId(srows, satAt()),
     };
     document.addEventListener("keydown", (e) => {
       if (!settings || momentary() || !smount || !showingPart("ctheme")) return;

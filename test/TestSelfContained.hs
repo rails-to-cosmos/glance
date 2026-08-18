@@ -95,10 +95,9 @@ spec = testGroup "Self-containment"
                | declaredDate /= Just (day stem) ]
       assertEqual "a proposal whose name and header disagree" [] wrong
 
-    -- THE VOCABULARY CARRIED OVER THE PORTS, joined the way the port NAMES already
-    -- are: both decoders end `_ -> D.succeed Ignore', so a mis-spelt kind is dropped
-    -- without a word.  The sets are a UNION on purpose -- `flagPort' serves whichever
-    -- program holds its rows, so four kinds are legitimately sent to both.
+    -- Both decoders end `_ -> D.succeed Ignore', so a mis-spelt kind is dropped
+    -- without a word.  A UNION on purpose: `flagPort' serves whichever program
+    -- holds its rows, so four kinds are legitimately sent to both.
   , testCase "every port kind the shell sends is one an Elm program decodes" $ do
       doc <- kindsIn "frontend/elm/src/Doc.elm"
       list <- kindsIn "frontend/elm/src/Listing.elm"
@@ -189,8 +188,6 @@ spec = testGroup "Self-containment"
 
     -- ONE VERSION, FOUR PLACES, and a cut moves them together.  The cabal file
     -- is the truth; the rest are copies, and a copy nobody compares drifts.
-    -- Same shape as the proposal-name rule above: the second place a fact is
-    -- written is CHECKED rather than trusted.
   , testCase "the version agrees wherever it is written" $ do
       cabalV <- valueAfter "version:" <$> TIO.readFile "glance.cabal"
       readmeV <- between "*Version:* =" "=" <$> TIO.readFile "README.org"

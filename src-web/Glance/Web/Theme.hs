@@ -5,6 +5,8 @@ module Glance.Web.Theme
   , Theme (..)
   , themes
   , themeIds
+  , bulletsKey
+  , bulletsShown
   , themeCSS
   , themeOverrides
   ) where
@@ -35,6 +37,17 @@ themes =
 -- | The names @data-theme@ may spell: the boot script's test and the selector.
 themeIds :: [Text]
 themeIds = map thId themes
+
+-- | THE SECOND LOOK THE PAGE REMEMBERS: whether the doc pane draws org's own
+--   unordered bullets.  HIDDEN is the default and is the ATTRIBUTE'S ABSENCE, the way
+--   @auto@ is for the theme, so a page with no stored choice paints before any script.
+bulletsKey :: Text
+bulletsKey = "glance-bullets"
+
+-- | The one value @data-bullets@ may spell, named once for the boot script's test and
+--   for the selector that spends it.
+bulletsShown :: Text
+bulletsShown = "shown"
 
 defaultFor :: Mode -> Theme
 defaultFor mode = case find ((== mode) . thMode) themes of
@@ -114,11 +127,9 @@ themeCSS = T.concat
     media css = "  @media (prefers-color-scheme:dark){\n" <> css <> "  }\n"
     rules pad page table t = block pad page (scheme t : pageTokens (thPalette t))
                           <> block pad table (tableTokens (thPalette t))
-    -- THE PLATFORM PAINTS THE CONTROLS, and this is the only thing that tells it
-    -- which way.  A `<select>' is drawn by the UA, so a dark page that never
-    -- declares its scheme gets the LIGHT control palette — and with the page's
-    -- own `color' inherited over it, white on white.  It rides the palette
-    -- blocks so the scheme cannot drift from the tokens beside it.
+    -- A `<select>' is drawn by the UA: undeclared, a dark page gets the LIGHT
+    -- control palette and the page's own `color' over it — white on white.
+    -- Rides the palette blocks so the scheme cannot drift from its tokens.
     scheme t = ("color-scheme", case thMode t of Dark -> "dark"; Light -> "light")
 
 -- | Emitted AFTER 'themeCSS' at the same specificity, so a later rule wins, and

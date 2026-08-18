@@ -4,6 +4,23 @@
 const assert = (ok, why) => { if (!ok) throw new Error(why); };
 const px = (n) => `${Math.round(n * 10) / 10}px`;
 
+/** Boot the table page, which every table-surface case starts from. */
+async function tableUp(p, base) {
+  await p.goto(`${base}/`);
+  await p.until(() => !!document.querySelector("#app table tbody tr"),
+                "the table to mount rows");
+}
+
+/** Raise the mint form over the state palette, the table already up. */
+async function mintForm(p) {
+  await p.press("t");
+  await p.until(() => !!document.querySelector("#plist .pr"),
+                "the state palette to draw its sources");
+  await p.press("+");
+  await p.until(() => document.getElementById("mint").classList.contains("on"),
+                "the mint form to raise");
+}
+
 /** Open the sheet over ROW by URL, which is the page's own contract. */
 async function sheet(p, base, row) {
   await p.goto(`${base}/?page=sheet&row=${row}`);
@@ -156,9 +173,7 @@ export default [
 // 14e13d9.  ONE red on both surfaces; `paletteSweep' only ever compares served TEXT.
 { name: "a flag paints one red on both surfaces, and draws its inset edge",
   async run(p, base) {
-    await p.goto(`${base}/`);
-    await p.until(() => !!document.querySelector("#app table tbody tr"),
-                  "the table to mount rows");
+    await tableUp(p, base);
     await p.press("d");                                   // dired's flag
     await p.until(() => !!document.querySelector("#app tr.tv-flagged"),
                   "the table row to wear its flag");
@@ -189,7 +204,8 @@ export default [
       const fl = document.querySelector("#mdoc .de.dfl");
       return !!fl && !!fl.querySelector(".de");
     }, "the pane's row to wear its flag, with rows inside it");
-    // THE TABLE GROUNDS ITS ROW AND THE DOCUMENT MARKS ITS LINE.
+    // THE TABLE WASHES ITS ROW AND THE DOCUMENT MARKS ITS LINE: the pane's ground is
+    // the CURSOR's, so a flagged row wears one only while point stands on it.
     const pane = await p.eval(() => {
       const fl = document.querySelector("#mdoc .de.dfl");
       // THE INK IS THE ROW'S: an elbow spends it on borders, a run on background.
@@ -198,6 +214,9 @@ export default [
       return { under: under ? ink(under) : null,
                thin: ink(fl),
                wide: getComputedStyle(fl, "::before").width,
+               at: fl.classList.contains("dat"),
+               sel: rgb(getComputedStyle(document.documentElement)
+                 .getPropertyValue("--g-sel").trim()),
                ground: getComputedStyle(fl).backgroundColor };
     });
     // Both strings came out of the same engine, so the red is compared as spelled.
@@ -205,8 +224,9 @@ export default [
       `the pane's flag connector paints ${pane.thin}, the table's red is ${table.flag}`);
     assert(pane.under === null || pane.under === table.flag,
       `a row under the flagged one paints ${pane.under}, so the branch is not marked`);
-    assert(pane.ground === "rgba(0, 0, 0, 0)",
-      `the pane's flagged row paints a ground of ${pane.ground}`);
+    assert(pane.ground === (pane.at ? pane.sel : "rgba(0, 0, 0, 0)"),
+      `the flagged row ${pane.at ? "under point" : "away from point"} grounds `
+      + `${pane.ground}, so the flag has a wash of its own`);
     return [`--g-bad and --tv-flag both paint ${table.flag}`,
             `the table's flagged ground is ${table.ground} against ${table.plain}`,
             `the pane's flag is a ${pane.wide} connector in ${pane.thin}`];
@@ -335,10 +355,16 @@ export default [
 
 // POINT IS A MARK BESIDE THE LINE (AGENTS.hs).  `groundSweep' greps the served
 // TEXT; what the row PAINTS needs an engine.
-{ name: "the cursor in the pane is a mark, and the pane that lost the keys draws none",
+{ name: "the cursor in the pane is a ground, and the pane that lost the keys marks none",
   async run(p, base) {
     await sheet(p, base, "drv-box");
     await p.press("n");
+    // THE CLASS FLIPS A TURN AFTER THE KEY, so a blind read measures the HEADLINE,
+    // which carries no ground and fails the assertion below at random.
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.classList.contains("d-para");
+    }, "the cursor to land on the entry's first paragraph");
     const seen = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
       const off = [...document.querySelectorAll("#mdoc .de")].find((n) => n !== at);
@@ -839,9 +865,7 @@ export default [
 // Chromium cannot reproduce GTK's paint, so the DECLARATION is what is asked.
 { name: "every dropdown declares the scheme its platform paints it in",
   async run(p, base) {
-    await p.goto(`${base}/`);
-    await p.until(() => !!document.querySelector("#app table tbody tr"),
-                  "the table to mount rows");
+    await tableUp(p, base);
     const SELECTS = ["themesel", "clayer", "nspace", "ngroup"];
     const read = (theme, ids) => {
       const root = document.documentElement;
@@ -953,15 +977,8 @@ export default [
 // THE MINT FORM STANDS OVER THE PALETTE THAT RAISED IT.
 { name: "+ over the state palette draws a form over a palette that stands",
   async run(p, base) {
-    await p.goto(`${base}/`);
-    await p.until(() => !!document.querySelector("#app table tbody tr"),
-                  "the table to mount rows");
-    await p.press("t");
-    await p.until(() => !!document.querySelector("#plist .pr"),
-                  "the state palette to draw its sources");
-    await p.press("+");
-    await p.until(() => document.getElementById("mint").classList.contains("on"),
-                  "the mint form to raise");
+    await tableUp(p, base);
+    await mintForm(p);
     const seen = await p.eval(() => {
       const box = document.getElementById("nbox").getBoundingClientRect();
       const under = document.getElementById("pbox").getBoundingClientRect();
@@ -1000,19 +1017,12 @@ export default [
 // This tree has no `.org-glance/config', so the layer is minted by the write.
 { name: "+ writes a state into a tree that had no config, then sets it",
   async run(p, base) {
-    await p.goto(`${base}/`);
-    await p.until(() => !!document.querySelector("#app table tbody tr"),
-                  "the table to mount rows");
+    await tableUp(p, base);
     const row = await p.eval(() => {
       const tr = document.querySelector("#app tr.tv-sel");
       return { id: tr.getAttribute("data-id"), text: tr.textContent.trim() };
     });
-    await p.press("t");
-    await p.until(() => !!document.querySelector("#plist .pr"),
-                  "the state palette to draw its sources");
-    await p.press("+");
-    await p.until(() => document.getElementById("mint").classList.contains("on"),
-                  "the mint form to raise");
+    await mintForm(p);
     await p.type("HANDED");
     await p.press("RET");
     // THE WHOLE CHAIN: the write, the reseed, `/keywords', `set-state', and the socket.
@@ -1051,6 +1061,7 @@ export default [
       return { point: rgb(root.getPropertyValue("--g-point").trim()),
                fg: rgb(root.getPropertyValue("--g-fg").trim()),
                off: rgb(root.getPropertyValue("--g-point-off").trim()),
+               sel: rgb(root.getPropertyValue("--g-sel").trim()),
                atInk: ink(at),
                kidInk: ink(kid),
                otherInk: other
@@ -1068,14 +1079,16 @@ export default [
       `a row under point paints ${seen.kidInk}, not the page's ink ${seen.fg}`);
     assert(seen.otherInk === seen.off,
       `an item outside point's subtree paints ${seen.otherInk}, not ${seen.off}`);
-    assert(seen.ground === "rgba(0, 0, 0, 0)",
-      `the item paints a ground of ${seen.ground}`);
+    // AND THE ROW STANDS ON THE TABLE'S OWN GROUND, its connector outside it.
+    assert(seen.ground === seen.sel,
+      `the item grounds ${seen.ground}, not the table's ${seen.sel}`);
     // THE CONNECTOR STOPS PART-WAY DOWN THE LINE IT MARKS, which makes it an elbow
     // rather than a rail; WHERE exactly is the dash's own ink, and the case named
     // "the elbow turns on the dash's own ink" owns that.
     assert(seen.tall > seen.line / 3 && seen.tall < seen.line,
       `the connector is ${seen.tall}px against a ${seen.line}px line`);
-    // THE LIST LIGHTS THE ROOTS IT OPENS: a composite has no connector of its own.
+    // THE LIST GROUNDS THE ROWS IT OPENS: a composite has no connector of its own,
+    // and a connector standing on that ground takes the page's ink to read over it.
     await p.press("b");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
@@ -1086,16 +1099,19 @@ export default [
       const root = at.querySelector(":scope > .de");
       const deep = at.querySelector(":scope > .de > .de");
       return { rootInk: ink(root),
+               ground: getComputedStyle(at).backgroundColor,
                deepInk: deep
                  ? ink(deep) : null };
     });
-    assert(whole.rootInk === seen.point,
-      `a root the list opens paints ${whole.rootInk}, not ${seen.point}`);
+    assert(whole.ground === seen.sel,
+      `the list grounds ${whole.ground}, not the table's ${seen.sel}`);
+    assert(whole.rootInk === seen.fg,
+      `a root on the list's ground paints ${whole.rootInk}, not the page's ${seen.fg}`);
     assert(whole.deepInk !== seen.point,
       `a row two deep paints ${whole.deepInk} as well, so the light ran the tree`);
     return [`point ${seen.atInk}, what it carries ${seen.kidInk}, elsewhere `
       + `${seen.otherInk}; the elbow is ${seen.tall}px of a ${seen.line}px line; `
-      + `the list lights its roots ${whole.rootInk} and stops`];
+      + `the list grounds its rows ${whole.ground} and their rails read ${whole.rootInk}`];
   } },
 
 // THE BOX IS THE LINE IT WRITES: the ROW is as tall as its subtree, and the edit
@@ -1148,9 +1164,12 @@ export default [
     return [`row ${shape.row}px, own line ${box.ownH}px, box ${box.h}px holding `
       + `${JSON.stringify(box.text.slice(0, 34))}`];
   } },
-{ name: "the marker org wrote lights with the line, and only that line's own",
+{ name: "the cursor is a ground over its own line, and the marker reads over it",
   async run(p, base) {
     await sheet(p, base, "drv-wide");
+    // THE MARKER IS ASKED OF A GLYPH THE READER CAN SEE: a dash steps aside by
+    // default, and an ink on a glyph nobody draws is an assertion about nothing.
+    await p.eval(() => { document.documentElement.dataset.bullets = "shown"; });
     // Onto the list, then into it: the item under point has one drawn inside it.
     await p.press("n"); await p.press("n"); await p.press("n");
     await p.press("f");
@@ -1160,28 +1179,50 @@ export default [
     }, "the cursor to land on an item that has one drawn inside it");
     const seen = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
+      const root = getComputedStyle(document.documentElement);
+      // THE INK IS READ OFF THE GLYPH, the bullet's own span where org wrote a
+      // steppable bullet, since that is what the reader sees.
+      const glyph = (n) => n && (n.querySelector(".dbul") || n);
       const own = at.querySelector(":scope > .dp > .dm");
       // `:scope': a descendant combinator may match through an ancestor outside `at'.
-      const kid = at.querySelector(":scope > .de > .dp > .dm");
-      const plain = [...document.querySelectorAll("#mdoc .de:not(.dat) > .dp > .dm")]
-        .find((n) => !at.contains(n));
-      return { point: rgb(getComputedStyle(document.documentElement).getPropertyValue("--g-point").trim()),
-               ink: getComputedStyle(own).color, text: own.textContent,
-               weight: getComputedStyle(own).fontWeight,
+      const kidRow = at.querySelector(":scope > .de");
+      const kid = glyph(kidRow.querySelector(":scope > .dp > .dm"));
+      const plainRow = [...document.querySelectorAll("#mdoc .de:not(.dat)")]
+        .find((n) => !at.contains(n) && n.querySelector(":scope > .dp > .dm"));
+      return { sel: rgb(root.getPropertyValue("--g-sel").trim()),
+               bg: rgb(root.getPropertyValue("--g-bg").trim()),
+               fg: rgb(root.getPropertyValue("--g-fg").trim()),
+               point: rgb(root.getPropertyValue("--g-point").trim()),
+               // THE GROUND THE TABLE'S CURSOR WEARS, and the tree in its own column.
+               ground: getComputedStyle(at).backgroundColor,
+               rail: ink(at),
+               kidGround: getComputedStyle(kidRow).backgroundColor,
+               plainGround: plainRow ? getComputedStyle(plainRow).backgroundColor : null,
+               ink: getComputedStyle(glyph(own)).color, text: own.textContent,
+               weight: getComputedStyle(glyph(own)).fontWeight,
                plainWeight: getComputedStyle(own.parentElement).fontWeight,
-               nested: kid ? getComputedStyle(kid).color : null,
-               other: plain ? getComputedStyle(plain).color : null };
+               nested: kid ? getComputedStyle(kid).color : null };
     });
-    assert(seen.ink === seen.point,
-      `the bullet under point paints ${seen.ink}, not the point ink ${seen.point}`);
+    assert(seen.ground === seen.sel,
+      `the cursor row grounds ${seen.ground}, not the table's ${seen.sel}`);
+    // A NESTED ROW IS DRAWN INSIDE POINT, so the ground would run the whole subtree.
+    assert(seen.kidGround === seen.bg,
+      `a row drawn inside point grounds ${seen.kidGround}, so the ground runs the subtree`);
+    assert(seen.plainGround !== seen.sel,
+      `an ordinary row grounds ${seen.plainGround} as well`);
+    // THE TREE KEEPS POINT'S OWN HUE, its column sitting outside the ground.
+    assert(seen.rail === seen.point,
+      `the cursor's connector paints ${seen.rail}, not the point ink ${seen.point}`);
+    // AND WHAT STANDS ON THE GROUND READS OVER IT: point's hue is the ground's in the
+    // light theme, so a marker painted in it went missing, ordinals and all.
+    assert(seen.ink === seen.fg,
+      `the marker on the ground paints ${seen.ink}, not the page's ${seen.fg}`);
+    assert(seen.nested === seen.fg,
+      `a marker nested under point paints ${seen.nested}`);
     // THE CHECKBOX IS PART OF THE MARKER: `- [X]' is one thing the reader points at.
     assert(/^\s*([-+*]|\d+[.)])\s+(\[[ xX-]\]\s+)?$/.test(seen.text),
-      `the lit span is "${seen.text}", which is not an org list marker`);
-    assert(seen.nested !== seen.point,
-      `a bullet nested under point paints ${seen.nested} too, so the light runs the subtree`);
-    assert(seen.other !== seen.point,
-      `an ordinary row's bullet paints ${seen.other} as well`);
-    // AND THE HEADLINE WEARS ITS STARS: they sit in the column the mark would use.
+      `the span read is "${seen.text}", which is not an org list marker`);
+    // AND THE HEADLINE DRAWS NO MARK: its stars sit in the connector's own column.
     await p.press("b"); await p.press("b");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
@@ -1190,17 +1231,21 @@ export default [
     const head = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
       return { stars: getComputedStyle(at.querySelector(".ds")).color,
+               ground: getComputedStyle(at).backgroundColor,
                mark: getComputedStyle(at, "::before").display };
     });
-    assert(head.stars === seen.point,
-      `the headline's stars paint ${head.stars}, not the point ink ${seen.point}`);
+    assert(head.ground === seen.sel,
+      `the headline under point grounds ${head.ground}, not the table's ${seen.sel}`);
+    assert(head.stars === seen.fg,
+      `the headline's stars paint ${head.stars}, not the page's ${seen.fg}`);
     assert(head.mark === "none",
-      `the headline draws a connector as well as lighting its stars`);
+      `the headline draws a connector as well as standing on the ground`);
     // COLOUR ALONE: the marker keeps the face the line is set in.
     assert(seen.weight === seen.plainWeight,
-      `the lit marker is weight ${seen.weight} against the line's ${seen.plainWeight}`);
-    return [`"${seen.text.trim()}" lights ${seen.ink} at weight ${seen.weight}; `
-      + `nested ${seen.nested}, ordinary ${seen.other}; the headline's stars ${head.stars}`];
+      `the marker is weight ${seen.weight} against the line's ${seen.plainWeight}`);
+    return [`the row grounds ${seen.ground} with its rail in ${seen.rail}; `
+      + `"${seen.text.trim()}" reads ${seen.ink} at weight ${seen.weight}; `
+      + `a row inside it grounds ${seen.kidGround}`];
   } },
 { name: "the strip names the way back, and agrees with the connectors",
   async run(p, base) {
@@ -1350,17 +1395,36 @@ export default [
       return !!at && at.classList.contains("d-item");
     }, "`f' to reach the list's first item");
     // Walk to the item that carries a box, then open it and split the line.
+    // A KEY IS ANSWERED A TURN LATER, so each step waits for the cursor to move --
+    // pressing again over a pane that has not answered walks past the box.
+    const rowNow = () => p.eval(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return at ? at.textContent.slice(0, 40) : "";
+    });
     for (let i = 0; i < 6; i++) {
       const box = await p.eval(() => {
         const at = document.querySelector("#mdoc .de.dat");
         return !!at && !!at.querySelector(":scope > .dp > .dbx");
       });
       if (box) break;
+      const was = await rowNow();
       await p.press("n");
+      await p.until((seen) => {
+        const at = document.querySelector("#mdoc .de.dat");
+        return !!at && at.textContent.slice(0, 40) !== seen;
+      }, "the cursor to move on", undefined, was);
     }
     await p.press("RET");
     await p.until(() => document.getElementById("dpara").classList.contains("on"),
                   "the edit to open over it");
+    // `placeEdit' SIZES THE BOX A TURN AFTER THE RAISE: measured before that, the
+    // box still stands over the row the cursor was on, and no growth can beat it.
+    await p.until(() => {
+      const b = document.getElementById("dpara").getBoundingClientRect();
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && b.height > 0
+             && Math.abs(b.height - at.getBoundingClientRect().height) < 1;
+    }, "the box to be placed over its row");
     const shut = await p.eval(() =>
       document.getElementById("dpara").getBoundingClientRect().height);
     await p.press("M-RET");
@@ -1384,5 +1448,110 @@ export default [
       + `${seen.marker.length}: ${JSON.stringify(seen.value)}`);
     return [`"${seen.marker}" is ${seen.marker.length} wide, and the continuation `
       + `carries ${seen.under.length}`];
+  } },
+
+{ name: "an unordered bullet steps aside and keeps its column",
+  async run(p, base) {
+    // `drv-marks' spells every marker org writes: `-', `+', an indented `*', both
+    // boxes, both ordinals, and a dash quoted where no connector is drawn.
+    await sheet(p, base, "drv-marks");
+    await p.until(() => document.querySelectorAll("#mdoc .dbul").length === 6,
+                  "the pane to draw all six unordered bullets");
+    const read = () => {
+      // THE PANE IS MONOSPACE, so one cell is the unit every column is counted in.
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
+      probe.textContent = "0".repeat(50);
+      document.getElementById("mdoc").append(probe);
+      const ch = probe.getBoundingClientRect().width / 50;
+      probe.remove();
+      const readMark = (n) => ({
+        text: n.textContent,
+        inList: !!n.closest(".d-list"),
+        // WHERE THE TEXT STARTS, which is what must not move.
+        textAt: n.getBoundingClientRect().right,
+        left: n.getBoundingClientRect().left,
+        ink: getComputedStyle(n).color,
+        buls: [...n.querySelectorAll(".dbul")].map((b) => ({
+          text: b.textContent,
+          ink: getComputedStyle(b).color,
+          cell: b.getBoundingClientRect().width })) });
+      return { ch,
+               stamp: document.documentElement.dataset.bullets || null,
+               marks: [...document.querySelectorAll("#mdoc .de > .dp > .dm")].map(readMark),
+               boxes: [...document.querySelectorAll("#mdoc .dbx")].map((b) => ({
+                 text: b.textContent, ticked: b.classList.contains("on"),
+                 ink: getComputedStyle(b).color })) };
+    };
+    const off = await p.eval(read);
+    await p.eval(() => { document.documentElement.dataset.bullets = "shown"; });
+    const on = await p.eval(read);
+    const clear = "rgba(0, 0, 0, 0)";
+    const loose = (m) => /^\s*[-+*]\s/.test(m.text);
+    const ordered = (m) => /^\s*\d+[.)]\s/.test(m.text);
+    const cells = (m) => (m.textAt - m.left) / off.ch;
+    // THE FIXTURE IS THIS CASE'S OWN, so its counts are exact: a marker that stops
+    // being a marker goes red rather than going unmeasured.
+    assert(off.stamp === null,
+      `the default rides a stamp of "${off.stamp}"; the attribute should be absent`);
+    assert(off.marks.length === 8 && off.marks.filter(loose).length === 6
+             && off.marks.filter(ordered).length === 2,
+      `the sheet drew ${JSON.stringify(off.marks.map((m) => m.text))}`);
+    for (const m of off.marks.filter(loose)) {
+      assert(m.buls.length === 1,
+        `"${m.text}" is drawn in ${m.buls.length} steppable spans`);
+      assert(m.buls[0].text === m.text.trim().slice(0, 1),
+        `"${m.text}" holds "${m.buls[0].text}" in its span, a byte its own line lacks`);
+      // ORG'S OWN COLUMNS, COUNTED: the bullet is one cell and the marker is as many
+      // as org wrote, so a glyph shrunk or nudged out of its cell is caught.
+      assert(Math.abs(m.buls[0].cell - off.ch) < 0.05,
+        `"${m.text}" draws its bullet ${px(m.buls[0].cell)} wide against a `
+        + `${px(off.ch)} cell`);
+      assert(Math.abs(cells(m) - m.text.length) < 0.05,
+        `"${m.text}" spans ${cells(m).toFixed(2)} cells for ${m.text.length} characters`);
+    }
+    // A CONNECTOR IS WHAT REPLACES THE BULLET, so a dash with no connector keeps its
+    // own: a quoted line wears no elbow, and hiding its dash left it unmarked.
+    for (const m of off.marks.filter(loose))
+      assert(m.buls[0].ink === (m.inList ? clear : m.ink),
+        `"${m.text}" ${m.inList ? "inside" : "outside"} a list paints `
+        + `${m.buls[0].ink} against its marker's ${m.ink}`);
+    // AN ORDINAL AND A BOX ARE CONTENT, and no look takes content away.
+    for (const m of off.marks.filter(ordered)) {
+      assert(m.buls.length === 0,
+        `the ordinal "${m.text}" has ${m.buls.length} spans a stylesheet can empty`);
+      assert(m.ink !== clear, `the ordinal "${m.text}" paints ${m.ink}`);
+    }
+    assert(off.boxes.length === 2 && off.boxes.filter((b) => b.ticked).length === 1,
+      `the sheet drew ${JSON.stringify(off.boxes.map((b) => b.text))}`);
+    for (const b of off.boxes)
+      assert(b.ink !== clear, `the box "${b.text}" paints ${b.ink}`);
+    assert(off.boxes[0].ink !== off.boxes[1].ink,
+      `a ticked box and an empty one both paint ${off.boxes[0].ink}`);
+    // SHOWN, the glyph comes back in the ink its marker wears, and NOTHING MOVES.
+    assert(on.stamp === "shown", `the stamp reads "${on.stamp}" after asking for bullets`);
+    for (let i = 0; i < off.marks.length; i += 1) {
+      assert(Math.abs(off.marks[i].textAt - on.marks[i].textAt) < 0.05,
+        `"${off.marks[i].text}" starts its text at ${px(off.marks[i].textAt)} hidden `
+        + `and ${px(on.marks[i].textAt)} shown`);
+      for (const b of on.marks[i].buls)
+        assert(b.ink !== clear && b.ink === on.marks[i].ink,
+          `shown, "${off.marks[i].text}" paints ${b.ink} against its marker's `
+          + `${on.marks[i].ink}`);
+    }
+    // THE CHOICE IS THE READER'S AND THE PAGE HONOURS IT ON THE WAY IN: the boot
+    // script stamps the stored value before the first paint.
+    await p.eval(() => localStorage.setItem("glance-bullets", "shown"));
+    await sheet(p, base, "drv-marks");
+    const stored = await p.eval(read);
+    await p.eval(() => localStorage.removeItem("glance-bullets"));
+    assert(stored.stamp === "shown",
+      `a stored choice booted to a stamp of "${stored.stamp}"`);
+    for (const m of stored.marks.filter(loose))
+      assert(m.buls[0].ink !== clear,
+        `a stored choice booted with "${m.text}" still painting ${m.buls[0].ink}`);
+    return [`${off.marks.filter(loose).length} bullets step aside and `
+      + `${off.marks.filter(ordered).length} ordinals stay, on a ${px(off.ch)} cell; `
+      + `every marker ends where it did, and a stored "shown" boots drawn`];
   } },
 ];

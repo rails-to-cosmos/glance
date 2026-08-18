@@ -1,10 +1,10 @@
 // THE CAPTURE FORM AND THE VALUE PALETTE, behind an argument list (AGENTS.hs).
 // What it takes from the shell arrives as accessors: a handle cannot carry a `let'.
 const Capture = ((deps) => {
-    const { CFG, EMPTY, active, append, askFailed, badgeColor, cells, docTitle, el,
-            failed, fire, getJSON, headline, keyName, part, planning, postCommand,
-            said, shown, targetOf, targets } = deps;
-    const { queryNow, colsNow, entryNow, arrivingNow, setArriving } = deps;
+    const { CFG, EMPTY, active, append, askFailed, badgeColor, docTitle, el,
+            failed, fire, getJSON, keyName, part, postCommand,
+            said, targetOf, targets, walkStep } = deps;
+    const { queryNow, colsNow, entryNow, setArriving } = deps;
     let capping = null;   // the capture form's state while it is up
     const capUp = () => !!capping;
     function shutCapture() {
@@ -53,12 +53,8 @@ const Capture = ((deps) => {
       if (capping.hot >= capping.shown.length) capping.hot = -1;
       const box = el("klist");
       box.textContent = "";
-      capping.shown.forEach((t, i) => {
-        const e = document.createElement("div");
-        e.className = i === capping.hot ? "ke kh" : "ke";
-        e.textContent = t;
-        box.appendChild(e);
-      });
+      capping.shown.forEach((t, i) =>
+        part(box, "div", i === capping.hot ? "ke kh" : "ke", t));
     }
     function settleTag() {
       const picked = capping.hot >= 0 ? capping.shown[capping.hot] : null;
@@ -70,15 +66,15 @@ const Capture = ((deps) => {
       if (!tag) { el("ktext").focus(); return; }
       captureShape(tag).then((a) => {
         if (!capping || capping.tag !== tag) return;
+        const fields = el("kfields");
         for (const want of (a.prompts || [])) {
           const row = document.createElement("div");
           row.className = "krow";
-          const lab = document.createElement("label");
-          lab.className = "klab"; lab.textContent = want;
+          part(row, "label", "klab", want);
           const inp = document.createElement("input");
           inp.spellcheck = false;
-          row.appendChild(lab); row.appendChild(inp);
-          el("kfields").appendChild(row);
+          row.appendChild(inp);
+          fields.appendChild(row);
           capping.inputs.push({ want, inp });
         }
         (capping.inputs.length ? capping.inputs[0].inp : el("ktext")).focus();
@@ -90,8 +86,7 @@ const Capture = ((deps) => {
       const held = active();
       const k = keyName(e);
       if (held === el("ktag")) {
-        const walk = k === "C-n" || k === "<down>" ? 1
-                   : k === "C-p" || k === "<up>" ? -1 : 0;
+        const walk = walkStep(k);
         if (walk) {
           capping.hot = Math.max(-1, Math.min(capping.hot + walk,
                                               (capping.shown || []).length - 1));
@@ -397,16 +392,16 @@ const Capture = ((deps) => {
              openCapture, openLink, overTargets, planRows, promptNow, raise,
              restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
              walkChoices };
-})({ CFG, EMPTY, active, append, askFailed, badgeColor, cells, docTitle, el,
-     failed, fire, getJSON, headline, keyName, part, planning, postCommand,
-     said, shown, targetOf, targets,
+})({ CFG, EMPTY, active, append, askFailed, badgeColor, docTitle, el,
+     failed, fire, getJSON, keyName, part, postCommand,
+     said, targetOf, targets, walkStep,
      // FORWARD deps go in as thunks: these are declared in later parts, and a
      // wrapped part's exports are destructured `const's -- naming one here
      // would read it before its initialiser has run.
      showLinks: (...a) => showLinks(...a), showPopup: (...a) => showPopup(...a),
      showTags: (...a) => showTags(...a), sole: (...a) => sole(...a),
      queryNow: () => query, colsNow: () => cols, entryNow: () => editing,
-     arrivingNow: () => arriving, setArriving: (id) => { arriving = id; } });
+     setArriving: (id) => { arriving = id; } });
 const { CODES, ask, askFrom, askState, askTags, askText, capUp, docTargets, entry,
         fieldMode, filteredTags, foldTag, followLinks, freely, linksOf, offer,
         keywordSources,

@@ -19,8 +19,7 @@ global `WebSocket` onto `/json/version`'s `webSocketDebuggerUrl`,
 `Target.createTarget` + `attachToTarget` with `flatten`, then
 `Runtime.evaluate` returning BOTH halves this proposal exists for — a real
 `getBoundingClientRect` (`height: 37` off a 37px element) and a real
-`getComputedStyle` (`37px`). So the remaining work is the CASES, not the
-transport.
+`getComputedStyle` (`37px`). So the remaining work is the CASES.
 
 What is still open is below, unchanged: WHICH ENGINE IS THE CONTRACT. Blink is
 what installed here; WebKitGTK is what `make native` ships.

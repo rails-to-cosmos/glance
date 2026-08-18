@@ -22,7 +22,7 @@ module Data.Org.Edit ( Edit (..)
                      , tempSuffix
                      ) where
 
-import Control.Exception (IOException, SomeException, bracketOnError, evaluate, try)
+import Control.Exception (IOException, SomeException, bracket, bracketOnError, evaluate, try)
 import Control.Monad (unless, void, when)
 import Control.Monad.Except (ExceptT (ExceptT), runExceptT, throwError)
 #ifdef PURE_CRYPTO
@@ -34,11 +34,11 @@ import Crypto.Hash (Digest, SHA256, hash)
 import Data.List (sortOn)
 import Data.Text (Text)
 import Data.Void (Void)
-import System.Directory ( copyPermissions, createDirectoryIfMissing, doesFileExist
-                        , removeFile, renameFile )
+import System.Directory ( copyPermissions, createDirectoryIfMissing, doesDirectoryExist
+                        , doesFileExist, removeFile, renameFile )
 import System.FilePath (takeDirectory, takeFileName)
 import System.IO (hClose, hFlush, openBinaryTempFile)
-import System.Posix.IO (closeFd, handleToFd)
+import System.Posix.IO (OpenMode (ReadOnly), closeFd, defaultFileFlags, handleToFd, openFd)
 import System.Posix.Unistd (fileSynchronise)
 import Text.Megaparsec (ParseErrorBundle, errorBundlePretty)
 
@@ -225,9 +225,16 @@ tempSuffix = ".glance-tmp"
 writeAtomically :: FilePath -> BS.ByteString -> IO (Either EditIOError ())
 writeAtomically path bytes = report <$> attempt
   where
-    attempt = try (bracketOnError open discard write) :: IO (Either IOException ())
-    open = do createDirectoryIfMissing True (takeDirectory path)
-              openBinaryTempFile (takeDirectory path) (takeFileName path <> tempSuffix)
+    dir = takeDirectory path
+    attempt = try landing :: IO (Either IOException ())
+    -- THE DIRECTORIES ARE SYNCED AFTER THE RENAME, and one call is not enough
+    -- where the write had to create the directory it lands in.
+    landing = do
+      missing <- unmadeAncestors dir
+      bracketOnError open discard write
+      mapM_ syncDirectory (dir : map takeDirectory missing)
+    open = do createDirectoryIfMissing True dir
+              openBinaryTempFile dir (takeFileName path <> tempSuffix)
     write (tmp, h) = do
       BS.hPut h bytes
       hFlush h
@@ -240,5 +247,27 @@ writeAtomically path bytes = report <$> attempt
     discard (tmp, h) = do
       ignoring (hClose h)  -- a no-op once 'handleToFd' has run.
       ignoring (removeFile tmp)
-    ignoring act = void (try act :: IO (Either IOException ()))
     report = either (Left . WriteFailed path . Walk.errText) Right
+
+-- | @fsync@ DIR, so a rename into it survives a crash.  A rename is atomic and
+-- NOT durable: without this the entry can be lost and the file come back
+-- holding what it held before a write that answered 200.  A failure is
+-- DROPPED — the bytes are already visible, and refusing a write that landed
+-- would be the worse lie.
+syncDirectory :: FilePath -> IO ()
+syncDirectory dir = ignoring (bracket (openFd dir ReadOnly defaultFileFlags) closeFd fileSynchronise)
+
+-- | The ancestors of DIR that do not exist yet, deepest first.  Their PARENTS
+-- are what needs the sync: a created directory is itself an entry, and one lost
+-- takes the document under it.
+-- | ACT, with an IO failure dropped.
+ignoring :: IO a -> IO ()
+ignoring act = void (try (void act) :: IO (Either IOException ()))
+
+unmadeAncestors :: FilePath -> IO [FilePath]
+unmadeAncestors dir
+  | up == dir = pure []
+  | otherwise = do
+      there <- doesDirectoryExist dir
+      if there then pure [] else (dir :) <$> unmadeAncestors up
+  where up = takeDirectory dir

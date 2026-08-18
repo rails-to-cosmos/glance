@@ -27,7 +27,7 @@ the scanner mints and the open set an author writes. Nobody has shown that costs
 anything, and a rename with no failing case behind it is churn. Reopen it with
 one.
 
-The lesson is the document, not the code: a proposal asserting a bug owes a
+The lesson is about the document: a proposal asserting a bug owes a
 reproduction, and this one shipped without running the case it named.
 
 ## The bug, exactly

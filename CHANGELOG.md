@@ -9,6 +9,46 @@ and this project adheres to the
 Versions 0.1 through 0.4 were cut retroactively over one dense build: each
 section groups a feature arc, and its date is that arc's last commit.
 
+## Unreleased
+
+### Added
+
+- **The doc pane draws the tree instead of org's own bullets.** A list item wore
+  two marks at once — the connector the pane draws and the `-` the file spells —
+  a cell apart at the same height, reading as one dashed run. An unordered
+  bullet (`-`, `+`, `*`) now steps aside wherever a connector is drawn, keeping
+  its column so no text moves and the line still copies as org wrote it. An
+  ordinal (`1.`, `1)`) and a checkbox are content and always paint. The look is
+  remembered under `glance-bullets`: store `shown` to get the bullets back.
+
+### Changed
+
+- **The project is under the Apache License 2.0.** It was BSD-3-Clause. The new
+  terms add an explicit patent grant and ask that changed files be marked and
+  the `NOTICE` travel with the work; `NOTICE` also carries the MIT notice for
+  `assets/table-view.js`, which is vendored from the table-view project.
+
+- **The cursor in the doc pane wears the table's own highlight.** Point marked
+  its line with a connector alone; the stop under it now takes `--g-sel`, the
+  ground a selected table row wears, so one cursor reads the same on both
+  surfaces. A row drawn inside point keeps the page's ground, or the cursor
+  would run the whole subtree. In the light theme point's ink moved from gold
+  to a deep blue: gold is that theme's ground, and gold text on it read as
+  nothing — the ordinals went missing.
+
+### Fixed
+
+- **A continuation typed into a wrapped list item is visible.** `M-RET` inside
+  an item whose own line wraps added the line and left the box a row short, so
+  what was typed sat under the pane's own text. The open edit now makes room by
+  the rows its text occupies rather than by org's newlines alone.
+
+- **A reference carrying a kind resolves again.** Emacs's org-glance writes an
+  edge as `org-glance-material:ID?kind=SLUG`; the daemon kept the whole tail as
+  the target, so every such link pointed at nothing — `ref:` queries missed the
+  rows, and the subtree that named them showed no reference. The target is now
+  the id, cut at the first `?`. A title keeps its own question mark, being text.
+
 ## 0.7.0.1 - 2026-08-14
 
 ### Added
@@ -24,15 +64,7 @@ section groups a feature arc, and its date is that arc's last commit.
 
 - **`make major`, `make minor` and `make patch` cut a release.** A cut has to
   move three files that spell the version and rename the changelog's
-  `## Unreleased
-
-### Fixed
-
-- **A reference carrying a kind resolves again.** Emacs's org-glance writes an
-  edge as `org-glance-material:ID?kind=SLUG`; the daemon kept the whole tail as
-  the target, so every such link pointed at nothing — `ref:` queries missed the
-  rows, and the subtree that named them showed no reference. The target is now
-  the id, cut at the first `?`. A title keeps its own question mark, being text.` to the version and today's date; done by hand, one of them
+  `## Unreleased` to the version and today's date; done by hand, one of them
   drifts. PVP decides which digit moves: `major` for a breaking change (`0.7` →
   `0.8`), `minor` for an addition, `patch` for a fix. Cutting an empty
   `Unreleased` is refused. Nothing is committed or tagged.

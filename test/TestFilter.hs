@@ -202,11 +202,7 @@ idOf name records = case [ hrId r | r <- records, hrTitle r == name ] of
 
 refSpec :: TestTree
 refSpec = testGroup "References"
-  [ testCase "the key is spelled once, and it is not a column" $ do
-      assertEqual "the key" "ref" refKey
-      assertBool "and no column carries it" (refKey `notElem` filterKeys)
-      assertEqual "a predicate wherever it is written"
-                  [Term False (Just "ref") "alpha"] (parsed "ref:alpha")
+  [ virtualKeyCase "ref" refKey "alpha"
 
   , testCase "an id link makes the row that carries it a reference" $
       assertEqual "by id" ["By id"] =<< refMatching "ref:alpha"
@@ -254,11 +250,7 @@ refSpec = testGroup "References"
 -- | @planned@: the virtual key over both date columns, decidable from a row's cells.
 plannedSpec :: TestTree
 plannedSpec = testGroup "Planned"
-  [ testCase "the key is spelled once, and it is not a column" $ do
-      assertEqual "the key" "planned" plannedKey
-      assertBool "and no column carries it" (plannedKey `notElem` filterKeys)
-      assertEqual "a predicate with nothing loaded"
-                  [Term False (Just "planned") "*empty*"] (parsed "planned:*empty*")
+  [ virtualKeyCase "planned" plannedKey "*empty*"
 
   , testCase "a row is planned when either date cell holds anything" $ do
       matches "-planned:*empty*" [Ship, Privet, Reply]
@@ -300,7 +292,14 @@ plannedSpec = testGroup "Planned"
                   [ tag | tag <- carried
                         , Term _neg key _v <- parsed (tag <> ":x")
                         , key /= Nothing ]
-      -- The whole vocabulary a query may name, so a key added or lost fails here.
+      -- The columns and the keys named above, spelled out here and derived
+      -- nowhere, so a key ADDED or LOST is what goes red: a comparison of two
+      -- derived lists moves on both sides and catches neither.
+      assertEqual "the keys, spelled rather than derived"
+                  [ "deadline", "planned", "priority", "ref", "scheduled"
+                  , "sort", "state", "substring", "tag", "title" ]
+                  (sort (filterKeys <> grammarKeys))
+      -- And every one of them resolves to itself, which is what makes it a key.
       assertEqual "the keys are exactly the columns plus the ones the grammar owns"
                   (sort (filterKeys <> grammarKeys))
                   (sort [ k | k <- filterKeys <> grammarKeys
@@ -311,9 +310,7 @@ plannedSpec = testGroup "Planned"
 -- | FREE TEXT UNDER A KEY: @substring:V@ is what @V@ alone means, one matcher for both.
 substringSpec :: TestTree
 substringSpec = testGroup "Substring"
-  [ testCase "the key is spelled once, and it is not a column" $ do
-      assertEqual "the key" "substring" substringKey
-      assertBool "and no column carries it" (substringKey `notElem` filterKeys)
+  [ virtualKeyCase "substring" substringKey "ship"
 
   , testCase "it finds exactly what the bare word finds" $
       mapM_ (\word -> do
@@ -338,11 +335,7 @@ substringSpec = testGroup "Substring"
 -- | The ORDER token @sort:COL[:desc]@: it narrows nothing; the chain is 'sortChainIn's.
 sortSpec :: TestTree
 sortSpec = testGroup "Sort tokens"
-  [ testCase "the key is spelled once, and it is not a column" $ do
-      assertEqual "the key" "sort" sortKey
-      assertBool "and no column carries it" (sortKey `notElem` filterKeys)
-      assertEqual "a token names it like any other key"
-                  [Term False (Just "sort") "deadline"] (parsed "sort:deadline")
+  [ virtualKeyCase "sort" sortKey "deadline"
 
   , testCase "it narrows nothing, whatever it names" $ do
       every <- matching ""
@@ -484,12 +477,7 @@ sortSpec = testGroup "Sort tokens"
 -- | The COLUMN SET half of the view grammar, the sort token's twin: it narrows nothing.
 columnsSpec :: TestTree
 columnsSpec = testGroup "Columns tokens"
-  [ testCase "the key is spelled once, and it is not a column" $ do
-      assertEqual "the key" "columns" columnsKey
-      assertBool "and no column carries it" (columnsKey `notElem` filterKeys)
-      assertEqual "a token names it like any other key"
-                  [Term False (Just "columns") "State,Title"]
-                  (parsed "columns:State,Title")
+  [ virtualKeyCase "columns" columnsKey "State,Title"
 
   , testCase "it narrows nothing, whatever it names" $ do
       every <- matching ""
@@ -816,6 +804,16 @@ tokenSpec = testGroup "Tokens"
 -- | Q parsed: only a column, @planned@ or @ref@ makes a predicate.
 parsed :: Text -> [Term]
 parsed = parseFilter
+
+-- | A key the GRAMMAR owns rather than a column: SPELLING is what KEY holds, no
+-- column carries it, and @KEY:VALUE@ resolves to it wherever it is written.
+virtualKeyCase :: Text -> Text -> Text -> TestTree
+virtualKeyCase spelling key value =
+  testCase "the key is spelled once, and it is not a column" $ do
+    assertEqual "the key" spelling key
+    assertBool "and no column carries it" (key `notElem` filterKeys)
+    assertEqual "a token names it like any other key"
+                [Term False (Just key) value] (parsed (key <> ":" <> value))
 
 
 -- | One group per column type SCHEMA.md names, plus this producer's metas.

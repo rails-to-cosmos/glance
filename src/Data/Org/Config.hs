@@ -6,7 +6,6 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , noTreeSettings
                        , treeSettings
                        , TodoKeywords (..)
-                       , builtinAgenda
                        , builtinFilter
                        , captureTargetIn
                        , stateColorsEdits
@@ -25,6 +24,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , viewOf
                        , viewQuery
                        , viewQueryIn
+                       , fingerprint
                        , firstBy
                        , isTodoPragma
                        , keywordScopes

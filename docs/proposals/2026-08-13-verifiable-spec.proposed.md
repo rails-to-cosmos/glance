@@ -303,5 +303,5 @@ Step 1 stands alone and is worth doing even if nothing after it is.
   says nothing about the implementation under it. It catches the class the
   prose is worst at and no test samples, which is the whole of its claim.
 - **The first coverage report will read badly** — 7519 lines against ~40
-  enforcers. That number is the deliverable. It is not the embarrassment; not
-  being able to compute it is.
+  enforcers. That number is the deliverable. Being unable to compute it would
+  be the embarrassment.

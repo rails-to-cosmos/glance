@@ -101,7 +101,7 @@ rename); Emacs picks up daemon writes via `auto-revert-mode`.
   orchestration, Emacs is a client.
 - **Backend language: Haskell (glance).** The parser, data model, graph intent
   (`fgl`, `RefKind`), and persistence scaffold already exist here.
-- **Extensibility: protocol-first, not language-bound.** Extensions are processes
+- **Extensibility: protocol-first, any language.** Extensions are processes
   that speak the bridge protocol (LSP/DAP model), so they can be written in any
   language. The AOT core does not gate them. "Live" happens via `ghcid` for core
   dev and hot-swappable extension processes for users; the `Repl.Org` REPL grows

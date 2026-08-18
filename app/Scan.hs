@@ -194,7 +194,7 @@ note path sp kind = T.pack path <> ":" <> TS.showt (spanStart sp) <> " " <> kind
 
 
 -- | HOW MANY, and a capped sample of them: a count and its listing spelled apart can be stepped apart.
-data Tally a = Tally !Int ![a]
+data Tally a = Tally { tallyCount :: !Int, tallySample :: ![a] }
 
 emptyTally :: Tally a
 emptyTally = Tally 0 []
@@ -202,12 +202,6 @@ emptyTally = Tally 0 []
 -- | N more counted, with NEW offered to the sample as far as 'sampleLimit' allows.  N is separate from @length NEW@.
 add :: Int -> [a] -> Tally a -> Tally a
 add n new (Tally seen sample) = Tally (seen + n) (capped sample new)
-
-tallyCount :: Tally a -> Int
-tallyCount (Tally n _sample) = n
-
-tallySample :: Tally a -> [a]
-tallySample (Tally _n sample) = sample
 
 data Totals = Totals
   { tOk         :: !Int

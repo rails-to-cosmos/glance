@@ -67,7 +67,7 @@ const BREAKS = {
                 "#mdoc .dc-state{color:var(--g-fg) !important}"],
   "para-indent": ["a paragraph is indented under the title text",
                   "#mdoc .d-para{padding-left:0 !important}"],
-  "cursor-line": ["the cursor in the pane is a mark",
+  "cursor-line": ["the cursor in the pane is a ground",
                   "#mdoc.on .de.dat{--ink:transparent !important}"],
   // The picker stops hanging at the caret and centres like a popup instead.
   "refer-veil": ["@ in the sheet links the row under the cursor",
@@ -88,12 +88,36 @@ const BREAKS = {
   // as one thing again.
   "carried-ink": ["the cursor on a list item lights itself",
                   "#mdoc.on .de.dat .de{--ink:var(--g-point-off) !important}"],
+  // The row stops making room, so a continuation is typed out of sight.
+  "cont-floor": ["a continuation lands under the item's own text",
+                 "#mdoc .de.dat{min-height:0 !important}"],
+  // Org's bullet is drawn again, so the tree and the dash mark the same item twice.
+  "bullet-shown": ["an unordered bullet steps aside",
+                   "#mdoc .dbul{color:inherit !important}"],
+  // It LEAVES instead of stepping aside, and the text moves into its column.
+  "bullet-column": ["an unordered bullet steps aside",
+                    "#mdoc .dbul{display:none !important}"],
+  // The stamp stops mattering: the glyph is gone whatever the reader chose.
+  "bullet-stuck": ["an unordered bullet steps aside",
+                   "#mdoc .dbul{color:transparent !important}"],
+  // Asking for bullets back gets nothing back, on the page and on the way in.
+  "bullet-back": ["an unordered bullet steps aside",
+                  ":root[data-bullets=\"shown\"] #mdoc .d-list .dbul"
+                    + "{color:transparent !important}"],
+  // The bullet keeps a cell of its own and gives up org's: the text slides left by
+  // most of a character, which a floor of zero width never sees.
+  "bullet-cell": ["an unordered bullet steps aside",
+                  "#mdoc .dbul{font-size:1px !important}"],
   // The line box goes back to a fraction, so rows start off the device grid.
   "line-fraction": ["the elbow turns on the dash's own ink",
                     ":root{--g-doc-lh:20.8px !important}"],
-  // A paragraph loses the ground the table's cursor wears.
-  "para-ground": ["the cursor in the pane is a mark",
-                  "#mdoc.on .de.dat.d-para{background-color:transparent !important}"],
+  // The cursor row loses the ground the table's cursor wears.
+  "cursor-ground": ["the cursor in the pane is a ground",
+                    "#mdoc.on .de.dat{background-color:transparent !important}"],
+  // The ground runs the whole subtree, as it did before the mark replaced it.
+  "kid-ground": ["the cursor is a ground over its own line",
+                 "#mdoc.on .de.dat:not(.d-comp) .de"
+                   + "{background-color:transparent !important}"],
   // The flag stops at the row it was pressed on, leaving its branch unmarked.
   "flag-branch": ["a flag paints one red on both surfaces",
                   ".de.dfl .de,#mdoc.on .de.dfl .de{--ink:var(--g-fg) !important}"],
@@ -111,9 +135,11 @@ const BREAKS = {
   // The strip stops agreeing with the connectors: its last crumb is ordinary ink.
   "crumb-ink": ["the strip names the way back",
                 "#mdoc.on .cr-0{color:var(--g-mute) !important}"],
-  // The light runs the whole subtree again, as a ground once did.
-  "bullet-subtree": ["the marker org wrote lights with the line",
-                     "#mdoc.on .de.dat .dm{color:var(--g-point) !important}"],
+  // The marker takes point's own hue again -- the ground's hue in the light theme,
+  // which is where the ordinals went missing.
+  "marker-hue": ["the cursor is a ground over its own line",
+                 "#mdoc.on .de.dat .dm,#mdoc.on .de.dat>.dp>.dm"
+                   + "{color:var(--g-point) !important}"],
   // The kind badge reads like a row's own badge — a washed ground, no outline.
   "kind-badge": ["K declares the kind",
                  "#rkind{border-style:solid !important;"

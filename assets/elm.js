@@ -9321,22 +9321,59 @@ var $author$project$Doc$rung = function (depth) {
 		'style',
 		'--rail:calc(' + ($elm$core$String$fromInt(2 * depth) + 'ch - 1.5ch)'));
 };
-var $author$project$Doc$bulletLen = F2(
+var $author$project$Doc$lineOf = F2(
 	function (m, r) {
-		if (r.H !== 2) {
-			return 0;
+		return A2(
+			$elm$core$Maybe$withDefault,
+			'',
+			A2($author$project$Scan$nth, r.d, m.ay));
+	});
+var $author$project$Doc$stepsAside = function (tok) {
+	return A2(
+		$elm$core$List$member,
+		tok,
+		_List_fromArray(
+			['-', '+', '*']));
+};
+var $elm$core$String$trimRight = _String_trimRight;
+var $author$project$Doc$markParts = F2(
+	function (op, head) {
+		if (!op.$) {
+			var o = op.a;
+			var tok = A3(
+				$elm$core$String$slice,
+				o.bh,
+				o.bh + $elm$core$String$length(
+					$elm$core$String$trimRight(o.as)),
+				head);
+			return $author$project$Doc$stepsAside(tok) ? _List_fromArray(
+				[
+					$elm$html$Html$text(
+					A2($elm$core$String$left, o.bh, head)),
+					A2(
+					$elm$html$Html$span,
+					_List_fromArray(
+						[
+							$elm$html$Html$Attributes$class('dbul')
+						]),
+					_List_fromArray(
+						[
+							$elm$html$Html$text(tok)
+						])),
+					$elm$html$Html$text(
+					A2(
+						$elm$core$String$dropLeft,
+						o.bh + $elm$core$String$length(tok),
+						head))
+				]) : _List_fromArray(
+				[
+					$elm$html$Html$text(head)
+				]);
 		} else {
-			var _v0 = $author$project$Scan$listOpener(
-				A2(
-					$elm$core$Maybe$withDefault,
-					'',
-					A2($author$project$Scan$nth, r.d, m.ay)));
-			if (!_v0.$) {
-				var o = _v0.a;
-				return o.bh + $elm$core$String$length(o.as);
-			} else {
-				return 0;
-			}
+			return _List_fromArray(
+				[
+					$elm$html$Html$text(head)
+				]);
 		}
 	});
 var $author$project$Doc$boxLen = function (rest) {
@@ -9348,30 +9385,37 @@ var $author$project$Doc$boxLen = function (rest) {
 		$author$project$Scan$indentOf(
 			A2($elm$core$String$dropLeft, 3, rest)))) : 0;
 };
-var $author$project$Doc$markerLen = F2(
-	function (m, r) {
-		if (r.H !== 2) {
+var $author$project$Doc$openedLen = A2(
+	$elm$core$Basics$composeL,
+	$elm$core$Maybe$withDefault(0),
+	$elm$core$Maybe$map(
+		function (o) {
+			return o.bh + $elm$core$String$length(o.as);
+		}));
+var $author$project$Doc$markerOf = F2(
+	function (op, line) {
+		var _v0 = $author$project$Doc$openedLen(op);
+		if (!_v0) {
 			return 0;
 		} else {
-			var line = A2(
-				$elm$core$Maybe$withDefault,
-				'',
-				A2($author$project$Scan$nth, r.d, m.ay));
-			var _v0 = $author$project$Scan$listOpener(line);
-			if (!_v0.$) {
-				var o = _v0.a;
-				var k = o.bh + $elm$core$String$length(o.as);
-				return k + $author$project$Doc$boxLen(
-					A2($elm$core$String$dropLeft, k, line));
-			} else {
-				return 0;
-			}
+			var k = _v0;
+			return k + $author$project$Doc$boxLen(
+				A2($elm$core$String$dropLeft, k, line));
 		}
+	});
+var $author$project$Doc$openerAt = F2(
+	function (m, r) {
+		return (r.H !== 2) ? $elm$core$Maybe$Nothing : $author$project$Scan$listOpener(
+			A2($author$project$Doc$lineOf, m, r));
 	});
 var $author$project$Doc$viewPara = F2(
 	function (m, r) {
-		var opened = A2($author$project$Doc$bulletLen, m, r);
-		var k = A2($author$project$Doc$markerLen, m, r);
+		var op = A2($author$project$Doc$openerAt, m, r);
+		var opened = $author$project$Doc$openedLen(op);
+		var k = A2(
+			$author$project$Doc$markerOf,
+			op,
+			A2($author$project$Doc$lineOf, m, r));
 		var rest = A2($elm$core$String$dropLeft, k, r.O);
 		var box = A3($elm$core$String$slice, opened, k, r.O);
 		var mark = (k <= 0) ? _List_Nil : A2(
@@ -9382,11 +9426,10 @@ var $author$project$Doc$viewPara = F2(
 					[
 						$elm$html$Html$Attributes$class('dm')
 					]),
-				_List_fromArray(
-					[
-						$elm$html$Html$text(
-						A2($elm$core$String$left, opened, r.O))
-					])),
+				A2(
+					$author$project$Doc$markParts,
+					op,
+					A2($elm$core$String$left, opened, r.O))),
 			$elm$core$String$isEmpty(box) ? _List_Nil : _List_fromArray(
 				[
 					A2(
@@ -9583,6 +9626,13 @@ var $elm$core$List$append = F2(
 var $elm$core$List$concat = function (lists) {
 	return A3($elm$core$List$foldr, $elm$core$List$append, _List_Nil, lists);
 };
+var $author$project$Doc$markerLen = F2(
+	function (m, r) {
+		return A2(
+			$author$project$Doc$markerOf,
+			A2($author$project$Doc$openerAt, m, r),
+			A2($author$project$Doc$lineOf, m, r));
+	});
 var $author$project$Doc$crumb = F2(
 	function (m, r) {
 		if (r.H === 1) {

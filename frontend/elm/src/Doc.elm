@@ -829,14 +829,17 @@ prefix moves the base with it rather than being spliced out of the middle.
 viewPara : Model -> Row -> Html Msg
 viewPara m r =
     let
+        op =
+            openerAt m r
+
         k =
-            markerLen m r
+            markerOf op (lineOf m r)
 
         rest =
             String.dropLeft k r.text
 
         opened =
-            bulletLen m r
+            openedLen op
 
         box =
             String.slice opened k r.text
@@ -848,7 +851,7 @@ viewPara m r =
                 []
 
             else
-                span [ class "dm" ] [ text (String.left opened r.text) ]
+                span [ class "dm" ] (markParts op (String.left opened r.text))
                     :: (if String.isEmpty box then
                             []
 
@@ -880,47 +883,83 @@ viewPara m r =
         )
 
 
+{-| The row's own line as org wrote it.
+-}
+lineOf : Model -> Row -> String
+lineOf m r =
+    Maybe.withDefault "" (nth r.from m.lines)
+
+
+{-| Org's own opener for a LEAF's line; nothing when the row is not a list item.
+-}
+openerAt : Model -> Row -> Maybe Scan.Opener
+openerAt m r =
+    if r.grain /= Leaf then
+        Nothing
+
+    else
+        Scan.listOpener (lineOf m r)
+
+
 {-| How many characters org spent on the indent and the bullet alone, the box after
 it excluded.
 -}
-bulletLen : Model -> Row -> Int
-bulletLen m r =
-    if r.grain /= Leaf then
-        0
-
-    else
-        case Scan.listOpener (Maybe.withDefault "" (nth r.from m.lines)) of
-            Just o ->
-                o.indent + String.length o.bullet
-
-            Nothing ->
-                0
+openedLen : Maybe Scan.Opener -> Int
+openedLen =
+    Maybe.withDefault 0 << Maybe.map (\o -> o.indent + String.length o.bullet)
 
 
 {-| How many characters of a leaf's own line org spent on its indent, its bullet --
 `-', `+', `*', `1.' or `1)' -- and the checkbox after it; nothing when the row is
 not a list item.
 -}
+markerOf : Maybe Scan.Opener -> String -> Int
+markerOf op line =
+    case openedLen op of
+        0 ->
+            0
+
+        k ->
+            k + boxLen (String.dropLeft k line)
+
+
 markerLen : Model -> Row -> Int
 markerLen m r =
-    if r.grain /= Leaf then
-        0
+    markerOf (openerAt m r) (lineOf m r)
 
-    else
-        let
-            line =
-                Maybe.withDefault "" (nth r.from m.lines)
-        in
-        case Scan.listOpener line of
-            Just o ->
-                let
-                    k =
-                        o.indent + String.length o.bullet
-                in
-                k + boxLen (String.dropLeft k line)
 
-            Nothing ->
-                0
+{-| THE BULLETS THE TREE ALREADY DRAWS, which are the ones a stylesheet may take
+away; an ordinal is content and is never one of them.
+-}
+stepsAside : String -> Bool
+stepsAside tok =
+    List.member tok [ "-", "+", "*" ]
+
+
+{-| The marker's own spans, PARTITIONING the head org wrote: the indent, a steppable
+bullet in a span of its own, then whatever gap follows it.
+-}
+markParts : Maybe Scan.Opener -> String -> List (Html Msg)
+markParts op head =
+    case op of
+        Just o ->
+            let
+                tok =
+                    String.slice o.indent
+                        (o.indent + String.length (String.trimRight o.bullet))
+                        head
+            in
+            if stepsAside tok then
+                [ text (String.left o.indent head)
+                , span [ class "dbul" ] [ text tok ]
+                , text (String.dropLeft (o.indent + String.length tok) head)
+                ]
+
+            else
+                [ text head ]
+
+        Nothing ->
+            [ text head ]
 
 
 {-| The checkbox org may write after a bullet, with the gap that follows it. IT IS

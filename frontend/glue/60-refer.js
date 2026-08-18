@@ -225,7 +225,7 @@
       // The filter box is the RENDERER'S, ESC included; no ladder is rehearsed here.
       if (referTyping()) return;
       e.preventDefault(); e.stopPropagation();
-      const step = rowStep(k) || (k === "C-n" ? 1 : k === "C-p" ? -1 : 0);
+      const step = rowStep(k) || walkStep(k);
       if (step) { stepIn(picking.tv, step); return; }
       // ONE PRESS, ONE RUNG: a held DEL would walk chip, picker and `@' in one key.
       if (repeating(e)) return;

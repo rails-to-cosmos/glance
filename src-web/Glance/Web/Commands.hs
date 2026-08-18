@@ -43,8 +43,7 @@ import Glance.Web.Watch (nudge, writeSpans)
 
 
 data Command = Command
-  { cmdName    :: !Text             -- ^ the name it resolved BY; two commands edit nothing.
-  , cmdSpec    :: !CommandSpec      -- ^ its entry in 'commands'.
+  { cmdSpec    :: !CommandSpec      -- ^ its entry in 'commands'.
   , cmdIds     :: ![Text]           -- ^ in the order named, deduplicated; empty for @capture@.
   , cmdArgs    :: !Args             -- ^ whatever @args@ carried.
   , cmdDigests :: !(Map Text Text)  -- ^ id to the digest the client holds for its file.
@@ -393,4 +392,4 @@ parseCommand raw = bodyObject "command" command raw >>= checked
         | namesRows (csKind spec), null ids ->
             Left "a command names rows: {\"ids\": [\"…\"]}, or {\"id\": \"…\"} for one"
         | Just why <- csArgs spec ids args -> Left why
-        | otherwise -> Right (Command name spec ids args digests)
+        | otherwise -> Right (Command spec ids args digests)

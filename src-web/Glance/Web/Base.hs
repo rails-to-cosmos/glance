@@ -11,6 +11,7 @@ module Glance.Web.Base ( ServeOptions (..)
                        , rendererAsset
                        , viewTitleFor
                        , tenths
+                       , codeList
                        , docCells
                          -- * Bodies
                        , withBody
@@ -51,7 +52,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 import Glance.Query ( HeadlineRecord, WalkOptions (..), WriteFailure (..)
-                    , hrPriority, hrState, hrTags, hrTitle )
+                    , captureCodes, hrPriority, hrState, hrTags, hrTitle )
 
 
 -- | What one server serves.
@@ -105,6 +106,11 @@ tenths s = fromIntegral (round (s * 10) :: Int) / 10
 -- shell's config blob takes its keys from it, and the pane indexes the one by
 -- the other.  Spelled apart, a key added to the route was never drawn and a key
 -- renamed drew an empty cell, both in silence.
+-- | 'captureCodes' as objects: the code and the one line saying what it does,
+-- the shape @GET \/capture@ serves and the boot blob carries.
+codeList :: [Value]
+codeList = [ object ["code" .= code, "means" .= means] | (code, means) <- captureCodes ]
+
 docCells :: [(Text, HeadlineRecord -> Value)]
 docCells = [ ("state",    toJSON . hrState)
            , ("priority", toJSON . hrPriority)

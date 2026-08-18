@@ -26,7 +26,7 @@ copies drift. That is the failure this repo keeps finding in its own documents.
 - `test/TestSpec.hs` imports the model and asserts its registries against the
   REAL symbols, so a registry that drifts from the code fails `cabal test`.
 
-A rule stated in `AGENTS.hs` is therefore load-bearing, not aspirational. Before
+A rule stated in `AGENTS.hs` is therefore load-bearing. Before
 contradicting one, check whether a test already pins it.
 
 ## File structure

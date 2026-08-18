@@ -264,8 +264,7 @@
         e.preventDefault();
         return;
       }
-      const step = k === "<down>" || k === "C-n" ? 1
-                 : k === "<up>" || k === "C-p" ? -1 : 0;
+      const step = walkStep(k);
       if (step) walkChoices(step);
       else if (k === "RET") takeChoice(promptNow().shown[promptNow().at] || freely());
       else return;

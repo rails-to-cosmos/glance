@@ -40,8 +40,7 @@ replSettings = do
                                    , Haskeline.historyFile = Just (configDir </> ".history") }
 
 main :: IO ()
-main = do
-  getArgs >>= parse
+main = getArgs >>= parse
 
 -- | The REPL banner, with MESSAGES under it.
 greetings :: [Text] -> IO ()

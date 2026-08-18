@@ -1,12 +1,12 @@
 -- | The shell's configuration blob: every server value @assets\/glue.js@ reads, as ONE JSON object the page emits ahead of it.
 module Glance.Web.Page.Glue (glueConfig) where
 
-import Data.Aeson (Value, object, (.=))
+import Data.Aeson (object, (.=))
 import Data.Text (Text)
 
-import Glance.Query ( archiveTag, captureCodes, followableTypes, linkColumns
+import Glance.Query ( archiveTag, followableTypes, linkColumns
                     , planningKeywords, tagColumns )
-import Glance.Web.Base (docCells, jsonValue, logLinesDefault, logLinesMax, logLinesMin)
+import Glance.Web.Base (codeList, docCells, jsonValue, logLinesDefault, logLinesMax, logLinesMin)
 
 -- | The blob for VIEWS, the tree's saved views in registry order.  Member names are the script's @CFG.*@ reads.
 glueConfig :: [(Text, Text)] -> Text
@@ -25,6 +25,3 @@ glueConfig views = jsonValue $ object
                              , "max" .= logLinesMax ]
   ]
 
--- | 'captureCodes' as objects: the code and the one line saying what it does, the shape @GET \/capture@ serves.
-codeList :: [Value]
-codeList = [ object ["code" .= code, "means" .= means] | (code, means) <- captureCodes ]

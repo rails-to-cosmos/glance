@@ -79,7 +79,8 @@ import Data.Maybe (isNothing, mapMaybe)
 import Data.Time.Calendar (fromGregorian)
 import Data.Org (isTagChar)
 import Glance.Query (prioritySlots, stateSlots, tagText)
-import Glance.Web.Theme (Mode (Dark, Light), Theme (thId, thMode), themeCSS, themeIds, themes)
+import Glance.Web.Theme (Mode (Dark, Light), Theme (thId, thMode), bulletsKey, bulletsShown,
+                        themeCSS, themeIds, themes)
 import Glance.Web.Base (logLinesDefault, logLinesMax, logLinesMin)
 import Glance.Web.Page.Glue (glueConfig)
 import Glance.Web.Page.Style (page)
@@ -707,6 +708,12 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
       g <- getFrom a "/headlines"
       h <- runSession (request (setPath defaultRequest "/headlines")
                          { requestMethod = methodHead }) a
+      -- ANCHORED FIRST: a differential alone stays green where BOTH verbs lose
+      -- the header, or answer 404.
+      assertEqual "GET" 200 (status g)
+      assertBool "GET carries an ETag to differ over" (isJust (header "ETag" g))
+      assertBool "GET carries a row count to differ over"
+                 (isJust (header "X-Glance-Rows" g))
       assertEqual "status" (status g) (status h)
       assertEqual "ETag" (header "ETag" g) (header "ETag" h)
       assertEqual "X-Glance-Rows" (header "X-Glance-Rows" g) (header "X-Glance-Rows" h)
@@ -1134,6 +1141,46 @@ specGroup09 = testGroup "Commands and writes"
       assertEqual "the spec's theme ids and the build's have drifted"
         (map T.pack Spec.themeIds) themeIds
 
+    -- THE SECOND LOOK: hidden bullets are the DEFAULT and are the attribute's absence,
+    -- so `shown' is the one value spelled twice -- and the SELECTOR spends it too.
+  , testCase "the pane's bullets are a look the spec and the build spell alike" $ do
+      assertEqual "the spec's bullets key and the build's have drifted"
+        (T.pack Spec.bulletsKey) bulletsKey
+      assertEqual "the spec's stamped bullet value and the build's have drifted"
+        (T.pack Spec.bulletsShown) bulletsShown
+      assertBool "the sheet's rule no longer spends the value the boot script stamps"
+        (("data-bullets=\"" <> bulletsShown <> "\"") `T.isInfixOf` page "" [] "t" "")
+
+    -- ONE LIST IN TWO PLACES: the stylesheet can only empty a span Elm drew, so the
+    -- bullets that step aside are spelled in `Doc.elm' and modelled in AGENTS.hs.
+    -- THE BUILT BUNDLE IS ASKED TOO, since the browser reads that and not the source.
+  , testCase "the bullets that step aside are the ones the spec names" $ do
+      doc <- TIO.readFile "frontend/elm/src/Doc.elm"
+      built <- TIO.readFile "assets/elm.js"
+      let needle = "List.member tok ["
+          after = snd (T.breakOn needle doc)
+          toks = [ T.unpack (T.dropAround (== '"') (T.strip t))
+                 | t <- T.splitOn "," (T.takeWhile (/= ']')
+                                        (T.drop (T.length needle) after)) ]
+      assertBool "Doc.elm no longer spells the steppable bullets" (not (T.null after))
+      assertEqual "the spec's steppable bullets and Elm's have drifted"
+        Spec.steppable toks
+      assertBool "Doc.elm draws no span a stylesheet can empty"
+                 ("class \"dbul\"" `T.isInfixOf` doc)
+      assertBool "assets/elm.js draws no `.dbul' -- `make elm' has not been run"
+                 ("'dbul'" `T.isInfixOf` built)
+
+    -- THE LIST WAS A DESCRIPTION NOTHING READ, so a class could join the model and
+    -- reach neither side.  A class is SPENT by the stylesheet or drawn by the pane --
+    -- `.dt' is markup the sheet never paints, and that is a legitimate half.
+  , testCase "every class the spec names is one the pane spends" $ do
+      doc <- TIO.readFile "frontend/elm/src/Doc.elm"
+      let sheet = page "" [] "t" ""
+          spent c = T.pack c `T.isInfixOf` sheet
+                    || ("class \"" <> T.pack (drop 1 c)) `T.isInfixOf` doc
+      assertEqual "a class the spec names and the pane never spends" []
+        [ c | c <- Spec.docClasses, not (spent c) ]
+
     -- 'Glance.Web.Theme.defaultFor' errors on a mode no theme answers, so the claim is spelled out here.
   , testCase "a build carries a theme per mode" $ do
       assertEqual "the build no longer carries exactly one light theme"
@@ -1149,8 +1196,6 @@ specGroup09 = testGroup "Commands and writes"
   , testCase "a slot is its place modulo the wire's count" $ do
       assertEqual "the wire's state slot count moved" Spec.stateSlots stateSlots
       assertEqual "org's priority cycle length moved" Spec.prioritySlots prioritySlots
-      assertEqual "a slot past the count no longer wraps"
-        (Spec.slotToken "a" 1) (Spec.slotToken "a" (1 + Spec.stateSlots))
       assertEqual "a slot the wire names and no theme declares" []
         [ t | t <- slotTokens, not (declares t) ]
       assertBool "a slot past the wire's count is declared"

@@ -1,9 +1,9 @@
 // THE LINK AND TAGS POPUPS, and the popup chrome both wear (AGENTS.hs).
 // `edit' is a `let' the panel reassigns, so it arrives as the ACCESSOR `editNow'.
 const Popups = ((deps) => {
-    const { CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, listing,
-            openEdit, remembered, rowsWord, said, selectedId, shortly, shutEdit,
-            sole, soon, stepIn, tagFrom, unlogged, unnarrow } = deps;
+    const { CFG, askFrom, cancelEdit, echo, el, failed, fire, FLAG_WORDS, foldTag,
+            listing, openEdit, remembered, rowsWord, said, selectedId, shortly,
+            shutEdit, sole, soon, stepIn, tagFrom, unnarrow } = deps;
     const editNow = deps.editNow;
     const LCOLS = CFG.lcols;
     let lmount = null, lrows = [], opening = null, lfor = null, lpin = "";
@@ -217,12 +217,10 @@ const Popups = ((deps) => {
       openOver(TROW, tagAt(), "org-rename-tag (no tag)");
     const cancelRename = () => cancelEdit("tag", TROW);
     const TFLAGS = {
-      mount: () => tmount, at: tagAt, take: removeTags, note: unlogged,
+      ...FLAG_WORDS,
+      mount: () => tmount, at: tagAt, take: removeTags,
       walk: () => stepIn(tmount, 1),
-      missing: lacks("delete flags"),
       none: "org-toggle-tag (no tag)",
-      idle: "dired-do-flagged-delete (no deletions requested)",
-      spared: "dired-do-flagged-delete (left standing)",
       verb: "remove",
       unflag: "tag-unflag (flag cleared)",
       flag: "tag-flag (d again removes)",
@@ -238,9 +236,9 @@ const Popups = ((deps) => {
              linking, managing, openLinkEdit, openRename, pointedLink,
              renameTag, renaming, showLinks, showPopup, showTags, shutLinks,
              shutPopup, shutTags, TFLAGS };
-})({ CFG, again, askFrom, cancelEdit, echo, el, failed, fire, foldTag, listing,
-     openEdit, remembered, rowsWord, said, selectedId, shortly, shutEdit,
-     sole, soon, stepIn, tagFrom, unlogged, unnarrow,
+})({ CFG, askFrom, cancelEdit, echo, el, failed, fire, FLAG_WORDS, foldTag,
+     listing, openEdit, remembered, rowsWord, said, selectedId, shortly,
+     shutEdit, sole, soon, stepIn, tagFrom, unnarrow,
      editNow: () => edit });
 const { openedBy, linkMount, tagMount, addFlow, cancelLinkEdit, cancelRename, commitLink, landing, lediting,
         linking, managing, openLinkEdit, openRename, pointedLink,

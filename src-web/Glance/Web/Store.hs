@@ -54,14 +54,13 @@ import Numeric.Natural (Natural)
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import qualified Data.Text as T
 
 import Glance.Query ( ConfigLayerFile, ConfigLayers (clPrint)
                     , HeadlineRecord (hrDigest, hrDoc, hrId, hrKeywords, hrTags)
                     , LoadFailure (..)
                     , QueryResult (..), TodoKeywords, WalkOptions, configDirsIn
                     , defaultWalk
-                    , digestOfText, loadDirWithConfig, mergeKeywords, noConfig
+                    , fingerprint, loadDirWithConfig, mergeKeywords, noConfig
                     , noKeywords, readConfigLayers, recognizedKeywords, resolveIds
                     , rowJSON, tagsOfCell )
 
@@ -98,9 +97,8 @@ loadStoreWith opts dir = do
 -- digest.  The half of the @ETag@ that survives a restart.
 fingerprintOf :: Store -> Text
 fingerprintOf st =
-  digestOfText (T.unlines (("config\t" <> clPrint (stConfig st))
-                            : [ T.pack path <> "\t" <> stamp entry
-                              | (path, entry) <- Map.toAscList (stFiles st) ]))
+  fingerprint (("config", clPrint (stConfig st))
+                 : [ (path, stamp entry) | (path, entry) <- Map.toAscList (stFiles st) ])
   where stamp = maybe "" hrDigest . listToMaybe . feRecords
 
 storeRows :: Store -> [HeadlineRecord]
@@ -212,17 +210,16 @@ putFile :: FilePath -> Either LoadFailure [HeadlineRecord] -> Store -> Store
 putFile path outcome st = case outcome of
   Left failure -> st { stFiles = Map.insert path (FileEntry old (Just failure)) files }
   Right new    -> st { stFiles = Map.insert path (FileEntry new Nothing) files
-                     , stTags  = stepIndex tagsOf old new (stTags st) }
+                     , stTags  = stepIndex old new (stTags st) }
   where files = stFiles st
         old   = recordsUnder path st
 
 removeFile :: FilePath -> Store -> Store
 removeFile path st = st { stFiles = Map.delete path (stFiles st)
-                        , stTags  = stepIndex tagsOf (recordsUnder path st) [] (stTags st) }
+                        , stTags  = stepIndex (recordsUnder path st) [] (stTags st) }
 
-stepIndex :: Ord k => ([HeadlineRecord] -> Set k)
-          -> [HeadlineRecord] -> [HeadlineRecord] -> Map k Int -> Map k Int
-stepIndex proj old new ix = Set.foldl' claim (Set.foldl' release ix (proj old)) (proj new)
+stepIndex :: [HeadlineRecord] -> [HeadlineRecord] -> Map Text Int -> Map Text Int
+stepIndex old new ix = Set.foldl' claim (Set.foldl' release ix (tagsOf old)) (tagsOf new)
   where release m k = Map.update (\n -> if n <= 1 then Nothing else Just (n - 1)) k m
         claim   m k = Map.insertWith (+) k 1 m
 

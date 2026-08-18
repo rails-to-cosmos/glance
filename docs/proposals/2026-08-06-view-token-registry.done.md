@@ -84,7 +84,7 @@ to free text; a missed matcher skip silently narrows).
      ordersRows(tok) ? " tv-chip-sort" : showsColumns(tok) ? " tv-chip-cols" : "";
    ```
 
-   (One call site today; worth it only as part of this change, not alone.)
+   (One call site today; worth it only as part of this change.)
 
 ## LOC estimate
 

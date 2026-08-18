@@ -181,10 +181,9 @@ storeEnv rows = FilterEnv resolve
 
 -- | Does a row match Q in ENV?  Compiled once per request, never per row.
 matchesFilter :: FilterEnv -> Text -> HeadlineRecord -> Bool
-matchesFilter env q = case compile env (parseFilter q) of
-  []     -> const True
-  [test] -> test
-  tests  -> \r -> all ($ r) tests
+matchesFilter env q | null tests = const True
+                    | otherwise  = \r -> all ($ r) tests
+  where tests = compile env (parseFilter q)
 
 data Field = Col !Int | Planned | Ref | Order | Whole
 

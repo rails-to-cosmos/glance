@@ -32,6 +32,30 @@ assertNoElements (desc, input) = case orgParse defaultContext input of
     assertBool (desc <> ": unexpected parse error") (isNothing err)
     assertEqual (desc <> ": elements") [] (bare elems)
 
+-- | INPUT's first element is a token, however the run is spelled.
+tokenCase :: (String, String, Text) -> TestTree
+tokenCase (desc, msg, input) = testCase desc $ assertBool msg (parsesAs input isToken)
+
+-- | INPUT holds WANT headlines: the column-1 rule, counted.
+countCase :: (String, String, Text, Int) -> TestTree
+countCase (desc, msg, input, want) =
+  testCase desc $ assertEqual msg want (headlineCount input)
+
+-- | Where a run of stars opens a headline, and where it is ink in a line.
+anchorCases :: [(String, String, Text, Int)]
+anchorCases =
+  [ ("Mid-line emphasized keyword is not a headline", "No headline expected", "see *TODO* below", 0)
+  , ( "Emphasis on a later body line is not a headline", "Only the real headline"
+    , "* Task\nbody *TODO* text", 1 )
+  , ("Stars after a newline still open a headline", "One headline", "body\n* Task", 1)
+    -- Column 1 is necessary and not sufficient: org wants whitespace after the
+    -- stars too, so a body line opening with emphasis is text wherever it sits.
+  , ("Emphasis at column 1 is not a headline", "No headline expected", "*Passport requirements*", 0)
+  , ( "Emphasis at column 1 under a headline stays body text", "Only the real headline"
+    , "* Task\n*TODO* [[link][do it]]", 1 )
+  , ("A star run with no space after it is text", "No headline expected", "**bold** claim", 0)
+  ]
+
 spec :: TestTree
 spec = testGroup "Negative / Edge cases"
   [ testGroup "Graceful degradation"
@@ -49,8 +73,7 @@ spec = testGroup "Negative / Edge cases"
           [EPragma (Pragma (Keyword "FOOBAR") (OrgLine [OrgLineToken "some", OrgLineToken "value"]))]
           (bareParse defaultContext "#+FOOBAR: some value")
 
-    , testCase "Property-like text outside headline is a token" $
-        assertBool "Should be token" (parsesAs ":KEY: value" isToken)
+    , tokenCase ("Property-like text outside headline is a token", "Should be token", ":KEY: value")
     ]
 
   , testCase "Whitespace-only input yields nothing" $
@@ -102,50 +125,22 @@ spec = testGroup "Negative / Edge cases"
           (bareParse defaultContext "* First\n** Second\n*** Third")
     ]
 
-  , testGroup "Headlines are anchored to column 1"
+  , testGroup "Headlines are anchored to column 1" $
     [ testCase "Mid-line emphasis is not a headline" $
         assertEqual "Should be three tokens"
           [EToken "word", EToken "*done*", EToken "word"]
           (bareParse defaultContext "word *done* word")
 
-    , testCase "Mid-line emphasized keyword is not a headline" $
-        assertEqual "No headline expected" 0 (headlineCount "see *TODO* below")
+    , tokenCase ("Indented stars are not a headline", "Should be token", "  * Task")
+    ] ++ map countCase anchorCases
 
-    , testCase "Emphasis on a later body line is not a headline" $
-        assertEqual "Only the real headline" 1 (headlineCount "* Task\nbody *TODO* text")
-
-    , testCase "Stars after a newline still open a headline" $
-        assertEqual "One headline" 1 (headlineCount "body\n* Task")
-
-    , testCase "Indented stars are not a headline" $
-        assertBool "Should be token" (parsesAs "  * Task" isToken)
-
-    -- Column 1 is necessary and not sufficient: org wants whitespace after the
-    -- stars too, so a body line opening with emphasis is text wherever it sits.
-    , testCase "Emphasis at column 1 is not a headline" $
-        assertEqual "No headline expected" 0 (headlineCount "*Passport requirements*")
-
-    , testCase "Emphasis at column 1 under a headline stays body text" $
-        assertEqual "Only the real headline" 1
-          (headlineCount "* Task\n*TODO* [[link][do it]]")
-
-    , testCase "A star run with no space after it is text" $
-        assertEqual "No headline expected" 0 (headlineCount "**bold** claim")
-    ]
-
-  , testGroup "Timestamp edge cases"
-    [ testCase "Invalid month falls back to token" $
-        assertBool "Should not parse as timestamp" (parsesAs "<2024-13-01>" isToken)
-
-    , testCase "Invalid day falls back to token" $
-        assertBool "Should not parse as timestamp" (parsesAs "<2024-01-32>" isToken)
-
-    , testCase "Invalid hour falls back to token" $
-        assertBool "Should not parse as timestamp" (parsesAs "<2024-01-01 Mon 25:00>" isToken)
-
-    , testCase "Unclosed active timestamp" $
-        assertBool "Should be token" (parsesAs "<2024-01-01" isToken)
-    ]
+  , testGroup "Timestamp edge cases" (map tokenCase
+    [ ("Invalid month falls back to token", "Should not parse as timestamp", "<2024-13-01>")
+    , ("Invalid day falls back to token", "Should not parse as timestamp", "<2024-01-32>")
+    , ( "Invalid hour falls back to token", "Should not parse as timestamp"
+      , "<2024-01-01 Mon 25:00>" )
+    , ("Unclosed active timestamp", "Should be token", "<2024-01-01")
+    ])
 
   , testGroup "Pragma edge cases"
     [ testCase "Pragma with no value" $
@@ -157,8 +152,7 @@ spec = testGroup "Negative / Edge cases"
             assertEqual "inactive keywords unchanged"
                         (todoInactive defaultContext) (todoInactive ctx)
 
-    , testCase "Hash without plus is a token" $
-        assertBool "Should be token" (parsesAs "#notapragma" isToken)
+    , tokenCase ("Hash without plus is a token", "Should be token", "#notapragma")
     ]
 
     -- A property KEY is org's own charset — any run without whitespace or a

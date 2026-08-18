@@ -4,14 +4,14 @@ module Glance.Web.Page.Style ( page
                              , fontFace
                              ) where
 
-import Glance.Web.Page.Popups (boxes, veiled, washed)
+import Glance.Web.Page.Popups (chromeBoxes, chromeFeet, chromeHeads, boxes, veiled, washed)
 import Data.Text (Text)
 import System.FilePath (takeExtension)
 
 import qualified Data.Text as T
 
 import Glance.Web.Base (escape, logLinesDefault)
-import Glance.Web.Theme (themeCSS, themeIds, themeOverrides)
+import Glance.Web.Theme (bulletsKey, bulletsShown, themeCSS, themeIds, themeOverrides)
 
 
 -- | @#a.on,#b.on,…@ — the same list, each wearing the class that shows it.
@@ -147,9 +147,12 @@ page head' colours title body = T.unlines
   , "  .dp{position:relative}"
   , "  .de::before,.de::after{content:\"\";position:absolute;left:var(--rail);"
   , "    pointer-events:none}"
-  -- A PARAGRAPH CARRIES NOTHING, so it can wear the ground the table's cursor wears:
-  -- what made a ground wrong on an ITEM was the subtree drawn inside it.
-  , "  #mdoc.on .de.dat.d-para{background-color:var(--g-sel);color:var(--g-fg)}"
+  -- THE CURSOR IS THE GROUND THE TABLE'S CURSOR WEARS, `--g-sel' on both surfaces.
+  -- A NESTED ROW IS DRAWN INSIDE ITS PARENT, so the ground would run the whole
+  -- subtree; the page's own ground takes it back.  A COMPOSITE is the exception --
+  -- the list itself is the stop, so its rows are what it grounds.
+  , "  #mdoc.on .de.dat{background-color:var(--g-sel);color:var(--g-fg)}"
+  , "  #mdoc.on .de.dat:not(.d-comp) .de{background-color:var(--g-bg)}"
   , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-doc-lh))}"
   -- ONE TAB STOP LEFT OF THE ROW'S TEXT: a top-level row is indented by PADDING and
   -- a nested one by SPACES.  Elm writes `--rail' per row; this is the fallback.
@@ -170,9 +173,9 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .cr-1,#mdoc.on .cr-2,#mdoc.on .cr-3{color:var(--g-fg)}"
   -- A CONNECTOR PER ROW, the way `tree' draws one, HALF A CELL LEFT OF THE TAB STOP:
   -- one reaching the text reads as one dashed run with org's bullet.  Tiers set `--ink'.
-  -- THE TURN SITS ON THE DASH'S OWN INK, not on the middle of the line box.  In Hack
-  -- at 13px the hyphen's ink centres 1px below the half-line and the border's own
-  -- half is another 0.5px, so the height carries both -- `0.115em'.
+  -- THE TURN SITS WHERE THE DASH INKS.  In Hack at 13px the hyphen's ink centres 1px
+  -- below the half-line and the border's own half is another 0.5px, so the height
+  -- carries both -- `0.115em'.  The dash keeps that column whether or not it paints.
   , "  .d-list .d-item::before{top:0;width:0.8ch;background:none;"
   , "    height:calc(var(--g-doc-lh) / 2 + 0.115em);"
   , "    border-left:1px solid var(--ink);border-bottom:1px solid var(--ink);"
@@ -188,11 +191,11 @@ page head' colours title body = T.unlines
   -- A SIBLING'S OWN SUBTREE COMES WITH IT: the reader is choosing between BRANCHES,
   -- and a branch whose contents are dimmed is a branch they cannot weigh.
   , "  #mdoc.on .up,#mdoc.on .sib,#mdoc.on .sib .de{--ink:var(--g-fg)}"
-  -- OWNERSHIP IS IN THE NESTING: a row drawn inside point is what point carries;
-  -- a composite's own children are the roots it opens.
+  -- OWNERSHIP IS IN THE NESTING: a row drawn inside point is what point carries.  A
+  -- COMPOSITE GROUNDS ITS ROWS, and a connector inside that ground takes the page's
+  -- ink -- point's own hue is the ground's, so the elbows went missing in it.
   , "  #mdoc.on .de.dat .de{--ink:var(--g-fg)}"
   , "  #mdoc.on .de.dat{--ink:var(--g-point)}"
-  , "  #mdoc.on .de.dat.d-comp>.de{--ink:var(--g-point)}"
   -- FULL INK UNTIL THE READER GOES INTO A LIST.  `focus' rides the program's own
   -- root, so dimming is a MODE rather than the resting look; colour inherits, so the
   -- lit rows name themselves back out of it.
@@ -217,13 +220,13 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .focus .de.dat>.dp .dbx.on,#mdoc.on .focus .up>.dp .dbx.on,"
   , "  #mdoc.on .focus .sib>.dp .dbx.on,#mdoc.on .focus .sib .de>.dp .dbx.on,"
   , "  #mdoc.on .focus .de.dat .de>.dp .dbx.on{color:var(--g-state-i0)}"
-  -- A HEADLINE'S STARS SIT IN THE CONNECTOR'S COLUMN: they take the ink, none is
-  -- drawn.  COLOUR ALONE -- a bolder marker sits taller than the line it opens, and
-  -- the pane's business is which line, never which face.
+  -- A HEADLINE'S STARS SIT IN THE CONNECTOR'S COLUMN, so none is drawn under them.
   , "  #mdoc.on .de.dat.d-head::before{display:none}"
-  , "  #mdoc.on .de.dat.d-head .ds,#mdoc.on .de.dat>.dp>.dm,"
-  , "  #mdoc.on .de.dat.d-comp>.de>.dp>.dm{color:var(--g-point)}"
-  , "  #mdoc.on .de.dat .de>.dp>.dm{color:var(--g-fg)}"
+  -- WHAT STANDS ON THE GROUND TAKES THE PAGE'S INK: the ground says which line, and a
+  -- marker in point's own hue vanished into it -- gold on gold, and the ordinals with
+  -- it.  THE TREE KEEPS ITS HUE, its column being outside the ground.
+  , "  #mdoc.on .de.dat>.dp>.dm,#mdoc.on .de.dat .de>.dp>.dm,"
+  , "  #mdoc.on .de.dat.d-comp>.de>.dp>.dm{color:var(--g-fg)}"
   -- SPELLED TWICE ON PURPOSE: a flag outranks point and keeps its mark after point has
   -- moved on, so the gated copy outweighs the heavier rule carrying what point holds.
   -- A FLAG TAKES THE BRANCH.  What hangs off a flagged row goes with it wherever the
@@ -246,6 +249,12 @@ page head' colours title body = T.unlines
   -- keyword takes when it is settled, and a box is the same statement in one glyph.
   -- An EMPTY box wears the line's ink, since it says nothing yet.
   , "  .dbx.on{color:var(--g-state-i0)}"
+  -- THE TREE IS THE MARKER, so org's bullet steps aside WHERE THE CONNECTOR IS DRAWN
+  -- and nowhere else: a dash quoted inside a block wears no elbow, and hiding it left
+  -- that line unmarked.  TRANSPARENT keeps the column and the copyable glyph both.
+  -- An ORDINAL is content and has no `.dbul' to empty; so is the box.
+  , "  :root:not([data-bullets=\"" <> bulletsShown
+      <> "\"]) #mdoc .d-list .dbul{color:transparent}"
   , "  .d-head,.d-child{display:flex;align-items:baseline}"
   , "  .d-child{color:var(--g-fg)}"
   , "  .d-head{font-weight:600}"
@@ -296,9 +305,10 @@ page head' colours title body = T.unlines
   , "    border:1px solid var(--g-border);border-radius:8px}"
   , "  #mlog.on{display:block}"
   , "  #sheet.raw #mlog{display:none}"
-  , "  #pbox,#lbox,#tbox,#kbox,#nbox{gap:6px;padding:10px}"
-  , "  #phead,#lhead,#thead,#khead,#nhead{font-size:12px;color:var(--g-mute)}"
-  , "  #pfoot,#lfoot,#tfoot,#cfoot,#ctplf,#kfoot,#nfoot{font-size:11px;color:var(--g-mute)}"
+  , "  " <> chromeBoxes <> "{gap:6px;padding:10px}"
+  , "  " <> chromeHeads <> "{font-size:12px;color:var(--g-mute)}"
+    -- `#ctplf' is the capture-template hint inside config, and no popup's part.
+  , "  " <> chromeFeet <> ",#ctplf{font-size:11px;color:var(--g-mute)}"
   , "  #pinput,#ktag,#kfields input,#nbox .krow input,#nbox .krow select{"
   , "    font:12px/1.5 var(--dk-mono);padding:5px 7px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
@@ -411,11 +421,16 @@ page head' colours title body = T.unlines
   , "</html>"
   ]
 
--- | The head script: the remembered theme pinned before the first paint.
+-- | The head script: the remembered LOOK pinned before the first paint -- the theme,
+--   and whether the doc pane draws org's own bullets.  A value the page does not know
+--   is ignored, so the default look survives a hand-edited store.
 themeBoot :: Text
 themeBoot = T.concat
-  [ "try{var t=localStorage.getItem(\"glance-theme\");"
-  , "if(", T.intercalate "||" [ "t===\"" <> name <> "\"" | name <- themeIds ]
-  , ")document.documentElement.dataset.theme=t}"
-  , "catch(e){}" ]
+  [ "try{", stamp "theme" "glance-theme" themeIds
+  , stamp "bullets" bulletsKey [bulletsShown], "}catch(e){}" ]
+  where
+    stamp prop key ids = T.concat
+      [ "var v=localStorage.getItem(\"", key, "\");"
+      , "if(", T.intercalate "||" [ "v===\"" <> name <> "\"" | name <- ids ]
+      , ")document.documentElement.dataset.", prop, "=v;" ]
 
