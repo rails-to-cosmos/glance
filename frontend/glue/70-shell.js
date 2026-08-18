@@ -240,7 +240,7 @@
       if (!k) return;
       if (promptNow().text) {
         if (k !== "RET") return;
-        takeChoice(freely() || { text: el("pinput").value });
+        takeChoice({ text: el("pinput").value });
         e.preventDefault();
         return;
       }

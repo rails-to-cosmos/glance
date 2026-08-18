@@ -392,7 +392,7 @@ const Capture = ((deps) => {
     const promptNow = () => prompting;
     return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags, askText,
              capUp, docTargets, entry,
-             fieldMode, filteredTags, foldTag, followLinks, freely, linksOf, mode, offer,
+             fieldMode, filteredTags, foldTag, followLinks, freely, linksOf, offer,
              keywordSources,
              openCapture, openLink, overTargets, planRows, promptNow, raise,
              restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
@@ -408,7 +408,7 @@ const Capture = ((deps) => {
      queryNow: () => query, colsNow: () => cols, entryNow: () => editing,
      arrivingNow: () => arriving, setArriving: (id) => { arriving = id; } });
 const { CODES, ask, askFrom, askState, askTags, askText, capUp, docTargets, entry,
-        fieldMode, filteredTags, foldTag, followLinks, freely, linksOf, mode, offer,
+        fieldMode, filteredTags, foldTag, followLinks, freely, linksOf, offer,
         keywordSources,
         openCapture, openLink, overTargets, planRows, promptNow, raise,
         restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,

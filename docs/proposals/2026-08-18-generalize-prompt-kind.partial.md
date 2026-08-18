@@ -1,6 +1,6 @@
 # Proposal — the palette has three kinds, and should say so
 
-**Status:** proposed · **Date:** 2026-08-18 · **Origin:** `/generalizer` audit;
+**Status:** partial · **Date:** 2026-08-18 · **Origin:** `/generalizer` audit;
 the audit proposed a two-valued tag, and weighing it produced a three-valued one.
 
 ## The finding, in one line
