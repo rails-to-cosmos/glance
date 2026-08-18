@@ -1,6 +1,6 @@
 # Proposal — one list of popup surfaces, many readers
 
-**Status:** proposed · **Date:** 2026-08-18 · **Origin:** `/generalizer` audit,
+**Status:** partial · **Date:** 2026-08-18 · **Origin:** `/generalizer` audit,
 weighed against the code it names.
 
 ## The finding, in one line
