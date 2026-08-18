@@ -1229,6 +1229,9 @@ export default [
       const head = document.querySelector("#mdoc .de.d-head");
       // A LINK ON A DIMMED LINE: `.dl' carries its own ink and outranks what it
       // inherits, so it is the one part that can stay lit while its line goes.
+      const dimmed = (n) => getComputedStyle(n.closest(".de")).color
+                            === rgb(root.getPropertyValue("--g-point-off").trim());
+      const box = [...document.querySelectorAll("#mdoc .dbx.on")].find(dimmed);
       const link = [...document.querySelectorAll("#mdoc .de .dl")]
         .find((n) => getComputedStyle(n.closest(".de")).color
                      === rgb(root.getPropertyValue("--g-point-off").trim()));
@@ -1237,6 +1240,7 @@ export default [
                focus: !!document.querySelector("#mdoc .focus"),
                head: head ? getComputedStyle(head).color : null,
                link: link ? getComputedStyle(link).color : null,
+               box: box ? getComputedStyle(box).color : null,
                inked: rows.map((n) => getComputedStyle(n).color) };
     };
     const rest = await p.eval(inks);
@@ -1256,6 +1260,10 @@ export default [
       `the headline dimmed to ${held.head} while the reader worked in a list`);
     assert(held.link === null || held.link === held.off,
       `a link on a dimmed line still paints ${held.link}`);
+    // `> .dp' OR AN ANCESTOR LIGHTS ITS WHOLE SUBTREE: rows nest, so a ticked box
+    // under an owner of point kept the DONE face while its line was dimmed.
+    assert(held.box === null || held.box === held.off,
+      `a ticked box on a dimmed line still paints ${held.box}`);
     return [`at rest ${rest.inked.length} rows all ${rest.fg}; inside a list `
       + `${held.inked.filter((c) => c === held.off).length} dimmed to ${held.off}, `
       + `${held.inked.filter((c) => c === held.fg).length} kept`];

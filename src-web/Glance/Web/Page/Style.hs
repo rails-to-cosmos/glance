@@ -148,7 +148,7 @@ page head' colours title body = T.unlines
   , "    * var(--g-doc-lh))}"
   -- ONE TAB STOP LEFT OF THE ROW'S TEXT: a top-level row is indented by PADDING and
   -- a nested one by SPACES.  Elm writes `--rail' per row; this is the fallback.
-  , "  .de{--rail:calc(var(--g-doc-pad) - 0.5ch)}"
+  , "  .de{--rail:calc(var(--g-doc-pad) + 0.5ch)}"
   -- STICKY INSIDE THE SCROLLER, so the strip holds while the rows move under it; the
   -- negative margins reach the pane's edges.  It always names something, so no floor.
   , "  .dpath{position:sticky;z-index:2;font-size:11px;line-height:1.5;"
@@ -165,7 +165,7 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .cr-1,#mdoc.on .cr-2,#mdoc.on .cr-3{color:var(--g-fg)}"
   -- A CONNECTOR PER ROW, the way `tree' draws one, HALF A CELL LEFT OF THE TAB STOP:
   -- one reaching the text reads as one dashed run with org's bullet.  Tiers set `--ink'.
-  , "  .d-list .d-item::before{top:0;width:1.1ch;background:none;"
+  , "  .d-list .d-item::before{top:0;width:0.8ch;background:none;"
   , "    height:calc(var(--g-doc-fs) * var(--g-doc-lh) / 2);"
   , "    border-left:1px solid var(--ink);border-bottom:1px solid var(--ink);"
   , "    border-radius:0 0 0 3px}"
@@ -193,9 +193,14 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .focus .de.dat .dg,#mdoc.on .focus .up .dg{color:var(--g-mute)}"
   -- A LINK CARRIES ITS OWN INK, which outranks what it inherits, so a dimmed line
   -- kept a lit link inside it until the link was named too.
-  , "  #mdoc.on .focus .dl{color:var(--g-point-off)}"
-  , "  #mdoc.on .focus .de.dat .dl,#mdoc.on .focus .up .dl,"
-  , "  #mdoc.on .focus .d-head .dl{color:var(--g-link)}"
+  , "  #mdoc.on .focus .dl,#mdoc.on .focus .dbx.on{color:var(--g-point-off)}"
+  -- `> .dp' OR AN ANCESTOR LIGHTS ITS WHOLE SUBTREE: rows nest, so `.up .dl' reaches
+  -- every link under an owner of point, not the one on the owner's own line.  What
+  -- point CARRIES is the one place the subtree is meant.
+  , "  #mdoc.on .focus .de.dat>.dp .dl,#mdoc.on .focus .de.dat .de>.dp .dl,"
+  , "  #mdoc.on .focus .up>.dp .dl,#mdoc.on .focus .d-head .dl{color:var(--g-link)}"
+  , "  #mdoc.on .focus .de.dat>.dp .dbx.on,#mdoc.on .focus .up>.dp .dbx.on,"
+  , "  #mdoc.on .focus .de.dat .de>.dp .dbx.on{color:var(--g-state-i0)}"
   -- A HEADLINE'S STARS SIT IN THE CONNECTOR'S COLUMN: they take the ink, none is
   -- drawn.  COLOUR ALONE -- a bolder marker sits taller than the line it opens, and
   -- the pane's business is which line, never which face.
@@ -217,6 +222,10 @@ page head' colours title body = T.unlines
   , "  .d-item{padding-left:0;padding-right:0}"
   , "  .dg{padding:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--g-mute)}"
   , "  .dl{color:var(--g-link);text-decoration:underline}"
+  -- A TICKED BOX WEARS THE DONE FACE: the first inactive slot is the hue an org
+  -- keyword takes when it is settled, and a box is the same statement in one glyph.
+  -- An EMPTY box wears the line's ink, since it says nothing yet.
+  , "  .dbx.on{color:var(--g-state-i0)}"
   , "  .d-head,.d-child{display:flex;align-items:baseline}"
   , "  .d-child{color:var(--g-fg)}"
   , "  .d-head{font-weight:600}"

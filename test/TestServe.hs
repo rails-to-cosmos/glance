@@ -5230,7 +5230,7 @@ shellGlue =
       , "let drows = [], dat = 0;"
       , "dflags = now.flags; dbody = now.body;"
       -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the panel's costs two rules, the wash it suppresses being the RENDERER's.
-      , ".d-list .d-item::before{top:0;width:1.1ch;"
+      , ".d-list .d-item::before{top:0;width:0.8ch;"
       , "#mprops:not(.on) .tv-table tbody tr.tv-sel{background:transparent}"
       , "#mprops:not(.on) .tv-table tbody tr.tv-sel.tv-alt{background:var(--tv-alt)}"
       , ".d-head,.d-child{display:flex;align-items:baseline}"

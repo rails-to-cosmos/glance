@@ -3657,10 +3657,11 @@ docCells :: [String]
 docCells = ["state", "priority", "title", "tags"]
 
 -- | The markup the stylesheet and the harness read: a stop wearing its kind as `d-*',
---   point, a flag, a cell with its key, the marker org wrote, text, a link's shown half,
+--   point, a flag, a cell with its key, the marker org wrote, a checkbox, text, a
+--   link's shown half,
 --   what no rung claims, and the strip that names the way back.
 docClasses :: [String]
-docClasses = [".de", ".dat", ".dfl", ".dc", ".dm", ".dt", ".dl", ".dg", ".dpath"]
+docClasses = [".de", ".dat", ".dfl", ".dc", ".dm", ".dbx", ".dt", ".dl", ".dg", ".dpath"]
 
 -- | Geometry written onto `#mdoc' as NUMBERS, the arithmetic staying in the stylesheet.
 docVars :: [String]
@@ -4422,6 +4423,14 @@ sheetNotes =
          \ INSIDE ITS PARENT, so a ground runs the whole subtree; the mark sits one tab\
          \ stop LEFT of the row's own text, which is where that block's rail runs, and\
          \ point rides its own block's rail." [Test, Browser]
+  , Note "A TICKED BOX WEARS THE DONE FACE, `--g-state-i0': a settled keyword's hue,\
+         \ said in one glyph.  An EMPTY box wears its line's ink, saying nothing yet,\
+         \ and a dimmed line dims both -- `> .dp' scopes the exceptions, since rows\
+         \ NEST and `.up .dbx' reaches every box under an owner of point rather than\
+         \ the one on its own line." [Browser]
+  , Note "THE OUTERMOST RUNG STANDS UNDER THE HEADLINE'S STARS: a connector is drawn\
+         \ under the MARKER of the line it hangs off, the stars for the outermost and\
+         \ the parent's bullet below that." [Test]
   , Note "A MARKER TAKES COLOUR ALONE.  A bolder bullet sits taller than the line it\
          \ opens and reads as a different FACE; the pane's business is which line.\
          \ A link carries its own ink, which outranks what it inherits, so a dimmed\

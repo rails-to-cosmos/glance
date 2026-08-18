@@ -9254,8 +9254,26 @@ var $author$project$Doc$rung = function (depth) {
 	return A2(
 		$elm$html$Html$Attributes$attribute,
 		'style',
-		'--rail:calc(' + ($elm$core$String$fromInt(2 * depth) + 'ch - 2.5ch)'));
+		'--rail:calc(' + ($elm$core$String$fromInt(2 * depth) + 'ch - 1.5ch)'));
 };
+var $author$project$Doc$bulletLen = F2(
+	function (m, r) {
+		if (r.H !== 2) {
+			return 0;
+		} else {
+			var _v0 = $author$project$Scan$listOpener(
+				A2(
+					$elm$core$Maybe$withDefault,
+					'',
+					A2($author$project$Scan$nth, r.d, m.ay)));
+			if (!_v0.$) {
+				var o = _v0.a;
+				return o.bh + $elm$core$String$length(o.ar);
+			} else {
+				return 0;
+			}
+		}
+	});
 var $author$project$Doc$boxLen = function (rest) {
 	return A2(
 		$elm$core$List$member,
@@ -9287,10 +9305,13 @@ var $author$project$Doc$markerLen = F2(
 	});
 var $author$project$Doc$viewPara = F2(
 	function (m, r) {
+		var opened = A2($author$project$Doc$bulletLen, m, r);
 		var k = A2($author$project$Doc$markerLen, m, r);
-		var mark = (k > 0) ? _List_fromArray(
-			[
-				A2(
+		var rest = A2($elm$core$String$dropLeft, k, r.O);
+		var box = A3($elm$core$String$slice, opened, k, r.O);
+		var mark = (k <= 0) ? _List_Nil : A2(
+			$elm$core$List$cons,
+			A2(
 				$elm$html$Html$span,
 				_List_fromArray(
 					[
@@ -9299,10 +9320,22 @@ var $author$project$Doc$viewPara = F2(
 				_List_fromArray(
 					[
 						$elm$html$Html$text(
-						A2($elm$core$String$left, k, r.O))
-					]))
-			]) : _List_Nil;
-		var rest = A2($elm$core$String$dropLeft, k, r.O);
+						A2($elm$core$String$left, opened, r.O))
+					])),
+			$elm$core$String$isEmpty(box) ? _List_Nil : _List_fromArray(
+				[
+					A2(
+					$elm$html$Html$span,
+					_List_fromArray(
+						[
+							$elm$html$Html$Attributes$class(
+							'dbx' + ((A2($elm$core$String$contains, 'X', box) || A2($elm$core$String$contains, 'x', box)) ? ' on' : ''))
+						]),
+					_List_fromArray(
+						[
+							$elm$html$Html$text(box)
+						]))
+				]));
 		return A2(
 			$elm$html$Html$div,
 			_List_fromArray(
@@ -9530,7 +9563,15 @@ var $author$project$Doc$viewPath = function (m) {
 					]),
 				_List_fromArray(
 					[
-						$elm$html$Html$text('paragraph')
+						$elm$html$Html$text(
+						_Utils_eq(
+							A2(
+								$elm$core$Maybe$map,
+								function ($) {
+									return $.r;
+								},
+								$author$project$Body$rowAt(m)),
+							$elm$core$Maybe$Just(0)) ? 'headline' : 'paragraph')
 					]))
 			]) : $elm$core$List$concat(
 			A2(

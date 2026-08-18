@@ -625,13 +625,14 @@ stars m level =
     String.repeat (max 0 (2 * (level - m.level))) " " ++ "* "
 
 
-{-| THE COLUMN A ROW'S CONNECTOR STANDS IN, half a cell left of its own tab stop.
+{-| THE COLUMN A ROW'S CONNECTOR STANDS IN, under the marker of the line it hangs
+off -- the headline's stars for the outermost rung, the parent's bullet below that.
 An attribute rather than `style`, which in 0.19 assigns `style[key]` and is ignored
 for a custom property; twelve stylesheet rules said this before, one per rung.
 -}
 rung : Int -> Html.Attribute Msg
 rung depth =
-    attribute "style" ("--rail:calc(" ++ String.fromInt (2 * depth) ++ "ch - 2.5ch)")
+    attribute "style" ("--rail:calc(" ++ String.fromInt (2 * depth) ++ "ch - 1.5ch)")
 
 
 {-| The classes a row wears. `up` lights the connector of an owner of point, and `lvl-top`
@@ -786,12 +787,38 @@ viewPara m r =
         rest =
             String.dropLeft k r.text
 
+        opened =
+            bulletLen m r
+
+        box =
+            String.slice opened k r.text
+
+        -- A TICKED BOX WEARS THE DONE FACE and an empty one wears the line's, so the
+        -- box is its own span: the bullet answers "a list item", the box "settled".
         mark =
-            if k > 0 then
-                [ span [ class "dm" ] [ text (String.left k r.text) ] ]
+            if k <= 0 then
+                []
 
             else
-                []
+                span [ class "dm" ] [ text (String.left opened r.text) ]
+                    :: (if String.isEmpty box then
+                            []
+
+                        else
+                            [ span
+                                [ class
+                                    ("dbx"
+                                        ++ (if String.contains "X" box || String.contains "x" box then
+                                                " on"
+
+                                            else
+                                                ""
+                                           )
+                                    )
+                                ]
+                                [ text box ]
+                            ]
+                       )
     in
     div [ class "dp" ]
         (mark
@@ -803,6 +830,23 @@ viewPara m r =
                         [ text rest ]
                )
         )
+
+
+{-| How many characters org spent on the indent and the bullet alone, the box after
+it excluded.
+-}
+bulletLen : Model -> Row -> Int
+bulletLen m r =
+    if r.grain /= Leaf then
+        0
+
+    else
+        case Scan.listOpener (Maybe.withDefault "" (nth r.from m.lines)) of
+            Just o ->
+                o.indent + String.length o.bullet
+
+            Nothing ->
+                0
 
 
 {-| How many characters of a leaf's own line org spent on its indent, its bullet --
@@ -1024,7 +1068,18 @@ viewPath m =
     in
     div [ class "dpath" ]
         (if n == 0 then
-            [ span [ class "dcr cr-0" ] [ text "paragraph" ] ]
+            -- WHAT POINT IS ON, when it is on nothing a list names: the entry's own
+            -- line is the headline, and everything else at that level is prose.
+            [ span [ class "dcr cr-0" ]
+                [ text
+                    (if Maybe.map .kind (rowAt m) == Just Head then
+                        "headline"
+
+                     else
+                        "paragraph"
+                    )
+                ]
+            ]
 
          else
             List.concat
