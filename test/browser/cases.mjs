@@ -1225,12 +1225,15 @@ export default [
     const tail = seen.words[seen.words.length - 1].replace(/…$/, "");
     assert(seen.said.replace(/^\s*([-+*]|\d+[.)])\s+(\[[ xX-]\]\s+)?/, "").startsWith(tail),
       `the strip says "${tail}" where the line reads "${seen.said}"`);
-    // THE OUTERMOST IS THE COMPOSITE'S OWN NAME, which is what `d-list' is called.
-    assert(seen.words[0] === "list",
-      `the strip opens on "${seen.words[0]}" rather than the list it is inside`);
+    // EVERYTHING IS UNDER THE HEADLINE, so the way back starts there and the list
+    // it is inside comes next.
+    assert(seen.words[0] === "headline",
+      `the strip opens on "${seen.words[0]}" rather than the entry's own line`);
+    assert(seen.words[1] === "list",
+      `the strip's second step is "${seen.words[1]}" rather than the list`);
     assert(seen.sticky === "sticky",
       `the strip is ${seen.sticky}, so it leaves the top when the rows scroll`);
-    return [`${seen.words.join(" › ")} — the last in ${seen.last}`];
+    return [`${seen.words.join(" → ")} — the last in ${seen.last}`];
   } },
 { name: "the pane dims every branch but the one the reader is in",
   async run(p, base) {

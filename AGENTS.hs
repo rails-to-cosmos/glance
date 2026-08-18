@@ -4404,6 +4404,14 @@ sheetNotes =
   , Note "ONE INK PER ROW: a tier sets `--ink' on the row and the shapes SPEND it, an\
          \ elbow on its borders and a run on its background.  A case reads the tier\
          \ rather than the shape, which is why one assertion covers both." [Browser]
+  , Note "A DELETION LANDS ON THE NEXT SIBLING, and on the PARENT only when the branch\
+         \ is emptied: the row point stood on is about to stop existing, and the reader\
+         \ was working among its siblings.  A LINE rather than an id -- the rescan\
+         \ mints new ones -- and a line BELOW the cut has moved up by what the splice\
+         \ actually dropped, counted rather than guessed." [Test]
+  , Note "EVERYTHING IS UNDER THE HEADLINE, so the strip's way back starts there:\
+         \ `headline -> list -> item'.  The entry's own line is the root the list and\
+         \ the prose alike hang off." [Browser]
   , Note "A FLAG TAKES THE BRANCH: what hangs off a flagged row goes with it wherever\
          \ the flag leads -- a delete takes the subtree -- so the mark runs the whole\
          \ way down." [Browser]

@@ -320,13 +320,56 @@ update msg model =
 
                 named =
                     List.filter (\r -> List.member r.id ids) model.rows
+
+                written =
+                    bodyText model (List.map .id taken)
+
+                -- WHAT THE SPLICE ACTUALLY DROPPED, counted rather than guessed: a
+                -- paragraph taken out takes the blank line under it too.
+                cut =
+                    List.length model.lines
+                        - List.length (String.split "\n" written)
+
+                -- THE NEXT SIBLING IS WHERE THE READER WAS WORKING, and the parent
+                -- is where they end up only when the branch is emptied.  A LINE
+                -- rather than an id -- the rescan mints new ones -- and a line BELOW
+                -- the cut has moved up by what the cut took.
+                landsOn =
+                    case List.head taken of
+                        Nothing ->
+                            model.landing
+
+                        Just first ->
+                            let
+                                kin =
+                                    List.filter
+                                        (\r ->
+                                            r.kind == Para
+                                                && r.owner == first.owner
+                                                && not (List.member r.id (List.map .id taken))
+                                        )
+                                        model.rows
+                            in
+                            case List.filter (\r -> r.from > first.from) kin of
+                                next :: _ ->
+                                    Just (next.from - cut)
+
+                                [] ->
+                                    case List.reverse (List.filter (\r -> r.from < first.from) kin) of
+                                        prev :: _ ->
+                                            Just prev.from
+
+                                        [] ->
+                                            first.owner
+                                                |> Maybe.andThen (rowById model)
+                                                |> Maybe.map .from
             in
-            ( model
+            ( { model | landing = landsOn }
             , docTook
                 (E.object
                     [ ( "taken", E.list E.string (List.map .id taken) )
                     , ( "named", E.int (List.length named) )
-                    , ( "body", E.string (bodyText model (List.map .id taken)) )
+                    , ( "body", E.string written )
                     ]
                 )
             )
@@ -1065,44 +1108,43 @@ viewPath m =
             idAtRow m m.at
 
         named =
-            List.filter (\r -> r.grain /= Element)
-                (List.filterMap (rowById m) (List.reverse (here :: ownersOf m here)))
+            List.map (crumb m)
+                (List.filter (\r -> r.grain /= Element)
+                    (List.filterMap (rowById m) (List.reverse (here :: ownersOf m here)))
+                )
+
+        -- EVERYTHING IS UNDER THE HEADLINE, so the way back starts there: the entry's
+        -- own line is the root the list and the prose alike hang off.
+        words =
+            if Maybe.map .kind (rowAt m) == Just Head then
+                [ "headline" ]
+
+            else if List.isEmpty named then
+                [ "headline", "paragraph" ]
+
+            else
+                "headline" :: named
 
         n =
-            List.length named
+            List.length words
     in
     div [ class "dpath" ]
-        (if n == 0 then
-            -- WHAT POINT IS ON, when it is on nothing a list names: the entry's own
-            -- line is the headline, and everything else at that level is prose.
-            [ span [ class "dcr cr-0" ]
-                [ text
-                    (if Maybe.map .kind (rowAt m) == Just Head then
-                        "headline"
+        (List.concat
+            (List.indexedMap
+                (\i w ->
+                    (if i > 0 then
+                        [ span [ class "dsep" ] [ text "→" ] ]
 
                      else
-                        "paragraph"
+                        []
                     )
-                ]
-            ]
-
-         else
-            List.concat
-                (List.indexedMap
-                    (\i r ->
-                        (if i > 0 then
-                            [ span [ class "dsep" ] [ text "›" ] ]
-
-                         else
-                            []
-                        )
-                            ++ [ span
-                                    [ class ("dcr cr-" ++ String.fromInt (min 3 (n - 1 - i))) ]
-                                    [ text (crumb m r) ]
-                               ]
-                    )
-                    named
+                        ++ [ span
+                                [ class ("dcr cr-" ++ String.fromInt (min 3 (n - 1 - i))) ]
+                                [ text w ]
+                           ]
                 )
+                words
+            )
         )
 
 
