@@ -13,10 +13,8 @@ async function sheet(p, base, row) {
                 `${row}'s body to draw more than a headline`);
 }
 
-/** WALK DOWN TO AN ITEM THAT HAS ROWS DRAWN INSIDE IT, adaptively: `n' crosses
- * stops and `f' goes finer, and a FIXED key count lands elsewhere the moment a
- * case above has written to the tree.  A press lands a round trip later, and the
- * list answers "has rows inside it" too, so the wait names the ITEM. */
+/** WALK DOWN TO AN ITEM THAT HAS ROWS DRAWN INSIDE IT.  A FIXED key count
+ * lands elsewhere the moment a case above has written to the tree. */
 async function intoNestedItem(p, base, row) {
   await sheet(p, base, row);
   const on = (what) => p.eval((sel) => {
@@ -59,10 +57,8 @@ async function pickerOver(p, base, row) {
   await p.press("@");
   await pickerUp(p);
 }
-// A PAGE FUNCTION IS SERIALIZED WHOLE, so it may call nothing of this module's:
-// these are handed to `eval'/`until' entire, and a wrapper that CALLED one would
-// reach the page naming something that is not there.
-/** THE EDITOR IS SUMMONED, NOT RESIDENT: is its bar drawn at all? */
+// A PAGE FUNCTION IS SERIALIZED WHOLE, so it may call nothing of this module's.
+/** THE EDITOR IS SUMMONED ON DEMAND: is its bar drawn at all? */
 const barDrawn = () => {
   const bar = document.querySelector("#rmount .tv-bar");
   return !!bar && getComputedStyle(bar).display !== "none";
@@ -128,8 +124,7 @@ export default [
   } },
 
 // d7ba44b, Style.hs's `.d-draft'.  Elm emits an empty text node, so `:empty'
-// cannot find a drawn-but-unwritten paragraph and the floor is DECLARED.  TWO
-// READINGS: `.de.dat' carries a floor of its own, so a PROBE isolates `.d-draft'.
+// cannot find it; `.de.dat' has a floor of its own, so a PROBE isolates it.
 { name: "a paragraph drawn before it is written still owns a line",
   async run(p, base) {
     await sheet(p, base, "drv-box");
@@ -158,8 +153,7 @@ export default [
       + `.d-draft alone is ${px(seen.probe)}, one line is ${px(seen.line)}`];
   } },
 
-// 14e13d9.  ONE gesture over ONE queue must paint one red on both surfaces,
-// which `paletteSweep' cannot ask: it compares the served TEXT, never a mount.
+// 14e13d9.  ONE red on both surfaces; `paletteSweep' only ever compares served TEXT.
 { name: "a flag paints one red on both surfaces, and draws its inset edge",
   async run(p, base) {
     await p.goto(`${base}/`);
@@ -193,13 +187,10 @@ export default [
     await p.press("d");
     await p.until(() => !!document.querySelector("#mdoc .de.dfl"),
                   "the pane's row to wear its flag");
-    // THE TABLE GROUNDS ITS ROW AND THE DOCUMENT MARKS ITS LINE: a ground on a
-    // nested row would cover the subtree drawn inside it, so the pane draws a
-    // rail in the row's own column instead.
+    // THE TABLE GROUNDS ITS ROW AND THE DOCUMENT MARKS ITS LINE.
     const pane = await p.eval(() => {
       const fl = document.querySelector("#mdoc .de.dfl");
-      // THE INK IS THE ROW'S: an elbow spends it on its borders and a run on its
-      // background, so the tier is what a case can read either way.
+      // THE INK IS THE ROW'S: an elbow spends it on borders, a run on background.
       return { thin: ink(fl),
                wide: getComputedStyle(fl, "::before").width,
                ground: getComputedStyle(fl).backgroundColor };
@@ -214,12 +205,10 @@ export default [
             `the pane's flag is a ${pane.wide} connector in ${pane.thin}`];
   } },
 
-// The KEY LINE is the one sideways scroller and is exempt; the reading is the
-// DOCUMENT's scroller.  Every surface opens by its OWN URL, so no keymap copy.
+// The KEY LINE is the one sideways scroller and is exempt.
 { name: "the page never scrolls, sideways or down, at any width or surface",
   async run(p, base) {
-    // A SURFACE THAT NEVER ROSE would have this measure the table three times
-    // over and report ok, so each is waited for BY ITS OWN CONTAINER.
+    // A SURFACE THAT NEVER ROSE would measure the table again and report ok.
     const HOST = { sheet: "#modal", config: "#config", tags: "#tags", links: "#links" };
     const seen = [];
     for (const [w, h] of [[360, 720], [800, 900], [1400, 900]]) {
@@ -252,8 +241,7 @@ export default [
   } },
 
 // A POPUP CLAMPS AND SCROLLS INSIDE, as a CHAIN: `--g-pop-max' derives the foot
-// margin from the HEAD's (Style.hs).  Nothing measures the chain, and a box
-// taller than the viewport is a reader who cannot reach its foot.
+// margin from the HEAD's (Style.hs).
 { name: "a popup clamps inside the viewport at every height",
   async run(p, base) {
     const seen = [];
@@ -282,8 +270,7 @@ export default [
     return [seen.join("  ")];
   } },
 
-// 80c3732: the Elm view invented a CSS variable name and the state badge lost
-// its colour.  ONE KEYWORD, TWO SURFACES, ONE PAINTED COLOUR.
+// 80c3732.  ONE KEYWORD, TWO SURFACES, ONE PAINTED COLOUR.
 { name: "a badge in the sheet paints the hue its column paints in the table",
   async run(p, base) {
     await p.goto(`${base}/`);
@@ -312,8 +299,8 @@ export default [
       + `against the page's own ${table.plain}`];
   } },
 
-// AND CONTENT SITS UNDER THE TITLE TEXT (AGENTS.hs).  PADDING rather than a
-// margin — a margin would take the selection wash off the left of the line.
+// CONTENT SITS UNDER THE TITLE TEXT (AGENTS.hs).  PADDING, since a margin takes
+// the selection wash off the left of the line.
 { name: "a paragraph is indented under the title text, and keeps its full ground",
   async run(p, base) {
     await sheet(p, base, "drv-box");
@@ -339,8 +326,8 @@ export default [
       + `paragraph box at ${px(seen.paraLeft)} and its text at ${px(seen.paraText)}`];
   } },
 
-// EVERY SELECTION IN THE PANE IS A GROUND, never a line (AGENTS.hs).
-// `groundSweep' greps the served TEXT; what the row PAINTS needs an engine.
+// POINT IS A MARK BESIDE THE LINE (AGENTS.hs).  `groundSweep' greps the served
+// TEXT; what the row PAINTS needs an engine.
 { name: "the cursor in the pane is a mark, and the pane that lost the keys draws none",
   async run(p, base) {
     await sheet(p, base, "drv-box");
@@ -360,8 +347,7 @@ export default [
     });
     assert(seen.mark === seen.ink,
       `the cursor's mark paints ${seen.mark}, not the point ink ${seen.ink}`);
-    // A GROUND ON A NESTED ROW COVERS THE SUBTREE DRAWN INSIDE IT, so the pane
-    // draws none at all — and no line on the text either.
+    // A GROUND ON A NESTED ROW COVERS THE SUBTREE DRAWN INSIDE IT.
     assert(seen.ground === "rgba(0, 0, 0, 0)",
       `the cursor row paints a ground of ${seen.ground}`);
     assert(seen.deco === "none" && seen.outline === "none" && seen.border === "none",
@@ -375,25 +361,19 @@ export default [
       const at = document.querySelector("#mdoc .de.dat");
       return at ? ink(at) : null;
     });
-    // A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE: the row keeps whatever a row with
-    // no cursor keeps, which is a faint connector or nothing at all — never the
-    // point ink.
     assert(gone !== seen.ink,
       `the pane that lost the keys still marks its cursor ${gone}`);
     return [`the cursor marks ${seen.mark}; with the keys away it marks ${gone}`];
   } },
 
-// A LEAF IS ONE LINE OF THE FIELD THAT COVERS IT.  `.de' pads every stop and a
-// composite's leaves spent it AGAIN, walking 2px per leaf off the field's grid.
+// A LEAF IS ONE LINE OF THE FIELD THAT COVERS IT: `.de' padding spent twice drifts.
 { name: "a composite's drawn lines sit on the same grid as the field over it",
   async run(p, base) {
     await sheet(p, base, "drv-plan");
     await p.press("n"); await p.press("n");      // onto the whole-list composite
     await p.press("RET");
-    // THE CLASS FLIPS BEFORE THE PANE HAS DRAWN, as `placeEdit' does in the case
-    // above: waiting on the box alone found an empty composite one run in eight
-    // (docs/bugs/2026-08-17-the-composite-case-measures-an-empty-pane).  The wait
-    // is on the MEASUREMENT, so what is asserted is what was waited for.
+    // THE CLASS FLIPS BEFORE THE PANE HAS DRAWN, so the wait is on the MEASUREMENT
+    // (docs/bugs/2026-08-17-the-composite-case-measures-an-empty-pane).
     await p.until(() => {
       const box = document.getElementById("dpara");
       const at = document.querySelector("#mdoc .de.dat");
@@ -417,8 +397,7 @@ export default [
     });
     const out = [`line ${s.line}px, row h${s.h}, field h${s.fieldH} scroll${s.scrollH}, `
       + `${s.text} text lines, row padTop ${s.atPad}`];
-    // EVERY ASSERTION BELOW RIDES THIS LIST, so an empty one reports green
-    // having measured nothing.
+    // EVERY ASSERTION BELOW RIDES THIS LIST; an empty one reports green.
     assert(s.leaves.length > 0, "the pane drew no leaves to measure");
     let uniform = parseFloat(s.atPad);
     for (const l of s.leaves) {
@@ -436,11 +415,8 @@ export default [
     return out;
   } },
 
-// AN EDIT BOX IS THE BLOCK IT COVERS, and nothing measured the two TOGETHER.
-// Both padding cases matter, and so does a CYRILLIC item that WRAPS.
-// A COMMIT CLOSES WHAT THE TYPING OPENED.  The completion is the SCANNER's, so
-// only an engine running the compiled Elm can see it: `Scan.closers' is unit
-// tested over lines, and this is the one reading where a TYPED line reaches it.
+// AN EDIT BOX IS THE BLOCK IT COVERS, and A COMMIT CLOSES WHAT THE TYPING OPENED.
+// `Scan.closers' is unit tested over lines; a TYPED line reaches it only here.
 { name: "a committed block opener arrives with its closer",
   async run(p, base) {
     await sheet(p, base, "drv-box");
@@ -450,12 +426,11 @@ export default [
                   "the draft edit to open");
     await p.type("#+begin_src elisp");
     await p.press("RET");                                 // commit
-    // THE WATCH DELIVERS, so the reading waits for the row rather than a duration.
+    // THE WATCH DELIVERS, so the reading waits for the row itself.
     await p.until(() => [...document.querySelectorAll("#mdoc .de")]
                           .some((e) => e.textContent.includes("#+end_src")),
                   "the closer to arrive over the watch");
-    // ONE STOP: balanced, the two lines are a BLOCK, which the scanner draws as
-    // a single region — so the order is read INSIDE the row rather than across.
+    // ONE STOP: balanced, the two lines are one BLOCK, so the order is read inside it.
     const seen = await p.eval(() => {
       const rows = [...document.querySelectorAll("#mdoc .de")].map((e) => e.textContent);
       const at = rows.findIndex((t) => t.includes("#+begin_src"));
@@ -468,10 +443,8 @@ export default [
       `the closer was never written: the row reads ${JSON.stringify(seen.text)}`);
     assert(seen.shuts > seen.opens,
       `the closer precedes its opener: ${JSON.stringify(seen.text)}`);
-    // The ARGUMENTS are the opener's alone.
     assert(!seen.text.includes("#+end_src elisp"),
       `the closer carried the opener's arguments: ${JSON.stringify(seen.text)}`);
-    // AN EMPTY BLOCK GETS A LINE TO TYPE ON, so the two are never adjacent.
     assert(/#\+begin_src elisp\n\n#\+end_src/.test(seen.text),
       `the empty block has no line to type on: ${JSON.stringify(seen.text)}`);
     return [`row ${seen.at} of ${seen.rows} reads ${JSON.stringify(seen.text)}`];
@@ -505,8 +478,7 @@ export default [
       await p.press("RET");
       await p.until(() => document.getElementById("dpara").classList.contains("on"),
                     "the edit to open");
-      // `placeEdit' sizes the box a turn after the raise: waiting for the two to
-      // AGREE is waiting for it to have run.  An unsized box is one line tall.
+      // `placeEdit' sizes the box a turn after the raise; unsized it is one line tall.
       await p.until(() => {
         const b = document.getElementById("dpara").getBoundingClientRect();
         const at = document.querySelector("#mdoc .de.dat");
@@ -530,8 +502,7 @@ export default [
         `the field renders in another metric than its row — ${note}`);
       assert(s.field.padL === row.padL,
         `the field is inset unlike its row, so its text sits elsewhere — ${note}`);
-      // A SCROLLBAR THAT TAKES LAYOUT WIDTH WRAPS THE FIELD NARROWER than the
-      // div it covers.  Chromium overlays its own and measures 0 here.
+      // A BAR TAKING LAYOUT WIDTH WRAPS THE FIELD NARROWER; Chromium overlays, so 0.
       assert(s.field.bar === 0,
         `the field carries a ${s.field.bar}px scrollbar, so it wraps narrower `
         + `than the row it covers — ${note}`);
@@ -544,13 +515,8 @@ export default [
     return out;
   } },
 
-// A COLUMN SIZED BY ITS OWN BADGE CAME UP A FIFTH OF A PIXEL SHORT.  The pill's
-// 16px of padding was allowed for as 2 characters, which is 15.6px at a 13px
-// monospace face; the pill is an inline-block and cannot be cut, so what
-// `text-overflow' drew was the WHOLE badge with an ellipsis after it — `[#A]…'
-// in the priority column, whose widest cell IS the badge.  Every other badge
-// column hid it, sized by a cell longer than its pill.  Unaskable in
-// TestServe.hs: the node harness returns zeroed rects.
+// A COLUMN SIZED BY ITS OWN BADGE CAME UP A FIFTH OF A PIXEL SHORT: a pill is an
+// inline-block `text-overflow' cannot cut, so it drew `[#A]…', the whole badge.
 { name: "a badge sized by its own pill is drawn whole, never ellipsized",
   async run(p, base) {
     const seen = [];
@@ -561,8 +527,7 @@ export default [
                     `a badge to draw at ${w}px`);
       const at = await p.eval(() => [...document.querySelectorAll("#app td .tv-pill")].map((n) => {
         const td = n.closest("td"), cs = getComputedStyle(td);
-        // FRACTIONAL: `clientWidth' is a rounded integer and rounds the fifth of
-        // a pixel this case exists for out of the reading.
+        // FRACTIONAL: `clientWidth' rounds the fifth of a pixel away.
         const inner = td.getBoundingClientRect().width
           - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
           - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth);
@@ -577,10 +542,7 @@ export default [
     return [`each pill against its cell's content box: ${seen.join("  ")}`];
   } },
 
-// `@' IN THE SHEET LINKS A HEADLINE INTO THE PROSE.  The picker is a table-view
-// mount, so what is asked here is the WIRING: that it raises at the caret over
-// the rows /refer offers, that RET writes the link into the box the sheet
-// commits, and that an `@' mid-word is still an `@'.
+// `@' IN THE SHEET LINKS A HEADLINE INTO THE PROSE; the picker is a table-view mount.
 { name: "@ in the sheet links the row under the cursor into the prose",
   async run(p, base) {
     await paraOpen(p, base, "drv-box");
@@ -591,14 +553,14 @@ export default [
       const box = document.getElementById("rbox").getBoundingClientRect();
       const pane = document.getElementById("mdoc").getBoundingClientRect();
       return { rows: document.querySelectorAll("#rmount .tv-table tbody tr").length,
-               // it hangs at the caret rather than centring over the page
+               // it hangs at the caret, so it sits near the pane's own top
                placed: box.top > pane.top - 200 && box.width > 100,
                veil: getComputedStyle(document.getElementById("refer")).backgroundColor };
     });
     assert(shown.rows > 0, "the picker mounted no rows");
     assert(shown.placed, "the picker did not hang near the pane");
     assert(/rgba\(0, 0, 0, 0\)|transparent/.test(shown.veil),
-      `the picker drew a veil (${shown.veil}); it is a completion, not a surface`);
+      `the picker drew a veil (${shown.veil}); a completion draws none`);
 
     await p.press("RET");
     await pickerGone(p, "the picker to close on RET");
@@ -611,8 +573,7 @@ export default [
     assert(await p.eval(() => document.getElementById("dpara").classList.contains("on")),
       "taking a row closed the paragraph the link was written into");
 
-    // THE `@' IS WRITTEN THE MOMENT IT IS TYPED, and dismissing the picker leaves
-    // it standing: the reader typed a character and must be able to keep it.
+    // THE `@' IS WRITTEN THE MOMENT IT IS TYPED, and dismissing the picker leaves it.
     await p.type(" ");
     await p.press("@");
     await pickerUp(p, "the picker to raise a second time");
@@ -623,7 +584,7 @@ export default [
     await pickerGone(p, "the picker to go on ESC");
     const kept = await p.eval(() => document.getElementById("dtext").value);
     assert(kept.endsWith("@"), `ESC took the @ with it: ${JSON.stringify(kept.slice(-12))}`);
-    // AND `@' IS A CHARACTER FIRST: mid-word it is text, not a command.
+    // AND `@' IS A CHARACTER FIRST: mid-word it is text.
     await p.type("mail me at dmitry");
     await p.press("@");
     const after = await p.eval(() => ({
@@ -635,14 +596,12 @@ export default [
     return [`the box holds ${JSON.stringify(wrote.slice(0, 60))}`];
   } },
 
-// A SELECTED REGION BECOMES THE LINK, and its OWN WORDS are what the link reads
-// as.  They are not a query: seeding the filter with the reader's prose narrowed
-// the store by an accident of phrasing.
+// A SELECTED REGION BECOMES THE LINK AND ITS OWN WORDS ARE WHAT IT READS AS.
+// Seeding the filter with them narrows the store by an accident of phrasing.
 { name: "@ over a selected region links it, and the region is no filter",
   async run(p, base) {
     await paraOpen(p, base, "drv-box");
     await p.type(" the weekly note ");
-    // select `weekly' — the words the link is to read as
     await p.eval(() => {
       const box = document.getElementById("dtext");
       const at = box.value.indexOf("weekly");
@@ -663,8 +622,7 @@ export default [
     return [`chips ${JSON.stringify(chips)} · box ends ${JSON.stringify(wrote.slice(-46))}`];
   } },
 
-// `@' WRITES INTO WHATEVER BOX IS OPEN.  Over a title edit that is the TITLE:
-// drafting a body line under it and linking there answers a question nobody asked.
+// `@' WRITES INTO WHATEVER BOX IS OPEN; over a title edit that is the TITLE.
 { name: "@ in the title editor links into the title itself",
   async run(p, base) {
     await sheet(p, base, "drv-box");
@@ -690,9 +648,7 @@ export default [
     return [`title ${JSON.stringify(got.title.slice(0, 56))}`];
   } },
 
-// ESC IN THE PICKER'S FILTER IS ONE STEP: the half-typed filter goes AND the
-// cursor lands on a row.  Stopping at an emptied box leaves the reader in an
-// editor they were already done with, and a second ESC away from the rows.
+// ESC IN THE PICKER'S FILTER IS ONE STEP: the filter goes AND the cursor lands on a row.
 { name: "ESC in the picker's filter drops the edit and stands on a row",
   async run(p, base) {
     await pickerOver(p, base, "drv-box");
@@ -701,7 +657,7 @@ export default [
     await p.press("/");
     await boxFocused(p);
     assert(await p.eval(barDrawn), "/ summoned no filter editor");
-    // AND IT COMES ON THE CHIPS' OWN LINE, not as a second stripe above them.
+    // AND IT COMES ON THE CHIPS' OWN LINE.
     const oneLine = await p.eval(() => {
       const bar = document.querySelector("#rmount .tv-bar").getBoundingClientRect();
       const chips = document.querySelector("#rmount .tv-chips").getBoundingClientRect();
@@ -730,16 +686,11 @@ export default [
     return [`${after.rows} rows, cursor on one, editor away`];
   } },
 
-// DEL'S RUNGS IN THE PICKER, and an EMPTIED summoned editor is now the rung
-// under the typed text.  The box is the last thing the reader put there, so it
-// is taken back before what is under it; the chips under it belong to the PICKER's own listener,
-// which stands aside while the box holds the keys and so only sees the press
-// once the box has gone.
+// DEL'S RUNGS IN THE PICKER: an EMPTIED summoned editor is the rung under the
+// typed text, and the picker's own listener sees DEL once the box has gone.
 { name: "DEL on the picker's empty filter hides it, and the next DEL takes a chip",
   async run(p, base) {
     await pickerOver(p, base, "drv-box");
-    // SELF-CONTAINED: a page function is serialized whole, so it can call no
-    // helper of this module's — only the helpers passed to `eval'/`until' whole.
     const state = () => ({
       chips: document.querySelectorAll("#rmount .tv-chip[data-i]").length,
       typing: document.activeElement.tagName === "INPUT"
@@ -751,7 +702,6 @@ export default [
 
     await p.press("/");
     await boxFocused(p);
-    // The FIRST DEL over an empty box: the box goes, and nothing else does.
     await p.press("DEL");
     await boxAway(p, "the summoned editor to go on the first DEL");
     const once = await p.eval(state);
@@ -760,7 +710,6 @@ export default [
     assert(!once.typing, "the first DEL left the keyboard in the box it emptied");
     assert(once.up, "the first DEL dismissed the whole picker");
 
-    // The SECOND, with the box gone, reaches the shell and walks the query down.
     await p.press("DEL");
     await p.until((n) => document.querySelectorAll("#rmount .tv-chip[data-i]").length < n,
                   "the second DEL to take a chip", 8000, seeded.chips);
@@ -769,12 +718,8 @@ export default [
     return [`chips ${seeded.chips} → ${once.chips} (box away) → ${twice.chips}`];
   } },
 
-// ONE PRESS, ONE PART — and the box rung is what made this reachable.  A held
-// DEL over an emptied box hands the keyboard back on the FIRST press, so every
-// repeat after it lands on the picker's own listener, and past that on the
-// prose behind it: unguarded, one key walks the chip, the picker, the `@' and
-// then the reader's sentence.  The renderer's `e.repeat' guard cannot help —
-// by the second repeat the renderer is no longer the one being pressed.
+// ONE PRESS, ONE PART.  A held DEL hands the keyboard back on the FIRST press, so
+// the renderer's `e.repeat' guard cannot help: it is no longer the one pressed.
 { name: "a held DEL over the picker's emptied box takes the box and nothing else",
   async run(p, base) {
     await pickerOver(p, base, "drv-box");
@@ -802,11 +747,8 @@ export default [
       + `prose ${JSON.stringify(after.prose.slice(-12))} unmoved`];
   } },
 
-// THE KIND IS THE EDGE'S, and `K' is what declares it.  `k' is the previous row
-// in the vim dialect, so the kind takes the shift.  The badge is drawn APART
-// from the row's own badges and from the filter's chips — those narrow what is
-// offered, this says what the link about to be written will BE — and the SLUG
-// comes back from the server, so the page writes what org-glance would have.
+// THE KIND IS THE EDGE'S, and `K' declares it: `k' is the previous row in the vim
+// dialect, so the kind takes the shift.  The SLUG comes back from the server.
 { name: "K declares the kind, and the link is written with the server's own slug",
   async run(p, base) {
     await pickerOver(p, base, "drv-box");
@@ -848,9 +790,8 @@ export default [
     return [`typed "Roasted By", wrote ${JSON.stringify(wrote.slice(-40))}`];
   } },
 
-// THE FILTER IS THE SECOND ROUTE TO THE SAME KIND.  `kind:' is the EDGE's, so
-// it never narrows the rows it would be written from: it comes OUT of the row
-// query, lands on the badge, and stays in the strip as the chip that removes it.
+// THE FILTER IS THE SECOND ROUTE TO THE SAME KIND.  `kind:' is the EDGE's, so it
+// comes OUT of the row query and never narrows the rows it is written from.
 { name: "kind: typed into the picker's filter sets the kind and narrows nothing",
   async run(p, base) {
     await pickerOver(p, base, "drv-box");
@@ -884,12 +825,8 @@ export default [
     return [`${rowsBefore} rows throughout, badge "kind:cites" then cleared`];
   } },
 
-// THE PLATFORM PAINTS THE `<select>', and only `color-scheme' tells it which
-// way.  The native WebKitGTK window drew every dropdown white on white: the
-// page's own `color' was inherited over a control ground the UA painted from
-// its LIGHT palette, because nothing declared the page was dark.  Chromium
-// cannot reproduce GTK's paint, so what is asked here is the declaration the
-// native window reads, and that no dropdown is given one colour twice.
+// THE PLATFORM PAINTS THE `<select>', and only `color-scheme' tells it which way.
+// Chromium cannot reproduce GTK's paint, so the DECLARATION is what is asked.
 { name: "every dropdown declares the scheme its platform paints it in",
   async run(p, base) {
     await p.goto(`${base}/`);
@@ -901,9 +838,7 @@ export default [
       const was = root.dataset.theme;
       if (theme) root.dataset.theme = theme; else delete root.dataset.theme;
       const scheme = getComputedStyle(root).colorScheme;
-      // A MISSING BOX IS REPORTED, NOT THROWN: `getComputedStyle(null)' raises, and
-      // an eval that raises fails the case with the driver's words rather than with
-      // the name of the dropdown that went.
+      // A MISSING BOX IS REPORTED, since `getComputedStyle(null)' raises.
       const boxes = ids.map((id) => {
         const el = document.getElementById(id);
         if (!el) return { id, missing: true };
@@ -925,8 +860,7 @@ export default [
     const missed = dark.boxes.filter((b) => b.missing).map((b) => b.id);
     assert(!missed.length, `the page lost a dropdown: ${missed.join(", ")}`);
 
-    // AND WE DO NOT DO IT TO OURSELVES: a box whose ink is its own ground is
-    // unreadable however the platform paints around it.
+    // AND WE DO NOT DO IT TO OURSELVES: ink on its own ground is unreadable.
     for (const seen of [dark, light])
       for (const b of seen.boxes)
         assert(b.fg !== b.bg,
@@ -935,19 +869,16 @@ export default [
       + `light ${JSON.stringify(light.scheme)}`];
   } },
 
-// A BADGE COLUMN'S HEADER SITS OVER ITS BADGES' FIRST LETTER.  A pill sets its
-// text in from the cell edge by its own padding, so a header aligned to the CELL
-// is a header sitting a padding's width left of the words underneath it — which
-// is what a reader actually scans.  Unaskable in TestServe.hs: the node harness
-// returns zeroed rects.
-{ name: "a badge column's header lines up with its badges, not with the cell",
+// A BADGE COLUMN'S HEADER SITS OVER ITS BADGES' FIRST LETTER: a pill sets its text
+// in from the cell edge, so a header aligned to the CELL sits a padding's width left.
+{ name: "a badge column's header lines up with its badges' first letter",
   async run(p, base) {
     await p.size(1400, 900);
     await p.goto(`${base}/`);
     await p.until(() => !!document.querySelector("#app td .tv-pill"),
                   "a badge to draw");
     const at = await p.eval(() => {
-      // The TEXT, not the box: a Range over the text node is where letters start.
+      // A Range over the text node is where the letters start.
       const textX = (n) => {
         const r = document.createRange();
         r.selectNodeContents(n);
@@ -973,12 +904,8 @@ export default [
       + at.map((c) => `${c.key} ${px(c.head)}/${px(c.pill)}`).join("  ")];
   } },
 
-// THE PAGE NEVER SCROLLS AND NOTHING DRAWS A BAR SAYING IT MIGHT.  Two surfaces
-// did: `.tv-scroll', whose rows are driven by key and wheel, and `#kbd', one
-// nowrap line wider than the window at every size — 15px of chrome under a hint
-// nobody drags, and 15px the fill column no longer has.  The sibling case above
-// asks whether the DOCUMENT scrolls; this asks what CHROME the surfaces draw,
-// which is a bar's width of layout either way.
+// NOTHING DRAWS A BAR SAYING THE PAGE MIGHT SCROLL.  The sibling case asks whether
+// the DOCUMENT scrolls; this asks what CHROME the surfaces draw.
 { name: "no surface on the page draws a scrollbar of its own",
   async run(p, base) {
     const seen = [];
@@ -991,8 +918,7 @@ export default [
         const out = [];
         for (const n of document.querySelectorAll("body *")) {
           const cs = getComputedStyle(n);
-          // An INLINE box reports a meaningless `clientWidth' of 0; a box that
-          // cannot clip cannot draw a bar. Neither is asked.
+          // Neither is asked: an INLINE `clientWidth' is 0, and no clip means no bar.
           if (cs.display === "inline") continue;
           if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
           const gy = n.offsetWidth - n.clientWidth
@@ -1014,9 +940,7 @@ export default [
     return [`surfaces taking a bar's width: ${seen.join("  ")}`];
   } },
 
-// THE MINT FORM STANDS OVER THE PALETTE THAT RAISED IT.  Two readings the text
-// suite cannot take: the box is drawn inside the viewport at the height it
-// wants, and the palette under it is still painted rather than merely `on'.
+// THE MINT FORM STANDS OVER THE PALETTE THAT RAISED IT.
 { name: "+ over the state palette draws a form over a palette that stands",
   async run(p, base) {
     await p.goto(`${base}/`);
@@ -1031,15 +955,13 @@ export default [
     const seen = await p.eval(() => {
       const box = document.getElementById("nbox").getBoundingClientRect();
       const under = document.getElementById("pbox").getBoundingClientRect();
-      // DRAWN, rather than merely present: a row the stylesheet hides is a field
-      // the reader has not got, and the count alone cannot tell the two apart.
+      // DRAWN, since a hidden row is a field the reader has not got.
       const rows = [...document.querySelectorAll("#nbox .krow")]
         .filter((r) => r.getBoundingClientRect().height > 0);
       return { top: box.top, bottom: box.bottom, left: box.left, right: box.right,
                vh: window.innerHeight, vw: window.innerWidth,
                rows: rows.length,
                labels: rows.map((r) => r.querySelector(".klab").textContent),
-               // The palette is BEHIND it, drawn, rather than merely flagged on.
                palette: under.width > 0 && under.height > 0,
                over: box.top >= 0 };
     });
@@ -1064,10 +986,8 @@ export default [
       + `the box ${px(seen.top)}..${px(seen.bottom)} inside ${px(seen.vh)}`];
   } },
 
-// THE MINT, END TO END, AGAINST A REAL TREE.  The node harness serves a FAKE
-// config, so nothing there proves the file is written, the store rereads it, or
-// the state becomes settable — which is the whole of what `+' has to do.  This
-// tree has no `.org-glance/config' at all, so the layer is minted by the write.
+// THE MINT, END TO END, AGAINST A REAL TREE: the node harness serves a FAKE config.
+// This tree has no `.org-glance/config', so the layer is minted by the write.
 { name: "+ writes a state into a tree that had no config, then sets it",
   async run(p, base) {
     await p.goto(`${base}/`);
@@ -1085,8 +1005,7 @@ export default [
                   "the mint form to raise");
     await p.type("HANDED");
     await p.press("RET");
-    // THE WHOLE CHAIN: the write, the reseed, `/keywords' answering the new
-    // chain, `set-state', and the socket bringing the row back changed.
+    // THE WHOLE CHAIN: the write, the reseed, `/keywords', `set-state', and the socket.
     await p.until((id) => {
       const tr = document.querySelector(`#app tr[data-id="${id}"]`);
       return !!tr && /HANDED/.test(tr.textContent);
@@ -1103,16 +1022,8 @@ export default [
       + `when the page loaded`];
   } },
 
-// A NESTED LIST ITEM IS DRAWN INSIDE ITS PARENT, so a ground on the parent runs
-// the whole subtree — and the cursor is on the ITEM, not on what hangs off it.
-// The pane's own case 9 catches the same structure from the other side: a leaf
-// with kids stands taller than one line box.,
-
-// A NESTED LIST ITEM IS DRAWN INSIDE ITS PARENT, so the cursor's ground ran the
-// whole subtree: the item's own line is one line box and its element is three.
-// `f' goes finer, which is how the cursor reaches an item at all — the list
-// itself is ONE stop at the coarse grain.  The pane's own composite case catches
-// the same structure from the other side, a leaf standing taller than its line.
+// A NESTED LIST ITEM IS DRAWN INSIDE ITS PARENT, so its element stands taller than
+// its own line.  `f' goes finer: the list itself is ONE stop at the coarse grain.
 { name: "the cursor on a list item lights itself, and what it carries a shade back",
   async run(p, base) {
     await intoNestedItem(p, base, "drv-wide");
@@ -1135,18 +1046,14 @@ export default [
     });
     assert(seen.atInk === seen.point,
       `the item's connector paints ${seen.atInk}, not the point ink ${seen.point}`);
-    // WHAT POINT CARRIES IS THE SAME INK A SHADE BACK: it belongs to the stop and
-    // it is not the stop.
+    // WHAT POINT CARRIES IS THE SAME INK A SHADE BACK: it belongs to the stop.
     assert(seen.kidInk === seen.dim,
       `a row under point paints ${seen.kidInk}, not the carried ink ${seen.dim}`);
     assert(seen.otherInk !== seen.point && seen.otherInk !== seen.dim,
       `an item outside point's subtree paints ${seen.otherInk} as well`);
-    // AND NO GROUND ANYWHERE: a ground on this row would cover the subtree drawn
-    // inside it, which is the bug the connector exists to answer.
     assert(seen.ground === "rgba(0, 0, 0, 0)",
       `the item paints a ground of ${seen.ground}`);
-    // THE CONNECTOR STOPS AT THE MIDDLE OF THE LINE IT MARKS, which is what makes
-    // it an elbow rather than a rail.
+    // THE CONNECTOR STOPS AT THE MIDDLE OF THE LINE IT MARKS, which makes it an elbow.
     assert(Math.abs(seen.tall - seen.line / 2) <= 1,
       `the connector is ${seen.tall}px against a ${seen.line}px line`);
     // THE LIST LIGHTS THE ROOTS IT OPENS: a composite has no connector of its own.
@@ -1172,17 +1079,14 @@ export default [
       + `the list lights its roots ${whole.rootInk} and stops`];
   } },
 
-// THE BOX IS THE LINE IT WRITES.  A nested item is drawn inside its parent, so
-// the ROW is as tall as the subtree; the edit covers the item's own line, which
-// is the only thing it replaces.  A composite draws no own line and keeps the
-// whole box — the list is one stop, and editing it rewrites the list.
-{ name: "the open edit over a nested item covers its own line, not the subtree",
+// THE BOX IS THE LINE IT WRITES: the ROW is as tall as its subtree, and the edit
+// covers the item's own line.  A composite has no own line and keeps the whole box.
+{ name: "the open edit over a nested item covers its own line alone",
   async run(p, base) {
     await sheet(p, base, "drv-wide");
     await p.press("n"); await p.press("n"); await p.press("n");
     await p.press("f");
-    // BOTH a nested row AND an own line: a composite has kids too, so waiting on
-    // kids alone cannot tell "still on the list" from "now on the item".
+    // BOTH a nested row AND an own line: a composite has kids too.
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
       if (!at) return false;
@@ -1201,9 +1105,7 @@ export default [
     await p.press("RET");
     await p.until(() => document.getElementById("dpara").classList.contains("on"),
                   "the edit to open");
-    // PLACED, THEN MEASURED: `placeEdit' sets the top and the height together a
-    // frame after the raise, so reading before it lands measures the box as it
-    // was left, not as it was put.
+    // `placeEdit' sets the top and the height together a frame after the raise.
     await p.until(() => {
       const b = document.getElementById("dpara").getBoundingClientRect();
       const at = document.querySelector("#mdoc .de.dat");
@@ -1230,8 +1132,7 @@ export default [
 { name: "the marker org wrote lights with the line, and only that line's own",
   async run(p, base) {
     await sheet(p, base, "drv-wide");
-    // Onto the list, then into it: the item under point has a nested item drawn
-    // inside it, whose bullet belongs to the nested item and not to this one.
+    // Onto the list, then into it: the item under point has one drawn inside it.
     await p.press("n"); await p.press("n"); await p.press("n");
     await p.press("f");
     await p.until(() => {
@@ -1241,9 +1142,7 @@ export default [
     const seen = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
       const own = at.querySelector(":scope > .dp > .dm");
-      // `:scope' OR THE OWN BULLET COMES BACK: a descendant combinator may use an
-      // ancestor OUTSIDE the element querySelector was called on, and `at' is a
-      // `.de' itself.
+      // `:scope': a descendant combinator may match through an ancestor outside `at'.
       const kid = at.querySelector(":scope > .de > .dp > .dm");
       const plain = [...document.querySelectorAll("#mdoc .de:not(.dat) > .dp > .dm")]
         .find((n) => !at.contains(n));
@@ -1255,16 +1154,14 @@ export default [
     });
     assert(seen.ink === seen.point,
       `the bullet under point paints ${seen.ink}, not the point ink ${seen.point}`);
-    // THE CHECKBOX IS PART OF THE MARKER: `- [X]' is one thing the reader points
-    // at, not a bullet and then some text.
+    // THE CHECKBOX IS PART OF THE MARKER: `- [X]' is one thing the reader points at.
     assert(/^\s*([-+*]|\d+[.)])\s+(\[[ xX-]\]\s+)?$/.test(seen.text),
       `the lit span is "${seen.text}", which is not an org list marker`);
     assert(seen.nested !== seen.point,
       `a bullet nested under point paints ${seen.nested} too, so the light runs the subtree`);
     assert(seen.other !== seen.point,
       `an ordinary row's bullet paints ${seen.other} as well`);
-    // AND THE HEADLINE WEARS ITS STARS INSTEAD: they sit in the column the mark
-    // would use, so the mark is not drawn at all there.
+    // AND THE HEADLINE WEARS ITS STARS: they sit in the column the mark would use.
     await p.press("b"); await p.press("b");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");

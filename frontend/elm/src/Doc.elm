@@ -833,8 +833,8 @@ markerLen m r =
 
 
 {-| The checkbox org may write after a bullet, with the gap that follows it. IT IS
-PART OF THE MARKER: `- [X]` is one thing the reader points at, not a bullet and
-then some text.
+PART OF THE MARKER: `- [X]` is one thing the reader points at, bullet and box
+together.
 -}
 boxLen : String -> Int
 boxLen rest =

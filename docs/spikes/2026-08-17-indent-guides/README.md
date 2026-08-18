@@ -114,7 +114,7 @@ OWNS it** rather than off its first child. A row with something inside is then t
 only kind of row a rail leaves; a leaf is a line with nothing under it. It costs no
 ink that was not already drawn — the same rails, starting one row higher.
 
-Two signals then agree, which is why this is a change to H and not a new language:
+Two signals then agree, which is what keeps this a change to H:
 point's own mark spans its whole extent, so a leaf's mark is exactly one line tall
 and a container's covers its subtree.
 

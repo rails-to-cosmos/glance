@@ -126,9 +126,8 @@ page head' colours title body = T.unlines
   , "  #sheet.raw #mprops{display:none}"
   , "  #mptable .tv-root,#ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
   , "    font-family:var(--dk-mono)}"
-  -- POINT IS A MARK BESIDE THE LINE, never a ground.  A NESTED ITEM IS DRAWN
-  -- INSIDE ITS PARENT, so a ground runs the whole subtree; the mark sits one tab
-  -- stop LEFT of the row's own text, which is where that block's rail runs.
+  -- POINT IS A MARK BESIDE THE LINE: a nested item is drawn INSIDE its parent, so a
+  -- ground would run the whole subtree.  The mark sits one tab stop left of the text.
   , "  .de{scroll-margin-block:var(--g-doc-off);position:relative;"
   , "    --ink:color-mix(in srgb, var(--g-fg) 14%, var(--g-bg));"
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
@@ -138,17 +137,11 @@ page head' colours title body = T.unlines
   , "    pointer-events:none}"
   , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-doc-fs)"
   , "    * var(--g-doc-lh))}"
-  -- THE COLUMN IS THE ROW'S OWN, one tab stop left of its text.  A top-level row
-  -- is indented by PADDING and a nested item by its own leading SPACES, so the
-  -- two are counted from different origins and land on one line.
-  -- THE COLUMN IS ARITHMETIC, and Elm writes it per row; this is the floor a
-  -- row without one falls back to.
+  -- ONE TAB STOP LEFT OF THE ROW'S TEXT: a top-level row is indented by PADDING and
+  -- a nested one by SPACES.  Elm writes `--rail' per row; this is the fallback.
   , "  .de{--rail:calc(var(--g-doc-pad) - 0.5ch)}"
-  -- THE WAY BACK, IN WORDS: the same chain the connectors draw, riding the pane's
-  -- top where the eye already is.  STICKY INSIDE THE SCROLLER, so it holds while
-  -- the rows move under it; the negative margins take it to the pane's own edges.
-  -- NO FLOOR: the strip always names something, `paragraph' when it names nothing
-  -- else, so there is no empty state to hold a height for.
+  -- STICKY INSIDE THE SCROLLER, so the strip holds while the rows move under it; the
+  -- negative margins reach the pane's edges.  It always names something, so no floor.
   , "  .dpath{position:sticky;z-index:2;font-size:11px;line-height:1.5;"
   , "    top:calc(-1 * var(--g-doc-pady));"
   , "    margin:calc(-1 * var(--g-doc-pady)) calc(-1 * var(--g-doc-padx)) 6px"
@@ -157,55 +150,40 @@ page head' colours title body = T.unlines
   , "    background:var(--g-surface);border-bottom:1px solid var(--g-border);"
   , "    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
   , "  .dsep{padding:0 5px;opacity:.6}"
-  -- THE SAME RAMP THE CONNECTORS TAKE, so a crumb and its rail agree.  TEXT MIXES
-  -- TOWARD THE MUTED INK: a crumb at a fifth of the accent over the ground is a
-  -- crumb nobody can read.
+  -- THE SAME RAMP THE CONNECTORS TAKE, so a crumb and its rail agree, except that
+  -- TEXT MIXES TOWARD THE MUTED INK -- a crumb mixed toward the ground is unreadable.
   , "  #mdoc.on .cr-0{color:var(--g-point);font-weight:600}"
   , "  #mdoc.on .cr-1{color:color-mix(in srgb, var(--g-accent) 68%, var(--g-mute))}"
   , "  #mdoc.on .cr-2{color:color-mix(in srgb, var(--g-accent) 36%, var(--g-mute))}"
   , "  #mdoc.on .cr-3{color:color-mix(in srgb, var(--g-accent) 22%, var(--g-mute))}"
-  -- A CONNECTOR PER ROW, drawn the way `tree' draws one: down from the row's top
-  -- to the MIDDLE of its own line, then RIGHT, and a run below that where the
-  -- branch has more to come.  THE TREE HAS A COLUMN OF ITS OWN -- the pane keeps a
-  -- character the text never enters and every connector sits half a cell left of
-  -- the tab stop, so the horizontal ends with air before org's own bullet rather
-  -- than against it, the two having read as one dashed run.
-  -- ONE INK PER ROW: the tiers set `--ink' and the shapes spend it, an elbow on its
-  -- borders and a run on its background.
+  -- A CONNECTOR PER ROW, the way `tree' draws one, HALF A CELL LEFT OF THE TAB STOP:
+  -- one reaching the text reads as one dashed run with org's bullet.  Tiers set `--ink'.
   , "  .d-list .d-item::before{top:0;width:1.1ch;background:none;"
   , "    height:calc(var(--g-doc-fs) * var(--g-doc-lh) / 2);"
   , "    border-left:1px solid var(--ink);border-bottom:1px solid var(--ink);"
   , "    border-radius:0 0 0 3px}"
   , "  .d-list .d-item.kin::after{bottom:0;width:1px;border-radius:1px;"
   , "    top:calc(var(--g-doc-fs) * var(--g-doc-lh) / 2);background:var(--ink)}"
-  -- A PARAGRAPH IS NOT A BRANCH: nothing to elbow into, so it wears the bar at the
-  -- column every outermost row marks on.  A COMPOSITE is drawn as its tree.
+  -- NOTHING TO ELBOW INTO, so a paragraph wears a bar; a COMPOSITE is drawn as its tree.
   , "  .lvl-top:not(.d-head):not(.d-comp)::before{top:0;bottom:0;width:1px;"
   , "    border:0;border-radius:1px;background:var(--ink)}"
-  -- THE PATH, NOT THE LEVEL: what lights is point's OWNERS, brightening inward.
+  -- WHAT LIGHTS IS POINT'S OWNERS, brightening inward.
   , "  #mdoc.on .up-0{--ink:var(--g-accent)}"
   , "  #mdoc.on .up-1{--ink:color-mix(in srgb, var(--g-accent) 68%, var(--g-bg))}"
   , "  #mdoc.on .up-2{--ink:color-mix(in srgb, var(--g-accent) 36%, var(--g-bg))}"
   , "  #mdoc.on .up-3{--ink:color-mix(in srgb, var(--g-accent) 22%, var(--g-bg))}"
-  -- WHAT POINT CARRIES takes the same ink a shade back; the ROOTS a composite
-  -- opens take it whole, a composite having no connector of its own.
-  -- OWNERSHIP IS ALREADY IN THE DOM: a row drawn INSIDE point is what point
-  -- carries, and a composite's own children are the roots it opens.  Elm said the
-  -- same thing again in classes until this rule read it off the nesting.
+  -- OWNERSHIP IS IN THE NESTING: a row drawn inside point is what point carries and
+  -- takes the ink a shade back; a composite's own children are roots and take it whole.
   , "  #mdoc.on .de.dat .de{--ink:var(--g-point-dim)}"
   , "  #mdoc.on .de.dat{--ink:var(--g-point)}"
   , "  #mdoc.on .de.dat.d-comp>.de{--ink:var(--g-point)}"
-  -- A HEADLINE WEARS THE MARKER ORG WROTE: its stars sit in the column a
-  -- connector would use, so they take the ink and none is drawn.
+  -- A HEADLINE'S STARS SIT IN THE CONNECTOR'S COLUMN: they take the ink, none is drawn.
   , "  #mdoc.on .de.dat.d-head::before{display:none}"
   , "  #mdoc.on .de.dat.d-head .ds,#mdoc.on .de.dat>.dp>.dm,"
   , "  #mdoc.on .de.dat.d-comp>.de>.dp>.dm{color:var(--g-point);font-weight:700}"
   , "  #mdoc.on .de.dat .de>.dp>.dm{color:var(--g-point-dim);font-weight:700}"
-  -- A FLAG OUTRANKS POINT and keeps its mark after point has moved on, so it is
-  -- spelled twice: once ungated, once to win where point also draws.
-  -- A FLAG INSIDE POINT IS STILL A FLAG, and the rule that carries what point
-  -- holds is one class heavier than the ungated flag, so the flag is spelled to
-  -- outweigh it.
+  -- SPELLED TWICE ON PURPOSE: a flag outranks point and keeps its mark after point has
+  -- moved on, so the gated copy outweighs the heavier rule carrying what point holds.
   , "  .de.dfl{--ink:var(--g-bad)}"
   , "  #mdoc.on .de.dfl,#mdoc.on .de.dat .de.dfl{--ink:var(--g-bad)}"
   , "  .de.dfl.d-head .ds,.de.dfl>.dp>.dm{color:var(--g-bad);font-weight:700}"

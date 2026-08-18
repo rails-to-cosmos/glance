@@ -11,7 +11,7 @@ with a kind (`docs/proposals/2026-08-15-a-relation-is-a-link-with-a-kind.partial
 and the finest thing it can name is the whole material, so "see the harness note
 under the picker" is a sentence and not a link.
 
-The URL hash is the first consumer of the address, not the reason for it.
+The address is a thing in its own right; the URL hash is its first consumer.
 
 ## What must not be the address
 

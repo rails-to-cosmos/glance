@@ -20,7 +20,7 @@ hue as reinforcement:
 - **A priority badge draws its letter**, `A`/`B`/`C`. `pPriority` is
   `[red, amber, green]` (`Theme/Default.hs:38`) — the textbook deuteranopia pair —
   and it is redundant, because the letter is already there.
-- **The log's severity and scope are columns**, not tints.
+- **The log's severity and scope are columns of text.**
 - **The doc pane's structure is now SHAPE**: a connector down to the middle of the
   line, a run where the branch goes on, and a branch that closes on the last child
   (`Page/Style.hs`, the `.d-list .d-item::before` block). Depth, ancestry and
@@ -93,8 +93,7 @@ channel, and each is a small drawing change:
   (`docs/spikes/2026-08-17-indent-guides/k-tree.html`).
 - **The table's flagged row keeps its inset edge** — it already draws one
   (`groundSweep` asserts `box-shadow:inset 3px 0 0 var(--g-bad)`), so the fix is
-  to make the EDGE the primary signal and the wash the reinforcement, not the
-  other way round.
+  to make the EDGE the primary signal and the wash its reinforcement.
 - **A severity dot never appears without its word**, which is a review of the
   sites rather than a change to the palette.
 
