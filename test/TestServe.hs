@@ -2854,6 +2854,20 @@ sheetSpec shell =
         echoIs "the echo names the level, not the structure"
                "+ \8594 org-insert-element (an item at this level)" answer
 
+    -- A CONTINUATION LANDS UNDER THE ITEM'S OWN TEXT: org reads one by its indent.
+  , testCase "M-RET inside an item carries the marker's width onto the next line" $ do
+      onTable "grain press:Enter press:n press:n press:f press:Enter press:M-Enter" $
+        \answer -> do
+          -- The caret opens at the head of the box, so the newline lands there and
+          -- the spaces the marker occupies come with it.
+          box <- textAt "dtext" answer
+          assertEqual "the newline carried the marker's width"
+                      "\n  - alpha\n  more alpha" box
+      -- AND A PARAGRAPH TAKES NONE: there is no marker to sit under.
+      insheet "press:n press:Enter press:M-Enter" $
+        assertEqual "a paragraph's newline carried an indent" "\nfirst para"
+          <=< textAt "dtext"
+
     -- TAB WALKS THE RUNGS AN ITEM MAY SIT ON, and it is a TOGGLE: the walk comes
     -- back where it started, so it is undone from the keyboard alone.
   , testCase "TAB in an open item walks its levels and comes back" $ do
@@ -4732,7 +4746,7 @@ editIndentSweep :: IO T.Text -> TestTree
 editIndentSweep shell = testCase "the paragraph's edit box is the block it covers" $ do
   page <- shell
   para <- need "the paragraph's indent"
-               (between "  .d-para,.d-comp{margin:.5em 0;\n    padding-left:" "}" page)
+               (between "  .d-para,.d-comp{margin:7px 0;\n    padding-left:" "}" page)
   box <- need "the edit box's rule" (between "  #dpara textarea{" "}" page)
   assertBool ("the box is indented by what the block is: " <> T.unpack box)
              (("padding-left:" <> para) `T.isInfixOf` box)
@@ -4806,7 +4820,7 @@ scrollSweep shell = testCase "the one scrollIntoView is the document's own" $ do
   -- THE BAND IS CSS: `nearest' honours `scroll-margin', so the movement code measures nothing.
   assertContains "the band rides the elements" "  .de{scroll-margin-block:var(--g-doc-off);" page
   assertContains "three of the pane's lines"
-    "    --g-doc-off:calc(3 * var(--g-doc-fs) * var(--g-doc-lh));" page
+    "    --g-doc-off:calc(3 * var(--g-doc-lh));" page
   assertContains "and the pane is set in those same two"
     "    font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);" page
 
@@ -4860,7 +4874,7 @@ gridSweep shell = testCase "the star gutter and the body indent are one arithmet
   page <- shell
   gutter <- need "the head's star gutter" (between "  .d-head .ds{width:calc(" ")}" page)
   para <- need "the paragraph's indent"
-                (between "  .d-para,.d-comp{margin:.5em 0;" "}" page)
+                (between "  .d-para,.d-comp{margin:7px 0;" "}" page)
   base <- need "the document's base padding" (between "--g-doc-pad:" ";" page)
   assertEqual "the paragraph is padded by the base plus the gutter"
               ("padding-left:calc(var(--g-doc-pad) + " <> gutter <> ")")

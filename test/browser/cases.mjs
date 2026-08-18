@@ -93,8 +93,9 @@ export default [
       const at = document.querySelector("#mdoc .de.dat");
       const cs = getComputedStyle(document.getElementById("mdoc"));
       return { box: document.getElementById("dpara").getBoundingClientRect().height,
-               line: parseFloat(cs.getPropertyValue("--g-doc-fs"))
-                   * parseFloat(cs.getPropertyValue("--g-doc-lh")),
+               // THE LINE BOX IS A LENGTH, a whole number of pixels, so a hairline
+               // and a hinted glyph land on one device row.
+               line: parseFloat(cs.getPropertyValue("--g-doc-lh")),
                under: at.nextElementSibling.getBoundingClientRect().top };
     });
     for (let i = 0; i < 10; i += 1) {
@@ -134,8 +135,7 @@ export default [
                   "the drawn paragraph to appear");
     const seen = await p.eval(() => {
       const cs = getComputedStyle(document.getElementById("mdoc"));
-      const line = parseFloat(cs.getPropertyValue("--g-doc-fs"))
-                 * parseFloat(cs.getPropertyValue("--g-doc-lh"));
+      const line = parseFloat(cs.getPropertyValue("--g-doc-lh"));
       const real = document.querySelector("#mdoc .d-draft");
       const probe = document.createElement("div");
       probe.className = "de d-para d-draft";
@@ -343,9 +343,10 @@ export default [
       const at = document.querySelector("#mdoc .de.dat");
       const off = [...document.querySelectorAll("#mdoc .de")].find((n) => n !== at);
       const cs = getComputedStyle(at);
-      const point = getComputedStyle(document.documentElement)
-        .getPropertyValue("--g-point").trim();
-      return { mark: ink(at),
+      const root = getComputedStyle(document.documentElement);
+      const point = root.getPropertyValue("--g-point").trim();
+      return { sel: rgb(root.getPropertyValue("--g-sel").trim()),
+               mark: ink(at),
                ink: rgb(point),
                offMark: ink(off),
                ground: cs.backgroundColor,
@@ -354,9 +355,11 @@ export default [
     });
     assert(seen.mark === seen.ink,
       `the cursor's mark paints ${seen.mark}, not the point ink ${seen.ink}`);
-    // A GROUND ON A NESTED ROW COVERS THE SUBTREE DRAWN INSIDE IT.
-    assert(seen.ground === "rgba(0, 0, 0, 0)",
-      `the cursor row paints a ground of ${seen.ground}`);
+    // A PARAGRAPH CARRIES NOTHING, so it wears the ground the table's cursor wears.
+    // What made a ground wrong is the subtree drawn inside an ITEM, and the case
+    // named "the cursor on a list item lights itself" owns that half.
+    assert(seen.ground === seen.sel,
+      `the cursor row paints ${seen.ground} rather than the selection ${seen.sel}`);
     assert(seen.deco === "none" && seen.outline === "none" && seen.border === "none",
       `the cursor row is drawn with a line: decoration ${seen.deco}, `
       + `outline ${seen.outline}, border ${seen.border}`);
@@ -1314,14 +1317,72 @@ export default [
                        + m.fontBoundingBoxAscent;
       const inkMid = baseline - (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
       const bs = getComputedStyle(item, "::before");
+      const rows = [...document.querySelectorAll("#mdoc .d-list .d-item")].slice(0, 2);
+      const step = rows.length > 1
+        ? rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top
+        : lh;
       return { inkMid, turn: parseFloat(bs.height) - parseFloat(bs.borderBottomWidth) / 2,
-               half: lh / 2, font: cs.fontFamily.split(",")[0] };
+               half: lh / 2, step: Math.round(step * 100) / 100,
+               font: cs.fontFamily.split(",")[0] };
     });
+    // A WHOLE NUMBER OF PIXELS PER LINE: a 1px hairline and a hinted glyph land on
+    // one device row only when every row starts at the same sub-pixel offset, which
+    // a fractional line box (13 x 1.6 = 20.8) denies.
+    assert(seen.half * 2 % 1 === 0,
+      `the line box is ${seen.half * 2}px, so rows start off the device grid`);
+    assert(seen.step % 1 === 0,
+      `rows step ${seen.step}px apart, so they do not share one offset`);
     assert(Math.abs(seen.turn - seen.inkMid) <= 0.5,
       `the turn sits at ${seen.turn.toFixed(2)}px against the dash's ink at `
       + `${seen.inkMid.toFixed(2)}px`);
     return [`${seen.font}: the dash inks at ${seen.inkMid.toFixed(2)}px of a `
       + `${seen.half * 2}px line, the turn at ${seen.turn.toFixed(2)}px `
       + `(the half-line is ${seen.half})`];
+  } },
+{ name: "a continuation lands under the item's own text, checkbox and all",
+  async run(p, base) {
+    // `drv-plan' carries both a ticked and an empty box, which is where the marker
+    // is widest and the arithmetic is worth asking about.
+    await sheet(p, base, "drv-plan");
+    await p.press("n"); await p.press("n"); await p.press("f");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.classList.contains("d-item");
+    }, "`f' to reach the list's first item");
+    // Walk to the item that carries a box, then open it and split the line.
+    for (let i = 0; i < 6; i++) {
+      const box = await p.eval(() => {
+        const at = document.querySelector("#mdoc .de.dat");
+        return !!at && !!at.querySelector(":scope > .dp > .dbx");
+      });
+      if (box) break;
+      await p.press("n");
+    }
+    await p.press("RET");
+    await p.until(() => document.getElementById("dpara").classList.contains("on"),
+                  "the edit to open over it");
+    const shut = await p.eval(() =>
+      document.getElementById("dpara").getBoundingClientRect().height);
+    await p.press("M-RET");
+    // SETTING `value' FIRES NO `input', so the listener that re-lays the box after
+    // typing never runs for M-RET: the newline places the box itself.
+    await p.until((was) => document.getElementById("dpara")
+                    .getBoundingClientRect().height > was,
+                  "the box to grow by the line M-RET added", undefined, shut);
+    const seen = await p.eval(() => {
+      const v = document.getElementById("dtext").value;
+      const first = v.split("\n").find((l) => l.trim());
+      return { value: v, first,
+               under: (v.match(/\n( *)/) || [])[1] || "",
+               marker: (first.match(/^([ \t]*(?:[-+*]|\d+[.)])\s+(?:\[[ xX-]\]\s+)?)/)
+                        || [])[1] || "" };
+    });
+    assert(seen.marker.length > 0,
+      `the item under point spells no marker: ${JSON.stringify(seen.first)}`);
+    assert(seen.under.length === seen.marker.length,
+      `the newline carried ${seen.under.length} spaces against a marker of `
+      + `${seen.marker.length}: ${JSON.stringify(seen.value)}`);
+    return [`"${seen.marker}" is ${seen.marker.length} wide, and the continuation `
+      + `carries ${seen.under.length}`];
   } },
 ];

@@ -169,6 +169,8 @@
     // parent.  It is a toggle, so illegal rungs are skipped and the walk comes
     // back where it started.  The subtree rides along on the commit.
     const OPENER = /^([ \t]*)(?:[-+*]|\d+[.)])\s/;
+    /** What a continuation line sits under: the indent, the bullet, and the box. */
+    const CONT = /^([ \t]*(?:[-+*]|\d+[.)])\s+(?:\[[ xX-]\]\s+)?)/;
     const TABB = docBinding("org-metaright", "TAB");
     const STEP = 2;                 // org's own, and the pane's `--g-doc-indent'
     let drung = null;
@@ -410,10 +412,20 @@
       String(dparaing()
         ? Math.max(1, Math.min(DOCROWS, el("dtext").value.split("\n").length))
         : 0));
+    /** A NEWLINE INSIDE A LIST ITEM LANDS UNDER ITS OWN TEXT: org reads a
+     * continuation by its indent, so the spaces the marker occupies are carried
+     * onto the next line rather than left for the reader to type. */
     function newlineIn(id) {
       const box = el(id);
-      spliceIn(box, box.selectionStart, box.selectionEnd, "\n");
+      // THE BOX IS PART OF WHAT THE TEXT SITS AFTER: `- [ ] Test' continues under
+      // the T, so the marker's width counts the checkbox and its gap.
+      const o = CONT.exec((box.value || "").split("\n")[0]);
+      const under = o ? " ".repeat(o[1].length) : "";
+      spliceIn(box, box.selectionStart, box.selectionEnd, "\n" + under);
+      // SETTING `value' FIRES NO `input', so the listener that re-lays the box after
+      // typing never runs: the newline has to place the box itself.
       sizeDocEdit();
+      placeEdit();
     }
     const caretLine = (id) => {
       const box = el(id);

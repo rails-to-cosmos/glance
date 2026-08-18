@@ -50,8 +50,11 @@ page head' colours title body = T.unlines
   , "  :root{--glance-mono:" <> monoStack <> ";"
   , "    --g-doc-pad:6px;"
   , "    --g-doc-padx:10px;--g-doc-pady:8px;"
-  , "    --g-doc-fs:13px;--g-doc-lh:1.6;"
-  , "    --g-doc-off:calc(3 * var(--g-doc-fs) * var(--g-doc-lh));"
+  -- A WHOLE NUMBER OF PIXELS PER LINE: a 1px hairline and a hinted glyph land on
+  -- one device row only when the row itself starts on the grid, and 13 x 1.6 is
+  -- 20.8.  The line height is a LENGTH for it, and every reader multiplies no more.
+  , "    --g-doc-fs:13px;--g-doc-lh:21px;"
+  , "    --g-doc-off:calc(3 * var(--g-doc-lh));"
   , "    --g-edit-fs:13px;--g-edit-lh:1.5;"
   , "    --g-pop-top:5vh;--g-pop-pad:24px;"
   , "    --g-pop-max:min(90vh,"
@@ -144,8 +147,10 @@ page head' colours title body = T.unlines
   , "  .dp{position:relative}"
   , "  .de::before,.de::after{content:\"\";position:absolute;left:var(--rail);"
   , "    pointer-events:none}"
-  , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-doc-fs)"
-  , "    * var(--g-doc-lh))}"
+  -- A PARAGRAPH CARRIES NOTHING, so it can wear the ground the table's cursor wears:
+  -- what made a ground wrong on an ITEM was the subtree drawn inside it.
+  , "  #mdoc.on .de.dat.d-para{background-color:var(--g-sel);color:var(--g-fg)}"
+  , "  .de.dat{min-height:calc(var(--g-doc-rows, 0) * var(--g-doc-lh))}"
   -- ONE TAB STOP LEFT OF THE ROW'S TEXT: a top-level row is indented by PADDING and
   -- a nested one by SPACES.  Elm writes `--rail' per row; this is the fallback.
   , "  .de{--rail:calc(var(--g-doc-pad) + 0.5ch)}"
@@ -169,11 +174,11 @@ page head' colours title body = T.unlines
   -- at 13px the hyphen's ink centres 1px below the half-line and the border's own
   -- half is another 0.5px, so the height carries both -- `0.115em'.
   , "  .d-list .d-item::before{top:0;width:0.8ch;background:none;"
-  , "    height:calc(var(--g-doc-fs) * var(--g-doc-lh) / 2 + 0.115em);"
+  , "    height:calc(var(--g-doc-lh) / 2 + 0.115em);"
   , "    border-left:1px solid var(--ink);border-bottom:1px solid var(--ink);"
   , "    border-radius:0 0 0 3px}"
   , "  .d-list .d-item.kin::after{bottom:0;width:1px;border-radius:1px;"
-  , "    top:calc(var(--g-doc-fs) * var(--g-doc-lh) / 2 + 0.115em);"
+  , "    top:calc(var(--g-doc-lh) / 2 + 0.115em);"
   , "    background:var(--ink)}"
   -- NOTHING TO ELBOW INTO, so a paragraph wears a bar; a COMPOSITE is drawn as its tree.
   , "  .lvl-top:not(.d-head):not(.d-comp)::before{top:0;bottom:0;width:1px;"
@@ -229,11 +234,11 @@ page head' colours title body = T.unlines
   , "  .de.dfl.d-head .ds,.de.dfl>.dp>.dm,"
   , "  .de.dfl .de>.dp>.dm{color:var(--g-bad)}"
   -- PADDING: a margin would take the selection wash off the left of the line.
-  , "  .d-para,.d-comp{margin:.5em 0;"
+  , "  .d-para,.d-comp{margin:7px 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
   , "  .d-comp,.d-comp .de{padding-top:0;padding-bottom:0}"
   -- The draft row holds nothing and `:empty' misses it — Elm emits a text node.
-  , "  .d-draft{min-height:calc(var(--g-doc-fs) * var(--g-doc-lh))}"
+  , "  .d-draft{min-height:var(--g-doc-lh)}"
   , "  .d-item{padding-left:0;padding-right:0}"
   , "  .dg{padding:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--g-mute)}"
   , "  .dl{color:var(--g-link);text-decoration:underline}"

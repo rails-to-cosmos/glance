@@ -88,6 +88,12 @@ const BREAKS = {
   // as one thing again.
   "carried-ink": ["the cursor on a list item lights itself",
                   "#mdoc.on .de.dat .de{--ink:var(--g-point-off) !important}"],
+  // The line box goes back to a fraction, so rows start off the device grid.
+  "line-fraction": ["the elbow turns on the dash's own ink",
+                    ":root{--g-doc-lh:20.8px !important}"],
+  // A paragraph loses the ground the table's cursor wears.
+  "para-ground": ["the cursor in the pane is a mark",
+                  "#mdoc.on .de.dat.d-para{background-color:transparent !important}"],
   // The flag stops at the row it was pressed on, leaving its branch unmarked.
   "flag-branch": ["a flag paints one red on both surfaces",
                   ".de.dfl .de,#mdoc.on .de.dfl .de{--ink:var(--g-fg) !important}"],

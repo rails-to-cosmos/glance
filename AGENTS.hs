@@ -4404,6 +4404,17 @@ sheetNotes =
   , Note "ONE INK PER ROW: a tier sets `--ink' on the row and the shapes SPEND it, an\
          \ elbow on its borders and a run on its background.  A case reads the tier\
          \ rather than the shape, which is why one assertion covers both." [Browser]
+  , Note "A WHOLE NUMBER OF PIXELS PER LINE: `--g-doc-lh' is a LENGTH, since a 1px\
+         \ hairline and a hinted glyph land on one device row only when every row\
+         \ starts at the same sub-pixel offset, and 13 x 1.6 is 20.8.  The gaps around\
+         \ a paragraph are whole pixels for the same reason." [Browser]
+  , Note "A PARAGRAPH CARRIES NOTHING, so it wears the ground the table's cursor\
+         \ wears; what made a ground wrong on an ITEM was the subtree drawn inside\
+         \ it." [Test, Browser]
+  , Note "A CONTINUATION LANDS UNDER THE ITEM'S OWN TEXT, the checkbox counted with\
+         \ the bullet: org reads a continuation by its INDENT.  Setting `value' fires\
+         \ no `input', so the newline places the box itself -- the listener that\
+         \ re-lays it after typing never runs for `M-RET'." [Test, Browser]
   , Note "A DELETION LANDS ON THE NEXT SIBLING, and on the PARENT only when the branch\
          \ is emptied: the row point stood on is about to stop existing, and the reader\
          \ was working among its siblings.  A LINE rather than an id -- the rescan\
