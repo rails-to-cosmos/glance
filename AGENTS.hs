@@ -4383,6 +4383,11 @@ sheetNotes =
          \ branch has more to come (`kin').  ORG'S BULLET IS THE TIP -- a horizontal\
          \ reaching the text sat at the same height as the file's own `-' and the two\
          \ read as one dashed run." [Test, Browser]
+  , Note "ONE LIST OF POPUP SURFACES, `Glance.Web.Page.Popups': the veil, the `.on'\
+         \ rule, the box sizing, the stale wash and the tier sweep all join it, so a\
+         \ surface added there joins them by itself.  Six readers spelled the\
+         \ membership by hand until the mint commit edited six of the seven and left\
+         \ `#mint' neither fading nor dimming." [Test]
   , Note "THE WAY BACK IS NAMED AS WELL AS DRAWN: `.dpath' rides the pane's top,\
          \ sticky inside the scroller, and names the same chain the connectors draw --\
          \ a composite by its NAME, anything else by its own line with the marker taken\
@@ -4555,7 +4560,8 @@ acyclic edge xs = all (go (length xs)) xs
 
 -- ** Inside glance-web: `Base' the floor, `Glance.Web' the door
 
-data WMod = WBase | WKeymap | WThemeTypes | WThemeDefault | WTheme | WStyle | WGlue | WPage
+data WMod = WBase | WKeymap | WThemeTypes | WThemeDefault | WTheme | WPopups | WStyle
+          | WGlue | WPage
           | WFilter | WSort | WColumns | WStore | WWatch | WCommands | WRoutes | WWeb
           | WDesktop | WNative deriving (Eq, Show, Enum, Bounded)
 wmods :: [WMod]
@@ -4567,6 +4573,7 @@ wname WKeymap       = "Glance.Web.Keymap"
 wname WThemeTypes   = "Glance.Web.Theme.Types"
 wname WThemeDefault = "Glance.Web.Theme.Default"
 wname WTheme        = "Glance.Web.Theme"
+wname WPopups       = "Glance.Web.Page.Popups"
 wname WStyle        = "Glance.Web.Page.Style"
 wname WGlue         = "Glance.Web.Page.Glue"
 wname WPage         = "Glance.Web.Page"
@@ -4588,9 +4595,10 @@ wimports WKeymap       = [WBase]
 wimports WThemeTypes   = []
 wimports WThemeDefault = [WThemeTypes]
 wimports WTheme        = [WThemeDefault, WThemeTypes]
-wimports WStyle        = [WBase, WTheme]
+wimports WPopups       = []
+wimports WStyle        = [WBase, WPopups, WTheme]
 wimports WGlue         = [WBase]
-wimports WPage         = [WBase, WKeymap, WTheme, WGlue, WStyle]
+wimports WPage         = [WBase, WKeymap, WTheme, WGlue, WPopups, WStyle]
 wimports WFilter       = []
 wimports WSort         = [WFilter]
 wimports WColumns      = [WFilter]
@@ -4611,7 +4619,8 @@ webExposed :: [String]
 webExposed =
   [ "Glance.Desktop", "Glance.Desktop.Native", "Glance.Web", "Glance.Web.Base"
   , "Glance.Web.Columns", "Glance.Web.Commands", "Glance.Web.Filter", "Glance.Web.Keymap"
-  , "Glance.Web.Page", "Glance.Web.Page.Glue", "Glance.Web.Page.Style", "Glance.Web.Routes"
+  , "Glance.Web.Page", "Glance.Web.Page.Glue", "Glance.Web.Page.Popups"
+  , "Glance.Web.Page.Style", "Glance.Web.Routes"
   , "Glance.Web.Sort", "Glance.Web.Store", "Glance.Web.Theme", "Glance.Web.Theme.Default"
   , "Glance.Web.Theme.Types", "Glance.Web.Watch" ]
 

@@ -4,6 +4,7 @@ module Glance.Web.Page.Style ( page
                              , fontFace
                              ) where
 
+import Glance.Web.Page.Popups (boxes, veiled, washed)
 import Data.Text (Text)
 import System.FilePath (takeExtension)
 
@@ -12,6 +13,14 @@ import qualified Data.Text as T
 import Glance.Web.Base (escape, logLinesDefault)
 import Glance.Web.Theme (themeCSS, themeIds, themeOverrides)
 
+
+-- | @#a.on,#b.on,…@ — the same list, each wearing the class that shows it.
+onEach :: Text -> Text
+onEach = T.intercalate "," . map (<> ".on") . T.splitOn ","
+
+-- | @html.stale #a,…@ — the wash names each surface under the stale root.
+staleEach :: Text -> Text
+staleEach = T.intercalate "," . map ("html.stale " <>) . T.splitOn ","
 
 monoStack :: Text
 monoStack = "\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
@@ -76,12 +85,12 @@ page head' colours title body = T.unlines
   , "    overflow-x:auto;scrollbar-width:none;padding:0 2px}"
   , "  #kbd::-webkit-scrollbar{width:0;height:0}"
   -- These two z-levels clear the renderer's sticky header (1) and list (5).
-  , "  #modal,#prompt,#config,#links,#tags,#capture,#mint{--dk-mono:\"Hack\", var(--glance-mono);"
+  , "  " <> veiled <> "{--dk-mono:\"Hack\", var(--glance-mono);"
   , "    display:none;position:fixed;inset:0;z-index:100;background:var(--g-veil);"
   , "    padding:var(--g-pop-pad);padding-top:var(--g-pop-top);"
   , "    align-items:flex-start;justify-content:center}"
-  , "  #modal.on,#prompt.on,#config.on,#links.on,#tags.on,#capture.on,#mint.on{display:flex}"
-  , "  #sheet,#cbox,#pbox,#lbox,#tbox,#kbox,#rbox,#nbox{display:flex;flex-direction:column;"
+  , "  " <> onEach veiled <> "{display:flex}"
+  , "  " <> boxes <> "{display:flex;flex-direction:column;"
   , "    border-radius:6px;position:relative;z-index:101;"
   , "    font-family:var(--dk-mono);"
   , "    background:var(--g-bg);color:var(--g-fg);border:1px solid var(--g-border)}"
@@ -335,9 +344,8 @@ page head' colours title body = T.unlines
   , "  .pop-band{width:min(560px,100%);max-height:var(--g-pop-max)}"
   , "  .pop-sheet{width:min(80vw,100%);height:var(--g-pop-max)}"
   -- `opacity' and never a filter: a filter contains the renderer's fixed backdrop.
-  , "  #app,#modal,#prompt,#config,#links,#tags,#capture{transition:opacity .18s ease}"
-  , "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
-  , "  html.stale #links,html.stale #tags,html.stale #capture{opacity:.55}"
+  , "  #app," <> washed <> "{transition:opacity .18s ease}"
+  , "  html.stale #app," <> staleEach washed <> "{opacity:.55}"
   , "  #echo{position:fixed;right:14px;bottom:12px;z-index:2;padding:4px 10px;"
   , "    border-radius:999px;border:1px solid var(--g-border);font-size:12px;"
   , "    white-space:pre;background:var(--g-surface);color:var(--g-fg);opacity:0;"

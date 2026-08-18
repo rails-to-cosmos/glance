@@ -148,6 +148,7 @@ library glance-web
       Glance.Web.Keymap
       Glance.Web.Page
       Glance.Web.Page.Glue
+      Glance.Web.Page.Popups
       Glance.Web.Page.Style
       Glance.Web.Routes
       Glance.Web.Sort

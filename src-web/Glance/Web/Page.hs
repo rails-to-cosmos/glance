@@ -1,6 +1,7 @@
 -- | The two documents this server serves: the shell, and the no-renderer page.
 module Glance.Web.Page (demoShell, assetsMissing) where
 
+import Glance.Web.Page.Popups (Popup (..), popups, tierClass)
 import Data.Text (Text)
 
 import qualified Data.Text as T
@@ -21,7 +22,7 @@ demoShell opts font colours views =
   , "  <div id=\"log\"></div>"
   , "  <div id=\"kbd\"></div>"
   , "  <div id=\"modal\">"
-  , "    <div id=\"sheet\" class=\"pop-sheet\">"
+  , boxOpen "sheet"
   , "      <div id=\"mhead\"><span id=\"mfile\"></span><span id=\"mnote\"></span></div>"
   , "      <div id=\"mwhere\"></div>"
   -- Each pane positions its own edit overlay: a redraw would throw one away.
@@ -42,10 +43,10 @@ demoShell opts font colours views =
   , "    </div>"
   , "  </div>"
   ]
-  <> popupFrame "tags" "t" "pop-band" ("<div id=\"tedit\">" <> field "tname" <> "</div>")
+  <> popupFrame "tags" "t" (tierOf "tbox") ("<div id=\"tedit\">" <> field "tname" <> "</div>")
   <>
   [ "  <div id=\"prompt\">"
-  , "    <div id=\"pbox\" class=\"pop-band\">"
+  , boxOpen "pbox"
   , "      <div id=\"phead\"></div>"
   , "      <input id=\"pinput\" spellcheck=\"false\" autocomplete=\"off\">"
   , "      <div id=\"plist\"></div>"
@@ -56,7 +57,7 @@ demoShell opts font colours views =
   -- RAISED OVER THE PALETTE, which stands beneath: ESC hands it back.
   <>
   [ "  <div id=\"mint\">"
-  , "    <div id=\"nbox\" class=\"pop-band\">"
+  , boxOpen "nbox"
   , "      <div id=\"nhead\">new TODO state</div>"
   , nrow "nspace" "namespace" "<select id=\"nspace\" class=\"cview\"></select>"
   , nrow "nname" "state" ("<input id=\"nname\" spellcheck=\"false\" autocomplete=\"off\""
@@ -71,7 +72,7 @@ demoShell opts font colours views =
   , "    </div>"
   , "  </div>"
   ]
-  <> popupFrame "links" "l" "pop-sheet"
+  <> popupFrame "links" "l" (tierOf "lbox")
        ("<div id=\"ledit\">" <> field "ltitle" <> field "lurl" <> "</div>")
   -- The picker hangs at the CARET rather than centring, so it takes no tier.
   <>
@@ -87,7 +88,7 @@ demoShell opts font colours views =
   ]
   <>
   [ "  <div id=\"capture\">"
-  , "    <div id=\"kbox\" class=\"pop-sheet\">"
+  , boxOpen "kbox"
   , "      <div id=\"khead\"></div>"
   , "      <input id=\"ktag\" spellcheck=\"false\" autocomplete=\"off\""
       <> " placeholder=\"tag — empty is the inbox\">"
@@ -102,7 +103,7 @@ demoShell opts font colours views =
   -- Panel bodies wear `cpart'; glue.js's `SECTIONS' wraps them at boot.
   <>
   [ "  <div id=\"config\">"
-  , "    <div id=\"cbox\" class=\"pop-sheet\">"
+  , boxOpen "cbox"
   , "      <div id=\"chead\"><span id=\"ctitle\">settings</span>"
       <> "<span id=\"cnote\"></span></div>"
   , "      <div id=\"ctabs\"></div>"
@@ -199,3 +200,13 @@ assetsMissing opts dir = page "" [] "glance — JSON only" $ T.unlines
       <> " --assets /path/to/table-view/web</code></p>"
   ]
 
+-- | The row a box's id names, and the tier it wears.  ONE LIST: `Popups.popups'.
+tierOf :: Text -> Text
+tierOf box =
+  case [ p | p <- popups, puBox p == box ] of
+    (p:_) -> tierClass (puTier p)
+    []    -> ""
+
+-- | A tiered box's opening tag, sized by the registry rather than by a literal.
+boxOpen :: Text -> Text
+boxOpen box = "    <div id=\"" <> box <> "\" class=\"" <> tierOf box <> "\">"

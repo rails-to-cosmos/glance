@@ -49,6 +49,7 @@ import Glance.Query ( ConfigSetting (csName), QueryResult (qrRecords)
                     , trashPathFor, viewJSON )
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
+import Glance.Web.Page.Popups (Popup (..), Tier (..), popups, tierClass)
 import Glance.Web.Base (gluePartFiles)
 import Glance.Web.Commands (commandNames)
 import Glance.Web.Theme (Theme (..), themes)
@@ -4963,8 +4964,9 @@ tierSweep shell = testCase "every popup wears one size tier, and declares none" 
         , ".pop-sheet{width:min(80vw,100%);height:var(--g-pop-max)}" ]
   where
     -- The tag manager wears the BAND: three short columns are narrower than the palette.
-    tiers = [ ("pbox", "pop-band"), ("lbox", "pop-sheet"), ("tbox", "pop-band")
-            , ("sheet", "pop-sheet"), ("cbox", "pop-sheet") ]
+    -- EVERY TIERED BOX THE REGISTRY NAMES, so a surface added there is swept by
+    -- itself; the hand-written five left `#kbox' and `#nbox' unlooked at.
+    tiers = [ (puBox p, tierClass (puTier p)) | p <- popups, puTier p /= Untiered ]
 
 -- | POINT IS A CONNECTOR BESIDE THE LINE, swept rather than listed, and what it swept is asserted first.
 groundSweep :: IO T.Text -> TestTree
@@ -5045,9 +5047,13 @@ shellGlue =
 
   -- ONE property: no blur, and no `filter' of any kind — a filter would make `#app' the containing block for the fixed palette backdrop.
   , Glue "the wash dims the table and the overlays, and exempts what explains"
-      [ "  html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
-      , "  html.stale #links,html.stale #tags,html.stale #capture{opacity:.55}"
-      , "  #app,#modal,#prompt,#config,#links,#tags,#capture{transition:opacity .18s ease}" ]
+      -- EVERY VEILED SURFACE, in the order `Popups.popups' names them: the list is
+      -- joined from the registry, so a surface added there joins the wash by itself.
+      [ "html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
+          <> "html.stale #links,html.stale #tags,html.stale #capture,"
+          <> "html.stale #mint{opacity:.55}"
+      , "#app,#modal,#prompt,#config,#links,#tags,#capture,#mint"
+          <> "{transition:opacity .18s ease}" ]
       [ "html.stale #log", "html.stale #kbd"
       , "html.stale #echo", "html.stale body", "stale #app{filter", "filter:blur"
       , "filter:saturate", "filter:grayscale" ]

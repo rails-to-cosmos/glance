@@ -1,6 +1,6 @@
 # Proposal — the port vocabulary is joined, like every other list of two places
 
-**Status:** proposed · **Date:** 2026-08-18 · **Origin:** `/generalizer` audit,
+**Status:** done · **Date:** 2026-08-18 · **Origin:** `/generalizer` audit,
 weighed against the code it names.
 
 ## The finding, in one line
