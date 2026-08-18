@@ -2,7 +2,7 @@
 module TestSelfContained (spec) where
 
 import Control.Monad (filterM, forM, forM_)
-import Data.List (isPrefixOf, (\\))
+import Data.List (isPrefixOf, nub, (\\))
 import Data.Maybe (listToMaybe)
 import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (dropExtension, takeExtension, (</>))
@@ -94,6 +94,25 @@ spec = testGroup "Self-containment"
             <> [ (name, "date", declaredDate, Just (day stem))
                | declaredDate /= Just (day stem) ]
       assertEqual "a proposal whose name and header disagree" [] wrong
+
+    -- THE VOCABULARY CARRIED OVER THE PORTS, joined the way the port NAMES already
+    -- are: both decoders end `_ -> D.succeed Ignore', so a mis-spelt kind is dropped
+    -- without a word.  The sets are a UNION on purpose -- `flagPort' serves whichever
+    -- program holds its rows, so four kinds are legitimately sent to both.
+  , testCase "every port kind the shell sends is one an Elm program decodes" $ do
+      doc <- kindsIn "frontend/elm/src/Doc.elm"
+      list <- kindsIn "frontend/elm/src/Listing.elm"
+      sent <- concat <$> mapM (sendsIn . ("frontend/glue" </>)) gluePartFiles
+      -- NUB BOTH SIDES: `\\\\' drops ONE occurrence per element, and four kinds are
+      -- decoded by both programs.
+      let decoded = nub (doc <> list)
+      -- A sweep over nothing passes, so it says what it swept first.
+      assertBool ("too few kinds swept: " <> show (length decoded, length sent))
+                 (length decoded >= 10 && length sent >= 15)
+      assertEqual "a kind the shell sends and no program decodes" []
+                  (nub sent \\ decoded)
+      assertEqual "a decoder branch nothing sends" []
+                  (decoded \\ nub sent)
 
   , testCase "the shell's parts are the whole of the shell" $ do
       assertBool "the part list is empty" (length gluePartFiles >= 2)
@@ -223,3 +242,24 @@ homePaths path = report . T.lines <$> TIO.readFile path
   where
     report ls = [ path <> ":" <> show n <> ": " <> T.unpack (T.strip l)
                 | (n, l) <- zip [(1 :: Int) ..] ls, "/home/" `T.isInfixOf` l ]
+
+-- | The kind strings a program's decoder answers to: a @case@ arm over the wire's own
+--   word, @"step" ->@.
+kindsIn :: FilePath -> IO [T.Text]
+kindsIn path = branches <$> TIO.readFile path
+  where
+    branches body =
+      [ T.takeWhile (/= '"') (T.drop 1 line)
+      | raw <- T.lines body
+      , let line = T.strip raw
+      , "\"" `T.isPrefixOf` line
+      , "\" ->" `T.isSuffixOf` line ]
+
+-- | The kind strings a glue part sends: @kind: "step"@.
+sendsIn :: FilePath -> IO [T.Text]
+sendsIn path = quoted "kind: \"" <$> TIO.readFile path
+
+-- | Every word OPENER introduces, up to its closing quote.
+quoted :: T.Text -> T.Text -> [T.Text]
+quoted opener body =
+  [ T.takeWhile (/= '"') rest | rest <- drop 1 (T.splitOn opener body) ]
