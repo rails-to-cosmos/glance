@@ -19,6 +19,8 @@ data Palette = Palette
   , pPointDim  :: !Text  -- ^ what point CARRIES: subordinate to 'pPoint' and nearer
                          --   grey than gold, PICKED rather than mixed -- a darker
                          --   yellow is brown.
+  , pPointOff :: !Text   -- ^ a connector, and a line, nobody is looking at.  PICKED
+                         --   per theme: dark's is a deep blue, light's a pale one.
   , pHover     :: !Text  -- ^ the row under the pointer.
   , pLink      :: !Text  -- ^ org link ink, measured against a ROW's grounds.
   , pFrost     :: !Text  -- ^ the applied filter's chips.

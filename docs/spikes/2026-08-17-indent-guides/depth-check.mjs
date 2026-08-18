@@ -14,6 +14,7 @@ const PAGES = process.argv.slice(2).length ? process.argv.slice(2) : [
   "h-no-ground.html", "i-hook.html",
   "j-brackets.html", "k-tree.html", "l-marker.html", "m-under.html",
   "n-gutter.html", "o-weight.html",
+  "p-attention.html",
 ];
 
 // The rig mounts at depth 2; `b' climbs out and `f' descends.  The four stops

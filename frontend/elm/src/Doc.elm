@@ -634,7 +634,7 @@ rung depth =
     attribute "style" ("--rail:calc(" ++ String.fromInt (2 * depth) ++ "ch - 2.5ch)")
 
 
-{-| The classes a row wears. `up-K` lights the connector of the block point is K steps inside, and `lvl-top`
+{-| The classes a row wears. `up` lights the connector of an owner of point, and `lvl-top`
 says a row is drawn at the pane's own level. The rung itself rides an attribute —
 see `rung`.
 -}
@@ -686,9 +686,10 @@ rowClass m i r depth kin =
         ++ markOf m i r
 
 
-{-| `up-K` — the row IS point's K-th owner: THE PATH, not the level. Lighting
-every sibling of every ancestor lights whole levels and says nothing about the way
-back.
+{-| `up` — the row is one of point's OWNERS: THE WAY BACK. Lighting every sibling
+of every ancestor lights whole levels and says nothing about it. FLAT, with no
+step by distance: dimming the rest is what makes the path read, and a ramp then
+said which ancestor at the cost of saying THAT.
 
 WHAT POINT CARRIES IS NOT SPELLED HERE. A row drawn INSIDE point is what point
 holds, and a composite's own children are the roots it opens, so the stylesheet
@@ -699,13 +700,11 @@ markOf m i r =
     if i == m.at then
         ""
 
-    else
-        case indexOfIn r.id (ownersOf m (idAtRow m m.at)) of
-            Just k ->
-                " up-" ++ String.fromInt (min 3 k)
+    else if List.member r.id (ownersOf m (idAtRow m m.at)) then
+        " up"
 
-            Nothing ->
-                ""
+    else
+        ""
 
 
 {-| Which id point is on, or @""@ when the model holds no such row.
@@ -995,7 +994,15 @@ view m =
                 else
                     go (i + 1) (out ++ [ div [ class (rowClass m i r -1 False) ] (viewCells m i r) ])
     in
-    div [] (viewPath m :: go 0 [])
+    div [ class (if inList m then "focus" else "") ] (viewPath m :: go 0 [])
+
+
+{-| Is point INSIDE a list? Dimming answers "which branch am I in", so it engages
+when there is a branch to be in and leaves the document alone otherwise.
+-}
+inList : Model -> Bool
+inList m =
+    Maybe.map .grain (rowAt m) == Just Leaf
 
 
 {-| THE WAY BACK, IN WORDS. The rails say how deep and which branch; the strip

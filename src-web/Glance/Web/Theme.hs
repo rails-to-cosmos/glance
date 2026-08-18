@@ -53,6 +53,7 @@ pageTokens p =
   , ("--g-sel",       pSelection p)
   , ("--g-point",     pPoint p)
   , ("--g-point-dim", pPointDim p)
+  , ("--g-point-off", pPointOff p)
   , ("--g-link",      pLink p)
   , ("--g-col",       pColumn p)
   , ("--g-cell-wash", pCellWash p)

@@ -4994,11 +4994,12 @@ groundSweep shell = testCase "point and a flag are marks beside the line, never 
   where
     selectors = [".de.dat", ".de.dfl"]
     marks = [ ("#mdoc.on .de.dat", "var(--g-point)")
-            , ("#mdoc.on .de.dat .de", "var(--g-point-dim)")
+            , ("#mdoc.on .de.dat .de", "var(--g-fg)")
             , ("#mdoc.on .de.dat.d-comp>.de", "var(--g-point)")
             , (".de.dfl", "var(--g-bad)")
-            , (".de", "var(--g-fg)")
-            , ("#mdoc.on .up-0", "var(--g-accent)")
+            , (".de", "var(--g-point-off)")
+            , ("#mdoc.on .up", "var(--g-fg)")
+            , ("#mdoc.on .focus .de", "var(--g-point-off)")
             , (".d-list .d-item::before", "var(--ink)")
             , (".d-list .d-item.kin::after", "var(--ink)") ]
 

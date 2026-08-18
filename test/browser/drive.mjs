@@ -87,7 +87,10 @@ const BREAKS = {
   // What point CARRIES takes point's own ink, so the stop and its subtree read
   // as one thing again.
   "carried-ink": ["the cursor on a list item lights itself",
-                  "#mdoc.on .de.dat .de{--ink:var(--g-point) !important}"],
+                  "#mdoc.on .de.dat .de{--ink:var(--g-point-off) !important}"],
+  // The pane stops dimming, so a branch reads like every other.
+  "no-focus": ["the pane dims every branch but the one",
+               "#mdoc.on .focus .de{color:var(--g-fg) !important}"],
   // The strip stops agreeing with the connectors: its last crumb is ordinary ink.
   "crumb-ink": ["the strip names the way back",
                 "#mdoc.on .cr-0{color:var(--g-mute) !important}"],

@@ -2923,7 +2923,7 @@ linkWalls = [LinkNewline, InSubtree, EdgeToEdge, Reparses]
 -- ONE source: a 'Role' per theme, emitted into BOTH namespaces, so a role the
 -- page and the renderer both spell has ONE value.
 
-data Role = RBg | RFg | RSurface | RMuted | RBorder | RAccent | RSel | RPoint | RPointDim | RHover | RLink
+data Role = RBg | RFg | RSurface | RMuted | RBorder | RAccent | RSel | RPoint | RPointDim | RPointOff | RHover | RLink
           | RFrost | RCol | ROk | RWarn | RBad | RVeil | RShadow | RChipWash | RChipEdge
           | RMarkWash | RFlagWash | RColWash | RCellWash | RSortWash | RColsWash
   deriving (Eq, Ord, Show, Enum, Bounded)
@@ -2940,6 +2940,7 @@ pageToken RAccent = Just "--g-accent"
 pageToken RSel = Just "--g-sel"
 pageToken RPoint = Just "--g-point"
 pageToken RPointDim = Just "--g-point-dim"
+pageToken RPointOff = Just "--g-point-off"
 pageToken RLink = Just "--g-link"
 pageToken RCol = Just "--g-col"
 pageToken RCellWash = Just "--g-cell-wash"
@@ -2969,6 +2970,7 @@ tableToken RSel = Just "--tv-sel"
 -- THE MARK IS THE DOCUMENT'S ALONE: the renderer grounds its cursor row.
 tableToken RPoint = Nothing
 tableToken RPointDim = Nothing
+tableToken RPointOff = Nothing
 tableToken RHover = Just "--tv-hover"
 tableToken RLink = Just "--tv-link"
 tableToken RFrost = Just "--tv-frost"
@@ -4401,11 +4403,18 @@ sheetNotes =
   , Note "ONE INK PER ROW: a tier sets `--ink' on the row and the shapes SPEND it, an\
          \ elbow on its borders and a run on its background.  A case reads the tier\
          \ rather than the shape, which is why one assertion covers both." [Browser]
-  , Note "THE PATH, NOT THE LEVEL: what lights is point's OWNERS (`up-K'), not every\
+  , Note "FULL INK UNTIL THE READER GOES INTO A LIST.  Dimming answers WHICH BRANCH\
+         \ AM I IN, so it engages when point is on an ITEM and leaves the document\
+         \ alone otherwise: `focus' rides the program's own root and every row off the\
+         \ path drops to `--g-point-off', text and connector alike." [Test, Browser]
+  , Note "`--g-point-off' is the ink nobody is looking at, PICKED per theme -- dark's\
+         \ a deep blue, light's a pale one -- since a mix toward the ground lands on\
+         \ brown in one and on nothing in the other." [Test]
+  , Note "THE PATH, NOT THE LEVEL: what lights is point's OWNERS (`up'), not every\
          \ sibling of every owner -- that lit whole levels and said nothing about the\
-         \ way back.  What point CARRIES takes the same ink a shade back (`mk-held'),\
-         \ and a COMPOSITE at point lights the ROOTS it opens (`mk-root') and stops,\
-         \ having no connector of its own." [Browser]
+         \ way back.  FLAT, with no step by distance: dimming the rest is what makes\
+         \ the path read.  What point CARRIES takes the page's ink too, read off the\
+         \ nesting, and a COMPOSITE at point lights the ROOTS it opens." [Browser]
   , Note "A PARAGRAPH IS NOT A BRANCH: nothing to elbow into, so it wears the bar at\
          \ the column every outermost row marks on.  A COMPOSITE is drawn as its tree\
          \ rather than as a bar as well, which said the same thing twice." [Test]

@@ -17,7 +17,8 @@ const RAILED = ["b-active.html", "c-bracket.html", "e-ancestry.html",
                 "g-ancestry-path.html", "h-no-ground.html", "i-hook.html",
                 "j-brackets.html", "k-tree.html",
                 "l-marker.html", "m-under.html",
-                "n-gutter.html", "o-weight.html"];
+                "n-gutter.html", "o-weight.html",
+                "p-attention.html"];
 
 const marks = () => [...document.querySelectorAll("#rails i, #ladder u")].map(
   (i) => (i.className || "-") + "@" + Math.round(parseFloat(i.style.left || 0))

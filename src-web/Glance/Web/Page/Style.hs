@@ -138,7 +138,7 @@ page head' colours title body = T.unlines
   -- POINT IS A MARK BESIDE THE LINE: a nested item is drawn INSIDE its parent, so a
   -- ground would run the whole subtree.  The mark sits one tab stop left of the text.
   , "  .de{scroll-margin-block:var(--g-doc-off);position:relative;"
-  , "    --ink:color-mix(in srgb, var(--g-fg) 14%, var(--g-bg));"
+  , "    --ink:var(--g-point-off);"
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
   , "  .dp{position:relative}"
@@ -159,12 +159,10 @@ page head' colours title body = T.unlines
   , "    background:var(--g-surface);border-bottom:1px solid var(--g-border);"
   , "    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}"
   , "  .dsep{padding:0 5px;opacity:.6}"
-  -- THE SAME RAMP THE CONNECTORS TAKE, so a crumb and its rail agree, except that
-  -- TEXT MIXES TOWARD THE MUTED INK -- a crumb mixed toward the ground is unreadable.
+  -- WHAT THE CONNECTORS SAY, said again: point in its own ink, the way back in the
+  -- page's.  The strip is never dimmed -- it is the answer to where you are.
   , "  #mdoc.on .cr-0{color:var(--g-point);font-weight:600}"
-  , "  #mdoc.on .cr-1{color:color-mix(in srgb, var(--g-accent) 68%, var(--g-mute))}"
-  , "  #mdoc.on .cr-2{color:color-mix(in srgb, var(--g-accent) 36%, var(--g-mute))}"
-  , "  #mdoc.on .cr-3{color:color-mix(in srgb, var(--g-accent) 22%, var(--g-mute))}"
+  , "  #mdoc.on .cr-1,#mdoc.on .cr-2,#mdoc.on .cr-3{color:var(--g-fg)}"
   -- A CONNECTOR PER ROW, the way `tree' draws one, HALF A CELL LEFT OF THE TAB STOP:
   -- one reaching the text reads as one dashed run with org's bullet.  Tiers set `--ink'.
   , "  .d-list .d-item::before{top:0;width:1.1ch;background:none;"
@@ -176,21 +174,26 @@ page head' colours title body = T.unlines
   -- NOTHING TO ELBOW INTO, so a paragraph wears a bar; a COMPOSITE is drawn as its tree.
   , "  .lvl-top:not(.d-head):not(.d-comp)::before{top:0;bottom:0;width:1px;"
   , "    border:0;border-radius:1px;background:var(--ink)}"
-  -- WHAT LIGHTS IS POINT'S OWNERS, brightening inward.
-  , "  #mdoc.on .up-0{--ink:var(--g-accent)}"
-  , "  #mdoc.on .up-1{--ink:color-mix(in srgb, var(--g-accent) 68%, var(--g-bg))}"
-  , "  #mdoc.on .up-2{--ink:color-mix(in srgb, var(--g-accent) 36%, var(--g-bg))}"
-  , "  #mdoc.on .up-3{--ink:color-mix(in srgb, var(--g-accent) 22%, var(--g-bg))}"
-  -- OWNERSHIP IS IN THE NESTING: a row drawn inside point is what point carries and
-  -- takes the ink a shade back; a composite's own children are roots and take it whole.
-  , "  #mdoc.on .de.dat .de{--ink:var(--g-point-dim)}"
+  -- WHAT LIGHTS IS POINT'S OWNERS, flat: dimming the rest is what makes the path
+  -- read, and a ramp said WHICH ancestor at the cost of saying THAT.
+  , "  #mdoc.on .up{--ink:var(--g-fg)}"
+  -- OWNERSHIP IS IN THE NESTING: a row drawn inside point is what point carries;
+  -- a composite's own children are the roots it opens.
+  , "  #mdoc.on .de.dat .de{--ink:var(--g-fg)}"
   , "  #mdoc.on .de.dat{--ink:var(--g-point)}"
   , "  #mdoc.on .de.dat.d-comp>.de{--ink:var(--g-point)}"
+  -- FULL INK UNTIL THE READER GOES INTO A LIST.  `focus' rides the program's own
+  -- root, so dimming is a MODE rather than the resting look; colour inherits, so the
+  -- lit rows name themselves back out of it.
+  , "  #mdoc.on .focus .de{color:var(--g-point-off)}"
+  , "  #mdoc.on .focus .de.dat,#mdoc.on .focus .de.dat .de,"
+  , "  #mdoc.on .focus .up{color:var(--g-fg)}"
+  , "  #mdoc.on .focus .de.dat .dg,#mdoc.on .focus .up .dg{color:var(--g-mute)}"
   -- A HEADLINE'S STARS SIT IN THE CONNECTOR'S COLUMN: they take the ink, none is drawn.
   , "  #mdoc.on .de.dat.d-head::before{display:none}"
   , "  #mdoc.on .de.dat.d-head .ds,#mdoc.on .de.dat>.dp>.dm,"
   , "  #mdoc.on .de.dat.d-comp>.de>.dp>.dm{color:var(--g-point);font-weight:700}"
-  , "  #mdoc.on .de.dat .de>.dp>.dm{color:var(--g-point-dim);font-weight:700}"
+  , "  #mdoc.on .de.dat .de>.dp>.dm{color:var(--g-fg);font-weight:700}"
   -- SPELLED TWICE ON PURPOSE: a flag outranks point and keeps its mark after point has
   -- moved on, so the gated copy outweighs the heavier rule carrying what point holds.
   , "  .de.dfl{--ink:var(--g-bad)}"

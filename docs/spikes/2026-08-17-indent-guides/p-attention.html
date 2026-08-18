@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P · the path is ink, the rest is barely there</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* N's geometry, with TWO TIERS OF INK over the whole pane.  What the reader is
+     working on -- point, what it CARRIES and the way BACK to it -- keeps the page's
+     own ink, TEXT INCLUDED; every other row and every other connector drops to a
+     colour that is barely there.  The pane stops being a wall of equal lines. */
+  /* THE GROUND HUE IS NOT AN INK, and the DIM one is PICKED rather than mixed:
+     mixing gold toward the ground darkens it, and a darker yellow is brown.  Both
+     dims drop CHROMA and keep the light, so what point carries stays yellow. */
+  /* `--g-point-off' is the connector nobody is looking at: PICKED per theme, since
+     a mix toward the ground lands on brown in one and on nothing in the other. */
+  :root{--g-bar:var(--g-sel); --g-bar-dim:#F6E28C; --g-point-off:#D9E2EC}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --g-bar:#FFC777; --g-bar-dim:#DCC489; --g-point-off:#2B4B6E;
+    }
+  }
+  :root[data-theme="dark"]{
+    --g-bar:#FFC777; --g-bar-dim:#DCC489; --g-point-off:#2B4B6E;
+  }
+
+  /* THE GUTTER: a character of pane padding the text never enters. */
+  #mdoc{padding-left:calc(var(--g-doc-padx) + 1ch)}
+  #mdoc .de.dat{background-color:transparent}
+  #mdoc .de.dat:not(.d-comp) .de{background-color:transparent}
+  /* THE TEXT TAKES THE TIER.  Colour inherits, so EVERY row is told which it is --
+     a row left unmarked would wear whatever its parent wore. */
+  #mdoc .de.t-on{color:var(--g-fg)}
+  #mdoc .de.t-off{color:var(--g-point-off)}
+  #mdoc .de.t-off .dg{color:var(--g-point-off)}
+  #mdoc .de.t-off .dl{color:var(--g-point-off)}
+
+  #rails{position:absolute; inset:0; pointer-events:none}
+  #rails i{position:absolute; display:block; background:none}
+  /* A RUN: the branch passes this row and goes on below it. */
+  /* THE BASE STROKE IS AUXILIARY: a hairline, and only what is LIT gains weight. */
+  #rails i.run{width:1px; border-radius:1px; background:var(--g-point-off)}
+  #rails i.run.up,#rails i.run.at,#rails i.run.bad{width:2px}
+  /* AN ELBOW: down to the line's middle, then right.  `.end' stops there. */
+  #rails i.bend{
+    border-left:1px solid var(--g-point-off);
+    border-bottom:1px solid var(--g-point-off);
+    border-radius:0 0 0 3px;
+  }
+  #rails i.bend.up,#rails i.bend.at,#rails i.bend.bad{border-width:2px}
+  #rails i.up.run,#rails i.rest.run{background:var(--g-fg)}
+  #rails i.up.bend,#rails i.rest.bend{border-color:var(--g-fg)}
+  #rails i.at.run{background:var(--g-bar)}
+  #rails i.at.bend{border-color:var(--g-bar)}
+  /* WHAT POINT CARRIES AND THE WAY BACK ARE ONE TIER HERE: both are the reader's
+     attention, so both take the page's ink and only POINT keeps the gold. */
+  #rails i.bad.run{background:var(--g-bad)}
+  #rails i.bad.bend{border-color:var(--g-bad)}
+
+  #path{
+    position:sticky; top:calc(-1 * var(--g-doc-pady)); z-index:2;
+    margin:calc(-1 * var(--g-doc-pady)) calc(-1 * var(--g-doc-padx)) 6px;
+    padding:4px var(--g-doc-padx);
+    background:var(--g-surface); border-bottom:1px solid var(--g-border);
+    font-size:11px; color:var(--g-mute);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-height:1.4em;
+  }
+  #path span{color:color-mix(in srgb, var(--g-accent) calc(var(--near) * 1%),
+                             var(--g-mute))}
+  #path b{font-weight:600; color:var(--g-bar)}
+  #path s{text-decoration:none; padding:0 5px; opacity:.6}
+</style>
+</head>
+<body>
+  <h1>P · the path is ink, the rest is barely there
+    <small>full ink until the reader goes into a list; then the branch they are in keeps it</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>t</kbd> theme · <kbd>d</kbd> flag</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer, strip;
+  var near = function (steps) { return Math.max(22, 100 - steps * 32); };
+  var word = function (r) {
+    if (r.el.classList.contains("d-comp")) return "list";
+    var el = r.el.querySelector(".dp") || r.el;
+    var t = el.textContent.replace(RIG.MARKER, "").trim();
+    return t.length > 24 ? t.slice(0, 23) + "…" : t;
+  };
+  var STUB = 1.1;             // how far the elbow reaches, in characters
+  var isItem = function (r) { return r.el.classList.contains("d-item"); };
+  var colOf = function (r) { return isItem(r) ? r.depth * 2 : 0; };
+
+  RIG.mount({
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "rails";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+      strip = document.createElement("div");
+      strip.id = "path";
+      mdoc.insertBefore(strip, mdoc.firstChild);
+    },
+    paint: function (s) {
+      strip.textContent = "";
+      var crumbs = s.chain.filter(function (r) {
+        return r.el.classList.contains("d-item") || r.el.classList.contains("d-comp");
+      });
+      if (!crumbs.length) strip.textContent = "paragraph";
+      else crumbs.forEach(function (r, i) {
+        if (i) strip.appendChild(document.createElement("s")).textContent = "›";
+        var last = i === crumbs.length - 1;
+        var span = document.createElement(last ? "b" : "span");
+        span.textContent = word(r);
+        if (!last) span.style.setProperty("--near", near(crumbs.length - 1 - i));
+        strip.appendChild(span);
+      });
+
+      var up = s.chain.slice(0, -1);
+      layer.textContent = "";
+      var put = function (cls, style) {
+        var i = document.createElement("i");
+        i.className = cls;
+        i.style.cssText = style;
+        layer.appendChild(i);
+      };
+      // The ink a row's own connector takes: point's own, a flag's, the ancestry's
+      // step, or nothing at all.
+      // A COMPOSITE HAS NO CONNECTOR OF ITS OWN, so standing on the list lights the
+      // ROOTS it opens -- its own children -- and stops there.  Lighting every
+      // descendant painted the pane gold and named no stop in particular.  An ITEM
+      // lights itself alone, the rule the cursor's ground was given.
+      var whole = s.at.el.classList.contains("d-comp");
+      var carries = function (r) { return whole && r.up === s.at; };
+      // EVERYTHING ELSE POINT HOLDS takes the muted gold: it belongs to the stop,
+      // and it is not the stop.
+      var carried = function (r) {
+        for (var up = r.up; up; up = up.up) if (up === s.at) return true;
+        return false;
+      };
+      var inkOf = function (r) {
+        if (r.el.classList.contains("dfl")) return { cls: "bad", near: null };
+        // WHAT POINT CARRIES IS POINT'S, to the bottom of it: a composite IS
+        // everything under it, so standing on the list lights the whole tree.
+        if (r === s.at || carries(r)) return { cls: "at", near: null };
+        if (carried(r)) return { cls: "rest", near: null };
+        // THE PATH, NOT THE LEVEL: a tree already draws the branch, so what is lit
+        // is the ANCESTORS' own connectors -- lighting every sibling of every
+        // ancestor lit three whole levels and said nothing about the way back.
+        // FLAT, NOT A RAMP: the way back is one thing the reader is holding, and
+        // stepping it by distance said which ancestor at the cost of saying THAT.
+        var rank = up.indexOf(r);
+        return rank >= 0 ? { cls: "up", near: null } : { cls: "", near: null };
+      };
+
+      // A PARAGRAPH IS NOT A BRANCH: it has no children to elbow into, so it keeps
+      // the vertical bar, at the one column every outermost row marks on.
+      var bar = function (r) {
+        var box = s.px(r.el);
+        var ink = inkOf(r);
+        put("run " + ink.cls,
+            "left:" + (s.left - 2.5 * s.ch) + "px;top:" + box.top + "px;height:"
+            + box.height + "px"
+            + (ink.near === null ? "" : ";--near:" + ink.near));
+      };
+
+      // THE PANE IS FULL INK UNTIL THE READER GOES INTO A LIST.  Dimming is the
+      // answer to "which branch am I in", so it engages when there is a branch to be
+      // in -- point on an ITEM -- and the document is left alone otherwise.
+      var focusing = isItem(s.at);
+      var lit = function (r) {
+        if (!focusing) return true;
+        if (r === s.at || carries(r) || carried(r)) return true;
+        return up.indexOf(r) >= 0;
+      };
+      var dress = function (rows) {
+        rows.forEach(function (r) {
+          var on = lit(r);
+          r.el.classList.toggle("t-on", on);
+          r.el.classList.toggle("t-off", !on);
+          dress(r.kids);
+        });
+      };
+      dress(s.rootsOf());
+
+      var walk = function (kids, parent) {
+        kids.forEach(function (r, i) {
+          if (!isItem(r)) { if (!r.kids.length) bar(r); walk(r.kids, r); return; }
+          var box = s.px(r.el);
+          var own = s.px(r.el.querySelector(".dp"));
+          // HALF A CELL FURTHER LEFT than the tab stop, which is the air.
+          var x = s.left + (colOf(r) - 2.5) * s.ch;
+          var mid = own.top + own.height / 2;
+          var ink = inkOf(r);
+          var tint = ink.near === null ? "" : ";--near:" + ink.near;
+          // THE ELBOW: down from the row's top to the middle of its own line, then
+          // right to where the text begins.
+          // NO STUB: the tree's horizontal sat at the same height as org's own `-'
+          // and one cell to its left, so the two read as one dashed run.  ORG'S
+          // BULLET IS THE BRANCH'S TIP -- the connector turns and stops, and the
+          // dash the file already carries finishes the reach.  `STUB' is the knob:
+          // 0.45 of a character puts the horizontal back.
+          put("bend " + ink.cls,
+              "left:" + x + "px;top:" + box.top + "px;height:"
+              + (mid - box.top) + "px;width:" + (s.ch * STUB) + "px" + tint);
+          // THE RUN: a branch that has more to come carries on past this row.
+          if (i < kids.length - 1) {
+            put("run " + ink.cls,
+                "left:" + x + "px;top:" + mid + "px;height:"
+                + (box.top + box.height - mid) + "px" + tint);
+          }
+          walk(r.kids, r);
+        });
+      };
+      // A BAR IS FOR A ROW THAT IS NOT A BRANCH.  A composite has children and is
+      // drawn as the tree they make; drawing both said the same thing twice.
+      s.rootsOf().forEach(function (r) {
+        if (!isItem(r) && !r.kids.length && !r.el.classList.contains("d-head")) bar(r);
+        walk(r.kids, r);
+      });
+    },
+  });
+})();
+</script>
+</body>
+</html>

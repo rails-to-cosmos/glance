@@ -9042,6 +9042,16 @@ var $author$project$Doc$update = F2(
 						}));
 		}
 	});
+var $author$project$Doc$inList = function (m) {
+	return _Utils_eq(
+		A2(
+			$elm$core$Maybe$map,
+			function ($) {
+				return $.H;
+			},
+			$author$project$Body$rowAt(m)),
+		$elm$core$Maybe$Just(2));
+};
 var $author$project$Doc$idAtRow = F2(
 	function (m, i) {
 		return A2(
@@ -9054,33 +9064,15 @@ var $author$project$Doc$idAtRow = F2(
 				},
 				A2($author$project$Scan$nth, i, m.y)));
 	});
-var $author$project$Doc$indexOfIn = F2(
-	function (id, ups) {
-		return A2(
-			$author$project$Scan$indexWhere,
-			$elm$core$Basics$eq(id),
-			ups);
-	});
 var $author$project$Doc$markOf = F3(
 	function (m, i, r) {
-		if (_Utils_eq(i, m.aJ)) {
-			return '';
-		} else {
-			var _v0 = A2(
-				$author$project$Doc$indexOfIn,
-				r.c,
-				A2(
-					$author$project$Body$ownersOf,
-					m,
-					A2($author$project$Doc$idAtRow, m, m.aJ)));
-			if (!_v0.$) {
-				var k = _v0.a;
-				return ' up-' + $elm$core$String$fromInt(
-					A2($elm$core$Basics$min, 3, k));
-			} else {
-				return '';
-			}
-		}
+		return _Utils_eq(i, m.aJ) ? '' : (A2(
+			$elm$core$List$member,
+			r.c,
+			A2(
+				$author$project$Body$ownersOf,
+				m,
+				A2($author$project$Doc$idAtRow, m, m.aJ))) ? ' up' : '');
 	});
 var $author$project$Doc$rowClass = F5(
 	function (m, i, r, depth, kin) {
@@ -9659,7 +9651,11 @@ var $author$project$Doc$view = function (m) {
 		});
 	return A2(
 		$elm$html$Html$div,
-		_List_Nil,
+		_List_fromArray(
+			[
+				$elm$html$Html$Attributes$class(
+				$author$project$Doc$inList(m) ? 'focus' : '')
+			]),
 		A2(
 			$elm$core$List$cons,
 			$author$project$Doc$viewPath(m),

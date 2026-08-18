@@ -1024,7 +1024,7 @@ export default [
 
 // A NESTED LIST ITEM IS DRAWN INSIDE ITS PARENT, so its element stands taller than
 // its own line.  `f' goes finer: the list itself is ONE stop at the coarse grain.
-{ name: "the cursor on a list item lights itself, and what it carries a shade back",
+{ name: "the cursor on a list item lights itself, its subtree and the way back",
   async run(p, base) {
     await intoNestedItem(p, base, "drv-wide");
     const seen = await p.eval(() => {
@@ -1034,7 +1034,8 @@ export default [
       const other = [...document.querySelectorAll("#mdoc .d-list .d-item")]
         .find((n) => n !== at && !at.contains(n));
       return { point: rgb(root.getPropertyValue("--g-point").trim()),
-               dim: rgb(root.getPropertyValue("--g-point-dim").trim()),
+               fg: rgb(root.getPropertyValue("--g-fg").trim()),
+               off: rgb(root.getPropertyValue("--g-point-off").trim()),
                atInk: ink(at),
                kidInk: ink(kid),
                otherInk: other
@@ -1046,11 +1047,12 @@ export default [
     });
     assert(seen.atInk === seen.point,
       `the item's connector paints ${seen.atInk}, not the point ink ${seen.point}`);
-    // WHAT POINT CARRIES IS THE SAME INK A SHADE BACK: it belongs to the stop.
-    assert(seen.kidInk === seen.dim,
-      `a row under point paints ${seen.kidInk}, not the carried ink ${seen.dim}`);
-    assert(seen.otherInk !== seen.point && seen.otherInk !== seen.dim,
-      `an item outside point's subtree paints ${seen.otherInk} as well`);
+    // WHAT POINT CARRIES TAKES THE PAGE'S OWN INK; everything off the path drops to
+    // the ink nobody is looking at.
+    assert(seen.kidInk === seen.fg,
+      `a row under point paints ${seen.kidInk}, not the page's ink ${seen.fg}`);
+    assert(seen.otherInk === seen.off,
+      `an item outside point's subtree paints ${seen.otherInk}, not ${seen.off}`);
     assert(seen.ground === "rgba(0, 0, 0, 0)",
       `the item paints a ground of ${seen.ground}`);
     // THE CONNECTOR STOPS AT THE MIDDLE OF THE LINE IT MARKS, which makes it an elbow.
@@ -1211,5 +1213,34 @@ export default [
     assert(seen.sticky === "sticky",
       `the strip is ${seen.sticky}, so it leaves the top when the rows scroll`);
     return [`${seen.words.join(" › ")} — the last in ${seen.last}`];
+  } },
+{ name: "the pane dims every branch but the one the reader is in",
+  async run(p, base) {
+    // AT REST THE DOCUMENT IS FULL INK: dimming answers "which branch am I in", so
+    // it waits until there is a branch to be in.
+    await sheet(p, base, "drv-wide");
+    const inks = () => {
+      const rows = [...document.querySelectorAll("#mdoc .de")];
+      const root = getComputedStyle(document.documentElement);
+      return { fg: rgb(root.getPropertyValue("--g-fg").trim()),
+               off: rgb(root.getPropertyValue("--g-point-off").trim()),
+               focus: !!document.querySelector("#mdoc .focus"),
+               inked: rows.map((n) => getComputedStyle(n).color) };
+    };
+    const rest = await p.eval(inks);
+    assert(!rest.focus, "the pane dims before the reader has gone into anything");
+    assert(rest.inked.every((c) => c === rest.fg),
+      `a row is dimmed at rest: ${rest.inked.find((c) => c !== rest.fg)}`);
+
+    await intoNestedItem(p, base, "drv-wide");
+    const held = await p.eval(inks);
+    assert(held.focus, "the pane never entered the dimmed mode");
+    assert(held.inked.some((c) => c === held.off),
+      "no row dimmed while the reader stands inside a list");
+    assert(held.inked.some((c) => c === held.fg),
+      "every row dimmed, so the branch the reader is in went with them");
+    return [`at rest ${rest.inked.length} rows all ${rest.fg}; inside a list `
+      + `${held.inked.filter((c) => c === held.off).length} dimmed to ${held.off}, `
+      + `${held.inked.filter((c) => c === held.fg).length} kept`];
   } },
 ];

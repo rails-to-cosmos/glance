@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Indent guides — fifteen looks</title>
+<title>Indent guides — sixteen looks</title>
 <style>
   /* THE SHELL ONLY.  Each variant is its own page; what they share is the rig
      and the pane, which is the point — the tabs differ by look and nothing else. */
@@ -44,7 +44,7 @@
 </head>
 <body>
   <header>
-    <h1>Indent guides <small>fifteen ways to say which block the cursor is in</small></h1>
+    <h1>Indent guides <small>sixteen ways to say which block the cursor is in</small></h1>
     <nav id="tabs" aria-label="variants">
       <a href="#a" data-src="a-rails.html">A · rails</a>
       <a href="#b" data-src="b-active.html">B · active rail</a>
@@ -61,6 +61,7 @@
       <a href="#m" data-src="m-under.html">M · turns under</a>
       <a href="#n" data-src="n-gutter.html">N · own gutter</a>
       <a href="#o" data-src="o-weight.html">O · by weight</a>
+      <a href="#p" data-src="p-attention.html">P · path in ink</a>
     </nav>
   </header>
   <p class="note" id="note"></p>
@@ -107,6 +108,9 @@
     n: "The collision answered by SEPARATION: a character of pane padding the text never "
      + "enters, every connector half a cell further left, so the horizontal ends with air "
      + "before the bullet. Costs width, hides nothing.",
+    p: "N's geometry with TWO TIERS instead of a ramp: point, what it CARRIES and the "
+     + "way BACK all take the page's own ink, and every other connector drops to "
+     + "<code>--g-point-off</code> — barely there, so the tree stops competing with the text.",
     o: "The collision answered by WEIGHT alone — the control. The horizontal reaches the "
      + "text as <code>tree</code> draws it and stays a hairline in the faint ink. If this "
      + "reads, neither the gutter nor the turn is needed.",
@@ -130,7 +134,7 @@
   }
 
   addEventListener("hashchange", () => show(location.hash.slice(1)));
-  show(location.hash.slice(1) || "n");
+  show(location.hash.slice(1) || "p");
 })();
 </script>
 </body>
