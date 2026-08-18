@@ -329,7 +329,7 @@ wroteAt id caret written lines =
 -}
 withKid : { rows : List Row, lines : List String }
 withKid =
-    { rows = Body.rowsFrom [ "* head", "mine", "** kid" ] 2 [] [ ( 0, 2, [] ) ]
+    { rows = Body.rowsFrom [ "* head", "mine", "** kid" ] 2 [] [ { index = 0, level = 2, line = 2, cells = [] } ]
     , lines = [ "* head", "mine", "** kid" ]
     }
 
@@ -1722,7 +1722,7 @@ suite =
             , test "no take and no write over any of them breaks org's grammar" <|
                 \_ ->
                     Expect.equal
-                        { unpaired = [], split = [], bodies = [ 27, 25, 68, 231 ] }
+                        { unpaired = [], split = [], bodies = [ 27, 25, 69, 232 ] }
                         { unpaired =
                             List.concatMap (unpaired << takes) takeable
                                 ++ List.concatMap (unpaired << everyCaret) sweep
@@ -1735,24 +1735,20 @@ suite =
                             ]
                         }
 
-            -- THE ONE ASYMMETRY, AND IT IS OPEN.  A DRAWER IS NO STOP at the top level:
-            -- its opener and its closer are ordinary paragraph lines up here.
-            , test "a block inside a TOP-LEVEL drawer splits it into three stops" <|
+            -- THE ASYMMETRY IS CLOSED: A DRAWER IS A STOP at the top level too, its
+            -- composite wearing the drawer's name and a nested block one WHOLE leaf.
+            , test "a block inside a TOP-LEVEL drawer is one leaf of the drawer's stop" <|
                 \_ ->
                     Expect.equal
-                        [ ( 1, 2, "element" )
-                        , ( 2, 5, "composite:src" )
-                        , ( 3, 4, "leaf" )
-                        , ( 5, 6, "element" )
+                        [ ( 1, 6, "composite:logbook" )
+                        , ( 2, 5, "leaf" )
                         ]
                         (scan drawerBlock)
-            , test "so two of its takes leave a half-drawer, as they always did" <|
+            , test "so its takes drop the drawer whole, or empty it — never halve it" <|
                 \_ ->
                     Expect.equal
-                        [ "* head\n#+begin_src sh\necho\n#+end_src\n:END:"
+                        [ "* head"
                         , "* head\n:LOGBOOK:\n:END:"
-                        , "* head\n:LOGBOOK:\n#+begin_src sh\n#+end_src\n:END:"
-                        , "* head\n:LOGBOOK:\n#+begin_src sh\necho\n#+end_src"
                         ]
                         (takes drawerBlock)
             , test "where the WALK re-enters it and finds the block inside" <|
@@ -1793,7 +1789,8 @@ suite =
                         , ( 3, 4, "leaf" )
                         , ( 4, 7, "composite:src" )
                         , ( 5, 6, "leaf" )
-                        , ( 7, 10, "element" )
+                        , ( 7, 10, "composite:logbook" )
+                        , ( 8, 9, "leaf" )
                         ]
                         (scan kinds)
             ]

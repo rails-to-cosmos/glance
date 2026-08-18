@@ -30,32 +30,47 @@ async function sheet(p, base, row) {
                 `${row}'s body to draw more than a headline`);
 }
 
-/** WALK DOWN TO AN ITEM THAT HAS ROWS DRAWN INSIDE IT.  A FIXED key count
- * lands elsewhere the moment a case above has written to the tree. */
+/** WALK THE SHELF TO THE FIRST ROW THE PREDICATE LIKES.  A FIXED key count
+ * lands elsewhere the moment a row is added above — the header rows are. */
+async function walkTo(p, cls, what) {
+  for (let i = 0; i < 12; i += 1) {
+    const seen = await p.eval((c) => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return { hit: !!at && at.classList.contains(c),
+               text: at ? at.textContent.slice(0, 30) : "" };
+    }, cls);
+    if (seen.hit) return;
+    await p.press("n");
+    await p.until((was) => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.textContent.slice(0, 30) !== was;
+    }, `the step toward ${what}`, undefined, seen.text);
+  }
+  assert(false, `\`n' never reached ${what}`);
+}
+
+/** Down to an item that has rows drawn inside it. */
 async function intoNestedItem(p, base, row) {
   await sheet(p, base, row);
-  const on = (what) => p.eval((sel) => {
-    const at = document.querySelector("#mdoc .de.dat");
-    return !!at && (sel === "kids"
-                      ? at.classList.contains("d-item") && !!at.querySelector(".de")
-                      : at.classList.contains(sel));
-  }, what);
-  for (let i = 0; i < 8 && !(await on("d-comp")); i++) await p.press("n");
-  assert(await on("d-comp"), "`n' never reached the list itself");
+  await walkTo(p, "d-list", "the list itself");
   await p.press("f");
   await p.until(() => {
     const at = document.querySelector("#mdoc .de.dat");
     return !!at && at.classList.contains("d-item");
   }, "`f' to descend into the list");
-  for (let i = 0; i < 8 && !(await on("kids")); i++) await p.press("n");
-  assert(await on("kids"),
+  const on = () => p.eval(() => {
+    const at = document.querySelector("#mdoc .de.dat");
+    return !!at && at.classList.contains("d-item") && !!at.querySelector(".de");
+  });
+  for (let i = 0; i < 8 && !(await on()); i++) await p.press("n");
+  assert(await on(),
     "`f' then `n' never reached an item with rows drawn inside it");
 }
 
 /** The sheet over ROW with its first paragraph open for editing. */
 async function paraOpen(p, base, row) {
   await sheet(p, base, row);
-  await p.press("n");                                   // onto the paragraph
+  await walkTo(p, "d-para", "the first paragraph");
   await p.press("RET");                                 // open it
   await p.until(() => document.getElementById("dpara").classList.contains("on"),
                 "the paragraph edit box to open");
@@ -96,7 +111,7 @@ export default [
 { name: "an open edit moves the line under it down, never covers it",
   async run(p, base) {
     await sheet(p, base, "drv-box");
-    await p.press("n");                                   // onto the paragraph
+    await walkTo(p, "d-para", "the first paragraph");
     await p.press("RET");                                 // open it
     // `placeEdit' sizes the box a turn after the raise, so wait for the two to agree.
     await p.until(() => {
@@ -146,7 +161,7 @@ export default [
 { name: "a paragraph drawn before it is written still owns a line",
   async run(p, base) {
     await sheet(p, base, "drv-box");
-    await p.press("n");
+    await walkTo(p, "d-para", "the first paragraph");
     await p.press("+");
     await p.until(() => !!document.querySelector("#mdoc .d-draft"),
                   "the drawn paragraph to appear");
@@ -355,12 +370,10 @@ export default [
 
 // POINT IS A MARK BESIDE THE LINE (AGENTS.hs).  `groundSweep' greps the served
 // TEXT; what the row PAINTS needs an engine.
-{ name: "the cursor in the pane is a ground, and the pane that lost the keys marks none",
+{ name: "the cursor in the pane is a ground, and TAB over prose folds nothing",
   async run(p, base) {
     await sheet(p, base, "drv-box");
-    await p.press("n");
-    // THE CLASS FLIPS A TURN AFTER THE KEY, so a blind read measures the HEADLINE,
-    // which carries no ground and fails the assertion below at random.
+    await walkTo(p, "d-para", "the first paragraph");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
       return !!at && at.classList.contains("d-para");
@@ -373,14 +386,16 @@ export default [
       const point = root.getPropertyValue("--g-point").trim();
       return { sel: rgb(root.getPropertyValue("--g-sel").trim()),
                mark: ink(at),
+               fg: rgb(root.getPropertyValue("--g-fg").trim()),
                ink: rgb(point),
                offMark: ink(off),
                ground: cs.backgroundColor,
                deco: cs.textDecorationLine, outline: cs.outlineStyle,
                border: cs.borderTopStyle };
     });
-    assert(seen.mark === seen.ink,
-      `the cursor's mark paints ${seen.mark}, not the point ink ${seen.ink}`);
+    // THE GROUND SAYS WHERE POINT IS; its connector wears the page's own ink.
+    assert(seen.mark === seen.fg,
+      `the cursor's mark paints ${seen.mark}, not the page's ink ${seen.fg}`);
     // A PARAGRAPH CARRIES NOTHING, so it wears the ground the table's cursor wears.
     // What made a ground wrong is the subtree drawn inside an ITEM, and the case
     // named "the cursor on a list item lights itself" owns that half.
@@ -389,24 +404,22 @@ export default [
     assert(seen.deco === "none" && seen.outline === "none" && seen.border === "none",
       `the cursor row is drawn with a line: decoration ${seen.deco}, `
       + `outline ${seen.outline}, border ${seen.border}`);
-    // TAB crosses to the panel, and A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE.
+    // TAB FOLDS NOW; on a paragraph it folds nothing and the ground stands.
     await p.press("TAB");
-    await p.until(() => document.getElementById("mprops").classList.contains("on"),
-                  "the panel to take the keys");
-    const gone = await p.eval(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return at ? ink(at) : null;
-    });
-    assert(gone !== seen.ink,
-      `the pane that lost the keys still marks its cursor ${gone}`);
-    return [`the cursor marks ${seen.mark}; with the keys away it marks ${gone}`];
+    await p.until(() => /nothing folds here/.test(document.getElementById("echo").textContent),
+                  "TAB to answer over a paragraph");
+    const still = await p.eval(() =>
+      getComputedStyle(document.querySelector("#mdoc .de.dat")).backgroundColor);
+    assert(still === seen.sel,
+      `TAB moved the ground: ${still} against ${seen.sel}`);
+    return [`the cursor grounds ${seen.ground} with its mark in ${seen.mark}`];
   } },
 
 // A LEAF IS ONE LINE OF THE FIELD THAT COVERS IT: `.de' padding spent twice drifts.
 { name: "a composite's drawn lines sit on the same grid as the field over it",
   async run(p, base) {
     await sheet(p, base, "drv-plan");
-    await p.press("n"); await p.press("n");      // onto the whole-list composite
+    await walkTo(p, "d-list", "the whole-list composite");
     await p.press("RET");
     // THE CLASS FLIPS BEFORE THE PANE HAS DRAWN, so the wait is on the MEASUREMENT
     // (docs/bugs/2026-08-17-the-composite-case-measures-an-empty-pane).
@@ -456,7 +469,7 @@ export default [
 { name: "a committed block opener arrives with its closer",
   async run(p, base) {
     await sheet(p, base, "drv-box");
-    await p.press("n");                                   // onto the paragraph
+    await walkTo(p, "d-para", "the first paragraph");
     await p.press("+");                                   // a new one under it
     await p.until(() => !!document.querySelector("#dpara.on"),
                   "the draft edit to open");
@@ -506,11 +519,14 @@ export default [
                      scrollH: t.scrollHeight, clientH: t.clientHeight } : null };
     };
     await sheet(p, base, "drv-plan");
+    // Onto the first PARAGRAPH first: the header rows sit above it, and RET on
+    // the drawer opens no box.
+    await walkTo(p, "d-para", "the first paragraph");
     const out = [];
     // A paragraph and the whole-list composite carry the title indent; leaves do not.
-    const walk = ["n", "n", "f", "n", "n", "n"];
+    const walk = ["", "n", "f", "n", "n", "n"];
     for (let i = 0; i < walk.length; i += 1) {
-      await p.press(walk[i]);
+      if (walk[i]) await p.press(walk[i]);
       await p.press("RET");
       await p.until(() => document.getElementById("dpara").classList.contains("on"),
                     "the edit to open");
@@ -1071,8 +1087,9 @@ export default [
                line: Math.round(parseFloat(getComputedStyle(
                  document.getElementById("mdoc")).lineHeight)) };
     });
-    assert(seen.atInk === seen.point,
-      `the item's connector paints ${seen.atInk}, not the point ink ${seen.point}`);
+    // THE GROUND SAYS WHERE POINT IS: its connector wears the page's own ink.
+    assert(seen.atInk === seen.fg,
+      `the item's connector paints ${seen.atInk}, not the page's ink ${seen.fg}`);
     // WHAT POINT CARRIES TAKES THE PAGE'S OWN INK; everything off the path drops to
     // the ink nobody is looking at.
     assert(seen.kidInk === seen.fg,
@@ -1119,7 +1136,7 @@ export default [
 { name: "the open edit over a nested item covers its own line alone",
   async run(p, base) {
     await sheet(p, base, "drv-wide");
-    await p.press("n"); await p.press("n"); await p.press("n");
+    await walkTo(p, "d-list", "the list");
     await p.press("f");
     // BOTH a nested row AND an own line: a composite has kids too.
     await p.until(() => {
@@ -1171,7 +1188,7 @@ export default [
     // default, and an ink on a glyph nobody draws is an assertion about nothing.
     await p.eval(() => { document.documentElement.dataset.bullets = "shown"; });
     // Onto the list, then into it: the item under point has one drawn inside it.
-    await p.press("n"); await p.press("n"); await p.press("n");
+    await walkTo(p, "d-list", "the list");
     await p.press("f");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
@@ -1210,9 +1227,9 @@ export default [
       `a row drawn inside point grounds ${seen.kidGround}, so the ground runs the subtree`);
     assert(seen.plainGround !== seen.sel,
       `an ordinary row grounds ${seen.plainGround} as well`);
-    // THE TREE KEEPS POINT'S OWN HUE, its column sitting outside the ground.
-    assert(seen.rail === seen.point,
-      `the cursor's connector paints ${seen.rail}, not the point ink ${seen.point}`);
+    // THE TREE WEARS THE PAGE'S INK; the ground alone says where point is.
+    assert(seen.rail === seen.fg,
+      `the cursor's connector paints ${seen.rail}, not the page's ink ${seen.fg}`);
     // AND WHAT STANDS ON THE GROUND READS OVER IT: point's hue is the ground's in the
     // light theme, so a marker painted in it went missing, ordinals and all.
     assert(seen.ink === seen.fg,
@@ -1389,7 +1406,8 @@ export default [
     // `drv-plan' carries both a ticked and an empty box, which is where the marker
     // is widest and the arithmetic is worth asking about.
     await sheet(p, base, "drv-plan");
-    await p.press("n"); await p.press("n"); await p.press("f");
+    await walkTo(p, "d-list", "the list");
+    await p.press("f");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
       return !!at && at.classList.contains("d-item");
@@ -1455,8 +1473,8 @@ export default [
     // `drv-marks' spells every marker org writes: `-', `+', an indented `*', both
     // boxes, both ordinals, and a dash quoted where no connector is drawn.
     await sheet(p, base, "drv-marks");
-    await p.until(() => document.querySelectorAll("#mdoc .dbul").length === 6,
-                  "the pane to draw all six unordered bullets");
+    await p.until(() => document.querySelectorAll("#mdoc .dbul").length === 8,
+                  "the pane to draw all eight unordered bullets");
     const read = () => {
       // THE PANE IS MONOSPACE, so one cell is the unit every column is counted in.
       const probe = document.createElement("span");
@@ -1494,7 +1512,7 @@ export default [
     // being a marker goes red rather than going unmeasured.
     assert(off.stamp === null,
       `the default rides a stamp of "${off.stamp}"; the attribute should be absent`);
-    assert(off.marks.length === 8 && off.marks.filter(loose).length === 6
+    assert(off.marks.length === 10 && off.marks.filter(loose).length === 8
              && off.marks.filter(ordered).length === 2,
       `the sheet drew ${JSON.stringify(off.marks.map((m) => m.text))}`);
     for (const m of off.marks.filter(loose)) {
@@ -1553,5 +1571,198 @@ export default [
     return [`${off.marks.filter(loose).length} bullets step aside and `
       + `${off.marks.filter(ordered).length} ordinals stay, on a ${px(off.ch)} cell; `
       + `every marker ends where it did, and a stored "shown" boots drawn`];
+  } },
+{ name: "the drawer is a stop: folded to one line, TAB opens it, the tree marks its pairs",
+  async run(p, base) {
+    await sheet(p, base, "drv-marks");
+    const read = () => p.eval(() => {
+      const drawer = document.querySelector("#mdoc .d-drawer");
+      const point = rgb(getComputedStyle(document.documentElement)
+        .getPropertyValue("--g-point").trim());
+      return { folded: drawer.textContent,
+               point,
+               frameInk: [...drawer.querySelectorAll(".dg")].map((g) =>
+                 getComputedStyle(g).color),
+               keyInk: [...drawer.querySelectorAll(".dk")].map((k) =>
+                 getComputedStyle(k).color),
+               frames: [...drawer.querySelectorAll(".dg")].map((g) => g.textContent),
+               pairs: [...drawer.querySelectorAll(".d-meta")].map((i) => i.textContent),
+               bars: [...drawer.querySelectorAll(".d-meta")].map((i) =>
+                 [getComputedStyle(i, "::before").borderLeftWidth,
+                  getComputedStyle(i, "::before").width].join(" ")),
+               crumb: document.querySelector("#mdoc .dpath").textContent,
+               planning: [...document.querySelectorAll("#mdoc .d-meta")].map((e) => e.textContent) };
+    });
+    const shut = await read();
+    // FOLDED IS THE DEFAULT, org's own ellipsis and nothing else.
+    assert(shut.folded === ":PROPERTIES:…" && shut.pairs.length === 0,
+      `the drawer opens showing ${JSON.stringify(shut.folded)}`);
+    assert(shut.planning.length === 1 && /^DEADLINE: </.test(shut.planning[0]),
+      `the planning line reads ${JSON.stringify(shut.planning)}`);
+    // Onto the drawer, and TAB opens it.
+    await p.press("n"); await p.press("n");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.classList.contains("d-drawer");
+    }, "point to reach the drawer");
+    await p.press("TAB");
+    await p.until(() => document.querySelectorAll("#mdoc .d-drawer .d-meta").length > 0,
+                  "TAB to open the drawer");
+    const open = await read();
+    assert(open.frames.length === 2
+             && open.frames[0] === ":PROPERTIES:" && open.frames[1] === ":END:",
+      `the frame reads ${JSON.stringify(open.frames)}`);
+    // THE HIDDEN PAIR STAYS HIDDEN: the id is the store's, never the reader's.
+    assert(open.pairs.length === 2 && !open.pairs.some((t) => /ORG_GLANCE_ID/.test(t)),
+      `the open drawer holds ${JSON.stringify(open.pairs)}`);
+    // A PAIR IS NOT NESTED: no elbow, a paragraph's own thin bar -- which spends
+    // `--ink', so a flag has somewhere to say so.
+    assert(open.bars.length === 2 && open.bars.every((b) => b === "0px 1px"),
+      `a pair's mark reads ${JSON.stringify(open.bars)}`);
+    assert(/:PROPERTIES:/.test(open.crumb),
+      `the strip reads ${JSON.stringify(open.crumb)}`);
+    // THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink.
+    assert(open.frameInk.every((c) => c === open.point)
+             && open.keyInk.length === 2 && open.keyInk.every((c) => c === open.point),
+      `the frame paints ${JSON.stringify(open.frameInk)} and the keys `
+      + `${JSON.stringify(open.keyInk)} against point's ${open.point}`);
+    // TAB folds it back.
+    await p.press("TAB");
+    await p.until(() => document.querySelectorAll("#mdoc .d-drawer .d-meta").length === 0,
+                  "TAB to fold the drawer");
+    // And `f' INTO the folded drawer opens it and lands on the first pair.
+    await p.press("f");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.classList.contains("d-meta") && /OWNER/.test(at.textContent);
+    }, "f to open the drawer and land on its first pair");
+    return [`folded "${shut.folded}", open ${JSON.stringify(open.pairs)}, `
+      + `crumb "${open.crumb.trim()}"`];
+  } },
+
+{ name: "a pair edits as its own line and leaves through the lists, never the splice",
+  async run(p, base) {
+    const served = () => p.eval(async () => {
+      const r = await fetch("/headline?id=drv-marks");
+      const h = await r.json();
+      return { props: h.properties, plan: h.planning };
+    });
+    await sheet(p, base, "drv-marks");
+    await p.press("n"); await p.press("n"); await p.press("f");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.classList.contains("d-meta") && /OWNER/.test(at.textContent);
+    }, "point on the OWNER pair");
+    // RET EDITS THE LINE AS ORG SPELLS IT.
+    await p.press("RET");
+    await p.until(() => document.getElementById("dpara").classList.contains("on"), "the edit");
+    const seeded = await p.eval(() => document.getElementById("dtext").value);
+    assert(seeded === ":OWNER: reader", `the edit seeds ${JSON.stringify(seeded)}`);
+    await p.eval(() => { document.getElementById("dtext").value = ":OWNER: writer"; });
+    await p.press("RET");
+    await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return (h.properties || []).some(([k, v]) => k === "OWNER" && v === "writer");
+    }, "the file to carry the new value", 15000);
+    // THE HIDDEN ID SURVIVES THE WRITE, or every write would orphan the row.
+    const alive = await p.eval(async () =>
+      (await (await fetch("/headline?id=drv-marks")).json()).id);
+    assert(alive === "drv-marks", `the id came back as ${JSON.stringify(alive)}`);
+    // `d d' DROPS THE PAIR through the same door.
+    await p.until(() => !!document.querySelector("#mdoc .de.dat"), "point back");
+    await p.press("n");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && /EFFORT/.test(at.textContent);
+    }, "point on the EFFORT pair");
+    await p.press("d");
+    await p.until(() => !!document.querySelector("#mdoc .de.dfl"), "the flag to draw");
+    await p.press("d");
+    await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return !(h.properties || []).some(([k]) => k === "EFFORT");
+    }, "the pair to leave the file", 15000);
+    // `+' ASKS FROM THE DRAWER; the sheet is reopened so the walk is the reader's own.
+    await sheet(p, base, "drv-marks");
+    await p.press("n"); await p.press("n");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.classList.contains("d-drawer");
+    }, "point on the drawer");
+    await p.press("+");
+    // `+' ASKS, org's way: the key, then the value, both required.
+    await p.until(() => /property key/.test(document.getElementById("phead").textContent),
+                  "the key prompt");
+    await p.type("ROOM");
+    await p.press("RET");
+    await p.until(() => /value for :ROOM:/.test(document.getElementById("phead").textContent),
+                  "the value prompt");
+    await p.type("12");
+    await p.press("RET");
+    await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return (h.properties || []).some(([k, v]) => k === "ROOM" && v === "12");
+    }, "the minted pair to reach the file", 15000);
+    const end = await served();
+    return [`OWNER edited, EFFORT dropped, ROOM added: ${JSON.stringify(end.props)}`];
+  } },
+{ name: "a child is drawn whole, walked like a list, and edits through the same splice",
+  async run(p, base) {
+    await sheet(p, base, "drv-marks");
+    const shelf = await p.eval(() => {
+      const rows = [...document.querySelectorAll("#mdoc .de")];
+      const kids = rows.filter((e) => e.classList.contains("d-child"));
+      return { kids: kids.map((e) => e.textContent.trim().slice(0, 30)),
+               // A CHILD'S CONTENTS ARE IN THE PANE, not behind a materialize.
+               paras: rows.filter((e) => e.classList.contains("d-para"))
+                 .map((e) => e.textContent.slice(0, 30)) };
+    });
+    assert(shelf.kids.length === 3,
+      `the pane drew ${shelf.kids.length} child headlines: ${JSON.stringify(shelf.kids)}`);
+    assert(shelf.paras.some((t) => /A paragraph the child owns/.test(t))
+             && shelf.paras.some((t) => /The grandchild's own line/.test(t)),
+      `the children's contents are missing: ${JSON.stringify(shelf.paras)}`);
+    // THE SHELF WALKS LIKE A LIST: n from the first child lands on the second,
+    // never inside the first — a sibling shares an owner.
+    for (let i = 0; i < 9; i += 1) {
+      const seen = await p.eval(() => {
+        const at = document.querySelector("#mdoc .de.dat");
+        return { kid: at.classList.contains("d-child"), text: at.textContent.slice(0, 30) };
+      });
+      if (seen.kid) break;
+      await p.press("n");
+      await p.until((was) => document.querySelector("#mdoc .de.dat")
+                      .textContent.slice(0, 30) !== was,
+                    "the step to settle", undefined, seen.text);
+    }
+    const first = await p.eval(() => document.querySelector("#mdoc .de.dat").textContent);
+    assert(/A child whose body/.test(first), `the walk reached ${JSON.stringify(first)}`);
+    await p.press("n");
+    await p.until(() => /A second child/.test(
+      document.querySelector("#mdoc .de.dat").textContent),
+      "n to step to the SECOND child, over the first's whole subtree");
+    await p.press("p");
+    // And `f' goes INTO the child: its first block, owned by it.
+    await p.until(() => /A child whose body/.test(
+      document.querySelector("#mdoc .de.dat").textContent), "p back to the first child");
+    await p.press("f");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && /A paragraph the child owns/.test(at.textContent)
+        && at.classList.contains("d-para");
+    }, "f to enter the child's own paragraph");
+    // THE SPLICE IS THE SAME DOOR: editing the child's paragraph writes the file.
+    await p.press("RET");
+    await p.until(() => document.getElementById("dpara").classList.contains("on"), "the edit");
+    await p.eval(() => { document.getElementById("dtext").value = "A paragraph the child edits."; });
+    await p.press("RET");
+    await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return /A paragraph the child edits\./.test(h.org || "");
+    }, "the child's line to reach the file", 15000);
+    // `b' CLIMBS TO THE OWNER: the paragraph's owner is the child headline.
+    await p.until(() => !!document.querySelector("#mdoc .de.dat"), "point back");
+    return [`3 children inline; the shelf steps over subtrees; a child's paragraph `
+      + `edits through the splice`];
   } },
 ];

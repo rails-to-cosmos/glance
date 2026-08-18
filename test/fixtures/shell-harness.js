@@ -98,13 +98,18 @@ const logbook = ":LOGBOOK:\n- moved here\n:END:\n";
 let digest = "d0";
 let headPriority = null;
 /** GET /headline's answer: `child' is the index this answer is FOR, `parent'
- * the one DEL climbs to, null being the row. */
+ * the one DEL climbs to, null being the row.  `children' lists EVERY
+ * descendant, document order, each with its headline's LINE in body
+ * coordinates -- which is `ownLines', the child opening where the own body
+ * stops -- and its file-coordinate span. */
 const subtree = (child) => (child === null
   ? { id: "r1", file: "a.org", child: null, parent: null, path: ["one"],
       cells: { state: "TODO", priority: headPriority,
                title: linky ? linkyTitle : "one", tags: "" },
       children: [ { index: 0, level: 2, state: null, priority: null,
-                    title: "two", tags: ":web:" } ],
+                    title: "two", tags: ":web:",
+                    line: grainy ? 16 : tabled ? 11 : checky ? 5 : 4,
+                    span: { start: 0, end: 24 } } ],
       level: 1, properties, planning, logbook, digest,
       titleAt: linky ? 7 : 11,
       // The link scan rides the materialize, one source with the `/links' stub.
@@ -927,22 +932,43 @@ globalThis.addEventListener = () => {};
 /** THE SMALL LISTS ARE ONE ELM PROGRAM; indirect eval, its output publishing
  * onto `this'. */
 (0, eval)(fs.readFileSync(dir + "/elm.js", "utf8"));
-let pinits = 0, pfills = 0;
 const elmInit = globalThis.Elm.Listing.init;
 globalThis.Elm.Listing.init = (opts) => {
   const host = opts && opts.node && opts.node.up ? opts.node.up.id : "";
-  if (host === "mptable") pinits += 1;
   if (host === "ltable") lmounts += 1;
   if (host === "ttable") tmounts += 1;
   const app = elmInit(opts);
   const send = app.ports.listIn.send;
   app.ports.listIn.send = (m) => {
-    if (m && m.kind === "setRows") {
-      if (host === "mptable") pfills += 1;
-      if (host === "ttable") tsets += 1;
-    }
+    if (m && m.kind === "setRows" && host === "ttable") tsets += 1;
     return send(m);
   };
+  return app;
+};
+// THE DOC PANE'S MIRROR, subscribed the way the glue subscribes: the lifted
+// header rides `docState' as lists, and the probe reads them off the port.
+// AN OUTGOING PORT MANAGER OPENS ON `Process.sleep 0': under node that lands a
+// macrotask late, after the glue's first fill has read its mirrors, so the
+// sleep is run inline for the init's own span and the first round trip is
+// synchronous the way every later one is.  rAF stays deferred — a synchronous
+// animator re-enters Elm's draw.
+let dprops = [], dplan = [];
+const docInit = globalThis.Elm.Doc.init;
+globalThis.Elm.Doc.init = (opts) => {
+  const later = globalThis.setTimeout, raf = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = (fn) => later(() => fn(0), 0);
+  globalThis.setTimeout = (fn, ms, ...rest) =>
+    (Number(ms) || 0) === 0 ? (fn(...rest), 0) : later(fn, ms, ...rest);
+  let app;
+  try {
+    app = docInit(opts);
+  } finally {
+    globalThis.setTimeout = later;
+    globalThis.requestAnimationFrame = raf;
+  }
+  app.ports.docState.subscribe((now) => {
+    dprops = now.properties; dplan = now.planning;
+  });
   return app;
 };
 eval(fs.readFileSync(dir + "/shell.js", "utf8"));
@@ -1003,14 +1029,6 @@ const typeIn = (box, which, text) => {
     throw new Error(`the document has no ${box} open: ${which}`);
   typed(field(which), text);
 };
-const typeOver = (which, arg) => {
-  const at = arg.indexOf("=");
-  if (field("pedit").className !== "on")
-    throw new Error(`no panel row is open for editing: ${which}:${arg}`);
-  if (String(patAt()) !== arg.slice(0, at))
-    throw new Error(`panel row ${patAt()} is open, not ${arg}`);
-  typed(field(which), arg.slice(at + 1));
-};
 const typeLink = (which, text) => {
   if (field("ledit").className !== "on")
     throw new Error(`no link is open for editing: ${which}`);
@@ -1070,7 +1088,7 @@ const docAt = () => flatRows().findIndex((row) => wears(row, "dat"));
 const docFlagged = () => flatRows()
   .map((row, i) => (wears(row, "dfl") ? i : -1))
   .filter((i) => i !== -1);
-/** THE PROPERTY PANEL, READ OFF WHAT IT DREW: there is no model here to ask. */
+/** THE SMALL LISTS, READ OFF WHAT THEY DREW: there is no model here to ask. */
 const listEls = (host) => field(host).querySelectorAll("tbody tr");
 const listCells = (host) =>
   listEls(host).map((tr) => tr.children.map((td) => td.textContent));
@@ -1079,14 +1097,12 @@ const listFlagged = (host) => listEls(host).filter((tr) => wears(tr, "tv-flagged
   .map((tr) => tr.getAttribute("data-id"));
 const listHint = (host) =>
   (field(host).querySelector(".tv-hint") || { textContent: "" }).textContent;
-const LISTS = ["ltable", "ttable", "mptable", "cstates"];
+const LISTS = ["ltable", "ttable", "cstates"];
 const narrowIn = (host) => field(host).querySelector("input.tv-filter");
 const narrows = () => LISTS.map((h) => [h, narrowIn(h)])
   .filter(([, box]) => box).map(([h, box]) => [h, String(box.value)]);
 const listCols = (host) =>
   field(host).querySelectorAll("thead .tv-hn").map((h) => h.textContent);
-const panel = () => listCells("mptable");
-const patAt = () => listAt("mptable");
 const FOCUSABLE = ["mtext", "dtin", "dtext", "ltitle", "lurl", "tname",
                    "pinput", "ktag", "ktext"];
 const focused = () => {
@@ -1094,9 +1110,6 @@ const focused = () => {
   // Drawn by the program that holds the rows, so it carries no id of its own.
   const list = LISTS.find((h) => narrowIn(h) === active);
   if (list) return `narrow:${list}`;
-  const which = active === field("pkey") ? "pkey"
-    : active === field("pval") ? "pval" : "";
-  if (which) return `${which}:${patAt()}`;
   return FOCUSABLE.find((id) => active === field(id)) || "";
 };
 const parts = (e, cls) =>
@@ -1233,8 +1246,7 @@ const ACTIONS = {
   // The ONE thing that can move a cursor out from under an open edit overlay.
   click: (at) => {
     const i = Number(at);
-    const host = field("modal").className === "on" ? "mptable"
-      : field("links").className === "on" ? "ltable" : "ttable";
+    const host = field("links").className === "on" ? "ltable" : "ttable";
     const rows = listEls(host);
     if (!(i >= 0 && i < rows.length))
       throw new Error(`no row ${at} to click in ${host}`);
@@ -1298,8 +1310,6 @@ const ACTIONS = {
   // typed into a paragraph spelling its line breaks with the same character.
   dpara: (text) => typeIn("dpara", "dtext",
     String(text).replace(/_/g, " ").replace(/\|/g, "\n").replace(/~/g, "|")),
-  pkey: (arg) => typeOver("pkey", arg),
-  pval: (arg) => typeOver("pval", arg),
   ctext: (text) => (onKeywords(), typeSetting("ctext", text)),
   // TAKING AN EDIT BACK: an act splits on spaces and a `#+TODO:' line is spaces.
   crevert: () => {
@@ -1521,9 +1531,7 @@ const settle = async () => {
     })(),
     scrolled: scrolls.map((s) => s.className),
     scrollAsked: scrolls.length ? scrolls[scrolls.length - 1].opts : null,
-    props: panel(), pat: patAt(), pnav: field("mprops").className === "on",
-    pinits, pfills, pflagged: listFlagged("mptable"),
-    pcols: listCols("mptable"), pflagHelp: listHint("mptable"),
+    dprops, dplan,
     narrows: narrows(),
     focus: focused(),
     wroteAt, readAt,

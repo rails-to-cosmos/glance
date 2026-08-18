@@ -579,7 +579,7 @@ const SECTIONS = [
       stashed = {
         sheet: editing && dirty()
           ? { id: editing.id, child: editing.child, raw,
-              text: el("mtext").value, props: props(), plan: planning(),
+              text: el("mtext").value, props: dprops, plan: dplan,
               at: docCursor().at,
               open: openEditState(), digest: editing.digest }
           : null,
@@ -610,7 +610,7 @@ const SECTIONS = [
         show(h, s.raw);   // which opens the sheet on the file as it now is
         el("mtext").value = s.text;   // dirty again, against the file now
         if (!s.raw) {
-          drawProps(s.props, s.plan);
+          dsend({ kind: "meta", props: s.props, plan: s.plan });
           docRestore(s.at);
           if (s.open) reopenEdit(s.open);
         }

@@ -2,8 +2,11 @@
 #+TODO: TODO NEXT | DONE CANCELLED
 
 * TODO Every marker org writes, in one entry                  :driver:marks:
+DEADLINE: <2026-08-21 Fri>
 :PROPERTIES:
 :ORG_GLANCE_ID: drv-marks
+:OWNER: reader
+:EFFORT: 0:25
 :END:
 The entry a case reads when it asks what a marker looks like.
 
@@ -19,3 +22,15 @@ The entry a case reads when it asks what a marker looks like.
 #+begin_quote
 - a dash inside a quote, which no connector marks
 #+end_quote
+
+** TODO A child whose body is drawn in place                            :kid:
+A paragraph the child owns.
+
+- a list the child owns
+- with a second item
+
+*** DONE A grandchild, one level further
+The grandchild's own line.
+
+** A second child, so the shelf has a walk
+Its paragraph.

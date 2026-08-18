@@ -3303,14 +3303,14 @@ clears c | c == Elisp "unmark-all"        = [Mark, Flag]
          | c == Elisp "filter-drop-token" = [Mark]
          | otherwise                      = []
 
--- ** ONE d/D/x/u gesture over FIVE surfaces, each declaring a shape.
+-- ** ONE d/D/x/u gesture over FOUR surfaces, each declaring a shape.  A property
+-- pair is a DOC row now, so its flags ride the doc's own shape.
 
 data FlagS = FlagS { fName, fVerb, fNone :: String, fWalled, fLogs, fRendered :: Bool }
 flagSurfaces :: [FlagS]
 flagSurfaces =
   --      name     verb      an empty cursor                   wall  logs  rendered
   [ FlagS "table"  "archive" "no row"                          True  True  True
-  , FlagS "panel"  "drop"    "org-delete-property (no row)"    False False True
   , FlagS "tags"   "remove"  "org-toggle-tag (no tag)"         False False True
   , FlagS "doc"    "delete"  "org-delete-element (no element)" False False False
   , FlagS "states" "remove"  "org-todo-remove-state (no row)"  False False True
@@ -3505,7 +3505,7 @@ shellNotes =
   , Note "m and u stay off ONCE because both advance: a held one walks a column laying marks down." [Test]
   , Note "The flag pair is feature-detected: an asset predating flagRow/getFlagged echoes and writes nothing." [Test]
   , Note "The document pane's mount is a Set of ids rather than a renderer, so its `missing' phrase is unreachable." [Unguarded]
-  , Note "In the panel a property is DROPPED and a planning entry is CLEARED with its row standing, an empty value already being how an entry is absent." [Test]
+  , Note "A property pair is DROPPED and the planning line CLEARED, both leaving through the lists the write carries; an empty value is already how an entry is absent." [Test]
   , Note "Cell movement walks OFF the cells: an out-of-range index goes to select and the renderer answers with the whole-row look, so the glue may name no at-first or at-last wall." [Test]
   , Note "The crumb stack is the renderer's; popCrumb pops and returns without applying, because whoever owns the fetching owns what a query means." [Test]
   , Note "crumbLabels is token to label because no lookup recovers it: the title belongs to the row referred TO, which is rarely among its own referrers." [Test]
@@ -3590,10 +3590,10 @@ headerWord Errored  = "error - C-x C-s retry / ESC discard"
 waitsForAKey :: SheetState -> Bool
 waitsForAKey s = s == Conflict || s == Errored
 
--- | Dirty = either pane against the materialized original, which is the PANEL's rows and
---   RAW mode's text alone: the document pane commits per element.
+-- | Dirty = the header's lists against the materialized original, and RAW mode's text:
+--   the document pane commits per element.
 sheetDirty :: Bool -> Bool -> Bool
-sheetDirty panelMoved rawMoved = panelMoved || rawMoved
+sheetDirty listsMoved rawMoved = listsMoved || rawMoved
 
 data Leave = ShutQuiet | FlushThenShut | ShutDiscarding | LeaveWaits deriving (Eq, Show)
 -- | ESC or the backdrop, over state and dirt.  A conflict or an error discards.
@@ -3675,7 +3675,7 @@ docCells = ["state", "priority", "title", "tags"]
 --   bullet inside it, a checkbox, text, a link's shown half,
 --   what no rung claims, and the strip that names the way back.
 docClasses :: [String]
-docClasses = [ ".de", ".dat", ".dfl", ".dc", ".dm", ".dbul", ".dbx", ".dt", ".dl"
+docClasses = [ ".de", ".dat", ".dfl", ".dc", ".dm", ".dbul", ".dbx", ".dt", ".dk", ".dl"
              , ".dg", ".dpath" ]
 
 -- | Geometry written onto `#mdoc' as NUMBERS, the arithmetic staying in the stylesheet.
@@ -3696,13 +3696,12 @@ docRowsCap = 10
 docRowDoors :: [String]
 docRowDoors = ["the fill", "M-RET's splice at the caret", "the field's own input", "shutEdit"]
 
-data SibRun = AllStops | OwnersRun deriving (Eq, Show)
--- | `n'/`p' step SIBLINGS at the cursor's grain and never dive: a composite is ONE stop,
---   a leaf steps its owner's run, clamped at its ends.
+data SibRun = OwnersRun deriving (Eq, Show)
+-- | A SIBLING SHARES AN OWNER, and that is the whole of the step: `n'/`p' walk the rows
+--   owned by what owns point -- a leaf its item run, an element its shelf, a child
+--   headline its brothers -- one rule at every grain, clamped at the run's ends.
 siblingRun :: Grain -> SibRun
-siblingRun Leaf      = OwnersRun
-siblingRun Element   = AllStops
-siblingRun Composite = AllStops
+siblingRun _ = OwnersRun
 
 data Finer = IntoLeaves | Finest deriving (Eq, Show)
 -- | `f' descends ONE rung; `Finest' refuses with an echo.  `l' and the right arrow are
@@ -3999,11 +3998,10 @@ lineReadMs = [("List.drop", 75), ("Array.get", 11)]
 --   with a cursor, optional delete flags, a click that selects and a `/' narrow.
 data Mount = Mount { mHost :: String, mCols :: [String], mHint :: String, mPane :: String }
 
--- | The FOUR mounts; what a row MEANS stays with the surface, so each keeps its own rows.
+-- | The THREE mounts; what a row MEANS stays with the surface, so each keeps its own rows.
 mounts :: [Mount]
 mounts =
-  [ Mount "mptable" ["key", "value"]                     "d/D delete · u unflag" "mprops"
-  , Mount "ltable"  ["title", "url"]                     ""                      "lpane"
+  [ Mount "ltable"  ["title", "url"]                     ""                      "lpane"
   , Mount "ttable"  ["title", "on", "rows"]              "d/D remove · u unflag" "tpane"
   , Mount "cstates" ["tag", "state", "group", "colour"]  "d/D remove · u unflag" "cstates" ]
 
@@ -4052,66 +4050,44 @@ narrowed True  _     = KeepsItsRow
 narrowed False True  = FirstMatch
 narrowed False False = NoRow
 
--- ** The property panel
+-- ** The header in the pane: planning and the properties drawer
 
--- | Row ids stable for the sheet's life, so a flag and a selection survive an edit above
---   them.
-data PRow = PPlan String | PProp Int
+-- | The server LIFTS planning, the drawer and the logbook out of the body and sends the
+--   first two as LISTS; the pane draws them back as SYNTHESIZED rows -- no span, no part
+--   in the splice, edited as lists and carried by every write.  Ids: the planning line
+--   `PLN', the drawer composite `PR', pair N `PR<n>'.
+data PRow = PlanRow | DrawerRow | Pair Int
 prowId :: PRow -> String
-prowId (PPlan k) = "PLN:" ++ k
-prowId (PProp n) = "P" ++ show n
+prowId PlanRow   = "PLN"
+prowId DrawerRow = "PR"
+prowId (Pair n)  = "PR" ++ show n
 
--- | FIXED rows at the head of the same list, in org's order, key unopenable, value the
---   timestamp verbatim, empty meaning absent — so clearing all three takes the planning
---   line off.
+-- | The planning line's keys, org's order; the LINE is one leaf, drawn only when a pair
+--   exists, and an edit that leaves a keyword valueless clears it.
 planningRows :: [String]
 planningRows = ["SCHEDULED", "DEADLINE", "CLOSED"]
 
 data TakenAs = Dropped | Cleared deriving (Eq, Show)
--- | What "taken" means is the ROW's: a property is DROPPED, which is the emptied key
---   spelled as a key press; a planning entry is CLEARED and its row stands.
+-- | `d d' on a pair DROPS it through the lists; on the planning line it CLEARS the line;
+--   on the drawer row it takes every pair.  All ride the doc's own flag shape.
 taken :: PRow -> TakenAs
-taken (PPlan _) = Cleared
-taken (PProp _) = Dropped
+taken PlanRow = Cleared
+taken _       = Dropped
 
 data PanelThing = APlanning | AProperty | AHidden | ALogbook deriving (Eq, Show, Enum, Bounded)
--- | The hidden properties are not rowed at all, and neither is the logbook — a read-only
---   strip under both panes, out of Tab, out of `dirty()' and never sent.
+-- | The hidden properties are never drawn and never sent back reworded; the logbook is a
+--   read-only strip under the pane, out of `dirty()' and never sent.
 rowed :: PanelThing -> Bool
 rowed APlanning = True
 rowed AProperty = True
 rowed AHidden   = False
 rowed ALogbook  = False
 
--- | Neither is flaggable BY CONSTRUCTION: the flags are the mount's rows'.
-flaggable :: PanelThing -> Bool
-flaggable = rowed
-
-data PField = KeyField | ValueField deriving (Eq, Show)
--- | `RET' opens the row at point into the overlay laid over it, `+' adds an empty
---   property and opens it: the VALUE is focused first, the KEY first where there is none
---   yet.  `TAB' hops the two and the pane crossing is suspended.
-pOpensOn :: PRow -> Bool -> PField
-pOpensOn (PPlan _) _     = ValueField
-pOpensOn (PProp _) True  = ValueField
-pOpensOn (PProp _) False = KeyField
-
--- | A planning KEY is `readonly': the three are fixed rows.
-pEditable :: PRow -> PField -> Bool
-pEditable (PPlan _) KeyField = False
-pEditable _         _        = True
-
--- | The panel is MODAL and nothing in it is focusable: movement is `n'/`p', `j'/`k' and
---   the arrows, VERTICAL only, since `RET' opens the whole row and `TAB' crosses its two
---   fields.  Entering blurs the textarea and sets `pnav', which `typing()' counts as a
---   focus of its own.
-panelVertical :: Bool
-panelVertical = True
-
--- | A row HOLDS its committed text, so an open edit is not dirty and only a COMMIT is; a
---   deletion moves the model, so it is.
-panelDirty :: Bool -> Bool -> Bool
-panelDirty committed deleted = committed || deleted
+-- | `RET' on a pair opens its LINE, org's own spelling `:KEY: value', and a line that
+--   opens no key is refused.  `+' ASKS -- the key, then the value, both required -- and
+--   the completed pair writes at once.
+pairEditsAsALine :: Bool
+pairEditsAsALine = True
 
 -- ** The settings sheet
 
@@ -4393,9 +4369,33 @@ sheetNotes =
          \ so re-indenting it without moving what hangs off it reparents the lot to\
          \ whatever stands above; `bodyText' shifts every line from the own line to\
          \ `r.to' by the same delta." [Test]
-  , Note "THE BROWSER MOVES FOCUS ON TAB, so the key is claimed with `preventDefault'\
-         \ and only while the paragraph edit is open -- the sheet's pane crossing keeps\
-         \ it everywhere else." [Test]
+  , Note "TAB FOLDS, as it does in org: on or in a drawer it toggles the fold, in an open\
+         \ item edit it walks the rungs, and the model answers `nothing folds here'\
+         \ everywhere else.  The browser would move focus, so the key is claimed." [Test]
+  , Note "A DRAWER IS A STOP the reader points at and folds: its composite wears the\
+         \ drawer's own name, an inner line is a leaf and a nested block ONE leaf --\
+         \ a finer take would strand its closer.  FOLDED IS THE DEFAULT, org's own\
+         \ ellipsis; `f' into a folded drawer opens it, POINT IS NEVER HIDDEN, and a\
+         \ drawer the reader opened stays open across the rescan." [Elm, Browser]
+  , Note "THE HEADER THE SERVER LIFTS IS DRAWN BACK: planning and the properties drawer\
+         \ arrive as LISTS beside the body and their rows are SYNTHESIZED -- no span,\
+         \ no part in the splice, `bodyText' walking `Para' alone -- and are edited as\
+         \ lists.  A pair edits as its own `:KEY: value' line; `+' asks for the key and\
+         \ the value, both required; `d d' drops a pair through the lists; the frame\
+         \ and the keys wear point's ink, org's `org-special-keyword'." [Test, Browser]
+  , Note "THE COMMIT CARRIES ITS OWN CARGO: `docBody' and `docTook' hand the shell\
+         \ body, properties and planning TOGETHER, since a flush reading the shell's\
+         \ mirrors would race the state push for them.  THE BASELINE COMES OFF THE\
+         \ FILL for the same reason: the mirrors land a macrotask behind it, and a\
+         \ baseline read off them called every fresh sheet dirty." [Elm, Test]
+  , Note "THE PANE IS THE SUBTREE: every descendant is drawn WHOLE -- its headline row,\
+         \ its blocks under it -- each segment cut at the next child's line, the line\
+         \ arriving with the child since only the server knows what it lifted.  A\
+         \ child's blocks are spliced by the same door the entry's own are." [Test, Browser]
+  , Note "A SIBLING SHARES AN OWNER, and that is the whole of the step: `n'/`p' walk\
+         \ the rows owned by what owns point -- a leaf its item run, an element its\
+         \ shelf, a child headline its brothers -- one rule for lists and headlines\
+         \ alike.  `f' steps into what point owns, `b' climbs to the owner." [Elm, Browser]
   , Note "THE PANE IS DRAWN THE WAY `tree' DRAWS ONE: a connector per row, down from\
          \ the row's top to the MIDDLE of its own line, and a run below that where the\
          \ branch has more to come (`kin').  THE HORIZONTAL STOPS SHORT OF ORG'S OWN\
@@ -4528,8 +4528,7 @@ sheetNotes =
          \ and RET the title.  A cursor over a part would be a second way to say the same\
          \ thing, and the one that goes stale when the part is absent." [Test]
   , Note "A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the POSITION is not gated, being the\
-         \ model's, and a FLAG keeps its ground either way.  The panel's costs two rules,\
-         \ the renderer's selection wash and the stripe under it." [Test]
+         \ model's, and a FLAG keeps its mark either way." [Test]
   , Note "Elm pushes a port BEFORE it paints, so `keepInView' and `placeEdit' run a turn\
          \ later and the cursor anchor is read off the DRAW." [Browser]
   , Note "`Doc.elm' owns the scanner, the regions, the parse, the splice, the two-axis\
@@ -4537,25 +4536,16 @@ sheetNotes =
          \ keys, the two edit overlays, the writes and the actions." [Elm]
   , Note "`Scan.elm' is the pure half, split so it can be ASKED — functions over lines\
          \ rather than the Model, extensible records keeping every call site as it was." [Elm]
-  , Note "`dmount' and `pmount' are ports now where they were a renderer handle and a\
-         \ `Set', and the gesture never knew the difference." [Test]
+  , Note "`dmount' is a port shape where it was a `Set', and the gesture never knew the\
+         \ difference." [Test]
   , Note "The harness reads the pane off what it DREW, taking its stops off a SELECTOR, so\
          \ the pane is free to wear the wrapper an Elm mount adds." [Test]
   , Note "A CELL EDIT RE-PINS the same way: the digest comes off the `/command' answer's\
          \ own per-id one, the frame that would re-read being guarded off under an open\
          \ edit; what it wrote comes back through the WATCH." [Test]
-  , Note "ONE FOCUS LANGUAGE: whichever pane holds the keys wears the accent on its own\
-         \ frame, declared for both because the panel holds them with nothing focused, and\
-         \ `TAB' crosses while each pane keeps its own cursor." [Test]
-  , Note "The panel's keys register AHEAD of the dispatch and fall through on every key\
+  , Note "The sheet's keys register AHEAD of the dispatch and fall through on every key\
          \ they do not claim; `preventDefault' fires only where a binding does, and only\
          \ over an open subtree sheet." [Test]
-  , Note "Deletion in the panel is the table's gesture spelled twice: `can'/`flagsOn' are\
-         \ shared, the act, `ONCE' (guarded by hand), `said' and `noted' are not." [Test]
-  , Note "The mount is a VIEW of the model and `repaint()' the one door; the cursor, the\
-         \ selection and the flags are the mount's and this page keeps no copy." [Test]
-  , Note "The panel mount pays no gutter: the renderer's is the CHECKBOX's, and a mount\
-         \ that flags without marking rides its flag on the row's first cell." [Test]
   , Note "The sheet keeps exactly one variable of its own, `--dk-mono' (Hack first)." [Test]
   , Note "The settings sheet's TAB walks the panels and wraps, `S-TAB' back, the newly\
          \ shown panel's first control taking the focus; a hidden panel is out of the\
@@ -4977,9 +4967,9 @@ buildNotes =
   , Note "A status change is a `git mv' plus the line, and the suite says so when only one of the two moves; a rename breaks every link to the old path and past commit messages keep citing it." [Test]
   , Note "Every implemented feature earns a CHANGELOG entry under Unreleased, written as user-visible behaviour, one line per feature." [Docs]
   , Note "The author's address is substituted even where the repo's git config or an existing file header says otherwise." [Unguarded]
-  , Note "APACHE-2.0, with `NOTICE' travelling with the work: it carries the copyright\
-         \ and the MIT notice for `assets/table-view.js', which is vendored rather than\
-         \ written here.  `glance.cabal' spells the SPDX id and ships both files." [Docs]
+  , Note "APACHE-2.0, the SPDX id spelled in `glance.cabal'.  No NOTICE: the vendored\
+         \ `assets/table-view.js' is MIT under the same author, who chose to carry no\
+         \ separate notice for his own bytes." [Docs]
   -- Tier two until the checks moved into the suite: what no gate asks.
   , Note "Every intra-package dependency names a component." [Unguarded]
   , Note "The component graph is acyclic." [Unguarded]

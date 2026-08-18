@@ -91,6 +91,12 @@ const BREAKS = {
   // The row stops making room, so a continuation is typed out of sight.
   "cont-floor": ["a continuation lands under the item's own text",
                  "#mdoc .de.dat{min-height:0 !important}"],
+  // A pair loses its bar, so a flag has nowhere to say so.
+  "pair-bar": ["the drawer is a stop",
+               ".d-drawer .d-meta::before{width:0 !important}"],
+  // The drawer stops reading as reserved: frame and keys in ordinary ink.
+  "drawer-ink": ["the drawer is a stop",
+                 ".d-drawer .dg,.dk{color:var(--g-mute) !important}"],
   // Org's bullet is drawn again, so the tree and the dash mark the same item twice.
   "bullet-shown": ["an unordered bullet steps aside",
                    "#mdoc .dbul{color:inherit !important}"],

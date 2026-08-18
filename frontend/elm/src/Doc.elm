@@ -15,6 +15,7 @@ import Html exposing (Html, div, span, text)
 import Html.Attributes exposing (attribute, class, style)
 import Json.Decode as D
 import Json.Encode as E
+import Set exposing (Set)
 import Body
     exposing
         ( Cell
@@ -66,17 +67,28 @@ type alias Model =
     -- THE LINE A CURSOR IS OWED at the next fill: an insert's paragraph has no
     -- row until the RESCAN mints one.
     , landing : Maybe Int
+
+    -- THE HEADER THE SERVER LIFTS: planning and the drawer ride as LISTS and
+    -- their rows are synthesized, so the splice never sees them.
+    , props : List ( String, String )
+    , plan : List ( String, String )
+    , planKeys : List String
+
+    -- The FOLDED composites, by id; every drawer starts here.
+    , shut : Set String
     }
 
 
 empty : Model
 empty =
-    Model [] [] 0 [] [] Nothing 0 1 Nothing False Nothing
+    Model [] [] 0 [] [] Nothing 0 1 Nothing False Nothing [] [] [] Set.empty
 
 
-{-| A sibling step at the cursor's own grain. A composite is ONE stop; a leaf
-steps its owner's run and never dives, since a composite sits between any two
-parents' runs.
+{-| A SIBLING SHARES AN OWNER, and that is the whole of the step: `n'/`p' walk
+the rows owned by what owns point -- a leaf its item run, an element its shelf,
+a child headline its brothers -- and never dive.  A LEAF'S RUN STILL ENDS AT
+ITS LIST'S EDGE: past the run sit rows of other owners, and the walk stops
+rather than leaping shelves.
 -}
 step : Int -> Model -> Model
 step by m =
@@ -89,27 +101,11 @@ step by m =
                 n =
                     List.length m.rows
 
-                grainAt i =
-                    Maybe.map .grain (nth i m.rows)
-
                 ownerAt i =
                     Maybe.andThen .owner (nth i m.rows)
 
-                overLeaves i =
-                    if i < 0 || i >= n then
-                        Nothing
-
-                    else if grainAt i == Just Leaf then
-                        overLeaves (i + by)
-
-                    else
-                        Just i
-
                 amongKin i =
                     if i < 0 || i >= n then
-                        Nothing
-
-                    else if grainAt i /= Just Leaf then
                         Nothing
 
                     else if ownerAt i == cur.owner then
@@ -117,15 +113,8 @@ step by m =
 
                     else
                         amongKin (i + by)
-
-                landed =
-                    if cur.grain == Leaf then
-                        amongKin (m.at + by)
-
-                    else
-                        overLeaves (m.at + by)
             in
-            case landed of
+            case amongKin (m.at + by) of
                 Nothing ->
                     m
 
@@ -142,11 +131,11 @@ finer m =
         Just r ->
             let
                 kids =
-                    if r.kind == Para then
-                        kidsOf m r.id
+                    if r.kind == Head then
+                        0
 
                     else
-                        0
+                        kidsOf m r.id
             in
             if kids > 0 then
                 -- The first child immediately follows its parent in emission order.
@@ -168,7 +157,7 @@ broader m =
             ( m, "" )
 
         Just r ->
-            if r.grain == Leaf then
+            if r.owner /= Nothing then
                 case Maybe.map (placeOf m) r.owner of
                     Nothing ->
                         ( { m | at = placeOf m "H" }
@@ -229,6 +218,9 @@ elementSpan m r =
                 Child ->
                     Nothing
 
+                Meta ->
+                    Nothing
+
                 Head ->
                     Just ( base, base + charOf m 1 )
 
@@ -255,6 +247,9 @@ type Msg
     | Draft String (Maybe Int)
     | Insert String (Maybe Int) String
     | Undraft String
+    | Tab
+    | AddProp String String
+    | SetMeta (List ( String, String )) (List ( String, String ))
     | Ignore
 
 
@@ -287,17 +282,48 @@ update msg model =
 
                                 Nothing ->
                                     0
+                -- A DRAWER THE READER OPENED STAYS OPEN across the rescan; only
+                -- one they have not touched arrives folded.
+                opened =
+                    Set.fromList
+                        (List.map .id
+                            (List.filter
+                                (\r -> foldable model r && not (Set.member r.id model.shut))
+                                model.rows
+                            )
+                        )
             in
-            told { fresh | at = landed, landing = Nothing }
+            told
+                (reveal
+                    { fresh
+                        | at = landed
+                        , landing = Nothing
+                        , shut = Set.diff fresh.shut opened
+                    }
+                )
 
         Select id ->
-            told { model | at = placeOf model id }
+            told (reveal { model | at = placeOf model id })
 
         Step by ->
             told (step by model)
 
         Finer ->
-            spoke (finer model)
+            -- `f' INTO A FOLDED DRAWER OPENS IT: a step into what is hidden shows it.
+            spoke
+                (finer
+                    (case rowAt model of
+                        Just r ->
+                            if foldable model r then
+                                { model | shut = Set.remove r.id model.shut }
+
+                            else
+                                model
+
+                        Nothing ->
+                            model
+                    )
+                )
 
         Broader ->
             spoke (broader model)
@@ -312,9 +338,97 @@ update msg model =
         ClearFlags ->
             told { model | flags = [] }
 
+        Tab ->
+            case foldTarget model of
+                Nothing ->
+                    spoke ( model, "nothing folds here" )
+
+                Just r ->
+                    let
+                        opened =
+                            Set.member r.id model.shut
+                    in
+                    spoke
+                        ( { model
+                            | shut =
+                                if opened then
+                                    Set.remove r.id model.shut
+
+                                else
+                                    Set.insert r.id model.shut
+                            , at = placeOf model r.id
+                          }
+                        , "org-cycle ("
+                            ++ Maybe.withDefault "drawer" r.name
+                            ++ (if opened then
+                                    " open)"
+
+                                else
+                                    " folded)"
+                               )
+                        )
+
+        SetMeta props plan ->
+            told (remeta { model | props = props, plan = plan })
+
+        -- THE PAIR ARRIVES WHOLE -- the shell asked for both halves -- so the
+        -- write follows at once, and point lands on the new pair, drawer open.
+        AddProp key value ->
+            if key == "" || value == "" || String.contains " " key || String.contains ":" key then
+                spoke ( model, "a property needs a key and a value" )
+
+            else
+                let
+                    fresh =
+                        remeta { model | props = model.props ++ [ ( key, value ) ] }
+
+                    minted =
+                        "PR" ++ String.fromInt (List.length model.props)
+
+                    m2 =
+                        { fresh
+                            | at = placeOf fresh minted
+                            , shut = Set.remove "PR" fresh.shut
+                        }
+                in
+                ( m2
+                , Cmd.batch
+                    [ docState (stateJSON m2)
+                    , docBody (cargoJSON m2)
+                    , docSaid (E.string (Body.propertyText ( key, value )))
+                    ]
+                )
+
         -- Composed HERE: a deletion cannot be rebuilt out of the model it changed.
         Delete ids ->
             let
+                -- A DELETED PAIR LEAVES THROUGH THE LISTS, never the splice: `d' on
+                -- the drawer takes every pair, on the planning line the whole line.
+                keptPlan =
+                    if List.member "PLN" ids then
+                        []
+
+                    else
+                        model.plan
+
+                keptProps =
+                    if List.member "PR" ids then
+                        []
+
+                    else
+                        List.map Tuple.second
+                            (List.filter
+                                (\( j, _ ) -> not (List.member ("PR" ++ String.fromInt j) ids))
+                                (List.indexedMap Tuple.pair model.props)
+                            )
+
+                metaN =
+                    (List.length model.plan - List.length keptPlan)
+                        + (List.length model.props - List.length keptProps)
+
+                model_ =
+                    remeta { model | plan = keptPlan, props = keptProps }
+
                 taken =
                     List.filter (\r -> r.kind == Para && List.member r.id ids) model.rows
 
@@ -364,26 +478,38 @@ update msg model =
                                                 |> Maybe.andThen (rowById model)
                                                 |> Maybe.map .from
             in
-            ( { model | landing = landsOn }
-            , docTook
-                (E.object
-                    [ ( "taken", E.list E.string (List.map .id taken) )
-                    , ( "named", E.int (List.length named) )
-                    , ( "body", E.string written )
-                    ]
-                )
+            ( { model_ | landing = landsOn, at = keptAt model_ model }
+            , Cmd.batch
+                [ docState (stateJSON model_)
+                , docTook
+                    (E.object
+                        [ ( "taken", E.list E.string (List.map .id taken) )
+                        , ( "named", E.int (List.length named) )
+                        , ( "meta", E.int metaN )
+                        , ( "body", E.string written )
+                        , ( "properties"
+                          , pairsJSON (List.filter (\( k, _ ) -> k /= "") model_.props)
+                          )
+                        , ( "planning", pairsJSON model_.plan )
+                        ]
+                    )
+                ]
             )
 
         Edit id written ->
-            let
-                write r =
-                    if r.id == id then
-                        { r | text = written }
+            if Maybe.map .kind (rowById model id) == Just Meta then
+                editMeta model id written
 
-                    else
-                        r
-            in
-            composed { model | rows = List.map write model.rows }
+            else
+                let
+                    write r =
+                        if r.id == id then
+                            { r | text = written }
+
+                        else
+                            r
+                in
+                composed { model | rows = List.map write model.rows }
 
         -- `+' DRAWS THE PARAGRAPH BEFORE IT IS WRITTEN, so the reader fills a line
         -- of their own.  The row is zero-width, which `bodyText' passes over.
@@ -425,13 +551,119 @@ told m =
     ( m, docState (stateJSON m) )
 
 
+{-| POINT IS NEVER HIDDEN: whatever moved it, every folded drawer holding it
+opens on the way.
+-}
+reveal : Model -> Model
+reveal m =
+    { m
+        | shut =
+            List.foldl Set.remove
+                m.shut
+                (List.filter (\id -> Maybe.map (foldable m) (rowById m id) == Just True)
+                    (ownersOf m (idAtRow m m.at))
+                )
+    }
+
+
+{-| The synthesized rows rebuilt after the lists moved; everything else stands.
+-}
+remeta : Model -> Model
+remeta m =
+    { m
+        | rows =
+            case List.filter (\r -> r.kind /= Meta) m.rows of
+                head :: rest ->
+                    head :: Body.metaRows m.plan m.props ++ rest
+
+                [] ->
+                    []
+    }
+
+
+{-| Where point stands after the meta rows moved: its own row where it survives,
+the drawer -- which is always drawn -- where it does not.
+-}
+keptAt : Model -> Model -> Int
+keptAt fresh old =
+    let
+        id =
+            idAtRow old old.at
+    in
+    if rowById fresh id /= Nothing then
+        placeOf fresh id
+
+    else
+        placeOf fresh "PR"
+
+
+{-| The nearest foldable stop at or above point.
+-}
+foldTarget : Model -> Maybe Row
+foldTarget m =
+    let
+        here =
+            idAtRow m m.at
+    in
+    List.head
+        (List.filter (foldable m)
+            (List.filterMap (rowById m) (here :: ownersOf m here))
+        )
+
+
+{-| A meta row's text read back into its list: the planning line by its
+keywords, a drawer line as `:KEY: value'.
+-}
+editMeta : Model -> String -> String -> ( Model, Cmd Msg )
+editMeta m id written =
+    if id == "PLN" then
+        keep id (remeta { m | plan = Body.readPlanning m.planKeys written })
+
+    else
+        case ( Body.readProperty written, String.toInt (String.dropLeft 2 id) ) of
+            ( Just pair, Just i ) ->
+                keep id
+                    (remeta
+                        { m
+                            | props =
+                                List.indexedMap
+                                    (\j p ->
+                                        if j == i then
+                                            pair
+
+                                        else
+                                            p
+                                    )
+                                    m.props
+                        }
+                    )
+
+            _ ->
+                spoke ( m, "not a `:KEY: value' line — left as it was" )
+
+
+keep : String -> Model -> ( Model, Cmd Msg )
+keep id m =
+    composed
+        { m
+            | at =
+                placeOf m
+                    (if rowById m id /= Nothing then
+                        id
+
+                     else
+                        "PR"
+                    )
+        }
+
+
 {-| A model whose rows have MOVED. BOTH ports, always — a `docBody' with no
 `docState' would leave the shell's own copy a flush behind the file.
 -}
 composed : Model -> ( Model, Cmd Msg )
 composed m =
     ( m
-    , Cmd.batch [ docState (stateJSON m), docBody (E.string (bodyText m [])) ]
+    , Cmd.batch [ docState (stateJSON m), docBody (cargoJSON m) ]
     )
 
 
@@ -526,6 +758,28 @@ stateJSON m =
 
         -- The body as it stands, so a flush that follows no edit still has one.
         , ( "body", E.string (bodyText m []) )
+
+        -- THE LISTS ARE WHAT THE WRITE CARRIES; a pair whose key never arrived
+        -- is display only, and never reaches the wire.
+        , ( "properties", pairsJSON (List.filter (\( k, _ ) -> k /= "") m.props) )
+        , ( "planning", pairsJSON m.plan )
+        ]
+
+
+pairsJSON : List ( String, String ) -> E.Value
+pairsJSON =
+    E.list (\( k, v ) -> E.list E.string [ k, v ])
+
+
+{-| THE COMMIT CARRIES ITS OWN CARGO: a flush reading the shell's mirrors would
+race the state push for them.
+-}
+cargoJSON : Model -> E.Value
+cargoJSON m =
+    E.object
+        [ ( "body", E.string (bodyText m []) )
+        , ( "properties", pairsJSON (List.filter (\( k, _ ) -> k /= "") m.props) )
+        , ( "planning", pairsJSON m.plan )
         ]
 
 
@@ -578,13 +832,62 @@ fillD =
         (D.field "level" D.int)
         |> D.andThen
             (\m -> D.map (\t -> { m | titleAt = t }) (D.field "titleAt" (D.nullable D.int)))
+        |> D.andThen
+            (\m ->
+                D.map3 (\props plan keys -> seedMeta { m | props = props, plan = plan, planKeys = keys })
+                    (D.field "props" (D.list pairD))
+                    (D.field "plan" (D.list pairD))
+                    (D.field "planKeys" (D.list D.string))
+            )
 
 
-kidD : D.Decoder ( Int, Int, List Cell )
+pairD : D.Decoder ( String, String )
+pairD =
+    D.map2 Tuple.pair (D.index 0 D.string) (D.index 1 D.string)
+
+
+{-| The synthesized rows put in after the headline, and EVERY DRAWER FOLDED --
+the synthesized one and any the body spells raw.
+-}
+seedMeta : Model -> Model
+seedMeta m =
+    let
+        rows =
+            case m.rows of
+                head :: rest ->
+                    head :: Body.metaRows m.plan m.props ++ rest
+
+                [] ->
+                    []
+
+        seeded =
+            { m | rows = rows }
+    in
+    { seeded
+        | shut =
+            Set.fromList
+                (List.map .id (List.filter (foldable seeded) seeded.rows))
+    }
+
+
+{-| What TAB can fold: a drawer, synthesized or spelled raw in the body.
+-}
+foldable : Model -> Row -> Bool
+foldable m r =
+    r.grain == Composite
+        && (r.kind == Meta
+                || Scan.drawerName (Maybe.withDefault "" (nth r.from m.lines)) /= Nothing
+           )
+
+
+kidD : D.Decoder Body.Kid
 kidD =
-    D.map3 (\a b c -> ( a, b, c ))
+    D.map4 Body.Kid
         (D.field "index" D.int)
         (D.field "level" D.int)
+        (D.field "line" (D.nullable D.int)
+            |> D.map (Maybe.withDefault -1)
+        )
         (D.field "cells" (D.list cellD))
 
 
@@ -652,6 +955,18 @@ msgD =
                     "undraft" ->
                         D.map Undraft (D.field "id" D.string)
 
+                    "tab" ->
+                        D.succeed Tab
+
+                    "addprop" ->
+                        D.map2 AddProp (D.field "key" D.string) (D.field "value" D.string)
+
+                    -- The stash coming back: lists edited before a detour survive it.
+                    "meta" ->
+                        D.map2 SetMeta
+                            (D.field "props" (D.list pairD))
+                            (D.field "plan" (D.list pairD))
+
                     _ ->
                         D.succeed Ignore
             )
@@ -692,7 +1007,12 @@ rowClass m i r depth kin =
     )
         ++ (case r.grain of
                 Leaf ->
-                    "item"
+                    -- A PAIR IS NOT NESTED: no tree, a paragraph's own face.
+                    if r.kind == Meta then
+                        "meta"
+
+                    else
+                        "item"
 
                 Composite ->
                     "comp d-" ++ Maybe.withDefault "" r.name
@@ -723,6 +1043,12 @@ rowClass m i r depth kin =
            )
         ++ (if kin then
                 " kin"
+
+            else
+                ""
+           )
+        ++ (if foldable m r then
+                " d-drawer"
 
             else
                 ""
@@ -873,14 +1199,57 @@ viewPara m r =
     in
     div [ class "dp" ]
         (mark
-            ++ (case elementSpan m r of
-                    Just ( a, _ ) ->
+            ++ (case ( elementSpan m r, keyOf r ) of
+                    ( Just ( a, _ ), _ ) ->
                         drawText m rest (a + k)
 
-                    Nothing ->
-                        [ text rest ]
+                    -- A PAIR'S KEY IS A RESERVED TOKEN and wears the drawer's ink,
+                    -- org's `org-special-keyword' by another name.
+                    ( Nothing, Just key ) ->
+                        [ span [ class "dk" ] [ text (":" ++ key ++ ":") ]
+                        , text (String.dropLeft (String.length key + 2) r.text)
+                        ]
+
+                    ( Nothing, Nothing ) ->
+                        if r.id == "PLN" then
+                            viewPlanning m
+
+                        else
+                            [ text rest ]
                )
         )
+
+
+{-| The planning line, each keyword a reserved token the way org paints
+`SCHEDULED:' -- the timestamp itself stays the line's own.
+-}
+viewPlanning : Model -> List (Html Msg)
+viewPlanning m =
+    List.concat
+        (List.indexedMap
+            (\i ( key, value ) ->
+                [ text
+                    (if i == 0 then
+                        ""
+
+                     else
+                        " "
+                    )
+                , span [ class "dk" ] [ text (key ++ ":") ]
+                , text (" " ++ value)
+                ]
+            )
+            m.plan
+        )
+
+
+keyOf : Row -> Maybe String
+keyOf r =
+    if r.kind == Meta && r.grain == Leaf then
+        Maybe.map Tuple.first (Body.readProperty r.text)
+
+    else
+        Nothing
 
 
 {-| The row's own line as org wrote it.
@@ -894,7 +1263,8 @@ lineOf m r =
 -}
 openerAt : Model -> Row -> Maybe Scan.Opener
 openerAt m r =
-    if r.grain /= Leaf then
+    -- A synthesized row has NO LINE, so reading one would read the body's first.
+    if r.grain /= Leaf || r.kind /= Para then
         Nothing
 
     else
@@ -1115,17 +1485,71 @@ view m =
                 if r.grain == Composite then
                     let
                         ( inner, j ) =
-                            viewKids m r (i + 1) r.from 0
-                    in
-                    go j (out ++ [ div [ class (rowClass m i r -1 False) ] inner ])
+                            if r.kind == Meta then
+                                viewMeta m r (i + 1)
 
-                else if r.kind == Para then
+                            else
+                                viewKids m r (i + 1) r.from 0
+
+                        -- FOLDED, THE FRAME IS THE WHOLE OF IT: the opener line
+                        -- and org's own ellipsis, the way org draws a shut drawer.
+                        shown =
+                            if Set.member r.id m.shut && r.kind /= Meta then
+                                [ div [ class "dg" ]
+                                    [ text (Maybe.withDefault "" (nth r.from m.lines) ++ "…") ]
+                                ]
+
+                            else
+                                inner
+                    in
+                    go j (out ++ [ div [ class (rowClass m i r -1 False) ] shown ])
+
+                else if r.kind == Para || r.kind == Meta then
                     go (i + 1) (out ++ [ div [ class (rowClass m i r -1 False) ] [ viewPara m r ] ])
 
                 else
                     go (i + 1) (out ++ [ div [ class (rowClass m i r -1 False) ] (viewCells m i r) ])
     in
     div [ class (if inList m then "focus" else "") ] (viewPath m :: go 0 [])
+
+
+{-| The drawer's rows: the frame lines are the composite's own — inert, like the
+lines no rung claims — and each pair is a leaf between them.  Folded, the frame
+is one line with org's own ellipsis.
+-}
+viewMeta : Model -> Row -> Int -> ( List (Html Msg), Int )
+viewMeta m parent from =
+    let
+        walk j got =
+            case nth j m.rows of
+                Just kid ->
+                    if kid.kind == Meta && kid.owner == Just parent.id then
+                        walk (j + 1) (got ++ [ ( j, kid ) ])
+
+                    else
+                        ( got, j )
+
+                Nothing ->
+                    ( got, j )
+
+        ( kids, next ) =
+            walk from []
+
+        n =
+            List.length kids
+
+        leaf _ ( j, kid ) =
+            div [ class (rowClass m j kid 0 False) ] [ viewPara m kid ]
+    in
+    if Set.member parent.id m.shut then
+        ( [ div [ class "dg" ] [ text ":PROPERTIES:…" ] ], next )
+
+    else
+        ( div [ class "dg" ] [ text ":PROPERTIES:" ]
+            :: List.indexedMap leaf kids
+            ++ [ div [ class "dg" ] [ text ":END:" ] ]
+        , next
+        )
 
 
 {-| Is point INSIDE a list? Dimming answers "which branch am I in", so it engages
@@ -1193,12 +1617,25 @@ its own line with the marker org wrote taken off the front.
 crumb : Model -> Row -> String
 crumb m r =
     if r.grain == Composite then
-        Maybe.withDefault "item" r.name
+        -- A DRAWER'S CRUMB IS ORG'S OWN TOKEN, `:PROPERTIES:', so the strip says
+        -- the reader stands in something reserved rather than in prose of theirs.
+        if foldable m r then
+            ":" ++ String.toUpper (Maybe.withDefault "drawer" r.name) ++ ":"
+
+        else
+            Maybe.withDefault "item" r.name
 
     else
         let
             said =
-                String.trim (String.dropLeft (markerLen m r) r.text)
+                -- A PAIR'S CRUMB IS ITS KEY ALONE: the value is the line's own
+                -- business, and the strip names the way back.
+                case ( r.kind, Body.readProperty r.text ) of
+                    ( Meta, Just ( key, _ ) ) ->
+                        ":" ++ key ++ ":"
+
+                    _ ->
+                        String.trim (String.dropLeft (markerLen m r) r.text)
         in
         if String.length said > 24 then
             String.left 23 said ++ "…"

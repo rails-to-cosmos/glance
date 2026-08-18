@@ -1,5 +1,6 @@
 module Body exposing
     ( Cell
+    , Kid
     , Kind(..)
     , Row
     , blank
@@ -12,8 +13,12 @@ module Body exposing
     , joinWord
     , kidsOf
     , kindWord
+    , metaRows
     , ownersOf
     , markerFor
+    , propertyText
+    , readPlanning
+    , readProperty
     , placeOf
     , placeOfLine
     , rowAt
@@ -39,6 +44,7 @@ type Kind
     = Head
     | Para
     | Child
+    | Meta
 
 
 type alias Cell =
@@ -71,52 +77,62 @@ blank =
 -- THE PARSE INTO ROWS
 
 
-rowsFrom : List String -> Int -> List Cell -> List ( Int, Int, List Cell ) -> List Row
+type alias Kid =
+    { index : Int, level : Int, line : Int, cells : List Cell }
+
+
+{-| The rows a filled pane holds: the headline, the entry's own blocks, and then
+EVERY DESCENDANT WHOLE -- its headline row, its blocks under it -- so the pane
+is the subtree rather than one shelf of it.  A child's contents run to the next
+child's line; a child OWNS its blocks, and a deeper child its shallower one, so
+the walk reads nesting off ownership exactly as it does inside a list.
+-}
+rowsFrom : List String -> Int -> List Cell -> List Kid -> List Row
 rowsFrom lines own headCells kids =
     let
         head =
             { blank | id = "H", kind = Head, grain = Element, cells = headCells }
 
-        blocks =
-            blocksIn (Array.fromList lines) own
+        arr =
+            Array.fromList lines
 
-        ids =
-            List.indexedMap (\i _ -> "B" ++ String.fromInt i) blocks
+        rowsIn prefix owner a b =
+            let
+                blocks =
+                    Scan.blocksInRange arr a b
 
-        idAt k =
-            Maybe.withDefault "" (nth k ids)
-
-        body =
-            List.map2
-                (\b i ->
+                idAt k =
+                    prefix ++ "B" ++ String.fromInt k
+            in
+            List.indexedMap
+                (\i b_ ->
                     let
                         held =
-                            cut lines b.from b.to
+                            cut lines b_.from b_.to
                     in
                     { blank
-                        | id = i
+                        | id = idAt i
                         , kind = Para
-                        , grain = b.grain
-                        , name = b.name
-                        , owner = Maybe.map idAt b.up
-                        , from = b.from
-                        , to = b.to
+                        , grain = b_.grain
+                        , name = b_.name
+                        , owner =
+                            case b_.up of
+                                Just k ->
+                                    Just (idAt k)
+
+                                Nothing ->
+                                    owner
+                        , from = b_.from
+                        , to = b_.to
                         , text = held
                         , was = held
                     }
                 )
                 blocks
-                ids
 
-        child ( index, level, cells ) =
-            { blank
-                | id = "C" ++ String.fromInt index
-                , kind = Child
-                , grain = Element
-                , index = index
-                , level = level
-                , cells = cells
-            }
+        body =
+            rowsIn "" Nothing 0 own
+
         owned r =
             let
                 stop =
@@ -127,8 +143,178 @@ rowsFrom lines own headCells kids =
 
             else
                 { r | text = cut lines r.from stop, was = cut lines r.from stop }
+
+        ends =
+            List.drop 1 (List.map .line kids) ++ [ List.length lines ]
+
+        descend seen ks es out =
+            case ( ks, es ) of
+                ( k :: restK, e :: restE ) ->
+                    let
+                        up =
+                            List.head
+                                (List.map Tuple.second
+                                    (List.filter (\( l, _ ) -> l < k.level) seen)
+                                )
+
+                        cid =
+                            "C" ++ String.fromInt k.index
+
+                        row =
+                            { blank
+                                | id = cid
+                                , kind = Child
+                                , grain = Element
+                                , index = k.index
+                                , level = k.level
+                                , cells = k.cells
+                                , owner = up
+                                , from = k.line
+                                , to = e
+                            }
+
+                        inner =
+                            if k.line < 0 then
+                                []
+
+                            else
+                                rowsIn (cid ++ ":") (Just cid) (k.line + 1) e
+                    in
+                    descend (( k.level, cid ) :: List.filter (\( l, _ ) -> l < k.level) seen)
+                        restK
+                        restE
+                        (out ++ row :: inner)
+
+                _ ->
+                    out
     in
-    (head :: List.map owned body) ++ List.map child kids
+    (head :: List.map owned body) ++ descend [] kids ends []
+
+
+
+-- THE HEADER THE SERVER LIFTS, DRAWN BACK: planning and the properties drawer
+-- arrive as LISTS beside the body, so their rows are SYNTHESIZED -- no span, no
+-- part in the splice ('bodyText' walks 'Para' alone), edited as lists.
+
+
+{-| The planning line and the properties drawer as rows: planning one leaf-line
+element when any pair exists, the drawer a composite (id `PR') over one leaf per
+pair.  The drawer is always drawn -- `+' needs a place to land.
+-}
+metaRows : List ( String, String ) -> List ( String, String ) -> List Row
+metaRows plan props =
+    let
+        planning =
+            if List.isEmpty plan then
+                []
+
+            else
+                [ { blank
+                    | id = "PLN"
+                    , kind = Meta
+                    , grain = Element
+                    , text = planningText plan
+                    , was = planningText plan
+                  }
+                ]
+
+        drawer =
+            { blank
+                | id = "PR"
+                , kind = Meta
+                , grain = Composite
+                , name = Just "properties"
+            }
+
+        pair i ( key, value ) =
+            { blank
+                | id = "PR" ++ String.fromInt i
+                , kind = Meta
+                , grain = Leaf
+                , owner = Just "PR"
+                , text = propertyText ( key, value )
+                , was = propertyText ( key, value )
+            }
+    in
+    planning ++ drawer :: List.indexedMap pair props
+
+
+planningText : List ( String, String ) -> String
+planningText plan =
+    String.join " " (List.map (\( k, v ) -> k ++ ": " ++ v) plan)
+
+
+propertyText : ( String, String ) -> String
+propertyText ( key, value ) =
+    ":" ++ key ++ ": " ++ value
+
+
+{-| A property line read back: `:KEY: value'.  A line that opens no drawer key
+is refused, so a typo never writes a silent prose line into the drawer.
+-}
+readProperty : String -> Maybe ( String, String )
+readProperty line =
+    let
+        t =
+            String.trim line
+    in
+    if String.startsWith ":" t then
+        case String.indexes ":" (String.dropLeft 1 t) of
+            close :: _ ->
+                let
+                    key =
+                        String.slice 1 (close + 1) t
+                in
+                if key == "" || String.contains " " key then
+                    Nothing
+
+                else
+                    Just ( key, String.trim (String.dropLeft (close + 2) t) )
+
+            [] ->
+                Nothing
+
+    else
+        Nothing
+
+
+{-| The planning line read back: pairs cut at each keyword the line spells, in
+the order it spells them.  A keyword left VALUELESS is dropped, which is how an
+edit clears one.
+-}
+readPlanning : List String -> String -> List ( String, String )
+readPlanning keywords line =
+    let
+        marks =
+            List.sortBy Tuple.first
+                (List.concatMap
+                    (\k ->
+                        List.map (\i -> ( i, k ))
+                            (String.indexes (k ++ ":") line)
+                    )
+                    keywords
+                )
+
+        slice ( i, k ) rest =
+            let
+                stop =
+                    Maybe.withDefault (String.length line)
+                        (Maybe.map Tuple.first (List.head rest))
+            in
+            ( k
+            , String.trim
+                (String.slice (i + String.length k + 1) stop line)
+            )
+
+        go seen =
+            case seen of
+                [] ->
+                    []
+
+                mark :: rest ->
+                    slice mark rest :: go rest
+    in
+    List.filter (\( _, v ) -> v /= "") (go marks)
 
 
 
@@ -466,6 +652,9 @@ joinAt m id caret =
                 Child ->
                     Nothing
 
+                Meta ->
+                    Nothing
+
                 Head ->
                     Just (Join r.id 1 "" Nothing True "at the top")
 
@@ -746,7 +935,11 @@ shown r =
 
 kidsOf : { a | rows : List Row } -> String -> Int
 kidsOf m id =
-    List.length (List.filter (\r -> r.kind == Para && r.owner == Just id) m.rows)
+    List.length
+        (List.filter
+            (\r -> (r.kind == Para || r.kind == Meta) && r.owner == Just id)
+            m.rows
+        )
 
 
 kindWord : Kind -> String
@@ -760,3 +953,6 @@ kindWord k =
 
         Child ->
             "child"
+
+        Meta ->
+            "meta"

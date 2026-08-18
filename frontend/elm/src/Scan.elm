@@ -7,8 +7,10 @@ module Scan exposing
     , at
     , blankAt
     , blocksIn
+    , blocksInRange
     , closerAt
     , cut
+    , drawerName
     , indentOf
     , isTable
     , listOpener
@@ -783,6 +785,38 @@ runsIn lines a b =
     go a -1 []
 
 
+{-| A drawer's inner lines as leaves: one per line, blanks skipped, and a nested
+block WHOLE -- a per-line leaf there would let a take strand its closer.
+-}
+drawerLeaves : Array String -> Int -> Int -> List ( Int, Int )
+drawerLeaves lines a b =
+    let
+        go j out =
+            if j >= b then
+                out
+
+            else if isBlank (at j lines) then
+                go (j + 1) out
+
+            else
+                case blockName (at j lines) of
+                    Just name ->
+                        let
+                            shut =
+                                blockRun lines j b name
+                        in
+                        if shut == -1 then
+                            go (j + 1) (out ++ [ ( j, j + 1 ) ])
+
+                        else
+                            go shut (out ++ [ ( j, shut ) ])
+
+                    Nothing ->
+                        go (j + 1) (out ++ [ ( j, j + 1 ) ])
+    in
+    go a []
+
+
 type alias Stop =
     { from : Int, to : Int, grain : Grain, name : Maybe String, up : Maybe Int }
 
@@ -794,6 +828,14 @@ move the GRAIN, a different question from where a new line goes.
 -}
 blocksIn : Array String -> Int -> List Stop
 blocksIn lines own =
+    blocksInRange lines 0 own
+
+
+{-| 'blocksIn' over a SEGMENT: a child's contents run between two headline
+lines, and the parse is the same one the entry's own lines get.
+-}
+blocksInRange : Array String -> Int -> Int -> List Stop
+blocksInRange lines start own =
     let
         end =
             max 0 (min own (Array.length lines))
@@ -832,9 +874,30 @@ blocksIn lines own =
 
             else
                 case kindAt lines i of
-                    -- A DRAWER IS NO STOP: `stopKindAt' takes its lines to prose.
+                    -- A DRAWER IS A STOP the reader can point at and fold: its
+                    -- composite wears the drawer's own name, and its inner lines are
+                    -- leaves -- one per line, a nested block WHOLE so no take can
+                    -- leave half of one.  The frame lines belong to no leaf.
                     Drawer ->
-                        plain i out
+                        let
+                            shut =
+                                extentOf lines end i Drawer
+                        in
+                        if shut <= i + 1 then
+                            plain i out
+
+                        else
+                            go shut
+                                (whole i
+                                    shut
+                                    (String.toLower
+                                        (Maybe.withDefault "drawer"
+                                            (drawerName (at i lines))
+                                        )
+                                    )
+                                    (drawerLeaves lines (i + 1) (shut - 1))
+                                    out
+                                )
 
                     Plain ->
                         plain i out
@@ -884,4 +947,5 @@ blocksIn lines own =
             in
             go j (out ++ [ Stop i j Element Nothing Nothing ])
     in
-    go 1 []
+    -- Line 0 is the entry's own headline, never a block's.
+    go (max 1 start) []

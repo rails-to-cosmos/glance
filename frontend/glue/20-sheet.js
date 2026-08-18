@@ -4,7 +4,7 @@
     // THE DOCUMENT PANE IS AN ELM PROGRAM; the MIRROR below is a macrotask behind it — AGENTS.hs.
     const DCELLS = CFG.dcells;
     let drows = [], dat = 0;
-    let dflags = [], dbody = "", dlinks = [];
+    let dflags = [], dbody = "", dlinks = [], dprops = [], dplan = [];
     let dport = null, dtook = null, dwrote = null;
     const cellsOf = (o) => DCELLS.map((k) => {
       const val = (o || {})[k] || "";
@@ -25,6 +25,7 @@
       dport.docState.subscribe((now) => {
         drows = now.rows; dat = now.at;
         dflags = now.flags; dbody = now.body;
+        dprops = now.properties; dplan = now.planning;
         // Elm pushes a port BEFORE it paints, so these are read a turn later.
         soon(() => { seedInsert(now.caret); keepInView(docElAt()); placeEdit(); });
       });
@@ -70,7 +71,10 @@
       const r = drows[dat];
       if (!r) return;
       if (r.kind === "child") { into(r.index); return; }
-      if (r.kind === "para") { openEdit(DPARA, r); return; }
+      // A drawer's own line is its frame; what RET edits is a pair inside.
+      if (r.kind === "meta" && r.grain === "composite")
+        { echo("RET → f reaches the pairs — TAB folds"); return; }
+      if (r.kind === "para" || r.kind === "meta") { openEdit(DPARA, r); return; }
       headEnter(r);
     }
     function headEnter(r) {
@@ -143,10 +147,10 @@
       };
     }
     let dcommit = null;
-    const commitDoc = (body) => {
+    const commitDoc = (cargo) => {
       const spoke = dcommit;
       dcommit = null;
-      commitDocWith(body, () => { if (spoke) spoke(); });
+      commitDocWith(cargo, () => { if (spoke) spoke(); });
     };
     const editPara = (r, text, say) => {
       dcommit = say;
@@ -234,6 +238,24 @@
       if (!r) { said(INSERT, "no element"); return; }
       if (r.kind === "child")
         { said(INSERT, "a child's body is its own — RET opens it"); return; }
+      // `+' IN THE DRAWER ASKS, org's own way: a property is a KEY and a VALUE,
+      // both required, so the pair arrives whole and the write follows at once.
+      if (r.kind === "meta") {
+        const b = docBinding("org-set-property", "+");
+        askText("property key", "RET · ESC cancels", "", (c) => {
+          const key = c.text.trim();
+          if (!key) { said(b, "a key is required"); return; }
+          // RAISED FROM A COMMIT rather than a press of its own, so `raising'
+          // is cleared — armed, it would eat the reader's first key.
+          askText(`value for :${key}:`, "RET · ESC cancels", "", (v) => {
+            const value = v.text.trim();
+            if (!value) { said(b, "a value is required"); return; }
+            dwrote = (what) => said(b, what);
+            dsend({ kind: "addprop", key, value });
+          }).raising = false;
+        });
+        return;
+      }
       const off = at == null ? null : at;
       // WHERE it lands is the MODEL's answer; a reading of it here got it wrong.
       dwrote = (what) => said(INSERT, what);
@@ -278,6 +300,7 @@
       soon(placeEdit);
       o.focus(row);
     }
+    // A TWO-FIELD EDIT CROSSES ITS FIELDS ON TAB; a one-field edit stays put.
     function hop() {
       const ids = edit.o.fields;
       const at = ids.findIndex((id) => el(id) === active());
@@ -493,8 +516,8 @@
       cancelEdit("element", DTITLE, DPARA);
       if (drawn) undraft(drawn);
     };
-    const sheetOpen = () => docOpen() || pediting();
-    const cancelSheetEdit = () => (pediting() ? cancelRow() : cancelDocEdit());
+    const sheetOpen = () => docOpen();
+    const cancelSheetEdit = () => cancelDocEdit();
     function ddelete(ids, how) {
       dtook = how;
       dsend({ kind: "delete", ids });
@@ -504,19 +527,23 @@
       const how = dtook;
       dtook = null;
       if (!how) return;
-      if (answer.named !== answer.taken.length)
+      // A property or a planning pair leaves through the LISTS, counted beside
+      // the body's own; only a CHILD headline is refused.
+      if (answer.named !== answer.taken.length + answer.meta)
         append("sync", "warn",
                "a headline is not deleted from the sheet — this writes elements only");
-      if (!answer.taken.length) { echo(`D → org-delete-element (${how(0)})`); return; }
-      commitDocWith(answer.body,
-        () => echo(`D → org-delete-element (${how(answer.taken.length)} taken)`));
+      const n = answer.taken.length + answer.meta;
+      if (!n) { echo(`D → org-delete-element (${how(0)})`); return; }
+      commitDocWith(answer,
+        () => echo(`D → org-delete-element (${how(n)} taken)`));
     }
-    // BODY is the caller's: a deletion cannot rebuild it out of the model.
-    function commitDocWith(body, say) {
+    // THE CARGO IS THE CALLER'S: a flush reading mirrors would race the push.
+    function commitDocWith(cargo, say) {
       if (!editing) return;
       const h = editing;
       sync("syncing");
-      post(h.id, h.digest, { body, properties: props(), planning: planning() },
+      post(h.id, h.digest,
+           { body: cargo.body, properties: cargo.properties, planning: cargo.planning },
            null, h.child)
         .then(outcome)
         .then((a) => { if (editing === h && landed(h, say)(a)) reload(); })
@@ -547,9 +574,13 @@
       dsend({ kind: "fill",
               lines: body.split("\n"),
               own: h.ownLines === undefined ? body.split("\n").length : h.ownLines,
+              props: h.properties || [],
+              plan: h.planning || [],
+              planKeys: PLANNING,
               cells: cellsOf(h.cells),
               kids: (h.children || []).map((c) =>
-                ({ index: c.index, level: c.level, cells: cellsOf(c) })),
+                ({ index: c.index, level: c.level, line: c.line ?? null,
+                   cells: cellsOf(c) })),
               links: dlinks.map((l) =>
                 ({ from: l.span[0], to: l.span[1], desc: l.desc })),
               spanAt: (h.span || {}).start ?? null,
@@ -655,97 +686,12 @@
       said(narrowBinding(k), `${n.shown} of ${n.all}`);
       return true;
     }
-    const PCOLS = [ { key: "key", header: "Key" },
-                    { key: "value", header: "Value" } ];
-    let prows = [], pseq = 0, pmount = null;
-    function mounted() {
-      if (pmount) return pmount;
-      pmount = listing("mptable", PCOLS, "d/D delete · u unflag", "mprops");
-      return pmount;
-    }
-    const prowsOf = () =>
-      prows.map((r) => ({ id: r.id, cells: { key: r.key, value: r.val } }));
-    const repaint = (at) => mounted().setRows(prowsOf(), at);
-    function drawProps(list, plan) {
-      pseq = 0;
-      shutEdit(PROW);
-      el("mprops").className = "";   // and the panel gives the keys back
-      const held = new Map(plan || []);
-      prows = PLANNING.map((key) =>
-        ({ id: `PLN:${key}`, key, val: held.get(key) || "", fixed: true }))
-        .concat(list.map((p) => ({ id: `P${pseq++}`, key: p[0], val: p[1], fixed: false })));
-      // `setRows' keeps flags and the narrow, so a new drawer asks for both to go.
-      mounted().clearFlags();
-      unnarrow(pmount);
-      repaint(prows[0].id);
-    }
-    const patAt = () => prows.findIndex((r) => r.id === selectedId(pmount));
-    function addProperty() {
-      const id = `P${pseq++}`;
-      prows.push({ id, key: "", val: "", fixed: false });
-      repaint(id);
-      openRow();
-    }
-    const props = () => prows
-      .filter((r) => !r.fixed)
-      .map((r) => [r.key.trim(), r.val.trim()])
-      .filter((p) => p[0] !== "");
-    const planning = () => prows
-      .filter((r) => r.fixed && r.val.trim() !== "")
-      .map((r) => [r.key, r.val.trim()]);
-    const pnav = () => el("mprops").className === "on";
-    function enterPanel() {
-      el("mprops").className = "on"; el("mdoc").className = "";
-      el("mtext").blur();
-    }
-    function leavePanel() {
-      el("mprops").className = ""; el("mdoc").className = "on";
-    }
-    const PROW = {
-      box: "pedit", pane: "mprops", fields: ["pkey", "pval"],
-      mount: () => pmount,
-      fill: (r) => {
-        el("pkey").value = r.key;
-        el("pval").value = r.val;
-        el("pkey").readOnly = r.fixed;
-      },
-      focus: (r) => (r.fixed || r.key ? el("pval") : el("pkey")).focus(),
-    };
-    const pediting = () => !!edit && edit.o === PROW;
-    function openRow() {
-      const at = patAt();
-      if (at !== -1) openEdit(PROW, prows[at]);
-    }
-    // The row is the one the overlay OPENED over, never the one point is on now.
-    function commitRow() {
-      const r = edit.row;
-      if (!r.fixed) r.key = el("pkey").value;
-      r.val = el("pval").value;
-      shutEdit(PROW);
-      repaint();
-    }
-    const cancelRow = () => cancelEdit("row", PROW);
-    // A PLANNING ROW IS CLEARED AND STAYS; a property is DROPPED.
-    function pdelete(ids, how) {
-      const gone = new Set(ids);
-      const cleared = prows.filter((r) => gone.has(r.id) && r.fixed);
-      for (const r of cleared) r.val = "";
-      prows = prows.filter((r) => r.fixed || !gone.has(r.id));
-      repaint();
-      const also = cleared.map((r) => r.key).join(", ");
-      echo(`D → org-delete-property (${how(ids.length)}${also ? ` · ${also} cleared` : ""})`);
-    }
     // Registers AHEAD of the dispatch, so it sees a key first — AGENTS.hs.
     document.addEventListener("keydown", (e) => {
       // Without the guard the sheet claims the letter a palette was raised to read.
       if (!editing || raw || momentary()) return;
-      const k = keyName(e), crossing = k === "TAB" || k === "S-TAB";
+      const k = keyName(e);
       if (!k) return;
-      // The narrow field holds the letters, so every binding below is typing.
-      if (narrowTyping(pmount)) {
-        if (narrowPress(k, pmount)) e.preventDefault();
-        return;
-      }
       const once = (act) => { if (!repeating(e)) act(); };
       // `RET' COMMITS here, `S-RET' commits and asks for ANOTHER, `M-RET' is the newline.
       if (dparaing()) {
@@ -758,33 +704,24 @@
         return;
       }
       // `q' IS `quit-window' ONE WINDOW IN, dead inside an open edit.
-      if (k === "q" && !pediting() && !dediting()) {
+      if (k === "q" && !dediting()) {
         e.preventDefault();
         once(() => { said(quitBinding, ""); leaveSheet(); });
         return;
       }
-      if (pediting()) {
-        if (crossing) hop();
-        else if (k === "RET") once(commitRow);
-        else return;   // ESC is the keymap's, and puts the row back
-      } else if (dediting()) {
-        if (crossing) hop();
-        else if (k === "RET") once(commitDocEdit);
+      if (dediting()) {
+        if (k === "RET") once(commitDocEdit);
         else return;   // ESC is the keymap's, and puts the element back
-      } else if (pnav()) {
-        if (crossing) leavePanel();
-        else if (k === "RET") once(openRow);
-        else if (k === "+") addProperty();
-        else if (rowStep(k)) stepIn(pmount, rowStep(k));
-        else if (!(narrowPress(k, pmount) || flagPress(k, e, PFLAGS))) return;
-      } else if (crossing) enterPanel();
-      else {
+      } else {
         const step = rowStep(k), depth = grainStep(k);
         if (step) docStep(step);
         else if (depth > 0) docFiner(k);
         else if (depth < 0) docBroader(k);
         else if (k === "RET") once(docEnter);
         else if (k === "DEL") once(docUp);
+        // TAB FOLDS, as it does in org: the model says whether anything did.
+        else if (k === "TAB")
+          once(() => dsay(k, { kind: "tab" }));
         else if (k === "S-<up>" || k === "S-<down>")
           once(() => atElement(() => cycleHere(k === "S-<up>" ? 1 : -1)));
         else if (k === "o" || k === "!") once(openHere);
@@ -808,15 +745,6 @@
       spared: "dired-do-flagged-delete (left standing)",
       unflag: "delete-unflag (flag cleared)",
     };
-    const PFLAGS = {
-      ...FLAG_WORDS,
-      mount: () => pmount, take: pdelete,
-      walk: () => stepIn(pmount, 1),
-      none: "org-delete-property (no row)",
-      verb: "drop",
-      flag: "delete-flag (d again deletes)",
-      at: () => pointedId(prows, patAt()),
-    };
     // This mount is a Set of ids rather than a renderer, so `missing' is unreachable.
     const DFLAGS = {
       ...FLAG_WORDS,
@@ -836,7 +764,7 @@
     };
     const asked = () => raw
       ? { org: el("mtext").value }
-      : { body: dbody, properties: props(), planning: planning() };
+      : { body: dbody, properties: dprops, planning: dplan };
     // ONE BUTTONLESS SHEET, twice over: each sheet supplies the verbs — AGENTS.hs.
     const RETRY = " — C-x C-s retry · ESC discard";
     const WORDS = { synced: "synced", syncing: "syncing…",
@@ -868,9 +796,9 @@
     function shut() {
       el("modal").className = ""; editing = null; base = ""; baseProps = null;
       soon(remembered);
-      shutEdit(DTITLE); shutEdit(DPARA); shutEdit(PROW);
+      shutEdit(DTITLE); shutEdit(DPARA);
       docClear();
-      el("mprops").className = ""; el("mdoc").className = "";
+      el("mdoc").className = "";
     }
     function flush(digest) {
       const h = editing, sent = asked();
@@ -1090,13 +1018,15 @@
       el("sheet").classList.toggle("raw", raw);
       shutEdit(DTITLE); shutEdit(DPARA);
       docFill(h, raw);
-      drawProps(raw ? [] : h.properties || [], raw ? [] : h.planning || []);
       el("mdoc").className = raw ? "" : "on";
       drawWhere(h.path || []);
       drawLog(raw ? "" : h.logbook || "");
-      baseProps = raw ? null : edited();
+      // THE BASELINE COMES OFF THE FILL ITSELF: the mirrors land a macrotask
+      // behind the push, so reading them here called every fresh sheet dirty.
+      baseProps = raw ? null
+        : JSON.stringify([h.properties || [], h.planning || []]);
     }
-    const edited = () => JSON.stringify([props(), planning()]);
+    const edited = () => JSON.stringify([dprops, dplan]);
     function drawWhere(path) {
       const bar = el("mwhere");
       bar.textContent = "";

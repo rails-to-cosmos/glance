@@ -35,7 +35,6 @@
         narrow: () => narrowed(tagMount()), wide: () => widen(tagMount(), "ESC"),
         open: () => overTargets(RESTORED, "tags", askTags) },
       { name: "sheet", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit,
-        narrow: () => narrowed(pmount), wide: () => widen(pmount, "ESC"),
         rowed: true, open: (id) => materialize(id) },
       { name: "config", up: () => settings, edit: sediting,
         shut: () => shutEdit(SROW), open: () => openSettings(),
@@ -149,8 +148,7 @@
       applyDefault, pinView, relations, focusFilter, toggleRaw, openSettings,
       save: saveSheet,
       commitEdit: (b) => { if (docOpen()) commitDocEdit(b);
-                           else if (editing && !raw && !pnav()
-                                    && checkboxHere() !== null)
+                           else if (editing && !raw && checkboxHere() !== null)
                              toggleCheckbox(b);
                            else said(b, "nothing open here"); },
       archiveRows: (b) => flagKey("D", XFLAGS(b), (what) => said(b, what)),
@@ -336,7 +334,7 @@
     function apply(frame) {
       const moved = frame.op === "delete-row" ? frame.id : (frame.row || {}).id;
       // `reload' rebuilds both panes, so never over an open edit or unflushed work.
-      if (editing && !raw && !sheetOpen() && !dirty() && !pnav()
+      if (editing && !raw && !sheetOpen() && !dirty()
           && moved === editing.id)
         reload();
       if (!table) return;

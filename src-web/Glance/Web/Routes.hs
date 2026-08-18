@@ -395,7 +395,7 @@ subtreeJSON f =
   , "path"       .= trailTo f
   , "level"      .= levelOf f
   , "cells"      .= object (cells here)
-  , "children"   .= [ childJSON i e | (i, e) <- under f ]
+  , "children"   .= [ childJSON here (hpBody parts) i e | (i, e) <- beneath f ]
   , "org"        .= subtreeText here
   , "body"       .= hpBody parts
   , "ownLines"   .= ownBodyLines here (hpBody parts) (seRecord . snd <$> listToMaybe (under f))
@@ -417,10 +417,20 @@ levelOf = maybe 1 seLevel . focusEntry
 cells :: HeadlineRecord -> [Pair]
 cells r = [ Key.fromText k .= f r | (k, f) <- docCells ]
 
-childJSON :: Int -> SubtreeEntry -> Value
-childJSON i e = object ([ "index" .= i, "level" .= seLevel e
-                        , "span" .= extentJSON (seRecord e) ]
-                        <> cells (seRecord e))
+-- | A descendant with WHERE IT STANDS in the lifted body: its headline's line, by
+--   the same subtraction 'ownBodyLines' makes -- every lifted region sits above the
+--   first child, so the offset holds for every descendant.
+childJSON :: HeadlineRecord -> Text -> Int -> SubtreeEntry -> Value
+childJSON root body i e = object
+  ([ "index" .= i, "level" .= seLevel e
+   , "line"  .= bodyLine
+   , "span" .= extentJSON (seRecord e) ]
+   <> cells (seRecord e))
+  where
+    -- Newlines COUNTED on both sides, so any convention cancels: the difference
+    -- is the newlines above the child, which is its line.
+    bodyLine = T.count "\n" body - T.count "\n" (T.drop cut (subtreeText root))
+    cut = spanStart (hrSubtree (seRecord e)) - spanStart (hrSubtree root)
 
 extentJSON :: HeadlineRecord -> Value
 extentJSON r = object [ "start" .= spanStart (hrSubtree r), "end" .= spanEnd (hrSubtree r) ]
@@ -428,6 +438,18 @@ extentJSON r = object [ "start" .= spanStart (hrSubtree r), "end" .= spanEnd (hr
 under :: Focus -> [(Int, SubtreeEntry)]
 under f = [ (i, e) | (i, e) <- zip [0 ..] (fcEntries f), seParent e == mine ]
   where mine = fromMaybe (-1) (fcAt f)
+
+-- | EVERY descendant of the focus, document order: the pane draws whole subtrees,
+--   so the walk goes all the way down rather than one shelf.
+beneath :: Focus -> [(Int, SubtreeEntry)]
+beneath f = [ (i, e) | (i, e) <- zip [0 ..] entries, reaches (seParent e) ]
+  where
+    entries = fcEntries f
+    mine = fromMaybe (-1) (fcAt f)
+    reaches p
+      | p == mine = True
+      | p < 0     = False
+      | otherwise = maybe False (reaches . seParent) (subtreeEntryAt entries p)
 
 upFrom :: Focus -> Maybe Int
 upFrom f = focusEntry f >>= parentOf

@@ -128,15 +128,8 @@ page head' colours title body = T.unlines
   , "    border:1px solid var(--g-border);border-radius:8px}"
   , "  #sheet.raw #mdoc{display:none}"
   , "  #sheet:not(.raw) #mtext{display:none}"
-  , "  #mprops.on .tv-root,#mdoc.on{border-color:var(--g-accent)}"
-  -- Gating the renderer's `tr.tv-sel' costs TWO rules: the stripe goes back.
-  , "  #mprops:not(.on) .tv-table tbody tr.tv-sel{background:transparent}"
-  , "  #mprops:not(.on) .tv-table tbody tr.tv-sel.tv-alt{background:var(--tv-alt)}"
-  , "  #mprops{flex:1 1 240px;min-width:0;min-height:0;position:relative;"
-  , "    overflow:hidden;display:flex;flex-direction:column}"
-  , "  #mptable{flex:1;min-height:0;display:flex}"
-  , "  #sheet.raw #mprops{display:none}"
-  , "  #mptable .tv-root,#ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
+  , "  #mdoc.on{border-color:var(--g-accent)}"
+  , "  #ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
   , "    font-family:var(--dk-mono)}"
   -- POINT IS A MARK BESIDE THE LINE: a nested item is drawn INSIDE its parent, so a
   -- ground would run the whole subtree.  The mark sits one tab stop left of the text.
@@ -195,7 +188,8 @@ page head' colours title body = T.unlines
   -- COMPOSITE GROUNDS ITS ROWS, and a connector inside that ground takes the page's
   -- ink -- point's own hue is the ground's, so the elbows went missing in it.
   , "  #mdoc.on .de.dat .de{--ink:var(--g-fg)}"
-  , "  #mdoc.on .de.dat{--ink:var(--g-point)}"
+  -- THE GROUND SAYS WHERE POINT IS; a bar or a tree never wears gold for it.
+  , "  #mdoc.on .de.dat{--ink:var(--g-fg)}"
   -- FULL INK UNTIL THE READER GOES INTO A LIST.  `focus' rides the program's own
   -- root, so dimming is a MODE rather than the resting look; colour inherits, so the
   -- lit rows name themselves back out of it.
@@ -237,7 +231,16 @@ page head' colours title body = T.unlines
   , "  .de.dfl.d-head .ds,.de.dfl>.dp>.dm,"
   , "  .de.dfl .de>.dp>.dm{color:var(--g-bad)}"
   -- PADDING: a margin would take the selection wash off the left of the line.
-  , "  .d-para,.d-comp{margin:7px 0;"
+  -- A PAIR IS NOT NESTED: the drawer's lines read as paragraphs, flush under the
+  -- frame, wearing the paragraph's own thin bar -- the bar spends `--ink', so a
+  -- flag reddens it and a pair marked for the drop says so.
+  , "  .d-drawer .d-meta{padding-left:0;padding-right:0}"
+  -- IN THE GUTTER, left of the flush text: the frame owns the text column.
+  , "  .d-drawer .d-meta::before{top:0;bottom:0;left:-1ch;width:1px;border:0;"
+  , "    border-radius:1px;background:var(--ink)}"
+  -- THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink.
+  , "  .d-drawer .dg,.dk{color:var(--g-point)}"
+  , "  .d-para,.d-comp,.d-meta{margin:7px 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
   , "  .d-comp,.d-comp .de{padding-top:0;padding-bottom:0}"
   -- The draft row holds nothing and `:empty' misses it — Elm emits a text node.
@@ -263,18 +266,18 @@ page head' colours title body = T.unlines
   , "  .dc{margin-right:.6em;flex:none}"
   , "  .dc-title{flex:1 1 auto;min-width:0}"
   , "  .dc-tags{color:var(--g-mute);font-size:11px;margin-left:auto;margin-right:0}"
-  , "  #dtitle,#dpara,#pedit,#sedit,#tedit,#ledit{display:none;position:absolute;"
+  , "  #dtitle,#dpara,#sedit,#tedit,#ledit{display:none;position:absolute;"
   , "    background:var(--g-sel)}"
   , "  #dpara,#dtitle{background:var(--g-surface)}"
   , "  #dtitle{min-width:8em}"
-  , "  #pedit,#sedit{left:0;right:0}"
+  , "  #sedit{left:0;right:0}"
   , "  #chues{position:relative}"
   , "  #cstates{overflow:auto;max-height:40vh}"
   -- Fallback only; `placeEdit' places from the ROW's own box.
   , "  #dpara{left:var(--g-doc-padx);right:var(--g-doc-padx)}"
-  , "  #dtitle.on,#pedit.on,#sedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
+  , "  #dtitle.on,#sedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
   , "  #dpara.on{display:flex}"
-  , "  #pedit input,#sedit input,#tedit input,#ledit input{"
+  , "  #sedit input,#tedit input,#ledit input{"
   , "    font:var(--g-edit-fs)/var(--g-edit-lh) var(--dk-mono);"
   , "    padding:5px 12px;border:none;border-bottom:1px solid transparent;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
@@ -287,18 +290,15 @@ page head' colours title body = T.unlines
   , "    scrollbar-width:none;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
   , "  #dpara textarea::-webkit-scrollbar{width:0;height:0}"
-  , "  #pedit input:focus,#sedit input:focus,#tedit input:focus,"
+  , "  #sedit input:focus,#tedit input:focus,"
   , "  #ledit input:focus{outline:none;border-bottom-color:var(--g-border)}"
   , "  #dpara textarea:focus,#dtin:focus{outline:none;border:none}"
-  , "  #dtin::selection,#pedit input::selection,#sedit input::selection,\n      #tedit input::selection,"
+  , "  #dtin::selection,#sedit input::selection,\n      #tedit input::selection,"
   , "  #ledit input::selection,#dpara textarea::selection{"
   , "    background:var(--g-sel);color:var(--g-fg)}"
   , "  #tname{flex:1 1 auto}"
   , "  #ltitle{flex:1 1 40%}"
   , "  #lurl{flex:2 1 50%}"
-  , "  #pkey{flex:1 1 40%}"
-  , "  #pkey[readonly]{color:var(--g-mute)}"
-  , "  #pval{flex:2 1 50%}"
   , "  #mlog{display:none;flex:0 0 auto;max-height:22vh;overflow:auto;margin:0;"
   , "    font-size:12px;font-family:var(--dk-mono);color:var(--g-mute);"
   , "    white-space:pre-wrap;padding:6px 10px;background:var(--g-surface);"
@@ -409,7 +409,7 @@ page head' colours title body = T.unlines
   , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
   , "      font-size:12px}"
   , "    #mpanes{flex-direction:column}"
-  , "    #mtext,#pinput,#dtin,#pedit input,#sedit input,#tedit input,#ledit input,"
+  , "    #mtext,#pinput,#dtin,#sedit input,#tedit input,#ledit input,"
   , "    #dpara textarea,#ktag,#kfields input,#ktext,"
   , "    .ctext,.cview{font-size:16px}}"
   , "</style>"

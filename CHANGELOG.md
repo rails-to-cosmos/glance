@@ -13,6 +13,22 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **The `:PROPERTIES:` drawer and the planning line are in the document.** The
+  sheet's separate Key/Value panel is gone; the pane draws the planning line and
+  the drawer under the headline, org's own spelling, keys and frame in the
+  reserved-token ink. The drawer opens folded to `:PROPERTIES:…` and `TAB`
+  toggles it, as in org; `f` into a folded drawer opens it, and one the reader
+  opened stays open. `RET` edits a pair as its `:KEY: value` line, `+` asks for
+  a key and a value (both required) and writes at once, `d d` drops a pair.
+  Hidden properties stay hidden and survive every write.
+
+- **Child headlines are drawn whole, inside the document.** A child's own
+  paragraphs, lists and drawers appear under its headline instead of behind
+  `RET`; a grandchild under it, all the way down. Navigation is the list's own:
+  `n`/`p` step siblings over whole subtrees, `f` enters a child's contents,
+  `b` climbs back out. Editing a child's paragraph writes through the same
+  splice as the entry's own; `RET` on the child still materializes into it.
+
 - **The doc pane draws the tree instead of org's own bullets.** A list item wore
   two marks at once — the connector the pane draws and the `-` the file spells —
   a cell apart at the same height, reading as one dashed run. An unordered
@@ -24,9 +40,8 @@ section groups a feature arc, and its date is that arc's last commit.
 ### Changed
 
 - **The project is under the Apache License 2.0.** It was BSD-3-Clause. The new
-  terms add an explicit patent grant and ask that changed files be marked and
-  the `NOTICE` travel with the work; `NOTICE` also carries the MIT notice for
-  `assets/table-view.js`, which is vendored from the table-view project.
+  terms add an explicit patent grant and ask that changed files be marked. The
+  vendored `assets/table-view.js` stays MIT under the same author.
 
 - **The cursor in the doc pane wears the table's own highlight.** Point marked
   its line with a connector alone; the stop under it now takes `--g-sel`, the

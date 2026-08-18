@@ -234,8 +234,9 @@ const Capture = ((deps) => {
     }
     function askText(title, foot, initial, commit) {
       sole();
-      raise(title, { commit, text: true, raising: true }, initial, "narrow", foot);
+      const mine = raise(title, { commit, text: true, raising: true }, initial, "narrow", foot);
       el("pinput").focus();
+      return mine;
     }
     function fieldMode(foot) {
       prompting.narrow = true;

@@ -49,15 +49,25 @@ interface DocState {
   flags: string[];
   lines: number;
   body: string;
+  properties: string[][];
+  planning: string[][];
+}
+
+interface DocCargo {
+  body: string;
+  properties: string[][];
+  planning: string[][];
 }
 
 interface DocPorts {
   docIn: { send(m: { kind: string } & Record<string, any>): void };
   docState: { subscribe(f: (s: DocState) => void): void };
   docSaid: { subscribe(f: (said: string) => void): void };
-  docBody: { subscribe(f: (body: string) => void): void };
+  docBody: { subscribe(f: (cargo: DocCargo) => void): void };
   docTook: {
-    subscribe(f: (a: { taken: string[]; named: number; body: string }) => void): void;
+    subscribe(
+      f: (a: DocCargo & { taken: string[]; named: number; meta: number }) => void
+    ): void;
   };
 }
 

@@ -229,16 +229,23 @@ wroteAt key = traverse (pairsAt key) <=< listAt "writes"
 sheetStamp :: T.Text
 sheetStamp = "<2026-08-01 Sat>"
 
-panelRows :: T.Text -> [[T.Text]] -> [[T.Text]]
-panelRows sched props =
-  [["SCHEDULED", sched], ["DEADLINE", ""], ["CLOSED", ""]] <> props
+-- | The default subtree as the pane draws it: the headline, the lifted header —
+-- the planning line, then the drawer FOLDED — the body, and the child with its block.
+fixtureDoc :: [[T.Text]]
+fixtureDoc =
+  [ ["head", "* ", "TODO", "one"]
+  , ["meta", "SCHEDULED: " <> sheetStamp]
+  , ["comp:properties:drawer", ":PROPERTIES:\8230"]
+  , ["para", "first para"]
+  , ["para", "second para"]
+  , ["child", "  * ", "two", ":web:"]
+  , ["para", "child body"] ]
 
-panelIsAt :: String -> T.Text -> [[T.Text]] -> Value -> Assertion
-panelIsAt what sched props answer =
-  assertEqual what (panelRows sched props) =<< pairsAt "props" answer
-
-panelIs :: String -> [[T.Text]] -> Value -> Assertion
-panelIs what = panelIsAt what sheetStamp
+-- | The shell's two header mirrors, in one reading.
+headerIs :: String -> [[T.Text]] -> [[T.Text]] -> Value -> Assertion
+headerIs what props plan answer =
+  assertEqual what (props, plan)
+    =<< ((,) <$> pairsAt "dprops" answer <*> pairsAt "dplan" answer)
 
 fixtureOrg, fixtureBody :: T.Text
 fixtureOrg = "* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
@@ -2072,22 +2079,6 @@ narrowSpec shell =
         assertEqual "and the list came back whole" 3 . length
           =<< pairsAt "llinks" answer
 
-  , keyed shell "the sheet's property panel narrows the same way"
-      "Enter" "press:Tab press:/ narrow:eff" $ \answer -> do
-        assertEqual "the one row spelling it" [["EFFORT", "0:30"]]
-          =<< pairsAt "props" answer
-        assertEqual "the cursor is on it" 0 =<< intAt "pat" answer
-        assertEqual "and the panel's field is the one holding the keys"
-                    "narrow:mptable" =<< textAt "focus" answer
-
-    -- FLAGS ARE ID-KEYED AND SURVIVE A NARROW, as they do under the table's own filter.
-  , keyed shell "a flag laid before the narrow is still taken by D"
-      "Enter" "press:Tab press:d press:/ narrow:eff press:Enter press:D press:Escape" $
-        \answer -> do
-          panelIsAt "the flagged planning row was cleared behind the narrow" ""
-                    [["EFFORT", "0:30"]] answer
-          assertEqual "and the flag was spent" [] =<< textsAt "pflagged" answer
-
   , keyed shell "the states table narrows too, over the cells it draws"
       "," "ctab:ui press:/ narrow:read" $ \answer -> do
         assertEqual "the two states spelling it, in the layer's own order"
@@ -2596,23 +2587,16 @@ sheetSpec shell =
   , keyed shell "the sheet closed and opened again still draws its document"
       "Enter" "press:Escape press:Enter" $ \answer -> do
         assertEqual "the document is there the second time"
-          [ ["head", "* ", "TODO", "one"]
-          , ["para", "first para"]
-          , ["para", "second para"]
-          , ["child", "  * ", "two", ":web:"] ]
+          fixtureDoc
           =<< pairsAt "doc" answer
-        assertEqual "and the panel with it"
-          [["SCHEDULED", "<2026-08-01 Sat>"], ["DEADLINE", ""], ["CLOSED", ""],
-           ["EFFORT", "0:30"]]
-          =<< pairsAt "props" answer
+        assertEqual "and the lifted header with it"
+          ([["EFFORT", "0:30"]], [["SCHEDULED", sheetStamp]])
+          =<< ((,) <$> pairsAt "dprops" answer <*> pairsAt "dplan" answer)
 
   , atBoot sheet "materialize opens two panes over one subtree" $ \answer -> do
         -- Every headline line opens with its STARS, org-cleaned: `org-hide-leading-stars' with `org-startup-indented'.
-        assertEqual "the document draws the headline, the paragraphs and the child"
-          [ ["head", "* ", "TODO", "one"]
-          , ["para", "first para"]
-          , ["para", "second para"]
-          , ["child", "  * ", "two", ":web:"] ] =<< docOf answer
+        assertEqual "the document draws the headline, the lifted header, the paragraphs and the child whole"
+          fixtureDoc =<< docOf answer
         assertEqual "with the cursor on the headline and no cell picked yet"
                     0 =<< pointOf answer
         assertEqual "and the document holding the keys" True =<< boolAt "dactive" answer
@@ -2621,32 +2605,31 @@ sheetSpec shell =
                                             <*> flaggedAt "whereAt" answer)
         assertEqual "the textarea is behind it, empty until C-c '"
                     "" =<< textAt "sheet" answer
-        panelIs "the panel holds the planning rows and then the drawer"
-                [["EFFORT", "0:30"]] answer
+        headerIs "the mirrors carry the lifted header the fill sent in"
+                 [["EFFORT", "0:30"]] [["SCHEDULED", sheetStamp]] answer
         -- The drawer's INTERIOR alone: the widget being the drawer says what it is.
         assertEqual "the logbook is shown, its delimiters left off"
                     "- moved here" =<< textAt "logbook" answer
         assertEqual "and the sheet is in its two-pane shape" "" =<< textAt "shape" answer
-        assertEqual "the keys are in the document pane" False =<< boolAt "pnav" answer
         assertEqual "with nothing focused, which is what frees the letters"
                     "" =<< textAt "focus" answer
-        assertEqual "and the panel's cursor at the top" 0 =<< intAt "pat" answer
 
   , testCase "the document walks its elements on n/p, j/k and the arrows" $ do
       insheet shell "press:n press:n" $
-        assertEqual "two elements down" 2 <=< pointOf
+        assertEqual "two stops down, the planning line and the drawer" 2 <=< pointOf
       insheet shell "press:j press:j press:k" $
         assertEqual "vi's pair walks the same elements" 1 <=< pointOf
       insheet shell "press:ArrowDown press:ArrowDown press:ArrowUp" $
         assertEqual "and so do the arrows" 1 <=< pointOf
       insheet shell "press:p" $
         assertEqual "the headline is the end of the walk up" 0 <=< pointOf
-      insheet shell "press:n press:n press:n press:n" $
-        assertEqual "and the child the end of the walk down" 3 <=< pointOf
+      -- THE WALK SKIPS OWNED ROWS: the child's own block is reached with f.
+      insheet shell "press:n press:n press:n press:n press:n press:n" $
+        assertEqual "and the child the end of the walk down" 5 <=< pointOf
 
     -- GEOMETRY IS BEYOND THE STUB, so what is asserted is that the page ASKED.
   , testCase "the element under point asks its pane's scroller" $ do
-      insheet shell "press:n press:n" $ \answer -> do
+      insheet shell "press:n press:n press:n press:n" $ \answer -> do
         seen <- textsAt "scrolled" answer
         assertEqual "the last ask was made on the element under point"
                     (Just "de d-para dat lvl-top") (listToMaybe (reverse seen))
@@ -2665,29 +2648,9 @@ sheetSpec shell =
       insheet shell "press:f" $ \answer -> do
         assertEqual "point did not move" 0 =<< pointOf answer
         echoIs "and the key said why" "f → grain-finer (nothing finer here)" answer
-      insheet shell "press:n press:f" $ \answer -> do
-        assertEqual "nor on a paragraph" 1 =<< pointOf answer
+      insheet shell "press:n press:n press:n press:f" $ \answer -> do
+        assertEqual "nor on a paragraph" 3 =<< pointOf answer
         echoIs "same answer" "f → grain-finer (nothing finer here)" answer
-
-    -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the gating rules themselves are asserted as text in "Shell glue".
-  , testCase "each pane's cursor waits where it was while the other has the keys" $ do
-      insheet shell "press:n" $ \answer -> do
-        assertEqual "the document has the keys" (True, False)
-          =<< ((,) <$> boolAt "dactive" answer <*> boolAt "pnav" answer)
-        assertEqual "its cursor moved" 1 =<< intAt "dat" answer
-        assertEqual "and the panel's is waiting at its top" 0 =<< intAt "pat" answer
-      insheet shell "press:n press:Tab press:n press:n" $ \answer -> do
-        assertEqual "the panel has them now" (False, True)
-          =<< ((,) <$> boolAt "dactive" answer <*> boolAt "pnav" answer)
-        assertEqual "the document's cursor is where it was left" 1
-          =<< intAt "dat" answer
-        assertEqual "and the panel's has moved under them" 2 =<< intAt "pat" answer
-      insheet shell "press:n press:Tab press:n press:n press:Tab" $
-        \answer -> do
-          assertEqual "the document has them again" (True, False)
-            =<< ((,) <$> boolAt "dactive" answer <*> boolAt "pnav" answer)
-          assertEqual "with its cursor untouched" 1 =<< intAt "dat" answer
-          assertEqual "and the panel's kept where it got to" 2 =<< intAt "pat" answer
 
     -- Asserted as the EQUALITY of two numbers this page produces independently.
   , atBoot sheet "a child's star sits in the parent's body column" $ \answer -> do
@@ -2704,7 +2667,7 @@ sheetSpec shell =
   , testCase "content lines start at the title's column, at either depth" $ do
       insheet shell "" $
         assertEqual "the row's own document" "2" <=< textAt "dindent"
-      insheet shell "press:n press:n press:n press:Enter" $
+      insheet shell "press:n press:n press:n press:n press:n press:Enter" $
         assertEqual "and a child, which is the root of its own" "2"
           <=< textAt "dindent"
 
@@ -2716,15 +2679,17 @@ sheetSpec shell =
                  assertEqual (what <> ": the headline line, and nothing it lacks")
                              ["head", "* ", "TODO", "one"] (head rows)
                  assertEqual (what <> ": nor the child's")
-                             ["child", "  * ", "two", ":web:"] (last rows))
+                             ["child", "  * ", "two", ":web:"] (rows !! 5))
             [ ("at rest", ""), ("on the element", "press:p")
-            , ("on the child", "press:n press:n press:n") ]
+            , ("on the child", "press:n press:n press:n press:n press:n") ]
 
     -- RET IS BY KIND, and a CHILD re-materializes into that entry under the index the server handed over.
   , testCase "RET on a child materializes into it, and DEL climbs back" $ do
-      insheet shell "press:n press:n press:n press:Enter" $ \answer -> do
+      insheet shell "press:n press:n press:n press:n press:n press:Enter" $ \answer -> do
+        -- The drawer is drawn even with no pairs: `+' needs a place to land.
         assertEqual "the child's own document"
           [ ["head", "* ", "two", ":web:"]
+          , ["comp:properties:drawer", ":PROPERTIES:\8230"]
           , ["para", "child body"] ] =<< docOf answer
         assertEqual "the trail gained a crumb" ["one", "two"] =<< textsAt "where" answer
         assertEqual "and the last one is where the reader stands" [1]
@@ -2732,9 +2697,9 @@ sheetSpec shell =
         echoIs "and the pill names what it opened"
           "RET → org-glance-overview:materialize (two)" answer
       insheet shell
-             "press:n press:n press:n press:Enter press:Backspace" $ \answer -> do
+             "press:n press:n press:n press:n press:n press:Enter press:Backspace" $ \answer -> do
         assertEqual "back at the row, one crumb again" ["one"] =<< textsAt "where" answer
-        assertEqual "with the cursor on the child it came out of" 3
+        assertEqual "with the cursor on the child it came out of" 5
           =<< pointOf answer
         echoIs "and the pill names the climb" "DEL → org-glance-overview:up (one)" answer
 
@@ -2750,26 +2715,26 @@ sheetSpec shell =
       insheet shell "press:q" $ \answer -> do
         assertEqual "the sheet is shut" "" =<< textAt "modal" answer
         echoIs "named as the command it is" "q → quit-window" answer
-      insheet shell "press:n press:Enter press:q" $ \answer -> do
+      insheet shell "press:n press:n press:n press:Enter press:q" $ \answer -> do
         assertEqual "the sheet stands" "on" =<< textAt "modal" answer
         assertEqual "and the edit with it" True =<< boolAt "dparaopen" answer
-      insheet shell "press:Tab press:Enter press:q" $ \answer ->
-        assertEqual "the sheet stands over an open row" "on" =<< textAt "modal" answer
+      insheet shell "press:Enter press:q" $ \answer ->
+        assertEqual "the sheet stands over an open title" "on" =<< textAt "modal" answer
 
   , testCase "RET commits the open paragraph and M-RET is the newline" $ do
-      insheet shell "press:n press:Enter dpara:rewritten press:Enter" $
+      insheet shell "press:n press:n press:n press:Enter dpara:rewritten press:Enter" $
         \answer -> do
           assertEqual "the body with that block replaced"
             ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
             =<< traverse (textAt "body") =<< listAt "writes" answer
           assertEqual "and the edit is shut" False =<< boolAt "dparaopen" answer
       -- `S-RET' COMMITS THE SAME BYTES; the sibling it asks for is what the key adds.
-      insheet shell "press:n press:Enter dpara:rewritten press:S-Enter" $
+      insheet shell "press:n press:n press:n press:Enter dpara:rewritten press:S-Enter" $
         \answer ->
           assertEqual "the same body, under the key that asks for another"
             ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
             =<< traverse (textAt "body") =<< listAt "writes" answer
-      insheet shell "press:n press:Enter dpara:one press:M-Enter" $
+      insheet shell "press:n press:n press:n press:Enter dpara:one press:M-Enter" $
         \answer -> do
           assertEqual "nothing was written" [] =<< textsAt "wroteAt" answer
           assertEqual "the edit is still open" True =<< boolAt "dparaopen" answer
@@ -2779,31 +2744,31 @@ sheetSpec shell =
   , testCase "the paragraph box stands as tall as what is in it, up to ten" $ do
       mapM_ (\(keys, what, rows) ->
                insheet shell keys (assertEqual what rows <=< textAt "dprows"))
-        [ ("press:n press:Enter", "one line to open with", "1")
-        , ("press:n press:Enter dpara:one|two|three", "three where three were typed", "3")
+        [ ("press:n press:n press:n press:Enter", "one line to open with", "1")
+        , ("press:n press:n press:n press:Enter dpara:one|two|three", "three where three were typed", "3")
           -- The META key splices at the caret rather than going through the field's own event.
-        , ( "press:n press:Enter dpara:one press:M-Enter"
+        , ( "press:n press:n press:n press:Enter dpara:one press:M-Enter"
           , "and M-RET grows it by the line it just made", "2" )
-        , ( "press:n press:Enter dpara:"
+        , ( "press:n press:n press:n press:Enter dpara:"
               <> T.intercalate "|" (map (T.pack . show) [1 :: Int .. 14])
           , "capped, so the document under it stays readable", "10" )
-        , ( "press:n press:+ dpara:one|two|three|four"
+        , ( "press:n press:n press:n press:+ dpara:one|two|three|four"
           , "an added paragraph grows the same way", "4" )
           -- The room goes back to ZERO rather than to one: the field's metrics differ from the pane's row.
-        , ( "press:n press:Enter dpara:one|two|three press:Escape"
+        , ( "press:n press:n press:n press:Enter dpara:one|two|three press:Escape"
           , "no floor at all once the edit is gone", "0" )
-        , ( "press:n press:Enter dpara:one|two|three press:Enter"
+        , ( "press:n press:n press:n press:Enter dpara:one|two|three press:Enter"
           , "and a commit gives it back too", "0" )
           -- A sheet that never opened an edit writes no number, and the STYLESHEET's own `0' covers it.
         , ("", "a sheet with nothing open never wrote one", "") ]
 
   , testCase "RET opens a paragraph as text, and C-x C-s writes it" $ do
-      insheet shell "press:n press:Enter" $ \answer -> do
+      insheet shell "press:n press:n press:n press:Enter" $ \answer -> do
         assertEqual "the block is open" True =<< boolAt "dparaopen" answer
         assertEqual "with its text in the field" "first para" =<< textAt "dtext" answer
         assertEqual "and the focus in it" "dtext" =<< textAt "focus" answer
       insheet shell
-             "press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
+             "press:n press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
         assertEqual "one write, aimed at the row"
                     ["r1"] =<< textsAt "wroteAt" answer
         assertEqual "the body with that block replaced and nothing else"
@@ -2813,7 +2778,7 @@ sheetSpec shell =
 
     -- The overlay opens EMPTY and nothing moves until `RET', so `ESC' is a no-op by construction.
   , testCase "+ opens an empty paragraph and writes nothing yet" $
-      insheet shell "press:n press:+" $ \answer -> do
+      insheet shell "press:n press:n press:n press:+" $ \answer -> do
         assertEqual "the overlay is up" True =<< boolAt "dparaopen" answer
         assertEqual "and EMPTY, where RET opens with the text" ""
           =<< textAt "dtext" answer
@@ -2824,29 +2789,31 @@ sheetSpec shell =
 
     -- THE PARAGRAPH IS DRAWN BEFORE IT IS WRITTEN; the row is zero-width, which `bodyText' passes over.
   , testCase "+ draws the empty paragraph, and point goes to it" $
-      insheet shell "press:n press:+" $ \answer -> do
+      insheet shell "press:n press:n press:n press:+" $ \answer -> do
         assertEqual "a line of its own, under the one point stood on"
-                    ["head", "para", "draft:para", "para", "child"]
+                    [ "head", "meta", "comp:properties:drawer"
+                    , "para", "draft:para", "para", "child", "para" ]
           =<< map head <$> docOf answer
         assertEqual "holding nothing" [""] . partsOf "draft:para" =<< docOf answer
-        assertEqual "and the cursor is on it" 2 =<< intAt "dat" answer
+        assertEqual "and the cursor is on it" 4 =<< intAt "dat" answer
 
     -- AND AN ITEM IS DRAWN AS THE ITEM IT WILL BE: the row wears the LEAD.
   , testCase "+ on an item draws the item it will be" $ do
-      onTable shell "grain press:Enter press:n press:n press:f press:+" $ \answer -> do
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+" $ \answer -> do
         assertEqual "drawn STRICTLY BELOW the stop, never at the run's bottom"
-                    [ "head", "para", "comp:list", "item", "item", "draft:item"
-                    , "item", "item", "comp:quote", "item", "item", "para", "child" ]
+                    [ "head", "meta", "comp:properties:drawer", "para", "comp:list"
+                    , "item", "item", "draft:item"
+                    , "item", "item", "comp:quote", "item", "item", "para", "child", "para" ]
           =<< map head <$> docOf answer
         assertEqual "wearing the stop's own bullet" ["- "]
           . partsOf "draft:item" =<< docOf answer
-        assertEqual "and the cursor is on it" 5 =<< intAt "dat" answer
+        assertEqual "and the cursor is on it" 7 =<< intAt "dat" answer
         echoIs "the echo names the level, not the structure"
                "+ \8594 org-insert-element (an item at this level)" answer
 
     -- A CONTINUATION LANDS UNDER THE ITEM'S OWN TEXT: org reads one by its indent.
   , testCase "M-RET inside an item carries the marker's width onto the next line" $ do
-      onTable shell "grain press:Enter press:n press:n press:f press:Enter press:M-Enter" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:Enter press:M-Enter" $
         \answer -> do
           -- The caret opens at the head of the box, so the newline lands there and
           -- the spaces the marker occupies come with it.
@@ -2854,19 +2821,19 @@ sheetSpec shell =
           assertEqual "the newline carried the marker's width"
                       "\n  - alpha\n  more alpha" box
       -- AND A PARAGRAPH TAKES NONE: there is no marker to sit under.
-      insheet shell "press:n press:Enter press:M-Enter" $
+      insheet shell "press:n press:n press:n press:Enter press:M-Enter" $
         assertEqual "a paragraph's newline carried an indent" "\nfirst para"
           <=< textAt "dtext"
 
     -- TAB WALKS THE RUNGS AN ITEM MAY SIT ON, and it is a TOGGLE: the walk comes
     -- back where it started, so it is undone from the keyboard alone.
   , testCase "TAB in an open item walks its levels and comes back" $ do
-      onTable shell "grain press:Enter press:n press:n press:f press:+ press:Tab" $ \answer -> do
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ press:Tab" $ \answer -> do
         assertEqual "the box holds the item one level in" "  - "
           =<< textAt "dtext" answer
         echoIs "and the echo names the rung"
                "TAB \8594 org-metaright (one level in)" answer
-      onTable shell "grain press:Enter press:n press:n press:f press:+ press:Tab press:Tab" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ press:Tab press:Tab" $
         \answer -> do
           assertEqual "and around again to where it opened" "- "
             =<< textAt "dtext" answer
@@ -2876,26 +2843,27 @@ sheetSpec shell =
     -- AND THE RUNG IS WHAT IS WRITTEN: `+' then TAB is how a child is made, and
     -- the marker carries the indent it was walked to.
   , testCase "an item TABbed in is written under the one above it" $
-      onTable shell "grain press:Enter press:n press:n press:f press:+ press:Tab press:Enter" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ press:Tab press:Enter" $
         \answer -> do
           wrote <- traverse (textAt "body") =<< listAt "writes" answer
           assertBool ("the deeper marker was written: " <> show wrote)
                      (any (T.isInfixOf "\n  - \n") wrote)
 
   , testCase "TAB has no rung to take where there is no list item" $
-      insheet shell "press:n press:Enter press:Tab" $ \answer -> do
+      insheet shell "press:n press:n press:n press:Enter press:Tab" $ \answer -> do
         echoIs "the paragraph is not one" "TAB \8594 org-metaright (not a list item)" answer
         assertEqual "and nothing moved" "first para" =<< textAt "dtext" answer
 
   , testCase "and ESC leaves behind what it found, point included" $
-      insheet shell "press:n press:+ dpara:typed press:Escape" $ \answer -> do
+      insheet shell "press:n press:n press:n press:+ dpara:typed press:Escape" $ \answer -> do
         assertEqual "the drawn row goes with the box"
-                    ["head", "para", "para", "child"] =<< map head <$> docOf answer
+                    [ "head", "meta", "comp:properties:drawer"
+                    , "para", "para", "child", "para" ] =<< map head <$> docOf answer
         assertEqual "and point is back on the stop it was pressed from"
-                    1 =<< intAt "dat" answer
+                    3 =<< intAt "dat" answer
 
   , testCase "RET writes it in under the paragraph point stood on" $
-      insheet shell "press:n press:+ dpara:added press:Enter" $ \answer -> do
+      insheet shell "press:n press:n press:n press:+ dpara:added press:Enter" $ \answer -> do
         assertEqual "one write, aimed at the row" ["r1"] =<< textsAt "wroteAt" answer
         assertEqual "the paragraph joined and nothing else"
           ["* TODO one\nfirst para\n\nadded\n\nsecond para\n** two\nchild body\n"]
@@ -2903,12 +2871,12 @@ sheetSpec shell =
         assertEqual "the overlay is shut" False =<< boolAt "dparaopen" answer
         assertEqual "the pane shows it where it was drawn"
                     ["added"] . partsOf "draft:para" =<< docOf answer
-        assertEqual "with the cursor still on it" 2 =<< intAt "dat" answer
+        assertEqual "with the cursor still on it" 4 =<< intAt "dat" answer
         echoIs "" "RET \8594 org-ctrl-c-ctrl-c (paragraph added)" answer
 
     -- THE SEPARATOR IS DECIDED rather than spelled: a fixed "\n\n" reads the prose back as one paragraph.
   , testCase "+ under the last paragraph keeps a blank before the child" $
-      insheet shell "press:n press:n press:+ dpara:added press:Enter" $ \answer ->
+      insheet shell "press:n press:n press:n press:n press:+ dpara:added press:Enter" $ \answer ->
         assertEqual ""
           ["* TODO one\nfirst para\n\nsecond para\n\nadded\n\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
@@ -2924,7 +2892,7 @@ sheetSpec shell =
 
     -- `+' ADDS A SIBLING OF THE STOP, and THE GRAIN IS THE SELECTOR.
   , testCase "+ inside a list adds an item at the list's bottom" $
-      onTable shell "grain press:Enter press:n press:n press:f press:+ dpara:-_note press:Enter" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ dpara:-_note press:Enter" $
         \answer ->
           assertEqual "under alpha and the run nested INSIDE it, never past gamma"
             [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n- note\n\n"
@@ -2933,19 +2901,20 @@ sheetSpec shell =
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
   , testCase "+ on a nested item joins the NESTED run, at its own indent" $ do
-      onTable shell "grain press:Enter press:n press:n press:f press:f press:+" $ \answer -> do
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:f press:+" $ \answer -> do
         assertEqual "drawn under the nested item, inside alpha"
-                    [ "head", "para", "comp:list", "item", "item", "draft:item"
-                    , "item", "item", "comp:quote", "item", "item", "para", "child" ]
+                    [ "head", "meta", "comp:properties:drawer", "para", "comp:list"
+                    , "item", "item", "draft:item"
+                    , "item", "item", "comp:quote", "item", "item", "para", "child", "para" ]
           =<< map head <$> docOf answer
         assertEqual "wearing the nested indent" ["  - "]
           . partsOf "draft:item" =<< docOf answer
-        assertEqual "and the cursor is on it" 5 =<< intAt "dat" answer
+        assertEqual "and the cursor is on it" 7 =<< intAt "dat" answer
         -- EVERY BYTE ON SCREEN EXACTLY ONCE; `downers' is the reading that sees it, where the flat `.de' walk cannot.
         assertEqual "the leaves past it are still the composite's own"
-                    [-1, -1, -1, 2, 3, 3, 2, 2, -1, 8, 8, -1, -1]
+                    [-1, -1, -1, -1, -1, 4, 5, 5, 4, 4, -1, 10, 10, -1, -1, -1]
           =<< flaggedAt "downers" answer
-      onTable shell ("grain press:Enter press:n press:n press:f press:f press:+"
+      onTable shell ("grain press:Enter press:n press:n press:n press:n press:f press:f press:+"
                <> " dpara:__-_note press:Enter") $ \answer ->
         assertEqual "two spaces in, above the blank the outer run keeps"
           [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n  - note\n\n"
@@ -2954,20 +2923,20 @@ sheetSpec shell =
           =<< traverse (textAt "body") =<< listAt "writes" answer
 
   , testCase "the composite still lands a paragraph past the whole list" $ do
-      onTable shell "grain press:Enter press:n press:n press:+ dpara:note press:Enter" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:+ dpara:note press:Enter" $
         \answer ->
           assertEqual "past the last item, never between two"
             [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma\n\n"
               <> "note\n\n#+begin_quote\nquoted one\n\nquoted two\n#+end_quote\n\n"
               <> "tail para\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable shell "grain press:Enter press:n press:n press:+" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:+" $
         echoIs "and the echo is the structure's, as it was"
                "+ \8594 org-insert-element (after the list)"
 
     -- A CHECKBOX COMES ALONG EMPTY, org's own `org-insert-item': the box is part of what the line OPENS with.
   , testCase "a checkbox item's new sibling comes along boxed and empty" $
-      onTable shell "checky press:Enter press:n press:f press:+ dpara:-_[_]_epsilon press:Enter" $
+      onTable shell "checky press:Enter press:n press:n press:n press:f press:+ dpara:-_[_]_epsilon press:Enter" $
         \answer ->
           assertEqual "an EMPTY box, whatever the stop's own state"
             [ "* TODO one\n- [ ] alpha\n- [ ] epsilon\n- [X] beta\n- [-] gamma\n"
@@ -2976,40 +2945,40 @@ sheetSpec shell =
 
     -- AN ITEM'S TOKEN IS ON SCREEN WHILE IT IS TYPED: the box is laid over the drawn row exactly and opaquely.
   , testCase "the box opens wearing the token the row was drawn with" $ do
-      onTable shell "grain press:Enter press:n press:n press:f press:+" $ \answer -> do
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+" $ \answer -> do
         assertEqual "the bullet is in the field, not only under it" "- "
           =<< textAt "dtext" answer
         assertEqual "and the row still wears it too" ["- "]
           . partsOf "draft:item" =<< docOf answer
-      onTable shell "checky press:Enter press:n press:f press:+" $
+      onTable shell "checky press:Enter press:n press:n press:n press:f press:+" $
         assertEqual "a checkbox list opens its box boxed" "- [ ] "
           <=< textAt "dtext"
-      onTable shell "grain press:Enter press:n press:+" $
+      onTable shell "grain press:Enter press:n press:n press:n press:+" $
         assertEqual "and a PARAGRAPH opens empty, owing no token" ""
           <=< textAt "dtext"
 
     -- A marker is a LEAD everywhere but a TABLE, whose row closes with a pipe — point at its end types a THIRD column.
   , testCase "point stands inside a seeded table row, past a seeded lead" $ do
-      onTable shell "tabled press:Enter press:n press:n press:f press:Enter press:S-Enter" $
+      onTable shell "tabled press:Enter press:n press:n press:n press:n press:f press:Enter press:S-Enter" $
         \answer -> do
           assertEqual "the row is drawn at the table's own widths" "|   |   |"
             =<< textAt "dtext" answer
           assertEqual "with point one space into its first cell" 2
             =<< intAt "dcaret" answer
-      onTable shell "grain press:Enter press:n press:n press:f press:+" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+" $
         assertEqual "where a bullet is a lead and point follows it" 2
           <=< intAt "dcaret"
 
     -- AND THE LEAD GOES BACK OFF ON THE WAY OUT.
   , testCase "what the reader adds is what the wire carries" $ do
-      onTable shell "checky press:Enter press:n press:f press:+ dpara:-_[_]_epsilon press:Enter" $
+      onTable shell "checky press:Enter press:n press:n press:n press:f press:+ dpara:-_[_]_epsilon press:Enter" $
         \answer ->
           assertEqual "typed after the token"
             [ "* TODO one\n- [ ] alpha\n- [ ] epsilon\n- [X] beta\n- [-] gamma\n"
               <> "- delta\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
       -- AND A BOX HOLDING NOTHING BUT ITS OWN TOKEN IS NO ITEM.
-      onTable shell "checky press:Enter press:n press:f press:+ dpara:-_[_]_ press:Enter" $
+      onTable shell "checky press:Enter press:n press:n press:n press:f press:+ dpara:-_[_]_ press:Enter" $
         \answer -> do
           assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
           echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
@@ -3029,16 +2998,16 @@ sheetSpec shell =
 
     -- WHAT THE BOX HOLDS IS WHAT IS WRITTEN: a prepended lead gave the reader both.
   , testCase "a token the reader edits is the token that is written" $ do
-      onTable shell "checky press:Enter press:n press:f press:+ dpara:-_DONE_ship_it press:Enter" $
+      onTable shell "checky press:Enter press:n press:n press:n press:f press:+ dpara:-_DONE_ship_it press:Enter" $
         \answer ->
           assertEqual "their line, and no second token in front of it"
             [ "* TODO one\n- [ ] alpha\n- DONE ship it\n- [X] beta\n- [-] gamma\n"
               <> "- delta\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable shell "grain press:Enter press:n press:n press:f press:+" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+" $
         assertEqual "the plain run's own token, drawn before a key is struck"
           "- " <=< textAt "dtext"
-      onTable shell "grain press:Enter press:n press:n press:f press:+ dpara:-_note press:Enter" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ dpara:-_note press:Enter" $
         \answer ->
           assertEqual "and written as the item it was drawn as"
             [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n- note\n\n"
@@ -3048,7 +3017,7 @@ sheetSpec shell =
 
     -- `+' with no box open names no line, so the region's interior is reachable from `S-RET' alone.
   , testCase "a table's line keeps the composite's landing" $
-      onTable shell "tabled press:Enter press:n press:n press:f press:+ dpara:note press:Enter" $
+      onTable shell "tabled press:Enter press:n press:n press:n press:n press:f press:+ dpara:note press:Enter" $
         \answer ->
           assertEqual "a pipe row is no prefix, so the paragraph goes past the table"
             [ "* TODO one\nlead in\n| a | b |\n|---+---|\n| 1 | 2 |\n| 3 | 4 |\n\n"
@@ -3056,39 +3025,40 @@ sheetSpec shell =
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
   , testCase "+ inside a block lands under #+end_, never in the source" $ do
-      onTable shell ("grain press:Enter press:n press:n press:n press:f press:+"
+      onTable shell ("grain press:Enter press:n press:n press:n press:n press:n press:f press:+"
                <> " dpara:note press:Enter") $ \answer ->
         assertEqual "the quote is byte for byte what it was"
           [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma\n\n"
             <> "#+begin_quote\nquoted one\n\nquoted two\n#+end_quote\n\nnote\n\n"
             <> "tail para\n** two\nchild body\n" ]
           =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:f press:+" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:n press:f press:+" $
         echoIs "named by the block's own word"
                "+ \8594 org-insert-element (after the quote)"
 
   , testCase "+ over a child refuses and names the door" $
-      insheet shell "press:n press:n press:n press:+" $ \answer -> do
+      insheet shell "press:n press:n press:n press:n press:n press:+" $ \answer -> do
         assertEqual "no overlay" False =<< boolAt "dparaopen" answer
         assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
         echoIs ""
           "+ \8594 org-insert-element (a child's body is its own \8212 RET opens it)" answer
 
   , testCase "an empty + adds nothing, and ESC undoes nothing" $ do
-      insheet shell "press:n press:+ press:Enter" $ \answer -> do
+      insheet shell "press:n press:n press:n press:+ press:Enter" $ \answer -> do
         assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
         echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
-      insheet shell "press:n press:+ dpara:__ press:Enter" $ \answer ->
+      insheet shell "press:n press:n press:n press:+ dpara:__ press:Enter" $ \answer ->
         assertEqual "nor whitespace" [] =<< textsAt "wroteAt" answer
-      insheet shell "press:n press:+ dpara:typed press:Escape" $ \answer -> do
+      insheet shell "press:n press:n press:n press:+ dpara:typed press:Escape" $ \answer -> do
         assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
         assertEqual "and the pane is the document it was"
-                    ["first para", "second para"] . partsOf "para" =<< docOf answer
+                    ["first para", "second para", "child body"]
+          . partsOf "para" =<< docOf answer
         echoIs "" "ESC \8594 keyboard-quit (element unchanged)" answer
 
     -- The wall reads the TEXTAREA, which holds what the reader TYPED, and the lead never reaches it.
   , testCase "an empty + on an item writes no bare bullet" $
-      onTable shell "grain press:Enter press:n press:n press:f press:+ press:Enter" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ press:Enter" $
         \answer -> do
           assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
           echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
@@ -3096,59 +3066,63 @@ sheetSpec shell =
     -- MOVEMENT IS TWO AXES: `n'/`p' step SIBLINGS at the cursor's grain, `f'/`b' move the grain itself.
   , testCase "a list and a block are the whole thing, then their parts" $ do
       onTable shell "grain press:Enter" $ \answer -> do
-        assertEqual "the walk, kind by kind"
-                    [ "head", "para", "comp:list", "item", "item", "item", "item"
-                    , "comp:quote", "item", "item", "para", "child" ]
+        assertEqual "the walk, kind by kind, the lifted header leading it"
+                    [ "head", "meta", "comp:properties:drawer", "para", "comp:list"
+                    , "item", "item", "item", "item"
+                    , "comp:quote", "item", "item", "para", "child", "para" ]
           =<< map head <$> docOf answer
         assertEqual "and the grain of each stop"
-                    [ "element", "element", "composite", "leaf", "leaf", "leaf", "leaf"
-                    , "composite", "leaf", "leaf", "element", "element" ]
+                    [ "element", "element", "composite", "element", "composite"
+                    , "leaf", "leaf", "leaf", "leaf"
+                    , "composite", "leaf", "leaf", "element", "element", "element" ]
           =<< textsAt "dgrains" answer
-        assertEqual "and who it hangs under" [-1, -1, -1, 2, 3, 2, 2, -1, 7, 7, -1, -1]
+        assertEqual "and who it hangs under"
+                    [-1, -1, -1, -1, -1, 4, 5, 4, 4, -1, 9, 9, -1, -1, -1]
           =<< flaggedAt "downers" answer
 
   , testCase "n skims the composites whole, and p is the skim reversed" $ do
-      onTable shell "grain press:Enter press:n press:n press:n" $
-        assertEqual "three down crosses the list whole to the quote" 7
-          <=< pointOf
       onTable shell "grain press:Enter press:n press:n press:n press:n press:n" $
-        assertEqual "five down is the tail child, the document skimmed" 11
+        assertEqual "five down crosses the list whole to the quote" 9
+          <=< pointOf
+      onTable shell ("grain press:Enter press:n press:n press:n press:n"
+               <> " press:n press:n press:n") $
+        assertEqual "seven down is the tail child, the document skimmed" 13
           <=< pointOf
       onTable shell
-             "grain press:Enter press:n press:n press:n press:p" $
-        assertEqual "and p steps back over the list without entering it" 2
+             "grain press:Enter press:n press:n press:n press:n press:n press:p" $
+        assertEqual "and p steps back over the list without entering it" 4
           <=< pointOf
 
     -- At the finest and at the floor the keys refuse with an echo; going OUT of the sheet stays DEL's.
   , testCase "f enters a composite's leaves, n/p walk them, b re-selects the whole" $ do
-      onTable shell "grain press:Enter press:n press:n press:f" $ \answer -> do
-        assertEqual "f lands on the first item" 3 =<< pointOf answer
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f" $ \answer -> do
+        assertEqual "f lands on the first item" 5 =<< pointOf answer
         echoIs "and says where it is" "f → grain-finer (list 1/3)" answer
-      onTable shell "grain press:Enter press:n press:n press:f press:n press:n" $
-        assertEqual "n walks the items" 6 <=< pointOf
-      onTable shell "grain press:Enter press:n press:n press:f press:n press:n press:n" $
-        assertEqual "and clamps at the last rather than leaving the run" 6
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:n press:n" $
+        assertEqual "n walks the items" 8 <=< pointOf
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:n press:n press:n" $
+        assertEqual "and clamps at the last rather than leaving the run" 8
           <=< pointOf
-      onTable shell "grain press:Enter press:n press:n press:f press:p" $
-        assertEqual "p clamps at the first the same way" 3 <=< pointOf
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:p" $
+        assertEqual "p clamps at the first the same way" 5 <=< pointOf
       -- The walk steps past a sibling's descendants coming back exactly as it steps past its own going forward.
-      onTable shell "grain press:Enter press:n press:n press:f press:n press:p" $
-        assertEqual "p from beta crosses the nested run to alpha" 3
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:n press:p" $
+        assertEqual "p from beta crosses the nested run to alpha" 5
           <=< pointOf
-      onTable shell "grain press:Enter press:n press:n press:f press:n press:b" $ \answer -> do
-        assertEqual "b is the whole list again, from any item" 2
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:n press:b" $ \answer -> do
+        assertEqual "b is the whole list again, from any item" 4
           =<< pointOf answer
         echoIs "named by its kind" "b → grain-broader (list)" answer
-      onTable shell "grain press:Enter press:n press:n press:f press:f" $ \answer -> do
-        assertEqual "the nested item is one rung down" 4 =<< pointOf answer
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:f" $ \answer -> do
+        assertEqual "the nested item is one rung down" 6 =<< pointOf answer
         echoIs "counted under its parent" "f → grain-finer (item 1/1)" answer
-      onTable shell "grain press:Enter press:n press:n press:f press:f press:n" $
-        assertEqual "a run of one clamps at once" 4 <=< pointOf
-      onTable shell "grain press:Enter press:n press:n press:f press:f press:b" $ \answer -> do
-        assertEqual "b climbs to the item" 3 =<< pointOf answer
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:f press:n" $
+        assertEqual "a run of one clamps at once" 6 <=< pointOf
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:f press:b" $ \answer -> do
+        assertEqual "b climbs to the item" 5 =<< pointOf answer
         echoIs "named as one" "b → grain-broader (item)" answer
-      onTable shell "grain press:Enter press:n press:n press:f press:n press:f" $ \answer -> do
-        assertEqual "nothing finer than a childless leaf" 5 =<< pointOf answer
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:n press:f" $ \answer -> do
+        assertEqual "nothing finer than a childless leaf" 7 =<< pointOf answer
         echoIs "and the key says so" "f → grain-finer (at the finest)" answer
       onTable shell "grain press:Enter press:b" $ \answer -> do
         assertEqual "the entry's own line is the floor" 0 =<< pointOf answer
@@ -3156,19 +3130,19 @@ sheetSpec shell =
 
     -- REVERSED EXPAND-REGION: `b' out of an element goes to THE ENTRY'S OWN LINE.
   , testCase "b out of an element marks the whole headline" $ do
-      onTable shell "grain press:Enter press:n press:b" $ \answer -> do
+      onTable shell "grain press:Enter press:n press:n press:n press:b" $ \answer -> do
         assertEqual "up from the lead paragraph" 0 =<< pointOf answer
         echoIs "" "b → grain-broader (the headline)" answer
-      onTable shell "grain press:Enter press:n press:n press:f press:b press:b" $ \answer ->
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:b press:b" $ \answer ->
         assertEqual "the item, its list, then the entry" 0 =<< pointOf answer
 
     -- THREE DIALECTS, ONE AXIS: `l'/`h' and the horizontal arrows are ALIASES of `f'/`b'.
   , testCase "l/h and the horizontal arrows are f/b" $ do
-      onTable shell "grain press:Enter press:n press:n press:l" $ \answer -> do
-        assertEqual "l dives like f" 3 =<< pointOf answer
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:l" $ \answer -> do
+        assertEqual "l dives like f" 5 =<< pointOf answer
         echoIs "and speaks as the key pressed" "l → grain-finer (list 1/3)" answer
-      onTable shell "grain press:Enter press:n press:n press:ArrowRight" $
-        assertEqual "and so does the right arrow" 3 <=< pointOf
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:ArrowRight" $
+        assertEqual "and so does the right arrow" 5 <=< pointOf
       onTable shell "grain press:Enter press:n press:h" $ \answer -> do
         assertEqual "h climbs like b" 0 =<< pointOf answer
         echoIs "" "h → grain-broader (the headline)" answer
@@ -3178,69 +3152,71 @@ sheetSpec shell =
     -- AN ORG TABLE IS THAT SAME SHAPE: one coarse stop, then its rows.  A LINE IS A LEAF, the `|---+---|' rule included.
   , keyed shell "a table is one stop, then its rows" "" "tabled press:Enter" $ \answer -> do
         assertEqual "the walk, kind by kind, over a MIXED body"
-                    [ "head", "para", "comp:table", "item", "item", "item", "item"
-                    , "comp:list", "item", "item", "para", "child" ]
+                    [ "head", "meta", "comp:properties:drawer", "para", "comp:table"
+                    , "item", "item", "item", "item"
+                    , "comp:list", "item", "item", "para", "child", "para" ]
           =<< map head <$> docOf answer
         assertEqual "and the grain of each stop"
-                    [ "element", "element", "composite", "leaf", "leaf", "leaf"
-                    , "leaf", "composite", "leaf", "leaf", "element", "element" ]
+                    [ "element", "element", "composite", "element", "composite"
+                    , "leaf", "leaf", "leaf", "leaf"
+                    , "composite", "leaf", "leaf", "element", "element", "element" ]
           =<< textsAt "dgrains" answer
         assertEqual "and who each row hangs under"
-                    [-1, -1, -1, 2, 2, 2, 2, -1, 7, 7, -1, -1]
+                    [-1, -1, -1, -1, -1, 4, 4, 4, 4, -1, 9, 9, -1, -1, -1]
           =<< flaggedAt "downers" answer
         assertEqual "the four rows, the rule among them"
                     [["| a | b |"], ["|---+---|"], ["| 1 | 2 |"], ["| 3 | 4 |"]]
-          . map (drop 1) . take 4 . drop 3 =<< docOf answer
+          . map (drop 1) . take 4 . drop 5 =<< docOf answer
 
   , testCase "the table is one stop, and f walks its rows" $ do
-      onTable shell "tabled press:Enter press:n press:n" $
-        assertEqual "n from the lead-in meets the WHOLE table" 2
+      onTable shell "tabled press:Enter press:n press:n press:n press:n" $
+        assertEqual "n from the lead-in meets the WHOLE table" 4
           <=< pointOf
-      onTable shell "tabled press:Enter press:n press:n press:n" $
-        assertEqual "and the next n crosses it whole to the list" 7
+      onTable shell "tabled press:Enter press:n press:n press:n press:n press:n" $
+        assertEqual "and the next n crosses it whole to the list" 9
           <=< pointOf
-      onTable shell "tabled press:Enter press:n press:n press:f" $
-        assertEqual "f enters the first row" 3 <=< pointOf
-      onTable shell "tabled press:Enter press:n press:n press:f press:n press:n press:n" $
-        assertEqual "n walks the rows, the rule among them" 6 <=< pointOf
-      onTable shell "tabled press:Enter press:n press:n press:f press:n press:b" $
-        assertEqual "and b is the table whole again" 2 <=< pointOf
+      onTable shell "tabled press:Enter press:n press:n press:n press:n press:f" $
+        assertEqual "f enters the first row" 5 <=< pointOf
+      onTable shell "tabled press:Enter press:n press:n press:n press:n press:f press:n press:n press:n" $
+        assertEqual "n walks the rows, the rule among them" 8 <=< pointOf
+      onTable shell "tabled press:Enter press:n press:n press:n press:n press:f press:n press:b" $
+        assertEqual "and b is the table whole again" 4 <=< pointOf
 
     -- A ROW EDIT IS A LINE SPLICE: the row remembers the line it came out of.
   , testCase "editing a table row splices that line and nothing else" $ do
       onTable shell
-             ("tabled press:Enter press:n press:n press:f press:n press:n"
+             ("tabled press:Enter press:n press:n press:n press:n press:f press:n press:n"
                 <> " press:Enter dpara:~9~9~ press:C-x press:C-s") $ \answer ->
         assertEqual "the body with that row replaced and nothing else"
                     [tabledAfter "| 1 | 2 |" "|9|9|"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
       onTable shell
-             ("tabled press:Enter press:n press:n press:f press:n"
+             ("tabled press:Enter press:n press:n press:n press:n press:f press:n"
                 <> " press:Enter dpara:~-+-~ press:C-x press:C-s") $ \answer ->
         assertEqual "the rule replaced, and the rows around it untouched"
                     [tabledAfter "|---+---|" "|-+-|"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable shell "tabled press:Enter press:n press:n press:Enter" $
+      onTable shell "tabled press:Enter press:n press:n press:n press:n press:Enter" $
         assertEqual "the block whole, rule and all"
                     "| a | b |\n|---+---|\n| 1 | 2 |\n| 3 | 4 |" <=< textAt "dtext"
 
     -- ORG'S CHECKBOX on the stop under point, `[-]' checking the way org checks it.
   , testCase "SPC toggles a checkbox item and writes the box alone" $ do
       onTable shell
-             "checky press:Enter press:n press:f press:Space" $ \answer -> do
+             "checky press:Enter press:n press:n press:n press:f press:Space" $ \answer -> do
         assertEqual "the box checked, every other byte where it was"
                     ["* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
         echoIs "and the echo names org's command"
                "SPC → org-toggle-checkbox ([X])" answer
       onTable shell
-             "checky press:Enter press:n press:f press:n press:Space" $ \answer -> do
+             "checky press:Enter press:n press:n press:n press:f press:n press:Space" $ \answer -> do
         assertEqual "a checked box clears"
                     ["* TODO one\n- [ ] alpha\n- [ ] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
         echoIs "and says so" "SPC → org-toggle-checkbox ([ ])" answer
       onTable shell
-             "checky press:Enter press:n press:f press:n press:n press:Space" $ \answer ->
+             "checky press:Enter press:n press:n press:n press:f press:n press:n press:Space" $ \answer ->
         assertEqual "the partial state checks, org's own rule"
                     ["* TODO one\n- [ ] alpha\n- [X] beta\n- [X] gamma\n- delta\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
@@ -3248,14 +3224,14 @@ sheetSpec shell =
     -- THE STORE LAGS THE WRITE IT ANSWERS FOR, so the reload a 200 fires DROPS any answer that is not the write's own receipt.
   , testCase "the toggle survives its own reload: the stale store answer is dropped" $ do
       onTable shell
-             "checky press:Enter press:n press:f press:Space" $ \answer -> do
+             "checky press:Enter press:n press:n press:n press:f press:Space" $ \answer -> do
         assertEqual "the box is flipped ON SCREEN as well as in the file"
                     ["- [X] alpha"]
           =<< (take 1 . partsOf "item" <$> docOf answer)
         assertEqual "and the sheet is synced, never conflict"
                     "synced" =<< textAt "state" answer
       onTable shell
-             "checky press:Enter press:n press:f press:Space press:Space" $ \answer -> do
+             "checky press:Enter press:n press:n press:n press:f press:Space press:Space" $ \answer -> do
         writes <- listAt "writes" answer
         assertEqual "two writes, the box back off"
                     [ "* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"
@@ -3268,7 +3244,7 @@ sheetSpec shell =
     -- AND A CELL EDIT RE-PINS OFF ITS OWN ANSWER: the sheet takes the digest off the command's 200.
   , testCase "a command from the sheet re-pins the digest its answer carries" $
       insheet shell ("press:Enter dtin:renamed press:Enter"
-                 <> " press:n press:Enter dpara:rewritten press:C-x press:C-s") $
+                 <> " press:n press:n press:n press:Enter dpara:rewritten press:C-x press:C-s") $
         \answer -> do
           assertEqual "the subtree write rides the command's receipt"
                       ["d1"] =<< traverse (textAt "digest") =<< listAt "writes" answer
@@ -3276,7 +3252,7 @@ sheetSpec shell =
                       "synced" =<< textAt "state" answer
 
   , testCase "a paragraph commit keeps the pane's text over the stale re-read" $
-      insheet shell "press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
+      insheet shell "press:n press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
         assertEqual "the pane holds what was written"
                     ["rewritten"]
           =<< (take 1 . partsOf "para" <$> docOf answer)
@@ -3284,13 +3260,14 @@ sheetSpec shell =
 
   , testCase "SPC off a checkbox refuses, and C-c C-c is the same toggle" $ do
       onTable shell
-             "checky press:Enter press:n press:f press:n press:n press:n press:Space" $ \answer -> do
+             ("checky press:Enter press:n press:n press:n press:f"
+                <> " press:n press:n press:n press:Space") $ \answer -> do
         assertEqual "a bare item takes no write" ([] :: [Value])
           =<< listAt "writes" answer
         echoIs "and the echo says why"
                "SPC → org-toggle-checkbox (no checkbox here)" answer
       onTable shell
-             "checky press:Enter press:n press:f press:C-c press:C-c" $ \answer -> do
+             "checky press:Enter press:n press:n press:n press:f press:C-c press:C-c" $ \answer -> do
         assertEqual "org's own key runs the same toggle"
                     ["* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
@@ -3303,27 +3280,27 @@ sheetSpec shell =
         segs <- pairsAt "dsegs" answer
         assertEqual "the paragraph, cut into text and links"
           [ "dt:see ", "dl:alpha", "dt: and ", "dl:https://b.example/", "dt: here" ]
-          (segs !! 1)
+          (segs !! 3)
         -- `/links' dedups by the (target, shown) pair, so a bare URL written twice under one look is marked ONCE.
         assertEqual "the first spelling is marked, the second reads as text"
           [ "dt:bare ", "dl:https://c.example/", "dt: then https://c.example/ twice" ]
-          (segs !! 2)
+          (segs !! 4)
         assertEqual "and reads as the descriptions"
-          ["para", "see alpha and https://b.example/ here"] . (!! 1) =<< docOf answer
+          ["para", "see alpha and https://b.example/ here"] . (!! 3) =<< docOf answer
   , keyed shell "RET opens the raw org, not what was shown"
-      "" "linky press:Enter press:n press:Enter" $
+      "" "linky press:Enter press:n press:n press:n press:Enter" $
         assertEqual "brackets and all"
           "see [[https://a.example/][alpha]] and [[https://b.example/]] here"
           <=< textAt "dtext"
 
     -- THE LINKS RIDE THE MATERIALIZE: compact from the FIRST frame, with no second fetch to bridge.
   , keyed shell "the links ride the materialize: compact on every fill, no second fetch"
-      "" ("linky press:Enter press:n press:n press:n press:Enter"
+      "" ("linky press:Enter press:n press:n press:n press:n press:n press:Enter"
             <> " press:Backspace") $ \answer -> do
         segs <- pairsAt "dsegs" answer
         assertEqual "the paragraph reads compact after the round trip"
           [ "dt:see ", "dl:alpha", "dt: and ", "dl:https://b.example/", "dt: here" ]
-          (segs !! 1)
+          (segs !! 3)
         assertEqual "and the title cell kept its mark"
                     ["dt:one ", "dl:the title link"] (head segs)
         assertEqual "and the sheet never asked /links" ([] :: [T.Text])
@@ -3341,26 +3318,26 @@ sheetSpec shell =
                     "one the title link" raw
 
     -- A LINK IS NOT A STOP and binds no mouse: `o' is the opener.
-  , keyed shell "links are drawn, and are no stop" "" "linky press:Enter press:n" $ \answer -> do
-        assertEqual "one step down is the paragraph, links and all" 1
+  , keyed shell "links are drawn, and are no stop" "" "linky press:Enter press:n press:n press:n" $ \answer -> do
+        assertEqual "three stops down is the paragraph, links and all" 3
           =<< pointOf answer
         assertEqual "nothing was opened by drawing them" [] =<< openedOf answer
 
     -- `o' SCOPES TO THE STOP: every lifted region sits above the paragraphs, so body lines and file lines differ by one constant.
   , testCase "o asks over the stop the cursor is on" $ do
       onTable shell
-             "grain grainlinks press:Enter press:n press:n press:f press:o" $
+             "grain grainlinks press:Enter press:n press:n press:n press:n press:f press:o" $
         \answer -> do
           assertEqual "the item's own link, opened"
                       [("https://alpha.example/", "_blank", "noopener")]
             =<< openedOf answer
           assertEqual "and no popup was needed" "" =<< textAt "popup" answer
       onTable shell
-             "grain grainlinks press:Enter press:n press:n press:o" $ \answer -> do
+             "grain grainlinks press:Enter press:n press:n press:n press:n press:o" $ \answer -> do
         assertEqual "nothing opened outright" [] =<< openedOf answer
         assertEqual "both links are listed" ["in alpha", "in beta"]
           =<< map (!! 1) <$> pairsAt "llinks" answer
-      onTable shell "grain grainlinks press:Enter press:n press:o" $
+      onTable shell "grain grainlinks press:Enter press:n press:n press:n press:o" $
         -- The pill names the COMMAND, and the sequence is the keymap row's own spelling of it.
         \answer -> assertEqual "the lead-in reaches neither"
                                "RET → org-glance-overview:open (no links)"
@@ -3368,11 +3345,11 @@ sheetSpec shell =
 
     -- ONE BLANK LINE STAYS IN A LIST, which is org's rule and the corpus's.
   , keyed shell "a blank line and a nested item stay inside their list"
-      "" "grain press:Enter press:n press:n press:f" $ \answer -> do
+      "" "grain press:Enter press:n press:n press:n press:n press:f" $ \answer -> do
         assertEqual "four stops: alpha's head, the nested run, beta, gamma"
                     ["- alpha\n  more alpha", "  - nested", "- beta", "- gamma"]
-          =<< partsOf "item" . take 7 <$> docOf answer
-        assertEqual "the cursor is on the first of them" 3 =<< pointOf answer
+          =<< partsOf "item" . take 9 <$> docOf answer
+        assertEqual "the cursor is on the first of them" 5 =<< pointOf answer
 
     -- WHAT NO LEAF CLAIMS IS STILL DRAWN, and drawn inert: the lens's one-owner-per-byte rule, one grain down.
   , keyed shell "a block's delimiters are drawn, and are no stop"
@@ -3381,16 +3358,16 @@ sheetSpec shell =
         assertEqual "the composite shows the delimiters and nothing else"
                     ["#+begin_quote\n\n#+end_quote"] (partsOf "comp:quote" rows)
         assertEqual "and its paragraphs are the stops inside it"
-                    ["quoted one", "quoted two"] (partsOf "item" (drop 7 rows))
+                    ["quoted one", "quoted two"] (partsOf "item" (drop 9 rows))
 
     -- RET IS PURE EDIT AT EITHER GRAIN, and each commit splices exactly the range its stop covers.
   , testCase "RET edits a leaf's own lines, and splices only those" $ do
-      onTable shell "grain press:Enter press:n press:n press:f press:Enter" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:Enter" $
         \answer -> assertEqual "the item's OWN lines, the nested one being its own stop"
                                "- alpha\n  more alpha"
                      =<< textAt "dtext" answer
       onTable shell
-             ("grain press:Enter press:n press:n press:f press:Enter dpara:-_ALPHA"
+             ("grain press:Enter press:n press:n press:n press:n press:f press:Enter dpara:-_ALPHA"
               <> " press:C-x press:C-s") $ \answer -> do
         body <- traverse (textAt "body") =<< listAt "writes" answer
         -- THE NESTED ITEM SURVIVES ITS PARENT'S EDIT: it is a stop of its own,
@@ -3400,12 +3377,12 @@ sheetSpec shell =
             <> "quoted one\n\nquoted two\n#+end_quote\n\ntail para\n** two\nchild body\n" ]
           body
   , testCase "RET at the whole list edits the whole list" $ do
-      onTable shell "grain press:Enter press:n press:n press:Enter" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:Enter" $
         \answer -> assertEqual "every line the composite covers"
                                "- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma"
                      =<< textAt "dtext" answer
       onTable shell
-             ("grain press:Enter press:n press:n press:Enter dpara:-_one|-_two"
+             ("grain press:Enter press:n press:n press:n press:n press:Enter dpara:-_one|-_two"
               <> " press:C-x press:C-s") $ \answer -> do
         body <- traverse (textAt "body") =<< listAt "writes" answer
         assertEqual "the list's whole range replaced, and nothing beyond it"
@@ -3415,11 +3392,11 @@ sheetSpec shell =
 
     -- `d' FLAGS WHATEVER THE STOP IS, which is why the grain needed no key of its own.
   , testCase "d flags one item, or the whole list" $ do
-      onTable shell "grain press:Enter press:n press:n press:f press:d" $
-        assertEqual "the item alone" [3] <=< flaggedOf
-      onTable shell "grain press:Enter press:n press:n press:d" $
-        assertEqual "or the composite alone" [2] <=< flaggedOf
-      onTable shell "grain press:Enter press:n press:n press:d press:d" $
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:d" $
+        assertEqual "the item alone" [5] <=< flaggedOf
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:d" $
+        assertEqual "or the composite alone" [4] <=< flaggedOf
+      onTable shell "grain press:Enter press:n press:n press:n press:n press:d press:d" $
         \answer -> do
           body <- traverse (textAt "body") =<< listAt "writes" answer
           assertEqual "the whole list is gone, the rest untouched"
@@ -3428,55 +3405,55 @@ sheetSpec shell =
 
     -- ESC over an open element is the ELEMENT's; the next one reaches the sheet's own ladder.
   , testCase "ESC puts an open paragraph back, and the next one closes the sheet" $ do
-      insheet shell "press:n press:Enter dpara:rewritten press:Escape" $
+      insheet shell "press:n press:n press:n press:Enter dpara:rewritten press:Escape" $
         \answer -> do
           assertEqual "the overlay is gone" False =<< boolAt "dparaopen" answer
           assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
           assertEqual "with nothing written" ([] :: [Value]) =<< listAt "writes" answer
           echoIs "and it said so" "ESC → keyboard-quit (element unchanged)" answer
-      insheet shell "press:n press:Enter press:Escape press:Escape" $
+      insheet shell "press:n press:n press:n press:Enter press:Escape press:Escape" $
         assertEqual "the second one is the sheet's" "" <=< textAt "modal"
 
   , testCase "d flags a paragraph and d again splices it out of the body" $ do
-      insheet shell "press:n press:d" $ \answer -> do
-        assertEqual "the block wears the flag" [1] =<< flaggedOf answer
+      insheet shell "press:n press:n press:n press:d" $ \answer -> do
+        assertEqual "the block wears the flag" [3] =<< flaggedOf answer
         assertEqual "and nothing is written yet" ([] :: [Value])
           =<< listAt "writes" answer
         echoIs "the pill says what the second press will do"
           "d → delete-flag (d again deletes)" answer
-      insheet shell "press:n press:d press:d" $ \answer -> do
+      insheet shell "press:n press:n press:n press:d press:d" $ \answer -> do
         assertEqual "the body with the block and its blank line gone"
                     ["* TODO one\nsecond para\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
         echoIs "and the pill counted the set" "D → org-delete-element (1 flagged taken)" answer
       -- A HELD `d' must not flag and delete from one press.
-      insheet shell "press:n press:d repeat:d" $ \answer -> do
-        assertEqual "the flag is still there" [1] =<< flaggedOf answer
+      insheet shell "press:n press:n press:n press:d repeat:d" $ \answer -> do
+        assertEqual "the flag is still there" [3] =<< flaggedOf answer
         assertEqual "and nothing was written" ([] :: [Value]) =<< listAt "writes" answer
 
     -- AND `x' IS THE SAME GESTURE HERE: `flagPress' is the one door for the sheet's four surfaces.
   , testCase "x over the document asks before it splices" $ do
-      insheet shell "press:n press:d press:x" $ \answer -> do
+      insheet shell "press:n press:n press:n press:d press:x" $ \answer -> do
         assertEqual "nothing written on the press alone" ([] :: [Value])
           =<< listAt "writes" answer
         assertEqual "the question is up" "on" =<< textAt "prompt" answer
         assertEqual "naming the act and how many" "delete · 1 flagged"
           =<< textAt "phead" answer
-      insheet shell "press:n press:d press:x type:yes press:Enter" $ \answer ->
+      insheet shell "press:n press:n press:n press:d press:x type:yes press:Enter" $ \answer ->
         assertEqual "and the word splices it out"
                     ["* TODO one\nsecond para\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
-      insheet shell "press:n press:d press:x type:no press:Enter" $ \answer -> do
+      insheet shell "press:n press:n press:n press:d press:x type:no press:Enter" $ \answer -> do
         assertEqual "anything else writes nothing" ([] :: [Value])
           =<< listAt "writes" answer
-        assertEqual "and the flag stands" [1] =<< flaggedOf answer
+        assertEqual "and the flag stands" [3] =<< flaggedOf answer
       insheet shell "press:n press:x" $ \answer -> do
         assertEqual "nothing flagged is nothing to do" ([] :: [Value])
           =<< listAt "writes" answer
         echoIs "" "x → dired-do-flagged-delete (no deletions requested)" answer
 
   , keyed shell "a headline is not deleted from the document, and says so"
-      "Enter" "press:n press:n press:n press:D" $ \answer -> do
+      "Enter" "press:n press:n press:n press:n press:n press:D" $ \answer -> do
         assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
         assertEqual "the log says why"
           (Just "a headline is not deleted from the sheet — this writes elements only")
@@ -3534,8 +3511,8 @@ sheetSpec shell =
             assertEqual "the block replaced and nothing else"
                         ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
               =<< traverse (textAt "body") =<< listAt "writes" answer
-      wrote "press:n press:Enter dpara:rewritten press:C-x press:C-s"
-      wrote "press:n press:Enter dpara:rewritten press:C-c press:C-c"
+      wrote "press:n press:n press:n press:Enter dpara:rewritten press:C-x press:C-s"
+      wrote "press:n press:n press:n press:Enter dpara:rewritten press:C-c press:C-c"
       insheet shell
              "press:Enter dtin:renamed press:C-c press:C-c" $
         \answer -> do
@@ -3543,10 +3520,10 @@ sheetSpec shell =
                       [("set-title", ["r1"])] =<< postedOf answer
           assertEqual "the overlay is closed" False =<< boolAt "dopen" answer
       insheet shell
-             "press:n press:Enter press:C-c press:C-c" $
+             "press:n press:n press:n press:Enter press:C-c press:C-c" $
         echoIs "org's own name, on an element nothing changed in"
           "C-c C-c → org-ctrl-c-ctrl-c (paragraph unchanged)"
-      insheet shell "press:n press:Enter press:C-x press:C-s" $
+      insheet shell "press:n press:n press:n press:Enter press:C-x press:C-s" $
         echoIs "and the buffer's name where that key ran"
           "C-x C-s → save-buffer (paragraph unchanged)"
       insheet shell "press:C-c press:C-c" $ \answer -> do
@@ -3556,11 +3533,11 @@ sheetSpec shell =
     -- EVERY COMMIT RE-READS THE ENTRY IT WROTE, and the entry the sheet stands on rather than the row.
   , testCase "a commit re-materializes the entry it wrote" $ do
       insheet shell
-             "press:n press:Enter dpara:rewritten press:C-x press:C-s" $
+             "press:n press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $
         assertEqual "opened once, and read again on the answer"
                     ["r1", "r1"] <=< textsAt "readAt"
       insheet shell
-             ("press:n press:n press:n press:Enter press:n press:Enter"
+             ("press:n press:n press:n press:n press:n press:Enter press:n press:n press:Enter"
                 <> " dpara:reworded press:C-x press:C-s") $
         assertEqual "the row, the child, and the child again"
                     ["r1", "r1#0", "r1#0"] <=< textsAt "readAt"
@@ -3580,18 +3557,21 @@ sheetSpec shell =
         assertEqual "opened once, then re-read on the frame"
                     ["r1", "r1"] <=< textsAt "readAt"
       -- Not while an edit is open: a re-read would pull the model out from under the fields.
-      insheet shell "press:n press:Enter frame:upsert=r1" $
+      insheet shell "press:n press:n press:n press:Enter frame:upsert=r1" $
         assertEqual "left alone under an open element" ["r1"] <=< textsAt "readAt"
-      -- Nor over an open PANEL row: `reload' rebuilds `prows' and re-pins `baseProps'.
-      insheet shell "press:Tab press:Enter frame:upsert=r1" $
-        assertEqual "left alone under an open panel row" ["r1"] <=< textsAt "readAt"
+      -- Nor over an open PAIR line: it is the same overlay, over a synthesized row.
+      insheet shell "press:n press:n press:f press:Enter frame:upsert=r1" $
+        assertEqual "left alone under an open pair line" ["r1"] <=< textsAt "readAt"
+      -- A COMMITTED pair edit wrote at once; until the store catches its receipt
+      -- up the sheet is DIRTY, and the frame is left to the write's own retry.
       insheet shell
-             "press:Tab press:Enter pval:0=tomorrow press:Enter frame:upsert=r1" $
+             ("press:n press:n press:f press:Enter dpara::EFFORT:_0:45"
+                <> " press:Enter frame:upsert=r1") $
         \answer -> do
-          assertEqual "and over a drawer edit nobody has flushed"
-                      ["r1"] =<< textsAt "readAt" answer
+          assertEqual "the open, then the write's own re-read and no third"
+                      ["r1", "r1"] =<< textsAt "readAt" answer
           assertBool "with the edit still on screen"
-            . elem ["SCHEDULED", "tomorrow"] =<< pairsAt "props" answer
+            . elem ["meta", ":EFFORT: 0:45"] =<< pairsAt "doc" answer
       insheet shell "frame:upsert=r2" $
         assertEqual "another row is not this one" ["r1"] <=< textsAt "readAt"
 
@@ -3604,7 +3584,7 @@ sheetSpec shell =
                     [Just "C"] =<< prioritiesOf answer
         echoIs "and the pill names the key that ran it" "S-<up> → priority-up ([#C] · 1)" answer
       insheet shell
-             "press:n press:n press:n press:Enter press:S-ArrowUp" $ \answer -> do
+             "press:n press:n press:n press:n press:n press:Enter press:S-ArrowUp" $ \answer -> do
         assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
         echoIs "and it said which key climbs out"
           "a child is not settable yet — DEL opens its parent" answer
@@ -3621,11 +3601,11 @@ sheetSpec shell =
     -- A CHILD IS READ-ONLY: no row id, so no `/command' can address it.
   , testCase "a child is not settable yet, and the echo says so" $ do
       insheet shell
-             "press:n press:n press:n press:Enter press:Enter" $ \answer -> do
+             "press:n press:n press:n press:n press:n press:Enter press:Enter" $ \answer -> do
         assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
         echoIs "and the pill named the way out"
           "RET → a child's title is not settable yet — DEL opens its parent" answer
-      insheet shell "press:n press:n press:n press:Enter press:t" $
+      insheet shell "press:n press:n press:n press:n press:n press:Enter press:t" $
         \answer -> do
           assertEqual "nothing raised" "" =<< textAt "prompt" answer
           echoIs "and it said which key climbs out"
@@ -3633,7 +3613,7 @@ sheetSpec shell =
 
     -- A CHILD'S OWN PARTS are editable through the lens that materialized it, at that entry's extent.
   , keyed shell "a child's paragraph writes the child's own extent"
-      "Enter" ("press:n press:n press:n press:Enter press:n press:Enter"
+      "Enter" ("press:n press:n press:n press:n press:n press:Enter press:n press:n press:Enter"
                 <> " dpara:reworded press:C-x press:C-s") $ \answer -> do
         assertEqual "aimed at the entry, not the row" ["r1#0"]
           =<< textsAt "wroteAt" answer
@@ -3641,105 +3621,55 @@ sheetSpec shell =
                     ["** two :web:\nreworded\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
 
-  , atBoot sheet "the identity property never reaches the panel" $ \answer -> do
-        rows <- pairsAt "props" answer
-        assertEqual "no row names it" [] [ r | r <- rows, take 1 r == ["ORG_GLANCE_ID"] ]
+  , atBoot sheet "the identity property never reaches the pane" $ \answer -> do
+        rows <- pairsAt "dprops" answer
+        assertEqual "no pair names it" [] [ r | r <- rows, take 1 r == ["ORG_GLANCE_ID"] ]
+        drawn <- docOf answer
+        assertEqual "and no drawn line spells it" []
+                    [ r | r <- drawn, any ("ORG_GLANCE_ID" `T.isInfixOf`) r ]
 
-  , testCase "TAB crosses to the panel and back, and the cursor is remembered" $ do
-      insheet shell "press:Tab" $ \answer -> do
-        assertEqual "the panel has the keys" True =<< boolAt "pnav" answer
-        assertEqual "with nothing focused, which is what frees the letters"
-                    "" =<< textAt "focus" answer
-        assertEqual "and the cursor on its first row" 0 =<< intAt "pat" answer
-      insheet shell "press:Tab press:n press:Tab" $ \answer -> do
-        assertEqual "back in the document" True =<< boolAt "dactive" answer
-        assertEqual "the panel let go of the keys" False =<< boolAt "pnav" answer
-        assertEqual "and kept where it had got to" 1 =<< intAt "pat" answer
-      insheet shell "press:Tab press:n press:Tab press:Tab" $
-        assertEqual "which is where the next crossing lands" 1 <=< intAt "pat"
+    -- TAB FOLDS, as it does in org: the drawer starts as one line, and the model says which way it went.
+  , testCase "TAB folds and opens the drawer, and f steps into a folded one" $ do
+      insheet shell "press:n press:n press:Tab" $ \answer -> do
+        assertEqual "the drawer opened, its pairs drawn as leaves"
+                    [ ["comp:properties:drawer", ":PROPERTIES:", ":END:"]
+                    , ["meta", ":EFFORT: 0:30"] ]
+          =<< take 2 . drop 2 <$> docOf answer
+        echoIs "named org's own way" "TAB → org-cycle (properties open)" answer
+      insheet shell "press:n press:n press:Tab press:Tab" $ \answer -> do
+        assertEqual "TAB again is the one folded line, org's ellipsis on it"
+                    ["comp:properties:drawer", ":PROPERTIES:\8230"]
+          =<< (!! 2) <$> docOf answer
+        echoIs "" "TAB → org-cycle (properties folded)" answer
+      insheet shell "press:n press:n press:f" $ \answer -> do
+        assertEqual "f into the folded drawer opens it and lands on the pair" 3
+          =<< pointOf answer
+        echoIs "counted like any composite" "f → grain-finer (properties 1/1)" answer
+      -- FROM INSIDE, TAB reaches the nearest foldable owner: the drawer folds over point.
+      insheet shell "press:n press:n press:f press:Tab" $ \answer -> do
+        assertEqual "folded from the pair, point on the frame" 2 =<< pointOf answer
+        echoIs "" "TAB → org-cycle (properties folded)" answer
+      insheet shell "press:Tab" $
+        echoIs "nowhere foldable says so" "TAB → nothing folds here"
 
-  , testCase "S-TAB is the same crossing, both ways" $ do
-      insheet shell "press:S-Tab" $
-        assertEqual "into the panel" True <=< boolAt "pnav"
-      insheet shell "press:Tab press:S-Tab" $
-        assertEqual "and out of it" True <=< boolAt "dactive"
+  , testCase "RET on the planning line or a pair opens its own line as text" $ do
+      insheet shell "press:n press:Enter" $ \answer -> do
+        assertEqual "the block is open" True =<< boolAt "dparaopen" answer
+        assertEqual "holding the planning line as org spells it"
+                    ("SCHEDULED: " <> sheetStamp) =<< textAt "dtext" answer
+        assertEqual "and the focus in it" "dtext" =<< textAt "focus" answer
+      insheet shell "press:n press:n press:f press:Enter" $ \answer -> do
+        assertEqual "a pair opens as its `:KEY: value' line"
+                    ":EFFORT: 0:30" =<< textAt "dtext" answer
+        assertEqual "over the pair's own row" 3 =<< intAt "dat" answer
+      insheet shell "press:n press:n press:Enter" $ \answer -> do
+        assertEqual "the drawer's own line is its frame, so RET declines"
+                    False =<< boolAt "dparaopen" answer
+        echoIs "and names the two doors" "RET → f reaches the pairs — TAB folds" answer
 
-  , testCase "nav moves on n/p, j/k and the arrows, and stops at the ends" $ do
-      insheet shell "press:Tab press:n press:n" $ \answer -> do
-        assertEqual "two rows down" 2 =<< intAt "pat" answer
-        -- The panel holding the keys with nothing focused is a focus of its own as far as the map is concerned.
-        assertEqual "and the table's own row did not move" 0 =<< intAt "cursor" answer
-      insheet shell "press:Tab press:j press:j press:k" $
-        assertEqual "vi's pair walks the same rows" 1 <=< intAt "pat"
-      insheet shell "press:Tab press:ArrowDown press:ArrowDown press:ArrowUp" $
-        assertEqual "and so do the arrows" 1 <=< intAt "pat"
-      insheet shell "press:Tab press:p" $
-        assertEqual "the first row is the end of the walk up" 0 <=< intAt "pat"
-      insheet shell "press:Tab press:n press:n press:n press:n" $
-        assertEqual "and the last property the end of the walk down" 3 <=< intAt "pat"
-
-  , testCase "RET opens the row at point, and a planning row opens its value" $ do
-      insheet shell "press:Tab press:Enter" $
-        assertEqual "the value of the planning row at point" "pval:0" <=< textAt "focus"
-      insheet shell "press:Tab press:n press:n press:n press:Enter" $
-        assertEqual "and of the property under them" "pval:3" <=< textAt "focus"
-
-    -- TAB has nothing else to mean inside an open row, so the pane crossing is suspended.
-  , testCase "TAB hops the open row's two fields rather than leaving" $ do
-      insheet shell "press:Tab press:Enter press:Tab" $ \answer -> do
-        assertEqual "over to the key" "pkey:0" =<< textAt "focus" answer
-        assertEqual "and still in the panel" True =<< boolAt "pnav" answer
-      insheet shell "press:Tab press:Enter press:Tab press:Tab" $
-        assertEqual "and back to the value" "pval:0" <=< textAt "focus"
-      insheet shell "press:Tab press:Enter press:S-Tab" $
-        assertEqual "S-TAB is that same hop" "pkey:0" <=< textAt "focus"
-
-  , keyed shell "RET commits the open row and goes back to nav"
-      "Enter" "press:Tab press:n press:n press:n press:Enter pval:3=0:45 press:Enter" $
-        \answer -> do
-          panelIs "the row took the text its field was holding" [["EFFORT", "0:45"]] answer
-          assertEqual "the fields are gone" "" =<< textAt "focus" answer
-          assertEqual "the panel still has the keys" True =<< boolAt "pnav" answer
-          assertEqual "and the cursor stayed on the row" 3 =<< intAt "pat" answer
-
-    -- THE ROW A COMMIT WRITES IS THE ROW THE OVERLAY OPENED OVER; the hazard is a MOUSE CLICK.
-  , keyed shell "a click under an open row commits the row that was opened"
-      "Enter" ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
-                <> " click:0 press:Enter") $ \answer -> do
-        panelIs "the opened row took the text, and the clicked one is untouched"
-                [["EFFORT", "0:45"]] answer
-        assertEqual "the overlay closed" "" =<< textAt "focus" answer
-
-  , keyed shell "and a click cannot redirect the key an add-row is writing"
-      "Enter" ("press:Tab press:+ pkey:4=OWNER pval:4=ada" <> " click:3 press:Enter") $
-        panelIs "the added row took both fields and EFFORT stands"
-                [["EFFORT", "0:30"], ["OWNER", "ada"]]
-
-    -- `+' is the add affordance and the whole of it: keyboard-first means the key IS the offer.
-  , testCase "+ adds a property at the end and opens it" $ do
-      insheet shell "press:Tab press:+" $ \answer -> do
-        panelIs "an empty row at the end" [["EFFORT", "0:30"], ["", ""]] answer
-        assertEqual "with the cursor on it" 4 =<< intAt "pat" answer
-        assertEqual "open at its key, which is the thing being typed"
-                    "pkey:4" =<< textAt "focus" answer
-      insheet shell "press:Tab press:+ pkey:4=ADDED press:Enter" $ \answer -> do
-        panelIs "and committing it is a property" [["EFFORT", "0:30"], ["ADDED", ""]] answer
-        assertEqual "with nothing grown under it" 4 =<< intAt "pat" answer
-
-  , testCase "ESC puts an open row back, and the next one closes the sheet" $ do
-      insheet shell
-             "press:Tab press:n press:n press:n press:Enter pval:3=0:45 press:Escape" $ \answer -> do
-        panelIs "the value it was opened on" [["EFFORT", "0:30"]] answer
-        assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
-        assertEqual "and back in nav" True =<< boolAt "pnav" answer
-        assertEqual "with nothing written" ([] :: [Value]) =<< listAt "writes" answer
-      insheet shell
-             "press:Tab press:n press:n press:n press:Enter press:Escape press:Escape" $
-        assertEqual "the second one is the sheet's" "" <=< textAt "modal"
-
-  , keyed shell "a sync sends the panes apart, and an empty planning row is not one"
-      "Enter" ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
-                <> " press:Enter press:C-x press:C-s") $
+    -- A COMMITTED PAIR EDIT IS A WRITE: the cargo rides the port, body and lists together.
+  , keyed shell "a committed pair edit writes at once, the whole header on it"
+      "Enter" "press:n press:n press:f press:Enter dpara::EFFORT:_0:45 press:Enter" $
         \answer -> do
           assertEqual "one write" [fixtureBody] =<< traverse (textAt "body")
                                                 =<< listAt "writes" answer
@@ -3747,28 +3677,71 @@ sheetSpec shell =
                       [[["EFFORT", "0:45"]]]
                       =<< wroteAt "properties" answer
           assertEqual "and the planning entries it has"
-                      [[["SCHEDULED", "<2026-08-01 Sat>"]]]
+                      [[["SCHEDULED", sheetStamp]]]
                       =<< wroteAt "planning" answer
           assertEqual "and it landed" "synced" =<< textAt "state" answer
+          headerIs "the mirrors moved with it"
+                   [["EFFORT", "0:45"]] [["SCHEDULED", sheetStamp]] answer
+          assertEqual "the pane draws the edit" ["meta", ":EFFORT: 0:45"]
+            =<< (!! 3) <$> docOf answer
+          assertEqual "the fields are gone" "" =<< textAt "focus" answer
+          assertEqual "and the cursor stayed on the pair" 3 =<< intAt "dat" answer
 
-  , keyed shell "an emptied planning row is an entry taken off"
-      "Enter" "press:Tab press:Enter pval:0= press:Enter press:C-x press:C-s" $
-        assertEqual "nothing left to write" [[]]
-                    <=< wroteAt "planning"
+  , keyed shell "an emptied planning line is its entries taken off"
+      "Enter" "press:n press:Enter dpara: press:Enter" $ \answer -> do
+        assertEqual "nothing left to write" [[]] =<< wroteAt "planning" answer
+        -- The rows are SYNTHESIZED off the lists, so an emptied line has no row.
+        assertEqual "and no planning row is drawn"
+                    [] . partsOf "meta" =<< docOf answer
 
-    -- Emptying a key is how a property is deleted: the row stops naming anything.
-  , keyed shell "an emptied key is a property deleted"
-      "Enter" ("press:Tab press:n press:n press:n press:Enter pkey:3="
-                <> " press:Enter press:C-x press:C-s") $
-        assertEqual "the drawer the write asks for" [[]]
-                    <=< wroteAt "properties"
+    -- A TYPO NEVER WRITES PROSE INTO THE DRAWER: a line opening no `:KEY:' is refused.
+  , keyed shell "a pair edited to no `:KEY: value' line is refused"
+      "Enter" "press:n press:n press:f press:Enter dpara:nonsense press:Enter" $
+        \answer -> do
+          assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+          assertEqual "and the pair stands as it was" ["meta", ":EFFORT: 0:30"]
+            =<< (!! 3) <$> docOf answer
+
+    -- `+' is the add affordance and the whole of it: org's own ask — a KEY, then a VALUE.
+  , testCase "+ on a meta row asks for key and value, and the pair lands whole" $ do
+      insheet shell "press:n press:+" $ \answer -> do
+        assertEqual "the ask is up, naming the first half" ("on", "property key")
+          =<< ((,) <$> textAt "prompt" answer <*> textAt "phead" answer)
+        assertEqual "nothing is written while it asks" ([] :: [Value])
+          =<< listAt "writes" answer
+      insheet shell "press:n press:+ type:OWNER press:Enter type:ada press:Enter" $
+        \answer -> do
+          assertEqual "the pair arrived whole and the write followed at once"
+                      [[["EFFORT", "0:30"], ["OWNER", "ada"]]]
+            =<< wroteAt "properties" answer
+          assertEqual "the drawer opened on the new pair" ["meta", ":OWNER: ada"]
+            =<< (!! 4) <$> docOf answer
+          assertEqual "with the cursor on it" 4 =<< intAt "dat" answer
+          echoIs "and the echo speaks the line" "+ → org-set-property (:OWNER: ada)" answer
+      insheet shell "press:n press:+ press:Enter" $ \answer -> do
+        assertEqual "an empty key is refused" ([] :: [Value]) =<< listAt "writes" answer
+        echoIs "" "+ → org-set-property (a key is required)" answer
+      insheet shell "press:n press:+ type:OWNER press:Enter press:Enter" $ \answer -> do
+        assertEqual "and an empty value too" ([] :: [Value]) =<< listAt "writes" answer
+        echoIs "" "+ → org-set-property (a value is required)" answer
+
+  , testCase "ESC puts an open pair back, and the next one closes the sheet" $ do
+      insheet shell
+             "press:n press:n press:f press:Enter dpara:junk press:Escape" $ \answer -> do
+        assertEqual "the pair as it was" ["meta", ":EFFORT: 0:30"]
+          =<< (!! 3) <$> docOf answer
+        assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
+        assertEqual "with nothing written" ([] :: [Value]) =<< listAt "writes" answer
+      insheet shell
+             "press:n press:n press:f press:Enter press:Escape press:Escape" $
+        assertEqual "the second one is the sheet's" "" <=< textAt "modal"
 
     -- C-c ' RE-MATERIALIZES rather than converting locally, which keeps an org parser out of this page.
   , testCase "C-c ' shows the raw subtree, and again shows the panes" $ do
       insheet shell "press:C-c press:'" $ \answer -> do
         assertEqual "the whole subtree, every region spelled out"
                     fixtureOrg =<< textAt "sheet" answer
-        assertEqual "the panel is off the sheet" "raw" =<< textAt "shape" answer
+        assertEqual "the doc pane is off the sheet" "raw" =<< textAt "shape" answer
         assertEqual "and the logbook strip with it" "" =<< textAt "logbook" answer
         echoIs "and the pill says which way it went" "C-c ' → org-edit-special (raw org)" answer
       insheet shell "press:C-c press:' press:C-c press:'" $ \answer -> do
@@ -3783,34 +3756,41 @@ sheetSpec shell =
           assertEqual "the text stands" "hello" =<< textAt "sheet" answer
           assertEqual "and the shape with it" "raw" =<< textAt "shape" answer
           echoIs "named the key" "C-c ' → org-edit-special (sync first — C-x C-s)" answer
+      -- The write LANDED but the store still answers the old digest: until the
+      -- re-read catches the receipt up, the sheet is dirty and the toggle waits.
       insheet shell
-             ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
+             ("press:n press:n press:f press:Enter dpara::EFFORT:_0:45"
                 <> " press:Enter press:C-c press:'") $
         \answer -> do
-          assertEqual "a committed panel edit is dirty too" "" =<< textAt "shape" answer
+          assertEqual "a header edit the store has not caught up with is dirty too"
+                      "" =<< textAt "shape" answer
           echoIs "same refusal" "C-c ' → org-edit-special (sync first — C-x C-s)" answer
 
     -- An edit nobody committed is not one.
-  , keyed shell "an open row is not an edit until it is committed"
-      "Enter" ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
+  , keyed shell "an open pair line is not an edit until it is committed"
+      "Enter" ("press:n press:n press:f press:Enter dpara::EFFORT:_0:45"
                 <> " press:C-c press:'") $ \answer -> do
         assertEqual "the toggle went through" "raw" =<< textAt "shape" answer
         echoIs "and said so" "C-c ' → org-edit-special (raw org)" answer
 
-  , keyed shell "a remount carries the panel across it"
-      "Enter" ("press:Tab press:n press:n press:n press:Enter pval:3=0:45"
+  , keyed shell "a remount carries the sheet's edited header across it"
+      "Enter" ("press:n press:n press:f press:Enter dpara::EFFORT:_0:45"
                 <> " press:Enter close:view-changed") $
         \answer -> do
           assertEqual "mounted twice" 2 =<< intAt "mounts" answer
-          panelIs "the panel is back, edit and all" [["EFFORT", "0:45"]] answer
-          assertEqual "still dirty against the file, and still synced-looking"
-                      "synced" =<< textAt "state" answer
+          headerIs "the stash carried the lists, edit and all"
+                   [["EFFORT", "0:45"]] [["SCHEDULED", sheetStamp]] answer
+          assertEqual "the drawer reopened on the pair" ["meta", ":EFFORT: 0:45"]
+            =<< (!! 3) <$> docOf answer
+          -- The reopened sheet re-reads its digest, and the store still lags the
+          -- write's receipt: what a remount cannot hide is said as CONFLICT.
+          assertEqual "and the lag is worn openly"
+                      "conflict" =<< textAt "state" answer
 
   , keyed shell "raw mode leaves TAB to the browser"
       "Enter" "press:C-c press:' press:Tab" $ \answer -> do
         assertEqual "the focus stayed in the text" "mtext" =<< textAt "focus" answer
-        assertEqual "and the panel never took the keys" False =<< boolAt "pnav" answer
-        assertBool "nor the key off the browser"
+        assertBool "and the key was left off the browser"
           . notElem "Tab" =<< textsAt "prevented" answer
 
     -- A blurred raw sheet is still a SURFACE: a click on its chrome takes the focus off without closing anything.
@@ -3822,127 +3802,86 @@ sheetSpec shell =
       insheet shell "press:C-c press:' blur press:q" $
         assertEqual "and the sheet is still up" "on" <=< textAt "modal"
 
-    -- ONE FOCUS LANGUAGE, and NEITHER pane focuses anything: the mark is the FRAME's, and it leaves when the keys do.
+    -- ONE FOCUS LANGUAGE, and the pane focuses nothing: the mark is the FRAME's, and it leaves when the keys do.
   , testCase "the pane holding the keys wears it, and only while it does" $ do
       insheet shell "" $ \answer -> do
         assertEqual "the document opens with the keys" True
           =<< boolAt "dactive" answer
-        assertEqual "so the panel's frame is unmarked" False =<< boolAt "pnav" answer
         assertEqual "and nothing is focused at all" "" =<< textAt "focus" answer
-      insheet shell "press:Tab" $ \answer -> do
-        assertEqual "crossing marks the panel" True =<< boolAt "pnav" answer
-        assertEqual "and unmarks the document" False =<< boolAt "dactive" answer
-        assertEqual "with nothing focused either way" "" =<< textAt "focus" answer
-      insheet shell "press:Tab press:Tab" $ \answer -> do
-        assertEqual "crossing back unmarks the panel" False =<< boolAt "pnav" answer
-        assertEqual "and the document has it again" True =<< boolAt "dactive" answer
-      insheet shell "press:Tab press:Escape" $ \answer -> do
+      insheet shell "press:Escape" $ \answer -> do
         assertEqual "the sheet is closed" "" =<< textAt "modal" answer
-        assertEqual "and both marks went with it" (False, False)
-          =<< ((,) <$> boolAt "pnav" answer <*> boolAt "dactive" answer)
+        assertEqual "and the mark went with it" False =<< boolAt "dactive" answer
 
-  , keyed shell "the panel opens at the top again when the sheet is reopened"
-      "Enter" "press:Tab press:n press:Escape press:Enter" $
+    -- The FOLDS are reseeded per fill: what the reader opened does not outlive the sheet.
+  , keyed shell "the drawer starts folded again when the sheet is reopened"
+      "Enter" "press:n press:n press:f press:Escape press:Enter" $
         \answer -> do
-          assertEqual "the cursor is back on the first row" 0 =<< intAt "pat" answer
-          assertEqual "and the keys back in the body" False =<< boolAt "pnav" answer
+          assertEqual "one folded line again" ["comp:properties:drawer", ":PROPERTIES:\8230"]
+            =<< (!! 2) <$> docOf answer
+          assertEqual "and the cursor back on the headline" 0 =<< intAt "dat" answer
 
-    -- THE PANEL IS AN ELM PROGRAM drawing the renderer's markup class for class, read off the DOM.
-  , atBoot sheet "the panel is an Elm program drawing the renderer's markup" $
+  , keyed shell "d flags a meta row rather than deleting it"
+      "Enter" "press:n press:d" $
         \answer -> do
-          assertEqual "one panel program" 1 =<< intAt "pinits" answer
-          assertEqual "headed the two columns a drawer has"
-                      ["Key", "Value"] =<< textsAt "pcols" answer
-          assertEqual "naming the two keys a flagged row answers to"
-                      "d/D delete · u unflag" =<< textAt "pflagHelp" answer
-          assertEqual "and nothing is flagged before a key says so" []
-            =<< textsAt "pflagged" answer
-
-    -- The panel is a sibling of `#app', so a reopened sheet costs one `fill' rather than a second program.
-  , testCase "the panel is built once and filled per sheet" $
-      insheet shell
-             ("press:Escape blur press:Enter press:Escape blur press:Enter"
-                <> " close:view-changed") $
-        \answer -> do
-          assertEqual "the table was rebuilt" 2 =<< intAt "mounts" answer
-          assertEqual "the panel never was" 1 =<< intAt "pinits" answer
-          assertEqual "and every drawer arrived as one fill" 3
-            =<< intAt "pfills" answer
-
-  , keyed shell "d flags the row at point rather than deleting it"
-      "Enter" "press:Tab press:n press:n press:n press:d" $
-        \answer -> do
-          assertEqual "the mount is holding the flag" ["P0"]
-                      =<< textsAt "pflagged" answer
-          panelIs "and the drawer is untouched" [["EFFORT", "0:30"]] answer
+          assertEqual "the planning line wears the flag" [1] =<< flaggedOf answer
+          headerIs "and the lists are untouched"
+                   [["EFFORT", "0:30"]] [["SCHEDULED", sheetStamp]] answer
           echoIs "the pill says what the second press will do"
             "d → delete-flag (d again deletes)" answer
-          -- `d' over the table is `archive-flag', so this is the proof that `pnav' kills the table's own rows.
+          -- `d' over the table is `archive-flag', so this is the proof that the sheet holds the keys.
           assertEqual "and the table's own d never ran" ([] :: [Value])
                       =<< listAt "commands" answer
 
-  , testCase "d again deletes the flagged property, and D is that press alone" $ do
+    -- A DELETED PAIR LEAVES THROUGH THE LISTS, never the splice: the write follows at once.
+  , testCase "d again deletes the pair through the lists, and D is that press alone" $ do
       insheet shell
-             "press:Tab press:n press:n press:n press:d press:d" $ \answer -> do
-        panelIs "the property is off the panel" [] answer
-        assertEqual "the flag was spent with it" ([] :: [T.Text])
-                    =<< textsAt "pflagged" answer
-        echoIs "and the pill named the set" "D → org-delete-property (1 flagged)" answer
-      insheet shell "press:Tab press:n press:n press:n press:D" $
+             "press:n press:n press:f press:d press:d" $ \answer -> do
+        assertEqual "the drawer the write asks for" [[]]
+                    =<< wroteAt "properties" answer
+        assertEqual "the flag was spent with it" ([] :: [Int])
+                    =<< flaggedOf answer
+        echoIs "and the pill counted the set" "D → org-delete-element (1 flagged taken)" answer
+      insheet shell "press:n press:n press:f press:D" $
         \answer -> do
-          panelIs "D needs no flag: the row at point is the set" [] answer
-          echoIs "and says so" "D → org-delete-property (row)" answer
+          assertEqual "D needs no flag: the row at point is the set" [[]]
+            =<< wroteAt "properties" answer
+          echoIs "and says so" "D → org-delete-element (row taken)" answer
 
-    -- The three planning rows are org's keys, so a delete CLEARS the entry and the row stands.
-  , keyed shell "deleting a planning row clears the entry and keeps the row"
-      "Enter" "press:Tab press:d press:d press:C-x press:C-s" $ \answer -> do
-        panelIsAt "the row is still there, empty" "" [["EFFORT", "0:30"]] answer
-        assertEqual "and the write carries no planning entry" [[]]
+    -- The row is SYNTHESIZED off the list, so clearing the entries takes the line with them.
+  , keyed shell "deleting the planning line clears its entries, and the row goes with them"
+      "Enter" "press:n press:d press:d" $ \answer -> do
+        assertEqual "the write carries no planning entry" [[]]
                     =<< wroteAt "planning" answer
+        assertEqual "and no planning line is drawn"
+                    [] . partsOf "meta" =<< docOf answer
 
   , keyed shell "u takes a flag off and steps on"
-      "Enter" "press:Tab press:n press:n press:n press:d press:u press:D" $ \answer -> do
-        assertEqual "nothing was flagged when D ran" ([] :: [T.Text])
-                    =<< textsAt "pflagged" answer
-        panelIs "so D took the row at point" [] answer
+      "Enter" "press:n press:d press:u press:D" $ \answer -> do
+        echoIs "nothing was flagged when D ran, so it took the row it stepped to"
+               "D → org-delete-element (row taken)" answer
+        assertEqual "which was the drawer: every pair went through the lists"
+                    [[]] =<< wroteAt "properties" answer
+        assertEqual "and the planning line stands" [[["SCHEDULED", sheetStamp]]]
+                    =<< wroteAt "planning" answer
 
-    -- The dispatch's own ONCE list cannot reach a key this listener owns, so the guard is the panel's.
+    -- The dispatch's own ONCE list cannot reach a key this listener owns, so the guard is the sheet's.
   , keyed shell "a held d flags once and never deletes what it flagged"
-      "Enter" "press:Tab press:n press:n press:n press:d repeat:d repeat:d" $
+      "Enter" "press:n press:d repeat:d repeat:d" $
         \answer -> do
-        assertEqual "still flagged" ["P0"] =<< textsAt "pflagged" answer
-        panelIs "and still there" [["EFFORT", "0:30"]] answer
+        assertEqual "still flagged" [1] =<< flaggedOf answer
+        assertEqual "and nothing written" ([] :: [Value]) =<< listAt "writes" answer
 
-  , testCase "a deletion is an edit, and a cancelled one is not" $ do
+    -- A deletion WRITES at once; a flag alone is not yet one.
+  , testCase "a deletion writes at once, and a flag alone writes nothing" $ do
       insheet shell
-             "press:Tab press:n press:n press:n press:d press:d press:C-x press:C-s" $
-        \answer -> do
-          assertEqual "the drawer the write asks for" [[]]
-                      =<< wroteAt "properties" answer
+             "press:n press:n press:f press:d press:d" $
+        \answer ->
           assertEqual "and it landed" "synced" =<< textAt "state" answer
-      insheet shell "press:Tab press:n press:n press:n press:d press:Escape" $
+      insheet shell "press:n press:d press:Escape" $
         \answer -> do
           assertEqual "a flag alone writes nothing" ([] :: [Value])
                       =<< listAt "writes" answer
           assertEqual "and the sheet closed without one" "" =<< textAt "modal" answer
-
-    -- The mount rewrites its own rows as it scrolls, so the edit sits over the panel and is anchored to the cursor's row.
-  , keyed shell "the edit overlay is one pair of fields over the row at point"
-      "Enter" ("press:Tab press:Enter press:Escape"
-                <> " press:n press:n press:n press:Enter pval:3=0:45 press:Enter") $
-        \answer -> do
-          panelIs "the overlay went with the cursor" [["EFFORT", "0:45"]] answer
-          assertEqual "and closed behind it" "" =<< textAt "focus" answer
-
-    -- The hidden properties are not rowed, so a key cannot delete the identity the row id is keyed off.
-  , keyed shell "nothing hidden is rowed, so nothing hidden is flaggable"
-      "Enter" "press:Tab press:n press:n press:n press:D" $
-        \answer -> do
-          rows <- pairsAt "props" answer
-          assertEqual "the identity was never a row"
-                      [] [ r | r <- rows, take 1 r == ["ORG_GLANCE_ID"] ]
-          assertEqual "and the only property there was the one that went"
-                      3 (length rows)
   ]
 
 -- | The settings sheet as keys: PANELS over the layers @\/config@ served, one box holding the SELECTED file's lines.
@@ -4743,7 +4682,7 @@ editIndentSweep :: IO T.Text -> TestTree
 editIndentSweep shell = testCase "the paragraph's edit box is the block it covers" $ do
   page <- shell
   para <- need "the paragraph's indent"
-               (between "  .d-para,.d-comp{margin:7px 0;\n    padding-left:" "}" page)
+               (between "  .d-para,.d-comp,.d-meta{margin:7px 0;\n    padding-left:" "}" page)
   box <- need "the edit box's rule" (between "  #dpara textarea{" "}" page)
   assertBool ("the box is indented by what the block is: " <> T.unpack box)
              (("padding-left:" <> para) `T.isInfixOf` box)
@@ -4845,7 +4784,7 @@ containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
                      , "min-height" `T.isInfixOf` line ]
   assertEqual "and no pane declares a viewport floor at all" []
     [ line | line <- T.lines page
-           , any (`T.isInfixOf` line) ["#mtext{", "#mdoc{", "#mprops{", "#mpanes{"]
+           , any (`T.isInfixOf` line) ["#mtext{", "#mdoc{", "#mpanes{"]
            , "min-height:" `T.isInfixOf` line
            , not ("min-height:0" `T.isInfixOf` line) ]
   where
@@ -4855,8 +4794,6 @@ containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
         ("#mpanes", ["flex:1", "min-height:0", "overflow:hidden"])
       , ("#mtext", ["min-height:0"])
       , ("#mdoc", ["min-height:0", "overflow:auto"])
-      , ("#mprops", ["min-height:0", "overflow:hidden"])
-      , ("#mptable", ["flex:1", "min-height:0"])
       , ("#tpane", ["min-height:0", "overflow:hidden"])
       , ("#ltable", ["min-height:0", "overflow:hidden"])
       , ("#cbox", ["overflow-y:auto"])
@@ -4870,7 +4807,7 @@ gridSweep shell = testCase "the star gutter and the body indent are one arithmet
   page <- shell
   gutter <- need "the head's star gutter" (between "  .d-head .ds{width:calc(" ")}" page)
   para <- need "the paragraph's indent"
-                (between "  .d-para,.d-comp{margin:7px 0;" "}" page)
+                (between "  .d-para,.d-comp,.d-meta{margin:7px 0;" "}" page)
   base <- need "the document's base padding" (between "--g-doc-pad:" ";" page)
   assertEqual "the paragraph is padded by the base plus the gutter"
               ("padding-left:calc(var(--g-doc-pad) + " <> gutter <> ")")
@@ -5014,7 +4951,7 @@ groundSweep shell = testCase "the cursor grounds its own line, a flag marks it, 
         marks
   where
     selectors = [".de.dat", ".de.dfl"]
-    marks = [ ("#mdoc.on .de.dat", "var(--g-point)")
+    marks = [ ("#mdoc.on .de.dat", "var(--g-fg)")
             , ("#mdoc.on .de.dat .de", "var(--g-fg)")
             , (".de.dfl", "var(--g-bad)")
             , (".de", "var(--g-point-off)")
@@ -5229,7 +5166,6 @@ shellGlue =
       , "if (!edit || edit.o !== o) return;"
       , "for (const o of shapes) shutEdit(o);"
       , "cancelEdit(\"element\", DTITLE, DPARA)"
-      , "cancelEdit(\"row\", PROW)"
       , "cancelEdit(\"tag\", TROW)"
       , "cancelEdit(\"link\", LROW)" ]
       [ "drows[docAt()]", "function place()", "function shutRename"
@@ -5249,10 +5185,9 @@ shellGlue =
       , "if (e.defaultPrevented) return;"
       , "let drows = [], dat = 0;"
       , "dflags = now.flags; dbody = now.body;"
-      -- A CURSOR IS ONLY DRAWN WHERE THE KEYS ARE; the panel's costs two rules, the wash it suppresses being the RENDERER's.
+      -- THE LIFTED HEADER RIDES THE SAME PUSH: the mirrors are the write's lists.
+      , "dprops = now.properties; dplan = now.planning;"
       , ".d-list .d-item::before{top:0;width:0.8ch;"
-      , "#mprops:not(.on) .tv-table tbody tr.tv-sel{background:transparent}"
-      , "#mprops:not(.on) .tv-table tbody tr.tv-sel.tv-alt{background:var(--tv-alt)}"
       , ".d-head,.d-child{display:flex;align-items:baseline}"
       , ".dc-title{flex:1 1 auto;min-width:0}"
       , "margin-left:auto;margin-right:0}"
@@ -5359,57 +5294,57 @@ shellGlue =
       , "method: \"POST\"", "flush(editing.digest)", "a.status === 409"
       , "keyboard-quit", "C-x C-s" ]
 
-  -- Two panes over one subtree, and the cut between them is the SERVER's: there is no parser on this side.
-  , Glue "the sheet is a structured document and a property panel"
+  -- ONE STRUCTURED PANE over the subtree, and the cut is the SERVER's: there is no parser on this side.
+  , Glue "the sheet's one structured pane holds the lifted header"
       [ "<div id=\"mpanes\">", "<div id=\"mdoc\"><div id=\"dlist\"></div>"
-      , "<div id=\"mprops\"><div id=\"mptable\"></div>"
       , "base = raw ? h.org : \"\";"
       , "docFill(h, raw);"
-      , "drawProps(raw ? [] : h.properties || [], raw ? [] : h.planning || []);"
-      , "{ body: dbody, properties: props(), planning: planning() }"
+      -- THE HEADER RIDES THE FILL: planning and the drawer go into Elm as LISTS, and their rows are synthesized there.
+      , "props: h.properties || [],"
+      , "plan: h.planning || [],"
+      , "planKeys: PLANNING,"
       -- THE DOCUMENT IS NOT A MOUNT: the renderer's list widget draws RECORDS and this is a list of KINDS.
       , "dport = Elm.Doc.init({ node: part(el(\"dlist\"), \"div\", \"\") }).ports;"
       , "drows = now.rows; dat = now.at;"
+      -- CHILDREN ARE DRAWN WHOLE: every descendant, with its headline's line in body coordinates.
       , "kids: (h.children || []).map((c) =>"
-      -- This side keeps a MIRROR of what it pushes back: a port round trip costs a macrotask.
-      , "pmount = listing(\"mptable\", PCOLS, \"d/D delete · u unflag\", \"mprops\");"
-      , "const repaint = (at) => mounted().setRows(prowsOf(), at);"
-      , "        Object.assign(seen, now);"
-      , "const prowsOf = () =>"
-      , "function addProperty() {"
-      , "else if (k === \"+\") addProperty();"
-      , "[r.key.trim(), r.val.trim()]"
-      , ".filter((p) => p[0] !== \"\");"
+      , "({ index: c.index, level: c.level, line: c.line ?? null,"
+      -- TAB FOLDS, as it does in org: the model says whether anything did.
+      , "once(() => dsay(k, { kind: \"tab\" }));"
+      -- A drawer's own line is its frame; what RET edits is a pair inside.
+      , "{ echo(\"RET → f reaches the pairs — TAB folds\"); return; }"
+      -- `+' IN THE DRAWER ASKS, org's own way: a KEY and a VALUE, both required.
+      , "askText(\"property key\", \"RET · ESC cancels\", \"\", (c) => {"
+      , "dsend({ kind: \"addprop\", key, value });"
+      -- THE COMMIT CARRIES ITS OWN CARGO: body and lists together, off the port.
+      , "{ body: cargo.body, properties: cargo.properties, planning: cargo.planning },"
+      , ": { body: dbody, properties: dprops, planning: dplan };"
+      -- DIRTY IS THE LISTS AGAINST THEIR BASE; the body's own edits commit element by element.
+      , "const edited = () => JSON.stringify([dprops, dplan]);"
+      , "&& (raw ? el(\"mtext\").value !== base : edited() !== baseProps);"
+      -- A deleted pair leaves through the LISTS, counted beside the body's own.
+      , "if (answer.named !== answer.taken.length + answer.meta)"
       , "function drawLog(text) {"
       , "<pre id=\"mlog\"></pre>"
       -- Display-only: what goes back is the whole drawer, and this page never sends it.
       , ".split(\"\\n\").slice(1, -1).join(\"\\n\")"
       , "if (dirty()) { said(b, \"sync first — C-x C-s\"); return; }"
       , "reread(editing.child, (_h, fresh) => {"
-      -- Movement is the MOUNT's step, so the cursor a reader moves is the renderer's.
-      , "const k = keyName(e), crossing = k === \"TAB\" || k === \"S-TAB\";"
-      , "const rowStep = (k) => (k === \"<down>\" || k === \"n\" || k === \"j\" ? 1"
-      , "else if (rowStep(k)) stepIn(pmount, rowStep(k));"
-      , "      } else if (pnav()) {"
-      , "const pnav = () => el(\"mprops\").className === \"on\";"
-      , "el(\"mprops\").className = \"on\"; el(\"mdoc\").className = \"\";"
-      -- Nav holds the keys with nothing focused, so the map has to be told; it is the FIRST of the modal surfaces.
+      -- The doc pane holds the keys with NOTHING focused, so the map has to be told; it is the FIRST of the modal surfaces.
       , "{ name: \"sheet\", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit,"
       , "return SURFACES.some((s) => s.up())"
       , "#mpanes{flex:1;min-height:0;overflow:hidden;"
-      , "#sheet.raw #mprops{display:none}"
-      , "#mprops{flex:1 1 240px;min-width:0;min-height:0;position:relative;"
-      , "#mptable .tv-root,#ltable .tv-root,#ttable .tv-root{flex:1;min-width:0;"
-      -- The open row's fields sit OVER the row, since the mount rewrites its own rows as it scrolls.
-      , "#dtitle,#dpara,#pedit,#sedit,#tedit,#ledit{display:none;position:absolute;"
-      -- The document's box is NOT in that list: `#dpara textarea' takes `font:inherit' so an edit renders in the PANE's line box.
-      , "#pedit input,#sedit input,#tedit input,#ledit input{"
-      , "#pkey[readonly]{color:var(--g-mute)}"
-      -- ONE FOCUS LANGUAGE, declared for both panes: the browser can only dress the one that takes a real focus.
+      -- The open element's fields sit OVER the row; the document's box takes `font:inherit' so an edit renders in the PANE's line box.
+      , "#dtitle,#dpara,#sedit,#tedit,#ledit{display:none;position:absolute;"
+      , "#sedit input,#tedit input,#ledit input{"
+      -- ONE FOCUS LANGUAGE: the browser can only dress the one pane that takes a real focus.
       , "#mtext:focus{outline:none;border-color:var(--g-accent)}"
-      , "#mprops.on .tv-root,#mdoc.on{border-color:var(--g-accent)}" ]
-      [ "tabindex", ":PROPERTIES:", ":END:"
-      , ".prow", "pcur", "drawRow", "addRow(" ]
+      , "#mdoc.on{border-color:var(--g-accent)}" ]
+      -- The property PANEL is gone whole: no second pane, no mount, no fields of its own.
+      [ "tabindex", ".prow", "pcur", "drawRow", "addRow("
+      , "mprops", "mptable", "pmount", "PCOLS", "drawProps", "pnav"
+      , "pedit", "pkey", "pval", "props()", "planning()"
+      , "enterPanel", "leavePanel", "PFLAGS" ]
 
   , Glue "the page wears the default theme and the sheet wears Hack"
       [ "    --g-bg:#FFFFFF;", "    --g-fg:#000000;", "    --g-border:#E3E6EA;"
@@ -5612,9 +5547,9 @@ shellGlue =
   -- THE SUBTREE WRITE'S ANSWER, once: a 200 re-pins the digest, and under it is one ladder for every refusal.
   , glue "one ladder answers every subtree write"
       [ "function landed(h, onOk) {"
-      , "const commitDoc = (body) => {"
+      , "const commitDoc = (cargo) => {"
       , "dport.docBody.subscribe(commitDoc);"
-      , "function commitDocWith(body, say) {"
+      , "function commitDocWith(cargo, say) {"
       , ".then((a) => { if (editing === h && landed(h, say)(a)) reload(); })"
       , ".then(landed(h, () => {" ]
 
@@ -5622,7 +5557,6 @@ shellGlue =
   , Glue "the page reads a cursor, a hop and a verb in one place each"
       [ "const selectedId = (mount) =>"
       , "(can(mount, \"getSelection\") ? (mount.getSelection() || {}).id : null) || null;"
-      , "const patAt = () => prows.findIndex((r) => r.id === selectedId(pmount));"
       , "const at = selectedId(lmount);"
       , "const at = selectedId(tmount);"
       , "function hop() {"
@@ -5793,7 +5727,7 @@ shellGlue =
 
   -- Under 16px, focusing a field zooms the page in and nothing zooms it back out.
   , glue "a coarse pointer gets fields iOS will not zoom into"
-      [ "#mtext,#pinput,#dtin,#pedit input,#sedit input,#tedit input,#ledit input,"
+      [ "#mtext,#pinput,#dtin,#sedit input,#tedit input,#ledit input,"
       , "#dpara textarea,"
       , ".ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
       , "#mpanes{flex-direction:column}" ]
@@ -6470,13 +6404,17 @@ materializeSpec = testGroup "GET /headline"
       assertEqual "standing on the row itself" Null =<< field "child" v
       assertEqual "with nothing above it" Null =<< field "parent" v
       assertEqual "the trail is the row alone" ["parent"] =<< textsAt "path" v
-      -- The DIRECT children: the grandchild hangs under the first and is not one of these.
-      assertEqual "its own two children, by index" [0, 2]
+      -- EVERY descendant, document order: the pane draws whole subtrees.
+      assertEqual "every entry under it, by index" [0, 1, 2]
         =<< traverse (intAt "index") =<< listAt "children" v
-      assertEqual "and their cells" ["child one", "child two"]
+      assertEqual "and their cells" ["child one", "grandchild", "child two"]
         =<< traverse (textAt "title") =<< listAt "children" v
-      assertEqual "the levels org spells" [2, 2]
+      assertEqual "the levels org spells" [2, 3, 2]
         =<< traverse (intAt "level") =<< listAt "children" v
+      -- WHERE EACH STANDS in the lifted body: its headline's line, so the pane
+      -- can hang the entry's blocks under it without a parser of its own.
+      assertEqual "each headline's line, in body coordinates" [2, 5, 6]
+        =<< traverse (intAt "line") =<< listAt "children" v
 
   , testCase "a child materializes as its own subtree, under the file's digest"
       $ withTempDir $ \dir -> do

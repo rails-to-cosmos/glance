@@ -27,8 +27,6 @@ license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
     CHANGELOG.md
-    -- Apache-2.0 asks that the NOTICE travel with the work.
-    NOTICE
     -- The renderer glance-web compiles in; vendored by `make sync-renderer'.
     assets/table-view.js
     -- And the shell, one widget per file, in `Glance.Web.Base.gluePartFiles' order.
