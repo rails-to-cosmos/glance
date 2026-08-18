@@ -182,22 +182,29 @@ export default [
     assert(/inset/.test(table.edge),
       `the table's flagged cell draws no inset edge: box-shadow is "${table.edge}"`);
 
-    await sheet(p, base, "drv-box");
-    await p.press("n");
+    // A ROW THAT HAS A BRANCH, so "the flag takes the branch" is asked of something.
+    await intoNestedItem(p, base, "drv-wide");
     await p.press("d");
-    await p.until(() => !!document.querySelector("#mdoc .de.dfl"),
-                  "the pane's row to wear its flag");
+    await p.until(() => {
+      const fl = document.querySelector("#mdoc .de.dfl");
+      return !!fl && !!fl.querySelector(".de");
+    }, "the pane's row to wear its flag, with rows inside it");
     // THE TABLE GROUNDS ITS ROW AND THE DOCUMENT MARKS ITS LINE.
     const pane = await p.eval(() => {
       const fl = document.querySelector("#mdoc .de.dfl");
       // THE INK IS THE ROW'S: an elbow spends it on borders, a run on background.
-      return { thin: ink(fl),
+      // A FLAG TAKES THE BRANCH, since a delete takes the subtree.
+      const under = fl.querySelector(".de");
+      return { under: under ? ink(under) : null,
+               thin: ink(fl),
                wide: getComputedStyle(fl, "::before").width,
                ground: getComputedStyle(fl).backgroundColor };
     });
     // Both strings came out of the same engine, so the red is compared as spelled.
     assert(pane.thin === table.flag,
       `the pane's flag connector paints ${pane.thin}, the table's red is ${table.flag}`);
+    assert(pane.under === null || pane.under === table.flag,
+      `a row under the flagged one paints ${pane.under}, so the branch is not marked`);
     assert(pane.ground === "rgba(0, 0, 0, 0)",
       `the pane's flagged row paints a ground of ${pane.ground}`);
     return [`--g-bad and --tv-flag both paint ${table.flag}`,

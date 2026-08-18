@@ -4404,6 +4404,9 @@ sheetNotes =
   , Note "ONE INK PER ROW: a tier sets `--ink' on the row and the shapes SPEND it, an\
          \ elbow on its borders and a run on its background.  A case reads the tier\
          \ rather than the shape, which is why one assertion covers both." [Browser]
+  , Note "A FLAG TAKES THE BRANCH: what hangs off a flagged row goes with it wherever\
+         \ the flag leads -- a delete takes the subtree -- so the mark runs the whole\
+         \ way down." [Browser]
   , Note "A SIBLING IS THE CHOICE THE READER IS STANDING IN, so it stays readable and\
          \ ITS OWN BRANCH COMES WITH IT -- a branch whose contents are dimmed is one\
          \ they cannot weigh.  `sib' is the row sharing point's owner." [Browser]

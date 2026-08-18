@@ -221,9 +221,13 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .de.dat .de>.dp>.dm{color:var(--g-fg)}"
   -- SPELLED TWICE ON PURPOSE: a flag outranks point and keeps its mark after point has
   -- moved on, so the gated copy outweighs the heavier rule carrying what point holds.
-  , "  .de.dfl{--ink:var(--g-bad)}"
-  , "  #mdoc.on .de.dfl,#mdoc.on .de.dat .de.dfl{--ink:var(--g-bad)}"
-  , "  .de.dfl.d-head .ds,.de.dfl>.dp>.dm{color:var(--g-bad)}"
+  -- A FLAG TAKES THE BRANCH.  What hangs off a flagged row goes with it wherever the
+  -- flag leads -- a delete takes the subtree, so the mark says so.
+  , "  .de.dfl,.de.dfl .de{--ink:var(--g-bad)}"
+  , "  #mdoc.on .de.dfl,#mdoc.on .de.dfl .de,"
+  , "  #mdoc.on .de.dat .de.dfl,#mdoc.on .de.dat .de.dfl .de{--ink:var(--g-bad)}"
+  , "  .de.dfl.d-head .ds,.de.dfl>.dp>.dm,"
+  , "  .de.dfl .de>.dp>.dm{color:var(--g-bad)}"
   -- PADDING: a margin would take the selection wash off the left of the line.
   , "  .d-para,.d-comp{margin:.5em 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"

@@ -88,6 +88,9 @@ const BREAKS = {
   // as one thing again.
   "carried-ink": ["the cursor on a list item lights itself",
                   "#mdoc.on .de.dat .de{--ink:var(--g-point-off) !important}"],
+  // The flag stops at the row it was pressed on, leaving its branch unmarked.
+  "flag-branch": ["a flag paints one red on both surfaces",
+                  ".de.dfl .de,#mdoc.on .de.dfl .de{--ink:var(--g-fg) !important}"],
   // A sibling's branch dims with the rest, so the choice cannot be weighed.
   "sib-dim": ["the pane dims every branch but the one",
               "#mdoc.on .focus .sib,#mdoc.on .focus .sib .de"
