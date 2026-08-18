@@ -1031,8 +1031,13 @@ export default [
       const root = getComputedStyle(document.documentElement);
       const at = document.querySelector("#mdoc .de.dat");
       const kid = at.querySelector(":scope > .de");
-      const other = [...document.querySelectorAll("#mdoc .d-list .d-item")]
-        .find((n) => n !== at && !at.contains(n));
+      // NEITHER POINT, NOR ITS SUBTREE, NOR AN OWNER, NOR A SIBLING: a sibling is the
+      // choice the reader is standing in and stays readable, so it is not "outside".
+      // OUTSIDE THE BRANCH THE READER IS CHOOSING IN.  With point at the list's own
+      // level every item is point, a sibling, or inside one, so what is left outside
+      // is the prose around the list.
+      const other = [...document.querySelectorAll("#mdoc .de.d-para.lvl-top")]
+        .find((n) => !n.classList.contains("d-head"));
       return { point: rgb(root.getPropertyValue("--g-point").trim()),
                fg: rgb(root.getPropertyValue("--g-fg").trim()),
                off: rgb(root.getPropertyValue("--g-point-off").trim()),
@@ -1055,8 +1060,10 @@ export default [
       `an item outside point's subtree paints ${seen.otherInk}, not ${seen.off}`);
     assert(seen.ground === "rgba(0, 0, 0, 0)",
       `the item paints a ground of ${seen.ground}`);
-    // THE CONNECTOR STOPS AT THE MIDDLE OF THE LINE IT MARKS, which makes it an elbow.
-    assert(Math.abs(seen.tall - seen.line / 2) <= 1,
+    // THE CONNECTOR STOPS PART-WAY DOWN THE LINE IT MARKS, which makes it an elbow
+    // rather than a rail; WHERE exactly is the dash's own ink, and the case named
+    // "the elbow turns on the dash's own ink" owns that.
+    assert(seen.tall > seen.line / 3 && seen.tall < seen.line,
       `the connector is ${seen.tall}px against a ${seen.line}px line`);
     // THE LIST LIGHTS THE ROOTS IT OPENS: a composite has no connector of its own.
     await p.press("b");
@@ -1227,6 +1234,12 @@ export default [
       const rows = [...document.querySelectorAll("#mdoc .de")];
       const root = getComputedStyle(document.documentElement);
       const head = document.querySelector("#mdoc .de.d-head");
+      // A SIBLING IS THE CHOICE THE READER IS STANDING IN, and its own branch comes
+      // with it: a branch whose contents are dimmed cannot be weighed.
+      const at = document.querySelector("#mdoc .de.dat");
+      const sib = at && [...at.parentElement.children]
+        .find((n) => n !== at && n.classList.contains("de"));
+      const inSib = sib && sib.querySelector(".de");
       // A LINK ON A DIMMED LINE: `.dl' carries its own ink and outranks what it
       // inherits, so it is the one part that can stay lit while its line goes.
       const dimmed = (n) => getComputedStyle(n.closest(".de")).color
@@ -1239,6 +1252,8 @@ export default [
                off: rgb(root.getPropertyValue("--g-point-off").trim()),
                focus: !!document.querySelector("#mdoc .focus"),
                head: head ? getComputedStyle(head).color : null,
+               sib: sib ? getComputedStyle(sib).color : null,
+               inSib: inSib ? getComputedStyle(inSib).color : null,
                link: link ? getComputedStyle(link).color : null,
                box: box ? getComputedStyle(box).color : null,
                inked: rows.map((n) => getComputedStyle(n).color) };
@@ -1255,6 +1270,10 @@ export default [
       "no row dimmed while the reader stands inside a list");
     assert(held.inked.some((c) => c === held.fg),
       "every row dimmed, so the branch the reader is in went with them");
+    assert(held.sib === null || held.sib === held.fg,
+      `a sibling of point paints ${held.sib}, so the choice went dim`);
+    assert(held.inSib === null || held.inSib === held.fg,
+      `a row inside a sibling paints ${held.inSib}, so its branch cannot be weighed`);
     // THE HEADLINE IS THE ROOT OF THE PATH, so it keeps its ink.
     assert(held.head === held.fg,
       `the headline dimmed to ${held.head} while the reader worked in a list`);
@@ -1267,5 +1286,32 @@ export default [
     return [`at rest ${rest.inked.length} rows all ${rest.fg}; inside a list `
       + `${held.inked.filter((c) => c === held.off).length} dimmed to ${held.off}, `
       + `${held.inked.filter((c) => c === held.fg).length} kept`];
+  } },
+{ name: "the elbow turns on the dash's own ink, not the middle of the line",
+  async run(p, base) {
+    await sheet(p, base, "drv-wide");
+    const seen = await p.eval(() => {
+      const item = document.querySelector("#mdoc .d-list .d-item");
+      const dp = item.querySelector(":scope > .dp");
+      const cs = getComputedStyle(dp);
+      // THE FONT'S OWN METRICS: a Range gives the LINE BOX, and the question is
+      // where the glyph's ink sits inside it.
+      const c = document.createElement("canvas").getContext("2d");
+      c.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} / ${cs.lineHeight} ${cs.fontFamily}`;
+      const m = c.measureText("-");
+      const lh = parseFloat(cs.lineHeight);
+      const baseline = (lh - (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent)) / 2
+                       + m.fontBoundingBoxAscent;
+      const inkMid = baseline - (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
+      const bs = getComputedStyle(item, "::before");
+      return { inkMid, turn: parseFloat(bs.height) - parseFloat(bs.borderBottomWidth) / 2,
+               half: lh / 2, font: cs.fontFamily.split(",")[0] };
+    });
+    assert(Math.abs(seen.turn - seen.inkMid) <= 0.5,
+      `the turn sits at ${seen.turn.toFixed(2)}px against the dash's ink at `
+      + `${seen.inkMid.toFixed(2)}px`);
+    return [`${seen.font}: the dash inks at ${seen.inkMid.toFixed(2)}px of a `
+      + `${seen.half * 2}px line, the turn at ${seen.turn.toFixed(2)}px `
+      + `(the half-line is ${seen.half})`];
   } },
 ];

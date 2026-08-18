@@ -165,18 +165,24 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .cr-1,#mdoc.on .cr-2,#mdoc.on .cr-3{color:var(--g-fg)}"
   -- A CONNECTOR PER ROW, the way `tree' draws one, HALF A CELL LEFT OF THE TAB STOP:
   -- one reaching the text reads as one dashed run with org's bullet.  Tiers set `--ink'.
+  -- THE TURN SITS ON THE DASH'S OWN INK, not on the middle of the line box.  In Hack
+  -- at 13px the hyphen's ink centres 1px below the half-line and the border's own
+  -- half is another 0.5px, so the height carries both -- `0.115em'.
   , "  .d-list .d-item::before{top:0;width:0.8ch;background:none;"
-  , "    height:calc(var(--g-doc-fs) * var(--g-doc-lh) / 2);"
+  , "    height:calc(var(--g-doc-fs) * var(--g-doc-lh) / 2 + 0.115em);"
   , "    border-left:1px solid var(--ink);border-bottom:1px solid var(--ink);"
   , "    border-radius:0 0 0 3px}"
   , "  .d-list .d-item.kin::after{bottom:0;width:1px;border-radius:1px;"
-  , "    top:calc(var(--g-doc-fs) * var(--g-doc-lh) / 2);background:var(--ink)}"
+  , "    top:calc(var(--g-doc-fs) * var(--g-doc-lh) / 2 + 0.115em);"
+  , "    background:var(--ink)}"
   -- NOTHING TO ELBOW INTO, so a paragraph wears a bar; a COMPOSITE is drawn as its tree.
   , "  .lvl-top:not(.d-head):not(.d-comp)::before{top:0;bottom:0;width:1px;"
   , "    border:0;border-radius:1px;background:var(--ink)}"
   -- WHAT LIGHTS IS POINT'S OWNERS, flat: dimming the rest is what makes the path
   -- read, and a ramp said WHICH ancestor at the cost of saying THAT.
-  , "  #mdoc.on .up{--ink:var(--g-fg)}"
+  -- A SIBLING'S OWN SUBTREE COMES WITH IT: the reader is choosing between BRANCHES,
+  -- and a branch whose contents are dimmed is a branch they cannot weigh.
+  , "  #mdoc.on .up,#mdoc.on .sib,#mdoc.on .sib .de{--ink:var(--g-fg)}"
   -- OWNERSHIP IS IN THE NESTING: a row drawn inside point is what point carries;
   -- a composite's own children are the roots it opens.
   , "  #mdoc.on .de.dat .de{--ink:var(--g-fg)}"
@@ -189,7 +195,9 @@ page head' colours title body = T.unlines
   -- THE HEADLINE IS THE ROOT OF THE PATH: the way back runs headline, list, owner,
   -- point, so it keeps its ink whichever list the reader is standing in.
   , "  #mdoc.on .focus .de.dat,#mdoc.on .focus .de.dat .de,"
-  , "  #mdoc.on .focus .up,#mdoc.on .focus .d-head{color:var(--g-fg)}"
+  -- A SIBLING IS THE CHOICE THE READER IS STANDING IN, so it is readable too.
+  , "  #mdoc.on .focus .up,#mdoc.on .focus .sib,#mdoc.on .focus .sib .de,"
+  , "  #mdoc.on .focus .d-head{color:var(--g-fg)}"
   , "  #mdoc.on .focus .de.dat .dg,#mdoc.on .focus .up .dg{color:var(--g-mute)}"
   -- A LINK CARRIES ITS OWN INK, which outranks what it inherits, so a dimmed line
   -- kept a lit link inside it until the link was named too.
@@ -198,8 +206,11 @@ page head' colours title body = T.unlines
   -- every link under an owner of point, not the one on the owner's own line.  What
   -- point CARRIES is the one place the subtree is meant.
   , "  #mdoc.on .focus .de.dat>.dp .dl,#mdoc.on .focus .de.dat .de>.dp .dl,"
-  , "  #mdoc.on .focus .up>.dp .dl,#mdoc.on .focus .d-head .dl{color:var(--g-link)}"
+  , "  #mdoc.on .focus .up>.dp .dl,#mdoc.on .focus .sib>.dp .dl,"
+  , "  #mdoc.on .focus .sib .de>.dp .dl,"
+  , "  #mdoc.on .focus .d-head .dl{color:var(--g-link)}"
   , "  #mdoc.on .focus .de.dat>.dp .dbx.on,#mdoc.on .focus .up>.dp .dbx.on,"
+  , "  #mdoc.on .focus .sib>.dp .dbx.on,#mdoc.on .focus .sib .de>.dp .dbx.on,"
   , "  #mdoc.on .focus .de.dat .de>.dp .dbx.on{color:var(--g-state-i0)}"
   -- A HEADLINE'S STARS SIT IN THE CONNECTOR'S COLUMN: they take the ink, none is
   -- drawn.  COLOUR ALONE -- a bolder marker sits taller than the line it opens, and

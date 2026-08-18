@@ -9072,7 +9072,14 @@ var $author$project$Doc$markOf = F3(
 			A2(
 				$author$project$Body$ownersOf,
 				m,
-				A2($author$project$Doc$idAtRow, m, m.aJ))) ? ' up' : '');
+				A2($author$project$Doc$idAtRow, m, m.aJ))) ? ' up' : (((!_Utils_eq(r.B, $elm$core$Maybe$Nothing)) && _Utils_eq(
+			r.B,
+			A2(
+				$elm$core$Maybe$andThen,
+				function ($) {
+					return $.B;
+				},
+				$author$project$Body$rowAt(m)))) ? ' sib' : ''));
 	});
 var $author$project$Doc$rowClass = F5(
 	function (m, i, r, depth, kin) {

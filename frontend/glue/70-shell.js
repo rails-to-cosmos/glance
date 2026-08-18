@@ -390,7 +390,7 @@
     let blind = false;
     function indexing(b) {
       blind = true;
-      append("boot", "info", `indexing … ${b.elapsed}s · the table opens when the walk lands`);
+      append("boot", "info", `indexing … ${b.elapsed}s`);
       setTimeout(resync, 1000);
     }
     // The tree's saved views, once there is a store to read them from.  The

@@ -687,7 +687,8 @@ rowClass m i r depth kin =
         ++ markOf m i r
 
 
-{-| `up` — the row is one of point's OWNERS: THE WAY BACK. Lighting every sibling
+{-| `up` — the row is one of point's OWNERS: THE WAY BACK.  `sib` — the row shares
+point's owner: the choice the reader is standing in. Lighting every sibling
 of every ancestor lights whole levels and says nothing about it. FLAT, with no
 step by distance: dimming the rest is what makes the path read, and a ramp then
 said which ancestor at the cost of saying THAT.
@@ -703,6 +704,10 @@ markOf m i r =
 
     else if List.member r.id (ownersOf m (idAtRow m m.at)) then
         " up"
+
+    else if r.owner /= Nothing && r.owner == Maybe.andThen .owner (rowAt m) then
+        -- A SIBLING IS WHAT THE READER IS CHOOSING BETWEEN, so it stays readable.
+        " sib"
 
     else
         ""

@@ -88,6 +88,14 @@ const BREAKS = {
   // as one thing again.
   "carried-ink": ["the cursor on a list item lights itself",
                   "#mdoc.on .de.dat .de{--ink:var(--g-point-off) !important}"],
+  // A sibling's branch dims with the rest, so the choice cannot be weighed.
+  "sib-dim": ["the pane dims every branch but the one",
+              "#mdoc.on .focus .sib,#mdoc.on .focus .sib .de"
+                + "{color:var(--g-point-off) !important}"],
+  // The elbow turns on the middle of the line box again, a pixel off the dash.
+  "turn-half": ["the elbow turns on the dash's own ink",
+                ".d-list .d-item::before{height:calc(var(--g-doc-fs) * "
+                  + "var(--g-doc-lh) / 2) !important}"],
   // The pane stops dimming, so a branch reads like every other.
   "no-focus": ["the pane dims every branch but the one",
                "#mdoc.on .focus .de{color:var(--g-fg) !important}"],

@@ -4404,6 +4404,12 @@ sheetNotes =
   , Note "ONE INK PER ROW: a tier sets `--ink' on the row and the shapes SPEND it, an\
          \ elbow on its borders and a run on its background.  A case reads the tier\
          \ rather than the shape, which is why one assertion covers both." [Browser]
+  , Note "A SIBLING IS THE CHOICE THE READER IS STANDING IN, so it stays readable and\
+         \ ITS OWN BRANCH COMES WITH IT -- a branch whose contents are dimmed is one\
+         \ they cannot weigh.  `sib' is the row sharing point's owner." [Browser]
+  , Note "THE ELBOW TURNS ON THE DASH'S OWN INK, not on the middle of the line box: in\
+         \ Hack at 13px the hyphen inks a pixel below the half-line, and the border's\
+         \ own half is another, so the height carries `+ 0.115em'." [Browser]
   , Note "FULL INK UNTIL THE READER GOES INTO A LIST.  Dimming answers WHICH BRANCH\
          \ AM I IN, so it engages when point is on an ITEM and leaves the document\
          \ alone otherwise: `focus' rides the program's own root and every row off the\
