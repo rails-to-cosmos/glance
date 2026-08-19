@@ -168,8 +168,11 @@ page head' colours title body = T.unlines
   -- item bars its whole extent at its run's rail, siblings stack seamlessly
   -- (a composite's rows carry no margin), and a nested run adds its deeper
   -- column inside the parent item's.  Tiers set `--ink'; org's bullet paints.
+  -- OVER THE SUBTREE'S GROUND: a dat item's nested rows win the page ground
+  -- back, and an element's background paints over its parent's pseudo-edge --
+  -- the run's bar lifts a level, the way the block spine and the flag do.
   , "  .d-list .d-item::before{top:0;bottom:0;width:1px;border-radius:1px;"
-  , "    background:var(--ink)}"
+  , "    z-index:1;background:var(--ink)}"
   -- A BLOCK IS AN ELEMENT AND ITS SPINE IS ITS OWN `::before': one unbroken
   -- bar the block's whole height, margins and deeper blocks included, at the
   -- shelf's rail.
@@ -197,9 +200,12 @@ page head' colours title body = T.unlines
   , "    top:-7px;bottom:0;width:1px;z-index:2;"
   , "    border:0;border-radius:1px;background:var(--g-bad)}"
   , "  .de.dfl.d-child + .blk{--spine:var(--g-bad)}"
-  -- A HEADLINE AT POINT LIGHTS ITS BLOCK'S SPINE AND STOPS THERE: the lists
-  -- inside keep their resting bars -- lighting every run said nothing about
-  -- which, the lesson the composite's own rule learned first.
+  -- A HEADLINE AT POINT LIGHTS ITS BLOCK ONE LEVEL DEEP: the block's spine
+  -- and every list's TOP run light, and a nested run keeps its resting bar --
+  -- lighting every run said nothing about which.
+  , "  #mdoc.on .de.dat.d-head + .blk .d-comp > .de,"
+  , "  #mdoc.on .de.dat.d-child + .blk .d-comp > .de,"
+  , "  #mdoc.on .de.sib.d-child + .blk .d-comp > .de{--ink:var(--g-fg)}"
   -- A SIBLING'S OWN SUBTREE COMES WITH IT: the reader is choosing between BRANCHES,
   -- and a branch whose contents are dimmed is a branch they cannot weigh.
   , "  #mdoc.on .up,#mdoc.on .sib,#mdoc.on .sib .de{--ink:var(--g-fg)}"
