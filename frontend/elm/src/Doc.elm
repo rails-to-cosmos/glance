@@ -1874,12 +1874,13 @@ viewMeta lit m parent from =
         )
 
 
-{-| Is point INSIDE a list? Dimming answers "which branch am I in", so it engages
-when there is a branch to be in and leaves the document alone otherwise.
+{-| Is point INSIDE a block -- a list run, a drawer's pairs, a child's
+contents? Dimming answers "which branch am I in", so it engages when there is
+a branch to be in and leaves the root shelf alone.
 -}
 inList : Model -> Bool
 inList m =
-    Maybe.map .grain (rowAt m) == Just Leaf
+    Maybe.andThen .owner (rowAt m) /= Nothing
 
 
 {-| THE WAY BACK, IN WORDS. The rails say how deep and which branch; the strip

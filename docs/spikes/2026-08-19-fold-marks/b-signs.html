@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · signs</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* A CHIP ON THE SPINE: "−" where the block is open, "+" where it is
+     folded -- the fold's state at the fold's own column, before TAB is
+     pressed.  Boxed in the page's ground, so the bar reads as passing
+     behind it. */
+  #marks i{position:absolute; display:block; width:11px; height:11px;
+    transform:translate(-50%,-50%); border-radius:3px;
+    border:1px solid var(--bar); background:var(--g-bg);
+    color:var(--bar); font:9px/9px var(--dk-mono);
+    font-style:normal; text-align:center}
+</style>
+</head>
+<body>
+  <h1>B · signs
+    <small>+/− chips riding the spine at the headline’s own line</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>TAB</kbd> fold · <kbd>t</kbd> theme · <kbd>d</kbd> flag</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer;
+  RIG.mount({
+    foldText: function () { return null; },
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "marks";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+    },
+    paint: function (s) {
+      layer.textContent = "";
+      s.foldableHeads.forEach(function (r) {
+        var box = s.px(r.el);
+        var i = document.createElement("i");
+        i.textContent = r.shut ? "+" : "−";
+        i.style.cssText = "left:" + s.railX(r.depth) + "px;top:"
+          + (box.top + s.lh / 2) + "px;--bar:" + s.inkOf(r);
+        layer.appendChild(i);
+      });
+    },
+  });
+})();
+</script>
+</body>
+</html>

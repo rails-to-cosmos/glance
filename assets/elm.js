@@ -10535,14 +10535,14 @@ var $author$project$Doc$hiddenIn = function (m) {
 		m.C);
 };
 var $author$project$Doc$inList = function (m) {
-	return _Utils_eq(
+	return !_Utils_eq(
 		A2(
-			$elm$core$Maybe$map,
+			$elm$core$Maybe$andThen,
 			function ($) {
-				return $.A;
+				return $.w;
 			},
 			$author$project$Body$rowAt(m)),
-		$elm$core$Maybe$Just(2));
+		$elm$core$Maybe$Nothing);
 };
 var $author$project$Doc$stars = F2(
 	function (m, level) {

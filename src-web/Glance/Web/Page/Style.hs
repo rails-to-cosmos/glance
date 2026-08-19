@@ -212,7 +212,8 @@ page head' colours title body = T.unlines
   -- THE GROUND SAYS WHERE POINT IS; a bar or a tree never wears gold for it, and
   -- what point carries -- OWNERSHIP IS IN THE NESTING -- takes the same ink.
   , "  #mdoc.on .de.dat,#mdoc.on .de.dat .de{--ink:var(--g-fg)}"
-  -- FULL INK UNTIL THE READER GOES INTO A LIST.  `focus' rides the program's own
+  -- FULL INK UNTIL THE READER GOES INTO A BLOCK -- a list, a drawer, a
+  -- child's contents.  `focus' rides the program's own
   -- root, so dimming is a MODE rather than the resting look; colour inherits, so the
   -- lit rows name themselves back out of it.
   , "  #mdoc.on .focus .de{color:var(--g-point-off)}"
@@ -220,8 +221,13 @@ page head' colours title body = T.unlines
   -- point, so it keeps its ink whichever list the reader is standing in.
   , "  #mdoc.on .focus .de.dat,#mdoc.on .focus .de.dat .de,"
   -- A SIBLING IS THE CHOICE THE READER IS STANDING IN, so it is readable too.
+  -- A CHILD HEADLINE LIGHTS BY THE PATH ALONE: on the chain it wears `up',
+  -- and off it it dims with its branch -- only the root's line always reads.
+  -- ITS STARS DIM WITH IT: `.ds' pins the page's ink, the row's loudest pixel.
   , "  #mdoc.on .focus .up,#mdoc.on .focus .sib,#mdoc.on .focus .sib .de,"
-  , "  #mdoc.on .focus .d-head,#mdoc.on .focus .d-child{color:var(--g-fg)}"
+  , "  #mdoc.on .focus .d-head{color:var(--g-fg)}"
+  , "  #mdoc.on .focus .d-child:not(.up):not(.sib):not(.dat) .ds{"
+  , "    color:var(--g-point-off)}"
   -- A DRAWER'S FRAME KEEPS ITS TOKEN INK while the reader stands inside it: the
   -- drawer IS the owner then, and muting its `.dg' muted `:PROPERTIES:' itself.
   , "  #mdoc.on .focus .de.dat:not(.d-drawer) .dg,"

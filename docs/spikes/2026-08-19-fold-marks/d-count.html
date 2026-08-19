@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D · count</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* THE ELLIPSIS SAYS SOMETHING IS HIDDEN; A COUNT SAYS HOW MUCH.  The
+     folded title carries " +N" -- the rows TAB will bring back -- and an
+     open block carries nothing. */
+</style>
+</head>
+<body>
+  <h1>D · count
+    <small>the fold says what it holds: “ +N” hidden rows</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>TAB</kbd> fold · <kbd>t</kbd> theme · <kbd>d</kbd> flag</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var count = function (r) {
+    return r.kids.reduce(function (a, k) { return a + 1 + count(k); }, 0);
+  };
+  RIG.mount({
+    foldText: function (r) { return " +" + count(r); },
+  });
+})();
+</script>
+</body>
+</html>

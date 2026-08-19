@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fold marks — five looks</title>
+<style>
+  /* THE SHELL ONLY.  Each variant is its own page; what they share is the rig
+     and the pane, which is the point — the tabs differ by look and nothing else. */
+  :root{
+    --mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --bg:#FFFFFF; --fg:#000000; --mute:#667071; --border:#E3E6EA;
+    --accent:#31769F; --surface:#F8F8FF;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --fg:#FFFFFF; --mute:#A4C2EB; --border:#2A2D3D;
+      --accent:#4CB5F5; --surface:#21252B;
+    }
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 var(--mono); display:flex; flex-direction:column;
+  }
+  header{flex:none; border-bottom:1px solid var(--border); background:var(--surface)}
+  h1{margin:0; padding:10px 20px 0; font-size:13px; font-weight:600; letter-spacing:.02em}
+  h1 small{font-weight:400; color:var(--mute); margin-left:8px}
+  nav{display:flex; flex-wrap:wrap; padding:0 20px}
+  nav a{
+    font-size:12px; color:var(--mute); text-decoration:none;
+    border-bottom:2px solid transparent; padding:10px 12px;
+  }
+  nav a:hover{color:var(--fg)}
+  nav a[aria-current="page"]{color:var(--fg); border-bottom-color:var(--accent)}
+  nav a:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  p.note{
+    margin:0; padding:8px 20px; font-size:11px; color:var(--mute);
+    border-bottom:1px solid var(--border); max-width:100ch;
+  }
+  p.note code,p.note kbd{font-size:11px}
+  iframe{flex:1 1 auto; width:100%; border:0; display:block; min-height:0}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Fold marks <small>five ways to say a block folds, and that it did</small></h1>
+    <nav id="tabs" aria-label="variants">
+      <a href="#a" data-src="a-ellipsis.html">A · ellipsis</a>
+      <a href="#b" data-src="b-signs.html">B · signs</a>
+      <a href="#c" data-src="c-chevron.html">C · chevron</a>
+      <a href="#d" data-src="d-count.html">D · count</a>
+      <a href="#e" data-src="e-stub.html">E · stub</a>
+    </nav>
+  </header>
+  <p class="note" id="note"></p>
+  <iframe id="stage" title="variant"></iframe>
+
+<script>
+(() => {
+  "use strict";
+  const NOTE = {
+    a: "The control: org's own answer, now with its breathing space — “ …” riding the "
+     + "folded title. Says THAT something is hidden, after the fold; says nothing "
+     + "before it, and nothing about how much.",
+    b: "A chip on the spine at the headline's own line: “−” open, “+” folded. The one "
+     + "tab that speaks BEFORE the fold — a headline with a chip is a headline "
+     + "<kbd>TAB</kbd> will answer — at the cost of a box per headline, always.",
+    c: "org-modern's glyph at the same column: ▾ open, ▸ folded. The same two states "
+     + "as B with less ink and no box — but a triangle reads as UI chrome in a pane "
+     + "that otherwise draws only text and hairlines.",
+    d: "The ellipsis upgraded to a fact: the folded title carries “ +N”, the rows TAB "
+     + "will bring back. An open block carries nothing, so the affordance is still "
+     + "unsaid — this tab answers “how much”, never “whether”.",
+    e: "No words and no glyphs: a folded block keeps a SHORT, THICK stub of its own "
+     + "spine — the block compressed rather than gone. The quietest tab, and the one "
+     + "that says it in the spine's own language, which the pane already speaks.",
+  };
+  const tabs = [...document.querySelectorAll("#tabs a")];
+  const stage = document.getElementById("stage");
+  const note = document.getElementById("note");
+
+  function show(key) {
+    const tab = tabs.find((t) => t.hash === "#" + key) || tabs[0];
+    for (const t of tabs) {
+      if (t === tab) t.setAttribute("aria-current", "page");
+      else t.removeAttribute("aria-current");
+    }
+    note.innerHTML = NOTE[tab.hash.slice(1)] || "";
+    const src = tab.dataset.src;
+    if (stage.getAttribute("src") !== src) stage.setAttribute("src", src);
+    stage.addEventListener("load", () => {
+      try { stage.contentWindow.focus(); } catch (e) { /* another origin */ }
+    }, { once: true });
+  }
+
+  addEventListener("hashchange", () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || "e");
+})();
+</script>
+</body>
+</html>

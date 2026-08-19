@@ -1615,8 +1615,8 @@ export default [
                planning: [...document.querySelectorAll("#mdoc .d-meta")].map((e) => e.textContent) };
     });
     const shut = await read();
-    // FOLDED IS THE DEFAULT, org's own ellipsis and nothing else.
-    assert(shut.folded === ":PROPERTIES:…" && shut.pairs.length === 0,
+    // FOLDED IS THE DEFAULT, org's own ellipsis with its breathing space.
+    assert(shut.folded === ":PROPERTIES: …" && shut.pairs.length === 0,
       `the drawer opens showing ${JSON.stringify(shut.folded)}`);
     assert(shut.planning.length === 1 && /^DEADLINE: </.test(shut.planning[0]),
       `the planning line reads ${JSON.stringify(shut.planning)}`);

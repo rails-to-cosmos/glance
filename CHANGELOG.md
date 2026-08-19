@@ -60,6 +60,10 @@ section groups a feature arc, and its date is that arc's last commit.
   The drawer's colons dim, the leading one hanging into the gutter so
   `:PROPERTIES:` and every `:KEY:` align on their letters, and the left rail
   runs unbroken through the drawer block.
+- **The dim follows the reader into a child's shelf.** Focus mode engages
+  inside any block — a list, a drawer, a child's contents — and lights the
+  path alone: chain headlines read, other branches dim, their stars with
+  them. A fold mark breathes: the ellipsis rides the folded line as " …".
 - **The pane is a narrowing.** What is written stays inside the materialized
   subtree: a typed headline at the root's level or above is demoted to the
   first child level, org's own narrowed-buffer rule.

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C · chevron</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* ORG-MODERN'S OWN ANSWER: a triangle pointing DOWN where the block is
+     open and RIGHT where it is folded, at the spine's column -- no box and
+     no words, the glyph the whole message. */
+  #marks i{position:absolute; display:block; transform:translate(-50%,-50%);
+    color:var(--bar); font:10px/10px var(--dk-mono); font-style:normal}
+</style>
+</head>
+<body>
+  <h1>C · chevron
+    <small>a triangle at the fold’s column: ▾ open, ▸ folded</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>TAB</kbd> fold · <kbd>t</kbd> theme · <kbd>d</kbd> flag</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer;
+  RIG.mount({
+    foldText: function () { return null; },
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "marks";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+    },
+    paint: function (s) {
+      layer.textContent = "";
+      s.foldableHeads.forEach(function (r) {
+        var box = s.px(r.el);
+        var i = document.createElement("i");
+        i.textContent = r.shut ? "▸" : "▾";
+        i.style.cssText = "left:" + s.railX(r.depth) + "px;top:"
+          + (box.top + s.lh / 2) + "px;--bar:" + s.inkOf(r);
+        layer.appendChild(i);
+      });
+    },
+  });
+})();
+</script>
+</body>
+</html>

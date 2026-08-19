@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E · stub</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* THE SPINE ITSELF SAYS IT: a folded block keeps a SHORT, THICK stub of
+     its bar under the headline -- the block compressed rather than gone.
+     No glyph, no words; opening stretches the stub back into the spine. */
+  #marks i{position:absolute; display:block; width:3px; border-radius:2px;
+    transform:translateX(-1px); background:var(--bar)}
+</style>
+</head>
+<body>
+  <h1>E · stub
+    <small>the folded spine survives as a stub: geometry, no words</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>TAB</kbd> fold · <kbd>t</kbd> theme · <kbd>d</kbd> flag</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer;
+  RIG.mount({
+    foldText: function () { return null; },
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "marks";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+    },
+    paint: function (s) {
+      layer.textContent = "";
+      s.foldedHeads.forEach(function (r) {
+        var box = s.px(r.el);
+        var i = document.createElement("i");
+        i.style.cssText = "left:" + s.railX(r.depth) + "px;top:"
+          + (box.top + box.height - 2) + "px;height:" + (s.lh * 0.55)
+          + "px;--bar:" + s.inkOf(r);
+        layer.appendChild(i);
+      });
+    },
+  });
+})();
+</script>
+</body>
+</html>
