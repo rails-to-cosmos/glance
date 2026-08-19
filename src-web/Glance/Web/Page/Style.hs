@@ -228,6 +228,26 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .focus .d-head{color:var(--g-fg)}"
   , "  #mdoc.on .focus .d-child:not(.up):not(.sib):not(.dat) .ds{"
   , "    color:var(--g-point-off)}"
+  -- RESERVED TOKENS DIM WITH THEIR BRANCH: `.dk' and the drawer's `.dg' pin
+  -- the point ink, the pane's loudest, and outshone every dimmed line around.
+  , "  #mdoc.on .focus .de:not(.up):not(.sib):not(.dat) .dk,"
+  , "  #mdoc.on .focus .d-drawer:not(.up):not(.sib):not(.dat) .dg,"
+  , "  #mdoc.on .focus .de:not(.up):not(.sib):not(.dat) .dpunc{"
+  , "    color:var(--g-point-off)}"
+  -- WHAT A SELECTED OR OFFERED HEADLINE CARRIES READS WHOLE: its block is the
+  -- dat/sib subtree the flat rows cannot nest, so the adjacent block says it.
+  , "  #mdoc.on .focus .de.dat.d-head + .blk .de,"
+  , "  #mdoc.on .focus .de.dat.d-child + .blk .de,"
+  , "  #mdoc.on .focus .de.sib.d-child + .blk .de{color:var(--g-fg)}"
+  , "  #mdoc.on .focus .de.dat.d-head + .blk .dk,"
+  , "  #mdoc.on .focus .de.dat.d-child + .blk .dk,"
+  , "  #mdoc.on .focus .de.sib.d-child + .blk .dk,"
+  , "  #mdoc.on .focus .de.dat.d-head + .blk .d-drawer .dg,"
+  , "  #mdoc.on .focus .de.dat.d-child + .blk .d-drawer .dg,"
+  , "  #mdoc.on .focus .de.sib.d-child + .blk .d-drawer .dg{color:var(--g-point)}"
+  , "  #mdoc.on .focus .de.dat.d-head + .blk .dpunc,"
+  , "  #mdoc.on .focus .de.dat.d-child + .blk .dpunc,"
+  , "  #mdoc.on .focus .de.sib.d-child + .blk .dpunc{color:var(--g-mute)}"
   -- A DRAWER'S FRAME KEEPS ITS TOKEN INK while the reader stands inside it: the
   -- drawer IS the owner then, and muting its `.dg' muted `:PROPERTIES:' itself.
   , "  #mdoc.on .focus .de.dat:not(.d-drawer) .dg,"
