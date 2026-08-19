@@ -451,15 +451,6 @@ kindAt lines i =
         Plain
 
 
-{-| A DRAWER IS A STOP EVERYWHERE, so the structure scanner reads the region
-walk's own classifier: a prose run ends where any region opens, a drawer's
-opener included -- swallowed into a paragraph, the drawer could not fold.
--}
-stopKindAt : Array String -> Int -> RegionKind
-stopKindAt =
-    kindAt
-
-
 closes : RegionKind -> Bool
 closes kind =
     case kind of
@@ -483,7 +474,7 @@ extentOf : Array String -> Int -> Int -> RegionKind -> Int
 extentOf lines end i kind =
     case kind of
         Plain ->
-            proseEnd kindAt lines end (i + 1)
+            proseEnd lines end (i + 1)
 
         Item ->
             (listRun lines i end).to
@@ -498,16 +489,16 @@ extentOf lines end i kind =
             drawerRun lines i end
 
 
-{-| Where a prose run ends, READ THROUGH THE CALLER'S OWN CLASSIFIER — which is
-what makes the scanner's paragraph run past a drawer where the walk's stops.
+{-| Where a prose run ends: at the edge, a blank, or any region's opener --
+a drawer's included, which is what lets a drawer fold mid-prose.
 -}
-proseEnd : (Array String -> Int -> RegionKind) -> Array String -> Int -> Int -> Int
-proseEnd kind lines end j =
-    if j >= end || isBlank (at j lines) || kind lines j /= Plain then
+proseEnd : Array String -> Int -> Int -> Int
+proseEnd lines end j =
+    if j >= end || isBlank (at j lines) || kindAt lines j /= Plain then
         j
 
     else
-        proseEnd kind lines end (j + 1)
+        proseEnd lines end (j + 1)
 
 
 closedRun : Array String -> Int -> Int -> Maybe Int
@@ -855,57 +846,21 @@ blocksInRange lines start own =
 
             else
                 case kindAt lines i of
-                    -- A DRAWER IS A STOP the reader can point at and fold: its
-                    -- composite wears the drawer's own name, and its inner lines are
-                    -- leaves -- one per line, a nested block WHOLE so no take can
-                    -- leave half of one.  The frame lines belong to no leaf.
+                    -- A CLOSED REGION IS ONE STOP: the composite wears the
+                    -- region's own name, its inner lines its leaves -- a
+                    -- drawer's one per line, a nested block WHOLE so no take
+                    -- can leave half of one.  An unclosed opener is prose.
                     Drawer ->
-                        let
-                            shut =
-                                extentOf lines end i Drawer
-                        in
-                        if shut <= i + 1 then
-                            plain i out
-
-                        else
-                            go shut
-                                (whole i
-                                    shut
-                                    (String.toLower
-                                        (Maybe.withDefault "drawer"
-                                            (drawerName (at i lines))
-                                        )
-                                    )
-                                    (drawerLeaves lines (i + 1) (shut - 1))
-                                    out
-                                )
+                        held Drawer i out
 
                     Plain ->
                         plain i out
 
                     Block ->
-                        let
-                            shut =
-                                extentOf lines end i Block
-                        in
-                        if shut == -1 then
-                            plain i out
-
-                        else
-                            go shut
-                                (whole i
-                                    shut
-                                    (Maybe.withDefault "" (blockName (at i lines)))
-                                    (runsIn lines (i + 1) (shut - 1))
-                                    out
-                                )
+                        held Block i out
 
                     Table ->
-                        let
-                            j =
-                                extentOf lines end i Table
-                        in
-                        go j (whole i j "table" (List.map (\n -> ( n, n + 1 )) (List.range i (j - 1))) out)
+                        held Table i out
 
                     Item ->
                         let
@@ -921,10 +876,55 @@ blocksInRange lines start own =
                         go (max (i + 1) run.to)
                             (List.foldl (\( a, b ) got -> pushItem a b (Just here) got) opened run.items)
 
+        held kind i out =
+            let
+                shut =
+                    extentOf lines end i kind
+            in
+            if closes kind && shut <= i + 1 then
+                plain i out
+
+            else
+                go shut (whole i shut (stopName kind i) (leavesOf kind i shut) out)
+
+        stopName kind i =
+            case kind of
+                Drawer ->
+                    String.toLower (Maybe.withDefault "drawer" (drawerName (at i lines)))
+
+                Block ->
+                    Maybe.withDefault "" (blockName (at i lines))
+
+                Table ->
+                    "table"
+
+                Plain ->
+                    ""
+
+                Item ->
+                    ""
+
+        leavesOf kind i shut =
+            case kind of
+                Drawer ->
+                    drawerLeaves lines (i + 1) (shut - 1)
+
+                Block ->
+                    runsIn lines (i + 1) (shut - 1)
+
+                Table ->
+                    List.map (\n -> ( n, n + 1 )) (List.range i (shut - 1))
+
+                Plain ->
+                    []
+
+                Item ->
+                    []
+
         plain i out =
             let
                 j =
-                    proseEnd stopKindAt lines end (i + 1)
+                    proseEnd lines end (i + 1)
             in
             go j (out ++ [ Stop i j Element Nothing Nothing ])
     in

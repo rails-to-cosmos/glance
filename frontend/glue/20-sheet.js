@@ -247,10 +247,10 @@
       // both required, so the pair arrives whole and the write follows at once.
       if (r.kind === "meta") {
         const b = docBinding("org-set-property", "+");
-        askText("property key", "RET · ESC cancels", "", (c) => {
+        askText("property key", "RET · ESC cancels", (c) => {
           const key = c.text.trim();
           if (!key) { said(b, "a key is required"); return; }
-          askText(`value for :${key}:`, "RET · ESC cancels", "", (v) => {
+          askText(`value for :${key}:`, "RET · ESC cancels", (v) => {
             const value = v.text.trim();
             if (!value) { said(b, "a value is required"); return; }
             dwrote = (what) => said(b, what);
@@ -264,8 +264,9 @@
       dwrote = (what) => said(INSERT, what);
       // THE ROW IS DRAWN FIRST and point goes to it; Elm pushes state a turn later
       // and `placeEdit' re-lays the box.  AT rides to the write as well as the draw.
-      dsend(off === null ? { kind: "draft", id: r.id }
-                         : { kind: "draft", id: r.id, at: off });
+      const m = { kind: "draft", id: r.id };
+      if (off !== null) m.at = off;
+      dsend(m);
       openEdit(DPARA, { id: r.id, text: "", add: true, at: off });
     }
     const insertPara = (r, text, done) => {
@@ -430,7 +431,7 @@
     };
     const dediting = () => !!edit && edit.o === DTITLE;
     const dparaing = () => !!edit && edit.o === DPARA;
-    const docOpen = () => dediting() || dparaing();
+    const sheetOpen = () => dediting() || dparaing();
     // The document holds the keys with NOTHING focused, so an open sheet counts as typing.
     const docHolds = () => editing !== null;
     const paraBinding = docBinding("org-ctrl-c-ctrl-c", "RET");
@@ -517,13 +518,12 @@
     }
     const redraft = (r) => dsend({ kind: "draft", id: r.id });
     const undraft = (r) => dsend({ kind: "undraft", id: r.id });
-    const cancelDocEdit = () => {
+    const cancelSheetEdit = () => {
       const drawn = edit && edit.o === DPARA && edit.row.add ? edit.row : null;
       cancelEdit("element", DTITLE, DPARA);
       if (drawn) undraft(drawn);
     };
-    const sheetOpen = () => docOpen();
-    const cancelSheetEdit = () => cancelDocEdit();
+
     function ddelete(ids, how) {
       dtook = how;
       dsend({ kind: "delete", ids });
@@ -587,7 +587,7 @@
     }
     const docCursor = () => ({ at: drows[dat] ? drows[dat].id : null });
     function docRestore(at) {
-      dsend({ kind: "restore", id: at });
+      dsend({ kind: "select", id: at });
       const back = drows.findIndex((r) => r.id === at);
       if (back !== -1) dat = back;
     }
@@ -649,8 +649,6 @@
         },
       };
     }
-    /** The row id AT sits on in ROWS, or null where -1 says nothing is pointed at. */
-    const pointedId = (rows, at) => (at === -1 ? null : rows[at].id);
     /** `/' NARROWS A SMALL LIST, one gesture over every `listing' mount — AGENTS.hs. */
     const narrows = (m) => can(m, "openNarrow", "shutNarrow", "narrowing");
     const narrowed = (m) => narrows(m) && m.narrowing() !== null;
@@ -810,7 +808,7 @@
         .catch((e) => { stuck(subtreeSheet, e.message); return false; });
     }
     function saveSheet(b) {
-      if (docOpen()) { commitDocEdit(b); return; }
+      if (sheetOpen()) { commitDocEdit(b); return; }
       const s = activeSheet();
       if (!s || s.state === "syncing") return;
       if (s.state !== "conflict") { s.flush(); return; }
@@ -954,7 +952,7 @@
     const DELETE_WORD = "DELETE";
     function confirmDelete(b, ids, how) {
       askText(`delete · ${rowsWord(ids.length)} permanently`,
-              `type ${DELETE_WORD} and RET · ESC leaves them`, "",
+              `type ${DELETE_WORD} and RET · ESC leaves them`,
               (c) => {
                 if (c.text.trim().toUpperCase() !== DELETE_WORD) {
                   said(b, "not deleted");

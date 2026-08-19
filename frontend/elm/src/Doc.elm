@@ -43,7 +43,6 @@ import Body
         , shown
         , undrafted
         )
-import Scan
 import Scan exposing (Grain(..), cut, nth)
 
 
@@ -70,7 +69,6 @@ type alias Model =
     , shift : Int
     , level : Int
     , titleAt : Maybe Int
-    , child : Bool
 
     -- THE LINE A CURSOR IS OWED at the next fill: an insert's paragraph has no
     -- row until the RESCAN mints one.
@@ -89,7 +87,7 @@ type alias Model =
 
 empty : Model
 empty =
-    Model [] [] Array.empty Array.empty 0 [] [] Nothing 0 1 Nothing False Nothing [] [] [] Set.empty
+    Model [] [] Array.empty Array.empty 0 [] [] Nothing 0 1 Nothing Nothing [] [] [] Set.empty
 
 
 {-| A SIBLING SHARES AN OWNER, and that is the whole of the step: `n'/`p' walk
@@ -1003,9 +1001,6 @@ msgD =
                     "select" ->
                         D.map Select (D.field "id" D.string)
 
-                    "restore" ->
-                        D.map Select (D.field "id" D.string)
-
                     "step" ->
                         D.map Step (D.field "by" D.int)
 
@@ -1166,8 +1161,8 @@ spineRanks m heads =
             Dict.fromList (List.indexedMap (\k h -> ( h, k )) (chain s []))
 
 
-rowClass : Lit -> Model -> Int -> Row -> Int -> String
-rowClass lit m i r depth =
+rowClass : Lit -> Model -> Int -> Row -> Bool -> String
+rowClass lit m i r top =
     (if r.id == draftId then
         "de d-draft d-"
 
@@ -1201,14 +1196,14 @@ rowClass lit m i r depth =
             else
                 ""
            )
-        ++ (if depth >= 0 then
-                ""
-
-            else
+        ++ (if top then
                 -- ELM MOUNTS INSIDE A WRAPPER OF ITS OWN, so `#dlist > .de' names
                 -- nothing and a top-level row says so itself.  NOT `d-top': the
                 -- harness reads a row's KIND off its `d-' classes.
                 " lvl-top"
+
+            else
+                ""
            )
         ++ (if drawer m r then
                 -- THE CLASS IS THE DRAWER'S, not the fold's: a child headline
@@ -1237,7 +1232,11 @@ markOf lit m i r =
         ""
 
     else if List.member r.id lit.ups then
-        " up"
+        -- THE RUN'S BARS RIDE F'S RAMP TOO: an enclosing run steps down the
+        -- accent by its distance out, and only point's own run bars in `fg'.
+        " up up-"
+            ++ String.fromInt
+                (min 2 (Maybe.withDefault 0 (indexOfIn r.id lit.ups)))
 
     else if r.owner /= Nothing && r.owner == lit.sib then
         -- A SIBLING IS WHAT THE READER IS CHOOSING BETWEEN, so it stays readable.
@@ -1522,8 +1521,8 @@ boxLen rest =
         0
 
 
-viewCells : Model -> Int -> Row -> List (Html Msg)
-viewCells m i r =
+viewCells : Model -> Row -> List (Html Msg)
+viewCells m r =
     span [ class "ds" ]
         [ text
             (stars m
@@ -1625,9 +1624,7 @@ viewKids lit m parent from at0 depth =
                             kid.to
                             (out
                                 ++ gap
-                                ++ [ div (rung depth :: attribute "data-id" kid.id :: [ class (rowClass lit m j kid depth) ])
-                                        inner
-                                   ]
+                                ++ [ rowEl lit m j kid False [ rung depth ] inner ]
                             )
 
                     else
@@ -1646,28 +1643,40 @@ viewKids lit m parent from at0 depth =
     go from at0 []
 
 
+{-| The shelf's rail, `indent - 1.5' off the stylesheet's own arithmetic, so
+every mark on a shelf agrees on its column.
+-}
+rail : Model -> Int -> String
+rail m level =
+    "--rail:calc(var(--g-doc-pad) + "
+        ++ String.fromFloat (toFloat (String.length (stars m level)) - 1.5)
+        ++ "ch)"
+
+
 {-| A ROW ON A DEEPER SHELF indents under its own headline's FIRST LETTER --
-the width its cleaned stars take, exactly the root's own geometry -- and the
-rail keeps the stylesheet's `indent - 1.5' so every shelf's bars agree.
+the width its cleaned stars take, exactly the root's own geometry.
 -}
 inset : Model -> Row -> List (Html.Attribute Msg)
 inset m r =
     if r.level > m.level then
-        let
-            ind =
-                String.length (stars m r.level)
-        in
         [ attribute "style"
             ("--g-doc-indent:"
-                ++ String.fromInt ind
-                ++ ";--rail:calc(var(--g-doc-pad) + "
-                ++ String.fromFloat (toFloat ind - 1.5)
-                ++ "ch)"
+                ++ String.fromInt (String.length (stars m r.level))
+                ++ ";"
+                ++ rail m r.level
             )
         ]
 
     else
         []
+
+
+{-| ONE DOOR FOR A ROW'S DIV: the `data-id' every driver's mirror agreement
+rides is owed here, so no row can be drawn without it.
+-}
+rowEl : Lit -> Model -> Int -> Row -> Bool -> List (Html.Attribute Msg) -> List (Html Msg) -> Html Msg
+rowEl lit m i r top extra inner =
+    div (class (rowClass lit m i r top) :: attribute "data-id" r.id :: extra) inner
 
 
 {-| The rows a FOLD hides: everything owned, transitively, by a shut row.  An
@@ -1727,11 +1736,7 @@ view m =
                                         ""
                                )
                         )
-                    , attribute "style"
-                        ("--rail:calc(var(--g-doc-pad) + "
-                            ++ String.fromFloat (toFloat (String.length (stars m level)) - 1.5)
-                            ++ "ch)"
-                        )
+                    , attribute "style" (rail m level)
                     ]
                     inner
                 ]
@@ -1760,8 +1765,7 @@ view m =
                     -- visible contents and so no block, and no spine.
                     let
                         headline =
-                            div [ class (rowClass lit m i r -1), attribute "data-id" r.id ]
-                                (viewCells m i r)
+                            rowEl lit m i r True [] (viewCells m r)
 
                         ( inner, j ) =
                             go (i + 1) r.level []
@@ -1780,35 +1784,34 @@ view m =
                         -- FOLDED, THE FRAME IS THE WHOLE OF IT: the opener line
                         -- and org's own ellipsis, the way org draws a shut drawer.
                         shown =
-                            if Set.member r.id m.shut && r.kind /= Meta then
+                            if Set.member r.id m.shut then
                                 [ div [ class "dg" ]
-                                    [ text (Maybe.withDefault "" (nth r.from m.lines) ++ " …") ]
+                                    (opener r ++ [ text " …" ])
                                 ]
 
                             else
                                 inner
                     in
-                    go j level (out ++ [ div (class (rowClass lit m i r -1) :: attribute "data-id" r.id :: inset m r) shown ])
-
-                else if r.kind == Para || r.kind == Meta then
-                    go (i + 1) level (out ++ [ div (class (rowClass lit m i r -1) :: attribute "data-id" r.id :: inset m r) [ viewPara m r ] ])
+                    go j level (out ++ [ rowEl lit m i r True (inset m r) shown ])
 
                 else
-                    go (i + 1)
-                        level
-                        (out
-                            ++ [ div [ class (rowClass lit m i r -1), attribute "data-id" r.id ]
-                                    (viewCells m i r)
-                               ]
-                        )
+                    go (i + 1) level (out ++ [ rowEl lit m i r True (inset m r) [ viewPara m r ] ])
+
+        -- The folded frame's own line: org's token for the synthesized drawer,
+        -- the file's opener for a raw one.
+        opener r =
+            if r.kind == Meta then
+                token "PROPERTIES"
+
+            else
+                [ text (Maybe.withDefault "" (nth r.from m.lines)) ]
 
         body =
             case m.rows of
                 head :: _ ->
                     let
                         headline =
-                            div [ class (rowClass lit m 0 head -1), attribute "data-id" head.id ]
-                                (viewCells m 0 head)
+                            rowEl lit m 0 head True [] (viewCells m head)
 
                         ( inner, _ ) =
                             go 1 m.level []
@@ -1844,18 +1847,13 @@ viewMeta lit m parent from =
             walk from []
 
         leaf ( j, kid ) =
-            div [ class (rowClass lit m j kid 0), attribute "data-id" kid.id ]
-                [ viewPara m kid ]
+            rowEl lit m j kid False [] [ viewPara m kid ]
     in
-    if Set.member parent.id m.shut then
-        ( [ div [ class "dg" ] (token "PROPERTIES" ++ [ text " …" ]) ], next )
-
-    else
-        ( div [ class "dg" ] (token "PROPERTIES")
-            :: List.map leaf kids
-            ++ [ div [ class "dg" ] (token "END") ]
-        , next
-        )
+    ( div [ class "dg" ] (token "PROPERTIES")
+        :: List.map leaf kids
+        ++ [ div [ class "dg" ] (token "END") ]
+    , next
+    )
 
 
 {-| Is point INSIDE a block -- a list run, a drawer's pairs, a child's

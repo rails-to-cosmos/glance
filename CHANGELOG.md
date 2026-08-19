@@ -60,6 +60,9 @@ section groups a feature arc, and its date is that arc's last commit.
   The drawer's colons dim, the leading one hanging into the gutter so
   `:PROPERTIES:` and every `:KEY:` align on their letters, and the left rail
   runs unbroken through the drawer block.
+- **An enclosing run's bar rides the ramp.** Inside a nested list, point's own
+  run bars in the page's ink and each enclosing run steps down the accent by
+  its distance out — the block spines' own grammar, one storey down.
 - **A list run wears a spine, and org's bullet always paints.** The tree's
   elbows are gone: every item bars its whole extent at its run's rail,
   siblings stack into one unbroken bar, a nested run adds its column inside

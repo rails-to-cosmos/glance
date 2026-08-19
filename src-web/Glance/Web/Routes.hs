@@ -216,10 +216,7 @@ referExtra asked rows = referVocabulary rows <> referKinds rows <> echo
 -- 'tagRowCounts'', the same rule @\/tags@ answers with.
 referVocabulary :: [HeadlineRecord] -> [Pair]
 referVocabulary rows =
-  [ "vocabulary" .= object [ "tag" .= map fst (sortOn rank counted) ] ]
-  where
-    counted = Map.toList (tagRowCounts rows)
-    rank (tag, n) = (negate n, tag)
+  [ "vocabulary" .= object [ "tag" .= map fst (commonest (tagRowCounts rows)) ] ]
 
 -- | THE KINDS THE TREE ALREADY USES, commonest first, counted in ROWS the way
 -- @\/tags@ counts them.  The COUNT is what the picker shows beside each: free
@@ -227,10 +224,12 @@ referVocabulary rows =
 -- from a typo made once, or the vocabulary forks.
 referKinds :: [HeadlineRecord] -> [Pair]
 referKinds rows =
-  [ "kinds" .= [ object ["kind" .= k, "rows" .= n] | (k, n) <- sortOn rank counted ] ]
-  where
-    counted = Map.toList (countedBy (\r -> [ k | Just k <- map refKind (hrLinks r) ]) rows)
-    rank (k, n) = (negate n, k)
+  [ "kinds" .= [ object ["kind" .= k, "rows" .= n] | (k, n) <- kinds ] ]
+  where kinds = commonest (countedBy (\r -> [ k | Just k <- map refKind (hrLinks r) ]) rows)
+
+-- | Commonest first, ties by name -- the one ordering every counted list answers in.
+commonest :: Ord k => Map k Int -> [(k, Int)]
+commonest = sortOn (\(k, n) -> (negate n, k)) . Map.toList
 
 -- | ONE PIPELINE, and KEEP is all a door may add: every caller answers the same
 -- shape with the same headers, so a mount cannot tell two doors apart.
@@ -399,7 +398,7 @@ subtreeJSON f =
   , "children"   .= [ childJSON here (subtreeText here) (hpBody parts) i e | (i, e) <- beneath f ]
   , "org"        .= subtreeText here
   , "body"       .= hpBody parts
-  , "ownLines"   .= ownBodyLines here (hpBody parts) (seRecord . snd <$> listToMaybe (under f))
+  , "ownLines"   .= ownBodyLines here (hpBody parts) (firstUnder f)
   , "properties" .= [ [key, value] | (key, value) <- hpProperties parts ]
   , "planning"   .= [ [key, value] | (key, value) <- hpPlanning parts ]
   , "logbook"    .= hpLogbook parts
@@ -437,8 +436,8 @@ childJSON root subtree body i e = object
 extentJSON :: HeadlineRecord -> Value
 extentJSON r = object [ "start" .= spanStart (hrSubtree r), "end" .= spanEnd (hrSubtree r) ]
 
-under :: Focus -> [(Int, SubtreeEntry)]
-under f = [ x | x@(_, e) <- beneath f, seParent e == mine ]
+firstUnder :: Focus -> Maybe HeadlineRecord
+firstUnder f = listToMaybe [ seRecord e | e <- fcEntries f, seParent e == mine ]
   where mine = fromMaybe (-1) (fcAt f)
 
 -- | EVERY descendant of the focus, document order.  ONE LEFT FOLD: a parent

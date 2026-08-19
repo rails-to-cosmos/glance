@@ -16,7 +16,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { freePort, polling, sleep } from "../harness.mjs";
+import { end, freePort, polling, sleep } from "../harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..");
@@ -538,16 +538,6 @@ async function main() {
   }
   if (failed.length) console.log(`interop: ${failed.length} FAILED`);
   process.exit(failed.length ? 1 : 0);
-}
-
-/** SIGTERM, then SIGKILL at 5 s: nothing this run started outlives it. */
-function end(proc) {
-  if (proc.exitCode !== null || proc.signalCode) return Promise.resolve();
-  return new Promise((yes) => {
-    const hard = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* gone */ } }, 5_000);
-    proc.on("exit", () => { clearTimeout(hard); yes(); });
-    try { proc.kill("SIGTERM"); } catch { clearTimeout(hard); yes(); }
-  });
 }
 
 main().catch(async (e) => {

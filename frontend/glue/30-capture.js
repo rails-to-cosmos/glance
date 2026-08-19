@@ -166,7 +166,7 @@ const Capture = ((deps) => {
     }
     function planRows(b, keyword) {
       overTargets(b, keyword.toLowerCase(), (bind, ids, title) =>
-        askText(title, "RET sets it · empty clears it · ESC leaves", "", (c) => {
+        askText(title, "RET sets it · empty clears it · ESC leaves", (c) => {
           const date = c.text.trim();
           fire(bind, "set-planning", ids, { keyword, date: date || null },
                date || "cleared");
@@ -188,10 +188,10 @@ const Capture = ((deps) => {
     function letterAt(label, at) {
       return at === -1 ? null : label[at].toLowerCase();
     }
-    function raise(title, state, value, cls, foot) {
+    function raise(title, state, cls, foot) {
       prompting = state;
       el("phead").textContent = title;
-      el("pinput").value = value;
+      el("pinput").value = "";
       el("prompt").className = "on";
       mode(cls, foot);
       return prompting;
@@ -201,7 +201,7 @@ const Capture = ((deps) => {
     function ask(title, commit, foot, over) {
       sole(over);
       return raise(title, { choices: [], shown: [], at: 0, commit,
-                            narrow: false, raising: true }, "", "", foot);
+                            narrow: false, raising: true }, "", foot);
     }
     // Letters are stamped IN PLACE: `prompting.table''s cells hold these very
     // objects.  A `fixed' entry carries a key of its own and is out of the pool.
@@ -234,9 +234,9 @@ const Capture = ((deps) => {
     }
     /** RAISING declines the press that opened the palette; a prompt raised from
      * another prompt's COMMIT came through a handled press, so it passes false. */
-    function askText(title, foot, initial, commit, raising = true) {
+    function askText(title, foot, commit, raising = true) {
       sole();
-      raise(title, { commit, text: true, raising }, initial, "narrow", foot);
+      raise(title, { commit, text: true, raising }, "narrow", foot);
       el("pinput").focus();
     }
     function fieldMode(foot) {

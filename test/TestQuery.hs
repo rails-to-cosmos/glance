@@ -1182,6 +1182,8 @@ viewSpec = testGroup "View"
       withViewOf nested $ \v -> do
         cols <- columnKeysOf v
         rows <- listAt "rows" v
+        -- Over no rows the sweeps below are met by saying nothing.
+        assertEqual "the fixture's rows" 2 (length rows)
         assertBool "depth is a column" ("depth" `notElem` cols)
         fields <- mapM keysOf rows
         assertBool (show fields <> " names depth") (all ("depth" `notElem`) fields)
@@ -1220,6 +1222,7 @@ schemaSpec = testGroup "Schema conformance"
       withViewOf "* linked\nsee https://x.example\n" $ \v -> do
         cols <- columnKeysOf v
         cells <- each "rows" "cells" v >>= mapM keysOf
+        assertEqual "the fixture's rows" 1 (length cells)
         assertBool "linked is a column" ("linked" `notElem` cols)
         assertBool (show cells <> " names linked") (all ("linked" `notElem`) cells)
 

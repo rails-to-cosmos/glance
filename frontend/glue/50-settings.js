@@ -248,7 +248,7 @@ const SECTIONS = [
       none: "org-todo-remove-state (no row)",
       verb: "remove",
       flag: "delete-flag (d again removes)",
-      at: () => pointedId(srows, satAt()),
+      at: () => selectedId(smount),
     };
     document.addEventListener("keydown", (e) => {
       if (!settings || momentary() || !smount || !showingPart("ctheme")) return;
@@ -587,7 +587,7 @@ const SECTIONS = [
       };
     }
     function openEditState() {
-      if (!docOpen()) return null;
+      if (!sheetOpen()) return null;
       return { box: dparaing() ? "dpara" : "dtitle", id: edit.row.id,
                add: !!(dparaing() && edit.row.add),
                val: el(dparaing() ? "dtext" : "dtin").value };

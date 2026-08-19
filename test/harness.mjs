@@ -1,6 +1,6 @@
 // WHAT BOTH DRIVERS NEED.  `test/browser/drive.mjs' and `test/interop/drive.mjs'
-// spelled `sleep', `freePort' and `poll' out separately, byte for byte but for one
-// word of the timeout's wording.
+// spelled `sleep', `freePort', `poll' and `end' out separately, byte for byte but
+// for one word of the timeout's wording.
 import { createServer } from "node:net";
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -14,6 +14,16 @@ export const freePort = () => new Promise((ok, no) => {
     s.close(() => ok(port));
   });
 });
+
+/** SIGTERM, then SIGKILL at 5 s: nothing this run started outlives it. */
+export function end(proc) {
+  if (proc.exitCode !== null || proc.signalCode) return Promise.resolve();
+  return new Promise((ok) => {
+    const hard = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* gone */ } }, 5_000);
+    proc.on("exit", () => { clearTimeout(hard); ok(); });
+    try { proc.kill("SIGTERM"); } catch { clearTimeout(hard); ok(); }
+  });
+}
 
 /** Poll FN every TURN until it answers truthy, or fail naming WHAT was waited for
  * AND the last thing seen -- a bare timeout says nothing about why. */

@@ -30,20 +30,20 @@ async function sheet(p, base, row) {
                 `${row}'s body to draw more than a headline`);
 }
 
-/** WALK THE SHELF TO THE FIRST ROW THE PREDICATE LIKES.  A FIXED key count
- * lands elsewhere the moment a row is added above — the header rows are. */
-async function walkTo(p, cls, what) {
+/** WALK THE SHELF TO THE FIRST ROW SEL MATCHES.  A FIXED key count lands
+ * elsewhere the moment a row is added above — the header rows are. */
+async function walkTo(p, sel, what) {
   for (let i = 0; i < 12; i += 1) {
     // THE MIRROR MUST AGREE WITH THE DRAW before the walk trusts a reading: the
     // DOM paints on rAF and the port lands a macrotask apart, and a key pressed
     // in that gap acts on the row the reader just left.
-    const seen = await p.eval((c) => {
+    const seen = await p.eval((s) => {
       const at = document.querySelector("#mdoc .de.dat");
       const synced = !!at && at.dataset.id === docAtNow();
-      return { hit: synced && at.classList.contains(c),
+      return { hit: synced && at.matches(s),
                synced,
                text: at ? at.textContent.slice(0, 30) : "" };
-    }, cls);
+    }, sel);
     if (seen.hit) return;
     if (!seen.synced) {
       await settled(p, `the mirror to settle on the way to ${what}`);
@@ -67,32 +67,45 @@ const settled = (p, why) =>
     return !!at && at.dataset.id === docAtNow();
   }, why || "the mirror to agree with the draw");
 
+/** Press KEY and wait for point to land on SEL, the mirror agreeing. */
+async function stepped(p, key, sel, why) {
+  await p.press(key);
+  await p.until((s) => {
+    const at = document.querySelector("#mdoc .de.dat");
+    return !!at && at.dataset.id === docAtNow() && at.matches(s);
+  }, why, undefined, sel);
+}
+
+/** The paragraph edit box open. */
+const editUp = (p, why) =>
+  p.until(() => document.getElementById("dpara").classList.contains("on"),
+          why || "the edit to open");
+
+/** `placeEdit' SIZES THE BOX A TURN AFTER THE RAISE: read before that, the box
+ * still stands over the row point left, one line tall. */
+const boxPlaced = (p, why) =>
+  p.until(() => {
+    const b = document.getElementById("dpara");
+    const at = document.querySelector("#mdoc .de.dat");
+    if (!b || !b.classList.contains("on") || !at) return false;
+    const h = b.getBoundingClientRect().height;
+    return h > 0 && Math.abs(h - at.getBoundingClientRect().height) < 1;
+  }, why || "the box to be placed over its row");
+
 /** Down to an item that has rows drawn inside it. */
 async function intoNestedItem(p, base, row) {
   await sheet(p, base, row);
-  await walkTo(p, "d-list", "the list itself");
-  await p.press("f");
-  await p.until(() => {
-    const at = document.querySelector("#mdoc .de.dat");
-    return !!at && at.classList.contains("d-item");
-  }, "`f' to descend into the list");
-  const on = () => p.eval(() => {
-    const at = document.querySelector("#mdoc .de.dat");
-    return !!at && at.dataset.id === docAtNow()
-      && at.classList.contains("d-item") && !!at.querySelector(".de");
-  });
-  for (let i = 0; i < 8 && !(await on()); i++) await p.press("n");
-  assert(await on(),
-    "`f' then `n' never reached an item with rows drawn inside it");
+  await walkTo(p, ".d-list", "the list itself");
+  await stepped(p, "f", ".d-item", "`f' to descend into the list");
+  await walkTo(p, ".d-item:has(> .de)", "an item with rows drawn inside it");
 }
 
 /** The sheet over ROW with its first paragraph open for editing. */
 async function paraOpen(p, base, row) {
   await sheet(p, base, row);
-  await walkTo(p, "d-para", "the first paragraph");
+  await walkTo(p, ".d-para", "the first paragraph");
   await p.press("RET");                                 // open it
-  await p.until(() => document.getElementById("dpara").classList.contains("on"),
-                "the paragraph edit box to open");
+  await editUp(p, "the paragraph edit box to open");
 }
 
 const pickerUp = (p, why) =>
@@ -130,16 +143,9 @@ export default [
 { name: "an open edit moves the line under it down, never covers it",
   async run(p, base) {
     await sheet(p, base, "drv-box");
-    await walkTo(p, "d-para", "the first paragraph");
+    await walkTo(p, ".d-para", "the first paragraph");
     await p.press("RET");                                 // open it
-    // `placeEdit' sizes the box a turn after the raise, so wait for the two to agree.
-    await p.until(() => {
-      const b = document.getElementById("dpara");
-      const at = document.querySelector("#mdoc .de.dat");
-      if (!b || !b.classList.contains("on") || !at) return false;
-      const h = b.getBoundingClientRect().height;
-      return h > 0 && Math.abs(h - at.getBoundingClientRect().height) < 1;
-    }, "the paragraph edit box to open over its block");
+    await boxPlaced(p, "the paragraph edit box to open over its block");
     const before = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
       const cs = getComputedStyle(document.getElementById("mdoc"));
@@ -180,7 +186,7 @@ export default [
 { name: "a paragraph drawn before it is written still owns a line",
   async run(p, base) {
     await sheet(p, base, "drv-box");
-    await walkTo(p, "d-para", "the first paragraph");
+    await walkTo(p, ".d-para", "the first paragraph");
     await p.press("+");
     await p.until(() => !!document.querySelector("#mdoc .d-draft"),
                   "the drawn paragraph to appear");
@@ -212,13 +218,12 @@ export default [
     await p.until(() => !!document.querySelector("#app tr.tv-flagged"),
                   "the table row to wear its flag");
     const table = await p.eval(() => {
-      // `--tv-*' lives on `.tv-root' and `--g-*' on the document element.
-      const root = getComputedStyle(document.documentElement);
+      // `--tv-*' lives on `.tv-root', and `g' reads `--g-*' off the document element.
       const tv = getComputedStyle(document.querySelector("#app .tv-root"));
       const tr = document.querySelector("#app tr.tv-flagged");
       const td = tr.querySelector("td");
       return { flag: rgb(tv.getPropertyValue("--tv-flag").trim()),
-               bad: rgb(root.getPropertyValue("--g-bad").trim()),
+               bad: g("bad"),
                ground: getComputedStyle(tr).backgroundColor,
                plain: getComputedStyle(tr.parentElement
                  .querySelector("tr:not(.tv-flagged)")).backgroundColor,
@@ -242,15 +247,14 @@ export default [
     // the CURSOR's, so a flagged row wears one only while point stands on it.
     const pane = await p.eval(() => {
       const fl = document.querySelector("#mdoc .de.dfl");
-      // THE INK IS THE ROW'S: an elbow spends it on borders, a run on background.
+      // THE INK IS THE ROW'S, spent on the spine its run bars with.
       // A FLAG TAKES THE BRANCH, since a delete takes the subtree.
       const under = fl.querySelector(".de");
       return { under: under ? ink(under) : null,
                thin: ink(fl),
                wide: getComputedStyle(fl, "::before").width,
                at: fl.classList.contains("dat"),
-               sel: rgb(getComputedStyle(document.documentElement)
-                 .getPropertyValue("--g-sel").trim()),
+               sel: g("sel"),
                ground: getComputedStyle(fl).backgroundColor };
     });
     // Both strings came out of the same engine, so the red is compared as spelled.
@@ -392,21 +396,15 @@ export default [
 { name: "the cursor in the pane is a ground, and TAB over prose folds nothing",
   async run(p, base) {
     await sheet(p, base, "drv-box");
-    await walkTo(p, "d-para", "the first paragraph");
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && at.classList.contains("d-para");
-    }, "the cursor to land on the entry's first paragraph");
+    await walkTo(p, ".d-para", "the first paragraph");
     const seen = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
       const off = [...document.querySelectorAll("#mdoc .de")].find((n) => n !== at);
       const cs = getComputedStyle(at);
-      const root = getComputedStyle(document.documentElement);
-      const point = root.getPropertyValue("--g-point").trim();
-      return { sel: rgb(root.getPropertyValue("--g-sel").trim()),
+      return { sel: g("sel"),
                mark: ink(at),
-               fg: rgb(root.getPropertyValue("--g-fg").trim()),
-               ink: rgb(point),
+               fg: g("fg"),
+               ink: g("point"),
                offMark: ink(off),
                ground: cs.backgroundColor,
                deco: cs.textDecorationLine, outline: cs.outlineStyle,
@@ -438,7 +436,7 @@ export default [
 { name: "a composite's drawn lines sit on the same grid as the field over it",
   async run(p, base) {
     await sheet(p, base, "drv-plan");
-    await walkTo(p, "d-list", "the whole-list composite");
+    await walkTo(p, ".d-list", "the whole-list composite");
     await p.press("RET");
     // THE CLASS FLIPS BEFORE THE PANE HAS DRAWN, so the wait is on the MEASUREMENT
     // (docs/bugs/2026-08-17-the-composite-case-measures-an-empty-pane).
@@ -488,7 +486,7 @@ export default [
 { name: "a committed block opener arrives with its closer",
   async run(p, base) {
     await sheet(p, base, "drv-box");
-    await walkTo(p, "d-para", "the first paragraph");
+    await walkTo(p, ".d-para", "the first paragraph");
     await p.press("+");                                   // a new one under it
     await p.until(() => !!document.querySelector("#dpara.on"),
                   "the draft edit to open");
@@ -540,22 +538,15 @@ export default [
     await sheet(p, base, "drv-plan");
     // Onto the first PARAGRAPH first: the header rows sit above it, and RET on
     // the drawer opens no box.
-    await walkTo(p, "d-para", "the first paragraph");
+    await walkTo(p, ".d-para", "the first paragraph");
     const out = [];
     // A paragraph and the whole-list composite carry the title indent; leaves do not.
     const walk = ["", "n", "f", "n", "n", "n"];
     for (let i = 0; i < walk.length; i += 1) {
       if (walk[i]) await p.press(walk[i]);
       await p.press("RET");
-      await p.until(() => document.getElementById("dpara").classList.contains("on"),
-                    "the edit to open");
-      // `placeEdit' sizes the box a turn after the raise; unsized it is one line tall.
-      await p.until(() => {
-        const b = document.getElementById("dpara").getBoundingClientRect();
-        const at = document.querySelector("#mdoc .de.dat");
-        return at && b.height > 0
-          && Math.abs(b.height - at.getBoundingClientRect().height) < 1;
-      }, "the box to be placed over its row");
+      await editUp(p);
+      await boxPlaced(p);
       const s = await p.eval(read);
       const row = s.dat[s.dat.length - 1];
       out.push(`leaf ${i} ${row.cls}`);
@@ -1083,7 +1074,6 @@ export default [
   async run(p, base) {
     await intoNestedItem(p, base, "drv-wide");
     const seen = await p.eval(() => {
-      const root = getComputedStyle(document.documentElement);
       const at = document.querySelector("#mdoc .de.dat");
       const kid = at.querySelector(":scope > .de");
       // NEITHER POINT, NOR ITS SUBTREE, NOR AN OWNER, NOR A SIBLING: a sibling is the
@@ -1093,41 +1083,31 @@ export default [
       // is the prose around the list.
       const other = [...document.querySelectorAll("#mdoc .de.d-para.lvl-top")]
         .find((n) => !n.classList.contains("d-head"));
-      return { point: rgb(root.getPropertyValue("--g-point").trim()),
-               fg: rgb(root.getPropertyValue("--g-fg").trim()),
-               off: rgb(root.getPropertyValue("--g-point-off").trim()),
-               sel: rgb(root.getPropertyValue("--g-sel").trim()),
+      return { point: g("point"),
+               fg: g("fg"),
+               off: g("point-off"),
+               sel: g("sel"),
                atInk: ink(at),
                kidInk: ink(kid),
                otherInk: other
                  ? ink(other) : null,
-               ground: getComputedStyle(at).backgroundColor,
                tall: Math.round(parseFloat(getComputedStyle(at, "::before").height)),
                rowH: Math.round(at.getBoundingClientRect().height) };
     });
-    // THE GROUND SAYS WHERE POINT IS: its connector wears the page's own ink.
-    assert(seen.atInk === seen.fg,
-      `the item's connector paints ${seen.atInk}, not the page's ink ${seen.fg}`);
     // WHAT POINT CARRIES TAKES THE PAGE'S OWN INK; everything off the path drops to
-    // the ink nobody is looking at.
+    // the ink nobody is looking at.  The ground itself is the case named "the cursor
+    // is a ground over its own line".
     assert(seen.kidInk === seen.fg,
       `a row under point paints ${seen.kidInk}, not the page's ink ${seen.fg}`);
     assert(seen.otherInk === seen.off,
       `an item outside point's subtree paints ${seen.otherInk}, not ${seen.off}`);
-    // AND THE ROW STANDS ON THE TABLE'S OWN GROUND, its connector outside it.
-    assert(seen.ground === seen.sel,
-      `the item grounds ${seen.ground}, not the table's ${seen.sel}`);
     // THE SPINE BARS THE ROW'S WHOLE EXTENT: own line and subtree together,
     // the run's unbroken column.
     assert(Math.abs(seen.tall - seen.rowH) < 1,
       `the spine is ${seen.tall}px against the row's ${seen.rowH}px extent`);
     // THE LIST GROUNDS THE ROWS IT OPENS: a composite has no connector of its own,
     // and a connector standing on that ground takes the page's ink to read over it.
-    await p.press("b");
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && at.classList.contains("d-comp");
-    }, "the cursor to go back out to the list itself");
+    await stepped(p, "b", ".d-comp", "the cursor to go back out to the list itself");
     const whole = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
       const root = at.querySelector(":scope > .de");
@@ -1153,7 +1133,7 @@ export default [
 { name: "the open edit over a nested item covers its own line alone",
   async run(p, base) {
     await sheet(p, base, "drv-wide");
-    await walkTo(p, "d-list", "the list");
+    await walkTo(p, ".d-list", "the list");
     await p.press("f");
     // BOTH a nested row AND an own line: a composite has kids too.
     await p.until(() => {
@@ -1172,8 +1152,7 @@ export default [
       + `covering the subtree would look the same as one covering the line`);
 
     await p.press("RET");
-    await p.until(() => document.getElementById("dpara").classList.contains("on"),
-                  "the edit to open");
+    await editUp(p);
     // `placeEdit' sets the top and the height together a frame after the raise.
     await p.until(() => {
       const b = document.getElementById("dpara").getBoundingClientRect();
@@ -1202,7 +1181,7 @@ export default [
   async run(p, base) {
     await sheet(p, base, "drv-wide");
     // Onto the list, then into it: the item under point has one drawn inside it.
-    await walkTo(p, "d-list", "the list");
+    await walkTo(p, ".d-list", "the list");
     await p.press("f");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
@@ -1210,7 +1189,6 @@ export default [
     }, "the cursor to land on an item that has one drawn inside it");
     const seen = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
-      const root = getComputedStyle(document.documentElement);
       // THE INK IS READ OFF THE GLYPH, the bullet's own span where org wrote a
       // steppable bullet, since that is what the reader sees.
       const glyph = (n) => n && (n.querySelector(".dbul") || n);
@@ -1220,10 +1198,10 @@ export default [
       const kid = glyph(kidRow.querySelector(":scope > .dp > .dm"));
       const plainRow = [...document.querySelectorAll("#mdoc .de:not(.dat)")]
         .find((n) => !at.contains(n) && n.querySelector(":scope > .dp > .dm"));
-      return { sel: rgb(root.getPropertyValue("--g-sel").trim()),
-               bg: rgb(root.getPropertyValue("--g-bg").trim()),
-               fg: rgb(root.getPropertyValue("--g-fg").trim()),
-               point: rgb(root.getPropertyValue("--g-point").trim()),
+      return { sel: g("sel"),
+               bg: g("bg"),
+               fg: g("fg"),
+               point: g("point"),
                // THE GROUND THE TABLE'S CURSOR WEARS, and the tree in its own column.
                ground: getComputedStyle(at).backgroundColor,
                rail: ink(at),
@@ -1254,11 +1232,8 @@ export default [
     assert(/^\s*([-+*]|\d+[.)])\s+(\[[ xX-]\]\s+)?$/.test(seen.text),
       `the span read is "${seen.text}", which is not an org list marker`);
     // AND THE HEADLINE DRAWS NO MARK: its stars sit in the connector's own column.
-    await p.press("b"); await p.press("b");
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && at.classList.contains("d-head");
-    }, "the cursor to climb back to the headline");
+    await stepped(p, "b", ".d-comp", "the cursor to go back out to the list");
+    await stepped(p, "b", ".d-head", "the cursor to climb back to the headline");
     const head = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
       return { stars: getComputedStyle(at.querySelector(".ds")).color,
@@ -1287,13 +1262,12 @@ export default [
       return !!at && document.querySelectorAll("#mdoc .dpath .dcr").length >= 3;
     }, "the strip to name three steps or more");
     const seen = await p.eval(() => {
-      const root = getComputedStyle(document.documentElement);
       const crumbs = [...document.querySelectorAll("#mdoc .dpath .dcr")];
       const at = document.querySelector("#mdoc .de.dat");
       const own = at.querySelector(":scope > .dp");
       return { words: crumbs.map((c) => c.textContent),
                last: getComputedStyle(crumbs[crumbs.length - 1]).color,
-               point: rgb(root.getPropertyValue("--g-point").trim()),
+               point: g("point"),
                said: own ? own.textContent.trim() : "",
                sticky: getComputedStyle(document.querySelector("#mdoc .dpath")).position };
     });
@@ -1321,7 +1295,6 @@ export default [
     await sheet(p, base, "drv-wide");
     const inks = () => {
       const rows = [...document.querySelectorAll("#mdoc .de")];
-      const root = getComputedStyle(document.documentElement);
       const head = document.querySelector("#mdoc .de.d-head");
       // A SIBLING IS THE CHOICE THE READER IS STANDING IN, and its own branch comes
       // with it: a branch whose contents are dimmed cannot be weighed.
@@ -1331,14 +1304,11 @@ export default [
       const inSib = sib && sib.querySelector(".de");
       // A LINK ON A DIMMED LINE: `.dl' carries its own ink and outranks what it
       // inherits, so it is the one part that can stay lit while its line goes.
-      const dimmed = (n) => getComputedStyle(n.closest(".de")).color
-                            === rgb(root.getPropertyValue("--g-point-off").trim());
+      const dimmed = (n) => getComputedStyle(n.closest(".de")).color === g("point-off");
       const box = [...document.querySelectorAll("#mdoc .dbx.on")].find(dimmed);
-      const link = [...document.querySelectorAll("#mdoc .de .dl")]
-        .find((n) => getComputedStyle(n.closest(".de")).color
-                     === rgb(root.getPropertyValue("--g-point-off").trim()));
-      return { fg: rgb(root.getPropertyValue("--g-fg").trim()),
-               off: rgb(root.getPropertyValue("--g-point-off").trim()),
+      const link = [...document.querySelectorAll("#mdoc .de .dl")].find(dimmed);
+      return { fg: g("fg"),
+               off: g("point-off"),
                focus: !!document.querySelector("#mdoc .focus"),
                head: head ? getComputedStyle(head).color : null,
                sib: sib ? getComputedStyle(sib).color : null,
@@ -1402,45 +1372,13 @@ export default [
     // `drv-plan' carries both a ticked and an empty box, which is where the marker
     // is widest and the arithmetic is worth asking about.
     await sheet(p, base, "drv-plan");
-    await walkTo(p, "d-list", "the list");
-    await p.press("f");
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && at.classList.contains("d-item");
-    }, "`f' to reach the list's first item");
-    // Walk to the item that carries a box, then open it and split the line.
-    // A KEY IS ANSWERED A TURN LATER, so each step waits for the cursor to move --
-    // pressing again over a pane that has not answered walks past the box.
-    const rowNow = () => p.eval(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return at ? at.textContent.slice(0, 40) : "";
-    });
-    for (let i = 0; i < 6; i++) {
-      const box = await p.eval(() => {
-        const at = document.querySelector("#mdoc .de.dat");
-        return !!at && !!at.querySelector(":scope > .dp > .dbx");
-      });
-      if (box) break;
-      const was = await rowNow();
-      await p.press("n");
-      await p.until((seen) => {
-        const at = document.querySelector("#mdoc .de.dat");
-        return !!at && at.dataset.id === docAtNow()
-          && at.textContent.slice(0, 40) !== seen;
-      }, "the cursor to move on", undefined, was);
-    }
-    await settled(p);
+    await walkTo(p, ".d-list", "the list");
+    await stepped(p, "f", ".d-item", "`f' to reach the list's first item");
+    // Onto the item that carries a box, then open it and split the line.
+    await walkTo(p, ".d-item:has(> .dp > .dbx)", "the item that carries a box");
     await p.press("RET");
-    await p.until(() => document.getElementById("dpara").classList.contains("on"),
-                  "the edit to open over it");
-    // `placeEdit' SIZES THE BOX A TURN AFTER THE RAISE: measured before that, the
-    // box still stands over the row the cursor was on, and no growth can beat it.
-    await p.until(() => {
-      const b = document.getElementById("dpara").getBoundingClientRect();
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && b.height > 0
-             && Math.abs(b.height - at.getBoundingClientRect().height) < 1;
-    }, "the box to be placed over its row");
+    await editUp(p, "the edit to open over it");
+    await boxPlaced(p);
     const shut = await p.eval(() =>
       document.getElementById("dpara").getBoundingClientRect().height);
     await p.press("M-RET");
@@ -1475,12 +1413,7 @@ export default [
                   "the pane to draw all eight unordered bullets");
     const read = () => {
       // THE PANE IS MONOSPACE, so one cell is the unit every column is counted in.
-      const probe = document.createElement("span");
-      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
-      probe.textContent = "0".repeat(50);
-      document.getElementById("mdoc").append(probe);
-      const ch = probe.getBoundingClientRect().width / 50;
-      probe.remove();
+      const ch = cell();
       const readMark = (n) => ({
         text: n.textContent,
         textAt: n.getBoundingClientRect().right,
@@ -1561,8 +1494,7 @@ export default [
     await sheet(p, base, "drv-marks");
     const read = () => p.eval(() => {
       const drawer = document.querySelector("#mdoc .d-drawer");
-      const point = rgb(getComputedStyle(document.documentElement)
-        .getPropertyValue("--g-point").trim());
+      const point = g("point");
       return { folded: drawer.textContent,
                point,
                frameInk: [...drawer.querySelectorAll(".dg")].map((g) =>
@@ -1584,7 +1516,7 @@ export default [
     assert(shut.planning.length === 1 && /^DEADLINE: </.test(shut.planning[0]),
       `the planning line reads ${JSON.stringify(shut.planning)}`);
     // Onto the drawer, and TAB opens it.
-    await walkTo(p, "d-drawer", "the drawer");
+    await walkTo(p, ".d-drawer", "the drawer");
     await p.press("TAB");
     await p.until(() => document.querySelectorAll("#mdoc .d-drawer .d-meta").length > 0,
                   "TAB to open the drawer");
@@ -1595,7 +1527,7 @@ export default [
     // THE HIDDEN PAIR STAYS HIDDEN: the id is the store's, never the reader's.
     assert(open.pairs.length === 2 && !open.pairs.some((t) => /ORG_GLANCE_ID/.test(t)),
       `the open drawer holds ${JSON.stringify(open.pairs)}`);
-    // A PAIR IS NOT NESTED: no elbow, a paragraph's own thin bar -- which spends
+    // A PAIR IS NOT NESTED: no spine, a paragraph's own thin bar -- which spends
     // `--ink', so a flag has somewhere to say so.
     assert(open.bars.length === 2 && open.bars.every((b) => b === "0px 1px"),
       `a pair's mark reads ${JSON.stringify(open.bars)}`);
@@ -1628,7 +1560,7 @@ export default [
       return { props: h.properties, plan: h.planning };
     });
     await sheet(p, base, "drv-marks");
-    await walkTo(p, "d-drawer", "the drawer");
+    await walkTo(p, ".d-drawer", "the drawer");
     await p.press("f");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
@@ -1637,7 +1569,7 @@ export default [
     await settled(p);
     // RET EDITS THE LINE AS ORG SPELLS IT.
     await p.press("RET");
-    await p.until(() => document.getElementById("dpara").classList.contains("on"), "the edit");
+    await editUp(p, "the edit");
     const seeded = await p.eval(() => document.getElementById("dtext").value);
     assert(seeded === ":OWNER: reader", `the edit seeds ${JSON.stringify(seeded)}`);
     await p.eval(() => { document.getElementById("dtext").value = ":OWNER: writer"; });
@@ -1667,7 +1599,7 @@ export default [
     }, "the pair to leave the file", 15000);
     // `+' ASKS FROM THE DRAWER; the sheet is reopened so the walk is the reader's own.
     await sheet(p, base, "drv-marks");
-    await walkTo(p, "d-drawer", "the drawer");
+    await walkTo(p, ".d-drawer", "the drawer");
     await p.press("+");
     // `+' ASKS, org's way: the key, then the value, both required.
     await p.until(() => /property key/.test(document.getElementById("phead").textContent),
@@ -1709,13 +1641,7 @@ export default [
           .find((n) => re.test(n.textContent));
         return e ? parseFloat(getComputedStyle(e).paddingLeft) : null;
       };
-      const probe = document.createElement("span");
-      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
-      probe.textContent = "0".repeat(20);
-      document.getElementById("mdoc").append(probe);
-      const ch = probe.getBoundingClientRect().width / 20;
-      probe.remove();
-      return { ch,
+      return { ch: cell(),
                root: pad("#mdoc .d-para", /The entry a case reads/),
                kid: pad("#mdoc .d-para", /A paragraph the child owns/),
                grand: pad("#mdoc .d-para", /The grandchild's own line/) };
@@ -1726,17 +1652,7 @@ export default [
       + `${insets.ch}px character`);
     // THE SHELF WALKS LIKE A LIST: n from the first child lands on the second,
     // never inside the first — a sibling shares an owner.
-    for (let i = 0; i < 9; i += 1) {
-      const seen = await p.eval(() => {
-        const at = document.querySelector("#mdoc .de.dat");
-        return { kid: at.classList.contains("d-child"), text: at.textContent.slice(0, 30) };
-      });
-      if (seen.kid) break;
-      await p.press("n");
-      await p.until((was) => document.querySelector("#mdoc .de.dat")
-                      .textContent.slice(0, 30) !== was,
-                    "the step to settle", undefined, seen.text);
-    }
+    await walkTo(p, ".d-child", "the first child headline");
     const first = await p.eval(() => document.querySelector("#mdoc .de.dat").textContent);
     assert(/A child whose body/.test(first), `the walk reached ${JSON.stringify(first)}`);
     await p.press("n");
@@ -1756,7 +1672,7 @@ export default [
     await settled(p);
     // THE SPLICE IS THE SAME DOOR: editing the child's paragraph writes the file.
     await p.press("RET");
-    await p.until(() => document.getElementById("dpara").classList.contains("on"), "the edit");
+    await editUp(p, "the edit");
     await p.eval(() => { document.getElementById("dtext").value = "A paragraph the child edits."; });
     await p.press("RET");
     await p.until(async () => {
@@ -1766,11 +1682,7 @@ export default [
     // `b' CLIMBS TO THE OWNER: the paragraph's owner is the child headline.
     await p.until(() => !!document.querySelector("#mdoc .de.dat"), "point back");
     await settled(p);
-    await p.press("b");
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && at.classList.contains("d-child");
-    }, "b to climb to the child headline");
+    await stepped(p, "b", ".d-child", "b to climb to the child headline");
     // TAB ON A HEADLINE FOLDS ITS SUBTREE, org's own cycle: the contents leave
     // the pane whole -- the grandchild with them -- and TAB brings them back.
     await settled(p);
@@ -1788,15 +1700,38 @@ export default [
     await p.until(() => [...document.querySelectorAll("#mdoc .d-para")]
         .some((e) => /A paragraph the child edits/.test(e.textContent)),
       "TAB to open it again");
+    // THE RAMP, THE NAMES AND THE SHELVES ARE OBSERVED: point inside the child,
+    // its block wears rank 0 and the root's a step out; a sibling child's rows
+    // sit BESIDE the first child's block; the strip names a child by its TITLE.
+    await p.press("f");
+    await settled(p);
+    const ranked = await p.eval(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      const inner = at.closest(".blk");
+      const outer = inner && inner.parentElement.closest(".blk");
+      const second = [...document.querySelectorAll("#mdoc .d-para")]
+        .find((e) => /Its paragraph/.test(e.textContent));
+      return { inner: inner ? inner.className : "",
+               outer: outer ? outer.className : "",
+               apart: !!second && !!inner && !inner.contains(second),
+               crumb: document.querySelector("#mdoc .dpath").textContent };
+    });
+    assert(/\bsp-0\b/.test(ranked.inner) && /\bsp-1\b/.test(ranked.outer),
+      `the ramp ranks inner "${ranked.inner}" and outer "${ranked.outer}"`);
+    assert(ranked.apart,
+      "a sibling child's rows nest inside the first child's block");
+    assert(/A child whose body/.test(ranked.crumb),
+      `the strip reads ${JSON.stringify(ranked.crumb)}, never the child's title`);
     return [`3 children inline; the shelf steps over subtrees; a child's paragraph `
-      + `edits through the splice; TAB folds the subtree whole`];
+      + `edits through the splice; TAB folds the subtree whole; the ramp ranks `
+      + `${(ranked.inner.match(/sp-\d/) || [])[0]}/${(ranked.outer.match(/sp-\d/) || [])[0]}`];
   } },
 { name: "the pane is a narrowing, so a typed root-level headline is demoted",
   async run(p, base) {
     await sheet(p, base, "drv-marks");
-    await walkTo(p, "d-para", "the entry's own paragraph");
+    await walkTo(p, ".d-para", "the entry's own paragraph");
     await p.press("RET");
-    await p.until(() => document.getElementById("dpara").classList.contains("on"), "the edit");
+    await editUp(p, "the edit");
     // NOTHING WRITTEN MAY ESCAPE THE SUBTREE: `* ' at the root's level would,
     // so it lands as `** ', the first child level -- org's narrowed buffer.
     await p.eval(() => { document.getElementById("dtext").value

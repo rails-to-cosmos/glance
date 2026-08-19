@@ -138,7 +138,7 @@ page head' colours title body = T.unlines
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
   , "  .dp{position:relative}"
-  , "  .de::before,.de::after{content:\"\";position:absolute;left:var(--rail);"
+  , "  .de::before{content:\"\";position:absolute;left:var(--rail);"
   , "    pointer-events:none}"
   -- THE CURSOR IS THE GROUND THE TABLE'S CURSOR WEARS, `--g-sel' on both surfaces.
   -- A NESTED ROW IS DRAWN INSIDE ITS PARENT, so the ground would run the whole
@@ -203,12 +203,22 @@ page head' colours title body = T.unlines
   -- A HEADLINE AT POINT LIGHTS ITS BLOCK ONE LEVEL DEEP: the block's spine
   -- and every list's TOP run light, and a nested run keeps its resting bar --
   -- lighting every run said nothing about which.
+  -- AND SO DOES ANY STOP ON THE BLOCK'S OWN SHELF: point on the drawer, the
+  -- planning line or a paragraph reads the same level-1 picture as point on
+  -- the headline -- the shelf, not the row, is what is being stood on.
   , "  #mdoc.on .de.dat.d-head + .blk .d-comp > .de,"
   , "  #mdoc.on .de.dat.d-child + .blk .d-comp > .de,"
-  , "  #mdoc.on .de.sib.d-child + .blk .d-comp > .de{--ink:var(--g-fg)}"
+  , "  #mdoc.on .de.sib.d-child + .blk .d-comp > .de,"
+  , "  #mdoc.on .blk:has(> .de.dat) > .d-comp > .de{--ink:var(--g-fg)}"
   -- A SIBLING'S OWN SUBTREE COMES WITH IT: the reader is choosing between BRANCHES,
   -- and a branch whose contents are dimmed is a branch they cannot weigh.
   , "  #mdoc.on .up,#mdoc.on .sib,#mdoc.on .sib .de{--ink:var(--g-fg)}"
+  -- AND THE RUNS RIDE THE RAMP: an enclosing run's bar steps down the accent
+  -- by its distance out -- `up-0' the nearest -- and only point's own run
+  -- (dat and sib segments) bars in the page's ink.
+  , "  #mdoc.on .up.up-0{--ink:color-mix(in srgb, var(--g-accent) 67%, var(--g-bg))}"
+  , "  #mdoc.on .up.up-1{--ink:color-mix(in srgb, var(--g-accent) 45%, var(--g-bg))}"
+  , "  #mdoc.on .up.up-2{--ink:color-mix(in srgb, var(--g-accent) 25%, var(--g-bg))}"
   -- THE GROUND SAYS WHERE POINT IS; a bar never wears gold for it, and
   -- what point carries -- OWNERSHIP IS IN THE NESTING -- takes the same ink.
   , "  #mdoc.on .de.dat,#mdoc.on .de.dat .de{--ink:var(--g-fg)}"
@@ -234,6 +244,11 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .focus .d-drawer:not(.up):not(.sib):not(.dat) .dg,"
   , "  #mdoc.on .focus .de:not(.up):not(.sib):not(.dat) .dpunc{"
   , "    color:var(--g-point-off)}"
+  -- AND SO DOES ITS BAR: a pair's gutter bar rides the block's spine ink,
+  -- which stays lit while the drawer itself dims -- off the path it drops
+  -- with its frame, the flag's red still outranking.
+  , "  #mdoc.on .focus .d-drawer:not(.up):not(.sib):not(.dat)"
+  , "    .d-meta:not(.dfl)::before{background:var(--g-point-off)}"
   -- WHAT A SELECTED OR OFFERED HEADLINE CARRIES READS WHOLE: its block is the
   -- dat/sib subtree the flat rows cannot nest, so the adjacent block says it.
   , "  #mdoc.on .focus .de.dat.d-head + .blk .de,"
@@ -268,13 +283,10 @@ page head' colours title body = T.unlines
   -- WHAT STANDS ON THE GROUND TAKES THE PAGE'S INK: the ground says which line, and a
   -- marker in point's own hue vanished into it -- gold on gold, and the ordinals with
   -- it.  THE SPINE KEEPS ITS HUE, its column being outside the ground.
-  , "  #mdoc.on .de.dat>.dp>.dm,#mdoc.on .de.dat .de>.dp>.dm,"
-  , "  #mdoc.on .de.dat.d-comp>.de>.dp>.dm{color:var(--g-fg)}"
-  -- SPELLED TWICE ON PURPOSE: a flag outranks point and keeps its mark after point has
-  -- moved on, so the gated copy outweighs the heavier rule carrying what point holds.
-  -- A FLAG TAKES THE BRANCH.  What hangs off a flagged row goes with it wherever the
-  -- flag leads -- a delete takes the subtree, so the mark says so.
-  , "  .de.dfl,.de.dfl .de{--ink:var(--g-bad)}"
+  , "  #mdoc.on .de.dat>.dp>.dm,#mdoc.on .de.dat .de>.dp>.dm{color:var(--g-fg)}"
+  -- A FLAG TAKES THE BRANCH.  What hangs off a flagged row goes with it wherever
+  -- the flag leads -- a delete takes the subtree, so the mark says so; the second
+  -- selector outweighs the rule carrying what point holds.
   , "  #mdoc.on .de.dfl,#mdoc.on .de.dfl .de,"
   , "  #mdoc.on .de.dat .de.dfl,#mdoc.on .de.dat .de.dfl .de{--ink:var(--g-bad)}"
   , "  .de.dfl.d-head .ds,.de.dfl.d-child .ds,.de.dfl>.dp>.dm,"

@@ -8,6 +8,14 @@ nothing catches it.
 
 ## The write path
 
+- **The pane is a narrowing.** Text entering the doc pane through an edit or a
+  new paragraph passes `narrowed`: a typed headline at the materialized root's
+  level or above is demoted to the first child level, so no write escapes the
+  subtree. `Doc.elm` (`narrowed`, applied in the `Edit` and `Insert` arms);
+  pinned end-to-end by the browser case "the pane is a narrowing…" and the
+  AGENTS note. Bypassing it lets a pane edit rewrite content outside the
+  materialized headline. *fragility: low*
+
 - **One door.** Every byte written to the tree leaves through
   `Watch.writeSpans` → `Query.replaceSpans` → `Edit.editFile`; no module calls
   the splice engine directly. `Watch.hs:66`, `Query.hs:1099`,

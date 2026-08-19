@@ -455,7 +455,6 @@ const makeMount = (host, view, options, own) => {
     })(),
     held: o.initialQuery || "",
     marksOn: o.marks === true,
-    flagsOn: o.flags === undefined ? o.marks === true : o.flags === true,
     hintsOn: o.actionHints !== false,
     flagHelp: o.flagHelp || "",
     pageSize: o.pageSize || 0,
@@ -1040,19 +1039,6 @@ const onKeywords = () => {
   const tab = field("ctabs").children.find((t) => t.textContent === "keywords");
   if (tab && tab.className !== "ctab on") tab.fire("click", {});
 };
-const cellsOf = (inst, keys) =>
-  (inst ? inst.own.map((r) => keys.map((k) => r.cells[k])) : []);
-const curOf = (inst) => (inst ? inst.at() : -1);
-const mountFields = (prefix, inst) => ({
-  [`${prefix}cols`]: inst ? inst.cols : [],
-  [`${prefix}marks`]: inst ? inst.marksOn : null,
-  [`${prefix}flags`]: inst ? inst.flagsOn : null,
-  [`${prefix}hints`]: inst ? inst.hintsOn : null,
-  [`${prefix}page`]: inst ? inst.pageSize : null,
-  [`${prefix}flagHelp`]: inst ? inst.flagHelp : "",
-  [`${prefix}marked`]: inst ? [...inst.marks] : [],
-  [`${prefix}flagged`]: inst ? [...inst.flags] : [],
-});
 /** THE STRUCTURED DOCUMENT, read off what it DREW: `#dlist' holds one element
  * per row wearing its KIND as a class, reading as `[KIND, ...parts]'. */
 const kindOf = (cls) => String(cls).split(" ")

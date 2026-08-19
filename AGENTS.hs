@@ -3839,12 +3839,6 @@ closes Plain  = False
 closes Item   = False
 closes Table  = False
 
--- | THE TOP LEVEL READS THE SAME KIND, and the DRAWER is its one named arm: a drawer
---   opens no stop, so its opener and closer are prose lines up here.
-stopKindAt :: RegionKind -> RegionKind
-stopKindAt Drawer = Plain
-stopKindAt k      = k
-
 data Marker = NoMarker | ItemBullet | TableRow | BareIndent deriving (Eq, Show)
 -- | ONE ARM PER KIND, org's own in each: the item's own indent and bullet with the number
 --   continued and an EMPTY box after one, an empty ROW aligned to the table's own widths,
@@ -4432,14 +4426,12 @@ sheetNotes =
          \ a composite by its NAME, anything else by its own line with the marker taken\
          \ off.  The last crumb is point, in the ink point's own connector takes, so a\
          \ crumb and its rail agree." [Browser]
-  , Note "THE TREE HAS A COLUMN OF ITS OWN: the pane keeps a character the text never\
-         \ enters and every connector sits HALF A CELL left of the tab stop, so the\
-         \ elbow's horizontal ends with air before org's own bullet.  The two sat one\
-         \ cell apart at the same height and read as a single dashed run; the room is\
-         \ what the flag's own shape will want next." [Test, Browser]
-  , Note "ONE INK PER ROW: a tier sets `--ink' on the row and the shapes SPEND it, an\
-         \ elbow on its borders and a run on its background.  A case reads the tier\
-         \ rather than the shape, which is why one assertion covers both." [Browser]
+  , Note "THE MARKS HAVE A COLUMN OF THEIR OWN: the pane keeps a character the text\
+         \ never enters, and every bar sits at its shelf's rail, half a cell left of\
+         \ the tab stop." [Test, Browser]
+  , Note "ONE INK PER ROW: a tier sets `--ink' on the row and the run's bar SPENDS it.\
+         \ A case reads the tier rather than the shape, so one assertion covers the\
+         \ mark however it is drawn." [Browser]
   , Note "A WHOLE NUMBER OF PIXELS PER LINE: `--g-doc-lh' is a LENGTH, since a 1px\
          \ hairline and a hinted glyph land on one device row only when every row\
          \ starts at the same sub-pixel offset, and 13 x 1.6 is 20.8.  The gaps around\
@@ -4471,29 +4463,21 @@ sheetNotes =
   , Note "A SIBLING IS THE CHOICE THE READER IS STANDING IN, so it stays readable and\
          \ ITS OWN BRANCH COMES WITH IT -- a branch whose contents are dimmed is one\
          \ they cannot weigh.  `sib' is the row sharing point's owner." [Browser]
-  , Note "THE ELBOW TURNS WHERE THE DASH INKS, which is a pixel below the half-line in\
-         \ Hack at 13px, and the border's own half is another -- so the height carries\
-         \ `+ 0.115em'.  The dash keeps that column whether or not it paints." [Browser]
-  , Note "FULL INK UNTIL THE READER GOES INTO A LIST.  Dimming answers WHICH BRANCH\
-         \ AM I IN, so it engages when point is on an ITEM and leaves the document\
-         \ alone otherwise: `focus' rides the program's own root and every row off the\
-         \ path drops to `--g-point-off', text and connector alike." [Test, Browser]
+  , Note "FULL INK UNTIL THE READER GOES INTO A BLOCK -- a list run, a drawer's pairs,\
+         \ a child's contents.  Dimming answers WHICH BRANCH AM I IN, so it engages\
+         \ when point's row has an owner: `focus' rides the program's own root and\
+         \ every row off the path drops to `--g-point-off', text and marks alike." [Test, Browser]
   , Note "`--g-point-off' is the ink nobody is looking at, PICKED per theme -- dark's\
          \ a deep blue, light's a pale one -- since a mix toward the ground lands on\
          \ brown in one and on nothing in the other." [Test]
   , Note "THE PATH, NOT THE LEVEL: what lights is point's OWNERS (`up'), not every\
          \ sibling of every owner -- that lit whole levels and said nothing about the\
-         \ way back.  FLAT, with no step by distance: dimming the rest is what makes\
-         \ the path read.  What point CARRIES takes the page's ink too, read off the\
-         \ nesting, and a COMPOSITE at point GROUNDS the rows it opens rather than\
-         \ lighting them -- a connector inside that ground takes the page's ink." [Browser]
-  , Note "A PARAGRAPH IS NOT A BRANCH: nothing to elbow into, so it wears the bar at\
-         \ the column every outermost row marks on.  A COMPOSITE is drawn as its tree\
-         \ rather than as a bar as well, which said the same thing twice." [Test]
-  , Note "THE TREE HAS ITS OWN COLUMN, OUTSIDE THE GROUND: the connector sits one tab\
-         \ stop LEFT of the row's own text, which is where that block's rail runs, so\
-         \ point's ground and point's rail never cover each other and the rail keeps\
-         \ point's own hue." [Test, Browser]
+         \ way back.  THE BARS STEP: an enclosing run's bar rides the accent ramp by\
+         \ its distance out (`up-K'), while the TEXT of the path stays flat -- dimming\
+         \ the rest is what makes it read.  What point CARRIES takes the page's ink,\
+         \ and a COMPOSITE at point GROUNDS the rows it opens." [Browser]
+  , Note "THE MARKS SIT OUTSIDE THE GROUND: a bar stands one tab stop LEFT of the\
+         \ row's own text, so point's ground and its marks never cover each other." [Test, Browser]
   , Note "A TICKED BOX WEARS THE DONE FACE, `--g-state-i0': a settled keyword's hue,\
          \ said in one glyph.  An EMPTY box wears its line's ink, saying nothing yet,\
          \ and a dimmed line dims both -- `> .dp' scopes the exceptions, since rows\
@@ -4520,13 +4504,10 @@ sheetNotes =
          \ its stars sitting in the column one would use, and an item keeps whatever org\
          \ wrote -- `-', `+', `*', `1.', `1)'.  Every one of them reads over point's\
          \ ground in the page's ink; `> .dp >' keeps the rule on the row's OWN line." [Browser]
-  , Note "THE DOCUMENT IS A BLOCK TOO and its rail runs the whole pane, starting UNDER\
-         \ the headline, whose stars own that column.  Without it the outermost column\
-         \ is drawn beside the list and nowhere else, breaking at every paragraph." [Test]
-  , Note "EVERY RAIL IS OPAQUE: the document's rail and the list's share the outermost\
-         \ column, so a translucent one composites darker along the list than beside a\
-         \ paragraph and the same unhighlighted mark reads as two styles." [Test]
-  , Note "THE RUNG AND THE STEP TRAVEL AS CLASSES -- `lvl-N', `lvl-top', `up-K' -- since\
+  , Note "EVERY MARK IS OPAQUE: bars and spines overlap at shared columns, and a\
+         \ translucent one composites darker where two meet, the same resting mark\
+         \ reading as two styles." [Test]
+  , Note "THE RUNG AND THE STEP TRAVEL AS CLASSES -- `lvl-top', `sp-N', `up-K' -- since\
          \ `Html.Attributes.style' assigns `style[key]' and browsers ignore that for a\
          \ custom property.  NOT `d-top': the harness reads a row's KIND off its `d-'\
          \ classes." [Test]

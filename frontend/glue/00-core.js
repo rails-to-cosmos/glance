@@ -351,7 +351,7 @@
         };
         if (s.walled && s.walled(flags)) { go(); return; }
         askText(`${s.verb} · ${flags.length} flagged`,
-                `type ${YES} and RET · ESC leaves them`, "",
+                `type ${YES} and RET · ESC leaves them`,
                 (c) => (c.text.trim().toUpperCase() === YES ? go() : say(s.spared)));
         return;
       }

@@ -13,7 +13,7 @@ import { existsSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { freePort, polling, sleep } from "../harness.mjs";
+import { end, freePort, polling, sleep } from "../harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TURN = 25;              // the poll, in ms — the watch's own drain rate
@@ -185,12 +185,19 @@ class CDP {
 function pageHandle(cdp, sid) {
   const call = (m, p) => cdp.send(m, p, sid);
   // A PAGE FUNCTION IS SERIALIZED WHOLE and can call nothing of this module, so the
-  // two probes every case wanted ride in ahead of it: `rgb' resolves a colour the way
-  // the engine would paint it, and `ink' reads the tier a row wears.
+  // probes every case wanted ride in ahead of it: `rgb' resolves a colour the way the
+  // engine would paint it, `ink' reads the tier a row wears, `g' a `--g-*' token off
+  // the document element, and `cell' the pane's monospace character.
   const PRELUDE = 'const rgb=(v)=>{const d=document.createElement("div");'
     + 'd.style.color=v;document.body.append(d);'
     + 'const c=getComputedStyle(d).color;d.remove();return c;};'
-    + 'const ink=(n)=>rgb(getComputedStyle(n).getPropertyValue("--ink").trim());';
+    + 'const ink=(n)=>rgb(getComputedStyle(n).getPropertyValue("--ink").trim());'
+    + 'const g=(n)=>rgb(getComputedStyle(document.documentElement)'
+    + '.getPropertyValue("--g-"+n).trim());'
+    + 'const cell=(n=50)=>{const s=document.createElement("span");'
+    + 's.style.cssText="position:absolute;visibility:hidden;white-space:pre";'
+    + 's.textContent="0".repeat(n);document.getElementById("mdoc").append(s);'
+    + 'const w=s.getBoundingClientRect().width/n;s.remove();return w;};';
   const evaluate = async (fn, ...args) => {
     const src = `(()=>{${PRELUDE}return (${fn.toString()})(`
       + `${args.map((a) => JSON.stringify(a)).join(",")});})()`;
@@ -427,15 +434,6 @@ async function main() {
     if (!keep && !failed) await rm(shots, { recursive: true, force: true }).catch(() => {});
   }
   process.exit(lied ? 2 : failed ? 1 : 0);
-}
-
-function end(proc) {
-  if (proc.exitCode !== null || proc.signalCode) return Promise.resolve();
-  return new Promise((ok) => {
-    const hard = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* gone */ } }, 5_000);
-    proc.on("exit", () => { clearTimeout(hard); ok(); });
-    try { proc.kill("SIGTERM"); } catch { clearTimeout(hard); ok(); }
-  });
 }
 
 main().catch(async (e) => {

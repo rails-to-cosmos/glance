@@ -147,7 +147,7 @@
       refer: (b) => referKey(b),
       applyDefault, pinView, relations, focusFilter, toggleRaw, openSettings,
       save: saveSheet,
-      commitEdit: (b) => { if (docOpen()) commitDocEdit(b);
+      commitEdit: (b) => { if (sheetOpen()) commitDocEdit(b);
                            else if (editing && !raw && checkboxHere() !== null)
                              toggleCheckbox(b);
                            else said(b, "nothing open here"); },

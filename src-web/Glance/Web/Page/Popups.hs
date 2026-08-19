@@ -7,7 +7,6 @@ module Glance.Web.Page.Popups
   , veiled
   , washed
   , boxes
-  , chrome
   , chromeBoxes
   , chromeFeet
   , chromeHeads

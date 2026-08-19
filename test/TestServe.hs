@@ -5317,7 +5317,7 @@ shellGlue =
       -- A drawer's own line is its frame; what RET edits is a pair inside.
       , "if (r.fold) { echo(\"RET → f reaches the rows inside — TAB folds\"); return; }"
       -- `+' IN THE DRAWER ASKS, org's own way: a KEY and a VALUE, both required.
-      , "askText(\"property key\", \"RET · ESC cancels\", \"\", (c) => {"
+      , "askText(\"property key\", \"RET · ESC cancels\", (c) => {"
       , "dsend({ kind: \"addprop\", key, value });"
       -- THE COMMIT CARRIES ITS OWN CARGO: body and lists together, off the port.
       , "{ body: cargo.body, properties: cargo.properties, planning: cargo.planning },"
@@ -5591,7 +5591,7 @@ shellGlue =
       , "manageTags: (b) => overTargets(b, \"tags\", askTags),"
       , "docTargets(docBinding(\"org-glance-overview:todo\"), \"set state\", askState);"
       , "docTargets(docBinding(\"org-agenda-set-tags\"), \"tags\", askTags);"
-      , "function raise(title, state, value, cls, foot) {" ]
+      , "function raise(title, state, cls, foot) {" ]
 
   -- Spans are CHAR offsets, so the pane counts characters rather than UTF-16 units.
   , Glue "the document counts characters and anchors what it drew"
