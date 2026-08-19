@@ -549,7 +549,7 @@ update msg model =
                 let
                     write r =
                         if r.id == id then
-                            { r | text = written }
+                            { r | text = narrowed model written }
 
                         else
                             r
@@ -574,7 +574,7 @@ update msg model =
         -- And the same row filled, which IS the write: zero-width, so the splice
         -- puts the lines in rather than replacing any.  The cursor stays put.
         Insert id caret written ->
-            case ( insertion model id caret written, joinLine model id caret ) of
+            case ( insertion model id caret (narrowed model written), joinLine model id caret ) of
                 ( Just rows, line ) ->
                     composed { model | rows = rows, landing = line }
 
@@ -589,6 +589,35 @@ update msg model =
                     undrafted model
             in
             told { model | rows = rows, at = placeOf { model | rows = rows } id }
+
+
+{-| THE PANE IS A NARROWING: what is written stays INSIDE the materialized
+subtree, so a typed headline at the root's level or above is DEMOTED to the
+first child level -- editing anything outside the subtree is forbidden.
+-}
+narrowed : Model -> String -> String
+narrowed m text =
+    let
+        starsAt line =
+            case String.uncons line of
+                Just ( '*', rest ) ->
+                    1 + starsAt rest
+
+                _ ->
+                    0
+
+        deepen line =
+            let
+                n =
+                    starsAt line
+            in
+            if n > 0 && n <= m.level && String.startsWith " " (String.dropLeft n line) then
+                String.repeat (m.level + 1) "*" ++ String.dropLeft n line
+
+            else
+                line
+    in
+    String.join "\n" (List.map deepen (String.split "\n" text))
 
 
 told : Model -> ( Model, Cmd Msg )
@@ -1051,30 +1080,21 @@ rung depth =
     attribute "style" ("--rail:calc(" ++ String.fromInt (2 * depth) ++ "ch - 1.5ch)")
 
 
-{-| The classes a row wears. `up` lights the connector of an owner of point,
-`lvl-top` says a row is drawn at the pane's own level, and `sp-N` ranks its
-shelf bar on the ramp. The rung itself rides an attribute — see `rung`.
+{-| The classes a row wears. `up` lights the connector of an owner of point, and
+`lvl-top` says a row is drawn at the pane's own level. The rung itself rides an
+attribute — see `rung`.
 -}
 type alias Lit =
-    { ups : List String, sib : Maybe String, spine : String -> Maybe Int }
+    { ups : List String, sib : Maybe String }
 
 
-{-| Point's owners, its owner, and the spine ramp, computed ONCE per render:
-`markOf'/`rowClass' read them for every row, and deriving them there walked
-the rows once per row.
+{-| Point's owners and its owner, computed ONCE per render: `markOf' reads them
+for every row, and deriving them there walked the rows once per row.
 -}
 litOf : Model -> Lit
 litOf m =
-    let
-        heads =
-            headOf m
-
-        ranks =
-            spineRanks m heads
-    in
     { ups = ownersOf m (idAtRow m m.at)
     , sib = Maybe.andThen .owner (rowAt m)
-    , spine = \id -> Maybe.andThen (\h -> Dict.get h ranks) (Dict.get id heads)
     }
 
 
@@ -1192,17 +1212,6 @@ rowClass lit m i r depth kin =
            )
         ++ (if kin then
                 " kin"
-
-            else
-                ""
-           )
-        ++ (if depth < 0 then
-                case lit.spine r.id of
-                    Just k ->
-                        " sp-" ++ String.fromInt (min 3 k)
-
-                    Nothing ->
-                        ""
 
             else
                 ""
@@ -1549,7 +1558,7 @@ viewCells m i r =
                             -- edge, detached from the words it belongs to.
                             text c.val
                                 :: (if Set.member r.id m.shut then
-                                        [ span [ class "dg" ] [ text "…" ] ]
+                                        [ span [ class "dg" ] [ text " …" ] ]
 
                                     else
                                         []
@@ -1709,22 +1718,71 @@ view m =
         hidden =
             hiddenIn m
 
+        ranks =
+            spineRanks m (headOf m)
+
         n =
             List.length m.rows
 
-        go i out =
+        -- A BLOCK IS AN ELEMENT: a headline's contents share one wrapper whose
+        -- `::before' is the SPINE — continuous past margins and past deeper
+        -- blocks alike, ranked on the ramp by its own class.
+        blkOf id level inner =
+            if List.isEmpty inner then
+                []
+
+            else
+                [ div
+                    [ class
+                        ("blk"
+                            ++ (case Dict.get id ranks of
+                                    Just k ->
+                                        " sp-" ++ String.fromInt (min 3 k)
+
+                                    Nothing ->
+                                        ""
+                               )
+                        )
+                    , attribute "style"
+                        ("--rail:calc(var(--g-doc-pad) + "
+                            ++ String.fromFloat (toFloat (String.length (stars m level)) - 1.5)
+                            ++ "ch)"
+                        )
+                    ]
+                    inner
+                ]
+
+        -- Rows until a child headline at or above LEVEL closes the block.
+        go i level out =
             if i >= n then
-                out
+                ( out, i )
 
             else
                 let
                     r =
                         Maybe.withDefault blank (nth i m.rows)
                 in
-                if Set.member r.id hidden then
+                if r.kind == Child && r.level <= level then
+                    ( out, i )
+
+                else if Set.member r.id hidden then
                     -- FOLDED AWAY with its owner.  What a composite holds is
                     -- transitively hidden too, so each row skips in its turn.
-                    go (i + 1) out
+                    go (i + 1) level out
+
+                else if r.kind == Child then
+                    -- The headline's own line on its parent's shelf, then its
+                    -- contents as a BLOCK beside it; a folded child has no
+                    -- visible contents and so no block, and no spine.
+                    let
+                        headline =
+                            div [ class (rowClass lit m i r -1 False), attribute "data-id" r.id ]
+                                (viewCells m i r)
+
+                        ( inner, j ) =
+                            go (i + 1) r.level []
+                    in
+                    go j level (out ++ headline :: blkOf r.id r.level inner)
 
                 else if r.grain == Composite then
                     let
@@ -1740,26 +1798,43 @@ view m =
                         shown =
                             if Set.member r.id m.shut && r.kind /= Meta then
                                 [ div [ class "dg" ]
-                                    [ text (Maybe.withDefault "" (nth r.from m.lines) ++ "…") ]
+                                    [ text (Maybe.withDefault "" (nth r.from m.lines) ++ " …") ]
                                 ]
 
                             else
                                 inner
                     in
-                    go j (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset m r) shown ])
+                    go j level (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset m r) shown ])
 
                 else if r.kind == Para || r.kind == Meta then
-                    go (i + 1) (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset m r) [ viewPara m r ] ])
+                    go (i + 1) level (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset m r) [ viewPara m r ] ])
 
                 else
                     go (i + 1)
+                        level
                         (out
                             ++ [ div [ class (rowClass lit m i r -1 False), attribute "data-id" r.id ]
                                     (viewCells m i r)
                                ]
                         )
+
+        body =
+            case m.rows of
+                head :: _ ->
+                    let
+                        headline =
+                            div [ class (rowClass lit m 0 head -1 False), attribute "data-id" head.id ]
+                                (viewCells m 0 head)
+
+                        ( inner, _ ) =
+                            go 1 m.level []
+                    in
+                    headline :: blkOf "H" m.level inner
+
+                [] ->
+                    []
     in
-    div [ class (if inList m then "focus" else "") ] (viewPath m :: go 0 [])
+    div [ class (if inList m then "focus" else "") ] (viewPath m :: body)
 
 
 {-| The drawer's rows: the frame lines are the composite's own — inert, like the
@@ -1789,7 +1864,7 @@ viewMeta lit m parent from =
                 [ viewPara m kid ]
     in
     if Set.member parent.id m.shut then
-        ( [ div [ class "dg" ] (token "PROPERTIES" ++ [ text "…" ]) ], next )
+        ( [ div [ class "dg" ] (token "PROPERTIES" ++ [ text " …" ]) ], next )
 
     else
         ( div [ class "dg" ] (token "PROPERTIES")

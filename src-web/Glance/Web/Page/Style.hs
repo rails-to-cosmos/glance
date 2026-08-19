@@ -176,24 +176,36 @@ page head' colours title body = T.unlines
   , "  .d-list .d-item.kin::after{bottom:0;width:1px;border-radius:1px;"
   , "    top:calc(var(--g-doc-lh) / 2 + 0.115em);"
   , "    background:var(--ink)}"
-  -- THE BAR IS A SPINE SEGMENT: every top-level row but a headline wears one at
-  -- its shelf's rail — the list beside its own tree — and the negative top
-  -- bridges the row margins, so a block's segments read as ONE bar.
-  , "  .lvl-top:not(.d-head):not(.d-child)::before{"
-  , "    top:-7px;bottom:0;width:1px;"
-  , "    border:0;border-radius:1px;background:var(--spine)}"
+  -- A BLOCK IS AN ELEMENT AND ITS SPINE IS ITS OWN `::before': one unbroken
+  -- bar the block's whole height, margins and deeper blocks included, at the
+  -- shelf's rail.
+  , "  .blk{position:relative;--spine:var(--g-point-off)}"
+  -- OVER THE GROUND: the rows are the spine's siblings' children and their
+  -- backgrounds paint above the wrapper's edge, so the cursor's ground was
+  -- erasing the bar beside it -- the spine lifts one stacking level instead.
+  , "  .blk::before{content:\"\";position:absolute;left:var(--rail);"
+  , "    top:0;bottom:0;width:1px;border-radius:1px;z-index:1;"
+  , "    background:var(--spine);pointer-events:none}"
   -- F'S RAMP, the spike's winner: the block point is IN takes the page's ink,
   -- each enclosing block a step dimmer in the accent, the rest resting.  A
   -- FLAG OUTRANKS THE RAMP.  The `up'/`sib' tiers below stay FLAT — they light
   -- the list's connectors and the text, where a ramp cost more than it said.
+  , "  .blk.sp-0{--spine:var(--g-fg)}"
+  , "  .blk.sp-1{--spine:color-mix(in srgb, var(--g-accent) 67%, var(--g-bg))}"
+  , "  .blk.sp-2{--spine:color-mix(in srgb, var(--g-accent) 45%, var(--g-bg))}"
+  , "  .blk.sp-3{--spine:color-mix(in srgb, var(--g-accent) 25%, var(--g-bg))}"
   -- A HEADLINE DRAWS NO MARK: its stars sit in the connector's own column.
   , "  .d-head::before,.d-child::before{display:none}"
-  , "  .de{--spine:var(--g-point-off)}"
-  , "  .sp-0{--spine:var(--g-fg)}"
-  , "  .sp-1{--spine:color-mix(in srgb, var(--g-accent) 67%, var(--g-bg))}"
-  , "  .sp-2{--spine:color-mix(in srgb, var(--g-accent) 45%, var(--g-bg))}"
-  , "  .sp-3{--spine:color-mix(in srgb, var(--g-accent) 25%, var(--g-bg))}"
-  , "  .de.dfl{--spine:var(--g-bad)}"
+  -- A FLAG'S MARK RIDES THE SPINE: the flagged row's own stretch turns red,
+  -- and a flagged headline reddens the whole block it carries.
+  , "  .lvl-top.dfl:not(.d-head):not(.d-child)::before{"
+  , "    top:-7px;bottom:0;width:1px;"
+  , "    border:0;border-radius:1px;background:var(--g-bad)}"
+  , "  .de.dfl.d-child + .blk{--spine:var(--g-bad)}"
+  -- WHAT A HEADLINE CARRIES IS ITS OWN while the reader stands on it: the
+  -- block beside a selected headline lights its trees and its bars.
+  , "  #mdoc.on .de.dat.d-head + .blk .de,"
+  , "  #mdoc.on .de.dat.d-child + .blk .de{--ink:var(--g-fg)}"
   -- A SIBLING'S OWN SUBTREE COMES WITH IT: the reader is choosing between BRANCHES,
   -- and a branch whose contents are dimmed is a branch they cannot weigh.
   , "  #mdoc.on .up,#mdoc.on .sib,#mdoc.on .sib .de{--ink:var(--g-fg)}"
@@ -239,7 +251,7 @@ page head' colours title body = T.unlines
   , "  .de.dfl,.de.dfl .de{--ink:var(--g-bad)}"
   , "  #mdoc.on .de.dfl,#mdoc.on .de.dfl .de,"
   , "  #mdoc.on .de.dat .de.dfl,#mdoc.on .de.dat .de.dfl .de{--ink:var(--g-bad)}"
-  , "  .de.dfl.d-head .ds,.de.dfl>.dp>.dm,"
+  , "  .de.dfl.d-head .ds,.de.dfl.d-child .ds,.de.dfl>.dp>.dm,"
   , "  .de.dfl .de>.dp>.dm{color:var(--g-bad)}"
   -- PADDING: a margin would take the selection wash off the left of the line.
   -- A PAIR IS NOT NESTED: the drawer's lines read as paragraphs, flush under the
@@ -247,8 +259,11 @@ page head' colours title body = T.unlines
   -- text -- the bar spends `--ink', so a flag reddens a pair marked for the drop.
   -- AT THE RAIL'S OWN X: the composite's indent is `rail + 1.5ch' at every
   -- shelf, so the pair's bar continues the drawer's line rather than a second one.
+  -- IN THE SPINE'S OWN INK: the block's bar runs behind the drawer, and a pair
+  -- segment in another tier read as a break in it.  A flag reddens its stretch.
   , "  .d-drawer .d-meta::before{top:0;bottom:0;left:-1.5ch;width:1px;border:0;"
-  , "    border-radius:1px;background:var(--ink)}"
+  , "    border-radius:1px;background:var(--spine)}"
+  , "  .d-drawer .d-meta.dfl::before{background:var(--g-bad)}"
   -- THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink;
   -- ITS COLONS ARE PUNCTUATION -- dimmed, the leading one HANGING into the
   -- gutter so the token lines up on its letter.
@@ -279,7 +294,7 @@ page head' colours title body = T.unlines
   -- text, `tree's own reach.  Only where a `.dbul' stands aside — an ordinal
   -- or a bare box is content and keeps the short turn.
   , "  :root:not([data-bullets=\"" <> bulletsShown
-      <> "\"]) #mdoc .d-list .d-item:has(> .dp > .dm > .dbul)::before{width:1.2ch}"
+      <> "\"]) #mdoc .d-list .d-item:has(> .dp > .dm > .dbul)::before{width:1ch}"
   -- A CHILD HEADLINE IS A HEADLINE: the same face as the sheet's own, indented.
   , "  .d-head,.d-child{display:flex;align-items:baseline;font-weight:600}"
   , "  .ds{white-space:pre;color:var(--g-fg);font-weight:400;flex:none}"

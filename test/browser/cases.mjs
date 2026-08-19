@@ -1828,4 +1828,28 @@ export default [
     return [`3 children inline; the shelf steps over subtrees; a child's paragraph `
       + `edits through the splice; TAB folds the subtree whole`];
   } },
+{ name: "the pane is a narrowing, so a typed root-level headline is demoted",
+  async run(p, base) {
+    await sheet(p, base, "drv-marks");
+    await walkTo(p, "d-para", "the entry's own paragraph");
+    await p.press("RET");
+    await p.until(() => document.getElementById("dpara").classList.contains("on"), "the edit");
+    // NOTHING WRITTEN MAY ESCAPE THE SUBTREE: `* ' at the root's level would,
+    // so it lands as `** ', the first child level -- org's narrowed buffer.
+    await p.eval(() => { document.getElementById("dtext").value
+      += "\n\n* Sneak past the narrowing"; });
+    await p.press("RET");
+    await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return /Sneak past the narrowing/.test(h.org || "");
+    }, "the write to reach the file", 15000);
+    const seen = await p.eval(async () => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return { deep: /\n\*\* Sneak past the narrowing/.test(h.org || ""),
+               flat: /\n\* Sneak past the narrowing/.test(h.org || "") };
+    });
+    assert(seen.deep && !seen.flat,
+      "a typed `* ' headline was not demoted to `** ' inside the subtree");
+    return ["`* Sneak' landed as `** Sneak': the subtree kept its walls"];
+  } },
 ];

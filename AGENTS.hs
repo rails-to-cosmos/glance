@@ -3453,9 +3453,9 @@ washExempt = ["#log", "#keys"]                   -- where a reader finds out why
 -- | `ZRefer' stands OVER the sheet because it is drawn INTO it: the picker hangs
 -- at the caret of the box it is about to write to, so a level under the sheet
 -- would put it behind the prose it is completing.
-data Z = ZEcho | ZBackdrop | ZSheet | ZRefer deriving (Eq, Show, Enum, Bounded)
+data Z = ZSpine | ZEcho | ZBackdrop | ZSheet | ZRefer deriving (Eq, Show, Enum, Bounded)
 zOf :: Z -> Int
-zOf ZEcho = 2 ; zOf ZBackdrop = 100 ; zOf ZSheet = 101 ; zOf ZRefer = 102
+zOf ZSpine = 1 ; zOf ZEcho = 2 ; zOf ZBackdrop = 100 ; zOf ZSheet = 101 ; zOf ZRefer = 102
 zRetired :: Int ; zRetired = 3               -- ^ the status corner's, forbidden coming back
 tvHeader, tvCompletion :: Int
 tvHeader = 1 ; tvCompletion = 5              -- the renderer's, which the backdrop must clear
@@ -3676,7 +3676,7 @@ docCells = ["state", "priority", "title", "tags"]
 --   what no rung claims, and the strip that names the way back.
 docClasses :: [String]
 docClasses = [ ".de", ".dat", ".dfl", ".dc", ".dm", ".dbul", ".dbx", ".dt", ".dk", ".dl"
-             , ".dg", ".dpath", ".dpunc", ".dlead" ]
+             , ".dg", ".dpath", ".dpunc", ".dlead", ".blk" ]
 
 -- | Geometry written onto `#mdoc' as NUMBERS, the arithmetic staying in the stylesheet.
 docVars :: [String]
@@ -4385,13 +4385,19 @@ sheetNotes =
          \ wearing `d-drawer'." [Elm, Browser]
   , Note "A SHELF INDENTS UNDER ITS OWN FIRST LETTER -- the cleaned stars' width, the\
          \ root's own geometry -- so stars and contents step together and never cross.\
-         \ THE BAR IS A SPINE SEGMENT at the shelf's rail, margins bridged, and its\
-         \ ink is F'S RAMP, the spike's winner: rank 0 the block point is in, a step\
-         \ dimmer per shelf out, other branches resting, a flag over all.  A headline\
-         \ draws no mark; the `up'/`sib' tiers stay flat for the text and the tree." [Elm, Browser]
+         \ A BLOCK IS AN ELEMENT and its spine its own edge: one unbroken bar the\
+         \ block's whole height, margins and deeper blocks included, so the root's\
+         \ runs past every nested headline.  Its ink is F'S RAMP, the spike's winner:\
+         \ rank 0 the block point is in, a step dimmer per shelf out, other branches\
+         \ resting, a flag over all.  A headline draws no mark and, SELECTED, lights\
+         \ the block it carries; the `up'/`sib' tiers stay flat for the text." [Elm, Browser]
   , Note "A HIDDEN BULLET LEAVES NO BLANK: the elbow's horizontal grows to reach the\
          \ text, `tree's own reach -- only where a `.dbul' stands aside, an ordinal or\
          \ a bare box being content." [Browser]
+  , Note "THE PANE IS A NARROWING: what is written stays INSIDE the materialized\
+         \ subtree.  A typed headline at the root's level or above is DEMOTED to the\
+         \ first child level -- org's narrowed buffer -- and nothing outside the\
+         \ subtree is ever touched." [Elm, Browser]
   , Note "A RESERVED TOKEN ALIGNS ON ITS LETTER: the colons are punctuation, dimmed,\
          \ the leading one hanging into the gutter.  THE RAIL DOES NOT BREAK AT THE\
          \ DRAWER: the composite wears the paragraph's bar, and a pair's gutter bar\

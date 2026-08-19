@@ -236,7 +236,7 @@ fixtureDoc :: [[T.Text]]
 fixtureDoc =
   [ ["head", "* ", "TODO", "one"]
   , ["meta", "SCHEDULED: " <> sheetStamp]
-  , ["comp:properties:drawer", ":PROPERTIES:\8230"]
+  , ["comp:properties:drawer", ":PROPERTIES: \8230"]
   , ["para", "first para"]
   , ["para", "second para"]
   , ["child", "  * ", "two", ":web:"]
@@ -2633,7 +2633,7 @@ sheetSpec shell =
       insheet shell "press:n press:n press:n press:n" $ \answer -> do
         seen <- textsAt "scrolled" answer
         assertEqual "the last ask was made on the element under point"
-                    (Just "de d-para dat lvl-top sp-0") (listToMaybe (reverse seen))
+                    (Just "de d-para dat lvl-top") (listToMaybe (reverse seen))
         -- `block:"nearest"' IS the scrolloff band as the platform spells it.
         assertEqual "and it asked for the band, not a re-centring"
                     (object [ "block" .= ("nearest" :: T.Text) ])
@@ -2690,7 +2690,7 @@ sheetSpec shell =
         -- The drawer is drawn even with no pairs: `+' needs a place to land.
         assertEqual "the child's own document"
           [ ["head", "* ", "two", ":web:"]
-          , ["comp:properties:drawer", ":PROPERTIES:\8230"]
+          , ["comp:properties:drawer", ":PROPERTIES: \8230"]
           , ["para", "child body"] ] =<< docOf answer
         assertEqual "the trail gained a crumb" ["one", "two"] =<< textsAt "where" answer
         assertEqual "and the last one is where the reader stands" [1]
@@ -3639,7 +3639,7 @@ sheetSpec shell =
         echoIs "named org's own way" "TAB → org-cycle (properties open)" answer
       insheet shell "press:n press:n press:Tab press:Tab" $ \answer -> do
         assertEqual "TAB again is the one folded line, org's ellipsis on it"
-                    ["comp:properties:drawer", ":PROPERTIES:\8230"]
+                    ["comp:properties:drawer", ":PROPERTIES: \8230"]
           =<< (!! 2) <$> docOf answer
         echoIs "" "TAB → org-cycle (properties folded)" answer
       insheet shell "press:n press:n press:f" $ \answer -> do
@@ -3667,7 +3667,7 @@ sheetSpec shell =
         assertEqual "the drawer's own line is its frame, so RET declines"
                     False =<< boolAt "dparaopen" answer
         assertEqual "and the fold is left where it stood, folded"
-                    ["comp:properties:drawer", ":PROPERTIES:\8230"]
+                    ["comp:properties:drawer", ":PROPERTIES: \8230"]
           =<< (!! 2) <$> docOf answer
         echoIs "and names the two doors" "RET → f reaches the rows inside — TAB folds" answer
 
@@ -3820,7 +3820,7 @@ sheetSpec shell =
   , keyed shell "the drawer starts folded again when the sheet is reopened"
       "Enter" "press:n press:n press:f press:Escape press:Enter" $
         \answer -> do
-          assertEqual "one folded line again" ["comp:properties:drawer", ":PROPERTIES:\8230"]
+          assertEqual "one folded line again" ["comp:properties:drawer", ":PROPERTIES: \8230"]
             =<< (!! 2) <$> docOf answer
           assertEqual "and the cursor back on the headline" 0 =<< intAt "dat" answer
 

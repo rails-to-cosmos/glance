@@ -60,13 +60,19 @@ section groups a feature arc, and its date is that arc's last commit.
   The drawer's colons dim, the leading one hanging into the gutter so
   `:PROPERTIES:` and every `:KEY:` align on their letters, and the left rail
   runs unbroken through the drawer block.
+- **The pane is a narrowing.** What is written stays inside the materialized
+  subtree: a typed headline at the root's level or above is demoted to the
+  first child level, org's own narrowed-buffer rule.
 - **The bars are block spines on F's ramp.** Every top-level row's bar is a
   segment of its block's spine — margins bridged, the list beside its own
   tree — and the ink is the spike's winning ramp: the block point is in wears
   the page's ink, each enclosing block a step dimmer in the accent, other
-  branches resting. A flag still outranks everything.
+  branches resting. A flag still outranks everything. A block is one element,
+  so its spine runs unbroken past margins and nested headlines alike; a
+  selected headline lights the block it carries, trees and drawer bars
+  included, and a drawer's pair bars wear the spine's own ink.
 - **A hidden bullet leaves no blank.** With bullets stepped aside, the elbow's
-  horizontal grows to reach the text, `tree`'s own look; an ordinal or a bare
+  horizontal grows toward the text, `tree`'s own look; an ordinal or a bare
   checkbox is content and keeps the short turn.
 - **A child headline is a headline, at every depth.** It wears the headline's
   own face, the path strip names it by its title (it read "paragraph" before),
