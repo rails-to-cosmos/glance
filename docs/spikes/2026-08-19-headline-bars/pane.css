@@ -1,0 +1,115 @@
+/* The pane every variant draws into, lifted from `Theme/Default.hs' and
+   `Page/Style.hs' so the look is judged at the real hues and the real metrics.
+   A variant adds its own `<style>' after this and overrides nothing here. */
+
+:root{
+  --dk-mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+  --g-bg:#FFFFFF; --g-fg:#000000; --g-surface:#F8F8FF; --g-mute:#667071;
+  --g-border:#E3E6EA; --g-accent:#31769F; --g-sel:#FFD600; --g-link:#30739B;
+  --g-bad:#E74C3C; --g-point:#005A8D; --g-point-off:#B9C2C6;
+  --g-todo:#B54708; --g-done:#3D7A4A;
+  --g-doc-pad:6px; --g-doc-padx:10px; --g-doc-pady:8px;
+  --g-doc-fs:13px; --g-doc-lh:1.6em;
+  --g-doc-off:calc(3 * 13px * 1.6);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+    --g-point:#FFC777; --g-point-off:#4A5064;
+    --g-todo:#FF9E64; --g-done:#7FBC85;
+  }
+}
+:root[data-theme="dark"]{
+  --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+  --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+  --g-point:#FFC777; --g-point-off:#4A5064;
+  --g-todo:#FF9E64; --g-done:#7FBC85;
+}
+
+html,body{height:100%}
+body{
+  margin:0; background:var(--g-bg); color:var(--g-fg);
+  font:12px/1.5 var(--dk-mono);
+  display:flex; flex-direction:column; gap:8px; padding:12px;
+  box-sizing:border-box;
+}
+h1{
+  margin:0; font-size:12px; font-weight:600; flex:none;
+  display:flex; align-items:baseline; gap:10px;
+}
+h1 small{font-weight:400; color:var(--g-mute)}
+kbd{
+  font:inherit; border:1px solid var(--g-border); border-radius:3px;
+  padding:0 3px; color:var(--g-mute);
+}
+footer{
+  flex:none; color:var(--g-mute); font-size:11px;
+  display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
+}
+#truth{color:var(--g-fg)}
+
+/* ---- the sheet's doc pane, verbatim ------------------------------------- */
+#mdoc{
+  flex:1 1 auto; min-width:0; min-height:0; position:relative;
+  overflow:auto; padding:var(--g-doc-pady) var(--g-doc-padx);
+  font:var(--g-doc-fs)/1.6 var(--dk-mono);
+  border:1px solid var(--g-accent); border-radius:8px;
+}
+.de{
+  scroll-margin-block:var(--g-doc-off); position:relative;
+  --ink:var(--g-point-off);
+  padding:1px var(--g-doc-pad); border-radius:4px; white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+.dp{position:relative}
+.de::before,.de::after{content:""; position:absolute; left:var(--rail);
+  pointer-events:none}
+#mdoc .de.dat{background-color:var(--g-sel); color:var(--g-fg)}
+#mdoc .de.dat:not(.d-comp) .de{background-color:var(--g-bg)}
+.de{--rail:calc(var(--g-doc-pad) + 0.5ch)}
+
+/* A CONNECTOR PER ROW, the way `tree' draws one, half a cell left of the tab
+   stop.  Tiers set `--ink'. */
+.d-list .d-item::before{top:0; width:0.8ch; background:none;
+  height:calc(1.6em / 2 + 0.115em);
+  border-left:1px solid var(--ink); border-bottom:1px solid var(--ink);
+  border-radius:0 0 0 3px}
+.d-list .d-item.kin::after{bottom:0; width:1px; border-radius:1px;
+  top:calc(1.6em / 2 + 0.115em);
+  background:var(--ink)}
+/* NOTHING TO ELBOW INTO, so a paragraph wears a bar; the drawer carries it too. */
+.lvl-top:not(.d-head):not(.d-comp)::before,.lvl-top.d-drawer::before{
+  top:0; bottom:0; width:1px;
+  border:0; border-radius:1px; background:var(--ink)}
+/* WHAT LIGHTS IS POINT'S OWNERS, flat, and what point carries. */
+#mdoc .up,#mdoc .sib,#mdoc .de.dat,#mdoc .car{--ink:var(--g-fg)}
+/* A HEADLINE'S STARS SIT IN THE CONNECTOR'S COLUMN, so none is drawn under them. */
+#mdoc .de.dat.d-head::before,#mdoc .de.dat.d-child::before{display:none}
+/* A FLAG TAKES THE BRANCH. */
+.de.dfl,.de.dfl .de{--ink:var(--g-bad)}
+.de.dfl .ds,.de.dfl .dm{color:var(--g-bad)}
+
+/* The drawer's token: frame in point's own ink, colons dim, the leading one
+   hanging into the gutter so the token lines up on its letter. */
+.d-drawer .dg{color:var(--g-point)}
+.dpunc{color:var(--g-mute)}
+.dg > .dpunc:first-child{margin-left:-1ch}
+.dg{padding:0; white-space:pre-wrap; overflow-wrap:anywhere; color:var(--g-mute)}
+.dfold{color:var(--g-mute)}
+
+.d-para,.d-comp,.d-meta{margin:7px 0;
+  padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}
+.d-comp,.d-comp .de{padding-top:0; padding-bottom:0}
+.d-item{padding-left:0; padding-right:0}
+.dm{white-space:pre}
+
+/* A CHILD HEADLINE IS A HEADLINE: the same face as the sheet's own, indented. */
+.d-head,.d-child{display:flex; align-items:baseline; font-weight:600}
+.d-child{color:var(--g-fg)}
+.ds{white-space:pre; color:var(--g-fg); font-weight:400; flex:none}
+.dc{margin-right:.6em; flex:none}
+.dc-state{color:var(--g-todo)}
+.dc-state.done{color:var(--g-done)}
+.dc-title{flex:1 1 auto; min-width:0}
+.dc-tags{color:var(--g-mute); font-size:11px; margin-left:auto; margin-right:0}

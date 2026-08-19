@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · tree</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* THE LIST'S OWN GRAMMAR ON THE SHELF: an elbow per row hanging off the
+     owning headline's star, a run where the branch goes on, a last child that
+     closes it.  The per-row bars go; the list keeps its inner elbows. */
+  .lvl-top:not(.d-head):not(.d-comp)::before,
+  .lvl-top.d-drawer::before{display:none}
+  #rails{position:absolute; inset:0; pointer-events:none}
+  #rails i{position:absolute; display:block}
+  #rails i.run{width:1px; border-radius:1px; background:var(--bar)}
+  #rails i.bend{
+    border-left:1px solid var(--bar);
+    border-bottom:1px solid var(--bar);
+    border-radius:0 0 0 3px;
+  }
+</style>
+</head>
+<body>
+  <h1>B · tree
+    <small>the list's elbows, hung off the headline's star</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>TAB</kbd> fold · <kbd>t</kbd> theme · <kbd>d</kbd> flag</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer;
+  var css = function (name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name);
+  };
+  RIG.mount({
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "rails";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+    },
+    paint: function (s) {
+      layer.textContent = "";
+      var put = function (style) {
+        var i = document.createElement("i");
+        i.style.cssText = style;
+        layer.appendChild(i);
+      };
+      var isHead = function (r) { return r.kind === "head" || r.kind === "child"; };
+      // THE PATH, NOT THE LEVEL — the list spike's own K law: what lights is
+      // point, what it CARRIES, and its ancestors' own connectors.  Lighting
+      // every sibling lit whole levels and said nothing about the way back.
+      var carried = function (r) {
+        for (var u = r; u; u = u.up) if (u === s.at) return true;
+        return false;
+      };
+      var inkOf = function (r) {
+        if (r.el.classList.contains("dfl")) return "var(--g-bad)";
+        if (carried(r) || s.chain.indexOf(r) >= 0) return "var(--g-fg)";
+        return "var(--g-point-off)";
+      };
+      var shown = function (r) { return s.visible(r); };
+      var walk = function (owner) {
+        if (owner.shut) return;
+        var x = s.left + s.railCol(owner.depth) * s.ch;
+        var obox = s.px(owner.el);
+        var kids = owner.kids.filter(shown);
+        kids.forEach(function (r, i) {
+          var box = s.px(r.el);
+          var mid = box.top + s.lh / 2;
+          var bar = inkOf(r);
+          // The first branch grows out of the headline itself; the ones after
+          // continue where the run above them stopped.
+          var top = i === 0 ? obox.top + obox.height : box.top;
+          put("left:" + x + "px;top:" + top + "px;height:"
+              + (mid - top) + "px;width:" + (0.8 * s.ch)
+              + "px;--bar:" + bar);
+          layer.lastChild.className = "bend";
+          if (i < kids.length - 1) {
+            var next = s.px(kids[i + 1].el);
+            put("left:" + x + "px;top:" + mid + "px;height:"
+                + (next.top - mid) + "px;--bar:" + bar);
+            layer.lastChild.className = "run";
+          }
+          if (isHead(r)) walk(r);
+        });
+      };
+      walk(s.root);
+    },
+  });
+})();
+</script>
+</body>
+</html>

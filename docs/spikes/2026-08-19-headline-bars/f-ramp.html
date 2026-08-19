@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>F · ramp</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* C WITH THE WAY BACK ON A RAMP: every block that holds point is lit,
+     brightening inward -- the innermost in the page's ink, its ancestors in
+     the accent, a third shed per step out.  The shipped pane lights its
+     owners FLAT; this tab is the argument for the alternative. */
+  .lvl-top:not(.d-head):not(.d-comp)::before,
+  .lvl-top.d-drawer::before{display:none}
+  #rails{position:absolute; inset:0; pointer-events:none}
+  #rails i{position:absolute; display:block; width:1px; border-radius:1px;
+    background:var(--bar)}
+</style>
+</head>
+<body>
+  <h1>F · ramp
+    <small>the ancestry lit, brightening inward to point's own block</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>TAB</kbd> fold · <kbd>t</kbd> theme · <kbd>d</kbd> flag</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer;
+  var near = function (steps) { return Math.max(25, 100 - steps * 33); };
+  RIG.mount({
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "rails";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+    },
+    paint: function (s) {
+      layer.textContent = "";
+      // The chain's HEADLINES, innermost last: the ramp is counted from point.
+      var heads = s.chain.filter(function (r) {
+        return (r.kind === "head" || r.kind === "child") && r.kids.length;
+      });
+      s.spans().forEach(function (sp) {
+        var rank = heads.indexOf(sp.owner);
+        var bad = sp.owner.el.classList.contains("dfl");
+        var bar = "var(--g-point-off)";
+        if (bad) bar = "var(--g-bad)";
+        else if (rank === heads.length - 1 && rank >= 0) bar = "var(--g-fg)";
+        else if (rank >= 0)
+          bar = "color-mix(in srgb, var(--g-accent) "
+            + near(heads.length - 1 - rank) + "%, var(--g-bg))";
+        var i = document.createElement("i");
+        i.style.cssText = "left:" + sp.x + "px;top:" + sp.top
+          + "px;height:" + sp.height + "px;--bar:" + bar;
+        layer.appendChild(i);
+      });
+    },
+  });
+})();
+</script>
+</body>
+</html>

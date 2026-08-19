@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D · perforated</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* C WITH A TEXTURE AXIS: a resting spine is PERFORATED -- the star's own
+     column carried on as a dotted run -- and only the blocks that hold point
+     are solid.  Texture separates lit from unlit before hue does. */
+  .lvl-top:not(.d-head):not(.d-comp)::before,
+  .lvl-top.d-drawer::before{display:none}
+  #rails{position:absolute; inset:0; pointer-events:none}
+  #rails i{position:absolute; display:block; width:0;
+    border-left:1px dotted var(--bar)}
+  #rails i.lit{border-left-style:solid}
+</style>
+</head>
+<body>
+  <h1>D · perforated
+    <small>dotted at rest, solid where point is — texture before hue</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>TAB</kbd> fold · <kbd>t</kbd> theme · <kbd>d</kbd> flag</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer;
+  RIG.mount({
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "rails";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+    },
+    paint: function (s) {
+      layer.textContent = "";
+      s.spans().forEach(function (sp) {
+        var lit = s.chain.indexOf(sp.owner) >= 0;
+        var bad = sp.owner.el.classList.contains("dfl");
+        var i = document.createElement("i");
+        i.className = lit || bad ? "lit" : "";
+        i.style.cssText = "left:" + sp.x + "px;top:" + sp.top
+          + "px;height:" + sp.height + "px;--bar:"
+          + (bad ? "var(--g-bad)" : lit ? "var(--g-fg)" : "var(--g-point-off)");
+        layer.appendChild(i);
+      });
+    },
+  });
+})();
+</script>
+</body>
+</html>

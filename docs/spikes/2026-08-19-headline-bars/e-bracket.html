@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E · bracket</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* C GROWN INTO A BRACKET: the spine starts at the headline's own line and
+     CLOSES with a foot at the block's last row -- it says where the block
+     ends, which is also what TAB will take away. */
+  .lvl-top:not(.d-head):not(.d-comp)::before,
+  .lvl-top.d-drawer::before{display:none}
+  #rails{position:absolute; inset:0; pointer-events:none}
+  #rails i{position:absolute; display:block;
+    border-left:1px solid var(--bar);
+    border-bottom:1px solid var(--bar);
+    border-radius:0 0 0 3px}
+</style>
+</head>
+<body>
+  <h1>E · bracket
+    <small>hung from the headline, closed with a foot — the extent, both ends</small></h1>
+  <div id="mdoc" class="on"></div>
+  <footer>
+    <span><kbd>n</kbd><kbd>p</kbd> siblings · <kbd>f</kbd><kbd>b</kbd> in/out ·
+      <kbd>TAB</kbd> fold · <kbd>t</kbd> theme · <kbd>d</kbd> flag</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  var layer;
+  RIG.mount({
+    setup: function (mdoc) {
+      layer = document.createElement("div");
+      layer.id = "rails";
+      layer.setAttribute("aria-hidden", "true");
+      mdoc.appendChild(layer);
+    },
+    paint: function (s) {
+      layer.textContent = "";
+      s.spans().forEach(function (sp) {
+        var lit = s.chain.indexOf(sp.owner) >= 0;
+        var bad = sp.owner.el.classList.contains("dfl");
+        var i = document.createElement("i");
+        // From right under the headline to the last row's foot, then a step
+        // toward the text: the block's whole extent, both ends named.
+        i.style.cssText = "left:" + sp.x + "px;top:"
+          + sp.headBottom + "px;height:"
+          + (sp.top + sp.height - sp.headBottom - 3) + "px;width:"
+          + (0.8 * s.ch) + "px;--bar:"
+          + (bad ? "var(--g-bad)" : lit ? "var(--g-fg)" : "var(--g-point-off)");
+        layer.appendChild(i);
+      });
+    },
+  });
+})();
+</script>
+</body>
+</html>

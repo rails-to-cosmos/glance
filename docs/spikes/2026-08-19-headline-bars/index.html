@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Headline bars — six looks</title>
+<style>
+  /* THE SHELL ONLY.  Each variant is its own page; what they share is the rig
+     and the pane, which is the point — the tabs differ by look and nothing else. */
+  :root{
+    --mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --bg:#FFFFFF; --fg:#000000; --mute:#667071; --border:#E3E6EA;
+    --accent:#31769F; --surface:#F8F8FF;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --fg:#FFFFFF; --mute:#A4C2EB; --border:#2A2D3D;
+      --accent:#4CB5F5; --surface:#21252B;
+    }
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 var(--mono); display:flex; flex-direction:column;
+  }
+  header{flex:none; border-bottom:1px solid var(--border); background:var(--surface)}
+  h1{margin:0; padding:10px 20px 0; font-size:13px; font-weight:600; letter-spacing:.02em}
+  h1 small{font-weight:400; color:var(--mute); margin-left:8px}
+  nav{display:flex; flex-wrap:wrap; padding:0 20px}
+  nav a{
+    font-size:12px; color:var(--mute); text-decoration:none;
+    border-bottom:2px solid transparent; padding:10px 12px;
+  }
+  nav a:hover{color:var(--fg)}
+  nav a[aria-current="page"]{color:var(--fg); border-bottom-color:var(--accent)}
+  nav a:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  p.note{
+    margin:0; padding:8px 20px; font-size:11px; color:var(--mute);
+    border-bottom:1px solid var(--border); max-width:100ch;
+  }
+  p.note code,p.note kbd{font-size:11px}
+  iframe{flex:1 1 auto; width:100%; border:0; display:block; min-height:0}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Headline bars <small>six ways to mark a nested headline's block</small></h1>
+    <nav id="tabs" aria-label="variants">
+      <a href="#a" data-src="a-shipped.html">A · shipped</a>
+      <a href="#b" data-src="b-tree.html">B · tree</a>
+      <a href="#c" data-src="c-spine.html">C · spine</a>
+      <a href="#d" data-src="d-perforated.html">D · perforated</a>
+      <a href="#e" data-src="e-bracket.html">E · bracket</a>
+      <a href="#f" data-src="f-ramp.html">F · ramp</a>
+    </nav>
+  </header>
+  <p class="note" id="note"></p>
+  <iframe id="stage" title="variant"></iframe>
+
+<script>
+(() => {
+  "use strict";
+  const NOTE = {
+    a: "The control: what the pane draws today. A bar PER ROW at its shelf's rail, "
+     + "lit flat for point's owners. Nothing spans a block, so which rows belong to "
+     + "which headline is said only by the indent — and at shelf 3 the indent and the "
+     + "stars CROSS: the great-grandchild's paragraph lands left of its own star.",
+    b: "The list's own grammar lifted to the shelf: an elbow per row hanging off the "
+     + "owning headline's star, a run where the branch goes on, a last child that "
+     + "closes it. One grammar for both nestings — and the busiest tab: every row "
+     + "pays an elbow whether or not the structure is in question.",
+    c: "One unbroken spine per block, under the headline's own star, first row to "
+     + "last. The block is one thing and its mark is one thing; a folded block has "
+     + "no spine at all. The cheapest mark that still says WHICH rows are the "
+     + "child's — <kbd>TAB</kbd> it to watch the spine go.",
+    d: "C with a texture axis: a resting spine is perforated — the star's column "
+     + "carried on as dots — and only the blocks holding point are solid. Texture "
+     + "separates lit from unlit before hue does, so it survives a bad monitor and "
+     + "a colorblind reader both.",
+    e: "C grown into a bracket: the spine starts at the headline's own line and "
+     + "closes with a foot at the block's last row. It answers where the block ENDS "
+     + "— which is exactly what <kbd>TAB</kbd> is about to take away — at the cost "
+     + "of a horizontal stroke per block.",
+    f: "C with the way back on a ramp: every block that holds point lit, brightening "
+     + "inward — the innermost in the page's ink, the ancestors in the accent, a "
+     + "third shed per step out. The shipped pane lights its owners FLAT; this tab "
+     + "is the argument for the alternative.",
+  };
+  const tabs = [...document.querySelectorAll("#tabs a")];
+  const stage = document.getElementById("stage");
+  const note = document.getElementById("note");
+
+  function show(key) {
+    const tab = tabs.find((t) => t.hash === "#" + key) || tabs[0];
+    for (const t of tabs) {
+      if (t === tab) t.setAttribute("aria-current", "page");
+      else t.removeAttribute("aria-current");
+    }
+    note.innerHTML = NOTE[tab.hash.slice(1)] || "";
+    const src = tab.dataset.src;
+    if (stage.getAttribute("src") !== src) stage.setAttribute("src", src);
+    stage.addEventListener("load", () => {
+      try { stage.contentWindow.focus(); } catch (e) { /* another origin */ }
+    }, { once: true });
+  }
+
+  addEventListener("hashchange", () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || "c");
+})();
+</script>
+</body>
+</html>
