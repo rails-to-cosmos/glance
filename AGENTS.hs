@@ -2996,19 +2996,6 @@ themes = [Theme "light" "light" TLight, Theme "dark" "dark" TDark]
 themeIds :: [String]                         -- ^ the boot script's test and @#themesel@'s options beside `auto'
 themeIds = [i | Theme i _ _ <- themes]
 
--- | THE SECOND LOOK THE PAGE REMEMBERS: whether the doc pane draws org's own
---   unordered bullets.  HIDDEN is the default and is the attribute's ABSENCE, so a
---   page with no stored choice paints it before any script runs.
-bulletsKey :: String
-bulletsKey = "glance-bullets"
-bulletsShown :: String                       -- ^ the ONE value the boot script stamps, `auto' being the theme's parallel
-bulletsShown = "shown"
-
--- | The bullets the tree draws as well, which are the ones a stylesheet may empty.
---   AN ORDINAL IS CONTENT: `1.' and `1)' are never steppable.
-steppable :: [String]
-steppable = ["-", "+", "*"]
-
 stateSlots, prioritySlots :: Int             -- ^ the WIRE's counts, the same for every theme
 stateSlots = 4
 prioritySlots = 3
@@ -4391,9 +4378,11 @@ sheetNotes =
          \ rank 0 the block point is in, a step dimmer per shelf out, other branches\
          \ resting, a flag over all.  A headline draws no mark and, SELECTED, lights\
          \ the block it carries; the `up'/`sib' tiers stay flat for the text." [Elm, Browser]
-  , Note "A HIDDEN BULLET LEAVES NO BLANK: the elbow's horizontal grows to reach the\
-         \ text, `tree's own reach -- only where a `.dbul' stands aside, an ordinal or\
-         \ a bare box being content." [Browser]
+  , Note "A LIST RUN WEARS A SPINE, the blocks' own grammar one storey down: every\
+         \ item bars its whole extent at its run's rail, siblings stack into one\
+         \ unbroken bar, and a nested run adds its column inside the parent item's.\
+         \ ORG'S BULLET ALWAYS PAINTS -- the marker is content, never hidden -- and\
+         \ the retired `glance-bullets' look stamps nothing." [Test, Browser]
   , Note "THE PANE IS A NARROWING: what is written stays INSIDE the materialized\
          \ subtree.  A typed headline at the root's level or above is DEMOTED to the\
          \ first child level -- org's narrowed buffer -- and nothing outside the\
@@ -4433,11 +4422,6 @@ sheetNotes =
          \ the rows owned by what owns point -- a leaf its item run, an element its\
          \ shelf, a child headline its brothers -- one rule for lists and headlines\
          \ alike.  `f' steps into what point owns, `b' climbs to the owner." [Elm, Browser]
-  , Note "THE PANE IS DRAWN THE WAY `tree' DRAWS ONE: a connector per row, down from\
-         \ the row's top to the MIDDLE of its own line, and a run below that where the\
-         \ branch has more to come (`kin').  THE HORIZONTAL STOPS SHORT OF ORG'S OWN\
-         \ COLUMN: one reaching the text sits at the height the file's `-' inks, and\
-         \ the two read as one dashed run wherever the reader asks for bullets back." [Test, Browser]
   , Note "ONE LIST OF POPUP SURFACES, `Glance.Web.Page.Popups': the veil, the `.on'\
          \ rule, the box sizing, the stale wash and the tier sweep all join it, so a\
          \ surface added there joins them by itself.  Six readers spelled the\
@@ -4536,15 +4520,6 @@ sheetNotes =
          \ its stars sitting in the column one would use, and an item keeps whatever org\
          \ wrote -- `-', `+', `*', `1.', `1)'.  Every one of them reads over point's\
          \ ground in the page's ink; `> .dp >' keeps the rule on the row's OWN line." [Browser]
-  , Note "THE TREE IS THE MARKER, so a bullet the connector already draws STEPS ASIDE:\
-         \ `-', `+' and `*' are drawn in a `.dbul' of their own and painted TRANSPARENT,\
-         \ which keeps org's own column -- the text stays where the file put it and the\
-         \ reader still copies the line.  WHERE THE CONNECTOR IS DRAWN AND NOWHERE\
-         \ ELSE: `.d-list .dbul', since a dash quoted inside a block wears no elbow and\
-         \ hiding it left that line unmarked.  AN ORDINAL IS CONTENT and has no `.dbul'\
-         \ to empty; so is the box.  The look is the reader's, remembered under\
-         \ `glance-bullets', and HIDDEN is the attribute's ABSENCE -- `shown' is the one\
-         \ value the boot script stamps." [Test, Browser]
   , Note "THE DOCUMENT IS A BLOCK TOO and its rail runs the whole pane, starting UNDER\
          \ the headline, whose stars own that column.  Without it the outermost column\
          \ is drawn beside the list and nowhere else, breaking at every paragraph." [Test]

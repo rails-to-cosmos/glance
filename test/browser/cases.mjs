@@ -1103,8 +1103,7 @@ export default [
                  ? ink(other) : null,
                ground: getComputedStyle(at).backgroundColor,
                tall: Math.round(parseFloat(getComputedStyle(at, "::before").height)),
-               line: Math.round(parseFloat(getComputedStyle(
-                 document.getElementById("mdoc")).lineHeight)) };
+               rowH: Math.round(at.getBoundingClientRect().height) };
     });
     // THE GROUND SAYS WHERE POINT IS: its connector wears the page's own ink.
     assert(seen.atInk === seen.fg,
@@ -1118,11 +1117,10 @@ export default [
     // AND THE ROW STANDS ON THE TABLE'S OWN GROUND, its connector outside it.
     assert(seen.ground === seen.sel,
       `the item grounds ${seen.ground}, not the table's ${seen.sel}`);
-    // THE CONNECTOR STOPS PART-WAY DOWN THE LINE IT MARKS, which makes it an elbow
-    // rather than a rail; WHERE exactly is the dash's own ink, and the case named
-    // "the elbow turns on the dash's own ink" owns that.
-    assert(seen.tall > seen.line / 3 && seen.tall < seen.line,
-      `the connector is ${seen.tall}px against a ${seen.line}px line`);
+    // THE SPINE BARS THE ROW'S WHOLE EXTENT: own line and subtree together,
+    // the run's unbroken column.
+    assert(Math.abs(seen.tall - seen.rowH) < 1,
+      `the spine is ${seen.tall}px against the row's ${seen.rowH}px extent`);
     // THE LIST GROUNDS THE ROWS IT OPENS: a composite has no connector of its own,
     // and a connector standing on that ground takes the page's ink to read over it.
     await p.press("b");
@@ -1146,7 +1144,7 @@ export default [
     assert(whole.deepInk !== seen.point,
       `a row two deep paints ${whole.deepInk} as well, so the light ran the tree`);
     return [`point ${seen.atInk}, what it carries ${seen.kidInk}, elsewhere `
-      + `${seen.otherInk}; the elbow is ${seen.tall}px of a ${seen.line}px line; `
+      + `${seen.otherInk}; the spine bars all ${seen.tall}px of the row; `
       + `the list grounds its rows ${whole.ground} and their rails read ${whole.rootInk}`];
   } },
 
@@ -1203,9 +1201,6 @@ export default [
 { name: "the cursor is a ground over its own line, and the marker reads over it",
   async run(p, base) {
     await sheet(p, base, "drv-wide");
-    // THE MARKER IS ASKED OF A GLYPH THE READER CAN SEE: a dash steps aside by
-    // default, and an ink on a glyph nobody draws is an assertion about nothing.
-    await p.eval(() => { document.documentElement.dataset.bullets = "shown"; });
     // Onto the list, then into it: the item under point has one drawn inside it.
     await walkTo(p, "d-list", "the list");
     await p.press("f");
@@ -1381,44 +1376,26 @@ export default [
       + `${held.inked.filter((c) => c === held.off).length} dimmed to ${held.off}, `
       + `${held.inked.filter((c) => c === held.fg).length} kept`];
   } },
-{ name: "the elbow turns on the dash's own ink, not the middle of the line",
+{ name: "the line box is whole pixels, so rows sit on the device grid",
   async run(p, base) {
     await sheet(p, base, "drv-wide");
     const seen = await p.eval(() => {
       const item = document.querySelector("#mdoc .d-list .d-item");
-      const dp = item.querySelector(":scope > .dp");
-      const cs = getComputedStyle(dp);
-      // THE FONT'S OWN METRICS: a Range gives the LINE BOX, and the question is
-      // where the glyph's ink sits inside it.
-      const c = document.createElement("canvas").getContext("2d");
-      c.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} / ${cs.lineHeight} ${cs.fontFamily}`;
-      const m = c.measureText("-");
-      const lh = parseFloat(cs.lineHeight);
-      const baseline = (lh - (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent)) / 2
-                       + m.fontBoundingBoxAscent;
-      const inkMid = baseline - (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
-      const bs = getComputedStyle(item, "::before");
+      const lh = parseFloat(getComputedStyle(item.querySelector(":scope > .dp")).lineHeight);
       const rows = [...document.querySelectorAll("#mdoc .d-list .d-item")].slice(0, 2);
       const step = rows.length > 1
         ? rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top
         : lh;
-      return { inkMid, turn: parseFloat(bs.height) - parseFloat(bs.borderBottomWidth) / 2,
-               half: lh / 2, step: Math.round(step * 100) / 100,
-               font: cs.fontFamily.split(",")[0] };
+      return { lh, step: Math.round(step * 100) / 100 };
     });
     // A WHOLE NUMBER OF PIXELS PER LINE: a 1px hairline and a hinted glyph land on
     // one device row only when every row starts at the same sub-pixel offset, which
     // a fractional line box (13 x 1.6 = 20.8) denies.
-    assert(seen.half * 2 % 1 === 0,
-      `the line box is ${seen.half * 2}px, so rows start off the device grid`);
+    assert(seen.lh % 1 === 0,
+      `the line box is ${seen.lh}px, so rows start off the device grid`);
     assert(seen.step % 1 === 0,
       `rows step ${seen.step}px apart, so they do not share one offset`);
-    assert(Math.abs(seen.turn - seen.inkMid) <= 0.5,
-      `the turn sits at ${seen.turn.toFixed(2)}px against the dash's ink at `
-      + `${seen.inkMid.toFixed(2)}px`);
-    return [`${seen.font}: the dash inks at ${seen.inkMid.toFixed(2)}px of a `
-      + `${seen.half * 2}px line, the turn at ${seen.turn.toFixed(2)}px `
-      + `(the half-line is ${seen.half})`];
+    return [`a ${seen.lh}px line box, rows ${seen.step}px apart`];
   } },
 { name: "a continuation lands under the item's own text, checkbox and all",
   async run(p, base) {
@@ -1489,10 +1466,10 @@ export default [
       + `carries ${seen.under.length}`];
   } },
 
-{ name: "an unordered bullet steps aside and keeps its column",
+{ name: "a bullet always paints, and a run wears an unbroken spine",
   async run(p, base) {
     // `drv-marks' spells every marker org writes: `-', `+', an indented `*', both
-    // boxes, both ordinals, and a dash quoted where no connector is drawn.
+    // boxes, both ordinals, and a dash quoted inside a block.
     await sheet(p, base, "drv-marks");
     await p.until(() => document.querySelectorAll("#mdoc .dbul").length === 8,
                   "the pane to draw all eight unordered bullets");
@@ -1506,8 +1483,6 @@ export default [
       probe.remove();
       const readMark = (n) => ({
         text: n.textContent,
-        inList: !!n.closest(".d-list"),
-        // WHERE THE TEXT STARTS, which is what must not move.
         textAt: n.getBoundingClientRect().right,
         left: n.getBoundingClientRect().left,
         ink: getComputedStyle(n).color,
@@ -1518,80 +1493,68 @@ export default [
       return { ch,
                stamp: document.documentElement.dataset.bullets || null,
                marks: [...document.querySelectorAll("#mdoc .de > .dp > .dm")].map(readMark),
+               items: [...document.querySelectorAll("#mdoc .d-list .d-item")].map((e) => {
+                 const b = getComputedStyle(e, "::before");
+                 return { text: e.textContent.trim().slice(0, 20),
+                          nested: !!(e.parentElement && e.parentElement.closest(".d-item")),
+                          barBg: b.backgroundColor, barX: parseFloat(b.left),
+                          barH: parseFloat(b.height),
+                          h: e.getBoundingClientRect().height }; }),
                boxes: [...document.querySelectorAll("#mdoc .dbx")].map((b) => ({
                  text: b.textContent, ticked: b.classList.contains("on"),
                  ink: getComputedStyle(b).color })) };
     };
-    const off = await p.eval(read);
-    await p.eval(() => { document.documentElement.dataset.bullets = "shown"; });
-    const on = await p.eval(read);
+    const seen = await p.eval(read);
     const clear = "rgba(0, 0, 0, 0)";
     const loose = (m) => /^\s*[-+*]\s/.test(m.text);
     const ordered = (m) => /^\s*\d+[.)]\s/.test(m.text);
-    const cells = (m) => (m.textAt - m.left) / off.ch;
-    // THE FIXTURE IS THIS CASE'S OWN, so its counts are exact: a marker that stops
-    // being a marker goes red rather than going unmeasured.
-    assert(off.stamp === null,
-      `the default rides a stamp of "${off.stamp}"; the attribute should be absent`);
-    assert(off.marks.length === 10 && off.marks.filter(loose).length === 8
-             && off.marks.filter(ordered).length === 2,
-      `the sheet drew ${JSON.stringify(off.marks.map((m) => m.text))}`);
-    for (const m of off.marks.filter(loose)) {
-      assert(m.buls.length === 1,
-        `"${m.text}" is drawn in ${m.buls.length} steppable spans`);
-      assert(m.buls[0].text === m.text.trim().slice(0, 1),
-        `"${m.text}" holds "${m.buls[0].text}" in its span, a byte its own line lacks`);
-      // ORG'S OWN COLUMNS, COUNTED: the bullet is one cell and the marker is as many
-      // as org wrote, so a glyph shrunk or nudged out of its cell is caught.
-      assert(Math.abs(m.buls[0].cell - off.ch) < 0.05,
+    const cells = (m) => (m.textAt - m.left) / seen.ch;
+    // THE LOOK MACHINERY IS GONE: no stamp, whatever an old store still holds.
+    await p.eval(() => localStorage.setItem("glance-bullets", "shown"));
+    await sheet(p, base, "drv-marks");
+    const stamped = await p.eval(() => document.documentElement.dataset.bullets || null);
+    await p.eval(() => localStorage.removeItem("glance-bullets"));
+    assert(seen.stamp === null && stamped === null,
+      `the retired bullets look still stamps "${seen.stamp}"/"${stamped}"`);
+    assert(seen.marks.length === 10 && seen.marks.filter(loose).length === 8
+             && seen.marks.filter(ordered).length === 2,
+      `the sheet drew ${JSON.stringify(seen.marks.map((m) => m.text))}`);
+    // ORG'S OWN MARKER, ALWAYS DRAWN: the bullet paints in its marker's ink,
+    // one cell wide, and the marker spans the columns org wrote.
+    for (const m of seen.marks.filter(loose)) {
+      assert(m.buls.length === 1 && m.buls[0].ink !== clear && m.buls[0].ink === m.ink,
+        `"${m.text}" paints its bullet ${JSON.stringify(m.buls)} against ${m.ink}`);
+      assert(Math.abs(m.buls[0].cell - seen.ch) < 0.05,
         `"${m.text}" draws its bullet ${px(m.buls[0].cell)} wide against a `
-        + `${px(off.ch)} cell`);
+        + `${px(seen.ch)} cell`);
       assert(Math.abs(cells(m) - m.text.length) < 0.05,
         `"${m.text}" spans ${cells(m).toFixed(2)} cells for ${m.text.length} characters`);
     }
-    // A CONNECTOR IS WHAT REPLACES THE BULLET, so a dash with no connector keeps its
-    // own: a quoted line wears no elbow, and hiding its dash left it unmarked.
-    for (const m of off.marks.filter(loose))
-      assert(m.buls[0].ink === (m.inList ? clear : m.ink),
-        `"${m.text}" ${m.inList ? "inside" : "outside"} a list paints `
-        + `${m.buls[0].ink} against its marker's ${m.ink}`);
-    // AN ORDINAL AND A BOX ARE CONTENT, and no look takes content away.
-    for (const m of off.marks.filter(ordered)) {
-      assert(m.buls.length === 0,
-        `the ordinal "${m.text}" has ${m.buls.length} spans a stylesheet can empty`);
-      assert(m.ink !== clear, `the ordinal "${m.text}" paints ${m.ink}`);
+    for (const m of seen.marks.filter(ordered))
+      assert(m.buls.length === 0 && m.ink !== clear,
+        `the ordinal "${m.text}" reads ${JSON.stringify(m)}`);
+    assert(seen.boxes.length === 2 && seen.boxes.filter((b) => b.ticked).length === 1
+             && seen.boxes[0].ink !== seen.boxes[1].ink,
+      `the sheet drew ${JSON.stringify(seen.boxes)}`);
+    // A RUN WEARS A SPINE: every item bars its whole extent at its run's rail,
+    // siblings at one column, a nested run one deeper inside its parent's.
+    const tops = seen.items.filter((i) => !i.nested);
+    const deeps = seen.items.filter((i) => i.nested);
+    assert(tops.length >= 2 && deeps.length >= 1,
+      `the fixture lists ${tops.length} top items and ${deeps.length} nested`);
+    for (const i of seen.items) {
+      assert(i.barBg !== clear && i.barBg !== "none",
+        `"${i.text}" wears no spine: ${i.barBg}`);
+      assert(Math.abs(i.barH - i.h) < 1,
+        `"${i.text}" bars ${i.barH}px of its ${i.h}px extent`);
     }
-    assert(off.boxes.length === 2 && off.boxes.filter((b) => b.ticked).length === 1,
-      `the sheet drew ${JSON.stringify(off.boxes.map((b) => b.text))}`);
-    for (const b of off.boxes)
-      assert(b.ink !== clear, `the box "${b.text}" paints ${b.ink}`);
-    assert(off.boxes[0].ink !== off.boxes[1].ink,
-      `a ticked box and an empty one both paint ${off.boxes[0].ink}`);
-    // SHOWN, the glyph comes back in the ink its marker wears, and NOTHING MOVES.
-    assert(on.stamp === "shown", `the stamp reads "${on.stamp}" after asking for bullets`);
-    for (let i = 0; i < off.marks.length; i += 1) {
-      assert(Math.abs(off.marks[i].textAt - on.marks[i].textAt) < 0.05,
-        `"${off.marks[i].text}" starts its text at ${px(off.marks[i].textAt)} hidden `
-        + `and ${px(on.marks[i].textAt)} shown`);
-      for (const b of on.marks[i].buls)
-        assert(b.ink !== clear && b.ink === on.marks[i].ink,
-          `shown, "${off.marks[i].text}" paints ${b.ink} against its marker's `
-          + `${on.marks[i].ink}`);
-    }
-    // THE CHOICE IS THE READER'S AND THE PAGE HONOURS IT ON THE WAY IN: the boot
-    // script stamps the stored value before the first paint.
-    await p.eval(() => localStorage.setItem("glance-bullets", "shown"));
-    await sheet(p, base, "drv-marks");
-    const stored = await p.eval(read);
-    await p.eval(() => localStorage.removeItem("glance-bullets"));
-    assert(stored.stamp === "shown",
-      `a stored choice booted to a stamp of "${stored.stamp}"`);
-    for (const m of stored.marks.filter(loose))
-      assert(m.buls[0].ink !== clear,
-        `a stored choice booted with "${m.text}" still painting ${m.buls[0].ink}`);
-    return [`${off.marks.filter(loose).length} bullets step aside and `
-      + `${off.marks.filter(ordered).length} ordinals stay, on a ${px(off.ch)} cell; `
-      + `every marker ends where it did, and a stored "shown" boots drawn`];
+    assert(new Set(tops.map((i) => Math.round(i.barX * 10))).size === 1,
+      `sibling runs bar at ${JSON.stringify(tops.map((i) => i.barX))}`);
+    assert(deeps.every((d) => d.barX > tops[0].barX + seen.ch),
+      `a nested run bars at ${JSON.stringify(deeps.map((d) => d.barX))} against `
+      + `its parent's ${tops[0].barX}`);
+    return [`8 bullets paint, 2 ordinals and 2 boxes stay content; `
+      + `${seen.items.length} items bar their extent, nested runs a column deeper`];
   } },
 { name: "the drawer is a stop: folded to one line, TAB opens it, the tree marks its pairs",
   async run(p, base) {

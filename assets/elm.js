@@ -10585,8 +10585,8 @@ var $author$project$Doc$markOf = F4(
 	function (lit, m, i, r) {
 		return _Utils_eq(i, m.aO) ? '' : (A2($elm$core$List$member, r.c, lit.a4) ? ' up' : (((!_Utils_eq(r.w, $elm$core$Maybe$Nothing)) && _Utils_eq(r.w, lit.aZ)) ? ' sib' : ''));
 	});
-var $author$project$Doc$rowClass = F6(
-	function (lit, m, i, r, depth, kin) {
+var $author$project$Doc$rowClass = F5(
+	function (lit, m, i, r, depth) {
 		return _Utils_ap(
 			_Utils_eq(r.c, $author$project$Body$draftId) ? 'de d-draft d-' : 'de d-',
 			_Utils_ap(
@@ -10608,10 +10608,8 @@ var $author$project$Doc$rowClass = F6(
 						_Utils_ap(
 							(depth >= 0) ? '' : ' lvl-top',
 							_Utils_ap(
-								kin ? ' kin' : '',
-								_Utils_ap(
-									A2($author$project$Doc$drawer, m, r) ? ' d-drawer' : '',
-									A4($author$project$Doc$markOf, lit, m, i, r))))))));
+								A2($author$project$Doc$drawer, m, r) ? ' d-drawer' : '',
+								A4($author$project$Doc$markOf, lit, m, i, r)))))));
 	});
 var $elm$core$Dict$fromList = function (assocs) {
 	return A3(
@@ -11118,9 +11116,9 @@ var $author$project$Doc$viewKids = F6(
 							kid.w,
 							$elm$core$Maybe$Just(parent.c))) {
 							var under = function () {
-								var _v4 = rowN(j + 1);
-								if (!_v4.$) {
-									var next = _v4.a;
+								var _v3 = rowN(j + 1);
+								if (!_v3.$) {
+									var next = _v3.a;
 									return _Utils_eq(
 										next.w,
 										$elm$core$Maybe$Just(kid.c));
@@ -11182,17 +11180,6 @@ var $author$project$Doc$viewKids = F6(
 							}();
 							var inner = _v1.a;
 							var jNext = _v1.b;
-							var kin = function () {
-								var _v3 = rowN(jNext);
-								if (!_v3.$) {
-									var next = _v3.a;
-									return (next.p === 1) && _Utils_eq(
-										next.w,
-										$elm$core$Maybe$Just(parent.c));
-								} else {
-									return false;
-								}
-							}();
 							var $temp$j = jNext,
 								$temp$mark = kid.g,
 								$temp$out = _Utils_ap(
@@ -11212,7 +11199,7 @@ var $author$project$Doc$viewKids = F6(
 													_List_fromArray(
 														[
 															$elm$html$Html$Attributes$class(
-															A6($author$project$Doc$rowClass, lit, m, j, kid, depth, kin))
+															A5($author$project$Doc$rowClass, lit, m, j, kid, depth))
 														]))),
 											inner)
 										])));
@@ -11272,7 +11259,7 @@ var $author$project$Doc$viewMeta = F4(
 				_List_fromArray(
 					[
 						$elm$html$Html$Attributes$class(
-						A6($author$project$Doc$rowClass, lit, m, j, kid, 0, false)),
+						A5($author$project$Doc$rowClass, lit, m, j, kid, 0)),
 						A2($elm$html$Html$Attributes$attribute, 'data-id', kid.c)
 					]),
 				_List_fromArray(
@@ -11521,7 +11508,7 @@ var $author$project$Doc$view = function (m) {
 									_List_fromArray(
 										[
 											$elm$html$Html$Attributes$class(
-											A6($author$project$Doc$rowClass, lit, m, i, r, -1, false)),
+											A5($author$project$Doc$rowClass, lit, m, i, r, -1)),
 											A2($elm$html$Html$Attributes$attribute, 'data-id', r.c)
 										]),
 									A3($author$project$Doc$viewCells, m, i, r));
@@ -11573,7 +11560,7 @@ var $author$project$Doc$view = function (m) {
 												A2(
 													$elm$core$List$cons,
 													$elm$html$Html$Attributes$class(
-														A6($author$project$Doc$rowClass, lit, m, i, r, -1, false)),
+														A5($author$project$Doc$rowClass, lit, m, i, r, -1)),
 													A2(
 														$elm$core$List$cons,
 														A2($elm$html$Html$Attributes$attribute, 'data-id', r.c),
@@ -11597,7 +11584,7 @@ var $author$project$Doc$view = function (m) {
 													A2(
 														$elm$core$List$cons,
 														$elm$html$Html$Attributes$class(
-															A6($author$project$Doc$rowClass, lit, m, i, r, -1, false)),
+															A5($author$project$Doc$rowClass, lit, m, i, r, -1)),
 														A2(
 															$elm$core$List$cons,
 															A2($elm$html$Html$Attributes$attribute, 'data-id', r.c),
@@ -11623,7 +11610,7 @@ var $author$project$Doc$view = function (m) {
 													_List_fromArray(
 														[
 															$elm$html$Html$Attributes$class(
-															A6($author$project$Doc$rowClass, lit, m, i, r, -1, false)),
+															A5($author$project$Doc$rowClass, lit, m, i, r, -1)),
 															A2($elm$html$Html$Attributes$attribute, 'data-id', r.c)
 														]),
 													A3($author$project$Doc$viewCells, m, i, r))
@@ -11649,7 +11636,7 @@ var $author$project$Doc$view = function (m) {
 				_List_fromArray(
 					[
 						$elm$html$Html$Attributes$class(
-						A6($author$project$Doc$rowClass, lit, m, 0, head, -1, false)),
+						A5($author$project$Doc$rowClass, lit, m, 0, head, -1)),
 						A2($elm$html$Html$Attributes$attribute, 'data-id', head.c)
 					]),
 				A3($author$project$Doc$viewCells, m, 0, head));

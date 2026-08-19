@@ -5,8 +5,6 @@ module Glance.Web.Theme
   , Theme (..)
   , themes
   , themeIds
-  , bulletsKey
-  , bulletsShown
   , themeCSS
   , themeOverrides
   ) where
@@ -37,17 +35,6 @@ themes =
 -- | The names @data-theme@ may spell: the boot script's test and the selector.
 themeIds :: [Text]
 themeIds = map thId themes
-
--- | THE SECOND LOOK THE PAGE REMEMBERS: whether the doc pane draws org's own
---   unordered bullets.  HIDDEN is the default and is the ATTRIBUTE'S ABSENCE, the way
---   @auto@ is for the theme, so a page with no stored choice paints before any script.
-bulletsKey :: Text
-bulletsKey = "glance-bullets"
-
--- | The one value @data-bullets@ may spell, named once for the boot script's test and
---   for the selector that spends it.
-bulletsShown :: Text
-bulletsShown = "shown"
 
 defaultFor :: Mode -> Theme
 defaultFor mode = case find ((== mode) . thMode) themes of

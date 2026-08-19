@@ -1166,8 +1166,8 @@ spineRanks m heads =
             Dict.fromList (List.indexedMap (\k h -> ( h, k )) (chain s []))
 
 
-rowClass : Lit -> Model -> Int -> Row -> Int -> Bool -> String
-rowClass lit m i r depth kin =
+rowClass : Lit -> Model -> Int -> Row -> Int -> String
+rowClass lit m i r depth =
     (if r.id == draftId then
         "de d-draft d-"
 
@@ -1209,12 +1209,6 @@ rowClass lit m i r depth kin =
                 -- nothing and a top-level row says so itself.  NOT `d-top': the
                 -- harness reads a row's KIND off its `d-' classes.
                 " lvl-top"
-           )
-        ++ (if kin then
-                " kin"
-
-            else
-                ""
            )
         ++ (if drawer m r then
                 -- THE CLASS IS THE DRAWER'S, not the fold's: a child headline
@@ -1626,22 +1620,12 @@ viewKids lit m parent from at0 depth =
                                 else
                                     ( [ viewPara m kid ], j + 1 )
 
-                            -- A LATER SIBLING IS WHAT CARRIES THE BRANCH ON past
-                            -- this row: the next row after this one's subtree,
-                            -- owned by the same parent.
-                            kin =
-                                case rowN jNext of
-                                    Just next ->
-                                        next.kind == Para && next.owner == Just parent.id
-
-                                    Nothing ->
-                                        False
                         in
                         go jNext
                             kid.to
                             (out
                                 ++ gap
-                                ++ [ div (rung depth :: attribute "data-id" kid.id :: [ class (rowClass lit m j kid depth kin) ])
+                                ++ [ div (rung depth :: attribute "data-id" kid.id :: [ class (rowClass lit m j kid depth) ])
                                         inner
                                    ]
                             )
@@ -1776,7 +1760,7 @@ view m =
                     -- visible contents and so no block, and no spine.
                     let
                         headline =
-                            div [ class (rowClass lit m i r -1 False), attribute "data-id" r.id ]
+                            div [ class (rowClass lit m i r -1), attribute "data-id" r.id ]
                                 (viewCells m i r)
 
                         ( inner, j ) =
@@ -1804,16 +1788,16 @@ view m =
                             else
                                 inner
                     in
-                    go j level (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset m r) shown ])
+                    go j level (out ++ [ div (class (rowClass lit m i r -1) :: attribute "data-id" r.id :: inset m r) shown ])
 
                 else if r.kind == Para || r.kind == Meta then
-                    go (i + 1) level (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset m r) [ viewPara m r ] ])
+                    go (i + 1) level (out ++ [ div (class (rowClass lit m i r -1) :: attribute "data-id" r.id :: inset m r) [ viewPara m r ] ])
 
                 else
                     go (i + 1)
                         level
                         (out
-                            ++ [ div [ class (rowClass lit m i r -1 False), attribute "data-id" r.id ]
+                            ++ [ div [ class (rowClass lit m i r -1), attribute "data-id" r.id ]
                                     (viewCells m i r)
                                ]
                         )
@@ -1823,7 +1807,7 @@ view m =
                 head :: _ ->
                     let
                         headline =
-                            div [ class (rowClass lit m 0 head -1 False), attribute "data-id" head.id ]
+                            div [ class (rowClass lit m 0 head -1), attribute "data-id" head.id ]
                                 (viewCells m 0 head)
 
                         ( inner, _ ) =
@@ -1860,7 +1844,7 @@ viewMeta lit m parent from =
             walk from []
 
         leaf ( j, kid ) =
-            div [ class (rowClass lit m j kid 0 False), attribute "data-id" kid.id ]
+            div [ class (rowClass lit m j kid 0), attribute "data-id" kid.id ]
                 [ viewPara m kid ]
     in
     if Set.member parent.id m.shut then

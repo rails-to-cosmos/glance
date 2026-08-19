@@ -11,7 +11,7 @@ import System.FilePath (takeExtension)
 import qualified Data.Text as T
 
 import Glance.Web.Base (escape, logLinesDefault)
-import Glance.Web.Theme (bulletsKey, bulletsShown, themeCSS, themeIds, themeOverrides)
+import Glance.Web.Theme (themeCSS, themeIds, themeOverrides)
 
 
 -- | @#a.on,#b.on,…@ — the same list, each wearing the class that shows it.
@@ -164,17 +164,11 @@ page head' colours title body = T.unlines
   -- page's.  The strip is never dimmed -- it is the answer to where you are.
   , "  #mdoc.on .cr-0{color:var(--g-point);font-weight:600}"
   , "  #mdoc.on .cr-1,#mdoc.on .cr-2,#mdoc.on .cr-3{color:var(--g-fg)}"
-  -- A CONNECTOR PER ROW, the way `tree' draws one, HALF A CELL LEFT OF THE TAB STOP:
-  -- one reaching the text reads as one dashed run with org's bullet.  Tiers set `--ink'.
-  -- THE TURN SITS WHERE THE DASH INKS.  In Hack at 13px the hyphen's ink centres 1px
-  -- below the half-line and the border's own half is another 0.5px, so the height
-  -- carries both -- `0.115em'.  The dash keeps that column whether or not it paints.
-  , "  .d-list .d-item::before{top:0;width:0.8ch;background:none;"
-  , "    height:calc(var(--g-doc-lh) / 2 + 0.115em);"
-  , "    border-left:1px solid var(--ink);border-bottom:1px solid var(--ink);"
-  , "    border-radius:0 0 0 3px}"
-  , "  .d-list .d-item.kin::after{bottom:0;width:1px;border-radius:1px;"
-  , "    top:calc(var(--g-doc-lh) / 2 + 0.115em);"
+  -- A LIST RUN WEARS A SPINE, the blocks' own grammar one storey down: every
+  -- item bars its whole extent at its run's rail, siblings stack seamlessly
+  -- (a composite's rows carry no margin), and a nested run adds its deeper
+  -- column inside the parent item's.  Tiers set `--ink'; org's bullet paints.
+  , "  .d-list .d-item::before{top:0;bottom:0;width:1px;border-radius:1px;"
   , "    background:var(--ink)}"
   -- A BLOCK IS AN ELEMENT AND ITS SPINE IS ITS OWN `::before': one unbroken
   -- bar the block's whole height, margins and deeper blocks included, at the
@@ -197,19 +191,19 @@ page head' colours title body = T.unlines
   -- A HEADLINE DRAWS NO MARK: its stars sit in the connector's own column.
   , "  .d-head::before,.d-child::before{display:none}"
   -- A FLAG'S MARK RIDES THE SPINE: the flagged row's own stretch turns red,
-  -- and a flagged headline reddens the whole block it carries.
+  -- and a flagged headline reddens the whole block it carries.  ONE LEVEL
+  -- OVER THE SPINE, which paints over row grounds and covered the flag too.
   , "  .lvl-top.dfl:not(.d-head):not(.d-child)::before{"
-  , "    top:-7px;bottom:0;width:1px;"
+  , "    top:-7px;bottom:0;width:1px;z-index:2;"
   , "    border:0;border-radius:1px;background:var(--g-bad)}"
   , "  .de.dfl.d-child + .blk{--spine:var(--g-bad)}"
-  -- WHAT A HEADLINE CARRIES IS ITS OWN while the reader stands on it: the
-  -- block beside a selected headline lights its trees and its bars.
-  , "  #mdoc.on .de.dat.d-head + .blk .de,"
-  , "  #mdoc.on .de.dat.d-child + .blk .de{--ink:var(--g-fg)}"
+  -- A HEADLINE AT POINT LIGHTS ITS BLOCK'S SPINE AND STOPS THERE: the lists
+  -- inside keep their resting bars -- lighting every run said nothing about
+  -- which, the lesson the composite's own rule learned first.
   -- A SIBLING'S OWN SUBTREE COMES WITH IT: the reader is choosing between BRANCHES,
   -- and a branch whose contents are dimmed is a branch they cannot weigh.
   , "  #mdoc.on .up,#mdoc.on .sib,#mdoc.on .sib .de{--ink:var(--g-fg)}"
-  -- THE GROUND SAYS WHERE POINT IS; a bar or a tree never wears gold for it, and
+  -- THE GROUND SAYS WHERE POINT IS; a bar never wears gold for it, and
   -- what point carries -- OWNERSHIP IS IN THE NESTING -- takes the same ink.
   , "  #mdoc.on .de.dat,#mdoc.on .de.dat .de{--ink:var(--g-fg)}"
   -- FULL INK UNTIL THE READER GOES INTO A BLOCK -- a list, a drawer, a
@@ -267,7 +261,7 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .focus .de.dat .de>.dp .dbx.on{color:var(--g-state-i0)}"
   -- WHAT STANDS ON THE GROUND TAKES THE PAGE'S INK: the ground says which line, and a
   -- marker in point's own hue vanished into it -- gold on gold, and the ordinals with
-  -- it.  THE TREE KEEPS ITS HUE, its column being outside the ground.
+  -- it.  THE SPINE KEEPS ITS HUE, its column being outside the ground.
   , "  #mdoc.on .de.dat>.dp>.dm,#mdoc.on .de.dat .de>.dp>.dm,"
   , "  #mdoc.on .de.dat.d-comp>.de>.dp>.dm{color:var(--g-fg)}"
   -- SPELLED TWICE ON PURPOSE: a flag outranks point and keeps its mark after point has
@@ -310,17 +304,6 @@ page head' colours title body = T.unlines
   -- keyword takes when it is settled, and a box is the same statement in one glyph.
   -- An EMPTY box wears the line's ink, since it says nothing yet.
   , "  .dbx.on{color:var(--g-state-i0)}"
-  -- THE TREE IS THE MARKER, so org's bullet steps aside WHERE THE CONNECTOR IS DRAWN
-  -- and nowhere else: a dash quoted inside a block wears no elbow, and hiding it left
-  -- that line unmarked.  TRANSPARENT keeps the column and the copyable glyph both.
-  -- An ORDINAL is content and has no `.dbul' to empty; so is the box.
-  , "  :root:not([data-bullets=\"" <> bulletsShown
-      <> "\"]) #mdoc .d-list .dbul{color:transparent}"
-  -- A HIDDEN BULLET LEAVES NO BLANK: the elbow's horizontal grows to reach the
-  -- text, `tree's own reach.  Only where a `.dbul' stands aside — an ordinal
-  -- or a bare box is content and keeps the short turn.
-  , "  :root:not([data-bullets=\"" <> bulletsShown
-      <> "\"]) #mdoc .d-list .d-item:has(> .dp > .dm > .dbul)::before{width:1ch}"
   -- A CHILD HEADLINE IS A HEADLINE: the same face as the sheet's own, indented.
   , "  .d-head,.d-child{display:flex;align-items:baseline;font-weight:600}"
   , "  .ds{white-space:pre;color:var(--g-fg);font-weight:400;flex:none}"
@@ -483,13 +466,12 @@ page head' colours title body = T.unlines
   , "</html>"
   ]
 
--- | The head script: the remembered LOOK pinned before the first paint -- the theme,
---   and whether the doc pane draws org's own bullets.  A value the page does not know
---   is ignored, so the default look survives a hand-edited store.
+-- | The head script: the remembered LOOK pinned before the first paint -- the
+--   theme.  A value the page does not know is ignored, so the default look
+--   survives a hand-edited store.
 themeBoot :: Text
 themeBoot = T.concat
-  [ "try{", stamp "theme" "glance-theme" themeIds
-  , stamp "bullets" bulletsKey [bulletsShown], "}catch(e){}" ]
+  [ "try{", stamp "theme" "glance-theme" themeIds, "}catch(e){}" ]
   where
     stamp prop key ids = T.concat
       [ "var v=localStorage.getItem(\"", key, "\");"

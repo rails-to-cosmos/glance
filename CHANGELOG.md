@@ -60,6 +60,13 @@ section groups a feature arc, and its date is that arc's last commit.
   The drawer's colons dim, the leading one hanging into the gutter so
   `:PROPERTIES:` and every `:KEY:` align on their letters, and the left rail
   runs unbroken through the drawer block.
+- **A list run wears a spine, and org's bullet always paints.** The tree's
+  elbows are gone: every item bars its whole extent at its run's rail,
+  siblings stack into one unbroken bar, a nested run adds its column inside
+  the parent item's — the blocks' own grammar one storey down. The marker is
+  content and is never hidden; the `glance-bullets` look and its storage key
+  are retired. A headline at point lights its block's spine and stops there;
+  a flag's red stretch rides one level over the spine.
 - **The dim follows the reader into a child's shelf.** Focus mode engages
   inside any block — a list, a drawer, a child's contents — and lights the
   path alone: chain headlines read, other branches dim, their stars and

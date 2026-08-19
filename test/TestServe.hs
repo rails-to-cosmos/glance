@@ -4961,8 +4961,7 @@ groundSweep shell = testCase "the cursor grounds its own line, a flag marks it, 
             , (".de", "var(--g-point-off)")
             , ("#mdoc.on .up", "var(--g-fg)")
             , ("#mdoc.on .focus .de", "var(--g-point-off)")
-            , (".d-list .d-item::before", "var(--ink)")
-            , (".d-list .d-item.kin::after", "var(--ink)") ]
+            , (".d-list .d-item::before", "var(--ink)") ]
 
 -- | The body of the first rule whose SELECTOR LIST names SEL.  GROUPED SELECTORS ARE THE POINT: a literal @"#pbox{"@ matched none.
 ruleIn :: T.Text -> T.Text -> Maybe T.Text
@@ -5191,7 +5190,7 @@ shellGlue =
       , "dflags = now.flags; dbody = now.body;"
       -- THE LIFTED HEADER RIDES THE SAME PUSH: the mirrors are the write's lists.
       , "dprops = now.properties; dplan = now.planning;"
-      , ".d-list .d-item::before{top:0;width:0.8ch;"
+      , ".d-list .d-item::before{top:0;bottom:0;width:1px;"
       , ".d-head,.d-child{display:flex;align-items:baseline;font-weight:600}"
       , ".dc-title{flex:1 1 auto;min-width:0}"
       , "margin-left:auto;margin-right:0}"
@@ -5425,13 +5424,6 @@ shellGlue =
       , "const themed = pref(\"glance-theme\", \"auto\");"
       , "el(\"themesel\").addEventListener(\"change\""
       , "<script>try{var v=localStorage.getItem(\"glance-theme\");" ]
-
-  -- THE TREE IS THE MARKER, so org's own dash steps aside by default; the reader's
-  -- stored choice is the only thing that puts it back.
-  , glue "the doc pane's bullets are a look the page remembers"
-      [ ":root:not([data-bullets=\"shown\"]) #mdoc .d-list .dbul{color:transparent}"
-      , "var v=localStorage.getItem(\"glance-bullets\");"
-      , "if(v===\"shown\")document.documentElement.dataset.bullets=v;" ]
 
   -- A value outside the band is declined rather than clamped, and blank is how a reader asks for the default back.
   , glue "the log's height is a stored preference no field reaches"

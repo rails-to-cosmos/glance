@@ -97,25 +97,20 @@ const BREAKS = {
   // The drawer stops reading as reserved: frame and keys in ordinary ink.
   "drawer-ink": ["the drawer is a stop",
                  ".d-drawer .dg,.dk{color:var(--g-mute) !important}"],
-  // Org's bullet is drawn again, so the tree and the dash mark the same item twice.
-  "bullet-shown": ["an unordered bullet steps aside",
-                   "#mdoc .dbul{color:inherit !important}"],
-  // It LEAVES instead of stepping aside, and the text moves into its column.
-  "bullet-column": ["an unordered bullet steps aside",
+  // The bullet is hidden again, the retired look coming back by stylesheet.
+  "bullet-hidden": ["a bullet always paints",
+                    "#mdoc .dbul{color:transparent !important}"],
+  // The bullet LEAVES its column, and the text slides into it.
+  "bullet-column": ["a bullet always paints",
                     "#mdoc .dbul{display:none !important}"],
-  // The stamp stops mattering: the glyph is gone whatever the reader chose.
-  "bullet-stuck": ["an unordered bullet steps aside",
-                   "#mdoc .dbul{color:transparent !important}"],
-  // Asking for bullets back gets nothing back, on the page and on the way in.
-  "bullet-back": ["an unordered bullet steps aside",
-                  ":root[data-bullets=\"shown\"] #mdoc .d-list .dbul"
-                    + "{color:transparent !important}"],
-  // The bullet keeps a cell of its own and gives up org's: the text slides left by
-  // most of a character, which a floor of zero width never sees.
-  "bullet-cell": ["an unordered bullet steps aside",
-                  "#mdoc .dbul{font-size:1px !important}"],
+  // A run loses its spine, so nothing says which items belong together.
+  "run-spine": ["a bullet always paints",
+                ".d-list .d-item::before{background:none !important}"],
+  // Every run bars one column, so nesting stops reading off the marks.
+  "run-column": ["a bullet always paints",
+                 ".d-list .d-item::before{left:0 !important}"],
   // The line box goes back to a fraction, so rows start off the device grid.
-  "line-fraction": ["the elbow turns on the dash's own ink",
+  "line-fraction": ["the line box is whole pixels",
                     ":root{--g-doc-lh:20.8px !important}"],
   // The cursor row loses the ground the table's cursor wears.
   "cursor-ground": ["the cursor in the pane is a ground",
@@ -131,10 +126,6 @@ const BREAKS = {
   "sib-dim": ["the pane dims every branch but the one",
               "#mdoc.on .focus .sib,#mdoc.on .focus .sib .de"
                 + "{color:var(--g-point-off) !important}"],
-  // The elbow turns on the middle of the line box again, a pixel off the dash.
-  "turn-half": ["the elbow turns on the dash's own ink",
-                ".d-list .d-item::before{height:calc(var(--g-doc-fs) * "
-                  + "var(--g-doc-lh) / 2) !important}"],
   // The pane stops dimming, so a branch reads like every other.
   "no-focus": ["the pane dims every branch but the one",
                "#mdoc.on .focus .de{color:var(--g-fg) !important}"],
