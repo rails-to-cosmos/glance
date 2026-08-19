@@ -45,12 +45,15 @@ titleOf Schema = "Read the schema"
 vocabularyOf :: [HeadlineRecord] -> [Text]
 vocabularyOf = sort . nub . concatMap (tagsOfCell . hrTags)
 
+-- | The rows of RECORDS that Q matches, by title, in walk order.
+titlesMatching :: Text -> [HeadlineRecord] -> [Text]
+titlesMatching q records = [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
+
 -- | The rows Q matches, in walk order.
 matching :: Text -> IO [Row]
 matching q = do
   records <- qrRecords <$> loadDir viewDir
-  let hit = [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
-  mapM (named records) hit
+  mapM (named records) (titlesMatching q records)
   where
     named records t = case [ row | row <- [minBound ..], titleOf row == t ] of
       [row]  -> pure row
@@ -191,8 +194,7 @@ withRefTree = withDocDir "test" "a.org" (T.unlines
 
 -- | The rows of the fixture that Q matches, by title, in walk order.
 refMatching :: Text -> IO [Text]
-refMatching q = withRefTree $ \records ->
-  pure [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
+refMatching q = withRefTree (pure . titlesMatching q)
 
 -- | The id of the row titled NAME; the @PATH#K@ fallback names a temp directory.
 idOf :: Text -> [HeadlineRecord] -> IO Text
@@ -215,8 +217,7 @@ refSpec = testGroup "References"
       -- `Second' carries no ORG_GLANCE_ID, so its title is the only spelling.
       withRefTree $ \records -> do
         rid <- idOf "Second" records
-        assertEqual "by title" ["By title"]
-          [ hrTitle r | r <- records, matchesFilter (storeEnv records) ("ref:" <> rid) r ]
+        assertEqual "by title" ["By title"] (titlesMatching ("ref:" <> rid) records)
 
   , testCase "an id no row claims matches nothing, and does not fail" $
       assertEqual "unknown" [] =<< refMatching "ref:no-such-row"
@@ -237,7 +238,7 @@ refSpec = testGroup "References"
   , testCase "two refs AND like any two tokens, and either is one token" $
       withRefTree $ \records -> do
         rid <- idOf "Second" records
-        let hit q = [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
+        let hit q = titlesMatching q records
         assertEqual "both" [] (hit ("ref:alpha ref:" <> rid))
         assertEqual "either" ["By id", "By title"] (hit ("ref:alpha|" <> rid))
 
@@ -334,29 +335,18 @@ substringSpec = testGroup "Substring"
 
 -- | The ORDER token @sort:COL[:desc]@: it narrows nothing; the chain is 'sortChainIn's.
 sortSpec :: TestTree
-sortSpec = testGroup "Sort tokens"
-  [ virtualKeyCase "sort" sortKey "deadline"
-
-  , testCase "it narrows nothing, whatever it names" $ do
-      every <- matching ""
-      mapM_ (`matches` every)
-        [ "sort:deadline", "sort:deadline:desc", "sort:state sort:title"
-        , "sort:state->title", "sort:state->title:desc", "sort:deadline->"
-        , "sort:", "sort:nosuchcolumn", "sort:deadline:sideways" ]
-
-  , testCase "and never as free text, which is what would narrow" $ do
+sortSpec = testGroup "Sort tokens" $
+  [ virtualKeyCase "sort" sortKey "deadline" ]
+  <> viewTokenCases "sort"
+       [ "sort:deadline", "sort:deadline:desc", "sort:state sort:title"
+       , "sort:state->title", "sort:state->title:desc", "sort:deadline->"
+       , "sort:", "sort:nosuchcolumn", "sort:deadline:sideways" ]
+  <>
+  [ testCase "and never as free text, which is what would narrow" $ do
       -- The letters are in no row, so a token read as text would empty the table.
       matches "sort:title" =<< matching ""
       assertEqual "the token resolved to the key"
                   [Term False (Just "sort") "title"] (parsed "sort:title")
-
-  , testCase "beside a predicate it leaves the narrowing to it" $ do
-      matches "state:*inactive* sort:title" [Drop, Schema]
-      matches "sort:title state:*inactive*" [Drop, Schema]
-
-  , testCase "a quoted token is free text, here as everywhere" $ do
-      matches "\"sort:title\"" []
-      assertEqual "free text" [Term False Nothing "sort:title"] (parsed "\"sort:title\"")
 
   , testCase "a query naming no sort key leaves the declared chain standing" $ do
       assertEqual "the default" (Right defaultSortChain)
@@ -476,25 +466,13 @@ sortSpec = testGroup "Sort tokens"
 
 -- | The COLUMN SET half of the view grammar, the sort token's twin: it narrows nothing.
 columnsSpec :: TestTree
-columnsSpec = testGroup "Columns tokens"
-  [ virtualKeyCase "columns" columnsKey "State,Title"
-
-  , testCase "it narrows nothing, whatever it names" $ do
-      every <- matching ""
-      mapM_ (`matches` every)
-        [ "columns:state", "columns:State,Title,Tags", "columns:"
-        , "columns:nosuchcolumn", "columns:a,,b", "-columns:state" ]
-
-  , testCase "beside a predicate it leaves the narrowing to it" $ do
-      matches "state:*inactive* columns:title" [Drop, Schema]
-      matches "columns:title state:*inactive*" [Drop, Schema]
-
-  , testCase "a quoted token is free text, here as everywhere" $ do
-      matches "\"columns:title\"" []
-      assertEqual "free text"
-                  [Term False Nothing "columns:title"] (parsed "\"columns:title\"")
-
-  , testCase "a query naming no columns token names no set" $ do
+columnsSpec = testGroup "Columns tokens" $
+  [ virtualKeyCase "columns" columnsKey "State,Title" ]
+  <> viewTokenCases "columns"
+       [ "columns:state", "columns:State,Title,Tags", "columns:"
+       , "columns:nosuchcolumn", "columns:a,,b", "-columns:state" ]
+  <>
+  [ testCase "a query naming no columns token names no set" $ do
       assertEqual "none" (Right Nothing) (columnNamesIn "state:TODO tag:web")
       assertEqual "and an empty query is a query naming none"
                   (Right Nothing) (columnNamesIn "")
@@ -587,8 +565,7 @@ withMetaTree = withDocDir "test" "a.org" (T.unlines
 
 -- | The rows of that tree Q matches, by title, in walk order.
 metaMatching :: Text -> IO [Text]
-metaMatching q = withMetaTree $ \records ->
-  pure [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
+metaMatching q = withMetaTree (pure . titlesMatching q)
 
 -- | TWO RULES AGENTS.hs STATES AND NOTHING ASKED, each named by a surviving mutant.
 foldSpec :: TestTree
@@ -815,6 +792,24 @@ virtualKeyCase spelling key value =
     assertEqual "a token names it like any other key"
                 [Term False (Just key) value] (parsed (key <> ":" <> value))
 
+-- | The three laws a VIEW token obeys, one group's worth: every one of TOKENS narrows nothing, a predicate beside @KEY:title@ does all the narrowing, and quoted it is free text like any word.
+viewTokenCases :: Text -> [Text] -> [TestTree]
+viewTokenCases key tokens =
+  [ testCase "it narrows nothing, whatever it names" $ do
+      every <- matching ""
+      mapM_ (`matches` every) tokens
+
+  , testCase "beside a predicate it leaves the narrowing to it" $ do
+      matches ("state:*inactive* " <> token) [Drop, Schema]
+      matches (token <> " state:*inactive*") [Drop, Schema]
+
+  , testCase "a quoted token is free text, here as everywhere" $ do
+      matches quoted' []
+      assertEqual "free text" [Term False Nothing token] (parsed quoted')
+  ]
+  where token  = key <> ":title"
+        quoted' = "\"" <> token <> "\""
+
 
 -- | One group per column type SCHEMA.md names, plus this producer's metas.
 predicateSpec :: TestTree
@@ -1015,7 +1010,7 @@ degenerateSpec = testGroup "Plain text"
 
   , testCase "an unknown key stays a substring of the whole row" $ do
       records <- qrRecords <$> loadDir viewDir
-      let hit q = [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
+      let hit q = titlesMatching q records
           q = "note:later"
       assertEqual "no row carries it" [] (hit q)
       assertBool "and it is not read as a predicate"

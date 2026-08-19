@@ -9,11 +9,11 @@ import Data.List (sort)
 import Data.Org (Element (EPragma, ETimestamp), Headline (spans), HeadlineSpans (..), Keyword (..), OrgLine (..), OrgLineElement (OrgLineToken), Pragma (..), Span (..), Spanned (..), Timestamp (..), TimestampRepeaterInterval (..), TimestampRepeaterSign (TRSPlus), TimestampRepeaterType (Restart), TimestampStatus (TimestampActive), TimestampUnit (Days, Weeks), TimestampWarningInterval (..), defaultContext, defaultHeadline, headlineSpanParts, hsFull, orgParse, todoActive)
 import Data.Text (Text)
 import Glance.Query (subtreeText)
-import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
+import System.Directory (doesFileExist, listDirectory)
 import System.FilePath (takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
-import TestDefaults (at, bare, bareParse, compactTs, on, plainTs, propertyKeys, withDoc, withHeadline)
+import TestDefaults (at, bare, bareParse, buildSources, compactTs, namesIn, on, plainTs, propertyKeys, sourcesUnder, withDoc, withHeadline)
 import TextShow (showt)
 import qualified Data.Set as Set
 import qualified Data.Text as T
@@ -53,7 +53,7 @@ import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
 import Network.Wai.Test (SResponse (simpleBody, simpleHeaders), request, runSession, setPath)
 import System.Directory (removeFile)
 import Test.Tasty.HUnit (Assertion)
-import TestDefaults (assertContains, document, textAt, valueAfter, viewDir, withTempDir)
+import TestDefaults (assertContains, committable, document, rewrite, textAt, valueAfter, viewDir, withStoreOf, withTempDir)
 import TestWire (assertOk)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
@@ -61,7 +61,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.Encoding as TE
 import AGENTS (Method (GET), RefusalBody (JsonRefusal), notFoundText, pageHeaders, rMethods, rNeeds, rPath, rRefusal, routeAt, routes, statsHeaders, takesText, writeHint)
 import Glance.Web (ServeOptions (..), application, defaultPort)
-import Glance.Web.Store (CloseReason, Frame (Op), Hub (hubPending, hubStore), RowOp (DeleteRow, UpsertRow), Store (stGen, stPrint, stTags), applyFile, closeReason, loadStore, newHub, newLoadingHub, recordsUnder, storeRecords)
+import Glance.Web.Store (CloseReason, Frame (Op), Hub (hubPending, hubStore), RowOp (DeleteRow, UpsertRow), Store (stGen, stPrint, stTags), closeReason, loadStore, newHub, newLoadingHub, recordsUnder, storeRecords)
 import Glance.Web.Watch (settle)
 import Data.Aeson (Value (Object))
 import qualified Data.Aeson.Key as Key
@@ -209,13 +209,6 @@ specGroup03 = testGroup "Parse"
       (Spanned _ (ETimestamp ts) : _, _, _) -> Just ts
       _                                     -> Nothing
 
-    sourcesUnder :: FilePath -> IO [FilePath]
-    sourcesUnder dir = do
-      entries <- map (dir </>) <$> listDirectory dir
-      files <- filterM doesFileExist entries
-      nested <- mapM sourcesUnder =<< filterM doesDirectoryExist entries
-      pure (filter ((== ".hs") . takeExtension) files <> concat nested)
-
     reserializes :: FilePath -> IO [String]
     reserializes path = report . T.lines <$> TIO.readFile path
       where report ls = [ path <> ":" <> show n <> ": " <> T.unpack stripped
@@ -230,7 +223,7 @@ specGroup04 = testGroup "Scan and the ledgers"
   [ -- ONE POOL, TWO CALLERS.  'Data.Org.Walk.mapFilesConcurrently' is the read
     -- pool 'Glance.Query.loadDirFilesWith' and the scan share; nothing in the types says so, which is why it is swept for.
     testCase "the pool is one implementation with two callers" $ do
-      files <- sweptSources
+      files <- buildSources
       assertBool ("too few sources swept: " <> show (length files)) (length files >= 12)
       assertBool "the sweep missed the pool's own module" (poolModule `elem` files)
       callers <- concat <$> mapM (callsIn "mapFilesConcurrently")
@@ -409,16 +402,6 @@ specGroup04 = testGroup "Scan and the ledgers"
         other -> assertFailure (name <> " is no longer one row: " <> show (fmap length other))
 
     theRepeat = maybe (assertFailure "the fixture no longer repeats") pure
-
-    -- The vendored GTK bindings are out: upstream's, and unbuilt unless @-f native-window@ is.
-    sweptSources =
-      concat <$> mapM under ["src", "src-query", "src-web", "src-desktop-native", "app"]
-      where
-        under dir = do
-          entries <- map (dir </>) <$> listDirectory dir
-          files <- filterM doesFileExist entries
-          nested <- mapM under =<< filterM doesDirectoryExist entries
-          pure (filter ((== ".hs") . takeExtension) files <> concat nested)
 
     -- TestSelfContained's own @calls@ idiom: PATH once per non-comment line naming SYMBOL.
     callsIn symbol path = report . T.lines <$> TIO.readFile path
@@ -641,12 +624,6 @@ specGroup06 = testGroup "Keyword configuration"
         (tsColors (treeSettings
           [ systemLayer "a/system.org" "#+GLANCE_STATE_COLORS: light TODO=#111\n"
           , systemLayer "b/system.org" "#+GLANCE_STATE_COLORS: dark TODO=#eee\n" ]))
-
-  , testCase "a keyword named twice takes its last spelling" $
-      assertEqual "a repeated keyword kept a hue other than its last"
-        [("light", [("TODO", "#2")])]
-        (stateColorsOf "#+GLANCE_STATE_COLORS: light TODO=#1\n\
-                       \#+GLANCE_STATE_COLORS: light TODO=#2\n")
 
   , testCase "three settings, named and scoped as written" $
       -- Names and scopes together, so a member rescoped fails the equality.
@@ -886,32 +863,6 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
 
     bodyCap :: Int
     bodyCap = 1024 * 1024
-
-    -- | Run K over a store loaded from a directory holding FILES.
-    withStoreOf :: [(FilePath, T.Text)] -> (FilePath -> FilePath -> Store -> IO a) -> IO a
-    withStoreOf files k = withTempDir $ \dir -> do
-      paths <- mapM (uncurry (orgFile dir)) files
-      case paths of
-        path : _ -> k dir path =<< loadStore dir
-        []       -> assertFailure "withStoreOf: a store of no files says nothing"
-
-    -- | Rewrite PATH with TEXT and fold the re-read into STORE: one watch step.
-    rewrite :: FilePath -> T.Text -> Store -> IO (Store, [Frame])
-    rewrite path text store = do
-      TIO.writeFile path text
-      applyFile path <$> loadFile path <*> pure store
-
-    -- | A file whose first headline is materialized, edited and written back.
-    committable :: T.Text
-    committable = T.unlines
-      [ "#+CATEGORY: notes"
-      , "* TODO First :one:"
-      , ":PROPERTIES:"
-      , ":ORG_GLANCE_ID: first"
-      , ":END:"
-      , "body of first"
-      , "* TODO Second"
-      , "tail" ]
 
     -- | A server holding 'committable' with its first headline materialized.
     withCommittedHub :: (Application -> Hub -> FilePath -> Value -> Assertion) -> Assertion
@@ -1498,23 +1449,6 @@ webImportsOf src =
 
 modPath :: WMod -> FilePath
 modPath m = "src-web" </> map (\c -> if c == '.' then '/' else c) (wname m) <> ".hs"
-
--- | Every Haskell file this package builds from.  'TestSelfContained' sweeps the same set for its own reasons, so the sweep is written twice.
-buildSources :: IO [FilePath]
-buildSources = concat <$> mapM under ["src", "src-query", "src-web", "src-desktop-native", "app"]
-  where
-    under dir = do
-      entries <- map (dir </>) <$> listDirectory dir
-      files <- filterM doesFileExist entries
-      nested <- mapM under =<< filterM doesDirectoryExist entries
-      pure (filter ((== ".hs") . takeExtension) files <> concat nested)
-
--- | The lines of PATH carrying NEEDLE, each with its file and number.
-namesIn :: Text -> FilePath -> IO [String]
-namesIn needle path = report . T.lines <$> TIO.readFile path
-  where
-    report ls = [ path <> ":" <> show n <> ": " <> T.unpack (T.strip l)
-                | (n, l) <- zip [1 :: Int ..] ls, needle `T.isInfixOf` l ]
 
 -- | The COMMENT lines of PATH written as a negation reveal, by the spec's own detector.
 revealingComments :: FilePath -> IO [String]

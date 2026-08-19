@@ -4,12 +4,12 @@ module TestSelfContained (spec) where
 import Control.Monad (filterM, forM, forM_)
 import Data.List (isPrefixOf, nub, (\\))
 import Data.Maybe (listToMaybe)
-import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
+import System.Directory (doesFileExist, listDirectory)
 import System.FilePath (dropExtension, takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Glance.Web.Base (gluePartFiles)
-import TestDefaults (holdsAll, valueAfter)
+import TestDefaults (buildSources, holdsAll, namesIn, valueAfter)
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -59,12 +59,12 @@ glueCode part = strip <$> TIO.readFile ("frontend/glue" </> part)
 spec :: TestTree
 spec = testGroup "Self-containment"
   [ testCase "no absolute home path anywhere in the sources" $ do
-      files <- haskellSources
+      files <- buildSources
       -- A sweep over nothing passes, so it says what it swept first.
       assertBool "the sweep missed the module that carried the path"
                  ("src-web/Glance/Web.hs" `elem` files)
       assertBool ("too few sources swept: " <> show (length files)) (length files >= 12)
-      hits <- concat <$> mapM homePaths files
+      hits <- concat <$> mapM (namesIn "/home/") files
       assertEqual "sources naming an absolute home directory" [] hits
 
     -- tsc reports clean over whatever it is handed, so its own list is checked.
@@ -179,7 +179,7 @@ spec = testGroup "Self-containment"
     -- The splice door is 'Glance.Web.Watch.writeSpans'; comments are exempt.
     -- @delete@ MOVES a blob and is outside this sweep — see AGENTS.hs.
   , testCase "replaceSpans is spliced through the watch and nowhere else" $ do
-      files <- filter ("src-web/" `isPrefixOf`) <$> haskellSources
+      files <- filter ("src-web/" `isPrefixOf`) <$> buildSources
       assertBool ("too few web sources swept: " <> show (length files)) (length files >= 12)
       inWatch <- calls "src-web/Glance/Web/Watch.hs"
       assertBool "the sweep missed the one legitimate call" (not (null inWatch))
@@ -223,22 +223,6 @@ calls path = report . T.lines <$> TIO.readFile path
                 , let stripped = T.strip l
                 , "replaceSpans" `T.isInfixOf` stripped
                 , not ("--" `T.isPrefixOf` stripped) ]
-
-haskellSources :: IO [FilePath]
-haskellSources =
-  concat <$> mapM under ["src", "src-query", "src-web", "src-desktop-native", "app"]
-  where
-    under dir = do
-      entries <- map (dir </>) <$> listDirectory dir
-      files <- filterM doesFileExist entries
-      nested <- mapM under =<< filterM doesDirectoryExist entries
-      pure (filter ((== ".hs") . takeExtension) files <> concat nested)
-
-homePaths :: FilePath -> IO [String]
-homePaths path = report . T.lines <$> TIO.readFile path
-  where
-    report ls = [ path <> ":" <> show n <> ": " <> T.unpack (T.strip l)
-                | (n, l) <- zip [(1 :: Int) ..] ls, "/home/" `T.isInfixOf` l ]
 
 -- | The kind strings a program's decoder answers to: a @case@ arm over the wire's own
 --   word, @"step" ->@.

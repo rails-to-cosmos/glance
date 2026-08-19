@@ -5,8 +5,10 @@ module TestDefaults ( assertContains
                     , bare
                     , bareParse
                     , boolAt
+                    , buildSources
                     , columnKeysOf
                     , columnOf
+                    , committable
                     , compactTs
                     , digestOnDisk
                     , document
@@ -20,6 +22,7 @@ module TestDefaults ( assertContains
                     , intAt
                     , listAt
                     , maybeTextAt
+                    , namesIn
                     , refusedNaming
                     , sparseTextAt
                     , sparseAt
@@ -30,6 +33,8 @@ module TestDefaults ( assertContains
                     , presentSpans
                     , propertyKeys
                     , recordsOf
+                    , rewrite
+                    , sourcesUnder
                     , spansOf
                     , systemFileIn
                     , tagFileIn
@@ -51,6 +56,7 @@ module TestDefaults ( assertContains
                     , withHeadline
                     , withHeadlineIn
                     , withId
+                    , withStoreOf
                     , withTempDir
                     , withTempDirNamed
                     , withTodo
@@ -73,7 +79,7 @@ import System.Directory ( createDirectory, createDirectoryIfMissing, doesDirecto
                         , doesFileExist, getTemporaryDirectory, listDirectory
                         , removeDirectoryRecursive )
 import System.Environment (lookupEnv)
-import System.FilePath ((</>))
+import System.FilePath (takeExtension, (</>))
 import System.IO (hPutStrLn, stderr)
 import System.IO.Error (isAlreadyExistsError)
 import System.Posix.Process (getProcessID)
@@ -93,6 +99,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 
 import Glance.Query (HeadlineRecord, QueryResult (qrRecords), digestOfText, loadDir, loadFile)
+import Glance.Web.Store (Frame, Store, applyFile, loadStore)
 
 -- Time
 
@@ -158,6 +165,18 @@ entry name' = entryAs name' ("TODO " <> name')
 titled :: Text -> Headline
 titled t = defaultHeadline { title = Title [OrgLineToken (Token t)] }
 
+-- | A file whose first headline is materialized, edited and written back.
+committable :: Text
+committable = T.unlines
+  [ "#+CATEGORY: notes"
+  , "* TODO First :one:"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: first"
+  , ":END:"
+  , "body of first"
+  , "* TODO Second"
+  , "tail" ]
+
 -- Files
 
 -- | Run ACT over a directory of its own, removed afterwards whatever happens.  LABEL, the process id and a unique name it; 'createDirectory' retries a name already taken, so two runs never share one.
@@ -205,6 +224,22 @@ withDocDir :: String -> FilePath -> Text -> ([HeadlineRecord] -> IO a) -> IO a
 withDocDir label name doc k = withTempDirNamed label $ \dir -> do
   _ <- orgFile dir name doc
   k . qrRecords =<< loadDir dir
+
+-- The live store
+
+-- | Run K over a store loaded from a directory holding FILES, handed the directory, the FIRST path and the store.
+withStoreOf :: [(FilePath, Text)] -> (FilePath -> FilePath -> Store -> IO a) -> IO a
+withStoreOf files k = withTempDir $ \dir -> do
+  paths <- mapM (uncurry (orgFile dir)) files
+  case paths of
+    path : _ -> k dir path =<< loadStore dir
+    []       -> assertFailure "withStoreOf: a store of no files says nothing"
+
+-- | Rewrite PATH with TEXT and fold the re-read into STORE: the watch's whole step.
+rewrite :: FilePath -> Text -> Store -> IO (Store, [Frame])
+rewrite path text store = do
+  TIO.writeFile path text
+  applyFile path <$> loadFile path <*> pure store
 
 -- Config layout, read off 'configDirIn'/'configPaths', so a layout the library moves takes every fixture with it.
 
@@ -412,6 +447,28 @@ assertParts say doc h = sequence_
   [ assertBool (say (T.unpack part <> " sliced " <> show slice)) (ok slice)
   | (part, Just sp, ok) <- headlineSpanParts h
   , let slice = sliceSpan doc sp ]
+
+-- Sources.  The sweeps 'TestSpec' and 'TestSelfContained' both run over the tree.
+
+-- | Every @.hs@ file under DIR, at any depth.
+sourcesUnder :: FilePath -> IO [FilePath]
+sourcesUnder dir = do
+  entries <- map (dir </>) <$> listDirectory dir
+  files <- filterM doesFileExist entries
+  nested <- mapM sourcesUnder =<< filterM doesDirectoryExist entries
+  pure (filter ((== ".hs") . takeExtension) files <> concat nested)
+
+-- | Every Haskell file this package builds from.  The vendored GTK bindings are out: upstream's, and unbuilt unless @-f native-window@ is.
+buildSources :: IO [FilePath]
+buildSources =
+  concat <$> mapM sourcesUnder ["src", "src-query", "src-web", "src-desktop-native", "app"]
+
+-- | The lines of PATH carrying NEEDLE, each with its file and number.
+namesIn :: Text -> FilePath -> IO [String]
+namesIn needle path = report . T.lines <$> TIO.readFile path
+  where
+    report ls = [ path <> ":" <> show n <> ": " <> T.unpack (T.strip l)
+                | (n, l) <- zip [1 :: Int ..] ls, needle `T.isInfixOf` l ]
 
 -- The built CLI
 

@@ -35,20 +35,6 @@ import Glance.Web.Watch (debounceDelay, due, isWatchable, nudge, watched)
 
 -- Scaffolding
 
--- | Run K over a store of FILES, handed the directory, the FIRST path and the store.
-withStoreOf :: [(FilePath, T.Text)] -> (FilePath -> FilePath -> Store -> IO a) -> IO a
-withStoreOf files k = withTempDir $ \dir -> do
-  paths <- mapM (uncurry (orgFile dir)) files
-  case paths of
-    path : _ -> k dir path =<< loadStore dir
-    []       -> assertFailure "withStoreOf: a store of no files says nothing"
-
--- | Rewrite PATH with TEXT and fold the re-read into STORE: the watch's whole step.
-rewrite :: FilePath -> T.Text -> Store -> IO (Store, [Frame])
-rewrite path text store = do
-  TIO.writeFile path text
-  applyFile path <$> loadFile path <*> pure store
-
 -- | The one record STORE holds, LABEL naming the moment in the failure.
 oneRecord :: String -> Store -> IO HeadlineRecord
 oneRecord label store = case storeRecords store of

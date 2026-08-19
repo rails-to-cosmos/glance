@@ -1385,6 +1385,15 @@ tagIs (text, wanted) = assertEqual (show text) wanted (isRight (tagText text))
 keyworded :: Text -> Text
 keyworded rest = "#+TODO: NEXT WAITING | CANCELLED\n" <> rest
 
+-- | TITLE with a planning line and a drawer under it: the lines a title-line edit must leave alone.
+plannedEntry :: Text -> Text
+plannedEntry title' = T.unlines
+  [ title'
+  , "SCHEDULED: <2026-08-01 Sat>"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: ship"
+  , ":END:" ]
+
 commandSpec :: TestTree
 commandSpec = testGroup "Commands"
   [ testGroup "set-state"
@@ -1484,18 +1493,8 @@ commandSpec = testGroup "Commands"
 
       -- 'hsFull' ends at the LAST part in span order: appending there lands inside the drawer.
     , testCase "past a planning line and a drawer, still on the title line" $
-        archiveIs "planned" (T.unlines
-                    [ "* TODO Ship it"
-                    , "SCHEDULED: <2026-08-01 Sat>"
-                    , ":PROPERTIES:"
-                    , ":ORG_GLANCE_ID: ship"
-                    , ":END:" ])
-                  (T.unlines
-                    [ "* TODO Ship it :ARCHIVE:"
-                    , "SCHEDULED: <2026-08-01 Sat>"
-                    , ":PROPERTIES:"
-                    , ":ORG_GLANCE_ID: ship"
-                    , ":END:" ])
+        archiveIs "planned" (plannedEntry "* TODO Ship it")
+                            (plannedEntry "* TODO Ship it :ARCHIVE:")
 
     , testCase "onto a headline with no title either" $
         archiveIs "titleless" "* TODO\n" "* TODO :ARCHIVE:\n"
@@ -1567,17 +1566,9 @@ commandSpec = testGroup "Commands"
         removeTagIs "spaced" "* TODO Ship it    :work:\n" "work" "* TODO Ship it\n"
 
     , testCase "emptying it leaves the lines under the headline alone" $
-        removeTagIs "planned" (T.unlines [ "* TODO Ship it :work:"
-                                         , "SCHEDULED: <2026-08-01 Sat>"
-                                         , ":PROPERTIES:"
-                                         , ":ORG_GLANCE_ID: ship"
-                                         , ":END:" ])
+        removeTagIs "planned" (plannedEntry "* TODO Ship it :work:")
                               "work"
-                              (T.unlines [ "* TODO Ship it"
-                                         , "SCHEDULED: <2026-08-01 Sat>"
-                                         , ":PROPERTIES:"
-                                         , ":ORG_GLANCE_ID: ship"
-                                         , ":END:" ])
+                              (plannedEntry "* TODO Ship it")
 
     , testCase "a row that never had it costs no edit" $
         withRecord "* TODO Ship it :web:\n" $ \r -> do
@@ -1619,17 +1610,9 @@ commandSpec = testGroup "Commands"
                            "* TODO Ship it :z:b:c:\n"
 
     , testCase "the lines under the headline are untouched" $
-        renameTagIs "planned" (T.unlines [ "* TODO Ship it :work:"
-                                         , "SCHEDULED: <2026-08-01 Sat>"
-                                         , ":PROPERTIES:"
-                                         , ":ORG_GLANCE_ID: ship"
-                                         , ":END:" ])
+        renameTagIs "planned" (plannedEntry "* TODO Ship it :work:")
                               "work" "projects"
-                              (T.unlines [ "* TODO Ship it :projects:"
-                                         , "SCHEDULED: <2026-08-01 Sat>"
-                                         , ":PROPERTIES:"
-                                         , ":ORG_GLANCE_ID: ship"
-                                         , ":END:" ])
+                              (plannedEntry "* TODO Ship it :projects:")
 
     , testCase "a row that does not carry the old name costs no edit" $
         withRecord "* TODO Ship it :web:\n" $ \r ->

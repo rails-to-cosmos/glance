@@ -347,11 +347,7 @@ appendSpec = testGroup "Append-only"
 routeSpec :: TestTree
 routeSpec = testGroup "The routes that write"
   [ testCase "POST /command notes the blob it wrote" $
-      withStore $ \dir -> do
-        _ <- blobIn dir "abcdef" (entry "abcdef" "TODO")
-        a <- serverOver dir
-        assertOk =<< postTo a "/command"
-                       (command "set-state" ["abcdef"] (keywordArg (Just "DONE")))
+      withSetState (entry "abcdef" "TODO") $ \dir _path ->
         assertEqual "noted" ["abcdef"] =<< notedIds dir
 
   , testCase "POST /headline notes the blob it wrote" $
@@ -383,6 +379,15 @@ routeSpec = testGroup "The routes that write"
 
 serverOver :: FilePath -> IO Application
 serverOver dir = fst <$> serverAt Nothing dir
+
+-- | Run K over a tree whose one blob is DOC under @abcdef@, closed by a posted @set-state DONE@, handed the directory and the blob's path.
+withSetState :: Text -> (FilePath -> FilePath -> Assertion) -> Assertion
+withSetState doc k = withStore $ \dir -> do
+  path <- blobIn dir "abcdef" doc
+  a <- serverOver dir
+  assertOk =<< postTo a "/command"
+                 (command "set-state" ["abcdef"] (keywordArg (Just "DONE")))
+  k dir path
 
 spec :: TestTree
 spec = testGroup "External"
@@ -521,18 +526,13 @@ completionSpec = testGroup "Completions"
 
     -- END TO END: ONE write shifts the stamp, resets the keyword, and records it.
   , testCase "completing a repeating row shifts it, resets it and records it" $
-      withStore $ \dir -> do
-        -- The planning line is the ONE line after the title and BEFORE any
-        -- drawer, which `entryAs' cannot spell.
-        let repeating = "* TODO Water the plants\n\
-                        \SCHEDULED: <2020-01-06 Mon +1w>\n\
-                        \  :PROPERTIES:\n\
-                        \  :ORG_GLANCE_ID: abcdef\n\
-                        \  :END:\n"
-        path <- blobIn dir "abcdef" repeating
-        a <- serverOver dir
-        assertOk =<< postTo a "/command"
-                       (command "set-state" ["abcdef"] (keywordArg (Just "DONE")))
+      -- The planning line is the ONE line after the title and BEFORE any
+      -- drawer, which `entryAs' cannot spell.
+      withSetState "* TODO Water the plants\n\
+                   \SCHEDULED: <2020-01-06 Mon +1w>\n\
+                   \  :PROPERTIES:\n\
+                   \  :ORG_GLANCE_ID: abcdef\n\
+                   \  :END:\n" $ \dir path -> do
         after <- document path
         assertBool ("reset, not closed: " <> show after) ("* TODO Water" `T.isInfixOf` after)
         assertBool ("the cookie is kept: " <> show after) ("+1w>" `T.isInfixOf` after)
@@ -548,11 +548,7 @@ completionSpec = testGroup "Completions"
 
     -- No repeater takes the plain path, so the ledger describes repeats only.
   , testCase "an ordinary state change records no completion" $
-      withStore $ \dir -> do
-        _ <- blobIn dir "abcdef" (entry "abcdef" "TODO")
-        a <- serverOver dir
-        assertOk =<< postTo a "/command"
-                       (command "set-state" ["abcdef"] (keywordArg (Just "DONE")))
+      withSetState (entry "abcdef" "TODO") $ \dir _path ->
         assertEqual "no ledger for a plain close" False
           =<< doesFileExist (dir </> ".org-glance" </> "meta" </> completionsFile)
   ]

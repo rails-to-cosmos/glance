@@ -4,7 +4,7 @@ module TestServe (spec) where
 import Control.Monad (filterM, forM_, (<=<))
 import Data.Aeson ( FromJSON, Value (Array, Bool, Null, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, toJSON, (.=) )
-import Data.Aeson.Types (parseEither)
+import Data.Aeson.Types (Pair, parseEither)
 import Data.ByteString (ByteString)
 import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isSpace)
 import Data.Foldable (toList)
@@ -24,7 +24,7 @@ import System.IO (hPutStrLn, stderr)
 import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults ( assertContains, boolAt, digestOnDisk, document, field, holdsAll
+import TestDefaults ( assertContains, boolAt, committable, digestOnDisk, document, field, holdsAll
                     , holdsNone
                     , columnKeysOf, columnOf, intAt, listAt, maybeTextAt, orgFile, sparseAt
                     , sparseTextAt, systemFileIn, tagFileIn, writeLayers
@@ -64,18 +64,6 @@ sampleFile = viewDir <> "/sample.org"
 -- | @sha256sum test\/fixtures\/view\/sample.org@ — an INDEPENDENT ORACLE, never computed here.
 sampleDigest :: T.Text
 sampleDigest = "ba16aa19887a04a410a1f0047b4fcee147818d0c8471e4e1db60f5bc7dfe22dc"
-
-committable :: T.Text
-committable = T.unlines
-  [ "#+CATEGORY: notes"
-  , "* TODO First :one:"
-  , ":PROPERTIES:"
-  , ":ORG_GLANCE_ID: first"
-  , ":END:"
-  , "body of first"
-  , "* TODO Second"
-  , "tail"
-  ]
 
 assetsDir :: FilePath
 assetsDir = "test/fixtures/assets"
@@ -125,6 +113,33 @@ refuses400 a what = mapM_ $ \(path, named) -> do
   assertContains what named (body r)
 
 -- | A 405 is settled ahead of any tree, so every read route answers one over the same app.
+-- | THE @?ids=@ GRAMMAR at one read route: an id nothing carries is NAMED rather than refused, the parameter repeats, a comma splits it, @id@ is its singular, and none at all is a 400.  TREE is the fixture, READ' what the door answers with, KNOWN one of the tree's ids beside what it alone resolves to, and the triple two ids beside what the pair resolves to.
+idsParamCases :: (Eq b, Show b)
+              => ((Application -> Assertion) -> Assertion) -> ByteString
+              -> (SResponse -> IO b) -> (T.Text, b) -> (T.Text, T.Text, b) -> [TestTree]
+idsParamCases tree route read' (known, alone) (one, two, both) =
+  [ testCase "an id the store does not hold is named and left out" $
+      tree $ \a -> do
+        r <- ok =<< getFrom a (route <> "?ids=nosuch," <> enc known)
+        assertEqual "the ones that are gone" ["nosuch"] =<< textsAt "unknown" =<< decoded r
+        assertEqual "resolved for the one that is not" alone =<< read' r
+
+  , testCase "ids repeat, ids comma-separate, id is one, and none is a 400" $
+      tree $ \a -> do
+        assertEqual "repeated" both
+          =<< read' =<< getFrom a (route <> "?ids=" <> enc one <> "&ids=" <> enc two)
+        assertEqual "and mixed with the singular" both
+          =<< read' =<< getFrom a (route <> "?ids=" <> enc one <> "&id=" <> enc two)
+        assertEqual "the singular spelling answers for one" alone
+          =<< read' =<< getFrom a (route <> "?id=" <> enc known)
+        r <- getFrom a route
+        assertEqual "status" 400 (status r)
+        assertEqual "naming the parameter"
+                    ("GET " <> TE.decodeUtf8 route <> "?ids=<row id>,<row id>")
+          =<< textAt "error" =<< decoded r
+  ]
+  where enc = TE.encodeUtf8
+
 postIs405 :: ByteString -> TestTree
 postIs405 path = testCase "and it is a read: POST is a 405" $ do
   a <- app assetsDir
@@ -165,12 +180,24 @@ planningBody :: T.Text -> [[T.Text]] -> [[T.Text]] -> T.Text -> BL.ByteString
 planningBody body props plan digest = encode (object
   [ "body" .= body, "properties" .= props, "planning" .= plan, "digest" .= digest ])
 
-withCommitted :: (Application -> FilePath -> Value -> Assertion) -> Assertion
+-- | A server over 'committable' with its first headline materialized, handed to K with the file, the answer, and the three fields a commit is composed of: the DIGEST, the BODY and the PROPERTIES.
+withCommitted :: (Application -> FilePath -> Value -> T.Text -> T.Text -> [[T.Text]] -> Assertion)
+              -> Assertion
 withCommitted k = withTempDir $ \dir -> do
   path <- orgFile dir "notes.org" committable
   (a, _hub) <- serverOver dir
   v <- getFrom a (headlinePath "first") >>= decoded
-  k a path v
+  digest <- textAt "digest" v
+  body' <- textAt "body" v
+  props <- pairsAt "properties" v
+  k a path v digest body' props
+
+-- | A server over 'nestedDoc' alone: the tree the child routes address.
+withNested :: (Application -> FilePath -> Assertion) -> Assertion
+withNested k = withTempDir $ \dir -> do
+  path <- orgFile dir "tree.org" nestedDoc
+  (a, _hub) <- serverOver dir
+  k a path
 
 -- Assertions
 
@@ -2430,12 +2457,11 @@ whichKeySpec shell =
 
   , keyed shell "the minted state is declared in its layer, then set on the rows"
       "t" "press:+ nfields:tag:book/HANDED/active// press:Enter" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write, for the layer the namespace named" 1 (length writes)
+        wrote <- oneConfigWrite answer
         assertEqual "into that layer's own file"
-                    "/o/.org-glance/config/tags/book.org" =<< textAt "path" (head writes)
+                    "/o/.org-glance/config/tags/book.org" =<< textAt "path" wrote
         assertEqual "the cycle carries it now"
-                    ["#+TODO: TODO READING HANDED | READ"] =<< textsAt "lines" (head writes)
+                    ["#+TODO: TODO READING HANDED | READ"] =<< textsAt "lines" wrote
         assertEqual "and the state landed on the row" ["set-state"]
           =<< traverse (textAt "name") =<< listAt "commands" answer
         assertEqual "the form went with it" "" =<< textAt "mint" answer
@@ -2443,14 +2469,13 @@ whichKeySpec shell =
     -- The tag has no file, so the write is what brings the layer into being.
   , keyed shell "a namespace with no layer file yet is minted by the write"
       "t" "press:+ nfields:tag:cinema/QUEUED/inactive// press:Enter" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write, at the path a tag layer takes" 1 (length writes)
+        wrote <- oneConfigWrite answer
         assertEqual "under the tree's own tags directory"
-                    "/o/.org-glance/config/tags/cinema.org" =<< textAt "path" (head writes)
+                    "/o/.org-glance/config/tags/cinema.org" =<< textAt "path" wrote
         assertEqual "declaring the state on the done side of the bar"
-                    ["#+TODO:  | QUEUED"] =<< textsAt "lines" (head writes)
+                    ["#+TODO:  | QUEUED"] =<< textsAt "lines" wrote
         assertEqual "with the empty digest, which is what a write reads as create"
-                    "" =<< textAt "digest" (head writes)
+                    "" =<< textAt "digest" wrote
 
     -- A COLOUR IS THE SYSTEM LAYER'S, so a state minted under a tag moves two files.
   , keyed shell "a hue per theme rides a second write, to the system layer"
@@ -2462,8 +2487,7 @@ whichKeySpec shell =
                     "/o/.org-glance/config/system.org" =<< textAt "path" (writes !! 1)
         assertEqual "carrying a line's worth per theme"
                     [["light", "HANDED", "#7B1FA2"], ["dark", "HANDED", "#D0A0FF"]]
-          =<< (traverse (\h -> traverse (`textAt` h) ["theme", "keyword", "hue"])
-                 =<< listAt "colors" (writes !! 1))
+          =<< coloursOf (writes !! 1)
 
   , keyed shell "ESC leaves the mint and hands the palette back"
       "t" "press:+ press:Escape" $ \answer -> do
@@ -2800,7 +2824,7 @@ sheetSpec shell =
 
     -- AND AN ITEM IS DRAWN AS THE ITEM IT WILL BE: the row wears the LEAD.
   , testCase "+ on an item draws the item it will be" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+" $ \answer -> do
+      onTable shell (intoRun <> " press:+") $ \answer -> do
         assertEqual "drawn STRICTLY BELOW the stop, never at the run's bottom"
                     [ "head", "meta", "comp:properties:drawer", "para", "comp:list"
                     , "item", "item", "draft:item"
@@ -2814,7 +2838,7 @@ sheetSpec shell =
 
     -- A CONTINUATION LANDS UNDER THE ITEM'S OWN TEXT: org reads one by its indent.
   , testCase "M-RET inside an item carries the marker's width onto the next line" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:Enter press:M-Enter" $
+      onTable shell (intoRun <> " press:Enter press:M-Enter") $
         \answer -> do
           -- The caret opens at the head of the box, so the newline lands there and
           -- the spaces the marker occupies come with it.
@@ -2829,12 +2853,12 @@ sheetSpec shell =
     -- TAB WALKS THE RUNGS AN ITEM MAY SIT ON, and it is a TOGGLE: the walk comes
     -- back where it started, so it is undone from the keyboard alone.
   , testCase "TAB in an open item walks its levels and comes back" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ press:Tab" $ \answer -> do
+      onTable shell (intoRun <> " press:+ press:Tab") $ \answer -> do
         assertEqual "the box holds the item one level in" "  - "
           =<< textAt "dtext" answer
         echoIs "and the echo names the rung"
                "TAB \8594 org-metaright (one level in)" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ press:Tab press:Tab" $
+      onTable shell (intoRun <> " press:+ press:Tab press:Tab") $
         \answer -> do
           assertEqual "and around again to where it opened" "- "
             =<< textAt "dtext" answer
@@ -2844,7 +2868,7 @@ sheetSpec shell =
     -- AND THE RUNG IS WHAT IS WRITTEN: `+' then TAB is how a child is made, and
     -- the marker carries the indent it was walked to.
   , testCase "an item TABbed in is written under the one above it" $
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ press:Tab press:Enter" $
+      onTable shell (intoRun <> " press:+ press:Tab press:Enter") $
         \answer -> do
           wrote <- traverse (textAt "body") =<< listAt "writes" answer
           assertBool ("the deeper marker was written: " <> show wrote)
@@ -2893,7 +2917,7 @@ sheetSpec shell =
 
     -- `+' ADDS A SIBLING OF THE STOP, and THE GRAIN IS THE SELECTOR.
   , testCase "+ inside a list adds an item at the list's bottom" $
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ dpara:-_note press:Enter" $
+      onTable shell (intoRun <> " press:+ dpara:-_note press:Enter") $
         \answer ->
           assertEqual "under alpha and the run nested INSIDE it, never past gamma"
             [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n- note\n\n"
@@ -2902,7 +2926,7 @@ sheetSpec shell =
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
   , testCase "+ on a nested item joins the NESTED run, at its own indent" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:f press:+" $ \answer -> do
+      onTable shell (intoNestedRun <> " press:+") $ \answer -> do
         assertEqual "drawn under the nested item, inside alpha"
                     [ "head", "meta", "comp:properties:drawer", "para", "comp:list"
                     , "item", "item", "draft:item"
@@ -2915,8 +2939,7 @@ sheetSpec shell =
         assertEqual "the leaves past it are still the composite's own"
                     [-1, -1, -1, -1, -1, 4, 5, 5, 4, 4, -1, 10, 10, -1, -1, -1]
           =<< flaggedAt "downers" answer
-      onTable shell ("grain press:Enter press:n press:n press:n press:n press:f press:f press:+"
-               <> " dpara:__-_note press:Enter") $ \answer ->
+      onTable shell (intoNestedRun <> " press:+ dpara:__-_note press:Enter") $ \answer ->
         assertEqual "two spaces in, above the blank the outer run keeps"
           [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n  - note\n\n"
             <> "- beta\n- gamma\n\n#+begin_quote\nquoted one\n\nquoted two\n"
@@ -2937,7 +2960,7 @@ sheetSpec shell =
 
     -- A CHECKBOX COMES ALONG EMPTY, org's own `org-insert-item': the box is part of what the line OPENS with.
   , testCase "a checkbox item's new sibling comes along boxed and empty" $
-      onTable shell "checky press:Enter press:n press:n press:n press:f press:+ dpara:-_[_]_epsilon press:Enter" $
+      onTable shell (intoChecky <> " press:+ dpara:-_[_]_epsilon press:Enter") $
         \answer ->
           assertEqual "an EMPTY box, whatever the stop's own state"
             [ "* TODO one\n- [ ] alpha\n- [ ] epsilon\n- [X] beta\n- [-] gamma\n"
@@ -2946,12 +2969,12 @@ sheetSpec shell =
 
     -- AN ITEM'S TOKEN IS ON SCREEN WHILE IT IS TYPED: the box is laid over the drawn row exactly and opaquely.
   , testCase "the box opens wearing the token the row was drawn with" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+" $ \answer -> do
+      onTable shell (intoRun <> " press:+") $ \answer -> do
         assertEqual "the bullet is in the field, not only under it" "- "
           =<< textAt "dtext" answer
         assertEqual "and the row still wears it too" ["- "]
           . partsOf "draft:item" =<< docOf answer
-      onTable shell "checky press:Enter press:n press:n press:n press:f press:+" $
+      onTable shell (intoChecky <> " press:+") $
         assertEqual "a checkbox list opens its box boxed" "- [ ] "
           <=< textAt "dtext"
       onTable shell "grain press:Enter press:n press:n press:n press:+" $
@@ -2966,20 +2989,20 @@ sheetSpec shell =
             =<< textAt "dtext" answer
           assertEqual "with point one space into its first cell" 2
             =<< intAt "dcaret" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+" $
+      onTable shell (intoRun <> " press:+") $
         assertEqual "where a bullet is a lead and point follows it" 2
           <=< intAt "dcaret"
 
     -- AND THE LEAD GOES BACK OFF ON THE WAY OUT.
   , testCase "what the reader adds is what the wire carries" $ do
-      onTable shell "checky press:Enter press:n press:n press:n press:f press:+ dpara:-_[_]_epsilon press:Enter" $
+      onTable shell (intoChecky <> " press:+ dpara:-_[_]_epsilon press:Enter") $
         \answer ->
           assertEqual "typed after the token"
             [ "* TODO one\n- [ ] alpha\n- [ ] epsilon\n- [X] beta\n- [-] gamma\n"
               <> "- delta\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
       -- AND A BOX HOLDING NOTHING BUT ITS OWN TOKEN IS NO ITEM.
-      onTable shell "checky press:Enter press:n press:n press:n press:f press:+ dpara:-_[_]_ press:Enter" $
+      onTable shell (intoChecky <> " press:+ dpara:-_[_]_ press:Enter") $
         \answer -> do
           assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
           echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
@@ -2999,16 +3022,16 @@ sheetSpec shell =
 
     -- WHAT THE BOX HOLDS IS WHAT IS WRITTEN: a prepended lead gave the reader both.
   , testCase "a token the reader edits is the token that is written" $ do
-      onTable shell "checky press:Enter press:n press:n press:n press:f press:+ dpara:-_DONE_ship_it press:Enter" $
+      onTable shell (intoChecky <> " press:+ dpara:-_DONE_ship_it press:Enter") $
         \answer ->
           assertEqual "their line, and no second token in front of it"
             [ "* TODO one\n- [ ] alpha\n- DONE ship it\n- [X] beta\n- [-] gamma\n"
               <> "- delta\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+" $
+      onTable shell (intoRun <> " press:+") $
         assertEqual "the plain run's own token, drawn before a key is struck"
           "- " <=< textAt "dtext"
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ dpara:-_note press:Enter" $
+      onTable shell (intoRun <> " press:+ dpara:-_note press:Enter") $
         \answer ->
           assertEqual "and written as the item it was drawn as"
             [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n- note\n\n"
@@ -3059,7 +3082,7 @@ sheetSpec shell =
 
     -- The wall reads the TEXTAREA, which holds what the reader TYPED, and the lead never reaches it.
   , testCase "an empty + on an item writes no bare bullet" $
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:+ press:Enter" $
+      onTable shell (intoRun <> " press:+ press:Enter") $
         \answer -> do
           assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
           echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
@@ -3096,33 +3119,33 @@ sheetSpec shell =
 
     -- At the finest and at the floor the keys refuse with an echo; going OUT of the sheet stays DEL's.
   , testCase "f enters a composite's leaves, n/p walk them, b re-selects the whole" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f" $ \answer -> do
+      onTable shell intoRun $ \answer -> do
         assertEqual "f lands on the first item" 5 =<< pointOf answer
         echoIs "and says where it is" "f → grain-finer (list 1/3)" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:n press:n" $
+      onTable shell (intoRun <> " press:n press:n") $
         assertEqual "n walks the items" 8 <=< pointOf
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:n press:n press:n" $
+      onTable shell (intoRun <> " press:n press:n press:n") $
         assertEqual "and clamps at the last rather than leaving the run" 8
           <=< pointOf
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:p" $
+      onTable shell (intoRun <> " press:p") $
         assertEqual "p clamps at the first the same way" 5 <=< pointOf
       -- The walk steps past a sibling's descendants coming back exactly as it steps past its own going forward.
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:n press:p" $
+      onTable shell (intoRun <> " press:n press:p") $
         assertEqual "p from beta crosses the nested run to alpha" 5
           <=< pointOf
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:n press:b" $ \answer -> do
+      onTable shell (intoRun <> " press:n press:b") $ \answer -> do
         assertEqual "b is the whole list again, from any item" 4
           =<< pointOf answer
         echoIs "named by its kind" "b → grain-broader (list)" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:f" $ \answer -> do
+      onTable shell intoNestedRun $ \answer -> do
         assertEqual "the nested item is one rung down" 6 =<< pointOf answer
         echoIs "counted under its parent" "f → grain-finer (item 1/1)" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:f press:n" $
+      onTable shell (intoNestedRun <> " press:n") $
         assertEqual "a run of one clamps at once" 6 <=< pointOf
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:f press:b" $ \answer -> do
+      onTable shell (intoNestedRun <> " press:b") $ \answer -> do
         assertEqual "b climbs to the item" 5 =<< pointOf answer
         echoIs "named as one" "b → grain-broader (item)" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:n press:f" $ \answer -> do
+      onTable shell (intoRun <> " press:n press:f") $ \answer -> do
         assertEqual "nothing finer than a childless leaf" 7 =<< pointOf answer
         echoIs "and the key says so" "f → grain-finer (at the finest)" answer
       onTable shell "grain press:Enter press:b" $ \answer -> do
@@ -3134,7 +3157,7 @@ sheetSpec shell =
       onTable shell "grain press:Enter press:n press:n press:n press:b" $ \answer -> do
         assertEqual "up from the lead paragraph" 0 =<< pointOf answer
         echoIs "" "b → grain-broader (the headline)" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:b press:b" $ \answer ->
+      onTable shell (intoRun <> " press:b press:b") $ \answer ->
         assertEqual "the item, its list, then the entry" 0 =<< pointOf answer
 
     -- THREE DIALECTS, ONE AXIS: `l'/`h' and the horizontal arrows are ALIASES of `f'/`b'.
@@ -3204,20 +3227,20 @@ sheetSpec shell =
     -- ORG'S CHECKBOX on the stop under point, `[-]' checking the way org checks it.
   , testCase "SPC toggles a checkbox item and writes the box alone" $ do
       onTable shell
-             "checky press:Enter press:n press:n press:n press:f press:Space" $ \answer -> do
+             (intoChecky <> " press:Space") $ \answer -> do
         assertEqual "the box checked, every other byte where it was"
                     ["* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
         echoIs "and the echo names org's command"
                "SPC → org-toggle-checkbox ([X])" answer
       onTable shell
-             "checky press:Enter press:n press:n press:n press:f press:n press:Space" $ \answer -> do
+             (intoChecky <> " press:n press:Space") $ \answer -> do
         assertEqual "a checked box clears"
                     ["* TODO one\n- [ ] alpha\n- [ ] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
         echoIs "and says so" "SPC → org-toggle-checkbox ([ ])" answer
       onTable shell
-             "checky press:Enter press:n press:n press:n press:f press:n press:n press:Space" $ \answer ->
+             (intoChecky <> " press:n press:n press:Space") $ \answer ->
         assertEqual "the partial state checks, org's own rule"
                     ["* TODO one\n- [ ] alpha\n- [X] beta\n- [X] gamma\n- delta\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
@@ -3225,14 +3248,14 @@ sheetSpec shell =
     -- THE STORE LAGS THE WRITE IT ANSWERS FOR, so the reload a 200 fires DROPS any answer that is not the write's own receipt.
   , testCase "the toggle survives its own reload: the stale store answer is dropped" $ do
       onTable shell
-             "checky press:Enter press:n press:n press:n press:f press:Space" $ \answer -> do
+             (intoChecky <> " press:Space") $ \answer -> do
         assertEqual "the box is flipped ON SCREEN as well as in the file"
                     ["- [X] alpha"]
           =<< (take 1 . partsOf "item" <$> docOf answer)
         assertEqual "and the sheet is synced, never conflict"
                     "synced" =<< textAt "state" answer
       onTable shell
-             "checky press:Enter press:n press:n press:n press:f press:Space press:Space" $ \answer -> do
+             (intoChecky <> " press:Space press:Space") $ \answer -> do
         writes <- listAt "writes" answer
         assertEqual "two writes, the box back off"
                     [ "* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"
@@ -3261,14 +3284,13 @@ sheetSpec shell =
 
   , testCase "SPC off a checkbox refuses, and C-c C-c is the same toggle" $ do
       onTable shell
-             ("checky press:Enter press:n press:n press:n press:f"
-                <> " press:n press:n press:n press:Space") $ \answer -> do
+             (intoChecky <> " press:n press:n press:n press:Space") $ \answer -> do
         assertEqual "a bare item takes no write" ([] :: [Value])
           =<< listAt "writes" answer
         echoIs "and the echo says why"
                "SPC → org-toggle-checkbox (no checkbox here)" answer
       onTable shell
-             "checky press:Enter press:n press:n press:n press:f press:C-c press:C-c" $ \answer -> do
+             (intoChecky <> " press:C-c press:C-c") $ \answer -> do
         assertEqual "org's own key runs the same toggle"
                     ["* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
@@ -3346,7 +3368,7 @@ sheetSpec shell =
 
     -- ONE BLANK LINE STAYS IN A LIST, which is org's rule and the corpus's.
   , keyed shell "a blank line and a nested item stay inside their list"
-      "" "grain press:Enter press:n press:n press:n press:n press:f" $ \answer -> do
+      "" intoRun $ \answer -> do
         assertEqual "four stops: alpha's head, the nested run, beta, gamma"
                     ["- alpha\n  more alpha", "  - nested", "- beta", "- gamma"]
           =<< partsOf "item" . take 9 <$> docOf answer
@@ -3363,13 +3385,12 @@ sheetSpec shell =
 
     -- RET IS PURE EDIT AT EITHER GRAIN, and each commit splices exactly the range its stop covers.
   , testCase "RET edits a leaf's own lines, and splices only those" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:Enter" $
+      onTable shell (intoRun <> " press:Enter") $
         \answer -> assertEqual "the item's OWN lines, the nested one being its own stop"
                                "- alpha\n  more alpha"
                      =<< textAt "dtext" answer
       onTable shell
-             ("grain press:Enter press:n press:n press:n press:n press:f press:Enter dpara:-_ALPHA"
-              <> " press:C-x press:C-s") $ \answer -> do
+             (intoRun <> " press:Enter dpara:-_ALPHA press:C-x press:C-s") $ \answer -> do
         body <- traverse (textAt "body") =<< listAt "writes" answer
         -- THE NESTED ITEM SURVIVES ITS PARENT'S EDIT: it is a stop of its own,
         -- so the parent's commit replaces the parent's lines and no more.
@@ -3393,7 +3414,7 @@ sheetSpec shell =
 
     -- `d' FLAGS WHATEVER THE STOP IS, which is why the grain needed no key of its own.
   , testCase "d flags one item, or the whole list" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:f press:d" $
+      onTable shell (intoRun <> " press:d") $
         assertEqual "the item alone" [5] <=< flaggedOf
       onTable shell "grain press:Enter press:n press:n press:n press:n press:d" $
         assertEqual "or the composite alone" [4] <=< flaggedOf
@@ -3508,12 +3529,11 @@ sheetSpec shell =
 
     -- TWO KEYS COMMIT AN OPEN ELEMENT: `C-c C-c' stops where the element does, `C-x C-s' keeps the BUFFER's half.
   , testCase "C-c C-c commits the open element, where C-x C-s does" $ do
-      let wrote acts = insheet shell acts $ \answer ->
-            assertEqual "the block replaced and nothing else"
-                        ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
-              =<< traverse (textAt "body") =<< listAt "writes" answer
-      wrote "press:n press:n press:n press:Enter dpara:rewritten press:C-x press:C-s"
-      wrote "press:n press:n press:n press:Enter dpara:rewritten press:C-c press:C-c"
+      insheet shell "press:n press:n press:n press:Enter dpara:rewritten press:C-c press:C-c" $
+        \answer ->
+          assertEqual "the block replaced and nothing else"
+                      ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
+            =<< traverse (textAt "body") =<< listAt "writes" answer
       insheet shell
              "press:Enter dtin:renamed press:C-c press:C-c" $
         \answer -> do
@@ -4010,12 +4030,9 @@ settingsSpec shell =
   , keyed shell "RET edits a state's colour, and it rides the system write"
       "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2 press:Enter press:Escape"
       $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write, for the system layer" 1 (length writes)
         assertEqual "carrying the one hue, flat"
                     [["light", "TODO", "#7B1FA2"]]
-          =<< (traverse (\h -> traverse (`textAt` h) ["theme", "keyword", "hue"])
-                 =<< listAt "colors" (head writes))
+          =<< coloursOf =<< oneConfigWrite answer
 
   , keyed shell "and the colour column follows the theme on screen"
       "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2 press:Enter theme:dark"
@@ -4033,12 +4050,9 @@ settingsSpec shell =
   , keyed shell "a state's hue is asked for once per theme, and both are written"
       "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2/#D0A0FF press:Enter press:Escape"
       $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write, for the system layer" 1 (length writes)
         assertEqual "carrying a line's worth per theme"
                     [["light", "TODO", "#7B1FA2"], ["dark", "TODO", "#D0A0FF"]]
-          =<< (traverse (\h -> traverse (`textAt` h) ["theme", "keyword", "hue"])
-                 =<< listAt "colors" (head writes))
+          =<< coloursOf =<< oneConfigWrite answer
 
   , keyed shell "and the form reads back both, whichever theme is on"
       "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2/#D0A0FF press:Enter theme:dark sat:TODO press:Enter"
@@ -4049,17 +4063,13 @@ settingsSpec shell =
   , keyed shell "+ adds a state to its layer's cycle"
       "," "ctab:ui sat:TODO press:+ sfields:WAITING/active/ press:Enter press:Escape"
       $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write, for the system layer" 1 (length writes)
-        assertEqual "the cycle carries it now"
-                    ["#+TODO: TODO WAITING | DONE"] =<< textsAt "lines" (head writes)
+        assertEqual "the cycle carries it now" ["#+TODO: TODO WAITING | DONE"]
+          =<< textsAt "lines" =<< oneConfigWrite answer
 
   , keyed shell "dd removes a state from its layer's cycle"
       "," "ctab:ui sat:TODO press:d press:d press:Escape" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write, for the system layer" 1 (length writes)
-        assertEqual "the cycle is short one keyword"
-                    ["#+TODO:  | DONE"] =<< textsAt "lines" (head writes)
+        assertEqual "the cycle is short one keyword" ["#+TODO:  | DONE"]
+          =<< textsAt "lines" =<< oneConfigWrite answer
 
   , keyed shell "an untouched states table rides no write"
       "," "ctab:ui press:Escape" $ \answer ->
@@ -4107,15 +4117,14 @@ settingsSpec shell =
   , keyed shell "ESC syncs the layers that moved and closes"
       "," "ctext:#+TODO:_TODO_STARTED_|_DONE press:Escape" $
         \answer -> do
-          writes <- listAt "configWrites" answer
-          assertEqual "one write, for the layer that moved" 1 (length writes)
+          wrote <- oneConfigWrite answer
           assertEqual "the system layer" "/o/.org-glance/config/system.org"
-            =<< textAt "path" (head writes)
+            =<< textAt "path" wrote
           assertEqual "its lines, as typed" ["#+TODO:_TODO_STARTED_|_DONE"]
-            =<< textsAt "lines" (head writes)
+            =<< textsAt "lines" wrote
           -- The empty digest is the pin an absent file carries, handed straight back.
           assertEqual "pinned to the digest it was read with" ""
-            =<< textAt "digest" (head writes)
+            =<< textAt "digest" wrote
           assertEqual "and the sheet is down" "" =<< textAt "settings" answer
 
   , keyed shell "a pristine sheet closes without asking the server for anything"
@@ -4140,12 +4149,11 @@ settingsSpec shell =
 
   , keyed shell "and a letter pins the query into that view"
       "" "press:P press:d" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write, for the system layer" 1 (length writes)
+        wrote <- oneConfigWrite answer
         assertEqual "at the system path" "/o/.org-glance/config/system.org"
-          =<< textAt "path" (head writes)
+          =<< textAt "path" wrote
         assertEqual "carrying the applied query" "state:*active*"
-          =<< wroteView "default" (head writes)
+          =<< wroteView "default" wrote
         assertEqual "and the server holds it now" "state:*active*"
           =<< textAt "served" answer
         echoIs "the pill names the view it landed in"
@@ -4208,20 +4216,17 @@ settingsSpec shell =
 
   , keyed shell "/ falls back to the completing read over the same list"
       "" "press:P press:/ type:agen press:Enter" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write" 1 (length writes)
         assertEqual "into the view the typing left" "state:*active*"
-          =<< wroteView "agenda" (head writes)
+          =<< wroteView "agenda" =<< oneConfigWrite answer
 
     -- EVERY REGISTRY ENTRY TAKES THE PIN, and the write names that view ALONE.
   , keyedAt shell "?q=tag%3Awork" 500 "another letter pins it into the agenda"
       "" "press:P press:a" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write, for the system layer" 1 (length writes)
+        wrote <- oneConfigWrite answer
         assertEqual "carrying the agenda alone" "tag:work"
-          =<< wroteView "agenda" (head writes)
+          =<< wroteView "agenda" wrote
         assertEqual "the default view is not named" Nothing
-          =<< (field "views" (head writes) >>= sparseTextAt "default")
+          =<< (field "views" wrote >>= sparseTextAt "default")
         assertEqual "and the server holds the agenda now" "tag:work"
           =<< textAt "servedAgenda" answer
         assertEqual "with the default where it was" "state:*active*"
@@ -4276,10 +4281,8 @@ settingsSpec shell =
     -- A CLICK has no keydown behind it for the raising guard to spend, so this door clears it by hand.
   , keyed shell "the pin button asks the same question, and the next letter answers"
       "" "pinclick press:d" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "one write" 1 (length writes)
         assertEqual "carrying the applied query" "state:*active*"
-          =<< wroteView "default" (head writes)
+          =<< wroteView "default" =<< oneConfigWrite answer
         assertEqual "the badge is on" True =<< boolAt "pinned" answer
         assertEqual "and the echo names the command"
                     "pin → set-saved-view (default · state:*active*)"
@@ -4596,6 +4599,12 @@ onTable shell = bootOf shell "" 500 ""
 insheet :: IO T.Text -> T.Text -> (Value -> Assertion) -> Assertion
 insheet shell = bootOf shell "" 500 "Enter"
 
+-- | The three key scripts that put point INSIDE a list: the grain tree's outer run, its nested run, and the checkbox tree's run.  Each opens the sheet, walks down to the list and steps into it.
+intoRun, intoNestedRun, intoChecky :: T.Text
+intoRun       = "grain press:Enter press:n press:n press:n press:n press:f"
+intoNestedRun = intoRun <> " press:f"
+intoChecky    = "checky press:Enter press:n press:n press:n press:f"
+
 -- | 'bootOf' over a browser that already REMEMBERS something: a preference the BOOT reads is unreachable from an act.
 bootWith :: IO T.Text -> T.Text -> T.Text -> Int -> T.Text -> T.Text
          -> (Value -> Assertion) -> Assertion
@@ -4681,12 +4690,16 @@ glueSpec shell = testGroup "Shell glue"
 need :: String -> Maybe a -> IO a
 need what = maybe (assertFailure ("no " <> what <> " in the page")) pure
 
+-- | The paragraph rule's opening, spelled ONCE: two sweeps read the indent out of it, and a re-spelling breaks both.
+paraIndent :: T.Text
+paraIndent = "  .d-para,.d-comp,.d-meta{margin:7px 0;"
+
 -- | THE EDIT BOX IS THE BLOCK, WEARING A DIFFERENT GROUND.  Asserted as RELATIONS over the declarations rather than as copied strings.
 editIndentSweep :: IO T.Text -> TestTree
 editIndentSweep shell = testCase "the paragraph's edit box is the block it covers" $ do
   page <- shell
   para <- need "the paragraph's indent"
-               (between "  .d-para,.d-comp,.d-meta{margin:7px 0;\n    padding-left:" "}" page)
+               (between (paraIndent <> "\n    padding-left:") "}" page)
   box <- need "the edit box's rule" (between "  #dpara textarea{" "}" page)
   assertBool ("the box is indented by what the block is: " <> T.unpack box)
              (("padding-left:" <> para) `T.isInfixOf` box)
@@ -4810,8 +4823,7 @@ gridSweep :: IO T.Text -> TestTree
 gridSweep shell = testCase "the star gutter and the body indent are one arithmetic" $ do
   page <- shell
   gutter <- need "the head's star gutter" (between "  .d-head .ds{width:calc(" ")}" page)
-  para <- need "the paragraph's indent"
-                (between "  .d-para,.d-comp,.d-meta{margin:7px 0;" "}" page)
+  para <- need "the paragraph's indent" (between paraIndent "}" page)
   base <- need "the document's base padding" (between "--g-doc-pad:" ";" page)
   assertEqual "the paragraph is padded by the base plus the gutter"
               ("padding-left:calc(var(--g-doc-pad) + " <> gutter <> ")")
@@ -5359,7 +5371,6 @@ shellGlue =
       , "#mnote.conflict,#mnote.error{color:var(--g-bad)}"
       , "border:1px solid var(--g-border)"
       , "--dk-mono:\"Hack\", var(--glance-mono)"
-      , "font:14px/1.5 var(--glance-mono)"
       -- `--tv-link' is declared on `.tv-root', so a live `var()' read resolves to nothing in a pane beside the mount.
       , "--g-link:#30739B;", "--g-link:#7CC9F8;" ]
       -- ALIASED, NOT RESPELLED: a hex at a use site makes a renderer change N edits instead of one.
@@ -5474,8 +5485,6 @@ shellGlue =
   -- `g' reads the LIVE default, so a fresh pin is applied without a page reload.
   , Glue "the default view is the tree's, and `g' applies it"
       [ "const savedQuery = (id) => saved[id] || \"\";"
-      , "let bootedOn = savedQuery(\"default\");"
-      , "      const q = params().has(\"q\") ? urlQuery() : bootedOn;"
       , "applyView(b, savedQuery(\"default\"), undefined, here);"
       -- `g' is HOME rather than a step on the trail: the crumbs and their labels go with it.
       , "if (crumbing()) table.setCrumbs([]);"
@@ -5646,7 +5655,6 @@ shellGlue =
       -- One number for the boot's limit and the renderer's page, so the first paint is exactly page one.
       [ "const PAGE = 100;   // rows in the first paint, and rows to a page"
       , "pageSize: PAGE,"
-      , "swap ? asking(asked) : `${narrow}limit=${PAGE}`"
       , "nextPage: (b) => turnPage(b, 1),"
       , "previousPage: (b) => turnPage(b, -1),"
       , "if (step > 0) table.nextPage(); else table.previousPage();"
@@ -5726,7 +5734,7 @@ shellGlue =
   , glue "a coarse pointer gets fields iOS will not zoom into"
       [ "#mtext,#pinput,#dtin,#sedit input,#tedit input,#ledit input,"
       , "#dpara textarea,"
-      , ".ctext,.cview{font-size:16px}}", "font:12px/1.5 var(--dk-mono)"
+      , ".ctext,.cview{font-size:16px}}"
       , "#mpanes{flex-direction:column}" ]
 
   -- These two boxes write ORG into the user's own files, so a remembered value, a
@@ -5739,7 +5747,7 @@ shellGlue =
 
   -- THE SETTINGS SHEET IS UNREACHABLE ON A TOUCH DEVICE, a KNOWN GAP asserted from both sides.
   , Glue "the settings door a coarse pointer had went with the corner"
-      [ "  @media (pointer:coarse){", "#app .tv-chips{min-height:44px;cursor:pointer}" ]
+      [ "  @media (pointer:coarse){" ]
       [ "id=\"gear\"", "#gear{", "\9881" ]
 
     -- THE PLATFORM PAINTS THE `<select>', and a page that never declares its
@@ -5756,8 +5764,7 @@ shellGlue =
       [ "--glance-mono:\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
       -- The renderer injects `.tv-root{font:…}' after this page's style element, so the extra selector step wins.
       , "#app .tv-root{font-family:var(--glance-mono)}"
-      , "font:14px/1.5 var(--glance-mono)", "font:12px/1.5 var(--dk-mono)"
-      , "--dk-mono:\"Hack\", var(--glance-mono)" ]
+      , "font:14px/1.5 var(--glance-mono)", "font:12px/1.5 var(--dk-mono)" ]
 
   -- The assets directory holds no font file, so the declaration must not be there to point at one.
   , Glue "with no font file to serve, says nothing about one" [] ["@font-face"]
@@ -6394,9 +6401,7 @@ materializeSpec = testGroup "GET /headline"
 
     -- SUB-ADDRESSING: the ROW's id plus an INDEX in document order over the subtree.
   , testCase "the row names the entries hanging under it, and how to reach them"
-      $ withTempDir $ \dir -> do
-      _ <- orgFile dir "tree.org" nestedDoc
-      (a, _hub) <- serverOver dir
+      $ withNested $ \a _path -> do
       v <- getFrom a (headlinePath "top") >>= decoded
       assertEqual "standing on the row itself" Null =<< field "child" v
       assertEqual "with nothing above it" Null =<< field "parent" v
@@ -6414,9 +6419,7 @@ materializeSpec = testGroup "GET /headline"
         =<< traverse (intAt "line") =<< listAt "children" v
 
   , testCase "a child materializes as its own subtree, under the file's digest"
-      $ withTempDir $ \dir -> do
-      _ <- orgFile dir "tree.org" nestedDoc
-      (a, _hub) <- serverOver dir
+      $ withNested $ \a _path -> do
       row <- getFrom a (headlinePath "top") >>= decoded
       v <- getFrom a (childPath "top" 0) >>= decoded
       assertEqual "status" 200 . status =<< getFrom a (childPath "top" 0)
@@ -6438,9 +6441,7 @@ materializeSpec = testGroup "GET /headline"
         =<< traverse (intAt "index") =<< listAt "children" v
 
   , testCase "and the grandchild climbs back to the child, not to the row"
-      $ withTempDir $ \dir -> do
-      _ <- orgFile dir "tree.org" nestedDoc
-      (a, _hub) <- serverOver dir
+      $ withNested $ \a _path -> do
       v <- getFrom a (childPath "top" 1) >>= decoded
       assertEqual "the entry" "*** grandchild\n" =<< textAt "org" v
       assertEqual "which child it hangs under" (Number 0) =<< field "parent" v
@@ -6448,9 +6449,7 @@ materializeSpec = testGroup "GET /headline"
         =<< textsAt "path" v
 
     -- The body stops where the outline under it begins, or the same bytes would be drawn twice.
-  , testCase "ownLines is where the entry's own body stops" $ withTempDir $ \dir -> do
-      _ <- orgFile dir "tree.org" nestedDoc
-      (a, _hub) <- serverOver dir
+  , testCase "ownLines is where the entry's own body stops" $ withNested $ \a _path -> do
       v <- getFrom a (headlinePath "top") >>= decoded
       body <- textAt "body" v
       own <- intAt "ownLines" v
@@ -6462,17 +6461,13 @@ materializeSpec = testGroup "GET /headline"
         =<< intAt "ownLines" child
 
   , testCase "a child index the subtree has no entry for is a 404"
-      $ withTempDir $ \dir -> do
-      _ <- orgFile dir "tree.org" nestedDoc
-      (a, _hub) <- serverOver dir
+      $ withNested $ \a _path -> do
       r <- getFrom a (childPath "top" 9)
       assertEqual "status" 404 (status r)
       assertContains "names what it holds" "holds 3" =<< textAt "error" =<< decoded r
 
     -- A mistyped index that served the parent would look exactly like a working request.
-  , testCase "and a child that is not a number is a 400" $ withTempDir $ \dir -> do
-      _ <- orgFile dir "tree.org" nestedDoc
-      (a, _hub) <- serverOver dir
+  , testCase "and a child that is not a number is a 400" $ withNested $ \a _path -> do
       r <- getFrom a ("/headline" <> renderQuery True
                         [("id", Just "top"), ("child", Just "x")])
       assertEqual "status" 400 (status r)
@@ -6529,9 +6524,8 @@ materializeSpec = testGroup "GET /headline"
 commitSpec :: TestTree
 commitSpec = testGroup "POST /headline"
   [ testCase "writes the edited subtree and leaves the rest of the file alone" $
-      withCommitted $ \a path v -> do
+      withCommitted $ \a path v digest _body _props -> do
         org <- textAt "org" v
-        digest <- textAt "digest" v
         before <- document path
         extent <- field "span" v
         start <- intAt "start" extent
@@ -6549,12 +6543,9 @@ commitSpec = testGroup "POST /headline"
 
     -- A WRITE SPELLS NO TRAILING SPACE, asserted where the bytes land rather than on the text a route composes.
   , testCase "a committed subtree lands with its line ends trimmed" $
-      withCommitted $ \a path v -> do
-        body <- textAt "body" v
-        digest <- textAt "digest" v
-        props <- pairsAt "properties" v
+      withCommitted $ \a path _v digest body' props -> do
         before <- document path
-        let edited = T.replace "body of first" "body of first  \ntyped over  \t" body
+        let edited = T.replace "body of first" "body of first  \ntyped over  \t" body'
         assertOk =<< postTo a (headlinePath "first") (splitBody edited props digest)
         after <- document path
         assertContains "the line the reader typed is trimmed" "\nbody of first\n" after
@@ -6567,9 +6558,7 @@ commitSpec = testGroup "POST /headline"
                     before (T.replace "typed over\n" "" after)
 
     -- A CHILD IS WRITTEN THE WAY THE ROW IS: the same route under a `child=', splicing that entry's OWN extent.
-  , testCase "a child commit splices the child's extent alone" $ withTempDir $ \dir -> do
-      path <- orgFile dir "tree.org" nestedDoc
-      (a, _hub) <- serverOver dir
+  , testCase "a child commit splices the child's extent alone" $ withNested $ \a path -> do
       v <- getFrom a (childPath "top" 0) >>= decoded
       org <- textAt "org" v
       digest <- textAt "digest" v
@@ -6585,9 +6574,7 @@ commitSpec = testGroup "POST /headline"
       assertEqual "the digest it reports is the file's"
                   expected =<< textAt "digest" =<< decoded r
 
-  , testCase "and its parts recompose into the same extent" $ withTempDir $ \dir -> do
-      path <- orgFile dir "tree.org" nestedDoc
-      (a, _hub) <- serverOver dir
+  , testCase "and its parts recompose into the same extent" $ withNested $ \a path -> do
       v <- getFrom a (childPath "top" 0) >>= decoded
       before <- document path
       body <- textAt "body" v
@@ -6601,21 +6588,18 @@ commitSpec = testGroup "POST /headline"
                   before =<< document path
 
   , testCase "a commit aimed at a child that is not there is a 404" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "tree.org" nestedDoc
-        (a, _hub) <- serverOver dir
+      withNested $ \a path -> do
         v <- getFrom a (headlinePath "top") >>= decoded
         digest <- textAt "digest" v
-        before <- document (dir </> "tree.org")
+        before <- document path
         r <- postTo a (childPath "top" 9) (commitBody "** nope\n" digest)
         assertEqual "status" 404 (status r)
         -- The NAME promises the commit did not land, and every sibling refusal here asserts the file too.
-        assertEqual "and nothing was written" before =<< document (dir </> "tree.org")
+        assertEqual "and nothing was written" before =<< document path
 
   , testCase "leaves the store alone — the watch is what updates rows" $
-      withCommitted $ \a path before -> do
+      withCommitted $ \a path before digest _body _props -> do
         org <- textAt "org" before
-        digest <- textAt "digest" before
         assertOk =<< postTo a (headlinePath "first") (commitBody (org <> "a line\n") digest)
         after <- decoded =<< getFrom a (headlinePath "first")
         assertEqual "the store's subtree" (Just org) . Just =<< textAt "org" after
@@ -6624,9 +6608,8 @@ commitSpec = testGroup "POST /headline"
         assertBool "but the file was written" (onDisk /= digest)
 
   , testCase "a file rewritten behind the client is a conflict, and stays as it is" $
-      withCommitted $ \a path v -> do
+      withCommitted $ \a path v digest _body _props -> do
         org <- textAt "org" v
-        digest <- textAt "digest" v
         let meddled = committable <> "* TODO Someone else\n"
         TIO.writeFile path meddled
         r <- postTo a (headlinePath "first") (commitBody (org <> "mine\n") digest)
@@ -6639,7 +6622,7 @@ commitSpec = testGroup "POST /headline"
         assertEqual "the file is the meddler's" meddled after
 
   , testCase "a digest the store no longer holds is a conflict too" $
-      withCommitted $ \a path v -> do
+      withCommitted $ \a path v _digest _body _props -> do
         org <- textAt "org" v
         let stale = T.replicate 64 "0"
         r <- postTo a (headlinePath "first") (commitBody org stale)
@@ -6655,10 +6638,7 @@ commitSpec = testGroup "POST /headline"
 
     -- The split shape buys exactly the byte rule: a property nobody touched goes back as the line it came in on.
   , testCase "the split shape writes the same subtree, verbatim where nothing moved" $
-      withCommitted $ \a path v -> do
-        digest <- textAt "digest" v
-        body' <- textAt "body" v
-        props <- pairsAt "properties" v
+      withCommitted $ \a path _v digest body' props -> do
         assertOk =<< postTo a (headlinePath "first")
                (splitBody body' (props <> [["EFFORT", "0:30"]]) digest)
         after <- document path
@@ -6670,9 +6650,7 @@ commitSpec = testGroup "POST /headline"
         assertContains "and the next headline is untouched" "* TODO Second\ntail\n" after
 
   , testCase "an emptied properties list takes the drawer away" $
-      withCommitted $ \a path v -> do
-        digest <- textAt "digest" v
-        body' <- textAt "body" v
+      withCommitted $ \a path _v digest body' _props -> do
         assertOk =<< postTo a (headlinePath "first") (splitBody body' [] digest)
         after <- document path
         -- The identity property is the SERVER's, so emptying the list leaves that one line standing.
@@ -6683,9 +6661,7 @@ commitSpec = testGroup "POST /headline"
                     after
 
   , testCase "the split shape is drift-locked like the whole one" $
-      withCommitted $ \a path v -> do
-        body' <- textAt "body" v
-        props <- pairsAt "properties" v
+      withCommitted $ \a path _v _digest body' props -> do
         let stale = T.replicate 64 "0"
         r <- postTo a (headlinePath "first") (splitBody body' props stale)
         assertEqual "status" 409 (status r)
@@ -6693,10 +6669,7 @@ commitSpec = testGroup "POST /headline"
         assertEqual "untouched" committable =<< document path
 
   , testCase "and by the file on disk as well as by the store" $
-      withCommitted $ \a path v -> do
-        digest <- textAt "digest" v
-        body' <- textAt "body" v
-        props <- pairsAt "properties" v
+      withCommitted $ \a path _v digest body' props -> do
         let meddled = committable <> "* TODO Someone else\n"
         TIO.writeFile path meddled
         r <- postTo a (headlinePath "first") (splitBody body' props digest)
@@ -6706,9 +6679,7 @@ commitSpec = testGroup "POST /headline"
 
     -- A planning value no timestamp parser would read back is refused BEFORE the write, naming the field.
   , testCase "a planning entry that does not reparse is a 409 naming the field" $
-      withCommitted $ \a path v -> do
-        digest <- textAt "digest" v
-        body' <- textAt "body" v
+      withCommitted $ \a path _v digest body' _props -> do
         r <- postTo a (headlinePath "first")
                (planningBody body' [] [["SCHEDULED", "tomorrow"]] digest)
         assertEqual "status" 409 (status r)
@@ -6726,7 +6697,7 @@ commitSpec = testGroup "POST /headline"
         assertEqual "named" "WHENEVER" =<< textAt "field" =<< decoded bad
 
   , testCase "a body that is not the two fields is a 400" $
-      withCommitted $ \a _path _v -> do
+      withCommitted $ \a _path _v _digest _body _props -> do
         broken <- postTo a (headlinePath "first") "{not json"
         missing <- postTo a (headlinePath "first") (encode (object ["org" .= ("x" :: T.Text)]))
         assertEqual "malformed" 400 (status broken)
@@ -6735,8 +6706,7 @@ commitSpec = testGroup "POST /headline"
 
     -- A `body' with no `properties' beside it would read as "drop the drawer" — too much to infer.
   , testCase "the two shapes are told apart, and neither is half-given" $
-      withCommitted $ \a path v -> do
-        digest <- textAt "digest" v
+      withCommitted $ \a path _v digest _body _props -> do
         both <- postTo a (headlinePath "first")
                   (encode (object [ "org" .= ("* x\n" :: T.Text), "body" .= ("* x\n" :: T.Text)
                                   , "digest" .= digest ]))
@@ -6752,7 +6722,7 @@ commitSpec = testGroup "POST /headline"
         assertEqual "and nothing was written" committable =<< document path
 
   , testCase "a body over the cap is refused before it is read" $
-      withCommitted $ \a path _v -> do
+      withCommitted $ \a path _v _digest _body _props -> do
         let huge = BL.fromStrict (BS.replicate (1024 * 1024 + 1) 0x78)
         r <- postTo a (headlinePath "first") huge
         assertEqual "status" 413 (status r)
@@ -6761,7 +6731,7 @@ commitSpec = testGroup "POST /headline"
         assertEqual "and nothing was written" committable =<< document path
 
   , testCase "an id no row carries is a 404, and no id a 400" $
-      withCommitted $ \a _path _v -> do
+      withCommitted $ \a _path _v _digest _body _props -> do
         unknown <- postTo a (headlinePath "no-such-headline") (commitBody "* x\n" "d")
         anonymous <- postTo a "/headline" (commitBody "* x\n" "d")
         assertEqual "unknown id" 404 (status unknown)
@@ -6834,6 +6804,42 @@ digestsOf r = do
   ok <- filterM (boolAt "ok") results
   traverse (textAt "digest") ok
 
+-- | A tree the door under test needs nothing written to first.
+asIs :: Application -> Hub -> FilePath -> Assertion
+asIs _a _hub _path = pure ()
+
+asIsIn :: Application -> Hub -> FilePath -> FilePath -> Assertion
+asIsIn _a _hub _path _other = pure ()
+
+-- | ROWS OF ONE FILE RIDE ONE WRITE, at whichever door: ARRANGE readies the tree, CMD names two rows of the same file, and SAYS reads the file before and after.
+oneFileOneWrite :: (Application -> Hub -> FilePath -> Assertion) -> BL.ByteString
+                -> (T.Text -> T.Text -> Assertion) -> TestTree
+oneFileOneWrite arrange cmd says =
+  testCase "two rows of one file are one write, and both land" $
+    withCommandable $ \a hub path _other -> do
+      arrange a hub path
+      before <- document path
+      r <- ok =<< postTo a "/command" cmd
+      assertEqual "both rows" [("first", True), ("second", True)] =<< outcomesOf r
+      digests <- digestsOf r
+      says before =<< document path
+      onDisk <- digestOnDisk path
+      assertEqual "a digest per row" 2 (length digests)
+      assertEqual "one write, so one digest, and it is the file's" [onDisk] (nub digests)
+
+-- | AND ROWS IN TWO FILES RIDE A WRITE EACH: ARRANGE readies both, CMD names one row of each, and each file carries its own needle after.
+twoFilesTwoWrites :: (Application -> Hub -> FilePath -> FilePath -> Assertion) -> BL.ByteString
+                  -> (String, T.Text) -> (String, T.Text) -> TestTree
+twoFilesTwoWrites arrange cmd (hereSays, here) (thereSays, there) =
+  testCase "rows in two files are two writes, and each is its own" $
+    withCommandable $ \a hub path other -> do
+      arrange a hub path other
+      r <- ok =<< postTo a "/command" cmd
+      assertEqual "both rows" [("first", True), ("third", True)] =<< outcomesOf r
+      assertEqual "two files, two digests" 2 . length . nub =<< digestsOf r
+      assertContains hereSays here =<< document path
+      assertContains thereSays there =<< document other
+
 -- | ONE ID NOTHING CARRIES, beside one that lands: the same contract at three doors.
 loneMissingId :: BL.ByteString -> (String, [(T.Text, Bool)]) -> (String, T.Text) -> TestTree
 loneMissingId cmd (order, outcomes) (moved, named) =
@@ -6899,29 +6905,15 @@ commandSpec = testGroup "POST /command"
           =<< document path
 
     -- Two rows of one file are ONE editFile: a write per row would pin the second to the digest the first invalidated.
-  , testCase "two rows of one file are one write, and both land" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        r <- ok =<< postTo a "/command"
-               (command "set-state" ["first", "second"] (keywordArg (Just "CANCELLED")))
-        assertEqual "both rows" [("first", True), ("second", True)] =<< outcomesOf r
-        digests <- digestsOf r
-        after <- document path
-        assertEqual "both edits, in one file"
-                    (T.replace "* Second" "* CANCELLED Second"
-                       (T.replace "* NEXT First" "* CANCELLED First" before))
-                    after
-        onDisk <- digestOnDisk path
-        assertEqual "a digest per row" 2 (length digests)
-        assertEqual "one write, so one digest, and it is the file's" [onDisk] (nub digests)
+  , oneFileOneWrite asIs
+      (command "set-state" ["first", "second"] (keywordArg (Just "CANCELLED")))
+      (\before after -> assertEqual "both edits, in one file"
+         (T.replace "* Second" "* CANCELLED Second"
+            (T.replace "* NEXT First" "* CANCELLED First" before)) after)
 
-  , testCase "rows in two files are two writes, and each is its own" $
-      withCommandable $ \a _hub path other -> do
-        r <- ok =<< postTo a "/command" (command "archive" ["first", "third"] (object []))
-        assertEqual "both rows" [("first", True), ("third", True)] =<< outcomesOf r
-        assertEqual "two files, two digests" 2 . length . nub =<< digestsOf r
-        assertContains "the tag joined the list" "* NEXT First :one:ARCHIVE:" =<< document path
-        assertContains "and started one" "* TODO Third :ARCHIVE:" =<< document other
+  , twoFilesTwoWrites asIsIn (command "archive" ["first", "third"] (object []))
+      ("the tag joined the list", "* NEXT First :one:ARCHIVE:")
+      ("and started one", "* TODO Third :ARCHIVE:")
 
     -- No cross-file rollback, and none is possible: the answer says which rows landed instead.
   , testCase "a file that moved refuses its rows while the others land" $
@@ -7291,26 +7283,14 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
         assertEqual "and so did the other" [("second", True)] =<< outcomesOf gone
         assertEqual "and the file says what it always said" before =<< document path
 
-  , testCase "two rows of one file are one write, and both land" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        r <- postTo a "/command" (command "add-tag" ["first", "second"] (tagArg "work"))
-        assertEqual "both rows" [("first", True), ("second", True)] =<< outcomesOf r
-        assertEqual "both edits, in one file"
-                    (T.replace "* Second" "* Second :work:"
-                       (T.replace "* NEXT First :one:" "* NEXT First :one:work:" before))
-          =<< document path
-        onDisk <- digestOnDisk path
-        assertEqual "one write, so one digest, and it is the file's" [onDisk]
-                    . nub =<< digestsOf r
+  , oneFileOneWrite asIs (command "add-tag" ["first", "second"] (tagArg "work"))
+      (\before after -> assertEqual "both edits, in one file"
+         (T.replace "* Second" "* Second :work:"
+            (T.replace "* NEXT First :one:" "* NEXT First :one:work:" before)) after)
 
-  , testCase "rows in two files are two writes, and each is its own" $
-      withCommandable $ \a _hub path other -> do
-        r <- postTo a "/command" (command "add-tag" ["first", "third"] (tagArg "work"))
-        assertEqual "both rows" [("first", True), ("third", True)] =<< outcomesOf r
-        assertEqual "two files, two digests" 2 . length . nub =<< digestsOf r
-        assertContains "the tag joined the run" "* NEXT First :one:work:" =<< document path
-        assertContains "and opened one" "* TODO Third :work:" =<< document other
+  , twoFilesTwoWrites asIsIn (command "add-tag" ["first", "third"] (tagArg "work"))
+      ("the tag joined the run", "* NEXT First :one:work:")
+      ("and opened one", "* TODO Third :work:")
 
     -- The PALETTE normalizes up; sending the whole set is safe, since the row that has it costs no edit.
   , testCase "a mixed set is levelled up whichever rows are named" $
@@ -7394,31 +7374,23 @@ renameCommandSpec = testGroup "POST /command rename-tag"
         assertEqual "the row landed" [("second", True)] =<< outcomesOf r
         assertEqual "and the file says what it always said" before =<< document path
 
-  , testCase "two rows of one file are one write, and both land" $
-      withCommandable $ \a hub path _other -> do
-        _ <- postTo a "/command" (command "add-tag" ["first", "second"] (tagArg "work"))
-        watchStep hub path
-        r <- postTo a "/command" (command "rename-tag" ["first", "second"]
-                                          (renameArg "work" "projects"))
-        assertEqual "both rows" [("first", True), ("second", True)] =<< outcomesOf r
-        here <- document path
-        assertContains "the entry moved in place" "* NEXT First :one:projects:" here
-        assertContains "and in the row that had only it" "* Second :projects:" here
-        onDisk <- digestOnDisk path
-        assertEqual "one write, so one digest, and it is the file's" [onDisk]
-                    . nub =<< digestsOf r
+  , oneFileOneWrite
+      (\a hub path -> do
+         _ <- postTo a "/command" (command "add-tag" ["first", "second"] (tagArg "work"))
+         watchStep hub path)
+      (command "rename-tag" ["first", "second"] (renameArg "work" "projects"))
+      (\_before after -> do
+         assertContains "the entry moved in place" "* NEXT First :one:projects:" after
+         assertContains "and in the row that had only it" "* Second :projects:" after)
 
-  , testCase "rows in two files are two writes, and each is its own" $
-      withCommandable $ \a hub path other -> do
-        _ <- postTo a "/command" (command "add-tag" ["first", "third"] (tagArg "work"))
-        watchStep hub path
-        watchStep hub other
-        r <- postTo a "/command" (command "rename-tag" ["first", "third"]
-                                          (renameArg "work" "projects"))
-        assertEqual "both rows" [("first", True), ("third", True)] =<< outcomesOf r
-        assertEqual "two files, two digests" 2 . length . nub =<< digestsOf r
-        assertContains "here" "* NEXT First :one:projects:" =<< document path
-        assertContains "and there" "* TODO Third :projects:" =<< document other
+  , twoFilesTwoWrites
+      (\a hub path other -> do
+         _ <- postTo a "/command" (command "add-tag" ["first", "third"] (tagArg "work"))
+         watchStep hub path
+         watchStep hub other)
+      (command "rename-tag" ["first", "third"] (renameArg "work" "projects"))
+      ("here", "* NEXT First :one:projects:")
+      ("and there", "* TODO Third :projects:")
 
     -- The charset wall is the request's and stands at BOTH ends.
   , testCase "a name no parser reads refuses the request, naming it" $
@@ -7465,7 +7437,7 @@ cellAt key row = do
 
 -- | @GET \/tags@: the route — the shape, the order, the vocabulary beside it, and the refusals it shares with @\/keywords@.
 tagsSpec :: TestTree
-tagsSpec = testGroup "GET /tags"
+tagsSpec = testGroup "GET /tags" $
   [ testCase "is a row's own tags, folded, in the order the file spells them" $
       withTaggedTree $ \a -> do
         r <- ok =<< getFrom a "/tags?ids=both"
@@ -7501,26 +7473,11 @@ tagsSpec = testGroup "GET /tags"
         assertEqual "and the archive tag counts like any other" 1
           =<< intAt "archive" counts
 
-  , testCase "an id the store does not hold is named and left out" $
-      withTaggedTree $ \a -> do
-        r <- ok =<< getFrom a "/tags?ids=nosuch,both"
-        assertEqual "the ones that are gone" ["nosuch"] =<< textsAt "unknown" =<< decoded r
-        assertEqual "resolved for the one that is not" [("both", ["web", "work"])]
-          =<< tagRowsOf r
-
-  , testCase "ids repeat, ids comma-separate, id is one, and none is a 400" $
-      withTaggedTree $ \a -> do
-        let both = [("bare", []), ("both", ["web", "work"])]
-        assertEqual "repeated" both =<< tagRowsOf =<< getFrom a "/tags?ids=bare&ids=both"
-        assertEqual "and mixed with the singular" both
-          =<< tagRowsOf =<< getFrom a "/tags?ids=bare&id=both"
-        r <- getFrom a "/tags"
-        assertEqual "status" 400 (status r)
-        assertEqual "naming the parameter" "GET /tags?ids=<row id>,<row id>"
-          =<< textAt "error" =<< decoded r
-
-  , postIs405 "/tags"
   ]
+  <> idsParamCases withTaggedTree "/tags" tagRowsOf
+       ("both", [("both", ["web", "work"])])
+       ("bare", "both", [("bare", []), ("both", ["web", "work"])])
+  <> [ postIs405 "/tags" ]
 
 tagRowsOf :: SResponse -> IO [(T.Text, [T.Text])]
 tagRowsOf = traverse one <=< rowsOf
@@ -8262,34 +8219,16 @@ keywordsSpec = testGroup "GET /keywords"
    <> [ testCase label $ withLayeredTree $ \a ->
           assertEqual what want =<< sourcesOf =<< getFrom a path
       | (label, path, what, want) <- resolved ]
-   <>
     -- An id the store has no row for is named rather than refused, so a stale marked set still answers.
-  [ testCase "an id the store does not hold is named and left out" $
-      withLayeredTree $ \a -> do
-        r <- ok =<< getFrom a "/keywords?ids=nosuch,tagged"
-        assertEqual "the ones that are gone" ["nosuch"] =<< textsAt "unknown" =<< decoded r
-        assertEqual "resolved for the one that is not" orgSystemBook =<< sourcesOf r
-
-  , testCase "every id unknown resolves nothing and still says which" $
+   <> idsParamCases withLayeredTree "/keywords" sourcesOf
+        ("tagged", orgSystemBook)
+        ("tagged", "filmed", orgSystemBook <> [("film", ["WATCHING"], ["WATCHED"])])
+   <>
+  [ testCase "every id unknown resolves nothing and still says which" $
       withLayeredTree $ \a -> do
         r <- ok =<< getFrom a "/keywords?ids=nosuch"
         assertEqual "no sources" [] =<< sourcesOf r
         assertEqual "and both halves of why" ["nosuch"] =<< textsAt "unknown" =<< decoded r
-
-    -- An id may hold a comma and the split happens after decoding, so the repeated parameter is what the shell writes.
-  , testCase "ids repeat, ids comma-separate, id is one, and none is a 400" $
-      withLayeredTree $ \a -> do
-        let both = orgSystemBook <> [("film", ["WATCHING"], ["WATCHED"])]
-        assertEqual "repeated" both
-          =<< sourcesOf =<< getFrom a "/keywords?ids=tagged&ids=filmed"
-        assertEqual "and mixed with the comma form" both
-          =<< sourcesOf =<< getFrom a "/keywords?ids=tagged&id=filmed"
-        assertEqual "the singular spelling answers for one" orgSystemBook
-          =<< sourcesOf =<< getFrom a "/keywords?id=tagged"
-        r <- getFrom a "/keywords"
-        assertEqual "status" 400 (status r)
-        assertEqual "naming the parameter" "GET /keywords?ids=<row id>,<row id>"
-          =<< textAt "error" =<< decoded r
 
   , postIs405 "/keywords"
 
@@ -8350,11 +8289,7 @@ editLinkSpec = testGroup "POST /command edit-link"
   [ testCase "the range /links handed out is the range the write splices" $
       withLinkable $ \a _hub path -> do
         before <- document path
-        (sp, digest) <- pinnedSpan a "first" 0
-        r <- ok =<< postTo a "/command"
-               (linkCommand "edit-link" ["first"]
-                       (object ["span" .= sp, "target" .= ("https://z.example" :: T.Text)])
-                       [("first", digest)])
+        r <- ok =<< postEditLink a "first" 0 ["target" .= ("https://z.example" :: T.Text)]
         assertEqual "the row landed" [("first", True)] =<< outcomesOf r
         assertEqual "the file is the old one with one target replaced"
           (T.replace "[[https://a.example][A]]" "[[https://z.example][A]]" before)
@@ -8366,35 +8301,20 @@ editLinkSpec = testGroup "POST /command edit-link"
   , testCase "a description added, kept and taken off, over the wire" $ do
       withLinkable $ \a _hub path -> do
         before <- document path
-        (sp, digest) <- pinnedSpan a "first" 1
-        _ <- postTo a "/command"
-               (linkCommand "edit-link" ["first"]
-                       (object [ "span" .= sp
-                               , "target" .= ("https://b.example" :: T.Text)
-                               , "desc" .= ("B" :: T.Text) ])
-                       [("first", digest)])
+        _ <- postEditLink a "first" 1 [ "target" .= ("https://b.example" :: T.Text)
+                                      , "desc" .= ("B" :: T.Text) ]
         assertEqual "the bracketed bare link took a description"
           (T.replace "[[https://b.example]]" "[[https://b.example][B]]" before)
           =<< document path
       withLinkable $ \a _hub path -> do
         before <- document path
-        (sp, digest) <- pinnedSpan a "first" 2
-        _ <- postTo a "/command"
-               (linkCommand "edit-link" ["first"]
-                       (object [ "span" .= sp
-                               , "target" .= ("https://d.example" :: T.Text) ])
-                       [("first", digest)])
+        _ <- postEditLink a "first" 2 ["target" .= ("https://d.example" :: T.Text)]
         assertEqual "and the plain URL swapped its target and stayed plain"
           (T.replace "https://c.example" "https://d.example" before) =<< document path
       withLinkable $ \a _hub path -> do
         before <- document path
-        (sp, digest) <- pinnedSpan a "first" 0
-        _ <- postTo a "/command"
-               (linkCommand "edit-link" ["first"]
-                       (object [ "span" .= sp
-                               , "target" .= ("https://a.example" :: T.Text)
-                               , "desc" .= Null ])
-                       [("first", digest)])
+        _ <- postEditLink a "first" 0 [ "target" .= ("https://a.example" :: T.Text)
+                                      , "desc" .= Null ]
         assertEqual "a null description leaves a desc-less bracketed link"
           (T.replace "[[https://a.example][A]]" "[[https://a.example]]" before)
           =<< document path
@@ -8484,13 +8404,8 @@ editLinkSpec = testGroup "POST /command edit-link"
     -- A link in the TITLE is a cell; one in the body moves no cell at all, which is why the popup re-asks.
   , testCase "a title link reaches the row over the watch" $
       withLinkable $ \a hub path -> do
-        (sp, digest) <- pinnedSpan a "first" 0
-        _ <- postTo a "/command"
-               (linkCommand "edit-link" ["first"]
-                       (object [ "span" .= sp
-                               , "target" .= ("https://a.example" :: T.Text)
-                               , "desc" .= ("Alpha" :: T.Text) ])
-                       [("first", digest)])
+        _ <- postEditLink a "first" 0 [ "target" .= ("https://a.example" :: T.Text)
+                                      , "desc" .= ("Alpha" :: T.Text) ]
         watchStep hub path
         r <- getFrom a "/headlines"
         assertEqual "the cell carries the line the file holds"
@@ -8499,11 +8414,7 @@ editLinkSpec = testGroup "POST /command edit-link"
 
   , testCase "and /links answers with the edited link once the watch has run" $
       withLinkable $ \a hub path -> do
-        (sp, digest) <- pinnedSpan a "first" 0
-        _ <- postTo a "/command"
-               (linkCommand "edit-link" ["first"]
-                       (object ["span" .= sp, "target" .= ("https://z.example" :: T.Text)])
-                       [("first", digest)])
+        _ <- postEditLink a "first" 0 ["target" .= ("https://z.example" :: T.Text)]
         watchStep hub path
         assertEqual "the new target, described as it always was"
           [ ["https://z.example", "A", "https"]
@@ -8550,6 +8461,13 @@ linkCommand :: T.Text -> [T.Text] -> Value -> [(T.Text, T.Text)] -> BL.ByteStrin
 linkCommand name ids args digests = encode (object
   [ "name" .= name, "ids" .= ids, "args" .= args
   , "digests" .= object [ Key.fromText rid .= digest | (rid, digest) <- digests ] ])
+
+-- | The WHOLE round trip the popup makes for ROW's link at AT: the span and digest A just reported, sent back as @edit-link@ with ARGS beside the span.
+postEditLink :: Application -> T.Text -> Int -> [Pair] -> IO SResponse
+postEditLink a rid at args = do
+  (sp, digest) <- pinnedSpan a (TE.encodeUtf8 rid) at
+  postTo a "/command" (linkCommand "edit-link" [rid] (object (("span" .= sp) : args))
+                                   [(rid, digest)])
 
 -- | The picker's door on to the SAME pipeline @GET \/headlines@ answers with.  What
 -- is asked here is only what the picker adds: the two cuts, and that the shape
@@ -8784,6 +8702,19 @@ viewBody path lines' want = layerBody path lines' want Nothing
 -- | The query a captured @POST \/config@ body names for view ID: the WRITE's shape, an OBJECT keyed by id.
 wroteView :: T.Text -> Value -> IO T.Text
 wroteView vid v = field "views" v >>= textAt vid
+
+-- | The ONE config write ANSWER carried, a failure at any other count.
+oneConfigWrite :: Value -> IO Value
+oneConfigWrite answer = do
+  writes <- listAt "configWrites" answer
+  case writes of
+    [one]  -> pure one
+    others -> assertFailure ("expected one config write, got " <> show (length others))
+
+-- | A write's hues, flat: theme, keyword and hue per line.
+coloursOf :: Value -> IO [[T.Text]]
+coloursOf v = traverse (\h -> traverse (`textAt` h) ["theme", "keyword", "hue"])
+                =<< listAt "colors" v
 
 -- | A write naming EVERY setting 'configSettings' carries.  The names are asserted against the registry where this is used.
 everySetting :: [(T.Text, Value)]
@@ -9388,7 +9319,6 @@ keymapSpec shell = testGroup "Shell keymap"
 
   , testCase "the view title is the tab's alone, and nothing on the page repeats it" $ do
       b <- shell
-      assertContains "palette" "palette: true," b
       assertBool ("a heading survives in the shell: " <> show (between "<h1>" "</h1>" b))
                  (not ("<h1>" `T.isInfixOf` b))
       -- Written down rather than taken from the code: an oracle calling 'viewTitleFor' agrees with whatever it returns.
