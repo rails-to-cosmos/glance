@@ -1738,8 +1738,8 @@ export default [
     assert(shelf.paras.some((t) => /A paragraph the child owns/.test(t))
              && shelf.paras.some((t) => /The grandchild's own line/.test(t)),
       `the children's contents are missing: ${JSON.stringify(shelf.paras)}`);
-    // A SHELF INDENTS UNDER ITS OWN STAR: the child's contents one character past
-    // the root's, the grandchild's one more -- org's own geometry.
+    // A SHELF INDENTS UNDER ITS OWN FIRST LETTER: the cleaned stars step two
+    // characters a level, and the contents step with them -- org's own geometry.
     const insets = await p.eval(() => {
       const pad = (sel, re) => {
         const e = [...document.querySelectorAll(sel)]
@@ -1757,8 +1757,8 @@ export default [
                kid: pad("#mdoc .d-para", /A paragraph the child owns/),
                grand: pad("#mdoc .d-para", /The grandchild's own line/) };
     });
-    assert(Math.abs(insets.kid - insets.root - insets.ch) < 0.1
-             && Math.abs(insets.grand - insets.root - 2 * insets.ch) < 0.1,
+    assert(Math.abs(insets.kid - insets.root - 2 * insets.ch) < 0.1
+             && Math.abs(insets.grand - insets.root - 4 * insets.ch) < 0.1,
       `the shelves indent ${insets.root}/${insets.kid}/${insets.grand} on a `
       + `${insets.ch}px character`);
     // THE SHELF WALKS LIKE A LIST: n from the first child lands on the second,

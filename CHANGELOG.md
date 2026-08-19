@@ -26,8 +26,9 @@ section groups a feature arc, and its date is that arc's last commit.
   paragraphs, lists and drawers appear under its headline instead of behind
   `RET`; a grandchild under it, all the way down. Navigation is the list's own:
   `n`/`p` step siblings over whole subtrees, `f` enters a child's contents,
-  `b` climbs back out. A shelf indents under its own headline's first letter,
-  the grandchild's one step past the child's. Editing a child's paragraph
+  `b` climbs back out. A shelf indents under its own headline's first letter —
+  the cleaned stars' own width, so the columns never cross at any depth.
+  Editing a child's paragraph
   writes through the same splice as the entry's own; `RET` on the child still
   materializes into it.
 
@@ -59,6 +60,14 @@ section groups a feature arc, and its date is that arc's last commit.
   The drawer's colons dim, the leading one hanging into the gutter so
   `:PROPERTIES:` and every `:KEY:` align on their letters, and the left rail
   runs unbroken through the drawer block.
+- **The bars are block spines on F's ramp.** Every top-level row's bar is a
+  segment of its block's spine — margins bridged, the list beside its own
+  tree — and the ink is the spike's winning ramp: the block point is in wears
+  the page's ink, each enclosing block a step dimmer in the accent, other
+  branches resting. A flag still outranks everything.
+- **A hidden bullet leaves no blank.** With bullets stepped aside, the elbow's
+  horizontal grows to reach the text, `tree`'s own look; an ordinal or a bare
+  checkbox is content and keeps the short turn.
 - **A child headline is a headline, at every depth.** It wears the headline's
   own face, the path strip names it by its title (it read "paragraph" before),
   and `f` on it enters its body — a child holding only a deeper child refused

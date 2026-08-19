@@ -4383,6 +4383,15 @@ sheetNotes =
          \ back, whatever its grain -- and `f' enters its body the way the root's\
          \ does.  The fold class stays the drawer's own: a child folds without\
          \ wearing `d-drawer'." [Elm, Browser]
+  , Note "A SHELF INDENTS UNDER ITS OWN FIRST LETTER -- the cleaned stars' width, the\
+         \ root's own geometry -- so stars and contents step together and never cross.\
+         \ THE BAR IS A SPINE SEGMENT at the shelf's rail, margins bridged, and its\
+         \ ink is F'S RAMP, the spike's winner: rank 0 the block point is in, a step\
+         \ dimmer per shelf out, other branches resting, a flag over all.  A headline\
+         \ draws no mark; the `up'/`sib' tiers stay flat for the text and the tree." [Elm, Browser]
+  , Note "A HIDDEN BULLET LEAVES NO BLANK: the elbow's horizontal grows to reach the\
+         \ text, `tree's own reach -- only where a `.dbul' stands aside, an ordinal or\
+         \ a bare box being content." [Browser]
   , Note "A RESERVED TOKEN ALIGNS ON ITS LETTER: the colons are punctuation, dimmed,\
          \ the leading one hanging into the gutter.  THE RAIL DOES NOT BREAK AT THE\
          \ DRAWER: the composite wears the paragraph's bar, and a pair's gutter bar\

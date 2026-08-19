@@ -14,6 +14,7 @@ import Array exposing (Array)
 import Browser
 import Html exposing (Html, div, span, text)
 import Html.Attributes exposing (attribute, class, style)
+import Dict exposing (Dict)
 import Json.Decode as D
 import Json.Encode as E
 import Set exposing (Set)
@@ -1050,22 +1051,99 @@ rung depth =
     attribute "style" ("--rail:calc(" ++ String.fromInt (2 * depth) ++ "ch - 1.5ch)")
 
 
-{-| The classes a row wears. `up` lights the connector of an owner of point, and `lvl-top`
-says a row is drawn at the pane's own level. The rung itself rides an attribute —
-see `rung`.
+{-| The classes a row wears. `up` lights the connector of an owner of point,
+`lvl-top` says a row is drawn at the pane's own level, and `sp-N` ranks its
+shelf bar on the ramp. The rung itself rides an attribute — see `rung`.
 -}
 type alias Lit =
-    { ups : List String, sib : Maybe String }
+    { ups : List String, sib : Maybe String, spine : String -> Maybe Int }
 
 
-{-| Point's owners and its owner, computed ONCE per render: `markOf' reads them
-for every row, and deriving them there walked the rows once per row.
+{-| Point's owners, its owner, and the spine ramp, computed ONCE per render:
+`markOf'/`rowClass' read them for every row, and deriving them there walked
+the rows once per row.
 -}
 litOf : Model -> Lit
 litOf m =
+    let
+        heads =
+            headOf m
+
+        ranks =
+            spineRanks m heads
+    in
     { ups = ownersOf m (idAtRow m m.at)
     , sib = Maybe.andThen .owner (rowAt m)
+    , spine = \id -> Maybe.andThen (\h -> Dict.get h ranks) (Dict.get id heads)
     }
+
+
+{-| Every row's owning HEADLINE, one ordered pass over the emission order: a
+headline's own line sits on its PARENT's shelf, its contents on its own, so
+the map answers which block a row's bar belongs to.
+-}
+headOf : Model -> Dict String String
+headOf m =
+    Tuple.second
+        (List.foldl
+            (\r ( stack, acc ) ->
+                case r.kind of
+                    Head ->
+                        ( [ ( m.level, "H" ) ], acc )
+
+                    Child ->
+                        let
+                            kept =
+                                List.filter (\( l, _ ) -> l < r.level) stack
+
+                            up =
+                                Maybe.withDefault "H" (Maybe.map Tuple.second (List.head kept))
+                        in
+                        ( ( r.level, r.id ) :: kept, Dict.insert r.id up acc )
+
+                    _ ->
+                        ( stack
+                        , Dict.insert r.id
+                            (Maybe.withDefault "H" (Maybe.map Tuple.second (List.head stack)))
+                            acc
+                        )
+            )
+            ( [ ( m.level, "H" ) ], Dict.empty )
+            m.rows
+        )
+
+
+{-| THE RAMP THE SPIKE'S F TAB WON WITH: every block that holds point is lit,
+brightening inward — rank 0 the block point is in, a step per shelf out along
+the chain, the other branches unranked and resting.
+-}
+spineRanks : Model -> Dict String String -> Dict String Int
+spineRanks m heads =
+    let
+        start =
+            Maybe.andThen
+                (\r ->
+                    if r.kind == Child || r.kind == Head then
+                        Just r.id
+
+                    else
+                        Dict.get r.id heads
+                )
+                (rowAt m)
+
+        chain id acc =
+            if id == "H" then
+                acc ++ [ "H" ]
+
+            else
+                chain (Maybe.withDefault "H" (Dict.get id heads)) (acc ++ [ id ])
+    in
+    case start of
+        Nothing ->
+            Dict.empty
+
+        Just s ->
+            Dict.fromList (List.indexedMap (\k h -> ( h, k )) (chain s []))
 
 
 rowClass : Lit -> Model -> Int -> Row -> Int -> Bool -> String
@@ -1114,6 +1192,17 @@ rowClass lit m i r depth kin =
            )
         ++ (if kin then
                 " kin"
+
+            else
+                ""
+           )
+        ++ (if depth < 0 then
+                case lit.spine r.id of
+                    Just k ->
+                        " sp-" ++ String.fromInt (min 3 k)
+
+                    Nothing ->
+                        ""
 
             else
                 ""
@@ -1564,18 +1653,22 @@ viewKids lit m parent from at0 depth =
     go from at0 []
 
 
-{-| A ROW ON A DEEPER SHELF indents under its own headline's first letter: the
-level's stars plus the space, and the bar moves to sit under that star -- the
-same geometry the root's rows get from the stylesheet's default.
+{-| A ROW ON A DEEPER SHELF indents under its own headline's FIRST LETTER --
+the width its cleaned stars take, exactly the root's own geometry -- and the
+rail keeps the stylesheet's `indent - 1.5' so every shelf's bars agree.
 -}
-inset : Row -> List (Html.Attribute Msg)
-inset r =
-    if r.level > 1 then
+inset : Model -> Row -> List (Html.Attribute Msg)
+inset m r =
+    if r.level > m.level then
+        let
+            ind =
+                String.length (stars m r.level)
+        in
         [ attribute "style"
             ("--g-doc-indent:"
-                ++ String.fromInt (r.level + 1)
+                ++ String.fromInt ind
                 ++ ";--rail:calc(var(--g-doc-pad) + "
-                ++ String.fromFloat (toFloat r.level - 0.5)
+                ++ String.fromFloat (toFloat ind - 1.5)
                 ++ "ch)"
             )
         ]
@@ -1653,10 +1746,10 @@ view m =
                             else
                                 inner
                     in
-                    go j (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset r) shown ])
+                    go j (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset m r) shown ])
 
                 else if r.kind == Para || r.kind == Meta then
-                    go (i + 1) (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset r) [ viewPara m r ] ])
+                    go (i + 1) (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset m r) [ viewPara m r ] ])
 
                 else
                     go (i + 1)

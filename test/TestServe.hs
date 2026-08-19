@@ -2633,7 +2633,7 @@ sheetSpec shell =
       insheet shell "press:n press:n press:n press:n" $ \answer -> do
         seen <- textsAt "scrolled" answer
         assertEqual "the last ask was made on the element under point"
-                    (Just "de d-para dat lvl-top") (listToMaybe (reverse seen))
+                    (Just "de d-para dat lvl-top sp-0") (listToMaybe (reverse seen))
         -- `block:"nearest"' IS the scrolloff band as the platform spells it.
         assertEqual "and it asked for the band, not a re-centring"
                     (object [ "block" .= ("nearest" :: T.Text) ])
