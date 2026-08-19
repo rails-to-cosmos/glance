@@ -1802,7 +1802,30 @@ export default [
     }, "the child's line to reach the file", 15000);
     // `b' CLIMBS TO THE OWNER: the paragraph's owner is the child headline.
     await p.until(() => !!document.querySelector("#mdoc .de.dat"), "point back");
+    await settled(p);
+    await p.press("b");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.classList.contains("d-child");
+    }, "b to climb to the child headline");
+    // TAB ON A HEADLINE FOLDS ITS SUBTREE, org's own cycle: the contents leave
+    // the pane whole -- the grandchild with them -- and TAB brings them back.
+    await settled(p);
+    await p.press("TAB");
+    await p.until(() => ![...document.querySelectorAll("#mdoc .d-para")]
+        .some((e) => /A paragraph the child edits/.test(e.textContent)),
+      "TAB to fold the child's subtree away");
+    const foldedKid = await p.eval(() => ({
+      gone: ![...document.querySelectorAll("#mdoc .d-para")]
+        .some((e) => /The grandchild's own line/.test(e.textContent)),
+      mark: /…/.test(document.querySelector("#mdoc .de.dat").textContent) }));
+    assert(foldedKid.gone, "the grandchild's line survived the fold");
+    assert(foldedKid.mark, "the folded child wears no ellipsis");
+    await p.press("TAB");
+    await p.until(() => [...document.querySelectorAll("#mdoc .d-para")]
+        .some((e) => /A paragraph the child edits/.test(e.textContent)),
+      "TAB to open it again");
     return [`3 children inline; the shelf steps over subtrees; a child's paragraph `
-      + `edits through the splice`];
+      + `edits through the splice; TAB folds the subtree whole`];
   } },
 ];

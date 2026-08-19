@@ -77,7 +77,7 @@
       if (!r) return;
       if (r.kind === "child") { into(r.index); return; }
       // A FRAME is not a line, the raw drawer's as much as the synthesized one:
-      // what RET edits is a row inside, and TAB folds.
+      // what RET edits is a row inside, and TAB folds.  RET itself is reserved.
       if (r.fold) { echo("RET → f reaches the rows inside — TAB folds"); return; }
       if (r.kind === "para" || r.kind === "meta") { openEdit(DPARA, r); return; }
       headEnter(r);

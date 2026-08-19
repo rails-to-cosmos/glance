@@ -11,6 +11,7 @@ module Body exposing
     , insertion
     , joinLine
     , joinWord
+    , cellOf
     , kidsOf
     , kindWord
     , metaRows
@@ -959,13 +960,19 @@ shown r =
     List.filter (\c -> c.val /= "") r.cells
 
 
+{-| A head never carries an owner, so ownership alone counts a row's kids.
+-}
 kidsOf : { a | rows : List Row } -> String -> Int
 kidsOf m id =
-    List.length
-        (List.filter
-            (\r -> (r.kind == Para || r.kind == Meta) && r.owner == Just id)
-            m.rows
-        )
+    List.length (List.filter (\r -> r.owner == Just id) m.rows)
+
+
+{-| The value a row's cell carries under KEY, empty when it carries none.
+-}
+cellOf : String -> Row -> String
+cellOf key r =
+    Maybe.withDefault ""
+        (Maybe.map .val (List.head (List.filter (\c -> c.key == key) r.cells)))
 
 
 kindWord : Kind -> String

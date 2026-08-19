@@ -30,6 +30,7 @@ import Body
         , insertion
         , joinLine
         , joinWord
+        , cellOf
         , kidsOf
         , kindWord
         , ownersOf
@@ -138,8 +139,24 @@ finer m =
             let
                 kids =
                     kidsOf m r.id
+
+                -- `f' ON A HEADLINE ENTERS THE BODY: everything is under it.
+                -- The root's rows carry no owner, so its test is the count.
+                entered =
+                    if r.kind == Head then
+                        List.length m.rows > 1
+
+                    else
+                        kids > 0
             in
-            if kids > 0 then
+            if r.kind == Head || r.kind == Child then
+                if entered then
+                    ( { m | at = m.at + 1 }, "grain-finer (the body)" )
+
+                else
+                    ( m, "grain-finer (an empty entry)" )
+
+            else if kids > 0 then
                 -- The first child immediately follows its parent in emission order.
                 ( { m | at = m.at + 1 }
                 , "grain-finer (" ++ Maybe.withDefault "item" r.name ++ " 1/" ++ String.fromInt kids ++ ")"
@@ -301,17 +318,20 @@ update msg model =
 
                                 Nothing ->
                                     0
-                -- A DRAWER THE READER OPENED STAYS OPEN across the rescan; only
-                -- one they have not touched arrives folded.
-                opened =
-                    Set.diff (foldables model) model.shut
             in
             told
                 (reveal
                     { fresh
                         | at = landed
                         , landing = Nothing
-                        , shut = Set.diff fresh.shut opened
+
+                        -- WHAT THE READER FOLDED OR OPENED STAYS SO across the
+                        -- rescan: the old answer where the id is known, the
+                        -- default -- a drawer folded, a child open -- where new.
+                        , shut =
+                            Set.union
+                                (Set.intersect model.shut (foldables fresh))
+                                (Set.diff fresh.shut (foldables model))
                     }
                 )
 
@@ -372,7 +392,12 @@ update msg model =
                             , at = placeOf model r.id
                           }
                         , "org-cycle ("
-                            ++ Maybe.withDefault "drawer" r.name
+                            ++ (if r.kind == Child then
+                                    "subtree"
+
+                                else
+                                    Maybe.withDefault "drawer" r.name
+                               )
                             ++ (if opened then
                                     " open)"
 
@@ -873,22 +898,45 @@ seedMeta m =
         seeded =
             remeta m
     in
-    { seeded | shut = foldables seeded }
+    { seeded | shut = seedShut seeded }
+
+
+idsWhere : (Row -> Bool) -> Model -> Set String
+idsWhere p m =
+    Set.fromList (List.filterMap (\r -> if p r then Just r.id else Nothing) m.rows)
 
 
 {-| The ids TAB may fold, over whatever rows stand.
 -}
 foldables : Model -> Set String
 foldables m =
-    Set.fromList (List.filterMap (\r -> if foldable m r then Just r.id else Nothing) m.rows)
+    idsWhere (foldable m) m
 
 
-{-| What TAB can fold: a drawer, synthesized or spelled raw in the body.
+{-| The ids that START folded: the drawers alone.  A child headline folds on
+demand and arrives open.
+-}
+seedShut : Model -> Set String
+seedShut m =
+    idsWhere (drawer m) m
+
+
+{-| A DRAWER'S FRAME, synthesized or spelled raw: what wears `d-drawer', what
+starts folded, what the strip names as a reserved token.
+-}
+drawer : Model -> Row -> Bool
+drawer m r =
+    r.grain
+        == Composite
+        && (r.kind == Meta || Scan.drawerName (lineOf m r) /= Nothing)
+
+
+{-| What TAB can fold: a drawer, and a CHILD HEADLINE, whose subtree hides
+whole, org's own cycle.
 -}
 foldable : Model -> Row -> Bool
 foldable m r =
-    r.grain == Composite
-        && (r.kind == Meta || Scan.drawerName (lineOf m r) /= Nothing)
+    r.kind == Child || drawer m r
 
 
 kidD : D.Decoder Body.Kid
@@ -1070,7 +1118,9 @@ rowClass lit m i r depth kin =
             else
                 ""
            )
-        ++ (if foldable m r then
+        ++ (if drawer m r then
+                -- THE CLASS IS THE DRAWER'S, not the fold's: a child headline
+                -- folds too but is no drawer, and `.d-drawer' styles frames.
                 " d-drawer"
 
             else
@@ -1229,7 +1279,7 @@ viewPara m r =
                     -- A PAIR'S KEY IS A RESERVED TOKEN and wears the drawer's ink,
                     -- org's `org-special-keyword' by another name.
                     ( Nothing, Just key ) ->
-                        [ span [ class "dk" ] [ text (":" ++ key ++ ":") ]
+                        [ span [ class "dk" ] (token key)
                         , text (String.dropLeft (String.length key + 2) r.text)
                         ]
 
@@ -1258,12 +1308,24 @@ viewPlanning m =
                      else
                         " "
                     )
-                , span [ class "dk" ] [ text (key ++ ":") ]
+                , span [ class "dk" ]
+                    [ text key, span [ class "dpunc" ] [ text ":" ] ]
                 , text (" " ++ value)
                 ]
             )
             m.plan
         )
+
+
+{-| A reserved token drawn BY ITS LETTER: the colons dim, and the leading one
+hangs into the gutter so the eye lines up on `P', never on punctuation.
+-}
+token : String -> List (Html Msg)
+token word =
+    [ span [ class "dpunc dlead" ] [ text ":" ]
+    , text word
+    , span [ class "dpunc" ] [ text ":" ]
+    ]
 
 
 keyOf : Row -> Maybe String
@@ -1392,6 +1454,18 @@ viewCells m i r =
                         ( "title", Head, Just t ) ->
                             drawText m c.val t
 
+                        ( "title", Child, _ ) ->
+                            -- THE ELLIPSIS RIDES THE TITLE: the cell grows to
+                            -- fill the row, and a sibling span lands at the far
+                            -- edge, detached from the words it belongs to.
+                            text c.val
+                                :: (if Set.member r.id m.shut then
+                                        [ span [ class "dg" ] [ text "…" ] ]
+
+                                    else
+                                        []
+                                   )
+
                         _ ->
                             [ text c.val ]
                     )
@@ -1510,11 +1584,37 @@ inset r =
         []
 
 
+{-| The rows a FOLD hides: everything owned, transitively, by a shut row.  An
+owner is emitted before what it owns, so one ordered pass settles the set --
+`ownersOf' per row walks the list once per row, and this runs every render.
+-}
+hiddenIn : Model -> Set String
+hiddenIn m =
+    List.foldl
+        (\r acc ->
+            case r.owner of
+                Just o ->
+                    if Set.member o m.shut || Set.member o acc then
+                        Set.insert r.id acc
+
+                    else
+                        acc
+
+                Nothing ->
+                    acc
+        )
+        Set.empty
+        m.rows
+
+
 view : Model -> Html Msg
 view m =
     let
         lit =
             litOf m
+
+        hidden =
+            hiddenIn m
 
         n =
             List.length m.rows
@@ -1528,7 +1628,12 @@ view m =
                     r =
                         Maybe.withDefault blank (nth i m.rows)
                 in
-                if r.grain == Composite then
+                if Set.member r.id hidden then
+                    -- FOLDED AWAY with its owner.  What a composite holds is
+                    -- transitively hidden too, so each row skips in its turn.
+                    go (i + 1) out
+
+                else if r.grain == Composite then
                     let
                         ( inner, j ) =
                             if r.kind == Meta then
@@ -1554,7 +1659,12 @@ view m =
                     go (i + 1) (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset r) [ viewPara m r ] ])
 
                 else
-                    go (i + 1) (out ++ [ div [ class (rowClass lit m i r -1 False), attribute "data-id" r.id ] (viewCells m i r) ])
+                    go (i + 1)
+                        (out
+                            ++ [ div [ class (rowClass lit m i r -1 False), attribute "data-id" r.id ]
+                                    (viewCells m i r)
+                               ]
+                        )
     in
     div [ class (if inList m then "focus" else "") ] (viewPath m :: go 0 [])
 
@@ -1586,12 +1696,12 @@ viewMeta lit m parent from =
                 [ viewPara m kid ]
     in
     if Set.member parent.id m.shut then
-        ( [ div [ class "dg" ] [ text ":PROPERTIES:…" ] ], next )
+        ( [ div [ class "dg" ] (token "PROPERTIES" ++ [ text "…" ]) ], next )
 
     else
-        ( div [ class "dg" ] [ text ":PROPERTIES:" ]
+        ( div [ class "dg" ] (token "PROPERTIES")
             :: List.map leaf kids
-            ++ [ div [ class "dg" ] [ text ":END:" ] ]
+            ++ [ div [ class "dg" ] (token "END") ]
         , next
         )
 
@@ -1615,8 +1725,10 @@ viewPath m =
             idAtRow m m.at
 
         named =
+            -- A CHILD IS A RUNG OF THE PATH: a headline names the way back the
+            -- way a composite does, whatever its grain.
             List.map (crumb m)
-                (List.filter (\r -> r.grain /= Element)
+                (List.filter (\r -> r.grain /= Element || r.kind == Child)
                     (List.filterMap (rowById m) (List.reverse (here :: ownersOf m here)))
                 )
 
@@ -1660,32 +1772,48 @@ its own line with the marker org wrote taken off the front.
 -}
 crumb : Model -> Row -> String
 crumb m r =
-    if r.grain == Composite then
+    let
+        clip s =
+            if String.length s > 24 then
+                String.left 23 s ++ "…"
+
+            else
+                s
+    in
+    if r.kind == Child then
+        -- A CHILD'S CRUMB IS ITS TITLE: a headline names itself.
+        let
+            t =
+                cellOf "title" r
+        in
+        clip
+            (if String.isEmpty t then
+                "child"
+
+             else
+                t
+            )
+
+    else if r.grain == Composite then
         -- A DRAWER'S CRUMB IS ORG'S OWN TOKEN, `:PROPERTIES:', so the strip says
         -- the reader stands in something reserved rather than in prose of theirs.
-        if foldable m r then
+        if drawer m r then
             ":" ++ String.toUpper (Maybe.withDefault "drawer" r.name) ++ ":"
 
         else
             Maybe.withDefault "item" r.name
 
     else
-        let
-            said =
-                -- A PAIR'S CRUMB IS ITS KEY ALONE: the value is the line's own
-                -- business, and the strip names the way back.
-                case ( r.kind, Body.readProperty r.text ) of
-                    ( Meta, Just ( key, _ ) ) ->
-                        ":" ++ key ++ ":"
+        clip
+            -- A PAIR'S CRUMB IS ITS KEY ALONE: the value is the line's own
+            -- business, and the strip names the way back.
+            (case ( r.kind, Body.readProperty r.text ) of
+                ( Meta, Just ( key, _ ) ) ->
+                    ":" ++ key ++ ":"
 
-                    _ ->
-                        String.trim (String.dropLeft (markerLen m r) r.text)
-        in
-        if String.length said > 24 then
-            String.left 23 said ++ "…"
-
-        else
-            said
+                _ ->
+                    String.trim (String.dropLeft (markerLen m r) r.text)
+            )
 
 
 

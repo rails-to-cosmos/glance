@@ -53,7 +53,22 @@ section groups a feature arc, and its date is that arc's last commit.
   to a deep blue: gold is that theme's ground, and gold text on it read as
   nothing — the ordinals went missing.
 
+- **`TAB` folds a child headline, and reserved tokens read by their letter.**
+  TAB on a child hides its whole subtree behind org's ellipsis and brings it
+  back; `f` on the headline enters the body.
+  The drawer's colons dim, the leading one hanging into the gutter so
+  `:PROPERTIES:` and every `:KEY:` align on their letters, and the left rail
+  runs unbroken through the drawer block.
+- **A child headline is a headline, at every depth.** It wears the headline's
+  own face, the path strip names it by its title (it read "paragraph" before),
+  and `f` on it enters its body — a child holding only a deeper child refused
+  before.
+
 ### Fixed
+
+- **A planning keyword's colon sits after its last letter.** The hanging-colon
+  rule matched any first `.dpunc` element, so `DEADLINE:`'s trailing colon was
+  pulled a character left onto the `E`.
 
 - **A continuation typed into a wrapped list item is visible.** `M-RET` inside
   an item whose own line wraps added the line and left the box a row short, so

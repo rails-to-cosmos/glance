@@ -3676,7 +3676,7 @@ docCells = ["state", "priority", "title", "tags"]
 --   what no rung claims, and the strip that names the way back.
 docClasses :: [String]
 docClasses = [ ".de", ".dat", ".dfl", ".dc", ".dm", ".dbul", ".dbx", ".dt", ".dk", ".dl"
-             , ".dg", ".dpath" ]
+             , ".dg", ".dpath", ".dpunc", ".dlead" ]
 
 -- | Geometry written onto `#mdoc' as NUMBERS, the arithmetic staying in the stylesheet.
 docVars :: [String]
@@ -4369,10 +4369,24 @@ sheetNotes =
          \ item edit it walks the rungs, and the model answers `nothing folds here'\
          \ everywhere else.  The browser would move focus, so the key is claimed." [Test]
   , Note "A DRAWER IS A STOP the reader points at and folds: its composite wears the\
-         \ drawer's own name, an inner line is a leaf and a nested block ONE leaf --\
-         \ a finer take would strand its closer.  FOLDED IS THE DEFAULT, org's own\
-         \ ellipsis; `f' into a folded drawer opens it, POINT IS NEVER HIDDEN, and a\
-         \ drawer the reader opened stays open across the rescan." [Elm, Browser]
+         \ drawer's own name, an inner line is a leaf and a nested closed region ONE\
+         \ leaf -- a finer take would strand its closer.  FOLDED IS THE DEFAULT, org's\
+         \ own ellipsis; `f' into a folded drawer opens it, RET on the frame refuses\
+         \ -- reserved -- POINT IS NEVER HIDDEN, and what the reader folded or opened\
+         \ stays so across the rescan." [Elm, Browser]
+  , Note "A CHILD HEADLINE FOLDS TOO, org's own cycle: TAB hides its subtree WHOLE --\
+         \ ownership settles the hidden set in one ordered pass -- and the folded line\
+         \ wears the ellipsis.  A child arrives OPEN; only drawers start folded.  `f'\
+         \ on the headline enters the body, everything being under it." [Elm, Browser]
+  , Note "A CHILD IS A HEADLINE AT EVERY DEPTH: it wears the headline's own face, the\
+         \ path strip names it by its TITLE and walks through it -- a rung of the way\
+         \ back, whatever its grain -- and `f' enters its body the way the root's\
+         \ does.  The fold class stays the drawer's own: a child folds without\
+         \ wearing `d-drawer'." [Elm, Browser]
+  , Note "A RESERVED TOKEN ALIGNS ON ITS LETTER: the colons are punctuation, dimmed,\
+         \ the leading one hanging into the gutter.  THE RAIL DOES NOT BREAK AT THE\
+         \ DRAWER: the composite wears the paragraph's bar, and a pair's gutter bar\
+         \ sits at the same x -- `rail + 1.5ch' is the indent at every shelf." [Browser]
   , Note "THE HEADER THE SERVER LIFTS IS DRAWN BACK: planning and the properties drawer\
          \ arrive as LISTS beside the body and their rows are SYNTHESIZED -- no span,\
          \ no part in the splice, `bodyText' walking `Para' alone -- and are edited as\

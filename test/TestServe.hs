@@ -230,7 +230,8 @@ sheetStamp :: T.Text
 sheetStamp = "<2026-08-01 Sat>"
 
 -- | The default subtree as the pane draws it: the headline, the lifted header —
--- the planning line, then the drawer FOLDED — the body, and the child with its block.
+-- the planning line, then the drawer FOLDED — the body, and the child with its
+-- block.  A child folds too but is no drawer, so it wears no `d-drawer' class.
 fixtureDoc :: [[T.Text]]
 fixtureDoc =
   [ ["head", "* ", "TODO", "one"]
@@ -2642,15 +2643,15 @@ sheetSpec shell =
         assertEqual "the materialize itself asked, on the headline"
                     (Just "de d-head dat lvl-top") (listToMaybe seen)
 
-    -- THE HEADLINE IS ONE STOP: its parts have their own keys and `f' does not
-    -- walk into them.
-  , testCase "f on the headline says there is nothing finer" $ do
+    -- THE HEADLINE IS ONE STOP: its parts have their own keys, so `f' does not
+    -- walk into the line -- it enters the CONTENTS, everything being under them.
+  , testCase "f on the headline enters the body, and a paragraph has nothing finer" $ do
       insheet shell "press:f" $ \answer -> do
-        assertEqual "point did not move" 0 =<< pointOf answer
-        echoIs "and the key said why" "f → grain-finer (nothing finer here)" answer
+        assertEqual "the first row of the body" 1 =<< pointOf answer
+        echoIs "and the key named what it entered" "f → grain-finer (the body)" answer
       insheet shell "press:n press:n press:n press:f" $ \answer -> do
-        assertEqual "nor on a paragraph" 3 =<< pointOf answer
-        echoIs "same answer" "f → grain-finer (nothing finer here)" answer
+        assertEqual "a paragraph does not move" 3 =<< pointOf answer
+        echoIs "and says why" "f → grain-finer (nothing finer here)" answer
 
     -- Asserted as the EQUALITY of two numbers this page produces independently.
   , atBoot sheet "a child's star sits in the parent's body column" $ \answer -> do
@@ -3665,6 +3666,9 @@ sheetSpec shell =
       insheet shell "press:n press:n press:Enter" $ \answer -> do
         assertEqual "the drawer's own line is its frame, so RET declines"
                     False =<< boolAt "dparaopen" answer
+        assertEqual "and the fold is left where it stood, folded"
+                    ["comp:properties:drawer", ":PROPERTIES:\8230"]
+          =<< (!! 2) <$> docOf answer
         echoIs "and names the two doors" "RET → f reaches the rows inside — TAB folds" answer
 
     -- A COMMITTED PAIR EDIT IS A WRITE: the cargo rides the port, body and lists together.
@@ -5188,7 +5192,7 @@ shellGlue =
       -- THE LIFTED HEADER RIDES THE SAME PUSH: the mirrors are the write's lists.
       , "dprops = now.properties; dplan = now.planning;"
       , ".d-list .d-item::before{top:0;width:0.8ch;"
-      , ".d-head,.d-child{display:flex;align-items:baseline}"
+      , ".d-head,.d-child{display:flex;align-items:baseline;font-weight:600}"
       , ".dc-title{flex:1 1 auto;min-width:0}"
       , "margin-left:auto;margin-right:0}"
       -- PADDING rather than a margin: a margin would take the selection wash off the left of the line.
@@ -5312,7 +5316,7 @@ shellGlue =
       -- TAB FOLDS, as it does in org: the model says whether anything did.
       , "once(() => dsay(k, { kind: \"tab\" }));"
       -- A drawer's own line is its frame; what RET edits is a pair inside.
-      , "{ echo(\"RET → f reaches the rows inside — TAB folds\"); return; }"
+      , "if (r.fold) { echo(\"RET → f reaches the rows inside — TAB folds\"); return; }"
       -- `+' IN THE DRAWER ASKS, org's own way: a KEY and a VALUE, both required.
       , "askText(\"property key\", \"RET · ESC cancels\", \"\", (c) => {"
       , "dsend({ kind: \"addprop\", key, value });"

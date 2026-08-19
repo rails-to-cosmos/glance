@@ -177,7 +177,10 @@ page head' colours title body = T.unlines
   , "    top:calc(var(--g-doc-lh) / 2 + 0.115em);"
   , "    background:var(--ink)}"
   -- NOTHING TO ELBOW INTO, so a paragraph wears a bar; a COMPOSITE is drawn as its tree.
-  , "  .lvl-top:not(.d-head):not(.d-comp)::before{top:0;bottom:0;width:1px;"
+  -- THE DRAWER CARRIES THE BAR TOO: a composite draws a tree instead of a bar,
+  -- but a drawer has no tree, and the rail must not break at its block.
+  , "  .lvl-top:not(.d-head):not(.d-comp)::before,.lvl-top.d-drawer::before{"
+  , "    top:0;bottom:0;width:1px;"
   , "    border:0;border-radius:1px;background:var(--ink)}"
   -- WHAT LIGHTS IS POINT'S OWNERS, flat: dimming the rest is what makes the path
   -- read, and a ramp said WHICH ancestor at the cost of saying THAT.
@@ -196,7 +199,7 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .focus .de.dat,#mdoc.on .focus .de.dat .de,"
   -- A SIBLING IS THE CHOICE THE READER IS STANDING IN, so it is readable too.
   , "  #mdoc.on .focus .up,#mdoc.on .focus .sib,#mdoc.on .focus .sib .de,"
-  , "  #mdoc.on .focus .d-head{color:var(--g-fg)}"
+  , "  #mdoc.on .focus .d-head,#mdoc.on .focus .d-child{color:var(--g-fg)}"
   -- A DRAWER'S FRAME KEEPS ITS TOKEN INK while the reader stands inside it: the
   -- drawer IS the owner then, and muting its `.dg' muted `:PROPERTIES:' itself.
   , "  #mdoc.on .focus .de.dat:not(.d-drawer) .dg,"
@@ -234,10 +237,18 @@ page head' colours title body = T.unlines
   -- A PAIR IS NOT NESTED: the drawer's lines read as paragraphs, flush under the
   -- frame, wearing the paragraph's own thin bar IN THE GUTTER, left of the flush
   -- text -- the bar spends `--ink', so a flag reddens a pair marked for the drop.
-  , "  .d-drawer .d-meta::before{top:0;bottom:0;left:-1ch;width:1px;border:0;"
+  -- AT THE RAIL'S OWN X: the composite's indent is `rail + 1.5ch' at every
+  -- shelf, so the pair's bar continues the drawer's line rather than a second one.
+  , "  .d-drawer .d-meta::before{top:0;bottom:0;left:-1.5ch;width:1px;border:0;"
   , "    border-radius:1px;background:var(--ink)}"
-  -- THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink.
+  -- THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink;
+  -- ITS COLONS ARE PUNCTUATION -- dimmed, the leading one HANGING into the
+  -- gutter so the token lines up on its letter.
   , "  .d-drawer .dg,.dk{color:var(--g-point)}"
+  -- ONLY A LEADING COLON HANGS: `:first-child' counts elements, so a trailing
+  -- colon after a text node matched it and overlapped the key's last letter.
+  , "  .dpunc{color:var(--g-mute)}"
+  , "  .dpunc.dlead{margin-left:-1ch}"
   , "  .d-para,.d-comp,.d-meta{margin:7px 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
   , "  .d-comp,.d-comp .de{padding-top:0;padding-bottom:0}"
@@ -256,9 +267,8 @@ page head' colours title body = T.unlines
   -- An ORDINAL is content and has no `.dbul' to empty; so is the box.
   , "  :root:not([data-bullets=\"" <> bulletsShown
       <> "\"]) #mdoc .d-list .dbul{color:transparent}"
-  , "  .d-head,.d-child{display:flex;align-items:baseline}"
-  , "  .d-child{color:var(--g-fg)}"
-  , "  .d-head{font-weight:600}"
+  -- A CHILD HEADLINE IS A HEADLINE: the same face as the sheet's own, indented.
+  , "  .d-head,.d-child{display:flex;align-items:baseline;font-weight:600}"
   , "  .ds{white-space:pre;color:var(--g-fg);font-weight:400;flex:none}"
   , "  .d-head .ds{width:calc(var(--g-doc-indent, 2) * 1ch)}"
   , "  .dc{margin-right:.6em;flex:none}"
