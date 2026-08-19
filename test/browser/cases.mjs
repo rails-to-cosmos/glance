@@ -34,20 +34,38 @@ async function sheet(p, base, row) {
  * lands elsewhere the moment a row is added above — the header rows are. */
 async function walkTo(p, cls, what) {
   for (let i = 0; i < 12; i += 1) {
+    // THE MIRROR MUST AGREE WITH THE DRAW before the walk trusts a reading: the
+    // DOM paints on rAF and the port lands a macrotask apart, and a key pressed
+    // in that gap acts on the row the reader just left.
     const seen = await p.eval((c) => {
       const at = document.querySelector("#mdoc .de.dat");
-      return { hit: !!at && at.classList.contains(c),
+      const synced = !!at && at.dataset.id === docAtNow();
+      return { hit: synced && at.classList.contains(c),
+               synced,
                text: at ? at.textContent.slice(0, 30) : "" };
     }, cls);
     if (seen.hit) return;
+    if (!seen.synced) {
+      await settled(p, `the mirror to settle on the way to ${what}`);
+      continue;
+    }
     await p.press("n");
     await p.until((was) => {
       const at = document.querySelector("#mdoc .de.dat");
-      return !!at && at.textContent.slice(0, 30) !== was;
+      return !!at && at.dataset.id === docAtNow()
+        && at.textContent.slice(0, 30) !== was;
     }, `the step toward ${what}`, undefined, seen.text);
   }
   assert(false, `\`n' never reached ${what}`);
 }
+
+/** The draw and the mirror agreeing on the row under point — REQUIRED before a
+ * key that acts on the cursor, whenever the wait watched the DOM alone. */
+const settled = (p, why) =>
+  p.until(() => {
+    const at = document.querySelector("#mdoc .de.dat");
+    return !!at && at.dataset.id === docAtNow();
+  }, why || "the mirror to agree with the draw");
 
 /** Down to an item that has rows drawn inside it. */
 async function intoNestedItem(p, base, row) {
@@ -60,7 +78,8 @@ async function intoNestedItem(p, base, row) {
   }, "`f' to descend into the list");
   const on = () => p.eval(() => {
     const at = document.querySelector("#mdoc .de.dat");
-    return !!at && at.classList.contains("d-item") && !!at.querySelector(".de");
+    return !!at && at.dataset.id === docAtNow()
+      && at.classList.contains("d-item") && !!at.querySelector(".de");
   });
   for (let i = 0; i < 8 && !(await on()); i++) await p.press("n");
   assert(await on(),
@@ -1429,9 +1448,11 @@ export default [
       await p.press("n");
       await p.until((seen) => {
         const at = document.querySelector("#mdoc .de.dat");
-        return !!at && at.textContent.slice(0, 40) !== seen;
+        return !!at && at.dataset.id === docAtNow()
+          && at.textContent.slice(0, 40) !== seen;
       }, "the cursor to move on", undefined, was);
     }
+    await settled(p);
     await p.press("RET");
     await p.until(() => document.getElementById("dpara").classList.contains("on"),
                   "the edit to open over it");
@@ -1650,6 +1671,7 @@ export default [
       const at = document.querySelector("#mdoc .de.dat");
       return !!at && at.classList.contains("d-meta") && /OWNER/.test(at.textContent);
     }, "point on the OWNER pair");
+    await settled(p);
     // RET EDITS THE LINE AS ORG SPELLS IT.
     await p.press("RET");
     await p.until(() => document.getElementById("dpara").classList.contains("on"), "the edit");
@@ -1672,6 +1694,7 @@ export default [
       const at = document.querySelector("#mdoc .de.dat");
       return !!at && /EFFORT/.test(at.textContent);
     }, "point on the EFFORT pair");
+    await settled(p);
     await p.press("d");
     await p.until(() => !!document.querySelector("#mdoc .de.dfl"), "the flag to draw");
     await p.press("d");
@@ -1715,6 +1738,29 @@ export default [
     assert(shelf.paras.some((t) => /A paragraph the child owns/.test(t))
              && shelf.paras.some((t) => /The grandchild's own line/.test(t)),
       `the children's contents are missing: ${JSON.stringify(shelf.paras)}`);
+    // A SHELF INDENTS UNDER ITS OWN STAR: the child's contents one character past
+    // the root's, the grandchild's one more -- org's own geometry.
+    const insets = await p.eval(() => {
+      const pad = (sel, re) => {
+        const e = [...document.querySelectorAll(sel)]
+          .find((n) => re.test(n.textContent));
+        return e ? parseFloat(getComputedStyle(e).paddingLeft) : null;
+      };
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre";
+      probe.textContent = "0".repeat(20);
+      document.getElementById("mdoc").append(probe);
+      const ch = probe.getBoundingClientRect().width / 20;
+      probe.remove();
+      return { ch,
+               root: pad("#mdoc .d-para", /The entry a case reads/),
+               kid: pad("#mdoc .d-para", /A paragraph the child owns/),
+               grand: pad("#mdoc .d-para", /The grandchild's own line/) };
+    });
+    assert(Math.abs(insets.kid - insets.root - insets.ch) < 0.1
+             && Math.abs(insets.grand - insets.root - 2 * insets.ch) < 0.1,
+      `the shelves indent ${insets.root}/${insets.kid}/${insets.grand} on a `
+      + `${insets.ch}px character`);
     // THE SHELF WALKS LIKE A LIST: n from the first child lands on the second,
     // never inside the first — a sibling shares an owner.
     for (let i = 0; i < 9; i += 1) {
@@ -1744,6 +1790,7 @@ export default [
       return !!at && /A paragraph the child owns/.test(at.textContent)
         && at.classList.contains("d-para");
     }, "f to enter the child's own paragraph");
+    await settled(p);
     // THE SPLICE IS THE SAME DOOR: editing the child's paragraph writes the file.
     await p.press("RET");
     await p.until(() => document.getElementById("dpara").classList.contains("on"), "the edit");

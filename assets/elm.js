@@ -2719,7 +2719,7 @@ var _VirtualDom_mapEventTuple = F2(function(func, tuple)
 var _VirtualDom_mapEventRecord = F2(function(func, record)
 {
 	return {
-		S: func(record.S),
+		T: func(record.T),
 		a0: record.a0,
 		aX: record.aX
 	}
@@ -2989,7 +2989,7 @@ function _VirtualDom_makeCallback(eventNode, initialHandler)
 		// 3 = Custom
 
 		var value = result.a;
-		var message = !tag ? value : tag < 3 ? value.a : value.S;
+		var message = !tag ? value : tag < 3 ? value.a : value.T;
 		var stopPropagation = tag == 1 ? value.b : tag == 3 && value.a0;
 		var currentEventNode = (
 			stopPropagation && event.stopPropagation(),
@@ -5281,7 +5281,7 @@ var $elm$json$Json$Decode$nullable = function (decoder) {
 };
 var $author$project$Listing$Row = F3(
 	function (id, cells, colour) {
-		return {ad: cells, b9: colour, c: id};
+		return {ae: cells, b9: colour, c: id};
 	});
 var $elm$json$Json$Decode$float = _Json_decodeFloat;
 var $elm$core$String$fromFloat = _String_fromNumber;
@@ -5430,7 +5430,7 @@ var $author$project$Listing$cellOf = F2(
 						var v = _v0.b;
 						return _Utils_eq(k, key) ? $elm$core$Maybe$Just(v) : $elm$core$Maybe$Nothing;
 					},
-					r.ad)));
+					r.ae)));
 	});
 var $elm$core$String$toLower = _String_toLower;
 var $author$project$Listing$holds = F3(
@@ -6140,7 +6140,7 @@ var $author$project$Doc$Model = function (rows) {
 														return function (plan) {
 															return function (planKeys) {
 																return function (shut) {
-																	return {aN: arr, aO: at, b7: child, Q: flags, ag: landing, ah: level, aD: lines, aR: links, aU: offsets, N: plan, aW: planKeys, B: props, C: rows, aK: shift, o: shut, a_: spanAt, a2: titleAt};
+																	return {aN: arr, aO: at, b7: child, Q: flags, ah: landing, R: level, aD: lines, aR: links, aU: offsets, N: plan, aW: planKeys, B: props, C: rows, aK: shift, o: shut, a_: spanAt, a2: titleAt};
 																};
 															};
 														};
@@ -6258,7 +6258,7 @@ var $elm$core$Array$fromList = function (list) {
 };
 var $author$project$Body$Kid = F4(
 	function (index, level, line, cells) {
-		return {ad: cells, aq: index, ah: level, F: line};
+		return {ae: cells, aq: index, R: level, F: line};
 	});
 var $author$project$Doc$kidD = A5(
 	$elm$json$Json$Decode$map4,
@@ -6325,7 +6325,7 @@ var $author$project$Body$Row = function (id) {
 										return function (index) {
 											return function (level) {
 												return function (alone) {
-													return {ac: alone, ad: cells, d: from, A: grain, c: id, aq: index, k: kind, ah: level, ai: name, w: owner, L: text, g: to, O: was};
+													return {ad: alone, ae: cells, d: from, A: grain, c: id, aq: index, k: kind, R: level, ai: name, w: owner, L: text, g: to, O: was};
 												};
 											};
 										};
@@ -7367,10 +7367,10 @@ var $author$project$Body$rowsFrom = F4(
 	function (lines, own, headCells, kids) {
 		var head = _Utils_update(
 			$author$project$Body$blank,
-			{ad: headCells, A: 0, c: 'H', k: 0});
+			{ae: headCells, A: 0, c: 'H', k: 0});
 		var arr = $elm$core$Array$fromList(lines);
-		var rowsIn = F4(
-			function (prefix, owner, a, b) {
+		var rowsIn = F5(
+			function (prefix, owner, lvl, a, b) {
 				var idAt = function (k) {
 					return prefix + ('B' + $elm$core$String$fromInt(k));
 				};
@@ -7387,6 +7387,7 @@ var $author$project$Body$rowsFrom = F4(
 									A: b_.A,
 									c: idAt(i),
 									k: 1,
+									R: lvl,
 									ai: b_.ai,
 									w: function () {
 										var _v3 = b_.cO;
@@ -7405,7 +7406,7 @@ var $author$project$Body$rowsFrom = F4(
 						}),
 					blocks);
 			});
-		var body = A4(rowsIn, '', $elm$core$Maybe$Nothing, 0, own);
+		var body = A5(rowsIn, '', $elm$core$Maybe$Nothing, 1, 0, own);
 		var owned = function (r) {
 			var stop = A2($author$project$Body$ownEnd, body, r);
 			return _Utils_eq(stop, r.g) ? r : _Utils_update(
@@ -7437,19 +7438,19 @@ var $author$project$Body$rowsFrom = F4(
 							$elm$core$List$filter,
 							function (_v1) {
 								var l = _v1.a;
-								return _Utils_cmp(l, k.ah) < 0;
+								return _Utils_cmp(l, k.R) < 0;
 							},
 							seen);
 						var row = _Utils_update(
 							$author$project$Body$blank,
 							{
-								ad: k.ad,
+								ae: k.ae,
 								d: k.F,
 								A: 0,
 								c: cid,
 								aq: k.aq,
 								k: 2,
-								ah: k.ah,
+								R: k.R,
 								w: A2(
 									$elm$core$Maybe$map,
 									$elm$core$Tuple$second,
@@ -7458,7 +7459,7 @@ var $author$project$Body$rowsFrom = F4(
 							});
 						var $temp$seen = A2(
 							$elm$core$List$cons,
-							_Utils_Tuple2(k.ah, cid),
+							_Utils_Tuple2(k.R, cid),
 							above),
 							$temp$ks = rest,
 							$temp$out = _Utils_ap(
@@ -7466,10 +7467,11 @@ var $author$project$Body$rowsFrom = F4(
 							A2(
 								$elm$core$List$cons,
 								row,
-								A4(
+								A5(
 									rowsIn,
 									cid + ':',
 									$elm$core$Maybe$Just(cid),
+									k.R,
 									k.F + 1,
 									stop)));
 						seen = $temp$seen;
@@ -7780,7 +7782,7 @@ var $author$project$Doc$fillD = A2(
 						$author$project$Doc$empty,
 						{
 							aN: $elm$core$Array$fromList(lines),
-							ah: level,
+							R: level,
 							aD: lines,
 							aR: links,
 							aU: $author$project$Doc$offsetsOf(lines),
@@ -8124,7 +8126,7 @@ var $author$project$Body$bodyText = F2(
 						return _Utils_ap(
 							A2($elm$core$List$take, r.d, out),
 							_Utils_ap(
-								r.ac ? A3($author$project$Body$apart, out, r.d, written) : written,
+								r.ad ? A3($author$project$Body$apart, out, r.d, written) : written,
 								_Utils_ap(
 									under,
 									A2($elm$core$List$drop, r.g, out))));
@@ -8397,10 +8399,10 @@ var $author$project$Doc$rowJSON = F2(
 					$elm$json$Json$Encode$int(r.aq)),
 					_Utils_Tuple2(
 					'level',
-					$elm$json$Json$Encode$int(r.ah)),
+					$elm$json$Json$Encode$int(r.R)),
 					_Utils_Tuple2(
 					'cells',
-					A2($elm$json$Json$Encode$list, $author$project$Doc$cellJSON, r.ad)),
+					A2($elm$json$Json$Encode$list, $author$project$Doc$cellJSON, r.ae)),
 					_Utils_Tuple2(
 					'span',
 					function () {
@@ -8903,7 +8905,7 @@ var $author$project$Body$draftRow = F2(
 		return _Utils_update(
 			$author$project$Body$blank,
 			{
-				ac: j.ac,
+				ad: j.ad,
 				d: j.F,
 				A: function () {
 					var _v0 = j.w;
@@ -8926,7 +8928,7 @@ var $author$project$Body$draftRow = F2(
 	});
 var $author$project$Body$Join = F6(
 	function (under, line, marker, owner, alone, word) {
-		return {ac: alone, F: line, aF: marker, w: owner, a3: under, bX: word};
+		return {ad: alone, F: line, aF: marker, w: owner, a3: under, bX: word};
 	});
 var $author$project$Body$caretLine = F2(
 	function (r, off) {
@@ -9782,7 +9784,7 @@ var $author$project$Body$joinLine = F3(
 		return A2(
 			$elm$core$Maybe$map,
 			function (j) {
-				return (j.ac && ((j.F > 1) && (!A2($author$project$Scan$blankAt, j.F - 1, m.aD)))) ? (j.F + 1) : j.F;
+				return (j.ad && ((j.F > 1) && (!A2($author$project$Scan$blankAt, j.F - 1, m.aD)))) ? (j.F + 1) : j.F;
 			},
 			A3($author$project$Body$joinAt, m, id, caret));
 	});
@@ -9960,7 +9962,7 @@ var $author$project$Doc$update = F2(
 					$author$project$Doc$foldables(model),
 					model.o);
 				var landed = function () {
-					var _v1 = model.ag;
+					var _v1 = model.ah;
 					if (!_v1.$) {
 						var line = _v1.a;
 						return A2($author$project$Body$placeOfLine, fresh, line);
@@ -9979,7 +9981,7 @@ var $author$project$Doc$update = F2(
 							fresh,
 							{
 								aO: landed,
-								ag: $elm$core$Maybe$Nothing,
+								ah: $elm$core$Maybe$Nothing,
 								o: A2($elm$core$Set$diff, fresh.o, opened)
 							})));
 			case 2:
@@ -10171,7 +10173,7 @@ var $author$project$Doc$update = F2(
 				var landsOn = function () {
 					var _v5 = $elm$core$List$head(taken);
 					if (_v5.$ === 1) {
-						return model.ag;
+						return model.ah;
 					} else {
 						var first = _v5.a;
 						var kin = A2(
@@ -10227,7 +10229,7 @@ var $author$project$Doc$update = F2(
 					A2($author$project$Doc$idAtRow, model, model.aO),
 					_Utils_update(
 						model_,
-						{ag: landsOn}));
+						{ah: landsOn}));
 				return _Utils_Tuple2(
 					done,
 					$elm$core$Platform$Cmd$batch(
@@ -10330,7 +10332,7 @@ var $author$project$Doc$update = F2(
 					return $author$project$Doc$composed(
 						_Utils_update(
 							model,
-							{ag: line, C: rows}));
+							{ah: line, C: rows}));
 				} else {
 					var _v11 = _v10.a;
 					return _Utils_Tuple2(
@@ -10364,6 +10366,15 @@ var $author$project$Doc$inList = function (m) {
 			},
 			$author$project$Body$rowAt(m)),
 		$elm$core$Maybe$Just(2));
+};
+var $author$project$Doc$inset = function (r) {
+	return (r.R > 1) ? _List_fromArray(
+		[
+			A2(
+			$elm$html$Html$Attributes$attribute,
+			'style',
+			'--g-doc-indent:' + ($elm$core$String$fromInt(r.R + 1) + (';--rail:calc(var(--g-doc-pad) + ' + ($elm$core$String$fromFloat(r.R - 0.5) + 'ch)'))))
+		]) : _List_Nil;
 };
 var $author$project$Doc$litOf = function (m) {
 	return {
@@ -10507,13 +10518,13 @@ var $author$project$Body$shown = function (r) {
 		function (c) {
 			return c.bS !== '';
 		},
-		r.ad);
+		r.ae);
 };
 var $author$project$Doc$stars = F2(
 	function (m, level) {
 		return A2(
 			$elm$core$String$repeat,
-			A2($elm$core$Basics$max, 0, 2 * (level - m.ah)),
+			A2($elm$core$Basics$max, 0, 2 * (level - m.R)),
 			' ') + '* ';
 	});
 var $author$project$Doc$viewCells = F3(
@@ -10532,7 +10543,7 @@ var $author$project$Doc$viewCells = F3(
 						A2(
 							$author$project$Doc$stars,
 							m,
-							(r.k === 2) ? r.ah : m.ah))
+							(r.k === 2) ? r.R : m.R))
 					])),
 			A2(
 				$elm$core$List$indexedMap,
@@ -10889,11 +10900,14 @@ var $author$project$Doc$viewKids = F6(
 											A2(
 												$elm$core$List$cons,
 												$author$project$Doc$rung(depth),
-												_List_fromArray(
-													[
-														$elm$html$Html$Attributes$class(
-														A6($author$project$Doc$rowClass, lit, m, j, kid, depth, kin))
-													])),
+												A2(
+													$elm$core$List$cons,
+													A2($elm$html$Html$Attributes$attribute, 'data-id', kid.c),
+													_List_fromArray(
+														[
+															$elm$html$Html$Attributes$class(
+															A6($author$project$Doc$rowClass, lit, m, j, kid, depth, kin))
+														]))),
 											inner)
 										])));
 							j = $temp$j;
@@ -10952,7 +10966,8 @@ var $author$project$Doc$viewMeta = F4(
 				_List_fromArray(
 					[
 						$elm$html$Html$Attributes$class(
-						A6($author$project$Doc$rowClass, lit, m, j, kid, 0, false))
+						A6($author$project$Doc$rowClass, lit, m, j, kid, 0, false)),
+						A2($elm$html$Html$Attributes$attribute, 'data-id', kid.c)
 					]),
 				_List_fromArray(
 					[
@@ -11153,11 +11168,14 @@ var $author$project$Doc$view = function (m) {
 								[
 									A2(
 									$elm$html$Html$div,
-									_List_fromArray(
-										[
-											$elm$html$Html$Attributes$class(
-											A6($author$project$Doc$rowClass, lit, m, i, r, -1, false))
-										]),
+									A2(
+										$elm$core$List$cons,
+										$elm$html$Html$Attributes$class(
+											A6($author$project$Doc$rowClass, lit, m, i, r, -1, false)),
+										A2(
+											$elm$core$List$cons,
+											A2($elm$html$Html$Attributes$attribute, 'data-id', r.c),
+											$author$project$Doc$inset(r))),
 									shown)
 								]));
 						i = $temp$i;
@@ -11172,11 +11190,14 @@ var $author$project$Doc$view = function (m) {
 									[
 										A2(
 										$elm$html$Html$div,
-										_List_fromArray(
-											[
-												$elm$html$Html$Attributes$class(
-												A6($author$project$Doc$rowClass, lit, m, i, r, -1, false))
-											]),
+										A2(
+											$elm$core$List$cons,
+											$elm$html$Html$Attributes$class(
+												A6($author$project$Doc$rowClass, lit, m, i, r, -1, false)),
+											A2(
+												$elm$core$List$cons,
+												A2($elm$html$Html$Attributes$attribute, 'data-id', r.c),
+												$author$project$Doc$inset(r))),
 										_List_fromArray(
 											[
 												A2($author$project$Doc$viewPara, m, r)
@@ -11196,7 +11217,8 @@ var $author$project$Doc$view = function (m) {
 										_List_fromArray(
 											[
 												$elm$html$Html$Attributes$class(
-												A6($author$project$Doc$rowClass, lit, m, i, r, -1, false))
+												A6($author$project$Doc$rowClass, lit, m, i, r, -1, false)),
+												A2($elm$html$Html$Attributes$attribute, 'data-id', r.c)
 											]),
 										A3($author$project$Doc$viewCells, m, i, r))
 									]));

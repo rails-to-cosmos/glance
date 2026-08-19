@@ -1469,7 +1469,7 @@ viewKids lit m parent from at0 depth =
                             kid.to
                             (out
                                 ++ gap
-                                ++ [ div (rung depth :: [ class (rowClass lit m j kid depth kin) ])
+                                ++ [ div (rung depth :: attribute "data-id" kid.id :: [ class (rowClass lit m j kid depth kin) ])
                                         inner
                                    ]
                             )
@@ -1488,6 +1488,26 @@ viewKids lit m parent from at0 depth =
                 out
     in
     go from at0 []
+
+
+{-| A ROW ON A DEEPER SHELF indents under its own headline's first letter: the
+level's stars plus the space, and the bar moves to sit under that star -- the
+same geometry the root's rows get from the stylesheet's default.
+-}
+inset : Row -> List (Html.Attribute Msg)
+inset r =
+    if r.level > 1 then
+        [ attribute "style"
+            ("--g-doc-indent:"
+                ++ String.fromInt (r.level + 1)
+                ++ ";--rail:calc(var(--g-doc-pad) + "
+                ++ String.fromFloat (toFloat r.level - 0.5)
+                ++ "ch)"
+            )
+        ]
+
+    else
+        []
 
 
 view : Model -> Html Msg
@@ -1528,13 +1548,13 @@ view m =
                             else
                                 inner
                     in
-                    go j (out ++ [ div [ class (rowClass lit m i r -1 False) ] shown ])
+                    go j (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset r) shown ])
 
                 else if r.kind == Para || r.kind == Meta then
-                    go (i + 1) (out ++ [ div [ class (rowClass lit m i r -1 False) ] [ viewPara m r ] ])
+                    go (i + 1) (out ++ [ div (class (rowClass lit m i r -1 False) :: attribute "data-id" r.id :: inset r) [ viewPara m r ] ])
 
                 else
-                    go (i + 1) (out ++ [ div [ class (rowClass lit m i r -1 False) ] (viewCells m i r) ])
+                    go (i + 1) (out ++ [ div [ class (rowClass lit m i r -1 False), attribute "data-id" r.id ] (viewCells m i r) ])
     in
     div [ class (if inList m then "focus" else "") ] (viewPath m :: go 0 [])
 
@@ -1562,7 +1582,8 @@ viewMeta lit m parent from =
             walk from []
 
         leaf ( j, kid ) =
-            div [ class (rowClass lit m j kid 0 False) ] [ viewPara m kid ]
+            div [ class (rowClass lit m j kid 0 False), attribute "data-id" kid.id ]
+                [ viewPara m kid ]
     in
     if Set.member parent.id m.shut then
         ( [ div [ class "dg" ] [ text ":PROPERTIES:…" ] ], next )

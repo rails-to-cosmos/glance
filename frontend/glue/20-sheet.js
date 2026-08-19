@@ -51,6 +51,11 @@
       l.span && l.span[0] >= at[0] && l.span[1] <= at[1]);
     const spanOf = (r) => (r && r.span) || null;
     const docRowAt = () => drows[dat] || null;
+    // The suite reads the MIRROR's cursor as the pure value it is, through a
+    // direct eval -- where a `var' reaches the caller's scope and a `const' does
+    // not.  The DOM paints on rAF and the port lands a macrotask apart, so a
+    // driver that watched the draw must also see the mirror agree before a key.
+    var docAtNow = () => (drows[dat] || {}).id || "";
     // MOVEMENT IS TWO AXES, and `l'/`h' and the arrows ALIAS `f'/`b' — AGENTS.hs.
     const grainStep = (k) => (k === "f" || k === "l" || k === "<right>" ? 1
                             : k === "b" || k === "h" || k === "<left>" ? -1 : 0);
@@ -277,6 +282,9 @@
       const h = editing;
       const read = (retry) => headline(h.id, h.child).then((fresh) => {
         if (editing !== h) return;
+        // THE GUARD AGAIN AT ARRIVAL: the reader may have opened an edit while
+        // this fetch flew, and `fill' would shut it over their caret.
+        if (sheetOpen()) return;
         if (fresh.digest !== h.digest) {
           // The model the write was built from stands, so there is nothing to redraw.
           if (retry) setTimeout(() => { if (editing === h) read(false); }, 300);

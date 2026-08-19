@@ -123,7 +123,9 @@ rowsFrom lines own headCells kids =
         arr =
             Array.fromList lines
 
-        rowsIn prefix owner a b =
+        -- LVL is the OWNING HEADLINE's level: a child's contents indent under the
+        -- child's own first letter, so the row carries whose shelf it stands on.
+        rowsIn prefix owner lvl a b =
             let
                 blocks =
                     Scan.blocksInRange arr a b
@@ -142,6 +144,7 @@ rowsFrom lines own headCells kids =
                         , kind = Para
                         , grain = b_.grain
                         , name = b_.name
+                        , level = lvl
                         , owner =
                             case b_.up of
                                 Just k ->
@@ -158,7 +161,7 @@ rowsFrom lines own headCells kids =
                 blocks
 
         body =
-            rowsIn "" Nothing 0 own
+            rowsIn "" Nothing 1 0 own
 
         owned r =
             let
@@ -207,7 +210,7 @@ rowsFrom lines own headCells kids =
                     in
                     descend (( k.level, cid ) :: above)
                         rest
-                        (out ++ row :: rowsIn (cid ++ ":") (Just cid) (k.line + 1) stop)
+                        (out ++ row :: rowsIn (cid ++ ":") (Just cid) k.level (k.line + 1) stop)
     in
     (head :: List.map owned body) ++ descend [] kids []
 

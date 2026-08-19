@@ -4384,10 +4384,22 @@ sheetNotes =
          \ mirrors would race the state push for them.  THE BASELINE COMES OFF THE\
          \ FILL for the same reason: the mirrors land a macrotask behind it, and a\
          \ baseline read off them called every fresh sheet dirty." [Elm, Test]
+  , Note "A RELOAD NEVER LANDS OVER AN OPEN EDIT, checked when the frame arrives AND\
+         \ when the fetch returns: the reader can open one while it flies, and the\
+         \ refill would shut the box over their caret.  Staleness is the drift lock's\
+         \ to catch at the commit." [Browser]
+  , Note "A DRIVER THAT WATCHED THE DRAW MUST SEE THE MIRROR AGREE BEFORE A KEY: one\
+         \ update schedules the redraw on rAF and the port push a macrotask apart, and\
+         \ a key in that gap acts on the row the reader just left.  Rows carry\
+         \ `data-id', the mirror's cursor is `docAtNow', and the harness's walks\
+         \ require the two to agree -- docs/bugs/2026-08-19." [Browser]
   , Note "THE PANE IS THE SUBTREE: every descendant is drawn WHOLE -- its headline row,\
          \ its blocks under it -- each segment cut at the next child's line, the line\
          \ arriving with the child since only the server knows what it lifted.  A\
-         \ child's blocks are spliced by the same door the entry's own are." [Test, Browser]
+         \ child's blocks are spliced by the same door the entry's own are.  A SHELF\
+         \ INDENTS UNDER ITS OWN STAR: a row carries its headline's level, and the\
+         \ indent and the bar are that level's -- org's own geometry, the root's being\
+         \ the stylesheet's default." [Test, Browser]
   , Note "A SIBLING SHARES AN OWNER, and that is the whole of the step: `n'/`p' walk\
          \ the rows owned by what owns point -- a leaf its item run, an element its\
          \ shelf, a child headline its brothers -- one rule for lists and headlines\

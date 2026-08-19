@@ -26,8 +26,10 @@ section groups a feature arc, and its date is that arc's last commit.
   paragraphs, lists and drawers appear under its headline instead of behind
   `RET`; a grandchild under it, all the way down. Navigation is the list's own:
   `n`/`p` step siblings over whole subtrees, `f` enters a child's contents,
-  `b` climbs back out. Editing a child's paragraph writes through the same
-  splice as the entry's own; `RET` on the child still materializes into it.
+  `b` climbs back out. A shelf indents under its own headline's first letter,
+  the grandchild's one step past the child's. Editing a child's paragraph
+  writes through the same splice as the entry's own; `RET` on the child still
+  materializes into it.
 
 - **The doc pane draws the tree instead of org's own bullets.** A list item wore
   two marks at once — the connector the pane draws and the `-` the file spells —
