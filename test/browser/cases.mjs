@@ -1815,17 +1815,18 @@ export default [
 { name: "the pane ends on one empty line, and RET there writes a paragraph",
   async run(p, base) {
     await sheet(p, base, "drv-marks");
-    // THE TAIL IS ALWAYS THERE: one empty row past everything, a line tall.
+    // THE TAIL IS THERE BUT HIDDEN: one empty row past everything, shown
+    // only when the walk reaches it.
     const tail = await p.eval(() => {
       const rows = [...document.querySelectorAll("#mdoc .de")];
       const last = rows[rows.length - 1];
       return { last: last.matches(".d-tail"),
                empty: last.textContent === "",
-               tall: last.getBoundingClientRect().height > 10,
+               hidden: last.getBoundingClientRect().height === 0,
                count: rows.filter((e) => e.matches(".d-tail")).length };
     });
     assert(tail.last && tail.empty, "the last row is not the empty tail");
-    assert(tail.tall, "the empty line has no height");
+    assert(tail.hidden, "the tail shows before the walk reaches it");
     assert(tail.count === 1, `${tail.count} tail rows`);
     // THE WALK ENDS ON IT: n alone reaches it, through the child subtrees.
     for (let i = 0; i < 14; i += 1) {
@@ -1834,9 +1835,10 @@ export default [
       if (there) break;
       await stepped(p, "n", ".de", "n toward the tail");
     }
-    assert(await p.eval(() =>
-      document.querySelector("#mdoc .de.dat").matches(".d-tail")),
-      "n never reached the tail");
+    assert(await p.eval(() => {
+      const a = document.querySelector("#mdoc .de.dat");
+      return a.matches(".d-tail") && a.getBoundingClientRect().height > 10;
+    }), "the reached tail is not shown a line tall");
     // RET THERE IS THE DOOR: type, commit, and the paragraph lands at the end.
     await p.press("RET");
     await editUp(p, "the edit over the tail");

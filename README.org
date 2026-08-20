@@ -113,8 +113,9 @@ drawer and every child headline drawn in place.
   =f=/=b= go a grain finer / broader.
 - A list, block, table or drawer is *one* stop, so holding =n= skims; =TAB=
   folds a drawer or a child's subtree, org's own cycle.
-- The pane ends on one empty line: =RET= there writes a fresh paragraph at
-  the document's end, wherever =+= is owned by what point stands on.
+- The pane ends on one empty line, shown only when the walk reaches it:
+  =RET= there writes a fresh paragraph at the document's end, wherever =+=
+  is owned by what point stands on.
 - =o= opens the links of the row's *reach* -- a headline's whole subtree,
   the root's the entry.
 - Every element commits on its own (=C-x C-s= / =C-c C-c=); =RET= on a child

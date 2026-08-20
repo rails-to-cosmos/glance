@@ -117,9 +117,9 @@ propIndex id =
 
 {-| The rows a filled pane holds: the headline, the entry's own blocks, then
 EVERY DESCENDANT WHOLE -- its headline row, its blocks under it -- so the pane
-is the subtree rather than one shelf of it, and last THE TAIL: one always-drawn
-empty line past everything, the door to a paragraph after a document that ends
-in something `+' owns.  A child's contents run to the next child's line; a
+is the subtree rather than one shelf of it, and last THE TAIL: one empty line
+past everything, hidden until the walk reaches it -- the door to a paragraph
+after a document that ends in something `+' owns.  A child's contents run to the next child's line; a
 child OWNS its blocks, and a deeper child its shallower one, so the walk reads
 nesting off ownership exactly as it does inside a list.
 -}

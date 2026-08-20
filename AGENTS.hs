@@ -4441,8 +4441,9 @@ sheetNotes =
          \ the rows owned by what owns point -- a leaf its item run, an element its\
          \ shelf -- so `n' from the top reads into the entry's contents.  `f' steps\
          \ into what point owns, `b' climbs to the owner." [Elm, Browser]
-  , Note "THE TAIL IS THE PANE'S LAST ROW: one always-drawn empty line past\
-         \ everything, zero-width and `alone', so an edit splices a fresh paragraph\
+  , Note "THE TAIL IS THE PANE'S LAST ROW: one empty line past everything,\
+         \ hidden until the walk reaches it (`.dat' shows it), zero-width and\
+         \ `alone', so an edit splices a fresh paragraph\
          \ at the document's end -- the door `+' cannot be when the body ends in\
          \ something owned, a properties drawer above all.  It has no span, so the\
          \ flag and delete doors refuse it like a planning row, and the headline\

@@ -30,8 +30,9 @@ section groups a feature arc, and its date is that arc's last commit.
   the tree's default view to the table and logs the config it read — layers,
   saved views, keyword hues.
 
-- **The pane ends on an empty line.** One always-visible empty row past
-  everything; `RET` on it writes a fresh paragraph at the document's end —
+- **The pane ends on an empty line.** One empty row past everything, hidden
+  until the walk reaches it; `RET` there writes a fresh paragraph at the
+  document's end —
   the door `+` cannot offer when the body ends in something it owns, a
   properties drawer above all. Only ever the one line; it has no span, so
   flag and delete refuse it, and the headline walk ends on it.
