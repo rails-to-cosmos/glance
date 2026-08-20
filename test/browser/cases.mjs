@@ -145,6 +145,51 @@ const boxKeys = () => document.activeElement.tagName === "INPUT"
 const boxFocused = (p, why) => p.until(boxKeys, why || "the filter box to take the focus");
 const boxAway = (p, why) => p.until(barAway, why || "the summoned editor to go");
 
+// THE TABLE'S OWN FILTER IS SUMMONED TOO (`palette'), and lives under `#app'.
+// ONE BOX, TWO DOORS: `/' edits the filter half and `.' the whole expression.
+/** Summon the table's box with KEY and wait for it to take the keyboard. */
+async function boxUp(p, key, why) {
+  await p.press(key);
+  await p.until(() => document.activeElement.tagName === "INPUT"
+                   && document.getElementById("app").contains(document.activeElement),
+                why);
+}
+/** Raise the table's filter box with `/' and wait for it to take the keyboard. */
+const filterUp = (p, why) =>
+  boxUp(p, "/", why || "the table's filter box to take the focus");
+/** Raise the same box on the whole expression, which is `.'. */
+const queryUp = (p, why) =>
+  boxUp(p, ".", why || "the whole-query box to take the focus");
+/** The suggestion list, closed. */
+const acShut = () => {
+  const ac = document.querySelector("#app .tv-ac");
+  return !ac || !ac.children.length || ac.style.display === "none";
+};
+/** The suggestion list, up with something in it. */
+const acOpen = () => {
+  const ac = document.querySelector("#app .tv-ac");
+  return !!ac && ac.children.length > 0 && ac.style.display !== "none";
+};
+/** What the open list offers, as the reader reads it. */
+const acLabels = () =>
+  [...document.querySelectorAll("#app .tv-ac-item .tv-ac-label")].map((e) => e.textContent);
+/** RET on the table's filter box, and the strip settling at N chips.  An open
+ *  suggestion list takes Enter for itself, so it is dismissed FIRST -- and only
+ *  when it is up, ESC over a closed list being what drops the typed token. */
+async function committed(p, n, why) {
+  if (!(await p.eval(acShut))) {
+    await p.press("ESC");
+    await p.until(acShut, "the suggestion list to close, so RET commits");
+  }
+  await p.press("RET");
+  await p.until((k) => document.querySelectorAll("#app .tv-chip[data-i]").length === k,
+                why, undefined, n);
+}
+/** The strip's chips as the reader reads them, the `×' left off. */
+const stripText = () => [...document.querySelectorAll("#app .tv-chip[data-i]")]
+  .map((c) => c.firstChild.textContent);
+const appRows = () => document.querySelectorAll("#app .tv-table tbody tr").length;
+
 export default [
 
 // cb6db85.  THE BOX GREW AND STOOD OVER THE DOCUMENT.  Where the next line
@@ -896,6 +941,236 @@ export default [
       badge: document.getElementById("rkind").textContent }));
     assert(after.badge === "", `the badge outlived its chip: ${JSON.stringify(after.badge)}`);
     return [`${rowsBefore} rows throughout, badge "kind:cites" then cleared`];
+  } },
+
+// THE ADDED SIGN, END TO END ON THE TABLE'S OWN FILTER.
+// docs/bugs/fixed/2026-08-20-the-renderer-reads-the-added-sign-as-text.md: the
+// renderer had no `+' in its grammar, so the sign was body text -- the strip
+// drew `substring:+priority:[#B]', a narrowing where the reader wrote a
+// widening, and completion behind the sign offered a dead literal alone.
+// The last step is the STRIP's own rule (docs/query.md, "Adding"): committing a
+// token whose opposite-signed twin already stands removes both, the pair being
+// the tautology the grammar answers as every row.  TWINS ARE MATCHED ON WHAT A
+// TOKEN MEANS, so the near miss is the quote that OPENS a token and makes it
+// free text -- `-"priority:[#B]"' names no key and cancels nothing.
+{ name: "the strip spells the added sign, completes behind it, and cancels a twin",
+  async run(p, base) {
+    await tableUp(p, base);
+    // THE PAGE BOOTS ON ITS SAVED VIEW, so the strip already holds that query's
+    // chips; every count here is read against what the boot left standing.
+    const whole = await p.eval(appRows);
+    const booted = (await p.eval(stripText)).length;
+    assert(whole > 1, `the tree served ${whole} rows, too few to tell a filter from none`);
+
+    // (1) THE CHIP IS THE TOKEN THE READER TYPED, sign and all, beside a plain one.
+    await filterUp(p, "the filter box for the added token");
+    await p.type("state:TODO +priority:[#B]");
+    await committed(p, booted + 2, "both tokens to land as chips");
+    const spelled = (await p.eval(stripText)).slice(booted);
+    assert(spelled[0] === "state:TODO" && spelled[1] === "+priority:[#B]",
+      `the strip respelled what was typed: ${JSON.stringify(spelled)}`);
+    assert(!spelled.some((c) => c.indexOf("substring:") !== -1),
+      `a keyed token reached the strip as free text: ${JSON.stringify(spelled)}`);
+    await p.until((n) => document.querySelectorAll("#app .tv-table tbody tr").length < n,
+                  "the added token to narrow its own axis", undefined, whole);
+
+    // (2) COMPLETION READS BEHIND THE SIGN: `+sta' asks for a key, not a literal.
+    await filterUp(p, "the filter box for the half-typed added token");
+    await p.type("+sta");
+    await p.until(acOpen, "the suggestion list to open behind the sign");
+    const offers = await p.eval(acLabels);
+    const at = offers.indexOf("state:");
+    assert(at !== -1, `the key behind the sign was not offered: ${JSON.stringify(offers)}`);
+    assert(!offers.some((o) => o.indexOf("+") !== -1),
+      `the sign was offered as text to search for: ${JSON.stringify(offers)}`);
+    for (let i = 0; i < at; i += 1) await p.press("<down>");
+    await p.press("TAB");
+    await p.until(() => {
+      const box = document.querySelector("#app .tv-filter");
+      return !!box && box.value === "+state:";
+    }, "the accepted key to land with its sign still standing");
+
+    // ESC twice: the first closes the list, the second drops what is half-typed.
+    await p.press("ESC");
+    await p.until(acShut, "the list to close on the first ESC");
+    await p.press("ESC");
+    await p.until(() => {
+      const box = document.querySelector("#app .tv-filter");
+      return !!box && box.value === "";
+    }, "the half-typed token to go on the second ESC");
+
+    // (3) THE NEAR MISS: a quote at the head makes it free text, which is no twin.
+    await p.type('-"priority:[#B]"');
+    await committed(p, booted + 3,
+      "the free-text token to land beside the pair it does not cancel");
+    const missed = (await p.eval(stripText)).slice(booted);
+    assert(missed.indexOf("+priority:[#B]") !== -1,
+      `a quoted free-text token cancelled a keyed one: ${JSON.stringify(missed)}`);
+
+    // (4) THE PAIR CANCELS, and the rows the boot served come back.  A fresh
+    // boot, so the twins are the only chips the reader put on the strip.
+    await tableUp(p, base);
+    await filterUp(p, "the filter box for the added token to stand alone");
+    await p.type("+priority:[#B]");
+    await committed(p, booted + 1, "the added token to stand as a chip of its own");
+    await filterUp(p, "the filter box for its negated twin");
+    await p.type("-priority:[#B]");
+    await committed(p, booted, "the committed twin to take the standing chip with it");
+    await p.until((n) => document.querySelectorAll("#app .tv-table tbody tr").length === n,
+                  "the cancelled pair to serve every row again", undefined, whole);
+    const left = (await p.eval(stripText)).length - booted;
+    const back = await p.eval(appRows);
+
+    // (5) BEHIND A `+', A CARRIED VALUE IS A DEAD OFFER: `A ∨ A' is `A', so a
+    // standing `priority:[#A]' takes the A out of what `+priority:' offers and
+    // leaves the letters that would widen the axis.  The fold is the column's
+    // own, so BOTH SPELLINGS go -- `[#A]' and the bare letter alike.
+    await tableUp(p, base);
+    await filterUp(p, "the filter box for the priority to stand in");
+    await p.type("priority:[#A]");
+    await committed(p, booted + 1, "the standing priority to land as a chip");
+    await filterUp(p, "the filter box for the added token's value stage");
+    await p.type("+priority:");
+    await p.until(acOpen, "the value list to open behind the sign");
+    const widen = await p.eval(acLabels);
+    const dead = widen.filter((v) => v === "[#A]" || v === "A" || v === "a");
+    assert(dead.length === 0,
+      `a carried value was offered back behind the sign: ${JSON.stringify(widen)}`);
+    assert(widen.indexOf("[#B]") !== -1 && widen.indexOf("[#C]") !== -1,
+      `the letters that would widen the axis went missing: ${JSON.stringify(widen)}`);
+
+    // THE PLAIN STAGE NARROWS AND IS UNTOUCHED: it offers the whole domain,
+    // the carried letter with it.
+    await p.press("ESC");
+    await p.until(acShut, "the value list to close");
+    await p.press("ESC");
+    await p.until(() => {
+      const box = document.querySelector("#app .tv-filter");
+      return !!box && box.value === "";
+    }, "the half-typed added token to go");
+    await p.type("priority:");
+    await p.until(acOpen, "the plain value list to open");
+    const plain = await p.eval(acLabels);
+    assert(plain.indexOf("[#A]") !== -1,
+      `an unsigned value stage lost the standing letter: ${JSON.stringify(plain)}`);
+
+    return [`chips ${JSON.stringify(spelled)} · offered ${JSON.stringify(offers.slice(0, 3))}`
+      + ` · near miss left ${missed.length} · pair cancelled to ${left},`
+      + ` ${back}/${whole} rows over ${booted} booted chip(s)`
+      + ` · behind \`+' ${JSON.stringify(widen)} against plain ${JSON.stringify(plain)}`];
+  } },
+
+// TWO DOORS ONTO ONE `?q=', docs/proposals/done/2026-08-20-slash-filters-dot-
+// expression.md: `/' edits the FILTER half and `.' the whole expression.  What
+// each door OFFERS, what the box KEEPS when it refuses a shaping token, and
+// which chips rode a narrowing commit are unaskable in TestServe.hs -- the node
+// harness stubs the renderer away, so the completion list and the box's own
+// state after Enter are the real renderer's or nothing.  The refusal is read
+// off the LOG, the one place a spoken notice outlives its second.
+{ name: "`/' offers the filter half and refuses shaping, `.' composes the whole",
+  async run(p, base) {
+    await tableUp(p, base);
+    const booted = (await p.eval(stripText)).length;
+
+    // (1) THE WHOLE DOOR OFFERS THE SHAPING KEYS, and its commit shapes: the
+    // order lands on the STRIP, which is where a token that was taken goes.
+    await queryUp(p, "`.' to summon the box on the whole expression");
+    await p.type("s");
+    await p.until(acOpen, "the key list to open under `.'");
+    const whole = await p.eval(acLabels);
+    assert(whole.indexOf("sort:") !== -1,
+      `the whole door offered no shaping key: ${JSON.stringify(whole)}`);
+    await p.press("ESC");
+    await p.until(acShut, "the list to close on the first ESC");
+    await p.press("ESC");
+    await p.until(() => {
+      const box = document.querySelector("#app .tv-filter");
+      return !!box && box.value === "";
+    }, "the half-typed key to go on the second ESC");
+    await p.type("sort:title");
+    await committed(p, booted + 1, "the order to land as a chip");
+    const shaped = (await p.eval(stripText)).slice(booted);
+    assert(shaped.indexOf("sort:title") !== -1,
+      `the order never reached the strip: ${JSON.stringify(shaped)}`);
+
+    // (2) ONE QUERY UNDERNEATH: the address bar carries the WHOLE expression,
+    // filters and shaping in one `q=', which is what both doors read and write.
+    const shapedAt = await p.eval(() => ({
+      q: new URLSearchParams(location.search).get("q") || "",
+      chips: [...document.querySelectorAll("#app .tv-chip[data-i]")]
+        .map((c) => c.firstChild.textContent).join(" "),
+    }));
+    assert(shapedAt.q === shapedAt.chips,
+      `the applied query and the strip disagree: ${JSON.stringify(shapedAt)}`);
+
+    // (3) THE FILTER DOOR OFFERS THE NARROWING KEYS ALONE, and the two lists
+    // differ BY THE SHAPING KEYS -- read as one relation over the same prefix,
+    // so a door that merely offered less would not pass.
+    await filterUp(p, "the filter box on `/'");
+    await p.type("s");
+    await p.until(acOpen, "the key list to open under `/'");
+    const narrow = await p.eval(acLabels);
+    const gone = whole.filter((o) => narrow.indexOf(o) === -1);
+    assert(gone.length > 0 && gone.every((o) => /^(sort|columns|view):/.test(o)),
+      `the doors differ by something other than the shaping keys: `
+      + `${JSON.stringify(gone)} (whole ${JSON.stringify(whole)}, `
+      + `narrow ${JSON.stringify(narrow)})`);
+
+    // AND THE STANDING ORDER RIDES A NARROWING COMMIT: the strip is not the box.
+    await p.press("ESC");
+    await p.until(acShut, "the list to close");
+    await p.press("ESC");
+    await p.until(() => {
+      const box = document.querySelector("#app .tv-filter");
+      return !!box && box.value === "";
+    }, "the half-typed key to go");
+    await p.type("state:TODO");
+    await committed(p, booted + 2, "the narrowing token to land beside the order");
+    const rode = (await p.eval(stripText)).slice(booted);
+    assert(rode.indexOf("sort:title") !== -1,
+      `narrowing dropped the standing order: ${JSON.stringify(rode)}`);
+
+    // (4) A SHAPING TOKEN TYPED AT `/' IS REFUSED, SPOKEN AND LEFT STANDING:
+    // never chipped, never in the query, and the box is not finished with it.
+    await filterUp(p, "the filter box for the token it will refuse");
+    await p.type("sort:scheduled");
+    if (!(await p.eval(acShut))) {
+      await p.press("ESC");
+      await p.until(acShut, "the sort list to close, so RET commits");
+    }
+    await p.press("RET");
+    await p.until(() => [...document.getElementById("log").children]
+                    .some((n) => n.textContent.indexOf("belongs to .") !== -1),
+                  "the refusal to reach the log");
+    const after = await p.eval(() => {
+      const box = document.querySelector("#app .tv-filter");
+      return {
+        chips: [...document.querySelectorAll("#app .tv-chip[data-i]")]
+          .map((c) => c.firstChild.textContent),
+        box: box ? box.value : null,
+        typing: !!box && document.activeElement === box,
+        said: [...document.getElementById("log").children]
+          .map((n) => n.textContent).filter((t) => t.indexOf("belongs to .") !== -1),
+        q: new URLSearchParams(location.search).get("q") || "",
+      };
+    });
+    assert(after.chips.length === booted + 2,
+      `a refused token reached the strip: ${JSON.stringify(after.chips)}`);
+    assert(after.box.indexOf("sort:scheduled") !== -1,
+      `the refusal was swallowed: the box holds ${JSON.stringify(after.box)}`);
+    assert(after.typing, "the box gave the keyboard back over a token it refused");
+    assert(after.said.length === 1,
+      `the refusal was said ${after.said.length} times: ${JSON.stringify(after.said)}`);
+    assert(after.said[0].indexOf("sort: belongs to .") !== -1,
+      `the refusal named no key of its own: ${JSON.stringify(after.said)}`);
+    assert(after.q === shapedAt.q + " state:TODO",
+      `a refused token reached the query: ${JSON.stringify(after.q)}`);
+
+    return [`\`.' offered ${JSON.stringify(whole)}, \`/' ${JSON.stringify(narrow)}`
+      + ` (the doors differ by ${JSON.stringify(gone)})`
+      + ` · ${JSON.stringify(rode)} over ${booted} booted chip(s)`
+      + ` · refused "sort:scheduled" standing in the box, said`
+      + ` ${JSON.stringify(after.said[0].slice(-52))}`];
   } },
 
 // THE PLATFORM PAINTS THE `<select>', and only `color-scheme' tells it which way.
@@ -1703,6 +1978,24 @@ export default [
     await p.until(() => !!document.querySelector("#mdoc .de.dat"), "point back");
     await settled(p);
     await stepped(p, "b", ".d-child", "b to climb to the child headline");
+    // A HEADLINE AT POINT LIGHTS ONE SHELF: on the entry's own headline the
+    // shelf's runs bar in the mark, and the child's list keeps its resting
+    // bar -- the light stops at the child's block.
+    await stepped(p, "b", ".d-head", "b once more, to the entry's own headline");
+    const shelfLight = await p.eval(() => {
+      const item = (re) => [...document.querySelectorAll("#mdoc .d-item")]
+        .find((e) => re.test(e.textContent));
+      const own = item(/a dash, the bullet/);
+      const kid = item(/a list the child owns/);
+      return { own: own ? ink(own) : null,
+               kid: kid ? ink(kid) : null,
+               mk: mark(), off: g("point-off") };
+    });
+    assert(shelfLight.own === shelfLight.mk,
+      `the entry's own run bars ${shelfLight.own}, not the mark's ${shelfLight.mk}`);
+    assert(shelfLight.kid === shelfLight.off,
+      `the child's run bars ${shelfLight.kid}, so the light ran into the child's block`);
+    await walkTo(p, ".d-child", "back down to the first child");
     // TAB ON A HEADLINE FOLDS ITS SUBTREE, org's own cycle: the contents leave
     // the pane whole -- the grandchild with them -- and TAB brings them back.
     await settled(p);

@@ -26,6 +26,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , viewQueryIn
                        , fingerprint
                        , firstBy
+                       , groupOn
                        , isTodoPragma
                        , keywordScopes
                        , loadConfigDirs
@@ -44,7 +45,7 @@ module Data.Org.Config ( ConfigLayerFile (..)
 
 import Control.Exception (IOException, try)
 import Data.Foldable (asum)
-import Data.List (find, foldl', sort)
+import Data.List (find, foldl', nub, sort)
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import System.Directory (listDirectory)
@@ -84,6 +85,10 @@ firstBy key = go Set.empty
         go seen (x : xs) | Set.member k seen = go seen xs
                          | otherwise         = x : go (Set.insert k seen) xs
           where k = key x
+
+-- | XS by KEY, each group in the order its key was first written.
+groupOn :: Eq k => (a -> k) -> [a] -> [(k, [a])]
+groupOn key xs = [ (k, [ x | x <- xs, key x == k ]) | k <- nub (map key xs) ]
 
 
 declaredKeywords :: [Spanned Element] -> TodoKeywords

@@ -69,7 +69,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text.Lazy.Encoding as TLE
 import AGENTS (ColKind (KBadge), Column (cCellKind, cHead, cKey), SortDir (Asc), defaultSortChain, keyOf, viewColumns, viewKeys)
 import Glance.Web.Columns (columnNamesIn)
-import Glance.Web.Filter (Term (tmKey), Token (..), columnsKey, emptyEnv, filterKeys, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, sortKey, substringKey)
+import Glance.Web.Filter (Sign (Unsigned), Term (tmKey), Token (..), columnsKey, emptyEnv, filterKeys, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, sortKey, substringKey)
 import Glance.Web.Sort (sortChainIn)
 import TestDefaults (listAt, withDocDir)
 import qualified Glance.Query as Q
@@ -927,7 +927,7 @@ specGroup08 = testGroup "Query language"
                   (map tkBody (scanQuery "a&b c\td\ne"))
 
   , testCase "and a carriage return is not one" $
-      assertEqual "\\r became a separator" [Token False False "a\rb"]
+      assertEqual "\\r became a separator" [Token Unsigned False "a\rb"]
                   (scanQuery "a\rb")
 
   , testCase "the default chain is state, title, deadline, scheduled, all ascending" $

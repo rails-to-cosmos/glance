@@ -151,6 +151,7 @@
                                      : append("cmd", "info", `action: ${command}  id=${id}`),
         onLink: (target) => append("cmd", "info", `link: ${target}`),
         onFilter: filter,   // the server narrows; the renderer shows what it is given
+        onRefused: refused, // a shaping token typed at `/', which the box keeps
         onPin: () => pinHere(),
         pinned: query.trim() === savedQuery("default"),
       });
@@ -197,8 +198,13 @@
       if (total !== 0 || !query || !all.length) return;
       if (typeof TableView.parseQuery !== "function") return;
       const keys = cols.map((c) => c.key);
+      // AN ADDED TOKEN IS NO EVIDENCE OF A DROPPED KEY: `+state:DONE' widens its
+      // own axis, so a zero the server answered correctly would be reported as
+      // skew. A current asset marks the sign as `added'; the leading `+' is the
+      // same reading for a stale one that still takes the sign for text.
       const loose = TableView.parseQuery(query, keys).filter((t) =>
-        t.key === null && !t.quoted && !t.negated && /^[^:=]+[:=]./.test(t.value));
+        t.key === null && !t.quoted && !t.negated && !t.added
+          && !t.value.startsWith("+") && /^[^:=]+[:=]./.test(t.value));
       if (!loose.length) return;
       const wants = loose.map((t) => t.value.slice(t.value.search(/[:=]/) + 1).toLowerCase());
       const text = (r) => keys.map((k) => TableView.displayText((r.cells || {})[k]))
@@ -298,6 +304,16 @@
       const named = viewNamed(q);
       if (named) { applyNamed(named); return; }
       commit(q.trim());
+    };
+    /** The KEY a refused token names, its sign and value off: `+sort:title' is `sort'. */
+    const shapingKey = (spelling) =>
+      String(spelling || "").replace(/^[-+]/, "").split(/[:=]/)[0];
+    // A REFUSAL NAMES THE OTHER DOOR rather than the rule: `/' took a shaping
+    // token, and the one line covers sort:, columns: and view: alike.
+    const refused = (spelling) => {
+      const note = `${shapingKey(spelling)}: belongs to . — / filters, . composes`;
+      append("filter", "info", note);
+      echo(note);
     };
     const holds = (q) => can(table, "getQuery") && table.getQuery() === q;
     /**

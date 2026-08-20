@@ -1,8 +1,9 @@
 # Proposal — additive filters: `+key:value` widens its own axis
 
-**Status:** proposed · **Date:** 2026-08-20 · **Origin:** user — *"`priority:[#B]`
-reads: filter the current set by priority=B. `+priority:[#B]` should read: add
-priority=B headlines to the current set, considering other filters."*
+**Status:** done — DELIVERED 2026-08-20 · **Date:** 2026-08-20 · **Origin:**
+user — *"`priority:[#B]` reads: filter the current set by priority=B.
+`+priority:[#B]` should read: add priority=B headlines to the current set,
+considering other filters."*
 
 ## The law in one line
 
@@ -23,8 +24,8 @@ can actually append.
 ## Grammar
 
 - `+` is a prefix in the `-` position: the token's first character, outside
-  quotes. `+` and `-` are mutually exclusive on one token (`+-x` reads as
-  free text, the resolver's usual fallthrough).
+  quotes. The sign is that character alone, so a second one is body text
+  (`+-x` adds the free-text needle `-x`).
 - Every narrowing key takes it: the six column keys, `planned`, `ref`,
   `substring` — and bare free text, whose axis is `substring`'s: `milk +bread`
   serves rows carrying either word.
@@ -77,14 +78,15 @@ both signs — they are outside this section.
 ```
 query   ::= token (WS token)*
 token   ::= sign? key ":" value        -- a narrowing token
-          | word                       -- free text
+          | sign? word                 -- free text
 sign    ::= "+" | "-"                  -- at most one, the token's first char
 value   ::= alt ("|" alt)*             -- alternatives, today's own
 ```
 
-The resolver's fallthrough stands: anything failing the shape — `+-x`, an
-upper-case key, a quoted `"+state:x"` — reads as free text. Signs never
-nest and never quote.
+The resolver's fallthrough stands: anything failing the shape — an
+upper-case key, a quoted `"+state:x"` — reads as free text, the sign
+surviving where the key does not. Signs never nest and never quote: a second
+sign is body text, so `+-x` adds the needle `-x`.
 
 ### Denotation
 
@@ -186,14 +188,15 @@ query a flat, human-typable URL string.
 
 ### Edge cases
 
-| token                | reads as                                        |
-| -------------------- | ----------------------------------------------- |
-| `+sort:title`        | refused, the `-sort:` 400 shape                 |
-| `+k:` (empty value)  | the empty-value law of its key, in `W`          |
-| `+-x`, `-+x`         | free text (two signs fail the shape)            |
-| `"+state:x"`         | free text (quoted)                              |
-| `+STATE:x`           | free text (keys are lowercase)                  |
-| `+state:A\|B`        | both alternatives join `W` as one atom          |
+| token                | reads as                                                     |
+| -------------------- | ------------------------------------------------------------ |
+| `+sort:title`        | refused, the `-sort:` 400 shape                              |
+| `+k:` (empty value)  | dropped ahead of grouping; adds nothing, establishes no axis |
+| `+-x`                | adds the free-text needle `-x` — the first sign stands       |
+| `-+x`                | drops the rows carrying `+x` — the second sign is body       |
+| `"+state:x"`         | free text (quoted)                                           |
+| `+STATE:x`           | added free text (keys are lowercase)                         |
+| `+state:A\|B`        | both alternatives join `W` as one atom                       |
 
 ## Implementation sketch
 
@@ -223,4 +226,34 @@ query a flat, human-typable URL string.
   more grammar (nesting, precedence, quoting), and the incremental-gesture
   case never needs it — deferred, and `+` does not block it later.
 
-Inert until reviewed.
+## As delivered
+
+Four readings were settled against the shape above:
+
+- **A vacuous `+` token adds nothing and establishes no axis.** A `+` whose
+  value yields no atoms — `+state:`, `+state:|`, a lone `+` — is dropped
+  before axis grouping. Read literally, `(P ∪ N ≠ ∅ ∧ base) ∨ wide` would make
+  `+state:` on a fresh axis `⊥` and empty the table, which this proposal's own
+  "narrows nothing, adds nothing" and `query.md`'s "a half-typed token never
+  empties the table" both forbid. A lone `-` still empties the table; that
+  asymmetry is deliberate and stays.
+- **Vacuity was widened past the `+` sign** (2026-08-20, after review). The
+  rule above holds of ANY token naming no atom, unsigned and added alike: a
+  half-typed `state:` or `state:|` is dropped before axis grouping wherever it
+  stands. Read off the formula, `state: +state:DONE` leaves `P = {state:}` with
+  an empty `base = ⊤`, so `(P ∪ N ≠ ∅ ∧ base) ∨ wide` floods the axis to every
+  row — a reader half-types one filter, adds a second, and the table serves
+  everything. The drop takes the unsigned and the added; the NEGATED sign keeps
+  its inversion law, so a `-` naming no atom still inverts the match-everything
+  term and a lone `-` still empties the table.
+- **The refusals are spelled per key**, as their `-` twins are: `a sort key
+  cannot be added`, `a columns key cannot be added`, `a view key cannot be
+  added`. The `an order key cannot be added` above was the shape, never the
+  letter. `+view:NAME` is a 400 of its own; `-view:NAME` is left as it is,
+  conservativity forbidding a change to any `+`-free query.
+- **The parity vectors are unchanged.** `fixtures/parity/filter-query.json`
+  exists neither in this repo nor in `../table-view` nor anywhere in git
+  history, so the `+` case named in the sketch has nothing to join.
+
+The user docs are `docs/query.md`'s "Adding: `+` widens its own axis" and one
+row in the README's query crib.

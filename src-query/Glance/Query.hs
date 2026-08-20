@@ -69,6 +69,7 @@ module Glance.Query ( BlobSeed (..)
                     , filterKeys
                     , fingerprint
                     , firstBy
+                    , groupOn
                     , followableTypes
                     , materialTypes
                     , headlineParts
@@ -207,7 +208,7 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , TreeSettings (..), noTreeSettings, treeSettings
                        , viewEdits, viewOf
                        , viewQuery, viewQueryIn
-                       , fingerprint, firstBy, keywordScopes
+                       , fingerprint, firstBy, groupOn, keywordScopes
                        , loadConfigDirs, mergeKeywords, mintableLayer, noConfig, noKeywords
                        , readConfigLayers, recognizedKeywords, seedContext
                        , systemSetting, todoLineEdits, todoLines, todoPragmas )

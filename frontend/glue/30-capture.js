@@ -38,8 +38,9 @@ const Capture = ((deps) => {
     // (`*archive*'), and an alternation names no one tag.
     function filteredTags() {
       if (!queryNow() || typeof TableView.parseQuery !== "function") return [];
+      // A WIDENED TAG IS AN ALTERNATIVE, never a facet every shown row carries.
       return TableView.parseQuery(queryNow(), colsNow().map((c) => c.key))
-        .filter((t) => t.key === "tag" && !t.negated
+        .filter((t) => t.key === "tag" && !t.negated && !t.added
                     && t.value && !t.value.includes("|") && !/^\*.*\*$/.test(t.value))
         .map((t) => t.value);
     }

@@ -13,6 +13,47 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **`/` filters, `.` composes the whole query.** `/` (`filter-rows`) edits the
+  FILTER half alone: its completion offers the narrowing keys — the six
+  columns, `planned`, `ref`, `substring` — and a shaping token typed into it is
+  refused on commit, never chipped, never part of what is served, left standing
+  in the box with an echo naming the other door. The `+` sign, the `*word*`
+  metas and every value stage work there as they do everywhere, and a standing
+  `sort:`/`columns:` rides along untouched, so narrowing never loses the order.
+  `.` — `compose-query`, on a key that was unbound — opens the same box on the
+  whole expression, filters and `sort:`/`columns:`/`view:` together, which is
+  what `/` opened before. One `?q=` underneath both: `/` is a restricted VIEW
+  over the one query, never a second query.
+
+- **`+key:value` widens its own axis.** A query token opening with `+` joins
+  its key's axis as an alternative: inside one axis the plain and negated
+  tokens AND as before and the `+` tokens OR against that conjunction, while
+  the axes still AND with each other — so an addition widens one filter and
+  leaves every other one standing. `priority:[#A] tag:book +priority:[#B]` is
+  the book rows at A or B, and means that however the three are interleaved:
+  grouping is BY KEY, never by adjacency. Every narrowing key takes the sign,
+  bare free text included (`milk +bread` carries either word); alternatives and
+  metas ride along (`+state:DONE|CANCELLED`, `state:TODO +state:*inactive*`);
+  a `+` alone on its axis is the plain token, `+state:DONE` ≡ `state:DONE`. A
+  query with no `+` in it means exactly what it meant before. A half-typed
+  token adds nothing and establishes no axis wherever it stands — `+state:` on
+  a widened axis, and the plain `state:` beside it, so `state: +state:DONE` is
+  the DONE rows rather than every row — and the table never empties on one; a
+  lone `+` is that same non-event where a lone `-` empties the table. In a URL
+  the sign travels percent-encoded, a bare `+` in a query string decoding to a
+  space: `?q=state%3ATODO%20%2Bstate%3ADONE`. The shaping keys refuse the sign
+  the way they refuse a negation — `+sort:…`, `+columns:…` and `+view:…` are
+  400s naming the token — order and shape never narrowing, they have nothing to
+  widen. `docs/query.md` carries the law.
+
+- **Completion behind a `+` skips what the axis already carries.** With
+  `priority:[#A]` standing, `+priority:` offers B and C and never A: re-adding
+  a carried value is `A ∨ A`, a dead offer. Every alternative of every other
+  token on that key counts, chips and half-typed box alike, whatever its sign,
+  and the comparison is the column's own reading — `[#A]`, `A` and `a` are one
+  value. The plain and negated value stages narrow and are untouched: they
+  still offer the whole domain.
+
 - **A headline walks headlines.** `n`/`p` from a child headline step through
   every visible headline in document order, at every depth — org's own
   next-visible-heading — and a folded subtree is skipped whole. Contents stay
@@ -129,6 +170,26 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Fixed
 
+- **The renderer reads the added sign.** The page's own grammar had no `+`, so
+  the sign was body text wherever the page read a query: the strip drew
+  `+priority:[#B]` as `substring:+priority:[#B]`, a widening spelled as a
+  narrowing; completion over `+sta` offered the text-search literal alone and
+  committed the dead `substring:+sta`; and the local matcher hunted the sign as
+  characters in a row. The scanner takes both signs now. Chips spell an added
+  token as written, free text as `+substring:bread`; completion works behind the
+  sign and hands it back on accept, as it always did for `-`; the shaping keys
+  drop with a sign on them, which is the 400 the server answers; and the local
+  matcher answers the axis law — per key the plain and negated tokens AND, the
+  added ones OR against that conjunction, the axes AND — so the page and the
+  daemon serve one query. An opposite-signed twin committed onto a chip already
+  standing in the strip annihilates the pair, the strip's own affordance over
+  `-state:DONE +state:DONE`, which the grammar answers as every row.
+
+- **A headline at point lights one shelf.** The block-light rule reached
+  lists through child headlines' blocks — a depth paragraphs and drawers
+  never claimed — so a selected headline lit list spines all the way down
+  the subtree. The child combinator now holds the light to the block's own
+  shelf, and the browser suite pins the child's list resting.
 - **The focus dim covers every ink.** Reserved tokens, punctuation, links and
   state boxes ride inherited variables, so the dim and the lit path move as
   one — the fold ellipsis and a headline's tags included. Lit bars take a

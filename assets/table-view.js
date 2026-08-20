@@ -86,6 +86,7 @@
  *             composer?: boolean,
  *             inline?: boolean,
  *             onPin?: () => void,
+ *             onRefused?: (token: string) => void,
  *             pinned?: boolean }} MountOptions
  * @typedef {{ el: HTMLElement,
  *             setView: (v: View) => void,
@@ -107,7 +108,7 @@
  *             stripLastToken: () => boolean,
  *             filtering: () => boolean,
  *             destroy: () => void,
- *             openFilter: () => void,
+ *             openFilter: (how?: { narrow?: boolean }) => void,
  *             closeFilter: () => void,
  *             selectStep: (step: number) => boolean,
  *             nextPage: () => boolean,
@@ -142,12 +143,15 @@
  *   \x1f (free-text filtering searches it), each cell's length (column widths),
  *   and the same per-cell strings (field predicates test one column).
  * @typedef {{ negated: boolean,
+ *             added: boolean,
  *             key: string|null,
  *             value: string,
  *             quoted: boolean,
  *             start: number,
  *             end: number,
  *             sep: number }} Token  One filter-query token; see `parseQuery'.
+ *   `negated' is the `-' sign and `added' the `+' one; `start' sits AT the sign,
+ *   so a raw slice carries it.
  */
 
 /** @param {*} root  The global object (`window`, or CommonJS `this`). */
@@ -300,18 +304,19 @@
   const alternatives = (value) => value.split(ALT).filter((v) => v !== "");
 
   /**
-   * Split Q into raw tokens: quotes removed, a leading `-' taken off, and the
-   * whole token's offsets kept so a caret can be placed inside one.  Separators
+   * Split Q into raw tokens: quotes removed, a leading sign taken off, and the
+   * whole token's offsets kept so a caret can be placed inside one — `start'
+   * sits AT the sign, so the raw slice a chip keeps still spells it.  Separators
    * inside quotes are ordinary characters.
    * @param {string} q
    */
   function scanQuery(q) {
     const out = [];
-    let start = 0, body = "", neg = false, quoted = false;
+    let start = 0, body = "", neg = false, add = false, quoted = false;
     let seen = false, hasBody = false, inQ = false, sep = -1;
     const flush = (end) => {
-      if (seen) out.push({ start, end, body, negated: neg, quoted, sep });
-      body = ""; neg = false; quoted = false; seen = false; hasBody = false; sep = -1;
+      if (seen) out.push({ start, end, body, negated: neg, added: add, quoted, sep });
+      body = ""; neg = false; add = false; quoted = false; seen = false; hasBody = false; sep = -1;
     };
     for (let i = 0; i < q.length; i++) {
       const c = q[i];
@@ -322,8 +327,11 @@
         inQ = !inQ;
       } else if (!inQ && isSep(c)) {
         flush(i);
-      } else if (!seen && c === "-") {
-        start = i; seen = true; neg = true;
+      } else if (!seen && (c === "-" || c === "+")) {
+        // SEEN GUARDS THE SIGN, so a second one lands in the body: `+-x' is an
+        // added free-text token spelling `-x'.
+        start = i; seen = true;
+        if (c === "-") neg = true; else add = true;
       } else {
         if (!seen) start = i;
         if (!inQ && !quoted && sep === -1 && (c === ":" || c === "=")) sep = i;
@@ -339,7 +347,8 @@
    * Q as tokens, against the column KEYS of the view it filters.  `key:value'
    * is a field predicate only when KEY names a column, so org cell text like
    * `:work:' stays free text; a quoted token is always free text; a leading `-'
-   * negates either form; tokens AND together.
+   * negates either form and a leading `+' widens its key's axis
+   * (`queryMatcher').
    * @param {string} q  @param {string[]} keys  @returns {Token[]}
    */
   function parseQuery(q, keys) {
@@ -350,6 +359,7 @@
       const pred = key !== null && known.has(key);
       return {
         negated: t.negated,
+        added: t.added,
         key: pred ? key : null,
         value: pred ? t.body.slice(at + 1) : t.body,
         quoted: t.quoted,
@@ -358,6 +368,29 @@
         sep: pred ? t.sep : -1,
       };
     });
+  }
+
+  /**
+   * How TOK's sign is written: `+' added, `-' negated, and the empty string
+   * where it opens with neither.  ONE reading, so a chip and a completion
+   * cannot spell the same token two ways.
+   * @param {Token} tok  @returns {string}
+   */
+  const signMark = (tok) => (tok.added ? "+" : tok.negated ? "-" : "");
+
+  /**
+   * Does TOK name no atom, narrowing nothing and establishing no axis?  An
+   * UNSIGNED OR ADDED token spelling no value — `state:', `+state:', `+state:|',
+   * a lone `+' — is dropped ahead of the grouping: left standing it saturates
+   * its axis's disjunction, so `state: +state:DONE' would serve every row where
+   * it must serve the DONE ones.  A NEGATED one keeps its own law, and `-state:'
+   * still empties the table.  The bar is a PREDICATE's, so free text reads its
+   * whole value and `+|' is one atom.
+   * @param {Token} tok  @returns {boolean}
+   */
+  function vacuous(tok) {
+    if (tok.negated) return false;
+    return tok.key === null ? !tok.value : alternatives(tok.value).length === 0;
   }
 
 
@@ -456,6 +489,15 @@
 
   const VIEW_KEYS = [SORT_KEY, COLUMNS_KEY, VIEW_KEY];
 
+  /**
+   * Whether KEY SHAPES the view rather than NARROWING it.  THE GRAMMAR HAS TWO
+   * HALVES: every other key answers which rows, and these three answer the
+   * table around them.  One test, so a door that edits the narrowing half alone
+   * draws the line where every reader of a query already draws it.
+   * @param {string|null} key  @returns {boolean}
+   */
+  const shapesView = (key) => key !== null && VIEW_KEYS.indexOf(key) !== -1;
+
   /** The directions a sort token may spell; the empty one ascends. */
   const SORT_DIRS = { "": true, asc: true, desc: false };
 
@@ -490,12 +532,14 @@
   }
 
   /**
-   * The segments TOK chains, in written order.  A NEGATED token chains none:
-   * the `-' covers everything after it, so a refusal reaches every segment.
+   * The segments TOK chains, in written order.  A SIGNED token chains none: the
+   * sign covers everything after it, so a refusal reaches every segment.  ORDER
+   * NARROWS NOTHING AND SO HAS NOTHING TO WIDEN — the producer answers `+sort:'
+   * with a refusal, and this side reads no chain out of it.
    * @param {Token} tok  @returns {string[]}
    */
   function sortSegments(tok) {
-    return tok.negated ? [] : tok.value.split(SORT_ARROW);
+    return tok.negated || tok.added ? [] : tok.value.split(SORT_ARROW);
   }
 
   /**
@@ -1504,6 +1548,14 @@
      * @type {(() => void)|null}
      */
     const onPin = typeof o.onPin === "function" ? o.onPin : null;
+    /**
+     * What a NARROWED session says about a token it will not take —
+     * `(token) => void', handed the source text as the reader wrote it, once
+     * per spelling.  This side refuses; naming the other door is the
+     * consumer's sentence, in the consumer's own words.
+     * @type {((token: string) => void)|null}
+     */
+    const onRefused = typeof o.onRefused === "function" ? o.onRefused : null;
     let pinned = !!o.pinned;
     /**
      * How many chrome cells lead a row; what a column index has to skip.  The
@@ -1725,7 +1777,14 @@
     const input = document.createElement("input");
     input.className = "tv-filter";
     input.type = "search";
-    input.placeholder = `key:value · status:open|closed · -word · "some phrase"`;
+    /**
+     * WHAT THE BOX TAKES, spelled in the grammar it takes.  The whole door
+     * offers the grammar; the narrowed one names the half it edits first, the
+     * keys it refuses being spelled nowhere in what it offers.
+     */
+    const WHOLE_HINT = `key:value · status:open|closed · -word · "some phrase"`;
+    const NARROW_HINT = `filter rows · ${WHOLE_HINT}`;
+    input.placeholder = WHOLE_HINT;
     const chipsEl = document.createElement("div");
     chipsEl.className = "tv-chips";
     const filterWrap = document.createElement("div");
@@ -1925,6 +1984,17 @@
     }
 
     /**
+     * The keys a KEY-STAGE offer may name: every key, or the narrowing half
+     * alone while the box is narrowed.  `queryKeys' stays whole either way — a
+     * shaping token has to PARSE as one to be refused rather than read as free
+     * text — so these two answers are one list and its subset.
+     * @returns {string[]}
+     */
+    function offeredKeys() {
+      return narrowing ? queryKeys().filter((k) => !shapesView(k)) : queryKeys();
+    }
+
+    /**
      * The order in force under query Q: the chain Q names, else the order the
      * view was STATED in.  `sort:*none*' names the EMPTY chain, a divergence
      * like any other rather than a fall back to the declared order.
@@ -2058,23 +2128,55 @@
     }
 
     /**
+     * ONE axis as a single test: its plain and negated tokens AND, and its
+     * ADDED ones OR against that conjunction.  An axis of added tokens alone is
+     * the disjunction, so a lone `+tag:work' is `tag:work'.
+     * @param {{base: ((r: Row) => boolean)[], wide: ((r: Row) => boolean)[]}} ax
+     * @returns {(r: Row) => boolean}
+     */
+    function axisTest(ax) {
+      const base = ax.base, wide = ax.wide;
+      /** @param {Row} r */
+      const every = (r) => { for (const t of base) if (!t(r)) return false; return true; };
+      if (!wide.length) return base.length === 1 ? base[0] : every;   // an unwidened axis: one AND
+      const some = base.length > 0;
+      return (r) => {
+        if (some && every(r)) return true;
+        for (const t of wide) if (t(r)) return true;
+        return false;
+      };
+    }
+
+    /**
      * Q compiled to a row test, or null when it filters nothing.  Built once
      * per filter change and reused for every row.
      *
-     * ONE rule: TOKENS AND, ALTERNATIVES OR.  Each token is its own test and a
-     * row has to pass all of them; the OR lives inside `tokenTest'.  A `sort'
-     * token is the exception, being no predicate: it states the ORDER
-     * (`chainFor') and contributes no test in either polarity.
+     * ONE rule: AXES AND, ALTERNATIVES OR, AND WITHIN AN AXIS THE `+' TOKENS OR
+     * AGAINST WHAT THE OTHERS AND.  An axis is a KEY — each column's own,
+     * `planned''s own, and free text sharing `substring''s — so grouping is by
+     * key and never by adjacency and token order carries nothing; the
+     * alternatives' OR lives inside `tokenTest'.  A VACUOUS token establishes no
+     * axis and is dropped ahead of the grouping, so `state: +state:DONE' is the
+     * DONE rows.  A `sort' token is the exception, being no predicate: it states
+     * the ORDER (`chainFor') and contributes no test in either polarity.
      * @param {string} q  @returns {((r: Row) => boolean)|null}
      */
     function queryMatcher(q) {
-      /** @type {((r: Row) => boolean)[]} */
-      const musts = [];
+      /** @type {Map<string, {base: ((r: Row) => boolean)[], wide: ((r: Row) => boolean)[]}>} */
+      const axes = new Map();
       for (const tok of parseQuery(q, queryKeys())) {
         if (tok.key && VIEW_KEYS.indexOf(tok.key) !== -1) continue;
+        if (vacuous(tok)) continue;
+        const key = tok.key === null ? SUBSTRING_KEY : tok.key;
+        let ax = axes.get(key);
+        if (!ax) { ax = { base: [], wide: [] }; axes.set(key, ax); }
         const test = tokenTest(tok);
-        musts.push(tok.negated ? (r) => !test(r) : test);
+        if (tok.added) ax.wide.push(test);
+        else ax.base.push(tok.negated ? (r) => !test(r) : test);
       }
+      /** @type {((r: Row) => boolean)[]} */
+      const musts = [];
+      for (const ax of axes.values()) musts.push(axisTest(ax));
       if (!musts.length) return null;
       if (musts.length === 1) return musts[0];
       return (r) => {
@@ -2808,12 +2910,33 @@
     }
 
     /**
+     * WHICH HALF OF THE GRAMMAR THE BOX EDITS.  Narrowed, it offers the
+     * narrowing keys alone and refuses a shaping token on commit; whole, it
+     * takes everything.  The flag is the SESSION's — every summons states it
+     * and the box closing clears it — so a plain `openFilter' is the whole
+     * grammar however the last one opened.
+     */
+    let narrowing = false;
+
+    /** The refusals already spoken this session; one spelling is echoed once.
+     *  @type {Set<string>} */
+    let spoken = new Set();
+
+    /**
      * Summon the control. In palette mode that means raising the overlay; in
      * `inline' it draws the summoned box onto the chips' line; in the resident
      * modes the box is on the page already and this only takes it. Either way
      * it is the one entry point a consumer's key binds to.
+     *
+     * HOW.NARROW OPENS THE FILTER HALF: this session offers the narrowing keys
+     * alone and refuses a shaping token on commit (`chipUp'), while the chips
+     * already standing ride along untouched — the strip is not the box.
+     * @param {{narrow?: boolean}} [how]
      */
-    function openFilter() {
+    function openFilter(how) {
+      narrowing = !!(how && how.narrow === true);
+      spoken = new Set();
+      input.placeholder = narrowing ? NARROW_HINT : WHOLE_HINT;
       if (palette) veil.style.display = "";
       if (inline) root.classList.add("tv-typing");  // before the focus: display:none until
       input.focus();
@@ -2825,6 +2948,20 @@
       closeAc();
       if (palette) veil.style.display = "none";
       input.blur();          // the blur listener un-summons; one owner for the class
+    }
+
+    /**
+     * The narrowed session ends with the box, and ITS REFUSALS END WITH IT: the
+     * shaping tokens left standing are taken out on the way, so a token this
+     * door would not deliver cannot ride the next gesture that reads the box.
+     */
+    function endNarrow() {
+      if (!narrowing) return;
+      const kept = typedQuery();          // the box, less what it refused
+      narrowing = false;
+      spoken = new Set();
+      input.placeholder = WHOLE_HINT;
+      if (kept !== input.value.trim()) input.value = kept;
     }
 
     /** Drop what is half-typed, answering whether there was any.
@@ -3150,9 +3287,25 @@
      */
     let crumbs = [];
 
+    /**
+     * WHAT THE BOX CONTRIBUTES: its text, less every shaping token while the
+     * session is narrowed.  Such a token is refused and left where the reader
+     * can see it, and a refusal the producer still received would be no refusal
+     * at all.  The CHIPS are read whole either way — the strip is not the box.
+     * @returns {string}
+     */
+    function typedQuery() {
+      const v = input.value;
+      if (!narrowing || !v.trim()) return v.trim();
+      const kept = [];
+      for (const t of parseQuery(v, queryKeys()))
+        if (!shapesView(t.key)) kept.push(v.slice(t.start, t.end));
+      return kept.join(" ");
+    }
+
     /** The query as it stands: every chip, then whatever is in the box. */
     function effectiveQuery() {
-      const typed = input.value.trim();
+      const typed = typedQuery();
       if (!chips.length) return typed;
       const front = chips.join(" ");
       return typed ? front + " " + typed : front;
@@ -3183,6 +3336,8 @@
      * TOK in the grammar's own `key:value' spelling. A bare word is free text,
      * which is `substring:' with the key elided (SCHEMA.md, Filter query), so
      * the chip spells the key out and the strip reads `key:value' throughout.
+     * THE SIGN IS THE HEAD and rides the spelling: `+bread' draws as
+     * `+substring:bread', the way `-bread' draws as `-substring:bread'.
      * The QUERY keeps what the reader typed — this is the label alone.
      * @param {string} tok  @returns {string}
      */
@@ -3190,7 +3345,7 @@
       const t = asToken(tok);
       if (!t || t.key !== null || !t.value) return tok;
       const value = /[\s&"]/.test(t.value) ? `"${t.value}"` : t.value;
-      return `${t.negated ? "-" : ""}${SUBSTRING_KEY}:${value}`;
+      return `${signMark(t)}${SUBSTRING_KEY}:${value}`;
     }
 
     /**
@@ -3244,12 +3399,14 @@
      * Whether TOK states a column set: a columns key naming at least one
      * column. Every nonempty name counts — a name this view does not carry is
      * the producer's custom column, so this side cannot call any unknown —
-     * and the half-typed `columns:' keeps the ordinary chip, naming none.
+     * and the half-typed `columns:' keeps the ordinary chip, naming none.  A
+     * SIGNED token states no set in either sign: the producer answers
+     * `+columns:' with a refusal, and `-columns:' names nothing here either.
      * @param {string} tok  @returns {boolean}
      */
     function showsColumns(tok) {
       const t = asToken(tok);
-      if (!t || t.key !== COLUMNS_KEY || t.negated) return false;
+      if (!t || t.key !== COLUMNS_KEY || t.negated || t.added) return false;
       return t.value.split(",").some((n) => n !== "");
     }
 
@@ -3257,12 +3414,13 @@
      * Whether TOK names a saved view: a view key naming one the producer
      * declared. An unknown name keeps the ordinary chip — what a name MEANS is
      * the producer's, so this side calls none of them wrong — and so does the
-     * half-typed `view:', naming none.
+     * half-typed `view:', naming none.  A SIGNED token names none either: the
+     * producer answers `+view:' with a refusal, as it does `+sort:'.
      * @param {string} tok  @returns {boolean}
      */
     function namesView(tok) {
       const t = asToken(tok);
-      if (!t || t.key !== VIEW_KEY || t.negated) return false;
+      if (!t || t.key !== VIEW_KEY || t.negated || t.added) return false;
       const want = t.value.toLowerCase();
       return savedViews().some((v) => String(v.name || "").toLowerCase() === want);
     }
@@ -3315,9 +3473,69 @@
     }
 
     /**
+     * Where TOK's opposite-signed twin stands in the strip, or -1.  Twins are
+     * matched on what a token MEANS — the key it names and the value it spells,
+     * as `parseQuery' resolves them — never on source text, so a pair spelled
+     * two ways still meets: `-priority:"[#B]"' finds `+priority:[#B]', where
+     * the quote opening `-"priority:[#B]"' makes it free text and no twin at
+     * all.  Only `-' against `+' pairs; an unsigned token names its added
+     * form's rows and cancels nothing.  Values are compared as written, so
+     * `+state:A|B' leaves `-state:B|A' standing — the strip cancels the pair a
+     * reader can SEE is one.  A chip spelling more than one token is a folded
+     * order chain, which wears no sign and is no token's twin.
+     * @param {Token} tok  @returns {number}
+     */
+    function twinAt(tok) {
+      if (tok.negated === tok.added) return -1;      // unsigned: no twin to find
+      return chips.findIndex((c) => {
+        const ts = parseQuery(c, queryKeys());
+        if (ts.length !== 1) return false;
+        const t = ts[0];
+        return t.negated === tok.added && t.added === tok.negated
+            && t.key === tok.key && t.value === tok.value;
+      });
+    }
+
+    /**
+     * Commit TEXT, the source token TOK was written as, to the strip: the
+     * ANNIHILATION rule first — a token whose opposite-signed twin already
+     * stands removes both, the pair being ¬v ∨ v and so every row
+     * (docs/query.md) — and otherwise the ordinary push.
+     *
+     * The rule is the STRIP's affordance over the token the reader just
+     * committed, never the grammar's: it runs on this interactive path alone.
+     * `seedQuery' pushes around it, since a producer's query arrives whole and
+     * a scan of it would eat a standing pair the reader never touched.
+     * @param {string} text  @param {Token} tok
+     */
+    function commitChip(text, tok) {
+      const at = twinAt(tok);
+      if (at === -1) pushChip(text); else chips.splice(at, 1);
+    }
+
+    /**
+     * REFUSE TEXT: say so once, and leave the rest to the caller, which keeps
+     * the token in the box.  ONCE PER SPELLING PER SESSION — the box commits on
+     * every settling debounce and a refused token stays standing through all of
+     * them, so an echo per pass would be an echo nobody reads.
+     * @param {string} text
+     */
+    function refuse(text) {
+      if (spoken.has(text)) return;
+      spoken.add(text);
+      if (onRefused) onRefused(text);
+    }
+
+    /**
      * Move the box's finished tokens into chips. A token with nothing after it
      * is still being typed and stays put, so a word is never chipped out from
      * under the caret; ALL overrides that, which is what Enter means.
+     *
+     * A NARROWED SESSION CHIPS THE NARROWING HALF ALONE: a shaping token is
+     * REFUSED where it would have been chipped — never on the strip, never in
+     * the delivered query (`typedQuery'), left in the box where the reader sees
+     * what was refused, and spoken through `refuse'.  The tokens beside it land
+     * as they always do.
      * @param {boolean} [all]  @returns {boolean} whether anything moved
      */
     function chipUp(all) {
@@ -3326,9 +3544,21 @@
       if (!toks.length) return false;
       const last = toks[toks.length - 1];
       const keep = !all && last.end === v.length ? last : null;
-      for (const t of toks) if (t !== keep) pushChip(v.slice(t.start, t.end));
-      if (keep && toks.length === 1) return false;      // nothing finished yet
-      input.value = keep ? v.slice(keep.start) : "";
+      /** What the box is left holding: the refusals, then the half-typed tail. */
+      const left = [];
+      let moved = false;
+      // one at a time and in order: a token annihilates against the strip as it
+      // stands when IT commits, so `-x +x' typed together cancels to nothing.
+      for (const t of toks) {
+        if (t === keep) continue;
+        const text = v.slice(t.start, t.end);
+        if (narrowing && shapesView(t.key)) { left.push(text); refuse(text); continue; }
+        commitChip(text, t);
+        moved = true;
+      }
+      if (!moved) return false;         // nothing finished: the box stands as typed
+      if (keep) left.push(v.slice(keep.start));
+      input.value = left.join(" ");
       if (input.setSelectionRange) input.setSelectionRange(input.value.length, input.value.length);
       renderChips();
       return true;
@@ -3493,6 +3723,28 @@
     }
 
     /**
+     * What KEY's axis already carries, each folded to what it MEANS (`meant'):
+     * every alternative of every OTHER token naming KEY, whatever its sign,
+     * chips and box alike.  TOK IS THE CARET'S OWN AND COUNTS FOR NOTHING — the
+     * partial value being typed must not suppress the offers it is opening.
+     * @param {string} key  @param {Token} tok  @returns {Set<string>}
+     */
+    function axisCarries(key, tok) {
+      const keys = queryKeys();
+      const out = new Set();
+      /** @param {string} q  @param {number} skip */
+      const take = (q, skip) => {
+        for (const t of parseQuery(q, keys)) {
+          if (t.key !== key || t.start === skip) continue;
+          for (const alt of alternatives(t.value)) out.add(meant(alt.toLowerCase()));
+        }
+      };
+      take(chips.join(" "), -1);
+      take(input.value, tok.start);
+      return out;
+    }
+
+    /**
      * The suggestions for STAGE: the text each inserts, the rows behind it, and
      * whether it finishes a token.  A column completion does not — it lands as
      * `key:' and carries no count, narrowing nothing on its own.  Row one is
@@ -3572,18 +3824,21 @@
                          || b.count - a.count
                          || (a.text < b.text ? -1 : 1));
         const exact = hits.length > 0 && hits[0].whole;
-        for (const v of savedViews()) {
-          if (out.length >= AC_MAX) break;
-          const name = String(v.name || "");
-          if (!name.toLowerCase().startsWith(p)) continue;
-          out.push({ text: VIEW_KEY + ":" + name, count: -1, full: true, dim: false,
-                     aside: v.query ? String(v.query) : undefined });
-        }
+        // A SAVED VIEW SHAPES, so the narrowed door offers none: `offeredKeys'
+        // drops the three keys, and this drops the names that spell one.
+        if (!narrowing)
+          for (const v of savedViews()) {
+            if (out.length >= AC_MAX) break;
+            const name = String(v.name || "");
+            if (!name.toLowerCase().startsWith(p)) continue;
+            out.push({ text: VIEW_KEY + ":" + name, count: -1, full: true, dim: false,
+                       aside: v.query ? String(v.query) : undefined });
+          }
         if (exact) {
           const top = hits.shift();
           out.push({ text: top.text, count: top.count, full: true, dim: top.dim });
         }
-        const keys = queryKeys();
+        const keys = offeredKeys();
         const opens = keys.filter((k) => k.toLowerCase().startsWith(p));
         for (const k of opens.filter((k) => k.toLowerCase() === p)
                              .concat(opens.filter((k) => k.toLowerCase() !== p))) {
@@ -3617,11 +3872,17 @@
       const dom = domainOf(st.col);
       const domain = dom.list.indexOf(EMPTY_META) === -1
         ? dom.list.concat([EMPTY_META]) : dom.list;
+      // AN ADDED TOKEN WIDENS, AND A CARRIED VALUE WIDENS BY NOTHING: `A ∨ A'
+      // is `A', so behind a `+' the values its axis already stands on are dead
+      // offers and drop out.  The plain and negated stages take the whole
+      // domain, each of them narrowing.
+      const carried = st.tok.added ? axisCarries(st.tok.key, st.tok) : null;
       /** @type {{text: string, count: number, full: boolean, dim: boolean}|null} */
       let whole = null;
       for (const v of domain) {
         if (whole && out.length >= AC_MAX) break;
         const lower = String(v).toLowerCase();
+        if (carried && carried.has(meant(lower))) continue;
         if (!opensWith(lower, p)) continue;
         const meta = META.test(String(v));
         const item = { text: String(v), count: meta ? -1 : dom.counts.get(lower) || 0,
@@ -3732,6 +3993,10 @@
      * through the last ARROW, so completing inside either keeps ONE token.
      * Both are looked for in the RAW text: the token's value has had its quotes
      * taken out and no longer lines up with the box.
+     *
+     * THE SIGN SURVIVES THE COMPLETION at every stage: a key head spells it
+     * (`signMark'), and every other stage slices from `start', which sits at the
+     * sign — so `+sta' completes to `+state:' and `+state:DO' to `+state:DONE'.
      */
     function acceptAc(item) {
       if (!ac) return;
@@ -3740,7 +4005,7 @@
       const bar = v.lastIndexOf(ALT, t.end - 1);
       const arrow = ac.stage === "sort" ? v.lastIndexOf(SORT_ARROW, t.end - 1) : -1;
       const comma = ac.stage === "columns" ? v.lastIndexOf(",", t.end - 1) : -1;
-      const head = ac.stage === "key" ? (t.negated ? "-" : "")
+      const head = ac.stage === "key" ? signMark(t)
         : v.slice(t.start, Math.max(t.sep + 1, bar + 1, comma + 1,
                                     arrow === -1 ? 0 : arrow + SORT_ARROW.length));
       const ins = head + item.text + (item.full || ac.stage === "value" ? " " : "");
@@ -3748,7 +4013,11 @@
       const caret = t.start + ins.length;
       if (input.setSelectionRange) input.setSelectionRange(caret, caret);
       armFilter();
-      if (stage === "view") { flushFilter(true); handOver(); return; }
+      if (stage === "view") {
+        flushFilter(true);
+        if (!input.value.trim()) handOver();   // a refusal stays, and keeps the box
+        return;
+      }
       openAc();          // a key opens its values; a finished value closes the list
     }
 
@@ -3764,6 +4033,7 @@
     // `filtering()' and a reader reading the screen would then disagree.
     input.addEventListener("blur", () => {
       closeAc();
+      endNarrow();           // the session is the box's; one owner for the flag
       if (inline) root.classList.remove("tv-typing");
     });
 
@@ -3824,6 +4094,9 @@
       }
       if (input.value.trim()) {
         flushFilter(true);              // `chipUp' reads the box, then empties it
+        // A REFUSAL IS THE READER'S TO SEE: the narrowed door leaves the shaping
+        // token standing, and a box with something still in it is not finished.
+        if (input.value.trim()) return;
       } else {
         input.value = "";               // stray whitespace is nothing to commit
         if (debounce) { clearTimeout(debounce); debounce = 0; deliver(); }

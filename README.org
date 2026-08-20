@@ -61,12 +61,13 @@ curl -s 'localhost:7777/headlines?q=tag:work%20sort:deadline&limit=100' | jq '.s
 One string states both the narrowing and the order ([[https://github.com/rails-to-cosmos/table-view][table-view]]'s grammar,
 ported term for term; divergences enumerated in [[file:AGENTS.hs][AGENTS.hs]]).
 
-| query                           | rows served                                    |
-|---------------------------------+------------------------------------------------|
-| =milk=                            | substring anywhere in the row                  |
-| =state:TODO\vert{}DONE tag:work=  | predicates AND, =\vert{}= alternates            |
-| =-planned:*empty* sort:scheduled= | the agenda: dated rows, earliest first         |
-| =view:agenda=                     | a saved view by NAME, standing for its query   |
+| query                                   | rows served                                  |
+|-----------------------------------------+----------------------------------------------|
+| =milk=                                  | substring anywhere in the row                |
+| =state:TODO\vert{}DONE tag:work=        | predicates AND, =\vert{}= alternates         |
+| =-planned:*empty* sort:scheduled=       | the agenda: dated rows, earliest first       |
+| =priority:[#A] tag:work +priority:[#B]= | =+= widens its own axis: work rows at A or B |
+| =view:agenda=                           | a saved view by NAME, standing for its query |
 
 The whole law -- tokens and quoting, the =*word*= metas, =sort:=/=columns:=,
 refusals, saved views, the archive rule -- is [[file:docs/query.md][docs/query.md]].
@@ -89,7 +90,8 @@ map. =т з о л= navigates on a Cyrillic layout.
 | =A=         | agenda                                                        |
 | =P=         | pin into one                                                  |
 | =@=         | drill into referring rows; =DEL= walks back                     |
-| =/=         | query                                                         |
+| =/=         | filter · =sort:= and =columns:= belong to =.=                       |
+| =.=         | the whole query: filter, order, columns                       |
 | =?=         | help                                                          |
 | =,=         | settings                                                      |
 

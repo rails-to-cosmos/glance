@@ -153,7 +153,7 @@ nothing catches it.
   faded nor dimmed. *fragility: medium*
 
 - **Closed sums are matched one equation per constructor, no wildcard,** so a
-  new constructor is named by the compiler. `Filter.hs:212`, `Commands.hs:211`,
+  new constructor is named by the compiler. `Filter.hs:261`, `Commands.hs:211`,
   `Store.hs:245`. A `_ ->` added for tidiness turns every future key, kind or
   frame into a silent default instead of a build error. *fragility: medium*
 

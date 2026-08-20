@@ -9,7 +9,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Glance.Query (Meta (..), SortChain, defaultSortChain, firstBy, metaWord)
-import Glance.Web.Filter ( Term (tmKey, tmNegated, tmValue), filterKeys
+import Glance.Web.Filter ( Sign (..), Term (tmKey, tmSign, tmValue), filterKeys
                          , parseFilter, refusedOn, sortKey )
 
 directions :: [(Text, Bool)]
@@ -43,10 +43,12 @@ data Named
   | NoOrder              -- ^ @sort:*none*@: the empty chain.
   | Column !Text !Bool   -- ^ a column and whether it ascends.
 
+-- ORDER NEVER NARROWS, so it has nothing to widen either: both signs refuse.
 segmentsOf :: Term -> Either Text [(Term, Named)]
-segmentsOf t
-  | tmNegated t = Left (refused t "a sort key cannot be negated")
-  | otherwise   = map ((,) t) <$> traverse (nameOf t) (T.splitOn arrow (tmValue t))
+segmentsOf t = case tmSign t of
+  Neg      -> Left (refused t "a sort key cannot be negated")
+  Add      -> Left (refused t "a sort key cannot be added")
+  Unsigned -> map ((,) t) <$> traverse (nameOf t) (T.splitOn arrow (tmValue t))
 
 nameOf :: Term -> Text -> Either Text Named
 nameOf t seg

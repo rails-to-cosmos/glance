@@ -623,6 +623,35 @@ paletteSpec shell = testGroup "Shell palette"
         assertEqual "mounted twice" 2 =<< intAt "mounts" answer
         assertEqual "raised again" 2 =<< intAt "raises" answer
         assertEqual "with what was typed in it" "tan" =<< textAt "palette" answer
+        -- The re-raise is the common door: the stash carries the TEXT, and the
+        -- reader who wants the whole grammar back presses `.' over it.
+        assertEqual "both raises are the filter half" ["narrow", "narrow"]
+                    =<< textsAt "doors" answer
+
+  -- ONE BOX, TWO DOORS, and the option is the only thing that tells them apart.
+  , keyed shell "`/' opens the filter half" "/" "" $ \answer -> do
+        assertEqual "raised once" 1 =<< intAt "raises" answer
+        assertEqual "through the narrow door" ["narrow"] =<< textsAt "doors" answer
+  , keyed shell "`.' opens the whole expression" "." "" $ \answer -> do
+        assertEqual "raised once" 1 =<< intAt "raises" answer
+        assertEqual "through the whole door" ["whole"] =<< textsAt "doors" answer
+
+  -- WHAT `/' REFUSES IS SPOKEN, NOT SWALLOWED: the renderer keeps the token in
+  -- the box and hands the page its spelling; the page names the other door.
+  , keyed shell "a shaping token refused at `/' names the door it belongs to"
+      "" "shaping:sort:title" $ \answer -> do
+        strip <- map cut <$> logOf answer
+        assertEqual "the refusal, whole"
+                    [("info", "filter", "sort: belongs to . — / filters, . composes")]
+                    (drop 1 strip)
+        echoIs "and the pill says the same" "sort: belongs to . — / filters, . composes" answer
+        -- Refused is not applied: nothing new is asked for, and the box keeps it.
+        assertEqual "the token still standing" "sort:title" =<< textAt "palette" answer
+  , keyed shell "and the door is named off the refused token's own key"
+      "" "shaping:+columns:State,Title" $ \answer -> do
+        strip <- map (message . cut) <$> logOf answer
+        assertEqual "the sign is off and the key leads"
+                    ["columns: belongs to . — / filters, . composes"] (drop 1 strip)
   ]
 
 -- | The buffer-end keys as presses: the change is what the SECOND press does.
@@ -5143,7 +5172,11 @@ shellGlue =
   , glue "an empty answer to a virtual key is checked locally"
       [ "function parity(total)", "if (total !== 0 || !query || !all.length) return;"
       , "TableView.parseQuery(query, keys)"
-      , "t.key === null && !t.quoted && !t.negated"
+      , "t.key === null && !t.quoted && !t.negated && !t.added"
+      -- An added token widens its own axis, so a `+' is the sign rather than a
+      -- key the asset dropped: a correct zero is no skew.  The current asset
+      -- says so with `added'; the leading `+' reads the same off a stale one.
+      , "!t.value.startsWith(\"+\")"
       , "filter parity divergence — asset/daemon version skew"
       , "console.warn(note, { query, server: total, local })"
       , "if (!query) all = rows;" ]
@@ -5166,12 +5199,30 @@ shellGlue =
   , glue "the filter is summoned rather than resident"
       [ "palette: true,"
       , "const summons = () => can(table, \"openFilter\");"
-      , "if (summons()) { table.openFilter(); return; }"
+      , "if (summons()) { table.openFilter(door); return; }"
       -- The field is named once, since the fallback, the restore and the stash all want it.
       , "(document.querySelector(\"#app .tv-filter\"));"
       , "const box = filterBox();"
       , "if (box) { box.focus(); box.select(); }"
       , "summon the filter palette" ]
+
+  -- TWO DOORS ONTO ONE QUERY, and the page opens them through ONE raise: the
+  -- narrow flag is the session's, so `/' hands the option over on every press
+  -- and `.' hands none.  What the doors DO is the renderer's and is driven in
+  -- the browser suite; the needles here are the wiring that reaches it.
+  , Glue "`/' opens the filter half and `.' the whole expression"
+      [ "const focusFilter = () => raiseFilter({ narrow: true });"
+      , "const focusQuery = () => raiseFilter();"
+      -- The command the keymap names, in the map the dispatch reads handlers out of.
+      , "applyDefault, pinView, relations, focusFilter, focusQuery, toggleRaw, openSettings,"
+      -- The refusal reaches the page as a mount option, and only the MAIN table's.
+      , "onRefused: refused,"
+      , "String(spelling || \"\").replace(/^[-+]/, \"\").split(/[:=]/)[0];"
+      , "`${shapingKey(spelling)}: belongs to . — / filters, . composes`"
+      , "append(\"filter\", \"info\", note);" ]
+      -- No second query and no splitter here: the renderer refuses the token and
+      -- this page is told which one, so the glue holds no list of shaping keys.
+      [ "const SHAPING", "shapingKeys", "narrowQuery", "filterHalf" ]
 
   -- Marking is the renderer's: this page holds no set and asks for the count rather than keeping one.
   , Glue "marks are the renderer's, and m/u/U are this page's keys"
@@ -6185,6 +6236,10 @@ querySpec = testGroup "GET /headlines filter and paging"
       assertEqual "a negation drops what it matches" (Just "5")
         =<< total "/headlines?q=-state:DONE"
       assertEqual "a tag string stays text" (Just "2") =<< total "/headlines?q=:web:"
+      -- A bare plus in a query string is a space, so the sign travels as %2B.
+      -- Read as free text the token would answer with none of the six rows.
+      assertEqual "an added token widens its own axis" (Just "2")
+        =<< total "/headlines?q=state%3ATODO%20%2Bstate%3ADONE"
 
   , testCase "the default view carries the entry nobody stated" $
       withTempDir $ \dir -> do
@@ -9108,6 +9163,8 @@ pageSpec shell = testGroup "GET /"
         , (["archive-flag"], "flag for archive")
         , (["archive-flag", "org-glance-overview:delete"], "archive flagged")
         , (["filter-rows"], "filter")
+        -- The line names both doors, or the whole grammar is a key nobody finds.
+        , (["compose-query"], "whole query")
         , (["apply-default-filter"], "default view")
         , (["org-glance-agenda"], "agenda")
         -- The drill, named beside the key that walks back out of it: a reader shown only the way in has no way home.
@@ -9165,6 +9222,9 @@ expectedRows =
   , (["RET"],        "RET",     "org-glance-overview:materialize", Just "materializeRow", "table", Nothing)
   , (["/"],          "/",       "filter-rows",                     Just "focusFilter",    "table",
        Just "summon the filter palette")
+  -- The other door onto the one query: `/' edits the filter half, `.' the whole.
+  , (["."],          ".",       "compose-query",                   Just "focusQuery",     "table",
+       Just "the whole expression: filters, sort: and columns: together")
   , (["DEL"],        "DEL",     "filter-drop-token",               Just "filterDrop",     "table",
        Just "unmark all, else drop the filter's last token")
   , (["g"],          "g",       "apply-default-filter",            Just "applyDefault",   "table",

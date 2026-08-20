@@ -217,8 +217,9 @@ function pageHandle(cdp, sid) {
     "<up>": ["ArrowUp", "ArrowUp", 38], "<down>": ["ArrowDown", "ArrowDown", 40],
     "<left>": ["ArrowLeft", "ArrowLeft", 37], "<right>": ["ArrowRight", "ArrowRight", 39] };
   const CODE = { "+": "Equal", ":": "Semicolon", ",": "Comma", "@": "Digit2",
-    "!": "Digit1", "<": "Comma", ">": "Period", "[": "BracketLeft",
-    "]": "BracketRight", "/": "Slash", "-": "Minus", "^": "Digit6" };
+    "!": "Digit1", "<": "Comma", ">": "Period", ".": "Period",
+    "[": "BracketLeft", "]": "BracketRight", "/": "Slash", "-": "Minus",
+    "^": "Digit6" };
   function keyEvent(name) {
     let mods = 0, rest = name;
     for (;;) {

@@ -2217,9 +2217,36 @@ allFields = map FCol cols <> [FPlanned, FRef, FFree] <> map (FView . snd) viewKe
 
 -- ** The scanner and its terms
 
-data Tok  = Tok Bool Bool String deriving (Eq, Show)  -- negated, opened with @"@, body
-data Term = Term Bool (Maybe String) String deriving (Eq, Show)  -- negated, key, value
-data Sc   = Sc String Bool Bool Bool Bool Bool  -- body, negated, quoted, seen, has body, in quotes
+-- | THE SIGN A TOKEN OPENS WITH: @-@ negates, @+@ widens its own axis, and a
+-- token opening with neither is `Unsigned'.
+data Sign = Unsigned | Neg | Add deriving (Eq, Show)
+data Tok  = Tok Sign Bool String deriving (Eq, Show)  -- sign, opened with @"@, body
+data Term = Term Sign (Maybe String) String deriving (Eq, Show)  -- sign, key, value
+data Sc = Sc
+  { body     :: String
+  , sign     :: Sign
+  , quoted   :: Bool
+  , seen     :: Bool
+  , hasBody  :: Bool
+  , inQuotes :: Bool
+  }
+
+-- | Which sign a term wears.  A SIGN IS THE TOKEN'S FIRST CHARACTER, so a term
+-- wears exactly one: a second sign lands in the body.
+tmSign :: Term -> Sign
+tmSign (Term s _ _) = s
+
+-- | The sign C opens a token with, or `Nothing' where C is body text.
+signOf :: Char -> Maybe Sign
+signOf '-' = Just Neg
+signOf '+' = Just Add
+signOf _   = Nothing
+
+-- | How a sign is written; one equation per constructor, no wildcard.
+signMark :: Sign -> String
+signMark Unsigned = ""
+signMark Neg      = "-"
+signMark Add      = "+"
 
 isSep :: Char -> Bool
 isSep c = c == '&' || c == ' ' || c == '\t' || c == '\n'
@@ -2229,14 +2256,19 @@ scanQ :: String -> [Tok]
 scanQ q = reverse (flush st out)
   where
     (st, out) = foldl' step (fresh, []) q
-    fresh = Sc "" False False False False False
-    step (s@(Sc bd ng qt sn hb inq), acc) c
-      | c == '"'         = (Sc bd ng (qt || not hb) True True (not inq), acc)
-      | not inq, isSep c = (fresh, flush s acc)
-      | not sn, c == '-' = (Sc bd True qt True hb inq, acc)
-      | otherwise        = (Sc (c : bd) ng qt True True inq, acc)
-    flush (Sc bd ng qt sn _ _) acc | sn        = Tok ng qt (reverse bd) : acc
-                                   | otherwise = acc
+    fresh = Sc "" Unsigned False False False False
+    step (s, acc) c
+      | c == '"'                  = (s { seen     = True
+                                       , hasBody  = True
+                                       , quoted   = quoted s || not (hasBody s)
+                                       , inQuotes = not (inQuotes s) }, acc)
+      | not (inQuotes s), isSep c = (fresh, flush s acc)
+      -- SEEN GUARDS THE SIGN, so a second one lands in the body.
+      | not (seen s), Just sg <- signOf c = (s { seen = True, sign = sg }, acc)
+      | otherwise                 = (s { body = c : body s, seen = True, hasBody = True }, acc)
+    flush s acc
+      | seen s    = Tok (sign s) (quoted s) (reverse (body s)) : acc
+      | otherwise = acc
 
 -- | @key:value@ splits on the FIRST @:@ or @=@; a body opening with one has no key.
 splitKey :: String -> Maybe (String, String)
@@ -2245,15 +2277,15 @@ splitKey s | null k || null rest = Nothing
   where (k, rest) = break (\c -> c == ':' || c == '=') s
 
 termOf :: Tok -> Term
-termOf (Tok n qt b)
-  | qt = Term n Nothing b
-  | Just (k, v) <- splitKey b, isJust (fieldOf k) = Term n (Just k) v
-  | otherwise = Term n Nothing b
+termOf (Tok sg qt b)
+  | qt = Term sg Nothing b
+  | Just (k, v) <- splitKey b, isJust (fieldOf k) = Term sg (Just k) v
+  | otherwise = Term sg Nothing b
 
 parseQ :: String -> [Term]
 parseQ = map termOf . scanQ
 parse1 :: String -> Term
-parse1 s = case parseQ s of { [t] -> t ; _ -> Term False Nothing s }
+parse1 s = case parseQ s of { [t] -> t ; _ -> Term Unsigned Nothing s }
 
 -- | A predicate's VALUE splits on @|@ and empty alternatives are DROPPED; a
 -- value left with none narrows nothing, which is the @key:@ rule.  The bar is a
@@ -2261,7 +2293,8 @@ parse1 s = case parseQ s of { [t] -> t ; _ -> Term False Nothing s }
 alts :: String -> [String]
 alts = filter (not . null) . splitOnStr "|"
 
--- | TOKENS AND, ALTERNATIVES OR, and an empty query matches every row.
+-- | AXES AND, ALTERNATIVES OR, and an empty query matches every row; the plain
+-- tokens AND within one axis too, and `axisTest' is where the added ones join.
 tokensAnd :: [Bool] -> Bool
 tokensAnd = and
 -- | A predicate with no alternative left narrows nothing.
@@ -2269,18 +2302,57 @@ predOf :: [Bool] -> Bool
 predOf [] = True
 predOf ts = or ts
 
--- | What a term READS: a key nobody resolves left it free text, key and all.
+-- | What a term READS, which is the AXIS it joins: a key nobody resolves left
+-- it free text, key and all, and @substring:@ shares FFree with free text, so
+-- @milk +bread@ widens ONE axis rather than two.
 readsAs :: Term -> Field
 readsAs (Term _ k _) = fromMaybe FFree (k >>= fieldOf)
 
 -- | (negated, what it reads, the value as the matcher sees it).
 evalOf :: Term -> (Bool, Field, String)
-evalOf t@(Term n _ v) = (n, f, if folds f then qFold v else v) where f = readsAs t
+evalOf t@(Term _ _ v) = (tmSign t == Neg, f, if folds f then qFold v else v)
+  where f = readsAs t
+
+-- | The ATOMS a term contributes: a predicate's alternatives, free text's one
+-- word.  The bar is a predicate's, so free text's own stays literal.
+atomsOf :: Term -> [String]
+atomsOf (Term _ k v) | isJust k  = alts v
+                     | otherwise = [v | not (null v)]
+
+-- | AN UNSIGNED OR ADDED TERM CARRYING NO ATOM NARROWS NOTHING and establishes
+-- no axis, so it is dropped ahead of the grouping: @state:@, @+state:@,
+-- @+state:|@ and a lone @+@ each leave Q meaning what it meant, which is the
+-- half-typed token's own law.  Left in BASE an empty-valued term is a match-all
+-- and floods its axis's disjunction.  A lone @-@ is untouched and still empties
+-- the table.
+vacuous :: Term -> Bool
+vacuous t = tmSign t /= Neg && null (atomsOf t)
+
+-- | ONE AXIS as its group G, ATOM reading one term's own predicate: BASE is the
+-- plain and negated tokens' readings, inverted where negated, and WIDE the added
+-- tokens'.  With the empty conjunction true and the empty disjunction false,
+-- @(base nonempty AND its conjunction) OR the disjunction of WIDE@ — today's law
+-- where no @+@ joined, @base OR wide@ beside one, and WIDE alone on an axis
+-- holding only @+@ tokens, so a lone @+tag:work@ is @tag:work@.
+axisTest :: (Term -> Bool) -> [Term] -> Bool
+axisTest atom g = (not (null base) && tokensAnd base) || or wide
+  where base = [if tmSign t == Neg then not (atom t) else atom t
+               | t <- g, tmSign t /= Add]
+        wide = [atom t | t <- g, tmSign t == Add]
+
+-- | Q's narrowing law: the narrowing terms group by the axis they read, each
+-- group folds by `axisTest', and the axes AND.  Grouping is by KEY rather than
+-- by adjacency, so token order carries nothing.
+queryTest :: (Term -> Bool) -> [Term] -> Bool
+queryTest atom ts =
+  tokensAnd [axisTest atom [t | t <- kept, readsAs t == f] | f <- nub (map readsAs kept)]
+  where kept = [t | t <- ts, narrows (readsAs t), not (vacuous t)]
 
 -- | A term as the chips spell it: free text wears its key, a value carrying a
--- separator wears quotes.
+-- separator wears quotes.  The signs are exclusive, the scanner reading the
+-- first character alone.
 spell :: Term -> String
-spell (Term n k v) = (if n then "-" else "") <> fromMaybe "substring" k <> ":" <> quote v
+spell t@(Term _ k v) = signMark (tmSign t) <> fromMaybe "substring" k <> ":" <> quote v
   where quote x | any isSep x = "\"" <> x <> "\"" | otherwise = x
 
 -- ** Matching, by KEY NAME and never by the declared kind
@@ -2434,8 +2506,15 @@ arrow = "->"
 
 data SortSeg = Silent | SNoneSeg | SCol Col SortDir deriving (Eq, Show)
 -- | Each refuses the WHOLE request, naming the token as the reader wrote it.
-data QueryRefusal = RNeg | RAlt | RUnknown | RDirection | RNoneDir | RCompanion
+data QueryRefusal = RNeg | RAdd | RAlt | RUnknown | RDirection | RNoneDir | RCompanion
   deriving (Eq, Show)
+
+-- | The third reader beside `sortChainIn' and `columnNamesIn': `pageParams'
+-- refuses an added view token, Q being where the other two are read too.
+viewAddedIn :: String -> Either QueryRefusal ()
+viewAddedIn q | any added (parseQ q) = Left RAdd
+              | otherwise            = Right ()
+  where added t = tmSign t == Add && readsAs t == FView VView
 
 readSeg :: String -> Either QueryRefusal SortSeg
 readSeg seg
@@ -2460,8 +2539,10 @@ sortChainIn q = case [t | t@(Term _ (Just "sort") _) <- parseQ q] of
       then if length ordering > 1 then Left RCompanion else Right []
       else Right (foldl' extend [] [(c, d) | SCol c d <- ordering])
   where
-    segsOf (Term n _ v) | n         = Left RNeg
-                        | otherwise = mapM readSeg (splitOnStr arrow v)
+    segsOf t@(Term _ _ v) = case tmSign t of
+      Neg      -> Left RNeg
+      Add      -> Left RAdd
+      Unsigned -> mapM readSeg (splitOnStr arrow v)
     extend ks (c, d) | any ((== c) . fst) ks = ks
                      | otherwise             = ks <> [(c, d)]
 
@@ -2475,9 +2556,11 @@ columnNamesIn q = case [t | t@(Term _ (Just "columns") _) <- parseQ q] of
     named <- concat <$> mapM namesOf ts
     pure (case foldl' add [] named of { [] -> Nothing ; ns -> Just ns })
   where
-    namesOf (Term n _ v) | n              = Left RNeg
-                         | '|' `elem` v   = Left RAlt
-                         | otherwise      = Right (filter (not . null) (splitOnStr "," v))
+    namesOf t@(Term _ _ v) = case tmSign t of
+      Neg -> Left RNeg
+      Add -> Left RAdd
+      Unsigned | '|' `elem` v -> Left RAlt
+               | otherwise    -> Right (filter (not . null) (splitOnStr "," v))
     add ns n | any ((== qFold n) . qFold) ns = ns
              | otherwise                     = ns <> [n]
 
@@ -2606,6 +2689,44 @@ queryNotes =
   , Note "view:NAME is a MACRO the shell expands before the fetch; it never \
          \survives into the applied query, and one reaching this side is answered \
          \with every row." [Test]
+  , Note "A `+' TOKEN JOINS ITS KEY'S OWN AXIS as an alternative: within one axis \
+         \the plain tokens AND and a negated one inverts inside that conjunction, \
+         \the `+' tokens OR against it, and the axes still AND — `tag:work \
+         \priority:[#A] +priority:[#B]' serves the work rows at A or B, and \
+         \`+tag:work' alone is `tag:work'.  Grouping is by KEY rather than by \
+         \adjacency, so token order carries nothing." [Test]
+  , Note "An UNSIGNED OR ADDED token whose value yields no atom — `state:', \
+         \`+state:', `+state:|', a lone `+' — is dropped ahead of the grouping \
+         \and establishes no axis, since a half-typed token never empties the \
+         \table and never floods one either: read off the formula, `+state:' on a \
+         \fresh axis would be false and serve nothing, and `state:' left in BASE \
+         \is a match-all that saturates the axis's OR, so `state: +state:DONE' \
+         \would serve every row where it must serve the DONE rows.  The negated \
+         \sign keeps its inversion law, so a lone `-' and `-state:' still empty \
+         \the table." [Test]
+  , Note "The three shaping keys refuse the added sign where they refuse the \
+         \negated one, each a 400 naming the token: `a sort key cannot be added', \
+         \`a columns key cannot be added', `a view key cannot be added' — the \
+         \first two in their own readers and `view' in pageParams, above the drop \
+         \that leaves a stray view token harmless.  `-view:NAME' keeps that silent \
+         \drop, a query carrying no `+' meaning exactly what it means today." [Test]
+  , Note "THE RENDERER CARRIES THE ADDED SIGN TERM FOR TERM, so the divergence \
+         \table names no added key: its scanner takes `+' as a first-character \
+         \sign beside `-', a chip spells the sign back out, the completion \
+         \stages offer and restore it, the value stage behind an added token \
+         \drops what its axis already carries under the column's own value \
+         \reading — re-adding a carried value is the idempotent no-op and a \
+         \dead offer — and its axis matcher folds the added \
+         \terms as one OR against the plain conjunction — this model's own law, \
+         \read locally off a page.  `+sort:' rides SortRefusals as `-sort:' \
+         \does: the renderer drops the key, the producer refuses the token." [Unguarded]
+  , Note "ANNIHILATION IS THE STRIP'S RULE AND NOT THE GRAMMAR'S: committing a \
+         \token whose opposite-signed twin already stands removes both, the pair \
+         \being the tautology the producer answers as every row.  Twins are \
+         \matched on the key and value `parseQuery' resolves, so a quote that \
+         \OPENS a token makes it free text and no twin; it runs on the \
+         \interactive commit alone, never on the seed a producer's whole query \
+         \arrives as." [Browser]
   , Note "The view tokens are one list on each side (Filter.viewKeys, tv's \
          \VIEW_KEYS); the renderer's half is chip dress and keeping them out of \
          \free text, and the shell remounts when a fetched answer's columns differ \
@@ -3158,6 +3279,7 @@ bindings =
   , Binding ["^"]           (Elisp "toggle-sort")                     STable
   , Binding ["RET"]         (Elisp "org-glance-overview:materialize")  STable
   , Binding ["/"]           (Elisp "filter-rows")                     STable
+  , Binding ["."]           (Elisp "compose-query")                   STable
   , Binding ["DEL"]         (Elisp "filter-drop-token")               STable
   , Binding ["g"]           (Elisp "apply-default-filter")            STable
   , Binding ["P"]           (Elisp "set-saved-view")                  STable
@@ -3206,6 +3328,7 @@ keyHelps =
   , ([">", "G"],            "last row, again = page down")
   , (["^"],                 "put this column at the head of the order; again reverses it")
   , (["/"],                 "summon the filter palette")
+  , (["."],                 "the whole expression: filters, sort: and columns: together")
   , (["DEL"],               "unmark all, else drop the filter's last token")
   , (["g"],                 "the view this tree opens on")
   , (["P"],                 "pin the applied view, into whichever saved view answers")
@@ -3537,6 +3660,14 @@ shellNotes =
   , Note "Keyboard-first: every feature ships with a key path mirroring the Emacs org-glance maps, buttons only where keys cannot reach, and the echo knows every binding." [Docs]
   , Note "ONE map and no profiles: the page carries the blob and its own dispatch parses it, so a binding cannot exist in the handler and not in the map." [Test]
   , Note "Sequences and command names are org-glance's own where org-glance has one, and a row with no handler is recognized in full and says what backs it later." [Test]
+  , Note "TWO DOORS ONTO ONE QUERY: `/' (filter-rows) opens the box on the FILTER\
+         \ half — the narrowing keys alone in completion, and a shaping token\
+         \ (sort:, columns:, view:, either sign) refused on commit with a spoken\
+         \ line naming the other door, left standing in the box and never chipped\
+         \ — while `.' (compose-query) opens the same box on the whole expression.\
+         \ The standing shaping chips ride a `/' commit untouched, so narrowing\
+         \ never loses the shape, and both doors read and write the one ?q=: the\
+         \ narrow one is a restricted VIEW over it, never a second query." [Test, Browser]
   , Note "DEL over the LINK and TAG popups steps out where ESC does, the popup being the last structure standing; inside an open rename, link edit or narrow it stays the field's character erase." [Test]
   , Note "Over the value palette DEL is the ENTRIES' rule: a palette nothing claims the key in steps out, and the state palette keeps it because *empty* claims it and commits a null keyword." [Test]
   , Note "A rung with nothing under it falls through in SILENCE, and the pill says the command that RAN." [Test]

@@ -8,7 +8,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Glance.Query (firstBy)
-import Glance.Web.Filter ( Term (tmKey, tmNegated, tmValue), columnsKey
+import Glance.Web.Filter ( Sign (..), Term (tmKey, tmSign, tmValue), columnsKey
                          , parseFilter, refusedOn )
 
 columnNamesIn :: Text -> Either Text (Maybe [Text])
@@ -20,12 +20,15 @@ columnNamesIn q = case filter ((== Just columnsKey) . tmKey) (parseFilter q) of
       []    -> Nothing
       names -> Just names
 
+-- SHAPE NEVER NARROWS, so it has nothing to widen either: both signs refuse.
 namesOf :: Term -> Either Text [Text]
-namesOf t
-  | tmNegated t                 = Left (refused t "a columns key cannot be negated")
-  | T.isInfixOf "|" (tmValue t) = Left (refused t "a columns list is commas, \
-                                                  \and takes no alternatives")
-  | otherwise = Right (filter (not . T.null) (T.splitOn "," (tmValue t)))
+namesOf t = case tmSign t of
+  Neg -> Left (refused t "a columns key cannot be negated")
+  Add -> Left (refused t "a columns key cannot be added")
+  Unsigned
+    | T.isInfixOf "|" (tmValue t) -> Left (refused t "a columns list is commas, \
+                                                     \and takes no alternatives")
+    | otherwise -> Right (filter (not . T.null) (T.splitOn "," (tmValue t)))
 
 refused :: Term -> Text -> Text
 refused = refusedOn columnsKey

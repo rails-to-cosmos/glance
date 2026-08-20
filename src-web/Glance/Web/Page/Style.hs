@@ -212,13 +212,15 @@ page head' colours title body = T.unlines
   , "    border:0;border-radius:1px;background:var(--g-bad)}"
   , "  .de.dfl.d-child + .blk{--spine:var(--g-bad)}"
   -- A HEADLINE AT POINT LIGHTS ITS BLOCK ONE LEVEL DEEP: the block's spine
-  -- and every list's TOP run light, and a nested run keeps its resting bar --
-  -- lighting every run said nothing about which.
+  -- and the shelf's own TOP runs light; a nested run keeps its resting bar,
+  -- and a child headline's block keeps every bar.  THE CHILD COMBINATOR HOLDS
+  -- THE LIGHT TO ONE SHELF: a descendant one lit lists through child blocks
+  -- where paragraphs stayed resting, a depth the picture never claimed.
   -- AND SO DOES ANY STOP ON THE BLOCK'S OWN SHELF: point on the drawer, the
   -- planning line or a paragraph reads the same level-1 picture as point on
   -- the headline -- the shelf, not the row, is what is being stood on.
-  , "  #mdoc.on .de.dat.d-head + .blk .d-comp > .de,"
-  , "  #mdoc.on .de.dat.d-child + .blk .d-comp > .de,"
+  , "  #mdoc.on .de.dat.d-head + .blk > .d-comp > .de,"
+  , "  #mdoc.on .de.dat.d-child + .blk > .d-comp > .de,"
   , "  #mdoc.on .blk:has(> .de.dat) > .d-comp > .de{--ink:var(--g-mark)}"
   -- A SIBLING'S OWN SUBTREE COMES WITH IT: the reader is choosing between BRANCHES,
   -- and a branch whose contents are dimmed is a branch they cannot weigh.

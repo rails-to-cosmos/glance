@@ -1,6 +1,7 @@
 -- | The filter query language: @?q=@ as SCHEMA.md's micro-syntax.
 -- A port term for term of @table-view.js@; the grammar, the starred metas and every known divergence are in AGENTS.hs.
 module Glance.Web.Filter ( FilterEnv
+                         , Sign (..)
                          , Term (..)
                          , Token (..)
                          , alternatives
@@ -23,6 +24,7 @@ module Glance.Web.Filter ( FilterEnv
                          , columnsKey
                          , storeEnv
                          , tagsKey
+                         , viewAddedIn
                          ) where
 
 import Data.List (elemIndex, find)
@@ -34,7 +36,7 @@ import qualified Data.Text as T
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
                     , RefVia (..), refTarget, refVia
                     , Meta (..), activeMeta, archiveTag, cellSep, filterKeys
-                    , idPropertyOf, inactiveMeta, metaWord
+                    , groupOn, idPropertyOf, inactiveMeta, metaWord
                     , priorityLetter, refSpellings, tagRunEntries )
 
 
@@ -66,26 +68,49 @@ viewKeys = [sortKey, columnsKey, viewKey]
 viewKey :: Text
 viewKey = "view"
 
+-- | Q refused when it ADDS a view token.  @view:@ narrows nothing, so it has
+-- nothing to widen; @-view:NAME@ is left as it stands, being no @+@ query.
+viewAddedIn :: Text -> Either Text ()
+viewAddedIn q = case find (\t -> tmKey t == Just viewKey && tmSign t == Add) (parseFilter q) of
+  Nothing -> Right ()
+  Just t  -> Left (refusedOn viewKey t "a view key cannot be added")
+
 dateColumns :: [Int]
 dateColumns = mapMaybe (`elemIndex` filterKeys) dateKeys
 
+-- | THE SIGN A TOKEN OPENS WITH, and a token wears one: the scanner reads the
+-- FIRST CHARACTER alone, so a second sign is body text.
+data Sign
+  = Unsigned  -- ^ the token opened with neither sign.
+  | Neg       -- ^ the token opened with @-@.
+  | Add       -- ^ the token opened with @+@.
+  deriving (Eq, Show)
+
 data Token = Token
-  { tkNegated :: !Bool  -- ^ the token opened with @-@.
-  , tkQuoted  :: !Bool  -- ^ the token opened with @"@, so it is free text whatever it spells.
-  , tkBody    :: !Text  -- ^ the token itself, unquoted and un-negated.
+  { tkSign   :: !Sign  -- ^ the sign the token opened with.
+  , tkQuoted :: !Bool  -- ^ the token opened with @"@, so it is free text whatever it spells.
+  , tkBody   :: !Text  -- ^ the token itself, unquoted and unsigned.
   } deriving (Eq, Show)
 
--- | WHY a view-token reader refuses T under KEY; one sentence for both readers.
+-- | WHY a view-token reader refuses T under KEY; one sentence for all three readers.
 refusedOn :: Text -> Term -> Text -> Text
 refusedOn key t why = why <> ": '" <> spellingOf key t <> "'"
 
+-- | T as it was written, sign and all, so a refusal quotes the reader's own token.
 spellingOf :: Text -> Term -> Text
-spellingOf key t = (if tmNegated t then "-" else "") <> key <> ":" <> tmValue t
+spellingOf key t = signMark (tmSign t) <> key <> ":" <> tmValue t
+
+-- | How a sign is written.  ONE EQUATION PER CONSTRUCTOR and no wildcard, the
+-- discipline 'valueFor' states: a fourth sign is named HERE by the compiler.
+signMark :: Sign -> Text
+signMark Unsigned = ""
+signMark Neg      = "-"
+signMark Add      = "+"
 
 data Term = Term
-  { tmNegated :: !Bool          -- ^ the row fails when this term matches.
-  , tmKey     :: !(Maybe Text)  -- ^ the column a predicate names; 'Nothing' is free text.
-  , tmValue   :: !Text          -- ^ the predicate's value, or the free text itself.
+  { tmSign  :: !Sign          -- ^ 'Neg' fails the row it matches; 'Add' joins its axis as an alternative.
+  , tmKey   :: !(Maybe Text)  -- ^ the column a predicate names; 'Nothing' is free text.
+  , tmValue :: !Text          -- ^ the predicate's value, or the free text itself.
   } deriving (Eq, Show)
 
 isSep :: Char -> Bool
@@ -102,16 +127,24 @@ scanQuery q = reverse (flush final out)
                                       , quoted   = quoted s || not (hasBody s)
                                       , inQuotes = not (inQuotes s) }, acc)
       | not (inQuotes s), isSep c = (fresh, flush s acc)
-      | not (seen s), c == '-'    = (s { seen = True, negated = True }, acc)
+      -- SEEN GUARDS THE SIGN, so a second one lands in the body: @+-x@ is an
+      -- added free-text token spelling @-x@, the resolver's usual fallthrough.
+      | not (seen s), Just sg <- signOf c = (s { seen = True, sign = sg }, acc)
       | otherwise                 = (s { body = c : body s, seen = True, hasBody = True }, acc)
     flush s acc
-      | seen s    = Token (negated s) (quoted s) (T.pack (reverse (body s))) : acc
+      | seen s    = Token (sign s) (quoted s) (T.pack (reverse (body s))) : acc
       | otherwise = acc
-    fresh = Scan [] False False False False False
+    fresh = Scan [] Unsigned False False False False
+
+-- | The sign C opens a token with, or 'Nothing' where C is body text.
+signOf :: Char -> Maybe Sign
+signOf '-' = Just Neg
+signOf '+' = Just Add
+signOf _   = Nothing
 
 data Scan = Scan
   { body     :: [Char]
-  , negated  :: !Bool
+  , sign     :: !Sign
   , quoted   :: !Bool
   , seen     :: !Bool
   , hasBody  :: !Bool
@@ -125,9 +158,10 @@ parseFilter = map resolve . scanQuery
     resolve t
       | tkQuoted t = free t
       | otherwise  = case splitKey (tkBody t) of
-          Just (key, value) | isJust (fieldOf key) -> Term (tkNegated t) (Just key) value
+          Just (key, value) | isJust (fieldOf key) ->
+            Term (tkSign t) (Just key) value
           _notAPredicate                           -> free t
-    free t = Term (tkNegated t) Nothing (tkBody t)
+    free t = Term (tkSign t) Nothing (tkBody t)
 
 tagsKey :: Text
 tagsKey = "tag"
@@ -178,7 +212,7 @@ matchesFilter env q | null tests = const True
                     | otherwise  = \r -> all ($ r) tests
   where tests = compile env (parseFilter q)
 
-data Field = Col !Int | Planned | Ref | Order | Whole
+data Field = Col !Int | Planned | Ref | Order | Whole deriving Eq
 
 fieldOf :: Text -> Maybe Field
 fieldOf key | key == plannedKey     = Just Planned
@@ -194,12 +228,53 @@ fieldCells Ref     = []
 fieldCells Order   = []
 fieldCells Whole   = []
 
--- | TERMS as the tests a row must all pass.  A view token is dropped HERE,
--- above the inverter: a match-all under it would make @-sort:x@ empty the table.
+-- | Which fields narrow at all.  A VIEW TOKEN narrows nothing in either
+-- polarity, which is why 'compile' drops it above the inverter.
+narrows :: Field -> Bool
+narrows Order   = False
+narrows (Col _) = True
+narrows Planned = True
+narrows Ref     = True
+narrows Whole   = True
+
+-- | TERMS as the tests a row must all pass, ONE PER AXIS.  A view token is
+-- dropped HERE, above the inverter: a match-all under it would make @-sort:x@
+-- empty the table.  A vacuous term is dropped beside it ('vacuous').
+-- Grouping is by KEY and never by adjacency, so token order carries nothing.
 compile :: FilterEnv -> [Term] -> [HeadlineRecord -> Bool]
-compile env = map inverted . filter ((`notElem` map Just viewKeys) . tmKey)
-  where inverted t | tmNegated t = not . termTest env t
-                   | otherwise   = termTest env t
+compile env terms = map (axisTest . snd) (groupOn axisOf narrowing)
+  where
+    narrowing = [ t | t <- terms, narrows (axisOf t), not (vacuous t) ]
+    -- WITHIN ONE AXIS the plain and negated terms AND and the added ones OR
+    -- against that conjunction; an axis of added terms alone is the
+    -- disjunction, so a lone @+tag:work@ is @tag:work@.
+    axisTest ts = \r -> (some && all ($ r) base) || any ($ r) wide
+      where
+        some = not (null base)
+        base = [ inverted t | t <- ts, tmSign t /= Add ]
+        wide = [ termTest env t | t <- ts, tmSign t == Add ]
+    inverted t | tmSign t == Neg = not . termTest env t
+               | otherwise       = termTest env t
+
+-- | The axis T joins: its key's field, and 'Whole' for free text and @substring:@ alike.
+axisOf :: Term -> Field
+axisOf t = fromMaybe Whole (tmKey t >>= fieldOf)
+
+-- | Does T narrow nothing and establish no axis?  AN UNSIGNED OR ADDED TERM
+-- NAMING NO ATOM — @state:@, @+state:@, @+state:|@, a lone @+@ — is dropped
+-- ahead of the grouping: left standing it is a match-all in the conjunction
+-- half and saturates its axis's disjunction, so @state: +state:DONE@ would
+-- serve every row where it must serve the DONE rows.  A NEGATED one keeps its
+-- own law, and a lone @-@ or @-state:@ still empties the table.
+vacuous :: Term -> Bool
+vacuous t = tmSign t /= Neg && null (atoms t)
+
+-- | The atoms T offers its axis: a predicate's alternatives, or free text's own
+-- word.  The bar is a PREDICATE's, so @+|@ is one literal atom rather than none.
+atoms :: Term -> [Text]
+atoms t | isJust (tmKey t)   = alternatives (tmValue t)
+        | T.null (tmValue t) = []
+        | otherwise          = [tmValue t]
 
 -- ONE EQUATION PER CONSTRUCTOR and no wildcard, so a fifth key is named HERE by the compiler.
 valueFor :: Field -> Term -> Text
@@ -218,6 +293,9 @@ termTest env t = fromMaybe (freeTest (folded t)) $ do
   field <- fieldOf key
   pure (predTest env key field (valueFor field t))
 
+-- | A predicate's alternatives, ORed.  THE EMPTY ARM IS THE NEGATED TERM'S
+-- ALONE: 'vacuous' drops every other term naming no atom, so @-state:@ is what
+-- still reaches it — every row, and inverted above, none.
 predTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
 predTest env key field value = case map (keyTest env key field) (alternatives value) of
   []    -> const True

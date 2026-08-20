@@ -556,11 +556,17 @@ const SECTIONS = [
       if (typing()) active().blur();
     }
     const summons = () => can(table, "openFilter");
-    const focusFilter = () => {
-      if (summons()) { table.openFilter(); return; }
+    /** Raise the filter box on DOOR; `{narrow: true}' is the filter half alone.
+     *  An asset that knows no door opens its one box, which is the whole grammar. */
+    const raiseFilter = (door) => {
+      if (summons()) { table.openFilter(door); return; }
       const box = filterBox();
       if (box) { box.focus(); box.select(); }
     };
+    // TWO DOORS, ONE QUERY: `/' edits the filter half and `.' the whole
+    // expression; the standing sort: and columns: ride a `/' commit along.
+    const focusFilter = () => raiseFilter({ narrow: true });
+    const focusQuery = () => raiseFilter();
     // The one exception to keyboard-first: a coarse pointer has no `/' to press.
     const coarse = () => typeof matchMedia === "function"
       && matchMedia("(pointer: coarse)").matches;
@@ -597,6 +603,9 @@ const SECTIONS = [
       stashed = null;
       if (!was) return;
       if (was.palette !== null) {
+        // WHAT WAS TYPED COMES BACK, THROUGH THE COMMON DOOR: the stash carries
+        // the text and the renderer keeps no door across a remount, so a
+        // re-raise is `/'.  `.' reopens the whole one on the same text.
         focusFilter();
         // Assigning fires no `input', so the renderer completes nothing.
         const box = filterBox();

@@ -58,8 +58,9 @@
     function splitKind(q) {
       const text = String(q || "");
       if (typeof TableView.parseQuery !== "function") return { rows: text, kind: null };
+      // AN ADDED KIND IS NO PICKER STATE: it rides on as the widening it spells.
       const mine = TableView.parseQuery(text, REFER_COLS.concat([KIND_KEY]))
-        .filter((t) => t.key === KIND_KEY && !t.negated);
+        .filter((t) => t.key === KIND_KEY && !t.negated && !t.added);
       let rows = text;
       for (let i = mine.length - 1; i >= 0; i -= 1)
         rows = rows.slice(0, mine[i].start) + rows.slice(mine[i].end);

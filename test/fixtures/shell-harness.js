@@ -414,6 +414,7 @@ globalThis.WebSocket = function () {
 // Everything a renderer holds is held PER INSTANCE, and the table's rows are
 // the STORE's — which is what lets an act move the store and the table follow.
 let mounts = 0, sets = 0, raises = 0;
+const doors = [];
 let lmounts = 0, tmounts = 0, tsets = 0;
 const paints = [];
 // Row ops SPLICED, recorded as well as their effect: landing right without
@@ -464,6 +465,7 @@ const makeMount = (host, view, options, own) => {
     marks: new Set(), flags: new Set(), crumbs: [],
     pinned: !!o.pinned, onPin: typeof o.onPin === "function" ? o.onPin : null,
     onFilter: typeof o.onFilter === "function" ? o.onFilter : null,
+    onRefused: typeof o.onRefused === "function" ? o.onRefused : null,
   };
   const all = () => (m.own ? m.own : rows);
   const pageMax = () =>
@@ -587,7 +589,11 @@ const makeMount = (host, view, options, own) => {
     unflagRow: (id) => m.flags.delete(id),
     getFlagged: () => [...m.flags],
     clearFlags: () => m.flags.clear(),
-    openFilter: () => { raises += 1; field("filter").focus(); },
+    // THE DOOR IS RECORDED, not just the raise: `/' asks for the filter half
+    // and `.' for the whole expression, and nothing else tells the two apart.
+    openFilter: (door) => { raises += 1;
+      doors.push(door && door.narrow === true ? "narrow" : "whole");
+      field("filter").focus(); },
     sortBy: (column, ascending) => { sorted = { column, ascending }; sortCalls += 1;
       sortChain = [{ column, ascending }]; },
     // The promotion rule verbatim, and it WRITES THE QUERY: the press arrives at
@@ -1192,6 +1198,15 @@ const ACTIONS = {
     field("filter").value = q;
     if (main.onFilter) main.onFilter(q);
   },
+  // A NARROW SESSION REFUSING A SHAPING TOKEN: the renderer keeps it in the box
+  // and delivers no query, so the act commits nothing and only speaks.
+  shaping: (text) => {
+    if (!main) throw new Error("no table to refuse a token in");
+    const spelling = String(text).replace(/_/g, " ");
+    field("filter").value = spelling;
+    if (!main.onRefused) throw new Error("the mount was given no onRefused");
+    main.onRefused(spelling);
+  },
   moved: () => {
     step();
     rows = rows.concat([{ id: "r4", cells: { state: "TODO", title: "four", tag: "" } }]);
@@ -1450,7 +1465,7 @@ const settle = async () => {
   }
   await settle();
   const said = JSON.stringify({
-    asked, tags, url: location.search, mounts, sets, raises,
+    asked, tags, url: location.search, mounts, sets, raises, doors,
     washed, stale: root.classList.contains("stale"),
     paints, spliced,
     sheet: field("mtext").value, state: field("mnote").className,

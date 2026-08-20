@@ -29,7 +29,7 @@ import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn
                     , blobDocument
                     , blobPathIn, captureEdits, captureStamp, captureText
                     , captureTargetIn, captureTemplateIn, currentDocument
-                    , editLinkEdits, expandTemplate, mintBlobId
+                    , editLinkEdits, expandTemplate, groupOn, mintBlobId
                     , planningTimestamp, priorityText
                     , removeTagEdits
                     , renameTagEdits, rowIdIn, setPlanningEdits
@@ -364,9 +364,6 @@ done rid digest = object [ "id" .= rid, "ok" .= True, "digest" .= digest ]
 
 refused :: Text -> Text -> Value
 refused rid why = object [ "id" .= rid, "ok" .= False, "error" .= why ]
-
-groupOn :: Eq k => (a -> k) -> [a] -> [(k, [a])]
-groupOn key xs = [ (k, [ x | x <- xs, key x == k ]) | k <- nub (map key xs) ]
 
 parseCommand :: BL.ByteString -> Either Text Command
 parseCommand raw = bodyObject "command" command raw >>= checked

@@ -145,7 +145,7 @@
       priorityUp: (b) => cyclePriority(b, 1),
       priorityDown: (b) => cyclePriority(b, -1),
       refer: (b) => referKey(b),
-      applyDefault, pinView, relations, focusFilter, toggleRaw, openSettings,
+      applyDefault, pinView, relations, focusFilter, focusQuery, toggleRaw, openSettings,
       save: saveSheet,
       commitEdit: (b) => { if (sheetOpen()) commitDocEdit(b);
                            else if (editing && !raw && checkboxHere() !== null)

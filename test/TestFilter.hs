@@ -19,12 +19,12 @@ import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortC
                     , rowJSON
                     , tagsOfCell, viewJSON )
 import Glance.Web.Columns (columnNamesIn)
-import Glance.Web.Filter ( Term (..), Token (..), alternatives, archiveKey
+import Glance.Web.Filter ( Sign (..), Term (..), Token (..), alternatives, archiveKey
                          , archiveMeta, cellAt, columnsKey, emptyEnv, emptyMeta, filterKeys
                          , matchesFilter, metaOf, namesArchive, parseFilter
                          , plannedKey, refKey, scanQuery, sortKey, storeEnv
                          , substringKey
-                         , tagsKey )
+                         , tagsKey, viewAddedIn )
 import Glance.Web.Sort (noOrder, sortChainIn)
 
 -- 'viewDir': six headlines, five states between them, one of them stateless.
@@ -69,7 +69,7 @@ spec = testGroup "Filter"
   [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, substringSpec, sortSpec
   , columnsSpec
   , archiveSpec, metaSpec, foldSpec
-  , shapeSpec, alternationSpec
+  , shapeSpec, alternationSpec, addedSpec
   , degenerateSpec
   , targetSpec, refSpec
   , layoutSpec ]
@@ -306,14 +306,14 @@ plannedSpec = testGroup "Planned"
 
     -- NO TREE CAN TAKE THE KEY AWAY: key resolution is over a CLOSED list.
   , testCase "no tree can take the key away, the keys being a closed list" $ do
-      assertEqual "still the date key" [Term False (Just "planned") "*empty*"]
+      assertEqual "still the date key" [Term Unsigned (Just "planned") "*empty*"]
                   (parsed "planned:*empty*")
       records <- qrRecords <$> loadDir viewDir
       let carried = vocabularyOf records
       assertBool "the fixture carries tags to offer" (length carried >= 2)
       assertEqual "and no tag the tree carries is a key" []
                   [ tag | tag <- carried
-                        , Term _neg key _v <- parsed (tag <> ":x")
+                        , Term _sign key _v <- parsed (tag <> ":x")
                         , key /= Nothing ]
       -- The columns and the keys named above, spelled out here and derived
       -- nowhere, so a key ADDED or LOST is what goes red: a comparison of two
@@ -326,7 +326,7 @@ plannedSpec = testGroup "Planned"
       assertEqual "the keys are exactly the columns plus the ones the grammar owns"
                   (sort (filterKeys <> grammarKeys))
                   (sort [ k | k <- filterKeys <> grammarKeys
-                            , Term _n (Just k') _v <- parsed (k <> ":x"), k' == k ])
+                            , Term _sign (Just k') _v <- parsed (k <> ":x"), k' == k ])
   ]
   where grammarKeys = [plannedKey, refKey, sortKey, substringKey]
 
@@ -352,7 +352,7 @@ substringSpec = testGroup "Substring"
   , testCase "a quoted value may spell what a bare word cannot" $
       -- The point of the key: a leading `-' negates a bare word, and is text here.
       assertEqual "the hyphen is text here"
-                  [Term False (Just "substring") "-x"] (parsed "substring:\"-x\"")
+                  [Term Unsigned (Just "substring") "-x"] (parsed "substring:\"-x\"")
   ]
 
 -- | The ORDER token @sort:COL[:desc]@: it narrows nothing; the chain is 'sortChainIn's.
@@ -368,7 +368,7 @@ sortSpec = testGroup "Sort tokens" $
       -- The letters are in no row, so a token read as text would empty the table.
       matches "sort:title" =<< matching ""
       assertEqual "the token resolved to the key"
-                  [Term False (Just "sort") "title"] (parsed "sort:title")
+                  [Term Unsigned (Just "sort") "title"] (parsed "sort:title")
 
   , testCase "a query naming no sort key leaves the declared chain standing" $ do
       assertEqual "the default" (Right defaultSortChain)
@@ -594,13 +594,13 @@ foldSpec :: TestTree
 foldSpec = testGroup "The folds and the lone hyphen"
   -- A BARE `-' IS A NEGATED EMPTY TERM, and an empty term matches everything.
   [ testCase "a lone hyphen empties the result set" $ do
-      assertEqual "the token it parses to" [(True, "")]
-                  [ (tmNegated t, tmValue t) | t <- parseFilter "-" ]
+      assertEqual "the token it parses to" [(Neg, "")]
+                  [ (tmSign t, tmValue t) | t <- parseFilter "-" ]
       assertEqual "and it matches no row" [] =<< matching "-"
 
   , testCase "where a bare word matches on its text" $
-      assertEqual "the token is not negated" [(False, "x")]
-                  [ (tmNegated t, tmValue t) | t <- parseFilter "x" ]
+      assertEqual "the token wears no sign" [(Unsigned, "x")]
+                  [ (tmSign t, tmValue t) | t <- parseFilter "x" ]
 
     -- VALUES ARE FOLDED ON BOTH SIDES; the cell side folds at load.
   , testCase "free text is folded, whatever case it is written in" $ do
@@ -682,8 +682,9 @@ metaSpec = testGroup "Starred metas"
 tagsSpec :: TestTree
 tagsSpec = testGroup "Tags are not keys"
   [ testCase "a tag key is free text, colon and all" $ do
-      assertEqual "a tag of the tree" [Term False Nothing "web:ship"] (parsed "web:ship")
-      assertEqual "and one it does not carry" [Term False Nothing "contact:tanik"]
+      assertEqual "a tag of the tree" [Term Unsigned Nothing "web:ship"]
+                  (parsed "web:ship")
+      assertEqual "and one it does not carry" [Term Unsigned Nothing "contact:tanik"]
                                               (parsed "contact:tanik")
       matches "web:schema" []
       matches "web:ship" []
@@ -728,13 +729,13 @@ tagsSpec = testGroup "Tags are not keys"
       assertEqual "the fixture's tags" ["cleanup", "glance", "unicode", "web"]
                   (vocabularyOf records)
       assertEqual "no tag is a key"
-        [ [Term False Nothing (t <> ":x")] | t <- vocabularyOf records ]
+        [ [Term Unsigned Nothing (t <> ":x")] | t <- vocabularyOf records ]
         [ parsed (t <> ":x") | t <- vocabularyOf records ]
 
   , testCase "and a column can no longer be shadowed by one" $ do
       -- A file tagged `:title:' could once have taken the column's key away.
-      assertEqual "the column" [Term False (Just "title") "x"] (parsed "title:x")
-      assertEqual "the tag, as text" [Term False Nothing "glance:x"] (parsed "glance:x")
+      assertEqual "the column" [Term Unsigned (Just "title") "x"] (parsed "title:x")
+      assertEqual "the tag, as text" [Term Unsigned Nothing "glance:x"] (parsed "glance:x")
   ]
 
 
@@ -742,15 +743,16 @@ tagsSpec = testGroup "Tags are not keys"
 tokenSpec :: TestTree
 tokenSpec = testGroup "Tokens"
   [ testCase "a bare word is free text" $
-      assertEqual "tokens" [Token False False "tanik"] (scanQuery "tanik")
+      assertEqual "tokens" [Token Unsigned False "tanik"] (scanQuery "tanik")
 
   , testCase "tokens separate on whitespace and on &" $
       assertEqual "tokens"
-        [Token False False "a", Token False False "b", Token False False "c"]
+        [ Token Unsigned False "a", Token Unsigned False "b"
+        , Token Unsigned False "c" ]
         (scanQuery "a b&c")
 
   , testCase "runs of separators collapse, and the ends are trimmed" $
-      assertEqual "tokens" [Token False False "a", Token False False "b"]
+      assertEqual "tokens" [Token Unsigned False "a", Token Unsigned False "b"]
         (scanQuery "  a \t&& b\n")
 
   , testCase "an empty query has no tokens" $ do
@@ -758,41 +760,80 @@ tokenSpec = testGroup "Tokens"
       assertEqual "blank" [] (scanQuery "  & ")
 
   , testCase "a quoted token keeps its spaces and drops its quotes" $
-      assertEqual "tokens" [Token False True "the table"] (scanQuery "\"the table\"")
+      assertEqual "tokens" [Token Unsigned True "the table"] (scanQuery "\"the table\"")
 
   , testCase "an unclosed quote runs to the end, so typing one loses nothing" $
-      assertEqual "tokens" [Token False True "the tab"] (scanQuery "\"the tab")
+      assertEqual "tokens" [Token Unsigned True "the tab"] (scanQuery "\"the tab")
 
   , testCase "a leading - negates, and a - inside a word does not" $ do
-      assertEqual "negated" [Token True False "web"] (scanQuery "-web")
-      assertEqual "hyphenated" [Token False False "no-such-row"] (scanQuery "no-such-row")
-      assertEqual "negated quote" [Token True True "the table"] (scanQuery "-\"the table\"")
+      assertEqual "negated" [Token Neg False "web"] (scanQuery "-web")
+      assertEqual "hyphenated" [Token Unsigned False "no-such-row"]
+                  (scanQuery "no-such-row")
+      assertEqual "negated quote" [Token Neg True "the table"]
+                  (scanQuery "-\"the table\"")
 
   , testCase "org tag text is not a predicate" $ do
-      assertEqual ":work: stays text" [Term False Nothing ":work:"] (parsed ":work:")
-      assertEqual "=code= stays text" [Term False Nothing "=code="] (parsed "=code=")
+      assertEqual ":work: stays text" [Term Unsigned Nothing ":work:"] (parsed ":work:")
+      assertEqual "=code= stays text" [Term Unsigned Nothing "=code="] (parsed "=code=")
 
   , testCase "key:value is a predicate only for a column of the view" $ do
-      assertEqual "a column" [Term False (Just "state") "TODO"] (parsed "state:TODO")
-      assertEqual "not a column" [Term False Nothing "note:later"] (parsed "note:later")
-      assertEqual "a URL is text" [Term False Nothing "http://example.org"]
+      assertEqual "a column" [Term Unsigned (Just "state") "TODO"] (parsed "state:TODO")
+      assertEqual "not a column" [Term Unsigned Nothing "note:later"] (parsed "note:later")
+      assertEqual "a URL is text" [Term Unsigned Nothing "http://example.org"]
                                   (parsed "http://example.org")
 
   , testCase "= is an alias for :" $
-      assertEqual "term" [Term False (Just "state") "*active*"] (parsed "state=*active*")
+      assertEqual "term" [Term Unsigned (Just "state") "*active*"]
+                  (parsed "state=*active*")
 
   , testCase "the first separator splits, so a value may carry more" $
-      assertEqual "term" [Term False (Just "title") "a:b"] (parsed "title:a:b")
+      assertEqual "term" [Term Unsigned (Just "title") "a:b"] (parsed "title:a:b")
 
   , testCase "a token that opens with a quote is free text, predicate or not" $
-      assertEqual "term" [Term False Nothing "state:TODO"] (parsed "\"state:TODO\"")
+      assertEqual "term" [Term Unsigned Nothing "state:TODO"] (parsed "\"state:TODO\"")
 
   , testCase "a predicate's value may be quoted" $
-      assertEqual "term" [Term False (Just "tag") "two words"] (parsed "tag:\"two words\"")
+      assertEqual "term" [Term Unsigned (Just "tag") "two words"]
+                  (parsed "tag:\"two words\"")
 
   , testCase "negation carries the whole token, either form" $
-      assertEqual "terms" [Term True (Just "state") "DONE", Term True Nothing "web"]
-                          (parsed "-state:DONE -web")
+      assertEqual "terms" [ Term Neg (Just "state") "DONE"
+                          , Term Neg Nothing "web" ]
+                  (parsed "-state:DONE -web")
+
+  , testCase "a leading + adds, and a + inside a word does not" $ do
+      assertEqual "added" [Token Add False "web"] (scanQuery "+web")
+      assertEqual "free text" [Term Add Nothing "web"] (parsed "+web")
+      assertEqual "plussed" [Token Unsigned False "a+b"] (scanQuery "a+b")
+      assertEqual "added quote" [Token Add True "the table"]
+                  (scanQuery "+\"the table\"")
+
+  , testCase "a + carries the whole token, predicate or free text" $ do
+      assertEqual "a predicate" [Term Add (Just "state") "DONE"]
+                  (parsed "+state:DONE")
+      assertEqual "and a lone + is an added empty term"
+                  [Term Add Nothing ""] (parsed "+")
+
+    -- TWO SIGNS FAIL THE SHAPE: `seen' guards both branches, so the second one
+    -- lands in the body and the resolver's usual fallthrough reads free text.
+  , testCase "a second sign is body text, and the first one stands" $ do
+      assertEqual "+- scans" [Token Add False "-x"] (scanQuery "+-x")
+      assertEqual "+- resolves" [Term Add Nothing "-x"] (parsed "+-x")
+      assertEqual "-+ scans" [Token Neg False "+x"] (scanQuery "-+x")
+      assertEqual "-+ resolves" [Term Neg Nothing "+x"] (parsed "-+x")
+
+  , testCase "a quoted value may spell what a bare added word cannot" $
+      assertEqual "the hyphen is text here"
+                  [Term Add (Just "substring") "-x"]
+                  (parsed "+substring:\"-x\"")
+
+  , testCase "a quote swallows the +, so the token is free text sign and all" $
+      assertEqual "term" [Term Unsigned Nothing "+state:x"]
+                  (parsed "\"+state:x\"")
+
+  , testCase "a key nobody resolves keeps the +, its body reading as text" $
+      assertEqual "term" [Term Add Nothing "STATE:x"]
+                  (parsed "+STATE:x")
 
   , testCase "the keys are the view's own column keys" $ do
       view <- viewJSON "t" . qrRecords <$> loadDir viewDir
@@ -812,7 +853,7 @@ virtualKeyCase spelling key value =
     assertEqual "the key" spelling key
     assertBool "and no column carries it" (key `notElem` filterKeys)
     assertEqual "a token names it like any other key"
-                [Term False (Just key) value] (parsed (key <> ":" <> value))
+                [Term Unsigned (Just key) value] (parsed (key <> ":" <> value))
 
 -- | The three laws a VIEW token obeys, one group's worth: every one of TOKENS narrows nothing, a predicate beside @KEY:title@ does all the narrowing, and quoted it is free text like any word.
 viewTokenCases :: Text -> [Text] -> [TestTree]
@@ -827,7 +868,7 @@ viewTokenCases key tokens =
 
   , testCase "a quoted token is free text, here as everywhere" $ do
       matches quoted' []
-      assertEqual "free text" [Term False Nothing token] (parsed quoted')
+      assertEqual "free text" [Term Unsigned Nothing token] (parsed quoted')
   ]
   where token  = key <> ":title"
         quoted' = "\"" <> token <> "\""
@@ -1015,6 +1056,112 @@ alternationSpec = testGroup "Alternation"
       matches "title:ship|schema" [Ship, Schema]
       matches "ship|schema" []
       matches "\"ship|schema\"" []
+  ]
+
+
+-- | @+key:value@ — the token that joins its key's OWN axis as an alternative:
+-- within one axis the plain tokens AND as they always did and the added ones OR
+-- against that conjunction, and the axes still AND with each other.
+addedSpec :: TestTree
+addedSpec = testGroup "Added tokens"
+  [ testCase "a lone added token is the plain one it spells" $ do
+      web <- matching "tag:web"
+      assertEqual "the axis holds nothing else, so it is the atom alone"
+                  web =<< matching "+tag:web"
+      matches "+priority:[#B]" [Privet]
+
+  , testCase "beside a plain token it widens that axis and leaves the rest" $ do
+      -- The ask itself: the A rows and the B rows, every other filter standing.
+      matches "priority:A +priority:B" [Ship, Privet]
+      matches "tag:web priority:A +priority:B" [Ship]
+      matches "tag:unicode priority:A +priority:B" [Privet]
+      matches "title:the priority:A +priority:C" [Ship, Drop]
+
+  , testCase "grouping is by key, so the tokens answer alike in any order" $
+      mapM_ (\q -> assertEqual (T.unpack q) [Ship] =<< matching q)
+            [ "priority:A tag:web +priority:B"
+            , "priority:A +priority:B tag:web"
+            , "+priority:B tag:web priority:A" ]
+
+  , testCase "two plain tokens conjoin under the added one" $ do
+      -- (web AND glance) OR unicode, which neither half alone answers.
+      matches "tag:web tag:glance" [Ship]
+      matches "tag:unicode" [Privet]
+      matches "tag:web tag:glance +tag:unicode" [Ship, Privet]
+
+  , testCase "a negation stays inside the conjunction half" $ do
+      -- `-k:v +k:w' is "not v, or w", and the tautology serves every row.
+      matches "-state:*active* +state:TODO" [Privet, Drop, Schema]
+      every <- matching ""
+      matches "-state:TODO +state:TODO" every
+
+  , testCase "an added token repeated changes nothing" $ do
+      matches "priority:A +priority:B +priority:B" [Ship, Privet]
+      matches "+tag:web +tag:web" [Ship, Schema]
+
+  , testCase "on a bare axis an added token spells the alternation" $ do
+      alt <- matching "state:TODO|DONE"
+      assertEqual "k:v1|v2 and k:v1 +k:v2 answer alike" alt
+        =<< matching "state:TODO +state:DONE"
+
+  , testCase "and beside another plain token the two part" $
+      -- `u AND (v1 OR v2)', where the added form is `(u AND v1) OR v2' — the
+      -- conjoin case above pins that other half.
+      matches "tag:web tag:glance|unicode" [Ship]
+
+  , testCase "alternatives ride along, and so do the metas" $ do
+      matches "+state:DONE|CANCELLED" [Drop, Schema]
+      matches "state:TODO +state:DONE|CANCELLED" [Privet, Drop, Schema]
+      matches "state:TODO +state:*inactive*" [Privet, Drop, Schema]
+      matches "priority:A +priority:*empty*" [Ship, Reply, Plain, Schema]
+
+  , testCase "free text and substring share one axis, so two words are either" $ do
+      matches "ship schema" []
+      matches "ship +schema" [Ship, Schema]
+      matches "+substring:ship +substring:schema" [Ship, Schema]
+
+  , testCase "the virtual keys take it the way the columns do" $ do
+      matches "planned:2026-08-01 +planned:2026-08-10" [Ship, Reply]
+      matches "planned:*empty* +planned:2026-08-03" [Privet, Plain, Drop, Schema]
+      withRefTree $ \records -> do
+        rid <- idOf "Second" records
+        let hit q = titlesMatching q records
+        assertEqual "either target" ["By id", "By title"]
+                    (hit ("ref:alpha +ref:" <> rid))
+        assertEqual "which is the alternation's own answer" ["By id", "By title"]
+                    (hit ("ref:alpha|" <> rid))
+
+    -- A TOKEN NAMING NO ATOM ADDS NOTHING AND ESTABLISHES NO AXIS: taken as an
+    -- axis of its own it would empty the table, and a half-typed token never
+    -- does that.  The lone hyphen keeps its own law and still empties the
+    -- table, which `foldSpec' pins as the other half of the asymmetry.
+  , testCase "a token with nothing typed narrows nothing, added or not" $ do
+      every <- matching ""
+      matches "state:TODO +state:" [Privet]
+      matches "tag:web +state:" [Ship, Schema]
+      matches "+state:" every
+      matches "+state:|" every
+      matches "+" every
+      -- THE FLOOD the drop prevents: left standing, `state:' is a match-all in
+      -- the conjunction half and every row rides out on the added token's OR.
+      matches "state: +state:DONE" [Schema]
+
+  , testCase "an added tag token names the archive like any other spelling" $
+      assertBool "+tag:*archive* did not read as naming the tag"
+                 (namesArchive "+tag:*archive*")
+
+  , testCase "the three view keys refuse a + the way they refuse a -" $ do
+      refusedNaming "sort" ["added", "+sort:title"] (sortChainIn "+sort:title")
+      refusedNaming "columns" ["added", "+columns:State"]
+                    (columnNamesIn "+columns:State")
+      refusedNaming "view" ["added", "+view:agenda"] (viewAddedIn "+view:agenda")
+
+  , testCase "and a query that adds no view token is left as it stands" $ do
+      assertEqual "plain" (Right ()) (viewAddedIn "view:agenda")
+      -- `-view:NAME' is dropped rather than refused, and stays dropped.
+      assertEqual "negated" (Right ()) (viewAddedIn "-view:agenda")
+      assertEqual "empty" (Right ()) (viewAddedIn "")
+      assertEqual "another key's +" (Right ()) (viewAddedIn "+state:DONE")
   ]
 
 

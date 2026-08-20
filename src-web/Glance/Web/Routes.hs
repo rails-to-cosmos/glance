@@ -79,7 +79,7 @@ import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, codeList, c
                        , plain, rendererAsset, reparsed, rewritten, sized, tenths
                        , unreadable, viewTitleFor, walkFor, withBody )
 import Glance.Web.Commands (runCommand)
-import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, storeEnv)
+import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, storeEnv, viewAddedIn)
 import Glance.Web.Page (assetsMissing, demoShell)
 import Glance.Web.Page.Style (fontAssets)
 import Glance.Web.Columns (columnNamesIn)
@@ -319,6 +319,8 @@ pageParams request = do
   _order <- maybe (Right ()) (const (Left retired)) (raw "order")
   chain  <- sortChainIn q
   picked <- columnNamesIn q
+  -- The third view key's own refusal: it has no reader of its own to carry one.
+  _added <- viewAddedIn q
   case limit of
     Just n | n > limitCap -> Left ("limit is at most " <> T.pack (show limitCap)
                                      <> "; page with offset for more")
