@@ -1768,8 +1768,14 @@ export default [
     await to("p", /child whose body/, "p returns to the first child");
     const root = await to("p", /Every marker/, "p ends on the headline");
     assert(root.head, "the walk's top is not the entry's own line");
+    // THE ROOT IS THE READER'S EXCEPTION: n from the entry's line steps into
+    // its own contents, the way f does -- a headline is not the landing.
+    await stepped(p, "n", ".de", "n from the root into the entry's own body");
+    const led = await p.eval(() =>
+      document.querySelector("#mdoc .de.dat").matches(".d-head, .d-child"));
+    assert(!led, "n from the root skipped the body for a headline");
     // A FOLDED SUBTREE IS SKIPPED WHOLE, org's next-visible-heading.
-    await to("n", /child whose body/, "n re-enters the outline");
+    await walkTo(p, ".d-child", "back down to the first child");
     await p.press("TAB");
     await p.until(() => /…/.test(document.querySelector("#mdoc .de.dat").textContent),
       "TAB to fold the child");
@@ -1805,5 +1811,49 @@ export default [
     assert(seen.deep && !seen.flat,
       "a typed `* ' headline was not demoted to `** ' inside the subtree");
     return ["`* Sneak' landed as `** Sneak': the subtree kept its walls"];
+  } },
+{ name: "the pane ends on one empty line, and RET there writes a paragraph",
+  async run(p, base) {
+    await sheet(p, base, "drv-marks");
+    // THE TAIL IS ALWAYS THERE: one empty row past everything, a line tall.
+    const tail = await p.eval(() => {
+      const rows = [...document.querySelectorAll("#mdoc .de")];
+      const last = rows[rows.length - 1];
+      return { last: last.matches(".d-tail"),
+               empty: last.textContent === "",
+               tall: last.getBoundingClientRect().height > 10,
+               count: rows.filter((e) => e.matches(".d-tail")).length };
+    });
+    assert(tail.last && tail.empty, "the last row is not the empty tail");
+    assert(tail.tall, "the empty line has no height");
+    assert(tail.count === 1, `${tail.count} tail rows`);
+    // THE WALK ENDS ON IT: n alone reaches it, through the child subtrees.
+    for (let i = 0; i < 14; i += 1) {
+      const there = await p.eval(() =>
+        document.querySelector("#mdoc .de.dat").matches(".d-tail"));
+      if (there) break;
+      await stepped(p, "n", ".de", "n toward the tail");
+    }
+    assert(await p.eval(() =>
+      document.querySelector("#mdoc .de.dat").matches(".d-tail")),
+      "n never reached the tail");
+    // RET THERE IS THE DOOR: type, commit, and the paragraph lands at the end.
+    await p.press("RET");
+    await editUp(p, "the edit over the tail");
+    await p.eval(() => { document.getElementById("dtext").value
+      = "A tail paragraph, minted at the end"; });
+    await p.press("RET");
+    await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return /A tail paragraph, minted at the end/.test(h.org || "");
+    }, "the write to reach the file", 15000);
+    // AND THE TAIL REGROWS: still one empty line, now past the new paragraph.
+    await p.until(() => {
+      const rows = [...document.querySelectorAll("#mdoc .de")];
+      const last = rows[rows.length - 1];
+      return last.matches(".d-tail")
+        && rows.some((e) => /A tail paragraph/.test(e.textContent));
+    }, "the rescan to draw the paragraph with a fresh tail after it");
+    return ["one empty tail line; RET wrote a paragraph at the end; the tail regrew"];
   } },
 ];

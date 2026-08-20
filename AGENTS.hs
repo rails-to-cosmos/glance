@@ -2303,6 +2303,14 @@ data RefVia = ViaRow | ViaOrgId deriving (Eq, Show)
 data Ref = Ref { refTarget :: String, refKind :: Maybe String, refVia :: RefVia }
   deriving (Eq, Show)
 
+-- | The reference protocols, EACH BOUND TO ITS NAMESPACE -- a prefix cannot
+--   land without declaring where it resolves.  `id:' is org-id's and names
+--   the `:ID:' property; ORG_GLANCE_ID never resolves it.
+refVias :: [(String, RefVia)]
+refVias = [ ("glance:", ViaRow), ("org-glance-material:", ViaRow)
+          , ("org-glance-visit:", ViaRow), ("org-glance-open:", ViaRow)
+          , ("id:", ViaOrgId) ]
+
 -- | @ref:@ over a target the store resolved: no row claiming the id matches
 -- nothing, and a row is never its own reference.  A link matches in its OWN
 -- namespace: SPELLINGS (`ORG_GLANCE_ID' and title) answer `ViaRow'; the row's
@@ -2575,9 +2583,10 @@ queryNotes =
          \carries the tag (storeTags) and whether the QUERY named it \
          \(namesArchive) — and X-Glance-Archived counts what was withheld, zero \
          \whenever the query named it." [Test]
-  , Note "A reference is matched against the candidate's hrLinks over the TARGET's \
-         \refSpellings, its ORG_GLANCE_ID plus its title, which is what [[Title]] \
-         \and [[*Title]] resolve against; FilterEnv carries the store for this key \
+  , Note "A reference is matched against the candidate's hrLinks IN ITS OWN \
+         \NAMESPACE: refSpellings — ORG_GLANCE_ID plus title, what [[Title]] and \
+         \[[*Title]] resolve against — answers ViaRow, and the target's `:ID:' \
+         \property alone answers ViaOrgId; FilterEnv carries the store for this key \
          \and carries nothing else, and no locally-filtered path applies one." [Test]
   , Note "A KIND RIDES THE EDGE, not the row: the peer writes `?kind=SLUG' after \
          \the id, so `refTargetOf' cuts the row at the first `?' and keeps the kind \
@@ -3692,10 +3701,13 @@ docRowsCap = 10
 docRowDoors :: [String]
 docRowDoors = ["the fill", "M-RET's splice at the caret", "the field's own input", "shutEdit"]
 
--- THE STEP HAS TWO COHORTS.  From a headline, `n'/`p' walk every visible headline in
--- document order -- org's next-visible-heading, a folded subtree skipped whole.  From
--- anything else they walk the rows owned by what owns point -- a leaf its item run,
--- an element its shelf -- clamped at the run's ends.  Contents are behind `f'/`b'.
+-- THE STEP HAS TWO COHORTS.  From a CHILD headline, `n'/`p' walk every visible
+-- headline in document order -- org's next-visible-heading, a folded subtree skipped
+-- whole.  From anything else they walk the rows owned by what owns point -- a leaf
+-- its item run, an element its shelf -- clamped at the run's ends.  THE ROOT IS THE
+-- READER'S EXCEPTION: the entry's own line shares its contents' cohort, so `n' steps
+-- into the body, while headlines walking up still land on it.  Contents are
+-- otherwise behind `f'/`b'.
 
 data Finer = IntoLeaves | Finest deriving (Eq, Show)
 -- | `f' descends ONE rung; `Finest' refuses with an echo.  `l' and the right arrow are
@@ -4423,11 +4435,21 @@ sheetNotes =
          \ INDENTS UNDER ITS OWN STAR: a row carries its headline's level, and the\
          \ indent and the bar are that level's -- org's own geometry, the root's being\
          \ the stylesheet's default." [Test, Browser]
-  , Note "THE STEP HAS TWO COHORTS: from a headline `n'/`p' walk every visible\
+  , Note "THE STEP HAS TWO COHORTS: from a CHILD headline `n'/`p' walk every visible\
          \ headline in document order -- org's next-visible-heading, a folded subtree\
-         \ skipped whole; from anything else they walk the rows owned by what owns\
-         \ point -- a leaf its item run, an element its shelf.  `f' steps into what\
-         \ point owns, `b' climbs to the owner." [Elm, Browser]
+         \ skipped whole; from anything else, the ROOT's own line included, they walk\
+         \ the rows owned by what owns point -- a leaf its item run, an element its\
+         \ shelf -- so `n' from the top reads into the entry's contents.  `f' steps\
+         \ into what point owns, `b' climbs to the owner." [Elm, Browser]
+  , Note "THE TAIL IS THE PANE'S LAST ROW: one always-drawn empty line past\
+         \ everything, zero-width and `alone', so an edit splices a fresh paragraph\
+         \ at the document's end -- the door `+' cannot be when the body ends in\
+         \ something owned, a properties drawer above all.  It has no span, so the\
+         \ flag and delete doors refuse it like a planning row, and the headline\
+         \ walk ends on it." [Elm, Browser]
+  , Note "`o' OPENS A ROW'S REACH: an element its own span, a HEADLINE the whole\
+         \ subtree under it -- the root's reach the entry -- so the links door\
+         \ answers from where the reader stands." [Elm, Test]
   , Note "ONE LIST OF POPUP SURFACES, `Glance.Web.Page.Popups': the veil, the `.on'\
          \ rule, the box sizing, the stale wash and the tier sweep all join it, so a\
          \ surface added there joins them by itself.  Six readers spelled the\

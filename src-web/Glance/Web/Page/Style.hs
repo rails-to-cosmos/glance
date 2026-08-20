@@ -157,6 +157,8 @@ page head' colours title body = T.unlines
   -- ONE TAB STOP LEFT OF THE ROW'S TEXT: a top-level row is indented by PADDING and
   -- a nested one by SPACES.  Elm writes `--rail' per row; this is the fallback.
   , "  .de{--rail:calc(var(--g-doc-pad) + 0.5ch)}"
+  -- THE TAIL IS EMPTY, and an empty div is no line at all.
+  , "  .de.d-tail{min-height:var(--g-doc-lh)}"
   -- STICKY INSIDE THE SCROLLER, so the strip holds while the rows move under it; the
   -- negative margins reach the pane's edges.  It always names something, so no floor.
   , "  .dpath{position:sticky;z-index:2;font-size:11px;line-height:1.5;"

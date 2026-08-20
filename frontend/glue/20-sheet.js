@@ -50,6 +50,9 @@
     const linksIn = (at, links) => (links || dlinks).filter((l) =>
       l.span && l.span[0] >= at[0] && l.span[1] <= at[1]);
     const spanOf = (r) => (r && r.span) || null;
+    // A headline's own span is one line; what `o' opens is its REACH, the
+    // whole subtree under it.
+    const reachOf = (r) => (r && r.reach) || null;
     const docRowAt = () => drows[dat] || null;
     // The suite reads the MIRROR's cursor as the pure value it is, through a
     // direct eval -- where a `var' reaches the caller's scope and a `const' does
@@ -64,7 +67,7 @@
     const docBroader = (k) => dsay(k, { kind: "broader" });
     function openHere() {
       const r = docRowAt(), b = docBinding("org-glance-overview:open");
-      const at = spanOf(r);
+      const at = reachOf(r) || spanOf(r);
       if (!at) { said(b, "nothing to open here"); return; }
       const links = linksIn(at);
       followLinks(b, editing.id, { digest: editing.digest, links }, links);

@@ -222,6 +222,8 @@ refSpec = testGroup "References"
   [ virtualKeyCase "ref" refKey "alpha"
 
   , testCase "an id link makes the row that carries it a reference" $
+      -- `Crossed' spells [[id:alpha]]; under the old ORG_GLANCE_ID conflation
+      -- it would ride into this answer beside `By id'.
       assertEqual "by id" ["By id"] =<< refMatching "ref:alpha"
 
   , testCase "a row is not its own reference" $ do
@@ -238,11 +240,6 @@ refSpec = testGroup "References"
       withRefTree $ \records -> do
         rid <- idOf "Org row" records
         assertEqual "by :ID:" ["By org id"] (titlesMatching ("ref:" <> rid) records)
-
-  , testCase "an id: link never resolves over ORG_GLANCE_ID" $
-      -- `Crossed' spells [[id:alpha]]; under the old conflation it would ride
-      -- into every `ref:alpha' answer.
-      assertEqual "still the one referrer" ["By id"] =<< refMatching "ref:alpha"
 
   , testCase "an id no row claims matches nothing, and does not fail" $
       assertEqual "unknown" [] =<< refMatching "ref:no-such-row"

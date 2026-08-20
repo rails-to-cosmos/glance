@@ -13,10 +13,12 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
-- **A headline walks headlines.** `n`/`p` from a headline step through every
-  visible headline in document order, at every depth — org's own
+- **A headline walks headlines.** `n`/`p` from a child headline step through
+  every visible headline in document order, at every depth — org's own
   next-visible-heading — and a folded subtree is skipped whole. Contents stay
-  behind `f`/`b`. From a list or a paragraph the walk is unchanged.
+  behind `f`/`b`. The root is the reader's exception: `n` from the entry's
+  own line steps into its contents, and `p` from the first content row climbs
+  back. From a list or a paragraph the walk is unchanged.
 
 - **"open link" opens the material document.** A `glance:` or `org-glance-*:`
   link names a headline, and following it lands in that headline's material
@@ -27,6 +29,16 @@ section groups a feature arc, and its date is that arc's last commit.
   `loading … view: X`, and a boot with no query in the address bar applies
   the tree's default view to the table and logs the config it read — layers,
   saved views, keyword hues.
+
+- **The pane ends on an empty line.** One always-visible empty row past
+  everything; `RET` on it writes a fresh paragraph at the document's end —
+  the door `+` cannot offer when the body ends in something it owns, a
+  properties drawer above all. Only ever the one line; it has no span, so
+  flag and delete refuse it, and the headline walk ends on it.
+
+- **`o` opens a headline's reach.** On a headline, `o` gathers the links of
+  its whole subtree — the root's reach is the entry — where before it read
+  the headline's own line alone and a child's `o` opened nothing.
 
 - **User docs for the query language, capture, commands and configuration** —
   `docs/query.md`, `docs/capture.md`, `docs/commands.md`, `docs/config.md`;

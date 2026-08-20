@@ -39,6 +39,7 @@ interface DocRow {
   level: number;
   cells: { key: string; val: string }[];
   span: [number, number] | null;
+  reach: [number, number] | null;
 }
 
 /** The pane's whole model, pushed back after every change. */

@@ -40,6 +40,7 @@ import Body
         , rowAt
         , rowById
         , rowsFrom
+        , tailId
         , shown
         , undrafted
         )
@@ -108,19 +109,26 @@ step by m =
                 n =
                     List.length m.rows
 
-                -- ONE SCAN, TWO COHORTS: from a headline the walk is every
-                -- visible headline in document order, org's own
+                -- ONE SCAN, TWO COHORTS: from a CHILD headline the walk is
+                -- every visible headline in document order, org's own
                 -- next-visible-heading, a folded subtree skipped whole;
                 -- from anything else it is the rows sharing point's owner.
-                -- Contents stay behind `f'/`b'.  The hidden fold is the
+                -- THE ROOT IS THE READER'S EXCEPTION: the entry's own line
+                -- shares its contents' cohort, so `n' steps INTO the body --
+                -- though headlines walking up still land on it.  Contents
+                -- are otherwise behind `f'/`b'.  The hidden fold is the
                 -- headline walk's own cost, paid only on its branch.
                 fits =
-                    if heading cur then
+                    if cur.kind == Child then
                         let
                             hidden =
                                 hiddenIn m
                         in
-                        \r -> heading r && not (Set.member r.id hidden)
+                        -- The TAIL is the outline's last stop, so the walk
+                        -- down has somewhere to end past the last subtree.
+                        \r ->
+                            (heading r || r.id == tailId)
+                                && not (Set.member r.id hidden)
 
                     else
                         \r -> r.owner == cur.owner
@@ -265,6 +273,22 @@ offsetsOf lines =
         )
 
 
+{-| The span the LINKS door reads off a headline: the WHOLE SUBTREE under it,
+where 'elementSpan' is a row's own extent.  The root's reach is the entry.
+-}
+reachSpan : Model -> Row -> Maybe ( Int, Int )
+reachSpan m r =
+    case ( m.spanAt, r.kind ) of
+        ( Just base, Head ) ->
+            Just ( base, base + m.shift + charOf m (List.length m.lines) )
+
+        ( Just base, Child ) ->
+            Just ( base + m.shift + charOf m r.from, base + m.shift + charOf m r.to )
+
+        _ ->
+            Nothing
+
+
 elementSpan : Model -> Row -> Maybe ( Int, Int )
 elementSpan m r =
     case m.spanAt of
@@ -279,11 +303,17 @@ elementSpan m r =
                 Meta ->
                     Nothing
 
+                Para ->
+                    if r.id == tailId then
+                        -- The pane's own row: no span, so the flag and delete
+                        -- doors refuse it the way they refuse a planning row.
+                        Nothing
+
+                    else
+                        Just ( base + m.shift + charOf m r.from, base + m.shift + charOf m r.to )
+
                 Head ->
                     Just ( base, base + charOf m 1 )
-
-                Para ->
-                    Just ( base + m.shift + charOf m r.from, base + m.shift + charOf m r.to )
 
 
 
@@ -827,6 +857,14 @@ rowJSON m r =
                 Nothing ->
                     E.null
           )
+        , ( "reach"
+          , case reachSpan m r of
+                Just ( a, b ) ->
+                    E.list E.int [ a, b ]
+
+                Nothing ->
+                    E.null
+          )
         ]
 
 
@@ -1226,6 +1264,13 @@ rowClass lit m i r top =
                 -- nothing and a top-level row says so itself.  NOT `d-top': the
                 -- harness reads a row's KIND off its `d-' classes.
                 " lvl-top"
+
+            else
+                ""
+           )
+        ++ (if r.id == tailId then
+                -- The empty line keeps a LINE's height, or nothing shows.
+                " d-tail"
 
             else
                 ""

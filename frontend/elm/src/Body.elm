@@ -29,6 +29,7 @@ module Body exposing
     , rowAt
     , rowById
     , rowsFrom
+    , tailId
     , shown
     , undrafted
     )
@@ -99,6 +100,11 @@ drawerId =
     "PR"
 
 
+tailId : String
+tailId =
+    "T"
+
+
 propId : Int -> String
 propId n =
     drawerId ++ String.fromInt n
@@ -109,11 +115,13 @@ propIndex id =
     String.toInt (String.dropLeft (String.length drawerId) id)
 
 
-{-| The rows a filled pane holds: the headline, the entry's own blocks, and then
+{-| The rows a filled pane holds: the headline, the entry's own blocks, then
 EVERY DESCENDANT WHOLE -- its headline row, its blocks under it -- so the pane
-is the subtree rather than one shelf of it.  A child's contents run to the next
-child's line; a child OWNS its blocks, and a deeper child its shallower one, so
-the walk reads nesting off ownership exactly as it does inside a list.
+is the subtree rather than one shelf of it, and last THE TAIL: one always-drawn
+empty line past everything, the door to a paragraph after a document that ends
+in something `+' owns.  A child's contents run to the next child's line; a
+child OWNS its blocks, and a deeper child its shallower one, so the walk reads
+nesting off ownership exactly as it does inside a list.
 -}
 rowsFrom : List String -> Int -> List Cell -> List Kid -> List Row
 rowsFrom lines own headCells kids =
@@ -212,8 +220,17 @@ rowsFrom lines own headCells kids =
                     descend (( k.level, cid ) :: above)
                         rest
                         (out ++ row :: rowsIn (cid ++ ":") (Just cid) k.level (k.line + 1) stop)
+        -- Zero-width and `alone', so an edit SPLICES a fresh paragraph at the
+        -- end and an untouched tail never reaches `bodyText'.
+        tail =
+            { blank
+                | id = tailId
+                , from = List.length lines
+                , to = List.length lines
+                , alone = True
+            }
     in
-    (head :: List.map owned body) ++ descend [] kids []
+    (head :: List.map owned body) ++ descend [] kids [] ++ [ tail ]
 
 
 

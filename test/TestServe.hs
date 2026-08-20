@@ -259,6 +259,7 @@ sheetStamp = "<2026-08-01 Sat>"
 -- | The default subtree as the pane draws it: the headline, the lifted header —
 -- the planning line, then the drawer FOLDED — the body, and the child with its
 -- block.  A child folds too but is no drawer, so it wears no `d-drawer' class.
+-- EVERY PANE CLOSES ON THE TAIL: one synthesized empty paragraph past the end.
 fixtureDoc :: [[T.Text]]
 fixtureDoc =
   [ ["head", "* ", "TODO", "one"]
@@ -267,7 +268,8 @@ fixtureDoc =
   , ["para", "first para"]
   , ["para", "second para"]
   , ["child", "  * ", "two", ":web:"]
-  , ["para", "child body"] ]
+  , ["para", "child body"]
+  , ["para:tail", ""] ]
 
 -- | The shell's two header mirrors, in one reading.
 headerIs :: String -> [[T.Text]] -> [[T.Text]] -> Value -> Assertion
@@ -2662,7 +2664,7 @@ sheetSpec shell =
                     "" =<< textAt "focus" answer
 
   , testCase "the document walks its elements on n/p, j/k and the arrows" $ do
-      -- `f' FIRST: a headline walks headlines, so the elements are entered.
+      -- `f' FIRST, into the body the walks below measure.
       insheet shell "press:f press:n" $
         assertEqual "two stops down, the planning line and the drawer" 2 <=< pointOf
       insheet shell "press:f press:j press:j press:k" $
@@ -2672,24 +2674,28 @@ sheetSpec shell =
       insheet shell "press:p" $
         assertEqual "the headline is the end of the walk up" 0 <=< pointOf
       -- THE WALK SKIPS OWNED ROWS: the child's own block is reached with f.
+      insheet shell "press:f press:n press:n press:n press:n" $
+        assertEqual "four stops down is the child, its block skipped" 5 <=< pointOf
+      -- THE TAIL CLOSES THE WALK: the synthesized empty row past everything.
       insheet shell "press:f press:n press:n press:n press:n press:n" $
-        assertEqual "and the child the end of the walk down" 5 <=< pointOf
+        assertEqual "and the tail the end of the walk down" 7 <=< pointOf
 
-    -- ORG'S OWN next/previous-visible-heading: from a headline `n'/`p' cross the
-    -- contents whole, and the contents are reached by `f' alone.
-  , testCase "a headline walks headlines, and f is the way into the contents" $ do
+    -- THE ROOT READS INTO ITS OWN CONTENTS: `n' from the entry's line is the
+    -- reader's step.  A CHILD headline walks headlines -- org's own
+    -- next/previous-visible-heading -- and its contents are behind `f'.
+  , testCase "the root steps into its contents, and a child walks headlines" $ do
       insheet shell "press:n" $
-        assertEqual "the child is the next visible headline" 5 <=< pointOf
-      insheet shell "press:n press:n" $
-        assertEqual "and no headline stands past it, so the walk stays" 5 <=< pointOf
+        assertEqual "the entry's first content row" 1 <=< pointOf
       insheet shell "press:n press:p" $
-        assertEqual "p back over the contents to the sheet's own line" 0 <=< pointOf
+        assertEqual "and p climbs back to the sheet's own line" 0 <=< pointOf
       insheet shell "press:f" $
-        assertEqual "where f enters the body it stepped over" 1 <=< pointOf
-      -- A NON-HEADLINE ROW KEEPS THE SIBLING WALK: point inside the body still
-      -- steps the rows its owner owns, one at a time.
-      insheet shell "press:f press:n" $
-        assertEqual "and a content row steps its own kin" 2 <=< pointOf
+        assertEqual "f enters the same body" 1 <=< pointOf
+      insheet shell "press:n press:n press:n press:n press:n press:p" $
+        assertEqual "p from the child crosses the contents whole" 0 <=< pointOf
+      insheet shell "press:n press:n press:n press:n press:n press:n" $
+        assertEqual "and n past the child lands on the tail" 7 <=< pointOf
+      insheet shell "press:n press:n press:n press:n press:n press:n press:n" $
+        assertEqual "nothing stands past the tail, so the walk stays" 7 <=< pointOf
 
     -- GEOMETRY IS BEYOND THE STUB, so what is asserted is that the page ASKED.
   , testCase "the element under point asks its pane's scroller" $ do
@@ -2731,7 +2737,7 @@ sheetSpec shell =
   , testCase "content lines start at the title's column, at either depth" $ do
       insheet shell "" $
         assertEqual "the row's own document" "2" <=< textAt "dindent"
-      insheet shell "press:n press:Enter" $
+      insheet shell (ontoChild <> " press:Enter") $
         assertEqual "and a child, which is the root of its own" "2"
           <=< textAt "dindent"
 
@@ -2745,23 +2751,24 @@ sheetSpec shell =
                  assertEqual (what <> ": nor the child's")
                              ["child", "  * ", "two", ":web:"] (rows !! 5))
             [ ("at rest", ""), ("on the element", "press:p")
-            , ("on the child", "press:n") ]
+            , ("on the child", ontoChild) ]
 
     -- RET IS BY KIND, and a CHILD re-materializes into that entry under the index the server handed over.
   , testCase "RET on a child materializes into it, and DEL climbs back" $ do
-      insheet shell "press:n press:Enter" $ \answer -> do
+      insheet shell (ontoChild <> " press:Enter") $ \answer -> do
         -- The drawer is drawn even with no pairs: `+' needs a place to land.
         assertEqual "the child's own document"
           [ ["head", "* ", "two", ":web:"]
           , ["comp:properties:drawer", ":PROPERTIES: \8230"]
-          , ["para", "child body"] ] =<< docOf answer
+          , ["para", "child body"]
+          , ["para:tail", ""] ] =<< docOf answer
         assertEqual "the trail gained a crumb" ["one", "two"] =<< textsAt "where" answer
         assertEqual "and the last one is where the reader stands" [1]
           =<< flaggedAt "whereAt" answer
         echoIs "and the pill names what it opened"
           "RET → org-glance-overview:materialize (two)" answer
       insheet shell
-             "press:n press:Enter press:Backspace" $ \answer -> do
+             (ontoChild <> " press:Enter press:Backspace") $ \answer -> do
         assertEqual "back at the row, one crumb again" ["one"] =<< textsAt "where" answer
         assertEqual "with the cursor on the child it came out of" 5
           =<< pointOf answer
@@ -2856,7 +2863,7 @@ sheetSpec shell =
       insheet shell "press:f press:n press:n press:+" $ \answer -> do
         assertEqual "a line of its own, under the one point stood on"
                     [ "head", "meta", "comp:properties:drawer"
-                    , "para", "draft:para", "para", "child", "para" ]
+                    , "para", "draft:para", "para", "child", "para", "para:tail" ]
           =<< map head <$> docOf answer
         assertEqual "holding nothing" [""] . partsOf "draft:para" =<< docOf answer
         assertEqual "and the cursor is on it" 4 =<< intAt "dat" answer
@@ -2867,7 +2874,8 @@ sheetSpec shell =
         assertEqual "drawn STRICTLY BELOW the stop, never at the run's bottom"
                     [ "head", "meta", "comp:properties:drawer", "para", "comp:list"
                     , "item", "item", "draft:item"
-                    , "item", "item", "comp:quote", "item", "item", "para", "child", "para" ]
+                    , "item", "item", "comp:quote", "item", "item", "para", "child", "para"
+                    , "para:tail" ]
           =<< map head <$> docOf answer
         assertEqual "wearing the stop's own bullet" ["- "]
           . partsOf "draft:item" =<< docOf answer
@@ -2922,7 +2930,8 @@ sheetSpec shell =
       insheet shell "press:f press:n press:n press:+ dpara:typed press:Escape" $ \answer -> do
         assertEqual "the drawn row goes with the box"
                     [ "head", "meta", "comp:properties:drawer"
-                    , "para", "para", "child", "para" ] =<< map head <$> docOf answer
+                    , "para", "para", "child", "para", "para:tail" ]
+          =<< map head <$> docOf answer
         assertEqual "and point is back on the stop it was pressed from"
                     3 =<< intAt "dat" answer
 
@@ -2969,14 +2978,15 @@ sheetSpec shell =
         assertEqual "drawn under the nested item, inside alpha"
                     [ "head", "meta", "comp:properties:drawer", "para", "comp:list"
                     , "item", "item", "draft:item"
-                    , "item", "item", "comp:quote", "item", "item", "para", "child", "para" ]
+                    , "item", "item", "comp:quote", "item", "item", "para", "child", "para"
+                    , "para:tail" ]
           =<< map head <$> docOf answer
         assertEqual "wearing the nested indent" ["  - "]
           . partsOf "draft:item" =<< docOf answer
         assertEqual "and the cursor is on it" 7 =<< intAt "dat" answer
         -- EVERY BYTE ON SCREEN EXACTLY ONCE; `downers' is the reading that sees it, where the flat `.de' walk cannot.
         assertEqual "the leaves past it are still the composite's own"
-                    [-1, -1, -1, -1, -1, 4, 5, 5, 4, 4, -1, 10, 10, -1, -1, -1]
+                    [-1, -1, -1, -1, -1, 4, 5, 5, 4, 4, -1, 10, 10, -1, -1, -1, -1]
           =<< flaggedAt "downers" answer
       onTable shell (intoNestedRun <> " press:+ dpara:__-_note press:Enter") $ \answer ->
         assertEqual "two spaces in, above the blank the outer run keeps"
@@ -3100,7 +3110,7 @@ sheetSpec shell =
                "+ \8594 org-insert-element (after the quote)"
 
   , testCase "+ over a child refuses and names the door" $
-      insheet shell "press:n press:+" $ \answer -> do
+      insheet shell (ontoChild <> " press:+") $ \answer -> do
         assertEqual "no overlay" False =<< boolAt "dparaopen" answer
         assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
         echoIs ""
@@ -3132,15 +3142,16 @@ sheetSpec shell =
         assertEqual "the walk, kind by kind, the lifted header leading it"
                     [ "head", "meta", "comp:properties:drawer", "para", "comp:list"
                     , "item", "item", "item", "item"
-                    , "comp:quote", "item", "item", "para", "child", "para" ]
+                    , "comp:quote", "item", "item", "para", "child", "para", "para:tail" ]
           =<< map head <$> docOf answer
         assertEqual "and the grain of each stop"
                     [ "element", "element", "composite", "element", "composite"
                     , "leaf", "leaf", "leaf", "leaf"
-                    , "composite", "leaf", "leaf", "element", "element", "element" ]
+                    , "composite", "leaf", "leaf", "element", "element", "element"
+                    , "element" ]
           =<< textsAt "dgrains" answer
         assertEqual "and who it hangs under"
-                    [-1, -1, -1, -1, -1, 4, 5, 4, 4, -1, 9, 9, -1, -1, -1]
+                    [-1, -1, -1, -1, -1, 4, 5, 4, 4, -1, 9, 9, -1, -1, -1, -1]
           =<< flaggedAt "downers" answer
 
   , testCase "n skims the composites whole, and p is the skim reversed" $ do
@@ -3217,15 +3228,16 @@ sheetSpec shell =
         assertEqual "the walk, kind by kind, over a MIXED body"
                     [ "head", "meta", "comp:properties:drawer", "para", "comp:table"
                     , "item", "item", "item", "item"
-                    , "comp:list", "item", "item", "para", "child", "para" ]
+                    , "comp:list", "item", "item", "para", "child", "para", "para:tail" ]
           =<< map head <$> docOf answer
         assertEqual "and the grain of each stop"
                     [ "element", "element", "composite", "element", "composite"
                     , "leaf", "leaf", "leaf", "leaf"
-                    , "composite", "leaf", "leaf", "element", "element", "element" ]
+                    , "composite", "leaf", "leaf", "element", "element", "element"
+                    , "element" ]
           =<< textsAt "dgrains" answer
         assertEqual "and who each row hangs under"
-                    [-1, -1, -1, -1, -1, 4, 4, 4, 4, -1, 9, 9, -1, -1, -1]
+                    [-1, -1, -1, -1, -1, 4, 4, 4, 4, -1, 9, 9, -1, -1, -1, -1]
           =<< flaggedAt "downers" answer
         assertEqual "the four rows, the rule among them"
                     [["| a | b |"], ["|---+---|"], ["| 1 | 2 |"], ["| 3 | 4 |"]]
@@ -3357,7 +3369,7 @@ sheetSpec shell =
 
     -- THE LINKS RIDE THE MATERIALIZE: compact from the FIRST frame, with no second fetch to bridge.
   , keyed shell "the links ride the materialize: compact on every fill, no second fetch"
-      "" ("linky press:Enter press:n press:Enter"
+      "" ("linky press:Enter " <> ontoChild <> " press:Enter"
             <> " press:Backspace") $ \answer -> do
         segs <- pairsAt "dsegs" answer
         assertEqual "the paragraph reads compact after the round trip"
@@ -3384,6 +3396,20 @@ sheetSpec shell =
         assertEqual "three stops down is the paragraph, links and all" 3
           =<< pointOf answer
         assertEqual "nothing was opened by drawing them" [] =<< openedOf answer
+
+    -- `o' OPENS A ROW'S REACH: a headline answers for the whole subtree
+    -- under it -- the root's reach the entry -- where its own SPAN is one line.
+  , keyed shell "o on the root gathers the whole entry's links" ""
+      "linky press:Enter press:o" $ \answer -> do
+        assertEqual "the popup, over every link the subtree holds" "on"
+          =<< textAt "popup" answer
+        assertEqual "titled by the count" "open · 4 links" =<< textAt "lhead" answer
+
+  , keyed shell "o on a child answers for the child's own reach" ""
+      ("linky press:Enter " <> ontoChild <> " press:o") $ \answer -> do
+        assertEqual "no popup over an empty reach" "" =<< textAt "popup" answer
+        echoIs "the child's subtree holds no links, and the door says so"
+          "RET → org-glance-overview:open (no links)" answer
 
     -- `o' SCOPES TO THE STOP: every lifted region sits above the paragraphs, so body lines and file lines differ by one constant.
   , testCase "o asks over the stop the cursor is on" $ do
@@ -3514,7 +3540,7 @@ sheetSpec shell =
         echoIs "" "x → dired-do-flagged-delete (no deletions requested)" answer
 
   , keyed shell "a headline is not deleted from the document, and says so"
-      "Enter" "press:n press:D" $ \answer -> do
+      "Enter" (ontoChild <> " press:D") $ \answer -> do
         assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
         assertEqual "the log says why"
           (Just "a headline is not deleted from the sheet — this writes elements only")
@@ -3597,7 +3623,7 @@ sheetSpec shell =
         assertEqual "opened once, and read again on the answer"
                     ["r1", "r1"] <=< textsAt "readAt"
       insheet shell
-             ("press:n press:Enter press:f press:n press:Enter"
+             (ontoChild <> " press:Enter press:f press:n press:Enter"
                 <> " dpara:reworded press:C-x press:C-s") $
         assertEqual "the row, the child, and the child again"
                     ["r1", "r1#0", "r1#0"] <=< textsAt "readAt"
@@ -3644,7 +3670,7 @@ sheetSpec shell =
                     [Just "C"] =<< prioritiesOf answer
         echoIs "and the pill names the key that ran it" "S-<up> → priority-up ([#C] · 1)" answer
       insheet shell
-             "press:n press:Enter press:S-ArrowUp" $ \answer -> do
+             (ontoChild <> " press:Enter press:S-ArrowUp") $ \answer -> do
         assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
         echoIs "and it said which key climbs out"
           "a child is not settable yet — DEL opens its parent" answer
@@ -3661,11 +3687,11 @@ sheetSpec shell =
     -- A CHILD IS READ-ONLY: no row id, so no `/command' can address it.
   , testCase "a child is not settable yet, and the echo says so" $ do
       insheet shell
-             "press:n press:Enter press:Enter" $ \answer -> do
+             (ontoChild <> " press:Enter press:Enter") $ \answer -> do
         assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
         echoIs "and the pill named the way out"
           "RET → a child's title is not settable yet — DEL opens its parent" answer
-      insheet shell "press:n press:Enter press:t" $
+      insheet shell (ontoChild <> " press:Enter press:t") $
         \answer -> do
           assertEqual "nothing raised" "" =<< textAt "prompt" answer
           echoIs "and it said which key climbs out"
@@ -3673,7 +3699,7 @@ sheetSpec shell =
 
     -- A CHILD'S OWN PARTS are editable through the lens that materialized it, at that entry's extent.
   , keyed shell "a child's paragraph writes the child's own extent"
-      "Enter" ("press:n press:Enter press:f press:n press:Enter"
+      "Enter" (ontoChild <> " press:Enter press:f press:n press:Enter"
                 <> " dpara:reworded press:C-x press:C-s") $ \answer -> do
         assertEqual "aimed at the entry, not the row" ["r1#0"]
           =<< textsAt "wroteAt" answer
@@ -4639,11 +4665,16 @@ onTable shell = bootOf shell "" 500 ""
 insheet :: IO T.Text -> T.Text -> (Value -> Assertion) -> Assertion
 insheet shell = bootOf shell "" 500 "Enter"
 
--- | The three key scripts that put point INSIDE a list: the grain tree's outer run, its nested run, and the checkbox tree's run.  Each opens the sheet, enters the body with `f' — a headline walks headlines, so `n' would leave for the child — walks down to the list and steps into it.
+-- | The three key scripts that put point INSIDE a list: the grain tree's outer run, its nested run, and the checkbox tree's run.  Each opens the sheet, enters the body with `f' and walks down to the list and steps into it.
 intoRun, intoNestedRun, intoChecky :: T.Text
 intoRun       = "grain press:Enter press:f press:n press:n press:n press:f"
 intoNestedRun = intoRun <> " press:f"
 intoChecky    = "checky press:Enter press:f press:n press:n press:f"
+
+-- | THE ROOT STEPS INTO ITS CONTENTS, so the fixture's child is five `n' down:
+-- the planning line, the drawer and the two paragraphs, then the child itself.
+ontoChild :: T.Text
+ontoChild = "press:n press:n press:n press:n press:n"
 
 -- | 'bootOf' over a browser that already REMEMBERS something: a preference the BOOT reads is unreachable from an act.
 bootWith :: IO T.Text -> T.Text -> T.Text -> Int -> T.Text -> T.Text

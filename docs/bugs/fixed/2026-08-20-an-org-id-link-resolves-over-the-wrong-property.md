@@ -29,9 +29,10 @@ reads it as its own key.
 
 ## The fix (same day)
 
-The namespace rides the reference: `Ref` gained `refVia` (`ViaRow` /
-`ViaOrgId`), set by `refTargetOf` from the prefix; `RefRow` carries the
-row's `:ID:` via `orgIdOf` (`orgIdentity`, org-id's twin of `identity`);
-`keyTest Ref` matches each link in its own namespace. Pinned in
-`TestFilter` (`Org row`/`Crossed` fixture rows). The open-link proposal's
-"`id:` law" section carries the same rule for `link.row`.
+The namespace rides the reference: `refPrefixes` binds each prefix to a
+`RefVia` (`ViaRow` / `ViaOrgId`), `refTargetOf` carries it onto `Ref`, and
+`keyTest Ref` matches each link in its own namespace — row spellings for
+`ViaRow`, the `:ID:` property alone (`idPropertyOf`, via `orgIdentity`)
+for `ViaOrgId`. Pinned in `TestFilter` (`Org row`/`Crossed` fixture rows).
+The open-link proposal's "`id:` law" section carries the same rule for
+`link.row`.

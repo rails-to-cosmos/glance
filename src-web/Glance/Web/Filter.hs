@@ -34,7 +34,7 @@ import qualified Data.Text as T
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
                     , RefVia (..), refTarget, refVia
                     , Meta (..), activeMeta, archiveTag, cellSep, filterKeys
-                    , inactiveMeta, metaWord, orgIdOf
+                    , idPropertyOf, inactiveMeta, metaWord
                     , priorityLetter, refSpellings, tagRunEntries )
 
 
@@ -162,23 +162,15 @@ splitKey text'
   where (key, rest) = T.break (\c -> c == ':' || c == '=') text'
 
 
-data RefRow = RefRow
-  { rrId      :: !Text          -- ^ the row's own id, so a row is not its own reference.
-  , rrTargets :: ![Text]        -- ^ 'Glance.Query.refSpellings' of it.
-  , rrOrgId   :: !(Maybe Text)  -- ^ its @:ID:@ property — what an @id:@ link names.
-  }
-
 newtype FilterEnv = FilterEnv
-  { feRef :: Text -> Maybe RefRow      -- ^ a row id resolved, or 'Nothing' where no row claims it.
+  { feRef :: Text -> Maybe HeadlineRecord  -- ^ a row id resolved, or 'Nothing' where no row claims it.
   }
 
 emptyEnv :: FilterEnv
 emptyEnv = FilterEnv (const Nothing)
 
 storeEnv :: [HeadlineRecord] -> FilterEnv
-storeEnv rows = FilterEnv resolve
-  where resolve rid = (\r -> RefRow (hrId r) (refSpellings r) (orgIdOf r))
-                        <$> find ((== rid) . hrId) rows
+storeEnv rows = FilterEnv (\rid -> find ((== rid) . hrId) rows)
 
 -- | Does a row match Q in ENV?  Compiled once per request, never per row.
 matchesFilter :: FilterEnv -> Text -> HeadlineRecord -> Bool
@@ -243,10 +235,12 @@ keyTest env _key Ref value = case feRef env value of
   -- link matches in ITS OWN namespace: the row's spellings for 'ViaRow', the
   -- @:ID:@ property alone for org-id's 'ViaOrgId'.
   Just row ->
-    let names l = case refVia l of
-          ViaRow   -> refTarget l `elem` rrTargets row
-          ViaOrgId -> Just (refTarget l) == rrOrgId row
-    in \r -> hrId r /= rrId row && any names (hrLinks r)
+    let targets = refSpellings row
+        oid = idPropertyOf row
+        names l = case refVia l of
+          ViaRow   -> refTarget l `elem` targets
+          ViaOrgId -> maybe False (refTarget l ==) oid
+    in \r -> hrId r /= hrId row && any names (hrLinks r)
 keyTest _env _key Order _value = const True
 keyTest _env _key Whole value = freeTest value
 -- The two that read a row's CELLS, spelled out: a fifth key falling in here would read an empty cell list and match nothing, with no warning.

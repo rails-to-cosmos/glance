@@ -104,8 +104,8 @@ module Glance.Query ( BlobSeed (..)
                     , recomposedSubtree
                     , Ref (..)
                     , RefVia (..)
+                    , idPropertyOf
                     , kindSlug
-                    , orgIdOf
                     , refSpellings
                     , refTargetOf
                     , refTargets
@@ -558,10 +558,12 @@ tagColumns =
 
 -- References
 
--- | The protocols naming a row: the material schemes plus org's own @id:@.
+-- | The protocols naming a row, EACH BOUND TO ITS NAMESPACE, so a prefix
+--   cannot land without declaring where it resolves.
 --   @org-glance-overview:@/@-state:@ name a tag and a keyword.
-refPrefixes :: [Text]
-refPrefixes = map (<> ":") materialSchemes <> ["id:"]
+refPrefixes :: [(Text, RefVia)]
+refPrefixes = [ (s <> ":", ViaRow) | s <- materialSchemes ]
+           <> [("id:", ViaOrgId)]
 
 -- | The NAMESPACE a reference resolves in.  @id:@ is org-id's protocol and
 --   names the @:ID:@ PROPERTY; everything else names the row itself.
@@ -596,17 +598,16 @@ refTargetOf target
     -- A KIND RIDES ON THE EDGE, not on the row: org-glance writes
     -- @?kind=SLUG@ after the id, so the id alone names the row and the kind is
     -- KEPT BESIDE IT.  A TITLE is text, so its own @?@ stays.  The NAMESPACE
-    -- is the prefix's own: @id:@ resolves in org-id's.
-  | Just (p, rest) <- stripped =
+    -- rides the prefix ('refPrefixes').
+  | Just (via, rest) <- stripped =
       let (row, query) = T.breakOn "?" rest
-      in plain row (kindIn (T.drop 1 query))
-               (if p == "id:" then ViaOrgId else ViaRow)
+      in plain row (kindIn (T.drop 1 query)) via
   | Just rest <- T.stripPrefix "*" target                       = plain rest Nothing ViaRow
   | T.any (\c -> c == ':' || c == '/') target                   = Nothing
   | otherwise                                                   = plain target Nothing ViaRow
   where
-    stripped = listToMaybe [ (p, rest) | p <- refPrefixes
-                                       , Just rest <- [T.stripPrefix p target] ]
+    stripped = listToMaybe [ (via, rest) | (p, via) <- refPrefixes
+                                         , Just rest <- [T.stripPrefix p target] ]
     plain t k v = if T.null t then Nothing else Just (Ref t k v)
 
 -- | The @kind@ of a target's query string; an EMPTY one is no kind at all.
@@ -630,9 +631,10 @@ refSpellings :: HeadlineRecord -> [Text]
 refSpellings r = maybe id (:) (identity (hrHeadline r)) [hrTitle r]
 
 -- | R's @:ID:@ property — org-id's own, the one spelling a 'ViaOrgId'
---   reference matches.
-orgIdOf :: HeadlineRecord -> Maybe Text
-orgIdOf = orgIdentity . hrHeadline
+--   reference matches.  Named after the PROPERTY: 'rowOrgId' nearby reads
+--   @ORG_GLANCE_ID@, the other namespace.
+idPropertyOf :: HeadlineRecord -> Maybe Text
+idPropertyOf = orgIdentity . hrHeadline
 
 squashControls :: Text -> Text
 squashControls = T.concat . go

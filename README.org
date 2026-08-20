@@ -108,10 +108,15 @@ The form, the template law and the =%=-code subset: [[file:docs/capture.md][docs
 drawer and every child headline drawn in place.
 
 - Movement is the table's two axes: =n=/=p= walk siblings at the current
-  grain -- and on a headline, the whole visible outline in document order --
-  while =f=/=b= go a grain finer / broader.
+  grain -- and on a child headline, the whole visible outline in document
+  order, the root's own line stepping into its contents instead -- while
+  =f=/=b= go a grain finer / broader.
 - A list, block, table or drawer is *one* stop, so holding =n= skims; =TAB=
   folds a drawer or a child's subtree, org's own cycle.
+- The pane ends on one empty line: =RET= there writes a fresh paragraph at
+  the document's end, wherever =+= is owned by what point stands on.
+- =o= opens the links of the row's *reach* -- a headline's whole subtree,
+  the root's the entry.
 - Every element commits on its own (=C-x C-s= / =C-c C-c=); =RET= on a child
   drills in, =DEL= walks out. Nothing written can leave the subtree: a typed
   root-level headline is demoted to a child.

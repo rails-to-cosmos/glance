@@ -45,22 +45,155 @@ and `substring`-plus-free-text as one axis). Per axis:
   (disjunction of the + tokens)`; an axis holding only `+` tokens is just the
   disjunction, so a lone `+tag:work` is `tag:work`.
 
-Axes AND, unchanged. Negation stays inside the conjunction half:
+Axes AND, unchanged. Grouping is by KEY, never by adjacency, so token order
+carries nothing: `priority:[#A] tag:book +priority:[#B]` reads
+`(priority:[#A] OR priority:[#B]) AND tag:book` however the three are
+interleaved. Negation stays inside the conjunction half:
 `-state:TODO +state:DONE` is "not TODO, or DONE" — the widening reading; a
 reviewer who wants `+` refused beside a negated same-key token can have that
 instead, one guard in the same place.
 
 Worked examples against the pinned corpus:
 
-| query | serves |
-| --- | --- |
-| `priority:[#A] +priority:[#B]` | priorities A and B |
-| `tag:work priority:[#A] +priority:[#B]` | work rows at A or B |
-| `tag:work +tag:home` | rows tagged work or home (today: the intersection) |
-| `+state:DONE` | ≡ `state:DONE` |
-| `planned:*empty* +planned:2026-08` | undated rows plus the August ones |
-| `ref:A +ref:B` | rows referring to either |
-| `milk +bread` | rows carrying either word |
+| query                                   | serves                                             |
+|-----------------------------------------|----------------------------------------------------|
+| `priority:[#A] +priority:[#B]`          | priorities A and B                                 |
+| `tag:work priority:[#A] +priority:[#B]` | work rows at A or B                                |
+| `priority:[#A] tag:book +priority:[#B]` | book rows at A or B — order never matters          |
+| `tag:work +tag:home`                    | rows tagged work or home (today: the intersection) |
+| `+state:DONE`                           | ≡ `state:DONE`                                     |
+| `planned:*empty* +planned:2026-08`      | undated rows plus the August ones                  |
+| `ref:A +ref:B`                          | rows referring to either                           |
+| `milk +bread`                           | rows carrying either word                          |
+
+## Formal semantics
+
+The narrowing language with `+`, precisely. Shaping tokens (`sort:`,
+`columns:`, `view:`) order and shape the answer, never narrow, and refuse
+both signs — they are outside this section.
+
+### Grammar
+
+```
+query   ::= token (WS token)*
+token   ::= sign? key ":" value        -- a narrowing token
+          | word                       -- free text
+sign    ::= "+" | "-"                  -- at most one, the token's first char
+value   ::= alt ("|" alt)*             -- alternatives, today's own
+```
+
+The resolver's fallthrough stands: anything failing the shape — `+-x`, an
+upper-case key, a quoted `"+state:x"` — reads as free text. Signs never
+nest and never quote.
+
+### Denotation
+
+Fix a row set `R`. Every narrowing token `t` has today's atomic predicate
+`⟦t⟧ : R → Bool` ([query.md](../../query.md) is the per-key law;
+alternatives are `⟦k:v₁|v₂⟧ = ⟦k:v₁⟧ ∨ ⟦k:v₂⟧`). The `+`/`-` sign is not
+part of the atom — it says how the atom joins its axis.
+
+**Axes.** `axis(t)` is the token's field: one of the six column keys,
+`planned`, `ref`, or `text` — `substring:` and free words share `text`.
+Group the query's narrowing tokens by axis; on each axis `A` let
+
+```
+P = its plain tokens     N = its negated (-) tokens     W = its + tokens
+```
+
+**One axis.** With `⋀ ∅ = ⊤` and `⋁ ∅ = ⊥`:
+
+```
+base(r) = ⋀{ ⟦t⟧(r) | t ∈ P } ∧ ⋀{ ¬⟦t⟧(r) | t ∈ N }
+wide(r) = ⋁{ ⟦t⟧(r) | t ∈ W }
+
+⟦A⟧(r)  = (P ∪ N ≠ ∅  ∧  base(r))  ∨  wide(r)
+```
+
+One formula covers the three shapes: no `+` tokens gives `base` alone
+(today's law, unchanged); `+` beside plain tokens gives `base ∨ wide`; an
+axis of only `+` tokens gives `wide` alone, so a lone `+tag:work` is
+`tag:work`.
+
+**The query.** Axes conjoin: `⟦Q⟧(r) = ⋀ { ⟦A⟧(r) | A has a token }`. An
+empty query serves every row.
+
+### Laws
+
+1. **Order-independence.** `⟦Q⟧` is invariant under any permutation of Q's
+   tokens — grouping is by key, never adjacency.
+2. **Conservativity.** A query with no `+` token means exactly what it
+   means today.
+3. **Widening is per-axis.** If Q already narrows on `axis(t)`, then
+   `⟦Q⟧ ⊆ ⟦Q +t⟧` — appending `+t` only adds rows. On a FRESH axis `+t`
+   conjoins a new `⟦t⟧` and narrows; `+` widens against its own axis's
+   filters, never against the whole query.
+4. **Idempotence.** A `+` token repeated changes nothing (`∨` absorbs).
+5. **Alternatives agree with `+` on a bare axis.** `k:v₁|v₂ ≡ k:v₁ +k:v₂`
+   when the axis holds nothing else. Beside another plain token they part:
+   `k:u k:v₁|v₂` is `u ∧ (v₁ ∨ v₂)` where `k:u k:v₁ +k:v₂` is
+   `(u ∧ v₁) ∨ v₂`.
+6. **Negation stays in the conjunction half.** `-k:v +k:w` is `¬v ∨ w`.
+
+### Derivations
+
+`priority:[#A] tag:book +priority:[#B]`
+
+```
+priority: P={[#A]}  W={[#B]}   →  A ∨ B
+text/tag: tag axis P={book}    →  book
+⟦Q⟧ = (A ∨ B) ∧ book
+```
+
+`tag:work tag:home +tag:fun`
+
+```
+tag: P={work,home}  W={fun}    →  (work ∧ home) ∨ fun
+```
+
+`-state:TODO +state:DONE`
+
+```
+state: N={TODO}  W={DONE}      →  ¬TODO ∨ DONE
+```
+
+`+priority:[#B]` (fresh axis, nothing else)
+
+```
+priority: P∪N=∅  W={[#B]}      →  ⊥ ∨ B  =  B      -- ≡ priority:[#B]
+```
+
+### Relational reading
+
+The language is a small relational-algebra fragment, and a query compiles
+to ONE dataframe-style pipeline:
+
+```
+⟦Q⟧  =  df.filter(⋀ axis-exprs).orderBy(sort:).select(columns:)
+```
+
+Each axis compiles to one boolean expression — `(A ∨ B) ∧ book` is
+`filter((priority === A || priority === B) && tag(book))`. The append-only
+chain `df.filter(p).filter(q)` expresses exactly the `+`-free fragment:
+appending a filter can only intersect, which is conservativity (law 2). `+`
+is the reason the chain form stops sufficing — it is a per-axis UNION, so
+it rewrites its axis's expression rather than appending a new stage (law
+3 is the chain-append property holding per axis, lost at the query level).
+`ref:` is the one key that is a semi-join underneath, against the target's
+spellings rather than the row's own cells. Kept OUT on purpose: joins,
+grouping, nesting — the rejected `or:(…)` below — which is what keeps a
+query a flat, human-typable URL string.
+
+### Edge cases
+
+| token                | reads as                                        |
+| -------------------- | ----------------------------------------------- |
+| `+sort:title`        | refused, the `-sort:` 400 shape                 |
+| `+k:` (empty value)  | the empty-value law of its key, in `W`          |
+| `+-x`, `-+x`         | free text (two signs fail the shape)            |
+| `"+state:x"`         | free text (quoted)                              |
+| `+STATE:x`           | free text (keys are lowercase)                  |
+| `+state:A\|B`        | both alternatives join `W` as one atom          |
 
 ## Implementation sketch
 

@@ -76,7 +76,8 @@ edited id written lines =
 
 
 {-| WHAT EVERY `d`/`D` LEAVES, in row order — ALL of them rather than the one
-that was reported.
+that was reported.  THE TAIL IS NO ROW TO TAKE: it carries no span, so the flag
+and delete doors refuse it.
 -}
 takes : List String -> List String
 takes lines =
@@ -85,7 +86,7 @@ takes lines =
             model lines
     in
     List.map (\r -> Body.bodyText m [ r.id ])
-        (List.filter (\r -> r.kind == Para) m.rows)
+        (List.filter (\r -> r.kind == Para && r.id /= Body.tailId) m.rows)
 
 
 {-| THE BODIES THAT DO NOT PAIR UP, which a stop set alone cannot say.
@@ -1057,7 +1058,7 @@ suite =
                         rows =
                             Maybe.withDefault m.rows (Body.drafted m "B0" Nothing)
                     in
-                    Expect.equal ( 4, "* head\nalpha\n\nbeta" )
+                    Expect.equal ( 5, "* head\nalpha\n\nbeta" )
                         ( List.length rows, Body.bodyText { m | rows = rows } [] )
             , test "the drawn item writes nothing at all either" <|
                 \_ ->
@@ -1069,7 +1070,7 @@ suite =
                         rows =
                             Maybe.withDefault m.rows (Body.drafted m "B1" Nothing)
                     in
-                    Expect.equal ( 4, "* head\n- alpha" )
+                    Expect.equal ( 5, "* head\n- alpha" )
                         ( List.length rows, Body.bodyText { m | rows = rows } [] )
             , test "and it stands directly under the stop, inside the list" <|
                 \_ ->
@@ -1077,7 +1078,7 @@ suite =
                         m =
                             model [ "* head", "- alpha", "- beta", "", "after" ]
                     in
-                    Expect.equal (Just [ "H", "B0", "B1", "D", "B2", "B3" ])
+                    Expect.equal (Just [ "H", "B0", "B1", "D", "B2", "B3", "T" ])
                         (Maybe.map (List.map .id) (Body.drafted m "B1" Nothing))
             , test "a second ask draws one paragraph rather than two" <|
                 \_ ->
@@ -1262,7 +1263,7 @@ suite =
             , test "and in the row order its bytes are in" <|
                 \_ ->
                     Expect.equal
-                        (Just [ "H", "B0", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "D", "B8", "B9" ])
+                        (Just [ "H", "B0", "B1", "B2", "B3", "B4", "B5", "B6", "B7", "D", "B8", "B9", "T" ])
                         (Maybe.map (List.map .id) (Body.drafted (model pets) "B1" (Just 6)))
             ]
         -- A LINE INSIDE A LIST BELONGS TO AN ITEM however wide the stop laid over
