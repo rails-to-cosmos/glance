@@ -1788,7 +1788,7 @@ lastLog answer = fmap (message . cut) . listToMaybe . reverse <$> logOf answer
 openKeySpec :: IO T.Text -> TestTree
 openKeySpec shell =
   overBoot shell "o" "" $ \opened ->
-  overBoot shell "o" "press:Enter lurl:https://new.example press:Enter" $ \committed ->
+  overBoot shell "o" "press:e lurl:https://new.example press:Enter" $ \committed ->
   testGroup "Shell open"
   [ atBoot opened "o asks about the row at point" $
         assertEqual "one request, naming the row" ["/links?id=r1"] <=< textsAt "linked"
@@ -1833,8 +1833,8 @@ openKeySpec shell =
           , ["mailto", "mailto:t@example.org", "mailto:t@example.org"] ]
           =<< pairsAt "llinks" answer
         assertEqual "the cursor lands on the first" 0 =<< intAt "lat" answer
-        assertEqual "and the foot names the three keys that work"
-                    "RET edits · o opens it · / narrows · ESC leaves" =<< textAt "lfoot" answer
+        assertEqual "and the foot names the four keys that work"
+                    "RET opens it · e edits · / narrows · ESC leaves" =<< textAt "lfoot" answer
 
     -- READ-ONLY: nothing here writes, so there is no flag hint to draw.
   , atBoot opened "the list is read-only: it names no flag keys" $ \answer ->
@@ -1859,21 +1859,32 @@ openKeySpec shell =
       bootOf shell "" 500 "o" "press:ArrowDown" $
         assertEqual "the arrows too" 1 <=< intAt "lat"
 
-  , keyed shell "o opens the link at point and closes the popup"
-      "o" "press:n press:o" $ \answer -> do
+    -- RET IS THE POPUP'S OWN NAME SPOKEN: the list is `open', so its default
+    -- press opens, and `o' stays the same key it is everywhere else.
+  , testCase "RET and o both open the link at point and close the popup" $ do
+      bootOf shell "" 500 "o" "press:n press:o" $ \answer -> do
         assertEqual "the second one" [("https://two.example/b", "_blank", "noopener")]
           =<< openedOf answer
         assertEqual "the popup is down" "" =<< textAt "popup" answer
         echoIs "the pill names it by its description"
+          "o → org-glance-overview:open (Second reference)" answer
+      bootOf shell "" 500 "o" "press:n press:Enter" $ \answer -> do
+        assertEqual "RET opens the very same tab"
+          [("https://two.example/b", "_blank", "noopener")] =<< openedOf answer
+        assertEqual "and takes the popup down with it" "" =<< textAt "popup" answer
+        assertEqual "with no edit overlay behind it" False =<< boolAt "lopen" answer
+        -- THE PILL WEARS THE OPENER'S BINDING: the popup answers under the
+        -- binding that raised it, so both keys land the one line.
+        echoIs "under the same command"
           "o → org-glance-overview:open (Second reference)" answer
 
   , keyed shell "ESC leaves it having opened nothing" "o" "press:Escape" $ \answer -> do
         assertEqual "nothing opened" [] =<< openedOf answer
         assertEqual "the popup is down" "" =<< textAt "popup" answer
 
-    -- `RET' EDITS the link at point in place, on the property panel's edit model.
-  , keyed shell "RET opens the link at point over its own two cells"
-      "o" "press:Enter" $ \answer -> do
+    -- `e' EDITS the link at point in place, on the property panel's edit model.
+  , keyed shell "e opens the link at point over its own two cells"
+      "o" "press:e" $ \answer -> do
         assertEqual "the overlay is up" True =<< boolAt "lopen" answer
         assertEqual "holding what the entry calls it" "First reference"
           =<< textAt "ltitle" answer
@@ -1884,10 +1895,10 @@ openKeySpec shell =
         assertEqual "and nothing is posted by opening one" [] =<< namesOf answer
 
   , testCase "TAB hops the two fields, and nothing else moves" $ do
-      bootOf shell "" 500 "o" "press:Enter press:Tab" $ \answer -> do
+      bootOf shell "" 500 "o" "press:e press:Tab" $ \answer -> do
         assertEqual "over to the description" "ltitle" =<< textAt "focus" answer
         assertEqual "the overlay is still open" True =<< boolAt "lopen" answer
-      bootOf shell "" 500 "o" "press:Enter press:Tab press:Tab" $
+      bootOf shell "" 500 "o" "press:e press:Tab press:Tab" $
         assertEqual "and back" "lurl" <=< textAt "focus"
 
     -- This page holds no bracket grammar and no offsets of its own: it sends back the range it was given.
@@ -1911,7 +1922,7 @@ openKeySpec shell =
           assertEqual "no desc field" ["span", "target"] . sort =<< fieldsOf args
 
   , keyed shell "and one the reader emptied is the null that takes it off"
-      "o" "press:Enter ltitle: press:Enter" $ \answer -> do
+      "o" "press:e ltitle: press:Enter" $ \answer -> do
         [cmd] <- listAt "commands" answer
         args <- field "args" cmd
         assertEqual "a null description" Null =<< field "desc" args
@@ -1919,7 +1930,7 @@ openKeySpec shell =
           =<< textAt "target" args
 
   , keyed shell "a description typed over the old one is sent as it was typed"
-      "o" "press:Enter ltitle:renamed press:Enter" $
+      "o" "press:e ltitle:renamed press:Enter" $
         \answer -> do
           [cmd] <- listAt "commands" answer
           args <- field "args" cmd
@@ -1939,19 +1950,19 @@ openKeySpec shell =
                   \https://new.example")
             =<< lastLog answer
 
-  , keyed shell "a link nobody changed costs no write" "o" "press:Enter press:Enter" $ \answer -> do
+  , keyed shell "a link nobody changed costs no write" "o" "press:e press:Enter" $ \answer -> do
         assertEqual "nothing posted" [] =<< namesOf answer
         assertEqual "the popup is down all the same" "" =<< textAt "popup" answer
         echoIs "and the pill says so" "o → org-glance-overview:open (unchanged)" answer
 
   , keyed shell "an emptied target is refused here, since a link points somewhere"
-      "o" "press:Enter lurl: press:Enter" $ \answer -> do
+      "o" "press:e lurl: press:Enter" $ \answer -> do
         assertEqual "nothing posted" [] =<< namesOf answer
         echoIs "the pill says why"
           "o → org-glance-overview:open (a link points somewhere)" answer
 
   , keyed shell "ESC over an open link puts it back and leaves the popup standing"
-      "o" "press:Enter lurl:https://new.example press:Escape" $
+      "o" "press:e lurl:https://new.example press:Escape" $
         \answer -> do
           assertEqual "the overlay is gone" False =<< boolAt "lopen" answer
           assertEqual "the popup is not" "on" =<< textAt "popup" answer
@@ -1959,12 +1970,12 @@ openKeySpec shell =
           echoIs "and the pill says the link stands"
             "ESC → keyboard-quit (link unchanged)" answer
 
-  , keyed shell "and a second ESC closes the popup" "o" "press:Enter press:Escape press:Escape" $
+  , keyed shell "and a second ESC closes the popup" "o" "press:e press:Escape press:Escape" $
         assertEqual "down" "" <=< textAt "popup"
 
     -- No KEY can move the cursor under an open field, but a MOUSE CLICK can.
   , keyed shell "a click under an open link cannot redirect the write"
-      "o" "press:Enter lurl:https://new.example click:2 press:Enter" $
+      "o" "press:e lurl:https://new.example click:2 press:Enter" $
         \answer -> do
           [cmd] <- listAt "commands" answer
           args <- field "args" cmd
@@ -2013,22 +2024,33 @@ openKeySpec shell =
           ["https", "http", "glance", "mailto", "id", "file", "other"]
           . map head <=< pairsAt "llinks"
 
-  , testCase "and only the followable ones open a tab" $
-      forM_ [ (0 :: Int, "https://a.example", True)
-            , (1, "http://b.example",         True)
-            , (2, "org-glance-visit:XYZ",     False)
-            , (3, "mailto:t@example.org",     False)
-            , (4, "id:99",                    False)
-            , (5, "file:notes.org",           False)
-            , (6, "Some Headline",            False) ] $
-        \(at, target, opens) ->
+    -- A MATERIAL TYPE POINTS AT A HEADLINE, a followable one at a place a tab
+    -- can go: opening a material link MATERIALIZES that entry, the scheme and
+    -- any `?kind=' cut off the target.  Three outcomes, and every row says
+    -- which it took.
+  , testCase "only the followable ones open a tab, and a material one materializes" $
+      forM_ [ ( 0 :: Int, "https://a.example", True, False
+              , "link \"https://a.example\" opened" )
+            , (1, "http://b.example", True, False, "link \"http://b.example\" opened")
+            , (2, "org-glance-visit:XYZ", False, True, "materialized \"XYZ\"")
+            , ( 3, "mailto:t@example.org", False, False
+              , "link type not implemented: mailto:t@example.org" )
+            , (4, "id:99", False, False, "link type not implemented: id:99")
+            , ( 5, "file:notes.org", False, False
+              , "link type not implemented: file:notes.org" )
+            , ( 6, "Some Headline", False, False
+              , "link type not implemented: Some Headline" ) ] $
+        \(at, target, opens, opensSheet, logged) ->
           bootOf shell "" 500 ""
             ("everytype press:o " <> T.replicate at "press:n " <> "press:o") $ \answer -> do
-              assertEqual (T.unpack target)
+              assertEqual (T.unpack target <> ": the tab")
                 [(target, "_blank", "noopener") | opens] =<< openedOf answer
-              if opens then pure () else
-                assertEqual "and the refusal names the target"
-                  (Just ("link type not implemented: " <> target)) =<< lastLog answer
+              assertEqual (T.unpack target <> ": the sheet")
+                (if opensSheet then "on" else "") =<< textAt "modal" answer
+              assertEqual (T.unpack target <> ": the entry it read")
+                ["r1" | opensSheet] =<< textsAt "readAt" answer
+              assertEqual (T.unpack target <> ": the log line")
+                (Just logged) =<< lastLog answer
   ]
 
 -- | @\/@: the narrow every small list takes — ONE PROGRAM, FOUR MOUNTS.
@@ -2538,7 +2560,7 @@ whichKeySpec shell =
         assertEqual "and so is the tag popup" "" =<< textAt "tagpop" answer
         echoIs "under the same line" "DEL → keyboard-quit" answer
       -- IN NAV ALONE: inside an OPEN edit the key is the field's own erase and the page declines it.
-      bootOf shell "" 500 "o" "press:Enter press:Backspace" $ \answer -> do
+      bootOf shell "" 500 "o" "press:e press:Backspace" $ \answer -> do
         assertEqual "the popup stands" "on" =<< textAt "popup" answer
         assertEqual "with its edit still open" True =<< boolAt "lopen" answer
         assertEqual "and the target lost a character"
@@ -2640,21 +2662,38 @@ sheetSpec shell =
                     "" =<< textAt "focus" answer
 
   , testCase "the document walks its elements on n/p, j/k and the arrows" $ do
-      insheet shell "press:n press:n" $
+      -- `f' FIRST: a headline walks headlines, so the elements are entered.
+      insheet shell "press:f press:n" $
         assertEqual "two stops down, the planning line and the drawer" 2 <=< pointOf
-      insheet shell "press:j press:j press:k" $
-        assertEqual "vi's pair walks the same elements" 1 <=< pointOf
-      insheet shell "press:ArrowDown press:ArrowDown press:ArrowUp" $
-        assertEqual "and so do the arrows" 1 <=< pointOf
+      insheet shell "press:f press:j press:j press:k" $
+        assertEqual "vi's pair walks the same elements" 2 <=< pointOf
+      insheet shell "press:f press:ArrowDown press:ArrowDown press:ArrowUp" $
+        assertEqual "and so do the arrows" 2 <=< pointOf
       insheet shell "press:p" $
         assertEqual "the headline is the end of the walk up" 0 <=< pointOf
       -- THE WALK SKIPS OWNED ROWS: the child's own block is reached with f.
-      insheet shell "press:n press:n press:n press:n press:n press:n" $
+      insheet shell "press:f press:n press:n press:n press:n press:n" $
         assertEqual "and the child the end of the walk down" 5 <=< pointOf
+
+    -- ORG'S OWN next/previous-visible-heading: from a headline `n'/`p' cross the
+    -- contents whole, and the contents are reached by `f' alone.
+  , testCase "a headline walks headlines, and f is the way into the contents" $ do
+      insheet shell "press:n" $
+        assertEqual "the child is the next visible headline" 5 <=< pointOf
+      insheet shell "press:n press:n" $
+        assertEqual "and no headline stands past it, so the walk stays" 5 <=< pointOf
+      insheet shell "press:n press:p" $
+        assertEqual "p back over the contents to the sheet's own line" 0 <=< pointOf
+      insheet shell "press:f" $
+        assertEqual "where f enters the body it stepped over" 1 <=< pointOf
+      -- A NON-HEADLINE ROW KEEPS THE SIBLING WALK: point inside the body still
+      -- steps the rows its owner owns, one at a time.
+      insheet shell "press:f press:n" $
+        assertEqual "and a content row steps its own kin" 2 <=< pointOf
 
     -- GEOMETRY IS BEYOND THE STUB, so what is asserted is that the page ASKED.
   , testCase "the element under point asks its pane's scroller" $ do
-      insheet shell "press:n press:n press:n press:n" $ \answer -> do
+      insheet shell "press:f press:n press:n press:n" $ \answer -> do
         seen <- textsAt "scrolled" answer
         assertEqual "the last ask was made on the element under point"
                     (Just "de d-para dat lvl-top") (listToMaybe (reverse seen))
@@ -2673,7 +2712,7 @@ sheetSpec shell =
       insheet shell "press:f" $ \answer -> do
         assertEqual "the first row of the body" 1 =<< pointOf answer
         echoIs "and the key named what it entered" "f → grain-finer (the body)" answer
-      insheet shell "press:n press:n press:n press:f" $ \answer -> do
+      insheet shell "press:f press:n press:n press:f" $ \answer -> do
         assertEqual "a paragraph does not move" 3 =<< pointOf answer
         echoIs "and says why" "f → grain-finer (nothing finer here)" answer
 
@@ -2692,7 +2731,7 @@ sheetSpec shell =
   , testCase "content lines start at the title's column, at either depth" $ do
       insheet shell "" $
         assertEqual "the row's own document" "2" <=< textAt "dindent"
-      insheet shell "press:n press:n press:n press:n press:n press:Enter" $
+      insheet shell "press:n press:Enter" $
         assertEqual "and a child, which is the root of its own" "2"
           <=< textAt "dindent"
 
@@ -2706,11 +2745,11 @@ sheetSpec shell =
                  assertEqual (what <> ": nor the child's")
                              ["child", "  * ", "two", ":web:"] (rows !! 5))
             [ ("at rest", ""), ("on the element", "press:p")
-            , ("on the child", "press:n press:n press:n press:n press:n") ]
+            , ("on the child", "press:n") ]
 
     -- RET IS BY KIND, and a CHILD re-materializes into that entry under the index the server handed over.
   , testCase "RET on a child materializes into it, and DEL climbs back" $ do
-      insheet shell "press:n press:n press:n press:n press:n press:Enter" $ \answer -> do
+      insheet shell "press:n press:Enter" $ \answer -> do
         -- The drawer is drawn even with no pairs: `+' needs a place to land.
         assertEqual "the child's own document"
           [ ["head", "* ", "two", ":web:"]
@@ -2722,7 +2761,7 @@ sheetSpec shell =
         echoIs "and the pill names what it opened"
           "RET → org-glance-overview:materialize (two)" answer
       insheet shell
-             "press:n press:n press:n press:n press:n press:Enter press:Backspace" $ \answer -> do
+             "press:n press:Enter press:Backspace" $ \answer -> do
         assertEqual "back at the row, one crumb again" ["one"] =<< textsAt "where" answer
         assertEqual "with the cursor on the child it came out of" 5
           =<< pointOf answer
@@ -2740,26 +2779,26 @@ sheetSpec shell =
       insheet shell "press:q" $ \answer -> do
         assertEqual "the sheet is shut" "" =<< textAt "modal" answer
         echoIs "named as the command it is" "q → quit-window" answer
-      insheet shell "press:n press:n press:n press:Enter press:q" $ \answer -> do
+      insheet shell "press:f press:n press:n press:Enter press:q" $ \answer -> do
         assertEqual "the sheet stands" "on" =<< textAt "modal" answer
         assertEqual "and the edit with it" True =<< boolAt "dparaopen" answer
       insheet shell "press:Enter press:q" $ \answer ->
         assertEqual "the sheet stands over an open title" "on" =<< textAt "modal" answer
 
   , testCase "RET commits the open paragraph and M-RET is the newline" $ do
-      insheet shell "press:n press:n press:n press:Enter dpara:rewritten press:Enter" $
+      insheet shell "press:f press:n press:n press:Enter dpara:rewritten press:Enter" $
         \answer -> do
           assertEqual "the body with that block replaced"
             ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
             =<< traverse (textAt "body") =<< listAt "writes" answer
           assertEqual "and the edit is shut" False =<< boolAt "dparaopen" answer
       -- `S-RET' COMMITS THE SAME BYTES; the sibling it asks for is what the key adds.
-      insheet shell "press:n press:n press:n press:Enter dpara:rewritten press:S-Enter" $
+      insheet shell "press:f press:n press:n press:Enter dpara:rewritten press:S-Enter" $
         \answer ->
           assertEqual "the same body, under the key that asks for another"
             ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
             =<< traverse (textAt "body") =<< listAt "writes" answer
-      insheet shell "press:n press:n press:n press:Enter dpara:one press:M-Enter" $
+      insheet shell "press:f press:n press:n press:Enter dpara:one press:M-Enter" $
         \answer -> do
           assertEqual "nothing was written" [] =<< textsAt "wroteAt" answer
           assertEqual "the edit is still open" True =<< boolAt "dparaopen" answer
@@ -2769,31 +2808,31 @@ sheetSpec shell =
   , testCase "the paragraph box stands as tall as what is in it, up to ten" $ do
       mapM_ (\(keys, what, rows) ->
                insheet shell keys (assertEqual what rows <=< textAt "dprows"))
-        [ ("press:n press:n press:n press:Enter", "one line to open with", "1")
-        , ("press:n press:n press:n press:Enter dpara:one|two|three", "three where three were typed", "3")
+        [ ("press:f press:n press:n press:Enter", "one line to open with", "1")
+        , ("press:f press:n press:n press:Enter dpara:one|two|three", "three where three were typed", "3")
           -- The META key splices at the caret rather than going through the field's own event.
-        , ( "press:n press:n press:n press:Enter dpara:one press:M-Enter"
+        , ( "press:f press:n press:n press:Enter dpara:one press:M-Enter"
           , "and M-RET grows it by the line it just made", "2" )
-        , ( "press:n press:n press:n press:Enter dpara:"
+        , ( "press:f press:n press:n press:Enter dpara:"
               <> T.intercalate "|" (map (T.pack . show) [1 :: Int .. 14])
           , "capped, so the document under it stays readable", "10" )
-        , ( "press:n press:n press:n press:+ dpara:one|two|three|four"
+        , ( "press:f press:n press:n press:+ dpara:one|two|three|four"
           , "an added paragraph grows the same way", "4" )
           -- The room goes back to ZERO rather than to one: the field's metrics differ from the pane's row.
-        , ( "press:n press:n press:n press:Enter dpara:one|two|three press:Escape"
+        , ( "press:f press:n press:n press:Enter dpara:one|two|three press:Escape"
           , "no floor at all once the edit is gone", "0" )
-        , ( "press:n press:n press:n press:Enter dpara:one|two|three press:Enter"
+        , ( "press:f press:n press:n press:Enter dpara:one|two|three press:Enter"
           , "and a commit gives it back too", "0" )
           -- A sheet that never opened an edit writes no number, and the STYLESHEET's own `0' covers it.
         , ("", "a sheet with nothing open never wrote one", "") ]
 
   , testCase "RET opens a paragraph as text, and C-x C-s writes it" $ do
-      insheet shell "press:n press:n press:n press:Enter" $ \answer -> do
+      insheet shell "press:f press:n press:n press:Enter" $ \answer -> do
         assertEqual "the block is open" True =<< boolAt "dparaopen" answer
         assertEqual "with its text in the field" "first para" =<< textAt "dtext" answer
         assertEqual "and the focus in it" "dtext" =<< textAt "focus" answer
       insheet shell
-             "press:n press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
+             "press:f press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
         assertEqual "one write, aimed at the row"
                     ["r1"] =<< textsAt "wroteAt" answer
         assertEqual "the body with that block replaced and nothing else"
@@ -2803,7 +2842,7 @@ sheetSpec shell =
 
     -- The overlay opens EMPTY and nothing moves until `RET', so `ESC' is a no-op by construction.
   , testCase "+ opens an empty paragraph and writes nothing yet" $
-      insheet shell "press:n press:n press:n press:+" $ \answer -> do
+      insheet shell "press:f press:n press:n press:+" $ \answer -> do
         assertEqual "the overlay is up" True =<< boolAt "dparaopen" answer
         assertEqual "and EMPTY, where RET opens with the text" ""
           =<< textAt "dtext" answer
@@ -2814,7 +2853,7 @@ sheetSpec shell =
 
     -- THE PARAGRAPH IS DRAWN BEFORE IT IS WRITTEN; the row is zero-width, which `bodyText' passes over.
   , testCase "+ draws the empty paragraph, and point goes to it" $
-      insheet shell "press:n press:n press:n press:+" $ \answer -> do
+      insheet shell "press:f press:n press:n press:+" $ \answer -> do
         assertEqual "a line of its own, under the one point stood on"
                     [ "head", "meta", "comp:properties:drawer"
                     , "para", "draft:para", "para", "child", "para" ]
@@ -2846,7 +2885,7 @@ sheetSpec shell =
           assertEqual "the newline carried the marker's width"
                       "\n  - alpha\n  more alpha" box
       -- AND A PARAGRAPH TAKES NONE: there is no marker to sit under.
-      insheet shell "press:n press:n press:n press:Enter press:M-Enter" $
+      insheet shell "press:f press:n press:n press:Enter press:M-Enter" $
         assertEqual "a paragraph's newline carried an indent" "\nfirst para"
           <=< textAt "dtext"
 
@@ -2875,12 +2914,12 @@ sheetSpec shell =
                      (any (T.isInfixOf "\n  - \n") wrote)
 
   , testCase "TAB has no rung to take where there is no list item" $
-      insheet shell "press:n press:n press:n press:Enter press:Tab" $ \answer -> do
+      insheet shell "press:f press:n press:n press:Enter press:Tab" $ \answer -> do
         echoIs "the paragraph is not one" "TAB \8594 org-metaright (not a list item)" answer
         assertEqual "and nothing moved" "first para" =<< textAt "dtext" answer
 
   , testCase "and ESC leaves behind what it found, point included" $
-      insheet shell "press:n press:n press:n press:+ dpara:typed press:Escape" $ \answer -> do
+      insheet shell "press:f press:n press:n press:+ dpara:typed press:Escape" $ \answer -> do
         assertEqual "the drawn row goes with the box"
                     [ "head", "meta", "comp:properties:drawer"
                     , "para", "para", "child", "para" ] =<< map head <$> docOf answer
@@ -2888,7 +2927,7 @@ sheetSpec shell =
                     3 =<< intAt "dat" answer
 
   , testCase "RET writes it in under the paragraph point stood on" $
-      insheet shell "press:n press:n press:n press:+ dpara:added press:Enter" $ \answer -> do
+      insheet shell "press:f press:n press:n press:+ dpara:added press:Enter" $ \answer -> do
         assertEqual "one write, aimed at the row" ["r1"] =<< textsAt "wroteAt" answer
         assertEqual "the paragraph joined and nothing else"
           ["* TODO one\nfirst para\n\nadded\n\nsecond para\n** two\nchild body\n"]
@@ -2901,7 +2940,7 @@ sheetSpec shell =
 
     -- THE SEPARATOR IS DECIDED rather than spelled: a fixed "\n\n" reads the prose back as one paragraph.
   , testCase "+ under the last paragraph keeps a blank before the child" $
-      insheet shell "press:n press:n press:n press:n press:+ dpara:added press:Enter" $ \answer ->
+      insheet shell "press:f press:n press:n press:n press:+ dpara:added press:Enter" $ \answer ->
         assertEqual ""
           ["* TODO one\nfirst para\n\nsecond para\n\nadded\n\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
@@ -2947,14 +2986,14 @@ sheetSpec shell =
           =<< traverse (textAt "body") =<< listAt "writes" answer
 
   , testCase "the composite still lands a paragraph past the whole list" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:+ dpara:note press:Enter" $
+      onTable shell "grain press:Enter press:f press:n press:n press:n press:+ dpara:note press:Enter" $
         \answer ->
           assertEqual "past the last item, never between two"
             [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma\n\n"
               <> "note\n\n#+begin_quote\nquoted one\n\nquoted two\n#+end_quote\n\n"
               <> "tail para\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:+" $
+      onTable shell "grain press:Enter press:f press:n press:n press:n press:+" $
         echoIs "and the echo is the structure's, as it was"
                "+ \8594 org-insert-element (after the list)"
 
@@ -2977,13 +3016,13 @@ sheetSpec shell =
       onTable shell (intoChecky <> " press:+") $
         assertEqual "a checkbox list opens its box boxed" "- [ ] "
           <=< textAt "dtext"
-      onTable shell "grain press:Enter press:n press:n press:n press:+" $
+      onTable shell "grain press:Enter press:f press:n press:n press:+" $
         assertEqual "and a PARAGRAPH opens empty, owing no token" ""
           <=< textAt "dtext"
 
     -- A marker is a LEAD everywhere but a TABLE, whose row closes with a pipe — point at its end types a THIRD column.
   , testCase "point stands inside a seeded table row, past a seeded lead" $ do
-      onTable shell "tabled press:Enter press:n press:n press:n press:n press:f press:Enter press:S-Enter" $
+      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:Enter press:S-Enter" $
         \answer -> do
           assertEqual "the row is drawn at the table's own widths" "|   |   |"
             =<< textAt "dtext" answer
@@ -3041,7 +3080,7 @@ sheetSpec shell =
 
     -- `+' with no box open names no line, so the region's interior is reachable from `S-RET' alone.
   , testCase "a table's line keeps the composite's landing" $
-      onTable shell "tabled press:Enter press:n press:n press:n press:n press:f press:+ dpara:note press:Enter" $
+      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:+ dpara:note press:Enter" $
         \answer ->
           assertEqual "a pipe row is no prefix, so the paragraph goes past the table"
             [ "* TODO one\nlead in\n| a | b |\n|---+---|\n| 1 | 2 |\n| 3 | 4 |\n\n"
@@ -3049,31 +3088,31 @@ sheetSpec shell =
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
   , testCase "+ inside a block lands under #+end_, never in the source" $ do
-      onTable shell ("grain press:Enter press:n press:n press:n press:n press:n press:f press:+"
+      onTable shell ("grain press:Enter press:f press:n press:n press:n press:n press:f press:+"
                <> " dpara:note press:Enter") $ \answer ->
         assertEqual "the quote is byte for byte what it was"
           [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma\n\n"
             <> "#+begin_quote\nquoted one\n\nquoted two\n#+end_quote\n\nnote\n\n"
             <> "tail para\n** two\nchild body\n" ]
           =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:n press:f press:+" $
+      onTable shell "grain press:Enter press:f press:n press:n press:n press:n press:f press:+" $
         echoIs "named by the block's own word"
                "+ \8594 org-insert-element (after the quote)"
 
   , testCase "+ over a child refuses and names the door" $
-      insheet shell "press:n press:n press:n press:n press:n press:+" $ \answer -> do
+      insheet shell "press:n press:+" $ \answer -> do
         assertEqual "no overlay" False =<< boolAt "dparaopen" answer
         assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
         echoIs ""
           "+ \8594 org-insert-element (a child's body is its own \8212 RET opens it)" answer
 
   , testCase "an empty + adds nothing, and ESC undoes nothing" $ do
-      insheet shell "press:n press:n press:n press:+ press:Enter" $ \answer -> do
+      insheet shell "press:f press:n press:n press:+ press:Enter" $ \answer -> do
         assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
         echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
-      insheet shell "press:n press:n press:n press:+ dpara:__ press:Enter" $ \answer ->
+      insheet shell "press:f press:n press:n press:+ dpara:__ press:Enter" $ \answer ->
         assertEqual "nor whitespace" [] =<< textsAt "wroteAt" answer
-      insheet shell "press:n press:n press:n press:+ dpara:typed press:Escape" $ \answer -> do
+      insheet shell "press:f press:n press:n press:+ dpara:typed press:Escape" $ \answer -> do
         assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
         assertEqual "and the pane is the document it was"
                     ["first para", "second para", "child body"]
@@ -3105,15 +3144,15 @@ sheetSpec shell =
           =<< flaggedAt "downers" answer
 
   , testCase "n skims the composites whole, and p is the skim reversed" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:n" $
+      onTable shell "grain press:Enter press:f press:n press:n press:n press:n" $
         assertEqual "five down crosses the list whole to the quote" 9
           <=< pointOf
-      onTable shell ("grain press:Enter press:n press:n press:n press:n"
+      onTable shell ("grain press:Enter press:f press:n press:n press:n"
                <> " press:n press:n press:n") $
         assertEqual "seven down is the tail child, the document skimmed" 13
           <=< pointOf
       onTable shell
-             "grain press:Enter press:n press:n press:n press:n press:n press:p" $
+             "grain press:Enter press:f press:n press:n press:n press:n press:p" $
         assertEqual "and p steps back over the list without entering it" 4
           <=< pointOf
 
@@ -3154,7 +3193,7 @@ sheetSpec shell =
 
     -- REVERSED EXPAND-REGION: `b' out of an element goes to THE ENTRY'S OWN LINE.
   , testCase "b out of an element marks the whole headline" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:b" $ \answer -> do
+      onTable shell "grain press:Enter press:f press:n press:n press:b" $ \answer -> do
         assertEqual "up from the lead paragraph" 0 =<< pointOf answer
         echoIs "" "b → grain-broader (the headline)" answer
       onTable shell (intoRun <> " press:b press:b") $ \answer ->
@@ -3162,15 +3201,15 @@ sheetSpec shell =
 
     -- THREE DIALECTS, ONE AXIS: `l'/`h' and the horizontal arrows are ALIASES of `f'/`b'.
   , testCase "l/h and the horizontal arrows are f/b" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:l" $ \answer -> do
+      onTable shell "grain press:Enter press:f press:n press:n press:n press:l" $ \answer -> do
         assertEqual "l dives like f" 5 =<< pointOf answer
         echoIs "and speaks as the key pressed" "l → grain-finer (list 1/3)" answer
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:ArrowRight" $
+      onTable shell "grain press:Enter press:f press:n press:n press:n press:ArrowRight" $
         assertEqual "and so does the right arrow" 5 <=< pointOf
-      onTable shell "grain press:Enter press:n press:h" $ \answer -> do
+      onTable shell "grain press:Enter press:f press:h" $ \answer -> do
         assertEqual "h climbs like b" 0 =<< pointOf answer
         echoIs "" "h → grain-broader (the headline)" answer
-      onTable shell "grain press:Enter press:n press:ArrowLeft" $
+      onTable shell "grain press:Enter press:f press:ArrowLeft" $
         assertEqual "and so does the left arrow" 0 <=< pointOf
 
     -- AN ORG TABLE IS THAT SAME SHAPE: one coarse stop, then its rows.  A LINE IS A LEAF, the `|---+---|' rule included.
@@ -3193,34 +3232,34 @@ sheetSpec shell =
           . map (drop 1) . take 4 . drop 5 =<< docOf answer
 
   , testCase "the table is one stop, and f walks its rows" $ do
-      onTable shell "tabled press:Enter press:n press:n press:n press:n" $
+      onTable shell "tabled press:Enter press:f press:n press:n press:n" $
         assertEqual "n from the lead-in meets the WHOLE table" 4
           <=< pointOf
-      onTable shell "tabled press:Enter press:n press:n press:n press:n press:n" $
+      onTable shell "tabled press:Enter press:f press:n press:n press:n press:n" $
         assertEqual "and the next n crosses it whole to the list" 9
           <=< pointOf
-      onTable shell "tabled press:Enter press:n press:n press:n press:n press:f" $
+      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f" $
         assertEqual "f enters the first row" 5 <=< pointOf
-      onTable shell "tabled press:Enter press:n press:n press:n press:n press:f press:n press:n press:n" $
+      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:n press:n press:n" $
         assertEqual "n walks the rows, the rule among them" 8 <=< pointOf
-      onTable shell "tabled press:Enter press:n press:n press:n press:n press:f press:n press:b" $
+      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:n press:b" $
         assertEqual "and b is the table whole again" 4 <=< pointOf
 
     -- A ROW EDIT IS A LINE SPLICE: the row remembers the line it came out of.
   , testCase "editing a table row splices that line and nothing else" $ do
       onTable shell
-             ("tabled press:Enter press:n press:n press:n press:n press:f press:n press:n"
+             ("tabled press:Enter press:f press:n press:n press:n press:f press:n press:n"
                 <> " press:Enter dpara:~9~9~ press:C-x press:C-s") $ \answer ->
         assertEqual "the body with that row replaced and nothing else"
                     [tabledAfter "| 1 | 2 |" "|9|9|"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
       onTable shell
-             ("tabled press:Enter press:n press:n press:n press:n press:f press:n"
+             ("tabled press:Enter press:f press:n press:n press:n press:f press:n"
                 <> " press:Enter dpara:~-+-~ press:C-x press:C-s") $ \answer ->
         assertEqual "the rule replaced, and the rows around it untouched"
                     [tabledAfter "|---+---|" "|-+-|"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable shell "tabled press:Enter press:n press:n press:n press:n press:Enter" $
+      onTable shell "tabled press:Enter press:f press:n press:n press:n press:Enter" $
         assertEqual "the block whole, rule and all"
                     "| a | b |\n|---+---|\n| 1 | 2 |\n| 3 | 4 |" <=< textAt "dtext"
 
@@ -3268,7 +3307,7 @@ sheetSpec shell =
     -- AND A CELL EDIT RE-PINS OFF ITS OWN ANSWER: the sheet takes the digest off the command's 200.
   , testCase "a command from the sheet re-pins the digest its answer carries" $
       insheet shell ("press:Enter dtin:renamed press:Enter"
-                 <> " press:n press:n press:n press:Enter dpara:rewritten press:C-x press:C-s") $
+                 <> " press:f press:n press:n press:Enter dpara:rewritten press:C-x press:C-s") $
         \answer -> do
           assertEqual "the subtree write rides the command's receipt"
                       ["d1"] =<< traverse (textAt "digest") =<< listAt "writes" answer
@@ -3276,7 +3315,7 @@ sheetSpec shell =
                       "synced" =<< textAt "state" answer
 
   , testCase "a paragraph commit keeps the pane's text over the stale re-read" $
-      insheet shell "press:n press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
+      insheet shell "press:f press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
         assertEqual "the pane holds what was written"
                     ["rewritten"]
           =<< (take 1 . partsOf "para" <$> docOf answer)
@@ -3311,14 +3350,14 @@ sheetSpec shell =
         assertEqual "and reads as the descriptions"
           ["para", "see alpha and https://b.example/ here"] . (!! 3) =<< docOf answer
   , keyed shell "RET opens the raw org, not what was shown"
-      "" "linky press:Enter press:n press:n press:n press:Enter" $
+      "" "linky press:Enter press:f press:n press:n press:Enter" $
         assertEqual "brackets and all"
           "see [[https://a.example/][alpha]] and [[https://b.example/]] here"
           <=< textAt "dtext"
 
     -- THE LINKS RIDE THE MATERIALIZE: compact from the FIRST frame, with no second fetch to bridge.
   , keyed shell "the links ride the materialize: compact on every fill, no second fetch"
-      "" ("linky press:Enter press:n press:n press:n press:n press:n press:Enter"
+      "" ("linky press:Enter press:n press:Enter"
             <> " press:Backspace") $ \answer -> do
         segs <- pairsAt "dsegs" answer
         assertEqual "the paragraph reads compact after the round trip"
@@ -3341,7 +3380,7 @@ sheetSpec shell =
                     "one the title link" raw
 
     -- A LINK IS NOT A STOP and binds no mouse: `o' is the opener.
-  , keyed shell "links are drawn, and are no stop" "" "linky press:Enter press:n press:n press:n" $ \answer -> do
+  , keyed shell "links are drawn, and are no stop" "" "linky press:Enter press:f press:n press:n" $ \answer -> do
         assertEqual "three stops down is the paragraph, links and all" 3
           =<< pointOf answer
         assertEqual "nothing was opened by drawing them" [] =<< openedOf answer
@@ -3349,18 +3388,18 @@ sheetSpec shell =
     -- `o' SCOPES TO THE STOP: every lifted region sits above the paragraphs, so body lines and file lines differ by one constant.
   , testCase "o asks over the stop the cursor is on" $ do
       onTable shell
-             "grain grainlinks press:Enter press:n press:n press:n press:n press:f press:o" $
+             "grain grainlinks press:Enter press:f press:n press:n press:n press:f press:o" $
         \answer -> do
           assertEqual "the item's own link, opened"
                       [("https://alpha.example/", "_blank", "noopener")]
             =<< openedOf answer
           assertEqual "and no popup was needed" "" =<< textAt "popup" answer
       onTable shell
-             "grain grainlinks press:Enter press:n press:n press:n press:n press:o" $ \answer -> do
+             "grain grainlinks press:Enter press:f press:n press:n press:n press:o" $ \answer -> do
         assertEqual "nothing opened outright" [] =<< openedOf answer
         assertEqual "both links are listed" ["in alpha", "in beta"]
           =<< map (!! 1) <$> pairsAt "llinks" answer
-      onTable shell "grain grainlinks press:Enter press:n press:n press:n press:o" $
+      onTable shell "grain grainlinks press:Enter press:f press:n press:n press:o" $
         -- The pill names the COMMAND, and the sequence is the keymap row's own spelling of it.
         \answer -> assertEqual "the lead-in reaches neither"
                                "RET → org-glance-overview:open (no links)"
@@ -3399,12 +3438,12 @@ sheetSpec shell =
             <> "quoted one\n\nquoted two\n#+end_quote\n\ntail para\n** two\nchild body\n" ]
           body
   , testCase "RET at the whole list edits the whole list" $ do
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:Enter" $
+      onTable shell "grain press:Enter press:f press:n press:n press:n press:Enter" $
         \answer -> assertEqual "every line the composite covers"
                                "- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma"
                      =<< textAt "dtext" answer
       onTable shell
-             ("grain press:Enter press:n press:n press:n press:n press:Enter dpara:-_one|-_two"
+             ("grain press:Enter press:f press:n press:n press:n press:Enter dpara:-_one|-_two"
               <> " press:C-x press:C-s") $ \answer -> do
         body <- traverse (textAt "body") =<< listAt "writes" answer
         assertEqual "the list's whole range replaced, and nothing beyond it"
@@ -3416,9 +3455,9 @@ sheetSpec shell =
   , testCase "d flags one item, or the whole list" $ do
       onTable shell (intoRun <> " press:d") $
         assertEqual "the item alone" [5] <=< flaggedOf
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:d" $
+      onTable shell "grain press:Enter press:f press:n press:n press:n press:d" $
         assertEqual "or the composite alone" [4] <=< flaggedOf
-      onTable shell "grain press:Enter press:n press:n press:n press:n press:d press:d" $
+      onTable shell "grain press:Enter press:f press:n press:n press:n press:d press:d" $
         \answer -> do
           body <- traverse (textAt "body") =<< listAt "writes" answer
           assertEqual "the whole list is gone, the rest untouched"
@@ -3427,55 +3466,55 @@ sheetSpec shell =
 
     -- ESC over an open element is the ELEMENT's; the next one reaches the sheet's own ladder.
   , testCase "ESC puts an open paragraph back, and the next one closes the sheet" $ do
-      insheet shell "press:n press:n press:n press:Enter dpara:rewritten press:Escape" $
+      insheet shell "press:f press:n press:n press:Enter dpara:rewritten press:Escape" $
         \answer -> do
           assertEqual "the overlay is gone" False =<< boolAt "dparaopen" answer
           assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
           assertEqual "with nothing written" ([] :: [Value]) =<< listAt "writes" answer
           echoIs "and it said so" "ESC → keyboard-quit (element unchanged)" answer
-      insheet shell "press:n press:n press:n press:Enter press:Escape press:Escape" $
+      insheet shell "press:f press:n press:n press:Enter press:Escape press:Escape" $
         assertEqual "the second one is the sheet's" "" <=< textAt "modal"
 
   , testCase "d flags a paragraph and d again splices it out of the body" $ do
-      insheet shell "press:n press:n press:n press:d" $ \answer -> do
+      insheet shell "press:f press:n press:n press:d" $ \answer -> do
         assertEqual "the block wears the flag" [3] =<< flaggedOf answer
         assertEqual "and nothing is written yet" ([] :: [Value])
           =<< listAt "writes" answer
         echoIs "the pill says what the second press will do"
           "d → delete-flag (d again deletes)" answer
-      insheet shell "press:n press:n press:n press:d press:d" $ \answer -> do
+      insheet shell "press:f press:n press:n press:d press:d" $ \answer -> do
         assertEqual "the body with the block and its blank line gone"
                     ["* TODO one\nsecond para\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
         echoIs "and the pill counted the set" "D → org-delete-element (1 flagged taken)" answer
       -- A HELD `d' must not flag and delete from one press.
-      insheet shell "press:n press:n press:n press:d repeat:d" $ \answer -> do
+      insheet shell "press:f press:n press:n press:d repeat:d" $ \answer -> do
         assertEqual "the flag is still there" [3] =<< flaggedOf answer
         assertEqual "and nothing was written" ([] :: [Value]) =<< listAt "writes" answer
 
     -- AND `x' IS THE SAME GESTURE HERE: `flagPress' is the one door for the sheet's four surfaces.
   , testCase "x over the document asks before it splices" $ do
-      insheet shell "press:n press:n press:n press:d press:x" $ \answer -> do
+      insheet shell "press:f press:n press:n press:d press:x" $ \answer -> do
         assertEqual "nothing written on the press alone" ([] :: [Value])
           =<< listAt "writes" answer
         assertEqual "the question is up" "on" =<< textAt "prompt" answer
         assertEqual "naming the act and how many" "delete · 1 flagged"
           =<< textAt "phead" answer
-      insheet shell "press:n press:n press:n press:d press:x type:yes press:Enter" $ \answer ->
+      insheet shell "press:f press:n press:n press:d press:x type:yes press:Enter" $ \answer ->
         assertEqual "and the word splices it out"
                     ["* TODO one\nsecond para\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
-      insheet shell "press:n press:n press:n press:d press:x type:no press:Enter" $ \answer -> do
+      insheet shell "press:f press:n press:n press:d press:x type:no press:Enter" $ \answer -> do
         assertEqual "anything else writes nothing" ([] :: [Value])
           =<< listAt "writes" answer
         assertEqual "and the flag stands" [3] =<< flaggedOf answer
-      insheet shell "press:n press:x" $ \answer -> do
+      insheet shell "press:f press:x" $ \answer -> do
         assertEqual "nothing flagged is nothing to do" ([] :: [Value])
           =<< listAt "writes" answer
         echoIs "" "x → dired-do-flagged-delete (no deletions requested)" answer
 
   , keyed shell "a headline is not deleted from the document, and says so"
-      "Enter" "press:n press:n press:n press:n press:n press:D" $ \answer -> do
+      "Enter" "press:n press:D" $ \answer -> do
         assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
         assertEqual "the log says why"
           (Just "a headline is not deleted from the sheet — this writes elements only")
@@ -3490,7 +3529,7 @@ sheetSpec shell =
       insheet shell "press::" $ \answer -> do
         assertEqual "the popup is up" "on" =<< textAt "tagpop" answer
         assertEqual "named for the entry" "tags · one" =<< textAt "thead" answer
-      insheet shell "press:n press:t" $ \answer -> do
+      insheet shell "press:f press:t" $ \answer -> do
         assertEqual "nothing raised" "" =<< textAt "prompt" answer
         echoIs "and it said where to stand" "the headline line takes this — n/p to it" answer
 
@@ -3529,7 +3568,7 @@ sheetSpec shell =
 
     -- TWO KEYS COMMIT AN OPEN ELEMENT: `C-c C-c' stops where the element does, `C-x C-s' keeps the BUFFER's half.
   , testCase "C-c C-c commits the open element, where C-x C-s does" $ do
-      insheet shell "press:n press:n press:n press:Enter dpara:rewritten press:C-c press:C-c" $
+      insheet shell "press:f press:n press:n press:Enter dpara:rewritten press:C-c press:C-c" $
         \answer ->
           assertEqual "the block replaced and nothing else"
                       ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
@@ -3541,10 +3580,10 @@ sheetSpec shell =
                       [("set-title", ["r1"])] =<< postedOf answer
           assertEqual "the overlay is closed" False =<< boolAt "dopen" answer
       insheet shell
-             "press:n press:n press:n press:Enter press:C-c press:C-c" $
+             "press:f press:n press:n press:Enter press:C-c press:C-c" $
         echoIs "org's own name, on an element nothing changed in"
           "C-c C-c → org-ctrl-c-ctrl-c (paragraph unchanged)"
-      insheet shell "press:n press:n press:n press:Enter press:C-x press:C-s" $
+      insheet shell "press:f press:n press:n press:Enter press:C-x press:C-s" $
         echoIs "and the buffer's name where that key ran"
           "C-x C-s → save-buffer (paragraph unchanged)"
       insheet shell "press:C-c press:C-c" $ \answer -> do
@@ -3554,11 +3593,11 @@ sheetSpec shell =
     -- EVERY COMMIT RE-READS THE ENTRY IT WROTE, and the entry the sheet stands on rather than the row.
   , testCase "a commit re-materializes the entry it wrote" $ do
       insheet shell
-             "press:n press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $
+             "press:f press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $
         assertEqual "opened once, and read again on the answer"
                     ["r1", "r1"] <=< textsAt "readAt"
       insheet shell
-             ("press:n press:n press:n press:n press:n press:Enter press:n press:n press:Enter"
+             ("press:n press:Enter press:f press:n press:Enter"
                 <> " dpara:reworded press:C-x press:C-s") $
         assertEqual "the row, the child, and the child again"
                     ["r1", "r1#0", "r1#0"] <=< textsAt "readAt"
@@ -3578,15 +3617,15 @@ sheetSpec shell =
         assertEqual "opened once, then re-read on the frame"
                     ["r1", "r1"] <=< textsAt "readAt"
       -- Not while an edit is open: a re-read would pull the model out from under the fields.
-      insheet shell "press:n press:n press:n press:Enter frame:upsert=r1" $
+      insheet shell "press:f press:n press:n press:Enter frame:upsert=r1" $
         assertEqual "left alone under an open element" ["r1"] <=< textsAt "readAt"
       -- Nor over an open PAIR line: it is the same overlay, over a synthesized row.
-      insheet shell "press:n press:n press:f press:Enter frame:upsert=r1" $
+      insheet shell "press:f press:n press:f press:Enter frame:upsert=r1" $
         assertEqual "left alone under an open pair line" ["r1"] <=< textsAt "readAt"
       -- A COMMITTED pair edit wrote at once; until the store catches its receipt
       -- up the sheet is DIRTY, and the frame is left to the write's own retry.
       insheet shell
-             ("press:n press:n press:f press:Enter dpara::EFFORT:_0:45"
+             ("press:f press:n press:f press:Enter dpara::EFFORT:_0:45"
                 <> " press:Enter frame:upsert=r1") $
         \answer -> do
           assertEqual "the open, then the write's own re-read and no third"
@@ -3605,7 +3644,7 @@ sheetSpec shell =
                     [Just "C"] =<< prioritiesOf answer
         echoIs "and the pill names the key that ran it" "S-<up> → priority-up ([#C] · 1)" answer
       insheet shell
-             "press:n press:n press:n press:n press:n press:Enter press:S-ArrowUp" $ \answer -> do
+             "press:n press:Enter press:S-ArrowUp" $ \answer -> do
         assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
         echoIs "and it said which key climbs out"
           "a child is not settable yet — DEL opens its parent" answer
@@ -3616,17 +3655,17 @@ sheetSpec shell =
              "press:S-ArrowUp repeat:S-ArrowUp repeat:S-ArrowUp" $ \answer -> do
         assertEqual "one command, however long the key is held"
                     [("set-priority", ["r1"])] =<< postedOf answer
-      insheet shell "press:n repeat:n repeat:n" $
+      insheet shell "press:f repeat:n repeat:n" $
         assertEqual "and a held movement key still walks" 3 <=< intAt "dat"
 
     -- A CHILD IS READ-ONLY: no row id, so no `/command' can address it.
   , testCase "a child is not settable yet, and the echo says so" $ do
       insheet shell
-             "press:n press:n press:n press:n press:n press:Enter press:Enter" $ \answer -> do
+             "press:n press:Enter press:Enter" $ \answer -> do
         assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
         echoIs "and the pill named the way out"
           "RET → a child's title is not settable yet — DEL opens its parent" answer
-      insheet shell "press:n press:n press:n press:n press:n press:Enter press:t" $
+      insheet shell "press:n press:Enter press:t" $
         \answer -> do
           assertEqual "nothing raised" "" =<< textAt "prompt" answer
           echoIs "and it said which key climbs out"
@@ -3634,7 +3673,7 @@ sheetSpec shell =
 
     -- A CHILD'S OWN PARTS are editable through the lens that materialized it, at that entry's extent.
   , keyed shell "a child's paragraph writes the child's own extent"
-      "Enter" ("press:n press:n press:n press:n press:n press:Enter press:n press:n press:Enter"
+      "Enter" ("press:n press:Enter press:f press:n press:Enter"
                 <> " dpara:reworded press:C-x press:C-s") $ \answer -> do
         assertEqual "aimed at the entry, not the row" ["r1#0"]
           =<< textsAt "wroteAt" answer
@@ -3651,39 +3690,39 @@ sheetSpec shell =
 
     -- TAB FOLDS, as it does in org: the drawer starts as one line, and the model says which way it went.
   , testCase "TAB folds and opens the drawer, and f steps into a folded one" $ do
-      insheet shell "press:n press:n press:Tab" $ \answer -> do
+      insheet shell "press:f press:n press:Tab" $ \answer -> do
         assertEqual "the drawer opened, its pairs drawn as leaves"
                     [ ["comp:properties:drawer", ":PROPERTIES:", ":END:"]
                     , ["meta", ":EFFORT: 0:30"] ]
           =<< take 2 . drop 2 <$> docOf answer
         echoIs "named org's own way" "TAB → org-cycle (properties open)" answer
-      insheet shell "press:n press:n press:Tab press:Tab" $ \answer -> do
+      insheet shell "press:f press:n press:Tab press:Tab" $ \answer -> do
         assertEqual "TAB again is the one folded line, org's ellipsis on it"
                     ["comp:properties:drawer", ":PROPERTIES: \8230"]
           =<< (!! 2) <$> docOf answer
         echoIs "" "TAB → org-cycle (properties folded)" answer
-      insheet shell "press:n press:n press:f" $ \answer -> do
+      insheet shell "press:f press:n press:f" $ \answer -> do
         assertEqual "f into the folded drawer opens it and lands on the pair" 3
           =<< pointOf answer
         echoIs "counted like any composite" "f → grain-finer (properties 1/1)" answer
       -- FROM INSIDE, TAB reaches the nearest foldable owner: the drawer folds over point.
-      insheet shell "press:n press:n press:f press:Tab" $ \answer -> do
+      insheet shell "press:f press:n press:f press:Tab" $ \answer -> do
         assertEqual "folded from the pair, point on the frame" 2 =<< pointOf answer
         echoIs "" "TAB → org-cycle (properties folded)" answer
       insheet shell "press:Tab" $
         echoIs "nowhere foldable says so" "TAB → nothing folds here"
 
   , testCase "RET on the planning line or a pair opens its own line as text" $ do
-      insheet shell "press:n press:Enter" $ \answer -> do
+      insheet shell "press:f press:Enter" $ \answer -> do
         assertEqual "the block is open" True =<< boolAt "dparaopen" answer
         assertEqual "holding the planning line as org spells it"
                     ("SCHEDULED: " <> sheetStamp) =<< textAt "dtext" answer
         assertEqual "and the focus in it" "dtext" =<< textAt "focus" answer
-      insheet shell "press:n press:n press:f press:Enter" $ \answer -> do
+      insheet shell "press:f press:n press:f press:Enter" $ \answer -> do
         assertEqual "a pair opens as its `:KEY: value' line"
                     ":EFFORT: 0:30" =<< textAt "dtext" answer
         assertEqual "over the pair's own row" 3 =<< intAt "dat" answer
-      insheet shell "press:n press:n press:Enter" $ \answer -> do
+      insheet shell "press:f press:n press:Enter" $ \answer -> do
         assertEqual "the drawer's own line is its frame, so RET declines"
                     False =<< boolAt "dparaopen" answer
         assertEqual "and the fold is left where it stood, folded"
@@ -3693,7 +3732,7 @@ sheetSpec shell =
 
     -- A COMMITTED PAIR EDIT IS A WRITE: the cargo rides the port, body and lists together.
   , keyed shell "a committed pair edit writes at once, the whole header on it"
-      "Enter" "press:n press:n press:f press:Enter dpara::EFFORT:_0:45 press:Enter" $
+      "Enter" "press:f press:n press:f press:Enter dpara::EFFORT:_0:45 press:Enter" $
         \answer -> do
           assertEqual "one write" [fixtureBody] =<< traverse (textAt "body")
                                                 =<< listAt "writes" answer
@@ -3712,7 +3751,7 @@ sheetSpec shell =
           assertEqual "and the cursor stayed on the pair" 3 =<< intAt "dat" answer
 
   , keyed shell "an emptied planning line is its entries taken off"
-      "Enter" "press:n press:Enter dpara: press:Enter" $ \answer -> do
+      "Enter" "press:f press:Enter dpara: press:Enter" $ \answer -> do
         assertEqual "nothing left to write" [[]] =<< wroteAt "planning" answer
         -- The rows are SYNTHESIZED off the lists, so an emptied line has no row.
         assertEqual "and no planning row is drawn"
@@ -3720,7 +3759,7 @@ sheetSpec shell =
 
     -- A TYPO NEVER WRITES PROSE INTO THE DRAWER: a line opening no `:KEY:' is refused.
   , keyed shell "a pair edited to no `:KEY: value' line is refused"
-      "Enter" "press:n press:n press:f press:Enter dpara:nonsense press:Enter" $
+      "Enter" "press:f press:n press:f press:Enter dpara:nonsense press:Enter" $
         \answer -> do
           assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
           assertEqual "and the pair stands as it was" ["meta", ":EFFORT: 0:30"]
@@ -3728,12 +3767,12 @@ sheetSpec shell =
 
     -- `+' is the add affordance and the whole of it: org's own ask — a KEY, then a VALUE.
   , testCase "+ on a meta row asks for key and value, and the pair lands whole" $ do
-      insheet shell "press:n press:+" $ \answer -> do
+      insheet shell "press:f press:+" $ \answer -> do
         assertEqual "the ask is up, naming the first half" ("on", "property key")
           =<< ((,) <$> textAt "prompt" answer <*> textAt "phead" answer)
         assertEqual "nothing is written while it asks" ([] :: [Value])
           =<< listAt "writes" answer
-      insheet shell "press:n press:+ type:OWNER press:Enter type:ada press:Enter" $
+      insheet shell "press:f press:+ type:OWNER press:Enter type:ada press:Enter" $
         \answer -> do
           assertEqual "the pair arrived whole and the write followed at once"
                       [[["EFFORT", "0:30"], ["OWNER", "ada"]]]
@@ -3742,22 +3781,22 @@ sheetSpec shell =
             =<< (!! 4) <$> docOf answer
           assertEqual "with the cursor on it" 4 =<< intAt "dat" answer
           echoIs "and the echo speaks the line" "+ → org-set-property (:OWNER: ada)" answer
-      insheet shell "press:n press:+ press:Enter" $ \answer -> do
+      insheet shell "press:f press:+ press:Enter" $ \answer -> do
         assertEqual "an empty key is refused" ([] :: [Value]) =<< listAt "writes" answer
         echoIs "" "+ → org-set-property (a key is required)" answer
-      insheet shell "press:n press:+ type:OWNER press:Enter press:Enter" $ \answer -> do
+      insheet shell "press:f press:+ type:OWNER press:Enter press:Enter" $ \answer -> do
         assertEqual "and an empty value too" ([] :: [Value]) =<< listAt "writes" answer
         echoIs "" "+ → org-set-property (a value is required)" answer
 
   , testCase "ESC puts an open pair back, and the next one closes the sheet" $ do
       insheet shell
-             "press:n press:n press:f press:Enter dpara:junk press:Escape" $ \answer -> do
+             "press:f press:n press:f press:Enter dpara:junk press:Escape" $ \answer -> do
         assertEqual "the pair as it was" ["meta", ":EFFORT: 0:30"]
           =<< (!! 3) <$> docOf answer
         assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
         assertEqual "with nothing written" ([] :: [Value]) =<< listAt "writes" answer
       insheet shell
-             "press:n press:n press:f press:Enter press:Escape press:Escape" $
+             "press:f press:n press:f press:Enter press:Escape press:Escape" $
         assertEqual "the second one is the sheet's" "" <=< textAt "modal"
 
     -- C-c ' RE-MATERIALIZES rather than converting locally, which keeps an org parser out of this page.
@@ -3783,7 +3822,7 @@ sheetSpec shell =
       -- The write LANDED but the store still answers the old digest: until the
       -- re-read catches the receipt up, the sheet is dirty and the toggle waits.
       insheet shell
-             ("press:n press:n press:f press:Enter dpara::EFFORT:_0:45"
+             ("press:f press:n press:f press:Enter dpara::EFFORT:_0:45"
                 <> " press:Enter press:C-c press:'") $
         \answer -> do
           assertEqual "a header edit the store has not caught up with is dirty too"
@@ -3792,13 +3831,13 @@ sheetSpec shell =
 
     -- An edit nobody committed is not one.
   , keyed shell "an open pair line is not an edit until it is committed"
-      "Enter" ("press:n press:n press:f press:Enter dpara::EFFORT:_0:45"
+      "Enter" ("press:f press:n press:f press:Enter dpara::EFFORT:_0:45"
                 <> " press:C-c press:'") $ \answer -> do
         assertEqual "the toggle went through" "raw" =<< textAt "shape" answer
         echoIs "and said so" "C-c ' → org-edit-special (raw org)" answer
 
   , keyed shell "a remount carries the sheet's edited header across it"
-      "Enter" ("press:n press:n press:f press:Enter dpara::EFFORT:_0:45"
+      "Enter" ("press:f press:n press:f press:Enter dpara::EFFORT:_0:45"
                 <> " press:Enter close:view-changed") $
         \answer -> do
           assertEqual "mounted twice" 2 =<< intAt "mounts" answer
@@ -3838,14 +3877,14 @@ sheetSpec shell =
 
     -- The FOLDS are reseeded per fill: what the reader opened does not outlive the sheet.
   , keyed shell "the drawer starts folded again when the sheet is reopened"
-      "Enter" "press:n press:n press:f press:Escape press:Enter" $
+      "Enter" "press:f press:n press:f press:Escape press:Enter" $
         \answer -> do
           assertEqual "one folded line again" ["comp:properties:drawer", ":PROPERTIES: \8230"]
             =<< (!! 2) <$> docOf answer
           assertEqual "and the cursor back on the headline" 0 =<< intAt "dat" answer
 
   , keyed shell "d flags a meta row rather than deleting it"
-      "Enter" "press:n press:d" $
+      "Enter" "press:f press:d" $
         \answer -> do
           assertEqual "the planning line wears the flag" [1] =<< flaggedOf answer
           headerIs "and the lists are untouched"
@@ -3859,13 +3898,13 @@ sheetSpec shell =
     -- A DELETED PAIR LEAVES THROUGH THE LISTS, never the splice: the write follows at once.
   , testCase "d again deletes the pair through the lists, and D is that press alone" $ do
       insheet shell
-             "press:n press:n press:f press:d press:d" $ \answer -> do
+             "press:f press:n press:f press:d press:d" $ \answer -> do
         assertEqual "the drawer the write asks for" [[]]
                     =<< wroteAt "properties" answer
         assertEqual "the flag was spent with it" ([] :: [Int])
                     =<< flaggedOf answer
         echoIs "and the pill counted the set" "D → org-delete-element (1 flagged taken)" answer
-      insheet shell "press:n press:n press:f press:D" $
+      insheet shell "press:f press:n press:f press:D" $
         \answer -> do
           assertEqual "D needs no flag: the row at point is the set" [[]]
             =<< wroteAt "properties" answer
@@ -3873,14 +3912,14 @@ sheetSpec shell =
 
     -- The row is SYNTHESIZED off the list, so clearing the entries takes the line with them.
   , keyed shell "deleting the planning line clears its entries, and the row goes with them"
-      "Enter" "press:n press:d press:d" $ \answer -> do
+      "Enter" "press:f press:d press:d" $ \answer -> do
         assertEqual "the write carries no planning entry" [[]]
                     =<< wroteAt "planning" answer
         assertEqual "and no planning line is drawn"
                     [] . partsOf "meta" =<< docOf answer
 
   , keyed shell "u takes a flag off and steps on"
-      "Enter" "press:n press:d press:u press:D" $ \answer -> do
+      "Enter" "press:f press:d press:u press:D" $ \answer -> do
         echoIs "nothing was flagged when D ran, so it took the row it stepped to"
                "D → org-delete-element (row taken)" answer
         assertEqual "which was the drawer: every pair went through the lists"
@@ -3890,7 +3929,7 @@ sheetSpec shell =
 
     -- The dispatch's own ONCE list cannot reach a key this listener owns, so the guard is the sheet's.
   , keyed shell "a held d flags once and never deletes what it flagged"
-      "Enter" "press:n press:d repeat:d repeat:d" $
+      "Enter" "press:f press:d repeat:d repeat:d" $
         \answer -> do
         assertEqual "still flagged" [1] =<< flaggedOf answer
         assertEqual "and nothing written" ([] :: [Value]) =<< listAt "writes" answer
@@ -3898,10 +3937,10 @@ sheetSpec shell =
     -- A deletion WRITES at once; a flag alone is not yet one.
   , testCase "a deletion writes at once, and a flag alone writes nothing" $ do
       insheet shell
-             "press:n press:n press:f press:d press:d" $
+             "press:f press:n press:f press:d press:d" $
         \answer ->
           assertEqual "and it landed" "synced" =<< textAt "state" answer
-      insheet shell "press:n press:d press:Escape" $
+      insheet shell "press:f press:d press:Escape" $
         \answer -> do
           assertEqual "a flag alone writes nothing" ([] :: [Value])
                       =<< listAt "writes" answer
@@ -4384,7 +4423,8 @@ logSpec shell = testGroup "Shell log"
     -- a page's first second was gone the moment the table arrived.
     keyed shell "opens on a boot line the mount leaves alone" "" "" $ \answer -> do
         strip <- logOf answer
-        assertEqual "one line, the boot's" [("info", "boot", "loading …")]
+        assertEqual "one line, the boot's, wearing the view"
+                    [("info", "boot", "loading … view: state:*active*")]
                     (map cut strip)
         assertBool ("a clock opens it: " <> show strip)
                    (all (stamped . stampOf . snd) strip)
@@ -4599,11 +4639,11 @@ onTable shell = bootOf shell "" 500 ""
 insheet :: IO T.Text -> T.Text -> (Value -> Assertion) -> Assertion
 insheet shell = bootOf shell "" 500 "Enter"
 
--- | The three key scripts that put point INSIDE a list: the grain tree's outer run, its nested run, and the checkbox tree's run.  Each opens the sheet, walks down to the list and steps into it.
+-- | The three key scripts that put point INSIDE a list: the grain tree's outer run, its nested run, and the checkbox tree's run.  Each opens the sheet, enters the body with `f' — a headline walks headlines, so `n' would leave for the child — walks down to the list and steps into it.
 intoRun, intoNestedRun, intoChecky :: T.Text
-intoRun       = "grain press:Enter press:n press:n press:n press:n press:f"
+intoRun       = "grain press:Enter press:f press:n press:n press:n press:f"
 intoNestedRun = intoRun <> " press:f"
-intoChecky    = "checky press:Enter press:n press:n press:n press:f"
+intoChecky    = "checky press:Enter press:f press:n press:n press:f"
 
 -- | 'bootOf' over a browser that already REMEMBERS something: a preference the BOOT reads is unreachable from an act.
 bootWith :: IO T.Text -> T.Text -> T.Text -> Int -> T.Text -> T.Text
@@ -4967,11 +5007,16 @@ groundSweep shell = testCase "the cursor grounds its own line, a flag marks it, 
         marks
   where
     selectors = [".de.dat", ".de.dfl"]
-    marks = [ ("#mdoc.on .de.dat", "var(--g-fg)")
-            , ("#mdoc.on .de.dat .de", "var(--g-fg)")
+    -- A LIT BAR IS A STEP SHORT OF THE PAGE'S INK, so it leads the eye without
+    -- competing with the words beside it: `--g-mark' is what every lit bar takes.
+    marks = [ ("#mdoc", "--g-mark:color-mix(in srgb, var(--g-fg) 68%, var(--g-bg))")
+            , ("#mdoc.on .de.dat", "var(--g-mark)")
+            , ("#mdoc.on .de.dat .de", "var(--g-mark)")
             , (".de.dfl", "var(--g-bad)")
             , (".de", "var(--g-point-off)")
-            , ("#mdoc.on .up", "var(--g-fg)")
+            , ("#mdoc.on .up", "var(--g-mark)")
+            , ("#mdoc.on .sib", "var(--g-mark)")
+            , (".blk.sp-0", "var(--g-mark)")
             , ("#mdoc.on .focus .de", "var(--g-point-off)")
             , (".d-list .d-item::before", "var(--ink)") ]
 
@@ -5038,6 +5083,16 @@ shellGlue =
       , "const asked = (query = bootQuery());"
       , "if (!params().has(\"q\")) remember(asked);"
       , "initialQuery: query," ]
+
+  -- A BLIND BOOT ADOPTS THE TREE'S DEFAULT once the walk lands: `remember' has
+  -- written `q' back by then, so the guard reads the door's own URL, pinned
+  -- before boot wrote anything -- and the applied config says itself aloud.
+  , glue "a blind boot adopts the tree's default view and says its config"
+      [ "const bootHadQ = params().has(\"q\");"
+      , "if (now === was || bootHadQ || query !== was) return;"
+      , "logConfig(cfg);"
+      , "append(\"boot\", \"info\", `config layer ${l.path}`"
+      , "if (v.query) append(\"boot\", \"info\", `view ${v.id}: ${v.query}`);" ]
 
   -- A paint under a query arms nothing, so the parity baseline is fetched once behind the table.
   , glue "the parity baseline is armed even when the boot was filtered"
@@ -5402,7 +5457,7 @@ shellGlue =
       , "closed: \"settings closed — the files are as they were\","
       , "filter parity divergence — asset/daemon version skew"
       , "<div id=\"log\"></div>"
-      , "append(\"boot\", \"info\", \"loading …\");"
+      , "`loading … ${opening ? `view: ${opening}` : \"all rows\"}`);"
       ]
       [ "const say = () =>", "say();", "getRows().length"
       , "matching ${query}", "${profile} keys"

@@ -70,6 +70,7 @@ module Glance.Query ( BlobSeed (..)
                     , fingerprint
                     , firstBy
                     , followableTypes
+                    , materialTypes
                     , headlineParts
                     , hiddenProperties
                     , inactiveMeta
@@ -102,7 +103,9 @@ module Glance.Query ( BlobSeed (..)
                     , untrailed
                     , recomposedSubtree
                     , Ref (..)
+                    , RefVia (..)
                     , kindSlug
+                    , orgIdOf
                     , refSpellings
                     , refTargetOf
                     , refTargets
@@ -191,7 +194,7 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , firstHeadlineOf, headlineIdProperty, headlinesOf, hsFull, identity
                 , isKeywordChar, isTagChar, levelOf
                 , metaCategory
-                , orgParse, priority, schedule, shiftSpan, sliceSpan, spans, spelled
+                , orgIdentity, orgParse, priority, schedule, shiftSpan, sliceSpan, spans, spelled
                 , addUnit, relativeForms, repeaterFormat, tags, title, todo
                 , tsBrackets, unitOf )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
@@ -352,8 +355,12 @@ topLevel h = levelOf h == 1
 -- | Has H nothing the table can show?  The RECORD's rule at the HEADLINE's
 -- layer: each span is 'Nothing' exactly where 'recordOf' cuts an empty cell.
 blankEntry :: Headline -> Bool
-blankEntry h = all isNothing [ hsTodo sp, hsPriority sp, hsTitle sp, hsTags sp
-                             , hsSchedule sp, hsDeadline sp ]
+blankEntry h = all isNothing [ hsTodo sp
+                             , hsPriority sp
+                             , hsTitle sp
+                             , hsTags sp
+                             , hsSchedule sp
+                             , hsDeadline sp ]
   where sp = spans h
 
 recordOf :: ConfigLayers -> TodoKeywords -> FilePath -> Int -> Text -> Text -> Text
@@ -516,8 +523,18 @@ linkType target
 followableTypes :: [Text]
 followableTypes = ["https", "http"]
 
+-- | The SCHEMES whose target is a HEADLINE ID: following one opens the
+--   material doc.  The colon form is org's syntax; 'linkType' folds the whole
+--   family to "glance", which is what a row's wire type carries -- so the
+--   wire-facing 'materialTypes' derives to that one word.
+materialSchemes :: [Text]
+materialSchemes = ["glance", "org-glance-material", "org-glance-visit", "org-glance-open"]
+
+materialTypes :: [Text]
+materialTypes = nub (map (linkType . (<> ":")) materialSchemes)
+
 linkTypes :: [Text]
-linkTypes = followableTypes <> ["glance", "mailto", "id", "file"]
+linkTypes = followableTypes <> materialTypes <> ["mailto", "id", "file"]
 
 linkTypeBadges :: [Value]
 linkTypeBadges =
@@ -541,9 +558,16 @@ tagColumns =
 
 -- References
 
--- | The protocols naming a row.  @org-glance-overview:@/@-state:@ name a tag and a keyword.
+-- | The protocols naming a row: the material schemes plus org's own @id:@.
+--   @org-glance-overview:@/@-state:@ name a tag and a keyword.
 refPrefixes :: [Text]
-refPrefixes = ["org-glance-visit:", "org-glance-open:", "org-glance-material:", "id:", "glance:"]
+refPrefixes = map (<> ":") materialSchemes <> ["id:"]
+
+-- | The NAMESPACE a reference resolves in.  @id:@ is org-id's protocol and
+--   names the @:ID:@ PROPERTY; everything else names the row itself.
+--   Resolving @id:@ over @ORG_GLANCE_ID@ would conflict with org-mode.
+data RefVia = ViaRow | ViaOrgId
+  deriving (Eq, Ord, Show)
 
 -- | A reference AS RESOLVED: the row it names, and the KIND its author declared
 -- on the edge.  The kind is the EDGE's, never the row's — which is why it rides
@@ -551,6 +575,7 @@ refPrefixes = ["org-glance-visit:", "org-glance-open:", "org-glance-material:", 
 data Ref = Ref
   { refTarget :: !Text          -- ^ the id or title the link names, normalized.
   , refKind   :: !(Maybe Text)  -- ^ @?kind=SLUG@, as the author spelled it.
+  , refVia    :: !RefVia        -- ^ the namespace the target lives in.
   } deriving (Eq, Ord, Show)
 
 refTargets :: Text -> [Ref]
@@ -564,22 +589,25 @@ refTargetsOf = nub . map detachRef . mapMaybe (refTargetOf . olTarget)
 -- | The document is a slice of the file's text, so a reference kept out of it
 -- retains the whole file; 'detach' copies, and the KIND must not reopen that.
 detachRef :: Ref -> Ref
-detachRef (Ref t k) = Ref (detach t) (detach <$> k)
+detachRef (Ref t k v) = Ref (detach t) (detach <$> k) v
 
 refTargetOf :: Text -> Maybe Ref
 refTargetOf target
     -- A KIND RIDES ON THE EDGE, not on the row: org-glance writes
     -- @?kind=SLUG@ after the id, so the id alone names the row and the kind is
-    -- KEPT BESIDE IT.  A TITLE is text, so its own @?@ stays.
-  | Just rest <- firstJust (`T.stripPrefix` target) refPrefixes =
+    -- KEPT BESIDE IT.  A TITLE is text, so its own @?@ stays.  The NAMESPACE
+    -- is the prefix's own: @id:@ resolves in org-id's.
+  | Just (p, rest) <- stripped =
       let (row, query) = T.breakOn "?" rest
       in plain row (kindIn (T.drop 1 query))
-  | Just rest <- T.stripPrefix "*" target                       = plain rest Nothing
+               (if p == "id:" then ViaOrgId else ViaRow)
+  | Just rest <- T.stripPrefix "*" target                       = plain rest Nothing ViaRow
   | T.any (\c -> c == ':' || c == '/') target                   = Nothing
-  | otherwise                                                   = plain target Nothing
+  | otherwise                                                   = plain target Nothing ViaRow
   where
-    plain t k = if T.null t then Nothing else Just (Ref t k)
-    firstJust f = listToMaybe . mapMaybe f
+    stripped = listToMaybe [ (p, rest) | p <- refPrefixes
+                                       , Just rest <- [T.stripPrefix p target] ]
+    plain t k v = if T.null t then Nothing else Just (Ref t k v)
 
 -- | The @kind@ of a target's query string; an EMPTY one is no kind at all.
 -- Only the peer's own key is read — anything else it may write is not a kind.
@@ -600,6 +628,11 @@ kindSlug = T.intercalate "-" . T.words . T.toLower
 
 refSpellings :: HeadlineRecord -> [Text]
 refSpellings r = maybe id (:) (identity (hrHeadline r)) [hrTitle r]
+
+-- | R's @:ID:@ property — org-id's own, the one spelling a 'ViaOrgId'
+--   reference matches.
+orgIdOf :: HeadlineRecord -> Maybe Text
+orgIdOf = orgIdentity . hrHeadline
 
 squashControls :: Text -> Text
 squashControls = T.concat . go

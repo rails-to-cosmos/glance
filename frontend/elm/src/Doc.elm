@@ -90,11 +90,12 @@ empty =
     Model [] [] Array.empty Array.empty 0 [] [] Nothing 0 1 Nothing Nothing [] [] [] Set.empty
 
 
-{-| A SIBLING SHARES AN OWNER, and that is the whole of the step: `n'/`p' walk
-the rows owned by what owns point -- a leaf its item run, an element its shelf,
-a child headline its brothers -- and never dive.  A LEAF'S RUN STILL ENDS AT
-ITS LIST'S EDGE: past the run sit rows of other owners, and the walk stops
-rather than leaping shelves.
+{-| A SIBLING SHARES AN OWNER, and that is the step for contents: `n'/`p' walk
+the rows owned by what owns point -- a leaf its item run, an element its shelf
+-- and never dive.  A LEAF'S RUN STILL ENDS AT ITS LIST'S EDGE: past the run
+sit rows of other owners, and the walk stops rather than leaping shelves.
+A HEADLINE IS THE EXCEPTION: it walks every visible headline in document
+order, org's own cycle over the outline, contents left to `f'/`b'.
 -}
 step : Int -> Model -> Model
 step by m =
@@ -107,25 +108,47 @@ step by m =
                 n =
                     List.length m.rows
 
-                ownerAt i =
-                    Maybe.andThen .owner (nth i m.rows)
+                -- ONE SCAN, TWO COHORTS: from a headline the walk is every
+                -- visible headline in document order, org's own
+                -- next-visible-heading, a folded subtree skipped whole;
+                -- from anything else it is the rows sharing point's owner.
+                -- Contents stay behind `f'/`b'.  The hidden fold is the
+                -- headline walk's own cost, paid only on its branch.
+                fits =
+                    if heading cur then
+                        let
+                            hidden =
+                                hiddenIn m
+                        in
+                        \r -> heading r && not (Set.member r.id hidden)
 
-                amongKin i =
+                    else
+                        \r -> r.owner == cur.owner
+
+                scan i =
                     if i < 0 || i >= n then
                         Nothing
 
-                    else if ownerAt i == cur.owner then
+                    else if Maybe.withDefault False (Maybe.map fits (nth i m.rows)) then
                         Just i
 
                     else
-                        amongKin (i + by)
+                        scan (i + by)
             in
-            case amongKin (m.at + by) of
+            case scan (m.at + by) of
                 Nothing ->
                     m
 
                 Just i ->
                     { m | at = i }
+
+
+{-| The one spelling of "is this row a headline?" -- the sheet's own line or
+a nested child.
+-}
+heading : Row -> Bool
+heading r =
+    r.kind == Head || r.kind == Child
 
 
 finer : Model -> ( Model, String )
@@ -148,7 +171,7 @@ finer m =
                     else
                         kids > 0
             in
-            if r.kind == Head || r.kind == Child then
+            if heading r then
                 if entered then
                     ( { m | at = m.at + 1 }, "grain-finer (the body)" )
 
@@ -471,7 +494,7 @@ update msg model =
                 -- WHAT THE MODEL REFUSED, by name: a headline is never spliced here.
                 refused =
                     List.length
-                        (List.filter (\r -> r.kind == Head || r.kind == Child) named)
+                        (List.filter heading named)
 
                 metaN =
                     List.length (List.filter (\r -> r.kind == Meta) named)
@@ -1080,16 +1103,18 @@ rung depth =
 attribute — see `rung`.
 -}
 type alias Lit =
-    { ups : List String, sib : Maybe String }
+    { ups : List String, sib : Maybe String, owned : Set String }
 
 
-{-| Point's owners and its owner, computed ONCE per render: `markOf' reads them
-for every row, and deriving them there walked the rows once per row.
+{-| Point's owners, its owner, and the ids owning anything, computed ONCE per
+render: `markOf' and `rowClass' read them for every row, and deriving them
+there walked the rows once per row.
 -}
 litOf : Model -> Lit
 litOf m =
     { ups = ownersOf m (idAtRow m m.at)
     , sib = Maybe.andThen .owner (rowAt m)
+    , owned = Set.fromList (List.filterMap .owner m.rows)
     }
 
 
@@ -1138,7 +1163,7 @@ spineRanks m heads =
         start =
             Maybe.andThen
                 (\r ->
-                    if r.kind == Child || r.kind == Head then
+                    if heading r then
                         Just r.id
 
                     else
@@ -1208,7 +1233,12 @@ rowClass lit m i r top =
         ++ (if drawer m r then
                 -- THE CLASS IS THE DRAWER'S, not the fold's: a child headline
                 -- folds too but is no drawer, and `.d-drawer' styles frames.
-                " d-drawer"
+                -- A drawer holding nothing is BARE, and its frame dims.
+                if Set.member r.id lit.owned then
+                    " d-drawer"
+
+                else
+                    " d-drawer bare"
 
             else
                 ""
@@ -1890,7 +1920,13 @@ viewPath m =
                 [ "headline" ]
 
             else if List.isEmpty named then
-                [ "headline", "paragraph" ]
+                [ "headline"
+                , if Maybe.map .kind (rowAt m) == Just Meta then
+                    "planning"
+
+                  else
+                    "paragraph"
+                ]
 
             else
                 "headline" :: named

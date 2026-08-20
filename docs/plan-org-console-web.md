@@ -1,6 +1,6 @@
 # Plan — org-console-web
 
-**Companion to:** [2026-07-30-org-console-web.draft.md](proposals/2026-07-30-org-console-web.draft.md) · **Date:** 2026-07-30
+**Companion to:** [draft/2026-07-30-org-console-web.md](proposals/draft/2026-07-30-org-console-web.md) · **Date:** 2026-07-30
 
 Steps ship in order unless marked parallel. Each step has an exit bar: every
 box checked = step done. Perf budgets derive from the S1 baseline; steps
@@ -750,7 +750,7 @@ Exit:
 - [x] Round-trip demo: toggle TODO in browser → Emacs `auto-revert` shows it;
       edit in Emacs → browser row updates. Both directions. Actual, and it is a
       TARGET rather than a sitting: `make interop`
-      (docs/proposals/2026-08-12-interop-check.done.md) stands up ONE org-glance
+      (docs/proposals/done/2026-08-12-interop-check.md) stands up ONE org-glance
       store, lets Emacs seed it and the daemon serve it, and runs its cases both
       ways. Browser→Emacs is stronger than `auto-revert` — a `POST /command
       set-state` over a blob leaves the notification line org-glance's own
@@ -953,7 +953,7 @@ Suite: 301 → **378 tests** at the engine. The bars the engine alone could not
 close are answered by the command layer above.
 
 **The round trip closed M4 (2026-08-12), and it is a target rather than a
-sitting.** `make interop` (docs/proposals/2026-08-12-interop-check.done.md) is
+sitting.** `make interop` (docs/proposals/done/2026-08-12-interop-check.md) is
 the first check in this repo that runs the PEER: `test/interop/og.el` drives
 org-glance's live sources under `emacs -Q -batch`, `test/interop/drive.mjs`
 drives the daemon, and both work over ONE store in a temp directory that is

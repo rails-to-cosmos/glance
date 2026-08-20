@@ -13,7 +13,7 @@ import System.Directory (doesFileExist, listDirectory)
 import System.FilePath (takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
-import TestDefaults (at, bare, bareParse, buildSources, compactTs, namesIn, on, plainTs, propertyKeys, sourcesUnder, withDoc, withHeadline)
+import TestDefaults (at, bare, bareParse, buildSources, compactTs, namesIn, on, plainTs, propertyKeys, proposalDirs, proposalsByStatus, sourcesUnder, withDoc, withHeadline)
 import TextShow (showt)
 import qualified Data.Set as Set
 import qualified Data.Text as T
@@ -1428,16 +1428,7 @@ releaseOf h = case T.splitOn " - " h of
   [v, d] | T.length d == 10, T.all (\c -> isDigit c || c == '-') d -> Just (T.strip v, d)
   _ -> Nothing
 
--- | The status a proposal's NAME wears: the segment before its extension.
-statusPart :: FilePath -> Maybe String
-statusPart n = case reverse (T.splitOn "." (T.pack n)) of
-  (_ : st : _ : _) -> Just (T.unpack st)
-  _                -> Nothing
-
 -- | Emacs's editor state declares nothing, which is 'Data.Org.Walk.isSidecar''s rule one directory over.
-proposalSidecar :: FilePath -> Bool
-proposalSidecar n = (".#" `isPrefixOf` n) || ("#" `isPrefixOf` n && "#" `isPrefixOf` reverse n)
-
 -- | The @Glance.Web.*@ and @Glance.Desktop*@ modules a source reads; 'Glance.Query' is dropped.
 webImportsOf :: Text -> [String]
 webImportsOf src =
@@ -1611,14 +1602,14 @@ specGroup12 = testGroup "Build and discipline"
              , T.pack (", " <> ambiguous <> " ") `T.isPrefixOf` T.strip l ]
 
   , testCase "the five status words are distinct and lowercase" $ do
-      names <- filter (not . proposalSidecar) <$> listDirectory "docs/proposals"
-      assertBool ("too few proposals swept: " <> show (length names)) (length names >= 35)
+      worn <- proposalDirs
+      swept <- map snd <$> proposalsByStatus
+      assertBool ("too few proposals swept: " <> show (length swept)) (length swept >= 35)
       let spelled = map statusWord [minBound .. maxBound :: Status]
-          worn = nub (mapMaybe statusPart names)
       assertEqual "a status word the spec spells twice" spelled (nub spelled)
       assertEqual "a status word that is not lowercase"
         [] [ s | s <- spelled, s /= map toLower s ]
-      assertEqual "a proposal wearing a status the spec does not spell" [] (worn \\ spelled)
+      assertEqual "a directory wearing a status the spec does not spell" [] (worn \\ spelled)
       assertEqual "a status word no proposal wears" [] (spelled \\ worn)
 
     -- A cut empties Unreleased, and whether the emptied heading is written or

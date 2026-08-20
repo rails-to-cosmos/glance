@@ -75,7 +75,7 @@ data Note = Note Why [Proof]
 -- A KIND is a closed set this program mints and is a sum; a NAME is open text
 -- an author wrote and is a String. `Stop.name' carries both, which is a shape
 -- worth knowing and has cost nothing measured
--- (2026-08-14-stop-kind-vs-org-name.expired.md).
+-- (expired/2026-08-14-stop-kind-vs-org-name.md).
 
 -- * Checks
 --
@@ -2299,17 +2299,23 @@ plannedMatch = MPrefix
 -- | A REFERENCE IS A LINK WITH A KIND, and the kind is the EDGE's rather than
 -- either row's: org-glance writes it after the id as `?kind=SLUG'.  Nothing is
 -- a plain mention.
-data Ref = Ref { refTarget :: String, refKind :: Maybe String } deriving (Eq, Show)
+data RefVia = ViaRow | ViaOrgId deriving (Eq, Show)
+data Ref = Ref { refTarget :: String, refKind :: Maybe String, refVia :: RefVia }
+  deriving (Eq, Show)
 
 -- | @ref:@ over a target the store resolved: no row claiming the id matches
--- nothing, and a row is never its own reference.  SPELLINGS are the target's own
--- (its `ORG_GLANCE_ID' and its title); LINKS are the candidate's subtree.
--- The KIND is carried past the match rather than tested by it: `ref:' asks
--- whether one row points at another, which a kind does not change.
-refTest :: Maybe (RowId, [String]) -> RowId -> [Ref] -> Bool
-refTest Nothing              _   _     = False
-refTest (Just (t, spelling)) row links =
-  row /= t && any ((`elem` spelling) . refTarget) links
+-- nothing, and a row is never its own reference.  A link matches in its OWN
+-- namespace: SPELLINGS (`ORG_GLANCE_ID' and title) answer `ViaRow'; the row's
+-- `:ID:' property alone answers `ViaOrgId' — `id:' is org-id's protocol, and
+-- `ORG_GLANCE_ID' never resolves it.  The KIND is carried past the match
+-- rather than tested by it: `ref:' asks whether one row points at another,
+-- which a kind does not change.
+refTest :: Maybe (RowId, [String], Maybe String) -> RowId -> [Ref] -> Bool
+refTest Nothing _ _ = False
+refTest (Just (t, spelling, orgId)) row links = row /= t && any names links
+  where names l = case refVia l of
+          ViaRow   -> refTarget l `elem` spelling
+          ViaOrgId -> Just (refTarget l) == orgId
 
 -- | `priorityLetter': org's brackets off, folded — the MATCHER's rule and the
 -- priority column's sort key.
@@ -3233,7 +3239,9 @@ data Surface = Surface { sName :: String, sMomentary, sOff, sOpens, sRowed :: Bo
 surfaces :: [Surface]
 surfaces =
   --      name        mom   off   opens rowed edit  narr  panel
-  [ Surface "prompt"  True  True  False False False False False
+  [ Surface "mint"    True  True  False False False False False
+  , Surface "prompt"  True  True  False False False False False
+  , Surface "refer"   True  True  False False False False False
   , Surface "capture" True  True  True  False False False False
   , Surface "links"   True  True  True  True  True  True  False
   , Surface "tags"    True  True  True  True  True  True  False
@@ -3643,7 +3651,8 @@ popMax top = min 90 (100 - 2 * top)
 -- ** The document pane, and its Elm half
 
 data Grain   = Element | Composite | Leaf deriving (Eq, Show)
-data RowKind = DHead | DPara | DChild deriving (Eq, Show)
+data RowKind = DHead | DPara | DChild | DMetaRow deriving (Eq, Show)
+-- ^ `DMetaRow' is Elm's `Meta': a planning or drawer row (`DMeta' names a denied dir).
 
 -- | A STOP: the pane's row.  `was' is what it arrived as, so a draft that has not moved
 --   off it writes nothing.
@@ -3683,10 +3692,10 @@ docRowsCap = 10
 docRowDoors :: [String]
 docRowDoors = ["the fill", "M-RET's splice at the caret", "the field's own input", "shutEdit"]
 
--- A SIBLING SHARES AN OWNER, and that is the whole of the step: `n'/`p' walk the rows
--- owned by what owns point -- a leaf its item run, an element its shelf, a child
--- headline its brothers -- one rule at every grain, clamped at the run's ends.  The
--- rule has no cases left, so it is prose here and a Note below.
+-- THE STEP HAS TWO COHORTS.  From a headline, `n'/`p' walk every visible headline in
+-- document order -- org's next-visible-heading, a folded subtree skipped whole.  From
+-- anything else they walk the rows owned by what owns point -- a leaf its item run,
+-- an element its shelf -- clamped at the run's ends.  Contents are behind `f'/`b'.
 
 data Finer = IntoLeaves | Finest deriving (Eq, Show)
 -- | `f' descends ONE rung; `Finest' refuses with an echo.  `l' and the right arrow are
@@ -3794,6 +3803,7 @@ docFlagged :: RowKind -> Bool
 docFlagged DPara  = True
 docFlagged DHead  = False
 docFlagged DChild = False
+docFlagged DMetaRow = False
 
 data DocPort = PEdit | PDelete | PGrainKey deriving (Eq, Show)
 -- | THE BODY A WRITE SENDS IS ELM'S ANSWER: a splice cannot be rebuilt out of the model
@@ -3931,6 +3941,7 @@ data Join = Join { jUnder :: String, jLine :: Int, jMarker :: Marker
 joinAt :: [Stop] -> Stop -> Stop -> Maybe (Int, Region) -> Maybe Join
 joinAt stops top s caret = case stKind s of
   DChild -> Nothing
+  DMetaRow -> Nothing
   DHead  -> Just (Join (stId s) 1 NoMarker Nothing True "at the top")
   DPara  -> Just (maybe (joinSibling top s) (uncurry (joinInside stops top)) caret)
 
@@ -4074,12 +4085,12 @@ rowed ALogbook  = False
 data Sec = Sec { secTitle :: String, secParts :: [String], secEnter :: Bool }
 
 secs :: [Sec]
-secs = [ Sec "theme"    ["ctheme"]                   True
+secs = [ Sec "ui"       ["ctheme"]                   True
        , Sec "keywords" ["clayers", "ceff", "cfoot"] True ]
 
 -- | The fields each panel draws.
 secFields :: [(String, [String])]
-secFields = [ ("theme",    ["#themesel", "the tree's own state hues"])
+secFields = [ ("ui",       ["#themesel", "the tree's own state hues"])
             , ("keywords", ["the layer select", "#ctext", "#ctpl", "#ceff", "#clab", "#clerr"]) ]
 
 data SCol = SColTag | SColState | SColGroup | SColColour deriving (Eq, Show, Enum, Bounded)
@@ -4412,10 +4423,11 @@ sheetNotes =
          \ INDENTS UNDER ITS OWN STAR: a row carries its headline's level, and the\
          \ indent and the bar are that level's -- org's own geometry, the root's being\
          \ the stylesheet's default." [Test, Browser]
-  , Note "A SIBLING SHARES AN OWNER, and that is the whole of the step: `n'/`p' walk\
-         \ the rows owned by what owns point -- a leaf its item run, an element its\
-         \ shelf, a child headline its brothers -- one rule for lists and headlines\
-         \ alike.  `f' steps into what point owns, `b' climbs to the owner." [Elm, Browser]
+  , Note "THE STEP HAS TWO COHORTS: from a headline `n'/`p' walk every visible\
+         \ headline in document order -- org's next-visible-heading, a folded subtree\
+         \ skipped whole; from anything else they walk the rows owned by what owns\
+         \ point -- a leaf its item run, an element its shelf.  `f' steps into what\
+         \ point owns, `b' climbs to the owner." [Elm, Browser]
   , Note "ONE LIST OF POPUP SURFACES, `Glance.Web.Page.Popups': the veil, the `.on'\
          \ rule, the box sizing, the stale wash and the tier sweep all join it, so a\
          \ surface added there joins them by itself.  Six readers spelled the\
@@ -4784,7 +4796,7 @@ rekeyedEntries, untouchedHelpers :: Int
 rekeyedEntries   = 17      -- ^ store entries built from a `.pc' that moved
 untouchedHelpers = 10      -- ^ pure-Haskell packages beside them
 
--- ** Proposals: the name tells the date and the status
+-- ** Proposals: the directory tells the status, the name the date
 
 data Status = Proposed | Partial | Done | Expired | Draft deriving (Eq, Ord, Show, Enum, Bounded)
 statusWord :: Status -> String
@@ -4805,11 +4817,11 @@ data Proposal = Proposal Ymd String Status
 proposalDir :: Path
 proposalDir = "docs/proposals/"
 proposalPath :: Proposal -> Path
-proposalPath (Proposal d s st) = proposalDir ++ ymdText d ++ "-" ++ s ++ "." ++ statusWord st ++ ".md"
+proposalPath (Proposal d s st) = proposalDir ++ statusWord st ++ "/" ++ ymdText d ++ "-" ++ s ++ ".md"
 dateLine, statusLine :: Proposal -> String
 dateLine   (Proposal d _ _)  = "**Date:** " ++ ymdText d
 statusLine (Proposal _ _ st) = "**Status:** " ++ statusWord st
--- | The ONE rename a proposal ever owes: a date never changes, a status does.
+-- | The ONE move a proposal ever owes: a date never changes, its directory does.
 retitle :: Status -> Proposal -> Proposal
 retitle st (Proposal d s _) = Proposal d s st
 siblingPath :: Proposal -> Path                  -- ^ org-glance spells one shape, in org

@@ -7,7 +7,7 @@
 > ran.
 
 **Date:** 2026-08-16 · **For:**
-[`../../proposals/2026-08-15-a-relation-is-a-link-with-a-kind.proposed.md`](../../proposals/2026-08-15-a-relation-is-a-link-with-a-kind.proposed.md)
+[`../../proposals/proposed/2026-08-15-a-relation-is-a-link-with-a-kind.md`](../../proposals/proposed/2026-08-15-a-relation-is-a-link-with-a-kind.md)
 
 Three ways to draw the refer picker, built to be argued with rather than
 shipped. **Open `index.html`** — the three are tabs.

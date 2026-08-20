@@ -42,6 +42,9 @@ async function walkTo(p, sel, what) {
       const synced = !!at && at.dataset.id === docAtNow();
       return { hit: synced && at.matches(s),
                synced,
+               // A HEADLINE WALKS HEADLINES NOW, so the way into contents is
+               // `f' -- the walk dives off a headline unless one is the target.
+               dive: !!at && at.matches(".d-head, .d-child") && !at.matches(s),
                text: at ? at.textContent.slice(0, 30) : "" };
     }, sel);
     if (seen.hit) return;
@@ -49,7 +52,7 @@ async function walkTo(p, sel, what) {
       await settled(p, `the mirror to settle on the way to ${what}`);
       continue;
     }
-    await p.press("n");
+    await p.press(seen.dive ? "f" : "n");
     await p.until((was) => {
       const at = document.querySelector("#mdoc .de.dat");
       return !!at && at.dataset.id === docAtNow()
@@ -67,13 +70,19 @@ const settled = (p, why) =>
     return !!at && at.dataset.id === docAtNow();
   }, why || "the mirror to agree with the draw");
 
-/** Press KEY and wait for point to land on SEL, the mirror agreeing. */
+/** Press KEY and wait for point to land on SEL -- a NEW row the mirror owns,
+ * since the old row satisfies every wait until the press is processed. */
 async function stepped(p, key, sel, why) {
-  await p.press(key);
-  await p.until((s) => {
+  const prev = await p.eval(() => {
     const at = document.querySelector("#mdoc .de.dat");
-    return !!at && at.dataset.id === docAtNow() && at.matches(s);
-  }, why, undefined, sel);
+    return at ? at.dataset.id : "";
+  });
+  await p.press(key);
+  await p.until((a) => {
+    const at = document.querySelector("#mdoc .de.dat");
+    return !!at && at.dataset.id === docAtNow() && at.dataset.id !== a.prev
+      && at.matches(a.sel);
+  }, why, undefined, { sel, prev });
 }
 
 /** The paragraph edit box open. */
@@ -403,6 +412,7 @@ export default [
       const cs = getComputedStyle(at);
       return { sel: g("sel"),
                mark: ink(at),
+               mk: mark(),
                fg: g("fg"),
                ink: g("point"),
                offMark: ink(off),
@@ -410,9 +420,10 @@ export default [
                deco: cs.textDecorationLine, outline: cs.outlineStyle,
                border: cs.borderTopStyle };
     });
-    // THE GROUND SAYS WHERE POINT IS; its connector wears the page's own ink.
-    assert(seen.mark === seen.fg,
-      `the cursor's mark paints ${seen.mark}, not the page's ink ${seen.fg}`);
+    // THE GROUND SAYS WHERE POINT IS; its connector wears the MARK ink, a
+    // step short of the page's so the bar leads without shouting.
+    assert(seen.mark === seen.mk && seen.mark !== seen.fg,
+      `the cursor's mark paints ${seen.mark}, not the mark ink ${seen.mk}`);
     // A PARAGRAPH CARRIES NOTHING, so it wears the ground the table's cursor wears.
     // What made a ground wrong is the subtree drawn inside an ITEM, and the case
     // named "the cursor on a list item lights itself" owns that half.
@@ -1088,6 +1099,7 @@ export default [
                off: g("point-off"),
                sel: g("sel"),
                atInk: ink(at),
+               mk: mark(),
                kidInk: ink(kid),
                otherInk: other
                  ? ink(other) : null,
@@ -1097,8 +1109,8 @@ export default [
     // WHAT POINT CARRIES TAKES THE PAGE'S OWN INK; everything off the path drops to
     // the ink nobody is looking at.  The ground itself is the case named "the cursor
     // is a ground over its own line".
-    assert(seen.kidInk === seen.fg,
-      `a row under point paints ${seen.kidInk}, not the page's ink ${seen.fg}`);
+    assert(seen.kidInk === seen.mk,
+      `a row under point paints ${seen.kidInk}, not the mark ink ${seen.mk}`);
     assert(seen.otherInk === seen.off,
       `an item outside point's subtree paints ${seen.otherInk}, not ${seen.off}`);
     // THE SPINE BARS THE ROW'S WHOLE EXTENT: own line and subtree together,
@@ -1119,8 +1131,8 @@ export default [
     });
     assert(whole.ground === seen.sel,
       `the list grounds ${whole.ground}, not the table's ${seen.sel}`);
-    assert(whole.rootInk === seen.fg,
-      `a root on the list's ground paints ${whole.rootInk}, not the page's ${seen.fg}`);
+    assert(whole.rootInk === seen.mk,
+      `a root on the list's ground paints ${whole.rootInk}, not the mark's ${seen.mk}`);
     assert(whole.deepInk !== seen.point,
       `a row two deep paints ${whole.deepInk} as well, so the light ran the tree`);
     return [`point ${seen.atInk}, what it carries ${seen.kidInk}, elsewhere `
@@ -1205,6 +1217,7 @@ export default [
                // THE GROUND THE TABLE'S CURSOR WEARS, and the tree in its own column.
                ground: getComputedStyle(at).backgroundColor,
                rail: ink(at),
+               mk: mark(),
                kidGround: getComputedStyle(kidRow).backgroundColor,
                plainGround: plainRow ? getComputedStyle(plainRow).backgroundColor : null,
                ink: getComputedStyle(glyph(own)).color, text: own.textContent,
@@ -1220,8 +1233,8 @@ export default [
     assert(seen.plainGround !== seen.sel,
       `an ordinary row grounds ${seen.plainGround} as well`);
     // THE TREE WEARS THE PAGE'S INK; the ground alone says where point is.
-    assert(seen.rail === seen.fg,
-      `the cursor's connector paints ${seen.rail}, not the page's ink ${seen.fg}`);
+    assert(seen.rail === seen.mk,
+      `the cursor's connector paints ${seen.rail}, not the mark ink ${seen.mk}`);
     // AND WHAT STANDS ON THE GROUND READS OVER IT: point's hue is the ground's in the
     // light theme, so a marker painted in it went missing, ordinals and all.
     assert(seen.ink === seen.fg,
@@ -1650,15 +1663,22 @@ export default [
              && Math.abs(insets.grand - insets.root - 4 * insets.ch) < 0.1,
       `the shelves indent ${insets.root}/${insets.kid}/${insets.grand} on a `
       + `${insets.ch}px character`);
-    // THE SHELF WALKS LIKE A LIST: n from the first child lands on the second,
-    // never inside the first — a sibling shares an owner.
+    // THE OUTLINE DIVES: n from the first child enters its subtree headfirst,
+    // and the second child is the step after the grandchild.
     await walkTo(p, ".d-child", "the first child headline");
     const first = await p.eval(() => document.querySelector("#mdoc .de.dat").textContent);
     assert(/A child whose body/.test(first), `the walk reached ${JSON.stringify(first)}`);
     await p.press("n");
+    await p.until(() => /A grandchild/.test(
+      document.querySelector("#mdoc .de.dat").textContent),
+      "n to dive to the grandchild");
+    await p.press("n");
     await p.until(() => /A second child/.test(
       document.querySelector("#mdoc .de.dat").textContent),
-      "n to step to the SECOND child, over the first's whole subtree");
+      "n to climb out to the SECOND child");
+    await p.press("p");
+    await p.until(() => /A grandchild/.test(
+      document.querySelector("#mdoc .de.dat").textContent), "p back in");
     await p.press("p");
     // And `f' goes INTO the child: its first block, owned by it.
     await p.until(() => /A child whose body/.test(
@@ -1703,8 +1723,7 @@ export default [
     // THE RAMP, THE NAMES AND THE SHELVES ARE OBSERVED: point inside the child,
     // its block wears rank 0 and the root's a step out; a sibling child's rows
     // sit BESIDE the first child's block; the strip names a child by its TITLE.
-    await p.press("f");
-    await settled(p);
+    await stepped(p, "f", ".de", "f to enter the child before the ranks are read");
     const ranked = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
       const inner = at.closest(".blk");
@@ -1725,6 +1744,43 @@ export default [
     return [`3 children inline; the shelf steps over subtrees; a child's paragraph `
       + `edits through the splice; TAB folds the subtree whole; the ramp ranks `
       + `${(ranked.inner.match(/sp-\d/) || [])[0]}/${(ranked.outer.match(/sp-\d/) || [])[0]}`];
+  } },
+{ name: "n on a headline walks headlines at every depth, and a fold is skipped",
+  async run(p, base) {
+    await sheet(p, base, "drv-marks");
+    await walkTo(p, ".d-child", "the first child");
+    const at = () => p.eval(() => {
+      const a = document.querySelector("#mdoc .de.dat");
+      return { text: a.textContent.slice(0, 30),
+               head: a.classList.contains("d-head") };
+    });
+    const to = async (key, re, why) => {
+      await stepped(p, key, ".d-head, .d-child", why);
+      const seen = await at();
+      assert(re.test(seen.text), `${why}: landed on ${JSON.stringify(seen.text)}`);
+      return seen;
+    };
+    // DOWN THE OUTLINE: into the child's subtree, then out to its sibling.
+    await to("n", /grandchild/, "n dives to the grandchild");
+    await to("n", /second child/, "n climbs out to the second child");
+    // AND BACK UP, ending on the entry's own line.
+    await to("p", /grandchild/, "p returns to the grandchild");
+    await to("p", /child whose body/, "p returns to the first child");
+    const root = await to("p", /Every marker/, "p ends on the headline");
+    assert(root.head, "the walk's top is not the entry's own line");
+    // A FOLDED SUBTREE IS SKIPPED WHOLE, org's next-visible-heading.
+    await to("n", /child whose body/, "n re-enters the outline");
+    await p.press("TAB");
+    await p.until(() => /…/.test(document.querySelector("#mdoc .de.dat").textContent),
+      "TAB to fold the child");
+    await settled(p);
+    await to("n", /second child/, "n skips the folded subtree");
+    await to("p", /child whose body/, "p lands on the folded line, never inside");
+    await p.press("TAB");
+    await p.until(() => !/…/.test(document.querySelector("#mdoc .de.dat").textContent),
+      "TAB to open it again");
+    return ["the outline walks child, grandchild, sibling and back to the top; "
+      + "a folded subtree is one step"];
   } },
 { name: "the pane is a narrowing, so a typed root-level headline is demoted",
   async run(p, base) {

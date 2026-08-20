@@ -6,11 +6,6 @@ I am distilling my [[https://orgmode.org/][org-mode]] experience, habits and bes
 this app: the project is experimental, and I will publish it once it
 suits my everyday work well.
 
-I use LLM agents in this project, mostly for prototyping, shaping and
-testing (expect some sloppy tests which I'll fight eventually). I
-avoid pure vibe-coding, so ownership and knowledge of the codebase
-stay with me.
-
 In [[https://www.gnu.org/software/emacs/][Emacs]] I still use [[https://github.com/rails-to-cosmos/org-glance][org-glance]] and I guarantee the compatibility of
 metadata.
 
@@ -66,27 +61,15 @@ curl -s 'localhost:7777/headlines?q=tag:work%20sort:deadline&limit=100' | jq '.s
 One string states both the narrowing and the order ([[https://github.com/rails-to-cosmos/table-view][table-view]]'s grammar,
 ported term for term; divergences enumerated in [[file:AGENTS.hs][AGENTS.hs]]).
 
-| query                           | rows served                                     |
-|---------------------------------+-------------------------------------------------|
-| =milk=                            | substring anywhere in the row                   |
-| =state:TODO=                      | exactly that keyword                            |
-| =state:TODO\vert{}DONE=           | either (alternatives OR)                        |
-| =tag:work tag:home=               | both tags (tokens AND)                          |
-| =-tag:work=                       | rows without the tag                            |
-| =tag:*empty*=                     | untagged rows (=*word*= is a meta, never text)    |
-| =state:*active*=                  | active keywords + stateless — the default view  |
-| =tag:*archive*=                   | the archived rows every other query hides       |
-| =-planned:*empty* sort:scheduled= | the agenda: dated rows, earliest first          |
-| =ref:ROW-ID=                      | rows whose subtree links to that row (=@= drills) |
-| =sort:state->title:desc=          | order by cycle, ties by title reversed          |
-| =sort:*none*=                     | document order, no sort at all                  |
-| =columns:State,Title,Tags=        | those columns, in that order                    |
-| =view:agenda=                     | a saved view by NAME, standing for its query    |
+| query                           | rows served                                    |
+|---------------------------------+------------------------------------------------|
+| =milk=                            | substring anywhere in the row                  |
+| =state:TODO\vert{}DONE tag:work=  | predicates AND, =\vert{}= alternates            |
+| =-planned:*empty* sort:scheduled= | the agenda: dated rows, earliest first         |
+| =view:agenda=                     | a saved view by NAME, standing for its query   |
 
-Written order is precedence. A query naming any =sort:= replaces the default
-chain (state · title · deadline · scheduled, state in the tree's own =#+TODO:=
-order). =:work:= and ~=code=~ stay text: only column keys, =planned=, =ref= and
-=sort= are predicates.
+The whole law -- tokens and quoting, the =*word*= metas, =sort:=/=columns:=,
+refusals, saved views, the archive rule -- is [[file:docs/query.md][docs/query.md]].
 
 ** Keys, the dozen that matter
 
@@ -96,95 +79,70 @@ map. =т з о л= navigates on a Cyrillic layout.
 | =n= =p= / =f= =b= | rows / cells — and in the document, siblings / grain          |
 | =RET=       | materialize the row; in the document, edit the element        |
 | =DEL=       | the ladder: unmark, else drop a query token, else pop a drill |
-| =t= =:= =d d= =D= | state palette · tag popup · flag-then-archive                 |
+| =t= =:=       | state palette · tag popup                                     |
+| =d d= =D=     | flag-then-delete (archive)                                    |
 | =x=         | act on the flagged, after asking · =D= is the quick one         |
 | =m= =u= =M= =U=   | dired's marks                                                 |
 | =o=         | follow the row's links (one opens, several list)              |
-| =+=         | capture · =g= default view · =A= agenda · =P= pin into one          |
+| =+=         | capture                                                       |
+| =g=         | default view                                                  |
+| =A=         | agenda                                                        |
+| =P=         | pin into one                                                  |
 | =@=         | drill into referring rows; =DEL= walks back                     |
-| =/=         | filter palette · =,= settings · =C-x C-s= sync the sheet          |
+| =/=         | query                                                         |
+| =?=         | help                                                          |
+| =,=         | settings                                                      |
 
 ** Capture
 
-=+= is one form: a tag field completing over the tree's vocabulary, the
-template's own fields grown in place when the tag settles, the line last. =RET=
-moves forward and captures; an empty tag is the inbox; =ESC= leaves it whole.
-Untagged captures land in =<root>/inbox.org=, always.
+=+= is one form: a tag completing over the tree's vocabulary (empty = the
+inbox), the tag's template fields grown in place, the line last. A tagged
+capture mints a real org-glance blob -- id, shard path, =EXTERNAL.jsonl=
+note -- that Emacs adopts on its next refresh.
 
-A tag's template is the first heading of its config layer:
-
-#+begin_src org
-# .org-glance/config/tags/book.org
-#+TODO: TODO READING | READ
-* Book
-:PROPERTIES:
-:AUTHOR: %^{Author}
-:END:
-%?
-#+end_src
-
-=%?= is where the typed line lands, =%^{Author}= becomes a form field, =%U= /
-=%T= stamp the server's clock; anything else copies through verbatim. A tagged
-capture mints a real org-glance blob — id, shard path, =EXTERNAL.jsonl= note —
-that Emacs adopts on its next refresh.
+The form, the template law and the =%=-code subset: [[file:docs/capture.md][docs/capture.md]].
 
 ** The material document
 
-=RET= opens the row's subtree as a document plus property panel.
+=RET= opens the row's subtree as a document: planning line, =:PROPERTIES:=
+drawer and every child headline drawn in place.
 
-- Movement is the table's two axes: =n=/=p= walk siblings at the current grain,
-  =f=/=b= go a grain finer / broader (a composite's items, a headline's cells).
-- A list, block or table is *one* stop, so holding =n= skims.
+- Movement is the table's two axes: =n=/=p= walk siblings at the current
+  grain -- and on a headline, the whole visible outline in document order --
+  while =f=/=b= go a grain finer / broader.
+- A list, block, table or drawer is *one* stop, so holding =n= skims; =TAB=
+  folds a drawer or a child's subtree, org's own cycle.
 - Every element commits on its own (=C-x C-s= / =C-c C-c=); =RET= on a child
-  drills in, =DEL= walks out.
+  drills in, =DEL= walks out. Nothing written can leave the subtree: a typed
+  root-level headline is demoted to a child.
 - A moved file is a 409 the sheet waits on.
 - =ORG_GLANCE_ID=, the creation stamp and =:LOGBOOK:= are server-preserved:
   never round-tripped through the client.
 
 ** Commands
 
-=POST /command {name, id | ids, args, digests?}= — ids group by file, one
-drift-locked atomic write per file, per-id answers. Refusals are 400 with
-nothing written; the route never writes the store, so rows come back over the
-file watch.
-
-| name                 | args                           | writes                              |
-|----------------------+--------------------------------+-------------------------------------|
-| =set-state=            | ={keyword}=, nullable            | the keyword span                    |
-| =set-priority=         | ={priority}=, nullable           | org's =[#A]= token                    |
-| =set-title=            | ={title}=                        | the title span alone                |
-| =set-planning=         | ={keyword, date}=, date nullable | one =SCHEDULED=/=DEADLINE= entry      |
-| =add-tag= / =remove-tag= | ={tag}=                          | the tag on / off                    |
-| =rename-tag=           | ={from, to}=                     | both ends, one write per file       |
-| =archive=              | ={}=                             | =add-tag ARCHIVE=; idempotent         |
-| =capture=              | ={text, tag?, fields?}=          | a headline, or a store blob         |
-| =edit-link=            | ={span, target, desc?}=          | one link's own range                |
-| =delete=               | ={}=                             | an archived blob, gzipped to =trash/= |
+=POST /command {name, id | ids, args, digests?}= -- ids batch by file, one
+drift-locked atomic write per file, per-id answers; refusals are 400 with
+nothing written, and rows come back over the file watch.
 
 #+begin_src sh
 curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
      -d '{"name": "set-state", "ids": ["ROW-ID"], "args": {"keyword": "DONE"}}'
-curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
-     -d '{"name": "capture", "args": {"text": "TODO Dune", "tag": "book",
-                                      "fields": {"Author": "Herbert"}}}'
 #+end_src
+
+The registry -- ten commands, their walls, the date grammar, the delete
+rules: [[file:docs/commands.md][docs/commands.md]].
 
 ** Config
 
 Org files under =<root>/.org-glance/config/=, never a row source:
+=system.org= tree-wide, =tags/TAG.org= per tag (cycle + capture template).
+Recognition unions every layer; classification is widest-scope, so a file
+redeclaring =TODO= cannot make it done-like. The settings sheet (=,=) edits
+the layers and hues; =P= pins saved views.
 
-#+begin_src org
-# .org-glance/config/system.org — the tree-wide layer
-#+TODO: TODO STARTED | DONE CANCELLED
-#+GLANCE_DEFAULT_FILTER: state:*active* -tag:someday
-#+GLANCE_STATE_COLORS: light TODO=#7B1FA2 DONE=#00695C
-#+end_src
-
-=tags/TAG.org= adds a per-tag cycle and a capture template. Recognition unions
-every layer; classification is widest-scope (built-in > system > tags > file),
-so a file redeclaring =TODO= cannot make it done-like. The settings sheet (=,=)
-edits the layers and the state hues; saved views are written from the table
-with =P=.
+Layers, keywords, views, hues, and what stays browser-local:
+[[file:docs/config.md][docs/config.md]].
 
 ** org-glance interop
 
@@ -233,7 +191,8 @@ make major | make minor | make patch # cut: bump every version site, date the ch
 
 ** Docs
 
+| [[file:docs/query.md][query.md]] · [[file:docs/capture.md][capture.md]] · [[file:docs/commands.md][commands.md]] · [[file:docs/config.md][config.md]] | the user-facing law, one page each |
 | [[file:AGENTS.hs][AGENTS.hs]]                                                     | the rules the code silently enforces, brief and full |
-| [[file:docs/proposals/2026-07-30-org-console-web.draft.md][2026-07-30-org-console-web.draft.md]] / [[file:docs/plan-org-console-web.md][plan-org-console-web.md]] | why, and the steps                                   |
+| [[file:docs/proposals/draft/2026-07-30-org-console-web.md][draft/2026-07-30-org-console-web.md]] / [[file:docs/plan-org-console-web.md][plan-org-console-web.md]] | why, and the steps                                   |
 | [[file:docs/design-rhymes.md][design-rhymes.md]]                                              | the shapes this UI repeats on purpose                |
 | [[file:CHANGELOG.md][CHANGELOG.md]]                                                  | what each cut carries                                |

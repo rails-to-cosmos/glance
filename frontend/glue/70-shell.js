@@ -305,13 +305,15 @@
         return true;
       },
       keys: (k) => {
-        if (k === "o") {
+        // RET OPENS THE LINK UNDER POINT -- the popup's own name is `open'
+        // -- and `e' is the door to editing it.
+        if (k === "o" || k === "RET") {
           const link = pointedLink();
           const b = openedBy();
           shutLinks();
           if (link) openLink(b, link);
         }
-        else if (k === "RET") openLinkEdit();
+        else if (k === "e") openLinkEdit();
         else return false;
         return true;
       },
@@ -395,14 +397,33 @@
     function adopt() {
       blind = false;
       getJSON("/config").then((cfg) => {
+        logConfig(cfg);
         const was = savedQuery("default");
         seedViews(cfg.views);
         const now = savedQuery("default");
         bootedOn = now;
-        if (now === was || params().has("q") || query !== was) return;
+        // `remember' wrote `q' back the moment boot ran, so the guard is what
+        // the READER's URL held -- adopt applies over boot's own writing.
+        if (now === was || bootHadQ || query !== was) return;
         append("boot", "info", `the tree's default view: ${JSON.stringify(now)}`);
         applyView(bootBinding, now);
       }).catch(quiet);
+    }
+    /** THE APPLIED CONFIG, SAID ALOUD: a line per user value the boot spends. */
+    function logConfig(cfg) {
+      (cfg.layers || []).forEach((l) => {
+        const kw = l.keywords || {};
+        const words = (kw.active || []).concat(kw.inactive || []);
+        append("boot", "info", `config layer ${l.path}`
+          + (l.tag ? ` · tag ${l.tag}` : "")
+          + (words.length ? ` · keywords ${words.join(" ")}` : "")
+          + (l.template ? " · capture template" : ""));
+      });
+      (cfg.views || []).forEach((v) => {
+        if (v.query) append("boot", "info", `view ${v.id}: ${v.query}`);
+      });
+      const hues = (cfg.colors || []).length;
+      if (hues) append("boot", "info", `${hues} keyword ${hues === 1 ? "hue" : "hues"}`);
     }
     const bootBinding = { seq: "", command: "apply-default-filter" };
     function start(after) {
@@ -428,5 +449,7 @@
         quiet(e); if (e.name !== "AbortError") again();
       });
     }
-    append("boot", "info", "loading …");
+    // ONE BOOT LINE, wearing the view it opens on -- the log's own floor.
+    const opening = bootQuery();
+    append("boot", "info", `loading … ${opening ? `view: ${opening}` : "all rows"}`);
     start();

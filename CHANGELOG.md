@@ -13,6 +13,25 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **A headline walks headlines.** `n`/`p` from a headline step through every
+  visible headline in document order, at every depth — org's own
+  next-visible-heading — and a folded subtree is skipped whole. Contents stay
+  behind `f`/`b`. From a list or a paragraph the walk is unchanged.
+
+- **"open link" opens the material document.** A `glance:` or `org-glance-*:`
+  link names a headline, and following it lands in that headline's material
+  doc instead of a browser tab. In the links popup `RET` and `o` open the
+  link; `e` edits it.
+
+- **The boot speaks its configuration.** The log panel opens on
+  `loading … view: X`, and a boot with no query in the address bar applies
+  the tree's default view to the table and logs the config it read — layers,
+  saved views, keyword hues.
+
+- **User docs for the query language, capture, commands and configuration** —
+  `docs/query.md`, `docs/capture.md`, `docs/commands.md`, `docs/config.md`;
+  the README keeps a crib of each and points there.
+
 - **The `:PROPERTIES:` drawer and the planning line are in the document.** The
   sheet's separate Key/Value panel is gone; the pane draws the planning line and
   the drawer under the headline, org's own spelling, keys and frame in the
@@ -96,6 +115,20 @@ section groups a feature arc, and its date is that arc's last commit.
   before.
 
 ### Fixed
+
+- **The focus dim covers every ink.** Reserved tokens, punctuation, links and
+  state boxes ride inherited variables, so the dim and the lit path move as
+  one — the fold ellipsis and a headline's tags included. Lit bars take a
+  mark ink a step short of the page's, and a sibling headline's list spines
+  stay unlit, so the path leads the eye without competing with the words.
+
+- **A bare `:PROPERTIES:` drawer dims whole** — the word with its colons,
+  inside a lit block too: a frame holding no pairs is furniture.
+
+- **An `[[id:…]]` link resolves in org-id's namespace.** `id:` names the
+  `:ID:` property, so `ref:` filtering now matches it there — and never
+  against `ORG_GLANCE_ID`, whose links are the `glance:`/`org-glance-*:`
+  family's.
 
 - **A planning keyword's colon sits after its last letter.** The hanging-colon
   rule matched any first `.dpunc` element, so `DEADLINE:`'s trailing colon was

@@ -1,5 +1,5 @@
 -- | The WASM probe: the core run INSIDE a WASI runtime over a real tree — walk,
--- parse, count (docs/proposals/2026-08-05-native-ports.draft.md, host 4).
+-- parse, count (docs/proposals/draft/2026-08-05-native-ports.md, host 4).
 -- Serial on purpose: WASI has one thread.
 module Main (main) where
 

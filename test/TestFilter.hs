@@ -14,7 +14,7 @@ import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortChain
                     , activeMeta, displayText, inactiveMeta, metaWord, metas
-                    , Ref (..), loadDir, matchesSearch, refTargetOf, refTargets
+                    , Ref (..), RefVia (..), loadDir, matchesSearch, refTargetOf, refTargets
                     , resolveColumns
                     , rowJSON
                     , tagsOfCell, viewJSON )
@@ -77,20 +77,24 @@ spec = testGroup "Filter"
 
 -- | A reference with no kind on it — what a plain mention resolves to.
 mention :: Text -> Ref
-mention t = Ref t Nothing
+mention t = Ref t Nothing ViaRow
+
+-- | An @id:@ reference with no kind: org-id's namespace.
+orgMention :: Text -> Ref
+orgMention t = Ref t Nothing ViaOrgId
 
 -- | One link target normalized, or refused.
 targetSpec :: TestTree
 targetSpec = testGroup "Reference targets"
   [ testCase "the id-bearing protocols are stripped, case preserved" $
-      mapM_ (\(raw, want) -> assertEqual (T.unpack raw) (Just (mention want)) (refTargetOf raw))
-        [ ("org-glance-visit:task-spbm-1-2-3-0",    "task-spbm-1-2-3-0")
-        , ("org-glance-open:Pets-20210816-eee5a4",  "Pets-20210816-eee5a4")
-        , ("org-glance-material:contact-25053-3",   "contact-25053-3")
-        -- Org's own, unused by the corpus and listed because it is org's own.
-        , ("id:9f8e7d6c",                           "9f8e7d6c")
+      mapM_ (\(raw, want) -> assertEqual (T.unpack raw) (Just want) (refTargetOf raw))
+        [ ("org-glance-visit:task-spbm-1-2-3-0",    mention "task-spbm-1-2-3-0")
+        , ("org-glance-open:Pets-20210816-eee5a4",  mention "Pets-20210816-eee5a4")
+        , ("org-glance-material:contact-25053-3",   mention "contact-25053-3")
+        -- Org's own protocol, org-id's own NAMESPACE: it names `:ID:'.
+        , ("id:9f8e7d6c",                           orgMention "9f8e7d6c")
         -- The case is the id's: a fold here would put `Password-…' out of reach.
-        , ("org-glance-visit:Password-20210516-d9", "Password-20210516-d9") ]
+        , ("org-glance-visit:Password-20210516-d9", mention "Password-20210516-d9") ]
 
     -- THE PEER SPELLS A KIND ON THE EDGE — org-glance's `--edge->link-path'
     -- appends `?kind=SLUG' — and the id alone names the row.  The kind is the
@@ -98,14 +102,14 @@ targetSpec = testGroup "Reference targets"
   , testCase "a kind rides off the id and is kept beside it" $ do
       mapM_ (\(raw, want) -> assertEqual (T.unpack raw) (Just want) (refTargetOf raw))
         [ ("org-glance-material:contact-25053-3?kind=author",
-           Ref "contact-25053-3" (Just "author"))
+           Ref "contact-25053-3" (Just "author") ViaRow)
         , ("org-glance-visit:task-spbm-1-2-3-0?kind=blocked-by",
-           Ref "task-spbm-1-2-3-0" (Just "blocked-by"))
+           Ref "task-spbm-1-2-3-0" (Just "blocked-by") ViaRow)
           -- AN EMPTY KIND IS NO KIND: `?kind=' names nothing to declare.
-        , ("id:9f8e7d6c?kind=", mention "9f8e7d6c")
+        , ("id:9f8e7d6c?kind=", orgMention "9f8e7d6c")
           -- Only the peer's own key is a kind; anything else it writes is not.
-        , ("id:9f8e7d6c?other=x", mention "9f8e7d6c")
-        , ("id:9f8e7d6c?other=x&kind=cites", Ref "9f8e7d6c" (Just "cites")) ]
+        , ("id:9f8e7d6c?other=x", orgMention "9f8e7d6c")
+        , ("id:9f8e7d6c?other=x&kind=cites", Ref "9f8e7d6c" (Just "cites") ViaOrgId) ]
       assertEqual "a kind with no id before it names nothing"
                   Nothing (refTargetOf "org-glance-material:?kind=author")
       -- A TITLE IS TEXT, so its question mark is its own — which is the whole
@@ -141,13 +145,13 @@ targetSpec = testGroup "Reference targets"
     -- own "invariant 13"), so glance reads what the peer would have read.
   , testCase "a kind is canonicalized the way the peer canonicalizes it" $ do
       mapM_ (\(raw, want) -> assertEqual (T.unpack raw) (Just want) (refTargetOf raw))
-        [ ("glance:a?kind=Roasted By",   Ref "a" (Just "roasted-by"))
-        , ("glance:a?kind=ROASTED-BY",   Ref "a" (Just "roasted-by"))
-        , ("glance:a?kind=roasted-by",   Ref "a" (Just "roasted-by"))
+        [ ("glance:a?kind=Roasted By",   Ref "a" (Just "roasted-by") ViaRow)
+        , ("glance:a?kind=ROASTED-BY",   Ref "a" (Just "roasted-by") ViaRow)
+        , ("glance:a?kind=roasted-by",   Ref "a" (Just "roasted-by") ViaRow)
           -- Trimmed and collapsed, so a typed kind and a written one are one.
-        , ("glance:a?kind=  blocked   by  ", Ref "a" (Just "blocked-by"))
+        , ("glance:a?kind=  blocked   by  ", Ref "a" (Just "blocked-by") ViaRow)
           -- Whitespace ALONE is no kind, the way an empty one is none.
-        , ("glance:a?kind=%20", Ref "a" (Just "%20")) ]
+        , ("glance:a?kind=%20", Ref "a" (Just "%20") ViaRow) ]
       assertEqual "a kind of pure space declares nothing"
                   (Just (mention "a")) (refTargetOf "glance:a?kind= ")
 
@@ -160,7 +164,8 @@ targetSpec = testGroup "Reference targets"
               -- Slugged first, so this is the SAME edge as the first one.
             , "and again [[glance:alpha?kind=Cites][A]]" ]
       assertEqual "the pair is the key"
-        [Ref "alpha" (Just "cites"), Ref "alpha" (Just "refutes"), mention "alpha"]
+        [ Ref "alpha" (Just "cites") ViaRow, Ref "alpha" (Just "refutes") ViaRow
+        , mention "alpha" ]
         (refTargets text')
 
   , testCase "a subtree with nothing to point at yields no targets" $
@@ -189,6 +194,16 @@ withRefTree = withDocDir "test" "a.org" (T.unlines
   , "* By title"
   , "points at [[*Second]] instead"
   , "* Second"
+  , "* Org row"
+  , ":PROPERTIES:"
+  , ":ID: beadfeed-0000"
+  , ":END:"
+  , "* By org id"
+  , "points at [[id:beadfeed-0000]]"
+    -- `alpha' is a row's ORG_GLANCE_ID and no row's `:ID:', so this `id:'
+    -- link names NOTHING — the namespaces never cross.
+  , "* Crossed"
+  , "points at [[id:alpha]]"
   , "* Neither"
   , "no links here" ])
 
@@ -218,6 +233,16 @@ refSpec = testGroup "References"
       withRefTree $ \records -> do
         rid <- idOf "Second" records
         assertEqual "by title" ["By title"] (titlesMatching ("ref:" <> rid) records)
+
+  , testCase "an org-id link resolves over the ID property, org-id's own" $
+      withRefTree $ \records -> do
+        rid <- idOf "Org row" records
+        assertEqual "by :ID:" ["By org id"] (titlesMatching ("ref:" <> rid) records)
+
+  , testCase "an id: link never resolves over ORG_GLANCE_ID" $
+      -- `Crossed' spells [[id:alpha]]; under the old conflation it would ride
+      -- into every `ref:alpha' answer.
+      assertEqual "still the one referrer" ["By id"] =<< refMatching "ref:alpha"
 
   , testCase "an id no row claims matches nothing, and does not fail" $
       assertEqual "unknown" [] =<< refMatching "ref:no-such-row"

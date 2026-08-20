@@ -4,7 +4,7 @@ module Glance.Web.Page.Glue (glueConfig) where
 import Data.Aeson (object, (.=))
 import Data.Text (Text)
 
-import Glance.Query ( archiveTag, followableTypes, linkColumns
+import Glance.Query ( archiveTag, followableTypes, materialTypes, linkColumns
                     , planningKeywords, tagColumns )
 import Glance.Web.Base (codeList, docCells, jsonValue, logLinesDefault, logLinesMax, logLinesMin)
 
@@ -16,6 +16,7 @@ glueConfig views = jsonValue $ object
   , "planning"     .= planningKeywords
   , "archiveTag"   .= archiveTag
   , "followable"   .= followableTypes
+  , "material"     .= materialTypes
   , "codes"        .= codeList
   , "lcols"        .= linkColumns
   , "tcols"        .= tagColumns

@@ -1,5 +1,5 @@
 -- | THE POPUP SURFACES, ONE LIST, because six hand-spelled copies drifted —
---   docs\/proposals\/2026-08-18-generalize-popup-surface-registry.partial.md.
+--   docs\/proposals\/partial/2026-08-18-generalize-popup-surface-registry.md.
 module Glance.Web.Page.Popups
   ( Popup (..)
   , Tier (..)

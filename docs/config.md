@@ -1,0 +1,81 @@
+# Configuration
+
+Everything a tree configures lives in org files under
+`<root>/.org-glance/config/` — plain pragmas a person can edit in Emacs or
+through the settings sheet (`,`), and the walk reads none of them as rows.
+The README's Config section is the crib; this page is the whole law.
+
+## The layers
+
+```
+.org-glance/config/
+  system.org        the tree-wide layer
+  tags/TAG.org      one layer per tag: its cycle, its capture template
+```
+
+```org
+# system.org
+#+TODO: TODO STARTED | DONE CANCELLED
+#+GLANCE_DEFAULT_FILTER: state:*active* -tag:someday
+#+GLANCE_STATE_COLORS: light TODO=#7B1FA2 DONE=#00695C
+#+GLANCE_STATE_COLORS: dark  TODO=#B584D9 DONE=#2BB5A0
+```
+
+A tag layer is the same shape plus a capture template — its first `*`
+heading to the end of the file ([capture.md](capture.md)); everything above
+the heading is the pragma region, so the two never overlap.
+
+## Keywords: recognition unions, classification is widest-scope
+
+- **Recognition** unions every layer: a keyword any layer names is a keyword
+  everywhere — a row wearing it is stated, whatever file it sits in.
+- **Classification** (is it active or done-like?) is decided at the widest
+  scope that names it: built-in > system > tags > file. A file redeclaring
+  `TODO` cannot make it done-like; a tag layer cannot flip what system
+  settled. Each tag keeps its **first** config; the union keeps them all.
+- A tag with no layer has no `#+TODO:` cycle of its own — worth minting one
+  (the settings sheet is the one place that creates a layer file) before
+  giving its rows custom states.
+
+## Saved views
+
+Three names, each one pragma, each with a built-in fallback
+([query.md](query.md) for what the queries mean):
+
+| view | pragma | built-in |
+| --- | --- | --- |
+| `default` | `#+GLANCE_DEFAULT_FILTER` | `state:*active*` |
+| `agenda` | `#+GLANCE_AGENDA_FILTER` | `state:*active* -planned:*empty* sort:scheduled` |
+| `archive` | `#+GLANCE_ARCHIVE_FILTER` | `tag:*archive*` |
+
+`g` / `A` apply default and agenda; `P` pins the table's current query into
+a saved view — written back to the layer as the pragma line. Within one
+file the **last** pragma line wins; across layers the **first system layer**
+that names a view wins. The default view is also applied at boot when the
+address bar carries no query, and its config values are spoken into the log
+panel as the walk lands.
+
+## State hues
+
+```
+#+GLANCE_STATE_COLORS: THEME KEYWORD=HUE KEYWORD=HUE …
+```
+
+One line per theme is the shape; **every** line is read, and a keyword named
+twice in a theme takes its **last** spelling — so appending a line overrides
+without editing history. Shape alone is validated: an unknown theme declares
+tokens nothing reads, a non-colour is a value CSS ignores — both the
+author's business. The settings sheet edits hues per theme with a picker,
+and unlike the views, colors gather across **every** layer.
+
+## What the page remembers outside the tree
+
+Browser-local, per profile, never written to the tree: the theme
+(`glance-theme`: `auto`, or a theme id, stamped before first paint) and the
+log panel's height. Everything else — views, cycles, hues, templates — is
+the tree's, so every device reads the same configuration.
+
+## Untagged captures
+
+`<root>/inbox.org`, always — the one config-adjacent path that is a row
+source. See [capture.md](capture.md).

@@ -192,6 +192,7 @@ function pageHandle(cdp, sid) {
     + 'd.style.color=v;document.body.append(d);'
     + 'const c=getComputedStyle(d).color;d.remove();return c;};'
     + 'const ink=(n)=>rgb(getComputedStyle(n).getPropertyValue("--ink").trim());'
+    + 'const mark=()=>rgb(getComputedStyle(document.getElementById("mdoc")).getPropertyValue("--g-mark").trim());'
     + 'const g=(n)=>rgb(getComputedStyle(document.documentElement)'
     + '.getPropertyValue("--g-"+n).trim());'
     + 'const cell=(n=50)=>{const s=document.createElement("span");'

@@ -2,7 +2,7 @@
 // What it takes from the shell arrives as accessors: a handle cannot carry a `let'.
 const Capture = ((deps) => {
     const { CFG, EMPTY, active, append, askFailed, badgeColor, docTitle, el,
-            failed, fire, getJSON, keyName, part, postCommand,
+            failed, fire, getJSON, keyName, materialize, part, postCommand,
             said, targetOf, targets, walkStep } = deps;
     const { queryNow, colsNow, entryNow, setArriving } = deps;
     let capping = null;   // the capture form's state while it is up
@@ -363,8 +363,10 @@ const Capture = ((deps) => {
     const tagsOf = (ids) => askIds("/tags", ids);
     // The server's list (`Glance.Query.followableTypes'), spliced like `CODES'.
     const FOLLOWABLE = CFG.followable;
+    const MATERIAL = CFG.material;
     const CODES = CFG.codes;
     const followable = (l) => FOLLOWABLE.indexOf(l.type) !== -1;
+    const material = (l) => MATERIAL.indexOf(l.type) !== -1;
     const shortly = (t) => {
       const s = String(t || "");
       return s.length > 80 ? s.slice(0, 79) + "…" : s;
@@ -375,6 +377,16 @@ const Capture = ((deps) => {
       showLinks(b, id, a);
     }
     function openLink(b, link) {
+      // AN ORG-GLANCE EDGE NAMES A HEADLINE, and opening it is materializing:
+      // the target is the id, whatever the scheme, a `?kind=' suffix dropped.
+      if (material(link)) {
+        const id = String(link.target)
+          .replace(/^[a-z0-9+.-]+:/, "").replace(/\?.*$/, "");
+        materialize(id);
+        said(b, link.desc);
+        append("cmd", "info", `materialized ${JSON.stringify(id)}`);
+        return;
+      }
       if (!followable(link)) {
         said(b, "link type not implemented");
         append("cmd", "warn", `link type not implemented: ${shortly(link.target)}`);
@@ -395,7 +407,7 @@ const Capture = ((deps) => {
              restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
              walkChoices };
 })({ CFG, EMPTY, active, append, askFailed, badgeColor, docTitle, el,
-     failed, fire, getJSON, keyName, part, postCommand,
+     failed, fire, getJSON, keyName, materialize, part, postCommand,
      said, targetOf, targets, walkStep,
      // FORWARD deps go in as thunks: these are declared in later parts, and a
      // wrapped part's exports are destructured `const's -- naming one here

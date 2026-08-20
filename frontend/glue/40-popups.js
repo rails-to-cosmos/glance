@@ -23,7 +23,7 @@ const Popups = ((deps) => {
       m.setRows(lrows.map((r) => ({ id: r.id,
         cells: { type: r.link.type, title: r.link.desc, url: r.link.target } })));
       showPopup("links", "l", `open · ${links.length} links`,
-                "RET edits · o opens it · / narrows · ESC leaves");
+                "RET opens it · e edits · / narrows · ESC leaves");
       opening = b;
       if (lrows.length) m.select(lrows[0].id);
     }

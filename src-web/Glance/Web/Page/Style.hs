@@ -120,7 +120,10 @@ page head' colours title body = T.unlines
   , "    border:1px solid var(--g-border);background:transparent;color:inherit;resize:none}"
   , "  #mtext::selection{background:var(--g-sel);color:var(--g-fg)}"
   , "  #mtext:focus{outline:none;border-color:var(--g-accent)}"
-  , "  #mdoc{flex:2 1 320px;min-width:0;min-height:0;position:relative;"
+  -- THE LIT MARK'S INK: a step short of the page's, so a bar leads the eye
+  -- without competing with the words beside it.  Bars only; text stays full.
+  , "  #mdoc{--g-mark:color-mix(in srgb, var(--g-fg) 68%, var(--g-bg));"
+  , "    flex:2 1 320px;min-width:0;min-height:0;position:relative;"
   , "    overflow:auto;padding:var(--g-doc-pady) var(--g-doc-padx);"
     -- THE TREE HAS A COLUMN OF ITS OWN, and the text never enters it.
   , "    padding-left:calc(var(--g-doc-padx) + 1ch);"
@@ -133,8 +136,12 @@ page head' colours title body = T.unlines
   , "    font-family:var(--dk-mono)}"
   -- POINT IS A MARK BESIDE THE LINE: a nested item is drawn INSIDE its parent, so a
   -- ground would run the whole subtree.  The mark sits one tab stop left of the text.
+  -- EVERY TOKEN INK RIDES THE ROW: `--fg' the stars and lit text, `--tok' the
+  -- reserved words, `--punc' the colons, `--lnk' links, `--box' a ticked box.
+  -- One dim rule and one lit rule move them all; no token is named twice.
   , "  .de{scroll-margin-block:var(--g-doc-off);position:relative;"
-  , "    --ink:var(--g-point-off);"
+  , "    --ink:var(--g-point-off);--fg:var(--g-fg);--tok:var(--g-point);"
+  , "    --punc:var(--g-mute);--lnk:var(--g-link);--box:var(--g-state-i0);"
   , "    padding:1px var(--g-doc-pad);border-radius:4px;white-space:pre-wrap;"
   , "    overflow-wrap:anywhere}"
   , "  .dp{position:relative}"
@@ -187,7 +194,7 @@ page head' colours title body = T.unlines
   -- each enclosing block a step dimmer in the accent, the rest resting.  A
   -- FLAG OUTRANKS THE RAMP.  The `up'/`sib' tiers below stay FLAT — they light
   -- the list's connectors and the text, where a ramp cost more than it said.
-  , "  .blk.sp-0{--spine:var(--g-fg)}"
+  , "  .blk.sp-0{--spine:var(--g-mark)}"
   , "  .blk.sp-1{--spine:color-mix(in srgb, var(--g-accent) 67%, var(--g-bg))}"
   , "  .blk.sp-2{--spine:color-mix(in srgb, var(--g-accent) 45%, var(--g-bg))}"
   , "  .blk.sp-3{--spine:color-mix(in srgb, var(--g-accent) 25%, var(--g-bg))}"
@@ -208,11 +215,10 @@ page head' colours title body = T.unlines
   -- the headline -- the shelf, not the row, is what is being stood on.
   , "  #mdoc.on .de.dat.d-head + .blk .d-comp > .de,"
   , "  #mdoc.on .de.dat.d-child + .blk .d-comp > .de,"
-  , "  #mdoc.on .de.sib.d-child + .blk .d-comp > .de,"
-  , "  #mdoc.on .blk:has(> .de.dat) > .d-comp > .de{--ink:var(--g-fg)}"
+  , "  #mdoc.on .blk:has(> .de.dat) > .d-comp > .de{--ink:var(--g-mark)}"
   -- A SIBLING'S OWN SUBTREE COMES WITH IT: the reader is choosing between BRANCHES,
   -- and a branch whose contents are dimmed is a branch they cannot weigh.
-  , "  #mdoc.on .up,#mdoc.on .sib,#mdoc.on .sib .de{--ink:var(--g-fg)}"
+  , "  #mdoc.on .up,#mdoc.on .sib,#mdoc.on .sib .de{--ink:var(--g-mark)}"
   -- AND THE RUNS RIDE THE RAMP: an enclosing run's bar steps down the accent
   -- by its distance out -- `up-0' the nearest -- and only point's own run
   -- (dat and sib segments) bars in the page's ink.
@@ -221,65 +227,41 @@ page head' colours title body = T.unlines
   , "  #mdoc.on .up.up-2{--ink:color-mix(in srgb, var(--g-accent) 25%, var(--g-bg))}"
   -- THE GROUND SAYS WHERE POINT IS; a bar never wears gold for it, and
   -- what point carries -- OWNERSHIP IS IN THE NESTING -- takes the same ink.
-  , "  #mdoc.on .de.dat,#mdoc.on .de.dat .de{--ink:var(--g-fg)}"
+  , "  #mdoc.on .de.dat,#mdoc.on .de.dat .de{--ink:var(--g-mark)}"
   -- FULL INK UNTIL THE READER GOES INTO A BLOCK -- a list, a drawer, a
-  -- child's contents.  `focus' rides the program's own
-  -- root, so dimming is a MODE rather than the resting look; colour inherits, so the
-  -- lit rows name themselves back out of it.
-  , "  #mdoc.on .focus .de{color:var(--g-point-off)}"
-  -- THE HEADLINE IS THE ROOT OF THE PATH: the way back runs headline, list, owner,
-  -- point, so it keeps its ink whichever list the reader is standing in.
+  -- child's contents.  `focus' rides the program's own root, so dimming is a
+  -- MODE rather than the resting look.  ONE RULE MOVES EVERY INK: it matches
+  -- each row DIRECTLY, so a dim cousin nested inside a lit owner still dims.
+  , "  #mdoc.on .focus .de{color:var(--g-point-off);--fg:var(--g-point-off);"
+  , "    --tok:var(--g-point-off);--punc:var(--g-point-off);"
+  , "    --lnk:var(--g-point-off);--box:var(--g-point-off)}"
+  -- THE PATH NAMES ITSELF BACK OUT: point, what it carries, its owners, the
+  -- choice beside it, the root's line, and the block a lit headline stands
+  -- over -- every ink at once, stars and tokens and links riding along.  A
+  -- child headline off the chain is matched by neither list and stays dim.
   , "  #mdoc.on .focus .de.dat,#mdoc.on .focus .de.dat .de,"
-  -- A SIBLING IS THE CHOICE THE READER IS STANDING IN, so it is readable too.
-  -- A CHILD HEADLINE LIGHTS BY THE PATH ALONE: on the chain it wears `up',
-  -- and off it it dims with its branch -- only the root's line always reads.
-  -- ITS STARS DIM WITH IT: `.ds' pins the page's ink, the row's loudest pixel.
   , "  #mdoc.on .focus .up,#mdoc.on .focus .sib,#mdoc.on .focus .sib .de,"
-  , "  #mdoc.on .focus .d-head{color:var(--g-fg)}"
-  , "  #mdoc.on .focus .d-child:not(.up):not(.sib):not(.dat) .ds{"
-  , "    color:var(--g-point-off)}"
-  -- RESERVED TOKENS DIM WITH THEIR BRANCH: `.dk' and the drawer's `.dg' pin
-  -- the point ink, the pane's loudest, and outshone every dimmed line around.
-  , "  #mdoc.on .focus .de:not(.up):not(.sib):not(.dat) .dk,"
-  , "  #mdoc.on .focus .d-drawer:not(.up):not(.sib):not(.dat) .dg,"
-  , "  #mdoc.on .focus .de:not(.up):not(.sib):not(.dat) .dpunc{"
-  , "    color:var(--g-point-off)}"
+  , "  #mdoc.on .focus .d-head,"
+  , "  #mdoc.on .focus .de.dat.d-head + .blk .de,"
+  , "  #mdoc.on .focus .de.dat.d-child + .blk .de,"
+  , "  #mdoc.on .focus .de.sib.d-child + .blk .de{"
+  , "    color:var(--g-fg);--fg:var(--g-fg);--tok:var(--g-point);"
+  , "    --punc:var(--g-mute);--lnk:var(--g-link);--box:var(--g-state-i0)}"
+  -- A BARE DRAWER DIMS: a frame holding no pairs is furniture, and it drops
+  -- to the ink nobody is looking at -- word and colons alike, whatever else
+  -- the row wears.  The lit selectors are spelled again at their own weight,
+  -- so a bare drawer inside a lit block still dims.
+  , "  #mdoc.on .de.d-drawer.bare,"
+  , "  #mdoc.on .focus .de.d-drawer.bare,"
+  , "  #mdoc.on .focus .de.dat.d-head + .blk .de.d-drawer.bare,"
+  , "  #mdoc.on .focus .de.dat.d-child + .blk .de.d-drawer.bare,"
+  , "  #mdoc.on .focus .de.sib.d-child + .blk .de.d-drawer.bare{"
+  , "    --tok:var(--g-point-off);--punc:var(--g-point-off)}"
   -- AND SO DOES ITS BAR: a pair's gutter bar rides the block's spine ink,
   -- which stays lit while the drawer itself dims -- off the path it drops
   -- with its frame, the flag's red still outranking.
   , "  #mdoc.on .focus .d-drawer:not(.up):not(.sib):not(.dat)"
   , "    .d-meta:not(.dfl)::before{background:var(--g-point-off)}"
-  -- WHAT A SELECTED OR OFFERED HEADLINE CARRIES READS WHOLE: its block is the
-  -- dat/sib subtree the flat rows cannot nest, so the adjacent block says it.
-  , "  #mdoc.on .focus .de.dat.d-head + .blk .de,"
-  , "  #mdoc.on .focus .de.dat.d-child + .blk .de,"
-  , "  #mdoc.on .focus .de.sib.d-child + .blk .de{color:var(--g-fg)}"
-  , "  #mdoc.on .focus .de.dat.d-head + .blk .dk,"
-  , "  #mdoc.on .focus .de.dat.d-child + .blk .dk,"
-  , "  #mdoc.on .focus .de.sib.d-child + .blk .dk,"
-  , "  #mdoc.on .focus .de.dat.d-head + .blk .d-drawer .dg,"
-  , "  #mdoc.on .focus .de.dat.d-child + .blk .d-drawer .dg,"
-  , "  #mdoc.on .focus .de.sib.d-child + .blk .d-drawer .dg{color:var(--g-point)}"
-  , "  #mdoc.on .focus .de.dat.d-head + .blk .dpunc,"
-  , "  #mdoc.on .focus .de.dat.d-child + .blk .dpunc,"
-  , "  #mdoc.on .focus .de.sib.d-child + .blk .dpunc{color:var(--g-mute)}"
-  -- A DRAWER'S FRAME KEEPS ITS TOKEN INK while the reader stands inside it: the
-  -- drawer IS the owner then, and muting its `.dg' muted `:PROPERTIES:' itself.
-  , "  #mdoc.on .focus .de.dat:not(.d-drawer) .dg,"
-  , "  #mdoc.on .focus .up:not(.d-drawer) .dg{color:var(--g-mute)}"
-  -- A LINK CARRIES ITS OWN INK, which outranks what it inherits, so a dimmed line
-  -- kept a lit link inside it until the link was named too.
-  , "  #mdoc.on .focus .dl,#mdoc.on .focus .dbx.on{color:var(--g-point-off)}"
-  -- `> .dp' OR AN ANCESTOR LIGHTS ITS WHOLE SUBTREE: rows nest, so `.up .dl' reaches
-  -- every link under an owner of point, not the one on the owner's own line.  What
-  -- point CARRIES is the one place the subtree is meant.
-  , "  #mdoc.on .focus .de.dat>.dp .dl,#mdoc.on .focus .de.dat .de>.dp .dl,"
-  , "  #mdoc.on .focus .up>.dp .dl,#mdoc.on .focus .sib>.dp .dl,"
-  , "  #mdoc.on .focus .sib .de>.dp .dl,"
-  , "  #mdoc.on .focus .d-head .dl{color:var(--g-link)}"
-  , "  #mdoc.on .focus .de.dat>.dp .dbx.on,#mdoc.on .focus .up>.dp .dbx.on,"
-  , "  #mdoc.on .focus .sib>.dp .dbx.on,#mdoc.on .focus .sib .de>.dp .dbx.on,"
-  , "  #mdoc.on .focus .de.dat .de>.dp .dbx.on{color:var(--g-state-i0)}"
   -- WHAT STANDS ON THE GROUND TAKES THE PAGE'S INK: the ground says which line, and a
   -- marker in point's own hue vanished into it -- gold on gold, and the ordinals with
   -- it.  THE SPINE KEEPS ITS HUE, its column being outside the ground.
@@ -305,10 +287,10 @@ page head' colours title body = T.unlines
   -- THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink;
   -- ITS COLONS ARE PUNCTUATION -- dimmed, the leading one HANGING into the
   -- gutter so the token lines up on its letter.
-  , "  .d-drawer .dg,.dk{color:var(--g-point)}"
+  , "  .d-drawer .dg,.dk{color:var(--tok)}"
   -- ONLY A LEADING COLON HANGS: `:first-child' counts elements, so a trailing
   -- colon after a text node matched it and overlapped the key's last letter.
-  , "  .dpunc{color:var(--g-mute)}"
+  , "  .dpunc{color:var(--punc)}"
   , "  .dpunc.dlead{margin-left:-1ch}"
   , "  .d-para,.d-comp,.d-meta{margin:7px 0;"
   , "    padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}"
@@ -316,19 +298,19 @@ page head' colours title body = T.unlines
   -- The draft row holds nothing and `:empty' misses it — Elm emits a text node.
   , "  .d-draft{min-height:var(--g-doc-lh)}"
   , "  .d-item,.d-drawer .d-meta{padding-left:0;padding-right:0}"
-  , "  .dg{padding:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--g-mute)}"
-  , "  .dl{color:var(--g-link);text-decoration:underline}"
+  , "  .dg{padding:0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--punc)}"
+  , "  .dl{color:var(--lnk);text-decoration:underline}"
   -- A TICKED BOX WEARS THE DONE FACE: the first inactive slot is the hue an org
   -- keyword takes when it is settled, and a box is the same statement in one glyph.
   -- An EMPTY box wears the line's ink, since it says nothing yet.
-  , "  .dbx.on{color:var(--g-state-i0)}"
+  , "  .dbx.on{color:var(--box)}"
   -- A CHILD HEADLINE IS A HEADLINE: the same face as the sheet's own, indented.
   , "  .d-head,.d-child{display:flex;align-items:baseline;font-weight:600}"
-  , "  .ds{white-space:pre;color:var(--g-fg);font-weight:400;flex:none}"
+  , "  .ds{white-space:pre;color:var(--fg);font-weight:400;flex:none}"
   , "  .d-head .ds{width:calc(var(--g-doc-indent, 2) * 1ch)}"
   , "  .dc{margin-right:.6em;flex:none}"
   , "  .dc-title{flex:1 1 auto;min-width:0}"
-  , "  .dc-tags{color:var(--g-mute);font-size:11px;margin-left:auto;margin-right:0}"
+  , "  .dc-tags{color:var(--punc);font-size:11px;margin-left:auto;margin-right:0}"
   , "  #dtitle,#dpara,#sedit,#tedit,#ledit{display:none;position:absolute;"
   , "    background:var(--g-sel)}"
   , "  #dpara,#dtitle{background:var(--g-surface)}"

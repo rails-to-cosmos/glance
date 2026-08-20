@@ -37,6 +37,8 @@ module Data.Org.Types ( Context (..)
                       , hsFull
                       , headlineIdProperty
                       , identity
+                      , orgIdProperty
+                      , orgIdentity
                       , inTodo
                       , levelOf
                       , registerHeadline
@@ -324,6 +326,14 @@ resolveHeadline h1 h2 = case (schedule h1, schedule h2) of
 -- | H's own identifier: the ORG_GLANCE_ID property, when it carries one.
 identity :: Headline -> Maybe Text
 identity = getProperty headlineIdProperty . properties
+
+-- | Org-id's property key: what an @id:@ link names.
+orgIdProperty :: Text
+orgIdProperty = "ID"
+
+-- | H's org-id: the @:ID:@ property, org's own namespace beside 'identity'.
+orgIdentity :: Headline -> Maybe Text
+orgIdentity = getProperty orgIdProperty . properties
 
 instance Display Headline where
   display h@Headline{..} =

@@ -31,6 +31,8 @@ module TestDefaults ( assertContains
                     , parsedIn
                     , plainTs
                     , presentSpans
+                    , proposalDirs
+                    , proposalsByStatus
                     , propertyKeys
                     , recordsOf
                     , rewrite
@@ -62,11 +64,11 @@ module TestDefaults ( assertContains
                     , withTodo
                     ) where
 
-import Control.Monad (filterM)
+import Control.Monad (filterM, forM)
 import Control.Exception (IOException, finally, throwIO, try)
 import Data.Aeson (Value (Bool, Null, Number, Object, String), parseJSON)
 import Data.Aeson.Types (parseEither)
-import Data.List (sort)
+import Data.List (isPrefixOf, sort)
 import Data.Maybe (fromMaybe, listToMaybe)
 -- 'headlinesOf' is hidden and spelled again below ON PURPOSE: the suite's copy is an INDEPENDENT ORACLE for the span groups that read it.
 import Data.Org hiding (headlinesOf)
@@ -515,3 +517,20 @@ globPath root ("*" : rest) = do
     entries <- listDirectory root
     concat <$> mapM (\e -> globPath (root </> e) rest) entries
 globPath root (step : rest) = globPath (root </> step) rest
+
+
+-- | The status directories under @docs/proposals@, sidecars dropped.
+proposalDirs :: IO [FilePath]
+proposalDirs = filter (not . proposalSidecar) <$> listDirectory "docs/proposals"
+
+-- | Every proposal, as (status directory, file name).
+proposalsByStatus :: IO [(FilePath, FilePath)]
+proposalsByStatus = do
+  statuses <- proposalDirs
+  fmap concat . forM statuses $ \st ->
+    map ((,) st) . filter (not . proposalSidecar)
+      <$> listDirectory ("docs/proposals" </> st)
+
+-- | An editor's lock or autosave beside the proposals.
+proposalSidecar :: FilePath -> Bool
+proposalSidecar n = (".#" `isPrefixOf` n) || ("#" `isPrefixOf` n && "#" `isPrefixOf` reverse n)

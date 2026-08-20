@@ -227,7 +227,12 @@
     }
     // NOT A CONSTANT: the tree's own default arrives after the walk (`adopt').
     let bootedOn = savedQuery("default");
+    // WHETHER THE READER ASKED: `remember' writes `q' back on boot, so the
+    // door's own URL is read once, before anything writes it.
+    const bootHadQ = params().has("q");
     function bootQuery() {
+      // THE URL IS READ LIVE: a remount re-enters here after `remember'
+      // wrote `q', and must keep the query it stands in.
       const q = params().has("q") ? urlQuery() : bootedOn;
       const named = viewNamed(q);
       return named ? savedQuery(named) : q;

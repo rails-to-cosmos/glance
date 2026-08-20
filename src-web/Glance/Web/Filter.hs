@@ -32,9 +32,9 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
-                    , refTarget
+                    , RefVia (..), refTarget, refVia
                     , Meta (..), activeMeta, archiveTag, cellSep, filterKeys
-                    , inactiveMeta, metaWord
+                    , inactiveMeta, metaWord, orgIdOf
                     , priorityLetter, refSpellings, tagRunEntries )
 
 
@@ -163,8 +163,9 @@ splitKey text'
 
 
 data RefRow = RefRow
-  { rrId      :: !Text    -- ^ the row's own id, so a row is not its own reference.
-  , rrTargets :: ![Text]  -- ^ 'Glance.Query.refSpellings' of it.
+  { rrId      :: !Text          -- ^ the row's own id, so a row is not its own reference.
+  , rrTargets :: ![Text]        -- ^ 'Glance.Query.refSpellings' of it.
+  , rrOrgId   :: !(Maybe Text)  -- ^ its @:ID:@ property — what an @id:@ link names.
   }
 
 newtype FilterEnv = FilterEnv
@@ -176,7 +177,7 @@ emptyEnv = FilterEnv (const Nothing)
 
 storeEnv :: [HeadlineRecord] -> FilterEnv
 storeEnv rows = FilterEnv resolve
-  where resolve rid = (\r -> RefRow (hrId r) (refSpellings r))
+  where resolve rid = (\r -> RefRow (hrId r) (refSpellings r) (orgIdOf r))
                         <$> find ((== rid) . hrId) rows
 
 -- | Does a row match Q in ENV?  Compiled once per request, never per row.
@@ -238,10 +239,14 @@ keyTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
 -- An unresolvable id matches nothing; a row is not its own reference.
 keyTest env _key Ref value = case feRef env value of
   Nothing  -> const False
-  -- Over the RECORD's references, so the kind beside each one is in reach; the
-  -- target's own spellings are the plain texts a link may name it by.
-  Just row -> \r -> hrId r /= rrId row
-                 && any (\l -> refTarget l `elem` rrTargets row) (hrLinks r)
+  -- Over the RECORD's references, so the kind beside each one is in reach.  A
+  -- link matches in ITS OWN namespace: the row's spellings for 'ViaRow', the
+  -- @:ID:@ property alone for org-id's 'ViaOrgId'.
+  Just row ->
+    let names l = case refVia l of
+          ViaRow   -> refTarget l `elem` rrTargets row
+          ViaOrgId -> Just (refTarget l) == rrOrgId row
+    in \r -> hrId r /= rrId row && any names (hrLinks r)
 keyTest _env _key Order _value = const True
 keyTest _env _key Whole value = freeTest value
 -- The two that read a row's CELLS, spelled out: a fifth key falling in here would read an empty cell list and match nothing, with no warning.

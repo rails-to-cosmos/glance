@@ -9,7 +9,7 @@ import System.FilePath (dropExtension, takeExtension, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import Glance.Web.Base (gluePartFiles)
-import TestDefaults (buildSources, holdsAll, namesIn, valueAfter)
+import TestDefaults (buildSources, holdsAll, namesIn, proposalsByStatus, valueAfter)
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -76,24 +76,20 @@ spec = testGroup "Self-containment"
                          , not (T.pack ("glue/" <> part) `T.isInfixOf` conf) ]
 
     -- The NAME is the second place each fact is written, so both are checked.
-  , testCase "every proposal's name is the date and status it declares" $ do
-      let sidecar n = (("#" `isPrefixOf` n) && ("#" `isPrefixOf` reverse n))
-                        || (".#" `isPrefixOf` n)
-      names <- filter (not . sidecar) <$> listDirectory "docs/proposals"
-      assertBool ("too few proposals swept: " <> show (length names)) (length names >= 35)
-      wrong <- fmap concat . forM names $ \name -> do
-        body <- TIO.readFile ("docs/proposals" </> name)
+  , testCase "every proposal sits in its status's directory, dated by name" $ do
+      named <- proposalsByStatus
+      assertBool ("too few proposals swept: " <> show (length named))
+                 (length named >= 35)
+      wrong <- fmap concat . forM named $ \(st, name) -> do
+        body <- TIO.readFile ("docs/proposals" </> st </> name)
         let stem = T.pack (dropExtension name)
-            namedStatus = case reverse (T.splitOn "." stem) of
-              (st:_) -> Just st
-              []     -> Nothing
             declaredStatus = declares "**Status:** " word body
             declaredDate = declares "**Date:** " day body
-        pure $ [ (name, "status" :: T.Text, declaredStatus, namedStatus)
-               | declaredStatus /= namedStatus ]
+        pure $ [ (name, "status" :: T.Text, declaredStatus, Just (T.pack st))
+               | declaredStatus /= Just (T.pack st) ]
             <> [ (name, "date", declaredDate, Just (day stem))
                | declaredDate /= Just (day stem) ]
-      assertEqual "a proposal whose name and header disagree" [] wrong
+      assertEqual "a proposal whose home and header disagree" [] wrong
 
     -- Both decoders end `_ -> D.succeed Ignore', so a mis-spelt kind is dropped
     -- without a word.  A UNION on purpose: `flagPort' serves whichever program

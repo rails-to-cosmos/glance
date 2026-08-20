@@ -177,7 +177,7 @@ what each spends:
 
 N costs a character of width and hides nothing, and the gutter is room the pane
 will want again — for the flag's own shape (see
-[`../../proposals/2026-08-17-hue-is-never-the-only-channel.proposed.md`](../../proposals/2026-08-17-hue-is-never-the-only-channel.proposed.md))
+[`../../proposals/proposed/2026-08-17-hue-is-never-the-only-channel.md`](../../proposals/proposed/2026-08-17-hue-is-never-the-only-channel.md))
 and for a fold marker if one ever lands.
 
 **The fixture carries checkboxes now**, because `- [X]` is where hiding a bullet

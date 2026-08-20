@@ -56,7 +56,7 @@ worth adding to the model.
 If your output contradicts a decision record or an `AGENTS.hs` `Note`, surface
 it rather than silently overriding:
 
-> _Contradicts `2026-08-12-region-markers.done.md` (a caret on a closing line
+> _Contradicts `done/2026-08-12-region-markers.md` (a caret on a closing line
 > lands past the region) — worth reopening because…_
 
 A `Note` carries the `Proof` that would catch it going wrong. A Note marked
