@@ -696,6 +696,10 @@ var RIG = (function () {
    * an error to be shown and not a word to be corrected.  Case-only rewriting,
    * so no offset moves and the caret needs no arithmetic.
    */
+  /** A FRESH ARGUMENT LEFT UNTOUCHED LEAVES NO TRACE: the comma `/' appended
+   *  goes at the close, and the stage returns to the spelling it had. */
+  var dslDangle = function (args) { return String(args).replace(/,\s*$/, ""); };
+
   function dslCanon(args, fn) {
     var out = String(args), lx = lexDsl(out);
     for (var i = lx.length - 1; i >= 0; i -= 1) {
@@ -1536,6 +1540,13 @@ var RIG = (function () {
     st.at = at + 2;
   }
 
+  /** Is the caret inside a string?  An odd number of quotes stands before it. */
+  function inString(args, at) {
+    var n = 0;
+    for (var i = 0; i < at; i += 1) if (args.charAt(i) === '"') n += 1;
+    return n % 2 === 1;
+  }
+
   /** Is the caret inside an unclosed `(' of the arguments' own? */
   function inParen(args, at) {
     var depth = 0, inq = false;
@@ -1652,7 +1663,7 @@ var RIG = (function () {
   function closeStage() {
     var st = live();
     if (!st || CX.where !== "args") return;
-    st.args = S.look.dsl ? dslCanon(st.args.trim(), st.fn) : st.args.trim();
+    st.args = S.look.dsl ? dslCanon(dslDangle(st.args.trim()), st.fn) : st.args.trim();
     st.done = true;
     CX.where = "chain";
     if (S.look.pills) pend(st);
@@ -1850,9 +1861,16 @@ var RIG = (function () {
       if (S.look.delDropsStage && CX.where === "chain") delLastStage();
       return;
     }
-    // `/' IS THE FILTER STAGE'S EDIT KEY where the strip holds the chain — but
-    // inside the parens it is a character, values carrying slashes like any other.
-    if (k === "/" && S.look.slashStage && CX.where === "chain") {
+    // `/' IS THE FILTER STAGE'S EDIT KEY where the strip holds the chain.  In
+    // the TYPED surface every open value is quoted, so the line is exact: a
+    // slash inside a string is a character (`title = "a/b"'), and everywhere
+    // else it is the add-a-condition gesture — even mid-stage, where it opens
+    // one more fresh argument.  The flat dialect quotes nothing by default, so
+    // there the key stays at the chain level alone.
+    if (k === "/" && S.look.slashStage
+        && (CX.where === "chain"
+            || (S.look.dsl && CX.where === "args" && live()
+                && !inString(live().args, caretAt(live()))))) {
       openFilterStage();
       return;
     }
@@ -2463,8 +2481,20 @@ var RIG = (function () {
     if (CX.stages.length && !live().fn) CX.stages.pop();
     var args = pending ? pending.args : p ? p.args : "";
     if (pending) CX.stages.splice(CX.stages.indexOf(pending), 1);
-    CX.stages.push({ fn: fn, args: args, done: false, replacing: !pending && !!p });
+    // `/' IS THE ADD-A-CONDITION GESTURE, so it lands on a FRESH ARGUMENT and
+    // not at the tail of the last one: the comma is the gesture's own.  Editing
+    // an argument already written is a cursor movement, which is a different
+    // act.  An empty stage gets no comma — there is nothing to follow.
+    if (S.look.dsl && fn === "filter" && String(args).trim())
+      args = String(args).replace(/,\s*$/, "") + ", ";
+    // A STAGE ALREADY REWRITING A BADGE GOES ON REWRITING IT: reopening one
+    // that is open carries the flag, or a second `/' would turn a rewrite into
+    // an addition and the badge's tokens would land twice.
+    CX.stages.push({ fn: fn, args: args, done: false,
+                     replacing: pending ? !!pending.replacing : !!p });
     CX.where = "args";
+    // THE CARET-EDGE LAW'S OWN CONSEQUENCE: the reader was moved somewhere new,
+    // so that position's offers stand at once.
     cxOffer();
     paint();
   }

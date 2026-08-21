@@ -199,7 +199,13 @@ for (const page of picked) {
   // the quotes and spends the space, so the value goes in bare and the closing
   // quote is stepped over.
   const CHAIN_ARG = typed ? 'state = TODO"' : "state:TODO";
-  const ADD_ARG = typed ? ', tag = docs"' : " +tag:docs";
+  // `/' IS THE ADD-A-CONDITION GESTURE in the typed dialect: it lands on a
+  // FRESH argument, comma already appended, so what is typed is the condition
+  // alone.  An empty stage gets no comma — there is nothing to follow.
+  const ADD_ARG = typed ? 'tag = docs"' : " +tag:docs";
+  const REOPEN_TEXT = typed ? FILTER_TEXT + ", " : FILTER_TEXT;
+  const REOPEN_LEAD = typed ? 'state = "…"' : null;
+  const FRESH_LEAD = typed ? 'state = "…"' : "state:";
   const ADD_TOKEN = typed ? "tag:docs" : "+tag:docs";
   const DRY_HALF = typed ? 'state = ""' : "state:";
   const DRY_NEXT = typed ? "A" : "TO";
@@ -417,19 +423,23 @@ for (const page of picked) {
     await ff.keys(["/"]);
     const open = await ff.eval(caretInParens);
     const opened = await ff.eval(() => ({ door: RIG.door(), cx: RIG.cx(),
-                                          pills: RIG.pills(), q: RIG.query() }));
+                                          pills: RIG.pills(), q: RIG.query(),
+                                          menu: RIG.menu().open,
+                                          lead: RIG.menu().items[0] }));
     await ff.keys(chars(ADD_ARG));
     await ff.keys([")", KEY.Enter]);
     const rewrote = await ff.eval(() => ({ pills: RIG.pills(), q: RIG.query() }));
     const filters = rewrote.pills.filter((p) => p.startsWith("filter("));
     want("SLASH-STAGE",
-         open.ok === true && open.args === FILTER_TEXT && open.fn === "filter"
-         && open.at === open.len
+         open.ok === true && open.args === REOPEN_TEXT && open.fn === "filter"
+         && open.at === open.len && opened.menu === true
+         && (!REOPEN_LEAD || opened.lead === REOPEN_LEAD)
          && opened.cx.stages.length === 1 && opened.q.startsWith(BOOT_FILTER)
          && filters.length === 1 && rewrote.pills.length === 2
          && rewrote.pills[1] === SORT_PILL
          && rewrote.q === BOOT_FILTER + " " + ADD_TOKEN + " sort:deadline",
          open.why || `opened=${JSON.stringify(open.args)} caret=${open.at}/${open.len} `
+         + `menu=${opened.menu}/${JSON.stringify(opened.lead)} `
          + `stages=${opened.cx.stages.length} pills=${JSON.stringify(rewrote.pills)} `
          + `q=${JSON.stringify(rewrote.q)}`);
 
@@ -441,15 +451,46 @@ for (const page of picked) {
       return s && s.args ? s.args.length : 0;
     });
     await ff.keys(new Array(held).fill(KEY.Backspace));
+    // …and `/' over a stage that is open and EMPTY adds no comma either: there
+    // is nothing standing for a fresh argument to follow.  It also stays the
+    // same rewrite, or the badge's tokens would land twice.
+    if (typed) await ff.keys(["/"]);
+    const reEmpty = typed
+      ? await ff.eval(() => ({ args: RIG.cx().stages.slice(-1)[0].args,
+                               at: (RIG.caret() || {}).at }))
+      : { args: "", at: 0 };
     await ff.keys([")", KEY.Enter]);
     const gone = await ff.eval(() => ({ pills: RIG.pills(), q: RIG.query() }));
     await ff.keys(["/"]);
-    const fresh = await ff.eval(() => ({ cx: RIG.cx(), door: RIG.door() }));
+    const fresh = await ff.eval(() => ({ cx: RIG.cx(), door: RIG.door(),
+                                         menu: RIG.menu().open,
+                                         lead: RIG.menu().items[0] }));
     want("SLASH-FRESH",
          eq(gone.pills, [SORT_PILL]) && fresh.door === "compose"
          && fresh.cx.stages.length === 1 && fresh.cx.stages[0].fn === "filter"
-         && fresh.cx.stages[0].args === "" && fresh.cx.where === "args",
-         `gone=${JSON.stringify(gone.pills)} fresh=${JSON.stringify(fresh.cx)}`);
+         // NO COMMA where nothing stands to be added to — and the offers are
+         // open here too, the position being new either way.
+         && fresh.cx.stages[0].args === "" && fresh.cx.where === "args"
+         && fresh.menu === true && fresh.lead === FRESH_LEAD
+         && reEmpty.args === "" && reEmpty.at === 0,
+         `gone=${JSON.stringify(gone.pills)} fresh=${JSON.stringify(fresh.cx)} `
+         + `menu=${fresh.menu}/${JSON.stringify(fresh.lead)} `
+         + `reEmpty=${JSON.stringify(reEmpty)}`);
+
+    // ---- SLASH-ABANDON: a fresh argument the reader never wrote leaves no
+    // trace — the dangling comma goes at the close and the badge returns to
+    // the spelling it had, byte for byte.
+    await ff.goto(url);
+    const was = await ff.eval(() => ({ pills: RIG.pills(), q: RIG.query() }));
+    await ff.keys(["/"]);
+    await ff.keys([")"]);
+    const shut = await ff.eval(() => RIG.cx().stages.slice(-1)[0].args);
+    await ff.keys([KEY.Enter]);
+    const back2 = await ff.eval(() => ({ pills: RIG.pills(), q: RIG.query() }));
+    want("SLASH-ABANDON",
+         shut === FILTER_TEXT && eq(back2.pills, was.pills) && back2.q === was.q,
+         `closed=${JSON.stringify(shut)} was=${JSON.stringify(was)} `
+         + `now=${JSON.stringify(back2)}`);
 
     // ---- DEL-STAGE: the chain's own backspace — the latest badge, whole, and
     // pressing it again walks the chain backward.
@@ -483,7 +524,7 @@ for (const page of picked) {
     await ff.keys([DEL]);
     const inside = await ff.eval(() => ({ cx: RIG.cx(), q: RIG.query() }));
     want("DEL-INSIDE",
-         inside.cx.stages.length === 1 && inside.cx.stages[0].args === FILTER_TEXT
+         inside.cx.stages.length === 1 && inside.cx.stages[0].args === REOPEN_TEXT
          && inside.q === BOOT_FILTER,
          `cx=${JSON.stringify(inside.cx)} q=${JSON.stringify(inside.q)}`);
   }

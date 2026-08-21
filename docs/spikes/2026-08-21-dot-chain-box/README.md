@@ -259,6 +259,22 @@ produced and the check now holds:
    Both entry routes — the key accept and the equals typed by hand — are now
    pinned apart in `check.mjs`, because the regression had killed one and left
    the other standing.
+12. **`/` adds a condition, and the comma is the gesture's own.** Reopening the
+   standing filter badge used to land at the tail of the last argument
+   (`tag /= "chore"|`), which is where a reader goes to EDIT one. `/` is not
+   that: it is the add-a-condition key, so it now appends the comma itself and
+   lands on a fresh argument (`tag /= "chore", |`) with that position's offers
+   standing — round 11's law applied to a gesture rather than an accept. Two
+   edges came with it: an EMPTY stage gets no comma, there being nothing to
+   follow; and a fresh argument the reader never writes leaves no trace, the
+   dangling comma going at the close so the badge returns to its previous
+   spelling byte for byte. Editing an argument already written stays what it
+   always was — a cursor movement.
+13. **A slash in the typed surface is exact.** Once `/` acts mid-stage it needs
+   a line, and the typed surface has one the flat dialect does not: every open
+   value is quoted, so a slash INSIDE a string is a character
+   (`title = "a/b"`) and everywhere else it is the gesture. D keeps the old
+   rule — it quotes nothing by default, so the line is not available there.
 
 Rounds 4 and 5 cost the spike its own control. `/` was identical in all tabs on
 purpose, and `check.mjs` asserted it; D's and F's departure is now DECLARED there
@@ -375,8 +391,11 @@ the offers closed, and the next keystroke wakes them), **ESC** (three rungs,
 the strip untouched), **SETTLED**.
 Tabs with a flat door also owe **SLASH** (the narrowed door still refuses
 `sort:title` in the shell's own sentence) and a door **SIG** identical across
-all of them. D and F swap those for **SLASH-STAGE**, **SLASH-FRESH**,
-**DEL-STAGE** and **DEL-INSIDE**.
+all of them. D and F swap those for **SLASH-STAGE** (the reopened badge, which in the typed
+dialect ends `, ` with the offers standing and the field names leading),
+**SLASH-FRESH** (an empty or absent stage opens with no comma, offers standing),
+**SLASH-ABANDON** (a fresh argument never written leaves the badge byte for byte
+as it was), **DEL-STAGE** and **DEL-INSIDE**.
 
 F owes five more:
 
@@ -420,7 +439,12 @@ F owes five more:
   red; close the offers on the key accept — the reported regression, put back on
   purpose — and both key routes go red, one at a time. **Twenty-five negative
   tests were run in all**, each on the rung that owns it, and the two slot
-  routes were broken separately to prove the rung tells them apart.
+  routes were broken separately to prove the rung tells them apart. The gesture
+  round added five more — land at the tail again, append the comma where nothing
+  stands, let it survive the close, open the position with no offers, and drop
+  the rewrite flag on a second `/` — and the last of those found a real bug
+  before the rung did: a second `/` mid-edit turned the rewrite into an
+  addition, so the badge's tokens would have landed twice. **Thirty in all.**
 
 The control fails five rungs by construction, the way headline-bars' `flat` tab
 does, so `a-control.html` declares DOT, PARENS, CHAIN, COMMA and DRY as misses:

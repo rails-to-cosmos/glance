@@ -30,7 +30,9 @@ const PILLS = [["."], ["s"], [KEY.Tab], chars("deadline"), [")", KEY.Enter], ["/
 // counts under it.
 const TYPED = [["."], ["s"], [KEY.Tab], [KEY.Tab], chars("Dead"),
                [KEY.ArrowDown], [KEY.Tab], [")", KEY.Enter],
-               ["/"], chars(", priority = ")];
+               // `/' lands on a FRESH argument, comma and all, so the shot
+               // types the condition alone.
+               ["/"], chars("priority = ")];
 
 const SHOTS = [
   ["a-control.html", "a-control.png", FLAT],
