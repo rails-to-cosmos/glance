@@ -2,7 +2,8 @@
 // call standing, the next one open on its own menu.  The README's table reads
 // off these.
 //
-//   node shots.mjs
+//   node shots.mjs                     # all six
+//   node shots.mjs f-typed-dsl.html    # one, when only that moment changed
 import { firefox, KEY } from "./bidi.mjs";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -34,7 +35,7 @@ const TYPED = [["."], ["s"], [KEY.Tab], [KEY.Tab], chars("Dead"),
                // types the condition alone.
                ["/"], chars("priority = ")];
 
-const SHOTS = [
+const ALL = [
   ["a-control.html", "a-control.png", FLAT],
   ["b-plain-chain.html", "b-plain-chain.png", CHAIN],
   ["c-ide-chain.html", "c-ide-chain.png", CHAIN],
@@ -42,6 +43,9 @@ const SHOTS = [
   ["e-echo-line.html", "e-echo-line.png", CHAIN],
   ["f-typed-dsl.html", "f-typed-dsl.png", TYPED],
 ];
+// ONE TAB'S MOMENT CAN MOVE ALONE — a legend, a key's answer — and the other
+// five PNGs stay the bytes they were.
+const SHOTS = process.argv[2] ? ALL.filter((s) => s[0] === process.argv[2]) : ALL;
 
 const ff = await firefox().catch((e) => {
   console.error("no firefox: " + e.message);

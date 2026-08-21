@@ -53,7 +53,9 @@ Keys are the shell's own, plus what a chain needs: `.` chains the next call,
 stage, `←`/`→` walk the caret, `RET` applies, `ESC` steps back a rung, `t` swaps
 the theme. In A, B, C and E, `/` opens the flat filter door. In **D and F** it is
 the filter STAGE's edit key, `DEL` is the chain's own backspace, and in F alone
-`-` and `+` are the two sign helpers.
+`-` and `+` are the two sign helpers. `ESC` parts by DIALECT rather than by tab:
+a rung on a ladder in the flat door and in D, and in **F** the cancel itself —
+one press for the whole edit (round 14).
 
 ## What each tab argues
 
@@ -275,6 +277,28 @@ produced and the check now holds:
    value is quoted, so a slash INSIDE a string is a character
    (`title = "a/b"`) and everywhere else it is the gesture. D keeps the old
    rule — it quotes nothing by default, so the line is not available there.
+14. **ESC cancels input, and that is the whole of what it does.** F had
+   inherited D's graduated ladder — the offers, then what is half-written, then
+   the box — and the reader's own rule takes it away: **one press abandons an
+   open edit WHOLE**, whether or not the menu stands over it and whether or not
+   anything was typed. The stage comes back spelled the way the edit found it,
+   byte for byte; the comma a `/` summoned goes with the rest of what the edit
+   wrote, wanting no rule of its own; and the box goes back to the strip it was
+   summoned from. **The reader's escape is from the EDIT, never from the
+   menu** — in a typed surface the offers are incidental to the input, standing
+   over a position rather than being asked for, so cancelling the input takes
+   them with it. "What the edit found" is what cost the work. The pre-edit
+   spelling is remembered at edit-OPEN, because `/` writes into the stage before
+   the reader does and because the typed text has to go too — `closeStage`'s
+   dangle-strip is the nucleus and it is not enough on its own. A stage that was
+   closed but not yet asked for lives in the BOX rather than in the chips, so
+   the cancel is the only thing that can put it back; it puts back the spelling
+   the edit found, not the one it was given. And a `/` pressed inside another
+   stage's parens interrupts an edit still being WRITTEN, so the box comes back
+   to that one open rather than leaving it at the chain level. **The rule is
+   the DSL door's alone**: D keeps its ladder and the flat door keeps the
+   shipped two-step, so the spike still shows both answers side by side and
+   `check.mjs` holds each dialect to its own.
 
 Rounds 4 and 5 cost the spike its own control. `/` was identical in all tabs on
 purpose, and `check.mjs` asserted it; D's and F's departure is now DECLARED there
@@ -365,6 +389,26 @@ round-trip corpus.
 - **Empty parens are not the same as no stage.** `.sort()` contributes nothing,
   so the default chain stands; `sort:` in the flat grammar IS the empty chain —
   document order. Document order can therefore only be SPELLED, as `.sort(None)`.
+- **An accidental `ESC` costs the whole condition.** The rule is absolute, so a
+  press meant for the dropdown takes the edit with it: a
+  `not (tag = All ["web", "glance"])` typed character by character into an open
+  filter is gone on one key, and this rig has no undo and proposes none. That is
+  the rule's **accepted cost**, not a case to soften. A cancel that kept the
+  typed text would be a commit under another name, and a ladder that makes the
+  reader press twice to leave is exactly what the rule removes; what the surface
+  owes in exchange is that the key never surprises — the same answer over an
+  open menu, over typed text, and over a summon nothing was typed into. The
+  cost is bounded by what an edit HOLDS, which is one stage: everything already
+  committed to the strip is untouched, and a `/`-edit of a standing badge cannot
+  lose more than what was typed since the `/`.
+- **A stage closed but not yet asked for lives in the box.** `)` sends a badge
+  to the strip, but the chips do not have it until `RET` — so where a `/`-edit
+  of a COMMITTED badge can simply let go and let the chips speak, an edit of a
+  pending one has to be spelled back by hand, and so does an edit the summon
+  interrupted mid-parens. That is the whole reason the pre-edit spelling is
+  remembered rather than recomputed, and it is the one rung where a wrong memory
+  shows: in the `/`-summon routes the dangling comma cannot survive a cancel,
+  because the stage carrying it does not.
 - **`DEL` is already spoken for.** `docs/query.md`: "`@` … drills into `ref:ID`
   behind a breadcrumb; `DEL` pops back." The stage eraser and the crumb pop want
   the same key in the same state. One of them has to move.
@@ -372,6 +416,8 @@ round-trip corpus.
   focusable box with a model, not a text field, so the two-step ESC, the dead
   Backspace, the strip's `×` and `stripLastToken` are all answered twice — and
   under D/F, `stripLastToken` becomes stage-sized, which is what `DEL` now does.
+  Under F the two-step ESC is answered with ONE press, so the shell's ladder and
+  the typed door's cancel are two different keys wearing one name.
 
 ## The check
 
@@ -379,6 +425,7 @@ round-trip corpus.
 node check.mjs                     # every variant
 node check.mjs f-typed-dsl.html    # one
 node shots.mjs                     # the six PNGs
+node shots.mjs f-typed-dsl.html    # one, when only that moment moved
 ```
 
 Every variant: **BOOT**, **DOT** (`.` spawns one dot and offers exactly
@@ -387,8 +434,10 @@ lands INSIDE them — in DOM order and on the screen), **CHAIN** (a scripted
 sequence composes exactly `state:TODO sort:deadline` and `RET` applies it: two
 rows, deadline order, empties last), **COMMA** (a dozen compose-equalities in the
 flat dialect, twenty-one in the typed one), **DRY** (an accept lands bare with
-the offers closed, and the next keystroke wakes them), **ESC** (three rungs,
-the strip untouched), **SETTLED**.
+the offers closed, and the next keystroke wakes them), **ESC** (the ladder in
+the dialect that owns it: three rungs in the flat door and in D — the offers,
+what is half-written, the box, the strip untouched — and exactly ONE in F, where
+the same press takes all three), **SETTLED**.
 Tabs with a flat door also owe **SLASH** (the narrowed door still refuses
 `sort:title` in the shell's own sentence) and a door **SIG** identical across
 all of them. D and F swap those for **SLASH-STAGE** (the reopened badge, which in the typed
@@ -397,8 +446,24 @@ dialect ends `, ` with the offers standing and the field names leading),
 **SLASH-ABANDON** (a fresh argument never written leaves the badge byte for byte
 as it was), **DEL-STAGE** and **DEL-INSIDE**.
 
-F owes five more:
+F owes seven more:
 
+- **ESC-ABANDON** — the reader who walks OUT of an edit, where SLASH-ABANDON is
+  the one who closes an untouched one. Three routes in — a bare `/` summon, one
+  with a condition typed into it, and one where the caret was walked back into
+  an argument already written and that argument retyped — and out of each of
+  them ONE press restores the whole picture: chips, box, rows, hint and the two
+  lines under them, byte for byte, with the box closed. Each route first pins
+  that the edit HAD something to lose — the dangling comma, the standing offers,
+  the typed text — so the rung cannot pass by cancelling nothing.
+- **ESC-RESTORE** — what the edit found goes back, in the two places the chips
+  cannot speak for it. A stage closed but not yet ASKED FOR lives in the box, so
+  the cancel is the only thing that can put it back, and what it puts back is
+  the spelling the edit found rather than the one it was given; a second press,
+  with no edit open, takes the box and the uncommitted stage with it. And an
+  edit the summon INTERRUPTED — `/` is legal inside another stage's parens — is
+  still being written, so the box returns to it open, with its caret and its
+  offers where they stood.
 - **SIGNS** — `-` flips `=` to `/=` and back, `+` turns the value into
   `["TODO", |]` with the caret in the slot, and the flat string each composes is
   the grammar's own.
@@ -444,7 +509,17 @@ F owes five more:
   stands, let it survive the close, open the position with no offers, and drop
   the rewrite flag on a second `/` — and the last of those found a real bug
   before the rung did: a second `/` mid-edit turned the rewrite into an
-  addition, so the badge's tokens would have landed twice. **Thirty in all.**
+  addition, so the badge's tokens would have landed twice. The cancel round
+  added seven: keep the menu on the top rung and the ESC rung goes red along
+  with all three walk-out routes; take the edit but leave the box standing and
+  the same four go; remember the pre-edit spelling AFTER the gesture appends its
+  comma, or put the typed text back in place of the remembered spelling, or
+  forget to put the pending stage back at all, or leave the interrupted edit at
+  the chain level, and ESC-RESTORE goes red on each; and drop the `S.look.dsl`
+  gate so the cancel reaches D, and D's own ladder goes red on D's page. The
+  restore mutants land on ESC-RESTORE and not on the `/`-summon routes, which is
+  the corner itself: in those routes the comma cannot outlive the stage that
+  carries it. **Thirty-seven in all.**
 
 The control fails five rungs by construction, the way headline-bars' `flat` tab
 does, so `a-control.html` declares DOT, PARENS, CHAIN, COMMA and DRY as misses:

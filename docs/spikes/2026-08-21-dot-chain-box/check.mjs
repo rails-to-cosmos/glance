@@ -367,25 +367,36 @@ for (const page of picked) {
        `key=${JSON.stringify(dry1.args)}/${dry1.menu} woke=${woke} `
        + `value=${JSON.stringify(dry2.args)}/${dry2.menu} door=${dry2.door}`);
 
-  // ---- ESC: three rungs — the offers, what is half-written, the box
+  // ---- ESC: the ladder, in the dialect that owns it.  The flat door and D's
+  // chain keep the shipped THREE RUNGS — the offers, what is half-written, the
+  // box.  F answers to the reader's own rule, ESC CANCELS INPUT, and there is
+  // exactly ONE rung: the same press takes the offers, the half-written call
+  // and the box together.
+  const rung = () => ({ menu: RIG.menu().open, door: RIG.door(), chips: RIG.chips(),
+                        held: RIG.door() === "compose" ? RIG.cx().stages.length
+                          : document.querySelector("#app .tv-filter").value.length });
   await ff.goto(url);
   await ff.keys([".", "s"]);
-  const rung0 = await ff.eval(() => ({ menu: RIG.menu().open, door: RIG.door() }));
+  const rung0 = await ff.eval(rung);
   await ff.keys([KEY.Escape]);
-  const rung1 = await ff.eval(() => ({ menu: RIG.menu().open, door: RIG.door(),
-                                       held: RIG.door() === "compose" ? RIG.cx().stages.length
-                                         : document.querySelector("#app .tv-filter").value.length }));
-  await ff.keys([KEY.Escape]);
-  const rung2 = await ff.eval(() => ({ door: RIG.door(),
-                                       held: RIG.door() === "compose" ? RIG.cx().stages.length
-                                         : document.querySelector("#app .tv-filter").value.length }));
-  await ff.keys([KEY.Escape]);
-  const rung3 = await ff.eval(() => ({ door: RIG.door(), chips: RIG.chips() }));
-  want("ESC", rung0.menu === true && rung1.menu === false && rung1.door !== null
-       && rung1.held > 0 && rung2.door !== null && rung2.held === 0
-       && rung3.door === null && eq(rung3.chips, BOOT_CHIPS),
-       `offers=${rung0.menu}→${rung1.menu} held=${rung1.held}→${rung2.held} `
-       + `door=${rung2.door}→${rung3.door} chips=${JSON.stringify(rung3.chips)}`);
+  const rung1 = await ff.eval(rung);
+  if (typed) {
+    want("ESC", rung0.menu === true && rung0.held > 0
+         && rung1.menu === false && rung1.door === null && rung1.held === 0
+         && eq(rung1.chips, BOOT_CHIPS),
+         `offers=${rung0.menu}→${rung1.menu} held=${rung0.held}→${rung1.held} `
+         + `door=${rung0.door}→${rung1.door} chips=${JSON.stringify(rung1.chips)}`);
+  } else {
+    await ff.keys([KEY.Escape]);
+    const rung2 = await ff.eval(rung);
+    await ff.keys([KEY.Escape]);
+    const rung3 = await ff.eval(rung);
+    want("ESC", rung0.menu === true && rung1.menu === false && rung1.door !== null
+         && rung1.held > 0 && rung2.door !== null && rung2.held === 0
+         && rung3.door === null && eq(rung3.chips, BOOT_CHIPS),
+         `offers=${rung0.menu}→${rung1.menu} held=${rung1.held}→${rung2.held} `
+         + `door=${rung2.door}→${rung3.door} chips=${JSON.stringify(rung3.chips)}`);
+  }
 
   if (!departs.includes("SLASH")) {
     // ---- SLASH: the same door in every tab, and it still refuses the shaping half
@@ -530,6 +541,105 @@ for (const page of picked) {
   }
 
   if (typed) {
+    // ---- ESC-ABANDON: ESC CANCELS INPUT.  SLASH-ABANDON above is the reader
+    // who closes an untouched edit; this is the reader who WALKS OUT of one,
+    // and in the typed surface that takes a single press whatever is on the
+    // screen — the offers standing over the position, the text typed into it,
+    // and the comma the `/' summoned all go with the edit, and the box goes
+    // back to the strip it was summoned from.  What is asserted is the WHOLE
+    // picture: chips, box, rows, hint and the two lines under it.
+    const held2 = () => ({ q: RIG.query(), pills: RIG.pills(), door: RIG.door(),
+                           chips: RIG.chips(), stages: RIG.cx().stages });
+    const open2 = () => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                           at: (RIG.caret() || {}).at, menu: RIG.menu().open });
+    /** One route in and one press out: the screen has to come back byte for byte. */
+    const walkOut = async (into) => {
+      await ff.goto(url);
+      const was = await ff.eval(picture), wasQ = await ff.eval(held2);
+      for (const batch of into) await ff.keys(batch);
+      const mid = await ff.eval(open2);
+      await ff.keys([KEY.Escape]);
+      return { was, wasQ, mid, now: await ff.eval(picture), nowQ: await ff.eval(held2) };
+    };
+    // (a) THE SUMMON ALONE: `/' dangles a comma and stands its offers; one ESC
+    // takes both, and the badge is spelled the way it was.
+    const escA = await walkOut([["/"]]);
+    // (b) …AND WITH A CONDITION TYPED INTO IT.  The typed text is the reader's
+    // own work and it goes too: a cancel that kept it would be a commit.
+    const escB = await walkOut([["/"], chars('tag = docs"')]);
+    // (c) …AND MID-EDIT OF AN ARGUMENT ALREADY WRITTEN, which is reached by
+    // moving the caret rather than by the gesture: `"chore"' is retyped as
+    // `"milk"' and ESC brings the whole pre-edit spelling back.
+    const escC = await walkOut([["/"], new Array(3).fill(KEY.ArrowLeft),
+                                new Array(5).fill(KEY.Backspace), chars("milk")]);
+    const same = (r) => r.was === r.now && eq(r.wasQ, r.nowQ)
+      && r.nowQ.door === null && r.nowQ.stages.length === 0;
+    want("ESC-ABANDON",
+         // the edit really had something to lose: the comma, the offers, the text
+         escA.mid.args === REOPEN_TEXT && escA.mid.menu === true && same(escA)
+         && escB.mid.args === FILTER_TEXT + ', tag = "docs"' && escB.mid.menu === true
+         && same(escB)
+         && escC.mid.args === 'state = Active, tag /= "milk", ' && same(escC),
+         `a=${JSON.stringify(escA.mid)}/${same(escA)} `
+         + `b=${JSON.stringify(escB.mid)}/${same(escB)} `
+         + `c=${JSON.stringify(escC.mid)}/${same(escC)} `
+         + `door=${escA.nowQ.door} q=${JSON.stringify(escA.nowQ.q)} `
+         + `pills=${JSON.stringify(escA.nowQ.pills)}`);
+
+    // ---- ESC-RESTORE: WHAT THE EDIT FOUND GOES BACK, and there are two things
+    // the chips cannot speak for.  A stage closed but not yet ASKED FOR lives
+    // in the box rather than on the strip, so the cancel is the only thing that
+    // can put it back — and it has to put back the spelling the edit found
+    // rather than the one it was given.  An edit the summon INTERRUPTED — `/'
+    // is legal inside another stage's parens — is still being written, so the
+    // box returns to it open, caret and offers where they stood.  With no edit
+    // open the same key takes the box, and the uncommitted stage with it.
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars('state = TODO"'));
+    await ff.keys([")"]);
+    const pend0 = await ff.eval(picture), pendQ = await ff.eval(held2);
+    await ff.keys(["/"]);
+    const pendOpen = await ff.eval(open2);
+    await ff.keys(chars("zz"));
+    await ff.keys([KEY.Escape]);
+    const pend1 = await ff.eval(picture), pendBack = await ff.eval(held2);
+    await ff.keys([KEY.Escape]);
+    const pendGone = await ff.eval(held2);
+    // …and the interrupted edit: `.sort(' half written, `/' summoned over it,
+    // one press and the sort stage is back with its caret where it was.
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys(["s"]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars('Deadline"'));
+    const under0 = await ff.eval(open2), underPic = await ff.eval(picture);
+    await ff.keys(["/"]);
+    const underOn = await ff.eval(open2);
+    await ff.keys(chars('tag = docs"'));
+    await ff.keys([KEY.Escape]);
+    const under1 = await ff.eval(open2), underPic1 = await ff.eval(picture);
+    const underCx = await ff.eval(() => ({ where: RIG.cx().where, door: RIG.door(),
+                                           stages: RIG.cx().stages.length }));
+    want("ESC-RESTORE",
+         pendOpen.args === 'state = "TODO", ' && pendOpen.menu === true
+         && pend1 === pend0 && eq(pendBack, pendQ)
+         && pendBack.door === "compose" && pendBack.stages.length === 1
+         && pendBack.stages[0].args === 'state = "TODO"'
+         && pendBack.stages[0].pending === true
+         && pendGone.door === null && eq(pendGone.chips, BOOT_CHIPS)
+         && pendGone.stages.length === 0
+         && under0.args === 'columns = ["Deadline"]' && underOn.args === REOPEN_TEXT
+         && eq(under1, under0) && underPic1 === underPic
+         && underCx.where === "args" && underCx.door === "compose"
+         && underCx.stages === 1,
+         `open=${JSON.stringify(pendOpen)} back=${JSON.stringify(pendBack.stages)} `
+         + `strip=${pend1 === pend0} gone=${JSON.stringify(pendGone)} `
+         + `under=${JSON.stringify(under0)}→${JSON.stringify(under1)}`
+         + `/${underPic1 === underPic} cx=${JSON.stringify(underCx)}`);
+
     // ---- SIGNS: neither sign is a spelling in the typed surface, so both are
     // KEYS: `-' flips the kwarg under the caret between `=' and `/=' and flips
     // it back, `+' turns its value into a Haskell list with a fresh slot, and

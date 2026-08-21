@@ -1653,7 +1653,7 @@ var RIG = (function () {
   }
 
   function newStage() {
-    CX.stages.push({ fn: null, args: "", done: false, at: 0 });
+    CX.stages.push(bornOf({ fn: null, args: "", done: false, at: 0 }, "", false));
     CX.where = "fn";
     CX.buf = "";
     cxOffer();
@@ -1674,10 +1674,51 @@ var RIG = (function () {
   /** D alone: a closed stage LEAVES the box and lands on the strip as a pill. */
   function pend(st) { st.pending = true; }
 
+  /** WHAT THE EDIT FOUND, remembered the moment a stage opens for writing: the
+   *  spelling it already had, and whether it was standing CLOSED rather than
+   *  being written.  `cxCancel' is the only reader of it. */
+  function bornOf(st, spelling, pending) {
+    st.born = String(spelling);
+    st.bornPending = !!pending;
+    return st;
+  }
+
+  /**
+   * F's `ESC': THE READER'S ESCAPE IS FROM THE EDIT, NEVER FROM THE MENU.  One
+   * press abandons the open edit WHOLE and puts back what the edit found — the
+   * spelling the stage was opened on, byte for byte, and the strip it was
+   * opened over.  Everything the edit wrote goes together: the text typed into
+   * it, the offers standing over it, and the comma a `/' summoned, which is the
+   * edit's own writing and so wants no rule of its own.  A cancelled edit asked
+   * nothing, so nothing it wrote reaches the table.
+   */
+  function cxCancel() {
+    var st = CX.stages.pop();
+    // A STAGE THE EDIT TOOK OFF THE STRIP GOES BACK ONTO IT, spelled the way it
+    // stood: `reopen' and the chain's own backspace both pull a CLOSED stage
+    // into the box, and the box is not where the edit found it.  One that was
+    // already committed needs nothing — the chips hold it and the edit never
+    // touched them.
+    if (st && st.bornPending)
+      CX.stages.push({ fn: st.fn, args: st.born, at: st.born.length,
+                       done: true, pending: true, replacing: st.replacing });
+    CX.where = "chain";
+    closeMenu();
+    if (!CX.stages.length) { closeDoor(); return; }   // nothing held: the strip
+    // AN EDIT THE SUMMON INTERRUPTED IS WHERE THE READER GOES BACK TO.  `/' may
+    // be pressed inside another stage's parens, and what the cancel found there
+    // is a stage still being WRITTEN — not one standing closed — so the box
+    // returns to it open, with that position's offers standing.
+    var under = live();
+    if (under && under.fn && !under.pending) { CX.where = "args"; cxOffer(); }
+    paint();
+  }
+
   function cxBack() {
     var st = live();
     if (CX.where === "chain") {
       if (!st) return;                       // dead: a summoned box takes nothing
+      bornOf(st, st.args, !!st.pending);     // the backspace is an edit-open too
       st.done = false;
       st.pending = false;
       CX.where = "args";
@@ -1776,7 +1817,7 @@ var RIG = (function () {
     if (standing || pending) { reopen("filter"); return; }
     if (S.door !== "compose") openCompose();
     if (CX.stages.length && !live().fn) CX.stages.pop();
-    CX.stages.push({ fn: "filter", args: "", done: false });
+    CX.stages.push(bornOf({ fn: "filter", args: "", done: false }, "", false));
     CX.where = "args";
     cxOffer();
     paint();
@@ -1828,8 +1869,13 @@ var RIG = (function () {
   function cxKeys(e) {
     var k = e.key;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
-    if (M.open && (k === "ArrowDown" || k === "ArrowUp" || k === "Tab"
-                   || k === "Enter" || k === "Escape")) {
+    // THE MENU DOES NOT ANSWER `ESC' IN THE TYPED SURFACE.  There the offers are
+    // incidental to the input — they stand over a position rather than being
+    // asked for — so the key falls through to the cancel below and takes them
+    // with the edit.  D keeps the menu on the top rung of its own ladder.
+    if (M.open && !(S.look.dsl && k === "Escape")
+        && (k === "ArrowDown" || k === "ArrowUp" || k === "Tab"
+            || k === "Enter" || k === "Escape")) {
       e.preventDefault(); e.stopPropagation();
       if (k === "ArrowDown") return moveMenu(1);
       if (k === "ArrowUp") return moveMenu(-1);
@@ -1875,8 +1921,20 @@ var RIG = (function () {
       return;
     }
     if (k === "Escape") {
-      // THREE RUNGS, the shipped ladder with the menu on top: the offers, the
-      // chain, the box.
+      // ESC CANCELS INPUT, and in the typed surface that is the WHOLE of what
+      // it does: one press abandons the open edit entire, whether or not the
+      // offers stand and whether or not anything was typed.  With no edit open
+      // there is no input to cancel and the key takes the box, dropping what
+      // was written but never asked for.
+      if (S.look.dsl) {
+        if (CX.where !== "chain") { cxCancel(); return; }
+        CX.stages = [];
+        closeMenu();
+        closeDoor();
+        return;
+      }
+      // D AND THE FLAT DIALECT KEEP THE GRADUATED LADDER, the shipped one with
+      // the menu on top: the offers, the chain, the box.
       if (CX.stages.length) { CX.stages = []; CX.where = "chain"; closeMenu(); paint(); return; }
       closeDoor();
       return;
@@ -2480,6 +2538,10 @@ var RIG = (function () {
     if (S.door !== "compose") openCompose();
     if (CX.stages.length && !live().fn) CX.stages.pop();
     var args = pending ? pending.args : p ? p.args : "";
+    // WHAT THE EDIT FINDS, before the gesture writes into it: a stage taken off
+    // the strip has to be spellable back exactly, and a PENDING one is only in
+    // the box — the splice below is what makes remembering it necessary.
+    var was = args, wasPending = !!(pending && pending.pending);
     if (pending) CX.stages.splice(CX.stages.indexOf(pending), 1);
     // `/' IS THE ADD-A-CONDITION GESTURE, so it lands on a FRESH ARGUMENT and
     // not at the tail of the last one: the comma is the gesture's own.  Editing
@@ -2490,8 +2552,9 @@ var RIG = (function () {
     // A STAGE ALREADY REWRITING A BADGE GOES ON REWRITING IT: reopening one
     // that is open carries the flag, or a second `/' would turn a rewrite into
     // an addition and the badge's tokens would land twice.
-    CX.stages.push({ fn: fn, args: args, done: false,
-                     replacing: pending ? !!pending.replacing : !!p });
+    CX.stages.push(bornOf({ fn: fn, args: args, done: false,
+                            replacing: pending ? !!pending.replacing : !!p },
+                          was, wasPending));
     CX.where = "args";
     // THE CARET-EDGE LAW'S OWN CONSEQUENCE: the reader was moved somewhere new,
     // so that position's offers stand at once.
