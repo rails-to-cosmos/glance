@@ -48,8 +48,6 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineParts (..
                     , subtreeEntries, subtreeEntryAt, subtreeLinks, subtreeText
                     , tagText, tagged, templatePrompts, titleText, uuidFrom, viewJSON )
 
--- Fixtures
-
 -- | One file the parser rejects, kept out of 'viewDir' so the golden stays put.
 brokenDir :: FilePath
 brokenDir = "test/fixtures/broken"
@@ -124,8 +122,6 @@ maybeBoolAt key (Object o) = case KM.lookup (Key.fromText key) o of
                                     <> ", got " <> show other)
 maybeBoolAt key v = assertFailure ("expected an object with " <> show key
                                      <> ", got " <> show v)
-
--- Spec
 
 spec :: TestTree
 spec = testGroup "Query"
@@ -1417,7 +1413,7 @@ commandSpec = testGroup "Commands"
         setStateIs "cleared wide" (keyworded "*   NEXT   Ship it\n") Nothing
                                   (keyworded "*   Ship it\n")
 
-      -- A keyword ending its line keeps the newline, or the headline swallows the line below.
+      -- Without the newline the headline swallows the line below.
     , testCase "a keyword ending its line keeps the newline" $
         let doc = keyworded "* NEXT\n* NEXT Second\n" in
         withFirstRecord doc $ \r ->

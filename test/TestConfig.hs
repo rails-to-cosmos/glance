@@ -42,8 +42,6 @@ spec = testGroup "Config"
   [ discoverySpec, recognitionSpec, classificationSpec, paletteSpec
   , reloadSpec, writeSpec, absenceSpec, paritySpec ]
 
--- Fixtures
-
 -- | The tag config the live tree carries verbatim: title, cycle, template.
 bookConfig :: Text
 bookConfig = T.unlines
@@ -94,8 +92,6 @@ titles = map hrTitle
 withRows :: Maybe Text -> [(FilePath, Text)] -> [(FilePath, Text)]
          -> ([HeadlineRecord] -> Assertion) -> Assertion
 withRows system tags docs k = withTree system tags docs (k . snd <=< loaded)
-
--- Discovery
 
 discoverySpec :: TestTree
 discoverySpec = testGroup "Discovery"
@@ -161,8 +157,6 @@ discoverySpec = testGroup "Discovery"
                  (not (watched defaultWalk "/o/.org-glance/config/tags/#book.org#"))
   ]
 
--- Recognition
-
 -- | A SUPERSET: one headline reading as a state here and a title there is the bug.
 recognitionSpec :: TestTree
 recognitionSpec = testGroup "Recognition"
@@ -221,8 +215,6 @@ recognitionSpec = testGroup "Recognition"
       assertEqual "and the row is a state, on the file's own reading of it"
                   [(Just "READING", Just False)] (states rows)
   ]
-
--- Classification
 
 -- | WIDEST scope answers: org's pair, system, the row's tags, then the file.
 classificationSpec :: TestTree
@@ -312,8 +304,6 @@ classificationSpec = testGroup "Classification"
       assertEqual "and a word nothing names is active" True (classify cfg noKeywords [] "NOPE")
   ]
 
--- Palette
-
 -- | ORDER IS THE ORG FILES': 'keywordScopes' precedence by segment, each layer's
 -- own left-to-right spelling inside it, a repeat keeping its FIRST place.
 paletteSpec :: TestTree
@@ -352,8 +342,6 @@ paletteSpec = testGroup "Palette"
       store <- loadStore dir
       assertEqual "palette" (TodoKeywords ["TODO", "WAITING"] ["DONE"]) (storeKeywords store)
   ]
-
--- Reload
 
 -- | A config edit moves what every other file RECOGNIZES, so the answer is a reseed.
 reloadSpec :: TestTree
@@ -453,8 +441,6 @@ reloadSpec = testGroup "Reload"
 -- | DIR loaded again and diffed against BEFORE: the pure half of a config event.
 afterEdit :: Store -> FilePath -> IO (Store, [Frame])
 afterEdit before dir = (`reseeded` before) <$> loadStore dir
-
--- Writing a layer
 
 -- | The @#+TODO:@ lines are spliced as spans, so a template around them is untouched.
 writeSpec :: TestTree
@@ -760,8 +746,6 @@ defaultSaved = case savedView "default" of
 pragmaLine :: Text -> Text -> Text
 pragmaLine key value = key <> ": " <> value <> "\n"
 
--- Absence
-
 -- | With no config anywhere, every answer is the one this repo gave before.
 absenceSpec :: TestTree
 absenceSpec = testGroup "No config"
@@ -787,8 +771,6 @@ absenceSpec = testGroup "No config"
 -- | The fields a row is compared by: everything the wire carries off it.
 shape :: HeadlineRecord -> (FilePath, Text, Maybe Text, Text, Text, Maybe Bool, TodoKeywords)
 shape r = (hrFile r, hrId r, hrState r, hrTitle r, hrTags r, hrActive r, hrKeywords r)
-
--- Parity
 
 -- | The pool and the serial loop see one config, and see it the same way.
 paritySpec :: TestTree

@@ -278,7 +278,7 @@ specGroup04 = testGroup "Scan and the ledgers"
       assertEqual "nil is no archive flag either"
                   (Just (Just False)) (irArchived <$> Map.lookup "a" (ifRecords folded))
 
-    -- A zero-width interval takes the @+N@ arm, which is what keeps the @++@ until-loop terminating.
+    -- The @+N@ arm is what keeps the @++@ until-loop terminating.
   , testCase "a zero-width interval takes the +N arm" $
       assertEqual "a zero interval stands still rather than looping"
         (Just "<2026-08-08 Sat ++0w>")

@@ -33,8 +33,6 @@ import Glance.Web.Store ( Client, CloseReason (..), Frame (..), Hub (hubPending,
                         , storeRecords, storeResult, storeTags, subscribe )
 import Glance.Web.Watch (debounceDelay, due, isWatchable, nudge, watched)
 
--- Scaffolding
-
 -- | The one record STORE holds, LABEL naming the moment in the failure.
 oneRecord :: String -> Store -> IO HeadlineRecord
 oneRecord label store = case storeRecords store of
@@ -74,8 +72,6 @@ stringAt key (Object o) = case KM.lookup (Key.fromText key) o of
   Just (String s) -> Just s
   _other          -> Nothing
 stringAt _key _v = Nothing
-
--- Spec
 
 spec :: TestTree
 spec = testGroup "Store"

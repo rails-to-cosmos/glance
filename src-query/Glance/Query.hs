@@ -225,7 +225,6 @@ import Data.Org.Edit (digestOfText, eolOf, lineSpansIn, linesWith, openingFor)
 import qualified Data.Org.Edit as Edit
 import qualified Data.Org.External as External
 
--- Records
 
 data HeadlineRecord = HeadlineRecord
   { hrFile      :: !FilePath        -- ^ path the headline was read from, as walked.
@@ -267,7 +266,6 @@ data IdCollision = IdCollision
 emptyResult :: QueryResult
 emptyResult = QueryResult [] 0 0 0 0 []
 
--- Loading
 
 loadDir :: FilePath -> IO QueryResult
 loadDir = loadDirWith defaultWalk
@@ -402,7 +400,6 @@ recordOf cfg declared path ordinal doc digest category keywords h subtree =
         scheduled = isoStamp <$> schedule h
         due       = isoStamp <$> deadline h
 
--- Search text
 
 cellSep :: Char
 cellSep = '\US'
@@ -456,7 +453,6 @@ linkAt text
       _notALink        -> Nothing
   where (target, rest) = T.break (== ']') (T.drop 2 text)
 
--- Links
 
 -- | Every link R's subtree points at, spanned in the DOCUMENT ('Data.Org.Edit').
 subtreeLinks :: HeadlineRecord -> [OrgLink]
@@ -558,7 +554,6 @@ tagColumns =
   , column "rows"  "Rows" "number" []
   ]
 
--- References
 
 -- | The protocols naming a row, EACH BOUND TO ITS NAMESPACE, so a prefix
 --   cannot land without declaring where it resolves.
@@ -669,7 +664,6 @@ matchesSearch q
   | otherwise     = T.isInfixOf needle . hrSearch
   where needle = T.toLower (T.strip q)
 
--- Identity
 
 -- | RECORDS with one row per id ('claimById'), and the losers it reports.
 resolveIds :: [HeadlineRecord] -> ([HeadlineRecord], [IdCollision])
@@ -741,7 +735,6 @@ sortedForView :: [HeadlineRecord] -> [HeadlineRecord]
 sortedForView records =
   sortedForViewWith (mergeKeywords (map hrKeywords records)) defaultSortChain records
 
--- Subtrees
 
 subtreeText :: HeadlineRecord -> Text
 subtreeText r = sliceSpan (hrDoc r) (hrSubtree r)
@@ -882,7 +875,6 @@ withoutSpans subtree sps =
 regionSpans :: [Maybe Span] -> [Span]
 regionSpans = sortOn spanStart . catMaybes
 
--- Regions
 
 drawerSlice :: HeadlineRecord -> Text -> Maybe Span
 drawerSlice r subtree = do
@@ -931,7 +923,6 @@ localSpan r subtree sp
   | otherwise                                      = Just local
   where local@(Span from to) = shiftSpan (negate (spanStart (hrSubtree r))) sp
 
--- Planning
 
 data PlanningStyle = PlanningStyle
   { psIndent :: !Text                    -- ^ what a written line is indented by.
@@ -978,7 +969,6 @@ planningText style want
 readsAsTimestamp :: Text -> Bool
 readsAsTimestamp value = either (const False) (isJust . timestampOf) (oneLine () () value)
 
--- Properties
 
 drawerPairs :: Text -> Maybe Span -> [(Text, Text)]
 drawerPairs subtree slice = case slice of
@@ -1132,7 +1122,6 @@ forceRecord r =
           (forcing (hrLinks r) (foldr seq r (hrActive r)))
   where optional = catMaybes [hrState r, hrPriority r, hrScheduled r, hrDeadline r]
 
--- Write-back
 
 -- | Why a 'replaceSpans' did not land.  Either way the file is byte-identical
 -- to what it held before the call (AGENTS.hs).
@@ -1242,7 +1231,6 @@ settableStates :: ConfigLayers -> HeadlineRecord -> [Text]
 settableStates cfg r =
   [ word | (_source, kw) <- keywordSources cfg [r], word <- tkActive kw <> tkInactive kw ]
 
--- Repeating entries
 
 -- | R's `ORG_GLANCE_ID`.  The ledger's key: an ordinal names another row a week on.
 rowOrgId :: HeadlineRecord -> Maybe Text
@@ -1628,7 +1616,6 @@ captureText :: Text -> Either Text Text
 captureText = oneLine "a capture needs a headline: the text that goes after the star"
                       "a captured entry is one headline, so its text is one line"
 
--- Capture templates
 
 -- | The @%@-codes served.  The scanner never consults it; @TestQuery@ keeps the two in step.
 captureCodes :: [(Text, Text)]
@@ -1858,7 +1845,6 @@ headlineSpans = spans . hrHeadline
 insertAt :: Int -> Span
 insertAt at' = Span at' at'
 
--- View JSON
 
 viewJSON :: Text -> [HeadlineRecord] -> Value
 viewJSON viewTitle records =

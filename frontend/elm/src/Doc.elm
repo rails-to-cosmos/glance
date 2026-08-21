@@ -1616,8 +1616,7 @@ openedLen =
 
 
 {-| How many characters of a leaf's own line org spent on its indent, its bullet --
-`-', `+', `*', `1.' or `1)' -- and the checkbox after it; nothing when the row is
-not a list item.
+`-', `+', `*', `1.' or `1)' -- and the checkbox after it.
 -}
 markerOf : Maybe Scan.Opener -> String -> Int
 markerOf op line =

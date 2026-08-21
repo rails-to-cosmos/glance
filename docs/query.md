@@ -83,7 +83,7 @@ half-typed token never empties the table.
   none narrows nothing. `|` in free text is literal.
 - `-` negates the whole token, alternatives included: `-state:TODO|DONE`
   is "neither". Every narrowing token negates; `-sort:…` and `-columns:…`
-  are refused, and every `+` on a shaping key is refused beside them.
+  are refused.
 
 ## Adding: `+` widens its own axis
 
@@ -106,8 +106,8 @@ rows carrying either word. Alternatives and metas ride along:
 a meta. A repeated `+` token changes nothing.
 
 A `+` token alone on its axis is the plain token: `+state:DONE` ≡
-`state:DONE`. On an axis no other token names, a `+` narrows like any other
-token — it widens against its own axis, never against the whole query.
+`state:DONE` — a `+` widens against its own axis, never against the whole
+query.
 
 An empty value adds nothing and establishes no axis: `+state:` and `+state:|`
 narrow nothing and widen nothing, so a half-typed token leaves the table as it

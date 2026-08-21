@@ -103,8 +103,6 @@ import qualified Data.Text.IO as TIO
 import Glance.Query (HeadlineRecord, QueryResult (qrRecords), digestOfText, loadDir, loadFile)
 import Glance.Web.Store (Frame, Store, applyFile, loadStore)
 
--- Time
-
 strptime :: Text -> UTCTime
 strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (T.unpack t)
 
@@ -128,8 +126,6 @@ compactTs :: TimestampStatus -> TsMoment -> TsMoment -> Timestamp
 compactTs status start end = (plainTs status start) { tsEnd = Just end
                                                     , tsCompactRange = True }
 
--- Context
-
 initialState :: Context
 initialState = defaultContext
 
@@ -139,8 +135,6 @@ withCategory ctx category = setCategory category ctx
 withTodo :: Context -> ([Text], [Text]) -> Context
 withTodo ctx (actives, inactives) =
   setTodo (Set.fromList actives) (Set.fromList inactives) ctx
-
--- Documents
 
 -- | The suite's sample directory, named here because the facade, the filter and the server all answer questions about this one tree.
 viewDir :: FilePath
@@ -178,8 +172,6 @@ committable = T.unlines
   , "body of first"
   , "* TODO Second"
   , "tail" ]
-
--- Files
 
 -- | Run ACT over a directory of its own, removed afterwards whatever happens.  LABEL, the process id and a unique name it; 'createDirectory' retries a name already taken, so two runs never share one.
 withTempDirNamed :: String -> (FilePath -> IO a) -> IO a
@@ -227,8 +219,6 @@ withDocDir label name doc k = withTempDirNamed label $ \dir -> do
   _ <- orgFile dir name doc
   k . qrRecords =<< loadDir dir
 
--- The live store
-
 -- | Run K over a store loaded from a directory holding FILES, handed the directory, the FIRST path and the store.
 withStoreOf :: [(FilePath, Text)] -> (FilePath -> FilePath -> Store -> IO a) -> IO a
 withStoreOf files k = withTempDir $ \dir -> do
@@ -259,8 +249,6 @@ writeLayers dir layers = do
   createDirectoryIfMissing True (tagsDirIn dir)
   mapM_ (\(tag, text) -> TIO.writeFile (maybe (systemFileIn dir) (tagFileIn dir) tag) text)
         layers
-
--- Corpus
 
 -- | Run K over a sample of the org files under @GLANCE_CORPUS@, and answer how many things it checked.  An unset variable SAYS SO on stderr; a variable naming a missing directory, and a run that samples nothing, are loud failures.
 withCorpusSample :: String -> ([FilePath] -> IO Int) -> Assertion
@@ -306,8 +294,6 @@ testPropertyWith count name p = testCase name $ do
 
 testProperty :: QC.Testable p => String -> p -> TestTree
 testProperty = testPropertyWith 200
-
--- Text assertions
 
 -- | WHAT: NEEDLE is somewhere in HAYSTACK.  The haystack is truncated in the message, a served page being tens of thousands of characters wide.
 assertContains :: String -> Text -> Text -> Assertion
@@ -407,8 +393,6 @@ columnOf key v = do
     [c] -> pure c
     cs  -> assertFailure ("expected one " <> show key <> " column, got " <> show (length cs))
 
--- Parsing
-
 bare :: [Spanned Element] -> [Element]
 bare = map (stripSpans . valueOf)
 
@@ -431,8 +415,6 @@ parsedIn :: String -> Text -> IO ([Spanned Element], Context)
 parsedIn label input = case orgParse defaultContext input of
   (elems, ctx, Nothing) -> pure (elems, ctx)
   (_, _, Just _err)     -> assertFailure (label <> ": parse error in " <> show input)
-
--- Headline spans
 
 presentSpans :: Headline -> [(String, Span)]
 presentSpans h = [(T.unpack label, s) | (label, Just s, _ok) <- headlineSpanParts h]
@@ -471,8 +453,6 @@ namesIn needle path = report . T.lines <$> TIO.readFile path
   where
     report ls = [ path <> ":" <> show n <> ": " <> T.unpack (T.strip l)
                 | (n, l) <- zip [1 :: Int ..] ls, needle `T.isInfixOf` l ]
-
--- The built CLI
 
 -- | @$GLANCE_BIN@, else the binary cabal's default layout holds for the version
 -- being built.  'Nothing' is a SKIP the caller must say out loud: a

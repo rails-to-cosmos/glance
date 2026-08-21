@@ -359,8 +359,7 @@ rides line =
 
 
 
-{-| The index of the first element PRED holds for. Four callers hand-rolled this
-same `indexedMap`/`filter`/`head` pipeline, differing only in the predicate.
+{-| The index of the first element PRED holds for.
 -}
 indexWhere : (a -> Bool) -> List a -> Maybe Int
 indexWhere pred xs =

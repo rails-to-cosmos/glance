@@ -84,7 +84,6 @@ archiveTag = "ARCHIVE"
 class Display a where
   display :: a -> Text
 
--- Span / Spanned
 
 -- | Half-open character span [start, end) into the text given to 'orgParse'.
 data Span = Span { spanStart :: !Int, spanEnd :: !Int }
@@ -118,7 +117,6 @@ spanFaults len sp = concat
   , [ "end-past-eof"    | spanEnd sp > len ]
   ]
 
--- Context
 
 data Context = Context { todoActive :: !(Set Text)
                        , todoInactive :: !(Set Text)
@@ -163,7 +161,6 @@ setTodo active inactive Context{..} =
   Context{..} { todoActive = todoActive <> active
               , todoInactive = todoInactive <> inactive }
 
--- Element
 
 data Element = EHeadline Headline
              | EPragma Pragma
@@ -199,7 +196,6 @@ headlinesOf elems = [ h | EHeadline h <- map valueOf elems ]
 firstHeadlineOf :: [Spanned Element] -> Maybe Headline
 firstHeadlineOf = listToMaybe . headlinesOf
 
--- Headline
 
 data Headline = Headline { indent     :: !Indent
                          , todo       :: !(Maybe Todo)
@@ -430,7 +426,6 @@ instance TextShow Properties where
 getProperty :: Text -> Properties -> Maybe Text
 getProperty k (Properties props) = TS.showt . val <$> find ((== Keyword k) . key) props
 
--- OrgLineElement / OrgLine
 
 data OrgLineElement = OrgLineToken !Token
                     | OrgLineTimestamp !Timestamp
@@ -466,7 +461,6 @@ instance Semigroup Tags where
 instance Monoid Tags where
   mempty = Tags mempty
 
--- Timestamp
 
 -- | One end of a timestamp; a date-only stamp holds midnight, 'tsmHasTime' unset.
 data TsMoment = TsMoment { tsmTime :: !Time.UTCTime

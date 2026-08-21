@@ -23,7 +23,6 @@ import qualified Text.Megaparsec.Char as MPC
 import qualified Text.Megaparsec.Char.Lexer as MPL
 import qualified TextShow as TS
 
--- Parser types
 
 type OrgParser = Context -> Text -> OrgParserResult
 type OrgParserResult = ([Spanned Element], Context, Maybe (ParseErrorBundle Text Void))
@@ -33,7 +32,6 @@ type StatelessParser = MP.Parsec Void Text
 class Parse a where
   parse :: StatefulParser a
 
--- Public API
 
 orgParse :: OrgParser
 orgParse st cmd = case MP.parse sfParser "" cmd of
@@ -46,7 +44,6 @@ orgParse st cmd = case MP.parse sfParser "" cmd of
           _ <- space <* eof
           return elems
 
--- Helpers
 
 elementsP :: Bool -> StatefulParser [Spanned Element]
 elementsP bol = option [] $ do
@@ -85,7 +82,6 @@ spannedContainerUntil con endParser = do
     elems <- manyTill (MPC.hspace *> spannedP parse) (lookAhead (try stop))
     return (spanRange (map spanOf elems), con (map valueOf elems))
 
--- Parse instances
 
 -- | One element.  A headline is tried only when BOL: org anchors stars to column 1.
 elementP :: Bool -> StatefulParser Element
@@ -269,7 +265,6 @@ todoP = do
 instance Parse Token where
   parse = Token <$> takeWhile1P (Just "token") (not . isSpace)
 
--- Timestamp sub-parsers
 
 -- | @<a>--<b>@ or the compact @<date wd 10:30-11:30>@; 'tsCompactRange' records which.
 tsParser :: StatelessParser Timestamp

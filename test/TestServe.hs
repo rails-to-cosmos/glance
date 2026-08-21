@@ -56,8 +56,6 @@ import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
                        , newLoadingHub, publish )
 
--- Fixtures
-
 sampleFile :: FilePath
 sampleFile = viewDir <> "/sample.org"
 
@@ -198,8 +196,6 @@ withNested k = withTempDir $ \dir -> do
   path <- orgFile dir "tree.org" nestedDoc
   (a, _hub) <- serverOver dir
   k a path
-
--- Assertions
 
 header :: HeaderName -> SResponse -> Maybe ByteString
 header name r = lookup name (simpleHeaders r)
@@ -369,8 +365,6 @@ between open close haystack
   | otherwise    = Just inner
   where (_before, after) = T.breakOn open haystack
         (inner, rest)    = T.breakOn close (T.drop (T.length open) after)
-
--- Spec
 
 spec :: TestTree
 -- The fixture is the page PLUS the script it names, so a text sweep reads one universe.
@@ -4059,7 +4053,6 @@ sheetSpec shell =
         assertEqual "still flagged" [1] =<< flaggedOf answer
         assertEqual "and nothing written" ([] :: [Value]) =<< listAt "writes" answer
 
-    -- A deletion WRITES at once; a flag alone is not yet one.
   , testCase "a deletion writes at once, and a flag alone writes nothing" $ do
       insheet shell
              "press:f press:n press:f press:d press:d" $
@@ -7786,8 +7779,7 @@ withDrawerTree k = withTempDir $ \dir -> do
 -- | @capture@: the one command that names no row, and the one write whose target comes out of the config.
 captureSpec :: TestTree
 captureSpec = testGroup "POST /command capture"
-  [ -- The target may not exist: the empty digest is the pin for that, so the
-    -- first capture into a tree creates the file and the entry is the whole of it.
+  [ -- The target may not exist, and the empty digest is the pin for that.
     testCase "creates the target and the entry is the whole file" $
       withCaptureTree $ \a _hub dir -> do
         r <- ok =<< postTo a "/command" (capture "TODO Buy milk :errands:")
@@ -8491,7 +8483,7 @@ keywordsSpec = testGroup "GET /keywords"
         assertEqual "and nothing was asked for that is not there" [] =<< textsAt "unknown"
           =<< decoded r
 
-    -- A file redeclaring a wider scope's word gets no row of its own: the word belongs to the widest scope that names it.
+    -- The word belongs to the widest scope that names it.
   , testCase "a file redeclaring a wider scope's word gets no row of its own" $
       withLayeredTree $ \a -> do
         filed <- sourcesOf =<< getFrom a "/keywords?ids=filed"

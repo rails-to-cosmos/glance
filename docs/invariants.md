@@ -44,7 +44,7 @@ nothing catches it.
 
 - **The rename is atomic and not durable.** The containing directory is fsynced
   after it, and a write that created directories syncs each new one's parent.
-  `Edit.hs:230`, `:246`, `:253`, `:262`. Dropping the syncs means a crash takes
+  `Edit.hs:230`, `:246`, `:253`, `:264`. Dropping the syncs means a crash takes
   back a write that already answered 200. The sync failure is deliberately
   swallowed — reporting it would refuse a write that landed. *fragility: medium*
 

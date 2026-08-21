@@ -1556,7 +1556,6 @@ export default [
 { name: "the cursor is a ground over its own line, and the marker reads over it",
   async run(p, base) {
     await sheet(p, base, "drv-wide");
-    // Onto the list, then into it: the item under point has one drawn inside it.
     await walkTo(p, ".d-list", "the list");
     await p.press("f");
     await p.until(() => {
@@ -1892,7 +1891,6 @@ export default [
       `the drawer opens showing ${JSON.stringify(shut.folded)}`);
     assert(shut.planning.length === 1 && /^DEADLINE: </.test(shut.planning[0]),
       `the planning line reads ${JSON.stringify(shut.planning)}`);
-    // Onto the drawer, and TAB opens it.
     await walkTo(p, ".d-drawer", "the drawer");
     await p.press("TAB");
     await p.until(() => document.querySelectorAll("#mdoc .d-drawer .d-meta").length > 0,
@@ -1926,11 +1924,9 @@ export default [
     assert(JSON.stringify(back.pairs) === JSON.stringify(open.pairs),
       `the cancelled drawer holds ${JSON.stringify(back.pairs)} `
       + `against ${JSON.stringify(open.pairs)}`);
-    // TAB folds it back.
     await p.press("TAB");
     await p.until(() => document.querySelectorAll("#mdoc .d-drawer .d-meta").length === 0,
                   "TAB to fold the drawer");
-    // And `f' INTO the folded drawer opens it and lands on the first pair.
     await p.press("f");
     await p.until(() => {
       const at = document.querySelector("#mdoc .de.dat");
@@ -2101,7 +2097,6 @@ export default [
     await p.until(() => /A grandchild/.test(
       document.querySelector("#mdoc .de.dat").textContent), "p back in");
     await p.press("p");
-    // And `f' goes INTO the child: its first block, owned by it.
     await p.until(() => /A child whose body/.test(
       document.querySelector("#mdoc .de.dat").textContent), "p back to the first child");
     await p.press("f");

@@ -102,15 +102,15 @@ gluePartFiles =
 tenths :: Double -> Double
 tenths s = fromIntegral (round (s * 10) :: Int) / 10
 
--- | The doc pane's cells, ONE list: the route builds the values off it and the
--- shell's config blob takes its keys from it, and the pane indexes the one by
--- the other.  Spelled apart, a key added to the route was never drawn and a key
--- renamed drew an empty cell, both in silence.
 -- | 'captureCodes' as objects: the code and the one line saying what it does,
 -- the shape @GET \/capture@ serves and the boot blob carries.
 codeList :: [Value]
 codeList = [ object ["code" .= code, "means" .= means] | (code, means) <- captureCodes ]
 
+-- | The doc pane's cells, ONE list: the route builds the values off it and the
+-- shell's config blob takes its keys from it, and the pane indexes the one by
+-- the other.  Spelled apart, a key added to the route was never drawn and a key
+-- renamed drew an empty cell, both in silence.
 docCells :: [(Text, HeadlineRecord -> Value)]
 docCells = [ ("state",    toJSON . hrState)
            , ("priority", toJSON . hrPriority)

@@ -14,8 +14,7 @@ history is `docs/proposals/done/2026-08-03-capture.md`.
    commonest first. Free text names a tag that does not exist yet (the
    server's charset wall refuses garbage, the same wall `manage-tags` has).
    An **empty tag is the inbox**: the capture lands in `<root>/inbox.org`
-   as bare `* text` with its creation drawer — the quick-jot path, byte for
-   byte the old shape.
+   as bare `* text` with its creation drawer — the quick-jot path.
 2. **The template's own fields** — grown in place once the tag settles, one
    field per `%^{PROMPT}` in template order.
 3. **The line** — the text that lands at `%?`. `RET` captures; `ESC` leaves

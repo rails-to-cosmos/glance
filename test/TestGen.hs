@@ -46,8 +46,6 @@ import Data.Org ( HeadlineSpans (..), Span (..), Timestamp (..), TimestampRepeat
                 , TimestampStatus (..), TimestampUnit (..), TimestampWarningInterval (..)
                 , TsMoment (..) )
 
--- The spec
-
 data Eol = LF | CRLF
   deriving (Eq, Show)
 
@@ -105,8 +103,6 @@ data TsRange = Compact (Int, Int)
 -- | The recognized keywords a document's entries may spell.
 keywordsOf :: DocSpec -> [Text]
 keywordsOf ds = ["TODO", "DONE"] <> maybe [] (uncurry (<>)) (dsKeywords ds)
-
--- The renderer that knows the answer
 
 -- | A rendered document and, per entry, the offsets it was spelled at.
 data Rendered = Rendered { rdText :: !Text, rdEntries :: ![Expected] }
@@ -276,8 +272,6 @@ expectedExtents len entries =
       (next : _) -> exStart next
       []         -> len
 
--- The alphabets
-
 -- | Words whose parse the generator can predict.
 plainWords :: [Text]
 plainWords = ["a", "task", "Привет", "проверка", "note"]
@@ -305,8 +299,6 @@ cookies = ["+1w", "++2d", ".+3m", "-3d", "--7d", "+1m -3d"]
 
 customKeywords :: [Text]
 customKeywords = ["NEXT", "STARTED", "WAITING", "SKIP", "CANCELLED"]
-
--- Generators
 
 instance Arbitrary DocSpec where
   arbitrary = genDoc plainWords plainTags
@@ -567,8 +559,6 @@ genWarning = do
   pure TimestampWarningInterval { warningFirstOnly = firstOnly
                                 , warningValue = value
                                 , warningUnit = unit }
-
--- The generator's own oracle
 
 -- | The shapes SPEC carries, so a census can say what the image holds.
 shapesOf :: DocSpec -> [String]

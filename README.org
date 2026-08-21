@@ -48,8 +48,8 @@ cabal run glance -- repl    ~/org/todo.org  # the parser at a prompt
 make native                                 # build the WebKitGTK window in
 #+end_src
 
-Flags are the program's own: a bare =glance= prints them, and =--help= follows
-any command. Binds =127.0.0.1= only.
+Flags are the program's own — =--help= follows any command. Binds
+=127.0.0.1= only.
 
 #+begin_src sh
 curl -s localhost:7777/headlines | jq '.rows | length'

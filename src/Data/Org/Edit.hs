@@ -257,13 +257,13 @@ writeAtomically path bytes = report <$> attempt
 syncDirectory :: FilePath -> IO ()
 syncDirectory dir = ignoring (bracket (openFd dir ReadOnly defaultFileFlags) closeFd fileSynchronise)
 
--- | The ancestors of DIR that do not exist yet, deepest first.  Their PARENTS
--- are what needs the sync: a created directory is itself an entry, and one lost
--- takes the document under it.
 -- | ACT, with an IO failure dropped.
 ignoring :: IO a -> IO ()
 ignoring act = void (try (void act) :: IO (Either IOException ()))
 
+-- | The ancestors of DIR that do not exist yet, deepest first.  Their PARENTS
+-- are what needs the sync: a created directory is itself an entry, and one lost
+-- takes the document under it.
 unmadeAncestors :: FilePath -> IO [FilePath]
 unmadeAncestors dir
   | up == dir = pure []

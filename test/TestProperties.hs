@@ -45,8 +45,6 @@ spec = testGroup "Properties"
   , negativeSpec
   ]
 
--- The instrument, asserted before anything is read through it
-
 -- | A generator with a narrow image passes forever, so this group lands FIRST.
 generatorSpec :: TestTree
 generatorSpec = testGroup "Generator"
@@ -84,8 +82,6 @@ generatorSpec = testGroup "Generator"
   ]
   where sampleSize = 400
 
--- ANSWER properties
-
 -- | Equalities against offsets the generator counted: NOT self-consistent.
 answerSpec :: TestTree
 answerSpec = testGroup "Spans, against the offsets they were written at"
@@ -119,8 +115,6 @@ answerSpec = testGroup "Spans, against the offsets they were written at"
                          (T.concat (map (sliceSpan doc) got)
                             === maybe "" (\sp -> T.drop (spanStart sp) doc) (firstOf got))))
   ]
-
--- ALGEBRA properties
 
 algebraSpec :: TestTree
 algebraSpec = testGroup "Spans, as an algebra"
@@ -182,8 +176,6 @@ sourceOrder hs = there before <> sortOn (spanStart . snd) (there planning) <> th
     (before, rest) = splitAt 4 namedSubSpans
     (planning, after) = splitAt 3 rest
 
--- applyEdits
-
 -- | 'applyEdits' checks NEIGHBOURS; 'legal' is the quadratic rule it reduces.
 editSpec :: TestTree
 editSpec = testGroup "applyEdits"
@@ -221,8 +213,6 @@ editSpec = testGroup "applyEdits"
             === Right (T.take at doc <> "<1><2>" <> T.drop at doc)
   ]
 
--- The subtree lens
-
 -- | Byte-identical UP TO THE LINE END: a write spells no trailing space.
 lensSpec :: TestTree
 lensSpec = testGroup "Subtree lens"
@@ -240,8 +230,6 @@ lensSpec = testGroup "Subtree lens"
       in  lensRepresentable ds ==> ioProperty (withLoaded r
             (\doc recs -> conjoin (map (reDecomposes doc) recs)))
   ]
-
--- Timestamps
 
 -- | The TOTAL direction is render → parse → equal; text → render is lossy.
 timestampSpec :: TestTree
@@ -266,8 +254,6 @@ timestampSpec = testGroup "Timestamps"
           (readTimestamp (showt ts) === Just ts { tsCompactRange = False })
   ]
 
--- Negative
-
 -- | A refusal returns zero elements AND the caller's context untouched.
 negativeSpec :: TestTree
 negativeSpec = testGroup "Refusals"
@@ -285,8 +271,6 @@ breakAt k ds = ds { dsEntries = zipWith at [0 ..] (dsEntries ds) }
   where n = max 1 (length (dsEntries ds))
         at i e | i == (k :: Int) `mod` n = e { esBody = esBody e <> [brokenRange] }
                | otherwise = e
-
--- Helpers
 
 -- | Named here rather than read off 'headlineSpanParts', which it is the oracle for.
 namedSubSpans :: [(String, HeadlineSpans -> Maybe Span)]
@@ -457,8 +441,6 @@ lensRepresentable ds = all holdable (dsEntries ds) && terminated
 noBlankTopEntry :: Rendered -> Bool
 noBlankTopEntry r = not (any blank (rdEntries r))
   where blank e = exLevel e == 1 && exBlank e
-
--- Timestamp helpers
 
 -- | The only door in: the parser exposes no timestamp entry point of its own.
 readTimestamp :: Text -> Maybe Timestamp

@@ -1,6 +1,5 @@
-// WHAT BOTH DRIVERS NEED.  `test/browser/drive.mjs' and `test/interop/drive.mjs'
-// spelled `sleep', `freePort', `poll' and `end' out separately, byte for byte but
-// for one word of the timeout's wording.
+// WHAT BOTH DRIVERS NEED: `test/browser/drive.mjs' and `test/interop/drive.mjs'
+// share `sleep', `freePort', `poll' and `end'.
 import { createServer } from "node:net";
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

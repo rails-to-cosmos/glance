@@ -414,8 +414,7 @@
     // it writes.  A composite draws no own line and keeps the whole box: the
     // list is one stop, and editing it rewrites the list.
     // Elm draws `own ++ deeper', so the own line is the FIRST child and the
-    // first nested row is not; a composite draws no own line and the two are
-    // the same node.
+    // first nested row is not; over a composite the two are the same node.
     const dParaAt = () => {
       const at = docElAt();
       if (!at) return at;
