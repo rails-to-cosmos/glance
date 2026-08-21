@@ -619,6 +619,13 @@ flattening-sorting-deduping the connectives quotients associativity,
 commutativity and idempotence away, so **two spellings that MEAN the same print
 the same bytes.**
 
+`cmp` is a THIRD leaf beside `atom` and `meta` rather than a shape over them,
+and the reason is L8's law 6: the four operators do not pair off under `not`, so
+no normalization may rewrite one into another. The builder prints the operator
+it was given. A `cmp` and an `atom` on one key never collapse either — the
+bare form is the closed interval, an equivalence the LANGUAGE states and the
+normal form deliberately does not apply.
+
 ```
 state:*active* -tag:chore
 .filter(state = Active, tag /= "chore")
