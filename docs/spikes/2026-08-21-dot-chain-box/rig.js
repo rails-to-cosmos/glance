@@ -55,20 +55,27 @@ var RIG = (function () {
   // `docs/query.md', the slice this stage needs: signs, alternatives, metas,
   // the per-axis fold of the additive-filters law, sort chains, column lists.
 
-  /** One token, read the way `scanQuery'/`resolve' read it. */
+  /** One token, read the way `scanQuery'/`resolve' read it.  QUOTING IS THE
+   *  GRAMMAR'S ONE ESCAPE, in the value position as much as at the token's
+   *  head: `substring:"-x"' searches a leading hyphen, and the quotes
+   *  themselves never reach the value. */
   function term(text) {
     var sign = "", s = text;
     if (s.charAt(0) === "-" || s.charAt(0) === "+") { sign = s.charAt(0); s = s.slice(1); }
     if (s.charAt(0) === '"') {
       var end = s.length > 1 && s.charAt(s.length - 1) === '"' ? s.length - 1 : s.length;
-      return { text: text, sign: sign, key: "substring", value: s.slice(1, end) };
+      return { text: text, sign: sign, key: "substring", value: s.slice(1, end), quoted: true };
     }
     var m = /^([a-z]+)[:=]([\s\S]*)$/.exec(s);
-    if (m && NARROW_KEYS.indexOf(m[1]) >= 0)
-      return { text: text, sign: sign, key: m[1], value: m[2] };
-    if (m && SHAPING_KEYS.indexOf(m[1]) >= 0)
-      return { text: text, sign: sign, key: m[1], value: m[2], shaping: true };
-    return { text: text, sign: sign, key: "substring", value: s };
+    var known = m && (NARROW_KEYS.indexOf(m[1]) >= 0 || SHAPING_KEYS.indexOf(m[1]) >= 0);
+    if (!known) return { text: text, sign: sign, key: "substring", value: s };
+    var v = m[2], q = false;
+    if (v.charAt(0) === '"') {
+      q = true;
+      v = v.slice(1, v.length > 1 && v.charAt(v.length - 1) === '"' ? -1 : undefined);
+    }
+    return { text: text, sign: sign, key: m[1], value: v, quoted: q,
+             shaping: SHAPING_KEYS.indexOf(m[1]) >= 0 };
   }
 
   /** Split on spaces, tabs, newlines and `&'; inside quotes they are literal. */
@@ -77,14 +84,11 @@ var RIG = (function () {
     while (i < n) {
       while (i < n && /[\s&]/.test(q.charAt(i))) i += 1;
       if (i >= n) break;
-      var start = i;
+      var start = i, inq = false;
       if (q.charAt(i) === "-" || q.charAt(i) === "+") i += 1;
-      if (q.charAt(i) === '"') {
+      while (i < n && (inq || !/[\s&]/.test(q.charAt(i)))) {
+        if (q.charAt(i) === '"') inq = !inq;
         i += 1;
-        while (i < n && q.charAt(i) !== '"') i += 1;
-        if (i < n) i += 1;
-      } else {
-        while (i < n && !/[\s&]/.test(q.charAt(i))) i += 1;
       }
       out.push(term(q.slice(start, i)));
     }
@@ -242,6 +246,529 @@ var RIG = (function () {
     return { rows: ordered(ROWS.filter(keeper(q)), chainFor(q)), cols: columnsFor(q) };
   }
 
+  // =========================================================== the normal form
+  // ONE CANONICAL S-EXPRESSION, TWO PARSERS.  The flat grammar's reader and F's
+  // typed reader each produce TERMS — sign, key, atoms — and both hand them to
+  // the same builder, which is the additive proposal's own denotation written
+  // out: axes grouped by key, each axis `(P∪N ≠ ∅ ∧ base) ∨ wide', with `and'
+  // and `or' flattened, sorted and deduped so associativity, commutativity and
+  // idempotence (its laws 1 and 4) are quotiented away.  Two spellings that
+  // MEAN the same thing print the same bytes; two that do not, do not.
+
+  var TRUE = ["true"], FALSE = ["false"];
+
+  /** Print a node.  Values are quoted; markers and key names stay bare —
+   *  `(select default)' is the fallback, `(select "default")' a column
+   *  somebody named that, and a two-element select can only be the first. */
+  function sx(n) {
+    if (typeof n === "string") return n;
+    var bareSelect = n[0] === "select" && n.length === 2 && n[1] === "default";
+    return "(" + n.map(function (k, i) {
+      if (typeof k !== "string") return sx(k);
+      var quote = (n[0] === "atom" && i === 2)
+        || (n[0] === "select" && i > 0 && !bareSelect);
+      return quote ? JSON.stringify(k) : k;
+    }).join(" ") + ")";
+  }
+
+  /** Every key's own fold, applied to one atom — org's brackets read through. */
+  function normAtom(key, v) {
+    var s = String(v);
+    if (/^\*[a-z]+\*$/.test(fold(s))) return fold(s);
+    if (key === "state" || key === "priority") return bare(s);
+    if (key === "ref") return s;                 // the one value not case-folded
+    return fold(s);
+  }
+
+  function atomNode(key, v) {
+    var a = normAtom(key, v);
+    return /^\*[a-z]+\*$/.test(a) ? ["meta", key, a.replace(/\*/g, "")] : ["atom", key, a];
+  }
+
+  /** `and'/`or', flattened, sorted, deduped, and collapsed at one child. */
+  function join(kind, kids) {
+    var flat = [];
+    kids.forEach(function (k) {
+      if (k[0] === kind) flat = flat.concat(k.slice(1));
+      else flat.push(k);
+    });
+    var seen = {}, keep = [];
+    flat.map(function (k) { return [sx(k), k]; })
+      .sort(function (a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; })
+      .forEach(function (p) { if (!seen[p[0]]) { seen[p[0]] = 1; keep.push(p[1]); } });
+    if (!keep.length) return kind === "and" ? TRUE : FALSE;
+    if (keep.length === 1) return keep[0];
+    return [kind].concat(keep);
+  }
+
+  function notNode(n) {
+    return sx(n) === sx(TRUE) ? FALSE : sx(n) === sx(FALSE) ? TRUE : ["not", n];
+  }
+
+  /** A term's own expression: the alternatives, OR'd.  No atoms is ⊤ — which is
+   *  why a lone `-' empties the table and nothing else does. */
+  function termNode(t) {
+    if (!t.atoms.length) return TRUE;
+    return join("or", t.atoms.map(function (a) { return atomNode(t.key, a); }));
+  }
+
+  var AXIS_OF = function (key) { return key === "substring" ? "text" : key; };
+
+  /** The narrowing half as axes, sorted by name. */
+  function irAxes(terms) {
+    var group = {};
+    terms.forEach(function (t) {
+      if (t.shaping || t.bad) return;
+      // A token naming no atom is dropped ahead of grouping — unsigned and
+      // added alike; the NEGATED sign keeps its inversion law.
+      if (t.sign !== "-" && !t.atoms.length) return;
+      var a = AXIS_OF(t.key), g = group[a] || (group[a] = { P: [], N: [], W: [] });
+      g[t.sign === "-" ? "N" : t.sign === "+" ? "W" : "P"].push(t);
+    });
+    return Object.keys(group).sort().map(function (a) {
+      var g = group[a];
+      var wide = g.W.map(termNode);
+      if (!g.P.length && !g.N.length) return ["axis", a, join("or", wide)];
+      var base = join("and", g.P.map(termNode)
+        .concat(g.N.map(function (t) { return notNode(termNode(t)); })));
+      return ["axis", a, join("or", [base].concat(wide))];
+    });
+  }
+
+  /** The order, as written: `default' until a sort token appears, then whole. */
+  function chainSpecOf(segs) {
+    if (!segs.length) return { kind: "default" };
+    var out = [], seen = {}, none = false;
+    segs.forEach(function (s) {
+      if (s.none) { none = true; return; }
+      var col = fold(s.col) === "tags" ? "tag" : fold(s.col);
+      if (SORTABLE.indexOf(col) < 0 || seen[col]) return;
+      seen[col] = 1;
+      out.push([col, s.dir === "desc" ? "desc" : "asc"]);
+    });
+    if (none && !out.length) return { kind: "none" };
+    return out.length ? { kind: "chain", chain: out } : { kind: "none" };
+  }
+
+  function irOrder(spec) {
+    if (spec.kind !== "chain") return ["order", spec.kind];
+    return ["order"].concat(spec.chain.map(function (c) { return ["by", c[0], c[1]]; }));
+  }
+
+  /** The shape: `default' until a columns token names something. */
+  function colsSpecOf(names) {
+    var kept = names.filter(function (n) { return String(n).trim(); });
+    if (!kept.length) return { kind: "default" };
+    var out = [], seen = {};
+    kept.forEach(function (n) {
+      var c = COLS.filter(function (c2) {
+        return fold(c2.key) === fold(n.trim()) || fold(c2.head) === fold(n.trim());
+      })[0];
+      var name = c ? c.head : n.trim();
+      if (seen[fold(name)]) return;
+      seen[fold(name)] = 1;
+      out.push(name);
+    });
+    if (!seen.title) out.unshift("Title");
+    return { kind: "list", names: out };
+  }
+
+  function irSelect(spec) {
+    return spec.kind === "default" ? ["select", "default"] : ["select"].concat(spec.names);
+  }
+
+  function irOf(terms, order, cols) {
+    return sx(["query", ["filter"].concat(irAxes(terms)), irOrder(order), irSelect(cols)]);
+  }
+
+  /** THE FLAT PARSER'S PATH: scan, resolve, group. */
+  function irFlat(q) {
+    var toks = scan(q);
+    var terms = toks.filter(function (t) { return !t.shaping; })
+      .map(function (t) {
+        return { sign: t.sign, key: t.key, atoms: alts(t) };
+      });
+    var segs = [];
+    toks.filter(function (t) { return t.key === "sort" && !t.sign; }).forEach(function (t) {
+      String(t.value).split("->").forEach(function (s) {
+        if (!s) return;
+        if (fold(s) === "*none*") { segs.push({ none: true }); return; }
+        var b = s.split(":");
+        segs.push({ col: b[0], dir: fold(b[1] || "asc") });
+      });
+    });
+    var names = [];
+    toks.filter(function (t) { return t.key === "columns" && !t.sign; }).forEach(function (t) {
+      String(t.value).split(",").forEach(function (n) { if (n.trim()) names.push(n.trim()); });
+    });
+    return irOf(terms, chainSpecOf(segs), colsSpecOf(names));
+  }
+
+  // ============================================== F's typed surface, in Haskell
+  // Record syntax for the fields, `/=' for the negation, Haskell lists for the
+  // alternatives, double-quoted literals, and ONE sum type for the metas — the
+  // starred family of `docs/query.md' written as constructors.
+
+  /** The whole constructor roster.  `where' is the fields each is legal on. */
+  var CTORS = {
+    Active: { meta: "*active*", on: ["state"] },
+    Inactive: { meta: "*inactive*", on: ["state"] },
+    Empty: { meta: "*empty*", on: ["state", "priority", "title", "scheduled",
+                                   "deadline", "tag", "planned"] },
+    Archive: { meta: "*archive*", on: ["tag"] },
+  };
+  var METACTOR = { "*active*": "Active", "*inactive*": "Inactive",
+                   "*empty*": "Empty", "*archive*": "Archive" };
+  var FIELDS = NARROW_KEYS.slice();
+
+  /** A tiny lexer: identifiers, constructors, string literals, punctuation. */
+  function lexDsl(s) {
+    var out = [], i = 0;
+    while (i < s.length) {
+      var c = s.charAt(i);
+      if (/\s/.test(c)) { i += 1; continue; }
+      if (c === '"') {
+        var j = i + 1;
+        while (j < s.length && s.charAt(j) !== '"') j += 1;
+        out.push({ t: "str", v: s.slice(i + 1, j), at: i, end: Math.min(j + 1, s.length) });
+        i = j + 1;
+        continue;
+      }
+      if (s.slice(i, i + 2) === "/=") { out.push({ t: "op", v: "/=", at: i, end: i + 2 }); i += 2; continue; }
+      if ("=,()[]".indexOf(c) >= 0) {
+        out.push({ t: c === "=" ? "op" : "punc", v: c, at: i, end: i + 1 });
+        i += 1;
+        continue;
+      }
+      var m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(s.slice(i));
+      if (m) {
+        out.push({ t: /^[A-Z]/.test(m[0]) ? "ctor" : "id", v: m[0], at: i, end: i + m[0].length });
+        i += m[0].length;
+        continue;
+      }
+      out.push({ t: "junk", v: c, at: i, end: i + 1 });
+      i += 1;
+    }
+    return out;
+  }
+
+  /**
+   * F's filter arguments, parsed to TERMS — never through the flat string, so
+   * the two readers meet at the IR and nowhere earlier.
+   * @returns {{terms: Array, bad: Array}}
+   */
+  function parseDslFilter(src) {
+    var lx = lexDsl(src), i = 0, terms = [], bad = [];
+    var peek = function () { return lx[i]; };
+    var eat = function (v) {
+      if (lx[i] && lx[i].v === v) { i += 1; return true; }
+      return false;
+    };
+    /** A value: a literal, a list, a constructor, or `All'/`Any' over a list. */
+    // A value answers with its ATOMS (the alternatives it names, flattened) and
+    // its PARTS (the elements as written) — `All' spreads over the parts, so a
+    // nested list inside it stays ONE token's alternation.
+    function value() {
+      var t = peek();
+      if (!t) return null;
+      if (t.t === "str") { i += 1; return { atoms: [t.v], parts: [[t.v]] }; }
+      if (t.v === "[") {
+        i += 1;
+        var xs = [], ps = [];
+        while (peek() && peek().v !== "]") {
+          var v = value();
+          if (!v) break;
+          xs = xs.concat(v.atoms);
+          ps.push(v.atoms);
+          if (!eat(",")) break;
+        }
+        eat("]");
+        return { atoms: xs, parts: ps };
+      }
+      if (t.t === "ctor" && (t.v === "All" || t.v === "Any")) {
+        i += 1;
+        var inner = value();
+        if (!inner) return null;
+        // ALL is the intersection — one token per element; ANY is the list.
+        return { atoms: inner.atoms, parts: inner.parts, spread: t.v === "All" };
+      }
+      if (t.t === "ctor") {
+        i += 1;
+        var c = CTORS[t.v];
+        if (!c) { bad.push(t.v + " is not a constructor"); return { atoms: [], parts: [] }; }
+        return { atoms: [c.meta], parts: [[c.meta]], ctor: t.v };
+      }
+      return null;
+    }
+    /** One item: a field constraint, a `not (…)' wrapper, `raw', or free text. */
+    function item(neg) {
+      var t = peek();
+      if (!t) return [];
+      if (t.t === "id" && t.v === "not") {
+        i += 1;
+        var open = eat("(");
+        var inner = item(!neg);
+        if (open) eat(")");
+        if (inner.length > 1) {
+          bad.push("not (…) over an intersection is De Morgan's, not a token's");
+          return inner.map(function (x) { x.bad = true; return x; });
+        }
+        return inner;
+      }
+      if (t.t === "id" && t.v === "raw") {
+        i += 1;
+        var par = eat("(");
+        var s = peek();
+        if (!s || s.t !== "str") { bad.push("raw wants a string"); return []; }
+        i += 1;
+        if (par) eat(")");
+        // THE ESCAPE HATCH IS THE FLAT GRAMMAR ITSELF, read by its own reader.
+        return scan(s.v).map(function (tok) {
+          return { sign: tok.sign, key: tok.key, atoms: alts(tok),
+                   shaping: tok.shaping, raw: s.v };
+        });
+      }
+      if (t.t === "str") {                       // a bare literal is free text
+        i += 1;
+        return [{ sign: neg ? "-" : "", key: "substring", atoms: [t.v] }];
+      }
+      if (t.t !== "id") { i += 1; return []; }
+      var key = t.v;
+      i += 1;
+      var op = peek();
+      if (!op || op.t !== "op") { bad.push(key + " has no = or /="); return []; }
+      i += 1;
+      var sign = (op.v === "/=") !== !!neg ? "-" : "";
+      var v2 = value();
+      // A BARE WORD IS NOT A VALUE HERE: in Haskell it would be a variable, and
+      // a half-written kwarg narrows nothing rather than inverting into a lone
+      // `-' — which is what an empty NEGATED term means in the flat grammar.
+      if (!v2) {
+        bad.push(key + " has no value — a literal is quoted, a constructor is capitalised");
+        return [{ sign: sign, key: key, atoms: [], bad: true }];
+      }
+      v2.atoms = v2.atoms.filter(function (a) { return a !== ""; });
+      v2.parts = (v2.parts || []).map(function (p) {
+        return p.filter(function (a) { return a !== ""; });
+      }).filter(function (p) { return p.length; });
+      if (FIELDS.indexOf(key) < 0) bad.push(key + " is not a field");
+      if (v2.ctor && CTORS[v2.ctor].on.indexOf(key) < 0)
+        bad.push(v2.ctor + " is not a value of " + key);
+      if (v2.spread) {
+        // `All [a, b]' is one token per ELEMENT: the axis INTERSECTS, which is
+        // what a repeated key does in the flat string — and an element that is
+        // itself a list keeps its alternation inside that one token.
+        return v2.parts.map(function (p) {
+          return { sign: sign, key: key, atoms: p };
+        });
+      }
+      return [{ sign: sign, key: key, atoms: v2.atoms }];
+    }
+    while (i < lx.length) {
+      var got = item(false);
+      got.forEach(function (x) { terms.push(x); });
+      if (!eat(",")) {
+        if (i < lx.length && !got.length) i += 1;   // step over what made no sense
+      }
+    }
+    return { terms: terms, bad: bad };
+  }
+
+  /** F's `.sort(deadline, Desc title)'. */
+  function parseDslSort(src) {
+    var lx = lexDsl(src), segs = [];
+    for (var i = 0; i < lx.length; i += 1) {
+      var t = lx[i];
+      if (t.v === ",") continue;
+      if (t.t === "ctor" && t.v === "None") { segs.push({ none: true }); continue; }
+      if (t.t === "ctor" && (t.v === "Desc" || t.v === "Asc")) {
+        var next = lx[i + 1];
+        if (next && (next.t === "id" || next.t === "str")) {
+          segs.push({ col: next.v, dir: t.v === "Desc" ? "desc" : "asc" });
+          i += 1;
+        }
+        continue;
+      }
+      if (t.t === "id" || t.t === "str") segs.push({ col: t.v, dir: "asc" });
+    }
+    return segs;
+  }
+
+  /** F's `.columns("State", "Deadline")'. */
+  function parseDslCols(src) {
+    return lexDsl(src).filter(function (t) { return t.t === "str" || t.t === "id"; })
+      .map(function (t) { return t.v; });
+  }
+
+  /** A whole chain of `.fn(…)' calls, parens balanced. */
+  function parseChain(src) {
+    var out = [], i = 0, s = String(src);
+    while (i < s.length) {
+      var dot = s.indexOf(".", i);
+      if (dot < 0) break;
+      var m = /^\.([a-z]+)\(/.exec(s.slice(dot));
+      if (!m) { i = dot + 1; continue; }
+      var j = dot + m[0].length, depth = 1, inq = false;
+      while (j < s.length && depth > 0) {
+        var c = s.charAt(j);
+        if (c === '"') inq = !inq;
+        else if (!inq && (c === "(" || c === "[")) depth += 1;
+        else if (!inq && (c === ")" || c === "]")) depth -= 1;
+        if (depth > 0) j += 1;
+      }
+      out.push({ fn: m[1], args: s.slice(dot + m[0].length, j) });
+      i = j + 1;
+    }
+    return out;
+  }
+
+  /** THE TYPED PARSER'S PATH: the same IR, reached without the flat string. */
+  function irDsl(src) {
+    var terms = [], segs = [], names = [];
+    parseChain(src).forEach(function (st) {
+      if (st.fn === "filter") terms = terms.concat(parseDslFilter(st.args).terms);
+      else if (st.fn === "sort") segs = segs.concat(parseDslSort(st.args));
+      else if (st.fn === "columns") names = names.concat(parseDslCols(st.args));
+    });
+    // A `raw' fragment may carry shaping tokens; they belong to the same halves.
+    var shaping = terms.filter(function (t) { return t.shaping; });
+    shaping.forEach(function (t) {
+      if (t.key === "sort") {
+        String(t.atoms.join("|")).split("->").forEach(function (s) {
+          if (!s) return;
+          if (fold(s) === "*none*") { segs.push({ none: true }); return; }
+          var b = s.split(":");
+          segs.push({ col: b[0], dir: fold(b[1] || "asc") });
+        });
+      } else if (t.key === "columns") {
+        t.atoms.join("|").split(",").forEach(function (n) { if (n.trim()) names.push(n.trim()); });
+      }
+    });
+    return irOf(terms, chainSpecOf(segs), colsSpecOf(names));
+  }
+
+  // ------------------------------------------- F: the typed surface, composed
+  /** Does this atom need the grammar's one escape? */
+  var needsQuote = function (a) {
+    return a === "" || /[\s&:|"]/.test(a) || /^[-+]/.test(a);
+  };
+
+  /** One term as a flat token; "" where it is merely half-written and narrows
+   *  nothing, null where the flat string CANNOT say what it says. */
+  function flatOfTerm(t) {
+    if (t.raw !== undefined) return null;         // raw items compose verbatim
+    if (t.bad) return "";                         // half-written narrows nothing
+    // AN EMPTY NEGATION KEEPS ITS KEY: `-tag:' inverts the match-everything
+    // term the way the flat grammar says, where a bare `-' would lose the axis.
+    if (!t.atoms.length) return t.sign === "-" ? "-" + t.key + ":" : "";
+    var quoted = t.atoms.filter(needsQuote);
+    // Quoting protects a WHOLE value; an alternation of quoted alternatives is
+    // a spelling the flat grammar has no room for.
+    if (quoted.length && t.atoms.length > 1) return null;
+    var v = quoted.length ? '"' + t.atoms[0] + '"' : t.atoms.join("|");
+    return t.sign + t.key + ":" + v;
+  }
+
+  /** F's `.filter(…)' as the flat string it stands for.  A `raw' item's own
+   *  text goes through whole and once; anything the flat string cannot say is
+   *  LOST rather than mis-said, and the count is the reader's to see. */
+  function dslFilterFlat(src) {
+    var got = parseDslFilter(src);
+    var out = [], raws = [], lost = 0;
+    got.terms.forEach(function (t) {
+      if (t.raw !== undefined) {
+        if (raws.indexOf(t.raw) < 0) raws.push(t.raw);
+        return;
+      }
+      var f = flatOfTerm(t);
+      if (f === null) { lost += 1; return; }
+      if (f) out.push(f);
+    });
+    return { flat: out.concat(raws).join(" "), lost: lost, bad: got.bad };
+  }
+
+  var CTOR_DIR = { asc: "", desc: "Desc " };
+
+  function dslSortFlat(src) {
+    var spec = chainSpecOf(parseDslSort(src));
+    if (spec.kind === "default") return "";
+    if (spec.kind === "none") return "sort:*none*";
+    return "sort:" + spec.chain.map(function (c) {
+      return c[0] + (c[1] === "desc" ? ":desc" : "");
+    }).join("->");
+  }
+
+  /** WHAT WAS WRITTEN, not what it resolves to: `Title' is always present by
+   *  the grammar's own rule, so spelling it into the token would change the
+   *  string the URL carries without changing what it means. */
+  function dslColsFlat(src) {
+    var names = parseDslCols(src).filter(function (n) { return String(n).trim(); });
+    return names.length ? "columns:" + names.map(function (n) { return n.trim(); }).join(",") : "";
+  }
+
+  // --------------------------------- F: the flat string, shown as the surface
+  /** One atom as F spells it: a constructor for a meta, a literal otherwise. */
+  var dslAtom = function (a) {
+    return METACTOR[fold(a)] || JSON.stringify(a);
+  };
+
+  var dslValue = function (atoms) {
+    if (atoms.length === 1) return dslAtom(atoms[0]);
+    return "[" + atoms.map(dslAtom).join(", ") + "]";
+  };
+
+  /** THE SURFACE IS NOT TOTAL over the grammar, and this is where it says so:
+   *  an axis carrying both a base and a widening is `raw "…"', the flat string
+   *  quoted into the typed surface rather than mis-said in it. */
+  function dslOfFilter(tokens) {
+    var group = {}, order = [];
+    tokens.forEach(function (t) {
+      var a = AXIS_OF(t.key);
+      if (!group[a]) { group[a] = { P: [], N: [], W: [], all: [] }; order.push(a); }
+      group[a][t.sign === "-" ? "N" : t.sign === "+" ? "W" : "P"].push(t);
+      group[a].all.push(t);
+    });
+    var items = [];
+    order.forEach(function (a) {
+      var g = group[a];
+      if (g.W.length && (g.P.length || g.N.length)) {
+        items.push("raw " + JSON.stringify(g.all.map(function (t) { return t.text; }).join(" ")));
+        return;
+      }
+      var field = g.all[0].key;
+      if (g.W.length) {                       // the axis IS the disjunction
+        var wide = [];
+        g.W.forEach(function (t) { wide = wide.concat(alts(t)); });
+        items.push(field + " = " + dslValue(wide));
+        return;
+      }
+      if (g.P.length === 1) items.push(field + " = " + dslValue(alts(g.P[0])));
+      else if (g.P.length > 1) {
+        // Repeated plain tokens on one axis INTERSECT — `All' names that, ONE
+        // ELEMENT PER TOKEN, so a token's own alternation stays a nested list.
+        items.push(field + " = All ["
+          + g.P.map(function (t) { return dslValue(alts(t)); }).join(", ") + "]");
+      }
+      g.N.forEach(function (t) {
+        items.push(t.key + " /= " + dslValue(alts(t)));
+      });
+    });
+    return items.join(", ");
+  }
+
+  function dslOfSort(value) {
+    return String(value).split("->").filter(Boolean).map(function (s) {
+      if (fold(s) === "*none*") return "None";
+      var b = s.split(":");
+      return (fold(b[1] || "asc") === "desc" ? "Desc " : "") + fold(b[0]);
+    }).join(", ");
+  }
+
+  function dslOfCols(value) {
+    return String(value).split(",").filter(function (n) { return n.trim(); })
+      .map(function (n) { return JSON.stringify(n.trim()); }).join(", ");
+  }
+
   // --------------------------------------------------------------- the state
   var S = {
     chips: [],              // the applied query, token by token — the strip
@@ -376,6 +903,10 @@ var RIG = (function () {
   function stageString(fn, args) {
     var a = String(args).trim();
     if (!fn || !a) return "";
+    if (S.look.dsl) {
+      return fn === "filter" ? dslFilterFlat(a).flat
+           : fn === "sort" ? dslSortFlat(a) : dslColsFlat(a);
+    }
     if (fn === "filter") return filterTokens(a).join(" ");
     if (fn === "sort") {
       var s = sortSegs(a);
@@ -471,7 +1002,120 @@ var RIG = (function () {
     filter: "TAB completes · , or space separates · ) closes the stage · . chains",
     sort: "TAB completes · , or -> chains a column · ) closes the stage · . chains",
     columns: "TAB completes · , adds a column · ) closes the stage · . chains",
+    "dsl-field": "TAB completes · - negates with /= · , separates · ) closes",
+    "dsl-value": "TAB completes · + makes it a list · - negates with /= · ) closes",
+    "dsl-sort": "TAB completes · Desc reverses · , chains · ) closes",
+    "dsl-cols": "TAB completes · , adds a column · ) closes",
   };
+
+  // ---------------------------------------------- F's offers, in the typed idiom
+  /**
+   * What the caret is inside, read off the text before it: the enclosing
+   * bracket, the field whose value is being written, and the fragment.
+   */
+  function dslWhere(args, at) {
+    var s = String(args).slice(0, at);
+    var lx = lexDsl(s), stack = [], field = null, wants = "field", inList = false;
+    var last = null;
+    lx.forEach(function (t) {
+      if (t.v === "(" || t.v === "[") { stack.push(t.v); if (t.v === "[") inList = true; }
+      else if (t.v === ")" || t.v === "]") { stack.pop(); if (t.v === "]") inList = false; }
+      else if (t.t === "op") { wants = "value"; }
+      else if (t.v === ",") { if (!inList) { wants = "field"; field = null; } }
+      else if (t.t === "id" && wants === "field") field = t.v;
+      last = t;
+    });
+    // THE FRAGMENT IS THE LAST TOKEN, AND ONLY IF IT IS STILL BEING WRITTEN: a
+    // name, or a string whose closing quote has not been typed.  Read with the
+    // lexer rather than a tail regex, which cannot tell an unclosed quote from
+    // the closing one of the value before it.
+    var end = lx[lx.length - 1], frag = "";
+    if (end && end.end === s.length) {
+      var raw = s.slice(end.at, end.end);
+      if (end.t === "id" || end.t === "ctor") frag = raw;
+      else if (end.t === "str" && raw.length === end.v.length + 1) frag = raw;
+    }
+    return { wants: wants, field: field, list: inList, frag: frag,
+             at: at - frag.length, deep: stack.length };
+  }
+
+  /**
+   * The values a field takes, as F spells them.  A CONSTRUCTOR IS NO STRING:
+   * taking one out of the opened slot swallows the quotes with it, where taking
+   * a literal keeps them — which is `eats', the one closing quote sitting on
+   * the far side of the caret.
+   */
+  function dslValueOffers(field, frag, closes) {
+    var bare = frag.replace(/^"/, "");
+    var out = Object.keys(CTORS).filter(function (c) {
+      return CTORS[c].on.indexOf(field) >= 0 && fold(c).indexOf(fold(bare)) === 0;
+    }).map(function (c) {
+      return { text: c, insert: c, full: true, dim: true, eats: closes,
+               aside: "meta · " + CTORS[c].meta,
+               n: counted(function (r) { return atom(field, CTORS[c].meta, r); }) };
+    });
+    valueOffers("", field === "substring" ? "title" : field, bare)
+      .filter(function (o) { return !/^\*/.test(o.text.split(":").pop()); })
+      .forEach(function (o) {
+        var v = o.text.slice(o.text.indexOf(":") + 1);
+        out.push({ text: JSON.stringify(v), insert: JSON.stringify(v), full: true,
+                   n: o.n, aside: "", eats: closes });
+      });
+    out.push({ text: 'All [ "…" ]', insert: 'All [""]', back: 2, eats: closes,
+               aside: "every one of them — the axis intersects" });
+    return out;
+  }
+
+  /** F's `.filter(…)': fields, then that field's own values. */
+  function dslFilterOffers(args, at) {
+    var w = dslWhere(args, at);
+    // A CLOSING QUOTE ON THE FAR SIDE OF THE CARET is the opened slot's, and
+    // whatever is taken replaces the slot whole.
+    var closes = String(args).charAt(at) === '"' && /^"/.test(w.frag) ? 1 : 0;
+    if (w.wants === "value" && w.field)
+      return { items: dslValueOffers(w.field, w.frag, closes), stage: "dsl-value", where: w };
+    // THE KEY AND ITS EQUALS COME WITH AN OPENED SLOT: `state = "|"', so the
+    // reader types the value and never the punctuation around it.
+    var out = FIELDS.filter(function (k) { return k.indexOf(fold(w.frag)) === 0; })
+      .map(function (k) {
+        return { text: k + ' = "…"', insert: k + ' = ""', back: 1,
+                 aside: ASIDE[k] || "" };
+      });
+    if ("not".indexOf(fold(w.frag)) === 0)
+      out.push({ text: "not ( … )", insert: "not ()", back: 1,
+                 aside: "negate what is inside" });
+    if ("raw".indexOf(fold(w.frag)) === 0)
+      out.push({ text: 'raw " … "', insert: 'raw ""', back: 1, dim: true,
+                 aside: "the flat string, verbatim" });
+    return { items: out, stage: "dsl-field", where: w };
+  }
+
+  function dslSortOffers(args, at) {
+    var w = dslWhere(args, at);
+    var out = SORTABLE.filter(function (c) { return c.indexOf(fold(w.frag)) === 0; })
+      .map(function (c) { return { text: c, insert: c, full: true, aside: "column" }; });
+    ["Desc", "None"].forEach(function (c) {
+      if (fold(c).indexOf(fold(w.frag)) === 0)
+        out.push({ text: c === "Desc" ? "Desc …" : "None", insert: c === "Desc" ? "Desc " : "None",
+                   stay: c === "Desc", full: c === "None", dim: true,
+                   aside: c === "Desc" ? "reversed, empties last" : "document order" });
+    });
+    return { items: out, stage: "dsl-sort", where: w };
+  }
+
+  function dslColsOffers(args, at) {
+    var w = dslWhere(args, at);
+    var bare = w.frag.replace(/^"/, "");
+    var named = lexDsl(String(args)).filter(function (t) { return t.t === "str"; })
+      .map(function (t) { return fold(t.v); });
+    var out = COLS.filter(function (c) {
+      return fold(c.head).indexOf(fold(bare)) === 0 && named.indexOf(fold(c.head)) < 0;
+    }).map(function (c) {
+      return { text: JSON.stringify(c.head), insert: JSON.stringify(c.head),
+               full: true, aside: "builtin" };
+    });
+    return { items: out, stage: "dsl-cols", where: w };
+  }
 
   // ------------------------------------------------------------- the menu
   var M = { open: false, items: [], at: 0, stage: "" };
@@ -637,9 +1281,122 @@ var RIG = (function () {
   function cxFrag() {
     var st = live();
     if (!st) return "";
-    var a = st.args;
+    var a = st.args.slice(0, caretAt(st));
     if (st.fn === "filter") return a.slice(fragAt(a, FILTER_SEP));
     return a;
+  }
+
+  // ------------------------------------------- F: the two signs, as helpers
+  // THE SIGN IS A KEY, NOT A CHARACTER.  In the typed surface `-' and `+' are
+  // not spellings at all — they are the gestures that reach for the two
+  // spellings the surface DOES have: `/=' and a list.
+
+  /** The argument list, split at its top-level commas. */
+  function itemSpans(args) {
+    var out = [], depth = 0, inq = false, start = 0;
+    for (var i = 0; i < args.length; i += 1) {
+      var c = args.charAt(i);
+      if (c === '"') inq = !inq;
+      else if (inq) continue;
+      else if (c === "(" || c === "[") depth += 1;
+      else if (c === ")" || c === "]") depth -= 1;
+      else if (c === "," && depth === 0) { out.push({ start: start, end: i }); start = i + 1; }
+    }
+    out.push({ start: start, end: args.length });
+    return out;
+  }
+
+  var spanAt = function (args, at) {
+    return itemSpans(args).filter(function (s) { return at >= s.start && at <= s.end; })[0]
+      || { start: 0, end: args.length };
+  };
+
+  /** The item's own `=' or `/=' — never one inside a string or a bracket. */
+  function opTokenOf(text) {
+    var lx = lexDsl(text), depth = 0;
+    for (var i = 0; i < lx.length; i += 1) {
+      var t = lx[i];
+      if (t.v === "(" || t.v === "[") depth += 1;
+      else if (t.v === ")" || t.v === "]") depth -= 1;
+      else if (t.t === "op" && depth === 0) return t;
+    }
+    return null;
+  }
+
+  /** `-': the kwarg under the caret flips between `=' and `/='; on empty
+   *  ground it spawns the wrapper the operator cannot carry, `not (|)'. */
+  function dslNegate(st) {
+    var at = caretAt(st), sp = spanAt(st.args, at);
+    var text = st.args.slice(sp.start, sp.end);
+    var op = opTokenOf(text);
+    var put = function (s, caret) {
+      st.args = st.args.slice(0, sp.start) + s + st.args.slice(sp.end);
+      st.at = sp.start + caret;
+    };
+    if (op && op.v === "/=") {
+      put(text.slice(0, op.at) + "=" + text.slice(op.end), Math.max(0, at - sp.start - 1));
+      return;
+    }
+    if (op) {
+      put(text.slice(0, op.at) + "/=" + text.slice(op.end), at - sp.start + 1);
+      return;
+    }
+    if (!text.trim()) {                       // nothing to flip: the wrapper
+      put(text + "not ()", text.length + 5);
+      return;
+    }
+    put("not (" + text.trim() + ")", 5 + text.trim().length + 1);
+  }
+
+  /**
+   * TYPING THE EQUALS OPENS THE SLOT, the way completing the field does: a
+   * kwarg whose value is still nothing gets `= "|"' and the reader types the
+   * string straight into it.  Nothing happens where a value already stands, or
+   * inside a string, where an `=' is just a character.
+   */
+  function dslSlot(st) {
+    var at = caretAt(st), s = st.args.slice(0, at), after = st.args.slice(at);
+    var lx = lexDsl(s), end = lx[lx.length - 1];
+    // The caret has to be sitting on an operator it just finished, with nothing
+    // but a closer ahead of it — at any depth, `not (…)' included.
+    if (!end || end.t !== "op" || end.end !== s.length) return;
+    if (after && !/^\s*[,)\]]/.test(after)) return;
+    st.args = s + ' ""' + after;
+    st.at = at + 2;                                // between the quotes
+  }
+
+  /** Is the caret inside an unclosed `(' of the arguments' own? */
+  function inParen(args, at) {
+    var depth = 0, inq = false;
+    for (var i = 0; i < at; i += 1) {
+      var c = args.charAt(i);
+      if (c === '"') inq = !inq;
+      else if (inq) continue;
+      else if (c === "(") depth += 1;
+      else if (c === ")") depth -= 1;
+    }
+    return depth > 0;
+  }
+
+  /** `+': the value under the caret becomes a Haskell list with a fresh slot —
+   *  which composes to the flat alternation, the widened axis itself. */
+  function dslWiden(st) {
+    var at = caretAt(st), sp = spanAt(st.args, at);
+    var text = st.args.slice(sp.start, sp.end);
+    var op = opTokenOf(text);
+    if (!op) return;                          // no kwarg here: nothing to widen
+    var head = text.slice(0, op.end), val = text.slice(op.end);
+    var lead = /^\s*/.exec(val)[0], body = val.trim();
+    var put = function (s, caret) {
+      st.args = st.args.slice(0, sp.start) + head + lead + s + st.args.slice(sp.end);
+      st.at = sp.start + head.length + lead.length + caret;
+    };
+    if (/^\[[\s\S]*]$/.test(body)) {
+      var inner = body.slice(1, -1).replace(/\s*$/, "");
+      put("[" + inner + ", ]", inner.length + 3);
+      return;
+    }
+    put("[" + body + ", ]", body.length + 3);
   }
 
   function cxOffer() {
@@ -650,6 +1407,16 @@ var RIG = (function () {
       return;
     }
     if (CX.where !== "args") { closeMenu(); return; }
+    if (S.look.dsl) {
+      // F asks in its own idiom, and asks the TEXT rather than a fragment: the
+      // typed surface is nested, so where the caret is is a parse question.
+      var d = st.fn === "filter" ? dslFilterOffers(st.args, caretAt(st))
+            : st.fn === "sort" ? dslSortOffers(st.args, caretAt(st))
+            : dslColsOffers(st.args, caretAt(st));
+      st.span = d.where;
+      showMenu(d.items, d.stage);
+      return;
+    }
     var frag = cxFrag();
     if (st.fn === "filter") {
       var o = filterOffers(frag, false);
@@ -673,17 +1440,26 @@ var RIG = (function () {
     // DRY AND FINAL INSIDE THE PARENS: what is taken lands exactly as it is
     // spelled — no trailing space — the offers close, and the next one waits
     // for the next keystroke.  A separator or a `.' is what asks again.
-    if (st.fn === "filter") {
-      var a = st.args;
-      st.args = a.slice(0, fragAt(a, FILTER_SEP)) + it.insert;
+    var at = caretAt(st);
+    if (S.look.dsl) {
+      var from = st.span ? st.span.at : at;
+      // `eats' takes the opened slot's closing quote with it; `back' walks the
+      // caret into what was just written — inside the quotes, inside the parens.
+      st.args = st.args.slice(0, from) + it.insert + st.args.slice(at + (it.eats || 0));
+      st.at = from + it.insert.length - (it.back || 0);
+    } else if (st.fn === "filter") {
+      var a = st.args, from2 = fragAt(a.slice(0, at), FILTER_SEP);
+      st.args = a.slice(0, from2) + it.insert + a.slice(at);
+      st.at = from2 + it.insert.length;
     } else {
       st.args = it.insert;
+      st.at = st.args.length;
     }
     closeMenu();
   }
 
   function newStage() {
-    CX.stages.push({ fn: null, args: "", done: false });
+    CX.stages.push({ fn: null, args: "", done: false, at: 0 });
     CX.where = "fn";
     CX.buf = "";
     cxOffer();
@@ -716,7 +1492,13 @@ var RIG = (function () {
       return;
     }
     if (CX.where === "args") {
-      if (st.args) { st.args = st.args.slice(0, -1); cxOffer(); paint(); return; }
+      var at = caretAt(st);
+      if (st.args && at > 0) {
+        st.args = st.args.slice(0, at - 1) + st.args.slice(at);
+        st.at = at - 1;
+        cxOffer(); paint(); return;
+      }
+      if (st.args) return;                   // at the head, with text ahead of it
       CX.where = "fn";                       // the parens go, the call comes back
       CX.buf = st.fn || "";
       st.fn = null;
@@ -732,10 +1514,38 @@ var RIG = (function () {
     paint();
   }
 
+  /** Where the caret sits inside a stage's arguments; the end by default. */
+  function caretAt(st) {
+    if (!st) return 0;
+    if (st.at === undefined || st.at === null || st.at > st.args.length) st.at = st.args.length;
+    return st.at;
+  }
+
   function cxType(ch) {
     var st = live();
     if (CX.where === "fn") { CX.buf += ch; cxOffer(); paint(); return; }
-    if (CX.where === "args") { st.args += ch; cxOffer(); paint(); return; }
+    if (CX.where === "args") {
+      var at = caretAt(st);
+      // THE SLOT ALREADY SPENT THE SPACE.  A reader typing `state = TODO"'
+      // types the space they always would; the one the slot inserted is the
+      // one that stands, so the first keystroke inside an EMPTY slot is not a
+      // second one.  (A value that genuinely opens with a space wants `raw'.)
+      if (S.look.dsl && ch === " " && st.fn === "filter"
+          && st.args.charAt(at - 1) === '"' && st.args.charAt(at) === '"') return;
+      st.args = st.args.slice(0, at) + ch + st.args.slice(at);
+      st.at = at + ch.length;
+      if (S.look.dsl && ch === "=" && st.fn === "filter") dslSlot(st);
+      cxOffer(); paint();
+    }
+  }
+
+  /** Walk the caret through the arguments; the offers follow it. */
+  function cxMove(d) {
+    var st = live();
+    if (!st || CX.where !== "args") return;
+    st.at = Math.max(0, Math.min(caretAt(st) + d, st.args.length));
+    cxOffer();
+    paint();
   }
 
   /** The chain's own flat string — the ONE truth underneath, recomposed. */
@@ -836,8 +1646,20 @@ var RIG = (function () {
       return;
     }
     if (k !== "Escape" && k !== "Enter" && k !== "Tab" && k !== "Backspace"
-        && k !== "Delete" && k.length !== 1) return;   // a lone modifier is nobody's
+        && k !== "Delete" && k !== "ArrowLeft" && k !== "ArrowRight"
+        && k.length !== 1) return;                    // a lone modifier is nobody's
     e.preventDefault(); e.stopPropagation();
+    if (k === "ArrowLeft") { cxMove(-1); return; }
+    if (k === "ArrowRight") { cxMove(1); return; }
+    // THE TWO SIGNS ARE HELPERS IN THE TYPED SURFACE, where neither is a
+    // spelling: `-' reaches for `/=' and `+' for a list.
+    if (S.look.dsl && CX.where === "args" && live() && live().fn === "filter"
+        && (k === "-" || k === "+")) {
+      if (k === "-") dslNegate(live()); else dslWiden(live());
+      cxOffer();
+      paint();
+      return;
+    }
     if (k === "Delete") {
       // THE STAGE'S OWN ERASER, and only at the strip level: inside the parens
       // it is ordinary text editing, and there is nothing ahead of the caret.
@@ -860,7 +1682,27 @@ var RIG = (function () {
     if (k === "Enter") { cxCommit(); return; }
     if (k === "Tab") { cxOffer(); paint(); return; }
     if (k === "Backspace") { cxBack(); return; }
-    if (k === ")") { closeStage(); return; }
+    if (k === ")") {
+      // AN UNCLOSED `(' OF THE ARGUMENTS' OWN takes the paren first — `not (…)'
+      // has to be typable — and the STAGE closes only when nothing is open.
+      var st2 = live();
+      if (S.look.dsl && CX.where === "args" && st2 && inParen(st2.args, caretAt(st2))) {
+        if (st2.args.charAt(caretAt(st2)) === ")") { st2.at = caretAt(st2) + 1; paint(); }
+        else cxType(")");
+        return;
+      }
+      closeStage();
+      return;
+    }
+    // TYPING PAST THE CLOSING QUOTE MOVES ON rather than doubling it: the slot
+    // was opened for the reader, so its far edge is theirs to step over.
+    if (S.look.dsl && k === '"' && CX.where === "args" && live()
+        && live().args.charAt(caretAt(live())) === '"') {
+      live().at = caretAt(live()) + 1;
+      cxOffer();
+      paint();
+      return;
+    }
     // `(' TAKES THE CALL, the way an IDE does: `.filter(' typed straight
     // through lands in the parens without a TAB.
     if (k === "(" && CX.where === "fn" && M.open) { cxAccept(M.items[M.at]); paint(); return; }
@@ -897,16 +1739,32 @@ var RIG = (function () {
   /** D's reading of the strip: the flat query GROUPED back into stages, in the
    *  order the stages were first written — so the badges read left to right the
    *  way the chain was typed, and the LAST one is the last thing said. */
-  function pillsOf(q) {
+  function pillsIn(q, dsl) {
     var order = [], group = {};
     scan(q).forEach(function (t) {
       var fn = stageOfToken(t);
       if (!group[fn]) { group[fn] = []; order.push(fn); }
-      group[fn].push(fn === "filter" ? t.text : t.value);
+      group[fn].push(t);
     });
     return order.map(function (fn) {
-      return { fn: fn, args: group[fn].join(JOIN[fn]) };
+      var toks = group[fn];
+      var flat = toks.map(function (t) { return fn === "filter" ? t.text : t.value; })
+        .join(JOIN[fn]);
+      // F SHOWS THE SAME GROUP IN ITS OWN IDIOM — the badge is the surface, the
+      // strip underneath is still the flat string.
+      if (!dsl) return { fn: fn, args: flat };
+      return { fn: fn, args: fn === "filter" ? dslOfFilter(toks)
+               : fn === "sort" ? dslOfSort(flat) : dslOfCols(flat) };
     });
+  }
+
+  function pillsOf(q) { return pillsIn(q, !!S.look.dsl); }
+
+  /** The whole flat query, said in F's surface — `raw "…"' where it must be. */
+  function dslChainOf(q) {
+    return pillsIn(q, true).map(function (p) {
+      return "." + p.fn + "(" + p.args + ")";
+    }).join("");
   }
 
   /** The stage the last token on the strip belongs to — the chain's last badge. */
@@ -1021,13 +1879,36 @@ var RIG = (function () {
     });
   }
 
+  /** F's own painter: fields, constructors, literals, and the two operators. */
+  function paintDsl(frag, text) {
+    var lx = lexDsl(text), i = 0;
+    lx.forEach(function (t) {
+      if (t.at > i) frag.appendChild(document.createTextNode(text.slice(i, t.at)));
+      var cls = t.t === "str" ? "cx-str"
+        : t.t === "ctor" ? (CTORS[t.v] || /^(All|Any|Desc|Asc|None)$/.test(t.v)
+            ? "cx-ctor" : "cx-bad")
+        : t.t === "op" ? (t.v === "/=" ? "cx-neg" : "cx-eq")
+        : t.t === "punc" ? "cx-punc"
+        : t.v === "not" || t.v === "raw" ? "cx-op"
+        : FIELDS.indexOf(t.v) >= 0 ? "cx-kw" : "cx-bad";
+      frag.appendChild(span(text.slice(t.at, t.end), cls));
+      i = t.end;
+    });
+    if (i < text.length) frag.appendChild(document.createTextNode(text.slice(i)));
+  }
+
   /** A DONE stage collapses to its first argument plus a dim count. */
   function argsFrag(args, fn, done) {
     var frag = document.createDocumentFragment();
-    var parts = String(args).split(SPLIT[fn]).filter(Boolean);
+    var parts = S.look.dsl && fn === "filter"
+      ? itemSpans(String(args)).map(function (s) { return args.slice(s.start, s.end); })
+        .filter(function (x) { return x.trim(); })
+      : String(args).split(SPLIT[fn]).filter(Boolean);
     var cut = !!done && !!S.look.collapse && args.length > 24 && parts.length > 1;
-    var shown = cut ? parts[0] : args;
-    if (S.look.syntax) {
+    var shown = cut ? parts[0].trim() : args;
+    if (S.look.dsl) {
+      paintDsl(frag, shown);
+    } else if (S.look.syntax) {
       (fn === "sort" ? paintSort : fn === "columns" ? paintCols : paintFilter)(frag, shown);
     } else {
       frag.appendChild(document.createTextNode(shown));
@@ -1047,6 +1928,23 @@ var RIG = (function () {
     var i = document.createElement("i");
     i.className = "cx-caret";
     return i;
+  }
+
+  /** Put the caret at a CHARACTER offset inside a painted run, so colouring is
+   *  computed over the whole text and the caret lands in the middle of it. */
+  function insertCaretAt(host, offset) {
+    var walk = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, null);
+    var seen = 0, node;
+    while ((node = walk.nextNode())) {
+      var len = node.nodeValue.length;
+      if (seen + len >= offset) {
+        var tail = node.splitText(offset - seen);
+        tail.parentNode.insertBefore(caretEl(), tail);
+        return;
+      }
+      seen += len;
+    }
+    host.appendChild(caretEl());
   }
 
   function renderChain() {
@@ -1084,13 +1982,15 @@ var RIG = (function () {
         a.className = "cx-args";
         a.appendChild(argsFrag(st.args, st.fn, st.done));
         s.appendChild(a);
-        if (isLive && CX.where === "args") s.appendChild(caretEl());
+        // INSIDE THE CONTENTS, at the offset the model holds — which is the end
+        // until an arrow, a `-' or a `+' puts it somewhere else.
+        if (isLive && CX.where === "args") insertCaretAt(a, caretAt(st));
         // THE GHOST: empty parens say what goes in them, in dim type, and go
         // the moment a character lands.
         if (S.look.ghost && isLive && CX.where === "args" && !st.args) {
           var g = document.createElement("span");
           g.className = "cx-ghost";
-          g.textContent = GHOST[st.fn];
+          g.textContent = (S.look.dsl ? GHOST_DSL : GHOST)[st.fn];
           s.appendChild(g);
         }
         var c = document.createElement("b");
@@ -1104,6 +2004,8 @@ var RIG = (function () {
   }
 
   var GHOST = { filter: "key:value …", sort: "column[:desc]…", columns: "Name,…" };
+  var GHOST_DSL = { filter: "field = value, …", sort: "column, Desc column",
+                    columns: '"Name", …' };
 
   // ---------------------------------------------------------------- painting
   function renderTable() {
@@ -1170,6 +2072,30 @@ var RIG = (function () {
     if (S.refused) add("tv-refused", S.refused);
   }
 
+  /** The query as it WOULD be asked: the strip, less any stage being rewritten,
+   *  plus what the chain has written. */
+  function effectiveFlat() {
+    var replacing = CX.stages.filter(function (st) { return st.replacing; })
+      .map(function (st) { return st.fn; });
+    var kept = S.chips.filter(function (tok) {
+      return replacing.indexOf(stageOfToken(term(tok))) < 0;
+    }).join(" ");
+    return [kept, composed()].filter(Boolean).join(" ");
+  }
+
+  /** F: the whole query as F's own text — the standing badges plus the live
+   *  stage, which is what the IR line below the box is READ FROM. */
+  function chainSource() {
+    var replacing = CX.stages.filter(function (st) { return st.replacing; })
+      .map(function (st) { return st.fn; });
+    var head = pillsIn(query(), true)
+      .filter(function (p) { return replacing.indexOf(p.fn) < 0; })
+      .map(function (p) { return "." + p.fn + "(" + p.args + ")"; }).join("");
+    var tail = CX.stages.filter(function (st) { return st.fn && String(st.args).trim(); })
+      .map(function (st) { return "." + st.fn + "(" + st.args + ")"; }).join("");
+    return head + tail;
+  }
+
   /** E alone: the flat string the chain is writing, live, under the box. */
   function renderEcho() {
     if (!el.echo) return;
@@ -1190,6 +2116,16 @@ var RIG = (function () {
     if (chain) flat.appendChild(span(chain, "e-chain"));
     if (!whole) flat.appendChild(span("(every row)", "e-applied"));
     el.echo.appendChild(flat);
+    if (S.look.ir) {
+      // THE NORMAL FORM, READ FROM THE TYPED SIDE while the table is served by
+      // the flat one — so a divergence between the two readers shows here,
+      // live, and `check.mjs' is the same comparison run over a corpus.
+      var ir = document.createElement("div");
+      ir.appendChild(lab("ir"));
+      ir.appendChild(span(irDsl(chainSource()), "e-ir"));
+      el.echo.appendChild(ir);
+      return;
+    }
     var url = document.createElement("div");
     url.appendChild(lab("url"));
     // A bare `+' decodes to a space in a URL, so the sign travels as `%2B'.
@@ -1382,6 +2318,14 @@ var RIG = (function () {
     openFilter: openFilter, openCompose: openCompose,
     pills: function () {
       return pillsOf(query()).map(function (p) { return p.fn + "(" + p.args + ")"; });
+    },
+    // THE PROOF: two readers, one normal form.  `irFlat' is the flat grammar's
+    // path, `irDsl' F's typed one, and neither goes through the other.
+    irFlat: irFlat, irDsl: irDsl, dslChainOf: dslChainOf,
+    chainSource: chainSource, effectiveFlat: effectiveFlat,
+    caret: function () {
+      var st = live();
+      return st ? { at: caretAt(st), len: st.args.length } : null;
     },
     // The grammar itself, so a check can assert against the law and not the DOM.
     scan: scan, chainFor: chainFor, served: served, stageString: stageString,

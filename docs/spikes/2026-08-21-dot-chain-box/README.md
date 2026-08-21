@@ -1,4 +1,4 @@
-# Spike — five ways for “.” to open a query
+# Spike — six ways for “.” to open a query
 
 **Date:** 2026-08-21 · **After:** the additive-filters work
 (`docs/proposals/done/2026-08-20-additive-filters.md`), whose closing section
@@ -19,12 +19,13 @@ So the question is not what `.` DOES — it already opens the whole grammar — 
 whether the whole grammar can be **read as a chain of calls** at the moment it is
 typed, while the flat `?q=` string stays the one truth underneath. The chain is a
 VIEW of that string; every tab here composes the same string and shows it applied.
-Five looks, built to be argued with. **Open `index.html`** — they are tabs.
+Six looks, built to be argued with. **Open `index.html`** — they are tabs.
 
-**D is the picked look.** It was argued at the screen and then amended four
-times; what those rounds changed is under
-[Argued and amended](#argued-and-amended), and every amendment is pinned in
-`check.mjs`.
+**F is the picked look.** It is D's machinery — badges on the chip strip, `/`
+editing one, `DEL` taking one — with a **Haskell expression inside the parens**,
+and a lisp normal form under the box proving the two readers agree. What the
+rounds of argument changed is under [Argued and amended](#argued-and-amended),
+and every amendment is pinned in `check.mjs`.
 
 Everything here is throwaway. The fixture is invented; the palette, the docked
 box, the chip voices and the dropdown are glance's own, lifted from
@@ -37,22 +38,22 @@ hues and the real metrics.
 | `a-control.html` | the control: today's `.` — the whole flat grammar in one field |
 | `b-plain-chain.html` | the dot, the three calls, plain text between the parens |
 | `c-ide-chain.html` | the editor look: coloured calls, a ghost argument list, per-stage completion |
-| `d-stage-pills.html` | **the picked look** — a closed call joins the chip strip as a pill, `/` edits it, `DEL` takes it |
+| `d-stage-pills.html` | a closed call joins the chip strip as a badge; `/` edits one, `DEL` takes one |
 | `e-echo-line.html` | C's entry, plus the flat `?q=` echoed live underneath |
-| `rig.js` | the fixture, the grammar, both doors, the completion engine, the docked box |
+| `f-typed-dsl.html` | **the picked look** — D's machinery, Haskell inside the parens, the normal form under it |
+| `rig.js` | the fixture, the grammar, both doors, both readers, the normal form, the docked box |
 | `pane.css` | the box, the strip, the dropdown, the table, both palettes |
 | `check.mjs` | the complaint, mechanised |
-| `shots.mjs` | the five screenshots, headless |
+| `shots.mjs` | the six screenshots, headless |
 | `bidi.mjs` | the fold-marks spike's Firefox driver, copied so this directory stands alone |
-| `a-control.png` … `e-echo-line.png` | each tab at its own moment; A and D at their own doors |
+| `a-control.png` … `f-typed-dsl.png` | each tab at its own moment |
 
-Keys are the shell's own, plus what a chain needs: `.` opens the compose door
-and chains the next call, `TAB` completes, `(` takes the call, `,` or a space
-separates arguments, `)` closes the stage, `RET` applies, `ESC` steps back a
-rung, `n`/`p` walk rows, `t` swaps the theme. `/` opens the filter door in A, B,
-C and E — and in **D** it is the filter STAGE's edit key, where `DEL` is the
-chain's own backspace. The footer prints the truth: which door, where the caret
-is, and the flat string the chain has written so far.
+Keys are the shell's own, plus what a chain needs: `.` chains the next call,
+`TAB` completes, `(` takes the call, `,` separates arguments, `)` closes the
+stage, `←`/`→` walk the caret, `RET` applies, `ESC` steps back a rung, `t` swaps
+the theme. In A, B, C and E, `/` opens the flat filter door. In **D and F** it is
+the filter STAGE's edit key, `DEL` is the chain's own backspace, and in F alone
+`-` and `+` are the two sign helpers.
 
 ## What each tab argues
 
@@ -61,8 +62,9 @@ is, and the flat string the chain has written so far.
 | A control | the flat field | — (a dot is a character) | nowhere | the flat door | — |
 | B plain chain | a dot and three calls | plain text, completed | the box | the flat door | — |
 | C ide chain | a dot and three calls | coloured, ghosted, per-stage | the box | the flat door | — |
-| **D stage pills** | a dot and three calls | as C | the chip strip | edits the filter stage | takes the latest stage |
+| D stage pills | a dot and three calls | as C | the chip strip | edits the filter stage | takes the latest stage |
 | E echo line | a dot and three calls | as C | the box | the flat door | — |
+| **F typed dsl** | a dot and three calls | **Haskell** | the chip strip | edits the filter stage | takes the latest stage |
 
 - **A** is the baseline and it fails on purpose: `.` opens the same field `/`
   opens, one step wider. A dot in it is a character, and the dropdown lists
@@ -70,183 +72,246 @@ is, and the flat string the chain has written so far.
   narrowing keys and a shaping key spelled alike, which is precisely the
   confusion the ask is about (`a-control.png`).
 - **B** makes the smallest claim that is still a chain: a query has STAGES.
-  Nothing is coloured, nothing is hidden, nothing is ghosted, so the only thing
-  the tab can be argued with is the structure itself.
 - **C** spends the ink: the call name in the reserved word's own hue, the
-  punctuation dim, and inside the parens the key in the link hue, the value in
-  the page's, a meta italic, and the two signs in the ok/bad pair. Empty parens
-  carry a ghost argument list; a closed call collapses to its first argument and
-  a count.
-- **D — the picked look** — moves the finished chain OUT of the box: each closed
-  call is a pill on the chip strip, in the strip's own hue law (frost narrows,
-  the column band orders, the link hue shapes), and the box holds only the stage
-  being written. The strip becomes the flat query grouped back into stages, in
-  the order the stages were written. Click a pill — or press `/` for the filter
-  one — to reopen its parens; the query it wrote stands until the rewrite
-  commits, and lands back in the same place on the strip. `DEL` takes the latest
-  badge whole.
-- **E** keeps C's entry and adds the proof: the flat string, live, under the box
-  — what stands quiet, what the chain is adding lit, and the `?q=` form beside
-  it, `%2B` and all. The chain writes; the line proves, before `RET`.
+  punctuation dim, the arguments coloured per part, a ghost argument list in
+  empty parens, and a closed call collapsing to its first argument and a count.
+- **D** moves the finished chain OUT of the box: each closed call is a badge on
+  the chip strip, in the strip's own hue law, and the box holds only the stage
+  being written. The strip becomes the flat query grouped back into stages.
+- **E** keeps C's entry and adds the proof in words: the flat string, live,
+  under the box — what stands quiet, what the chain is adding lit.
+- **F — the picked look** — is D with the argument language changed. See below.
 
-![D · stage pills](d-stage-pills.png)
+![F · typed dsl](f-typed-dsl.png)
 
-*D with an order committed and `/` pressed: the filter badge is dashed in the
-box's own accent because it is open in the box, its parens hold what it already
-says with the caret at the end, and the offers are the ones that stage takes.*
+*F with an order committed and `/` pressed: the filter badge is dashed in the
+box's own accent because it is open in the box, `tag /= "chore"` ligates its
+inequality, a second field has just been opened onto its quoted slot, and the
+offers over that slot lead with the constructor. Under the box, the flat string
+and the normal form.*
+
+## F, the typed surface
+
+```haskell
+.filter(state = Active, tag /= "chore", priority = ["A", "B"])
+.sort(deadline, Desc title)
+.columns("State", "Deadline")
+```
+
+- **Record syntax for the fields.** `state = Active`, spaces around the `=`.
+  A field is a name the grammar already has — the twelve keys — so the surface
+  can name nothing the flat string cannot.
+- **Bare constructors for the closed roster.** `Active`, `Inactive`, `Empty`,
+  `Archive` — `docs/query.md`'s starred family, one constructor each, plus
+  `None` in `.sort(…)` and `Asc`/`Desc` on its columns. They are **one shared
+  sum type, not one per field**: `*empty*` is legal on all six column keys and
+  on `planned`, so per-field types would need qualified names (`State.Empty`,
+  `Tag.Empty`, …) for a distinction the grammar does not make. The FIELD decides
+  which constructors are legal — `state = Archive` is a type error, and the
+  surface marks it — which is the Haskell reading, where a field's type is what
+  restricts its constructors.
+- **Double-quoted literals for the open values.** `state = "TODO"`, because the
+  keywords are the TREE's, not the language's. **A quoted string is a literal,
+  the flat grammar's own quoting law**: `tag = "-chore"` searches for a tag
+  spelled `-chore` and is never a negation. That is `substring:"-x"`'s rule,
+  said in Haskell.
+- **Haskell lists for the alternatives.** `state = ["TODO", "DONE"]` composes to
+  `state:TODO|DONE`.
+- **`/=` for the negation**, the Prelude's own. `tag /= "chore"` is `-tag:chore`;
+  `state /= ["TODO", "DONE"]` is `-state:TODO|DONE`, "neither" — the negation
+  scopes the WHOLE token, alternatives included, which is the flat grammar's own
+  De Morgan pin. `not (…)` is accepted as the wrapper for what an operator on a
+  field cannot carry, and is what the `-` key spawns on empty ground.
+- **Free text is `substring = "milk"`**, with a bare `"milk"` accepted as the
+  same thing. The axis the proposal calls `text` is `substring:`'s and free
+  text's shared one, and `substring` is the key that actually exists — a field
+  called `text` would name something no flat string can spell. The bare string
+  is free text said the way the flat grammar says it, and both compose to
+  `substring:milk`.
+- **`raw "…"` is the escape hatch**, and it is the surface admitting it is not
+  total. See the corners.
+
+### The three decisions
+
+1. **Negation is an operator, the sign is a key.** `-` inside the filter parens
+   flips the kwarg under the caret between `=` and `/=`, and flips it back; on
+   empty ground it spawns `not (|)`. Typing `/=` by hand does the same thing.
+   The sign is never a character in this surface — there is nowhere for it to
+   be one.
+2. **The additive sign is a list helper.** `+` on a kwarg turns its value into a
+   Haskell list with a fresh slot: `state = "TODO"` becomes `state = ["TODO", |]`,
+   and a list already there gains another slot. Lists compose to the flat
+   alternation, which on a bare axis is exactly what the flat `+` means —
+   `k:v₁|v₂ ≡ k:v₁ +k:v₂`, the proposal's law 5, and the normal form proves it
+   mechanically. What the key CANNOT reach is law 5's other half; see the
+   corners.
+3. **A lisp normal form is the proof.** Two parsers — the flat grammar's own and
+   F's typed one — build TERMS independently and hand them to one builder, which
+   writes the additive proposal's denotation as an s-expression: axes sorted by
+   key, each axis `(P∪N ≠ ∅ ∧ base) ∨ wide`, with `and`/`or` flattened, sorted
+   and deduped so associativity, commutativity and idempotence are quotiented
+   away. Two spellings that MEAN the same thing print the same bytes.
+
+```
+state:*active* -tag:chore
+.filter(state = Active, tag /= "chore")
+
+  ⇓ both readers
+
+(query (filter (axis state (meta state active))
+               (axis tag (not (atom tag "chore"))))
+       (order default) (select default))
+```
+
+The line is echoed live under F's box, **read from the typed reader while the
+table is served by the flat one** — so a divergence between the two paths shows
+on the screen as well as in the check.
 
 ## Argued and amended
 
-The tabs were built, looked at, and then changed four times. Each round is a
-decision the screen produced and the check now holds:
+The tabs were built, looked at, and changed. Each round is a decision the screen
+produced and the check now holds:
 
-1. **D is the look.** The chain belongs where the chips already are: one badge
-   per call rather than one chip per token, and the box holding only the live
-   stage. Everything below is D's, and rides the shared paren-editing machinery,
-   so C and E get it too — only `/` and `DEL` are D's alone.
+1. **D over B/C/E.** The chain belongs where the chips already are: one badge per
+   call rather than one chip per token, and the box holding only the live stage.
 2. **The comma joins the space as the argument separator.** A call's arguments
-   are separated by commas everywhere else, and a reader typing
-   `.filter(state:TODO, tag:web)` should not be told they meant something
-   different. Per stage the comma composes to that stage's own flat separator —
-   a space in `filter`, the arrow in `sort`, itself in `columns`.
+   are separated by commas everywhere else. Per stage the comma composes to that
+   stage's own flat separator — a space in `filter`, the arrow in `sort`, itself
+   in `columns`.
 3. **The accept went dry and final.** Taking a completion inside the parens
    inserts exactly what it says — no trailing space — closes the offers, and
-   does not reopen them; the next offer waits for the next keystroke. The
-   trailing space was the shipped box's habit, and in a chain it is wrong twice
-   over: the separator is now a decision the reader makes (space or comma), and
-   an argument list that re-offers itself the instant it is satisfied kept
-   showing a top row that inserted nothing.
-4. **`/` and `DEL` became the chain's own keys** in D. `/` stops being a second
-   box: it reopens the standing `.filter(…)` for editing and the commit rewrites
-   that stage in place, or spawns a fresh `.filter(|)` where none stands. `DEL`
-   at the strip level is the chain's backspace — stage-sized, last in first out:
-   one press takes the latest badge whole, whichever call it is, and pressing it
-   again walks the chain backward. Inside an open paren edit both keys are
-   ordinary text editing.
+   does not reopen them; the next keystroke is what asks again.
+4. **`/` and `DEL` became the chain's own keys.** `/` reopens the standing
+   `.filter(…)` and the commit rewrites that badge IN PLACE; `DEL` at the strip
+   level is the chain's backspace, stage-sized and last in first out.
+5. **F: the argument language went typed**, on D's machinery unchanged.
+6. **…and then Haskell**, not Python: record syntax, constructors, `/=`, lists,
+   quoted literals. The idiom is the user's call; what it cost is in the corners.
+7. **The key and its equals come with an opened quoted slot.** Completing
+   `state` — or typing its `=` — leaves `state = "|"` with the caret between the
+   quotes, so the reader types the value and never the punctuation. The offers
+   over that slot still lead with the constructors, and **accepting one swallows
+   the quotes** (`state = Active`) where accepting a literal keeps them: a
+   constructor is no string. Both stay dry.
 
-Round 4 costs the spike its own control. `/` was identical in all five tabs on
-purpose, and `check.mjs` asserted it; D's departure is now DECLARED there
+Rounds 4 and 5 cost the spike its own control. `/` was identical in all tabs on
+purpose, and `check.mjs` asserted it; D's and F's departure is now DECLARED there
 (`DEPARTS`) rather than dropped, so the four tabs that keep a flat door still owe
 each other one and the run still says so.
 
 ## What the grammar resists
 
-The places where the relational reading and the flat string disagree. They are
-the argument, not the polish.
+The places where the surface and the flat string disagree. They are the
+argument, not the polish; every one is verified in `check.mjs` or by the
+round-trip corpus.
 
-- **The chain's separator is a legal character in every argument.**
-  `title:v1.2`, a URL in free text, `?order=` in a heading — a dot inside the
-  parens has to TYPE, so `.` can only be the chain operator OUTSIDE them. Every
-  chaining tab therefore costs one more key: `)` closes the stage and the next
-  `.` chains. There is no reading that keeps `.` unambiguous everywhere.
-- **The comma is a legal character too, and the disambiguation is positional.**
-  A comma separates when a new TOKEN begins after it — whitespace, a sign, or a
-  key-shaped word — and belongs to the value when one does not. So `tag:a,b` is
-  one token and `tag:a,-tag:b` is two, which is the rule this spike ships.
-  Its corners, all verified:
-  - `title:a,b:c` composes to `title:a b:c`, because `b:c` is key-SHAPED even
-    though `b` is not one of the twelve keys and the flat string will read it as
-    free text. A reader who meant the value `a,b:c` has to quote it —
-    `title:"a,b:c"` — which is the flat grammar's own and only escape.
-  - free text is asymmetric: `milk,bread` stays one needle, `milk, bread` is two.
-  - a bare comma at the end of a fragment (`state:TODO,`) is a separator, so the
-    completion offers KEYS from that point — which is right when the reader
-    meant a new token and wrong when they were about to type `b`.
-- **The chain can display a stage the flat string cannot carry.**
-  `.columns(owner name)` composes to `columns:owner name`, which the flat
-  grammar splits into `columns:owner` and the free-text needle `name` — and
-  quoting does not rescue it, since only a token STARTING with a quote is read
-  whole. The comma-space in `.columns(State, Deadline)` is normalized away for
-  the same reason. The view is not injective into the grammar, and the composer
-  is where that has to be caught.
+- **The kwargs surface is not total, and `raw "…"` is where it says so.** An
+  axis carrying BOTH a base and a widening — `priority:[#A] +priority:[#B]` —
+  has no kwargs spelling: one field takes one expression, where the flat form is
+  a per-axis PAIR, `(P∪N ≠ ∅ ∧ base) ∨ wide`. This is law 5's parting case, the
+  one the `+` key can never reach, and the one the proposal itself names as
+  "the reason the chain form stops sufficing". F renders such an axis as
+  `raw "priority:[#A] +priority:[#B]"` — the flat string quoted into the typed
+  surface rather than mis-said in it — and the IR proves the two readings still
+  agree.
+- **A list had to choose OR, so the intersection needed a name.** `tag = ["web",
+  "glance"]` is the alternation (`tag:web|glance`). Today's repeated
+  `tag:web tag:glance` INTERSECTS, and record syntax cannot repeat a field, so
+  the unchosen reading is spelled `tag = All ["web", "glance"]` — and `All`
+  spreads over its ELEMENTS, not its atoms, so `All ["web", ["glance", "docs"]]`
+  stays two tokens and keeps the inner alternation. (It did not, at first; the
+  round-trip rung caught it.) `Any [...]` is the bare list's own name.
+- **`not (…)` cannot carry an intersection.** `not (tag = All ["web","glance"])`
+  is ¬(a ∧ b) = ¬a ∨ ¬b, and no conjunction of negated tokens says that. F names
+  the refusal rather than composing something else.
+- **`=` and `/=` are two different languages.** `=` is record syntax's binding;
+  `/=` is the Prelude's inequality. The pair reads well — the argument list
+  reads as a comprehension's guard list, where the commas are `&&` — but the
+  fully consistent alternatives are `==`/`/=` throughout (comparison) or
+  `=`/`not (…)` throughout (record plus wrapper). F accepts `not (…)` too, so
+  the second is spellable; the mix is the picked one.
+- **The enum roster is closed at the METAS and open at the keywords.** `Active`,
+  `Inactive`, `Empty`, `Archive` are the language's; `"TODO"` is the tree's, out
+  of its own `#+TODO:` line. So the constructors can only ever cover the starred
+  family, and a per-tree keyword stays a quoted literal. A surface that promised
+  `State.TODO` would be promising to know a tree it has not read.
+- **An opened slot spends the space.** The reader types `state = TODO"` and gets
+  `state = "TODO"`: the space typed after the `=` is the one the slot already
+  inserted, so the first keystroke inside an empty slot is not a second one.
+  The cost is that a value which genuinely OPENS with a space cannot be typed
+  into a slot — it wants `raw`.
+- **The chain's separator is a legal character in every argument.** `title:v1.2`,
+  a URL in free text — a dot inside the parens has to TYPE, so `.` is the chain
+  operator only OUTSIDE them. Every chaining tab costs one more key: `)` closes
+  the stage and the next `.` chains.
 - **The chain is honest for `filter` and lies for `sort` and `columns`.**
-  `df.filter(p).filter(q)` is `filter(p ∧ q)` — appending only intersects,
-  which is the additive proposal's own conservativity law. But `.sort(a).sort(b)`
-  in THIS grammar is `sort:a sort:b` ≡ `sort:a->b`, a chain EXTENSION, where
-  `orderBy(a).orderBy(b)` in any dataframe replaces; `.columns(X).columns(Y)`
-  concatenates where `select` replaces. Two `.filter(…)` pills would be correct
-  and two `.sort(…)` pills would be a lie — D folds the stages, so the strip
-  never shows either.
-- **`+` has no home in the chain reading**, which the proposal already says of
-  itself: a `+` is a per-axis UNION, so it rewrites its axis's expression rather
-  than appending a stage — "the reason the chain form stops sufficing". In the
-  box it is one character among the arguments, and nothing in the chain look
-  says `state:TODO +state:DONE` is a different SHAPE of expression than
-  `state:TODO -tag:chore`. C colours the sign, which is the most a flat argument
-  list can do; the honest chain spelling would be `.orFilter(…)`, which is not
-  the grammar and should not become it.
+  `df.filter(p).filter(q)` is `filter(p ∧ q)`. But `.sort(a).sort(b)` in THIS
+  grammar is `sort:a->b`, a chain EXTENSION where `orderBy` replaces, and
+  `.columns(X).columns(Y)` concatenates where `select` replaces. D and F fold
+  the shaping stages so the strip never shows two of either.
 - **“+2 more” is taken.** An IDE collapses a long argument list with a count and
   spells it with a plus; this grammar has spent the sign, so the count rides an
-  ellipsis (`…2`) instead.
-- **Collapsing eats the sign.** `state:TODO +priority:[#B]` collapses to
-  `state:TODO …1` — the widened axis is exactly what a reader most needs to see
-  and exactly what the compact spelling hides. Either signed tokens survive the
-  collapse or the stage does not collapse.
-- **Empty parens are not the same as no stage.** `.sort()` here contributes
-  nothing, so the default chain stands. But `sort:` in the flat grammar IS the
-  empty chain — document order — a different answer. The composer has to pick
-  one, and this rig's pick means document order can only be SPELLED, as
-  `sort:*none*`.
-- **A shaping token typed inside `.filter(…)` still orders the table.**
-  Nothing offers it there, but `sort:title` typed by hand composes into the flat
-  string and the flat string is the truth. The shipped narrowed door has a
-  sentence for this — *"sort: autocomplete restricted, this key belongs to
-  #'compose"* — and in a chain that sentence has no door to be spoken from: the
-  refusal would have to become "that belongs in `.sort(…)`", said by the stage.
-  The spike leaves it composing, and names it.
-- **`DEL` is already spoken for.** `docs/query.md`: "`@` on a focused row drills
-  into `ref:ID` behind a breadcrumb; `DEL` pops back." D's stage eraser and the
-  crumb pop want the same key at the same moment — the table with nothing being
-  typed. One of them has to move.
-- **`/` and `.` stop being the same control.** Today they are one `<input>` and
-  one `narrow` flag. A structured composer is a focusable box with a model, not
-  a text field, so everything the box owns is answered twice: the two-step ESC,
-  the dead Backspace over a summoned box, the strip's own `×`,
-  `stripLastToken`. In D, `/` stops being a door at all, and
-  `stripLastToken` — "take off the last unit of the query" — becomes
-  stage-sized, which is exactly what `DEL` now does.
+  ellipsis (`…2`).
+- **Collapsing eats the operator.** A closed badge shows its first argument and a
+  count, so `state = Active, tag /= "chore"` reads `state = Active …1` — the
+  negation is exactly what a reader most needs to see and exactly what the
+  compact spelling hides.
+- **Empty parens are not the same as no stage.** `.sort()` contributes nothing,
+  so the default chain stands; `sort:` in the flat grammar IS the empty chain —
+  document order. Document order can therefore only be SPELLED, as `.sort(None)`.
+- **`DEL` is already spoken for.** `docs/query.md`: "`@` … drills into `ref:ID`
+  behind a breadcrumb; `DEL` pops back." The stage eraser and the crumb pop want
+  the same key in the same state. One of them has to move.
+- **`/` and `.` stop being the same control.** A structured composer is a
+  focusable box with a model, not a text field, so the two-step ESC, the dead
+  Backspace, the strip's `×` and `stripLastToken` are all answered twice — and
+  under D/F, `stripLastToken` becomes stage-sized, which is what `DEL` now does.
 
 ## The check
 
 ```sh
 node check.mjs                     # every variant
-node check.mjs c-ide-chain.html    # one
-node shots.mjs                     # the five PNGs
+node check.mjs f-typed-dsl.html    # one
+node shots.mjs                     # the six PNGs
 ```
 
-Per variant: **BOOT** (the strip carries the query, the table serves what it
-asks for), **DOT** (`.` spawns one dot and offers exactly `filter`/`sort`/
-`columns`), **PARENS** (the taken call opens them and the caret lands INSIDE
-them, after the contents — in DOM order and on the screen), **CHAIN** (`.` TAB
-`state:TODO` `)` `.` `s` TAB `deadline` `)` composes exactly
-`state:TODO sort:deadline`, and `RET` applies it: two rows, deadline order,
-empties last), **COMMA** (twelve compose-equalities — the same arguments spelled
-with a comma, a comma-space and the stage's own separator compose one string,
-`tag:a,b` survives whole, a quoted comma survives, the signs still separate —
-and then one drive through the keys, since a law nothing types is a law about
-nothing), **DRY** (an accept lands `state:` with no trailing space and the offers
-closed, the next keystroke wakes them, and a value accept lands `state:TODO` the
-same way), **ESC** (three rungs — the offers, what is half-written, the box —
-with the strip untouched), **SLASH** (the narrowed door still refuses
-`sort:title` in the shell's own sentence and leaves it standing in the box),
-**SETTLED** (a repaint that changes nothing changes nothing). Then one rung
-across the run: `/`'s door signature — element, class, placeholder, offers — has
-to be identical in every tab that still has one.
+Every variant: **BOOT**, **DOT** (`.` spawns one dot and offers exactly
+`filter`/`sort`/`columns`), **PARENS** (the taken call opens them and the caret
+lands INSIDE them — in DOM order and on the screen), **CHAIN** (a scripted
+sequence composes exactly `state:TODO sort:deadline` and `RET` applies it: two
+rows, deadline order, empties last), **COMMA** (a dozen compose-equalities per
+dialect), **DRY** (an accept lands bare with the offers closed, and the next
+keystroke wakes them), **ESC** (three rungs, the strip untouched), **SETTLED**.
+Tabs with a flat door also owe **SLASH** (the narrowed door still refuses
+`sort:title` in the shell's own sentence) and a door **SIG** identical across
+all of them. D and F swap those for **SLASH-STAGE**, **SLASH-FRESH**,
+**DEL-STAGE** and **DEL-INSIDE**.
 
-D swaps the two flat-door rungs for its own: **SLASH-STAGE** (`/` over a
-standing filter pill reopens it with the caret at the end of its contents, and
-the commit rewrites that badge in place — the pill count unchanged, the order
-badge untouched), **SLASH-FRESH** (`/` with no filter stage standing spawns
-exactly one empty `.filter()`), **DEL-STAGE** (a filter+sort+columns chain, then
-three `DEL`s stripping columns, then sort, then filter, the composed string
-shrinking in that order, and a fourth press taking nothing), **DEL-INSIDE**
-(`DEL` inside an open paren edit eats no stage).
+F owes three more:
+
+- **SIGNS** — `-` flips `=` to `/=` and back, `+` turns the value into
+  `["TODO", |]` with the caret in the slot, and the flat string each composes is
+  the grammar's own.
+- **SLOT** — completing the field yields `state = ""` with the caret between the
+  quotes and the offers closed; the offers over the slot lead with `Active`;
+  taking the constructor swallows the quotes and taking a literal keeps them;
+  typing the `=` by hand opens the same slot; and typing past the closing quote
+  steps over it.
+- **IR** — the corpus. Twenty-seven paired spellings (flat against typed) must
+  print the same bytes; seven flat queries rendered INTO the surface and read
+  back must too — the `/`-edit's own path, `raw "…"` included; and six pairs
+  whose semantics part must print IRs that part with them. **The rung has to
+  bite both ways**: drop the sort-and-dedupe from the normal form and the
+  order/idempotence pairs go red; conjoin the widening instead of disjoining it
+  and law 5's agreement pair goes red; let `All` flatten and the intersection
+  pairs go red; stop `raw` reaching the flat reader and the escape-hatch pairs
+  go red; stop a constructor normalising to its meta and every meta pair goes
+  red. All five were run.
 
 The control fails five rungs by construction, the way headline-bars' `flat` tab
 does, so `a-control.html` declares DOT, PARENS, CHAIN, COMMA and DRY as misses:
 the run is green and the misses are the argument. A declared miss that starts
-PASSING is a failure too, and so is a rung D departs from that quietly comes
-back.
+PASSING is a failure too, and so is a departed rung that quietly comes back.
 
 ## What shipping would need
 
@@ -254,53 +319,57 @@ back.
 mode, or a second control beside `input` — a chain is not an `<input>`, so
 `mount`'s `summoned`/`dock` predicates, the `tv-typing` class and the
 `filterWrap` layout all have to hold two shapes. `chipUp`/`typedQuery`/
-`effectiveQuery` are where the chain's composed string joins the strip, and D
-needs one more: replace a stage's tokens IN PLACE rather than append.
-`parseQuery` + `queryKeys` already answer per stage; the `.tv-ac` list needs a
-per-stage vocabulary and the `tv-ac-dim` rule for metas, both of which exist.
-The two keydown ladders (~4153) are the delicate part, and the dry accept lands
-right there — today's `finished = taken.full || ac.stage === "value"` is exactly
-the branch that has to stop re-offering.
+`effectiveQuery` are where the composed string joins the strip, and the badge
+reading needs one more: replace a stage's tokens IN PLACE rather than append.
+The `.tv-ac` list needs a per-stage vocabulary and the `tv-ac-dim` rule for the
+constructors, both of which exist. The two keydown ladders (~4153) are the
+delicate part, and the dry accept lands right there — today's
+`finished = taken.full || ac.stage === "value"` is the branch that has to stop
+re-offering.
 
 **Shell sites** (`frontend/glue/`): `raiseFilter`/`focusFilter`/`focusQuery` in
-`50-settings.js` is where the two doors part, and under D's reading `focusFilter`
-stops raising a box and starts naming a stage; `stash()`/`restore()` carries
-`typedFilter()` across a remount and a chain has no `.value` to carry;
-`refused()` in `00-core.js` names `.` as the other door in words — with a chain
-it could OPEN the stage instead of naming the key. `DEL` is bound to the crumb
-pop and would have to be re-decided.
+`50-settings.js` is where the two doors part, and under D/F's reading
+`focusFilter` stops raising a box and starts naming a stage; `stash()`/`restore()`
+carries `typedFilter()` across a remount and a chain has no `.value` to carry;
+`refused()` in `00-core.js` names `.` as the other door in words — with a typed
+stage it could OPEN the stage instead. `DEL` is bound to the crumb pop and would
+have to be re-decided.
 
-**Pins that move:** `docs/query.md` gains "the chain is a view of the string"
-and the comma's per-stage reading; `AGENTS.hs`'s query-language model is
-untouched (the string is unchanged); `docs/invariants.md` gains the one this
-spike is really about — *the chain composes the flat query and nothing else
-composes it* — and its sharper twin, *a stage the flat string cannot carry must
-not be composable*; `test/browser/cases.mjs` gains the DOT/PARENS/CHAIN/COMMA
-rungs. The wire changes nothing: `?q=` already carries the string, and that is
-the point.
+**The typed surface needs a producer.** The constructor roster is the language's
+and can be hard-coded; **the keyword roster is the TREE's** — `#+TODO:` in the
+tree's own config — so `state = "…"`'s completions are a producer question the
+renderer already half-answers (it enumerates observed values). A shipping F
+would want the producer to declare which values are closed and which are open,
+which is one more field on the offer, not a new mechanism.
+
+**Pins that move:** `docs/query.md` gains "the chain is a view of the string",
+the comma's per-stage reading, and the typed surface's own table;
+`AGENTS.hs`'s query-language model is untouched (the string is unchanged);
+`docs/invariants.md` gains the one this spike is really about — *the surface
+composes the flat query and nothing else composes it* — and its two sharper
+twins: *a stage the flat string cannot carry must not be composable* and *the
+two readers print one normal form*. `test/browser/cases.mjs` gains the
+DOT/PARENS/CHAIN rungs; the IR belongs in `test/TestFilter.hs`, where the
+denotation already lives. The wire changes nothing: `?q=` already carries the
+string, and that is the point.
 
 **Open questions**, none of which the tabs settle:
 
-- **Does the strip still hold token chips at all?** D says no — one badge per
-  call. That makes the single-token gestures (the chip's own `×`, the
-  coarse-pointer tap) stage-sized too, and a reader who wants one token off has
-  to open the stage.
-- **Where does the annihilation rule live?** Committing `-x` over a standing
-  `+x` removes both — "a rule of the strip, never of the grammar". Inside
-  `.filter(…)` there is no strip: the two sit beside each other in one argument
-  list and nothing cancels. This rig keeps the rule on fresh commits and skips it
-  on a stage REWRITE, where the stage states its whole contents — which is a
-  defensible split and not an obvious one.
-- **Does `.` seed from the standing query?** This rig starts empty and ADDS,
-  which is `chipUp`'s own law today, while `/` in D opens the standing stage. The
-  two doors therefore disagree about seeding, on purpose: one adds a call, the
-  other edits one.
-- **May a stage repeat?** `.filter(…).filter(…)` is sound; `.sort(…).sort(…)`
-  is a chain extension wearing a replacement's clothes. Refusing the second is a
-  grammar change; folding it is a display rule, and D folds.
-- **The coarse-pointer path has no `.`, no `/` and no `DEL`** — the click that
-  raises the filter box on a touch device is the only door there, and under D's
-  reading it should raise the filter STAGE.
+- **Does the strip still hold token chips at all?** D and F say no — one badge
+  per call. That makes the single-token gestures (the chip's `×`, the
+  coarse-pointer tap) stage-sized too.
+- **Where does the annihilation rule live?** Committing `-x` over a standing `+x`
+  removes both — "a rule of the strip, never of the grammar". Inside a filter
+  stage there is no strip: the two sit in one argument list and nothing cancels.
+  This rig keeps the rule on fresh commits and skips it on a stage REWRITE,
+  where the stage states its whole contents.
+- **Is `raw "…"` acceptable in a shipped surface?** It is honest and total, and
+  it is also an admission that the pretty language has a hole shaped exactly
+  like the one feature the last proposal added.
+- **May a stage repeat?** `.filter(…).filter(…)` is sound; `.sort(…).sort(…)` is
+  a chain extension wearing a replacement's clothes. Refusing it is a grammar
+  change; folding it is a display rule, and D/F fold.
+- **The coarse-pointer path has no `.`, no `/` and no `DEL`.**
 
 ## What the rig mirrors, so the tabs are honest
 
@@ -308,12 +377,12 @@ The stage is the docked box as it ships: the chip strip and the summoned box
 share one grid row (`tv-dock`/`tv-summon`), the chips wear the frost, column-band
 and link-hue voices, the dropdown hangs under the whole of the box with counts on
 the right and a note across the bottom, and a summoned box delivers on COMMIT
-alone — the table under it does not animate while the reader is looking away.
-The grammar under all of it is `docs/query.md`'s, not a mock: signs and their
-axis law, alternatives, the five metas, prefix dates, the `:a:b:` tags cell,
-`sort:` chains with empties last, `columns:` resolving against key and header
-with `Title` always present, and the vacuity rule (a token naming no atom is
-dropped, unsigned and added alike, while a lone `-` still empties the table).
-That is why `rig.js` is three times the fold-marks rig: here the grammar IS the
-stage, and a completion domain that was not the real one would make every tab
+alone. The grammar under all of it is `docs/query.md`'s, not a mock: signs and
+their axis law, alternatives, the five metas, prefix dates, the `:a:b:` tags
+cell, `sort:` chains with empties last, `columns:` resolving against key and
+header with `Title` always present, quoting in the value position
+(`substring:"-x"`), and the vacuity rule — a token naming no atom is dropped,
+unsigned and added alike, while a lone `-` still empties the table. That is why
+`rig.js` is five times the fold-marks rig: here the grammar IS the stage, twice
+over, and a completion domain that was not the real one would make every tab
 argue about the wrong thing.

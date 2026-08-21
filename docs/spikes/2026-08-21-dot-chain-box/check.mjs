@@ -18,8 +18,9 @@ import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ALL = ["a-control.html", "b-plain-chain.html", "c-ide-chain.html",
-             "d-stage-pills.html", "e-echo-line.html"];
+             "d-stage-pills.html", "e-echo-line.html", "f-typed-dsl.html"];
 const picked = process.argv[2] ? [process.argv[2]] : ALL;
+const TYPED = "f-typed-dsl.html";
 
 // THE CONTROL MISSES BY CONSTRUCTION, the way headline-bars' `flat' tab does:
 // A opens the flat box, where a dot is a character, so it cannot spawn one,
@@ -28,13 +29,96 @@ const picked = process.argv[2] ? [process.argv[2]] : ALL;
 // are the argument rather than a broken tab.
 const MISSES = { "a-control.html": ["DOT", "PARENS", "CHAIN", "COMMA", "DRY"] };
 // D ANSWERS THE TWO KEYS DIFFERENTLY, on purpose: `/' edits the filter stage
-// and `DEL' takes it whole, so the flat-door rungs are not its to pass.
-const DEPARTS = { "d-stage-pills.html": ["SLASH", "SIG"] };
+// and `DEL' takes it whole, so the flat-door rungs are not its to pass.  F is
+// D's machinery with a TYPED surface, so it departs the same way — and its
+// arguments are Haskell, which is why the rungs below are spelled per dialect
+// rather than once.
+const DEPARTS = { "d-stage-pills.html": ["SLASH", "SIG"],
+                  "f-typed-dsl.html": ["SLASH", "SIG"] };
 
 const BOOT_CHIPS = ["state:*active*", "-tag:chore"];
 const BOOT_FILTER = "state:*active* -tag:chore";
 const WANT_CHAIN = "state:TODO sort:deadline";
 const WANT_QUERY = "state:*active* -tag:chore state:TODO sort:deadline";
+
+/**
+ * THE CORPUS THE NORMAL FORM IS PROVED ON.
+ *
+ * `same' pairs a flat spelling with F's typed one: two different readers, and
+ * the IR they print has to be the same bytes.  `trip' runs the other way — the
+ * flat string rendered INTO the surface and read back, which is the path the
+ * `/'-edit takes, `raw "…"' and all.  `diff' is the check biting the other way:
+ * queries whose semantics part have to print IRs that part with them, or the
+ * form is quotienting away something real.
+ */
+const IR_CORPUS = {
+  same: [
+    // the README's own examples, and the laws under them
+    ["state:*active* -tag:chore", '.filter(state = Active, tag /= "chore")'],
+    ["state:TODO sort:deadline", '.filter(state = "TODO").sort(deadline)'],
+    // law 1: grouping is by key, never adjacency — order carries nothing
+    ["priority:[#A] tag:book", '.filter(tag = "book", priority = "A")'],
+    ["tag:book priority:[#A]", '.filter(priority = "A", tag = "book")'],
+    // org's brackets and the case fold
+    ["state:[#TODO]", '.filter(state = "todo")'],
+    ["priority:[#a]", '.filter(priority = "A")'],
+    // the metas, as constructors
+    ["tag:*archive*", ".filter(tag = Archive)"],
+    ["planned:*empty*", ".filter(planned = Empty)"],
+    ["state:*inactive*", ".filter(state = Inactive)"],
+    // negation scopes the whole token, alternatives included — De Morgan
+    ["-state:TODO|DONE", '.filter(state /= ["TODO", "DONE"])'],
+    ["-tag:chore", '.filter(not (tag = "chore"))'],
+    // law 5's agreement half: on a bare axis, `|' and `+' are one thing
+    ["state:TODO|DONE", '.filter(state = ["TODO", "DONE"])'],
+    ["state:TODO +state:DONE", '.filter(state = ["TODO", "DONE"])'],
+    // the tag intersection, which is NOT the list
+    ["tag:web tag:glance", '.filter(tag = All ["web", "glance"])'],
+    ["tag:web tag:glance|docs", '.filter(tag = All ["web", ["glance", "docs"]])'],
+    // law 1 INSIDE an axis, and law 4: the conjuncts and the alternatives are
+    // sets, so a different written order and a repeat print the same bytes
+    ["tag:web tag:glance", '.filter(tag = All ["glance", "web"])'],
+    ["state:TODO|DONE", '.filter(state = ["DONE", "TODO"])'],
+    ["tag:web tag:web", '.filter(tag = "web")'],
+    ["state:DONE|TODO|DONE", '.filter(state = ["TODO", "DONE"])'],
+    // quoting: a literal hyphen is a literal, never a sign
+    ['tag:"-chore"', '.filter(tag = "-chore")'],
+    ['substring:"-x"', '.filter(substring = "-x")'],
+    // free text, keyed and bare, share one axis
+    ["milk", '.filter(substring = "milk")'],
+    ["milk", '.filter("milk")'],
+    // the shaping halves
+    ["sort:deadline->title:desc", ".sort(deadline, Desc title)"],
+    ["sort:*none*", ".sort(None)"],
+    ["columns:State,Deadline", '.columns("State", "Deadline")'],
+    // the shape kwargs cannot say, said as the flat string it is
+    ["priority:[#A] +priority:[#B] tag:book",
+     '.filter(raw "priority:[#A] +priority:[#B]", tag = "book")'],
+  ],
+  trip: [
+    "state:*active* -tag:chore state:TODO|DONE",
+    "tag:web tag:glance|docs",
+    "priority:[#A] tag:book +priority:[#B]",
+    "state:*active* -planned:*empty* sort:scheduled",
+    'substring:"-x" -state:TODO|DONE',
+    "columns:State,Title,owner sort:deadline:desc->title",
+    "milk +bread",
+  ],
+  diff: [
+    // law 5's PARTING case: (u ∧ v1) ∨ v2 is not u ∧ (v1 ∨ v2)
+    ["state:NEXT state:TODO|DONE", "state:NEXT state:TODO +state:DONE"],
+    // the intersection is not the alternation
+    ["tag:web tag:glance", "tag:web|glance"],
+    // and negation does not distribute the way a reader might hope
+    ["-state:TODO|DONE", "-state:TODO -state:DONE"],
+    // the order is written order
+    ["sort:state->title", "sort:title->state"],
+    // a direction is part of the answer
+    ["sort:deadline", "sort:deadline:desc"],
+    // and `columns:' is not narrowing
+    ["columns:State", "columns:Deadline"],
+  ],
+};
 
 /** Everything on the screen that carries an answer; the caret's blink does not. */
 const picture = () => {
@@ -64,16 +148,20 @@ const caretInParens = () => {
   const args = st.querySelector(".cx-args");
   if (!caret) return { ok: false, why: "no caret" };
   if (pars.length !== 2) return { ok: false, why: `${pars.length} parens` };
-  const i = kids.indexOf(caret), o = kids.indexOf(pars[0]), c = kids.indexOf(pars[1]);
-  if (!(o < i && i < c)) return { ok: false, why: "caret is not between the parens" };
-  if (args && !(kids.indexOf(args) < i))
-    return { ok: false, why: "caret is not at the end of the contents" };
+  // THE CARET LIVES INSIDE THE PAINTED RUN, so DOM order is read with the
+  // document's own comparison rather than off the stage's child list.
+  const after = (a, b) =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  if (!(after(pars[0], caret) && after(caret, pars[1])))
+    return { ok: false, why: "caret is not between the parens" };
   const rc = caret.getBoundingClientRect();
   const ro = pars[0].getBoundingClientRect(), rk = pars[1].getBoundingClientRect();
   if (!(ro.right <= rc.left + 1.5 && rc.right <= rk.left + 1.5))
     return { ok: false, why: "caret is drawn outside the parens" };
+  const c = RIG.caret();
   return { ok: true, where: RIG.cx().where, fn: RIG.cx().stages.slice(-1)[0].fn,
-           args: args ? args.textContent : "" };
+           args: args ? args.textContent : "",
+           at: c ? c.at : -1, len: c ? c.len : -1 };
 };
 
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -95,6 +183,20 @@ for (const page of picked) {
   const known = MISSES[page] || [];
   const departs = DEPARTS[page] || [];
   const url = pathToFileURL(join(HERE, page)).href;
+  // THE SAME RUNGS, SPELLED IN THE TAB'S OWN DIALECT.  What is asserted is the
+  // flat string every one of them composes; what differs is what is TYPED.
+  const typed = page === TYPED;
+  const FILTER_TEXT = typed ? 'state = Active, tag /= "chore"' : BOOT_FILTER;
+  // WHAT A READER TYPES, not what stands afterwards: the opened slot supplies
+  // the quotes and spends the space, so the value goes in bare and the closing
+  // quote is stepped over.
+  const CHAIN_ARG = typed ? 'state = TODO"' : "state:TODO";
+  const ADD_ARG = typed ? ', tag = docs"' : " +tag:docs";
+  const ADD_TOKEN = typed ? "tag:docs" : "+tag:docs";
+  const DRY_HALF = typed ? 'state = ""' : "state:";
+  const DRY_NEXT = typed ? "A" : "TO";
+  const DRY_FULL = typed ? "state = Active" : "state:TODO";
+  const COLS_ARG = typed ? '"State", "Deadline"' : "State,Deadline";
   /** A rung: green when it holds, silent when the control is declared to miss. */
   const want = (name, ok, why) => {
     if (ok && known.includes(name)) surprised.push(`${name} passed where the control is declared to miss`);
@@ -129,7 +231,7 @@ for (const page of picked) {
   await ff.goto(url);
   await ff.keys(["."]);
   await ff.keys([KEY.Tab]);
-  await ff.keys(chars("state:TODO"));
+  await ff.keys(chars(CHAIN_ARG));
   await ff.keys([")", ".", "s"]);
   await ff.keys([KEY.Tab]);
   await ff.keys(chars("deadline"));
@@ -149,41 +251,58 @@ for (const page of picked) {
   // arguments spelled three ways compose one string — then one drive through
   // the keys, since a law nothing types is a law about nothing.
   await ff.goto(url);
-  const law = await ff.eval(() => ({
-    f_comma_space: RIG.stageString("filter", "state:TODO, tag:web"),
-    f_comma: RIG.stageString("filter", "state:TODO,tag:web"),
-    f_space: RIG.stageString("filter", "state:TODO tag:web"),
-    f_value: RIG.stageString("filter", "tag:a,b"),
-    f_quoted: RIG.stageString("filter", 'title:"a, b" tag:web'),
-    f_signed: RIG.stageString("filter", "state:TODO,+priority:[#B],-tag:chore"),
-    s_comma_space: RIG.stageString("sort", "state, title"),
-    s_comma: RIG.stageString("sort", "state,title"),
-    s_arrow: RIG.stageString("sort", "state->title"),
-    s_dir: RIG.stageString("sort", "deadline:desc, title"),
-    c_comma_space: RIG.stageString("columns", "State, Deadline"),
-    c_comma: RIG.stageString("columns", "State,Deadline"),
-  }));
-  const WANT_LAW = {
-    f_comma_space: "state:TODO tag:web", f_comma: "state:TODO tag:web",
-    f_space: "state:TODO tag:web", f_value: "tag:a,b",
-    f_quoted: 'title:"a, b" tag:web',
-    f_signed: "state:TODO +priority:[#B] -tag:chore",
-    s_comma_space: "sort:state->title", s_comma: "sort:state->title",
-    s_arrow: "sort:state->title", s_dir: "sort:deadline:desc->title",
-    c_comma_space: "columns:State,Deadline", c_comma: "columns:State,Deadline",
+  const FLAT_LAW = {
+    f_comma_space: ["filter", "state:TODO, tag:web", "state:TODO tag:web"],
+    f_comma: ["filter", "state:TODO,tag:web", "state:TODO tag:web"],
+    f_space: ["filter", "state:TODO tag:web", "state:TODO tag:web"],
+    f_value: ["filter", "tag:a,b", "tag:a,b"],
+    f_quoted: ["filter", 'title:"a, b" tag:web', 'title:"a, b" tag:web'],
+    f_signed: ["filter", "state:TODO,+priority:[#B],-tag:chore",
+               "state:TODO +priority:[#B] -tag:chore"],
+    s_comma_space: ["sort", "state, title", "sort:state->title"],
+    s_comma: ["sort", "state,title", "sort:state->title"],
+    s_arrow: ["sort", "state->title", "sort:state->title"],
+    s_dir: ["sort", "deadline:desc, title", "sort:deadline:desc->title"],
+    c_comma_space: ["columns", "State, Deadline", "columns:State,Deadline"],
+    c_comma: ["columns", "State,Deadline", "columns:State,Deadline"],
   };
-  const lawOff = Object.keys(WANT_LAW).filter((k) => law[k] !== WANT_LAW[k]);
+  // F'S COMMA IS THE SURFACE'S OWN — a Haskell argument list's separator, and
+  // inside brackets the list's.  The law it owes is the same: what the stage
+  // COMPOSES, whatever the spacing.
+  const TYPED_LAW = {
+    f_comma_space: ["filter", 'state = "TODO", tag = "web"', "state:TODO tag:web"],
+    f_comma: ["filter", 'state = "TODO",tag = "web"', "state:TODO tag:web"],
+    f_space: ["filter", 'state = "TODO" , tag = "web"', "state:TODO tag:web"],
+    // A comma inside a VALUE needs no quoting in the flat string — only
+    // `columns:' splits on one — so the literal travels bare.
+    f_value: ["filter", 'tag = "a,b"', "tag:a,b"],
+    f_quoted: ["filter", 'title = "a, b", tag = "web"', 'title:"a, b" tag:web'],
+    f_list: ["filter", 'state = ["TODO", "DONE"]', "state:TODO|DONE"],
+    f_all: ["filter", 'tag = All ["web", "glance"]', "tag:web tag:glance"],
+    f_neg: ["filter", 'state /= ["TODO", "DONE"]', "-state:TODO|DONE"],
+    f_ctor: ["filter", "state = Active, tag /= Archive", "state:*active* -tag:*archive*"],
+    s_comma_space: ["sort", "state, title", "sort:state->title"],
+    s_desc: ["sort", "Desc deadline, title", "sort:deadline:desc->title"],
+    c_comma_space: ["columns", '"State", "Deadline"', "columns:State,Deadline"],
+  };
+  const LAW = typed ? TYPED_LAW : FLAT_LAW;
+  const law = await ff.eval((spec) => {
+    const out = {};
+    for (const k of Object.keys(spec)) out[k] = RIG.stageString(spec[k][0], spec[k][1]);
+    return out;
+  }, LAW);
+  const lawOff = Object.keys(LAW).filter((k) => law[k] !== LAW[k][2]);
   await ff.keys(["."]);
   await ff.keys([KEY.Tab]);
-  await ff.keys(chars("state:TODO, tag:web"));
+  await ff.keys(chars(typed ? 'state = TODO", tag = web"' : "state:TODO, tag:web"));
   await ff.keys([")", ".", "s"]);
   await ff.keys([KEY.Tab]);
   await ff.keys(chars("state, title"));
   await ff.keys([")"]);
-  const typed = await ff.eval(() => RIG.composed());
-  want("COMMA", lawOff.length === 0 && typed === "state:TODO tag:web sort:state->title",
+  const drove = await ff.eval(() => RIG.composed());
+  want("COMMA", lawOff.length === 0 && drove === "state:TODO tag:web sort:state->title",
        (lawOff.length ? lawOff.map((k) => `${k}=${JSON.stringify(law[k])}`).join(" ") + " · " : "")
-       + `typed=${JSON.stringify(typed)}`);
+       + `drove=${JSON.stringify(drove)}`);
 
   // ---- DRY: an accept inside the parens lands bare and closes the offers
   await ff.goto(url);
@@ -196,12 +315,12 @@ for (const page of picked) {
     return { args: s ? s.args : null, menu: RIG.menu().open, door: RIG.door() };
   };
   const dry1 = await ff.eval(liveArgs);
-  await ff.keys(chars("TO"));
+  await ff.keys(chars(DRY_NEXT));
   const woke = await ff.eval(() => RIG.menu().open);
   await ff.keys([KEY.Enter]);
   const dry2 = await ff.eval(liveArgs);
-  want("DRY", dry1.args === "state:" && dry1.menu === false && woke === true
-       && dry2.args === "state:TODO" && dry2.menu === false && dry2.door === "compose",
+  want("DRY", dry1.args === DRY_HALF && dry1.menu === false && woke === true
+       && dry2.args === DRY_FULL && dry2.menu === false && dry2.door === "compose",
        `key=${JSON.stringify(dry1.args)}/${dry1.menu} woke=${woke} `
        + `value=${JSON.stringify(dry2.args)}/${dry2.menu} door=${dry2.door}`);
 
@@ -262,16 +381,20 @@ for (const page of picked) {
     const open = await ff.eval(caretInParens);
     const opened = await ff.eval(() => ({ door: RIG.door(), cx: RIG.cx(),
                                           pills: RIG.pills(), q: RIG.query() }));
-    await ff.keys(chars(" +tag:docs"));
+    await ff.keys(chars(ADD_ARG));
     await ff.keys([")", KEY.Enter]);
     const rewrote = await ff.eval(() => ({ pills: RIG.pills(), q: RIG.query() }));
+    const filters = rewrote.pills.filter((p) => p.startsWith("filter("));
     want("SLASH-STAGE",
-         open.ok === true && open.args === BOOT_FILTER && open.fn === "filter"
+         open.ok === true && open.args === FILTER_TEXT && open.fn === "filter"
+         && open.at === open.len
          && opened.cx.stages.length === 1 && opened.q.startsWith(BOOT_FILTER)
-         && eq(rewrote.pills, ["filter(state:*active* -tag:chore +tag:docs)",
-                               "sort(deadline)"]),
-         open.why || `opened=${JSON.stringify(open.args)} stages=${opened.cx.stages.length} `
-         + `pills=${JSON.stringify(rewrote.pills)}`);
+         && filters.length === 1 && rewrote.pills.length === 2
+         && rewrote.pills[1] === "sort(deadline)"
+         && rewrote.q === BOOT_FILTER + " " + ADD_TOKEN + " sort:deadline",
+         open.why || `opened=${JSON.stringify(open.args)} caret=${open.at}/${open.len} `
+         + `stages=${opened.cx.stages.length} pills=${JSON.stringify(rewrote.pills)} `
+         + `q=${JSON.stringify(rewrote.q)}`);
 
     // …and with no filter stage standing it spawns exactly one fresh one.  The
     // way to none is the edit itself: reopen, empty, close, commit.
@@ -301,7 +424,7 @@ for (const page of picked) {
     await ff.keys([")", "."]);
     await ff.keys(["c"]);
     await ff.keys([KEY.Tab]);
-    await ff.keys(chars("State,Deadline"));
+    await ff.keys(chars(COLS_ARG));
     await ff.keys([")", KEY.Enter]);
     const built = await ff.eval(() => ({ pills: RIG.pills(), q: RIG.query() }));
     const walk = [];
@@ -310,11 +433,12 @@ for (const page of picked) {
       walk.push(await ff.eval(() => RIG.query()));
     }
     want("DEL-STAGE",
-         eq(built.pills, ["filter(state:*active* -tag:chore)", "sort(deadline)",
-                          "columns(State,Deadline)"])
+         built.pills.length === 3 && built.pills[1] === "sort(deadline)"
+         && built.q === BOOT_FILTER + " sort:deadline columns:State,Deadline"
          && eq(walk, ["state:*active* -tag:chore sort:deadline",
                       "state:*active* -tag:chore", "", ""]),
-         `built=${JSON.stringify(built.pills)} walk=${JSON.stringify(walk)}`);
+         `built=${JSON.stringify(built.pills)} q=${JSON.stringify(built.q)} `
+         + `walk=${JSON.stringify(walk)}`);
 
     // …and inside an open paren edit it is ordinary text editing, eating nothing.
     await ff.goto(url);
@@ -322,9 +446,107 @@ for (const page of picked) {
     await ff.keys([DEL]);
     const inside = await ff.eval(() => ({ cx: RIG.cx(), q: RIG.query() }));
     want("DEL-INSIDE",
-         inside.cx.stages.length === 1 && inside.cx.stages[0].args === BOOT_FILTER
+         inside.cx.stages.length === 1 && inside.cx.stages[0].args === FILTER_TEXT
          && inside.q === BOOT_FILTER,
          `cx=${JSON.stringify(inside.cx)} q=${JSON.stringify(inside.q)}`);
+  }
+
+  if (typed) {
+    // ---- SIGNS: neither sign is a spelling in the typed surface, so both are
+    // KEYS: `-' flips the kwarg under the caret between `=' and `/=' and flips
+    // it back, `+' turns its value into a Haskell list with a fresh slot, and
+    // the flat string each composes is the grammar's own.
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars('state = TODO"'));
+    const read = () => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                          at: RIG.caret(), composed: RIG.composed() });
+    await ff.keys(["-"]);
+    const neg = await ff.eval(read);
+    await ff.keys(["-"]);
+    const back = await ff.eval(read);
+    await ff.keys(["+"]);
+    const wide = await ff.eval(read);
+    await ff.keys(chars('"DONE"'));
+    const list = await ff.eval(read);
+    await ff.keys([")", KEY.Enter]);
+    const gotSigns = await ff.eval(() => ({ q: RIG.query(), rows: RIG.rows() }));
+    want("SIGNS",
+         neg.args === 'state /= "TODO"' && neg.composed === "-state:TODO"
+         && back.args === 'state = "TODO"' && back.composed === "state:TODO"
+         && wide.args === 'state = ["TODO", ]' && wide.at.at === 17
+         && list.args === 'state = ["TODO", "DONE"]'
+         && list.composed === "state:TODO|DONE"
+         && gotSigns.q === BOOT_FILTER + " state:TODO|DONE" && gotSigns.rows === 2,
+         `neg=${JSON.stringify(neg.args)}/${JSON.stringify(neg.composed)} `
+         + `back=${JSON.stringify(back.args)} wide=${JSON.stringify(wide.args)}@${wide.at.at} `
+         + `list=${JSON.stringify(list.args)}/${JSON.stringify(list.composed)} `
+         + `q=${JSON.stringify(gotSigns.q)}`);
+
+    // ---- SLOT: the key and its equals come with an OPENED QUOTED SLOT, and
+    // what is taken out of it decides the quotes' fate — a constructor is no
+    // string, so accepting one swallows them; a literal keeps them.  Both stay
+    // dry.  Typing the equals by hand opens the same slot.
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars("sta"));
+    await ff.keys([KEY.Tab]);
+    const slot = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                                        at: (RIG.caret() || {}).at, menu: RIG.menu().open }));
+    await ff.keys([KEY.Tab]);                    // the offers, over the slot
+    const overSlot = await ff.eval(() => RIG.menu().items[0]);
+    await ff.keys([KEY.Tab]);                    // …and the constructor out of it
+    const ctor = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                                        menu: RIG.menu().open, c: RIG.composed() }));
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars("state ="));              // typed, not completed
+    const byHand = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                                          at: (RIG.caret() || {}).at }));
+    await ff.keys(chars("TO"));
+    await ff.keys([KEY.Tab]);
+    const str = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                                       menu: RIG.menu().open, c: RIG.composed() }));
+    await ff.keys(chars(', tag = chore"'));       // the closing quote is stepped over
+    const past = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                                        c: RIG.composed() }));
+    want("SLOT",
+         slot.args === 'state = ""' && slot.at === 9 && slot.menu === false
+         && overSlot === "Active"
+         && ctor.args === "state = Active" && ctor.menu === false
+         && ctor.c === "state:*active*"
+         && byHand.args === 'state = ""' && byHand.at === 9
+         && str.args === 'state = "TODO"' && str.menu === false && str.c === "state:TODO"
+         && past.args === 'state = "TODO", tag = "chore"'
+         && past.c === "state:TODO tag:chore",
+         `slot=${JSON.stringify(slot)} over=${overSlot} ctor=${JSON.stringify(ctor)} `
+         + `hand=${JSON.stringify(byHand)} str=${JSON.stringify(str)} `
+         + `past=${JSON.stringify(past)}`);
+
+    // ---- IR: TWO PARSERS, ONE NORMAL FORM.  Paired spellings have to print
+    // the SAME bytes; the divergence corpus has to print different ones, or the
+    // form is proving nothing.
+    await ff.goto(url);
+    const irs = await ff.eval((c) => ({
+      same: c.same.map(([f, d]) => [f, d, RIG.irFlat(f), RIG.irDsl(d)]),
+      trip: c.trip.map((q) => [q, RIG.dslChainOf(q), RIG.irFlat(q),
+                               RIG.irDsl(RIG.dslChainOf(q))]),
+      diff: c.diff.map(([x, y]) => [x, y, RIG.irFlat(x), RIG.irFlat(y)]),
+      one: RIG.irFlat("state:*active* -tag:chore"),
+    }), IR_CORPUS);
+    const sameOff = irs.same.filter((r) => r[2] !== r[3]);
+    const tripOff = irs.trip.filter((r) => r[2] !== r[3]);
+    const diffOff = irs.diff.filter((r) => r[2] === r[3]);
+    want("IR",
+         sameOff.length === 0 && tripOff.length === 0 && diffOff.length === 0
+         && irs.same.length === IR_CORPUS.same.length,
+         [sameOff.map((r) => `${r[0]} ≠ ${r[1]}`).join(" · "),
+          tripOff.map((r) => `round trip ${r[0]} → ${r[1]}`).join(" · "),
+          diffOff.map((r) => `${r[0]} and ${r[1]} print the same IR`).join(" · ")]
+           .filter(Boolean).join(" | "));
   }
 
   // ---- SETTLED: a repaint that changes nothing changes nothing

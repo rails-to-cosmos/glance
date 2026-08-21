@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>F · typed dsl</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* D'S CHAIN FRAME, A HASKELL EXPRESSION INSIDE THE PARENS.  A field is
+     record syntax — `state = Active', spaces around the `=' — a value is a
+     bare CONSTRUCTOR for the closed roster or a double-quoted literal for the
+     open one, alternatives are a Haskell list, and the negation is the
+     Prelude's own `/='.  Neither sign is a spelling here: `-' reaches for
+     `/=' and `+' for the list, which is what makes them KEYS rather than
+     characters.
+
+     Under the box, the lisp normal form — read from THIS reader while the
+     table is served by the flat one, so the two paths are compared on screen
+     as well as in the check. */
+  .cx-dot,.cx-par,.cx-punc{color:var(--g-mute)}
+  .cx-fn{color:var(--g-point); font-weight:600}
+  .cx-partial{color:var(--g-point); opacity:.7}
+  /* A FIELD IS A NAME, a constructor is a TYPE, a literal is DATA: three inks,
+     the page's own three. */
+  .cx-kw{color:var(--g-link)}
+  .cx-ctor{color:var(--g-point); font-weight:600}
+  .cx-str{color:var(--g-fg)}
+  .cx-op{color:var(--g-point); font-style:italic}
+  .cx-eq{color:var(--g-mute)}
+  /* THE ONE OPERATOR THAT CAN BE READ BACKWARDS wears the refusal's ink. */
+  .cx-neg{color:var(--g-bad); font-weight:600}
+  .cx-bad{color:var(--g-bad); text-decoration:underline wavy}
+  .cx-ghost{color:var(--g-mute); opacity:.55; font-style:italic}
+  .cx-more{color:var(--g-mute); font-weight:400}
+
+  .cx-pill{padding:1px 9px; gap:0; cursor:pointer}
+  .cx-pill-sort{
+    background:color-mix(in srgb,var(--tv-col) var(--tv-sort-wash),transparent);
+    border-color:color-mix(in srgb,var(--tv-col) var(--tv-chip-edge),transparent);
+  }
+  .cx-pill-columns{
+    background:color-mix(in srgb,var(--g-link) var(--tv-cols-wash),transparent);
+    border-color:color-mix(in srgb,var(--g-link) var(--tv-chip-edge),transparent);
+  }
+  .cx-pending{border-style:dashed}
+  .cx-editing{border-style:dashed; border-color:var(--g-accent)}
+
+  #echo b{color:var(--g-mute); display:inline-block; min-width:4ch;
+    margin-right:8px}
+  #echo .e-applied{color:var(--g-mute)}
+  #echo .e-chain{color:var(--g-fg)}
+  #echo .e-ir{color:var(--g-mute); opacity:.85}
+</style>
+</head>
+<body>
+  <h1>F · typed dsl
+    <small>Haskell inside the parens: record fields, constructors, /= and lists — and the normal form underneath</small></h1>
+  <div id="stage">
+    <div id="app"></div>
+    <div id="echo"></div>
+  </div>
+  <footer>
+    <span><kbd>/</kbd> edits the filter badge · <kbd>DEL</kbd> takes the latest ·
+      <kbd>.</kbd> chains · <kbd>TAB</kbd> complete · <kbd>-</kbd> negates
+      (<code>/=</code>) · <kbd>+</kbd> makes a list · <kbd>,</kbd> separates ·
+      <kbd>←</kbd><kbd>→</kbd> caret · <kbd>)</kbd> closes · <kbd>RET</kbd> apply ·
+      <kbd>ESC</kbd> back · <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { klass: "v-f", dsl: true, ghost: true, collapse: true,
+                      pills: true, slashStage: true, delDropsStage: true,
+                      echo: true, ir: true } });
+})();
+</script>
+</body>
+</html>

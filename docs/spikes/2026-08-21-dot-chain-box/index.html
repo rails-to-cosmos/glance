@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dot chain — five looks for “.”</title>
+<title>Dot chain — six looks for “.”</title>
 <style>
   /* THE SHELL ONLY.  Each variant is its own page; what they share is the rig
      and the docked box, which is the point — the tabs differ by what `.' opens.
@@ -46,13 +46,14 @@
 </head>
 <body>
   <header>
-    <h1>Dot chain <small>five looks for what “.” opens · ★ the picked one</small></h1>
+    <h1>Dot chain <small>six looks for what “.” opens · ★ the picked one</small></h1>
     <nav id="tabs" aria-label="variants">
       <a href="#a" data-src="a-control.html">A · control</a>
       <a href="#b" data-src="b-plain-chain.html">B · plain chain</a>
       <a href="#c" data-src="c-ide-chain.html">C · ide chain</a>
-      <a href="#d" data-src="d-stage-pills.html">D · stage pills ★</a>
+      <a href="#d" data-src="d-stage-pills.html">D · stage pills</a>
       <a href="#e" data-src="e-echo-line.html">E · echo line</a>
+      <a href="#f" data-src="f-typed-dsl.html">F · typed dsl ★</a>
     </nav>
   </header>
   <p class="note" id="note"></p>
@@ -72,7 +73,7 @@
     c: "The editor look: the call name in the reserved word's own hue, a ghost argument "
      + "list in the empty parens, the caret landing between them, completion per stage "
      + "inside them, and a closed call collapsing to its first argument and a count.",
-    d: "<b>The picked look.</b> A closed call LEAVES the box and lands on the chip strip "
+    d: "A closed call LEAVES the box and lands on the chip strip "
      + "as a pill, so the chain reads left to right where the chips sit, and the strip "
      + "becomes the flat query grouped back into stages. Click a pill — or press "
      + "<kbd>/</kbd> for the filter one — to reopen its parens; the commit rewrites that "
@@ -81,6 +82,13 @@
     e: "C's entry, plus the proof: the flat <code>?q=</code> the chain is writing, echoed "
      + "live under the box in small mute type — what stands quiet, what the chain adds lit. "
      + "The chain writes; the line proves, before <kbd>RET</kbd>.",
+    f: "<b>The picked look.</b> D's machinery with a HASKELL expression inside the parens: "
+     + "record fields (<code>state = Active</code>), bare constructors for the closed meta "
+     + "roster, double-quoted literals for the open values, Haskell lists for the "
+     + "alternatives, and <code>/=</code> for the negation. Neither sign is a spelling: "
+     + "<kbd>-</kbd> reaches for <code>/=</code> and <kbd>+</kbd> for a list. Under the box, "
+     + "the lisp normal form — read from THIS reader while the table is served by the flat "
+     + "one, so the two paths are compared on screen.",
   };
   const tabs = [...document.querySelectorAll("#tabs a")];
   const stage = document.getElementById("stage");
@@ -101,7 +109,7 @@
   }
 
   addEventListener("hashchange", () => show(location.hash.slice(1)));
-  show(location.hash.slice(1) || "d");
+  show(location.hash.slice(1) || "f");
 })();
 </script>
 </body>

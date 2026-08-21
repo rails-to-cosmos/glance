@@ -22,6 +22,11 @@ const FLAT = [["."], chars("s")];
 // standing filter badge — dashed on the strip, its parens open in the box with
 // the caret at the end of what it already says.
 const PILLS = [["."], ["s"], [KEY.Tab], chars("deadline"), [")", KEY.Enter], ["/"]];
+// F IS SHOT ON ITS OWN IDIOM: an order committed, the filter badge reopened by
+// `/' with its record syntax and its `/=', and a second field half-written so
+// the value offers — constructors first, literals with their counts under them
+// — stand under the box beside the normal form.
+const TYPED = PILLS.concat([chars(", priority = ")]);
 
 const SHOTS = [
   ["a-control.html", "a-control.png", FLAT],
@@ -29,6 +34,7 @@ const SHOTS = [
   ["c-ide-chain.html", "c-ide-chain.png", CHAIN],
   ["d-stage-pills.html", "d-stage-pills.png", PILLS],
   ["e-echo-line.html", "e-echo-line.png", CHAIN],
+  ["f-typed-dsl.html", "f-typed-dsl.png", TYPED],
 ];
 
 const ff = await firefox().catch((e) => {
