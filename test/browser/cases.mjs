@@ -2184,7 +2184,8 @@ export default [
       + `edits through the splice; TAB folds the subtree whole; the ramp ranks `
       + `${(ranked.inner.match(/sp-\d/) || [])[0]}/${(ranked.outer.match(/sp-\d/) || [])[0]}`];
   } },
-{ name: "n on a headline walks headlines at every depth, and a fold is skipped",
+{ name: "n on a headline walks headlines at every depth, p past a body's edge "
+      + "lands on one, and a fold is skipped",
   async run(p, base) {
     await sheet(p, base, "drv-marks");
     await walkTo(p, ".d-child", "the first child");
@@ -2224,8 +2225,53 @@ export default [
     await p.press("TAB");
     await p.until(() => !/…/.test(document.querySelector("#mdoc .de.dat").textContent),
       "TAB to open it again");
+    // `p' IS HEADLINE-SIZED PAST A BODY'S EDGE: from the body's FIRST element
+    // it is the headline that body hangs under, where before it stood still.
+    await stepped(p, "f", ".d-para", "f into the child's own body");
+    await to("p", /child whose body/, "p from a body's first element is its headline");
+    // AND INSIDE THE BODY IT IS AN ELEMENT STEP, exactly as it was: the shelf's
+    // own previous element comes before any headline going up.
+    await stepped(p, "f", ".d-para", "f back into the body");
+    await stepped(p, "n", ".d-list", "n across the body to the list the child owns");
+    await stepped(p, "p", ".d-para", "p back to the paragraph beside it");
+    // A RUN'S LEAVES KEEP THEIR LIST'S EDGE: they answer to the composite, not
+    // to the body, so their walk is untouched.
+    await stepped(p, "n", ".d-list", "n to the list again");
+    await stepped(p, "f", ".d-item", "f into the list's items");
+    await stepped(p, "n", ".d-item", "n to the second item");
+    await stepped(p, "p", ".d-item", "p back to the first item, mid-run");
+    const item = await at();
+    assert(/a list the child owns/.test(item.text),
+      `the run's step back landed on ${JSON.stringify(item.text)}`);
+    // THE TAIL IS ONE PRESS FROM THE DOCUMENT'S LAST HEADLINE, the subtrees
+    // between them crossed whole.
+    await stepped(p, "b", ".d-list", "b out of the item to its list");
+    await stepped(p, "b", ".d-child", "b out of the list to the child headline");
+    await to("n", /grandchild/, "n to the grandchild");
+    await to("n", /second child/, "n to the last headline");
+    await stepped(p, "n", ".d-tail", "n past the last subtree onto the tail");
+    await to("p", /second child/, "one p from the tail is the last headline");
+    // A BODY ACROSS THE BOUNDARY CLIMBS TO ITS OWN HEADLINE the same way.
+    await stepped(p, "f", ".d-para", "f into the last child's own body");
+    await to("p", /second child/, "p from its first element climbs back to it");
+    // AND `p' FROM BELOW NEVER LANDS INSIDE A FOLD: the last child shut, the
+    // tail's one press is its folded LINE.
+    await p.press("TAB");
+    await p.until(() => /…/.test(document.querySelector("#mdoc .de.dat").textContent),
+      "TAB to fold the last child");
+    await settled(p);
+    await stepped(p, "n", ".d-tail", "n onto the tail past the folded subtree");
+    await stepped(p, "p", ".d-child", "p from the tail back to the folded child");
+    const shut = await p.eval(() =>
+      document.querySelector("#mdoc .de.dat").textContent);
+    assert(/A second child/.test(shut) && /…/.test(shut),
+      `p from the tail landed on ${JSON.stringify(shut.slice(0, 40))}, not the folded line`);
+    await p.press("TAB");
+    await p.until(() => !/…/.test(document.querySelector("#mdoc .de.dat").textContent),
+      "TAB to open the last child again");
     return ["the outline walks child, grandchild, sibling and back to the top; "
-      + "a folded subtree is one step"];
+      + "a folded subtree is one step; p is an element step inside a body and "
+      + "the nearest visible headline past its edge, one press from the tail"];
   } },
 { name: "the pane is a narrowing, so a typed root-level headline is demoted",
   async run(p, base) {

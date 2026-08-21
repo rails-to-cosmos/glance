@@ -10073,6 +10073,22 @@ var $author$project$Doc$hiddenIn = function (m) {
 		$elm$core$Set$empty,
 		m.C);
 };
+var $author$project$Doc$shelved = F2(
+	function (m, r) {
+		var _v0 = r.t;
+		if (_v0.$ === 1) {
+			return true;
+		} else {
+			var up = _v0.a;
+			return A2(
+				$elm$core$Maybe$withDefault,
+				false,
+				A2(
+					$elm$core$Maybe$map,
+					$author$project$Doc$heading,
+					A2($author$project$Body$rowById, m, up)));
+		}
+	});
 var $author$project$Doc$step = F2(
 	function (by, m) {
 		var _v0 = $author$project$Body$rowAt(m);
@@ -10088,9 +10104,16 @@ var $author$project$Doc$step = F2(
 						return ($author$project$Doc$heading(r) || _Utils_eq(r.c, $author$project$Body$tailId)) && (!A2($elm$core$Set$member, r.c, hidden));
 					};
 				} else {
-					return function (r) {
-						return _Utils_eq(r.t, cur.t);
-					};
+					if ((by < 0) && A2($author$project$Doc$shelved, m, cur)) {
+						var hidden = $author$project$Doc$hiddenIn(m);
+						return function (r) {
+							return (_Utils_eq(r.t, cur.t) || $author$project$Doc$heading(r)) && (!A2($elm$core$Set$member, r.c, hidden));
+						};
+					} else {
+						return function (r) {
+							return _Utils_eq(r.t, cur.t);
+						};
+					}
 				}
 			}();
 			var scan = function (i) {

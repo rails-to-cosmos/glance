@@ -69,12 +69,18 @@ section groups a feature arc, and its date is that arc's last commit.
   value. The plain and negated value stages narrow and are untouched: they
   still offer the whole domain.
 
-- **A headline walks headlines.** `n`/`p` from a child headline step through
-  every visible headline in document order, at every depth — org's own
-  next-visible-heading — and a folded subtree is skipped whole. Contents stay
-  behind `f`/`b`. The root is the reader's exception: `n` from the entry's
-  own line steps into its contents, and `p` from the first content row climbs
-  back. From a list or a paragraph the walk is unchanged.
+- **A headline walks headlines, and `p` is headline-sized past a body's edge.**
+  `n`/`p` from a child headline step through every visible headline in document
+  order, at every depth — org's own next-visible-heading — and a folded subtree
+  is skipped whole. Contents stay behind `f`/`b`. The root is the reader's
+  exception: `n` from the entry's own line steps into its contents, and `p`
+  from the first content row climbs back. Inside a body `p` is the element step
+  it always was; where the body has nothing above it — its first element, the
+  tail past every subtree — it lands on the nearest visible headline above
+  point, org's own previous-visible-heading, where the press used to leave
+  point standing. One press from the tail is the document's last headline, and
+  a folded subtree is its line alone. A run's items keep their list's edge, and
+  `n` is untouched.
 
 - **"open link" opens the material document.** A `glance:` or `org-glance-*:`
   link names a headline, and following it lands in that headline's material

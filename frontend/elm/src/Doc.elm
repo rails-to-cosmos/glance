@@ -103,6 +103,11 @@ the rows owned by what owns point -- a leaf its item run, an element its shelf
 sit rows of other owners, and the walk stops rather than leaping shelves.
 A HEADLINE IS THE EXCEPTION: it walks every visible headline in document
 order, org's own cycle over the outline, contents left to `f'/`b'.
+`p' IS HEADLINE-SIZED PAST ITS BODY'S EDGE: an element steps back over its
+own shelf while that shelf has something above, and lands on the NEAREST
+VISIBLE HEADLINE where it does not -- org's own previous-visible-heading, so
+a body's first element climbs to its own headline and the TAIL past every
+subtree is one press from the document's last one.
 -}
 step : Int -> Model -> Model
 step by m =
@@ -115,15 +120,17 @@ step by m =
                 n =
                     List.length m.rows
 
-                -- ONE SCAN, TWO COHORTS: from a CHILD headline the walk is
+                -- ONE SCAN, THREE COHORTS: from a CHILD headline the walk is
                 -- every visible headline in document order, org's own
-                -- next-visible-heading, a folded subtree skipped whole;
-                -- from anything else it is the rows sharing point's owner.
+                -- next-visible-heading, a folded subtree skipped whole; from
+                -- a SHELF'S ELEMENT walking BACK it is that shelf AND the
+                -- headlines, whichever the scan meets first; from anything
+                -- else it is the rows sharing point's owner.
                 -- THE ROOT IS THE READER'S EXCEPTION: the entry's own line
                 -- shares its contents' cohort, so `n' steps INTO the body --
                 -- though headlines walking up still land on it.  Contents
                 -- are otherwise behind `f'/`b'.  The hidden fold is the
-                -- headline walk's own cost, paid only on its branch.
+                -- headline walk's own cost, paid only on its branches.
                 fits =
                     if cur.kind == Child then
                         let
@@ -134,6 +141,21 @@ step by m =
                         -- down has somewhere to end past the last subtree.
                         \r ->
                             (heading r || r.id == tailId)
+                                && not (Set.member r.id hidden)
+
+                    else if by < 0 && shelved m cur then
+                        let
+                            hidden =
+                                hiddenIn m
+                        in
+                        -- WHICHEVER COMES FIRST: the shelf's own previous
+                        -- element while the shelf has one, else the nearest
+                        -- visible HEADLINE above -- the body's own line at
+                        -- its start, the deepest headline of a subtree the
+                        -- row crossed.  A FOLDED SUBTREE IS ONE STEP: its
+                        -- headline counts and its contents never.
+                        \r ->
+                            (r.owner == cur.owner || heading r)
                                 && not (Set.member r.id hidden)
 
                     else
@@ -163,6 +185,21 @@ a nested child.
 heading : Row -> Bool
 heading r =
     r.kind == Head || r.kind == Child
+
+
+{-| Is ROW an element of a BODY -- the entry's own shelf or a child's -- rather
+than something a composite holds?  A BODY ANSWERS TO A HEADLINE, and that is
+what `p' climbs to off the shelf's edge.  A run's leaf and a drawer's pair
+answer to the composite over them, so their walk still ends at ITS edge.
+-}
+shelved : Model -> Row -> Bool
+shelved m r =
+    case r.owner of
+        Nothing ->
+            True
+
+        Just up ->
+            Maybe.withDefault False (Maybe.map heading (rowById m up))
 
 
 finer : Model -> ( Model, String )

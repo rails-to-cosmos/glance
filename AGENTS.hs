@@ -3846,12 +3846,17 @@ docRowsCap = 10
 docRowDoors :: [String]
 docRowDoors = ["the fill", "M-RET's splice at the caret", "the field's own input", "shutEdit"]
 
--- THE STEP HAS TWO COHORTS.  From a CHILD headline, `n'/`p' walk every visible
+-- THE STEP HAS THREE COHORTS.  From a CHILD headline, `n'/`p' walk every visible
 -- headline in document order -- org's next-visible-heading, a folded subtree skipped
 -- whole.  From anything else they walk the rows owned by what owns point -- a leaf
--- its item run, an element its shelf -- clamped at the run's ends.  THE ROOT IS THE
--- READER'S EXCEPTION: the entry's own line shares its contents' cohort, so `n' steps
--- into the body, while headlines walking up still land on it.  Contents are
+-- its item run, an element its shelf -- clamped at the run's ends.  `p' OFF A SHELF'S
+-- EDGE IS HEADLINE-SIZED: an element steps back over its own shelf while the shelf
+-- has something above and lands on the NEAREST VISIBLE HEADLINE where it does not --
+-- org's previous-visible-heading, so a body's first element climbs to its own
+-- headline and the TAIL past every subtree is ONE press from the document's last
+-- one.  A run's leaves are the composite's, so their edge still clamps.  THE ROOT IS
+-- THE READER'S EXCEPTION: the entry's own line shares its contents' cohort, so `n'
+-- steps into the body, while headlines walking up still land on it.  Contents are
 -- otherwise behind `f'/`b'.
 
 data Finer = IntoLeaves | Finest deriving (Eq, Show)
@@ -4614,12 +4619,18 @@ sheetNotes =
          \ INDENTS UNDER ITS OWN STAR: a row carries its headline's level, and the\
          \ indent and the bar are that level's -- org's own geometry, the root's being\
          \ the stylesheet's default." [Test, Browser]
-  , Note "THE STEP HAS TWO COHORTS: from a CHILD headline `n'/`p' walk every visible\
+  , Note "THE STEP HAS THREE COHORTS: from a CHILD headline `n'/`p' walk every visible\
          \ headline in document order -- org's next-visible-heading, a folded subtree\
          \ skipped whole; from anything else, the ROOT's own line included, they walk\
          \ the rows owned by what owns point -- a leaf its item run, an element its\
-         \ shelf -- so `n' from the top reads into the entry's contents.  `f' steps\
-         \ into what point owns, `b' climbs to the owner." [Elm, Browser]
+         \ shelf -- so `n' from the top reads into the entry's contents; and `p' off a\
+         \ SHELF'S EDGE is headline-sized -- an element steps back over its own shelf\
+         \ while the shelf has something above and lands on the nearest visible\
+         \ headline where it does not, so a body's first element climbs to its own\
+         \ headline and the TAIL past every subtree is one press from the document's\
+         \ last one, a folded subtree counting as its line alone.  A run's leaves\
+         \ answer to the composite, so their edge still clamps.  `f' steps into what\
+         \ point owns, `b' climbs to the owner." [Elm, Test, Browser]
   , Note "THE TAIL IS THE PANE'S LAST ROW: one empty line past everything,\
          \ hidden until the walk reaches it (`.dat' shows it), zero-width and\
          \ `alone', so an edit splices a fresh paragraph\

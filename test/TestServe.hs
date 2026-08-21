@@ -2726,6 +2726,16 @@ sheetSpec shell =
       insheet shell "press:n press:n press:n press:n press:n press:n press:n" $
         assertEqual "nothing stands past the tail, so the walk stays" 7 <=< pointOf
 
+    -- `p' IS HEADLINE-SIZED PAST A BODY'S EDGE: inside a body it is the shelf's
+    -- own element step (`j/k' above), and where the shelf has nothing above --
+    -- the body's first element, the TAIL past every subtree -- it lands on the
+    -- NEAREST VISIBLE HEADLINE, org's own previous-visible-heading.
+  , testCase "p climbs to a headline past its body's edge" $ do
+      insheet shell (ontoChild <> " press:f press:p") $
+        assertEqual "a body's first element climbs to its own headline" 5 <=< pointOf
+      insheet shell (ontoChild <> " press:n press:p") $
+        assertEqual "and the tail is one press from the last headline" 5 <=< pointOf
+
     -- GEOMETRY IS BEYOND THE STUB, so what is asserted is that the page ASKED.
   , testCase "the element under point asks its pane's scroller" $ do
       insheet shell "press:f press:n press:n press:n" $ \answer -> do
