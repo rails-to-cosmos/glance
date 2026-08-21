@@ -157,6 +157,9 @@ td.c-priority{color:var(--g-mute)}
 }
 .tv-hint b{color:var(--g-fg); font-weight:400}
 .tv-hint .tv-refused{color:var(--g-bad)}
+/* A WARNING IS NOT A REFUSAL: the query composed and applied, and this says why
+   nothing came back — so it wears the warning's amber, not the refusal's red. */
+.tv-hint .tv-warn{color:var(--g-todo)}
 
 /* ---- the composer: GEOMETRY ONLY, the ink is the variant's -------------- */
 /* It stands where the input stands, on the strip's own row, and it is a

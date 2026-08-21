@@ -299,6 +299,40 @@ produced and the check now holds:
    the DSL door's alone**: D keeps its ladder and the flat door keeps the
    shipped two-step, so the spike still shows both answers side by side and
    `check.mjs` holds each dialect to its own.
+15. **A complete term ends the conversation.** A reader with the caret after a
+   finished value — `tag /= "chore"|` — found the offers still standing and
+   `RET` taking one, so the key never reached the apply and the filter could
+   not be committed from that position at all. Round 11 read the dry law
+   forwards — an accept that lands INSIDE what it wrote asks again — and this
+   is the same law read backwards. **Offers stand at fresh and UNFINISHED
+   positions**; a position whose TERM is finished — a closed string literal, a
+   constructor that stands alone, a closed list or wrapper — carries none, and
+   `RET` there applies the stage exactly as it does on untouched ground. It is
+   the term's completeness and never a gesture's, so it holds whichever path
+   asked: the quote stepped over, the caret walked back onto the tail, the sign
+   helpers, a repaint. One predicate, one place — `dslDone`, read in
+   `cxOffer`'s typed branch, where every path meets. The counter-cases are what
+   keep it honest: a comma is a fresh position and offers at once, a half-typed
+   `Archiv` is still being written, and a caret inside a literal offers the way
+   it always did — the open world finishes nothing. `Desc`, `All`, `not` and
+   `raw` are unfinished too, being closed words still waiting for an argument,
+   which makes the roster a question of ARITY rather than of spelling.
+16. **The DSL warns where the grammar is merely honest.** `tag = All ["docs",
+   "chore"], tag /= "chore"` composes `tag:docs tag:chore -tag:chore`, and no
+   row can answer it. Both bindings are LEGAL — the collision rule forbids one
+   shape carrying two values, and `=` and `/=` are two operators — and the flat
+   grammar is right to serve the empty table, the emptiness being the truthful
+   answer. So this is a **warning and never a refusal**: the query composes and
+   applies exactly as it would have, both bindings are marked, and one line
+   under the box says which value contradicts which. Two rules, read over the
+   ATOMS the surface composes rather than over its text, so however a binding
+   was spelled it is judged the same: **a value both required and refused** on
+   one axis, and **two requirements one CELL cannot answer at once**. Which
+   axes are single-valued is the key's OWN test rather than a list of names,
+   and a widened axis is not read at all — both in the corners. The ink says
+   the same thing: the pair keeps its syntax colouring and takes the warning's
+   dotted amber over it, where `cx-bad`'s wavy red would be calling a legal
+   binding an error.
 
 Rounds 4 and 5 cost the spike its own control. `/` was identical in all tabs on
 purpose, and `check.mjs` asserted it; D's and F's departure is now DECLARED there
@@ -409,6 +443,31 @@ round-trip corpus.
   remembered rather than recomputed, and it is the one rung where a wrong memory
   shows: in the `/`-summon routes the dangling comma cannot survive a cancel,
   because the stage carrying it does not.
+- **What “single-valued” means is the key's TEST, not the key.** The tempting
+  rule is "every key but `tag`, the tags cell being the one list", and it would
+  warn about queries the grammar answers happily: `title:ship title:chain` is
+  satisfiable because a title CONTAINS both, and `deadline:2026 deadline:2026-08`
+  because one prefix extends the other. So the roster is the match itself —
+  `state` and `priority` compare a cell EXACTLY, `scheduled` and `deadline`
+  compare a PREFIX, and `title`, `planned`, free text and `tag` all look INSIDE,
+  where two requirements sit together. A false warning is worse than a silent
+  one, so the rule is spelled at the test.
+- **The metas are not judged at all.** `state = All [Active, Empty]` composes
+  `state:*active* state:*empty*` and is satisfiable — `*active*` takes the empty
+  state in with it — and the overlaps of the starred family are a law of their
+  own. No pair a meta is in is read, so a genuinely contradictory pair of metas
+  goes unsaid. That is the cost of not writing the family's overlap table twice.
+- **The warning names a PAIR**, because a sentence has to name what contradicts
+  what. Three requirements that disagree only three at a time — every two of
+  them satisfiable — go unsaid, and the empty table is left to speak for itself.
+- **The collapse can hide the binding the warning is about.** A closed badge
+  shows its first argument and a count, so a marked binding may be inside one
+  and out of sight; the BADGE takes the mark then, in a dotted border rather
+  than a rule, which is the same corner as “collapsing eats the operator”.
+- **A widened axis is never warned about.** `(P∪N ≠ ∅ ∧ base) ∨ wide` has a
+  second way to be true, so a contradiction in the base is not the query's — and
+  since `+` is exactly what F cannot always spell, the axes that go unread are
+  the ones most likely to be wearing `raw "…"`.
 - **`DEL` is already spoken for.** `docs/query.md`: "`@` … drills into `ref:ID`
   behind a breadcrumb; `DEL` pops back." The stage eraser and the crumb pop want
   the same key in the same state. One of them has to move.
@@ -446,7 +505,7 @@ dialect ends `, ` with the offers standing and the field names leading),
 **SLASH-ABANDON** (a fresh argument never written leaves the badge byte for byte
 as it was), **DEL-STAGE** and **DEL-INSIDE**.
 
-F owes seven more:
+F owes nine more:
 
 - **ESC-ABANDON** — the reader who walks OUT of an edit, where SLASH-ABANDON is
   the one who closes an untouched one. Three routes in — a bare `/` summon, one
@@ -455,7 +514,10 @@ F owes seven more:
   them ONE press restores the whole picture: chips, box, rows, hint and the two
   lines under them, byte for byte, with the box closed. Each route first pins
   that the edit HAD something to lose — the dangling comma, the standing offers,
-  the typed text — so the rung cannot pass by cancelling nothing.
+  the typed text — so the rung cannot pass by cancelling nothing. The typed
+  route's loss is the text and the comma and NOT the offers: what it typed is a
+  complete condition, so the menu is already down over it by round 15's law, and
+  the rung pins that too, which makes it a second site for the law.
 - **ESC-RESTORE** — what the edit found goes back, in the two places the chips
   cannot speak for it. A stage closed but not yet ASKED FOR lives in the box, so
   the cancel is the only thing that can put it back, and what it puts back is
@@ -475,6 +537,25 @@ F owes seven more:
   final — dry, closed, and a repaint does not resurrect it; taking a constructor
   swallows the slot's quotes where taking a literal keeps them; and typing past
   the closing quote steps over it.
+- **DONE** — SLOT's law read backwards. A closed literal with the caret stepped
+  over its far quote, a finished constructor with the caret WALKED onto its tail
+  rather than left there by the accept, and a `not (…)` the reader shut: over
+  each of them the menu is down and one `RET` applies the stage — the badge
+  lands, the flat string is the grammar's own, the door closes. The
+  counter-cases ride the same drives: a comma is a fresh position and its offers
+  stand at once, taking the comma back puts the menu down again, one step short
+  of `Archive` the name is still being written and offers, and a trailing space
+  changes nothing because the TERM decides and not the offset.
+- **WARN** — the contradiction, and that it is a courtesy. The user's own pair
+  (`tag = All ["docs", "chore"]` beside the badge's `tag /= "chore"`) marks BOTH
+  bindings and leaves the innocent one alone, says
+  `tag: "chore" is both required and refused — no row can carry that`, composes
+  all four tokens and APPLIES them, empty table and all, with the badge marked
+  afterwards; the near miss (`All ["docs"]` alone) stays quiet through the same
+  drive. Then the law itself over flat queries: the single-valued rule fires on
+  the `All`-spelled `state:TODO state:DONE` and stays quiet on two tags, on a
+  meta pair, on a nested prefix, on two titles, on an alternation with a
+  survivor on either side of the sign, and on a widened axis.
 - **QUOTED** — the shaping signatures. `.columns(` spawns its positional slot
   with the call and the offers complete INTO the quotes; a comma spawns the
   next slot; `.sort(` offers `columns = [""]` and then quoted names, each once
@@ -519,7 +600,22 @@ F owes seven more:
   gate so the cancel reaches D, and D's own ladder goes red on D's page. The
   restore mutants land on ESC-RESTORE and not on the `/`-summon routes, which is
   the corner itself: in those routes the comma cannot outlive the stage that
-  carries it. **Thirty-seven in all.**
+  carries it. The complete-term round added six: **always-offer — the reported
+  bug itself, put back on purpose — reds DONE on all three routes with `RET`
+  failing to commit**, and takes ESC-ABANDON's typed route with it; never-offer
+  reds the fresh slot along with nine other rungs; let a caret inside a literal
+  count as finished and SLOT and QUOTED go; count any name as whole and the
+  half-typed one loses its offers; and stop a closed list or wrapper finishing
+  anything, or let the OFFSET decide again so a trailing space reopens the menu,
+  and DONE alone goes red on each. The warning round added six, every one of
+  them landing on WARN and on nothing else — which is the courtesy's own proof,
+  since it changes no behaviour anywhere: detection off says nothing; detection
+  REFUSING blocks the compose, so the stage composes the empty string and the
+  apply carries nothing at all; stop the widening rescuing its axis and the
+  widened case warns; read every key but `tag` as single-valued and two tags and
+  two titles warn falsely; judge the metas like any other atom and
+  `state:*active* state:TODO` warns; and blame one side of the pair and half the
+  ink never lands. **Forty-nine in all.**
 
 The control fails five rungs by construction, the way headline-bars' `flat` tab
 does, so `a-control.html` declares DOT, PARENS, CHAIN, COMMA and DRY as misses:
@@ -557,13 +653,23 @@ which values are closed and which are open, which is one more field on the
 offer, not a new mechanism — and under a case-blind surface that declaration is
 what decides whether a bare word is a name or a marked error.
 
+**The warning has a home and needs a reading.** The line F speaks sits in the
+hint row beside the refusal the narrowed door already puts there
+(`tv-refused`), so the SITE ships already; what does not is the per-axis
+satisfiability, which is `keeper`'s own law asked of the axes rather than of a
+row and belongs beside the denotation. The mark is one more class on the token
+spans a structured composer would already be drawing, and the rule is that it
+changes nothing else: a warning that moved a byte of the composed string would
+be a refusal wearing another name.
+
 **Pins that move:** `docs/query.md` gains "the chain is a view of the string",
 the comma's per-stage reading, and the typed surface's own table;
 `AGENTS.hs`'s query-language model is untouched (the string is unchanged);
 `docs/invariants.md` gains the one this spike is really about — *the surface
-composes the flat query and nothing else composes it* — and its two sharper
-twins: *a stage the flat string cannot carry must not be composable* and *the
-two readers print one normal form*. `test/browser/cases.mjs` gains the
+composes the flat query and nothing else composes it* — and its three sharper
+twins: *a stage the flat string cannot carry must not be composable*, *the
+two readers print one normal form*, and *a diagnostic never changes what is
+composed*. `test/browser/cases.mjs` gains the
 DOT/PARENS/CHAIN rungs; the IR belongs in `test/TestFilter.hs`, where the
 denotation already lives. The wire changes nothing: `?q=` already carries the
 string, and that is the point.

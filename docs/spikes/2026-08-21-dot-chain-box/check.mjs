@@ -565,7 +565,10 @@ for (const page of picked) {
     // takes both, and the badge is spelled the way it was.
     const escA = await walkOut([["/"]]);
     // (b) …AND WITH A CONDITION TYPED INTO IT.  The typed text is the reader's
-    // own work and it goes too: a cancel that kept it would be a commit.
+    // own work and it goes too: a cancel that kept it would be a commit.  What
+    // this route has to lose is the text and the comma and NOT the offers — the
+    // condition is complete, so the menu is already down over it (see DONE),
+    // and the cancel is the same one press either way.
     const escB = await walkOut([["/"], chars('tag = docs"')]);
     // (c) …AND MID-EDIT OF AN ARGUMENT ALREADY WRITTEN, which is reached by
     // moving the caret rather than by the gesture: `"chore"' is retyped as
@@ -577,7 +580,7 @@ for (const page of picked) {
     want("ESC-ABANDON",
          // the edit really had something to lose: the comma, the offers, the text
          escA.mid.args === REOPEN_TEXT && escA.mid.menu === true && same(escA)
-         && escB.mid.args === FILTER_TEXT + ', tag = "docs"' && escB.mid.menu === true
+         && escB.mid.args === FILTER_TEXT + ', tag = "docs"' && escB.mid.menu === false
          && same(escB)
          && escC.mid.args === 'state = Active, tag /= "milk", ' && same(escC),
          `a=${JSON.stringify(escA.mid)}/${same(escA)} `
@@ -721,6 +724,104 @@ for (const page of picked) {
          + `hand=${JSON.stringify(byHand)} str=${JSON.stringify(str)} `
          + `settled=${settledMenu} past=${JSON.stringify(past)}`);
 
+    // ---- DONE: A COMPLETE TERM ENDS THE CONVERSATION.  SLOT above is round
+    // 11's law read forwards — an accept that leaves the caret inside what it
+    // wrote asks again — and this is the same law read backwards: the offers
+    // stand at fresh and UNFINISHED positions, and a position whose term is
+    // finished carries none, whichever path asked for them.  So `RET' over one
+    // applies the stage exactly as it does on untouched ground, where the
+    // reported bug was a menu standing over `tag /= "chore"|' and eating the
+    // key — RET accepting an offer, forever, with no way to commit the filter.
+    const stood = () => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                           at: (RIG.caret() || {}).at, menu: RIG.menu().open,
+                           lead: RIG.menu().items[0] });
+    const landed = () => ({ q: RIG.query(), pills: RIG.pills(), door: RIG.door(),
+                            rows: RIG.rows() });
+    // (a) A CLOSED STRING LITERAL, the caret stepped over its far quote.
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars('tag = docs"'));
+    const doneStr = await ff.eval(stood);
+    // …and the TERM is what decides, never the offset: a space after it is
+    // still a finished term, and the menu stays down over it.
+    await ff.keys([" "]);
+    const doneSpace = await ff.eval(stood);
+    await ff.keys([KEY.Backspace]);
+    // …and the counter-cases ride the same drive: a comma is a FRESH position,
+    // whose own offers stand at once, and taking the comma back puts the menu
+    // down again — the term is read at the caret and never latched.
+    await ff.keys([","]);
+    const doneFresh = await ff.eval(stood);
+    await ff.keys([KEY.Backspace]);
+    const doneAgain = await ff.eval(stood);
+    await ff.keys([KEY.Enter]);
+    const doneApplied = await ff.eval(landed);
+    // (b) A FINISHED CONSTRUCTOR, and the caret WALKED onto its tail rather
+    // than left there by the accept: what decides is the term, not the gesture.
+    // One step short of the whole word the name is still being written, so
+    // those offers stand — and the step back forward puts them down.
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars("tag ="));
+    await ff.keys(chars("Arch"));
+    await ff.keys([KEY.Tab]);
+    const doneCtor = await ff.eval(stood);
+    await ff.keys([KEY.ArrowLeft]);
+    const doneHalf = await ff.eval(stood);
+    await ff.keys([KEY.ArrowRight]);
+    const doneWalk = await ff.eval(stood);
+    await ff.keys([KEY.Enter]);
+    const ctorApplied = await ff.eval(landed);
+    // (c) A CLOSED WRAPPER, the paren the READER typed rather than the stage's
+    // own: the literal inside it is finished the moment its quote is stepped
+    // over, and so is the `not (…)' the moment it shuts.
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars("not (tag ="));
+    await ff.keys(chars('docs"'));
+    const doneInner = await ff.eval(stood);
+    await ff.keys([")"]);
+    const doneWrap = await ff.eval(stood);
+    await ff.keys([KEY.Enter]);
+    const wrapApplied = await ff.eval(landed);
+    want("DONE",
+         doneStr.args === 'tag = "docs"' && doneStr.at === 12
+         && doneStr.menu === false
+         && doneSpace.args === 'tag = "docs" ' && doneSpace.at === 13
+         && doneSpace.menu === false
+         && doneFresh.args === 'tag = "docs",' && doneFresh.at === 13
+         && doneFresh.menu === true && doneFresh.lead === FRESH_LEAD
+         && eq(doneAgain, doneStr)
+         && doneApplied.q === BOOT_FILTER + " tag:docs"
+         && doneApplied.door === null && doneApplied.rows === 1
+         && eq(doneApplied.pills,
+               ['filter(state = Active, tag = "docs", tag /= "chore")'])
+         && doneCtor.args === "tag = Archive" && doneCtor.at === 13
+         && doneCtor.menu === false
+         && doneHalf.at === 12 && doneHalf.menu === true
+         && doneHalf.lead === "Archive"
+         && eq(doneWalk, doneCtor)
+         && ctorApplied.q === BOOT_FILTER + " tag:*archive*"
+         && ctorApplied.door === null
+         && eq(ctorApplied.pills,
+               ['filter(state = Active, tag = Archive, tag /= "chore")'])
+         && doneInner.args === 'not (tag = "docs"' && doneInner.at === 17
+         && doneInner.menu === false
+         && doneWrap.args === 'not (tag = "docs")' && doneWrap.at === 18
+         && doneWrap.menu === false
+         && wrapApplied.q === BOOT_FILTER + " -tag:docs"
+         && wrapApplied.door === null && wrapApplied.rows === 3,
+         `str=${JSON.stringify(doneStr)} space=${JSON.stringify(doneSpace)} `
+         + `fresh=${JSON.stringify(doneFresh)} again=${JSON.stringify(doneAgain)} `
+         + `applied=${JSON.stringify(doneApplied)} `
+         + `ctor=${JSON.stringify(doneCtor)} half=${JSON.stringify(doneHalf)} `
+         + `walk=${JSON.stringify(doneWalk)} ctorApplied=${JSON.stringify(ctorApplied)} `
+         + `inner=${JSON.stringify(doneInner)} wrap=${JSON.stringify(doneWrap)} `
+         + `wrapApplied=${JSON.stringify(wrapApplied)}`);
+
     // ---- QUOTED: the shaping stages take NAMES, and a name is a string —
     // columns are an open set, so no roster can close them.  The offers
     // complete INTO the quotes: `.columns(' spawns its positional slot with the
@@ -835,6 +936,98 @@ for (const page of picked) {
          && apiCase.composes === "" && apiCase.variant === "state:*active*",
          `canon=${JSON.stringify(canon)} partial=${partial} `
          + `marked=${JSON.stringify(marked)} api=${JSON.stringify(apiCase)}`);
+
+    // ---- WARN: THE DSL WARNS WHERE THE GRAMMAR IS MERELY HONEST.  Two legal
+    // bindings can name a query no row can answer — `tag = All ["docs",
+    // "chore"], tag /= "chore"' composes `tag:docs tag:chore -tag:chore' — and
+    // the flat grammar is RIGHT to serve the empty table for it.  So this is a
+    // WARNING and never a refusal: the pair is marked, one line says which
+    // value contradicts which, and the compose and the apply are untouched.
+    const warned = () => ({
+      // the bindings, as the ink finds them; the innocent one is absent from it
+      ink: [...document.querySelectorAll("#app .cx .cx-live .cx-warn")]
+        .map((n) => n.textContent).join(""),
+      said: [...document.querySelectorAll("#app .tv-hint .tv-warn")]
+        .map((n) => n.textContent),
+      badges: document.querySelectorAll("#app .tv-chips .cx-pill.cx-warn").length,
+      args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+      c: RIG.composed(), q: RIG.query(), rows: RIG.rows(), door: RIG.door(),
+    });
+    /** `/' reopens the badge, which already carries `tag /= "chore"'; the
+     *  reader adds the `All' list beside it, one element or two. */
+    const addAll = async (tail) => {
+      await ff.goto(url);
+      await ff.keys(["/"]);
+      await ff.keys(chars("tag ="));
+      const at = await ff.eval(() => RIG.menu().items.indexOf('All [ "…" ]'));
+      await ff.keys(new Array(Math.max(0, at)).fill(KEY.ArrowDown));
+      await ff.keys([KEY.Tab]);
+      await ff.keys(chars('docs"'));
+      if (tail) await ff.keys(chars(tail));
+      return at;
+    };
+    const allAt = await addAll(', "chore"');
+    const conflict = await ff.eval(warned);
+    await ff.keys([KEY.ArrowRight]);              // out of the list, then close
+    await ff.keys([")", KEY.Enter]);
+    const stillAsked = await ff.eval(warned);
+    // …and the near miss stays QUIET: one element, and the axis is answerable.
+    await addAll("");
+    const quiet = await ff.eval(warned);
+    await ff.keys([KEY.ArrowRight]);
+    await ff.keys([")", KEY.Enter]);
+    const quietOn = await ff.eval(warned);
+    // …and the law itself, over flat queries, where the reading lives.
+    const law = await ff.eval((boot) => ({
+      pair: RIG.unsat("tag:docs tag:chore -tag:chore"),
+      near: RIG.unsat("tag:docs -tag:chore"),
+      // the SINGLE-VALUED rule, which `All' can spell where a repeated field
+      // cannot — and which the tags cell, being the one list, never trips
+      single: RIG.unsat("state:TODO state:DONE").said,
+      tags: RIG.unsat("tag:web tag:docs").said,
+      // the metas overlap by their own law, so no pair either is in is judged
+      meta: RIG.unsat("state:*active* state:TODO").said,
+      // a PREFIX key parts only where neither prefix extends the other
+      nested: RIG.unsat("deadline:2026 deadline:2026-08").said,
+      apart: RIG.unsat("deadline:2026-08 deadline:2027-01").said,
+      // free text and titles match INSIDE a cell: two of them sit together
+      text: RIG.unsat("title:ship title:chain").said,
+      // one surviving alternative is a row, on either side of the sign
+      alt: RIG.unsat("state:TODO|DONE state:TODO").said,
+      altN: RIG.unsat("tag:web|docs -tag:web").said,
+      // and a WIDENED axis has a second way to be true
+      wide: RIG.unsat("tag:chore -tag:chore +tag:web").said,
+      boot: RIG.unsat(boot).said,
+    }), BOOT_FILTER);
+    const SAID = 'tag: "chore" is both required and refused — no row can carry that';
+    want("WARN",
+         allAt >= 0
+         && conflict.args === 'state = Active, tag /= "chore", tag = All ["docs", "chore"]'
+         // BOTH bindings marked, and the innocent one is not among them
+         && conflict.ink === 'tag/="chore"tag=All["docs","chore"]'
+         && eq(conflict.said, [SAID])
+         // …and nothing about the compose moved
+         && conflict.c === BOOT_FILTER + " tag:docs tag:chore"
+         // …and the apply goes through: the empty table IS the answer
+         && stillAsked.q === BOOT_FILTER + " tag:docs tag:chore"
+         && stillAsked.rows === 0 && stillAsked.door === null
+         && eq(stillAsked.said, [SAID]) && stillAsked.badges === 1
+         // the near miss says nothing, before or after the apply
+         && quiet.ink === "" && eq(quiet.said, []) && quiet.badges === 0
+         && quiet.c === BOOT_FILTER + " tag:docs"
+         && quietOn.q === BOOT_FILTER + " tag:docs" && quietOn.rows === 1
+         && eq(quietOn.said, []) && quietOn.badges === 0
+         && eq(law.pair.said, [SAID])
+         && eq(law.pair.tokens, ["tag:chore", "-tag:chore"])
+         && eq(law.near.said, []) && eq(law.near.tokens, [])
+         && eq(law.single,
+               ['state: "TODO" and "DONE" are both required — no row is both'])
+         && eq(law.tags, []) && eq(law.meta, []) && eq(law.nested, [])
+         && law.apart.length === 1 && eq(law.text, []) && eq(law.alt, [])
+         && eq(law.altN, []) && eq(law.wide, []) && eq(law.boot, []),
+         `allAt=${allAt} conflict=${JSON.stringify(conflict)} `
+         + `applied=${JSON.stringify(stillAsked)} quiet=${JSON.stringify(quiet)} `
+         + `quietOn=${JSON.stringify(quietOn)} law=${JSON.stringify(law)}`);
 
     // ---- IR: TWO PARSERS, ONE NORMAL FORM.  Paired spellings have to print
     // the SAME bytes; the divergence corpus has to print different ones, or the

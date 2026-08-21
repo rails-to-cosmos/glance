@@ -31,6 +31,13 @@
      is not this door's: here the menu is incidental to the input, so
      cancelling the input takes the menu with it.
 
+     AND THE DSL WARNS WHERE THE GRAMMAR IS MERELY HONEST.  Two legal bindings
+     can name a query no row can answer; the flat grammar is right to serve the
+     empty table for it, and the typed surface owes the sentence.  So the pair
+     is marked, a line under the box says which value contradicts which, and
+     the query composes and applies exactly as it would have — a warning, never
+     a refusal.
+
      Under the box, the lisp normal form — read from THIS reader while the
      table is served by the flat one, so the two paths are compared on screen
      as well as in the check. */
@@ -47,6 +54,12 @@
   /* THE ONE OPERATOR THAT CAN BE READ BACKWARDS wears the refusal's ink. */
   .cx-neg{color:var(--g-bad); font-weight:600}
   .cx-bad{color:var(--g-bad); text-decoration:underline wavy}
+  /* BOTH SIDES OF A CONTRADICTION, and neither of them wrong on its own: the
+     bindings are legal and the query is still asked, so the pair keeps its
+     syntax ink and takes the warning's dotted amber over it — the refusal's
+     wavy red would be saying something untrue. */
+  .cx-warn{text-decoration:underline dotted var(--g-todo);
+    text-decoration-thickness:2px; text-underline-offset:3px}
   /* A WORD HALF-TYPED is not yet wrong — it wears the page's own ink until it
      can no longer finish as anything the closed world knows. */
   .cx-partial-name{color:var(--g-fg)}
@@ -64,6 +77,11 @@
   }
   .cx-pending{border-style:dashed}
   .cx-editing{border-style:dashed; border-color:var(--g-accent)}
+  /* …AND ON THE BADGE the pair may be hiding inside, where the collapse shows
+     the first argument alone.  A border rather than a rule, so it does not
+     compete with the marks on the bindings themselves. */
+  .cx-pill.cx-warn{border-style:dotted; border-color:var(--g-todo);
+    text-decoration:none}
 
   #echo b{color:var(--g-mute); display:inline-block; min-width:4ch;
     margin-right:8px}

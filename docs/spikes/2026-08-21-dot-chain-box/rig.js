@@ -451,6 +451,11 @@ var RIG = (function () {
   // taken-as-written.
   var DIRS = { asc: "Asc", desc: "Desc" };
   var WORDS = { not: "not", raw: "raw" };
+  // THE CLOSED WORDS THAT STAND ALONE.  A meta's constructor is a whole value
+  // the moment it is spelled, and `None' with it; `All', `Any', `Asc', `Desc',
+  // `not' and `raw' are all still waiting for an argument.  It is the one thing
+  // `dslDone' needs the roster for.
+  var NULLARY = Object.keys(CTORS).concat([WRAPPERS.none]);
 
   /** The canonical constructor a bare name spells, or null. */
   function ctorOf(v) {
@@ -889,6 +894,109 @@ var RIG = (function () {
   function dslOfCols(value) {
     return String(value).split(",").filter(function (n) { return n.trim(); })
       .map(function (n) { return JSON.stringify(n.trim()); }).join(", ");
+  }
+
+  // ------------------------- F: where the grammar is honest and nothing passes
+  /**
+   * PER-AXIS SATISFIABILITY, AND IT IS A WARNING AND NEVER A REFUSAL.  Two
+   * bindings can be perfectly legal and still name a query no row can answer:
+   * `tag = All ["docs", "chore"], tag /= "chore"' composes
+   * `tag:docs tag:chore -tag:chore', and the flat grammar is RIGHT to serve the
+   * empty table for it — the emptiness IS the answer.  What the typed surface
+   * owes is the sentence, so the query still composes, still applies, and the
+   * line under it says why nothing came back.
+   *
+   * Two rules, read over the ATOMS the surface COMPOSES and never over its
+   * text, so however a binding was spelled it is judged the same:
+   *
+   *   (a) ANY axis — a value both REQUIRED by the base conjunction and
+   *       FORBIDDEN by it.  A token every one of whose alternatives is refused
+   *       is the general form: one surviving alternative is a row.
+   *   (b) A SINGLE-VALUED axis — two requirements one CELL cannot answer at
+   *       once.  Which axes those are is the key's OWN test rather than a list
+   *       of names: `state' and `priority' match a cell exactly, so two values
+   *       part; `scheduled' and `deadline' match a PREFIX, so they part unless
+   *       one extends the other; `title', `planned', free text and `tag' — the
+   *       tags cell being the one list — match anywhere INSIDE, where two
+   *       requirements sit together happily.
+   *
+   * An axis carrying a WIDENING is skipped whole: `(base) ∨ wide' has a second
+   * way to be true, so a contradiction in the base is not the query's.
+   */
+  var CELL_TEST = { state: "is", priority: "is",
+                    scheduled: "starts", deadline: "starts" };
+
+  var isMeta = function (a) { return /^\*[a-z]+\*$/.test(a); };
+
+  /** Can ONE cell answer both atoms at once, under this key's own test? */
+  function agree(key, a, b) {
+    if (a === b) return true;
+    // THE METAS OVERLAP BY THEIR OWN LAW — `*active*' takes the empty state in
+    // with it — so no pair either of them is in is judged here.
+    if (isMeta(a) || isMeta(b)) return true;
+    var t = CELL_TEST[key];
+    if (t === "is") return false;
+    if (t === "starts") return a.indexOf(b) === 0 || b.indexOf(a) === 0;
+    return true;                    // anywhere inside: one cell holds them both
+  }
+
+  /**
+   * The bindings of Q that no row can satisfy — the flat TOKENS they compose
+   * to, since a token is what a binding becomes, and one sentence each.
+   * @returns {{said: Array<string>, tokens: Array<string>}}
+   */
+  function unsatisfied(q) {
+    var axes = {}, order = [], said = [], tokens = [];
+    scan(q).forEach(function (t) {
+      if (t.shaping) return;
+      if (t.sign !== "-" && vacuous(t)) return;      // the vacuity rule, first
+      var a = axisOf(t);
+      if (!axes[a]) { axes[a] = { P: [], N: [], W: [] }; order.push(a); }
+      axes[a][t.sign === "-" ? "N" : t.sign === "+" ? "W" : "P"].push(t);
+    });
+    var atomsOf = function (t) {
+      return alts(t).map(function (v) { return normAtom(t.key, v); });
+    };
+    var spelt = function (t) { return dslValue(alts(t)); };
+    var blame = function (x, y, sentence) {
+      [x, y].forEach(function (t) {
+        if (tokens.indexOf(t.text) < 0) tokens.push(t.text);
+      });
+      if (said.indexOf(sentence) < 0) said.push(sentence);
+    };
+    order.forEach(function (a) {
+      var g = axes[a];
+      if (g.W.length) return;             // the widening is the other way to be
+      g.P.forEach(function (p) {
+        // (a) REQUIRED AND REFUSED, alternative by alternative.
+        var want = atomsOf(p);
+        var by = g.N.filter(function (n) {
+          var no = atomsOf(n);
+          return want.some(function (x) { return no.indexOf(x) >= 0; });
+        });
+        var dead = by.length && want.every(function (x) {
+          return by.some(function (n) { return atomsOf(n).indexOf(x) >= 0; });
+        });
+        if (!dead) return;
+        by.forEach(function (n) {
+          blame(p, n, p.key + ": " + spelt(p) + " is both required and refused"
+                + " — no row can carry that");
+        });
+      });
+      // (b) TWO REQUIREMENTS ONE CELL CANNOT ANSWER, pair by pair.  A pair is
+      // what a warning can NAME, so that is the granularity of the reading.
+      g.P.forEach(function (p, i) {
+        g.P.slice(i + 1).forEach(function (o) {
+          var can = atomsOf(p).some(function (x) {
+            return atomsOf(o).some(function (y) { return agree(p.key, x, y); });
+          });
+          if (can) return;
+          blame(p, o, p.key + ": " + spelt(p) + " and " + spelt(o)
+                + " are both required — no row is both");
+        });
+      });
+    });
+    return { said: said, tokens: tokens };
   }
 
   // --------------------------------------------------------------- the state
@@ -1560,6 +1668,32 @@ var RIG = (function () {
     return depth > 0;
   }
 
+  /**
+   * IS THE TERM AT THE CARET FINISHED?  Round 11 read the dry law forwards: an
+   * accept that leaves the caret INSIDE what it just wrote has finished nothing
+   * and that new position's offers stand at once.  This is the same law read
+   * backwards, and it is the TERM's completeness rather than any gesture's — a
+   * closed string literal, a constructor that stands alone, a closed list or
+   * wrapper is a whole VALUE, and a whole value ends the conversation.  Over
+   * one the menu is down and `RET' applies the stage exactly as it does on
+   * untouched ground.  Fresh ground, a half-typed name and a caret inside a
+   * literal are all unfinished, and they keep their offers.
+   *
+   * The term is what decides and never the offset, so a trailing space carries
+   * nothing either way.
+   */
+  function dslDone(args, at) {
+    if (inString(args, at)) return false;    // the open world finishes nothing
+    var s = String(args).slice(0, at);
+    var lx = lexDsl(s), end = lx[lx.length - 1];
+    if (!end || !/^\s*$/.test(s.slice(end.end))) return false;      // fresh ground
+    if (end.t === "str") return true;                          // a closed literal
+    if (end.v === "]" || end.v === ")") return true;   // a closed list or wrapper
+    // A NAME IS WHOLE ONLY IF IT STANDS ALONE: `All' and `Desc' are waiting for
+    // their argument, and a field is waiting for its `='.
+    return end.t === "name" && NULLARY.indexOf(ctorOf(end.v)) >= 0;
+  }
+
   /** `+': the value under the caret becomes a Haskell list with a fresh slot —
    *  which composes to the flat alternation, the widened axis itself. */
   function dslWiden(st) {
@@ -1590,6 +1724,11 @@ var RIG = (function () {
     }
     if (CX.where !== "args") { closeMenu(); return; }
     if (S.look.dsl) {
+      // A COMPLETE TERM ENDS THE CONVERSATION.  The offers stand at fresh and
+      // unfinished positions; over a finished one the menu is down, whichever
+      // path asked — the quote stepped over, the caret walked back, a gesture,
+      // a repaint.  One reading, one place: `dslDone'.
+      if (dslDone(st.args, caretAt(st))) { st.span = null; closeMenu(); return; }
       // F asks in its own idiom, and asks the TEXT rather than a fragment: the
       // typed surface is nested, so where the caret is is a parse question.
       var d = st.fn === "filter" ? dslFilterOffers(st.args, caretAt(st))
@@ -2069,7 +2208,11 @@ var RIG = (function () {
    *  closed but not yet asked for, `cx-editing' for one open in the box. */
   function pillEl(p, i, mark) {
     var c = document.createElement("span");
-    c.className = "tv-chip cx-pill cx-pill-" + p.fn + (mark ? " " + mark : "");
+    // A BADGE THE WARNING IS ABOUT SAYS SO ON ITSELF: the collapse shows the
+    // first argument and a count, so the binding the warning names may be
+    // inside a badge and out of sight, and the reader still has to find it.
+    var warn = warnSpans(p.args, p.fn).length ? " cx-warn" : "";
+    c.className = "tv-chip cx-pill cx-pill-" + p.fn + (mark ? " " + mark : "") + warn;
     c.dataset.fn = p.fn;
     c.title = "." + p.fn + "(" + p.args + ")";
     var dot = document.createElement("b");
@@ -2152,7 +2295,7 @@ var RIG = (function () {
   /** F's own painter: fields, constructors, literals, and the two operators.
    *  `Desc'/`Asc' are gone from the roster — the direction rides inside the
    *  name's string now — so a capital that is not a meta or a wrapper is bad. */
-  function paintDsl(frag, text, fn) {
+  function paintDsl(frag, text, fn, warn) {
     var lx = lexDsl(text), i = 0;
     var fields = STAGE_FIELDS[fn] || FIELDS;
     lx.forEach(function (t) {
@@ -2170,10 +2313,36 @@ var RIG = (function () {
         : fields.indexOf(fold(t.v)) >= 0 ? "cx-kw"
         // A WORD HALF-TYPED IS NOT YET WRONG; one that can never finish is.
         : partialName(t.v, fn) ? "cx-partial-name" : "cx-bad";
+      // A CONTRADICTION IS NO ERROR: both bindings are legal and the query is
+      // still asked, so the pair wears its own ink over the syntax colouring
+      // rather than the refusal's — what is wrong is the two of them TOGETHER.
+      var inside = function (sp) { return t.at >= sp.start && t.end <= sp.end; };
+      if (warn && warn.some(inside)) cls += " cx-warn";
       frag.appendChild(span(text.slice(t.at, t.end), cls));
       i = t.end;
     });
     if (i < text.length) frag.appendChild(document.createTextNode(text.slice(i)));
+  }
+
+  /** The paint's own reading of what no row can answer; see `unsatisfied'. */
+  var WARN = { said: [], tokens: [] };
+
+  /**
+   * The character spans of the bindings THIS text writes that no row can
+   * answer: one item at a time, composed on its own and looked up in the
+   * paint's reading — so a binding is marked wherever it shows, in the live
+   * stage's parens or in the badge on the strip, and BOTH sides of a
+   * contradiction are marked wherever each of them stands.
+   */
+  function warnSpans(args, fn) {
+    if (!WARN.tokens.length || fn !== "filter") return [];
+    return itemSpans(String(args)).filter(function (sp) {
+      var one = String(args).slice(sp.start, sp.end);
+      if (!one.trim()) return false;
+      return scan(stageString(fn, one)).some(function (t) {
+        return WARN.tokens.indexOf(t.text) >= 0;
+      });
+    });
   }
 
   /** A DONE stage collapses to its first argument plus a dim count. */
@@ -2186,7 +2355,7 @@ var RIG = (function () {
     var cut = !!done && !!S.look.collapse && args.length > 24 && parts.length > 1;
     var shown = cut ? parts[0].trim() : args;
     if (S.look.dsl) {
-      paintDsl(frag, shown, fn);
+      paintDsl(frag, shown, fn, warnSpans(shown, fn));
     } else if (S.look.syntax) {
       (fn === "sort" ? paintSort : fn === "columns" ? paintCols : paintFilter)(frag, shown);
     } else {
@@ -2349,6 +2518,9 @@ var RIG = (function () {
                              ? a.cols.map(function (c) { return c.head; }).join(",")
                              : "the six"));
     if (S.refused) add("tv-refused", S.refused);
+    // THE COURTESY, NEVER THE REFUSAL: the query composed and the query
+    // applied, and the empty table is the truthful answer — this says why.
+    WARN.said.forEach(function (line) { add("tv-warn", line); });
   }
 
   /** The query as it WOULD be asked: the strip, less any stage being rewritten,
@@ -2424,6 +2596,10 @@ var RIG = (function () {
   }
 
   function paint() {
+    // WHAT NO ROW CAN ANSWER, read ONCE PER PAINT over the query as it would be
+    // asked — the strip plus what the box is writing — so the badge, the live
+    // stage and the hint all speak from one reading.
+    WARN = S.look.dsl ? unsatisfied(effectiveFlat()) : { said: [], tokens: [] };
     renderChain();
     renderChips();
     var a = renderTable();
@@ -2625,6 +2801,9 @@ var RIG = (function () {
         .map(function (g) { return g.col + " is not a column the chain can carry"; });
     },
     dslCanon: dslCanon,
+    // WHAT NO ROW CAN ANSWER — the warning's own reading, over a flat query, so
+    // a check can assert the LAW as well as the ink on the screen.
+    unsat: unsatisfied,
     chainSource: chainSource, effectiveFlat: effectiveFlat,
     caret: function () {
       var st = live();
