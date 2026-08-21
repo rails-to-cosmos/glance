@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · plain chain</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* THE SMALLEST CHAIN THAT IS STILL A CHAIN: `.' spawns a dot, the menu
+     offers the three calls, and a taken call is spelled as text — the dots and
+     the parens in the punctuation's dim, the arguments in the page's ink.
+     No colour inside the parens, no ghost, no collapsing: whatever was typed
+     is what stands, so the ONLY claim the tab makes is that a query has
+     STAGES. */
+  .cx-dot,.cx-par{color:var(--g-mute)}
+  .cx-fn{color:var(--g-fg); font-weight:400}
+  .cx-args{color:var(--g-fg)}
+  .cx-partial{color:var(--g-mute)}
+</style>
+</head>
+<body>
+  <h1>B · plain chain
+    <small>the dot, the three calls, and plain text between the parens</small></h1>
+  <div id="stage"><div id="app"></div></div>
+  <footer>
+    <span><kbd>/</kbd> filter door · <kbd>.</kbd> compose door ·
+      <kbd>TAB</kbd> complete · <kbd>)</kbd> close the stage ·
+      <kbd>RET</kbd> apply · <kbd>ESC</kbd> back · <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { klass: "v-b" } });
+})();
+</script>
+</body>
+</html>

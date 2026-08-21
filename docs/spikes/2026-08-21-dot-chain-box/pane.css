@@ -1,0 +1,190 @@
+/* The docked box every variant draws into, lifted from `Page/Style.hs' and
+   `assets/table-view.js' so the look is judged at the real hues and the real
+   metrics.  A variant adds its own `<style>' after this and overrides nothing
+   here — the composer's GEOMETRY is the rig's, its INK is the variant's. */
+
+:root{
+  --dk-mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+  --g-bg:#FFFFFF; --g-fg:#000000; --g-surface:#F8F8FF; --g-mute:#667071;
+  --g-border:#E3E6EA; --g-accent:#31769F; --g-sel:#FFD600; --g-link:#30739B;
+  --g-bad:#E74C3C; --g-point:#005A8D; --g-point-off:#B9C2C6;
+  --g-todo:#B54708; --g-done:#3D7A4A; --g-hover:#FAFAFA;
+  /* The chip voices, verbatim from the renderer: frost narrows, the column
+     band orders, the link hue shapes, the accent names a whole view. */
+  --tv-frost:#D0E1F9; --tv-col:#FFF3D0;
+  --tv-chip-wash:45%; --tv-chip-edge:95%;
+  --tv-sort-wash:52%; --tv-cols-wash:52%;
+  --tv-shadow:#00000033;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+    --g-point:#FFC777; --g-point-off:#4A5064;
+    --g-todo:#FF9E64; --g-done:#7FBC85; --g-hover:#1F1F1F;
+    --tv-chip-wash:18%; --tv-chip-edge:34%;
+    --tv-sort-wash:18%; --tv-cols-wash:18%;
+    --tv-shadow:#00000077;
+  }
+}
+:root[data-theme="dark"]{
+  --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+  --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+  --g-point:#FFC777; --g-point-off:#4A5064;
+  --g-todo:#FF9E64; --g-done:#7FBC85; --g-hover:#1F1F1F;
+  --tv-chip-wash:18%; --tv-chip-edge:34%;
+  --tv-sort-wash:18%; --tv-cols-wash:18%;
+  --tv-shadow:#00000077;
+}
+
+html,body{height:100%}
+body{
+  margin:0; background:var(--g-bg); color:var(--g-fg);
+  font:12px/1.5 var(--dk-mono);
+  display:flex; flex-direction:column; gap:8px; padding:12px;
+  box-sizing:border-box;
+}
+h1{
+  margin:0; font-size:12px; font-weight:600; flex:none;
+  display:flex; align-items:baseline; gap:10px;
+}
+h1 small{font-weight:400; color:var(--g-mute)}
+kbd{
+  font:inherit; border:1px solid var(--g-border); border-radius:3px;
+  padding:0 3px; color:var(--g-mute);
+}
+footer{
+  flex:none; color:var(--g-mute); font-size:11px;
+  display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
+}
+#truth{color:var(--g-fg)}
+#stage{flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:6px}
+#stage:focus{outline:none}
+
+/* ---- the mount, as `tv-dock tv-summon' draws it ------------------------- */
+#app{
+  color:var(--g-fg); background:var(--g-bg);
+  font:13px/1.5 var(--dk-mono);
+  border:1px solid var(--g-border); border-radius:8px; overflow:hidden;
+  flex:1 1 auto; min-height:0;
+  display:grid; grid-template-columns:auto minmax(0,1fr);
+  grid-template-rows:auto minmax(0,1fr) auto; align-items:center;
+}
+/* THE SUMMONED BOX COMES ON THE CHIP STRIP'S OWN ROW: the chips take their
+   width, the box the slack, and the row is there whether or not the box is. */
+#app > .tv-chips{grid-area:1 / 1; padding:8px 12px; border-bottom:none}
+#app > .tv-bar{grid-area:1 / 2; display:none; padding:0 12px 0 0;
+  align-items:center; gap:10px}
+#app.tv-typing > .tv-bar{display:flex}
+#app > .tv-scroll{grid-area:2 / 1 / 2 / -1; border-top:1px solid var(--g-border);
+  align-self:stretch; min-height:0; overflow:auto; position:relative;
+  scrollbar-width:none}
+#app > .tv-scroll::-webkit-scrollbar{width:0;height:0}
+#app > .tv-hint{grid-area:3 / 1 / 3 / -1}
+
+.tv-chips{display:flex; flex-wrap:wrap; gap:5px; align-items:center}
+.tv-chip{
+  display:inline-flex; align-items:center; gap:5px;
+  padding:1px 4px 1px 8px; border-radius:999px; font-size:12px; cursor:pointer;
+  color:var(--g-fg); border:1px solid var(--g-border);
+  background:color-mix(in srgb,var(--tv-frost) var(--tv-chip-wash),transparent);
+  border-color:color-mix(in srgb,var(--tv-frost) var(--tv-chip-edge),transparent);
+}
+.tv-chip-sort{
+  font-variant-ligatures:contextual;
+  background:color-mix(in srgb,var(--tv-col) var(--tv-sort-wash),transparent);
+  border-color:color-mix(in srgb,var(--tv-col) var(--tv-chip-edge),transparent);
+}
+.tv-chip-cols{
+  background:color-mix(in srgb,var(--g-link) var(--tv-cols-wash),transparent);
+  border-color:color-mix(in srgb,var(--g-link) var(--tv-chip-edge),transparent);
+}
+.tv-chip:hover{border-color:var(--g-accent); color:var(--g-accent)}
+.tv-chip-x{font-style:normal; opacity:.55; padding:0 3px}
+.tv-chip:hover .tv-chip-x{opacity:1}
+.tv-chips .tv-pin{margin-left:auto; cursor:pointer; opacity:.35; font-size:12px;
+  user-select:none; filter:grayscale(1)}
+
+.tv-filter-wrap{position:relative; display:flex; flex:1 1 auto; min-width:0}
+.tv-filter{
+  font:inherit; padding:4px 8px; border:1px solid var(--g-border);
+  border-radius:6px; background:var(--g-bg); color:var(--g-fg);
+  min-width:140px; flex:1 1 auto; min-width:0;
+}
+.tv-filter::placeholder{color:var(--g-mute); opacity:1}
+.tv-filter:focus{outline:none; border-color:var(--g-accent)}
+
+/* The suggestion list hangs under the box, over the table. */
+.tv-ac{
+  position:absolute; top:100%; left:0; min-width:100%; z-index:5;
+  margin-top:2px; max-height:min(288px,40vh); overflow-y:auto;
+  background:var(--g-bg); border:1px solid var(--g-border); border-radius:6px;
+  box-shadow:0 4px 12px var(--tv-shadow);
+}
+.tv-ac-item{
+  display:flex; justify-content:space-between; align-items:baseline; gap:14px;
+  padding:3px 10px; white-space:nowrap; cursor:pointer; color:var(--g-fg);
+}
+.tv-ac-n{color:var(--g-mute); font-variant-numeric:tabular-nums}
+.tv-ac-aside{color:var(--g-mute)}
+.tv-ac-dim{opacity:.6; font-style:italic}
+.tv-ac-note{
+  padding:5px 10px; border-top:1px solid var(--g-border);
+  color:var(--g-mute); font-size:11px; white-space:nowrap;
+}
+.tv-ac-on{background:var(--g-sel); color:var(--g-fg); font-weight:600}
+
+/* ---- the six-row table -------------------------------------------------- */
+table{border-collapse:collapse; width:100%; font:inherit}
+th{
+  text-align:left; font-weight:600; padding:3px 10px; white-space:nowrap;
+  border-bottom:1px solid var(--g-border); background:var(--g-surface);
+  position:sticky; top:0;
+}
+td{padding:3px 10px; white-space:nowrap; border-bottom:1px solid var(--g-border)}
+tbody tr:nth-child(even){background:var(--g-surface)}
+tbody tr.tv-sel{background:var(--g-sel); color:var(--g-fg)}
+td.c-state{color:var(--g-todo)}
+td.c-state.done{color:var(--g-done)}
+td.c-tags{color:var(--g-mute)}
+td.c-priority{color:var(--g-mute)}
+.tv-empty{padding:10px; color:var(--g-mute)}
+
+.tv-hint{
+  padding:5px 12px; border-top:1px solid var(--g-border);
+  color:var(--g-mute); font-size:11px;
+  display:flex; gap:12px; align-items:baseline; flex-wrap:wrap;
+}
+.tv-hint b{color:var(--g-fg); font-weight:400}
+.tv-hint .tv-refused{color:var(--g-bad)}
+
+/* ---- the composer: GEOMETRY ONLY, the ink is the variant's -------------- */
+/* It stands where the input stands, on the strip's own row, and it is a
+   FOCUSABLE box rather than a text field: what it holds is a chain, and a
+   chain has stages where a string has characters. */
+.cx{
+  flex:1 1 auto; min-width:0; font:inherit;
+  padding:4px 8px; border:1px solid var(--g-accent); border-radius:6px;
+  background:var(--g-bg); color:var(--g-fg);
+  white-space:pre; overflow-x:auto; scrollbar-width:none;
+  display:flex; align-items:baseline;
+}
+.cx::-webkit-scrollbar{height:0}
+.cx:focus{outline:none}
+.cx-stage{white-space:pre}
+.cx-caret{
+  display:inline-block; width:1px; height:1.15em; vertical-align:text-bottom;
+  background:var(--g-fg); animation:cx-blink 1.1s steps(1) infinite;
+  margin:0 -0.5px;
+}
+@keyframes cx-blink{50%{opacity:0}}
+.cx-empty{color:var(--g-mute)}
+
+/* ---- E's echo line ------------------------------------------------------ */
+#echo{
+  flex:none; font-size:11px; color:var(--g-mute);
+  padding:0 2px; display:flex; flex-direction:column; gap:2px;
+  white-space:pre-wrap; overflow-wrap:anywhere;
+}
+#echo b{font-weight:400; color:var(--g-fg)}
+#echo .eq{color:var(--g-mute)}

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E · echo line</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* C'S ENTRY, PLUS THE PROOF.  Under the box, in small mute type, the flat
+     `?q=' the chain is writing — the strip's standing tokens first, then what
+     the chain has added, told apart by ink.  The chain WRITES; the line
+     PROVES, live, before RET is pressed, so the reader never has to trust that
+     the pretty call means the string they would have typed. */
+  .cx-dot,.cx-par,.cx-punc{color:var(--g-mute)}
+  .cx-fn{color:var(--g-point); font-weight:600}
+  .cx-partial{color:var(--g-point); opacity:.7}
+  .cx-key{color:var(--g-link)}
+  .cx-val,.cx-text{color:var(--g-fg)}
+  .cx-meta{color:var(--g-point); font-style:italic}
+  .cx-sign-add{color:var(--g-done); font-weight:600}
+  .cx-sign-neg{color:var(--g-bad); font-weight:600}
+  .cx-arrow{color:var(--g-mute); font-variant-ligatures:contextual}
+  .cx-col{color:var(--g-link)}
+  .cx-ghost{color:var(--g-mute); opacity:.55; font-style:italic}
+  .cx-more{color:var(--g-mute); font-weight:400}
+
+  #echo b{color:var(--g-mute); display:inline-block; min-width:4ch;
+    margin-right:8px}
+  /* WHAT STANDS is quiet; WHAT THE CHAIN IS WRITING is lit — the same
+     difference the strip draws between an applied chip and a half-typed box. */
+  #echo .e-applied{color:var(--g-mute)}
+  #echo .e-chain{color:var(--g-fg)}
+  #echo .eq{color:var(--g-mute); opacity:.8}
+</style>
+</head>
+<body>
+  <h1>E · echo line
+    <small>C's chain, and the flat ?q= it composes echoed live underneath</small></h1>
+  <div id="stage">
+    <div id="app"></div>
+    <div id="echo"></div>
+  </div>
+  <footer>
+    <span><kbd>/</kbd> filter door · <kbd>.</kbd> compose door ·
+      <kbd>TAB</kbd> complete · <kbd>)</kbd> closes the stage ·
+      <kbd>RET</kbd> apply · <kbd>ESC</kbd> back · <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { klass: "v-e", syntax: true, ghost: true, collapse: true,
+                      echo: true } });
+})();
+</script>
+</body>
+</html>

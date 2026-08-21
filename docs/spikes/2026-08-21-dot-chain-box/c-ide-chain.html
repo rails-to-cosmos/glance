@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C · ide chain</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* THE FULL EDITOR LOOK.  A call name takes the reserved word's own ink — the
+     hue the doc pane already spends on org's tokens — the punctuation stays
+     dim, and the arguments are painted per stage: the key in the link hue, the
+     value in the page's, a meta in the token hue and italic, and the two SIGNS
+     in the ok/bad pair, since `+' and `-' are the one place this grammar says
+     something a reader can get backwards. */
+  .cx-dot,.cx-par,.cx-punc{color:var(--g-mute)}
+  .cx-fn{color:var(--g-point); font-weight:600}
+  .cx-partial{color:var(--g-point); opacity:.7}
+  .cx-key{color:var(--g-link)}
+  .cx-val,.cx-text{color:var(--g-fg)}
+  .cx-meta{color:var(--g-point); font-style:italic}
+  .cx-sign-add{color:var(--g-done); font-weight:600}
+  .cx-sign-neg{color:var(--g-bad); font-weight:600}
+  .cx-arrow{color:var(--g-mute); font-variant-ligatures:contextual}
+  .cx-col{color:var(--g-link)}
+  /* THE GHOST: empty parens say what belongs in them and leave on the first
+     character.  It is drawn AFTER the caret, so the caret is still between the
+     two parens — which is the whole claim of the completed-call look. */
+  .cx-ghost{color:var(--g-mute); opacity:.55; font-style:italic}
+  /* A DONE STAGE COLLAPSES: its first argument, then a dim count of the rest. */
+  .cx-more{color:var(--g-mute); font-weight:400}
+  .cx-done{opacity:.9}
+  .cx-stage + .cx-stage{padding-left:1px}
+</style>
+</head>
+<body>
+  <h1>C · ide chain
+    <small>syntax-coloured calls, a ghost argument list, the caret inside the parens</small></h1>
+  <div id="stage"><div id="app"></div></div>
+  <footer>
+    <span><kbd>/</kbd> filter door · <kbd>.</kbd> compose door ·
+      <kbd>TAB</kbd> complete · <kbd>(</kbd> takes the call ·
+      <kbd>)</kbd> closes the stage · <kbd>RET</kbd> apply ·
+      <kbd>ESC</kbd> back · <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { klass: "v-c", syntax: true, ghost: true, collapse: true } });
+})();
+</script>
+</body>
+</html>

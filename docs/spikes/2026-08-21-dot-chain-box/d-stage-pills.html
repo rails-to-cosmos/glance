@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D · stage pills</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* C'S ENTRY, A DIFFERENT HOME.  A closed stage LEAVES the box and lands on
+     the chip strip as a pill — `.filter(…)' `.sort(…)' — so the chain reads
+     left to right where the chips already sit, and the box holds only the
+     stage being written.  The strip is then the flat query GROUPED back into
+     stages, which is the same reading run backwards: one pill per call, never
+     one chip per token.  Click a pill to reopen its parens.
+
+     AND THE TWO KEYS FOLLOW THE PILL.  `/' is no longer a second box: it is the
+     filter STAGE's edit key — it reopens the standing `.filter(…)' for editing
+     and the commit rewrites that stage IN PLACE, or spawns a fresh one where
+     none stands.  `DEL' at the strip level is the chain's own backspace: one
+     press takes the LATEST badge whole, whichever call it is, and pressing it
+     again walks the chain backward. */
+  .cx-dot,.cx-par,.cx-punc{color:var(--g-mute)}
+  .cx-fn{color:var(--g-point); font-weight:600}
+  .cx-partial{color:var(--g-point); opacity:.7}
+  .cx-key{color:var(--g-link)}
+  .cx-val,.cx-text{color:var(--g-fg)}
+  .cx-meta{color:var(--g-point); font-style:italic}
+  .cx-sign-add{color:var(--g-done); font-weight:600}
+  .cx-sign-neg{color:var(--g-bad); font-weight:600}
+  .cx-arrow{color:var(--g-mute); font-variant-ligatures:contextual}
+  .cx-col{color:var(--g-link)}
+  .cx-ghost{color:var(--g-mute); opacity:.55; font-style:italic}
+  .cx-more{color:var(--g-mute); font-weight:400}
+
+  /* The pill wears the chip's own silhouette; its VOICE is the stage's, which
+     is the strip's own hue law one level up — narrowing frost, the column
+     band's amber for the order, the link hue for what shows. */
+  .cx-pill{padding:1px 9px; gap:0; cursor:pointer}
+  .cx-pill-sort{
+    background:color-mix(in srgb,var(--tv-col) var(--tv-sort-wash),transparent);
+    border-color:color-mix(in srgb,var(--tv-col) var(--tv-chip-edge),transparent);
+  }
+  .cx-pill-columns{
+    background:color-mix(in srgb,var(--g-link) var(--tv-cols-wash),transparent);
+    border-color:color-mix(in srgb,var(--g-link) var(--tv-chip-edge),transparent);
+  }
+  /* NOT YET COMMITTED: the stage is closed and off the box, but the query it
+     writes has not been asked for — a dashed edge, until RET.  OPEN IN THE BOX:
+     the badge is standing and applied, and is being rewritten — the box's own
+     accent, so the pill and the parens read as one thing. */
+  .cx-pending{border-style:dashed}
+  .cx-editing{border-style:dashed; border-color:var(--g-accent)}
+</style>
+</head>
+<body>
+  <h1>D · stage pills
+    <small>a closed call leaves the box and joins the strip, clickable to reopen</small></h1>
+  <div id="stage"><div id="app"></div></div>
+  <footer>
+    <span><kbd>/</kbd> edits the filter pill · <kbd>DEL</kbd> takes the latest ·
+      <kbd>.</kbd> chains the next call · <kbd>TAB</kbd> complete ·
+      <kbd>,</kbd> separates · <kbd>)</kbd> sends the stage to the strip ·
+      <kbd>RET</kbd> apply · <kbd>ESC</kbd> back · <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { klass: "v-d", syntax: true, ghost: true, collapse: true,
+                      pills: true, slashStage: true, delDropsStage: true } });
+})();
+</script>
+</body>
+</html>

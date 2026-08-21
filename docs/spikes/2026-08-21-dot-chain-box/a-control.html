@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A · control</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* THE CONTROL DRAWS NOTHING OF ITS OWN.  `.' opens the same field `/' opens,
+     one step wider: the whole flat grammar in one text box, where a dot is a
+     character like any other and the three shaping keys are two more rows in
+     the same dropdown.  This is the baseline the other four argue against. */
+</style>
+</head>
+<body>
+  <h1>A · control
+    <small>today: one flat box, and “.” is just a character in it</small></h1>
+  <div id="stage"><div id="app"></div></div>
+  <footer>
+    <span><kbd>/</kbd> filter door · <kbd>.</kbd> whole grammar ·
+      <kbd>TAB</kbd> complete · <kbd>RET</kbd> apply · <kbd>ESC</kbd> back ·
+      <kbd>n</kbd><kbd>p</kbd> rows · <kbd>t</kbd> theme</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { flat: true, klass: "v-a" } });
+})();
+</script>
+</body>
+</html>
