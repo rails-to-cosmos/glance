@@ -204,6 +204,9 @@ for (const page of picked) {
   const DRY_HALF = typed ? 'state = ""' : "state:";
   const DRY_NEXT = typed ? "A" : "TO";
   const DRY_FULL = typed ? "state = Active" : "state:TODO";
+  // A KEY ACCEPT THAT OPENS A SLOT IS MID-CONSTRUCTION, so its value offers
+  // stand at once; the flat dialect has no slot and its key accept is done.
+  const DRY_MENU = typed;
   const COLS_ARG = typed ? 'State", Deadline"' : "State,Deadline";
   // `.sort(' in F wants the `columns' kwarg first, which the offers spell: one
   // TAB takes `columns = [""]' with the caret in the slot.
@@ -353,7 +356,7 @@ for (const page of picked) {
   const woke = await ff.eval(() => RIG.menu().open);
   await ff.keys([KEY.Enter]);
   const dry2 = await ff.eval(liveArgs);
-  want("DRY", dry1.args === DRY_HALF && dry1.menu === false && woke === true
+  want("DRY", dry1.args === DRY_HALF && dry1.menu === DRY_MENU && woke === true
        && dry2.args === DRY_FULL && dry2.menu === false && dry2.door === "compose",
        `key=${JSON.stringify(dry1.args)}/${dry1.menu} woke=${woke} `
        + `value=${JSON.stringify(dry2.args)}/${dry2.menu} door=${dry2.door}`);
@@ -522,43 +525,50 @@ for (const page of picked) {
     // what is taken out of it decides the quotes' fate — a constructor is no
     // string, so accepting one swallows them; a literal keeps them.  Both stay
     // dry.  Typing the equals by hand opens the same slot.
+    const held = () => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                          at: (RIG.caret() || {}).at, menu: RIG.menu().open,
+                          items: RIG.menu().items.slice(0, 4), c: RIG.composed() });
+    // ROUTE ONE — RET over the key.  The slot opens AND its offers do: a key
+    // accept has finished no term, it has moved the reader somewhere new.
     await ff.goto(url);
     await ff.keys(["."]);
     await ff.keys([KEY.Tab]);
     await ff.keys(chars("sta"));
-    await ff.keys([KEY.Tab]);
-    const slot = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
-                                        at: (RIG.caret() || {}).at, menu: RIG.menu().open }));
-    await ff.keys([KEY.Tab]);                    // the offers, over the slot
-    const overSlot = await ff.eval(() => RIG.menu().items[0]);
-    await ff.keys([KEY.Tab]);                    // …and the constructor out of it
-    const ctor = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
-                                        menu: RIG.menu().open, c: RIG.composed() }));
+    await ff.keys([KEY.Enter]);
+    const slot = await ff.eval(held);
+    await ff.keys([KEY.Tab]);                    // the constructor, out of the slot
+    const ctor = await ff.eval(held);
+    // ROUTE TWO — the equals typed by hand.  The same slot, the same offers,
+    // and this field's own domain leads them.
     await ff.goto(url);
     await ff.keys(["."]);
     await ff.keys([KEY.Tab]);
-    await ff.keys(chars("state ="));              // typed, not completed
-    const byHand = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
-                                          at: (RIG.caret() || {}).at }));
-    await ff.keys(chars("TO"));
+    await ff.keys(chars("tag ="));
+    const byHand = await ff.eval(held);
+    // …AND THE VALUE ACCEPT IS THE ONE THAT IS FINAL: dry, closed, and a
+    // repaint does not resurrect the offers.
+    await ff.keys(chars("chor"));
     await ff.keys([KEY.Tab]);
-    const str = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
-                                       menu: RIG.menu().open, c: RIG.composed() }));
-    await ff.keys(chars(', tag = chore"'));       // the closing quote is stepped over
-    const past = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
-                                        c: RIG.composed() }));
+    const str = await ff.eval(held);
+    await ff.eval(() => RIG.repaint());
+    const settledMenu = await ff.eval(() => RIG.menu().open);
+    await ff.keys(chars(', state = TODO"'));      // the closing quote is stepped over
+    const past = await ff.eval(held);
     want("SLOT",
-         slot.args === 'state = ""' && slot.at === 9 && slot.menu === false
-         && overSlot === "Active"
+         slot.args === 'state = ""' && slot.at === 9 && slot.menu === true
+         && eq(slot.items, ["Active", "Inactive", "Empty", '"TODO"'])
          && ctor.args === "state = Active" && ctor.menu === false
          && ctor.c === "state:*active*"
-         && byHand.args === 'state = ""' && byHand.at === 9
-         && str.args === 'state = "TODO"' && str.menu === false && str.c === "state:TODO"
-         && past.args === 'state = "TODO", tag = "chore"'
-         && past.c === "state:TODO tag:chore",
-         `slot=${JSON.stringify(slot)} over=${overSlot} ctor=${JSON.stringify(ctor)} `
+         && byHand.args === 'tag = ""' && byHand.at === 7 && byHand.menu === true
+         && eq(byHand.items.slice(0, 2), ["Empty", "Archive"])
+         && /^"/.test(byHand.items[2])
+         && str.args === 'tag = "chore"' && str.menu === false && str.c === "tag:chore"
+         && settledMenu === false
+         && past.args === 'tag = "chore", state = "TODO"'
+         && past.c === "tag:chore state:TODO",
+         `slot=${JSON.stringify(slot)} ctor=${JSON.stringify(ctor)} `
          + `hand=${JSON.stringify(byHand)} str=${JSON.stringify(str)} `
-         + `past=${JSON.stringify(past)}`);
+         + `settled=${settledMenu} past=${JSON.stringify(past)}`);
 
     // ---- QUOTED: the shaping stages take NAMES, and a name is a string —
     // columns are an open set, so no roster can close them.  The offers
@@ -591,7 +601,8 @@ for (const page of picked) {
     const sortSlot = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
                                             at: (RIG.caret() || {}).at,
                                             menu: RIG.menu().open }));
-    await ff.keys([KEY.Tab]);                  // the offers, over the slot
+    // The list's first slot is a position, not a finished term: its offers are
+    // already standing, so nothing has to ask for them.
     const sortItems = await ff.eval(() => RIG.menu().items.slice(0, 2));
     await ff.keys(chars("Dead"));
     await ff.keys([KEY.ArrowDown]);            // the second row is the reversed one
@@ -623,7 +634,7 @@ for (const page of picked) {
          && colsDone === "columns:State,Deadline"
          && eq(sortTop, ['columns = [ "…" ]', "None"])
          && sortSlot.args === 'columns = [""]' && sortSlot.at === 12
-         && sortSlot.menu === false && eq(sortItems, ['"State"', 'Desc "State"'])
+         && sortSlot.menu === true && eq(sortItems, ['"State"', 'Desc "State"'])
          && sortNext.args === 'columns = [Desc "Deadline", ""]'
          && sortDone === "sort:deadline:desc->title"
          && suffix.errs === 1 && suffix.composes === "" && suffix.marks === 1,

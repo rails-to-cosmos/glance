@@ -1615,6 +1615,12 @@ var RIG = (function () {
     // DRY AND FINAL INSIDE THE PARENS: what is taken lands exactly as it is
     // spelled — no trailing space — the offers close, and the next one waits
     // for the next keystroke.  A separator or a `.' is what asks again.
+    //
+    // THE DRY LAW'S EDGE IS THE VALUE, NEVER THE POSITION.  An accept that
+    // leaves the caret INSIDE what it just wrote — a field's opened slot, a
+    // `not (|)', a list's first element — has not finished a term at all: it
+    // has moved the reader to a NEW position, and that position's own offers
+    // open at once.  `back' is exactly that fact, so it is what decides.
     var at = caretAt(st);
     if (S.look.dsl) {
       var from = st.span ? st.span.at : at;
@@ -1631,6 +1637,7 @@ var RIG = (function () {
       st.args = it.insert;
       st.at = st.args.length;
     }
+    if (it.back) { cxOffer(); return; }          // mid-construction: ask again
     closeMenu();
   }
 

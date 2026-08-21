@@ -211,7 +211,8 @@ produced and the check now holds:
    in `columns`.
 3. **The accept went dry and final.** Taking a completion inside the parens
    inserts exactly what it says — no trailing space — closes the offers, and
-   does not reopen them; the next keystroke is what asks again.
+   does not reopen them; the next keystroke is what asks again. (Round 11 finds
+   the edge of this: it is true of a finished TERM, not of every accept.)
 4. **`/` and `DEL` became the chain's own keys.** `/` reopens the standing
    `.filter(…)` and the commit rewrites that badge IN PLACE; `DEL` at the strip
    level is the chain's backspace, stage-sized and last in first out.
@@ -247,6 +248,17 @@ produced and the check now holds:
    exactly as the suffix was. So `Asc`/`Desc` are back in the roster as the two
    direction constructors, the offers give each column once bare and once under
    `Desc`, and the suffix spelling is now an unknown column.
+11. **The dry law's edge is the VALUE, never the position.** A reader hit it:
+   RET over a key gave `.filter(state = "")` with the caret in the slot and no
+   offers at all. Round 3's "an accept closes the offers" had been read as a
+   fact about ACCEPTS, and it is a fact about finished TERMS — a key accept
+   finishes nothing, it moves the reader to a new position, and a position's
+   own offers stand at once. The rule is now the caret: an accept that leaves
+   it INSIDE what it just wrote (`state = "|"`, `not (|)`, `columns = ["|"]`,
+   `All ["|"]`) asks again; one that lands after a completed term is final.
+   Both entry routes — the key accept and the equals typed by hand — are now
+   pinned apart in `check.mjs`, because the regression had killed one and left
+   the other standing.
 
 Rounds 4 and 5 cost the spike its own control. `/` was identical in all tabs on
 purpose, and `check.mjs` asserted it; D's and F's departure is now DECLARED there
@@ -371,11 +383,14 @@ F owes five more:
 - **SIGNS** — `-` flips `=` to `/=` and back, `+` turns the value into
   `["TODO", |]` with the caret in the slot, and the flat string each composes is
   the grammar's own.
-- **SLOT** — completing the field yields `state = ""` with the caret between the
-  quotes and the offers closed; the offers over the slot lead with `Active`;
-  taking the constructor swallows the quotes and taking a literal keeps them;
-  typing the `=` by hand opens the same slot; and typing past the closing quote
-  steps over it.
+- **SLOT** — the two entry routes, pinned apart. RET over the key yields
+  `state = ""` with the caret between the quotes AND the offers standing, led by
+  that field's own constructors (`Active`, `Inactive`, `Empty`) with the tree's
+  quoted keywords under them; typing the `=` by hand opens the same slot with
+  the same offers, led by `tag`'s own pair; the value accept is the one that is
+  final — dry, closed, and a repaint does not resurrect it; taking a constructor
+  swallows the slot's quotes where taking a literal keeps them; and typing past
+  the closing quote steps over it.
 - **QUOTED** — the shaping signatures. `.columns(` spawns its positional slot
   with the call and the offers complete INTO the quotes; a comma spawns the
   next slot; `.sort(` offers `columns = [""]` and then quoted names, each once
@@ -402,8 +417,10 @@ F owes five more:
   a value and the mark goes red; read the `:desc` suffix as a direction again,
   or stop the direction constructor applying to its string, or start emitting
   `Asc`, or let an unknown segment mean document order, and the sort rungs go
-  red. **Twenty-one negative tests were run in all**, each on the rung that
-  owns it.
+  red; close the offers on the key accept — the reported regression, put back on
+  purpose — and both key routes go red, one at a time. **Twenty-five negative
+  tests were run in all**, each on the rung that owns it, and the two slot
+  routes were broken separately to prove the rung tells them apart.
 
 The control fails five rungs by construction, the way headline-bars' `flat` tab
 does, so `a-control.html` declares DOT, PARENS, CHAIN, COMMA and DRY as misses:
