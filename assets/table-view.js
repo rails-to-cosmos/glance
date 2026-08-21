@@ -3702,6 +3702,11 @@
       const t = tokenAtCaret();
       if (!t || t.quoted) return null;
       if (t.key !== null) {
+        // THE NARROWED DOOR COMPLETES NOTHING IT WILL REFUSE: a shaping key
+        // hand-typed into this box asks for no stage, so the sort, columns and
+        // view lists never open behind it.  The refusal `chipUp' speaks at
+        // commit stays the one answer the typist is given.
+        if (narrowing && shapesView(t.key)) return null;
         if (t.key === SORT_KEY) {
           const v = t.value.toLowerCase(), arrow = v.lastIndexOf(SORT_ARROW);
           return { stage: "sort", tok: t, col: null,

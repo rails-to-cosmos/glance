@@ -311,9 +311,9 @@
     // A REFUSAL NAMES THE OTHER DOOR rather than the rule: `/' took a shaping
     // token, and the one line covers sort:, columns: and view: alike.
     const refused = (spelling) => {
-      const note = `${shapingKey(spelling)}: belongs to . — / filters, . composes`;
-      append("filter", "info", note);
-      echo(note);
+        const note = `${shapingKey(spelling)}: autocomplete restricted, this key belongs to #'compose (kbd ".")`;
+        append("filter", "info", note);
+        echo(note);
     };
     const holds = (q) => can(table, "getQuery") && table.getQuery() === q;
     /**

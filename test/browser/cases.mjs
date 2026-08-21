@@ -1080,6 +1080,16 @@ export default [
     const whole = await p.eval(acLabels);
     assert(whole.indexOf("sort:") !== -1,
       `the whole door offered no shaping key: ${JSON.stringify(whole)}`);
+    // AND THE KEY OPENS THE STAGE BEHIND IT: `sort:' spelled out here lists the
+    // orders, which is the completion `/' must not have.  Read as the key list
+    // being REPLACED, so a stale list left standing would not pass for one.
+    await p.type("ort:");
+    await p.until((was) => {
+      const now = [...document.querySelectorAll("#app .tv-ac-item .tv-ac-label")]
+        .map((e) => e.textContent);
+      return now.length > 0 && JSON.stringify(now) !== was;
+    }, "the order list to open under `.'", undefined, JSON.stringify(whole));
+    const sortStage = await p.eval(acLabels);
     await p.press("ESC");
     await p.until(acShut, "the list to close on the first ESC");
     await p.press("ESC");
@@ -1133,7 +1143,14 @@ export default [
     // (4) A SHAPING TOKEN TYPED AT `/' IS REFUSED, SPOKEN AND LEFT STANDING:
     // never chipped, never in the query, and the box is not finished with it.
     await filterUp(p, "the filter box for the token it will refuse");
-    await p.type("sort:scheduled");
+    // THE NARROWED DOOR COMPLETES NOTHING IT WILL REFUSE: the key list is up
+    // over `sor', and the `t:' that spells a shaping key CLOSES it -- the stage
+    // `.' just opened is not offered where the commit would refuse it.
+    await p.type("sor");
+    await p.until(acOpen, "the key list to open under `/'");
+    await p.type("t:");
+    await p.until(acShut, "the shaping key to close the list it was typed into");
+    await p.type("scheduled");
     if (!(await p.eval(acShut))) {
       await p.press("ESC");
       await p.until(acShut, "the sort list to close, so RET commits");
@@ -1168,6 +1185,7 @@ export default [
 
     return [`\`.' offered ${JSON.stringify(whole)}, \`/' ${JSON.stringify(narrow)}`
       + ` (the doors differ by ${JSON.stringify(gone)})`
+      + ` · \`sort:' opened ${JSON.stringify(sortStage)} at \`.' and nothing at \`/'`
       + ` · ${JSON.stringify(rode)} over ${booted} booted chip(s)`
       + ` · refused "sort:scheduled" standing in the box, said`
       + ` ${JSON.stringify(after.said[0].slice(-52))}`];
