@@ -317,23 +317,45 @@ page head' colours title body = T.unlines
   , "  .dc{margin-right:.6em;flex:none}"
   , "  .dc-title{flex:1 1 auto;min-width:0}"
   , "  .dc-tags{color:var(--punc);font-size:11px;margin-left:auto;margin-right:0}"
-  , "  #dtitle,#dpara,#sedit,#tedit,#ledit{display:none;position:absolute;"
+  , "  #dtitle,#dpara,#dpair,#sedit,#tedit,#ledit{display:none;position:absolute;"
   , "    background:var(--g-sel)}"
-  , "  #dpara,#dtitle{background:var(--g-surface)}"
+  , "  #dpara,#dpair,#dtitle{background:var(--g-surface)}"
   , "  #dtitle{min-width:8em}"
   , "  #sedit{left:0;right:0}"
   , "  #chues{position:relative}"
   , "  #cstates{overflow:auto;max-height:40vh}"
   -- Fallback only; `placeEdit' places from the ROW's own box.
-  , "  #dpara{left:var(--g-doc-padx);right:var(--g-doc-padx)}"
-  , "  #dtitle.on,#sedit.on,#tedit.on,#ledit.on{display:flex;align-items:center}"
+  , "  #dpara,#dpair{left:var(--g-doc-padx);right:var(--g-doc-padx)}"
+  , "  #dtitle.on,#dpair.on,#sedit.on,#tedit.on,#ledit.on{"
+      <> "display:flex;align-items:center}"
   , "  #dpara.on{display:flex}"
+  -- THE PAIR WEARS THE DRAWER'S OWN COLONS, since it is drawn where the pair
+  -- will stand; `--punc' is a ROW's variable and no row holds this box.
+  , "  #dpair{--punc:var(--g-mute)}"
+  -- THE OFFERS HANG UNDER THE FIELD, out of the box's own flex row and over the
+  -- rows beneath: small and mute, since what is being read is the field.
+  -- NO STACKING NUMBER: the box is positioned and stands after `#dlist', so it
+  -- paints over the rows already — and the page's numbers are the backdrop's.
+  , "  #doffer{display:none;position:absolute;top:100%;left:0;"
+  , "    min-width:12em;max-height:calc(6 * var(--g-doc-lh));overflow-y:auto;"
+  , "    background:var(--g-surface);border:1px solid var(--g-border);"
+  , "    border-radius:4px;font-size:11px}"
+  , "  #doffer.on{display:block}"
+  , "  .dof{padding:1px var(--g-doc-pad);color:var(--g-mute);white-space:pre}"
+  , "  .dof.dat{background:var(--g-sel);color:var(--g-fg)}"
   , "  #sedit input,#tedit input,#ledit input{"
   , "    font:var(--g-edit-fs)/var(--g-edit-lh) var(--dk-mono);"
   , "    padding:5px 12px;border:none;border-bottom:1px solid transparent;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
-  , "  #dtin{flex:1;font:inherit;padding:0;border:none;"
+  -- ONE DRESS FOR THE PANE'S OWN FIELDS: the document's face, since each one is
+  -- laid over the row it writes.  The FLEX is each field's own.
+  , "  #dtin,#dpair input{font:inherit;padding:0;border:none;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
+  , "  #dtin{flex:1}"
+  -- The key is the short half and the value the long one, org's own reading;
+  -- the margin is the SPACE org writes after the closing colon.
+  , "  #dkey{flex:1 1 30%}"
+  , "  #dval{flex:2 1 60%;margin-left:1ch}"
   -- Hide the scrollbar: one taking layout width wraps the field narrower than its row.
   , "  #dpara textarea{flex:1;resize:none;border:none;margin:0;font:inherit;"
   , "    background:transparent;color:var(--g-fg);min-width:0;"
@@ -343,8 +365,10 @@ page head' colours title body = T.unlines
   , "  #dpara textarea::-webkit-scrollbar{width:0;height:0}"
   , "  #sedit input:focus,#tedit input:focus,"
   , "  #ledit input:focus{outline:none;border-bottom-color:var(--g-border)}"
-  , "  #dpara textarea:focus,#dtin:focus{outline:none;border:none}"
-  , "  #dtin::selection,#sedit input::selection,\n      #tedit input::selection,"
+  , "  #dpara textarea:focus,#dtin:focus,#dpair input:focus{"
+      <> "outline:none;border:none}"
+  , "  #dtin::selection,#dpair input::selection,"
+  , "  #sedit input::selection,#tedit input::selection,"
   , "  #ledit input::selection,#dpara textarea::selection{"
   , "    background:var(--g-sel);color:var(--g-fg)}"
   , "  #tname{flex:1 1 auto}"
@@ -460,7 +484,8 @@ page head' colours title body = T.unlines
   , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
   , "      font-size:12px}"
   , "    #mpanes{flex-direction:column}"
-  , "    #mtext,#pinput,#dtin,#sedit input,#tedit input,#ledit input,"
+  , "    #mtext,#pinput,#dtin,#dpair input,"
+  , "    #sedit input,#tedit input,#ledit input,"
   , "    #dpara textarea,#ktag,#kfields input,#ktext,#app .tv-filter,"
   , "    .ctext,.cview{font-size:16px}}"
   , "</style>"

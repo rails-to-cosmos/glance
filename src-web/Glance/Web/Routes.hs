@@ -50,6 +50,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , HeadlineRecord ( hrDigest, hrFile, hrId, hrLinks, hrSubtree, hrTags
                                      , hrTitle )
                     , rowOrgId
+                    , rowProperties
                     , OrgLink (olSpan, olTarget)
                     , QueryResult (..), SortChain
                     , Span (spanEnd, spanStart)
@@ -126,21 +127,22 @@ httpApp opts hub request respond = route >>= respond
     wanted | requestMethod request == methodHead = methodGet
            | otherwise                           = requestMethod request
     named =
-      [ ([],            False, textRefusal, [(methodGet, shellPage opts hub)])
-      , (["headlines"], True,  textRefusal, [(methodGet, headlines opts hub request)])
-      , (["refer"],     True,  textRefusal, [(methodGet, refer opts hub request)])
-      , (["headline"],  True,  jsonRefusal,
+      [ ([],             False, textRefusal, [(methodGet, shellPage opts hub)])
+      , (["headlines"],  True,  textRefusal, [(methodGet, headlines opts hub request)])
+      , (["refer"],      True,  textRefusal, [(methodGet, refer opts hub request)])
+      , (["headline"],   True,  jsonRefusal,
           [ (methodGet, materialize hub (queryId request) (queryChild request))
           , (methodPost, commit opts hub (queryId request) (queryChild request) request) ])
-      , (["command"],   True,  jsonRefusal, [(methodPost, runCommand opts hub request)])
-      , (["config"],    True,  jsonRefusal,
+      , (["command"],    True,  jsonRefusal, [(methodPost, runCommand opts hub request)])
+      , (["config"],     True,  jsonRefusal,
           [ (methodGet, configView opts hub)
           , (methodPost, configWrite opts hub request) ])
-      , (["capture"],   True,  textRefusal, [(methodGet, captureView opts hub request)])
-      , (["keywords"],  True,  textRefusal, [(methodGet, keywordsView hub request)])
-      , (["links"],     True,  textRefusal, [(methodGet, linksView hub (queryId request))])
-      , (["tags"],      True,  textRefusal, [(methodGet, tagsView hub request)])
-      , (["ws"],        True,  textRefusal, [(methodGet, pure (plain status400 wsHint))])
+      , (["capture"],    True,  textRefusal, [(methodGet, captureView opts hub request)])
+      , (["keywords"],   True,  textRefusal, [(methodGet, keywordsView hub request)])
+      , (["links"],      True,  textRefusal, [(methodGet, linksView hub (queryId request))])
+      , (["tags"],       True,  textRefusal, [(methodGet, tagsView hub request)])
+      , (["properties"], True,  textRefusal, [(methodGet, propertiesView hub)])
+      , (["ws"],         True,  textRefusal, [(methodGet, pure (plain status400 wsHint))])
       ]
     route = case [ r | r@(path, _, _, _) <- named, path == pathInfo request ] of
       ((path, needs, refuse, methods) : _) -> do
@@ -554,9 +556,42 @@ tagRowCounts = countedBy (tagsOfCell . hrTags)
 -- | ROWS per key, a row counted ONCE however often it names one.  The count
 -- @\/tags@ answers with, and the picker's two vocabularies ride it too.
 {-# INLINE countedBy #-}
-countedBy :: Ord k => (HeadlineRecord -> [k]) -> [HeadlineRecord] -> Map k Int
+countedBy :: Ord k => (a -> [k]) -> [a] -> Map k Int
 countedBy keys rows =
   Map.fromListWith (+) [ (k, 1 :: Int) | r <- rows, k <- nub (keys r) ]
+
+-- Properties
+
+-- | @GET \/properties@: the drawer vocabulary a completing client draws on --
+-- every key the tree spells, every value under it, and the ROWS each sits on.
+-- NAMES NO ROW, so the whole store answers; recomputed per request, as
+-- @\/tags@' counts are.
+propertiesView :: Hub -> IO Response
+propertiesView hub = do
+  st <- readTVarIO (hubStore hub)
+  -- ONE drawer walk, counted twice: a key's rows are no arithmetic on its
+  -- values' -- a row spelling one key twice is ONE row under that key and a row
+  -- under each of the two values.
+  let drawers = map completable (storeRecords st)
+  pure (jsonResponse status200
+          [ "keys"   .= countedBy (map fst) drawers
+          , "values" .= valuesUnder drawers ])
+
+-- | R's pairs a client may COMPLETE from.  'rowProperties' has dropped the
+-- hidden keys -- completing one would write it -- and the reserved keys are
+-- absent by construction: @:PROPERTIES:@ and @:END:@ bound the drawer rather
+-- than sit in it ('Data.Org.Parser', which refuses them as keys).  A drawer
+-- line that parses to no key is no vocabulary either -- the client drops that
+-- row wherever else it reads a drawer.
+completable :: HeadlineRecord -> [(Text, Text)]
+completable r = [ p | p <- rowProperties r, not (T.null (fst p)) ]
+
+-- | ROWS per VALUE, under the key it was spelled with.  Nested from ONE
+-- 'countedBy' over the PAIRS, so a value counts by the rule its key counts by.
+valuesUnder :: [[(Text, Text)]] -> Map Text (Map Text Int)
+valuesUnder drawers = Map.fromListWith (Map.unionWith (+))
+  [ (key, Map.singleton value n)
+  | ((key, value), n) <- Map.toList (countedBy id drawers) ]
 
 -- Capture
 

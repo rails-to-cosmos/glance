@@ -214,6 +214,16 @@ const captureCodes = [
 const capturePrompts = { book: ["Author"] };
 const captureTemplates = ["book", "film"];
 const captureAsked = [];
+// GET /properties: what the tree spells, each with how often.  The counts are
+// the ORDER the offers come back in, so no two here share one.
+let propertyVocab = {
+  keys: { EFFORT: 9, OWNER: 5, URL: 2 },
+  values: { EFFORT: { "0:30": 4, "1:00": 2 },
+            OWNER: { ada: 3, grace: 1 },
+            URL: { "https://a.example/": 1 } },
+};
+let novocab = false;
+const propertiesAsked = [];
 
 globalThis.location = { search, protocol: "http:", host: "h", pathname: "/" };
 globalThis.history = {
@@ -322,6 +332,14 @@ globalThis.fetch = (url, init) => {
     if (stalling) return new Promise(() => {});
     return refusing ? answer(400, { error: "GET /keywords?ids=<row id>" })
                     : answer(200, { sources, unknown: [] });
+  }
+  // THE TREE'S PROPERTY VOCABULARY, the door the pair's offers read.  A run
+  // that names no vocabulary still gets one, so the offers are drivable by
+  // default; `novocab' models a server that has no such door at all.
+  if (String(url) === "/properties") {
+    propertiesAsked.push(url);
+    return novocab ? answer(404, { error: "GET /properties" })
+                   : answer(200, propertyVocab);
   }
   if (String(url).startsWith("/tags?ids=")) {
     tagged.push(url);
@@ -1041,6 +1059,15 @@ const typeLink = (which, text) => {
     throw new Error(`no link is open for editing: ${which}`);
   typed(field(which), text);
 };
+// A KEY IS TYPED VERBATIM and a value the way every other text is: a property
+// key holds no space to spell with `_', and `ORG_GLANCE_ID' is one it does hold.
+const typeHalf = (which, text) => {
+  if (field("dpair").className !== "on")
+    throw new Error(`the document has no pair open: ${which}`);
+  field(which).focus();
+  typed(field(which),
+        which === "dkey" ? String(text) : String(text).replace(/_/g, " "));
+};
 const onKeywords = () => {
   const tab = field("ctabs").children.find((t) => t.textContent === "keywords");
   if (tab && tab.className !== "ctab on") tab.fire("click", {});
@@ -1097,8 +1124,8 @@ const narrows = () => LISTS.map((h) => [h, narrowIn(h)])
   .filter(([, box]) => box).map(([h, box]) => [h, String(box.value)]);
 const listCols = (host) =>
   field(host).querySelectorAll("thead .tv-hn").map((h) => h.textContent);
-const FOCUSABLE = ["mtext", "dtin", "dtext", "ltitle", "lurl", "tname",
-                   "pinput", "ktag", "ktext"];
+const FOCUSABLE = ["mtext", "dtin", "dtext", "dkey", "dval", "ltitle", "lurl",
+                   "tname", "pinput", "ktag", "ktext"];
 const focused = () => {
   if (!active) return "";
   // Drawn by the program that holds the rows, so it carries no id of its own.
@@ -1313,6 +1340,10 @@ const ACTIONS = {
   // typed into a paragraph spelling its line breaks with the same character.
   dpara: (text) => typeIn("dpara", "dtext",
     String(text).replace(/_/g, " ").replace(/\|/g, "\n").replace(/~/g, "|")),
+  // THE HALF IS FOCUSED BY THE VERB that types into it: the pair's own keys
+  // read which one holds point, and a driver types where the reader would.
+  dkey: (text) => typeHalf("dkey", text),
+  dval: (text) => typeHalf("dval", text),
   ctext: (text) => (onKeywords(), typeSetting("ctext", text)),
   // TAKING AN EDIT BACK: an act splits on spaces and a `#+TODO:' line is spaces.
   crevert: () => {
@@ -1385,6 +1416,8 @@ const ACTIONS = {
                 type: "https", span: [53, 58] } ];
   },
   refuse: () => { refusing = true; },
+  // A SERVER WITHOUT THE DOOR: the pair still writes, and offers nothing.
+  novocab: () => { novocab = true; },
   noreferences: () => { unreferenced = true; },
   // `typing()' goes false again over a sheet still up, which no other act reaches.
   blur: () => { if (active) active.blur(); },
@@ -1474,9 +1507,15 @@ const settle = async () => {
     doc: docRows(), dat: docAt(), dflagged: docFlagged(),
     dopen: field("dtitle").className === "on",
     dparaopen: field("dpara").className === "on",
+    dpairopen: field("dpair").className === "on",
     dprows: field("mdoc").style.getPropertyValue("--g-doc-rows"),
     dtin: field("dtin").value,
     dtext: field("dtext").value,
+    dkey: field("dkey").value,
+    dval: field("dval").value,
+    // The offers as drawn, and which one point stands on — `-1' where none does.
+    doffers: field("doffer").children.map((c) => c.textContent),
+    dofferat: field("doffer").children.findIndex((c) => wears(c, "dat")),
     dcaret: field("dtext").selectionStart,
     where: field("mwhere").children.map((c) => c.textContent),
     whereAt: field("mwhere").children
@@ -1551,7 +1590,7 @@ const settle = async () => {
     prompt: field("prompt").className, phead: field("phead").textContent,
     pmode: field("pbox").className, plist: paletteRows(), resolved,
     pfoot: field("pfoot").textContent, assigned, commands, span,
-    linked, opened, sorted, sortCalls, chain: sortChain, tagged,
+    linked, opened, sorted, sortCalls, chain: sortChain, tagged, propertiesAsked,
     pinned: main.pinned,
     capture: field("capture").className, khead: field("khead").textContent,
     ktag: field("ktag").value, ktext: field("ktext").value,

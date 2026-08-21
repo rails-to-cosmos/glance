@@ -116,6 +116,7 @@ module Glance.Query ( BlobSeed (..)
                     , resolveIds
                     , rowIdIn
                     , rowJSON
+                    , rowProperties
                     , setPlanningEdits
                     , setPriorityEdits
                     , setStateEdits
@@ -803,6 +804,11 @@ hiddenProperties = [headlineIdProperty, captureProperty]
 hiddenProperty :: Text -> Bool
 hiddenProperty key = T.toUpper (T.strip key) `elem` hiddenProperties
 
+-- | PAIRS less the server's own.  ONE spelling of the filter: every reader that
+-- shows a drawer, reads one back or completes from one drops the same keys.
+shownPairs :: [(Text, Text)] -> [(Text, Text)]
+shownPairs ps = [ p | p <- ps, not (hiddenProperty (fst p)) ]
+
 planningKeywords :: [Text]
 planningKeywords = ["SCHEDULED", "DEADLINE", "CLOSED"]
 
@@ -816,7 +822,7 @@ data HeadlineParts = HeadlineParts
 headlineParts :: HeadlineRecord -> HeadlineParts
 headlineParts r = HeadlineParts
   { hpBody       = withoutSpans subtree (regionSpans [planAt, drawAt, logAt])
-  , hpProperties = [ p | p <- drawerPairs subtree drawAt, not (hiddenProperty (fst p)) ]
+  , hpProperties = shownPairs (drawerPairs subtree drawAt)
   , hpPlanning   = [ (key, sliceSpan subtree sp) | (key, sp) <- entries ]
   , hpLogbook    = maybe "" (sliceSpan subtree) logAt
   }
@@ -848,7 +854,7 @@ recomposedSubtree r parts = untrailed (spliceRegions (hpBody parts) regions)
                            (hpPlanning parts) )
     props = ( bodyLine 1 drawAt
             , drawerText (drawerStyle subtree (hpBody parts) drawAt)
-                         [ p | p <- hpProperties parts, not (hiddenProperty (fst p)) ] )
+                         (shownPairs (hpProperties parts)) )
     logs  = ( bodyLine 0 logAt, maybe "" (sliceSpan subtree) logAt )
 
 data Region = Region !Int !Text
@@ -978,6 +984,13 @@ drawerPairs :: Text -> Maybe Span -> [(Text, Text)]
 drawerPairs subtree slice = case slice of
   Nothing -> []
   Just sp -> [ (key, value) | (key, value, _raw) <- drawerRows (sliceSpan subtree sp) ]
+
+-- | R's OWN drawer pairs in file order, the hidden keys dropped.  The same
+-- pairs 'headlineParts' answers under @hpProperties@, READ ALONE: a caller that
+-- wants the vocabulary and not the write pays for no other region.
+rowProperties :: HeadlineRecord -> [(Text, Text)]
+rowProperties r = shownPairs (drawerPairs subtree (drawerSlice r subtree))
+  where subtree = subtreeText r
 
 data DrawerStyle = DrawerStyle
   { dsOpen   :: !Text                    -- ^ the @:PROPERTIES:@ line, terminator and all.

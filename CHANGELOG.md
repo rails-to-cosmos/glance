@@ -13,6 +13,21 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **`+` in the drawer asks inline, as the pair it will become.** Adding a
+  property raised two prompts over the sheet, one for the key and one for the
+  value. `+` now draws a fresh row at the end of the properties drawer —
+  opening the drawer to show it — and lays a two-field box over that row,
+  wearing the drawer's own colons, so what is typed reads as the `:KEY: value`
+  line it is about to be. `:`, `TAB` or `RET` hands the key over to its value;
+  `TAB` or `RET` from the value writes the pair at once. Both halves complete
+  from the tree's own property vocabulary — every key the tree spells and every
+  value under the key beside it, commonest first — with the arrows and
+  `C-n`/`C-p` walking the offers. `ESC` cancels the input whole: the box goes,
+  the drawn row with it, and the drawer is the bytes it was. A key the drawer's
+  frame owns (`PROPERTIES`, `END`) or one the store owns (`ORG_GLANCE_ID`,
+  `ORG_GLANCE_CREATION_TIME`) is refused at the field, and the box stays up with
+  what was typed still in it.
+
 - **`/` filters, `.` composes the whole query.** `/` (`filter-rows`) edits the
   FILTER half alone: its completion offers the narrowing keys — the six
   columns, `planned`, `ref`, `substring` — and a shaping token typed into it is
@@ -91,9 +106,9 @@ section groups a feature arc, and its date is that arc's last commit.
   the drawer under the headline, org's own spelling, keys and frame in the
   reserved-token ink. The drawer opens folded to `:PROPERTIES:…` and `TAB`
   toggles it, as in org; `f` into a folded drawer opens it, and one the reader
-  opened stays open. `RET` edits a pair as its `:KEY: value` line, `+` asks for
-  a key and a value (both required) and writes at once, `d d` drops a pair.
-  Hidden properties stay hidden and survive every write.
+  opened stays open. `RET` edits a pair as its `:KEY: value` line, `+` adds one
+  (see above), `d d` drops a pair. Hidden properties stay hidden and survive
+  every write.
 
 - **Child headlines are drawn whole, inside the document.** A child's own
   paragraphs, lists and drawers appear under its headline instead of behind

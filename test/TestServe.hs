@@ -382,7 +382,7 @@ spec = withResource ((<>) <$> (body <$> get assetsDir "/")
     , orderSpec, sortQuerySpec, columnsQuerySpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
     , tagCommandSpec, deleteCommandSpec, renameCommandSpec, tagsSpec, captureSpec
-    , blobCaptureSpec, captureViewSpec
+    , propertiesSpec, blobCaptureSpec, captureViewSpec
     , configSpec, keywordsSpec, linksSpec, referSpec, editLinkSpec, indexingSpec
     , pageSpec shell, keymapSpec shell, layoutSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
@@ -3820,14 +3820,23 @@ sheetSpec shell =
           assertEqual "and the pair stands as it was" ["meta", ":EFFORT: 0:30"]
             =<< (!! 3) <$> docOf answer
 
-    -- `+' is the add affordance and the whole of it: org's own ask — a KEY, then a VALUE.
-  , testCase "+ on a meta row asks for key and value, and the pair lands whole" $ do
+    -- `+' IS THE ADD AFFORDANCE AND THE WHOLE OF IT: the pair is typed INLINE, in
+    -- a row drawn where it will stand, dressed as the line it will become.
+  , testCase "+ on a meta row types the pair inline, and it lands whole" $ do
       insheet shell "press:f press:+" $ \answer -> do
-        assertEqual "the ask is up, naming the first half" ("on", "property key")
-          =<< ((,) <$> textAt "prompt" answer <*> textAt "phead" answer)
-        assertEqual "nothing is written while it asks" ([] :: [Value])
+        assertEqual "the two fields are up" True =<< boolAt "dpairopen" answer
+        assertEqual "and no modal asked for either half" "" =<< textAt "prompt" answer
+        assertEqual "the key half holds the focus" "dkey" =<< textAt "focus" answer
+        assertEqual "over a row drawn at the drawer's end, which opened for it"
+                    ["draft:meta", ""] =<< (!! 4) <$> docOf answer
+        assertEqual "and point is on that row" 4 =<< intAt "dat" answer
+        assertEqual "nothing is written while it is typed" ([] :: [Value])
           =<< listAt "writes" answer
-      insheet shell "press:f press:+ type:OWNER press:Enter type:ada press:Enter" $
+        echoIs "the echo carries the foot a chromeless box has no room for"
+               ("+ → org-set-property (a key, then its value"
+                  <> " — RET applies · ESC cancels)") answer
+      -- `:' HANDS THE KEY OVER TO ITS VALUE, org's own muscle, and RET applies.
+      insheet shell "press:f press:+ dkey:OWNER press:: dval:ada press:Enter" $
         \answer -> do
           assertEqual "the pair arrived whole and the write followed at once"
                       [[["EFFORT", "0:30"], ["OWNER", "ada"]]]
@@ -3835,13 +3844,64 @@ sheetSpec shell =
           assertEqual "the drawer opened on the new pair" ["meta", ":OWNER: ada"]
             =<< (!! 4) <$> docOf answer
           assertEqual "with the cursor on it" 4 =<< intAt "dat" answer
-          echoIs "and the echo speaks the line" "+ → org-set-property (:OWNER: ada)" answer
-      insheet shell "press:f press:+ press:Enter" $ \answer -> do
-        assertEqual "an empty key is refused" ([] :: [Value]) =<< listAt "writes" answer
-        echoIs "" "+ → org-set-property (a key is required)" answer
-      insheet shell "press:f press:+ type:OWNER press:Enter press:Enter" $ \answer -> do
-        assertEqual "and an empty value too" ([] :: [Value]) =<< listAt "writes" answer
-        echoIs "" "+ → org-set-property (a value is required)" answer
+          assertEqual "and the fields went with the draft row" False
+            =<< boolAt "dpairopen" answer
+          echoIs "and the echo speaks the line"
+                 "RET → org-set-property (:OWNER: ada)" answer
+      -- TAB CARRIES THE FORM the way RET does, out of either half.
+      insheet shell "press:f press:+ dkey:OWNER press:Tab dval:ada press:Tab" $
+        \answer -> do
+          assertEqual "the same pair, the same write"
+                      [[["EFFORT", "0:30"], ["OWNER", "ada"]]]
+            =<< wroteAt "properties" answer
+          echoIs "" "TAB → org-set-property (:OWNER: ada)" answer
+
+      -- EVERY REFUSAL IS THE BOX'S OWN AND IT STAYS UP BEHIND EACH, so what was
+      -- typed is still there to be fixed.  RET in the KEY hands over, so an
+      -- empty pair is refused at the value, which is where the apply is.
+      insheet shell "press:f press:+ press:Enter press:Enter" $ \answer -> do
+        assertEqual "an empty key writes nothing" ([] :: [Value])
+          =<< listAt "writes" answer
+        assertEqual "and the box stands" True =<< boolAt "dpairopen" answer
+        echoIs "" "RET → org-set-property (a key is required)" answer
+      insheet shell "press:f press:+ dkey:OWNER press:: press:Enter" $ \answer -> do
+        assertEqual "an empty value writes nothing either" ([] :: [Value])
+          =<< listAt "writes" answer
+        assertEqual "and the key typed is there to finish" "OWNER"
+          =<< textAt "dkey" answer
+        echoIs "" "RET → org-set-property (a value is required)" answer
+      -- THE DRAWER'S OWN FRAME WORDS ARE NO KEY: written as one, `:END:' would
+      -- close the drawer here and everything under it would fall out of it.
+      insheet shell "press:f press:+ dkey:END press:: dval:x press:Enter" $
+        \answer -> do
+          assertEqual "a reserved key writes nothing" ([] :: [Value])
+            =<< listAt "writes" answer
+          assertEqual "and the box stands" True =<< boolAt "dpairopen" answer
+          echoIs "" ("RET → org-set-property (:END: frames the drawer"
+                       <> " — writing it would end the drawer here)") answer
+      -- AND THE STORE'S OWN PAIR IS NEVER DRAWN, so typing one would forge the
+      -- identity the headline is found and linked by.
+      insheet shell "press:f press:+ dkey:ORG_GLANCE_ID press:: dval:r2 press:Enter" $
+        \answer -> do
+          assertEqual "a hidden key writes nothing" ([] :: [Value])
+            =<< listAt "writes" answer
+          assertEqual "and the box stands" True =<< boolAt "dpairopen" answer
+          echoIs "" ("RET → org-set-property (:ORG_GLANCE_ID: is the store's own"
+                       <> " — this would forge the headline's identity)") answer
+
+      -- THE ESCAPE IS FROM THE EDIT: the box goes, the drawn row with it, and
+      -- point is back on the stop `+' was pressed over.
+      insheet shell "press:f press:+ dkey:OWNER press:: dval:ada press:Escape" $
+        \answer -> do
+          assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+          assertEqual "the fields are gone" False =<< boolAt "dpairopen" answer
+          assertEqual "the drawn row with them" ["para", "first para"]
+            =<< (!! 4) <$> docOf answer
+          assertEqual "and the drawer holds the pairs it held"
+                      ["meta", ":EFFORT: 0:30"] =<< (!! 3) <$> docOf answer
+          assertEqual "point back on the row the key was pressed over" 1
+            =<< intAt "dat" answer
+          echoIs "" "ESC → keyboard-quit (the drawer unchanged)" answer
 
   , testCase "ESC puts an open pair back, and the next one closes the sheet" $ do
       insheet shell
@@ -4816,7 +4876,8 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
               [ n | n <- ["13px", "12px", "1.5 var", "padding:1px 6px", "min-height:2em"]
                   , n `T.isInfixOf` box ]
   -- REGISTRATION: the overlay is positioned against the pane's PADDING box while the text it covers sits in the CONTENT box.
-  span' <- need "the paragraph overlay's span" (between "  #dpara{" "}" page)
+  -- The pair's box takes the same fallback: both are laid over a whole row.
+  span' <- need "the paragraph overlay's span" (between "  #dpara,#dpair{" "}" page)
   assertEqual "the paragraph overlay spans the pane's content box"
               "left:var(--g-doc-padx);right:var(--g-doc-padx)" span'
   -- AND THE EDIT IS INLINE: what grows is the BLOCK, and the cap is spelled in the shell and nowhere else.
@@ -4830,11 +4891,12 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
   assertBool "the placement takes the pane's border and scroll back out"
              ("a.top - b.top - pane.clientTop + pane.scrollTop" `T.isInfixOf` page)
   -- FOCUS DRAWS NO LINE: the document's box is read as text and must not grow one.
-  focus <- need "the box's focus rule" (between "  #dpara textarea:focus,#dtin:focus{" "}" page)
+  focus <- need "the box's focus rule"
+                (between "  #dpara textarea:focus,#dtin:focus,#dpair input:focus{" "}" page)
   assertEqual "a line the document box would grow on focus" []
               [ n | n <- ["border-bottom-color", "border-bottom:"], n `T.isInfixOf` focus ]
   -- THE GROUND IS THE SIGNAL, and one the block is not already wearing.
-  ground <- need "the box's ground" (between "  #dpara,#dtitle{" "}" page)
+  ground <- need "the box's ground" (between "  #dpara,#dpair,#dtitle{" "}" page)
   assertEqual "the edit ground is the page's input surface"
               "background:var(--g-surface)" ground
 
@@ -5293,8 +5355,10 @@ shellGlue =
       , "trows", "tagRows()", "placeTag", "shutRename", "renamingFrom"
       , "function tflag" ]
 
-  -- ONE EDIT OVERLAY over three surfaces: the class, the anchor, the blur and the SNAPSHOT are one implementation.
-  , Glue "the edit overlay is one mechanism the four surfaces declare a shape for"
+  -- ONE EDIT OVERLAY: the class, the anchor, the blur and the SNAPSHOT are one
+  -- implementation, and a shape declares its differences from it and no more.
+  -- The doc pane declares THREE of the six -- the title, the paragraph, the pair.
+  , Glue "the edit overlay is one mechanism, six shapes over four surfaces"
       [ "function openEdit(o, row) {"
       , "edit = { o, row };"
       , "el(o.box).className = \"on\";"
@@ -5313,12 +5377,16 @@ shellGlue =
       , "window.addEventListener(\"resize\", placeEdit);"
       -- THE SNAPSHOT: a commit reads the row the overlay OPENED over, never the cursor.
       , "const r = edit.row;"
+      -- The six, each named by the predicate or the commit that asks for it.
       , "const dediting = () => !!edit && edit.o === DTITLE;"
+      , "const dparaing = () => !!edit && edit.o === DPARA;"
+      , "const dpairing = () => !!edit && edit.o === DPAIR;"
+      , "const sediting = () => !!edit && edit.o === SROW;"
       -- SHARING THE STATE MUST NOT SHARE THE SHUTTER: an unscoped shut would cancel another surface's open edit.
       , "function shutEdit(o) {"
       , "if (!edit || edit.o !== o) return;"
       , "for (const o of shapes) shutEdit(o);"
-      , "cancelEdit(\"element\", DTITLE, DPARA)"
+      , "cancelEdit(pair ? \"the drawer\" : \"element\", DTITLE, DPARA, DPAIR)"
       , "cancelEdit(\"tag\", TROW)"
       , "cancelEdit(\"link\", LROW)" ]
       [ "drows[docAt()]", "function place()", "function shutRename"
@@ -5466,8 +5534,11 @@ shellGlue =
       , "once(() => dsay(k, { kind: \"tab\" }));"
       -- A drawer's own line is its frame; what RET edits is a pair inside.
       , "if (r.fold) { echo(\"RET → f reaches the rows inside — TAB folds\"); return; }"
-      -- `+' IN THE DRAWER ASKS, org's own way: a KEY and a VALUE, both required.
-      , "askText(\"property key\", \"RET · ESC cancels\", (c) => {"
+      -- `+' IN THE DRAWER TYPES THE PAIR IN PLACE: a row is drawn where the pair
+      -- will stand, the two fields cover it, and `:' hands the key to its value.
+      , "dsend({ kind: \"draftpair\" });"
+      , "openEdit(DPAIR, { id: r.id, add: true });"
+      , "if (onKey) { hop(); pairMoved(); return; }"
       , "dsend({ kind: \"addprop\", key, value });"
       -- THE COMMIT CARRIES ITS OWN CARGO: body and lists together, off the port.
       , "{ body: cargo.body, properties: cargo.properties, planning: cargo.planning },"
@@ -5489,16 +5560,18 @@ shellGlue =
       , "return SURFACES.some((s) => s.up())"
       , "#mpanes{flex:1;min-height:0;overflow:hidden;"
       -- The open element's fields sit OVER the row; the document's box takes `font:inherit' so an edit renders in the PANE's line box.
-      , "#dtitle,#dpara,#sedit,#tedit,#ledit{display:none;position:absolute;"
+      , "#dtitle,#dpara,#dpair,#sedit,#tedit,#ledit{display:none;position:absolute;"
       , "#sedit input,#tedit input,#ledit input{"
       -- ONE FOCUS LANGUAGE: the browser can only dress the one pane that takes a real focus.
       , "#mtext:focus{outline:none;border-color:var(--g-accent)}"
       , "#mdoc.on{border-color:var(--g-accent)}" ]
-      -- The property PANEL is gone whole: no second pane, no mount, no fields of its own.
+      -- The property PANEL is gone whole: no second pane, no mount, no fields of
+      -- its own -- and the two modal prompts `+' raised are gone with it.
       [ "tabindex", ".prow", "pcur", "drawRow", "addRow("
       , "mprops", "mptable", "pmount", "PCOLS", "drawProps", "pnav"
       , "pedit", "pkey", "pval", "props()", "planning()"
-      , "enterPanel", "leavePanel", "PFLAGS" ]
+      , "enterPanel", "leavePanel", "PFLAGS"
+      , "askText(\"property key\"", "value for :${key}:" ]
 
   , Glue "the page wears the default theme and the sheet wears Hack"
       [ "    --g-bg:#FFFFFF;", "    --g-fg:#000000;", "    --g-border:#E3E6EA;"
@@ -5870,20 +5943,25 @@ shellGlue =
 
   -- Under 16px, focusing a field zooms the page in and nothing zooms it back out.
   , glue "a coarse pointer gets fields iOS will not zoom into"
-      [ "#mtext,#pinput,#dtin,#sedit input,#tedit input,#ledit input,"
+      [ "#mtext,#pinput,#dtin,#dpair input,"
+      , "#sedit input,#tedit input,#ledit input,"
       , "#dpara textarea,"
       -- The DOCKED box is a field on this page's own row, so it takes the guard with them.
       , "#ktext,#app .tv-filter,"
       , ".ctext,.cview{font-size:16px}}"
       , "#mpanes{flex-direction:column}" ]
 
-  -- These two boxes write ORG into the user's own files, so a remembered value, a
+  -- These four boxes write ORG into the user's own files, so a remembered value, a
   -- capitalised first letter or a "corrected" quote would be a silent edit.
-  , glue "the two document boxes decline every offer the browser makes"
+  , glue "the four document boxes decline every offer the browser makes"
       [ "<input id=\"dtin\" spellcheck=\"false\" autocomplete=\"off\""
           <> " autocapitalize=\"off\" autocorrect=\"off\">"
       , "<textarea id=\"dtext\" spellcheck=\"false\" autocomplete=\"off\""
-          <> " autocapitalize=\"off\" autocorrect=\"off\"></textarea>" ]
+          <> " autocapitalize=\"off\" autocorrect=\"off\"></textarea>"
+      , "<input id=\"dkey\" spellcheck=\"false\" autocomplete=\"off\""
+          <> " autocapitalize=\"off\" autocorrect=\"off\">"
+      , "<input id=\"dval\" spellcheck=\"false\" autocomplete=\"off\""
+          <> " autocapitalize=\"off\" autocorrect=\"off\">" ]
 
   -- THE SETTINGS SHEET IS UNREACHABLE ON A TOUCH DEVICE, a KNOWN GAP asserted from both sides.
   , Glue "the settings door a coarse pointer had went with the corner"
@@ -7609,7 +7687,7 @@ tagsSpec = testGroup "GET /tags" $
       withTaggedTree $ \a -> do
         counts <- field "counts" =<< decoded =<< getFrom a "/tags?ids=bare"
         assertEqual "one entry per tag the store holds"
-                    ["archive", "shelf", "web", "work"] =<< countedTags counts
+                    ["archive", "shelf", "web", "work"] =<< countedNames counts
         assertEqual "web is on two rows of one file, however it is spelled" 2
           =<< intAt "web" counts
         assertEqual "work on one of them" 1 =<< intAt "work" counts
@@ -7627,9 +7705,9 @@ tagRowsOf :: SResponse -> IO [(T.Text, [T.Text])]
 tagRowsOf = traverse one <=< rowsOf
   where one v = (,) <$> textAt "id" v <*> textsAt "tags" v
 
--- | The tags a counts object names, sorted: JSON object order is nobody's contract.
-countedTags :: Value -> IO [T.Text]
-countedTags = fmap sort . fieldsOf
+-- | The names a counts object spells, sorted: JSON object order is nobody's contract.
+countedNames :: Value -> IO [T.Text]
+countedNames = fmap sort . fieldsOf
 
 -- | A tree holding one tag no resolved row carries, so the vocabulary being the STORE's is observable.
 withTaggedTree :: (Application -> IO a) -> IO a
@@ -7640,6 +7718,58 @@ withTaggedTree k = withTempDir $ \dir -> do
          , "* three", ":PROPERTIES:", ":ORG_GLANCE_ID: bare", ":END:" ])
   _ <- orgFile dir "b.org" (T.unlines
          [ "* four :shelf:ARCHIVE:", ":PROPERTIES:", ":ORG_GLANCE_ID: shelved", ":END:" ])
+  (a, _hub) <- serverOver dir
+  k a
+
+-- | @GET \/properties@: the drawer vocabulary, which names no row, so the whole store answers.
+propertiesSpec :: TestTree
+propertiesSpec = testGroup "GET /properties"
+  [ -- THE HIDDEN KEYS ARE NO VOCABULARY: both sit in every drawer of the
+    -- fixture, and completing one would write it.
+    testCase "the keys are the tree's own, counted in rows" $
+      withDrawerTree $ \a -> do
+        keys <- field "keys" =<< decoded =<< ok =<< getFrom a "/properties"
+        assertEqual "one entry per key a row spells, the server's own left out"
+                    ["Author", "Genre", "Rating"] =<< countedNames keys
+        assertEqual "Genre is on two rows of one file and one of the other" 3
+          =<< intAt "Genre" keys
+        assertEqual "Rating on the one row that spells it" 1 =<< intAt "Rating" keys
+
+  , testCase "and every value under the key it was spelled with" $
+      withDrawerTree $ \a -> do
+        values <- field "values" =<< decoded =<< ok =<< getFrom a "/properties"
+        genre <- field "Genre" values
+        assertEqual "both spellings the tree holds" ["heist", "noir"]
+          =<< countedNames genre
+        assertEqual "noir on the two rows of one file" 2 =<< intAt "noir" genre
+        assertEqual "heist on the one row of the other" 1 =<< intAt "heist" genre
+        assertEqual "and a key on one row answers that one value" 1
+          =<< intAt "Leonard" =<< field "Author" values
+
+    -- A tree with nothing to complete from is a tree, not a miss: the drawer's
+    -- input opens on it and offers nothing.
+  , testCase "a tree whose drawers hold nothing answers empty objects" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "bare.org" "* one\n"
+        (a, _hub) <- serverOver dir
+        v <- decoded =<< ok =<< getFrom a "/properties"
+        assertEqual "no keys" [] =<< countedNames =<< field "keys" v
+        assertEqual "and no values" [] =<< countedNames =<< field "values" v
+
+  , postIs405 "/properties"
+  ]
+
+-- | A tree spelling one key across two files, one key on a single row, and the server's own pair in every drawer.
+withDrawerTree :: (Application -> IO a) -> IO a
+withDrawerTree k = withTempDir $ \dir -> do
+  _ <- orgFile dir "a.org" (T.unlines
+         [ "* one", ":PROPERTIES:", ":ORG_GLANCE_ID: one"
+         , ":ORG_GLANCE_CREATION_TIME: [2026-08-20 Thu]"
+         , ":Genre: noir", ":Rating: 5", ":END:"
+         , "* two", ":PROPERTIES:", ":ORG_GLANCE_ID: two", ":Genre: noir", ":END:" ])
+  _ <- orgFile dir "b.org" (T.unlines
+         [ "* three", ":PROPERTIES:", ":ORG_GLANCE_ID: three"
+         , ":Genre: heist", ":Author: Leonard", ":END:" ])
   (a, _hub) <- serverOver dir
   k a
 

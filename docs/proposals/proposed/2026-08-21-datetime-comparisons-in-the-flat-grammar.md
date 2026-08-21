@@ -5,14 +5,16 @@ should support datetime comparisons — for SCHEDULED, DEADLINE, CLOSED, and
 custom properties where org-mode timestamps are used (active and inactive
 forms)."*
 
-The ask names the DSL, and the DSL cannot ask for it yet. The flat `?q=` string
-is the one truth ([the typed DSL behind the `.`
-door](2026-08-21-the-typed-dsl-behind-the-dot-door.md):219-221 — *"the surface
-can spell nothing the flat string cannot"*), and that proposal's own evolution
-rule says where the operator has to land first: *"`=~`, `<`, `>` are the obvious
-next ones and none may land before the flat grammar has the predicate
-underneath"* (:734-735). So the ask is two designs. **This one is the flat half
-and it ships alone;** the typed half is the amended
+The ask names the DSL, and the DSL cannot say it yet. The flat `?q=` string is
+the one truth ([the typed DSL behind the `.`
+door](2026-08-21-the-typed-dsl-behind-the-dot-door.md#the-language-defined) —
+*"the surface can spell nothing the flat string cannot"*), and that proposal's
+own evolution rule says where the operator has to land first: *"`=~`, `<`, `>`
+are the obvious next ones and none may land before the flat grammar has the
+predicate underneath"*
+([L7](2026-08-21-the-typed-dsl-behind-the-dot-door.md#l7--evolution)). So the ask
+is two designs. **This one is the flat half and it ships alone;** the typed half
+is the amended
 [L8](2026-08-21-the-typed-dsl-behind-the-dot-door.md#l8--datetime-comparisons),
 which cannot ship before it.
 
@@ -30,7 +32,7 @@ serves the rows due in September. The two tokens AND on one axis, which is the
 axis law's own conjunction ([additive-filters](../done/2026-08-20-additive-filters.md):106-113),
 so the range needs no grammar of its own. Today that same set is spelled
 `deadline:2026-09` — and only because September is a whole calendar month. A
-range no prefix names has no spelling at all today, and neither has "before"
+range no prefix names cannot be spelled at all today, and neither can "before"
 or "after".
 
 ## Why the spelling is free: today's `scheduled:>2026-09` is dead ground
@@ -297,7 +299,7 @@ sits in `planned:*empty*` (`test/TestFilter.hs`:280-281).
 **`closed:` is its own axis and joins no other.** The consequence is worth
 stating: `planned:2026-08 closed:2026-08` is the conjunction (planned AND
 closed in August), and the UNION of two axes has no spelling — the same gap
-additive-filters names when it defers a general `or:(…)` combinator (:222-227).
+additive-filters names when it defers a general `or:(…)` combinator (:225-227).
 Widening `planned:` to include CLOSED was considered and rejected: it would
 change what every existing `planned:` query serves, which law 2 of the
 conservativity table forbids.
@@ -341,7 +343,8 @@ the rest.
   means.
 - **Rejected: `prop:NAME:VALUE`,** the property name smuggled into the value.
   That makes a value into a mini-grammar, which is the reading the DSL proposal
-  already rejects for `["Deadline:desc"]` (:150-152).
+  already rejects for `["Deadline:desc"]`
+  ([the direction spelling](2026-08-21-the-typed-dsl-behind-the-dot-door.md#sort-and-the-direction-spelling)).
 - **The cell is the drawer value verbatim** (`customCell`, `Query.hs`:1927-1929),
   so it wears whatever org wrote — including the brackets.
 
@@ -365,7 +368,9 @@ the brackets DERIVED from that sum rather than spelled twice — `activeBrackets
   `*active*` / `*inactive*` are already `state:`'s with a wholly different
   meaning (`docs/query.md`:152-153). Reusing the two words on a property key
   would make `metaHome` a relation and make one word mean two things — the
-  failure the DSL's roster law is built to prevent (:69-96). A kind predicate,
+  failure the DSL's roster law is built to prevent
+  ([§0](2026-08-21-the-typed-dsl-behind-the-dot-door.md#0--the-roster-law-which-decides-every-spelling)).
+  A kind predicate,
   if ever shown to be owed, is TWO NEW constructors on the `Meta` sum with words
   of their own, named by the compiler under the closed-sum discipline
   (`docs/invariants.md`:155-159). Phase 3 ships without one and says so.
@@ -556,8 +561,9 @@ shippable alone.
 - **Driving the comparison off the column's declared `type`.** Rejected against
   the model's own heading, *"Matching, by KEY NAME and never by the declared
   kind"* (`AGENTS.hs`:2358). A wire field would also have to declare a kind per
-  custom column, which is the same growth §8 of the DSL proposal rejects
-  (:1016-1063).
+  custom column, which is the same growth
+  [§8 of the DSL proposal](2026-08-21-the-typed-dsl-behind-the-dot-door.md#8-the-roster-on-the-wire)
+  rejects, against the descriptor pin at `test/TestSpec.hs`:984.
 - **Widening `planned:` to include CLOSED.** Rejected: it changes what every
   existing `planned:` query serves, against `docs/query.md`:65-67 and the
   fixture pinned at `TestFilter.hs`:280-281.

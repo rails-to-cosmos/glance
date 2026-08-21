@@ -27,6 +27,7 @@ import Body
         , bodyText
         , caretIn
         , draftId
+        , draftPairId
         , drafted
         , insertion
         , joinLine
@@ -81,6 +82,11 @@ type alias Model =
     , plan : List ( String, String )
     , planKeys : List String
 
+    -- A PAIR BEING TYPED IS A ROW AND NOT A PAIR: `props' is what a flush
+    -- writes to the file, so a half-typed key in it would land on disk the
+    -- moment the sheet is left.  This field draws the row and nothing else.
+    , draftPair : Bool
+
     -- The FOLDED composites, by id; every drawer starts here.
     , shut : Set String
     }
@@ -88,7 +94,7 @@ type alias Model =
 
 empty : Model
 empty =
-    Model [] [] Array.empty Array.empty 0 [] [] Nothing 0 1 Nothing Nothing [] [] [] Set.empty
+    Model [] [] Array.empty Array.empty 0 [] [] Nothing 0 1 Nothing Nothing [] [] [] False Set.empty
 
 
 {-| A SIBLING SHARES AN OWNER, and that is the step for contents: `n'/`p' walk
@@ -335,6 +341,8 @@ type Msg
     | Draft String (Maybe Int)
     | Insert String (Maybe Int) String
     | Undraft String
+    | DraftPair
+    | UndraftPair String
     | Tab
     | AddProp String String
     | SetMeta (List ( String, String )) (List ( String, String ))
@@ -461,16 +469,26 @@ update msg model =
         SetMeta props plan ->
             told (remeta { model | props = props, plan = plan })
 
-        -- THE PAIR ARRIVES WHOLE -- the shell asked for both halves -- so the
-        -- write follows at once, and point lands on the new pair, drawer open.
+        -- THE PAIR ARRIVES WHOLE -- the shell typed both halves -- so the write
+        -- follows at once, and point lands on the new pair, drawer open.  THE
+        -- DRAFT ROW GOES EITHER WAY: it became this pair, or the box that drew
+        -- it has been told no and is shut, and a row nothing can reach would
+        -- stand in the drawer until the next fill.
         AddProp key value ->
             if key == "" || value == "" || String.contains " " key || String.contains ":" key then
-                spoke ( model, "a property needs a key and a value" )
+                spoke
+                    ( landOn Body.drawerId (remeta { model | draftPair = False })
+                    , "a property needs a key and a value"
+                    )
 
             else
                 let
                     fresh =
-                        remeta { model | props = model.props ++ [ ( key, value ) ] }
+                        remeta
+                            { model
+                                | props = model.props ++ [ ( key, value ) ]
+                                , draftPair = False
+                            }
 
                     minted =
                         Body.propId (List.length model.props)
@@ -641,6 +659,29 @@ update msg model =
             in
             told { model | rows = rows, at = placeOf { model | rows = rows } id }
 
+        -- `+' IN THE DRAWER DRAWS THE PAIR BEFORE IT IS WRITTEN, at the end of
+        -- the drawer, which OPENS to show it -- a row typed behind a fold is no
+        -- draft.  It joins no list: `props' is what a flush writes.
+        DraftPair ->
+            let
+                fresh =
+                    remeta { model | draftPair = True }
+            in
+            told
+                { fresh
+                    | at = placeOf fresh draftPairId
+                    , shut = Set.remove Body.drawerId fresh.shut
+                }
+
+        -- And the same row taken away, point back on the stop `+' was pressed
+        -- over: the drawer is byte-identical, having never moved.
+        UndraftPair id ->
+            let
+                fresh =
+                    remeta { model | draftPair = False }
+            in
+            told { fresh | at = placeOf fresh id }
+
 
 {-| THE PANE IS A NARROWING: what is written stays INSIDE the materialized
 subtree, so a typed headline at the root's level or above is DEMOTED to the
@@ -699,7 +740,7 @@ remeta m =
         | rows =
             case List.filter (\r -> r.kind /= Meta) m.rows of
                 head :: rest ->
-                    head :: Body.metaRows m.plan m.props ++ rest
+                    head :: Body.metaRows m.plan m.props m.draftPair ++ rest
 
                 [] ->
                     []
@@ -1098,6 +1139,13 @@ msgD =
                     "undraft" ->
                         D.map Undraft (D.field "id" D.string)
 
+                    -- No id: a pair joins at the drawer's end and nowhere else.
+                    "draftpair" ->
+                        D.succeed DraftPair
+
+                    "undraftpair" ->
+                        D.map UndraftPair (D.field "id" D.string)
+
                     "tab" ->
                         D.succeed Tab
 
@@ -1226,7 +1274,7 @@ spineRanks m heads =
 
 rowClass : Lit -> Model -> Int -> Row -> Bool -> String
 rowClass lit m i r top =
-    (if r.id == draftId then
+    (if r.id == draftId || r.id == draftPairId then
         "de d-draft d-"
 
      else

@@ -7,6 +7,7 @@ module Body exposing
     , bodyText
     , caretIn
     , draftId
+    , draftPairId
     , drafted
     , insertion
     , joinLine
@@ -108,6 +109,14 @@ tailId =
 propId : Int -> String
 propId n =
     drawerId ++ String.fromInt n
+
+
+{-| The row a pair is typed over before it is written.  NOT a `propId`: it is
+no index, so `propIndex` reads it back as nothing and no delete can name it.
+-}
+draftPairId : String
+draftPairId =
+    drawerId ++ "D"
 
 
 propIndex : String -> Maybe Int
@@ -241,10 +250,12 @@ rowsFrom lines own headCells kids =
 
 {-| The planning line and the properties drawer as rows: planning one leaf-line
 element when any pair exists, the drawer a composite (id `PR') over one leaf per
-pair.  The drawer is always drawn -- `+' needs a place to land.
+pair.  The drawer is always drawn -- `+' needs a place to land.  DRAFTING draws
+one more leaf, empty, where the pair being typed will stand: a row and not a
+PAIR, since the drawer's list is what a flush writes.
 -}
-metaRows : List ( String, String ) -> List ( String, String ) -> List Row
-metaRows plan props =
+metaRows : List ( String, String ) -> List ( String, String ) -> Bool -> List Row
+metaRows plan props drafting =
     let
         planning =
             if List.isEmpty plan then
@@ -277,8 +288,21 @@ metaRows plan props =
                 , text = propertyText ( key, value )
                 , was = propertyText ( key, value )
             }
+
+        drafts =
+            if drafting then
+                [ { blank
+                    | id = draftPairId
+                    , kind = Meta
+                    , grain = Leaf
+                    , owner = Just drawerId
+                  }
+                ]
+
+            else
+                []
     in
-    planning ++ drawer :: List.indexedMap pair props
+    planning ++ drawer :: List.indexedMap pair props ++ drafts
 
 
 planningText : List ( String, String ) -> String

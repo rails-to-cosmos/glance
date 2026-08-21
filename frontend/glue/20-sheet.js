@@ -246,20 +246,16 @@
       if (!r) { said(INSERT, "no element"); return; }
       if (r.kind === "child")
         { said(INSERT, "a child's body is its own — RET opens it"); return; }
-      // `+' IN THE DRAWER ASKS, org's own way: a property is a KEY and a VALUE,
-      // both required, so the pair arrives whole and the write follows at once.
+      // `+' IN THE DRAWER TYPES THE PAIR IN PLACE, org's own way: a property is
+      // a KEY and a VALUE, both required, and the two fields stand over a row
+      // drawn where the pair will go.  THE DRAWN ROW IS THE MODEL'S OWN and no
+      // half-typed pair joins the drawer's list, which is what a flush writes.
       if (r.kind === "meta") {
-        const b = docBinding("org-set-property", "+");
-        askText("property key", "RET · ESC cancels", (c) => {
-          const key = c.text.trim();
-          if (!key) { said(b, "a key is required"); return; }
-          askText(`value for :${key}:`, "RET · ESC cancels", (v) => {
-            const value = v.text.trim();
-            if (!value) { said(b, "a value is required"); return; }
-            dwrote = (what) => said(b, what);
-            dsend({ kind: "addprop", key, value });
-          }, false);
-        });
+        dsend({ kind: "draftpair" });
+        openEdit(DPAIR, { id: r.id, add: true });
+        // THE BOX WEARS NO CHROME, so the echo carries what the popup's foot did.
+        said(docBinding("org-set-property", "+"),
+             "a key, then its value — RET applies · ESC cancels");
         return;
       }
       const off = at == null ? null : at;
@@ -353,10 +349,12 @@
       s.top = `${a.top - b.top - pane.clientTop + pane.scrollTop}px`;
       s.height = `${a.height}px`;
       // THE BOX IS THE BLOCK IT COVERS ON EVERY EDGE: `.d-item' carries no horizontal padding.
+      // EVERY field of it, since a two-field box laid over one row is two halves
+      // of that row's line -- padding the first alone would inset only the key.
       if (o.block) {
         s.left = `${a.left - b.left - pane.clientLeft + pane.scrollLeft}px`;
         s.width = `${a.width}px`;
-        inset(el(o.fields[0]), tr);
+        for (const id of o.fields) inset(el(id), tr);
         return;
       }
       if (o.tight) {
@@ -432,9 +430,107 @@
       fill: (r) => { drung = null; el("dtext").value = r.text; sizeDocEdit(); },
       focus: () => el("dtext").focus(),
     };
+    // A PAIR IS TWO FIELDS OVER ONE ROW: `block', so the box is the row's own
+    // box on every edge and each field is padded the way the row is.
+    const DPAIR = {
+      box: "dpair", pane: "mdoc", fields: ["dkey", "dval"],
+      mount: () => null, anchor: dParaAt, block: true,
+      fill: () => {
+        el("dkey").value = ""; el("dval").value = "";
+        askVocab();
+        sizeDocEdit();
+      },
+      // THE OFFERS ARE THE FOCUSED HALF'S, so they are drawn once it HAS the
+      // focus: `openEdit' fills before it focuses, and a fill drew the other
+      // half's list.
+      focus: () => { el("dkey").focus(); pairMoved(); },
+    };
     const dediting = () => !!edit && edit.o === DTITLE;
     const dparaing = () => !!edit && edit.o === DPARA;
-    const sheetOpen = () => dediting() || dparaing();
+    const dpairing = () => !!edit && edit.o === DPAIR;
+    const sheetOpen = () => dediting() || dparaing() || dpairing();
+    const onPairKey = () => active() === el("dkey");
+    // THE TREE'S OWN PROPERTY VOCABULARY, asked ONCE PER SHEET and kept: the
+    // door answers `{ keys: {KEY: n}, values: {KEY: {VALUE: n}} }'.  A build
+    // whose server has no such door answers 404 and the fields offer nothing.
+    let dvocab = null, dvocabAsked = false;
+    function askVocab() {
+      if (dvocabAsked) return;
+      dvocabAsked = true;
+      getJSON("/properties")
+        .then((v) => { dvocab = v; if (dpairing()) drawOffers(); })
+        .catch(() => {});
+    }
+    const OFFERS = 6;   // the knob, and the only place the cap is spelled
+    let doffers = [], dofferAt = -1;   // `-1' is point on NO offer
+    /** What the FOCUSED half offers: every key, or the values the tree spells
+     * under the key standing beside it.  Filtered the way this page filters
+     * everywhere -- a fold-case SUBSTRING of the offer -- and ordered by how
+     * often the tree writes it, ties alphabetical. */
+    function offersFor() {
+      if (!dvocab || !dpairing()) return [];
+      const onKey = onPairKey();
+      const key = el("dkey").value.trim();
+      const vals = dvocab.values || {};
+      // ORG UPPERCASES A PROPERTY KEY, so the door is keyed by the upper form;
+      // the verbatim reading answers for a tree that spells one otherwise.
+      const from = onKey ? (dvocab.keys || {})
+                         : (vals[key.toUpperCase()] || vals[key] || {});
+      const want = String(el(onKey ? "dkey" : "dval").value).trim().toLowerCase();
+      return Object.keys(from)
+        .filter((w) => w.toLowerCase().includes(want))
+        .sort((a, c) => (from[c] - from[a]) || (a < c ? -1 : a > c ? 1 : 0))
+        .slice(0, OFFERS);
+    }
+    function drawOffers() {
+      const box = el("doffer");
+      box.textContent = "";
+      doffers = offersFor();
+      if (dofferAt >= doffers.length) dofferAt = doffers.length - 1;
+      box.className = doffers.length ? "on" : "";
+      doffers.forEach((w, i) => part(box, "div", i === dofferAt ? "dof dat" : "dof", w));
+    }
+    /** The field or its text moved, so the list under it is another list.  POINT
+     * STANDS ON THE BEST MATCH OF WHAT WAS TYPED and on NOTHING over an empty
+     * field: with nothing typed the list is a menu to walk, and `RET' there is
+     * the empty key's own refusal rather than a word the reader never chose. */
+    const pairMoved = () => {
+      dofferAt = el(onPairKey() ? "dkey" : "dval").value.trim() ? 0 : -1;
+      drawOffers();
+    };
+    const walkOffer = (step) => {
+      if (!doffers.length) return;
+      dofferAt = Math.max(0, Math.min(doffers.length - 1, dofferAt + step));
+      drawOffers();
+    };
+    /** The offer under point into the half beside it, and whether that MOVED
+     * anything: an offer already standing in the field is nothing to take, so
+     * the same key goes on to hop or to apply rather than sticking here. */
+    function takeOffer() {
+      const want = dofferAt < 0 ? undefined : doffers[dofferAt];
+      const box = el(onPairKey() ? "dkey" : "dval");
+      if (want === undefined || want === box.value.trim()) return false;
+      box.value = want;
+      box.setSelectionRange(want.length, want.length);
+      pairMoved();
+      return true;
+    }
+    // TYPING IS ONE DOOR AND THE CROSSING IS THE OTHER.  A value ASSIGNED fires
+    // neither, so the two callers that assign one ask for the list themselves.
+    for (const id of ["dkey", "dval"])
+      for (const ev of ["input", "focus"]) el(id).addEventListener(ev, pairMoved);
+    /** TAB, RET or `:' over the pair.  An OFFER under point is taken first; a
+     * KEY then hands over to its value -- taking one advances too, which is
+     * `:''s own rule -- and a VALUE applies.  Taking a value offer is DRY: it
+     * fills the field, and the apply stays the reader's own next press. */
+    function pairKey(k) {
+      const onKey = onPairKey();
+      const took = takeOffer();
+      // A KEY HANDS OVER whether or not an offer was taken, which is `:''s rule.
+      if (onKey) { hop(); pairMoved(); return; }
+      if (took) return;
+      commitDocEdit(docBinding("org-set-property", k));
+    }
     // The document holds the keys with NOTHING focused, so an open sheet counts as typing.
     const docHolds = () => editing !== null;
     const paraBinding = docBinding("org-ctrl-c-ctrl-c", "RET");
@@ -459,9 +555,12 @@
     };
     // ORG'S OWN NEWLINES ARE THE FLOOR and what wraps takes the rows it occupies:
     // counting newlines alone left the box a line short over a wrapped item, so what
-    // `M-RET' added was typed out of sight.
+    // `M-RET' added was typed out of sight.  A PAIR IS ONE LINE and never grows:
+    // the drawn row it stands over is what would otherwise collapse under it.
     const sizeDocEdit = () => el("mdoc").style.setProperty("--g-doc-rows",
-      String(dparaing()
+      String(dpairing()
+        ? 1
+        : dparaing()
         ? Math.max(1, Math.min(DOCROWS,
                                Math.max(el("dtext").value.split("\n").length,
                                         docRowsDrawn())))
@@ -485,6 +584,27 @@
       const box = el(id);
       return box.value.slice(0, box.selectionStart).split("\n").length - 1;
     };
+    // A KEY ORG WOULD READ AS SOMETHING OTHER THAN A PROPERTY.  The frame words
+    // are the drawer's own (AGENTS.hs `reservedProperties'): written as a key,
+    // one of them TERMINATES the drawer and everything under it falls out of it.
+    const DRAWER_FRAME = ["PROPERTIES", "END"];
+    // The store's own two, kept out of every drawer the pane draws: typed by
+    // hand they would forge the identity a headline is found and linked by.
+    const IDENTITY_KEYS = ["ORG_GLANCE_ID", "ORG_GLANCE_CREATION_TIME"];
+    /** Why this pair is not written, or `null'.  EVERY refusal the model has is
+     * one of these: the box is shut before the model answers, so a wall it
+     * alone knew would leave a drawn row with nothing left to reach it. */
+    function pairRefused(key, value) {
+      if (!key) return "a key is required";
+      if (/[\s:]/.test(key)) return "a key holds no spaces and no colons";
+      const up = key.toUpperCase();
+      if (DRAWER_FRAME.indexOf(up) !== -1)
+        return `:${up}: frames the drawer — writing it would end the drawer here`;
+      if (IDENTITY_KEYS.indexOf(up) !== -1)
+        return `:${up}: is the store's own — this would forge the headline's identity`;
+      if (!value) return "a value is required";
+      return null;
+    }
     /** Commit the open edit, and with AT put another stop in under it — `S-RET''s
      * whole difference from `RET'.  AT is the CARET'S LINE, read at the press. */
     function commitDocEdit(b, at) {
@@ -511,6 +631,18 @@
         editPara(r, text, () => { spoke("paragraph written"); more(); });
         return;
       }
+      // THE PAIR ARRIVES WHOLE, both halves off the box: the walls are the
+      // box's own and it STAYS OPEN behind each one, so what was typed is
+      // still there to be fixed.
+      if (edit.o === DPAIR) {
+        const key = el("dkey").value.trim(), value = el("dval").value.trim();
+        const no = pairRefused(key, value);
+        if (no) { spoke(no); return; }
+        shutEdit(DPAIR);
+        dwrote = (what) => spoke(what);
+        dsend({ kind: "addprop", key, value });
+        return;
+      }
       const val = el("dtin").value;
       shutEdit(DTITLE);
       retitle(val);
@@ -521,10 +653,16 @@
     }
     const redraft = (r) => dsend({ kind: "draft", id: r.id });
     const undraft = (r) => dsend({ kind: "undraft", id: r.id });
+    const redraftPair = () => dsend({ kind: "draftpair" });
+    const undraftPair = (r) => dsend({ kind: "undraftpair", id: r.id });
+    // THE ESCAPE IS FROM THE EDIT: the box goes, the drawn row with it, and the
+    // drawer is the bytes it was — nothing typed here ever entered its list.
     const cancelSheetEdit = () => {
       const drawn = edit && edit.o === DPARA && edit.row.add ? edit.row : null;
-      cancelEdit("element", DTITLE, DPARA);
+      const pair = edit && edit.o === DPAIR ? edit.row : null;
+      cancelEdit(pair ? "the drawer" : "element", DTITLE, DPARA, DPAIR);
       if (drawn) undraft(drawn);
+      if (pair) undraftPair(pair);
     };
 
     function ddelete(ids, how) {
@@ -691,6 +829,18 @@
       const k = keyName(e);
       if (!k) return;
       const once = (act) => { if (!repeating(e)) act(); };
+      // THE PAIR TAKES FOUR KEYS: the offers walk on the arrows and `C-n'/`C-p',
+      // `:' hands a KEY over to its value — org's own muscle, and the character
+      // is swallowed since no key holds one — and TAB and RET carry the form.
+      // In the VALUE `:' is a character like any other, which a value may spell.
+      if (dpairing()) {
+        const step = walkStep(k);
+        if (step) { e.preventDefault(); once(() => walkOffer(step)); return; }
+        if (k !== "TAB" && k !== "RET" && !(k === ":" && onPairKey())) return;
+        e.preventDefault();
+        once(() => pairKey(k));
+        return;
+      }
       // `RET' COMMITS here, `S-RET' commits and asks for ANOTHER, `M-RET' is the newline.
       if (dparaing()) {
         if (k === "RET") { e.preventDefault(); once(() => commitDocEdit(paraBinding)); }
@@ -795,9 +945,12 @@
     function shut() {
       el("modal").className = ""; editing = null; base = ""; baseProps = null;
       soon(remembered);
-      shutEdit(DTITLE); shutEdit(DPARA);
+      shutEdit(DTITLE); shutEdit(DPARA); shutEdit(DPAIR);
       docClear();
       el("mdoc").className = "";
+      // THE VOCABULARY IS THE SHEET'S: the next one asks again, so a property
+      // written between two sheets is offered by the second.
+      dvocab = null; dvocabAsked = false;
     }
     function flush(digest) {
       const h = editing, sent = asked();
@@ -1015,7 +1168,7 @@
       el("mtext").value = base;
       // TOGGLE, never assign: the class also carries the sheet's size tier.
       el("sheet").classList.toggle("raw", raw);
-      shutEdit(DTITLE); shutEdit(DPARA);
+      shutEdit(DTITLE); shutEdit(DPARA); shutEdit(DPAIR);
       docFill(h, raw);
       el("mdoc").className = raw ? "" : "on";
       drawWhere(h.path || []);

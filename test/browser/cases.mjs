@@ -90,6 +90,12 @@ const editUp = (p, why) =>
   p.until(() => document.getElementById("dpara").classList.contains("on"),
           why || "the edit to open");
 
+/** The pair box open over its drawn row, which the box needs to be placed on. */
+const pairUp = (p, why) =>
+  p.until(() => document.getElementById("dpair").classList.contains("on")
+            && document.querySelectorAll("#mdoc .d-draft").length === 1,
+          why || "the pair's two fields to open");
+
 /** `placeEdit' SIZES THE BOX A TURN AFTER THE RAISE: read before that, the box
  * still stands over the row point left, one line tall. */
 const boxPlaced = (p, why) =>
@@ -1909,6 +1915,17 @@ export default [
              && open.keyInk.length === 2 && open.keyInk.every((c) => c === open.point),
       `the frame paints ${JSON.stringify(open.frameInk)} and the keys `
       + `${JSON.stringify(open.keyInk)} against point's ${open.point}`);
+    // A CANCELLED DRAFT LEAVES THE COUNTS: the row `+' draws is a ROW and no
+    // pair, so a drawer with no draft up holds exactly the pairs it held.
+    await p.press("+");
+    await pairUp(p, "the pair's fields over a drawn row");
+    await p.press("ESC");
+    await p.until(() => document.querySelectorAll("#mdoc .d-draft").length === 0,
+                  "ESC to take the drawn row back");
+    const back = await read();
+    assert(JSON.stringify(back.pairs) === JSON.stringify(open.pairs),
+      `the cancelled drawer holds ${JSON.stringify(back.pairs)} `
+      + `against ${JSON.stringify(open.pairs)}`);
     // TAB folds it back.
     await p.press("TAB");
     await p.until(() => document.querySelectorAll("#mdoc .d-drawer .d-meta").length === 0,
@@ -1968,17 +1985,61 @@ export default [
       const h = await (await fetch("/headline?id=drv-marks")).json();
       return !(h.properties || []).some(([k]) => k === "EFFORT");
     }, "the pair to leave the file", 15000);
-    // `+' ASKS FROM THE DRAWER; the sheet is reopened so the walk is the reader's own.
+    // `+' TYPES THE PAIR INLINE, in a row drawn at the drawer's end; the sheet is
+    // reopened so the walk to it is the reader's own.
     await sheet(p, base, "drv-marks");
     await walkTo(p, ".d-drawer", "the drawer");
+    await p.press("TAB");
+    await p.until(() => document.querySelectorAll("#mdoc .d-drawer .d-meta").length > 0,
+                  "TAB to open the drawer, so the reading below is the open one's");
+    // THE DRAWER AS IT STANDS, against which the cancel below is byte-identical.
+    const drawerText = () => p.eval(() =>
+      [...document.querySelectorAll("#mdoc .d-drawer .d-meta")].map((e) => e.textContent));
+    const before = await drawerText();
     await p.press("+");
-    // `+' ASKS, org's way: the key, then the value, both required.
-    await p.until(() => /property key/.test(document.getElementById("phead").textContent),
-                  "the key prompt");
+    await pairUp(p, "the two fields to open over a drawn row");
+    // THE BOX IS THE PAIR IT WILL BECOME: the drawer's own colons around a key
+    // field and a value field, over the row drawn where the pair will stand.
+    const dressed = await p.eval(() => {
+      const box = document.getElementById("dpair");
+      return { punc: [...box.querySelectorAll(".dpunc")].map((s) => s.textContent),
+               fields: [...box.querySelectorAll("input")].map((i) => i.id),
+               focus: document.activeElement.id,
+               // The drawn row is the model's own and joins no list.
+               drafts: document.querySelectorAll("#mdoc .d-draft").length,
+               metas: document.querySelectorAll("#mdoc .d-drawer .d-meta").length };
+    });
+    assert(dressed.punc.join("") === "::" && dressed.fields.join(",") === "dkey,dval",
+      `the box reads ${JSON.stringify(dressed)}`);
+    assert(dressed.focus === "dkey", `the focus opened on ${dressed.focus}`);
+    assert(dressed.drafts === 1 && dressed.metas === before.length + 1,
+      `the draft drew ${dressed.drafts} rows, the drawer now ${dressed.metas}`);
+    // BOTH HALVES COMPLETE FROM THE TREE'S OWN VOCABULARY, which is a live route
+    // here: no stub answers this browser.
+    await p.type("OW");
+    const keyOffers = await p.until(() => {
+      const box = document.getElementById("doffer");
+      return box.className === "on"
+        ? [...box.children].map((c) => c.textContent) : false;
+    }, "the key's offers to draw off GET /properties");
+    assert(keyOffers.some((w) => /^OWNER$/.test(w)),
+      `the key offers ${JSON.stringify(keyOffers)}`);
+    // ESC CANCELS THE INPUT WHOLE: the box goes, the drawn row with it, and the
+    // drawer is the rows it was, character for character.
+    await p.press("ESC");
+    await p.until(() => !document.getElementById("dpair").classList.contains("on")
+                    && document.querySelectorAll("#mdoc .d-draft").length === 0,
+                  "ESC to take the box and the drawn row together");
+    const after = await drawerText();
+    assert(JSON.stringify(after) === JSON.stringify(before),
+      `the cancelled drawer reads ${JSON.stringify(after)} against ${JSON.stringify(before)}`);
+    // AND AGAIN, THROUGH THE REAL FIELDS, `:' handing the key over to its value.
+    await p.press("+");
+    await pairUp(p, "the two fields to open again");
     await p.type("ROOM");
-    await p.press("RET");
-    await p.until(() => /value for :ROOM:/.test(document.getElementById("phead").textContent),
-                  "the value prompt");
+    await p.press(":");
+    await p.until(() => document.activeElement.id === "dval",
+                  "`:' to hand the key over to its value");
     await p.type("12");
     await p.press("RET");
     await p.until(async () => {
@@ -1986,7 +2047,9 @@ export default [
       return (h.properties || []).some(([k, v]) => k === "ROOM" && v === "12");
     }, "the minted pair to reach the file", 15000);
     const end = await served();
-    return [`OWNER edited, EFFORT dropped, ROOM added: ${JSON.stringify(end.props)}`];
+    return [`OWNER edited, EFFORT dropped, ROOM typed inline off `
+      + `${JSON.stringify(keyOffers)}; ESC left ${JSON.stringify(before)} standing: `
+      + `${JSON.stringify(end.props)}`];
   } },
 { name: "a child is drawn whole, walked like a list, and edits through the same splice",
   async run(p, base) {

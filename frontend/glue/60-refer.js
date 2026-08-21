@@ -5,7 +5,12 @@
     let picking = null;
 
     const referUp = () => !!picking;
-    const referOpen = () => (dediting() ? "dtin" : dparaing() ? "dtext" : null);
+    // A LINK IS A VALUE: over an open pair the picker writes into the VALUE half
+    // whichever half point stood in, since a key wearing a link spells no
+    // property at all — and point follows what was written.
+    const referOpen = () => (dediting() ? "dtin"
+                           : dparaing() ? "dtext"
+                           : dpairing() ? "dval" : null);
     const referBox = () => el(referOpen());
     const referRun = () => picking.at + (picking.desc === null ? 1 : picking.desc.length);
 

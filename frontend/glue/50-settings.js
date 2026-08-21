@@ -592,8 +592,13 @@ const SECTIONS = [
         palette: typedFilter(),
       };
     }
+    // THE OPEN BOX, BY NAME: a pair carries BOTH halves, since either alone
+    // reopens as a pair the reader never typed.
     function openEditState() {
       if (!sheetOpen()) return null;
+      if (dpairing())
+        return { box: "dpair", id: edit.row.id, add: true,
+                 val: el("dkey").value, val2: el("dval").value };
       return { box: dparaing() ? "dpara" : "dtitle", id: edit.row.id,
                add: !!(dparaing() && edit.row.add),
                val: el(dparaing() ? "dtext" : "dtin").value };
@@ -627,6 +632,17 @@ const SECTIONS = [
       }).catch((e) => append("sync", "error", `sheet restore failed: ${e.message}`));
     }
     function reopenEdit(o) {
+      // A PAIR IS DRAWN BEFORE IT IS TYPED, so the row goes back in first and
+      // the box over it after — the halves as they stood.
+      if (o.box === "dpair") {
+        redraftPair();
+        openEdit(DPAIR, { id: o.id, add: true });
+        el("dkey").value = o.val;
+        el("dval").value = o.val2 || "";
+        // Assigning fires no `input', so the offers are asked for by hand.
+        pairMoved();
+        return;
+      }
       // AN INSERT holds none of the file's text: reopened as a paragraph, RET would REPLACE it.
       const stop = o.box === "dpara" ? docRowById(o.id) : null;
       const r = o.box !== "dpara" ? { id: o.id, val: o.val }

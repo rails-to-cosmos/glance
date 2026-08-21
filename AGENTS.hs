@@ -24,7 +24,7 @@
 module AGENTS where
 
 import Control.Monad (unless)
-import Data.Char (isAlpha, isDigit, toLower, toUpper)
+import Data.Char (isAlpha, isDigit, isSpace, toLower, toUpper)
 import Data.List (foldl', intercalate, isPrefixOf, isSuffixOf, nub, sortOn)
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
 import System.Exit (exitFailure)
@@ -1754,17 +1754,18 @@ data Route = Route
 
 routes :: [Route]
 routes =
-  [ Route "/"          False TextRefusal [GET]
-  , Route "/headlines" True  TextRefusal [GET]
-  , Route "/refer"     True  TextRefusal [GET]
-  , Route "/headline"  True  JsonRefusal [GET, POST]
-  , Route "/command"   True  JsonRefusal [POST]
-  , Route "/config"    True  JsonRefusal [GET, POST]
-  , Route "/capture"   True  TextRefusal [GET]
-  , Route "/keywords"  True  TextRefusal [GET]
-  , Route "/links"     True  TextRefusal [GET]
-  , Route "/tags"      True  TextRefusal [GET]
-  , Route "/ws"        True  TextRefusal [GET]
+  [ Route "/"           False TextRefusal [GET]
+  , Route "/headlines"  True  TextRefusal [GET]
+  , Route "/refer"      True  TextRefusal [GET]
+  , Route "/headline"   True  JsonRefusal [GET, POST]
+  , Route "/command"    True  JsonRefusal [POST]
+  , Route "/config"     True  JsonRefusal [GET, POST]
+  , Route "/capture"    True  TextRefusal [GET]
+  , Route "/keywords"   True  TextRefusal [GET]
+  , Route "/links"      True  TextRefusal [GET]
+  , Route "/tags"       True  TextRefusal [GET]
+  , Route "/properties" True  TextRefusal [GET]
+  , Route "/ws"         True  TextRefusal [GET]
   ]
 
 data Verb = VGet | VHead | VPost | VOther deriving (Eq, Show)
@@ -4230,8 +4231,28 @@ rowed AHidden   = False
 rowed ALogbook  = False
 
 -- `RET' on a pair opens its LINE, org's own spelling `:KEY: value', and a line that
--- opens no key is refused.  `+' ASKS -- the key, then the value, both required -- and
--- the completed pair writes at once.
+-- opens no key is refused.  `+' TYPES THE PAIR INLINE: a row is drawn at the drawer's
+-- end and a two-field box covers it, dressed as the line it will become -- `:', TAB or
+-- RET hands the key over to its value, TAB or RET from the value writes at once, and
+-- ESC takes the box and the drawn row together.
+
+data PairWall = NoKey | KeyPunctuated | KeyReserved | KeyHidden | NoValue
+  deriving (Eq, Show, Enum, Bounded)
+-- | Why a typed pair is refused, or nothing.  EVERY wall is the BOX'S OWN: it
+--   shuts before the model answers, so a wall only the model knew would leave a
+--   drawn row with nothing left to reach it.  The two key lists are the parser's
+--   and the store's -- `reservedProperties' is what terminates a drawer, and
+--   `hiddenProperties' is the identity a row is found and linked by.
+pairRefused :: String -> String -> Maybe PairWall
+pairRefused key value
+  | null key                     = Just NoKey
+  | any bad key                  = Just KeyPunctuated
+  | up `elem` reservedProperties = Just KeyReserved
+  | up `elem` hiddenProperties   = Just KeyHidden
+  | null value                   = Just NoValue
+  | otherwise                    = Nothing
+  where up    = map toUpper key
+        bad c = isSpace c || c == ':'
 
 -- ** The settings sheet
 
@@ -4386,8 +4407,9 @@ sheetNotes =
          \ and it owns the open entry, the shape, and the two baselines dirt is measured\
          \ against." [Test]
   , Note "The sheet is one `SURFACES' entry, the fourth `flagKey' surface and the fourth\
-         \ `openEdit' shape pair, whose `anchor' is the one thing a shape declares that a\
-         \ mount's does not." [Test]
+         \ `openEdit' surface -- three of the six shapes are its own, the title, the\
+         \ paragraph and the drawer's pair -- whose `anchor' is the one thing a shape\
+         \ declares that a mount's does not." [Test]
   , Note "No popup box declares a width or a height of its own; `#mpanes' hides its\
          \ overflow and no pane carries a floor, `#mdoc' owning its scroll and the mounts\
          \ inside the other panes owning theirs." [Test]
@@ -4555,9 +4577,22 @@ sheetNotes =
   , Note "THE HEADER THE SERVER LIFTS IS DRAWN BACK: planning and the properties drawer\
          \ arrive as LISTS beside the body and their rows are SYNTHESIZED -- no span,\
          \ no part in the splice, `bodyText' walking `Para' alone -- and are edited as\
-         \ lists.  A pair edits as its own `:KEY: value' line; `+' asks for the key and\
-         \ the value, both required; `d d' drops a pair through the lists; the frame\
-         \ and the keys wear point's ink, org's `org-special-keyword'." [Test, Browser]
+         \ lists.  A pair edits as its own `:KEY: value' line; `d d' drops a pair\
+         \ through the lists; the frame and the keys wear point's ink, org's\
+         \ `org-special-keyword'.  `+' TYPES A FRESH PAIR INLINE: a row drawn at the\
+         \ drawer's end, which opens for it, under a two-field box dressed as the\
+         \ `:KEY: value' line it will become -- `:', TAB or RET hands the key over to\
+         \ its value, TAB or RET from the value writes at once, both halves complete\
+         \ from the tree's own vocabulary (`GET /properties'), and ESC takes the box\
+         \ and the row together, the drawer the bytes it was.  THE DRAWN ROW JOINS NO\
+         \ LIST: `props' is what a flush writes, so a half-typed key in it would land\
+         \ on disk the moment the sheet is left." [Elm, Test, Browser]
+  , Note "EVERY WALL A TYPED PAIR MEETS IS THE BOX'S OWN (`pairRefused'), and the box\
+         \ stays up behind each so what was typed is there to be fixed: an empty half,\
+         \ a key holding a space or a colon, `reservedProperties' -- writing `:END:'\
+         \ as a key would close the drawer over everything under it -- and\
+         \ `hiddenProperties', which would forge the identity a row is linked by.\
+         \ Neither list guarded a typed key before: the ask took `END' and wrote it." [Test, Browser]
   , Note "THE COMMIT CARRIES ITS OWN CARGO: `docBody' and `docTook' hand the shell\
          \ body, properties and planning TOGETHER, since a flush reading the shell's\
          \ mirrors would race the state push for them.  THE BASELINE COMES OFF THE\

@@ -30,10 +30,16 @@ demoShell opts font colours views =
   , "        <textarea id=\"mtext\" spellcheck=\"false\"></textarea>"
   , "        <div id=\"mdoc\"><div id=\"dlist\"></div>"
       -- Autocorrect and friends OFF: these boxes write ORG into the user's files.
-      <> "<div id=\"dtitle\"><input id=\"dtin\" spellcheck=\"false\" autocomplete=\"off\""
-      <> " autocapitalize=\"off\" autocorrect=\"off\"></div>"
+      <> "<div id=\"dtitle\">" <> docField "dtin" <> "</div>"
       <> "<div id=\"dpara\"><textarea id=\"dtext\" spellcheck=\"false\" autocomplete=\"off\""
       <> " autocapitalize=\"off\" autocorrect=\"off\"></textarea></div>"
+      -- A PAIR IS TWO FIELDS OVER ONE ROW, drawn as the pair it will become --
+      -- the drawer's own colons around the key, the leading one hanging into the
+      -- gutter as a drawn pair's does.  The offers hang UNDER it, inside the box,
+      -- so no second overlay is placed.
+      <> "<div id=\"dpair\"><span class=\"dpunc dlead\">:</span>"
+      <> docField "dkey" <> "<span class=\"dpunc\">:</span>" <> docField "dval"
+      <> "<div id=\"doffer\"></div></div>"
       <> "</div>"
   , "      </div>"
   , "      <pre id=\"mlog\"></pre>"
@@ -149,6 +155,13 @@ tableFrame name p overlay = popupFrame name p "" ""
 
 field :: Text -> Text
 field name = "<input id=\"" <> name <> "\" spellcheck=\"false\">"
+
+-- | A document field: every offer the browser makes declined, since these boxes
+-- write ORG into the reader's own files.
+docField :: Text -> Text
+docField name =
+  "<input id=\"" <> name <> "\" spellcheck=\"false\" autocomplete=\"off\""
+    <> " autocapitalize=\"off\" autocorrect=\"off\">"
 
 -- | A labelled row of the mint form, in the capture form's two classes.  The
 -- `nrow-NAME' class is the browser suite's handle for taking one field away.
