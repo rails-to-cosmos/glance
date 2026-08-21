@@ -94,9 +94,40 @@ and the normal form.*
 
 ```haskell
 .filter(state = Active, tag /= "chore", priority = ["A", "B"])
-.sort(deadline, Desc title)
+.sort(columns = [Desc "Deadline", "Title"])
 .columns("State", "Deadline")
 ```
+
+**The three signatures.** `.filter(…)` takes kwargs. `.sort(…)` takes ONE kwarg
+whose list carries the chain in written order. `.columns(…)` takes POSITIONAL
+names. Positionals and kwargs coexist the usual way, positionals first — a bare
+literal in `.filter(…)` is free text, so `.filter("milk", state = Active)` is
+`substring:milk state:*active*`.
+
+**Column names are quoted strings everywhere**, in both shaping stages. A custom
+column is any name at all — `columns:owner` reads the property drawer — so the
+set is OPEN, and the closed/open law that put the tree's keywords on the string
+side puts the columns there with them. Constructors stay the metas' alone.
+
+**The direction is a constructor applied to the name** — `Desc "Deadline"`, the
+closed word taking the open string, which is the same figure as `state = Active`
+beside `state = "TODO"`. It is per SEGMENT, which is what the flat grammar needs
+(`sort:state:desc->title` and `sort:state->title:desc` are different orders), and
+it leaves the quotes meaning taken-as-written everywhere. `Asc` is spellable and
+never emitted, matching the flat grammar's "nothing or `:asc`", so a round trip
+prints what the reader typed. The rejected spelling is the flat suffix smuggled
+into a literal (`"Deadline:desc"`); under this reading that string is a column
+NAME with a colon in it, which is not one of the six — see the corners.
+
+**Case carries nothing.** `active`, `Active` and `ACTIVE` are one name, and so
+are `FILTER` and `filter`; a bare name is resolved by LOOKUP in the closed world
+— the constructors, the wrappers, `not`/`raw`, and the stage's own fields —
+never by its first letter. **Quoting is the one disambiguation left**: bare
+means the closed world, quoted means an open value, and a bare name nothing
+answers to is an error the surface marks rather than a string it invents. What
+STANDS after an accept is the canonical spelling — constructors capitalised,
+fields in the lower case the flat keys wear — because the accept is the
+formatter's moment. The rewrite is case-only, so no offset moves.
 
 - **Record syntax for the fields.** `state = Active`, spaces around the `=`.
   A field is a name the grammar already has — the twelve keys — so the surface
@@ -126,8 +157,8 @@ and the normal form.*
   same thing. The axis the proposal calls `text` is `substring:`'s and free
   text's shared one, and `substring` is the key that actually exists — a field
   called `text` would name something no flat string can spell. The bare string
-  is free text said the way the flat grammar says it, and both compose to
-  `substring:milk`.
+  is free text said the way the flat grammar says it — the positional argument
+  of `.filter(…)` — and both compose to `substring:milk`.
 - **`raw "…"` is the escape hatch**, and it is the surface admitting it is not
   total. See the corners.
 
@@ -193,6 +224,29 @@ produced and the check now holds:
    over that slot still lead with the constructors, and **accepting one swallows
    the quotes** (`state = Active`) where accepting a literal keeps them: a
    constructor is no string. Both stay dry.
+8. **The stages gained signatures, and the columns went quoted.** `.sort(…)`
+   takes a `columns` kwarg whose list is the chain; `.columns(…)` takes
+   positional names; and every column name in both is a QUOTED STRING, because
+   custom columns make the set open and the closed/open law is what decides
+   which side of the quotes a value sits on. The opened-slot rule went with
+   them: `.columns(` spawns its first positional slot with the call, a comma
+   spawns the next, and the sort list's items are offered quoted. (Round 8 hung
+   the direction off a `:desc` suffix inside the name; round 10 took it back.)
+9. **The DSL went case-blind, and the accept became the formatter.** Any case
+   parses; the canonical spelling is what stands afterwards. This is the round
+   that moves the whole disambiguating burden onto the quotes — see the corners.
+10. **The direction reconciled with the proposal, on the spike's own grounds.**
+   Round 8 spelled it `"Deadline:desc"`; the proposal
+   (`docs/proposals/proposed/2026-08-21-the-typed-dsl-behind-the-dot-door.md`,
+   "`.sort(…)`, and the direction spelling") settled `Desc "Deadline"`, and it
+   wins on the argument this README had already written against itself — the
+   suffix is a second grammar hidden inside a literal, the one place the quotes
+   would not have meant taken-as-written. The re-zipping objection that carried
+   the suffix only ever touched the PARALLEL-KWARG shape (`desc = [...]`), which
+   both documents reject; a constructor applied to its own string is per segment
+   exactly as the suffix was. So `Asc`/`Desc` are back in the roster as the two
+   direction constructors, the offers give each column once bare and once under
+   `Desc`, and the suffix spelling is now an unknown column.
 
 Rounds 4 and 5 cost the spike its own control. `/` was identical in all tabs on
 purpose, and `check.mjs` asserted it; D's and F's departure is now DECLARED there
@@ -205,6 +259,30 @@ The places where the surface and the flat string disagree. They are the
 argument, not the polish; every one is verified in `check.mjs` or by the
 round-trip corpus.
 
+- **Quoting now carries the whole disambiguation, and it is load-bearing.**
+  With case gone, nothing else tells a closed name from an open value:
+  `state = active` is the meta, `state = "active"` is a keyword spelled
+  `active`, and `state = chore` is an ERROR rather than a search for `chore`.
+  That is a good law — it is the flat grammar's own, where quoting is the only
+  escape — but it means a reader who forgets the quotes gets a marked word
+  instead of a query, where the flat box would simply have searched. The gain
+  is that a typo can no longer silently become a free-text needle.
+- **Column names had to leave the constructors.** `Deadline` looks exactly like
+  a constructor and cannot be one: custom columns read the property drawer, so
+  the set is open and no roster can close it. Quoting them puts them with the
+  keywords, and it costs the reader two characters on every column name in
+  every shaping stage — the price of the law being uniform.
+- **The direction found a home, and the suffix became a bad name.** The
+  constructor form keeps the quotes meaning taken-as-written everywhere, which
+  the `:desc` suffix could not. The cost is that `["Deadline:desc"]` no longer
+  means anything: read as written it names a column with a colon in it, and the
+  sort chain takes the six column keys only. F MARKS it and composes nothing for
+  that segment — the flat grammar refuses such a query outright (HTTP 400,
+  naming the token), and a rig with no refusal path can only make the segment
+  take effect nowhere and say so on the screen. **Never document order**: a
+  stage whose segments all fail to resolve reads as an ABSENT stage, because
+  document order is a meaning nobody asked for. (The rig drops where the server
+  refuses — that tolerance is the rig's, and it is uniform across both readers.)
 - **The kwargs surface is not total, and `raw "…"` is where it says so.** An
   axis carrying BOTH a base and a widening — `priority:[#A] +priority:[#B]` —
   has no kwargs spelling: one field takes one expression, where the flat form is
@@ -279,15 +357,16 @@ Every variant: **BOOT**, **DOT** (`.` spawns one dot and offers exactly
 `filter`/`sort`/`columns`), **PARENS** (the taken call opens them and the caret
 lands INSIDE them — in DOM order and on the screen), **CHAIN** (a scripted
 sequence composes exactly `state:TODO sort:deadline` and `RET` applies it: two
-rows, deadline order, empties last), **COMMA** (a dozen compose-equalities per
-dialect), **DRY** (an accept lands bare with the offers closed, and the next
-keystroke wakes them), **ESC** (three rungs, the strip untouched), **SETTLED**.
+rows, deadline order, empties last), **COMMA** (a dozen compose-equalities in the
+flat dialect, twenty-one in the typed one), **DRY** (an accept lands bare with
+the offers closed, and the next keystroke wakes them), **ESC** (three rungs,
+the strip untouched), **SETTLED**.
 Tabs with a flat door also owe **SLASH** (the narrowed door still refuses
 `sort:title` in the shell's own sentence) and a door **SIG** identical across
 all of them. D and F swap those for **SLASH-STAGE**, **SLASH-FRESH**,
 **DEL-STAGE** and **DEL-INSIDE**.
 
-F owes three more:
+F owes five more:
 
 - **SIGNS** — `-` flips `=` to `/=` and back, `+` turns the value into
   `["TODO", |]` with the caret in the slot, and the flat string each composes is
@@ -297,7 +376,19 @@ F owes three more:
   taking the constructor swallows the quotes and taking a literal keeps them;
   typing the `=` by hand opens the same slot; and typing past the closing quote
   steps over it.
-- **IR** — the corpus. Twenty-seven paired spellings (flat against typed) must
+- **QUOTED** — the shaping signatures. `.columns(` spawns its positional slot
+  with the call and the offers complete INTO the quotes; a comma spawns the
+  next slot; `.sort(` offers `columns = [""]` and then quoted names, each once
+  bare and once under `Desc`; and the three signatures compose
+  `columns:State,Deadline`, `sort:deadline:desc->title` and their kin. A bare
+  word in `.columns(…)` composes NOTHING, and `["Deadline:desc"]` — a name with
+  a colon in it — is marked, composes nothing, and does not fall back to
+  document order.
+- **CASE** — `NOT (TAG = "chore")` typed in any case stands as
+  `not (tag = "chore")` once the stage closes and composes `-tag:chore`; a
+  half-typed `sta` is not yet marked; `startzz` is; and `state = chore` marks,
+  composes nothing, and is left exactly as written.
+- **IR** — the corpus. Thirty-two paired spellings (flat against typed) must
   print the same bytes; seven flat queries rendered INTO the surface and read
   back must too — the `/`-edit's own path, `raw "…"` included; and six pairs
   whose semantics part must print IRs that part with them. **The rung has to
@@ -306,7 +397,13 @@ F owes three more:
   and law 5's agreement pair goes red; let `All` flatten and the intersection
   pairs go red; stop `raw` reaching the flat reader and the escape-hatch pairs
   go red; stop a constructor normalising to its meta and every meta pair goes
-  red. All five were run.
+  red; make names case-sensitive again and the case pairs go red; stop the
+  formatter and the canonical display goes red; let a bare unknown name become
+  a value and the mark goes red; read the `:desc` suffix as a direction again,
+  or stop the direction constructor applying to its string, or start emitting
+  `Asc`, or let an unknown segment mean document order, and the sort rungs go
+  red. **Twenty-one negative tests were run in all**, each on the rung that
+  owns it.
 
 The control fails five rungs by construction, the way headline-bars' `flat` tab
 does, so `a-control.html` declares DOT, PARENS, CHAIN, COMMA and DRY as misses:
@@ -336,11 +433,13 @@ stage it could OPEN the stage instead. `DEL` is bound to the crumb pop and would
 have to be re-decided.
 
 **The typed surface needs a producer.** The constructor roster is the language's
-and can be hard-coded; **the keyword roster is the TREE's** — `#+TODO:` in the
-tree's own config — so `state = "…"`'s completions are a producer question the
-renderer already half-answers (it enumerates observed values). A shipping F
-would want the producer to declare which values are closed and which are open,
-which is one more field on the offer, not a new mechanism.
+and can be hard-coded; **the keyword AND column rosters are the TREE's** — `#+TODO:` in the
+tree's own config — — `#+TODO:` for the keywords, the property drawers for the custom columns — so
+both open rosters are a producer question the renderer already half-answers (it
+enumerates observed values). A shipping F would want the producer to declare
+which values are closed and which are open, which is one more field on the
+offer, not a new mechanism — and under a case-blind surface that declaration is
+what decides whether a bare word is a name or a marked error.
 
 **Pins that move:** `docs/query.md` gains "the chain is a view of the string",
 the comma's per-stage reading, and the typed surface's own table;

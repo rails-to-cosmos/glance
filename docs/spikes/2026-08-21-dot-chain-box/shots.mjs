@@ -22,11 +22,15 @@ const FLAT = [["."], chars("s")];
 // standing filter badge — dashed on the strip, its parens open in the box with
 // the caret at the end of what it already says.
 const PILLS = [["."], ["s"], [KEY.Tab], chars("deadline"), [")", KEY.Enter], ["/"]];
-// F IS SHOT ON ITS OWN IDIOM: an order committed, the filter badge reopened by
-// `/' with its record syntax and its `/=', and a second field half-written so
-// the value offers — constructors first, literals with their counts under them
-// — stand under the box beside the normal form.
-const TYPED = PILLS.concat([chars(", priority = ")]);
+// F IS SHOT ON ITS OWN IDIOM, and its own signatures: `.sort(columns = [Desc
+// "Deadline"])' committed — the direction as a constructor applied to the name
+// — the filter badge reopened by `/' with its record syntax and its `/=', and a
+// second field opened onto its quoted slot so the value offers stand under the
+// box beside the normal form: the constructor first, the literals with their
+// counts under it.
+const TYPED = [["."], ["s"], [KEY.Tab], [KEY.Tab], chars("Dead"),
+               [KEY.ArrowDown], [KEY.Tab], [")", KEY.Enter],
+               ["/"], chars(", priority = ")];
 
 const SHOTS = [
   ["a-control.html", "a-control.png", FLAT],

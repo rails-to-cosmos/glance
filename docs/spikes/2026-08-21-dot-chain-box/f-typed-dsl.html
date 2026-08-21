@@ -14,6 +14,17 @@
      `/=' and `+' for the list, which is what makes them KEYS rather than
      characters.
 
+     THE THREE SIGNATURES: `.filter(field = value, …)' kwargs,
+     `.sort(columns = [Desc "Deadline", "Title"])' one kwarg whose list is the
+     chain, and `.columns("State", "Title")' positional.  COLUMN NAMES ARE
+     QUOTED everywhere, custom columns being an open set — the closed/open law
+     puts them with the keywords, and the constructors stay the metas' alone.
+
+     AND CASE CARRIES NOTHING: `active', `Active' and `ACTIVE' are one name,
+     resolved by lookup rather than by a first letter, so QUOTING is the only
+     thing that says open-value.  What stands after an accept is the canonical
+     spelling — constructors capitalised, fields in the flat keys' own case.
+
      Under the box, the lisp normal form — read from THIS reader while the
      table is served by the flat one, so the two paths are compared on screen
      as well as in the check. */
@@ -30,6 +41,9 @@
   /* THE ONE OPERATOR THAT CAN BE READ BACKWARDS wears the refusal's ink. */
   .cx-neg{color:var(--g-bad); font-weight:600}
   .cx-bad{color:var(--g-bad); text-decoration:underline wavy}
+  /* A WORD HALF-TYPED is not yet wrong — it wears the page's own ink until it
+     can no longer finish as anything the closed world knows. */
+  .cx-partial-name{color:var(--g-fg)}
   .cx-ghost{color:var(--g-mute); opacity:.55; font-style:italic}
   .cx-more{color:var(--g-mute); font-weight:400}
 
@@ -64,7 +78,7 @@
       <kbd>.</kbd> chains · <kbd>TAB</kbd> complete · <kbd>-</kbd> negates
       (<code>/=</code>) · <kbd>+</kbd> makes a list · <kbd>,</kbd> separates ·
       <kbd>←</kbd><kbd>→</kbd> caret · <kbd>)</kbd> closes · <kbd>RET</kbd> apply ·
-      <kbd>ESC</kbd> back · <kbd>t</kbd> theme</span>
+      <kbd>ESC</kbd> back · <kbd>t</kbd> theme · any case</span>
     <span id="truth"></span>
   </footer>
 <script src="rig.js"></script>

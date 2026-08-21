@@ -55,7 +55,8 @@ const IR_CORPUS = {
   same: [
     // the README's own examples, and the laws under them
     ["state:*active* -tag:chore", '.filter(state = Active, tag /= "chore")'],
-    ["state:TODO sort:deadline", '.filter(state = "TODO").sort(deadline)'],
+    ["state:TODO sort:deadline",
+     '.filter(state = "TODO").sort(columns = ["Deadline"])'],
     // law 1: grouping is by key, never adjacency — order carries nothing
     ["priority:[#A] tag:book", '.filter(tag = "book", priority = "A")'],
     ["tag:book priority:[#A]", '.filter(priority = "A", tag = "book")'],
@@ -88,9 +89,16 @@ const IR_CORPUS = {
     ["milk", '.filter(substring = "milk")'],
     ["milk", '.filter("milk")'],
     // the shaping halves
-    ["sort:deadline->title:desc", ".sort(deadline, Desc title)"],
+    ["sort:deadline->title:desc", '.sort(columns = ["Deadline", Desc "Title"])'],
     ["sort:*none*", ".sort(None)"],
     ["columns:State,Deadline", '.columns("State", "Deadline")'],
+    // CASE CARRIES NOTHING: names are looked up, never read off their first
+    // letter, and the stage names go the same way
+    ["state:*active*", ".filter(STATE = ACTIVE)"],
+    ["state:*active*", ".FILTER(State = active)"],
+    ["sort:deadline", '.SORT(columns = ["deadline"])'],
+    ["tag:web tag:glance", '.filter(TAG = all ["web", "glance"])'],
+    ["-tag:chore", '.filter(NOT (Tag = "chore"))'],
     // the shape kwargs cannot say, said as the flat string it is
     ["priority:[#A] +priority:[#B] tag:book",
      '.filter(raw "priority:[#A] +priority:[#B]", tag = "book")'],
@@ -196,7 +204,13 @@ for (const page of picked) {
   const DRY_HALF = typed ? 'state = ""' : "state:";
   const DRY_NEXT = typed ? "A" : "TO";
   const DRY_FULL = typed ? "state = Active" : "state:TODO";
-  const COLS_ARG = typed ? '"State", "Deadline"' : "State,Deadline";
+  const COLS_ARG = typed ? 'State", Deadline"' : "State,Deadline";
+  // `.sort(' in F wants the `columns' kwarg first, which the offers spell: one
+  // TAB takes `columns = [""]' with the caret in the slot.
+  const SORT_KEYS = typed ? [[KEY.Tab], chars('Deadline"')] : [chars("deadline")];
+  const SORT2_KEYS = typed ? [[KEY.Tab], chars('State", Title"')]
+                           : [chars("state, title")];
+  const SORT_PILL = typed ? 'sort(columns = ["Deadline"])' : "sort(deadline)";
   /** A rung: green when it holds, silent when the control is declared to miss. */
   const want = (name, ok, why) => {
     if (ok && known.includes(name)) surprised.push(`${name} passed where the control is declared to miss`);
@@ -234,7 +248,7 @@ for (const page of picked) {
   await ff.keys(chars(CHAIN_ARG));
   await ff.keys([")", ".", "s"]);
   await ff.keys([KEY.Tab]);
-  await ff.keys(chars("deadline"));
+  for (const batch of SORT_KEYS) await ff.keys(batch);
   await ff.keys([")"]);
   const chain = await ff.eval(() => ({ composed: RIG.composed(), cx: RIG.cx() }));
   await ff.keys([KEY.Enter]);
@@ -281,9 +295,29 @@ for (const page of picked) {
     f_all: ["filter", 'tag = All ["web", "glance"]', "tag:web tag:glance"],
     f_neg: ["filter", 'state /= ["TODO", "DONE"]', "-state:TODO|DONE"],
     f_ctor: ["filter", "state = Active, tag /= Archive", "state:*active* -tag:*archive*"],
-    s_comma_space: ["sort", "state, title", "sort:state->title"],
-    s_desc: ["sort", "Desc deadline, title", "sort:deadline:desc->title"],
+    // POSITIONALS AND KWARGS MIX, positionals first: a bare literal in
+    // `.filter(…)' is free text, which shares the `substring' axis.
+    f_mixed: ["filter", '"milk", state = Active', "substring:milk state:*active*"],
+    // `.sort(columns = […])': the list is the chain, in written order, and the
+    // names are QUOTED — an open set sits on the string side.
+    s_list: ["sort", 'columns = ["State", "Title"]', "sort:state->title"],
+    // THE DIRECTION IS A CONSTRUCTOR APPLIED TO THE NAME, per segment.
+    s_desc: ["sort", 'columns = [Desc "Deadline", "Title"]', "sort:deadline:desc->title"],
+    s_desc2: ["sort", 'columns = ["Deadline", Desc "Title"]', "sort:deadline->title:desc"],
+    // `Asc' is spellable and never emitted — "nothing or `:asc'".
+    s_asc: ["sort", 'columns = [Asc "Title"]', "sort:title"],
+    // AND THE SUFFIX IS NO LONGER A SPELLING: taken as written, the string
+    // names a column with a colon in it, which is not one of the six — the
+    // flat grammar refuses such a segment, and here it takes effect nowhere.
+    s_suffix: ["sort", 'columns = ["Deadline:desc"]', ""],
+    s_one: ["sort", 'columns = "Deadline"', "sort:deadline"],
+    s_head: ["sort", 'columns = ["Tags", "#"]', "sort:tag->priority"],
+    s_none: ["sort", "None", "sort:*none*"],
+    // `.columns("State", "Title")': positional, quoted, custom names and all.
     c_comma_space: ["columns", '"State", "Deadline"', "columns:State,Deadline"],
+    c_custom: ["columns", '"State", "owner"', "columns:State,owner"],
+    // A BARE WORD IS NO NAME: nothing composes rather than something wrong.
+    c_bare: ["columns", "State, Deadline", ""],
   };
   const LAW = typed ? TYPED_LAW : FLAT_LAW;
   const law = await ff.eval((spec) => {
@@ -297,7 +331,7 @@ for (const page of picked) {
   await ff.keys(chars(typed ? 'state = TODO", tag = web"' : "state:TODO, tag:web"));
   await ff.keys([")", ".", "s"]);
   await ff.keys([KEY.Tab]);
-  await ff.keys(chars("state, title"));
+  for (const batch of SORT2_KEYS) await ff.keys(batch);
   await ff.keys([")"]);
   const drove = await ff.eval(() => RIG.composed());
   want("COMMA", lawOff.length === 0 && drove === "state:TODO tag:web sort:state->title",
@@ -375,7 +409,7 @@ for (const page of picked) {
     await ff.keys(["."]);
     await ff.keys(["s"]);
     await ff.keys([KEY.Tab]);
-    await ff.keys(chars("deadline"));
+    for (const batch of SORT_KEYS) await ff.keys(batch);
     await ff.keys([")", KEY.Enter]);
     await ff.keys(["/"]);
     const open = await ff.eval(caretInParens);
@@ -390,7 +424,7 @@ for (const page of picked) {
          && open.at === open.len
          && opened.cx.stages.length === 1 && opened.q.startsWith(BOOT_FILTER)
          && filters.length === 1 && rewrote.pills.length === 2
-         && rewrote.pills[1] === "sort(deadline)"
+         && rewrote.pills[1] === SORT_PILL
          && rewrote.q === BOOT_FILTER + " " + ADD_TOKEN + " sort:deadline",
          open.why || `opened=${JSON.stringify(open.args)} caret=${open.at}/${open.len} `
          + `stages=${opened.cx.stages.length} pills=${JSON.stringify(rewrote.pills)} `
@@ -409,7 +443,7 @@ for (const page of picked) {
     await ff.keys(["/"]);
     const fresh = await ff.eval(() => ({ cx: RIG.cx(), door: RIG.door() }));
     want("SLASH-FRESH",
-         eq(gone.pills, ["sort(deadline)"]) && fresh.door === "compose"
+         eq(gone.pills, [SORT_PILL]) && fresh.door === "compose"
          && fresh.cx.stages.length === 1 && fresh.cx.stages[0].fn === "filter"
          && fresh.cx.stages[0].args === "" && fresh.cx.where === "args",
          `gone=${JSON.stringify(gone.pills)} fresh=${JSON.stringify(fresh.cx)}`);
@@ -420,7 +454,7 @@ for (const page of picked) {
     await ff.keys(["."]);
     await ff.keys(["s"]);
     await ff.keys([KEY.Tab]);
-    await ff.keys(chars("deadline"));
+    for (const batch of SORT_KEYS) await ff.keys(batch);
     await ff.keys([")", "."]);
     await ff.keys(["c"]);
     await ff.keys([KEY.Tab]);
@@ -433,7 +467,7 @@ for (const page of picked) {
       walk.push(await ff.eval(() => RIG.query()));
     }
     want("DEL-STAGE",
-         built.pills.length === 3 && built.pills[1] === "sort(deadline)"
+         built.pills.length === 3 && built.pills[1] === SORT_PILL
          && built.q === BOOT_FILTER + " sort:deadline columns:State,Deadline"
          && eq(walk, ["state:*active* -tag:chore sort:deadline",
                       "state:*active* -tag:chore", "", ""]),
@@ -525,6 +559,120 @@ for (const page of picked) {
          `slot=${JSON.stringify(slot)} over=${overSlot} ctor=${JSON.stringify(ctor)} `
          + `hand=${JSON.stringify(byHand)} str=${JSON.stringify(str)} `
          + `past=${JSON.stringify(past)}`);
+
+    // ---- QUOTED: the shaping stages take NAMES, and a name is a string —
+    // columns are an open set, so no roster can close them.  The offers
+    // complete INTO the quotes: `.columns(' spawns its positional slot with the
+    // call, a comma spawns the next one, and the sort list's items are quoted
+    // too, each offered plainly and with the `:desc' the segment carries.
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys(["c"]);
+    await ff.keys([KEY.Tab]);
+    const colsSlot = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                                            at: (RIG.caret() || {}).at,
+                                            items: RIG.menu().items.slice(0, 2) }));
+    await ff.keys([KEY.Tab]);                  // …and take the first name
+    const colsTook = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                                            c: RIG.composed() }));
+    await ff.keys([","]);
+    const colsNext = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                                            at: (RIG.caret() || {}).at }));
+    await ff.keys(chars('Deadline"'));
+    await ff.keys([")"]);
+    const colsDone = await ff.eval(() => RIG.composed());
+
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys(["s"]);
+    await ff.keys([KEY.Tab]);
+    const sortTop = await ff.eval(() => RIG.menu().items);
+    await ff.keys([KEY.Tab]);
+    const sortSlot = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                                            at: (RIG.caret() || {}).at,
+                                            menu: RIG.menu().open }));
+    await ff.keys([KEY.Tab]);                  // the offers, over the slot
+    const sortItems = await ff.eval(() => RIG.menu().items.slice(0, 2));
+    await ff.keys(chars("Dead"));
+    await ff.keys([KEY.ArrowDown]);            // the second row is the reversed one
+    await ff.keys([KEY.Tab]);
+    await ff.keys([","]);
+    const sortNext = await ff.eval(() => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                                            at: (RIG.caret() || {}).at }));
+    await ff.keys(chars('Title"'));
+    await ff.keys([")"]);
+    const sortDone = await ff.eval(() => RIG.composed());
+    // …and the suffix spelling, taken as written, is an unknown column: marked
+    // on the screen, composing nothing, mirroring the flat grammar's refusal.
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys(["s"]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars('Deadline:desc"'));
+    const suffix = await ff.eval(() => ({
+      errs: RIG.dslErrors("sort", RIG.cx().stages.slice(-1)[0].args).length,
+      composes: RIG.composed(),
+      marks: document.querySelectorAll("#app .cx .cx-live .cx-bad").length,
+    }));
+    want("QUOTED",
+         colsSlot.args === '""' && colsSlot.at === 1
+         && eq(colsSlot.items, ['"State"', '"#"'])
+         && colsTook.args === '"State"' && colsTook.c === "columns:State"
+         && colsNext.args === '"State", ""' && colsNext.at === 10
+         && colsDone === "columns:State,Deadline"
+         && eq(sortTop, ['columns = [ "…" ]', "None"])
+         && sortSlot.args === 'columns = [""]' && sortSlot.at === 12
+         && sortSlot.menu === false && eq(sortItems, ['"State"', 'Desc "State"'])
+         && sortNext.args === 'columns = [Desc "Deadline", ""]'
+         && sortDone === "sort:deadline:desc->title"
+         && suffix.errs === 1 && suffix.composes === "" && suffix.marks === 1,
+         `colsSlot=${JSON.stringify(colsSlot)} took=${JSON.stringify(colsTook)} `
+         + `next=${JSON.stringify(colsNext)} done=${JSON.stringify(colsDone)} `
+         + `sortTop=${JSON.stringify(sortTop)} sortSlot=${JSON.stringify(sortSlot)} `
+         + `sortItems=${JSON.stringify(sortItems)} `
+         + `sortNext=${JSON.stringify(sortNext)} sortDone=${JSON.stringify(sortDone)} `
+         + `suffix=${JSON.stringify(suffix)}`);
+
+    // ---- CASE: any case is typed and any case parses — the closed world is
+    // looked up, never read off a first letter — and what STANDS after the
+    // accept is the canonical spelling.  A bare name nothing answers to is left
+    // exactly as written and MARKED, because quoting is the one thing that says
+    // "open value" and it was not typed.
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars("NOT (TAG ="));
+    await ff.keys(chars('chore"'));
+    await ff.keys([")", ")"]);
+    const canon = await ff.eval(() => ({ args: RIG.cx().stages.slice(-1)[0].args,
+                                         c: RIG.composed() }));
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars("sta"));
+    const partial = await ff.eval(() =>
+      document.querySelectorAll("#app .cx .cx-live .cx-bad").length);
+    await ff.keys(chars("rtzz"));
+    const marked = await ff.eval(() => ({
+      bad: document.querySelectorAll("#app .cx .cx-live .cx-bad").length,
+      c: RIG.composed(),
+    }));
+    const apiCase = await ff.eval(() => ({
+      canon: RIG.dslCanon('STATE = ACTIVE, tAg /= "Chore"', "filter"),
+      left: RIG.dslCanon("state = chore", "filter"),
+      errs: RIG.dslErrors("filter", "state = chore").length,
+      composes: RIG.stageString("filter", "state = chore"),
+      variant: RIG.stageString("filter", "STATE = ACTIVE"),
+    }));
+    want("CASE",
+         canon.args === 'not (tag = "chore")' && canon.c === "-tag:chore"
+         && partial === 0 && marked.bad === 1 && marked.c === ""
+         && apiCase.canon === 'state = Active, tag /= "Chore"'
+         && apiCase.left === "state = chore" && apiCase.errs === 1
+         && apiCase.composes === "" && apiCase.variant === "state:*active*",
+         `canon=${JSON.stringify(canon)} partial=${partial} `
+         + `marked=${JSON.stringify(marked)} api=${JSON.stringify(apiCase)}`);
 
     // ---- IR: TWO PARSERS, ONE NORMAL FORM.  Paired spellings have to print
     // the SAME bytes; the divergence corpus has to print different ones, or the

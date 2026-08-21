@@ -335,19 +335,35 @@ var RIG = (function () {
     });
   }
 
+  /** A column NAME to its key — against the key and the header alike, which is
+   *  `columns:''s own rule and what lets the typed surface spell both in the
+   *  header the reader sees. */
+  function colKeyOf(n) {
+    var f = fold(String(n).trim());
+    var c = COLS.filter(function (c2) {
+      return fold(c2.key) === f || fold(c2.head) === f;
+    })[0];
+    return c ? (c.key === "tags" ? "tag" : c.key) : null;
+  }
+
   /** The order, as written: `default' until a sort token appears, then whole. */
   function chainSpecOf(segs) {
     if (!segs.length) return { kind: "default" };
     var out = [], seen = {}, none = false;
     segs.forEach(function (s) {
       if (s.none) { none = true; return; }
-      var col = fold(s.col) === "tags" ? "tag" : fold(s.col);
-      if (SORTABLE.indexOf(col) < 0 || seen[col]) return;
+      var col = colKeyOf(s.col);
+      if (!col || SORTABLE.indexOf(col) < 0 || seen[col]) return;
       seen[col] = 1;
       out.push([col, s.dir === "desc" ? "desc" : "asc"]);
     });
     if (none && !out.length) return { kind: "none" };
-    return out.length ? { kind: "chain", chain: out } : { kind: "none" };
+    if (out.length) return { kind: "chain", chain: out };
+    // SEGMENTS THAT NAME NOTHING THE CHAIN CAN CARRY take effect nowhere: the
+    // flat grammar refuses such a query outright, and the nearest honest
+    // reading without a refusal path is the one an ABSENT stage has — never
+    // document order, which is a meaning nobody asked for.
+    return { kind: "default" };
   }
 
   function irOrder(spec) {
@@ -421,6 +437,52 @@ var RIG = (function () {
                    "*empty*": "Empty", "*archive*": "Archive" };
   var FIELDS = NARROW_KEYS.slice();
 
+  // ------------------------------------------- the closed world, case-blind
+  // QUOTING IS THE ONE DISAMBIGUATION: a BARE name is looked up in the closed
+  // world — the prelude's constructors, the wrappers, the two operator words
+  // and the stage's own fields — and a name that resolves to nothing is an
+  // error the surface marks; a QUOTED string is an open value and is never
+  // looked up.  Case carries nothing on either side of that line.
+  var WRAPPERS = { all: "All", any: "Any", none: "None" };
+  // THE TWO DIRECTIONS ARE CONSTRUCTORS APPLIED TO THE STRING — closed word,
+  // open argument, the same figure as `state = Active' beside `state = "TODO"'.
+  // The suffix spelling they replace put a second grammar inside a literal,
+  // which is the one place this surface's quotes would not have meant
+  // taken-as-written.
+  var DIRS = { asc: "Asc", desc: "Desc" };
+  var WORDS = { not: "not", raw: "raw" };
+
+  /** The canonical constructor a bare name spells, or null. */
+  function ctorOf(v) {
+    var f = fold(v);
+    var hit = Object.keys(CTORS).filter(function (c) { return fold(c) === f; })[0];
+    return hit || WRAPPERS[f] || DIRS[f] || null;
+  }
+
+  /** The canonical field a bare name spells IN THIS STAGE, or null. */
+  function fieldOf(v, fn) {
+    var f = fold(v);
+    return (STAGE_FIELDS[fn] || FIELDS).filter(function (k) { return k === f; })[0] || null;
+  }
+
+  var wordOf = function (v) { return WORDS[fold(v)] || null; };
+
+  /** How a bare name should read: its canonical spelling, or null when nothing
+   *  in the closed world answers to it. */
+  function canonOf(v, fn) {
+    return ctorOf(v) || fieldOf(v, fn) || wordOf(v);
+  }
+
+  /** Could this still BECOME a name?  A word half-typed is not yet an error. */
+  function partialName(v, fn) {
+    var f = fold(v);
+    return Object.keys(CTORS)
+      .concat(Object.keys(WRAPPERS).map(function (k) { return WRAPPERS[k]; }))
+      .concat(Object.keys(DIRS).map(function (k) { return DIRS[k]; }))
+      .concat(Object.keys(WORDS), STAGE_FIELDS[fn] || FIELDS)
+      .some(function (w) { return fold(w).indexOf(f) === 0; });
+  }
+
   /** A tiny lexer: identifiers, constructors, string literals, punctuation. */
   function lexDsl(s) {
     var out = [], i = 0;
@@ -442,7 +504,10 @@ var RIG = (function () {
       }
       var m = /^[A-Za-z_][A-Za-z0-9_]*/.exec(s.slice(i));
       if (m) {
-        out.push({ t: /^[A-Z]/.test(m[0]) ? "ctor" : "id", v: m[0], at: i, end: i + m[0].length });
+        // ONE KIND OF BARE NAME.  Case carries nothing here — `active',
+        // `Active' and `ACTIVE' are one word — so what a name MEANS is settled
+        // by looking it up in the closed world, never by its first letter.
+        out.push({ t: "name", v: m[0], at: i, end: i + m[0].length });
         i += m[0].length;
         continue;
       }
@@ -485,18 +550,22 @@ var RIG = (function () {
         eat("]");
         return { atoms: xs, parts: ps };
       }
-      if (t.t === "ctor" && (t.v === "All" || t.v === "Any")) {
+      if (t.t === "name") {
+        var name = ctorOf(t.v);
+        if (name === "All" || name === "Any") {
+          i += 1;
+          var inner = value();
+          if (!inner) return null;
+          // ALL is the intersection — one token per element; ANY is the list.
+          return { atoms: inner.atoms, parts: inner.parts, spread: name === "All" };
+        }
         i += 1;
-        var inner = value();
-        if (!inner) return null;
-        // ALL is the intersection — one token per element; ANY is the list.
-        return { atoms: inner.atoms, parts: inner.parts, spread: t.v === "All" };
-      }
-      if (t.t === "ctor") {
-        i += 1;
-        var c = CTORS[t.v];
-        if (!c) { bad.push(t.v + " is not a constructor"); return { atoms: [], parts: [] }; }
-        return { atoms: [c.meta], parts: [[c.meta]], ctor: t.v };
+        if (name && CTORS[name])
+          return { atoms: [CTORS[name].meta], parts: [[CTORS[name].meta]], ctor: name };
+        // A BARE NAME THE PRELUDE DOES NOT KNOW is an error, not a string: the
+        // quotes are what say "open value", and they were not typed.
+        bad.push(t.v + " is not a name the prelude knows — an open value is quoted");
+        return { atoms: [], parts: [], err: true };
       }
       return null;
     }
@@ -504,7 +573,7 @@ var RIG = (function () {
     function item(neg) {
       var t = peek();
       if (!t) return [];
-      if (t.t === "id" && t.v === "not") {
+      if (t.t === "name" && wordOf(t.v) === "not") {
         i += 1;
         var open = eat("(");
         var inner = item(!neg);
@@ -515,7 +584,7 @@ var RIG = (function () {
         }
         return inner;
       }
-      if (t.t === "id" && t.v === "raw") {
+      if (t.t === "name" && wordOf(t.v) === "raw") {
         i += 1;
         var par = eat("(");
         var s = peek();
@@ -532,8 +601,8 @@ var RIG = (function () {
         i += 1;
         return [{ sign: neg ? "-" : "", key: "substring", atoms: [t.v] }];
       }
-      if (t.t !== "id") { i += 1; return []; }
-      var key = t.v;
+      if (t.t !== "name") { i += 1; return []; }
+      var key = fieldOf(t.v, "filter") || t.v;
       i += 1;
       var op = peek();
       if (!op || op.t !== "op") { bad.push(key + " has no = or /="); return []; }
@@ -551,7 +620,7 @@ var RIG = (function () {
       v2.parts = (v2.parts || []).map(function (p) {
         return p.filter(function (a) { return a !== ""; });
       }).filter(function (p) { return p.length; });
-      if (FIELDS.indexOf(key) < 0) bad.push(key + " is not a field");
+      if (!fieldOf(key, "filter")) bad.push(key + " is not a field");
       if (v2.ctor && CTORS[v2.ctor].on.indexOf(key) < 0)
         bad.push(v2.ctor + " is not a value of " + key);
       if (v2.spread) {
@@ -574,30 +643,69 @@ var RIG = (function () {
     return { terms: terms, bad: bad };
   }
 
-  /** F's `.sort(deadline, Desc title)'. */
+  /**
+   * F's `.sort(columns = ["Deadline:desc", "Title"])'.  The list carries the
+   * chain in written order and each item is a QUOTED NAME — columns are an open
+   * set, so they sit on the string side of the closed/open law with the
+   * keywords, and the constructors stay the metas' alone.
+   *
+   * THE DIRECTION IS A CONSTRUCTOR APPLIED TO THE NAME: `Desc "Deadline"'.  It
+   * is per SEGMENT, which is what the flat grammar needs
+   * (`sort:state:desc->title' and `sort:state->title:desc' are different
+   * orders), and it keeps the quotes meaning taken-as-written everywhere — a
+   * `:desc' suffix inside the literal would have been a second grammar hidden
+   * in a value the surface otherwise treats as opaque.  `Asc' is spellable and
+   * never emitted, matching the flat grammar's "nothing or `:asc'".
+   *
+   * `None' stands alone as a positional: `*none*' is a meta, and metas are what
+   * constructors are for.
+   */
   function parseDslSort(src) {
-    var lx = lexDsl(src), segs = [];
+    var lx = lexDsl(src), segs = [], depth = 0, dir = "asc";
     for (var i = 0; i < lx.length; i += 1) {
       var t = lx[i];
-      if (t.v === ",") continue;
-      if (t.t === "ctor" && t.v === "None") { segs.push({ none: true }); continue; }
-      if (t.t === "ctor" && (t.v === "Desc" || t.v === "Asc")) {
-        var next = lx[i + 1];
-        if (next && (next.t === "id" || next.t === "str")) {
-          segs.push({ col: next.v, dir: t.v === "Desc" ? "desc" : "asc" });
-          i += 1;
-        }
-        continue;
-      }
-      if (t.t === "id" || t.t === "str") segs.push({ col: t.v, dir: "asc" });
+      if (t.v === "[" || t.v === "(") { depth += 1; continue; }
+      if (t.v === "]" || t.v === ")") { depth -= 1; continue; }
+      if (t.v === "," || t.t === "op") continue;
+      var name = t.t === "name" ? ctorOf(t.v) : null;
+      if (name === "None") { segs.push({ none: true }); continue; }
+      if (name === "Desc" || name === "Asc") { dir = fold(name); continue; }
+      if (t.t === "name") continue;               // the `columns' kwarg's name
+      if (t.t !== "str") continue;                // a bare word is not a name
+      // THE STRING IS TAKEN AS WRITTEN, colon and all: a name the six do not
+      // answer to is an unknown column, which the flat grammar refuses outright
+      // — here it takes effect nowhere and the surface marks it.
+      segs.push({ col: t.v, dir: dir, unknown: !sortName(t.v) });
+      dir = "asc";
     }
     return segs;
   }
 
-  /** F's `.columns("State", "Deadline")'. */
+  /** F's `.columns("State", "Deadline")' — POSITIONAL, and quoted, for the same
+   *  reason: a custom column is any name at all, so no roster can close it. */
   function parseDslCols(src) {
-    return lexDsl(src).filter(function (t) { return t.t === "str" || t.t === "id"; })
+    return lexDsl(src).filter(function (t) { return t.t === "str"; })
       .map(function (t) { return t.v; });
+  }
+
+  /**
+   * THE ACCEPT IS THE FORMATTER'S MOMENT.  Any case is typed and any case
+   * parses; what STANDS afterwards is the canonical spelling — constructors
+   * capitalised, fields and the operator words in the lower case the flat keys
+   * wear.  A name nothing answers to is left exactly as written, because it is
+   * an error to be shown and not a word to be corrected.  Case-only rewriting,
+   * so no offset moves and the caret needs no arithmetic.
+   */
+  function dslCanon(args, fn) {
+    var out = String(args), lx = lexDsl(out);
+    for (var i = lx.length - 1; i >= 0; i -= 1) {
+      var t = lx[i];
+      if (t.t !== "name") continue;
+      var c = canonOf(t.v, fn);
+      if (!c || c === t.v) continue;
+      out = out.slice(0, t.at) + c + out.slice(t.end);
+    }
+    return out;
   }
 
   /** A whole chain of `.fn(…)' calls, parens balanced. */
@@ -606,7 +714,7 @@ var RIG = (function () {
     while (i < s.length) {
       var dot = s.indexOf(".", i);
       if (dot < 0) break;
-      var m = /^\.([a-z]+)\(/.exec(s.slice(dot));
+      var m = /^\.([A-Za-z]+)\(/.exec(s.slice(dot));
       if (!m) { i = dot + 1; continue; }
       var j = dot + m[0].length, depth = 1, inq = false;
       while (j < s.length && depth > 0) {
@@ -616,7 +724,7 @@ var RIG = (function () {
         else if (!inq && (c === ")" || c === "]")) depth -= 1;
         if (depth > 0) j += 1;
       }
-      out.push({ fn: m[1], args: s.slice(dot + m[0].length, j) });
+      out.push({ fn: fold(m[1]), args: s.slice(dot + m[0].length, j) });
       i = j + 1;
     }
     return out;
@@ -756,12 +864,22 @@ var RIG = (function () {
     return items.join(", ");
   }
 
+  /** A key back to the header the reader sees: `deadline' is `"Deadline"'. */
+  function headOf(key) {
+    var k = fold(key) === "tag" ? "tags" : fold(key);
+    var c = COLS.filter(function (c2) { return fold(c2.key) === k; })[0];
+    return c ? c.head : String(key);
+  }
+
   function dslOfSort(value) {
-    return String(value).split("->").filter(Boolean).map(function (s) {
-      if (fold(s) === "*none*") return "None";
+    var segs = String(value).split("->").filter(Boolean);
+    if (!segs.length) return "";
+    if (segs.length === 1 && fold(segs[0]) === "*none*") return "None";
+    return "columns = [" + segs.map(function (s) {
       var b = s.split(":");
-      return (fold(b[1] || "asc") === "desc" ? "Desc " : "") + fold(b[0]);
-    }).join(", ");
+      var name = JSON.stringify(headOf(b[0]));
+      return fold(b[1] || "asc") === "desc" ? "Desc " + name : name;
+    }).join(", ") + "]";
   }
 
   function dslOfCols(value) {
@@ -1022,7 +1140,7 @@ var RIG = (function () {
       else if (t.v === ")" || t.v === "]") { stack.pop(); if (t.v === "]") inList = false; }
       else if (t.t === "op") { wants = "value"; }
       else if (t.v === ",") { if (!inList) { wants = "field"; field = null; } }
-      else if (t.t === "id" && wants === "field") field = t.v;
+      else if (t.t === "name" && wants === "field") field = t.v;
       last = t;
     });
     // THE FRAGMENT IS THE LAST TOKEN, AND ONLY IF IT IS STILL BEING WRITTEN: a
@@ -1032,7 +1150,7 @@ var RIG = (function () {
     var end = lx[lx.length - 1], frag = "";
     if (end && end.end === s.length) {
       var raw = s.slice(end.at, end.end);
-      if (end.t === "id" || end.t === "ctor") frag = raw;
+      if (end.t === "name") frag = raw;
       else if (end.t === "str" && raw.length === end.v.length + 1) frag = raw;
     }
     return { wants: wants, field: field, list: inList, frag: frag,
@@ -1071,7 +1189,7 @@ var RIG = (function () {
     var w = dslWhere(args, at);
     // A CLOSING QUOTE ON THE FAR SIDE OF THE CARET is the opened slot's, and
     // whatever is taken replaces the slot whole.
-    var closes = String(args).charAt(at) === '"' && /^"/.test(w.frag) ? 1 : 0;
+    var closes = slotCloses(args, at, w.frag);
     if (w.wants === "value" && w.field)
       return { items: dslValueOffers(w.field, w.frag, closes), stage: "dsl-value", where: w };
     // THE KEY AND ITS EQUALS COME WITH AN OPENED SLOT: `state = "|"', so the
@@ -1090,29 +1208,54 @@ var RIG = (function () {
     return { items: out, stage: "dsl-field", where: w };
   }
 
+  /** A closing quote on the far side of the caret is the opened slot's. */
+  var slotCloses = function (args, at, frag) {
+    return String(args).charAt(at) === '"' && /^"/.test(frag) ? 1 : 0;
+  };
+
+  /** F's `.sort(…)': the `columns' kwarg, then quoted names inside its list —
+   *  each offered twice, once plain and once with the `:desc' the flat grammar
+   *  hangs off the segment. */
   function dslSortOffers(args, at) {
     var w = dslWhere(args, at);
-    var out = SORTABLE.filter(function (c) { return c.indexOf(fold(w.frag)) === 0; })
-      .map(function (c) { return { text: c, insert: c, full: true, aside: "column" }; });
-    ["Desc", "None"].forEach(function (c) {
-      if (fold(c).indexOf(fold(w.frag)) === 0)
-        out.push({ text: c === "Desc" ? "Desc …" : "None", insert: c === "Desc" ? "Desc " : "None",
-                   stay: c === "Desc", full: c === "None", dim: true,
-                   aside: c === "Desc" ? "reversed, empties last" : "document order" });
-    });
-    return { items: out, stage: "dsl-sort", where: w };
+    var closes = slotCloses(args, at, w.frag);
+    if (w.wants === "value") {
+      var bare = w.frag.replace(/^"/, "").split(":")[0];
+      var out = [];
+      COLS.forEach(function (c) {
+        if (fold(c.head).indexOf(fold(bare)) !== 0) return;
+        if (SORTABLE.indexOf(colKeyOf(c.head)) < 0) return;
+        out.push({ text: JSON.stringify(c.head), insert: JSON.stringify(c.head),
+                   full: true, eats: closes, aside: "A→Z, empties last" });
+        out.push({ text: "Desc " + JSON.stringify(c.head),
+                   insert: "Desc " + JSON.stringify(c.head),
+                   full: true, eats: closes, aside: "Z→A, empties last" });
+      });
+      return { items: out, stage: "dsl-sort", where: w };
+    }
+    var top = [];
+    if ("columns".indexOf(fold(w.frag)) === 0)
+      top.push({ text: 'columns = [ "…" ]', insert: 'columns = [""]', back: 2,
+                 aside: "the chain, in written order" });
+    if ("none".indexOf(fold(w.frag)) === 0)
+      top.push({ text: "None", insert: "None", full: true, dim: true,
+                 aside: "document order" });
+    return { items: top, stage: "dsl-sort", where: w };
   }
 
+  /** F's `.columns(…)': positional names, quoted, one slot at a time. */
   function dslColsOffers(args, at) {
     var w = dslWhere(args, at);
+    var closes = slotCloses(args, at, w.frag);
     var bare = w.frag.replace(/^"/, "");
     var named = lexDsl(String(args)).filter(function (t) { return t.t === "str"; })
       .map(function (t) { return fold(t.v); });
     var out = COLS.filter(function (c) {
-      return fold(c.head).indexOf(fold(bare)) === 0 && named.indexOf(fold(c.head)) < 0;
+      return fold(c.head).indexOf(fold(bare)) === 0
+        && (named.indexOf(fold(c.head)) < 0 || fold(c.head) === fold(bare));
     }).map(function (c) {
       return { text: JSON.stringify(c.head), insert: JSON.stringify(c.head),
-               full: true, aside: "builtin" };
+               full: true, eats: closes, aside: "builtin" };
     });
     return { items: out, stage: "dsl-cols", where: w };
   }
@@ -1365,6 +1508,34 @@ var RIG = (function () {
     st.at = at + 2;                                // between the quotes
   }
 
+  /** Is the caret inside an unclosed `[' — a list, where the items are values? */
+  function inBracket(s) {
+    var depth = 0, inq = false;
+    for (var i = 0; i < s.length; i += 1) {
+      var c = s.charAt(i);
+      if (c === '"') inq = !inq;
+      else if (inq) continue;
+      else if (c === "[") depth += 1;
+      else if (c === "]") depth -= 1;
+    }
+    return depth > 0;
+  }
+
+  /**
+   * THE COMMA OPENS THE NEXT SLOT wherever the next thing is a NAME rather than
+   * a field: every argument of `.columns(…)', and every item of `.sort(…)''s
+   * list.  In `.filter(…)' a comma starts a kwarg, whose field comes first, so
+   * nothing is opened there.
+   */
+  function dslComma(st) {
+    var at = caretAt(st), s = st.args.slice(0, at), after = st.args.slice(at);
+    if (s.charAt(at - 1) !== ",") return;
+    if (after && !/^\s*[,)\]]/.test(after)) return;
+    if (!(st.fn === "columns" || (st.fn === "sort" && inBracket(s)))) return;
+    st.args = s + ' ""' + after;
+    st.at = at + 2;
+  }
+
   /** Is the caret inside an unclosed `(' of the arguments' own? */
   function inParen(args, at) {
     var depth = 0, inq = false;
@@ -1434,6 +1605,10 @@ var RIG = (function () {
       st.fn = STAGE_OF[it.text];
       CX.buf = "";
       CX.where = "args";
+      // THE POSITIONAL SLOT OPENS WITH THE CALL: `.columns(` takes names and
+      // nothing else, so its first argument is a quoted slot the way a kwarg's
+      // value is.  `.filter(` and `.sort(` want a field name first.
+      if (S.look.dsl && st.fn === "columns") { st.args = '""'; st.at = 1; }
       cxOffer();
       return;
     }
@@ -1447,6 +1622,7 @@ var RIG = (function () {
       // caret into what was just written — inside the quotes, inside the parens.
       st.args = st.args.slice(0, from) + it.insert + st.args.slice(at + (it.eats || 0));
       st.at = from + it.insert.length - (it.back || 0);
+      st.args = dslCanon(st.args, st.fn);        // the formatter's moment
     } else if (st.fn === "filter") {
       var a = st.args, from2 = fragAt(a.slice(0, at), FILTER_SEP);
       st.args = a.slice(0, from2) + it.insert + a.slice(at);
@@ -1469,7 +1645,7 @@ var RIG = (function () {
   function closeStage() {
     var st = live();
     if (!st || CX.where !== "args") return;
-    st.args = st.args.trim();
+    st.args = S.look.dsl ? dslCanon(st.args.trim(), st.fn) : st.args.trim();
     st.done = true;
     CX.where = "chain";
     if (S.look.pills) pend(st);
@@ -1530,11 +1706,12 @@ var RIG = (function () {
       // types the space they always would; the one the slot inserted is the
       // one that stands, so the first keystroke inside an EMPTY slot is not a
       // second one.  (A value that genuinely opens with a space wants `raw'.)
-      if (S.look.dsl && ch === " " && st.fn === "filter"
+      if (S.look.dsl && ch === " "
           && st.args.charAt(at - 1) === '"' && st.args.charAt(at) === '"') return;
       st.args = st.args.slice(0, at) + ch + st.args.slice(at);
       st.at = at + ch.length;
-      if (S.look.dsl && ch === "=" && st.fn === "filter") dslSlot(st);
+      if (S.look.dsl && ch === "=") dslSlot(st);
+      if (S.look.dsl && ch === ",") dslComma(st);
       cxOffer(); paint();
     }
   }
@@ -1879,18 +2056,37 @@ var RIG = (function () {
     });
   }
 
-  /** F's own painter: fields, constructors, literals, and the two operators. */
-  function paintDsl(frag, text) {
+  /** Is this the name of a column the sort chain may carry? */
+  function sortName(v) {
+    var k = colKeyOf(v);
+    return k && SORTABLE.indexOf(k) >= 0 ? k : null;
+  }
+
+  /** Which field names a stage takes: the twelve keys, or the one kwarg the
+   *  shaping stages have.  `.columns(…)' has none — it is positional. */
+  var STAGE_FIELDS = { filter: FIELDS, sort: ["columns"], columns: [] };
+
+  /** F's own painter: fields, constructors, literals, and the two operators.
+   *  `Desc'/`Asc' are gone from the roster — the direction rides inside the
+   *  name's string now — so a capital that is not a meta or a wrapper is bad. */
+  function paintDsl(frag, text, fn) {
     var lx = lexDsl(text), i = 0;
+    var fields = STAGE_FIELDS[fn] || FIELDS;
     lx.forEach(function (t) {
       if (t.at > i) frag.appendChild(document.createTextNode(text.slice(i, t.at)));
-      var cls = t.t === "str" ? "cx-str"
-        : t.t === "ctor" ? (CTORS[t.v] || /^(All|Any|Desc|Asc|None)$/.test(t.v)
-            ? "cx-ctor" : "cx-bad")
+      var cls = t.t === "str"
+        // A SORT SEGMENT NAMES ONE OF THE SIX; `.columns(…)' takes any name at
+        // all, a custom column being whatever the drawer holds.
+        ? (fn !== "sort" || sortName(t.v) ? "cx-str"
+           : COLS.some(function (c) { return fold(c.head).indexOf(fold(t.v)) === 0; })
+             ? "cx-partial-name" : "cx-bad")
         : t.t === "op" ? (t.v === "/=" ? "cx-neg" : "cx-eq")
         : t.t === "punc" ? "cx-punc"
-        : t.v === "not" || t.v === "raw" ? "cx-op"
-        : FIELDS.indexOf(t.v) >= 0 ? "cx-kw" : "cx-bad";
+        : ctorOf(t.v) ? "cx-ctor"
+        : wordOf(t.v) ? "cx-op"
+        : fields.indexOf(fold(t.v)) >= 0 ? "cx-kw"
+        // A WORD HALF-TYPED IS NOT YET WRONG; one that can never finish is.
+        : partialName(t.v, fn) ? "cx-partial-name" : "cx-bad";
       frag.appendChild(span(text.slice(t.at, t.end), cls));
       i = t.end;
     });
@@ -1907,7 +2103,7 @@ var RIG = (function () {
     var cut = !!done && !!S.look.collapse && args.length > 24 && parts.length > 1;
     var shown = cut ? parts[0].trim() : args;
     if (S.look.dsl) {
-      paintDsl(frag, shown);
+      paintDsl(frag, shown, fn);
     } else if (S.look.syntax) {
       (fn === "sort" ? paintSort : fn === "columns" ? paintCols : paintFilter)(frag, shown);
     } else {
@@ -2004,7 +2200,7 @@ var RIG = (function () {
   }
 
   var GHOST = { filter: "key:value …", sort: "column[:desc]…", columns: "Name,…" };
-  var GHOST_DSL = { filter: "field = value, …", sort: "column, Desc column",
+  var GHOST_DSL = { filter: "field = value, …", sort: 'columns = ["Name"]',
                     columns: '"Name", …' };
 
   // ---------------------------------------------------------------- painting
@@ -2322,6 +2518,13 @@ var RIG = (function () {
     // THE PROOF: two readers, one normal form.  `irFlat' is the flat grammar's
     // path, `irDsl' F's typed one, and neither goes through the other.
     irFlat: irFlat, irDsl: irDsl, dslChainOf: dslChainOf,
+    dslErrors: function (fn, args) {
+      if (fn === "filter") return parseDslFilter(String(args)).bad;
+      if (fn !== "sort") return [];
+      return parseDslSort(String(args)).filter(function (g) { return g.unknown; })
+        .map(function (g) { return g.col + " is not a column the chain can carry"; });
+    },
+    dslCanon: dslCanon,
     chainSource: chainSource, effectiveFlat: effectiveFlat,
     caret: function () {
       var st = live();
