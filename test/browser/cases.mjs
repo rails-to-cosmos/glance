@@ -145,7 +145,8 @@ const boxKeys = () => document.activeElement.tagName === "INPUT"
 const boxFocused = (p, why) => p.until(boxKeys, why || "the filter box to take the focus");
 const boxAway = (p, why) => p.until(barAway, why || "the summoned editor to go");
 
-// THE TABLE'S OWN FILTER IS SUMMONED TOO (`palette'), and lives under `#app'.
+// THE TABLE'S OWN FILTER IS SUMMONED TOO (`filterDock: "strip"'), onto the chip
+// strip's own row, and lives under `#app'.
 // ONE BOX, TWO DOORS: `/' edits the filter half and `.' the whole expression.
 /** Summon the table's box with KEY and wait for it to take the keyboard. */
 async function boxUp(p, key, why) {
@@ -1157,7 +1158,7 @@ export default [
     }
     await p.press("RET");
     await p.until(() => [...document.getElementById("log").children]
-                    .some((n) => n.textContent.indexOf("belongs to .") !== -1),
+                    .some((n) => n.textContent.indexOf("autocomplete restricted") !== -1),
                   "the refusal to reach the log");
     const after = await p.eval(() => {
       const box = document.querySelector("#app .tv-filter");
@@ -1167,7 +1168,7 @@ export default [
         box: box ? box.value : null,
         typing: !!box && document.activeElement === box,
         said: [...document.getElementById("log").children]
-          .map((n) => n.textContent).filter((t) => t.indexOf("belongs to .") !== -1),
+          .map((n) => n.textContent).filter((t) => t.indexOf("autocomplete restricted") !== -1),
         q: new URLSearchParams(location.search).get("q") || "",
       };
     });
@@ -1178,7 +1179,7 @@ export default [
     assert(after.typing, "the box gave the keyboard back over a token it refused");
     assert(after.said.length === 1,
       `the refusal was said ${after.said.length} times: ${JSON.stringify(after.said)}`);
-    assert(after.said[0].indexOf("sort: belongs to .") !== -1,
+    assert(after.said[0].indexOf("sort: autocomplete restricted") !== -1,
       `the refusal named no key of its own: ${JSON.stringify(after.said)}`);
     assert(after.q === shapedAt.q + " state:TODO",
       `a refused token reached the query: ${JSON.stringify(after.q)}`);
@@ -1189,6 +1190,70 @@ export default [
       + ` · ${JSON.stringify(rode)} over ${booted} booted chip(s)`
       + ` · refused "sort:scheduled" standing in the box, said`
       + ` ${JSON.stringify(after.said[0].slice(-52))}`];
+  } },
+
+// THE BOX DOCKS ON THE STRIP (`filterDock: "strip"'): `/' summons it onto the
+// chip strip's OWN ROW, the table under it keeping its full height and its hint
+// line, and the veil the centred palette drew is gone.  WHERE a box lands, and
+// whether the list it opens hangs off the bottom of the window, are unaskable
+// in TestServe.hs -- the node harness zeroes every rect.
+{ name: "`/' docks the box on the chip strip, over a table with no veil on it",
+  async run(p, base) {
+    await tableUp(p, base);
+    const chips = (await p.eval(stripText)).length;
+    await filterUp(p, "the docked box to take the focus");
+
+    const docked = await p.eval(() => {
+      const box = document.querySelector("#app .tv-filter");
+      const strip = document.querySelector("#app .tv-chips");
+      const veil = document.querySelector("#app .tv-veil");
+      const hint = document.querySelector("#app .tv-hint");
+      const mid = (r) => r.top + r.height / 2;
+      const b = box.getBoundingClientRect(), c = strip.getBoundingClientRect();
+      return { gap: Math.round(Math.abs(mid(b) - mid(c))),
+               apart: Math.round(b.left - c.right),
+               wide: Math.round(b.width),
+               // The strip carries the pin badge whatever the query is, so it
+               // is drawn to measure against even with no chip standing.
+               tall: Math.round(c.height),
+               veiled: !!veil && getComputedStyle(veil).display !== "none",
+               drawn: !!hint && getComputedStyle(hint).display !== "none",
+               // The order is on the line whatever the count is; the pager
+               // steps join it only once the set runs past one page.
+               says: hint ? hint.textContent.trim() : "",
+               pager: document.querySelectorAll("#app .tv-hint .tv-pg").length,
+               rows: document.querySelectorAll("#app .tv-table tbody tr").length };
+    });
+    assert(docked.tall > 0, "the chip strip is not drawn, so its row reads as nothing");
+    assert(docked.gap <= 3,
+      `the box sits on its own line, ${docked.gap}px off the chips' middle`);
+    assert(docked.apart >= 0, "the docked box overlaps the chips");
+    assert(docked.wide > 0, "the docked box was summoned with no width to type in");
+    assert(!docked.veiled, "the docked box veiled the table it sits on");
+    assert(docked.drawn, "the docked box took the hint line with it");
+    assert(/(unsorted|sort )/.test(docked.says) && /(rows|of )/.test(docked.says),
+      `the hint line stopped saying what is on show: ${JSON.stringify(docked.says)}`);
+    assert(docked.rows > 0, "the docked box left no rows drawn under it");
+
+    // AND THE LIST IT OPENS IS READ WHOLE: docked low on the chrome, a list
+    // hanging BELOW the box is the one that can fall out of the window.
+    await p.type("s");
+    await p.until(acOpen, "the suggestion list to open over the docked box");
+    const list = await p.eval(() => {
+      const r = document.querySelector("#app .tv-ac").getBoundingClientRect();
+      return { top: Math.round(r.top), height: Math.round(r.height),
+               under: Math.round(window.innerHeight - r.bottom) };
+    });
+    assert(list.height > 0, "the list opened with nothing drawn in it");
+    assert(list.top >= 0, `the list starts ${-list.top}px above the window`);
+    assert(list.under >= 0,
+      `the list runs ${-list.under}px past the bottom of the window`);
+
+    return [`the box ${docked.gap}px off the strip's middle, ${docked.apart}px`
+      + ` clear of ${chips} chip(s), ${docked.wide}px wide · no veil over`
+      + ` ${docked.rows} rows · hint line ${JSON.stringify(docked.says.slice(0, 40))}`
+      + ` with ${docked.pager} pager step(s)`
+      + ` · list ${list.height}px with ${list.under}px of window under it`];
   } },
 
 // THE PLATFORM PAINTS THE `<select>', and only `color-scheme' tells it which way.

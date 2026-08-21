@@ -139,7 +139,8 @@
       crumbLabels = was.labels;
       crumbSels = was.sels;
       table = TableView.mount(document.getElementById("app"), view, {
-        palette: true,     // the filter is summoned, never resident
+        // The filter is summoned onto the chip strip's own row, never resident.
+        filterDock: "strip",
         pageSize: PAGE,
         marks: true,       // dired's m/u/U/M, drawn and counted by the renderer
         flagHelp: "d/D archive · u unflag",

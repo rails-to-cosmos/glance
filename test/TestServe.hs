@@ -642,16 +642,16 @@ paletteSpec shell = testGroup "Shell palette"
       "" "shaping:sort:title" $ \answer -> do
         strip <- map cut <$> logOf answer
         assertEqual "the refusal, whole"
-                    [("info", "filter", "sort: belongs to . — / filters, . composes")]
+                    [("info", "filter", "sort: autocomplete restricted, this key belongs to #'compose (kbd \".\")")]
                     (drop 1 strip)
-        echoIs "and the pill says the same" "sort: belongs to . — / filters, . composes" answer
+        echoIs "and the pill says the same" "sort: autocomplete restricted, this key belongs to #'compose (kbd \".\")" answer
         -- Refused is not applied: nothing new is asked for, and the box keeps it.
         assertEqual "the token still standing" "sort:title" =<< textAt "palette" answer
   , keyed shell "and the door is named off the refused token's own key"
       "" "shaping:+columns:State,Title" $ \answer -> do
         strip <- map (message . cut) <$> logOf answer
         assertEqual "the sign is off and the key leads"
-                    ["columns: belongs to . — / filters, . composes"] (drop 1 strip)
+                    ["columns: autocomplete restricted, this key belongs to #'compose (kbd \".\")"] (drop 1 strip)
   ]
 
 -- | The buffer-end keys as presses: the change is what the SECOND press does.
@@ -5194,17 +5194,18 @@ shellGlue =
 
   -- `openFilter' is mode-agnostic, so the one call covers an asset in any of them.
   -- `omnibox' is the PICKER's, whose filter cannot summon a centred overlay over
-  -- the caret it hangs at.  What is forbidden is the main table taking it, which
-  -- `palette: true' below pins — so there is no must-not-appear half.
+  -- the caret it hangs at.  The main table's box is summoned onto the CHIP
+  -- STRIP's own row, which `filterDock: "strip"' below pins — so there is no
+  -- must-not-appear half.
   , glue "the filter is summoned rather than resident"
-      [ "palette: true,"
+      [ "filterDock: \"strip\","
       , "const summons = () => can(table, \"openFilter\");"
       , "if (summons()) { table.openFilter(door); return; }"
       -- The field is named once, since the fallback, the restore and the stash all want it.
       , "(document.querySelector(\"#app .tv-filter\"));"
       , "const box = filterBox();"
       , "if (box) { box.focus(); box.select(); }"
-      , "summon the filter palette" ]
+      , "summon the filter box onto the chip strip" ]
 
   -- TWO DOORS ONTO ONE QUERY, and the page opens them through ONE raise: the
   -- narrow flag is the session's, so `/' hands the option over on every press
@@ -5218,7 +5219,7 @@ shellGlue =
       -- The refusal reaches the page as a mount option, and only the MAIN table's.
       , "onRefused: refused,"
       , "String(spelling || \"\").replace(/^[-+]/, \"\").split(/[:=]/)[0];"
-      , "`${shapingKey(spelling)}: belongs to . — / filters, . composes`"
+      , "`${shapingKey(spelling)}: autocomplete restricted, this key belongs to #'compose (kbd \".\")`"
       , "append(\"filter\", \"info\", note);" ]
       -- No second query and no splitter here: the renderer refuses the token and
       -- this page is told which one, so the glue holds no list of shaping keys.
@@ -5871,6 +5872,8 @@ shellGlue =
   , glue "a coarse pointer gets fields iOS will not zoom into"
       [ "#mtext,#pinput,#dtin,#sedit input,#tedit input,#ledit input,"
       , "#dpara textarea,"
+      -- The DOCKED box is a field on this page's own row, so it takes the guard with them.
+      , "#ktext,#app .tv-filter,"
       , ".ctext,.cview{font-size:16px}}"
       , "#mpanes{flex-direction:column}" ]
 
@@ -9221,7 +9224,7 @@ expectedRows =
        Just "put this column at the head of the order; again reverses it")
   , (["RET"],        "RET",     "org-glance-overview:materialize", Just "materializeRow", "table", Nothing)
   , (["/"],          "/",       "filter-rows",                     Just "focusFilter",    "table",
-       Just "summon the filter palette")
+       Just "summon the filter box onto the chip strip")
   -- The other door onto the one query: `/' edits the filter half, `.' the whole.
   , (["."],          ".",       "compose-query",                   Just "focusQuery",     "table",
        Just "the whole expression: filters, sort: and columns: together")

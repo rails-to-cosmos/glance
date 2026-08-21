@@ -90,6 +90,7 @@ tableTokens p =
   , ("--tv-frost",     pFrost p)
   , ("--tv-flag",      pBad p)
   , ("--tv-col",       pColumn p)
+  -- Reserved for an overlay dock; the main mount docks its box on the strip and draws no veil.
   , ("--tv-veil",      pVeil p)
   , ("--tv-shadow",    pShadow p)
   , ("--tv-chip-wash", pChipWash p)

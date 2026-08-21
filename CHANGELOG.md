@@ -115,6 +115,17 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Changed
 
+- **The query box docks on the chip strip.** `/` and `.` raise it onto the
+  strip's own row, beside the chips it is about to add to; before, they raised a
+  centred palette over a veiled table. The veil is gone from the main table —
+  the rows stay lit and in place while a query is typed, the table keeps its
+  full height and its sort arrows, and the hint line and pager stay where they
+  were. What the box does is untouched: two ESCs (the typed text first, the box
+  second), a DEL over an empty box that reaches nothing behind it, and a filter
+  applied on commit alone. `/` still opens the filter half and `.` the whole
+  expression. The relations picker keeps its own inline box and its one-step
+  ESC.
+
 - **The project is under the Apache License 2.0.** It was BSD-3-Clause. The new
   terms add an explicit patent grant and ask that changed files be marked. The
   vendored `assets/table-view.js` stays MIT under the same author.

@@ -20,6 +20,11 @@
  *   go. The window is capped rather than filling, Escape out of the filter is
  *   ONE step, and Backspace over an emptied box puts that box away rather than
  *   taking a chip. What a picker hung at a caret wants.
+ * - `filterDock: "overlay" | "strip"' — WHERE a summoned box lands: over the
+ *   page behind the veil, or on the chip strip's own row. `palette' docks
+ *   overlay and `inline' docks strip unless the option says otherwise; on a
+ *   plain mount it is what makes the box summoned at all, and the rest of that
+ *   mount — the filling table, the sort marks, the hint line — stays.
  * - `setPinned(on)' — the chip strip's pin badge, drawn only under `onPin'.
  * - Emits DOM CustomEvents on the container: `tableview-action'
  *   ({detail:{command,id,row}}) and `tableview-link' ({detail:{target,row}}).
@@ -85,6 +90,7 @@
  *             chipLabel?: (token: string) => string|null,
  *             composer?: boolean,
  *             inline?: boolean,
+ *             filterDock?: "overlay"|"strip",
  *             onPin?: () => void,
  *             onRefused?: (token: string) => void,
  *             pinned?: boolean }} MountOptions
@@ -854,8 +860,9 @@
 }
 /* Its own row under the box, and no gap at all when nothing is applied. The
    suggestion list is positioned and z-indexed, so it lays over this rather
-   than being pushed down by it. */
-.tv-omni > .tv-chips,.tv-pal > .tv-chips{
+   than being pushed down by it. A SUMMONED mount's strip is the same strip
+   however the box is docked — the row is there whether or not the box is. */
+.tv-omni > .tv-chips,.tv-pal > .tv-chips,.tv-summon > .tv-chips{
   padding:8px 12px;
   border-bottom:1px solid var(--tv-border);
 }
@@ -889,8 +896,16 @@
 }
 /* The applied filter's identity: the theme's frost, washed over whatever the
    page's ground is, with ordinary foreground for ink. Why frost and why a wash
-   rather than the solid it was: CHANGELOG, "chips are a frost wash". */
-.tv-pal .tv-chip{
+   rather than the solid it was: CHANGELOG, "chips are a frost wash".
+
+   IT IS THE SUMMONED MOUNT'S, whichever dock the box landed in: where the box
+   is away until it is called for, the strip is the only standing evidence of
+   the query, and it is coloured to carry that. The picker declines all four
+   voices — it sits in someone else's chrome, which owns the page's colour.
+   ONE CLASS DEEP, every one of them: the .tv-chips .tv-chip-muted rule below
+   is what keeps a crumb quiet, and a selector heavier than that one outranks
+   it. */
+.tv-pal .tv-chip,.tv-summon .tv-chip{
   color:var(--tv-fg);
   background:color-mix(in srgb,var(--tv-frost) var(--tv-chip-wash),transparent);
   border-color:color-mix(in srgb,var(--tv-frost) var(--tv-chip-edge),transparent);
@@ -909,7 +924,7 @@
    dark asks for the chip's own 18. The edge takes the chip's strength in either
    theme, a hairline carrying no information. Only a token this renderer ACCEPTS
    as sort wears it — "ordersRows" is that test. */
-.tv-pal .tv-chip-sort{
+.tv-pal .tv-chip-sort,.tv-summon .tv-chip-sort{
   background:color-mix(in srgb,var(--tv-col) var(--tv-sort-wash),transparent);
   border-color:color-mix(in srgb,var(--tv-col) var(--tv-chip-edge),transparent);
 }
@@ -929,7 +944,7 @@
    edge rule, same wash arithmetic as the sort chip, one hue over. Only a
    token that names at least one column wears it — "showsColumns" is that
    test — so the half-typed "columns:" keeps the ordinary chip. */
-.tv-pal .tv-chip-cols{
+.tv-pal .tv-chip-cols,.tv-summon .tv-chip-cols{
   background:color-mix(in srgb,var(--tv-link) var(--tv-cols-wash),transparent);
   border-color:color-mix(in srgb,var(--tv-link) var(--tv-chip-edge),transparent);
 }
@@ -938,11 +953,12 @@
    same wash arithmetic as its two siblings, one hue over. Only a token naming a
    view the producer DECLARED wears it — "namesView" is that test — so a
    half-typed "view:" and a name nobody carries keep the ordinary chip. */
-.tv-pal .tv-chip-view{
+.tv-pal .tv-chip-view,.tv-summon .tv-chip-view{
   background:color-mix(in srgb,var(--tv-accent) var(--tv-cols-wash),transparent);
   border-color:color-mix(in srgb,var(--tv-accent) var(--tv-chip-edge),transparent);
 }
-.tv-pal .tv-chip:not(.tv-chip-muted):hover{
+.tv-pal .tv-chip:not(.tv-chip-muted):hover,
+.tv-summon .tv-chip:not(.tv-chip-muted):hover{
   border-color:var(--tv-accent);
   color:var(--tv-accent);
 }
@@ -1102,17 +1118,80 @@
   width:0;
   height:0;
 }
-/* INLINE: the host has already drawn the box, so the mount brings none of its
-   own, caps its window and marks no order — a picker is chosen from, not sorted.
-   THE FILTER BOX IS SUMMONED, NOT RESIDENT, and when it comes it comes ON THE
-   CHIPS' OWN LINE, a grid row the two share, rather than a second stripe of
-   chrome over a box that is already small. */
-.tv-inline{
-  border:none;
-  border-radius:0;
+/* THE DOCK: A SUMMONED BOX COMES ON THE CHIP STRIP'S OWN ROW, a grid row the
+   two share — the chips take their width, the box takes the slack — rather than
+   a second stripe of chrome over the table or an overlay across it. The row is
+   the strip's whether or not the box is in it, so summoning moves nothing but
+   the box appearing beside the chips: tv-typing is that summons, put on
+   before the focus (display:none takes no keys) and taken off by the blur.
+   Every mount that docks wears these, the tv-inline picker included. */
+.tv-dock{
   display:grid;
   grid-template-columns:auto minmax(0,1fr);
   align-items:center;
+}
+/* One hairline under the strip, and it is the scroller's own top edge. */
+.tv-dock > .tv-chips{
+  grid-area:1 / 1;
+  border-bottom:none;
+}
+.tv-dock > .tv-chips:empty{
+  display:none;
+}
+.tv-dock > .tv-bar{
+  grid-area:1 / 2;
+  display:none;
+}
+.tv-dock.tv-typing > .tv-bar{
+  display:flex;
+}
+.tv-dock > .tv-scroll{
+  grid-area:2 / 1 / 2 / -1;
+  border-top:1px solid var(--tv-border);
+}
+/* THE HINT LINE IS THE THIRD ROW, spanning both columns. A picker has none, and
+   a mount that keeps its page furniture has to say where this one goes: an
+   auto-placed hint takes the first free cell, which carries its top edge across
+   one column of the two. */
+.tv-dock > .tv-hint{
+  grid-area:3 / 1 / 3 / -1;
+}
+/* A DOCK OVER A WHOLE PAGE. The rows are named so the table takes the slack the
+   strip and the hint line leave: under a max-height a grid sized by its content
+   grows past the mount and is clipped, where the flex column this replaces
+   shrank. The box then fills its half of the row, in the mount's own face and
+   on the strip's own rhythm — a docked box is the page's control, and only the
+   picker wants a small one. */
+.tv-dock.tv-summon{
+  grid-template-rows:auto minmax(0,1fr) auto;
+}
+/* THE ROW DOES NOT GROW WHEN THE BOX ARRIVES: the strip's own padding is the
+   air the box is centred in, so the table under it does not jump 8px down on
+   every summons. The right edge keeps the strip's rhythm; the left is the
+   chips' own right padding, already there. */
+.tv-dock.tv-summon > .tv-bar{
+  padding:0 12px 0 0;
+  border-bottom:none;
+}
+.tv-dock.tv-summon .tv-filter-wrap{
+  flex:1 1 auto;
+}
+.tv-dock.tv-summon .tv-filter{
+  flex:1 1 auto;
+}
+/* The row is centred, which the table declines: it takes the row it was given
+   and scrolls inside it. */
+.tv-dock.tv-summon > .tv-scroll{
+  align-self:stretch;
+  min-height:0;
+}
+/* INLINE: the host has already drawn the box, so the mount brings none of its
+   own, caps its window and marks no order — a picker is chosen from, not sorted.
+   ITS BOX IS SUMMONED, NOT RESIDENT, and the dock above is where it lands; what
+   is left here is the compact furniture, the small face included. */
+.tv-inline{
+  border:none;
+  border-radius:0;
 }
 .tv-inline .tv-scroll{
   max-height:calc(12 * 2.05em);
@@ -1121,24 +1200,10 @@
   display:none;
 }
 .tv-inline > .tv-chips{
-  grid-area:1 / 1;
   padding:5px 8px;
-  border-bottom:none;
-}
-.tv-inline > .tv-chips:empty{
-  display:none;
 }
 .tv-inline > .tv-bar{
-  grid-area:1 / 2;
-  display:none;
   padding:5px 8px 5px 0;
-}
-.tv-inline.tv-typing > .tv-bar{
-  display:flex;
-}
-.tv-inline > .tv-scroll{
-  grid-area:2 / 1 / 2 / -1;
-  border-top:1px solid var(--tv-border);
 }
 .tv-inline .tv-filter{
   font-size:12px;
@@ -1506,6 +1571,28 @@
     // Backspace and Escape opposite answers.  One flag decides, so no branch
     // has to agree with another about which came first.
     const inline = o.inline === true && !palette;
+    /**
+     * THE DOCK IS WHERE A SUMMONED BOX LANDS.  `"overlay"' raises it over the
+     * page behind the veil; `"strip"' lays it on the chip strip's own row, the
+     * chips taking their width and the box the slack.  Named, the option
+     * decides; absent, the mode does — `palette' summons over the page,
+     * `inline' onto the strip, and a plain mount summons nothing at all.
+     * @type {"overlay"|"strip"|"none"}
+     */
+    const dock = o.filterDock === "overlay" || o.filterDock === "strip" ? o.filterDock
+               : palette ? "overlay" : inline ? "strip" : "none";
+    /**
+     * THE SUMMONED LADDER IS THE PAGE'S OWN BOX, whichever dock it landed in:
+     * Escape in two steps (the typed text, then the box), a DEAD Backspace over
+     * an emptied box — the chips are on the page behind it, not in it — and a
+     * query delivered on COMMIT alone, since narrowing as each character lands
+     * animates a table the typist is looking away from.  The picker (`inline')
+     * summons a box too and answers with its own rungs: one Escape, a Backspace
+     * that eats the box, and rows that narrow as it is typed, because a compact
+     * table is a thing to pick FROM.  So it is spelled out of this predicate,
+     * and the sites that are its own name it.
+     */
+    const summoned = dock !== "none" && !inline;
     const omnibox = o.omnibox === true || composer || inline;
     const marks = o.marks === true;
     /**
@@ -1766,7 +1853,9 @@
     const root = document.createElement("div");
     root.className = classAttr([["tv-root", true], ["tv-marking", marks],
                                 ["tv-calm", calm], ["tv-omni", omnibox && !palette],
-                                ["tv-pal", palette], ["tv-inline", inline]]);
+                                ["tv-pal", palette], ["tv-inline", inline],
+                                ["tv-dock", dock === "strip"],
+                                ["tv-summon", summoned]]);
     container.innerHTML = "";
     container.appendChild(root);
 
@@ -1794,15 +1883,18 @@
     acEl.style.display = "none";
     filterWrap.appendChild(input);
     filterWrap.appendChild(acEl);
-    if (!omnibox && !palette) { bar.appendChild(titleEl); bar.appendChild(chipsEl); }
-    if (!palette) bar.appendChild(filterWrap);
+    // A SUMMONED MOUNT DRAWS NO TITLE and hangs its chips in a row of their
+    // own: the bar it would sit in belongs to the box, which is away until it
+    // is called for, and a title that comes and goes with the box is no title.
+    if (!omnibox && !summoned) { bar.appendChild(titleEl); bar.appendChild(chipsEl); }
+    if (dock !== "overlay") bar.appendChild(filterWrap);
 
     const veil = document.createElement("div");
     veil.className = "tv-veil";
     veil.style.display = "none";
     const panel = document.createElement("div");
     panel.className = "tv-panel";
-    if (palette) {
+    if (dock === "overlay") {
       panel.appendChild(filterWrap);
       veil.appendChild(panel);
     }
@@ -1828,11 +1920,11 @@
     hint.className = "tv-hint";
 
     const hasHint = !composer && !inline;
-    if (!palette) root.appendChild(bar);
-    if (omnibox || palette) root.appendChild(chipsEl);
+    if (dock !== "overlay") root.appendChild(bar);
+    if (omnibox || summoned) root.appendChild(chipsEl);
     if (!composer) root.appendChild(scroll);
     if (hasHint) root.appendChild(hint);
-    if (palette) root.appendChild(veil);
+    if (dock === "overlay") root.appendChild(veil);
 
     /** Per-column <col>, one per column. @type {HTMLElement[]} */
     let colEls = [];
@@ -2923,10 +3015,10 @@
     let spoken = new Set();
 
     /**
-     * Summon the control. In palette mode that means raising the overlay; in
-     * `inline' it draws the summoned box onto the chips' line; in the resident
-     * modes the box is on the page already and this only takes it. Either way
-     * it is the one entry point a consumer's key binds to.
+     * Summon the control, WHERE THE DOCK PUTS IT: the overlay dock raises the
+     * veil, the strip dock draws the box onto the chips' line, and a mount that
+     * docks nowhere has it on the page already and only takes it. Either way it
+     * is the one entry point a consumer's key binds to.
      *
      * HOW.NARROW OPENS THE FILTER HALF: this session offers the narrowing keys
      * alone and refuses a shaping token on commit (`chipUp'), while the chips
@@ -2937,8 +3029,10 @@
       narrowing = !!(how && how.narrow === true);
       spoken = new Set();
       input.placeholder = narrowing ? NARROW_HINT : WHOLE_HINT;
-      if (palette) veil.style.display = "";
-      if (inline) root.classList.add("tv-typing");  // before the focus: display:none until
+      if (dock === "overlay") veil.style.display = "";
+      // before the focus: the docked box is display:none until the class is on,
+      // and a box that is not drawn takes no keys.
+      if (dock === "strip") root.classList.add("tv-typing");
       input.focus();
       if (input.select) input.select();
     }
@@ -2946,7 +3040,7 @@
     /** Put it away again, and give the keyboard back to the table. */
     function closeFilter() {
       closeAc();
-      if (palette) veil.style.display = "none";
+      if (dock === "overlay") veil.style.display = "none";
       input.blur();          // the blur listener un-summons; one owner for the class
     }
 
@@ -2991,9 +3085,10 @@
 
     /**
      * The end of every ladder: the table takes the selection and the control
-     * goes. In palette mode going means dissolving, which is the same gesture
-     * one step further out — there is no box left on the page to merely blur.
-     * In `inline' it means the summoned editor is gone, the chips staying.
+     * goes. For a summoned box going means the box is gone — the overlay
+     * dissolves, the docked box leaves the strip — which is the same gesture
+     * one step further out than a resident box's blur. The chips stay either
+     * way: they are the page's, not the box's.
      */
     function handOver() {
       selectFirstVisible();
@@ -3614,14 +3709,16 @@
 
     let debounce = 0;
     /**
-     * Arm the delivery a keystroke implies, in the modes where one does.  The
-     * palette filters on COMMIT alone: it is summoned over the table, so
-     * narrowing as the query is typed animates what the typist cannot see, and
-     * every half-written token is a query of its own.  The suggestion list
-     * stays live regardless.
+     * Arm the delivery a keystroke implies, in the modes where one does.  A
+     * SUMMONED BOX FILTERS ON COMMIT ALONE, over the veil or on the strip
+     * alike: the reader called the box up and is looking at it, so narrowing
+     * as the query is typed animates a table they are not watching, and every
+     * half-written token is a query of its own.  The suggestion list stays live
+     * regardless, and the picker narrows as it is typed — that is what a picker
+     * is for, and `summoned' is spelled to leave it out.
      */
     function armFilter() {
-      if (palette) return;
+      if (summoned) return;
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => {
         debounce = 0;
@@ -4033,13 +4130,13 @@
       if (item && ac) acceptAc(ac.items[Number(item.dataset.i)]);
     });
     // A SUMMONED BOX THAT LOST THE KEYS IS NOT SUMMONED.  Tab walks out of it
-    // natively and a row click takes the focus, either of which used to leave
-    // `inline''s editor DRAWN while the keys were elsewhere — a consumer reading
+    // natively and a row click takes the focus, either of which used to leave a
+    // docked editor DRAWN while the keys were elsewhere — a consumer reading
     // `filtering()' and a reader reading the screen would then disagree.
     input.addEventListener("blur", () => {
       closeAc();
       endNarrow();           // the session is the box's; one owner for the flag
-      if (inline) root.classList.remove("tv-typing");
+      if (dock === "strip") root.classList.remove("tv-typing");
     });
 
     /**
@@ -4077,13 +4174,17 @@
         e.preventDefault();
         e.stopPropagation();
         if (e.repeat) return;
-        if (palette) return;
-        // `inline''s editor is SUMMONED, so an EMPTY one is itself the thing to
-        // take away: it was the last thing the reader put there.  This ENDS the
-        // ladder — the box is blurred, so the chips behind it are the consumer's
-        // own key to walk.  A resident box has no such rung and never gets here.
-        // The SAME exit Escape takes, said once: the box is empty by the guard
-        // above, so `abandonFilter' has nothing left to drop.
+        // BACKSPACE OVER A SUMMONED BOX IS DEAD, veiled or docked alike: the
+        // chips are on the page BEHIND the box, not in the box being edited,
+        // so there is no rung here to take one — the strip's own × is how one
+        // comes off, and `stripLastToken' is the consumer's key to it.
+        if (summoned) return;
+        // The picker's editor is summoned too, and there an EMPTY one is itself
+        // the thing to take away: it was the last thing the reader put there.
+        // This ENDS the ladder — the box is blurred, so the chips behind it are
+        // the consumer's own to walk.  A resident box has no such rung and
+        // never gets here.  The SAME exit Escape takes, said once: the box is
+        // empty by the guard above, so `abandonFilter' has nothing left to drop.
         if (inline) { abandonFilter(); return; }
         if (chips.length) dropChip(chips.length - 1);
         else handOver();
@@ -4093,7 +4194,12 @@
       e.preventDefault();               // and, for Escape, the native search-box clear
       e.stopPropagation();
       if (e.key === "Escape") {
+        // ONE STEP OUT OF THE PICKER, where an emptied box is an editor the
+        // reader was already done with.
         if (inline) { abandonFilter(); return; }
+        // TWO STEPS EVERYWHERE ELSE: the typed text first, the box second —
+        // which for a summoned box IS the box going, over the veil or off the
+        // strip, and for a resident one is the blur.
         if (!clearTyped()) closeFilter();
         return;
       }

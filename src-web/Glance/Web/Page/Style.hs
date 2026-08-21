@@ -461,7 +461,7 @@ page head' colours title body = T.unlines
   , "      font-size:12px}"
   , "    #mpanes{flex-direction:column}"
   , "    #mtext,#pinput,#dtin,#sedit input,#tedit input,#ledit input,"
-  , "    #dpara textarea,#ktag,#kfields input,#ktext,"
+  , "    #dpara textarea,#ktag,#kfields input,#ktext,#app .tv-filter,"
   , "    .ctext,.cview{font-size:16px}}"
   , "</style>"
   -- One line, so the suite's glue extractor still finds the one inline script.

@@ -3327,7 +3327,7 @@ keyHelps =
   , (["<"],                 "first row, again = page up")
   , ([">", "G"],            "last row, again = page down")
   , (["^"],                 "put this column at the head of the order; again reverses it")
-  , (["/"],                 "summon the filter palette")
+  , (["/"],                 "summon the filter box onto the chip strip")
   , (["."],                 "the whole expression: filters, sort: and columns: together")
   , (["DEL"],               "unmark all, else drop the filter's last token")
   , (["g"],                 "the view this tree opens on")
@@ -3668,6 +3668,19 @@ shellNotes =
          \ The standing shaping chips ride a `/' commit untouched, so narrowing\
          \ never loses the shape, and both doors read and write the one ?q=: the\
          \ narrow one is a restricted VIEW over it, never a second query." [Test, Browser]
+  , Note "THE BOX DOCKS ON THE STRIP: `filterDock: \"strip\"' summons the one box\
+         \ onto the CHIP STRIP's own row — chips in their column, the box taking\
+         \ the slack, revealed while the mount is typing — over a table that keeps\
+         \ its full height, its sort arrows and its hint line.  The veil and the\
+         \ centred panel belong to the overlay dock alone, so the main table draws\
+         \ neither and the page's glue may name neither.  The SUMMONED ladder\
+         \ follows the summoning rather than the veil: two-step ESC (the typed text\
+         \ first, the box second), a dead DEL over an empty box, and filtering on\
+         \ COMMIT alone hold in whichever dock THIS page's box lands in.  The\
+         \ picker's inline box is summoned by the same `openFilter' and keeps its\
+         \ own rungs — one ESC, a DEL that shuts it (`referRung'), and rows that\
+         \ narrow as it is typed.  The narrow/whole door is the session's and\
+         \ moves with neither dock." [Test, Browser]
   , Note "DEL over the LINK and TAG popups steps out where ESC does, the popup being the last structure standing; inside an open rename, link edit or narrow it stays the field's character erase." [Test]
   , Note "Over the value palette DEL is the ENTRIES' rule: a palette nothing claims the key in steps out, and the state palette keeps it because *empty* claims it and commits a null keyword." [Test]
   , Note "A rung with nothing under it falls through in SILENCE, and the pill says the command that RAN." [Test]

@@ -60,7 +60,7 @@ keyBindings =
       `helps` "put this column at the head of the order; again reverses it"
   , bind ["RET"]        "org-glance-overview:materialize" (Just "materializeRow") "table"
   , bind ["/"]          "filter-rows"                     (Just "focusFilter")    "table"
-      `helps` "summon the filter palette"
+      `helps` "summon the filter box onto the chip strip"
   -- TWO DOORS, ONE QUERY: `/' edits the filter half, `.' the whole expression.
   , bind ["."]          "compose-query"                   (Just "focusQuery")     "table"
       `helps` "the whole expression: filters, sort: and columns: together"
