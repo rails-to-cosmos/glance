@@ -36,7 +36,7 @@ import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn
                     , setPriorityEdits, setStateEdits, setTitleEdits
                     , storeRootIn, tagText, titleText, trashBlob )
 import Glance.Web.Base ( ServeOptions (soDir), answerWrite, bodyObject, captureMoved
-                       , jsonError, jsonResponse, noSuchRow, walkFor, withBody )
+                       , jsonError, jsonResponse, noSuchRow, today, walkFor, withBody )
 import Glance.Web.Store ( Hub, Store (stConfig), headlinesIn, hubStore, layersFor
                         , recordsUnder, storeDocument, storeRecords )
 import Glance.Web.Watch (nudge, writeSpans)
@@ -254,10 +254,10 @@ overRows opts hub st asked edits cmd = do
 -- | ONE clock read, before any row: a marked set must not cross midnight.
 resolveAsked :: Command -> IO (Either Text Asked)
 resolveAsked cmd = do
-  today <- Time.localDay . Time.zonedTimeToLocalTime <$> Time.getZonedTime
+  day <- today
   pure $ case join (agDate (cmdArgs cmd)) of
-    Just text | csDated (cmdSpec cmd) -> Asked today . Just <$> planningTimestamp today text
-    _nothingToResolve                 -> Right (Asked today Nothing)
+    Just text | csDated (cmdSpec cmd) -> Asked day . Just <$> planningTimestamp day text
+    _nothingToResolve                 -> Right (Asked day Nothing)
 
 captureInto :: ServeOptions -> Hub -> Store -> Command -> IO Response
 captureInto opts hub st cmd =

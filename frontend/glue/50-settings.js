@@ -338,10 +338,12 @@ const SECTIONS = [
       if (keyName(e) !== "%") return;
       e.preventDefault();
       const box = el("ctpl"), at = box.selectionStart, to = box.selectionEnd;
+      // CLOSED: the codes are the SERVER's list, so the completion cannot offer
+      // one the expansion does not know — AGENTS.hs.  No free-text door here.
       askFrom("capture template · which code",
               CODES.map((c) => ({ label: c.code, hint: c.means, tag: c.code })),
               "RET writes it · C-n/C-p walks · ESC leaves",
-              (c) => insertCode(at, to, String(c.tag || "")));
+              (c) => insertCode(at, to, String(c.tag || "")), "closed");
     });
     // The palette blurred the box on its way up, so the caret is put back by hand.
     function insertCode(at, to, code) {

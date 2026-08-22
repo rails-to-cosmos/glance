@@ -22,9 +22,13 @@ module Body exposing
     , propIndex
     , ownersOf
     , markerFor
+    , planningKey
+    , planningText
     , propertyText
     , readPlanning
     , readProperty
+    , routedWord
+    , setPlanning
     , placeOf
     , placeOfLine
     , rowAt
@@ -308,6 +312,65 @@ metaRows plan props drafting =
 planningText : List ( String, String ) -> String
 planningText plan =
     String.join " " (List.map (\( k, v ) -> k ++ ": " ++ v) plan)
+
+
+{-| KEY as one of KEYWORDS, the case folded away, or nothing. A drawer key that
+folds to a planning word is a PLANNING ENTRY WEARING A PROPERTY'S CLOTHES: it
+belongs on the planning line, upcased, and never in the drawer.
+-}
+planningKey : List String -> String -> Maybe String
+planningKey keywords key =
+    let
+        up =
+            String.toUpper key
+    in
+    if List.member up keywords then
+        Just up
+
+    else
+        Nothing
+
+
+{-| KEY set to VALUE on the planning line: an entry already there is replaced
+where it stands and a fresh one lands at the end, which is where the server's
+own composer writes an entry it did not already hold. AN EMPTY VALUE CLEARS
+THE ENTRY, org's own way and `readPlanning''s -- a keyword left valueless is
+no planning entry.
+-}
+setPlanning : ( String, String ) -> List ( String, String ) -> List ( String, String )
+setPlanning ( key, value ) plan =
+    if value == "" then
+        List.filter (\( k, _ ) -> k /= key) plan
+
+    else if List.any (\( k, _ ) -> k == key) plan then
+        List.map
+            (\p ->
+                if Tuple.first p == key then
+                    ( key, value )
+
+                else
+                    p
+            )
+            plan
+
+    else
+        plan ++ [ ( key, value ) ]
+
+
+{-| What a write the model ROUTED to the planning line says of itself. LANDING
+is the caller's half of the sentence -- a pair typed fresh in the box lands on
+`the planning line', one lifted out of the drawer is `moved to' it -- and AN
+EMPTY VALUE CLEARED the entry instead, which says so rather than naming a
+landing. THE THREE ROUTING WORDINGS LIVE HERE, so the shell's own assertions
+have one place to follow.
+-}
+routedWord : String -> ( String, String ) -> String
+routedWord landing ( key, value ) =
+    if value == "" then
+        key ++ " cleared, and the drawer pair with it"
+
+    else
+        planningText [ ( key, value ) ] ++ " — " ++ landing
 
 
 propertyText : ( String, String ) -> String

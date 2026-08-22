@@ -155,10 +155,14 @@
       };
     }
     let dcommit = null;
+    // THE MODEL'S OWN WORD RIDES THE CARGO wherever the model has one — where
+    // it named the landing, and where it REROUTED the edit — since two ports
+    // carry no order between them and a second one would race this.  `docSaid'
+    // carries REFUSALS alone: they move no rows, so they race nothing.
     const commitDoc = (cargo) => {
       const spoke = dcommit;
       dcommit = null;
-      commitDocWith(cargo, () => { if (spoke) spoke(); });
+      commitDocWith(cargo, () => { if (spoke) spoke(cargo); });
     };
     const editPara = (r, text, say) => {
       dcommit = say;
@@ -462,24 +466,59 @@
     }
     const OFFERS = 6;   // the knob, and the only place the cap is spelled
     let doffers = [], dofferAt = -1;   // `-1' is point on NO offer
-    /** What the FOCUSED half offers: every key, or the values the tree spells
-     * under the key standing beside it.  Filtered the way this page filters
-     * everywhere -- a fold-case SUBSTRING of the offer -- and ordered by how
-     * often the tree writes it, ties alphabetical. */
+    // What an offer that would REROUTE says about itself, and the only warning
+    // the key half gives that the word is no property.
+    const PLAN_HINT = "planning";
+    /** What the FOCUSED half offers, each with the HINT that names where it
+     * lands: every key, or the values the tree spells under the key standing
+     * beside it.  Filtered the way this page filters everywhere -- a fold-case
+     * SUBSTRING of the offer -- and ordered by how often the tree writes it,
+     * ties alphabetical. */
     function offersFor() {
-      if (!dvocab || !dpairing()) return [];
+      if (!dpairing()) return [];
       const onKey = onPairKey();
-      const key = el("dkey").value.trim();
-      const vals = dvocab.values || {};
+      const vocab = dvocab || {};
       // ORG UPPERCASES A PROPERTY KEY, so the door is keyed by the upper form;
       // the verbatim reading answers for a tree that spells one otherwise.
-      const from = onKey ? (dvocab.keys || {})
+      const key = el("dkey").value.trim(), vals = vocab.values || {};
+      const from = onKey ? (vocab.keys || {})
                          : (vals[key.toUpperCase()] || vals[key] || {});
-      const want = String(el(onKey ? "dkey" : "dval").value).trim().toLowerCase();
-      return Object.keys(from)
-        .filter((w) => w.toLowerCase().includes(want))
-        .sort((a, c) => (from[c] - from[a]) || (a < c ? -1 : a > c ? 1 : 0))
-        .slice(0, OFFERS);
+      const typed = String(el(onKey ? "dkey" : "dval").value).trim();
+      const want = typed.toLowerCase();
+      const fits = (w) => w.toLowerCase().includes(want);
+      const listed = Object.keys(from).filter(fits)
+        .sort((a, c) => (from[c] - from[a]) || (a < c ? -1 : a > c ? 1 : 0));
+      // ORG'S THREE RIDE THE KEY HALF OUT OF `CFG.planning' RATHER THAN THE
+      // TREE: `/properties' walks DRAWERS, and the parser lifts planning off the
+      // headline before one is read, so no tree spells them there and a build
+      // whose server has no such door still offers these.  UPCASED, since that
+      // is what the write makes of them, and LAST but never squeezed out by the
+      // cap — a key that folds to one is a reroute, and the hint says so.
+      const planned = onKey
+        ? PLANNING.filter((w) => fits(w) && !listed.includes(w)) : [];
+      // BOTH HALVES ARE OPEN VOCABULARIES, so THE READER'S OWN LINE LEADS the
+      // offers, above the cap: `RET' over it commits the word that was typed
+      // rather than the one it reads as a prefix of, and the walk clamps back
+      // onto it (AGENTS.hs).  ASKED OF THE WHOLE VOCABULARY rather than of what
+      // the cap left — a word the tree really spells COINCIDES with its own
+      // entry however it ranks, so that entry leads instead, drawn ONCE and
+      // wearing its own hint rather than calling itself new.  An empty field
+      // leads with nothing.
+      const words = listed.concat(planned);
+      const minted = leadTyped(typed, words);
+      const folds = minted || !typed
+        ? null : words.find((w) => w.toLowerCase() === want);
+      // The cap is the TREE'S keys to spend; org's three ride under it.
+      const under = planned.filter((w) => w !== folds);
+      const shown = listed.filter((w) => w !== folds)
+        .slice(0, Math.max(0, OFFERS - under.length)).concat(under);
+      // ONLY THE KEY HALF ROUTES, so only its offers may say `planning': a VALUE
+      // that folds to one of org's three is a value like any other, and the hint
+      // would name a landing it has not got.
+      const dress = (w) =>
+        ({ word: w, hint: onKey && planningWord(w) ? PLAN_HINT : "" });
+      return (minted ? [{ word: typed, hint: NEW_HINT }]
+              : folds ? [dress(folds)] : []).concat(shown.map(dress));
     }
     function drawOffers() {
       const box = el("doffer");
@@ -487,12 +526,17 @@
       doffers = offersFor();
       if (dofferAt >= doffers.length) dofferAt = doffers.length - 1;
       box.className = doffers.length ? "on" : "";
-      doffers.forEach((w, i) => part(box, "div", i === dofferAt ? "dof dat" : "dof", w));
+      doffers.forEach((o, i) => {
+        const row = part(box, "div", i === dofferAt ? "dof dat" : "dof");
+        part(row, "span", "dow", o.word);
+        if (o.hint) part(row, "span", "dot", o.hint);
+      });
     }
     /** The field or its text moved, so the list under it is another list.  POINT
-     * STANDS ON THE BEST MATCH OF WHAT WAS TYPED and on NOTHING over an empty
-     * field: with nothing typed the list is a menu to walk, and `RET' there is
-     * the empty key's own refusal rather than a word the reader never chose. */
+     * STANDS ON THE LINE THE READER TYPED, which leads the offers, and on
+     * NOTHING over an empty field: with nothing typed the list is a menu to
+     * walk, and `RET' there is the empty key's own refusal rather than a word
+     * the reader never chose. */
     const pairMoved = () => {
       dofferAt = el(onPairKey() ? "dkey" : "dval").value.trim() ? 0 : -1;
       drawOffers();
@@ -504,9 +548,11 @@
     };
     /** The offer under point into the half beside it, and whether that MOVED
      * anything: an offer already standing in the field is nothing to take, so
-     * the same key goes on to hop or to apply rather than sticking here. */
+     * the same key goes on to hop or to apply rather than sticking here.  THE
+     * TYPED LINE IS ONE SUCH OFFER, which is what carries a partial key or value
+     * out of this box as the reader spelled it. */
     function takeOffer() {
-      const want = dofferAt < 0 ? undefined : doffers[dofferAt];
+      const want = dofferAt < 0 ? undefined : doffers[dofferAt].word;
       const box = el(onPairKey() ? "dkey" : "dval");
       if (want === undefined || want === box.value.trim()) return false;
       box.value = want;
@@ -583,6 +629,8 @@
       const box = el(id);
       return box.value.slice(0, box.selectionStart).split("\n").length - 1;
     };
+    // ORG'S THREE PLANNING WORDS, the server's own list and the pane's `planKeys'.
+    const PLANNING = CFG.planning;
     // A KEY ORG WOULD READ AS SOMETHING OTHER THAN A PROPERTY.  The frame words
     // are the drawer's own (AGENTS.hs `reservedProperties'): written as a key,
     // one of them TERMINATES the drawer and everything under it falls out of it.
@@ -590,6 +638,30 @@
     // The store's own two, kept out of every drawer the pane draws: typed by
     // hand they would forge the identity a headline is found and linked by.
     const IDENTITY_KEYS = ["ORG_GLANCE_ID", "ORG_GLANCE_CREATION_TIME"];
+    /** KEY as one of org's three planning words, or `null'.  A KEY THAT FOLDS TO
+     * ONE OF THEM IS NO PROPERTY: the write routes it to the planning line,
+     * upcased, and the drawer never sees it — AGENTS.hs. */
+    const planningWord = (key) => {
+      const up = String(key || "").toUpperCase();
+      return PLANNING.indexOf(up) === -1 ? null : up;
+    };
+    // THE DATE ORG READS: a DECIMAL RUN per field, the month and the day
+    // RANGE-CHECKED, so `2026-8-1' is a date and `2026-13-45' is not.  The
+    // lookahead is what keeps the day from stopping short — without it `32' is
+    // read as day `3' with `2' falling into the tail.
+    const DATE = "\\d+-(?:0?[1-9]|1[0-2])-(?:0?[1-9]|[12]\\d|3[01])(?!\\d)";
+    // ONE ORG STAMP, or two joined by org's `--' AND WEARING THE SAME BRACKET —
+    // the server takes the pair's OPENING bracket again after the join, which is
+    // why each kind is spelled as a whole alternative rather than one half twice.
+    // THE BOX'S READING OF THE SERVER'S OWN WALL (`badPlanning', which reparses):
+    // a planning value that does not read back stops being a planning entry on
+    // the next load.  Kept no looser than the server's, since a value this let
+    // through would meet the 409 with the box already shut, and no wider until
+    // docs/proposals/proposed/2026-08-22-a-date-is-read-where-a-date-is-owed.md.
+    const ACTIVE = `<${DATE}[^<>\\n]*>`;
+    const INACTIVE = `\\[${DATE}[^\\[\\]\\n]*\\]`;
+    const STAMP = new RegExp(
+      `^(?:${ACTIVE}(?:--${ACTIVE})?|${INACTIVE}(?:--${INACTIVE})?)$`);
     /** Why this pair is not written, or `null'.  EVERY refusal the model has is
      * one of these: the box is shut before the model answers, so a wall it
      * alone knew would leave a drawn row with nothing left to reach it. */
@@ -602,8 +674,24 @@
       if (IDENTITY_KEYS.indexOf(up) !== -1)
         return `:${up}: is the store's own — this would forge the headline's identity`;
       if (!value) return "a value is required";
+      // THE WALL'S OWN SENTENCE, echoed where the box still stands: the write
+      // would come back 409 with the same words and nothing left to fix them in.
+      if (planningWord(up) && !STAMP.test(value))
+        return `${up} is not a timestamp org would read back`;
       return null;
     }
+    // The key and the value a drawer line opens with; the same reading the
+    // model makes of it, org's own `:KEY: value'.  A LINE THAT OPENS NEITHER
+    // READS AS TWO EMPTY HALVES, so every caller may trim what it takes.
+    const PAIRKEY = /^\s*:([^\s:]+):\s*(.*)$/;
+    const pairIn = (text) => PAIRKEY.exec(text) || ["", "", ""];
+    /** The planning word committing TEXT over ROW would route the pair to, or
+     * `null'.  The one thing the model alone would know: the shortcut below
+     * needs it, and so does the WALL, since the box shuts before the model
+     * answers and a refusal it alone knew would land with nothing left on
+     * screen to fix it in. */
+    const migrating = (r, text) =>
+      r.kind === "meta" ? planningWord(pairIn(text)[1]) : null;
     /** Commit the open edit, and with AT put another stop in under it — `S-RET''s
      * whole difference from `RET'.  AT is the CARET'S LINE, read at the press. */
     function commitDocEdit(b, at) {
@@ -614,6 +702,19 @@
       if (edit.o === DPARA) {
         const text = el("dtext").value;
         const add = !!r.add;
+        // ONE WALL, BOTH DOORS: a `:SCHEDULED:' line committed here ROUTES to
+        // the planning line exactly as the pair box's does, so its value meets
+        // the same refusal — asked HERE, above the shut, where what was typed
+        // is still on screen to be fixed rather than at the write's 409 with
+        // nothing left to fix it in.  AN EMPTIED VALUE IS NO REFUSAL AT THIS
+        // DOOR: that is org's own way of CLEARING an entry, and this door is
+        // the only one that can — the pair box needs both halves.
+        const going = add ? null : migrating(r, text);
+        const worth = going ? pairIn(text)[2].trim() : "";
+        if (worth) {
+          const no = pairRefused(going, worth);
+          if (no) { spoke(no); return; }
+        }
         shutEdit(DPARA);
         if (add) {
           // WHAT THE BOX HOLDS IS WHAT IS WRITTEN; Elm prepends nothing.
@@ -626,8 +727,15 @@
           });
           return;
         }
-        if (text === r.text) { spoke("paragraph unchanged"); more(); return; }
-        editPara(r, text, () => { spoke("paragraph written"); more(); });
+        // A PAIR THAT WOULD MIGRATE IS NEVER UNCHANGED: a `:SCHEDULED:' line
+        // standing in the drawer has somewhere to go without a byte typed, so
+        // the model is asked even where the line reads as it did.
+        if (text === r.text && !migrating(r, text))
+          { spoke("paragraph unchanged"); more(); return; }
+        editPara(r, text, (cargo) => {
+          spoke(cargo.said || "paragraph written");
+          more();
+        });
         return;
       }
       // THE PAIR ARRIVES WHOLE, both halves off the box: the walls are the
@@ -638,7 +746,11 @@
         const no = pairRefused(key, value);
         if (no) { spoke(no); return; }
         shutEdit(DPAIR);
-        dwrote = (what) => spoke(what);
+        // TWO ANSWERS, ONE ASK, so each one-shot disarms the other: the model's
+        // own word for where the pair landed rides the CARGO, and `docSaid'
+        // carries a refusal alone — which moves no rows and so races nothing.
+        dcommit = (cargo) => { dwrote = null; spoke(cargo.said || "property written"); };
+        dwrote = (what) => { dcommit = null; spoke(what); };
         dsend({ kind: "addprop", key, value });
         return;
       }
@@ -695,7 +807,6 @@
         .then((a) => { if (editing === h && landed(h, say)(a)) reload(); })
         .catch((e) => stuck(subtreeSheet, e.message));
     }
-    const PLANNING = CFG.planning;
 
     /** Empty the pane: the sheet shut, so the document it held is gone. */
     function docClear() {

@@ -511,6 +511,10 @@ update msg model =
         -- DRAFT ROW GOES EITHER WAY: it became this pair, or the box that drew
         -- it has been told no and is shut, and a row nothing can reach would
         -- stand in the drawer until the next fill.
+        -- A KEY THAT FOLDS TO A PLANNING WORD NEVER REACHES THE DRAWER: it is a
+        -- planning entry wearing a property's clothes, so it is ROUTED to the
+        -- planning line -- upcased, placed by the composer -- and point lands
+        -- there.  ONE WRITE either way: the cargo carries both lists.
         AddProp key value ->
             if key == "" || value == "" || String.contains " " key || String.contains ":" key then
                 spoke
@@ -519,30 +523,33 @@ update msg model =
                     )
 
             else
-                let
-                    fresh =
-                        remeta
-                            { model
-                                | props = model.props ++ [ ( key, value ) ]
-                                , draftPair = False
+                case Body.planningKey model.planKeys key of
+                    Just word ->
+                        composedWith
+                            (Just (Body.routedWord "the planning line" ( word, value )))
+                            (landOn Body.planId
+                                (remeta
+                                    { model
+                                        | plan = Body.setPlanning ( word, value ) model.plan
+                                        , draftPair = False
+                                    }
+                                )
+                            )
+
+                    Nothing ->
+                        let
+                            fresh =
+                                remeta
+                                    { model
+                                        | props = model.props ++ [ ( key, value ) ]
+                                        , draftPair = False
+                                    }
+                        in
+                        composedWith (Just (Body.propertyText ( key, value )))
+                            { fresh
+                                | at = placeOf fresh (Body.propId (List.length model.props))
+                                , shut = Set.remove Body.drawerId fresh.shut
                             }
-
-                    minted =
-                        Body.propId (List.length model.props)
-
-                    m2 =
-                        { fresh
-                            | at = placeOf fresh minted
-                            , shut = Set.remove Body.drawerId fresh.shut
-                        }
-                in
-                ( m2
-                , Cmd.batch
-                    [ docState (stateJSON m2)
-                    , docBody (cargoJSON m2)
-                    , docSaid (E.string (Body.propertyText ( key, value )))
-                    ]
-                )
 
         -- Composed HERE: a deletion cannot be rebuilt out of the model it changed.
         Delete ids ->
@@ -817,6 +824,12 @@ foldTarget m =
 
 {-| A meta row's text read back into its list: the planning line by its
 keywords, a drawer line as `:KEY: value'.
+
+A PAIR WHOSE KEY FOLDS TO A PLANNING WORD MIGRATES: some other tool minted
+`:SCHEDULED:` into the drawer, and the commit takes the drawer entry off and
+sets the planning one in the SAME write -- the cargo carries both lists, so
+there is no half-moved pair to see between them.
+
 -}
 editMeta : Model -> String -> String -> ( Model, Cmd Msg )
 editMeta m id written =
@@ -825,22 +838,28 @@ editMeta m id written =
 
     else
         case ( Body.readProperty written, Body.propIndex id ) of
-            ( Just pair, Just i ) ->
-                keep id
-                    (remeta
-                        { m
-                            | props =
-                                List.indexedMap
-                                    (\j p ->
-                                        if j == i then
-                                            pair
+            ( Just ( key, value ), Just i ) ->
+                let
+                    -- The pair at I written over, or dropped: the migration takes
+                    -- it out of the drawer, an ordinary edit rewrites it in place.
+                    pairsWith now =
+                        List.take i m.props ++ now ++ List.drop (i + 1) m.props
+                in
+                case Body.planningKey m.planKeys key of
+                    Just word ->
+                        composedWith
+                            (Just (Body.routedWord "moved to the planning line" ( word, value )))
+                            (landOn Body.planId
+                                (remeta
+                                    { m
+                                        | props = pairsWith []
+                                        , plan = Body.setPlanning ( word, value ) m.plan
+                                    }
+                                )
+                            )
 
-                                        else
-                                            p
-                                    )
-                                    m.props
-                        }
-                    )
+                    Nothing ->
+                        keep id (remeta { m | props = pairsWith [ ( key, value ) ] })
 
             _ ->
                 spoke ( m, "not a `:KEY: value' line — left as it was" )
@@ -855,12 +874,25 @@ keep id m =
 `docState' would leave the shell's own copy a flush behind the file.
 -}
 composed : Model -> ( Model, Cmd Msg )
-composed m =
+composed =
+    composedWith Nothing
+
+
+{-| The same write carrying SAID, the model's own word for where it landed. THE
+WORD RIDES THE CARGO rather than `docSaid': two ports carry no order between
+them, so a second one would race this and the caller's own wording would win
+that race as often as not. `docSaid' is REFUSALS ALONE, which move no rows and
+so race nothing.
+-}
+composedWith : Maybe String -> Model -> ( Model, Cmd Msg )
+composedWith said m =
     ( m
-    , Cmd.batch [ docState (stateJSON m), docBody (cargoJSON m) ]
+    , Cmd.batch [ docState (stateJSON m), docBody (cargoJSON said m) ]
     )
 
 
+{-| A refusal: the model is left as it was and only the word goes out.
+-}
 spoke : ( Model, String ) -> ( Model, Cmd Msg )
 spoke ( m, said ) =
     ( m, Cmd.batch [ docState (stateJSON m), docSaid (E.string said) ] )
@@ -984,11 +1016,24 @@ headerJSON m =
 
 
 {-| THE COMMIT CARRIES ITS OWN CARGO: a flush reading the shell's mirrors would
-race the state push for them.
+race the state push for them. SAID rides with it where the model has a word of
+its own for the write, and the shell echoes that in place of the wording the
+caller brought.
 -}
-cargoJSON : Model -> E.Value
-cargoJSON m =
-    E.object (( "body", E.string (bodyText m []) ) :: headerJSON m)
+cargoJSON : Maybe String -> Model -> E.Value
+cargoJSON said m =
+    let
+        fields =
+            ( "body", E.string (bodyText m []) ) :: headerJSON m
+    in
+    E.object
+        (case said of
+            Just what ->
+                ( "said", E.string what ) :: fields
+
+            Nothing ->
+                fields
+        )
 
 
 

@@ -2,7 +2,9 @@
 
 -- | The HTTP surface: a fixed route table, its handlers, and the live socket.
 -- Routes, caching, the 503 gate and what a write may touch are AGENTS.hs.
-module Glance.Web.Routes (application, bootstrapWanted, hasRenderer) where
+-- 'etagOf' is out for the pin alone: the DAY it folds in is a law a unit can
+-- state — one store, two days, two tags — where the wall clock cannot.
+module Glance.Web.Routes (application, bootstrapWanted, etagOf, hasRenderer) where
 
 import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVar)
 import Control.Concurrent.STM (atomically, readTVarIO)
@@ -72,15 +74,15 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , templatePrompts, titleSpan, todoPragmas
                     , resolveColumns, savedViews, todoLines, viewColumns
                     , viewJSONFor )
-import Glance.Web.Base ( ServeOptions (..), answerWrite, bodyObject, codeList, configMoved
+import Glance.Web.Base ( Day, ServeOptions (..), answerWrite, bodyObject, codeList, configMoved
                        , conflict, docCells, glueAsset, gluePartFiles, html, jsonError
                        , elmAsset
                        , jsonResponse, jsonType
                        , noSuchRow
-                       , plain, rendererAsset, reparsed, rewritten, sized, tenths
+                       , plain, rendererAsset, reparsed, rewritten, sized, tenths, today
                        , unreadable, viewTitleFor, walkFor, withBody )
 import Glance.Web.Commands (runCommand)
-import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, storeEnv, viewAddedIn)
+import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, onDay, storeEnv, viewAddedIn)
 import Glance.Web.Page (assetsMissing, demoShell)
 import Glance.Web.Page.Style (fontAssets)
 import Glance.Web.Columns (columnNamesIn)
@@ -241,13 +243,17 @@ viewPage opts hub request keep extra = case pageParams request of
   Left why -> pure (jsonError status400 why)
   Right PageAsk {..} -> do
     st <- readTVarIO (hubStore hub)
-    let tag = etagOf st
+    -- ONE CLOCK READ PER REQUEST, and ABOVE the revalidation: `*today*' is
+    -- resolved once at filter compile, so a query asked across midnight cannot
+    -- mean two days -- and the tag folds the day in (`etagOf').
+    day <- today
+    let tag = etagOf day st
     if tag `elem` ifNoneMatch request
       then pure (responseLBS status304 (cacheHeaders tag) "")
       else do
         let qr      = storeResult st
             -- `ref:' reads the link graph, so the match runs over the store's own rows.
-            env     = storeEnv (qrRecords qr)
+            env     = onDay day (storeEnv (qrRecords qr))
             asked   = filter (\r -> keep r && matchesFilter env paQuery r) (qrRecords qr)
             matched = if hiding then filter (not . archived) asked else asked
             -- The WHOLE store's tags answer first: the cheaper refusal.
@@ -283,10 +289,15 @@ merged v _more = v
 limitCap :: Int
 limitCap = 20000
 
--- | ST as an entity tag.  The generation restarts at zero each process, so the fingerprint is what survives one.
-etagOf :: Store -> BSC.ByteString
-etagOf st = "\"" <> TE.encodeUtf8 (T.take 16 (stPrint st))
-              <> "-g" <> BSC.pack (show (stGen st)) <> "\""
+-- | ST as an entity tag ON DAY.  The generation restarts at zero each process,
+-- so the fingerprint is what survives one.  THE DAY RIDES ALONG WHATEVER THE
+-- QUERY SPELLS: @*today*@ resolves per request, so a store nothing touched
+-- across midnight must revalidate rather than 304 yesterday's rows back.  One
+-- extra revalidation a day is the whole cost.
+etagOf :: Day -> Store -> BSC.ByteString
+etagOf day st = "\"" <> TE.encodeUtf8 (T.take 16 (stPrint st))
+                  <> "-g" <> BSC.pack (show (stGen st))
+                  <> "-d" <> BSC.pack (show day) <> "\""
 
 ifNoneMatch :: Request -> [BSC.ByteString]
 ifNoneMatch request =

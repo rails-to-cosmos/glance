@@ -13,6 +13,28 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **Dates compare, and `*today*` is one of them.** `scheduled:`, `deadline:`
+  and `planned:` now take a comparison in the value position: `>=`, `<=`, `>`
+  and `<` at the head of the value, longest spelling read first, with the range
+  `A..B` beside them. The date is the literal the bare form always took — any
+  prefix of an ISO stamp, so `2026-08` is a month and `2026-08-0` a month's
+  first nine days — and the operator says which end of that interval it cuts
+  at: `<` and `>=` cut at the first instant, `<=` and `>` at the last. No date
+  arithmetic happens anywhere, and the bare form is the two inclusives at once,
+  `deadline:2026-09` ≡ `deadline:>=2026-09 deadline:<=2026-09`. `*today*` joins
+  the starred family as a DATE rather than a whole value, legal wherever a
+  literal stands — `scheduled:*today*` is the day itself, `deadline:<*today*`
+  the overdue — and it resolves once per request against the server's local
+  day. Two guards hold as laws: the empty cell sits outside every comparison,
+  so an undated row passes none of the four and `+deadline:*empty*` is how
+  those rows come back; and negation is no mirror, `-scheduled:<*today*`
+  carrying the undated rows that `scheduled:>=*today*` leaves out. On
+  `planned:` the range says what two tokens cannot, ONE date cell inside the
+  interval, where `planned:>=A planned:<=B` lets one cell answer each token.
+  The operator is read on the three timestamp keys alone, `title:>x` staying
+  the substring it always was, and a query with no comparison in it means
+  exactly what it meant before. `docs/query.md` carries the law.
+
 - **`+` in the drawer asks inline, as the pair it will become.** Adding a
   property raised two prompts over the sheet, one for the key and one for the
   value. `+` now draws a fresh row at the end of the properties drawer —
@@ -27,6 +49,29 @@ section groups a feature arc, and its date is that arc's last commit.
   frame owns (`PROPERTIES`, `END`) or one the store owns (`ORG_GLANCE_ID`,
   `ORG_GLANCE_CREATION_TIME`) is refused at the field, and the box stays up with
   what was typed still in it.
+
+- **A planning word typed as a property key lands on the planning line.** A
+  drawer key that case-folds to `scheduled`, `deadline` or `closed` is a
+  planning entry wearing a property's clothes, and the sheet writes it as one.
+  Typed into the inline pair box it is set or replaced on the planning line —
+  upcased, where the planning composer puts it — and the drawer is left the
+  bytes it was. `RET` on a pair another writer already minted into a drawer
+  MIGRATES it: the drawer entry off and the planning entry set on the same
+  single write, since one commit carries both lists. `CLOSED` is one of the
+  three, and the bracket kind is the typist's — `<2026-09-01 Tue>` and
+  `[2026-09-02 Wed 18:30]` are both written as spelled. The value meets the
+  server's own planning wall before anything is sent — one org stamp, or two
+  joined by `--` and wearing the SAME bracket, each reading its month and day
+  as org's parser does, so `<2026-8-1 Sat>` is a date and `<2026-13-45 Foo>` is
+  not — and a value org would not read back is refused at the field in the
+  wall's own words (`SCHEDULED is not a timestamp org would read back`) with the
+  box still up, what was typed still in it, and the drawer and the planning line
+  byte-identical. `RET` over a stray `:SCHEDULED:` line meets that same wall at
+  that door, since committing it routes the pair the same way. The key half's completion offers the three
+  beside the tree's own vocabulary, upcased and hinted `planning`, since `GET
+  /properties` reads DRAWERS and the parser lifts planning off the headline
+  before one is read; accepting an offer flows the usual `:`/`TAB` advance. An
+  emptied value clears the entry, org's own way.
 
 - **`/` filters, `.` composes the whole query.** `/` (`filter-rows`) edits the
   FILTER half alone: its completion offers the narrowing keys — the six
@@ -201,6 +246,24 @@ section groups a feature arc, and its date is that arc's last commit.
   before.
 
 ### Fixed
+
+- **A field that completes over an open vocabulary commits the word you
+  typed.** Typing `shelf` into the tags popup's `+` with `bookshelf` in the
+  tree narrowed to that one match, put point on it, and `RET` wrote
+  `bookshelf` — the reader's own word was never drawn, so it could not be
+  taken. The same swallow ran the kind picker and both halves of the sheet's
+  inline pair box, where `OW` completed to `OWNER` on `:` and a value walked
+  away from could not be walked back to. **The typed value is always an offer**
+  now, wherever the vocabulary is open: it is drawn as its own leading entry,
+  hinted `new`, so `RET` commits what was typed and a match is one `C-n` away.
+  An empty field offers no literal, and a typed value that folds to an entry
+  coincides with it — one entry drawn, never two, and the entry it folds to
+  leads, since the coincidence is asked of the whole vocabulary rather than of
+  what an offer cap left standing. A commit has one source, the
+  entry point rests on, which retires the free-text side door that used to fire
+  only when the list happened to be empty. Openness is spelled at each call
+  now, so the closed lists stay closed: the state palette, and the capture
+  template's `%`-codes, which are the server's own.
 
 - **The renderer reads the added sign.** The page's own grammar had no `+`, so
   the sign was body text wherever the page read a query: the strip drew

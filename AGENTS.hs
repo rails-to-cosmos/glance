@@ -25,8 +25,9 @@ module AGENTS where
 
 import Control.Monad (unless)
 import Data.Char (isAlpha, isDigit, isSpace, toLower, toUpper)
-import Data.List (foldl', intercalate, isPrefixOf, isSuffixOf, nub, sortOn)
+import Data.List (foldl', intercalate, isPrefixOf, isSuffixOf, nub, sortOn, stripPrefix)
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe, mapMaybe)
+import System.Environment (getArgs)
 import System.Exit (exitFailure)
 
 -- * Ubiquitous language
@@ -1641,11 +1642,16 @@ fingerprint st = Print (concatMap stamp (sortOn fst (stFiles st)))
   where stamp (p, fe) = p ++ (if null (feRows fe) then "" else unwrap (feDigest fe))
         unwrap (Digest d) = d
 
-data ETag = ETag String Gen deriving (Eq, Show)
-etagOf :: Store -> ETag
-etagOf st = ETag (take 16 p) (stGen st) where Print p = stPrint st
+-- | The tree's fingerprint, the store's generation, and THE DAY the request was
+-- answered on.  The day rides along whatever the query spells: `*today*'
+-- resolves per request (`metaHome MToday'), so a store nothing touched across
+-- midnight must revalidate rather than answer 304 with yesterday's rows.  One
+-- extra revalidation a day is the whole cost.
+data ETag = ETag String Gen String deriving (Eq, Show)
+etagOf :: String -> Store -> ETag
+etagOf day st = ETag (take 16 p) (stGen st) day where Print p = stPrint st
 etagText :: ETag -> String
-etagText (ETag p (Gen n)) = "\"" ++ p ++ "-g" ++ show n ++ "\""
+etagText (ETag p (Gen n) day) = "\"" ++ p ++ "-g" ++ show n ++ "-d" ++ day ++ "\""
 cacheControl :: String
 cacheControl = "no-cache"
 
@@ -2369,6 +2375,93 @@ matchOf CTag   = MInfix
 plannedMatch :: Match
 plannedMatch = MPrefix
 
+-- ** The comparison atom, read off the VALUE
+--
+-- `Match' gains no constructor: a timestamp key's value may open with a
+-- COMPARISON or spell a RANGE, and both are read at the head of the VALUE on
+-- the keys whose cells are ISO stamps -- which keeps matching by KEY NAME and
+-- never by the declared kind.  The ground was DEAD: `isoStamp' opens with a
+-- digit and never with a bracket, so before this every comparison-shaped token
+-- served zero rows and its negation served every row.
+
+-- | The keys the operator is read on, and nowhere else: on every other key `<'
+-- and `>' are body text, so `title:>x' is the substring it always was.
+stampedCols :: [Col]
+stampedCols = [c | c <- cols, matchOf c == MPrefix]
+
+-- | DECLARED LONGEST FIRST, so `>=' is never `>' before a literal `='.
+data Cmp = CGe | CLe | CGt | CLt deriving (Eq, Show, Enum, Bounded)
+cmpMark :: Cmp -> String
+cmpMark CGe = ">="
+cmpMark CLe = "<="
+cmpMark CGt = ">"
+cmpMark CLt = "<"
+cmps :: [Cmp]
+cmps = [minBound ..]
+rangeMark :: String
+rangeMark = ".."
+
+-- | What a timestamp key's VALUE spells, read at COMPILE TIME rather than per
+-- row.  `SRange' is the one form two tokens cannot say: on a MULTI-CELL key it
+-- asks ONE CELL to lie inside the interval where two tokens ask the axis twice
+-- -- `stampMatch' asked of each cell and ORed, and the Note carries the law.
+data Stamp = SPrefix String | SCmp Cmp String | SRange String String
+  deriving (Eq, Show)
+
+-- | V as a timestamp atom, `Nothing' where a literal is owed and missing: the
+-- HALF-TYPED token, which narrows nothing and joins `vacuous' rather than
+-- matching none.  A literal naming NO date is still an atom and matches no row,
+-- the way `state:TOD' matches none.
+stampOf :: String -> Maybe Stamp
+stampOf v = case listToMaybe [(o, l) | o <- cmps, Just l <- [stripPrefix (cmpMark o) v]] of
+  Just (o, l) -> SCmp o <$> typed l
+  Nothing     -> case breakOnStr rangeMark v of
+    (lo, rest) | Just hi <- stripPrefix rangeMark rest -> SRange <$> typed lo <*> typed hi
+    _noRange                                           -> SPrefix <$> typed v
+  where typed t = if null t then Nothing else Just t
+
+-- | @*today*@ is a DATE VALUE and a member of the starred family: it stands
+-- wherever a literal stands and resolves to the request's OWN day, read once
+-- per request (`FilterEnv.feToday') and never off a row.  DAY is `Nothing'
+-- where no clock was read, and the word then names no date.
+litOf :: Maybe String -> String -> Maybe String
+litOf day l | l == metaWord MToday = day
+            | otherwise            = Just l
+
+-- | A literal BYTE ORDER may be asked about owes an opening digit: the prefix
+-- reading is total over any text where `<banana' would serve every ISO cell
+-- there is.  So the guard sits on the COMPARED forms alone, and the bare form
+-- stays byte for byte the prefix arm it was.
+dateOf :: Maybe String -> String -> Maybe String
+dateOf day l = do
+  d <- litOf day l
+  c <- listToMaybe d
+  if isDigit c then Just d else Nothing
+
+-- | S over ONE cell, `Nothing' being the empty one.  THE EMPTY CELL SITS
+-- OUTSIDE EVERY COMPARISON AND EVERY RANGE -- `"" < "2026-09"' holds in byte
+-- order, so an unguarded `<' would serve every undated row -- and NEGATION IS
+-- NO MIRROR because of it: `-k:<D' serves the undated rows and `k:>=D' does
+-- not, so no surface may rewrite one into the other.
+stampMatch :: Maybe String -> Stamp -> Maybe String -> Bool
+stampMatch _   _              Nothing  = False
+stampMatch day (SPrefix l)    (Just c) = maybe False (`isPrefixOf` c) (litOf day l)
+stampMatch day (SCmp o l)     (Just c) = maybe False (\d -> cmpTest o d c) (dateOf day l)
+stampMatch day (SRange lo hi) (Just c) = case (dateOf day lo, dateOf day hi) of
+  (Just a, Just b) -> cmpTest CGe a c && cmpTest CLe b c
+  _noDate          -> False
+
+-- | THE GRANULARITY LAW, one equation per constructor: `<' and `>=' cut at the
+-- literal's FIRST instant, `<=' and `>' at its LAST.  The last instant is
+-- spelled as "everything the prefix reaches", which is the prefix test the bare
+-- form already runs, so NO DATE ARITHMETIC is owed -- and `k:D' is exactly
+-- `k:>=D k:<=D' on a single-cell key.
+cmpTest :: Cmp -> String -> String -> Bool
+cmpTest CLt d c = c < d
+cmpTest CGe d c = c >= d
+cmpTest CLe d c = c < d || d `isPrefixOf` c
+cmpTest CGt d c = c > d && not (d `isPrefixOf` c)
+
 -- | A REFERENCE IS A LINK WITH A KIND, and the kind is the EDGE's rather than
 -- either row's: org-glance writes it after the id as `?kind=SLUG'.  Nothing is
 -- a plain mention.
@@ -2408,7 +2501,7 @@ qLetter v = qFold (fromMaybe v (unbracket v))
 
 -- ** The starred family, and it is total
 
-data Meta = MActive | MInactive | MEmpty | MArchive | MNone
+data Meta = MActive | MInactive | MEmpty | MArchive | MNone | MToday
   deriving (Eq, Show, Enum, Bounded)
 metas :: [Meta]
 metas = [minBound .. maxBound]
@@ -2420,6 +2513,7 @@ metaWord MInactive = starred "inactive"
 metaWord MEmpty    = starred "empty"
 metaWord MArchive  = starred "archive"   -- DERIVED from org's own ARCHIVE tag, folded
 metaWord MNone     = starred "none"
+metaWord MToday    = starred "today"     -- a DATE VALUE, not a cell predicate
 -- | The stars read backwards; a bare word is never a meta and @**@ is no word.
 metaOf :: String -> Maybe String
 metaOf v | "*" `isPrefixOf` v, "*" `isSuffixOf` v, length v > 2 = Just (drop 1 (init v))
@@ -2427,7 +2521,8 @@ metaOf v | "*" `isPrefixOf` v, "*" `isSuffixOf` v, length v > 2 = Just (drop 1 (
 isMeta :: String -> Bool
 isMeta v = v `elem` map metaWord metas
 
-data MetaHome = EveryCell | TagCell | StateCell | OrderToken deriving (Eq, Show)
+data MetaHome = EveryCell | TagCell | StateCell | OrderToken | DateValue
+  deriving (Eq, Show)
 -- | Where each meta is answered.
 metaHome :: Meta -> MetaHome
 metaHome MEmpty    = EveryCell    -- every column key, and `planned'
@@ -2435,6 +2530,9 @@ metaHome MArchive  = TagCell      -- a starred word on `tag' is that WHOLE tag
 metaHome MActive   = StateCell
 metaHome MInactive = StateCell
 metaHome MNone     = OrderToken   -- the one meta naming no cell
+-- The one meta that is a VALUE rather than a predicate: it names no cell and
+-- reads no row, standing where a date literal stands ('stampOf', 'litOf').
+metaHome MToday    = DateValue
 
 data StateOf = SActive | SInactive | SNone deriving (Eq, Show, Enum, Bounded)
 states :: [StateOf]
@@ -2447,6 +2545,7 @@ groupTest MInactive s = s == SInactive
 groupTest MEmpty    s = s == SNone
 groupTest MArchive  _ = False
 groupTest MNone     _ = False
+groupTest MToday    _ = False
 -- | The state column's meta VALUES, beside its badges: filter vocabulary, no cell.
 stateValues :: [String]
 stateValues = map metaWord [MActive, MInactive]
@@ -2600,14 +2699,14 @@ customSrc n | qFold n == "closed" = PlanClosed
 data Gap = SortRefusals | PriorityFold | MultiColumn | DateNess | RefKey | StateGroups
   deriving (Eq, Show, Enum, Bounded)
 -- | Which side answers with FEWER rows; 'Neither' is undecided per page.
-data Narrower = Producer | Renderer | Neither deriving (Eq, Show)
+data Narrower = Producer | Renderer | Neither deriving (Eq, Show, Enum, Bounded)
 
 gaps :: [(Gap, Narrower)]
 gaps =
   [ (SortRefusals, Producer)   -- it refuses; the renderer drops the key
   , (PriorityFold, Renderer)   -- `tokenTest' does not fold, so `priority:A' finds nothing there
   , (MultiColumn,  Neither)    -- declared here by NAME, sampled there
-  , (DateNess,     Neither)    -- two hardcoded keys here, sampled date-shape there
+  , (DateNess,     Neither)    -- two hardcoded keys here, sampled date-shape there; the comparison forms answer alike on both
   , (RefKey,       Renderer)   -- undecidable off a page, so it reads as free text
   , (StateGroups,  Renderer)   -- literal badge text there, but for @*active*@'s empty term
   ]
@@ -2627,6 +2726,13 @@ splitOnStr sep = go ""
   where go acc [] = [reverse acc]
         go acc s@(c : cs) | sep `isPrefixOf` s = reverse acc : go "" (drop (length sep) s)
                           | otherwise          = go (c : acc) cs
+-- | S cut at the FIRST SEP: what stands before it, and the rest with SEP still
+-- on the front.  `Data.Text.breakOn', which the matcher reads a range with.
+breakOnStr :: String -> String -> (String, String)
+breakOnStr sep = go ""
+  where go acc s | sep `isPrefixOf` s = (reverse acc, s)
+        go acc (c : cs)               = go (c : acc) cs
+        go acc []                     = (reverse acc, "")
 
 -- ** Notes
 
@@ -2721,6 +2827,40 @@ queryNotes =
          \terms as one OR against the plain conjunction — this model's own law, \
          \read locally off a page.  `+sort:' rides SortRefusals as `-sort:' \
          \does: the renderer drops the key, the producer refuses the token." [Unguarded]
+  , Note "A TIMESTAMP KEY TAKES A COMPARISON IN THE VALUE POSITION — >=, <=, >, \
+         \< read longest first at the value's head, or the range A..B — and the \
+         \GRANULARITY LAW is that < and >= cut at the literal's FIRST instant \
+         \where <= and > cut at its LAST, the last instant spelled as \
+         \everything the prefix reaches: no date arithmetic anywhere, and k:D is \
+         \exactly k:>=D k:<=D on a single-cell key.  The operator is read on the \
+         \timestamp keys alone, per alternative, below the sign and below the \
+         \axis grouping, so the per-axis law is quoted rather than amended." [Test]
+  , Note "THE EMPTY CELL SITS OUTSIDE EVERY COMPARISON AND EVERY RANGE, since \
+         \\"\" is below every literal in byte order and an unguarded < would serve \
+         \every undated row; *empty* stays its one name.  NEGATION IS NO MIRROR \
+         \because of it: -k:<D serves the undated rows and k:>=D does not, so the \
+         \four operators do not pair off under the sign and no surface may \
+         \rewrite one into another." [Test]
+  , Note "The comparison spellings land on DEAD GROUND: isoStamp opens with a \
+         \digit and never with a bracket, so before this every comparison-shaped \
+         \token served exactly zero rows and its negation served every row — and \
+         \the renderer agreed for its own reason, a substring search for \
+         \'>=2026-09' no ISO cell carries.  A literal that does not open with a \
+         \digit matches no row, and the bare prefix reading is byte for byte what \
+         \it was." [Test]
+  , Note "A RANGE ON A MULTI-CELL KEY IS ONE CELL INSIDE THE INTERVAL, which no \
+         \pair of tokens says: planned:>=A planned:<=B asks the axis twice, so a \
+         \row scheduled 2027 with a deadline of 2020 passes both tokens and lies \
+         \in neither range.  That is the whole reason `..' exists; on a \
+         \single-cell key A..B is exactly >=A and <=B." [Test]
+  , Note "*today* IS A DATE VALUE and a member of the starred family — the only \
+         \meta that names no cell and reads no row — legal bare, behind any \
+         \operator and at either range end.  It resolves ONCE PER REQUEST at \
+         \filter compile off the server's local day, which is the one-clock-read \
+         \law, so a query asked across midnight cannot mean two days; with no \
+         \clock behind it the word names no date and matches no row.  The \
+         \renderer answers the same laws off the BROWSER's local day, one \
+         \machine over loopback, and the skew is accepted." [Test]
   , Note "ANNIHILATION IS THE STRIP'S RULE AND NOT THE GRAMMAR'S: committing a \
          \token whose opposite-signed twin already stands removes both, the pair \
          \being the tautology the producer answers as every row.  Twins are \
@@ -3684,6 +3824,18 @@ shellNotes =
          \ moves with neither dock." [Test, Browser]
   , Note "DEL over the LINK and TAG popups steps out where ESC does, the popup being the last structure standing; inside an open rename, link edit or narrow it stays the field's character erase." [Test]
   , Note "Over the value palette DEL is the ENTRIES' rule: a palette nothing claims the key in steps out, and the state palette keeps it because *empty* claims it and commits a null keyword." [Test]
+  , Note "THE TYPED VALUE IS ALWAYS AN OFFER where a field's VOCABULARY IS OPEN:\
+         \ the add-a-tag palette, the kind picker and both halves of the sheet's\
+         \ pair box draw what was typed as their own LEADING entry, hinted `new'\
+         \ in the slot the pair box's `planning' rides — so RET commits the word\
+         \ the reader spelled and a match is one `C-n' away.  An EMPTY field\
+         \ offers no literal, and a typed value folding to an entry COINCIDES\
+         \ with it: one entry drawn, never two.  A commit therefore has ONE\
+         \ source, the entry point rests on, and a field with a door of its own\
+         \ past the drawn list committed a value nothing ever showed.  OPENNESS\
+         \ IS SPELLED AT THE CALL rather than read off the list, so the CLOSED\
+         \ fields — the state palette and the capture template's code list — keep\
+         \ no free-text door." [Test, Browser]
   , Note "A rung with nothing under it falls through in SILENCE, and the pill says the command that RAN." [Test]
   , Note "M is markAll and it TOGGLES: the renderer only adds, so a count that did not move takes them all off, the marks a filter is hiding included." [Test]
   , Note "m and u take the renderer's word for where a mark landed and then step down, dired's rule, and this page keeps no set of its own." [Test]
@@ -4240,14 +4392,30 @@ rowed ALogbook  = False
 -- end and a two-field box covers it, dressed as the line it will become -- `:', TAB or
 -- RET hands the key over to its value, TAB or RET from the value writes at once, and
 -- ESC takes the box and the drawn row together.
+-- A KEY THAT FOLDS TO ONE OF `planningRows' NEVER REACHES THE DRAWER: it is a planning
+-- entry wearing a property's clothes, and the write ROUTES it to the planning line --
+-- upcased, placed by the composer -- typed fresh in the box or standing in the drawer
+-- already, where the commit MIGRATES it and both lists move on the ONE write the cargo
+-- carries.  The KEY half offers the three beside the tree's own vocabulary, hinted:
+-- `GET /properties' walks DRAWERS and no tree spells them there.
+
+data PairGoes = ToDrawer | ToPlanning String deriving (Eq, Show)
+-- | Where a pair LANDS.  The case is the typist's and the write's is org's, so a key
+--   case-folds to the word and lands upcased.
+pairGoes :: String -> PairGoes
+pairGoes key | up `elem` planningRows = ToPlanning up
+             | otherwise              = ToDrawer
+  where up = map toUpper key
 
 data PairWall = NoKey | KeyPunctuated | KeyReserved | KeyHidden | NoValue
+              | PlanningUnreadable
   deriving (Eq, Show, Enum, Bounded)
 -- | Why a typed pair is refused, or nothing.  EVERY wall is the BOX'S OWN: it
 --   shuts before the model answers, so a wall only the model knew would leave a
 --   drawn row with nothing left to reach it.  The two key lists are the parser's
 --   and the store's -- `reservedProperties' is what terminates a drawer, and
---   `hiddenProperties' is the identity a row is found and linked by.
+--   `hiddenProperties' is the identity a row is found and linked by.  The last is
+--   the SERVER'S OWN planning wall, spelled here because the box has to ask it.
 pairRefused :: String -> String -> Maybe PairWall
 pairRefused key value
   | null key                     = Just NoKey
@@ -4255,9 +4423,59 @@ pairRefused key value
   | up `elem` reservedProperties = Just KeyReserved
   | up `elem` hiddenProperties   = Just KeyHidden
   | null value                   = Just NoValue
+  | ToPlanning _ <- pairGoes key
+  , not (stampShaped value)      = Just PlanningUnreadable
   | otherwise                    = Nothing
   where up    = map toUpper key
         bad c = isSpace c || c == ':'
+
+-- | Is VALUE a timestamp org reads back?  ONE bracketed stamp, or two joined by org's
+--   `--' AND WEARING THE SAME BRACKET: the server's range parser takes the pair's
+--   OPENING bracket again after the join, so `<..>--[..]' is a range in neither
+--   direction.  THE BOX'S READING of the server's own wall, which reparses, and kept
+--   NO LOOSER than it: a value this let through would meet the refusal with the box
+--   already shut, which is the one shape the pair's walls exist to prevent.  Space
+--   around the value is GONE BY HERE -- the box trims each half and a drawer line is
+--   read trimmed -- and the server strips it too.  The English date phrases proposed
+--   for the value widen this and nothing else.
+stampShaped :: String -> Bool
+stampShaped value = case afterStamp (dropWhile isSpace value) of
+  Just (open, rest)
+    | all isSpace rest        -> True
+    | '-' : '-' : end <- rest -> case afterStamp end of
+        Just (open', left) -> open' == open && all isSpace left
+        Nothing            -> False
+  _                           -> False
+
+-- | The bracket ONE stamp off the front of S opened with, and what is left behind it,
+--   or nothing.  A stamp ends at its own closing bracket, which is why a range needs
+--   no lookahead and the `--7d' warning cookie inside one is never read as the range
+--   join.  THE OPENING BRACKET RIDES OUT so a range can be asked to wear one kind.
+afterStamp :: String -> Maybe (Char, String)
+afterStamp []           = Nothing
+afterStamp (open : ends) = case lookup open (map bracketChars [TsActive, TsInactive]) of
+  Nothing    -> Nothing
+  Just close -> case break (== close) ends of
+    (inside, _ : after) | dateOpens inside -> Just (open, after)
+    _                                      -> Nothing
+
+-- | Does S open with org's @YYYY-MM-DD@?  THE SERVER READS EACH FIELD AS A DECIMAL
+--   RUN and RANGE-CHECKS the month and the day, so `2026-8-1' opens a date, so does
+--   `2026-08-01Sat' with no space before its weekday, and `2026-13-45' opens none.
+--   Whatever weekday, time and cookies follow it are org's.
+dateOpens :: String -> Bool
+dateOpens s = case decimalAt s of
+  Just (_year, '-' : s1)
+    | Just (month, '-' : s2) <- decimalAt s1
+    , Just (day, _rest)      <- decimalAt s2
+      -> month >= 1 && month <= 12 && day >= 1 && day <= 31
+  _   -> False
+
+-- | The run of digits S opens with, read as a number, and what follows it.
+decimalAt :: String -> Maybe (Integer, String)
+decimalAt s = case span isDigit s of
+  ([], _)    -> Nothing
+  (ds, rest) -> Just (read ds, rest)
 
 -- ** The settings sheet
 
@@ -4597,12 +4815,34 @@ sheetNotes =
          \ a key holding a space or a colon, `reservedProperties' -- writing `:END:'\
          \ as a key would close the drawer over everything under it -- and\
          \ `hiddenProperties', which would forge the identity a row is linked by.\
-         \ Neither list guarded a typed key before: the ask took `END' and wrote it." [Test, Browser]
+         \ Neither list guarded a typed key before: the ask took `END' and wrote it.\
+         \ A PLANNING KEY'S VALUE MEETS ONE MORE, the server's own reparse spelled\
+         \ where the box can ask it (`stampShaped'): a value that does not read back\
+         \ stops being a planning entry on the next load, and the write's 409 would\
+         \ carry these very words to a box already shut." [Test, Browser]
+  , Note "A KEY THAT CASE-FOLDS TO SCHEDULED, DEADLINE OR CLOSED IS NO PROPERTY\
+         \ (`pairGoes'): it is a planning entry wearing a property's clothes, so the\
+         \ commit routes it to the PLANNING LINE -- upcased, set or replaced where the\
+         \ composer puts it -- and the drawer is left the bytes it was.  BOTH DOORS\
+         \ ROUTE: the inline pair box writes one there instead of appending to the\
+         \ drawer, and `RET' on a pair another writer minted into a drawer MIGRATES it\
+         \ -- the drawer entry off and the planning entry set on the ONE write, since\
+         \ the cargo carries both lists.  BOTH DOORS WEAR THE VALUE'S WALL as well\
+         \ (`stampShaped'), asked ABOVE the shut so a value org would not read back is\
+         \ refused with the line still on screen.  An emptied value CLEARS the entry,\
+         \ org's own way, and the DRAWER door alone can spell one: the pair box owes\
+         \ both halves.  The three ride the key half's offers out of `CFG.planning',\
+         \ hinted\
+         \ and upcased, since `GET /properties' walks drawers and the parser lifts\
+         \ planning off the headline before one is read." [Elm, Test, Browser]
   , Note "THE COMMIT CARRIES ITS OWN CARGO: `docBody' and `docTook' hand the shell\
          \ body, properties and planning TOGETHER, since a flush reading the shell's\
-         \ mirrors would race the state push for them.  THE BASELINE COMES OFF THE\
-         \ FILL for the same reason: the mirrors land a macrotask behind it, and a\
-         \ baseline read off them called every fresh sheet dirty." [Elm, Test]
+         \ mirrors would race the state push for them.  THE WORD FOR A REROUTED EDIT\
+         \ RIDES THE SAME CARGO: two ports carry no order between them, so a second\
+         \ one would race this and the caller's wording would win the race.  THE\
+         \ BASELINE COMES OFF THE FILL for the same reason: the mirrors land a\
+         \ macrotask behind it, and a baseline read off them called every fresh sheet\
+         \ dirty." [Elm, Test]
   , Note "A RELOAD NEVER LANDS OVER AN OPEN EDIT, checked when the frame arrives AND\
          \ when the fetch returns: the reader can open one while it flies, and the\
          \ refill would shut the box over their caret.  Staleness is the drift lock's\
@@ -4777,7 +5017,8 @@ sheetNotes =
   , Note "TWO EDITORS, ONE CYCLE: `takeLayer' reads the keywords box only while its own\
          \ panel is showing, and the page renders the one `#+TODO:' line." [Test]
   , Note "`%' in the template box raises the value palette over the SERVER's code list, so\
-         \ the completion cannot offer a code the expansion does not know." [Test]
+         \ the completion cannot offer a code the expansion does not know: the call declares\
+         \ that vocabulary CLOSED, which is what keeps the typed line out of the list." [Test]
   , Note "A refusal SELECTS its layer, so the box shows the file the message describes." [Test]
   , Note "KNOWN GAP: the gear was the coarse pointer's only settings door and went with\
          \ the corner; `,' cannot be typed there." [Unguarded]
@@ -5220,23 +5461,104 @@ checks :: [Check]
 -- two runs in `test/TestSpec.hs', where a case asks the model AND the code.
 checks = []
 
+-- | Every note list under the section that owns it.  ONE REGISTRY: `notes' is
+-- its fold and the report locates debt by it, so a new section is added HERE
+-- once and every line below counts it.
+sections :: [(String, [Note])]
+sections =
+  [ ("parse",    parseNotes)
+  , ("scan",     scanNotes)
+  , ("walk",     walkNotes)
+  , ("config",   configNotes)
+  , ("store",    storeNotes)
+  , ("query",    queryNotes)
+  , ("commands", cmdNotes)
+  , ("shell",    shellNotes)
+  , ("sheets",   sheetNotes)
+  , ("build",    buildNotes)
+  ]
+
 notes :: [Note]
-notes = concat [ parseNotes, scanNotes, walkNotes, configNotes, storeNotes
-               , queryNotes, cmdNotes, shellNotes, sheetNotes, buildNotes ]
+notes = concatMap snd sections
 
 say :: Check -> String
 say (Check w ok) = (if ok then "  ok  " else "FAIL  ") ++ w
+
+-- | What a `Proof' costs to break: the run that goes red, in a breath.
+gloss :: Proof -> String
+gloss Typed     = "the illegal state does not compile"
+gloss Test      = "`cabal test' goes red"
+gloss Corpus    = "the corpus groups say so, and only where GLANCE_CORPUS is set"
+gloss Interop   = "`make interop' goes red, emacs present"
+gloss Browser   = "`make browser-check' goes red, a browser present"
+gloss Elm       = "elm's own compiler, or `make elm-test'"
+gloss Comment   = "a comment beside the code, and nothing runs"
+gloss Docs      = "a document says so, and nothing runs"
+gloss Unguarded = "nothing catches these"
 
 -- | The debt, counted by `Proof'.  A `Note' carrying several is counted under each.
 summary :: [Note] -> String
 summary ns = intercalate "\n"
   ( (show (length ns) ++ " notes, " ++ show (length checks) ++ " checks")
-  : [ "  " ++ show p ++ " " ++ show n
+  : [ "  " ++ show p ++ " " ++ show n ++ " — " ++ gloss p
     | p <- [minBound .. maxBound], let n = tally p, n > 0 ] )
   where tally p = length [ () | Note _ ps <- ns, p `elem` ps ]
 
+-- | The direction, said as the ledger says it.
+narrowerWord :: Narrower -> String
+narrowerWord Producer = "producer narrower"
+narrowerWord Renderer = "renderer narrower"
+narrowerWord Neither  = "undecided"
+
+-- | THE DIVERGENCE LEDGER, grouped by which side answers with fewer rows.  The
+-- groups are the `Narrower' sum's own, so a gap added to `gaps' prints itself.
+divergence :: [String]
+divergence =
+  [ "  " ++ narrowerWord n ++ ": " ++ intercalate ", " gs
+  | n <- [minBound .. maxBound], let gs = [ show g | (g, n') <- gaps, n' == n ], not (null gs) ]
+
+unguardedIn :: [Note] -> [Why]
+unguardedIn ns = [ w | Note w ps <- ns, Unguarded `elem` ps ]
+
+-- | THE DEBT, LOCATED: the unguarded notes under each section that has any,
+-- silent sections omitted.  BOTH READINGS COME OFF THIS ONE, so the count a
+-- line prints and the notes a report lists cannot disagree.
+debtBySection :: [(String, [Why])]
+debtBySection = [ (s, ws) | (s, ns) <- sections, let ws = unguardedIn ns, not (null ws) ]
+
+-- | The debt as ONE LINE: where it sits, by size.
+debtLine :: String
+debtLine = "unguarded — " ++ intercalate " · "
+  [ s ++ " " ++ show (length ws) | (s, ws) <- debtBySection ]
+
+-- | What the model enumerates, by size alone: a chosen six, by hand.
+registryLine :: String
+registryLine = "registries — " ++ intercalate " · "
+  [ "routes " ++ show (length routes)
+  , "commands " ++ show (length cmds)
+  , "keys " ++ show (length bindings)
+  , "popups " ++ show (length popTiers)
+  , "columns " ++ show (length viewColumns)
+  , "metas " ++ show (length metas) ]
+
+-- | The tier-three backlog, readable: every unguarded note under its section.
+debtReport :: String
+debtReport = intercalate "\n"
+  [ l
+  | (s, ws) <- debtBySection
+  , l <- (s ++ " (" ++ show (length ws) ++ ")") : map ("  " ++) ws ]
+
+report :: IO ()
+report = do
+  putStrLn (summary notes)
+  putStrLn "divergence"
+  mapM_ putStrLn divergence
+  putStrLn debtLine
+  putStrLn registryLine
+
 main :: IO ()
 main = do
+  args <- getArgs
   mapM_ (putStrLn . say) checks
-  putStrLn (summary notes)
+  if "debt" `elem` args then putStrLn debtReport else report
   unless (and [ b | Check _ b <- checks ]) exitFailure

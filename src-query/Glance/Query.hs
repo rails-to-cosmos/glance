@@ -75,6 +75,7 @@ module Glance.Query ( BlobSeed (..)
                     , headlineParts
                     , hiddenProperties
                     , inactiveMeta
+                    , isoDay
                     , keywordSources
                     , linkColumns
                     , linkShown
@@ -1107,6 +1108,12 @@ isoStamp ts = spelled fmt (tsmTime moment)
         fmt | tsmHasTime moment = "%Y-%m-%d %H:%M"
             | otherwise         = "%Y-%m-%d"
 
+-- | DAY as the date a cell carries.  ONE FORMATTER for both sides of a date
+-- comparison: a literal spelled here and a cell spelled by 'isoStamp' are the
+-- same shape, so no reader can compare two spellings of one day.
+isoDay :: Time.Day -> Text
+isoDay = spelled "%Y-%m-%d"
+
 detach :: Text -> Text
 detach = T.copy
 
@@ -1967,7 +1974,7 @@ priorityBadges =
 
 -- | THE RESERVED METAS, WHOLE, and no BARE word is reserved.  The other half is
 -- closed by two charset walls — 'keywordTextP' and 'tagText' — so none arrives as data.
-data Meta = MActive | MInactive | MEmpty | MArchive | MNone
+data Meta = MActive | MInactive | MEmpty | MArchive | MNone | MToday
   deriving (Eq, Show, Enum, Bounded)
 
 metas :: [Meta]
@@ -1981,6 +1988,9 @@ metaWord = starred . bare
     bare MEmpty    = "empty"
     bare MArchive  = T.toLower archiveTag
     bare MNone     = "none"
+    -- A DATE VALUE rather than a cell predicate: it stands wherever a date
+    -- literal stands and resolves to the request's own day ('Filter.onDay').
+    bare MToday    = "today"
 
 starred :: Text -> Text
 starred word = "*" <> word <> "*"

@@ -10,6 +10,7 @@ import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isSpace)
 import Data.Foldable (toList)
 import Data.List (elemIndex, find, isInfixOf, nub, sort, sortOn)
 import Data.Maybe (fromJust, fromMaybe, listToMaybe)
+import Data.Time (fromGregorian)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
                           , renderQuery )
@@ -55,6 +56,8 @@ import Glance.Web.Commands (commandNames)
 import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
                        , newLoadingHub, publish )
+
+import qualified Glance.Web.Routes as Routes
 
 sampleFile :: FilePath
 sampleFile = viewDir <> "/sample.org"
@@ -203,17 +206,32 @@ header name r = lookup name (simpleHeaders r)
 etagOf :: SResponse -> IO ByteString
 etagOf r = maybe (assertFailure "no ETag on the response") pure (header "ETag" r)
 
--- | WHAT: is TAG a store's tag at generation GEN?  Spelled out here rather than taken from the server.
+-- | WHAT: is TAG a store's tag at generation GEN, on some day?  Spelled out
+-- here rather than taken from the server.  The DAY is read for its SHAPE alone:
+-- the server's own would be this test's wall clock, and the law that two days
+-- are two tags is a unit's ("the same store on two days is two tags").
 assertTreeTag :: String -> Int -> ByteString -> Assertion
 assertTreeTag what gen tag = do
   assertBool (what <> ": no tree fingerprint in " <> show tag)
              (BSC.length fingerprint == 16
                 && BSC.all (`elem` ("0123456789abcdef" :: String)) fingerprint)
-  assertEqual (what <> ": generation") ("-g" <> BSC.pack (show gen) <> "\"") rest
+  assertEqual (what <> ": generation") ("-g" <> BSC.pack (show gen)) generation
+  assertBool (what <> ": no day in " <> show tag)
+             (BSC.length day == 10
+                && BSC.all (`elem` ("0123456789-" :: String)) day)
   where (fingerprint, rest) = BSC.splitAt 16 (BSC.drop 1 tag)
+        (generation, dated) = BSC.breakSubstring dayMark rest
+        day = BSC.takeWhile (/= '"') (BSC.drop (BSC.length dayMark) dated)
 
+-- | @-d@ — how the day is joined onto a tag, spelled once for both readers.
+dayMark :: ByteString
+dayMark = "-d"
+
+-- | TAG at generation N, its tree fingerprint and its DAY kept: what a client
+-- holding a tag from an older generation of this very tree sends back.
 atGeneration :: Int -> ByteString -> ByteString
-atGeneration n tag = BSC.takeWhile (/= '-') tag <> "-g" <> BSC.pack (show n) <> "\""
+atGeneration n tag = BSC.takeWhile (/= '-') tag <> "-g" <> BSC.pack (show n)
+                       <> snd (BSC.breakSubstring dayMark tag)
 
 zeroes :: ByteString
 zeroes = BSC.replicate 16 '0'
@@ -245,6 +263,12 @@ decodedAt key v = do
 
 pairsAt :: T.Text -> Value -> IO [[T.Text]]
 pairsAt = decodedAt
+
+-- | The pair box's offers as drawn: each word with the hint beside it, which
+-- names where taking that offer would land.  READ TOGETHER, off the one draw.
+offersOf :: Value -> IO [(T.Text, T.Text)]
+offersOf = traverse one <=< listAt "doffers"
+  where one v = (,) <$> textAt "word" v <*> textAt "hint" v
 
 wroteAt :: T.Text -> Value -> IO [[[T.Text]]]
 wroteAt key = traverse (pairsAt key) <=< listAt "writes"
@@ -1503,6 +1527,16 @@ tagKeySpec shell =
         assertEqual "the tag was added" [("add-tag", ["r1"])] =<< postedOf answer
         assertEqual "and no rename opened" False =<< boolAt "trename" answer
 
+    -- THE TYPED VALUE IS ALWAYS AN OFFER where the vocabulary is open: it is
+    -- DRAWN, leading, hinted as itself, so RET commits it by taking the entry
+    -- point rests on rather than through a door of its own — AGENTS.hs.
+  , keyed shell "the typed line is drawn as an entry of its own, leading"
+      ":" "press:+ type:brandnew" $ \answer -> do
+        assertEqual "it alone, no tag folding to it"
+          [ ("pe pat", "", ["brandnew"], []) ] =<< paletteOf answer
+        assertEqual "wearing the hint that says what it is"
+                    [("brandnew", "new")] =<< paletteHints answer
+
   , keyed shell "and a tag the tree has never held is committable all the same"
       ":" "press:+ type:brandnew press:Enter" $ \answer -> do
         assertEqual "the typed line, folded" ["brandnew"] =<< tagsPosted answer
@@ -1510,6 +1544,42 @@ tagKeySpec shell =
         assertEqual "and it joins the list under a count of its own"
                     [["web", "all", "40"], ["brandnew", "all", "1"]]
           =<< pairsAt "ttags" answer
+
+    -- THE BUG THE LAW EXISTS FOR: the field held ONE match, point sat on it, and
+    -- RET wrote the tree's word over the reader's — `shelf' typed against a tree
+    -- holding `bookshelf' added `bookshelf'.
+  , keyed shell "the typed line leads the tag it reads as a prefix of"
+      ":" "press:+ type:boo" $ \answer -> do
+        assertEqual "what was typed first, the tag holding it under"
+          [ ("pe pat", "", ["boo"],  [])
+          , ("pe",     "", ["book"], []) ] =<< paletteOf answer
+        assertEqual "and only the typed one calls itself new"
+                    [("boo", "new"), ("book", "")] =<< paletteHints answer
+
+  , keyed shell "so RET writes that word, the tag beside it untouched"
+      ":" "press:+ type:boo press:Enter" $ \answer -> do
+        assertEqual "over the row at point" [("add-tag", ["r1"])] =<< postedOf answer
+        assertEqual "carrying what was typed" ["boo"] =<< tagsPosted answer
+        assertEqual "and the popup lists it beside the row's own"
+                    [["web", "all", "40"], ["boo", "all", "1"]]
+          =<< pairsAt "ttags" answer
+
+  , keyed shell "and the match is one C-n away, which is how it is taken"
+      ":" "press:+ type:boo press:C-n press:Enter" $
+        assertEqual "the tag walked onto" ["book"] <=< tagsPosted
+
+    -- ONE ENTRY AND NEVER TWO: a typed value folding to an entry coincides with it.
+  , keyed shell "a typed value that folds to a tag coincides with it"
+      ":" "press:+ type:BOOK" $ \answer -> do
+        assertEqual "the tag alone, drawn once" [ ("pe pat", "", ["book"], []) ]
+          =<< paletteOf answer
+        assertEqual "wearing its own hint rather than the new one"
+                    [("book", "")] =<< paletteHints answer
+
+  , keyed shell "and several matches keep the typed line at their head"
+      ":" "press:+ type:o" $
+        assertEqual "the literal, then every tag holding the letter"
+          [("o", "new"), ("book", ""), ("work", "")] <=< paletteHints
 
   , keyed shell "typing a tag every row has writes nothing and says so"
       "m m m :" "press:+ type:web press:Enter" $ \answer -> do
@@ -3907,6 +3977,250 @@ sheetSpec shell =
             =<< intAt "dat" answer
           echoIs "" "ESC → keyboard-quit (the drawer unchanged)" answer
 
+    -- A KEY THAT FOLDS TO ONE OF ORG'S THREE PLANNING WORDS IS NO PROPERTY: it
+    -- is a planning entry wearing a property's clothes, and the box routes it
+    -- to the planning line, upcased, with the drawer never seeing it.
+  , testCase "a pair keyed for planning is written to the planning line" $ do
+      insheet shell
+             "press:f press:+ dkey:SCHEDULED press:: dval:<2026-09-01_Tue> press:Enter" $
+        \answer -> do
+          assertEqual "the entry replaced on the planning line"
+                      [[["SCHEDULED", "<2026-09-01 Tue>"]]] =<< wroteAt "planning" answer
+          assertEqual "and the drawer written exactly as it stood"
+                      [[["EFFORT", "0:30"]]] =<< wroteAt "properties" answer
+          assertEqual "the two meta rows the pane is left with"
+                      ["SCHEDULED: <2026-09-01 Tue>", ":EFFORT: 0:30"]
+            . partsOf "meta" =<< docOf answer
+          assertEqual "with the cursor on the line it landed on" 1 =<< intAt "dat" answer
+          assertEqual "and the fields went with the draft row" False
+            =<< boolAt "dpairopen" answer
+          echoIs "the echo names the entry and where it went"
+                 ("RET → org-set-property (SCHEDULED: <2026-09-01 Tue>"
+                    <> " — the planning line)") answer
+      -- THE CASE IS THE TYPIST'S and the write's is org's, so a key case-folds
+      -- to the word and lands upcased.  A word the line does not spell is ADDED.
+      insheet shell
+             "press:f press:+ dkey:deadline press:: dval:<2026-09-05_Sat> press:Enter" $
+        \answer -> do
+          assertEqual "the line's own entry kept, the fresh one at its end"
+                      [[["SCHEDULED", sheetStamp], ["DEADLINE", "<2026-09-05 Sat>"]]]
+            =<< wroteAt "planning" answer
+          assertEqual "the drawer untouched" [[["EFFORT", "0:30"]]]
+            =<< wroteAt "properties" answer
+          assertEqual "and the line spells both"
+                      ["SCHEDULED: " <> sheetStamp <> " DEADLINE: <2026-09-05 Sat>"
+                      , ":EFFORT: 0:30" ]
+            . partsOf "meta" =<< docOf answer
+          echoIs "" ("RET → org-set-property (DEADLINE: <2026-09-05 Sat>"
+                       <> " — the planning line)") answer
+      -- CLOSED IS ONE OF THE THREE, and THE BRACKET KIND IS THE TYPIST'S: the
+      -- wall asks whether org reads the value back, never which brackets it wears.
+      insheet shell
+             ("press:f press:+ dkey:Closed press::"
+                <> " dval:[2026-09-02_Wed_18:30] press:Enter") $
+        \answer -> do
+          assertEqual "the inactive stamp the typist spelled"
+                      [[["SCHEDULED", sheetStamp], ["CLOSED", "[2026-09-02 Wed 18:30]"]]]
+            =<< wroteAt "planning" answer
+          assertEqual "and no pair joined the drawer" [[["EFFORT", "0:30"]]]
+            =<< wroteAt "properties" answer
+      -- A RANGE IS ONE VALUE, and org's own `--' joins it.
+      insheet shell
+             ("press:f press:+ dkey:SCHEDULED press::"
+                <> " dval:<2026-09-01_Tue>--<2026-09-05_Sat> press:Enter") $
+        assertEqual "the range written whole"
+                    [[["SCHEDULED", "<2026-09-01 Tue>--<2026-09-05 Sat>"]]]
+          <=< wroteAt "planning"
+      -- AND THE `--7d' INSIDE A STAMP IS A WARNING COOKIE rather than that join:
+      -- a stamp ends at its own bracket, so the wall never has to guess.
+      insheet shell
+             ("press:f press:+ dkey:DEADLINE press::"
+                <> " dval:<2026-09-05_Sat_.+2d_--7d> press:Enter") $
+        assertEqual "org's own cookies ride the value"
+                    [[["SCHEDULED", sheetStamp], ["DEADLINE", "<2026-09-05 Sat .+2d --7d>"]]]
+          <=< wroteAt "planning"
+      -- EACH FIELD IS A DECIMAL RUN to the parser, so a date spelled without its
+      -- leading zeroes IS a date: the box may not refuse a value the server takes.
+      insheet shell
+             "press:f press:+ dkey:SCHEDULED press:: dval:<2026-8-1_Sat> press:Enter" $
+        \answer -> do
+          assertEqual "the single-digit month and day written as they were typed"
+                      [[["SCHEDULED", "<2026-8-1 Sat>"]]] =<< wroteAt "planning" answer
+          echoIs "" ("RET → org-set-property (SCHEDULED: <2026-8-1 Sat>"
+                       <> " — the planning line)") answer
+
+    -- THE PLANNING WALL IS THE SERVER'S OWN (`badPlanning' reparses), ECHOED
+    -- WHERE THE BOX STILL STANDS: the write would come back 409 with these very
+    -- words and nothing left on screen to fix them in.
+  , testCase "a planning value org would not read back is refused inline" $ do
+      insheet shell "press:f press:+ dkey:SCHEDULED press:: dval:tomorrow press:Enter" $
+        \answer -> do
+          assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+          assertEqual "and the box stands" True =<< boolAt "dpairopen" answer
+          assertEqual "with both halves there to be fixed" ("SCHEDULED", "tomorrow")
+            =<< ((,) <$> textAt "dkey" answer <*> textAt "dval" answer)
+          headerIs "and the two lists are the bytes they were"
+                   [["EFFORT", "0:30"]] [["SCHEDULED", sheetStamp]] answer
+          echoIs "" ("RET → org-set-property (SCHEDULED is not a timestamp"
+                       <> " org would read back)") answer
+      -- A BARE DATE IS NO STAMP: org reads a planning entry by its brackets.
+      insheet shell "press:f press:+ dkey:DEADLINE press:: dval:2026-09-05 press:Enter" $
+        \answer -> do
+          assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+          echoIs "" ("RET → org-set-property (DEADLINE is not a timestamp"
+                       <> " org would read back)") answer
+      -- BOTH HALVES OF A RANGE WEAR ONE BRACKET: the parser takes the pair's
+      -- OPENING bracket again after the `--', so a mixed range reparses as
+      -- nothing and the box has to refuse it where the box still stands.
+      insheet shell
+             ("press:f press:+ dkey:SCHEDULED press::"
+                <> " dval:<2026-09-01_Tue>--[2026-09-05_Sat] press:Enter") $
+        \answer -> do
+          assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+          assertEqual "and the box stands" True =<< boolAt "dpairopen" answer
+          assertEqual "with what was typed there to be fixed"
+                      "<2026-09-01 Tue>--[2026-09-05 Sat]" =<< textAt "dval" answer
+          echoIs "" ("RET → org-set-property (SCHEDULED is not a timestamp"
+                       <> " org would read back)") answer
+      -- THE EMPTY HALF IS STILL THE EMPTY HALF'S REFUSAL: a planning key with
+      -- no value never reaches the stamp wall.
+      insheet shell "press:f press:+ dkey:CLOSED press:: press:Enter" $
+        echoIs "" "RET → org-set-property (a value is required)"
+
+    -- A `:SCHEDULED:' PAIR STANDING IN A DRAWER IS ONE ANOTHER WRITER MINTED —
+    -- the parser never puts one there — so RET over it MIGRATES: the drawer
+    -- entry off and the planning entry set, both lists on the one write.
+  , keyed shell "a drawer pair keyed for planning migrates on RET" ""
+      ("mistyped press:Enter press:f press:n press:f press:n"
+         <> " press:Enter press:Enter") $ \answer -> do
+        assertEqual "one write" 1 . length =<< listAt "writes" answer
+        assertEqual "the drawer entry gone" [[["EFFORT", "0:30"]]]
+          =<< wroteAt "properties" answer
+        assertEqual "and the planning entry set in that same one"
+                    [[["SCHEDULED", "<2026-09-01 Tue>"]]] =<< wroteAt "planning" answer
+        assertEqual "the two meta rows the pane is left with"
+                    ["SCHEDULED: <2026-09-01 Tue>", ":EFFORT: 0:30"]
+          . partsOf "meta" =<< docOf answer
+        assertEqual "with the cursor on the line it moved to" 1 =<< intAt "dat" answer
+        echoIs "and the model's own word for where it went"
+               ("RET → org-ctrl-c-ctrl-c (SCHEDULED: <2026-09-01 Tue>"
+                  <> " — moved to the planning line)") answer
+
+    -- ONE WALL, BOTH DOORS.  The drawer's own door routes on the KEY, so it owes
+    -- the VALUE the same reading the pair box gives it — asked while the line's
+    -- box still stands, since a write refused with the box shut leaves nothing on
+    -- screen to fix.
+  , keyed shell "the drawer's door meets the planning value's wall too" ""
+      ("mistypedbad press:Enter press:f press:n press:f press:n"
+         <> " press:Enter press:Enter") $ \answer -> do
+        assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+        assertEqual "and the line's own box stands" True =<< boolAt "dparaopen" answer
+        assertEqual "holding the line there to be fixed" ":SCHEDULED: soon"
+          =<< textAt "dtext" answer
+        headerIs "with the two lists the bytes they were"
+                 [["EFFORT", "0:30"], ["SCHEDULED", "soon"]]
+                 [["SCHEDULED", sheetStamp]] answer
+        echoIs "" ("RET → org-ctrl-c-ctrl-c (SCHEDULED is not a timestamp"
+                     <> " org would read back)") answer
+
+    -- THE THREE ARE OFFERED BESIDE THE TREE'S OWN KEYS, hinted so the reroute
+    -- is visible before it happens, and UPCASED since that is what they become.
+  , testCase "the key half offers org's planning words, hinted" $ do
+      insheet shell "press:f press:+" $ \answer -> do
+        assertEqual "the tree's keys by how often it writes them, the three last,\
+                    \ and only the three saying where they land"
+                    [ ("EFFORT", ""), ("OWNER", ""), ("URL", "")
+                    , ("SCHEDULED", "planning"), ("DEADLINE", "planning")
+                    , ("CLOSED", "planning") ]
+          =<< offersOf answer
+      -- WHAT IS TYPED FILTERS BOTH, the way this page filters everywhere, and
+      -- THE TYPED LINE LEADS what it leaves standing — AGENTS.hs.
+      insheet shell "press:f press:+ dkey:sch" $ \answer -> do
+        assertEqual "what was typed, then the one word that folds to it,\
+                    \ each hinted for where it lands"
+                    [("sch", "new"), ("SCHEDULED", "planning")] =<< offersOf answer
+        assertEqual "and point on the typed one, so `:' hands `sch' over" 0
+          =<< intAt "dofferat" answer
+      -- ACCEPTING ONE FLOWS THE NORMAL `:'/TAB ADVANCE, and the write routes.
+      -- The offer is one `C-n' under the typed line, which is how it is reached.
+      insheet shell
+             ("press:f press:+ dkey:sch press:C-n press::"
+                <> " dval:<2026-09-01_Tue> press:Enter") $
+        \answer -> do
+          assertEqual "the offer taken, upcased, and routed"
+                      [[["SCHEDULED", "<2026-09-01 Tue>"]]] =<< wroteAt "planning" answer
+          assertEqual "the drawer untouched" [[["EFFORT", "0:30"]]]
+            =<< wroteAt "properties" answer
+      -- AND WITHOUT THAT WALK THE PARTIAL KEY IS THE KEY: `sch' is a property
+      -- the tree has never held, so it lands in the drawer as it was spelled.
+      insheet shell
+             "press:f press:+ dkey:sch press:: dval:soon press:Enter" $
+        \answer -> do
+          assertEqual "the drawer takes the word typed"
+                      [[["EFFORT", "0:30"], ["sch", "soon"]]]
+            =<< wroteAt "properties" answer
+          assertEqual "and the planning line stands as the fixture spells it"
+                      [[["SCHEDULED", "<2026-08-01 Sat>"]]]
+            =<< wroteAt "planning" answer
+      -- THE THREE ARE `CFG.planning', not the tree's: a server with no
+      -- `/properties' door still offers them.
+      insheet shell "novocab press:f press:+" $ \answer -> do
+        assertEqual "the tree has nothing to add, and each says where it lands"
+                    [ ("SCHEDULED", "planning"), ("DEADLINE", "planning")
+                    , ("CLOSED", "planning") ]
+          =<< offersOf answer
+
+    -- THE VALUE HALF IS AN OPEN VOCABULARY TOO, and the typed line leading is
+    -- also what gives point a way BACK to it: the walk clamps at the head of the
+    -- list, so a head that was the tree's word left the reader's unreachable.
+  , testCase "the value half leads with the typed line, and the walk returns to it" $ do
+      insheet shell "press:f press:+ dkey:OWNER press:: dval:ad" $ \answer -> do
+        assertEqual "what was typed, then the value the tree spells under the key,\
+                    \ the typed one alone calling itself new"
+                    [("ad", "new"), ("ada", "")] =<< offersOf answer
+      insheet shell "press:f press:+ dkey:OWNER press:: dval:ad press:Enter" $
+        \answer ->
+          assertEqual "so RET writes the word typed"
+                      [[["EFFORT", "0:30"], ["OWNER", "ad"]]]
+            =<< wroteAt "properties" answer
+      -- Taking a VALUE offer is DRY: it fills the field, and the apply stays the
+      -- reader's own next press.
+      insheet shell
+             "press:f press:+ dkey:OWNER press:: dval:ad press:C-n press:Enter press:Enter" $
+        \answer ->
+          assertEqual "walking onto the offer still completes to it"
+                      [[["EFFORT", "0:30"], ["OWNER", "ada"]]]
+            =<< wroteAt "properties" answer
+      insheet shell
+             ("press:f press:+ dkey:OWNER press:: dval:ad"
+                <> " press:C-n press:C-p press:Enter") $
+        \answer ->
+          assertEqual "and walking back lands on the typed line again"
+                      [[["EFFORT", "0:30"], ["OWNER", "ad"]]]
+            =<< wroteAt "properties" answer
+      -- A VALUE FOLDING TO ONE THE TREE SPELLS COINCIDES WITH IT: one row drawn.
+      insheet shell "press:f press:+ dkey:OWNER press:: dval:ADA" $ \answer -> do
+        assertEqual "the tree's spelling alone, carrying no new hint"
+                    [("ada", "")] =<< offersOf answer
+
+    -- THE COINCIDENCE IS ASKED OF THE WHOLE VOCABULARY, never of what the cap
+    -- left standing: a key the tree really spells that RANKS UNDER THE CAP is
+    -- still that key, so it leads the offers unhinted rather than drawing itself
+    -- `new' — and `:' hands over the word that was typed.
+  , testCase "a real key ranking under the offer cap coincides with itself" $ do
+      insheet shell "deepvocab press:f press:+ dkey:AREA" $ \answer -> do
+        assertEqual "the typed key leads, wearing no hint, the cap spent on the rest"
+                    [ ("AREA", ""), ("AREA_CODE", ""), ("AREA_NAME", "")
+                    , ("AREA_SIZE", ""), ("SUBAREA", ""), ("AREA_ID", "")
+                    , ("AREA_TAG", "") ]
+          =<< offersOf answer
+        assertEqual "with point on it" 0 =<< intAt "dofferat" answer
+      insheet shell "deepvocab press:f press:+ dkey:AREA press:: dval:north press:Enter" $
+        \answer ->
+          assertEqual "so the pair is written under the key that was typed"
+                      [[["EFFORT", "0:30"], ["AREA", "north"]]]
+            =<< wroteAt "properties" answer
+
   , testCase "ESC puts an open pair back, and the next one closes the sheet" $ do
       insheet shell
              "press:f press:n press:f press:Enter dpara:junk press:Escape" $ \answer -> do
@@ -5318,9 +5632,33 @@ shellGlue =
       , "if (!prompting.narrow && c.fixed) part(row, \"span\", \"pk\", c.key);"
       -- Both modes commit through one call, so the letter and the fallback's RET are the same delivery.
       , "else if (!repeating(e)) takeChoice(hit);"
-      , "else if (k === \"RET\") takeChoice(promptNow().shown[promptNow().at] || freely());" ]
+      , "else if (k === \"RET\") { const now = promptNow(); takeChoice(now.shown[now.at]); }" ]
       ["const LETTERS", "confirm(", ".pw u{", "part(word, \"u\"", ".pk.off{"
       , "\"pk off\""]
+
+    -- WHAT BEHAVIOUR CANNOT SHOW HERE: which call declares which vocabulary.
+    -- The palette's RET has ONE source now — the shown list — so the typed line
+    -- reaches a commit by being drawn, and the closed callers draw none.
+  , Glue "an open field draws the typed line, and openness is spelled at the call"
+      [ "const NEW_HINT = \"new\";"
+      , "mine.open = vocabulary === \"open\";"
+      -- THE FOLD-EQUALITY TEST IS ONE PREDICATE both widgets read, and it is
+      -- asked of the WHOLE vocabulary the filter left rather than of what a cap
+      -- drew: a word the tree really spells coincides with its entry however it
+      -- ranks, so it never draws itself `new'.
+      , "const leadTyped = (typed, words) => {"
+      , "return !!want && !words.some((w) => String(w).toLowerCase() === want);"
+      -- The palette's leading literal, and the pair box's, one rule twice drawn.
+      , "const literal = prompting.open && leadTyped(typed, shown.map((c) => c.label));"
+      , "? [{ label: typed, tag: typed, hint: NEW_HINT }].concat(shown) : shown;"
+      , "const minted = leadTyped(typed, words);"
+      , "return (minted ? [{ word: typed, hint: NEW_HINT }]"
+      -- The three call sites, each saying which vocabulary it opened over.
+      , "addable(), \"RET adds it · C-n/C-p walks · ESC leaves\", addTag, \"open\");"
+      , "}, \"open\");"
+      , "(c) => insertCode(at, to, String(c.tag || \"\")), \"closed\");" ]
+      -- The free-text back door that committed a value no entry ever drew.
+      ["freely", "prompting.wider &&", "|| { tag:"]
 
   -- The hairline between two source rows is that row's own top border rather than a divider element.
   , Glue "the palette's hairlines are the table's own borders"
@@ -6166,13 +6504,26 @@ statsSpec = testGroup "Load stats"
         _        -> assertFailure ("expected an object, got " <> show v)
   ]
 
--- | The @ETag@ is the tree's fingerprint and the store's generation, and every query variant shares it.
+-- | The @ETag@ is the tree's fingerprint, the store's generation and the day the
+-- request was answered on, and every query variant shares it.
 cacheSpec :: TestTree
 cacheSpec = testGroup "GET /headlines cache validation"
-  [ testCase "carries a tree tag and a generation, and says to revalidate" $ do
+  [ testCase "carries a tree tag, a generation and a day, and says to revalidate" $ do
       r <- get assetsDir "/headlines"
       etagOf r >>= assertTreeTag "the fixture store" 0
       assertEqual "Cache-Control" (Just "no-cache") (header "Cache-Control" r)
+
+    -- THE DAY RIDES IN THE TAG WHATEVER THE QUERY SPELLS: `*today*' resolves
+    -- per request, so a store nothing touched across midnight must revalidate
+    -- rather than answer 304 with yesterday's rows.  The days are INJECTED, so
+    -- the law is a unit's and not the wall clock's.
+  , testCase "the same store on two days is two tags" $ do
+      st <- loadStore viewDir
+      let tagOn y m d = Routes.etagOf (fromGregorian y m d) st
+      assertBool "midnight is a fresh tag"
+                 (tagOn 2026 8 21 /= tagOn 2026 8 22)
+      assertEqual "and one day is one tag" (tagOn 2026 8 22) (tagOn 2026 8 22)
+      assertTreeTag "the injected day" 0 (tagOn 2026 8 22)
 
   , testCase "the tag it just gave out is a 304 with no body" $ do
       a <- app assetsDir
@@ -6324,6 +6675,16 @@ querySpec = testGroup "GET /headlines filter and paging"
       -- Read as free text the token would answer with none of the six rows.
       assertEqual "an added token widens its own axis" (Just "2")
         =<< total "/headlines?q=state%3ATODO%20%2Bstate%3ADONE"
+      -- A COMPARISON travels as value text: `<' is %3C and `=' is %3D, and the
+      -- fixture dates one row before that deadline and one after it.  The
+      -- undated rows ride out under the sign and not under the operator, which
+      -- is the empty-cell law arriving over the wire.
+      assertEqual "a comparison narrows to the compared rows" (Just "1")
+        =<< total "/headlines?q=deadline%3A%3C2026-08-10"
+      assertEqual "and its negation keeps the rows that have no date" (Just "5")
+        =<< total "/headlines?q=-deadline%3A%3C2026-08-10"
+      assertEqual "the range spells the same closed interval" (Just "1")
+        =<< total "/headlines?q=deadline%3A2026-08-04..2026-08-06"
 
   , testCase "the default view carries the entry nobody stated" $
       withTempDir $ \dir -> do
@@ -7758,6 +8119,31 @@ propertiesSpec = testGroup "GET /properties"
         v <- decoded =<< ok =<< getFrom a "/properties"
         assertEqual "no keys" [] =<< countedNames =<< field "keys" v
         assertEqual "and no values" [] =<< countedNames =<< field "values" v
+
+    -- ORG'S PLANNING WORDS ARE NO PROPERTY VOCABULARY: this route walks
+    -- DRAWERS, and the parser lifts planning off the headline before one is
+    -- read.  The pair box offers the three out of `CFG.planning' instead.
+  , testCase "a planned tree offers no planning word" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "plan.org" (T.unlines
+               [ "* one", "SCHEDULED: <2026-09-01 Tue> DEADLINE: <2026-09-05 Sat>"
+               , ":PROPERTIES:", ":Genre: noir", ":END:", "* two"
+               , "CLOSED: [2026-09-02 Wed 18:30]" ])
+        (a, _hub) <- serverOver dir
+        v <- decoded =<< ok =<< getFrom a "/properties"
+        assertEqual "the drawer's own key, and nothing the planning lines spell"
+                    ["Genre"] =<< countedNames =<< field "keys" v
+
+    -- AND WHERE ANOTHER WRITER MINTED ONE INTO A DRAWER the route counts it,
+    -- since that is literally where it stands: the pair the pane MIGRATES.
+  , testCase "a `:SCHEDULED:' another writer put in a drawer is drawer vocabulary" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "stray.org" (T.unlines
+               [ "* one", ":PROPERTIES:", ":SCHEDULED: <2026-09-01 Tue>", ":END:" ])
+        (a, _hub) <- serverOver dir
+        keys <- field "keys" =<< decoded =<< ok =<< getFrom a "/properties"
+        assertEqual "the pair as the file spells it" ["SCHEDULED"]
+          =<< countedNames keys
 
   , postIs405 "/properties"
   ]

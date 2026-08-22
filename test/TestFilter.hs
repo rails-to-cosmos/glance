@@ -6,6 +6,7 @@ import Control.Monad (unless)
 import Data.List (nub, sort, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+import Data.Time (Day, fromGregorian)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults (columnKeysOf, field, maybeTextAt, refusedNaming, viewDir, withDocDir)
@@ -19,12 +20,12 @@ import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortC
                     , rowJSON
                     , tagsOfCell, viewJSON )
 import Glance.Web.Columns (columnNamesIn)
-import Glance.Web.Filter ( Sign (..), Term (..), Token (..), alternatives, archiveKey
+import Glance.Web.Filter ( FilterEnv, Sign (..), Term (..), Token (..), alternatives, archiveKey
                          , archiveMeta, cellAt, columnsKey, emptyEnv, emptyMeta, filterKeys
-                         , matchesFilter, metaOf, namesArchive, parseFilter
+                         , matchesFilter, metaOf, namesArchive, onDay, parseFilter
                          , plannedKey, refKey, scanQuery, sortKey, storeEnv
                          , substringKey
-                         , tagsKey, viewAddedIn )
+                         , tagsKey, todayMeta, viewAddedIn )
 import Glance.Web.Sort (noOrder, sortChainIn)
 
 -- 'viewDir': six headlines, five states between them, one of them stateless.
@@ -47,13 +48,23 @@ vocabularyOf = sort . nub . concatMap (tagsOfCell . hrTags)
 
 -- | The rows of RECORDS that Q matches, by title, in walk order.
 titlesMatching :: Text -> [HeadlineRecord] -> [Text]
-titlesMatching q records = [ hrTitle r | r <- records, matchesFilter (storeEnv records) q r ]
+titlesMatching = titlesMatchingIn id
+
+-- | The rows of RECORDS that Q matches with the store's env shaped by K, by
+-- title, in walk order.  ONE MATCHER under every reader here.
+titlesMatchingIn :: (FilterEnv -> FilterEnv) -> Text -> [HeadlineRecord] -> [Text]
+titlesMatchingIn k q records =
+  [ hrTitle r | r <- records, matchesFilter (k (storeEnv records)) q r ]
 
 -- | The rows Q matches, in walk order.
 matching :: Text -> IO [Row]
-matching q = do
+matching = matchingIn id
+
+-- | The rows Q matches with the store's env shaped by K, in walk order.
+matchingIn :: (FilterEnv -> FilterEnv) -> Text -> IO [Row]
+matchingIn k q = do
   records <- qrRecords <$> loadDir viewDir
-  mapM (named records) (titlesMatching q records)
+  mapM (named records) (titlesMatchingIn k q records)
   where
     named records t = case [ row | row <- [minBound ..], titleOf row == t ] of
       [row]  -> pure row
@@ -64,10 +75,17 @@ matching q = do
 matches :: Text -> [Row] -> Assertion
 matches q rows = assertEqual (T.unpack q) rows =<< matching q
 
+-- | THE DAY @*today*@ RESOLVES TO IS INJECTED, never read off the wall clock:
+-- every case below names its own day, so the suite answers the same in a year.
+matchesOn :: Day -> Text -> [Row] -> Assertion
+matchesOn day q rows =
+  assertEqual (show day <> " " <> T.unpack q) rows =<< matchingIn (onDay day) q
+
 spec :: TestTree
 spec = testGroup "Filter"
   [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, substringSpec, sortSpec
   , columnsSpec
+  , comparisonSpec, rangeSpec, todaySpec
   , archiveSpec, metaSpec, foldSpec
   , shapeSpec, alternationSpec, addedSpec
   , degenerateSpec
@@ -329,6 +347,253 @@ plannedSpec = testGroup "Planned"
                             , Term _sign (Just k') _v <- parsed (k <> ":x"), k' == k ])
   ]
   where grammarKeys = [plannedKey, refKey, sortKey, substringKey]
+
+-- | The rows whose two date cells are both empty: what every comparison and
+-- every range must leave outside, byte order putting @""@ below every literal.
+undated :: [Row]
+undated = [Reply, Plain, Drop, Schema]
+
+-- | V as a value the scanner hands over whole, spaces and colons included.
+quotedValue :: Text -> Text
+quotedValue v = "\"" <> v <> "\""
+
+-- | @key:OP D@ — the four operators, the granularity law, and what the sign,
+-- the bar and the axis do around an atom that happens to be a comparison.
+comparisonSpec :: TestTree
+comparisonSpec = testGroup "Comparisons"
+  [ testCase "the four operators at day granularity" $ do
+      matches "scheduled:<2026-08-03" [Ship]
+      matches "scheduled:<=2026-08-03" [Ship, Privet]
+      matches "scheduled:>=2026-08-03" [Privet]
+      matches "scheduled:>2026-08-03" []
+      matches "deadline:>=2026-08-10" [Reply]
+      matches "deadline:>2026-08-10" []
+      matches "deadline:<2026-08-05" []
+      matches "deadline:<=2026-08-05" [Ship]
+
+    -- THE GRANULARITY LAW IN ONE ROW: Ship is scheduled at 09:30 on the first,
+    -- so it is INSIDE `<=' that day and OUTSIDE `>' it — the inclusive cutting
+    -- at the literal's last instant and the strict one at the same place.
+  , testCase "the inclusives cut at the literal's last instant" $ do
+      matches "scheduled:<=2026-08-01" [Ship]
+      matches "scheduled:>2026-08-01" [Privet]
+      matches "scheduled:>=2026-08-01" [Ship, Privet]
+      matches "scheduled:<2026-08-01" []
+
+  , testCase "and the same four at month and year granularity" $ do
+      matches "scheduled:<2026-09" [Ship, Privet]
+      matches "scheduled:<=2026-08" [Ship, Privet]
+      matches "scheduled:>=2026-08" [Ship, Privet]
+      matches "scheduled:>2026-08" []
+      matches "scheduled:<2026-08" []
+      matches "scheduled:>2026-07" [Ship, Privet]
+      matches "deadline:<=2026-07" []
+      matches "deadline:>2026" []
+      matches "deadline:>=2026" [Ship, Reply]
+      matches "deadline:<=2026" [Ship, Reply]
+      matches "deadline:<2026" []
+      -- A prefix is a literal whatever it cuts: the first nine days of a month.
+      matches "scheduled:<=2026-08-0" [Ship, Privet]
+      matches "scheduled:>2026-08-0" []
+
+    -- LAW 3: the comparison forms and the prefix form are ONE reading of one
+    -- literal, so the bare value is the closed interval its two ends spell.
+  , testCase "the bare form is the closed interval: k:D is k:>=D and k:<=D" $ do
+      records <- qrRecords <$> loadDir viewDir
+      sequence_
+        [ assertEqual (T.unpack (key <> ":" <> d))
+            (titlesMatching (key <> ":" <> quotedValue d) records)
+            (titlesMatching (key <> ":" <> quotedValue (">=" <> d) <> " "
+                               <> key <> ":" <> quotedValue ("<=" <> d)) records)
+        | key <- ["scheduled", "deadline"]
+        , d   <- [ "2026", "2026-08", "2026-08-0", "2026-08-01", "2026-08-05"
+                 , "2026-08-01 09", "2026-08-10 17:00", "2027", "03" ] ]
+
+    -- LAW 5: `""' is below every literal in byte order, so an unguarded `<'
+    -- would serve every row the tree never dated.
+  , testCase "the empty cell is outside every comparison and every range" $ do
+      mapM_ (\v -> do
+               hit <- matching ("scheduled:" <> v)
+               assertEqual ("scheduled:" <> T.unpack v <> " served an undated row")
+                           [] [ row | row <- hit, row `elem` undated ])
+            [ "<2026-09", "<=2026-09", ">2020", ">=2020", "<9", ">0"
+            , "2020..2030", "0..9" ]
+      matches "scheduled:<9" [Ship, Privet]
+      matches "scheduled:2020..2030" [Ship, Privet]
+      matches "planned:<2026-09" [Ship, Privet, Reply]
+
+    -- LAW 6: the four operators do not pair off under the sign, and the surface
+    -- must never rewrite one into another.
+  , testCase "negation is no mirror: the undated rows part the two" $ do
+      mirror  <- matching "scheduled:>=2026-08-03"
+      negated <- matching "-scheduled:<2026-08-03"
+      assertEqual "the comparison" [Privet] mirror
+      assertEqual "and the sign, which keeps the undated rows"
+                  (Privet : undated) negated
+      assertBool "the two answers must never be simplified into each other"
+                 (mirror /= negated)
+
+  , testCase "an operator with no literal narrows nothing, and negated empties" $ do
+      every <- matching ""
+      mapM_ (`matches` every)
+            [ "scheduled:>", "scheduled:>=", "scheduled:<", "scheduled:<="
+            , "planned:>=", "deadline:<" ]
+      matches "-scheduled:>=" []
+      matches "-planned:<" []
+      matches "scheduled:2026-08-03 scheduled:>" [Privet]
+      matches "scheduled:2026-08-03|>" [Privet]
+
+  , testCase "a literal naming no date matches no row, and narrows all the same" $ do
+      matches "scheduled:>banana" []
+      matches "scheduled:<banana" []
+      matches "scheduled:>*empty*" []
+      matches "scheduled:banana..zebra" []
+      -- It is an ATOM rather than a half-typed token, so the sign inverts it.
+      every <- matching ""
+      matches "-scheduled:<banana" every
+
+    -- CONSERVATIVITY: the operator is read at one position on one set of keys.
+  , testCase "the operator is read on the timestamp keys and nowhere else" $ do
+      matches "title:>the" []
+      matches "title:<a>" []
+      matches "state:>A" []
+      matches "priority:>A" []
+      matches "tag:<web" []
+      matches "substring:>ship" []
+      matches ">2026-08" []
+      matches "\"scheduled:>=2026-08\"" []
+
+  , testCase "the separator's alias and a mid-value quote spell the same token" $ do
+      matches "scheduled:>=2026-08-03" [Privet]
+      matches "scheduled=>=2026-08-03" [Privet]
+      matches "scheduled:\">=2026-08-03\"" [Privet]
+      -- With no separator the key would be `scheduled>', which resolves to nothing.
+      assertEqual "no separator, no key"
+                  [Term Unsigned Nothing "scheduled>=2026-08-03"]
+                  (parsed "scheduled>=2026-08-03")
+      matches "scheduled>=2026-08-03" []
+
+  , testCase "alternatives split first, so each carries its own operator" $ do
+      matches "scheduled:<2026-08-02|>=2026-08-03" [Ship, Privet]
+      matches "scheduled:>=2026-08-03|2026-08-01" [Ship, Privet]
+      matches "deadline:<2026-08-06|>2026-09" [Ship]
+      matches "scheduled:<2026-08-01|>2026-08-03" []
+      -- A bar is never a range: neither half reaches the other's rows.
+      matches "scheduled:2026-08-01|2026-08-03" [Ship, Privet]
+
+    -- LAW 7: only the atomic predicate gains cases; the axis law is quoted.
+  , testCase "a comparison is one more atom, so sign and axis are untouched" $ do
+      matches "scheduled:<2026-08-02 +scheduled:>=2026-08-03" [Ship, Privet]
+      every <- matching ""
+      matches "scheduled:<2026-09 +scheduled:*empty*" every
+      matches "scheduled:>=2026-08 deadline:<2026-08-06" [Ship]
+      matches "state:*active* scheduled:<2026-08-03" [Ship]
+
+    -- The oracle is the CELL, read off the record rather than off the matcher:
+    -- a bare value answers the prefix reading it answered before the operators.
+  , testCase "a bare value is the prefix reading it was, byte for byte" $ do
+      records <- qrRecords <$> loadDir viewDir
+      let shown pick r = T.toLower (displayText (fromMaybe "" (pick r)))
+      sequence_
+        [ assertEqual (T.unpack (key <> ":" <> v))
+            [ hrTitle r | r <- records, v `T.isPrefixOf` shown pick r ]
+            (titlesMatching (key <> ":" <> quotedValue v) records)
+        | (key, pick) <- [("scheduled", hrScheduled), ("deadline", hrDeadline)]
+        , v <- [ "", "2026", "2026-08", "2026-08-0", "2026-08-01"
+               , "2026-08-01 09:30", "2026-08-05", "2026-08-10", "03", "banana"
+               , "2027" ] ]
+  ]
+
+-- | Law 9's counterexample: one row whose two date cells straddle every interval
+-- between them, which is what two tokens on @planned@ cannot tell from a hit.
+withSpanTree :: ([HeadlineRecord] -> IO a) -> IO a
+withSpanTree = withDocDir "test" "a.org" (T.unlines
+  [ "* Straddles"
+  , "SCHEDULED: <2027-01-01 Fri> DEADLINE: <2020-01-01 Wed>"
+  , "* Inside"
+  , "SCHEDULED: <2026-08-15 Sat>"
+  , "* Outside"
+  , "SCHEDULED: <2025-01-01 Wed>" ])
+
+-- | @A..B@ — sugar for two tokens on a single-cell key, and the ONE reading two
+-- tokens have no spelling for on a key that names several.
+rangeSpec :: TestTree
+rangeSpec = testGroup "Ranges"
+  [ testCase "on a single-cell key A..B is the two tokens it is sugar for" $ do
+      records <- qrRecords <$> loadDir viewDir
+      sequence_
+        [ assertEqual (T.unpack (key <> ":" <> lo <> ".." <> hi))
+            (titlesMatching (key <> ":>=" <> lo <> " " <> key <> ":<=" <> hi) records)
+            (titlesMatching (key <> ":" <> lo <> ".." <> hi) records)
+        | key      <- ["scheduled", "deadline"]
+        , (lo, hi) <- [ ("2026-08-01", "2026-08-03"), ("2026-08-04", "2026-08-06")
+                      , ("2026-08", "2026-08"), ("2026", "2026")
+                      , ("2026-08-15", "2026-10-08"), ("2027", "2028") ] ]
+
+  , testCase "and it names a range no prefix names" $ do
+      matches "deadline:2026-08-04..2026-08-06" [Ship]
+      matches "scheduled:2026-08-01..2026-08-03" [Ship, Privet]
+      matches "deadline:2026-08-06..2026-08-09" []
+      matches "planned:2026-08-04..2026-08-06" [Ship]
+
+  , testCase "a range end with nothing behind it is half-typed" $ do
+      every <- matching ""
+      mapM_ (`matches` every)
+            [ "scheduled:..", "scheduled:2026-08..", "scheduled:..2026-08"
+            , "planned:.." ]
+      matches "-scheduled:2026-08.." []
+
+    -- LAW 9, and it must go RED if the range is ever desugared into two tokens.
+  , testCase "on planned it says the one thing two tokens cannot" $
+      withSpanTree $ \records -> do
+        let hit q = titlesMatching q records
+        assertEqual "the two tokens ask the axis twice, and the straddler passes"
+                    ["Straddles", "Inside"]
+                    (hit "planned:>=2026-08-01 planned:<=2026-08-31")
+        assertEqual "where the range asks ONE cell to lie inside it"
+                    ["Inside"] (hit "planned:2026-08-01..2026-08-31")
+        -- Naming the cell is the workaround, and it answers the range's answer.
+        assertEqual "the named cell" ["Inside"]
+                    (hit "scheduled:>=2026-08-01 scheduled:<=2026-08-31")
+  ]
+
+-- | @*today*@ — the starred family's DATE VALUE, resolved off the env's day and
+-- never off the wall clock, so every case here answers the same in a year.
+todaySpec :: TestTree
+todaySpec = testGroup "The *today* value"
+  [ testCase "bare, it is the prefix reading of the request's own day" $ do
+      matchesOn (day 2026 8 1) "scheduled:*today*" [Ship]
+      matchesOn (day 2026 8 3) "scheduled:*today*" [Privet]
+      matchesOn (day 2026 8 5) "deadline:*today*" [Ship]
+      matchesOn (day 2026 8 10) "deadline:*today*" [Reply]
+      matchesOn (day 2026 8 2) "planned:*today*" []
+      matchesOn (day 2026 8 3) "planned:*today*" [Privet]
+      -- Folded like every other value, and no glob: the whole starred word.
+      matchesOn (day 2026 8 3) "scheduled:*TODAY*" [Privet]
+      matchesOn (day 2026 8 3) "scheduled:today" []
+      matchesOn (day 2026 8 3) "scheduled:*today" []
+
+  , testCase "behind an operator, and at either end of a range" $ do
+      matchesOn (day 2026 8 3) "scheduled:<*today*" [Ship]
+      matchesOn (day 2026 8 3) "scheduled:>=*today*" [Privet]
+      matchesOn (day 2026 8 3) "scheduled:<=*today*" [Ship, Privet]
+      matchesOn (day 2026 8 1) "scheduled:>*today*" [Privet]
+      matchesOn (day 2026 8 1) "scheduled:*today*..2026-08-03" [Ship, Privet]
+      matchesOn (day 2026 8 3) "scheduled:2026-08-01..*today*" [Ship, Privet]
+      matchesOn (day 2026 8 3) "planned:*today*..*today*" [Privet]
+      -- The agenda case: everything planned up to and including today.
+      matchesOn (day 2026 8 5) "-planned:*empty* planned:<=*today*" [Ship, Privet]
+
+  , testCase "with no clock behind it the word names no day" $ do
+      matches "scheduled:*today*" []
+      matches "scheduled:>=*today*" []
+      matches "planned:*today*..2026-12-31" []
+      -- It is an ATOM all the same, so its sign inverts into every row.
+      every <- matching ""
+      matches "-scheduled:*today*" every
+      assertEqual "the word the family spells" "*today*" todayMeta
+  ]
+  where day = fromGregorian
 
 -- | FREE TEXT UNDER A KEY: @substring:V@ is what @V@ alone means, one matcher for both.
 substringSpec :: TestTree
@@ -627,7 +892,7 @@ metaSpec = testGroup "Starred metas"
   -- THE ROSTER IS THE FAMILY: the type and the constants have to name one set.
   [ testCase "the roster is every starred word the code spells" $ do
       assertEqual "the family, in the order the type declares it"
-        [activeMeta, inactiveMeta, emptyMeta, archiveMeta, noOrder]
+        [activeMeta, inactiveMeta, emptyMeta, archiveMeta, noOrder, todayMeta]
         (map metaWord metas)
       mapM_ (\m -> assertBool (show m <> " is not a starred word")
                               (maybe False (not . T.null) (metaOf (metaWord m))))

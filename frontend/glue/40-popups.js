@@ -154,8 +154,10 @@ const Popups = ((deps) => {
       apply(landedIds(results));
       repaintTags(at);
     };
+    // OPEN: a tag the tree has never held is a tag, so the typed line stands as
+    // its own leading offer and RET takes it — AGENTS.hs.
     const addFlow = () => askFrom(`add a tag · ${rowsWord(ttargets.length)}`,
-      addable(), "RET adds it · C-n/C-p walks · ESC leaves", addTag);
+      addable(), "RET adds it · C-n/C-p walks · ESC leaves", addTag, "open");
     function addTag(c) {
       const tag = tagFrom(c);
       if (!managing() || !tag) return;

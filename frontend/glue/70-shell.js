@@ -264,7 +264,7 @@
       }
       const step = walkStep(k);
       if (step) walkChoices(step);
-      else if (k === "RET") takeChoice(promptNow().shown[promptNow().at] || freely());
+      else if (k === "RET") { const now = promptNow(); takeChoice(now.shown[now.at]); }
       else return;
       e.preventDefault();
     });

@@ -143,9 +143,9 @@ deadline is".
    granularity (`isoStamp`, `Query.hs`:1101-1105), so `c < c'` iff `c` is the
    earlier stamp; and an untimed stamp sorts before the same day's timed ones,
    which is that day's first instant. The sort chain already reads these cells
-   this way — `by CSched = ByFolded` (`AGENTS.hs`:2485).
+   this way — `by CSched = ByFolded` (`AGENTS.hs`:2583).
 5. **The empty cell is outside every comparison.** `*empty*` stays the only name
-   for it (`docs/query.md`:151), and `-k:<D` therefore serves the undated rows
+   for it (`docs/query.md`:226), and `-k:<D` therefore serves the undated rows
    too. The precedent is pinned: `-planned:2026-08` serves the undated rows
    today (`test/TestFilter.hs`:305).
 6. **Negation is no mirror.** `-k:<D ≢ k:>=D`. The first serves the undated rows
@@ -157,7 +157,7 @@ deadline is".
    `⟦A⟧(r) = (P ∪ N ≠ ∅ ∧ base(r)) ∨ wide(r)` (:106-113) is quoted, not amended.
    Only `⟦t⟧`, the atomic predicate that formula is parametric in, gains cases.
 8. **The range is the axis conjunction.** `k:>=A k:<B` on a single-cell key is
-   `A ≤ c < B`, because two plain tokens on one axis AND (`docs/query.md`:235-237).
+   `A ≤ c < B`, because two plain tokens on one axis AND (`docs/query.md`:314-316).
    No new form is owed. The exception is law 9.
 9. **`planned:` cannot say a range.** `planned:>=A planned:<B` is
    `(s ≥ A ∨ d ≥ A) ∧ (s < B ∨ d < B)`, which is NOT
@@ -220,7 +220,7 @@ reserved rather than spent.**
 Three grounds, in order of weight:
 
 1. **The axis law already ANDs.** `k:>=A k:<B` is the conjunction by
-   `docs/query.md`:235-237, spelled with grammar that exists. A sugar whose
+   `docs/query.md`:314-316, spelled with grammar that exists. A sugar whose
    desugaring is "write the two tokens you already can" earns nothing.
 2. **The prefix form already gives every calendar-aligned range** — a year, a
    month, a day, an hour — and those are the ranges a reader asks for. What is
@@ -250,10 +250,10 @@ planning line's `CLOSED:` stamp as ISO, and `planned:` is untouched.**
   excluded` (`src/Data/Org/Types.hs`:225), filled at `src/Data/Org/Parser.hs`:126.
 - `customCell` serves it as a COLUMN — `wanted == "closed" = sliceSpan (hrDoc r)
   <$> hsClosed (headlineSpans r)` (`Query.hs`:1924-1930), which
-  `docs/query.md`:194-197 documents as the one custom column that is not a
+  `docs/query.md`:270-273 documents as the one custom column that is not a
   drawer key.
 - The model names it as a closed sum: `data CustomSrc = PlanClosed | FromDrawer`
-  (`AGENTS.hs`:2591-2595).
+  (`AGENTS.hs`:2689-2693).
 
 So nothing has to be parsed that is not parsed. What is missing is a KEY.
 
@@ -320,13 +320,13 @@ pinned on purpose, by a test that spells the roster rather than deriving it:
 > a closed list"*, asserting the ten keys literally and asserting that no tag the
 > fixture carries resolves as one.
 
-`columns:owner` reaches a drawer key (`docs/query.md`:194-197, `customCell`
+`columns:owner` reaches a drawer key (`docs/query.md`:270-273, `customCell`
 `Query.hs`:1924-1930) — but that is the COLUMN set, which is open by design, and
 it narrows nothing. **There is no flat filter key today that names a property.**
 
 The renderer is the exception and it is a standing divergence: its key set is
 the VIEW's columns — `columnKeys = () => columns().map(c => c.key)`
-(`assets/table-view.js`:2062, :2070-2076) — so under `columns:closed` a
+(`assets/table-view.js`:2135, :2143-2149) — so under `columns:closed` a
 `closed:` token is a live predicate on the page and free text on the server. The
 proposal's phase 2 closes exactly that gap for `closed`; phase 3 closes it for
 the rest.
@@ -364,9 +364,9 @@ the brackets DERIVED from that sum rather than spelled twice — `activeBrackets
   `closed` COLUMN alike, and the kind — active or inactive — does not change what
   a date compares as.
 - **Is a kind meta owed?** **No, and the model says why.** `metaHome :: Meta ->
-  MetaHome` is a FUNCTION, one home per meta (`AGENTS.hs`:2429-2436), and
+  MetaHome` is a FUNCTION, one home per meta (`AGENTS.hs`:2523-2534), and
   `*active*` / `*inactive*` are already `state:`'s with a wholly different
-  meaning (`docs/query.md`:152-153). Reusing the two words on a property key
+  meaning (`docs/query.md`:227-228). Reusing the two words on a property key
   would make `metaHome` a relation and make one word mean two things — the
   failure the DSL's roster law is built to prevent
   ([§0](2026-08-21-the-typed-dsl-behind-the-dot-door.md#0--the-roster-law-which-decides-every-spelling)).
@@ -377,8 +377,8 @@ the brackets DERIVED from that sum rather than spelled twice — `activeBrackets
 - **Dateness is decided by the CELL, never by the key.** `prop.due:` cannot know
   its cell is a timestamp, so a comparison reads the cell as one and fails where
   it is not. That is the per-cell twin of the renderer's sampled `dateColumn`
-  (`assets/table-view.js`:2109-2124), and it widens the `DateNess` gap
-  (`AGENTS.hs`:2609) rather than inventing a new mechanism.
+  (`assets/table-view.js`:2182-2197), and it widens the `DateNess` gap
+  (`AGENTS.hs`:2707) rather than inventing a new mechanism.
 
 ## The renderer, term for term
 
@@ -392,7 +392,7 @@ story; completion and the strip are the part it missed, where the sign is
 rewritten into text the reader never typed"* (:49-54). The AddKey history closed
 the other way: the sign landed in all four surfaces, and the model now records
 that *"THE RENDERER CARRIES THE ADDED SIGN TERM FOR TERM, so the divergence
-table names no added key"* (`AGENTS.hs`:2713-2722).
+table names no added key"* (`AGENTS.hs`:2818-2827).
 
 **A comparison lands in all four surfaces or it is a bug with a proposal in
 front of it.** Enumerated:
@@ -407,11 +407,11 @@ front of it.** Enumerated:
 **And one gap widens, so it is named rather than left silent.** The renderer
 decides dateness by SAMPLING — `DATEISH` and `COULD_BE_DATE` weighed by
 `sampledShape` over at most 40 cells needing 2 in shape and 0 contrary
-(`assets/table-view.js`:2108-2124, `AGENTS.hs`:2615-2616) — where the producer
+(`assets/table-view.js`:2181-2197, `AGENTS.hs`:2713-2714) — where the producer
 names two keys outright. That is the standing `DateNess` gap, `Neither`
-(`AGENTS.hs`:2609), and it is already noted as *"under two dated rows the
+(`AGENTS.hs`:2707), and it is already noted as *"under two dated rows the
 renderer finds no date column, so `scheduled:` substring-matches there"*
-(:2660-2662). Under a comparison the same page turns a live predicate into a
+(:2765-2767). Under a comparison the same page turns a live predicate into a
 substring search for `>=2026-09`, which matches nothing: the renderer goes
 strictly NARROWER, which flips `DateNess` from `Neither` to a stated direction
 for comparison values. Phase 1 updates that row's comment; it does not add a
@@ -419,7 +419,7 @@ constructor.
 
 `closed:` DOES add one. A page carrying no `closed` column cannot decide the
 key at all — the same shape as `RefKey`, *"undecidable off a page, so it reads
-as free text"* (`AGENTS.hs`:2610) — so `gaps` gains `(ClosedKey, Renderer)` in
+as free text"* (`AGENTS.hs`:2708) — so `gaps` gains `(ClosedKey, Renderer)` in
 phase 2, and where `columns:closed` IS shown, the renderer's arm reads a
 BRACKETED cell and must fold it.
 
@@ -474,7 +474,7 @@ shippable alone.
 - **`AGENTS.hs`.** A closed sum `data Cmp = CLt | CLe | CGe | CGt` with one
   equation per constructor and no wildcard (`docs/invariants.md`:155-159); a
   reader `cmpOf :: String -> Maybe (Cmp, String)` splitting the operator off the
-  value longest-first; the `MPrefix` arm of `matchOf` (`AGENTS.hs`:2360-2369)
+  value longest-first; the `MPrefix` arm of `matchOf` (`AGENTS.hs`:2365-2374)
   reads through it. `Match` gains no constructor — the comparison is read off the
   VALUE, and matching stays *"by KEY NAME and never by the declared kind"*
   (:2358). `queryNotes` gains the granularity law, the empty-cell law and law 6.
@@ -494,7 +494,7 @@ shippable alone.
   literal, the two-token range, and law 9's counterexample on `planned:` — which
   must go RED if the range is ever desugared into two tokens. One browser case
   beside them; `make interop` unchanged.
-- **Parity.** `fixtures/parity/filter-query.json` is named by `AGENTS.hs`:2739
+- **Parity.** `fixtures/parity/filter-query.json` is named by `AGENTS.hs`:2878
   and DOES NOT EXIST — additive-filters found it *"neither in this repo nor in
   `../table-view` nor anywhere in git history"* (:254-256). So there is nothing
   to add there, and the shared-half story is
@@ -533,7 +533,7 @@ shippable alone.
   tree defining a property called `state` is reachable as `prop.state:` and
   still does not take `state:` away.
 - The renderer's own key set already admits a shown custom column
-  (`assets/table-view.js`:2062, :2070-2076); phase 3 is where that stops being a
+  (`assets/table-view.js`:2135, :2143-2149); phase 3 is where that stops being a
   silent divergence and becomes the same key on both sides.
 - **Risk: medium**, and it is the phase this proposal recommends reviewing on
   its own evidence rather than on this sketch.
@@ -549,7 +549,7 @@ shippable alone.
   search.
 - **Refusing a malformed literal with a 400.** Rejected: only the shaping keys
   refuse, and *"everything else that fails to parse is free text; everything
-  half-typed narrows nothing"* (`docs/query.md`:241-247). A narrowing token has
+  half-typed narrows nothing"* (`docs/query.md`:320-326). A narrowing token has
   never refused and this one does not start.
 - **Relative literals — `today`, `+1w`.** The vocabulary exists:
   `planningTimestamp` already reads `today`, `tomorrow` and org's whole offset
@@ -560,7 +560,7 @@ shippable alone.
   resolved literal.
 - **Driving the comparison off the column's declared `type`.** Rejected against
   the model's own heading, *"Matching, by KEY NAME and never by the declared
-  kind"* (`AGENTS.hs`:2358). A wire field would also have to declare a kind per
+  kind"* (`AGENTS.hs`:2363). A wire field would also have to declare a kind per
   custom column, which is the same growth
   [§8 of the DSL proposal](2026-08-21-the-typed-dsl-behind-the-dot-door.md#8-the-roster-on-the-wire)
   rejects, against the descriptor pin at `test/TestSpec.hs`:984.
@@ -568,8 +568,70 @@ shippable alone.
   existing `planned:` query serves, against `docs/query.md`:65-67 and the
   fixture pinned at `TestFilter.hs`:280-281.
 - **Reusing `*active*` / `*inactive*` for the timestamp kind.** Rejected:
-  `metaHome` is a function from a meta to ONE home (`AGENTS.hs`:2429-2436), and
+  `metaHome` is a function from a meta to ONE home (`AGENTS.hs`:2523-2534), and
   the two words are `state:`'s.
+
+## As delivered (phase 1)
+
+Phase 1 shipped on `scheduled:`, `deadline:` and `planned:`. Two readings go
+past the sketch above — the range and `*today*`; the rest landed as written.
+
+- **The four operators, as the formal semantics spell them.** `>=`, `<=`, `>`,
+  `<` at the head of the value, read longest first, on the three timestamp keys
+  and nowhere else. The granularity law, the empty-cell guard (law 5) and
+  "negation is no mirror" (law 6) are the three the tests pin, and the
+  conservativity table held: every query whose meaning moved is one that served
+  nothing, or — under `-` — everything.
+
+- **`A..B` LANDED, against the recommendation above.** The range section
+  recommends "no range atom … `A..B` is reserved rather than spent", and law 9
+  is why it was spent instead: on `planned:` a range says ONE DATE CELL INSIDE
+  THE INTERVAL, which no pair of tokens says, and `planned:` is the key an
+  agenda is written on. On a single-cell key `A..B` ≡ `>=A` and `<=B` on the
+  axis, so the two spellings agree wherever two tokens can speak at all, and
+  law 9's counterexample is where they part. The three grounds the section
+  gives against the form are costs paid rather than arguments withdrawn.
+
+- **`*today*` is new, and the user asked for it.** Alternatives rejects
+  relative literals — *"a query's meaning would then depend on the clock, and a
+  `?q=` string is meant to be shareable, pinnable into a saved view and
+  reproducible in a test"* — and names the composition it would take: *"the
+  operator would take a resolved literal"*. That is what shipped. `*today*` is
+  a DATE VALUE wearing the starred family's shape, legal wherever a date
+  literal stands: bare (`scheduled:*today*` is the exact day, by the prefix
+  reading), behind any operator, at either end of a range. It resolves ONCE per
+  request at filter compile — the one-clock-read invariant
+  (`docs/invariants.md`:118-120) — against the server's local day, as
+  `YYYY-MM-DD`. The clock is read once and written down before any row is
+  asked; what a saved view pins is the WORD, so `view:agenda` means the day it
+  is applied on. The renderer answers the same word against the BROWSER's local
+  day: one machine over loopback, so the skew is a midnight the request
+  straddles, and it is noted rather than closed.
+
+- **The renderer is term for term**, the AddKey lesson taken: the matcher's
+  four operators, the range and `*today*` behind the same `dateColumn` verdict;
+  completion opening the value stage BEHIND the operator; the chip strip
+  printing the token as written, which is a case to pin rather than a change to
+  write.
+
+- **`closed:` and `prop.NAME:` stay phased.** Phase 2 and phase 3 are unbuilt:
+  `closed` is free text on the flat side, a property is reachable only as a
+  COLUMN, and the key roster pinned at `test/TestFilter.hs`:307-329 is the ten
+  it was. The status line above stays **proposed** until they close.
+
+- **`*today*` costs the typed DSL a decision it has not made.**
+  [L8](2026-08-21-the-typed-dsl-behind-the-dot-door.md#l8--datetime-comparisons)
+  rule 2 reads *"The right side is one `Date`. No list, no `Any`, no `All`, no
+  `Meta`"* — and `*today*` is a `Meta` standing in exactly that position on the
+  flat side. So either `Today` joins the prelude as the one constructor legal
+  where rule 2 admits none, or the typed surface reaches the day some other
+  way, or it cannot spell a query the flat string can. The roster law
+  ([§0](2026-08-21-the-typed-dsl-behind-the-dot-door.md#0--the-roster-law-which-decides-every-spelling))
+  makes the word the LANGUAGE's, so the question is which shape it wears rather
+  than whether it exists. **Flagged, not decided**, and noted at L8 rule 2.
+
+The user docs are
+[`docs/query.md`'s "Comparisons on the date keys"](../../query.md#comparisons-on-the-date-keys).
 
 ## See also
 
@@ -588,4 +650,4 @@ shippable alone.
 - [`docs/invariants.md`](../../invariants.md) — the closed-sum and one-list rules
   every phase above is spelled under.
 
-Inert until reviewed.
+Phases 2 and 3 are inert until reviewed.

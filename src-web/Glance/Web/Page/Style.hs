@@ -341,8 +341,12 @@ page head' colours title body = T.unlines
   , "    background:var(--g-surface);border:1px solid var(--g-border);"
   , "    border-radius:4px;font-size:11px}"
   , "  #doffer.on{display:block}"
-  , "  .dof{padding:1px var(--g-doc-pad);color:var(--g-mute);white-space:pre}"
+  , "  .dof{display:flex;align-items:baseline;gap:8px;"
+  , "    padding:1px var(--g-doc-pad);color:var(--g-mute);white-space:pre}"
   , "  .dof.dat{background:var(--g-sel);color:var(--g-fg)}"
+  -- THE HINT NAMES WHERE THE OFFER LANDS, off to the right and mute under the
+  -- selection too: what is being read is the word.
+  , "  .dot{flex:1 1 0;text-align:right;font-size:10px;color:var(--g-mute)}"
   , "  #sedit input,#tedit input,#ledit input{"
   , "    font:var(--g-edit-fs)/var(--g-edit-lh) var(--dk-mono);"
   , "    padding:5px 12px;border:none;border-bottom:1px solid transparent;"

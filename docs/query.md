@@ -53,8 +53,8 @@ does not.
 | `state:` | the whole keyword | reads through org's brackets: `state:[#TODO]` ≡ `state:TODO`; `state:TOD` matches nothing |
 | `priority:` | the letter | `priority:A` ≡ `priority:[#a]` |
 | `title:` | substring of the title | |
-| `scheduled:` | **prefix** of the date | `scheduled:2026-08` is a month |
-| `deadline:` | **prefix** of the date | |
+| `scheduled:` | **prefix** of the date, or a comparison | `scheduled:2026-08` is a month; `scheduled:<2026-09` is before September |
+| `deadline:` | **prefix** of the date, or a comparison | `deadline:2026-09-15..2026-10-07` is a range — see Comparisons |
 | `tag:` | substring of the `:a:b:` cell | `tag:glan` matches `glance`; two `tag:` tokens intersect |
 
 Values are case-folded. An empty value (`state:`) narrows nothing — a
@@ -65,7 +65,9 @@ half-typed token never empties the table.
 - **`planned:`** — both date cells at once: a row is planned when either
   SCHEDULED or DEADLINE holds anything (`CLOSED:` does not count). Prefix
   dates like the date keys; `planned:*empty*` is the undated rows;
-  `-planned:*empty*` the dated ones.
+  `-planned:*empty*` the dated ones. Comparisons and ranges read here too,
+  each date cell answering in turn — and the range says on this key what two
+  tokens cannot (below).
 - **`ref:ID`** — rows whose subtree links to the row with that
   `ORG_GLANCE_ID` (a row never references itself, and links resolve against
   the target's id and title, so `[[Title]]` counts). An `[[id:…]]` link is
@@ -141,9 +143,82 @@ shaping keys refuse the sign with HTTP 400, naming the offending token in its
 | `+columns:…` | `a columns key cannot be added` |
 | `+view:…` | `a view key cannot be added` |
 
+## Comparisons on the date keys
+
+`scheduled:`, `deadline:` and `planned:` take a COMPARISON in the value
+position. The operator sits at the head of the value with no space, and the
+longer spelling is read first, so `>=` is never `>` followed by an `=`.
+
+| value | serves |
+| --- | --- |
+| `deadline:2026-09` | due in September — the prefix reading, unchanged |
+| `deadline:<2026-09` | due before September |
+| `deadline:<=2026-09` | due in September or earlier |
+| `deadline:>2026-09` | due after September |
+| `deadline:>=2026-09` | due in September or later |
+| `deadline:2026-09-15..2026-10-07` | due between those two days, both ends included |
+
+A date is any non-empty prefix of an ISO stamp, the same literal the bare form
+takes: `2026`, `2026-08`, `2026-08-0` (a month's first nine days),
+`2026-08-03 09`. Each names an INTERVAL, and the operator says which end it
+cuts at — **`<` and `>=` cut at the interval's first instant, `<=` and `>` at
+its last.** The bare form is the two inclusives at once:
+`deadline:2026-09` ≡ `deadline:>=2026-09 deadline:<=2026-09`. No date
+arithmetic happens anywhere — an interval's last instant is spelled as
+everything its prefix reaches.
+
+The operator is read on these three keys and nowhere else: `title:>x` is the
+substring it always was, `tag:<a>` the tag search it always was. A value
+carrying neither an operator nor `..` reads exactly as it read before. A
+literal that does not open with a digit matches nothing, the way `state:TOD`
+does, and an operator with no literal (`scheduled:>=`) narrows nothing, as any
+half-typed token.
+
+### `A..B`, the range
+
+On a single-cell key the range is the two inclusives: `scheduled:A..B` ≡
+`scheduled:>=A scheduled:<=B`, which two tokens on one axis already say (they
+AND). **On `planned:` the range says what no pair of tokens can: ONE date cell
+inside the interval.** `planned:2026-08-01..2026-08-31` serves the rows whose
+SCHEDULED falls in August or whose DEADLINE does. `planned:>=2026-08-01
+planned:<=2026-08-31` serves those and more — a row scheduled next year with a
+deadline of last year passes both tokens, one cell answering each, and lies in
+no August.
+
+### `*today*` is a date
+
+`*today*` stands wherever a date literal stands: bare, behind any operator, at
+either end of a range. It is read ONCE per request, against the server's local
+day, as `YYYY-MM-DD`.
+
+| token | serves |
+| --- | --- |
+| `scheduled:*today*` | scheduled today — the prefix reading of today's date |
+| `deadline:<*today*` | overdue |
+| `planned:<=*today*` | planned by today, the overdue among them |
+| `scheduled:*today*..*today*` | strictly today, said as a range |
+
+The table in the browser answers the same words against the BROWSER's local
+day. Server and page are one machine over loopback, so the two agree except
+across a midnight the request itself straddles.
+
+### Two guards
+
+- **The empty cell sits outside every comparison.** An undated row passes no
+  `<`, `<=`, `>` or `>=`: byte order would sort an empty cell before every
+  date, which says nothing true about the row. `*empty*` stays the only name
+  for those rows, and `+` puts them back:
+  `deadline:<2026-09 +deadline:*empty*`.
+- **Negation is no mirror.** `-scheduled:<*today*` and `scheduled:>=*today*`
+  differ on exactly the undated rows: the negation carries them, the comparison
+  leaves them out. The four operators do not pair off under the sign.
+
+`|` splits before the operator is read, so `scheduled:<2026-08|>2026-09` is two
+comparisons ORed and never a range; `-` inverts the whole token, as everywhere.
+
 ## The `*word*` metas
 
-Five, spelled with matched stars; a star anywhere else is literal text and
+Six, spelled with matched stars; a star anywhere else is literal text and
 never a glob.
 
 | meta | where | means |
@@ -152,6 +227,7 @@ never a glob.
 | `*active*` | `state:` | an active keyword **or no keyword** — stateless rows are live work |
 | `*inactive*` | `state:` | a done-like keyword (the empty cell is not included) |
 | `*archive*` | `tag:` | the whole tag `archive` — see below |
+| `*today*` | the date keys' values | the server's local day, `YYYY-MM-DD` |
 | `*none*` | `sort:` | no order at all: document order |
 
 The bare words stay ordinary values: `state:none` looks for a keyword
@@ -215,6 +291,9 @@ Three names exist, each a pragma in the tree's config layer
 | `default` | `#+GLANCE_DEFAULT_FILTER` | `state:*active*` |
 | `agenda` | `#+GLANCE_AGENDA_FILTER` | `state:*active* -planned:*empty* sort:scheduled` |
 | `archive` | `#+GLANCE_ARCHIVE_FILTER` | `tag:*archive*` |
+
+The agenda's built-in serves every dated row; rewriting it for the day's work
+is [config.md](config.md#saved-views).
 
 `g` applies the default (the view the tree opens on — also applied at boot
 when the address bar carries no query), `A` the agenda, `P` pins the current

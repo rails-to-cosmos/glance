@@ -1,6 +1,9 @@
 -- | The floor the web layer stands on: what more than one module above needs.
 module Glance.Web.Base ( ServeOptions (..)
                        , walkFor
+                         -- * The one clock read
+                       , Day
+                       , today
                        , defaultPort
                        , logLinesDefault
                        , logLinesMin
@@ -40,6 +43,7 @@ import Data.Aeson (Object, ToJSON, Value, eitherDecode', encode, object, toJSON,
 import Data.Aeson.Types (Pair, Parser, parseEither)
 import Data.Bifunctor (first)
 import Data.Text (Text)
+import Data.Time (Day, getZonedTime, localDay, zonedTimeToLocalTime)
 import Network.HTTP.Types ( Header, Status, hContentType, status200, status409
                           , status413, status500 )
 import Network.HTTP.Types.Header (hContentLength)
@@ -66,6 +70,12 @@ data ServeOptions = ServeOptions
 -- | A file the walk passed over must not come back through an inotify event.
 walkFor :: ServeOptions -> WalkOptions
 walkFor opts = WalkOptions { woIncludeDerived = soDerived opts }
+
+-- | The server's own day, off the local clock.  ONE CLOCK READ PER REQUEST,
+-- taken before any row: a request that spans midnight must mean ONE day, so
+-- every reader takes the day from here and none reads the clock a second time.
+today :: IO Day
+today = localDay . zonedTimeToLocalTime <$> getZonedTime
 
 defaultPort :: Int
 defaultPort = 7777

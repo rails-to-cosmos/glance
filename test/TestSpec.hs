@@ -22,7 +22,7 @@ import Control.Concurrent (ThreadId, myThreadId)
 import Control.Monad (forM, forM_)
 import Data.Aeson (object, (.=))
 import Data.List (nub, sortOn)
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import System.Directory (copyFile, createDirectoryIfMissing)
 import System.Exit (ExitCode (ExitSuccess))
 import System.Process (CreateProcess (cwd), proc, readCreateProcessWithExitCode)
@@ -69,7 +69,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text.Lazy.Encoding as TLE
 import AGENTS (ColKind (KBadge), Column (cCellKind, cHead, cKey), SortDir (Asc), defaultSortChain, keyOf, viewColumns, viewKeys)
 import Glance.Web.Columns (columnNamesIn)
-import Glance.Web.Filter (Sign (Unsigned), Term (tmKey), Token (..), columnsKey, emptyEnv, filterKeys, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, sortKey, substringKey)
+import Glance.Web.Filter (Sign (Unsigned), Term (tmKey), Token (..), cmpMark, cmpTest, columnsKey, emptyEnv, filterKeys, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, sortKey, substringKey)
 import Glance.Web.Sort (sortChainIn)
 import TestDefaults (listAt, withDocDir)
 import qualified Glance.Query as Q
@@ -86,10 +86,10 @@ import Glance.Web.Page.Glue (glueConfig)
 import Glance.Web.Page.Style (page)
 import qualified Data.Text.Read as T.Read
 import Glance.Desktop (browserCandidates)
-import Glance.Query (OrgLink (olSpan), cellSep, orgLinks, planningKeywords, subtreeLinks)
+import Glance.Query (OrgLink (olSpan), cellSep, orgLinks, planningKeywords,
+                     readsAsTimestamp, subtreeLinks)
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower)
 import Data.List (isPrefixOf, (\\))
-import Data.Maybe (fromMaybe)
 import qualified Glance.Web.Base as WB (gluePartFiles)
 import AGENTS (BuildAsset (baPath, baSplice), CabalFlag (flCpp, flManual, flName, flOn, flStanza), Component (coName, coVis), Proj (DefaultProj, NativeProj), Status, Vis (Public), WMod (WBase, WDesktop, WNative, WRoutes, WWeb), authorEmail, buildAssets, compDeps, components, flags, giSpellings, gluePartFiles, negationReveal, projBuildDir, projFlags, projGir, projPackages, sdistExtras, statusWord, vendoredGirs, versionSites, webExposed, webTargets, wimports, wmods, wname)
 
@@ -648,14 +648,20 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
       after <- stPrint <$> loadStore dir
       assertEqual "a file contributing no rows is its path alone" before after
 
-  , testCase "the ETag is the fingerprint's first sixteen and the generation" $ do
+    -- THE DAY the request was answered on closes the tag (`Routes.etagOf').  It
+    -- is the SERVER's own clock read, so its SHAPE is asserted here and the law
+    -- -- one store, two days, two tags -- is TestServe's unit.
+  , testCase "the ETag is the fingerprint's first sixteen, the generation and the day" $ do
       st <- loadStore viewDir
       a <- app assetsDir
       r <- getFrom a "/headlines"
-      assertEqual "the tag is stPrint's first sixteen and stGen"
-                  (Just ("\"" <> TE.encodeUtf8 (T.take 16 (stPrint st))
-                           <> "-g" <> BSC.pack (show (stGen st)) <> "\""))
-                  (header "ETag" r)
+      let opening = "\"" <> TE.encodeUtf8 (T.take 16 (stPrint st))
+                      <> "-g" <> BSC.pack (show (stGen st)) <> "-d"
+          tag     = fromMaybe "" (header "ETag" r)
+      assertBool ("the tag opens with stPrint's first sixteen and stGen: " <> show tag)
+                 (opening `BS.isPrefixOf` tag)
+      assertEqual "and closes with a day and nothing else"
+                  10 (BS.length (BSC.takeWhile (/= '"') (BS.drop (BS.length opening) tag)))
 
     -- b.org keeps the palette standing, so the step produces rows: one upsert, one delete, and the upsert goes first.
   , testCase "upserts lead deletes in a step" $
@@ -1285,6 +1291,54 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
       assertEqual "the panel's fixed rows and Glance.Query.planningKeywords have drifted"
                   (map T.unpack planningKeywords) Spec.planningRows
 
+    -- THE PAIR BOX ROUTES BY THE SAME THREE WORDS the server composes the line
+    -- from, and it case-folds to them: a key spelled either way is one entry.
+  , testCase "a pair keyed for planning routes, whatever case it was typed in" $ do
+      assertEqual "every planning word routes, upcased"
+                  [ Spec.ToPlanning (T.unpack k) | k <- planningKeywords ]
+                  [ Spec.pairGoes (T.unpack (T.toLower k)) | k <- planningKeywords ]
+      assertEqual "and a drawer key is left alone"
+                  [Spec.ToDrawer, Spec.ToDrawer] (map Spec.pairGoes ["EFFORT", "OWNER"])
+
+    -- THE BOX'S WALL IS THE SERVER'S, spelled where the box can ask it: a value
+    -- the box let through would meet the write's 409 with the box already shut,
+    -- so the two readings are asserted against ONE corpus.
+  , testCase "the box's planning wall and the server's reparse agree" $
+      mapM_ (\v -> assertEqual ("the two walls have drifted over " <> show v)
+                               (readsAsTimestamp (T.pack v)) (Spec.stampShaped v))
+            [ "<2026-08-01 Sat>", "[2026-08-01 Sat 09:00]"
+            , "<2026-08-01 Sat>--<2026-08-05 Wed>"
+            , "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]"
+            , "<2024-01-15 Mon 10:30-11:30 +1w>", "[2024-01-15 Mon .+2d --7d]"
+            , "<2024-01-15 Mon +1m -3d>", "<2026-09-01>", "  <2026-09-01 Tue>  "
+            , "", "tomorrow", "2026-08-01", "<2026-08-01 Sat", "2026-08-01 Sat>"
+            , "18 Aug", "<not a date>", "* Due <2026-07-08 Wed>"
+            -- THE FOUR THE TWO READINGS DRIFTED OVER, each way.  The month and
+            -- the day are RANGE-CHECKED; a range wears ONE bracket kind, the
+            -- parser taking the pair's opening one again after the `--'; and
+            -- each field is a DECIMAL RUN, so a single digit opens a date and
+            -- the weekday needs no space in front of it.
+            , "<2026-13-45 Foo>"
+            , "<2026-08-01 Sat>--[2026-08-02 Sun]"
+            , "[2026-08-01 Sat]--<2026-08-02 Sun>"
+            , "<2026-8-1 Sat>", "<2026-08-01Sat>"
+            , "<2026-08-32 Sat>", "<2026-00-01 Sat>", "<2026-8-1>" ]
+
+    -- THE COMPARISON TABLE IS SPELLED TWICE, in the model and in the server, and
+    -- the granularity law lives in both: `<' and `>=' cut at the literal's FIRST
+    -- instant, `<=' and `>' at its LAST.  Asserted over the whole matrix, since
+    -- a drift in one equation shows on one operator and one pair alone.
+  , testCase "the model's comparison table and Filter's own agree" $ do
+      assertEqual "the operators, or the order they are declared in, have drifted"
+                  (map Spec.cmpMark [minBound .. maxBound])
+                  (map (T.unpack . cmpMark) [minBound .. maxBound])
+      sequence_
+        [ assertEqual ("the two readings of " <> Spec.cmpMark o <> " have drifted over "
+                         <> show (d, c))
+                      (Spec.cmpTest o d c) (cmpTest o' (T.pack d) (T.pack c))
+        | (o, o') <- zip [minBound .. maxBound] [minBound .. maxBound]
+        , d <- stampLits, c <- stampLits ++ [""] ]
+
   , testCase "environment leads the flag, and the PATH ladder is chromium-family" $ do
       assertEqual "the spec's browser candidates and Glance.Desktop's own have drifted"
                   browserCandidates Spec.chromiumFamily
@@ -1313,6 +1367,12 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
     onPath :: Spec.Launch -> Bool
     onPath (Spec.OnPath _) = True
     onPath _other          = False
+
+    -- EVERY GRANULARITY A DATE CELL AND A TYPED LITERAL COME IN, so a literal
+    -- meets cells it prefixes, cells that prefix it, and cells either side of it.
+    stampLits :: [String]
+    stampLits = [ "2026", "2026-08", "2026-08-05", "2026-08-05 09:00"
+                , "2026-08-05 09:30", "2026-08-06", "2026-09", "2027" ]
 
 -- Build and discipline: the registries the build is described by, bound to the files that carry it.
 

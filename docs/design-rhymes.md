@@ -75,10 +75,22 @@ palette is the family's sole member: a letter both chooses and commits, so
 the palette is the confirmation.  Anything browse-and-act is a mount
 (links, tags); anything type-and-commit is a text field.  `/` always narrows.
 
+**The typed value is always an offer.**  Where a field's vocabulary is OPEN —
+the add-a-tag palette, the kind picker, both halves of the sheet's pair box —
+the line the reader typed is drawn as its own leading entry, hinted `new`, so
+`RET` commits the word they spelled and a match is one `C-n` away.  Three
+widgets, one rule: the hint word is `NEW_HINT` and the fold-equality test is
+`leadTyped`, both spelled once in `frontend/glue/00-core.js`.  A typed value
+that case-folds to an entry coincides with it — one entry drawn, never two,
+and that entry leads, since the coincidence is asked of the whole vocabulary
+rather than of what a cap left standing.  An empty field offers no literal.
+AGENTS.hs carries the law; `docs/bugs/fixed/2026-08-22-an-open-completion-swallows-the-typed-value.md`
+carries what it cost to learn.
+
 **Stars mean meta.**  `*active*`, `*inactive*`, `*empty*`, `*archive*`,
-`*none*` — a starred word is reserved semantics in every context, never a
-literal; matching reads through the stars (completion is star-blind), the
-walls (`keywordTextP`, `isTagChar`) make a starred literal undeclarable.
+`*none*`, `*today*` — a starred word is reserved semantics in every context,
+never a literal; matching reads through the stars (completion is star-blind),
+the walls (`keywordTextP`, `isTagChar`) make a starred literal undeclarable.
 
 **Decoration for eyes, substance for predicates.**  `[#A]` displays; the
 predicate folds the brackets.  Links underline in `--tv-link` — in the table's

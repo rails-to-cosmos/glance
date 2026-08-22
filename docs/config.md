@@ -55,6 +55,20 @@ that names a view wins. The default view is also applied at boot when the
 address bar carries no query, and its config values are spoken into the log
 panel as the walk lands.
 
+### A today agenda
+
+The agenda's built-in serves every dated row. A tree that wants the day's work
+writes the comparison into its own pragma:
+
+```
+#+GLANCE_AGENDA_FILTER: state:*active* planned:<=*today* sort:scheduled
+```
+
+`<=*today*` carries the overdue along with today's rows, which is what an
+agenda is usually asked for; `planned:*today*..*today*` is the strict reading,
+today's rows alone. Both forms are
+[query.md](query.md#comparisons-on-the-date-keys)'s.
+
 ## State hues
 
 ```

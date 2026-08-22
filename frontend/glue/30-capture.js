@@ -1,8 +1,8 @@
 // THE CAPTURE FORM AND THE VALUE PALETTE, behind an argument list (AGENTS.hs).
 // What it takes from the shell arrives as accessors: a handle cannot carry a `let'.
 const Capture = ((deps) => {
-    const { CFG, EMPTY, active, append, askFailed, badgeColor, docTitle, el,
-            failed, fire, getJSON, keyName, materialize, part, postCommand,
+    const { CFG, EMPTY, NEW_HINT, active, append, askFailed, badgeColor, docTitle, el,
+            failed, fire, getJSON, keyName, leadTyped, materialize, part, postCommand,
             said, targetOf, targets, walkStep } = deps;
     const { queryNow, colsNow, entryNow, setArriving } = deps;
     let capping = null;   // the capture form's state while it is up
@@ -249,11 +249,18 @@ const Capture = ((deps) => {
     }
     // `raising' is cleared here: the press that reached this door came through
     // another surface's listener and has been handled already.
-    function askFrom(title, list, foot, commit) {
+    /** The palette in its typing mode over LIST.  VOCABULARY IS SPELLED AT THE
+     * CALL rather than read off the list: `"open"' where the reader may commit a
+     * word the list has never held -- the typed line then leads the matches as an
+     * offer of its own -- and `"closed"' where the answer must come off the list.
+     * @param {"open" | "closed"} vocabulary
+     */
+    function askFrom(title, list, foot, commit, vocabulary) {
       // Raised OVER the popup that asked for it: this is that popup's own field.
       const mine = ask(title, commit, foot, true);
       mine.raising = false;
       mine.wider = list;
+      mine.open = vocabulary === "open";
       fieldMode();
       return mine;
     }
@@ -322,11 +329,21 @@ const Capture = ((deps) => {
       }
       if (c.hint) part(row, "span", "pt", c.hint);
     }
+    /** The entries TEXT leaves standing, and where point rests among them.  THE
+     * TYPED VALUE IS ALWAYS AN OFFER where the vocabulary is open: it is drawn as
+     * its own LEADING entry, hinted as itself, so `RET' commits what was typed
+     * and a match is one `C-n' away -- AGENTS.hs.  An empty field offers no
+     * literal, and a typed value folding to an entry coincides with it, one entry
+     * drawn rather than two. */
     function narrowTo(text) {
-      const want = text.trim().toLowerCase();
+      const typed = text.trim();
+      const want = typed.toLowerCase();
       // Over the LABEL alone: a digit would otherwise narrow to the `2/3' asides.
-      prompting.shown = prompting.choices.filter((c) =>
+      const shown = prompting.choices.filter((c) =>
         c.label.toLowerCase().includes(want));
+      const literal = prompting.open && leadTyped(typed, shown.map((c) => c.label));
+      prompting.shown = literal
+        ? [{ label: typed, tag: typed, hint: NEW_HINT }].concat(shown) : shown;
       prompting.at = 0;
       drawChoices();
     }
@@ -342,12 +359,6 @@ const Capture = ((deps) => {
       unask();
       act(chosen);
     }
-    // The typed line as an entry: a `wider' field commits past its own list.
-    const freely = () => {
-      if (!prompting.wider) return null;
-      const typed = el("pinput").value.trim();
-      return typed ? { tag: typed } : null;
-    };
     el("pinput").addEventListener("input", (e) =>
       prompting && !prompting.text && narrowTo(targetOf(e).value));
     el("prompt").addEventListener("click", (e) =>
@@ -402,13 +413,13 @@ const Capture = ((deps) => {
     const promptNow = () => prompting;
     return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags, askText,
              capUp, docTargets, entry,
-             fieldMode, filteredTags, foldTag, followLinks, freely, linksOf, offer,
+             fieldMode, filteredTags, foldTag, followLinks, linksOf, offer,
              keywordSources,
              openCapture, openLink, overTargets, planRows, promptNow, raise,
              restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
              walkChoices };
-})({ CFG, EMPTY, active, append, askFailed, badgeColor, docTitle, el,
-     failed, fire, getJSON, keyName, materialize, part, postCommand,
+})({ CFG, EMPTY, NEW_HINT, active, append, askFailed, badgeColor, docTitle, el,
+     failed, fire, getJSON, keyName, leadTyped, materialize, part, postCommand,
      said, targetOf, targets, walkStep,
      // FORWARD deps go in as thunks: these are declared in later parts, and a
      // wrapped part's exports are destructured `const's -- naming one here
@@ -418,7 +429,7 @@ const Capture = ((deps) => {
      queryNow: () => query, colsNow: () => cols, entryNow: () => editing,
      setArriving: (id) => { arriving = id; } });
 const { CODES, ask, askFrom, askState, askTags, askText, capUp, docTargets, entry,
-        fieldMode, filteredTags, foldTag, followLinks, freely, linksOf, offer,
+        fieldMode, filteredTags, foldTag, followLinks, linksOf, offer,
         keywordSources,
         openCapture, openLink, overTargets, planRows, promptNow, raise,
         restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,

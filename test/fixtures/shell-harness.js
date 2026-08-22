@@ -88,9 +88,11 @@ let linky = false;
 let grainy = false;
 let tabled = false;
 let checky = false;
-const org = "* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
+let org = "* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
   + ":ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n:LOGBOOK:\n- moved here\n:END:\n"
   + "first para\n\nsecond para\n** two\nchild body\n";
+// The stamp `mistyped' mints into the drawer, where the parser never puts one.
+const strayStamp = "<2026-09-01 Tue>";
 const body = "* TODO one\nfirst para\n\nsecond para\n** two\nchild body\n";
 const properties = [["EFFORT", "0:30"]];
 const planning = [["SCHEDULED", "<2026-08-01 Sat>"]];
@@ -1170,6 +1172,15 @@ const paletteRows = () => field("plist").children.map((row) => {
   };
 });
 
+/** The pair box's offers as DRAWN, one entry per row of `#doffer': the word,
+ * and the hint beside it that names where taking it would land.  ONE accessor
+ * for both, the `paletteRows' precedent -- two walks of the same children
+ * could answer about two different draws. */
+const docOffers = () => field("doffer").children.map((row) => ({
+  word: (parts(row, "dow")[0] || {}).textContent || "",
+  hint: (parts(row, "dot")[0] || {}).textContent || "",
+}));
+
 const logged = () => field("log").children.map((line) => ({
   sev: line.className,
   text: line.children.map((part) => part.textContent).filter(Boolean).join(" "),
@@ -1416,8 +1427,30 @@ const ACTIONS = {
                 type: "https", span: [53, 58] } ];
   },
   refuse: () => { refusing = true; },
-  // A SERVER WITHOUT THE DOOR: the pair still writes, and offers nothing.
+  // A DRAWER SOME OTHER TOOL MINTED `:SCHEDULED:' INTO, which is the pair the
+  // migration lifts out: the parser never puts one there, so nothing but
+  // another writer could have.
+  mistyped: () => {
+    properties.push(["SCHEDULED", strayStamp]);
+    org = org.replace(":EFFORT: 0:30\n", `:EFFORT: 0:30\n:SCHEDULED: ${strayStamp}\n`);
+  },
+  // THE SAME STRAY PAIR CARRYING A VALUE ORG WOULD NOT READ BACK: committing it
+  // routes the pair to the planning line, so the drawer's door meets the value's
+  // wall exactly as the pair box does.
+  mistypedbad: () => {
+    properties.push(["SCHEDULED", "soon"]);
+    org = org.replace(":EFFORT: 0:30\n", ":EFFORT: 0:30\n:SCHEDULED: soon\n");
+  },
+  // A SERVER WITHOUT THE DOOR: the pair still writes, and the TREE's own
+  // vocabulary offers nothing — org's three planning words are `CFG.planning'.
   novocab: () => { novocab = true; },
+  // MORE KEYS THAN THE OFFER CAP, every one of them holding `AREA', and the
+  // bare word RAREST: a key the tree really spells that the cap alone keeps
+  // off the drawn list.
+  deepvocab: () => {
+    propertyVocab.keys = { AREA_CODE: 9, AREA_NAME: 8, AREA_SIZE: 7,
+                           SUBAREA: 6, AREA_ID: 5, AREA_TAG: 4, AREA: 1 };
+  },
   noreferences: () => { unreferenced = true; },
   // `typing()' goes false again over a sheet still up, which no other act reaches.
   blur: () => { if (active) active.blur(); },
@@ -1514,7 +1547,7 @@ const settle = async () => {
     dkey: field("dkey").value,
     dval: field("dval").value,
     // The offers as drawn, and which one point stands on — `-1' where none does.
-    doffers: field("doffer").children.map((c) => c.textContent),
+    doffers: docOffers(),
     dofferat: field("doffer").children.findIndex((c) => wears(c, "dat")),
     dcaret: field("dtext").selectionStart,
     where: field("mwhere").children.map((c) => c.textContent),

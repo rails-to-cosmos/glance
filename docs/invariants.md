@@ -32,7 +32,7 @@ nothing catches it.
 
 - **The empty digest is the create pin.** An absent file under `""` is created;
   an occupied path under `""` drifts. `Edit.hs:206`, `Query.hs:1095`,
-  `Commands.hs:299`, `Config.hs:322`. Making a missing file a hard `ReadFailed`
+  `Commands.hs:298`, `Config.hs:322`. Making a missing file a hard `ReadFailed`
   breaks blob capture and tag-layer minting; making a present file writable
   under `""` turns capture into a silent overwrite. *fragility: high*
 
@@ -51,7 +51,7 @@ nothing catches it.
 - **`Data.Org.Edit` is content-agnostic.** It splices character spans and knows
   no org syntax, so every org-shaped wall (tag charset, keyword charset,
   planning reparse, one-top-entry, trailing space) is owed by the layer above.
-  `AGENTS.hs:3040`, `Query.hs:1406`, `TestQuery.hs:1746`. Pushing a check down
+  `AGENTS.hs:3179`, `Query.hs:1406`, `TestQuery.hs:1746`. Pushing a check down
   makes it unreachable for callers off that path; pushing one out of `Query`
   lets bytes land that the next parse reads as body text. *fragility: high*
 
@@ -99,7 +99,7 @@ nothing catches it.
   disagrees with what the socket streams. *fragility: high*
 
 - **`nudge` runs on the success branch only.** `Watch.hs:70`, `Commands.hs:234`,
-  `TestSpec.hs:811`. Nudging unconditionally costs a re-read per 409; skipping
+  `TestSpec.hs:802`. Nudging unconditionally costs a re-read per 409; skipping
   it on success leaves the store holding pre-write rows until an inotify event
   that may never come. *fragility: high*
 
@@ -110,14 +110,18 @@ nothing catches it.
   off. *fragility: high*
 
 - **Every write route answers through `answerWrite`, every body arrives through
-  `withBody`**, so 413 outranks every other refusal. `Base.hs:145`, `:165`.
+  `withBody`**, so 413 outranks every other refusal. `Base.hs:161`, `:182`.
   Taking the body outside `withBody` lets an oversized request be decided by a
   404 first, and `strictRequestBody` pays for the bytes before it can refuse
   them. *fragility: medium*
 
-- **One clock read per request,** taken before any row. `Commands.hs:255`,
-  `:269`. Per-row reads let a batch spanning midnight land on two days.
-  *fragility: medium*
+- **One clock read per request,** taken before any row, and there is ONE
+  spelling of it: `Base.today`. `Base.hs:77`, `Commands.hs:257`, `:270`,
+  `Routes.hs:250`. Per-row reads let a batch spanning midnight land on two
+  days. A read taken BELOW a route's revalidation branch is the same fault
+  wearing a cache: the store is unchanged, so a `*today*` query 304s into
+  yesterday's rows — which is why the day rides in the ETag unconditionally
+  (`Routes.hs:298`), at one extra revalidation a day. *fragility: medium*
 
 ## Parsing and the walk
 
@@ -147,13 +151,26 @@ nothing catches it.
 
 - **A fact several readers agree on is spelled in ONE list, indexed by key** —
   `viewColumns`, `docCells`, `popups`, `gluePartFiles`, `keyBindings`,
-  `Palette`. `Query.hs:1859`, `Base.hs:104`, `Page/Popups.hs`. Re-spelling a
+  `Palette`. `Query.hs:1859`, `Base.hs:124`, `Page/Popups.hs`. Re-spelling a
   membership at a second site is the failure the popup registry records: six
   sibling id lists were hand-edited and the seventh missed, so `#mint` neither
   faded nor dimmed. *fragility: medium*
 
+- **The empty cell sits outside every date comparison, and negation is no
+  mirror.** `dated` guards all four operators and both range ends, because `""`
+  is below every literal in byte order and an unguarded `<` would serve every
+  undated row; `*empty*` stays the one name for those rows. It follows that
+  `-k:<D` serves the undated rows where `k:>=D` does not, so the operators do
+  not pair off under the sign and no surface may rewrite one into the other.
+  `Filter.hs:457`, `table-view.js:504`, `AGENTS.hs:2446`. A tidying pass that
+  normalizes `-k:<D` into `k:>=D`, or drops the guard because byte order
+  "already sorts an empty cell first", turns nothing red but the one case that
+  names the pair (`TestFilter.hs:427`). **That case and its renderer twin are
+  the whole guard: the rewrite is the kind a normalizer or a query optimizer
+  makes on purpose.** *fragility: high*
+
 - **Closed sums are matched one equation per constructor, no wildcard,** so a
-  new constructor is named by the compiler. `Filter.hs:261`, `Commands.hs:211`,
+  new constructor is named by the compiler. `Filter.hs:306`, `Commands.hs:211`,
   `Store.hs:245`. A `_ ->` added for tidiness turns every future key, kind or
   frame into a silent default instead of a build error. *fragility: medium*
 

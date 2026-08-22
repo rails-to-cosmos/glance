@@ -2016,10 +2016,24 @@ export default [
     const keyOffers = await p.until(() => {
       const box = document.getElementById("doffer");
       return box.className === "on"
-        ? [...box.children].map((c) => c.textContent) : false;
+        ? [...box.children].map((c) => ({
+            word: (c.querySelector(".dow") || {}).textContent || "",
+            hint: (c.querySelector(".dot") || {}).textContent || "" }))
+        : false;
     }, "the key's offers to draw off GET /properties");
-    assert(keyOffers.some((w) => /^OWNER$/.test(w)),
+    assert(keyOffers.some((o) => o.word === "OWNER"),
       `the key offers ${JSON.stringify(keyOffers)}`);
+    // THE TYPED VALUE IS ALWAYS AN OFFER (AGENTS.hs): `OW' leads the key it reads
+    // as a prefix of, so RET here would commit `OW' — and the match is a walk
+    // away, `C-n' onto it and `:' taking it.
+    assert(keyOffers[0].word === "OW" && keyOffers[0].hint === "new",
+      `the typed line does not lead the offers: ${JSON.stringify(keyOffers)}`);
+    await p.press("C-n");
+    await p.press(":");
+    const completed = await p.until(() => document.activeElement.id === "dval"
+        && document.getElementById("dkey").value === "OWNER"
+      ? document.getElementById("dkey").value : false,
+      "`C-n' then `:' to complete the key and hand it over");
     // ESC CANCELS THE INPUT WHOLE: the box goes, the drawn row with it, and the
     // drawer is the rows it was, character for character.
     await p.press("ESC");
@@ -2042,9 +2056,32 @@ export default [
       const h = await (await fetch("/headline?id=drv-marks")).json();
       return (h.properties || []).some(([k, v]) => k === "ROOM" && v === "12");
     }, "the minted pair to reach the file", 15000);
+    // A KEY THAT FOLDS TO A PLANNING WORD IS NO PROPERTY: the same box, and what
+    // it commits lands on the PLANNING LINE with the drawer left as it stood.
+    const planless = await served();
+    await settled(p);
+    await p.press("+");
+    await pairUp(p, "the two fields to open a third time");
+    await p.type("scheduled");
+    await p.press(":");
+    await p.until(() => document.activeElement.id === "dval",
+                  "the planning key to hand over to its value");
+    await p.type("<2026-09-01 Tue>");
+    await p.press("RET");
+    const routed = await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return (h.planning || []).some(([k, v]) =>
+        k === "SCHEDULED" && v === "<2026-09-01 Tue>") ? h : false;
+    }, "the typed entry to reach the PLANNING line, upcased", 15000);
+    assert(JSON.stringify(routed.properties) === JSON.stringify(planless.props),
+      `the drawer reads ${JSON.stringify(routed.properties)} `
+      + `against ${JSON.stringify(planless.props)}`);
     const end = await served();
     return [`OWNER edited, EFFORT dropped, ROOM typed inline off `
-      + `${JSON.stringify(keyOffers)}; ESC left ${JSON.stringify(before)} standing: `
+      + `${JSON.stringify(keyOffers.map((o) => o.word))}; "OW" led them and `
+      + `C-n completed it to ${JSON.stringify(completed)}; `
+      + `ESC left ${JSON.stringify(before)} standing; `
+      + `scheduled routed to ${JSON.stringify(end.plan)} over `
       + `${JSON.stringify(end.props)}`];
   } },
 { name: "a child is drawn whole, walked like a list, and edits through the same splice",
@@ -2337,5 +2374,47 @@ export default [
         && rows.some((e) => /A tail paragraph/.test(e.textContent));
     }, "the rescan to draw the paragraph with a fresh tail after it");
     return ["one empty tail line; RET wrote a paragraph at the end; the tail regrew"];
+  } },
+
+// THE TYPED VALUE IS ALWAYS AN OFFER where the vocabulary is open (AGENTS.hs).
+// REPORTED: `shelf' typed against a tree holding `bookshelf' narrowed to the one
+// match, point sat on it, and RET wrote `bookshelf' — the reader's own word was
+// never an entry, so it could not be committed.  LAST IN THE FILE ON PURPOSE:
+// this is the one case that writes a TAG, and the tag column's own geometry
+// cases read the table before it.
+{ name: "the add-a-tag field commits the word typed, never the tag it prefixes",
+  async run(p, base) {
+    await p.goto(`${base}/?q=tag%3Ageometry`);
+    await p.until(() => document.querySelectorAll("#app table tbody tr").length === 1,
+                  "the one geometry row to mount");
+    await p.press(":");
+    await p.until(() => document.getElementById("tags").classList.contains("on"),
+                  "the tags popup to open over the row");
+    await p.press("+");
+    await p.until(() => document.getElementById("pbox").classList.contains("narrow"),
+                  "the add-a-tag field to raise over the popup");
+    await p.type("mark");
+    const shown = await p.until(() => {
+      const rows = [...document.querySelectorAll("#plist .pe")].map((r) => ({
+        word: (r.querySelector(".pw") || {}).textContent || "",
+        hint: (r.querySelector(".pt") || {}).textContent || "",
+        at: r.classList.contains("pat") }));
+      return rows.length > 1 ? rows : false;
+    }, "the typed line and the tag it prefixes to draw together");
+    assert(shown[0].word === "mark" && shown[0].hint === "new" && shown[0].at,
+      `the typed line does not lead, hinted, with point on it: `
+      + JSON.stringify(shown));
+    assert(shown.some((r) => r.word === "marks"),
+      `the tag it prefixes is not offered beside it: ${JSON.stringify(shown)}`);
+    await p.press("RET");
+    const tags = await p.until(async () => {
+      const a = await (await fetch("/tags?ids=drv-box")).json();
+      const row = (a.rows || [])[0] || {};
+      return (row.tags || []).indexOf("mark") === -1 ? false : row.tags;
+    }, "the typed tag to reach the file", 15000);
+    assert(tags.indexOf("marks") === -1,
+      `the tag the field completed to landed instead: ${JSON.stringify(tags)}`);
+    return [`typed "mark" over ${JSON.stringify(shown.map((r) => r.word))}, `
+      + `the row now ${JSON.stringify(tags)}`];
   } },
 ];

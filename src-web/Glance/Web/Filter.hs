@@ -1,6 +1,7 @@
 -- | The filter query language: @?q=@ as SCHEMA.md's micro-syntax.
 -- A port term for term of @table-view.js@; the grammar, the starred metas and every known divergence are in AGENTS.hs.
-module Glance.Web.Filter ( FilterEnv
+module Glance.Web.Filter ( Cmp (..)
+                         , FilterEnv
                          , Sign (..)
                          , Term (..)
                          , Token (..)
@@ -8,12 +9,18 @@ module Glance.Web.Filter ( FilterEnv
                          , archiveKey
                          , archiveMeta
                          , cellAt
+                         -- Exported for the SPEC PIN alone (TestSpec): the model
+                         -- spells this comparison table too, and the two readings
+                         -- of `<' and `>=' must be one.
+                         , cmpMark
+                         , cmpTest
                          , emptyEnv
                          , emptyMeta
                          , filterKeys
                          , matchesFilter
                          , metaOf
                          , namesArchive
+                         , onDay
                          , parseFilter
                          , plannedKey
                          , refKey
@@ -24,19 +31,22 @@ module Glance.Web.Filter ( FilterEnv
                          , columnsKey
                          , storeEnv
                          , tagsKey
+                         , todayMeta
                          , viewAddedIn
                          ) where
 
+import Data.Char (isDigit)
 import Data.List (elemIndex, find)
-import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Text (Text)
+import Data.Time (Day)
 
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
                     , RefVia (..), refTarget, refVia
                     , Meta (..), activeMeta, archiveTag, cellSep, filterKeys
-                    , groupOn, idPropertyOf, inactiveMeta, metaWord
+                    , groupOn, idPropertyOf, inactiveMeta, isoDay, metaWord
                     , priorityLetter, refSpellings, tagRunEntries )
 
 
@@ -175,6 +185,11 @@ archiveMeta = metaWord MArchive
 emptyMeta :: Text
 emptyMeta = metaWord MEmpty
 
+-- | @*today*@ — the starred family's DATE VALUE, legal wherever a date literal
+-- stands: bare, behind any operator, at either end of a range.
+todayMeta :: Text
+todayMeta = metaWord MToday
+
 metaOf :: Text -> Maybe Text
 metaOf value = do
   inner <- T.stripSuffix "*" =<< T.stripPrefix "*" value
@@ -196,15 +211,79 @@ splitKey text'
   where (key, rest) = T.break (\c -> c == ':' || c == '=') text'
 
 
-newtype FilterEnv = FilterEnv
-  { feRef :: Text -> Maybe HeadlineRecord  -- ^ a row id resolved, or 'Nothing' where no row claims it.
+-- * A timestamp key's value, as GRAMMAR
+--
+-- Reading alone: what the text spells, with no row and no clock in reach.  What
+-- a 'Stamp' MEANS is below, beside the cell it is asked of.
+
+-- | THE COMPARISONS a timestamp key's value may open with.  DECLARED LONGEST
+-- FIRST, so 'operatorIn' reads @>=@ before @>@ and a literal @=@ is never taken
+-- for an operator's tail.
+data Cmp = CGe | CLe | CGt | CLt deriving (Eq, Show, Enum, Bounded)
+
+-- | How a comparison is written.  ONE EQUATION PER CONSTRUCTOR and no wildcard,
+-- the discipline 'valueFor' states: a fifth operator is named HERE by the compiler.
+cmpMark :: Cmp -> Text
+cmpMark CGe = ">="
+cmpMark CLe = "<="
+cmpMark CGt = ">"
+cmpMark CLt = "<"
+
+cmps :: [Cmp]
+cmps = [minBound ..]
+
+-- | @A..B@ — the closed interval, and the ONE thing two tokens cannot say: on a
+-- multi-cell key it asks ONE CELL to lie inside where two tokens ask the axis twice.
+rangeMark :: Text
+rangeMark = ".."
+
+-- | What a timestamp key's VALUE spells.  Read at COMPILE TIME and never per
+-- row: 'stampTest' turns it into a cell test the rows then run.
+data Stamp
+  = SPrefix !Text       -- ^ the bare literal, naming the interval every stamp it prefixes reaches.
+  | SCmp !Cmp !Text     -- ^ an operator and its literal.
+  | SRange !Text !Text  -- ^ @A..B@: ONE cell inside the closed interval.
+  deriving (Eq, Show)
+
+-- | V as a timestamp atom, or 'Nothing' where a literal is owed and missing —
+-- @>@, @..@, @2026-08..@, @..2026-08@.  Those are the HALF-TYPED tokens, which
+-- narrow nothing; every other value is an atom, a literal naming no date
+-- included (that one matches no row, the way @state:TOD@ matches none).
+stampOf :: Text -> Maybe Stamp
+stampOf v = case operatorIn v of
+  Just (cmp, lit) -> SCmp cmp <$> typed lit
+  Nothing         -> case T.breakOn rangeMark v of
+    (lo, rest) | Just hi <- T.stripPrefix rangeMark rest -> SRange <$> typed lo <*> typed hi
+    _noRange                                             -> SPrefix <$> typed v
+  where typed t | T.null t  = Nothing
+                | otherwise = Just t
+
+operatorIn :: Text -> Maybe (Cmp, Text)
+operatorIn v = listToMaybe
+  [ (cmp, rest) | cmp <- cmps, Just rest <- [T.stripPrefix (cmpMark cmp) v] ]
+
+
+-- | What a predicate may ask OUTSIDE the row it is matching: the store, which
+-- @ref:@ resolves an id against, and the request's own DAY, which @*today*@
+-- names.  ONE CLOCK READ PER REQUEST, taken before any row: the day arrives
+-- here already resolved, so a query asked across midnight cannot mean two days.
+data FilterEnv = FilterEnv
+  { feRef   :: Text -> Maybe HeadlineRecord  -- ^ a row id resolved, or 'Nothing' where no row claims it.
+  , feToday :: Maybe Text                    -- ^ the request's day as @YYYY-MM-DD@; 'Nothing' where no clock was read, and @*today*@ then names no day.
   }
 
 emptyEnv :: FilterEnv
-emptyEnv = FilterEnv (const Nothing)
+emptyEnv = FilterEnv (const Nothing) Nothing
 
 storeEnv :: [HeadlineRecord] -> FilterEnv
-storeEnv rows = FilterEnv (\rid -> find ((== rid) . hrId) rows)
+storeEnv rows = FilterEnv (\rid -> find ((== rid) . hrId) rows) Nothing
+
+-- | ENV with the request's own day on it.  ONE FORMATTER SPELLS BOTH SIDES of a
+-- date comparison: 'isoDay' writes the literal @*today*@ resolves to and
+-- @isoStamp@ writes the cells it is compared against, so the two cannot drift
+-- into two shapes of one day.
+onDay :: Day -> FilterEnv -> FilterEnv
+onDay day env = env { feToday = Just (isoDay day) }
 
 -- | Does a row match Q in ENV?  Compiled once per request, never per row.
 matchesFilter :: FilterEnv -> Text -> HeadlineRecord -> Bool
@@ -236,6 +315,19 @@ narrows (Col _) = True
 narrows Planned = True
 narrows Ref     = True
 narrows Whole   = True
+
+-- | Do KEY's cells hold ISO stamps?  THE COMPARISON FORMS ARE READ ON THESE
+-- KEYS AND NOWHERE ELSE, so @title:>x@ is the substring it always was.
+stamped :: Text -> Bool
+stamped = maybe False stampedField . fieldOf
+
+-- | Does FIELD name date cells, and ONLY date cells?  Read off the cells the
+-- field carries rather than off a key list — the renderer's own reading, which
+-- samples the column — so a field that grows a second date cell takes the
+-- operator with it instead of silently missing it.
+stampedField :: Field -> Bool
+stampedField field = not (null cells) && all (`elem` dateColumns) cells
+  where cells = fieldCells field
 
 -- | TERMS as the tests a row must all pass, ONE PER AXIS.  A view token is
 -- dropped HERE, above the inverter: a match-all under it would make @-sort:x@
@@ -272,9 +364,20 @@ vacuous t = tmSign t /= Neg && null (atoms t)
 -- | The atoms T offers its axis: a predicate's alternatives, or free text's own
 -- word.  The bar is a PREDICATE's, so @+|@ is one literal atom rather than none.
 atoms :: Term -> [Text]
-atoms t | isJust (tmKey t)   = alternatives (tmValue t)
-        | T.null (tmValue t) = []
-        | otherwise          = [tmValue t]
+atoms t = case tmKey t of
+  Just key -> atomsUnder key (tmValue t)
+  Nothing | T.null (tmValue t) -> []
+          | otherwise          -> [tmValue t]
+
+-- | KEY's alternatives as the ATOMS its predicate offers.  ON A TIMESTAMP KEY A
+-- HALF-TYPED COMPARISON IS NO ATOM — an operator or a range end with no literal
+-- behind it — so @scheduled:>@ rides 'vacuous' and narrows nothing, and
+-- @-scheduled:>@ empties the table exactly as @-state:@ does.  ONE LAW, SPELLED
+-- HERE ALONE: 'vacuous' asks it of the whole term and 'predTest' tests what it
+-- leaves, each calling this, so neither can hold a rule the other does not.
+atomsUnder :: Text -> Text -> [Text]
+atomsUnder key value | stamped key = filter (isJust . stampOf) (alternatives value)
+                     | otherwise   = alternatives value
 
 -- ONE EQUATION PER CONSTRUCTOR and no wildcard, so a fifth key is named HERE by the compiler.
 valueFor :: Field -> Term -> Text
@@ -297,7 +400,7 @@ termTest env t = fromMaybe (freeTest (folded t)) $ do
 -- ALONE: 'vacuous' drops every other term naming no atom, so @-state:@ is what
 -- still reaches it — every row, and inverted above, none.
 predTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
-predTest env key field value = case map (keyTest env key field) (alternatives value) of
+predTest env key field value = case map (keyTest env key field) (atomsUnder key value) of
   []    -> const True
   tests -> \r -> any ($ r) tests
 
@@ -322,12 +425,58 @@ keyTest env _key Ref value = case feRef env value of
 keyTest _env _key Order _value = const True
 keyTest _env _key Whole value = freeTest value
 -- The two that read a row's CELLS, spelled out: a fifth key falling in here would read an empty cell list and match nothing, with no warning.
-keyTest _env key field@(Col _) value = cellsTest key field value
-keyTest _env key field@Planned value = cellsTest key field value
+keyTest env key field@(Col _) value = cellsTest env key field value
+keyTest env key field@Planned value = cellsTest env key field value
+
+-- * A 'Stamp' over a CELL, which is where the clock and the row arrive
+
+-- | The DATE LITERAL L names.  @*today*@ is the request's own day, resolved
+-- HERE — once per predicate, off the one clock read the request already took.
+literalIn :: FilterEnv -> Text -> Maybe Text
+literalIn env l | l == todayMeta = feToday env
+                | otherwise      = Just l
+
+-- | L as a literal BYTE ORDER may be asked about, which owes an opening digit.
+-- The prefix reading is total over any text; @<@ over @banana@ would serve every
+-- ISO cell there is, so the guard sits on the COMPARED forms alone and the bare
+-- form stays byte for byte what it was.
+comparableIn :: FilterEnv -> Text -> Maybe Text
+comparableIn env l = do
+  d     <- literalIn env l
+  (c,_) <- T.uncons d
+  if isDigit c then Just d else Nothing
+
+-- | S as ONE cell's test, built once per predicate.  The bare arm carries no
+-- 'dated' guard and needs none — a non-empty literal is the prefix of no empty
+-- cell — which is what keeps it BYTE FOR BYTE the arm it was.
+stampTest :: FilterEnv -> Stamp -> Text -> Bool
+stampTest env (SPrefix lit)  = maybe (const False) T.isPrefixOf (literalIn env lit)
+stampTest env (SCmp cmp lit) = maybe (const False) (dated . cmpTest cmp) (comparableIn env lit)
+stampTest env (SRange lo hi) = case (comparableIn env lo, comparableIn env hi) of
+  (Just a, Just b) -> dated (\c -> cmpTest CGe a c && cmpTest CLe b c)
+  _noDate          -> const False
+
+-- | THE EMPTY CELL SITS OUTSIDE EVERY COMPARISON AND EVERY RANGE: @""@ is below
+-- every literal in byte order, so an unguarded @<@ would serve every undated
+-- row.  @*empty*@ stays the one name for that cell, which is why @-k:\<D@ and
+-- @k:>=D@ differ and NEGATION IS NO MIRROR.
+dated :: (Text -> Bool) -> Text -> Bool
+dated p c = not (T.null c) && p c
+
+-- | THE GRANULARITY LAW, one equation per constructor: @<@ and @>=@ cut at the
+-- literal's FIRST instant, @<=@ and @>@ at its LAST.  The last instant is
+-- spelled as "everything the prefix reaches", which is the prefix test the bare
+-- form already runs — so NO DATE ARITHMETIC is owed anywhere, and @k:D@ is
+-- exactly @k:>=D@ and @k:\<=D@ together.
+cmpTest :: Cmp -> Text -> Text -> Bool
+cmpTest CLt d c = c < d
+cmpTest CGe d c = c >= d
+cmpTest CLe d c = c < d || d `T.isPrefixOf` c
+cmpTest CGt d c = c > d && not (d `T.isPrefixOf` c)
 
 -- | The cell reading `Col' and `Planned' share: every cell the key names, the empty meta asking whether all of them are empty.
-cellsTest :: Text -> Field -> Text -> HeadlineRecord -> Bool
-cellsTest key field value
+cellsTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
+cellsTest env key field value
   | value == emptyMeta = \r -> all (T.null . (`cellOf` r)) cells
   | otherwise          = \r -> any ($ r) tests
   where
@@ -338,10 +487,18 @@ cellsTest key field value
       | key == "state"         = state cell
       -- Matching reads THROUGH org's brackets: @priority:A@ = @priority:[#A]@.
       | key == "priority"      = (== priorityLetter value) . priorityLetter . cell
-      | prefixed               = T.isPrefixOf value . cell
+      -- THE VALUE FORM IS READ HERE, above the rows: the operator is split off
+      -- and @*today*@ resolved at compile time, never per row.  WHERE A KEY
+      -- NAMES SEVERAL CELLS the stamp is asked of each and ORed, so a RANGE on
+      -- @planned@ is ONE CELL INSIDE THE INTERVAL — the reading no pair of
+      -- tokens has, two tokens ANDing at the axis instead.
+      | stamped key, Just s <- stampOf value = stampTest env s . cell
+      -- 'atomsUnder' drops the half-typed values, so no value reaching here
+      -- fails 'stampOf'; spelled out all the same, since falling through to the
+      -- substring arm would read @>=2026-09@ as text.
+      | stamped key            = const False
       | otherwise              = T.isInfixOf value . cell
       where cell = cellOf i
-    prefixed = key `elem` dateKeys || key == plannedKey
     -- Keyed by the CELL's index, so @planned@ can never reach this meta.
     tagMeta i | i == tagsColumn = metaOf value
               | otherwise       = Nothing

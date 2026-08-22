@@ -83,12 +83,14 @@
       const held = picking, b = held.b;
       const shown = (held.kinds || []).map((k) =>
         ({ label: k.kind, hint: `${k.rows} ${k.rows === 1 ? "row" : "rows"}`, tag: k.kind }));
+      // OPEN: a kind is MINTED by naming it, and the server answers with the
+      // slug, so the foot's promise is the palette's own leading offer.
       askFrom("kind", shown,
               "RET takes it · a kind not listed is just typed · DEL clears it · ESC leaves",
               (c) => {
                 if (picking !== held) return;   // the picker went while it was up
                 takeKind(b, String(c.tag || "").trim());
-              });
+              }, "open");
     }
     function tookKind(view) {
       picking.kind = view.kind || null;

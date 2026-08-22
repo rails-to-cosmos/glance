@@ -631,10 +631,14 @@ mode, or a second control beside `input` — a chain is not an `<input>`, so
 `effectiveQuery` are where the composed string joins the strip, and the badge
 reading needs one more: replace a stage's tokens IN PLACE rather than append.
 The `.tv-ac` list needs a per-stage vocabulary and the `tv-ac-dim` rule for the
-constructors, both of which exist. The two keydown ladders (~4153) are the
-delicate part, and the dry accept lands right there — today's
-`finished = taken.full || ac.stage === "value"` is the branch that has to stop
-re-offering.
+constructors, both of which exist. The two keydown ladders (~4358) are the
+delicate part, and the dry accept lands right there — `finished = taken.full`,
+the branch that has to stop re-offering. Since this was written the datetime
+comparisons moved that decision ONTO THE ITEM: it read
+`taken.full || ac.stage === "value"`, and an offer that merely OPENS a token —
+an operator head before its date — now says so with `full: false`. A typed
+stage says the same thing about a constructor that opens a call, so the shape
+this section asks for is the shape that landed.
 
 **Shell sites** (`frontend/glue/`): `raiseFilter`/`focusFilter`/`focusQuery` in
 `50-settings.js` is where the two doors part, and under D/F's reading

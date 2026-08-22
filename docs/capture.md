@@ -56,7 +56,9 @@ Expansion is server-side; the page never holds template logic.
 Anything else copies through **verbatim** — an unknown `%`-code stays
 visible in the captured entry and the capture still lands. Typing `%` in
 the settings template box completes over exactly this subset; what the
-completion offers is what expands.
+completion offers is what expands. That list is **closed**: `RET` there
+takes an entry off it, and a code the expansion does not know is typed into
+the box by hand rather than through the completion.
 
 ## What a tagged capture writes
 

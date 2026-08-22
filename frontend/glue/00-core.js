@@ -70,6 +70,21 @@
     };
     const priorityOf = (id) => priorityIn((rowOf(id).cells || {}).priority);
     const EMPTY = "*empty*";
+    // WHAT AN OPEN FIELD CALLS THE LINE THE READER TYPED, and the only place the
+    // word is spelled: the add-a-tag palette, the kind picker and both halves of
+    // the pair box draw the same hint, and a second spelling would drift unseen.
+    const NEW_HINT = "new";
+    /** Does the line the reader TYPED stand as an offer of its own?  THE TYPED
+     * VALUE IS ALWAYS AN OFFER where the vocabulary is open (AGENTS.hs), except
+     * where it FOLDS TO one already listed — one entry drawn rather than two —
+     * and an empty field offers no literal.  WORDS IS THE WHOLE VOCABULARY THE
+     * FILTER LEFT, before any cap: a word the tree really spells has to coincide
+     * with its own entry even where the cap keeps that entry off the drawn list,
+     * or a real word would draw itself hinted `new'. */
+    const leadTyped = (typed, words) => {
+      const want = String(typed).toLowerCase();
+      return !!want && !words.some((w) => String(w).toLowerCase() === want);
+    };
     const badgeColor = (value, key) =>
       (((cols.find((c) => c.key === (key || "state")) || {}).badges || [])
         .find((b) => b.value === value) || {}).color || "";

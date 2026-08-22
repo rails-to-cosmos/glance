@@ -1,4 +1,4 @@
-.PHONY: test typecheck loc major minor patch native elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
+.PHONY: test spec spec-debt typecheck loc major minor patch native elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 -include .env
 GLANCE_DIR ?= ~/sync/views
@@ -11,6 +11,29 @@ test:
 	cabal build -v0 exe:glance
 	GLANCE_BIN="$$(cabal list-bin -v0 exe:glance)" cabal test
 	@$(MAKE) --no-print-directory elm-test
+
+# The spec is AGENTS.hs; this prints the ledger.  The model itself is checked by
+# `cabal test' (TestSpec), which reads its registries beside the real code's.
+#
+# THE DELTA IS GIT'S TO ANSWER and is counted here rather than in the model: both
+# sides are a text count of the `Note' literals, HEAD's against the tree's, so the
+# two measure one thing.  Outside git it degrades silently -- no repo, no commit,
+# the file untracked -- and prints no line.
+spec:
+	@runghc AGENTS.hs
+	@was=$$(git show HEAD:AGENTS.hs 2>/dev/null | grep -c 'Note "'); \
+	if [ "$$was" -gt 0 ] 2>/dev/null; then \
+	  now=$$(grep -c 'Note "' AGENTS.hs); d=$$((now - was)); \
+	  case $$d in \
+	    0)  echo "notes ±0 since HEAD" ;; \
+	    -*) echo "notes $$d since HEAD" ;; \
+	    *)  echo "notes +$$d since HEAD" ;; \
+	  esac; \
+	fi
+
+# The same binary, tier three spelled out: every unguarded note under its section.
+spec-debt:
+	@runghc AGENTS.hs debt
 
 # Elm's compiler IS its typechecker.  `--output=/dev/null' because committed
 # `assets/elm.js' is a build INPUT and only `make elm' may rewrite it.

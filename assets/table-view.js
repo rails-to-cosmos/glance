@@ -384,22 +384,6 @@
    */
   const signMark = (tok) => (tok.added ? "+" : tok.negated ? "-" : "");
 
-  /**
-   * Does TOK name no atom, narrowing nothing and establishing no axis?  An
-   * UNSIGNED OR ADDED token spelling no value — `state:', `+state:', `+state:|',
-   * a lone `+' — is dropped ahead of the grouping: left standing it saturates
-   * its axis's disjunction, so `state: +state:DONE' would serve every row where
-   * it must serve the DONE ones.  A NEGATED one keeps its own law, and `-state:'
-   * still empties the table.  The bar is a PREDICATE's, so free text reads its
-   * whole value and `+|' is one atom.
-   * @param {Token} tok  @returns {boolean}
-   */
-  function vacuous(tok) {
-    if (tok.negated) return false;
-    return tok.key === null ? !tok.value : alternatives(tok.value).length === 0;
-  }
-
-
   /** @param {Cell|undefined} v  @returns {number|null} */
   const asNumber = (v) => {
     const n = typeof v === "number" ? v : parseFloat(displayText(v));
@@ -459,6 +443,94 @@
    * replaced the bare word `none', which reserved a spelling a cell could hold.
    */
   const EMPTY_META = "*empty*";
+
+  // date comparisons (the value forms, `*today*'): docs/web-renderer.org
+
+  /**
+   * The date literal naming the day the query is read on: `scheduled:*today*',
+   * `deadline:>=*today*'.  Legal wherever a literal stands, and resolved once
+   * per compile (`queryMatcher').
+   */
+  const TODAY_META = "*today*";
+
+  /**
+   * The four comparisons, each spelled ONCE: a fifth is owed a `cmpTest' arm,
+   * where the compiler would ask a producer for one.
+   */
+  const CMP_GE = ">=", CMP_LE = "<=", CMP_GT = ">", CMP_LT = "<";
+
+  /** The comparisons a date value may open with, read LONGEST FIRST. */
+  const CMPS = [CMP_GE, CMP_LE, CMP_GT, CMP_LT];
+
+  /** The range separator inside a date value: `A..B'. */
+  const RANGE = "..";
+
+  /** A date literal opens with a digit; anything else is no date at all. */
+  const DATE_LIT = /^\d/;
+
+  /**
+   * V read as a date value: `op' is the comparison it opens with, `RANGE' where
+   * it names one and "" for the bare prefix; `lo' and `hi' are the literals
+   * compared, EMPTY where one is owed and missing.  THE THREE FIELDS ARE THE
+   * WHOLE READING: whether the value is an atom at all (`atomsIn') and what
+   * stands before a literal still being typed (`suggestFor') are read off them
+   * at the two places that ask, so this stays the split and nothing more.
+   * @param {string} v
+   * @returns {{op: string, lo: string, hi: string}}
+   */
+  function dateValue(v) {
+    // THE OPERATOR IS READ FIRST and the range behind it, so `>=A..B' is a
+    // comparison against a literal holding a separator — no cell spells one, so
+    // it serves nothing — where `A..B' is the range it looks like.
+    for (const op of CMPS)
+      if (v.startsWith(op)) return { op, lo: v.slice(op.length), hi: "" };
+    const at = v.indexOf(RANGE);
+    if (at !== -1)
+      return { op: RANGE, lo: v.slice(0, at), hi: v.slice(at + RANGE.length) };
+    return { op: "", lo: v, hi: "" };
+  }
+
+  /**
+   * P asked of a NON-EMPTY cell alone.  THE EMPTY CELL SITS OUTSIDE EVERY
+   * COMPARISON AND EVERY RANGE: "" is below every literal in byte order, so an
+   * unguarded `<' would serve every undated row.  `*empty*' stays the one name
+   * for that cell, which is why `-k:<D' and `k:>=D' differ and NEGATION IS NO
+   * MIRROR.  Worn ONCE PER AXIS — the range wraps its pair rather than each end
+   * — and the bare prefix wears none and needs none, a non-empty literal being
+   * the prefix of no empty cell.
+   * @param {(c: string) => boolean} p  @returns {(c: string) => boolean}
+   */
+  const dated = (p) => (c) => c !== "" && p(c);
+
+  /**
+   * THE GRANULARITY LAW, one arm per operator: `<' and `>=' cut at literal D's
+   * FIRST instant, `<=' and `>' at its LAST.  The last instant is spelled as
+   * "everything the prefix reaches", which is the prefix test the bare form
+   * already runs — so NO DATE ARITHMETIC is owed anywhere, and `k:D' is exactly
+   * `k:>=D' and `k:<=D' together.  OP comes off the `CMPS' roster; ANYTHING
+   * ELSE IS NO COMPARISON AND SERVES NO CELL, which is the guard's own refusal.
+   * @param {string} op  @param {string} d  @param {string} c  @returns {boolean}
+   */
+  function cmpTest(op, d, c) {
+    if (op === CMP_LT) return c < d;
+    if (op === CMP_GE) return c >= d;
+    if (op === CMP_LE) return c < d || c.startsWith(d);
+    if (op === CMP_GT) return c > d && !c.startsWith(d);
+    return false;
+  }
+
+  /**
+   * Today as ISO `YYYY-MM-DD' in the reader's own zone, which is what `*today*'
+   * resolves to.  THE CLOCK IS THE PAGE'S OWN: a producer resolves the same
+   * word against its day, so the two disagree for the hour one of them is past
+   * midnight and the other is not.  The skew is accepted — same machine.
+   * @param {Date} [now]  @returns {string}
+   */
+  function localDay(now) {
+    const t = now || new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+  }
 
   /**
    * SCHEMA's virtual key over a view's DATE columns together: a row is planned
@@ -2141,20 +2213,82 @@
     let dateAt;
 
     /**
+     * The day `*today*' resolves to: ONE CLOCK READ PER QUERY, taken at the
+     * head of `queryMatcher' before any row.  Every atom of one query then
+     * names one day, whatever the clock does while that query is applied.
+     */
+    let compiledDay = localDay();
+
+    /**
+     * Does KEY name DATE cells alone?  The comparison forms are read there and
+     * nowhere else, so `title:>x' is the substring it has always been.
+     * @param {string} key  @returns {boolean}
+     */
+    function datedKey(key) {
+      const cells = fieldCells(key);
+      const dc = dateColumns();
+      return !!cells && cells.length > 0 && cells.every((i) => dc.indexOf(i) !== -1);
+    }
+
+    /**
+     * VALUE's alternatives that name an ATOM on KEY.  A comparison left with no
+     * literal — `scheduled:>', `scheduled:2026-08..' — is half-typed and drops,
+     * so it narrows nothing and establishes no axis, the way `state:' does.
+     * @param {string} key  @param {string} value  @returns {string[]}
+     */
+    function atomsIn(key, value) {
+      const alts = alternatives(value);
+      if (!datedKey(key)) return alts;
+      // A LITERAL IS OWED AT EVERY END THE VALUE NAMES: behind the operator, and
+      // on both sides of the separator — which is the whole of what `dateValue'
+      // leaves empty.
+      return alts.filter((v) => {
+        const d = dateValue(v);
+        return d.lo !== "" && (d.op !== RANGE || d.hi !== "");
+      });
+    }
+
+    /**
+     * The atoms TOK offers its axis: a predicate's alternatives that name one
+     * HERE, or free text's own word.  The bar is a PREDICATE's, so free text
+     * reads its whole value and `+|' is one atom.
+     * @param {Token} tok  @returns {string[]}
+     */
+    function atomsOf(tok) {
+      return tok.key === null ? (tok.value ? [tok.value] : [])
+                              : atomsIn(tok.key, tok.value.toLowerCase());
+    }
+
+    /**
+     * Does TOK narrow nothing and establish no axis?  AN UNSIGNED OR ADDED
+     * TOKEN NAMING NO ATOM — `state:', `+state:', `+state:|', a lone `+' — is
+     * dropped ahead of the grouping: left standing it saturates its axis's
+     * disjunction, so `state: +state:DONE' would serve every row where it must
+     * serve the DONE ones.  A NEGATED one keeps its own law, and `-state:'
+     * still empties the table.  A date key rides the same rule while it is
+     * being typed, its half-typed comparison naming no atom, so `+scheduled:>'
+     * saturates nothing.  ATOMS is TOK's own, read once by `queryMatcher'.
+     * @param {Token} tok  @param {string[]} atoms  @returns {boolean}
+     */
+    function vacuousHere(tok, atoms) {
+      return !tok.negated && atoms.length === 0;
+    }
+
+    /**
      * TOK as a row test, negation aside — `queryMatcher' applies that.  Free
      * text is a substring of the whole row, bar and all: alternation is a
-     * PREDICATE's rule.  A predicate's value splits into its alternatives and
-     * the row passes on ANY of them.  Built once per query, never per row.
-     * @param {Token} tok  @returns {(r: Row) => boolean}
+     * PREDICATE's rule.  A predicate passes on ANY of ATOMS, which is what its
+     * value left (`atomsOf') and is read once by `queryMatcher'.  Built once per
+     * query, never per row.
+     * @param {Token} tok  @param {string[]} atoms  @returns {(r: Row) => boolean}
      */
-    function tokenTest(tok) {
+    function tokenTest(tok, atoms) {
       // filter grammar (tokenTest, metas): docs/web-renderer.org — mirrors SCHEMA.md
       if (tok.key === null) return freeTest(tok.value.toLowerCase());
       const key = tok.key;
-      const alts = alternatives(tok.value.toLowerCase());
-      if (!alts.length) return () => true;         // half-typed: narrows nothing
-      if (alts.length === 1) return valueTest(key, alts[0]);
-      const tests = alts.map((v) => valueTest(key, v));
+      if (!atoms.length) return () => true;        // half-typed: narrows nothing
+      if (atoms.length === 1) return valueTest(key, atoms[0]);
+      const tests = atoms.map((v) => valueTest(key, v));
       return (r) => {
         for (const t of tests) if (t(r)) return true;
         return false;
@@ -2215,8 +2349,40 @@
         const want = undecorated(v), worn = `[#${want}]`;
         return (r) => { const c = rowText(r).cells[i]; return c === want || c === worn; };
       }
-      if (dateColumn(i)) return (r) => rowText(r).cells[i].startsWith(v);
+      if (dateColumn(i)) return stampTest(i, v);
       return (r) => rowText(r).cells[i].includes(v);
+    }
+
+    /**
+     * V as a test of DATE cell I: the bare prefix, one of the four comparisons,
+     * or the range `A..B'.  `*today*' stands for `compiledDay' wherever a
+     * literal may.  THREE PIECES, ONE GUARD: `cmpTest' carries the granularity
+     * law, `dated' the empty cell, and the range is the two inclusives composed
+     * under ONE guard rather than a table arm of its own.
+     * @param {number} i  @param {string} v  @returns {(r: Row) => boolean}
+     */
+    function stampTest(i, v) {
+      const d = dateValue(v);
+      const lo = d.lo === TODAY_META ? compiledDay : d.lo;
+      const hi = d.hi === TODAY_META ? compiledDay : d.hi;
+      // THE BARE ARM CARRIES NO `dated' GUARD and needs none — a non-empty
+      // literal is the prefix of no empty cell — which is what keeps it byte
+      // for byte the arm it was.
+      if (d.op === "") return (r) => rowText(r).cells[i].startsWith(lo);
+      // A LITERAL THAT DOES NOT OPEN WITH A DIGIT IS NO DATE and matches no
+      // row, the reading `state:TOD' has — where byte order would happily
+      // serve every dated row against `>*empty*'.  `*today*' resolved above,
+      // so it is a date by the time this asks.
+      if (!DATE_LIT.test(lo)) return () => false;
+      if (d.op === RANGE && !DATE_LIT.test(hi)) return () => false;
+      // A RANGE IS ONE ATOM, which is the whole of what two tokens cannot say:
+      // asked of each cell in turn (`valueTest'), `planned:A..B' is ONE date
+      // cell inside the interval where `planned:>=A planned:<=B' lets either
+      // cell answer either end.
+      const holds = d.op === RANGE
+        ? dated((c) => cmpTest(CMP_GE, lo, c) && cmpTest(CMP_LE, hi, c))
+        : dated((c) => cmpTest(d.op, lo, c));
+      return (r) => holds(rowText(r).cells[i]);
     }
 
     /**
@@ -2256,13 +2422,17 @@
     function queryMatcher(q) {
       /** @type {Map<string, {base: ((r: Row) => boolean)[], wide: ((r: Row) => boolean)[]}>} */
       const axes = new Map();
+      compiledDay = localDay();   // one clock read, before any row
       for (const tok of parseQuery(q, queryKeys())) {
         if (tok.key && VIEW_KEYS.indexOf(tok.key) !== -1) continue;
-        if (vacuous(tok)) continue;
+        // ONE READING PER TOKEN: the same atoms decide whether it is dropped and
+        // what it tests, and reaching them samples the columns (`datedKey').
+        const atoms = atomsOf(tok);
+        if (vacuousHere(tok, atoms)) continue;
         const key = tok.key === null ? SUBSTRING_KEY : tok.key;
         let ax = axes.get(key);
         if (!ax) { ax = { base: [], wide: [] }; axes.set(key, ax); }
-        const test = tokenTest(tok);
+        const test = tokenTest(tok, atoms);
         if (tok.added) ax.wide.push(test);
         else ax.base.push(tok.negated ? (r) => !test(r) : test);
       }
@@ -3817,8 +3987,13 @@
         if (t.key === VIEW_KEY)
           return { stage: "view", tok: t, col: null, prefix: t.value.toLowerCase() };
         const col = colByKey(t.key);
-        return col ? { stage: "value", tok: t, col,
-                       prefix: t.value.slice(t.value.lastIndexOf(ALT) + 1) } : null;
+        if (!col) return null;
+        // A DATE COLUMN'S VALUE IS A STAGE OF ITS OWN: what stands there is a
+        // grammar as well as a domain, and an operator head OPENS the value
+        // where a value finishes it (`suggestFor', `acceptAc').
+        const onDate = dateColumn(columns().indexOf(col));
+        return { stage: onDate ? "date" : "value", tok: t, col,
+                 prefix: t.value.slice(t.value.lastIndexOf(ALT) + 1) };
       }
       if (!t.value || splitAt(t.value) !== -1) return null;
       return { stage: "key", tok: t, col: null, prefix: t.value };
@@ -3849,9 +4024,11 @@
     /**
      * The suggestions for STAGE: the text each inserts, the rows behind it, and
      * whether it finishes a token.  A column completion does not — it lands as
-     * `key:' and carries no count, narrowing nothing on its own.  Row one is
-     * what Enter takes (`openAc'): WHAT THE WORD SPELLS IN FULL LEADS WHAT IT
-     * MERELY OPENS, at either stage.
+     * `key:' and carries no count, narrowing nothing on its own; nor does an
+     * operator head on a date value, which lands as `key:>='.  `full' IS THE
+     * WHOLE OF THAT ANSWER and no stage adds finality behind it (`acceptAc').
+     * Row one is what Enter takes (`openAc'): WHAT THE WORD SPELLS IN FULL
+     * LEADS WHAT IT MERELY OPENS, at either stage.
      * @returns {{text: string, count: number, full: boolean, dim: boolean,
      *             show?: string, aside?: string}[]}
      */
@@ -3972,8 +4149,20 @@
         return out;
       }
       const dom = domainOf(st.col);
-      const domain = dom.list.indexOf(EMPTY_META) === -1
-        ? dom.list.concat([EMPTY_META]) : dom.list;
+      // `*today*' AND THE OPERATOR HEADS RIDE THE FOOT of a date column's
+      // domain, the way `*empty*' rides every column's, and what is offered
+      // behind a typed head is the LITERAL: `scheduled:>=2026-0' completes
+      // dates.  A TYPED HEAD DROPS `*empty*', the empty cell sitting outside
+      // every comparison.
+      const onDate = dateColumn(columns().indexOf(st.col));
+      const dv = onDate ? dateValue(p) : null;
+      // THE HEAD is what stands before a literal still being typed: the
+      // operator, or the range's low end and the separator behind it.
+      const head = dv === null ? "" : dv.op === RANGE ? dv.lo + RANGE : dv.op;
+      const p2 = p.slice(head.length);
+      const listed = onDate ? dom.list.concat([TODAY_META]) : dom.list;
+      const domain = head || listed.indexOf(EMPTY_META) !== -1
+        ? listed : listed.concat([EMPTY_META]);
       // AN ADDED TOKEN WIDENS, AND A CARRIED VALUE WIDENS BY NOTHING: `A ∨ A'
       // is `A', so behind a `+' the values its axis already stands on are dead
       // offers and drop out.  The plain and negated stages take the whole
@@ -3983,15 +4172,26 @@
       let whole = null;
       for (const v of domain) {
         if (whole && out.length >= AC_MAX) break;
-        const lower = String(v).toLowerCase();
-        if (carried && carried.has(meant(lower))) continue;
-        if (!opensWith(lower, p)) continue;
+        const lower = String(v).toLowerCase(), text = head + String(v);
+        if (carried && carried.has(meant(text.toLowerCase()))) continue;
+        if (!opensWith(lower, p2)) continue;
+        // THE DOMAIN COUNTS ROWS SPELLING A CELL, where `>=D' serves rows that
+        // spell something else — so an offer behind a head prints no count
+        // rather than a wrong one.
         const meta = META.test(String(v));
-        const item = { text: String(v), count: meta ? -1 : dom.counts.get(lower) || 0,
-                       full: false, dim: meta };
-        if (spells(lower, p)) { whole = item; continue; }
+        const item = { text, count: meta || head ? -1 : dom.counts.get(lower) || 0,
+                       full: true, dim: meta };
+        if (spells(lower, p2)) { whole = item; continue; }
         if (out.length < AC_MAX) out.push(item);
       }
+      // WHAT SPELLS IN FULL LEADS WHAT MERELY OPENS, so a head rides under the
+      // values and carries no count.  `full: false' is what says it opens one:
+      // accepting leaves the token unfinished for the literal (`acceptAc').
+      if (onDate)
+        for (const op of CMPS.filter((c) => c !== p && c.startsWith(p))) {
+          if (out.length >= AC_MAX) break;
+          out.push({ text: op, count: -1, full: false, dim: true });
+        }
       if (whole) {
         out.unshift(whole);
         if (out.length > AC_MAX) out.pop();
@@ -4110,7 +4310,7 @@
       const head = ac.stage === "key" ? signMark(t)
         : v.slice(t.start, Math.max(t.sep + 1, bar + 1, comma + 1,
                                     arrow === -1 ? 0 : arrow + SORT_ARROW.length));
-      const ins = head + item.text + (item.full || ac.stage === "value" ? " " : "");
+      const ins = head + item.text + (item.full ? " " : "");
       input.value = v.slice(0, t.start) + ins + v.slice(t.end);
       const caret = t.start + ins.length;
       if (input.setSelectionRange) input.setSelectionRange(caret, caret);
@@ -4164,7 +4364,7 @@
           // In `inline' the suggestion list is no rung of its own.
           if (e.key === "Escape") { closeAc(); if (inline) abandonFilter(); return; }
           const taken = ac.items[acAt];
-          const finished = taken.full || ac.stage === "value";
+          const finished = taken.full;
           acceptAc(taken);
           if (e.key === "Tab" || !finished) return;
           closeAc();
