@@ -347,8 +347,8 @@ definition-name = word ;                     (* resolved in the environment *)
 (* .filter(*args, **kwargs) — order-blind; L4 imposes positionals-first *)
 filter-args   = filter-arg { "," filter-arg } ;
 filter-arg    = positional | kwarg ;
-positional    = string | "raw" raw-string ;
-kwarg         = binding | "not" "(" binding ")" ;
+positional    = string | word raw-string ;    (* word: raw *)
+kwarg         = binding | word "(" binding ")" ;      (* word: not *)
 binding       = field op value ;
 op            = "=" | "/=" | cmp-op ;
 cmp-op        = "<" | "<=" | ">" | ">=" ;   (* temporal fields only — L4, L8 *)
@@ -373,11 +373,13 @@ string        = '"' { char - '"' } '"' ;
 raw-string    = '"' { ( char - '"' ) | '""' } '"' ;   (* the one escape, L1 *)
 ```
 
-The stage names above are terminals and every one of them folds, `filter` and
-`FILTER` alike. The closed rosters a `word` may resolve to — `Active`,
-`Inactive`, `Empty`, `Archive`; `All`/`Any` applied to a list; `Asc`/`Desc`
-applied to a string; `None` alone in a chain; `columns` as `.sort(…)`'s one
-kwarg name — are [L3](#l3--the-prelude)'s and are resolved by
+The three stage names are terminals and every one of them folds, `filter` and
+`FILTER` alike; `defined-stage` catches every other name, so `.foo(…)` parses
+and [L4](#resolution-by-position) answers it. The closed rosters a `word` may
+resolve to — `Active`, `Inactive`, `Empty`, `Archive`; `All`/`Any` applied to a
+list; `Asc`/`Desc` applied to a string; `not` wrapping a binding; `raw` applied
+to a raw string; `None` alone in a chain; `columns` as `.sort(…)`'s one kwarg
+name — are [L3](#l3--the-prelude)'s and are resolved by
 [L4](#resolution-by-position). They are written Capitalized in this document
 because that is the canonical display.
 
@@ -1427,7 +1429,7 @@ Three rungs, and the crumb rung is reached only when `stripLastToken` succeeded
 AND left the query EMPTY. The states are disjoint by construction, which is what
 `Keymap.hs`:67-68 already spells in its help: `unmark all, else drop the
 filter's last token`, and `keyHints` says `unmark/drop token/back`
-(`Keymap.hs`:186).
+(`Keymap.hs`:187).
 
 So the change is one word inside `stripLastToken` (`assets/table-view.js`:3697):
 the unit it takes off becomes the STAGE rather than the token. The ladder above
@@ -1802,7 +1804,7 @@ this file moves to `docs/proposals/done/` with an "As delivered" section.
 - **LOC:** no code beyond the pane; ~120 doc lines on top of Phase 1's page,
   ~80 for the pane and its one browser case (the pane lists exactly the names
   the resolver knows — the case that keeps the two from drifting).
-- **Risk: low.**
+- **Risk: low.** Nothing on the page's existing paths moves.
 
 ## What this deliberately does not do
 
