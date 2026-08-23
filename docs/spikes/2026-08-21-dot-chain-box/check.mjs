@@ -29,7 +29,7 @@ const SQL = "g-sql.html";
 // cannot land a caret in parens, composes no chain, and has no parens for a
 // comma or an accept to land in.  Declared, so the run is green and the misses
 // are the argument rather than a broken tab.
-const MISSES = { "a-control.html": ["DOT", "PARENS", "CHAIN", "COMMA", "DRY"] };
+const MISSES = { "a-control.html": ["DOT", "PARENS", "CHAIN", "COMMA", "DRY", "REL"] };
 // D ANSWERS THE TWO KEYS DIFFERENTLY, on purpose: `/' edits the filter stage
 // and `DEL' takes it whole, so the flat-door rungs are not its to pass.  F is
 // D's machinery with a TYPED surface, so it departs the same way — and its
@@ -49,6 +49,13 @@ const DEPARTS = { "d-stage-pills.html": ["SLASH", "SIG"],
 // the text, so the surface that spells them differently still says this.  Two
 // literals could only both be edited; one asserts it.
 const SAID = 'tag: "chore" is both required and refused — no row can carry that';
+// …AND THE SAME SENTENCE OVER A RELATION AXIS.  The value is spelled as the
+// CALL, because on this axis the call already names the axis — and it is
+// spelled off the ATOM, which is what makes `?kind=Blocked By' and
+// `?kind=blocked-by' say one sentence rather than two.
+const REL_SAID = (v) => `${v} is both required and refused — no row can carry that`;
+// The one edge the relation rungs are driven on, in each surface's spelling.
+const REL_TOKEN = "ref:def456?kind=blocked-by";
 
 const BOOT_CHIPS = ["state:*active*", "-tag:chore"];
 const BOOT_FILTER = "state:*active* -tag:chore";
@@ -116,6 +123,25 @@ const IR_CORPUS = {
     // the shape kwargs cannot say, said as the flat string it is
     ["priority:[#A] +priority:[#B] tag:book",
      '.filter(raw "priority:[#A] +priority:[#B]", tag = "book")'],
+    // THE RELATIONS: one leaf, two readers.  The typed surface spells them as
+    // CALLS, the kind binding as a kwarg — a kind inside the quotes would be a
+    // second grammar hidden in a literal.
+    ["ref:def456", '.filter(refs_to("def456"))'],
+    ["from:abc123", '.filter(refs_from("abc123"))'],
+    ["ref:def456?kind=blocked-by", '.filter(refs_to("def456", kind = "blocked-by"))'],
+    // the slug is the PEER'S — downcased, whitespace folded — on the write and
+    // on the read, so one edge written two ways is one atom
+    ['ref:"def456?kind=Blocked By"', '.filter(refs_to("def456", kind = "Blocked By"))'],
+    // the existence meta, spelled as the constructor every meta wears
+    ["ref:*any*", ".filter(refs_to(Any))"],
+    ["-from:*any*", ".filter(not (refs_from(Any)))"],
+    ["from:*any*?kind=blocked-by", '.filter(refs_from(Any, kind = "blocked-by"))'],
+    // two anchors AND on one axis; and the two keys are TWO axes
+    ["ref:abc123 ref:def456", '.filter(refs_to("abc123"), refs_to("def456"))'],
+    ["ref:abc123 from:abc123", '.filter(refs_to("abc123"), refs_from("abc123"))'],
+    // …and case carries nothing on the call or its kwarg, while the ANCHOR is
+    // the one value that is not folded at all
+    ["ref:def456?kind=blocked-by", '.filter(REFS_TO("def456", KIND = "Blocked By"))'],
   ],
   trip: [
     "state:*active* -tag:chore state:TODO|DONE",
@@ -125,6 +151,10 @@ const IR_CORPUS = {
     'substring:"-x" -state:TODO|DONE',
     "columns:State,Title,owner sort:deadline:desc->title",
     "milk +bread",
+    // the relations render back into calls, kind and all — and an ALTERNATION
+    // OF ANCHORS rides `raw "…"', one call being about ONE anchor
+    "ref:def456?kind=blocked-by from:*any* state:TODO",
+    "ref:abc123|def456",
   ],
   diff: [
     // law 5's PARTING case: (u ∧ v1) ∨ v2 is not u ∧ (v1 ∨ v2)
@@ -139,6 +169,12 @@ const IR_CORPUS = {
     ["sort:deadline", "sort:deadline:desc"],
     // and `columns:' is not narrowing
     ["columns:State", "columns:Deadline"],
+    // ONE EDGE, TWO TOKENS: the direction is the whole of the difference
+    ["ref:abc123", "from:abc123"],
+    // …and so is the kind, the bare form being kind-BLIND and not kindless
+    ["ref:def456", "ref:def456?kind=blocked-by"],
+    // …and `*any*' is the union where `any' is an id somebody wears
+    ["ref:*any*", "ref:any"],
   ],
 };
 
@@ -224,6 +260,31 @@ const IR3_CORPUS = {
     ["tag:work|home", '.filter(tag = ["work", "home"])', "FROM work, home"],
     ["tag:work tag:urgent", '.filter(tag = All ["work", "urgent"])',
      "FROM work WHERE tag = 'urgent'"],
+    // THE RELATIONS, four-way: the flat token (which two surfaces read), F's
+    // call with its kwarg, and g's with the kind by POSITION — SQL has no
+    // kwargs, so the word F binds with has nowhere to be written.
+    ["ref:def456", '.filter(refs_to("def456"))', "WHERE REFS_TO('def456')"],
+    ["from:abc123", '.filter(refs_from("abc123"))', "WHERE REFS_FROM('abc123')"],
+    ["ref:def456?kind=blocked-by", '.filter(refs_to("def456", kind = "blocked-by"))',
+     "WHERE REFS_TO('def456', 'blocked-by')"],
+    // …and the peer's slug is applied by all three
+    ['ref:"def456?kind=Blocked By"', '.filter(refs_to("def456", kind = "Blocked By"))',
+     "WHERE REFS_TO('def456', 'Blocked By')"],
+    // THE EXISTENCE META, as each surface spells a meta
+    ["ref:*any*", ".filter(refs_to(Any))", "WHERE REFS_TO(ANY)"],
+    ["-from:*any*", ".filter(not (refs_from(Any)))", "WHERE NOT REFS_FROM(ANY)"],
+    ["from:*any*?kind=blocked-by", '.filter(refs_from(Any, kind = "blocked-by"))',
+     "WHERE REFS_FROM(ANY, 'blocked-by')"],
+    // two anchors AND on one axis, where a repeated column is g's own `AND'
+    ["ref:abc123 ref:def456", '.filter(refs_to("abc123"), refs_to("def456"))',
+     "WHERE REFS_TO('abc123') AND REFS_TO('def456')"],
+    // …AND THE ALTERNATION OF ANCHORS, which g's `OR' spells and one call
+    // cannot: F escapes into `raw "…"', the same admission the `+' key makes
+    ["ref:abc123|def456", '.filter(raw "ref:abc123|def456")',
+     "WHERE REFS_TO('abc123') OR REFS_TO('def456')"],
+    // case carries nothing on the call, and the ANCHOR is not folded at all
+    ["ref:def456?kind=blocked-by", '.filter(REFS_TO("def456", KIND = "Blocked By"))',
+     "where refs_to('def456', 'Blocked By')"],
   ],
   trip: [
     "state:*active* -tag:chore state:TODO|DONE",
@@ -233,6 +294,7 @@ const IR3_CORPUS = {
     "columns:State,Title,owner sort:deadline:desc->title",
     "deadline:<=*today*+30d sort:deadline",
     "tag:web tag:docs +tag:chore",
+    "ref:def456?kind=blocked-by -from:*any*",
   ],
   diff: [
     // the alternation is not the intersection
@@ -252,6 +314,11 @@ const IR3_CORPUS = {
     ["WHERE deadline < CURRENT_DATE", "WHERE deadline <= CURRENT_DATE"],
     // …and a dataset narrows where its alias does not
     ["FROM work", "FROM all"],
+    // ONE EDGE, TWO TOKENS: the direction, the kind, and the meta against an
+    // id somebody actually wears
+    ["WHERE REFS_TO('abc123')", "WHERE REFS_FROM('abc123')"],
+    ["WHERE REFS_TO('def456')", "WHERE REFS_TO('def456', 'blocked-by')"],
+    ["WHERE REFS_TO(ANY)", "WHERE REFS_TO('any')"],
   ],
 };
 
@@ -392,6 +459,14 @@ const FLAT_LAW = {
   s_dir: ["sort", "deadline:desc, title", "sort:deadline:desc->title"],
   c_comma_space: ["columns", "State, Deadline", "columns:State,Deadline"],
   c_comma: ["columns", "State,Deadline", "columns:State,Deadline"],
+  // THE RELATION KEYS ARE ORDINARY TOKENS IN THE FLAT STRING, which is the
+  // whole of what the typed surfaces are a view of: the `?kind=' rides inside
+  // the value, and the long spelling is quoted whole because the scanner cuts
+  // on the space.
+  r_ref: ["filter", "ref:def456, from:abc123", "ref:def456 from:abc123"],
+  r_kind: ["filter", "ref:def456?kind=blocked-by", "ref:def456?kind=blocked-by"],
+  r_any: ["filter", "ref:*any*, -from:*any*", "ref:*any* -from:*any*"],
+  r_quoted: ["filter", 'ref:"def456?kind=Blocked By"', 'ref:"def456?kind=Blocked By"'],
 };
 // F'S COMMA IS THE SURFACE'S OWN — a Haskell argument list's separator, and
 // inside brackets the list's.  The law it owes is the same: what the stage
@@ -431,6 +506,34 @@ const TYPED_LAW = {
   c_custom: ["columns", '"State", "owner"', "columns:State,owner"],
   // A BARE WORD IS NO NAME: nothing composes rather than something wrong.
   c_bare: ["columns", "State, Deadline", ""],
+  // THE RELATIONS ARE CALLS AND NOT FIELDS, because the kind cannot live
+  // inside the quotes: a kwarg BINDS and a positional is what the predicate is
+  // ABOUT, so the id is positional and the kind binds.
+  r_to: ["filter", 'refs_to("def456")', "ref:def456"],
+  r_from: ["filter", 'refs_from("abc123")', "from:abc123"],
+  r_kind: ["filter", 'refs_to("def456", kind = "blocked-by")',
+           "ref:def456?kind=blocked-by"],
+  // …and the slug is the peer's, applied on the WRITE as well as the read
+  r_slug: ["filter", 'refs_to("def456", kind = "Blocked By")',
+           "ref:def456?kind=blocked-by"],
+  // `Any' IS THE `*any*' META'S CONSTRUCTOR — the word the list wrapper used to
+  // wear.  One name, one arity, and the metas' law had the better claim.
+  r_any: ["filter", "refs_to(Any)", "ref:*any*"],
+  r_any_kind: ["filter", 'refs_from(Any, kind = "blocked-by")',
+               "from:*any*?kind=blocked-by"],
+  // the negation is the WRAPPER, there being no operator on a call to flip
+  r_not: ["filter", "not (refs_from(Any))", "-from:*any*"],
+  // two anchors AND on one axis, and the two keys are two axes
+  r_two: ["filter", 'refs_to("abc123"), refs_from("abc123")',
+          "ref:abc123 from:abc123"],
+  // …AND THE FIELD SPELLING COMPOSES NOTHING.  `ref:x' is a real token of the
+  // grammar, so writing one out of a spelling the surface marks would be
+  // inventing the reader's query — where an unknown FIELD composes the free
+  // text it meant anyway.
+  r_field: ["filter", 'ref = "def456"', ""],
+  // case carries nothing on the call or its kwarg; the ANCHOR is not folded
+  r_case: ["filter", 'REFS_TO("def456", KIND = "Blocked By")',
+           "ref:def456?kind=blocked-by"],
 };
 // G'S SEPARATOR IS `AND', which is the same law asked of a language that
 // spells its conjunction as a WORD: the comma stays where SQL puts one — the
@@ -500,6 +603,27 @@ const SQL_LAW = {
   t_all: ["from", "all", ""],
   t_default: ["from", "default", ""],
   t_unknown: ["from", "nosuch", "tag:nosuch"],
+  // THE RELATIONS ARE BOOLEAN FUNCTIONS IN `WHERE', which is SQL's own shape
+  // for a predicate that is not a column comparison — and the kind is the
+  // SECOND POSITIONAL, SQL having no kwargs for F's word to be written in.
+  r_to: ["filter", "REFS_TO('def456')", "ref:def456"],
+  r_from: ["filter", "REFS_FROM('abc123')", "from:abc123"],
+  r_kind: ["filter", "REFS_TO('def456', 'blocked-by')", "ref:def456?kind=blocked-by"],
+  r_slug: ["filter", "REFS_TO('def456', 'Blocked By')", "ref:def456?kind=blocked-by"],
+  r_any: ["filter", "REFS_TO(ANY)", "ref:*any*"],
+  r_any_kind: ["filter", "REFS_FROM(ANY, 'blocked-by')", "from:*any*?kind=blocked-by"],
+  r_not: ["filter", "NOT REFS_FROM(ANY)", "-from:*any*"],
+  r_case: ["filter", "refs_to('def456', 'blocked-by')", "ref:def456?kind=blocked-by"],
+  // the axis law over the new keys: two anchors AND, an `OR' within one axis
+  // is the alternation, and across two of them there is no flat spelling
+  r_and: ["filter", "REFS_TO('abc123') AND REFS_TO('def456')", "ref:abc123 ref:def456"],
+  r_or: ["filter", "REFS_TO('abc123') OR REFS_TO('def456')", "ref:abc123|def456"],
+  r_cross: ["filter", "REFS_TO('abc123') OR tag = 'web'", ""],
+  // …and `ref' as a COLUMN is an error, the `WHERE' namespace being closed
+  r_col: ["filter", "ref = 'def456'", ""],
+  // THE CLOSURE IS PROPOSED AND UNSHIPPED, so the keyword that asks for it
+  // composes nothing and says where the walk lives.
+  r_closure: ["filter", "WITH RECURSIVE reach AS (SELECT 1)", ""],
 };
 /** A control at the RUN's level, the way `/' is: no tab owns it, so no tab can
  *  declare it a miss or a departure. */
@@ -554,6 +678,20 @@ const unsatLaw = async () => {
     // and a WIDENED axis has a second way to be true
     wide: RIG.unsat("tag:chore -tag:chore +tag:web").said,
     boot: RIG.unsat(boot).said,
+    // THE NEW AXES INHERIT THE READING WHOLE.  Required-and-refused reads them
+    // the way it reads any axis; the SINGLE-CELL rule does not read them at
+    // all, a row sitting on as many edges as its subtree carries.
+    rel: RIG.unsat("ref:abc123 -ref:abc123"),
+    relTwo: RIG.unsat("ref:abc123 ref:def456").said,
+    relAny: RIG.unsat("ref:*any* -ref:*any*").said,
+    // …and the sentence is read off the ATOM, so one edge written two ways is
+    // one contradiction and says it once
+    relKind: RIG.unsat('ref:"def456?kind=Blocked By" -ref:def456?kind=blocked-by').said,
+    // …while a KINDED refusal does not kill the kind-blind requirement: a
+    // plain mention answers both
+    relLoose: RIG.unsat("ref:def456 -ref:def456?kind=blocked-by").said,
+    // …and the two keys are two axes, so neither reads the other's atoms
+    relAxes: RIG.unsat("ref:abc123 -from:abc123").said,
   }), BOOT_FILTER);
   return { ok: eq(law.pair.said, [SAID])
              && eq(law.pair.tokens, ["tag:chore", "-tag:chore"])
@@ -562,8 +700,95 @@ const unsatLaw = async () => {
                    ['state: "TODO" and "DONE" are both required — no row is both'])
              && eq(law.tags, []) && eq(law.meta, []) && eq(law.nested, [])
              && law.apart.length === 1 && eq(law.text, []) && eq(law.alt, [])
-             && eq(law.altN, []) && eq(law.wide, []) && eq(law.boot, []),
+             && eq(law.altN, []) && eq(law.wide, []) && eq(law.boot, [])
+             && eq(law.rel.said, [REL_SAID('refs_to("abc123")')])
+             && eq(law.rel.tokens, ["ref:abc123", "-ref:abc123"])
+             && eq(law.relTwo, []) && eq(law.relAny, [REL_SAID("refs_to(Any)")])
+             && eq(law.relKind,
+                   [REL_SAID('refs_to("def456", kind = "blocked-by")')])
+             && eq(law.relLoose, []) && eq(law.relAxes, []),
            why: `unsat=${JSON.stringify(law)}` };
+};
+
+/**
+ * THE STORE'S OWN GRAPH, asked of the API — the RIG's law and no tab's, so it
+ * sits in the LAW pass beside the warning's.  Six rows, four resolved edges,
+ * and every law `docs/query.md' states about a reference read off THIS fixture
+ * rather than described: one edge from its two ends, the kind test, the union
+ * over the anchor, and the two links that are no reference at all.
+ */
+const relStoreLaw = async () => {
+  const g = await ff.eval(() => {
+    const rows = (q) => RIG.served(q).rows.map((r) => r.title);
+    return {
+      edges: RIG.edges().map((e) => e.from + ">" + e.to + "/" + e.kind),
+      kinds: RIG.kinds("ref", "def456"),
+      // ONE EDGE, TWO TOKENS: `ref' from the target's end, `from' from the
+      // source's, and neither serves the row it was asked about.
+      ref: rows("ref:def456"), from: rows("from:abc123"),
+      // the kind test — and the bare form stays KIND-BLIND, so a plain mention
+      // answers it and answers no kind at all
+      kind: rows("ref:def456?kind=blocked-by"),
+      other: rows("ref:def456?kind=see-also"),
+      plain: rows("ref:mno345"), plainKind: rows("ref:mno345?kind=blocked-by"),
+      // the long spelling, quoted whole because the scanner cuts on the space
+      quoted: rows('ref:"def456?kind=Blocked By"'),
+      // `*any*' IS THE UNION OVER THE ANCHOR, and its negation is the orphans
+      any: rows("ref:*any*"), fromAny: rows("from:*any*"),
+      orphans: rows("-from:*any*"),
+      anyKind: rows("ref:*any*?kind=blocked-by"),
+      fromAnyKind: rows("from:*any*?kind=blocked-by"),
+      // THE TWO NEGATIVE LAWS, on the fixture: a link back to the row it was
+      // written in is no reference, and one naming no row is none either.
+      self: rows("ref:pqr678"), dangling: rows("ref:zzz999"),
+      // the anchor is the ONE VALUE NOT CASE-FOLDED, so the star is lower or
+      // it is an id nobody wears — and the bare word is an ordinary id
+      upper: rows("ref:*ANY*"), bare: rows("ref:any"),
+      // …and the BOUNDED CLOSURE is unshipped, so its mark is part of an
+      // anchor no row claims
+      depth: rows("ref:abc123..3"),
+      // THE CUT IS TAKEN ONLY WHERE A `kind=' COMES OUT OF THE `?': an id
+      // carrying one that declares no kind stays WHOLE and resolves to the row
+      // it always did, and it is the RIGHT `?' that cuts and not the first.
+      question: [RIG.anchor("abc?123"), RIG.anchor("abc?kind=Blocked By"),
+                 RIG.anchor("abc?x=1?kind=see-also")],
+      // THE TWO KEYS ARE TWO AXES, and the axes AND: the row that points at
+      // `mno345' and is pointed at by `abc123' is `Write the release notes'.
+      both: rows("ref:mno345 from:abc123"),
+      // …while two anchors on ONE axis AND too, and nobody points at both
+      oneAxis: rows("ref:abc123 ref:def456"),
+    };
+  });
+  const SHIP = "Ship the dot chain", PORT = "Port table-view v1.2 notes";
+  const WRITE = "Write the release notes", DROP = "Drop the ?order= parameter";
+  return { ok: eq(g.edges, ["abc123>def456/blocked-by", "abc123>ghi789/see-also",
+                            "ghi789>mno345/null", "pqr678>def456/blocked-by"])
+             && eq(g.kinds, ["blocked-by"])
+             && eq(g.ref, [SHIP, DROP]) && eq(g.from, [WRITE, PORT])
+             && eq(g.kind, [SHIP, DROP]) && eq(g.other, [])
+             && eq(g.plain, [WRITE]) && eq(g.plainKind, [])
+             && eq(g.quoted, [SHIP, DROP])
+             && eq(g.any, [SHIP, WRITE, DROP])
+             && eq(g.fromAny, [WRITE, PORT, "Read the org-mode manual"])
+             && eq(g.orphans, [SHIP, "Rename the query keys", DROP])
+             && eq(g.anyKind, [SHIP, DROP]) && eq(g.fromAnyKind, [PORT])
+             && eq(g.self, []) && eq(g.dangling, [])
+             && eq(g.upper, []) && eq(g.bare, []) && eq(g.depth, [])
+             && eq(g.both, [WRITE]) && eq(g.oneAxis, [])
+             && eq(g.question, [{ id: "abc?123", kind: null },
+                                { id: "abc", kind: "blocked-by" },
+                                { id: "abc?x=1", kind: "see-also" }]),
+           why: `store=${JSON.stringify(g)}` };
+};
+
+/** Two laws under one `LAW-*' line: the pass takes one extra and neither of
+ *  these belongs inside the other. */
+const both = (...fns) => async () => {
+  for (const f of fns) {
+    const r = await f();
+    if (!r.ok) return r;
+  }
+  return { ok: true, why: "" };
 };
 
 /** F'S CASE LAW, asked of the API: any case parses, the accept canonicalises,
@@ -575,10 +800,20 @@ const dslCaseLaw = async () => {
     errs: RIG.dslErrors("filter", "state = chore").length,
     composes: RIG.stageString("filter", "state = chore"),
     variant: RIG.stageString("filter", "STATE = ACTIVE"),
+    // …AND A RELATION SPELLED AS A FIELD IS MARKED AND COMPOSES NOTHING, where
+    // an unknown field composes the free text it meant anyway: `ref:x' is a
+    // real token, so writing one would invent the reader's query.
+    relField: [RIG.dslErrors("filter", 'ref = "def456"').length,
+               RIG.stageString("filter", 'ref = "def456"')],
+    // …and the call's own arity is what the offers and the silence read: the
+    // call is owed an argument, the meta's constructor stands alone.
+    relArity: [RIG.dslErrors("filter", "refs_to()").length,
+               RIG.stageString("filter", "refs_to()")],
   }));
   return { ok: api.canon === 'state = Active, tag /= "Chore"'
              && api.left === "state = chore" && api.errs === 1
-             && api.composes === "" && api.variant === "state:*active*",
+             && api.composes === "" && api.variant === "state:*active*"
+             && eq(api.relField, [1, ""]) && eq(api.relArity, [1, ""]),
            why: `case=${JSON.stringify(api)}` };
 };
 
@@ -602,6 +837,12 @@ const sqlApiLaw = async () => {
     // own answer and not an error the surface may invent.  The `0' is that law
     // and not a field nobody sets.
     open: RIG.sqlErrors("from", "nosuch").length,
+    // …AND THE RELATION CALLS ARE KEYWORDS, so the formatter upper-cases them
+    // and the two literals inside are left alone — the anchor is the one value
+    // that is not folded anywhere.
+    relCanon: RIG.sqlCanon("refs_to('def456', 'blocked-by')", "filter"),
+    relCol: [RIG.sqlErrors("filter", "ref = 'def456'").length,
+             RIG.stageString("filter", "ref = 'def456'")],
   }));
   return { ok: api.canon === "state = ACTIVE AND tag NOT LIKE '%x%'"
              && api.kept === "Ship Date, TITLE"
@@ -609,7 +850,9 @@ const sqlApiLaw = async () => {
              && api.upper === api.lower
              && api.mixed === "sort:deadline:desc->title"
              && api.unknown[0] === 1 && api.unknown[1] === ""
-             && api.open === 0,
+             && api.open === 0
+             && api.relCanon === "REFS_TO('def456', 'blocked-by')"
+             && eq(api.relCol, [1, ""]),
            why: `case=${JSON.stringify(api)}` };
 };
 
@@ -617,7 +860,8 @@ const sqlApiLaw = async () => {
 // tab's dialect and no other, so `node check.mjs g-sql.html' still says what
 // g's own spellings owe.
 const FLAT_PAGE = picked.find((p) => p !== TYPED && p !== SQL);
-if (FLAT_PAGE) await lawPass("LAW-FLAT", FLAT_PAGE, FLAT_LAW, unsatLaw);
+if (FLAT_PAGE) await lawPass("LAW-FLAT", FLAT_PAGE, FLAT_LAW,
+                             both(unsatLaw, relStoreLaw));
 if (picked.includes(TYPED)) await lawPass("LAW-DSL", TYPED, TYPED_LAW, dslCaseLaw);
 if (picked.includes(SQL)) await lawPass("LAW-SQL", SQL, SQL_LAW, sqlApiLaw);
 
@@ -795,6 +1039,76 @@ for (const page of picked) {
   const drove = await ff.eval(() => RIG.composed());
   want("COMMA", drove === "state:TODO tag:web sort:state->title",
        `drove=${JSON.stringify(drove)}`);
+
+  // ---- REL: THE RELATION PREDICATES, driven through each surface's own
+  // offers.  One edge — `Ship the dot chain' is blocked by `Port table-view' —
+  // and three spellings of it: the flat token with the `?kind=' inside its
+  // value, F's call with the kind as a KWARG, g's with the kind by POSITION.
+  // Every one composes the same flat token, and the drive goes through the
+  // OFFERS because both rosters are new: the ids the store wears, and the kinds
+  // THAT anchor's own edges carry.
+  const REL_DRIVE = pick(
+    // the key, the anchor out of the offers, then the `?' that opens the kind
+    [chars("ref:def"), [KEY.Tab], chars("?"), [KEY.Tab]],
+    // the call, its anchor SLOT, then the `kind' kwarg and its own slot — two
+    // TABs, because the kwarg and its value are two positions
+    [chars("refs_"), [KEY.Tab], chars("def456"), [KEY.Tab], chars(", "),
+     [KEY.Tab], [KEY.Tab]],
+    // …and in g the COMMA opens the second positional's slot the way an `IN'
+    // list's comma does, so there is no kwarg to take first
+    [chars("refs_"), [KEY.Tab], chars("def456"), [KEY.Tab], chars(","),
+     chars("blo"), [KEY.Tab]]);
+  // …AND THE EXISTENCE META, spelled as the constructor every meta wears.  In
+  // F that word is `Any', which the list wrapper used to have.
+  const ANY_DRIVE = pick([chars("ref:*a"), [KEY.Tab]],
+                         [chars("refs_"), [KEY.Tab], chars("A"), [KEY.Tab]],
+                         [chars("refs_"), [KEY.Tab], chars("A"), [KEY.Tab]]);
+  const REL_LEAD = pick(["ref:def456"],
+                        ['refs_to( "…" )', 'refs_from( "…" )'],
+                        ["REFS_TO( '…' )", "REFS_FROM( '…' )"]);
+  // A CALL HAS A CLOSER OF ITS OWN, so the typed dialects step over it before
+  // the stage's own close; the flat token has no parens for either.
+  const REL_CLOSE = pick([CLOSE], [")", CLOSE], [")", CLOSE]);
+  await ff.goto(url);
+  await drive(OPEN_FILTER);
+  await ff.keys(REL_DRIVE[0]);
+  // BOTH DIRECTIONS COME OFF ONE ROSTER: `refs_' names neither, so the pair
+  // standing here is the direction law with nowhere to drift.
+  const relPair = await ff.eval(() => RIG.menu().items);
+  await drive(REL_DRIVE.slice(1));
+  const relLive = await ff.eval(held);
+  await ff.keys(REL_CLOSE.concat([KEY.Enter]));
+  const relOn = await ff.eval(() => ({ q: RIG.query(), rows: RIG.rows(),
+                                       first: RIG.served(RIG.query()).rows
+                                         .map((r) => r.title) }));
+  await ff.goto(url);
+  await drive(OPEN_FILTER);
+  await drive(ANY_DRIVE);
+  const anyLive = await ff.eval(held);
+  // …AND THE ARITY IS WHAT THE SILENCE READS.  Walking the caret off the
+  // constructor and back onto its tail asks the position again: half a name is
+  // still being written and offers, and the whole one is a finished TERM and
+  // does not.  That is round 15's law over the word this round moved.
+  let anyWalk = { half: true, whole: false };
+  if (typed || sqlish) {
+    await ff.keys([KEY.ArrowLeft]);
+    const half = await ff.eval(() => RIG.menu().open);
+    await ff.keys([KEY.ArrowRight]);
+    anyWalk = { half: half, whole: await ff.eval(() => RIG.menu().open) };
+  }
+  await ff.keys(REL_CLOSE.concat([KEY.Enter]));
+  const anyOn = await ff.eval(() => ({ q: RIG.query(), rows: RIG.rows() }));
+  want("REL",
+       eq(relPair, REL_LEAD)
+       && relLive.c === REL_TOKEN && relLive.menu === false
+       && relOn.q === BOOT_FILTER + " " + REL_TOKEN && relOn.rows === 1
+       && eq(relOn.first, ["Ship the dot chain"])
+       && anyLive.c === "ref:*any*" && anyWalk.half === true
+       && anyWalk.whole === false
+       && anyOn.q === BOOT_FILTER + " ref:*any*" && anyOn.rows === 2,
+       `offers=${JSON.stringify(relPair)} live=${JSON.stringify(relLive)} `
+       + `on=${JSON.stringify(relOn)} any=${JSON.stringify(anyLive)}/`
+       + `${JSON.stringify(anyWalk)}/${JSON.stringify(anyOn)}`);
 
   // ---- DRY: an accept inside the parens lands bare and closes the offers
   await ff.goto(url);
@@ -1745,6 +2059,17 @@ for (const page of picked) {
       // has no way to say a disjunct of disjuncts.
       orWidening: ["((tag = 'web' AND tag = 'docs') OR tag = 'chore') OR tag = 'read'",
                    "already a disjunct"],
+      // …AND THE AXIS LAW READS THE NEW KEYS THE WAY IT READS ANY OTHER: a
+      // relation is an axis, so an `OR' out of one is refused by the same
+      // sentence.
+      relCross: ["REFS_TO('abc123') OR tag = 'web'", "OR across columns"],
+      // …AND THE CLOSURE, refused BY NAME.  A bounded walk is what SQL calls
+      // `WITH RECURSIVE'; it is proposed and unshipped, and a recursive CTE is
+      // a named subquery with an arbitrary body of which the flat grammar
+      // composes exactly one shape.  So the refusal names the document rather
+      // than teaching a language that is not there.
+      closure: ["WITH RECURSIVE reach AS (SELECT 1)",
+                "2026-08-23-the-chain-a-row-hangs-on.md"],
     };
     // …AND THE SHAPES THAT DO COMPOSE, which is what makes the refusal a line
     // and not a wall: the alternation, the base-and-widening law 5 could not
@@ -1758,6 +2083,11 @@ for (const page of picked) {
       notOr: ["NOT (tag = 'web' OR tag = 'docs')", "-tag:web|docs"],
       threeWide: ["(tag = 'web' AND tag = 'docs') OR tag = 'chore' OR tag = 'read'",
                   "tag:web tag:docs +tag:chore +tag:read"],
+      // …and a one-axis `OR' of two anchors composes, which is the alternation
+      // one call cannot spell and this one can
+      relOr: ["REFS_TO('abc123') OR REFS_TO('def456')", "ref:abc123|def456"],
+      relBase: ["(REFS_TO('abc123') AND REFS_TO('def456')) OR REFS_TO('ghi789')",
+                "ref:abc123 ref:def456 +ref:ghi789"],
     };
     const frag = await ff.eval((spec) => {
       const out = { no: {}, yes: {}, empty: RIG.irFlat("") };

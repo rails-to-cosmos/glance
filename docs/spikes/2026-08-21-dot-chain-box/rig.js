@@ -18,24 +18,58 @@ var RIG = (function () {
   // the two sources a CUSTOM column reads (`Query.hs' `customCell': `closed'
   // off `hsClosed', every other name off the drawer, folded).  They sit here so
   // the rig can DRAW a custom column rather than describe one.
+  //
+  // AND EACH ROW HAS AN `id' AND A LIST OF `links', because a RELATION is an
+  // edge between two rows and a rig with no edges could only describe one.
+  // `links' is the row's subtree read as org-glance writes it —
+  // `[[glance:ID?kind=SLUG][…]]' — so a link is a TARGET and an optional KIND.
+  // The graph, drawn:
+  //
+  //     Ship the dot chain ──blocked-by──▶ Port table-view v1.2 notes
+  //         (abc123)  │                            (def456)
+  //                   │                               ▲
+  //               see-also                         blocked-by
+  //                   │                               │
+  //                   ▼                               │
+  //     Write the release notes            Drop the ?order= parameter
+  //         (ghi789)  │                            (pqr678) ─┐ ─┐
+  //                   │ (a plain mention, no kind)     ▲     │  │
+  //                   ▼                                └─────┘  ▼
+  //     Read the org-mode manual (mno345)      (itself)      zzz999
+  //                                                        (no row)
+  //
+  //   Rename the query keys (jkl012) carries no links at all.
+  //
+  // THE TWO NEGATIVE LAWS RIDE ON `Drop': a link resolving back to the row it
+  // was written in is NO reference, and a link naming no row is none either —
+  // so `Drop' is on the relation for `def456' and for nothing else.
   var ROWS = [
-    { state: "TODO", priority: "A", title: "Ship the dot chain",
+    { id: "abc123", state: "TODO", priority: "A", title: "Ship the dot chain",
       scheduled: "2026-08-24", deadline: "2026-08-28", tags: ":spike:web:",
-      closed: "", props: { owner: "dmitry", effort: "2h" } },
-    { state: "NEXT", priority: "B", title: "Port table-view v1.2 notes",
+      closed: "", props: { owner: "dmitry", effort: "2h" },
+      links: [{ to: "def456", kind: "blocked-by" },
+              { to: "ghi789", kind: "see-also" }] },
+    { id: "def456", state: "NEXT", priority: "B",
+      title: "Port table-view v1.2 notes",
       scheduled: "", deadline: "2026-08-22", tags: ":web:",
-      closed: "", props: { owner: "ana", effort: "45m" } },
-    { state: "TODO", priority: "B", title: "Write the release notes",
+      closed: "", props: { owner: "ana", effort: "45m" }, links: [] },
+    { id: "ghi789", state: "TODO", priority: "B", title: "Write the release notes",
       scheduled: "2026-09-01", deadline: "", tags: ":docs:",
-      closed: "", props: { owner: "ana" } },
-    { state: "DONE", priority: "", title: "Rename the query keys",
+      closed: "", props: { owner: "ana" },
+      links: [{ to: "mno345", kind: null }] },
+    { id: "jkl012", state: "DONE", priority: "", title: "Rename the query keys",
       scheduled: "2026-08-11", deadline: "2026-08-12", tags: ":docs:chore:",
-      closed: "2026-08-12", props: { owner: "dmitry", effort: "1h" } },
-    { state: "", priority: "C", title: "Read the org-mode manual",
-      scheduled: "", deadline: "", tags: ":read:", closed: "", props: {} },
-    { state: "CANCELLED", priority: "A", title: "Drop the ?order= parameter",
+      closed: "2026-08-12", props: { owner: "dmitry", effort: "1h" }, links: [] },
+    { id: "mno345", state: "", priority: "C", title: "Read the org-mode manual",
+      scheduled: "", deadline: "", tags: ":read:", closed: "", props: {},
+      links: [] },
+    { id: "pqr678", state: "CANCELLED", priority: "A",
+      title: "Drop the ?order= parameter",
       scheduled: "", deadline: "2026-08-30", tags: ":web:chore:",
-      closed: "2026-08-19", props: { owner: "ana" } },
+      closed: "2026-08-19", props: { owner: "ana" },
+      links: [{ to: "def456", kind: "blocked-by" },
+              { to: "pqr678", kind: "see-also" },
+              { to: "zzz999", kind: "blocked-by" }] },
   ];
 
   /** A CUSTOM COLUMN'S CELL, the app's own law rather than a new one:
@@ -57,21 +91,55 @@ var RIG = (function () {
     { key: "deadline", head: "Deadline" }, { key: "tags", head: "Tags" },
   ];
   var SORTABLE = ["state", "priority", "title", "scheduled", "deadline", "tag"];
+  /**
+   * THE TWO RELATION KEYS, NAMED ONCE.  `ref' and `from' read ONE edge from its
+   * two ends and are DIFFERENT RELATIONS, so each carries an axis of its own
+   * (`docs/query.md', "Two keys, two axes").  They are narrowing keys like any
+   * other in the flat string — and they are NOT FIELDS in either typed surface:
+   * an edge carries a KIND, and a kind inside the quotes would be a second
+   * grammar hidden in a literal, which is the spelling round 10 threw out.  So
+   * both typed dialects spell them as a CALL, and this is the one list that
+   * says which keys those are.
+   */
+  var REL_KEYS = ["ref", "from"];
+  var isRel = function (k) { return REL_KEYS.indexOf(String(k)) >= 0; };
+  /**
+   * THE RELATION CALL'S OWN ROSTER, read by BOTH typed dialects: the call name
+   * folded, and the flat key it composes.  F spells it lower and g upper, and
+   * `fold' is the whole of what makes them one name — so the direction law has
+   * ONE home and neither surface can drift from the other.
+   */
+  var REL_FN = { refs_to: "ref", refs_from: "from" };
+  /** …read the other way, for the surfaces that WRITE a call. */
+  var REL_CALL = {};
+  Object.keys(REL_FN).forEach(function (f) { REL_CALL[REL_FN[f]] = f; });
+  /** The name of the kind argument.  In F it is a KWARG, because a kwarg BINDS
+   *  and a positional is what the predicate is ABOUT — the id is the subject
+   *  and the kind is a binding on it.  In g it is the second POSITIONAL,
+   *  SQL having no kwargs at all; the word is the same and the shape is not. */
+  var REL_KIND = "kind";
   var NARROW_KEYS = ["state", "priority", "title", "scheduled", "deadline",
-                     "tag", "planned", "ref", "substring"];
+                     "tag", "planned", "ref", "from", "substring"];
+  /** The narrowing keys a KWARG may bind — every one that is not a relation. */
+  var FIELD_KEYS = NARROW_KEYS.filter(function (k) { return !isRel(k); });
   var SHAPING_KEYS = ["sort", "columns", "view"];
   var ACTIVE = { TODO: 1, NEXT: 1 };
   var STATE_ORDER = { TODO: 0, NEXT: 1, DONE: 2, CANCELLED: 3 };
   var DEFAULT_CHAIN = [["state", "asc"], ["title", "asc"],
                        ["deadline", "asc"], ["scheduled", "asc"]];
-  // Five metas, spelled with matched stars; where each is legal is the law's.
+  // THE METAS THAT STAND AS A WHOLE VALUE, spelled with matched stars; where
+  // each is legal is the law's.  (`*today*' stands INSIDE a date value and
+  // `*none*' is `sort:''s alone, so neither is keyed here.)
   // THIS IS THE ONE ROSTER.  Every other reading of "which metas may a key
   // wear" — F's constructors, G's bare enum words, G's `IS NULL' — is derived
-  // from it below rather than copied beside it.
+  // from it below rather than copied beside it.  `*any*' joins it on the two
+  // relation keys, and BECAUSE it is derived rather than restated, that one
+  // line is what gives F its `Any' constructor and g its bare `ANY'.
   var METAS = {
     state: ["*empty*", "*active*", "*inactive*"],
     priority: ["*empty*"], title: ["*empty*"], scheduled: ["*empty*"],
     deadline: ["*empty*"], tag: ["*empty*", "*archive*"], planned: ["*empty*"],
+    ref: ["*any*"], from: ["*any*"],
   };
 
   /** Is META legal on KEY?  `METAS' answers, and nobody keeps a second list. */
@@ -210,6 +278,96 @@ var RIG = (function () {
     return String(t.value).split("|").filter(function (a) { return a !== ""; });
   }
 
+  // ------------------------------------------------- the relation, as a store
+  // `docs/query.md''s References section, the slice a rig needs to ANSWER with
+  // rather than describe: two keys reading one edge from its two ends, the
+  // `?kind=SLUG' cut the file's own link spelling rhymes with, and `*any*', the
+  // union over the anchor.
+
+  /** THE SLUG IS THE PEER'S: downcased, whitespace runs folded to one `-'.
+   *  Applied on the WRITE and on the READ, so `?kind=Blocked By' and
+   *  `?kind=blocked-by' are one kind wherever either is spelled. */
+  var slugOf = function (s) {
+    return fold(String(s)).trim().replace(/\s+/g, "-");
+  };
+
+  /**
+   * A REFERENCE VALUE, CUT INTO ITS ANCHOR AND ITS KIND.  The `?' opens the
+   * kind exactly as it does in a link target, and THE CUT IS TAKEN ONLY WHERE A
+   * `kind=' COMES OUT OF IT — so an id carrying a `?' that declares no kind
+   * stays whole and resolves to the row it always did.  A title's own `?' is
+   * text for the same reason.  A null kind is KIND-BLIND, which is what the
+   * bare form has always meant.
+   */
+  function anchorOf(v) {
+    var s = String(v);
+    for (var at = s.indexOf("?"); at >= 0; at = s.indexOf("?", at + 1)) {
+      var m = /^kind=([\s\S]*)$/.exec(s.slice(at + 1));
+      if (m) return { id: s.slice(0, at), kind: slugOf(m[1]) };
+    }
+    return { id: s, kind: null };
+  }
+
+  /** The row an id names, or null — the namespace the links resolve against. */
+  function byId(id) {
+    return ROWS.filter(function (r) { return r.id === id; })[0] || null;
+  }
+
+  /**
+   * THE EDGES, RESOLVED ONCE, AND THE TWO NEGATIVE LAWS SPELLED HERE ALONE: a
+   * link naming NO ROW is no reference, and one resolving back to the row it
+   * was written in is none either — dropped at BOTH ends.  Both directions and
+   * the existence meta read this list, so neither restates a law it inherits.
+   *
+   * (The rig resolves against the id alone.  The shipped grammar resolves a
+   * `[[Title]]' link too, and an `[[id:…]]' one against the `:ID:' property —
+   * two more namespaces that would change which links land here and nothing at
+   * all about what the keys then MEAN, which is what this stage is judging.)
+   */
+  function edgesOf() {
+    var out = [];
+    ROWS.forEach(function (r) {
+      (r.links || []).forEach(function (l) {
+        if (l.to === r.id || !byId(l.to)) return;
+        out.push({ from: r.id, to: l.to, kind: l.kind ? slugOf(l.kind) : null });
+      });
+    });
+    return out;
+  }
+
+  /** The kinds the edges at this anchor carry, in the direction DIR reads —
+   *  an OPEN roster, read off the store the way `FROM''s datasets are. */
+  function kindsOn(dir, anchor) {
+    var out = [];
+    edgesOf().forEach(function (e) {
+      var far = dir === "ref" ? e.to : e.from;
+      if (anchor !== "*any*" && far !== anchor) return;
+      if (e.kind && out.indexOf(e.kind) < 0) out.push(e.kind);
+    });
+    return out;
+  }
+
+  /**
+   * IS ROW ON THIS RELATION?  One walk answers both directions: `ref' serves
+   * the edge's SOURCE and names its target, `from' serves the target and names
+   * the source, so the two keys are one law read with its ends swapped.
+   *
+   * `*any*' IS THE UNION OVER THE ANCHOR — `ref:*any*' serves exactly the rows
+   * some `ref:ID' serves — so it is one line here rather than a rule of its
+   * own, and the self and dangling laws come with it because `edgesOf' has
+   * already applied them.  The anchor is THE ONE VALUE NOT CASE-FOLDED, on both
+   * keys, so `*any*' is spelled in lower case or it is an id nobody wears.
+   */
+  function relHit(dir, v, row) {
+    var a = anchorOf(v), any = a.id === "*any*";
+    return edgesOf().some(function (e) {
+      if (a.kind !== null && e.kind !== a.kind) return false;
+      var end = dir === "ref" ? e.from : e.to;
+      var far = dir === "ref" ? e.to : e.from;
+      return end === row.id && (any || far === a.id);
+    });
+  }
+
   // ------------------------------------------------- the date value, compiled
   // `docs/query.md''s comparison section, the slice a SQL surface needs: an
   // operator or a range on the three date keys, `*today*' for the request's own
@@ -311,9 +469,9 @@ var RIG = (function () {
    * every one of them read `=== ""' of its own cell, which is one law spelled
    * seven times.  Here it is spelled once: the plain keys ask their cell, `tag'
    * takes org's bare `::' in with the empty string, and `planned' names TWO
-   * cells and is empty only when both are.  A key with no empty cell — `ref',
-   * free text — answers no, which is what the arms below did by falling
-   * through.  One home, the way `dated' is one home.
+   * cells and is empty only when both are.  A key with no empty cell — the two
+   * relations, free text — answers no, which is what the arms below did by
+   * falling through.  One home, the way `dated' is one home.
    */
   function emptyCell(key, row) {
     if (key === "tag") return row.tags === "" || row.tags === "::";
@@ -323,6 +481,9 @@ var RIG = (function () {
 
   /** Does ROW answer this atom, under KEY's own rule? */
   function atom(key, v, row) {
+    // THE RELATION IS ASKED BEFORE THE FOLD, because the anchor is the one
+    // value the grammar does not case-fold and `*ANY*' has to name no row.
+    if (isRel(key)) return relHit(key, v, row);
     var w = fold(v);
     if (w === "*empty*") return emptyCell(key, row);
     if (key === "state") {
@@ -351,7 +512,6 @@ var RIG = (function () {
         return stampHit(s, fold(c));
       }) || (w === "" && both.trim() !== "");
     }
-    if (key === "ref") return false;          // no relations on this stage
     return COLS.some(function (c) { return fold(cell(row, c.key)).indexOf(w) >= 0; });
   }
 
@@ -478,6 +638,10 @@ var RIG = (function () {
     return "(" + n.map(function (k, i) {
       if (typeof k !== "string") return sx(k);
       var quote = (n[0] === "atom" && i === 2)
+        // THE RELATION LEAF'S TWO SLOTS ARE ALWAYS QUOTED WHEN THEY ARE FILLED,
+        // and the union is the slot with NOTHING in it — which is what keeps
+        // `ref:*any*' and `ref:any', the id spelled `any', two different bytes.
+        || ((n[0] === "at" || n[0] === "kind") && i === 1)
         || (n[0] === "select" && i > 0 && !bareSelect);
       return quote ? JSON.stringify(k) : k;
     }).join(" ") + ")";
@@ -502,11 +666,43 @@ var RIG = (function () {
     if (DATE_KEYS[key] && fold(s) !== "*empty*") return normDate(fold(s));
     if (/^\*[a-z]+\*$/.test(fold(s))) return fold(s);
     if (key === "state" || key === "priority") return bare(s);
-    if (key === "ref") return s;                 // the one value not case-folded
+    // THE ANCHOR IS THE ONE VALUE NOT CASE-FOLDED; the KIND beside it is folded
+    // and slugged, being the peer's own spelling, so one edge written two ways
+    // normalises to one atom.
+    if (isRel(key)) {
+      var r = anchorOf(s);
+      return r.kind === null ? r.id : r.id + "?kind=" + r.kind;
+    }
     return fold(s);
   }
 
+  /**
+   * THE ONE RELATION LEAF: a DIRECTION, an ANCHOR and a KIND, and every dialect
+   * normalises to it — the flat `ref:'/`from:' token, F's `refs_to(…)' call,
+   * g's `REFS_TO(…)'.  A FILLED slot is a node and the UNION is the slot with
+   * nothing in it, which is what `*any*' says of the anchor and what an absent
+   * `?kind=' says of the other:
+   *
+   *     ref:def456                   (rel ref (at "def456") any)
+   *     ref:def456?kind=blocked-by   (rel ref (at "def456") (kind "blocked-by"))
+   *     ref:*any*                    (rel ref any any)
+   *     ref:*any*?kind=blocked-by    (rel ref any (kind "blocked-by"))
+   *     ref:any                      (rel ref (at "any") any)
+   *
+   * The last two lines are why the union is a HOLE rather than a marker word:
+   * `any' is an ordinary id and a bare marker would have made the two one.
+   * (`docs/proposals/proposed/2026-08-23-the-chain-a-row-hangs-on.md' slots a
+   * DEPTH into this same shape; see the corners for the one line of it this
+   * round parts from.)
+   */
+  function relNode(dir, v) {
+    var a = anchorOf(v);
+    return ["rel", dir, a.id === "*any*" ? "any" : ["at", a.id],
+            a.kind === null ? "any" : ["kind", a.kind]];
+  }
+
   function atomNode(key, v) {
+    if (isRel(key)) return relNode(key, normAtom(key, v));
     var a = normAtom(key, v);
     return /^\*[a-z]+\*$/.test(a) ? ["meta", key, a.replace(/\*/g, "")] : ["atom", key, a];
   }
@@ -718,10 +914,13 @@ var RIG = (function () {
   // which G inherits along with the law rather than restating.
 
   /** What KEY's ONE test is: exact on the two enums, a date PREFIX on the date
-   *  keys, anywhere INSIDE the cell on everything else.  TOTAL — every key has
-   *  an answer here, which is what G's `LIKE' shape check needs of it. */
+   *  keys, anywhere INSIDE the cell on everything else — and on the two
+   *  relations, NO CELL AT ALL: the test is an EDGE, which is why they are no
+   *  column in g and no field in F.  TOTAL — every key has an answer here,
+   *  which is what G's `LIKE' shape check needs of it. */
   function testOf(key) {
-    return key === "state" || key === "priority" ? "is"
+    return isRel(key) ? "edge"
+         : key === "state" || key === "priority" ? "is"
          : DATE_KEYS[key] ? "starts" : "inside";
   }
 
@@ -733,8 +932,49 @@ var RIG = (function () {
    * one in each.  `tag' is the same shape with one cell holding a LIST.  Those
    * two multi-cell axes are named here, with the reason, rather than inherited
    * from a hole in a table.
+   *
+   * A RELATION IS NO CELL AT ALL: a row sits on as many edges as its subtree
+   * carries, so two anchors are answered together the way two tags are.  It is
+   * named here rather than left to `testOf''s fallthrough, which would have
+   * been right by accident and silent about why.
    */
-  function oneCellPerAxis(key) { return key !== "planned" && key !== "tag"; }
+  function oneCellPerAxis(key) {
+    return key !== "planned" && key !== "tag" && !isRel(key);
+  }
+
+  /**
+   * IS THE CARET INSIDE A RELATION CALL, AND AT WHICH ARGUMENT?  A relation is
+   * a CALL in both typed surfaces — the kind has no room inside the quotes —
+   * so where the caret stands inside one is ONE question, asked with each
+   * dialect's own lexer.  LX is the text before the caret, lexed; the two
+   * lexers agree on the three tokens this needs (`(', `)', `,') and on what a
+   * name is, which is the whole of why the reading can be shared.
+   *
+   * Argument 0 is the ANCHOR and argument 1 is the KIND, in both — F names it
+   * with a kwarg and g by position, and that difference is the surfaces' and
+   * not this reading's.
+   */
+  function relCallAt(lx) {
+    var depth = 0, open = -1, dir = null, arg = 0, par = -1;
+    lx.forEach(function (t, i) {
+      if (t.v === "(") {
+        depth += 1;
+        var fn = i > 0 && lx[i - 1].t === "name" ? REL_FN[fold(lx[i - 1].v)] : null;
+        if (open < 0 && fn) { open = depth; dir = fn; arg = 0; par = i; }
+      } else if (t.v === ")") {
+        if (open === depth) { open = -1; dir = null; }
+        depth -= 1;
+      } else if (t.v === "," && open === depth) arg += 1;
+    });
+    if (open < 0) return null;
+    // …AND WHICH ANCHOR IS ALREADY WRITTEN, which is what the KIND offers are
+    // read against: the kinds are the edges' own, so an anchor names them.
+    var a = lx[par + 1], anchor = null;
+    if (a && a.t === "str") anchor = a.v;
+    else if (a && a.t === "name" && fold(a.v) === fold(METACTOR["*any*"]))
+      anchor = "*any*";
+    return { dir: dir, arg: arg, anchor: anchor };
+  }
 
   var isMeta = function (a) { return /^\*[a-z]+\*$/.test(a); };
 
@@ -750,7 +990,11 @@ var RIG = (function () {
     var t = testOf(key);
     if (t === "is") return false;
     if (t === "starts") return a.indexOf(b) === 0 || b.indexOf(a) === 0;
-    return true;                    // anywhere inside: one cell holds them both
+    // ANYWHERE INSIDE: one cell holds them both.  A relation never reaches this
+    // line — `oneCellPerAxis' has already said it names no cell — and the `edge'
+    // arm is what keeps that guard LOAD-BEARING rather than shadowed by this
+    // line's generosity: take the guard away and two anchors warn falsely.
+    return t !== "edge";
   }
 
   /**
@@ -795,7 +1039,20 @@ var RIG = (function () {
     var atomsOf = function (t) {
       return alts(t).map(function (v) { return normAtom(t.key, v); });
     };
-    var spelt = function (t) { return dslValue(alts(t)); };
+    // …AND THE SENTENCE SPELLS THE ATOM, NEVER THE TEXT: a relation is a CALL
+    // in F's idiom, and reading it back through `relCallOf' is what makes
+    // `?kind=Blocked By' and `?kind=blocked-by' say the SAME sentence, the way
+    // they are already the same atom.
+    var spelt = function (t) {
+      return isRel(t.key)
+        ? alts(t).map(function (a) { return relCallOf(t.key, a); }).join(" or ")
+        : dslValue(alts(t));
+    };
+    // …and the sentence NAMES ITS AXIS, which for a relation the call has
+    // already done: `ref: refs_to("x")' would say it twice.
+    var named = function (t) {
+      return isRel(t.key) ? spelt(t) : t.key + ": " + spelt(t);
+    };
     var blame = function (x, y, sentence) {
       [x, y].forEach(function (t) {
         if (tokens.indexOf(t.text) < 0) tokens.push(t.text);
@@ -823,7 +1080,7 @@ var RIG = (function () {
         });
         if (!dead) return;
         by.forEach(function (n) {
-          blame(p, n, p.key + ": " + spelt(p) + " is both required and refused"
+          blame(p, n, named(p) + " is both required and refused"
                 + " — no row can carry that");
         });
       });
@@ -835,7 +1092,7 @@ var RIG = (function () {
             return atomsOf(o).some(function (y) { return agree(p.key, x, y); });
           });
           if (can) return;
-          blame(p, o, p.key + ": " + spelt(p) + " and " + spelt(o)
+          blame(p, o, named(p) + " and " + spelt(o)
                 + " are both required — no row is both");
         });
       });
@@ -853,31 +1110,47 @@ var RIG = (function () {
    *  a constructor is one spelling of it. */
   var CTORS = {};
   [["Active", "*active*"], ["Inactive", "*inactive*"],
-   ["Empty", "*empty*"], ["Archive", "*archive*"]].forEach(function (p) {
+   ["Empty", "*empty*"], ["Archive", "*archive*"],
+   // …AND `Any', WHICH THE RELATION ROUND MOVED.  It was the bare list's own
+   // name — `Any [a, b]' for the alternation `[a, b]' already says — and the
+   // metas' law wants it: a meta is spelled as a constructor, `*any*' is a
+   // meta, and in Haskell ONE NAME HAS ONE ARITY.  The list wrapper was the
+   // identity on lists and offered nowhere; the anchor's union has no other
+   // spelling.  So the redundant reading lost the word and `All' kept its
+   // partner in name only.
+   ["Any", "*any*"]].forEach(function (p) {
     CTORS[p[0]] = { meta: p[1], on: keysWith(p[1]) };
   });
-  var METACTOR = { "*active*": "Active", "*inactive*": "Inactive",
-                   "*empty*": "Empty", "*archive*": "Archive" };
-  var FIELDS = NARROW_KEYS.slice();
+  var METACTOR = {};
+  Object.keys(CTORS).forEach(function (c) { METACTOR[CTORS[c].meta] = c; });
+  /** The narrowing keys a KWARG binds — the relations are calls, not fields. */
+  var FIELDS = FIELD_KEYS.slice();
 
   // ------------------------------------------- the closed world, case-blind
   // QUOTING IS THE ONE DISAMBIGUATION: a BARE name is looked up in the closed
-  // world — the prelude's constructors, the wrappers, the two operator words
-  // and the stage's own fields — and a name that resolves to nothing is an
-  // error the surface marks; a QUOTED string is an open value and is never
-  // looked up.  Case carries nothing on either side of that line.
-  var WRAPPERS = { all: "All", any: "Any", none: "None" };
+  // world — the prelude's constructors, the wrappers, the operator words, the
+  // relation calls and the stage's own fields — and a name that resolves to
+  // nothing is an error the surface marks; a QUOTED string is an open value and
+  // is never looked up.  Case carries nothing on either side of that line.
+  var WRAPPERS = { all: "All", none: "None" };
   // THE TWO DIRECTIONS ARE CONSTRUCTORS APPLIED TO THE STRING — closed word,
   // open argument, the same figure as `state = Active' beside `state = "TODO"'.
   // The suffix spelling they replace put a second grammar inside a literal,
   // which is the one place this surface's quotes would not have meant
   // taken-as-written.
   var DIRS = { asc: "Asc", desc: "Desc" };
+  // THE OPERATOR WORDS, AND THE RELATION CALLS AMONG THEM — a call in the ITEM
+  // position is what `not' and `raw' already are.  The two call names are
+  // DERIVED from `REL_FN' rather than written out beside it, so the roster
+  // cannot come to disagree with the direction law.
   var WORDS = { not: "not", raw: "raw" };
+  WORDS[REL_KIND] = REL_KIND;
+  Object.keys(REL_FN).forEach(function (f) { WORDS[f] = f; });
   // THE CLOSED WORDS THAT STAND ALONE.  A meta's constructor is a whole value
-  // the moment it is spelled, and `None' with it; `All', `Any', `Asc', `Desc',
-  // `not' and `raw' are all still waiting for an argument.  It is the one thing
-  // `dslDone' needs the roster for.
+  // the moment it is spelled — `Any' among them now — and `None' with them;
+  // `All', `Asc', `Desc', `not', `raw' and the two relation calls are all still
+  // waiting for an argument.  It is the one thing `dslDone' needs the roster
+  // for, and it is a question of ARITY rather than of spelling.
   var NULLARY = Object.keys(CTORS).concat([WRAPPERS.none]);
 
   /** The canonical constructor a bare name spells, or null. */
@@ -956,7 +1229,7 @@ var RIG = (function () {
       if (lx[i] && lx[i].v === v) { i += 1; return true; }
       return false;
     };
-    /** A value: a literal, a list, a constructor, or `All'/`Any' over a list. */
+    /** A value: a literal, a list, a constructor, or `All' over a list. */
     // A value answers with its ATOMS (the alternatives it names, flattened) and
     // its PARTS (the elements as written) — `All' spreads over the parts, so a
     // nested list inside it stays ONE token's alternation.
@@ -979,12 +1252,14 @@ var RIG = (function () {
       }
       if (t.t === "name") {
         var name = ctorOf(t.v);
-        if (name === "All" || name === "Any") {
+        if (name === "All") {
           i += 1;
           var inner = value();
           if (!inner) return null;
-          // ALL is the intersection — one token per element; ANY is the list.
-          return { atoms: inner.atoms, parts: inner.parts, spread: name === "All" };
+          // ALL IS THE INTERSECTION — one token per element.  Its old partner
+          // `Any [a, b]' is gone: the bare list already says the alternation,
+          // and `Any' is the `*any*' meta's constructor now.
+          return { atoms: inner.atoms, parts: inner.parts, spread: true };
         }
         i += 1;
         if (name && CTORS[name])
@@ -996,10 +1271,52 @@ var RIG = (function () {
       }
       return null;
     }
-    /** One item: a field constraint, a `not (…)' wrapper, `raw', or free text. */
+    /**
+     * ONE RELATION CALL: the anchor positional, then the optional `kind' kwarg.
+     * A call rather than a kwarg because the kind cannot live inside the
+     * quotes — `ref = "def456?kind=blocked-by"' is a second grammar hidden in a
+     * literal, which is the reading round 10 threw out for the sort direction.
+     */
+    function relCall(dir, neg) {
+      var open = eat("(");
+      var t = peek(), anchor = null, kind = null;
+      if (t && t.t === "str") { anchor = t.v; i += 1; }
+      else if (t && t.t === "name" && ctorOf(t.v) === METACTOR["*any*"]) {
+        anchor = "*any*";
+        i += 1;
+      } else {
+        bad.push(REL_CALL[dir] + " wants an id — " + REL_CALL[dir]
+                 + '("abc123"), or Any for the row being on the relation at all');
+      }
+      if (eat(",")) {
+        var k = peek();
+        if (k && k.t === "name" && wordOf(k.v) === REL_KIND) {
+          i += 1;
+          eat("=");
+          var kv = peek();
+          if (kv && kv.t === "str") { kind = slugOf(kv.v); i += 1; }
+          else bad.push(REL_KIND + " is a slug — " + REL_KIND + ' = "blocked-by"');
+        } else {
+          bad.push(REL_CALL[dir] + " takes one id; the kind BINDS — "
+                   + REL_KIND + ' = "blocked-by"');
+        }
+      }
+      if (open) eat(")");
+      if (anchor === null) return [{ sign: neg ? "-" : "", key: dir, atoms: [], bad: true }];
+      return [{ sign: neg ? "-" : "", key: dir,
+                atoms: [anchor + (kind === null ? "" : "?" + REL_KIND + "=" + kind)] }];
+    }
+
+    /** One item: a field constraint, a relation call, a `not (…)' wrapper,
+     *  `raw', or free text. */
     function item(neg) {
       var t = peek();
       if (!t) return [];
+      if (t.t === "name" && REL_FN[fold(t.v)]) {
+        var dir = REL_FN[fold(t.v)];
+        i += 1;
+        return relCall(dir, neg);
+      }
       if (t.t === "name" && wordOf(t.v) === "not") {
         i += 1;
         var open = eat("(");
@@ -1047,7 +1364,18 @@ var RIG = (function () {
       v2.parts = (v2.parts || []).map(function (p) {
         return p.filter(function (a) { return a !== ""; });
       }).filter(function (p) { return p.length; });
-      if (!fieldOf(key, "filter")) bad.push(key + " is not a field");
+      // A NAME NO FIELD ANSWERS TO composes the free text `owner:x' is anyway,
+      // so nothing is invented and the mark is the whole of what is owed.  A
+      // RELATION KEY IS THE ONE THAT COMPOSES NOTHING: `ref:x' is a real token
+      // of the grammar, and writing one out of a spelling the surface has just
+      // refused would be inventing the reader's query.
+      if (!fieldOf(key, "filter")) {
+        bad.push(isRel(key)
+                 ? key + " is a relation, not a field — " + REL_CALL[key]
+                   + '("abc123")'
+                 : key + " is not a field");
+        if (isRel(key)) return [{ sign: sign, key: key, atoms: [], bad: true }];
+      }
       if (v2.ctor && CTORS[v2.ctor].on.indexOf(key) < 0)
         bad.push(v2.ctor + " is not a value of " + key);
       if (v2.spread) {
@@ -1245,6 +1573,17 @@ var RIG = (function () {
     return "[" + atoms.map(dslAtom).join(", ") + "]";
   };
 
+  /** ONE RELATION TOKEN AS F SPELLS IT: the call, its anchor, and the kind that
+   *  cannot live inside the quotes.  `Any' is the anchor's union, spelled the
+   *  way every other meta is — as its constructor. */
+  function relCallOf(key, v) {
+    var a = anchorOf(v);
+    return REL_CALL[key] + "("
+      + (a.id === "*any*" ? METACTOR["*any*"] : JSON.stringify(a.id))
+      + (a.kind === null ? "" : ", " + REL_KIND + " = " + JSON.stringify(a.kind))
+      + ")";
+  }
+
   /** THE SURFACE IS NOT TOTAL over the grammar, and this is where it says so:
    *  an axis carrying both a base and a widening is `raw "…"', the flat string
    *  quoted into the typed surface rather than mis-said in it. */
@@ -1264,6 +1603,24 @@ var RIG = (function () {
         return;
       }
       var field = g.all[0].key;
+      // A RELATION IS A CALL, so its axis is spelled TOKEN BY TOKEN: there is
+      // no field to bind, no list an anchor may be, and the negation is the
+      // wrapper an operator on a field cannot carry.  An ALTERNATION OF
+      // ANCHORS (`ref:a|b') has no call spelling and rides `raw "…"' — the same
+      // admission the `+' key already makes, and for the same reason: one call
+      // is about ONE anchor.
+      if (isRel(field)) {
+        if (g.all.some(function (t) { return alts(t).length !== 1; })) {
+          items.push("raw "
+            + JSON.stringify(g.all.map(function (t) { return t.text; }).join(" ")));
+          return;
+        }
+        g.all.forEach(function (t) {
+          var call = relCallOf(t.key, alts(t)[0]);
+          items.push(t.sign === "-" ? "not (" + call + ")" : call);
+        });
+        return;
+      }
       if (g.W.length) {                       // the axis IS the disjunction
         var wide = [];
         g.W.forEach(function (t) { wide = wide.concat(alts(t)); });
@@ -1337,19 +1694,31 @@ var RIG = (function () {
   var SQL_STAGE = { select: "columns", from: "from", where: "filter",
                     "order by": "sort" };
   // The metas as SQL spells an enum: bare, upper, case-blind.  The roster is
-  // F's own — the language's starred family, and never the tree's keywords.
-  var SQL_META = { active: "*active*", inactive: "*inactive*",
-                   empty: "*empty*", archive: "*archive*" };
+  // F's own — the language's starred family, and never the tree's keywords —
+  // and it is DERIVED from the constructors rather than written out beside
+  // them, so a meta that joins the family joins both surfaces at once.  That is
+  // what gave `ANY' its spelling here for free.
+  var SQL_META = {};
+  Object.keys(CTORS).forEach(function (c) { SQL_META[fold(c)] = CTORS[c].meta; });
   var SQL_UNIT = { day: "d", days: "d", week: "w", weeks: "w", month: "m",
                    months: "m", year: "y", years: "y" };
+  // `WITH' and `RECURSIVE' are here to be REFUSED by name rather than read as a
+  // column; the two relation calls are derived from `REL_FN', so g cannot come
+  // to spell a direction F does not.
   var SQL_KEYWORDS = ["select", "from", "where", "order", "by", "and", "or",
                       "not", "in", "like", "between", "is", "null", "asc",
-                      "desc", "current_date", "interval", "date"];
+                      "desc", "current_date", "interval", "date", "any",
+                      "with", "recursive"].concat(Object.keys(REL_FN));
+  /** WHERE THE BOUNDED WALK LIVES.  The refusal names it rather than describing
+   *  it, so a reader who wanted a closure is told the document and not just the
+   *  word they may not type. */
+  var CLOSURE_DOC = "docs/proposals/proposed/2026-08-23-the-chain-a-row-hangs-on.md";
   // How `testOf''s answer reads out loud, which is what a LIKE pattern has to
   // name.  The test itself is the shared law's; see `testOf'.
   var TEST_SAID = { is: "matches a cell exactly",
                     starts: "matches a date prefix",
-                    inside: "looks inside the cell" };
+                    inside: "looks inside the cell",
+                    edge: "is on the relation" };
   var SHAPE_SAID = { is: "an exact match", starts: "a prefix",
                      inside: "a substring", ends: "a suffix" };
 
@@ -1413,6 +1782,10 @@ var RIG = (function () {
   function sqlKeyOf(n) {
     var f = fold(String(n).trim());
     if (f === "tags") return "tag";
+    // A RELATION IS NO COLUMN, in the clause where the namespace is closed: an
+    // edge has a KIND and a column reference has nowhere to put one, so `ref'
+    // and `from' are spelled as CALLS here and are an error spelled as names.
+    if (isRel(f)) return null;
     if (NARROW_KEYS.indexOf(f) >= 0) return f;
     var c = colKeyOf(f);
     return c && NARROW_KEYS.indexOf(c) >= 0 ? c : null;
@@ -1612,6 +1985,36 @@ var RIG = (function () {
       return [body];
     }
 
+    /**
+     * ONE RELATION CALL: `REFS_TO('def456')', and the kind as the SECOND
+     * POSITIONAL — SQL has no kwargs, so the word F names its binding with has
+     * nowhere to be written and the position carries it instead.  A boolean
+     * function in `WHERE' is SQL's own shape for a predicate that is not a
+     * column comparison, and the negation is `NOT' the way every other wrapper
+     * is negated.
+     */
+    function relCall(dir) {
+      var name = REL_CALL[dir].toUpperCase();
+      if (!eatPunc("(")) {
+        say(name + " wants an id — " + name + "('abc123')");
+        return [];
+      }
+      var anchor = null, kind = null, a = peek();
+      if (a && a.t === "str") { anchor = a.v; i += 1; }
+      else if (sqlWord(a) === fold(METACTOR["*any*"])) { anchor = "*any*"; i += 1; }
+      else say(name + " wants an id — 'abc123', or ANY for the row being on "
+               + "the relation at all");
+      if (eatPunc(",")) {
+        var k = peek();
+        if (k && k.t === "str") { kind = slugOf(k.v); i += 1; }
+        else say(name + "'s second argument is the kind — 'blocked-by'");
+      }
+      eatPunc(")");
+      if (anchor === null) return [];
+      return [{ sign: "", key: dir,
+                atoms: [anchor + (kind === null ? "" : "?" + REL_KIND + "=" + kind)] }];
+    }
+
     /** One predicate, as the flat TERMS it stands for. */
     function predicate() {
       var t = peek();
@@ -1622,9 +2025,30 @@ var RIG = (function () {
         return [];
       }
       if (!(t.t === "name" || t.t === "ident")) { i += 1; return []; }
+      // THE CLOSURE IS PROPOSED AND UNSHIPPED, and the keyword that would ask
+      // for it is refused BY NAME.  A recursive CTE is a named subquery with an
+      // arbitrary body, of which the flat grammar composes exactly one shape;
+      // taking the keyword and refusing every body but one would teach a
+      // language that is not there.  So the refusal names where the walk lives.
+      if (sqlWord(t) === "with" && sqlWord(peek(1)) === "recursive") {
+        i += 2;
+        return no("WITH RECURSIVE is the transitive closure — proposed, "
+                  + "unshipped, and a PREDICATE when it lands: see "
+                  + CLOSURE_DOC) || [];
+      }
+      if (t.t === "name" && REL_FN[fold(t.v)]) {
+        i += 1;
+        return relCall(REL_FN[fold(t.v)]);
+      }
       var key = sqlKeyOf(t.v);
       i += 1;
-      if (!key) { say(t.v + " is not a column"); return []; }
+      if (!key) {
+        say(isRel(fold(t.v))
+            ? t.v + " is a relation, not a column — "
+              + REL_CALL[fold(t.v)].toUpperCase() + "('abc123')"
+            : t.v + " is not a column");
+        return [];
+      }
       var neg = false, atoms = null;
       if (word() === "not" && (word(1) === "in" || word(1) === "like")) {
         neg = true;
@@ -1849,10 +2273,29 @@ var RIG = (function () {
     return key + (negated ? " NOT" : "") + " LIKE '" + s.prefix + "%'";
   }
 
+  /** ONE RELATION TOKEN AS G SPELLS IT: the call, its anchor, and the kind as
+   *  the second POSITIONAL — SQL has no kwargs, so the word F binds with has
+   *  nowhere to be written here.  `ANY' is the anchor's union, bare and upper,
+   *  the way g spells every meta. */
+  function sqlRelCall(key, v) {
+    var a = anchorOf(v);
+    return REL_CALL[key].toUpperCase() + "("
+      + (a.id === "*any*" ? fold(METACTOR["*any*"]).toUpperCase() : sqlLit(a.id))
+      + (a.kind === null ? "" : ", " + sqlLit(a.kind)) + ")";
+  }
+
   /** One binding as SQL: the constructor for a meta, `IS NULL' for the empty
    *  cell, `IN (…)' for the alternation, and the key's own operator. */
   function sqlBinding(key, atoms, sign) {
     var neg = sign === "-";
+    // A RELATION IS A CALL, and an ALTERNATION OF ANCHORS is the `OR' of two of
+    // them — one axis, so the fragment law takes it, and `NOT (a OR b)' is De
+    // Morgan the direction that works.
+    if (isRel(key)) {
+      var calls = atoms.map(function (a) { return sqlRelCall(key, a); });
+      var body = calls.length === 1 ? calls[0] : "(" + calls.join(" OR ") + ")";
+      return neg ? "NOT " + body : body;
+    }
     if (atoms.length === 1) {
       var a = atoms[0];
       if (fold(a) === "*empty*") return key + " IS " + (neg ? "NOT " : "") + "NULL";
@@ -2099,6 +2542,15 @@ var RIG = (function () {
     });
     if (fn !== "filter") wants = "col";
     var last = lx.length - 1, frag = fragOf(lx, s);
+    // A RELATION CALL'S ARGUMENTS ARE NEITHER A COLUMN NOR A COLUMN'S VALUE, so
+    // the walk above cannot name where the caret is and the call's own reader
+    // says instead.  It is read LAST because it overrides, the way a nested
+    // reading should.
+    var rel = relCallAt(lx);
+    if (rel)
+      return { wants: rel.arg === 0 ? "rel-anchor" : "rel-kind", key: null,
+               rel: rel, list: false, frag: frag, onCol: false,
+               at: at - frag.length, deep: depth };
     // A NAME STILL BEING WRITTEN is a column being chosen; one that already
     // NAMES a column is a column CHOSEN, and what follows it is its operator —
     // which is a word, so the fragment under the caret may be the operator's
@@ -2271,6 +2723,37 @@ var RIG = (function () {
                    aside: "document order" });
       return { items: out, stage: "sql-order", where: w };
     }
+    // INSIDE A RELATION CALL: the ids and `ANY' at the anchor, the kinds THAT
+    // anchor's edges carry at the second positional.  Both rosters are open and
+    // read off the store, the way `FROM''s datasets are.
+    if (w.rel) {
+      var bare3 = String(w.frag).replace(/^'/, ""), rels = [];
+      if (w.rel.arg === 0) {
+        if (starts(METACTOR["*any*"], bare3))
+          rels.push({ text: fold(METACTOR["*any*"]).toUpperCase(),
+                      insert: fold(METACTOR["*any*"]).toUpperCase(), full: true,
+                      dim: true, eats: closes, aside: "meta · *any*",
+                      n: counted(function (r) { return atom(w.rel.dir, "*any*", r); }) });
+        ROWS.forEach(function (r) {
+          if (!starts(r.id, bare3)) return;
+          rels.push({ text: sqlLit(r.id), insert: sqlLit(r.id), full: true,
+                      eats: closes, aside: r.title,
+                      n: counted(function (x) { return atom(w.rel.dir, r.id, x); }) });
+        });
+      } else {
+        kindsOn(w.rel.dir, w.rel.anchor || "*any*").forEach(function (k) {
+          if (!starts(k, bare3)) return;
+          rels.push({ text: sqlLit(k), insert: sqlLit(k), full: true, eats: closes,
+                      aside: "the edge's own kind",
+                      n: counted(function (x) {
+                        return atom(w.rel.dir, (w.rel.anchor || "*any*") + "?"
+                                    + REL_KIND + "=" + k, x);
+                      }) });
+        });
+      }
+      return { items: rels, stage: w.rel.arg === 0 ? "sql-anchor" : "sql-kind",
+               where: w };
+    }
     if (w.wants === "value" && w.key)
       return { items: sqlValueOffers(w.key, w.frag, closes), stage: "sql-value",
                where: w };
@@ -2296,9 +2779,18 @@ var RIG = (function () {
     // reader's and the surface owes them the list: taking a column finishes no
     // term, and that position's own offers stand at once.
     var keys = NARROW_KEYS.filter(function (k) {
-      return starts(k, w.frag);
+      return !isRel(k) && starts(k, w.frag);
     }).map(function (k) {
       return { text: k, insert: k, more: true, aside: ASIDE[k] || "" };
+    });
+    // …AND THE TWO RELATION CALLS, which stand where a column stands and are
+    // none: a boolean function is SQL's own shape for a predicate that is not a
+    // comparison, and the slot it opens is the anchor's.
+    Object.keys(REL_FN).forEach(function (fn) {
+      if (!starts(fn, w.frag)) return;
+      var up = fn.toUpperCase();
+      keys.push({ text: up + "( '…' )", insert: up + "('')", back: 2,
+                  aside: ASIDE[REL_FN[fn]] || "" });
     });
     if (starts("not", w.frag))
       keys.push({ text: "NOT ( … )", insert: "NOT ()", back: 1,
@@ -2453,13 +2945,50 @@ var RIG = (function () {
   var ASIDE = {
     state: "the whole keyword", priority: "the letter", title: "substring",
     scheduled: "date prefix", deadline: "date prefix", tag: "substring of :a:b:",
-    planned: "either date cell", ref: "rows linking to an id",
+    planned: "either date cell", ref: "rows pointing AT an id",
+    from: "rows that id points at",
     substring: "free text under a key", sort: "the order", columns: "what shows",
     view: "a saved view",
   };
 
+  /**
+   * THE RELATION'S VALUE IS AN ANCHOR AND A KIND, so its offers are two lists
+   * rather than one: the ids the store wears — each with the ROW'S TITLE as its
+   * aside, an id being unreadable on its own — the existence meta, and, once an
+   * anchor stands, THE KINDS THAT ANCHOR'S OWN EDGES CARRY.  Both rosters are
+   * OPEN and read off the store, the way `FROM''s datasets are: a kind no edge
+   * carries would be a name the surface invented.
+   */
+  function relValueOffers(sign, key, val) {
+    var s = String(val), cut = s.indexOf("?"), out = [];
+    var put = function (v, aside, dim) {
+      out.push({ text: sign + key + ":" + v, insert: sign + key + ":" + v,
+                 full: true, dim: !!dim, aside: aside,
+                 n: counted(function (r) { return atom(key, v, r); }) });
+    };
+    if (cut < 0) {
+      ROWS.forEach(function (r) { if (starts(r.id, s)) put(r.id, r.title); });
+      if (starts("*any*", s)) put("*any*", "on the relation at all", true);
+    }
+    var anchor = cut < 0 ? s : s.slice(0, cut);
+    // THE KIND IS OFFERED AGAINST THE ANCHOR THAT STANDS, and only once one
+    // does: half an id names no edges to read kinds off.
+    if (anchor !== "*any*" && !byId(anchor)) return out;
+    var tail = cut < 0 ? "" : s.slice(cut + 1);
+    var m = /^kind=([\s\S]*)$/i.exec(tail);
+    // While `kind=' is still being typed every kind is a candidate; once the
+    // `=' is there the fragment after it filters.
+    if (cut >= 0 && !m && !starts(REL_KIND + "=", tail)) return out;
+    var frag = m ? m[1] : "";
+    kindsOn(key, anchor).forEach(function (k) {
+      if (starts(k, frag)) put(anchor + "?" + REL_KIND + "=" + k, "the edge's own kind");
+    });
+    return out;
+  }
+
   /** The distinct values a key wears in the fixture, with the counts. */
   function valueOffers(sign, key, val) {
+    if (isRel(key)) return relValueOffers(sign, key, val);
     var seen = {}, out = [];
     ROWS.forEach(function (r) {
       var v = key === "tag" ? null : cell(r, key);
@@ -2669,11 +3198,15 @@ var RIG = (function () {
     "dsl-value": "TAB completes · + makes it a list · - negates with /= · ) closes",
     "dsl-sort": "TAB completes · Desc reverses · , chains · ) closes",
     "dsl-cols": "TAB completes · , adds a column · ) closes",
+    "dsl-anchor": "TAB completes · an id, or Any for the relation itself · , binds the kind",
+    "dsl-kind": 'TAB completes · kind = "…" is the edge\'s own · ) closes',
     "sql-clause": "TAB or RET takes the clause · ESC drops the statement",
     "sql-col": "TAB completes · AND joins any column · ; closes the clause",
     "sql-op": "TAB completes · the operators this column takes · ; closes",
     "sql-value": "TAB completes · 'literal' · BARE is a meta · ; closes",
     "sql-join": "AND across anything · OR within ONE column · ; closes",
+    "sql-anchor": "TAB completes · 'an id' · BARE ANY is the relation itself · , takes the kind",
+    "sql-kind": "TAB completes · 'the edge's own kind' · ) closes the call",
     "sql-order": "TAB completes · DESC reverses · , chains · ; closes",
     "sql-select": "TAB completes · , adds a column · ; closes",
     "sql-from": "one table, and it composes nothing · ; closes",
@@ -2726,12 +3259,57 @@ var RIG = (function () {
     return out;
   }
 
+  /**
+   * INSIDE A RELATION CALL: the ANCHOR at argument nought — the ids the store
+   * wears and `Any', which is the meta spelled the way every meta is — and the
+   * `kind' KWARG at argument one, whose own values are the kinds THAT anchor's
+   * edges carry.  Two open rosters, both read off the store.
+   */
+  function dslRelOffers(rel, w, closes) {
+    var bare2 = String(w.frag).replace(/^"/, ""), out = [];
+    if (rel.arg === 0) {
+      if (starts(METACTOR["*any*"], bare2))
+        out.push({ text: METACTOR["*any*"], insert: METACTOR["*any*"], full: true,
+                   dim: true, eats: closes, aside: "meta · *any*",
+                   n: counted(function (r) { return atom(rel.dir, "*any*", r); }) });
+      ROWS.forEach(function (r) {
+        if (!starts(r.id, bare2)) return;
+        out.push({ text: JSON.stringify(r.id), insert: JSON.stringify(r.id),
+                   full: true, eats: closes, aside: r.title,
+                   n: counted(function (x) { return atom(rel.dir, r.id, x); }) });
+      });
+      return out;
+    }
+    if (w.wants === "value" && fold(w.field) === REL_KIND) {
+      kindsOn(rel.dir, rel.anchor || "*any*").forEach(function (k) {
+        if (!starts(k, bare2)) return;
+        out.push({ text: JSON.stringify(k), insert: JSON.stringify(k), full: true,
+                   eats: closes, aside: "the edge's own kind",
+                   n: counted(function (x) {
+                     return atom(rel.dir, (rel.anchor || "*any*") + "?" + REL_KIND
+                                 + "=" + k, x);
+                   }) });
+      });
+      return out;
+    }
+    if (starts(REL_KIND, w.frag))
+      out.push({ text: REL_KIND + ' = "…"', insert: REL_KIND + ' = ""', back: 1,
+                 aside: "the edge's own kind" });
+    return out;
+  }
+
   /** F's `.filter(…)': fields, then that field's own values. */
   function dslFilterOffers(args, at) {
     var w = dslWhere(args, at);
     // A CLOSING QUOTE ON THE FAR SIDE OF THE CARET is the opened slot's, and
     // whatever is taken replaces the slot whole.
     var closes = slotCloses(args, at, w.frag);
+    // A RELATION CALL IS ASKED FIRST, its arguments being neither a field nor a
+    // field's value: `kind' is the call's own kwarg and no key of the grammar.
+    var rel = relCallAt(lexDsl(String(args).slice(0, at)));
+    if (rel)
+      return { items: dslRelOffers(rel, w, closes),
+               stage: rel.arg === 0 ? "dsl-anchor" : "dsl-kind", where: w };
     if (w.wants === "value" && w.field)
       return { items: dslValueOffers(w.field, w.frag, closes), stage: "dsl-value", where: w };
     // THE KEY AND ITS EQUALS COME WITH AN OPENED SLOT: `state = "|"', so the
@@ -2741,6 +3319,13 @@ var RIG = (function () {
         return { text: k + ' = "…"', insert: k + ' = ""', back: 1,
                  aside: ASIDE[k] || "" };
       });
+    // …AND THE TWO RELATION CALLS, which stand where `not' and `raw' stand: an
+    // item, not a binding.  The slot they open is the anchor's.
+    Object.keys(REL_FN).forEach(function (fn) {
+      if (!starts(fn, w.frag)) return;
+      out.push({ text: fn + '( "…" )', insert: fn + '("")', back: 2,
+                 aside: ASIDE[REL_FN[fn]] || "" });
+    });
     if (starts("not", w.frag))
       out.push({ text: "not ( … )", insert: "not ()", back: 1,
                  aside: "negate what is inside" });
@@ -3774,7 +4359,9 @@ var RIG = (function () {
         : t.t === "op" ? (t.v === "/=" ? "cx-neg" : "cx-eq")
         : t.t === "punc" ? "cx-punc"
         : ctorOf(t.v) ? "cx-ctor"
-        : wordOf(t.v) ? "cx-op"
+        // THE CALL'S OWN KWARG WEARS A FIELD'S INK, the calls an operator's:
+        // `kind' binds where `refs_to' applies.
+        : wordOf(t.v) ? (fold(t.v) === REL_KIND ? "cx-kw" : "cx-op")
         : fields.indexOf(fold(t.v)) >= 0 ? "cx-kw"
         // A WORD HALF-TYPED IS NOT YET WRONG; one that can never finish is.
         : partialName(t.v, fn) ? "cx-partial-name" : "cx-bad";
@@ -4500,5 +5087,9 @@ var RIG = (function () {
     },
     // The grammar itself, so a check can assert against the law and not the DOM.
     scan: scan, chainFor: chainFor, served: served, stageString: stageString,
+    // THE TOY STORE'S GRAPH, resolved — so a rung can pin the two negative laws
+    // (a self-link is no reference, a link naming no row is none) on the
+    // FIXTURE rather than on a query that happens to agree with them.
+    edges: edgesOf, anchor: anchorOf, kinds: kindsOn,
   };
 })();

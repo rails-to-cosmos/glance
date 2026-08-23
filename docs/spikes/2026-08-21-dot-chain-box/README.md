@@ -46,7 +46,7 @@ hues and the real metrics.
 | `e-echo-line.html` | C's entry, plus the flat `?q=` echoed live underneath |
 | `f-typed-dsl.html` | **the picked look** — D's machinery, Haskell inside the parens, the normal form under it |
 | `g-sql.html` | the same queries in SQL: clause badges, and the fragment of SQL this grammar can carry |
-| `rig.js` | the fixture, the grammar, both doors, THREE readers, the normal form, the docked box |
+| `rig.js` | the fixture and its edge graph, the grammar, both doors, THREE readers, the normal form, the docked box |
 | `pane.css` | the box, the strip, the dropdown, the table, both palettes |
 | `check.mjs` | the complaint, mechanised |
 | `shots.mjs` | the seven screenshots, headless |
@@ -118,7 +118,9 @@ and the normal form.*
 whose list carries the chain in written order. `.columns(…)` takes POSITIONAL
 names. Positionals and kwargs coexist the usual way, positionals first — a bare
 literal in `.filter(…)` is free text, so `.filter("milk", state = Active)` is
-`substring:milk state:*active*`.
+`substring:milk state:*active*`. An argument of `.filter(…)` may also be a CALL
+— `not (…)`, `raw "…"`, and the two relations — which is the shape a predicate
+takes when no operator on a field can carry it.
 
 **Column names are quoted strings everywhere**, in both shaping stages. A custom
 column is any name at all — `columns:owner` reads the property drawer — so the
@@ -175,6 +177,14 @@ formatter's moment. The rewrite is case-only, so no offset moves.
   called `text` would name something no flat string can spell. The bare string
   is free text said the way the flat grammar says it — the positional argument
   of `.filter(…)` — and both compose to `substring:milk`.
+- **The two relations are CALLS**, `refs_to("def456")` and
+  `refs_from("abc123")`, with the edge's kind as a kwarg —
+  `refs_to("def456", kind = "blocked-by")` — and `Any` for the existence meta,
+  `refs_to(Any)` being `ref:*any*`. A call rather than a field because a kind
+  inside the quotes is a second grammar hidden in a literal; the id positional
+  because it is what the predicate is ABOUT and the kind binding because a
+  kwarg binds. The negation is `not (refs_from(Any))`, the wrapper being what
+  an operator on a field cannot carry, and `-` on the item spawns exactly that.
 - **`raw "…"` is the escape hatch**, and it is the surface admitting it is not
   total. See the corners.
 
@@ -319,6 +329,13 @@ not fire at all.
 | `WHERE deadline = DATE '2026-01-31' + INTERVAL '1' MONTH` | `deadline:2026-01-31+1m` | months and years CLIP — February's last day |
 | `WHERE planned BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30' DAY` | `planned:*today*..*today*+30d` | one cell INSIDE the interval |
 | `WHERE substring LIKE '%milk%'` | `milk` | free text is the column that exists |
+| `WHERE REFS_TO('def456')` | `ref:def456` | a boolean function, not a column |
+| `WHERE REFS_FROM('abc123')` | `from:abc123` | the same edge, from the other end |
+| `WHERE REFS_TO('def456', 'blocked-by')` | `ref:def456?kind=blocked-by` | the kind by POSITION — SQL has no kwargs |
+| `WHERE REFS_TO(ANY)` | `ref:*any*` | the existence meta, bare and upper like every other |
+| `WHERE NOT REFS_FROM(ANY)` | `-from:*any*` | the orphans |
+| `WHERE REFS_TO('a') OR REFS_TO('b')` | `ref:a\|b` | one axis, so the alternation |
+| `WITH RECURSIVE …` | — | **refused**, and the sentence names the closure proposal |
 | `FROM work` | `tag:work` | a dataset is a tag |
 | `FROM work, home` | `tag:work\|home` | the comma is a UNION |
 | `FROM *` · `all` · `default` · omitted | — | the whole store |
@@ -426,15 +443,26 @@ record syntax could not spell at all. And **the parenthesised one-axis `OR` is
 law 5's parting case** — `(tag = 'a' AND tag = 'b') OR tag = 'c'` — the single
 shape F must escape into `raw "…"`, because the per-axis law IS a disjunction of
 a conjunction with alternatives and SQL has both parens and `OR`. **G needs no
-escape hatch.** That is the sharpest thing this variant found.
+escape hatch.** That is the sharpest thing this variant found. And **a relation
+is a boolean FUNCTION** — `REFS_TO('def456')` — which is SQL's own shape for a
+predicate that is not a column comparison, so the round that gave F a new kind
+of item gave g nothing to invent; the same `OR` then spells an alternation of
+anchors that one call cannot carry. What g gives up in exchange is the kwarg:
+the kind rides the second positional, where F's `kind = "…"` names what a bare
+`'blocked-by'` leaves to the reader's memory of the signature.
 
 **Refuses.** The general boolean algebra, and it refuses it by NAME rather than
-by silence. A cross-axis `OR` has no flat spelling; two bases on one axis have
+by silence. A cross-axis `OR` has no flat spelling — the two relations being two
+axes, that reading covers them too; two bases on one axis have
 none (`tag <> 'a' OR tag <> 'b'` is ¬a ∨ ¬b); `NOT` over an intersection is De
 Morgan's and no conjunction of negated tokens says it; a comparison off the
-three date keys would compose a substring search for the operator; and a `LIKE`
+three date keys would compose a substring search for the operator; a `LIKE`
 pattern whose shape is not the key's test asks for a match the grammar cannot
-run. Ten refusals in all, each with its own sentence, each composing nothing,
+run; and **`WITH RECURSIVE` is the bounded closure, which is proposed and
+unshipped** — a recursive CTE is a named subquery with an arbitrary body, of
+which the flat grammar composes exactly one shape, so the keyword is refused
+whole and the sentence names the document where the walk lives. Thirteen
+refusals in all, each with its own sentence, each composing nothing,
 each pinned in `check.mjs` with the empty query's own IR beside it — including
 the two the first pass stated in prose and never asked for: a `%` in the middle
 of a pattern, and a widening OR'd again (`((a AND b) OR c) OR d`, where the flat
@@ -666,6 +694,94 @@ produced and the check now holds:
    variant departs any of it, no rung left the roster, and a red line now names
    which half moved.
 
+20. **The relations, and the word the metas took back.** The queue's standing
+   item was the three DSL surfaces, and this round is the one where the shipped
+   grammar moved under them: `docs/query.md` now carries `ref:`/`from:` in both
+   directions, `?kind=SLUG` behind the anchor, `ref:*any*`/`from:*any*` as the
+   existence metas, and the two keys as TWO AXES. The flat law is SHIPPED CODE,
+   so the flat dialect had to READ all of it and the IR had to CARRY it — which
+   made the round one decision per surface, one collision, and one leaf.
+
+   **A relation is a CALL in both typed surfaces and never a field.** The
+   ground is round 10's, asked of a different value: an edge carries a KIND,
+   and `ref = "def456?kind=blocked-by"` would put a second grammar inside a
+   literal — the one place this surface's quotes have never meant
+   taken-as-written. So `refs_to("def456", kind = "blocked-by")` in F and
+   `REFS_TO('def456', 'blocked-by')` in g. **The id is POSITIONAL and the kind
+   BINDS**, which is the DSL's own law — a positional is what the predicate is
+   ABOUT, a kwarg binds — and it is the reading the bounded-closure proposal
+   reached independently from the same line
+   (`docs/proposals/proposed/2026-08-23-the-chain-a-row-hangs-on.md`, "F — the
+   typed DSL"). **In g the kind is the second POSITIONAL**, SQL having no
+   kwargs for F's word to be written in; that is the only place the two
+   surfaces part on this axis, and `REL_FN` is one table both of them read, so
+   the DIRECTION cannot drift between them.
+
+   **The names are snake, and the case law is why.** Haskell writes `refsTo`.
+   A case-blind surface cannot: round 9 made `refsTo` and `refsto` one name, so
+   a hump that cannot be spelled differently from its absence carries nothing.
+   The underscore is the only word boundary that survives, and `refs_to` is the
+   spelling a reader can type back.
+
+   **`Any` went to the meta, and the list wrapper lost the word.** `*any*` is a
+   meta; metas are spelled as constructors; and `Any [...]` already had the
+   name. One name has ONE ARITY in Haskell, and `dslDone` reads exactly that
+   arity — the roster is "a question of ARITY rather than of spelling" (round
+   15) — so the two could not both stand. **The redundant reading lost:**
+   `Any [a, b]` was the identity on a list, offered nowhere, spellable only by
+   a reader who had read the source, where the anchor's union has no other
+   spelling at all. `refs_to(Any)` is `ref:*any*` now and `[a, b]` says what
+   `Any [a, b]` said. The cost is a rhyme — `All`/`Any` read as a pair — and
+   `All` keeps its partner in name only. The move itself was ONE LINE, because
+   `CTORS` is derived from `METAS`: `ref: ["*any*"], from: ["*any*"]` in the
+   one roster gave F its constructor, g its bare `ANY`, the `IS NULL` roster
+   its silence about a key with no empty cell, and the offers their dim entry.
+
+   **The IR gained one leaf, and the union is a HOLE rather than a word.**
+
+   ```
+   ref:def456                   (rel ref (at "def456") any)
+   ref:def456?kind=blocked-by   (rel ref (at "def456") (kind "blocked-by"))
+   ref:*any*                    (rel ref any any)
+   ref:any                      (rel ref (at "any") any)
+   ```
+
+   Direction, anchor, kind — and a FILLED slot is a node where the union is the
+   slot with nothing in it. A bare marker would have been shorter and wrong:
+   `ref:any` is the id spelled `any`, `docs/query.md`'s own line, so
+   `(rel ref any any)` has to mean the meta and nothing else. All four dialects
+   normalise here, and the two spellings of one kind — `?kind=Blocked By` and
+   `?kind=blocked-by` — meet at it, the peer's slug being applied on the write
+   and on the read. **One line of the closure proposal parts from this**: it
+   says a depth-1 kind-blind closure prints `(atom ref "abc")`, and that leaf
+   has nowhere to put a kind. The single-hop delivery needs a leaf that does,
+   so the identity it wants is "the closure at depth 1 IS the relation leaf".
+
+   **g refuses `WITH RECURSIVE` by name**, which is the closure proposal's own
+   ask and the fragment law's sibling: a recursive CTE is a NAMED SUBQUERY with
+   an arbitrary body, of which the flat grammar composes exactly one shape, and
+   accepting the keyword to refuse every body but one would teach a language
+   that is not there. The refusal names the document rather than the word:
+   *WITH RECURSIVE is the transitive closure — proposed, unshipped, and a
+   PREDICATE when it lands: see `docs/proposals/proposed/2026-08-23-the-chain-a-row-hangs-on.md`*.
+   Nothing composes, the way every refusal of g's composes nothing.
+
+   **The satisfiability law needed one arm and no new rule.** Required-and-
+   refused reads a relation axis exactly as it reads any other — and reads it
+   off the ATOM, so one edge written two ways is one contradiction and says it
+   ONCE. The single-cell rule must NOT read it, a row sitting on as many edges
+   as its subtree carries; that is `oneCellPerAxis`'s third name, spelled with
+   its reason, and `testOf`'s new fourth answer — `edge`, no cell at all — is
+   what keeps the guard load-bearing instead of shadowed by the "anywhere
+   inside" line's generosity. Take the arm away and two anchors warn falsely,
+   which is the mutant that proves it.
+
+   **The toy store is four resolved edges**, drawn as a graph in `rig.js`, and
+   the two NEGATIVE laws ride on one row: `Drop the ?order= parameter` links to
+   itself and to an id no row wears, and is on the relation for neither. They
+   are spelled once, in `edgesOf`, so both directions and the meta inherit them
+   rather than restating them.
+
 Rounds 4 and 5 cost the spike its own control. `/` was identical in all tabs on
 purpose, and `check.mjs` asserted it; D's, F's and G's departure is now DECLARED
 there (`DEPARTS`) rather than dropped, so the four tabs that keep a flat door
@@ -719,7 +835,8 @@ round-trip corpus.
   the unchosen reading is spelled `tag = All ["web", "glance"]` — and `All`
   spreads over its ELEMENTS, not its atoms, so `All ["web", ["glance", "docs"]]`
   stays two tokens and keeps the inner alternation. (It did not, at first; the
-  round-trip rung caught it.) `Any [...]` is the bare list's own name.
+  round-trip rung caught it.) `Any [...]` WAS the bare list's own name and is
+  not any more — see the relation corners.
 - **`not (…)` cannot carry an intersection.** `not (tag = All ["web","glance"])`
   is ¬(a ∧ b) = ¬a ∨ ¬b, and no conjunction of negated tokens says that. F names
   the refusal rather than composing something else.
@@ -857,9 +974,56 @@ round-trip corpus.
   deadline <= B` is answered every day of the year and interval satisfiability
   is a law nobody asked for. So a genuinely empty interval goes unsaid, which is
   the same trade the metas already have.
+- **A relation had to leave the fields, and `Any` had to leave the wrappers.**
+  An edge carries a KIND, and a field binds one value: `ref = "def456?kind=…"`
+  is the `:desc` suffix's mistake wearing another key, so both typed surfaces
+  spell a call instead. And `*any*` is a meta, metas are constructors, and
+  `Any [...]` had the word — one name, one arity, so the list wrapper gave it
+  up. It cost nothing a reader could reach (a bare list already said it) and
+  cost the language a rhyme: `All` no longer has its pair.
+- **An ALTERNATION OF ANCHORS has no call spelling.** `ref:a|b` is one token
+  with two atoms, and a call is about ONE anchor — with a kind kwarg that would
+  otherwise have to bind to some of them and not others, which is what the flat
+  grammar's own `|`-first split already does (`ref:a|b?kind=x` kinds the second
+  alternative alone). So F renders such an axis as `raw "…"`, the same
+  admission the `+` key makes, and **g spells it with the `OR` it already has**.
+  That is the second shape g has and F does not.
+- **The `+` key cannot reach a relation either.** It turns a kwarg's value into
+  a list, and a call has no kwarg to widen, so a widened `ref` axis is `raw "…"`
+  like every other base-and-widening.
+- **A relation spelled as a field composes NOTHING, where an unknown field
+  composes free text.** `owner = "x"` marks and still composes `owner:x`, which
+  is the free text the flat string would have read anyway; `ref = "x"` would
+  compose `ref:x`, a real token of the grammar, out of a spelling the surface
+  has just refused. The line is drawn at *does the flat string invent
+  something* and not at *is the name known*.
+- **The existence meta's containment goes unread by the warning.**
+  `ref:abc123 -ref:*any*` is empty — you cannot point at `abc123` and at
+  nothing — and the rule reads ATOMS, which do not overlap. It is the same
+  trade the starred family already has (`state:*active* state:TODO` goes
+  unsaid), and it is why the meta's own containment table stays unwritten.
+- **G: `ANY` is a reserved word doing a meta's job.** SQL's `ANY` is the
+  quantifier in `= ANY (…)`; here it is the anchor's union, bare and upper the
+  way every other meta is in g. The two never meet in this fragment — there are
+  no subqueries — but the word is borrowed and a reader who knows SQL will
+  read the quantifier into it.
+- **G: the closure refusal is a refusal, so the clause composes nothing.** A
+  reader who types `WITH RECURSIVE` and commits loses the whole `WHERE`, which
+  is the corner every g refusal already has: a shipped surface would refuse the
+  COMMIT. What this one buys is that the sentence names the DOCUMENT rather
+  than only the word, so the reader is told where the walk lives.
+- **The rig resolves a link against the id alone.** The shipped grammar has
+  three namespaces — every row's id and title for a `[[glance:…]]` or
+  `[[Title]]` link, the `:ID:` properties for an `[[id:…]]` one — and the rig
+  reads the first. That changes which links land in the edge list and nothing
+  at all about what the keys MEAN, which is what this stage is judging; a
+  fixture that spelled all three would argue about org's link syntax instead.
 - **`DEL` is already spoken for.** `docs/query.md`: "`@` … drills into `ref:ID`
   behind a breadcrumb; `DEL` pops back." The stage eraser and the crumb pop want
-  the same key in the same state. One of them has to move.
+  the same key in the same state. One of them has to move. **The relations make
+  this sharper rather than softer**: `@` is now the coarse gesture for a
+  predicate both typed surfaces can spell whole, so the drill-down and the call
+  are two doors onto one token.
 - **`/` and `.` stop being the same control.** A structured composer is a
   focusable box with a model, not a text field, so the two-step ESC, the dead
   Backspace, the strip's `×` and `stripLastToken` are all answered twice — and
@@ -879,9 +1043,11 @@ node shots.mjs g-sql.html          # one, when only that moment moved
 Three **LAW** lines come first, and they belong to no tab. What the API answers
 without a keystroke is the RIG's law and not a variant's — `stageString` reads
 the `DIALECT` table and nothing else — so each dialect's table is asked once:
-**LAW-FLAT**, the flat dialect's twelve compose-equalities and the warning's own
-law over flat queries; **LAW-DSL**, the typed dialect's twenty-one and F's case
-law; **LAW-SQL**, `AND`'s forty-four, covering every mapping in the table above,
+**LAW-FLAT**, the flat dialect's sixteen compose-equalities, the warning's own
+law over flat queries, and **the store's graph** — four resolved edges and every
+law `docs/query.md` states about a reference read off the FIXTURE rather than
+described; **LAW-DSL**, the typed dialect's thirty-one and F's case law;
+**LAW-SQL**, `AND`'s fifty-seven, covering every mapping in the table above,
 and G's. The rungs below keep the KEYSTROKES, which are each tab's own, so a red
 `LAW-*` says the rig's law moved where a red COMMA says this tab's keys did. The
 flat table had been asked on five tabs where it takes the same branch; running
@@ -893,7 +1059,11 @@ lands INSIDE them — in DOM order and on the screen), **CHAIN** (a scripted
 sequence composes exactly `state:TODO sort:deadline` and `RET` applies it: two
 rows, deadline order, empties last), **COMMA** (one drive through the tab's own
 separator, composing `state:TODO tag:web sort:state->title`, since a law nothing
-types is a law about nothing), **DRY** (an accept lands bare with
+types is a law about nothing), **REL** (the relation predicates, driven through
+each surface's own offers: one edge — `Ship the dot chain` is blocked by `Port
+table-view` — composed as `ref:def456?kind=blocked-by` from three spellings,
+applied, and one row served; then the existence meta, `ref:*any*`, whose
+constructor is the word this round moved), **DRY** (an accept lands bare with
 the offers closed, and the next keystroke wakes them), **ESC** (the ladder in
 the dialect that owns it: three rungs in the flat door and in D — the offers,
 what is half-written, the box, the strip untouched — and exactly ONE in F and G,
@@ -984,9 +1154,9 @@ F owes nine more:
   half-typed `sta` is not yet marked; `startzz` is. That a bare name nothing
   answers to is left exactly as written, marked, and composes nothing takes no
   keystrokes to ask, so it is LAW-DSL's.
-- **IR** — the corpus. Thirty-two paired spellings (flat against typed) must
-  print the same bytes; seven flat queries rendered INTO the surface and read
-  back must too — the `/`-edit's own path, `raw "…"` included; and six pairs
+- **IR** — the corpus. Forty-two paired spellings (flat against typed) must
+  print the same bytes; nine flat queries rendered INTO the surface and read
+  back must too — the `/`-edit's own path, `raw "…"` included; and nine pairs
   whose semantics part must print IRs that part with them. **The rung has to
   bite both ways**: drop the sort-and-dedupe from the normal form and the
   order/idempotence pairs go red; conjoin the widening instead of disjoining it
@@ -1031,7 +1201,25 @@ F owes nine more:
   widened case warns; read every key but `tag` as single-valued and two tags and
   two titles warn falsely; judge the metas like any other atom and
   `state:*active* state:TODO` warns; and blame one side of the pair and half the
-  ink never lands. **Forty-nine in all.**
+  ink never lands. The relation round added fourteen, and what each of them
+  reddens is the point: the kind test dropped from the walk, the self and
+  dangling links kept as references, the anchor case-folded, and the relations
+  read as single-celled all red **LAW-FLAT** and nothing else, the store's graph
+  and the warning's law being the rig's; the direction swapped inside the walk
+  reds LAW-FLAT **and REL on every tab that owns it**, where swapping it in the
+  CALL roster instead reds LAW-DSL, LAW-SQL, REL, IR and IR3 together — one
+  mutant per end of the same law, landing in different places on purpose; the
+  peer's slug left as written reds both typed law tables and both IR corpora;
+  the leaf's kind slot dropped, and the union spelled as a bare marker instead
+  of an empty slot, red **the IR divergence rows alone** — which is what those
+  rows are for; `Any` given back to the list wrapper reds the two law tables,
+  REL and both corpora; the kind offers taken away red **REL alone**, on all
+  six tabs that drive it; a relation accepted as a field reds LAW-DSL; and the
+  `WITH RECURSIVE` refusal taken away reds **FRAGMENT alone**. The fourteenth
+  survived the first pass — the `?kind=` cut taken at any `?` at all — because
+  "the cut is taken only where a `kind=` comes out of it" was a law the code
+  STATED and nothing asked, which is round 18's own finding again; the rung for
+  it went in and the mutant reds now. **Sixty-three in all.**
 
 G owes nine of its own, and every one of them is a law this variant either
 inherits differently or states alone:
@@ -1055,10 +1243,12 @@ inherits differently or states alone:
   columns it knows lower, and `SELECT` left as typed, because for a custom
   column the spelling is the header — is LAW-SQL's, needing no keystrokes.
 - **FRAGMENT** — the central law, both ways. The cross-axis `OR` refused by name
-  with the word marked and nothing composed; ten refusals each with their own
-  sentence and the empty query's own IR; five shapes that DO compose, including
-  the parenthesised base-and-widening F cannot spell; and the precedence trap,
-  loose and parenthesised, pinned side by side.
+  with the word marked and nothing composed; thirteen refusals each with their
+  own sentence and the empty query's own IR — the two relation axes reading the
+  law the way every axis does, and `WITH RECURSIVE` refused by the name of the
+  document the walk lives in; seven shapes that DO compose, including the
+  parenthesised base-and-widening F cannot spell; and the precedence trap, loose
+  and parenthesised, pinned side by side.
 - **DATES** — `CURRENT_DATE`, the four interval units, the clip (Jan 31 `+1m` is
   February's last day), the granularity cut, the empty cell outside every
   comparison, negation no mirror (five rows against three), the empty cell asked
@@ -1075,8 +1265,8 @@ inherits differently or states alone:
   composes and never its text, so g's spelling is judged the same as F's and
   says the same sentence.
 - **ESC-ABANDON** — the cancel, inherited whole, over three routes in.
-- **IR3** — twenty-nine three-way rows, seven round trips through a rendered
-  statement, eight divergences. **The rung bites both ways**: twenty-five mutants
+- **IR3** — thirty-nine three-way rows, eight round trips through a rendered
+  statement, eleven divergences. **The rung bites both ways**: twenty-five mutants
   were run against g's page and twenty-four of them reddened the rung that owns
   it at once —
   the refusal off reds FRAGMENT alone; case-sensitive keywords red eleven rungs
@@ -1095,9 +1285,9 @@ inherits differently or states alone:
   to be written TWICE — and the fix was to say it once, in `dated`, where
   breaking it now bites.
 
-The control fails five rungs by construction, the way headline-bars' `flat` tab
-does, so `a-control.html` declares DOT, PARENS, CHAIN, COMMA and DRY as misses:
-the run is green and the misses are the argument. A declared miss that starts
+The control fails six rungs by construction, the way headline-bars' `flat` tab
+does, so `a-control.html` declares DOT, PARENS, CHAIN, COMMA, DRY and REL as
+misses: the run is green and the misses are the argument. A declared miss that starts
 PASSING is a failure too — `want` reports it — and so is a departed door that
 quietly comes back: SIG is captured in every tab, and the departed ones have to
 DIFFER from the signature the four that keep the door share.
@@ -1133,7 +1323,12 @@ have to be re-decided.
 and can be hard-coded; **the keyword AND column rosters are the TREE's** —
 `#+TODO:` for the keywords, the property drawers for the custom columns — so
 both open rosters are a producer question the renderer already half-answers (it
-enumerates observed values). A shipping F would want the producer to declare
+enumerates observed values). **The relations add two more open rosters and they
+are the STORE'S**: the ids a reader may anchor on, and — read against a
+particular anchor — the kinds that anchor's own edges carry. Neither can be
+hard-coded and neither is the tree's text; they are the peer's edge table, which
+is one more thing the producer would have to hand the surface, and the reason
+the rig offers a row's TITLE as the aside beside each id. A shipping F would want the producer to declare
 which values are closed and which are open, which is one more field on the
 offer, not a new mechanism — and under a case-blind surface that declaration is
 what decides whether a bare word is a name or a marked error.
@@ -1148,7 +1343,15 @@ changes nothing else: a warning that moved a byte of the composed string would
 be a refusal wearing another name.
 
 **Pins that move:** `docs/query.md` gains "the chain is a view of the string",
-the comma's per-stage reading, and the typed surface's own table;
+the comma's per-stage reading, the typed surface's own table, and the two
+relation calls beside the `ref:`/`from:` section it already carries;
+**the bounded-closure proposal gains one correction** — its normalisation line
+says a depth-1 kind-blind closure prints `(atom ref "abc")`, and an `atom` leaf
+has nowhere to put a kind, so what the single-hop delivery actually leaves it is
+`(rel ref (at "abc") any)` and the identity to state is "the closure at depth 1
+IS the relation leaf"
+(`docs/proposals/proposed/2026-08-23-the-chain-a-row-hangs-on.md`, "The IR's
+closure leaf");
 `AGENTS.hs`'s query-language model is untouched (the string is unchanged);
 `docs/invariants.md` gains the one this spike is really about — *the surface
 composes the flat query and nothing else composes it* — and its three sharper
@@ -1206,11 +1409,14 @@ share one grid row (`tv-dock`/`tv-summon`), the chips wear the frost, column-ban
 and link-hue voices, the dropdown hangs under the whole of the box with counts on
 the right and a note across the bottom, and a summoned box delivers on COMMIT
 alone. The grammar under all of it is `docs/query.md`'s, not a mock: signs and
-their axis law, alternatives, the five metas, prefix dates, the `:a:b:` tags
+their axis law, alternatives, the metas, prefix dates, the `:a:b:` tags
 cell, `sort:` chains with empties last, `columns:` resolving against key and
 header with `Title` always present, quoting in the value position
-(`substring:"-x"`), and the vacuity rule — a token naming no atom is dropped,
-unsigned and added alike, while a lone `-` still empties the table. That is why
+(`substring:"-x"`), the two REFERENCE keys with their `?kind=SLUG` cut and their
+`*any*` metas — read off a fixture that carries a real edge graph, self-links
+and dangling links included — and the vacuity rule: a token naming no atom is
+dropped, unsigned and added alike, while a lone `-` still empties the table.
+That is why
 `rig.js` is nearly ten times the fold-marks rig — four and a half thousand lines
 against its four hundred and sixty-five: here the grammar IS the stage, twice
 over, and a completion domain that was not the real one would make every tab
