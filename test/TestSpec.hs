@@ -69,7 +69,8 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text.Lazy.Encoding as TLE
 import AGENTS (ColKind (KBadge), Column (cCellKind, cHead, cKey), SortDir (Asc), defaultSortChain, keyOf, viewColumns, viewKeys)
 import Glance.Web.Columns (columnNamesIn)
-import Glance.Web.Filter (Sign (Unsigned), Term (tmKey), Token (..), cmpMark, cmpTest, columnsKey, emptyEnv, filterKeys, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, sortKey, substringKey)
+import Glance.Query (dayOf, isoDay, shiftDay, shiftUnits)
+import Glance.Web.Filter (Sign (Unsigned), Term (tmKey), Token (..), cmpMark, cmpTest, columnsKey, emptyEnv, filterKeys, halfShift, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, shiftIn, sortKey, substringKey, unspaced)
 import Glance.Web.Sort (sortChainIn)
 import TestDefaults (listAt, withDocDir)
 import qualified Glance.Query as Q
@@ -1339,6 +1340,58 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
         | (o, o') <- zip [minBound .. maxBound] [minBound .. maxBound]
         , d <- stampLits, c <- stampLits ++ [""] ]
 
+    -- THE SHIFT GRAMMAR IS SPELLED TWICE TOO, and it is READ FROM THE END: the
+    -- corpus carries the ISO dates a sign-first reader would have eaten, so a
+    -- drift into reading `2026-08-03' as `2026-08' moved `03' shows here.
+  , testCase "the model's shift grammar and Filter's own agree" $ do
+      assertEqual "org's shift charset and the model's copy have drifted"
+                  shiftUnits Spec.unitChars
+      -- A UNIT ORG GROWS OWES A LONG WORD, the quoted form spelling out what
+      -- the compact one abbreviates; a fifth unit fails here rather than
+      -- silently answering under one spelling alone.
+      assertEqual "org's units and the long words the quoted form spells have drifted"
+                  (sort shiftUnits) (sort (nub (map snd Spec.unitWords)))
+      sequence_
+        [ do assertEqual ("the two readings of a shift in " <> show v <> " have drifted")
+                         (Spec.shiftIn v)
+                         (fmap unText (shiftIn (T.pack v)))
+             assertEqual ("the two half-typed readings of " <> show v <> " have drifted")
+                         (Spec.halfShift v) (halfShift (T.pack v))
+        | v <- shiftLits ]
+      sequence_
+        [ assertEqual ("the two space folds of " <> show v <> " have drifted")
+                      (Spec.unspaced v) (T.unpack (unspaced (T.pack v)))
+        | v <- shiftLits <> [ "<= *today* + 30 days", "2026-08-01 09:30"
+                            , "*today* .. *today* + 2 days", " 2026-08-01 "
+                            , "1 2", "12 34", "a b", " ", "  " ] ]
+
+    -- THE MODEL IS HANDED THE REAL CALENDAR — `Glance.Query.shiftDay' under
+    -- `isoDay', the pair Filter resolves a shift with — so the door the model
+    -- spells and the day the server computes cannot be two.  The clip rule and
+    -- the one-formatter law ride this case (`Spec.shiftResolution').
+  , testCase "the model's resolution door and the server's calendar agree" $ do
+      assertEqual "the one formatter no longer reads back what it writes"
+                  [Just aDay] [dayOf (isoDay aDay)]
+      let cal = Spec.Calendar (Just (T.unpack (isoDay aDay)))
+                              (\n u d -> T.unpack . isoDay <$> (shiftDay u n =<< dayOf (T.pack d)))
+      sequence_
+        [ assertEqual ("the model resolved " <> show v <> " elsewhere") want (Spec.litOf cal v)
+        | (v, want) <- [ ("*today*",       Just "2026-08-03")
+                       , ("*today*+30d",   Just "2026-09-02")
+                       , ("*today*-1w",    Just "2026-07-27")
+                       , ("+30d",          Just "2026-09-02")
+                       , ("-7d",           Just "2026-07-27")
+                       -- The clip, both ways round a leap year.
+                       , ("2026-01-31+1m", Just "2026-02-28")
+                       , ("2024-01-31+1m", Just "2024-02-29")
+                       , ("2024-02-29+1y", Just "2025-02-28")
+                       -- A base naming no day leaves the value naming none.
+                       , ("2026-08+1d",    Nothing)
+                       , ("2026-08-05",    Just "2026-08-05") ] ]
+      assertEqual "with no clock behind it a shift names no day"
+                  [Nothing, Nothing, Nothing]
+                  (map (Spec.litOf Spec.noCalendar) ["*today*", "*today*+30d", "+30d"])
+
   , testCase "environment leads the flag, and the PATH ladder is chromium-family" $ do
       assertEqual "the spec's browser candidates and Glance.Desktop's own have drifted"
                   browserCandidates Spec.chromiumFamily
@@ -1373,6 +1426,26 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
     stampLits :: [String]
     stampLits = [ "2026", "2026-08", "2026-08-05", "2026-08-05 09:00"
                 , "2026-08-05 09:30", "2026-08-06", "2026-09", "2027" ]
+
+    -- The day every resolution row below is asked on; injected, never the clock's.
+    aDay :: Time.Day
+    aDay = Time.fromGregorian 2026 8 3
+
+    unText :: (Text, Integer, Char) -> (String, Integer, Char)
+    unText (base, n, unit) = (T.unpack base, n, unit)
+
+    -- EVERY SHIFT SPELLING THE TWO READERS MUST AGREE OVER: each unit, both
+    -- signs, the bare form, the half-typed plus family, the incomplete minus,
+    -- and the plain ISO dates and forms a sloppy reader would take for shifts.
+    shiftLits :: [String]
+    shiftLits = [ "*today*+30d", "*today*-7d", "*today*+1w", "*today*-2m"
+                , "*today*+1y", "2026-08-01+3d", "2026-08-01-7d", "2026-08-15-2w"
+                , "2024-01-31+1m", "+30d", "-7d", "+0d", "+30", "+", "-"
+                , "*today*+", "*today*+30", "*today*-", "*today*-7"
+                , "2026-08-01+", "2026-08-03", "2026-08-0", "2026", "2026-08"
+                , "*today*", "*empty*", "today", "monday", "banana", "", "d"
+                , "+d", "30d", "2026-08-0d", "2026+08-01", "2026-08-01+3d+"
+                , "2026-08-01 09:30", ">=2026-08-01", "2026-08-01..2026-08-05" ]
 
 -- Build and discipline: the registries the build is described by, bound to the files that carry it.
 

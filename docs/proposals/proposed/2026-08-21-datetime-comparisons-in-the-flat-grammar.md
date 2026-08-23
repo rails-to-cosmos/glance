@@ -573,8 +573,9 @@ shippable alone.
 
 ## As delivered (phase 1)
 
-Phase 1 shipped on `scheduled:`, `deadline:` and `planned:`. Two readings go
-past the sketch above — the range and `*today*`; the rest landed as written.
+Phase 1 shipped on `scheduled:`, `deadline:` and `planned:`. Three readings go
+past the sketch above — the range, `*today*` and the shift the day words take;
+the rest landed as written.
 
 - **The four operators, as the formal semantics spell them.** `>=`, `<=`, `>`,
   `<` at the head of the value, read longest first, on the three timestamp keys
@@ -607,6 +608,66 @@ past the sketch above — the range and `*today*`; the rest landed as written.
   is applied on. The renderer answers the same word against the BROWSER's local
   day: one machine over loopback, so the skew is a midnight the request
   straddles, and it is noted rather than closed.
+
+- **A date can be SHIFTED, which is `*today*`'s own reading carried one step
+  further.** A date value takes `BASE+N UNIT` or `BASE-N UNIT` written
+  space-free — `scheduled:<=*today*+30d` — where the base is a spelled date,
+  `*today*` or nothing at all, the unit is org's own `d`/`w`/`m`/`y`, both ends
+  of a range take one and negative shifts stand (`*today*-7d`); the quoted
+  value form is the same token with spaces and long unit words
+  (`scheduled:"<= *today* + 30 days"`), folded onto the compact spelling by a
+  pre-pass so there is ONE parser. **The shift resolves AT COMPILE to a plain
+  day literal** — the env's day for `*today*`, the spelled date otherwise, `w`
+  seven days, `m` and `y`
+  calendar-clipped through `addGregorianMonthsClip` / `addGregorianYearsClip`,
+  so Jan 31 `+1m` is Feb's last day — off the one clock read the request
+  already takes, never per row. After resolution a shifted value IS a day
+  literal, so every law above is quoted rather than amended: the granularity
+  cuts, law 5's empty cell, law 6's non-mirror, the range, the alternatives and
+  the signs all read it as the literal it resolved to, and law 7 holds because
+  the shift adds no atom kind — only one more SPELLING of the literal an atom
+  already carries.
+
+  This is what Alternatives' *"relative literals"* rejection asked for when it
+  named the composition — *"the operator would take a resolved literal"* — and
+  the shareability worry it was rejected on is answered the way `*today*` answers
+  it: a saved view pins the WORDS, so
+  `planned:*today*..*today*+30d` in `#+GLANCE_AGENDA_FILTER` is a thirty-day
+  agenda on whatever day `A` is pressed. **The base may be dropped and the bare
+  shift shipped today-relative** — `scheduled:+30d` is `scheduled:*today*+30d` —
+  which reverses the sketch above on the one point it was undecided: the
+  planning grammar already reads a bare `+3d` against the server's day
+  (`docs/commands.md`), and consistency was the tiebreaker. The token's own sign
+  stays unambiguous without the base, the scanner reading a token's sign off
+  its FIRST character and stopping there: in `+scheduled:+30d` the leading `+`
+  is the token's and the value's `+` is the shift's, two readers over one
+  charset. The half-typed family covers the rest —
+  `scheduled:*today*+` and `scheduled:*today*+30` narrow nothing unsigned and
+  empty the table negated — and `*today*` shifted with no clock behind it names
+  no day, as it does bare.
+
+  **Conservativity, checked rather than assumed, with one honest edge.** The
+  PREFIX arm is dead ground outright: a value carrying a `+` or `-` and a
+  trailing unit letter prefix-matches no `isoStamp` cell, so `scheduled:*today*+30d`
+  and `scheduled:2026-09-01+30d` serve nothing today. The COMPARED arm is dead
+  ground wherever the base is `*today*`, since `comparableIn` refuses a literal
+  opening with `*`. Where the base is SPELLED, though, the compared arm today
+  reads the whole literal in byte order, and `+` (0x2B) and `-` (0x2D) sort above
+  the space and below every digit — so `deadline:<=2026-09-01+30d` answers today
+  exactly as `deadline:<=2026-09-01` does, and `deadline:>=2026-09-01-7d` as
+  `deadline:>2026-09-01`. That family moves from one proper subset to another
+  rather than from nothing, which is the one row this proposal's "every changed
+  cell served nothing or everything" table does not cover; it is a shape that
+  says nothing anybody means, and it is named here rather than left to be found.
+  The quoted fold has the matching edge and it is a REQUIREMENT, not a note: the
+  pre-pass must not strip spaces blindly, because a date literal owns one — the
+  space between its day and its hour — and the quoted form carrying it is pinned
+  ALREADY: `test/TestFilter.hs`:401-410 sweeps law 3 over `2026-08-01 09` and
+  `2026-08-10 17:00` through `quotedValue`, so `scheduled:"2026-08-01 09"` and
+  `scheduled:">=2026-08-01 09"` are live queries with a space inside the value
+  and go red the day a fold takes it. Spaces beside the operator, the range
+  mark, the shift's sign and its unit fold away; the one between a day and its
+  hour does not.
 
 - **The renderer is term for term**, the AddKey lesson taken: the matcher's
   four operators, the range and `*today*` behind the same `dateColumn` verdict;

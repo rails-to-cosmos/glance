@@ -18,9 +18,11 @@ import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ALL = ["a-control.html", "b-plain-chain.html", "c-ide-chain.html",
-             "d-stage-pills.html", "e-echo-line.html", "f-typed-dsl.html"];
+             "d-stage-pills.html", "e-echo-line.html", "f-typed-dsl.html",
+             "g-sql.html"];
 const picked = process.argv[2] ? [process.argv[2]] : ALL;
 const TYPED = "f-typed-dsl.html";
+const SQL = "g-sql.html";
 
 // THE CONTROL MISSES BY CONSTRUCTION, the way headline-bars' `flat' tab does:
 // A opens the flat box, where a dot is a character, so it cannot spawn one,
@@ -33,8 +35,14 @@ const MISSES = { "a-control.html": ["DOT", "PARENS", "CHAIN", "COMMA", "DRY"] };
 // D's machinery with a TYPED surface, so it departs the same way — and its
 // arguments are Haskell, which is why the rungs below are spelled per dialect
 // rather than once.
+// G DEPARTS TWICE OVER.  It is D's machinery, so `/' and `DEL' go the way D
+// sent them; and it is SQL, so there is NO DOT — a clause is opened by its
+// keyword and closed by the next one, and there are no parens for a caret to
+// land in.  Both are declared here and answered by rungs of g's own (KEYWORD
+// and HEAD), so what the tab owes is stated rather than dropped.
 const DEPARTS = { "d-stage-pills.html": ["SLASH", "SIG"],
-                  "f-typed-dsl.html": ["SLASH", "SIG"] };
+                  "f-typed-dsl.html": ["SLASH", "SIG"],
+                  "g-sql.html": ["SLASH", "SIG", "DOT", "PARENS"] };
 
 const BOOT_CHIPS = ["state:*active*", "-tag:chore"];
 const BOOT_FILTER = "state:*active* -tag:chore";
@@ -128,6 +136,119 @@ const IR_CORPUS = {
   ],
 };
 
+/**
+ * THE CORPUS THE THIRD READER IS PROVED ON.
+ *
+ * `three' is one query in three spellings — the flat string, F's Haskell, g's
+ * SQL — and all three IRs have to print the same bytes.  Where a row's three
+ * READ differently that is the finding, not a bug to be hidden: the `raw "…"'
+ * rows are the shape kwargs cannot say and SQL can, and the date rows are the
+ * shift F carries as an opaque literal because it has no date grammar at all.
+ *
+ * `trip' runs the other way — the flat query rendered INTO a statement and read
+ * back, which is the path a `/'-edit takes.  `diff' is the check biting the
+ * other way: SQL whose semantics part has to print IRs that part with it.
+ */
+const IR3_CORPUS = {
+  three: [
+    // the README's own example, and the boot query
+    ["state:*active* -tag:chore", '.filter(state = Active, tag /= "chore")',
+     "WHERE state = ACTIVE AND tag NOT LIKE '%chore%'"],
+    // the whole statement, all three clauses
+    ["state:TODO sort:deadline columns:State,Deadline",
+     '.filter(state = "TODO").sort(columns = ["Deadline"]).columns("State", "Deadline")',
+     "SELECT state, deadline FROM all WHERE state = 'TODO' ORDER BY deadline"],
+    // THE ALTERNATION: a list in F, `IN (…)' in g
+    ["state:TODO|DONE", '.filter(state = ["TODO", "DONE"])',
+     "WHERE state IN ('TODO', 'DONE')"],
+    // …and its negation, which scopes the WHOLE token — De Morgan's own pin
+    ["-state:TODO|DONE", '.filter(state /= ["TODO", "DONE"])',
+     "WHERE state NOT IN ('TODO', 'DONE')"],
+    ["-state:TODO|DONE", '.filter(not (state = ["TODO", "DONE"]))',
+     "WHERE NOT (state = 'TODO' OR state = 'DONE')"],
+    // THE INTERSECTION: `All' in F, and a repeated column in g, which needs no
+    // name at all because SQL can repeat one where record syntax cannot
+    ["tag:web tag:glance", '.filter(tag = All ["web", "glance"])',
+     "WHERE tag LIKE '%web%' AND tag LIKE '%glance%'"],
+    ["tag:web tag:glance", '.filter(tag = All ["web", "glance"])',
+     "WHERE tag = 'web' AND tag = 'glance'"],
+    // THE METAS, as each surface spells them
+    ["tag:*archive*", ".filter(tag = Archive)", "WHERE tag = ARCHIVE"],
+    ["state:*inactive*", ".filter(state = Inactive)", "WHERE state = INACTIVE"],
+    // …and `*empty*', where SQL already had the word
+    ["priority:*empty*", ".filter(priority = Empty)", "WHERE priority IS NULL"],
+    ["-priority:*empty*", ".filter(priority /= Empty)", "WHERE priority IS NOT NULL"],
+    // THE INFIX LAW, which `LIKE' says out loud where `key:value' leaves it
+    // implicit and F's `=' says nothing about at all
+    ["title:ship", '.filter(title = "ship")', "WHERE title LIKE '%ship%'"],
+    ["title:ship", '.filter(title = "ship")', "WHERE title = 'ship'"],
+    // free text shares the `substring' axis, and g spells it as the column it is
+    ["milk", '.filter("milk")', "WHERE substring LIKE '%milk%'"],
+    // LAW 5'S AGREEMENT HALF: on a bare axis `|' and `+' are one thing
+    ["state:TODO +state:DONE", '.filter(state = ["TODO", "DONE"])',
+     "WHERE state = 'TODO' OR state = 'DONE'"],
+    // …AND ITS PARTING CASE, the one shape F must escape into `raw "…"' and g
+    // spells with the parens and the `OR' it already has
+    ["tag:web tag:docs +tag:chore", '.filter(raw "tag:web tag:docs +tag:chore")',
+     "WHERE (tag = 'web' AND tag = 'docs') OR tag = 'chore'"],
+    ["priority:[#A] +priority:[#B] tag:book",
+     '.filter(raw "priority:[#A] +priority:[#B]", tag = "book")',
+     "WHERE priority IN ('A', 'B') AND tag = 'book'"],
+    // CASE CARRIES NOTHING in any of the three
+    ["state:*active*", ".FILTER(State = active)", "where STATE = Active"],
+    ["sort:deadline", '.SORT(columns = ["deadline"])', "ORDER BY DEADLINE"],
+    // THE SHAPING HALVES
+    ["sort:deadline:desc->title", '.sort(columns = [Desc "Deadline", "Title"])',
+     "ORDER BY deadline DESC, title"],
+    ["sort:*none*", ".sort(None)", "ORDER BY NULL"],
+    ["columns:State,Deadline", '.columns("State", "Deadline")',
+     "SELECT state, deadline"],
+    // …and the custom column, which is the app's own law in all three
+    ["columns:owner,Title", '.columns("owner", "Title")', "SELECT owner, title"],
+    // THE DATES.  F has no date grammar, so the shift travels as an opaque
+    // literal — which is exactly what the third reader is for: g READS it.
+    ["deadline:<=*today*+30d", '.filter(deadline = "<=*today*+30d")',
+     "WHERE deadline <= CURRENT_DATE + INTERVAL '30' DAY"],
+    ["deadline:<=2026-09-20", '.filter(deadline = "<=*today*+30d")',
+     "WHERE deadline <= CURRENT_DATE + INTERVAL '30' DAY"],
+    ["planned:*today*..*today*+30d", '.filter(planned = "*today*..*today*+30d")',
+     "WHERE planned BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30' DAY"],
+    // THE DATASET IS A TAG, so `FROM' is one more term on one more axis
+    ["tag:work", '.filter(tag = "work")', "FROM work"],
+    ["tag:work|home", '.filter(tag = ["work", "home"])', "FROM work, home"],
+    ["tag:work tag:urgent", '.filter(tag = All ["work", "urgent"])',
+     "FROM work WHERE tag = 'urgent'"],
+  ],
+  trip: [
+    "state:*active* -tag:chore state:TODO|DONE",
+    "tag:web tag:glance|docs",
+    "priority:[#A] tag:book +priority:[#B]",
+    "state:*active* -planned:*empty* sort:scheduled",
+    "columns:State,Title,owner sort:deadline:desc->title",
+    "deadline:<=*today*+30d sort:deadline",
+    "tag:web tag:docs +tag:chore",
+  ],
+  diff: [
+    // the alternation is not the intersection
+    ["WHERE tag IN ('web', 'docs')", "WHERE tag = 'web' AND tag = 'docs'"],
+    // …and negation does not distribute the way a reader might hope
+    ["WHERE state NOT IN ('TODO', 'DONE')",
+     "WHERE state <> 'TODO' AND state <> 'DONE'"],
+    // the order is written order, and a direction is part of the answer
+    ["ORDER BY state, title", "ORDER BY title, state"],
+    ["ORDER BY deadline", "ORDER BY deadline DESC"],
+    // `SELECT' is not narrowing
+    ["SELECT state", "SELECT deadline"],
+    // …AND THE STAR IS SEVEN WHERE THE DEFAULT IS SIX: `closed' is the
+    // difference, so the two cannot be one spelling
+    ["SELECT *", "SELECT state, priority, title, scheduled, deadline, tags"],
+    // the granularity cut is the interval's end and not its start
+    ["WHERE deadline < CURRENT_DATE", "WHERE deadline <= CURRENT_DATE"],
+    // …and a dataset narrows where its alias does not
+    ["FROM work", "FROM all"],
+  ],
+};
+
 /** Everything on the screen that carries an answer; the caret's blink does not. */
 const picture = () => {
   const bits = [];
@@ -172,6 +293,32 @@ const caretInParens = () => {
            at: c ? c.at : -1, len: c ? c.len : -1 };
 };
 
+/** G's twin of it, and the same claim in a surface with no parens: the caret
+ *  lands AFTER the clause keyword, inside the clause's own contents.  A clause
+ *  ends where the next one begins, so there is no closer to be inside of —
+ *  which is exactly why `PARENS' is declared a departure and this stands in its
+ *  place. */
+const caretInClause = () => {
+  const st = document.querySelector("#app .cx .cx-live");
+  if (!st) return { ok: false, why: "no live stage" };
+  const kw = st.querySelector(".cx-head");
+  const caret = st.querySelector(".cx-caret");
+  const args = st.querySelector(".cx-args");
+  if (!kw) return { ok: false, why: "no keyword head" };
+  if (!caret) return { ok: false, why: "no caret" };
+  if (st.querySelectorAll(".cx-par").length)
+    return { ok: false, why: "a paren was drawn" };
+  const after = (a, b) =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  if (!after(kw, caret)) return { ok: false, why: "caret before the keyword" };
+  if (!(kw.getBoundingClientRect().right <= caret.getBoundingClientRect().left + 1.5))
+    return { ok: false, why: "caret is drawn inside the keyword" };
+  const c = RIG.caret();
+  return { ok: true, where: RIG.cx().where, fn: RIG.cx().stages.slice(-1)[0].fn,
+           kw: kw.textContent, args: args ? args.textContent : "",
+           at: c ? c.at : -1, len: c ? c.len : -1 };
+};
+
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const chars = (s) => [...s];
 // The copied driver's key map carries the rungs the fold-marks spike needed and
@@ -194,32 +341,58 @@ for (const page of picked) {
   // THE SAME RUNGS, SPELLED IN THE TAB'S OWN DIALECT.  What is asserted is the
   // flat string every one of them composes; what differs is what is TYPED.
   const typed = page === TYPED;
-  const FILTER_TEXT = typed ? 'state = Active, tag /= "chore"' : BOOT_FILTER;
+  const sqlish = page === SQL;
+  // THREE DIALECTS, ONE SET OF RUNGS: what is asserted is the flat string every
+  // one of them composes, and what differs is what a reader TYPES.
+  const pick = (flat, dsl, sql) => (sqlish ? sql : typed ? dsl : flat);
+  const SQL_FILTER = "state = ACTIVE AND tag NOT LIKE '%chore%'";
+  const FILTER_TEXT = pick(BOOT_FILTER, 'state = Active, tag /= "chore"', SQL_FILTER);
   // WHAT A READER TYPES, not what stands afterwards: the opened slot supplies
-  // the quotes and spends the space, so the value goes in bare and the closing
-  // quote is stepped over.
-  const CHAIN_ARG = typed ? 'state = TODO"' : "state:TODO";
-  // `/' IS THE ADD-A-CONDITION GESTURE in the typed dialect: it lands on a
-  // FRESH argument, comma already appended, so what is typed is the condition
-  // alone.  An empty stage gets no comma — there is nothing to follow.
-  const ADD_ARG = typed ? 'tag = docs"' : " +tag:docs";
-  const REOPEN_TEXT = typed ? FILTER_TEXT + ", " : FILTER_TEXT;
-  const REOPEN_LEAD = typed ? 'state = "…"' : null;
-  const FRESH_LEAD = typed ? 'state = "…"' : "state:";
-  const ADD_TOKEN = typed ? "tag:docs" : "+tag:docs";
-  const DRY_HALF = typed ? 'state = ""' : "state:";
-  const DRY_NEXT = typed ? "A" : "TO";
-  const DRY_FULL = typed ? "state = Active" : "state:TODO";
+  // the quotes and spends the opening one, so the value goes in bare and the
+  // closing quote is stepped over.
+  const CHAIN_ARG = pick("state:TODO", 'state = TODO"', "state = TODO'");
+  // `/' IS THE ADD-A-CONDITION GESTURE in both typed dialects: it lands on a
+  // FRESH argument with the separator already appended — a comma in F, `AND' in
+  // g, each dialect's own — so what is typed is the condition alone.  An empty
+  // stage gets no separator, there being nothing to follow.
+  const ADD_ARG = pick(" +tag:docs", 'tag = docs"', "tag = docs'");
+  const REOPEN_TEXT = pick(FILTER_TEXT, FILTER_TEXT + ", ", FILTER_TEXT + " AND ");
+  const REOPEN_LEAD = pick(null, 'state = "…"', "state");
+  const FRESH_LEAD = pick("state:", 'state = "…"', "state");
+  const ADD_TOKEN = pick("+tag:docs", "tag:docs", "tag:docs");
+  const DRY_HALF = pick("state:", 'state = ""', "state");
+  // …and in g the OPERATOR is what wakes them: a column finishes no term, so
+  // the offers over it are the ten operators, and the one the reader types
+  // opens the slot the value goes in.
+  const DRY_NEXT = pick("TO", "A", " =");
+  const DRY_FULL = pick("state:TODO", "state = Active", "state = ACTIVE");
   // A KEY ACCEPT THAT OPENS A SLOT IS MID-CONSTRUCTION, so its value offers
-  // stand at once; the flat dialect has no slot and its key accept is done.
-  const DRY_MENU = typed;
-  const COLS_ARG = typed ? 'State", Deadline"' : "State,Deadline";
+  // stand at once; the flat dialect has no slot and its key accept is done.  In
+  // g the COLUMN accept opens no slot and still asks again — SQL has ten
+  // operators where record syntax has one, so the choice is the reader's.
+  const DRY_MENU = typed || sqlish;
+  const COLS_ARG = pick("State,Deadline", 'State", Deadline"', "state, deadline");
+  const COLS_TOKEN = pick("columns:State,Deadline", "columns:State,Deadline",
+                          "columns:state,deadline");
   // `.sort(' in F wants the `columns' kwarg first, which the offers spell: one
-  // TAB takes `columns = [""]' with the caret in the slot.
+  // TAB takes `columns = [""]' with the caret in the slot.  G's `ORDER BY'
+  // takes a bare name and nothing else.
   const SORT_KEYS = typed ? [[KEY.Tab], chars('Deadline"')] : [chars("deadline")];
   const SORT2_KEYS = typed ? [[KEY.Tab], chars('State", Title"')]
+                           : sqlish ? [chars("state, title")]
                            : [chars("state, title")];
-  const SORT_PILL = typed ? 'sort(columns = ["Deadline"])' : "sort(deadline)";
+  const SORT_PILL = pick("sort(deadline)", 'sort(columns = ["Deadline"])',
+                         "sort(deadline)");
+  // A CLAUSE IS OPENED BY ITS KEYWORD, so g names the one it wants where the
+  // other tabs take whatever the offers lead with.
+  const OPEN_FILTER = sqlish ? [["."], ["w"], [KEY.Tab]] : [["."], [KEY.Tab]];
+  const OPEN_SORT = sqlish ? [["."], ["o"], [KEY.Tab]] : [["."], ["s"], [KEY.Tab]];
+  const OPEN_COLS = sqlish ? [["."], ["s"], [KEY.Tab]] : [["."], ["c"], [KEY.Tab]];
+  // …and closed by `;' where F closes with `)': SQL ends a STATEMENT with one
+  // and a clause with nothing at all, so this is the one key g spends on a
+  // gesture SQL does not have.
+  const CLOSE = sqlish ? ";" : ")";
+  const drive = async (batches) => { for (const b of batches) await ff.keys(b); };
   /** A rung: green when it holds, silent when the control is declared to miss. */
   const want = (name, ok, why) => {
     if (ok && known.includes(name)) surprised.push(`${name} passed where the control is declared to miss`);
@@ -240,25 +413,71 @@ for (const page of picked) {
     dots: document.querySelectorAll("#app .cx .cx-dot").length,
     menu: RIG.menu(),
   }));
-  want("DOT", dot.door === "compose" && dot.dots === 1
-       && eq(dot.menu.items, ["filter", "sort", "columns"]),
-       `door=${dot.door} dots=${dot.dots} offers=${JSON.stringify(dot.menu.items)}`);
+  if (!departs.includes("DOT"))
+    want("DOT", dot.door === "compose" && dot.dots === 1
+         && eq(dot.menu.items, ["filter", "sort", "columns"]),
+         `door=${dot.door} dots=${dot.dots} offers=${JSON.stringify(dot.menu.items)}`);
+
+  if (sqlish) {
+    // ---- KEYWORD: G IS THE TAB WHERE `.' OPENS SOMETHING WITH NO DOT IN IT.
+    // The key is the door — the spike's question was always what `.' opens —
+    // and what it opens here is a STATEMENT, whose four clauses are the offers.
+    want("KEYWORD", dot.door === "compose" && dot.dots === 0
+         && eq(dot.menu.items, ["SELECT", "FROM", "WHERE", "ORDER BY"]),
+         `door=${dot.door} dots=${dot.dots} offers=${JSON.stringify(dot.menu.items)}`);
+    // ---- HEAD: the taken clause draws its KEYWORD and the caret lands after
+    // it, in DOM order and on the screen — which is what PARENS asserts for a
+    // call, asked of a surface that has no parens to assert it with.
+    await ff.keys(["w"]);
+    await ff.keys([KEY.Tab]);
+    const head = await ff.eval(() => {
+      const st = document.querySelector("#app .cx .cx-live");
+      if (!st) return { ok: false, why: "no live stage" };
+      const kw = st.querySelector(".cx-head");
+      const caret = st.querySelector(".cx-caret");
+      const args = st.querySelector(".cx-args");
+      if (!kw) return { ok: false, why: "no keyword head" };
+      if (!caret) return { ok: false, why: "no caret" };
+      if (st.querySelectorAll(".cx-par").length)
+        return { ok: false, why: "a paren was drawn" };
+      const after = (a, b) =>
+        (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+      if (!after(kw, caret)) return { ok: false, why: "caret before the keyword" };
+      if (!(kw.getBoundingClientRect().right
+            <= caret.getBoundingClientRect().left + 1.5))
+        return { ok: false, why: "caret is drawn inside the keyword" };
+      return { ok: true, kw: kw.textContent, where: RIG.cx().where,
+               fn: RIG.cx().stages.slice(-1)[0].fn,
+               args: args ? args.textContent : "", menu: RIG.menu().items[0] };
+    });
+    want("HEAD", head.ok === true && head.kw === "WHERE" && head.where === "args"
+         && head.fn === "filter" && head.args === "" && head.menu === "state",
+         head.why || `kw=${head.kw} where=${head.where} fn=${head.fn} `
+         + `args=${JSON.stringify(head.args)} lead=${head.menu}`);
+  }
 
   // ---- PARENS: the taken call opens them and the caret lands inside
-  await ff.keys([KEY.Tab]);
-  const par = await ff.eval(caretInParens);
-  want("PARENS", par.ok === true && par.where === "args" && par.fn === "filter",
-       par.why || `where=${par.where} fn=${par.fn}`);
+  if (!departs.includes("PARENS")) {
+    await ff.keys([KEY.Tab]);
+    const par = await ff.eval(caretInParens);
+    want("PARENS", par.ok === true && par.where === "args" && par.fn === "filter",
+         par.why || `where=${par.where} fn=${par.fn}`);
+  }
 
   // ---- CHAIN: the scripted sequence composes the grammar's own flat string
   await ff.goto(url);
-  await ff.keys(["."]);
-  await ff.keys([KEY.Tab]);
+  await drive(OPEN_FILTER);
   await ff.keys(chars(CHAIN_ARG));
-  await ff.keys([")", ".", "s"]);
-  await ff.keys([KEY.Tab]);
+  if (sqlish) {
+    // THE KEYWORD IS THE GESTURE: no `)' and no `.', just the word that ends
+    // one clause by beginning the next.
+    await ff.keys(chars(" ORDER BY "));
+  } else {
+    await ff.keys([")", ".", "s"]);
+    await ff.keys([KEY.Tab]);
+  }
   for (const batch of SORT_KEYS) await ff.keys(batch);
-  await ff.keys([")"]);
+  if (!sqlish) await ff.keys([")"]);
   const chain = await ff.eval(() => ({ composed: RIG.composed(), cx: RIG.cx() }));
   await ff.keys([KEY.Enter]);
   const after = await ff.eval(() => ({ q: RIG.query(), rows: RIG.rows(),
@@ -328,20 +547,92 @@ for (const page of picked) {
     // A BARE WORD IS NO NAME: nothing composes rather than something wrong.
     c_bare: ["columns", "State, Deadline", ""],
   };
-  const LAW = typed ? TYPED_LAW : FLAT_LAW;
+  // G'S SEPARATOR IS `AND', which is the same law asked of a language that
+  // spells its conjunction as a WORD: the comma stays where SQL puts one — the
+  // `SELECT' list, the `ORDER BY' chain, an `IN' list — and never between two
+  // predicates.
+  const SQL_LAW = {
+    f_and: ["filter", "state = 'TODO' AND tag = 'web'", "state:TODO tag:web"],
+    f_and_case: ["filter", "state = 'TODO' and tag = 'web'", "state:TODO tag:web"],
+    f_space: ["filter", "state='TODO'   AND   tag='web'", "state:TODO tag:web"],
+    // A comma inside a VALUE needs no quoting in the flat string.
+    f_value: ["filter", "tag = 'a,b'", "tag:a,b"],
+    f_quoted: ["filter", "title LIKE '%a, b%' AND tag = 'web'", 'title:"a, b" tag:web'],
+    // `IN (…)' IS THE ALTERNATION, which is the naturalness g is here for.
+    f_in: ["filter", "state IN ('TODO', 'DONE')", "state:TODO|DONE"],
+    f_not_in: ["filter", "state NOT IN ('TODO', 'DONE')", "-state:TODO|DONE"],
+    // …AND THE INTERSECTION NEEDS NO NAME: a repeated column IS the AND, where
+    // record syntax could not repeat a field and had to invent `All'.
+    f_all: ["filter", "tag = 'web' AND tag = 'glance'", "tag:web tag:glance"],
+    f_neq: ["filter", "tag <> 'chore'", "-tag:chore"],
+    f_bang: ["filter", "tag != 'chore'", "-tag:chore"],
+    f_not: ["filter", "NOT (tag = 'chore')", "-tag:chore"],
+    f_ctor: ["filter", "state = ACTIVE AND tag <> ARCHIVE", "state:*active* -tag:*archive*"],
+    // SQL ALREADY HAS A WORD FOR THE EMPTY CELL.
+    f_null: ["filter", "priority IS NULL", "priority:*empty*"],
+    f_not_null: ["filter", "priority IS NOT NULL", "-priority:*empty*"],
+    // THE ONE-AXIS `OR' IS THE ADDITIVE LAW, and its parenthesised form is the
+    // shape F could not spell at all — law 5's parting case, said in SQL.
+    f_or: ["filter", "state = 'TODO' OR state = 'DONE'", "state:TODO|DONE"],
+    f_or_base: ["filter", "(tag = 'web' AND tag = 'docs') OR tag = 'chore'",
+                "tag:web tag:docs +tag:chore"],
+    f_or_neg: ["filter", "(tag = 'web' AND tag <> 'docs') OR tag = 'chore'",
+               "tag:web -tag:docs +tag:chore"],
+    // …AND A CROSS-AXIS ONE COMPOSES NOTHING AT ALL.
+    f_cross: ["filter", "state = 'TODO' OR tag = 'web'", ""],
+    // LIKE'S WILDCARDS NAME THE KEY'S OWN TEST, and are refused where they ask
+    // for a test the flat grammar does not have.
+    f_like: ["filter", "title LIKE '%ship%'", "title:ship"],
+    f_like_pre: ["filter", "deadline LIKE '2026-08%'", "deadline:2026-08"],
+    f_like_bad: ["filter", "state LIKE '%TODO%'", ""],
+    f_like_end: ["filter", "title LIKE '%ship'", ""],
+    // THE DATES: `CURRENT_DATE' is the day, the interval is the shift.
+    f_today: ["filter", "deadline = CURRENT_DATE", "deadline:*today*"],
+    f_shift: ["filter", "deadline <= CURRENT_DATE + INTERVAL '30' DAY",
+              "deadline:<=*today*+30d"],
+    f_back: ["filter", "scheduled >= CURRENT_DATE - INTERVAL '1' WEEK",
+             "scheduled:>=*today*-1w"],
+    f_between: ["filter", "planned BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30' DAY",
+                "planned:*today*..*today*+30d"],
+    f_cmp_bad: ["filter", "title > 'x'", ""],
+    // `ORDER BY': bare names, the comma is the arrow, `NULL' is document order.
+    s_list: ["sort", "state, title", "sort:state->title"],
+    s_desc: ["sort", "deadline DESC, title", "sort:deadline:desc->title"],
+    s_asc: ["sort", "title ASC", "sort:title"],
+    s_head: ["sort", "tags, priority", "sort:tag->priority"],
+    s_null: ["sort", "NULL", "sort:*none*"],
+    s_unknown: ["sort", "owner", ""],
+    // `SELECT': bare identifiers, `*' the seven, a literal no column at all.
+    c_list: ["columns", "state, deadline", "columns:state,deadline"],
+    c_star: ["columns", "*", "columns:State,#,Title,Scheduled,Deadline,Closed,Tags"],
+    c_custom: ["columns", "owner, title", "columns:owner,title"],
+    c_ident: ["columns", '"ship date", title', "columns:ship date,title"],
+    c_literal: ["columns", "'state'", ""],
+    // `FROM': the dataset is a TAG, the comma is a union, the aliases are all.
+    t_one: ["from", "work", "tag:work"],
+    t_union: ["from", "work, home", "tag:work|home"],
+    t_star: ["from", "*", ""],
+    t_all: ["from", "all", ""],
+    t_default: ["from", "default", ""],
+    t_unknown: ["from", "nosuch", "tag:nosuch"],
+  };
+  const LAW = sqlish ? SQL_LAW : typed ? TYPED_LAW : FLAT_LAW;
   const law = await ff.eval((spec) => {
     const out = {};
     for (const k of Object.keys(spec)) out[k] = RIG.stageString(spec[k][0], spec[k][1]);
     return out;
   }, LAW);
   const lawOff = Object.keys(LAW).filter((k) => law[k] !== LAW[k][2]);
-  await ff.keys(["."]);
-  await ff.keys([KEY.Tab]);
-  await ff.keys(chars(typed ? 'state = TODO", tag = web"' : "state:TODO, tag:web"));
-  await ff.keys([")", ".", "s"]);
-  await ff.keys([KEY.Tab]);
+  await drive(OPEN_FILTER);
+  await ff.keys(chars(sqlish ? "state = TODO' AND tag = web'"
+                     : typed ? 'state = TODO", tag = web"' : "state:TODO, tag:web"));
+  if (sqlish) await ff.keys(chars(" ORDER BY "));
+  else {
+    await ff.keys([")", ".", "s"]);
+    await ff.keys([KEY.Tab]);
+  }
   for (const batch of SORT2_KEYS) await ff.keys(batch);
-  await ff.keys([")"]);
+  if (!sqlish) await ff.keys([")"]);
   const drove = await ff.eval(() => RIG.composed());
   want("COMMA", lawOff.length === 0 && drove === "state:TODO tag:web sort:state->title",
        (lawOff.length ? lawOff.map((k) => `${k}=${JSON.stringify(law[k])}`).join(" ") + " · " : "")
@@ -349,8 +640,7 @@ for (const page of picked) {
 
   // ---- DRY: an accept inside the parens lands bare and closes the offers
   await ff.goto(url);
-  await ff.keys(["."]);
-  await ff.keys([KEY.Tab]);
+  await drive(OPEN_FILTER);
   await ff.keys(chars("sta"));
   await ff.keys([KEY.Tab]);
   const liveArgs = () => {
@@ -371,7 +661,9 @@ for (const page of picked) {
   // chain keep the shipped THREE RUNGS — the offers, what is half-written, the
   // box.  F answers to the reader's own rule, ESC CANCELS INPUT, and there is
   // exactly ONE rung: the same press takes the offers, the half-written call
-  // and the box together.
+  // and the box together.  G INHERITS THAT RULE UNCHANGED — it is the typed
+  // door's, and g is a typed door: every open value is quoted, so the cancel
+  // has the same line to draw.
   const rung = () => ({ menu: RIG.menu().open, door: RIG.door(), chips: RIG.chips(),
                         held: RIG.door() === "compose" ? RIG.cx().stages.length
                           : document.querySelector("#app .tv-filter").value.length });
@@ -380,7 +672,7 @@ for (const page of picked) {
   const rung0 = await ff.eval(rung);
   await ff.keys([KEY.Escape]);
   const rung1 = await ff.eval(rung);
-  if (typed) {
+  if (typed || sqlish) {
     want("ESC", rung0.menu === true && rung0.held > 0
          && rung1.menu === false && rung1.door === null && rung1.held === 0
          && eq(rung1.chips, BOOT_CHIPS),
@@ -426,19 +718,17 @@ for (const page of picked) {
     // with the caret at the end of its contents, the commit rewrites THAT stage
     // rather than adding a second one, and the other badges are not its business.
     await ff.goto(url);
-    await ff.keys(["."]);
-    await ff.keys(["s"]);
-    await ff.keys([KEY.Tab]);
+    await drive(OPEN_SORT);
     for (const batch of SORT_KEYS) await ff.keys(batch);
-    await ff.keys([")", KEY.Enter]);
+    await ff.keys([CLOSE, KEY.Enter]);
     await ff.keys(["/"]);
-    const open = await ff.eval(caretInParens);
+    const open = await ff.eval(sqlish ? caretInClause : caretInParens);
     const opened = await ff.eval(() => ({ door: RIG.door(), cx: RIG.cx(),
                                           pills: RIG.pills(), q: RIG.query(),
                                           menu: RIG.menu().open,
                                           lead: RIG.menu().items[0] }));
     await ff.keys(chars(ADD_ARG));
-    await ff.keys([")", KEY.Enter]);
+    await ff.keys([CLOSE, KEY.Enter]);
     const rewrote = await ff.eval(() => ({ pills: RIG.pills(), q: RIG.query() }));
     const filters = rewrote.pills.filter((p) => p.startsWith("filter("));
     want("SLASH-STAGE",
@@ -465,12 +755,12 @@ for (const page of picked) {
     // …and `/' over a stage that is open and EMPTY adds no comma either: there
     // is nothing standing for a fresh argument to follow.  It also stays the
     // same rewrite, or the badge's tokens would land twice.
-    if (typed) await ff.keys(["/"]);
-    const reEmpty = typed
+    if (typed || sqlish) await ff.keys(["/"]);
+    const reEmpty = typed || sqlish
       ? await ff.eval(() => ({ args: RIG.cx().stages.slice(-1)[0].args,
                                at: (RIG.caret() || {}).at }))
       : { args: "", at: 0 };
-    await ff.keys([")", KEY.Enter]);
+    await ff.keys([CLOSE, KEY.Enter]);
     const gone = await ff.eval(() => ({ pills: RIG.pills(), q: RIG.query() }));
     await ff.keys(["/"]);
     const fresh = await ff.eval(() => ({ cx: RIG.cx(), door: RIG.door(),
@@ -494,7 +784,7 @@ for (const page of picked) {
     await ff.goto(url);
     const was = await ff.eval(() => ({ pills: RIG.pills(), q: RIG.query() }));
     await ff.keys(["/"]);
-    await ff.keys([")"]);
+    await ff.keys([CLOSE]);
     const shut = await ff.eval(() => RIG.cx().stages.slice(-1)[0].args);
     await ff.keys([KEY.Enter]);
     const back2 = await ff.eval(() => ({ pills: RIG.pills(), q: RIG.query() }));
@@ -506,15 +796,12 @@ for (const page of picked) {
     // ---- DEL-STAGE: the chain's own backspace — the latest badge, whole, and
     // pressing it again walks the chain backward.
     await ff.goto(url);
-    await ff.keys(["."]);
-    await ff.keys(["s"]);
-    await ff.keys([KEY.Tab]);
+    await drive(OPEN_SORT);
     for (const batch of SORT_KEYS) await ff.keys(batch);
-    await ff.keys([")", "."]);
-    await ff.keys(["c"]);
-    await ff.keys([KEY.Tab]);
+    await ff.keys([CLOSE]);
+    await drive(OPEN_COLS);
     await ff.keys(chars(COLS_ARG));
-    await ff.keys([")", KEY.Enter]);
+    await ff.keys([CLOSE, KEY.Enter]);
     const built = await ff.eval(() => ({ pills: RIG.pills(), q: RIG.query() }));
     const walk = [];
     for (let i = 0; i < 4; i += 1) {
@@ -523,7 +810,7 @@ for (const page of picked) {
     }
     want("DEL-STAGE",
          built.pills.length === 3 && built.pills[1] === SORT_PILL
-         && built.q === BOOT_FILTER + " sort:deadline columns:State,Deadline"
+         && built.q === BOOT_FILTER + " sort:deadline " + COLS_TOKEN
          && eq(walk, ["state:*active* -tag:chore sort:deadline",
                       "state:*active* -tag:chore", "", ""]),
          `built=${JSON.stringify(built.pills)} q=${JSON.stringify(built.q)} `
@@ -1049,6 +1336,521 @@ for (const page of picked) {
          [sameOff.map((r) => `${r[0]} ≠ ${r[1]}`).join(" · "),
           tripOff.map((r) => `round trip ${r[0]} → ${r[1]}`).join(" · "),
           diffOff.map((r) => `${r[0]} and ${r[1]} print the same IR`).join(" · ")]
+           .filter(Boolean).join(" | "));
+  }
+
+  if (sqlish) {
+    // ---- SLOT: THE OPERATOR OPENS THE QUOTED SLOT, where F's `=' does.  Two
+    // routes, pinned apart: the operator taken out of the offers, and the
+    // operator typed by hand.  What is taken out of the slot decides the
+    // quotes' fate — a constructor is no string, so accepting one swallows
+    // them; a literal keeps them.  Both stay dry.
+    const held = () => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                          at: (RIG.caret() || {}).at, menu: RIG.menu().open,
+                          items: RIG.menu().items.slice(0, 4), c: RIG.composed() });
+    // ROUTE ONE — the column, then its operator, then its value.  THE COLUMN
+    // ACCEPT OPENS NO SLOT AND STILL ASKS AGAIN: SQL has ten operators where
+    // record syntax has one, so the choice is the reader's and the offers owe
+    // them the list.
+    await ff.goto(url);
+    await drive(OPEN_FILTER);
+    await ff.keys(chars("sta"));
+    await ff.keys([KEY.Enter]);
+    const col = await ff.eval(held);
+    await ff.keys([KEY.Tab]);                    // …the `=' and its slot
+    const slot = await ff.eval(held);
+    await ff.keys([KEY.Tab]);                    // …the constructor, out of it
+    const ctor = await ff.eval(held);
+    // ROUTE TWO — the operator typed by hand.  The same slot, the same offers,
+    // and this column's own domain leads them.
+    await ff.goto(url);
+    await drive(OPEN_FILTER);
+    await ff.keys(chars("tag ="));
+    const byHand = await ff.eval(held);
+    // …AND THE OPENED SLOT SPENDS THE OPENING QUOTE: a reader who types the one
+    // they always would gets no second quote and no step over the first.
+    await ff.keys(["'"]);
+    const spent = await ff.eval(held);
+    // …AND THE VALUE ACCEPT IS THE ONE THAT IS FINAL: dry, closed, and a
+    // repaint does not resurrect the offers.
+    await ff.keys(chars("chor"));
+    await ff.keys([KEY.Tab]);
+    const str = await ff.eval(held);
+    await ff.eval(() => RIG.repaint());
+    const settledMenu = await ff.eval(() => RIG.menu().open);
+    await ff.keys(chars(" AND state = TODO'"));   // the closing quote is stepped over
+    const past = await ff.eval(held);
+    want("SLOT",
+         col.args === "state" && col.menu === true
+         && eq(col.items.slice(0, 2), ["= '…'", "<> '…'"])
+         && slot.args === "state = ''" && slot.at === 9 && slot.menu === true
+         && eq(slot.items, ["ACTIVE", "INACTIVE", "'TODO'", "'NEXT'"])
+         && ctor.args === "state = ACTIVE" && ctor.menu === false
+         && ctor.c === "state:*active*"
+         && byHand.args === "tag = ''" && byHand.at === 7 && byHand.menu === true
+         && byHand.items[0] === "ARCHIVE" && /^'/.test(byHand.items[1])
+         && eq(spent, byHand)
+         && str.args === "tag = 'chore'" && str.menu === false && str.c === "tag:chore"
+         && settledMenu === false
+         && past.args === "tag = 'chore' AND state = 'TODO'"
+         && past.c === "tag:chore state:TODO",
+         `col=${JSON.stringify(col)} slot=${JSON.stringify(slot)} `
+         + `ctor=${JSON.stringify(ctor)} hand=${JSON.stringify(byHand)} `
+         + `spent=${JSON.stringify(spent)} str=${JSON.stringify(str)} `
+         + `settled=${settledMenu} past=${JSON.stringify(past)}`);
+
+    // ---- DONE: A COMPLETE TERM ENDS THE CONVERSATION, asked in SQL's own
+    // quoting.  Round 15's law is inherited whole; what g pins per variant is
+    // what FINISHES a term here — two quote characters, a list that closes with
+    // a paren, and a BARE NAME whose completeness is the namespace's: a column
+    // in `WHERE' is waiting for its operator, and a name in `SELECT' or `ORDER
+    // BY' is the whole answer.
+    const stood = () => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                           at: (RIG.caret() || {}).at, menu: RIG.menu().open,
+                           lead: RIG.menu().items[0] });
+    const landed = () => ({ q: RIG.query(), pills: RIG.pills(), door: RIG.door(),
+                            rows: RIG.rows() });
+    // (a) A CLOSED LITERAL, the caret stepped over its far quote.
+    await ff.goto(url);
+    await drive(OPEN_FILTER);
+    await ff.keys(chars("tag = docs'"));
+    const doneStr = await ff.eval(stood);
+    // …and the TERM is what decides, never the offset: a space after it is
+    // still a finished term, and the menu stays down over it.
+    await ff.keys([" "]);
+    const doneSpace = await ff.eval(stood);
+    // …and the counter-case is the CONNECTIVE, which is a word: g has no
+    // punctuation that opens a fresh predicate, so the position wakes when the
+    // reader starts writing one.
+    await ff.keys(["A"]);
+    const doneJoin = await ff.eval(stood);
+    await ff.keys([KEY.Backspace, KEY.Backspace]);
+    const doneAgain = await ff.eval(stood);
+    await ff.keys([KEY.Enter]);
+    const doneApplied = await ff.eval(landed);
+    // (b) A CLOSED LIST — the paren the offers opened, stepped over.
+    await ff.goto(url);
+    await drive(OPEN_FILTER);
+    await ff.keys(chars("tag I"));
+    await ff.keys([KEY.Tab]);
+    const inOpen = await ff.eval(stood);
+    await ff.keys(chars("docs'"));
+    await ff.keys([","]);
+    const inNext = await ff.eval(stood);
+    await ff.keys(chars("chore'"));
+    await ff.keys([")"]);
+    const inShut = await ff.eval(stood);
+    await ff.keys([KEY.Enter]);
+    const inApplied = await ff.eval(landed);
+    // (c) A BARE NAME, whose completeness is the NAMESPACE'S.  In `WHERE' a
+    // column is unfinished; one step short of a constructor is still being
+    // written; and the constructor itself stands alone.
+    await ff.goto(url);
+    await drive(OPEN_FILTER);
+    await ff.keys(chars("tag"));
+    const bareCol = await ff.eval(stood);
+    await ff.keys(chars(" = ARCHIV"));
+    const halfCtor = await ff.eval(stood);
+    await ff.keys([KEY.Tab]);                    // …the constructor eats the slot
+    const wholeCtor = await ff.eval(stood);
+    // …and the caret WALKED onto its tail rather than left there by the accept:
+    // what decides is the term, and never the gesture that reached it.
+    await ff.keys([KEY.ArrowLeft]);
+    const walkedOff = await ff.eval(stood);
+    await ff.keys([KEY.ArrowRight]);
+    const walkedBack = await ff.eval(stood);
+    await ff.keys([KEY.Enter]);
+    const ctorApplied = await ff.eval(landed);
+    want("DONE",
+         doneStr.args === "tag = 'docs'" && doneStr.at === 12
+         && doneStr.menu === false
+         && doneSpace.args === "tag = 'docs' " && doneSpace.menu === false
+         && doneJoin.menu === true && doneJoin.lead === "AND"
+         && eq(doneAgain, doneStr)
+         && doneApplied.q === BOOT_FILTER + " tag:docs"
+         && doneApplied.door === null && doneApplied.rows === 1
+         && inOpen.args === "tag IN ('')" && inOpen.at === 9
+         && inNext.args === "tag IN ('docs', '')" && inNext.at === 17
+         && inShut.args === "tag IN ('docs', 'chore')" && inShut.menu === false
+         && inApplied.q === BOOT_FILTER + " tag:docs|chore"
+         && inApplied.door === null
+         && bareCol.args === "tag" && bareCol.menu === true
+         && bareCol.lead === "= '…'"
+         && halfCtor.args === "tag = 'ARCHIV'" && halfCtor.menu === true
+         && halfCtor.lead === "ARCHIVE"
+         && wholeCtor.args === "tag = ARCHIVE" && wholeCtor.at === 13
+         && wholeCtor.menu === false
+         && walkedOff.menu === true && eq(walkedBack, wholeCtor)
+         && ctorApplied.q === BOOT_FILTER + " tag:*archive*"
+         && ctorApplied.door === null,
+         `str=${JSON.stringify(doneStr)} space=${JSON.stringify(doneSpace)} `
+         + `join=${JSON.stringify(doneJoin)} again=${JSON.stringify(doneAgain)} `
+         + `applied=${JSON.stringify(doneApplied)} in=${JSON.stringify(inOpen)}`
+         + `/${JSON.stringify(inNext)}/${JSON.stringify(inShut)}`
+         + `/${JSON.stringify(inApplied)} col=${JSON.stringify(bareCol)} `
+         + `half=${JSON.stringify(halfCtor)} whole=${JSON.stringify(wholeCtor)} `
+         + `walked=${JSON.stringify(walkedOff)}/${JSON.stringify(walkedBack)} `
+         + `ctorApplied=${JSON.stringify(ctorApplied)}`);
+
+    // ---- ESC-ABANDON: ESC CANCELS INPUT, and g inherits the rule whole —
+    // it is the TYPED DOOR'S rule, and g is a typed door: every open value is
+    // quoted, so the same line is available and the same press abandons the
+    // whole edit.  Three routes in, one press out of each, and the WHOLE
+    // picture back: chips, box, rows, hint and the three lines under them.
+    const held2 = () => ({ q: RIG.query(), pills: RIG.pills(), door: RIG.door(),
+                           chips: RIG.chips(), stages: RIG.cx().stages });
+    const open2 = () => ({ args: (RIG.cx().stages.slice(-1)[0] || {}).args,
+                           at: (RIG.caret() || {}).at, menu: RIG.menu().open });
+    const walkOut = async (into) => {
+      await ff.goto(url);
+      const was = await ff.eval(picture), wasQ = await ff.eval(held2);
+      for (const batch of into) await ff.keys(batch);
+      const mid = await ff.eval(open2);
+      await ff.keys([KEY.Escape]);
+      return { was, wasQ, mid, now: await ff.eval(picture), nowQ: await ff.eval(held2) };
+    };
+    // (a) THE SUMMON ALONE: `/' dangles an `AND' — the gesture's own separator,
+    // per dialect — and stands its offers; one ESC takes both.
+    const escA = await walkOut([["/"]]);
+    // (b) …AND WITH A CONDITION TYPED INTO IT.  What this route loses is the
+    // text and the `AND' and NOT the offers: the condition is complete, so the
+    // menu is already down over it by round 15's law.
+    const escB = await walkOut([["/"], chars("tag = docs'")]);
+    // (c) …AND MID-EDIT OF A PREDICATE ALREADY WRITTEN, reached by moving the
+    // caret rather than by the gesture.
+    const escC = await walkOut([["/"], new Array(5).fill(KEY.ArrowLeft),
+                                new Array(8).fill(KEY.Backspace), chars("%milk%'")]);
+    const same = (r) => r.was === r.now && eq(r.wasQ, r.nowQ)
+      && r.nowQ.door === null && r.nowQ.stages.length === 0;
+    want("ESC-ABANDON",
+         escA.mid.args === REOPEN_TEXT && escA.mid.menu === true && same(escA)
+         && escB.mid.args === SQL_FILTER + " AND tag = 'docs'"
+         && escB.mid.menu === false && same(escB)
+         && escC.mid.args === "state = ACTIVE AND tag NOT LIKE '%milk%' AND "
+         && same(escC),
+         `a=${JSON.stringify(escA.mid)}/${same(escA)} `
+         + `b=${JSON.stringify(escB.mid)}/${same(escB)} `
+         + `c=${JSON.stringify(escC.mid)}/${same(escC)}`);
+
+    // ---- CASE: SQL'S OWN CONVENTION IS THE SPIKE'S CASE LAW.  Any case is
+    // typed and any case parses — keywords, columns and the enum roster alike —
+    // and what STANDS after the accept is the canonical spelling: the language
+    // upper, the columns it knows lower.  In `SELECT' alone the spelling is
+    // left as written, because for a CUSTOM column the spelling IS the header.
+    await ff.goto(url);
+    await drive(OPEN_FILTER);
+    await ff.keys(chars("not (TAG = chore'"));
+    await ff.keys([")"]);
+    await ff.keys([";"]);
+    const canon = await ff.eval(() => ({
+      args: RIG.cx().stages.slice(-1)[0].args, c: RIG.composed() }));
+    const apiCase = await ff.eval(() => ({
+      canon: RIG.sqlCanon("STATE = active and TAG Not Like '%x%'", "filter"),
+      kept: RIG.sqlCanon("Ship Date, TITLE", "columns"),
+      lower: RIG.stageString("filter", "state = active and tag <> 'chore'"),
+      upper: RIG.stageString("filter", "STATE = ACTIVE AND TAG <> 'chore'"),
+      mixed: RIG.stageString("sort", "Deadline desc, TITLE"),
+      // …and a column nothing answers to is left exactly as written, MARKED,
+      // and composes nothing: the WHERE namespace is the closed one.
+      unknown: [RIG.sqlErrors("filter", "owner = 'x'").length,
+                RIG.stageString("filter", "owner = 'x'")],
+    }));
+    want("CASE",
+         canon.args === "NOT (tag = 'chore')" && canon.c === "-tag:chore"
+         && apiCase.canon === "state = ACTIVE AND tag NOT LIKE '%x%'"
+         && apiCase.kept === "Ship Date, TITLE"
+         && apiCase.lower === "state:*active* -tag:chore"
+         && apiCase.upper === apiCase.lower
+         && apiCase.mixed === "sort:deadline:desc->title"
+         && apiCase.unknown[0] === 1 && apiCase.unknown[1] === "",
+         `canon=${JSON.stringify(canon)} api=${JSON.stringify(apiCase)}`);
+
+    // ---- FRAGMENT: THE VARIANT'S CENTRAL LAW.  The flat grammar is axes-AND
+    // with per-axis disjunction, so `AND' composes across anything and `OR'
+    // only within ONE column.  A cross-axis `OR' is REFUSED: the clause
+    // composes NOTHING, the word itself is marked, and the hint row names the
+    // fragment.  Nothing is dropped quietly — a filter that loses a conjunct
+    // serves MORE rows, and more is the one direction a reader cannot check.
+    await ff.goto(url);
+    await ff.keys(["/"]);
+    await ff.keys(chars("state = TODO' OR tag = web'"));
+    const refused = await ff.eval(() => ({
+      args: RIG.cx().stages.slice(-1)[0].args,
+      c: RIG.composed(),
+      said: [...document.querySelectorAll("#app .tv-hint .tv-refused")]
+        .map((n) => n.textContent),
+      marks: [...document.querySelectorAll("#app .cx .cx-live .cx-bad")]
+        .map((n) => n.textContent),
+    }));
+    // …and the near miss composes: one axis, and the `OR' is the alternation.
+    await ff.goto(url);
+    await drive(OPEN_FILTER);
+    await ff.keys(chars("state = TODO' OR state = DONE'"));
+    const oneAxis = await ff.eval(() => ({
+      c: RIG.composed(),
+      said: document.querySelectorAll("#app .tv-hint .tv-refused").length,
+      marks: document.querySelectorAll("#app .cx .cx-live .cx-bad").length,
+    }));
+    await ff.keys([KEY.Enter]);
+    const orApplied = await ff.eval(() => ({ q: RIG.query(), rows: RIG.rows() }));
+    // …AND THE TRAP IS PRECEDENCE, not the axis law.  `AND' binds tighter, so a
+    // one-column `OR' written beside another column's predicate hands the OR an
+    // arm that spans both — and the refusal is TRUE of what was written.  The
+    // parens are the reader's answer, and they are SQL's own.
+    await ff.goto(url);
+    await ff.keys(["/"]);
+    await ff.keys(chars("state = TODO' OR state = DONE'"));
+    const looseOr = await ff.eval(() => ({
+      c: RIG.composed(),
+      said: [...document.querySelectorAll("#app .tv-hint .tv-refused")]
+        .map((n) => n.textContent).length,
+    }));
+    await ff.goto(url);
+    await ff.keys(["/"]);
+    await ff.keys(chars("(state = TODO' OR state = DONE'"));
+    await ff.keys([")"]);
+    const tightOr = await ff.eval(() => ({
+      c: RIG.composed(),
+      said: document.querySelectorAll("#app .tv-hint .tv-refused").length,
+    }));
+    // …and the whole fragment, as law.  Each refusal names itself, composes
+    // nothing, and prints the empty query's own IR.
+    const REFUSALS = {
+      cross: ["state = 'TODO' OR tag = 'web'", "OR across columns"],
+      twoBases: ["tag <> 'web' OR tag <> 'docs'", "one base"],
+      deMorgan: ["NOT (tag = 'web' AND tag = 'docs')", "De Morgan"],
+      cmpOffDate: ["title > 'x'", "the date keys alone"],
+      likeShape: ["state LIKE '%TODO%'", "matches a cell exactly"],
+      likePrefix: ["title LIKE 'ship%'", "looks inside the cell"],
+      likeEnd: ["title LIKE '%ship'", "END of a cell"],
+      likeUnderscore: ["title LIKE '%s_ip%'", "single-character wildcard"],
+      betweenOff: ["priority BETWEEN 'A' AND 'B'", "no interval"],
+    };
+    // …AND THE SHAPES THAT DO COMPOSE, which is what makes the refusal a line
+    // and not a wall: the alternation, the base-and-widening law 5 could not
+    // spell in kwargs at all, and De Morgan the OTHER way round.
+    const ALLOWED = {
+      alternation: ["state = 'TODO' OR state = 'DONE'", "state:TODO|DONE"],
+      widened: ["(tag = 'web' AND tag = 'docs') OR tag = 'chore'",
+                "tag:web tag:docs +tag:chore"],
+      widenedNeg: ["(tag = 'web' AND tag <> 'docs') OR tag = 'chore'",
+                   "tag:web -tag:docs +tag:chore"],
+      notOr: ["NOT (tag = 'web' OR tag = 'docs')", "-tag:web|docs"],
+      threeWide: ["(tag = 'web' AND tag = 'docs') OR tag = 'chore' OR tag = 'read'",
+                  "tag:web tag:docs +tag:chore +tag:read"],
+    };
+    const frag = await ff.eval((spec) => {
+      const out = { no: {}, yes: {}, empty: RIG.irFlat("") };
+      for (const k of Object.keys(spec.no)) {
+        const src = spec.no[k][0];
+        out.no[k] = { c: RIG.stageString("filter", src),
+                      said: RIG.sqlRefusals(src),
+                      ir: RIG.irSql("WHERE " + src) };
+      }
+      for (const k of Object.keys(spec.yes)) {
+        const src = spec.yes[k][0];
+        out.yes[k] = { c: RIG.stageString("filter", src),
+                       said: RIG.sqlRefusals(src).length,
+                       ir: RIG.irSql("WHERE " + src),
+                       flat: RIG.irFlat(spec.yes[k][1]) };
+      }
+      return out;
+    }, { no: REFUSALS, yes: ALLOWED });
+    const noOff = Object.keys(REFUSALS).filter((k) => {
+      const g = frag.no[k];
+      return g.c !== "" || g.said.length !== 1 || g.ir !== frag.empty
+        || !g.said[0].includes(REFUSALS[k][1]);
+    });
+    const yesOff = Object.keys(ALLOWED).filter((k) => {
+      const g = frag.yes[k];
+      return g.c !== ALLOWED[k][1] || g.said !== 0 || g.ir !== g.flat;
+    });
+    want("FRAGMENT",
+         refused.args === SQL_FILTER + " AND state = 'TODO' OR tag = 'web'"
+         && refused.c === "" && refused.said.length === 1
+         && /^OR across columns has no flat spelling/.test(refused.said[0])
+         && eq(refused.marks, ["OR"])
+         && oneAxis.c === "state:TODO|DONE"
+         && oneAxis.said === 0 && oneAxis.marks === 0
+         && orApplied.q === BOOT_FILTER + " state:TODO|DONE"
+         && orApplied.rows === 2
+         && looseOr.c === "" && looseOr.said === 1
+         && tightOr.c === BOOT_FILTER + " state:TODO|DONE" && tightOr.said === 0
+         && noOff.length === 0 && yesOff.length === 0,
+         `refused=${JSON.stringify(refused)} oneAxis=${JSON.stringify(oneAxis)} `
+         + `applied=${JSON.stringify(orApplied)} loose=${JSON.stringify(looseOr)} `
+         + `tight=${JSON.stringify(tightOr)} `
+         + `no=${noOff.map((k) => k + ":" + JSON.stringify(frag.no[k])).join(" ")} `
+         + `yes=${yesOff.map((k) => k + ":" + JSON.stringify(frag.yes[k])).join(" ")}`);
+
+    // ---- DATES: `CURRENT_DATE' is the day and the INTERVAL is the shift, and
+    // every law under them is the flat grammar's: the granularity cuts, the
+    // clip, the empty cell outside every comparison, negation no mirror, and
+    // the range that on `planned' says what no pair of tokens can.
+    const dates = await ff.eval(() => {
+      const rows = (sql) => RIG.served(RIG.stageString("filter", sql)).rows.length;
+      const ir = (sql) => RIG.irSql("WHERE " + sql);
+      return {
+        today: [RIG.stageString("filter", "deadline = CURRENT_DATE"),
+                ir("deadline = CURRENT_DATE"), RIG.irFlat("deadline:2026-08-21")],
+        shift: [ir("deadline <= CURRENT_DATE + INTERVAL '30' DAY"),
+                RIG.irFlat("deadline:<=2026-09-20")],
+        week: [ir("scheduled >= CURRENT_DATE - INTERVAL '1' WEEK"),
+               RIG.irFlat("scheduled:>=2026-08-14")],
+        // THE CLIP: a month too short for the day takes its own last one.
+        clip: [ir("scheduled = DATE '2026-01-31' + INTERVAL '1' MONTH"),
+               RIG.irFlat("scheduled:2026-02-28")],
+        year: [ir("deadline = DATE '2026-08-28' + INTERVAL '1' YEAR"),
+               RIG.irFlat("deadline:2027-08-28")],
+        // The rows, so the law is not merely a string rewrite.
+        lookahead: rows("deadline <= CURRENT_DATE + INTERVAL '30' DAY"),
+        overdue: rows("deadline < CURRENT_DATE"),
+        // ONE CELL INSIDE THE INTERVAL, which two tokens cannot say.
+        planned: rows("planned BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30' DAY"),
+        plannedPair: RIG.served("planned:>=2026-08-21 planned:<=2026-09-20").rows.length,
+        // NEGATION IS NO MIRROR: they differ on exactly the undated rows.
+        notLess: rows("NOT (deadline < CURRENT_DATE)"),
+        atLeast: rows("deadline >= CURRENT_DATE"),
+        // …and the granularity cut is the interval's end and not its start.
+        cutLt: RIG.irSql("WHERE deadline < CURRENT_DATE"),
+        cutLe: RIG.irSql("WHERE deadline <= CURRENT_DATE"),
+        // AN INTERVAL IS NO VALUE, so the contradiction rule does not read one:
+        // two comparisons on a date key are answered every day of the year, and
+        // a false warning is worse than a silent one.
+        quiet: RIG.unsat("deadline:>=2026-08-01 deadline:<=2026-08-31").said,
+      };
+    });
+    want("DATES",
+         dates.today[0] === "deadline:*today*" && dates.today[1] === dates.today[2]
+         && dates.shift[0] === dates.shift[1] && dates.week[0] === dates.week[1]
+         && dates.clip[0] === dates.clip[1] && dates.year[0] === dates.year[1]
+         && dates.lookahead === 4 && dates.overdue === 1
+         && dates.planned === 4 && dates.plannedPair === 4
+         && dates.notLess === 5 && dates.atLeast === 3
+         && dates.cutLt !== dates.cutLe && eq(dates.quiet, []),
+         JSON.stringify(dates));
+
+    // ---- SHAPE: the two clauses that are not the narrowing half, and the one
+    // that turned out to be it in disguise.  `SELECT' names columns and its
+    // open half is the app's own custom column; `FROM' names a DATASET, which
+    // is a tag, so it composes onto the tag axis and the axis law does the
+    // rest; `ORDER BY' is the chain.
+    await ff.goto(url);
+    const shape = await ff.eval(() => ({
+      star: RIG.stageString("columns", "*"),
+      // THE STAR IS SEVEN WHERE THE DEFAULT VIEW IS SIX — `closed' is the
+      // difference, a custom column reading the planning stamp — so it is not
+      // the absent token and its IR says so.
+      starIr: RIG.irSql("SELECT *"),
+      hand: RIG.irSql("SELECT state, priority, title, scheduled, deadline, closed, tags"),
+      six: RIG.irSql("SELECT state, priority, title, scheduled, deadline, tags"),
+      none: RIG.irFlat(""),
+      // AND THE OPEN HALF IS THE APP'S CUSTOM COLUMN, drawer and all.
+      custom: RIG.stageString("columns", "owner, title"),
+      customIr: [RIG.irSql("SELECT owner, title"), RIG.irFlat("columns:owner,Title")],
+      spaced: RIG.stageString("columns", '"ship date"'),
+      // `FROM' IS A DATASET, and a dataset is a tag.
+      one: RIG.stageString("from", "work"),
+      union: [RIG.irSql("FROM work, home"), RIG.irFlat("tag:work|home")],
+      aliases: ["*", "all", "default"].map((a) => RIG.stageString("from", a)),
+      omitted: [RIG.irSql("WHERE state = ACTIVE"),
+                RIG.irSql("FROM all WHERE state = ACTIVE"),
+                RIG.irFlat("state:*active*")],
+      // …so a `FROM' beside a `WHERE tag' is the axis law's own consequence.
+      both: [RIG.irSql("FROM docs WHERE tag = 'chore'"),
+             RIG.irFlat("tag:docs tag:chore")],
+      bothRows: RIG.served(RIG.stageString("from", "docs") + " "
+                           + RIG.stageString("filter", "tag = 'chore'")).rows.length,
+      // AN UNKNOWN DATASET COMPOSES ALL THE SAME: the tags are the tree's, so
+      // the namespace is open and the empty table is the truthful answer.
+      unknown: [RIG.stageString("from", "nosuch"),
+                RIG.served("tag:nosuch").rows.length],
+      order: [RIG.stageString("sort", "deadline DESC, title"),
+              RIG.stageString("sort", "NULL"),
+              RIG.stageString("sort", "owner")],
+    }));
+    // …and the custom column DRAWS, which is what makes the open half real.
+    await drive(OPEN_COLS);
+    await ff.keys(chars("owner, title"));
+    await ff.keys([CLOSE, KEY.Enter]);
+    const drawn = await ff.eval(() => ({
+      cols: RIG.cols(),
+      cells: [...document.querySelectorAll("#app tbody tr")]
+        .map((tr) => tr.firstElementChild.textContent),
+    }));
+    want("SHAPE",
+         shape.star === "columns:State,#,Title,Scheduled,Deadline,Closed,Tags"
+         && shape.starIr === shape.hand && shape.starIr !== shape.none
+         && shape.six === shape.none
+         && shape.custom === "columns:owner,title"
+         && shape.customIr[0] === shape.customIr[1]
+         && shape.spaced === "columns:ship date"
+         && shape.one === "tag:work"
+         && shape.union[0] === shape.union[1]
+         && eq(shape.aliases, ["", "", ""])
+         && shape.omitted[0] === shape.omitted[2]
+         && shape.omitted[1] === shape.omitted[2]
+         && shape.both[0] === shape.both[1] && shape.bothRows === 1
+         && shape.unknown[0] === "tag:nosuch" && shape.unknown[1] === 0
+         && eq(shape.order, ["sort:deadline:desc->title", "sort:*none*", ""])
+         && eq(drawn.cols, ["owner", "Title"])
+         && drawn.cells.includes("dmitry") && drawn.cells.includes("ana"),
+         JSON.stringify(shape) + " drawn=" + JSON.stringify(drawn));
+
+    // ---- WARN: the courtesy is inherited whole — it reads the ATOMS the
+    // surface composes and never its text, so g's spelling is judged the same
+    // as F's and the sentence is the same sentence.
+    await ff.goto(url);
+    await ff.keys(["/"]);
+    await ff.keys(chars("tag = docs' AND tag = chore'"));
+    const warned = await ff.eval(() => ({
+      ink: [...document.querySelectorAll("#app .cx .cx-live .cx-warn")]
+        .map((n) => n.textContent).join(""),
+      said: [...document.querySelectorAll("#app .tv-hint .tv-warn")]
+        .map((n) => n.textContent),
+      c: RIG.composed(),
+    }));
+    await ff.keys([KEY.Enter]);
+    const warnOn = await ff.eval(() => ({ q: RIG.query(), rows: RIG.rows(),
+                                          said: [...document.querySelectorAll(
+                                            "#app .tv-hint .tv-warn")]
+                                            .map((n) => n.textContent),
+                                          badges: document.querySelectorAll(
+                                            "#app .tv-chips .cx-pill.cx-warn").length }));
+    const SAID = 'tag: "chore" is both required and refused — no row can carry that';
+    want("WARN",
+         warned.c === BOOT_FILTER + " tag:docs tag:chore"
+         && eq(warned.said, [SAID])
+         // BOTH bindings marked and the innocent one left alone — the ink
+         // reads the atoms the surface composes, so `tag = 'docs'' beside them
+         // is not in it.
+         && warned.ink === "tagNOTLIKE'%chore%'tag='chore'"
+         && warnOn.q === BOOT_FILTER + " tag:docs tag:chore"
+         && warnOn.rows === 0 && eq(warnOn.said, [SAID]) && warnOn.badges === 1,
+         `warned=${JSON.stringify(warned)} on=${JSON.stringify(warnOn)}`);
+
+    // ---- IR3: THREE PARSERS, ONE NORMAL FORM.  The flat grammar's reader, F's
+    // typed one and g's each build TERMS on their own and hand them to the one
+    // builder; where the laws agree the bytes agree, and where they part the
+    // bytes part with them.
+    await ff.goto(url);
+    const ir3 = await ff.eval((c) => ({
+      three: c.three.map(([f, d, s]) => [f, d, s, RIG.irFlat(f), RIG.irDsl(d),
+                                         RIG.irSql(s)]),
+      trip: c.trip.map((q) => [q, RIG.sqlStatementOf(q), RIG.irFlat(q),
+                               RIG.irSql(RIG.sqlStatementOf(q))]),
+      diff: c.diff.map(([x, y]) => [x, y, RIG.irSql(x), RIG.irSql(y)]),
+    }), IR3_CORPUS);
+    const threeOff = ir3.three.filter((r) => !(r[3] === r[4] && r[4] === r[5]));
+    const trip3Off = ir3.trip.filter((r) => r[2] !== r[3]);
+    const diff3Off = ir3.diff.filter((r) => r[2] === r[3]);
+    want("IR3",
+         threeOff.length === 0 && trip3Off.length === 0 && diff3Off.length === 0
+         && ir3.three.length === IR3_CORPUS.three.length,
+         [threeOff.map((r) => `${r[0]} / ${r[1]} / ${r[2]}\n    flat ${r[3]}\n`
+                       + `    dsl  ${r[4]}\n    sql  ${r[5]}`).join(" · "),
+          trip3Off.map((r) => `round trip ${r[0]} → ${r[1]}`).join(" · "),
+          diff3Off.map((r) => `${r[0]} and ${r[1]} print the same IR`).join(" · ")]
            .filter(Boolean).join(" | "));
   }
 

@@ -17,6 +17,11 @@ module Glance.Web.Filter ( Cmp (..)
                          , emptyEnv
                          , emptyMeta
                          , filterKeys
+                         -- Exported for the SPEC PIN alone (TestSpec), with
+                         -- 'shiftIn' and 'unspaced' below: the model spells the
+                         -- shift grammar and the quoted form's fold too, and the
+                         -- two readings of each must be one.
+                         , halfShift
                          , matchesFilter
                          , metaOf
                          , namesArchive
@@ -26,16 +31,18 @@ module Glance.Web.Filter ( Cmp (..)
                          , refKey
                          , refusedOn
                          , scanQuery
+                         , shiftIn     -- SPEC PIN, see 'halfShift'
                          , sortKey
                          , substringKey
                          , columnsKey
                          , storeEnv
                          , tagsKey
                          , todayMeta
+                         , unspaced    -- SPEC PIN, see 'halfShift'
                          , viewAddedIn
                          ) where
 
-import Data.Char (isDigit)
+import Data.Char (digitToInt, isDigit)
 import Data.List (elemIndex, find)
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -45,9 +52,9 @@ import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
                     , RefVia (..), refTarget, refVia
-                    , Meta (..), activeMeta, archiveTag, cellSep, filterKeys
+                    , Meta (..), activeMeta, archiveTag, cellSep, dayOf, filterKeys
                     , groupOn, idPropertyOf, inactiveMeta, isoDay, metaWord
-                    , priorityLetter, refSpellings, tagRunEntries )
+                    , priorityLetter, refSpellings, shiftDay, shiftUnits, tagRunEntries )
 
 
 dateKeys :: [Text]
@@ -246,30 +253,121 @@ data Stamp
   deriving (Eq, Show)
 
 -- | V as a timestamp atom, or 'Nothing' where a literal is owed and missing —
--- @>@, @..@, @2026-08..@, @..2026-08@.  Those are the HALF-TYPED tokens, which
--- narrow nothing; every other value is an atom, a literal naming no date
--- included (that one matches no row, the way @state:TOD@ matches none).
+-- @>@, @..@, @2026-08..@, @..2026-08@, @*today*+@.  Those are the HALF-TYPED
+-- tokens, which narrow nothing; every other value is an atom, a literal naming
+-- no date included (that one matches no row, the way @state:TOD@ matches none).
 stampOf :: Text -> Maybe Stamp
 stampOf v = case operatorIn v of
   Just (cmp, lit) -> SCmp cmp <$> typed lit
   Nothing         -> case T.breakOn rangeMark v of
     (lo, rest) | Just hi <- T.stripPrefix rangeMark rest -> SRange <$> typed lo <*> typed hi
     _noRange                                             -> SPrefix <$> typed v
-  where typed t | T.null t  = Nothing
-                | otherwise = Just t
+  -- THE LONG UNIT WORD IS FOLDED AT THE LITERAL, which is the one place a
+  -- literal's end is known: a range carries two of them.
+  where typed t | T.null w    = Nothing
+                | halfShift w = Nothing
+                | otherwise   = Just w
+          where w = unitFolded t
 
 operatorIn :: Text -> Maybe (Cmp, Text)
 operatorIn v = listToMaybe
   [ (cmp, rest) | cmp <- cmps, Just rest <- [T.stripPrefix (cmpMark cmp) v] ]
 
 
+-- ** THE SHIFT a date literal may carry, as GRAMMAR
+--
+-- @BASE(+|-)N UNIT@ — the base a day literal, @*today*@ or nothing at all, N a
+-- positive decimal run and UNIT org's own @d@\/@w@\/@m@\/@y@.  A SHIFTED VALUE
+-- IS ONE MORE SPELLING OF A DAY LITERAL and no new atom kind: 'Stamp' gains no
+-- constructor, the shift being read below the forms, at the literal.
+
+-- | L as its BASE and the SIGNED COUNT and UNIT it moves that base by, or
+-- 'Nothing' where L carries no shift.  READ FROM THE END, which is what keeps
+-- ISO's own separator out of the sign's reach: @2026-08-03@ ends in a digit
+-- where a shift ends in one of org's unit letters.  AN EMPTY BASE IS THE BARE
+-- SHIFT, which 'dayIn' reads today-relative.
+shiftIn :: Text -> Maybe (Text, Integer, Char)
+shiftIn l = case T.unsnoc l of
+  Just (run, unit)
+    | unit `elem` shiftUnits
+    , digits            <- T.takeWhileEnd isDigit run
+    , not (T.null digits)
+    , Just (base, mark) <- T.unsnoc (T.dropWhileEnd isDigit run)
+    , Just way <- signOf mark
+    -> Just (base, shiftWay way * decimalIn digits, unit)
+  _noShift -> Nothing
+
+-- | HOW FAR A SIGN CARRIES a shifted day.  THE SHIFT'S SIGN IS THE VALUE'S AND
+-- NEVER THE TOKEN'S: 'scanQuery' reads a token's sign off its FIRST character
+-- and stops there, so in @+scheduled:+30d@ the token's reader never sees the
+-- value's sign and this one never sees the token's — one charset ('signOf'),
+-- two readers.  ONE EQUATION PER CONSTRUCTOR and no wildcard, the discipline
+-- 'valueFor' states; 'signOf' spells no character for 'Unsigned', whose day
+-- stands still.
+shiftWay :: Sign -> Integer
+shiftWay Unsigned = 0
+shiftWay Add      = 1
+shiftWay Neg      = -1
+
+-- | A decimal run as the number it spells; every character is a digit by
+-- construction ('shiftIn' spans on 'isDigit' before calling this).
+decimalIn :: Text -> Integer
+decimalIn = T.foldl' (\n c -> n * 10 + toInteger (digitToInt c)) 0
+
+-- | Does L END MID-SHIFT — a @+@ with nothing but digits behind it?  THE PLUS
+-- FAMILY ALONE, because @+@ appears in no date a cell carries where @-@ is
+-- ISO's own separator: a rule that read the incomplete minus would read
+-- @2026-08-03@ as @2026-08@ moved @03@ of no unit.  An incomplete minus stays
+-- the literal it always was, and @*today*-7@ matches no row rather than
+-- narrowing none.
+halfShift :: Text -> Bool
+halfShift l = case T.unsnoc (T.dropWhileEnd isDigit l) of
+  Just (_base, mark) -> signOf mark == Just Add
+  Nothing            -> False
+
+-- | THE LONG UNIT WORDS the quoted value form admits, each folded onto org's
+-- own letter, LONGEST FIRST so @days@ is read before @day@.  The quoted form is
+-- the one that may carry spaces (the pinned law, @tag:"two words"@), so it is
+-- the one that may spell a unit out.
+unitWords :: [(Text, Char)]
+unitWords = [ (stem <> plural, letter)
+            | (stem, letter) <- [("day", 'd'), ("week", 'w'), ("month", 'm'), ("year", 'y')]
+            , plural          <- ["s", ""] ]
+
+-- | V with every space dropped BUT THE ONE BETWEEN TWO DIGITS, which is the
+-- timed stamp's own: @2026-08-01 09:30@ keeps its space where @\<= 2026-08-01@
+-- loses one it never meant.  ONE PARSER, TWO SPELLINGS: the quoted form is the
+-- one that may carry spaces (@scheduled:"\<= *today* + 30 days"@) and folds
+-- here onto the space-free one (@scheduled:\<=*today*+30d@) ABOVE every form
+-- read.  An unquoted value carries no space at all — the scanner cuts a token
+-- on one — so the fold is invisible to the compact spelling.
+unspaced :: Text -> Text
+unspaced = T.pack . go . T.unpack
+  where go (a : ' ' : b : rest) | isDigit a, isDigit b = a : ' ' : go (b : rest)
+                                | otherwise            = go (a : b : rest)
+        go (' ' : rest)         = go rest
+        go (c : rest)           = c : go rest
+        go []                   = []
+
+-- | LITERAL L's long unit word cut to org's letter, AND ONLY WHERE A SHIFT
+-- COMES OUT OF IT: @today@ ends in a unit word and is the starred word's
+-- near-miss, never a @to@ moved one day.
+unitFolded :: Text -> Text
+unitFolded l = fromMaybe l (listToMaybe
+  [ short | (word, letter) <- unitWords
+          , Just base      <- [T.stripSuffix word l]
+          , let short = base <> T.singleton letter
+          , isJust (shiftIn short) ])
+
+
 -- | What a predicate may ask OUTSIDE the row it is matching: the store, which
 -- @ref:@ resolves an id against, and the request's own DAY, which @*today*@
--- names.  ONE CLOCK READ PER REQUEST, taken before any row: the day arrives
--- here already resolved, so a query asked across midnight cannot mean two days.
+-- names and a shift moves.  ONE CLOCK READ PER REQUEST, taken before any row:
+-- the day arrives here already read, so a query asked across midnight cannot
+-- mean two days.
 data FilterEnv = FilterEnv
   { feRef   :: Text -> Maybe HeadlineRecord  -- ^ a row id resolved, or 'Nothing' where no row claims it.
-  , feToday :: Maybe Text                    -- ^ the request's day as @YYYY-MM-DD@; 'Nothing' where no clock was read, and @*today*@ then names no day.
+  , feToday :: Maybe Day                     -- ^ the request's own day; 'Nothing' where no clock was read, and @*today*@ then names no day — with a shift behind it or without.
   }
 
 emptyEnv :: FilterEnv
@@ -278,12 +376,12 @@ emptyEnv = FilterEnv (const Nothing) Nothing
 storeEnv :: [HeadlineRecord] -> FilterEnv
 storeEnv rows = FilterEnv (\rid -> find ((== rid) . hrId) rows) Nothing
 
--- | ENV with the request's own day on it.  ONE FORMATTER SPELLS BOTH SIDES of a
--- date comparison: 'isoDay' writes the literal @*today*@ resolves to and
--- @isoStamp@ writes the cells it is compared against, so the two cannot drift
--- into two shapes of one day.
+-- | ENV with the request's own day on it.  THE DAY IS CARRIED AS A DAY and
+-- spelled only where a literal is owed ('literalIn'), which is what lets a
+-- shift move it: arithmetic on the spelling would be a second reading of one
+-- date.
 onDay :: Day -> FilterEnv -> FilterEnv
-onDay day env = env { feToday = Just (isoDay day) }
+onDay day env = env { feToday = Just day }
 
 -- | Does a row match Q in ENV?  Compiled once per request, never per row.
 matchesFilter :: FilterEnv -> Text -> HeadlineRecord -> Bool
@@ -371,12 +469,15 @@ atoms t = case tmKey t of
 
 -- | KEY's alternatives as the ATOMS its predicate offers.  ON A TIMESTAMP KEY A
 -- HALF-TYPED COMPARISON IS NO ATOM — an operator or a range end with no literal
--- behind it — so @scheduled:>@ rides 'vacuous' and narrows nothing, and
--- @-scheduled:>@ empties the table exactly as @-state:@ does.  ONE LAW, SPELLED
--- HERE ALONE: 'vacuous' asks it of the whole term and 'predTest' tests what it
--- leaves, each calling this, so neither can hold a rule the other does not.
+-- behind it, and a shift with no unit behind it — so @scheduled:>@ and
+-- @scheduled:*today*+@ ride 'vacuous' and narrow nothing, and their negations
+-- empty the table exactly as @-state:@ does.  THE QUOTED SPELLING'S SPACES GO
+-- HERE, above every form read ('unspaced'), so one parser answers both
+-- spellings.  ONE LAW, SPELLED HERE ALONE: 'vacuous' asks it of the whole term
+-- and 'predTest' tests what it leaves, each calling this, so neither can hold a
+-- rule the other does not.
 atomsUnder :: Text -> Text -> [Text]
-atomsUnder key value | stamped key = filter (isJust . stampOf) (alternatives value)
+atomsUnder key value | stamped key = filter (isJust . stampOf) (map unspaced (alternatives value))
                      | otherwise   = alternatives value
 
 -- ONE EQUATION PER CONSTRUCTOR and no wildcard, so a fifth key is named HERE by the compiler.
@@ -430,11 +531,31 @@ keyTest env key field@Planned value = cellsTest env key field value
 
 -- * A 'Stamp' over a CELL, which is where the clock and the row arrive
 
--- | The DATE LITERAL L names.  @*today*@ is the request's own day, resolved
--- HERE — once per predicate, off the one clock read the request already took.
+-- | The DATE LITERAL L names.  @*today*@ is the request's own day and a SHIFT
+-- moves whichever day its base names; both are resolved HERE — once per
+-- predicate, off the one clock read the request already took, never per row.
+-- THE SHIFT RESOLVES TO A PLAIN DAY LITERAL and every law below then applies
+-- untouched, the granularity cuts and the empty cell's exclusion included.  ONE
+-- FORMATTER SPELLS BOTH SIDES of a date comparison: 'isoDay' writes the literal
+-- and @isoStamp@ writes the cells it is compared against, so the two cannot
+-- drift into two shapes of one day.
 literalIn :: FilterEnv -> Text -> Maybe Text
-literalIn env l | l == todayMeta = feToday env
-                | otherwise      = Just l
+literalIn env l = case shiftIn l of
+  Just (base, n, unit) -> isoDay <$> (shiftDay unit n =<< dayIn env base)
+  Nothing | l == todayMeta -> isoDay <$> feToday env
+          | otherwise      -> Just l
+
+-- | The DAY a shift's BASE names.  @*today*@ and THE EMPTY BASE are both the
+-- request's own day: THE BARE SHIFT IS TODAY-RELATIVE, decided off the planning
+-- grammar's own precedent, which already reads a bare @+3d@ that way
+-- (@set-planning@'s date), consistency being the tiebreaker.  Any other base is
+-- the day it spells, so a base naming none — a month, a timed stamp — leaves
+-- the whole value naming none, and it then matches no row the way @state:TOD@
+-- matches none.
+dayIn :: FilterEnv -> Text -> Maybe Day
+dayIn env base | T.null base       = feToday env
+               | base == todayMeta = feToday env
+               | otherwise         = dayOf base
 
 -- | L as a literal BYTE ORDER may be asked about, which owes an opening digit.
 -- The prefix reading is total over any text; @<@ over @banana@ would serve every

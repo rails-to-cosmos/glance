@@ -2,7 +2,7 @@
 // call standing, the next one open on its own menu.  The README's table reads
 // off these.
 //
-//   node shots.mjs                     # all six
+//   node shots.mjs                     # all seven
 //   node shots.mjs f-typed-dsl.html    # one, when only that moment changed
 import { firefox, KEY } from "./bidi.mjs";
 import { pathToFileURL, fileURLToPath } from "node:url";
@@ -35,6 +35,14 @@ const TYPED = [["."], ["s"], [KEY.Tab], [KEY.Tab], chars("Dead"),
                // types the condition alone.
                ["/"], chars("priority = ")];
 
+// G IS SHOT ON ITS OWN CLAUSE LADDER: an `ORDER BY' committed, then `/'
+// reopening the standing `WHERE' badge — dashed on the strip, its predicates
+// open in the box with the `AND' the gesture appended — and one more column
+// named so the operator offers stand under the box beside the statement and the
+// normal form.
+const SQLISH = [["."], ["o"], [KEY.Tab], chars("deadline DESC"), [";", KEY.Enter],
+                ["/"], chars("planned ")];
+
 const ALL = [
   ["a-control.html", "a-control.png", FLAT],
   ["b-plain-chain.html", "b-plain-chain.png", CHAIN],
@@ -42,6 +50,7 @@ const ALL = [
   ["d-stage-pills.html", "d-stage-pills.png", PILLS],
   ["e-echo-line.html", "e-echo-line.png", CHAIN],
   ["f-typed-dsl.html", "f-typed-dsl.png", TYPED],
+  ["g-sql.html", "g-sql.png", SQLISH],
 ];
 // ONE TAB'S MOMENT CAN MOVE ALONE — a legend, a key's answer — and the other
 // five PNGs stay the bytes they were.

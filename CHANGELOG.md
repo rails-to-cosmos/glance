@@ -35,6 +35,34 @@ section groups a feature arc, and its date is that arc's last commit.
   the substring it always was, and a query with no comparison in it means
   exactly what it meant before. `docs/query.md` carries the law.
 
+- **A date can be shifted, so the agenda gets its lookahead.** A date value now
+  takes a shift — `BASE+N UNIT` or `BASE-N UNIT`, written without spaces, the
+  base a spelled date, `*today*` or nothing at all, `N` a run of digits and the
+  unit one of org's own `d`, `w`, `m`, `y`. `scheduled:<=*today*+30d` is the next thirty
+  days, `deadline:>=*today*-7d` the last week, and `planned:*today*..*today*+30d`
+  the thirty-day agenda in one token — the line a tree pins into
+  `#+GLANCE_AGENDA_FILTER` and `A` reads as the day it is pressed. The quoted
+  value form is that same token with room to breathe:
+  `scheduled:"<= *today* + 30 days"` takes spaces beside the operator, the range
+  mark, the sign and the unit, and spells the unit as a word, case-folded like
+  every value; a pre-pass folds it onto the compact spelling, so there is one
+  parser and one law. **The shift resolves at compile to a plain day literal** —
+  once per request and never per row, the request's own day for `*today*`, the
+  spelled date otherwise, a week seven days, months and years calendar-clipped
+  so Jan 31 `+1m` is Feb's last day rather than March 3 — and after that every
+  law already written applies untouched: the granularity cuts, the empty cell
+  outside every comparison, negation no mirror, the alternatives, the signs.
+  Both ends of a range take a shift and either may be plain
+  (`scheduled:*today*-7d..*today*+7d` is the fortnight around today); the base
+  may be dropped and a bare `+30d` reads today-relative, the way `set-planning`
+  already reads one, which leaves the token's own sign where it always was — in
+  `+scheduled:+30d` the first `+` widens the axis and the value's own `+` is the
+  shift's. `*today*` shifted with no
+  clock behind it still names no day, and a half-typed `*today*+` or `*today*+30`
+  narrows nothing unsigned and empties the table negated, as every half-typed
+  token does. A shifted value is one more spelling of a day literal and never a
+  new kind of value, so every query that composed before answers as it did.
+
 - **`+` in the drawer asks inline, as the pair it will become.** Adding a
   property raised two prompts over the sheet, one for the key and one for the
   value. `+` now draws a fresh row at the end of the properties drawer —

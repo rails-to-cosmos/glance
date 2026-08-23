@@ -18,7 +18,7 @@ nothing catches it.
 
 - **One door.** Every byte written to the tree leaves through
   `Watch.writeSpans` → `Query.replaceSpans` → `Edit.editFile`; no module calls
-  the splice engine directly. `Watch.hs:66`, `Query.hs:1099`,
+  the splice engine directly. `Watch.hs:66`, `Query.hs:1165`,
   `TestSelfContained.hs:182`. A write that bypasses it skips the drift lock,
   the external ledger note and the watch nudge, so the store diverges from disk
   and org-glance never learns of the write. **The guard sweep filters to
@@ -31,7 +31,7 @@ nothing catches it.
   digest turns a stale tab into a silent whole-file overwrite. *fragility: high*
 
 - **The empty digest is the create pin.** An absent file under `""` is created;
-  an occupied path under `""` drifts. `Edit.hs:206`, `Query.hs:1095`,
+  an occupied path under `""` drifts. `Edit.hs:206`, `Query.hs:1161`,
   `Commands.hs:298`, `Config.hs:322`. Making a missing file a hard `ReadFailed`
   breaks blob capture and tag-layer minting; making a present file writable
   under `""` turns capture into a silent overwrite. *fragility: high*
@@ -51,24 +51,24 @@ nothing catches it.
 - **`Data.Org.Edit` is content-agnostic.** It splices character spans and knows
   no org syntax, so every org-shaped wall (tag charset, keyword charset,
   planning reparse, one-top-entry, trailing space) is owed by the layer above.
-  `AGENTS.hs:3179`, `Query.hs:1406`, `TestQuery.hs:1746`. Pushing a check down
+  `AGENTS.hs:3341`, `Query.hs:1471`, `TestQuery.hs:1746`. Pushing a check down
   makes it unreachable for callers off that path; pushing one out of `Query`
   lets bytes land that the next parse reads as body text. *fragility: high*
 
 - **A write derives its line ending and its opening from the text it lands in**
   (`eolOf`, `openingFor`), never from a constant. `Edit.hs:94`, `:101`,
-  `Query.hs:1571`, `Config.hs:212`. Hard-coding `"\n"` converts a CRLF file line
+  `Query.hs:1633`, `Config.hs:212`. Hard-coding `"\n"` converts a CRLF file line
   by line on every edit; skipping `openingFor` joins an appended `* ` onto the
   last live line. *fragility: medium*
 
 - **Composed lines are `untrailed`, stepping over the terminator so a CRLF
-  survives.** `Query.hs:1018`, `:1567`, `Routes.hs:468`. A `T.stripEnd` in its
+  survives.** `Query.hs:1061`, `:1633`, `Routes.hs:468`. A `T.stripEnd` in its
   place eats the `\r` too, rewriting every line ending in the file.
   *fragility: medium*
 
 - **Anything written back must reparse under the parser's own charsets** — tags,
   keywords and planning entries are validated by reparse of the very line the
-  write would produce. `Query.hs:1133`, `:1143`, `Routes.hs:464`, `:475`.
+  write would produce. `Query.hs:1199`, `:1209`, `Routes.hs:464`, `:475`.
   Loosening a charset is silent: the run falls into title text on the NEXT
   load, long after the 200. *fragility: medium*
 
@@ -99,7 +99,7 @@ nothing catches it.
   disagrees with what the socket streams. *fragility: high*
 
 - **`nudge` runs on the success branch only.** `Watch.hs:70`, `Commands.hs:234`,
-  `TestSpec.hs:802`. Nudging unconditionally costs a re-read per 409; skipping
+  `TestSpec.hs:801`. Nudging unconditionally costs a re-read per 409; skipping
   it on success leaves the store holding pre-write rows until an inotify event
   that may never come. *fragility: high*
 
@@ -126,7 +126,7 @@ nothing catches it.
 ## Parsing and the walk
 
 - **Text kept past a document's parse is `T.copy`'d** (`detach`), because every
-  cell is a slice of the file's text. `Query.hs:1071`, `:565`, `Config.hs:93`. A
+  cell is a slice of the file's text. `Query.hs:1138`, `:593`, `Config.hs:93`. A
   field that forgets it retains the whole source document for the process's
   life — a residency regression `cabal test` cannot see; only
   `glance scan ~/sync` exposes it. *fragility: high*
@@ -143,7 +143,7 @@ nothing catches it.
   *fragility: high*
 
 - **The walk and the watch share ONE set of path predicates,** reached through
-  the `Glance.Query` facade. `Query.hs:652`, `Watch.hs:82`, `Walk.hs:243`. A
+  the `Glance.Query` facade. `Query.hs:687`, `Watch.hs:82`, `Walk.hs:243`. A
   second hand-rolled predicate lets a file the walk never loaded arrive by
   inotify, so the store gains rows the next full load deletes. *fragility: high*
 
@@ -151,7 +151,7 @@ nothing catches it.
 
 - **A fact several readers agree on is spelled in ONE list, indexed by key** —
   `viewColumns`, `docCells`, `popups`, `gluePartFiles`, `keyBindings`,
-  `Palette`. `Query.hs:1859`, `Base.hs:124`, `Page/Popups.hs`. Re-spelling a
+  `Palette`. `Query.hs:1922`, `Base.hs:124`, `Page/Popups.hs`. Re-spelling a
   membership at a second site is the failure the popup registry records: six
   sibling id lists were hand-edited and the seventh missed, so `#mint` neither
   faded nor dimmed. *fragility: medium*
@@ -162,7 +162,7 @@ nothing catches it.
   undated row; `*empty*` stays the one name for those rows. It follows that
   `-k:<D` serves the undated rows where `k:>=D` does not, so the operators do
   not pair off under the sign and no surface may rewrite one into the other.
-  `Filter.hs:457`, `table-view.js:504`, `AGENTS.hs:2446`. A tidying pass that
+  `Filter.hs:584`, `table-view.js:633`, `AGENTS.hs:2555`. A tidying pass that
   normalizes `-k:<D` into `k:>=D`, or drops the guard because byte order
   "already sorts an empty cell first", turns nothing red but the one case that
   names the pair (`TestFilter.hs:427`). **That case and its renderer twin are
@@ -182,7 +182,7 @@ nothing catches it.
 
 - **`TextShow` is never a write-back or wire channel.** It is the lossy REPL
   re-serializer; cells are sliced from spans and the wire value is hand-built.
-  `TestSpec.hs:187`, `Query.hs:1860`. A `showt` in a write or wire module emits
+  `TestSpec.hs:188`, `Query.hs:399`. A `showt` in a write or wire module emits
   the title line alone, dropping planning lines and permuting drawers.
   *fragility: low*
 

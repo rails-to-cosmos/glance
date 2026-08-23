@@ -6685,6 +6685,16 @@ querySpec = testGroup "GET /headlines filter and paging"
         =<< total "/headlines?q=-deadline%3A%3C2026-08-10"
       assertEqual "the range spells the same closed interval" (Just "1")
         =<< total "/headlines?q=deadline%3A2026-08-04..2026-08-06"
+      -- A SHIFT TRAVELS AS VALUE TEXT, and the value's own plus rides %2B like
+      -- the token's sign: `deadline:2026-08-01+4d' resolves to the fifth, which
+      -- one fixture row carries, and both ends of a range take one.
+      assertEqual "a shifted literal resolves over the wire" (Just "1")
+        =<< total "/headlines?q=deadline%3A2026-08-01%2B4d"
+      assertEqual "and a shifted range end names the same interval" (Just "1")
+        =<< total "/headlines?q=deadline%3A2026-08-01%2B3d..2026-08-01%2B5d"
+      -- The quoted spaced spelling of the same value, quotes and spaces encoded.
+      assertEqual "the quoted spaced spelling is that one query" (Just "1")
+        =<< total "/headlines?q=deadline%3A%222026-08-01%20%2B%204%20days%22"
 
   , testCase "the default view carries the entry nobody stated" $
       withTempDir $ \dir -> do

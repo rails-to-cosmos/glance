@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G · sql</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* D'S CHAIN FRAME UNDER SQL'S OWN WORDS.  A stage is a CLAUSE — `SELECT' the
+     shape, `WHERE' the narrowing half, `ORDER BY' the chain, `FROM' the one
+     table there is — so the badge wears its keyword where F's wears `.fn(' and
+     there are no parens to draw: a clause ends where the next one begins, which
+     is SQL's own rule and the one gesture g does not have to invent.
+
+     TWO QUOTE CHARACTERS, which is the whole of what g has and F does not.
+     `'value'' is a literal and `"name"' an identifier, so the columns can be
+     BARE and case-folded — SQL's own convention — and a custom column with a
+     space in it still has a spelling.  F had one pair of quotes and had to
+     spend it on the closed/open law.
+
+     THE FRAGMENT IS THE VARIANT'S CENTRAL LAW.  The flat grammar is axes-AND
+     with per-axis disjunction, so `AND' composes across anything and `OR' only
+     between predicates of ONE column.  A cross-axis `OR' is REFUSED — named in
+     the hint row, the word itself marked — and it composes NOTHING, because a
+     filter that quietly drops a conjunct serves MORE rows and more is the one
+     direction a reader cannot check.  That is g's own line: F loses a term it
+     cannot say and counts it; g refuses the clause, an `OR' being the SHAPE of
+     an expression rather than a conjunct that can be dropped.
+
+     Under the box, THREE lines: the statement whole — the sentence the clause
+     badges cut into words, given back as a view — the flat string, and the lisp
+     normal form, read from THIS reader while the table is served by the flat
+     one. */
+  .cx-punc{color:var(--g-mute)}
+  /* THE KEYWORD IS THE HEAD, where F's is a call's name: same ink, same job. */
+  .cx-head{color:var(--g-point); font-weight:600; letter-spacing:.03em}
+  .cx-partial{color:var(--g-point); opacity:.7}
+  /* A COLUMN IS A NAME, a keyword is the LANGUAGE, a literal is DATA. */
+  .cx-kw{color:var(--g-link)}
+  .cx-col{color:var(--g-link); font-style:italic}
+  .cx-sqlkw{color:var(--g-mute); font-weight:600; letter-spacing:.03em}
+  .cx-ctor{color:var(--g-point); font-weight:600}
+  .cx-str{color:var(--g-fg)}
+  .cx-eq{color:var(--g-mute)}
+  /* THE WORDS THAT CAN BE READ BACKWARDS wear the refusal's ink — `<>', `NOT',
+     and the `OR' that has no flat spelling when it crosses a column. */
+  .cx-neg{color:var(--g-bad); font-weight:600}
+  .cx-bad{color:var(--g-bad); text-decoration:underline wavy}
+  /* BOTH SIDES OF A CONTRADICTION, and neither of them wrong on its own. */
+  .cx-warn{text-decoration:underline dotted var(--g-todo);
+    text-decoration-thickness:2px; text-underline-offset:3px}
+  .cx-partial-name{color:var(--g-fg)}
+  .cx-ghost{color:var(--g-mute); opacity:.55; font-style:italic}
+  .cx-more{color:var(--g-mute); font-weight:400}
+
+  .cx-pill{padding:1px 9px; gap:0; cursor:pointer}
+  .cx-pill-sort{
+    background:color-mix(in srgb,var(--tv-col) var(--tv-sort-wash),transparent);
+    border-color:color-mix(in srgb,var(--tv-col) var(--tv-chip-edge),transparent);
+  }
+  .cx-pill-columns{
+    background:color-mix(in srgb,var(--g-link) var(--tv-cols-wash),transparent);
+    border-color:color-mix(in srgb,var(--g-link) var(--tv-chip-edge),transparent);
+  }
+  .cx-pending{border-style:dashed}
+  .cx-editing{border-style:dashed; border-color:var(--g-accent)}
+  .cx-pill.cx-warn{border-style:dotted; border-color:var(--g-todo);
+    text-decoration:none}
+
+  #echo b{color:var(--g-mute); display:inline-block; min-width:4ch;
+    margin-right:8px}
+  #echo .e-sql{color:var(--g-fg)}
+  #echo .e-applied{color:var(--g-mute)}
+  #echo .e-chain{color:var(--g-fg)}
+  #echo .e-ir{color:var(--g-mute); opacity:.85}
+</style>
+</head>
+<body>
+  <h1>G · sql
+    <small>the same queries in SQL: SELECT / FROM / WHERE / ORDER BY, and the fragment it can spell</small></h1>
+  <div id="stage">
+    <div id="app"></div>
+    <div id="echo"></div>
+  </div>
+  <footer>
+    <span><kbd>/</kbd> edits WHERE · <kbd>DEL</kbd> takes the latest ·
+      <kbd>.</kbd> a clause · <kbd>TAB</kbd> complete · <kbd>,</kbd> separates ·
+      <kbd>←</kbd><kbd>→</kbd> caret · <kbd>;</kbd> closes the clause ·
+      <kbd>RET</kbd> apply · <kbd>ESC</kbd> cancels · <kbd>t</kbd> theme ·
+      any case</span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { klass: "v-g", dsl: true, sql: true, ghost: true,
+                      collapse: true, pills: true, slashStage: true,
+                      delDropsStage: true, echo: true, ir: true } });
+})();
+</script>
+</body>
+</html>

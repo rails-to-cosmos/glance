@@ -85,7 +85,7 @@ spec :: TestTree
 spec = testGroup "Filter"
   [ tokenSpec, predicateSpec, tagsSpec, plannedSpec, substringSpec, sortSpec
   , columnsSpec
-  , comparisonSpec, rangeSpec, todaySpec
+  , comparisonSpec, rangeSpec, todaySpec, shiftSpec
   , archiveSpec, metaSpec, foldSpec
   , shapeSpec, alternationSpec, addedSpec
   , degenerateSpec
@@ -592,6 +592,211 @@ todaySpec = testGroup "The *today* value"
       every <- matching ""
       matches "-scheduled:*today*" every
       assertEqual "the word the family spells" "*today*" todayMeta
+  ]
+  where day = fromGregorian
+
+-- | A tree standing on the days a CLIPPED shift lands on, and on the ones an
+-- unclipped shift would overshoot to.
+withClipTree :: ([HeadlineRecord] -> IO a) -> IO a
+withClipTree = withDocDir "test" "a.org" (T.unlines
+  [ "* Feb 28 2026"
+  , "SCHEDULED: <2026-02-28 Sat>"
+  , "* Mar 3 2026"
+  , "SCHEDULED: <2026-03-03 Tue>"
+  , "* Feb 29 2024"
+  , "SCHEDULED: <2024-02-29 Thu>"
+  , "* Feb 28 2025"
+  , "SCHEDULED: <2025-02-28 Fri>"
+  , "* Mar 1 2025"
+  , "SCHEDULED: <2025-03-01 Sat>" ])
+
+-- | @BASE(+|-)N UNIT@ — a date value carrying a SHIFT.  It resolves AT COMPILE
+-- to a plain day literal, so every law above then applies to it untouched; the
+-- day it resolves against is injected, so every case here answers the same in a
+-- year.
+shiftSpec :: TestTree
+shiftSpec = testGroup "Shifted date values"
+  [ testCase "each of org's own units, at day granularity" $ do
+      matchesOn (day 2026 7 31) "scheduled:*today*+1d" [Ship]
+      matchesOn (day 2026 8 2)  "scheduled:*today*-1d" [Ship]
+      matchesOn (day 2026 7 25) "scheduled:*today*+1w" [Ship]
+      matchesOn (day 2026 8 10) "scheduled:*today*-1w" [Privet]
+      matchesOn (day 2026 7 1)  "scheduled:*today*+1m" [Ship]
+      matchesOn (day 2026 9 3)  "scheduled:*today*-1m" [Privet]
+      matchesOn (day 2025 8 1)  "scheduled:*today*+1y" [Ship]
+      matchesOn (day 2027 8 10) "deadline:*today*-1y" [Reply]
+      -- A SPELLED DAY IS A BASE TOO, and it needs no clock behind it.
+      matches "scheduled:2026-07-31+1d" [Ship]
+      matches "deadline:2026-08-12-2d" [Reply]
+      matches "planned:2026-07-04+4w" [Ship]
+      -- A count of zero is a decimal run, and the base stands still under it.
+      matches "scheduled:2026-08-03+0d" [Privet]
+
+  , testCase "a week is seven days, whichever way it is spelled" $ do
+      records <- qrRecords <$> loadDir viewDir
+      sequence_
+        [ assertEqual (T.unpack (key <> ": " <> weeks <> " and " <> days))
+            (titlesMatching (key <> ":" <> days) records)
+            (titlesMatching (key <> ":" <> weeks) records)
+        | key <- ["scheduled", "deadline", "planned"]
+        , (weeks, days) <- [ ("2026-08-15-2w", "2026-08-15-14d")
+                           , (">=2026-07-25+1w", ">=2026-07-25+7d")
+                           , ("2026-07-20..2026-07-20+3w", "2026-07-20..2026-07-20+21d") ] ]
+      -- With teeth: the pair above names rows rather than agreeing on none.
+      matches "scheduled:2026-08-15-2w" [Ship]
+
+    -- ORG'S OWN CALENDAR ARITHMETIC, which CLIPS a month and a year to the
+    -- target month's last day rather than rolling over into the next.
+  , testCase "a month and a year are clipped, never rolled over" $
+      withClipTree $ \records -> do
+        let hit q = titlesMatching q records
+        assertEqual "the tree carries the days a rollover would land on"
+                    ["Mar 3 2026", "Mar 1 2025"] (hit "scheduled:2026-03-03|2025-03-01")
+        assertEqual "Jan 31 + 1m is February's last, and 2026 is no leap year"
+                    ["Feb 28 2026"] (hit "scheduled:2026-01-31+1m")
+        assertEqual "the same base in a leap year reaches the 29th"
+                    ["Feb 29 2024"] (hit "scheduled:2024-01-31+1m")
+        assertEqual "Feb 29 + 1y clips to the 28th"
+                    ["Feb 28 2025"] (hit "scheduled:2024-02-29+1y")
+        assertEqual "the clip LOSES the day, so a year on from it is the 28th again"
+                    ["Feb 28 2026"] (hit "scheduled:2025-02-28+1y")
+
+  , testCase "both ends of a range take a shift" $ do
+      matchesOn (day 2026 8 3) "scheduled:*today*-2d..*today*+2d" [Ship, Privet]
+      matchesOn (day 2026 8 1) "scheduled:*today*..*today*+2d" [Ship, Privet]
+      matches "scheduled:2026-07-31+1d..2026-08-05-2d" [Ship, Privet]
+      matches "deadline:2026-08-01+3d..2026-08-01+5d" [Ship]
+      -- THE 30-DAY AGENDA IN ONE TOKEN, which is what the ends are for.
+      matchesOn (day 2026 8 1) "-planned:*empty* planned:*today*..*today*+30d"
+                [Ship, Privet, Reply]
+
+    -- The shift is a SPELLING of a day literal, so the granularity cuts, the
+    -- empty cell's exclusion and the no-mirror law all read it as one.
+  , testCase "a resolved shift is a day literal, and every law then applies" $ do
+      matchesOn (day 2026 8 5) "scheduled:<*today*-2d"  [Ship]
+      matchesOn (day 2026 8 5) "scheduled:<=*today*-2d" [Ship, Privet]
+      matchesOn (day 2026 8 5) "scheduled:>=*today*-2d" [Privet]
+      matchesOn (day 2026 8 5) "scheduled:>*today*-2d"  []
+      hit <- matchingIn (onDay (day 2026 8 5)) "scheduled:<*today*+10y"
+      assertEqual "the empty cell stays outside a shifted comparison" []
+                  [ row | row <- hit, row `elem` undated ]
+      mirror  <- matchingIn (onDay (day 2026 8 5)) "scheduled:>=*today*-2d"
+      negated <- matchingIn (onDay (day 2026 8 5)) "-scheduled:<*today*-2d"
+      assertBool "and negation is no mirror over one either" (mirror /= negated)
+      -- Alternatives split above the literal, so each arm carries its own shift.
+      matchesOn (day 2026 8 3) "scheduled:*today*-2d|*today*" [Ship, Privet]
+
+    -- ONE PARSER: the quoted form is the one that may carry spaces, and it
+    -- folds onto the compact spelling before any form is read.
+  , testCase "the quoted spaced spelling and the compact one are one query" $ do
+      records <- qrRecords <$> loadDir viewDir
+      sequence_
+        [ assertEqual (T.unpack (spaced <> " and " <> compact))
+            (titlesMatchingIn (onDay (day 2026 8 3)) ("scheduled:" <> compact) records)
+            (titlesMatchingIn (onDay (day 2026 8 3)) ("scheduled:" <> quotedValue spaced)
+                              records)
+        | (spaced, compact) <-
+            [ ("<= *today* + 30 days", "<=*today*+30d")
+            , ("*today* - 2 days .. *today* + 2 days", "*today*-2d..*today*+2d")
+            , ("2026-08-01 + 1 week", "2026-08-01+1w")
+            , (">= 2026-08-01 + 1 month", ">=2026-08-01+1m")
+            , ("*today* + 1 year", "*today*+1y")
+            , ("+ 30 days", "+30d")
+            , ("2026-07-31 + 1 day", "2026-07-31+1d") ] ]
+      -- The long word is CASE-FOLDED like every other value.
+      matchesOn (day 2026 7 4) "scheduled:\"*TODAY* + 30 DAYS\"" [Privet]
+      -- And the one space that survives is the timed stamp's own.
+      matches "scheduled:\"2026-08-01 09:30\"" [Ship]
+
+    -- THE BARE SHIFT IS TODAY-RELATIVE, decided off the planning grammar's own
+    -- precedent (`set-planning' reads a bare `+3d' that way, docs/commands.md);
+    -- consistency is the tiebreaker, and this case is the pin.
+  , testCase "a bare shift is the request's own day moved" $ do
+      records <- qrRecords <$> loadDir viewDir
+      matchesOn (day 2026 7 4) "scheduled:+30d" [Privet]
+      matchesOn (day 2026 8 10) "scheduled:-1w" [Privet]
+      matchesOn (day 2026 8 3) "scheduled:<=+2d" [Ship, Privet]
+      sequence_
+        [ assertEqual (T.unpack bare)
+            (titlesMatchingIn (onDay (day 2026 7 4)) ("scheduled:" <> todayMeta <> bare)
+                              records)
+            (titlesMatchingIn (onDay (day 2026 7 4)) ("scheduled:" <> bare) records)
+        | bare <- ["+30d", "-1w", "+1m", "-2y", "+0d"] ]
+
+    -- THE TOKEN'S SIGN IS ITS FIRST CHARACTER and the value's own sign sits
+    -- inside the value: `scanQuery' stops at the first, so the two never meet.
+  , testCase "the token's sign and the shift's sign are read apart" $ do
+      assertEqual "the added token, and the shift it carries"
+                  [Term Add (Just "scheduled") "+30d"] (parsed "+scheduled:+30d")
+      assertEqual "and the negated one" [Term Neg (Just "scheduled") "-1w"]
+                  (parsed "-scheduled:-1w")
+      -- A lone added token is the plain one, shift and all.
+      matchesOn (day 2026 7 4) "+scheduled:+30d" [Privet]
+      matchesOn (day 2026 7 4) "-scheduled:+30d" [Ship, Reply, Plain, Drop, Schema]
+      matchesOn (day 2026 8 10) "+scheduled:-1w" [Privet]
+      -- The added token joins its own axis, each arm carrying its own shift.
+      matchesOn (day 2026 8 2) "scheduled:*today*-1d +scheduled:*today*+1d" [Ship, Privet]
+
+  , testCase "with no clock behind it a shifted value names no day" $ do
+      matches "scheduled:*today*+30d" []
+      matches "scheduled:+30d" []
+      matches "scheduled:<=*today*-1w" []
+      matches "planned:*today*..*today*+30d" []
+      -- It is an ATOM all the same, so its sign inverts into every row.
+      every <- matching ""
+      matches "-scheduled:*today*+30d" every
+      matches "-scheduled:+30d" every
+
+    -- A BASE NAMING NO DAY leaves the whole value naming none: it matches no
+    -- row the way `state:TOD' matches none, and narrows all the same.
+  , testCase "a base that is no day matches no row, and narrows all the same" $ do
+      every <- matching ""
+      mapM_ (`matches` [])
+            [ "scheduled:2026-08+1d", "scheduled:banana+1d"
+            , "scheduled:\"2026-08-01 09:30+1d\"", "scheduled:*empty*+1d"
+            , "scheduled:>2026+1y" ]
+      matches "-scheduled:2026-08+1d" every
+
+    -- THE HALF-TYPED FAMILY'S OWN LAW, and the shift joins it: an unsigned or
+    -- added token narrows nothing, a negated one empties the table.
+  , testCase "a shift with no unit behind it is half-typed" $ do
+      every <- matching ""
+      mapM_ (`matches` every)
+            [ "scheduled:*today*+", "scheduled:*today*+30", "scheduled:+"
+            , "scheduled:+30", "scheduled:2026-08-01+", "planned:*today*+7"
+            , "scheduled:>=*today*+", "scheduled:*today*..*today*+30" ]
+      matches "-scheduled:*today*+30" []
+      matches "-planned:*today*+" []
+      matchesOn (day 2026 8 3) "scheduled:*today* scheduled:*today*+" [Privet]
+
+    -- THE PLUS FAMILY ALONE is half-typed: `-' is ISO's own separator, so a
+    -- rule reading the incomplete minus would read `2026-08-03' as `2026-08'
+    -- moved `03' of no unit.  An incomplete minus stays the literal it was.
+  , testCase "an incomplete minus is a literal, never a half-typed shift" $ do
+      every <- matching ""
+      matches "scheduled:*today*-" []
+      matches "scheduled:*today*-7" []
+      matches "-scheduled:*today*-7" every
+      matches "scheduled:2026-08-03" [Privet]
+      matches "scheduled:2026-08-0" [Ship, Privet]
+
+    -- CONSERVATIVITY: the oracle is the CELL, read off the record rather than
+    -- off the matcher, so every value that composed before answers what it did.
+  , testCase "every value that composed before answers byte for byte" $ do
+      records <- qrRecords <$> loadDir viewDir
+      let shown pick r = T.toLower (displayText (fromMaybe "" (pick r)))
+      sequence_
+        [ assertEqual (T.unpack (key <> ":" <> v))
+            [ hrTitle r | r <- records, v `T.isPrefixOf` shown pick r ]
+            (titlesMatchingIn (onDay (day 2026 8 3)) (key <> ":" <> quotedValue v) records)
+        | (key, pick) <- [("scheduled", hrScheduled), ("deadline", hrDeadline)]
+        , v <- [ "2026", "2026-08", "2026-08-0", "2026-08-01", "2026-08-03"
+               , "2026-08-01 09:30", "2026-08-05", "2026-08-10", "2026-08-1"
+               , "03", "banana", "today", "monday", "2027", "2026-8-1" ] ]
+      -- THE NEW GROUND WAS DEAD: no cell a tree writes carries a `+', so every
+      -- shift-shaped value served zero rows before and its negation served all.
+      assertBool "an ISO cell carries no plus"
+                 (not (any (T.isInfixOf "+" . hrSearch) records))
   ]
   where day = fromGregorian
 

@@ -399,6 +399,14 @@ anywhere. The English interval produces `--` and only `--`. A reader who types
 `18 aug..19 aug` into a date-owed field gets no interval — `..` is not in the
 grammar above — and the value is refused or left as text per its context.
 
+**Two surfaces, one clock.** The filter grammar has since grown relative dates of
+its own — `*today*` and the shift `BASE±N UNIT`, resolved at compile against the
+request's day ([`docs/query.md`](../../query.md#a-date-can-be-shifted)) — so both
+sides of the tree now spell "thirty days out", each against the same
+once-per-request read this proposal takes at `Commands.hs:255`, and neither in
+the other's syntax: the filter's shift compiles to a predicate and disappears,
+where this proposal's English resolves to bytes org itself would write.
+
 ### Idempotence
 
 A value that already reparses as an org stamp passes through unchanged — the

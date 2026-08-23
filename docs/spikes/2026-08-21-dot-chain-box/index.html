@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dot chain — six looks for “.”</title>
+<title>Dot chain — seven looks for “.”</title>
 <style>
   /* THE SHELL ONLY.  Each variant is its own page; what they share is the rig
      and the docked box, which is the point — the tabs differ by what `.' opens.
@@ -46,7 +46,7 @@
 </head>
 <body>
   <header>
-    <h1>Dot chain <small>six looks for what “.” opens · ★ the picked one</small></h1>
+    <h1>Dot chain <small>seven looks for what “.” opens · ★ the picked one</small></h1>
     <nav id="tabs" aria-label="variants">
       <a href="#a" data-src="a-control.html">A · control</a>
       <a href="#b" data-src="b-plain-chain.html">B · plain chain</a>
@@ -54,6 +54,7 @@
       <a href="#d" data-src="d-stage-pills.html">D · stage pills</a>
       <a href="#e" data-src="e-echo-line.html">E · echo line</a>
       <a href="#f" data-src="f-typed-dsl.html">F · typed dsl ★</a>
+      <a href="#g" data-src="g-sql.html">G · sql</a>
     </nav>
   </header>
   <p class="note" id="note"></p>
@@ -89,6 +90,17 @@
      + "<kbd>-</kbd> reaches for <code>/=</code> and <kbd>+</kbd> for a list. Under the box, "
      + "the lisp normal form — read from THIS reader while the table is served by the flat "
      + "one, so the two paths are compared on screen.",
+    g: "<b>The same queries in SQL.</b> D's machinery under SQL's own words: a stage is a "
+     + "CLAUSE, so the badge wears <code>SELECT</code> / <code>FROM</code> / <code>WHERE</code> / "
+     + "<code>ORDER BY</code> and there are no parens — a clause ends where the next begins. "
+     + "Two quote characters is what g has and F does not, so the columns are BARE identifiers "
+     + "and a name no identifier can spell still has one. <b>The fragment is the law:</b> "
+     + "<code>AND</code> composes across anything, <code>OR</code> only within ONE column, and a "
+     + "cross-axis <code>OR</code> is refused by name and composes nothing. What SQL buys: "
+     + "<code>IN</code> for the alternation, a repeated column for the intersection, "
+     + "<code>IS NULL</code> for the empty cell, <code>BETWEEN</code> for the range, and the "
+     + "parenthesised <code>OR</code> that spells the one shape F must escape into "
+     + "<code>raw \"…\"</code>.",
   };
   const tabs = [...document.querySelectorAll("#tabs a")];
   const stage = document.getElementById("stage");

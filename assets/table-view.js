@@ -468,6 +468,117 @@
   /** A date literal opens with a digit; anything else is no date at all. */
   const DATE_LIT = /^\d/;
 
+  // date shifts and the quoted spelling: docs/web-renderer.org
+  //
+  // THE SHIFT a date literal may carry, as GRAMMAR: `BASE(+|-)N UNIT', the base
+  // a day literal, `*today*' or nothing at all.  A SHIFTED VALUE IS ONE MORE
+  // SPELLING OF A DAY LITERAL and no new atom kind — `dateValue' gains no field,
+  // the shift being read below the forms, at the literal.
+
+  /** Org's own units, which is the whole charset a shift may spell. */
+  const UNITS = ["d", "w", "m", "y"];
+
+  /** The SHIFT's own signs, which are the VALUE's and never the token's. */
+  const SHIFT_SIGNS = ["+", "-"];
+
+  /**
+   * THE LONG UNIT WORDS the quoted value form admits, each folded onto org's
+   * own letter, LONGEST FIRST so `days' is read before `day'.
+   */
+  const UNIT_WORDS = [["days", "d"], ["day", "d"], ["weeks", "w"], ["week", "w"],
+                      ["months", "m"], ["month", "m"], ["years", "y"], ["year", "y"]];
+
+  /** A date value's trailing SHIFT: `(+|-)N UNIT', read off the END. */
+  const SHIFT = /([+-])(\d+)([dwmy])$/;
+
+  /** A shift ending MID-TYPING: a `+' with nothing but digits behind it. */
+  const HALF_SHIFT = /\+\d*$/;
+
+  /** A shift's sign and count as far as one has been TYPED, for completion. */
+  const AC_SHIFT = /([+-])(\d+)$/;
+
+  /** A day spelled in full, which is the only base `dayIn' can read. */
+  const DAY_LIT = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+  /** One decimal digit, which is what a space the fold KEEPS stands between. */
+  const DIGIT = /\d/;
+
+  /**
+   * L as its BASE and the SIGNED COUNT and UNIT it moves that base by, or null
+   * where L carries no shift.  READ FROM THE END, which is what keeps ISO's own
+   * separator out of the sign's reach: `2026-08-03' ends in a digit where a
+   * shift ends in one of org's unit letters.  AN EMPTY BASE IS THE BARE SHIFT,
+   * which `dayIn' reads today-relative.
+   * @param {string} l
+   * @returns {{base: string, n: number, unit: string}|null}
+   */
+  function shiftOf(l) {
+    const m = SHIFT.exec(l);
+    if (!m) return null;
+    return { base: l.slice(0, m.index),
+             n: Number(m[2]) * (m[1] === "-" ? -1 : 1), unit: m[3] };
+  }
+
+  /**
+   * Does L END MID-SHIFT — a `+' with nothing but digits behind it?  THE PLUS
+   * FAMILY ALONE, because `+' appears in no date a cell carries where `-' is
+   * ISO's own separator: a rule reading the incomplete minus would read
+   * `2026-08-03' as `2026-08' moved `03' of no unit.  An incomplete minus stays
+   * the literal it always was, and `*today*-7' matches no row rather than
+   * narrowing none.
+   * @param {string} l  @returns {boolean}
+   */
+  const halfShift = (l) => HALF_SHIFT.test(l);
+
+  /**
+   * The shift BASE P spells, canonically, or null where it spells none: the
+   * empty base is the BARE shift's own, `*today*' is reached star-free the way
+   * every meta is, and a day is itself.  COMPLETION READS THROUGH THE STARS AND
+   * MATCHING DOES NOT, so `today+30' is offered as `*today*+30d' and means
+   * nothing typed as itself.
+   * @param {string} p  @returns {string|null}
+   */
+  const shiftBase = (p) =>
+    p === "" ? "" : spells(TODAY_META, p) ? TODAY_META : validDay(p) ? p : null;
+
+  /**
+   * V with every space dropped BUT THE ONE BETWEEN TWO DIGITS, which is the
+   * timed stamp's own: `2026-08-01 09:30' keeps its space where `<= 2026-08-01'
+   * loses one it never meant.  ONE PARSER, TWO SPELLINGS: the quoted form is
+   * the one that may carry spaces (`scheduled:"<= *today* + 30 days"') and
+   * folds here onto the space-free one (`scheduled:<=*today*+30d') ABOVE every
+   * form read.  An unquoted value carries no space at all — the scanner cuts a
+   * token on one — so the fold is invisible to the compact spelling.
+   * @param {string} v  @returns {string}
+   */
+  function unspaced(v) {
+    let out = "", last = "";
+    for (let i = 0; i < v.length; i++) {
+      const c = v[i];
+      // A SPACE IS WEIGHED AGAINST WHAT WAS KEPT, so a run of them collapses to
+      // the one the digits on either side of it earn.
+      if (c === " " && !(DIGIT.test(last) && DIGIT.test(v[i + 1] || ""))) continue;
+      out += c;
+      last = c;
+    }
+    return out;
+  }
+
+  /**
+   * LITERAL L's long unit word cut to org's letter, AND ONLY WHERE A SHIFT
+   * COMES OUT OF IT: `today' ends in a unit word and is the starred word's
+   * near-miss, never a `to' moved one day.
+   * @param {string} l  @returns {string}
+   */
+  function unitFolded(l) {
+    for (const [word, letter] of UNIT_WORDS) {
+      if (!l.endsWith(word)) continue;
+      const short = l.slice(0, l.length - word.length) + letter;
+      if (shiftOf(short)) return short;
+    }
+    return l;
+  }
+
   /**
    * V read as a date value: `op' is the comparison it opens with, `RANGE' where
    * it names one and "" for the bare prefix; `lo' and `hi' are the literals
@@ -479,15 +590,34 @@
    * @returns {{op: string, lo: string, hi: string}}
    */
   function dateValue(v) {
+    // THE QUOTED SPELLING'S SPACES GO ABOVE EVERY FORM READ, so one parser
+    // answers both and every law behind this sees the space-free one.  THE LONG
+    // UNIT WORD IS FOLDED BELOW THE SPLIT, AT THE LITERAL, which is the one
+    // place a literal's END is known: a range carries two of them, and a fold
+    // reading the value's own end would leave the low one spelling no day.
+    const s = unspaced(v);
     // THE OPERATOR IS READ FIRST and the range behind it, so `>=A..B' is a
     // comparison against a literal holding a separator — no cell spells one, so
     // it serves nothing — where `A..B' is the range it looks like.
     for (const op of CMPS)
-      if (v.startsWith(op)) return { op, lo: v.slice(op.length), hi: "" };
-    const at = v.indexOf(RANGE);
+      if (s.startsWith(op)) return { op, lo: unitFolded(s.slice(op.length)), hi: "" };
+    const at = s.indexOf(RANGE);
     if (at !== -1)
-      return { op: RANGE, lo: v.slice(0, at), hi: v.slice(at + RANGE.length) };
-    return { op: "", lo: v, hi: "" };
+      return { op: RANGE, lo: unitFolded(s.slice(0, at)),
+               hi: unitFolded(s.slice(at + RANGE.length)) };
+    return { op: "", lo: unitFolded(s), hi: "" };
+  }
+
+  /**
+   * V as the COMPACT spelling, reassembled from the reading: the quoted form's
+   * spaces dropped and EACH literal's unit word cut, so a value carrying two of
+   * them lands compact at both ends.  A space-free value spelling no unit word
+   * folds to itself, which is every unquoted value.
+   * @param {string} v  @returns {string}
+   */
+  function compacted(v) {
+    const d = dateValue(v);
+    return d.op === RANGE ? d.lo + RANGE + d.hi : d.op + d.lo;
   }
 
   /**
@@ -528,8 +658,92 @@
    */
   function localDay(now) {
     const t = now || new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`;
+    return `${t.getFullYear()}-${pad2(t.getMonth() + 1)}-${pad2(t.getDate())}`;
+  }
+
+  /** N as two digits, which is how every ISO field but the year is written. */
+  const pad2 = (n) => String(n).padStart(2, "0");
+
+  /**
+   * Y, M and D as the ISO day they spell.  ONE FORMATTER SPELLS BOTH SIDES of a
+   * date comparison: a literal written here and a cell the producer wrote are
+   * the same shape, so the two cannot drift into two spellings of one day.
+   */
+  const isoDay = (y, m, d) => `${String(y).padStart(4, "0")}-${pad2(m)}-${pad2(d)}`;
+
+  /** Is Y a leap year, by the proleptic Gregorian rule an ISO day names? */
+  const leapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+
+  /** Each month's length, February's in a common year. */
+  const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+  /** The last day of month M in year Y. */
+  const lastDay = (y, m) => (m === 2 && leapYear(y) ? 29 : MONTH_DAYS[m - 1]);
+
+  /**
+   * Does L spell a day that EXISTS?  The shape alone is not enough — `2026-02-30'
+   * is four fields and no date — and the producer reads its own literals with a
+   * parser that refuses one, so this refuses it too.
+   * @param {string} l  @returns {boolean}
+   */
+  function validDay(l) {
+    const m = DAY_LIT.exec(l);
+    if (!m) return false;
+    const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    return mo >= 1 && mo <= 12 && d >= 1 && d <= lastDay(y, mo);
+  }
+
+  /**
+   * BASE moved N units, as an ISO day — ORG'S OWN CALENDAR ARITHMETIC.  `d' and
+   * `w' COUNT DAYS, a week being seven; `m' and `y' STEP THE CALENDAR AND CLIP:
+   * a day past the target month's last becomes that last day, so Jan 31 moved
+   * one month lands on February's last and never on March's third.  The clip is
+   * spelled out because `Date' would overflow into the next month instead.
+   * @param {string} base  @param {number} n  @param {string} unit
+   * @returns {string}
+   */
+  function shiftDay(base, n, unit) {
+    const y = Number(base.slice(0, 4)), m = Number(base.slice(5, 7));
+    const d = Number(base.slice(8, 10));
+    if (unit === "d" || unit === "w") {
+      // UTC THROUGHOUT, so no zone's daylight step can lose or gain a day.
+      const t = new Date(0);
+      t.setUTCFullYear(y, m - 1, d);      // set whole: a two-digit year stays itself
+      t.setUTCDate(t.getUTCDate() + n * (unit === "w" ? 7 : 1));
+      return isoDay(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate());
+    }
+    const gm = y * 12 + (m - 1) + n * (unit === "y" ? 12 : 1);
+    const ty = Math.floor(gm / 12), tm = gm - ty * 12 + 1;
+    return isoDay(ty, tm, Math.min(d, lastDay(ty, tm)));
+  }
+
+  /**
+   * The DAY a shift's BASE names, or "" where it names none.  `*today*' AND THE
+   * EMPTY BASE are both TODAY: THE BARE SHIFT IS TODAY-RELATIVE, decided off
+   * the planning grammar's own precedent, which already reads a bare `+3d' that
+   * way, consistency being the tiebreaker.  Any other base is the day it
+   * spells, so a base naming none — a month, a timed stamp — leaves the whole
+   * value naming none.
+   * @param {string} base  @param {string} today  @returns {string}
+   */
+  const dayIn = (base, today) =>
+    base === "" || base === TODAY_META ? today : validDay(base) ? base : "";
+
+  /**
+   * Date literal L as the literal every law below compares, or "" where L NAMES
+   * NO DAY.  `*today*' is TODAY, a SHIFT is stepped off its base and spelled
+   * back as a plain day, and every other literal is itself.  THE SHIFT RESOLVES
+   * HERE, ONCE PER COMPILE — behind this a shifted value is one more spelling of
+   * a day literal and every law reads it as one.  A shift off a base naming no
+   * day, `*today*' with no clock behind it included, leaves the value naming
+   * none, and it then matches no row the way `state:TOD' matches none.
+   * @param {string} l  @param {string} today  @returns {string}
+   */
+  function literalIn(l, today) {
+    const s = shiftOf(l);
+    if (!s) return l === TODAY_META ? today : l;
+    const base = dayIn(s.base, today);
+    return base ? shiftDay(base, s.n, s.unit) : "";
   }
 
   /**
@@ -2241,10 +2455,13 @@
       if (!datedKey(key)) return alts;
       // A LITERAL IS OWED AT EVERY END THE VALUE NAMES: behind the operator, and
       // on both sides of the separator — which is the whole of what `dateValue'
-      // leaves empty.
-      return alts.filter((v) => {
+      // leaves empty.  A SHIFT WITH NO UNIT BEHIND IT is the same vacuum one end
+      // deeper, so `scheduled:*today*+' rides `vacuousHere' the way `scheduled:>'
+      // does.  THE ATOMS ARE THE COMPACT SPELLINGS, folded once here.
+      return alts.map(compacted).filter((v) => {
         const d = dateValue(v);
-        return d.lo !== "" && (d.op !== RANGE || d.hi !== "");
+        const owed = d.lo !== "" && (d.op !== RANGE || d.hi !== "");
+        return owed && !halfShift(d.lo) && !halfShift(d.hi);
       });
     }
 
@@ -2356,23 +2573,28 @@
     /**
      * V as a test of DATE cell I: the bare prefix, one of the four comparisons,
      * or the range `A..B'.  `*today*' stands for `compiledDay' wherever a
-     * literal may.  THREE PIECES, ONE GUARD: `cmpTest' carries the granularity
-     * law, `dated' the empty cell, and the range is the two inclusives composed
-     * under ONE guard rather than a table arm of its own.
+     * literal may, and a SHIFT off either resolves to a plain day HERE
+     * (`dayOf'), before any law below reads one.  THREE PIECES, ONE GUARD:
+     * `cmpTest' carries the granularity law, `dated' the empty cell, and the
+     * range is the two inclusives composed under ONE guard rather than a table
+     * arm of its own.
      * @param {number} i  @param {string} v  @returns {(r: Row) => boolean}
      */
     function stampTest(i, v) {
       const d = dateValue(v);
-      const lo = d.lo === TODAY_META ? compiledDay : d.lo;
-      const hi = d.hi === TODAY_META ? compiledDay : d.hi;
+      const lo = literalIn(d.lo, compiledDay), hi = literalIn(d.hi, compiledDay);
+      // A VALUE NAMING NO DAY SERVES NO ROW — a shift off a base that spells
+      // none — and the BARE arm is asked here, where the guards below never
+      // reach it.
+      if (lo === "") return () => false;
       // THE BARE ARM CARRIES NO `dated' GUARD and needs none — a non-empty
       // literal is the prefix of no empty cell — which is what keeps it byte
       // for byte the arm it was.
       if (d.op === "") return (r) => rowText(r).cells[i].startsWith(lo);
       // A LITERAL THAT DOES NOT OPEN WITH A DIGIT IS NO DATE and matches no
       // row, the reading `state:TOD' has — where byte order would happily
-      // serve every dated row against `>*empty*'.  `*today*' resolved above,
-      // so it is a date by the time this asks.
+      // serve every dated row against `>*empty*'.  `*today*' and any shift
+      // resolved above, so this asks of a plain literal.
       if (!DATE_LIT.test(lo)) return () => false;
       if (d.op === RANGE && !DATE_LIT.test(hi)) return () => false;
       // A RANGE IS ONE ATOM, which is the whole of what two tokens cannot say:
@@ -4155,11 +4377,16 @@
       // dates.  A TYPED HEAD DROPS `*empty*', the empty cell sitting outside
       // every comparison.
       const onDate = dateColumn(columns().indexOf(st.col));
-      const dv = onDate ? dateValue(p) : null;
+      // THE STAGE READS WHAT THE PARSER READS: the quoted spelling folds first
+      // (`compacted'), so a head measured here indexes the value the grammar
+      // sees and every offer lands compact.  A space-free prefix folds to
+      // itself, which is every prefix that reached here before.
+      const pd = onDate ? compacted(p) : p;
+      const dv = onDate ? dateValue(pd) : null;
       // THE HEAD is what stands before a literal still being typed: the
       // operator, or the range's low end and the separator behind it.
       const head = dv === null ? "" : dv.op === RANGE ? dv.lo + RANGE : dv.op;
-      const p2 = p.slice(head.length);
+      const p2 = pd.slice(head.length);
       const listed = onDate ? dom.list.concat([TODAY_META]) : dom.list;
       const domain = head || listed.indexOf(EMPTY_META) !== -1
         ? listed : listed.concat([EMPTY_META]);
@@ -4188,10 +4415,35 @@
       // values and carries no count.  `full: false' is what says it opens one:
       // accepting leaves the token unfinished for the literal (`acceptAc').
       if (onDate)
-        for (const op of CMPS.filter((c) => c !== p && c.startsWith(p))) {
+        for (const op of CMPS.filter((c) => c !== pd && c.startsWith(pd))) {
           if (out.length >= AC_MAX) break;
           out.push({ text: op, count: -1, full: false, dim: true });
         }
+      // A SHIFT'S HEADS RIDE THE SAME FOOT THE OPERATORS' DO, and split the
+      // same way: behind a BASE SPELLED IN FULL the two SIGNS open a shift, and
+      // behind a sign and its digits the four UNITS finish one.  A sign alone
+      // enumerates nothing — any number stands there — so nothing is offered
+      // until a digit is typed.  THE BARE SHIFT IS TYPED AND NOT PROPOSED: the
+      // empty base gives no head to hang a sign on, and once a sign and its
+      // digits stand there the units finish it like any other.  Each offer
+      // wears the head it was typed with and spells its base canonically, so
+      // `today+30' completes to `*today*+30d'.
+      if (onDate) {
+        const stem = shiftBase(p2);
+        if (stem)
+          for (const sign of SHIFT_SIGNS) {
+            if (out.length >= AC_MAX) break;
+            out.push({ text: head + stem + sign, count: -1, full: false, dim: true });
+          }
+        const hs = AC_SHIFT.exec(p2);
+        const typed = hs ? shiftBase(p2.slice(0, hs.index)) : null;
+        if (hs && typed !== null)
+          for (const u of UNITS) {
+            if (out.length >= AC_MAX) break;
+            out.push({ text: head + typed + hs[1] + hs[2] + u,
+                       count: -1, full: true, dim: true });
+          }
+      }
       if (whole) {
         out.unshift(whole);
         if (out.length > AC_MAX) out.pop();

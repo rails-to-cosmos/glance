@@ -51,6 +51,7 @@ module Glance.Query ( BlobSeed (..)
                     , configPath
                     , configPaths
                     , currentDocument
+                    , dayOf
                     , defaultCaptureFile
                     , SavedView (..)
                     , defaultFilter
@@ -129,6 +130,8 @@ module Glance.Query ( BlobSeed (..)
                     , shiftRepeat
                     , setTitleEdits
                     , settableStates
+                    , shiftDay
+                    , shiftUnits
                     , ownBodyLines
                     , subtreeEntries
                     , subtreeEntryAt
@@ -199,7 +202,7 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , metaCategory
                 , orgIdentity, orgParse, priority, schedule, shiftSpan, sliceSpan, spans, spelled
                 , addUnit, relativeForms, repeaterFormat, tags, title, todo
-                , tsBrackets, unitOf )
+                , tsBrackets, unitChar, unitOf )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
                        , builtinFilter, captureTargetIn
                        , classify, configDirsIn, configPaths
@@ -1114,6 +1117,24 @@ isoStamp ts = spelled fmt (tsmTime moment)
 isoDay :: Time.Day -> Text
 isoDay = spelled "%Y-%m-%d"
 
+-- | The day L spells, 'isoDay' READ BACKWARDS.  Same formatter, one shape: a
+-- literal a reader types and a day the server holds are one value or neither.
+-- 'Nothing' where L names no day, a month or a timed stamp included.
+dayOf :: Text -> Maybe Time.Day
+dayOf = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d" . T.unpack
+
+-- | The unit LETTERS a date shift may carry — ORG'S WHOLE CHARSET, read off the
+-- parser's own map, so a unit org grows is offered the day it lands.
+shiftUnits :: [Char]
+shiftUnits = map unitChar [minBound .. maxBound]
+
+-- | DAY moved N of the unit C names, ORG'S OWN CALENDAR ARITHMETIC ('addUnit'):
+-- a week is seven days, and a month or a year is CLIPPED to the target month's
+-- last day, so Jan 31 moved one month lands on February's last.  'Nothing'
+-- where C names no unit.
+shiftDay :: Char -> Integer -> Time.Day -> Maybe Time.Day
+shiftDay c n day = (\u -> addUnit u n day) <$> unitOf c
+
 detach :: Text -> Text
 detach = T.copy
 
@@ -1567,7 +1588,7 @@ planningTimestamp today text
       (\u -> addUnit u n today) <$> unitOf c
 
     asDay :: Maybe Time.Day
-    asDay = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d" (T.unpack want)
+    asDay = dayOf want
     -- @%k@ rather than @%H@: it reads one digit as well as two, so @9:05@ is the
     -- time a reader meant rather than a refusal over a zero.
     asLocal :: Maybe Time.LocalTime
