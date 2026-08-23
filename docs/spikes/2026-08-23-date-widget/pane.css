@@ -1,0 +1,317 @@
+/* The sheet every variant draws into, lifted from `Theme/Default.hs' and
+   `Page/Style.hs' so the widget is judged at the real hues and the real
+   metrics: the 13px/21px doc line, the 4px row radius, the `.dof' offer dress,
+   the `#dpair' field dress.  A variant adds its own `<style>' after this and
+   overrides nothing here — the widget's METRICS are the rig's, its PLACEMENT
+   is the variant's, which is the whole of what the tabs argue over. */
+
+:root{
+  --dk-mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+  --g-bg:#FFFFFF; --g-fg:#000000; --g-surface:#F8F8FF; --g-mute:#667071;
+  --g-border:#E3E6EA; --g-accent:#31769F; --g-sel:#FFD600; --g-link:#30739B;
+  --g-bad:#E74C3C; --g-warn:#FFA500; --g-ok:#27AE60;
+  --g-point:#005A8D; --g-point-dim:#6E8CA0; --g-point-off:#D9E2EC;
+  --g-todo:#9A3412; --g-done:#166534; --g-hover:#FAFAFA;
+  --g-veil:#00000066; --g-shadow:#00000033;
+  --g-doc-pad:6px; --g-doc-padx:10px; --g-doc-pady:8px;
+  /* THE RANGE'S WASH IS A PERCENTAGE PER PALETTE, the way the renderer's own
+     chip washes are (`--tv-chip-wash'): gold at 40% reads on white and the
+     dark selection at 40% reads as nothing, so the number moves, not the hue. */
+  --dw-range:40%;
+  /* A WHOLE NUMBER OF PIXELS PER LINE, the shipped arithmetic verbatim. */
+  --g-doc-fs:13px; --g-doc-lh:21px;
+  --g-doc-off:calc(3 * var(--g-doc-lh));
+  --g-pop-top:5vh; --g-pop-pad:24px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+    --g-point:#FFC777; --g-point-dim:#A79E86; --g-point-off:#2B4B6E;
+    --g-todo:#E0AF68; --g-done:#9ECE6A; --g-hover:#1F1F1F; --g-ok:#B6E63E;
+    --g-veil:#00000099; --g-shadow:#00000077;
+    --dw-range:75%;
+  }
+}
+:root[data-theme="dark"]{
+  --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+  --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+  --g-point:#FFC777; --g-point-dim:#A79E86; --g-point-off:#2B4B6E;
+  --g-todo:#E0AF68; --g-done:#9ECE6A; --g-hover:#1F1F1F; --g-ok:#B6E63E;
+  --g-veil:#00000099; --g-shadow:#00000077;
+  --dw-range:75%;
+}
+
+html,body{height:100%}
+body{
+  margin:0; background:var(--g-bg); color:var(--g-fg);
+  font:12px/1.5 var(--dk-mono);
+  display:flex; flex-direction:column; gap:8px; padding:12px;
+  box-sizing:border-box;
+}
+h1{
+  margin:0; font-size:12px; font-weight:600; flex:none;
+  display:flex; align-items:baseline; gap:10px;
+}
+h1 small{font-weight:400; color:var(--g-mute)}
+kbd{
+  font:inherit; border:1px solid var(--g-border); border-radius:3px;
+  padding:0 3px; color:var(--g-mute);
+}
+footer{
+  flex:none; color:var(--g-mute); font-size:11px;
+  display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
+}
+#truth{color:var(--g-fg)}
+#stage{flex:1 1 auto; min-height:0; display:flex; flex-direction:column; gap:6px}
+
+/* ---- the sheet's doc pane, verbatim ------------------------------------- */
+#mdoc{
+  flex:1 1 auto; min-width:0; min-height:0; position:relative;
+  overflow:auto; padding:var(--g-doc-pady) var(--g-doc-padx);
+  padding-left:calc(var(--g-doc-padx) + 1ch);
+  font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+  border:1px solid var(--g-accent); border-radius:8px;
+  /* THE PANE NEVER SCROLLS SIDEWAYS: a widget wider than the sheet is a bug,
+     and this is where the check reads it. */
+  overflow-x:hidden;
+}
+.de{
+  scroll-margin-block:var(--g-doc-off); position:relative;
+  --ink:var(--g-point-off); --fg:var(--g-fg); --tok:var(--g-point);
+  --punc:var(--g-mute); --spine:var(--g-point-off);
+  padding:1px var(--g-doc-pad); border-radius:4px; white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+#mdoc .de.dat{background-color:var(--g-sel); color:var(--g-fg)}
+.d-para,.d-meta{margin:7px 0;
+  padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}
+.d-drawer .d-meta{padding-left:0}
+.d-para{margin:7px 0}
+
+/* A CHILD HEADLINE IS A HEADLINE: the same face as the sheet's own. */
+.d-head{display:flex; align-items:baseline; font-weight:600}
+.ds{white-space:pre; color:var(--fg); font-weight:400; flex:none;
+  width:calc(var(--g-doc-indent, 2) * 1ch)}
+.dc{margin-right:.6em; flex:none}
+.dc-state{color:var(--g-todo)}
+.dc-title{flex:1 1 auto; min-width:0}
+.dc-tags{color:var(--punc); font-size:11px; margin-left:auto; margin-right:0}
+
+/* THE PLANNING LINE, each keyword a reserved token the way org paints
+   `SCHEDULED:' — the timestamp itself stays the line's own (`Doc.elm:1592'). */
+.dk{color:var(--tok)}
+.dpunc{color:var(--punc)}
+.dpunc.dlead{margin-left:-1ch}
+.dg{padding:0; white-space:pre-wrap; color:var(--punc)}
+/* AN EMPTY PLANNING LINE IS NO LINE: the absence is the display, so the row
+   draws its keyword ghosted only while the widget is standing over it. */
+.d-plan.bare{color:var(--g-point-off)}
+.d-plan .dv{color:var(--g-fg)}
+/* WHAT THE WIDGET WOULD WRITE, drawn in place before RET: the row shows the
+   stamp under the caret's own accent, dashed, so it reads as not-yet. */
+.d-plan .dv.pending{
+  color:var(--g-accent);
+  border-bottom:1px dashed var(--g-accent);
+}
+.d-drawer .dg,.dk{color:var(--tok)}
+/* A BARE DRAWER DIMS. */
+.d-drawer.bare{--tok:var(--g-point-off); --punc:var(--g-point-off)}
+.d-drawer .d-meta::before{content:""; position:absolute;
+  top:0; bottom:0; left:-1.5ch; width:1px; border-radius:1px;
+  background:var(--spine)}
+.d-drawer{--spine:color-mix(in srgb, var(--g-accent) 45%, var(--g-bg))}
+
+/* ---- the pair box, as `#dpair' wears it --------------------------------- */
+/* THE VALUE SLOT IS WHERE THE WIDGET WRITES when the date is owed by a
+   PROPERTY: the pair box's own dress, verbatim — the drawer's colons dimmed
+   (`--punc' is a ROW's variable and no row holds this box), the surface ground,
+   the key the short half and the value the long one, org's own reading, with
+   the margin org's own space after the closing colon. */
+.dpair{
+  background:var(--g-surface); --punc:var(--g-mute);
+  border-radius:4px; padding:1px var(--g-doc-pad);
+}
+.dpair .dw-lead{flex:1 1 30%; color:var(--g-point)}
+.dpair .dw-field{flex:2 1 60%; margin-left:1ch}
+
+/* ---- the offers, as `#doffer' wears them -------------------------------- */
+/* THE OFFERS HANG UNDER THE FIELD, small and mute, since what is being read is
+   the field.  Here the HINT column is the offer RESOLVED — the list is its own
+   preview, which is the one thing a date vocabulary can do that a property
+   vocabulary cannot. */
+.doffer{
+  display:none; position:absolute; top:100%; left:0;
+  min-width:16em; max-height:calc(6 * var(--g-doc-lh)); overflow-y:auto;
+  background:var(--g-surface); border:1px solid var(--g-border);
+  border-radius:4px; font-size:11px; z-index:3;
+}
+.doffer.on{display:block}
+/* THE WIDGET'S OWN MENU DOCKS, wherever the widget stands.  The shipped
+   `#doffer' hangs absolutely because it hangs over the DOCUMENT; here it hangs
+   over the widget's own calendar, and a menu that covered the grid the reader
+   is walking would be the spike's own complaint one storey down. */
+.dw .doffer{position:static; margin:2px 0; min-width:0; max-width:34ch}
+.dof{display:flex; align-items:baseline; gap:8px;
+  padding:1px var(--g-doc-pad); color:var(--g-mute); white-space:pre}
+.dof.dat{background:var(--g-sel); color:var(--g-fg)}
+.dow{flex:none}
+.dot{flex:1 1 0; text-align:right; font-size:10px; color:var(--g-mute)}
+
+/* ---- the widget: METRICS ONLY, the placement is the variant's ------------ */
+.dw{
+  box-sizing:border-box; font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+  color:var(--g-fg);
+}
+.dw-head{
+  display:flex; align-items:baseline; gap:8px; white-space:pre;
+  color:var(--g-mute); font-size:11px;
+}
+.dw-head .dw-word{color:var(--g-point); font-weight:600}
+.dw-head .dw-month{color:var(--g-fg)}
+/* THE KEY LINE IS RESIDENT, the way the shell's own is: a widget whose keys
+   are only in a README is a widget nobody walks. */
+.dw-head .dw-keys{margin-left:auto; font-size:10px; color:var(--g-mute)}
+/* ---- the edit dress, COPIED and not approximated ------------------------ */
+/* THE WIDGET REUSES THE PANE'S OWN EDITING STYLE.  A date edit is the pane's
+   existing edit box grown a ghost, never a widget with a look of its own — so
+   these are `Page/Style.hs''s rules for the pair box's own field, transcribed
+   rather than reinvented, and what the reader sees editing a date is what they
+   see editing a pair or a paragraph.
+
+   `Style.hs:356' — ONE DRESS FOR THE PANE'S OWN FIELDS: the document's face,
+   since each one is laid over the row it writes.  The FLEX is each field's own.
+     #dtin,#dpair input{font:inherit;padding:0;border:none;
+       background:transparent;color:var(--g-fg);min-width:0}                  */
+.dw-field{
+  font:inherit; padding:0; border:none; background:transparent;
+  color:var(--g-fg); min-width:0; flex:1 1 auto;
+}
+/*   `Style.hs:372' — #dpara textarea:focus,#dtin:focus,#dpair input:focus{
+       outline:none;border:none}
+   THE PANE'S IN-ROW FIELDS TAKE NO FOCUS RING AND NO FOCUS BORDER.  What says
+   an edit is open is the GROUND it carries (below) and the pane's own accent
+   edge (`Style.hs:134', `#mdoc.on{border-color:var(--g-accent)}'); the
+   accent-on-focus border belongs to the BOXED fields — `#mtext' at `:122', the
+   table's `.tv-filter' — and copying it onto an in-row field would be inventing
+   a third look.  */
+.dw-field:focus{outline:none; border:none}
+/*   `Style.hs:374' — #dtin::selection,#dpair input::selection,
+       #sedit input::selection,#tedit input::selection,
+       #ledit input::selection,#dpara textarea::selection{
+         background:var(--g-sel);color:var(--g-fg)}                            */
+.dw-field::selection{background:var(--g-sel); color:var(--g-fg)}
+/*   `.tv-filter::placeholder{color:var(--g-mute);opacity:1}' — the one the
+   shipped fields spell for a hint that is not a value.                        */
+.dw-field::placeholder{color:var(--g-mute); opacity:1}
+.dw-line{display:flex; align-items:baseline; gap:1ch; position:relative}
+.dw-line .dw-lead{color:var(--g-point); flex:none}
+
+/* ---- the slot mount: the widget IS the row's value ---------------------- */
+/* FULLY INLINE.  A widget standing in the planning line's own value place is
+   part of that line, so it lays out inline and adds no row of its own; the
+   sheet gains nothing but the characters. */
+.dw-slot{display:inline-flex; align-items:baseline; vertical-align:baseline}
+.dw-slot .dw-line{display:inline-flex; gap:0}
+/*   `Style.hs:322' — #dpara,#dpair,#dtitle{background:var(--g-surface)}
+   AN OPEN EDIT CARRIES ITS OWN GROUND, and this is the rule round 4 was
+   missing.  The pane spends ONE token on two different things: the cursor's row
+   wash is `--g-sel' (`Style.hs:154') and a field's TEXT SELECTION is `--g-sel'
+   too (`:374').  An edit sitting in the cursor row with no ground of its own
+   therefore selects its text in exactly the colour already behind it — SET,
+   FOCUSED, AND INVISIBLE.  The shipped edits never hit this because every one of
+   them carries the surface; the widget carries it for the same reason.  The
+   padding is given back as margin so the ground appears without the text
+   moving. */
+.dw-slot{background:var(--g-surface); border-radius:4px;
+  padding:0 3px; margin:0 -3px}
+/* A ROW HOLDING AN OPEN EDIT SHOWS THE EDIT, NOT THE CURSOR.  The shipped pair
+   box reaches this by covering the row EDGE TO EDGE — `#dpara,#dpair{left:
+   var(--g-doc-padx);right:var(--g-doc-padx)}' (`Style.hs:328') over the
+   `--g-surface' ground (`:322') — so while an edit is open the row's `--g-sel'
+   cursor wash is simply not on screen.  An edit standing INSIDE the row cannot
+   cover it, so it lifts it instead, which is the same fact stated the other way
+   round: the row is still at point, and what the row SHOWS is the edit.  Without
+   this the value's `--g-sel' selection and the row's `--g-sel' wash share a line
+   and the reader has to find the seam between them. */
+#mdoc .de.dat.d-editing{background-color:transparent}
+/* …and the fault that takes both away again, for the pin to catch: no ground on
+   the edit, and the row's cursor wash left standing under it. */
+.dw.blend{background:transparent}
+#mdoc .de.dat.d-editing:has(.dw.blend){background-color:var(--g-sel)}
+/* A MENU OVER A DOCUMENT ROW HANGS, exactly as `#doffer' does (Style.hs:339).
+   The docked-menu rule is for a widget that is its own surface and has a
+   calendar of its own to avoid covering; in a document row there is nothing of
+   the widget's underneath, and a menu that reflowed the sheet at every
+   keystroke would move the reader's place while they typed. */
+.dw-slot .doffer{position:absolute; top:100%; left:0; margin:2px 0}
+
+/* THE GHOST: the resolution riding after what was typed, on the input's own
+   line.  A SPAN AND NEVER THE FIELD'S VALUE — the caret cannot enter it,
+   nothing selects it, and no keystroke edits it. */
+.dw-ghost{
+  flex:none; white-space:pre; color:var(--g-mute);
+  user-select:none; pointer-events:none;
+}
+.dw-ghost.bad{color:var(--g-bad)}
+
+/* THE GRID IS SEVEN COLUMNS, org's own week, each cell one doc line tall and
+   as wide as `Mo' plus its air.  MONOSPACE DOES THE ALIGNMENT: the cells are
+   character-width, so the grid stands on the pane's own column grid. */
+.dw-grid{display:grid; grid-template-columns:repeat(7, 4ch); gap:0}
+.dw-dow{
+  color:var(--g-mute); font-size:11px; text-align:center;
+  line-height:var(--g-doc-lh);
+}
+.dw-cell{
+  text-align:center; line-height:var(--g-doc-lh); border-radius:4px;
+  color:var(--g-fg);
+}
+.dw-cell.out{color:var(--g-point-off)}
+/* TODAY IS RINGED, never washed: the wash is point's, and a widget that
+   painted today the way it paints the caret would say the caret was there. */
+.dw-cell.now{box-shadow:inset 0 0 0 1px var(--g-accent)}
+.dw-cell.at{background:var(--g-sel); color:var(--g-fg)}
+.dw-cell.in-range{background:color-mix(in srgb, var(--g-sel) var(--dw-range), transparent)}
+
+/* THE STRIP is the grid unrolled: one row, fourteen cells, the month at the
+   edge — the same cell, the same ring, the same wash. */
+.dw-strip{display:flex; align-items:baseline; gap:0; white-space:pre}
+.dw-strip .dw-cell{min-width:5ch; padding:0 .2ch}
+.dw-strip .dw-edge{color:var(--g-mute); flex:none; margin-right:1ch}
+.dw-strip .dw-dow{min-width:5ch}
+
+/* THE RESOLVED ECHO: one line, what the RET would write.  Mute for the frame,
+   the stamp in the page's own ink, a refusal in the refusal's red. */
+.dw-echo{
+  font-size:11px; color:var(--g-mute); white-space:pre-wrap;
+  display:flex; align-items:baseline; gap:1ch;
+}
+.dw-echo .dw-stamp{color:var(--g-fg)}
+.dw-echo .dw-arrow{color:var(--g-mute)}
+.dw-echo .dw-note{color:var(--g-mute); font-style:italic}
+.dw-echo.bad{color:var(--g-bad)}
+.dw-echo.bad .dw-stamp{color:var(--g-bad)}
+.dw-echo.verbatim .dw-note{color:var(--g-warn)}
+
+/* ---- the raised prompt, as `#prompt'/`#pbox.narrow' wears it ------------- */
+/* A's whole argument is that this is a POPUP: a veil over the sheet, a band
+   floated off the top, and the document it is asking about behind it. */
+#prompt{
+  display:none; position:fixed; inset:0; z-index:100; background:var(--g-veil);
+  padding:var(--g-pop-pad); padding-top:var(--g-pop-top);
+}
+#prompt.on{display:flex; justify-content:center; align-items:flex-start}
+#pbox{
+  box-sizing:border-box; width:min(560px,100%);
+  display:flex; flex-direction:column; gap:6px; padding:10px;
+  border-radius:8px; background:var(--g-bg); color:var(--g-fg);
+  border:1px solid var(--g-border); box-shadow:0 4px 14px var(--g-shadow);
+}
+#phead{font-size:12px; color:var(--g-mute)}
+#pinput{
+  font:12px/1.5 var(--dk-mono); padding:5px 7px; border-radius:4px;
+  border:1px solid var(--g-border); background:transparent; color:inherit;
+}
+#pinput:focus{outline:none; border-color:var(--g-accent)}
+#pfoot{font-size:11px; color:var(--g-mute)}

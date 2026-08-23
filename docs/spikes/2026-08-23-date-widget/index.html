@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Date widget — five looks</title>
+<style>
+  /* THE SHELL ONLY.  Each variant is its own page; what they share is the rig
+     and the sheet, which is the point — the tabs differ by WHERE THE WIDGET
+     STANDS and never by what it knows.  One calendar, one grammar, one set of
+     commit/cancel laws, five placements. */
+  :root{
+    --mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --bg:#FFFFFF; --fg:#000000; --mute:#667071; --border:#E3E6EA;
+    --accent:#31769F; --surface:#F8F8FF;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --fg:#FFFFFF; --mute:#A4C2EB; --border:#2A2D3D;
+      --accent:#4CB5F5; --surface:#21252B;
+    }
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 var(--mono); display:flex; flex-direction:column;
+  }
+  header{flex:none; border-bottom:1px solid var(--border); background:var(--surface)}
+  h1{margin:0; padding:10px 20px 0; font-size:13px; font-weight:600; letter-spacing:.02em}
+  h1 small{font-weight:400; color:var(--mute); margin-left:8px}
+  nav{display:flex; flex-wrap:wrap; padding:0 20px}
+  nav a{
+    font-size:12px; color:var(--mute); text-decoration:none;
+    border-bottom:2px solid transparent; padding:10px 12px;
+  }
+  nav a:hover{color:var(--fg)}
+  nav a[aria-current="page"]{color:var(--fg); border-bottom-color:var(--accent)}
+  nav a:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  p.note{
+    margin:0; padding:8px 20px; font-size:11px; color:var(--mute);
+    border-bottom:1px solid var(--border); max-width:100ch;
+  }
+  p.note code,p.note kbd{font-size:11px}
+  iframe{flex:1 1 auto; width:100%; border:0; display:block; min-height:0}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Date widget <small>five places for org-calendar's job to stand in the doc pane</small></h1>
+    <nav id="tabs" aria-label="variants">
+      <a href="#a" data-src="a-control.html">A · control</a>
+      <a href="#b" data-src="b-month-popup.html">B · month popup</a>
+      <a href="#c" data-src="c-month-inline.html">C · month inline</a>
+      <a href="#d" data-src="d-text-first.html">D · text first ★</a>
+      <a href="#e" data-src="e-day-strip.html">E · day strip</a>
+    </nav>
+  </header>
+  <p class="note" id="note"></p>
+  <iframe id="stage" title="variant"></iframe>
+
+<script>
+(() => {
+  "use strict";
+  const NOTE = {
+    a: "The control, and it is TODAY: <kbd>C-c C-s</kbd> raises the shipped "
+     + "<code>askText</code> prompt — a title, a blind field, a foot, a veil "
+     + "over the sheet. No calendar, no walk, no weekday, no preview; the "
+     + "grammar is today's, so <code>18 aug</code> is refused AFTER the box "
+     + "has shut, with nothing left on screen to fix it in.",
+    b: "Org's month grid raised BESIDE the field, hanging where the pair box's "
+     + "offers already hang. The rows beneath keep their tops — nothing moves "
+     + "— and the rows beneath are COVERED, which is what the standing "
+     + "direction INLINE OVER POPUP is a direction away from.",
+    c: "The same grid DOCKED: a row in the document's own flow under the "
+     + "planning line, so the paragraphs are pushed down rather than hidden. "
+     + "Eight lines of sheet, the pane's own gutter bar, no box and no shadow "
+     + "— and the pane still never scrolls sideways.",
+    d: "<b>The picked look, amended:</b> the grid is gone. A field reading the "
+     + "live grammar and one mute line under it — the resolved echo, carrying "
+     + "the stamp RET would write with the weekday computed, and refusals "
+     + "spoken there rather than after the commit. Two doc lines. "
+     + "<kbd>S-←</kbd>/<kbd>S-→</kbd> a day and <kbd>S-↑</kbd>/<kbd>S-↓</kbd> "
+     + "a week survive because they adjust the VALUE; <kbd>&lt;</kbd> "
+     + "<kbd>&gt;</kbd> <kbd>.</kbd> retire with the calendar they scrolled, "
+     + "and are typed instead (<code>+1m</code>, <code>today</code>).",
+    e: "The grid unrolled: a fortnight ONE ROW TALL, the month at the edge. "
+     + "Two lines where C spends eight — the inline-friendliest, and the one "
+     + "tab where <kbd>n</kbd>/<kbd>p</kbd> walking days and "
+     + "<kbd>f</kbd>/<kbd>b</kbd> jumping weeks are the table's own reading of "
+     + "a row and its cells, unbent.",
+  };
+  const tabs = [...document.querySelectorAll("#tabs a")];
+  const stage = document.getElementById("stage");
+  const note = document.getElementById("note");
+
+  function show(key) {
+    const tab = tabs.find((t) => t.hash === "#" + key) || tabs[0];
+    for (const t of tabs) {
+      if (t === tab) t.setAttribute("aria-current", "page");
+      else t.removeAttribute("aria-current");
+    }
+    note.innerHTML = NOTE[tab.hash.slice(1)] || "";
+    const src = tab.dataset.src;
+    if (stage.getAttribute("src") !== src) stage.setAttribute("src", src);
+    stage.addEventListener("load", () => {
+      try { stage.contentWindow.focus(); } catch (e) { /* another origin */ }
+    }, { once: true });
+  }
+
+  addEventListener("hashchange", () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || "e");
+})();
+</script>
+</body>
+</html>

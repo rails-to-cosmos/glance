@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C · month inline</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* THE SAME GRID, DOCKED.  It is a ROW in the document's own flow, inserted
+     under the planning line, so the paragraphs beneath are PUSHED DOWN rather
+     than covered — the dock direction, and the session's standing one.
+
+     It carries the drawer's own gutter bar so it reads as belonging to the row
+     above rather than floating in the sheet, and it draws no box, no shadow and
+     no edge: a docked surface that framed itself would be a popup that had
+     forgotten to leave.
+
+     THE PANE NEVER SCROLLS SIDEWAYS: seven columns of 4ch plus the body indent
+     is 30ch, which fits any sheet the pane draws.  `check.mjs' reads
+     `scrollWidth' against `clientWidth' and would say so if it stopped
+     fitting. */
+  .dw-dock{
+    margin:4px 0 6px;
+    padding-left:calc(var(--g-doc-pad) + 2ch);
+    display:flex; flex-direction:column; gap:2px;
+    position:relative;
+  }
+  /* THE GUTTER BAR, in the drawer's own spine ink at the rail's own column:
+     the widget continues the block's line rather than starting a second one. */
+  .dw-dock::before{
+    content:""; position:absolute; top:0; bottom:0;
+    left:calc(var(--g-doc-pad) + 0.5ch); width:1px; border-radius:1px;
+    background:color-mix(in srgb, var(--g-accent) 45%, var(--g-bg));
+  }
+  .dw-dock .dw-head{max-width:34ch}
+  .dw-dock .dw-line{max-width:34ch}
+</style>
+</head>
+<body>
+  <h1>C · month inline
+    <small>the same grid docked under the planning line — rows pushed down, never covered</small></h1>
+  <div id="stage">
+    <div id="mdoc"></div>
+  </div>
+  <footer>
+    <span><kbd>C-c C-s</kbd>/<kbd>C-c C-d</kbd> summon ·
+      <kbd>n</kbd><kbd>p</kbd> day · <kbd>f</kbd><kbd>b</kbd> week ·
+      <kbd>&lt;</kbd><kbd>&gt;</kbd> month · <kbd>.</kbd> today ·
+      <kbd>/</kbd> types · <kbd>RET</kbd> commits · <kbd>ESC</kbd> cancels ·
+      <kbd>t</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { klass: "v-c", mount: "dock", grid: "month",
+                      field: "door", echo: true } });
+})();
+</script>
+</body>
+</html>

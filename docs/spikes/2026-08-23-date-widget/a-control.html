@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A · control</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* THE BASELINE TO ARGUE AGAINST — today, unchanged.  `C-c C-s' raises the
+     shipped `askText' prompt (`frontend/glue/30-capture.js:168' `planRows'): a
+     title, a BLIND text field, a foot, and a veil over the document it is
+     asking about.  There is no calendar, no walk, no weekday and no preview:
+     the reader types into a box that knows nothing about dates and finds out
+     what happened after the box has shut.
+
+     It is also the tab that shows what INLINE OVER POPUP is a direction AWAY
+     FROM: the sheet the date belongs to is behind the veil, dimmed, and the
+     planning line the value lands on cannot be seen while it is typed. */
+  #mdoc{opacity:1}
+  #prompt.on ~ #stage #mdoc{opacity:.55}
+  .v-a #stage{position:relative}
+  /* The veil's own dimming, the way the page washes a surface under a popup:
+     `opacity' and never a filter (`Page/Style.hs:476'). */
+  .v-a.veiled #mdoc{opacity:.55; transition:opacity .18s ease}
+</style>
+</head>
+<body>
+  <h1>A · control
+    <small>today's blind text prompt — the askText shape, raised over the sheet</small></h1>
+  <div id="stage">
+    <div id="mdoc"></div>
+  </div>
+  <footer>
+    <span><kbd>C-c C-s</kbd> schedule · <kbd>C-c C-d</kbd> deadline ·
+      <kbd>RET</kbd> sets it · <kbd>ESC</kbd> leaves ·
+      <kbd>n</kbd><kbd>p</kbd> rows · <kbd>t</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+  </footer>
+  <div id="prompt">
+    <div id="pbox" class="pop-band">
+      <div id="phead"></div>
+      <input id="pinput" spellcheck="false" autocomplete="off">
+      <div id="pfoot"></div>
+    </div>
+  </div>
+<script src="rig.js"></script>
+<script>
+(function () {
+  // A READS TODAY'S GRAMMAR AND NOTHING MORE: ISO, today/tomorrow, org's own
+  // shifts, org's own brackets (`docs/commands.md:51').  The English forms are
+  // the proposal's, and A is the tab that does not have them — which is what
+  // makes its refusal, arriving after the box has shut, the honest one.
+  RIG.mount({ look: { klass: "v-a", mount: "raise", grid: null, field: "blind",
+                      echo: false, preview: false, english: false } });
+})();
+</script>
+</body>
+</html>

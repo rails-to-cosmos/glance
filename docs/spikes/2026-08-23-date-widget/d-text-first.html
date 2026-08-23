@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D · text first</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* THE PICKED LOOK, amended twice — and now the strictest of the five.
+
+     There is no calendar, no docked row and no echo line.  The widget stands
+     IN THE VALUE'S OWN PLACE — the planning line's SCHEDULED slot, the drawer
+     pair's value half — and the resolution rides as trailing GHOST TEXT right
+     after what was typed:
+
+         SCHEDULED: 10 jan → <2026-01-10 Sat>
+                    ^^^^^^   ^^^^^^^^^^^^^^^^
+                    typed    ghost: mute, not editable, not selectable
+
+     ONE LINE, and it is a line the sheet already had.  Nothing is restated:
+     the row says the keyword, the widget says the value, and the ghost says
+     what the value will become.
+
+     THREE STATES AND NO FOURTH.  An empty field shows nothing; a term still
+     being WRITTEN shows nothing (`18 a' is a month halfway typed, not a
+     mistake); a term that RESOLVES shows `→ <stamp>' with the weekday
+     computed; a term the grammar REFUSES shows the refusal's short word in the
+     refusal's own red.  That is the dry law's complete-term reading — the
+     dot-chain spike's round 15 — read for ink instead of for keys.
+
+     THE WALK THAT SURVIVES A MISSING FRAME is org's own shifted arrows:
+     `S-<left>'/`S-<right>' a day and `S-<up>'/`S-<down>' a week, which adjust
+     THE VALUE and need no calendar to act on.  They rewrite the typed text in
+     place and the ghost follows.  `<', `>' and `.' retire WITH the calendar
+     they scrolled — in org-read-date they are calendar-frame commands — and
+     every grain they carried is already a word this field reads (`+1m', `-1m',
+     `today').  See the README's rounds 1 and 2. */
+
+  /* NO DRESS OF ITS OWN.  The field is the pane's edit field, whole — the rules
+     are in `pane.css', transcribed from `Page/Style.hs', and this variant adds
+     none of its own.  What says an edit is open is the GROUND the edit family
+     carries (`Style.hs:322'), which is also what makes the `--g-sel' text
+     selection legible inside a row already washed in `--g-sel'. */
+  /* The menu, when the reader's typing raises one, is the field's width and
+     hangs — it never reflows the sheet. */
+  .dw-slot .doffer{min-width:26ch; max-width:34ch}
+</style>
+</head>
+<body>
+  <h1>D · text first
+    <small>★ the picked look — the field in the value's own slot, the resolution riding after it as ghost</small></h1>
+  <div id="stage">
+    <div id="mdoc"></div>
+  </div>
+  <footer>
+    <span><kbd>C-c C-s</kbd>/<kbd>C-c C-d</kbd> summon · type the date ·
+      <kbd>S-←</kbd><kbd>S-→</kbd> day · <kbd>S-↑</kbd><kbd>S-↓</kbd> week ·
+      months and today are TYPED (<kbd>+1m</kbd>, <kbd>today</kbd>) ·
+      <kbd>RET</kbd> commits the resolved stamp · <kbd>ESC</kbd> cancels</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { klass: "v-d", mount: "slot", grid: null,
+                      field: "primary", ghost: true, echo: false } });
+})();
+</script>
+</body>
+</html>

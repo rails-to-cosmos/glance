@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E · day strip</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* THE GRID UNROLLED: a fortnight, ONE ROW TALL, docked under the planning
+     line with the month named at its left edge.  Two lines of vertical cost
+     where C spends eight, which is what makes it the inline-friendliest — a
+     widget the sheet can wear without the reader losing their place.
+
+     THE WALK IS LITERAL HERE, and this is the tab where the key rhyme stops
+     being an argument: the strip IS one row of cells, so `n'/`p' walking days
+     along it and `f'/`b' jumping a week are the table's own reading of a row
+     and its cells, unbent.  `<'/`>' move the month and the edge word changes
+     with them, which is the only way a fortnight can say where it is.
+
+     WHAT IT CANNOT DO: show a month.  A reader asking "which Tuesdays are free
+     in September" gets fourteen days and a word, and has to walk for the rest —
+     the honest cost of one line. */
+  .dw-dock{
+    margin:4px 0 6px;
+    padding-left:calc(var(--g-doc-pad) + 2ch);
+    display:flex; flex-direction:column; gap:1px;
+    position:relative;
+  }
+  .dw-dock::before{
+    content:""; position:absolute; top:0; bottom:0;
+    left:calc(var(--g-doc-pad) + 0.5ch); width:1px; border-radius:1px;
+    background:color-mix(in srgb, var(--g-accent) 45%, var(--g-bg));
+  }
+  /* THE WEEK BREAK IS A HAIRLINE, not a gap: the ribbon stays one run of
+     characters, and the seam says where the week turns. */
+  .dw-strip .dw-cell:nth-child(9){
+    border-left:1px solid var(--g-border); margin-left:.4ch; padding-left:.6ch;
+  }
+  .dw-line{max-width:64ch}
+  .dw-head{max-width:64ch}
+</style>
+</head>
+<body>
+  <h1>E · day strip
+    <small>a fortnight one row tall, inline — minimal vertical cost, the walk taken literally</small></h1>
+  <div id="stage">
+    <div id="mdoc"></div>
+  </div>
+  <footer>
+    <span><kbd>C-c C-s</kbd>/<kbd>C-c C-d</kbd> summon ·
+      <kbd>n</kbd><kbd>p</kbd> day · <kbd>f</kbd><kbd>b</kbd> week ·
+      <kbd>&lt;</kbd><kbd>&gt;</kbd> month · <kbd>.</kbd> today ·
+      <kbd>/</kbd> types · <kbd>RET</kbd> commits · <kbd>ESC</kbd> cancels ·
+      <kbd>t</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { klass: "v-e", mount: "dock", grid: "strip",
+                      field: "door", echo: true } });
+})();
+</script>
+</body>
+</html>

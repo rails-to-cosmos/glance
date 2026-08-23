@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · month popup</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* ORG'S CLASSIC MONTH GRID, RAISED BESIDE THE FIELD — `org-calendar' in
+     glance's inks.  It hangs where `#doffer' already hangs (`Page/Style.hs:339':
+     absolute, `top:100%', over the rows beneath), so the surface is one the
+     pane already has rather than a new kind of chrome.
+
+     ITS CLAIM: the rows under it keep their tops — nothing in the document
+     moves, so the reader's place is exactly where they left it.
+     ITS COST: the rows under it are COVERED.  On a short sheet the paragraphs
+     the date is about vanish behind the calendar, which is the same complaint
+     that made the session's standing direction INLINE OVER POPUP. */
+  .dw-float{
+    background:var(--g-bg); color:var(--g-fg);
+    border:1px solid var(--g-border); border-radius:4px;
+    box-shadow:0 4px 14px var(--g-shadow);
+    padding:4px 8px 6px; z-index:5;
+    display:flex; flex-direction:column; gap:2px;
+  }
+  /* A POPUP OWNS ITS OWN EDGE, so the head is a titled band rather than a row
+     of the document: the month reads as the widget's subject. */
+  .dw-float .dw-head{
+    border-bottom:1px solid var(--g-border); padding-bottom:2px; gap:10px;
+  }
+  .dw-float .dw-line{
+    border-bottom:1px dashed var(--g-border); padding-bottom:1px;
+  }
+  .dw-float .dw-echo{padding-top:2px}
+</style>
+</head>
+<body>
+  <h1>B · month popup
+    <small>org's month grid raised beside the field — the rows beneath keep their tops, and are covered</small></h1>
+  <div id="stage">
+    <div id="mdoc"></div>
+  </div>
+  <footer>
+    <span><kbd>C-c C-s</kbd>/<kbd>C-c C-d</kbd> summon ·
+      <kbd>n</kbd><kbd>p</kbd> day · <kbd>f</kbd><kbd>b</kbd> week ·
+      <kbd>&lt;</kbd><kbd>&gt;</kbd> month · <kbd>.</kbd> today ·
+      <kbd>/</kbd> types · <kbd>RET</kbd> commits · <kbd>ESC</kbd> cancels ·
+      <kbd>t</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+  </footer>
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { klass: "v-b", mount: "float", grid: "month",
+                      field: "door", echo: true } });
+})();
+</script>
+</body>
+</html>
