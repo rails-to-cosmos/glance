@@ -135,6 +135,17 @@ var RIG = (function () {
   var bare = function (v) { return fold(v).replace(/^\[#?|]$/g, ""); };
 
   /**
+   * THE OFFER LAW: A NAME IS OFFERED WHEN IT CASE-BLINDLY EXTENDS THE FRAGMENT.
+   * Every roster asks here — the menus, and the painter deciding whether a word
+   * is half-typed or wrong.  BOTH SIDES ARE FOLDED, so no roster is load-bearing
+   * on its own casing: one that gains a capital goes on offering rather than
+   * going silent with no error to show for it.
+   */
+  var starts = function (word, frag) {
+    return fold(word).indexOf(fold(frag)) === 0;
+  };
+
+  /**
    * THE FRAGMENT IS THE LAST TOKEN, AND ONLY WHILE IT IS STILL BEING WRITTEN:
    * a name, or a string whose closing quote has not been typed.  Read off the
    * LEXER — LX is S lexed — rather than a tail regex, which cannot tell an
@@ -429,15 +440,11 @@ var RIG = (function () {
   function columnsFor(q) {
     var toks = scan(q).filter(function (t) { return t.key === "columns" && !t.sign; });
     var names = [];
-    toks.forEach(function (t) {
-      String(t.value).split(",").forEach(function (n) { if (n.trim()) names.push(n.trim()); });
-    });
+    toks.forEach(function (t) { namesOf(t.value, names); });
     if (!names.length) return COLS.slice();
     var out = [], seen = {};
     names.forEach(function (n) {
-      var c = COLS.filter(function (c2) {
-        return fold(c2.key) === fold(n) || fold(c2.head) === fold(n);
-      })[0] || { key: "custom:" + fold(n), head: n, custom: true };
+      var c = colOf(n) || { key: "custom:" + fold(n), head: n, custom: true };
       if (seen[c.key]) return;
       seen[c.key] = 1;
       out.push(c);
@@ -554,15 +561,52 @@ var RIG = (function () {
     });
   }
 
-  /** A column NAME to its key — against the key and the header alike, which is
-   *  `columns:''s own rule and what lets the typed surface spell both in the
-   *  header the reader sees. */
+  /**
+   * A COLUMN NAME TO ITS ROW — AGAINST THE KEY AND THE HEADER ALIKE.  That is
+   * `columns:''s own rule and what lets a typed surface spell either one, so it
+   * is asked here and nowhere else; the three readers below differ only in what
+   * they take off the row.
+   *
+   * THE `tag'/`tags' ALIAS IS NOT THIS QUESTION and stays at the two edges,
+   * because it points opposite ways: the grammar's axis key is `tag' and the
+   * column's is `tags', so `colKeyOf' folds one way out and `headOf' the other
+   * way in.  A fold in here would answer both at once and be wrong for one.
+   */
+  function colOf(name) {
+    var f = fold(String(name).trim());
+    return COLS.filter(function (c) {
+      return fold(c.key) === f || fold(c.head) === f;
+    })[0] || null;
+  }
+
+  /** A column NAME to the key the flat grammar spells its axis with. */
   function colKeyOf(n) {
-    var f = fold(String(n).trim());
-    var c = COLS.filter(function (c2) {
-      return fold(c2.key) === f || fold(c2.head) === f;
-    })[0];
+    var c = colOf(n);
     return c ? (c.key === "tags" ? "tag" : c.key) : null;
+  }
+
+  /**
+   * HOW A FLAT `sort:' VALUE READS AS SEGMENTS, pushed onto OUT.  The token's
+   * own spelling — `->' between segments, `:desc' hanging off one, `*none*' for
+   * the order taken away.  Every reader asks here: F's `raw "…"' can smuggle a
+   * shaping token into the typed surface, and the escape hatch has to mean
+   * exactly what the flat string it quotes means.
+   */
+  function segsOf(value, out) {
+    String(value).split("->").forEach(function (s) {
+      if (!s) return;
+      if (fold(s) === "*none*") { out.push({ none: true }); return; }
+      var b = s.split(":");
+      out.push({ col: b[0], dir: fold(b[1] || "asc") });
+    });
+  }
+
+  /** The same, for a flat `columns:' value: comma-separated, trimmed, and the
+   *  blanks dropped. */
+  function namesOf(value, out) {
+    String(value).split(",").forEach(function (n) {
+      if (n.trim()) out.push(n.trim());
+    });
   }
 
   /** The order, as written: `default' until a sort token appears, then whole. */
@@ -598,9 +642,7 @@ var RIG = (function () {
     if (!kept.length) return { kind: "default" };
     var out = [], seen = {};
     kept.forEach(function (n) {
-      var c = COLS.filter(function (c2) {
-        return fold(c2.key) === fold(n.trim()) || fold(c2.head) === fold(n.trim());
-      })[0];
+      var c = colOf(n);
       var name = c ? c.head : fold(n.trim());
       if (seen[fold(name)]) return;
       seen[fold(name)] = 1;
@@ -657,18 +699,11 @@ var RIG = (function () {
         return { sign: t.sign, key: t.key, atoms: alts(t) };
       });
     var segs = [];
-    toks.filter(function (t) { return t.key === "sort" && !t.sign; }).forEach(function (t) {
-      String(t.value).split("->").forEach(function (s) {
-        if (!s) return;
-        if (fold(s) === "*none*") { segs.push({ none: true }); return; }
-        var b = s.split(":");
-        segs.push({ col: b[0], dir: fold(b[1] || "asc") });
-      });
-    });
+    toks.filter(function (t) { return t.key === "sort" && !t.sign; })
+      .forEach(function (t) { segsOf(t.value, segs); });
     var names = [];
-    toks.filter(function (t) { return t.key === "columns" && !t.sign; }).forEach(function (t) {
-      String(t.value).split(",").forEach(function (n) { if (n.trim()) names.push(n.trim()); });
-    });
+    toks.filter(function (t) { return t.key === "columns" && !t.sign; })
+      .forEach(function (t) { namesOf(t.value, names); });
     return irOf(terms, chainSpecOf(segs), colsSpecOf(names));
   }
 
@@ -868,12 +903,11 @@ var RIG = (function () {
 
   /** Could this still BECOME a name?  A word half-typed is not yet an error. */
   function partialName(v, fn) {
-    var f = fold(v);
     return Object.keys(CTORS)
       .concat(Object.keys(WRAPPERS).map(function (k) { return WRAPPERS[k]; }))
       .concat(Object.keys(DIRS).map(function (k) { return DIRS[k]; }))
       .concat(Object.keys(WORDS), STAGE_FIELDS[fn] || FIELDS)
-      .some(function (w) { return fold(w).indexOf(f) === 0; });
+      .some(function (w) { return starts(w, v); });
   }
 
   /** A tiny lexer: identifiers, constructors, string literals, punctuation. */
@@ -1148,16 +1182,8 @@ var RIG = (function () {
     // A `raw' fragment may carry shaping tokens; they belong to the same halves.
     var shaping = terms.filter(function (t) { return t.shaping; });
     shaping.forEach(function (t) {
-      if (t.key === "sort") {
-        String(t.atoms.join("|")).split("->").forEach(function (s) {
-          if (!s) return;
-          if (fold(s) === "*none*") { segs.push({ none: true }); return; }
-          var b = s.split(":");
-          segs.push({ col: b[0], dir: fold(b[1] || "asc") });
-        });
-      } else if (t.key === "columns") {
-        t.atoms.join("|").split(",").forEach(function (n) { if (n.trim()) names.push(n.trim()); });
-      }
+      if (t.key === "sort") segsOf(t.atoms.join("|"), segs);
+      else if (t.key === "columns") namesOf(t.atoms.join("|"), names);
     });
     return irOf(terms, chainSpecOf(segs), colsSpecOf(names));
   }
@@ -1201,8 +1227,6 @@ var RIG = (function () {
     });
     return { flat: out.concat(raws).join(" "), lost: lost, bad: got.bad };
   }
-
-  var CTOR_DIR = { asc: "", desc: "Desc " };
 
   /** F's two shaping stages, composed: its own parser, then the spelling the
    *  spec and the name list already own. */
@@ -1260,10 +1284,11 @@ var RIG = (function () {
     return items.join(", ");
   }
 
-  /** A key back to the header the reader sees: `deadline' is `"Deadline"'. */
+  /** A key back to the header the reader sees: `deadline' is `"Deadline"'.  The
+   *  axis key comes in as `tag' and the column wears `tags', so the alias is
+   *  spelled here, on the way in. */
   function headOf(key) {
-    var k = fold(key) === "tag" ? "tags" : fold(key);
-    var c = COLS.filter(function (c2) { return fold(c2.key) === k; })[0];
+    var c = colOf(fold(key) === "tag" ? "tags" : key);
     return c ? c.head : String(key);
   }
 
@@ -1307,7 +1332,6 @@ var RIG = (function () {
   // `paintLexed', `flatOfChain', `flatOfCols') sit with the grammar and the
   // normal form.  What parts the dialects is tabled once, in `DIALECT'.
 
-  var SQL_TABLE = "headlines";
   var SQL_CLAUSE = { columns: "SELECT", from: "FROM", filter: "WHERE",
                      sort: "ORDER BY" };
   var SQL_STAGE = { select: "columns", from: "from", where: "filter",
@@ -1762,6 +1786,9 @@ var RIG = (function () {
    * own answer to `tag:nosuch' and not an error the surface may invent.
    */
   var SQL_ALL = { "*": 1, all: 1, "default": 1 };
+  /** The one G WRITES when it writes the whole store — a member of the roster
+   *  above, so the statement and the parser cannot come to disagree. */
+  var SQL_WHOLE = "all";
 
   function parseSqlFrom(src) {
     return lexSql(src).filter(function (t) {
@@ -1924,7 +1951,7 @@ var RIG = (function () {
     var colTok = toks.filter(function (t) { return t.key === "columns" && !t.sign; });
     var cols = colTok.map(function (t) { return t.value; }).join(",");
     var chain = sortTok.map(function (t) { return t.value; }).join("->");
-    var out = "SELECT " + (cols ? sqlOfCols(cols) : sqlSix()) + " FROM all";
+    var out = "SELECT " + (cols ? sqlOfCols(cols) : sqlSix()) + " FROM " + SQL_WHOLE;
     if (where.length) out += " WHERE " + sqlOfFilter(where);
     if (chain) out += " ORDER BY " + sqlOfOrder(chain);
     return out;
@@ -2095,7 +2122,7 @@ var RIG = (function () {
     var after = { columns: ["FROM", "WHERE", "ORDER BY"], from: ["WHERE", "ORDER BY"],
                   filter: ["ORDER BY"], sort: [] };
     return (after[fn] || []).filter(function (k) {
-      return fold(k).indexOf(fold(frag)) === 0;
+      return starts(k, frag);
     }).map(function (k) {
       return { text: k, insert: k, clause: SQL_STAGE[fold(k)], full: true,
                aside: "the next clause" };
@@ -2114,7 +2141,7 @@ var RIG = (function () {
    */
   function sqlOpOffers(key, frag, lead) {
     if (!key) return [];
-    var out = [], want = function (t) { return fold(t).indexOf(fold(frag)) === 0; };
+    var out = [], want = function (t) { return starts(t, frag); };
     var add = function (text, insert, back, aside) {
       if (want(text))
         out.push({ text: text, insert: (lead === undefined ? " " : lead) + insert,
@@ -2146,7 +2173,7 @@ var RIG = (function () {
   function sqlValueOffers(key, frag, closes) {
     var bare2 = frag.replace(/^'/, "");
     var out = Object.keys(CTORS).filter(function (c) {
-      return CTORS[c].on.indexOf(key) >= 0 && fold(c).indexOf(fold(bare2)) === 0
+      return CTORS[c].on.indexOf(key) >= 0 && starts(c, bare2)
         && fold(c) !== "empty";
     }).map(function (c) {
       return { text: fold(c).toUpperCase(), insert: fold(c).toUpperCase(),
@@ -2155,7 +2182,7 @@ var RIG = (function () {
                n: counted(function (r) { return atom(key, CTORS[c].meta, r); }) };
     });
     if (DATE_KEYS[key]) {
-      if ("current_date".indexOf(fold(bare2)) === 0) {
+      if (starts("current_date", bare2)) {
         out.push({ text: "CURRENT_DATE", insert: "CURRENT_DATE", full: true,
                    dim: true, eats: closes, aside: "today · " + TODAY });
         out.push({ text: "CURRENT_DATE + INTERVAL '30' DAY",
@@ -2188,13 +2215,13 @@ var RIG = (function () {
         });
       });
       var from = tags.filter(function (n) {
-        return fold(n).indexOf(fold(w.frag)) === 0;
+        return starts(n, w.frag);
       }).map(function (n) {
         return { text: n, insert: n, full: true, aside: "dataset · tag:" + n,
                  n: counted(function (r) { return atom("tag", n, r); }) };
       });
       Object.keys(SQL_ALL).forEach(function (a) {
-        if (fold(a).indexOf(fold(w.frag)) === 0)
+        if (starts(a, w.frag))
           from.push({ text: a, insert: a, full: true, dim: true,
                       aside: "the whole store — composes nothing" });
       });
@@ -2204,7 +2231,7 @@ var RIG = (function () {
     if (fn === "columns") {
       var named = parseSqlCols(String(args)).map(fold);
       var cols = COLS.filter(function (c) {
-        return fold(c.key).indexOf(fold(w.frag)) === 0
+        return starts(c.key, w.frag)
           && (named.indexOf(fold(c.key)) < 0 || fold(c.key) === fold(w.frag));
       }).map(function (c) {
         return { text: sqlIdent(c.key), insert: sqlIdent(c.key), full: true,
@@ -2214,13 +2241,13 @@ var RIG = (function () {
       // property drawer.  The rig's list stands in for the `/properties' door;
       // a name it does not know is still a column, and still composes.
       ["closed"].concat(PROPS).forEach(function (p) {
-        if (fold(p).indexOf(fold(w.frag)) !== 0) return;
+        if (!starts(p, w.frag)) return;
         if (named.indexOf(fold(p)) >= 0 && fold(p) !== fold(w.frag)) return;
         cols.push({ text: p, insert: p, full: true, dim: true,
                     aside: p === "closed" ? "custom · the planning stamp"
                                           : "custom · the property drawer" });
       });
-      if ("*".indexOf(w.frag) === 0 && !String(args).trim())
+      if (starts("*", w.frag) && !String(args).trim())
         cols.unshift({ text: "*", insert: "*", full: true, dim: true,
                        aside: "the seven — the six and closed" });
       return { items: cols.concat(sqlNextClauses(fn, w.frag)), stage: "sql-select",
@@ -2229,17 +2256,17 @@ var RIG = (function () {
     if (fn === "sort") {
       var used = parseSqlOrder(String(args)).map(function (g) { return fold(g.col); });
       var out = SORTABLE.filter(function (c) {
-        return c.indexOf(fold(w.frag)) === 0
+        return starts(c, w.frag)
           && (used.indexOf(c) < 0 || c === fold(w.frag));
       }).map(function (c) {
         return { text: c, insert: c, full: true, aside: "A→Z, empties last" };
       });
       ["ASC", "DESC"].forEach(function (d) {
-        if (fold(d).indexOf(fold(w.frag)) === 0 && String(args).trim())
+        if (starts(d, w.frag) && String(args).trim())
           out.push({ text: d, insert: d, full: true,
                      aside: d === "DESC" ? "Z→A, empties last" : "A→Z, and never emitted" });
       });
-      if ("null".indexOf(fold(w.frag)) === 0 && !String(args).trim())
+      if (starts("null", w.frag) && !String(args).trim())
         out.push({ text: "NULL", insert: "NULL", full: true, dim: true,
                    aside: "document order" });
       return { items: out, stage: "sql-order", where: w };
@@ -2262,18 +2289,18 @@ var RIG = (function () {
                          aside: "and also — any column" },
                        { text: "OR", insert: "OR ", more: true,
                          aside: "or — THIS column only" }]
-        .filter(function (o) { return fold(o.text).indexOf(fold(w.frag)) === 0; })
+        .filter(function (o) { return starts(o.text, w.frag); })
         .concat(sqlNextClauses(fn, w.frag)), stage: "sql-join", where: w };
     // THE COLUMN COMES WITHOUT ITS OPERATOR, where F's field came with its `='.
     // Record syntax has ONE operator and SQL has ten, so the choice is the
     // reader's and the surface owes them the list: taking a column finishes no
     // term, and that position's own offers stand at once.
     var keys = NARROW_KEYS.filter(function (k) {
-      return k.indexOf(fold(w.frag)) === 0;
+      return starts(k, w.frag);
     }).map(function (k) {
       return { text: k, insert: k, more: true, aside: ASIDE[k] || "" };
     });
-    if ("not".indexOf(fold(w.frag)) === 0)
+    if (starts("not", w.frag))
       keys.push({ text: "NOT ( … )", insert: "NOT ()", back: 1,
                   aside: "negate what is inside" });
     return { items: keys.concat(sqlNextClauses(fn, w.frag)), stage: "sql-col",
@@ -2345,14 +2372,14 @@ var RIG = (function () {
       else if (isKeyword(t.v) || SQL_UNIT[w]) cls = "cx-sqlkw";
       else if (fn === "columns") cls = "cx-col";
       else if (fn === "sort") cls = sortName(t.v) ? "cx-kw"
-        : SORTABLE.some(function (c) { return c.indexOf(w) === 0; })
+        : SORTABLE.some(function (c) { return starts(c, w); })
           ? "cx-partial-name" : "cx-bad";
       // THE DATASET NAMESPACE IS OPEN — the tags are the tree's — so nothing
       // here can be wrong; the three aliases wear the language's ink and every
       // other name wears a column's.
       else if (fn === "from") cls = SQL_ALL[w] ? "cx-ctor" : "cx-col";
       else cls = sqlKeyOf(t.v) ? "cx-kw"
-        : NARROW_KEYS.concat(SQL_KEYWORDS).some(function (k) { return k.indexOf(w) === 0; })
+        : NARROW_KEYS.concat(SQL_KEYWORDS).some(function (k) { return starts(k, w); })
           ? "cx-partial-name" : "cx-bad";
       // THE REFUSED FRAGMENT WEARS THE REFUSAL: the `OR' that has no flat
       // spelling is the word the reader has to take back, so it is the word
@@ -2411,7 +2438,7 @@ var RIG = (function () {
     var sign = /^[-+]/.test(frag) ? frag.charAt(0) : "";
     var body = sign ? frag.slice(1) : frag;
     var keys = NARROW_KEYS.concat(whole ? SHAPING_KEYS : []);
-    var out = keys.filter(function (k) { return k.indexOf(fold(body)) === 0; })
+    var out = keys.filter(function (k) { return starts(k, body); })
       .map(function (k) {
         return { text: sign + k + ":", insert: sign + k + ":",
                  aside: ASIDE[k] || "" };
@@ -2449,7 +2476,7 @@ var RIG = (function () {
       out.push(v);
     });
     (METAS[key] || []).forEach(function (m) { out.push(m); });
-    return out.filter(function (v) { return fold(v).indexOf(fold(val)) === 0; })
+    return out.filter(function (v) { return starts(v, val); })
       .map(function (v) {
         return { text: sign + key + ":" + v, insert: sign + key + ":" + v,
                  full: true, dim: /^\*.*\*$/.test(v),
@@ -2563,7 +2590,7 @@ var RIG = (function () {
       return out;
     };
     if (dirBits.length > 1) {
-      var dirs = ["asc", "desc"].filter(function (d) { return d.indexOf(fold(dirBits[1])) === 0; })
+      var dirs = ["asc", "desc"].filter(function (d) { return starts(d, dirBits[1]); })
         .map(function (d) {
           return { text: join(dirBits[0] + ":" + d), insert: join(dirBits[0] + ":" + d),
                    full: true, aside: d === "desc" ? "Z→A, empties last" : "A→Z, empties last" };
@@ -2579,11 +2606,11 @@ var RIG = (function () {
         { text: join(last + ":desc"), insert: join(last + ":desc"), full: true, aside: "Z→A, empties last" },
       ]);
     }
-    var out = SORTABLE.filter(function (c) { return c.indexOf(fold(last)) === 0; })
+    var out = SORTABLE.filter(function (c) { return starts(c, last); })
       .map(function (c) {
         return { text: join(c), insert: join(c), full: true, aside: "column" };
       });
-    if ("*none*".indexOf(fold(last)) === 0 || last === "*")
+    if (starts("*none*", last) || last === "*")
       out.push({ text: join("*none*"), insert: join("*none*"), full: true,
                  dim: true, aside: "document order" });
     return out;
@@ -2605,7 +2632,7 @@ var RIG = (function () {
       return [{ text: lead + head + last + ",", insert: lead + head + last + ",",
                 aside: "and …" }];
     var out = COLS.filter(function (c) {
-      return named.indexOf(fold(c.head)) < 0 && fold(c.head).indexOf(fold(last)) === 0;
+      return named.indexOf(fold(c.head)) < 0 && starts(c.head, last);
     }).map(function (c) {
       return { text: join(c.head), insert: join(c.head), full: true, aside: "builtin" };
     });
@@ -2681,7 +2708,7 @@ var RIG = (function () {
   function dslValueOffers(field, frag, closes) {
     var bare = frag.replace(/^"/, "");
     var out = Object.keys(CTORS).filter(function (c) {
-      return CTORS[c].on.indexOf(field) >= 0 && fold(c).indexOf(fold(bare)) === 0;
+      return CTORS[c].on.indexOf(field) >= 0 && starts(c, bare);
     }).map(function (c) {
       return { text: c, insert: c, full: true, dim: true, eats: closes,
                aside: "meta · " + CTORS[c].meta,
@@ -2709,15 +2736,15 @@ var RIG = (function () {
       return { items: dslValueOffers(w.field, w.frag, closes), stage: "dsl-value", where: w };
     // THE KEY AND ITS EQUALS COME WITH AN OPENED SLOT: `state = "|"', so the
     // reader types the value and never the punctuation around it.
-    var out = FIELDS.filter(function (k) { return k.indexOf(fold(w.frag)) === 0; })
+    var out = FIELDS.filter(function (k) { return starts(k, w.frag); })
       .map(function (k) {
         return { text: k + ' = "…"', insert: k + ' = ""', back: 1,
                  aside: ASIDE[k] || "" };
       });
-    if ("not".indexOf(fold(w.frag)) === 0)
+    if (starts("not", w.frag))
       out.push({ text: "not ( … )", insert: "not ()", back: 1,
                  aside: "negate what is inside" });
-    if ("raw".indexOf(fold(w.frag)) === 0)
+    if (starts("raw", w.frag))
       out.push({ text: 'raw " … "', insert: 'raw ""', back: 1, dim: true,
                  aside: "the flat string, verbatim" });
     return { items: out, stage: "dsl-field", where: w };
@@ -2738,7 +2765,7 @@ var RIG = (function () {
       var bare = w.frag.replace(/^"/, "").split(":")[0];
       var out = [];
       COLS.forEach(function (c) {
-        if (fold(c.head).indexOf(fold(bare)) !== 0) return;
+        if (!starts(c.head, bare)) return;
         if (SORTABLE.indexOf(colKeyOf(c.head)) < 0) return;
         out.push({ text: JSON.stringify(c.head), insert: JSON.stringify(c.head),
                    full: true, eats: closes, aside: "A→Z, empties last" });
@@ -2749,10 +2776,10 @@ var RIG = (function () {
       return { items: out, stage: "dsl-sort", where: w };
     }
     var top = [];
-    if ("columns".indexOf(fold(w.frag)) === 0)
+    if (starts("columns", w.frag))
       top.push({ text: 'columns = [ "…" ]', insert: 'columns = [""]', back: 2,
                  aside: "the chain, in written order" });
-    if ("none".indexOf(fold(w.frag)) === 0)
+    if (starts("none", w.frag))
       top.push({ text: "None", insert: "None", full: true, dim: true,
                  aside: "document order" });
     return { items: top, stage: "dsl-sort", where: w };
@@ -2766,7 +2793,7 @@ var RIG = (function () {
     var named = lexDsl(String(args)).filter(function (t) { return t.t === "str"; })
       .map(function (t) { return fold(t.v); });
     var out = COLS.filter(function (c) {
-      return fold(c.head).indexOf(fold(bare)) === 0
+      return starts(c.head, bare)
         && (named.indexOf(fold(c.head)) < 0 || fold(c.head) === fold(bare));
     }).map(function (c) {
       return { text: JSON.stringify(c.head), insert: JSON.stringify(c.head),
@@ -2816,6 +2843,35 @@ var RIG = (function () {
     if (!M.open) return;
     M.at = (M.at + d + M.items.length) % M.items.length;
     drawMenu();
+  }
+
+  /**
+   * THE DROPDOWN ANSWERS KEYS ONE WAY, AT BOTH DOORS.  Five keys are the open
+   * menu's while it stands: the arrows walk it, `ESC' shuts it, and the rest are
+   * an ACCEPT — which closes the menu only when a FULL item was taken with RET,
+   * a half-written term leaving the offers up for what comes next.
+   *
+   * WHAT PARTS THE TWO DOORS is passed in and nothing else: ACCEPT, and whether
+   * `ESC' is the menu's to answer at all — ESCAPES is false in the typed surface,
+   * where the offers stand over a position rather than being asked for, so the
+   * key falls through to the cancel and takes them with the edit.
+   *
+   * Answers "" when the key was not the menu's, "walked" when the menu answered
+   * it, "took" when an item was accepted.
+   */
+  function menuKey(e, accept, escapes) {
+    var k = e.key;
+    if (!M.open || (k === "Escape" && !escapes)) return "";
+    if (k !== "ArrowDown" && k !== "ArrowUp" && k !== "Tab" && k !== "Enter"
+        && k !== "Escape") return "";
+    e.preventDefault(); e.stopPropagation();
+    if (k === "ArrowDown") { moveMenu(1); return "walked"; }
+    if (k === "ArrowUp") { moveMenu(-1); return "walked"; }
+    if (k === "Escape") { closeMenu(); return "walked"; }
+    var taken = M.items[M.at];
+    accept(taken);
+    if (k === "Enter" && taken.full) closeMenu();
+    return "took";
   }
 
   // ------------------------------------------------- door one: the flat box
@@ -2893,17 +2949,9 @@ var RIG = (function () {
   function boxKeys(e) {
     var k = e.key;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
-    if (M.open && (k === "ArrowDown" || k === "ArrowUp" || k === "Tab"
-                   || k === "Enter" || k === "Escape")) {
-      e.preventDefault(); e.stopPropagation();
-      if (k === "ArrowDown") return moveMenu(1);
-      if (k === "ArrowUp") return moveMenu(-1);
-      if (k === "Escape") return closeMenu();
-      var taken = M.items[M.at];
-      boxAccept(taken);
-      if (k === "Enter" && taken.full) closeMenu();
-      return;
-    }
+    // THE MENU IS THE TOP RUNG OF THE FLAT DOOR'S LADDER, `ESC' included: the
+    // offers were asked for here, so the key that shuts them is theirs first.
+    if (menuKey(e, boxAccept, true)) return;
     if (k === "Backspace" && !el.input.value) {
       // DEAD over a summoned box: the chips are on the page behind it.
       e.preventDefault(); e.stopPropagation();
@@ -3089,7 +3137,7 @@ var RIG = (function () {
     if (!st) { closeMenu(); return; }
     if (CX.where === "fn") {
       showMenu(D().calls.filter(function (o) {
-        return fold(o.text).indexOf(fold(CX.buf)) === 0;
+        return starts(o.text, CX.buf);
       }), D().callStage);
       return;
     }
@@ -3393,17 +3441,9 @@ var RIG = (function () {
     // incidental to the input — they stand over a position rather than being
     // asked for — so the key falls through to the cancel below and takes them
     // with the edit.  D keeps the menu on the top rung of its own ladder.
-    if (M.open && !(D().typed && k === "Escape")
-        && (k === "ArrowDown" || k === "ArrowUp" || k === "Tab"
-            || k === "Enter" || k === "Escape")) {
-      e.preventDefault(); e.stopPropagation();
-      if (k === "ArrowDown") return moveMenu(1);
-      if (k === "ArrowUp") return moveMenu(-1);
-      if (k === "Escape") return closeMenu();
-      var taken = M.items[M.at];
-      cxAccept(taken);
-      if (k === "Enter" && taken.full) closeMenu();
-      paint();
+    var answered = menuKey(e, cxAccept, !D().typed);
+    if (answered) {
+      if (answered === "took") paint();
       return;
     }
     if (k !== "Escape" && k !== "Enter" && k !== "Tab" && k !== "Backspace"
@@ -3729,7 +3769,7 @@ var RIG = (function () {
         // A SORT SEGMENT NAMES ONE OF THE SIX; `.columns(…)' takes any name at
         // all, a custom column being whatever the drawer holds.
         ? (fn !== "sort" || sortName(t.v) ? "cx-str"
-           : COLS.some(function (c) { return fold(c.head).indexOf(fold(t.v)) === 0; })
+           : COLS.some(function (c) { return starts(c.head, t.v); })
              ? "cx-partial-name" : "cx-bad")
         : t.t === "op" ? (t.v === "/=" ? "cx-neg" : "cx-eq")
         : t.t === "punc" ? "cx-punc"
@@ -3978,7 +4018,7 @@ var RIG = (function () {
       if (st.fn && String(st.args).trim()) said[st.fn] = String(st.args).trim();
     });
     var out = "SELECT " + (said.columns || sqlSix())
-      + " FROM " + (said.from || "all");
+      + " FROM " + (said.from || SQL_WHOLE);
     if (said.filter) out += " WHERE " + said.filter;
     if (said.sort) out += " ORDER BY " + said.sort;
     return out;
@@ -4432,9 +4472,11 @@ var RIG = (function () {
      *  because one changes the compose and the other does not. */
     sqlErrors: function (fn, args) {
       if (fn === "filter") return parseSqlWhere(String(args)).bad;
-      if (fn === "from") return parseSqlFrom(String(args))
-        .filter(function (t) { return t.unknown; })
-        .map(function (t) { return t.name + " is not a table"; });
+      // THE DATASET NAMESPACE IS OPEN, so `FROM' can name nothing wrong: a tag
+      // no row wears composes and serves nothing, which is the flat grammar's
+      // own answer and not an error the surface may invent.  The `0' the SHAPE
+      // rung asks for is this law and not a missing field.
+      if (fn === "from") return [];
       if (fn !== "sort") return [];
       return parseSqlOrder(String(args)).filter(function (g) { return g.unknown; })
         .map(function (g) { return g.col + " is not a column the chain can carry"; });

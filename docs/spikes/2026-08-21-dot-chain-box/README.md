@@ -459,10 +459,13 @@ produced and the check now holds:
 
 1. **D over B/C/E.** The chain belongs where the chips already are: one badge per
    call rather than one chip per token, and the box holding only the live stage.
+   (Rounds 5-6 pick F, on D's machinery unchanged, and the head of this file
+   says so.)
 2. **The comma joins the space as the argument separator.** A call's arguments
    are separated by commas everywhere else. Per stage the comma composes to that
    stage's own flat separator — a space in `filter`, the arrow in `sort`, itself
-   in `columns`.
+   in `columns`. (Round 12 makes the comma the GESTURE's own; round 17 makes
+   G's separator `AND`.)
 3. **The accept went dry and final.** Taking a completion inside the parens
    inserts exactly what it says — no trailing space — closes the offers, and
    does not reopen them; the next keystroke is what asks again. (Round 11 finds
@@ -478,7 +481,9 @@ produced and the check now holds:
    quotes, so the reader types the value and never the punctuation. The offers
    over that slot still lead with the constructors, and **accepting one swallows
    the quotes** (`state = Active`) where accepting a literal keeps them: a
-   constructor is no string. Both stay dry.
+   constructor is no string. Both stay dry. (Round 17 splits it in G: the COLUMN
+   accept opens no slot and the OPERATOR does, and the slot SPENDS its opening
+   quote.)
 8. **The stages gained signatures, and the columns went quoted.** `.sort(…)`
    takes a `columns` kwarg whose list is the chain; `.columns(…)` takes
    positional names; and every column name in both is a QUOTED STRING, because
@@ -634,6 +639,32 @@ produced and the check now holds:
    wide interval where the two readings agree; the two refusals spoken in prose
    and never driven; the empty cell per key, where `planned` names two; and a
    departed door that quietly comes back.
+
+19. **The rosters stopped carrying the law.** Round 18 gave the dialects one
+   table; this round finishes the same sweep over the laws no dialect owns.
+   *A name is offered when it case-blindly EXTENDS the fragment* was spelled
+   thirty-four times in two shapes — half of them folding only the fragment,
+   correct by the accident of every roster being lowercase, so a roster that
+   gained a capital would have gone silent with nothing to show for it. It is
+   `starts` now, and every menu and the painter's half-typed test ask there.
+   With it: the menu's key contract, which the two doors had written out twice
+   (`menuKey`, taking the accept and whether `ESC` is the menu's to answer);
+   the key-and-header resolution, which had four spellings and now has one
+   (`colOf`, with the `tag`/`tags` alias left at the two edges because it points
+   opposite ways); and the flat `sort:`/`columns:` readers, whose second copy
+   existed only so `raw "…"` could smuggle a shaping token into F — the one path
+   where a divergence would make the escape hatch mean something other than the
+   string it quotes (`segsOf`, `namesOf`). Two constants left over from rounds
+   the spelling had moved on from went, and the `FROM` clause's error branch —
+   filtering on a field nothing sets, so it could only ever answer `[]` — became
+   the law it was standing in for: the dataset namespace is OPEN and an unworn
+   tag is not an error the surface may invent. **And the check split the two
+   things it had been saying at once:** what the API answers without a keystroke
+   is the rig's law and not a tab's, so the three dialect law tables are asked
+   ONCE PER DIALECT in a LAW pass and the rungs inside the loop keep the
+   keystrokes. The flat table had been evaluated identically on five tabs. No
+   variant departs any of it, no rung left the roster, and a red line now names
+   which half moved.
 
 Rounds 4 and 5 cost the spike its own control. `/` was identical in all tabs on
 purpose, and `check.mjs` asserted it; D's, F's and G's departure is now DECLARED
@@ -845,12 +876,24 @@ node shots.mjs                     # the seven PNGs
 node shots.mjs g-sql.html          # one, when only that moment moved
 ```
 
+Three **LAW** lines come first, and they belong to no tab. What the API answers
+without a keystroke is the RIG's law and not a variant's — `stageString` reads
+the `DIALECT` table and nothing else — so each dialect's table is asked once:
+**LAW-FLAT**, the flat dialect's twelve compose-equalities and the warning's own
+law over flat queries; **LAW-DSL**, the typed dialect's twenty-one and F's case
+law; **LAW-SQL**, `AND`'s forty-four, covering every mapping in the table above,
+and G's. The rungs below keep the KEYSTROKES, which are each tab's own, so a red
+`LAW-*` says the rig's law moved where a red COMMA says this tab's keys did. The
+flat table had been asked on five tabs where it takes the same branch; running
+one tab still runs that tab's dialect's law and no other.
+
 Every variant: **BOOT**, **DOT** (`.` spawns one dot and offers exactly
 `filter`/`sort`/`columns`), **PARENS** (the taken call opens them and the caret
 lands INSIDE them — in DOM order and on the screen), **CHAIN** (a scripted
 sequence composes exactly `state:TODO sort:deadline` and `RET` applies it: two
-rows, deadline order, empties last), **COMMA** (a dozen compose-equalities in the
-flat dialect, twenty-one in the typed one), **DRY** (an accept lands bare with
+rows, deadline order, empties last), **COMMA** (one drive through the tab's own
+separator, composing `state:TODO tag:web sort:state->title`, since a law nothing
+types is a law about nothing), **DRY** (an accept lands bare with
 the offers closed, and the next keystroke wakes them), **ESC** (the ladder in
 the dialect that owns it: three rungs in the flat door and in D — the offers,
 what is half-written, the box, the strip untouched — and exactly ONE in F and G,
@@ -858,8 +901,8 @@ where the same press takes all three), **SETTLED**.
 G swaps DOT and PARENS too, for **KEYWORD** (`.` spawns no dot at all and offers
 exactly `SELECT`/`FROM`/`WHERE`/`ORDER BY`) and **HEAD** (the taken clause draws
 its keyword and the caret lands after it, in DOM order and on the screen, with
-no paren anywhere) — and its COMMA rung is `AND`'s, forty-odd compose-equalities
-covering every mapping in the table above.
+no paren anywhere) — and its COMMA rung drives `AND` where the others drive a
+comma, the forty-four spellings behind it being LAW-SQL's.
 Tabs with a flat door also owe **SLASH** (the narrowed door still refuses
 `sort:title` in the shell's own sentence). **SIG** is captured in EVERY tab,
 because a departure owes the same symmetry a declared miss does: the four that
@@ -923,8 +966,9 @@ F owes nine more:
   `tag: "chore" is both required and refused — no row can carry that`, composes
   all four tokens and APPLIES them, empty table and all, with the badge marked
   afterwards; the near miss (`All ["docs"]` alone) stays quiet through the same
-  drive. Then the law itself over flat queries: the single-valued rule fires on
-  the `All`-spelled `state:TODO state:DONE` and stays quiet on two tags, on a
+  drive. The law itself belongs to no dialect — `unsat` reads flat queries and G
+  inherits it whole — so it is asked in LAW-FLAT: the single-valued rule fires
+  on the `All`-spelled `state:TODO state:DONE` and stays quiet on two tags, on a
   meta pair, on a nested prefix, on two titles, on an alternation with a
   survivor on either side of the sign, and on a widened axis.
 - **QUOTED** — the shaping signatures. `.columns(` spawns its positional slot
@@ -937,8 +981,9 @@ F owes nine more:
   document order.
 - **CASE** — `NOT (TAG = "chore")` typed in any case stands as
   `not (tag = "chore")` once the stage closes and composes `-tag:chore`; a
-  half-typed `sta` is not yet marked; `startzz` is; and `state = chore` marks,
-  composes nothing, and is left exactly as written.
+  half-typed `sta` is not yet marked; `startzz` is. That a bare name nothing
+  answers to is left exactly as written, marked, and composes nothing takes no
+  keystrokes to ask, so it is LAW-DSL's.
 - **IR** — the corpus. Thirty-two paired spellings (flat against typed) must
   print the same bytes; seven flat queries rendered INTO the surface and read
   back must too — the `/`-edit's own path, `raw "…"` included; and six pairs
@@ -1004,10 +1049,11 @@ inherits differently or states alone:
   waiting for an operator), one step short of `ARCHIVE` is still being written,
   and the CONNECTIVE is a word — so a trailing space finishes nothing and the
   offers wake when the reader starts writing `AND`.
-- **CASE** — SQL's own convention as the spike's case law: keywords, columns and
-  the enum roster in any case, the canonical spelling standing afterwards. In
-  `SELECT` alone the spelling is left as typed, because for a custom column the
-  spelling IS the header.
+- **CASE** — SQL's own convention as the spike's case law: `not (TAG = chore'`
+  typed in any case stands as `NOT (tag = 'chore')` and composes `-tag:chore`.
+  What the canonical spelling IS — keywords and the enum roster upper, the
+  columns it knows lower, and `SELECT` left as typed, because for a custom
+  column the spelling is the header — is LAW-SQL's, needing no keystrokes.
 - **FRAGMENT** — the central law, both ways. The cross-axis `OR` refused by name
   with the word marked and nothing composed; ten refusals each with their own
   sentence and the empty query's own IR; five shapes that DO compose, including

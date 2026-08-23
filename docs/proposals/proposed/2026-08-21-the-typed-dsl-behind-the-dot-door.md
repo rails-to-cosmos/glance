@@ -174,7 +174,7 @@ character here ([L1](#l1--lexical-structure)).
 
 **Every slot opens quoted, positional slots included.** The spike's round 7 opens
 `state = "|"` on the equals so the reader types the value and never the
-punctuation (spike README:224-229); the amendment generalizes it. In a stage
+punctuation (spike README:479-486); the amendment generalizes it. In a stage
 whose argument position takes a STRING — `.columns(`'s every slot, the elements
 of `.sort(…)`'s list, `.filter(…)`'s free-text position — `(` and `,` land the
 caret inside a fresh `"|"` the same way. The offers over such a slot lead with
@@ -271,7 +271,7 @@ characters. The surface has no sign, which is the whole point of a typed one.
 
 **`.` is unambiguous here, and that is a gain the typed surface buys.** The
 spike's plain-text variants had to answer "a dot inside the parens has to TYPE"
-(spike README:407-410); in F every argument position is a word, a punct or a
+(spike README:742-745); in F every argument position is a word, a punct or a
 delimited literal, so a `.` can only occur inside a literal. The chain operator
 and the character are lexically apart.
 
@@ -429,9 +429,9 @@ and be missing from the pane.
 | `Asc` | constructor | `Str → Seg` | a `.sort(…)` chain element | the bare key, no suffix | `Sort.hs`:15-16 (`directions`); `docs/query.md`:346-347 |
 | `Desc` | constructor | `Str → Seg` | a `.sort(…)` chain element | `KEY:desc` | `Sort.hs`:15-16; `docs/query.md`:346-347 |
 | `Any` | constructor | `[τ] → Value` | filter value | `v₁\|v₂` | `docs/query.md`:183-185 |
-| `All` | constructor | `[τ] → Value` | filter value | repeated tokens, `k:v₁ k:v₂` | `docs/query.md`:420-422; spike README:381-387 |
+| `All` | constructor | `[τ] → Value` | filter value | repeated tokens, `k:v₁ k:v₂` | `docs/query.md`:420-422; spike README:716-722 |
 | `not` | function | `Binding → Binding` | filter kwarg, wrapping | flips the token's sign | `docs/query.md`:186-188 |
-| `raw` | function | `RawStr → Positional` | filter positional | the string verbatim | §4; spike README:164-165, :372-380 |
+| `raw` | function | `RawStr → Positional` | filter positional | the string verbatim | §4; spike README:178-179, :707-715 |
 | `filter` | stage function | `(*Str, **Binding) → Stage` | the call position | narrowing tokens, space-joined | `docs/query.md`:13-35 |
 | `sort` | stage function | `(columns : Chain) → Stage` | the call position | `sort:…->…` | `docs/query.md`:337-359 |
 | `columns` | stage function | `(*Str) → Stage` | the call position; also `.sort(…)`'s kwarg NAME | `columns:…` | `docs/query.md`:361-378 |
@@ -624,7 +624,7 @@ each grounded in the flat grammar's own pinned behavior:
 
 | `g ∘ f` | equals | grounded in |
 | --- | --- | --- |
-| `filter p ∘ filter q` | `filter (p ∧ q)` | appending a filter can only intersect ([additive-filters](../done/2026-08-20-additive-filters.md):178-180); the spike's "the chain is honest for `filter`" (README:411) |
+| `filter p ∘ filter q` | `filter (p ∧ q)` | appending a filter can only intersect ([additive-filters](../done/2026-08-20-additive-filters.md):178-180); the spike's "the chain is honest for `filter`" (README:746) |
 | `sort b ∘ sort a` | `sort (a ⧺ b)`, a repeated column keeping its FIRST spelling, direction included | `docs/query.md`:343-345 — `->` is sugar for writing several `sort:` tokens, written order is the chain's order |
 | `columns y ∘ columns x` | `columns (x ⧺ y)`, a repeated name keeping its first spelling, case-folded | `docs/query.md`:367-368; `Columns.hs`:18-19 — the tokens' names `concat` and `firstBy` dedupes |
 | `sort None` beside any ordering companion | REFUSED, either order | `*none*` "is the whole order and stands alone" (`docs/query.md`:351-352) — the one element that is no monoid member |
@@ -637,7 +637,7 @@ property the IR's sort-and-dedupe quotients by, and T7 is it said for one stage.
 
 **The badge is the composed function.** The spike folded the shaping stages so
 the strip never shows two of either, and called it a display rule
-(README:414-415, :667). Under this table it is the algebra's normal form drawn:
+(README:749-750, :1189). Under this table it is the algebra's normal form drawn:
 one badge per kind IS the composed element of that kind's monoid.
 `.sort(a).sort(b)` shows one order badge because `sort b ∘ sort a` IS one order,
 and the fold is arithmetic rather than tidying.
@@ -821,7 +821,7 @@ the order/idempotence pairs go red; conjoin the widening instead of disjoining
 it and law 5's agreement pair goes red; let `All` flatten and the intersection
 pairs go red; stop `raw` reaching the flat reader and the escape-hatch pairs go
 red; stop a constructor normalising to its meta and every meta pair goes red.
-All five were run (spike README:574-586).
+All five were run (spike README:990-1002).
 
 ### L6 — Diagnostics
 
@@ -1300,7 +1300,7 @@ bound at `Keymap.hs`:62 and :65. The renderer's `narrowing` flag is the
 SESSION's and clears with the box (`assets/table-view.js`:3184, :3225-3232).
 
 The spike's D and F make `/` the filter STAGE's edit key, and declared the
-departure rather than dropping it (`check.mjs`'s `DEPARTS`, spike README:337-340).
+departure rather than dropping it (`check.mjs`'s `DEPARTS`, spike README:669-675).
 The tension with the shipped behavior is real and small: today `/` opens a
 narrowed TEXT box; under the chain it opens the `.filter(…)` STAGE. Both edit
 the filter half of one query and leave the standing shape alone. So:
@@ -1380,7 +1380,7 @@ So `raw` earns its place as a renderer:
 - No completion ever **offers** `raw`. A reader who types it gets it; the
   vocabulary does not teach it.
 
-The honest cost is the spike's own open question (README:662-664): `raw` is an
+The honest cost is the spike's own open question (README:1184-1186): `raw` is an
 admission that the pretty language has a hole shaped exactly like the one
 feature the last proposal added. It is honest and it is total, and the
 alternative — refusing to open a query the surface cannot say — is worse for the
@@ -1403,7 +1403,7 @@ spelling exists.** Typed as `ANY`, `ALL` and `NOT` in
 3. **`All` spreads over ELEMENTS, never over atoms.**
    `All ["web", ["glance", "docs"]]` is two tokens and keeps the inner
    alternation: `tag:web tag:glance|docs`. The spike's round-trip rung caught
-   the flattening reading and it is now pinned (README:381-387).
+   the flattening reading and it is now pinned (README:716-722).
 4. **`not (…)` cannot carry an intersection.** `not (tag = All ["web","glance"])`
    is ¬(a ∧ b) = ¬a ∨ ¬b, and no conjunction of negated tokens says that. The
    surface names the refusal rather than composing something else.
@@ -1420,7 +1420,7 @@ operator, and `All`'s case is two bindings under `=`.
 existing ladder is unchanged.**
 
 The spike reads `DEL` as double-booked: "the stage eraser and the crumb pop want
-the same key in the same state. One of them has to move" (README:471-473),
+the same key in the same state. One of them has to move" (README:860-862),
 against `docs/query.md`:83-84 — "`@` on a focused row drills into `ref:ID` behind a
 breadcrumb; `DEL` pops back."
 
@@ -1481,7 +1481,7 @@ Pinned byte for byte, twice, at `TestServe.hs`:641-655.
 Under the chain the same mistake lands in a new place: `sort` hand-typed inside
 `.filter(…)`. The spike leaves it composing and names the shape it would want:
 "`refused()` in `00-core.js` names `.` as the other door in words — with a typed
-stage it could OPEN the stage instead" (README:628-630).
+stage it could OPEN the stage instead" (README:1128-1129).
 
 Two shapes were considered:
 
@@ -1558,7 +1558,7 @@ left unfixed in the first landing.**
 
 Completing a field — or typing its `=` — leaves `state = "|"` with the caret
 between the quotes, so the reader types the value and never the punctuation
-(spike round 7, README:224-229). The first keystroke inside an empty slot spends
+(spike round 7, README:479-486). The first keystroke inside an empty slot spends
 the space the slot already inserted, so `state = TODO"` yields `state = "TODO"`.
 
 The cost: **a value that genuinely OPENS with a space cannot be typed into the
@@ -1595,7 +1595,7 @@ the phases that move them.**
 | `src-web/Glance/Web/Keymap.hs`:62-68 | help strings for both doors and for `DEL` ("drop token" → "drop stage") |
 | `src-web/Glance/Web/Keymap.hs`:187 | `keyHints`: `unmark/drop token/back` → `unmark/drop stage/back` |
 
-**New browser cases** (the spike's own rung list, README:490-506 and :508-558), in
+**New browser cases** (the spike's own rung list, README:890-916 and :918-975), in
 `test/browser/cases.mjs` under `make browser-check` (`Makefile`:71-82):
 
 - **DOT** — `.` spawns one dot and offers exactly `filter`/`sort`/`columns`.
@@ -1656,7 +1656,7 @@ the phases that move them.**
 **Where the IR corpus lives.** Three homes were weighed:
 
 - `test/TestFilter.hs`, where the denotation already lives (the spike's own
-  reading, README:648). **Rejected** — the typed reader is JavaScript and
+  reading, README:1160-1161). **Rejected** — the typed reader is JavaScript and
   Haskell cannot run it, so `TestFilter` can only ever prove the flat half.
 - The browser suite. **Rejected** — it drives a page and a server for what is a
   pure function of two parsers, and `browser-check` is its own sitting that
@@ -1689,9 +1689,9 @@ port, which is what `Filter.hs`:1-2 is for.
 
 A rung is owed BOTH ways, as the spike's is: a corpus that cannot go red proves
 nothing. The five bite-backs quoted above stand among the spike's thirty-seven
-(README:574-603). Two are new here. The case block breaks the fold's other half
+(README:990-1019). Two are new here. The case block breaks the fold's other half
 — the spike already mutates the BARE half back to case-sensitive
-(README:580); this one folds the QUOTED half too, so the `Active` / `"ACTIVE"`
+(README:996); this one folds the QUOTED half too, so the `Active` / `"ACTIVE"`
 pair collapses, which must go red. And L8's: normalize a negated comparison into
 its mirror operator and its parting pair collapses, which must go red too.
 
@@ -1849,15 +1849,15 @@ this file moves to `docs/proposals/done/` with an "As delivered" section.
   the user picked the DSL after the spike, and the control fails the mandate by
   construction — a dot in it is a character, and the dropdown lists `state:`
   beside `sort:` in one flat run, which is precisely the confusion the mandate
-  is about (spike README:71-75).
+  is about (spike README:80-84).
 - **A Python-kwargs surface** — `filter(state="TODO", tag__ne="chore")`.
-  Rejected by the user for Haskell (spike round 6, README:222-223). What the
+  Rejected by the user for Haskell (spike round 6, README:477-478). What the
   choice costs is in the corners and is accepted: `=` beside `/=` is two
   languages, record binding beside Prelude inequality. The fully consistent
   alternatives — `==`/`/=` throughout, or `=`/`not (…)` throughout — are both
   spellable, and the surface accepts `not (…)`, so the second is reachable. The
   mix reads as a comprehension's guard list where the commas are `&&`, and it is
-  the picked one (spike README:391-396).
+  the picked one (spike README:726-731).
 - **ALL-CAPS canonical display** — `.filter(state = ACTIVE)`, the starred metas
   shouted the way org shouts its keywords. Rejected on the collision: a tree may
   define a TODO keyword literally spelled `ACTIVE`, and under ALL-CAPS the
