@@ -32,8 +32,11 @@
      normal form, read from THIS reader while the table is served by the flat
      one. */
   .cx-punc{color:var(--g-mute)}
-  /* THE KEYWORD IS THE HEAD, where F's is a call's name: same ink, same job. */
+  /* THE KEYWORD IS THE HEAD, where F's is a call's name: same ink, same job.
+     The badge is a flex row, so the space between keyword and clause is drawn
+     rather than typed — a whitespace text node would collapse into nothing. */
   .cx-head{color:var(--g-point); font-weight:600; letter-spacing:.03em}
+  .cx-pill .cx-head{margin-right:5px}
   .cx-partial{color:var(--g-point); opacity:.7}
   /* A COLUMN IS A NAME, a keyword is the LANGUAGE, a literal is DATA. */
   .cx-kw{color:var(--g-link)}

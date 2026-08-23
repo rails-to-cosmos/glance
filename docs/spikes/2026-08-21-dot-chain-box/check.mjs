@@ -1702,6 +1702,14 @@ for (const page of picked) {
                RIG.irFlat("scheduled:2026-02-28")],
         year: [ir("deadline = DATE '2026-08-28' + INTERVAL '1' YEAR"),
                RIG.irFlat("deadline:2027-08-28")],
+        // …and the YEAR clips too, which is `addGregorianYearsClip' — the one
+        // day of the calendar that has no twin in the next year.
+        leap: [ir("deadline = DATE '2028-02-29' + INTERVAL '1' YEAR"),
+               RIG.irFlat("deadline:2029-02-28")],
+        // THE BARE BASE is today-relative in the flat grammar, and g has no
+        // spelling for it: `INTERVAL' is an operand and wants something to be
+        // added to.  So the mirror is asserted on the flat side alone.
+        bare: [RIG.irFlat("deadline:<=+30d"), RIG.irFlat("deadline:<=2026-09-20")],
         // The rows, so the law is not merely a string rewrite.
         lookahead: rows("deadline <= CURRENT_DATE + INTERVAL '30' DAY"),
         overdue: rows("deadline < CURRENT_DATE"),
@@ -1724,6 +1732,7 @@ for (const page of picked) {
          dates.today[0] === "deadline:*today*" && dates.today[1] === dates.today[2]
          && dates.shift[0] === dates.shift[1] && dates.week[0] === dates.week[1]
          && dates.clip[0] === dates.clip[1] && dates.year[0] === dates.year[1]
+         && dates.leap[0] === dates.leap[1] && dates.bare[0] === dates.bare[1]
          && dates.lookahead === 4 && dates.overdue === 1
          && dates.planned === 4 && dates.plannedPair === 4
          && dates.notLess === 5 && dates.atLeast === 3

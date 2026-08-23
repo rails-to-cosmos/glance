@@ -1,4 +1,4 @@
-# Spike — six ways for “.” to open a query
+# Spike — seven ways for “.” to open a query
 
 **Date:** 2026-08-21 · **After:** the additive-filters work
 (`docs/proposals/done/2026-08-20-additive-filters.md`), whose closing section
@@ -17,9 +17,13 @@ The ask, in the user's words:
 
 So the question is not what `.` DOES — it already opens the whole grammar — but
 whether the whole grammar can be **read as a chain of calls** at the moment it is
-typed, while the flat `?q=` string stays the one truth underneath. The chain is a
+typed, while the flat `?q=` string stays the one truth underneath. A later ask
+put the same question to a language a reader already knows — *a minimal
+SQL-compatible language for the same queries* — and G is that tab: same string
+underneath, same badges on the strip, `SELECT` / `FROM` / `WHERE` / `ORDER BY`
+on top. The chain is a
 VIEW of that string; every tab here composes the same string and shows it applied.
-Six looks, built to be argued with. **Open `index.html`** — they are tabs.
+Seven looks, built to be argued with. **Open `index.html`** — they are tabs.
 
 **F is the picked look.** It is D's machinery — badges on the chip strip, `/`
 editing one, `DEL` taking one — with a **Haskell expression inside the parens**,
@@ -41,21 +45,25 @@ hues and the real metrics.
 | `d-stage-pills.html` | a closed call joins the chip strip as a badge; `/` edits one, `DEL` takes one |
 | `e-echo-line.html` | C's entry, plus the flat `?q=` echoed live underneath |
 | `f-typed-dsl.html` | **the picked look** — D's machinery, Haskell inside the parens, the normal form under it |
-| `rig.js` | the fixture, the grammar, both doors, both readers, the normal form, the docked box |
+| `g-sql.html` | the same queries in SQL: clause badges, and the fragment of SQL this grammar can carry |
+| `rig.js` | the fixture, the grammar, both doors, THREE readers, the normal form, the docked box |
 | `pane.css` | the box, the strip, the dropdown, the table, both palettes |
 | `check.mjs` | the complaint, mechanised |
-| `shots.mjs` | the six screenshots, headless |
+| `shots.mjs` | the seven screenshots, headless |
 | `bidi.mjs` | the fold-marks spike's Firefox driver, copied so this directory stands alone |
-| `a-control.png` … `f-typed-dsl.png` | each tab at its own moment |
+| `a-control.png` … `g-sql.png` | each tab at its own moment |
 
 Keys are the shell's own, plus what a chain needs: `.` chains the next call,
 `TAB` completes, `(` takes the call, `,` separates arguments, `)` closes the
 stage, `←`/`→` walk the caret, `RET` applies, `ESC` steps back a rung, `t` swaps
-the theme. In A, B, C and E, `/` opens the flat filter door. In **D and F** it is
-the filter STAGE's edit key, `DEL` is the chain's own backspace, and in F alone
-`-` and `+` are the two sign helpers. `ESC` parts by DIALECT rather than by tab:
-a rung on a ladder in the flat door and in D, and in **F** the cancel itself —
-one press for the whole edit (round 14).
+the theme. In A, B, C and E, `/` opens the flat filter door. In **D, F and G** it
+is the filter STAGE's edit key, `DEL` is the chain's own backspace, and in F
+alone `-` and `+` are the two sign helpers — **G gives both signs back to the
+text**, because `CURRENT_DATE + INTERVAL '30' DAY` needs them to type. In G `;`
+closes a clause where `)` closes a stage, and `.` opens a statement with no dot
+in it. `ESC` parts by DIALECT rather than by tab: a rung on a ladder in the flat
+door and in D, and in **F and G** the cancel itself — one press for the whole
+edit (round 14).
 
 ## What each tab argues
 
@@ -67,6 +75,7 @@ one press for the whole edit (round 14).
 | D stage pills | a dot and three calls | as C | the chip strip | edits the filter stage | takes the latest stage |
 | E echo line | a dot and three calls | as C | the box | the flat door | — |
 | **F typed dsl** | a dot and three calls | **Haskell** | the chip strip | edits the filter stage | takes the latest stage |
+| G sql | four clause keywords, no dot | **SQL**, and no parens at all | the chip strip | edits the `WHERE` clause | takes the latest clause |
 
 - **A** is the baseline and it fails on purpose: `.` opens the same field `/`
   opens, one step wider. A dot in it is a character, and the dropdown lists
@@ -83,6 +92,11 @@ one press for the whole edit (round 14).
 - **E** keeps C's entry and adds the proof in words: the flat string, live,
   under the box — what stands quiet, what the chain is adding lit.
 - **F — the picked look** — is D with the argument language changed. See below.
+- **G** asks the ask again in a language nobody has to be taught: the same three
+  stages under `SELECT` / `FROM` / `WHERE` / `ORDER BY`. It is F's machinery
+  with SQL's words, and the whole of its argument is the FRAGMENT — which SQL
+  this flat grammar can carry, and what it says about the queries when the
+  answer is "not that one".
 
 ![F · typed dsl](f-typed-dsl.png)
 
@@ -199,6 +213,238 @@ state:*active* -tag:chore
 The line is echoed live under F's box, **read from the typed reader while the
 table is served by the flat one** — so a divergence between the two paths shows
 on the screen as well as in the check.
+
+## G, the SQL surface
+
+The ask, in the user's words:
+
+> a minimal SQL-compatible language for the same queries — SELECT [columns, *
+> by default] [FROM default] WHERE {filters} ORDER BY [sort spec].
+
+```sql
+SELECT state, deadline, owner
+  FROM work
+ WHERE state = ACTIVE
+   AND tag NOT LIKE '%chore%'
+   AND deadline <= CURRENT_DATE + INTERVAL '30' DAY
+ ORDER BY deadline DESC, title
+```
+
+![G · sql](g-sql.png)
+
+*G with an `ORDER BY` committed and `/` pressed: the `WHERE` badge is dashed in
+the box's own accent because it is open, the `AND` the gesture appended stands
+at the tail, and `planned` has just been named — so the offers are the operators
+**that column** takes. There is no `LIKE '%…%'` among them, `planned` matching a
+date PREFIX and never a substring; there is a `BETWEEN`, and an `IS NULL`. Under
+the box, the statement whole, the flat string, and the normal form.*
+
+**A clause is a badge, and the statement is the view.** D's machinery answered
+sixteen rounds of argument about badges, `/`, `DEL`, the caret-edge offers and
+the cancel; a statement line would re-answer all of it inside a text field,
+which is variant A's failure wearing SQL's words. Three grounds beyond
+inheritance: the clause is the unit a reader EDITS, and `/` reopening `WHERE`
+alone is what the strip is for; SQL's clause order is fixed, and badges keep it
+by construction where a line would have to police it; and the strip is a view of
+the flat string, which has no clause order at all. **The cost is that SQL is a
+SENTENCE and the pills cut it into words** — so the sentence is given back under
+the box, live, beside the flat string and the IR. The entry is clause by clause;
+the reading is whole. The corner that leaves is a reader who wants to PASTE a
+statement, and g has nowhere to put one.
+
+**`.` opens something with no dot in it.** The spike's question was always what
+`.` OPENS, and the dot was the dot-chain's own spelling of the answer. G opens a
+STATEMENT: no dot is drawn, and the four clause keywords are the offers. That is
+why `DOT` and `PARENS` are declared departures with rungs of g's own — `KEYWORD`
+and `HEAD` — rather than quietly failing.
+
+**The clause ends where the next one begins**, which is SQL's rule and the one
+gesture g does not have to invent: the reserved word closes what stands and
+opens what follows, whether it is taken from the offers or typed (`ORDER `
+alone opens nothing — it is `BY ` that finishes the keyword). `;` closes a
+clause without opening one, which is the one key g spends on a gesture SQL does
+not have: SQL ends a STATEMENT with it and a clause with nothing at all.
+
+### The fragment, which is the whole of the argument
+
+The flat grammar is **axes-AND with per-axis disjunction**: the query is a
+conjunction over axes, and each axis is `(P∪N ≠ ∅ ∧ base) ∨ wide`. So the SQL
+that composes is exactly the SQL that shape can hold:
+
+- **`AND` composes across anything.** It is the flat string's space, and on one
+  axis it is the intersection — which needs no name here, a repeated column
+  being the conjunction itself. (F could not repeat a record field and had to
+  invent `All [...]`.)
+- **`OR` composes only between predicates of ONE column.** Every arm on one
+  axis, at most one of them a base — a conjunction, or anything negated — and
+  the rest the widenings the flat `+` spells.
+- **A cross-axis `OR` is REFUSED**, by name: `OR across columns has no flat
+  spelling — see the axis law`. The word itself is marked, the line stands in
+  the hint row, and **the clause composes nothing at all**.
+
+That last rule is g's own, and it parts from F on purpose. F loses a term it
+cannot say and counts it (`lost`), because a kwarg fails at a LEAF. An `OR` is
+the SHAPE of an expression, and dropping one arm of it would compose a
+strictly WEAKER query — more rows than were asked for, which is the one
+direction a reader cannot check. So the refusal is per EXPRESSION: nothing
+composes, and the reader sees the table widen to say so.
+
+**Precedence is what most often refuses a reader's `OR`.** `AND` binds tighter,
+so a one-column `OR` written beside another column's predicate hands it an arm
+that spans both, and the refusal is TRUE of what was written. The reader's
+answer is the parens, and they are SQL's own — `state = ACTIVE AND (tag = 'web'
+OR tag = 'docs')`. The check pins both halves, because a diagnostic that fires
+where a reader thinks it should not is worth as much argument as one that does
+not fire at all.
+
+### The mappings
+
+| SQL form | flat form | note |
+| --- | --- | --- |
+| `WHERE state = 'TODO'` | `state:TODO` | the key's own test, and never SQL's equality |
+| `WHERE state = ACTIVE` | `state:*active*` | the closed roster, bare — SQL enums read that way |
+| `WHERE tag <> 'chore'` · `!=` | `-tag:chore` | either spelling |
+| `WHERE NOT (tag = 'chore')` | `-tag:chore` | the wrapper, where the operator cannot reach |
+| `WHERE state IN ('TODO', 'DONE')` | `state:TODO\|DONE` | the alternation |
+| `WHERE state NOT IN ('TODO', 'DONE')` | `-state:TODO\|DONE` | "neither" — the negation scopes the whole token |
+| `WHERE NOT (tag = 'a' OR tag = 'b')` | `-tag:a\|b` | De Morgan, the direction that works |
+| `WHERE tag = 'web' AND tag = 'docs'` | `tag:web tag:docs` | the intersection, with no name |
+| `WHERE (tag = 'a' AND tag = 'b') OR tag = 'c'` | `tag:a tag:b +tag:c` | **law 5's parting case** |
+| `WHERE title LIKE '%ship%'` | `title:ship` | the infix law, said out loud |
+| `WHERE deadline LIKE '2026-08%'` | `deadline:2026-08` | the prefix law, said out loud |
+| `WHERE priority IS NULL` | `priority:*empty*` | SQL already had the word |
+| `WHERE priority IS NOT NULL` | `-priority:*empty*` | |
+| `WHERE deadline < CURRENT_DATE` | `deadline:<*today*` | overdue |
+| `WHERE deadline <= CURRENT_DATE + INTERVAL '30' DAY` | `deadline:<=*today*+30d` | `DAY`/`WEEK`/`MONTH`/`YEAR`, singular or plural |
+| `WHERE deadline = DATE '2026-01-31' + INTERVAL '1' MONTH` | `deadline:2026-01-31+1m` | months and years CLIP — February's last day |
+| `WHERE planned BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30' DAY` | `planned:*today*..*today*+30d` | one cell INSIDE the interval |
+| `WHERE substring LIKE '%milk%'` | `milk` | free text is the column that exists |
+| `FROM work` | `tag:work` | a dataset is a tag |
+| `FROM work, home` | `tag:work\|home` | the comma is a UNION |
+| `FROM *` · `all` · `default` · omitted | — | the whole store |
+| `SELECT *` | `columns:State,#,Title,Scheduled,Deadline,Closed,Tags` | seven, and the default view is six |
+| `SELECT state, deadline` | `columns:state,deadline` | key or header, case-blind |
+| `SELECT owner` | `columns:owner` | the app's custom column, drawer and all |
+| `SELECT "ship date"` | `columns:ship date` | the delimited identifier, for what a bare one cannot spell |
+| `ORDER BY deadline DESC, title` | `sort:deadline:desc->title` | the comma is the arrow |
+| `ORDER BY NULL` | `sort:*none*` | document order, MySQL's own spelling |
+| absent `ORDER BY` | — | the default chain |
+
+**Quoting is SQL's, and it is the one thing g has that F does not.** `'value'`
+is a literal and `"name"` an identifier — two quote characters, where F had one
+and had to spend it on the closed/open law. So **g's columns are bare and
+case-folded**, which is SQL's own convention and reads the way a reader expects,
+and a custom column with a space in it still has a spelling. The three
+namespaces then differ, and that is the design rather than an accident:
+`WHERE`'s is CLOSED (the twelve keys, and a bare name nothing answers to is an
+error), `ORDER BY`'s is closed to the six the chain can carry, and `SELECT`'s
+and `FROM`'s are OPEN — the custom columns are the tree's property drawers and
+the datasets are its tags, so no roster can close either.
+
+**`LIKE`'s wildcards must name the key's own test.** The flat grammar has ONE
+test per key — exact on `state` and `priority`, a PREFIX on the dates, INSIDE on
+`title`, `tag` and free text — and `key:value` never says which. A pattern says
+it: `'%x%'` is the infix test, `'x%'` the prefix, `'x'` the exact. Where the
+shape IS that key's test the pattern composes; where it asks for one the grammar
+does not have it is refused, naming the test the key actually runs. `'%x'` is
+refused outright — nothing here anchors at the END of a cell — and so is `_`,
+and a `%` in the middle. **This is the one law g states that neither other
+surface can.** The cost is its twin: `=` on an infix key is not SQL's equality
+at all — `title = 'ship'` matches "Ship the dot chain" — because `=` means the
+key's own test and the key's own test is a substring search.
+
+**The dates are the flat grammar's, resolved at compile.** `CURRENT_DATE` is
+`*today*`, `+ INTERVAL 'N' UNIT` is the shift, and every law under them is
+`Filter.hs`'s own: the shift resolves to a plain day literal before any row is
+asked, `w` is seven days, and `m` and `y` are `addGregorianMonthsClip` /
+`addGregorianYearsClip` — Jan 31 `+1m` is February's last day and Feb 29 `+1y`
+is the 28th. The rig reads ONE PINNED DAY rather than the wall clock, because a
+check that moved with the calendar would be a check about the calendar. **The
+IR resolves the shift too**, which is what lets `deadline:<=*today*+30d` and
+`deadline:<=2026-09-20` print the same bytes — the denotation is the day, and
+the spelling is the reader's. The one form g cannot spell is the flat grammar's
+BARE shift (`deadline:+30d`, today-relative): SQL's `INTERVAL` is an operand and
+wants something to be added to.
+
+**`FROM` names a dataset, and a dataset is a tag.** A tree has one row space and
+its tags cut it into sets, so the tag axis IS the table namespace and `FROM
+work` is `tag:work`. Three consequences, each pinned:
+
+- **The comma is a UNION.** SQL's comma is a cross join — two relations, and
+  every row a PAIR of rows. There is one row space here and a dataset is a
+  SUBSET of it, so the only composition that leaves a row a row is the union,
+  which is already the flat grammar's per-axis disjunction. The intersection
+  needs no comma either: `FROM work WHERE tag = 'urgent'` says it, both landing
+  on the tag axis where **the axis law ANDs them** — a consequence of the law
+  rather than a rule of the clause.
+- **An unknown dataset composes all the same.** The tags are the tree's, so the
+  namespace is open and `tag:nosuch` serving nothing is the truthful answer —
+  the flat grammar's own behaviour, and never an error the surface invents.
+- **`FROM` cannot survive a commit.** It composes onto the tag axis, and the
+  strip is the flat string grouped back into stages, so after `RET` the dataset
+  reappears inside the `WHERE` badge. The wire keeps the meaning and loses the
+  word.
+
+**`default` is a word two layers use.** `FROM default` is g's alias for the
+whole store; `view:default` is the app's saved view, a query with a name. They
+never meet — one is a dataset alias in a surface, the other a stored `?q=` — but
+a reader who has seen both will read the second into the first. It is the kind
+of collision a shipped surface should rename rather than explain.
+
+**`SELECT *` is seven where the default view is six.** The star is the NAMED
+default set — `State`, `#`, `Title`, `Scheduled`, `Deadline`, `Closed`, `Tags` —
+and `Query.hs`'s `viewColumns` has six of those, `closed` being a CUSTOM column
+that reads the `CLOSED:` planning stamp (`customCell`'s own first line). So the
+star composes an EXPLICIT `columns:` token and is not the absent one; the two
+print IRs that part, and the check holds them apart on purpose. **`closed` is
+the difference, and it is the user's call**: what a reader means by "everything"
+includes when the row was finished, and what the app shows by default does not.
+An absent `SELECT` cannot happen in SQL, which requires the clause — in the rig
+a reader may open `WHERE` first and never write one, and then the flat default
+stands. What lets the rendered statement always write a `SELECT` without
+changing what it says is one normalisation: **naming every column of the default
+view, in its own order, IS the default.**
+
+**`SELECT`'s open names are the app's custom columns**, read from the headline's
+corresponding property — `columns:owner` reads the `:OWNER:` drawer pair and
+`closed` the planning stamp, which is `resolveColumns`/`customCell`'s own split
+(`docs/query.md`'s custom-column section). So `SELECT owner, title` composes
+`columns:owner,title` and invents nothing; the rig gives two fixture rows an
+`:OWNER:` pair so the toy table DRAWS the drawer values rather than describing
+them, and the clause's completion offers the builtins plus a rig-local property
+vocabulary standing in for the `/properties` door.
+
+### What SQL affords, and what it refuses
+
+**Affords.** `IN ('a','b')` is the alternation said the way everyone already
+spells it, where the flat `|` has to be learned and F's list has to be typed
+with brackets. `BETWEEN A AND B` is the range in words, and on `planned` it is
+the one reading no pair of tokens has — ONE cell inside the interval. `IS NULL`
+is the empty cell, which is the meta the flat grammar spells most awkwardly and
+the one F needed a constructor for. A repeated column is the intersection, which
+record syntax could not spell at all. And **the parenthesised one-axis `OR` is
+law 5's parting case** — `(tag = 'a' AND tag = 'b') OR tag = 'c'` — the single
+shape F must escape into `raw "…"`, because the per-axis law IS a disjunction of
+a conjunction with alternatives and SQL has both parens and `OR`. **G needs no
+escape hatch.** That is the sharpest thing this variant found.
+
+**Refuses.** The general boolean algebra, and it refuses it by NAME rather than
+by silence. A cross-axis `OR` has no flat spelling; two bases on one axis have
+none (`tag <> 'a' OR tag <> 'b'` is ¬a ∨ ¬b); `NOT` over an intersection is De
+Morgan's and no conjunction of negated tokens says it; a comparison off the
+three date keys would compose a substring search for the operator; and a `LIKE`
+pattern whose shape is not the key's test asks for a match the grammar cannot
+run. Nine refusals in all, each with its own sentence, each composing nothing,
+each pinned in `check.mjs` with the empty query's own IR beside it.
+
+**The IR is the proof, three ways.** G's reader compiles to the SAME lisp normal
+form as the flat grammar's and F's, reached without either. Twenty-nine paired
+spellings print the same bytes in all three readers; seven flat queries rendered
+INTO a statement and read back print theirs; eight pairs whose semantics part
+print IRs that part with them. Where a row's three READ differently that is the
+finding: the `raw "…"` rows are the shape kwargs cannot say, and the date rows
+are the shift **F carries as an opaque literal because it has no date grammar at
+all** — the third reader is what showed that.
 
 ## Argued and amended
 
@@ -334,10 +580,35 @@ produced and the check now holds:
    dotted amber over it, where `cx-bad`'s wavy red would be calling a legal
    binding an error.
 
+17. **A seventh tab, in SQL.** The ask was *a minimal SQL-compatible language
+   for the same queries*, and the round is what that costs and what it buys.
+   The machinery is D's and F's unchanged — clause badges on the strip, `/` on
+   the narrowing clause, `DEL` stage-sized, the caret-edge offers, the dry
+   accept, the complete-term silence, the one-press cancel, the contradiction
+   warning — and every one of those laws is INHERITED rather than restated,
+   because the door is the typed door and g is a typed surface. What the round
+   pinned per variant is only what SQL's grammar makes read differently:
+   **the operator is a choice** (a column accept opens no slot and still asks
+   again, SQL having ten operators where record syntax has one); **there are
+   two quote characters**, so the completeness predicate reads both and the
+   columns can be bare; **the connective is a word**, so the position between
+   two predicates is one F does not have and its offers are `AND`/`OR`/the next
+   keyword; **the separator per gesture is `AND`**, where F's is the comma; and
+   **the two signs go back to being characters**, because `CURRENT_DATE +
+   INTERVAL '30' DAY` needs them to type. That last one is the round's neatest
+   collision: round 1's "the sign is a key, never a character" held only because
+   F had nowhere for a sign to be one, and the date shift is what took the keys
+   away. The fragment law, the mappings and the corners are under
+   [G, the SQL surface](#g-the-sql-surface); `check.mjs` holds twenty-two rungs
+   for the tab, nine of them g's own, and twenty-six mutants stand behind them.
+
 Rounds 4 and 5 cost the spike its own control. `/` was identical in all tabs on
-purpose, and `check.mjs` asserted it; D's and F's departure is now DECLARED there
-(`DEPARTS`) rather than dropped, so the four tabs that keep a flat door still owe
-each other one and the run still says so.
+purpose, and `check.mjs` asserted it; D's, F's and G's departure is now DECLARED
+there (`DEPARTS`) rather than dropped, so the four tabs that keep a flat door
+still owe each other one and the run still says so. G departs twice over — the
+two keys the way D sent them, and `DOT`/`PARENS` because a SQL surface has
+neither — and both departures are answered by rungs of its own rather than
+excused.
 
 ## What the grammar resists
 
@@ -468,6 +739,60 @@ round-trip corpus.
   second way to be true, so a contradiction in the base is not the query's — and
   since `+` is exactly what F cannot always spell, the axes that go unread are
   the ones most likely to be wearing `raw "…"`.
+- **G: `=` is not equality on the infix keys.** `title = 'ship'` matches "Ship
+  the dot chain", because `=` composes the key's OWN test and `title`'s is a
+  substring search. Every other surface hides the same fact; SQL is the one that
+  promises otherwise, and the promise is the corner. `LIKE '%ship%'` is where a
+  reader can say which test they meant, and the offers name it in the aside — so
+  the surface tells the truth twice and the operator still reads wrong once.
+- **G: precedence refuses more readers than the axis law does.** `AND` binds
+  tighter than `OR`, so `state = ACTIVE AND tag = 'web' OR tag = 'docs'` hands
+  the `OR` an arm spanning two columns and is refused — correctly, of what was
+  written, and surprisingly, of what was meant. The parens are the answer and
+  they are SQL's own; the diagnostic cannot say "you meant the other reading"
+  without guessing which.
+- **G: a refusal is not a block, in this rig.** A refused clause composes
+  nothing, so a reader who commits one loses the whole clause and the table
+  widens. The flat grammar's own answer is HTTP 400 naming the token; a rig with
+  no refusal path can only compose nothing and say so, which is the tolerance
+  this spike already declares for unknown sort segments. A shipped surface would
+  refuse the COMMIT, and that is one more thing the fragment law would owe.
+- **G: `FROM` cannot survive a commit.** A dataset is a tag, so the clause
+  composes onto the tag axis, and the strip is the flat string grouped back into
+  stages — after `RET` the dataset reappears inside the `WHERE` badge. The wire
+  keeps the meaning and loses the word, and no display rule can put it back
+  without guessing which tag token was once a `FROM`.
+- **G: `SELECT *` is seven and the default view is six.** `closed` is the
+  difference — a custom column reading the planning stamp — so the star composes
+  an explicit `columns:` token and cannot be the absent one. Two spellings that
+  a reader would call the same thing print IRs that part, and the check holds
+  them apart on purpose.
+- **G: `default` is a word two layers use.** `FROM default` is the dataset alias
+  for the whole store; `view:default` is the app's saved view. They never meet,
+  and a reader who has seen both will read one into the other.
+- **G: the opened slot spends the opening quote.** A reader types `tag = 'web'`
+  and gets exactly that, the quote the slot inserted being the one that stands —
+  which is round 7's cost line asked of the character SQL opens a literal with.
+  The price is the same: a value that genuinely opens with a quote cannot be
+  typed into a slot, and a bare CONSTRUCTOR cannot be typed into one at all —
+  it has to be taken from the offers, which swallow the quotes for it.
+- **G: `;` is spent on a clause.** SQL ends a STATEMENT with it and a clause with
+  nothing at all, so this is the one gesture g borrows rather than inherits. A
+  reader who types `;` meaning "run it" gets a closed clause and has to press
+  `RET` after all.
+- **G: the two signs are characters again.** `-` and `+` were keys in F because
+  the surface had nowhere for them to be characters; `CURRENT_DATE + INTERVAL
+  '30' DAY` is that nowhere. So the negation flip and the list helper have no
+  keys here, and both spellings — `<>` and `IN (…)` — have to be typed or taken.
+- **G: three namespaces wear one syntax.** A bare identifier is a closed key in
+  `WHERE`, a closed sortable in `ORDER BY`, and anything at all in `SELECT` and
+  `FROM`. The same word is an error in one clause and a column in another, and
+  the only thing that tells a reader which is the clause they are standing in.
+- **G: the date comparisons are unread by the contradiction warning.** An axis
+  carrying an operator or a range is skipped whole, because `deadline >= A AND
+  deadline <= B` is answered every day of the year and interval satisfiability
+  is a law nobody asked for. So a genuinely empty interval goes unsaid, which is
+  the same trade the metas already have.
 - **`DEL` is already spoken for.** `docs/query.md`: "`@` … drills into `ref:ID`
   behind a breadcrumb; `DEL` pops back." The stage eraser and the crumb pop want
   the same key in the same state. One of them has to move.
@@ -482,9 +807,9 @@ round-trip corpus.
 
 ```sh
 node check.mjs                     # every variant
-node check.mjs f-typed-dsl.html    # one
-node shots.mjs                     # the six PNGs
-node shots.mjs f-typed-dsl.html    # one, when only that moment moved
+node check.mjs g-sql.html          # one
+node shots.mjs                     # the seven PNGs
+node shots.mjs g-sql.html          # one, when only that moment moved
 ```
 
 Every variant: **BOOT**, **DOT** (`.` spawns one dot and offers exactly
@@ -497,6 +822,11 @@ the offers closed, and the next keystroke wakes them), **ESC** (the ladder in
 the dialect that owns it: three rungs in the flat door and in D — the offers,
 what is half-written, the box, the strip untouched — and exactly ONE in F, where
 the same press takes all three), **SETTLED**.
+G swaps DOT and PARENS too, for **KEYWORD** (`.` spawns no dot at all and offers
+exactly `SELECT`/`FROM`/`WHERE`/`ORDER BY`) and **HEAD** (the taken clause draws
+its keyword and the caret lands after it, in DOM order and on the screen, with
+no paren anywhere) — and its COMMA rung is `AND`'s, forty-odd compose-equalities
+covering every mapping in the table above.
 Tabs with a flat door also owe **SLASH** (the narrowed door still refuses
 `sort:title` in the shell's own sentence) and a door **SIG** identical across
 all of them. D and F swap those for **SLASH-STAGE** (the reopened badge, which in the typed
@@ -617,6 +947,62 @@ F owes nine more:
   `state:*active* state:TODO` warns; and blame one side of the pair and half the
   ink never lands. **Forty-nine in all.**
 
+G owes nine of its own, and every one of them is a law this variant either
+inherits differently or states alone:
+
+- **SLOT** — the three-step position SQL has and Haskell does not: a column, its
+  OPERATOR, then its value. The column accept opens no slot and still asks
+  again; the operator accept opens the quoted one; the value accept is final,
+  dry, and survives a repaint. Both entry routes are pinned apart — the operator
+  taken from the offers and the operator typed by hand — and so is the opening
+  quote the slot spends.
+- **DONE** — round 15's law over SQL's quoting. A closed literal, a closed `IN`
+  list stepped over, and a constructor whose caret was WALKED onto its tail:
+  over each the menu is down and one `RET` applies the clause. The counter-cases
+  are the per-variant pins: a bare column in `WHERE` is unfinished (it is
+  waiting for an operator), one step short of `ARCHIVE` is still being written,
+  and the CONNECTIVE is a word — so a trailing space finishes nothing and the
+  offers wake when the reader starts writing `AND`.
+- **CASE** — SQL's own convention as the spike's case law: keywords, columns and
+  the enum roster in any case, the canonical spelling standing afterwards. In
+  `SELECT` alone the spelling is left as typed, because for a custom column the
+  spelling IS the header.
+- **FRAGMENT** — the central law, both ways. The cross-axis `OR` refused by name
+  with the word marked and nothing composed; nine refusals each with their own
+  sentence and the empty query's own IR; five shapes that DO compose, including
+  the parenthesised base-and-widening F cannot spell; and the precedence trap,
+  loose and parenthesised, pinned side by side.
+- **DATES** — `CURRENT_DATE`, the four interval units, the clip (Jan 31 `+1m` is
+  February's last day), the granularity cut, the empty cell outside every
+  comparison, negation no mirror (five rows against three), and the `planned`
+  range that says what no pair of tokens can.
+- **SHAPE** — the star's seven against the default's six, the hand-spelled
+  equivalent printing the same IR, the custom column DRAWING its drawer value in
+  the table, the delimited identifier, the dataset and its union, the alias trio
+  composing identically, an omitted `FROM` equal to `FROM all`, and the axis law
+  ANDing a dataset with a `WHERE tag`.
+- **WARN** — the contradiction, inherited whole: it reads the ATOMS the surface
+  composes and never its text, so g's spelling is judged the same as F's and
+  says the same sentence.
+- **ESC-ABANDON** — the cancel, inherited whole, over three routes in.
+- **IR3** — twenty-nine three-way rows, seven round trips through a rendered
+  statement, eight divergences. **The rung bites both ways**: twenty-six mutants
+  were run against g's page and every one reddened the rung that owns it —
+  the refusal off reds FRAGMENT alone; case-sensitive keywords red eleven rungs
+  at once; `IN` folding to one atom reds COMMA, DONE and IR3; the LIKE shape
+  unchecked, the comparison allowed off the dates, and two bases allowed each
+  red FRAGMENT; the clip dropped, the shift left unresolved, the empty cell let
+  into a comparison and the interval warned about each red DATES; the star
+  composing nothing, `FROM` made inert, its comma made an intersection, a custom
+  column dropped and the six-is-default normalisation removed each red SHAPE;
+  always-offer and never-offer red DONE and seven others between them; the
+  column accept made final reds SLOT; the keyword split removed reds CHAIN; `;`
+  made inert reds five; D's ESC ladder reaching g reds ESC; the gesture's `AND`
+  turned back into a comma reds five; the dangle left alone reds SLASH-ABANDON;
+  and the warning split on commas instead of connectives reds WARN. One mutant
+  survived the first pass — the empty-cell guard, which turned out to be written
+  TWICE — and the fix was to say it once, in `dated`, where breaking it now bites.
+
 The control fails five rungs by construction, the way headline-bars' `flat` tab
 does, so `a-control.html` declares DOT, PARENS, CHAIN, COMMA and DRY as misses:
 the run is green and the misses are the argument. A declared miss that starts
@@ -672,11 +1058,23 @@ the comma's per-stage reading, and the typed surface's own table;
 `docs/invariants.md` gains the one this spike is really about — *the surface
 composes the flat query and nothing else composes it* — and its three sharper
 twins: *a stage the flat string cannot carry must not be composable*, *the
-two readers print one normal form*, and *a diagnostic never changes what is
-composed*. `test/browser/cases.mjs` gains the
+two readers print one normal form* — which g makes THREE — and *a diagnostic
+never changes what is composed*, which g's own refusal parts from on purpose: a
+WARNING changes nothing and a REFUSAL composes nothing, and the two want
+different words. `test/browser/cases.mjs` gains the
 DOT/PARENS/CHAIN rungs; the IR belongs in `test/TestFilter.hs`, where the
 denotation already lives. The wire changes nothing: `?q=` already carries the
 string, and that is the point.
+
+**What a shipped G would need on top of F's list.** The `LIKE` law wants the
+producer to declare each key's TEST (exact, prefix, inside), which is `keeper`'s
+own knowledge said out loud — one more field on the offer, and the thing that
+makes the pattern check possible at all. `FROM`'s dataset roster is the tag
+vocabulary the renderer already enumerates. And the refusal needs a home the
+warning does not: it must stop the COMMIT rather than compose nothing, which is
+the one place g's diagnostics ask for machinery the shipped surface does not
+have — `tv-refused` says it, and the narrowed door's own refusal is the pattern
+to follow.
 
 **Open questions**, none of which the tabs settle:
 
@@ -695,6 +1093,16 @@ string, and that is the point.
   a chain extension wearing a replacement's clothes. Refusing it is a grammar
   change; folding it is a display rule, and D/F fold.
 - **The coarse-pointer path has no `.`, no `/` and no `DEL`.**
+- **Would a reader rather paste a statement than build one?** G's badges take a
+  clause at a time and there is nowhere to put a whole `SELECT … WHERE …` line.
+  A paste door would be a third entry to the same string, and it would need the
+  refusal to be a refusal.
+- **Does the SQL surface earn its keep, or does it only read familiar?** It
+  spells one thing F cannot (the base-and-widening axis) and states one law
+  neither other surface can (the key's own test, through `LIKE`). Everything
+  else it buys — `IN`, `BETWEEN`, `IS NULL` — is naturalness rather than
+  reach, and naturalness is exactly what a reader who does not know the flat
+  grammar is short of.
 
 ## What the rig mirrors, so the tabs are honest
 

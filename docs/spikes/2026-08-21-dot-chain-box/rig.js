@@ -162,11 +162,14 @@ var RIG = (function () {
   }
 
   /** The day L names, or "" where it names none.  A SHIFT WANTS A WHOLE DAY
-   *  under it — a month has no next day to name. */
+   *  under it — a month has no next day to name — and AN EMPTY BASE IS THE
+   *  BARE FORM, `+30d' being today-relative on the planning grammar's own
+   *  precedent (`Filter.hs' `shiftIn').  G cannot spell that one: SQL's
+   *  `INTERVAL' is an operand and wants something to be added TO. */
   function resolveLit(l) {
     var m = SHIFT_RE.exec(String(l));
     if (!m) return String(l) === "*today*" ? TODAY : String(l);
-    var base = m[1] === "*today*" ? TODAY : m[1];
+    var base = m[1] === "*today*" || m[1] === "" ? TODAY : m[1];
     if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return "";
     return shifted(base, m[2], +m[3], m[4]);
   }
