@@ -328,6 +328,9 @@ const DEL = "";
 
 let failed = 0;
 const sigs = {};
+// …and whether that tab is one of the four that KEEP the flat door, so the
+// control at the foot can hold the departed ones to the opposite promise.
+const kept = {};
 const ff = await firefox().catch((e) => {
   console.error("no firefox: " + e.message);
   process.exit(2);
@@ -690,17 +693,27 @@ for (const page of picked) {
          + `door=${rung2.door}→${rung3.door} chips=${JSON.stringify(rung3.chips)}`);
   }
 
+  // ---- SIG: THE DOOR'S SIGNATURE, CAPTURED IN EVERY TAB.  A declared MISS
+  // that starts passing is reported, and a declared DEPARTURE owes the same
+  // symmetry: one that quietly came back is a change nothing else in the run
+  // would say out loud.  So `/' is pressed everywhere and the signature kept
+  // everywhere — the tabs that keep the flat door owe each other a byte for
+  // byte identical one, and the tabs that DEPARTED owe the opposite, a
+  // signature that differs from it.  The control at the foot reads both.
+  await ff.goto(url);
+  await ff.keys(["/"]);
+  await ff.keys(chars("sta"));
+  sigs[page] = await ff.eval(() => {
+    const b = document.querySelector("#app .tv-filter");
+    if (!b) return "no flat box at all";
+    return JSON.stringify({ tag: b.tagName, cls: b.className, type: b.type,
+                            ph: b.placeholder, shown: getComputedStyle(b).display,
+                            items: RIG.menu().items });
+  });
+  kept[page] = !departs.includes("SIG");
+
   if (!departs.includes("SLASH")) {
     // ---- SLASH: the same door in every tab, and it still refuses the shaping half
-    await ff.goto(url);
-    await ff.keys(["/"]);
-    await ff.keys(chars("sta"));
-    sigs[page] = await ff.eval(() => {
-      const b = document.querySelector("#app .tv-filter");
-      return JSON.stringify({ tag: b.tagName, cls: b.className, type: b.type,
-                              ph: b.placeholder, shown: getComputedStyle(b).display,
-                              items: RIG.menu().items });
-    });
     await ff.goto(url);
     await ff.keys(["/"]);
     await ff.keys(chars("sort:title"));
@@ -1074,6 +1087,24 @@ for (const page of picked) {
     const doneWrap = await ff.eval(stood);
     await ff.keys([KEY.Enter]);
     const wrapApplied = await ff.eval(landed);
+    // (d) THE OFFER'S OWN CLOSING PAREN, STEPPED OVER — the caret-edge law at
+    // the one site that used to move the caret WITHOUT asking again.  `not ( … )'
+    // lands the caret INSIDE the parens with the field offers standing; `)'
+    // walks past the closer the offer wrote rather than doubling it, and that
+    // step is a MOVE, so the new position is asked.  It stands after a CLOSED
+    // wrapper, which is a finished term, so the menu goes down and `RET'
+    // applies the stage.  With the re-ask missed, the field offers stood over a
+    // finished term and RET spliced `state = "…"' after the wrapper instead.
+    await ff.goto(url);
+    await ff.keys(["."]);
+    await ff.keys([KEY.Tab]);
+    await ff.keys(chars("not"));
+    await ff.keys([KEY.Tab]);                  // take `not ( … )'
+    const wrapOpen = await ff.eval(stood);
+    await ff.keys([")"]);
+    const wrapStep = await ff.eval(stood);
+    await ff.keys([KEY.Enter]);
+    const stepApplied = await ff.eval(landed);
     want("DONE",
          doneStr.args === 'tag = "docs"' && doneStr.at === 12
          && doneStr.menu === false
@@ -1100,14 +1131,21 @@ for (const page of picked) {
          && doneWrap.args === 'not (tag = "docs")' && doneWrap.at === 18
          && doneWrap.menu === false
          && wrapApplied.q === BOOT_FILTER + " -tag:docs"
-         && wrapApplied.door === null && wrapApplied.rows === 3,
+         && wrapApplied.door === null && wrapApplied.rows === 3
+         && wrapOpen.args === "not ()" && wrapOpen.at === 5
+         && wrapOpen.menu === true
+         && wrapStep.args === "not ()" && wrapStep.at === 6
+         && wrapStep.menu === false
+         && stepApplied.door === null && stepApplied.q === BOOT_FILTER,
          `str=${JSON.stringify(doneStr)} space=${JSON.stringify(doneSpace)} `
          + `fresh=${JSON.stringify(doneFresh)} again=${JSON.stringify(doneAgain)} `
          + `applied=${JSON.stringify(doneApplied)} `
          + `ctor=${JSON.stringify(doneCtor)} half=${JSON.stringify(doneHalf)} `
          + `walk=${JSON.stringify(doneWalk)} ctorApplied=${JSON.stringify(ctorApplied)} `
          + `inner=${JSON.stringify(doneInner)} wrap=${JSON.stringify(doneWrap)} `
-         + `wrapApplied=${JSON.stringify(wrapApplied)}`);
+         + `wrapApplied=${JSON.stringify(wrapApplied)} `
+         + `open=${JSON.stringify(wrapOpen)} step=${JSON.stringify(wrapStep)} `
+         + `stepApplied=${JSON.stringify(stepApplied)}`);
 
     // ---- QUOTED: the shaping stages take NAMES, and a name is a string —
     // columns are an open set, so no roster can close them.  The offers
@@ -1624,7 +1662,16 @@ for (const page of picked) {
       likePrefix: ["title LIKE 'ship%'", "looks inside the cell"],
       likeEnd: ["title LIKE '%ship'", "END of a cell"],
       likeUnderscore: ["title LIKE '%s_ip%'", "single-character wildcard"],
+      // …A `%' IN THE MIDDLE, which is the wildcard shape the flat grammar has
+      // no test for at all: not a prefix, not a suffix, not a substring.
+      midPercent: ["title LIKE 'sh%ip'", "a % inside"],
       betweenOff: ["priority BETWEEN 'A' AND 'B'", "no interval"],
+      // …and a WIDENING OR'D AGAIN.  `threeWide' below shows the flat list of
+      // three arms composing; NESTING one inside another `OR' is the shape that
+      // cannot, because the inner arm is already a disjunct and the flat `+'
+      // has no way to say a disjunct of disjuncts.
+      orWidening: ["((tag = 'web' AND tag = 'docs') OR tag = 'chore') OR tag = 'read'",
+                   "already a disjunct"],
     };
     // …AND THE SHAPES THAT DO COMPOSE, which is what makes the refusal a line
     // and not a wall: the alternation, the base-and-widening law 5 could not
@@ -1716,6 +1763,23 @@ for (const page of picked) {
         // ONE CELL INSIDE THE INTERVAL, which two tokens cannot say.
         planned: rows("planned BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30' DAY"),
         plannedPair: RIG.served("planned:>=2026-08-21 planned:<=2026-09-20").rows.length,
+        // …AND THE CASE THAT PARTS THEM, which the wide interval cannot show —
+        // there the two readings agree because no row's cells straddle it.  Row
+        // one is scheduled 08-24 and due 08-28, so [08-25, 08-27] falls BETWEEN
+        // its two cells: the token pair is answered, each token finding its own
+        // cell, and the BETWEEN is answered by nothing.  Without this the law
+        // "one cell inside the interval" is stated and unpinned, and a reading
+        // that ANDed the two comparisons over the axis would stay green.
+        straddle: rows("planned BETWEEN DATE '2026-08-25' AND DATE '2026-08-27'"),
+        straddlePair: RIG.served("planned:>=2026-08-25 planned:<=2026-08-27").rows.length,
+        // THE EMPTY CELL, ASKED OF ITS OWN CELLS.  `*empty*' is legal on seven
+        // keys and every one of them used to spell `=== ""' for itself; the law
+        // has one home now, and `planned' is the arm that carries the reason —
+        // it names TWO cells and is empty only when BOTH are, where a single
+        // key is empty when its one cell is.  Read `||' there and the count
+        // triples, which is what this asks.
+        emptyPlanned: RIG.served("planned:*empty*").rows.length,
+        emptyDeadline: RIG.served("deadline:*empty*").rows.length,
         // NEGATION IS NO MIRROR: they differ on exactly the undated rows.
         notLess: rows("NOT (deadline < CURRENT_DATE)"),
         atLeast: rows("deadline >= CURRENT_DATE"),
@@ -1735,6 +1799,8 @@ for (const page of picked) {
          && dates.leap[0] === dates.leap[1] && dates.bare[0] === dates.bare[1]
          && dates.lookahead === 4 && dates.overdue === 1
          && dates.planned === 4 && dates.plannedPair === 4
+         && dates.straddle === 0 && dates.straddlePair === 1
+         && dates.emptyPlanned === 1 && dates.emptyDeadline === 2
          && dates.notLess === 5 && dates.atLeast === 3
          && dates.cutLt !== dates.cutLe && eq(dates.quiet, []),
          JSON.stringify(dates));
@@ -1884,15 +1950,24 @@ for (const page of picked) {
 // THE CONTROL OF THE SPIKE: `/' has to be the same door wherever `.' goes — in
 // every tab that still HAS a flat door.  D's departure is the user's own answer
 // and is declared above; the four that keep the door still owe each other one.
-const held = picked.filter((p) => sigs[p] !== undefined);
+const held = picked.filter((p) => sigs[p] !== undefined && kept[p]);
+const gone = picked.filter((p) => sigs[p] !== undefined && !kept[p]);
 if (held.length > 1) {
   const one = sigs[held[0]];
   const off = held.filter((p) => sigs[p] !== one);
+  // …AND THE DEPARTED TABS OWE THE OPPOSITE.  `/' is the filter STAGE's edit
+  // key there, so its signature has to PART from the flat door's; one that
+  // matched again would be a departure that quietly came back.
+  const back = gone.filter((p) => sigs[p] === one);
   if (off.length) {
     failed += 1;
     console.log(`FAIL /  the filter door differs in: ${off.join(", ")}`);
+  } else if (back.length) {
+    failed += 1;
+    console.log(`FAIL /  a declared departure came back in: ${back.join(", ")}`);
   } else {
-    console.log(`ok   /  the same door in all ${held.length} tabs that keep one`);
+    console.log(`ok   /  the same door in all ${held.length} tabs that keep one`
+                + (gone.length ? `, and none of the ${gone.length} that left it` : ""));
   }
 }
 

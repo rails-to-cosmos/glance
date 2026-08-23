@@ -434,8 +434,14 @@ none (`tag <> 'a' OR tag <> 'b'` is ¬a ∨ ¬b); `NOT` over an intersection is 
 Morgan's and no conjunction of negated tokens says it; a comparison off the
 three date keys would compose a substring search for the operator; and a `LIKE`
 pattern whose shape is not the key's test asks for a match the grammar cannot
-run. Nine refusals in all, each with its own sentence, each composing nothing,
-each pinned in `check.mjs` with the empty query's own IR beside it.
+run. Ten refusals in all, each with its own sentence, each composing nothing,
+each pinned in `check.mjs` with the empty query's own IR beside it — including
+the two the first pass stated in prose and never asked for: a `%` in the middle
+of a pattern, and a widening OR'd again (`((a AND b) OR c) OR d`, where the flat
+list of three arms composes and the NESTED one cannot). `parseSqlWhere` speaks an
+eleventh sentence, for `NOT` over a widening, that no expression can reach — a
+`+` term only ever arrives beside the base it widens, so `NOT` sees an
+intersection and says so first.
 
 **The IR is the proof, three ways.** G's reader compiles to the SAME lisp normal
 form as the flat grammar's and F's, reached without either. Twenty-nine paired
@@ -563,6 +569,9 @@ produced and the check now holds:
    it always did — the open world finishes nothing. `Desc`, `All`, `not` and
    `raw` are unfinished too, being closed words still waiting for an argument,
    which makes the roster a question of ARITY rather than of spelling.
+   (The other half of the law — that a caret which MOVES re-asks — was still
+   nineteen hand-placed calls at the time, and one of them was missing; see
+   round 18.)
 16. **The DSL warns where the grammar is merely honest.** `tag = All ["docs",
    "chore"], tag /= "chore"` composes `tag:docs tag:chore -tag:chore`, and no
    row can answer it. Both bindings are LEGAL — the collision rule forbids one
@@ -600,7 +609,31 @@ produced and the check now holds:
    F had nowhere for a sign to be one, and the date shift is what took the keys
    away. The fragment law, the mappings and the corners are under
    [G, the SQL surface](#g-the-sql-surface); `check.mjs` holds twenty-two rungs
-   for the tab, nine of them g's own, and twenty-six mutants stand behind them.
+   for the tab, nine of them g's own, and twenty-five mutants stand behind them.
+
+18. **A law with nineteen homes has none.** Round 15 gave the silence one
+   predicate, `dslDone`, and every path met there. Its other half — *a caret
+   that moves re-asks the position* — was still spelled by hand, `cxOffer()`
+   beside `paint()`, at nineteen sites; the twentieth, `)` stepping over the
+   closer that `not ( … )` had just written, moved the caret and repainted
+   without asking. Three keystrokes reached round 15's own reported bug again:
+   the field offers stood over a closed wrapper and `RET` spliced a field into
+   it instead of applying the stage. The fix is not the missing call, it is the
+   HOME — `moved()`, which every write and every walk now goes through — and a
+   rung that drives the three keystrokes. **The same shape, one level up:** what
+   parted the four dialects was asked in five idioms across some sixty sites, so
+   it is now one table, `DIALECT`, with a named slot per law and one reader,
+   `D()`; nothing else reads `S.look.dsl` or `S.look.sql`. The laws that two
+   dialects shared and each had written out — the fragment under the caret, the
+   opened slot's far quote, the reverse-walk formatter, the painter's walk and
+   its warning overlay, the flat spelling of a chain and a column list, the five
+   quote-aware scanners, the empty cell, the meta roster — each keep one home
+   with the dialects calling it. Nothing moved — the whole run is green — and
+   four things the spike had STATED and never asked are now rungs: the `planned`
+   range, driven on the case that parts it from the token pair rather than on a
+   wide interval where the two readings agree; the two refusals spoken in prose
+   and never driven; the empty cell per key, where `planned` names two; and a
+   departed door that quietly comes back.
 
 Rounds 4 and 5 cost the spike its own control. `/` was identical in all tabs on
 purpose, and `check.mjs` asserted it; D's, F's and G's departure is now DECLARED
@@ -820,16 +853,20 @@ rows, deadline order, empties last), **COMMA** (a dozen compose-equalities in th
 flat dialect, twenty-one in the typed one), **DRY** (an accept lands bare with
 the offers closed, and the next keystroke wakes them), **ESC** (the ladder in
 the dialect that owns it: three rungs in the flat door and in D — the offers,
-what is half-written, the box, the strip untouched — and exactly ONE in F, where
-the same press takes all three), **SETTLED**.
+what is half-written, the box, the strip untouched — and exactly ONE in F and G,
+where the same press takes all three), **SETTLED**.
 G swaps DOT and PARENS too, for **KEYWORD** (`.` spawns no dot at all and offers
 exactly `SELECT`/`FROM`/`WHERE`/`ORDER BY`) and **HEAD** (the taken clause draws
 its keyword and the caret lands after it, in DOM order and on the screen, with
 no paren anywhere) — and its COMMA rung is `AND`'s, forty-odd compose-equalities
 covering every mapping in the table above.
 Tabs with a flat door also owe **SLASH** (the narrowed door still refuses
-`sort:title` in the shell's own sentence) and a door **SIG** identical across
-all of them. D and F swap those for **SLASH-STAGE** (the reopened badge, which in the typed
+`sort:title` in the shell's own sentence). **SIG** is captured in EVERY tab,
+because a departure owes the same symmetry a declared miss does: the four that
+keep the door owe each other a byte for byte identical signature, and the three
+that LEFT it owe the opposite — one that differs. A departure that quietly came
+back reds the control at the foot.
+D, F and G swap those for **SLASH-STAGE** (the reopened badge, which in the typed
 dialect ends `, ` with the offers standing and the field names leading),
 **SLASH-FRESH** (an empty or absent stage opens with no comma, offers standing),
 **SLASH-ABANDON** (a fresh argument never written leaves the badge byte for byte
@@ -875,7 +912,11 @@ F owes nine more:
   counter-cases ride the same drives: a comma is a fresh position and its offers
   stand at once, taking the comma back puts the menu down again, one step short
   of `Archive` the name is still being written and offers, and a trailing space
-  changes nothing because the TERM decides and not the offset.
+  changes nothing because the TERM decides and not the offset. A fourth case
+  drives the caret-edge law at the site round 18 found missing: TAB `not ( … )`,
+  press `)` to step over the closer the OFFER wrote, and the menu has to be down
+  over the finished wrapper and `RET` has to apply the stage. Revert the re-ask
+  and the rung reds on both halves at once.
 - **WARN** — the contradiction, and that it is a courtesy. The user's own pair
   (`tag = All ["docs", "chore"]` beside the badge's `tag /= "chore"`) marks BOTH
   bindings and leaves the innocent one alone, says
@@ -968,14 +1009,17 @@ inherits differently or states alone:
   `SELECT` alone the spelling is left as typed, because for a custom column the
   spelling IS the header.
 - **FRAGMENT** — the central law, both ways. The cross-axis `OR` refused by name
-  with the word marked and nothing composed; nine refusals each with their own
+  with the word marked and nothing composed; ten refusals each with their own
   sentence and the empty query's own IR; five shapes that DO compose, including
   the parenthesised base-and-widening F cannot spell; and the precedence trap,
   loose and parenthesised, pinned side by side.
 - **DATES** — `CURRENT_DATE`, the four interval units, the clip (Jan 31 `+1m` is
   February's last day), the granularity cut, the empty cell outside every
-  comparison, negation no mirror (five rows against three), and the `planned`
-  range that says what no pair of tokens can.
+  comparison, negation no mirror (five rows against three), the empty cell asked
+  of its own cells (`planned` names two and is empty only when BOTH are), and the
+  `planned` range that says what no pair of tokens can — pinned on the case that
+  PARTS them, a row whose two planned cells straddle the interval, since over a
+  wide one the two readings agree and the claim would stand unasked.
 - **SHAPE** — the star's seven against the default's six, the hand-spelled
   equivalent printing the same IR, the custom column DRAWING its drawer value in
   the table, the delimited identifier, the dataset and its union, the alias trio
@@ -986,8 +1030,9 @@ inherits differently or states alone:
   says the same sentence.
 - **ESC-ABANDON** — the cancel, inherited whole, over three routes in.
 - **IR3** — twenty-nine three-way rows, seven round trips through a rendered
-  statement, eight divergences. **The rung bites both ways**: twenty-six mutants
-  were run against g's page and every one reddened the rung that owns it —
+  statement, eight divergences. **The rung bites both ways**: twenty-five mutants
+  were run against g's page and twenty-four of them reddened the rung that owns
+  it at once —
   the refusal off reds FRAGMENT alone; case-sensitive keywords red eleven rungs
   at once; `IN` folding to one atom reds COMMA, DONE and IR3; the LIKE shape
   unchecked, the comparison allowed off the dates, and two bases allowed each
@@ -999,14 +1044,17 @@ inherits differently or states alone:
   column accept made final reds SLOT; the keyword split removed reds CHAIN; `;`
   made inert reds five; D's ESC ladder reaching g reds ESC; the gesture's `AND`
   turned back into a comma reds five; the dangle left alone reds SLASH-ABANDON;
-  and the warning split on commas instead of connectives reds WARN. One mutant
-  survived the first pass — the empty-cell guard, which turned out to be written
-  TWICE — and the fix was to say it once, in `dated`, where breaking it now bites.
+  and the warning split on commas instead of connectives reds WARN. The
+  twenty-fifth survived the first pass — the empty-cell guard, which turned out
+  to be written TWICE — and the fix was to say it once, in `dated`, where
+  breaking it now bites.
 
 The control fails five rungs by construction, the way headline-bars' `flat` tab
 does, so `a-control.html` declares DOT, PARENS, CHAIN, COMMA and DRY as misses:
 the run is green and the misses are the argument. A declared miss that starts
-PASSING is a failure too, and so is a departed rung that quietly comes back.
+PASSING is a failure too — `want` reports it — and so is a departed door that
+quietly comes back: SIG is captured in every tab, and the departed ones have to
+DIFFER from the signature the four that keep the door share.
 
 ## What shipping would need
 
@@ -1017,9 +1065,10 @@ mode, or a second control beside `input` — a chain is not an `<input>`, so
 `effectiveQuery` are where the composed string joins the strip, and the badge
 reading needs one more: replace a stage's tokens IN PLACE rather than append.
 The `.tv-ac` list needs a per-stage vocabulary and the `tv-ac-dim` rule for the
-constructors, both of which exist. The two keydown ladders (~4358) are the
-delicate part, and the dry accept lands right there — `finished = taken.full`,
-the branch that has to stop re-offering. Since this was written the datetime
+constructors, both of which exist. The two keydown ladders
+(`assets/table-view.js`:4613-4660) are the delicate part, and the dry accept
+lands right there — `finished = taken.full` at :4627, the branch that has to
+stop re-offering. Since this was written the datetime
 comparisons moved that decision ONTO THE ITEM: it read
 `taken.full || ac.stage === "value"`, and an offer that merely OPENS a token —
 an operator head before its date — now says so with `full: false`. A typed
@@ -1035,8 +1084,8 @@ stage it could OPEN the stage instead. `DEL` is bound to the crumb pop and would
 have to be re-decided.
 
 **The typed surface needs a producer.** The constructor roster is the language's
-and can be hard-coded; **the keyword AND column rosters are the TREE's** — `#+TODO:` in the
-tree's own config — — `#+TODO:` for the keywords, the property drawers for the custom columns — so
+and can be hard-coded; **the keyword AND column rosters are the TREE's** —
+`#+TODO:` for the keywords, the property drawers for the custom columns — so
 both open rosters are a producer question the renderer already half-answers (it
 enumerates observed values). A shipping F would want the producer to declare
 which values are closed and which are open, which is one more field on the
@@ -1116,6 +1165,7 @@ cell, `sort:` chains with empties last, `columns:` resolving against key and
 header with `Title` always present, quoting in the value position
 (`substring:"-x"`), and the vacuity rule — a token naming no atom is dropped,
 unsigned and added alike, while a lone `-` still empties the table. That is why
-`rig.js` is five times the fold-marks rig: here the grammar IS the stage, twice
+`rig.js` is nearly ten times the fold-marks rig — four and a half thousand lines
+against its four hundred and sixty-five: here the grammar IS the stage, twice
 over, and a completion domain that was not the real one would make every tab
 argue about the wrong thing.
