@@ -14,6 +14,35 @@ reverse index, `/graph` and `glance migrate` are all still unbuilt ·
 under the hood, source of truth, the user operates views: filtering / schema
 definition / relations* — where relations is the leg that is not yet a verb.
 
+## Delivered elsewhere
+
+Two proposals have since taken pieces this one sketched, and the spellings are
+theirs now rather than this page's.
+
+**The single-hop delivery** takes the query side of the relation: `from:ID`
+beside `ref:ID`, the `?kind=SLUG` test on both, and the existence metas
+`ref:*any*` / `from:*any*`, with the law in
+[`docs/query.md`'s "References"](../../query.md#references-ref-and-from).  It
+builds the **reverse edge map** stage 4 is named for, though as a per-request
+fold bound lazily behind the `*any*` token rather than as a field on the store —
+so a query naming no `*any*` pays nothing, and **stage 4's own work is still
+owed here**: the map at load, maintained per file on the watch step, and
+in-degree on the wire.  Two claims below are overtaken and left standing for the
+record: the orphan query is written `-from:*any*` rather than the
+`-linked:*empty*` shape "The shape, scoped" sketches, and "What this does not
+buy" no longer holds on direction — the popup still writes outgoing and `ref:`
+still reads incoming, but the QUERY says both ends.
+
+**The bounded closure** takes the two-hop and path sketch:
+[the chain a row hangs on](../proposed/2026-08-23-the-chain-a-row-hangs-on.md)
+spells a depth as `ref:ID..N` / `from:ID..N`, records this page's `ref:ID/2` as
+refused — `/` is the shell's own filter door and a fallback row id is itself a
+path — and leaves `path:A..B` open as a surface of its own.
+
+What is still this proposal's: the `glance:` protocol and its four read-forever
+aliases, id-only resolution, the `?kind=` spelling itself, in-degree on the
+wire, `GET /graph`, and `glance migrate`.
+
 ## The decisions this implements
 
 1. **One protocol.** `glance:` replaces `org-glance-visit:`,

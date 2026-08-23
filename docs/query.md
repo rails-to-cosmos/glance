@@ -29,7 +29,7 @@ colon into a value is quoting.
   `"+state:x"` is the literal string, `+` included. A lone `+` adds nothing.
 - `key:value` splits on the first `:` or `=` (the two are aliases). The value
   may carry more colons: `title:a:b` looks for `a:b`.
-- A key is one of the twelve below, spelled exactly (keys are
+- A key is one of the thirteen below, spelled exactly (keys are
   case-sensitive; `STATE:TODO` is free text). Anything else — `note:later`,
   a URL, `:work:` — is free text, matched literally, never an error.
 
@@ -60,7 +60,7 @@ does not.
 Values are case-folded. An empty value (`state:`) narrows nothing — a
 half-typed token never empties the table.
 
-## Three more predicates
+## Two more predicates
 
 - **`planned:`** — both date cells at once: a row is planned when either
   SCHEDULED or DEADLINE holds anything (`CLOSED:` does not count). Prefix
@@ -68,15 +68,115 @@ half-typed token never empties the table.
   `-planned:*empty*` the dated ones. Comparisons and ranges read here too,
   each date cell answering in turn — and the range says on this key what two
   tokens cannot (below).
-- **`ref:ID`** — rows whose subtree links to the row with that
-  `ORG_GLANCE_ID` (a row never references itself, and links resolve against
-  the target's id and title, so `[[Title]]` counts). An `[[id:…]]` link is
-  org-id's and matches only the target's `:ID:` property. The one value that
-  is **not** case-folded. An unknown id matches nothing. `@` on a focused row
-  drills into `ref:ID` behind a breadcrumb; `DEL` pops back.
 - **`substring:V`** — free text under a key, exactly `V` as a bare token
   would match, but with the predicate machinery: `substring:"-x"` searches a
   leading hyphen, `-substring:x` negates, `substring:a|b` alternates.
+
+## References: `ref:` and `from:`
+
+A REFERENCE is a link in a row's subtree that resolves to another row. Two
+keys read one edge, each from its own end.
+
+- **`ref:ID`** — rows whose subtree links to the row with that
+  `ORG_GLANCE_ID`. Links resolve against the target's id and title, so
+  `[[Title]]` counts; an `[[id:…]]` link is org-id's and matches only the
+  target's `:ID:` property. `@` on a focused row drills into `ref:ID` behind a
+  breadcrumb; `DEL` pops back.
+- **`from:ID`** — the REVERSE: the rows that row links to. Its own links
+  resolve through those same two namespaces — every row's id and title for a
+  `[[glance:…]]` or `[[Title]]` link, the `:ID:` properties for an `[[id:…]]`
+  one — so a link naming no row (a `https:` bookmark, a `file:` attachment) is
+  no reference and brings nothing back.
+
+The id is **the one value that is not case-folded**, on both keys, and an
+unknown id matches nothing. **A row is neither its own reference nor its own
+from-target:** a link resolving back to the row it was written in is dropped at
+both ends.
+
+### One edge, two tokens
+
+Two rows, one edge — `Ship the release` carries
+`[[glance:def456?kind=blocked-by][Sign the contract]]` in its body:
+
+| row | `ORG_GLANCE_ID` |
+| --- | --- |
+| Ship the release | `abc123` |
+| Sign the contract | `def456` |
+
+| query | serves | reads |
+| --- | --- | --- |
+| `ref:def456` | Ship the release | the rows pointing AT `def456` |
+| `from:abc123` | Sign the contract | the rows `abc123` points at |
+
+`ref:def456` names that edge from the target's end and `from:abc123` from the
+source's. Neither serves the row it was asked about.
+
+### `?kind=SLUG`, the edge's own spelling
+
+An edge may carry a KIND, and the query spells it the way the FILE does:
+org-glance writes `[[glance:ID?kind=SLUG][…]]`, so the token is
+`ref:ID?kind=SLUG` and `from:ID?kind=SLUG`. One grammar, read the same on both
+sides.
+
+- The bare forms stay **kind-blind** — `ref:ID` is every edge into `ID`, plain
+  mentions included — so a query written before kinds means what it meant.
+- The `?` opens the kind exactly as it does in a link target — and the cut is
+  taken **only where a `kind=` comes out of it**, so an id carrying a `?` that
+  declares no kind stays whole and resolves to the row it always did. A title's
+  own `?` is text for the same reason.
+- The slug is the peer's: downcased, whitespace runs folded to one `-`, applied
+  on the write and on the read, so `?kind=Blocked By` and `?kind=blocked-by`
+  are one kind. The scanner cuts on the space, so the long spelling is quoted
+  whole — `ref:"def456?kind=Blocked By"`.
+- A kind no edge carries matches nothing, the way `state:TOD` does.
+
+On the pair above, `ref:def456?kind=blocked-by` still serves Ship the release,
+and `ref:def456?kind=see-also` serves nothing.
+
+### `*any*`, the existence meta
+
+`*any*` stands where an id stands, and asks whether the row is on the relation
+at all:
+
+| token | serves |
+| --- | --- |
+| `ref:*any*` | rows carrying at least one reference — something they point at |
+| `from:*any*` | rows something points at |
+| `-ref:*any*` | rows that reference nothing |
+| `-from:*any*` | the ORPHANS: rows nothing points at |
+
+**It is the union over the anchor**, which is what every starred word in a value
+slot already means: `ref:*any*` serves exactly the rows some `ref:ID` serves,
+and `from:*any*` the rows some `from:ID` serves. Two laws follow rather than
+being added. **A self-reference is still no reference** — a row whose only link
+points at itself is served by neither, exactly as it is served by neither when
+asked with its own id. And **a link naming no row is still no reference**: an
+unknown anchor serves nothing, so a `https:` bookmark counts towards neither.
+
+It is a starred word, so it is one of the metas below and reserved in every
+context — and since a reference value is the one value that is not case-folded,
+the stars are spelled in lower case: `ref:*ANY*` names no row and matches none,
+the way `ref:ALPHA` does. The bare word stays an ordinary value, so `ref:any` is
+the id spelled `any`.
+
+A kind narrows the meta like any other anchor. With `blocked-by` written on the
+blocked row, `ref:*any*?kind=blocked-by` is the rows carrying such an edge —
+everything that is blocked — and `from:*any*?kind=blocked-by` the rows some edge
+names that way: everything that blocks.
+
+### Two keys, two axes
+
+`ref` and `from` are DIFFERENT RELATIONS, so each carries its own axis. Two
+tokens on one key AND, a `+` widens the axis it names and no other, and the two
+axes AND with each other as any two do. Grouping is by key and never by
+adjacency, so token order carries nothing here either.
+
+| query | serves |
+| --- | --- |
+| `ref:abc123 ref:def456` | rows pointing at both |
+| `ref:abc123 +ref:def456` | rows pointing at either — one axis, widened |
+| `ref:abc123 from:abc123` | rows that point at `abc123` and are pointed at by it |
+| `ref:abc123 +from:def456` | those of them `def456` points at — a `+` alone on its axis is the plain token, and it never widens across to `ref` |
 
 ## Alternatives and negation
 
@@ -94,9 +194,10 @@ axis the plain and negated tokens AND as they always did, and the `+` tokens
 OR against that conjunction; the axes still AND with each other. So a `+`
 widens one filter and leaves every other one standing.
 
-An axis is a key: each of the six column keys has its own, so do `planned` and
-`ref`, and `substring:` shares one with bare free text. Grouping is by key,
-never by adjacency, so token order carries nothing.
+An axis is a key: each of the six column keys has its own, so do `planned`,
+`ref` and `from` — `ref` and `from` being different relations, they are two
+axes and not one — and `substring:` shares one with bare free text. Grouping is
+by key, never by adjacency, so token order carries nothing.
 
 `priority:[#A] tag:book +priority:[#B]` serves the book rows at priority A or
 B: the priority axis reads "A or B", the tag axis reads "book", and the two
@@ -278,7 +379,7 @@ comparisons ORed and never a range; `-` inverts the whole token, as everywhere.
 
 ## The `*word*` metas
 
-Six, spelled with matched stars; a star anywhere else is literal text and
+Seven, spelled with matched stars; a star anywhere else is literal text and
 never a glob.
 
 | meta | where | means |
@@ -288,7 +389,12 @@ never a glob.
 | `*inactive*` | `state:` | a done-like keyword (the empty cell is not included) |
 | `*archive*` | `tag:` | the whole tag `archive` — see below |
 | `*today*` | the date keys' values | the server's local day, `YYYY-MM-DD` |
+| `*any*` | `ref:`, `from:` | any target at all: the row is on that relation |
 | `*none*` | `sort:` | no order at all: document order |
+
+`*today*` and `*any*` stand inside a value where the rest stand as the whole of
+one — a date literal's place and an id's place — and they are members all the
+same: a starred word is a meta wherever it is read, or it is nothing.
 
 The bare words stay ordinary values: `state:none` looks for a keyword
 spelled NONE.

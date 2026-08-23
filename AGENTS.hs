@@ -2180,7 +2180,13 @@ blank = maybe True null
 -- grammar and the matcher cannot disagree about a token.
 
 data VK    = VSort | VColumns | VView deriving (Eq, Show, Enum, Bounded)
-data Field = FCol Col | FPlanned | FRef | FView VK | FFree deriving (Eq, Show)
+-- | THE AXIS A KEY JOINS, and `ref' and `from' STAND AS TWO.  They are one edge
+-- read from its two ends and never one predicate: `ref:T' asks what the ROW's
+-- own subtree points at and `from:T' what T's does, and no row's answer to one
+-- decides its answer to the other.  On one axis `+ref:T' would widen `from:'
+-- too and put two unrelated questions inside one conjunction; as two, every
+-- axis law reads them exactly as it reads `tag' beside `state'.
+data Field = FCol Col | FPlanned | FRef | FFrom | FView VK | FFree deriving (Eq, Show)
 
 viewKeys :: [(String, VK)]
 viewKeys = [("sort", VSort), ("columns", VColumns), ("view", VView)]
@@ -2190,6 +2196,7 @@ dateCols = [CSched, CDead]
 fieldOf :: String -> Maybe Field
 fieldOf k | k == "planned"   = Just FPlanned
           | k == "ref"       = Just FRef
+          | k == "from"      = Just FFrom
           | k == "substring" = Just FFree
           | Just v <- lookup k viewKeys = Just (FView v)
           | otherwise        = FCol <$> lookup k [(cKey x, cCol x) | x <- viewColumns]
@@ -2199,12 +2206,15 @@ fieldCells :: Field -> [Col]
 fieldCells (FCol c)  = [c]
 fieldCells FPlanned  = dateCols
 fieldCells FRef      = []
+fieldCells FFrom     = []
 fieldCells (FView _) = []
 fieldCells FFree     = []
 
--- | Every predicate value is case-folded but the reference's: a row id is exact.
+-- | Every predicate value is case-folded but the two references': a row id is
+-- exact, and the kind half behind the `?' is SLUGGED rather than folded.
 folds :: Field -> Bool
 folds FRef      = False
+folds FFrom     = False
 folds (FCol _)  = True
 folds FPlanned  = True
 folds (FView _) = True
@@ -2217,10 +2227,11 @@ narrows (FView _) = False
 narrows (FCol _)  = True
 narrows FPlanned  = True
 narrows FRef      = True
+narrows FFrom     = True
 narrows FFree     = True
 
 allFields :: [Field]
-allFields = map FCol cols <> [FPlanned, FRef, FFree] <> map (FView . snd) viewKeys
+allFields = map FCol cols <> [FPlanned, FRef, FFrom, FFree] <> map (FView . snd) viewKeys
 
 -- ** The scanner and its terms
 
@@ -2586,19 +2597,89 @@ refVias = [ ("glance:", ViaRow), ("org-glance-material:", ViaRow)
           , ("org-glance-visit:", ViaRow), ("org-glance-open:", ViaRow)
           , ("id:", ViaOrgId) ]
 
--- | @ref:@ over a target the store resolved: no row claiming the id matches
--- nothing, and a row is never its own reference.  A link matches in its OWN
--- namespace: SPELLINGS (`ORG_GLANCE_ID' and title) answer `ViaRow'; the row's
--- `:ID:' property alone answers `ViaOrgId' — `id:' is org-id's protocol, and
--- `ORG_GLANCE_ID' never resolves it.  The KIND is carried past the match
--- rather than tested by it: `ref:' asks whether one row points at another,
--- which a kind does not change.
-refTest :: Maybe (RowId, [String], Maybe String) -> RowId -> [Ref] -> Bool
-refTest Nothing _ _ = False
-refTest (Just (t, spelling, orgId)) row links = row /= t && any names links
-  where names l = case refVia l of
-          ViaRow   -> refTarget l `elem` spelling
-          ViaOrgId -> Just (refTarget l) == orgId
+-- | A ROW AS BOTH ENDS OF AN EDGE: the id it is known by, the NAMES it answers
+-- to and the references its subtree makes.  Each name is bound to the namespace
+-- it answers in — SPELLINGS (`ORG_GLANCE_ID' and title, what `[[Title]]' and
+-- `[[*Title]]' resolve against) answer `ViaRow', and the `:ID:' property alone
+-- answers `ViaOrgId', `id:' being org-id's protocol and `ORG_GLANCE_ID' never
+-- resolving it.  ONE LIST FOR BOTH DIRECTIONS, so `ref:' and `from:' cannot
+-- drift into two namespace rules.
+data Node = Node { nodeId :: RowId, nodeNames :: [(RefVia, String)], nodeLinks :: [Ref] }
+  deriving (Eq, Show)
+
+node :: RowId -> [String] -> Maybe String -> [Ref] -> Node
+node i spelling orgId =
+  Node i ([(ViaRow, s) | s <- spelling] <> [(ViaOrgId, o) | Just o <- [orgId]])
+
+-- | Does L name N?  The link's own namespace decides, `nodeNames' spelling both.
+namesRow :: Node -> Ref -> Bool
+namesRow n l = (refVia l, refTarget l) `elem` nodeNames n
+
+-- | Does an edge carrying E answer a token asking for KIND?  `Nothing' IS THE
+-- KIND-BLIND READING and every edge answers it, which is what keeps a bare
+-- `ref:' the test it always was.  BOTH SIDES ARRIVE SLUGGED — the edge's kind
+-- by `refTargetOf', the token's by `anchorIn' — so this compares canon to canon.
+carriesKind :: Maybe String -> Maybe String -> Bool
+carriesKind Nothing  _ = True
+carriesKind (Just k) e = e == Just k
+
+-- | N's references narrowed to the ones carrying KIND.
+refsCarrying :: Maybe String -> Node -> [Ref]
+refsCarrying kind n = [ l | l <- nodeLinks n, carriesKind kind (refKind l) ]
+
+-- | @ref:T?kind=K@ over a target the store resolved: no row claiming the id
+-- matches nothing, and a row is never its own reference.  ROW is the candidate
+-- and T the anchor, so the CANDIDATE's own references are walked and matched
+-- against the ANCHOR's names.
+refTest :: Maybe Node -> Maybe String -> Node -> Bool
+refTest Nothing  _    _   = False
+refTest (Just t) kind row = nodeId row /= nodeId t && any (namesRow t) (refsCarrying kind row)
+
+-- | @from:T?kind=K@ — THE REVERSE, and the same edge read from its other end:
+-- the ANCHOR's references are walked and matched against the CANDIDATE's names.
+-- Every law `refTest' carries rides along unchanged — an unresolvable anchor
+-- serves nothing, a row is not its own target, the kind narrows the edge — and
+-- the end that varies is the whole of what differs.  THE DUALITY that ties the
+-- two: `from:T' serves R exactly where `ref:R' serves T.
+fromTest :: Maybe Node -> Maybe String -> Node -> Bool
+fromTest Nothing  _    _   = False
+fromTest (Just t) kind row = nodeId row /= nodeId t && any (namesRow row) (refsCarrying kind t)
+
+-- | @ref:*any*@ and @from:*any*@ — THE UNION OVER THE ANCHOR SLOT, spelled as
+-- the union: over the store's ROWS, the starred word serves exactly the rows
+-- some named anchor serves.  So a self-link alone answers neither (a row is not
+-- its own reference at either end) and a link naming no row answers neither (an
+-- unresolvable anchor serves nothing, and this is that law's union).
+anyTest :: (Maybe Node -> Maybe String -> Node -> Bool)
+        -> [Node] -> Maybe String -> Node -> Bool
+anyTest test store kind row = any (\t -> test (Just t) kind row) store
+
+-- | A `ref:'\/`from:' VALUE as the ANCHOR it names and the KIND it tests for.
+-- THE CUT IS THE LINK TARGET'S OWN — at the first `?', the peer's `kind=' key
+-- read behind it — AND IS TAKEN ONLY WHERE A KIND COMES OUT OF IT: a link's
+-- target is the peer's URL, whose `?' always opens a query, where a ROW ID is
+-- no URL.  So a `?' declaring no kind stays in the id, a title's own question
+-- mark is text, and every value that resolved before resolves to the same row.
+anchorIn :: String -> (String, Maybe String)
+anchorIn v = case kindIn (drop 1 query) of
+  Nothing   -> (v, Nothing)
+  Just kind -> (row, Just kind)
+  where (row, query) = breakOnStr "?" v
+
+-- | The `kind' a `?' query declares; an EMPTY one and a whitespace-only one
+-- declare none, and only the peer's own key is read — anything else it writes
+-- is not a kind.
+kindIn :: String -> Maybe String
+kindIn query = listToMaybe [ slug | part <- splitOnStr "&" query
+                                  , Just v <- [stripPrefix "kind=" part]
+                                  , let slug = kindSlug v, not (null slug) ]
+
+-- | A kind CANONICALIZED, and the rule is the PEER's: downcased, trimmed, runs
+-- of whitespace folded to one `-' (org-glance's `org-glance--kind-slug').  It
+-- slugs on encode AND on read, so a hand-typed `Roasted By' and a written
+-- `roasted-by' are ONE kind.
+kindSlug :: String -> String
+kindSlug = intercalate "-" . words . qFold
 
 -- | `priorityLetter': org's brackets off, folded — the MATCHER's rule and the
 -- priority column's sort key.
@@ -2610,7 +2691,7 @@ qLetter v = qFold (fromMaybe v (unbracket v))
 
 -- ** The starred family, and it is total
 
-data Meta = MActive | MInactive | MEmpty | MArchive | MNone | MToday
+data Meta = MActive | MInactive | MEmpty | MArchive | MNone | MToday | MAny
   deriving (Eq, Show, Enum, Bounded)
 metas :: [Meta]
 metas = [minBound .. maxBound]
@@ -2623,6 +2704,7 @@ metaWord MEmpty    = starred "empty"
 metaWord MArchive  = starred "archive"   -- DERIVED from org's own ARCHIVE tag, folded
 metaWord MNone     = starred "none"
 metaWord MToday    = starred "today"     -- a DATE VALUE, not a cell predicate
+metaWord MAny      = starred "any"       -- an ANCHOR, and the union over that slot
 -- | The stars read backwards; a bare word is never a meta and @**@ is no word.
 metaOf :: String -> Maybe String
 metaOf v | "*" `isPrefixOf` v, "*" `isSuffixOf` v, length v > 2 = Just (drop 1 (init v))
@@ -2630,7 +2712,7 @@ metaOf v | "*" `isPrefixOf` v, "*" `isSuffixOf` v, length v > 2 = Just (drop 1 (
 isMeta :: String -> Bool
 isMeta v = v `elem` map metaWord metas
 
-data MetaHome = EveryCell | TagCell | StateCell | OrderToken | DateValue
+data MetaHome = EveryCell | TagCell | StateCell | OrderToken | DateValue | RefAnchor
   deriving (Eq, Show)
 -- | Where each meta is answered.
 metaHome :: Meta -> MetaHome
@@ -2638,10 +2720,13 @@ metaHome MEmpty    = EveryCell    -- every column key, and `planned'
 metaHome MArchive  = TagCell      -- a starred word on `tag' is that WHOLE tag
 metaHome MActive   = StateCell
 metaHome MInactive = StateCell
-metaHome MNone     = OrderToken   -- the one meta naming no cell
+metaHome MNone     = OrderToken   -- the ORDER token's own word, and it reads no cell
 -- The one meta that is a VALUE rather than a predicate: it names no cell and
 -- reads no row, standing where a date literal stands ('stampOf', 'litOf').
 metaHome MToday    = DateValue
+-- A PREDICATE that reads no cell either: it stands where a `ref:'/`from:' row
+-- id stands ('anchorIn') and is the UNION over that slot ('anyTest').
+metaHome MAny      = RefAnchor
 
 data StateOf = SActive | SInactive | SNone deriving (Eq, Show, Enum, Bounded)
 states :: [StateOf]
@@ -2655,6 +2740,7 @@ groupTest MEmpty    s = s == SNone
 groupTest MArchive  _ = False
 groupTest MNone     _ = False
 groupTest MToday    _ = False
+groupTest MAny      _ = False
 -- | The state column's meta VALUES, beside its badges: filter vocabulary, no cell.
 stateValues :: [String]
 stateValues = map metaWord [MActive, MInactive]
@@ -2838,7 +2924,10 @@ gaps =
   , (PriorityFold, Renderer)   -- `tokenTest' does not fold, so `priority:A' finds nothing there
   , (MultiColumn,  Neither)    -- declared here by NAME, sampled there
   , (DateNess,     Neither)    -- two hardcoded keys here, sampled date-shape there; the comparison forms answer alike on both
-  , (RefKey,       Renderer)   -- undecidable off a page, so it reads as free text
+    -- THE WHOLE REFERENCE AXIS under one row: `ref', `from', the `?kind=' cut
+    -- and `*any*' are all undecidable off a page, the edge map being the
+    -- store's, so each reads there as the free text it always was.
+  , (RefKey,       Renderer)
   , (StateGroups,  Renderer)   -- literal badge text there, but for @*active*@'s empty term
   ]
 -- | The renderer's sampling for a multi-valued column: cells read, tag-shaped
@@ -2917,6 +3006,71 @@ queryNotes =
          \the id, so `refTargetOf' cuts the row at the first `?' and keeps the kind \
          \BESIDE it.  A title's own `?' is text and stays, the strip being guarded \
          \to the protocol branch." [Test]
+  , Note "`from:ID' IS `ref:ID' READ FROM THE OTHER END: `ref:' serves the rows \
+         \whose subtree points AT the row the id names, `from:' the rows that row \
+         \POINTS AT — its own links resolved through the same two namespaces, \
+         \ViaRow against every row's spellings and ViaOrgId against the `:ID:' \
+         \property.  Every law `ref:' carries rides along: an id no row claims \
+         \serves nothing and does NOT 400, a row is never its own target at either \
+         \end (the materialize footer's self-link included), the value keeps its \
+         \case alone among the predicates, and the alternatives OR.  THE TWO ARE \
+         \TWO AXES rather than one, being two relations: no row's answer to one \
+         \decides its answer to the other, so they AND the way `tag' and `state' \
+         \do, `+ref:' widens the ref axis alone, and the grouping being by KEY, \
+         \token order carries nothing across them.  THE DUALITY is the whole of \
+         \what ties them — `from:T' serves R exactly where `ref:R' serves T." [Test]
+  , Note "A KIND TEST RHYMES WITH THE EDGE'S OWN FILE SPELLING: the peer writes \
+         \`glance:ID?kind=SLUG' and the token spells `ref:ID?kind=SLUG' and \
+         \`from:ID?kind=SLUG', each narrowing to the edges CARRYING that kind.  ONE \
+         \READING under both, the cut at the first `?' with the peer's `kind=' key \
+         \behind it, and ONE SLUG under both, so a hand-typed `Blocked By' and a \
+         \written `blocked-by' are one kind.  THE BARE FORMS STAY KIND-BLIND, \
+         \today's law untouched.  THE CUT IS TAKEN ONLY WHERE A KIND COMES OUT OF \
+         \IT, `unitFolded''s own discipline: a link's target is the peer's URL and \
+         \its `?' always opens a query, where a ROW ID is no URL — so a `?' \
+         \declaring no kind stays in the id and a title's question mark is text." [Test]
+  , Note "`ref:*any*' AND `from:*any*' ARE THE UNION OVER THE ANCHOR SLOT: each \
+         \serves exactly the rows some named anchor on its own key serves, so a \
+         \self-link alone answers neither and a link naming no row answers neither, \
+         \the unresolvable anchor's law being what this is the union of.  THE WORD \
+         \JOINS THE ROSTER rather than being read privately by two keys, on \
+         \`*today*''s own precedent: a starred word standing where a VALUE stands \
+         \took a `MetaHome' of its own with it, and a word the code spells that \
+         \`metas' does not list would falsify the roster's own law — every starred \
+         \word the code spells is in it — and leave the census blind to it.  The \
+         \value is NOT folded on these keys, so `ref:*ANY*' names no row and \
+         \matches none, exactly as `ref:ALPHA' does." [Test]
+  , Note "NEITHER DIRECTION WANTS AN INDEX: each fixes its anchor at COMPILE and \
+         \walks one small link list per row — `ref:' the row's own against the \
+         \anchor's names, `from:' the anchor's own against the row's names — which \
+         \is one cost with the ends swapped.  THE STARRED ANCHOR fixes neither end \
+         \and is the one reading that does: a name to the rows CLAIMING it, and a \
+         \name to the edges NAMING it.  Both maps are built LAZILY inside the \
+         \per-request `storeEnv', off the SAME id-resolved row list the filter runs \
+         \over, so a query naming no `*any*' forces neither.  AT THE STORE THEY \
+         \COULD NOT BE RIGHT: an edge resolves through every file's rows and \
+         \through `resolveIds', where `stTags' is per-row and per-file, so a \
+         \`putFile' maintaining them would be maintaining a whole-store function \
+         \one file at a time.  The two-writers law is left standing." [Test]
+  , Note "THE COMPILE IS ONCE PER REQUEST AND A BINDING IS ALL THAT HOLDS IT \
+         \THERE: `matchesFilter' hands back a closure, but applied inside \
+         \`viewPage''s row lambda the partial application is rebuilt per row and \
+         \the parse, the anchor's resolution through a LINEAR `feRef' and the \
+         \fixed end's own half run per row with it.  Measured over 10452 rows, \
+         \`ref:' on an anchor at the store's end cost 830 ms unbound against 11 \
+         \ms bound, six times past a keystroke's budget.  NOTHING CATCHES A \
+         \REGRESSION: the shape type-checks either way and no timing assertion \
+         \guards it; a `Matcher' newtype the route must hold would." [Unguarded]
+  , Note "THE PRICE OF THE NEW KEY, STATED: `from' resolved to no field before, so \
+         \`from:X' was a FREE-TEXT needle searched in hrSearch and a row whose \
+         \cells spell it matched; as a key it is a predicate and that row no longer \
+         \does.  That is the closed list's own cost, paid once per key added, and \
+         \the no-tree-can-take-the-key-away pin moves with the law.  THE KIND HALF \
+         \COSTS NOTHING: `?kind=' inside a `ref:' value made the whole string an id \
+         \no row claims, so it matched nothing and the ground was DEAD; the cut \
+         \being taken only where a kind comes out of it, every other `?' in a value \
+         \is left exactly where it was.  EVERY QUERY NAMING NEITHER ANSWERS BYTE \
+         \FOR BYTE." [Test]
   , Note "DEDUP IS ON THE PAIR, which is the peer's own rule: two typed edges to \
          \one row are two references where two plain mentions are one.  `nub' over \
          \the whole `Ref' is that rule." [Test]

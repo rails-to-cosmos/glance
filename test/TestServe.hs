@@ -6696,6 +6696,38 @@ querySpec = testGroup "GET /headlines filter and paging"
       assertEqual "the quoted spaced spelling is that one query" (Just "1")
         =<< total "/headlines?q=deadline%3A%222026-08-01%20%2B%204%20days%22"
 
+    -- THE REFERENCE AXES OVER THE WIRE, one drive each direction and one kind
+    -- test.  This route's subject is transport; TestFilter draws the graph and
+    -- states every rule.  `?' travels as %3F and `*' as itself.
+  , testCase "both reference directions reach the filter, kind and all" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "edges.org" (T.unlines
+               [ "* Anchor"
+               , ":PROPERTIES:"
+               , ":ORG_GLANCE_ID: anchor"
+               , ":END:"
+               , "cites [[glance:target?kind=cites][T]]"
+               , "* Target"
+               , ":PROPERTIES:"
+               , ":ORG_GLANCE_ID: target"
+               , ":END:"
+               , "* Bystander" ])
+        (a, _hub) <- serverOver dir
+        let titles path = fmap sort . mapM (textAt "title" <=< field "cells")
+                            =<< rowsOf =<< getFrom a path
+        assertEqual "ref: serves the row pointing at the target" ["Anchor"]
+          =<< titles "/headlines?q=ref%3Atarget"
+        assertEqual "from: serves the row the anchor points at" ["Target"]
+          =<< titles "/headlines?q=from%3Aanchor"
+        assertEqual "the kind test narrows to the edge's own kind" ["Anchor"]
+          =<< titles "/headlines?q=ref%3Atarget%3Fkind%3Dcites"
+        assertEqual "and a kind no edge carries serves nothing" []
+          =<< titles "/headlines?q=from%3Aanchor%3Fkind%3Dblocked-by"
+        assertEqual "the starred anchor is the union over the slot" ["Anchor"]
+          =<< titles "/headlines?q=ref%3A*any*"
+        assertEqual "read from the other end" ["Target"]
+          =<< titles "/headlines?q=from%3A*any*"
+
   , testCase "the default view carries the entry nobody stated" $
       withTempDir $ \dir -> do
         _ <- orgFile dir "notes.org" (T.unlines

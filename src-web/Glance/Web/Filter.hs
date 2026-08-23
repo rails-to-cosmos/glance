@@ -6,6 +6,7 @@ module Glance.Web.Filter ( Cmp (..)
                          , Term (..)
                          , Token (..)
                          , alternatives
+                         , anyMeta
                          , archiveKey
                          , archiveMeta
                          , cellAt
@@ -17,6 +18,7 @@ module Glance.Web.Filter ( Cmp (..)
                          , emptyEnv
                          , emptyMeta
                          , filterKeys
+                         , fromKey
                          -- Exported for the SPEC PIN alone (TestSpec), with
                          -- 'shiftIn' and 'unspaced' below: the model spells the
                          -- shift grammar and the quoted form's fold too, and the
@@ -44,17 +46,22 @@ module Glance.Web.Filter ( Cmp (..)
 
 import Data.Char (digitToInt, isDigit)
 import Data.List (elemIndex, find)
+import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
+import Data.Set (Set)
 import Data.Text (Text)
 import Data.Time (Day)
 
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
-                    , RefVia (..), refTarget, refVia
-                    , Meta (..), activeMeta, archiveTag, cellSep, dayOf, filterKeys
-                    , groupOn, idPropertyOf, inactiveMeta, isoDay, metaWord
-                    , priorityLetter, refSpellings, shiftDay, shiftUnits, tagRunEntries )
+                    , RefVia, refKind, refTarget, refVia
+                    , Meta (..), activeMeta, archiveTag, carriesKind, cellSep, dayOf
+                    , filterKeys, groupOn, inactiveMeta, isoDay, kindCut, metaWord
+                    , pointedAtBy, pointsAt, priorityLetter, refNames, refsCarrying
+                    , shiftDay, shiftUnits, tagRunEntries )
 
 
 dateKeys :: [Text]
@@ -63,6 +70,11 @@ dateKeys = ["scheduled", "deadline"]
 -- | @ref:ROWID@ — rows whose subtree points at the row named.  Producer-only, and the one predicate value that is NOT folded.
 refKey :: Text
 refKey = "ref"
+
+-- | @from:ROWID@ — THE REVERSE: the rows the row named points at.  Producer-only
+-- and unfolded, @ref:@'s two laws it shares; the direction is all that differs.
+fromKey :: Text
+fromKey = "from"
 
 -- | @planned@ — either date cell holding anything; renderer-decidable too.
 plannedKey :: Text
@@ -196,6 +208,25 @@ emptyMeta = metaWord MEmpty
 -- stands: bare, behind any operator, at either end of a range.
 todayMeta :: Text
 todayMeta = metaWord MToday
+
+-- | @*any*@ — the starred family's ANCHOR, legal wherever a @ref:@\/@from:@ row
+-- id stands and NOWHERE ELSE.  IT IS THE UNION OVER THE ANCHOR SLOT, which is
+-- the reading every starred word in a value slot already has (@*active*@ is the
+-- union over the file's active keywords): @ref:*any*@ serves exactly the rows
+-- some @ref:T@ serves, and @from:*any*@ the rows some @from:T@ serves.  So a
+-- self-link alone answers neither — a row is not its own reference at either
+-- end — and a link naming no row answers neither, an unresolvable anchor
+-- serving nothing being the shipped law this is the union of.
+--
+-- IT IS A MEMBER OF THE FAMILY rather than a word this key reads privately, and
+-- @*today*@ is the precedent: a starred word standing where a VALUE stands
+-- joined the roster and took a 'MetaHome' of its own with it.  A word the code
+-- spells and 'metas' does not list would falsify the roster's own law — every
+-- starred word the code spells is in it — and leave the model's census blind to
+-- it.  THE VALUE IS NOT FOLDED HERE, alone among the predicates ('valueFor'),
+-- so @ref:*ANY*@ names no row and matches none, exactly as @ref:ALPHA@ does.
+anyMeta :: Text
+anyMeta = metaWord MAny
 
 metaOf :: Text -> Maybe Text
 metaOf value = do
@@ -361,20 +392,60 @@ unitFolded l = fromMaybe l (listToMaybe
 
 
 -- | What a predicate may ask OUTSIDE the row it is matching: the store, which
--- @ref:@ resolves an id against, and the request's own DAY, which @*today*@
--- names and a shift moves.  ONE CLOCK READ PER REQUEST, taken before any row:
--- the day arrives here already read, so a query asked across midnight cannot
--- mean two days.
+-- the reference keys resolve an id against and read the edge map off, and the
+-- request's own DAY, which @*today*@ names and a shift moves.  ONE CLOCK READ
+-- PER REQUEST, taken before any row: the day arrives here already read, so a
+-- query asked across midnight cannot mean two days.
 data FilterEnv = FilterEnv
-  { feRef   :: Text -> Maybe HeadlineRecord  -- ^ a row id resolved, or 'Nothing' where no row claims it.
-  , feToday :: Maybe Day                     -- ^ the request's own day; 'Nothing' where no clock was read, and @*today*@ then names no day — with a shift behind it or without.
+  { feRef     :: Text -> Maybe HeadlineRecord  -- ^ a row id resolved, or 'Nothing' where no row claims it.
+  , feRefAny  :: Maybe Text -> HeadlineRecord -> Bool  -- ^ @ref:*any*@: does the row point at ANOTHER row over an edge of that kind?
+  , feFromAny :: Maybe Text -> HeadlineRecord -> Bool  -- ^ @from:*any*@: does ANOTHER row point at it over an edge of that kind?
+  , feToday   :: Maybe Day                     -- ^ the request's own day; 'Nothing' where no clock was read, and @*today*@ then names no day — with a shift behind it or without.
   }
 
+-- | No store and no clock.  The reference keys then serve NO ROW in either
+-- direction and under either anchor, which is what a locally-filtered path
+-- answers: an id it cannot resolve, and an edge map it cannot read.
 emptyEnv :: FilterEnv
-emptyEnv = FilterEnv (const Nothing) Nothing
+emptyEnv = FilterEnv (const Nothing) noEdge noEdge Nothing
+  where noEdge _kind _r = False
 
+-- | ROWS as the reference keys read them.  THE EDGE MAPS ARE BOUND LAZILY and
+-- built at most once per request, never per row: a query naming no @*any*@
+-- forces neither, so the whole cost sits behind the one token that asks for it.
+-- The row-to-row tests need no map at all — each fixes one end at compile
+-- ('pointsAt', 'pointedAtBy') — and it is the STARRED anchor alone, which fixes
+-- neither end, that these answer.
 storeEnv :: [HeadlineRecord] -> FilterEnv
-storeEnv rows = FilterEnv (\rid -> find ((== rid) . hrId) rows) Nothing
+storeEnv rows = FilterEnv
+  { feRef     = \rid -> find ((== rid) . hrId) rows
+  , feRefAny  = \kind r -> any (claimedByAnother (hrId r)) (refsCarrying kind r)
+  , feFromAny = \kind r -> any (namedByAnother (hrId r) kind) (refNames r)
+  , feToday   = Nothing
+  }
+  where
+    -- A NAME → THE ROWS CLAIMING IT, each in its own namespace: the forward
+    -- half, which is what a link resolves THROUGH.  @ref:*any*@ needs it
+    -- because a link naming no row is no reference.
+    claims :: Map (RefVia, Text) (Set Text)
+    claims = Map.fromListWith Set.union
+               [ (n, Set.singleton (hrId r)) | r <- rows, n <- refNames r ]
+    -- A NAME → THE EDGES NAMING IT, each as its kind and its source row: THE
+    -- REVERSE EDGE MAP, and the one fact no row carries about itself.  The kind
+    -- rides in because the edge is where a kind lives, so a kind test on
+    -- @from:*any*@ reads the same slot @from:T@ reads.
+    namers :: Map (RefVia, Text) [(Maybe Text, Text)]
+    namers = Map.fromListWith (<>)
+               [ ((refVia l, refTarget l), [(refKind l, hrId r)])
+               | r <- rows, l <- hrLinks r ]
+    -- ANOTHER row, in both: the self-edge is excluded at the map exactly as it
+    -- is at the row-to-row test, so the two readings of "not its own reference"
+    -- are one.
+    claimedByAnother mine l =
+      any (/= mine) (Map.findWithDefault Set.empty (refVia l, refTarget l) claims)
+    namedByAnother mine kind n =
+      any (\(k, src) -> src /= mine && carriesKind kind k)
+          (Map.findWithDefault [] n namers)
 
 -- | ENV with the request's own day on it.  THE DAY IS CARRIED AS A DAY and
 -- spelled only where a literal is owed ('literalIn'), which is what lets a
@@ -389,11 +460,20 @@ matchesFilter env q | null tests = const True
                     | otherwise  = \r -> all ($ r) tests
   where tests = compile env (parseFilter q)
 
-data Field = Col !Int | Planned | Ref | Order | Whole deriving Eq
+-- | THE AXIS A KEY JOINS, and @ref@ and @from@ STAND AS TWO.  They are one
+-- edge read from its two ends and never one predicate: @ref:T@ asks what the
+-- ROW's own subtree points at, @from:T@ what T's does, and no row's answer to
+-- one decides its answer to the other.  Sharing an axis would make @+ref:T@
+-- widen @from:@ too and put two unrelated questions inside one conjunction; as
+-- two, every axis law reads them exactly as it reads @tag@ beside @state@ —
+-- they AND, each folds its own alternatives and its own @+@ tokens, and the
+-- grouping being by KEY, token order carries nothing across them either.
+data Field = Col !Int | Planned | Ref | From | Order | Whole deriving Eq
 
 fieldOf :: Text -> Maybe Field
 fieldOf key | key == plannedKey     = Just Planned
             | key == refKey         = Just Ref
+            | key == fromKey        = Just From
             | key == substringKey   = Just Whole
             | key `elem` viewKeys   = Just Order
             | otherwise             = Col <$> elemIndex key filterKeys
@@ -402,6 +482,7 @@ fieldCells :: Field -> [Int]
 fieldCells (Col i) = [i]
 fieldCells Planned = dateColumns
 fieldCells Ref     = []
+fieldCells From    = []
 fieldCells Order   = []
 fieldCells Whole   = []
 
@@ -412,6 +493,7 @@ narrows Order   = False
 narrows (Col _) = True
 narrows Planned = True
 narrows Ref     = True
+narrows From    = True
 narrows Whole   = True
 
 -- | Do KEY's cells hold ISO stamps?  THE COMPARISON FORMS ARE READ ON THESE
@@ -480,9 +562,12 @@ atomsUnder :: Text -> Text -> [Text]
 atomsUnder key value | stamped key = filter (isJust . stampOf) (map unspaced (alternatives value))
                      | otherwise   = alternatives value
 
--- ONE EQUATION PER CONSTRUCTOR and no wildcard, so a fifth key is named HERE by the compiler.
+-- ONE EQUATION PER CONSTRUCTOR and no wildcard, so a sixth key is named HERE by the compiler.
 valueFor :: Field -> Term -> Text
+-- The two reference keys keep their case, alone among the predicates: a row id
+-- is exact, and the kind half behind the `?' is slugged rather than folded.
 valueFor Ref       = tmValue
+valueFor From      = tmValue
 valueFor (Col _)   = T.toLower . tmValue
 valueFor Planned   = T.toLower . tmValue
 valueFor Order     = T.toLower . tmValue
@@ -510,24 +595,45 @@ freeTest value | T.null value = const True
                | otherwise    = T.isInfixOf value . hrSearch
 
 keyTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
--- An unresolvable id matches nothing; a row is not its own reference.
-keyTest env _key Ref value = case feRef env value of
-  Nothing  -> const False
-  -- Over the RECORD's references, so the kind beside each one is in reach.  A
-  -- link matches in ITS OWN namespace: the row's spellings for 'ViaRow', the
-  -- @:ID:@ property alone for org-id's 'ViaOrgId'.
-  Just row ->
-    let targets = refSpellings row
-        oid = idPropertyOf row
-        names l = case refVia l of
-          ViaRow   -> refTarget l `elem` targets
-          ViaOrgId -> maybe False (refTarget l ==) oid
-    in \r -> hrId r /= hrId row && any names (hrLinks r)
+-- THE TWO ENDS OF ONE EDGE, each its own key and its own axis: @ref:T@ serves
+-- the rows pointing AT T, @from:T@ the rows T points at.  Both read one
+-- reader ('edgeTest'), so the anchor cut, the kind test, the unresolvable id
+-- and the self-exclusion cannot come apart between them.
+keyTest env _key Ref value  = edgeTest env pointsAt feRefAny value
+keyTest env _key From value = edgeTest env pointedAtBy feFromAny value
 keyTest _env _key Order _value = const True
 keyTest _env _key Whole value = freeTest value
 -- The two that read a row's CELLS, spelled out: a fifth key falling in here would read an empty cell list and match nothing, with no warning.
 keyTest env key field@(Col _) value = cellsTest env key field value
 keyTest env key field@Planned value = cellsTest env key field value
+
+-- | One reference atom, EDGE being the direction's row-to-row test and ANY its
+-- starred anchor's.  The value is cut into an ANCHOR and a KIND, and the anchor
+-- decides which reading answers: @*any*@ is the union over the slot, and every
+-- other anchor is a row id — an id no row claims matching nothing and NOT 400,
+-- this being a filter rather than a command.  COMPILED ONCE PER PREDICATE: the
+-- cut, the resolution and the fixed end's own half all happen here, above the
+-- rows, and what the rows run is the closure it leaves.
+edgeTest :: FilterEnv
+         -> (Maybe Text -> HeadlineRecord -> HeadlineRecord -> Bool)
+         -> (FilterEnv -> Maybe Text -> HeadlineRecord -> Bool)
+         -> Text -> HeadlineRecord -> Bool
+edgeTest env edge existing value
+  | anchor == anyMeta = existing env kind
+  | otherwise         = maybe (const False) (edge kind) (feRef env anchor)
+  where (anchor, kind) = anchorIn value
+
+-- | A reference value as the ANCHOR it names and the KIND it tests for.  THE
+-- CUT IS THE LINK TARGET'S OWN ('kindCut', at the first @?@, the peer's key
+-- behind it), AND IT IS TAKEN ONLY WHERE A KIND COMES OUT OF IT — the
+-- discipline 'unitFolded' states one field over.  A link's target is the peer's
+-- URL, whose @?@ always opens a query; a row id is no URL, so a @?@ declaring
+-- no kind stays in the id and every value that resolved before still resolves
+-- to the same row.  A title's own question mark is text for the same reason.
+anchorIn :: Text -> (Text, Maybe Text)
+anchorIn value = case kindCut value of
+  (row, Just kind) -> (row, Just kind)
+  (_row, Nothing)  -> (value, Nothing)
 
 -- * A 'Stamp' over a CELL, which is where the clock and the row arrive
 

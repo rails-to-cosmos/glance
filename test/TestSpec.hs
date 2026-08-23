@@ -70,7 +70,7 @@ import qualified Data.Text.Lazy.Encoding as TLE
 import AGENTS (ColKind (KBadge), Column (cCellKind, cHead, cKey), SortDir (Asc), defaultSortChain, keyOf, viewColumns, viewKeys)
 import Glance.Web.Columns (columnNamesIn)
 import Glance.Query (dayOf, isoDay, shiftDay, shiftUnits)
-import Glance.Web.Filter (Sign (Unsigned), Term (tmKey), Token (..), cmpMark, cmpTest, columnsKey, emptyEnv, filterKeys, halfShift, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, shiftIn, sortKey, substringKey, unspaced)
+import Glance.Web.Filter (Sign (Unsigned), Term (tmKey), Token (..), cmpMark, cmpTest, columnsKey, emptyEnv, filterKeys, fromKey, halfShift, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, shiftIn, sortKey, substringKey, unspaced)
 import Glance.Web.Sort (sortChainIn)
 import TestDefaults (listAt, withDocDir)
 import qualified Glance.Query as Q
@@ -918,7 +918,7 @@ specGroup08 = testGroup "Query language"
             , length (filter (matchesFilter emptyEnv (k <> ":zzzz")) recs)
                 /= length recs ]
       assertEqual "a predicate key that narrowed nothing" []
-        [ k | k <- filterKeys <> [plannedKey, substringKey, refKey]
+        [ k | k <- filterKeys <> [plannedKey, substringKey, refKey, fromKey]
             , not (null (filter (matchesFilter emptyEnv (k <> ":zzzznosuchvalue"))
                                 recs)) ]
 

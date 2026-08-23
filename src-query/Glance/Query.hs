@@ -107,11 +107,18 @@ module Glance.Query ( BlobSeed (..)
                     , recomposedSubtree
                     , Ref (..)
                     , RefVia (..)
+                    , carriesKind
                     , idPropertyOf
+                    , kindCut
                     , kindSlug
+                    , namesRow
+                    , pointedAtBy
+                    , pointsAt
+                    , refNames
                     , refSpellings
                     , refTargetOf
                     , refTargets
+                    , refsCarrying
                     , removeTagEdits
                     , renameTagEdits
                     , replaceSpans
@@ -600,9 +607,7 @@ refTargetOf target
     -- @?kind=SLUG@ after the id, so the id alone names the row and the kind is
     -- KEPT BESIDE IT.  A TITLE is text, so its own @?@ stays.  The NAMESPACE
     -- rides the prefix ('refPrefixes').
-  | Just (via, rest) <- stripped =
-      let (row, query) = T.breakOn "?" rest
-      in plain row (kindIn (T.drop 1 query)) via
+  | Just (via, rest) <- stripped = let (row, kind) = kindCut rest in plain row kind via
   | Just rest <- T.stripPrefix "*" target                       = plain rest Nothing ViaRow
   | T.any (\c -> c == ':' || c == '/') target                   = Nothing
   | otherwise                                                   = plain target Nothing ViaRow
@@ -610,6 +615,17 @@ refTargetOf target
     stripped = listToMaybe [ (via, rest) | (p, via) <- refPrefixes
                                          , Just rest <- [T.stripPrefix p target] ]
     plain t k v = if T.null t then Nothing else Just (Ref t k v)
+
+-- | A target cut into the ROW it names and the KIND its @?@ declares: the cut
+-- at the FIRST @?@, the peer's own key read behind it.  ONE READING, TWO
+-- CALLERS — 'refTargetOf' cuts a LINK's target with it, and the @ref:@\/@from:@
+-- value reader cuts a TOKEN's value with it — so an edge and the token that
+-- tests it can never spell a kind two ways.  WHERE THE CUT IS TAKEN is the
+-- caller's: a link's target is the peer's URL and its @?@ always opens a query,
+-- where a row id is no URL and the filter leaves an unproductive @?@ alone.
+kindCut :: Text -> (Text, Maybe Text)
+kindCut target = (row, kindIn (T.drop 1 query))
+  where (row, query) = T.breakOn "?" target
 
 -- | The @kind@ of a target's query string; an EMPTY one is no kind at all.
 -- Only the peer's own key is read — anything else it may write is not a kind.
@@ -636,6 +652,57 @@ refSpellings r = maybe id (:) (identity (hrHeadline r)) [hrTitle r]
 --   @ORG_GLANCE_ID@, the other namespace.
 idPropertyOf :: HeadlineRecord -> Maybe Text
 idPropertyOf = orgIdentity . hrHeadline
+
+-- | THE NAMES R ANSWERS TO, each bound to the namespace it answers in:
+-- 'refSpellings' — @ORG_GLANCE_ID@ and the title, what @[[Title]]@ and
+-- @[[*Title]]@ resolve against — answer 'ViaRow', and the @:ID:@ property alone
+-- answers 'ViaOrgId', @id:@ being org-id's protocol.  ONE EQUATION FOR BOTH
+-- DIRECTIONS: @ref:@ tests a link against it and @from:@ indexes rows by it, so
+-- the two keys cannot drift into two namespace rules.
+refNames :: HeadlineRecord -> [(RefVia, Text)]
+refNames r = [ (ViaRow, s) | s <- refSpellings r ]
+          <> [ (ViaOrgId, o) | Just o <- [idPropertyOf r] ]
+
+-- | Does a reference name ROW?  The link's own namespace decides ('refNames').
+-- PARTIALLY APPLIED AT COMPILE where the row is the one fixed end, which is
+-- what keeps @ref:@ reading its target's names once and never per row.
+namesRow :: HeadlineRecord -> Ref -> Bool
+namesRow row = \l -> (refVia l, refTarget l) `elem` names
+  where names = refNames row
+
+-- | Does an edge carrying E answer a token asking for KIND?  'Nothing' IS THE
+-- KIND-BLIND READING and every edge answers it — today's law, and what keeps a
+-- bare @ref:@ byte for byte the test it was.  BOTH SIDES ARRIVE SLUGGED —
+-- 'refTargetOf' slugs the edge's kind and 'kindIn' the token's — so this
+-- compares canon to canon and slugs nothing twice.
+carriesKind :: Maybe Text -> Maybe Text -> Bool
+carriesKind Nothing  _ = True
+carriesKind (Just k) e = e == Just k
+
+-- | R's references narrowed to the ones carrying KIND.  THE KIND-BLIND ARM
+-- TAKES THE LIST WHOLE, so a bare @ref:@ walks exactly the list it always did.
+refsCarrying :: Maybe Text -> HeadlineRecord -> [Ref]
+refsCarrying Nothing        = hrLinks
+refsCarrying k@(Just _kind) = filter (carriesKind k . refKind) . hrLinks
+
+-- | Does a row POINT AT T over an edge carrying KIND?  @ref:T@'s own test, and
+-- an unresolvable T never reaches it: the caller answers that with no rows.  T
+-- IS THE FIXED END, so its names are read once at compile and the rows run
+-- against them; A ROW IS NEVER ITS OWN REFERENCE, which is what puts the
+-- materialize footer's self-link outside every answer.
+pointsAt :: Maybe Text -> HeadlineRecord -> HeadlineRecord -> Bool
+pointsAt kind t = \r -> hrId r /= hrId t && any names (refsCarrying kind r)
+  where names = namesRow t
+
+-- | Is a row POINTED AT BY T over an edge carrying KIND?  @from:T@'s own test —
+-- 'pointsAt' read from the other end, and THE SAME EDGE under both: T's own
+-- references are taken once at compile and resolved against each row's names,
+-- where 'pointsAt' fixes the names and walks each row's references.  The rows T
+-- points at are @filter (pointedAtBy kind t) rows@, which is what a graph route
+-- would ask for.
+pointedAtBy :: Maybe Text -> HeadlineRecord -> HeadlineRecord -> Bool
+pointedAtBy kind t = \r -> hrId r /= hrId t && any (namesRow r) out
+  where out = refsCarrying kind t
 
 squashControls :: Text -> Text
 squashControls = T.concat . go
@@ -1995,7 +2062,7 @@ priorityBadges =
 
 -- | THE RESERVED METAS, WHOLE, and no BARE word is reserved.  The other half is
 -- closed by two charset walls — 'keywordTextP' and 'tagText' — so none arrives as data.
-data Meta = MActive | MInactive | MEmpty | MArchive | MNone | MToday
+data Meta = MActive | MInactive | MEmpty | MArchive | MNone | MToday | MAny
   deriving (Eq, Show, Enum, Bounded)
 
 metas :: [Meta]
@@ -2012,6 +2079,10 @@ metaWord = starred . bare
     -- A DATE VALUE rather than a cell predicate: it stands wherever a date
     -- literal stands and resolves to the request's own day ('Filter.onDay').
     bare MToday    = "today"
+    -- AN ANCHOR rather than a cell predicate: it stands where a @ref:@\/@from:@
+    -- row id stands and names EVERY ANCHOR AT ONCE, so @ref:*any*@ is the union
+    -- of @ref:T@ over every row T ('Filter.anyMeta').
+    bare MAny      = "any"
 
 starred :: Text -> Text
 starred word = "*" <> word <> "*"

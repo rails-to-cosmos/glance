@@ -390,7 +390,7 @@ They must not be confused, and nothing in this proposal lets them meet:
 |---|---|---|
 | spelling | `<A>--<B>` | `A..B` |
 | where it lives | bytes on disk | a `?q=` URL string |
-| evidence | `Types.hs:487`, `TestRoundtrip.hs:36` | `AGENTS.hs:2400` `rangeMark = ".."`, `SRange` `:2407`, `docs/query.md:177` |
+| evidence | `Types.hs:487`, `TestRoundtrip.hs:36` | `AGENTS.hs:2400` `rangeMark = ".."`, `SRange` `:2407`, `docs/query.md:278` |
 | when it is read | at parse, per file | at compile, once per request |
 
 **`..` never appears in a file.** It is a read-side query token that compiles to
@@ -621,7 +621,7 @@ every other write land.
 - **Docs.** `docs/commands.md`'s `## Dates` (`:49`) gains the English forms, the
   interval forms and the current-year rule; the sheet's half wants a short
   section naming the triggers, the whole-line rule, the raw-half exemption and
-  the `--`/`..` distinction. `docs/query.md:177` (`A..B`) wants one sentence
+  the `--`/`..` distinction. `docs/query.md:278` (`A..B`) wants one sentence
   saying the filter's range is a query token and never a file's bytes.
 - **LOC.** ~45 lines of date parser, ~25 of interval parser, ~15 of trigger
   completion, ~20 of wall rewiring, ~170 of tests.

@@ -67,7 +67,7 @@ distinction — the capitalization is display, not meaning.
 | roster | closed by | spelling |
 | --- | --- | --- |
 | the starred metas — `Active`, `Inactive`, `Empty`, `Archive`, `None`, `Today` | the language: `AGENTS.hs`:2501-2521, "the starred family, and it is total" | bare word, displayed capitalized |
-| the two directions — `Asc`, `Desc` | the language: "nothing or `:asc`, and `:desc`" (`docs/query.md`:245-246) | bare word, displayed capitalized |
+| the two directions — `Asc`, `Desc` | the language: "nothing or `:asc`, and `:desc`" (`docs/query.md`:346-347) | bare word, displayed capitalized |
 | the nine field names | the language: `docs/query.md`:32-34, the narrowing keys | bare word, displayed lowercase |
 | TODO keywords | the TREE, out of its own `#+TODO:` line | string |
 | tags, titles, refs, free text | the tree | string |
@@ -79,14 +79,14 @@ The whole predefined vocabulary is enumerated in
 two are the definition, and each fact lives in one of them.
 
 **Columns are open.** "Any other name is a **custom column**: its cells read the
-row's property drawer by that key (`columns:owner`)" (`docs/query.md`:270-273),
+row's property drawer by that key (`columns:owner`)" (`docs/query.md`:371-374),
 and `Q.resolveColumns ["state", "tag", "Effort"]` resolves a name no builtin
 carries (`test/TestSpec.hs`:979-988). A constructor roster for columns would
 have to close a set the grammar deliberately leaves open, so column names sit on
 the string side with the keywords: `.columns("State", "Effort")`.
 
 **And a column is a string EVERYWHERE.** The flat `sort:` restricts its chain to
-the six column keys (`docs/query.md`:242; `Sort.hs`:60-61 refuses anything else
+the six column keys (`docs/query.md`:343; `Sort.hs`:60-61 refuses anything else
 by name), so the sortable set really is closed — and spelling it differently
 from `.columns(…)`'s open set would make `Deadline` and `"Deadline"` two
 different things that are the same thing. One vocabulary, one spelling. Sort's
@@ -102,17 +102,17 @@ spelling.
   key separator, aliased to `:` (`docs/query.md`:30), so the field spelling is
   the flat spelling with the spaces put in.
 - **Constructors are ONE shared sum, never one per field.** `*empty*` is legal
-  on all six column keys and on `planned` (`docs/query.md`:226), so per-field
+  on all six column keys and on `planned` (`docs/query.md`:327), so per-field
   types would need qualified names for a distinction the grammar does not make.
   The FIELD decides which constructors are legal, which is the Haskell reading.
 - **Double-quoted literals for the open values.** `state = "TODO"`, because the
   keywords are the TREE's. A quoted string is a literal and never a sign:
   `tag = "-chore"` searches a tag spelled `-chore`, which is `substring:"-x"`'s
-  rule said in Haskell (`docs/query.md`:78).
+  rule said in Haskell (`docs/query.md`:72).
 - **Lists for the alternatives.** `state = ["TODO", "DONE"]` composes to
   `state:TODO|DONE`. The bare list is `Any`; `All` is the intersection (§5).
 - **`/=` for the negation**, the Prelude's own, scoping the WHOLE token,
-  alternatives included — the flat grammar's De Morgan pin (`docs/query.md`:86).
+  alternatives included — the flat grammar's De Morgan pin (`docs/query.md`:186).
   `not (…)` is accepted as the wrapper an operator cannot carry.
 - **Free text is `substring = "milk"`,** with a bare `"milk"` the same thing.
   Both compose to `substring:milk`; the axis the additive proposal calls `text`
@@ -131,7 +131,7 @@ string.** `.sort(columns = ["Deadline", Desc "Title"])` composes to
    the direction has to ride the ELEMENT. A stage-level `order = Desc` kwarg, or
    a second list paired by index, would both say less than the string says.
 2. **It is §0 twice over, with nothing bent.** `Desc` is closed by
-   `docs/query.md`:245-246; `"Title"` is open. The constructor is the language's
+   `docs/query.md`:346-347; `"Title"` is open. The constructor is the language's
    and its argument is the tree's, which is the same figure as
    `state = Active` beside `state = "TODO"`.
 3. **`Asc` is spellable and never required,** matching "nothing or `:asc`". A
@@ -148,7 +148,7 @@ document order can only be SPELLED, never left absent ([L2](#l2--grammar)).
 **The stage normalizes a name to its key.** `Sort.hs`:60-61 refuses any segment
 that is not one of the six lowercase keys, so `.sort(columns = ["Deadline"])`
 composes `sort:deadline`. The surface accepts the header the reader sees
-(`docs/query.md`:267-269) and emits the key; rendering back prints the header,
+(`docs/query.md`:368-370) and emits the key; rendering back prints the header,
 so the round-trip is stable. **The surface never composes a `sort:` the flat
 reader would refuse** — normalizing a spelling is not the same as composing a
 stage the string cannot carry, and the second is forbidden by §10's invariant.
@@ -399,10 +399,10 @@ because a column set has nothing to say but its members.
 | --- | --- | --- |
 | `.filter()` | nothing | no narrowing added |
 | `.sort()` | nothing | the DEFAULT chain stands — `sort:` is NOT emitted |
-| `.columns()` | nothing | the default six, which `columns:` also gives (`docs/query.md`:276) |
+| `.columns()` | nothing | the default six, which `columns:` also gives (`docs/query.md`:377) |
 
 The middle row is the asymmetry: the flat `sort:` IS the empty chain, document
-order (`docs/query.md`:252-253), where an absent `sort:` is the default chain.
+order (`docs/query.md`:353-354), where an absent `sort:` is the default chain.
 So document order can only be SPELLED, as `columns = None`.
 
 ### L3 — The prelude
@@ -420,21 +420,21 @@ and be missing from the pane.
 
 | name | kind | type | positions | flat image | evidence |
 | --- | --- | --- | --- | --- | --- |
-| `Active` | constructor, nullary | `Meta` | filter value, on `state` | `*active*` | `AGENTS.hs`:2503, :2510, `metaHome`:2529; `docs/query.md`:227 |
-| `Inactive` | constructor, nullary | `Meta` | filter value, on `state` | `*inactive*` | `AGENTS.hs`:2503, :2511, `metaHome`:2530; `docs/query.md`:228 |
-| `Empty` | constructor, nullary | `Meta` | filter value, on the six column keys and `planned` | `*empty*` | `AGENTS.hs`:2503, :2512, `metaHome`:2527 (`EveryCell`); `docs/query.md`:226 |
-| `Archive` | constructor, nullary | `Meta` | filter value, on `tag` | `*archive*` | `AGENTS.hs`:2503, :2513, `metaHome`:2528 (`TagCell`); `docs/query.md`:229 |
-| `None` | constructor, nullary | `Chain` | `.sort(columns = ·)` alone | `sort:*none*` | `AGENTS.hs`:2503, :2514, `metaHome`:2531 (`OrderToken`); `docs/query.md`:231; `Sort.hs`:19, :57-59 |
-| `Today` | constructor, nullary | `Date` | a temporal field's value, bare or behind an operator ([L8](#l8--datetime-comparisons)) | `*today*` | `AGENTS.hs`:2503, :2515, `metaHome`:2534 (`DateValue`, the fifth home); `docs/query.md`:230 |
-| `Asc` | constructor | `Str → Seg` | a `.sort(…)` chain element | the bare key, no suffix | `Sort.hs`:15-16 (`directions`); `docs/query.md`:245-246 |
-| `Desc` | constructor | `Str → Seg` | a `.sort(…)` chain element | `KEY:desc` | `Sort.hs`:15-16; `docs/query.md`:245-246 |
-| `Any` | constructor | `[τ] → Value` | filter value | `v₁\|v₂` | `docs/query.md`:83-85 |
-| `All` | constructor | `[τ] → Value` | filter value | repeated tokens, `k:v₁ k:v₂` | `docs/query.md`:314-316; spike README:381-387 |
-| `not` | function | `Binding → Binding` | filter kwarg, wrapping | flips the token's sign | `docs/query.md`:86-88 |
+| `Active` | constructor, nullary | `Meta` | filter value, on `state` | `*active*` | `AGENTS.hs`:2503, :2510, `metaHome`:2529; `docs/query.md`:328 |
+| `Inactive` | constructor, nullary | `Meta` | filter value, on `state` | `*inactive*` | `AGENTS.hs`:2503, :2511, `metaHome`:2530; `docs/query.md`:329 |
+| `Empty` | constructor, nullary | `Meta` | filter value, on the six column keys and `planned` | `*empty*` | `AGENTS.hs`:2503, :2512, `metaHome`:2527 (`EveryCell`); `docs/query.md`:327 |
+| `Archive` | constructor, nullary | `Meta` | filter value, on `tag` | `*archive*` | `AGENTS.hs`:2503, :2513, `metaHome`:2528 (`TagCell`); `docs/query.md`:330 |
+| `None` | constructor, nullary | `Chain` | `.sort(columns = ·)` alone | `sort:*none*` | `AGENTS.hs`:2503, :2514, `metaHome`:2531 (`OrderToken`); `docs/query.md`:332; `Sort.hs`:19, :57-59 |
+| `Today` | constructor, nullary | `Date` | a temporal field's value, bare or behind an operator ([L8](#l8--datetime-comparisons)) | `*today*` | `AGENTS.hs`:2503, :2515, `metaHome`:2534 (`DateValue`, the fifth home); `docs/query.md`:331 |
+| `Asc` | constructor | `Str → Seg` | a `.sort(…)` chain element | the bare key, no suffix | `Sort.hs`:15-16 (`directions`); `docs/query.md`:346-347 |
+| `Desc` | constructor | `Str → Seg` | a `.sort(…)` chain element | `KEY:desc` | `Sort.hs`:15-16; `docs/query.md`:346-347 |
+| `Any` | constructor | `[τ] → Value` | filter value | `v₁\|v₂` | `docs/query.md`:183-185 |
+| `All` | constructor | `[τ] → Value` | filter value | repeated tokens, `k:v₁ k:v₂` | `docs/query.md`:420-422; spike README:381-387 |
+| `not` | function | `Binding → Binding` | filter kwarg, wrapping | flips the token's sign | `docs/query.md`:186-188 |
 | `raw` | function | `RawStr → Positional` | filter positional | the string verbatim | §4; spike README:164-165, :372-380 |
 | `filter` | stage function | `(*Str, **Binding) → Stage` | the call position | narrowing tokens, space-joined | `docs/query.md`:13-35 |
-| `sort` | stage function | `(columns : Chain) → Stage` | the call position | `sort:…->…` | `docs/query.md`:236-258 |
-| `columns` | stage function | `(*Str) → Stage` | the call position; also `.sort(…)`'s kwarg NAME | `columns:…` | `docs/query.md`:260-277 |
+| `sort` | stage function | `(columns : Chain) → Stage` | the call position | `sort:…->…` | `docs/query.md`:337-359 |
+| `columns` | stage function | `(*Str) → Stage` | the call position; also `.sort(…)`'s kwarg NAME | `columns:…` | `docs/query.md`:361-378 |
 
 Fifteen names. The **nine field names** are predefined too; their roster and
 their domains are L4's table, which is the one place they are spelled — a fact
@@ -503,7 +503,7 @@ reader who meant the open half.
 #### The field roster and its domains
 
 Derived from `metaHome` (`AGENTS.hs`:2526-2534) and the meta table
-(`docs/query.md`:226-231). `Empty` is legal on every COLUMN key and on
+(`docs/query.md`:327-332). `Empty` is legal on every COLUMN key and on
 `planned`, and nowhere else.
 
 | field | `Empty` | other metas | open values | temporal | note |
@@ -532,7 +532,7 @@ The six sortable columns are `state`, `priority`, `title`, `scheduled`,
 `deadline`, `tag` (`Query.hs`:1909-1917), named in a `.sort(…)` chain by key or
 by header — `State`, `#`, `Title`, `Scheduled`, `Deadline`, `Tags` — folded. A
 CUSTOM column is a legal `.columns(…)` name and an illegal `.sort(…)` one:
-custom cells "are not sortable chain keys" (`docs/query.md`:272-273).
+custom cells "are not sortable chain keys" (`docs/query.md`:373-374).
 
 #### The judgments
 
@@ -625,10 +625,10 @@ each grounded in the flat grammar's own pinned behavior:
 | `g ∘ f` | equals | grounded in |
 | --- | --- | --- |
 | `filter p ∘ filter q` | `filter (p ∧ q)` | appending a filter can only intersect ([additive-filters](../done/2026-08-20-additive-filters.md):178-180); the spike's "the chain is honest for `filter`" (README:411) |
-| `sort b ∘ sort a` | `sort (a ⧺ b)`, a repeated column keeping its FIRST spelling, direction included | `docs/query.md`:242-244 — `->` is sugar for writing several `sort:` tokens, written order is the chain's order |
-| `columns y ∘ columns x` | `columns (x ⧺ y)`, a repeated name keeping its first spelling, case-folded | `docs/query.md`:266-267; `Columns.hs`:18-19 — the tokens' names `concat` and `firstBy` dedupes |
-| `sort None` beside any ordering companion | REFUSED, either order | `*none*` "is the whole order and stands alone" (`docs/query.md`:250-251) — the one element that is no monoid member |
-| any two stages of DIFFERENT kinds | COMMUTE | "narrowing tokens AND in any order; only `sort:` and `columns:` read their written order" (`docs/query.md`:312-313) |
+| `sort b ∘ sort a` | `sort (a ⧺ b)`, a repeated column keeping its FIRST spelling, direction included | `docs/query.md`:343-345 — `->` is sugar for writing several `sort:` tokens, written order is the chain's order |
+| `columns y ∘ columns x` | `columns (x ⧺ y)`, a repeated name keeping its first spelling, case-folded | `docs/query.md`:367-368; `Columns.hs`:18-19 — the tokens' names `concat` and `firstBy` dedupes |
+| `sort None` beside any ordering companion | REFUSED, either order | `*none*` "is the whole order and stands alone" (`docs/query.md`:351-352) — the one element that is no monoid member |
+| any two stages of DIFFERENT kinds | COMMUTE | "narrowing tokens AND in any order; only `sort:` and `columns:` read their written order" (`docs/query.md`:418-419) |
 | `filter ⊤`, `sort ε`, `columns ε` | the IDENTITY | `.filter()`, `.sort()` and `.columns()` each compose nothing |
 
 Each of the three is idempotent — `∧` absorbs, and first-spelling-wins absorbs —
@@ -828,7 +828,7 @@ All five were run (spike README:574-586).
 **The error model has three tiers, and the flat grammar decides which tier a
 form lands in.** The flat reader refuses only the shaping keys — "everything
 else that fails to parse is free text; everything half-typed narrows nothing"
-(`docs/query.md`:322-326). So:
+(`docs/query.md`:428-432). So:
 
 | tier | when | what the reader sees | the rule |
 | --- | --- | --- | --- |
@@ -879,7 +879,7 @@ The scope is the matcher's, and `AGENTS.hs`:2366-2375 is the roster:
 So `deadline = All ["2026-08", "2026-09"]` warns and
 `deadline = All ["2026-08", "2026-08-15"]` stays quiet, and
 `state = All ["TODO","DONE"]` — the flat `state:TODO state:DONE`, which "is
-nothing (one cell cannot be both)" (`docs/query.md`:314-315) — is the rule's
+nothing (one cell cannot be both)" (`docs/query.md`:420-421) — is the rule's
 plainest instance.
 
 The tier is WARNING by the tier rule's own test — the flat string accepts it and
@@ -949,7 +949,7 @@ leads the grammar.
 - **New stages.** The call position holds three names. A fourth PRIMITIVE lands
   when a fourth shaping key exists for it to compose to. `view:` is the standing
   candidate and deliberately has no stage: it expands in the shell ahead of the
-  fetch (`docs/query.md`:281-282), so a `.view(…)` would compose something the
+  fetch (`docs/query.md`:447-449), so a `.view(…)` would compose something the
   wire never sees.
 - **New stages that are not primitives.** A USER DEFINITION
   ([L9](#l9--the-context-is-data)) adds a name to the call position without
@@ -1157,7 +1157,7 @@ This **generalizes the saved-view mechanism that already ships.** `view:NAME`
 stands for a whole query, expands in the shell ahead of the fetch, and lives as
 a pragma in the tree's config layer — `#+GLANCE_DEFAULT_FILTER` and its two
 siblings, user-editable in Emacs or through the settings sheet, with `P` writing
-one back (`docs/query.md`:279-303; `docs/config.md`:40-56). A DSL definition is
+one back (`docs/query.md`:380-409; `docs/config.md`:40-56). A DSL definition is
 that same mechanism with a TYPED body and a STAGE reference instead of a flat
 string and a token.
 
@@ -1399,7 +1399,7 @@ spelling exists.** Typed as `ANY`, `ALL` and `NOT` in
    meant `All`.
 2. **`All` is the only spelling of the repeated token.**
    `tag = All ["web", "glance"]` ≡ `tag:web tag:glance`, today's conjunction
-   (`docs/query.md`:314-316).
+   (`docs/query.md`:420-422).
 3. **`All` spreads over ELEMENTS, never over atoms.**
    `All ["web", ["glance", "docs"]]` is two tokens and keeps the inner
    alternation: `tag:web tag:glance|docs`. The spike's round-trip rung caught
@@ -1421,7 +1421,7 @@ existing ladder is unchanged.**
 
 The spike reads `DEL` as double-booked: "the stage eraser and the crumb pop want
 the same key in the same state. One of them has to move" (README:471-473),
-against `docs/query.md`:76 — "`@` on a focused row drills into `ref:ID` behind a
+against `docs/query.md`:83-84 — "`@` on a focused row drills into `ref:ID` behind a
 breadcrumb; `DEL` pops back."
 
 The shell already resolves it, and by ORDER rather than by a second key.
@@ -1574,7 +1574,7 @@ corpus does not carry. It is one more reason `raw` ships (§4).
 string slot opens the same way — `.columns(` yields `.columns("|")` — so the
 rule now reaches the column names too. It shrinks because a column name that
 opens with a space is a name no producer emits: builtin headers are `State`,
-`#`, `Title`, `Scheduled`, `Deadline`, `Tags` (`docs/query.md`:267-269) and a
+`#`, `Title`, `Scheduled`, `Deadline`, `Tags` (`docs/query.md`:368-370) and a
 custom column is a property-drawer KEY, which org's own parser will not give a
 leading space. So the case is reachable only through free text and `title:`,
 which is where it was already. `raw` still covers it.
@@ -1920,6 +1920,10 @@ this file moves to `docs/proposals/done/` with an "As delivered" section.
   law, the `closed:` axis and the custom-property phasing.
 - [additive-filters](../done/2026-08-20-additive-filters.md) — the denotation
   the normal form writes out, and law 5's parting case that §4 is about.
+- [the chain a row hangs on](2026-08-23-the-chain-a-row-hangs-on.md) — the
+  bounded closure, which reads this proposal's kwarg law for `depth`, owes the
+  IR a fourth leaf beside `atom`/`meta`/`cmp` and its own corpus rows, and gates
+  that phase on this one landing.
 - [`/` filters, `.` composes the whole expression](../done/2026-08-20-slash-filters-dot-expression.md)
   — the two doors this proposal re-reads as two surfaces.
 - [`docs/spikes/2026-08-21-dot-chain-box/README.md`](../../spikes/2026-08-21-dot-chain-box/README.md)

@@ -2352,6 +2352,14 @@
      * where no column already carries the name.  One spelling for the two places
      * that ask.  The view's own, and nothing the rows imply — an org tag names
      * no key, or the same token would mean two things on one wire.
+     *
+     * A KEY THE PRODUCER OWNS STAYS OUT for a nearer reason: glance's `ref:ID'
+     * and `from:ID' — either narrowed by `?kind=SLUG' — read one reference edge
+     * off a link graph no page holds.  Keying them here would promise a
+     * predicate over cells that cannot hold the answer, so the token is free
+     * text WHOLE, key half included, and the opaque id it carries is spelled by
+     * no cell: this side finds nothing, which is the subset SCHEMA asks a
+     * producer's key to narrow to.
      */
     function queryKeys() {
       const keys = columnKeys();

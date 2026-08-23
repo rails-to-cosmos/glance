@@ -207,6 +207,43 @@ section groups a feature arc, and its date is that arc's last commit.
   ordinal (`1.`, `1)`) and a checkbox are content and always paint. The look is
   remembered under `glance-bullets`: store `shown` to get the bullets back.
 
+- **A reference reads from both ends, and the edge's kind is a predicate.**
+  `ref:ID` has always served the rows pointing AT a row; **`from:ID` now serves
+  the rows that row points at.** Its own links resolve through the same two
+  namespaces `ref:` already reads — every row's id and title for a
+  `[[glance:…]]` or `[[Title]]` link, the `:ID:` properties for an `[[id:…]]`
+  one — so a link naming no row, a `https:` bookmark or a `file:` attachment,
+  is no reference and brings nothing back. Both keys take **`?kind=SLUG`**, and
+  they spell it the way the FILE does: org-glance writes
+  `[[glance:ID?kind=SLUG][…]]`, so `ref:ID?kind=blocked-by` narrows to the edges
+  carrying that kind and the peer's own slug — downcased, whitespace runs folded
+  to one `-` — is applied on the write and on the read, making `?kind=Blocked
+  By` and `?kind=blocked-by` one kind. The value cuts at the first `?` the way a
+  link target does, one reading and one parser — and the cut is taken only where
+  a `kind=` comes out of it, so an id carrying a `?` that declares no kind stays
+  whole and resolves to the row it always did, and a title's own `?` is text for
+  the same reason. **The bare forms stay kind-blind**, which is what keeps
+  every `ref:` query written before kinds meaning what it meant. **`*any*` joins the starred
+  family** as its seventh member, standing where a row id stands and reading as
+  the union over that slot: `ref:*any*` serves exactly the rows some `ref:ID`
+  serves — those carrying a reference — `from:*any*` the rows something points
+  at, and `-from:*any*` the orphans, which the census puts at 91.2% of the
+  corpus. The two laws follow rather than being added: a row is neither its own
+  reference nor its own from-target, so a self-link alone answers neither, and
+  an unresolvable anchor serves nothing, so a link naming no row counts towards
+  neither. A reference value is the one value that is not case-folded, stars
+  included — `ref:*ANY*` names no row and matches none, the way `ref:ALPHA`
+  does. `ref` and `from` are different relations and so are **two axes**: two
+  tokens on one key AND, a `+` widens the axis it names and no other, and the
+  two AND with each other, token order carrying nothing as everywhere else. The
+  edge map behind `*any*` is built at most once per request and bound lazily, so
+  a query naming no `*any*` forces it not at all. Every query that served rows
+  still serves them byte for byte — `?kind=` inside a `ref:` value named no row
+  and served nothing — and `from:` is the one cost, paid once, a spelling coming
+  out of free text: a token that used to search for the literal `from:x` now
+  names a relation, and quoting it, `"from:x"`, searches it again.
+  `docs/query.md` carries the law.
+
 ### Changed
 
 - **The query box docks on the chip strip.** `/` and `.` raise it onto the

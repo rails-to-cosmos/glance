@@ -9,7 +9,8 @@ import Data.Text (Text)
 import Data.Time (Day, fromGregorian)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (columnKeysOf, field, maybeTextAt, refusedNaming, viewDir, withDocDir)
+import TestDefaults ( columnKeysOf, field, maybeTextAt, orgFile, refusedNaming, viewDir
+                    , withDocDir, withTempDir )
 
 import qualified Data.Text as T
 
@@ -20,8 +21,10 @@ import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortC
                     , rowJSON
                     , tagsOfCell, viewJSON )
 import Glance.Web.Columns (columnNamesIn)
-import Glance.Web.Filter ( FilterEnv, Sign (..), Term (..), Token (..), alternatives, archiveKey
+import Glance.Web.Filter ( FilterEnv, Sign (..), Term (..), Token (..), alternatives, anyMeta
+                         , archiveKey
                          , archiveMeta, cellAt, columnsKey, emptyEnv, emptyMeta, filterKeys
+                         , fromKey
                          , matchesFilter, metaOf, namesArchive, onDay, parseFilter
                          , plannedKey, refKey, scanQuery, sortKey, storeEnv
                          , substringKey
@@ -89,7 +92,7 @@ spec = testGroup "Filter"
   , archiveSpec, metaSpec, foldSpec
   , shapeSpec, alternationSpec, addedSpec
   , degenerateSpec
-  , targetSpec, refSpec
+  , targetSpec, refSpec, fromSpec
   , layoutSpec ]
 
 
@@ -288,6 +291,247 @@ refSpec = testGroup "References"
         [ hrTitle r | r <- records, matchesFilter emptyEnv "ref:alpha" r ]
   ]
 
+
+-- | THE GRAPH THE TWO DIRECTIONS ARE READ ON.  AN ARROW IS THE EDGE ITS AUTHOR
+-- WROTE, so @Alpha --> Bee@ is a link in Alpha's own subtree; the word on it is
+-- the kind the edge declares, and a bare arrow declares none.  Read down the
+-- left column for @from:@ and up the right for @ref:@.
+--
+-- > FROM         EDGE                TO           how the link names it
+-- > ─────────────────────────────────────────────────────────────────────
+-- > Alpha   ──── blocked-by ─────▶   Bee          glance:bee
+-- > Alpha   ──── (none) ─────────▶   Alpha        glance:alpha    SELF
+-- > Alpha   ──── (none) ─────────▶   Why not?     [[*Why not?]]   by TITLE
+-- > Bee     ──── cites ──────────▶   Cee          glance:cee
+-- > Cee     ──── (none) ─────────▶   Echo         id:feedface-…   by :ID:
+-- > Cee     ──── cites ──────────▶   Alpha        glance:alpha
+-- > Delta   ──── Blocked-By ─────▶   Bee          glance:bee      the SLUG folds
+-- > Delta   ──── (none) ─────────▶   ✗            glance:nosuchrow
+-- > Dangler ──── (none) ─────────▶   ✗            glance:nosuchrow
+-- > Selfy   ──── (none) ─────────▶   Selfy        glance:selfy    SELF
+-- > Odd     ──── (none) ─────────▶   Bee          glance:bee
+-- > Even    ──── (none) ─────────▶   Cee          glance:cee
+-- > Crossed      no edge either way
+--
+-- So @Alpha -> Bee -> Cee -> Alpha@ is a cycle of typed edges, and every row
+-- earns its place: @Echo@ answers in org-id's namespace alone where @Crossed@
+-- carries that same string as an @ORG_GLANCE_ID@, so the two namespaces are
+-- shown never to cross; @Selfy@ and @Alpha@ carry the materialize footer's
+-- self-link; @Dangler@ points at nothing that exists; and @Odd@ holds a @?@
+-- inside its id where @Even@ holds the id a wrong cut would leave behind.
+withEdgeTree :: ([HeadlineRecord] -> IO a) -> IO a
+withEdgeTree = withDocDir "edges" "a.org" (T.unlines
+  [ "* Alpha"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: alpha"
+  , ":END:"
+  , "blocks [[glance:bee?kind=blocked-by][Bee]]"
+    -- The materialize footer's own link, which no answer may serve.
+  , "see [[glance:alpha][myself]]"
+  , "and [[*Why not?]]"
+  , "* Bee"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: bee"
+  , ":END:"
+  , "cites [[glance:cee?kind=cites][Cee]]"
+  , "* Cee"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: cee"
+  , ":END:"
+    -- org-id's namespace: it names Echo's `:ID:' and never Crossed's own id.
+  , "names [[id:feedface-0001]]"
+  , "cites [[glance:alpha?kind=cites][Alpha]]"
+  , "* Delta"
+    -- The KIND slugs on the EDGE too, so this edge and Alpha's are one kind.
+  , "blocks [[glance:bee?kind=Blocked-By][Bee]]"
+  , "and [[glance:nosuchrow][nothing]]"
+  , "* Echo"
+  , ":PROPERTIES:"
+  , ":ID: feedface-0001"
+  , ":END:"
+  , "* Why not?"
+  , "* Crossed"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: feedface-0001"
+  , ":END:"
+  , "* Dangler"
+  , "points at [[glance:nosuchrow][nothing]]"
+  , "* Selfy"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: selfy"
+  , ":END:"
+  , "see [[glance:selfy][myself]]"
+  , "* Odd"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: odd?id"
+  , ":END:"
+  , "points at [[glance:bee][Bee]]"
+  , "* Even"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: odd"
+  , ":END:"
+  , "points at [[glance:cee][Cee]]" ])
+
+-- | The rows of the drawn graph that Q matches, by title, in walk order.
+edgeMatching :: Text -> IO [Text]
+edgeMatching q = withEdgeTree (pure . titlesMatching q)
+
+-- | Q matches exactly TITLES over the drawn graph.
+edges :: Text -> [Text] -> Assertion
+edges q titles = assertEqual (T.unpack q) titles =<< edgeMatching q
+
+fromSpec :: TestTree
+fromSpec = testGroup "The reverse reference"
+  [ virtualKeyCase "from" fromKey "alpha"
+
+    -- THE ASYMMETRY, read off the drawn graph: `ref:' walks the arrows into a
+    -- row and `from:' the arrows out of it, so the two answers share no row.
+  , testCase "ref walks the arrows in and from the arrows out" $ do
+      edges "ref:bee"  ["Alpha", "Delta", "Odd"]
+      edges "from:bee" ["Cee"]
+      edges "ref:cee"  ["Bee", "Even"]
+      edges "from:cee" ["Alpha", "Echo"]
+
+    -- THE DUALITY the two keys stand on: `from:T' serves R where `ref:R' serves T.
+  , testCase "from:T serves R exactly where ref:R serves T" $ do
+      edges "from:alpha" ["Bee", "Why not?"]
+      edges "ref:bee"    ["Alpha", "Delta", "Odd"]
+      -- Alpha is in `ref:bee''s answer, so Bee is in `from:alpha''s, and back.
+      edges "ref:alpha"  ["Cee"]
+      edges "from:cee"   ["Alpha", "Echo"]
+
+  , testCase "an anchor no row claims serves nothing either way" $ do
+      edges "ref:no-such-row"  []
+      edges "from:no-such-row" []
+
+  , testCase "a row is not its own target in either direction" $ do
+      -- Selfy's ONE link is the materialize footer's, pointing at itself.
+      edges "ref:selfy"  []
+      edges "from:selfy" []
+      -- And Alpha, which carries a self-link beside its real ones.
+      assertBool "Alpha rode into its own ref answer"
+        . notElem "Alpha" =<< edgeMatching "ref:alpha"
+      assertBool "Alpha rode into its own from answer"
+        . notElem "Alpha" =<< edgeMatching "from:alpha"
+
+    -- BOTH NAMESPACES, EACH DIRECTION, and they never cross: Cee's `[[id:…]]'
+    -- names Echo's `:ID:' property, where Crossed carries the same string as an
+    -- ORG_GLANCE_ID and answers nothing.
+  , testCase "each namespace answers its own protocol, both ways" $
+      withEdgeTree $ \records -> do
+        echo <- idOf "Echo" records
+        quest <- idOf "Why not?" records
+        let hit q = titlesMatching q records
+        assertEqual "an org-id link, pointed at" ["Cee"] (hit ("ref:" <> echo))
+        assertEqual "and read from the other end" ["Alpha", "Echo"] (hit "from:cee")
+        assertEqual "ORG_GLANCE_ID is no `:ID:'" [] (hit "ref:feedface-0001")
+        assertEqual "a title link, pointed at" ["Alpha"] (hit ("ref:" <> quest))
+        assertEqual "and read from the other end" ["Bee", "Why not?"] (hit "from:alpha")
+        assertEqual "nothing points at Delta" [] . hit . ("ref:" <>) =<< idOf "Delta" records
+
+  , testCase "the bare forms are kind-blind, as they always were" $ do
+      -- Bee's edge into Cee carries a kind and Even's does not; the bare form
+      -- serves both, which is the shipped law untouched.
+      edges "ref:cee"  ["Bee", "Even"]
+      edges "from:cee" ["Alpha", "Echo"]
+
+  , testCase "a kind test narrows to the edges carrying that kind" $ do
+      edges "ref:bee?kind=blocked-by" ["Alpha", "Delta"]
+      edges "ref:bee?kind=cites"      []
+      edges "ref:cee?kind=cites"      ["Bee"]
+      edges "from:alpha?kind=blocked-by" ["Bee"]
+      edges "from:alpha?kind=cites"      []
+      edges "from:cee?kind=cites"        ["Alpha"]
+
+    -- ONE SLUG ACROSS TWO PROGRAMS, and across the two sides of one query: the
+    -- EDGE slugs (Delta writes `Blocked-By') and so does the TOKEN.  The quoted
+    -- spelling is the one that may carry spaces, the scanner cutting on one.
+  , testCase "the kind slugs on the token the way it slugs on the edge" $ do
+      edges "ref:bee?kind=BLOCKED-BY"      ["Alpha", "Delta"]
+      edges "ref:\"bee?kind=Blocked By\""  ["Alpha", "Delta"]
+      edges "from:\"alpha?kind=  BLOCKED   BY  \"" ["Bee"]
+      edges "ref:bee?kind=no-such-kind"    []
+
+    -- Only the peer's own key cuts, and `kindIn' reads it out of a `&' list.
+  , testCase "a query string declaring no kind leaves the value whole" $ do
+      edges "ref:cee?other=x"                  []
+      edges "ref:cee?kind="                    []
+      edges "ref:\"cee?other=x&kind=cites\""   ["Bee"]
+
+    -- THE TEXT `?' STAYS TEXT: the cut is taken only where a kind comes out of
+    -- it, so an id carrying one is left whole.  Had it been cut, the anchor
+    -- would be `odd', which Even claims, and the answer would be Cee.
+  , testCase "a question mark declaring no kind stays inside the id" $ do
+      edges "from:odd?id" ["Bee"]
+      edges "from:odd"    ["Cee"]
+
+  , testCase "the starred anchor is the union over the slot" $ do
+      edges "ref:*any*"  ["Alpha", "Bee", "Cee", "Delta", "Odd", "Even"]
+      edges "from:*any*" ["Alpha", "Bee", "Cee", "Echo", "Why not?"]
+      -- Every row it serves is served by SOME named anchor, which is what the
+      -- union means: the rows outside it point at nothing that exists (Dangler),
+      -- point only at themselves (Selfy) or point at nothing at all.
+      edges "-ref:*any*"  ["Echo", "Why not?", "Crossed", "Dangler", "Selfy"]
+      edges "-from:*any*" ["Delta", "Crossed", "Dangler", "Selfy", "Odd", "Even"]
+
+  , testCase "the starred anchor takes a kind like a named one" $ do
+      edges "ref:*any*?kind=blocked-by" ["Alpha", "Delta"]
+      edges "from:*any*?kind=cites"     ["Alpha", "Cee"]
+      edges "ref:*any*?kind=no-such-kind" []
+
+    -- THE VALUE IS NOT FOLDED on these keys, so a shouted meta is an id like
+    -- any other and no row claims it; a half-starred word is no meta either.
+  , testCase "the anchor keeps its case, the starred word included" $ do
+      edges "ref:*ANY*"  []
+      edges "from:*ANY*" []
+      edges "ref:*any"   []
+      edges "ref:any*"   []
+
+  , testCase "a half-typed reverse ref narrows nothing" $ do
+      every <- edgeMatching ""
+      edges "from:" every
+
+  , testCase "the alternatives OR and two tokens on one key AND" $ do
+      edges "from:alpha|cee" ["Alpha", "Bee", "Echo", "Why not?"]
+      edges "from:alpha from:cee" []
+      edges "ref:bee|cee" ["Alpha", "Bee", "Delta", "Odd", "Even"]
+
+    -- TWO AXES, and this is what says so: on ONE axis the added token would OR
+    -- against the plain one and serve `Why not?' and `Even' too.
+  , testCase "ref and from stand as two axes, so an added token widens one" $ do
+      edges "ref:cee +from:alpha" ["Bee"]
+      edges "ref:cee|alpha" ["Bee", "Cee", "Even"]
+      edges "ref:cee +ref:alpha" ["Bee", "Cee", "Even"]
+
+  , testCase "the two axes AND, and token order carries nothing" $ do
+      edges "ref:cee from:alpha" ["Bee"]
+      edges "from:alpha ref:cee" ["Bee"]
+      edges "ref:*any* from:*any*" ["Alpha", "Bee", "Cee"]
+      edges "from:*any* ref:*any*" ["Alpha", "Bee", "Cee"]
+      edges "ref:bee tag:nosuchtag" []
+
+    -- AN EDGE CROSSES FILES, which is why neither direction and neither map is
+    -- a per-file fact: the target's spellings live in one file and the link in
+    -- another, so the whole store is what resolves an edge.
+  , testCase "an edge across two files resolves both ways" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "here.org" "* Here\npoints at [[glance:there][There]]\n"
+        _ <- orgFile dir "there.org" (T.unlines
+               [ "* There", ":PROPERTIES:", ":ORG_GLANCE_ID: there", ":END:" ])
+        records <- qrRecords <$> loadDir dir
+        let hit q = titlesMatching q records
+        assertEqual "the fixture no longer loads two rows" 2 (length records)
+        assertEqual "pointed at from the other file" ["Here"] (hit "ref:there")
+        assertEqual "and read from the other end" ["There"] (hit "from:*any*")
+        assertEqual "the pointing row is the one with an edge" ["Here"] (hit "ref:*any*")
+
+  , testCase "without a store behind it neither direction resolves" $
+      withEdgeTree $ \records ->
+        mapM_ (\q -> assertEqual (T.unpack q) []
+                       [ hrTitle r | r <- records, matchesFilter emptyEnv q r ])
+              ["ref:bee", "from:bee", "ref:*any*", "from:*any*"]
+  ]
+
 -- | @planned@: the virtual key over both date columns, decidable from a row's cells.
 plannedSpec :: TestTree
 plannedSpec = testGroup "Planned"
@@ -336,8 +580,11 @@ plannedSpec = testGroup "Planned"
       -- The columns and the keys named above, spelled out here and derived
       -- nowhere, so a key ADDED or LOST is what goes red: a comparison of two
       -- derived lists moves on both sides and catches neither.
+      -- THE PRICE OF A KEY ADDED, paid here: `from:X' was a free-text needle
+      -- before the reverse reference took the word, and the list is what says
+      -- which words the grammar has claimed.
       assertEqual "the keys, spelled rather than derived"
-                  [ "deadline", "planned", "priority", "ref", "scheduled"
+                  [ "deadline", "from", "planned", "priority", "ref", "scheduled"
                   , "sort", "state", "substring", "tag", "title" ]
                   (sort (filterKeys <> grammarKeys))
       -- And every one of them resolves to itself, which is what makes it a key.
@@ -346,7 +593,7 @@ plannedSpec = testGroup "Planned"
                   (sort [ k | k <- filterKeys <> grammarKeys
                             , Term _sign (Just k') _v <- parsed (k <> ":x"), k' == k ])
   ]
-  where grammarKeys = [plannedKey, refKey, sortKey, substringKey]
+  where grammarKeys = [plannedKey, refKey, fromKey, sortKey, substringKey]
 
 -- | The rows whose two date cells are both empty: what every comparison and
 -- every range must leave outside, byte order putting @""@ below every literal.
@@ -1097,7 +1344,7 @@ metaSpec = testGroup "Starred metas"
   -- THE ROSTER IS THE FAMILY: the type and the constants have to name one set.
   [ testCase "the roster is every starred word the code spells" $ do
       assertEqual "the family, in the order the type declares it"
-        [activeMeta, inactiveMeta, emptyMeta, archiveMeta, noOrder, todayMeta]
+        [activeMeta, inactiveMeta, emptyMeta, archiveMeta, noOrder, todayMeta, anyMeta]
         (map metaWord metas)
       mapM_ (\m -> assertBool (show m <> " is not a starred word")
                               (maybe False (not . T.null) (metaOf (metaWord m))))
@@ -1145,6 +1392,9 @@ metaSpec = testGroup "Starred metas"
       -- The tags column is the only multi-valued one, so nothing else reads a star.
       assertEqual "a keyword" [] =<< metaMatching "state:*NONE*"
       assertEqual "a title word" [] =<< metaMatching "title:*filed*"
+      -- THE ANCHOR'S OWN WORD IS THE ANCHOR'S: on a column it is a literal.
+      assertEqual "the anchor on a state" [] =<< metaMatching "state:*any*"
+      assertEqual "and on a tag" [] =<< metaMatching "tag:*any*"
   ]
 
 

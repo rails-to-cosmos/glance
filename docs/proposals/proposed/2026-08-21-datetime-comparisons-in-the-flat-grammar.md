@@ -145,7 +145,7 @@ deadline is".
    which is that day's first instant. The sort chain already reads these cells
    this way — `by CSched = ByFolded` (`AGENTS.hs`:2583).
 5. **The empty cell is outside every comparison.** `*empty*` stays the only name
-   for it (`docs/query.md`:226), and `-k:<D` therefore serves the undated rows
+   for it (`docs/query.md`:327), and `-k:<D` therefore serves the undated rows
    too. The precedent is pinned: `-planned:2026-08` serves the undated rows
    today (`test/TestFilter.hs`:305).
 6. **Negation is no mirror.** `-k:<D ≢ k:>=D`. The first serves the undated rows
@@ -157,7 +157,7 @@ deadline is".
    `⟦A⟧(r) = (P ∪ N ≠ ∅ ∧ base(r)) ∨ wide(r)` (:106-113) is quoted, not amended.
    Only `⟦t⟧`, the atomic predicate that formula is parametric in, gains cases.
 8. **The range is the axis conjunction.** `k:>=A k:<B` on a single-cell key is
-   `A ≤ c < B`, because two plain tokens on one axis AND (`docs/query.md`:314-316).
+   `A ≤ c < B`, because two plain tokens on one axis AND (`docs/query.md`:420-422).
    No new form is owed. The exception is law 9.
 9. **`planned:` cannot say a range.** `planned:>=A planned:<B` is
    `(s ≥ A ∨ d ≥ A) ∧ (s < B ∨ d < B)`, which is NOT
@@ -220,7 +220,7 @@ reserved rather than spent.**
 Three grounds, in order of weight:
 
 1. **The axis law already ANDs.** `k:>=A k:<B` is the conjunction by
-   `docs/query.md`:314-316, spelled with grammar that exists. A sugar whose
+   `docs/query.md`:420-422, spelled with grammar that exists. A sugar whose
    desugaring is "write the two tokens you already can" earns nothing.
 2. **The prefix form already gives every calendar-aligned range** — a year, a
    month, a day, an hour — and those are the ranges a reader asks for. What is
@@ -250,7 +250,7 @@ planning line's `CLOSED:` stamp as ISO, and `planned:` is untouched.**
   excluded` (`src/Data/Org/Types.hs`:225), filled at `src/Data/Org/Parser.hs`:126.
 - `customCell` serves it as a COLUMN — `wanted == "closed" = sliceSpan (hrDoc r)
   <$> hsClosed (headlineSpans r)` (`Query.hs`:1924-1930), which
-  `docs/query.md`:270-273 documents as the one custom column that is not a
+  `docs/query.md`:371-374 documents as the one custom column that is not a
   drawer key.
 - The model names it as a closed sum: `data CustomSrc = PlanClosed | FromDrawer`
   (`AGENTS.hs`:2689-2693).
@@ -320,7 +320,7 @@ pinned on purpose, by a test that spells the roster rather than deriving it:
 > a closed list"*, asserting the ten keys literally and asserting that no tag the
 > fixture carries resolves as one.
 
-`columns:owner` reaches a drawer key (`docs/query.md`:270-273, `customCell`
+`columns:owner` reaches a drawer key (`docs/query.md`:371-374, `customCell`
 `Query.hs`:1924-1930) — but that is the COLUMN set, which is open by design, and
 it narrows nothing. **There is no flat filter key today that names a property.**
 
@@ -366,7 +366,7 @@ the brackets DERIVED from that sum rather than spelled twice — `activeBrackets
 - **Is a kind meta owed?** **No, and the model says why.** `metaHome :: Meta ->
   MetaHome` is a FUNCTION, one home per meta (`AGENTS.hs`:2523-2534), and
   `*active*` / `*inactive*` are already `state:`'s with a wholly different
-  meaning (`docs/query.md`:227-228). Reusing the two words on a property key
+  meaning (`docs/query.md`:328-329). Reusing the two words on a property key
   would make `metaHome` a relation and make one word mean two things — the
   failure the DSL's roster law is built to prevent
   ([§0](2026-08-21-the-typed-dsl-behind-the-dot-door.md#0--the-roster-law-which-decides-every-spelling)).
@@ -549,7 +549,7 @@ shippable alone.
   search.
 - **Refusing a malformed literal with a 400.** Rejected: only the shaping keys
   refuse, and *"everything else that fails to parse is free text; everything
-  half-typed narrows nothing"* (`docs/query.md`:320-326). A narrowing token has
+  half-typed narrows nothing"* (`docs/query.md`:426-432). A narrowing token has
   never refused and this one does not start.
 - **Relative literals — `today`, `+1w`.** The vocabulary exists:
   `planningTimestamp` already reads `today`, `tomorrow` and org's whole offset
