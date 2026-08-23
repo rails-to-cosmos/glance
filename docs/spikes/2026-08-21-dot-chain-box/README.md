@@ -75,7 +75,7 @@ edit (round 14).
 | D stage pills | a dot and three calls | as C | the chip strip | edits the filter stage | takes the latest stage |
 | E echo line | a dot and three calls | as C | the box | the flat door | — |
 | **F typed dsl** | a dot and three calls | **Haskell** | the chip strip | edits the filter stage | takes the latest stage |
-| G sql | four clause keywords, no dot | **SQL**, and no parens at all | the chip strip | edits the `WHERE` clause | takes the latest clause |
+| G sql | four clause keywords, no dot | **SQL**, and no parens at all | the chip strip, ALL FOUR clauses always | edits the `WHERE` clause | RESETS the latest clause set |
 
 - **A** is the baseline and it fails on purpose: `.` opens the same field `/`
   opens, one step wider. A dot in it is a character, and the dropdown lists
@@ -234,7 +234,7 @@ The ask, in the user's words:
 ```sql
 SELECT state, deadline, owner
   FROM work
- WHERE state = ACTIVE
+ WHERE IS_ACTIVE(state)
    AND tag NOT LIKE '%chore%'
    AND deadline <= CURRENT_DATE + INTERVAL '30' DAY
  ORDER BY deadline DESC, title
@@ -242,12 +242,27 @@ SELECT state, deadline, owner
 
 ![G · sql](g-sql.png)
 
-*G with an `ORDER BY` committed and `/` pressed: the `WHERE` badge is dashed in
-the box's own accent because it is open, the `AND` the gesture appended stands
-at the tail, and `planned` has just been named — so the offers are the operators
-**that column** takes. There is no `LIKE '%…%'` among them, `planned` matching a
-date PREFIX and never a substring; there is a `BETWEEN`, and an `IS NULL`. Under
-the box, the statement whole, the flat string, and the normal form.*
+*G with an `ORDER BY` committed and `/` pressed. **All four clause badges stand,
+in SQL's own order**, and the two nobody set — `SELECT state …5` and `FROM all`
+— wear the RESTING ink, spelling their defaults; `ORDER BY deadline DESC` wears
+the full ink because a reader set it, and `WHERE` is dashed in the box's own
+accent because it is open. The `AND` the gesture appended stands at the tail,
+and `planned` has just been named — so the offers are the operators **that
+column** takes. There is no `LIKE '%…%'` among them, `planned` matching a
+date PREFIX and never a substring; there is a `BETWEEN`, and an `IS NULL`. The
+filter reads `IS_ACTIVE(state)`, the predicate meta as the boolean function its
+home makes it. Under the box, the statement whole — all four clauses, defaults
+included — the flat string, and the normal form.*
+
+**And every clause is a badge, always.** The strip shows `SELECT`, `FROM`,
+`WHERE` and `ORDER BY` whatever the query says, in SQL's own order, and a clause
+nobody set RESTS — spelling its own default in the resting ink. The grounds are
+that *seeing the whole statement teaches the language*: a strip that shows only
+what somebody set can only teach the clauses a reader has already found. Every
+default composes NOTHING, so the badge is editable and the flat string stays
+canonical, and `DEL` — which cannot take a badge away — resets one instead. The
+four defaults and what each of them cost are under
+[round 21](#argued-and-amended).
 
 **A clause is a badge, and the statement is the view.** D's machinery answered
 sixteen rounds of argument about badges, `/`, `DEL`, the caret-edge offers and
@@ -312,7 +327,10 @@ not fire at all.
 | SQL form | flat form | note |
 | --- | --- | --- |
 | `WHERE state = 'TODO'` | `state:TODO` | the key's own test, and never SQL's equality |
-| `WHERE state = ACTIVE` | `state:*active*` | the closed roster, bare — SQL enums read that way |
+| `WHERE IS_ACTIVE(state)` | `state:*active*` | a PREDICATE meta is a boolean function of its home |
+| `WHERE IS_ARCHIVE(tag)` | `tag:*archive*` | …and the argument is typed: `IS_ARCHIVE :: Tag -> Bool` |
+| `WHERE NOT IS_INACTIVE(state)` | `-state:*inactive*` | negated by the wrapper, like every other call |
+| `WHERE deadline = CURRENT_DATE` | `deadline:*today*` | a VALUE meta keeps a value's spelling |
 | `WHERE tag <> 'chore'` · `!=` | `-tag:chore` | either spelling |
 | `WHERE NOT (tag = 'chore')` | `-tag:chore` | the wrapper, where the operator cannot reach |
 | `WHERE state IN ('TODO', 'DONE')` | `state:TODO\|DONE` | the alternation |
@@ -345,7 +363,10 @@ not fire at all.
 | `SELECT "ship date"` | `columns:ship date` | the delimited identifier, for what a bare one cannot spell |
 | `ORDER BY deadline DESC, title` | `sort:deadline:desc->title` | the comma is the arrow |
 | `ORDER BY NULL` | `sort:*none*` | document order, MySQL's own spelling |
-| absent `ORDER BY` | — | the default chain |
+| absent `ORDER BY` | — | the default chain — which the badge SPELLS |
+| `WHERE TRUE` | — | the filter that narrows nothing, and `AND`'s identity |
+| `SELECT state, priority, title, scheduled, deadline, tags` | — | the six BY NAME: naming the default IS the default |
+| `ORDER BY state, title, deadline, scheduled` | — | …and the same law over the chain |
 
 **Quoting is SQL's, and it is the one thing g has that F does not.** `'value'`
 is a literal and `"name"` an identifier — two quote characters, where F had one
@@ -451,6 +472,13 @@ anchors that one call cannot carry. What g gives up in exchange is the kwarg:
 the kind rides the second positional, where F's `kind = "…"` names what a bare
 `'blocked-by'` leaves to the reader's memory of the signature.
 
+And **a predicate meta is a boolean FUNCTION of its own column** —
+`IS_ACTIVE(state)` — which is SQL's own idiom, the sibling of the `IS NULL` this
+surface already had, and the one place g's spelling is TYPED where the other two
+surfaces' are merely legal: `IS_ARCHIVE :: Tag -> Bool` makes the flat grammar's
+metaHome law checkable, and the offers spell each application whole so a reader
+never has to know the signature to obey it.
+
 **Refuses.** The general boolean algebra, and it refuses it by NAME rather than
 by silence. A cross-axis `OR` has no flat spelling — the two relations being two
 axes, that reading covers them too; two bases on one axis have
@@ -458,10 +486,12 @@ none (`tag <> 'a' OR tag <> 'b'` is ¬a ∨ ¬b); `NOT` over an intersection is 
 Morgan's and no conjunction of negated tokens says it; a comparison off the
 three date keys would compose a substring search for the operator; a `LIKE`
 pattern whose shape is not the key's test asks for a match the grammar cannot
-run; and **`WITH RECURSIVE` is the bounded closure, which is proposed and
+run; **a PREDICATE applied to a column it has no home on** is a type error —
+`IS_ARCHIVE(state)`, and the flat side's silent literal is what g parts from
+there, on purpose; and **`WITH RECURSIVE` is the bounded closure, proposed and
 unshipped** — a recursive CTE is a named subquery with an arbitrary body, of
 which the flat grammar composes exactly one shape, so the keyword is refused
-whole and the sentence names the document where the walk lives. Thirteen
+whole and the sentence names the document where the walk lives. Fifteen
 refusals in all, each with its own sentence, each composing nothing,
 each pinned in `check.mjs` with the empty query's own IR beside it — including
 the two the first pass stated in prose and never asked for: a `%` in the middle
@@ -782,6 +812,113 @@ produced and the check now holds:
    are spelled once, in `edgesOf`, so both directions and the meta inherit them
    rather than restating them.
 
+21. **G's strip became the whole statement, and its metas became functions.**
+   Two refinements, both the user's, both G's alone, and they turned out to be
+   one round: what a badge SHOWS and what a word MEANS are the same question
+   asked twice.
+
+   **All four clause badges stand, always, in SQL's own order.** The grounds
+   are the user's: *seeing the whole statement teaches the language*. A strip
+   that shows only what somebody set teaches a reader the clauses they have
+   already learned; one that shows `SELECT`, `FROM`, `WHERE`, `ORDER BY`
+   whatever the query says teaches them the four there are. So a clause nobody
+   set does not vanish — it RESTS, spelling its own default, and "this clause
+   is at its default" becomes a fact the strip can state where an absent badge
+   could only leave it unsaid.
+
+   **The defaults are spelled as what actually stands**, which cost two
+   corrections to the illustrative spellings:
+
+   | clause | the default, as shipped | the correction |
+   | --- | --- | --- |
+   | `SELECT` | `state, priority, title, scheduled, deadline, tags` | **not `*`**: the star is SEVEN, `closed` being the difference (round 17), so a badge spelled `*` would compose a different query the moment a reader opened it and pressed `RET` |
+   | `FROM` | `all` | — |
+   | `WHERE` | `TRUE` | SQL's own word for the filter that narrows nothing |
+   | `ORDER BY` | `state, title, deadline, scheduled` | the app's REAL default chain; the ask said `scheduled` illustratively, and `scheduled` is the LAST of the four |
+
+   **Every default composes NOTHING**, and that is the reading that keeps the
+   flat string canonical: a clause edited back to its default drops to the
+   resting ink and the URL does not gain a redundant token. Two of the four
+   needed no new law — `all` has always composed nothing, and `colsSpecOf`
+   already said that *naming every column of the default view, in its own
+   order, IS the default*. The chain got that same line as its twin
+   (`chainSpecOf`), and `TRUE` is the empty conjunction. So the round trip
+   holds in both directions: the badge spells the default, the reader may open
+   it, edit it, commit it back, and the badge returns to rest.
+
+   **`TRUE` is `AND`'s identity, and that is why the gesture needs no case for
+   it.** `/` on a resting `WHERE` lands on `TRUE AND |`, which is what a SQL
+   reader writes by hand as `WHERE 1=1 AND …`; the condition composes, the
+   `TRUE` composes nothing, and the commit drops the word because the flat
+   string never carried it.
+
+   **`DEL` stopped being an eraser and became a RESET.** A badge cannot be
+   taken off a strip that shows the whole statement, so the gesture takes the
+   clause's TOKENS and the badge stays, wearing its default — which is the same
+   act in the same code, `dropStage` having always taken a stage's tokens.
+   "The latest" is then the rightmost badge SOMEBODY SET, in the language's own
+   order: **the strip has stopped recording edit order, so a gesture may only
+   aim at what the strip SHOWS**, and what it shows is which clauses rest.
+
+   **The ink split is the badge's whole claim**: a defaulted badge is washed
+   out of its own hue, dotted rather than solid, its text in the muted voice —
+   readable, clickable, editable, and unmistakably not the reader's. Editing
+   one opens it with its default spelled, so the reader takes a column out of a
+   chain that is THERE rather than retyping one from nothing.
+
+   ---
+
+   **And the predicate metas became functions.** `state = ACTIVE` is now
+   `IS_ACTIVE(state)`. The generalising rule is the model's own split, which
+   `docs/query.md` had already drawn: *`*today*` and `*any*` stand inside a
+   value where the rest stand as the whole of one*. So:
+
+   > **THE HOME DECIDES THE SPELLING.** A meta that is the WHOLE of a value is
+   > a PREDICATE over the cell its home names, and g spells a predicate as a
+   > boolean function of that column — `IS_ACTIVE(state)`, `IS_INACTIVE(state)`,
+   > `IS_ARCHIVE(tag)`, which is SQL's own idiom and the sibling of the
+   > `IS NULL` g already used for `*empty*`. A meta that stands INSIDE a value
+   > is a VALUE and keeps a value's spelling: `CURRENT_DATE`, and `ANY` in the
+   > relation anchor.
+
+   It is derived and not restated — `SQL_FN` falls out of `CTORS` and the
+   inside/whole split — so a meta that joins the family joins the right side of
+   the line by construction. **The bare form is retired**: a predicate beside
+   an `=` is no value, so `state = ACTIVE` is MARKED and composes nothing, with
+   the sentence naming the spelling to write. That is an ERROR and not one of
+   g's refusals, on the existing line: a value slot got a word that is no value,
+   which is the unknown-value law unchanged, where a refusal is for a
+   well-formed expression the flat grammar has no shape for. The surface
+   refuses it twice over, in fact — **the opened slot makes it almost
+   untypeable**, a word typed after the `=` landing inside the quotes the slot
+   inserted, so a reader reaches the retired spelling only by deleting what was
+   opened for them.
+
+   **The argument is COLUMN-TYPED**, `IS_ARCHIVE :: Tag -> Bool`, and this is
+   the flat grammar's metaHome law — each starred word has ONE home — surfacing
+   in a type system. `IS_ARCHIVE(state)` is a type error: g REFUSES to compose,
+   speaks the signature, and marks the column that has to be taken back —
+   *IS_ARCHIVE :: Tag -> Bool — state is no Tag; did you mean
+   IS_ARCHIVE(tag)?*, which is the did-you-mean shape g's other diagnostics
+   already use. The completion never offers a wrong application at all: each
+   function is offered WHOLE, with its own column, so the one shape that would
+   be a type error is the one shape not on the menu. The same typing went to
+   `IS NULL`, which had been lenient about a column with no cell to be empty —
+   **one law, one severity, whichever word spells the predicate.**
+
+   **THE DIVERGENCE, and it is honest.** The flat grammar's law for a starred
+   word in the wrong place is the SILENT LITERAL: `state:*archive*` is a term
+   that composes and matches nothing, which is the pinned starred-word-elsewhere
+   law. G refuses to compose it at all. **G is the stricter surface, and it
+   should be** — a type system's job is refusing what the grammar can only serve
+   emptily, and the two are held apart by a corpus row rather than reconciled.
+   The one place it shows through is the RENDER: a misplaced meta in a flat
+   string renders into g as the type error it is, and reading it back refuses.
+
+   **The IR did not move.** The leaf was never the surface's spelling: the
+   metas normalise to `(meta state active)` from all four dialects exactly as
+   they did, which is what makes a respelling a respelling.
+
 Rounds 4 and 5 cost the spike its own control. `/` was identical in all tabs on
 purpose, and `check.mjs` asserted it; D's, F's and G's departure is now DECLARED
 there (`DEPARTS`) rather than dropped, so the four tabs that keep a flat door
@@ -942,7 +1079,39 @@ round-trip corpus.
   composes onto the tag axis, and the strip is the flat string grouped back into
   stages — after `RET` the dataset reappears inside the `WHERE` badge. The wire
   keeps the meaning and loses the word, and no display rule can put it back
-  without guessing which tag token was once a `FROM`.
+  without guessing which tag token was once a `FROM`. **The always-visible strip
+  makes this VISIBLE rather than merely true**: the `FROM` badge rests at `all`
+  for ever, whatever a reader writes into it, because nothing it composes lands
+  on its own axis. It is the one badge that can never leave the resting ink.
+- **G: a default badge is a spelling of the app's mind, and the app may change
+  it.** `ORDER BY state, title, deadline, scheduled` is the default chain
+  TODAY; a tree with a different `#+TODO:` order sorts its states differently
+  and the badge would say so. That is right — the badge is a view — but it
+  means a reader who learns the language off the resting strip has learned this
+  tree's defaults and not the grammar's.
+- **G: `DEL` can no longer say "nothing left to reset".** With four badges
+  standing, the fifth press and the fiftieth look exactly like the fourth: the
+  strip is already all rest, and the key answers by doing nothing. The eraser
+  used to run out of badges visibly.
+- **G: the retired constructor is almost untypeable, and the diagnostic is
+  mostly for a PASTE.** The `=` opens a quoted slot, so `state = ACTIVE` typed
+  straight through becomes `state = 'ACTIVE'` — a literal, and a search for a
+  keyword spelled ACTIVE. A reader reaches the marked spelling only by deleting
+  the quotes that were opened for them; the sentence's real audience is a
+  pasted statement and the render of a misplaced meta.
+- **G: `IS_ACTIVE(state)` says the column twice.** The type has one home, so
+  the argument is the only argument it could be, and a reader may reasonably ask
+  why they must write it. The answer is that a nullary `IS_ACTIVE` would be a
+  predicate with no subject — SQL has no such thing — and that the argument is
+  what makes the type checkable at all; the offers spell it whole so nobody
+  types it twice.
+- **G is the stricter surface, and the two part on purpose.** The flat
+  grammar's law for a starred word in the wrong place is the SILENT LITERAL —
+  `state:*archive*` composes and matches nothing — where g refuses to compose.
+  A type system's job is refusing what the grammar can only serve emptily, so
+  the divergence is the design; what it costs is that a query the flat string
+  will happily carry has no spelling in g at all, and the corpus holds the two
+  apart rather than reconciling them.
 - **G: `SELECT *` is seven and the default view is six.** `closed` is the
   difference — a custom column reading the planning stamp — so the star composes
   an explicit `columns:` token and cannot be the absent one. Two spellings that
@@ -1047,7 +1216,7 @@ the `DIALECT` table and nothing else — so each dialect's table is asked once:
 law over flat queries, and **the store's graph** — four resolved edges and every
 law `docs/query.md` states about a reference read off the FIXTURE rather than
 described; **LAW-DSL**, the typed dialect's thirty-one and F's case law;
-**LAW-SQL**, `AND`'s fifty-seven, covering every mapping in the table above,
+**LAW-SQL**, `AND`'s seventy-one, covering every mapping in the table above,
 and G's. The rungs below keep the KEYSTROKES, which are each tab's own, so a red
 `LAW-*` says the rig's law moved where a red COMMA says this tab's keys did. The
 flat table had been asked on five tabs where it takes the same branch; running
@@ -1201,7 +1370,23 @@ F owes nine more:
   widened case warns; read every key but `tag` as single-valued and two tags and
   two titles warn falsely; judge the metas like any other atom and
   `state:*active* state:TODO` warns; and blame one side of the pair and half the
-  ink never lands. The relation round added fourteen, and what each of them
+  ink never lands. The badge-and-predicate round added nine, and where they land
+  is the two halves of it: **badges only when explicit** reds BADGES and the
+  three shared strip rungs; **the order following the edit order** reds the same
+  four; **`DEL` aiming at the last badge rather than the last one SET** reds
+  BADGES and DEL-STAGE; **a default composing a token** reds LAW-SQL and IR3's
+  round trips, the flat string having stopped being canonical; **`TRUE` read as
+  a column** reds LAW-SQL alone, and only through the law that a default
+  spelling must be CLEAN in its own surface — the mutant survived until that
+  law was asked, "the words a default is spelled with are words the clause
+  reads without complaint" having been true and unstated; **the bare
+  constructor still composing** and **the predicate applied to any column at
+  all** each red LAW-SQL, the retirement and the typing being compose-level
+  laws; **the metas rendered as bare values again** reds eight rungs at once,
+  the boot filter being spelled with one; and **the home not deciding** — the
+  value metas swept into the function roster with the predicates — reds PRED
+  alone, on the roster the offers show, which is the only place that split is
+  visible from outside. The relation round added fourteen, and what each of them
   reddens is the point: the kind test dropped from the walk, the self and
   dangling links kept as references, the anchor case-folded, and the relations
   read as single-celled all red **LAW-FLAT** and nothing else, the store's graph
@@ -1219,10 +1404,27 @@ F owes nine more:
   survived the first pass — the `?kind=` cut taken at any `?` at all — because
   "the cut is taken only where a `kind=` comes out of it" was a law the code
   STATED and nothing asked, which is round 18's own finding again; the rung for
-  it went in and the mutant reds now. **Sixty-three in all.**
+  it went in and the mutant reds now. **Seventy-two in all**, and the two that
+  survived their first pass both named a law the code STATED and nothing asked
+  — which is round 18's finding twice more.
 
-G owes nine of its own, and every one of them is a law this variant either
+G owes eleven of its own, and every one of them is a law this variant either
 inherits differently or states alone:
+
+- **BADGES** — the strip IS the whole statement. Four clause badges on a fresh
+  boot, in SQL's own order, three of them resting with their defaults spelled
+  and the ink saying so on the badge as well as in the model; a defaulted badge
+  opening with its default spelled; that same default committed back composing
+  NOTHING and falling to the resting ink again; the order standing under an
+  out-of-order edit — `ORDER BY` written before `SELECT` and still after it;
+  and `DEL` walking the reset back, rightmost SET first, until all four rest and
+  the query is empty.
+- **PRED** — the home decides the spelling. `IS_` offers exactly the three
+  predicate metas, each WITH ITS OWN COLUMN and no other; the taken one is a
+  finished term and composes its starred word; `IS_ARCHIVE(state)` is refused
+  with the signature spoken and the column marked; and the retired
+  `state = ACTIVE` is an error naming the rewrite — reached, as the drive has
+  to show, only by deleting the quotes the slot opened.
 
 - **SLOT** — the three-step position SQL has and Haskell does not: a column, its
   OPERATOR, then its value. The column accept opens no slot and still asks
@@ -1238,15 +1440,18 @@ inherits differently or states alone:
   and the CONNECTIVE is a word — so a trailing space finishes nothing and the
   offers wake when the reader starts writing `AND`.
 - **CASE** — SQL's own convention as the spike's case law: `not (TAG = chore'`
-  typed in any case stands as `NOT (tag = 'chore')` and composes `-tag:chore`.
+  typed in any case stands as `NOT (tag = 'chore')` and composes `-tag:chore`;
+  and `is_archive(TAG)` is `IS_ARCHIVE(tag)`, the language upper and the column
+  it knows lower, the way every other keyword and column already went.
   What the canonical spelling IS — keywords and the enum roster upper, the
   columns it knows lower, and `SELECT` left as typed, because for a custom
   column the spelling is the header — is LAW-SQL's, needing no keystrokes.
 - **FRAGMENT** — the central law, both ways. The cross-axis `OR` refused by name
-  with the word marked and nothing composed; thirteen refusals each with their
+  with the word marked and nothing composed; fifteen refusals each with their
   own sentence and the empty query's own IR — the two relation axes reading the
-  law the way every axis does, and `WITH RECURSIVE` refused by the name of the
-  document the walk lives in; seven shapes that DO compose, including the
+  law the way every axis does, `WITH RECURSIVE` refused by the name of the
+  document the walk lives in, and the two TYPE errors, which are refusals of the
+  same family; seven shapes that DO compose, including the
   parenthesised base-and-widening F cannot spell; and the precedence trap, loose
   and parenthesised, pinned side by side.
 - **DATES** — `CURRENT_DATE`, the four interval units, the clip (Jan 31 `+1m` is
@@ -1265,8 +1470,8 @@ inherits differently or states alone:
   composes and never its text, so g's spelling is judged the same as F's and
   says the same sentence.
 - **ESC-ABANDON** — the cancel, inherited whole, over three routes in.
-- **IR3** — thirty-nine three-way rows, eight round trips through a rendered
-  statement, eleven divergences. **The rung bites both ways**: twenty-five mutants
+- **IR3** — forty three-way rows, eight round trips through a rendered
+  statement, twelve divergences. **The rung bites both ways**: twenty-five mutants
   were run against g's page and twenty-four of them reddened the rung that owns
   it at once —
   the refusal off reds FRAGMENT alone; case-sensitive keywords red eleven rungs
@@ -1367,7 +1572,16 @@ string, and that is the point.
 **What a shipped G would need on top of F's list.** The `LIKE` law wants the
 producer to declare each key's TEST (exact, prefix, inside), which is `keeper`'s
 own knowledge said out loud — one more field on the offer, and the thing that
-makes the pattern check possible at all. `FROM`'s dataset roster is the tag
+makes the pattern check possible at all. **The predicate functions want one more
+declaration beside it: each meta's HOME**, which is `metaHome`'s own knowledge
+and is what makes `IS_ARCHIVE :: Tag -> Bool` a type rather than a convention —
+the same field would also let the surface tell a predicate meta from a value one
+without a list of two exceptions. **And the always-visible strip wants the
+DEFAULTS on the wire**: the badge spells the default view's columns and the
+default chain, which the renderer knows and the surface currently reads out of
+the same table the server sorts with. Nothing new is composed — every default
+composes nothing — but a surface that spells them has to be TOLD them, and a
+tree whose `#+TODO:` order differs spells a different chain. `FROM`'s dataset roster is the tag
 vocabulary the renderer already enumerates. And the refusal needs a home the
 warning does not: it must stop the COMMIT rather than compose nothing, which is
 the one place g's diagnostics ask for machinery the shipped surface does not

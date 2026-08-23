@@ -195,7 +195,7 @@ const IR3_CORPUS = {
   three: [
     // the README's own example, and the boot query
     ["state:*active* -tag:chore", '.filter(state = Active, tag /= "chore")',
-     "WHERE state = ACTIVE AND tag NOT LIKE '%chore%'"],
+     "WHERE IS_ACTIVE(state) AND tag NOT LIKE '%chore%'"],
     // the whole statement, all three clauses
     ["state:TODO sort:deadline columns:State,Deadline",
      '.filter(state = "TODO").sort(columns = ["Deadline"]).columns("State", "Deadline")',
@@ -215,8 +215,14 @@ const IR3_CORPUS = {
     ["tag:web tag:glance", '.filter(tag = All ["web", "glance"])',
      "WHERE tag = 'web' AND tag = 'glance'"],
     // THE METAS, as each surface spells them
-    ["tag:*archive*", ".filter(tag = Archive)", "WHERE tag = ARCHIVE"],
-    ["state:*inactive*", ".filter(state = Inactive)", "WHERE state = INACTIVE"],
+    // …AND THE HOME DECIDES THE SPELLING: a meta that is the whole of a value
+    // is a PREDICATE, and g spells one as a boolean function of its own column
+    // where F spells it as a constructor and the flat string as a starred word.
+    ["tag:*archive*", ".filter(tag = Archive)", "WHERE IS_ARCHIVE(tag)"],
+    ["state:*inactive*", ".filter(state = Inactive)", "WHERE IS_INACTIVE(state)"],
+    // …and a meta that stands INSIDE a value stays a value in all three
+    ["deadline:*today*", '.filter(deadline = "*today*")',
+     "WHERE deadline = CURRENT_DATE"],
     // …and `*empty*', where SQL already had the word
     ["priority:*empty*", ".filter(priority = Empty)", "WHERE priority IS NULL"],
     ["-priority:*empty*", ".filter(priority /= Empty)", "WHERE priority IS NOT NULL"],
@@ -237,7 +243,7 @@ const IR3_CORPUS = {
      '.filter(raw "priority:[#A] +priority:[#B]", tag = "book")',
      "WHERE priority IN ('A', 'B') AND tag = 'book'"],
     // CASE CARRIES NOTHING in any of the three
-    ["state:*active*", ".FILTER(State = active)", "where STATE = Active"],
+    ["state:*active*", ".FILTER(State = active)", "where is_active(STATE)"],
     ["sort:deadline", '.SORT(columns = ["deadline"])', "ORDER BY DEADLINE"],
     // THE SHAPING HALVES
     ["sort:deadline:desc->title", '.sort(columns = [Desc "Deadline", "Title"])',
@@ -319,6 +325,10 @@ const IR3_CORPUS = {
     ["WHERE REFS_TO('abc123')", "WHERE REFS_FROM('abc123')"],
     ["WHERE REFS_TO('def456')", "WHERE REFS_TO('def456', 'blocked-by')"],
     ["WHERE REFS_TO(ANY)", "WHERE REFS_TO('any')"],
+    // …AND A PREDICATE APPLIED TO ITS OWN COLUMN IS NOT ONE APPLIED TO
+    // ANOTHER: the second is a type error and composes nothing, where the flat
+    // side would have spelled a literal and served nothing.
+    ["WHERE IS_ARCHIVE(tag)", "WHERE IS_ARCHIVE(state)"],
   ],
 };
 
@@ -555,7 +565,27 @@ const SQL_LAW = {
   f_neq: ["filter", "tag <> 'chore'", "-tag:chore"],
   f_bang: ["filter", "tag != 'chore'", "-tag:chore"],
   f_not: ["filter", "NOT (tag = 'chore')", "-tag:chore"],
-  f_ctor: ["filter", "state = ACTIVE AND tag <> ARCHIVE", "state:*active* -tag:*archive*"],
+  // THE HOME DECIDES THE SPELLING.  A meta that stands as the WHOLE of a value
+  // is a PREDICATE over its home's cell, and g spells one as a boolean function
+  // of that column — `IS NULL''s own sibling, and SQL's own idiom.
+  f_ctor: ["filter", "IS_ACTIVE(state) AND NOT IS_ARCHIVE(tag)",
+           "state:*active* -tag:*archive*"],
+  f_pred_case: ["filter", "is_archive(TAG)", "tag:*archive*"],
+  f_pred_or: ["filter", "IS_ACTIVE(state) OR state = 'DONE'", "state:*active*|DONE"],
+  // …and the VALUE metas keep the value spelling: `*today*' and `*any*' stand
+  // INSIDE a value, a date literal's place and an id's place.
+  f_val_meta: ["filter", "deadline = CURRENT_DATE AND REFS_TO(ANY)",
+               "deadline:*today* ref:*any*"],
+  // THE BARE CONSTRUCTOR IS RETIRED: a predicate beside an `=' is no value,
+  // and the sentence names the one to write rather than writing it.
+  f_pred_bare: ["filter", "state = ACTIVE", ""],
+  f_pred_bare_in: ["filter", "state IN (ACTIVE, 'TODO')", ""],
+  // …AND THE ARGUMENT IS COLUMN-TYPED, `IS_ARCHIVE :: Tag -> Bool'.  That is
+  // the metaHome law surfacing in a type system, and a misapplied predicate is
+  // REFUSED: the flat side spells a literal that serves nothing, and a type
+  // system's job is refusing what the grammar can only serve emptily.
+  f_pred_type: ["filter", "IS_ARCHIVE(state)", ""],
+  f_null_type: ["filter", "substring IS NULL", ""],
   // SQL ALREADY HAS A WORD FOR THE EMPTY CELL.
   f_null: ["filter", "priority IS NULL", "priority:*empty*"],
   f_not_null: ["filter", "priority IS NOT NULL", "-priority:*empty*"],
@@ -624,6 +654,18 @@ const SQL_LAW = {
   // THE CLOSURE IS PROPOSED AND UNSHIPPED, so the keyword that asks for it
   // composes nothing and says where the walk lives.
   r_closure: ["filter", "WITH RECURSIVE reach AS (SELECT 1)", ""],
+  // EVERY DEFAULT COMPOSES NOTHING, which is what makes an always-visible badge
+  // editable and the flat string canonical: a clause spelled back at its
+  // default is the clause nobody set.
+  d_where: ["filter", "TRUE", ""],
+  d_where_and: ["filter", "TRUE AND state = 'TODO'", "state:TODO"],
+  d_select: ["columns", "state, priority, title, scheduled, deadline, tags", ""],
+  d_order: ["sort", "state, title, deadline, scheduled", ""],
+  d_from: ["from", "all", ""],
+  // …and one column short of either is not the default at all
+  d_select_off: ["columns", "state, priority, title, scheduled, deadline", ""
+    + "columns:state,priority,title,scheduled,deadline"],
+  d_order_off: ["sort", "state, title, deadline", "sort:state->title->deadline"],
 };
 /** A control at the RUN's level, the way `/' is: no tab owns it, so no tab can
  *  declare it a miss or a departure. */
@@ -825,8 +867,8 @@ const sqlApiLaw = async () => {
   const api = await ff.eval(() => ({
     canon: RIG.sqlCanon("STATE = active and TAG Not Like '%x%'", "filter"),
     kept: RIG.sqlCanon("Ship Date, TITLE", "columns"),
-    lower: RIG.stageString("filter", "state = active and tag <> 'chore'"),
-    upper: RIG.stageString("filter", "STATE = ACTIVE AND TAG <> 'chore'"),
+    lower: RIG.stageString("filter", "is_active(state) and tag <> 'chore'"),
+    upper: RIG.stageString("filter", "IS_ACTIVE(STATE) AND TAG <> 'chore'"),
     mixed: RIG.stageString("sort", "Deadline desc, TITLE"),
     // …and a column nothing answers to is left exactly as written, MARKED, and
     // composes nothing: the WHERE namespace is the closed one.
@@ -843,6 +885,31 @@ const sqlApiLaw = async () => {
     relCanon: RIG.sqlCanon("refs_to('def456', 'blocked-by')", "filter"),
     relCol: [RIG.sqlErrors("filter", "ref = 'def456'").length,
              RIG.stageString("filter", "ref = 'def456'")],
+    // …AND THE TYPE, SPOKEN.  The signature is the metaHome law read out loud,
+    // and the sentence names the function's own column — the did-you-mean shape
+    // g's other diagnostics use.
+    typed: RIG.sqlRefusals("IS_ARCHIVE(state)"),
+    // …while the retired bare form is an ERROR and not a refusal: a value slot
+    // got a word that is no value, which is the unknown-value law unchanged,
+    // and the sentence names the predicate to write.
+    retired: RIG.sqlErrors("filter", "state = ACTIVE"),
+    // THE DIVERGENCE, HELD APART.  The flat grammar's law for a starred word
+    // in the wrong place is the SILENT LITERAL — it composes a term and serves
+    // nothing — where g REFUSES to compose at all.
+    apart: [RIG.irFlat("state:*archive*") === RIG.irFlat(""),
+            RIG.served("state:*archive*").rows.length,
+            RIG.irSql("WHERE IS_ARCHIVE(state)") === RIG.irFlat("")],
+    // …AND EVERY DEFAULT SPELLING IS CLEAN IN ITS OWN SURFACE.  A badge the
+    // reader may open must not put a diagnostic under the box the moment it
+    // opens, so the words a default is spelled with are words the clause reads
+    // without complaint — `TRUE' among them, and beside a condition too, it
+    // being `AND''s identity and what the add-a-condition gesture lands on.
+    clean: [RIG.sqlErrors("filter", "TRUE").length,
+            RIG.sqlErrors("filter", "TRUE AND state = 'TODO'").length,
+            RIG.sqlErrors("sort", "state, title, deadline, scheduled").length,
+            RIG.sqlErrors("columns",
+                          "state, priority, title, scheduled, deadline, tags").length,
+            RIG.sqlErrors("from", "all").length],
   }));
   return { ok: api.canon === "state = ACTIVE AND tag NOT LIKE '%x%'"
              && api.kept === "Ship Date, TITLE"
@@ -852,7 +919,13 @@ const sqlApiLaw = async () => {
              && api.unknown[0] === 1 && api.unknown[1] === ""
              && api.open === 0
              && api.relCanon === "REFS_TO('def456', 'blocked-by')"
-             && eq(api.relCol, [1, ""]),
+             && eq(api.relCol, [1, ""])
+             && eq(api.typed, ["IS_ARCHIVE :: Tag -> Bool — state is no Tag; "
+                               + "did you mean IS_ARCHIVE(tag)?"])
+             && eq(api.retired,
+                   ["ACTIVE is a predicate, not a value — IS_ACTIVE(state)"])
+             && eq(api.apart, [false, 0, true])
+             && eq(api.clean, [0, 0, 0, 0, 0]),
            why: `case=${JSON.stringify(api)}` };
 };
 
@@ -877,7 +950,10 @@ for (const page of picked) {
   // THREE DIALECTS, ONE SET OF RUNGS: what is asserted is the flat string every
   // one of them composes, and what differs is what a reader TYPES.
   const pick = (flat, dsl, sql) => (sqlish ? sql : typed ? dsl : flat);
-  const SQL_FILTER = "state = ACTIVE AND tag NOT LIKE '%chore%'";
+  // THE HOME DECIDES THE SPELLING: `*active*' is a meta that stands as the
+  // WHOLE of a value, so it is a PREDICATE over its home's cell — and g spells
+  // a predicate as a boolean function of that column, `IS NULL''s own sibling.
+  const SQL_FILTER = "IS_ACTIVE(state) AND tag NOT LIKE '%chore%'";
   const FILTER_TEXT = pick(BOOT_FILTER, 'state = Active, tag /= "chore"', SQL_FILTER);
   // WHAT A READER TYPES, not what stands afterwards: the opened slot supplies
   // the quotes and spends the opening one, so the value goes in bare and the
@@ -897,7 +973,7 @@ for (const page of picked) {
   // the offers over it are the ten operators, and the one the reader types
   // opens the slot the value goes in.
   const DRY_NEXT = pick("TO", "A", " =");
-  const DRY_FULL = pick("state:TODO", "state = Active", "state = ACTIVE");
+  const DRY_FULL = pick("state:TODO", "state = Active", "state = 'TODO'");
   // A KEY ACCEPT THAT OPENS A SLOT IS MID-CONSTRUCTION, so its value offers
   // stand at once; the flat dialect has no slot and its key accept is done.  In
   // g the COLUMN accept opens no slot and still asks again — SQL has ten
@@ -915,6 +991,16 @@ for (const page of picked) {
                            : [chars("state, title")];
   const SORT_PILL = pick("sort(deadline)", 'sort(columns = ["Deadline"])',
                          "sort(deadline)");
+  // G'S STRIP IS THE WHOLE STATEMENT: four clause badges always, in SQL's own
+  // order, so a badge is never ADDED and never TAKEN — it changes ink.  What
+  // the strip rungs count therefore differs per dialect, and where the sort
+  // badge SITS is the language's order rather than the reader's.
+  const STRIP_N = (n) => (sqlish ? 4 : n);
+  const SORT_AT = (i) => (sqlish ? 3 : i);
+  const REST_SELECT = "columns(state, priority, title, scheduled, deadline, tags)";
+  const REST_FROM = "from(all)";
+  const REST_WHERE = "filter(TRUE)";
+  const REST_ORDER = "sort(state, title, deadline, scheduled)";
   // A CLAUSE IS OPENED BY ITS KEYWORD, so g names the one it wants where the
   // other tabs take whatever the offers lead with.
   const OPEN_FILTER = sqlish ? [["."], ["w"], [KEY.Tab]] : [["."], [KEY.Tab]];
@@ -1218,8 +1304,8 @@ for (const page of picked) {
          && open.at === open.len && opened.menu === true
          && (!REOPEN_LEAD || opened.lead === REOPEN_LEAD)
          && opened.cx.stages.length === 1 && opened.q.startsWith(BOOT_FILTER)
-         && filters.length === 1 && rewrote.pills.length === 2
-         && rewrote.pills[1] === SORT_PILL
+         && filters.length === 1 && rewrote.pills.length === STRIP_N(2)
+         && rewrote.pills[SORT_AT(1)] === SORT_PILL
          && rewrote.q === BOOT_FILTER + " " + ADD_TOKEN + " sort:deadline",
          open.why || `opened=${JSON.stringify(open.args)} caret=${open.at}/${open.len} `
          + `menu=${opened.menu}/${JSON.stringify(opened.lead)} `
@@ -1248,12 +1334,18 @@ for (const page of picked) {
     const fresh = await ff.eval(() => ({ cx: RIG.cx(), door: RIG.door(),
                                          menu: RIG.menu().open,
                                          lead: RIG.menu().items[0] }));
+    // …and where the strip is the whole statement the filter badge does not go
+    // away: it RESTS, spelling the default, and `/' opens it from there — a
+    // reader edits from truth rather than from emptiness, and `TRUE' is
+    // `AND''s identity so the add-a-condition gesture works on it unchanged.
+    const FRESH_ARGS = sqlish ? "TRUE AND " : "";
     want("SLASH-FRESH",
-         eq(gone.pills, [SORT_PILL]) && fresh.door === "compose"
+         eq(gone.pills, sqlish ? [REST_SELECT, REST_FROM, REST_WHERE, SORT_PILL]
+                               : [SORT_PILL]) && fresh.door === "compose"
          && fresh.cx.stages.length === 1 && fresh.cx.stages[0].fn === "filter"
          // NO COMMA where nothing stands to be added to — and the offers are
          // open here too, the position being new either way.
-         && fresh.cx.stages[0].args === "" && fresh.cx.where === "args"
+         && fresh.cx.stages[0].args === FRESH_ARGS && fresh.cx.where === "args"
          && fresh.menu === true && fresh.lead === FRESH_LEAD
          && reEmpty.args === "" && reEmpty.at === 0,
          `gone=${JSON.stringify(gone.pills)} fresh=${JSON.stringify(fresh.cx)} `
@@ -1290,11 +1382,19 @@ for (const page of picked) {
       await ff.keys([DEL]);
       walk.push(await ff.eval(() => RIG.query()));
     }
+    // …AND WHERE A BADGE CANNOT BE TAKEN AWAY, `DEL' IS A RESET: the clause's
+    // tokens go and the badge stays, wearing its default.  "The latest" is then
+    // the rightmost badge SOMEBODY SET, in the language's own clause order —
+    // the strip has stopped recording edit order, so a gesture may only aim at
+    // what the strip shows.
+    const WALK = sqlish
+      ? ["state:*active* -tag:chore " + COLS_TOKEN, COLS_TOKEN, "", ""]
+      : ["state:*active* -tag:chore sort:deadline",
+         "state:*active* -tag:chore", "", ""];
     want("DEL-STAGE",
-         built.pills.length === 3 && built.pills[1] === SORT_PILL
+         built.pills.length === STRIP_N(3) && built.pills[SORT_AT(1)] === SORT_PILL
          && built.q === BOOT_FILTER + " sort:deadline " + COLS_TOKEN
-         && eq(walk, ["state:*active* -tag:chore sort:deadline",
-                      "state:*active* -tag:chore", "", ""]),
+         && eq(walk, WALK),
          `built=${JSON.stringify(built.pills)} q=${JSON.stringify(built.q)} `
          + `walk=${JSON.stringify(walk)}`);
 
@@ -1794,6 +1894,143 @@ for (const page of picked) {
   }
 
   if (sqlish) {
+    // ---- BADGES: THE STRIP IS THE WHOLE STATEMENT, ALWAYS, IN SQL'S OWN
+    // ORDER.  Four clause badges stand whether or not anybody set one, each
+    // defaulted one spelling its default in the RESTING ink — seeing the whole
+    // statement is what teaches the language, and "this clause is at its
+    // default" is a fact about the query that an absent badge cannot state.
+    const strip = () => ({
+      badges: RIG.badges().map((b) => b.fn + (b.def ? "·rest" : "·set")),
+      said: RIG.badges().map((b) => b.args),
+      ink: [...document.querySelectorAll("#app .tv-chips .cx-pill")]
+        .map((n) => n.dataset.fn
+             + (n.classList.contains("cx-rest") ? "·rest" : "·set")),
+      q: RIG.query(),
+    });
+    const ORDER4 = ["columns", "from", "filter", "sort"];
+    const REST4 = ORDER4.map((f) => f + (f === "filter" ? "·set" : "·rest"));
+    await ff.goto(url);
+    const four = await ff.eval(strip);
+    // …and EDITING A DEFAULTED BADGE OPENS IT WITH ITS DEFAULT SPELLED, which
+    // is the whole point of spelling it: the reader edits from truth rather
+    // than from emptiness, and takes a column out of a chain that is there.
+    await ff.eval(() => RIG.openStage("sort"));
+    const openedDef = await ff.eval(() =>
+      (RIG.cx().stages.slice(-1)[0] || {}).args);
+    // …and COMMITTING IT UNCHANGED COMPOSES NOTHING.  Naming the default IS
+    // the default — `chainSpecOf''s own law — so the badge falls back to the
+    // resting ink and the flat string never gains a redundant token.
+    await ff.keys([KEY.Enter]);
+    const tripped = await ff.eval(strip);
+    // …AND THE ORDER IS THE LANGUAGE'S AND NEVER THE READER'S: an `ORDER BY'
+    // written before a `SELECT' still stands after it.
+    await ff.goto(url);
+    await drive(OPEN_SORT);
+    await ff.keys(chars("deadline"));
+    await ff.keys([CLOSE]);
+    await drive(OPEN_COLS);
+    await ff.keys(chars("state, deadline"));
+    await ff.keys([CLOSE, KEY.Enter]);
+    const outOfOrder = await ff.eval(strip);
+    // …AND `DEL' IS A RESET where a badge cannot be taken away: the clause's
+    // tokens go, the badge stays and wears its default, and the next press
+    // takes the next clause somebody set — rightmost first, in that same order.
+    await ff.keys([DEL]);
+    const reset1 = await ff.eval(strip);
+    await ff.keys([DEL]);
+    const reset2 = await ff.eval(strip);
+    await ff.keys([DEL, DEL]);
+    const resetAll = await ff.eval(strip);
+    want("BADGES",
+         eq(four.badges, REST4) && eq(four.ink, REST4)
+         && eq(four.said, [REST_SELECT.slice(8, -1), "all", SQL_FILTER,
+                           REST_ORDER.slice(5, -1)])
+         && openedDef === REST_ORDER.slice(5, -1)
+         && tripped.q === BOOT_FILTER && eq(tripped.badges, REST4)
+         // out of order in, in order out — and both clauses stand SET
+         && eq(outOfOrder.badges, ["columns·set", "from·rest", "filter·set",
+                                   "sort·set"])
+         && outOfOrder.q === BOOT_FILTER + " sort:deadline " + COLS_TOKEN
+         // …then the reset walks back, rightmost set first
+         && eq(reset1.badges, ["columns·set", "from·rest", "filter·set",
+                               "sort·rest"])
+         && reset1.q === BOOT_FILTER + " " + COLS_TOKEN
+         && eq(reset2.badges, ["columns·set", "from·rest", "filter·rest",
+                               "sort·rest"])
+         && reset2.q === COLS_TOKEN
+         && eq(resetAll.badges, ORDER4.map((f) => f + "·rest"))
+         && resetAll.q === "" && eq(resetAll.ink, resetAll.badges),
+         `four=${JSON.stringify(four)} opened=${JSON.stringify(openedDef)} `
+         + `tripped=${JSON.stringify(tripped)} `
+         + `out=${JSON.stringify(outOfOrder)} r1=${JSON.stringify(reset1)} `
+         + `r2=${JSON.stringify(reset2)} all=${JSON.stringify(resetAll)}`);
+
+    // ---- PRED: THE HOME DECIDES THE SPELLING.  A meta that stands as the
+    // WHOLE of a value is a PREDICATE over the cell its home names, and g
+    // spells one as a boolean function of that column — SQL's own idiom and
+    // `IS NULL''s sibling.  A meta that stands INSIDE a value is a value and
+    // keeps a value's spelling, which is `CURRENT_DATE' and `ANY'.
+    await ff.goto(url);
+    await drive(OPEN_FILTER);
+    await ff.keys(chars("IS_"));
+    // THE ROSTER IS EXACTLY THE PREDICATE METAS, each offered WITH ITS OWN
+    // COLUMN and no other — the type is the metaHome law surfacing, so the
+    // offer spells the whole application and there is nothing to get wrong.
+    const predOffers = await ff.eval(() => RIG.menu().items);
+    await ff.keys([KEY.ArrowDown, KEY.ArrowDown]);
+    await ff.keys([KEY.Tab]);
+    const predTook = await ff.eval(stood);
+    await ff.keys([KEY.Enter]);
+    const predOn = await ff.eval(landed);
+    // …AND THE ARGUMENT IS TYPED.  `IS_ARCHIVE :: Tag -> Bool', so applying it
+    // to `state' is a type error: g REFUSES to compose, names the signature,
+    // and marks the column that has to be taken back.
+    await ff.goto(url);
+    await drive(OPEN_FILTER);
+    await ff.keys(chars("IS_ARCHIVE(state)"));
+    const mistyped = await ff.eval(() => ({
+      c: RIG.composed(),
+      said: [...document.querySelectorAll("#app .tv-hint .tv-refused")]
+        .map((n) => n.textContent),
+      marks: [...document.querySelectorAll("#app .cx .cx-live .cx-bad")]
+        .map((n) => n.textContent),
+    }));
+    // …and the BARE CONSTRUCTOR IS RETIRED: a predicate beside an `=' is no
+    // value.  That one is an ERROR and not a refusal — a value slot got a word
+    // that is no value, which is the unknown-value law unchanged — and the
+    // sentence names the spelling to write rather than writing it.
+    //
+    // THE DRIVE HAS TO UNDO THE SLOT TO REACH THE SPELLING AT ALL, which is the
+    // surface refusing it twice: the `=' opens a QUOTED slot, so a word typed
+    // after it lands inside the quotes and is a literal.  A reader reaches the
+    // retired form by deleting what was opened for them — or by pasting.
+    await ff.goto(url);
+    await drive(OPEN_FILTER);
+    await ff.keys(chars("state ="));
+    await ff.keys([KEY.ArrowRight]);
+    await ff.keys([KEY.Backspace, KEY.Backspace]);
+    await ff.keys(chars("ACTIVE"));
+    const retired = await ff.eval(() => ({
+      c: RIG.composed(),
+      said: RIG.sqlErrors("filter", RIG.cx().stages.slice(-1)[0].args),
+      refusals: RIG.sqlRefusals(RIG.cx().stages.slice(-1)[0].args).length,
+    }));
+    want("PRED",
+         eq(predOffers, ["IS_ACTIVE(state)", "IS_INACTIVE(state)",
+                         "IS_ARCHIVE(tag)"])
+         && predTook.args === "IS_ARCHIVE(tag)" && predTook.menu === false
+         && predOn.q === BOOT_FILTER + " tag:*archive*" && predOn.rows === 0
+         && mistyped.c === "" && mistyped.said.length === 1
+         && mistyped.said[0] === "IS_ARCHIVE :: Tag -> Bool — state is no Tag; "
+              + "did you mean IS_ARCHIVE(tag)?"
+         && eq(mistyped.marks, ["state"])
+         && retired.c === "" && retired.refusals === 0
+         && eq(retired.said,
+               ["ACTIVE is a predicate, not a value — IS_ACTIVE(state)"]),
+         `offers=${JSON.stringify(predOffers)} took=${JSON.stringify(predTook)} `
+         + `on=${JSON.stringify(predOn)} bad=${JSON.stringify(mistyped)} `
+         + `retired=${JSON.stringify(retired)}`);
+
     // ---- SLOT: THE OPERATOR OPENS THE QUOTED SLOT, where F's `=' does.  Two
     // routes, pinned apart: the operator taken out of the offers, and the
     // operator typed by hand.  What is taken out of the slot decides the
@@ -1810,7 +2047,18 @@ for (const page of picked) {
     const col = await ff.eval(held);
     await ff.keys([KEY.Tab]);                    // …the `=' and its slot
     const slot = await ff.eval(held);
-    await ff.keys([KEY.Tab]);                    // …the constructor, out of it
+    await ff.keys([KEY.Tab]);                    // …the literal, out of it
+    const lit = await ff.eval(held);
+    // …AND A BARE WORD OUT OF THE SAME SLOT SWALLOWS THE QUOTES, because a
+    // word is no string.  The predicate metas have left the value position —
+    // the home decides the spelling and they are functions now — so the words
+    // that still stand in one are the METAS THAT ARE VALUES: `CURRENT_DATE'
+    // here, and `ANY' in the relation anchor, which REL drives.
+    await ff.goto(url);
+    await drive(OPEN_FILTER);
+    await ff.keys(chars("deadline = CURRENT_DAT"));
+    const dateHalf = await ff.eval(held);
+    await ff.keys([KEY.Tab]);
     const ctor = await ff.eval(held);
     // ROUTE TWO — the operator typed by hand.  The same slot, the same offers,
     // and this column's own domain leads them.
@@ -1835,17 +2083,21 @@ for (const page of picked) {
          col.args === "state" && col.menu === true
          && eq(col.items.slice(0, 2), ["= '…'", "<> '…'"])
          && slot.args === "state = ''" && slot.at === 9 && slot.menu === true
-         && eq(slot.items, ["ACTIVE", "INACTIVE", "'TODO'", "'NEXT'"])
-         && ctor.args === "state = ACTIVE" && ctor.menu === false
-         && ctor.c === "state:*active*"
+         && eq(slot.items, ["'TODO'", "'NEXT'", "'DONE'", "'CANCELLED'"])
+         && lit.args === "state = 'TODO'" && lit.menu === false
+         && lit.c === "state:TODO"
+         && dateHalf.menu === true && dateHalf.items[0] === "CURRENT_DATE"
+         && ctor.args === "deadline = CURRENT_DATE" && ctor.menu === false
+         && ctor.c === "deadline:*today*"
          && byHand.args === "tag = ''" && byHand.at === 7 && byHand.menu === true
-         && byHand.items[0] === "ARCHIVE" && /^'/.test(byHand.items[1])
+         && /^'/.test(byHand.items[0])
          && eq(spent, byHand)
          && str.args === "tag = 'chore'" && str.menu === false && str.c === "tag:chore"
          && settledMenu === false
          && past.args === "tag = 'chore' AND state = 'TODO'"
          && past.c === "tag:chore state:TODO",
          `col=${JSON.stringify(col)} slot=${JSON.stringify(slot)} `
+         + `lit=${JSON.stringify(lit)} half=${JSON.stringify(dateHalf)} `
          + `ctor=${JSON.stringify(ctor)} hand=${JSON.stringify(byHand)} `
          + `spent=${JSON.stringify(spent)} str=${JSON.stringify(str)} `
          + `settled=${settledMenu} past=${JSON.stringify(past)}`);
@@ -1889,15 +2141,17 @@ for (const page of picked) {
     await ff.keys([KEY.Enter]);
     const inApplied = await ff.eval(landed);
     // (c) A BARE NAME, whose completeness is the NAMESPACE'S.  In `WHERE' a
-    // column is unfinished; one step short of a constructor is still being
-    // written; and the constructor itself stands alone.
+    // column is unfinished; one step short of a bare word is still being
+    // written; and the word itself stands alone.  The word is `CURRENT_DATE'
+    // now: the predicate metas left the value position when the home decided
+    // the spelling, and the ones that stand in one are the VALUE metas.
     await ff.goto(url);
     await drive(OPEN_FILTER);
-    await ff.keys(chars("tag"));
+    await ff.keys(chars("deadline"));
     const bareCol = await ff.eval(stood);
-    await ff.keys(chars(" = ARCHIV"));
+    await ff.keys(chars(" = CURRENT_DAT"));
     const halfCtor = await ff.eval(stood);
-    await ff.keys([KEY.Tab]);                    // …the constructor eats the slot
+    await ff.keys([KEY.Tab]);                    // …the bare word eats the slot
     const wholeCtor = await ff.eval(stood);
     // …and the caret WALKED onto its tail rather than left there by the accept:
     // what decides is the term, and never the gesture that reached it.
@@ -1920,14 +2174,14 @@ for (const page of picked) {
          && inShut.args === "tag IN ('docs', 'chore')" && inShut.menu === false
          && inApplied.q === BOOT_FILTER + " tag:docs|chore"
          && inApplied.door === null
-         && bareCol.args === "tag" && bareCol.menu === true
+         && bareCol.args === "deadline" && bareCol.menu === true
          && bareCol.lead === "= '…'"
-         && halfCtor.args === "tag = 'ARCHIV'" && halfCtor.menu === true
-         && halfCtor.lead === "ARCHIVE"
-         && wholeCtor.args === "tag = ARCHIVE" && wholeCtor.at === 13
+         && halfCtor.args === "deadline = 'CURRENT_DAT'" && halfCtor.menu === true
+         && halfCtor.lead === "CURRENT_DATE"
+         && wholeCtor.args === "deadline = CURRENT_DATE" && wholeCtor.at === 23
          && wholeCtor.menu === false
          && walkedOff.menu === true && eq(walkedBack, wholeCtor)
-         && ctorApplied.q === BOOT_FILTER + " tag:*archive*"
+         && ctorApplied.q === BOOT_FILTER + " deadline:*today*"
          && ctorApplied.door === null,
          `str=${JSON.stringify(doneStr)} space=${JSON.stringify(doneSpace)} `
          + `join=${JSON.stringify(doneJoin)} again=${JSON.stringify(doneAgain)} `
@@ -1968,7 +2222,7 @@ for (const page of picked) {
          escA.mid.args === REOPEN_TEXT && escA.mid.menu === true && same(escA)
          && escB.mid.args === SQL_FILTER + " AND tag = 'docs'"
          && escB.mid.menu === false && same(escB)
-         && escC.mid.args === "state = ACTIVE AND tag NOT LIKE '%milk%' AND "
+         && escC.mid.args === SQL_FILTER.replace("chore", "milk") + " AND "
          && same(escC),
          `a=${JSON.stringify(escA.mid)}/${same(escA)} `
          + `b=${JSON.stringify(escB.mid)}/${same(escB)} `
@@ -2070,6 +2324,11 @@ for (const page of picked) {
       // than teaching a language that is not there.
       closure: ["WITH RECURSIVE reach AS (SELECT 1)",
                 "2026-08-23-the-chain-a-row-hangs-on.md"],
+      // …AND THE TYPE ERRORS, which are refusals of the same family: the
+      // expression is well formed and the grammar has no shape for it, so the
+      // clause composes nothing and the sentence speaks the signature.
+      predType: ["IS_ARCHIVE(state)", "IS_ARCHIVE :: Tag -> Bool"],
+      nullType: ["substring IS NULL", "no cell to be empty"],
     };
     // …AND THE SHAPES THAT DO COMPOSE, which is what makes the refusal a line
     // and not a wall: the alternation, the base-and-widening law 5 could not
@@ -2231,8 +2490,8 @@ for (const page of picked) {
       one: RIG.stageString("from", "work"),
       union: [RIG.irSql("FROM work, home"), RIG.irFlat("tag:work|home")],
       aliases: ["*", "all", "default"].map((a) => RIG.stageString("from", a)),
-      omitted: [RIG.irSql("WHERE state = ACTIVE"),
-                RIG.irSql("FROM all WHERE state = ACTIVE"),
+      omitted: [RIG.irSql("WHERE IS_ACTIVE(state)"),
+                RIG.irSql("FROM all WHERE IS_ACTIVE(state)"),
                 RIG.irFlat("state:*active*")],
       // …so a `FROM' beside a `WHERE tag' is the axis law's own consequence.
       both: [RIG.irSql("FROM docs WHERE tag = 'chore'"),

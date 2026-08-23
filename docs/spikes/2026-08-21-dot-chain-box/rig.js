@@ -142,6 +142,20 @@ var RIG = (function () {
     ref: ["*any*"], from: ["*any*"],
   };
 
+  /**
+   * WHERE A META STANDS, which is `docs/query.md''s own line: `*today*' and
+   * `*any*' stand INSIDE a value — a date literal's place, an id's place —
+   * where every other starred word stands as the WHOLE of one.
+   *
+   * THE HOME DECIDES THE SPELLING.  A meta that is the whole of a value is a
+   * PREDICATE over the cell its home names; one that stands inside a value is a
+   * VALUE in its own right.  Every surface reads the split off this line: g
+   * spells a predicate as a boolean function of its column — `IS_ACTIVE(state)'
+   * — and a value as a value, `CURRENT_DATE' and `ANY'.
+   */
+  var INSIDE = { "*today*": 1, "*any*": 1 };
+  var predicateMeta = function (m) { return !INSIDE[m]; };
+
   /** Is META legal on KEY?  `METAS' answers, and nobody keeps a second list. */
   function metaOn(key, meta) { return (METAS[key] || []).indexOf(meta) >= 0; }
 
@@ -817,6 +831,13 @@ var RIG = (function () {
       out.push([col, s.dir === "desc" ? "desc" : "asc"]);
     });
     if (none && !out.length) return { kind: "none" };
+    // NAMING THE DEFAULT CHAIN, IN ITS OWN ORDER, *IS* THE DEFAULT — the twin
+    // of `colsSpecOf''s six-is-default line, and the denotation either way: the
+    // string differs and the order does not.  It is what lets a surface that
+    // SPELLS its defaults be edited back to one and compose nothing for it.
+    if (out.length === DEFAULT_CHAIN.length && out.every(function (c, i) {
+      return c[0] === DEFAULT_CHAIN[i][0] && c[1] === DEFAULT_CHAIN[i][1];
+    })) return { kind: "default" };
     if (out.length) return { kind: "chain", chain: out };
     // SEGMENTS THAT NAME NOTHING THE CHAIN CAN CARRY take effect nowhere: the
     // flat grammar refuses such a query outright, and the nearest honest
@@ -874,6 +895,11 @@ var RIG = (function () {
    *  spec `colsSpecOf' makes of them. */
   function flatOfCols(names) {
     var kept = names.filter(function (n) { return String(n).trim(); });
+    // …AND A LIST THAT DENOTES THE DEFAULT COMPOSES NOTHING, which is
+    // `colsSpecOf''s six-is-default law read at the compose rather than at the
+    // IR: a surface that SPELLS its default in a badge must be able to be
+    // edited back to one without the string gaining a redundant token.
+    if (colsSpecOf(kept).kind === "default") return "";
     return kept.length ? "columns:" + kept.map(function (n) {
       return n.trim();
     }).join(",") : "";
@@ -1700,15 +1726,57 @@ var RIG = (function () {
   // what gave `ANY' its spelling here for free.
   var SQL_META = {};
   Object.keys(CTORS).forEach(function (c) { SQL_META[fold(c)] = CTORS[c].meta; });
+
+  /**
+   * THE PREDICATE METAS AS BOOLEAN FUNCTIONS, derived from the same roster and
+   * from where each meta stands: a meta that is the WHOLE of a value is a
+   * predicate over its home's cell, and SQL's own idiom for a predicate that is
+   * not a comparison is a FUNCTION OF THE COLUMN.  `IS NULL' is the sibling
+   * this rhymes with — SQL already had the word for `*empty*', so that one keeps
+   * it — and a meta that stands INSIDE a value is a value and is not here.
+   *
+   * THE ARGUMENT IS COLUMN-TYPED, `IS_ARCHIVE :: Tag -> Bool', and `on' is that
+   * type: it is the flat grammar's metaHome law — each starred word has ONE
+   * home — surfacing in a type system.  `IS_ARCHIVE(state)' is a type error and
+   * g refuses it; see `predicate'.
+   */
+  var SQL_FN = {};
+  Object.keys(CTORS).forEach(function (c) {
+    var m = CTORS[c].meta;
+    if (!predicateMeta(m) || m === "*empty*") return;
+    SQL_FN["is_" + fold(c)] = { meta: m, on: CTORS[c].on };
+  });
+  /** A column key as the TYPE g speaks in a signature: `state' is a `State'. */
+  var typeOf = function (k) {
+    return String(k).charAt(0).toUpperCase() + String(k).slice(1);
+  };
+  /**
+   * THE WHOLE APPLICATION A PREDICATE META SPELLS.  KEY is the column to apply
+   * it to; with none, the meta's own HOME — which is the difference between
+   * RENDERING a flat token faithfully (the token's own key, so a MISPLACED meta
+   * renders as the type error it is and g refuses it on the way back) and
+   * SUGGESTING a spelling to a reader (the home, which is the one that types).
+   */
+  function sqlPredCall(meta, key) {
+    if (meta === "*empty*") return (key || keysWith(meta)[0]) + " IS NULL";
+    var f = Object.keys(SQL_FN).filter(function (n) {
+      return SQL_FN[n].meta === meta;
+    })[0];
+    return f ? f.toUpperCase() + "(" + (key || SQL_FN[f].on[0]) + ")"
+             : String(meta);
+  }
   var SQL_UNIT = { day: "d", days: "d", week: "w", weeks: "w", month: "m",
                    months: "m", year: "y", years: "y" };
   // `WITH' and `RECURSIVE' are here to be REFUSED by name rather than read as a
-  // column; the two relation calls are derived from `REL_FN', so g cannot come
-  // to spell a direction F does not.
+  // column; `true' is the empty conjunction, which is what the DEFAULT `WHERE'
+  // badge is spelled with; the relation calls and the predicate functions are
+  // DERIVED, so g cannot come to spell a direction or a meta the roster does
+  // not have.
   var SQL_KEYWORDS = ["select", "from", "where", "order", "by", "and", "or",
                       "not", "in", "like", "between", "is", "null", "asc",
                       "desc", "current_date", "interval", "date", "any",
-                      "with", "recursive"].concat(Object.keys(REL_FN));
+                      "true", "with", "recursive"]
+    .concat(Object.keys(REL_FN), Object.keys(SQL_FN));
   /** WHERE THE BOUNDED WALK LIVES.  The refusal names it rather than describing
    *  it, so a reader who wanted a closure is told the document and not just the
    *  word they may not type. */
@@ -1938,6 +2006,16 @@ var RIG = (function () {
           say(t.v + " is not a value — an open value is quoted, '…'");
           return null;
         }
+        // A PREDICATE META IS NO VALUE.  The home decides the spelling, and a
+        // meta that is the whole of a value is a predicate over its home's
+        // cell — a boolean FUNCTION here, never a word beside an `='.  The
+        // sentence names the one to write; nothing is rewritten, because a
+        // diagnostic in this surface never changes what is composed.
+        if (predicateMeta(m)) {
+          say(fold(t.v).toUpperCase() + " is a predicate, not a value — "
+              + sqlPredCall(m, metaOn(key, m) ? key : null));
+          return null;
+        }
         if (!metaOn(key, m))
           say(fold(t.v).toUpperCase() + " is not a value of " + key);
         return [m];
@@ -2040,6 +2118,41 @@ var RIG = (function () {
         i += 1;
         return relCall(REL_FN[fold(t.v)]);
       }
+      // `true' IS THE EMPTY CONJUNCTION and SQL's own word for it: the clause
+      // that narrows nothing.  It composes no term and complains about none,
+      // which is what lets the DEFAULT `WHERE' badge be spelled, opened,
+      // edited beside — `true AND …', `AND''s identity — and committed back to
+      // the default it came from.
+      if (sqlWord(t) === "true") { i += 1; return []; }
+      // A PREDICATE META IS A BOOLEAN FUNCTION OF ITS OWN COLUMN, and the
+      // argument is TYPED: `IS_ARCHIVE :: Tag -> Bool'.  That is the flat
+      // grammar's metaHome law — one starred word, one home — surfacing in a
+      // type system, and a misapplied one is REFUSED rather than composed: the
+      // flat side spells a literal that matches nothing, and a type system's
+      // job is refusing what the grammar can only serve emptily.
+      var pf = SQL_FN[sqlWord(t)];
+      if (pf) {
+        var pname = fold(t.v).toUpperCase(), home = pf.on[0];
+        i += 1;
+        if (!eatPunc("(")) {
+          say(pname + " wants its column — " + pname + "(" + home + ")");
+          return [];
+        }
+        var pa = peek();
+        var pcol = pa && (pa.t === "name" || pa.t === "ident")
+          ? sqlKeyOf(pa.v) : null;
+        if (pa && (pa.t === "name" || pa.t === "ident")) i += 1;
+        eatPunc(")");
+        if (!pcol) {
+          say(pname + " wants its column — " + pname + "(" + home + ")");
+          return [];
+        }
+        if (pf.on.indexOf(pcol) < 0)
+          return no(pname + " :: " + typeOf(home) + " -> Bool — " + pcol
+                    + " is no " + typeOf(home) + "; did you mean " + pname
+                    + "(" + home + ")?") || [];
+        return [{ sign: "", key: pcol, atoms: [pf.meta] }];
+      }
       var key = sqlKeyOf(t.v);
       i += 1;
       if (!key) {
@@ -2081,8 +2194,13 @@ var RIG = (function () {
         i += 1;
         if (eatWord("not")) neg = true;
         if (!eatWord("null")) { say("IS wants NULL"); return []; }
+        // …AND THE SAME TYPING, in the one predicate SQL spells with a word of
+        // its own: a column with no empty cell is no home for `*empty*', so the
+        // application is refused rather than composed to serve nothing.  One
+        // law, one severity, whichever word spells the predicate.
         if (!hasEmptyCell(key))
-          say(key + " has no empty cell to be NULL");
+          return no("IS NULL :: " + keysWith("*empty*").map(typeOf).join(" | ")
+                    + " -> Bool — " + key + " has no cell to be empty") || [];
         atoms = ["*empty*"];
       } else {
         var op = peek();
@@ -2296,9 +2414,21 @@ var RIG = (function () {
       var body = calls.length === 1 ? calls[0] : "(" + calls.join(" OR ") + ")";
       return neg ? "NOT " + body : body;
     }
+    // A PREDICATE IS NO MEMBER OF A LIST: `IN (…)' takes values, so an axis
+    // mixing a predicate meta with literals is spelled as the one-axis `OR' it
+    // already is rather than as a list with a function inside it.
+    if (atoms.length > 1 && atoms.some(function (a) {
+      return predicateMeta(fold(a)) && METACTOR[fold(a)];
+    })) return (neg ? "NOT " : "") + "(" + atoms.map(function (a) {
+      return sqlBinding(key, [a], "");
+    }).join(" OR ") + ")";
     if (atoms.length === 1) {
       var a = atoms[0];
       if (fold(a) === "*empty*") return key + " IS " + (neg ? "NOT " : "") + "NULL";
+      // THE HOME DECIDES THE SPELLING: a predicate meta is a boolean function
+      // of its own column, which is SQL's own idiom and `IS NULL''s sibling.
+      if (METACTOR[fold(a)] && predicateMeta(fold(a)))
+        return (neg ? "NOT " : "") + sqlPredCall(fold(a), key);
       if (METACTOR[fold(a)])
         return key + (neg ? " <> " : " = ") + fold(a).replace(/\*/g, "").toUpperCase();
       if (DATE_KEYS[key]) return sqlDate(key, a, neg);
@@ -2387,6 +2517,43 @@ var RIG = (function () {
     return COLS.map(function (c) { return sqlIdent(c.key); }).join(", ");
   };
 
+  /**
+   * G'S FOUR CLAUSES IN SQL'S OWN WRITTEN ORDER, and THE DEFAULT EACH WEARS
+   * when nothing has been said.  The strip shows all four always: *seeing the
+   * whole statement teaches the language*, and a clause standing at its default
+   * is a fact about the query that an absent badge cannot state.
+   *
+   * The defaults are spelled HONESTLY, which is to say they are spelled as what
+   * actually stands:
+   *
+   *   SELECT    the six of the default view, BY NAME.  Not `*': the star is
+   *             SEVEN — `closed' is the difference — so a badge spelled `*'
+   *             would compose a different query the moment a reader opened it
+   *             and pressed RET.
+   *   FROM      `all', the alias for the whole store.
+   *   WHERE     `TRUE', SQL's own word for the filter that narrows nothing —
+   *             and `AND''s identity, so the add-a-condition gesture works on
+   *             it unchanged.
+   *   ORDER BY  the app's REAL default chain, state → title → deadline →
+   *             scheduled, in the tree's own `#+TODO:' order.
+   *
+   * Each of the four composes NOTHING when it is read back, which is what makes
+   * the badge editable and the flat string canonical: `chainSpecOf' and
+   * `colsSpecOf' already say that naming the default IS the default, `all' has
+   * always composed nothing, and `TRUE' is the empty conjunction.
+   */
+  var SQL_ORDER = ["columns", "from", "filter", "sort"];
+  var SQL_TRUE = "TRUE";
+
+  function sqlDefaultOf(fn) {
+    if (fn === "columns") return sqlSix();
+    if (fn === "from") return SQL_WHOLE;
+    if (fn === "filter") return SQL_TRUE;
+    return sqlOfOrder(DEFAULT_CHAIN.map(function (c) {
+      return c[0] + (c[1] === "desc" ? ":desc" : "");
+    }).join("->"));
+  }
+
   function sqlStatementOf(q) {
     var toks = scan(q);
     var where = toks.filter(function (t) { return stageOfToken(t) === "filter"; });
@@ -2394,9 +2561,13 @@ var RIG = (function () {
     var colTok = toks.filter(function (t) { return t.key === "columns" && !t.sign; });
     var cols = colTok.map(function (t) { return t.value; }).join(",");
     var chain = sortTok.map(function (t) { return t.value; }).join("->");
-    var out = "SELECT " + (cols ? sqlOfCols(cols) : sqlSix()) + " FROM " + SQL_WHOLE;
-    if (where.length) out += " WHERE " + sqlOfFilter(where);
-    if (chain) out += " ORDER BY " + sqlOfOrder(chain);
+    // THE SENTENCE SAYS THE SAME FOUR CLAUSES THE STRIP DOES, defaults spelled
+    // where nothing was set — the statement whole is what teaches the language,
+    // and each default composes nothing when it is read back.
+    var out = "SELECT " + (cols ? sqlOfCols(cols) : sqlDefaultOf("columns"))
+      + " FROM " + sqlDefaultOf("from")
+      + " WHERE " + (where.length ? sqlOfFilter(where) : sqlDefaultOf("filter"))
+      + " ORDER BY " + (chain ? sqlOfOrder(chain) : sqlDefaultOf("sort"));
     return out;
   }
 
@@ -2624,9 +2795,12 @@ var RIG = (function () {
    *  day as `CURRENT_DATE', the observed values single-quoted. */
   function sqlValueOffers(key, frag, closes) {
     var bare2 = frag.replace(/^'/, "");
+    // ONLY THE METAS THAT ARE VALUES stand in a value slot.  A PREDICATE meta
+    // is a function of its column now and is offered where a PREDICATE goes,
+    // so there is nothing here for a reader to put beside an `=' by accident.
     var out = Object.keys(CTORS).filter(function (c) {
-      return CTORS[c].on.indexOf(key) >= 0 && starts(c, bare2)
-        && fold(c) !== "empty";
+      return !predicateMeta(CTORS[c].meta) && CTORS[c].on.indexOf(key) >= 0
+        && starts(c, bare2);
     }).map(function (c) {
       return { text: fold(c).toUpperCase(), insert: fold(c).toUpperCase(),
                full: true, dim: true, eats: closes,
@@ -2783,6 +2957,22 @@ var RIG = (function () {
     }).map(function (k) {
       return { text: k, insert: k, more: true, aside: ASIDE[k] || "" };
     });
+    // …AND THE PREDICATE METAS, EACH WITH ITS OWN COLUMN AND NO OTHER.  The
+    // type is the metaHome law surfacing, so the offer spells the WHOLE
+    // application — there is nothing left for a reader to get wrong, and the
+    // one shape that would be a type error is the one shape not offered.
+    Object.keys(SQL_FN).forEach(function (f) {
+      var up = f.toUpperCase();
+      SQL_FN[f].on.forEach(function (col) {
+        var whole = up + "(" + col + ")";
+        if (!starts(up, w.frag) && !starts(whole, w.frag)) return;
+        keys.push({ text: whole, insert: whole, full: true, dim: true,
+                    aside: "meta · " + SQL_FN[f].meta,
+                    n: counted(function (r) {
+                      return atom(col, SQL_FN[f].meta, r);
+                    }) });
+      });
+    });
     // …AND THE TWO RELATION CALLS, which stand where a column stands and are
     // none: a boolean function is SQL's own shape for a predicate that is not a
     // comparison, and the slot it opens is the anchor's.
@@ -2846,11 +3036,24 @@ var RIG = (function () {
 
   /** G's painter: keywords, identifiers, literals, and the two namespaces. */
   function paintSql(frag, text, fn, warn, refused) {
-    var depth = 0;
+    var depth = 0, callFn = null, opened = false;
     paintLexed(frag, text, lexSql(text), warn, function (t) {
       var w = fold(t.v), cls;
       if (t.t === "punc" && t.v === "(") depth += 1;
       if (t.t === "punc" && t.v === ")") depth -= 1;
+      // THE ARGUMENT OF A MISAPPLIED PREDICATE IS THE WORD TO TAKE BACK, so it
+      // is the word that is marked — the same courtesy the refused `OR' gets.
+      // The reading is the three tokens `IS_X ( col', which is as much as a
+      // painter can know and exactly as much as it needs.
+      if (SQL_FN[w]) { callFn = SQL_FN[w]; opened = false; }
+      else if (t.t === "punc" && t.v === "(" && callFn) opened = true;
+      else if (callFn && opened) {
+        var arg = (t.t === "name" || t.t === "ident") ? sqlKeyOf(t.v) : null;
+        var wrong = !arg || callFn.on.indexOf(arg) < 0;
+        callFn = null;
+        opened = false;
+        if (wrong && (t.t === "name" || t.t === "ident")) return "cx-bad";
+      } else if (t.t !== "punc") { callFn = null; opened = false; }
       if (t.t === "str")
         // A LITERAL IS A LITERAL IN `WHERE' AND A MISTAKE IN THE OTHER TWO,
         // where a column was owed and single quotes name no column.
@@ -3981,6 +4184,13 @@ var RIG = (function () {
    * press takes the latest badge whole, whichever call it is, and the earlier
    * ones stand; pressing it again walks the chain backward.  Inside an open
    * paren edit it is ordinary text editing and eats nothing.
+   *
+   * WHERE EVERY BADGE IS ALWAYS THERE THE ERASER BECOMES A RESET.  A badge
+   * cannot be removed from a strip that shows the whole statement, so the
+   * gesture takes the clause's TOKENS and the badge stays, wearing its default
+   * in the resting ink — which is the same act said in the same code, since
+   * taking a stage's tokens was always what `dropStage' did.  Pressing it again
+   * resets the next clause somebody set, rightmost first in SQL's own order.
    */
   function delLastStage() {
     // A stage closed but not yet committed IS the last badge while it stands.
@@ -4175,14 +4385,23 @@ var RIG = (function () {
       if (!group[fn]) { group[fn] = []; order.push(fn); }
       group[fn].push(t);
     });
-    return order.map(function (fn) {
+    var one = function (fn) {
       var toks = group[fn];
+      // A CLAUSE NOBODY SET WEARS ITS DEFAULT, SPELLED.  Only a dialect with an
+      // `always' order has such a badge; everywhere else a stage nothing wrote
+      // has no badge at all, and this arm is unreachable.
+      if (!toks) return { fn: fn, args: dia.rest(fn), def: true };
       var flat = toks.map(function (t) { return fn === "filter" ? t.text : t.value; })
         .join(JOIN[fn]);
       // EACH DIALECT SHOWS THE SAME GROUP IN ITS OWN IDIOM — the badge is the
       // surface, the strip underneath is still the flat string.
-      return { fn: fn, args: dia.ofFlat(fn, toks, flat) };
-    });
+      return { fn: fn, args: dia.ofFlat(fn, toks, flat), def: false };
+    };
+    // …AND WHERE THE STRIP IS THE WHOLE STATEMENT it is the LANGUAGE'S order
+    // and never the reader's: SQL's clause order is fixed, so the badges are
+    // too, whatever order the clauses were written in.  The other dialects keep
+    // the order the stages were first written, the chain being a chain.
+    return (dia.always || order).map(one);
   }
 
   function pillsOf(q) {
@@ -4196,9 +4415,17 @@ var RIG = (function () {
     }).join("");
   }
 
-  /** The stage the last token on the strip belongs to — the chain's last badge. */
+  /**
+   * The stage the last token on the strip belongs to — the chain's last badge.
+   *
+   * WHERE EVERY BADGE IS ALWAYS THERE, "the last" is the last one SOMEBODY SET:
+   * the rightmost badge not in the resting ink.  The strip has stopped
+   * recording edit order, so a gesture may only aim at what the strip SHOWS,
+   * and what it shows is which clauses stand at their default.
+   */
   function lastStage() {
     var p = pillsOf(query());
+    if (D().always) p = p.filter(function (x) { return !x.def; });
     return p.length ? p[p.length - 1].fn : null;
   }
 
@@ -4210,11 +4437,27 @@ var RIG = (function () {
       // still the one on the table.
       var editing = CX.stages.filter(function (st) { return st.replacing; })
         .map(function (st) { return st.fn; });
-      pillsOf(query()).forEach(function (p, i) {
-        strip.appendChild(pillEl(p, i, editing.indexOf(p.fn) >= 0 ? "cx-editing" : ""));
+      // A STAGE CLOSED BUT NOT YET ASKED FOR stands beside the strip's own
+      // badges — except where the strip is the whole statement in a fixed
+      // order, and then it stands IN THAT CLAUSE'S PLACE: a fifth badge at the
+      // tail would be the edit order coming back in through the window.
+      var pend = {};
+      CX.stages.forEach(function (st) {
+        if (st.pending && st.fn && String(st.args).trim()) pend[st.fn] = st;
       });
-      CX.stages.filter(function (st) { return st.pending && st.fn && st.args; })
-        .forEach(function (st, i) { strip.appendChild(pillEl(st, i, "cx-pending")); });
+      pillsOf(query()).forEach(function (p, i) {
+        var st = D().always ? pend[p.fn] : null;
+        if (st) delete pend[p.fn];
+        var mark = st ? "cx-pending"
+          : editing.indexOf(p.fn) >= 0 ? "cx-editing"
+          // …AND A DEFAULTED BADGE WEARS THE RESTING INK, which is the whole of
+          // the distinction: full ink is what somebody SET.
+          : p.def ? "cx-rest" : "";
+        strip.appendChild(pillEl(st || p, i, mark));
+      });
+      Object.keys(pend).forEach(function (fn, i) {
+        strip.appendChild(pillEl(pend[fn], i, "cx-pending"));
+      });
     } else {
       S.chips.forEach(function (tok, i) {
         var c = document.createElement("span");
@@ -4754,6 +4997,10 @@ var RIG = (function () {
       canon: function (args) { return String(args); },
       dangle: function (args) { return String(args); },
       sep: function (args) { return args; },
+      // THE STRIP HOLDS WHAT WAS WRITTEN AND NOTHING ELSE: no fixed order, and
+      // a stage nobody wrote has no badge to rest in.
+      always: null,
+      rest: function () { return ""; },
       flatOf: flatStageString,
       ofFlat: function (fn, toks, flat) { return flat; },
       paint: function (frag, text, fn) {
@@ -4799,6 +5046,8 @@ var RIG = (function () {
       canon: dslCanon,
       dangle: dslDangle,
       sep: function (args) { return dslDangle(args) + ", "; },
+      always: null,
+      rest: function () { return ""; },
       flatOf: function (fn, a) {
         return fn === "filter" ? dslFilterFlat(a).flat
              : fn === "sort" ? dslSortFlat(a) : dslColsFlat(a);
@@ -4841,6 +5090,10 @@ var RIG = (function () {
       canon: sqlCanon,
       dangle: sqlDangle,
       sep: function (args) { return sqlDangle(String(args)) + " AND "; },
+      // THE STRIP IS THE WHOLE STATEMENT, in SQL's own clause order, and every
+      // clause is on it whether or not anybody set one.
+      always: SQL_ORDER,
+      rest: sqlDefaultOf,
       flatOf: function (fn, a) {
         // `FROM' NAMES A DATASET, and a dataset is a TAG — so the clause
         // composes onto the tag axis, which is where the strip will keep it.
@@ -5049,6 +5302,17 @@ var RIG = (function () {
     pills: function () {
       return pillsOf(query()).map(function (p) { return p.fn + "(" + p.args + ")"; });
     },
+    // …AND WHICH OF THEM NOBODY SET.  The ink split is the badge's whole claim,
+    // so a check reads it off the model as well as off the class on the span.
+    badges: function () {
+      return pillsOf(query()).map(function (p) {
+        return { fn: p.fn, args: p.args, def: !!p.def };
+      });
+    },
+    // A BADGE IS OPENED BY A CLICK, and a DEFAULTED one is the only way to
+    // reach a clause nobody has written — the same entry the strip's own
+    // mousedown takes, so a check drives what a reader does.
+    openStage: reopen,
     // THE PROOF: THREE readers, one normal form.  `irFlat' is the flat
     // grammar's path, `irDsl' F's typed one, `irSql' G's, and none of the three
     // goes through another.

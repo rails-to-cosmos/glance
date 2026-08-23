@@ -65,6 +65,17 @@
     background:color-mix(in srgb,var(--g-link) var(--tv-cols-wash),transparent);
     border-color:color-mix(in srgb,var(--g-link) var(--tv-chip-edge),transparent);
   }
+  /* THE RESTING INK: a clause NOBODY SET, spelled and standing back.  The
+     strip shows all four clauses always — seeing the whole statement is what
+     teaches the language — so the badge has to say which of them are the
+     reader's and which are the app's, and it says it in ONE glance: the
+     defaulted ones are washed out of their own hue and their text goes to the
+     muted voice.  Everything else about them is unchanged; they are clickable,
+     editable and exactly as wide as what they say. */
+  .cx-rest{background:transparent; border-style:dotted;
+    border-color:color-mix(in srgb,var(--g-mute) 40%,transparent)}
+  .cx-rest .cx-args span, .cx-rest .cx-args{color:var(--g-mute); opacity:.62}
+  .cx-rest .cx-head{color:var(--g-mute); opacity:.72; font-weight:500}
   .cx-pending{border-style:dashed}
   .cx-editing{border-style:dashed; border-color:var(--g-accent)}
   .cx-pill.cx-warn{border-style:dotted; border-color:var(--g-todo);
@@ -86,7 +97,7 @@
     <div id="echo"></div>
   </div>
   <footer>
-    <span><kbd>/</kbd> edits WHERE · <kbd>DEL</kbd> takes the latest ·
+    <span><kbd>/</kbd> edits WHERE · <kbd>DEL</kbd> resets the latest ·
       <kbd>.</kbd> a clause · <kbd>TAB</kbd> complete · <kbd>,</kbd> separates ·
       <kbd>←</kbd><kbd>→</kbd> caret · <kbd>;</kbd> closes the clause ·
       <kbd>RET</kbd> apply · <kbd>ESC</kbd> cancels · <kbd>t</kbd> theme ·
