@@ -29,7 +29,7 @@ import TestDefaults (bare, headlinesOf, testProperty, testPropertyWith, withTemp
 import TestGen ( Broken (Broken), DocSpec (dsEntries, dsFinalEol), EntrySpec (..)
                , Expected (exBlank, exLevel, exSpans)
                , Rendered (rdEntries, rdText), TsAny (TsAny), TsImage (TsImage)
-               , Wild (Wild), brokenRange, docSample, expectedExtents, render
+               , Wild (Wild), brokenLine, docSample, expectedExtents, render
                , shapeFloors, shapesOf )
 
 import System.FilePath ((</>))
@@ -257,7 +257,7 @@ timestampSpec = testGroup "Timestamps"
 -- | A refusal returns zero elements AND the caller's context untouched.
 negativeSpec :: TestTree
 negativeSpec = testGroup "Refusals"
-  [ testProperty "a mismatched range fails the whole file and leaves the context" $
+  [ testProperty "a corrupt headline fails the whole file and leaves the context" $
       \(Broken ds k) ->
         let doc = rdText (render (breakAt k ds))
         in  counterexample (T.unpack doc) $ case orgParse defaultContext doc of
@@ -269,7 +269,7 @@ negativeSpec = testGroup "Refusals"
 breakAt :: Int -> DocSpec -> DocSpec
 breakAt k ds = ds { dsEntries = zipWith at [0 ..] (dsEntries ds) }
   where n = max 1 (length (dsEntries ds))
-        at i e | i == (k :: Int) `mod` n = e { esBody = esBody e <> [brokenRange] }
+        at i e | i == (k :: Int) `mod` n = e { esBody = esBody e <> [brokenLine] }
                | otherwise = e
 
 -- | Named here rather than read off 'headlineSpanParts', which it is the oracle for.
