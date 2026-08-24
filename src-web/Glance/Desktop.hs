@@ -39,15 +39,19 @@ browserCandidates =
   , "brave", "vivaldi" ]
 
 -- | The command that opens URL, given @$GLANCE_BROWSER@ as ENV, @--browser@ as FLAG and PATH as DIRS.  'Nothing' means no window can be opened here at all.
+-- A NAMED command is run as given with the URL appended — @xdg-open@ names the
+-- default browser's own tab; only the AUTO hunt dresses its candidates in
+-- @--app@, since those are the chromium family the good window is tied to.
 resolveBrowser :: Maybe String -> Maybe String -> [FilePath] -> String
                -> IO (Maybe (FilePath, [String]))
 resolveBrowser env flag dirs url = case env <|> flag of
-  Just named -> Just . appMode . fromMaybe named <$> onPath dirs named
+  Just named -> Just . plain . fromMaybe named <$> onPath dirs named
   Nothing    -> firstJust (map candidate browserCandidates <> [opener])
   where
     appMode exe    = (exe, ["--app=" <> url])
+    plain exe      = (exe, [url])
     candidate name = fmap appMode <$> onPath dirs name
-    opener         = fmap (\exe -> (exe, [url])) <$> onPath dirs "xdg-open"
+    opener         = fmap plain <$> onPath dirs "xdg-open"
 
 -- | NAME as something to run, looked for in DIRS.  A name carrying a separator is a path already.
 onPath :: [FilePath] -> String -> IO (Maybe FilePath)

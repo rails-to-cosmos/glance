@@ -464,12 +464,16 @@
 
   /**
    * Is V RESERVED VOCABULARY rather than a value the rows hold — a starred meta
-   * or a day word?  Reserved offers carry NO ROW COUNT, nothing spelling one in
-   * a cell, and are drawn dim.  The stars said this alone until `today' lost
-   * hers; the roster says it now.
-   * @param {string} v  @returns {boolean}
+   * always, a day word ON A DATE COLUMN?  Reserved offers carry NO ROW COUNT,
+   * nothing spelling one in a cell, and are drawn dim.  THE DAY WORDS ARE
+   * SCOPED TO THE COLUMN THAT JOINED THEM: `DAY_WORD_LIST' rides a date
+   * column's domain and no other (`acItems'), so a title cell spelling `today'
+   * is a cell like any other.
+   * The stars carry no such scope, `*empty*' riding every column's foot.
+   * @param {string} v  @param {boolean} onDate  @returns {boolean}
    */
-  const reserved = (v) => META.test(v) || DAY_WORD_LIST.indexOf(v) !== -1;
+  const reserved = (v, onDate) =>
+    META.test(v) || (onDate && DAY_WORD_LIST.indexOf(v) !== -1);
 
   /**
    * `today''s OLD SPELLING, READ AND NEVER OFFERED: stored queries and typed
@@ -751,12 +755,14 @@
    * The ISO day W names against TODAY, or "" where W is no clock word at all.
    * ONE READER for every position a day word may stand in — bare, behind an
    * operator, at either range end and as a shift's base — so a spelling one
-   * takes is a spelling all take, the old starred one included.
+   * takes is a spelling all take, the old starred one included.  THE HEAD OF
+   * THE ROSTER STEPS BY NOTHING AND IS STEPPED ANYWAY: `shiftDay' spells a
+   * canonical day back byte for byte.
    * @param {string} w  @param {string} today  @returns {string}
    */
   function dayWord(w, today) {
     for (const [word, off] of DAY_WORDS)
-      if (w === word) return off === 0 ? today : shiftDay(today, off, "d");
+      if (w === word) return shiftDay(today, off, "d");
     return w === TODAY_META ? today : "";
   }
 
@@ -4457,7 +4463,7 @@
         // THE DOMAIN COUNTS ROWS SPELLING A CELL, where `>=D' serves rows that
         // spell something else — so an offer behind a head prints no count
         // rather than a wrong one.
-        const meta = reserved(String(v));
+        const meta = reserved(String(v), onDate);
         const item = { text, count: meta || head ? -1 : dom.counts.get(lower) || 0,
                        full: true, dim: meta };
         if (spells(lower, p2)) { whole = item; continue; }

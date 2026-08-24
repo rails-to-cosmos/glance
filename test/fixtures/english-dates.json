@@ -126,6 +126,8 @@
     { "typed": "[18 aug", "refused": "not a date", "why": "the wall refuses an unclosed bracket; the GHOST stays dark over one, since the next character may be the `]' that resolves it" },
     { "typed": "[foo]", "refused": "not a date", "why": "a body no reading takes keeps the bracket's own refusal" },
     { "typed": "[]", "refused": "not a date", "why": "an empty bracket names no day" },
+    { "typed": "<>", "refused": "not a date", "why": "and the ACTIVE empty pair names none either" },
+    { "typed": "[   ]", "refused": "not a date", "why": "a body of whitespace alone strips to an empty one" },
     { "typed": "[today>", "refused": "not a date", "why": "A MISMATCHED PAIR NAMES NO TIMESTAMP org holds" },
     { "typed": "<today]", "refused": "not a date", "why": "either way round" }
   ]

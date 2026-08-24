@@ -156,8 +156,10 @@ wasm-spike:
 	  wasm32-wasi-cabal build --project-file=cabal.project.wasm glance-internal lib:glance; \
 	fi
 
+# The default browser's own tab; `run-native' is the app window.
 run:
-	cabal run glance -- desktop --dir $(GLANCE_DIR) --port $(GLANCE_PORT)
+	cabal run glance -- desktop --browser xdg-open \
+	  --dir $(GLANCE_DIR) --port $(GLANCE_PORT)
 
 run-native:
 	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \

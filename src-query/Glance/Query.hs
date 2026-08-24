@@ -53,6 +53,7 @@ module Glance.Query ( BlobSeed (..)
                     , currentDocument
                     , dayOf
                     , dayNamed
+                    , dayWordIn
                     , dayWords
                     , defaultCaptureFile
                     , SavedView (..)
@@ -1209,6 +1210,15 @@ dayOf = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d" . T.unpack
 dayWords :: [(Text, Integer)]
 dayWords = [("today", 0), ("tomorrow", 1), (metaWord MToday, 0)]
 
+-- | The day W names against the CLOCK read, 'Nothing' where W is no day word
+-- ('dayWords') — and 'Nothing' where NO CLOCK WAS READ, which is what leaves a
+-- day word naming no day under 'Glance.Web.Filter.emptyEnv'.
+dayWordIn :: Maybe Time.Day -> Text -> Maybe Time.Day
+dayWordIn today w = do
+  n   <- lookup w dayWords
+  day <- today
+  pure (Time.addDays n day)
+
 -- | The day W names against TODAY: THE EMPTY TEXT and every 'dayWords'
 -- spelling are read off the clock, anything else is the ISO day it spells
 -- ('dayOf').
@@ -1219,9 +1229,8 @@ dayWords = [("today", 0), ("tomorrow", 1), (metaWord MToday, 0)]
 -- the bare shift is today-relative at both.
 dayNamed :: Time.Day -> Text -> Maybe Time.Day
 dayNamed today w
-  | T.null w                    = Just today
-  | Just n <- lookup w dayWords = Just (Time.addDays n today)
-  | otherwise                   = dayOf w
+  | T.null w  = Just today
+  | otherwise = dayWordIn (Just today) w <|> dayOf w
 
 -- | The unit LETTERS a date shift may carry — ORG'S WHOLE CHARSET, read off the
 -- parser's own map, so a unit org grows is offered the day it lands.
@@ -1759,8 +1768,7 @@ planningTimestamp today text
     bracketed = any (`T.isPrefixOf` want) timestampOpeners
     refusal   = Left (text <> " is not a date: spell it 2026-08-05, 2026-08-05 09:30, "
                         <> relativeForms
-                        <> ", today, tomorrow, " <> metaWord MToday
-                        <> ", 18 aug, 18 august 2027, from 18 to 19 aug"
+                        <> ", today, tomorrow, 18 aug, 18 august 2027, from 18 to 19 aug"
                         <> ", or org's own <2026-08-05 Wed>")
 
     -- BEHIND THE VERBATIM ARM AND NOWHERE ELSE: what org itself would read back
@@ -1770,7 +1778,7 @@ planningTimestamp today text
     -- read by the very grammar a bare field reads.  A MISMATCHED PAIR NAMES NO
     -- TIMESTAMP and an empty one names no day, so both stay the refusal they were.
     wrapped = case [ (pair, T.strip inner)
-                   | pair@(open, close) <- [activeBrackets, inactiveBrackets]
+                   | pair@(open, close) <- timestampBrackets
                    , Just rest  <- [T.stripPrefix open want]
                    , Just inner <- [T.stripSuffix close rest] ] of
       ((brackets, body) : _) | not (T.null body) -> resolved brackets body
@@ -1951,8 +1959,14 @@ bracketsOf :: TimestampStatus -> (Text, Text)
 bracketsOf status = (T.singleton open, T.singleton close)
   where (open, close) = tsBrackets status
 
+-- | BOTH PAIRS, ONCE: the openers a bracketed value is recognised by and the
+-- pairs a wrapped body is unwrapped from are one roster, so a bracket org grows
+-- is recognised and unwrapped by the same edit.
+timestampBrackets :: [(Text, Text)]
+timestampBrackets = [activeBrackets, inactiveBrackets]
+
 timestampOpeners :: [Text]
-timestampOpeners = map fst [activeBrackets, inactiveBrackets]
+timestampOpeners = map fst timestampBrackets
 
 orgStamp :: (Text, Text) -> Time.Day -> Maybe Text -> Text
 orgStamp (open, close) day time =

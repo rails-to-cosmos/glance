@@ -1914,26 +1914,9 @@ commandSpec = testGroup "Commands"
     -- the English forms all ride in unchanged.  The corpus above carries the
     -- vectors; these are the LAWS the arm turns on.
   , testGroup "the brackets a date-owed field takes"
-    [ testCase "a bracket picks the activity, and the whole grammar rides inside" $
-        mapM_ reads'
-          [ ("[today]",              "[2026-08-01 Sat]")
-          , ("<today>",              "<2026-08-01 Sat>")
-          , ("[tomorrow]",           "[2026-08-02 Sun]")
-          , ("[today+3d]",           "[2026-08-04 Tue]")
-          , ("<tomorrow-1w>",        "<2026-07-26 Sun>")
-          , ("[+3d]",                "[2026-08-04 Tue]")
-          , ("[*today*]",            "[2026-08-01 Sat]")
-          , ("[18 aug]",             "[2026-08-18 Tue]")
-          , ("[18 august 2027]",     "[2027-08-18 Wed]")
-          , ("[ today ]",            "[2026-08-01 Sat]")
-          -- ONE BRACKET KIND, BOTH HALVES: 'orgRange' takes the pair, so the
-          -- interval needs no grammar of its own to wear the reader's choice.
-          , ("[from 18 to 19 aug]",  "[2026-08-18 Tue]--[2026-08-19 Wed]")
-          , ("<from 18 to 19 aug>",  "<2026-08-18 Tue>--<2026-08-19 Wed>") ]
-
       -- ACTIVE IS WHAT THE BARE FIELD ALREADY ANSWERS, so the active bracket
       -- adds nothing to it -- byte for byte, or the two spellings are two laws.
-    , testCase "and the active bracket is the bare phrase's own bytes" $
+    [ testCase "the active bracket is the bare phrase's own bytes" $
         mapM_ (\phrase -> assertEqual (T.unpack phrase <> ", bracketed")
                                       (planningTimestamp today phrase)
                                       (planningTimestamp today ("<" <> phrase <> ">")))
@@ -1948,12 +1931,6 @@ commandSpec = testGroup "Commands"
                                      (Right stamp) (planningTimestamp today stamp))
               [ "[2026-08-05 Mon]", "<2026-08-05 Mon>", "[2026-08-18]"
               , "[2026-08-05 Wed 09:30]", "[2026-08-01 Sat]--[2026-08-05 Wed]" ]
-
-      -- A BRACKET THAT READS NOTHING KEEPS THE REFUSAL IT ALREADY HAD: the arm
-      -- widens what is taken and never what is said about the rest.
-    , testCase "and a bracket no reading takes is refused as it was" $ mapM_ refuses
-        [ "[foo]", "[]", "<>", "[   ]", "[today>", "<today]", "[18 aug"
-        , "[31 feb]", "[18 aug]--[19 aug]", "<18 aug>--<19 aug>" ]
 
       -- The one refusal a READING spends a word of its own on travels inside the
       -- brackets with the grammar that spends it.

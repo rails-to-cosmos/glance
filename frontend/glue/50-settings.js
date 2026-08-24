@@ -1,7 +1,10 @@
     // The settings sheet: panels, config layers, state hues.  Rules in AGENTS.hs.
 const SECTIONS = [
+    // THE PANEL REPAINTS ON ARRIVAL: both its read-only rows move while another
+    // panel shows -- the hues under a theme change, the level under the zoom
+    // keys, which are live wherever a window stands.
     { title: "ui", parts: ["ctheme"],
-      enter: () => { if (srows.length) repaintStates(null); } },
+      enter: () => { showZoom(); if (srows.length) repaintStates(null); } },
     { title: "keywords", parts: ["clayers", "ceff", "cfoot"],
       enter: () => { if (crows[cat]) showLayer(cat); } },
 ];
@@ -81,6 +84,9 @@ const SECTIONS = [
       config().then((b) => {
         if (!settings) return;   // an ESC arrived while the layers were out
         drawLayers(b);
+        // The read-only rows the SHEET does not own are drawn on the way up:
+        // the level moved while there was no row to say so.
+        showZoom();
         cnote("synced");
         el("config").className = "on";
         if (wantPanel) {
@@ -759,6 +765,13 @@ const SECTIONS = [
     }
 
     const MAPS = JSON.parse(el("keys").textContent);
+    /** The SEQUENCE the map spells COMMAND as in SCOPE, or `null' where the row
+     * is staged: A ROW WITH NO HANDLER IS NO OFFER, so neither the resident key
+     * line nor the zoom row may advertise a key nothing is bound to. */
+    const seqOf = (command, scope) => {
+      const b = MAPS.rows.find((x) => x.command === command && x.scope === scope);
+      return b && b.handler ? b.seq : null;
+    };
     const pref = (key, def) => ({
       get() { try { return localStorage.getItem(key) || def; }
               catch (e) { return def; } },
@@ -803,39 +816,55 @@ const SECTIONS = [
     };
     let zoomAt = zoomStored();
     // The POST IS THE WHOLE APPLICATION: this page draws nothing at its own
-    // scale.  Blank REMOVES the key, the log height's own reading of "default".
-    function wearZoom(pct) {
-      zoomAt = zoomBand(pct);
-      zoomPref.set(zoomAt === ZOOM.def ? "" : String(zoomAt));
+    // scale.  The settings row is repainted only while the sheet SHOWS it; the
+    // panels draw it on the way in, the way the hues beside it are drawn.
+    function applyZoom() {
       const door = hosted("zoom");
       if (door) door.postMessage(String(zoomAt / 100));
-      showZoom();
+      if (settings) showZoom();
+    }
+    // A HELD `C-+' REPEATS SOME THIRTY TIMES A SECOND and `localStorage' is
+    // synchronous, so the store's write TRAILS the walk while the window's own
+    // post stays immediate — what the reader is looking at is the window.  The
+    // settle is shorter than any way of closing one.
+    const ZOOM_SETTLE = 200;
+    let zoomSoon = 0;
+    // Blank REMOVES the key, the log height's own reading of "default".
+    function keepZoom() {
+      clearTimeout(zoomSoon);
+      zoomSoon = setTimeout(() => {
+        zoomSoon = 0;
+        zoomPref.set(zoomAt === ZOOM.def ? "" : String(zoomAt));
+      }, ZOOM_SETTLE);
+    }
+    function wearZoom(pct) {
+      zoomAt = zoomBand(pct);
+      keepZoom();
+      applyZoom();
       return zoomAt;
     }
     const zoomedBy = (step) =>
       wearZoom(step > 0 ? zoomAt * ZOOM.step : zoomAt / ZOOM.step);
-    // THE KEYS AS THE MAP SPELLS THEM, the resident key line's own rule: this
-    // row cannot advertise a key nothing is bound to.
-    const zoomKeys = () =>
+    // THE KEYS AS THE MAP SPELLS THEM, the resident key line's own rule.
+    // COMPUTED ONCE: `MAPS' is the boot blob and nothing moves it.
+    const ZOOM_KEYS =
       ["text-scale-increase", "text-scale-decrease", "text-scale-set"]
-        .map((c) => (MAPS.rows.find((x) => x.command === c && x.handler) || {}).seq)
-        .filter(Boolean).join(" / ");
+        .map((c) => seqOf(c, "window")).filter(Boolean).join(" / ");
     const showZoom = () => {
       el("czoom").textContent = hosted("zoom")
-        ? `${zoomAt}% · ${zoomKeys()}`
-        : `the browser's own · ${zoomKeys()} reach it directly`;
+        ? `${zoomAt}% · ${ZOOM_KEYS}`
+        : `the browser's own · ${ZOOM_KEYS} reach it directly`;
     };
     // WORN AT BOOT and only where there is a window to wear it: a browser tab
-    // keeps whatever zoom its own reader gave it.
-    if (hosted("zoom")) wearZoom(zoomAt); else showZoom();
+    // keeps whatever zoom its own reader gave it.  BOOT APPLIES WITHOUT
+    // STORING: the band is clamped on every read, so writing the clamp back
+    // would buy a write per boot and nothing else.
+    if (hosted("zoom")) applyZoom();
 
     function hints() {
-      const seq = (command) => {
-        const b = MAPS.rows.find((x) => x.command === command && x.scope === "table");
-        return b && b.handler ? b.seq : null;   // a staged row is no offer
-      };
       el("kbd").textContent = MAPS.hints
-        .map((h) => [h.commands.map(seq).filter(Boolean), h.label])
+        .map((h) => [h.commands.map((c) => seqOf(c, "table")).filter(Boolean),
+                     h.label])
         .filter(([keys]) => keys.length)
         .map(([keys, label]) => `${keys.join("/")} ${label}`)
         .join(" · ");

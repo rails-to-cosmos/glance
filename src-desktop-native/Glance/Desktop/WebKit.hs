@@ -7,8 +7,6 @@ module Glance.Desktop.WebKit
   , nativeWindow
     -- * The zoom the page asks for
   , zoomAsked
-  , zoomFloor
-  , zoomCeiling
   ) where
 
 import Text.Read (readMaybe)
@@ -36,32 +34,32 @@ nativeAvailable :: Bool
 
 -- | Blocks until the window closes.  @sigINT@ needs the handler — the main
 -- thread sits inside @gtk_main@ — and @gtk_init@ would exit the process.
-nativeWindow :: String -> String -> IO ()
+--
+-- THE BAND ARRIVES AS A PARAMETER: the page's own (@zoomMin@ and @zoomMax@ in
+-- @Glance.Web.Base@), so this layer spells no second one.
+nativeWindow :: (Int, Int) -> String -> String -> IO ()
 
--- | The band a zoom level is held in, spelled again — this layer cannot see the
--- page's own, which the config blob carries (@zoomMin@ and @zoomMax@ in
--- @Glance.Web.Base@, the same band as whole percentages).  Below the floor the
+-- | The level the page named, held inside BAND — @(minimum, maximum)@ as whole
+-- percentages, divided by 100 to the level a view wears.  Below the floor the
 -- key line is unreadable; above the ceiling one row fills the window.
-zoomFloor, zoomCeiling :: Double
-zoomFloor = 0.5
-zoomCeiling = 3.0
-
--- | The level the page named, held inside the band.  'Nothing' is a message no
--- window can wear: the page is the only writer, and one wearing whatever
--- arrived would have no floor to be read back from.  @Read Double@ takes @NaN@
--- and @Infinity@, which the clamp would answer with an edge rather than refuse.
-zoomAsked :: String -> Maybe Double
-zoomAsked said = do
+--
+-- 'Nothing' is a message no window can wear: the page is the only writer, and
+-- one wearing whatever arrived would have no floor to be read back from.
+-- @Read Double@ takes @NaN@ and @Infinity@, which the clamp would answer with
+-- an edge rather than refuse.
+zoomAsked :: (Int, Int) -> String -> Maybe Double
+zoomAsked (low, high) said = do
   level <- readMaybe said
   if isNaN level || isInfinite level
     then Nothing
-    else Just (max zoomFloor (min zoomCeiling level))
+    else Just (max (asLevel low) (min (asLevel high) level))
+  where asLevel percent = fromIntegral percent / 100
 
 #ifdef NATIVE_WINDOW
 
 nativeAvailable = True
 
-nativeWindow title url = do
+nativeWindow band title url = do
   (started, _args) <- Gtk.initCheck Nothing
   unless started (throwIO (userError "GTK could not open a display"))
   paintBlack
@@ -85,7 +83,7 @@ nativeWindow title url = do
   -- and says it, and a CSS zoom in its place would put the panes' measured
   -- rects out against the styles drawn from them.
   _ <- WK.onUserContentManagerScriptMessageReceived ucm (Just zoomName)
-         (zoomMessage view)
+         (zoomMessage band view)
   _ <- WK.userContentManagerRegisterScriptMessageHandler ucm zoomName
   override <- WK.userScriptNew openOverride
                 WK.UserContentInjectedFramesTopFrame
@@ -126,11 +124,11 @@ zoomName = T.pack "zoom"
 
 -- | A level that will not read is DROPPED: nothing on this side can put a
 -- broken message right, and a window left where it was is readable.
-zoomMessage :: WK.WebView -> WK.JavascriptResult -> IO ()
-zoomMessage view result = do
+zoomMessage :: (Int, Int) -> WK.WebView -> WK.JavascriptResult -> IO ()
+zoomMessage band view result = do
   value <- WK.javascriptResultGetJsValue result
   said <- JSC.valueToString value
-  maybe (pure ()) (WK.webViewSetZoomLevel view) (zoomAsked (T.unpack said))
+  maybe (pure ()) (WK.webViewSetZoomLevel view) (zoomAsked band (T.unpack said))
 
 openOverride :: Text
 openOverride = T.concat
@@ -238,7 +236,7 @@ black = do
 nativeAvailable = False
 
 -- Unreachable while 'nativeAvailable' is consulted; saying so beats failing.
-nativeWindow _title url =
+nativeWindow _band _title url =
   putStrLn ("  window:  no native window in this build (cabal -f native-window); open "
               <> url <> " yourself")
 

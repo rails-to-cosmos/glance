@@ -3325,8 +3325,10 @@ sheetSpec shell =
 
     -- ONE ROW WALK, EVERY DIALECT: `C-n'/`C-p' ALIAS `n'/`p' in `rowStep', the
     -- page's one spelling of the walk, so the doc pane inherits the emacs habit
-    -- with every other consumer of it.  ASSERTED AGAINST `n'/`p' rather than
-    -- against a number of its own, or the two could part without a red run.
+    -- with every other consumer of it.  THE LANDINGS BELOW ARE THE `n'/`p' CASES'
+    -- OWN NUMBERS, copied: 9 and 4 from the skim above, 8 and 5 from the run's
+    -- walk below — a number that moves there and not here is a red run in one of
+    -- the two.
   , testCase "C-n and C-p walk the rows exactly as n and p do" $ do
       onTable shell
              "grain press:Enter press:f press:C-n press:C-n press:C-n press:C-n" $
@@ -3338,11 +3340,9 @@ sheetSpec shell =
           <=< pointOf
       onTable shell (intoRun <> " press:C-n press:C-n") $ \answer -> do
         assertEqual "inside a run the chord walks the leaves" 8 =<< pointOf answer
-        -- ECHO PARITY: the step says nothing of its own under either spelling,
-        -- so what stands is still the `f' that entered the run.
+        -- The step says nothing of its own, so what stands is still the `f' that
+        -- entered the run.
         echoIs "and adds no line of its own" "f → grain-finer (list 1/3)" answer
-      onTable shell (intoRun <> " press:n press:n") $
-        echoIs "which is exactly what n leaves standing" "f → grain-finer (list 1/3)"
       onTable shell (intoRun <> " press:C-p") $
         assertEqual "and C-p clamps at the first as p does" 5 <=< pointOf
 
@@ -4863,6 +4863,13 @@ dateWidgetSpec shell = testGroup "Shell date widget"
           echoIs "the pill is the second summon's own foot"
                  "C-c C-s \8594 org-glance-overview:schedule \
                  \(RET sets it \183 empty clears it \183 ESC leaves)" answer
+          -- AND THE SWITCH IS NO ESCAPE.  It takes the restore ESC's door
+          -- opens, but not the door's ECHO: an `ESC → keyboard-quit' logged
+          -- behind the summon names a key nobody pressed.  Read off the LOG
+          -- rather than the pill, which is last-writer-wins.
+          wrote <- textsAt "echoes" answer
+          assertEqual ("only the summon spoke: " <> show wrote) []
+                      (filter ("keyboard-quit" `T.isInfixOf`) wrote)
       -- THE SAME KEY IS A RE-SUMMON, harmless and not special-cased: the box
       -- comes back over the same slot, wholly selected as an open leaves it.
       insheet shell (pinned <> " press:C-c press:C-s press:C-c press:C-s") $
@@ -4890,12 +4897,12 @@ dateWidgetSpec shell = testGroup "Shell date widget"
           assertEqual "and the list a flush writes is still the list it was"
                       [["SCHEDULED", sheetStamp]] =<< pairsAt "dplan" answer
 
-    -- THE EXEMPTION IS THE VIRGIN WIDGET'S ALONE.  Once the reader has TYPED,
-    -- a selection they MADE over the field is live again and `C-c' is the copy
-    -- it always was -- the browser's own law, which this page bends for the
-    -- box's own selection and for nothing else.
+    -- THE EXEMPTION IS THE OPEN'S OWN SELECTION AND NOTHING ELSE.  Once the
+    -- reader has TYPED, a selection they MADE over the field is live again and
+    -- `C-c' is the copy it always was -- the browser's own law, which this page
+    -- bends for the selection a box laid down alone.
   , testCase "a selection the reader made keeps C-c a copy" $
-      insheet shell (pinned <> " press:C-c press:C-d dwhen:18_aug dselect"
+      insheet shell (pinned <> " press:C-c press:C-d dwhen:18_aug select:dwhen"
                             <> " press:C-c press:C-s") $ \answer -> do
         -- The sheet's own RET leads; the tail is one chord where the case above
         -- has two, and that ABSENCE is the whole assertion.
@@ -4908,6 +4915,44 @@ dateWidgetSpec shell = testGroup "Shell date widget"
         assertEqual "with the keyword it was summoned for still drawn"
                     ["SCHEDULED: " <> sheetStamp <> " DEADLINE: "]
           . partsOf "meta" =<< docOf answer
+
+    -- AND THE SAME EXEMPTION OVER A BOX THAT IS NOT THE WIDGET.  Every overlay
+    -- on this page opens a standing value WHOLLY SELECTED (`selectWhole'), so
+    -- the carve-out is the SHELL'S OWN SELECTION rather than one widget's:
+    -- without it `C-x' over the open link editor reaches the browser as a CUT
+    -- and the modal chord behind it dies unheard.
+  , testCase "a chord over any box that opened wholly selected is still ours" $ do
+      -- `o' OVER THE ROOT gathers the subtree's links, and the overlay opens on
+      -- the first — the title's own, which is where the entry's text begins.
+      let target = "https://t.example/"
+          typedIn = "https://new.example"
+      onTable shell "linky press:Enter press:o press:e press:C-c press:C-c" $
+        \answer -> do
+          assertEqual "the overlay is up" True =<< boolAt "lopen" answer
+          assertEqual "opened on its target, selected whole"
+                      [0, T.length target, T.length target]
+            =<< intsAt "lurlsel" answer
+          assertEqual "and both halves of the chord were claimed all the same"
+                      ["Enter", "o", "e", "C-c", "C-c"]
+            =<< textsAt "prevented" answer
+          echoIs "so the modal command ran, and its guard answered"
+                 "C-c C-c \8594 org-ctrl-c-ctrl-c (nothing open here)" answer
+          assertEqual "with nothing written on the way" ([] :: [Value])
+            =<< listAt "writes" answer
+      -- AND THE READER'S OWN SELECTION IS LIVE HERE TOO: one keystroke into the
+      -- field takes the exemption off, so a selection they make afterwards keeps
+      -- `C-c' the copy the browser owes them and the prefix never opens.
+      onTable shell ("linky press:Enter press:o press:e lurl:" <> typedIn
+                     <> " select:lurl press:C-c press:C-c") $ \answer -> do
+        assertEqual "the chord was left to the browser"
+                    ["Enter", "o", "e"] =<< textsAt "prevented" answer
+        assertEqual "over a selection standing on the whole of what was typed"
+                    [0, T.length typedIn, T.length typedIn]
+          =<< intsAt "lurlsel" answer
+        assertEqual "so the overlay is the one still standing" True
+          =<< boolAt "lopen" answer
+        assertEqual "holding what was typed into it" typedIn
+          =<< textAt "lurl" answer
 
     -- AND THE REFUSAL THE OTHER EDITS KEEP NOW SPEAKS, which the dead chord hid:
     -- a pair box holds a line nobody has decided about, so the summon names the
@@ -5321,28 +5366,28 @@ settingsSpec shell =
         assertEqual "and nothing stored, since it is the default" "«unset»"
           =<< textAt "zoomStored" answer
 
-  , keyedIn shell "native" "glance-zoom=150" "a remembered level is worn at boot"
-      "" "" $
-        assertEqual "the stored level, as a level" ["1.5"] <=< textsAt "zoomed"
-
     -- The band is the SERVER's; a stored value outside it is CLAMPED where the
     -- log's height is declined, because a press at the ceiling is still a press.
+    -- AND THE STORE IS LEFT AS THE READER WROTE IT: the clamp is applied on
+    -- every read, so a boot that wrote it back would be a write per boot for a
+    -- level nothing else reads.
   , keyedIn shell "native" "glance-zoom=900" "a remembered level outside the band lands on the edge"
       "" "" $ \answer -> do
         assertEqual "the ceiling" ["3"] =<< textsAt "zoomed" answer
-        assertEqual "and written back inside it" "300" =<< textAt "zoomStored" answer
+        assertEqual "and the boot wrote nothing" "900" =<< textAt "zoomStored" answer
 
-  , keyedIn shell "native" "" "C-+ steps a tenth up, says the level and remembers it"
-      "C-+" "" $ \answer -> do
-        assertEqual "the boot's, then the press's" ["1", "1.1"]
+    -- The step is the level's own tenth, so the ladder compounds the way a
+    -- browser's does.  ONE PRESS IS THE PREFIX OF TWO, the first press's level
+    -- being the second element here.
+    -- `wait' IS THE COALESCED WRITE'S OWN SETTLE: the window is posted to on the
+    -- press and the store is written once the walk stops, a held key being some
+    -- thirty synchronous writes a second otherwise.
+  , keyedIn shell "native" "" "C-+ steps a tenth up, says the level, remembers it and compounds"
+      "C-+ C-+" "wait:300" $ \answer -> do
+        assertEqual "the boot's, then 110, then 121" ["1", "1.1", "1.21"]
           =<< textsAt "zoomed" answer
-        echoIs "named as the command it is" "C-+ → text-scale-increase (110%)" answer
-        assertEqual "remembered as a whole percent" "110" =<< textAt "zoomStored" answer
-
-    -- The step is the level's own tenth, so the ladder compounds the way a browser's does.
-  , keyedIn shell "native" "" "and again from where it left off" "C-+ C-+" "" $ \answer -> do
-        assertEqual "110, then 121" ["1", "1.1", "1.21"] =<< textsAt "zoomed" answer
-        echoIs "" "C-+ → text-scale-increase (121%)" answer
+        echoIs "named as the command it is" "C-+ → text-scale-increase (121%)" answer
+        assertEqual "remembered as a whole percent" "121" =<< textAt "zoomStored" answer
 
     -- `+' WANTS THE SHIFT on most layouts, which is why the unshifted key is bound too.
   , keyedIn shell "native" "" "C-= is the same command" "C-=" "" $ \answer -> do
@@ -5359,10 +5404,14 @@ settingsSpec shell =
         assertEqual "held at 300" ["2.9", "3", "3"] =<< textsAt "zoomed" answer
         echoIs "" "C-+ → text-scale-increase (300%)" answer
 
-    -- Blank REMOVES the key, the log height's own reading of "back to the default".
-  , keyedIn shell "native" "glance-zoom=150" "C-0 puts it back, and forgets the level"
-      "C-0" "" $ \answer -> do
-        assertEqual "the boot's, then 100%" ["1.5", "1"] =<< textsAt "zoomed" answer
+    -- Blank REMOVES the key, the log height's own reading of "back to the
+    -- default".  THE BOOT AHEAD OF THE PRESS is where a REMEMBERED level is
+    -- worn, and it is this run's first element.
+  , keyedIn shell "native" "glance-zoom=150"
+      "a remembered level is worn at boot, and C-0 puts it back and forgets it"
+      "C-0" "wait:300" $ \answer -> do
+        assertEqual "the stored level as a level, then 100%" ["1.5", "1"]
+          =<< textsAt "zoomed" answer
         echoIs "" "C-0 → text-scale-set (100%)" answer
         assertEqual "the key is gone" "«unset»" =<< textAt "zoomStored" answer
 
@@ -5370,6 +5419,15 @@ settingsSpec shell =
       "C-+" "press:," $
         assertEqual "the level, and the keys that move it"
                     "165% · C-+ / C-- / C-0" <=< textAt "czoom"
+
+    -- THE FOURTH THING A WINDOW OWNS: `quit-window' POSTS where one stands, and
+    -- the desktop shell closes on that post.  Without a window the same key only
+    -- prints the line saying whose the door is, so the post is the whole of what
+    -- the native path adds -- and nothing else in the suite reads it.
+  , keyedIn shell "native" "" "q asks the native window behind the page to close"
+      "q" "" $ \answer -> do
+        assertEqual "the window was asked, once" ["quit"] =<< textsAt "quitted" answer
+        echoIs "named as the command it is" "q → quit-window" answer
 
     -- A `SELECT' inside a popup KEEPS the focus, and closing the popup is how the keys come back.
   , keyed shell "the sheet's theme select keeps the keys away from the table"
@@ -6548,7 +6606,12 @@ shellGlue =
       , "function shutEdit(o) {"
       , "if (!edit || edit.o !== o) return;"
       , "for (const o of shapes) shutEdit(o);"
-      , "cancelEdit(when ? \"the planning line\" : pair ? \"the drawer\" : \"element\","
+      -- THE RESTORE ANSWERS WITH THE ECHO'S WORD AND NEVER SPEAKS IT: the summon
+      -- switch takes the standing widget down through it and speaks for the box
+      -- it opens.
+      , "return when ? \"the planning line\" : pair ? \"the drawer\" : \"element\";"
+      , "const cancelSheetEdit = () => cancelEdit(restoreSheetEdit());"
+      , "if (ddating()) restoreSheetEdit();"
       , "cancelEdit(\"tag\", TROW)"
       , "cancelEdit(\"link\", LROW)" ]
       [ "drows[docAt()]", "function place()", "function shutRename"
@@ -6612,11 +6675,15 @@ shellGlue =
 
   -- `typing()' is what keeps the shell's rows off the palette: every `table' row is dead while a field has focus.
   , Glue "the palette's lifecycle stays the renderer's"
-      [ "const live = (b) => b.scope === \"any\""
-      , "|| (b.scope === \"table\" && !typing())"
+      [ "const liveIn = (now, win) => (b) => b.scope === \"any\""
+      , "|| (b.scope === \"table\" && now)"
       -- The window's own scope closes the list, and is the ONE row that reads
       -- something other than the surfaces: is there a window behind this page.
-      , "|| (b.scope === \"window\" && !!hosted(\"zoom\"));"
+      , "|| (b.scope === \"window\" && win);"
+      -- BOTH ARE ONE QUESTION FOR EVERY ROW, asked once per press rather than
+      -- once per row.
+      , "const now = !typing(), win = !!hosted(\"zoom\");"
+      , "const live = liveIn(now, win);"
       , "a.tagName === \"INPUT\" || a.tagName === \"TEXTAREA\""
       , "cancel: () => {"
       , "else if (typing()) active().blur();" ]
@@ -6841,11 +6908,15 @@ shellGlue =
       , "const zoomPref = pref(ZOOM.key, \"\");"
       , "const zoomBand = (n) => Math.max(ZOOM.min, Math.min(ZOOM.max, Math.round(n)));"
       , "return /^[0-9]+$/.test(t) ? zoomBand(+t) : ZOOM.def;"
+      -- THE POST IS IMMEDIATE AND THE STORE'S WRITE TRAILS IT: a held key
+      -- repeats some thirty times a second, and the store is synchronous.
       , "zoomPref.set(zoomAt === ZOOM.def ? \"\" : String(zoomAt));"
+      , "}, ZOOM_SETTLE);"
       , "if (door) door.postMessage(String(zoomAt / 100));"
       , "wearZoom(step > 0 ? zoomAt * ZOOM.step : zoomAt / ZOOM.step)"
-      -- The stored level is worn at boot, and only where there is a window to wear it.
-      , "if (hosted(\"zoom\")) wearZoom(zoomAt); else showZoom();"
+      -- The stored level is APPLIED at boot and never written back: the band
+      -- clamps it on every read.
+      , "if (hosted(\"zoom\")) applyZoom();"
       -- ONE SPELLING OF THE WINDOW TEST, and `q' goes through it too.
       , "const hosted = (name) =>"
       , "(window.webkit && window.webkit.messageHandlers"
@@ -6853,8 +6924,10 @@ shellGlue =
       , "const host = hosted(\"quit\");"
       -- The row reads the level back and names the keys the MAP spells.
       , "id=\"czoom\"", ".cval{font:12px/1.5 var(--dk-mono)}"
-      , "`${zoomAt}% · ${zoomKeys()}`"
-      , "`the browser's own · ${zoomKeys()} reach it directly`"
+      , "`${zoomAt}% · ${ZOOM_KEYS}`"
+      , "`the browser's own · ${ZOOM_KEYS} reach it directly`"
+      , "const seqOf = (command, scope) => {"
+      , ".map((c) => seqOf(c, \"window\")).filter(Boolean).join(\" / \");"
       , "textScaleIncrease: (b) => said(b, `${zoomedBy(1)}%`)," ]
       -- CSS zoom in any spelling, and the window test spelled inline.
       [ "style.zoom", "transform:scale(", "window.webkit.messageHandlers.quit" ]
@@ -10764,10 +10837,13 @@ pageSpec shell = testGroup "GET /"
       b <- shell
       holdsAll "key line"
             [ "<div id=\"kbd\"></div>"
-            , "MAPS.rows.find((x) => x.command === command && x.scope === \"table\")"
+            -- ONE LOOKUP over the map, the SCOPE named by the reader: this line
+            -- asks for the table's row and the zoom row asks for the window's.
+            , "MAPS.rows.find((x) => x.command === command && x.scope === scope);"
             -- A staged row has no handler and is no offer.
             , "return b && b.handler ? b.seq : null;"
-            , "el(\"kbd\").textContent = MAPS.hints" ] b
+            , "el(\"kbd\").textContent = MAPS.hints"
+            , ".map((c) => seqOf(c, \"table\")).filter(Boolean)," ] b
       -- Commands, not keys, in the order the line reads them: each spelling comes out of the one map.
       hints <- hintsOf b
       assertEqual "the key line's table"
@@ -11162,6 +11238,11 @@ keymapSpec shell = testGroup "Shell keymap"
                  (length handlers >= 20)
       assertEqual "bound to a handler the glue does not define" []
         [ h | (_k, _s, _c, Just h, _scope, _help) <- rows, h `notElem` handlers ]
+      -- THE SAME JOIN ONE FIELD OVER: `live' gates by string equality too, so a
+      -- scope typo is a bound, documented, permanently dead key.
+      assertEqual "live on a surface there is none of" []
+        [ sc | (_k, _s, _c, _h, sc, _help) <- rows
+             , sc `notElem` ["any", "table", "modal", "window"] ]
 
   , testCase "the writes are the commands auto-repeat is off for" $ do
       b <- shell

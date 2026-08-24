@@ -20,6 +20,7 @@ import Glance.Desktop (DesktopOptions (..))
 import Glance.Desktop.Native (desktopWith)
 import Glance.Desktop.WebKit (nativeAvailable, nativeWindow)
 import Glance.Web (ServeOptions (..), defaultPort, serve)
+import Glance.Web.Base (zoomMax, zoomMin)
 
 import System.Directory
 import System.FilePath
@@ -228,8 +229,12 @@ described name what = "  " <> name <> replicate (gutter - length name) ' ' <> wh
   where gutter = 2 + maximum (map (length . spelling) flags)
 
 -- | One desktop session: this build's own window, else stage 1's app-mode browser.
+--
+-- THE ZOOM BAND IS HANDED DOWN HERE, this being the one place that sees the
+-- page's own band and the window both, so the window spells no second one.
 runDesktop :: Desktop -> IO ()
-runDesktop d = desktopWith nativeAvailable nativeWindow (dKeepServing d) (dWindow d)
+runDesktop d = desktopWith nativeAvailable (nativeWindow (zoomMin, zoomMax))
+                           (dKeepServing d) (dWindow d)
 
 -- | Everything @glance desktop@ takes.
 data Desktop = Desktop

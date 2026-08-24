@@ -138,16 +138,39 @@
        : k === "<up>" || k === "p" || k === "k" || k === "C-p" ? -1 : 0);
     // BESIDE A FIELD the letters are spoken for, so the walk is the SUBSET that
     // survives one: the arrows and `C-n'/`C-p', which `rowStep' carries too.
-    const walkStep = (k) => (k === "<down>" || k === "C-n" ? 1
-                           : k === "<up>" || k === "C-p" ? -1 : 0);
+    // A SUBSET RATHER THAN A SECOND TABLE, so the two cannot part on a dialect.
+    const FIELD_WALK = ["<down>", "<up>", "C-n", "C-p"];
+    const walkStep = (k) => (FIELD_WALK.indexOf(k) === -1 ? 0 : rowStep(k));
     const stepIn = (mount, step) =>
       can(mount, "selectStep") && mount.selectStep(step);
     const flagsOn = (mount) => can(mount, "flagRow", "getFlagged");
+    /** THE FIELD THIS SHELL LAID A SELECTION DOWN IN, and the fields already
+     * listening for the reader to take it back.  A SELECTION THE OPEN MADE IS
+     * NOT THE READER'S, which the dispatch's copy-and-cut carve-out reads
+     * (`selecting', 70-shell.js).  ONE FLAG over every box `selectWhole' opens
+     * -- the date widget, the link and tag overlays, the filter box -- so no
+     * consumer owes a discipline of its own. */
+    let laidOn = null;
+    const laidHeard = new WeakSet();
     /** Focus F with its whole value SELECTED, how every box on this page opens
      * over a value that already stands: ONE KEYSTROKE REPLACES IT, and `RET'
      * with none recommits it byte for byte -- `org-read-date' taking its
      * default, and the rename overlays taking theirs. */
-    const selectWhole = (f) => { f.focus(); f.setSelectionRange(0, f.value.length); };
+    const selectWhole = (f) => {
+      f.focus();
+      f.setSelectionRange(0, f.value.length);
+      laidOn = f;
+      // WHAT THE READER TYPES IS THEIRS FROM HERE.  Wired at the first open
+      // rather than per open, so a box opened a hundred times listens once.
+      if (laidHeard.has(f)) return;
+      laidHeard.add(f);
+      f.addEventListener("input", () => { if (laidOn === f) laidOn = null; });
+    };
+    /** Is the selection standing in F the one the OPEN laid down?  THE RANGE IS
+     * ASKED TOO: a walk or a taken offer rewrote the field, and what stands in
+     * it then is no longer the value the open selected. */
+    const laidWhole = (f) =>
+      laidOn === f && f.selectionStart === 0 && f.selectionEnd === f.value.length;
     /** Put TEXT over [FROM, TO) in BOX and leave the caret after it. */
     const spliceIn = (box, from, to, text) => {
       box.value = box.value.slice(0, from) + text + box.value.slice(to);

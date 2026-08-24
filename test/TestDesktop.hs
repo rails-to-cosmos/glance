@@ -16,7 +16,6 @@ import System.FilePath ((</>))
 import System.IO (IOMode (WriteMode), hClose, hFlush, stdout, withFile)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
-import Text.Read (readMaybe)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults (withGlanceBinary, withTempDir)
 
@@ -27,6 +26,7 @@ import Glance.Desktop ( browserCandidates, desktopURL, dryRunLines, openWindow
                       , resolveBrowser, windowLine )
 import Glance.Desktop.Native ( nativeDryRunLines, nativeTitle, nativeWindowLine
                              , prefersNative, runNative )
+import Glance.Desktop.WebKit (zoomAsked)
 import Glance.Web.Base (zoomMax, zoomMin)
 
 spec :: TestTree
@@ -68,16 +68,20 @@ resolutions =
   , ( "falls through the candidate list in order"
     , "brave before vivaldi", ["vivaldi", "brave", "xdg-open"]
     , Nothing, Nothing, \dir -> appMode (dir </> "brave") )
-  , ( "--browser beats the candidates"
-    , "the flag wins", ["chromium", "mybrowser", "xdg-open"]
-    , Nothing, Just "mybrowser", \dir -> appMode (dir </> "mybrowser") )
+    -- A NAMED command takes the URL plain: `--app' is chromium's alone, and
+    -- forcing it on breaks every other opener, xdg-open first.
+  , ( "--browser beats the candidates, and runs as given"
+    , "the flag wins, URL plain", ["chromium", "mybrowser", "xdg-open"]
+    , Nothing, Just "mybrowser", \dir -> dir </> "mybrowser" <> " " <> url )
   , ( "GLANCE_BROWSER beats --browser and the candidates"
-    , "the environment wins", ["chromium", "mybrowser", "envbrowser", "xdg-open"]
-    , Just "envbrowser", Just "mybrowser", \dir -> appMode (dir </> "envbrowser") )
+    , "the environment wins, URL plain"
+    , ["chromium", "mybrowser", "envbrowser", "xdg-open"]
+    , Just "envbrowser", Just "mybrowser"
+    , \dir -> dir </> "envbrowser" <> " " <> url )
     -- Falling back to chromium would silently run something other than asked for.
   , ( "a named browser the path lacks is still what gets run"
     , "the name as given", ["chromium", "xdg-open"]
-    , Nothing, Just "nosuchbrowser", const (appMode "nosuchbrowser") )
+    , Nothing, Just "nosuchbrowser", const ("nosuchbrowser " <> url) )
   , ( "with no browser at all, xdg-open opens a plain tab"
     , "the URL alone — xdg-open takes no --app", ["xdg-open"]
     , Nothing, Nothing, \dir -> dir </> "xdg-open" <> " " <> url )
@@ -103,7 +107,8 @@ discoverySpec = testGroup "Browser discovery" $ map discovery resolutions <>
       withTempDir $ \dir -> do
         exe <- fakeExecutable dir "elsewhere" "exit 0"
         got <- resolved Nothing (Just exe) []
-        assertEqual "no path list is consulted" (Just (appMode exe)) got
+        assertEqual "no path list is consulted, URL plain"
+                    (Just (exe <> " " <> url)) got
 
   , testCase "with nothing on the path there is no window, and no failure" $
       withTempDir $ \dir -> do
@@ -198,7 +203,7 @@ dryRunSpec = testGroup "--dry-run"
       withBuiltBinary ["chromium", "envbrowser", "xdg-open"]
                       (\d -> [("GLANCE_BROWSER", d </> "envbrowser")]) $ \dir out -> do
         assertBool ("dry run: the named browser is not in " <> out)
-                   (appMode (dir </> "envbrowser") `isInfixOf` out)
+                   ((dir </> "envbrowser" <> " " <> url) `isInfixOf` out)
         assertBool ("dry run: a native window won anyway: " <> out)
                    (not ("native window" `isInfixOf` out))
   ]
@@ -271,10 +276,11 @@ nativeSpec = testGroup "Preferring the window this build owns"
   ]
 
 
--- | THE ZOOM BRIDGE, READ AS SOURCE.  The window's half is behind the
--- @native-window@ flag and the suite may not depend on that stanza — a
--- dependency would put GTK in the way of building the tests — so what is
--- checked here is what the file SAYS, which is where the drift would be.
+-- | THE ZOOM BRIDGE.  The GTK half is behind the @native-window@ flag and
+-- unreachable from an unflagged suite, so THE WIRING is checked as source —
+-- what the file SAYS, which is where that drift would be.  'zoomAsked' sits
+-- OUTSIDE the @#ifdef@ and is asked as a function, its band handed in the way
+-- the app hands it.
 zoomSpec :: TestTree
 zoomSpec = testGroup "The zoom the page asks for"
   [ testCase "the page's door is registered beside quit's, and named as one" $ do
@@ -289,32 +295,27 @@ zoomSpec = testGroup "The zoom the page asks for"
             , "WK.webViewSetZoomLevel view" ]
 
     -- THE ONE BAND, TWO UNITS: the page holds whole percentages and the window a
-    -- level, so a band that drifted would clamp twice at two different edges.
-  , testCase "the window's band is the page's own, as percentages" $ do
-      src <- webKitSource
-      assertEqual "floor" (fromIntegral zoomMin / 100 :: Double)
-        =<< levelAfter "zoomFloor = " src
-      assertEqual "ceiling" (fromIntegral zoomMax / 100 :: Double)
-        =<< levelAfter "zoomCeiling = " src
-      -- Read back, so a band spelled without the clamp that uses it still fails.
-      mapM_ (\needle -> assertBool (show needle <> " missing from WebKit.hs")
-                                   (needle `T.isInfixOf` src))
-            [ "max zoomFloor (min zoomCeiling level)"
-            -- `Read Double' takes NaN and Infinity, and no window wears either.
-            , "isNaN level || isInfinite level" ]
+    -- level, and the band is HANDED DOWN ('Main.runDesktop' passes it) rather
+    -- than spelled a second time, so there is nothing left to drift.
+  , testCase "the level the page names is held inside the page's own band" $ do
+      let band = (zoomMin, zoomMax)
+          low  = fromIntegral zoomMin / 100 :: Double
+          high = fromIntegral zoomMax / 100 :: Double
+      assertEqual "under the floor, the floor" (Just low) (zoomAsked band (show (low / 2)))
+      assertEqual "over the ceiling, the ceiling" (Just high) (zoomAsked band (show (high * 2)))
+      assertEqual "and each edge is itself worn" (Just low, Just high)
+                  (zoomAsked band (show low), zoomAsked band (show high))
+      assertEqual "a level inside the band stands as it is"
+                  (Just 1.25) (zoomAsked band "1.25")
+      -- `Read Double' takes NaN and Infinity, and no window wears either; a
+      -- message naming no number at all is dropped the same way.
+      mapM_ (\said -> assertEqual (show said <> " is no level a window wears")
+                                  Nothing (zoomAsked band said))
+            ["NaN", "Infinity", "-Infinity", "1e400", "", "wide", "1.2.3", "100%"]
   ]
 
 webKitSource :: IO T.Text
 webKitSource = TIO.readFile "src-desktop-native/Glance/Desktop/WebKit.hs"
-
--- | The number LABEL introduces, off the line it opens.
-levelAfter :: T.Text -> T.Text -> IO Double
-levelAfter label src = case T.breakOn label src of
-  (_, rest) | T.null rest -> assertFailure ("no " <> show label <> " in WebKit.hs")
-            | otherwise   ->
-                let said = T.unpack (T.takeWhile (/= '\n') (T.drop (T.length label) rest))
-                in maybe (assertFailure (show label <> " names no number: " <> said))
-                         pure (readMaybe said)
 
 
 -- 'runNative' reports by printing and these cases let it: capturing stdout here

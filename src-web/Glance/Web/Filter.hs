@@ -60,8 +60,8 @@ import qualified Data.Text as T
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
                     , RefVia, refKind, refTarget, refVia
                     , Meta (..), Sign (..), activeMeta, archiveTag, carriesKind, cellSep
-                    , dayNamed, dayOf, dayWords, filterKeys, groupOn, inactiveMeta, isoDay
-                    , kindCut, metaWord
+                    , dayNamed, dayOf, dayWordIn, dayWords, filterKeys, groupOn
+                    , inactiveMeta, isoDay, kindCut, metaWord
                     , pointedAtBy, pointsAt, priorityLetter, refNames, refsCarrying
                     , shiftDay, shiftIn, signOf, tagRunEntries )
 
@@ -611,14 +611,19 @@ anchorIn value = case kindCut value of
 literalIn :: FilterEnv -> Text -> Maybe Text
 literalIn env l = case shiftIn l of
   Just (base, n, unit) -> isoDay <$> (shiftDay unit n =<< dayIn env base)
-  Nothing | namesDay l -> isoDay <$> dayIn env l
+  Nothing | namesDay l -> isoDay <$> dayWordIn (feToday env) l
           | otherwise  -> Just l
 
 -- | Does L spell a DAY WORD rather than a date?  THE CLOCK WORDS ALONE go
--- through 'dayIn' above; every other literal is left byte for byte what it was,
--- so @2026-08@ stays the month prefix it always was rather than a day 'dayOf'
--- refuses.  The roster is 'Glance.Query.dayWords' and never a second list, so
--- the words the base reader takes are exactly the words a bare literal takes.
+-- through 'Glance.Query.dayWordIn' above; every other literal is left byte for
+-- byte what it was, so @2026-08@ stays the month prefix it always was rather
+-- than a day 'dayOf' refuses.  The roster is 'Glance.Query.dayWords' and never
+-- a second list, so the words the base reader takes are exactly the words a
+-- bare literal takes.
+--
+-- THE PREDICATE IS OWED SEPARATELY from the resolution: with no clock read a
+-- day word still IS one, and answering 'Nothing' rather than the bytes back is
+-- what leaves @today@ matching no row under 'emptyEnv'.
 namesDay :: Text -> Bool
 namesDay l = isJust (lookup l dayWords)
 

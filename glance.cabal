@@ -305,7 +305,10 @@ test-suite glance-test
     , containers
     , directory
     , filepath
-    , glance:{glance, glance-internal, glance-web}
+    -- `glance-desktop-native' is trivial and base-only while `native-window' is
+    -- off, so depending on it puts no GTK in the way of building the suite; it
+    -- is what lets 'TestDesktop' call `zoomAsked' rather than read its source.
+    , glance:{glance, glance-desktop-native, glance-internal, glance-web}
     , http-types
     , process
     , stm

@@ -96,6 +96,18 @@ const pairUp = (p, why) =>
             && document.querySelectorAll("#mdoc .d-draft").length === 1,
           why || "the pair's two fields to open");
 
+/** The date widget's field open, focused and PLACED over the slot it writes.
+ * Placed is waited for by the box's own inline `top': the summon's placement can
+ * run before the pane has drawn the slot (the port redraw places it a beat
+ * later), and a rect measured in that window reads the box's resting spot — the
+ * filed read-races-render family. */
+const widgetUp = (p, why) => p.until(() => {
+  const box = document.getElementById("ddate");
+  const f = document.getElementById("dwhen");
+  return box.classList.contains("on") && document.activeElement === f
+    && f.getBoundingClientRect().width > 0 && box.style.top !== "";
+}, why);
+
 /** `placeEdit' SIZES THE BOX A TURN AFTER THE RAISE: read before that, the box
  * still stands over the row point left, one line tall. */
 const boxPlaced = (p, why) =>
@@ -2532,17 +2544,6 @@ export default [
       const h = await (await fetch(`/headline?id=${row}`)).json();
       return { plan: h.planning || [], props: h.properties || [] };
     }, id);
-    /** The widget's field open, focused and PLACED over the slot it writes.
-     * Placed is waited for by the box's own inline `top': the summon's
-     * placement can run before the pane has drawn the slot (the port redraw
-     * places it a beat later), and a rect measured in that window reads the
-     * box's resting spot — the filed read-races-render family. */
-    const widgetUp = (why) => p.until(() => {
-      const box = document.getElementById("ddate");
-      const f = document.getElementById("dwhen");
-      return box.classList.contains("on") && document.activeElement === f
-        && f.getBoundingClientRect().width > 0 && box.style.top !== "";
-    }, why);
     /** The planning line as the pane DREW it, or `""' where the row has none. */
     const planLine = () => p.eval(() => {
       const at = document.querySelector('#mdoc .de[data-id="PLN"]');
@@ -2563,7 +2564,7 @@ export default [
     await settled(p);
     await p.press("C-c");
     await p.press("C-d");
-    await widgetUp("the widget over the DEADLINE value");
+    await widgetUp(p, "the widget over the DEADLINE value");
     const open = await p.eval(() => {
       const f = document.getElementById("dwhen");
       const r = f.getBoundingClientRect();
@@ -2637,7 +2638,7 @@ export default [
     // keyword's slot, the standing box having left exactly as ESC takes it.
     await p.press("C-c");
     await p.press("C-d");
-    await widgetUp("the DEADLINE widget again, to switch out of");
+    await widgetUp(p, "the DEADLINE widget again, to switch out of");
     const virgin = await p.eval(() => {
       const f = document.getElementById("dwhen");
       return { val: f.value, sel: [f.selectionStart, f.selectionEnd] };
@@ -2689,7 +2690,7 @@ export default [
     await settled(p);
     await p.press("C-c");
     await p.press("C-s");
-    await widgetUp("the widget over a SCHEDULED slot the row had not got");
+    await widgetUp(p, "the widget over a SCHEDULED slot the row had not got");
     // The port lands a macrotask behind the press and Elm paints a frame behind
     // that, so the line is WAITED for rather than read once.
     const drawn = await p.until(() => {
@@ -2754,7 +2755,7 @@ export default [
     // rather than written down, and only the SHAPE is spelled here.
     await p.press("C-c");
     await p.press("C-s");
-    await widgetUp("the widget again, to type a bracketed phrase into");
+    await widgetUp(p, "the widget again, to type a bracketed phrase into");
     // The entry comes up WHOLLY SELECTED, so what is typed replaces it.
     await p.type("[today]");
     const bracket = await p.until(() => {
@@ -2793,7 +2794,7 @@ export default [
     // what landed, the clock being the driven machine's.
     await p.press("C-c");
     await p.press("C-s");
-    await widgetUp("the widget over the inactive stamp, to walk it");
+    await widgetUp(p, "the widget over the inactive stamp, to walk it");
     const stoodOn = await p.eval(() => document.getElementById("dwhen").value);
     assert(stoodOn === inactive,
       `the walk opens over ${JSON.stringify(stoodOn)}, not ${JSON.stringify(inactive)}`);
@@ -2854,16 +2855,6 @@ export default [
       return { org: root.org, plan: root.planning || [],
                kid: kid.planning || [], kidTitle: (kid.path || []).slice(-1)[0] };
     });
-    /** The widget's field open, focused and PLACED over the slot it writes —
-     * the same reading the sibling case takes, and for the same reason: the
-     * summon can run before the pane has drawn the slot. */
-    const widgetUp = (why) => p.until(() => {
-      const box = document.getElementById("ddate");
-      const f = document.getElementById("dwhen");
-      return box.classList.contains("on") && document.activeElement === f
-        && f.getBoundingClientRect().width > 0 && box.style.top !== "";
-    }, why);
-
     await sheet(p, base, "drv-marks");
     const was = await served();
     assert(was.kid.length === 0,
@@ -2875,7 +2866,7 @@ export default [
     await settled(p);
     await p.press("C-c");
     await p.press("C-s");
-    await widgetUp("the widget over the child's SCHEDULED slot");
+    await widgetUp(p, "the widget over the child's SCHEDULED slot");
     // THE MATERIALIZE IS WAITED FOR BY ITS CRUMB, never assumed: the reread is
     // a fetch, and the summon rides its continuation.
     const trail = await p.until(() => {
@@ -2920,7 +2911,7 @@ export default [
     await settled(p);
     await p.press("C-c");
     await p.press("C-s");
-    await widgetUp("the widget again, over the child's own slot");
+    await widgetUp(p, "the widget again, over the child's own slot");
     await p.type("18 aug");
     const ghost = await p.until(() => {
       const s = document.getElementById("dghost");
@@ -2951,7 +2942,7 @@ export default [
     await settled(p);
     await p.press("C-c");
     await p.press("C-s");
-    await widgetUp("the widget over the value that now stands");
+    await widgetUp(p, "the widget over the value that now stands");
     // THE ENTRY COMES UP WHOLLY SELECTED, so one DEL is the empty field the
     // shipped foot promises clears it.  The selection is WAITED for: it is
     // re-asserted while the widget is virgin, a redraw behind the open.

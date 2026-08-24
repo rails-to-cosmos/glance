@@ -1252,13 +1252,15 @@ specGroup10 = testGroup "Shell"
                     <> Spec.kKey Spec.zoomKnob)
                  (T.pack (show (Spec.kKey Spec.zoomKnob)) `T.isInfixOf` glueConfig [])
       -- The LADDER, as the page walks it: a tenth of the level itself, rounded
-      -- whole, so up and back down comes home rather than drifting.
+      -- whole, so up and back down comes home rather than drifting.  SPELLED
+      -- ONCE, the way down being the way up read backwards.
+      let ladder = [110, 121, 133, 146]
       assertEqual "up from the default, four presses"
-                  [110, 121, 133, 146]
+                  ladder
                   (drop 1 (take 5 (iterate (`Spec.zoomPress` 1) zoomDefault)))
       assertEqual "and each one steps back to where it came from"
-                  [zoomDefault, 110, 121, 133]
-                  (map (`Spec.zoomPress` (-1)) [110, 121, 133, 146])
+                  (zoomDefault : init ladder)
+                  (map (`Spec.zoomPress` (-1)) ladder)
       assertEqual "the edges hold" (zoomMax, zoomMin)
                   (Spec.zoomPress zoomMax 1, Spec.zoomPress zoomMin (-1))
       assertEqual "and nought is the way home" zoomDefault (Spec.zoomPress zoomMax 0)
@@ -1280,6 +1282,20 @@ specGroup10 = testGroup "Shell"
       assertEqual "the shell's own levels" [1, 2, 100, 101, 102] shell
       assertBool "the status corner's retired level is back on the page"
                  (Spec.zRetired `notElem` shell)
+
+    -- Cross-repo, and THE READING ROSTER MINUS THE RETIREE.  glance READS
+    -- @*today*@, @today@'s old spelling, so a stored view and a typed habit
+    -- survive the rename; the renderer's list doubles as the list it OFFERS, so
+    -- the retiree stays out of it.  One roster otherwise: a word gained on
+    -- either side and unmatched on the other fails here.
+  , testCase "the renderer's day words are glance's own, less the retiree" $ do
+      rend <- TIO.readFile "assets/table-view.js"
+      let asked = jsDayWords rend
+      assertBool ("no day words read out of the renderer: " <> show asked)
+                 (not (null asked))
+      assertEqual "the renderer's DAY_WORDS and glance's own have drifted"
+                  [ (w, n) | (w, n) <- dayWords, w /= Q.metaWord Q.MToday ]
+                  asked
   ]
   where
     zKey = "z-index:" :: T.Text
@@ -1287,6 +1303,27 @@ specGroup10 = testGroup "Shell"
     levels :: T.Text -> [Int]
     levels t = [ n | (_, r) <- T.breakOnAll zKey t
                    , Right (n, _) <- [T.Read.decimal (T.strip (T.drop (T.length zKey) r))] ]
+
+    -- The renderer's `DAY_WORDS' as read off the asset: each entry is a word
+    -- and its offset from the request's own day.
+    jsDayWords :: T.Text -> [(T.Text, Integer)]
+    jsDayWords src =
+      [ (jsWord src (T.strip word), n)
+      | entry      <- drop 1 (T.splitOn "[" (jsDecl "DAY_WORDS" src))
+      , let (word, rest) = T.breakOn "," entry
+      , Right (n, _) <- [T.Read.signed T.Read.decimal (T.strip (T.drop 1 rest))] ]
+
+    -- The text `const NAME = ' opens, up to the `;' that closes it.
+    jsDecl :: T.Text -> T.Text -> T.Text
+    jsDecl name src = T.takeWhile (/= ';') (T.drop 1 (T.dropWhile (/= '=') rest))
+      where (_, rest) = T.breakOn ("const " <> name <> " = ") src
+
+    -- An entry's WORD: quoted where it stands, else the constant beside it,
+    -- which is quoted at its own declaration.  ONE STEP and no recursion, so a
+    -- name the asset never declares comes back empty and fails the case.
+    jsWord :: T.Text -> T.Text -> T.Text
+    jsWord src t = firstQuoted (if "\"" `T.isPrefixOf` t then t else jsDecl t src)
+      where firstQuoted = T.takeWhile (/= '"') . T.drop 1 . T.dropWhile (/= '"')
 
 -- | Sheets, the document pane, and the small lists Elm draws; each case compares two copies of one figure.
 specGroup11 :: TestTree
@@ -1728,12 +1765,16 @@ specGroup12 = testGroup "Build and discipline"
       assertEqual "exe:glance's sublibraries"
         (sort (compDeps "exe:glance")) (sort (intraDeps "exe:glance" cab))
 
-  , testCase "the suite names the three components carrying testable code" $ do
+    -- THE NATIVE STANZA IS AMONG THEM, and costs the unflagged suite nothing:
+    -- it is base-only while `native-window' is off, and the flagged build needs
+    -- GTK for the executable regardless.  It is what lets 'TestDesktop' ask
+    -- `zoomAsked' as a function.
+  , testCase "the suite names the components carrying testable code" $ do
       cab <- TIO.readFile "glance.cabal"
       assertEqual "glance-test's sublibraries"
         (sort (compDeps "glance-test")) (sort (intraDeps "glance-test" cab))
-      assertBool "the suite now reaches the native stanza, which needs GTK to build"
-        ("glance-desktop-native" `notElem` intraDeps "glance-test" cab)
+      assertEqual "the native stanza grew a dependency the suite would inherit" []
+        (intraDeps "glance-desktop-native" cab)
 
   , testCase "the floor imports nothing above it" $ do
       src <- TIO.readFile (modPath WBase)

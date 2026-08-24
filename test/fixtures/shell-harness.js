@@ -1416,14 +1416,15 @@ const ACTIONS = {
   // `dwhen' with NOTHING to type: the field is emptied the way DEL over a whole
   // selection empties it, which is what `empty clears it' asks of a reader.
   dclear: () => typeInto("ddate", "dwhen", ""),
-  /** A SELECTION THE READER MADE over the widget's field -- a drag, or a
-   * select-all -- as against the one the OPEN laid down.  The two look alike to
-   * the DOM and only the widget's own `virgin' tells them apart, which is what
-   * the dispatch's copy-and-cut carve-out reads. */
-  dselect: () => {
-    const box = field("dwhen");
-    if (field("ddate").className !== "on")
-      throw new Error("the date widget is not open: dselect");
+  /** A SELECTION THE READER MADE over a field -- a drag, or a select-all -- as
+   * against the one an OPEN laid down.  The two look alike to the DOM and only
+   * the shell's own flag tells them apart (`laidWhole', 00-core.js), which is
+   * what the dispatch's copy-and-cut carve-out reads.  OVER ANY FIELD, since
+   * every box that opens on a standing value opens it wholly selected. */
+  select: (id) => {
+    if (FOCUSABLE.indexOf(id) === -1)
+      throw new Error(`no such field: select:${id}`);
+    const box = field(id);
     box.focus();
     box.selectionStart = 0;
     box.selectionEnd = box.value.length;
@@ -1760,6 +1761,11 @@ const settle = async () => {
     lflagHelp: listHint("ltable"),
     lopen: field("ledit").className === "on",
     ltitle: field("ltitle").value, lurl: field("lurl").value,
+    // The overlay's own entry-selection, the shape `dwhensel' answers in: this
+    // box opens on a standing value too, and `0..n of n' is the only reading
+    // that means "one keystroke replaces the whole of it".
+    lurlsel: [field("lurl").selectionStart, field("lurl").selectionEnd,
+              field("lurl").value.length],
     tagpop: field("tags").className, thead: field("thead").textContent,
     tfoot: field("tfoot").textContent, tmounts, tsets,
     ttags: listCells("ttable"), tat: listAt("ttable"),

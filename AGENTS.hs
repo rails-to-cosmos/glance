@@ -2537,15 +2537,19 @@ dayWords :: [(String, Integer)]
 dayWords = [("today", 0), ("tomorrow", 1), (metaWord MToday, 0)]
 
 -- | Does L spell a day WORD rather than a date?  The clock words alone go
--- through `dayWord'; every other literal is left byte for byte what it was, so
--- @2026-08@ stays the month prefix it always was.
+-- through `dayWordIn'; every other literal is left byte for byte what it was,
+-- so @2026-08@ stays the month prefix it always was.  THE PREDICATE IS OWED
+-- SEPARATELY from the resolution: with no clock read a day word still IS one,
+-- and answering no day rather than the bytes back is what leaves @today@
+-- matching no row.
 namesDay :: String -> Bool
 namesDay l = isJust (lookup l dayWords)
 
--- | The DAY W names against the calendar's own; `Nothing' where no clock was
--- read, which is what makes a clock word name no date under `noCalendar'.
-dayWord :: Calendar -> String -> Maybe String
-dayWord cal w = do
+-- | The DAY W names against the calendar's own; `Nothing' where W is no day
+-- word, and `Nothing' where no clock was read, which is what makes a clock word
+-- name no date under `noCalendar'.
+dayWordIn :: Calendar -> String -> Maybe String
+dayWordIn cal w = do
   n   <- lookup w dayWords
   day <- calToday cal
   if n == 0 then Just day else calMove cal n 'd' day
@@ -2558,7 +2562,7 @@ dayWord cal w = do
 litOf :: Calendar -> String -> Maybe String
 litOf cal l = case shiftIn l of
   Just (base, n, unit) -> calMove cal n unit =<< dayIn cal base
-  Nothing | namesDay l -> dayWord cal l
+  Nothing | namesDay l -> dayWordIn cal l
           | otherwise  -> Just l
 
 -- | The DAY a shift's BASE names.  A DAY WORD and THE EMPTY BASE are both read
@@ -2570,7 +2574,7 @@ litOf cal l = case shiftIn l of
 -- row, the way @state:TOD@ matches none.
 dayIn :: Calendar -> String -> Maybe String
 dayIn cal base | null base     = calToday cal
-               | namesDay base = dayWord cal base
+               | namesDay base = dayWordIn cal base
                | otherwise     = Just base
 
 -- | A literal BYTE ORDER may be asked about owes an opening digit: the prefix
@@ -3498,8 +3502,7 @@ stampActivity :: Maybe Bracket -> Bracket
 -- the reader typed picks its own, which is the whole of what @Wrapped@ adds:
 -- @[today]@ is the clock day inactive and @<today>@ is @today@'s own bytes.  An
 -- interval takes ONE kind for both halves ('Ts'), so the choice is made once.
-stampActivity Nothing  = TsActive
-stampActivity (Just b) = b
+stampActivity = fromMaybe TsActive
 
 -- *** The English a date-owed field reads
 --
@@ -5612,11 +5615,13 @@ components =
   , Component "glance-desktop-native" "src-desktop-native/" Private []
   , Component "exe:glance"            "app/"                Exe     ["glance-desktop-native","glance-internal","glance-web"]
   , Component "exe:glance-wasm-probe" "app/"                Exe     ["glance"]
-  , Component "glance-test"           "test/"               Suite   ["glance","glance-internal","glance-web"]
+  , Component "glance-test"           "test/"               Suite   ["glance","glance-desktop-native","glance-internal","glance-web"]
   ]
 -- ^ The wasm probe is buildable under `pure-crypto' alone (@buildable: False@
 -- otherwise), so it costs the ordinary build nothing and is a stanza like any
--- other here.
+-- other here.  THE SUITE REACHES THE NATIVE STANZA and costs nothing for it:
+-- that stanza is base-only while `native-window' is off, and the flagged build
+-- needs GTK for the executable anyway.
 
 compDeps :: String -> [String]
 compDeps n = concat [ coDeps c | c <- components, coName c == n ]

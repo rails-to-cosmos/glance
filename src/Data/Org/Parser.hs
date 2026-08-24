@@ -60,9 +60,12 @@ elementsP bol = option [] $ do
     -- timestamp: a token already ran to the next space, and a HEADLINE that
     -- stops mid-line is corrupt org (@test/fixtures/broken/broken.org@), which
     -- must stay a parse failure.  NEVER at BOL — an abutting run is mid-line,
-    -- so no @*@ behind a timestamp opens a headline.
+    -- so no @*@ behind a timestamp opens a headline.  NO catch-all: a fifth
+    -- Element must answer here by name.
     abuttingP (Spanned _ (ETimestamp _)) = elementsP False
-    abuttingP _                          = MP.empty
+    abuttingP (Spanned _ (EHeadline _))  = MP.empty
+    abuttingP (Spanned _ (EPragma _))    = MP.empty
+    abuttingP (Spanned _ (EToken _))     = MP.empty
 
 startsLine :: Text -> Bool
 startsLine gap = T.null gap || T.last gap == '\n'

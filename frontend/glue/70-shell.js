@@ -85,24 +85,27 @@
     // only past a `preventDefault', so a handler cannot decline a press; a row
     // that is never LIVE is never matched, and the dispatch claims nothing.
     // With no window behind the page, C-+/C--/C-0 stay the browser's own.
-    const live = (b) => b.scope === "any"
+    // NOW and WIN ARE CLOSED OVER, asked once per press by the dispatch below:
+    // both are the same question for all forty-odd rows, and `typing()' walks
+    // every surface to answer it.
+    const liveIn = (now, win) => (b) => b.scope === "any"
       || (b.scope === "modal" && SURFACES.some((s) => !s.momentary && s.up()))
-      || (b.scope === "table" && !typing())
-      || (b.scope === "window" && !!hosted("zoom"));
+      || (b.scope === "table" && now)
+      || (b.scope === "window" && win);
     // A live selection makes C-c and C-x copy and cut, so no prefix claims them.
-    // A VIRGIN ENTRY-SELECTION IS THE BOX'S OWN AND NOT THE READER'S: the date
-    // widget opens with its whole value selected (`selectWhole'), so counting
-    // that one killed the very next summon chord — `C-c' copied instead of
-    // prefixing, and whichever of `C-c C-s' / `C-c C-d' the reader pressed
-    // second was dead.  A selection they MADE — typed over, dragged, walked with
-    // the shifted arrows — is live as it always was; `dateVirgin' is the one
-    // spelling of the difference, and the doc pane owns it.  EXEMPTED IN THE
-    // FIELD'S OWN ARM ALONE: a selection lying in the DOCUMENT is nothing the
-    // widget laid down, so it counts however the widget stands.
+    // A SELECTION THE SHELL LAID DOWN IS NOT THE READER'S: every box that opens
+    // over a value that already stands opens it wholly selected (`selectWhole'),
+    // and counting that one kills the very next summon chord — `C-c' copies
+    // instead of prefixing, and the chord behind it dies unheard.  A selection
+    // they MADE — typed over, dragged, walked with the shifted arrows — is live
+    // as it always was; `laidWhole' is the one spelling of the difference
+    // (00-core.js).  EXEMPTED IN THE FIELD'S OWN ARM ALONE: a selection lying in
+    // the DOCUMENT is nothing a box laid down, so it counts however the boxes
+    // stand.
     function selecting() {
       const a = active();
       if (a && typeof a.selectionStart === "number")
-        return !dateVirgin() && a.selectionStart !== a.selectionEnd;
+        return a.selectionStart !== a.selectionEnd && !laidWhole(a);
       const s = document.getSelection();
       return !!s && !s.isCollapsed;
     }
@@ -233,6 +236,8 @@
       const k = keyName(e);
       if (!k) return;
       const keys = pendingKeys().concat([k]);
+      const now = !typing(), win = !!hosted("zoom");
+      const live = liveIn(now, win);
       const here = MAPS.rows.filter(live);
       const opens = (b) => keys.every((key, i) => b.keys[i] === key);
       const hit = here.find((b) => b.keys.length === keys.length && opens(b));

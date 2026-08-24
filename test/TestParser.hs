@@ -116,15 +116,17 @@ testCases =
 
   , plain "Planning: two keywords on one line"
       ["* Task", "SCHEDULED: <2024-01-01 Mon> DEADLINE: <2024-06-01 Sat>"]
-      [EHeadline (titled "Task") { schedule = Just day2024, deadline = Just jun2024 }]
+      [EHeadline (titled "Task") { schedule = Just day2024
+                                 , deadline = Just (jun2024 TimestampActive) }]
 
   , plain "Planning: keywords in the reverse order"
       ["* Task", "DEADLINE: <2024-06-01 Sat> SCHEDULED: <2024-01-01 Mon>"]
-      [EHeadline (titled "Task") { schedule = Just day2024, deadline = Just jun2024 }]
+      [EHeadline (titled "Task") { schedule = Just day2024
+                                 , deadline = Just (jun2024 TimestampActive) }]
 
   , plain "Planning: a repeated keyword keeps the last"
       ["* Task", "SCHEDULED: <2024-01-01 Mon> SCHEDULED: <2024-06-01 Sat>"]
-      [EHeadline (titled "Task") { schedule = Just jun2024 }]
+      [EHeadline (titled "Task") { schedule = Just (jun2024 TimestampActive) }]
 
   , plain "Planning: range and repeater timestamps"
       ["* Task", "SCHEDULED: <2024-01-15 Mon>--<2024-01-19 Fri> DEADLINE: <2024-01-01 Mon +1w>"]
@@ -188,8 +190,12 @@ day2024 :: Timestamp
 day2024 = jan2024 TimestampActive
 
 -- | A second date, to catch a misfiled planning entry.
-jun2024 :: Timestamp
-jun2024 = plainTs TimestampActive (on "2024-06-01 00:00:00")
+jun2024 :: TimestampStatus -> Timestamp
+jun2024 status = plainTs status junMoment
+
+-- | The day 'jun2024' names, for the range that ENDS on it.
+junMoment :: TsMoment
+junMoment = on "2024-06-01 00:00:00"
 
 -- | The follower truth table.  A timestamp closes on its OWN bracket, so prose
 -- abuts it with nothing between and each follower is a token of its own; the
@@ -228,7 +234,7 @@ abuttedEdgeCases =
   , plain "Two timestamps with nothing between them"
       ["[2024-01-01 Mon][2024-06-01 Sat]"]
       [ ETimestamp (jan2024 TimestampInactive)
-      , ETimestamp (plainTs TimestampInactive (on "2024-06-01 00:00:00")) ]
+      , ETimestamp (jun2024 TimestampInactive) ]
 
     -- A `--' is read as the range's only when a second timestamp opens behind
     -- it; otherwise it is the follower, and the timestamp stands alone.
@@ -239,7 +245,7 @@ abuttedEdgeCases =
   , plain "A range keeps its `--' and takes a follower"
       ["[2024-01-01 Mon]--[2024-06-01 Sat]. done"]
       [ ETimestamp (jan2024 TimestampInactive)
-          { tsEnd = Just (on "2024-06-01 00:00:00") }
+          { tsEnd = Just junMoment }
       , EToken ".", EToken "done" ]
 
     -- The line the bug was filed on, shortened: an org-glance registry blob's

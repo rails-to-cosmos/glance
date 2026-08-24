@@ -181,6 +181,13 @@
       };
     }
     let dcommit = null;
+    /** TWO ANSWERS, ONE ASK: each one-shot disarms the other, so the model's
+     * word on the CARGO and its word on `docSaid' cannot both land.  THE
+     * PROTOCOL IS SPELLED HERE ALONE, and no caller wires the pair by hand. */
+    const answerOnce = (onCommit, onSaid) => {
+      dcommit = (cargo) => { dwrote = null; onCommit(cargo); };
+      dwrote = (what) => { dcommit = null; onSaid(what); };
+    };
     // THE MODEL'S OWN WORD RIDES THE CARGO wherever the model has one — where
     // it named the landing, and where it REROUTED the edit — since two ports
     // carry no order between them and a second one would race this.  `docSaid'
@@ -301,9 +308,7 @@
       openEdit(DPARA, { id: r.id, text: "", add: true, at: off });
     }
     const insertPara = (r, text, done) => {
-      // TWO ANSWERS, ONE ASK, so each one-shot disarms the other.
-      dcommit = () => { dwrote = null; done(); };
-      dwrote = (what) => { dcommit = null; said(INSERT, what); };
+      answerOnce(done, (what) => said(INSERT, what));
       const m = { kind: "insert", id: r.id, text };
       if (r.at != null) m.at = r.at;
       dsend(m);
@@ -708,10 +713,9 @@
     for (const id of ["dkey", "dval"])
       for (const ev of ["input", "focus"]) el(id).addEventListener(ev, pairMoved);
     // The widget has ONE field and nothing to cross to, so typing is its only
-    // door -- and the first character typed ends the entry's own selection.
+    // door.
     el("dwhen").addEventListener("input", () => {
       if (!ddating()) return;
-      edit.row.virgin = false;
       dateMoved();
     });
     /** TAB, RET or `:' over the pair.  An OFFER under point is taken first; a
@@ -798,12 +802,12 @@
       selectWhole(el("dwhen"));
     }
     /** Is the open widget standing on the selection THE OPEN MADE -- the whole
-     * value selected, nothing typed and nothing walked?  The dispatcher's
-     * copy-and-cut carve-out asks this before it reads a range (`selecting',
-     * 70-shell.js): a selection the BOX laid down is no reader's selection, and
-     * counting it killed the next summon chord.  ONE SPELLING of "virgin", so
-     * the re-assert above and the carve-out cannot part on what it means. */
-    const dateVirgin = () => ddating() && !!edit.row.virgin;
+     * value selected, nothing typed and nothing walked?  THE FLAG IS THE
+     * SHELL'S (`laidWhole', 00-core.js), so this door and the dispatcher's
+     * copy-and-cut carve-out (`selecting', 70-shell.js) cannot part on what it
+     * means.  The widget is asked for as well: the flag outlives the box, and a
+     * shut widget is nothing to re-select into. */
+    const dateVirgin = () => ddating() && laidWhole(el("dwhen"));
     const dateBinding = (k) => docBinding(edit.row.b.command, k);
     /** What the door onto KEY is called.  The two settable words are the summon
      * keys' own commands, so a widget raised by `RET' over an entry echoes what
@@ -819,13 +823,14 @@
     function planHere(b, keyword) {
       if (!editing || raw) { said(b, "no document here"); return; }
       // A STANDING WIDGET IS SWITCHED, NEVER REFUSED: the reader asked for the
-      // other keyword's box, so the open one leaves by the door ESC opens --
-      // `cancelSheetEdit' itself, so the restore is byte-identical and the
-      // keyword a summon ghosted in goes back with it -- and the asked word is
-      // summoned over what the restore left.  The SAME key is a re-summon and
-      // takes the same road, which costs the reader nothing.  Any OTHER open
-      // edit still refuses: it holds text nobody has decided about.
-      if (ddating()) cancelSheetEdit();
+      // other keyword's box, so the open one leaves by the very restore ESC
+      // takes -- byte-identical, the keyword a summon ghosted in going back with
+      // it -- and the asked word is summoned over what that left.  WITHOUT THE
+      // DOOR'S ECHO: this switch says what it opened, and an `ESC → keyboard-quit'
+      // logged behind it would name a key nobody pressed.  The SAME key is a
+      // re-summon and takes the same road.  Any OTHER open edit still refuses:
+      // it holds text nobody has decided about.
+      if (ddating()) restoreSheetEdit();
       else if (sheetOpen())
         { said(b, "an edit is open — RET writes it, ESC leaves"); return; }
       // ORG SCHEDULES THE ENTRY AT POINT, so a CHILD row is materialized first
@@ -851,7 +856,7 @@
       // ONE CLOCK READ PER SUMMON, stamped on the row the box opened over: the
       // ghost, the offers and the wall above the commit all read this one day.
       openEdit(DDATE, { key: keyword, val: stood, add: drew, back, b,
-                        virgin: true, today: dateNow() });
+                        today: dateNow() });
       said(b, "RET sets it · empty clears it · ESC leaves");
     }
     /** `RET' over the widget.  DRY OVER AN OFFER AND FINAL OVER A COMPLETED
@@ -860,10 +865,10 @@
      * rule.  A REFUSAL IS SPOKEN HERE, above the commit and while what was typed
      * is still on screen to fix. */
     function dateKey(b) {
-      // A take is a keystroke the field never saw, so the widget redraws itself
-      // and the entry stops being VIRGIN -- the same move typing one would make.
-      if (menuTake(wmenu, "dwhen", () => { edit.row.virgin = false; dateMoved(); }))
-        return;
+      // A take is a keystroke the field never saw, so the widget redraws itself;
+      // no `input' fires, and the caret it leaves is what ends the open's own
+      // selection (`laidWhole', 00-core.js).
+      if (menuTake(wmenu, "dwhen", dateMoved)) return;
       // AN EMPTY VALUE CLEARS THE ENTRY, the shipped foot's own promise kept
       // verbatim -- and clearing is the widget's law, not the grammar's, so it
       // never asks the reader whether nothing is a date.
@@ -893,12 +898,10 @@
       shutEdit(DDATE);
       if (row.add) undraftPlan(row);
       if (h.child !== null) {
-        // TWO ANSWERS, ONE ASK, so each one-shot disarms the other -- the pair
-        // box's own shape.  THE WIDGET KEEPS ITS OWN WORD over the model's: the
-        // row the box stood in already says the keyword, and the model's word
-        // names a landing out of a drawer this door never touched.
-        dcommit = () => { dwrote = null; said(b, typed || "cleared"); };
-        dwrote = (what) => { dcommit = null; said(b, what); };
+        // THE WIDGET KEEPS ITS OWN WORD over the model's: the row the box stood
+        // in already says the keyword, and the model's word names a landing out
+        // of a drawer this door never touched.
+        answerOnce(() => said(b, typed || "cleared"), (what) => said(b, what));
         dsend({ kind: "addprop", key: keyword, value: typed });
         return;
       }
@@ -917,9 +920,6 @@
     const dateStep = (k) =>
       k === "S-<right>" ? 1 : k === "S-<left>" ? -1
       : k === "S-<down>" ? 7 : k === "S-<up>" ? -7 : 0;
-    // What an org stamp OPENS with: the bracket, the day, and the weekday behind
-    // it where one is written.  Everything past this is the stamp's TAIL.
-    const STAMP_HEAD = /^[<[]\d+-\d{1,2}-\d{1,2}(?:[ \t]+[A-Za-z]+)?/;
     /** THE WALK MOVES THE DAY AND NOTHING ELSE: the value the reading R stood on,
      * carried to the day TO.
      *
@@ -938,16 +938,16 @@
      * has always done with one: its two ends move by a rule of their own or not
      * at all, and this walk has none to give them. */
     const dateStepped = (r, to) => {
-      // BOTH BRACKETED READINGS, and the reader is the one that knows which:
+      // EITHER BRACKETED READING, and the reader is the one that knows which:
       // org's own spelling kept verbatim, and the grammar read inside a pair.
-      if (!r.verbatim && !r.wrapped) return isoDay(to);
+      if (!r.bracketed) return isoDay(to);
       const stood = r.stamp;
       const head = stood.indexOf("--") === -1 && STAMP_HEAD.exec(stood);
-      const fresh = stampOf(to, null, stood.charAt(0) === "[");
       // THE TAIL IS EVERY BYTE THE DAY AND ITS WEEKDAY DID NOT OCCUPY, the
-      // closing bracket included: `stampOf' writes the head and the text that
-      // stood hands over the rest, so the one org-stamp writer stays the one.
-      return head ? fresh.slice(0, -1) + stood.slice(head[0].length) : fresh;
+      // closing bracket EXCLUDED: it is handed to the one org-stamp writer,
+      // which closes its own stamp as it does everywhere else.
+      return stampOf(to, null, stood.charAt(0) === "[",
+                    head ? stood.slice(head[0].length, -1) : "");
     };
     function dateAdjust(b, by) {
       const f = el("dwhen");
@@ -955,7 +955,6 @@
       if (!r.ok || !r.start) { said(b, "no date here to move"); return; }
       f.value = dateStepped(r, addDays(r.start, by));
       f.setSelectionRange(f.value.length, f.value.length);
-      edit.row.virgin = false;
       dateMoved();
     }
     // The document holds the keys with NOTHING focused, so an open sheet counts as typing.
@@ -1051,6 +1050,11 @@
     const INACTIVE = `\\[${DATE}[^\\[\\]\\n]*\\]`;
     const STAMP = new RegExp(
       `^(?:${ACTIVE}(?:--${ACTIVE})?|${INACTIVE}(?:--${INACTIVE})?)$`);
+    // What an org stamp OPENS with: the bracket, the day, and the weekday behind
+    // it where one is written.  Everything past this is the stamp's TAIL.  BUILT
+    // FROM `DATE', so the day the head measures is the day the wall reads;
+    // declared below it, since a `const' read from above is a TDZ error.
+    const STAMP_HEAD = new RegExp(`^[<[]${DATE}(?:[ \\t]+[A-Za-z]+)?`);
 
     // ================================================== THE DATE, READ FOR INK
     // THE PAGE SPELLS NO ORG, and this reader does not break that.  What a
@@ -1118,12 +1122,14 @@
     const dowOf = (c) => DOW[new Date(dnum(c) * DAY_MS).getUTCDay()];
     const pad2 = (n) => (n < 10 ? "0" : "") + n;
     const isoDay = (c) => `${c.y}-${pad2(c.m)}-${pad2(c.d)}`;
-    /** C as org's own stamp, with TIME where there is one; INACTIVE takes org's
-     * other bracket, `[...]'.  THE ONE ORG-STAMP WRITER: a bracket kind is chosen
-     * here and never spelled a second time. */
-    const stampOf = (c, time, inactive) =>
+    /** C as org's own stamp, with TIME where there is one and TAIL -- a time of
+     * day and a repeater cookie the walk is carrying over, kept byte for byte --
+     * riding after it, inside the closer.  INACTIVE takes org's other bracket,
+     * `[...]'.  THE ONE ORG-STAMP WRITER: a bracket kind is chosen here and
+     * never spelled a second time, and no caller cuts a closer back off. */
+    const stampOf = (c, time, inactive, tail) =>
       `${inactive ? "[" : "<"}${isoDay(c)} ${dowOf(c)}`
-      + `${time ? " " + time : ""}${inactive ? "]" : ">"}`;
+      + `${time ? " " + time : ""}${tail || ""}${inactive ? "]" : ">"}`;
     // THE MONTH TABLE IS EXACT and folds totally: twelve short forms and twelve
     // full ones, no `sept', no form carrying a full stop.
     const MONTH_WORDS = {
@@ -1192,7 +1198,7 @@
         // rather than composing one, which is how a tail survives (`dateStepped').
         const m = /^[<[](\d+)-(\d{1,2})-(\d{1,2})/.exec(s);
         const c = m ? { y: +m[1], m: +m[2], d: +m[3] } : null;
-        return { ok: true, verbatim: true, stamp: s,
+        return { ok: true, bracketed: true, stamp: s,
                  start: c && dayReal(c) ? c : undefined };
       }
       // A BRACKET STILL OPEN IS STILL BEING TYPED, and the very next character
@@ -1346,23 +1352,41 @@
      * earning a second one.  THE INVERSION TRAVELS, though — it is the one
      * refusal a reading spends a word of its own on, and an interval runs the
      * wrong way inside brackets exactly as it does outside them.
-     * THE ANSWER SAYS IT WAS WRAPPED, beside `verbatimDate''s own flag: the walk
-     * writes the bracket that stood back (`dateStepped'), and a resolution alone
-     * cannot tell `<today>' from a bare `today'. */
+     * THE ANSWER SAYS IT WAS BRACKETED, the same field `verbatimDate' answers
+     * with: the walk writes the bracket that stood back (`dateStepped'), and a
+     * resolution alone cannot tell `<today>' from a bare `today'. */
     function wrappedDate(s, today) {
-      const inactive = s[0] === "[" && s.endsWith("]");
-      if (!inactive && !(s[0] === "<" && s.endsWith(">"))) return null;
+      // THE HEAD IS THE CALLER'S GUARANTEE -- `readsDate' reaches this only past
+      // `verbatimDate''s own bracket test -- so the KIND is read off it and the
+      // closer has only to MATCH.
+      const inactive = s[0] === "[";
+      if (!s.endsWith(inactive ? "]" : ">")) return null;
       const body = s.slice(1, -1).trim();
       if (!body) return null;
-      const g = englishDate(body, today) || shippedDate(body, today);
-      if (!g) return null;
-      if (!g.ok) return g.short === INVERTED ? g : null;
-      if (!showable(g.start) || (g.end && !showable(g.end))) return null;
-      const one = (c, time) => stampOf(c, time, inactive);
-      return { ok: true, wrapped: true, start: g.start, end: g.end,
-               stamp: g.end ? one(g.start) + "--" + one(g.end)
-                            : one(g.start, g.time) };
+      const r = resolvedDate(body, today, inactive);
+      if (!r) return null;
+      if (!r.ok) return r.short === INVERTED ? r : null;
+      return { ...r, bracketed: true };
     }
+    /** PHRASE resolved by the grammar BOTH readings share, stamped in the
+     * bracket kind INACTIVE names.  THE ENGLISH PHRASE IS READ AHEAD OF THE
+     * REST, the server's own order: it is the one reading with a refusal of its
+     * own to spend, and a phrase it declines falls through to the rest.  A
+     * RESOLUTION THAT CANNOT BE SPELLED IS A REFUSAL, and a HARD one: the
+     * arithmetic ran off the calendar and no further character walks it back.
+     * `null' where the phrase is not this grammar's at all, which each caller
+     * answers for itself. */
+    const resolvedDate = (phrase, today, inactive) => {
+      const g = englishDate(phrase, today) || shippedDate(phrase, today);
+      if (!g) return null;
+      if (!g.ok) return g;
+      if (!showable(g.start) || (g.end && !showable(g.end)))
+        return noDate({ hard: true });
+      const one = (c, time) => stampOf(c, time, inactive);
+      return { ok: true, start: g.start, end: g.end,
+               stamp: g.end ? `${one(g.start)}--${one(g.end)}`
+                            : one(g.start, g.time) };
+    };
     /** TEXT read as a planning date against TODAY.  A declaration, so a direct
      * `eval' of this glue reaches it: the drift pin drives it over the corpus
      * the server's own reader is driven over. */
@@ -1377,21 +1401,8 @@
       // as the grammar wrapped, so nothing the wall already answers moves by a
       // byte (`planningTimestamp' orders its arms the same way).
       const v = verbatimDate(s);
-      if (v && (v.ok || v.unfinished)) return v;
-      if (v) return wrappedDate(s, today) || v;
-      // THE ENGLISH PHRASE IS READ BEHIND ORG'S OWN BRACKETS AND AHEAD OF THE
-      // REST, the server's own order: it is the one reading with a refusal of
-      // its own to spend, and a phrase it declines falls through to the rest.
-      const g = englishDate(s, today) || shippedDate(s, today);
-      if (!g) return noDate();
-      if (!g.ok) return g;
-      // A RESOLUTION THAT CANNOT BE SPELLED IS A REFUSAL, and a HARD one: the
-      // arithmetic ran off the calendar and no further character walks it back.
-      if (!showable(g.start) || (g.end && !showable(g.end)))
-        return noDate({ hard: true });
-      return { ok: true, start: g.start, end: g.end,
-               stamp: g.end ? stampOf(g.start) + "--" + stampOf(g.end)
-                            : stampOf(g.start, g.time) };
+      if (v) return v.ok || v.unfinished ? v : (wrappedDate(s, today) || v);
+      return resolvedDate(s, today, false) || noDate();
     }
     /** TEXT read the way the plain stamp wall reads it, for KEY's own refusal.
      * A SECOND READER AND NEVER A SECOND GRAMMAR: `verbatimDate' is org's own
@@ -1637,11 +1648,8 @@
         const no = pairRefused(key, value);
         if (no) { spoke(no); return; }
         shutEdit(DPAIR);
-        // TWO ANSWERS, ONE ASK, so each one-shot disarms the other: the model's
-        // own word for where the pair landed rides the CARGO, and `docSaid'
-        // carries a refusal alone — which moves no rows and so races nothing.
-        dcommit = (cargo) => { dwrote = null; spoke(cargo.said || "property written"); };
-        dwrote = (what) => { dcommit = null; spoke(what); };
+        // The model's own word for where the pair landed rides the CARGO.
+        answerOnce((cargo) => spoke(cargo.said || "property written"), spoke);
         dsend({ kind: "addprop", key, value });
         return;
       }
@@ -1661,20 +1669,26 @@
     // the line is drawn to stand in and taken back with the box.
     const redraftPlan = (keyword) => dsend({ kind: "draftplan", key: keyword });
     const undraftPlan = (r) => dsend({ kind: "undraftplan", id: r.back });
-    // THE ESCAPE IS FROM THE EDIT: the box goes, the drawn row with it, and the
-    // drawer is the bytes it was — nothing typed here ever entered its list.
-    const cancelSheetEdit = () => {
+    /** Take the open sheet edit down and put back whatever it DREW, answering
+     * with the WORD for what stood there.  SILENT, because the ECHO BELONGS TO
+     * THE DOOR THAT ASKED: ESC's own is below, and the summon switch takes the
+     * same byte-identical restore and then speaks for the box it opens. */
+    function restoreSheetEdit() {
       const drawn = edit && edit.o === DPARA && edit.row.add ? edit.row : null;
       const pair = edit && edit.o === DPAIR ? edit.row : null;
       // AND THE KEYWORD THE SUMMON GHOSTED IN goes with the box: the planning
       // line comes back the bytes it was, its own ABSENCE included.
       const when = edit && edit.o === DDATE ? edit.row : null;
-      cancelEdit(when ? "the planning line" : pair ? "the drawer" : "element",
-                 ...DOCEDITS);
+      for (const o of DOCEDITS) shutEdit(o);
       if (drawn) undraft(drawn);
       if (pair) undraftPair(pair);
       if (when && when.add) undraftPlan(when);
-    };
+      return when ? "the planning line" : pair ? "the drawer" : "element";
+    }
+    // THE ESCAPE IS FROM THE EDIT: the box goes, the drawn row with it, and the
+    // drawer is the bytes it was — nothing typed here ever entered its list.
+    // The restore shut every shape, so `cancelEdit' is asked for the ECHO alone.
+    const cancelSheetEdit = () => cancelEdit(restoreSheetEdit());
 
     function ddelete(ids, how) {
       dtook = how;
