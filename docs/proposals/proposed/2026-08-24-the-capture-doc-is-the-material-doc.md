@@ -29,9 +29,11 @@ with its own rules, it is the first editor pointed at nothing.
 
 ## The flow
 
-1. `+` asks the **tag** first, exactly today's completing field (empty is the
-   inbox). The destination question precedes the doc, because the tag picks
-   the template, the `#+TODO:` cycle, and where the blob lands.
+1. `+` asks the **tag** first (by default inherits the tag from the
+   main table-view filter if specified), exactly today's completing
+   field (empty is the inbox). The destination question precedes the
+   doc, because the tag picks the template, the `#+TODO:` cycle, and
+   where the blob lands.
 2. The sheet opens in **capture**: the server expands the tag's template and
    serves a DRAFT — the same shape `/headline` serves, from bytes that exist
    only in the answer. Default template, default draft: `* ` and nothing
@@ -52,12 +54,12 @@ with its own rules, it is the first editor pointed at nothing.
 `%^{PROMPT}` stops being a pre-form field. The material doc **is** the prompt
 surface:
 
-| escape | becomes |
-| --- | --- |
+| escape                   | becomes                                       |
+|--------------------------|-----------------------------------------------|
 | `%^{Author}` in a drawer | the pair, value empty — the pair box edits it |
-| `%^{PROMPT}` in the body | an empty slot the pane walks to |
-| `%t`, `%u`, stamps | server expansion at draft time, as today |
-| `%?` | where point opens |
+| `%^{PROMPT}` in the body | an empty slot the pane walks to               |
+| `%t`, `%u`, stamps       | server expansion at draft time, as today      |
+| `%?`                     | where point opens                             |
 
 Prompting escapes existed because the form could not edit structure; the pane
 can, so they dissolve into the editors it already has. Stamping escapes stay
