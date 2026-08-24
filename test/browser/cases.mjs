@@ -2001,6 +2001,11 @@ export default [
       return { punc: [...box.querySelectorAll(".dpunc")].map((s) => s.textContent),
                fields: [...box.querySelectorAll("input")].map((i) => i.id),
                focus: document.activeElement.id,
+               // THE KEY IS SIZED BEFORE THE FIRST PAINT: the open fills, then
+               // focuses, and the focus asks `pairMoved' -- so an empty key
+               // stands one cell wide, its caret's own room.
+               ch: cell(),
+               keyW: document.getElementById("dkey").getBoundingClientRect().width,
                // The drawn row is the model's own and joins no list.
                drafts: document.querySelectorAll("#mdoc .d-draft").length,
                metas: document.querySelectorAll("#mdoc .d-drawer .d-meta").length };
@@ -2008,6 +2013,8 @@ export default [
     assert(dressed.punc.join("") === "::" && dressed.fields.join(",") === "dkey,dval",
       `the box reads ${JSON.stringify(dressed)}`);
     assert(dressed.focus === "dkey", `the focus opened on ${dressed.focus}`);
+    assert(Math.abs(dressed.keyW - dressed.ch) < 2,
+      `the empty key opened ${dressed.keyW}px wide against one cell of ${dressed.ch}px`);
     assert(dressed.drafts === 1 && dressed.metas === before.length + 1,
       `the draft drew ${dressed.drafts} rows, the drawer now ${dressed.metas}`);
     // BOTH HALVES COMPLETE FROM THE TREE'S OWN VOCABULARY, which is a live route
@@ -2034,6 +2041,22 @@ export default [
         && document.getElementById("dkey").value === "OWNER"
       ? document.getElementById("dkey").value : false,
       "`C-n' then `:' to complete the key and hand it over");
+    // ":OWNER:" READS AS THE DRAWER LINE IT STANDS OVER: the key field is
+    // exactly its text wide, so the closing colon lands against the R rather
+    // than out at a column the layout picked.  RELATIVE GEOMETRY ONLY -- where
+    // the BOX sits is `placeEdit''s business and a frame behind this read.
+    const hug = await p.eval(() => {
+      const key = document.getElementById("dkey").getBoundingClientRect();
+      const shut = [...document.querySelectorAll("#dpair .dpunc")]
+        .filter((s) => !s.classList.contains("dlead"))[0].getBoundingClientRect();
+      return { ch: cell(), width: key.width, gap: shut.left - key.right,
+               chars: document.getElementById("dkey").value.length };
+    });
+    assert(Math.abs(hug.gap) <= 2,
+      `the closing colon stands ${hug.gap}px off the key's own right edge`);
+    assert(Math.abs(hug.width - hug.chars * hug.ch) < 2,
+      `the key holds ${hug.chars} characters and measures ${hug.width}px `
+      + `against ${hug.chars * hug.ch}px of cells`);
     // ESC CANCELS THE INPUT WHOLE: the box goes, the drawn row with it, and the
     // drawer is the rows it was, character for character.
     await p.press("ESC");
@@ -2081,6 +2104,7 @@ export default [
       + `${JSON.stringify(keyOffers.map((o) => o.word))}; "OW" led them and `
       + `C-n completed it to ${JSON.stringify(completed)}; `
       + `ESC left ${JSON.stringify(before)} standing; `
+      + `":OWNER:" closed ${hug.gap.toFixed(1)}px off a ${hug.width.toFixed(1)}px key; `
       + `scheduled routed to ${JSON.stringify(end.plan)} over `
       + `${JSON.stringify(end.props)}`];
   } },

@@ -380,9 +380,13 @@ page head' colours title body = T.unlines
   -- `placeEdit' to measure.
   , "  .dpv{display:inline-block;line-height:var(--g-doc-lh)}"
   , "  .dpv:empty::before{content:\"\\200B\"}"
-  -- The key is the short half and the value the long one, org's own reading;
-  -- the margin is the SPACE org writes after the closing colon.
-  , "  #dkey{flex:1 1 30%}"
+  -- THE KEY IS EXACTLY AS WIDE AS WHAT IT HOLDS, so the closing colon stands
+  -- flush against the text the way it does on the drawer line the box is laid
+  -- over.  `pairMoved' writes the `ch' width per keystroke -- monospace does the
+  -- arithmetic -- and the `1ch' here is the floor an empty key keeps for its
+  -- caret.  The value takes the rest, and the margin is the SPACE org writes
+  -- after the closing colon.
+  , "  #dkey{flex:0 0 auto;width:1ch}"
   , "  #dval{flex:2 1 60%;margin-left:1ch}"
   -- Hide the scrollbar: one taking layout width wraps the field narrower than its row.
   , "  #dpara textarea{flex:1;resize:none;border:none;margin:0;font:inherit;"

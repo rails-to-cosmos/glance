@@ -659,6 +659,11 @@
     const pairMoved = () => {
       dmenu.at = el(onPairKey() ? "dkey" : "dval").value.trim() ? 0 : -1;
       drawOffers();
+      // THE KEY FIELD HUGS ITS TEXT, so the closing colon stands flush against
+      // it as it does in the drawer -- monospace does the arithmetic, and an
+      // empty key keeps one cell for its caret.  ONE SPELLING: every door that
+      // moves the key reaches here, the assignments included.
+      el("dkey").style.width = `${Math.max(1, el("dkey").value.length)}ch`;
       // A key that routes nowhere owes no date and carries no ghost.
       drawGhost("dval", "dvghost", valueOwesDate());
     };
