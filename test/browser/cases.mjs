@@ -2615,4 +2615,119 @@ export default [
       + `${JSON.stringify(ghost.trim())} and landed ${JSON.stringify(landed.planning)} `
       + `over ${JSON.stringify(landed.properties)}`];
   } },
+
+// THE PLANNING LINE'S OWN GRAIN.  `f' walks the entries the line draws, and the
+// entry at point is the CURSOR one grain finer -- so it must wear the cursor's
+// ground, and the line must lift its while it does, or the gold is drawn on gold
+// and the reader sees a selection that is set and invisible (the widget's own
+// `--g-sel' lesson, `Style.hs' "THE TWO GOLDS").  READ RELATIONALLY and behind
+// the mirror's own guards: the port lands a macrotask behind the press and Elm
+// paints a frame behind that (docs/bugs/…read-races-render).
+{ name: "the planning line's entries walk, and RET opens the one at point",
+  async run(p, base) {
+    /** The planning line as the pane DREW it, or `""' where the row has none. */
+    const planLine = () => p.eval(() => {
+      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
+      return at ? at.textContent : "";
+    });
+    const entries = () => p.eval(() =>
+      [...document.querySelectorAll('#mdoc .de[data-id="PLN"] .dpv')]
+        .map((s) => s.dataset.key));
+    /** `f' into the next entry, waited for BY THE KEYWORD point lands on: the
+     * row never changes, so the row-id wait every other step uses answers yes
+     * before the press is processed. */
+    const into = (key) => p.until((k) => {
+      const at = document.querySelector('#mdoc .de[data-id="PLN"] .dpv.dat');
+      return !!at && at.dataset.key === k;
+    }, `\`f' to reach the ${key} entry`, undefined, key);
+
+    await sheet(p, base, "drv-plan");
+    const wasLine = await planLine();
+    const served = await p.eval(async () =>
+      (await (await fetch("/headline?id=drv-plan")).json()).planning || []);
+    await walkTo(p, '.de[data-id="PLN"]', "the planning line");
+    await settled(p);
+    const keys = await entries();
+    assert(keys.length >= 2,
+      `drv-plan's planning line carries ${JSON.stringify(keys)} — the walk needs two`);
+
+    // TWO STEPS IN: the whole line, then the first entry, then the second.
+    await p.press("f");
+    await into(keys[0]);
+    await p.press("f");
+    await into(keys[1]);
+
+    const dress = await p.eval((k) => {
+      const line = document.querySelector('#mdoc .de[data-id="PLN"]');
+      const on = line.querySelector(".dpv.dat");
+      const off = [...line.querySelectorAll(".dpv")]
+        .find((s) => !s.classList.contains("dat"));
+      const bg = (e) => rgb(getComputedStyle(e).backgroundColor);
+      const r = on.getBoundingClientRect();
+      return { key: on.dataset.key, val: on.textContent, want: k,
+               lit: bg(on), dark: bg(off), row: bg(line), sel: g("sel"),
+               // THE PIXEL READING WANTS THE TOKEN'S OWN HEX, which is what a
+               // frame carries; `rgb()' above is what a computed style reads as.
+               wash: getComputedStyle(document.documentElement)
+                 .getPropertyValue("--g-sel").trim().toLowerCase(),
+               box: { x: Math.round(r.x), y: Math.round(r.y),
+                      w: Math.round(r.width), h: Math.round(r.height) } };
+    }, keys[1]);
+    assert(dress.key === dress.want,
+      `the dress landed on ${dress.key} where the walk stood in ${dress.want}`);
+    assert(dress.lit === dress.sel,
+      `the entry at point wears ${dress.lit}, not the cursor's ${dress.sel}`);
+    assert(/rgba\(0, 0, 0, 0\)|transparent/.test(dress.dark),
+      `an entry point is not in wears ${dress.dark}`);
+    // …AND THE LINE LIFTS ITS OWN, or the entry's gold is drawn on the same gold.
+    assert(/rgba\(0, 0, 0, 0\)|transparent/.test(dress.row),
+      `the line still wears ${dress.row} under a picked entry — gold on gold`);
+    // SEEN, not merely set: the wash is counted in PIXELS over the slot's box.
+    const area = dress.box.w * dress.box.h;
+    assert(area > 100, `the entry's box is ${dress.box.w}x${dress.box.h}`);
+    const wash = (await p.paint()).count(dress.box, dress.wash);
+    assert(wash > area * 0.15,
+      `only ${wash}/${area}px of the entry wear ${dress.wash} — the dress is not SEEN`);
+
+    // RET OVER THE ENTRY IS THE SUMMON KEY'S OWN BOX, keyed by that entry.
+    await p.press("RET");
+    await p.until(() => {
+      const box = document.getElementById("ddate");
+      const f = document.getElementById("dwhen");
+      return box.classList.contains("on") && document.activeElement === f
+        && f.getBoundingClientRect().width > 0 && box.style.top !== "";
+    }, `the widget over the ${keys[1]} value`);
+    const open = await p.eval(() => {
+      const f = document.getElementById("dwhen");
+      const slot = document.querySelector('#mdoc .de[data-id="PLN"] .dpv.dat')
+        .getBoundingClientRect();
+      const r = f.getBoundingClientRect();
+      return { val: f.value, sel: [f.selectionStart, f.selectionEnd],
+               // THE BOX STANDS IN THE ENTRY'S OWN SLOT, not the line's head.
+               off: Math.round(r.left - slot.left) };
+    });
+    assert(open.val === dress.val,
+      `the widget opened holding ${JSON.stringify(open.val)} where the entry `
+      + `reads ${JSON.stringify(dress.val)}`);
+    assert(open.sel[0] === 0 && open.sel[1] === open.val.length,
+      `it opened selecting ${open.sel[0]}..${open.sel[1]} of ${open.val.length}`);
+    assert(Math.abs(open.off) <= 2,
+      `the field stands ${open.off}px off the entry's own slot`);
+
+    // ESC LEAVES THE LINE THE BYTES IT WAS, on screen and on disk alike.
+    await p.press("ESC");
+    await p.until(() => !document.getElementById("ddate").classList.contains("on"),
+                  "ESC to take the widget");
+    const backTo = await planLine();
+    assert(backTo === wasLine,
+      `the cancelled line reads ${JSON.stringify(backTo)} against ${JSON.stringify(wasLine)}`);
+    const after = await p.eval(async () =>
+      (await (await fetch("/headline?id=drv-plan")).json()).planning || []);
+    assert(JSON.stringify(after) === JSON.stringify(served),
+      `the file reads ${JSON.stringify(after)} against ${JSON.stringify(served)}`);
+    return [`walked ${JSON.stringify(keys)} to ${dress.key}, `
+      + `${wash}/${area}px of its slot wearing ${dress.wash} over a line lifted to `
+      + `${dress.row}; RET opened on ${JSON.stringify(open.val)} `
+      + `${open.off}px off the slot, ESC left ${JSON.stringify(after)}`];
+  } },
 ];

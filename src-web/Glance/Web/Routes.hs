@@ -65,8 +65,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , headlineParts, keywordSources, linkShown, linkType
                     , mintableLayer
                     , kindSlug, refKind
-                    , planningKeywords, planningTimestamp, readConfigLayers, readsAsTimestamp
-                    , settableKeywords
+                    , planningKeywords, readConfigLayers
                     , untrailed
                     , recomposedSubtree
                     , ownBodyLines, sortedForViewWith
@@ -79,7 +78,7 @@ import Glance.Web.Base ( Day, ServeOptions (..), answerWrite, bodyObject, codeLi
                        , conflict, docCells, glueAsset, gluePartFiles, html, jsonError
                        , elmAsset
                        , jsonResponse, jsonType
-                       , noSuchRow
+                       , noSuchRow, plannedValue
                        , plain, rendererAsset, reparsed, rewritten, sized, tenths, today
                        , unreadable, viewTitleFor, walkFor, withBody )
 import Glance.Web.Commands (runCommand)
@@ -525,15 +524,9 @@ committed r  (SplitSubtree body ps pln) =
   recomposedSubtree r (HeadlineParts body ps pln "")
 
 -- | The commitment with its planning entries READ AND REWRITTEN, or the KEY that
--- stops the write and WHY.  A value no timestamp parser reads back may not land:
--- the line silently stops being a planning line on the next load.
---
--- THE WALL IS ALSO THE TRANSFORM.  @SCHEDULED@ and @DEADLINE@ — the keys this
--- server sets — take 'planningTimestamp', the same reading @set-planning@'s
--- date takes, so the pane may type any spelling that grammar owns and gets back
--- the bytes org itself would write; it redraws from THIS answer and resolves
--- nothing of its own.  @CLOSED@ is org's own bookkeeping and takes REPARSE
--- alone.
+-- stops the write and WHY.  Each entry meets 'plannedValue', its own key's wall
+-- and the one @set-planning@ meets; the pane redraws from THIS answer and
+-- resolves nothing of its own.
 --
 -- THE RAW HALF TRANSFORMS NOTHING: 'WholeSubtree' is a whole document the client
 -- typed, and rewriting bytes inside it would be the server editing a buffer.
@@ -545,19 +538,13 @@ settledPlanning day (SplitSubtree body ps pln)
   | otherwise = SplitSubtree body ps <$> traverse (plannedEntry day) pln
   where unknown = [ key | (key, _v) <- pln, key `notElem` planningKeywords ]
 
--- | One planning entry, read the way its own KEY is written; a refusal carries
--- the KEY and THE READER'S OWN SENTENCE.  A key this server sets is refused by
--- 'planningTimestamp', which names every form it would have taken, so the 409
--- says what the wall says rather than a second spelling of it; @CLOSED@ takes
--- reparse alone and is refused in reparse's words, @timestamp@ being what that
--- reading actually wants.
+-- | One planning entry through 'plannedValue', the refusal carrying the KEY
+-- beside THE READER'S OWN SENTENCE — the 409 says what the wall says rather than
+-- a second spelling of it.
 plannedEntry :: Day -> (Text, Text) -> Either (Text, Text) (Text, Text)
-plannedEntry day (key, value)
-  | key `elem` settableKeywords = case planningTimestamp day value of
-      Left why    -> Left (key, why)
-      Right stamp -> Right (key, stamp)
-  | readsAsTimestamp value      = Right (key, value)
-  | otherwise                   = Left (key, unreadable key)
+plannedEntry day (key, value) = case plannedValue day key value of
+  Left why    -> Left (key, why)
+  Right stamp -> Right (key, stamp)
 
 
 

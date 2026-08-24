@@ -102,6 +102,7 @@ module Glance.Query ( BlobSeed (..)
                     , orgLinks
                     , planningKeywords
                     , planningTimestamp
+                    , unplanned
                     , priorityLetter
                     , priorityText
                     , readConfigLayers
@@ -1658,14 +1659,26 @@ titleLineEnd :: HeadlineSpans -> Int
 titleLineEnd hs = foldl' max (spanEnd (hsStars hs))
   [ spanEnd sp | Just sp <- [hsTodo hs, hsPriority hs, hsTitle hs, hsTags hs] ]
 
+-- | The two whose value this server COMPOSES: it is handed a phrase and writes
+-- back the bytes org itself would write.  @CLOSED@ is org's own bookkeeping and
+-- is never resolved for — it lands VERBATIM or not at all, at both write doors —
+-- so this is also the list a client asks whether a field OWES a date.
 settableKeywords :: [Text]
 settableKeywords = filter (/= "CLOSED") planningKeywords
 
+-- | Why KEYWORD names no planning entry, or nothing.  ONE SENTENCE, TWO ASKS:
+-- @set-planning@'s request shape is refused with it — AN UNKNOWN KEY OUTRANKS
+-- EVERY VALUE, the same order the commit door keeps — and the span math below
+-- asks again, composing @KEYWORD: STAMP@ into the line being what it does.
+unplanned :: Text -> Maybe Text
+unplanned keyword
+  | keyword `elem` planningKeywords = Nothing
+  | otherwise = Just (keyword <> " is not a planning keyword; this server writes "
+                        <> T.intercalate " and " planningKeywords)
+
 setPlanningEdits :: Text -> Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
 setPlanningEdits keyword stamp r
-  | keyword `notElem` settableKeywords =
-      Left (keyword <> " is not a planning keyword; this server sets "
-              <> T.intercalate " and " settableKeywords)
+  | Just why <- unplanned keyword = Left why
   | otherwise = Right $ case (lookup keyword present, stamp) of
       (Just sp, Just ts) -> [(sp, ts)]
       (Just sp, Nothing) -> [(cleared sp, "")]

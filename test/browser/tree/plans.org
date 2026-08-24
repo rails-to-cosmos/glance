@@ -2,7 +2,7 @@
 #+TODO: TODO NEXT | DONE CANCELLED
 
 * NEXT Ship the browser driver                                :driver:plan:
-DEADLINE: <2026-08-20 Thu>
+SCHEDULED: <2026-08-18 Tue> DEADLINE: <2026-08-20 Thu>
 :PROPERTIES:
 :ORG_GLANCE_ID: drv-plan
 :END:

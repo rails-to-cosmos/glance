@@ -22,6 +22,7 @@ module Glance.Web.Base ( ServeOptions (..)
                          -- * What a write route answers
                        , noSuchRow
                        , conflict
+                       , plannedValue
                        , unreadable
                        , reparsed
                        , rewritten
@@ -56,7 +57,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
 import Glance.Query ( HeadlineRecord, WalkOptions (..), WriteFailure (..)
-                    , captureCodes, hrPriority, hrState, hrTags, hrTitle )
+                    , captureCodes, hrPriority, hrState, hrTags, hrTitle
+                    , planningTimestamp, readsAsTimestamp, settableKeywords )
 
 
 -- | What one server serves.
@@ -143,6 +145,24 @@ conflict reason current why = jsonResponse status409
   , "reason" .= reason
   , "digest" .= current
   ]
+
+-- | KEY's planning value, read the way ITS OWN KEY is written, or the refusal in
+-- that reader's own words.  A value no timestamp parser reads back may not land:
+-- the line silently stops being a planning line on the next load.
+--
+-- ONE ARM PER KEY, AND BOTH WRITE DOORS READ IT HERE.  @SCHEDULED@ and
+-- @DEADLINE@ take 'planningTimestamp' — the wall is also the TRANSFORM, so a
+-- pane may type any spelling that grammar owns and gets back the bytes org
+-- itself would write.  @CLOSED@ is org's own bookkeeping and takes REPARSE
+-- alone: verbatim or refused, no English widened to it, @timestamp@ being what
+-- that reading actually wants.  @set-planning@ and @POST \/headline@ asking the
+-- same function is what makes the two doors agree BY CONSTRUCTION rather than by
+-- two spellings that must be kept level.
+plannedValue :: Day -> Text -> Text -> Either Text Text
+plannedValue day key value
+  | key `elem` settableKeywords = planningTimestamp day value
+  | readsAsTimestamp value      = Right value
+  | otherwise                   = Left (unreadable key)
 
 unreadable :: Text -> Text
 unreadable key = key <> " is not a timestamp org would read back"

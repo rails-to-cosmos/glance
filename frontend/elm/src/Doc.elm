@@ -65,6 +65,12 @@ type alias Model =
     , arr : Array String
     , offsets : Array Int
     , at : Int
+
+    -- THE ONE ROW WITH A WALK INSIDE IT: an index into the planning entries as
+    -- the pane draws them ('entriesOf'), NOTHING being the whole line.  It
+    -- answers only while point stands on the planning row -- a row step, a
+    -- select or a fill drops it -- so 'planPick' is what reads it.
+    , planAt : Maybe Int
     , flags : List String
     , links : List Link
     , spanAt : Maybe Int
@@ -104,6 +110,7 @@ empty =
     , arr = Array.empty
     , offsets = Array.empty
     , at = 0
+    , planAt = Nothing
     , flags = []
     , links = []
     , spanAt = Nothing
@@ -199,7 +206,9 @@ step by m =
                     m
 
                 Just i ->
-                    { m | at = i }
+                    -- A ROW STEP LEAVES THE ENTRIES: the sub-row grain is the
+                    -- planning line's own and does not ride to another row.
+                    { m | at = i, planAt = Nothing }
 
 
 {-| The one spelling of "is this row a headline?" -- the sheet's own line or
@@ -245,7 +254,12 @@ finer m =
                     else
                         kids > 0
             in
-            if heading r then
+            -- THE PLANNING LINE'S ENTRIES ARE ITS FINER GRAIN: the row holds no
+            -- rows, so the walk inside it is over the entries it draws.
+            if r.id == Body.planId then
+                planFiner m
+
+            else if heading r then
                 if entered then
                     ( { m | at = m.at + 1 }, "grain-finer (the body)" )
 
@@ -267,11 +281,16 @@ finer m =
 
 broader : Model -> ( Model, String )
 broader m =
-    case rowAt m of
-        Nothing ->
+    case ( rowAt m, planPick m ) of
+        ( Nothing, _ ) ->
             ( m, "" )
 
-        Just r ->
+        -- POINT IS IN AN ENTRY: `b' steps back through the planning line's own
+        -- entries and off the first one to the whole line, before any row grain.
+        ( Just _, Just i ) ->
+            planBroader i m
+
+        ( Just r, Nothing ) ->
             case Maybe.map (placeOf m) r.owner of
                 Just i ->
                     let
@@ -304,6 +323,60 @@ broader m =
                         ( { m | at = placeOf m "H" }
                         , "grain-broader (the headline)"
                         )
+
+
+{-| `f' ON THE PLANNING LINE TAKES AN ENTRY: the first one from the whole line,
+the next one from an entry, and the last one is the finest thing the line holds
+-- the leaf's own edge, spoken and standing still.
+-}
+planFiner : Model -> ( Model, String )
+planFiner m =
+    let
+        entries =
+            entriesOf m
+
+        want =
+            case m.planAt of
+                Nothing ->
+                    0
+
+                Just i ->
+                    i + 1
+    in
+    case nth want entries of
+        Nothing ->
+            ( m, "grain-finer (at the finest)" )
+
+        Just _ ->
+            ( { m | planAt = Just want }, planWord "grain-finer" want entries )
+
+
+{-| `b' OUT OF AN ENTRY: the one before it, and out of the FIRST one the whole
+line again -- the step the row grain then answers.
+-}
+planBroader : Int -> Model -> ( Model, String )
+planBroader i m =
+    if i <= 0 then
+        ( { m | planAt = Nothing }, "grain-broader (the planning line)" )
+
+    else
+        ( { m | planAt = Just (i - 1) }
+        , planWord "grain-broader" (i - 1) (entriesOf m)
+        )
+
+
+{-| Where the walk landed, in the run walk's own count: `SCHEDULED 1/2'.
+-}
+planWord : String -> Int -> List ( String, String ) -> String
+planWord grain i entries =
+    grain
+        ++ " ("
+        ++ Maybe.withDefault "" (Maybe.map Tuple.first (nth i entries))
+        ++ " "
+        ++ String.fromInt (i + 1)
+        ++ "/"
+        ++ String.fromInt (List.length entries)
+        ++ ")"
 
 
 
@@ -458,7 +531,9 @@ update msg model =
                 )
 
         Select id ->
-            told (reveal { model | at = placeOf model id })
+            -- A NAMED LANDING IS A ROW'S, so the entry the planning line held
+            -- goes with it.
+            told (reveal { model | at = placeOf model id, planAt = Nothing })
 
         Step by ->
             told (step by model)
@@ -756,7 +831,9 @@ update msg model =
                 fresh =
                     remeta { model | draftPlan = Just key }
             in
-            told { fresh | at = placeOf fresh Body.planId }
+            -- A SUMMON LANDS ON THE LINE, not in an entry: the widget names the
+            -- slot it stands in, and the walk starts over from the whole line.
+            told { fresh | at = placeOf fresh Body.planId, planAt = Nothing }
 
         -- And the same keyword taken away: the line is the bytes it was,
         -- including its ABSENCE where the summon drew it in.
@@ -853,6 +930,27 @@ span the date widget is laid over stands in the line the row spells out.
 entriesOf : Model -> List ( String, String )
 entriesOf m =
     Body.planEntries m.plan m.draftPlan
+
+
+{-| Which entry point stands in, or nothing -- the whole line. THE FIELD IS
+READ NOWHERE ELSE: `planAt' is the planning row's own axis, so a landing on any
+other row answers nothing here whatever the field still holds.
+-}
+planPick : Model -> Maybe Int
+planPick m =
+    if idAtRow m m.at == Body.planId then
+        m.planAt
+
+    else
+        Nothing
+
+
+{-| The KEYWORD of the entry point stands in: what the shell opens its widget
+over, and nothing where point holds the whole line.
+-}
+planKeyAt : Model -> Maybe String
+planKeyAt m =
+    Maybe.andThen (\i -> Maybe.map Tuple.first (nth i (entriesOf m))) (planPick m)
 
 
 {-| Point lands on ID where its row survives, on the drawer -- always drawn --
@@ -1048,6 +1146,10 @@ stateJSON m =
         ([ ( "rows", E.list (rowJSON m) m.rows )
         , ( "at", E.int m.at )
         , ( "id", E.string (Maybe.withDefault "" (Maybe.map .id (rowAt m))) )
+
+        -- WHICH ENTRY OF THE PLANNING LINE POINT STANDS IN, by its KEYWORD:
+        -- null is the whole line, and the shell reads no index of its own.
+        , ( "planKey", Maybe.withDefault E.null (Maybe.map E.string (planKeyAt m)) )
         , ( "flags", E.list E.string m.flags )
         , ( "lines", E.int (List.length m.lines) )
 
@@ -1668,9 +1770,18 @@ THE VALUE IS ITS OWN SLOT, named by the keyword: the date widget stands IN it
 rather than beside it, and the box is laid over the span this draws (`placeEdit',
 frontend/glue/20-sheet.js).  The span holds the value's text and nothing else, so
 the line reads character for character.
+
+THE ENTRY AT POINT WEARS `dat', the one word the sheet has for "here" -- the
+offer list's own dress by the same name, so the walk inside the line says where
+it is in the cursor's colour and never a second one.
+
 -}
 viewPlanning : Model -> List (Html Msg)
 viewPlanning m =
+    let
+        picked =
+            planPick m
+    in
     List.concat
         (List.indexedMap
             (\i ( key, value ) ->
@@ -1684,7 +1795,17 @@ viewPlanning m =
                 , span [ class "dk" ]
                     [ text key, span [ class "dpunc" ] [ text ":" ] ]
                 , text " "
-                , span [ class "dpv", attribute "data-key" key ] [ text value ]
+                , span
+                    [ class
+                        (if picked == Just i then
+                            "dpv dat"
+
+                         else
+                            "dpv"
+                        )
+                    , attribute "data-key" key
+                    ]
+                    [ text value ]
                 ]
             )
             (entriesOf m)

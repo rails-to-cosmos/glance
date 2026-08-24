@@ -30,13 +30,14 @@ import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn
                     , blobPathIn, captureEdits, captureStamp, captureText
                     , captureTargetIn, captureTemplateIn, currentDocument
                     , editLinkEdits, expandTemplate, groupOn, mintBlobId
-                    , planningTimestamp, priorityText
+                    , priorityText
                     , removeTagEdits
                     , renameTagEdits, rowIdIn, setPlanningEdits
                     , setPriorityEdits, setStateEdits, setTitleEdits
-                    , storeRootIn, tagText, titleText, trashBlob )
+                    , storeRootIn, tagText, titleText, trashBlob, unplanned )
 import Glance.Web.Base ( ServeOptions (soDir), answerWrite, bodyObject, captureMoved
-                       , jsonError, jsonResponse, noSuchRow, today, walkFor, withBody )
+                       , jsonError, jsonResponse, noSuchRow, plannedValue, today
+                       , walkFor, withBody )
 import Glance.Web.Store ( Hub, Store (stConfig), headlinesIn, hubStore, layersFor
                         , recordsUnder, storeDocument, storeRecords )
 import Glance.Web.Watch (nudge, writeSpans)
@@ -156,9 +157,13 @@ commands =
       | Nothing <- agKeyword args =
           Just "set-state wants args {\"keyword\": \"DONE\"}, or a null keyword to clear it"
       | otherwise = Nothing
+    -- AN UNKNOWN KEY OUTRANKS EVERY VALUE, the commit door's own order: the
+    -- keyword picks which wall the date meets, so a word naming no entry is
+    -- refused before anything reads one.
     wantsPlanning args
       | Nothing <- join (agKeyword args) =
           Just "set-planning wants args {\"keyword\": \"SCHEDULED\", \"date\": \"+3d\"}"
+      | Just why <- unplanned (fromMaybe "" (join (agKeyword args))) = Just why
       | Nothing <- agDate args =
           Just "set-planning wants a date, or a null one to take the entry off"
       | otherwise = Nothing
@@ -252,12 +257,18 @@ overRows opts hub st asked edits cmd = do
             ["results" .= [ v | rid <- cmdIds cmd, Just v <- [lookup rid outcomes] ]])
 
 -- | ONE clock read, before any row: a marked set must not cross midnight.
+--
+-- THE KEYWORD PICKS THE WALL, 'plannedValue' being the one place that choice is
+-- made: the two this server composes for read the whole date grammar, @CLOSED@
+-- reparses org's own bracket and nothing else.  A word naming no planning entry
+-- never reaches here — `wantsPlanning' has refused the request already.
 resolveAsked :: Command -> IO (Either Text Asked)
 resolveAsked cmd = do
   day <- today
   pure $ case join (agDate (cmdArgs cmd)) of
-    Just text | csDated (cmdSpec cmd) -> Asked day . Just <$> planningTimestamp day text
+    Just text | csDated (cmdSpec cmd) -> Asked day . Just <$> plannedValue day key text
     _nothingToResolve                 -> Right (Asked day Nothing)
+  where key = fromMaybe "" (join (agKeyword (cmdArgs cmd)))
 
 captureInto :: ServeOptions -> Hub -> Store -> Command -> IO Response
 captureInto opts hub st cmd =

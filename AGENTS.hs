@@ -3416,10 +3416,21 @@ orgStampForms :: [String]               -- ^ ONE renderer, the brackets the diff
 orgStampForms = ["<YYYY-MM-DD Day[ HH:MM]>", "[YYYY-MM-DD Day[ HH:MM]]"]
 
 data Plan = Scheduled | Deadline | Closed deriving (Eq, Show)
-settablePlan :: Plan -> Bool            -- ^ CLOSED: is org's bookkeeping — writing one forges a state change
-settablePlan Scheduled = True
-settablePlan Deadline  = True
-settablePlan Closed    = False
+data PlanWall = Composed | Reparsed deriving (Eq, Show)
+-- | WHICH WALL A PLANNING VALUE MEETS.  ALL THREE ARE SET at @set-planning@ and
+--   at @POST \/headline@; what differs is the READING, and the KEYWORD picks it.
+--   @SCHEDULED@ and @DEADLINE@ are COMPOSED for — the whole date grammar in
+--   ('DateForm'), the bytes org itself would write out — while @CLOSED@ is org's
+--   own bookkeeping and is never resolved for: it REPARSES, verbatim or refused,
+--   and no English is widened to it.  BOTH WRITE DOORS ASK ONE FUNCTION, so a
+--   value one takes is a value the other takes; the KEYWORD is refused ahead of
+--   the value, an unknown key outranking every date.  It is also what a client
+--   asks whether a field OWES a date, which is why a widget over @CLOSED@ offers
+--   no vocabulary and draws no ghost.
+planWall :: Plan -> PlanWall
+planWall Scheduled = Composed
+planWall Deadline  = Composed
+planWall Closed    = Reparsed
 
 data DateForm = Bracketed | Today | Tomorrow | Relative | TodayMeta | IsoDate
               | English | EnglishSpan
@@ -3695,7 +3706,7 @@ cmdNotes =
   , Note "`csArgs' is handed the IDS beside the args because a shape refusal is about the REQUEST; only edit-link reads them, and `wantsLink' names the row COUNT first." [Test]
   , Note "Keyword legality is the ROW's own chain (`settableStates', the palette's own fold), and a word any named row's chain lacks refuses the WHOLE request naming keyword and row." [Test]
   , Note "The date is parsed ONCE per request against the server's today and passed DOWN, so a set crossing midnight cannot land on two days." [Test]
-  , Note "ONE GRAMMAR, ONE DOOR: `planningTimestamp' is what set-planning's date argument and the planning line's own wall each read, so a spelling one takes is a spelling the other takes and a refusal is one refusal." [Test]
+  , Note "ONE WALL PER KEY, AND BOTH WRITE DOORS ASK IT: `plannedValue' is what set-planning's date argument and POST /headline's planning entries each read (`planWall') — SCHEDULED and DEADLINE take `planningTimestamp', CLOSED reparses verbatim — so a spelling one door takes is a spelling the other takes and a refusal is one refusal. THE KEYWORD IS REFUSED AHEAD OF THE VALUE at both, an unknown key outranking every date, and the client's own wall over CLOSED wears this one's words, which is what makes the widget's optimistic shut safe on that door." [Test]
   , Note "THE FIELD'S WHOLE CONTENT IS THE PHRASE, which is what makes the English reading safe: it fires only where a write already owes a date and never over prose. dateutil's fuzzy mode is the measurement it is built to refuse — `18 August was rainy', `Chapter 18 Aug summary' and `read pages 3 to 4' all come back dates, and `from 18 to 19 august' comes back ONE instant in 2018, wrong about the year, the day AND the arity." [Test]
   , Note "The month word folds TOTALLY (August = august = AUGUST), a year is FOUR digits and never two, a bare day and a bare month are each no date, and THE WEEKDAY IS NEVER READ since it is computed on render." [Test]
   , Note "An interval's LEFT END INHERITS every field it elides from the right; one whose end falls before its start is REFUSED IN ITS OWN WORDS, `not a date' reading oddly of a phrase naming two perfectly good ones; and the DEGENERATE pair COLLAPSES, which is what keeps the grammar's two spellings of one day a single fixed point." [Test]
@@ -4405,7 +4416,9 @@ docRowDoors = ["the fill", "M-RET's splice at the caret", "the field's own input
 
 data Finer = IntoLeaves | Finest deriving (Eq, Show)
 -- | `f' descends ONE rung; `Finest' refuses with an echo.  `l' and the right arrow are
---   aliases: three dialects, one axis.
+--   aliases: three dialects, one axis.  THE GRAIN IS ASKED SECOND: a synthesized
+--   header row answers by ID first (`planFiner'), the planning line being an
+--   `Element' whose finer grain is no row at all.
 finer :: Grain -> Finer
 finer Composite = IntoLeaves
 finer Element   = Finest
@@ -4413,7 +4426,10 @@ finer Leaf      = Finest
 
 data Wider = ToOwner | ToEntryLine deriving (Eq, Show)
 -- | `b' is the WIDEST rung, reversed expand-region, and NEVER a close: out of a leaf to
---   its IMMEDIATE owner by id, out of an element to the entry's own line.
+--   its IMMEDIATE owner by id, out of an element to the entry's own line.  ASKED
+--   SECOND for `finer''s own reason: point standing IN a planning entry steps back
+--   through the entries and off the FIRST one to the whole line, and only then does
+--   the row grain answer.
 wider :: Grain -> Wider
 wider Leaf      = ToOwner
 wider Composite = ToEntryLine
@@ -4758,7 +4774,22 @@ prowId PlanRow   = "PLN"
 prowId DrawerRow = "PR"
 prowId (Pair n)  = "PR" ++ show n
 
--- | The planning line's keys, org's order; the LINE is one leaf, drawn only when a pair
+data PFiner = IntoEntries | IntoPairs | AtTheFinest deriving (Eq, Show)
+-- | What `f' reaches inside a synthesized header row, asked by ID ahead of the grain
+--   law (`finer').  THE PLANNING LINE'S FINER GRAIN IS THE ENTRIES IT DRAWS: it is one
+--   `Element' holding one text and no rows, so there is nothing for the grain to
+--   descend into and the walk runs over the line's own list in `planningRows' order --
+--   `f' from the whole line takes the first entry, `f' from an entry the next, and the
+--   LAST clamps, spoken and standing still.  POINT NEVER LEAVES THE ROW: the entry is
+--   a SUB-ROW grain, so a row step drops it.  The drawer holds its pairs as rows and
+--   takes the grain law unchanged; a pair is the finest thing there is.
+planFiner :: PRow -> PFiner
+planFiner PlanRow   = IntoEntries
+planFiner DrawerRow = IntoPairs
+planFiner (Pair _)  = AtTheFinest
+
+-- | The planning line's keys, org's order, and the order `f' walks its entries in.
+--   THE LINE IS ONE ROW WITH A GRAIN INSIDE IT (`planFiner'), drawn only when a pair
 --   exists, and an edit that leaves a keyword valueless clears it.
 planningRows :: [String]
 planningRows = ["SCHEDULED", "DEADLINE", "CLOSED"]
@@ -5264,6 +5295,30 @@ sheetNotes =
          \ last one, a folded subtree counting as its line alone.  A run's leaves\
          \ answer to the composite, so their edge still clamps.  `f' steps into what\
          \ point owns, `b' climbs to the owner." [Elm, Test, Browser]
+  , Note "THE PLANNING LINE HAS A GRAIN INSIDE IT (`planFiner'), and it is the only\
+         \ row that does: one `Element' holding one text and no rows, so `f' walks the\
+         \ ENTRIES it draws rather than descending into anything.  `f' from the whole\
+         \ line takes the first, `f' from an entry the next, and the LAST clamps in the\
+         \ house's own word (`grain-finer (at the finest)'); the echo counts them the\
+         \ way a run's leaves are counted, `grain-finer (SCHEDULED 1/3)'.  `b' steps\
+         \ back along the entries and off the FIRST one to `grain-broader (the planning\
+         \ line)', where the row grain answers again.  POINT NEVER LEAVES THE ROW: the\
+         \ entry is a SUB-ROW grain, so `n'/`p', a named landing and a summon's draft\
+         \ each drop it -- it is this line's own axis and does not ride to another\
+         \ row." [Elm, Test]
+  , Note "`planKey' IS THE MIRROR OF THAT AXIS, and the shell reads no index of its\
+         \ own: the model sends the KEYWORD of the entry point stands in, NULL for the\
+         \ whole line, so the page cannot hold an entry the model has dropped.  It is\
+         \ the one thing the shell needs off the walk -- which widget to raise -- and\
+         \ spelling it as a keyword rather than a position is what keeps the two from\
+         \ disagreeing about a line that was rewritten under them." [Elm, Test]
+  , Note "`RET' ON THE PLANNING LINE SPLITS BY THE SAME AXIS, the frame's own rule one\
+         \ grain finer: over an ENTRY it raises the very widget `C-c C-s' raises, keyed\
+         \ by that entry, so the two doors are one box and one wall and there is no key\
+         \ of its own to learn; over the WHOLE LINE it is INERT and names the way in\
+         \ (`f' reaches the entries).  A line of entries is not one value, so nothing\
+         \ edits it whole -- and the door that could have cleared every entry at a\
+         \ stroke went with that; the widget clears them one at a time." [Test, Browser]
   , Note "THE TAIL IS THE PANE'S LAST ROW: one empty line past everything,\
          \ hidden until the walk reaches it (`.dat' shows it), zero-width and\
          \ `alone', so an edit splices a fresh paragraph\

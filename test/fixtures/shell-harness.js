@@ -93,6 +93,11 @@ let org = "* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
   + "first para\n\nsecond para\n** two\nchild body\n";
 // The stamp `mistyped' mints into the drawer, where the parser never puts one.
 const strayStamp = "<2026-09-01 Tue>";
+// The two entries `planned' adds beside the fixture's own SCHEDULED: a second
+// SETTABLE word, so the walk inside the line has more than one stop to make, and
+// org's third word — CLOSED, whose wall reparses rather than resolves.
+const deadStamp = "<2026-09-09 Wed>";
+const closedStamp = "[2026-08-02 Sun]";
 const body = "* TODO one\nfirst para\n\nsecond para\n** two\nchild body\n";
 const properties = [["EFFORT", "0:30"]];
 const planning = [["SCHEDULED", "<2026-08-01 Sat>"]];
@@ -1483,6 +1488,15 @@ const ACTIONS = {
                 type: "https", span: [21, 40] },
               { target: "https://beta.example/", desc: "in beta",
                 type: "https", span: [53, 58] } ];
+  },
+  // A PLANNING LINE CARRYING ALL THREE OF ORG'S WORDS, set before the sheet
+  // opens: the walk inside the line has stops to make, and the third of them is
+  // the one the widget opens over reading the CLOSED wall rather than the
+  // grammar.  The raw org moves with the list, since the sheet serves both.
+  planned: () => {
+    planning.push(["DEADLINE", deadStamp], ["CLOSED", closedStamp]);
+    org = org.replace(`SCHEDULED: ${planning[0][1]}`,
+                      planning.map(([k, v]) => `${k}: ${v}`).join(" "));
   },
   refuse: () => { refusing = true; },
   // A DRAWER SOME OTHER TOOL MINTED `:SCHEDULED:' INTO, which is the pair the

@@ -380,6 +380,13 @@ page head' colours title body = T.unlines
   -- `placeEdit' to measure.
   , "  .dpv{display:inline-block;line-height:var(--g-doc-lh)}"
   , "  .dpv:empty::before{content:\"\\200B\"}"
+  -- THE ENTRY AT POINT IS THE CURSOR, one grain finer than the row: it wears the
+  -- same `--g-sel' ground the row wears (`:154') and the line lifts its while one
+  -- does -- "THE TWO GOLDS" above, one grain finer, since gold inside gold is a
+  -- selection nobody can see.  WHAT LIGHTS IS THE VALUE: the keyword beside it is
+  -- the line's own token, not a stop the walk makes.
+  , "  #mdoc.on .de.dat:has(.dpv.dat){background-color:transparent}"
+  , "  #mdoc.on .dpv.dat{background-color:var(--g-sel);color:var(--g-fg)}"
   -- THE KEY IS EXACTLY AS WIDE AS WHAT IT HOLDS, so the closing colon stands
   -- flush against the text the way it does on the drawer line the box is laid
   -- over.  `pairMoved' writes the `ch' width per keystroke -- monospace does the

@@ -89,7 +89,7 @@ import Glance.Web.Page.Style (page)
 import qualified Data.Text.Read as T.Read
 import Glance.Desktop (browserCandidates)
 import Glance.Query (OrgLink (olSpan), cellSep, orgLinks, planningKeywords,
-                     readsAsTimestamp, subtreeLinks)
+                     readsAsTimestamp, settableKeywords, subtreeLinks)
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower)
 import Data.List (isPrefixOf, (\\))
 import qualified Glance.Web.Base as WB (gluePartFiles)
@@ -1292,6 +1292,17 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
   , testCase "the three planning rows are org's, in org's order" $
       assertEqual "the panel's fixed rows and Glance.Query.planningKeywords have drifted"
                   (map T.unpack planningKeywords) Spec.planningRows
+
+    -- THE KEYWORD PICKS THE WALL, and the model's split is the code's one list:
+    -- what `planWall' calls COMPOSED is exactly what the server resolves a date
+    -- for and carries to the client as the keys that OWE one.  All three are set
+    -- at the write doors; only these two read English.
+  , testCase "the keys a date is composed for are the server's settable list" $
+      assertEqual "Spec.planWall's Composed arm and Glance.Query.settableKeywords have drifted"
+                  (map T.unpack settableKeywords)
+                  [ k | (k, p) <- zip Spec.planningRows
+                                      [Spec.Scheduled, Spec.Deadline, Spec.Closed]
+                      , Spec.planWall p == Spec.Composed ]
 
     -- THE PAIR BOX ROUTES BY THE SAME THREE WORDS the server composes the line
     -- from, and it case-folds to them: a key spelled either way is one entry.

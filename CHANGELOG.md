@@ -13,6 +13,21 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **`set-planning` writes `CLOSED`, verbatim or not at all.** The command
+  refused org's third planning word outright; it now takes all three, and the
+  keyword picks which wall the value meets. `SCHEDULED` and `DEADLINE` are
+  composed for — the whole date grammar in, the bytes org itself would write
+  out — while `CLOSED` is org's own bookkeeping and is never resolved for: a
+  timestamp that reparses lands byte for byte, and every other spelling is a
+  400 saying `CLOSED is not a timestamp org would read back`. `POST /headline`
+  already split this way and both doors now read one function
+  (`Glance.Web.Base.plannedValue`), so a value one takes is a value the other
+  takes. A null date clears the entry as it does for the other two, and a
+  keyword naming no planning entry is refused ahead of the date — an unknown
+  key outranks every value. What this buys the reader: the date widget over a
+  `CLOSED` entry commits through the same door as every other entry, and the
+  refusal it draws in the field is the server's own sentence.
+
 - **`C-c C-s` reads English, and shows you what it read before it writes it.**
   In the material document `C-c C-s` and `C-c C-d` raised a blind text box with
   nothing in it; they now open a FIELD in the value's own slot — the planning

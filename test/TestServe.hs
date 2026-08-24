@@ -283,6 +283,12 @@ wroteAt key = traverse (pairsAt key) <=< listAt "writes"
 sheetStamp :: T.Text
 sheetStamp = "<2026-08-01 Sat>"
 
+-- | The two entries the harness's @planned@ act adds beside it: a second
+-- SETTABLE word, and org's third word whose wall reparses rather than resolves.
+deadStamp, closedStamp :: T.Text
+deadStamp = "<2026-09-09 Wed>"
+closedStamp = "[2026-08-02 Sun]"
+
 -- | The default subtree as the pane draws it: the headline, the lifted header —
 -- the planning line, then the drawer FOLDED — the body, and the child with its
 -- block.  A child folds too but is no drawer, so it wears no `d-drawer' class.
@@ -3888,12 +3894,7 @@ sheetSpec shell =
       insheet shell "press:Tab" $
         echoIs "nowhere foldable says so" "TAB → nothing folds here"
 
-  , testCase "RET on the planning line or a pair opens its own line as text" $ do
-      insheet shell "press:f press:Enter" $ \answer -> do
-        assertEqual "the block is open" True =<< boolAt "dparaopen" answer
-        assertEqual "holding the planning line as org spells it"
-                    ("SCHEDULED: " <> sheetStamp) =<< textAt "dtext" answer
-        assertEqual "and the focus in it" "dtext" =<< textAt "focus" answer
+  , testCase "RET on a pair opens its own line as text" $ do
       insheet shell "press:f press:n press:f press:Enter" $ \answer -> do
         assertEqual "a pair opens as its `:KEY: value' line"
                     ":EFFORT: 0:30" =<< textAt "dtext" answer
@@ -3905,6 +3906,51 @@ sheetSpec shell =
                     ["comp:properties:drawer", ":PROPERTIES: \8230"]
           =<< (!! 2) <$> docOf answer
         echoIs "and names the two doors" "RET → f reaches the rows inside — TAB folds" answer
+
+    -- THE PLANNING LINE IS A LINE OF ENTRIES, and the frame's rule reaches it:
+    -- what RET edits is an entry inside, so over the WHOLE line RET is reserved
+    -- and says where the entries are.  The one door that could clear every entry
+    -- at a stroke went with it; the widget clears them one at a time.
+  , testCase "RET on the whole planning line is inert, and names the way in" $
+      insheet shell "press:f press:Enter" $ \answer -> do
+        assertEqual "no text block over it" False =<< boolAt "dparaopen" answer
+        assertEqual "and no widget either" False =<< boolAt "ddateopen" answer
+        assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+        echoIs "and it names the grain below it"
+               "RET → f reaches the entries — RET on one edits it" answer
+
+    -- THE PLANNING LINE'S FINER GRAIN IS THE ENTRIES IT DRAWS.  It holds no rows,
+    -- so the walk inside it is over the line's OWN LIST, org's order, counted the
+    -- way a run's leaves are counted; point never leaves the row, the ENTRY being
+    -- the sub-row grain.  `b' steps back along it and off the FIRST entry to the
+    -- whole line, where the row grain answers again; the LAST entry clamps in the
+    -- house's own word.
+  , testCase "f walks the planning line's entries, and b comes back out" $ do
+      onTable shell "planned press:Enter press:f press:f" $ \answer -> do
+        assertEqual "point stands on the line still — the entry is a sub-row grain"
+                    1 =<< pointOf answer
+        echoIs "the first entry, counted in the line's own list"
+               "f → grain-finer (SCHEDULED 1/3)" answer
+      onTable shell "planned press:Enter press:f press:f press:f" $
+        echoIs "and the next, org's order" "f → grain-finer (DEADLINE 2/3)"
+      onTable shell "planned press:Enter press:f press:f press:f press:f" $
+        echoIs "org's third word is a stop like any other"
+               "f → grain-finer (CLOSED 3/3)"
+      onTable shell "planned press:Enter press:f press:f press:f press:f press:f" $
+        echoIs "and the last one clamps, spoken and standing still"
+               "f → grain-finer (at the finest)"
+      onTable shell "planned press:Enter press:f press:f press:f press:b" $
+        echoIs "b steps back along the entries"
+               "b → grain-broader (SCHEDULED 1/3)"
+      onTable shell "planned press:Enter press:f press:f press:b" $ \answer -> do
+        echoIs "and off the first one to the whole line"
+               "b → grain-broader (the planning line)" answer
+        assertEqual "which is the step the row grain then answers" 1 =<< pointOf answer
+      -- A ROW STEP LEAVES THE ENTRIES: the sub-row grain is this line's own and
+      -- does not ride to another row, so `b' after one is the row's, not an entry's.
+      onTable shell "planned press:Enter press:f press:f press:n press:p press:b" $
+        echoIs "the entry did not ride the row step"
+               "b → grain-broader (the headline)"
 
     -- A COMMITTED PAIR EDIT IS A WRITE: the cargo rides the port, body and lists together.
   , keyed shell "a committed pair edit writes at once, the whole header on it"
@@ -3925,13 +3971,6 @@ sheetSpec shell =
             =<< (!! 3) <$> docOf answer
           assertEqual "the fields are gone" "" =<< textAt "focus" answer
           assertEqual "and the cursor stayed on the pair" 3 =<< intAt "dat" answer
-
-  , keyed shell "an emptied planning line is its entries taken off"
-      "Enter" "press:f press:Enter dpara: press:Enter" $ \answer -> do
-        assertEqual "nothing left to write" [[]] =<< wroteAt "planning" answer
-        -- The rows are SYNTHESIZED off the lists, so an emptied line has no row.
-        assertEqual "and no planning row is drawn"
-                    [] . partsOf "meta" =<< docOf answer
 
     -- A TYPO NEVER WRITES PROSE INTO THE DRAWER: a line opening no `:KEY:' is refused.
   , keyed shell "a pair edited to no `:KEY: value' line is refused"
@@ -4544,6 +4583,78 @@ dateWidgetSpec shell = testGroup "Shell date widget"
         assertEqual "a null date" [("SCHEDULED", Nothing)] =<< plannedOf answer
         echoIs "and the pill says which"
           "RET \8594 org-glance-overview:schedule (cleared \183 1)" answer
+
+    -- THE OTHER DOOR ONTO THE SAME BOX: `f' walks into the planning line and
+    -- `RET' over an ENTRY raises the widget keyed by that entry -- one box, one
+    -- wall, and no key of its own to learn.
+  , testCase "RET over an entry raises the widget the summon keys raise" $ do
+      onTable shell ("planned " <> pinned
+                     <> " press:Enter press:f press:f press:f press:Enter") $ \answer -> do
+        assertEqual "the widget is up" True =<< boolAt "ddateopen" answer
+        assertEqual "over the entry the walk stood in, not the line's first"
+                    deadStamp =<< textAt "dwhen" answer
+        assertEqual "the field holds the keys" "dwhen" =<< textAt "focus" answer
+        assertEqual "and the whole of it is selected"
+                    [0, T.length deadStamp, T.length deadStamp]
+          =<< intsAt "dwhensel" answer
+        assertEqual "the ghost adds nothing to a value that is its own answer"
+                    "" =<< textAt "dghost" answer
+        echoIs "and the pill names that entry's own command"
+               "RET \8594 org-glance-overview:deadline \
+               \(RET sets it \183 empty clears it \183 ESC leaves)" answer
+      onTable shell ("planned " <> pinned
+                     <> " press:Enter press:f press:f press:f press:Enter"
+                     <> " dwhen:18_aug press:Enter") $ \answer -> do
+        assertEqual "and it commits through the widget's own door"
+                    [("DEADLINE", Just "18 aug")] =<< plannedOf answer
+        assertEqual "the widget shut behind it" False =<< boolAt "ddateopen" answer
+
+    -- ORG'S THIRD WORD IS NOT SET, IT IS REPARSED: the server takes a CLOSED
+    -- value back only if it reads as a timestamp, so the widget over that entry
+    -- reads the same wall -- and English is widened to it on neither side.
+  , testCase "the widget over CLOSED reads its own wall, and no English" $ do
+      let closedRun = "planned " <> pinned <> " press:Enter"
+                      <> " press:f press:f press:f press:f press:Enter"
+      onTable shell closedRun $ \answer -> do
+        assertEqual "the box opens over it like any other entry" True
+          =<< boolAt "ddateopen" answer
+        assertEqual "holding org's own spelling" closedStamp
+          =<< textAt "dwhen" answer
+        assertEqual "and the ghost adds nothing to it" "" =<< textAt "dghost" answer
+      -- THE GRAMMAR IS NOT THIS WALL'S: a phrase the settable words resolve is
+      -- a hard refusal here, and there is no vocabulary to offer either.
+      onTable shell (closedRun <> " dwhen:18_aug") $ \answer -> do
+        assertEqual "the short word a trailing ghost has room for"
+                    " \10007 not a timestamp" =<< textAt "dghost" answer
+        assertEqual "wearing the refusal's ink" True =<< boolAt "dghostbad" answer
+        assertEqual "and nothing is proposed that this wall would refuse"
+                    [] =<< widgetOffers answer
+      onTable shell (closedRun <> " dwhen:18_aug press:Enter") $ \answer -> do
+        assertEqual "nothing was asked" ([] :: [Value]) =<< listAt "commands" answer
+        assertEqual "the box stands, with what was typed still in it" True
+          =<< boolAt "ddateopen" answer
+        echoIs "and the refusal is the CLOSED wall's own sentence"
+               "RET \8594 org-add-planning-info \
+               \(CLOSED is not a timestamp org would read back)" answer
+      -- A BRACKET STILL OPEN IS STILL BEING TYPED: no refusal flashes on the way
+      -- through org's own spelling.
+      onTable shell (closedRun <> " dwhen:[2026-09-01") $ \answer -> do
+        assertEqual "the ghost is dark over an unclosed bracket" ""
+          =<< textAt "dghost" answer
+        assertEqual "and wears no refusal" False =<< boolAt "dghostbad" answer
+      -- AND THE COMMIT DOOR IS THE ONE EVERY OTHER ENTRY USES, carrying the raw
+      -- text: what the wall reads back is what the reader typed.
+      onTable shell (closedRun <> " dwhen:[2026-09-01_Tue] press:Enter") $ \answer -> do
+        assertEqual "one command, over the row the sheet is open on"
+                    [("set-planning", ["r1"])] =<< postedOf answer
+        assertEqual "carrying the bracket as it was typed"
+                    [("CLOSED", Just "[2026-09-01 Tue]")] =<< plannedOf answer
+      -- THE SHIFTED ARROWS MOVE THE DAY AND NEVER THE SPELLING: a step that
+      -- wrote a bare ISO back would leave the field holding what RET refuses.
+      onTable shell (closedRun <> " press:S-ArrowRight") $ \answer -> do
+        assertEqual "a day forward, still a bracket of the kind that stood"
+                    "[2026-08-03 Mon]" =<< textAt "dwhen" answer
+        assertEqual "so the ghost has nothing to add" "" =<< textAt "dghost" answer
 
     -- A ROW WITH NO SUCH ENTRY HAS NO SLOT TO STAND IN, so the summon draws one
     -- -- and the draft joins NO list, which is what keeps a half-typed date off
@@ -6241,6 +6352,11 @@ shellGlue =
       , "once(() => dsay(k, { kind: \"tab\" }));"
       -- A drawer's own line is its frame; what RET edits is a pair inside.
       , "if (r.fold) { echo(\"RET → f reaches the rows inside — TAB folds\"); return; }"
+      -- THE SAME RULE ONE GRAIN FINER: the planning line is a line of ENTRIES,
+      -- and the entry point stands in rides the mirror by its KEYWORD.
+      , "if (r.id === PLANROW) { planEnter(); return; }"
+      , "dplankey = now.planKey || null;"
+      , "planHere(docBinding(planCommand(key)), key);"
       -- `+' IN THE DRAWER TYPES THE PAIR IN PLACE: a row is drawn where the pair
       -- will stand, the two fields cover it, and `:' hands the key to its value.
       , "dsend({ kind: \"draftpair\" });"
@@ -8258,14 +8374,46 @@ planningSpec = testGroup "POST /command set-planning"
         assertContains "names the input" "31 feb" (body r)
         assertEqual "nothing written" before =<< document path
 
-  , testCase "and so does a keyword no key sets" $
+    -- AN UNKNOWN KEY OUTRANKS EVERY VALUE: the keyword picks which wall the
+    -- date meets, so a word naming no planning entry is refused before the
+    -- date is read at all -- a perfectly good date does not rescue it.
+  , testCase "and so does a keyword that names no planning entry" $
       withCommandable $ \a _hub path _other -> do
         before <- document path
         r <- postTo a "/command"
-               (command "set-planning" ["first"] (planningArg "CLOSED" (Just "2026-08-05")))
+               (command "set-planning" ["first"] (planningArg "TIMESTAMP" (Just "2026-08-05")))
         assertEqual "status" 400 (status r)
-        assertContains "names the keyword" "CLOSED" (body r)
+        assertContains "names the keyword" "TIMESTAMP" (body r)
+        assertContains "and the three it writes" "SCHEDULED and DEADLINE and CLOSED" (body r)
         assertEqual "nothing written" before =<< document path
+
+    -- ORG'S THIRD WORD IS NOT COMPOSED FOR, IT IS REPARSED.  The widget over
+    -- CLOSED commits through this door with the RAW text it was handed, so the
+    -- server's wall here and the client's own are one wall by construction:
+    -- what reads back lands verbatim, English is refused in reparse's words,
+    -- and a null date clears the entry as it does for the other two.
+  , testCase "CLOSED lands verbatim, takes no English, and clears" $
+      withCommandable $ \a hub path _other -> do
+        before <- document path
+        assertOk =<< postTo a "/command"
+               (command "set-planning" ["first"]
+                        (planningArg "CLOSED" (Just "[2026-09-01 Tue]")))
+        assertEqual "org's own bracket, byte for byte, on the planning line"
+                    (T.replace "* NEXT First :one:\n"
+                               "* NEXT First :one:\nCLOSED: [2026-09-01 Tue]\n" before)
+          =<< document path
+        watchStep hub path
+        standing <- document path
+        r <- postTo a "/command"
+               (command "set-planning" ["first"] (planningArg "CLOSED" (Just "18 aug 2027")))
+        assertEqual "a phrase the other two resolve is refused here" 400 (status r)
+        assertContains "in the reparse wall's own sentence"
+                       "CLOSED is not a timestamp org would read back" (body r)
+        assertEqual "and nothing moved" standing =<< document path
+        assertOk =<< postTo a "/command"
+               (command "set-planning" ["first"] (planningArg "CLOSED" Nothing))
+        assertEqual "a null date takes the entry and its line off" before
+          =<< document path
 
     -- Absent is not null: one says nothing about the entry and the other asks for it to come off.
   , testCase "a request with no date at all is a 400" $

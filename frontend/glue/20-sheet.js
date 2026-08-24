@@ -5,6 +5,11 @@
     const DCELLS = CFG.dcells;
     let drows = [], dat = 0;
     let dflags = [], dbody = "", dlinks = [], dprops = [], dplan = [];
+    // WHICH PLANNING ENTRY POINT STANDS IN, by its KEYWORD -- `null' is the
+    // whole line.  The model's own axis, MIRRORED rather than counted here: the
+    // shell holds no index into a list Elm draws, and the keyword is what every
+    // door below it asks for anyway.
+    let dplankey = null;
     let dport = null, dtook = null, dwrote = null;
     const cellsOf = (o) => DCELLS.map((k) => {
       const val = (o || {})[k] || "";
@@ -26,6 +31,7 @@
         drows = now.rows; dat = now.at;
         dflags = now.flags; dbody = now.body;
         dprops = now.properties; dplan = now.planning;
+        dplankey = now.planKey || null;
         // Elm pushes a port BEFORE it paints, so these are read a turn later.
         soon(() => {
           seedInsert(now.caret); keepInView(docElAt()); placeEdit(); reselectDate();
@@ -84,8 +90,21 @@
       // A FRAME is not a line, the raw drawer's as much as the synthesized one:
       // what RET edits is a row inside, and TAB folds.  RET itself is reserved.
       if (r.fold) { echo("RET → f reaches the rows inside — TAB folds"); return; }
+      // THE PLANNING LINE IS A LINE OF ENTRIES, not one value: what RET edits is
+      // an entry inside it, and `f' is what reaches one.  The same rule the
+      // frame above states, one grain finer.
+      if (r.id === PLANROW) { planEnter(); return; }
       if (r.kind === "para" || r.kind === "meta") { openEdit(DPARA, r); return; }
       headEnter(r);
+    }
+    /** `RET' over the planning line.  OVER AN ENTRY it raises the very widget
+     * `C-c C-s' raises, keyed by the entry the walk stands in -- so the two
+     * doors are one box and one wall.  OVER THE WHOLE LINE it is INERT and says
+     * where the entries are, the frame's own answer above it. */
+    function planEnter() {
+      const key = dplankey;
+      if (!key) { echo("RET → f reaches the entries — RET on one edits it"); return; }
+      planHere(docBinding(planCommand(key)), key);
     }
     function headEnter(r) {
       if (editing.child !== null) {
@@ -721,6 +740,14 @@
       f.style.width =
         owes ? `${Math.min(GHOST_CAP, Math.max(1, f.value.length) + 1)}ch` : "";
     }
+    /** Does the open widget stand over CLOSED?  THE SUMMONED KEY PICKS THE
+     * READER and nothing else does: one widget, two walls, and the mode is
+     * asked in ONE place so the ghost, the offers and the commit cannot
+     * disagree about which wall the field is standing under. */
+    const verbatimOnly = () => ddating() && edit.row.key === "CLOSED";
+    /** What the open widget's field reads as, against the day it was summoned. */
+    const readsWhen = (text) =>
+      verbatimOnly() ? readsStamp(text, edit.row.key) : readsDate(text, editDay());
     /** The field or its text moved, so the ghost and the list under it are
      * another ghost and another list.  POINT STANDS ON THE LINE THE READER
      * TYPED, and on NOTHING over an empty field -- where `RET' means CLEAR.
@@ -728,9 +755,13 @@
      * of the same text, so the answer is read once and handed to both. */
     function dateMoved() {
       const typed = el("dwhen").value.trim(), today = editDay();
-      const r = readsDate(typed, today);
+      const only = verbatimOnly();
+      const r = readsWhen(typed);
       wmenu.at = typed ? 0 : -1;
-      wmenu.list = dateOffers(typed, today, r);
+      // NOTHING THE CLOSED WALL TAKES IS A WORD: it reparses a bracket and
+      // resolves no English, so there is no vocabulary to propose -- offering
+      // one would be offering a refusal.
+      wmenu.list = only ? [] : dateOffers(typed, today, r);
       menuPaint(wmenu);
       // NO `placeEdit' HERE: the box hangs off the row's own slot, and no
       // keystroke in the overlay moves that.  The open, the port's redraw and
@@ -749,6 +780,13 @@
       selectWhole(el("dwhen"));
     }
     const dateBinding = (k) => docBinding(edit.row.b.command, k);
+    /** What the door onto KEY is called.  The two settable words are the summon
+     * keys' own commands, so a widget raised by `RET' over an entry echoes what
+     * `C-c C-s' echoes; CLOSED has no key of its own and takes org's own name
+     * for the function that writes a planning line. */
+    const PLAN_COMMANDS = { SCHEDULED: "org-glance-overview:schedule",
+                            DEADLINE: "org-glance-overview:deadline" };
+    const planCommand = (key) => PLAN_COMMANDS[key] || "org-add-planning-info";
     /** `C-c C-s' / `C-c C-d' in the material document: the widget over the row's
      * own SCHEDULED / DEADLINE slot.  THE LINE IS DRAWN IF ABSENT, the draft
      * pair's own move one row up -- a widget that stands in the value's place
@@ -786,7 +824,7 @@
       // never asks the reader whether nothing is a date.
       const typed = el("dwhen").value.trim();
       if (typed) {
-        const r = readsDate(typed, editDay());
+        const r = readsWhen(typed);
         if (!r.ok) { said(b, r.why); return; }
       }
       commitDate(b, typed);
@@ -817,12 +855,19 @@
     const dateStep = (k) =>
       k === "S-<right>" ? 1 : k === "S-<left>" ? -1
       : k === "S-<down>" ? 7 : k === "S-<up>" ? -7 : 0;
+    // THE BRACKET KIND STANDS.  A walk under the CLOSED wall moves the DAY and
+    // never the spelling: that wall takes a bracket and nothing else, so a step
+    // that wrote its answer back bare would leave the field holding a value the
+    // very next `RET' refuses.  The walk still lands on a WHOLE date, so a time
+    // of day goes with the step exactly as it goes under the other wall.
+    const restamp = (was, c) =>
+      was.charAt(0) === "[" ? `[${isoDay(c)} ${dowOf(c)}]` : stampOf(c);
     function dateAdjust(b, by) {
       const f = el("dwhen");
-      const r = readsDate(f.value.trim(), editDay());
+      const r = readsWhen(f.value.trim());
       if (!r.ok || !r.start) { said(b, "no date here to move"); return; }
       const to = addDays(r.start, by);
-      f.value = isoDay(to);
+      f.value = verbatimOnly() ? restamp(r.stamp, to) : isoDay(to);
       f.setSelectionRange(f.value.length, f.value.length);
       edit.row.virgin = false;
       dateMoved();
@@ -880,6 +925,10 @@
       const box = el(id);
       return box.value.slice(0, box.selectionStart).split("\n").length - 1;
     };
+    // THE PLANNING LINE'S OWN ROW, synthesized off the entries (`Body.planId'):
+    // the one row the shell names by id, since it is the one whose grain is a
+    // list the model draws rather than rows the model emits.
+    const PLANROW = "PLN";
     // ORG'S THREE PLANNING WORDS, the server's own list and the pane's `planKeys'.
     const PLANNING = CFG.planning;
     // THE TWO OF THE THREE THIS SERVER SETS, carried in the same blob rather
@@ -1015,6 +1064,13 @@
       + " from 18 to 19 aug, or org's own <2026-08-05 Wed>";
     const INVERTED_WHY = "ends before it starts — spell a year at each end,"
       + " as in from 30 dec 2026 to 2 jan 2027";
+    // THE OTHER WALL'S TWO WORDS.  CLOSED is org's own bookkeeping: the server
+    // REPARSES its value rather than resolving one (`Glance.Web.Base.unreadable'),
+    // so the box's word for it names the timestamp and never a date.  SPELLED
+    // ONCE and spent at both doors that meet that wall -- the pair box's key
+    // routed to CLOSED, and the widget summoned over its entry.
+    const NOT_A_STAMP = "not a timestamp";
+    const notReadBack = (key) => `${key} is not a timestamp org would read back`;
     /** The reader's ONE refusal, with HOW it refuses — `{hard: true}' where no
      * further character rescues the term, `{unfinished: true}' where the very
      * next one may, and neither where the answer is simply no.  The two words
@@ -1215,6 +1271,34 @@
                stamp: g.end ? stampOf(g.start) + "--" + stampOf(g.end)
                             : stampOf(g.start, g.time) };
     }
+    /** TEXT read the way the CLOSED wall reads it, for KEY's own refusal.  A
+     * SECOND READER AND NEVER A SECOND GRAMMAR: the wall over CLOSED reparses a
+     * bracket where the settable words' wall TRANSFORMS a phrase, so the widget
+     * summoned over CLOSED asks this one and English is never widened to it.
+     * NO CLOCK: nothing here resolves, so there is no day to resolve against.
+     * IT REFUSES IN THE TWO SHAPES `dateWriting' READS -- unfinished while a
+     * bracket is still open, hard once no character can close one -- so the
+     * ghost stays dark through org's own spelling and speaks only past it. */
+    function readsStamp(text, key) {
+      const noStamp = (how) =>
+        ({ ok: false, ...how, short: NOT_A_STAMP, why: notReadBack(key) });
+      const s = String(text == null ? "" : text).trim();
+      // NOTHING TYPED IS NOTHING REFUSED: the empty field is the widget's own
+      // CLEAR, judged by the widget and never by a reader.
+      if (!s) return noStamp({ unfinished: true });
+      // THE VALUE PASSES THROUGH: what the wall reads back is what it writes,
+      // so the resolution IS the text and the ghost falls silent over it.
+      if (STAMP.test(s)) {
+        const m = /^[<[](\d+)-(\d{1,2})-(\d{1,2})/.exec(s);
+        const c = m ? { y: +m[1], m: +m[2], d: +m[3] } : null;
+        return { ok: true, verbatim: true, stamp: s,
+                 start: c && dayReal(c) ? c : undefined };
+      }
+      // A BRACKET STILL OPEN IS STILL BEING TYPED, `verbatimDate''s own rule:
+      // `<2026-08-05 Wed' is one `>' from a stamp.
+      if (/^[<[]/.test(s) && !/[>\]]$/.test(s)) return noStamp({ unfinished: true });
+      return noStamp({ hard: true });
+    }
     /** The reader's own day, civil.  THE GHOST IS A PREVIEW AND THE SERVER'S
      * CLOCK DECIDES what a phrase resolves to, so this is read for INK alone; a
      * summon pins it once at open, so a phrase does not change its answer under
@@ -1365,7 +1449,7 @@
         if (DATED.indexOf(up) !== -1)
           return readsDate(value, editDay()).ok
             ? null : `${up} is not a date org would read back`;
-        if (!STAMP.test(value)) return `${up} is not a timestamp org would read back`;
+        if (!STAMP.test(value)) return notReadBack(up);
       }
       return null;
     }

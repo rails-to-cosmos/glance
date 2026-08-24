@@ -35,7 +35,7 @@ argument wall and its own splice.
 | `set-state` | `{keyword}`, null clears | the keyword span. A repeater task answers a done-keyword by **shifting its date** instead, org's own repeat, and records the turn in `:LOGBOOK:` — the one command that records anything |
 | `set-priority` | `{priority}`, null clears | org's `[#A]` token |
 | `set-title` | `{title}` | the title span alone |
-| `set-planning` | `{keyword, date}`, null date clears | one `SCHEDULED`/`DEADLINE` entry |
+| `set-planning` | `{keyword, date}`, null date clears | one planning entry — `SCHEDULED`, `DEADLINE` or `CLOSED`; the first two read the grammar below, `CLOSED` takes org's own bracket **verbatim or not at all** |
 | `add-tag` / `remove-tag` | `{tag}` | the tag on / off the headline |
 | `rename-tag` | `{from, to}` | both spellings, one write per file |
 | `archive` | `{}` | `add-tag ARCHIVE`; idempotent |
@@ -50,7 +50,18 @@ refused, so the string tested is the string written.
 
 `set-planning`'s `date` (and a repeat's arithmetic) reads one grammar,
 resolved against the server's clock **once per request** — a marked set
-must not cross midnight:
+must not cross midnight.
+
+**The keyword picks the wall.** `SCHEDULED` and `DEADLINE` are the two this
+server *composes* a value for: they read the whole grammar below and the answer
+is the bytes org itself would write. `CLOSED` is org's own bookkeeping and is
+never resolved for — it takes a timestamp that **reparses**, verbatim, and every
+other spelling is a 400 saying `CLOSED is not a timestamp org would read back`.
+A keyword naming no planning entry is refused ahead of the date: an unknown key
+outranks every value. `POST /headline` splits the same way, so a value one door
+takes is a value the other takes.
+
+The grammar the two composed keys read:
 
 - `2026-08-05`, `2026-08-05 09:30`
 - `today`, `tomorrow`, and the query grammar's own `*today*` beside them
@@ -110,6 +121,13 @@ will write before it writes it.
 | --- | --- | --- |
 | `C-c C-s` | the row's SCHEDULED value, in the planning line's own slot | `set-planning {keyword: "SCHEDULED", date}` |
 | `C-c C-d` | the row's DEADLINE value, the same slot | `set-planning {keyword: "DEADLINE", date}` |
+| `RET` on a planning ENTRY | that entry's value — `f` walks into the line and along it, `b` back out | `set-planning {keyword: the entry's own, date}` |
+
+`RET` on the whole planning line is inert and names the way in; the entry under
+point is what opens. Over `CLOSED` the box reads that key's own wall: org's
+bracket passes through, nothing is offered — there is no vocabulary a reparse
+would take — and a phrase is refused in the field with the wall's own sentence,
+the box left standing to fix it in.
 
 - **The ghost is the preview.** What was typed stands in the field and the
   resolution rides after it in the mute ink — `10 jan → <2026-01-10 Sat>`, one
@@ -127,9 +145,11 @@ will write before it writes it.
   writes nothing; the raw text comes to this door, the server resolves it once
   against its own clock, and the pane redraws off that answer. The page spells
   no org, and the two resolvers are pinned against one another over one corpus.
-- **One widget, both doors.** A drawer pair whose key case-folds to
+- **One widget, every door.** A drawer pair whose key case-folds to
   `scheduled` or `deadline` routes to the planning line already, and its value
-  half wears the same field and the same ghost. `CLOSED` and date-shaped
+  half wears the same field and the same ghost. `CLOSED` opens the same box on
+  its own wall — one widget, two readers, the mode asked in one place so the
+  ghost, the offers and the commit cannot disagree. Date-shaped custom
   properties keep the plain box for now.
 
 The same keys over the TABLE are unchanged: they ask over the marked rows

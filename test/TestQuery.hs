@@ -1967,13 +1967,21 @@ commandSpec = testGroup "Commands"
         withRecord "* TODO Plain\n" $ \r ->
           assertEqual "no edits" (Right []) (setPlanningEdits "DEADLINE" Nothing r)
 
-      -- Only the two a key sets: @CLOSED@ is org's own bookkeeping.
-    , testCase "a keyword no key sets is refused, by name" $
+      -- ORG'S THREE, AND THE CASE IS ORG'S TOO: the span math composes
+      -- @KEYWORD: STAMP@ into the line, so a word naming no entry may not reach
+      -- it.  What each key's VALUE has to read as is the write door's wall, not
+      -- this one's -- @CLOSED@ takes a bracket here as the other two do.
+    , testCase "a keyword that names no planning entry is refused, by name" $
         withRecord "* TODO Plain\n" $ \r ->
           mapM_ (\keyword -> case setPlanningEdits keyword (Just "<2026-08-05 Wed>") r of
                    Right edits -> assertFailure (T.unpack keyword <> ": " <> show edits)
                    Left why -> assertBool (T.unpack why) (keyword `T.isInfixOf` why))
-                ["CLOSED", "scheduled", "TIMESTAMP"]
+                ["scheduled", "TIMESTAMP", "CLOCK"]
+
+    , testCase "and org's third word composes like the other two" $
+        planningIs "closed set" "CLOSED" (Just "[2026-08-05 Wed]")
+          (T.unlines ["* TODO Ship it"])
+          (T.unlines ["* TODO Ship it", "CLOSED: [2026-08-05 Wed]"])
     ]
 
   , testGroup "capture"

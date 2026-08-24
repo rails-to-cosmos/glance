@@ -14,8 +14,9 @@ glueConfig views = jsonValue $ object
   [ "views"        .= [ object ["id" .= i, "query" .= q] | (i, q) <- views ]
   , "dcells"       .= map fst docCells
   , "planning"     .= planningKeywords
-  -- The two of the three this server SETS: a write to CLOSED would forge a state
-  -- change.  CARRIED RATHER THAN RESPELLED, so the widget's doors are the
+  -- The two of the three whose value this server COMPOSES, which is the two that
+  -- OWE A DATE: CLOSED is written verbatim or refused, so no field over it offers
+  -- a phrase.  CARRIED RATHER THAN RESPELLED, so the widget's walls are the
   -- server's own list and cannot drift from it.
   , "settable"     .= settableKeywords
   , "archiveTag"   .= archiveTag
