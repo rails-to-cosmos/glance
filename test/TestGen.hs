@@ -15,7 +15,7 @@ module TestGen ( Broken (..)
                , TsRange (..)
                , TsSpec (..)
                , Wild (..)
-               , brokenRange
+               , brokenLine
                , docSample
                , eolText
                , expectedExtents
@@ -312,7 +312,7 @@ instance Arbitrary Wild where
   arbitrary = Wild <$> genDoc wildWords wildTags
   shrink (Wild ds) = map Wild (shrinkDoc ds)
 
--- | A document with a MISMATCHED RANGE spliced into one entry's body.
+-- | A document with the parser's own refusal spliced into one entry's body.
 data Broken = Broken DocSpec Int
   deriving (Eq, Show)
 
@@ -320,9 +320,12 @@ instance Arbitrary Broken where
   arbitrary = Broken <$> genDoc plainWords plainTags <*> choose (0, 8)
   shrink (Broken ds k) = [Broken ds' k | ds' <- shrinkDoc ds]
 
--- | The text org refuses: a range whose halves disagree about the bracket kind.
-brokenRange :: Text
-brokenRange = "[2023-07-15 Sat 15:54]--<2023-07-15 Sat 17:10>"
+-- | The text the parser refuses, @test\/fixtures\/broken\/broken.org@'s own
+-- spelling: a headline whose tag run stops mid-line, leaving a @:@ behind it
+-- that no element may abut.  A MISMATCHED RANGE used to stand here and no
+-- longer refuses -- prose abuts a timestamp, so @--<...>@ behind one is text.
+brokenLine :: Text
+brokenLine = "* A title with a :: double colon"
 
 genDoc :: [Text] -> [Text] -> Gen DocSpec
 genDoc words' tags = sized $ \n -> do

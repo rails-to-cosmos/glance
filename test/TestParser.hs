@@ -3,6 +3,7 @@ module TestParser (spec) where
 import Data.Maybe (isNothing)
 import Data.Org
 import Data.Text (Text, intercalate)
+import qualified Data.Text as T
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import TestDefaults
@@ -180,15 +181,80 @@ testCases =
   , plain "Skip multiple spaces" ["a", " ", " ", "b"] [EToken "a", EToken "b"]
   ]
 
+jan2024 :: TimestampStatus -> Timestamp
+jan2024 status = plainTs status (on "2024-01-01 00:00:00")
+
 day2024 :: Timestamp
-day2024 = plainTs TimestampActive (on "2024-01-01 00:00:00")
+day2024 = jan2024 TimestampActive
 
 -- | A second date, to catch a misfiled planning entry.
 jun2024 :: Timestamp
 jun2024 = plainTs TimestampActive (on "2024-06-01 00:00:00")
 
+-- | The follower truth table.  A timestamp closes on its OWN bracket, so prose
+-- abuts it with nothing between and each follower is a token of its own; the
+-- element loop used to demand whitespace there and failed the WHOLE file on the
+-- character behind the bracket.  Both statuses, because the bug was reported on
+-- an inactive one and the two share 'tsBodyParser'.
+abuttedCases :: [TestCase]
+abuttedCases =
+  [ plain (T.unpack follower <> " abuts an " <> label <> " timestamp")
+          ["note " <> open <> "2024-01-01 Mon" <> close <> follower <> " tail"]
+          [ EToken "note", ETimestamp (jan2024 status)
+          , EToken (Token follower), EToken "tail" ]
+  | (label, status, open, close) <- [ ("active",   TimestampActive,   "<", ">")
+                                    , ("inactive", TimestampInactive, "[", "]") ]
+  , follower <- [".", ",", ")", ":", ";", "!", "?", "s", "]", ">", "*"]
+  ]
+
+-- | The rest of the table: where the follower sits, and the spellings a
+-- follower must NOT swallow — the range's @--@ and a second bracket.
+abuttedEdgeCases :: [TestCase]
+abuttedEdgeCases =
+  [ plain "A follower at the line's end"
+      ["note [2024-01-01 Mon].", "tail"]
+      [EToken "note", ETimestamp (jan2024 TimestampInactive), EToken ".", EToken "tail"]
+
+  , plain "A follower at the end of the document"
+      ["note <2024-01-01 Mon>."]
+      [EToken "note", ETimestamp day2024, EToken "."]
+
+    -- The abutting run is mid-line however the line opened, so the star is ink.
+  , plain "A star behind a timestamp at column 1 opens no headline"
+      ["[2024-01-01 Mon]* not a headline"]
+      [ ETimestamp (jan2024 TimestampInactive), EToken "*"
+      , EToken "not", EToken "a", EToken "headline" ]
+
+  , plain "Two timestamps with nothing between them"
+      ["[2024-01-01 Mon][2024-06-01 Sat]"]
+      [ ETimestamp (jan2024 TimestampInactive)
+      , ETimestamp (plainTs TimestampInactive (on "2024-06-01 00:00:00")) ]
+
+    -- A `--' is read as the range's only when a second timestamp opens behind
+    -- it; otherwise it is the follower, and the timestamp stands alone.
+  , plain "A `--' that opens no timestamp is a token"
+      ["[2024-01-01 Mon]--and on"]
+      [ETimestamp (jan2024 TimestampInactive), EToken "--and", EToken "on"]
+
+  , plain "A range keeps its `--' and takes a follower"
+      ["[2024-01-01 Mon]--[2024-06-01 Sat]. done"]
+      [ ETimestamp (jan2024 TimestampInactive)
+          { tsEnd = Just (on "2024-06-01 00:00:00") }
+      , EToken ".", EToken "done" ]
+
+    -- The line the bug was filed on, shortened: an org-glance registry blob's
+    -- body sentence.  The headline behind it is what the whole-file failure hid.
+  , plain "Body prose behind a timestamp keeps the headline"
+      ["* Registry", "Research [2024-01-01 Mon]. Use case: music."]
+      [ EHeadline (titled "Registry"), EToken "Research"
+      , ETimestamp (jan2024 TimestampInactive), EToken "."
+      , EToken "Use", EToken "case:", EToken "music." ]
+  ]
+
 spec :: TestTree
-spec = testGroup "Parser" (map assert testCases)
+spec = testGroup "Parser" $
+  map assert testCases
+  <> [testGroup "A timestamp is abutted" (map assert (abuttedCases <> abuttedEdgeCases))]
   where assert tc = testCase (description tc) $ do
           let input = intercalate "\n" (inputs tc)
           case orgParse defaultContext input of

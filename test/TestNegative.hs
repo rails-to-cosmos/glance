@@ -82,12 +82,22 @@ spec = testGroup "Negative / Edge cases"
                              , ("Mixed whitespace", "  \n  \n  ") ]
 
   , testGroup "Parse failures"
-    [ testCase "Mismatched range brackets fail the whole document" $
-        case orgParse defaultContext "[2023-07-15 Sat 15:54]--<2023-07-15 Sat 17:10>" of
+    -- 'test/fixtures/broken/broken.org' to the byte: a headline whose tag run
+    -- stops mid-line leaves a ':' behind it, and only a TIMESTAMP may be abutted.
+    [ testCase "A headline stopping mid-line fails the whole document" $
+        case orgParse defaultContext "* A title with a :: double colon" of
           (elems, ctx, err) -> do
             assertBool "expected a parse error" (isJust err)
             assertEqual "no elements on error" [] (bare elems)
             assertEqual "context untouched on error" defaultContext ctx
+
+      -- A malformed range fails no file: the halves disagree, so the '--'
+      -- opens no second timestamp and the rest of the line is prose.
+    , testCase "Mismatched range brackets degrade to a timestamp and text" $
+        assertEqual "elements"
+          [ ETimestamp (plainTs TimestampInactive (at "2023-07-15 15:54:00"))
+          , EToken "--<2023-07-15", EToken "Sat", EToken "17:10>" ]
+          (bareParse defaultContext "[2023-07-15 Sat 15:54]--<2023-07-15 Sat 17:10>")
     ]
 
   , testGroup "Headline edge cases"

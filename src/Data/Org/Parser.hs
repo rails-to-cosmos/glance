@@ -48,10 +48,21 @@ orgParse st cmd = case MP.parse sfParser "" cmd of
 elementsP :: Bool -> StatefulParser [Spanned Element]
 elementsP bol = option [] $ do
   el <- spannedP (elementP bol)
-  rest <- option [] $ do
-    gap <- takeWhile1P (Just "white space") isSpace
-    elementsP (startsLine gap)
+  rest <- option [] (spacedP <|> abuttingP el)
   return (el : rest)
+  where
+    spacedP = do
+      gap <- takeWhile1P (Just "white space") isSpace
+      elementsP (startsLine gap)
+
+    -- A timestamp closes on its OWN bracket, so prose abuts it with nothing
+    -- between: @[2026-08-03 Mon].@ is a timestamp and the token @.@.  ONLY a
+    -- timestamp: a token already ran to the next space, and a HEADLINE that
+    -- stops mid-line is corrupt org (@test/fixtures/broken/broken.org@), which
+    -- must stay a parse failure.  NEVER at BOL — an abutting run is mid-line,
+    -- so no @*@ behind a timestamp opens a headline.
+    abuttingP (Spanned _ (ETimestamp _)) = elementsP False
+    abuttingP _                          = MP.empty
 
 startsLine :: Text -> Bool
 startsLine gap = T.null gap || T.last gap == '\n'
