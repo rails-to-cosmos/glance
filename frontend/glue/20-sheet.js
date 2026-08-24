@@ -913,24 +913,47 @@
     /** THE SHIFTED ARROWS ADJUST THE VALUE IN PLACE -- org-read-date's own walk
      * in its own minibuffer, and for its own reason: the plain arrows belong to
      * the caret.  A day on the horizontal, a week on the vertical, and THE GHOST
-     * FOLLOWS, because what they move is the field's own text.  THE WALK ALWAYS
-     * LANDS ON A WHOLE DATE, which is what keeps the walk and the offers from
-     * ever both asking. */
+     * FOLLOWS, because what they move is the field's own text. */
     const dateStep = (k) =>
       k === "S-<right>" ? 1 : k === "S-<left>" ? -1
       : k === "S-<down>" ? 7 : k === "S-<up>" ? -7 : 0;
+    // What an org stamp OPENS with: the bracket, the day, and the weekday behind
+    // it where one is written.  Everything past this is the stamp's TAIL.
+    const STAMP_HEAD = /^[<[]\d+-\d{1,2}-\d{1,2}(?:[ \t]+[A-Za-z]+)?/;
+    /** THE WALK MOVES THE DAY AND NOTHING ELSE: the value the reading R stood on,
+     * carried to the day TO.
+     *
+     * A step LANDS ON A WHOLE DATE -- which is what keeps the walk and the offers
+     * from ever both asking -- and everything the standing text carried BESIDE
+     * its day rides along.  Two things do: org's own BRACKET, in the kind that
+     * stood, since a step that wrote its answer back bare would drop the
+     * inactive intent the reader spelled (and, under the plain stamp wall, leave
+     * the field holding a value the very next `RET' refuses); and the stamp's
+     * TAIL, a time of day or a repeater cookie, kept BYTE FOR BYTE because
+     * recomposing a stamp is what loses the `+1y' nobody asked to move.  A BARE
+     * PHRASE CARRIES NEITHER, so it walks as bare ISO -- the one spelling every
+     * wall reads back.
+     *
+     * A RANGE COLLAPSES onto the day the step landed on, which is what the walk
+     * has always done with one: its two ends move by a rule of their own or not
+     * at all, and this walk has none to give them. */
+    const dateStepped = (r, to) => {
+      // BOTH BRACKETED READINGS, and the reader is the one that knows which:
+      // org's own spelling kept verbatim, and the grammar read inside a pair.
+      if (!r.verbatim && !r.wrapped) return isoDay(to);
+      const stood = r.stamp;
+      const head = stood.indexOf("--") === -1 && STAMP_HEAD.exec(stood);
+      const fresh = stampOf(to, null, stood.charAt(0) === "[");
+      // THE TAIL IS EVERY BYTE THE DAY AND ITS WEEKDAY DID NOT OCCUPY, the
+      // closing bracket included: `stampOf' writes the head and the text that
+      // stood hands over the rest, so the one org-stamp writer stays the one.
+      return head ? fresh.slice(0, -1) + stood.slice(head[0].length) : fresh;
+    };
     function dateAdjust(b, by) {
       const f = el("dwhen");
       const r = readsWhen(f.value.trim());
       if (!r.ok || !r.start) { said(b, "no date here to move"); return; }
-      const to = addDays(r.start, by);
-      // THE BRACKET KIND STANDS.  A walk under the plain stamp wall moves the
-      // DAY and never the spelling: that wall takes a bracket and nothing else,
-      // so a step that wrote its answer back bare would leave the field holding
-      // a value the very next `RET' refuses.  The walk still lands on a WHOLE
-      // date, so a time of day goes with the step as it does under the other.
-      f.value = verbatimOnly()
-        ? stampOf(to, null, r.stamp.charAt(0) === "[") : isoDay(to);
+      f.value = dateStepped(r, addDays(r.start, by));
       f.setSelectionRange(f.value.length, f.value.length);
       edit.row.virgin = false;
       dateMoved();
@@ -1165,6 +1188,8 @@
         // STANDING stamp selected whole, and a walk with no day to move from
         // would refuse the commonest open there is.  `STAMP' vouched for the
         // shape; `dayReal' still guards a syntactic day the calendar lacks.
+        // The RAW stamp rides with it: the step splices its new day into THAT
+        // rather than composing one, which is how a tail survives (`dateStepped').
         const m = /^[<[](\d+)-(\d{1,2})-(\d{1,2})/.exec(s);
         const c = m ? { y: +m[1], m: +m[2], d: +m[3] } : null;
         return { ok: true, verbatim: true, stamp: s,
@@ -1320,7 +1345,10 @@
      * and a body outside the grammar keeps THE BRACKET'S OWN refusal rather than
      * earning a second one.  THE INVERSION TRAVELS, though — it is the one
      * refusal a reading spends a word of its own on, and an interval runs the
-     * wrong way inside brackets exactly as it does outside them. */
+     * wrong way inside brackets exactly as it does outside them.
+     * THE ANSWER SAYS IT WAS WRAPPED, beside `verbatimDate''s own flag: the walk
+     * writes the bracket that stood back (`dateStepped'), and a resolution alone
+     * cannot tell `<today>' from a bare `today'. */
     function wrappedDate(s, today) {
       const inactive = s[0] === "[" && s.endsWith("]");
       if (!inactive && !(s[0] === "<" && s.endsWith(">"))) return null;
@@ -1331,7 +1359,7 @@
       if (!g.ok) return g.short === INVERTED ? g : null;
       if (!showable(g.start) || (g.end && !showable(g.end))) return null;
       const one = (c, time) => stampOf(c, time, inactive);
-      return { ok: true, start: g.start, end: g.end,
+      return { ok: true, wrapped: true, start: g.start, end: g.end,
                stamp: g.end ? one(g.start) + "--" + one(g.end)
                             : one(g.start, g.time) };
     }

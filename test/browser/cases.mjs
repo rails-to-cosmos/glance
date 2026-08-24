@@ -2785,6 +2785,45 @@ export default [
     }, "the pane to redraw the inactive stamp");
     assert(inactiveLine.indexOf(`SCHEDULED: ${inactive}`) !== -1,
       `the line reads ${JSON.stringify(inactiveLine)} against ${JSON.stringify(inactive)}`);
+
+    // ------- THE WALK MOVES THE DAY AND NOTHING ELSE.  Shift+Arrow is a real
+    // engine's chord and reaches this box nowhere else: the step carries the day
+    // and leaves org's BRACKET standing, where a bare ISO written back would
+    // drop the inactive intent the reader just spelled.  The day is COMPUTED off
+    // what landed, the clock being the driven machine's.
+    await p.press("C-c");
+    await p.press("C-s");
+    await widgetUp("the widget over the inactive stamp, to walk it");
+    const stoodOn = await p.eval(() => document.getElementById("dwhen").value);
+    assert(stoodOn === inactive,
+      `the walk opens over ${JSON.stringify(stoodOn)}, not ${JSON.stringify(inactive)}`);
+    const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const pad = (x) => (x < 10 ? "0" : "") + x;
+    const then = new Date(`${inactive.slice(1, 11)}T00:00:00Z`);
+    then.setUTCDate(then.getUTCDate() + 1);
+    const nextDay = `[${then.getUTCFullYear()}-${pad(then.getUTCMonth() + 1)}`
+      + `-${pad(then.getUTCDate())} ${DOW[then.getUTCDay()]}]`;
+    await p.press("S-<right>");
+    const walked = await p.until((was) => {
+      const f = document.getElementById("dwhen");
+      return f.value === was ? false
+        : { val: f.value, ghost: document.getElementById("dghost").textContent };
+    }, "the shifted arrow to move the day", undefined, inactive);
+    assert(walked.val === nextDay,
+      `the step wrote ${JSON.stringify(walked.val)} where the day after `
+      + `${JSON.stringify(inactive)} is ${JSON.stringify(nextDay)}`);
+    // AND THE GHOST AGREES AFTER THE STEP: what the walk wrote is org's own
+    // spelling, so the reader's own line has nothing added to it.
+    assert(walked.ghost === "",
+      `the ghost said ${JSON.stringify(walked.ghost)} over what the walk wrote`);
+    // THE WALK WRITES NOTHING: ESC leaves, and the line is the bytes it was.
+    await p.press("ESC");
+    await p.until(() => !document.getElementById("ddate").classList.contains("on"),
+                  "ESC to take the walked widget");
+    const afterWalk = await planLine();
+    assert(afterWalk === inactiveLine,
+      `the cancelled walk left ${JSON.stringify(afterWalk)} against `
+      + JSON.stringify(inactiveLine));
     return [`opened on ${JSON.stringify(open.val)} selected 0..${open.sel[1]}, `
       + `${diff}/${area}px of the field repainted and ${wash} wearing ${open.wash}; `
       + `C-c C-s over it switched to ${JSON.stringify(swapped.val)} `
@@ -2792,7 +2831,8 @@ export default [
       + `the slot drawn as ${JSON.stringify(drawn.trim())}, "18 aug" previewed `
       + `${JSON.stringify(ghost.trim())} and landed ${JSON.stringify(landed.planning)} `
       + `over ${JSON.stringify(landed.properties)}; "[today]" previewed `
-      + `${JSON.stringify(bracket.trim())} and landed ${JSON.stringify(inactive)}`];
+      + `${JSON.stringify(bracket.trim())} and landed ${JSON.stringify(inactive)}; `
+      + `S-<right> walked it to ${JSON.stringify(walked.val)}`];
   } },
 
 // ORG SCHEDULES THE ENTRY AT POINT, AND THE STAMP LANDS ON THAT ENTRY.  Two

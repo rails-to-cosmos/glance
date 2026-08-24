@@ -4783,12 +4783,21 @@ dateWidgetSpec shell = testGroup "Shell date widget"
                     [("set-planning", ["r1"])] =<< postedOf answer
         assertEqual "carrying the bracket as it was typed"
                     [("CLOSED", Just "[2026-09-01 Tue]")] =<< plannedOf answer
-      -- THE SHIFTED ARROWS MOVE THE DAY AND NEVER THE SPELLING: a step that
-      -- wrote a bare ISO back would leave the field holding what RET refuses.
+      -- THE SHIFTED ARROWS MOVE THE DAY AND NOTHING ELSE, this wall's own stake
+      -- in the one rule: a step that wrote a bare ISO back would leave the field
+      -- holding what RET refuses.  NO BRANCH OF ITS OWN -- the reading says the
+      -- text was a bracket and the step writes one, here as under the other wall.
       onTable shell (closedRun <> " press:S-ArrowRight") $ \answer -> do
         assertEqual "a day forward, still a bracket of the kind that stood"
                     "[2026-08-03 Mon]" =<< textAt "dwhen" answer
         assertEqual "so the ghost has nothing to add" "" =<< textAt "dghost" answer
+      -- AND THE TAIL SURVIVES HERE TOO: org's own bookkeeping carries a time of
+      -- day, which a recomposed stamp threw away.
+      onTable shell (closedRun <> " dwhen:[2026-09-02_Wed_18:30]"
+                               <> " press:S-ArrowRight") $ \answer -> do
+        assertEqual "the day moved, the hour behind the weekday did not"
+                    "[2026-09-03 Thu 18:30]" =<< textAt "dwhen" answer
+        assertEqual "and this wall still reads it back" "" =<< textAt "dghost" answer
 
     -- A ROW WITH NO SUCH ENTRY HAS NO SLOT TO STAND IN, so the summon draws one
     -- -- and the draft joins NO list, which is what keeps a half-typed date off
@@ -4913,19 +4922,45 @@ dateWidgetSpec shell = testGroup "Shell date widget"
                \(an edit is open \8212 RET writes it, ESC leaves)" answer
 
     -- ORG-READ-DATE'S OWN WALK IN ITS OWN MINIBUFFER: the plain arrows belong to
-    -- the caret, so the shifted ones carry the day and the week.
+    -- the caret, so the shifted ones carry the day and the week.  THE WALK MOVES
+    -- THE DAY AND NOTHING ELSE: the row's own value is org's bracket, so the
+    -- step writes a bracket back rather than the bare ISO it once wrote.
   , testCase "the shifted arrows adjust in place, and the ghost follows" $ do
       insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowRight") $ \answer -> do
         assertEqual "a day forward, written into the field"
-                    "2026-08-02" =<< textAt "dwhen" answer
-        assertEqual "and the ghost is the day it now names"
-                    " \8594 <2026-08-02 Sun>" =<< textAt "dghost" answer
+                    "<2026-08-02 Sun>" =<< textAt "dwhen" answer
+        assertEqual "and the ghost has nothing to add to its own spelling"
+                    "" =<< textAt "dghost" answer
       insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowLeft") $ \answer ->
-        assertEqual "and back" "2026-07-31" =<< textAt "dwhen" answer
+        assertEqual "and back" "<2026-07-31 Fri>" =<< textAt "dwhen" answer
       insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowDown") $ \answer ->
-        assertEqual "a week down" "2026-08-08" =<< textAt "dwhen" answer
+        assertEqual "a week down" "<2026-08-08 Sat>" =<< textAt "dwhen" answer
       insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowUp") $ \answer ->
-        assertEqual "and a week up" "2026-07-25" =<< textAt "dwhen" answer
+        assertEqual "and a week up" "<2026-07-25 Sat>" =<< textAt "dwhen" answer
+      -- A BARE PHRASE CARRIES NO BRACKET, so the step writes the bare ISO every
+      -- wall reads back -- and THAT is the ghost the walk still follows.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:18_aug"
+                            <> " press:S-ArrowRight") $ \answer -> do
+        assertEqual "a phrase resolves and walks as bare ISO" "2026-08-19"
+          =<< textAt "dwhen" answer
+        assertEqual "and the ghost is the day it now names"
+                    " \8594 <2026-08-19 Wed>" =<< textAt "dghost" answer
+      -- THE BRACKET THE READER ASKED FOR IS THE READER'S: a step off a resolved
+      -- `[today]' that wrote bare ISO back would drop the INACTIVE intent, and
+      -- there is no other way to ask this widget for org's other bracket.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:[today]"
+                            <> " press:S-ArrowRight") $ \answer -> do
+        assertEqual "the day moved and the pair it was asked in stands"
+                    "[2026-08-23 Sun]" =<< textAt "dwhen" answer
+        assertEqual "so the ghost has nothing to add" "" =<< textAt "dghost" answer
+      -- AND THE TAIL RIDES BYTE FOR BYTE: a repeater is the entry's own, and a
+      -- step that RECOMPOSED the stamp dropped it on the first press.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:<2026-08-24_Mon_+1y>"
+                            <> " press:S-ArrowRight") $ \answer -> do
+        assertEqual "the day moved, the cookie behind the weekday did not"
+                    "<2026-08-25 Tue +1y>" =<< textAt "dwhen" answer
+        assertEqual "and it still reads back as org's own spelling" ""
+          =<< textAt "dghost" answer
       -- A YEAR UNDER 100 WALKS ONE DAY AND NOT NINETEEN CENTURIES: `Date.UTC'
       -- reads 0..99 as 1900+y, and the arrows ran their arithmetic through it.
       -- TWICE, because the step WRITES ITS ANSWER BACK into the field and the
