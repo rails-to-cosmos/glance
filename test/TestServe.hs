@@ -7296,7 +7296,7 @@ cacheSpec = testGroup "GET /headlines cache validation"
       etagOf r >>= assertTreeTag "the fixture store" 0
       assertEqual "Cache-Control" (Just "no-cache") (header "Cache-Control" r)
 
-    -- THE DAY RIDES IN THE TAG WHATEVER THE QUERY SPELLS: `*today*' resolves
+    -- THE DAY RIDES IN THE TAG WHATEVER THE QUERY SPELLS: a day word resolves
     -- per request, so a store nothing touched across midnight must revalidate
     -- rather than answer 304 with yesterday's rows.  The days are INJECTED, so
     -- the law is a unit's and not the wall clock's.

@@ -88,9 +88,11 @@ AGENTS.hs carries the law; `docs/bugs/fixed/2026-08-22-an-open-completion-swallo
 carries what it cost to learn.
 
 **Stars mean meta.**  `*active*`, `*inactive*`, `*empty*`, `*archive*`,
-`*none*`, `*today*` — a starred word is reserved semantics in every context,
+`*none*` — a starred word is reserved semantics in every context,
 never a literal; matching reads through the stars (completion is star-blind),
 the walls (`keywordTextP`, `isTagChar`) make a starred literal undeclarable.
+`*today*` is the family's one retiree: it is READ still, `today` having taken
+the canonical slot, and it is offered nowhere.
 
 **Decoration for eyes, substance for predicates.**  `[#A]` displays; the
 predicate folds the brackets.  Links underline in `--tv-link` — in the table's

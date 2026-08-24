@@ -319,6 +319,26 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Changed
 
+- **`today` is the date word, and `tomorrow` came with it.** The filter grammar
+  spelled the clock `*today*`, the starred family's one date value; it now
+  spells it `today`, bare, wherever a date literal stands — bare, behind any
+  operator, at either end of a range, as a shift's base — so
+  `scheduled:today..today+30d` is the thirty-day agenda and
+  `deadline:<today` is what is overdue. The word goes through the same base
+  reader every date-owed field already went through (`Query.dayNamed`), which is
+  what brings `tomorrow` along free: a word the planning field types is now a
+  word the table serves, and one roster (`dayWords`) is all either reads.
+  `*today*` is kept as the OLD spelling and is READ everywhere the bare word is,
+  a range mixing the two included, so a saved view, a `#+GLANCE_AGENDA_FILTER:`
+  pragma and a hand that types the stars all keep working; it is offered
+  nowhere, and the completion behind a date key proposes `today` and `tomorrow`
+  alone. The one place the stars are rewritten is a shift's base in the
+  suggestion list, where `*today*+3` completes to `today+3d`. The renderer moves
+  in step, its own clock unchanged: the page answers the same words off the
+  browser's day, and the day still rides in every ETag whatever the query
+  spells, no reader testing for the word itself. `docs/query.md` carries the
+  law.
+
 - **The query box docks on the chip strip.** `/` and `.` raise it onto the
   strip's own row, beside the chips it is about to add to; before, they raised a
   centred palette over a veiled table. The veil is gone from the main table —

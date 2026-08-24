@@ -1187,8 +1187,9 @@
      * is SPELLED as one and names no real day.  An empty base is today-relative,
      * the reading the planning grammar already gives a bare `+3d'. */
     function shiftBase(t, today) {
-      // `*today*' IS THE FILTER'S OWN WORD for the request's day, read here too
-      // so one field spells one grammar.
+      // ONE ROSTER OF DAY WORDS with the filter's (`Glance.Query.dayWords'):
+      // `today' and `tomorrow' are what both read, and `*today*' is `today''s
+      // old spelling, read here too so one field spells one grammar.
       if (t === "" || t === "today" || t === "*today*") return today;
       if (t === "tomorrow") return addDays(today, 1);
       // THE SAME DOOR AS THE BARE FORM, asked rather than re-spelled: a second
@@ -1364,10 +1365,11 @@
     }
     const extendsAny = (list, w) => list.some((x) => x.indexOf(w) === 0);
     // The words a fresh field offers, and what `writing' reads a prefix against.
-    // `*today*' RIDES ALONG UNOFFERED: `shiftBase' reads it, so its prefixes are
-    // a term being written like any other and the ghost owes them the same
-    // silence.  It sits at the END because the offer list is drawn in order and
-    // the filter's own spelling is not what a fresh field proposes first.
+    // `*today*' RIDES ALONG UNOFFERED, the way the filter's own list carries it:
+    // `shiftBase' reads it, so its prefixes are a term being written like any
+    // other and the ghost owes them the same silence.  It sits at the END
+    // because the offer list is drawn in order and the retired spelling is not
+    // what a fresh field proposes first.
     const DATE_VOCAB = ["today", "tomorrow", "+1d", "+1w", "+2w", "+1m", "+3m",
                         "+1y", "*today*"];
     /** An ISO month or day HALFWAY TYPED, against its own ceiling HI: absent, a

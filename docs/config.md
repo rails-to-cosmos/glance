@@ -61,11 +61,11 @@ The agenda's built-in serves every dated row. A tree that wants the day's work
 writes the comparison into its own pragma:
 
 ```
-#+GLANCE_AGENDA_FILTER: state:*active* planned:<=*today* sort:scheduled
+#+GLANCE_AGENDA_FILTER: state:*active* planned:<=today sort:scheduled
 ```
 
-`<=*today*` carries the overdue along with today's rows, which is what an
-agenda is usually asked for; `planned:*today*..*today*` is the strict reading,
+`<=today` carries the overdue along with today's rows, which is what an
+agenda is usually asked for; `planned:today..today` is the strict reading,
 today's rows alone. Both forms are
 [query.md](query.md#comparisons-on-the-date-keys)'s.
 
@@ -74,14 +74,16 @@ today's rows alone. Both forms are
 A tree that wants the month ahead rather than the day shifts the far end:
 
 ```
-#+GLANCE_AGENDA_FILTER: state:*active* planned:*today*..*today*+30d sort:scheduled
+#+GLANCE_AGENDA_FILTER: state:*active* planned:today..today+30d sort:scheduled
 ```
 
-`*today*+30d` is a date wearing a shift — `d`, `w`, `m`, `y` are the units, and
+`today+30d` is a date wearing a shift — `d`, `w`, `m`, `y` are the units, and
 the sum is worked out once per request, so `A` reads the pragma as the day it is
 pressed. Swap `30d` for `7d` or `1m` and the window moves with it;
-`planned:*today*-7d..*today*+30d` is the same lookahead with last week's
-stragglers kept, and `planned:<=*today*+30d` keeps every overdue row instead.
+`planned:today-7d..today+30d` is the same lookahead with last week's
+stragglers kept, and `planned:<=today+30d` keeps every overdue row instead.
+A pragma still spelling `*today*` is read unchanged — it is the old spelling of
+the same word ([query.md](query.md#today-is-a-date)).
 The shift's whole law is
 [query.md](query.md#a-date-can-be-shifted)'s.
 

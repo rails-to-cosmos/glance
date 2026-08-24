@@ -444,12 +444,38 @@
    */
   const EMPTY_META = "*empty*";
 
-  // date comparisons (the value forms, `*today*'): docs/web-renderer.org
+  // date comparisons (the value forms, the day words): docs/web-renderer.org
+
+  /** The canonical clock word, and the head of `DAY_WORDS'. */
+  const TODAY = "today";
 
   /**
-   * The date literal naming the day the query is read on: `scheduled:*today*',
-   * `deadline:>=*today*'.  Legal wherever a literal stands, and resolved once
-   * per compile (`queryMatcher').
+   * THE DAY WORDS, each with how far off the day the query is read on it
+   * stands: `scheduled:today', `deadline:>=tomorrow'.  Legal wherever a date
+   * literal stands — bare, behind any operator, at either range end, as a
+   * shift's base — and resolved once per compile (`queryMatcher').  OFFERED IN
+   * THIS ORDER at a date column's foot.
+   * @type {[string, number][]}
+   */
+  const DAY_WORDS = [[TODAY, 0], ["tomorrow", 1]];
+
+  /** Just the words, which is what a date column's domain carries. */
+  const DAY_WORD_LIST = DAY_WORDS.map((p) => p[0]);
+
+  /**
+   * Is V RESERVED VOCABULARY rather than a value the rows hold — a starred meta
+   * or a day word?  Reserved offers carry NO ROW COUNT, nothing spelling one in
+   * a cell, and are drawn dim.  The stars said this alone until `today' lost
+   * hers; the roster says it now.
+   * @param {string} v  @returns {boolean}
+   */
+  const reserved = (v) => META.test(v) || DAY_WORD_LIST.indexOf(v) !== -1;
+
+  /**
+   * `today''s OLD SPELLING, READ AND NEVER OFFERED: stored queries and typed
+   * habit still carry it, so every reader below takes it where `today' stands
+   * while completion, the chips and the docs spell the bare word.  Completion
+   * FOLDS it onto `today' where it canonicalises a base at all (`shiftBase').
    */
   const TODAY_META = "*today*";
 
@@ -471,7 +497,7 @@
   // date shifts and the quoted spelling: docs/web-renderer.org
   //
   // THE SHIFT a date literal may carry, as GRAMMAR: `BASE(+|-)N UNIT', the base
-  // a day literal, `*today*' or nothing at all.  A SHIFTED VALUE IS ONE MORE
+  // a day literal, a DAY WORD or nothing at all.  A SHIFTED VALUE IS ONE MORE
   // SPELLING OF A DAY LITERAL and no new atom kind — `dateValue' gains no field,
   // the shift being read below the forms, at the literal.
 
@@ -524,29 +550,33 @@
    * FAMILY ALONE, because `+' appears in no date a cell carries where `-' is
    * ISO's own separator: a rule reading the incomplete minus would read
    * `2026-08-03' as `2026-08' moved `03' of no unit.  An incomplete minus stays
-   * the literal it always was, and `*today*-7' matches no row rather than
+   * the literal it always was, and `today-7' matches no row rather than
    * narrowing none.
    * @param {string} l  @returns {boolean}
    */
   const halfShift = (l) => HALF_SHIFT.test(l);
 
   /**
-   * The shift BASE P spells, canonically, or null where it spells none: the
-   * empty base is the BARE shift's own, `*today*' is reached star-free the way
-   * every meta is, and a day is itself.  COMPLETION READS THROUGH THE STARS AND
-   * MATCHING DOES NOT, so `today+30' is offered as `*today*+30d' and means
-   * nothing typed as itself.
+   * The shift BASE P spells, CANONICALLY, or null where it spells none: the
+   * empty base is the BARE shift's own, a day word is its bare spelling, and a
+   * day is itself.  THE OLD SPELLING FOLDS HERE — `*today*+30' is offered as
+   * `today+30d' — which is the one place completion canonicalises it; matching
+   * takes either and rewrites neither.
    * @param {string} p  @returns {string|null}
    */
-  const shiftBase = (p) =>
-    p === "" ? "" : spells(TODAY_META, p) ? TODAY_META : validDay(p) ? p : null;
+  function shiftBase(p) {
+    if (p === "") return "";
+    if (DAY_WORD_LIST.indexOf(p) !== -1) return p;
+    if (p === TODAY_META) return TODAY;
+    return validDay(p) ? p : null;
+  }
 
   /**
    * V with every space dropped BUT THE ONE BETWEEN TWO DIGITS, which is the
    * timed stamp's own: `2026-08-01 09:30' keeps its space where `<= 2026-08-01'
    * loses one it never meant.  ONE PARSER, TWO SPELLINGS: the quoted form is
-   * the one that may carry spaces (`scheduled:"<= *today* + 30 days"') and
-   * folds here onto the space-free one (`scheduled:<=*today*+30d') ABOVE every
+   * the one that may carry spaces (`scheduled:"<= today + 30 days"') and
+   * folds here onto the space-free one (`scheduled:<=today+30d') ABOVE every
    * form read.  An unquoted value carries no space at all — the scanner cuts a
    * token on one — so the fold is invisible to the compact spelling.
    * @param {string} v  @returns {string}
@@ -566,8 +596,8 @@
 
   /**
    * LITERAL L's long unit word cut to org's letter, AND ONLY WHERE A SHIFT
-   * COMES OUT OF IT: `today' ends in a unit word and is the starred word's
-   * near-miss, never a `to' moved one day.
+   * COMES OUT OF IT: `today' ends in a unit word and is THE DAY WORD ITSELF,
+   * never a `to' moved one day.
    * @param {string} l  @returns {string}
    */
   function unitFolded(l) {
@@ -650,8 +680,8 @@
   }
 
   /**
-   * Today as ISO `YYYY-MM-DD' in the reader's own zone, which is what `*today*'
-   * resolves to.  THE CLOCK IS THE PAGE'S OWN: a producer resolves the same
+   * Today as ISO `YYYY-MM-DD' in the reader's own zone, which is what the day
+   * words resolve against.  THE CLOCK IS THE PAGE'S OWN: a producer resolves the same
    * word against its day, so the two disagree for the hour one of them is past
    * midnight and the other is not.  The skew is accepted — same machine.
    * @param {Date} [now]  @returns {string}
@@ -718,30 +748,43 @@
   }
 
   /**
-   * The DAY a shift's BASE names, or "" where it names none.  `*today*' AND THE
-   * EMPTY BASE are both TODAY: THE BARE SHIFT IS TODAY-RELATIVE, decided off
-   * the planning grammar's own precedent, which already reads a bare `+3d' that
-   * way, consistency being the tiebreaker.  Any other base is the day it
-   * spells, so a base naming none — a month, a timed stamp — leaves the whole
-   * value naming none.
+   * The ISO day W names against TODAY, or "" where W is no clock word at all.
+   * ONE READER for every position a day word may stand in — bare, behind an
+   * operator, at either range end and as a shift's base — so a spelling one
+   * takes is a spelling all take, the old starred one included.
+   * @param {string} w  @param {string} today  @returns {string}
+   */
+  function dayWord(w, today) {
+    for (const [word, off] of DAY_WORDS)
+      if (w === word) return off === 0 ? today : shiftDay(today, off, "d");
+    return w === TODAY_META ? today : "";
+  }
+
+  /**
+   * The DAY a shift's BASE names, or "" where it names none.  A DAY WORD AND
+   * THE EMPTY BASE are both read off the clock: THE BARE SHIFT IS
+   * TODAY-RELATIVE, decided off the planning grammar's own precedent, which
+   * already reads a bare `+3d' that way, consistency being the tiebreaker.  Any
+   * other base is the day it spells, so a base naming none — a month, a timed
+   * stamp — leaves the whole value naming none.
    * @param {string} base  @param {string} today  @returns {string}
    */
   const dayIn = (base, today) =>
-    base === "" || base === TODAY_META ? today : validDay(base) ? base : "";
+    base === "" ? today : dayWord(base, today) || (validDay(base) ? base : "");
 
   /**
    * Date literal L as the literal every law below compares, or "" where L NAMES
-   * NO DAY.  `*today*' is TODAY, a SHIFT is stepped off its base and spelled
-   * back as a plain day, and every other literal is itself.  THE SHIFT RESOLVES
-   * HERE, ONCE PER COMPILE — behind this a shifted value is one more spelling of
-   * a day literal and every law reads it as one.  A shift off a base naming no
-   * day, `*today*' with no clock behind it included, leaves the value naming
-   * none, and it then matches no row the way `state:TOD' matches none.
+   * NO DAY.  A DAY WORD is the day it names, a SHIFT is stepped off its base and
+   * spelled back as a plain day, and every other literal is itself.  THE SHIFT
+   * RESOLVES HERE, ONCE PER COMPILE — behind this a shifted value is one more
+   * spelling of a day literal and every law reads it as one.  A shift off a base
+   * naming no day leaves the value naming none, and it then matches no row the
+   * way `state:TOD' matches none.
    * @param {string} l  @param {string} today  @returns {string}
    */
   function literalIn(l, today) {
     const s = shiftOf(l);
-    if (!s) return l === TODAY_META ? today : l;
+    if (!s) return dayWord(l, today) || l;
     const base = dayIn(s.base, today);
     return base ? shiftDay(base, s.n, s.unit) : "";
   }
@@ -2435,9 +2478,9 @@
     let dateAt;
 
     /**
-     * The day `*today*' resolves to: ONE CLOCK READ PER QUERY, taken at the
-     * head of `queryMatcher' before any row.  Every atom of one query then
-     * names one day, whatever the clock does while that query is applied.
+     * The day the DAY WORDS resolve against: ONE CLOCK READ PER QUERY, taken
+     * at the head of `queryMatcher' before any row.  Every atom of one query
+     * then names one day, whatever the clock does while that query is applied.
      */
     let compiledDay = localDay();
 
@@ -2464,7 +2507,7 @@
       // A LITERAL IS OWED AT EVERY END THE VALUE NAMES: behind the operator, and
       // on both sides of the separator — which is the whole of what `dateValue'
       // leaves empty.  A SHIFT WITH NO UNIT BEHIND IT is the same vacuum one end
-      // deeper, so `scheduled:*today*+' rides `vacuousHere' the way `scheduled:>'
+      // deeper, so `scheduled:today+' rides `vacuousHere' the way `scheduled:>'
       // does.  THE ATOMS ARE THE COMPACT SPELLINGS, folded once here.
       return alts.map(compacted).filter((v) => {
         const d = dateValue(v);
@@ -2580,8 +2623,8 @@
 
     /**
      * V as a test of DATE cell I: the bare prefix, one of the four comparisons,
-     * or the range `A..B'.  `*today*' stands for `compiledDay' wherever a
-     * literal may, and a SHIFT off either resolves to a plain day HERE
+     * or the range `A..B'.  A DAY WORD stands for its day off `compiledDay'
+     * wherever a literal may, and a SHIFT off either resolves to a plain day HERE
      * (`dayOf'), before any law below reads one.  THREE PIECES, ONE GUARD:
      * `cmpTest' carries the granularity law, `dated' the empty cell, and the
      * range is the two inclusives composed under ONE guard rather than a table
@@ -2601,7 +2644,7 @@
       if (d.op === "") return (r) => rowText(r).cells[i].startsWith(lo);
       // A LITERAL THAT DOES NOT OPEN WITH A DIGIT IS NO DATE and matches no
       // row, the reading `state:TOD' has — where byte order would happily
-      // serve every dated row against `>*empty*'.  `*today*' and any shift
+      // serve every dated row against `>*empty*'.  The day words and any shift
       // resolved above, so this asks of a plain literal.
       if (!DATE_LIT.test(lo)) return () => false;
       if (d.op === RANGE && !DATE_LIT.test(hi)) return () => false;
@@ -4379,11 +4422,12 @@
         return out;
       }
       const dom = domainOf(st.col);
-      // `*today*' AND THE OPERATOR HEADS RIDE THE FOOT of a date column's
+      // THE DAY WORDS AND THE OPERATOR HEADS RIDE THE FOOT of a date column's
       // domain, the way `*empty*' rides every column's, and what is offered
       // behind a typed head is the LITERAL: `scheduled:>=2026-0' completes
       // dates.  A TYPED HEAD DROPS `*empty*', the empty cell sitting outside
-      // every comparison.
+      // every comparison.  `*today*' IS NOT AMONG THEM: it is read and never
+      // offered, `today' being the one spelling this proposes.
       const onDate = dateColumn(columns().indexOf(st.col));
       // THE STAGE READS WHAT THE PARSER READS: the quoted spelling folds first
       // (`compacted'), so a head measured here indexes the value the grammar
@@ -4395,7 +4439,7 @@
       // operator, or the range's low end and the separator behind it.
       const head = dv === null ? "" : dv.op === RANGE ? dv.lo + RANGE : dv.op;
       const p2 = pd.slice(head.length);
-      const listed = onDate ? dom.list.concat([TODAY_META]) : dom.list;
+      const listed = onDate ? dom.list.concat(DAY_WORD_LIST) : dom.list;
       const domain = head || listed.indexOf(EMPTY_META) !== -1
         ? listed : listed.concat([EMPTY_META]);
       // AN ADDED TOKEN WIDENS, AND A CARRIED VALUE WIDENS BY NOTHING: `A ∨ A'
@@ -4413,7 +4457,7 @@
         // THE DOMAIN COUNTS ROWS SPELLING A CELL, where `>=D' serves rows that
         // spell something else — so an offer behind a head prints no count
         // rather than a wrong one.
-        const meta = META.test(String(v));
+        const meta = reserved(String(v));
         const item = { text, count: meta || head ? -1 : dom.counts.get(lower) || 0,
                        full: true, dim: meta };
         if (spells(lower, p2)) { whole = item; continue; }
@@ -4435,7 +4479,7 @@
       // empty base gives no head to hang a sign on, and once a sign and its
       // digits stand there the units finish it like any other.  Each offer
       // wears the head it was typed with and spells its base canonically, so
-      // `today+30' completes to `*today*+30d'.
+      // `*today*+30' completes to `today+30d'.
       if (onDate) {
         const stem = shiftBase(p2);
         if (stem)

@@ -69,7 +69,7 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text.Lazy.Encoding as TLE
 import AGENTS (ColKind (KBadge), Column (cCellKind, cHead, cKey), SortDir (Asc), defaultSortChain, keyOf, viewColumns, viewKeys)
 import Glance.Web.Columns (columnNamesIn)
-import Glance.Query (dayOf, isoDay, monthWords, planningTimestamp, shiftDay, shiftUnits)
+import Glance.Query (dayOf, dayWords, isoDay, monthWords, planningTimestamp, shiftDay, shiftUnits)
 import Data.List (isInfixOf)
 import Glance.Web.Filter (Sign (Unsigned), Term (tmKey), Token (..), cmpMark, cmpTest, columnsKey, emptyEnv, filterKeys, fromKey, halfShift, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, shiftIn, sortKey, substringKey, unspaced)
 import Glance.Web.Sort (sortChainIn)
@@ -1385,6 +1385,11 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
   , testCase "the model's shift grammar and Filter's own agree" $ do
       assertEqual "org's shift charset and the model's copy have drifted"
                   shiftUnits Spec.unitChars
+      -- THE DAY WORDS ARE A ROSTER AND THE MODEL SPELLS IT TOO, order and
+      -- offsets both: `today' leads, `tomorrow' follows and `*today*' rides
+      -- last as the read-compat spelling nothing offers.
+      assertEqual "the day words and the model's copy have drifted"
+                  Spec.dayWords [ (T.unpack w, n) | (w, n) <- dayWords ]
       -- A UNIT ORG GROWS OWES A LONG WORD, the quoted form spelling out what
       -- the compact one abbreviates; a fifth unit fails here rather than
       -- silently answering under one spelling alone.
@@ -1400,7 +1405,8 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
       sequence_
         [ assertEqual ("the two space folds of " <> show v <> " have drifted")
                       (Spec.unspaced v) (T.unpack (unspaced (T.pack v)))
-        | v <- shiftLits <> [ "<= *today* + 30 days", "2026-08-01 09:30"
+        | v <- shiftLits <> [ "<= today + 30 days", "2026-08-01 09:30"
+                            , "today .. today + 30 days", "<= *today* + 30 days"
                             , "*today* .. *today* + 2 days", " 2026-08-01 "
                             , "1 2", "12 34", "a b", " ", "  " ] ]
 
@@ -1415,11 +1421,21 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
                               (\n u d -> T.unpack . isoDay <$> (shiftDay u n =<< dayOf (T.pack d)))
       sequence_
         [ assertEqual ("the model resolved " <> show v <> " elsewhere") want (Spec.litOf cal v)
-        | (v, want) <- [ ("*today*",       Just "2026-08-03")
+        | (v, want) <- [ ("today",         Just "2026-08-03")
+                       , ("tomorrow",      Just "2026-08-04")
+                       , ("today+30d",     Just "2026-09-02")
+                       , ("today-1w",      Just "2026-07-27")
+                       , ("tomorrow+30d",  Just "2026-09-03")
+                       -- The OLD spelling, read the same wherever it stands.
+                       , ("*today*",       Just "2026-08-03")
                        , ("*today*+30d",   Just "2026-09-02")
                        , ("*today*-1w",    Just "2026-07-27")
                        , ("+30d",          Just "2026-09-02")
                        , ("-7d",           Just "2026-07-27")
+                       -- A NEAR-MISS IS NO WORD and stays the literal it is,
+                       -- which matches no row rather than naming a day.
+                       , ("todayy",        Just "todayy")
+                       , ("tod",           Just "tod")
                        -- The clip, both ways round a leap year.
                        , ("2026-01-31+1m", Just "2026-02-28")
                        , ("2024-01-31+1m", Just "2024-02-29")
@@ -1427,9 +1443,10 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
                        -- A base naming no day leaves the value naming none.
                        , ("2026-08+1d",    Nothing)
                        , ("2026-08-05",    Just "2026-08-05") ] ]
-      assertEqual "with no clock behind it a shift names no day"
-                  [Nothing, Nothing, Nothing]
-                  (map (Spec.litOf Spec.noCalendar) ["*today*", "*today*+30d", "+30d"])
+      assertEqual "with no clock behind it a day word names no day"
+                  [Nothing, Nothing, Nothing, Nothing, Nothing]
+                  (map (Spec.litOf Spec.noCalendar)
+                       ["today", "tomorrow", "today+30d", "*today*", "+30d"])
 
     -- THE MONTH TABLE IS THE ONLY LANGUAGE-BEARING DATUM, spelled in the model
     -- and in the parser: asserted whole and in order, so a month gained on one
@@ -1518,14 +1535,19 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
     -- signs, the bare form, the half-typed plus family, the incomplete minus,
     -- and the plain ISO dates and forms a sloppy reader would take for shifts.
     shiftLits :: [String]
-    shiftLits = [ "*today*+30d", "*today*-7d", "*today*+1w", "*today*-2m"
+    shiftLits = [ "today+30d", "today-7d", "today+1w", "today-2m"
+                , "today+1y", "tomorrow+1d", "tomorrow-1w"
+                , "*today*+30d", "*today*-7d", "*today*+1w", "*today*-2m"
                 , "*today*+1y", "2026-08-01+3d", "2026-08-01-7d", "2026-08-15-2w"
                 , "2024-01-31+1m", "+30d", "-7d", "+0d", "+30", "+", "-"
+                , "today+", "today+30", "today-", "today-7"
                 , "*today*+", "*today*+30", "*today*-", "*today*-7"
                 , "2026-08-01+", "2026-08-03", "2026-08-0", "2026", "2026-08"
-                , "*today*", "*empty*", "today", "monday", "banana", "", "d"
+                , "*today*", "*empty*", "today", "tomorrow", "todayy", "tod"
+                , "monday", "banana", "", "d"
                 , "+d", "30d", "2026-08-0d", "2026+08-01", "2026-08-01+3d+"
-                , "2026-08-01 09:30", ">=2026-08-01", "2026-08-01..2026-08-05" ]
+                , "2026-08-01 09:30", ">=2026-08-01", "2026-08-01..2026-08-05"
+                , "today..today+30d" ]
 
 -- Build and discipline: the registries the build is described by, bound to the files that carry it.
 

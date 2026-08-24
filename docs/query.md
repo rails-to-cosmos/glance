@@ -286,18 +286,29 @@ planned:<=2026-08-31` serves those and more — a row scheduled next year with a
 deadline of last year passes both tokens, one cell answering each, and lies in
 no August.
 
-### `*today*` is a date
+### `today` is a date
 
-`*today*` stands wherever a date literal stands: bare, behind any operator, at
-either end of a range. It is read ONCE per request, against the server's local
-day, as `YYYY-MM-DD`.
+`today` and `tomorrow` are the DAY WORDS. Each stands wherever a date literal
+stands: bare, behind any operator, at either end of a range, as a shift's base.
+They are read ONCE per request, against the server's local day, as
+`YYYY-MM-DD`.
 
 | token | serves |
 | --- | --- |
-| `scheduled:*today*` | scheduled today — the prefix reading of today's date |
-| `deadline:<*today*` | overdue |
-| `planned:<=*today*` | planned by today, the overdue among them |
-| `scheduled:*today*..*today*` | strictly today, said as a range |
+| `scheduled:today` | scheduled today — the prefix reading of today's date |
+| `deadline:<today` | overdue |
+| `planned:<=today` | planned by today, the overdue among them |
+| `scheduled:today..today` | strictly today, said as a range |
+| `scheduled:tomorrow` | scheduled the day after |
+
+The same words read a date everywhere one is owed — the filter here and
+`set-planning`'s own field ([commands.md](commands.md#dates)) go through one
+reader, so a word one takes is a word the other takes.
+
+**`*today*` is the old spelling of `today`.** It is still read, everywhere the
+bare word is and mixed with it inside one range, so a saved view and a hand
+that types the stars keep working; nothing offers it and nothing writes it back
+— completion proposes `today`, and a chip shows the word you typed.
 
 The table in the browser answers the same words against the BROWSER's local
 day. Server and page are one machine over loopback, so the two agree except
@@ -310,16 +321,16 @@ primary spelling has no spaces in it, the token grammar owning those.
 
 | token | serves |
 | --- | --- |
-| `scheduled:<=*today*+30d` | scheduled within the next thirty days |
-| `deadline:>=*today*-7d` | due since a week ago |
-| `planned:*today*..*today*+30d` | the thirty-day lookahead, in one token |
+| `scheduled:<=today+30d` | scheduled within the next thirty days |
+| `deadline:>=today-7d` | due since a week ago |
+| `planned:today..today+30d` | the thirty-day lookahead, in one token |
 | `deadline:2026-09-15+2w` | the prefix reading of 2026-09-29 |
 
-`BASE` is a date literal, `*today*`, or nothing at all, `N` a run of digits,
+`BASE` is a date literal, a day word, or nothing at all, `N` a run of digits,
 and `UNIT` one of org's own four: `d`, `w`, `m`, `y`.
 
-**The shift resolves at COMPILE, to a plain day literal.** `*today*` becomes the
-request's day and a spelled date becomes itself; `w` is seven days; `m` and `y`
+**The shift resolves at COMPILE, to a plain day literal.** A day word becomes the
+day it names and a spelled date becomes itself; `w` is seven days; `m` and `y`
 are calendar arithmetic and **clip** — Jan 31 `+1m` is Feb's last day, never
 March 3. The sum is written down once, before any row is asked.
 
@@ -329,9 +340,9 @@ the alternatives, the signs. **A shifted value is one more spelling of a day
 literal, never a new kind of value.**
 
 - **Both ends of a range take one**, and either may be plain:
-  `scheduled:*today*-7d..*today*+7d` is the fortnight around today.
+  `scheduled:today-7d..today+7d` is the fortnight around today.
 - **A bare shift is today-relative.** `scheduled:+30d` is
-  `scheduled:*today*+30d`, the reading the planning grammar already gives a bare
+  `scheduled:today+30d`, the reading the planning grammar already gives a bare
   `+3d` ([commands.md](commands.md#dates)).
 - **The token's sign is still the token's.** The first character alone is the
   sign, so in `+scheduled:+30d` the leading `+` widens the scheduled axis and
@@ -339,16 +350,16 @@ literal, never a new kind of value.**
 - The sign that opens a shift is the one before the unit, so a date's own
   hyphens are never mistaken for it: `deadline:2026-09-15-7d` is the week
   before that day.
-- **`*today*` with no clock behind it names no day**, shifted or bare, and so
+- **A day word with no clock behind it names no day**, shifted or bare, and so
   matches no row.
-- **A half-typed shift narrows nothing.** `scheduled:*today*+` and
-  `scheduled:*today*+30` are the half-typed family: unsigned they leave the
+- **A half-typed shift narrows nothing.** `scheduled:today+` and
+  `scheduled:today+30` are the half-typed family: unsigned they leave the
   table as it was, negated they empty it, as `-state:` does.
 
 The quoted value form is the same token with room to breathe. A quoted value
 after a key is a predicate — the quotes never reach the value and separators
-inside them are literal — so `scheduled:"<= *today* + 30 days"` is
-`scheduled:<=*today*+30d` said long: spaces beside the operator, the range mark,
+inside them are literal — so `scheduled:"<= today + 30 days"` is
+`scheduled:<=today+30d` said long: spaces beside the operator, the range mark,
 the sign and the unit, and the unit spelled as a word (`day`, `week`, `month`,
 `year`, singular or plural), case-folded like every value. A pre-pass folds the
 quoted spelling onto the compact one, so there is ONE parser and one law. The
@@ -360,7 +371,7 @@ The lookahead is what an agenda is usually asked for, so it is what a tree pins
 into the agenda view ([config.md](config.md#a-today-agenda)):
 
 ```
-#+GLANCE_AGENDA_FILTER: state:*active* planned:*today*..*today*+30d sort:scheduled
+#+GLANCE_AGENDA_FILTER: state:*active* planned:today..today+30d sort:scheduled
 ```
 
 ### Two guards
@@ -370,7 +381,7 @@ into the agenda view ([config.md](config.md#a-today-agenda)):
   date, which says nothing true about the row. `*empty*` stays the only name
   for those rows, and `+` puts them back:
   `deadline:<2026-09 +deadline:*empty*`.
-- **Negation is no mirror.** `-scheduled:<*today*` and `scheduled:>=*today*`
+- **Negation is no mirror.** `-scheduled:<today` and `scheduled:>=today`
   differ on exactly the undated rows: the negation carries them, the comparison
   leaves them out. The four operators do not pair off under the sign.
 
@@ -388,7 +399,7 @@ never a glob.
 | `*active*` | `state:` | an active keyword **or no keyword** — stateless rows are live work |
 | `*inactive*` | `state:` | a done-like keyword (the empty cell is not included) |
 | `*archive*` | `tag:` | the whole tag `archive` — see below |
-| `*today*` | the date keys' values | the server's local day, `YYYY-MM-DD` |
+| `*today*` | the date keys' values | `today`'s OLD spelling: the server's local day, `YYYY-MM-DD`. Read, never offered |
 | `*any*` | `ref:`, `from:` | any target at all: the row is on that relation |
 | `*none*` | `sort:` | no order at all: document order |
 

@@ -64,9 +64,10 @@ takes is a value the other takes.
 The grammar the two composed keys read:
 
 - `2026-08-05`, `2026-08-05 09:30`
-- `today`, `tomorrow`, and the query grammar's own `*today*` beside them
+- `today`, `tomorrow` — the DAY WORDS, which the filter grammar reads too, off
+  the one base reader; `*today*` is `today`'s old spelling and is read beside them
 - `+3d` and friends — org's own shift charset (`d`, `w`, `m`, `y`) — bare, or
-  on that word: `*today*+30d`
+  on either word: `today+30d`, `tomorrow+1w`
 - `18 aug`, `aug 18`, `18 August 2029` — the English day-and-month forms
 - `from 18 to 19 august`, `18 to 19 aug` — the English interval, written as
   org's own `--` pair with the weekday computed at both ends

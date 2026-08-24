@@ -66,7 +66,7 @@ ported term for term; divergences enumerated in [[file:AGENTS.hs][AGENTS.hs]]).
 | =milk=                                  | substring anywhere in the row                |
 | =state:TODO\vert{}DONE tag:work=        | predicates AND, =\vert{}= alternates         |
 | =-planned:*empty* sort:scheduled=       | the agenda: dated rows, earliest first       |
-| =planned:<=*today* sort:scheduled=      | today's work, the overdue carried along      |
+| =planned:<=today sort:scheduled=        | today's work, the overdue carried along      |
 | =priority:[#A] tag:work +priority:[#B]= | =+= widens its own axis: work rows at A or B |
 | =view:agenda=                           | a saved view by NAME, standing for its query |
 

@@ -1643,10 +1643,11 @@ fingerprint st = Print (concatMap stamp (sortOn fst (stFiles st)))
         unwrap (Digest d) = d
 
 -- | The tree's fingerprint, the store's generation, and THE DAY the request was
--- answered on.  The day rides along whatever the query spells: `*today*'
--- resolves per request (`metaHome MToday'), so a store nothing touched across
--- midnight must revalidate rather than answer 304 with yesterday's rows.  One
--- extra revalidation a day is the whole cost.
+-- answered on.  THE DAY RIDES ALONG WHATEVER THE QUERY SPELLS and no reader
+-- tests for a clock word: a day word resolves per request (`dayWords'), so a
+-- store nothing touched across midnight must revalidate rather than answer 304
+-- with yesterday's rows -- and a rename of the word cannot leave a detector
+-- behind.  One extra revalidation a day is the whole cost.
 data ETag = ETag String Gen String deriving (Eq, Show)
 etagOf :: String -> Store -> ETag
 etagOf day st = ETag (take 16 p) (stGen st) day where Print p = stPrint st
@@ -2513,7 +2514,7 @@ unspaced []                                          = []
 -- (`shiftResolution').
 data Calendar = Calendar
   { calToday :: Maybe String
-    -- ^ `Nothing' where no clock was read, and `*today*' then names no date.
+    -- ^ `Nothing' where no clock was read, and no day word then names a date.
   , calMove  :: Integer -> Char -> String -> Maybe String
     -- ^ a day moved N of UNIT and spelled back; `Nothing' where the day is no
     -- day (a month, a timed stamp) or the unit no unit.
@@ -2524,28 +2525,52 @@ data Calendar = Calendar
 noCalendar :: Calendar
 noCalendar = Calendar Nothing (\_n _unit _day -> Nothing)
 
--- | @*today*@ is a DATE VALUE and a member of the starred family: it stands
--- wherever a literal stands and resolves to the request's OWN day.  A SHIFT
--- RESOLVES THROUGH THIS SAME DOOR and at the same altitude -- its base's day
--- moved, at COMPILE, to a plain day literal -- so every law below reads one
--- kind of literal and gains no case (`shiftResolution').
+-- | THE DAY WORDS, each with how far off the request's own day it stands: the
+-- spellings read off the CLOCK rather than off ISO's digits.  @today@ and
+-- @tomorrow@ are the canonical pair, offered and displayed; @*today*@ is
+-- @today@'s OLD spelling, READ AND NEVER OFFERED so a stored view and a typed
+-- habit survive the rename.  ONE ROSTER for the filter's literals and the
+-- planning wall's dates alike (`Glance.Query.dayWords', one base reader
+-- `dayNamed'), so a word one surface takes is a word the other takes.
+dayWords :: [(String, Integer)]
+dayWords = [("today", 0), ("tomorrow", 1), (metaWord MToday, 0)]
+
+-- | Does L spell a day WORD rather than a date?  The clock words alone go
+-- through `dayWord'; every other literal is left byte for byte what it was, so
+-- @2026-08@ stays the month prefix it always was.
+namesDay :: String -> Bool
+namesDay l = isJust (lookup l dayWords)
+
+-- | The DAY W names against the calendar's own; `Nothing' where no clock was
+-- read, which is what makes a clock word name no date under `noCalendar'.
+dayWord :: Calendar -> String -> Maybe String
+dayWord cal w = do
+  n   <- lookup w dayWords
+  day <- calToday cal
+  if n == 0 then Just day else calMove cal n 'd' day
+
+-- | A DAY WORD is a DATE VALUE: it stands wherever a literal stands and
+-- resolves off the request's OWN day.  A SHIFT RESOLVES THROUGH THIS SAME DOOR
+-- and at the same altitude -- its base's day moved, at COMPILE, to a plain day
+-- literal -- so every law below reads one kind of literal and gains no case
+-- (`shiftResolution').
 litOf :: Calendar -> String -> Maybe String
 litOf cal l = case shiftIn l of
   Just (base, n, unit) -> calMove cal n unit =<< dayIn cal base
-  Nothing | l == metaWord MToday -> calToday cal
-          | otherwise            -> Just l
+  Nothing | namesDay l -> dayWord cal l
+          | otherwise  -> Just l
 
--- | The DAY a shift's BASE names.  @*today*@ and THE EMPTY BASE are both the
--- request's own day: THE BARE SHIFT IS TODAY-RELATIVE, decided off the planning
+-- | The DAY a shift's BASE names.  A DAY WORD and THE EMPTY BASE are both read
+-- off the clock: THE BARE SHIFT IS TODAY-RELATIVE, decided off the planning
 -- grammar's own precedent, which reads a bare @+3d@ that way (`set-planning''s
 -- date, docs/commands.md), consistency being the tiebreaker.  Any other base is
 -- the day it SPELLS, and one spelling no day is refused by the move -- which is
 -- where the calendar is -- so the whole value then names none and matches no
 -- row, the way @state:TOD@ matches none.
 dayIn :: Calendar -> String -> Maybe String
-dayIn cal base | null base               = calToday cal
-               | base == metaWord MToday = calToday cal
-               | otherwise               = Just base
+dayIn cal base | null base     = calToday cal
+               | namesDay base = dayWord cal base
+               | otherwise     = Just base
 
 -- | A literal BYTE ORDER may be asked about owes an opening digit: the prefix
 -- reading is total over any text where `<banana' would serve every ISO cell
@@ -2703,7 +2728,7 @@ metaWord MInactive = starred "inactive"
 metaWord MEmpty    = starred "empty"
 metaWord MArchive  = starred "archive"   -- DERIVED from org's own ARCHIVE tag, folded
 metaWord MNone     = starred "none"
-metaWord MToday    = starred "today"     -- a DATE VALUE, not a cell predicate
+metaWord MToday    = starred "today"     -- READ-COMPAT: `today' is the word now
 metaWord MAny      = starred "any"       -- an ANCHOR, and the union over that slot
 -- | The stars read backwards; a bare word is never a meta and @**@ is no word.
 metaOf :: String -> Maybe String
@@ -2722,7 +2747,9 @@ metaHome MActive   = StateCell
 metaHome MInactive = StateCell
 metaHome MNone     = OrderToken   -- the ORDER token's own word, and it reads no cell
 -- The one meta that is a VALUE rather than a predicate: it names no cell and
--- reads no row, standing where a date literal stands ('stampOf', 'litOf').
+-- reads no row, standing where a date literal stands ('stampOf', 'litOf').  It
+-- is the OLD spelling of the bare `today' (`dayWords') and stays on the roster,
+-- every starred word the code spells being on it.
 metaHome MToday    = DateValue
 -- A PREDICATE that reads no cell either: it stands where a `ref:'/`from:' row
 -- id stands ('anchorIn') and is the UNION over that slot ('anyTest').
@@ -2766,9 +2793,10 @@ qnSocket = Note "The socket is not filtered, so an unfiltered client splices in 
 shiftResolution :: Note
 shiftResolution =
   Note "A DATE VALUE MAY CARRY A SHIFT — BASE+N UNIT or BASE-N UNIT, the base a \
-       \day literal or *today*, N a decimal run and UNIT org's own d/w/m/y — and \
-       \IT RESOLVES AT COMPILE TO A PLAIN DAY LITERAL: the request's own day for \
-       \*today*, the day it spells otherwise, moved by ORG'S OWN ARITHMETIC \
+       \day literal, a DAY WORD or nothing at all, N a decimal run and UNIT \
+       \org's own d/w/m/y — and IT RESOLVES AT COMPILE TO A PLAIN DAY LITERAL: \
+       \the day the word names, the day it spells otherwise, moved by ORG'S OWN \
+       \ARITHMETIC \
        \(addUnit), where a week is seven days and a month or a year is CLIPPED \
        \to the target month's last — Jan 31 moved one month is February's last \
        \day, and Feb 29 moved one year is the 28th.  The moved day is spelled by \
@@ -2776,10 +2804,10 @@ shiftResolution =
        \beside isoStamp), so the literal and the cell cannot drift into two \
        \shapes of one day.  AFTER THE RESOLUTION EVERY LAW ABOVE APPLIES \
        \UNTOUCHED — the granularity cuts, the empty cell outside, negation no \
-       \mirror, both range ends (*today*..*today*+30d is the 30-day agenda in \
+       \mirror, both range ends (today..today+30d is the 30-day agenda in \
        \one token), the alternatives and the signs — a shifted value being one \
        \more SPELLING of a day literal and never a new atom kind.  With no clock \
-       \behind it *today* names no day, a shift behind it or none; a base naming \
+       \behind it a day word names no day, a shift behind it or none; a base naming \
        \no day (a month, a timed stamp) leaves the value naming none, and it \
        \then matches no row the way state:TOD matches none." [Test]
 
@@ -3142,17 +3170,28 @@ queryNotes =
          \row scheduled 2027 with a deadline of 2020 passes both tokens and lies \
          \in neither range.  That is the whole reason `..' exists; on a \
          \single-cell key A..B is exactly >=A and <=B." [Test]
-  , Note "*today* IS A DATE VALUE and a member of the starred family — the only \
-         \meta that names no cell and reads no row — legal bare, behind any \
-         \operator and at either range end.  It resolves ONCE PER REQUEST at \
-         \filter compile off the server's local day, which is the one-clock-read \
-         \law, so a query asked across midnight cannot mean two days; with no \
-         \clock behind it the word names no date and matches no row.  The \
-         \renderer answers the same laws off the BROWSER's local day, one \
-         \machine over loopback, and the skew is accepted." [Test]
+  , Note "A DAY WORD IS A DATE VALUE and reads no cell: today and tomorrow are \
+         \the roster (dayWords), legal bare, behind any operator, at either \
+         \range end and as a shift's base.  ONE READER answers them for the \
+         \filter's literals and for every date-owed field (Query.dayNamed), so a \
+         \word one surface types is a word the other serves.  A word resolves \
+         \ONCE PER REQUEST at filter compile off the server's local day, which \
+         \is the one-clock-read law, so a query asked across midnight cannot \
+         \mean two days; with no clock behind it the word names no date and \
+         \matches no row.  The renderer answers the same laws off the BROWSER's \
+         \local day, one machine over loopback, and the skew is accepted." [Test]
+  , Note "*today* IS today's OLD SPELLING and stays a member of the starred \
+         \family: READ AND NEVER OFFERED.  Every reader takes it where today \
+         \stands — bare, behind an operator, at either range end, mixed with the \
+         \bare word inside one range — so a stored view and a typed habit \
+         \survive the rename, while completion proposes today alone and a chip \
+         \shows what was typed.  The one place completion canonicalises it is a \
+         \shift's base, where *today*+3 is offered as today+3d; the chip strip's \
+         \own annihilation folds the two together already, twins being matched \
+         \on what a value MEANS." [Test]
   , shiftResolution
   , Note "THE BARE SHIFT SHIPS AND IS TODAY-RELATIVE: `scheduled:+30d' is \
-         \`scheduled:*today*+30d', decided off the planning grammar's own \
+         \`scheduled:today+30d', decided off the planning grammar's own \
          \precedent — `set-planning' already reads a bare `+3d' against the \
          \server's day (docs/commands.md) — with consistency as the tiebreaker. \
          \THE TWO SIGNS ARE READ APART: the scanner takes a token's sign off its \
@@ -3160,12 +3199,12 @@ queryNotes =
          \wears the added sign and the value wears the shift's plus, and neither \
          \reader sees the other's." [Test]
   , Note "A SHIFT WITH NO UNIT BEHIND IT IS HALF-TYPED and joins that family: \
-         \`*today*+' and `*today*+30' narrow nothing unsigned and empty the \
+         \`today+' and `today+30' narrow nothing unsigned and empty the \
          \table negated.  THE PLUS FAMILY ALONE is read that way, since `+' \
          \appears in no date a cell carries where `-' is ISO's own separator — a \
          \rule reading the incomplete minus would read `2026-08-03' as `2026-08' \
          \moved `03' of no unit — so an incomplete minus stays the literal it \
-         \was and `*today*-7' matches no row rather than narrowing none.  The \
+         \was and `today-7' matches no row rather than narrowing none.  The \
          \ground the shift lands on was DEAD: a `+', and a base a shift's letter \
          \follows, prefix-match no ISO cell, so every value that composed before \
          \answers byte for byte." [Test]
@@ -3173,8 +3212,8 @@ queryNotes =
          \spelling ABOVE every form read, so one parser answers both: every \
          \space goes BUT THE ONE BETWEEN TWO DIGITS, which is the timed stamp's \
          \own, and a long unit word is cut to org's letter where a shift comes \
-         \out of it — `today' ends in one and is a literal.  `scheduled:\"<= \
-         \*today* + 30 days\"' and `scheduled:<=*today*+30d' are one query, and \
+         \out of it — `today' ends in one and IS THE DAY WORD.  `scheduled:\"<= \
+         \today + 30 days\"' and `scheduled:<=today+30d' are one query, and \
          \an unquoted value carries no space at all, the scanner cutting a token \
          \on one." [Test]
   , Note "ANNIHILATION IS THE STRIP'S RULE AND NOT THE GRAMMAR'S: committing a \

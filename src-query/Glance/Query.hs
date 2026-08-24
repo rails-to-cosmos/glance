@@ -53,6 +53,7 @@ module Glance.Query ( BlobSeed (..)
                     , currentDocument
                     , dayOf
                     , dayNamed
+                    , dayWords
                     , defaultCaptureFile
                     , SavedView (..)
                     , defaultFilter
@@ -1200,17 +1201,27 @@ isoDay = spelled "%Y-%m-%d"
 dayOf :: Text -> Maybe Time.Day
 dayOf = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d" . T.unpack
 
--- | The day W names against TODAY: THE EMPTY TEXT and @*today*@ are the
--- request's own day, anything else the ISO day it spells ('dayOf').
+-- | THE DAY WORDS, each with how far off the request's own day it stands: the
+-- spellings read off the CLOCK rather than off ISO's digits.  @today@ and
+-- @tomorrow@ are the canonical pair, offered and displayed; @*today*@ is
+-- @today@'s OLD spelling, READ AND NEVER OFFERED so stored views and typed
+-- habit survive the rename ('Glance.Web.Filter.todayMeta').
+dayWords :: [(Text, Integer)]
+dayWords = [("today", 0), ("tomorrow", 1), (metaWord MToday, 0)]
+
+-- | The day W names against TODAY: THE EMPTY TEXT and every 'dayWords'
+-- spelling are read off the clock, anything else is the ISO day it spells
+-- ('dayOf').
 --
 -- THE ONE BASE READER, for the filter's date literals
 -- ('Glance.Web.Filter.dayIn') and the planning wall's own dates
--- ('planningTimestamp') alike, so the bare shift is today-relative at both.  A
--- surface owed a word of its own layers it OVER this, never inside it.
+-- ('planningTimestamp') alike: a word one takes is a word the other takes, and
+-- the bare shift is today-relative at both.
 dayNamed :: Time.Day -> Text -> Maybe Time.Day
 dayNamed today w
-  | T.null w || w == metaWord MToday = Just today
-  | otherwise                        = dayOf w
+  | T.null w                    = Just today
+  | Just n <- lookup w dayWords = Just (Time.addDays n today)
+  | otherwise                   = dayOf w
 
 -- | The unit LETTERS a date shift may carry — ORG'S WHOLE CHARSET, read off the
 -- parser's own map, so a unit org grows is offered the day it lands.
@@ -1759,19 +1770,15 @@ planningTimestamp today text
 
     -- THE ONE SHIFT GRAMMAR ('shiftIn') over THE ONE BASE READER ('dayNamed'):
     -- what the filter's table serves and what a date-owed field takes are one
-    -- grammar, sign for sign, and the planning words compose because a word
-    -- legal alone is legal shifted.  Lower-casing leaves an ISO day's digits and
+    -- grammar, sign for sign, and the day words compose because a word legal
+    -- alone is legal shifted.  THIS WALL LAYERS NOTHING OVER THE READER --
+    -- @today@ and @tomorrow@ live in 'dayWords', so the filter reads the very
+    -- words this field types.  Lower-casing leaves an ISO day's digits and
     -- hyphens where they were, so the bare day needs no branch of its own.
     dated = case T.toLower want of
-      w | Just d <- baseDay w             -> Just d
-        | Just (base, n, u) <- shiftIn w  -> shiftDay u n =<< baseDay base
+      w | Just d <- dayNamed today w      -> Just d
+        | Just (base, n, u) <- shiftIn w  -> shiftDay u n =<< dayNamed today base
         | otherwise                       -> Nothing
-    -- @today@ and @tomorrow@ are THIS WALL'S OWN WORDS, layered over the shared
-    -- reader: a query spells @*today*@, so the filter is owed no English here.
-    baseDay w
-      | w == "today"    = Just today
-      | w == "tomorrow" = Just (Time.addDays 1 today)
-      | otherwise       = dayNamed today w
 
     -- @%k@ rather than @%H@: it reads one digit as well as two, so @9:05@ is the
     -- time a reader meant rather than a refusal over a zero.

@@ -1198,6 +1198,91 @@ export default [
       + ` ${JSON.stringify(after.said[0].slice(-52))}`];
   } },
 
+// THE DAY WORD, END TO END THROUGH THE WIDGET.  `today' is one word spelled in
+// two programs -- the renderer's grammar and the daemon's -- and only the real
+// page can ask them together: the offer list is the renderer's, the rows on
+// show are the daemon's answer to the very token that was chipped.  A word one
+// half reads and the other does not shows here as an empty table under a chip
+// that looks right, which no unit on either side can see.  `*today*' is the OLD
+// spelling and rides along: read everywhere, offered nowhere.
+{ name: "`today' completes, chips and narrows, and `*today*' answers the same rows",
+  async run(p, base) {
+    await tableUp(p, base);
+    const booted = (await p.eval(stripText)).length;
+    const all = await p.eval(appRows);
+
+    // (1) THE OFFER IS THE BARE WORD, and the stars are proposed nowhere.
+    await filterUp(p, "the filter box on `/'");
+    await p.type("deadline:tod");
+    await p.until(acOpen, "the value list to open behind a date key");
+    const offered = await p.eval(acLabels);
+    assert(offered.indexOf("today") !== -1,
+      `the bare word was not offered: ${JSON.stringify(offered)}`);
+    assert(offered.every((o) => o.indexOf("*") === -1),
+      `a starred spelling was offered: ${JSON.stringify(offered)}`);
+
+    // (2) THE WHOLE TOKEN COMMITS: a word at BOTH range ends, a shift on each.
+    await p.type("ay-30d..today+30d");
+    await committed(p, booted + 1, "the range to land as a chip");
+    const chip = "deadline:today-30d..today+30d";
+    const strip = (await p.eval(stripText)).slice(booted);
+    assert(strip.indexOf(chip) !== -1,
+      `the chip is not the word that was typed: ${JSON.stringify(strip)}`);
+    const q = await p.eval(() => new URLSearchParams(location.search).get("q") || "");
+    assert(q.indexOf(chip) !== -1,
+      `the word never reached the query: ${JSON.stringify(q)}`);
+    // THE ROWS ON SHOW ARE THE DAEMON'S ANSWER to that very query, so the two
+    // grammars are compared against each other rather than against a count.
+    const served = await p.eval(async (query) => {
+      const r = await fetch(`/headlines?limit=20000&q=${encodeURIComponent(query)}`);
+      const j = await r.json();
+      return ((j.view && j.view.rows) || j.rows || []).map((x) => x.id);
+    }, q);
+    await p.until((want) => JSON.stringify(
+        [...document.querySelectorAll("#app .tv-table tbody tr")].map((r) => r.dataset.id)
+      ) === JSON.stringify(want),
+      "the table to settle on the daemon's answer", undefined, served);
+    assert(served.length > 0 && served.length < all,
+      `the daemon narrowed to ${served.length} of ${all} rows under ${chip}`);
+
+    // (3) THREE SPELLINGS, ONE ANSWER, each asked of the daemon by URL: the
+    // bare word, the OLD starred one, and the bare shift that predates the
+    // rename -- the independent oracle, since it never spelled the word at all.
+    const idsUnder = async (q) => {
+      await p.goto(`${base}/?q=${encodeURIComponent(q)}`);
+      await p.until(() => !!document.querySelector("#app table tbody tr"),
+                    `rows under ${q}`);
+      return p.eval(() => [...document.querySelectorAll("#app .tv-table tbody tr")]
+        .map((r) => r.dataset.id));
+    };
+    const bare = await idsUnder(chip);
+    const starred = await idsUnder("deadline:*today*-30d..*today*+30d");
+    const shifted = await idsUnder("deadline:-30d..+30d");
+    assert(bare.length > 0, "the fortnight around today served no row at all");
+    assert(JSON.stringify(bare) === JSON.stringify(starred),
+      `the old spelling answers other rows: ${JSON.stringify([bare, starred])}`);
+    assert(JSON.stringify(bare) === JSON.stringify(shifted),
+      `the bare shift answers other rows: ${JSON.stringify([bare, shifted])}`);
+
+    // (4) THE DAY RIDES IN THE TAG WHATEVER THE QUERY SPELLS: no reader tests
+    // for a clock word, so the rename cannot leave a stale detector behind and
+    // a store nothing touched across midnight revalidates rather than 304ing
+    // yesterday's rows.
+    const tag = await p.eval(async (q) => {
+      const r = await fetch(`/headlines?limit=1&q=${encodeURIComponent(q)}`);
+      const t = new Date(), pad = (n) => String(n).padStart(2, "0");
+      return { etag: r.headers.get("etag") || "",
+               day: `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}` };
+    }, chip);
+    assert(tag.etag.indexOf(`-d${tag.day}`) !== -1,
+      `the tag does not carry the day: ${JSON.stringify(tag)}`);
+
+    return [`\`${chip}' chipped and served ${served.length} of ${all} row(s)`
+      + ` · the starred and bare-shift spellings served ${JSON.stringify(bare)} too`
+      + ` · offered ${JSON.stringify(offered)} behind \`deadline:tod'`
+      + ` · tag ${JSON.stringify(tag.etag)}`];
+  } },
+
 // THE BOX DOCKS ON THE STRIP (`filterDock: "strip"'): `/' summons it onto the
 // chip strip's OWN ROW, the table under it keeping its full height and its hint
 // line, and the veil the centred palette drew is gone.  WHERE a box lands, and

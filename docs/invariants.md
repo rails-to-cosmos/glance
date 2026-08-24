@@ -119,9 +119,10 @@ nothing catches it.
   spelling of it: `Base.today`. `Base.hs:77`, `Commands.hs:257`, `:270`,
   `Routes.hs:250`. Per-row reads let a batch spanning midnight land on two
   days. A read taken BELOW a route's revalidation branch is the same fault
-  wearing a cache: the store is unchanged, so a `*today*` query 304s into
+  wearing a cache: the store is unchanged, so a `today` query 304s into
   yesterday's rows — which is why the day rides in the ETag unconditionally
-  (`Routes.hs:298`), at one extra revalidation a day. *fragility: medium*
+  (`Routes.hs:308`) — no reader tests for a clock word, so renaming one cannot
+  leave a stale detector behind. One extra revalidation a day. *fragility: medium*
 
 ## Parsing and the walk
 
@@ -174,10 +175,10 @@ nothing catches it.
   undated row; `*empty*` stays the one name for those rows. It follows that
   `-k:<D` serves the undated rows where `k:>=D` does not, so the operators do
   not pair off under the sign and no surface may rewrite one into the other.
-  `Filter.hs:584`, `table-view.js:633`, `AGENTS.hs:2555`. A tidying pass that
+  `Filter.hs:664`, `table-view.js:663`, `AGENTS.hs:2591`. A tidying pass that
   normalizes `-k:<D` into `k:>=D`, or drops the guard because byte order
   "already sorts an empty cell first", turns nothing red but the one case that
-  names the pair (`TestFilter.hs:427`). **That case and its renderer twin are
+  names the pair (`TestFilter.hs:978`). **That case and its renderer twin are
   the whole guard: the rewrite is the kind a normalizer or a query optimizer
   makes on purpose.** *fragility: high*
 

@@ -4,7 +4,7 @@ module TestFilter (spec) where
 
 import Control.Monad (unless)
 import Data.List (nub, sort, sortOn)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Data.Time (Day, fromGregorian)
 import Test.Tasty (TestTree, testGroup)
@@ -15,7 +15,7 @@ import TestDefaults ( columnKeysOf, field, maybeTextAt, orgFile, refusedNaming, 
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortChain
-                    , activeMeta, displayText, inactiveMeta, metaWord, metas
+                    , activeMeta, dayWords, displayText, inactiveMeta, metaWord, metas
                     , Ref (..), RefVia (..), loadDir, matchesSearch, refTargetOf, refTargets
                     , resolveColumns
                     , rowJSON
@@ -804,41 +804,75 @@ rangeSpec = testGroup "Ranges"
                     (hit "scheduled:>=2026-08-01 scheduled:<=2026-08-31")
   ]
 
--- | @*today*@ — the starred family's DATE VALUE, resolved off the env's day and
--- never off the wall clock, so every case here answers the same in a year.
+-- | THE DAY WORDS — the date values resolved off the env's day and never off
+-- the wall clock, so every case here answers the same in a year.
 todaySpec :: TestTree
-todaySpec = testGroup "The *today* value"
-  [ testCase "bare, it is the prefix reading of the request's own day" $ do
-      matchesOn (day 2026 8 1) "scheduled:*today*" [Ship]
-      matchesOn (day 2026 8 3) "scheduled:*today*" [Privet]
-      matchesOn (day 2026 8 5) "deadline:*today*" [Ship]
-      matchesOn (day 2026 8 10) "deadline:*today*" [Reply]
-      matchesOn (day 2026 8 2) "planned:*today*" []
-      matchesOn (day 2026 8 3) "planned:*today*" [Privet]
-      -- Folded like every other value, and no glob: the whole starred word.
-      matchesOn (day 2026 8 3) "scheduled:*TODAY*" [Privet]
-      matchesOn (day 2026 8 3) "scheduled:today" []
+todaySpec = testGroup "The day words"
+  [ testCase "bare, a word is the prefix reading of the day it names" $ do
+      matchesOn (day 2026 8 1) "scheduled:today" [Ship]
+      matchesOn (day 2026 8 3) "scheduled:today" [Privet]
+      matchesOn (day 2026 8 5) "deadline:today" [Ship]
+      matchesOn (day 2026 8 10) "deadline:today" [Reply]
+      matchesOn (day 2026 8 2) "planned:today" []
+      matchesOn (day 2026 8 3) "planned:today" [Privet]
+      -- @tomorrow@ rides the SAME reader, one day over ('Glance.Query.dayNamed').
+      matchesOn (day 2026 7 31) "scheduled:tomorrow" [Ship]
+      matchesOn (day 2026 8 2) "scheduled:tomorrow" [Privet]
+      matchesOn (day 2026 8 9) "deadline:tomorrow" [Reply]
+      -- Folded like every other value.
+      matchesOn (day 2026 8 3) "scheduled:TODAY" [Privet]
+      matchesOn (day 2026 8 2) "scheduled:Tomorrow" [Privet]
+      -- A NEAR-MISS IS NO WORD: the roster's spellings alone read off the clock,
+      -- and every other literal matches no row the way @state:TOD@ matches none.
+      matchesOn (day 2026 8 3) "scheduled:todayy" []
+      matchesOn (day 2026 8 3) "scheduled:tod" []
+      matchesOn (day 2026 8 3) "scheduled:yesterday" []
       matchesOn (day 2026 8 3) "scheduled:*today" []
 
   , testCase "behind an operator, and at either end of a range" $ do
-      matchesOn (day 2026 8 3) "scheduled:<*today*" [Ship]
-      matchesOn (day 2026 8 3) "scheduled:>=*today*" [Privet]
-      matchesOn (day 2026 8 3) "scheduled:<=*today*" [Ship, Privet]
-      matchesOn (day 2026 8 1) "scheduled:>*today*" [Privet]
-      matchesOn (day 2026 8 1) "scheduled:*today*..2026-08-03" [Ship, Privet]
-      matchesOn (day 2026 8 3) "scheduled:2026-08-01..*today*" [Ship, Privet]
-      matchesOn (day 2026 8 3) "planned:*today*..*today*" [Privet]
+      matchesOn (day 2026 8 3) "scheduled:<today" [Ship]
+      matchesOn (day 2026 8 3) "scheduled:>=today" [Privet]
+      matchesOn (day 2026 8 3) "scheduled:<=today" [Ship, Privet]
+      matchesOn (day 2026 8 1) "scheduled:>today" [Privet]
+      matchesOn (day 2026 8 1) "scheduled:today..2026-08-03" [Ship, Privet]
+      matchesOn (day 2026 8 3) "scheduled:2026-08-01..today" [Ship, Privet]
+      matchesOn (day 2026 8 3) "planned:today..today" [Privet]
+      -- BOTH ENDS A WORD, and the two words in one range.
+      matchesOn (day 2026 8 1) "scheduled:today..tomorrow" [Ship]
+      matchesOn (day 2026 8 2) "scheduled:>=tomorrow" [Privet]
       -- The agenda case: everything planned up to and including today.
-      matchesOn (day 2026 8 5) "-planned:*empty* planned:<=*today*" [Ship, Privet]
+      matchesOn (day 2026 8 5) "-planned:*empty* planned:<=today" [Ship, Privet]
 
-  , testCase "with no clock behind it the word names no day" $ do
+    -- READ-COMPAT: the old spelling is taken wherever the bare word is, and a
+    -- range may mix the two -- so a stored view half-rewritten still answers.
+  , testCase "*today* is today's old spelling and reads the same everywhere" $ do
+      matchesOn (day 2026 8 3) "scheduled:*today*" [Privet]
+      matchesOn (day 2026 8 3) "scheduled:*TODAY*" [Privet]
+      matchesOn (day 2026 8 3) "scheduled:<=*today*" [Ship, Privet]
+      matchesOn (day 2026 8 3) "planned:*today*..*today*" [Privet]
+      matchesOn (day 2026 8 1) "scheduled:*today*..2026-08-03" [Ship, Privet]
+      matchesOn (day 2026 8 1) "scheduled:today..*today*+2d" [Ship, Privet]
+      matchesOn (day 2026 8 1) "scheduled:*today*..today+2d" [Ship, Privet]
+      assertEqual "the word the family spells" "*today*" todayMeta
+
+  , testCase "with no clock behind it a word names no day" $ do
+      matches "scheduled:today" []
+      matches "scheduled:tomorrow" []
       matches "scheduled:*today*" []
-      matches "scheduled:>=*today*" []
-      matches "planned:*today*..2026-12-31" []
+      matches "scheduled:>=today" []
+      matches "planned:today..2026-12-31" []
       -- It is an ATOM all the same, so its sign inverts into every row.
       every <- matching ""
+      matches "-scheduled:today" every
       matches "-scheduled:*today*" every
-      assertEqual "the word the family spells" "*today*" todayMeta
+
+    -- ONE ROSTER, and the reader the planning wall goes through is the one the
+    -- filter reads: a word the roster names is a word BOTH surfaces take.
+  , testCase "the roster is the words the one base reader answers" $ do
+      assertEqual "the day words, in the order the roster declares them"
+                  [("today", 0), ("tomorrow", 1), (todayMeta, 0)] dayWords
+      assertEqual "the old spelling rides last, being the one nothing offers"
+                  (Just todayMeta) (fmap fst (listToMaybe (reverse dayWords)))
   ]
   where day = fromGregorian
 
@@ -864,14 +898,20 @@ withClipTree = withDocDir "test" "a.org" (T.unlines
 shiftSpec :: TestTree
 shiftSpec = testGroup "Shifted date values"
   [ testCase "each of org's own units, at day granularity" $ do
+      matchesOn (day 2026 7 31) "scheduled:today+1d" [Ship]
+      matchesOn (day 2026 8 2)  "scheduled:today-1d" [Ship]
+      matchesOn (day 2026 7 25) "scheduled:today+1w" [Ship]
+      matchesOn (day 2026 8 10) "scheduled:today-1w" [Privet]
+      matchesOn (day 2026 7 1)  "scheduled:today+1m" [Ship]
+      matchesOn (day 2026 9 3)  "scheduled:today-1m" [Privet]
+      matchesOn (day 2025 8 1)  "scheduled:today+1y" [Ship]
+      matchesOn (day 2027 8 10) "deadline:today-1y" [Reply]
+      -- EVERY WORD IS A BASE, `tomorrow' being one day further along.
+      matchesOn (day 2026 7 30) "scheduled:tomorrow+1d" [Ship]
+      matchesOn (day 2026 8 4)  "scheduled:tomorrow-2d" [Privet]
+      -- And the old spelling moves exactly as the bare word does.
       matchesOn (day 2026 7 31) "scheduled:*today*+1d" [Ship]
-      matchesOn (day 2026 8 2)  "scheduled:*today*-1d" [Ship]
-      matchesOn (day 2026 7 25) "scheduled:*today*+1w" [Ship]
       matchesOn (day 2026 8 10) "scheduled:*today*-1w" [Privet]
-      matchesOn (day 2026 7 1)  "scheduled:*today*+1m" [Ship]
-      matchesOn (day 2026 9 3)  "scheduled:*today*-1m" [Privet]
-      matchesOn (day 2025 8 1)  "scheduled:*today*+1y" [Ship]
-      matchesOn (day 2027 8 10) "deadline:*today*-1y" [Reply]
       -- A SPELLED DAY IS A BASE TOO, and it needs no clock behind it.
       matches "scheduled:2026-07-31+1d" [Ship]
       matches "deadline:2026-08-12-2d" [Reply]
@@ -909,29 +949,36 @@ shiftSpec = testGroup "Shifted date values"
                     ["Feb 28 2026"] (hit "scheduled:2025-02-28+1y")
 
   , testCase "both ends of a range take a shift" $ do
-      matchesOn (day 2026 8 3) "scheduled:*today*-2d..*today*+2d" [Ship, Privet]
-      matchesOn (day 2026 8 1) "scheduled:*today*..*today*+2d" [Ship, Privet]
+      matchesOn (day 2026 8 3) "scheduled:today-2d..today+2d" [Ship, Privet]
+      matchesOn (day 2026 8 1) "scheduled:today..today+2d" [Ship, Privet]
+      matchesOn (day 2026 7 31) "scheduled:tomorrow..tomorrow+2d" [Ship, Privet]
       matches "scheduled:2026-07-31+1d..2026-08-05-2d" [Ship, Privet]
       matches "deadline:2026-08-01+3d..2026-08-01+5d" [Ship]
       -- THE 30-DAY AGENDA IN ONE TOKEN, which is what the ends are for.
+      matchesOn (day 2026 8 1) "-planned:*empty* planned:today..today+30d"
+                [Ship, Privet, Reply]
+      -- And the old spelling serves it at either end, mixed ends included.
       matchesOn (day 2026 8 1) "-planned:*empty* planned:*today*..*today*+30d"
+                [Ship, Privet, Reply]
+      matchesOn (day 2026 8 1) "-planned:*empty* planned:*today*..today+30d"
                 [Ship, Privet, Reply]
 
     -- The shift is a SPELLING of a day literal, so the granularity cuts, the
     -- empty cell's exclusion and the no-mirror law all read it as one.
   , testCase "a resolved shift is a day literal, and every law then applies" $ do
-      matchesOn (day 2026 8 5) "scheduled:<*today*-2d"  [Ship]
-      matchesOn (day 2026 8 5) "scheduled:<=*today*-2d" [Ship, Privet]
-      matchesOn (day 2026 8 5) "scheduled:>=*today*-2d" [Privet]
-      matchesOn (day 2026 8 5) "scheduled:>*today*-2d"  []
-      hit <- matchingIn (onDay (day 2026 8 5)) "scheduled:<*today*+10y"
+      matchesOn (day 2026 8 5) "scheduled:<today-2d"  [Ship]
+      matchesOn (day 2026 8 5) "scheduled:<=today-2d" [Ship, Privet]
+      matchesOn (day 2026 8 5) "scheduled:>=today-2d" [Privet]
+      matchesOn (day 2026 8 5) "scheduled:>today-2d"  []
+      hit <- matchingIn (onDay (day 2026 8 5)) "scheduled:<today+10y"
       assertEqual "the empty cell stays outside a shifted comparison" []
                   [ row | row <- hit, row `elem` undated ]
-      mirror  <- matchingIn (onDay (day 2026 8 5)) "scheduled:>=*today*-2d"
-      negated <- matchingIn (onDay (day 2026 8 5)) "-scheduled:<*today*-2d"
+      mirror  <- matchingIn (onDay (day 2026 8 5)) "scheduled:>=today-2d"
+      negated <- matchingIn (onDay (day 2026 8 5)) "-scheduled:<today-2d"
       assertBool "and negation is no mirror over one either" (mirror /= negated)
       -- Alternatives split above the literal, so each arm carries its own shift.
-      matchesOn (day 2026 8 3) "scheduled:*today*-2d|*today*" [Ship, Privet]
+      matchesOn (day 2026 8 3) "scheduled:today-2d|today" [Ship, Privet]
+      matchesOn (day 2026 8 3) "scheduled:today-2d|*today*" [Ship, Privet]
 
     -- ONE PARSER: the quoted form is the one that may carry spaces, and it
     -- folds onto the compact spelling before any form is read.
@@ -943,14 +990,18 @@ shiftSpec = testGroup "Shifted date values"
             (titlesMatchingIn (onDay (day 2026 8 3)) ("scheduled:" <> quotedValue spaced)
                               records)
         | (spaced, compact) <-
-            [ ("<= *today* + 30 days", "<=*today*+30d")
-            , ("*today* - 2 days .. *today* + 2 days", "*today*-2d..*today*+2d")
+            [ ("<= today + 30 days", "<=today+30d")
+            , ("today - 2 days .. today + 2 days", "today-2d..today+2d")
+            , ("today .. today + 30 days", "today..today+30d")
+            , ("tomorrow + 1 week", "tomorrow+1w")
             , ("2026-08-01 + 1 week", "2026-08-01+1w")
             , (">= 2026-08-01 + 1 month", ">=2026-08-01+1m")
-            , ("*today* + 1 year", "*today*+1y")
+            , ("today + 1 year", "today+1y")
+            , ("<= *today* + 30 days", "<=*today*+30d")
             , ("+ 30 days", "+30d")
             , ("2026-07-31 + 1 day", "2026-07-31+1d") ] ]
       -- The long word is CASE-FOLDED like every other value.
+      matchesOn (day 2026 7 4) "scheduled:\"TODAY + 30 DAYS\"" [Privet]
       matchesOn (day 2026 7 4) "scheduled:\"*TODAY* + 30 DAYS\"" [Privet]
       -- And the one space that survives is the timed stamp's own.
       matches "scheduled:\"2026-08-01 09:30\"" [Ship]
@@ -969,6 +1020,12 @@ shiftSpec = testGroup "Shifted date values"
                               records)
             (titlesMatchingIn (onDay (day 2026 7 4)) ("scheduled:" <> bare) records)
         | bare <- ["+30d", "-1w", "+1m", "-2y", "+0d"] ]
+      -- And the bare shift means the bare WORD's own shift, spelling for spelling.
+      sequence_
+        [ assertEqual (T.unpack bare)
+            (titlesMatchingIn (onDay (day 2026 7 4)) ("scheduled:today" <> bare) records)
+            (titlesMatchingIn (onDay (day 2026 7 4)) ("scheduled:" <> bare) records)
+        | bare <- ["+30d", "-1w", "+1m", "-2y", "+0d"] ]
 
     -- THE TOKEN'S SIGN IS ITS FIRST CHARACTER and the value's own sign sits
     -- inside the value: `scanQuery' stops at the first, so the two never meet.
@@ -982,16 +1039,18 @@ shiftSpec = testGroup "Shifted date values"
       matchesOn (day 2026 7 4) "-scheduled:+30d" [Ship, Reply, Plain, Drop, Schema]
       matchesOn (day 2026 8 10) "+scheduled:-1w" [Privet]
       -- The added token joins its own axis, each arm carrying its own shift.
-      matchesOn (day 2026 8 2) "scheduled:*today*-1d +scheduled:*today*+1d" [Ship, Privet]
+      matchesOn (day 2026 8 2) "scheduled:today-1d +scheduled:today+1d" [Ship, Privet]
 
   , testCase "with no clock behind it a shifted value names no day" $ do
+      matches "scheduled:today+30d" []
+      matches "scheduled:tomorrow+30d" []
       matches "scheduled:*today*+30d" []
       matches "scheduled:+30d" []
-      matches "scheduled:<=*today*-1w" []
-      matches "planned:*today*..*today*+30d" []
+      matches "scheduled:<=today-1w" []
+      matches "planned:today..today+30d" []
       -- It is an ATOM all the same, so its sign inverts into every row.
       every <- matching ""
-      matches "-scheduled:*today*+30d" every
+      matches "-scheduled:today+30d" every
       matches "-scheduled:+30d" every
 
     -- A BASE NAMING NO DAY leaves the whole value naming none: it matches no
@@ -1009,21 +1068,23 @@ shiftSpec = testGroup "Shifted date values"
   , testCase "a shift with no unit behind it is half-typed" $ do
       every <- matching ""
       mapM_ (`matches` every)
-            [ "scheduled:*today*+", "scheduled:*today*+30", "scheduled:+"
-            , "scheduled:+30", "scheduled:2026-08-01+", "planned:*today*+7"
-            , "scheduled:>=*today*+", "scheduled:*today*..*today*+30" ]
-      matches "-scheduled:*today*+30" []
-      matches "-planned:*today*+" []
-      matchesOn (day 2026 8 3) "scheduled:*today* scheduled:*today*+" [Privet]
+            [ "scheduled:today+", "scheduled:today+30", "scheduled:+"
+            , "scheduled:+30", "scheduled:2026-08-01+", "planned:today+7"
+            , "scheduled:>=today+", "scheduled:today..today+30"
+            , "scheduled:tomorrow+", "scheduled:*today*+" ]
+      matches "-scheduled:today+30" []
+      matches "-planned:today+" []
+      matchesOn (day 2026 8 3) "scheduled:today scheduled:today+" [Privet]
 
     -- THE PLUS FAMILY ALONE is half-typed: `-' is ISO's own separator, so a
     -- rule reading the incomplete minus would read `2026-08-03' as `2026-08'
     -- moved `03' of no unit.  An incomplete minus stays the literal it was.
   , testCase "an incomplete minus is a literal, never a half-typed shift" $ do
       every <- matching ""
-      matches "scheduled:*today*-" []
+      matches "scheduled:today-" []
+      matches "scheduled:today-7" []
+      matches "-scheduled:today-7" every
       matches "scheduled:*today*-7" []
-      matches "-scheduled:*today*-7" every
       matches "scheduled:2026-08-03" [Privet]
       matches "scheduled:2026-08-0" [Ship, Privet]
 
@@ -1037,9 +1098,12 @@ shiftSpec = testGroup "Shifted date values"
             [ hrTitle r | r <- records, v `T.isPrefixOf` shown pick r ]
             (titlesMatchingIn (onDay (day 2026 8 3)) (key <> ":" <> quotedValue v) records)
         | (key, pick) <- [("scheduled", hrScheduled), ("deadline", hrDeadline)]
+        -- `today' and `tomorrow' are OUT of this corpus: they are the day
+        -- words now and name a day rather than the text they spell, which is
+        -- the one reading this rename moved.  Their near-misses stay in.
         , v <- [ "2026", "2026-08", "2026-08-0", "2026-08-01", "2026-08-03"
                , "2026-08-01 09:30", "2026-08-05", "2026-08-10", "2026-08-1"
-               , "03", "banana", "today", "monday", "2027", "2026-8-1" ] ]
+               , "03", "banana", "todayy", "tod", "monday", "2027", "2026-8-1" ] ]
       -- THE NEW GROUND WAS DEAD: no cell a tree writes carries a `+', so every
       -- shift-shaped value served zero rows before and its negation served all.
       assertBool "an ISO cell carries no plus"

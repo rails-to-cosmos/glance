@@ -244,7 +244,7 @@ viewPage opts hub request keep extra = case pageParams request of
   Left why -> pure (jsonError status400 why)
   Right PageAsk {..} -> do
     st <- readTVarIO (hubStore hub)
-    -- ONE CLOCK READ PER REQUEST, and ABOVE the revalidation: `*today*' is
+    -- ONE CLOCK READ PER REQUEST, and ABOVE the revalidation: a day word is
     -- resolved once at filter compile, so a query asked across midnight cannot
     -- mean two days -- and the tag folds the day in (`etagOf').
     day <- today
@@ -302,9 +302,10 @@ limitCap = 20000
 
 -- | ST as an entity tag ON DAY.  The generation restarts at zero each process,
 -- so the fingerprint is what survives one.  THE DAY RIDES ALONG WHATEVER THE
--- QUERY SPELLS: @*today*@ resolves per request, so a store nothing touched
--- across midnight must revalidate rather than 304 yesterday's rows back.  One
--- extra revalidation a day is the whole cost.
+-- QUERY SPELLS, and no reader tests for a clock word: a day word resolves per
+-- request, so a store nothing touched across midnight must revalidate rather
+-- than 304 yesterday's rows back, and renaming the word cannot leave a stale
+-- detector behind.  One extra revalidation a day is the whole cost.
 etagOf :: Day -> Store -> BSC.ByteString
 etagOf day st = "\"" <> TE.encodeUtf8 (T.take 16 (stPrint st))
                   <> "-g" <> BSC.pack (show (stGen st))
