@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D · escalation</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* D — ESCALATION.  It starts as today's small form: the tag, then one line.
+     Nothing has grown, nothing has been asked for, and `RET' captures exactly as
+     it does now.  THE FORM IS THE DOC'S LARVAL STAGE.
+
+     ANY STRUCTURE KEY PRESSED IN THE LINE HATCHES IT, carrying what was typed
+     across as the title:
+
+       C-c C-s   the app's own schedule key (`Keymap.hs:123'):  the form becomes
+                 the doc AND the date widget opens on a ghosted SCHEDULED slot —
+                 the key that asked for structure also lands you on it.
+       :         org's own way of starting a drawer line, so a `:' AT THE LINE'S
+                 START means a property: the doc opens with the pair box already
+                 up over an empty pair.
+       M-RET     org's own `org-insert-heading': the whole doc, and the line
+                 comes with it as the title.
+
+     THE CARRY IS THE LAW.  A line thrown away at the moult is a line the reader
+     types twice, so what was in the field IS the draft's title.
+
+     THE COST IS DISCOVERABILITY, and it is real.  Nothing about a one-line text
+     box says it can become a document.  The rig does what a shipped one would
+     have to do — the form names its own structure keys, under the field, in the
+     foot's own ink — and that is mitigation, not a cure: a reader who never
+     reads the foot never learns the doc exists.  D's honest claim is that it
+     costs the FAST PATH nothing, not that anyone will find the slow one. */
+</style>
+</head>
+<body>
+  <h1>D · escalation
+    <small>today's form, and any structure key grows it into the doc in place</small></h1>
+  <div id="stage">
+    <div id="tablewrap"></div>
+    <pre id="landed"></pre>
+  </div>
+  <footer>
+    <span class="keys"><kbd>+</kbd> capture · <kbd>RET</kbd> settles the tag ·
+      <kbd>RET</kbd> on the line CAPTURES · <kbd>C-c C-s</kbd> /
+      <kbd>:</kbd> at the line's start / <kbd>M-RET</kbd> GROW it into the doc ·
+      then <kbd>n</kbd><kbd>p</kbd> walk · <kbd>RET</kbd> edits ·
+      <kbd>t</kbd> state · <kbd>C-c C-c</kbd> commits ·
+      <kbd>ESC</kbd> cancels the input, whole · <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+  </footer>
+
+  <div id="prompt"><div id="pbox">
+    <div id="phead"></div>
+    <div id="pbody"></div>
+    <div id="pfoot"></div>
+  </div></div>
+
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { first: "tag", then: "jot", place: "over",
+                      grow: true } });
+})();
+</script>
+</body>
+</html>

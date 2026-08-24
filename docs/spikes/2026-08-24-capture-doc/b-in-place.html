@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · in place</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* B — IN PLACE.  No popup, no veil, no surface of its own: the draft appears
+     as A NEW TOP ROW IN THE TABLE, and the capture doc grows inline beneath its
+     own row strip.  The capture doc grows WHERE THE ROW WILL LIVE.
+
+         State   Title                              Tag        Scheduled
+         ─────────────────────────────────────────────────────────────────
+       ▏ TODO    … the draft, not written yet       :book:
+       ▏     * TODO ▮                                        :book:
+       ▏     :PROPERTIES:
+       ▏     :AUTHOR: …
+       ▏     :END:
+       ▏     what you are capturing
+         READING The Iliad                          :book:
+         DONE    Ship the fold marks                :spike:
+
+     This is `INLINE OVER POPUP' taken to the capture — the same direction the
+     date-widget spike argued one storey down, where a docked widget beat a
+     raised one.  The claim is SPATIAL CONTINUITY: the reader never leaves the
+     page, the draft is already sitting among its neighbours, and `C-c C-c'
+     collapses it into the row it was standing in.  Nothing is covered; the rows
+     beneath are pushed down.
+
+     THE COST IS THE WIDTH, and it has a number: the status foot prints the
+     doc's own `clientWidth' where it stands.  A doc inside a table cell is as
+     wide as the table minus the row's padding and no wider, and the pane's own
+     indents come out of that.  Compare it against A's, which is the popup box's
+     860px.
+
+     THE SECOND COST IS THE WALK.  While the doc stands the table's `n'/`p'
+     belong to the DOC, so the reader cannot move among the rows the draft is
+     standing between.  The continuity B buys is the eye's; the walk is the
+     doc's for as long as the draft is open. */
+  /* The inline doc is a doc pane inside a table cell: the pane's own frame, at
+     the row's own left edge, with no border on the side the row strip owns. */
+  td.cx-inline #mdoc{margin:0 12px 0 12px}
+</style>
+</head>
+<body>
+  <h1>B · in place
+    <small>the draft is a row in the strip, and the doc grows beneath it</small></h1>
+  <div id="stage">
+    <div id="tablewrap"></div>
+    <pre id="landed"></pre>
+  </div>
+  <footer>
+    <span class="keys"><kbd>+</kbd> capture · <kbd>RET</kbd> settles the tag ·
+      <kbd>n</kbd><kbd>p</kbd> walk the doc · <kbd>RET</kbd> edits the row at
+      point · <kbd>t</kbd> state · <kbd>:</kbd> tags ·
+      <kbd>C-c C-s</kbd> a date · <kbd>C-c C-c</kbd> collapses it into a row ·
+      <kbd>ESC</kbd> cancels the input, whole · <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+  </footer>
+
+  <div id="prompt"><div id="pbox">
+    <div id="phead"></div>
+    <div id="pbody"></div>
+    <div id="pfoot"></div>
+  </div></div>
+
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { first: "tag", then: "doc", place: "inline" } });
+})();
+</script>
+</body>
+</html>

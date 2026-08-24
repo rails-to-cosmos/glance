@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A · the sheet</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* A — THE SHEET.  The proposal read literally: `+' asks the tag, and then the
+     WHOLE MATERIAL DOC opens over the expanded draft.
+
+         +  →  tag  →  * TODO ▮                        :book:
+                       :PROPERTIES:
+                       :AUTHOR: …
+                       :END:
+                       what you are capturing
+
+     The doc stands where today's form stands — inside the capture popup's own
+     box (`30-capture.js:25', `showPopup("capture", …)') — because that is the
+     surface `+' already raises.  What changed is what is INSIDE it: not a tag
+     field, three prompt fields and a line, but a document with the pane's own
+     doors on every row.
+
+     THE SHEET COSTS EXACTLY WHAT THE TEMPLATE COSTS.  Over the default template
+     the draft is `* ' and nothing else, so the sheet is ONE ROW with the title
+     field already open — the same one line today's form ends on.  Over `book'
+     it is five rows, because the book template has five rows.  The surface does
+     not add rows; the template does.
+
+     THE BARE DRAFT'S OWN `RET'.  A one-row draft has nothing to close an edit
+     into, so `RET' in its title commits the capture — today's muscle memory,
+     kept, with no second surface to buy it (README finding 1).  Everywhere else
+     `RET' closes the edit and hands the keys back to the walk, and `C-c C-c'
+     commits the draft whole. */
+  #pbox.sheet #mdoc{max-height:60vh}
+</style>
+</head>
+<body>
+  <h1>A · the sheet
+    <small>the tag, then the whole material doc over the expanded draft</small></h1>
+  <div id="stage">
+    <div id="tablewrap"></div>
+    <pre id="landed"></pre>
+  </div>
+  <footer>
+    <span class="keys"><kbd>+</kbd> capture · <kbd>RET</kbd> settles the tag ·
+      <kbd>n</kbd><kbd>p</kbd> walk the doc · <kbd>RET</kbd> edits the row at
+      point · <kbd>t</kbd> state · <kbd>:</kbd> tags ·
+      <kbd>C-c C-s</kbd> a date · <kbd>C-c C-c</kbd> commits ·
+      <kbd>ESC</kbd> cancels the input, whole · <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+  </footer>
+
+  <div id="prompt"><div id="pbox">
+    <div id="phead"></div>
+    <div id="pbody"></div>
+    <div id="pfoot"></div>
+  </div></div>
+
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { first: "tag", then: "doc", place: "over" } });
+})();
+</script>
+</body>
+</html>

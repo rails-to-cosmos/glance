@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The capture doc — five shapes</title>
+<style>
+  /* THE SHELL ONLY.  Each variant is its own page; what they share is `rig.js'
+     and `pane.css', which is the point — the tabs differ by HOW THE CAPTURE DOC
+     IS REACHED and WHERE IT STANDS, never by what it knows.  One template
+     registry, one draft model, one set of editors, one pair of commit/cancel
+     laws, five shapes. */
+  :root{
+    --mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --bg:#FFFFFF; --fg:#000000; --mute:#667071; --border:#E3E6EA;
+    --accent:#31769F; --surface:#F8F8FF;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --fg:#FFFFFF; --mute:#A4C2EB; --border:#2A2D3D;
+      --accent:#4CB5F5; --surface:#21252B;
+    }
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 var(--mono); display:flex; flex-direction:column;
+  }
+  header{flex:none; border-bottom:1px solid var(--border); background:var(--surface)}
+  h1{margin:0; padding:10px 20px 0; font-size:13px; font-weight:600; letter-spacing:.02em}
+  h1 small{font-weight:400; color:var(--mute); margin-left:8px}
+  nav{display:flex; flex-wrap:wrap; padding:0 20px}
+  nav a{
+    font-size:12px; color:var(--mute); text-decoration:none;
+    border-bottom:2px solid transparent; padding:10px 12px;
+  }
+  nav a:hover{color:var(--fg)}
+  nav a[aria-current="page"]{color:var(--fg); border-bottom-color:var(--accent)}
+  nav a:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  p.note{
+    margin:0; padding:8px 20px; font-size:11px; color:var(--mute);
+    border-bottom:1px solid var(--border); max-width:110ch;
+  }
+  p.note code,p.note kbd{font-size:11px}
+  iframe{flex:1 1 auto; width:100%; border:0; display:block; min-height:0}
+</style>
+</head>
+<body>
+  <header>
+    <h1>The capture doc <small>five shapes for a capture that is the material doc</small></h1>
+    <nav id="tabs" aria-label="variants">
+      <a href="#a" data-src="a-sheet.html">A · the sheet</a>
+      <a href="#b" data-src="b-in-place.html">B · in place</a>
+      <a href="#c" data-src="c-jot-then-grow.html">C · jot then grow</a>
+      <a href="#d" data-src="d-escalation.html">D · escalation</a>
+      <a href="#e" data-src="e-gallery.html">E · template gallery</a>
+    </nav>
+  </header>
+  <p class="note" id="note"></p>
+  <iframe id="stage" title="variant"></iframe>
+
+<script>
+(() => {
+  "use strict";
+  // CLICK THE PANE ONCE, THEN PRESS `+'.  A `file://' iframe is an opaque
+  // origin, so the shell's own `contentWindow.focus()' is refused and the
+  // keyboard stays with the shell until the reader clicks in.  Opening a
+  // variant's own page directly needs no click.
+  const K = "<b>Click the pane, then press <kbd>+</kbd>.</b> ";
+  const NOTE = {
+    a: K + "The proposal read literally: the tag, then the WHOLE material doc "
+     + "over the expanded draft. <kbd>n</kbd>/<kbd>p</kbd> walk the rows, "
+     + "<kbd>RET</kbd> edits the one at point (title text, the pair box on the "
+     + "drawer's empty prompt pair, the date ghost on the planning slot), "
+     + "<kbd>t</kbd> offers the TAG'S OWN cycle, <kbd>C-c C-c</kbd> commits and "
+     + "shows the org that would land, <kbd>ESC</kbd> leaves nothing. Try the "
+     + "empty tag first: the default template is <code>* </code>, so the sheet "
+     + "is ONE ROW.",
+    b: K + "No popup at all: the draft is a NEW TOP ROW in the strip and the "
+     + "doc grows inline beneath it — the capture doc grows where the row will "
+     + "live. <kbd>C-c C-c</kbd> collapses it into a real row. The status foot "
+     + "prints the doc's own width where it stands; compare it with A's.",
+    c: K + "Today's flow, kept: tag, one line, <kbd>RET</kbd> LANDS IT — the "
+     + "real commit, on disk, no draft. The fresh row then carries a transient "
+     + "<code>o opens the doc</code>, and pressing it (or <kbd>RET</kbd>, which "
+     + "is the table's own key for exactly this) raises A's sheet over the row "
+     + "for enrichment. One commit, and the doc is a normal edit-after.",
+    d: K + "Today's small form — and any STRUCTURE key pressed in the line "
+     + "grows it into the doc in place, carrying the typed line as the title: "
+     + "<kbd>C-c C-s</kbd> (and it opens the date widget on the way), a "
+     + "<kbd>:</kbd> at the line's start, <kbd>M-RET</kbd>. The form is the "
+     + "doc's larval stage. Nothing on screen says so, which is the cost.",
+    e: K + "The templates as cards — tag, cycle, the skeleton it expands from, "
+     + "where it lands, the layer file the settings sheet edits — then A's "
+     + "sheet over the one picked. <kbd>i</kbd>/<kbd>b</kbd>/<kbd>m</kbd> pick "
+     + "by letter, and point OPENS on the inbox card, so the quick jot is still "
+     + "<kbd>+</kbd> <kbd>RET</kbd>.",
+  };
+  const tabs = [...document.querySelectorAll("#tabs a")];
+  const stage = document.getElementById("stage");
+  const note = document.getElementById("note");
+
+  function show(key) {
+    const tab = tabs.find((t) => t.hash === "#" + key) || tabs[0];
+    for (const t of tabs) {
+      if (t === tab) t.setAttribute("aria-current", "page");
+      else t.removeAttribute("aria-current");
+    }
+    note.innerHTML = NOTE[tab.hash.slice(1)] || "";
+    const src = tab.dataset.src;
+    if (stage.getAttribute("src") !== src) stage.setAttribute("src", src);
+    stage.addEventListener("load", () => {
+      try { stage.contentWindow.focus(); } catch (e) { /* another origin */ }
+    }, { once: true });
+  }
+
+  addEventListener("hashchange", () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || "a");
+})();
+</script>
+</body>
+</html>

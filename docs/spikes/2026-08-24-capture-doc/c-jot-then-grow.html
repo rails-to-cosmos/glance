@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C · jot then grow</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* C — JOT THEN GROW.  The fast path survives untouched: `+' asks the tag, one
+     line follows, `RET' lands it.  That is today's flow, key for key
+     (`docs/capture.md', "The form"; `30-capture.js:105'…`:130'), and nothing
+     about it is staged, drafted or deferred.
+
+         +  →  tag  →  ▮ the line                    →  RET, and it is on disk
+
+     WHAT IS NEW IS AFTERWARDS.  The row that just landed carries a transient
+     word — `o opens the doc' — and pressing it raises A's sheet over the FRESH
+     ROW, seeded from it, for enrichment.
+
+     ONE COMMIT, AND IT IS THE `RET'.  That is the whole of C's law: `RET' is
+     the real commit.  The blob is minted, the shard path written, the ledger line
+     appended; the doc that opens after is A NORMAL EDIT of a headline that
+     exists, going out through the same door every other row edit goes out
+     through.  `C-c C-c' there SAVES AN EDIT; it does not capture a second time,
+     and `ESC' there leaves the landed row exactly as it landed.  A design where
+     the doc were a second half of the capture would need a draft that outlives
+     the commit, which the proposal refuses outright.
+
+     THE CUE IS TRANSIENT, THE DOOR IS NOT.  The word fades after six seconds;
+     the key keeps working, because the key is the table's own.
+
+     AND `o' IS ALREADY SPOKEN FOR: `Keymap.hs:83' binds it to
+     `org-glance-overview:open' — the row's links.  The rig honours the ask and
+     answers to `o' here, and it answers to `RET' too, which is what the table
+     already spends on this exact meaning (`Keymap.hs:61',
+     `org-glance-overview:materialize' — open this row's doc).  See the README:
+     the honest binding is `RET', and the cue should say so. */
+</style>
+</head>
+<body>
+  <h1>C · jot then grow
+    <small>RET lands the line — the doc opens after, over the row that landed</small></h1>
+  <div id="stage">
+    <div id="tablewrap"></div>
+    <pre id="landed"></pre>
+  </div>
+  <footer>
+    <span class="keys"><kbd>+</kbd> capture · <kbd>RET</kbd> settles the tag ·
+      <kbd>RET</kbd> on the line CAPTURES · then <kbd>o</kbd> (or
+      <kbd>RET</kbd>) on the fresh row opens its doc ·
+      <kbd>n</kbd><kbd>p</kbd> walk · <kbd>t</kbd> state · <kbd>:</kbd> tags ·
+      <kbd>C-c C-s</kbd> a date · <kbd>C-c C-c</kbd> saves the edit ·
+      <kbd>ESC</kbd> cancels the input, whole · <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+  </footer>
+
+  <div id="prompt"><div id="pbox">
+    <div id="phead"></div>
+    <div id="pbody"></div>
+    <div id="pfoot"></div>
+  </div></div>
+
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { first: "tag", then: "jot", place: "over",
+                      afterLand: "o opens the doc" } });
+})();
+</script>
+</body>
+</html>

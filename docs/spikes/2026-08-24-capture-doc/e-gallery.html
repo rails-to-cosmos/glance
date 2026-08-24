@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E · template gallery</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* E — TEMPLATE GALLERY.  `+' shows the TEMPLATES rather than asking for a
+     tag.  Each card carries the four things a reader needs to pick with:
+
+         [b]  :book:                          TODO READING READ
+              #+TODO: TODO READING | READ
+              *
+              :PROPERTIES:
+              :AUTHOR: %^{Author}
+              :END:
+              %?
+              → data/<shard>/…/data.org  ·  a reading cycle, an author to fill
+
+     the tag, the cycle it brings, the skeleton it expands from, and where the
+     blob lands.  A tag field answers "which word"; a gallery answers "what will
+     this BE" — which is the question a reader with twenty tags is actually
+     asking, and the one a completing field cannot answer without being read out
+     loud.  It is also where the template file's own name belongs, since that is
+     the file the settings sheet edits (`docs/capture.md', "Templates").
+
+     Then it is A: the picked template's draft opens in the pane.
+
+     THE COST IS ONE STEP FOR THE JOT, and E pays it down rather than denying
+     it: POINT OPENS ON THE INBOX CARD, so `RET' straight away is the inbox.
+     The quick jot is `+ RET', exactly the two keys it costs today, and the
+     gallery is a screen the reader passes over without touching.  A letter
+     picks directly (`i' `b' `m'), `n'/`p' walk, and `/' opens a tag field for a
+     tag no card shows — `/' always narrows (`Keymap.hs:62').
+
+     THE COST THAT DOES NOT PAY DOWN is the screen itself: a gallery of three is
+     a nice list and a gallery of forty is a grid nobody reads.  What makes it
+     survive scale is that the cards are ordered and letter-picked, which is a
+     completing field with pictures — at which point the honest question is
+     whether the pictures were worth the surface. */
+</style>
+</head>
+<body>
+  <h1>E · template gallery
+    <small>the templates as cards, then A's sheet over the one picked</small></h1>
+  <div id="stage">
+    <div id="tablewrap"></div>
+    <pre id="landed"></pre>
+  </div>
+  <footer>
+    <span class="keys"><kbd>+</kbd> capture · <kbd>n</kbd><kbd>p</kbd> walk the
+      cards · <kbd>i</kbd><kbd>b</kbd><kbd>m</kbd> pick by letter ·
+      <kbd>RET</kbd> takes the card at point — point starts on the inbox ·
+      <kbd>/</kbd> a tag not shown · then <kbd>RET</kbd> edits ·
+      <kbd>t</kbd> state · <kbd>C-c C-s</kbd> a date ·
+      <kbd>C-c C-c</kbd> commits · <kbd>ESC</kbd> cancels the input, whole ·
+      <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+  </footer>
+
+  <div id="prompt"><div id="pbox">
+    <div id="phead"></div>
+    <div id="pbody"></div>
+    <div id="pfoot"></div>
+  </div></div>
+
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { first: "gallery", then: "doc", place: "over" } });
+})();
+</script>
+</body>
+</html>

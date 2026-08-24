@@ -1,0 +1,371 @@
+/* The surfaces every variant of this spike draws into, lifted from
+   `Theme/Default.hs', `Web/Page/Style.hs' and `assets/table-view.js' so the
+   capture doc is judged at the real hues and the real metrics: the 13px/21px
+   doc line, the 4px row radius, the `#dpair' field dress, the `.tv-table' row
+   strip, the shipped capture popup's own box.
+
+   A variant adds its own `<style>' after this and overrides nothing here — what
+   differs between two tabs is WHERE THE CAPTURE DOC STANDS and how it is
+   reached, never what it knows.  Same palette as the date-widget spike's
+   `pane.css', because it is the same palette. */
+
+:root{
+  --dk-mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+  --g-bg:#FFFFFF; --g-fg:#000000; --g-surface:#F8F8FF; --g-mute:#667071;
+  --g-border:#E3E6EA; --g-accent:#31769F; --g-sel:#FFD600; --g-link:#30739B;
+  --g-bad:#E74C3C; --g-warn:#FFA500; --g-ok:#27AE60;
+  --g-point:#005A8D; --g-point-dim:#6E8CA0; --g-point-off:#D9E2EC;
+  --g-todo:#9A3412; --g-done:#166534; --g-hover:#FAFAFA;
+  --g-veil:#00000066; --g-shadow:#00000033;
+  --g-doc-pad:6px; --g-doc-padx:10px; --g-doc-pady:8px;
+  /* A WHOLE NUMBER OF PIXELS PER LINE, the shipped arithmetic verbatim. */
+  --g-doc-fs:13px; --g-doc-lh:21px;
+  --g-doc-off:calc(3 * var(--g-doc-lh));
+  --g-pop-top:5vh; --g-pop-pad:24px;
+  --tv-flag:#E74C3C; --tv-flag-wash:8%; --tv-mark-wash:8%; --tv-pill-pad:8px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+    --g-point:#FFC777; --g-point-dim:#A79E86; --g-point-off:#2B4B6E;
+    --g-todo:#E0AF68; --g-done:#9ECE6A; --g-hover:#1F1F1F; --g-ok:#B6E63E;
+    --g-veil:#00000099; --g-shadow:#00000077;
+    --tv-flag-wash:30%; --tv-mark-wash:20%;
+  }
+}
+:root[data-theme="dark"]{
+  --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+  --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+  --g-point:#FFC777; --g-point-dim:#A79E86; --g-point-off:#2B4B6E;
+  --g-todo:#E0AF68; --g-done:#9ECE6A; --g-hover:#1F1F1F; --g-ok:#B6E63E;
+  --g-veil:#00000099; --g-shadow:#00000077;
+  --tv-flag-wash:30%; --tv-mark-wash:20%;
+}
+/* THE TABLE SPENDS THE PAGE'S OWN TOKENS under its own names — `Theme.hs:83'
+   maps `--tv-alt' to the surface and `:87' `--tv-sel' to the selection, which
+   is why the table's cursor and the doc pane's cursor are one gold. */
+:root{
+  --tv-bg:var(--g-bg); --tv-fg:var(--g-fg); --tv-muted:var(--g-mute);
+  --tv-border:var(--g-border); --tv-accent:var(--g-accent);
+  --tv-alt:var(--g-surface); --tv-sel:var(--g-sel);
+}
+
+html,body{height:100%}
+body{
+  margin:0; background:var(--g-bg); color:var(--g-fg);
+  font:12px/1.5 var(--dk-mono);
+  display:flex; flex-direction:column; gap:8px; padding:12px;
+  box-sizing:border-box;
+}
+h1{
+  margin:0; font-size:12px; font-weight:600; flex:none;
+  display:flex; align-items:baseline; gap:10px;
+}
+h1 small{font-weight:400; color:var(--g-mute)}
+kbd{
+  font:inherit; border:1px solid var(--g-border); border-radius:3px;
+  padding:0 3px; color:var(--g-mute);
+}
+footer{
+  flex:none; color:var(--g-mute); font-size:11px;
+  display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
+}
+footer .keys{flex:1 1 24em; min-width:0}
+#truth{color:var(--g-fg)}
+#state{color:var(--g-point)}
+#stage{
+  flex:1 1 auto; min-height:0; position:relative;
+  display:flex; flex-direction:column; gap:8px;
+}
+
+/* ---- the stage: the table the capture lands in -------------------------- */
+/* `+' IS BOUND IN THE TABLE'S SCOPE (`Keymap.hs:91'), so the page a capture
+   opens over is the row strip, in every variant.  What the variants argue is
+   whether the capture doc stands OVER this or IN it. */
+#tablewrap{
+  flex:1 1 auto; min-height:0; overflow:auto;
+  border:1px solid var(--g-border); border-radius:8px; background:var(--g-bg);
+}
+.tv-table{border-collapse:collapse; width:100%; font:12px/1.5 var(--dk-mono)}
+.tv-table th,.tv-table td{
+  padding:5px 12px; text-align:left; white-space:nowrap;
+  border-bottom:1px solid var(--tv-border);
+}
+.tv-table th{
+  position:sticky; top:0; background:var(--tv-bg); font-weight:600;
+  color:var(--tv-muted); user-select:none; z-index:1;
+}
+.tv-table tbody tr.tv-alt{background:var(--tv-alt)}
+.tv-table tbody tr.tv-sel{background:var(--tv-sel)}
+/* THE TITLE COLUMN FILLS AND EVERY OTHER COLUMN IS ITS CONTENT
+   (`table-view.js:1541' and the note above it). */
+.tv-table td.tv-title,.tv-table th.tv-title{width:99%; overflow:hidden;
+  text-overflow:ellipsis}
+.tv-pill{
+  display:inline-block; padding:0 var(--tv-pill-pad); border-radius:999px;
+  font-weight:600; color:var(--tv-badge);
+  background:color-mix(in srgb,var(--tv-badge) 15%,transparent);
+}
+.tv-tag{color:var(--g-mute)}
+/* THE ROW THE CAPTURE JUST MINTED, and the affordance riding on it: a row that
+   arrived is a fact, so it is drawn as a row and the offer beside it is mute. */
+.tv-table tbody tr.tv-fresh td{box-shadow:inset 0 1px 0 var(--g-accent),
+  inset 0 -1px 0 var(--g-accent)}
+.tv-cue{color:var(--g-accent); font-size:11px; margin-left:10px}
+.tv-cue.fade{color:var(--g-point-off)}
+/* B'S OWN ROW: the draft is a row in the strip before it is a blob on disk, so
+   it wears the cursor's ground and an accent edge that says NOT YET WRITTEN. */
+.tv-table tbody tr.tv-draft td{border-bottom:none}
+.tv-table tbody tr.tv-draft td:first-child{box-shadow:inset 3px 0 0 var(--g-accent)}
+.tv-draftmark{color:var(--g-accent)}
+/* THE DOC GROWS UNDER THE ROW STRIP, in the table's own flow, so the rows
+   beneath are PUSHED DOWN rather than covered — inline over popup, one storey
+   up from the date-widget spike. */
+td.cx-inline{padding:0 0 6px 0; white-space:normal; background:var(--g-bg)}
+
+/* ---- the doc pane, verbatim --------------------------------------------- */
+#mdoc{
+  min-width:0; position:relative;
+  overflow:auto; padding:var(--g-doc-pady) var(--g-doc-padx);
+  padding-left:calc(var(--g-doc-padx) + 1ch);
+  font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+  border:1px solid var(--g-accent); border-radius:8px;
+  /* THE PANE NEVER SCROLLS SIDEWAYS: a capture doc wider than the sheet is a
+     bug, and this is where it would show. */
+  overflow-x:hidden;
+}
+.de{
+  scroll-margin-block:var(--g-doc-off); position:relative;
+  --ink:var(--g-point-off); --fg:var(--g-fg); --tok:var(--g-point);
+  --punc:var(--g-mute); --spine:var(--g-point-off);
+  padding:1px var(--g-doc-pad); border-radius:4px; white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+#mdoc .de.dat{background-color:var(--g-sel); color:var(--g-fg)}
+.d-para,.d-meta{margin:7px 0;
+  padding-left:calc(var(--g-doc-pad) + var(--g-doc-indent, 2) * 1ch)}
+.d-drawer .d-meta{padding-left:0}
+.d-head{display:flex; align-items:baseline; font-weight:600}
+.ds{white-space:pre; color:var(--fg); font-weight:400; flex:none;
+  width:calc(var(--g-doc-indent, 2) * 1ch)}
+.dc{margin-right:.6em; flex:none}
+.dc-state{color:var(--g-todo)}
+.dc-state.done{color:var(--g-done)}
+.dc-title{flex:1 1 auto; min-width:0}
+.dc-tags{color:var(--punc); font-size:11px; margin-left:auto; margin-right:0}
+.dk{color:var(--tok)}
+.dpunc{color:var(--punc)}
+.dpunc.dlead{margin-left:-1ch}
+.dg{padding:0; white-space:pre-wrap; color:var(--punc)}
+.d-plan .dv{color:var(--g-fg)}
+.d-drawer .dg,.dk{color:var(--tok)}
+.d-drawer .d-meta::before{content:""; position:absolute;
+  top:0; bottom:0; left:-1.5ch; width:1px; border-radius:1px;
+  background:var(--spine)}
+.d-drawer{--spine:color-mix(in srgb, var(--g-accent) 45%, var(--g-bg))}
+/* THE VALUE'S OWN SLOT (`Style.hs' `.dpv'): an inline-BLOCK so its box is the
+   pane's own line whatever it holds, and a zero-width space where a slot has no
+   value yet — an empty INLINE box has no height to measure. */
+.dv{display:inline-block; line-height:var(--g-doc-lh)}
+.dv:empty::before{content:"\200B"}
+
+/* ---- what a DRAFT looks like, and nothing else does --------------------- */
+/* A SEED IS NOT A VALUE.  Where the expanded template left a slot empty — the
+   title of a `* ' draft, the value half of a `%^{Author}' pair, the body where
+   `%?' stood — the pane draws the PLACE and says what it is for in mute ink.
+   The ink is the ghost's (`Style.hs:375' `.dgh': `--g-mute', unselectable), because
+   this is the same statement: text on screen that is not in the document. */
+.cx-seed{color:var(--g-mute); user-select:none}
+.cx-seed.point{color:var(--g-point-dim)}
+/* WHERE `%?' STOOD, marked once and only while the doc is fresh: the caret's
+   own accent under the slot point opened on. */
+.cx-here{
+  border-bottom:1px dashed var(--g-accent);
+}
+/* THE DRAFT'S OWN BADGE.  A doc over a file that does not exist yet says so —
+   `capture' is the only surface in the app where ESC means the bytes were
+   never written. */
+.cx-badge{
+  font-size:10px; color:var(--g-accent); border:1px solid var(--g-accent);
+  border-radius:3px; padding:0 4px; margin-left:8px; font-weight:400;
+  letter-spacing:.04em;
+}
+
+/* ---- the edit dress, COPIED and not approximated ------------------------ */
+/* ONE EDITOR.  The capture doc is the material doc, so every field in it is the
+   pane's own field — these are `Web/Page/Style.hs''s rules transcribed with the
+   source line beside each, never a capture-shaped look of their own.
+
+   `Style.hs:364' — ONE DRESS FOR THE PANE'S OWN FIELDS: the document's face,
+   since each one is laid over the row it writes.  The FLEX is each field's own.
+     #dtin,#dpair input,#ddate input{font:inherit;padding:0;border:none;
+       background:transparent;color:var(--g-fg);min-width:0}                  */
+.cx-field{
+  font:inherit; padding:0; border:none; background:transparent;
+  color:var(--g-fg); min-width:0; flex:1 1 auto;
+}
+/*   `Style.hs:412' — #dpara textarea:focus,#dtin:focus,#dpair input:focus,
+       #ddate input:focus{outline:none;border:none}
+   THE PANE'S IN-ROW FIELDS TAKE NO FOCUS RING AND NO FOCUS BORDER.  What says
+   an edit is open is the GROUND it carries (below) and the pane's own accent
+   edge.  */
+.cx-field:focus{outline:none; border:none}
+/*   `Style.hs:414' — #dtin::selection,#dpair input::selection,… {
+       background:var(--g-sel);color:var(--g-fg)}                             */
+.cx-field::selection{background:var(--g-sel); color:var(--g-fg)}
+.cx-field::placeholder{color:var(--g-mute); opacity:1}
+textarea.cx-field{
+  resize:none; width:100%; overflow-wrap:anywhere; scrollbar-width:none;
+  display:block;
+}
+textarea.cx-field::-webkit-scrollbar{width:0;height:0}
+/*   `Style.hs:322' — #dpara,#dpair,#ddate,#dtitle{background:var(--g-surface)}
+   AN OPEN EDIT CARRIES ITS OWN GROUND.  The pane spends ONE token on two
+   things: the cursor row's wash is `--g-sel' and a field's TEXT SELECTION is
+   `--g-sel' too, so an edit sitting in the cursor row with no ground of its own
+   selects its text in the colour already behind it — SET, FOCUSED, AND
+   INVISIBLE (the date-widget spike's round 4).  The padding is given back as
+   margin so the ground appears without the text moving. */
+.cx-slot{
+  display:inline-flex; align-items:baseline; vertical-align:baseline;
+  background:var(--g-surface); border-radius:4px;
+  padding:0 3px; margin:0 -3px; position:relative; max-width:100%;
+}
+.cx-slot.wide{display:flex; width:100%}
+/*   `Style.hs' — #mdoc.on.tight .de.dat{background-color:transparent}
+   A ROW HOLDING AN OPEN EDIT SHOWS THE EDIT, NOT THE CURSOR: an edit standing
+   inside the row cannot cover the row's gold, so it LIFTS it. */
+#mdoc .de.dat.cx-editing{background-color:transparent}
+/*   `Style.hs' — #dpair{--punc:var(--g-mute)}: the pair box wears the drawer's
+   own colons, dimmed, since `--punc' is a ROW's variable and no row holds the
+   box. */
+.cx-slot.dpair{--punc:var(--g-mute)}
+.cx-slot .cx-key{flex:0 0 auto; color:var(--g-point); min-width:1ch}
+.cx-slot .cx-val{flex:2 1 60%; margin-left:1ch}
+/* THE GHOST (`Style.hs:375' `.dgh'): the resolution riding after what was typed, on
+   the field's own line — mute where it resolves, the refusal's own ink where
+   the grammar refuses.  A SPAN AND NEVER THE FIELD'S VALUE: the caret cannot
+   enter it, nothing selects it, and `RET' commits the resolution rather than
+   the characters that drew it. */
+.cx-ghost{
+  flex:none; white-space:pre; color:var(--g-mute);
+  user-select:none; pointer-events:none;
+}
+.cx-ghost.bad{color:var(--g-bad)}
+
+/* ---- the offers, as `#doffer' wears them (`Style.hs') -------------------- */
+.doffer{
+  display:none; position:absolute; top:100%; left:0;
+  min-width:12em; max-height:calc(6 * var(--g-doc-lh)); overflow-y:auto;
+  background:var(--g-surface); border:1px solid var(--g-border);
+  border-radius:4px; font-size:11px; z-index:5;
+}
+.doffer.on{display:block}
+.dof{display:flex; align-items:baseline; gap:8px;
+  padding:1px var(--g-doc-pad); color:var(--g-mute); white-space:pre}
+.dof.dat{background:var(--g-sel); color:var(--g-fg)}
+.dow{flex:none}
+.dot{flex:1 1 0; text-align:right; font-size:10px; color:var(--g-mute)}
+
+/* ---- the raised surface: today's capture popup, and what it holds -------- */
+/* `openCapture' raises a popup over the table (`30-capture.js:25',
+   `showPopup("capture", …)'), so a capture doc that opens OVER the page opens
+   in this box — the veil, the band off the top, the title, the foot.  What
+   changes between the tabs is what stands INSIDE it. */
+#prompt{
+  display:none; position:fixed; inset:0; z-index:100; background:var(--g-veil);
+  padding:var(--g-pop-pad); padding-top:var(--g-pop-top);
+}
+#prompt.on{display:flex; justify-content:center; align-items:flex-start}
+#pbox{
+  box-sizing:border-box; width:min(560px,100%); max-height:86vh;
+  display:flex; flex-direction:column; gap:6px; padding:10px;
+  border-radius:8px; background:var(--g-bg); color:var(--g-fg);
+  border:1px solid var(--g-border); box-shadow:0 4px 14px var(--g-shadow);
+}
+/* THE SHEET IS WIDER THAN THE FORM IT REPLACES, and that is a cost with a
+   number on it: a doc is a document and a form is one line. */
+#pbox.sheet{width:min(860px,100%)}
+#pbox.gallery{width:min(760px,100%)}
+#phead{font-size:12px; color:var(--g-mute); display:flex; gap:8px;
+  align-items:baseline}
+#phead .cx-badge{margin-left:auto}
+#pfoot{font-size:11px; color:var(--g-mute)}
+#pbody{display:flex; flex-direction:column; gap:6px; min-height:0; overflow:auto}
+
+/* ---- the shipped capture form (`Style.hs:431'…`:445') ------------------- */
+/* TODAY'S FORM, transcribed: the tag field, the completion list, the grown
+   prompt rows, the line.  A and B delete parts 2 and 3 of this; C and D keep
+   part 3 and reach the doc through it. */
+#ktag,#kfields input{
+  font:12px/1.5 var(--dk-mono); padding:5px 7px; border-radius:4px;
+  border:1px solid var(--g-border); background:transparent; color:inherit;
+}
+#ktag:focus,#ktext:focus,#kfields input:focus{outline:none;
+  border-color:var(--g-accent)}
+#klist{overflow-y:auto; font-size:12px; max-height:9em}
+.ke{padding:2px 7px}
+.ke.kh{background:var(--g-sel)}
+.krow{display:flex; gap:8px; align-items:center; margin-top:4px}
+.klab{font-size:11px; color:var(--g-mute); min-width:8em}
+.krow input{flex:1 1 auto}
+#ktext{
+  flex:1 1 auto; min-height:0; font:12px/1.5 var(--dk-mono);
+  padding:5px 7px; border-radius:4px; border:1px solid var(--g-border);
+  background:transparent; color:inherit; resize:none;
+}
+#ktext::selection{background:var(--g-sel); color:var(--g-fg)}
+#ktext::placeholder{color:var(--g-mute); opacity:1}
+/* THE STRUCTURE KEYS, NAMED ON THE FORM ITSELF (D).  A door nobody can see is a
+   door nobody opens, so the larval form carries the list of keys that hatch it
+   — which is the honest half of D's discoverability cost, not a cure for it. */
+#kgrow{font-size:11px; color:var(--g-mute)}
+#kgrow b{color:var(--g-point); font-weight:400}
+
+/* ---- the template gallery (E) ------------------------------------------- */
+/* THE TEMPLATES AS CARDS.  Nothing here is a new visual system: a card is the
+   offer row (`.dof') given two more lines, the pick wears `--g-sel' the way
+   every cursor on the page does, and the skeleton preview is the doc pane's own
+   face at the doc pane's own size. */
+#cards{display:grid; gap:6px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.cg{
+  border:1px solid var(--g-border); border-radius:6px; padding:6px 8px;
+  display:flex; flex-direction:column; gap:4px; background:var(--g-bg);
+}
+.cg.at{background:var(--g-sel); border-color:var(--g-accent)}
+.cg-key{
+  flex:none; min-width:1.6em; text-align:center; padding:0 5px;
+  border-radius:3px; font-size:11px; color:var(--g-mute);
+  border:1px solid var(--g-border);
+}
+.cg-head{display:flex; align-items:baseline; gap:8px}
+.cg-tag{font-weight:600}
+.cg-cycle{font-size:11px; color:var(--g-mute); margin-left:auto}
+.cg-skel{
+  font:11px/1.5 var(--dk-mono); color:var(--g-mute); white-space:pre;
+  overflow:hidden; text-overflow:ellipsis; margin:0;
+}
+.cg-skel .k{color:var(--g-point)}
+.cg-where{font-size:10px; color:var(--g-point-dim)}
+.cg.at .cg-skel,.cg.at .cg-cycle,.cg.at .cg-where{color:var(--g-fg)}
+
+/* ---- the receipt: the org that would land ------------------------------- */
+/* WHAT `C-c C-c' WRITES, shown because a spike that only claimed it would be
+   asking to be believed.  The page's own cargo in the page's ink; the server's
+   own minting — the id, the creation stamp, the shard path — in mute, because
+   the page never spells those (`docs/capture.md', "What a tagged capture
+   writes"). */
+#landed{
+  flex:none; max-height:34vh; overflow:auto; margin:0;
+  font:11px/1.5 var(--dk-mono); white-space:pre-wrap;
+  padding:6px 10px; background:var(--g-surface);
+  border:1px solid var(--g-border); border-radius:8px; display:none;
+}
+#landed.on{display:block}
+#landed .path{color:var(--g-accent)}
+#landed .srv{color:var(--g-mute)}
+#landed .lead{color:var(--g-mute)}
+#landed .kw{color:var(--g-todo)}
+#landed .tok{color:var(--g-point)}
+#landed .tag{color:var(--g-mute)}
