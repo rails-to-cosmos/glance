@@ -2746,13 +2746,53 @@ export default [
     assert(JSON.stringify(landed.properties || []) === JSON.stringify(before.props),
       `the drawer reads ${JSON.stringify(landed.properties)} `
       + `against ${JSON.stringify(before.props)}`);
+
+    // ------- THE BRACKET IS THE ASK FOR AN ACTIVITY.  `[today]' is the clock
+    // day INACTIVE — the one way this widget reaches org's other bracket — and
+    // the whole grammar rides inside the pair.  READ RELATIVE TO THE DRIVEN
+    // CLOCK: the server resolves against its own day, so the day is measured
+    // rather than written down, and only the SHAPE is spelled here.
+    await p.press("C-c");
+    await p.press("C-s");
+    await widgetUp("the widget again, to type a bracketed phrase into");
+    // The entry comes up WHOLLY SELECTED, so what is typed replaces it.
+    await p.type("[today]");
+    const bracket = await p.until(() => {
+      const s = document.getElementById("dghost");
+      return s.textContent || false;
+    }, "the ghost to resolve the bracketed phrase");
+    const clockDay = await p.eval(() => {
+      const n = new Date(), pad = (x) => (x < 10 ? "0" : "") + x;
+      return `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`;
+    });
+    assert(new RegExp(`^ → \\[${clockDay} (Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\]$`).test(bracket),
+      `the ghost reads ${JSON.stringify(bracket)} over "[today]" on ${clockDay}`);
+    // AND THE INACTIVE STAMP IS WHAT LANDS ON DISK: the raw phrase travelled,
+    // the server resolved it once, and the pane redrew off that answer.
+    await p.press("RET");
+    const inactive = await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-prio")).json();
+      const at = (h.planning || []).find(([k]) => k === "SCHEDULED");
+      return at && at[1].charAt(0) === "[" ? at[1] : false;
+    }, "the bracketed phrase to reach the planning line as an inactive stamp", 15000);
+    assert(bracket === ` → ${inactive}`,
+      `the server wrote ${JSON.stringify(inactive)} where the ghost promised `
+      + JSON.stringify(bracket));
+    // …AND THE PANE DREW THE BYTES: `SCHEDULED: [YYYY-MM-DD Day]' on the line.
+    const inactiveLine = await p.until(() => {
+      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
+      return at && at.textContent.indexOf("[") !== -1 ? at.textContent : false;
+    }, "the pane to redraw the inactive stamp");
+    assert(inactiveLine.indexOf(`SCHEDULED: ${inactive}`) !== -1,
+      `the line reads ${JSON.stringify(inactiveLine)} against ${JSON.stringify(inactive)}`);
     return [`opened on ${JSON.stringify(open.val)} selected 0..${open.sel[1]}, `
       + `${diff}/${area}px of the field repainted and ${wash} wearing ${open.wash}; `
       + `C-c C-s over it switched to ${JSON.stringify(swapped.val)} `
       + `${placed.off}px off the SCHEDULED slot; `
       + `the slot drawn as ${JSON.stringify(drawn.trim())}, "18 aug" previewed `
       + `${JSON.stringify(ghost.trim())} and landed ${JSON.stringify(landed.planning)} `
-      + `over ${JSON.stringify(landed.properties)}`];
+      + `over ${JSON.stringify(landed.properties)}; "[today]" previewed `
+      + `${JSON.stringify(bracket.trim())} and landed ${JSON.stringify(inactive)}`];
   } },
 
 // ORG SCHEDULES THE ENTRY AT POINT, AND THE STAMP LANDS ON THAT ENTRY.  Two

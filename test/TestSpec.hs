@@ -1480,6 +1480,20 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
       assertEqual "the phrases the model's words make"
                   [Right "<2026-08-18 Tue>", Right "<2027-08-18 Wed>"]
                   [planningTimestamp aDay "18 aug", planningTimestamp aDay "18 aug 2027"]
+      -- A BRACKET PICKS THE ACTIVITY: the model says which pair an answer
+      -- wears, and the wall spells it -- bare is active, and a bracket the
+      -- reader typed is the one that comes back.  The WRAPPED form is no
+      -- verbatim one, which is what keeps it behind org's own spelling.
+      assertEqual "the model's activity rule has drifted"
+                  [Spec.TsActive, Spec.TsActive, Spec.TsInactive]
+                  [ Spec.stampActivity Nothing
+                  , Spec.stampActivity (Just Spec.TsActive)
+                  , Spec.stampActivity (Just Spec.TsInactive) ]
+      assertEqual "and the wall wears another pair than the model names"
+                  [Right "<2026-08-18 Tue>", Right "[2026-08-18 Tue]"]
+                  [ planningTimestamp aDay "<18 aug>", planningTimestamp aDay "[18 aug]" ]
+      assertEqual "a wrapped form is no verbatim one"
+                  [True, False] (map Spec.verbatimDate [Spec.Bracketed, Spec.Wrapped])
 
   , testCase "environment leads the flag, and the PATH ladder is chromium-family" $ do
       assertEqual "the spec's browser candidates and Glance.Desktop's own have drifted"

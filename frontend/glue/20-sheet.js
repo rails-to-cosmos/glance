@@ -1311,6 +1311,30 @@
       if (one.bad) return noDate({ hard: true });
       return { ok: true, start: one.c };
     }
+    /** The phrase inside org's own brackets, resolved wearing THE ACTIVITY THE
+     * BRACKET NAMES: `[today]' is the clock day inactive, `<today>' the bare
+     * word's own bytes.  The body is read by the very grammar a bare field reads
+     * — every alias of it, English, shift and ISO — so the bracket adds one
+     * thing and nothing else.  `null' where this reading has nothing to say: a
+     * MISMATCHED pair names no timestamp org holds, an empty one names no day,
+     * and a body outside the grammar keeps THE BRACKET'S OWN refusal rather than
+     * earning a second one.  THE INVERSION TRAVELS, though — it is the one
+     * refusal a reading spends a word of its own on, and an interval runs the
+     * wrong way inside brackets exactly as it does outside them. */
+    function wrappedDate(s, today) {
+      const inactive = s[0] === "[" && s.endsWith("]");
+      if (!inactive && !(s[0] === "<" && s.endsWith(">"))) return null;
+      const body = s.slice(1, -1).trim();
+      if (!body) return null;
+      const g = englishDate(body, today) || shippedDate(body, today);
+      if (!g) return null;
+      if (!g.ok) return g.short === INVERTED ? g : null;
+      if (!showable(g.start) || (g.end && !showable(g.end))) return null;
+      const one = (c, time) => stampOf(c, time, inactive);
+      return { ok: true, start: g.start, end: g.end,
+               stamp: g.end ? one(g.start) + "--" + one(g.end)
+                            : one(g.start, g.time) };
+    }
     /** TEXT read as a planning date against TODAY.  A declaration, so a direct
      * `eval' of this glue reaches it: the drift pin drives it over the corpus
      * the server's own reader is driven over. */
@@ -1320,8 +1344,13 @@
       // law and not the grammar's: an empty field names no date, so the ghost
       // stays dark over one and the commit sends the clear without asking here.
       if (!s) return noDate();
+      // ORG'S OWN SPELLING OUTRANKS THE WRAPPED READING, and an OPEN bracket is
+      // still being written: only a CLOSED bracket that reparses NOTHING is read
+      // as the grammar wrapped, so nothing the wall already answers moves by a
+      // byte (`planningTimestamp' orders its arms the same way).
       const v = verbatimDate(s);
-      if (v) return v;
+      if (v && (v.ok || v.unfinished)) return v;
+      if (v) return wrappedDate(s, today) || v;
       // THE ENGLISH PHRASE IS READ BEHIND ORG'S OWN BRACKETS AND AHEAD OF THE
       // REST, the server's own order: it is the one reading with a refusal of
       // its own to spend, and a phrase it declines falls through to the rest.

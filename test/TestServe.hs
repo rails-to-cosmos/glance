@@ -4589,6 +4589,47 @@ dateWidgetSpec shell = testGroup "Shell date widget"
           assertEqual "the bytes the reader typed, not the bytes a calendar says"
                       [("SCHEDULED", Just "<2026-08-05 Mon>")] =<< plannedOf answer
 
+    -- THE BRACKET IS THE ASK FOR AN ACTIVITY, previewed like every other phrase:
+    -- the ghost draws the stamp the commit would land, wearing the pair the
+    -- reader typed.  This is the only way to ask this widget for org's INACTIVE
+    -- stamp, and the whole grammar rides inside the brackets to do it.
+  , testCase "a bracket previews the activity it names" $ do
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:[today]") $ \answer -> do
+        assertEqual "what was typed stands in the field" "[today]"
+          =<< textAt "dwhen" answer
+        assertEqual "and the INACTIVE stamp of the clock day rides after it"
+                    " \8594 [2026-08-22 Sat]" =<< textAt "dghost" answer
+        assertEqual "in the mute ink, not the marked one" False
+          =<< boolAt "dghostbad" answer
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:[18_aug]") $ \answer ->
+        assertEqual "the English phrase inside the bracket, likewise"
+                    " \8594 [2026-08-18 Tue]" =<< textAt "dghost" answer
+      -- AN UNCLOSED BRACKET IS STILL BEING TYPED, and the very next character
+      -- may be the `]' that resolves it: the shipped law, kept under the new arm.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:[18_aug") $ \answer -> do
+        assertEqual "the ghost is dark over an unclosed bracket" ""
+          =<< textAt "dghost" answer
+        assertEqual "and wears no refusal" False =<< boolAt "dghostbad" answer
+      -- ORG'S OWN SPELLING OUTRANKS THE ARM: an inactive bracket that reparses
+      -- is kept verbatim, so the ghost still has nothing to add to it.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:[2026-08-05_Mon]") $
+        \answer -> do
+          assertEqual "the inactive bracket stands as written" "[2026-08-05 Mon]"
+            =<< textAt "dwhen" answer
+          assertEqual "and the ghost adds nothing to it" "" =<< textAt "dghost" answer
+      -- A BODY NO READING TAKES KEEPS THE BRACKET'S OWN REFUSAL, in its word.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:[foo]") $ \answer -> do
+        assertEqual "the short word a trailing ghost has room for"
+                    " \10007 not a date" =<< textAt "dghost" answer
+        assertEqual "wearing the refusal's ink" True =<< boolAt "dghostbad" answer
+
+    -- AND THE BRACKETS TRAVEL RAW LIKE EVERY OTHER PHRASE: the ghost resolved
+    -- for ink, the server resolves for bytes.
+  , keyed shell "RET sends a bracketed phrase raw too"
+      "Enter" (pinned <> " press:C-c press:C-s dwhen:[today] press:Enter") $ \answer ->
+        assertEqual "the phrase, not the stamp the ghost drew"
+                    [("SCHEDULED", Just "[today]")] =<< plannedOf answer
+
     -- WHAT TRAVELS IS WHAT WAS TYPED.  The ghost resolved for ink; the server
     -- resolves for bytes, once, against its own clock.
   , keyed shell "RET sends the raw phrase, never the ghost's own reading"
@@ -8129,6 +8170,16 @@ commitSpec = testGroup "POST /headline"
         assertContains "the stamp the server computed, weekday and all"
                        "SCHEDULED: <2027-08-18 Wed>" =<< document path
 
+    -- A BRACKET CHOOSES THE ACTIVITY the answer is spelled in, which is how this
+    -- door is asked for org's INACTIVE stamp: the widget sends the brackets raw
+    -- with the phrase inside them, and one wall resolves the pair and the body.
+  , testCase "and a bracketed phrase lands wearing the activity it names" $
+      withCommitted $ \a path _v digest body' _props -> do
+        assertOk =<< postTo a (headlinePath "first")
+               (planningBody body' [] [["SCHEDULED", "[18 aug 2027]"]] digest)
+        assertContains "org's inactive bracket, weekday computed inside it"
+                       "SCHEDULED: [2027-08-18 Wed]" =<< document path
+
   , testCase "and an English interval as org's own -- pair" $
       withCommitted $ \a path _v digest body' _props -> do
         assertOk =<< postTo a (headlinePath "first")
@@ -8634,6 +8685,18 @@ planningSpec = testGroup "POST /command set-planning"
                                "* NEXT First :one:\nSCHEDULED: <2027-08-18 Wed>\n" before)
           =<< document path
 
+    -- THE SAME BRACKET LAW AT THE OTHER DOOR: one wall, so the activity a
+    -- reader spells is the activity that lands, whichever way the value arrived.
+  , testCase "a bracketed phrase lands wearing the activity it names" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        assertOk =<< postTo a "/command"
+               (command "set-planning" ["first"] (planningArg "SCHEDULED" (Just "[18 aug 2027]")))
+        assertEqual "org's inactive bracket, weekday computed inside it"
+                    (T.replace "* NEXT First :one:\n"
+                               "* NEXT First :one:\nSCHEDULED: [2027-08-18 Wed]\n" before)
+          =<< document path
+
   , testCase "and an English interval as org's own -- pair" $
       withCommandable $ \a _hub path _other -> do
         before <- document path
@@ -8716,6 +8779,14 @@ planningSpec = testGroup "POST /command set-planning"
         assertEqual "a phrase the other two resolve is refused here" 400 (status r)
         assertContains "in the reparse wall's own sentence"
                        "CLOSED is not a timestamp org would read back" (body r)
+        -- AND A BRACKET IS NO BACK DOOR INTO IT.  The other two read the whole
+        -- grammar inside org's brackets; this wall REPARSES, so a bracket whose
+        -- body is a phrase and not a date is refused in the same sentence.
+        wrapped <- postTo a "/command"
+               (command "set-planning" ["first"] (planningArg "CLOSED" (Just "[today]")))
+        assertEqual "a bracketed phrase is refused here too" 400 (status wrapped)
+        assertContains "in the very same sentence"
+                       "CLOSED is not a timestamp org would read back" (body wrapped)
         assertEqual "and nothing moved" standing =<< document path
         assertOk =<< postTo a "/command"
                (command "set-planning" ["first"] (planningArg "CLOSED" Nothing))

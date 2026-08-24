@@ -3472,15 +3472,18 @@ planWall Scheduled = Composed
 planWall Deadline  = Composed
 planWall Closed    = Reparsed
 
-data DateForm = Bracketed | Today | Tomorrow | Relative | TodayMeta | IsoDate
-              | English | EnglishSpan
+data DateForm = Bracketed | Wrapped | Today | Tomorrow | Relative | TodayMeta
+              | IsoDate | English | EnglishSpan
   deriving (Eq, Show)
 -- ^ @+N@ in ANY unit org spells; an ISO date takes an optional @HH:MM@;
 -- @TodayMeta@ is the filter's own @*today*@ and its shift, read here too so ONE
 -- FIELD SPELLS ONE GRAMMAR; the two English forms are the day-and-month phrase
--- and the interval between two.
+-- and the interval between two.  @Wrapped@ is any of the rest INSIDE org's own
+-- brackets — @[today]@, @<18 aug>@, @[today+30d]@ — read only where @Bracketed@
+-- read nothing, since a value org itself reads back is org's own spelling.
 verbatimDate :: DateForm -> Bool        -- ^ the rest render with the weekday COMPUTED
 verbatimDate Bracketed   = True
+verbatimDate Wrapped     = False
 verbatimDate Today       = False
 verbatimDate Tomorrow    = False
 verbatimDate Relative    = False
@@ -3488,6 +3491,15 @@ verbatimDate TodayMeta   = False
 verbatimDate IsoDate     = False
 verbatimDate English     = False
 verbatimDate EnglishSpan = False
+
+stampActivity :: Maybe Bracket -> Bracket
+-- ^ WHICH BRACKET A RESOLVED ANSWER WEARS.  Bare is ACTIVE — org's convention
+-- for a planning value, and the origin's *"ACTIVE by default"* — while a bracket
+-- the reader typed picks its own, which is the whole of what @Wrapped@ adds:
+-- @[today]@ is the clock day inactive and @<today>@ is @today@'s own bytes.  An
+-- interval takes ONE kind for both halves ('Ts'), so the choice is made once.
+stampActivity Nothing  = TsActive
+stampActivity (Just b) = b
 
 -- *** The English a date-owed field reads
 --
@@ -3750,6 +3762,7 @@ cmdNotes =
   , Note "THE FIELD'S WHOLE CONTENT IS THE PHRASE, which is what makes the English reading safe: it fires only where a write already owes a date and never over prose. dateutil's fuzzy mode is the measurement it is built to refuse — `18 August was rainy', `Chapter 18 Aug summary' and `read pages 3 to 4' all come back dates, and `from 18 to 19 august' comes back ONE instant in 2018, wrong about the year, the day AND the arity." [Test]
   , Note "The month word folds TOTALLY (August = august = AUGUST), a year is FOUR digits and never two, a bare day and a bare month are each no date, and THE WEEKDAY IS NEVER READ since it is computed on render." [Test]
   , Note "An interval's LEFT END INHERITS every field it elides from the right; one whose end falls before its start is REFUSED IN ITS OWN WORDS, `not a date' reading oddly of a phrase naming two perfectly good ones; and the DEGENERATE pair COLLAPSES, which is what keeps the grammar's two spellings of one day a single fixed point." [Test]
+  , Note "A BRACKET IS THE ASK FOR AN ACTIVITY, read BEHIND org's own spelling and nowhere else: a bracketed value that REPARSES is kept verbatim (`verbatimDate Bracketed', wrong weekday and all), and only a bracket that reparses nothing is read as the whole grammar WRAPPED — the body by the very reader a bare field uses, the answer wearing the pair that was typed (`stampActivity'). So `[today]' is the clock day inactive, `<today>' is `today''s own bytes character for character, and an interval rides in with the rest, both ends wearing the one bracket kind the format allows. A MISMATCHED or EMPTY pair, and a body outside the grammar, keep the bracket's own refusal — the arm widens what is TAKEN and never what is said about the rest. CLOSED is untouched by it: that wall REPARSES, so `[today]' meets its sentence like any other phrase." [Test]
   , Note "The interval costs NO SECOND STAMP RENDERER: the `--' pair joins two stamps the wall's own single-stamp renderer writes, each recomputing its weekday off its date, so one spelling of a day serves both ends and the bare form. TextShow is the lossy REPL re-serializer and never a write-back channel, so no byte the wall lands comes from it. `..' is the FILTER's range, compiled to a predicate per request and never written anywhere; `--' is the file format's and the only spelling this parser produces." [Test]
   , Note "`rename-tag' is a command rather than a remove plus an add: those two edit sets APPLY and write wrong bytes two independent ways, and would be two writes under two digests." [Test]
   , Note "ONE TAG ONCE: the first `from' entry becomes `to' and further ones are cut; a row already carrying `to' has every `from' cut instead." [Test]

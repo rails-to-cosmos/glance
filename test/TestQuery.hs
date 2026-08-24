@@ -1909,6 +1909,72 @@ commandSpec = testGroup "Commands"
                     (map (`lookup` monthWords) ["sept", "aug.", "augustus"])
     ]
 
+    -- THE BRACKET IS THE ASK FOR AN ACTIVITY, and nothing else: what is inside
+    -- is the very grammar the bare field reads, so the roster and the shift and
+    -- the English forms all ride in unchanged.  The corpus above carries the
+    -- vectors; these are the LAWS the arm turns on.
+  , testGroup "the brackets a date-owed field takes"
+    [ testCase "a bracket picks the activity, and the whole grammar rides inside" $
+        mapM_ reads'
+          [ ("[today]",              "[2026-08-01 Sat]")
+          , ("<today>",              "<2026-08-01 Sat>")
+          , ("[tomorrow]",           "[2026-08-02 Sun]")
+          , ("[today+3d]",           "[2026-08-04 Tue]")
+          , ("<tomorrow-1w>",        "<2026-07-26 Sun>")
+          , ("[+3d]",                "[2026-08-04 Tue]")
+          , ("[*today*]",            "[2026-08-01 Sat]")
+          , ("[18 aug]",             "[2026-08-18 Tue]")
+          , ("[18 august 2027]",     "[2027-08-18 Wed]")
+          , ("[ today ]",            "[2026-08-01 Sat]")
+          -- ONE BRACKET KIND, BOTH HALVES: 'orgRange' takes the pair, so the
+          -- interval needs no grammar of its own to wear the reader's choice.
+          , ("[from 18 to 19 aug]",  "[2026-08-18 Tue]--[2026-08-19 Wed]")
+          , ("<from 18 to 19 aug>",  "<2026-08-18 Tue>--<2026-08-19 Wed>") ]
+
+      -- ACTIVE IS WHAT THE BARE FIELD ALREADY ANSWERS, so the active bracket
+      -- adds nothing to it -- byte for byte, or the two spellings are two laws.
+    , testCase "and the active bracket is the bare phrase's own bytes" $
+        mapM_ (\phrase -> assertEqual (T.unpack phrase <> ", bracketed")
+                                      (planningTimestamp today phrase)
+                                      (planningTimestamp today ("<" <> phrase <> ">")))
+              ["today", "tomorrow", "+3d", "today+3d", "18 aug", "18 august 2027"
+              , "from 18 to 19 aug", "from 18 to 18 aug"]
+
+      -- VERBATIM PRECEDENCE HOLDS EXACTLY: a bracket org itself reads back is
+      -- never resolved for, wrong weekday and all (the law pinned above), and
+      -- org reads one back with no weekday at all -- so neither grows one here.
+    , testCase "org's own spelling still outranks the reading" $
+        mapM_ (\stamp -> assertEqual (T.unpack stamp <> ", untouched")
+                                     (Right stamp) (planningTimestamp today stamp))
+              [ "[2026-08-05 Mon]", "<2026-08-05 Mon>", "[2026-08-18]"
+              , "[2026-08-05 Wed 09:30]", "[2026-08-01 Sat]--[2026-08-05 Wed]" ]
+
+      -- A BRACKET THAT READS NOTHING KEEPS THE REFUSAL IT ALREADY HAD: the arm
+      -- widens what is taken and never what is said about the rest.
+    , testCase "and a bracket no reading takes is refused as it was" $ mapM_ refuses
+        [ "[foo]", "[]", "<>", "[   ]", "[today>", "<today]", "[18 aug"
+        , "[31 feb]", "[18 aug]--[19 aug]", "<18 aug>--<19 aug>" ]
+
+      -- The one refusal a READING spends a word of its own on travels inside the
+      -- brackets with the grammar that spends it.
+    , testCase "an inverted bracketed interval names the inversion and its remedy" $
+        refusedNaming "a bracketed inversion" ["ends before it starts", "spell a year"]
+                      (planningTimestamp today "[from 30 dec to 2 jan]")
+
+      -- RET, RET, RET on one field yields one answer here too: what the arm
+      -- writes is org's own spelling, so the second reading meets the verbatim
+      -- branch and hands the same bytes back.
+    , testCase "what it computes reads back, and is a fixed point" $
+        mapM_ (\phrase -> case planningTimestamp today phrase of
+                 Left why    -> assertFailure (T.unpack phrase <> " refused: " <> T.unpack why)
+                 Right stamp -> do
+                   assertBool (T.unpack stamp <> " does not reparse") (readsAsTimestamp stamp)
+                   assertEqual (T.unpack phrase <> ", read twice") (Right stamp)
+                               (planningTimestamp today stamp))
+              [ "[today]", "<today>", "[18 aug]", "[18 august 2027]"
+              , "[from 18 to 19 aug]", "[today+3d]", "[+2w]" ]
+    ]
+
   , testGroup "set-planning"
     [ -- A reschedule is the timestamp's own span: the keyword, the spacing and
       -- every other entry on the line stay byte-identical.

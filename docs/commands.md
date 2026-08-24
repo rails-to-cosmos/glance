@@ -72,6 +72,11 @@ The grammar the two composed keys read:
 - `from 18 to 19 august`, `18 to 19 aug` — the English interval, written as
   org's own `--` pair with the weekday computed at both ends
 - org's own `<2026-08-05 Wed>` — kept **verbatim** when it reparses
+- `[today]`, `<18 aug>`, `[today+30d]`, `[from 18 to 19 aug]` — any form above
+  inside org's own brackets, which is how the **inactive** stamp is asked for:
+  the bracket picks the answer's activity, and the active pair lands the bare
+  form's own bytes. Read only where the brackets are not already org's own
+  spelling, which still goes through verbatim
 
 Anything else is a 400 naming the accepted spellings. Rendered stamps get
 their weekday computed for you.

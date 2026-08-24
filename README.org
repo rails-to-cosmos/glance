@@ -125,7 +125,9 @@ drawer and every child headline drawn in place.
   where the value stands -- the line drawn in if there is none -- with the
   resolution riding after what was typed as ghost, =10 jan → <2026-01-10 Sat>=.
   It reads ISO, =today=, =+3d=, org's own bracket and English (=18 aug=,
-  =from 18 to 19 august=); the standing value opens selected, =RET= commits,
+  =from 18 to 19 august=), and a bracket around any of them picks the stamp's
+  activity -- =[today]= lands the inactive one, =[18 aug]= its English twin;
+  the standing value opens selected, =RET= commits,
   =ESC= leaves it, empty clears the entry. The drawer pair's value half wears
   the same field where its key routes to the planning line.
 - The pane ends on one empty line, shown only when the walk reaches it:

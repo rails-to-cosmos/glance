@@ -1744,12 +1744,16 @@ setPlanningEdits keyword stamp r
 -- @set-planning@'s argument, and the planning line's own wall — so a form this
 -- reader takes is a form the pane's date widget may type and a form it declines
 -- is refused the same way at both.
+--
+-- AND A BRACKET CHOOSES THE ANSWER'S ACTIVITY.  Behind org's own spelling,
+-- which still goes through verbatim, a bracket that does not reparse is read as
+-- the WHOLE grammar wrapped: @[today]@ is the clock day INACTIVE, @<today>@ is
+-- the bare word's own bytes, and a body no reading takes is refused as it was.
 planningTimestamp :: Time.Day -> Text -> Either Text Text
 planningTimestamp today text
-  | T.null want            = refusal
-  | bracketed              = if readsAsTimestamp want then Right want else refusal
-  | Just answer <- english = answer
-  | otherwise = maybe refusal Right (withTime <$> asLocal <|> (`stamped` Nothing) <$> dated)
+  | T.null want = refusal
+  | bracketed   = if readsAsTimestamp want then Right want else fromMaybe refusal wrapped
+  | otherwise   = fromMaybe refusal (resolved activeBrackets want)
   where
     want      = T.strip text
     bracketed = any (`T.isPrefixOf` want) timestampOpeners
@@ -1759,14 +1763,34 @@ planningTimestamp today text
                         <> ", 18 aug, 18 august 2027, from 18 to 19 aug"
                         <> ", or org's own <2026-08-05 Wed>")
 
-    -- THE ENGLISH PHRASE IS READ BEHIND ORG'S OWN BRACKETS AND AHEAD OF THE
-    -- REST, because it is the one reading with a refusal of its own to spend:
-    -- an inverted interval names two perfectly good days in the wrong order and
-    -- "is not a date" reads oddly of it.
-    english = case englishSpan today want of
+    -- BEHIND THE VERBATIM ARM AND NOWHERE ELSE: what org itself would read back
+    -- is what org itself wrote, wrong weekday and all, so only a bracket that
+    -- REPARSES NOTHING reaches here.  The pair the reader typed is the pair the
+    -- answer wears — that is the whole of what the bracket adds, the body being
+    -- read by the very grammar a bare field reads.  A MISMATCHED PAIR NAMES NO
+    -- TIMESTAMP and an empty one names no day, so both stay the refusal they were.
+    wrapped = case [ (pair, T.strip inner)
+                   | pair@(open, close) <- [activeBrackets, inactiveBrackets]
+                   , Just rest  <- [T.stripPrefix open want]
+                   , Just inner <- [T.stripSuffix close rest] ] of
+      ((brackets, body) : _) | not (T.null body) -> resolved brackets body
+      _noBodyAtAll                               -> Nothing
+
+    -- THE WHOLE RESOLVING GRAMMAR, over the BRACKETS the answer is spelled in.
+    -- 'Nothing' is "no reading here at all", which the caller spends its own
+    -- refusal on; 'Left' is the ONE refusal a reading spends a word of its own.
+    --
+    -- THE ENGLISH PHRASE IS READ AHEAD OF THE REST, because it is the one
+    -- reading with such a refusal: an inverted interval names two perfectly good
+    -- days in the wrong order and "is not a date" reads oddly of it.
+    resolved :: (Text, Text) -> Text -> Maybe (Either Text Text)
+    resolved brackets phrase = case englishSpan today phrase of
       Just (Left why)         -> Just (Left why)
-      Just (Right (from, to)) -> Just (Right (orgRange from to))
-      Nothing                 -> Right . (`stamped` Nothing) <$> englishDay today want
+      Just (Right (from, to)) -> Just (Right (orgRange brackets from to))
+      Nothing -> Right <$> (stamped <$> englishDay today phrase
+                        <|> timedStamp brackets <$> asLocal phrase
+                        <|> stamped <$> dated phrase)
+      where stamped day = orgStamp brackets day Nothing
 
     -- THE ONE SHIFT GRAMMAR ('shiftIn') over THE ONE BASE READER ('dayNamed'):
     -- what the filter's table serves and what a date-owed field takes are one
@@ -1775,17 +1799,16 @@ planningTimestamp today text
     -- @today@ and @tomorrow@ live in 'dayWords', so the filter reads the very
     -- words this field types.  Lower-casing leaves an ISO day's digits and
     -- hyphens where they were, so the bare day needs no branch of its own.
-    dated = case T.toLower want of
+    dated phrase = case T.toLower phrase of
       w | Just d <- dayNamed today w      -> Just d
         | Just (base, n, u) <- shiftIn w  -> shiftDay u n =<< dayNamed today base
         | otherwise                       -> Nothing
 
     -- @%k@ rather than @%H@: it reads one digit as well as two, so @9:05@ is the
     -- time a reader meant rather than a refusal over a zero.
-    asLocal :: Maybe Time.LocalTime
-    asLocal = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d %k:%M" (T.unpack want)
-    withTime = timedStamp activeBrackets
-    stamped  = orgStamp activeBrackets
+    asLocal :: Text -> Maybe Time.LocalTime
+    asLocal phrase =
+      Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d %k:%M" (T.unpack phrase)
 
 -- | The MONTH WORDS an English date may spell: org's three-letter form and the
 -- full one, lower case, matched after 'T.toLower'.  @may@ is ONE entry, its two
@@ -1901,18 +1924,22 @@ wsWords = filter (not . T.null) . T.split (\c -> c == ' ' || c == '\t')
 yearOf :: Time.Day -> Integer
 yearOf day = y where (y, _month, _day) = Time.toGregorian day
 
--- | The days FROM..TO as org spells them: the @--@ pair joining two stamps,
--- each computing its OWN WEEKDAY off its date.  NO SECOND STAMP RENDERER —
--- 'TextShow' is the lossy REPL re-serializer and never a write-back channel
--- (docs/invariants.md), so the bytes a write lands are spelled through this
--- module's own 'orgStamp', beside every other stamp this wall writes.
+-- | The days FROM..TO as org spells them in BRACKETS: the @--@ pair joining two
+-- stamps, each computing its OWN WEEKDAY off its date.  NO SECOND STAMP
+-- RENDERER — 'TextShow' is the lossy REPL re-serializer and never a write-back
+-- channel (docs/invariants.md), so the bytes a write lands are spelled through
+-- this module's own 'orgStamp', beside every other stamp this wall writes.
+--
+-- ONE BRACKET KIND, BOTH HALVES, because the parser takes the pair's OPENING
+-- bracket again after the @--@: the single parameter is what lets a bracketed
+-- interval wear the activity its reader typed.
 --
 -- A DEGENERATE PAIR COLLAPSES to the single stamp: equal ENDS write one stamp
 -- and no @--@, so @from 18 to 18 aug@ and @18 aug@ land on the same bytes and
 -- the law stays "refuse end before start" rather than growing a second clause.
-orgRange :: Time.Day -> Time.Day -> Text
-orgRange from to = one from <> (if to == from then "" else "--" <> one to)
-  where one d = orgStamp activeBrackets d Nothing
+orgRange :: (Text, Text) -> Time.Day -> Time.Day -> Text
+orgRange brackets from to = one from <> (if to == from then "" else "--" <> one to)
+  where one d = orgStamp brackets d Nothing
 
 -- | The brackets org writes a timestamp in, DERIVED from the pair the parser
 -- matches on: a bracket it declines would reach the disk uncaught.

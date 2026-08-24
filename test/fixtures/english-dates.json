@@ -1,6 +1,7 @@
 {
   "what": "THE DATE FIELD'S CORPUS, read by BOTH resolvers. The server's wall (planningTimestamp, src-query/Glance/Query.hs) is asserted against it in test/TestQuery.hs; the pane's ghost resolver — which previews and never writes — is asserted against this same file, so the two cannot drift into two readings of one phrase. A vector added here is owed an answer by both halves.",
   "law": "The server is authoritative: the commit sends the raw typed text and this file's `planning` is the bytes the server writes and the pane redraws from. The ghost shows the same string ahead of the commit, or the `refused` word in the marked ink.",
+  "brackets": "ORG'S OWN SPELLING FIRST, THEN THE BRACKET AS AN ASK. A bracketed value org reads back is kept VERBATIM, wrong weekday and all; only a bracket that reparses nothing is read as this whole grammar wrapped, and then the pair the reader typed is the pair the answer wears — `[today]` is the clock day inactive, `<today>` the bare word's own bytes. A mismatched or empty pair, and a body outside the grammar, keep the bracket's own refusal.",
   "reference": "2026-08-22",
   "refusals": {
     "not a date": "the phrase is outside the grammar; the field's whole content is the phrase, so one word outside it leaves the value refused",
@@ -46,12 +47,12 @@
     { "typed": "18 August was rainy", "refused": "not a date", "why": "the whole field is the phrase" },
     { "typed": "Chapter 18 Aug summary", "refused": "not a date", "why": "what a fuzzy reader would cost" },
     { "typed": "read pages 3 to 4", "refused": "not a date", "why": "pages is no month and read is no from" },
-    { "typed": "<18 aug>", "refused": "not a date", "why": "the bracket trigger is a later phase; this field takes org's own spelling or English, never half of one" },
-    { "typed": "[18 aug]", "refused": "not a date", "why": "the inactive trigger, likewise" },
-    { "typed": "<18 august 2027>", "refused": "not a date", "why": "a bracket that does not reparse is refused here" },
-    { "typed": "<AUGUST 18>", "refused": "not a date", "why": "the fold does not rescue a half-typed bracket" },
-    { "typed": "<31 feb>", "refused": "not a date", "why": "a bracket naming no day" },
-    { "typed": "<18 aug 09:30>", "refused": "not a date", "why": "times-of-day inside English are a later phase" },
+    { "typed": "<18 aug>", "planning": "<2026-08-18 Tue>", "why": "A BRACKET CHOOSES THE ACTIVITY and the whole grammar rides inside it; the active pair asks for what the bare phrase already answers" },
+    { "typed": "[18 aug]", "planning": "[2026-08-18 Tue]", "why": "the inactive twin, which is what the bracket is FOR" },
+    { "typed": "<18 august 2027>", "planning": "<2027-08-18 Wed>", "why": "every alias rides inside, the year included" },
+    { "typed": "<AUGUST 18>", "planning": "<2026-08-18 Tue>", "why": "the fold reaches inside the brackets too" },
+    { "typed": "<31 feb>", "refused": "not a date", "why": "a bracket naming no day, refused as the bracket was" },
+    { "typed": "<18 aug 09:30>", "refused": "not a date", "why": "times-of-day inside English are a later phase, brackets or none" },
     { "typed": "today", "planning": "<2026-08-22 Sat>", "why": "the planning grammar's own word" },
     { "typed": "+3d", "planning": "<2026-08-25 Tue>", "why": "the planning grammar's own shift" },
     { "typed": "18 Aug", "reference": "2026-12-30", "planning": "<2026-08-18 Tue>",
@@ -73,7 +74,9 @@
     { "typed": "<18 aug>--<19 aug>", "refused": "not a date", "why": "composed triggers are a later phase" },
     { "typed": "[18 aug]--[19 aug]", "refused": "not a date", "why": "the inactive composed pair, likewise" },
     { "typed": "<18 aug>--[19 aug]", "refused": "not a date", "why": "ONE bracket kind per range" },
-    { "typed": "<from 18 to 19 aug>", "refused": "not a date", "why": "English inside one bracket pair is no completion" },
+    { "typed": "<from 18 to 19 aug>", "planning": "<2026-08-18 Tue>--<2026-08-19 Wed>", "why": "the interval rides inside the brackets too, through the wall's own renderer" },
+    { "typed": "[from 18 to 19 aug]", "planning": "[2026-08-18 Tue]--[2026-08-19 Wed]", "why": "ONE BRACKET KIND, BOTH HALVES: the pair the reader typed is the pair each end wears" },
+    { "typed": "[from 30 dec to 2 jan]", "refused": "ends before it starts", "why": "the inversion is the one refusal a reading spends its own word on, inside brackets as out" },
     { "typed": "<2026-08-18 Tue>--<2026-08-19 Wed>", "planning": "<2026-08-18 Tue>--<2026-08-19 Wed>", "why": "idempotence over the pair org itself writes" },
 
     { "typed": "tomorrow", "planning": "<2026-08-23 Sun>", "why": "the field reads everything the planning path reads" },
@@ -107,6 +110,23 @@
     { "typed": "0099-01-01+1d", "planning": "<99-01-02 Fri>", "why": "a shift off a small year walks one day, not nineteen centuries" },
     { "typed": "from 1 to 2 jan 0099", "planning": "<99-01-01 Thu>--<99-01-02 Fri>", "why": "both ends of an interval carry it" },
     { "typed": "99-01-01", "planning": "<99-01-01 Thu>", "why": "THE BARE ISO'S YEAR IS ANY DIGIT RUN, which is what %Y reads: a four-digit floor in the pane refused a day the wall takes" },
-    { "typed": "12026-08-18", "planning": "<12026-08-18 Tue>", "why": "and a fifth digit is a year like any other" }
+    { "typed": "12026-08-18", "planning": "<12026-08-18 Tue>", "why": "and a fifth digit is a year like any other" },
+
+    { "typed": "[today]", "planning": "[2026-08-22 Sat]", "why": "THE BRACKET CHOOSES THE ACTIVITY: the clock day, inactive" },
+    { "typed": "<today>", "planning": "<2026-08-22 Sat>", "why": "and the active pair is the bare word's own bytes, character for character" },
+    { "typed": "[tomorrow]", "planning": "[2026-08-23 Sun]", "why": "the day words ride inside — Query's own roster, never a second one" },
+    { "typed": "<tomorrow>", "planning": "<2026-08-23 Sun>", "why": "both words, both brackets" },
+    { "typed": "[today+30d]", "planning": "[2026-09-21 Mon]", "why": "THE WHOLE GRAMMAR RIDES INSIDE, the shift included" },
+    { "typed": "<tomorrow-1w>", "planning": "<2026-08-16 Sun>", "why": "either sign, on either base" },
+    { "typed": "[+3d]", "planning": "[2026-08-25 Tue]", "why": "the bare shift, today-relative inside the bracket as outside it" },
+    { "typed": "[*today*]", "planning": "[2026-08-22 Sat]", "why": "the retired spelling too: one field spells one grammar" },
+    { "typed": "[ today ]", "planning": "[2026-08-22 Sat]", "why": "the body is stripped, today's law one level in" },
+    { "typed": "[2026-08-05 Mon]", "planning": "[2026-08-05 Mon]", "why": "VERBATIM PRECEDENCE HOLDS: that day is a Wednesday, and a bracket org itself reads back is never resolved for" },
+    { "typed": "[2026-08-18]", "planning": "[2026-08-18]", "why": "org reads a weekday-less bracket back, so it too stays verbatim rather than growing a weekday" },
+    { "typed": "[18 aug", "refused": "not a date", "why": "the wall refuses an unclosed bracket; the GHOST stays dark over one, since the next character may be the `]' that resolves it" },
+    { "typed": "[foo]", "refused": "not a date", "why": "a body no reading takes keeps the bracket's own refusal" },
+    { "typed": "[]", "refused": "not a date", "why": "an empty bracket names no day" },
+    { "typed": "[today>", "refused": "not a date", "why": "A MISMATCHED PAIR NAMES NO TIMESTAMP org holds" },
+    { "typed": "<today]", "refused": "not a date", "why": "either way round" }
   ]
 }

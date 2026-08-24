@@ -13,6 +13,29 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **A bracket asks for the stamp's activity.** Every date-owed field wrote org's
+  ACTIVE stamp and had no way to ask for the other one: `today` landed
+  `<2026-08-24 Mon>`, and the inactive twin could only be typed out in full,
+  weekday and all, or it was refused. The whole grammar now rides inside org's
+  own brackets and the pair the reader typed is the pair the answer wears —
+  `[today]` is the clock day inactive, `[18 aug]` its English twin,
+  `[today+30d]` the shift, `[2026-08-05 09:30]` the ISO with its time, and
+  `[from 18 to 19 aug]` the interval with both ends wearing the one bracket kind
+  the file format allows. The active pair adds nothing to what the bare form
+  already answers and lands its bytes character for character, which keeps the
+  two spellings one law. **Org's own spelling is read first and is untouched by
+  this**: a bracketed value org itself reads back is still kept VERBATIM, wrong
+  weekday and all, and only a bracket that reparses nothing is read as the
+  grammar wrapped — so a mismatched pair, an empty one and a body outside the
+  grammar all keep the refusal they already had, and an inverted interval keeps
+  its own words inside brackets as out. `CLOSED` is untouched as well: that wall
+  reparses rather than resolving, so `[today]` meets its own sentence there. In
+  the material document the widget's ghost previews the bracketed answer before
+  the commit like every other phrase — ` → [2026-08-24 Mon]` in the mute ink —
+  and an unclosed bracket stays dark, the very next character being the one that
+  may close it. Both resolvers grew the arm together over the one shared corpus,
+  so the preview and the bytes cannot part. `docs/commands.md` carries the law.
+
 - **`C-+`, `C--` and `C-0` zoom the native window, and a browser tab keeps its
   own.** The desktop window had no zoom at all: the page is served at one size
   and a WebKitGTK window carries no chrome to change it from. It now does, over
