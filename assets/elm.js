@@ -11338,6 +11338,14 @@ var $author$project$Body$shown = function (r) {
 		},
 		r.aa);
 };
+var $author$project$Doc$drawnCells = function (r) {
+	return (!r.l) ? A2(
+		$elm$core$List$filter,
+		function (c) {
+			return (c.a8 !== '') || (c.bw === 'title');
+		},
+		r.aa) : $author$project$Body$shown(r);
+};
 var $author$project$Doc$viewCells = F2(
 	function (m, r) {
 		return A2(
@@ -11412,7 +11420,7 @@ var $author$project$Doc$viewCells = F2(
 									]);
 							}());
 					}),
-				$author$project$Body$shown(r)));
+				$author$project$Doc$drawnCells(r)));
 	});
 var $author$project$Doc$rung = function (depth) {
 	return A2(

@@ -201,6 +201,37 @@
    */
   function tagsIn(cell) { return cell.split(":").filter(Boolean); }
 
+  /** What drawn values read apart on; the colons are the storage. */
+  const TAG_SEP = " · ";
+  /** The mark standing in for values the column had no room to draw whole. */
+  const TAG_MORE = "…";
+
+  /** The characters TAGS take drawn, middots and all. @param {string[]} tags */
+  function tagsWide(tags) {
+    let n = 0;
+    for (let i = 0; i < tags.length; i++) n += tags[i].length + (i ? TAG_SEP.length : 0);
+    return n;
+  }
+
+  /**
+   * How many of TAGS fit WHOLE in ROOM characters — a value is drawn entire or
+   * not at all, `TAG_MORE' standing behind the last one kept.  The whole run
+   * fitting answers `tags.length', and a room too narrow for the first value
+   * answers 0, which draws the mark alone.  See `tagsCh' for ROOM's measure.
+   * @param {string[]} tags  @param {number} room  @returns {number}
+   */
+  function tagsFit(tags, room) {
+    if (tagsWide(tags) <= room) return tags.length;
+    let used = 0, kept = 0;
+    for (const t of tags) {
+      const w = used + (kept ? TAG_SEP.length : 0) + t.length;
+      if (w + 1 + TAG_MORE.length > room) break;   // the mark rides a space behind
+      used = w;
+      kept++;
+    }
+    return kept;
+  }
+
   /** A delimited value list, org-style: `:a:b:'. What makes a column multi-valued. */
   const ORG_TAGS = /^:[^:]+(:[^:]+)*:$/;
 
@@ -255,14 +286,18 @@
   }
 
   /** @param {Column} col  @param {Cell|undefined} val  @param {boolean} [dark]
-   *  @param {boolean} [asTags]  @returns {string} */
-  function cellHTML(col, val, dark, asTags) {
-    if (asTags) {
+   *  @param {number|null} [room]  Characters a MULTI-VALUED cell may draw in,
+   *  `Infinity' where nothing caps it; null where the column is not that one.
+   *  @returns {string} */
+  function cellHTML(col, val, dark, room) {
+    if (room !== null && room !== undefined) {
       const raw = displayText(val);
       const tags = tagsIn(raw);
       if (!tags.length) return esc(raw);
+      const kept = tagsFit(tags, room);
       return `<span class="tv-tags">`
-           + tags.map((t) => `<span class="tv-tag">${esc(t)}</span>`).join(" · ")
+           + tags.slice(0, kept).map((t) => `<span class="tv-tag">${esc(t)}</span>`).join(TAG_SEP)
+           + (kept === tags.length ? "" : (kept ? " " : "") + TAG_MORE)
            + `</span>`;
     }
     if (col.type === "badge") {
@@ -996,6 +1031,8 @@
   // column geometry (COL_MAX, TITLE_MIN): docs/web-renderer.org
   const COL_MAX_CH = 40;       // ceiling on a sized column, in characters
   const TITLE_MIN_CH = 40;     // the fill column's floor, in characters
+  // whole-value truncation (why a tag cell is measured and cut in this unit): docs/web-renderer.org
+  const TAG_EM = 0.92;         // the tag type's size, as a share of the table's
   const DEBOUNCE = 120;        // ms of quiet before a filter keystroke re-renders
   const SETTLE = 200;          // ms of quiet before the rows are taken to have settled
   const LONG_PRESS = 500;      // ms of a still finger before it means the row action
@@ -1003,6 +1040,21 @@
   const EASE = 0.3;            // fraction of the remaining scroll covered per frame
   const SNAP_PX = 0.5;         // closer than this and the ease is over
   const CRUMB_MAX = 4;         // crumb chips drawn before the oldest collapse
+
+  /**
+   * The COLUMN width a multi-valued CELL's drawn form needs, in characters of
+   * the table's own type: the middots it reads apart on, taken in the tag
+   * type's smaller measure.  A cell spelling no value is drawn as it stands.
+   * @param {string} cell  @returns {number}
+   */
+  function tagsCh(cell) {
+    const tags = tagsIn(cell);
+    return tags.length ? Math.ceil(tagsWide(tags) * TAG_EM) : cell.length;
+  }
+
+  /** Characters a multi-valued cell may draw in, given the CH its column was
+   *  written at — `tagsCh' read the other way. @param {number} ch */
+  const tagRoom = (ch) => Math.floor(ch / TAG_EM);
 
   /** Run CB when nothing else is pending (or soon, where there is no idle). */
   const idle = (cb) =>
@@ -1778,10 +1830,13 @@
    what a tag is, a word the row happens to carry. Several of them separate on a
    middot rather than on the colons the cell spells them with; the colons are
    the storage, not the reading. The ink is the muted one the palette already
-   carries (dark #A4C2EB, light #667071), both clear of the text floor. */
+   carries (dark #A4C2EB, light #667071), both clear of the text floor.
+   THE SIZE IS TAG_EM, written from the const the width arithmetic spends: a
+   run is measured and cut in this type, so the sheet and tagsCh cannot
+   disagree about how much of a column a tag cell takes. */
 .tv-tag,.tv-tags{
   color:var(--tv-muted);
-  font-size:.92em;
+  font-size:${TAG_EM}em;
 }
 .tv-tags .tv-tag{
   font-size:inherit;
@@ -2812,16 +2867,22 @@
      *
      * TEXT IN `ch', GROUNDS IN `px' — the units each is spent in, so a pill
      * allowed for in characters is right at one font size and short at the rest.
+     * The multi-valued column is measured on what it DRAWS (`tagsCh'), middots
+     * and smaller type and all, so a run of values is paid for as it reads.
      * @returns {{ch: number, ground: number}[]}
      */
     function colWidths() {
       if (widths) return widths;
       const cols = columns(), chain = sortChain(), fill = titleColumn() !== -1;
+      const multi = multiColumn();
       /** The widest CELL each column holds, in characters; 0 where it holds none. */
       const cell = cols.map(() => 0);
       for (const r of ordered()) {
-        const len = rowText(r).len;
-        for (let i = 0; i < cell.length; i++) if (len[i] > cell[i]) cell[i] = len[i];
+        const t = rowText(r);
+        for (let i = 0; i < cell.length; i++) {
+          const n = i === multi ? tagsCh(t.cells[i]) : t.len[i];
+          if (n > cell[i]) cell[i] = n;
+        }
       }
       widths = cols.map((c, i) => {
         const at = chain.findIndex(({ key }) => key.column === c.key);
@@ -2839,12 +2900,28 @@
     /** Widen the cached widths for ROW (an upsert can only add text). */
     function growWidths(r) {
       if (!widths) return;
-      const len = rowText(r).len, cols = columns();
+      const t = rowText(r), cols = columns(), multi = multiColumn();
       for (let i = 0; i < widths.length; i++) {
-        if (len[i] > widths[i].ch) widths[i].ch = len[i];
-        if (len[i] && cols[i].type === "badge")
+        const n = i === multi ? tagsCh(t.cells[i]) : t.len[i];
+        if (n > widths[i].ch) widths[i].ch = n;
+        if (t.len[i] && cols[i].type === "badge")
           widths[i].ground = CELL_PAD + PILL_PAD;
       }
+    }
+
+    /**
+     * Characters the multi-valued column's cells may draw in — the width its
+     * column was WRITTEN at (`applyWidths', cap included), read in the tag
+     * type's own measure.  `Infinity' where no column fills and so nothing
+     * caps: there the column is exactly its widest cell and nothing is cut.
+     * TRUNCATION IS PAINT ALONE; what is searched, sorted and filtered is
+     * still the whole cell the producer sent.
+     * @returns {number}
+     */
+    function tagsRoom() {
+      const at = multiColumn();
+      if (at === -1 || titleColumn() === -1) return Infinity;
+      return tagRoom(Math.min(colWidths()[at].ch, COL_MAX_CH));
     }
 
     /**
@@ -2971,16 +3048,20 @@
     }
 
     /**
-     * The classes column C's cell of row R wears. LINKEDAT is `linkedCell(r)',
-     * passed in because both callers already have it for the whole row.
+     * The classes column C's cell of row R wears. LINKEDAT is `linkedCell(r)'
+     * and MULTI `multiColumn()', passed in because both callers already have
+     * each for the whole row.
      * @param {Row} r  @param {number} c  @param {number} linkedAt
-     * @returns {[string, boolean][]}
+     * @param {number} multi  @returns {[string, boolean][]}
      */
-    function cellClasses(r, c, linkedAt) {
+    function cellClasses(r, c, linkedAt, multi) {
       const col = columns()[c], inCol = c === state.selCol;
       return [["tv-right", !!col && col.align === "right"],
               ["tv-colsel", inCol],
               ["tv-cell-sel", inCol && r.id === state.selected],
+              // the multi-valued cell NAMES ITSELF, which is the whole of what a
+              // consumer needs to open a door of its own over the values.
+              ["tv-multi", c === multi],
               ["tv-linked", c === linkedAt]];
     }
 
@@ -3005,17 +3086,18 @@
     }
 
     /**
-     * A row's <tr>. I is its index in the display order.
-     * @param {Row} r  @param {number} i  @returns {string}
+     * A row's <tr>. I is its index in the display order, MULTI `multiColumn()'
+     * and ROOM `tagsRoom()' — both one answer for the whole window.
+     * @param {Row} r  @param {number} i  @param {number} multi
+     * @param {number} room  @returns {string}
      */
-    function rowHTML(r, i) {
+    function rowHTML(r, i, multi, room) {
       const cols = columns(), cs = r.cells || {};
-      const multi = multiColumn();
       const linkedAt = linkedCell(r);
       let tds = chrome ? `<td class="tv-box"></td>` : "";
       for (let c = 0; c < cols.length; c++)
-        tds += `<td class="${classAttr(cellClasses(r, c, linkedAt))}">`
-             + `${cellHTML(cols[c], cs[cols[c].key], dark, c === multi)}</td>`;
+        tds += `<td class="${classAttr(cellClasses(r, c, linkedAt, multi))}">`
+             + `${cellHTML(cols[c], cs[cols[c].key], dark, c === multi ? room : null)}</td>`;
       return `<tr class="${classAttr(rowClasses(r, i))}" data-id="${esc(r.id)}">${tds}</tr>`;
     }
 
@@ -3046,8 +3128,11 @@
       win.first = first;
       win.last = last;
       win.rows = rows;
+      // asked ONCE for the window: the column's width is the whole set's answer,
+      // so every cell in it is cut against the same measure.
+      const multi = multiColumn(), room = tagsRoom();
       let html = first > 0 ? padHTML(first * rowH) : "";
-      for (let i = first; i < last; i++) html += rowHTML(rows[i], i);
+      for (let i = first; i < last; i++) html += rowHTML(rows[i], i, multi, room);
       if (last < total) html += padHTML((total - last) * rowH);
       tbody.innerHTML = html;
 
@@ -3231,7 +3316,7 @@
      * DOM had never been told about.
      */
     function stampSelection() {
-      const trs = tbody.children;
+      const trs = tbody.children, multi = multiColumn();
       let k = 0;
       for (let i = 0; i < trs.length; i++) {
         const tr = /** @type {HTMLElement} */ (trs[i]);
@@ -3240,7 +3325,7 @@
         stampClasses(tr, rowClasses(r, at));
         const linkedAt = linkedCell(r), tds = tr.children;
         for (let c = chrome; c < tds.length; c++)
-          stampClasses(tds[c], cellClasses(r, c - chrome, linkedAt));
+          stampClasses(tds[c], cellClasses(r, c - chrome, linkedAt, multi));
       }
       const ths = headRow.children;
       for (let c = chrome; c < ths.length; c++)

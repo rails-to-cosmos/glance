@@ -179,7 +179,7 @@ nothing catches it.
   undated row; `*empty*` stays the one name for those rows. It follows that
   `-k:<D` serves the undated rows where `k:>=D` does not, so the operators do
   not pair off under the sign and no surface may rewrite one into the other.
-  `Filter.hs:664`, `table-view.js:663`, `AGENTS.hs:2591`. A tidying pass that
+  `Filter.hs:664`, `table-view.js:702`, `AGENTS.hs:2591`. A tidying pass that
   normalizes `-k:<D` into `k:>=D`, or drops the guard because byte order
   "already sorts an empty cell first", turns nothing red but the one case that
   names the pair (`TestFilter.hs:978`). **That case and its renderer twin are

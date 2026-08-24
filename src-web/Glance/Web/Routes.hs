@@ -75,7 +75,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , recomposedSubtree
                     , ownBodyLines, sortedForViewWith
                     , subtreeEntries, subtreeEntryAt, subtreeLinks
-                    , subtreeText, tagsOfCell
+                    , subtreeText, tagText, tagsOfCell
                     , titleSpan, todoPragmas
                     , resolveColumns, savedViews, todoLines, viewColumns
                     , viewJSONFor )
@@ -663,7 +663,15 @@ captureView opts hub request = do
   now <- Time.getZonedTime
   let cfg = stConfig st
       tag = fromMaybe "" (queryText "tag" request)
-      worn = map T.toLower (filter (not . T.null) (tag : inheritedTags request))
+      -- WHAT THE DRAFT WEARS.  THE DESTINATION LEADS, being the address the
+      -- reader settled and the fact the file line already names; the lent tags
+      -- follow it, each through the CHARSET the splice below walls them with —
+      -- a lent tag org cannot read is the filter talking about other rows, and
+      -- is no more worn here than it is written there.  Deduplicated: a caller
+      -- naming one tag twice is naming one tag.
+      worn = nub ([ T.toLower tag | not (T.null tag) ] <> lent)
+      lent = [ T.toLower raw | raw <- inheritedTags request
+                             , Right _ <- [tagText raw] ]
       day = Time.localDay (Time.zonedTimeToLocalTime now)
       drafted = do
         (expanded, at) <- draftTemplate now (fromMaybe bareTemplate (captureTemplateIn tag layers))
@@ -686,7 +694,7 @@ draftJSON st worn r opens =
   , "parent"     .= Null
   , "path"       .= [hrTitle r]
   , "level"      .= (1 :: Int)
-  , "cells"      .= object (cells r)
+  , "cells"      .= object (draftCells worn r)
   , "children"   .= [ childJSON r (subtreeText r) (hpBody parts) i e | (i, e) <- beneath f ]
   , "org"        .= subtreeText r
   , "body"       .= hpBody parts
@@ -704,6 +712,27 @@ draftJSON st worn r opens =
   ]
   where f = Focus r (subtreeEntries (stConfig st) r) Nothing
         parts = headlineParts r
+
+-- | A DRAFT'S DISPLAY CELLS: 'cells', with the tag run saying WHERE THIS LANDS.
+-- A DISPLAY CELL IS CONSTRUCTED and owes no round trip through the org line,
+-- which is what lets this one be honest: a title-less headline cannot spell a
+-- run in this parser ('draftSeeded' lends none), and a pane that showed nothing
+-- would leave the reader composing into a destination it never named.
+draftCells :: [Text] -> HeadlineRecord -> [Pair]
+draftCells worn r =
+  [ if k == "tags" then Key.fromText k .= draftTagsCell worn r
+                   else Key.fromText k .= f r
+  | (k, f) <- docCells ]
+
+-- | WORN — the destination and what the filter lent — then whatever the draft's
+-- own line spells beyond them, as an org tag cell.  THE COMMIT WEARS EACH ONCE:
+-- this list rides out as the capture's @tags@ and the minting joins the
+-- destination idempotently ('addTagEditsIn' folds), so no blob carries a twin.
+draftTagsCell :: [Text] -> HeadlineRecord -> Text
+draftTagsCell worn r
+  | null run  = ""
+  | otherwise = ":" <> T.intercalate ":" run <> ":"
+  where run = worn <> [ t | t <- tagsOfCell (hrTags r), t `notElem` worn ]
 
 -- | What the standing filter LENDS this draft.  NEVER A REFUSAL: an inherited
 -- fact this server cannot read is the filter talking about other rows, so it

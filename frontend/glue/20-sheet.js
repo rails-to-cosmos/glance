@@ -18,6 +18,13 @@
     // shell holds no index into a list Elm draws, and the keyword is what every
     // door below it asks for anyway.
     let dplankey = null;
+    // A DRAFT WHOSE `%?' STOOD IN THE BODY still owes its editor: the row that
+    // line became lands a macrotask behind the fill, so the open waits for it.
+    // ONE SHOT — the next fill is somebody else's document.
+    let dlanding = false;
+    // WHAT THE READER TYPED for a planning entry the draft drew RESOLVED, by
+    // keyword (`settleDraftPlan').  A document's own, so a fresh fill empties it.
+    let dtyped = {};
     let dport = null, dtook = null, dwrote = null;
     const cellsOf = (o) => DCELLS.map((k) => {
       const val = (o || {})[k] || "";
@@ -43,6 +50,7 @@
         // Elm pushes a port BEFORE it paints, so these are read a turn later.
         soon(() => {
           seedInsert(now.caret); keepInView(docElAt()); placeEdit(); reselectDate();
+          openLanding();
         });
       });
       dport.docSaid.subscribe((what) => { if (dwrote) { dwrote(what); dwrote = null; } });
@@ -139,18 +147,44 @@
      * bare draft leaves it bare, and a template that brought a drawer, a
      * planning entry, a body or a tag of its own never was.  INHERITED FACTS
      * COUNT: a filter pinning a state makes the draft rich, and `C-c C-c' the
-     * door out of it. */
+     * door out of it.
+     *
+     * THE DESTINATION TAG IS NOT ONE OF THEM.  It is the capture's ADDRESS —
+     * the answer `+' already asked for — and the tag cell names it so the pane
+     * can say where this lands.  A bare template under a tag is still the bare
+     * draft, which is what keeps the tagged jot four keys as well. */
     const bareDraft = (h) =>
       !String((h.cells || {}).title || "").trim()
       && !String((h.cells || {}).state || "")
       && !String((h.cells || {}).priority || "")
-      && !String((h.cells || {}).tags || "")
+      && !tagsBeyond(h).length
       && !(h.properties || []).length && !(h.planning || []).length
       && !(h.children || []).length && !bodyBelow(h.body).trim();
+    // The run a draft wears APART FROM its destination: what the template spelled
+    // and what the filter lent, which is what makes a draft rich.
+    const tagsBeyond = (h) =>
+      cellTags((h.cells || {}).tags).filter((t) => t !== (h.capture || {}).tag);
     // THE BODY UNDER THE HEADLINE LINE.  A subtree's `body' opens with its own
     // headline (the pane draws that line from `cells' and never splices it), so
     // every reading of "what is under the title" cuts the first line off here.
     const bodyBelow = (body) => String(body || "").split("\n").slice(1).join("\n");
+    /** THE EDITOR A DRAFT'S BODY POINT OWES, once the fill that placed it has
+     * settled.  The row `%?' named is the one the walk landed on, so this is the
+     * very box `RET' there would open, seeded off the same row — the caret at the
+     * line's end, `point' naming a LINE and no offset there is to aim at.  A row
+     * no editor claims (a child headline) keeps point and nothing opens: the
+     * pane's own `RET' is the way in, as it is on any doc. */
+    function openLanding() {
+      if (!dlanding) return;
+      dlanding = false;
+      if (!capturing()) return;
+      const r = drows[dat];
+      if (!r || r.kind === "head") {
+        openTitle(String((editing.cells || {}).title || ""));
+        return;
+      }
+      if (r.kind === "para" || r.kind === "meta") openEdit(DPARA, r);
+    }
     function atElement(act) {
       const r = drows[dat];
       if (!r || (r.kind !== "head" && r.kind !== "child"))
@@ -1789,7 +1823,9 @@
       // capture goes out WHOLE at `C-c C-c'.  The model already holds what was
       // typed and pushes it to the mirrors a macrotask behind, which is what the
       // commit reads — so the door still answers with the model's own word.
-      if (capturing()) { say(cargo); return; }
+      // The word goes out FIRST: it is the answer to the key that was pressed,
+      // and the settle below writes again.
+      if (capturing()) { say(cargo); settleDraftPlan(cargo); return; }
       const h = editing;
       sync("syncing");
       post(h.id, h.digest,
@@ -1799,6 +1835,37 @@
         .then((a) => { if (editing === h && landed(h, say)(a)) reload(); })
         .catch((e) => stuck(subtreeSheet, e.message));
     }
+    /** THE DRAFT'S OWN STAND-IN FOR THE ROUND TRIP A ROW MAKES.  A row's planning
+     * value is posted raw and comes back TRANSFORMED, and the pane redraws off
+     * that answer; a draft posts nothing, so the phrase the reader typed used to
+     * stand in the planning line until the capture landed.  The preview is made
+     * flesh here instead: the entry is redrawn as the GHOST'S OWN RESOLVER reads
+     * it — the same `readsDate' the ghost previewed with, drift-pinned to the
+     * wall over one corpus — so what the pane says is what the file will hold.
+     *
+     * WHAT TRAVELS IS STILL WHAT WAS TYPED (`typedPlan'): the wall transforms
+     * ONCE, against the server's clock, and this reading is for ink alone — the
+     * very rule the widget already keeps.  A PHRASE THE RESOLVER REFUSES STAYS
+     * RAW and meets the wall's own sentence at the commit, the sheet standing.
+     * CLOSED is not settable, so it keeps its verbatim value untouched. */
+    function settleDraftPlan(cargo) {
+      for (const [key, value] of cargo.planning || []) {
+        if (DATED.indexOf(key) === -1) continue;
+        const read = readsDate(value, dateNow());
+        // ALREADY ITS OWN RESOLUTION — org's own spelling passes through — so
+        // there is nothing to redraw and this settle reaches a fixed point.
+        if (!read.ok || read.stamp === value) continue;
+        dtyped[key] = { raw: value, shown: read.stamp };
+        dsend({ kind: "addprop", key, value: read.stamp });
+      }
+    }
+    /** PLAN as the reader typed it: the phrase behind each entry the settle
+     * above resolved, and the entry itself where nothing stands behind it or
+     * where a later door moved it. */
+    const typedPlan = (plan) => (plan || []).map(([key, value]) => {
+      const was = dtyped[key];
+      return [key, was && was.shown === value ? was.raw : value];
+    });
 
     /** `C-c C-c' OVER A DRAFT: the whole capture at one press, through the ONE
      * command that mints a blob — its id, its shard path, its creation drawer
@@ -1817,7 +1884,7 @@
       const title = String(c.title || "").trim();
       const body = bodyBelow(dbody);
       if (!title && !body.trim()) { said(b, "nothing to capture"); return; }
-      const args = { title, body, properties: dprops, planning: dplan };
+      const args = { title, body, properties: dprops, planning: typedPlan(dplan) };
       if (tag) args.tag = tag;
       if (c.state) args.state = c.state;
       const priority = priorityIn(c.priority);
@@ -2388,9 +2455,11 @@
      * with `id' null and `digest' "" — the create pin — plus the tag's cycle and
      * the line `%?' stood on.
      *
-     * A BARE DRAFT OPENS WITH ITS TITLE EDIT ALREADY UP, which is the whole of
-     * the bare-draft law: the reader's keys are `+', RET, the line, RET, exactly
-     * today's form's, and nothing else about the sheet is special. */
+     * EVERY DRAFT OPENS EDITING, at the place `%?' named: a reader who asked for
+     * a capture is composing one, and a pane that made them press `RET' first
+     * asked a question `+' had already answered.  On the BARE draft that box IS
+     * the capture, which is the whole of the bare-draft law: the reader's keys
+     * are `+', RET, the line, RET, exactly today's form's. */
     function showDraft(b, tag, a) {
       editing = draftOf(tag, a);
       raw = false;
@@ -2400,10 +2469,15 @@
       el("modal").className = "on";
       soon(remembered);
       el("mtext").blur();
-      if (bareDraft(editing)) {
+      // POINT ON THE HEADLINE OPENS HERE AND NOW: the title edit reads the
+      // handle's own cells and owes the pane's rows nothing.  A BODY LINE waits
+      // for the fill to settle — the row `%?' named lands a macrotask behind the
+      // send, and it is that row the editor is seeded from.
+      if (editing.capture.point === null)
         openTitle(String((editing.cells || {}).title || ""));
-        said(b, "a headline · RET captures it · ESC leaves");
-      } else said(b, "C-c C-c captures · ESC leaves");
+      else dlanding = true;
+      said(b, bareDraft(editing) ? "a headline · RET captures it · ESC leaves"
+                                 : "C-c C-c captures · ESC leaves");
     }
     /** The editing handle a served draft stands behind: the answer's own fields,
      * and the three that are the capture's alone under `capture'.  THE SPANLESS
@@ -2429,6 +2503,10 @@
     function fill(h) {
       base = raw ? h.org : "";
       el("mtext").value = base;
+      // THE PHRASES BEHIND THE PLANNING LINE ARE THIS DOCUMENT'S: a fresh fill
+      // draws another's, and a phrase kept across would be spoken of a row that
+      // never heard it.
+      dtyped = {};
       // TOGGLE, never assign: the class also carries the sheet's size tier.
       el("sheet").classList.toggle("raw", raw);
       for (const o of DOCEDITS) shutEdit(o);

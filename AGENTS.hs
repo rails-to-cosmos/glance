@@ -3875,7 +3875,8 @@ cmdNotes =
   , Note "The header is composed and READ BACK before it is written (`draftEntry'): a title carrying a tag run or a star reparses as something else, and is refused naming the part rather than written and misread on the next load." [Test]
   , Note "THE INBOX PATH GAINED THE BLOB PATH'S SPLICE AND NOTHING ELSE: `stampedEntry' joins the creation stamp to whatever drawer the entry has, `blobDocument' being that function with an id and a tag handed to it. No id, no tag and no ledger line for the inbox, and the old jot's bytes are unmoved." [Test]
   , Note "WHAT THE FILTER LENDS IS TEMPLATE-FIRST (`lentInto'), and the tag seed is that rule's first case: only a fact the query pins to ONE ordinary positive value is lent, tags JOIN rather than fill, and a lent fact the draft's own walls turn down is simply not inherited — the draft door never 400s over one. The CLIENT extracts the facts and the SERVER merges them, so one composer owns precedence and a day word resolves under the door's one clock read." [Test]
-  , Note "KNOWN LIMIT: a tag run needs a TITLE to stand after, this parser reading `* :work:' as the title itself, so a lent tag waits until the draft has one. The never-refuse rule covers it — the tag is not lent rather than written where it would be misread." [Test]
+  , Note "THE DRAFT SAYS WHERE IT LANDS. Its tag cell is CONSTRUCTED (`draftCells') and owes no round trip through the org line: the DESTINATION leads it, the template's own run and the lent tags follow, and the cell is what the pane draws and what the commit carries out as the capture's `tags'. The minting joins the destination IDEMPOTENTLY (`addTagEditsIn' folds), so the blob wears each tag once. A lent tag the charset turns down is not worn, the never-refuse rule as everywhere; the destination is no lent fact and rides as the reader settled it, the file line already naming it." [Test]
+  , Note "KNOWN LIMIT, and it is the ORG LINE'S alone: a tag run needs a TITLE to stand after, this parser reading `* :work:' as the title itself, so the draft's own bytes carry no run until one is typed. The DISPLAY cell says the destination all the same, and the commit composes the header out of the cell rather than out of that line." [Test]
   , Note "DELETION IS A MOVE: the whole blob DIRECTORY is gzipped under the trash's mirror of its path, the copy landing before the original goes, a destination that already exists refused." [Test]
   , Note "KNOWN LIMIT: one blob, one tombstone — a hand-written blob's SECOND top-level entry loses its bytes and keeps its record." [Test]
   , Note "delete's three walls are checked on the SERVER as well as in the shell, because a request is a request whoever wrote it." [Test]
@@ -4351,6 +4352,11 @@ shellNotes =
   , Note "The modal surfaces' keys live outside keyBindings, so each guards e.repeat by hand, hand-spells the SEQ arrow shape, and writes no strip line." [Unguarded]
   , Note "SURFACES order is load-bearing for exactly one pair: + over the tags popup leaves prompt and tags both up, and momentary() resolves that tie by list position." [Test]
   , Note "typing() goes false when a click blurs non-focusable sheet chrome, so table rows are live under an open sheet; the guard is spelled per surface rather than held by the map." [Unguarded]
+  , Note "THE TAGS CELL IS A SECOND DOOR ONTO ONE COMMAND: a click on the values runs\
+         \ the map's own `org-agenda-set-tags' row, so its marked-else-point rule and its\
+         \ echo have one source and only the seq is respelled `click'.  The renderer marks\
+         \ that cell `tv-multi' and its own click has selected the row under it before this\
+         \ page's listener runs." [Test]
   , Note "q is quit-window one window in rather than a rung, so it closes a narrowed popup outright, and it is dead inside an open edit." [Test]
   , Note "Marks and flags are the renderer's session state keyed by id, so both survive a setRows, a filter hiding their row, and a page they are not on; this page keeps no set." [Test]
   , Note "d and D SPEND the flags they fire over, or the refetch's surviving flags are archived again by the next press." [Test]
@@ -5230,6 +5236,15 @@ sheetNotes =
   [ Note "`beforeunload' flushes with `keepalive' only when the sheet is dirty." [Test]
   , Note "The page holds no org parser and must not grow one." [Docs]
   , Note "TWO RESOLVERS, ONE TRUTH. Because the page spells no org, the date field's client reading is for THE GHOST'S PREVIEW ALONE: the commit sends the RAW TYPED TEXT, the server transforms at the planning wall, and the pane redraws off that answer. The two are DRIFT-PINNED over one shared corpus, `test/fixtures/english-dates.json', which both suites read -- a vector added there is owed an answer by both halves, so neither can grow a reading the other lacks." [Test]
+  , Note "A DRAFT POSTS NOTHING, so a planning value it takes never comes back\
+         \ TRANSFORMED the way a row's does — the reader's phrase used to stand in the\
+         \ planning line until the capture landed.  `settleDraftPlan' is the draft's own\
+         \ stand-in for that round trip: the entry is redrawn as the GHOST'S OWN READER\
+         \ reads it, so the pane says what the file will hold.  WHAT TRAVELS IS STILL WHAT\
+         \ WAS TYPED (`typedPlan'): the wall transforms ONCE against the server's clock, and\
+         \ this reading is for ink, exactly as the ghost's is.  A phrase the resolver\
+         \ refuses stays raw and meets the wall's own sentence; CLOSED is not settable and\
+         \ keeps its verbatim value untouched." [Test]
   , Note "Movement relocates attention alone and `RET'/`DEL' are the context axis, which\
          \ is why the movement keys are the ones left out of `ONCE'." [Docs]
   , Note "The materialize sheet is ONE file — both panes, the ladder and the opening —\
@@ -5245,7 +5260,25 @@ sheetNotes =
          \ the line, `RET', and `ESC' there drops the capture whole rather than coming back\
          \ to a sheet standing over no file.  `bareCapture' is asked in ONE place, so the\
          \ commit and the escape cannot part.  A template with more than a bare headline\
-         \ commits on `C-c C-c' alone, where `RET' just closes the title." [Test]
+         \ commits on `C-c C-c' alone, where `RET' just closes the title.  THE DESTINATION\
+         \ TAG IS NOT ONE OF THE THINGS THAT MAKE A DRAFT RICH (`tagsBeyond'): it is the\
+         \ address `+' already asked for, so a bare template under a tag is the bare draft\
+         \ and the tagged jot is four keys too." [Test]
+  , Note "EVERY DRAFT OPENS EDITING, at the place `%?' named (`showDraft', `openLanding'):\
+         \ a reader who asked for a capture is composing one, and a pane that made them\
+         \ press `RET' first asked a question `+' had answered.  Point on the HEADLINE is\
+         \ the title edit, opened at once off the handle's own cells; a BODY line is the\
+         \ paragraph editor over that line, opened when the fill settles, the row `%?'\
+         \ named landing a macrotask behind the send.  The caret rests at the line's end,\
+         \ `point' naming a LINE and no offset to aim at.  On the RICH draft the box is an\
+         \ ordinary sheet edit and the STANDING LADDER holds: `RET' closes it, `C-c C-c'\
+         \ behind it takes the capture, ESC closes it and the next ESC drops the draft." [Test]
+  , Note "A HEADLINE ALWAYS DRAWS ITS TITLE CELL, empty or not (`drawnCells', Doc.elm):\
+         \ that cell is the SLOT the title edit anchors in (`dTitleAt'), and a row that drew\
+         \ none left the box anchored on the whole line — swallowing the star, the state,\
+         \ the priority and the tag run it stands among.  Every other cell is drawn only\
+         \ when it says something.  The capture surfaced this and never owned it: any\
+         \ headline with an empty title wore it." [Browser]
   , Note "AN EMPTY TITLE IS NO COMMIT AND THE BOX STAYS UP behind the word, the wall every\
          \ other sheet edit's is asked at: above the shut, while what was typed is still on\
          \ screen to be fixed.  A REFUSED capture leaves the SHEET standing for the same\

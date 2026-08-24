@@ -463,6 +463,43 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Fixed
 
+- **The capture draft says where it lands, opens editing, and shows the day it
+  read.** Four reports off the new capture doc, all of them the same shape —
+  the draft knew something the pane never said. (1) **The destination tag was
+  invisible.** Typing `bicycle` drew `* [#A]` and nothing else: the tag was the
+  capture's address and joined only at the minting, and the draft's org line
+  cannot carry a run with no title in front of it — this parser reads
+  `* :work:` as the title itself. The tag cell is now *constructed*, the
+  destination leading it and the template's own run and the lent tags after,
+  so the head row wears `:bicycle:` before a title is typed; the commit carries
+  that cell out and the minting joins the destination idempotently, so the blob
+  wears each tag once. The org line's limit is stated where it is true and
+  nowhere wider. (2) **A rich draft opened with no editor.** The bare draft
+  already opened in its title box; a template with content, or a draft the
+  filter lent a `[#A]`, landed point on the `%?` row and waited for a `RET` —
+  asking a question `+` had already answered. Every draft now opens editing at
+  the place `%?` named: point on the headline is the title edit, a body line is
+  the paragraph editor over that line, seeded with what the template left. The
+  bare-draft law is untouched — `+`, `RET`, the line, `RET` still lands the
+  inbox jot byte for byte, and the destination tag does not make a draft rich —
+  and on a rich draft the box is an ordinary sheet edit, so `RET` closes it and
+  `C-c C-c` behind it commits, `ESC` closes it and the next `ESC` drops the
+  draft. (3) **An empty title's edit swallowed its own line.** The title box
+  stood over the whole head row, taking the star, the state, the priority and
+  the tag run with it, because a headline drew no title cell when the title was
+  empty and the box had nothing to anchor on. The headline now always draws
+  that cell — it is the slot the edit stands in — so the box sits tight in the
+  title's own place with every decoration visible around it. The capture
+  surfaced this and never owned it: any headline with an empty title wore it.
+  (4) **A planning phrase stayed raw in the draft.** `:DEADLINE: 1 oct` stood
+  as the words that were typed until the capture landed, because a row's phrase
+  is posted and comes back transformed and a draft posts nothing. The draft now
+  makes the preview flesh with the ghost's own reader — the line reads
+  `<2026-10-01 Thu>`, drift-pinned to the wall over the shared corpus — while
+  the **raw phrase is still what travels**, the wall transforming it once
+  against the server's clock. A phrase the resolver refuses stays as it stands
+  and meets the wall's own sentence.
+
 - **A property with no value took the whole drawer down with it.** `:KEY:`
   with nothing after it read the `:END:` line under it as its own value, and
   the drawer then had no terminator left to find — so the parse of the entire

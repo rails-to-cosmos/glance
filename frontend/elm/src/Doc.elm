@@ -2055,7 +2055,22 @@ viewCells m r =
                             [ text c.val ]
                     )
             )
-            (shown r)
+            (drawnCells r)
+
+
+{-| The cells a row draws. THE HEADLINE ALWAYS DRAWS ITS TITLE CELL, empty or
+not: that cell is the SLOT the title edit stands in (`dTitleAt`, 20-sheet.js),
+and a headline that drew none left the edit anchored on the whole line -- a box
+swallowing the star, the state, the priority and the tag run it is supposed to
+stand among. Every other cell is drawn only when it says something.
+-}
+drawnCells : Row -> List Cell
+drawnCells r =
+    if r.kind == Head then
+        List.filter (\c -> c.val /= "" || c.key == "title") r.cells
+
+    else
+        shown r
 
 
 {-| ONE OWNER PER BYTE: a composite is drawn once with its leaves inside it, and

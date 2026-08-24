@@ -2610,6 +2610,91 @@ export default [
     return [`typed "mark" over ${JSON.stringify(shown.map((r) => r.word))}, `
       + `the row now ${JSON.stringify(tags)}`];
   } },
+// WHOLE TAGS OR NONE, AND THE CELL IS A DOOR. The renderer drops the values a
+// column cannot draw ENTIRE and marks their place — a half-word is a tag no
+// query spells — and this page reads a click there as the very binding `:'
+// runs, over the row the click landed on.
+{ name: "the tags cell ends on a whole tag, and a click there opens the tags door",
+  async run(p, base) {
+    await tableUp(p, base);
+    const CELL = '#app tr[data-id="drv-wide"] td.tv-multi';
+    await p.until((sel) => !!document.querySelector(sel),
+                  "the wide row's tags cell to draw", undefined, CELL);
+    // The row's WHOLE tag list is the STORE's answer and the cell is what the
+    // column had room for, so the two are read apart and compared: a case
+    // spelling both would only agree with itself.
+    const held = await p.eval(async () => {
+      const a = await (await fetch("/tags?ids=drv-wide")).json();
+      return ((a.rows || [])[0] || {}).tags || [];
+    });
+    const cell = await p.eval((sel) => {
+      const td = document.querySelector(sel);
+      return { text: td.textContent,
+               names: [...td.querySelectorAll(".tv-tag")].map((e) => e.textContent),
+               // A cut the STYLESHEET made leaves the content wider than the
+               // cell; a cut the renderer made fits inside it.
+               over: td.scrollWidth - td.clientWidth };
+    }, CELL);
+    assert(held.length > cell.names.length,
+      `the fixture no longer overruns the column: ${JSON.stringify(held)}`);
+    assert(cell.names.every((n) => held.indexOf(n) !== -1),
+      `a name drawn in the cell is no whole tag of the row: ${JSON.stringify(cell)}`
+      + ` of ${JSON.stringify(held)}`);
+    assert(cell.text === cell.names.join(" · ") + " …",
+      `the cell is not whole names and the mark: ${JSON.stringify(cell.text)}`);
+    assert(cell.over <= 1,
+      `the cell overruns its column by ${cell.over}px, so the stylesheet cut it`);
+
+    // Point the cursor elsewhere first, or "the click targeted the row" is a
+    // claim about the row the cursor was already on.
+    const before = await p.eval(() => {
+      const at = document.querySelector("#app tr.tv-sel");
+      return at ? at.getAttribute("data-id") : null;
+    });
+    if (before === "drv-wide") {
+      await p.press("n");
+      await p.until(() => {
+        const at = document.querySelector("#app tr.tv-sel");
+        return !!at && at.getAttribute("data-id") !== "drv-wide";
+      }, "the cursor to step off the wide row");
+    }
+    // The popup's list is an ELM mount and a port round trip costs a macrotask,
+    // so the rows are WAITED for rather than read the instant it raises.
+    const door = () => p.until(() => {
+      const rows = [...document.querySelectorAll("#ttable tbody tr[data-id]")];
+      if (!rows.length) return false;
+      const at = document.querySelector("#app tr.tv-sel");
+      return { head: document.getElementById("thead").textContent,
+               tags: rows.map((tr) => tr.children[0].textContent),
+               row: at ? at.getAttribute("data-id") : null };
+    }, "the popup's tag rows to draw");
+    await p.eval((sel) =>
+      document.querySelector(sel).querySelector(".tv-tags").click(), CELL);
+    await p.until(() => document.getElementById("tags").classList.contains("on"),
+                  "the tags popup to open on the click");
+    const clicked = await door();
+    assert(clicked.row === "drv-wide",
+      `the click left the cursor on ${JSON.stringify(clicked.row)}`);
+    assert(clicked.tags.length === held.length,
+      `the popup is over ${JSON.stringify(clicked.tags)}, not the row's `
+      + JSON.stringify(held));
+
+    // THE SAME DOOR, asked the other way: the popup `:' opens over the very row
+    // the click left the cursor on, by its id, its title and its rows.
+    await p.press("ESC");
+    await p.until(() => !document.getElementById("tags").classList.contains("on"),
+                  "the popup to close on ESC");
+    await p.press(":");
+    await p.until(() => document.getElementById("tags").classList.contains("on"),
+                  "the same popup to open on `:'");
+    const keyed = await door();
+    assert(JSON.stringify(keyed) === JSON.stringify(clicked),
+      `the click's door and the key's differ: `
+      + JSON.stringify([clicked, keyed]));
+    return [`${JSON.stringify(held)} drew as ${JSON.stringify(cell.text)}`
+      + ` (${cell.over}px past the column), and the click opened `
+      + `${JSON.stringify(clicked.head)} over ${clicked.tags.length} tags`];
+  } },
 { name: "the date widget stands in the value's own slot, and the phrase lands whole",
   async run(p, base) {
     const served = (id) => p.eval(async (row) => {
@@ -3179,11 +3264,17 @@ export default [
         file: document.getElementById("mfile").textContent,
         note: document.getElementById("mnote").textContent.trim(),
         head: document.querySelector('#mdoc .de[data-id="H"]').textContent,
+        tags: (document.querySelector('#mdoc .de[data-id="H"] .dc-tags')
+                 || {}).textContent || "",
         plan: (document.querySelector('#mdoc .de[data-id="PLN"]') || {}).textContent || "",
         drawer: (document.querySelector("#mdoc .d-drawer") || {}).textContent || "",
         // WHERE `%?' STOOD, spent as the fill's own landing: without it point
         // would rest on row 0, the headline every other fill opens on.
         atClass: at.className, atText: at.textContent, atIndex: docAtNow(),
+        // EVERY DRAFT OPENS EDITING, and this one's `%?' stood in the BODY.
+        para: document.getElementById("dpara").className,
+        slot: document.getElementById("dtext").value,
+        focus: document.activeElement.id,
         rows: [...document.querySelectorAll("#mdoc .de.lvl-top")].length,
       };
     });
@@ -3192,6 +3283,11 @@ export default [
       + `and no id, there being neither yet`);
     assert(/READING/.test(drew.head) && /Book/.test(drew.head),
       `the drawn headline reads ${JSON.stringify(drew.head)}`);
+    // THE DRAFT SAYS WHERE IT LANDS: the destination is a CONSTRUCTED cell, so
+    // the head row wears it whether or not the org line could carry the run.
+    assert(drew.tags === ":book:",
+      `the head row's tag cell reads ${JSON.stringify(drew.tags)} — the reader is `
+      + `composing into :book: and the pane must say so`);
     assert(/^SCHEDULED: <\d{4}-\d\d-\d\d/.test(drew.plan.trim()),
       `the planning line reads ${JSON.stringify(drew.plan)}`);
     assert(/^:PROPERTIES:/.test(drew.drawer.trim()),
@@ -3203,15 +3299,18 @@ export default [
     assert(/\bd-para\b/.test(drew.atClass) && !/\bd-head\b/.test(drew.atClass),
       `point opened on ${JSON.stringify(drew.atClass)} rather than the slot after %?`);
 
-    // ------- THE BODY, TYPED WHERE POINT OPENED.  A draft's cargo is HELD: the
-    // model takes the edit and nothing is posted, there being no file to post to.
+    // ------- THE BODY, TYPED WHERE POINT OPENED — AND THE EDITOR WAS ALREADY
+    // THERE.  Every draft opens EDITING: a reader who asked for a capture is
+    // composing one, and a `RET' the pane makes them press first asks a question
+    // `+' already answered.  A draft's cargo is HELD: the model takes the edit
+    // and nothing is posted, there being no file to post to.
     assert(/^Why this one:/.test(drew.atText),
       `point opened on ${JSON.stringify(drew.atText)} rather than the %? slot`);
-    await p.press("RET");
-    await editUp(p, "the paragraph edit over the slot %? opened on");
-    const slot = await p.eval(() => document.getElementById("dtext").value);
-    assert(/^Why this one:\s*$/.test(slot),
-      `the slot seeded ${JSON.stringify(slot)} — %? expands to nothing at all`);
+    assert(drew.para === "on" && drew.focus === "dtext",
+      `the draft opened ${JSON.stringify([drew.para, drew.focus])} rather than in `
+      + `the editor over the line %? stood on`);
+    assert(/^Why this one:\s*$/.test(drew.slot),
+      `the slot seeded ${JSON.stringify(drew.slot)} — %? expands to nothing at all`);
     await p.eval(() => {
       document.getElementById("dtext").value = "Why this one: the spice must flow";
     });
@@ -3246,6 +3345,11 @@ export default [
     // ------- THE DATE WIDGET OVER THE DRAFT'S OWN PLANNING LINE.  A draft has
     // no row id, so the entry takes the COMMIT door the materialized child's
     // does: the model holds it and the capture command is what writes it.
+    //
+    // AND THE DRAFT RESOLVES IT ITSELF.  A row's phrase is posted and comes back
+    // TRANSFORMED; a draft posts nothing, so the preview is made flesh in the
+    // line — the ghost's own reading, drift-pinned to the wall — while the RAW
+    // phrase is still what travels at `C-c C-c'.
     await settled(p);
     await p.press("C-c");
     await p.press("C-s");
@@ -3263,8 +3367,13 @@ export default [
     await p.press("RET");
     const drafted = await p.until(() => {
       const at = document.querySelector('#mdoc .de[data-id="PLN"]');
-      return at && /18 aug/.test(at.textContent) ? at.textContent.trim() : false;
-    }, "the phrase to stand in the draft's own planning line");
+      return at && /<\d{4}-08-18 /.test(at.textContent) ? at.textContent.trim() : false;
+    }, "the phrase to stand RESOLVED in the draft's own planning line");
+    assert(!/18 aug/.test(drafted),
+      `the planning line still reads the raw phrase: ${JSON.stringify(drafted)}`);
+    assert(drafted.includes(ghost.replace(/^\s*→\s*/, "").trim()),
+      `the line reads ${JSON.stringify(drafted)} and the ghost previewed `
+      + `${JSON.stringify(ghost)} — one reader, one answer`);
     const still = await idsUnder(p, "tag:book");
     assert(still.length === 0,
       `the widget wrote to the store over a draft: ${JSON.stringify(still)}`);
@@ -3282,9 +3391,14 @@ export default [
     const org = await p.eval(async (id) =>
       (await (await fetch(`/headline?id=${encodeURIComponent(id)}`)).json()).org, landed);
     const lines = org.split("\n");
-    // EVERY PART, AND THE MINTING'S OWN TWO BESIDE THEM.
+    // EVERY PART, AND THE MINTING'S OWN TWO BESIDE THEM.  THE DESTINATION IS
+    // WORN ONCE: the draft's tag cell carried it out as the capture's `tags',
+    // and the minting joins it IDEMPOTENTLY (`addTagEditsIn' folds), so the run
+    // that reached the file is the run the pane drew.
     assert(/^\* READING Book :book:$/.test(lines[0]),
       `the blob opens ${JSON.stringify(lines[0])}`);
+    assert((lines[0].match(/book/g) || []).length === 1,
+      `the destination is worn twice: ${JSON.stringify(lines[0])}`);
     assert(/^SCHEDULED: <\d{4}-08-18 /.test(lines[1]),
       `the planning line reads ${JSON.stringify(lines[1])}`);
     assert(org.includes(`:ORG_GLANCE_ID: ${landed}`),
@@ -3368,8 +3482,14 @@ export default [
     const all = () => idsUnder(p, "");
     const before = await all();
 
-    // (1) OVER A DRAWN DRAFT: the sheet goes and no command was sent.
+    // (1) OVER A DRAWN DRAFT: the STANDING LADDER, one rung per surface — the
+    // first ESC closes the box the landing opened and the second takes the
+    // sheet.  No command was sent at either.
     await draftOver(p, base, "book");
+    await p.press("ESC");
+    await p.until(() => !document.getElementById("dpara").classList.contains("on")
+                    && document.getElementById("modal").className === "on",
+                  "ESC to close the landing's box and leave the sheet standing");
     await p.press("ESC");
     await p.until(() => document.getElementById("modal").className !== "on",
                   "ESC to take the sheet over the templated draft");
@@ -3408,5 +3528,147 @@ export default [
       `the three escapes left ${end.length} rows against ${before.length}`);
     return [`three escapes — over the draft, in the bare title, at the tag `
       + `field — left the store at ${before.length} rows and nothing on screen`];
+  } },
+
+// AN EMPTY TITLE DREW NO CELL, so the title edit fell back to the whole line and
+// the box swallowed the star, the state, the priority and the tag run it is
+// supposed to stand among.  The capture surfaced it — a fresh draft has no title
+// by definition — but the bug is the SHEET'S: any headline whose title is empty
+// wore it.  The headline now always draws its title cell, and the box stands in
+// that slot on both.
+{ name: "an empty title still has a slot, and its edit stands tight in it",
+  async run(p, base) {
+    // `placeEdit' LAYS THE BOX A TURN AFTER THE RAISE: read before that and it
+    // still stands where it rested, which is nobody's slot.
+    const titlePlaced = (p_, why) =>
+      p_.until(() => {
+        const b = document.getElementById("dtitle");
+        return b.classList.contains("on") && b.style.top !== ""
+          && b.getBoundingClientRect().width > 0
+          && !!document.querySelector('#mdoc .de[data-id="H"] .dc-title');
+      }, why);
+    const read = () => {
+      const box = (e) => {
+        if (!e || !e.getBoundingClientRect) return null;
+        const r = e.getBoundingClientRect();
+        return { x: Math.round(r.left), w: Math.round(r.width) };
+      };
+      const head = document.querySelector('#mdoc .de[data-id="H"]');
+      const t = document.getElementById("dtitle");
+      return {
+        head: head ? head.textContent : "",
+        row: box(head),
+        // WHAT STANDS LEFT OF THE SLOT: the stars and every cell org spells
+        // before the title.  The tag run rides the far edge and is read apart.
+        before: [...head.querySelectorAll(".ds, .dc")]
+          .filter((s) => !s.classList.contains("dc-title")
+                      && !s.classList.contains("dc-tags") && s.textContent)
+          .map((s) => [s.className, s.textContent.trim(), box(s)]),
+        title: box(head.querySelector(".dc-title")),
+        tags: box(head.querySelector(".dc-tags")),
+        open: t.className, field: document.activeElement.id, edit: box(t),
+      };
+    };
+    // The box stands in the title's own slot: over the cell, and clear of every
+    // decoration the row draws beside it.
+    const tight = (s, what) => {
+      assert(s.title !== null,
+        `${what}: the head row drew no title cell — ${JSON.stringify(s.head)}`);
+      assert(s.open === "on" && s.field === "dtin",
+        `${what}: the title edit is ${JSON.stringify([s.open, s.field])}`);
+      assert(Math.abs(s.edit.x - s.title.x) <= 2,
+        `${what}: the box opens at x${s.edit.x} and the slot at x${s.title.x}`);
+      assert(s.edit.w < s.row.w - 8,
+        `${what}: the box is ${s.edit.w}px over a ${s.row.w}px row — it swallowed it`);
+      for (const [cls, text, b] of s.before)
+        assert(b.x + b.w <= s.edit.x + 2,
+          `${what}: ${cls} ${JSON.stringify(text)} at x${b.x}+${b.w} is under the `
+          + `box at x${s.edit.x}`);
+      if (s.tags)
+        assert(s.tags.x >= s.edit.x + s.edit.w - 2,
+          `${what}: the tag run at x${s.tags.x} is under the box ending at `
+          + `x${s.edit.x + s.edit.w}`);
+    };
+
+    // ------- ON A DRAFT, which is where a reader meets it: the filter pins a
+    // priority, so the draft is RICH and the box that opens is not the jot's.
+    await tableUp(p, base);
+    await p.goto(`${base}/?q=${encodeURIComponent("priority:[#A]")}`);
+    await p.until(() => !!document.querySelector("#app table tbody tr"),
+                  "the filtered table");
+    await p.press("+");
+    await p.until(() => document.getElementById("capture").className === "on"
+                    && document.activeElement === document.getElementById("ktag"),
+                  "the tag field");
+    await p.eval(() => {
+      const f = document.getElementById("ktag");
+      f.value = "bicycle";
+      f.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await p.press("RET");
+    await p.until(() => !!document.querySelector("#modal.on")
+                    && document.getElementById("capture").className !== "on",
+                  "the sheet over the bicycle draft");
+    await titlePlaced(p, "the title box over the draft's empty slot");
+    const draft = await p.eval(read);
+    // THE WHOLE OF WHAT THE READER LOST: the priority the filter lent and the
+    // destination they typed both stand, around an editable slot.
+    assert(/\[#A\]/.test(draft.head) && /:bicycle:/.test(draft.head),
+      `the draft drew ${JSON.stringify(draft.head)} — the lent priority and the `
+      + `destination must both be on it`);
+    tight(draft, "the draft");
+    await p.press("ESC");
+    await p.until(() => document.getElementById("dtitle").className !== "on",
+                  "ESC to close the draft's title box");
+    await p.press("ESC");
+    await p.until(() => document.getElementById("modal").className !== "on",
+                  "ESC to drop the capture");
+
+    // ------- AND ON A REAL DOC whose title is empty, which is the same bug and
+    // was there before capture was: the row is made through the capture door and
+    // then emptied through the commit door, so nothing here fabricates markup.
+    const id = await p.eval(async () => {
+      const made = await (await fetch("/command", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "capture",
+                               args: { text: "TODO a title about to go" } }) })).json();
+      return made.id;
+    });
+    const wrote = await p.until(async (row) => {
+      const h = await (await fetch(`/headline?id=${encodeURIComponent(row)}`)).json();
+      if (!/a title about to go/.test(h.org || "")) return false;
+      const r = await fetch(`/headline?id=${encodeURIComponent(row)}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ org: h.org.replace("* TODO a title about to go", "* TODO"),
+                               digest: h.digest }) });
+      return r.status === 200 || `the write answered ${r.status}`;
+    }, "the row to be written with an empty title", 20000, id);
+    assert(wrote === true, `the empty-title row was never written: ${wrote}`);
+    // THE READ THAT PROVES IT, before the sheet is asked for one: the store lags
+    // the write, and a sheet opened inside that window draws the old title.
+    const bare = await p.until(async (row) => {
+      const h = await (await fetch(`/headline?id=${encodeURIComponent(row)}`)).json();
+      const line = String(h.org || "").split("\n")[0];
+      return /^\* TODO\s*$/.test(line) ? line : false;
+    }, "the emptied title to be what the door serves", 20000, id);
+    assert(bare === "* TODO", `the row's headline reads ${JSON.stringify(bare)}`);
+    // ENCODED, and over the whole tree: a fallback row id is a PATH carrying a
+    // `#', which a bare URL would cut off as a fragment.
+    await p.goto(`${base}/?q=&page=sheet&row=${encodeURIComponent(id)}`);
+    await p.until(() => !!document.querySelector("#modal.on"),
+                  "the sheet over the emptied row");
+    await p.until(() => !!document.querySelector('#mdoc .de[data-id="H"]'),
+                  "its head row to draw");
+    await settled(p);
+    await p.press("RET");
+    await titlePlaced(p, "the title box over the real doc's empty slot");
+    const real = await p.eval(read);
+    assert(/TODO/.test(real.head),
+      `the row drew ${JSON.stringify(real.head)} — its state must still stand`);
+    tight(real, "a real doc with an empty title");
+    return [`the draft drew ${JSON.stringify(draft.head)}: slot x${draft.title.x}`
+      + ` w${draft.title.w}, box x${draft.edit.x} w${draft.edit.w} inside a `
+      + `${draft.row.w}px row; the real doc drew ${JSON.stringify(real.head)}: `
+      + `slot x${real.title.x} w${real.title.w}, box x${real.edit.x} w${real.edit.w}`];
   } },
 ];

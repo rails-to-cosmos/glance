@@ -7,6 +7,12 @@ README's Capture section is the crib; this page is the whole law. The design
 history is `docs/proposals/done/2026-08-03-capture.md`, and the redesign that
 made the capture doc the material doc is
 `docs/proposals/proposed/2026-08-24-the-capture-doc-is-the-material-doc.md`.
+What that redesign got wrong on its first day, and why each rule below reads
+the way it does, is four files under `docs/bugs/fixed/`:
+[the draft never says where it lands](bugs/fixed/2026-08-24-the-draft-never-says-where-it-lands.md),
+[a rich draft opens with no editor](bugs/fixed/2026-08-24-a-rich-draft-opens-with-no-editor.md),
+[an empty title's edit swallows its own line](bugs/fixed/2026-08-24-an-empty-titles-edit-swallows-its-own-line.md),
+[a planning phrase stays raw in the draft](bugs/fixed/2026-08-24-a-planning-phrase-stays-raw-in-the-draft.md).
 
 ## The flow
 
@@ -25,15 +31,36 @@ subtree that does not exist yet. Two steps:
    the date widget and its summon keys, the tags door, the state door —
    offering the tag's own cycle. Point lands where `%?` stood.
 
+**Every draft opens editing.** A reader who asked for a capture is composing
+one, so the pane opens the editor at the place `%?` named rather than asking
+for a `RET` first. Point on the headline is the **title edit**; a `%?` on a
+body line is the **paragraph editor** over that line, seeded with what the
+template left standing there and the caret at its end (`point` names a line,
+not an offset). A line no editor claims — a template's own child headline —
+keeps point, and the pane's `RET` is the way in as on any doc.
+
 `C-c C-c` commits the draft whole. `ESC` leaves nothing: **no file ever
 existed**, so there is nothing to undo — no autosave, no draft store.
 
 **The bare-draft law.** Where the draft is the bare default — star, space,
 empty title and nothing else — the title edit *is* the capture: `RET` on the
 typed title commits immediately, so the inbox jot stays `+`, `RET`, the line,
-`RET`, key for key. A template with more than a bare headline commits on
-`C-c C-c` alone, and `RET` on the title just closes the title edit as usual.
+`RET`, key for key. The **destination tag does not make a draft rich**: it is
+the address `+` already asked for, so a bare template under a tag is the bare
+draft too. A template with more than a bare headline commits on `C-c C-c`
+alone, and `RET` on the title just closes the title edit as usual.
 `ESC` in the bare title edit drops the capture whole.
+
+On a rich draft the box the landing opened is an ordinary sheet edit, so the
+**standing ladder** holds: `RET` closes it and `C-c C-c` behind it takes the
+capture; `ESC` closes it and the next `ESC` drops the draft.
+
+**The planning line resolves in the draft.** A row's planning phrase is posted
+and comes back transformed; a draft posts nothing, so it resolves the phrase
+itself with the **ghost's own reader** — the pane says what the file will
+hold. What travels at `C-c C-c` is still the **raw phrase**: the wall
+transforms it once, against the server's clock. A phrase the resolver refuses
+stays as it stands and meets the wall's own sentence.
 
 The cursor lands on the new row when the current view carries it, and stays
 put when the view filters it out.
@@ -62,8 +89,16 @@ turn down — a state outside its cycle, a letter that is no priority, a tag
 outside the charset, a day the grammar will not read — is simply not
 inherited. It is the filter talking about other rows.
 
-A tag run needs a **title** to stand after: the parser reads `* :work:` as the
-title itself, so a lent tag waits until the draft has one.
+**The draft says where it lands.** Its tag cell is *constructed* — the
+destination first, then the template's own run and the lent tags — so the head
+row wears the destination before a title is typed. The commit carries that
+cell out as the capture's `tags` and the minting joins the destination
+idempotently, so the blob wears each tag once.
+
+The **org line** is the one thing that cannot spell it: the parser reads
+`* :work:` as the title itself, so the draft's own bytes carry no run until a
+title stands in front of one. The display cell says it all the same, and the
+commit composes the header out of the cell rather than out of that line.
 
 ## Templates
 

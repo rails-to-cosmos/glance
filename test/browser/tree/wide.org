@@ -1,7 +1,7 @@
 #+TITLE: Wide
 #+TODO: TODO NEXT | DONE CANCELLED
 
-* TODO A row whose title runs long enough to press every pane sideways at 360px :driver:wide:overflow:
+* TODO A row whose title runs long enough to press every pane sideways at 360px :driver:wide:overflow:unbreakable:horizontal:
 :PROPERTIES:
 :ORG_GLANCE_ID: drv-wide
 :END:

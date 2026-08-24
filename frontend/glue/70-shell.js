@@ -238,6 +238,23 @@
       if (handler) handler(b);
       else append("cmd", "info", `${b.seq} (${b.command}) — arrives with daemon commands (M4)`);
     }
+    // THE TAGS CELL IS THE TAGS DOOR.  A click on the values opens the very
+    // popup `:' opens, over the row it landed on: the renderer marks that cell
+    // `tv-multi' and its own click — on the scroller, INSIDE this element —
+    // has already selected the row by the time this listener runs, so the
+    // command reads the targets a press there would (marked rows else point,
+    // which is the one rule `takesRows' states for it).  The binding is the
+    // map's own, so the command, its handler and its help have one source and
+    // only the DOOR is respelled.  Gated as the key is: while a surface stands
+    // the table takes nothing.
+    const tagsDoor = MAPS.rows.find(
+      (b) => b.command === "org-agenda-set-tags" && b.scope === "table") || null;
+    el("app").addEventListener("click", (e) => {
+      if (!tagsDoor || typing()) return;
+      const t = targetOf(e);
+      if (!t.closest || !t.closest("td.tv-multi")) return;
+      run(Object.assign({}, tagsDoor, { seq: "click" }));
+    });
     document.addEventListener("keydown", (e) => {
       // Listeners ahead of this one claim keys of their own — the sheet's `DEL'.
       if (e.defaultPrevented) return;

@@ -225,9 +225,9 @@ const capturedId = "r3";
  * edit opens over.  `book' brings a drawer ask, a body point and a cycle of its
  * own, so it is the RICH draft that commits on `C-c C-c' alone.
  *
- * THE DESTINATION TAG IS NOT ON THE DRAFT'S HEADLINE: it is the capture's
- * ADDRESS, and the minting joins it when the blob is written.  What the run
- * carries is what the template spelled and what the filter LENT (`inherit'). */
+ * THE DESTINATION LEADS THE TAG CELL, and the template's own run and what the
+ * filter LENT follow it (`inherit'): the cell says WHERE THE CAPTURE LANDS, the
+ * draft's org line being unable to spell a run with no title in front of it. */
 const captureDrafts = {
   "": { cells: { state: null, priority: null, title: "", tags: "" },
         org: "* ", body: "* ", ownLines: 1, point: null,
@@ -239,6 +239,13 @@ const captureDrafts = {
           properties: [["AUTHOR", ""]], planning: [], children: [],
           cycle: [{ source: "default", active: ["TODO"], inactive: ["DONE"] },
                   { source: "book", active: ["READING"], inactive: ["READ"] }] },
+  // A TEMPLATE WHOSE PLANNING ENTRY IS NO PHRASE ANY READER READS: the draft
+  // leaves it as it stands and the WALL refuses it at the commit, with its own
+  // sentence and the sheet still up.
+  odd: { cells: { state: null, priority: null, title: "Odd", tags: "" },
+         org: "* Odd\nDEADLINE: someday\n", body: "* Odd\n", ownLines: 1, point: null,
+         properties: [], planning: [["DEADLINE", "someday"]], children: [],
+         cycle: [{ source: "default", active: ["TODO"], inactive: ["DONE"] }] },
   // A TEMPLATE THAT SPEAKS FIRST, so template-first has something to stand on:
   // the keyword is the layer's own and no filter argument may move it.
   work: { cells: { state: "TODO", priority: null, title: "Work", tags: "" },
@@ -264,9 +271,16 @@ function inherit(cells, planning, cycle, arg) {
   const letter = arg("priority");
   if (!cells.priority && /^[A-Za-z]$/.test(letter))
     cells.priority = `[#${letter.toUpperCase()}]`;
-  const worn = String(cells.tags || "").split(":").filter(Boolean);
+  // THE DESTINATION OPENS THE RUN, the template's own and the lent tags after
+  // it: the cell is CONSTRUCTED and says where this lands, whether or not the
+  // draft's headline could carry the run.  The DESTINATION is the address the
+  // reader settled and rides as typed; a LENT tag meets the charset.
+  const worn = [];
+  const join = (w) => { if (w && worn.indexOf(w) === -1) worn.push(w); };
+  join(arg("tag").trim().toLowerCase());
+  for (const t of String(cells.tags || "").split(":")) join(t.trim().toLowerCase());
   for (const t of arg("tags").split(",").map((s) => s.trim().toLowerCase()))
-    if (/^[\w@#%]+$/.test(t) && worn.indexOf(t) === -1) worn.push(t);
+    if (/^[\w@#%]+$/.test(t)) join(t);
   cells.tags = worn.length ? `:${worn.join(":")}:` : "";
   for (const [key, name] of [["SCHEDULED", "scheduled"], ["DEADLINE", "deadline"]]) {
     const day = arg(name);
