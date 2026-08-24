@@ -84,7 +84,7 @@ keyBindings =
       `helps` openHelp
   , bind ["!"]          "org-glance-overview:open"        (Just "openLinks")      "table"
       `helps` openHelp
-  , bind ["A"]          "org-glance-agenda"               (Just "applyAgenda")    "table"
+  , bind ["a"]          "org-glance-agenda"               (Just "applyAgenda")    "table"
       `helps` "the active rows carrying a date, earliest first"
   , bind ["@"]          "org-glance-overview:relations"   (Just "relations")      "table"
       `helps` "the rows referring to this one; DEL walks back"

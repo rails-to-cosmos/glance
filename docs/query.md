@@ -462,7 +462,7 @@ The agenda's built-in serves every dated row; rewriting it for the day's work
 is [config.md](config.md#saved-views).
 
 `g` applies the default (the view the tree opens on — also applied at boot
-when the address bar carries no query), `A` the agenda, `P` pins the current
+when the address bar carries no query), `a` the agenda, `P` pins the current
 query into a saved view. The last pragma line in a file wins; the first
 config layer that names one wins across directories.
 

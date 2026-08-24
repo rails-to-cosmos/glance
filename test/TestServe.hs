@@ -2307,7 +2307,7 @@ openedOf answer = traverse one =<< listAt "opened" answer
 agendaSpec :: IO T.Text -> TestTree
 agendaSpec shell = testGroup "Shell agenda"
   [ keyedAt shell "?q=" 500 "applies its query the way g applies the tree's default"
-      "A" "" $ \answer -> do
+      "a" "" $ \answer -> do
         assertEqual "the boot's two, then the remount's one"
           [ "/headlines?limit=100", "/headlines"
           , "/headlines?q=state%3A*active*%20-planned%3A*empty*%20sort%3Ascheduled" ]
@@ -2317,29 +2317,29 @@ agendaSpec shell = testGroup "Shell agenda"
 
     -- The order is IN the query, so nothing is asked of the handle: a call could state an order the query did not.
   , keyedAt shell "?q=" 500 "the rows land in scheduled order, and the query is what says so"
-      "A" "" $ \answer -> do
+      "a" "" $ \answer -> do
         assertEqual "the chain the query named" [("scheduled", True)]
           =<< chainOf answer
         assertEqual "and no sort was asked of the renderer" 0
           =<< intAt "sortCalls" answer
 
   , keyedAt shell "?q=" 500 "and DEL takes the order back off, one token like any other"
-      "A" "press:Backspace" $ \answer -> do
+      "a" "press:Backspace" $ \answer -> do
         urlIs "the query the strip left" "?q=state%3A*active*+-planned%3A*empty*" answer
         assertEqual "asked for without the order"
                     (Just "/headlines?q=state%3A*active*%20-planned%3A*empty*")
           . lastOf =<< textsAt "asked" answer
 
   , keyedAt shell "?q=" 3 "and the pill names the command and the count the server answered"
-      "A" "" $
+      "a" "" $
         echoIs "counted by the server, not by the page it painted"
-          "A → org-glance-agenda (agenda · 3 rows)"
+          "a → org-glance-agenda (agenda · 3 rows)"
 
-  , keyedAt shell "?q=" 1 "one row is one row" "A" "" $
-        echoIs "singular" "A → org-glance-agenda (agenda · 1 row)"
+  , keyedAt shell "?q=" 1 "one row is one row" "a" "" $
+        echoIs "singular" "a → org-glance-agenda (agenda · 1 row)"
 
   , keyedAt shell "?q=" 500 "an asset without a programmatic sort still applies the view"
-      "" "sortless press:A" $ \answer -> do
+      "" "sortless press:a" $ \answer -> do
         assertEqual "no sort was asked for" Nothing =<< sortOf answer
         urlIs "the query still went, order and all"
           "?q=state%3A*active*+-planned%3A*empty*+sort%3Ascheduled" answer
@@ -2349,15 +2349,15 @@ agendaSpec shell = testGroup "Shell agenda"
 
     -- The landing is armed for ONE boot: a second remount must not re-sort or echo a count.
   , keyedAt shell "?q=" 500 "the landing is spent by the boot it was armed for"
-      "A" "close:view-changed" $ \answer -> do
+      "a" "close:view-changed" $ \answer -> do
         echoIs "the remount behind the close echoed no agenda"
-          "A → org-glance-agenda (agenda · 500 rows)" answer
+          "a → org-glance-agenda (agenda · 500 rows)" answer
         -- The pill is last-writer-wins, so the one trace a second run leaves is a second WRITE.
         wrote <- textsAt "echoes" answer
         assertEqual ("the agenda landed once: " <> show wrote)
                     1 (length (filter ("(agenda · " `T.isInfixOf`) wrote))
 
-  , keyedAt shell "?q=" 500 "a held A remounts once" "A" "repeat:A repeat:A repeat:A" $
+  , keyedAt shell "?q=" 500 "a held a remounts once" "a" "repeat:a repeat:a repeat:a" $
         assertEqual "one remount, so one fetch behind the boot's"
           [ "/headlines?limit=100", "/headlines"
           , "/headlines?q=state%3A*active*%20-planned%3A*empty*%20sort%3Ascheduled" ]
@@ -5427,9 +5427,9 @@ settingsSpec shell =
         echoIs "and the pill names the agenda"
           "P → set-saved-view (agenda · tag:work)" answer
 
-    -- The FIRST `a' is the pin palette's own which-key letter for the agenda view rather than this binding.
+    -- The FIRST `a' is the pin palette's own which-key letter inside `P'; the SECOND is this binding, live once the palette shut.
   , keyedAt shell "?q=tag%3Awork" 500 "A applies the agenda the pin just wrote"
-      "" "press:P press:a press:g press:A" $ \answer ->
+      "" "press:P press:a press:g press:a" $ \answer ->
         urlIs "the freshly pinned agenda, not the built-in"
               "?q=tag%3Awork" answer
 
@@ -10765,7 +10765,7 @@ expectedRows =
   -- Two spellings of one command, so one help line.
   , (["o"],          "o",       "org-glance-overview:open",        Just "openLinks",      "table", openHelp)
   , (["!"],          "!",       "org-glance-overview:open",        Just "openLinks",      "table", openHelp)
-  , (["A"],          "A",       "org-glance-agenda",               Just "applyAgenda",    "table",
+  , (["a"],          "a",       "org-glance-agenda",               Just "applyAgenda",    "table",
        Just "the active rows carrying a date, earliest first")
   , (["@"],          "@",       "org-glance-overview:relations",   Just "relations",      "table",
        Just "the rows referring to this one; DEL walks back")

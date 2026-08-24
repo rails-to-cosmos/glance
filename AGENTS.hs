@@ -3837,7 +3837,7 @@ bindings =
   , Binding ["TAB"]         (Elisp "org-cycle")                       STable
   , Binding ["o"]           (Elisp "org-glance-overview:open")        STable
   , Binding ["!"]           (Elisp "org-glance-overview:open")        STable
-  , Binding ["A"]           (Elisp "org-glance-agenda")               STable
+  , Binding ["a"]           (Elisp "org-glance-agenda")               STable
   , Binding ["@"]           (Elisp "org-glance-overview:relations")   STable
   , Binding ["+"]           (Elisp "org-glance-overview:capture")     STable
   , Binding ["d"]           (Elisp "archive-flag")                    STable
@@ -3889,7 +3889,7 @@ keyHelps =
   , (["U"],                 "every mark and every archive flag off")
   , (["M"],                 "mark every row loaded")
   , (["o", "!"],            "open links: the row here, the element in the sheet; several list them")
-  , (["A"],                 "the active rows carrying a date, earliest first")
+  , (["a"],                 "the active rows carrying a date, earliest first")
   , (["@"],                 "the rows referring to this one; DEL walks back")
   , (["+"],                 "a headline for the inbox, typed as org")
   , (["d"],                 "flag for archive; d again archives all flagged")
