@@ -40,7 +40,9 @@ popups =
   , Popup "config"  "c" "cbox"  Sheet     True  True  ["foot"]
   , Popup "links"   "l" "lbox"  Sheet     True  True  everyPart
   , Popup "tags"    "t" "tbox"  Band      True  True  everyPart
-  , Popup "capture" "k" "kbox"  Sheet     True  True  everyPart
+    -- ONE FIELD AND A SHORT LIST since the sheet took the document: the band is
+    -- the palette's own tier and the shape this form now has.
+  , Popup "capture" "k" "kbox"  Band      True  True  everyPart
   , Popup "mint"    "n" "nbox"  Band      True  True  everyPart
   , Popup "refer"   "r" "rbox"  Untiered  False False []
   ]

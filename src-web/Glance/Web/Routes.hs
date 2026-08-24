@@ -10,7 +10,7 @@ import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVa
 import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Exception (SomeException, displayException, evaluate, finally, try)
 import Control.Monad (filterM, forever, void, when)
-import Data.Aeson (FromJSON (..), Value (Object), encode, object, withObject, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), Value (Null, Object), encode, object, withObject, (.:), (.:?), (.=))
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair, Parser)
@@ -24,6 +24,7 @@ import Data.FileEmbed (embedFile, makeRelativeToProject)
 import Language.Haskell.TH (listE)
 import Data.Text (Text)
 import GHC.Clock (getMonotonicTime)
+import qualified Data.Time as Time
 import Network.HTTP.Types ( Header, hCacheControl, hContentType, methodGet, methodHead
                           , methodPost, parseQuery, status200, status304, status400
                           , status404, status405, status409, status500, status503 )
@@ -60,6 +61,9 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , TodoKeywords (..)
                     , SavedView (..), archived, configDirsIn, configPaths
                     , captureTemplateIn, captureTemplateOf
+                    , bareTemplate
+                    , Inherited (..)
+                    , draftKeywords, draftPointLine, draftRecord, draftSeeded, draftTemplate
                     , ConfigLayers (clTree), TreeSettings (..), treeSettings
                     , configEdits, viewQuery, viewQueryIn
                     , headlineParts, keywordSources, linkShown, linkType
@@ -72,10 +76,10 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , ownBodyLines, sortedForViewWith
                     , subtreeEntries, subtreeEntryAt, subtreeLinks
                     , subtreeText, tagsOfCell
-                    , templatePrompts, titleSpan, todoPragmas
+                    , titleSpan, todoPragmas
                     , resolveColumns, savedViews, todoLines, viewColumns
                     , viewJSONFor )
-import Glance.Web.Base ( Day, ServeOptions (..), answerWrite, bodyObject, codeList, configMoved
+import Glance.Web.Base ( Day, ServeOptions (..), answerWrite, bodyObject, configMoved
                        , conflict, docCells, glueAsset, gluePartFiles, html, jsonError
                        , elmAsset
                        , jsonResponse, jsonType
@@ -559,7 +563,11 @@ keywordsView hub request =
     [ "sources" .= map sourceJSON (keywordSources (stConfig st) found)
     , "unknown" .= unknown
     ]
-  where sourceJSON (source, kw) = object ("source" .= source : keywordsPair kw)
+
+-- | One scope as the wire spells it.  @\/keywords@' entry and the draft door's
+-- @cycle@ are ONE builder: the cycle a capture is offered is the cycle a row is.
+sourceJSON :: (Text, TodoKeywords) -> Value
+sourceJSON (source, kw) = object ("source" .= source : keywordsPair kw)
 
 idsView :: Hub -> Request -> Text
         -> (Store -> [HeadlineRecord] -> [HeadlineRecord] -> [Text] -> [Pair])
@@ -638,19 +646,84 @@ valuesUnder drawers = Map.fromListWith (Map.unionWith (+))
 
 -- Capture
 
--- | @GET \/capture[?tag=NAME]@: what a capture under that tag will ask for.  @tags@ rides here because a capture names no rows.
+-- | @GET \/capture[?tag=NAME]@: the DRAFT a capture under that tag opens on.
+--
+-- THE SHAPE @\/headline@ SERVES, field for field, off bytes that exist only in
+-- this answer — the pane draws a draft as it draws any doc, so capture is the
+-- one editor pointed at nothing rather than a second editor with its own rules.
+-- Three fields ride beside it: the tag's own @cycle@ (@\/keywords@' shape, which
+-- needs a ROW and a draft has none), the @point@ @%?@ stood at, and the tree's
+-- @tags@ (here because a capture names no rows).  NO FILE IS CREATED.
 captureView :: ServeOptions -> Hub -> Request -> IO Response
 captureView opts hub request = do
   st <- readTVarIO (hubStore hub)
-  template <- case queryText "tag" request of
-    Nothing  -> pure Nothing
-    Just tag -> captureTemplateIn tag <$> layersFor (soDir opts) st
-  pure (jsonResponse status200
-          [ "template" .= isJust template
-          , "prompts"  .= maybe [] templatePrompts template
-          , "tags"     .= storeTags st
-          , "codes"    .= codeList
-          ])
+  layers <- layersFor (soDir opts) st
+  -- ONE CLOCK READ PER REQUEST, above the expansion: a template's own stamps and
+  -- a day the filter lends must name one instant, as a capture's two already do.
+  now <- Time.getZonedTime
+  let cfg = stConfig st
+      tag = fromMaybe "" (queryText "tag" request)
+      worn = map T.toLower (filter (not . T.null) (tag : inheritedTags request))
+      day = Time.localDay (Time.zonedTimeToLocalTime now)
+      drafted = do
+        (expanded, at) <- draftTemplate now (fromMaybe bareTemplate (captureTemplateIn tag layers))
+        -- The point is read off the EXPANDED doc: what the filter lends edits the
+        -- headline and the planning line, neither of them lines the body carries,
+        -- so the line index survives the seeding it is measured before.
+        opens <- draftPointLine <$> draftRecord cfg expanded <*> pure at
+        r <- draftRecord cfg =<< draftSeeded cfg worn (inheritedIn day request) expanded
+        pure (draftJSON st worn r opens)
+  pure (either (jsonError status400) (jsonResponse status200) drafted)
+
+-- | A DRAFT as the wire carries it: 'subtreeJSON''s own members, and the three
+-- a doc with no file behind it owes.  The empty digest is the CREATE PIN, which
+-- is why the commit that follows meets the very wall a materialize commit does.
+draftJSON :: Store -> [Text] -> HeadlineRecord -> Maybe Int -> [Pair]
+draftJSON st worn r opens =
+  [ "id"         .= Null
+  , "file"       .= ("" :: Text)
+  , "child"      .= Null
+  , "parent"     .= Null
+  , "path"       .= [hrTitle r]
+  , "level"      .= (1 :: Int)
+  , "cells"      .= object (cells r)
+  , "children"   .= [ childJSON r (subtreeText r) (hpBody parts) i e | (i, e) <- beneath f ]
+  , "org"        .= subtreeText r
+  , "body"       .= hpBody parts
+  , "ownLines"   .= ownBodyLines r (hpBody parts) (firstUnder f)
+  , "properties" .= [ [key, value] | (key, value) <- hpProperties parts ]
+  , "planning"   .= [ [key, value] | (key, value) <- hpPlanning parts ]
+  , "logbook"    .= hpLogbook parts
+  , "digest"     .= ("" :: Text)
+  , "span"       .= Null
+  , "links"      .= ([] :: [Value])
+  , "titleAt"    .= Null
+  , "cycle"      .= map sourceJSON (draftKeywords (stConfig st) worn)
+  , "point"      .= opens
+  , "tags"       .= storeTags st
+  ]
+  where f = Focus r (subtreeEntries (stConfig st) r) Nothing
+        parts = headlineParts r
+
+-- | What the standing filter LENDS this draft.  NEVER A REFUSAL: an inherited
+-- fact this server cannot read is the filter talking about other rows, so it
+-- fills the gap or it does not and @+@ opens either way.
+inheritedIn :: Day -> Request -> Inherited
+inheritedIn day request = Inherited
+  { inhState    = queryText "state" request
+  , inhPriority = queryText "priority" request
+  , inhTags     = inheritedTags request
+  , inhPlanning = [ (key, stamp)
+                  | (key, name) <- [("SCHEDULED", "scheduled"), ("DEADLINE", "deadline")]
+                  , Just value <- [queryText name request]
+                  , Right stamp <- [plannedValue day key value] ]
+  }
+
+-- | @?tags=a,b@: the positive filter tags a draft wears beyond the template's.
+inheritedTags :: Request -> [Text]
+inheritedTags request =
+  [ t | raw <- maybe [] (T.splitOn ",") (queryText "tags" request)
+      , let t = T.strip raw, not (T.null t) ]
 
 -- Links
 

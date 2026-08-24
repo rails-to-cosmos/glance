@@ -85,13 +85,12 @@ demoShell opts font colours views =
   , "    </div>"
   , "  </div>"
   ]
+  -- ONE FIELD: the tag settles and the SHEET takes over, so the form holds the
+  -- destination question and nothing else (`docs/capture.md', The flow).
   <> popupFrame "capture" "k" "" ""
        [ "      <input id=\"ktag\" spellcheck=\"false\" autocomplete=\"off\""
            <> " placeholder=\"tag — empty is the inbox\">"
        , "      <div id=\"klist\"></div>"
-       , "      <div id=\"kfields\"></div>"
-       , "      <textarea id=\"ktext\" spellcheck=\"false\""
-           <> " placeholder=\"a headline, as org\"></textarea>"
        ]
   -- Panel bodies wear `cpart'; glue.js's `SECTIONS' wraps them at boot.
   <>
@@ -188,8 +187,10 @@ ghost :: Text -> Text
 ghost name =
   "<span id=\"" <> name <> "\" class=\"dgh\" aria-hidden=\"true\"></span>"
 
--- | A labelled row of the mint form, in the capture form's two classes.  The
--- `nrow-NAME' class is the browser suite's handle for taking one field away.
+-- | A labelled row of the mint form, in the two classes that are now the mint's
+-- alone — the capture form they were shared with is gone, capture being the doc
+-- pane over a draft.  The `nrow-NAME' class is the browser suite's handle for
+-- taking one field away.
 nrow :: Text -> Text -> Text -> Text
 nrow name label control =
   "      <div class=\"krow nrow-" <> name <> "\"><label class=\"klab\">"

@@ -218,14 +218,63 @@ let stateHues = [];
 let captureLine = "";
 const captureTarget = "/o/inbox.org";
 const capturedId = "r3";
-const captureCodes = [
-  { code: "%?", means: "where the text you type lands" },
-  { code: "%U", means: "the moment of capture, inactive" },
-];
-// `template' and a non-empty `prompts' are two facts: `film' has one and no ask.
-const capturePrompts = { book: ["Author"] };
-const captureTemplates = ["book", "film"];
+/** GET /capture's DRAFT, per tag — the shape `/headline' serves, off bytes with
+ * no file behind them.  The page holds no template grammar, so the whole of
+ * what it knows about a template is what this answers.  `""' is the inbox and
+ * its default template: ONE STAR AND A SPACE, which is the BARE draft the title
+ * edit opens over.  `book' brings a drawer ask, a body point and a cycle of its
+ * own, so it is the RICH draft that commits on `C-c C-c' alone.
+ *
+ * THE DESTINATION TAG IS NOT ON THE DRAFT'S HEADLINE: it is the capture's
+ * ADDRESS, and the minting joins it when the blob is written.  What the run
+ * carries is what the template spelled and what the filter LENT (`inherit'). */
+const captureDrafts = {
+  "": { cells: { state: null, priority: null, title: "", tags: "" },
+        org: "* ", body: "* ", ownLines: 1, point: null,
+        properties: [], planning: [], children: [],
+        cycle: [{ source: "default", active: ["TODO"], inactive: ["DONE"] }] },
+  book: { cells: { state: null, priority: null, title: "Book", tags: "" },
+          org: "* Book\n:PROPERTIES:\n:AUTHOR:\n:END:\n\n",
+          body: "* Book\n", ownLines: 2, point: 1,
+          properties: [["AUTHOR", ""]], planning: [], children: [],
+          cycle: [{ source: "default", active: ["TODO"], inactive: ["DONE"] },
+                  { source: "book", active: ["READING"], inactive: ["READ"] }] },
+  // A TEMPLATE THAT SPEAKS FIRST, so template-first has something to stand on:
+  // the keyword is the layer's own and no filter argument may move it.
+  work: { cells: { state: "TODO", priority: null, title: "Work", tags: "" },
+          org: "* TODO Work\n", body: "* TODO Work\n", ownLines: 1, point: null,
+          properties: [], planning: [], children: [],
+          cycle: [{ source: "default", active: ["TODO"], inactive: ["DONE"] },
+                  { source: "work", active: ["TODO", "NEXT"], inactive: ["DONE"] }] },
+};
+// A TEMPLATE WITH NO `%?' IS REFUSED AT THE DOOR, the one 400 the tag field meets.
+const captureRefused = "film";
 const captureAsked = [];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** WHAT THE STANDING FILTER LENDS THIS DRAFT, merged the way the real door
+ * merges it: TEMPLATE-FIRST, so each argument fills a gap the expansion left
+ * and moves nothing it spelled, and tags JOIN the run rather than filling one.
+ * AN ARGUMENT THIS DOOR CANNOT READ IS DROPPED, never refused — the filter is
+ * talking about other rows, and `+' opens either way. A stub knows no day
+ * words, so a bare ISO is the whole of the date grammar it can honour. */
+function inherit(cells, planning, cycle, arg) {
+  const words = (cycle || []).flatMap((s) => (s.active || []).concat(s.inactive || []));
+  const state = arg("state");
+  if (!cells.state && words.indexOf(state) !== -1) cells.state = state;
+  const letter = arg("priority");
+  if (!cells.priority && /^[A-Za-z]$/.test(letter))
+    cells.priority = `[#${letter.toUpperCase()}]`;
+  const worn = String(cells.tags || "").split(":").filter(Boolean);
+  for (const t of arg("tags").split(",").map((s) => s.trim().toLowerCase()))
+    if (/^[\w@#%]+$/.test(t) && worn.indexOf(t) === -1) worn.push(t);
+  cells.tags = worn.length ? `:${worn.join(":")}:` : "";
+  for (const [key, name] of [["SCHEDULED", "scheduled"], ["DEADLINE", "deadline"]]) {
+    const day = arg(name);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    if (planning.some(([k]) => k === key)) continue;
+    planning.push([key, `<${day} ${WEEKDAYS[new Date(`${day}T00:00:00Z`).getUTCDay()]}>`]);
+  }
+}
 // GET /properties: what the tree spells, each with how often.  The counts are
 // the ORDER the offers come back in, so no two here share one.
 let propertyVocab = {
@@ -329,13 +378,32 @@ globalThis.fetch = (url, init) => {
   // turns down, and a chain that could not resolve its tag would never reach one.
   if (String(url) === "/capture" || String(url).startsWith("/capture?")) {
     captureAsked.push(url);
-    const at = /[?&]tag=([^&]*)/.exec(String(url));
-    const tag = at ? decodeURIComponent(at[1]) : null;
+    const arg = (k) => {
+      const at = new RegExp(`[?&]${k}=([^&]*)`).exec(String(url));
+      return at ? decodeURIComponent(at[1].replace(/\+/g, " ")) : "";
+    };
+    const tag = arg("tag");
+    if (tag === captureRefused)
+      return answer(400, { error: `the ${tag} template spells no %?` });
+    const d = captureDrafts[tag] || captureDrafts[""];
+    const cells = { ...d.cells };
+    const planning = d.planning.map((p) => p.slice());
+    inherit(cells, planning, d.cycle, arg);
     return answer(200, {
-      template: !!(tag && captureTemplates.indexOf(tag) !== -1),
-      prompts: tag ? (capturePrompts[tag] || []) : [],
+      // THE THREE A DOC WITH NO FILE OWES, and `/headline''s own members beside
+      // them.  `id' null and `digest' "" are the create pin.
+      id: null, file: "", child: null, parent: null,
+      path: [cells.title], level: 1,
+      cells,
+      children: d.children, org: d.org, body: d.body, ownLines: d.ownLines,
+      properties: d.properties.map((p) => p.slice()),
+      planning,
+      logbook: "", digest: "", span: null, links: [], titleAt: null,
+      cycle: d.cycle, point: d.point,
+      // THE VOCABULARY RIDES HERE because a capture names no rows to ask about.
+      // The expansion CODES do not: they are the settings box's completion and
+      // come off the page's own `CFG', so this door never spelled them.
       tags: vocabulary,
-      codes: captureCodes,
     });
   }
   if (String(url).startsWith("/keywords?ids=")) {
@@ -1180,7 +1248,7 @@ const narrows = () => LISTS.map((h) => [h, narrowIn(h)])
 const listCols = (host) =>
   field(host).querySelectorAll("thead .tv-hn").map((h) => h.textContent);
 const FOCUSABLE = ["mtext", "dtin", "dtext", "dkey", "dval", "dwhen", "ltitle",
-                   "lurl", "tname", "pinput", "ktag", "ktext"];
+                   "lurl", "tname", "pinput", "ktag"];
 const focused = () => {
   if (!active) return "";
   // Drawn by the program that holds the rows, so it carries no id of its own.
@@ -1381,20 +1449,6 @@ const ACTIONS = {
     if (field("capture").className !== "on")
       throw new Error("the capture form is not open: ktag");
     const box = field("ktag");
-    box.focus();
-    typed(box, text);
-  },
-  kf: (text) => {
-    if (field("capture").className !== "on")
-      throw new Error("the capture form is not open: kf");
-    if (!active || active === field("ktag") || active === field("ktext"))
-      throw new Error("no template field holds the focus: kf");
-    typed(active, text);
-  },
-  ktext: (text) => {
-    if (field("capture").className !== "on")
-      throw new Error("the capture form is not open: ktext");
-    const box = field("ktext");
     box.focus();
     typed(box, text);
   },
@@ -1634,6 +1688,9 @@ const settle = async () => {
     washed, stale: root.classList.contains("stale"),
     paints, spliced,
     sheet: field("mtext").value, state: field("mnote").className,
+    // The sheet's own file line: `FILE · ID' over a row, and where it WILL land
+    // over a draft, there being no file and no id yet to name.
+    mfile: field("mfile").textContent,
     modal: field("modal").className,
     palette: field("filter").value,
     doc: docRows(), dat: docAt(), dflagged: docFlagged(),
@@ -1750,10 +1807,9 @@ const settle = async () => {
     linked, opened, sorted, sortCalls, chain: sortChain, tagged, propertiesAsked,
     pinned: main.pinned,
     capture: field("capture").className, khead: field("khead").textContent,
-    ktag: field("ktag").value, ktext: field("ktext").value,
-    kfields: field("kfields").children.map((row) => [
-      (row.children[0] || {}).textContent || "",
-      (row.children[1] || {}).value || "" ]),
+    ktag: field("ktag").value,
+    // What the tag field OFFERS, which is the whole of what the form now holds.
+    ktags: field("klist").children.map((e) => e.textContent),
     popup: field("links").className, lhead: field("lhead").textContent,
     lfoot: field("lfoot").textContent, lmounts,
     llinks: listCells("ltable"), lat: listAt("ltable"),

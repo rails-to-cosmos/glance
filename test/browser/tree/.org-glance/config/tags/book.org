@@ -1,0 +1,11 @@
+#+TITLE: Book
+#+TODO: TODO READING | READ
+
+* READING Book
+SCHEDULED: %T
+:PROPERTIES:
+:AUTHOR: %^{Author}
+:END:
+Why this one: %?
+
+Notes:

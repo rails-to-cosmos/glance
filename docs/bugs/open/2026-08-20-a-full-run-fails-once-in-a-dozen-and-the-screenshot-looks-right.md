@@ -41,6 +41,16 @@ late-arriving `reload()` re-render swapping the rows mid-read.
   style while the pane was still drawing the fresh doc). Fixed in the case
   itself: `widgetUp` now waits for the box's own inline `top`
   (`cases.mjs`), so that face is closed, not this file's.
+- Case 39, the pair case, caught twice in ~20 runs — once in a full run and
+  once running ALONE, which is what made it catchable. The failure
+  screenshot shows the offer list holding **both** `OW (new)` and `OWNER`,
+  so the read arrived one repaint early: `p.until` returned the moment
+  `#doffer` wore `on`, which it does on the typed literal ALONE, and
+  `/properties` landed with its own repaint a beat later. Same face as case
+  38's. **Closed in the case**: the wait is now for a SECOND entry rather
+  than for the class (`cases.mjs`, the `keyOffers` read) — the 8s cap still
+  reds the case where the vocabulary never comes. 20 alone-runs green after,
+  against 1 red in ~15 before.
 
 ## To catch it properly
 

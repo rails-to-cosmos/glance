@@ -1214,6 +1214,12 @@ argValue "title"    = "buy milk"
 argValue "priority" = "A"
 argValue "tag"      = "work"
 argValue "fields"   = object []
+-- The capture sheet's own cargo, each key a value its wall takes.
+argValue "state"      = "DONE"
+argValue "tags"       = toJSON (["work"] :: [T.Text])
+argValue "planning"   = toJSON ([["SCHEDULED", "+3d"]] :: [[T.Text]])
+argValue "properties" = toJSON ([["AUTHOR", "Herbert"]] :: [[T.Text]])
+argValue "body"       = "a note"
 argValue "from"     = "work"
 argValue "to"       = "projects"
 argValue "span"     = toJSON ([0, 1] :: [Int])

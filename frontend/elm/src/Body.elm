@@ -30,6 +30,7 @@ module Body exposing
     , readProperty
     , routedWord
     , setPlanning
+    , placeAtLine
     , placeOf
     , placeOfLine
     , rowAt
@@ -1062,6 +1063,53 @@ placeOfLine : { a | rows : List Row, at : Int } -> Int -> Int
 placeOfLine m line =
     Maybe.withDefault m.at
         (Scan.indexWhere (\r -> r.kind == Para && r.from == line) m.rows)
+
+
+{-| The place a FILL'S OWN LANDING names: the innermost block COVERING that
+line, the first block at or past it where the line itself holds nothing, and the
+last stop where the line runs past every block.
+
+`placeOfLine' is exact because an insert knows the line its paragraph opens on;
+this reading is not, because a capture's `%?' EXPANDS TO NOTHING -- the line
+point is owed is usually blank, and the honest answer there is the stop that
+follows it. THE TAIL IS A BLOCK LIKE ANY OTHER here, which is what makes "point
+after everything" reachable.
+-}
+placeAtLine : { a | rows : List Row, at : Int } -> Int -> Int
+placeAtLine m line =
+    let
+        stops =
+            List.filter (\( _, r ) -> r.kind == Para)
+                (List.indexedMap Tuple.pair m.rows)
+
+        -- FOLDED FORWARD, so a nested item wins over the run that holds it.
+        covering =
+            List.foldl
+                (\( i, r ) held ->
+                    if r.from <= line && line < r.to then
+                        Just i
+
+                    else
+                        held
+                )
+                Nothing
+                stops
+
+        after =
+            List.head (List.filter (\( _, r ) -> r.from >= line) stops)
+
+        last =
+            List.head (List.reverse stops)
+    in
+    case ( covering, after ) of
+        ( Just i, _ ) ->
+            i
+
+        ( Nothing, Just ( i, _ ) ) ->
+            i
+
+        ( Nothing, Nothing ) ->
+            Maybe.withDefault m.at (Maybe.map Tuple.first last)
 
 
 undrafted : { a | rows : List Row } -> List Row

@@ -36,6 +36,7 @@ import Body
         , kidsOf
         , kindWord
         , ownersOf
+        , placeAtLine
         , placeOf
         , placeOfLine
         , rowAt
@@ -79,7 +80,9 @@ type alias Model =
     , titleAt : Maybe Int
 
     -- THE LINE A CURSOR IS OWED at the next fill: an insert's paragraph has no
-    -- row until the RESCAN mints one.
+    -- row until the RESCAN mints one.  A FILL MAY CARRY ONE OF ITS OWN -- where
+    -- a capture's `%?' stood -- and that one outranks, being about the document
+    -- arriving rather than the one it replaces.
     , landing : Maybe Int
 
     -- THE HEADER THE SERVER LIFTS: planning and the drawer ride as LISTS and
@@ -493,6 +496,7 @@ type Msg
     | Tab
     | AddProp String String
     | SetMeta (List ( String, String )) (List ( String, String ))
+    | SetCells (List Cell)
     | Ignore
 
 
@@ -512,13 +516,19 @@ update msg model =
                     Maybe.map .id (rowAt model)
 
                 landed =
-                    case model.landing of
+                    case ( fresh.landing, model.landing ) of
+                        -- THE FILL'S OWN LANDING FIRST: a served draft says
+                        -- where `%?' stood, and that is a fact about the
+                        -- document arriving rather than the one going.
+                        ( Just line, _ ) ->
+                            placeAtLine fresh line
+
                         -- A LANDING IS OWED and is spent here: the paragraph an
                         -- insert made has no id until this rescan mints one.
-                        Just line ->
+                        ( Nothing, Just line ) ->
                             placeOfLine fresh line
 
-                        Nothing ->
+                        ( Nothing, Nothing ) ->
                             case was of
                                 Just id ->
                                     placeOf fresh id
@@ -615,6 +625,28 @@ update msg model =
 
         SetMeta props plan ->
             told (remeta { model | props = props, plan = plan })
+
+        -- THE HEADLINE'S OWN CELLS, WRITTEN FROM OUTSIDE.  The pane draws the
+        -- head line and never writes it: a materialized row's state, priority,
+        -- title and tags leave through `/command' and come back on the reread.
+        -- A DRAFT HAS NO ROW FOR THAT REREAD, so the shell -- which holds the
+        -- draft's own cells -- hands them straight in.  Nothing else moves: the
+        -- body and the two lists are the model's and a redraw of the head line
+        -- must not cost them.
+        SetCells cells ->
+            told
+                { model
+                    | rows =
+                        List.map
+                            (\r ->
+                                if r.kind == Head then
+                                    { r | cells = cells }
+
+                                else
+                                    r
+                            )
+                            model.rows
+                }
 
         -- THE PAIR ARRIVES WHOLE -- the shell typed both halves -- so the write
         -- follows at once, and point lands on the new pair, drawer open.  THE
@@ -1274,6 +1306,8 @@ linkD =
 
 {-| A fill carries the subtree the server served plus what only the shell knows:
 where the span starts, how far the body is displaced, and the depth of the stars.
+`landing' rides where the ANSWER named a line to open on -- a capture's `%?' --
+and is absent for every materialized subtree.
 -}
 fillD : D.Decoder Model
 fillD =
@@ -1303,6 +1337,8 @@ fillD =
         (D.field "level" D.int)
         |> D.andThen
             (\m -> D.map (\t -> { m | titleAt = t }) (D.field "titleAt" (D.nullable D.int)))
+        |> D.andThen
+            (\m -> D.map (\l -> { m | landing = l }) (D.maybe (D.field "landing" D.int)))
         |> D.andThen
             (\m ->
                 D.map3 (\props plan keys -> seedMeta { m | props = props, plan = plan, planKeys = keys })
@@ -1463,6 +1499,11 @@ msgD =
                         D.map2 SetMeta
                             (D.field "props" (D.list pairD))
                             (D.field "plan" (D.list pairD))
+
+                    -- The head line's cells, for a document with no row behind
+                    -- it to reread them off.
+                    "cells" ->
+                        D.map SetCells (D.field "cells" (D.list cellD))
 
                     _ ->
                         D.succeed Ignore

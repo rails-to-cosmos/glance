@@ -218,7 +218,11 @@ priorityP = lexemeP (Priority <$> (MPC.char '[' *> MPC.char '#' *> MPC.letterCha
 
 instance Parse Property where
   parse = do
-    keyword <- MPC.char ':' *> propertyKeyP <* MPC.char ':' <* MPC.space
+    -- HORIZONTAL SPACE ONLY.  'MPC.space' eats the newline after an EMPTY value,
+    -- so @:KEY:@ with nothing on it takes the @:END:@ under it as its value and
+    -- the WHOLE drawer stops parsing — a pair this very repo writes whenever a
+    -- value is cleared, and the shape a capture template's ask opens in.
+    keyword <- MPC.char ':' *> propertyKeyP <* MPC.char ':' <* MPC.hspace
     guard $ not (reserved keyword)
     value <- parse :: StatefulParser OrgLine
     when (keyword == Keyword "CATEGORY") $ State.modify $ setCategory $ TS.showt value

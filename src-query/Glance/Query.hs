@@ -68,9 +68,21 @@ module Glance.Query ( BlobSeed (..)
                     , digestOfText
                     , displayText
                     , documentPath
+                    , eolOf
+                    , DraftCargo (..)
+                    , Inherited (..)
+                    , noInheritance
+                    , draftEntry
+                    , draftKeywords
+                    , draftPointLine
+                    , draftRecord
+                    , draftSeeded
+                    , draftStates
+                    , draftTemplate
                     , editLinkEdits
                     , englishDay
                     , englishSpan
+                    , keywordText
                     , monthWords
                     , expandTemplate
                     , filterKeys
@@ -175,7 +187,6 @@ module Glance.Query ( BlobSeed (..)
                     , prioritySlots
                     , stateSlots
                     , tagsOfCell
-                    , templatePrompts
                     , todoLines
                     , todoPragmas
                     , uuidFrom
@@ -188,6 +199,7 @@ module Glance.Query ( BlobSeed (..)
 
 import Control.Applicative ((<|>))
 import Control.Exception (evaluate)
+import Control.Monad (foldM)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
@@ -1371,12 +1383,23 @@ keywordText text
 -- CLASSIFICATION RULE.  Rows merge by source NAME, so a keyword one reaches by
 -- file and another by tag lands in the WIDER (AGENTS.hs).
 keywordSources :: ConfigLayers -> [HeadlineRecord] -> [(Text, TodoKeywords)]
-keywordSources cfg rows = widest Set.empty (sortOn fst chain)
+keywordSources cfg rows = keywordChain
+  [ scope | r <- rows, scope <- keywordScopes cfg filed (tagsOfCell (hrTags r)) ]
+  where filed = mergeKeywords (map hrDeclared rows)
+
+-- | The chain a capture under TAGS stands in — @\/keywords@' own shape for a
+-- draft, which has no row to ask about.  The FILE scope is empty: the entry has
+-- no file yet, so the tags and what stands above them are the whole chain.
+draftKeywords :: ConfigLayers -> [Text] -> [(Text, TodoKeywords)]
+draftKeywords cfg worn = keywordChain (keywordScopes cfg noKeywords worn)
+
+-- | SCOPES ranked and deduplicated, one entry per source.  DEDUP IS THE
+-- CLASSIFICATION RULE: a keyword one scope reaches by file and another by tag
+-- lands in the WIDER (AGENTS.hs), so both callers classify by one fold.
+keywordChain :: [(Int, Text, TodoKeywords)] -> [(Text, TodoKeywords)]
+keywordChain scopes = widest Set.empty (sortOn fst [ (rank, (source, kw))
+                                                   | (rank, source, kw) <- scopes ])
   where
-    filed   = mergeKeywords (map hrDeclared rows)
-    chain   = [ (rank, (source, kw))
-              | r <- rows
-              , (rank, source, kw) <- keywordScopes cfg filed (tagsOfCell (hrTags r)) ]
     widest _seen [] = []
     widest seen ((_rank, (source, kw)) : rest)
       | null actives && null inactives = widest seen rest
@@ -1410,8 +1433,16 @@ tokenEdits at place token r = case (at hs, token) of
 
 -- | The states R may be set to: 'keywordSources' flattened, so offer and wall agree.
 settableStates :: ConfigLayers -> HeadlineRecord -> [Text]
-settableStates cfg r =
-  [ word | (_source, kw) <- keywordSources cfg [r], word <- tkActive kw <> tkInactive kw ]
+settableStates cfg r = flatKeywords (keywordSources cfg [r])
+
+-- | The states a capture under TAGS may be set to: 'draftKeywords' flattened by
+-- the very fold 'settableStates' uses, so the cycle the draft door OFFERS is the
+-- cycle the commit door WALLS with.
+draftStates :: ConfigLayers -> [Text] -> [Text]
+draftStates cfg worn = flatKeywords (draftKeywords cfg worn)
+
+flatKeywords :: [(Text, TodoKeywords)] -> [Text]
+flatKeywords chain = [ word | (_source, kw) <- chain, word <- tkActive kw <> tkInactive kw ]
 
 
 -- | R's `ORG_GLANCE_ID`.  The ledger's key: an ordinal names another row a week on.
@@ -1985,17 +2016,14 @@ captureStamp :: Time.ZonedTime -> Text
 captureStamp = zonedStamp TimestampInactive
 
 -- | @capture@'s edits: ONE insertion at the END, lines ending the target's own
--- way.  'untrailed' here ENFORCES the no-trailing-space rule rather than applying it.
+-- way, the creation stamp joined to ENTRY's drawer by the very splice a blob's
+-- own document takes.  NO ID AND NO TAG: the inbox files a jot, it does not mint
+-- an identity.  'untrailed' rides 'stampedEntry'.
 captureEdits :: Text -> Text -> Text -> Either Text [(Span, Text)]
-captureEdits doc stamp text = written <$> captureText text
+captureEdits doc stamp entry = written <$> stampedEntry eol [(captureProperty, stamp)] Nothing entry
   where
-    written typed = [(insertAt (T.length doc), openingFor doc eol <> untrailed (entry typed))]
-    eol   = eolOf doc
-    entry typed = T.concat [ line <> eol
-                           | line <- [ "* " <> typed
-                                     , ":PROPERTIES:"
-                                     , ":" <> captureProperty <> ": " <> stamp
-                                     , ":END:" ] ]
+    written body = [(insertAt (T.length doc), openingFor doc eol <> body)]
+    eol = eolOf doc
 
 -- | TEXT as the one headline a capture promises.  The wall BOTH paths take: a
 -- newline lands a column-1 star the parser reads as a second entry.
@@ -2039,12 +2067,9 @@ templateParts = go
                   -> TplAsk want : go (T.drop 1 closed)
       _notAnAsk   -> TplText "%^" : go t
 
-templatePrompts :: Text -> [Text]
-templatePrompts t = nub [ want | TplAsk want <- templateParts t ]
-
 expandTemplate :: Time.ZonedTime -> [(Text, Text)] -> Text -> Text -> Either Text Text
 expandTemplate now answers text template
-  | TplPoint `notElem` parts = Left noPoint
+  | TplPoint `notElem` parts = Left noPointRefusal
   | otherwise                = T.concat <$> traverse piece parts
   where
     parts = templateParts template
@@ -2053,9 +2078,30 @@ expandTemplate now answers text template
       TplPoint        -> Right text
       TplStamp status -> Right (zonedStamp status now)
       TplAsk want     -> maybe (Left (unanswered want)) Right (lookup want answers)
-    noPoint = "this capture template has no %?, so there is nowhere for the text to go"
     unanswered want = "this capture template asks " <> want
                         <> "; name it in args {\"fields\": {" <> want <> ": \"…\"}}"
+
+noPointRefusal :: Text
+noPointRefusal = "this capture template has no %?, so there is nowhere for the text to go"
+
+-- | TEMPLATE expanded for a DRAFT, and where @%?@ stood in what came back.
+--
+-- THE PROMPTING ESCAPES OPEN EMPTY: a @%^{PROMPT}@ in a drawer is the pair with
+-- no value and one in the body is an empty slot, both of them editors the pane
+-- already has, so nothing is asked before the doc exists.  The STAMPING escapes
+-- still take the server's clock — the page spells no org.
+draftTemplate :: Time.ZonedTime -> Text -> Either Text (Text, Int)
+draftTemplate now template
+  | TplPoint `notElem` parts = Left noPointRefusal
+  | otherwise = Right (T.concat (map piece parts), T.length (T.concat (map piece ahead)))
+  where
+    parts = templateParts template
+    ahead = takeWhile (/= TplPoint) parts
+    piece part = case part of
+      TplText t       -> t
+      TplPoint        -> ""
+      TplStamp status -> zonedStamp status now
+      TplAsk _want    -> ""
 
 -- | Where DOC's capture template sits: first heading to EOF, which is
 -- @org-glance-tag-config--entry@'s rule verbatim rather than the outline extent.
@@ -2105,18 +2151,27 @@ data BlobSeed = BlobSeed
 -- | ENTRY as the document a blob holds.  The tag's rule is 'addTagEditsIn', the
 -- very function @add-tag@ runs, so capture and command cannot disagree.
 blobDocument :: BlobSeed -> Text -> Either Text Text
-blobDocument seed given = case firstHeadlineOf elems of
-  Nothing -> Left "this capture template expands to no headline, so there is no entry to store"
+blobDocument seed given =
+  stampedEntry (eolOf given)
+               [ (headlineIdProperty, bsId seed), (captureProperty, bsStamp seed) ]
+               (Just (bsTag seed)) given
+
+-- | GIVEN with PAIRS joined to its drawer and TAG, where there is one, worn on
+-- its headline.  BOTH CAPTURE PATHS' composer: the blob names an identity and a
+-- tag, the inbox names neither, and the drawer splice is one rule either way.
+stampedEntry :: Text -> [(Text, Text)] -> Maybe Text -> Text -> Either Text Text
+stampedEntry eol pairs tag given = case firstHeadlineOf elems of
+  Nothing -> Left noEntryRefusal
   Just h  -> spliced (spans h)
   where
-    eol = eolOf given
     -- ENDED FIRST: a template is stored right-trimmed, so a title line with no
     -- newline of its own would take the drawer onto the end of itself.
     entry = given <> openingFor given eol
     (elems, _ctx, _err) = orgParse defaultContext entry
     spliced hs = either (Left . refused) (Right . untrailed)
                         (Edit.applyEdits entry [ Edit.Edit sp new | (sp, new) <- edits hs ])
-    edits hs = addTagEditsIn (cellOf (hsTags hs)) (bsTag seed) hs <> drawerEdits hs
+    edits hs = concat [ addTagEditsIn (cellOf (hsTags hs)) t hs | Just t <- [tag] ]
+                 <> drawerEdits hs
     refused err = "this capture template does not splice: " <> T.pack (show err)
     cellOf = maybe "" (sliceSpan entry)
 
@@ -2133,14 +2188,164 @@ blobDocument seed given = case firstHeadlineOf elems of
     planningEnd hs = foldl' max (titleLineEnd hs)
                        [ spanEnd sp | (_key, sp) <- presentPlanning hs ]
     rows indent = T.concat [ indent <> ":" <> key <> ": " <> value <> eol
-                           | (key, value) <- [ (headlineIdProperty, bsId seed)
-                                             , (captureProperty, bsStamp seed) ] ]
+                           | (key, value) <- pairs ]
+
+noEntryRefusal :: Text
+noEntryRefusal = "this capture template expands to no headline, so there is no entry to store"
 
 bareTemplate :: Text
 bareTemplate = "* %?"
 
 topEntry :: Text -> Bool
 topEntry text = headingStars (T.takeWhile (/= '\n') text) == Just 1
+
+-- | DOC's first top entry as a record, off bytes with NO FILE BEHIND THEM.  The
+-- draft door reads a headline shape out of an expanded template and the commit
+-- door reads the pane's cargo back through the very same parse, so a draft meets
+-- the reader it will be read by.  A BLANK ENTRY IS KEPT, unlike 'recordsOf''s:
+-- @* @ with an empty title is exactly what the bare template opens as.
+draftRecord :: ConfigLayers -> Text -> Either Text HeadlineRecord
+draftRecord cfg doc = maybe (Left noEntryRefusal) Right (listToMaybe entries)
+  where
+    (elems, ctx, _err) = orgParse (seedContext cfg) doc
+    declared = forcedKeywords (declaredKeywords elems)
+    entries = [ recordOf cfg declared "" 0 doc "" (detach (metaCategory ctx))
+                         (forcedKeywords (recognizedKeywords cfg declared)) h subtree
+              | (h, subtree) <- outlineEntries doc elems, topLevel h ]
+
+-- | Which line of R's BODY the offset AT stands in — the answer @point@ carries,
+-- 'Nothing' being the head row.  The lifted regions are NOT the body's, so a
+-- @%?@ standing in the planning line or the drawer lands on the head row too:
+-- the pane walks to those from there.
+draftPointLine :: HeadlineRecord -> Int -> Maybe Int
+draftPointLine r at
+  | i > 0, not (lifted i) = Just (length [ j | j <- [0 .. i - 1], not (lifted j) ])
+  | otherwise             = Nothing
+  where
+    subtree = subtreeText r
+    here    = at - spanStart (hrSubtree r)
+    rows    = lineSpansIn subtree
+    -- The LAST line where the offset is the text's end: a template is stored
+    -- right-trimmed, so a trailing @%?@ has no line of its own to open on.
+    i = fromMaybe (length rows - 1)
+                  (listToMaybe [ k | (k, (sp, _l)) <- zip [0 ..] rows, here < spanEnd sp ])
+    (_sub, _entries, planAt, drawAt, logAt) = regionsOf r
+    cut = regionSpans [planAt, drawAt, logAt]
+    lifted k = case drop k rows of
+      ((sp, _l) : _) -> any (\q -> spanStart sp >= spanStart q && spanEnd sp <= spanEnd q) cut
+      []             -> True
+
+-- | What the standing filter LENDS a draft.  Template-first: each of these fills
+-- a gap the expanded template left and moves nothing it spelled.
+data Inherited = Inherited
+  { inhState    :: !(Maybe Text)       -- ^ one ordinary positive keyword the filter pins.
+  , inhPriority :: !(Maybe Text)       -- ^ the bare letter, brackets the composer's.
+  , inhTags     :: ![Text]             -- ^ positive filter tags beyond the template's own.
+  , inhPlanning :: ![(Text, Text)]     -- ^ a settable key pinned to one day, ALREADY RESOLVED.
+  } deriving (Eq, Show)
+
+noInheritance :: Inherited
+noInheritance = Inherited Nothing Nothing [] []
+
+-- | DOC with WHAT the filter lends filled into the gaps it left.  ONE SEED AT A
+-- TIME, each read off a fresh parse: two tag runs computed against one record
+-- both open a run the other cannot see, and the second lands inside the first.
+draftSeeded :: ConfigLayers -> [Text] -> Inherited -> Text -> Either Text Text
+draftSeeded cfg cycleTags inh doc0 = foldM step doc0 seeds
+  where
+    seeds = [state, letter] <> map tag (inhTags inh) <> map planned (inhPlanning inh)
+    step doc seed = do
+      r <- draftRecord cfg doc
+      edits <- seed r
+      either (Left . spliceRefused) Right
+             (Edit.applyEdits doc [ Edit.Edit sp new | (sp, new) <- edits ])
+    -- AN INHERITED FACT IS NEVER A REFUSAL.  A state outside this capture's own
+    -- cycle, a letter that is no priority, a tag outside the charset, a day the
+    -- grammar will not read: each is the standing filter talking about other
+    -- rows.  It fills the gap or it does not, and `+' opens either way.
+    state r = Right $ case inhState inh of
+      Just want | isNothing (hrState r), want `elem` draftStates cfg cycleTags ->
+        tokenEdits hsTodo (spanEnd . hsStars) (Just want) r
+      _spoken -> []
+    letter r = Right $ case inhPriority inh of
+      Just want | isNothing (hrPriority r) -> lends (setPriorityEdits (Just want) r)
+      _spoken -> []
+    -- A TAG RUN NEEDS A TITLE TO STAND AFTER: on a title-less draft this
+    -- parser reads @:work:@ as the title itself, so the tag is not lent until
+    -- the reader has typed one and the tags door can put it on.
+    tag want r
+      | T.null (hrTitle r) = Right []
+      | otherwise          = Right (lends ((`addTagEdits` r) <$> tagText want))
+    planned (key, value) r
+      | isJust (unplanned key) = Right []
+      | key `elem` map fst (hpPlanning (headlineParts r)) = Right []
+      | otherwise = Right (lends (setPlanningEdits key (Just value) r))
+    lends = either (const []) id
+
+spliceRefused :: Edit.EditError -> Text
+spliceRefused err = "this capture draft does not splice: " <> T.pack (show err)
+
+-- | The draft as the pane hands it back: the header the doc pane edits by list,
+-- and the body it edits by span.
+data DraftCargo = DraftCargo
+  { dcTitle      :: !Text            -- ^ TITLE TEXT ALONE — no stars, no state, no tag run.
+  , dcState      :: !(Maybe Text)
+  , dcPriority   :: !(Maybe Text)    -- ^ the bare letter; the composer writes @[#A]@.
+  , dcTags       :: ![Text]          -- ^ the headline's own run, the destination tag apart.
+  , dcPlanning   :: ![(Text, Text)]  -- ^ already through 'plannedValue', as a row edit's are.
+  , dcProperties :: ![(Text, Text)]
+  , dcBody       :: !Text            -- ^ everything UNDER the headline, children and all.
+  } deriving (Eq, Show)
+
+-- | CARGO as the one entry a capture writes, EOL ending the line it composes.
+--
+-- The header is composed and then READ BACK: a title carrying a tag run or a
+-- star is refused by the reparse rather than written and misread on the next
+-- load.  The two lists are spliced by 'recomposedSubtree', the very composer a
+-- materialize commit takes, so the draft's drawer and planning line are written
+-- the way an existing row's are.
+draftEntry :: ConfigLayers -> Text -> DraftCargo -> Either Text Text
+draftEntry cfg eol cargo = do
+  titled <- titleText (dcTitle cargo)
+  state <- traverse keywordText (dcState cargo)
+  letter <- traverse priorityText (dcPriority cargo)
+  run <- traverse tagText (dcTags cargo)
+  mapM_ (\(key, _v) -> maybe (Right ()) Left (unplanned key)) (dcPlanning cargo)
+  let head' = T.intercalate " " (concat [ ["*"], maybe [] pure state
+                                        , map priorityCell (maybe [] pure letter)
+                                        , [titled], runOf run ])
+      doc = head' <> eol <> reended (dcBody cargo)
+  r <- draftRecord cfg doc
+  reads' r titled state letter run
+  alone doc
+  Right (recomposedSubtree r (HeadlineParts doc (dcProperties cargo) (dcPlanning cargo) ""))
+  where
+    -- ONE FILE, ONE ENDING.  The pane speaks `\n' and knows no other, so a body
+    -- landing where EOL is CRLF is owed the conversion here — the very rule
+    -- 'captureEdits' keeps when it appends to a file that already ends that way.
+    reended body | eol == "\n" = body
+                 | otherwise   = T.replace "\n" eol (T.replace "\r\n" "\n" body)
+    runOf [] = []
+    runOf ts = [":" <> T.intercalate ":" ts <> ":"]
+    reads' r titled state letter run
+      | hrTitle r /= titled = Left (misread "title" titled (hrTitle r))
+      | hrState r /= state = Left (misread "state" (fold' state) (fold' (hrState r)))
+      | hrPriority r /= (priorityCell <$> letter) =
+          Left (misread "priority" (fold' letter) (fold' (hrPriority r)))
+      | tagsOfCell (hrTags r) /= map T.toLower run = Left (misread "tags"
+          (T.intercalate " " run) (T.intercalate " " (tagsOfCell (hrTags r))))
+      | otherwise = Right ()
+    fold' = fromMaybe ""
+    misread part want got =
+      "a capture's " <> part <> " is that part alone: " <> want
+        <> " reads back as " <> got <> ", so it is refused rather than written"
+    -- ONE TOP ENTRY, the template's own law over the composed doc: a body line
+    -- opening a single star is a SECOND capture riding in on the first.
+    alone doc = case [ k | (k, line) <- zip [1 :: Int ..] (drop 1 (linesWith doc))
+                         , headingStars line == Just 1 ] of
+      (k : _rest) -> Left ("a capture is one headline, so its body opens no second\
+                           \ entry; line " <> showt k <> " opens one")
+      []          -> Right ()
 
 -- | LINES as a config file's @#+TODO:@ block; an EMPTY block is the DELETION.
 -- PARTS rides the SAME call, these being regions of one file: four calls would

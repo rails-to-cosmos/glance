@@ -13,6 +13,41 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **The capture doc is the material doc.** `+` was a popup form — a tag field,
+  one field per `%^{PROMPT}`, then one line of raw text that submitted on
+  `RET` — and it gave the one moment a reader composes a whole headline the
+  page's poorest surface. Capture is now **the pane over a subtree that does
+  not exist yet**: the tag field settles, `GET /capture?tag=…` answers a
+  DRAFT — the very shape `/headline` serves, off bytes that exist only in
+  that answer, `id` null and `digest` `""`, which is the create pin the write
+  path already had — and the sheet opens over it. Every shipped door works on
+  it because it is a doc: `RET` on the title, the pair box, the date widget
+  and its summon keys, the tags door, and the state door offering **the tag's
+  own cycle**, which no route could answer before because `/keywords` needs a
+  row and a draft has none. `C-c C-c` commits the whole draft through the one
+  `capture` command that mints the blob, the shard path, the creation drawer
+  and the ledger note; `ESC` leaves nothing, no file ever having existed.
+  **The prompting escapes dissolved**: `%^{PROMPT}` opens as its empty value —
+  a drawer pair with nothing in it, a slot in the body — because the form
+  needed a field only where the pane could not edit structure, and the pane
+  can. The stamping escapes stay server-side: the page spells no org. **The
+  bare-draft law** keeps the quick jot exactly as fast as it was — where the
+  draft is the bare default, the title edit IS the capture and `RET` on the
+  typed title commits, so an inbox line is still `+`, the text, `RET`, byte
+  for byte. The capture also **inherits from the standing filter** whatever
+  the template leaves unspecified — the tag it already seeded, and now a
+  state, a priority, further tags and a planning day, each only where the
+  query pins ONE ordinary positive value and only where the template is
+  silent, one composer owning precedence and one clock read owning the day.
+  An inherited fact the draft's own walls turn down is simply not inherited:
+  inheritance never refuses a capture. The command's args widened to the
+  pane's cargo — `title`, `state`, `priority`, `tags`, `planning`,
+  `properties`, `body`, the same header-and-body shape `POST /headline`
+  speaks — each key meeting the wall a row edit meets and answering in that
+  wall's own sentence. **The older wire keeps working**: `{text, tag?,
+  fields?}` still runs the tag's template and lands the same bytes, the door
+  being public and org-glance able to drive it. `docs/capture.md` is the law.
+
 - **A bracket asks for the stamp's activity.** Every date-owed field wrote org's
   ACTIVE stamp and had no way to ask for the other one: `today` landed
   `<2026-08-24 Mon>`, and the inactive twin could only be typed out in full,
@@ -427,6 +462,16 @@ section groups a feature arc, and its date is that arc's last commit.
   before.
 
 ### Fixed
+
+- **A property with no value took the whole drawer down with it.** `:KEY:`
+  with nothing after it read the `:END:` line under it as its own value, and
+  the drawer then had no terminator left to find — so the parse of the entire
+  `:PROPERTIES:` block failed and every pair in it vanished from the row: no
+  drawer in the sheet, nothing in `/properties`, and a write that joined a
+  second `:PROPERTIES:` block under the first. The key and its value are held
+  apart by **horizontal space alone** now, so the newline stays where it is.
+  An empty value is a pair this repo writes itself — whenever one is cleared
+  through the pair box, and wherever a capture template's `%^{PROMPT}` opens.
 
 - **A field that completes over an open vocabulary commits the word you
   typed.** Typing `shelf` into the tags popup's `+` with `bookshelf` in the

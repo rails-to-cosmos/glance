@@ -23,13 +23,14 @@ import qualified Data.Time as Time
 import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn
                     , rowOrgId
                     , BlobSeed (..), ConfigLayers
+                    , DraftCargo (..), draftEntry, draftStates
                     , HeadlineRecord (hrDigest, hrFile, hrId)
                     , Span (Span), WriteFailure (..)
                     , addTagEdits, archiveEdits, archived, bareTemplate
                     , blobDocument
                     , blobPathIn, captureEdits, captureStamp, captureText
                     , captureTargetIn, captureTemplateIn, currentDocument
-                    , editLinkEdits, expandTemplate, groupOn, mintBlobId
+                    , editLinkEdits, eolOf, expandTemplate, groupOn, mintBlobId
                     , plannedValue
                     , priorityText
                     , removeTagEdits
@@ -60,6 +61,13 @@ data Args = Args
   , agPriority :: !(Maybe (Maybe Text))
   , agTag     :: !(Maybe Text)
   , agFields  :: !(Maybe (Map Text Text))
+    -- THE WIDENED CAPTURE CARGO: the doc pane's own standing shape, the same
+    -- @body@ / @properties@ / @planning@ the commit door speaks.
+  , agState   :: !(Maybe Text)
+  , agTags    :: !(Maybe [Text])
+  , agPlanning :: !(Maybe [(Text, Text)])
+  , agProps   :: !(Maybe [(Text, Text)])
+  , agBody    :: !(Maybe Text)
   , agFrom    :: !(Maybe Text)
   , agTo      :: !(Maybe Text)
   , agSpan    :: !(Maybe Span)
@@ -124,7 +132,7 @@ commands =
       (Splices (\_cfg _asked args r -> plain (addTagEdits (tagOf args) r))))
   , ("archive", CommandSpec (overIds (const Nothing)) False
       (Splices (\_cfg _asked _args r -> plain (archiveEdits r))))
-  , ("capture", CommandSpec (overIds wantsText) False Makes)
+  , ("capture", CommandSpec (overIds wantsCapture) False Makes)
     -- THE ONE DESTRUCTIVE COMMAND: it moves a FILE rather than splicing spans,
     -- and every wall it has is per row and checked HERE as well as in the shell.
   , ("delete", CommandSpec (overIds (const Nothing)) False Moves)
@@ -173,9 +181,17 @@ commands =
         | Nothing <- agDate args  ->
             Just "set-planning wants a date, or a null one to take the entry off"
         | otherwise -> Nothing
-    wantsText args
-      | Nothing <- agText args =
-          Just "capture wants args {\"text\": \"TODO Buy milk :errands:\"}"
+    -- TWO ROADS, EXACTLY ONE TAKEN: @text@ is the raw line the old wire carries
+    -- and @title@ opens the draft's own cargo.  NAMING BOTH IS REFUSED rather
+    -- than resolved — the wire is public, and a caller that means both means one
+    -- of them differently than this server would read it.
+    wantsCapture args
+      | Just _ <- agText args, Just _ <- agTitle args =
+          Just "capture takes either args {\"text\": …} or the draft's args\
+               \ {\"title\": …}, and not both"
+      | Nothing <- agText args, Nothing <- agTitle args =
+          Just "capture wants args {\"text\": \"TODO Buy milk :errands:\"},\
+               \ or a draft's own {\"title\": \"Buy milk\"}"
       | Just given <- agTag args = either Just (const Nothing) (tagText given)
       | otherwise = Nothing
     -- PADDING is refused here, so the string tested is the string written.
@@ -285,7 +301,10 @@ captureInbox :: ServeOptions -> Hub -> Store -> Args -> IO Response
 captureInbox opts hub st args = do
     (doc, digest) <- maybe (currentDocument inbox) pure (storeDocument inbox st)
     now <- Time.getZonedTime
-    case captureEdits doc (captureStamp now) (capturedText args) of
+    let composed = do
+          entry <- capturedEntry (stConfig st) now (eolOf doc) Nothing args
+          captureEdits doc (captureStamp now) entry
+    case composed of
       Left why    -> pure (jsonError status400 why)
       Right edits -> answerWrite (captureMoved inbox) (landed inbox)
                        <$> writeSpans (walkFor opts) hub inbox digest edits
@@ -305,10 +324,15 @@ captureBlob opts hub st args tag = do
     ident <- mintBlobId
     let template = fromMaybe bareTemplate (captureTemplateIn tag layers)
         path = blobPathIn store ident
+        -- THE BLOB IS A NEW FILE, so it has no line ending of its own to keep:
+        -- it takes the TEMPLATE'S, the bytes it is composed out of.  The older
+        -- road already did — `expandTemplate' copies the template verbatim, and
+        -- the drawer splice under it reads `eolOf' off what came back — and the
+        -- widened road's head line must join the same way, or a CRLF layer lands
+        -- a blob whose headline ends one way and whose body ends the other.
         composed = do
-          (text, answers) <- capturedParts args
-          expanded <- expandTemplate now answers text template
-          blobDocument (BlobSeed tag ident (captureStamp now)) expanded
+          entry <- capturedEntry (stConfig st) now (eolOf template) (Just template) args
+          blobDocument (BlobSeed tag ident (captureStamp now)) entry
     case composed of
       Left why  -> pure (jsonError status400 why)
       Right doc -> answerWrite (captureMoved path) (landed path ident)
@@ -318,6 +342,63 @@ captureBlob opts hub st args tag = do
     landed path ident fresh = captured path fresh ident
     noStore = T.pack store <> " is not there, so this tree keeps no org-glance store;\
                                \ capture with no tag to file into the inbox instead"
+
+-- | The ONE entry a capture writes, off EITHER arg shape.  The widened cargo is
+-- composed the way a materialize commit composes a subtree; the old
+-- @{text, fields}@ goes through the tag's TEMPLATE, or straight onto a star
+-- where there is none (the inbox's jot).  Both hand the same org on to the
+-- minting below, which is why the blob path, the id, the creation drawer, the
+-- ledger note and the inbox split are untouched by the widening.
+--
+-- TEMPLATE is 'Nothing' on the inbox path, which expands nothing.
+capturedEntry :: ConfigLayers -> Time.ZonedTime -> Text -> Maybe Text -> Args
+              -> Either Text Text
+capturedEntry cfg now eol template args = case agTitle args of
+  Just title -> do
+    stated cfg args
+    plan <- traverse (plannedPair (Time.localDay (Time.zonedTimeToLocalTime now)))
+                     (fromMaybe [] (agPlanning args))
+    draftEntry cfg eol DraftCargo
+      { dcTitle      = title
+      , dcState      = agState args
+      , dcPriority   = join (agPriority args)
+      , dcTags       = fromMaybe [] (agTags args)
+      , dcPlanning   = plan
+      , dcProperties = fromMaybe [] (agProps args)
+      , dcBody       = fromMaybe "" (agBody args)
+      }
+  Nothing -> case template of
+    Nothing  -> ("* " <>) <$> captureText (capturedText args)
+    Just tpl -> do
+      (text, answers) <- capturedParts args
+      expandTemplate now answers text tpl
+
+-- | ONE PLANNING ENTRY through 'plannedValue', THE WALL'S OWN SENTENCE kept: the
+-- draft meets what @set-planning@ and @POST \/headline@ meet, and an unknown key
+-- outranks every value at all three.
+plannedPair :: Time.Day -> (Text, Text) -> Either Text (Text, Text)
+plannedPair day (key, value) = case unplanned key of
+  Just why -> Left why
+  Nothing  -> (,) key <$> plannedValue day key value
+
+-- | A DRAFT HAS NO ROW, so the cycle is its DESTINATION'S: the tag it is filed
+-- under and whatever its own run wears ('draftStates'), which is the very list
+-- @GET \/capture@ offered the state door.
+stated :: ConfigLayers -> Args -> Either Text ()
+stated cfg args = case agState args of
+  Just want | want `notElem` settable ->
+    Left (want <> " is not a TODO keyword for a capture" <> under
+            <> "; this one may be set to " <> T.intercalate ", " settable)
+  _spelled -> Right ()
+  where
+    settable = draftStates cfg (captureScopes args)
+    under = maybe "" (\t -> " under :" <> t <> ":") (agTag args)
+
+-- | The tag scopes a capture's own keyword chain is drawn from, folded the way
+-- @config\/tags\/TAG.org@ is named.
+captureScopes :: Args -> [Text]
+captureScopes args =
+  map T.toLower (maybe [] pure (agTag args) <> fromMaybe [] (agTags args))
 
 capturedText :: Args -> Text
 capturedText = fromMaybe "" . agText
@@ -395,10 +476,19 @@ parseCommand raw = bodyObject "command" command raw >>= checked
       sp <- fmap (uncurry Span) <$> (a .:? "span" :: Parser (Maybe (Int, Int)))
       parsed <- Args <$> a .:! "keyword" <*> a .:! "date" <*> a .:? "text"
                      <*> a .:? "title" <*> a .:! "priority" <*> a .:? "tag"
-                     <*> a .:? "fields" <*> a .:? "from" <*> a .:? "to"
+                     <*> a .:? "fields"
+                     <*> a .:? "state" <*> a .:? "tags"
+                     <*> cargoPairs a "planning" <*> cargoPairs a "properties"
+                     <*> a .:? "body"
+                     <*> a .:? "from" <*> a .:? "to"
                      <*> pure sp <*> a .:? "target" <*> a .:! "desc"
       pure ( name :: Text, nub (maybe [] pure one <> fromMaybe [] several)
            , parsed, fromMaybe Map.empty digests )
+    -- @[[KEY, VALUE], …]@, the shape @POST \/headline@'s own cargo carries: one
+    -- spelling of the doc pane's two lists, so a draft and a row edit agree.
+    cargoPairs a key = traverse (traverse pair) =<< (a .:? key :: Parser (Maybe [[Text]]))
+    pair [k, v] = pure (k, v)
+    pair _other = fail "each planning entry and property is a [key, value] pair"
     checked (name, ids, args, digests) = case lookup name commands of
       Nothing -> Left ("no such command: " <> name <> "; this server runs "
                          <> T.intercalate " and " commandNames)

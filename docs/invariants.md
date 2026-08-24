@@ -32,7 +32,7 @@ nothing catches it.
 
 - **The empty digest is the create pin.** An absent file under `""` is created;
   an occupied path under `""` drifts. `Edit.hs:206`, `Query.hs:1161`,
-  `Commands.hs:298`, `Config.hs:322`. Making a missing file a hard `ReadFailed`
+  `Commands.hs:333`, `Config.hs:322`. Making a missing file a hard `ReadFailed`
   breaks blob capture and tag-layer minting; making a present file writable
   under `""` turns capture into a silent overwrite. *fragility: high*
 
@@ -59,7 +59,11 @@ nothing catches it.
   (`eolOf`, `openingFor`), never from a constant. `Edit.hs:94`, `:101`,
   `Query.hs:1633`, `Config.hs:212`. Hard-coding `"\n"` converts a CRLF file line
   by line on every edit; skipping `openingFor` joins an appended `* ` onto the
-  last live line. *fragility: medium*
+  last live line. A **capture blob lands in no text at all**, so it takes the
+  ending of the bytes it is composed out of — the tag's template — and the
+  pane's body is re-ended into that (`Commands.hs:328`, `Query.hs:draftEntry`);
+  the page speaks `\n` and knows no other, so without it a CRLF layer lands an
+  entry ending one way over a body ending the other. *fragility: medium*
 
 - **Composed lines are `untrailed`, stepping over the terminator so a CRLF
   survives.** `Query.hs:1061`, `:1633`, `Routes.hs:468`. A `T.stripEnd` in its

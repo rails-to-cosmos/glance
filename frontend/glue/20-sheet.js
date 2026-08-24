@@ -1,5 +1,13 @@
 // THE MATERIALIZE SHEET: two panes over one subtree, one flush carrying both — AGENTS.hs.
     let editing = null;
+    // A CAPTURE IS THE SHEET OVER A SUBTREE THAT DOES NOT EXIST YET.  The handle
+    // is the served DRAFT, and `capture' is everything true of it and of no
+    // materialized row: the tag it will be filed under, the cycle its state door
+    // offers, and the line `%?' stood on.  ASKED AS THE HANDLE'S OWN FIELD, so
+    // every door below reads the one flag rather than a second mutable.
+    const capturing = () => !!(editing && editing.capture);
+    // What a draft is called before a title has been typed into it.
+    const CAPTURE_WORD = "the capture";
     let base = "", baseProps = null, raw = false;
     // THE DOCUMENT PANE IS AN ELM PROGRAM; the MIRROR below is a macrotask behind it — AGENTS.hs.
     const DCELLS = CFG.dcells;
@@ -81,7 +89,8 @@
       followLinks(b, editing.id, { digest: editing.digest, links }, links);
     }
     const docTitle = () =>
-      ((editing && editing.cells && editing.cells.title) || (editing || {}).id || "");
+      ((editing && editing.cells && editing.cells.title)
+       || (capturing() ? CAPTURE_WORD : (editing || {}).id) || "");
     const docBinding = (command, seq) => ({ seq: seq || "RET", command });
     function docEnter() {
       const r = drows[dat];
@@ -114,8 +123,34 @@
       // THE HEADLINE IS ONE STOP, so RET opens the title; `t', `:' and
       // S-<up>/S-<down> are what reach the other parts.
       const t = shown(r).find((x) => x.key === "title");
-      openEdit(DTITLE, { id: "CELL:title", val: t ? t.val : "" });
+      openTitle(t ? t.val : "");
     }
+    /** THE TITLE EDIT over the head row.  OVER A BARE DRAFT IT IS THE CAPTURE
+     * ITSELF — the template brought nothing to fill in, so there is nothing for
+     * `C-c C-c' to gather that this box does not already hold: `RET' writes the
+     * jot and `ESC' drops it whole.  That is today's one-line form kept key for
+     * key (`+', RET, the line, RET), and the row carries it as `bare' so the
+     * commit and the escape read one answer rather than two. */
+    const openTitle = (val) =>
+      openEdit(DTITLE,
+               { id: "CELL:title", val, bare: capturing() && bareDraft(editing) });
+    /** Is the draft the BARE DEFAULT — star-space and nothing else?  A fact
+     * about the TEMPLATE, so it is read off the ANSWER: a title typed into a
+     * bare draft leaves it bare, and a template that brought a drawer, a
+     * planning entry, a body or a tag of its own never was.  INHERITED FACTS
+     * COUNT: a filter pinning a state makes the draft rich, and `C-c C-c' the
+     * door out of it. */
+    const bareDraft = (h) =>
+      !String((h.cells || {}).title || "").trim()
+      && !String((h.cells || {}).state || "")
+      && !String((h.cells || {}).priority || "")
+      && !String((h.cells || {}).tags || "")
+      && !(h.properties || []).length && !(h.planning || []).length
+      && !(h.children || []).length && !bodyBelow(h.body).trim();
+    // THE BODY UNDER THE HEADLINE LINE.  A subtree's `body' opens with its own
+    // headline (the pane draws that line from `cells' and never splices it), so
+    // every reading of "what is under the title" cuts the first line off here.
+    const bodyBelow = (body) => String(body || "").split("\n").slice(1).join("\n");
     function atElement(act) {
       const r = drows[dat];
       if (!r || (r.kind !== "head" && r.kind !== "child"))
@@ -145,6 +180,9 @@
     }
     function docUp() {
       if (!editing) return;
+      // A DRAFT HAS NOWHERE UP: it is not in a file yet, so there is no parent to
+      // climb to and no sheet under it to come back to.  ESC is the way out.
+      if (capturing()) { echo("DEL → a capture has nowhere up — ESC leaves it"); return; }
       if (editing.child === null) { leaveSheet(); return; }
       const up = editing.parent;
       reread(up === null ? undefined : up, (h, fresh) => {
@@ -892,12 +930,16 @@
      * the cargo carries the planning list, and `post' aims it at the child
      * (`?child='), where `settledPlanning' reads the raw phrase at the very key
      * `set-planning' meets.  ONE TRANSPORT, never a second spelling of it --
-     * the clear rides it too, an empty value being how org takes an entry off. */
+     * the clear rides it too, an empty value being how org takes an entry off.
+     *
+     * A DRAFT HAS NO ROW ID EITHER, and takes that same road for that same
+     * reason: the entry it is owed is a planning entry the capture carries, and
+     * the capture command is what writes it. */
     function commitDate(b, typed) {
       const row = edit.row, keyword = row.key, h = editing;
       shutEdit(DDATE);
       if (row.add) undraftPlan(row);
-      if (h.child !== null) {
+      if (h.child !== null || capturing()) {
         // THE WIDGET KEEPS ITS OWN WORD over the model's: the row the box stood
         // in already says the keyword, and the model's word names a landing out
         // of a drawer this door never touched.
@@ -1654,7 +1696,24 @@
         return;
       }
       const val = el("dtin").value;
+      // READ BEFORE THE SHUT: the answer is the open box's own, and `shutEdit'
+      // takes the box away.
+      const jot = bareCapture();
+      // THE KEY IS THE READER'S AND THE COMMAND IS WHAT IT RAN: whatever reached
+      // this box, over a bare draft it FINALIZES A CAPTURE rather than writing a
+      // title into a row that does not exist.
+      const finalize = docBinding("org-capture-finalize", (b || {}).seq || "RET");
+      // NOTHING TO CAPTURE IS NO COMMIT, AND THE BOX STAYS UP behind the word —
+      // the wall every other edit's is asked at, above the shut and while what
+      // was typed is still on screen to be fixed.  The sheet stands with it.
+      if (jot && !String(val).trim()) { said(finalize, "nothing to capture"); return; }
       shutEdit(DTITLE);
+      if (jot) {
+        editing.cells.title = String(val).trim();
+        drawCells();
+        commitCapture(finalize);
+        return;
+      }
       retitle(val);
     }
     function retitle(val) {
@@ -1688,7 +1747,21 @@
     // THE ESCAPE IS FROM THE EDIT: the box goes, the drawn row with it, and the
     // drawer is the bytes it was — nothing typed here ever entered its list.
     // The restore shut every shape, so `cancelEdit' is asked for the ECHO alone.
-    const cancelSheetEdit = () => cancelEdit(restoreSheetEdit());
+    //
+    // IN THE BARE DRAFT'S TITLE THE EDIT IS THE CAPTURE, and there is nothing
+    // under it to come back to: the escape is from the whole capture, which
+    // never existed, so it takes the sheet with it.
+    function cancelSheetEdit() {
+      if (bareCapture()) {
+        leaveSheet();
+        echo("ESC → keyboard-quit (nothing captured)");
+        return;
+      }
+      cancelEdit(restoreSheetEdit());
+    }
+    // Standing in the title of a BARE draft: the one box whose RET captures and
+    // whose ESC drops everything.  ASKED IN ONE PLACE, so the two cannot part.
+    const bareCapture = () => capturing() && dediting() && !!edit.row.bare;
 
     function ddelete(ids, how) {
       dtook = how;
@@ -1712,6 +1785,11 @@
     // THE CARGO IS THE CALLER'S: a flush reading mirrors would race the push.
     function commitDocWith(cargo, say) {
       if (!editing) return;
+      // A DRAFT'S CARGO IS HELD, NEVER POSTED: no file stands behind it, and the
+      // capture goes out WHOLE at `C-c C-c'.  The model already holds what was
+      // typed and pushes it to the mirrors a macrotask behind, which is what the
+      // commit reads — so the door still answers with the model's own word.
+      if (capturing()) { say(cargo); return; }
       const h = editing;
       sync("syncing");
       post(h.id, h.digest,
@@ -1722,6 +1800,43 @@
         .catch((e) => stuck(subtreeSheet, e.message));
     }
 
+    /** `C-c C-c' OVER A DRAFT: the whole capture at one press, through the ONE
+     * command that mints a blob — its id, its shard path, its creation drawer
+     * and its ledger line.  THE ARGS ARE THE PANE'S OWN STANDING CARGO widened
+     * with what the head row holds: `body', `properties' and `planning' are the
+     * mirrors the model pushed, and the title, state, priority and tags come off
+     * the handle's cells, where every door above wrote them.
+     *
+     * THE BODY IS WHAT STANDS UNDER THE HEADLINE LINE: the cargo opens with that
+     * line (the pane draws it from `cells' and never splices it), and the
+     * capture composes its own headline out of the cells beside it — so sending
+     * the cargo whole would spell the headline twice. */
+    function commitCapture(b) {
+      const h = editing, c = h.cells || {};
+      const tag = h.capture.tag;
+      const title = String(c.title || "").trim();
+      const body = bodyBelow(dbody);
+      if (!title && !body.trim()) { said(b, "nothing to capture"); return; }
+      const args = { title, body, properties: dprops, planning: dplan };
+      if (tag) args.tag = tag;
+      if (c.state) args.state = c.state;
+      const priority = priorityIn(c.priority);
+      if (priority) args.priority = priority;
+      // THE HEADLINE WEARS EXACTLY THESE, the destination tag among them: the
+      // tags door writes this cell and the filter's own tags were inherited into
+      // it, so the list the draft shows is the list the blob is written with.
+      const tags = cellTags(c.tags);
+      if (tags.length) args.tags = tags;
+      postCommand({ name: "capture", args }).then((a) => {
+        // THE CURSOR LANDS ON THE NEW ROW when the watch delivers it and the
+        // view carries it — `arrived' spends this on the next settle.
+        arriving = a.id || null;
+        shut();
+        said(b, tag ? `captured · :${tag}:` : `captured · ${a.file}`);
+        append("cmd", "info",
+               `headline ${JSON.stringify(title)} captured into ${a.file}`);
+      }).catch(failed(b, "capture"));
+    }
     /** Empty the pane: the sheet shut, so the document it held is gone. */
     function docClear() {
       dlinks = [];
@@ -1733,7 +1848,12 @@
       // CONTENT SITS UNDER THE TITLE TEXT; the arithmetic is the stylesheet's.
       el("mdoc").style.setProperty("--g-doc-indent", String("* ".length));
       const body = String(h.body || "");
+      // WHERE `%?' STOOD, in the body's own line coordinates: a served draft
+      // carries one and a materialized subtree does not, and `null' is the
+      // headline row — which is where a fresh fill lands anyway.
+      const at = h.capture ? h.capture.point : null;
       dsend({ kind: "fill",
+              ...(at === null ? {} : { landing: at }),
               lines: body.split("\n"),
               own: h.ownLines === undefined ? body.split("\n").length : h.ownLines,
               props: h.properties || [],
@@ -1977,8 +2097,28 @@
       },
       shut: () => shut(),
     };
-    const activeSheet = () => (editing ? subtreeSheet : settings ? configSheet : null);
+    /** THE CAPTURE SHEET'S OWN VERBS.  NOTHING IS OWED TO A FILE: a draft has no
+     * digest to flush against and no bytes on disk to conflict with, so it is
+     * never dirty, never flushed, never refreshed — `C-x C-s' says so and `ESC'
+     * simply shuts.  The BORN-AT-OPEN MEMORY IS TRIVIALLY EMPTY, which is the
+     * whole of why the escape is byte-identical: no file ever existed. */
+    const captureSheet = {
+      noteId: "mnote", scope: "sync", state: "synced",
+      closed: "left · nothing was captured",
+      dirty: () => false,
+      flush: () => { capnote("synced", "C-c C-c captures · ESC leaves");
+                     return Promise.resolve(false); },
+      refresh: () => Promise.resolve(false),
+      shut: () => shut(),
+    };
+    const activeSheet = () =>
+      (editing ? (capturing() ? captureSheet : subtreeSheet)
+       : settings ? configSheet : null);
+    // ONE SHORTHAND PER SHEET, each bound to the sheet it speaks for (`cnote' is
+    // settings'): `note' writes the sheet's own `state', so a verb that reached
+    // for another sheet's shorthand would move a state its caller never owned.
     const sync = (next, message) => note(subtreeSheet, next, message);
+    const capnote = (next, message) => note(captureSheet, next, message);
     function shut() {
       el("modal").className = ""; editing = null; base = ""; baseProps = null;
       soon(remembered);
@@ -2030,6 +2170,8 @@
     // Re-materializes rather than splitting here, keeping an org parser off this page.
     function toggleRaw(b) {
       if (!editing) return;
+      // RAW IS THE FILE'S OWN BYTES RE-READ, and a draft has no file to re-read.
+      if (capturing()) { said(b, "a capture has no file behind it yet"); return; }
       if (dirty()) { said(b, "sync first — C-x C-s"); return; }
       const want = !raw;
       reread(editing.child, (_h, fresh) => {
@@ -2069,19 +2211,60 @@
     };
     // The caller's own word where no entry names one; the table reaches this never.
     const verbed = (name, args, verb) => (VERBED[name] || ((_args, v) => v))(args, verb);
+    // ORG'S `:a:b:' AS A LIST, and back.  The doc cell carries the headline's own
+    // spelling, and a draft's tags are edited as the list every door speaks in.
+    const cellTags = (cell) => String(cell || "").split(":").filter(Boolean);
+    const tagCell = (list) => (list.length ? `:${list.join(":")}:` : "");
+    /** WHAT A ROW-ADDRESSING DOOR WRITES ON A DRAFT, or `null' where the command
+     * is not one a draft holds.  A CAPTURE NAMES NO ROW, so the four commands
+     * that set a headline's own cells land HERE instead — one interception, and
+     * the title, state, priority and tags doors above it are the doors they
+     * always were, popup and palette included.  The answer wears the wire's own
+     * shape, so nothing downstream can tell the two apart.  The empty digest
+     * rides back untouched: it is the create pin, and `fire' only re-pins off a
+     * non-empty one. */
+    function draftWrote(name, ids, args) {
+      if (!capturing() || ids.length !== 1 || ids[0] !== editing.id) return null;
+      const c = editing.cells;
+      const tags = cellTags(c.tags);
+      if (name === "set-title") c.title = String(args.title || "").trim();
+      else if (name === "set-state") c.state = args.keyword || "";
+      else if (name === "set-priority")
+        c.priority = args.priority ? `[#${args.priority}]` : "";
+      else if (name === "add-tag")
+        c.tags = tagCell(tags.concat(tags.indexOf(args.tag) === -1 ? [args.tag] : []));
+      else if (name === "remove-tag")
+        c.tags = tagCell(tags.filter((t) => t !== args.tag));
+      else if (name === "rename-tag")
+        // The server's rule (`renameTagEdits'): in place, deduplicated.
+        c.tags = tagCell([...new Set(tags.map((t) => (t === args.from ? args.to : t)))]);
+      else return null;
+      drawCells();
+      return Promise.resolve({ results: [{ ok: true, id: editing.id, digest: "" }] });
+    }
+    // THE HEAD LINE REDRAWN off the handle's own cells: a draft has no reread to
+    // bring them back, so the shell hands them straight to the pane.
+    const drawCells = () => dsend({ kind: "cells", cells: cellsOf(editing.cells) });
     function fire(b, name, ids, args, verb, how, pin) {
-      return postCommand({ name, ids, args, digests: pin }).then((answer) => {
+      const mine = draftWrote(name, ids, args);
+      return (mine || postCommand({ name, ids, args, digests: pin })).then((answer) => {
         const results = answer.results || [];
         // The store lags this write, so the per-id 200's digest re-pins the sheet.
         if (editing) {
-          const mine = results.find((x) => x.ok && x.id === editing.id && x.digest);
-          if (mine) editing.digest = mine.digest;
+          const held = results.find((x) => x.ok && x.id === editing.id && x.digest);
+          if (held) editing.digest = held.digest;
         }
         const bad = results.filter((x) => !x.ok);
         const landed = results.length - bad.length;
         said(b, `${verb} · ${how ? how(landed) : landed}`);
         const what = verbed(name, args, verb);
-        for (const x of results) if (x.ok) noted(x.id, what);
+        // A DRAFT IS NO ROW and `titleOf' would name none, so the log says what
+        // it is instead of looking a title up in a table that has never held it.
+        for (const x of results)
+          if (x.ok) {
+            if (mine) append("cmd", "info", `${CAPTURE_WORD} ${what}`);
+            else noted(x.id, what);
+          }
         if (bad.length)
           append("cmd", "error", bad.map((x) => `${x.id}: ${x.error}`).join(" · "));
         return results;
@@ -2200,6 +2383,49 @@
       soon(remembered);
       if (raw) el("mtext").focus(); else el("mtext").blur();
     }
+    /** THE SHEET OVER A SERVED DRAFT — the same open, over an answer with no file
+     * behind it.  A is `GET /capture''s answer: the shape `/headline' serves,
+     * with `id' null and `digest' "" — the create pin — plus the tag's cycle and
+     * the line `%?' stood on.
+     *
+     * A BARE DRAFT OPENS WITH ITS TITLE EDIT ALREADY UP, which is the whole of
+     * the bare-draft law: the reader's keys are `+', RET, the line, RET, exactly
+     * today's form's, and nothing else about the sheet is special. */
+    function showDraft(b, tag, a) {
+      editing = draftOf(tag, a);
+      raw = false;
+      el("mfile").textContent = captureWhere(tag, a);
+      fill(editing);
+      capnote("synced");
+      el("modal").className = "on";
+      soon(remembered);
+      el("mtext").blur();
+      if (bareDraft(editing)) {
+        openTitle(String((editing.cells || {}).title || ""));
+        said(b, "a headline · RET captures it · ESC leaves");
+      } else said(b, "C-c C-c captures · ESC leaves");
+    }
+    /** The editing handle a served draft stands behind: the answer's own fields,
+     * and the three that are the capture's alone under `capture'.  THE SPANLESS
+     * SHAPE IS THE CORRECT ONE for a document with no file: `spanAt' null makes
+     * every row's span null, so the links door says there is nothing to open and
+     * no delete can name a byte range that does not exist. */
+    const draftOf = (tag, a) => ({
+      id: a.id === undefined ? null : a.id,
+      file: a.file || "", child: null, parent: null,
+      path: a.path || [], level: a.level || 1,
+      cells: { ...(a.cells || {}) },
+      children: a.children || [],
+      org: a.org || "", body: a.body || "", ownLines: a.ownLines,
+      properties: a.properties || [], planning: a.planning || [],
+      logbook: "", digest: "", span: null, links: [], titleAt: null,
+      capture: { tag, cycle: a.cycle || [],
+                 point: typeof a.point === "number" ? a.point : null },
+    });
+    // The sheet's file line over a draft: WHERE IT WILL LAND, since there is no
+    // file and no id yet to name.
+    const captureWhere = (tag, a) =>
+      `${CAPTURE_WORD}  ·  ${tag ? `:${tag}:` : a.file || "the inbox"}`;
     function fill(h) {
       base = raw ? h.org : "";
       el("mtext").value = base;
@@ -2230,5 +2456,8 @@
       el("mlog").textContent = inner;
       el("mlog").className = inner ? "on" : "";
     }
-    const dirty = () => editing !== null
+    // A CAPTURE IS COMMITTED OR IT NEVER WAS: nothing about a draft is owed to a
+    // file, so the flush on leaving, the `beforeunload' keepalive and the
+    // socket's reload all read it as clean — which is what makes ESC free.
+    const dirty = () => editing !== null && !capturing()
       && (raw ? el("mtext").value !== base : edited() !== baseProps);

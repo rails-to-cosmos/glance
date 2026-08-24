@@ -34,6 +34,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineParts (..
                     , archiveEdits, archived, shiftRepeat
                     , BlobSeed (..), blobDocument, blobPathIn
                     , captureCodes, captureEdits, captureStamp, captureTemplateEdits
+                    , captureText
                     , captureTemplateIn, captureTemplateOf
                     , dayOf, isoDay, monthWords, shiftDay, shiftIn
                     , defaultWalk, derivedPath, documentPath
@@ -49,7 +50,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineParts (..
                     , settableStates, sortedForView, sortedForViewWith, sortedTagsCell
                     , storeRootIn
                     , subtreeEntries, subtreeEntryAt, subtreeLinks, subtreeText
-                    , tagText, tagged, templatePrompts, titleText, uuidFrom, viewJSON )
+                    , tagText, tagged, titleText, uuidFrom, viewJSON )
 
 -- | One file the parser rejects, kept out of 'viewDir' so the golden stays put.
 brokenDir :: FilePath
@@ -2067,6 +2068,18 @@ commandSpec = testGroup "Commands"
               [ ("empty", ""), ("blank", "   ")
               , ("two headlines", "one\n* two"), ("a body line", "one\nbody") ]
 
+      -- THE WIDENED ROAD'S SHAPE: the append takes a whole ENTRY now, and the
+      -- creation stamp joins the drawer that entry already carries rather than
+      -- opening a second one under it.
+    , testCase "an entry that already has a drawer takes the stamp into it" $
+        assertEqual "one drawer, the stamp first"
+          (Right (T.unlines [ "* Buy milk", ":PROPERTIES:"
+                            , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]"
+                            , ":SHOP: the corner one", ":END:", "before it runs out" ]))
+          (splice "" <$> captureEdits "" (captureStamp stampedAt)
+                          (T.unlines [ "* Buy milk", ":PROPERTIES:", ":SHOP: the corner one"
+                                     , ":END:", "before it runs out" ]))
+
       -- Org's INACTIVE form: a creation time is a record rather than agenda work.
     , testCase "the stamp is org's inactive timestamp, to the minute" $
         assertEqual "as org-glance's own store spells it"
@@ -2204,9 +2217,13 @@ resolvesAs (typed, day, Right stamp) =
 resolvesAs (typed, day, Left word) =
   refusedNaming (show typed) [word] (planningTimestamp day typed)
 
--- | DOC with TEXT captured into it, at 'stampedAt'.
+-- | DOC with TEXT captured into it, at 'stampedAt'.  THE OLD ROAD END TO END:
+-- the one-headline wall, then the star it composes, then the append -- the very
+-- three steps @capture@'s @{"text": ...}@ arg shape takes.
 captured :: Text -> Text -> Either Text Text
-captured doc text' = splice doc <$> captureEdits doc (captureStamp stampedAt) text'
+captured doc text' = do
+  typed <- captureText text'
+  splice doc <$> captureEdits doc (captureStamp stampedAt) ("* " <> typed)
 
 -- | WHAT: DOC with @set-priority LETTER@ applied to its one headline is WANTED.
 setPriorityIs :: String -> Text -> Maybe Text -> Text -> Assertion
@@ -2341,8 +2358,7 @@ captureSpec = testGroup "Capture"
           assertEqual "the answer, verbatim" (Right "* x\n:AUTHOR: Frank Herbert")
                       (expanded [("Author", "Frank Herbert")] "x" "* %?\n:AUTHOR: %^{Author}")
 
-      , testCase "a prompt spelled twice is one ask and two fills" $ do
-          assertEqual "asked once" ["Author"] (templatePrompts "* %? %^{Author} %^{Author}")
+      , testCase "a prompt spelled twice is filled at every place it stands" $
           assertEqual "filled twice" (Right "* x a a")
                       (expanded [("Author", "a")] "x" "* %? %^{Author} %^{Author}")
 

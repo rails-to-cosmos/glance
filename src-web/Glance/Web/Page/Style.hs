@@ -428,7 +428,7 @@ page head' colours title body = T.unlines
   , "  " <> chromeHeads <> "{font-size:12px;color:var(--g-mute)}"
     -- `#ctplf' is the capture-template hint inside config, and no popup's part.
   , "  " <> chromeFeet <> ",#ctplf{font-size:11px;color:var(--g-mute)}"
-  , "  #pinput,#ktag,#kfields input,#nbox .krow input,#nbox .krow select{"
+  , "  #pinput,#ktag,#nbox .krow input,#nbox .krow select{"
   , "    font:12px/1.5 var(--dk-mono);padding:5px 7px;border-radius:4px;"
   , "    border:1px solid var(--g-border);background:transparent;color:inherit}"
   , "  #pbox:not(.narrow) #pinput{display:none}"
@@ -439,9 +439,6 @@ page head' colours title body = T.unlines
   , "  .krow{display:flex;gap:8px;align-items:center;margin-top:4px}"
   , "  .klab{font-size:11px;color:var(--g-mute);min-width:8em}"
   , "  .krow input{flex:1 1 auto}"
-  , "  #ktext{flex:1 1 auto;min-height:0;font:12px/1.5 var(--dk-mono);"
-  , "    padding:5px 7px;border-radius:4px;border:1px solid var(--g-border);"
-  , "    background:transparent;color:inherit;resize:none}"
   , "  #plist.ptable{display:grid;"
   , "    grid-template-columns:6.5em minmax(0,1fr) minmax(0,1fr)}"
   , "  .ptable>.pr{display:grid;grid-template-columns:subgrid;grid-column:1/-1}"
@@ -533,7 +530,7 @@ page head' colours title body = T.unlines
   , "    #mpanes{flex-direction:column}"
   , "    #mtext,#pinput,#dtin,#dpair input,#ddate input,"
   , "    #sedit input,#tedit input,#ledit input,"
-  , "    #dpara textarea,#ktag,#kfields input,#ktext,#app .tv-filter,"
+  , "    #dpara textarea,#ktag,#app .tv-filter,"
   , "    .ctext,.cview{font-size:16px}}"
   , "</style>"
   -- One line, so the suite's glue extractor still finds the one inline script.

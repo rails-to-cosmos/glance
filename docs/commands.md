@@ -39,7 +39,7 @@ argument wall and its own splice.
 | `add-tag` / `remove-tag` | `{tag}` | the tag on / off the headline |
 | `rename-tag` | `{from, to}` | both spellings, one write per file |
 | `archive` | `{}` | `add-tag ARCHIVE`; idempotent |
-| `capture` | `{text, tag?, fields?}` | a headline in the inbox, or a minted store blob — the whole flow is [capture.md](capture.md) |
+| `capture` | `{title, tag?, state?, priority?, tags?, planning?, properties?, body?}`, or the older `{text, tag?, fields?}` | a headline in the inbox, or a minted store blob — the whole flow is [capture.md](capture.md) |
 | `edit-link` | `{span, target, desc?}` | one link's own character range |
 | `delete` | `{}` | the row's blob, gzipped into the store's `trash/` |
 
@@ -178,6 +178,16 @@ curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
      -d '{"name": "set-planning", "ids": ["ROW-ID"],
           "args": {"keyword": "SCHEDULED", "date": "+1w"}}'
 curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
+     -d '{"name": "capture", "args": {"tag": "book", "title": "Dune",
+                                      "state": "READING",
+                                      "planning": [["SCHEDULED", "<2026-09-01 Tue>"]],
+                                      "properties": [["AUTHOR", "Herbert"]],
+                                      "body": "a note\n"}}'
+curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
      -d '{"name": "capture", "args": {"text": "TODO Dune", "tag": "book",
                                       "fields": {"Author": "Herbert"}}}'
 ```
+
+The two capture shapes are the same command: the first is the capture
+sheet's own cargo, the second the older raw line through the tag's
+template. Naming both `text` and `title` is refused rather than resolved.

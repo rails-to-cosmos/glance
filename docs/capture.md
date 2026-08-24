@@ -4,24 +4,66 @@
 way: a tagged capture is a real blob in the store — id, shard path, creation
 stamp, ledger note — that Emacs adopts without importing anything. The
 README's Capture section is the crib; this page is the whole law. The design
-history is `docs/proposals/done/2026-08-03-capture.md`.
+history is `docs/proposals/done/2026-08-03-capture.md`, and the redesign that
+made the capture doc the material doc is
+`docs/proposals/proposed/2026-08-24-the-capture-doc-is-the-material-doc.md`.
 
-## The form
+## The flow
 
-`+` is one form, three parts, `RET` moving forward:
+**One editor.** The sheet already edits a subtree; capture is the sheet over a
+subtree that does not exist yet. Two steps:
 
 1. **Tag** — a field completing over the tree's own tag vocabulary,
    commonest first. Free text names a tag that does not exist yet (the
    server's charset wall refuses garbage, the same wall `manage-tags` has).
-   An **empty tag is the inbox**: the capture lands in `<root>/inbox.org`
-   as bare `* text` with its creation drawer — the quick-jot path.
-2. **The template's own fields** — grown in place once the tag settles, one
-   field per `%^{PROMPT}` in template order.
-3. **The line** — the text that lands at `%?`. `RET` captures; `ESC` leaves
-   the form whole.
+   An **empty tag is the inbox**: the capture lands in `<root>/inbox.org` —
+   the quick-jot path. The field opens on the tag the standing filter names,
+   so a filtered table needs no keystroke here.
+2. **The doc** — `GET /capture?tag=TAG` expands the tag's template and answers
+   a **draft**, and the sheet opens over it in capture mode. The draft is a
+   doc, so every shipped door works on it: `RET` on the title, the pair box,
+   the date widget and its summon keys, the tags door, the state door —
+   offering the tag's own cycle. Point lands where `%?` stood.
+
+`C-c C-c` commits the draft whole. `ESC` leaves nothing: **no file ever
+existed**, so there is nothing to undo — no autosave, no draft store.
+
+**The bare-draft law.** Where the draft is the bare default — star, space,
+empty title and nothing else — the title edit *is* the capture: `RET` on the
+typed title commits immediately, so the inbox jot stays `+`, `RET`, the line,
+`RET`, key for key. A template with more than a bare headline commits on
+`C-c C-c` alone, and `RET` on the title just closes the title edit as usual.
+`ESC` in the bare title edit drops the capture whole.
 
 The cursor lands on the new row when the current view carries it, and stays
 put when the view filters it out.
+
+## What the filter lends
+
+A capture inherits from the **current filter** whatever the template leaves
+unspecified. **The template speaks first**; where it is silent, a fact the
+standing filter pins to *one ordinary positive value* fills the gap:
+
+| the filter pins | the draft gets |
+| --- | --- |
+| `tag:book` | the destination — and with it the template and the cycle |
+| `state:TODO` | the keyword, where the template spells none **and** the draft's own cycle declares it |
+| `priority:[#B]` | the priority, where the template spells none |
+| further `tag:` terms | joined to the draft's run, beyond the template's |
+| `scheduled:2026-09-09`, `deadline:friday` | that entry, where the line has none |
+
+Never a negation, never an alternation, never a `*meta*`. The page extracts
+the facts from the parsed query and passes them to `GET /capture` as optional
+arguments; the **server** merges them template-first, so one composer owns
+precedence and a day word resolves under the door's one clock read.
+
+**Inheritance never refuses a capture.** A lent fact the draft's own walls
+turn down — a state outside its cycle, a letter that is no priority, a tag
+outside the charset, a day the grammar will not read — is simply not
+inherited. It is the filter talking about other rows.
+
+A tag run needs a **title** to stand after: the parser reads `* :work:` as the
+title itself, so a lent tag waits until the draft has one.
 
 ## Templates
 
@@ -48,10 +90,15 @@ Expansion is server-side; the page never holds template logic.
 
 | code | expands to |
 | --- | --- |
-| `%?` | the typed line — required, the point of the capture |
+| `%?` | nothing — it is **where point opens** |
 | `%U` | inactive timestamp, the server's clock |
 | `%T` | active timestamp, the server's clock |
-| `%^{PROMPT}` | one form field, asked in template order |
+| `%^{PROMPT}` | its **empty value**: a drawer pair with none, a slot in the body |
+
+The prompting escape dissolved. `%^{PROMPT}` was a pre-form field only
+because the form could not edit structure; the pane can, so the ask arrives as
+the editor it belongs in — the pair box for a drawer, the body walk for a
+slot. The stamping escapes stay server-side: the page spells no org.
 
 Anything else copies through **verbatim** — an unknown `%`-code stays
 visible in the captured entry and the capture still lands. Typing `%` in
@@ -59,6 +106,67 @@ the settings template box completes over exactly this subset; what the
 completion offers is what expands. That list is **closed**: `RET` there
 takes an entry off it, and a code the expansion does not know is typed into
 the box by hand rather than through the completion.
+
+A template with no `%?` has nowhere for point to open, and is refused **when
+`+` opens** rather than after a whole entry has been composed over it.
+
+## The two doors
+
+### `GET /capture[?tag=NAME]` — the draft
+
+The shape `GET /headline` serves, field for field, off bytes that exist only
+in the answer. **No file is created.** `id` is null, `file` is empty and
+`digest` is `""` — the **create pin**, the very lock the write path already
+spells for a target that is not there, which is what makes the commit that
+follows an ordinary drift-locked write.
+
+Three members ride beside the headline shape:
+
+- **`point`** — an integer line of `body`, or `null` for the headline row.
+  The coordinates `ownLines` and a child's `line` are already in, so the pane
+  lands by a reading it makes anyway. Line 0 *is* the headline, so the
+  integer form never names it; a `%?` standing in the planning line or the
+  drawer answers `null` too, those being lifted out of `body`.
+- **`cycle`** — the tag's own TODO words in the shape `GET /keywords` answers
+  in, one entry per source, widest first. It rides here because `/keywords`
+  is **row-keyed** and a draft has no row. The cycle the state door offers is
+  the list the commit door walls with.
+- **`tags`** — the tree's whole tag vocabulary, for step 1's field. It rides
+  here rather than on `/tags` because a capture names no rows.
+
+The optional inheritance arguments are `?state=`, `?priority=`, `?tags=a,b`,
+`?scheduled=` and `?deadline=`.
+
+### `POST /command {"name": "capture"}` — the commit
+
+**Two roads, exactly one taken.** `text` (with `fields`, through the tag's
+template) is the older wire and stays — the door is public, and org-glance may
+drive it. `title` opens the sheet's own cargo:
+
+```
+{tag?, title, state?, priority?, tags[], planning[[K,V]], properties[[K,V]], body}
+```
+
+Naming both `text` and `title` is **refused** rather than resolved. Both roads
+hand the same org to the same minting, which is why the shard path, the id,
+the creation drawer, the ledger note and the inbox split are untouched by the
+widening.
+
+`title` is title text alone — no stars, no state, no tag run. The header is
+composed and then **read back**: a title that reparses as something else is
+refused naming the part, rather than written and misread on the next load.
+
+**One wall per key, and every one of them the wall a row edit meets:**
+
+| key | wall |
+| --- | --- |
+| `title` | one line, then the headline reparse |
+| `state` | the draft's own cycle — the list `GET /capture` offered |
+| `priority` | org's single letter |
+| `tags` | the org tag charset |
+| `planning` | `plannedValue`, **the key outranking the value** |
+| `properties` | none, exactly as the commit door's drawer list has none |
+| `body` | one top entry: a body line opening a single star is refused |
 
 ## What a tagged capture writes
 
@@ -74,6 +182,10 @@ The watch then delivers the row (the store walks blobs; the write nudges
 its own fresh directory into the watch queue, since fsnotify never looks
 into a directory it has just armed).
 
+An **untagged** capture appends to the inbox and mints nothing: no id, no
+tag, no ledger line. It takes the blob path's drawer splice and nothing else,
+so the creation stamp joins whatever drawer the entry already carries.
+
 ## What Emacs sees
 
 `org-glance-graph:refresh-external` replays the ledger. A caveat worth
@@ -87,5 +199,19 @@ for the same seam from the tag side.
 
 ## Refusals
 
-A tag outside the charset wall; a template with a prompt the answers do not
-fill; a missing store root. Each is a spoken refusal — nothing is written.
+Coarsest first, every one of them ahead of a byte: a missing store root; a
+capture that is not one headline; a template with no `%?`; an unanswered
+prompt on the older road; a template that expands to no headline. The two a
+template can be wrong in are raised at the **draft** door as well, so a broken
+layer is named when `+` opens. Each is a spoken refusal — nothing is written.
+
+## Refused designs
+
+- **Multi-headline templates.** One top entry is the law; a template's
+  children arrive as the draft's children, but the template contributes one
+  headline.
+- **Template logic on the page.** The page renders a draft; it never expands.
+- **Editing the template from the capture doc.** The settings sheet owns the
+  layer file; capture consumes it.
+- **A draft that outlives `ESC`.** No autosave, no draft store; a capture is
+  committed or it never was.

@@ -405,6 +405,7 @@ parseNotes =
   , Note "Every roundtrip input is pinned once." [Unguarded]
   , Note "The residual failure class is a minority of the corpus." [Unguarded]
   , Note "The star-run rule dropped rows and headlines together." [Unguarded]
+  , Note "A property's key and its value are held apart by HORIZONTAL space alone. `MPC.space' there eats the newline after an EMPTY value, so `:KEY:' with nothing on it takes the `:END:' under it as its value and the WHOLE drawer stops parsing — and an empty value is a pair this repo writes itself, whenever one is cleared and wherever a capture template's ask opens." [Test]
   , Note "A Dutch weekday cost whole drawers." [Unguarded]
   ]
 -- * Scan and the ledgers
@@ -3289,13 +3290,54 @@ cmds =
   , Cmd SetTitle    "set-title"    Splices [Arg "title" Req]                                  IdsMany False False
   , Cmd SetPriority "set-priority" Splices [Arg "priority" Nul]                               IdsMany False False
   , Cmd Archive     "archive"      Splices []                                                 IdsMany False False
-  , Cmd Capture     "capture"      Makes   [Arg "text" Req, Arg "tag" Opt, Arg "fields" Opt]  IdsNone False False
+  , Cmd Capture     "capture"      Makes   captureArgs                                       IdsNone False False
   , Cmd AddTag      "add-tag"      Splices [Arg "tag" Req]                                    IdsMany False False
   , Cmd RemoveTag   "remove-tag"   Splices [Arg "tag" Req]                                    IdsMany False False
   , Cmd RenameTag   "rename-tag"   Splices [Arg "from" Req, Arg "to" Req]                     IdsMany False False
   , Cmd EditLink    "edit-link"    Splices [Arg "span" Req, Arg "target" Req, Arg "desc" Nul] IdsOne  False False
   , Cmd Delete      "delete"       Moves   []                                                 IdsMany False False
   ]
+
+-- | @capture@'s TWO ROADS in ONE arg list: @text@ (with @fields@, through the
+-- tag's template) is the older wire, @title@ and the six under it are the
+-- capture sheet's own cargo.  EXACTLY ONE ROAD IS TAKEN — naming both is
+-- refused rather than resolved — which is why neither opener is 'Req' and the
+-- either-or is a wall rather than an arity.  A NULL is an absence at every one
+-- of them: a capture makes a row, so there is nothing to clear.
+captureArgs :: [Arg]
+captureArgs = [ Arg "text" Opt, Arg "fields" Opt, Arg "tag" Opt ]
+                <> [ Arg (cargoWire k) Opt | k <- [minBound .. maxBound] ]
+
+-- | The widened cargo, key by key: the doc pane's standing shape, which is the
+-- same header-and-body @POST \/headline@ already speaks.
+data CargoKey = KTitle | KState | KPriority | KTags | KPlanning | KProperties | KBody
+  deriving (Bounded, Enum, Eq, Show)
+
+cargoWire :: CargoKey -> String
+cargoWire KTitle      = "title"
+cargoWire KState      = "state"
+cargoWire KPriority   = "priority"
+cargoWire KTags       = "tags"
+cargoWire KPlanning   = "planning"
+cargoWire KProperties = "properties"
+cargoWire KBody       = "body"
+
+data CargoWall = TitleReparse | StateInCycle | PriorityLetter | TagCharset
+               | PlanningKey | PlanningValue | NoWall | OneTopEntry
+  deriving (Eq, Show)
+
+-- | WHAT EACH KEY MEETS, and every one of them is the wall a ROW EDIT meets:
+-- the draft commits through the same sentences, so a spelling one door takes is
+-- a spelling the other takes.  @properties@ has none, exactly as the commit
+-- door's drawer list has none.
+cargoWall :: CargoKey -> [CargoWall]
+cargoWall KTitle      = [TitleReparse]
+cargoWall KState      = [StateInCycle]
+cargoWall KPriority   = [PriorityLetter]
+cargoWall KTags       = [TagCharset]
+cargoWall KPlanning   = [PlanningKey, PlanningValue]  -- THE KEY OUTRANKS THE VALUE
+cargoWall KProperties = [NoWall]
+cargoWall KBody       = [OneTopEntry]
 
 commandNames :: [String]
 commandNames = map cWire cmds
@@ -3387,7 +3429,10 @@ writesFor xs = mapMaybe one (nub [p | (p, _, _) <- xs])
 rstrip :: String -> String
 rstrip = reverse . dropWhile (`elem` " \t") . reverse
 composers :: [String]                   -- ^ every text this repo COMPOSES for a write
-composers = ["recomposedSubtree", "blobDocument", "captureEdits"]
+composers = ["recomposedSubtree", "draftEntry", "stampedEntry", "captureEdits"]
+-- ^ @draftEntry@ spells the headline and hands the two lists to
+-- @recomposedSubtree@; @stampedEntry@ joins the properties a capture owes and
+-- is what @blobDocument@ became when the inbox path wanted the same splice.
 
 -- ** Span math
 --
@@ -3570,7 +3615,10 @@ yearRule = Flat
 -- ** Capture
 --
 -- The ONE id-less command: it MAKES a row.  The answer is its own shape,
--- @{ok, file, digest, id}@, and @id@ is what the cursor lands on.
+-- @{ok, file, digest, id}@, and @id@ is what the cursor lands on.  THE CAPTURE
+-- DOC IS THE MATERIAL DOC: @GET \/capture@ answers a DRAFT in the very shape
+-- @\/headline@ serves, the sheet opens over it, and @C-c C-c@ commits the
+-- pane's cargo back through this one command.
 
 data CaptureTo = ToInbox | ToBlob Tag deriving (Eq, Show)
 captureInto :: Maybe Tag -> CaptureTo   -- ^ ABSENT is the config's inbox, PRESENT a blob
@@ -3581,7 +3629,7 @@ captureAnswer = ["ok", "file", "digest", "id"]
 capturedId :: Path -> Int -> RowId      -- ^ K is the store's rows for that FILE at the last load
 capturedId = Nth
 
-captureText :: String -> Maybe String   -- ^ BOTH paths' wall, and every @fields@ answer's
+captureText :: String -> Maybe String   -- ^ the OLDER ROAD's wall, and every @fields@ answer's
 captureText t = let s = rstrip (dropWhile (`elem` " \t") t)
                 in if null s || '\n' `elem` s then Nothing else Just s
 
@@ -3590,18 +3638,56 @@ data CaptureRefusal = NoStore | OneHeadlineWall | NoPlaceholder | UnansweredAsk 
 captureOrder :: [CaptureRefusal]        -- ^ coarsest first, every one of them ahead of a byte
 captureOrder = [NoStore, OneHeadlineWall, NoPlaceholder, UnansweredAsk, TemplateNoHeadline]
 
+data CaptureDoor = DraftDoor | CommitDoor deriving (Eq, Show)
+-- | WHICH DOOR EACH REFUSAL IS SPOKEN AT.  The two a TEMPLATE can be wrong in
+-- are the draft door's as well, so a broken layer is named when @+@ OPENS
+-- rather than after a reader has composed a whole entry over it.
+refusalAt :: CaptureRefusal -> [CaptureDoor]
+refusalAt NoStore            = [CommitDoor]
+refusalAt OneHeadlineWall    = [CommitDoor]
+refusalAt NoPlaceholder      = [DraftDoor, CommitDoor]
+refusalAt UnansweredAsk      = [CommitDoor]
+refusalAt TemplateNoHeadline = [DraftDoor, CommitDoor]
+
 data Code = Code String String
-captureCodes :: [Code]                  -- ^ the CONTRACT's window: @GET \/capture@ serves this
+captureCodes :: [Code]                  -- ^ the CONTRACT's window: the settings box completes over this
 captureCodes =
-  [ Code "%?"         "where the typed line lands"
+  [ Code "%?"         "where point opens"
   , Code "%U"         "an inactive stamp, this request's one clock read"
   , Code "%T"         "an active stamp"
-  , Code "%^{PROMPT}" "an ask, answered in `fields'"
+  , Code "%^{PROMPT}" "its EMPTY value: a drawer pair with none, a slot in the body"
   ]
 scanCodes :: [String]                   -- ^ @templateParts@ spells the same four as a CASE
 scanCodes = ["%?", "%U", "%T", "%^{PROMPT}"]
-captureRead :: [String]                 -- ^ @GET \/capture[?tag=NAME]@; no tag is the untagged shape
-captureRead = ["template", "prompts", "tags", "codes"]
+
+-- | @GET \/capture[?tag=NAME]@: the DRAFT.  @\/headline@'s own members off bytes
+-- with no file behind them, and the three a doc that is not one yet owes.  NO
+-- FILE IS CREATED; @id@ is null, @file@ empty and @digest@ @""@, which is the
+-- CREATE PIN the commit that follows writes under.
+captureRead :: [String]
+captureRead = headlineFields <> ["point", "cycle", "tags"]
+
+data DraftPoint = AtHeadline | AtBodyLine Int deriving (Eq, Show)
+-- ^ where @%?@ stood, in the coordinates @body@ is ALREADY read in — the ones
+-- @ownLines@ and a child's @line@ use — so the pane lands by a reading it makes
+-- anyway.  Line 0 IS the headline, so the body form never names it.
+draftPoint :: Maybe Int -> DraftPoint   -- ^ the wire is @point: <int> | null@
+draftPoint Nothing  = AtHeadline
+draftPoint (Just n) = AtBodyLine n
+
+data Lent = LentTag | LentState | LentPriority | LentTags | LentPlanning
+  deriving (Eq, Show)
+-- | WHAT THE STANDING FILTER LENDS A DRAFT, and the gap each one fills.
+-- TEMPLATE-FIRST: where the template speaks the filter is silent.  Only a fact
+-- the query pins to ONE ordinary positive value is lent — never a negation,
+-- never an alternation, never a meta — and a fact the draft's own walls turn
+-- down is simply not inherited, so INHERITANCE NEVER REFUSES A CAPTURE.
+lentInto :: Lent -> String
+lentInto LentTag      = "the destination, which is also the template and the cycle"
+lentInto LentState    = "the keyword, where the template spells none AND the draft's cycle declares it"
+lentInto LentPriority = "the priority, where the template spells none"
+lentInto LentTags     = "JOINS the run rather than filling a gap"
+lentInto LentPlanning = "one settable key pinned to one day, where the line has no such entry"
 
 data TplSrc = TplTag Tag | TplSystem | TplBare deriving (Eq, Show)
 templateChain :: Tag -> [TplSrc]        -- ^ ending at Config's `bareTemplate', so every case takes one path
@@ -3778,6 +3864,18 @@ cmdNotes =
   , Note "A tagged capture's blob shard is unwatched for the daemon's life; it reaches the table because every write nudges its own path." [Test]
   , Note "ONE clock read covers both stamps a capture writes, so a template naming the moment and the creation time it is filed under can never name two." [Test]
   , Note "`tags' rides GET /capture rather than /tags, that route answering about ROWS a caller names and a capture naming none." [Test]
+  , Note "THE CAPTURE DOC IS THE MATERIAL DOC: GET /capture answers a DRAFT in `headlineFields'' own shape off bytes with no file behind them, so the pane draws a capture with the doc code it already has rather than a second editor with rules of its own. `id' is null, `file' is empty and `digest' is \"\" — THE CREATE PIN, the very lock the write path already spells for a target that is not there, which is what makes the commit that follows an ordinary drift-locked write." [Test]
+  , Note "The draft is composed by ONE PARSE the commit reads back through (`draftRecord'), and a BLANK ENTRY IS KEPT where `recordsOf' drops one: `* ' with an empty title is exactly what the bare template opens as, so the row the table would refuse to show is the row capture starts from." [Test]
+  , Note "`point' is a LINE OF `body', the coordinates `ownLines' and a child's `line' are already in, and null is the headline itself — so the pane lands by a reading it makes anyway rather than by a second addressing scheme. It is measured on the EXPANDED doc before the filter's seeds are spliced, which is safe because a seed edits the headline line and the planning line and neither is a line `body' carries." [Test]
+  , Note "`cycle' rides the draft answer because /keywords is ROW-KEYED and a draft has no row: `draftKeywords' walks the same `keywordScopes' chain with an empty FILE scope, so the cycle the state door OFFERS is the list the commit door WALLS with, one fold (`flatKeywords') serving both." [Test]
+  , Note "The prompting escapes DISSOLVED: `%^{PROMPT}' expands to its EMPTY VALUE — a drawer pair with none, a slot in the body — because a pre-form field existed only where the form could not edit structure. The stamping escapes still take the server's clock, the page spelling no org, and `%?' writes nothing at all: it is where point opens." [Test]
+  , Note "TWO ROADS, EXACTLY ONE TAKEN: `text' (with `fields', through the tag's template) is the older wire and stays, the door being public and org-glance able to drive it; `title' opens the sheet's cargo. NAMING BOTH IS REFUSED rather than resolved, and both roads hand the SAME org to the same minting, which is why the shard path, the id, the creation drawer, the ledger note and the inbox split are untouched by the widening." [Test]
+  , Note "ONE WALL PER KEY AND EVERY ONE OF THEM THE ROW EDIT'S (`cargoWall'): planning through `plannedValue' with the KEY OUTRANKING THE VALUE, tags and the state through their charsets, the title through the headline reparse, and the state through the very cycle the draft door offered. A capture is ONE TOP ENTRY, so a body line opening a single star is refused rather than written — the one-headline wall reaching the widened road the way `captureText' reaches the older one." [Test]
+  , Note "A BLOB IS A NEW FILE AND HAS NO LINE ENDING OF ITS OWN, so it takes the TEMPLATE'S — the bytes it is composed out of. The older road got this for nothing, `expandTemplate' copying the template verbatim; the widened road joins its head line with the same ending and RE-ENDS the pane's body into it, the page speaking `\\n' and knowing no other. A CRLF layer lands a CRLF blob rather than an entry ending one way over a body ending the other." [Test]
+  , Note "The header is composed and READ BACK before it is written (`draftEntry'): a title carrying a tag run or a star reparses as something else, and is refused naming the part rather than written and misread on the next load." [Test]
+  , Note "THE INBOX PATH GAINED THE BLOB PATH'S SPLICE AND NOTHING ELSE: `stampedEntry' joins the creation stamp to whatever drawer the entry has, `blobDocument' being that function with an id and a tag handed to it. No id, no tag and no ledger line for the inbox, and the old jot's bytes are unmoved." [Test]
+  , Note "WHAT THE FILTER LENDS IS TEMPLATE-FIRST (`lentInto'), and the tag seed is that rule's first case: only a fact the query pins to ONE ordinary positive value is lent, tags JOIN rather than fill, and a lent fact the draft's own walls turn down is simply not inherited — the draft door never 400s over one. The CLIENT extracts the facts and the SERVER merges them, so one composer owns precedence and a day word resolves under the door's one clock read." [Test]
+  , Note "KNOWN LIMIT: a tag run needs a TITLE to stand after, this parser reading `* :work:' as the title itself, so a lent tag waits until the draft has one. The never-refuse rule covers it — the tag is not lent rather than written where it would be misread." [Test]
   , Note "DELETION IS A MOVE: the whole blob DIRECTORY is gzipped under the trash's mirror of its path, the copy landing before the original goes, a destination that already exists refused." [Test]
   , Note "KNOWN LIMIT: one blob, one tombstone — a hand-written blob's SECOND top-level entry loses its bytes and keeps its record." [Test]
   , Note "delete's three walls are checked on the SERVER as well as in the shell, because a request is a request whoever wrote it." [Test]
@@ -5137,6 +5235,39 @@ sheetNotes =
   , Note "The materialize sheet is ONE file — both panes, the ladder and the opening —\
          \ and it owns the open entry, the shape, and the two baselines dirt is measured\
          \ against." [Test]
+  , Note "A CAPTURE IS THE SHEET OVER A SUBTREE THAT DOES NOT EXIST YET, and `capturing()'\
+         \ is a fact about the HANDLE (`editing.capture') rather than a second mutable, so\
+         \ every door below reads one flag.  NOTHING ABOUT A DRAFT IS OWED TO A FILE: it is\
+         \ never dirty, so the leave-flush, the `beforeunload' keepalive and the socket's\
+         \ reload all read it clean — which is the whole of what makes `ESC' free." [Test]
+  , Note "THE BARE-DRAFT LAW: where the draft is star-space and nothing else the title box\
+         \ IS the capture — `RET' on the typed title commits, so the inbox jot stays `+',\
+         \ the line, `RET', and `ESC' there drops the capture whole rather than coming back\
+         \ to a sheet standing over no file.  `bareCapture' is asked in ONE place, so the\
+         \ commit and the escape cannot part.  A template with more than a bare headline\
+         \ commits on `C-c C-c' alone, where `RET' just closes the title." [Test]
+  , Note "AN EMPTY TITLE IS NO COMMIT AND THE BOX STAYS UP behind the word, the wall every\
+         \ other sheet edit's is asked at: above the shut, while what was typed is still on\
+         \ screen to be fixed.  A REFUSED capture leaves the SHEET standing for the same\
+         \ reason, and `C-c C-c' retries it." [Test]
+  , Note "Over a bare draft that box FINALIZES A CAPTURE, so the pill names\
+         \ `org-capture-finalize' under whichever key reached it rather than the title-write\
+         \ it is not." [Test]
+  , Note "ONE `note' SHORTHAND PER SHEET, each bound to the sheet it speaks for (`sync',\
+         \ `capnote', `cnote'): `note' writes the sheet's own `state', so a verb reaching\
+         \ for another sheet's shorthand moves a state its caller never owned." [Test]
+  , Note "A CAPTURE SHEET IS A GHOST in `SURFACES': it stands over a draft no row id in a\
+         \ URL could bring back, so it is remembered as NOTHING and the address stays the\
+         \ view's own." [Test]
+  , Note "A ROW-ADDRESSING COMMAND OVER A DRAFT LANDS IN THE HANDLE (`draftWrote'), which\
+         \ answers in the wire's own shape: the state palette, the tags popup and the title\
+         \ and priority doors are the doors they always were, and the empty digest rides\
+         \ back untouched, being the create pin." [Test]
+  , Note "The browser fixture tree carries a REAL `.org-glance' store and one tag layer\
+         \ with a `#+TODO:' cycle and a template, so the capture cases read the org a\
+         \ reader's own keystrokes wrote rather than a stub's answer — template expanded,\
+         \ pair filled, date summoned, blob minted with its id, its shard path, its\
+         \ creation drawer and its ledger line." [Browser]
   , Note "The sheet is one `SURFACES' entry, the fourth `flagKey' surface and the fourth\
          \ `openEdit' surface -- four of the seven shapes are its own, the title, the\
          \ paragraph, the drawer's pair and the planning date -- whose `anchor' is the\
