@@ -491,6 +491,9 @@ page head' colours title body = T.unlines
   , "    max-width:100%;min-width:10em}"
   , "  #themesel option,#clayer option,#nspace option,#ngroup option{"
   , "    background:var(--g-bg);color:var(--g-fg)}"
+  -- A READ-ONLY VALUE, drawn in the boxes' own type so it reads as the value it
+  -- is rather than as a second label.
+  , "  .cval{font:12px/1.5 var(--dk-mono)}"
   , "  .cerr{font-size:11px;color:var(--g-bad)}"
   , "  .cerr:empty{display:none}"
   , "  #ceff{font-size:12px;padding-top:8px;border-top:1px solid var(--g-border)}"

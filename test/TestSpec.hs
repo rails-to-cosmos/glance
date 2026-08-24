@@ -83,7 +83,8 @@ import Data.Org (isTagChar)
 import Glance.Query (prioritySlots, stateSlots, tagText)
 import Glance.Web.Theme (Mode (Dark, Light), Theme (thId, thMode),
                         themeCSS, themeIds, themes)
-import Glance.Web.Base (logLinesDefault, logLinesMax, logLinesMin)
+import Glance.Web.Base ( logLinesDefault, logLinesMax, logLinesMin
+                       , zoomDefault, zoomMax, zoomMin, zoomStep )
 import Glance.Web.Page.Glue (glueConfig)
 import Glance.Web.Page.Style (page)
 import qualified Data.Text.Read as T.Read
@@ -1235,6 +1236,32 @@ specGroup10 = testGroup "Shell"
       assertBool ("the storage key the spec names is not the one the blob carries: "
                     <> Spec.kKey Spec.logKnob)
                  (T.pack (show (Spec.kKey Spec.logKnob)) `T.isInfixOf` glueConfig [])
+
+    -- THE SECOND KNOB OF THAT SHAPE, and the one the keys move.  Whole
+    -- percentages here; the window wears the same band as levels.
+  , testCase "the zoom knob's default sits in its band too" $ do
+      assertEqual "the spec's zoom knob and Glance.Web.Base's own three have drifted"
+                  (zoomDefault, zoomMin, zoomMax)
+                  ( Spec.kDef Spec.zoomKnob
+                  , Spec.kMin Spec.zoomKnob
+                  , Spec.kMax Spec.zoomKnob )
+      assertEqual "and the step with them" zoomStep Spec.zoomStep
+      assertBool "the zoom default sits inside its own band"
+                 (zoomMin <= zoomDefault && zoomDefault <= zoomMax)
+      assertBool ("the storage key the spec names is not the one the blob carries: "
+                    <> Spec.kKey Spec.zoomKnob)
+                 (T.pack (show (Spec.kKey Spec.zoomKnob)) `T.isInfixOf` glueConfig [])
+      -- The LADDER, as the page walks it: a tenth of the level itself, rounded
+      -- whole, so up and back down comes home rather than drifting.
+      assertEqual "up from the default, four presses"
+                  [110, 121, 133, 146]
+                  (drop 1 (take 5 (iterate (`Spec.zoomPress` 1) zoomDefault)))
+      assertEqual "and each one steps back to where it came from"
+                  [zoomDefault, 110, 121, 133]
+                  (map (`Spec.zoomPress` (-1)) [110, 121, 133, 146])
+      assertEqual "the edges hold" (zoomMax, zoomMin)
+                  (Spec.zoomPress zoomMax 1, Spec.zoomPress zoomMin (-1))
+      assertEqual "and nought is the way home" zoomDefault (Spec.zoomPress zoomMax 0)
 
     -- Cross-repo: the backdrop pair has to clear the renderer's own sticky header and completion list.
   , testCase "the backdrop clears the renderer's chrome" $ do

@@ -3788,7 +3788,9 @@ press k = Press k Nothing False False False
 
 -- ** The keymap: ONE table, carried as @{rows, hints, reserved, once}@.
 
-data KeyScope = STable | SModal | SAny deriving (Eq, Ord, Show, Enum, Bounded)
+-- | @SWindow@ is the NATIVE WINDOW'S OWN: live only where a window stands behind
+--   the page, which is what leaves the browser's zoom chords to the browser.
+data KeyScope = STable | SModal | SWindow | SAny deriving (Eq, Ord, Show, Enum, Bounded)
 newtype Elisp = Elisp String deriving (Eq, Ord, Show)
 -- ^ commands are elisp function names and the echo speaks them verbatim.
 data Binding = Binding [String] Elisp KeyScope
@@ -3855,6 +3857,12 @@ bindings =
   , Binding ["C-x", "C-s"]  (Elisp "save-buffer")                     SModal
   , Binding ["C-c", "C-c"]  (Elisp "org-ctrl-c-ctrl-c")               SModal
   , Binding ["C-c", "'"]    (Elisp "org-edit-special")                SModal
+  -- `+' WANTS THE SHIFT on most layouts, and a browser reads the unshifted key
+  -- as zoom-in for that reason, so both spellings reach the one command.
+  , Binding ["C-+"]         (Elisp "text-scale-increase")             SWindow
+  , Binding ["C-="]         (Elisp "text-scale-increase")             SWindow
+  , Binding ["C--"]         (Elisp "text-scale-decrease")             SWindow
+  , Binding ["C-0"]         (Elisp "text-scale-set")                  SWindow
   , Binding ["ESC"]         (Elisp "keyboard-quit")                   SAny
   ]
 
@@ -3895,6 +3903,8 @@ keyHelps =
   , (["C-x C-s"],           "sync the sheet now; again to overwrite a conflict")
   , (["C-c C-c"],           "commit the element being edited")
   , (["C-c '"],             "the sheet as raw org, or as body and properties; sync an edited one first")
+  , (["C-+", "C-=", "C--"], "the window's own zoom, a tenth of itself at a time")
+  , (["C-0"],               "back to 100%")
   , (["ESC"],               "close the sheet, syncing an edited one; again to discard")
   ]
 
@@ -3928,10 +3938,14 @@ momentaryUp :: [Surface] -> Maybe Surface    -- ^ the list ORDER breaks the one 
 momentaryUp = listToMaybe . filter sMomentary
 sole :: [Surface] -> [Surface]               -- ^ a raise closes every momentary one
 sole = filter (not . sMomentary)
-live :: [Surface] -> KeyScope -> Bool           -- ^ which rows a press may reach
-live _  SAny   = True
-live up SModal = any (not . sMomentary) up
-live up STable = null up                      -- plus a focused control: `typing()'
+live :: Bool -> [Surface] -> KeyScope -> Bool -- ^ WINDOWED, the surfaces up, the row's scope
+live _   _  SAny    = True
+live _   up SModal  = any (not . sMomentary) up
+live _   up STable  = null up                 -- plus a focused control: `typing()'
+-- THE ONE SEAM THAT LEAVES A KEY TO THE BROWSER: `run' is reached only past a
+-- `preventDefault', so a handler cannot decline a press.  A row that is never
+-- LIVE is never matched, and the dispatch claims nothing.
+live win _  SWindow = win
 
 data Rung = REdit | RNarrow | RSurf deriving (Eq, Show)
 escAt :: Bool -> Bool -> Rung                -- ^ ESC: three rungs per surface, innermost first
@@ -4097,6 +4111,20 @@ logAppend ls l@(Line s v m _) = case ls of
 data Knob = Knob { kKey :: String, kDef, kMin, kMax :: Int }
 logKnob :: Knob
 logKnob = Knob "glance-log" 7 1 50           -- mirrored in Haskell as logLinesDefault/Min/Max
+-- | The window's zoom, AS WHOLE PERCENTAGES, and the second knob of this shape: the
+--   keys move it, the settings row reads it back, and the window wears it as a level.
+--   CLAMPED rather than declined -- a press at the ceiling is a press, where a typed
+--   number out of band is a typo.
+zoomKnob :: Knob
+zoomKnob = Knob "glance-zoom" 100 50 300     -- mirrored in Haskell as zoomDefault/Min/Max
+zoomStep :: Double                           -- ^ one press: a tenth of itself, rounded whole
+zoomStep = 1.1
+zoomPress :: Int -> Int -> Int               -- ^ LEVEL, then the direction; 0 is back to the default
+zoomPress level step
+  | step == 0 = kDef zoomKnob
+  | otherwise = held (round (if step > 0 then fromIntegral level * zoomStep
+                                         else fromIntegral level / zoomStep))
+  where held n = max (kMin zoomKnob) (min (kMax zoomKnob) n)
 data LogPref = ToDefault | Lines Int | Declined deriving (Eq, Show)
 logLines :: String -> LogPref                   -- ^ DECLINED rather than clamped; blank REMOVES the key
 logLines t | null t = ToDefault
@@ -4913,7 +4941,7 @@ secs = [ Sec "ui"       ["ctheme"]                   True
 
 -- | The fields each panel draws.
 secFields :: [(String, [String])]
-secFields = [ ("ui",       ["#themesel", "the tree's own state hues"])
+secFields = [ ("ui",       ["#themesel", "#czoom", "the tree's own state hues"])
             , ("keywords", ["the layer select", "#ctext", "#ctpl", "#ceff", "#clab", "#clerr"]) ]
 
 data SCol = SColTag | SColState | SColGroup | SColColour deriving (Eq, Show, Enum, Bounded)
@@ -5294,7 +5322,10 @@ sheetNotes =
          \ headline and the TAIL past every subtree is one press from the document's\
          \ last one, a folded subtree counting as its line alone.  A run's leaves\
          \ answer to the composite, so their edge still clamps.  `f' steps into what\
-         \ point owns, `b' climbs to the owner." [Elm, Test, Browser]
+         \ point owns, `b' climbs to the owner.  THE VERTICAL ARROWS, `j'/`k' AND\
+         \ `C-n'/`C-p' ALIAS `n'/`p' wherever this page walks rows -- one `rowStep',\
+         \ four dialects -- and the chord pair is the half that survives a field\
+         \ beside it, which is all a narrowed list is left with." [Elm, Test, Browser]
   , Note "THE PLANNING LINE HAS A GRAIN INSIDE IT (`planFiner'), and it is the only\
          \ row that does: one `Element' holding one text and no rows, so `f' walks the\
          \ ENTRIES it draws rather than descending into anything.  `f' from the whole\

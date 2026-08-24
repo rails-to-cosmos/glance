@@ -154,10 +154,15 @@
         echo(`DEL → org-glance-overview:up (${docWhere(fresh)})`);
       });
     }
-    function into(index) {
+    /** Materialize the child at INDEX, and run K over the document it landed
+     * on.  K RIDES THE REREAD'S OWN CONTINUATION: the fetch is async and the
+     * fill behind it is not, so a caller that ran beside this would act on the
+     * mirrors of the document it just left. */
+    function into(index, k) {
       reread(index, (_h, fresh) => {
         show(fresh, raw);
         echo(`RET → org-glance-overview:materialize (${docWhere(fresh)})`);
+        if (k) k();
       });
     }
     const docWhere = (h) => (h.path || []).slice(-1)[0] || h.id;
@@ -789,9 +794,16 @@
      * VIRGIN, nothing typed and nothing walked, and never after, which would
      * fight the caret. */
     function reselectDate() {
-      if (!ddating() || !edit.row.virgin) return;
+      if (!dateVirgin()) return;
       selectWhole(el("dwhen"));
     }
+    /** Is the open widget standing on the selection THE OPEN MADE -- the whole
+     * value selected, nothing typed and nothing walked?  The dispatcher's
+     * copy-and-cut carve-out asks this before it reads a range (`selecting',
+     * 70-shell.js): a selection the BOX laid down is no reader's selection, and
+     * counting it killed the next summon chord.  ONE SPELLING of "virgin", so
+     * the re-assert above and the carve-out cannot part on what it means. */
+    const dateVirgin = () => ddating() && !!edit.row.virgin;
     const dateBinding = (k) => docBinding(edit.row.b.command, k);
     /** What the door onto KEY is called.  The two settable words are the summon
      * keys' own commands, so a widget raised by `RET' over an entry echoes what
@@ -800,15 +812,35 @@
     const PLAN_COMMANDS = { SCHEDULED: "org-glance-overview:schedule",
                             DEADLINE: "org-glance-overview:deadline" };
     const planCommand = (key) => PLAN_COMMANDS[key] || "org-add-planning-info";
-    /** `C-c C-s' / `C-c C-d' in the material document: the widget over the row's
-     * own SCHEDULED / DEADLINE slot.  THE LINE IS DRAWN IF ABSENT, the draft
-     * pair's own move one row up -- a widget that stands in the value's place
-     * needs the place to exist.  The TABLE's own pair of keys is untouched: they
-     * ask over the marked rows through the shipped prompt, and reach the same
-     * grammar at the same door. */
+    /** `C-c C-s' / `C-c C-d' in the material document: the widget over the
+     * ENTRY AT POINT's own SCHEDULED / DEADLINE slot.  The TABLE's own pair of
+     * keys is untouched: they ask over the marked rows through the shipped
+     * prompt, and reach the same grammar at the same door. */
     function planHere(b, keyword) {
       if (!editing || raw) { said(b, "no document here"); return; }
-      if (sheetOpen()) { said(b, "an edit is open — RET writes it, ESC leaves"); return; }
+      // A STANDING WIDGET IS SWITCHED, NEVER REFUSED: the reader asked for the
+      // other keyword's box, so the open one leaves by the door ESC opens --
+      // `cancelSheetEdit' itself, so the restore is byte-identical and the
+      // keyword a summon ghosted in goes back with it -- and the asked word is
+      // summoned over what the restore left.  The SAME key is a re-summon and
+      // takes the same road, which costs the reader nothing.  Any OTHER open
+      // edit still refuses: it holds text nobody has decided about.
+      if (ddating()) cancelSheetEdit();
+      else if (sheetOpen())
+        { said(b, "an edit is open — RET writes it, ESC leaves"); return; }
+      // ORG SCHEDULES THE ENTRY AT POINT, so a CHILD row is materialized first
+      // -- the very move `RET' makes over it -- and the widget opens over the
+      // child's own planning line, where the commit below lands it.  ONE STEP
+      // IN, never two: the summon runs over the document the materialize
+      // landed on rather than through this door a second time.
+      const r = docRowAt();
+      if (r && r.kind === "child") { into(r.index, () => summonPlan(b, keyword)); return; }
+      summonPlan(b, keyword);
+    }
+    /** The widget over the open document's own KEYWORD slot.  THE LINE IS DRAWN
+     * IF ABSENT, the draft pair's own move one row up -- a widget that stands in
+     * the value's place needs the place to exist. */
+    function summonPlan(b, keyword) {
       const at = dplan.find((p) => p[0] === keyword);
       const stood = at ? at[1] : "";
       const drew = !at;
@@ -843,14 +875,33 @@
       commitDate(b, typed);
     }
     /** WHAT TRAVELS IS WHAT WAS TYPED.  The ghost resolved for INK alone; the
-     * RAW text goes to `set-planning', the server resolves it ONCE against its
-     * own clock, and the pane redraws off THAT answer as it does off every
-     * other.  Two resolutions against two clocks is the midnight bug the
-     * one-clock-read invariant exists to prevent. */
+     * RAW text goes to the server, which resolves it ONCE against its own clock,
+     * and the pane redraws off THAT answer as it does off every other.  Two
+     * resolutions against two clocks is the midnight bug the one-clock-read
+     * invariant exists to prevent.
+     *
+     * WHICH DOOR is the ROW's own question, and the two meet the same wall.  A
+     * MATERIALIZED CHILD HAS NO ROW ID -- `set-planning' addresses rows, so the
+     * entry would land on the ROOT headline -- and it takes the COMMIT door the
+     * pair box's planning-routed pair already takes: the model sets the entry,
+     * the cargo carries the planning list, and `post' aims it at the child
+     * (`?child='), where `settledPlanning' reads the raw phrase at the very key
+     * `set-planning' meets.  ONE TRANSPORT, never a second spelling of it --
+     * the clear rides it too, an empty value being how org takes an entry off. */
     function commitDate(b, typed) {
       const row = edit.row, keyword = row.key, h = editing;
       shutEdit(DDATE);
       if (row.add) undraftPlan(row);
+      if (h.child !== null) {
+        // TWO ANSWERS, ONE ASK, so each one-shot disarms the other -- the pair
+        // box's own shape.  THE WIDGET KEEPS ITS OWN WORD over the model's: the
+        // row the box stood in already says the keyword, and the model's word
+        // names a landing out of a drawer this door never touched.
+        dcommit = () => { dwrote = null; said(b, typed || "cleared"); };
+        dwrote = (what) => { dcommit = null; said(b, what); };
+        dsend({ kind: "addprop", key: keyword, value: typed });
+        return;
+      }
       fire(b, "set-planning", [h.id], { keyword, date: typed || null },
            typed || "cleared")
         .then((results) => {

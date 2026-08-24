@@ -791,6 +791,44 @@ const SECTIONS = [
       el("log").style.setProperty("--g-logn", String(n));
     setLogLines(logLines(logPref.get()) || LOG.def);
 
+    // THE WINDOW'S ZOOM, a per-machine display preference like the theme, and
+    // held here as a WHOLE PERCENT: what the reader is told, what is stored, and
+    // what the row shows are one number.  The window wears it as a level.
+    const ZOOM = CFG.zoom;
+    const zoomPref = pref(ZOOM.key, "");
+    const zoomBand = (n) => Math.max(ZOOM.min, Math.min(ZOOM.max, Math.round(n)));
+    const zoomStored = () => {
+      const t = String(zoomPref.get()).trim();
+      return /^[0-9]+$/.test(t) ? zoomBand(+t) : ZOOM.def;
+    };
+    let zoomAt = zoomStored();
+    // The POST IS THE WHOLE APPLICATION: this page draws nothing at its own
+    // scale.  Blank REMOVES the key, the log height's own reading of "default".
+    function wearZoom(pct) {
+      zoomAt = zoomBand(pct);
+      zoomPref.set(zoomAt === ZOOM.def ? "" : String(zoomAt));
+      const door = hosted("zoom");
+      if (door) door.postMessage(String(zoomAt / 100));
+      showZoom();
+      return zoomAt;
+    }
+    const zoomedBy = (step) =>
+      wearZoom(step > 0 ? zoomAt * ZOOM.step : zoomAt / ZOOM.step);
+    // THE KEYS AS THE MAP SPELLS THEM, the resident key line's own rule: this
+    // row cannot advertise a key nothing is bound to.
+    const zoomKeys = () =>
+      ["text-scale-increase", "text-scale-decrease", "text-scale-set"]
+        .map((c) => (MAPS.rows.find((x) => x.command === c && x.handler) || {}).seq)
+        .filter(Boolean).join(" / ");
+    const showZoom = () => {
+      el("czoom").textContent = hosted("zoom")
+        ? `${zoomAt}% · ${zoomKeys()}`
+        : `the browser's own · ${zoomKeys()} reach it directly`;
+    };
+    // WORN AT BOOT and only where there is a window to wear it: a browser tab
+    // keeps whatever zoom its own reader gave it.
+    if (hosted("zoom")) wearZoom(zoomAt); else showZoom();
+
     function hints() {
       const seq = (command) => {
         const b = MAPS.rows.find((x) => x.command === command && x.scope === "table");

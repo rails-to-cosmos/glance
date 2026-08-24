@@ -3,18 +3,23 @@
 // a string search just the same.  The glue is the page's own, extracted from a
 // rendered `/' by TestServe.
 //
-//   node shell-harness.js DIR SEARCH TOTAL [KEYS] [ACTS] [STORE]
+//   node shell-harness.js DIR SEARCH TOTAL [KEYS] [ACTS] [STORE] [HOST]
 //
 // DIR holds `shell.js', `keys.json', `cfg.json' and `elm.js'.  KEYS are pressed
 // once the boot has settled; ACTS run one at a time, each settled before the
 // next, and their vocabulary is `ACTIONS' below.  NOTATION, shared by both:
 // `C-'/`S-'/`M-' are the modifiers, a `%CODE' tail is the PHYSICAL key under
 // the character (`т%KeyN'), and in typed text `_' is a space, `|' a newline
-// and `~' a literal bar.
+// and `~' a literal bar.  HOST is the shell the page believes it is in:
+// `native' stands the window's script-message bridge up, anything else is a
+// browser tab.
+//
+// STORE and HOST are both BOOT facts and argv for the same reason: what the
+// page reads before the first act runs is unreachable from an act.
 
 const fs = require("fs");
 // Argv: the BOOT reads a stored preference and every act runs after the eval.
-const [dir, search, total, keys, acts, store] = process.argv.slice(2);
+const [dir, search, total, keys, acts, store, hosting] = process.argv.slice(2);
 
 const asked = [];
 const tags = [];
@@ -969,6 +974,15 @@ globalThis.document = {
 globalThis.requestAnimationFrame = (fn) => setTimeout(() => fn(0), 0);
 globalThis.window = globalThis;
 globalThis.addEventListener = () => {};
+// THE WINDOW BEHIND THE PAGE, stood up BEFORE the glue evaluates: a script-
+// message handler's PRESENCE is the page's whole test for one, and the boot
+// reads it.  Every post is kept, so a key that reached the window and one that
+// went nowhere do not read alike.
+const posted = { quit: [], zoom: [] };
+if (hosting === "native")
+  globalThis.webkit = { messageHandlers: Object.fromEntries(
+    Object.keys(posted).map((name) =>
+      [name, { postMessage: (v) => posted[name].push(String(v)) }])) };
 
 /** THE SMALL LISTS ARE ONE ELM PROGRAM; indirect eval, its output publishing
  * onto `this'. */
@@ -1402,6 +1416,18 @@ const ACTIONS = {
   // `dwhen' with NOTHING to type: the field is emptied the way DEL over a whole
   // selection empties it, which is what `empty clears it' asks of a reader.
   dclear: () => typeInto("ddate", "dwhen", ""),
+  /** A SELECTION THE READER MADE over the widget's field -- a drag, or a
+   * select-all -- as against the one the OPEN laid down.  The two look alike to
+   * the DOM and only the widget's own `virgin' tells them apart, which is what
+   * the dispatch's copy-and-cut carve-out reads. */
+  dselect: () => {
+    const box = field("dwhen");
+    if (field("ddate").className !== "on")
+      throw new Error("the date widget is not open: dselect");
+    box.focus();
+    box.selectionStart = 0;
+    box.selectionEnd = box.value.length;
+  },
   /** ONE CORPUS VECTOR through the glue's reader. */
   date: (spec) => {
     const { day, phrase } = dayPhrase("date", spec);
@@ -1767,6 +1793,9 @@ const settle = async () => {
     logn: field("log").style.getPropertyValue("--g-logn"),
     theme: root.dataset.theme || "",
     themeStored: localStorage.getItem("glance-theme"),
+    zoomed: posted.zoom, quitted: posted.quit,
+    zoomStored: unset(localStorage.getItem("glance-zoom")),
+    czoom: field("czoom").textContent,
   });
   // Exit on the write's own callback: a keystroke leaves the echo pill's timer
   // pending, and node would otherwise sit out its second and a half.

@@ -2545,6 +2545,58 @@ export default [
     assert(backTo === wasLine,
       `the cancelled line reads ${JSON.stringify(backTo)} against ${JSON.stringify(wasLine)}`);
 
+    // ------- THE OTHER SUMMON KEY SWITCHES THE BOX THAT STANDS.  Two rungs in
+    // one, and only a real engine has both: the entry comes up WHOLLY SELECTED
+    // and a live selection is what makes `C-c' a copy, so the chord has to
+    // PREFIX over a virgin widget at all; and what it opens is the ASKED
+    // keyword's slot, the standing box having left exactly as ESC takes it.
+    await p.press("C-c");
+    await p.press("C-d");
+    await widgetUp("the DEADLINE widget again, to switch out of");
+    const virgin = await p.eval(() => {
+      const f = document.getElementById("dwhen");
+      return { val: f.value, sel: [f.selectionStart, f.selectionEnd] };
+    });
+    assert(virgin.val === stood,
+      `the box to switch out of holds ${JSON.stringify(virgin.val)}, not DEADLINE's`
+      + ` ${JSON.stringify(stood)}`);
+    assert(virgin.sel[0] === 0 && virgin.sel[1] === virgin.val.length,
+      `it opened selecting ${virgin.sel[0]}..${virgin.sel[1]} of ${virgin.val.length}`);
+    await p.press("C-c");
+    await p.press("C-s");
+    // THE FILL IS SYNCHRONOUS WITH THE PRESS, so this races nothing: a chord
+    // that died leaves the DEADLINE box standing and is read here as its value.
+    const swapped = await p.until(() => {
+      const box = document.getElementById("ddate");
+      const f = document.getElementById("dwhen");
+      const line = document.querySelector('#mdoc .de[data-id="PLN"]');
+      return box.classList.contains("on") && document.activeElement === f && line
+        ? { val: f.value, line: line.textContent } : false;
+    }, "a widget still standing after the second chord");
+    const wantSched = ((await served("drv-plan")).plan
+      .find(([k]) => k === "SCHEDULED") || [])[1];
+    assert(swapped.val === wantSched,
+      `the switched widget holds ${JSON.stringify(swapped.val)} where SCHEDULED `
+      + `reads ${JSON.stringify(wantSched)}`);
+    // AND A SWITCH WRITES NOTHING AND DRAWS NOTHING: the line is the bytes it was.
+    assert(swapped.line === wasLine,
+      `the switched-over line reads ${JSON.stringify(swapped.line)} against `
+      + JSON.stringify(wasLine));
+    // …AND IT STANDS IN THE SLOT IT NOW WRITES.  RELATIVE GEOMETRY, and WAITED
+    // FOR: `placeEdit' lands a frame behind the switch, so a rect read once
+    // would still measure the slot the box just left.
+    const placed = await p.until(() => {
+      const slot = document.querySelector('#mdoc .dpv[data-key="SCHEDULED"]');
+      if (!slot) return false;
+      const r = document.getElementById("dwhen").getBoundingClientRect();
+      const s = slot.getBoundingClientRect();
+      return r.width > 0 && s.width > 0 && Math.abs(r.left - s.left) <= 2
+        ? { off: Math.round(r.left - s.left) } : false;
+    }, "the switched box to land over the SCHEDULED slot");
+    await p.press("ESC");
+    await p.until(() => !document.getElementById("ddate").classList.contains("on"),
+                  "ESC to take the switched widget");
+
     // ------- over a row with NO planning line: the line is DRAWN to stand in.
     await sheet(p, base, "drv-prio");
     const before = await served("drv-prio");
@@ -2611,9 +2663,153 @@ export default [
       + `against ${JSON.stringify(before.props)}`);
     return [`opened on ${JSON.stringify(open.val)} selected 0..${open.sel[1]}, `
       + `${diff}/${area}px of the field repainted and ${wash} wearing ${open.wash}; `
+      + `C-c C-s over it switched to ${JSON.stringify(swapped.val)} `
+      + `${placed.off}px off the SCHEDULED slot; `
       + `the slot drawn as ${JSON.stringify(drawn.trim())}, "18 aug" previewed `
       + `${JSON.stringify(ghost.trim())} and landed ${JSON.stringify(landed.planning)} `
       + `over ${JSON.stringify(landed.properties)}`];
+  } },
+
+// ORG SCHEDULES THE ENTRY AT POINT, AND THE STAMP LANDS ON THAT ENTRY.  Two
+// faults met here: the summon ignored point, so `C-c C-s' on a CHILD row opened
+// the ROOT's widget; and the widget's commit fired `set-planning', which
+// addresses ROWS, so a child materialized by hand wrote its PARENT's planning
+// line.  Both are only visible in the FILE, which is why this case reads the
+// bytes on either side of the write — the pane drafted and previewed correctly
+// throughout.  THE RUN PUTS THE TREE BACK: the entry is cleared through the same
+// door, so the subtree is the bytes it was and the tree the other cases share is
+// untouched.  READ BEHIND THE MIRROR'S OWN GUARDS: the port lands a macrotask
+// behind the press and Elm paints a frame behind that (docs/bugs/…read-races-render).
+{ name: "C-c C-s on a child schedules the CHILD, and the parent is untouched",
+  async run(p, base) {
+    /** The subtree as the server holds it, plus the two planning lists. */
+    const served = () => p.eval(async () => {
+      const root = await (await fetch("/headline?id=drv-marks")).json();
+      const kid = await (await fetch("/headline?id=drv-marks&child=0")).json();
+      return { org: root.org, plan: root.planning || [],
+               kid: kid.planning || [], kidTitle: (kid.path || []).slice(-1)[0] };
+    });
+    /** The widget's field open, focused and PLACED over the slot it writes —
+     * the same reading the sibling case takes, and for the same reason: the
+     * summon can run before the pane has drawn the slot. */
+    const widgetUp = (why) => p.until(() => {
+      const box = document.getElementById("ddate");
+      const f = document.getElementById("dwhen");
+      return box.classList.contains("on") && document.activeElement === f
+        && f.getBoundingClientRect().width > 0 && box.style.top !== "";
+    }, why);
+
+    await sheet(p, base, "drv-marks");
+    const was = await served();
+    assert(was.kid.length === 0,
+      `drv-marks's first child already carries ${JSON.stringify(was.kid)}`);
+    assert(was.plan.length > 0, "drv-marks carries no planning line of its own");
+
+    // ------- THE SUMMON IS AT POINT: a child row materializes, then the box.
+    await walkTo(p, ".d-child", "the first child headline");
+    await settled(p);
+    await p.press("C-c");
+    await p.press("C-s");
+    await widgetUp("the widget over the child's SCHEDULED slot");
+    // THE MATERIALIZE IS WAITED FOR BY ITS CRUMB, never assumed: the reread is
+    // a fetch, and the summon rides its continuation.
+    const trail = await p.until(() => {
+      const c = [...document.querySelectorAll("#mwhere .wc")].map((e) => e.textContent);
+      return c.length > 1 ? c : false;
+    }, "the pane to stand in the child's own subtree");
+    assert(trail.length === 2 && trail[1] === was.kidTitle,
+      `the pane stands in ${JSON.stringify(trail)}, not the child's own subtree`);
+    // THE CRUMB IS PLAIN DOM AND THE PANE IS ELM, so the trail says "child"
+    // a frame before the rows do: the document is waited for BY ITS OWN
+    // HEADLINE, or the planning line read below is still the parent's.
+    await p.until((title) => {
+      const head = document.querySelector('#mdoc .de[data-id="H"]');
+      return !!head && head.textContent.includes(title);
+    }, "the pane to redraw as the child's own document", undefined, was.kidTitle);
+    const drew = await p.until(() => {
+      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
+      return at ? at.textContent : false;
+    }, "the summon to draw the slot it stands in");
+    assert(drew.trim() === "SCHEDULED:",
+      `the drawn line reads ${JSON.stringify(drew)}`);
+
+    // ------- ESC LEAVES EVERY BYTE ALONE, the draft's own absence included.
+    await p.type("18 aug");
+    await p.press("ESC");
+    await p.until(() => !document.getElementById("ddate").classList.contains("on"),
+                  "ESC to take the widget");
+    const escaped = await served();
+    assert(escaped.org === was.org,
+      "ESC moved bytes: the subtree is not the one the summon opened over");
+    assert(JSON.stringify(escaped.kid) === "[]",
+      `ESC left the child carrying ${JSON.stringify(escaped.kid)}`);
+    // THE DRAFT GOES WITH THE BOX, waited for rather than read once: the undraft
+    // is a port message and the pane repaints a frame behind it.
+    await p.until(() => {
+      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
+      return !at || at.textContent.trim() === "";
+    }, "the ghosted keyword to leave with the box that drew it");
+
+    // ------- AND THE COMMIT LANDS ON THE CHILD.  The pane is already the
+    // child's, so this is the second fault on its own: the widget's own door.
+    await settled(p);
+    await p.press("C-c");
+    await p.press("C-s");
+    await widgetUp("the widget again, over the child's own slot");
+    await p.type("18 aug");
+    const ghost = await p.until(() => {
+      const s = document.getElementById("dghost");
+      return s.textContent || false;
+    }, "the ghost to resolve the phrase");
+    await p.press("RET");
+    const landed = await p.until(async () => {
+      const kid = await (await fetch("/headline?id=drv-marks&child=0")).json();
+      const at = (kid.planning || []).find(([k]) => k === "SCHEDULED");
+      return at ? at[1] : false;
+    }, "the phrase to reach the CHILD's planning line", 15000);
+    assert(ghost === ` → ${landed}`,
+      `the server wrote ${JSON.stringify(landed)} where the ghost promised `
+      + JSON.stringify(ghost));
+    const after = await served();
+    // THE PARENT IS BYTE-IDENTICAL: its own planning list stands, and the whole
+    // subtree differs by the ONE line the child gained and nothing else.
+    assert(JSON.stringify(after.plan) === JSON.stringify(was.plan),
+      `the root's own entries read ${JSON.stringify(after.plan)} `
+      + `against ${JSON.stringify(was.plan)}`);
+    const kidHead = was.org.split("\n").find((l) => l.includes(was.kidTitle));
+    assert(!!kidHead, `no headline line spells ${JSON.stringify(was.kidTitle)}`);
+    const owed = was.org.replace(`${kidHead}\n`, `${kidHead}\nSCHEDULED: ${landed}\n`);
+    assert(after.org === owed,
+      "the write moved a byte outside the child's own planning line");
+
+    // ------- AND THE CLEAR RIDES THE SAME DOOR, which puts the tree back.
+    await settled(p);
+    await p.press("C-c");
+    await p.press("C-s");
+    await widgetUp("the widget over the value that now stands");
+    // THE ENTRY COMES UP WHOLLY SELECTED, so one DEL is the empty field the
+    // shipped foot promises clears it.  The selection is WAITED for: it is
+    // re-asserted while the widget is virgin, a redraw behind the open.
+    await p.until(() => {
+      const f = document.getElementById("dwhen");
+      return f.value.length > 0 && f.selectionStart === 0
+        && f.selectionEnd === f.value.length;
+    }, "the standing value to come up wholly selected");
+    await p.press("DEL");
+    await p.until(() => document.getElementById("dwhen").value === "",
+                  "the field to empty under DEL");
+    await p.press("RET");
+    const gone = await p.until(async () => {
+      const kid = await (await fetch("/headline?id=drv-marks&child=0")).json();
+      return (kid.planning || []).length === 0 ? "cleared" : false;
+    }, "the entry to leave the CHILD's planning line", 15000);
+    const back = await served();
+    assert(back.org === was.org,
+      "the cleared subtree is not the bytes it started as");
+    return [`the child row summoned into ${JSON.stringify(trail[1])} and drew `
+      + `${JSON.stringify(drew.trim())}; "18 aug" previewed ${JSON.stringify(ghost.trim())} `
+      + `and landed ${JSON.stringify(landed)} on the child with the root's `
+      + `${JSON.stringify(was.plan)} untouched, ${gone} back to ${was.org.length} bytes`];
   } },
 
 // THE PLANNING LINE'S OWN GRAIN.  `f' walks the entries the line draws, and the

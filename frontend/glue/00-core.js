@@ -45,6 +45,12 @@
      */
     const el = (id) =>
       /** @type {any} */ (document.getElementById(id));
+    /** THE WINDOW'S OWN DOOR, BY NAME.  A script-message handler's PRESENCE is
+     * the page's whole test for "is there a window behind this page", and each
+     * key tests the door it will knock on rather than a shared flag. */
+    const hosted = (name) =>
+      (window.webkit && window.webkit.messageHandlers
+         && window.webkit.messageHandlers[name]) || null;
     // THE FLOOR'S OWN HELPERS, above the parts that need them: a `const'
     // declared later is a TDZ error in an eagerly built dependency object.
     const keySaid = (k) => (what) => echo(`${k} → ${what}`);
@@ -124,9 +130,14 @@
     const lacks = (what) => `this table-view.js has no ${what}`;
     const wants = (b, what, ...names) =>
       can(table, ...names) || (said(b, lacks(what)), false);
-    const rowStep = (k) => (k === "<down>" || k === "n" || k === "j" ? 1
-                          : k === "<up>" || k === "p" || k === "k" ? -1 : 0);
-    // BESIDE A FIELD the letters are spoken for, so the walk is the arrows and C-n/C-p.
+    // THE ROW WALK TAKES EVERY DIALECT: the arrows, `j'/`k' and `C-n'/`C-p' all
+    // ALIAS `n'/`p', so wherever this page walks rows the emacs chord walks them
+    // too — AGENTS.hs.
+    const rowStep = (k) =>
+      (k === "<down>" || k === "n" || k === "j" || k === "C-n" ? 1
+       : k === "<up>" || k === "p" || k === "k" || k === "C-p" ? -1 : 0);
+    // BESIDE A FIELD the letters are spoken for, so the walk is the SUBSET that
+    // survives one: the arrows and `C-n'/`C-p', which `rowStep' carries too.
     const walkStep = (k) => (k === "<down>" || k === "C-n" ? 1
                            : k === "<up>" || k === "C-p" ? -1 : 0);
     const stepIn = (mount, step) =>

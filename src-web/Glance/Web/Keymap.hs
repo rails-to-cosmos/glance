@@ -15,7 +15,7 @@ data KeyBinding = KeyBinding
   { kbKeys    :: ![Text]        -- ^ the keys in order; what the dispatch matches.
   , kbCommand :: !Text          -- ^ the command name the echo widget shows.
   , kbHandler :: !(Maybe Text)  -- ^ the shell function running it; 'Nothing' is staged.
-  , kbScope   :: !Text          -- ^ @table@, @modal@ or @any@ — where it is live.
+  , kbScope   :: !Text          -- ^ @table@, @modal@, @window@ or @any@ — where it is live.
   , kbHelp    :: !(Maybe Text)  -- ^ what it does, when the command name does not say; see 'helps'.
   }
 
@@ -130,6 +130,20 @@ keyBindings =
       `helps` "commit the element being edited"
   , bind ["C-c", "'"]   "org-edit-special"                (Just "toggleRaw")      "modal"
       `helps` "the sheet as raw org, or as body and properties; sync an edited one first"
+  -- THE WINDOW'S OWN SCOPE, and the reason it exists: a browser tab owns these
+  -- three keys already.  Live only where this build's window stands behind the
+  -- page, so with none the dispatch never matches, never preventDefaults, and
+  -- the browser's own zoom keeps them.
+  , bind ["C-+"]        "text-scale-increase"             (Just "textScaleIncrease") "window"
+      `helps` zoomHelp
+  -- `+' WANTS THE SHIFT on most layouts, and browsers read the unshifted key as
+  -- zoom-in for exactly that reason; both spellings reach the one command.
+  , bind ["C-="]        "text-scale-increase"             (Just "textScaleIncrease") "window"
+      `helps` zoomHelp
+  , bind ["C--"]        "text-scale-decrease"             (Just "textScaleDecrease") "window"
+      `helps` zoomHelp
+  , bind ["C-0"]        "text-scale-set"                  (Just "textScaleSet")      "window"
+      `helps` "back to 100%"
   , bind ["ESC"]        "keyboard-quit"                   (Just "cancel")         "any"
       `helps` "close the sheet, syncing an edited one; again to discard"
   ]
@@ -153,6 +167,9 @@ priorityHelp = "cycle the priority of the marked rows, or the row at point"
 
 openHelp :: Text
 openHelp = "open links: the row here, the element in the sheet; several list them"
+
+zoomHelp :: Text
+zoomHelp = "the window's own zoom, a tenth of itself at a time"
 
 -- | Chords left to the browser unless they complete a bound sequence.  None
 -- is bound on its own, which is what leaves an abandoned prefix to it.

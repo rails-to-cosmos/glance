@@ -81,14 +81,28 @@
         || (!!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA"
                      || a.tagName === "SELECT" || a.isContentEditable));
     };
+    // `window' IS THE SEAM THAT LEAVES A KEY TO THE BROWSER.  `run' is reached
+    // only past a `preventDefault', so a handler cannot decline a press; a row
+    // that is never LIVE is never matched, and the dispatch claims nothing.
+    // With no window behind the page, C-+/C--/C-0 stay the browser's own.
     const live = (b) => b.scope === "any"
       || (b.scope === "modal" && SURFACES.some((s) => !s.momentary && s.up()))
-      || (b.scope === "table" && !typing());
+      || (b.scope === "table" && !typing())
+      || (b.scope === "window" && !!hosted("zoom"));
     // A live selection makes C-c and C-x copy and cut, so no prefix claims them.
+    // A VIRGIN ENTRY-SELECTION IS THE BOX'S OWN AND NOT THE READER'S: the date
+    // widget opens with its whole value selected (`selectWhole'), so counting
+    // that one killed the very next summon chord — `C-c' copied instead of
+    // prefixing, and whichever of `C-c C-s' / `C-c C-d' the reader pressed
+    // second was dead.  A selection they MADE — typed over, dragged, walked with
+    // the shifted arrows — is live as it always was; `dateVirgin' is the one
+    // spelling of the difference, and the doc pane owns it.  EXEMPTED IN THE
+    // FIELD'S OWN ARM ALONE: a selection lying in the DOCUMENT is nothing the
+    // widget laid down, so it counts however the widget stands.
     function selecting() {
       const a = active();
       if (a && typeof a.selectionStart === "number")
-        return a.selectionStart !== a.selectionEnd;
+        return !dateVirgin() && a.selectionStart !== a.selectionEnd;
       const s = document.getSelection();
       return !!s && !s.isCollapsed;
     }
@@ -170,10 +184,14 @@
       // marked rows and a prompt.  One command, two handlers -- `@''s split.
       scheduleHere: (b) => planHere(b, "SCHEDULED"),
       deadlineHere: (b) => planHere(b, "DEADLINE"),
+      // THE THREE THE WINDOW OWNS, and the only rows in the `window' scope: the
+      // level is the page's to keep and the window's to wear.
+      textScaleIncrease: (b) => said(b, `${zoomedBy(1)}%`),
+      textScaleDecrease: (b) => said(b, `${zoomedBy(-1)}%`),
+      textScaleSet: (b) => said(b, `${wearZoom(ZOOM.def)}%`),
       quitWindow: () => {
         if (editing) { leaveSheet(); return; }
-        const host = window.webkit && window.webkit.messageHandlers
-                       && window.webkit.messageHandlers.quit;
+        const host = hosted("quit");
         if (host) { host.postMessage("quit"); return; }
         append("cmd", "info", "q quits the native window; a browser tab closes itself");
       },

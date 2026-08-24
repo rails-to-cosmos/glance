@@ -625,28 +625,34 @@ update msg model =
         -- planning entry wearing a property's clothes, so it is ROUTED to the
         -- planning line -- upcased, placed by the composer -- and point lands
         -- there.  ONE WRITE either way: the cargo carries both lists.
+        -- THE ROUTING IS ASKED ABOVE THE DRAWER'S OWN RULE, because BOTH HALVES
+        -- is the DRAWER's rule and not the planning line's: org clears an entry
+        -- by leaving its keyword valueless, which is what `setPlanning' and
+        -- `routedWord' already spell -- and the date widget summoned over a
+        -- MATERIALIZED CHILD rides this door for its clear as for its set,
+        -- having no row id for `set-planning' to address.
         AddProp key value ->
-            if key == "" || value == "" || String.contains " " key || String.contains ":" key then
-                spoke
-                    ( landOn Body.drawerId (remeta { model | draftPair = False })
-                    , "a property needs a key and a value"
-                    )
+            case Body.planningKey model.planKeys key of
+                Just word ->
+                    composedWith
+                        (Just (Body.routedWord "the planning line" ( word, value )))
+                        (landOn Body.planId
+                            (remeta
+                                { model
+                                    | plan = Body.setPlanning ( word, value ) model.plan
+                                    , draftPair = False
+                                }
+                            )
+                        )
 
-            else
-                case Body.planningKey model.planKeys key of
-                    Just word ->
-                        composedWith
-                            (Just (Body.routedWord "the planning line" ( word, value )))
-                            (landOn Body.planId
-                                (remeta
-                                    { model
-                                        | plan = Body.setPlanning ( word, value ) model.plan
-                                        , draftPair = False
-                                    }
-                                )
+                Nothing ->
+                    if key == "" || value == "" || String.contains " " key || String.contains ":" key then
+                        spoke
+                            ( landOn Body.drawerId (remeta { model | draftPair = False })
+                            , "a property needs a key and a value"
                             )
 
-                    Nothing ->
+                    else
                         let
                             fresh =
                                 remeta

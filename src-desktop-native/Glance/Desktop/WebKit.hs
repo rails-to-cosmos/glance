@@ -2,7 +2,16 @@
 
 -- | A @WebKitWebView@ filling a @GtkWindow@ and nothing else; the policy is
 -- 'Glance.Desktop.Native''s.  Built only under the @native-window@ flag.
-module Glance.Desktop.WebKit (nativeAvailable, nativeWindow) where
+module Glance.Desktop.WebKit
+  ( nativeAvailable
+  , nativeWindow
+    -- * The zoom the page asks for
+  , zoomAsked
+  , zoomFloor
+  , zoomCeiling
+  ) where
+
+import Text.Read (readMaybe)
 
 #ifdef NATIVE_WINDOW
 
@@ -29,6 +38,25 @@ nativeAvailable :: Bool
 -- thread sits inside @gtk_main@ — and @gtk_init@ would exit the process.
 nativeWindow :: String -> String -> IO ()
 
+-- | The band a zoom level is held in, spelled again — this layer cannot see the
+-- page's own, which the config blob carries (@zoomMin@ and @zoomMax@ in
+-- @Glance.Web.Base@, the same band as whole percentages).  Below the floor the
+-- key line is unreadable; above the ceiling one row fills the window.
+zoomFloor, zoomCeiling :: Double
+zoomFloor = 0.5
+zoomCeiling = 3.0
+
+-- | The level the page named, held inside the band.  'Nothing' is a message no
+-- window can wear: the page is the only writer, and one wearing whatever
+-- arrived would have no floor to be read back from.  @Read Double@ takes @NaN@
+-- and @Infinity@, which the clamp would answer with an edge rather than refuse.
+zoomAsked :: String -> Maybe Double
+zoomAsked said = do
+  level <- readMaybe said
+  if isNaN level || isInfinite level
+    then Nothing
+    else Just (max zoomFloor (min zoomCeiling level))
+
 #ifdef NATIVE_WINDOW
 
 nativeAvailable = True
@@ -53,6 +81,12 @@ nativeWindow title url = do
   _ <- WK.onUserContentManagerScriptMessageReceived ucm (Just quitName)
          (\_value -> Gtk.widgetDestroy win)
   _ <- WK.userContentManagerRegisterScriptMessageHandler ucm quitName
+  -- THE ZOOM IS THE VIEW'S, which only a window has: the page keeps the level
+  -- and says it, and a CSS zoom in its place would put the panes' measured
+  -- rects out against the styles drawn from them.
+  _ <- WK.onUserContentManagerScriptMessageReceived ucm (Just zoomName)
+         (zoomMessage view)
+  _ <- WK.userContentManagerRegisterScriptMessageHandler ucm zoomName
   override <- WK.userScriptNew openOverride
                 WK.UserContentInjectedFramesTopFrame
                 WK.UserScriptInjectionTimeStart Nothing Nothing
@@ -84,6 +118,19 @@ handlerName = T.pack "popup"
 -- | Its PRESENCE is the page's test for "is there a window to quit".
 quitName :: Text
 quitName = T.pack "quit"
+
+-- | And ITS presence is the page's test for "is there a window to zoom", which
+-- is what leaves @C-+@ to the browser where there is none.
+zoomName :: Text
+zoomName = T.pack "zoom"
+
+-- | A level that will not read is DROPPED: nothing on this side can put a
+-- broken message right, and a window left where it was is readable.
+zoomMessage :: WK.WebView -> WK.JavascriptResult -> IO ()
+zoomMessage view result = do
+  value <- WK.javascriptResultGetJsValue result
+  said <- JSC.valueToString value
+  maybe (pure ()) (WK.webViewSetZoomLevel view) (zoomAsked (T.unpack said))
 
 openOverride :: Text
 openOverride = T.concat

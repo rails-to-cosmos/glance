@@ -108,6 +108,9 @@ demoShell opts font colours views =
             <> T.concat [ "<option value=\"" <> thId t <> "\">" <> escape (thLabel t)
                             <> "</option>" | t <- themes ]
             <> "</select>")
+  -- READ-ONLY, and the keys beside it: the level is the keymap's to move, and
+  -- this panel's editable rows are a closed select or a file the server owns.
+  , crow (clab "zoom") "<div id=\"czoom\" class=\"cval\"></div>"
   , "      <div id=\"chues\" class=\"cpart\"><div id=\"cstates\"></div>"
       <> "<div id=\"sedit\"><input id=\"sname\" spellcheck=\"false\">"
       <> "<input id=\"sgroup\" spellcheck=\"false\">"

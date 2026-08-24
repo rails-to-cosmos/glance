@@ -6,7 +6,9 @@ import Data.Text (Text)
 
 import Glance.Query ( archiveTag, followableTypes, materialTypes, linkColumns
                     , planningKeywords, settableKeywords, tagColumns )
-import Glance.Web.Base (codeList, docCells, jsonValue, logLinesDefault, logLinesMax, logLinesMin)
+import Glance.Web.Base ( codeList, docCells, jsonValue
+                       , logLinesDefault, logLinesMax, logLinesMin
+                       , zoomDefault, zoomMax, zoomMin, zoomStep )
 
 -- | The blob for VIEWS, the tree's saved views in registry order.  Member names are the script's @CFG.*@ reads.
 glueConfig :: [(Text, Text)] -> Text
@@ -29,5 +31,12 @@ glueConfig views = jsonValue $ object
                              , "def" .= logLinesDefault
                              , "min" .= logLinesMin
                              , "max" .= logLinesMax ]
+  -- The zoom band is the SERVER's, so the page's own clamp and the window's are
+  -- one figure read twice rather than two figures written twice.
+  , "zoom"         .= object [ "key" .= ("glance-zoom" :: Text)
+                             , "def" .= zoomDefault
+                             , "min" .= zoomMin
+                             , "max" .= zoomMax
+                             , "step" .= zoomStep ]
   ]
 

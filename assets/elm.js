@@ -10531,41 +10531,41 @@ var $author$project$Doc$update = F2(
 			case 19:
 				var key = msg.a;
 				var value = msg.b;
-				if ((key === '') || ((value === '') || (A2($elm$core$String$contains, ' ', key) || A2($elm$core$String$contains, ':', key)))) {
-					return $author$project$Doc$spoke(
-						_Utils_Tuple2(
+				var _v5 = A2($author$project$Body$planningKey, model.al, key);
+				if (!_v5.$) {
+					var word = _v5.a;
+					return A2(
+						$author$project$Doc$composedWith,
+						$elm$core$Maybe$Just(
 							A2(
-								$author$project$Doc$landOn,
-								$author$project$Body$drawerId,
-								$author$project$Doc$remeta(
-									_Utils_update(
-										model,
-										{R: false}))),
-							'a property needs a key and a value'));
+								$author$project$Body$routedWord,
+								'the planning line',
+								_Utils_Tuple2(word, value))),
+						A2(
+							$author$project$Doc$landOn,
+							$author$project$Body$planId,
+							$author$project$Doc$remeta(
+								_Utils_update(
+									model,
+									{
+										R: false,
+										y: A2(
+											$author$project$Body$setPlanning,
+											_Utils_Tuple2(word, value),
+											model.y)
+									}))));
 				} else {
-					var _v5 = A2($author$project$Body$planningKey, model.al, key);
-					if (!_v5.$) {
-						var word = _v5.a;
-						return A2(
-							$author$project$Doc$composedWith,
-							$elm$core$Maybe$Just(
+					if ((key === '') || ((value === '') || (A2($elm$core$String$contains, ' ', key) || A2($elm$core$String$contains, ':', key)))) {
+						return $author$project$Doc$spoke(
+							_Utils_Tuple2(
 								A2(
-									$author$project$Body$routedWord,
-									'the planning line',
-									_Utils_Tuple2(word, value))),
-							A2(
-								$author$project$Doc$landOn,
-								$author$project$Body$planId,
-								$author$project$Doc$remeta(
-									_Utils_update(
-										model,
-										{
-											R: false,
-											y: A2(
-												$author$project$Body$setPlanning,
-												_Utils_Tuple2(word, value),
-												model.y)
-										}))));
+									$author$project$Doc$landOn,
+									$author$project$Body$drawerId,
+									$author$project$Doc$remeta(
+										_Utils_update(
+											model,
+											{R: false}))),
+								'a property needs a key and a value'));
 					} else {
 						var fresh = $author$project$Doc$remeta(
 							_Utils_update(

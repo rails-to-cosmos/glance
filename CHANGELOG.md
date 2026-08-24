@@ -13,6 +13,25 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **`C-+`, `C--` and `C-0` zoom the native window, and a browser tab keeps its
+  own.** The desktop window had no zoom at all: the page is served at one size
+  and a WebKitGTK window carries no chrome to change it from. It now does, over
+  the same script-message bridge `q` quits through — the page names a level and
+  the view wears it (`webkit_web_view_set_zoom_level`), because a CSS zoom would
+  put the panes' measured rects out against the styles drawn from them. A press
+  is a tenth of the level itself, rounded to a whole percent, so the ladder
+  compounds the way a browser's does and steps back down to where it came from;
+  the band is 50% to 300% and a press at either edge is held there rather than
+  refused. `C-0` is the way home. `C-=` is bound beside `C-+` because `+` wants
+  the shift on most layouts, which is why browsers read the unshifted key as
+  zoom-in too. The level is remembered per machine (`localStorage`, beside the
+  theme and the log's height) and worn again at boot, and the settings sheet's
+  `ui` panel reads it back beside the keys that move it. **In a browser tab the
+  three keys are never claimed**: the rows carry a scope of their own, live only
+  where a window stands behind the page, and the dispatch reaches `run` past a
+  `preventDefault` — so leaving a key to the browser is something only liveness
+  can do, and the browser's own zoom is untouched.
+
 - **`set-planning` writes `CLOSED`, verbatim or not at all.** The command
   refused org's third planning word outright; it now takes all three, and the
   keyword picks which wall the value meets. `SCHEDULED` and `DEADLINE` are

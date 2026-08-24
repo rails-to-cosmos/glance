@@ -8,6 +8,10 @@ module Glance.Web.Base ( ServeOptions (..)
                        , logLinesDefault
                        , logLinesMin
                        , logLinesMax
+                       , zoomDefault
+                       , zoomMin
+                       , zoomMax
+                       , zoomStep
                        , glueAsset
                        , elmAsset
                        , gluePartFiles
@@ -84,6 +88,18 @@ logLinesDefault, logLinesMin, logLinesMax :: Int
 logLinesDefault = 7
 logLinesMin = 1
 logLinesMax = 50
+
+-- | The window's zoom, AS WHOLE PERCENTAGES: the page holds one of these, says
+-- it, stores it, and the window wears it as a level.  Below the floor the key
+-- line is unreadable and above the ceiling one row fills the window.
+zoomDefault, zoomMin, zoomMax :: Int
+zoomDefault = 100
+zoomMin = 50
+zoomMax = 300
+
+-- | One press, browser-like: a tenth larger, rounded back to a whole percent.
+zoomStep :: Double
+zoomStep = 1.1
 
 
 rendererAsset :: FilePath
