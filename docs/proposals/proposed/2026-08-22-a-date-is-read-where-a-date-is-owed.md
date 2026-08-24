@@ -693,4 +693,77 @@ same table can carry — and nothing else in the parser moves.
   predicate at request time (`AGENTS.hs:2400`, `:2449`) and no writer produces
   it. The file format's range is `--`.
 
-Inert until reviewed.
+## As delivered (the planning slice)
+
+Delivered: the PLANNING half of context **(a)** — `set-planning`'s `date` and
+the planning line's own wall — for **SCHEDULED and DEADLINE**, with a date
+WIDGET in the material document standing where the value stands. The grammar
+shipped as this document settles it; the contexts shipped narrower than the
+recommendation, and what is left out is named below rather than assumed.
+
+- **The grammar, whole and as reviewed.** Both arrangements with an optional
+  four-digit year, the exact month table folded totally, current-year-flat (a
+  typist meaning next year writes the year), a bare day and a bare month
+  refused, the weekday COMPUTED and never read — org's own bracket the one
+  verbatim exception, wrong weekday and all (`test/TestQuery.hs:1791`) —
+  whitespace the only separator, `from` optional and `to` not, the left end
+  inheriting month and year, an inverted range refused in words naming the end
+  as falling before the start, the degenerate same-day range collapsing to one
+  stamp, and `--` the only spelling a range is written in. The vector table
+  above is the corpus, and it is the corpus TWICE — see the two-resolver law
+  below.
+
+- **The wall grew the transform the shape change named.** `badPlanning`
+  (`src-web/Glance/Web/Routes.hs:523`) stops being a predicate: it answers the
+  refusal or the value transformed, and `prepare` (`:507`) threads it ahead of
+  `committed` (`:517`). `planningTimestamp` (`src-query/Glance/Query.hs:1633`)
+  widened in place, so `POST /command` grows no second reader and its 400 keeps
+  naming everything accepted. **The raw half transforms nothing** — the
+  `WholeSubtree` arm is untouched, the asymmetry this document asked to have
+  stated, and `docs/commands.md` states it.
+
+- **The date widget — the delivery's own addition, settled by the spike**
+  ([five places for org-calendar's job](../../spikes/2026-08-23-date-widget/README.md),
+  whose D is the shipped shape). `C-c C-s` and `C-c C-d` in the material
+  document raise a FIELD in the value's own slot — the planning line's, the
+  line drawn in if the row has none — where they raised a blind `askText`
+  prompt before. ONE LINE: the value as typed, and the resolver's preview
+  riding after it as GHOST — `10 jan → <2026-01-10 Sat>` in the mute ink, a
+  refusal no further character can rescue in the marked ink, and nothing at
+  all over an empty field, over a term still being written, or over a value
+  that is already its own answer. The field wears the pane's own editing
+  dress wholesale — the pair box's font, ground, accent focus and
+  `::selection` — and invents nothing. Opening over a standing value selects
+  it WHOLE, so one keystroke replaces it and a bare `RET` recommits it byte
+  for byte, the way `org-read-date` takes its default; `RET` is dry over an
+  offer and final over a completed value; `ESC` cancels the input whole and
+  byte-identical; an empty commit clears the entry, the shipped promise kept;
+  `S-←`/`S-→` and `S-↑`/`S-↓` adjust a day and a week in place with the ghost
+  following. The pair box's value half, where its key routes to SCHEDULED or
+  DEADLINE, wears the same field and the same ghost: one widget, both doors.
+
+- **The two-resolver law, which is where this document's own rejection needs
+  reading twice.** *A client-side parser in the sheet* stays rejected for the
+  WRITE, and the delivery is that rejection kept: the commit sends the RAW
+  typed text, the server transforms it at the wall against its own clock, and
+  the pane redraws off the server's answer — the truth, as ever. What the
+  ghost owes is a preview BEFORE the commit, which is the whole complaint
+  against the blind prompt (a refusal that arrives after the box has shut has
+  nothing left on screen to fix), so the client carries a SECOND resolver
+  whose only output is ink. It writes nothing and it is never the value. The
+  two are **DRIFT-PINNED over one shared corpus** — the vector table above,
+  read by both sides, the house pattern the planning wall's spellings already
+  live by — and where they part the server's answer is what the reader ends up
+  looking at.
+
+- **What stays proposed.** The rest of context (a) — CLOSED and date-shaped
+  custom properties — and the whole of (b) and (c). CLOSED is refused a
+  planning write entirely (`AGENTS.hs:3422` `settablePlan Closed = False`), so
+  its half of the question is the drawer pair alone; a date-shaped property
+  still wants the test on the value being REPLACED, `readsAsTimestamp`
+  (`src-query/Glance/Query.hs:1040` — the `:970` cited above has drifted).
+  The bracket trigger in prose and the whole-line rule are untouched: **a bare
+  phrase in free text is not delivered**, and `18 August` committed into a
+  paragraph is the text it always was.
+
+The property half of (a), and phases 2 and 3, are inert until reviewed.
