@@ -156,6 +156,18 @@ nothing catches it.
   sibling id lists were hand-edited and the seventh missed, so `#mint` neither
   faded nor dimmed. *fragility: medium*
 
+- **One gold at a time; the coarser ground lifts.** `--g-sel` is spent twice —
+  the cursor row's own wash and every selection or pick wash — so a finer gold
+  standing INSIDE a coarser one is drawn on the colour already behind it unless
+  the coarser lifts. Both lifts spell the same `background-color:transparent` on
+  the OUTER ground: the pane wears `tight` while a box stands inside its row
+  (`Style.hs:339`, `20-sheet.js:335`), and the planning line drops its wash
+  while an entry is picked (`Style.hs:394`, `:395`). Dropping either lift, or
+  adding a third gold one grain finer without one, leaves the wash set, focused
+  and invisible — a state only PIXELS see, which is why the entry's case counts
+  them (`cases.mjs:2684`, `:2689`) rather than reading a class.
+  *fragility: medium*
+
 - **The empty cell sits outside every date comparison, and negation is no
   mirror.** `dated` guards all four operators and both range ends, because `""`
   is below every literal in byte order and an unguarded `<` would serve every
@@ -175,8 +187,8 @@ nothing catches it.
   frame into a silent default instead of a build error. *fragility: medium*
 
 - **The client issues one drift-locked write per file, awaited,** and re-asks
-  for the digest rather than reusing a remembered one. `40-popups.js:172`,
-  `20-sheet.js:1062`, `50-settings.js:610`. Firing in parallel makes the second
+  for the digest rather than reusing a remembered one. `40-popups.js:174`,
+  `20-sheet.js:1872`, `50-settings.js:393`. Firing in parallel makes the second
   write drift against the first; a remembered digest across a reload is a silent
   overwrite. *fragility: medium*
 

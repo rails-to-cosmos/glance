@@ -100,6 +100,7 @@ module Glance.Query ( BlobSeed (..)
                     , noKeywords
                     , noParts
                     , orgLinks
+                    , plannedValue
                     , planningKeywords
                     , planningTimestamp
                     , unplanned
@@ -1675,6 +1676,25 @@ unplanned keyword
   | keyword `elem` planningKeywords = Nothing
   | otherwise = Just (keyword <> " is not a planning keyword; this server writes "
                         <> T.intercalate " and " planningKeywords)
+
+-- | KEY's planning value, read the way ITS OWN KEY is written, or the refusal in
+-- that reader's own words.  A value no timestamp parser reads back may not land:
+-- the line silently stops being a planning line on the next load.
+--
+-- ONE ARM PER KEY, AND BOTH WRITE DOORS READ IT HERE.  @SCHEDULED@ and
+-- @DEADLINE@ take 'planningTimestamp' — the wall is also the TRANSFORM, so a
+-- pane may type any spelling that grammar owns and gets back the bytes org
+-- itself would write.  @CLOSED@ is org's own bookkeeping and takes REPARSE
+-- alone: verbatim or refused, no English widened to it.
+plannedValue :: Time.Day -> Text -> Text -> Either Text Text
+plannedValue day key value
+  | key `elem` settableKeywords = planningTimestamp day value
+  | readsAsTimestamp value      = Right value
+  | otherwise                   = Left (unreadable key)
+
+unreadable :: Text -> Text
+unreadable key = key <> " is not a timestamp org would read back"
+  <> "; spell it <2026-08-01 Sat> or clear the row"
 
 setPlanningEdits :: Text -> Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
 setPlanningEdits keyword stamp r

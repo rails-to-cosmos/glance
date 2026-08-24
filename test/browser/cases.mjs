@@ -2625,27 +2625,28 @@ export default [
 // paints a frame behind that (docs/bugs/…read-races-render).
 { name: "the planning line's entries walk, and RET opens the one at point",
   async run(p, base) {
+    const LINE = '.de[data-id="PLN"]';
+    const PLN = `#mdoc ${LINE}`;
     /** The planning line as the pane DREW it, or `""' where the row has none. */
-    const planLine = () => p.eval(() => {
-      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
+    const planLine = () => p.eval((pln) => {
+      const at = document.querySelector(pln);
       return at ? at.textContent : "";
-    });
-    const entries = () => p.eval(() =>
-      [...document.querySelectorAll('#mdoc .de[data-id="PLN"] .dpv')]
-        .map((s) => s.dataset.key));
+    }, PLN);
+    const entries = () => p.eval((pln) =>
+      [...document.querySelectorAll(`${pln} .dpv`)].map((s) => s.dataset.key), PLN);
     /** `f' into the next entry, waited for BY THE KEYWORD point lands on: the
      * row never changes, so the row-id wait every other step uses answers yes
      * before the press is processed. */
-    const into = (key) => p.until((k) => {
-      const at = document.querySelector('#mdoc .de[data-id="PLN"] .dpv.dat');
+    const into = (key) => p.until((pln, k) => {
+      const at = document.querySelector(`${pln} .dpv.dat`);
       return !!at && at.dataset.key === k;
-    }, `\`f' to reach the ${key} entry`, undefined, key);
+    }, `\`f' to reach the ${key} entry`, undefined, PLN, key);
 
     await sheet(p, base, "drv-plan");
     const wasLine = await planLine();
     const served = await p.eval(async () =>
       (await (await fetch("/headline?id=drv-plan")).json()).planning || []);
-    await walkTo(p, '.de[data-id="PLN"]', "the planning line");
+    await walkTo(p, LINE, "the planning line");
     await settled(p);
     const keys = await entries();
     assert(keys.length >= 2,
@@ -2657,8 +2658,8 @@ export default [
     await p.press("f");
     await into(keys[1]);
 
-    const dress = await p.eval((k) => {
-      const line = document.querySelector('#mdoc .de[data-id="PLN"]');
+    const dress = await p.eval((pln, k) => {
+      const line = document.querySelector(pln);
       const on = line.querySelector(".dpv.dat");
       const off = [...line.querySelectorAll(".dpv")]
         .find((s) => !s.classList.contains("dat"));
@@ -2672,7 +2673,7 @@ export default [
                  .getPropertyValue("--g-sel").trim().toLowerCase(),
                box: { x: Math.round(r.x), y: Math.round(r.y),
                       w: Math.round(r.width), h: Math.round(r.height) } };
-    }, keys[1]);
+    }, PLN, keys[1]);
     assert(dress.key === dress.want,
       `the dress landed on ${dress.key} where the walk stood in ${dress.want}`);
     assert(dress.lit === dress.sel,
@@ -2697,15 +2698,15 @@ export default [
       return box.classList.contains("on") && document.activeElement === f
         && f.getBoundingClientRect().width > 0 && box.style.top !== "";
     }, `the widget over the ${keys[1]} value`);
-    const open = await p.eval(() => {
+    const open = await p.eval((pln) => {
       const f = document.getElementById("dwhen");
-      const slot = document.querySelector('#mdoc .de[data-id="PLN"] .dpv.dat')
+      const slot = document.querySelector(`${pln} .dpv.dat`)
         .getBoundingClientRect();
       const r = f.getBoundingClientRect();
       return { val: f.value, sel: [f.selectionStart, f.selectionEnd],
                // THE BOX STANDS IN THE ENTRY'S OWN SLOT, not the line's head.
                off: Math.round(r.left - slot.left) };
-    });
+    }, PLN);
     assert(open.val === dress.val,
       `the widget opened holding ${JSON.stringify(open.val)} where the entry `
       + `reads ${JSON.stringify(dress.val)}`);

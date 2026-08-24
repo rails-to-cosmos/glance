@@ -30,13 +30,14 @@ import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn
                     , blobPathIn, captureEdits, captureStamp, captureText
                     , captureTargetIn, captureTemplateIn, currentDocument
                     , editLinkEdits, expandTemplate, groupOn, mintBlobId
+                    , plannedValue
                     , priorityText
                     , removeTagEdits
                     , renameTagEdits, rowIdIn, setPlanningEdits
                     , setPriorityEdits, setStateEdits, setTitleEdits
                     , storeRootIn, tagText, titleText, trashBlob, unplanned )
 import Glance.Web.Base ( ServeOptions (soDir), answerWrite, bodyObject, captureMoved
-                       , jsonError, jsonResponse, noSuchRow, plannedValue, today
+                       , jsonError, jsonResponse, noSuchRow, today
                        , walkFor, withBody )
 import Glance.Web.Store ( Hub, Store (stConfig), headlinesIn, hubStore, layersFor
                         , recordsUnder, storeDocument, storeRecords )
@@ -65,6 +66,12 @@ data Args = Args
   , agTarget  :: !(Maybe Text)
   , agDesc    :: !(Maybe (Maybe Text))
   }
+
+-- | The planning keyword ARGS names, absent and null alike reading as @""@ — a
+-- word naming no entry, which 'unplanned' refuses.  ONE SPELLING, so the shape
+-- check and the write read the same key.
+keyOf :: Args -> Text
+keyOf = fromMaybe "" . join . agKeyword
 
 data FilePlan = FilePlan
   { fpPath   :: !FilePath
@@ -132,8 +139,7 @@ commands =
                plain (renameTagEdits (word agFrom args) (word agTo args) r))))
   , ("set-planning", CommandSpec (overIds wantsPlanning) True
       (Splices (\_cfg asked args r ->
-               plain =<< setPlanningEdits (fromMaybe "" (join (agKeyword args)))
-                                          (askStamp asked) r)))
+               plain =<< setPlanningEdits (keyOf args) (askStamp asked) r)))
     -- A REPEAT IS A `set-state', and the one command that RECORDS anything.
   , ("set-state", CommandSpec (overIds wantsState) False
       (Splices stateEdits))
@@ -160,13 +166,13 @@ commands =
     -- AN UNKNOWN KEY OUTRANKS EVERY VALUE, the commit door's own order: the
     -- keyword picks which wall the date meets, so a word naming no entry is
     -- refused before anything reads one.
-    wantsPlanning args
-      | Nothing <- join (agKeyword args) =
-          Just "set-planning wants args {\"keyword\": \"SCHEDULED\", \"date\": \"+3d\"}"
-      | Just why <- unplanned (fromMaybe "" (join (agKeyword args))) = Just why
-      | Nothing <- agDate args =
-          Just "set-planning wants a date, or a null one to take the entry off"
-      | otherwise = Nothing
+    wantsPlanning args = case join (agKeyword args) of
+      Nothing -> Just "set-planning wants args {\"keyword\": \"SCHEDULED\", \"date\": \"+3d\"}"
+      Just k
+        | Just why <- unplanned k -> Just why
+        | Nothing <- agDate args  ->
+            Just "set-planning wants a date, or a null one to take the entry off"
+        | otherwise -> Nothing
     wantsText args
       | Nothing <- agText args =
           Just "capture wants args {\"text\": \"TODO Buy milk :errands:\"}"
@@ -268,7 +274,7 @@ resolveAsked cmd = do
   pure $ case join (agDate (cmdArgs cmd)) of
     Just text | csDated (cmdSpec cmd) -> Asked day . Just <$> plannedValue day key text
     _nothingToResolve                 -> Right (Asked day Nothing)
-  where key = fromMaybe "" (join (agKeyword (cmdArgs cmd)))
+  where key = keyOf (cmdArgs cmd)
 
 captureInto :: ServeOptions -> Hub -> Store -> Command -> IO Response
 captureInto opts hub st cmd =

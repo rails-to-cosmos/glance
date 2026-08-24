@@ -67,9 +67,9 @@ type alias Model =
     , at : Int
 
     -- THE ONE ROW WITH A WALK INSIDE IT: an index into the planning entries as
-    -- the pane draws them ('entriesOf'), NOTHING being the whole line.  It
-    -- answers only while point stands on the planning row -- a row step, a
-    -- select or a fill drops it -- so 'planPick' is what reads it.
+    -- the pane draws them ('entriesOf'), NOTHING being the whole line.  IT
+    -- STANDS ONLY WHILE POINT IS ON THE PLANNING ROW, held there by 'settled'
+    -- and 'landAt', so a read of the field needs no test of its own.
     , planAt : Maybe Int
     , flags : List String
     , links : List Link
@@ -206,9 +206,10 @@ step by m =
                     m
 
                 Just i ->
-                    -- A ROW STEP LEAVES THE ENTRIES: the sub-row grain is the
-                    -- planning line's own and does not ride to another row.
-                    { m | at = i, planAt = Nothing }
+                    -- A ROW STEP LEAVES THE ENTRIES -- `settled' at the push
+                    -- drops them: the sub-row grain is the planning line's own
+                    -- and does not ride to another row.
+                    { m | at = i }
 
 
 {-| The one spelling of "is this row a headline?" -- the sheet's own line or
@@ -269,7 +270,7 @@ finer m =
             else if kids > 0 then
                 -- The first child immediately follows its parent in emission order.
                 ( { m | at = m.at + 1 }
-                , "grain-finer (" ++ Maybe.withDefault "item" r.name ++ " 1/" ++ String.fromInt kids ++ ")"
+                , grainWord "grain-finer" (Maybe.withDefault "item" r.name) 1 kids
                 )
 
             else if r.grain == Leaf then
@@ -335,13 +336,9 @@ planFiner m =
         entries =
             entriesOf m
 
+        -- The next entry along, and the FIRST one from the whole line.
         want =
-            case m.planAt of
-                Nothing ->
-                    0
-
-                Just i ->
-                    i + 1
+            1 + Maybe.withDefault -1 m.planAt
     in
     case nth want entries of
         Nothing ->
@@ -356,12 +353,16 @@ line again -- the step the row grain then answers.
 -}
 planBroader : Int -> Model -> ( Model, String )
 planBroader i m =
+    let
+        entries =
+            entriesOf m
+    in
     if i <= 0 then
         ( { m | planAt = Nothing }, "grain-broader (the planning line)" )
 
     else
         ( { m | planAt = Just (i - 1) }
-        , planWord "grain-broader" (i - 1) (entriesOf m)
+        , planWord "grain-broader" (i - 1) entries
         )
 
 
@@ -369,13 +370,24 @@ planBroader i m =
 -}
 planWord : String -> Int -> List ( String, String ) -> String
 planWord grain i entries =
+    grainWord grain
+        (Maybe.withDefault "" (Maybe.map Tuple.first (nth i entries)))
+        (i + 1)
+        (List.length entries)
+
+
+{-| ONE SPELLING of a grain step's echo, for the rows and for the planning
+line's entries alike: `grain-finer (SCHEDULED 1/3)'.
+-}
+grainWord : String -> String -> Int -> Int -> String
+grainWord grain name i n =
     grain
         ++ " ("
-        ++ Maybe.withDefault "" (Maybe.map Tuple.first (nth i entries))
+        ++ name
         ++ " "
-        ++ String.fromInt (i + 1)
+        ++ String.fromInt i
         ++ "/"
-        ++ String.fromInt (List.length entries)
+        ++ String.fromInt n
         ++ ")"
 
 
@@ -531,9 +543,7 @@ update msg model =
                 )
 
         Select id ->
-            -- A NAMED LANDING IS A ROW'S, so the entry the planning line held
-            -- goes with it.
-            told (reveal { model | at = placeOf model id, planAt = Nothing })
+            told (reveal (landAt (placeOf model id) model))
 
         Step by ->
             told (step by model)
@@ -833,7 +843,7 @@ update msg model =
             in
             -- A SUMMON LANDS ON THE LINE, not in an entry: the widget names the
             -- slot it stands in, and the walk starts over from the whole line.
-            told { fresh | at = placeOf fresh Body.planId, planAt = Nothing }
+            told (landAt (placeOf fresh Body.planId) fresh)
 
         -- And the same keyword taken away: the line is the bytes it was,
         -- including its ABSENCE where the summon drew it in.
@@ -870,8 +880,26 @@ narrowed m text =
     String.join "\n" (List.map deepen (String.split "\n" text))
 
 
+{-| THE MODEL AT THE DOOR: `planAt' is the planning row's own axis, so a model
+whose point stands anywhere else does not hold one. Every push runs this, so no
+mover that touches `at' resets the field itself. IT CANNOT SEE A LANDING BACK ON
+THE PLANNING ROW -- point never left it -- so that one is `landAt''s to clear.
+-}
+settled : Model -> Model
+settled m =
+    if idAtRow m m.at == Body.planId then
+        m
+
+    else
+        { m | planAt = Nothing }
+
+
 told : Model -> ( Model, Cmd Msg )
-told m =
+told model =
+    let
+        m =
+            settled model
+    in
     ( m, docState (stateJSON m) )
 
 
@@ -932,17 +960,12 @@ entriesOf m =
     Body.planEntries m.plan m.draftPlan
 
 
-{-| Which entry point stands in, or nothing -- the whole line. THE FIELD IS
-READ NOWHERE ELSE: `planAt' is the planning row's own axis, so a landing on any
-other row answers nothing here whatever the field still holds.
+{-| Which entry point stands in, or nothing -- the whole line. `settled' holds
+`planAt' to the planning row at every push, so this is a plain read.
 -}
 planPick : Model -> Maybe Int
 planPick m =
-    if idAtRow m m.at == Body.planId then
-        m.planAt
-
-    else
-        Nothing
+    m.planAt
 
 
 {-| The KEYWORD of the entry point stands in: what the shell opens its widget
@@ -958,16 +981,25 @@ where it does not.
 -}
 landOn : String -> Model -> Model
 landOn id m =
-    { m
-        | at =
-            placeOf m
-                (if rowById m id /= Nothing then
-                    id
+    landAt
+        (placeOf m
+            (if rowById m id /= Nothing then
+                id
 
-                 else
-                    Body.drawerId
-                )
-    }
+             else
+                Body.drawerId
+            )
+        )
+        m
+
+
+{-| Point put down at row I. A NAMED LANDING IS A ROW'S, so the entry the
+planning line held goes with it -- INCLUDING a landing back on that same line,
+where `settled' has nothing to drop and the walk must still start over.
+-}
+landAt : Int -> Model -> Model
+landAt i m =
+    { m | at = i, planAt = Nothing }
 
 
 {-| The nearest foldable stop at or above point.
@@ -1047,7 +1079,11 @@ that race as often as not. `docSaid' is REFUSALS ALONE, which move no rows and
 so race nothing.
 -}
 composedWith : Maybe String -> Model -> ( Model, Cmd Msg )
-composedWith said m =
+composedWith said model =
+    let
+        m =
+            settled model
+    in
     ( m
     , Cmd.batch [ docState (stateJSON m), docBody (cargoJSON said m) ]
     )
@@ -1056,7 +1092,11 @@ composedWith said m =
 {-| A refusal: the model is left as it was and only the word goes out.
 -}
 spoke : ( Model, String ) -> ( Model, Cmd Msg )
-spoke ( m, said ) =
+spoke ( model, said ) =
+    let
+        m =
+            settled model
+    in
     ( m, Cmd.batch [ docState (stateJSON m), docSaid (E.string said) ] )
 
 
@@ -1100,6 +1140,10 @@ rowJSON m r =
 
         -- A FRAME, not a line: what RET may not open and TAB folds.
         , ( "fold", E.bool (foldable m r) )
+
+        -- A LINE WITH A WALK INSIDE IT: `f' takes an entry rather than another
+        -- row.  A CAPABILITY, so the shell spells no row names.
+        , ( "entries", E.bool (r.id == Body.planId) )
         , ( "grain"
           , E.string
                 (case r.grain of

@@ -91,9 +91,10 @@
       // what RET edits is a row inside, and TAB folds.  RET itself is reserved.
       if (r.fold) { echo("RET → f reaches the rows inside — TAB folds"); return; }
       // THE PLANNING LINE IS A LINE OF ENTRIES, not one value: what RET edits is
-      // an entry inside it, and `f' is what reaches one.  The same rule the
-      // frame above states, one grain finer.
-      if (r.id === PLANROW) { planEnter(); return; }
+      // an entry inside it, and `f' is what reaches one.  The same rule the frame
+      // above states, one grain finer, and asked as a CAPABILITY so no row is
+      // named here by its id.
+      if (r.entries) { planEnter(); return; }
       if (r.kind === "para" || r.kind === "meta") { openEdit(DPARA, r); return; }
       headEnter(r);
     }
@@ -102,9 +103,8 @@
      * doors are one box and one wall.  OVER THE WHOLE LINE it is INERT and says
      * where the entries are, the frame's own answer above it. */
     function planEnter() {
-      const key = dplankey;
-      if (!key) { echo("RET → f reaches the entries — RET on one edits it"); return; }
-      planHere(docBinding(planCommand(key)), key);
+      if (!dplankey) { echo("RET → f reaches the entries — RET on one edits it"); return; }
+      planHere(docBinding(planCommand(dplankey)), dplankey);
     }
     function headEnter(r) {
       if (editing.child !== null) {
@@ -670,6 +670,15 @@
       const lead = leadTyped(typed, fits) ? [{ word: typed, hint: NEW_HINT }] : [];
       return lead.concat(fits.map(dress));
     }
+    /** Size F to LEN characters plus whatever rides after them, never past CAP:
+     * MONOSPACE DOES THE ARITHMETIC.  NO FLOOR HERE: the stylesheet's `min-width'
+     * is the one an empty field keeps for its caret.  WRITTEN ONLY WHEN IT
+     * CHANGES, since every keystroke in either box reaches here and a restated
+     * inline style still costs a layout. */
+    const fitCh = (f, len, plus, cap) => {
+      const w = `${Math.min(cap === undefined ? Infinity : cap, len + (plus || 0))}ch`;
+      if (f.style.width !== w) f.style.width = w;
+    };
     /** The field or its text moved, so the list under it is another list.  POINT
      * STANDS ON THE LINE THE READER TYPED, which leads the offers, and on
      * NOTHING over an empty field: with nothing typed the list is a menu to
@@ -679,10 +688,9 @@
       dmenu.at = el(onPairKey() ? "dkey" : "dval").value.trim() ? 0 : -1;
       drawOffers();
       // THE KEY FIELD HUGS ITS TEXT, so the closing colon stands flush against
-      // it as it does in the drawer -- monospace does the arithmetic, and an
-      // empty key keeps one cell for its caret.  ONE SPELLING: every door that
-      // moves the key reaches here, the assignments included.
-      el("dkey").style.width = `${Math.max(1, el("dkey").value.length)}ch`;
+      // it as it does in the drawer.  ONE SPELLING: every door that moves the
+      // key reaches here, the assignments included.
+      fitCh(el("dkey"), el("dkey").value.length);
       // A key that routes nowhere owes no date and carries no ghost.
       drawGhost("dval", "dvghost", valueOwesDate());
     };
@@ -728,8 +736,8 @@
      * reader's own answer for what the field holds where the caller already has
      * one.  A GHOSTED FIELD IS EXACTLY AS WIDE AS WHAT IT HOLDS, so the
      * resolution lands one space after the last character typed rather than at a
-     * column the layout picked; monospace does the arithmetic, and the `flex' is
-     * taken off so the row's own stretch cannot undo it. */
+     * column the layout picked, and the `flex' is taken off so the row's own
+     * stretch cannot undo it. */
     function drawGhost(fieldId, ghostId, owes, read) {
       const f = el(fieldId), g = el(ghostId);
       const said = owes ? dateGhost(f.value, editDay(), read)
@@ -737,14 +745,19 @@
       g.className = said.bad ? "dgh bad" : "dgh";
       g.textContent = said.text;
       f.style.flex = owes ? "none" : "";
-      f.style.width =
-        owes ? `${Math.min(GHOST_CAP, Math.max(1, f.value.length) + 1)}ch` : "";
+      // THE FIELD HAS NO `min-width' OF ITS OWN, so an empty one keeps its
+      // caret's cell here; the `+ 1' is the space the ghost rides after.
+      if (owes) fitCh(f, Math.max(1, f.value.length), 1, GHOST_CAP);
+      else f.style.width = "";
     }
-    /** Does the open widget stand over CLOSED?  THE SUMMONED KEY PICKS THE
-     * READER and nothing else does: one widget, two walls, and the mode is
+    /** Does the open widget stand under the plain stamp wall -- a planning word
+     * this server does not SET, which is CLOSED on it?  THE SUMMONED KEY PICKS
+     * THE READER and nothing else does: one widget, two walls, and the mode is
      * asked in ONE place so the ghost, the offers and the commit cannot
-     * disagree about which wall the field is standing under. */
-    const verbatimOnly = () => ddating() && edit.row.key === "CLOSED";
+     * disagree about which wall the field is standing under.  THE CARRIED LIST
+     * IS THE TRUTH, as it is at the two sibling walls (`valueOwesDate',
+     * `pairRefused'): a server that settled a third word moves all three. */
+    const verbatimOnly = () => ddating() && DATED.indexOf(edit.row.key) === -1;
     /** What the open widget's field reads as, against the day it was summoned. */
     const readsWhen = (text) =>
       verbatimOnly() ? readsStamp(text, edit.row.key) : readsDate(text, editDay());
@@ -855,19 +868,18 @@
     const dateStep = (k) =>
       k === "S-<right>" ? 1 : k === "S-<left>" ? -1
       : k === "S-<down>" ? 7 : k === "S-<up>" ? -7 : 0;
-    // THE BRACKET KIND STANDS.  A walk under the CLOSED wall moves the DAY and
-    // never the spelling: that wall takes a bracket and nothing else, so a step
-    // that wrote its answer back bare would leave the field holding a value the
-    // very next `RET' refuses.  The walk still lands on a WHOLE date, so a time
-    // of day goes with the step exactly as it goes under the other wall.
-    const restamp = (was, c) =>
-      was.charAt(0) === "[" ? `[${isoDay(c)} ${dowOf(c)}]` : stampOf(c);
     function dateAdjust(b, by) {
       const f = el("dwhen");
       const r = readsWhen(f.value.trim());
       if (!r.ok || !r.start) { said(b, "no date here to move"); return; }
       const to = addDays(r.start, by);
-      f.value = verbatimOnly() ? restamp(r.stamp, to) : isoDay(to);
+      // THE BRACKET KIND STANDS.  A walk under the plain stamp wall moves the
+      // DAY and never the spelling: that wall takes a bracket and nothing else,
+      // so a step that wrote its answer back bare would leave the field holding
+      // a value the very next `RET' refuses.  The walk still lands on a WHOLE
+      // date, so a time of day goes with the step as it does under the other.
+      f.value = verbatimOnly()
+        ? stampOf(to, null, r.stamp.charAt(0) === "[") : isoDay(to);
       f.setSelectionRange(f.value.length, f.value.length);
       edit.row.virgin = false;
       dateMoved();
@@ -925,16 +937,13 @@
       const box = el(id);
       return box.value.slice(0, box.selectionStart).split("\n").length - 1;
     };
-    // THE PLANNING LINE'S OWN ROW, synthesized off the entries (`Body.planId'):
-    // the one row the shell names by id, since it is the one whose grain is a
-    // list the model draws rather than rows the model emits.
-    const PLANROW = "PLN";
     // ORG'S THREE PLANNING WORDS, the server's own list and the pane's `planKeys'.
     const PLANNING = CFG.planning;
-    // THE TWO OF THE THREE THIS SERVER SETS, carried in the same blob rather
-    // than respelled: CLOSED is org's own bookkeeping and no door writes it, so
-    // it is the one planning word the date widget never opens over and the one
-    // whose value keeps the plain stamp wall.
+    // THE PLANNING WORDS THIS SERVER SETS, carried in the same blob rather than
+    // respelled.  What is off the list -- CLOSED, org's own bookkeeping, whose
+    // value the server REPARSES rather than resolves -- keeps the plain stamp
+    // wall, and every door that meets that wall derives it from here
+    // (`valueOwesDate', `verbatimOnly', `pairRefused').
     const DATED = CFG.settable;
     // A KEY ORG WOULD READ AS SOMETHING OTHER THAN A PROPERTY.  The frame words
     // are the drawer's own (AGENTS.hs `reservedProperties'): written as a key,
@@ -1035,8 +1044,12 @@
     const dowOf = (c) => DOW[new Date(dnum(c) * DAY_MS).getUTCDay()];
     const pad2 = (n) => (n < 10 ? "0" : "") + n;
     const isoDay = (c) => `${c.y}-${pad2(c.m)}-${pad2(c.d)}`;
-    const stampOf = (c, time) =>
-      `<${isoDay(c)} ${dowOf(c)}${time ? " " + time : ""}>`;
+    /** C as org's own stamp, with TIME where there is one; INACTIVE takes org's
+     * other bracket, `[...]'.  THE ONE ORG-STAMP WRITER: a bracket kind is chosen
+     * here and never spelled a second time. */
+    const stampOf = (c, time, inactive) =>
+      `${inactive ? "[" : "<"}${isoDay(c)} ${dowOf(c)}`
+      + `${time ? " " + time : ""}${inactive ? "]" : ">"}`;
     // THE MONTH TABLE IS EXACT and folds totally: twelve short forms and twelve
     // full ones, no `sept', no form carrying a full stop.
     const MONTH_WORDS = {
@@ -1271,33 +1284,24 @@
                stamp: g.end ? stampOf(g.start) + "--" + stampOf(g.end)
                             : stampOf(g.start, g.time) };
     }
-    /** TEXT read the way the CLOSED wall reads it, for KEY's own refusal.  A
-     * SECOND READER AND NEVER A SECOND GRAMMAR: the wall over CLOSED reparses a
-     * bracket where the settable words' wall TRANSFORMS a phrase, so the widget
-     * summoned over CLOSED asks this one and English is never widened to it.
-     * NO CLOCK: nothing here resolves, so there is no day to resolve against.
-     * IT REFUSES IN THE TWO SHAPES `dateWriting' READS -- unfinished while a
-     * bracket is still open, hard once no character can close one -- so the
-     * ghost stays dark through org's own spelling and speaks only past it. */
+    /** TEXT read the way the plain stamp wall reads it, for KEY's own refusal.
+     * A SECOND READER AND NEVER A SECOND GRAMMAR: `verbatimDate' is org's own
+     * bracket, the whole of what that wall reparses, and English is never widened
+     * to it.  NO CLOCK: nothing here resolves, so there is no day to resolve
+     * against.  IT REFUSES IN THE TWO SHAPES `dateWriting' READS -- unfinished
+     * while a bracket is still open, hard once no character can close one -- so
+     * the ghost stays dark through org's own spelling and speaks only past it.
+     * NOTHING TYPED IS NOTHING REFUSED: the empty field is the widget's own
+     * CLEAR, so it refuses UNFINISHED and stays dark too. */
     function readsStamp(text, key) {
-      const noStamp = (how) =>
-        ({ ok: false, ...how, short: NOT_A_STAMP, why: notReadBack(key) });
       const s = String(text == null ? "" : text).trim();
-      // NOTHING TYPED IS NOTHING REFUSED: the empty field is the widget's own
-      // CLEAR, judged by the widget and never by a reader.
-      if (!s) return noStamp({ unfinished: true });
+      const v = s ? verbatimDate(s) : null;
       // THE VALUE PASSES THROUGH: what the wall reads back is what it writes,
       // so the resolution IS the text and the ghost falls silent over it.
-      if (STAMP.test(s)) {
-        const m = /^[<[](\d+)-(\d{1,2})-(\d{1,2})/.exec(s);
-        const c = m ? { y: +m[1], m: +m[2], d: +m[3] } : null;
-        return { ok: true, verbatim: true, stamp: s,
-                 start: c && dayReal(c) ? c : undefined };
-      }
-      // A BRACKET STILL OPEN IS STILL BEING TYPED, `verbatimDate''s own rule:
-      // `<2026-08-05 Wed' is one `>' from a stamp.
-      if (/^[<[]/.test(s) && !/[>\]]$/.test(s)) return noStamp({ unfinished: true });
-      return noStamp({ hard: true });
+      if (v && v.ok) return v;
+      return { ok: false,
+               ...(s && !(v && v.unfinished) ? { hard: true } : { unfinished: true }),
+               short: NOT_A_STAMP, why: notReadBack(key) };
     }
     /** The reader's own day, civil.  THE GHOST IS A PREVIEW AND THE SERVER'S
      * CLOCK DECIDES what a phrase resolves to, so this is read for INK alone; a

@@ -364,9 +364,10 @@ page head' colours title body = T.unlines
   , "  #dtin,#dpair input,#ddate input{font:inherit;padding:0;border:none;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
   , "  #dtin{flex:1}"
-  -- NO WIDTH RULE HERE: a ghosted field is exactly as wide as what it holds, and
-  -- `drawGhost' writes the `ch' width AND takes the `flex' off per keystroke, so
-  -- a rule here would only restate what an inline style already wins.
+  -- NO WIDTH RULE HERE, AND NO FLOOR EITHER: `drawGhost' writes the `ch' width
+  -- and takes the `flex' off per keystroke, so a rule here would only restate
+  -- what an inline style wins -- and the floor an empty ghosted field wants is
+  -- TWO cells, the caret's and the ghost's leading space, which the script keeps.
   , "  #dwhen::placeholder{color:var(--g-mute);opacity:1}"
   -- THE GHOST: the resolution riding after what was typed, on the field's own
   -- line -- mute where it resolves, the refusal's own ink where the grammar
@@ -384,16 +385,20 @@ page head' colours title body = T.unlines
   -- same `--g-sel' ground the row wears (`:154') and the line lifts its while one
   -- does -- "THE TWO GOLDS" above, one grain finer, since gold inside gold is a
   -- selection nobody can see.  WHAT LIGHTS IS THE VALUE: the keyword beside it is
-  -- the line's own token, not a stop the walk makes.
-  , "  #mdoc.on .de.dat:has(.dpv.dat){background-color:transparent}"
+  -- the line's own token, not a stop the walk makes.  THE CHAIN IS SPELLED WITH
+  -- CHILD COMBINATORS: `.dat' is the hottest class on the page, and a descendant
+  -- `:has' would make every `n'/`p' walk the ancestors of every `.dpv' to
+  -- invalidate.
+  , "  #mdoc.on .de.dat:has(> .dp > .dpv.dat){background-color:transparent}"
   , "  #mdoc.on .dpv.dat{background-color:var(--g-sel);color:var(--g-fg)}"
   -- THE KEY IS EXACTLY AS WIDE AS WHAT IT HOLDS, so the closing colon stands
   -- flush against the text the way it does on the drawer line the box is laid
   -- over.  `pairMoved' writes the `ch' width per keystroke -- monospace does the
-  -- arithmetic -- and the `1ch' here is the floor an empty key keeps for its
-  -- caret.  The value takes the rest, and the margin is the SPACE org writes
-  -- after the closing colon.
-  , "  #dkey{flex:0 0 auto;width:1ch}"
+  -- arithmetic -- and this `min-width' is the ONE FLOOR, standing before the
+  -- script has run and over an empty key, which keeps a cell for its caret.
+  -- TWO IDS: the shared `#dpair input' dress outweighs one.  The value takes the
+  -- rest, and the margin is the SPACE org writes after the closing colon.
+  , "  #dpair #dkey{flex:0 0 auto;width:0;min-width:1ch}"
   , "  #dval{flex:2 1 60%;margin-left:1ch}"
   -- Hide the scrollbar: one taking layout width wraps the field narrower than its row.
   , "  #dpara textarea{flex:1;resize:none;border:none;margin:0;font:inherit;"

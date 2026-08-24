@@ -65,7 +65,8 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , headlineParts, keywordSources, linkShown, linkType
                     , mintableLayer
                     , kindSlug, refKind
-                    , planningKeywords, readConfigLayers
+                    , plannedValue, readConfigLayers
+                    , unplanned
                     , untrailed
                     , recomposedSubtree
                     , ownBodyLines, sortedForViewWith
@@ -78,9 +79,9 @@ import Glance.Web.Base ( Day, ServeOptions (..), answerWrite, bodyObject, codeLi
                        , conflict, docCells, glueAsset, gluePartFiles, html, jsonError
                        , elmAsset
                        , jsonResponse, jsonType
-                       , noSuchRow, plannedValue
+                       , noSuchRow
                        , plain, rendererAsset, reparsed, rewritten, sized, tenths, today
-                       , unreadable, viewTitleFor, walkFor, withBody )
+                       , viewTitleFor, walkFor, withBody )
 import Glance.Web.Commands (runCommand)
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, onDay, storeEnv, viewAddedIn)
 import Glance.Web.Page (assetsMissing, demoShell)
@@ -534,9 +535,9 @@ settledPlanning :: Day -> Commitment -> Either (Text, Text) Commitment
 settledPlanning _day whole@(WholeSubtree _org) = Right whole
 -- An unknown KEY outranks every value.
 settledPlanning day (SplitSubtree body ps pln)
-  | Just key <- listToMaybe unknown = Left (key, unreadable key)
+  | Just refusal <- listToMaybe refused = Left refusal
   | otherwise = SplitSubtree body ps <$> traverse (plannedEntry day) pln
-  where unknown = [ key | (key, _v) <- pln, key `notElem` planningKeywords ]
+  where refused = [ (key, why) | (key, _v) <- pln, Just why <- [unplanned key] ]
 
 -- | One planning entry through 'plannedValue', the refusal carrying the KEY
 -- beside THE READER'S OWN SENTENCE — the 409 says what the wall says rather than

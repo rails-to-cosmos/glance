@@ -3926,25 +3926,26 @@ sheetSpec shell =
     -- whole line, where the row grain answers again; the LAST entry clamps in the
     -- house's own word.
   , testCase "f walks the planning line's entries, and b comes back out" $ do
-      onTable shell "planned press:Enter press:f press:f" $ \answer -> do
-        assertEqual "point stands on the line still — the entry is a sub-row grain"
-                    1 =<< pointOf answer
-        echoIs "the first entry, counted in the line's own list"
-               "f → grain-finer (SCHEDULED 1/3)" answer
-      onTable shell "planned press:Enter press:f press:f press:f" $
-        echoIs "and the next, org's order" "f → grain-finer (DEADLINE 2/3)"
-      onTable shell "planned press:Enter press:f press:f press:f press:f" $
-        echoIs "org's third word is a stop like any other"
-               "f → grain-finer (CLOSED 3/3)"
-      onTable shell "planned press:Enter press:f press:f press:f press:f press:f" $
-        echoIs "and the last one clamps, spoken and standing still"
-               "f → grain-finer (at the finest)"
-      onTable shell "planned press:Enter press:f press:f press:f press:b" $
-        echoIs "b steps back along the entries"
-               "b → grain-broader (SCHEDULED 1/3)"
-      onTable shell "planned press:Enter press:f press:f press:b" $ \answer -> do
-        echoIs "and off the first one to the whole line"
-               "b → grain-broader (the planning line)" answer
+      -- ONE WALK IN AND BACK OUT, read off the ECHO HISTORY: the pill is
+      -- last-writer-wins, so the words it was SET to are the steps in order.
+      onTable shell ("planned press:Enter press:f press:f press:f press:f press:f"
+                     <> " press:b press:b press:b") $ \answer -> do
+        steps <- filter ("grain-" `T.isInfixOf`) <$> textsAt "echoes" answer
+        assertEqual "every step of the walk, in the order it was taken"
+                    [ "f → grain-finer (the body)"
+                    , "f → grain-finer (SCHEDULED 1/3)"
+                      -- Org's own order, its third word a stop like any other.
+                    , "f → grain-finer (DEADLINE 2/3)"
+                    , "f → grain-finer (CLOSED 3/3)"
+                      -- The last one clamps, spoken and standing still.
+                    , "f → grain-finer (at the finest)"
+                    , "b → grain-broader (DEADLINE 2/3)"
+                    , "b → grain-broader (SCHEDULED 1/3)"
+                      -- And off the first entry to the whole line.
+                    , "b → grain-broader (the planning line)" ]
+                    steps
+        -- POINT NEVER LEFT THE ROW: the entries are a sub-row grain, so the line
+        -- the walk came back out to is the row it walked inside all along.
         assertEqual "which is the step the row grain then answers" 1 =<< pointOf answer
       -- A ROW STEP LEAVES THE ENTRIES: the sub-row grain is this line's own and
       -- does not ride to another row, so `b' after one is the row's, not an entry's.
@@ -4622,14 +4623,14 @@ dateWidgetSpec shell = testGroup "Shell date widget"
           =<< textAt "dwhen" answer
         assertEqual "and the ghost adds nothing to it" "" =<< textAt "dghost" answer
       -- THE GRAMMAR IS NOT THIS WALL'S: a phrase the settable words resolve is
-      -- a hard refusal here, and there is no vocabulary to offer either.
-      onTable shell (closedRun <> " dwhen:18_aug") $ \answer -> do
+      -- a hard refusal here, there is no vocabulary to offer either, and RET over
+      -- it commits nothing.
+      onTable shell (closedRun <> " dwhen:18_aug press:Enter") $ \answer -> do
         assertEqual "the short word a trailing ghost has room for"
                     " \10007 not a timestamp" =<< textAt "dghost" answer
         assertEqual "wearing the refusal's ink" True =<< boolAt "dghostbad" answer
         assertEqual "and nothing is proposed that this wall would refuse"
                     [] =<< widgetOffers answer
-      onTable shell (closedRun <> " dwhen:18_aug press:Enter") $ \answer -> do
         assertEqual "nothing was asked" ([] :: [Value]) =<< listAt "commands" answer
         assertEqual "the box stands, with what was typed still in it" True
           =<< boolAt "ddateopen" answer
@@ -6353,10 +6354,11 @@ shellGlue =
       -- A drawer's own line is its frame; what RET edits is a pair inside.
       , "if (r.fold) { echo(\"RET → f reaches the rows inside — TAB folds\"); return; }"
       -- THE SAME RULE ONE GRAIN FINER: the planning line is a line of ENTRIES,
-      -- and the entry point stands in rides the mirror by its KEYWORD.
-      , "if (r.id === PLANROW) { planEnter(); return; }"
+      -- and the entry point stands in rides the mirror by its KEYWORD, asked as a
+      -- CAPABILITY so the shell names no row by id.
+      , "if (r.entries) { planEnter(); return; }"
       , "dplankey = now.planKey || null;"
-      , "planHere(docBinding(planCommand(key)), key);"
+      , "planHere(docBinding(planCommand(dplankey)), dplankey);"
       -- `+' IN THE DRAWER TYPES THE PAIR IN PLACE: a row is drawn where the pair
       -- will stand, the two fields cover it, and `:' hands the key to its value.
       , "dsend({ kind: \"draftpair\" });"
@@ -7807,10 +7809,16 @@ commitSpec = testGroup "POST /headline"
         -- No digest on this one: nothing about it is a lock.
         assertEqual "the fields it carries" ["error", "field", "reason"] =<< fieldsOf b
         assertEqual "untouched" committable =<< document path
+        -- AN UNKNOWN KEY IS A KEY REFUSAL: 'unplanned''s own sentence, so the two
+        -- write doors refuse it alike.
         bad <- postTo a (headlinePath "first")
                  (planningBody body' [] [["WHENEVER", "<2026-08-01 Sat>"]] digest)
         assertEqual "status" 409 (status bad)
-        assertEqual "named" "WHENEVER" =<< textAt "field" =<< decoded bad
+        badly <- decoded bad
+        assertEqual "named" "WHENEVER" =<< textAt "field" badly
+        assertContains "the keyword wall's own words, not the value wall's"
+          "WHENEVER is not a planning keyword; this server writes SCHEDULED and DEADLINE and CLOSED"
+          =<< textAt "error" badly
 
     -- THE WALL IS ALSO THE TRANSFORM.  The pane spells no org: it sends the raw
     -- typed text and the server writes the bytes org itself would.  The year is

@@ -30,6 +30,7 @@ interface DocRow {
   id: string;
   kind: string;
   fold: boolean;
+  entries: boolean;
   name: string | null;
   owner: string | null;
   from: number;

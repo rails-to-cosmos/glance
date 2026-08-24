@@ -4774,19 +4774,19 @@ prowId PlanRow   = "PLN"
 prowId DrawerRow = "PR"
 prowId (Pair n)  = "PR" ++ show n
 
-data PFiner = IntoEntries | IntoPairs | AtTheFinest deriving (Eq, Show)
--- | What `f' reaches inside a synthesized header row, asked by ID ahead of the grain
---   law (`finer').  THE PLANNING LINE'S FINER GRAIN IS THE ENTRIES IT DRAWS: it is one
---   `Element' holding one text and no rows, so there is nothing for the grain to
---   descend into and the walk runs over the line's own list in `planningRows' order --
---   `f' from the whole line takes the first entry, `f' from an entry the next, and the
---   LAST clamps, spoken and standing still.  POINT NEVER LEAVES THE ROW: the entry is
---   a SUB-ROW grain, so a row step drops it.  The drawer holds its pairs as rows and
---   takes the grain law unchanged; a pair is the finest thing there is.
+data PFiner = IntoEntries | ByGrain deriving (Eq, Show)
+-- | What `f' reaches inside a synthesized header row: ONE DEVIATION, the rest deferring
+--   to the grain law (`finer').  THE PLANNING LINE'S FINER GRAIN IS THE ENTRIES IT
+--   DRAWS: it is one `Element' holding one text and no rows, so there is nothing for
+--   the grain to descend into and the walk runs over the line's own list in
+--   `planningRows' order -- `f' from the whole line takes the first entry, `f' from an
+--   entry the next, and the LAST clamps, spoken and standing still.  POINT NEVER LEAVES
+--   THE ROW: the entry is a SUB-ROW grain, so a row step drops it.  The drawer and its
+--   pairs are ordinary rows and `finer' answers for them.
 planFiner :: PRow -> PFiner
 planFiner PlanRow   = IntoEntries
-planFiner DrawerRow = IntoPairs
-planFiner (Pair _)  = AtTheFinest
+planFiner DrawerRow = ByGrain
+planFiner (Pair _)  = ByGrain
 
 -- | The planning line's keys, org's order, and the order `f' walks its entries in.
 --   THE LINE IS ONE ROW WITH A GRAIN INSIDE IT (`planFiner'), drawn only when a pair
