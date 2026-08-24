@@ -5,7 +5,7 @@ import Data.Aeson (object, (.=))
 import Data.Text (Text)
 
 import Glance.Query ( archiveTag, followableTypes, materialTypes, linkColumns
-                    , planningKeywords, tagColumns )
+                    , planningKeywords, settableKeywords, tagColumns )
 import Glance.Web.Base (codeList, docCells, jsonValue, logLinesDefault, logLinesMax, logLinesMin)
 
 -- | The blob for VIEWS, the tree's saved views in registry order.  Member names are the script's @CFG.*@ reads.
@@ -14,6 +14,10 @@ glueConfig views = jsonValue $ object
   [ "views"        .= [ object ["id" .= i, "query" .= q] | (i, q) <- views ]
   , "dcells"       .= map fst docCells
   , "planning"     .= planningKeywords
+  -- The two of the three this server SETS: a write to CLOSED would forge a state
+  -- change.  CARRIED RATHER THAN RESPELLED, so the widget's doors are the
+  -- server's own list and cannot drift from it.
+  , "settable"     .= settableKeywords
   , "archiveTag"   .= archiveTag
   , "followable"   .= followableTypes
   , "material"     .= materialTypes

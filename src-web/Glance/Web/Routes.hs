@@ -65,7 +65,8 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , headlineParts, keywordSources, linkShown, linkType
                     , mintableLayer
                     , kindSlug, refKind
-                    , planningKeywords, readConfigLayers, readsAsTimestamp
+                    , planningKeywords, planningTimestamp, readConfigLayers, readsAsTimestamp
+                    , settableKeywords
                     , untrailed
                     , recomposedSubtree
                     , ownBodyLines, sortedForViewWith
@@ -496,22 +497,26 @@ commit _opts _hub Nothing _child _request =
 -- The cap outranks the lookup, so the id resolves behind the body.
 commit opts hub (Just rid) child request = withBody request $ \raw -> do
   st <- readTVarIO (hubStore hub)
+  -- ONE CLOCK READ PER REQUEST, above the row: the planning wall reads a
+  -- relative date against this day, and one commit must mean ONE day.
+  day <- today
   case focusIn st rid child >>= \f ->
-         (,) (focusHere f) <$> prepare raw (focusHere f) of
+         (,) (focusHere f) <$> prepare day raw (focusHere f) of
     Left refusal -> pure refusal
     Right (here, (digest, org)) ->
       answerWrite rewritten (\fresh -> ["digest" .= fresh])
         <$> writeSpans (walkFor opts) hub (hrFile here) digest
                        [(hrSubtree here, org)]
 
-prepare :: BL.ByteString -> HeadlineRecord -> Either Response (Text, Text)
-prepare raw r = case parseCommit raw of
+prepare :: Day -> BL.ByteString -> HeadlineRecord -> Either Response (Text, Text)
+prepare day raw r = case parseCommit raw of
   Left why -> Left (jsonError status400 why)
   Right (asked, digest)
     | digest /= hrDigest r  -> Left (conflict "stale" (hrDigest r) reparsed)
-    | Just key <- badPlanning asked -> Left (jsonResponse status409
-        [ "error" .= unreadable key, "reason" .= ("planning" :: Text), "field" .= key ])
-    | otherwise             -> Right (digest, committed r asked)
+    | otherwise             -> case settledPlanning day asked of
+        Left (key, why) -> Left (jsonResponse status409
+          [ "error" .= why, "reason" .= ("planning" :: Text), "field" .= key ])
+        Right settled   -> Right (digest, committed r settled)
 
 -- | The subtree ASKED for, over R.  'untrailed' EITHER WAY: the raw shape is a whole document the client hands back.
 committed :: HeadlineRecord -> Commitment -> Text
@@ -519,12 +524,40 @@ committed _r (WholeSubtree org)         = untrailed org
 committed r  (SplitSubtree body ps pln) =
   recomposedSubtree r (HeadlineParts body ps pln "")
 
--- | The planning entry no timestamp parser reads back.  Letting one through is silent: the line stops being a planning line.
-badPlanning :: Commitment -> Maybe Text
-badPlanning (WholeSubtree _org) = Nothing
-badPlanning (SplitSubtree _body _ps pln) =
-  listToMaybe ([ key | (key, _v) <- pln, key `notElem` planningKeywords ]
-                 <> [ key | (key, value) <- pln, not (readsAsTimestamp value) ])
+-- | The commitment with its planning entries READ AND REWRITTEN, or the KEY that
+-- stops the write and WHY.  A value no timestamp parser reads back may not land:
+-- the line silently stops being a planning line on the next load.
+--
+-- THE WALL IS ALSO THE TRANSFORM.  @SCHEDULED@ and @DEADLINE@ — the keys this
+-- server sets — take 'planningTimestamp', the same reading @set-planning@'s
+-- date takes, so the pane may type any spelling that grammar owns and gets back
+-- the bytes org itself would write; it redraws from THIS answer and resolves
+-- nothing of its own.  @CLOSED@ is org's own bookkeeping and takes REPARSE
+-- alone.
+--
+-- THE RAW HALF TRANSFORMS NOTHING: 'WholeSubtree' is a whole document the client
+-- typed, and rewriting bytes inside it would be the server editing a buffer.
+settledPlanning :: Day -> Commitment -> Either (Text, Text) Commitment
+settledPlanning _day whole@(WholeSubtree _org) = Right whole
+-- An unknown KEY outranks every value.
+settledPlanning day (SplitSubtree body ps pln)
+  | Just key <- listToMaybe unknown = Left (key, unreadable key)
+  | otherwise = SplitSubtree body ps <$> traverse (plannedEntry day) pln
+  where unknown = [ key | (key, _v) <- pln, key `notElem` planningKeywords ]
+
+-- | One planning entry, read the way its own KEY is written; a refusal carries
+-- the KEY and THE READER'S OWN SENTENCE.  A key this server sets is refused by
+-- 'planningTimestamp', which names every form it would have taken, so the 409
+-- says what the wall says rather than a second spelling of it; @CLOSED@ takes
+-- reparse alone and is refused in reparse's words, @timestamp@ being what that
+-- reading actually wants.
+plannedEntry :: Day -> (Text, Text) -> Either (Text, Text) (Text, Text)
+plannedEntry day (key, value)
+  | key `elem` settableKeywords = case planningTimestamp day value of
+      Left why    -> Left (key, why)
+      Right stamp -> Right (key, stamp)
+  | readsAsTimestamp value      = Right (key, value)
+  | otherwise                   = Left (key, unreadable key)
 
 
 

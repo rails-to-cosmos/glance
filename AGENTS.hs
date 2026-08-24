@@ -2093,7 +2093,7 @@ storeNotes =
   , Note "Property pairs are read by splitting lines, never through the parser's Properties, which uppercases keys and re-tokenises values; a line that is somehow not a property comes back keyless and the client drops the row." [Test]
   , Note "Raw property lines are consumed one per pair, never looked up, so one pair spelled twice keeps both spellings." [Test]
   , Note "The planning region is the whole LINE the outermost timestamp sits on, keywords and spacing included, so an untouched line goes back byte for byte and a round trip tidies no permutation." [Test]
-  , Note "Every planning value is validated by REPARSE of the very line the write would produce, a newline is refused outright, and the 409 names the field." [Test]
+  , Note "Every planning value must READ BACK as the line the write would produce, a newline is refused outright, and the 409 names the field AND CARRIES THE READER'S OWN SENTENCE -- the date grammar's for a key this server SETS, naming every form it would have taken, and reparse's for CLOSED, where `timestamp' is the right word. THE WALL IS ALSO THE TRANSFORM for the two keywords a key SETS: SCHEDULED and DEADLINE take the planning grammar whole and come back the bytes org itself would write, where CLOSED -- org's own bookkeeping, settable by nothing -- still takes reparse alone. THE RAW HALF TRANSFORMS NOTHING: a WholeSubtree is a document the client typed, and rewriting bytes inside it would be the server editing a buffer." [Test]
   , Note "The logbook is located textually — past the title line, ahead of the first child's stars — and the scan steps OVER the property drawer's extent, so a :LOGBOOK: line inside one stays the properties'." [Test]
   , Note "An unterminated drawer owns every line it may own; a headline with no logbook does not grow one." [Test]
   , Note "The sheet's logbook strip shows the drawer's INTERIOR lines alone, which is a display cut: what re-splices is the whole original drawer." [Test]
@@ -3421,14 +3421,85 @@ settablePlan Scheduled = True
 settablePlan Deadline  = True
 settablePlan Closed    = False
 
-data DateForm = Bracketed | Today | Tomorrow | Relative | IsoDate deriving (Eq, Show)
--- ^ @+N@ in ANY unit org spells; an ISO date takes an optional @HH:MM@.
+data DateForm = Bracketed | Today | Tomorrow | Relative | TodayMeta | IsoDate
+              | English | EnglishSpan
+  deriving (Eq, Show)
+-- ^ @+N@ in ANY unit org spells; an ISO date takes an optional @HH:MM@;
+-- @TodayMeta@ is the filter's own @*today*@ and its shift, read here too so ONE
+-- FIELD SPELLS ONE GRAMMAR; the two English forms are the day-and-month phrase
+-- and the interval between two.
 verbatimDate :: DateForm -> Bool        -- ^ the rest render with the weekday COMPUTED
-verbatimDate Bracketed = True
-verbatimDate Today     = False
-verbatimDate Tomorrow  = False
-verbatimDate Relative  = False
-verbatimDate IsoDate   = False
+verbatimDate Bracketed   = True
+verbatimDate Today       = False
+verbatimDate Tomorrow    = False
+verbatimDate Relative    = False
+verbatimDate TodayMeta   = False
+verbatimDate IsoDate     = False
+verbatimDate English     = False
+verbatimDate EnglishSpan = False
+
+-- *** The English a date-owed field reads
+--
+-- THE FIELD'S WHOLE CONTENT IS THE PHRASE: this reading fires only where the
+-- write already owes a date and nothing else can be meant, never over prose.
+
+monthTable :: [(String, Int)]
+-- ^ Org's three-letter form and the full one, lower case, matched case-folded.
+-- @may@ is ONE entry, its two forms coinciding; four-letter @sept@ and any form
+-- carrying a full stop are outside it.  THE ONLY LANGUAGE-BEARING DATUM in the
+-- grammar: a second language is a second table and a selector, and nothing else
+-- in the parser moves.
+monthTable =
+  [ ("jan", 1),  ("january", 1),  ("feb", 2),  ("february", 2)
+  , ("mar", 3),  ("march", 3),    ("apr", 4),  ("april", 4)
+  , ("may", 5)
+  , ("jun", 6),  ("june", 6),     ("jul", 7),  ("july", 7)
+  , ("aug", 8),  ("august", 8),   ("sep", 9),  ("september", 9)
+  , ("oct", 10), ("october", 10), ("nov", 11), ("november", 11)
+  , ("dec", 12), ("december", 12) ]
+
+data DateWord = MonthName Int | DayNum Int | YearNum Integer | NoWord deriving (Eq, Show)
+dateWord :: String -> DateWord
+-- ^ What ONE word of a phrase says.  A day is one digit or two naming 1..31 and
+-- a year is FOUR DIGITS AND NEVER TWO, which is what leaves @18 aug 18@ text
+-- where a fuzzy reader answers 2018.  Everything else says nothing: an ordinal
+-- suffix, a full stop, a separator, and A WEEKDAY WORD, which is computed on
+-- render and so never read — @Tue 18 Aug@ is text even when Tuesday is right.
+dateWord w
+  | Just m <- lookup (map toLower w) monthTable  = MonthName m
+  | all isDigit w, length w >= 1, length w <= 2
+  , d <- read w, d >= 1, d <= 31                 = DayNum d
+  | all isDigit w, length w == 4                 = YearNum (read w)
+  | otherwise                                    = NoWord
+
+englishForms :: [String]
+-- ^ Every arrangement the phrase takes, the separator a RUN of spaces and tabs
+-- and nothing else.  A bare day and a bare month are each no date; only an
+-- INTERVAL'S LEFT END may elide, and what it elides it INHERITS FROM THE RIGHT —
+-- the English idiom says one month once, and inheritance is what keeps
+-- @from 18 to 19 august 2027@ two days in 2027 rather than a twelve-month span.
+englishForms =
+  [ "D MONTH", "MONTH D", "D MONTH YYYY", "MONTH D YYYY"
+  , "[from] D to D MONTH [YYYY]"
+  , "[from] D MONTH [YYYY] to D MONTH [YYYY]" ]
+
+data SpanEnds = Ordered | SameDay | Inverted deriving (Eq, Show)
+spanAnswer :: SpanEnds -> String
+-- ^ What an interval's two ends earn.  ONE LAW, "refuse end before start": the
+-- equal case is no second clause but a COLLAPSE to the single stamp, which is
+-- what makes @from 18 to 18 aug@ and @18 aug@ one answer and one fixed point.
+-- Tested on the two MOMENTS, so a timed range sharing a day stays a range.
+spanAnswer Ordered  = "<A>--<B>"
+spanAnswer SameDay  = "<A>"
+spanAnswer Inverted = "refused: the end falls before the start, and a typed year at each end is the remedy"
+
+data YearRule = Flat | PreferFuture deriving (Eq, Show)
+yearRule :: YearRule
+-- ^ SETTLED: the year is the clock's, flat, so @18 aug@ typed in December means
+-- that August and a typist meaning next year writes it.  Org's
+-- @org-read-date-prefer-future@ is the rejected reading — a calendar-dependent
+-- clause where the flat rule is statable without one.
+yearRule = Flat
 
 -- ** Capture
 --
@@ -3624,6 +3695,11 @@ cmdNotes =
   , Note "`csArgs' is handed the IDS beside the args because a shape refusal is about the REQUEST; only edit-link reads them, and `wantsLink' names the row COUNT first." [Test]
   , Note "Keyword legality is the ROW's own chain (`settableStates', the palette's own fold), and a word any named row's chain lacks refuses the WHOLE request naming keyword and row." [Test]
   , Note "The date is parsed ONCE per request against the server's today and passed DOWN, so a set crossing midnight cannot land on two days." [Test]
+  , Note "ONE GRAMMAR, ONE DOOR: `planningTimestamp' is what set-planning's date argument and the planning line's own wall each read, so a spelling one takes is a spelling the other takes and a refusal is one refusal." [Test]
+  , Note "THE FIELD'S WHOLE CONTENT IS THE PHRASE, which is what makes the English reading safe: it fires only where a write already owes a date and never over prose. dateutil's fuzzy mode is the measurement it is built to refuse — `18 August was rainy', `Chapter 18 Aug summary' and `read pages 3 to 4' all come back dates, and `from 18 to 19 august' comes back ONE instant in 2018, wrong about the year, the day AND the arity." [Test]
+  , Note "The month word folds TOTALLY (August = august = AUGUST), a year is FOUR digits and never two, a bare day and a bare month are each no date, and THE WEEKDAY IS NEVER READ since it is computed on render." [Test]
+  , Note "An interval's LEFT END INHERITS every field it elides from the right; one whose end falls before its start is REFUSED IN ITS OWN WORDS, `not a date' reading oddly of a phrase naming two perfectly good ones; and the DEGENERATE pair COLLAPSES, which is what keeps the grammar's two spellings of one day a single fixed point." [Test]
+  , Note "The interval costs NO SECOND STAMP RENDERER: the `--' pair joins two stamps the wall's own single-stamp renderer writes, each recomputing its weekday off its date, so one spelling of a day serves both ends and the bare form. TextShow is the lossy REPL re-serializer and never a write-back channel, so no byte the wall lands comes from it. `..' is the FILTER's range, compiled to a predicate per request and never written anywhere; `--' is the file format's and the only spelling this parser produces." [Test]
   , Note "`rename-tag' is a command rather than a remove plus an add: those two edit sets APPLY and write wrong bytes two independent ways, and would be two writes under two digests." [Test]
   , Note "ONE TAG ONCE: the first `from' entry becomes `to' and further ones are cut; a row already carrying `to' has every `from' cut instead." [Test]
   , Note "Presence is FOLDED through `tagsOfCell', so a removal takes EVERY entry spelling the tag and rename is a change of spelling like any other." [Test]
@@ -4940,15 +5016,16 @@ sheetNotes :: [Note]
 sheetNotes =
   [ Note "`beforeunload' flushes with `keepalive' only when the sheet is dirty." [Test]
   , Note "The page holds no org parser and must not grow one." [Docs]
+  , Note "TWO RESOLVERS, ONE TRUTH. Because the page spells no org, the date field's client reading is for THE GHOST'S PREVIEW ALONE: the commit sends the RAW TYPED TEXT, the server transforms at the planning wall, and the pane redraws off that answer. The two are DRIFT-PINNED over one shared corpus, `test/fixtures/english-dates.json', which both suites read -- a vector added there is owed an answer by both halves, so neither can grow a reading the other lacks." [Test]
   , Note "Movement relocates attention alone and `RET'/`DEL' are the context axis, which\
          \ is why the movement keys are the ones left out of `ONCE'." [Docs]
   , Note "The materialize sheet is ONE file — both panes, the ladder and the opening —\
          \ and it owns the open entry, the shape, and the two baselines dirt is measured\
          \ against." [Test]
   , Note "The sheet is one `SURFACES' entry, the fourth `flagKey' surface and the fourth\
-         \ `openEdit' surface -- three of the six shapes are its own, the title, the\
-         \ paragraph and the drawer's pair -- whose `anchor' is the one thing a shape\
-         \ declares that a mount's does not." [Test]
+         \ `openEdit' surface -- four of the seven shapes are its own, the title, the\
+         \ paragraph, the drawer's pair and the planning date -- whose `anchor' is the\
+         \ one thing a shape declares that a mount's does not." [Test]
   , Note "No popup box declares a width or a height of its own; `#mpanes' hides its\
          \ overflow and no pane carries a floor, `#mdoc' owning its scroll and the mounts\
          \ inside the other panes owning theirs." [Test]

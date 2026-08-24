@@ -69,7 +69,8 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Text.Lazy.Encoding as TLE
 import AGENTS (ColKind (KBadge), Column (cCellKind, cHead, cKey), SortDir (Asc), defaultSortChain, keyOf, viewColumns, viewKeys)
 import Glance.Web.Columns (columnNamesIn)
-import Glance.Query (dayOf, isoDay, shiftDay, shiftUnits)
+import Glance.Query (dayOf, isoDay, monthWords, planningTimestamp, shiftDay, shiftUnits)
+import Data.List (isInfixOf)
 import Glance.Web.Filter (Sign (Unsigned), Term (tmKey), Token (..), cmpMark, cmpTest, columnsKey, emptyEnv, filterKeys, fromKey, halfShift, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, shiftIn, sortKey, substringKey, unspaced)
 import Glance.Web.Sort (sortChainIn)
 import TestDefaults (listAt, withDocDir)
@@ -1392,6 +1393,39 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
                   [Nothing, Nothing, Nothing]
                   (map (Spec.litOf Spec.noCalendar) ["*today*", "*today*+30d", "+30d"])
 
+    -- THE MONTH TABLE IS THE ONLY LANGUAGE-BEARING DATUM, spelled in the model
+    -- and in the parser: asserted whole and in order, so a month gained on one
+    -- side alone fails here rather than in one phrase.
+  , testCase "the model's English date grammar and the parser's own agree" $ do
+      assertEqual "the month table has drifted"
+                  Spec.monthTable [ (T.unpack word, m) | (word, m) <- monthWords ]
+      -- The word readings the grammar's EDGES turn on, each stated in the model.
+      sequence_
+        [ assertEqual ("the model reads " <> show w <> " otherwise") want (Spec.dateWord w)
+        | (w, want) <- [ ("aug", Spec.MonthName 8), ("AUGUST", Spec.MonthName 8)
+                       , ("18", Spec.DayNum 18), ("1", Spec.DayNum 1)
+                       , ("2027", Spec.YearNum 2027)
+                       -- Outside the grammar, the WEEKDAY included: it is
+                       -- computed on render and never read.
+                       , ("32", Spec.NoWord), ("018", Spec.NoWord), ("18th", Spec.NoWord)
+                       , ("sept", Spec.NoWord), ("sep.", Spec.NoWord)
+                       , ("tue", Spec.NoWord) ] ]
+      -- ONE LAW, "refuse end before start": the model names three ends and the
+      -- parser answers each in its shape -- the pair, the COLLAPSE, the refusal.
+      assertEqual "the model's own spellings have drifted from the law"
+                  [True, False]
+                  [ "--" `isInfixOf` Spec.spanAnswer Spec.Ordered
+                  , "--" `isInfixOf` Spec.spanAnswer Spec.SameDay ]
+      assertEqual "the parser answers the three ends otherwise"
+                  [Spec.Ordered, Spec.SameDay, Spec.Inverted]
+                  (map endsOf ["from 18 to 19 aug", "from 18 to 18 aug", "from 30 dec to 2 jan"])
+      -- THE YEAR IS THE CLOCK'S, FLAT, which the model states and the parser
+      -- spends: `aDay' is 2026, so a year-less phrase lands in 2026.
+      assertEqual "the year rule has drifted" Spec.Flat Spec.yearRule
+      assertEqual "the phrases the model's words make"
+                  [Right "<2026-08-18 Tue>", Right "<2027-08-18 Wed>"]
+                  [planningTimestamp aDay "18 aug", planningTimestamp aDay "18 aug 2027"]
+
   , testCase "environment leads the flag, and the PATH ladder is chromium-family" $ do
       assertEqual "the spec's browser candidates and Glance.Desktop's own have drifted"
                   browserCandidates Spec.chromiumFamily
@@ -1430,6 +1464,14 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
     -- The day every resolution row below is asked on; injected, never the clock's.
     aDay :: Time.Day
     aDay = Time.fromGregorian 2026 8 3
+
+    -- Which of the model's three interval ends the PARSER answered with: the
+    -- `--' pair, the degenerate collapse, or the refusal.
+    endsOf :: Text -> Spec.SpanEnds
+    endsOf phrase = case planningTimestamp aDay phrase of
+      Left _refused                          -> Spec.Inverted
+      Right stamp | "--" `T.isInfixOf` stamp -> Spec.Ordered
+                  | otherwise                -> Spec.SameDay
 
     unText :: (Text, Integer, Char) -> (String, Integer, Char)
     unText (base, n, unit) = (T.unpack base, n, unit)

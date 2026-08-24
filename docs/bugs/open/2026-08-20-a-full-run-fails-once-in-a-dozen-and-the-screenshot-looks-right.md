@@ -28,6 +28,20 @@ DOM and `docAtNow()` agree, but a bare `p.eval` that READS (classes, computed
 styles, textContent) right after `settled` has no such gate against a
 late-arriving `reload()` re-render swapping the rows mid-read.
 
+## Caught faces (2026-08-24)
+
+- Case 38, three times in ~30 full runs, green alone and on every rerun.
+  The assertion each time: `the key offers [{"word":"OW","hint":"new"}]` —
+  the pair box's key offers read before the sheet's `/properties` answer
+  landed (`askVocab` repaints on arrival, `20-sheet.js:509`; the case read
+  between the ask and the answer). Same family: a read racing an async
+  arrival that has its own repaint.
+- Case 44 had a SEPARATE deterministic-ish race — the widget's rect
+  measured before the box's placement landed (`#ddate` with no inline
+  style while the pane was still drawing the fresh doc). Fixed in the case
+  itself: `widgetUp` now waits for the box's own inline `top`
+  (`cases.mjs`), so that face is closed, not this file's.
+
 ## To catch it properly
 
 ```sh

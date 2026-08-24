@@ -8,6 +8,8 @@ module TestDefaults ( assertContains
                     , buildSources
                     , columnKeysOf
                     , columnOf
+                    , dateCorpus
+                    , dateCorpusPath
                     , committable
                     , compactTs
                     , digestOnDisk
@@ -66,7 +68,7 @@ module TestDefaults ( assertContains
 
 import Control.Monad (filterM, forM)
 import Control.Exception (IOException, finally, throwIO, try)
-import Data.Aeson (Value (Bool, Null, Number, Object, String), parseJSON)
+import Data.Aeson (Value (Bool, Null, Number, Object, String), eitherDecodeFileStrict', parseJSON)
 import Data.Aeson.Types (parseEither)
 import Data.List (isPrefixOf, sort)
 import Data.Maybe (fromMaybe, listToMaybe)
@@ -102,6 +104,38 @@ import qualified Data.Text.IO as TIO
 
 import Glance.Query (HeadlineRecord, QueryResult (qrRecords), digestOfText, loadDir, loadFile)
 import Glance.Web.Store (Frame, Store, applyFile, loadStore)
+
+-- | THE DATE CORPUS BOTH RESOLVERS ARE PINNED TO: the server's wall in
+-- @TestQuery@, the pane's ghost through the shell harness in @TestServe@.  ONE
+-- FILE, so a vector added to it is owed an answer by both halves and neither can
+-- quietly grow a reading the other lacks.
+dateCorpusPath :: FilePath
+dateCorpusPath = "test/fixtures/english-dates.json"
+
+-- | Every corpus vector as WHAT WAS TYPED, the ISO day it is asked AGAINST, and
+-- the answer owed: 'Right' the bytes org writes, 'Left' the refusal WORD -- the
+-- short one, the only thing a ghost riding an input line has room to say.  A row
+-- may name its own reference day, which is how the current-year rule is stated
+-- without waiting for December.
+dateCorpus :: IO [(Text, Text, Either Text Text)]
+dateCorpus = do
+  decoded <- eitherDecodeFileStrict' dateCorpusPath
+  case decoded of
+    Left err     -> assertFailure ("corpus JSON: " <> err)
+    Right corpus -> do
+      base <- textAt "reference" corpus
+      mapM (vector base) =<< listAt "vectors" corpus
+  where
+    vector base row = do
+      typed <- textAt "typed" row
+      day   <- fromMaybe base <$> sparseTextAt "reference" row
+      wrote <- sparseTextAt "planning" row
+      word  <- sparseTextAt "refused" row
+      (,,) typed day <$> owed typed wrote word
+    owed _typed (Just stamp) Nothing = pure (Right stamp)
+    owed _typed Nothing (Just word)  = pure (Left word)
+    owed typed _both _neither        = assertFailure
+      (show typed <> ": a vector spells `planning' or `refused', never both and never neither")
 
 strptime :: Text -> UTCTime
 strptime t = parseTimeOrError True defaultTimeLocale "%Y-%m-%d %H:%M:%S" (T.unpack t)

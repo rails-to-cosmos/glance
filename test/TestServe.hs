@@ -1,7 +1,7 @@
 -- | The server, driven as a WAI 'Application'.  No socket is bound.
 module TestServe (spec) where
 
-import Control.Monad (filterM, forM_, (<=<))
+import Control.Monad (filterM, forM_, unless, when, (<=<))
 import Data.Aeson ( FromJSON, Value (Array, Bool, Null, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, toJSON, (.=) )
 import Data.Aeson.Types (Pair, parseEither)
@@ -10,7 +10,7 @@ import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isSpace)
 import Data.Foldable (toList)
 import Data.List (elemIndex, find, isInfixOf, nub, sort, sortOn)
 import Data.Maybe (fromJust, fromMaybe, listToMaybe)
-import Data.Time (fromGregorian)
+import Data.Time (fromGregorian, toGregorian)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
                           , renderQuery )
@@ -18,14 +18,17 @@ import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
 import Network.Wai.Test ( SResponse (simpleBody, simpleHeaders)
                         , request, runSession, setPath )
 import System.Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
-                        , findExecutable, listDirectory )
+                        , findExecutable, getTemporaryDirectory, listDirectory
+                        , removeDirectoryRecursive )
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
+import System.Posix.Process (getProcessID)
 import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults ( assertContains, boolAt, committable, digestOnDisk, document, field, holdsAll
+import TestDefaults ( assertContains, boolAt, committable, dateCorpus, dateCorpusPath
+                    , digestOnDisk, document, field, holdsAll
                     , holdsNone
                     , columnKeysOf, columnOf, intAt, listAt, maybeTextAt, orgFile, sparseAt
                     , sparseTextAt, systemFileIn, tagFileIn, writeLayers
@@ -51,7 +54,7 @@ import Glance.Query ( ConfigSetting (csName), QueryResult (qrRecords)
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
 import Glance.Web.Page.Popups (Popup (..), Tier (..), popups, tierClass)
-import Glance.Web.Base (gluePartFiles)
+import Glance.Web.Base (gluePartFiles, today)
 import Glance.Web.Commands (commandNames)
 import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
@@ -264,11 +267,15 @@ decodedAt key v = do
 pairsAt :: T.Text -> Value -> IO [[T.Text]]
 pairsAt = decodedAt
 
--- | The pair box's offers as drawn: each word with the hint beside it, which
--- names where taking that offer would land.  READ TOGETHER, off the one draw.
-offersOf :: Value -> IO [(T.Text, T.Text)]
-offersOf = traverse one <=< listAt "doffers"
+-- | The offers KEY drew: each word with the hint beside it, which names where
+-- taking that offer would land.  READ TOGETHER, off the one draw.
+offersIn :: T.Text -> Value -> IO [(T.Text, T.Text)]
+offersIn key = traverse one <=< listAt key
   where one v = (,) <$> textAt "word" v <*> textAt "hint" v
+
+-- | The pair box's offers.
+offersOf :: Value -> IO [(T.Text, T.Text)]
+offersOf = offersIn "doffers"
 
 wroteAt :: T.Text -> Value -> IO [[[T.Text]]]
 wroteAt key = traverse (pairsAt key) <=< listAt "writes"
@@ -390,11 +397,47 @@ between open close haystack
   where (_before, after) = T.breakOn open haystack
         (inner, rest)    = T.breakOn close (T.drop (T.length open) after)
 
+-- | THE FIXTURE THE WHOLE SUITE BOOTS OUT OF, acquired once: the page PLUS the
+-- script it names, so a text sweep reads one universe, and on disk the five
+-- files every boot hands the harness.  Written HERE rather than per boot: they
+-- do not vary (`elm.js' alone is 285KB) and the harness only READS them, while
+-- what does vary from boot to boot is argv, which never touches the disk.
+bootFixture :: IO T.Text
+bootFixture = do
+  page <- (<>) <$> (body <$> get assetsDir "/")
+               <*> (stripGlueComments <$> glueSource)
+  dir <- bootDir
+  createDirectoryIfMissing True dir
+  page <$ writeFixtureTo dir page
+
+dropBootFixture :: T.Text -> IO ()
+dropBootFixture _page = do
+  dir <- bootDir
+  there <- doesDirectoryExist dir
+  when there (removeDirectoryRecursive dir)
+
+-- | Where those five files live.  NAMED OFF THE PROCESS so the fixture and every
+-- boot compute the same directory, rather than threading it through the dozen
+-- helpers a case reaches a boot through.
+bootDir :: IO FilePath
+bootDir = do
+  base <- getTemporaryDirectory
+  pid  <- getProcessID
+  pure (base </> ("glance-shell-" <> show pid))
+
+writeFixtureTo :: FilePath -> T.Text -> IO ()
+writeFixtureTo dir page = do
+  glueOf page >>= TIO.writeFile (dir </> "shell.js")
+  elmOf page >>= TIO.writeFile (dir </> "elm.js")
+  keysOf page >>= TIO.writeFile (dir </> "keys.json")
+  cfgOf page >>= TIO.writeFile (dir </> "cfg.json")
+  -- THE MARKUP, so the harness DERIVES which ids are fields rather than
+  -- keeping a second list by hand: one forgotten row there had `typing()'
+  -- read a div and answer that the keys belonged to the table.
+  TIO.writeFile (dir </> "page.html") page
+
 spec :: TestTree
--- The fixture is the page PLUS the script it names, so a text sweep reads one universe.
-spec = withResource ((<>) <$> (body <$> get assetsDir "/")
-                          <*> (stripGlueComments <$> glueSource))
-                    (const (pure ())) $ \shell ->
+spec = withResource bootFixture dropBootFixture $ \shell ->
   testGroup "Serve"
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
     , orderSpec, sortQuerySpec, columnsQuerySpec, archiveViewSpec
@@ -411,6 +454,7 @@ spec = withResource ((<>) <$> (body <$> get assetsDir "/")
     , openKeySpec shell, narrowSpec shell, agendaSpec shell, drillSpec shell
     , logSpec shell
     , sheetSpec shell
+    , dateWidgetSpec shell
     , settingsSpec shell
     , touchSpec shell
     , shellFontSpec shell, assetSpec, embeddedSpec, errorSpec ]
@@ -513,8 +557,11 @@ domSpec shell = overBoot shell "" "" $ \booted ->
         =<< boolAt "matches" dom
       assertEqual "a tree nobody attached stays detached" True
         =<< boolAt "detached" dom
-      assertEqual "and the subtree's text is every text node in order" "decoyc0c1c2"
-        =<< textAt "text" dom
+      assertEqual "an attribute step picks the slot its keyword names"
+                  "<2026-08-01 Sat>" =<< textAt "slot" dom
+      assertEqual "and no other keyword answers to it" 0 =<< intAt "otherSlot" dom
+      assertEqual "and the subtree's text is every text node in order"
+                  "decoyc0c1c2<2026-08-01 Sat>" =<< textAt "text" dom
 
 -- | What a booted page holds after the socket goes; 'lvMounts' is the distinction.
 data Live = Live
@@ -4049,26 +4096,35 @@ sheetSpec shell =
           echoIs "" ("RET → org-set-property (SCHEDULED: <2026-8-1 Sat>"
                        <> " — the planning line)") answer
 
-    -- THE PLANNING WALL IS THE SERVER'S OWN (`badPlanning' reparses), ECHOED
-    -- WHERE THE BOX STILL STANDS: the write would come back 409 with these very
-    -- words and nothing left on screen to fix them in.
-  , testCase "a planning value org would not read back is refused inline" $ do
-      insheet shell "press:f press:+ dkey:SCHEDULED press:: dval:tomorrow press:Enter" $
+    -- THE PLANNING WALL IS THE SERVER'S OWN, ECHOED WHERE THE BOX STILL STANDS:
+    -- the write would come back with these very words and nothing left on screen
+    -- to fix them in.  The two words this server SETS take everything a
+    -- date-owed field takes, so the box asks the READER rather than the stamp
+    -- regex — a phrase refused here that the wall would have accepted is that
+    -- same failure one storey down, the other way up.
+  , testCase "a planning value the date grammar refuses is refused inline" $ do
+      insheet shell "press:f press:+ dkey:SCHEDULED press:: dval:soon press:Enter" $
         \answer -> do
           assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
           assertEqual "and the box stands" True =<< boolAt "dpairopen" answer
-          assertEqual "with both halves there to be fixed" ("SCHEDULED", "tomorrow")
+          assertEqual "with both halves there to be fixed" ("SCHEDULED", "soon")
             =<< ((,) <$> textAt "dkey" answer <*> textAt "dval" answer)
           headerIs "and the two lists are the bytes they were"
                    [["EFFORT", "0:30"]] [["SCHEDULED", sheetStamp]] answer
-          echoIs "" ("RET → org-set-property (SCHEDULED is not a timestamp"
+          echoIs "" ("RET → org-set-property (SCHEDULED is not a date"
                        <> " org would read back)") answer
-      -- A BARE DATE IS NO STAMP: org reads a planning entry by its brackets.
+      -- …AND WHAT THE GRAMMAR TAKES, THE BOX TAKES, RAW: the server resolves the
+      -- phrase once against its own clock, so a bare word and a bare ISO date
+      -- travel as they were typed and come back as bytes org writes.
+      insheet shell "press:f press:+ dkey:SCHEDULED press:: dval:tomorrow press:Enter" $
+        \answer ->
+          assertEqual "the phrase on the planning line, for the wall to resolve"
+                      [[["SCHEDULED", "tomorrow"]]] =<< wroteAt "planning" answer
       insheet shell "press:f press:+ dkey:DEADLINE press:: dval:2026-09-05 press:Enter" $
-        \answer -> do
-          assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
-          echoIs "" ("RET → org-set-property (DEADLINE is not a timestamp"
-                       <> " org would read back)") answer
+        \answer ->
+          assertEqual "and beside the entry the line already had"
+                      [[["SCHEDULED", sheetStamp], ["DEADLINE", "2026-09-05"]]]
+            =<< wroteAt "planning" answer
       -- BOTH HALVES OF A RANGE WEAR ONE BRACKET: the parser takes the pair's
       -- OPENING bracket again after the `--', so a mixed range reparses as
       -- nothing and the box has to refuse it where the box still stands.
@@ -4080,7 +4136,14 @@ sheetSpec shell =
           assertEqual "and the box stands" True =<< boolAt "dpairopen" answer
           assertEqual "with what was typed there to be fixed"
                       "<2026-09-01 Tue>--[2026-09-05 Sat]" =<< textAt "dval" answer
-          echoIs "" ("RET → org-set-property (SCHEDULED is not a timestamp"
+          echoIs "" ("RET → org-set-property (SCHEDULED is not a date"
+                       <> " org would read back)") answer
+      -- CLOSED IS NOT SETTABLE: it opens no widget, and its value takes the
+      -- plain stamp wall.
+      insheet shell "press:f press:+ dkey:CLOSED press:: dval:tomorrow press:Enter" $
+        \answer -> do
+          assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+          echoIs "" ("RET → org-set-property (CLOSED is not a timestamp"
                        <> " org would read back)") answer
       -- THE EMPTY HALF IS STILL THE EMPTY HALF'S REFUSAL: a planning key with
       -- no value never reaches the stamp wall.
@@ -4120,7 +4183,7 @@ sheetSpec shell =
         headerIs "with the two lists the bytes they were"
                  [["EFFORT", "0:30"], ["SCHEDULED", "soon"]]
                  [["SCHEDULED", sheetStamp]] answer
-        echoIs "" ("RET → org-ctrl-c-ctrl-c (SCHEDULED is not a timestamp"
+        echoIs "" ("RET → org-ctrl-c-ctrl-c (SCHEDULED is not a date"
                      <> " org would read back)") answer
 
     -- THE THREE ARE OFFERED BESIDE THE TREE'S OWN KEYS, hinted so the reroute
@@ -4378,6 +4441,300 @@ sheetSpec shell =
                       =<< listAt "writes" answer
           assertEqual "and the sheet closed without one" "" =<< textAt "modal" answer
   ]
+
+-- | THE DATE WIDGET in the material document: the field in the planning value's
+-- own slot, the resolver's preview riding after it as GHOST, and the RAW text
+-- going to the server at the commit.  Driven through the shell harness, which
+-- runs the page's own glue.
+--
+-- THE CLOCK IS PINNED where an answer would otherwise move with the calendar the
+-- suite runs on: `dateon:' is the corpus's own reference day, 2026-08-22 (Sat).
+dateWidgetSpec :: IO T.Text -> TestTree
+dateWidgetSpec shell = testGroup "Shell date widget"
+  [ -- THE ENTRY COMES UP WHOLLY SELECTED, org-read-date's own default: one
+    -- keystroke replaces the value that stands, and a bare RET recommits it.
+    testCase "C-c C-s opens over the value that stands, wholly selected" $ do
+      insheet shell (pinned <> " press:C-c press:C-s") $ \answer -> do
+        assertEqual "the widget is up" True =<< boolAt "ddateopen" answer
+        assertEqual "and no modal was raised for it" "" =<< textAt "prompt" answer
+        assertEqual "the field holds the entry that stands"
+                    sheetStamp =<< textAt "dwhen" answer
+        assertEqual "the field holds the keys" "dwhen" =<< textAt "focus" answer
+        assertEqual "and the whole of it is selected"
+                    [0, T.length sheetStamp, T.length sheetStamp]
+          =<< intsAt "dwhensel" answer
+        -- THE GHOST IS SILENT AT ENTRY: the value that stands IS its own
+        -- resolution, org's own spelling, so there is nothing to add.
+        assertEqual "the ghost says nothing over a value that is its own answer"
+                    "" =<< textAt "dghost" answer
+        assertEqual "and nothing is written while it stands open" ([] :: [Value])
+          =<< listAt "writes" answer
+        assertEqual "nor asked of the server" ([] :: [Value])
+          =<< listAt "commands" answer
+      -- A BARE RET TAKES THE DEFAULT, byte for byte -- the whole point of the
+      -- selection: the reader who meant "that one" presses one key.
+      insheet shell (pinned <> " press:C-c press:C-s press:Enter") $ \answer -> do
+        assertEqual "the same bytes back to the server"
+                    [("SCHEDULED", Just sheetStamp)] =<< plannedOf answer
+        assertEqual "the widget shut behind it" False =<< boolAt "ddateopen" answer
+
+    -- ONE LINE: what was typed, and the resolution riding after it in the mute
+    -- ink.  THREE STATES AND NO FOURTH.
+  , testCase "the ghost previews, refuses, and keeps quiet" $ do
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:18_aug") $ \answer -> do
+        assertEqual "what was typed stands in the field" "18 aug"
+          =<< textAt "dwhen" answer
+        assertEqual "and the resolution rides after it"
+                    " \8594 <2026-08-18 Tue>" =<< textAt "dghost" answer
+        assertEqual "in the mute ink, not the marked one" False
+          =<< boolAt "dghostbad" answer
+        assertEqual "and nothing is asked of the server for a preview"
+                    ([] :: [Value]) =<< listAt "commands" answer
+      -- A TERM STILL BEING WRITTEN IS NO MISTAKE: `18 a' is a month halfway
+      -- typed, and a refusal flashed at every keystroke is one nobody reads.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:18_a") $ \answer -> do
+        assertEqual "the ghost is dark over a half-typed month" ""
+          =<< textAt "dghost" answer
+        assertEqual "and wears no refusal" False =<< boolAt "dghostbad" answer
+      -- A HARD REFUSAL SPEAKS, in the refusal's own ink and the corpus's own
+      -- word: no further character rescues a day that is not on the calendar.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:31_february") $ \answer -> do
+        assertEqual "the short word, which is all a trailing ghost has room for"
+                    " \10007 not a date" =<< textAt "dghost" answer
+        assertEqual "wearing the refusal's ink" True =<< boolAt "dghostbad" answer
+      -- AN INVERTED RANGE GETS THE SECOND WORD: "not a date" reads oddly of a
+      -- phrase naming two perfectly good days in the wrong order.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:from_30_dec_to_2_jan") $
+        \answer ->
+          assertEqual "the inversion is spelled apart"
+                      " \10007 ends before it starts" =<< textAt "dghost" answer
+      -- AND IT FALLS SILENT WHERE THE RESOLUTION IS WHAT WAS TYPED: drawing the
+      -- same string twice on one line is the duplication the shape is against.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:<2026-08-05_Mon>") $
+        \answer -> do
+          assertEqual "org's own spelling stands as written"
+                      "<2026-08-05 Mon>" =<< textAt "dwhen" answer
+          assertEqual "and the ghost adds nothing to it" ""
+            =<< textAt "dghost" answer
+      -- …AND THE ONE PLACE THE WIDGET MUST NOT KNOW BETTER: that day is a
+      -- Wednesday, and org's own bracket goes through VERBATIM, wrong weekday
+      -- and all (`test/TestQuery.hs:1791' pins the wall's half of it).  A pass
+      -- that made the renderer uniform would silently respell this.
+      insheet shell
+              (pinned <> " press:C-c press:C-s dwhen:<2026-08-05_Mon> press:Enter") $
+        \answer ->
+          assertEqual "the bytes the reader typed, not the bytes a calendar says"
+                      [("SCHEDULED", Just "<2026-08-05 Mon>")] =<< plannedOf answer
+
+    -- WHAT TRAVELS IS WHAT WAS TYPED.  The ghost resolved for ink; the server
+    -- resolves for bytes, once, against its own clock.
+  , keyed shell "RET sends the raw phrase, never the ghost's own reading"
+      "Enter" (pinned <> " press:C-c press:C-s dwhen:18_aug press:Enter") $ \answer -> do
+        assertEqual "one command, over the row the sheet is open on"
+                    [("set-planning", ["r1"])] =<< postedOf answer
+        assertEqual "carrying the phrase, not the stamp the ghost drew"
+                    [("SCHEDULED", Just "18 aug")] =<< plannedOf answer
+        echoIs "the pill names the commit's own key"
+          "RET \8594 org-glance-overview:schedule (18 aug \183 1)" answer
+
+    -- THE SHIPPED FOOT'S OWN PROMISE, kept verbatim: clearing is the widget's
+    -- law and not the grammar's, so it never asks whether nothing is a date.
+  , keyed shell "an emptied field clears the entry"
+      "Enter" (pinned <> " press:C-c press:C-s dclear press:Enter") $ \answer -> do
+        assertEqual "a null date" [("SCHEDULED", Nothing)] =<< plannedOf answer
+        echoIs "and the pill says which"
+          "RET \8594 org-glance-overview:schedule (cleared \183 1)" answer
+
+    -- A ROW WITH NO SUCH ENTRY HAS NO SLOT TO STAND IN, so the summon draws one
+    -- -- and the draft joins NO list, which is what keeps a half-typed date off
+    -- the disk the moment the sheet is left.
+  , testCase "C-c C-d draws the line it needs, and the draft joins no list" $
+      insheet shell (pinned <> " press:C-c press:C-d") $ \answer -> do
+        assertEqual "the keyword is ghosted onto the planning line"
+                    ["SCHEDULED: " <> sheetStamp <> " DEADLINE: "]
+          . partsOf "meta" =<< docOf answer
+        assertEqual "the list a flush writes is the list it was"
+                    [["SCHEDULED", sheetStamp]] =<< pairsAt "dplan" answer
+        assertEqual "and the field opens empty over it" "" =<< textAt "dwhen" answer
+        assertEqual "with point on the line the widget stands in" 1
+          =<< intAt "dat" answer
+        -- THE OPEN CYCLE IS NOT OVER WHEN THE BOX GOES UP: drawing the slot
+        -- sends a port message and the model comes back a macrotask later with
+        -- a redraw behind it, which the entry must survive.
+        assertEqual "the field still holds the keys after the redraw" "dwhen"
+          =<< textAt "focus" answer
+        assertEqual "and the entry's selection with it" [0, 0, 0]
+          =<< intsAt "dwhensel" answer
+
+    -- THE ESCAPE IS FROM THE EDIT, and the sheet comes back byte for byte --
+    -- including the planning line's own ABSENCE where the summon drew it in.
+  , testCase "ESC takes the widget and the keyword it ghosted in" $
+      insheet shell
+              (pinned <> " press:C-c press:C-d dwhen:18_aug press:Escape") $ \answer -> do
+        assertEqual "the widget is gone" False =<< boolAt "ddateopen" answer
+        assertEqual "and the document is the one it opened over"
+                    fixtureDoc =<< docOf answer
+        assertEqual "point back on the stop the key was pressed over" 0
+          =<< intAt "dat" answer
+        assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+        assertEqual "and nothing asked" ([] :: [Value]) =<< listAt "commands" answer
+        echoIs "" "ESC \8594 keyboard-quit (the planning line unchanged)" answer
+
+    -- ORG-READ-DATE'S OWN WALK IN ITS OWN MINIBUFFER: the plain arrows belong to
+    -- the caret, so the shifted ones carry the day and the week.
+  , testCase "the shifted arrows adjust in place, and the ghost follows" $ do
+      insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowRight") $ \answer -> do
+        assertEqual "a day forward, written into the field"
+                    "2026-08-02" =<< textAt "dwhen" answer
+        assertEqual "and the ghost is the day it now names"
+                    " \8594 <2026-08-02 Sun>" =<< textAt "dghost" answer
+      insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowLeft") $ \answer ->
+        assertEqual "and back" "2026-07-31" =<< textAt "dwhen" answer
+      insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowDown") $ \answer ->
+        assertEqual "a week down" "2026-08-08" =<< textAt "dwhen" answer
+      insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowUp") $ \answer ->
+        assertEqual "and a week up" "2026-07-25" =<< textAt "dwhen" answer
+      -- A YEAR UNDER 100 WALKS ONE DAY AND NOT NINETEEN CENTURIES: `Date.UTC'
+      -- reads 0..99 as 1900+y, and the arrows ran their arithmetic through it.
+      -- TWICE, because the step WRITES ITS ANSWER BACK into the field and the
+      -- next press must read that answer: the bare ISO's year is any digit run
+      -- at both doors, or the walk stops dead after one step.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:0099-01-01"
+                            <> " press:S-ArrowRight") $ \answer -> do
+        assertEqual "a day forward off a small year" "99-01-02"
+          =<< textAt "dwhen" answer
+        assertEqual "and the ghost is the wall's own stamp for it"
+                    " \8594 <99-01-02 Fri>" =<< textAt "dghost" answer
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:0099-01-01"
+                            <> " press:S-ArrowRight press:S-ArrowRight") $ \answer ->
+        assertEqual "and the walk goes on from what it wrote" "99-01-03"
+          =<< textAt "dwhen" answer
+
+    -- OFFERS STAND AT FRESH AND UNFINISHED POSITIONS AND NOWHERE ELSE, and a
+    -- DATE offer resolves -- so the hint column is the offer's own preview.
+  , testCase "the offers resolve, and a finished term carries none" $ do
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:18_a") $ \answer -> do
+        assertEqual "the reader's own line leads, then the months it could be"
+                    [ ("18 a", "new")
+                    , ("18 april", "<2026-04-18 Sat>")
+                    , ("18 august", "<2026-08-18 Tue>") ]
+          =<< widgetOffers answer
+        assertEqual "with point on the line the reader typed" 0
+          =<< intAt "dwofferat" answer
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:18_august") $ \answer ->
+        assertEqual "a term that reads as a whole date carries none"
+                    [] =<< widgetOffers answer
+      -- POINT STANDS ON THE READER'S OWN LINE, which is nothing to take: `RET'
+      -- there is the phrase as it was spelled, and here that phrase is refused.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:18_a press:Enter") $
+        \answer -> do
+          assertEqual "the typed line is not swapped for the word it prefixes"
+                      "18 a" =<< textAt "dwhen" answer
+          assertEqual "and nothing was asked" ([] :: [Value])
+            =<< listAt "commands" answer
+      -- RET IS DRY OVER AN OFFER THE WALK LANDED ON, and FINAL over the value
+      -- taking it left standing: two presses, and the first writes nothing.
+      insheet shell
+              (pinned <> " press:C-c press:C-s dwhen:18_a press:C-n press:Enter") $
+        \answer -> do
+          assertEqual "the offer under point is taken" "18 april"
+            =<< textAt "dwhen" answer
+          assertEqual "and nothing else happened" ([] :: [Value])
+            =<< listAt "commands" answer
+          assertEqual "the widget stands" True =<< boolAt "ddateopen" answer
+      insheet shell
+              (pinned <> " press:C-c press:C-s dwhen:18_a press:C-n press:Enter press:Enter") $
+        \answer ->
+          assertEqual "and the same key over the finished term applies"
+                      [("SCHEDULED", Just "18 april")] =<< plannedOf answer
+
+    -- ONE WIDGET, BOTH DOORS: the pair box's value half, where its key routes.
+  , testCase "the pair box's value half wears the same ghost" $ do
+      insheet shell
+              (pinned <> " press:f press:+ dkey:SCHEDULED press:: dval:18_aug") $
+        \answer -> do
+          assertEqual "the value half previews what it will land"
+                      " \8594 <2026-08-18 Tue>" =<< textAt "dvghost" answer
+          assertEqual "and a finished value carries no offers" [] =<< offersOf answer
+      -- ITS OFFERS ARE DATES, hinted with what they RESOLVE TO -- the one thing
+      -- a date vocabulary can do that the tree's property vocabulary cannot.
+      insheet shell
+              (pinned <> " press:f press:+ dkey:SCHEDULED press:: dval:18_a") $
+        \answer ->
+          assertEqual "the reader's own line, then the months it could be"
+                      [ ("18 a", "new")
+                      , ("18 april", "<2026-04-18 Sat>")
+                      , ("18 august", "<2026-08-18 Tue>") ]
+            =<< offersOf answer
+      -- A KEY THAT ROUTES NOWHERE OWES NO DATE AND CARRIES NO GHOST.
+      insheet shell (pinned <> " press:f press:+ dkey:OWNER press:: dval:18_aug") $
+        \answer ->
+          assertEqual "the drawer's own pair is a value like any other"
+                      "" =<< textAt "dvghost" answer
+      -- AND THE PHRASE REACHES THE WALL AS IT WAS TYPED: the box's own wall is
+      -- the grammar's, or a phrase the server would accept is refused here.
+      insheet shell
+              (pinned <> " press:f press:+ dkey:SCHEDULED press:: dval:18_aug press:Enter") $
+        \answer ->
+          assertEqual "the raw phrase on the planning line"
+                      [[["SCHEDULED", "18 aug"]]] =<< wroteAt "planning" answer
+
+    -- THE DRIFT PIN'S CLIENT HALF.  The server's wall is asserted against this
+    -- same file in `TestQuery'; here the PANE's ghost resolver is driven over
+    -- every vector of it, so the two cannot part on one phrase without a red run.
+  , testCase ("the ghost reads " <> dateCorpusPath <> " exactly as the wall does") $ do
+      corpus <- dateCorpus
+      assertBool ("the corpus carries the proposal's rows: " <> show (length corpus))
+                 (length corpus >= 66)
+      answer <- bootedPage shell "" "" 500 "Enter"
+                  (T.unwords [ "date:" <> day <> "/" <> spelled typed
+                             | (typed, day, _owed) <- corpus ])
+      reading (\a -> assertEqual "the pane's reading, vector by vector"
+                                 (map answerFor corpus) =<< textsAt "dateReads" a)
+              answer
+
+    -- ZERO RED FRAMES ON THE WAY IN.  The corpus above judges each phrase
+    -- FINISHED; this walks every prefix of one, because a refusal that flashes
+    -- mid-word and is gone by the last keystroke is invisible to a vector and
+    -- plain to the reader typing it.  EVERY ACCEPTED VECTOR of the same shared
+    -- file, so an arm the ghost cannot reach on the way in cannot hide behind a
+    -- hand-kept list that never grew the phrase.
+  , testCase "an accepted phrase draws no refusal on the way in" $ do
+      corpus <- dateCorpus
+      answer <- bootedPage shell "" "" 500 "Enter"
+                  (T.unwords (map typing (nub [ typed | (typed, _day, Right _) <- corpus ])))
+      reading (\a -> assertEqual "the prefixes the ghost answered in red"
+                                 allowedFlashes =<< textsAt "dateFlashes" a)
+              answer
+  ]
+  where
+    -- THE CORPUS'S OWN REFERENCE DAY, spelled once: every act asking for a day
+    -- asks for this one, or an answer moves with the calendar the suite runs on.
+    refDay = "2026-08-22"
+    pinned = "dateon:" <> refDay
+    typing p = "dtyping:" <> refDay <> "/" <> spelled p
+    -- ONE ALLOWANCE, and it PINS rather than excuses: a phrase the corpus
+    -- REFUSES may be a proper prefix of one it accepts, and there the ghost is
+    -- right to speak.  `from 30 dec 2026 to 2 jan' is the corpus's own inverted
+    -- interval -- the year behind it is what un-inverts it -- so it flashes
+    -- twice on the way into `... 2 jan 2027': once as typed, once with the
+    -- space that starts the year.  Anything else here is a reading the pane
+    -- owes and does not have.
+    allowedFlashes = map inverted [ "from 30 dec 2026 to 2 jan"
+                                  , "from 30 dec 2026 to 2 jan " ]
+    inverted prefix = prefix <> " \8658 \10007 ends before it starts"
+    -- The harness's own notation for an act's argument: `_' is a space, `~' a
+    -- literal underscore -- so a vector carrying either survives the split.
+    spelled = T.replace " " "_" . T.replace "_" "~"
+    answerFor (_typed, _day, Right stamp) = stamp
+    answerFor (_typed, _day, Left word)   = "\10007 " <> word
+
+-- | The date widget's own offers as drawn, word and resolved hint together.
+widgetOffers :: Value -> IO [(T.Text, T.Text)]
+widgetOffers = offersIn "dwoffers"
+
+intsAt :: T.Text -> Value -> IO [Int]
+intsAt = decodedAt
 
 -- | The settings sheet as keys: PANELS over the layers @\/config@ served, one box holding the SELECTED file's lines.
 settingsSpec :: IO T.Text -> TestTree
@@ -5096,16 +5453,15 @@ bootedPage shell store search total keys acts = do
   case node of
     -- SAY SO: a machine with no node ran every case green having asserted nothing at all.
     Nothing  -> Nothing <$ hPutStrLn stderr "\nSKIPPED - node is not on PATH: shell boot"
-    Just exe -> withTempDir $ \dir -> do
-      page <- shell
-      glueOf page >>= TIO.writeFile (dir </> "shell.js")
-      elmOf page >>= TIO.writeFile (dir </> "elm.js")
-      keysOf page >>= TIO.writeFile (dir </> "keys.json")
-      cfgOf page >>= TIO.writeFile (dir </> "cfg.json")
-      -- THE MARKUP, so the harness DERIVES which ids are fields rather than
-      -- keeping a second list by hand: one forgotten row there had `typing()'
-      -- read a div and answer that the keys belonged to the table.
-      TIO.writeFile (dir </> "page.html") page
+    Just exe -> do
+      -- THE ONE FIXTURE, READ-ONLY: 'bootFixture' wrote it before the first
+      -- case ran, and the harness only reads out of it.  A boot reached from
+      -- outside that resource writes it itself rather than failing obscurely.
+      dir <- bootDir
+      written <- doesFileExist (dir </> "shell.js")
+      unless written $ do
+        createDirectoryIfMissing True dir
+        writeFixtureTo dir =<< shell
       (code, out, err) <- readProcessWithExitCode exe
                             [ harness, dir, T.unpack search, show total
                             , T.unpack keys, T.unpack acts, T.unpack store ] ""
@@ -5209,13 +5565,22 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
              ("a.top - b.top - pane.clientTop + pane.scrollTop" `T.isInfixOf` page)
   -- FOCUS DRAWS NO LINE: the document's box is read as text and must not grow one.
   focus <- need "the box's focus rule"
-                (between "  #dpara textarea:focus,#dtin:focus,#dpair input:focus{" "}" page)
+                (between ("  #dpara textarea:focus,#dtin:focus,#dpair input:focus,"
+                            <> "#ddate input:focus{") "}" page)
   assertEqual "a line the document box would grow on focus" []
               [ n | n <- ["border-bottom-color", "border-bottom:"], n `T.isInfixOf` focus ]
-  -- THE GROUND IS THE SIGNAL, and one the block is not already wearing.
-  ground <- need "the box's ground" (between "  #dpara,#dpair,#dtitle{" "}" page)
+  -- THE GROUND IS THE SIGNAL, and one the block is not already wearing.  THE DATE
+  -- WIDGET TAKES IT BY JOINING THE LIST: it stands INSIDE the cursor row, and
+  -- `--g-sel' is spent on both that row's wash and every field's text selection,
+  -- so a widget with no ground of its own would select its entry in exactly the
+  -- colour already behind it.
+  ground <- need "the box's ground" (between "  #dpara,#dpair,#ddate,#dtitle{" "}" page)
   assertEqual "the edit ground is the page's input surface"
               "background:var(--g-surface)" ground
+  -- …and the row lifts its own wash while one stands, so the two golds are never
+  -- on one line.
+  assertContains "the row at point drops its wash under an open widget"
+    "  #mdoc.on.tight .de.dat{background-color:transparent}" page
 
 -- | THE LOG'S SEVERITY AND SCOPE ARE COLUMNS, derived off the page's OWN @append@ calls rather than copied.
 logColumnSweep :: IO T.Text -> TestTree
@@ -5583,7 +5948,7 @@ shellGlue =
       -- The field is named once, since the fallback, the restore and the stash all want it.
       , "(document.querySelector(\"#app .tv-filter\"));"
       , "const box = filterBox();"
-      , "if (box) { box.focus(); box.select(); }"
+      , "if (box) selectWhole(box);"
       , "summon the filter box onto the chip strip" ]
 
   -- TWO DOORS ONTO ONE QUERY, and the page opens them through ONE raise: the
@@ -5698,8 +6063,8 @@ shellGlue =
 
   -- ONE EDIT OVERLAY: the class, the anchor, the blur and the SNAPSHOT are one
   -- implementation, and a shape declares its differences from it and no more.
-  -- The doc pane declares THREE of the six -- the title, the paragraph, the pair.
-  , Glue "the edit overlay is one mechanism, six shapes over four surfaces"
+  -- The doc pane declares FOUR of the seven -- title, paragraph, pair, date.
+  , Glue "the edit overlay is one mechanism, seven shapes over four surfaces"
       [ "function openEdit(o, row) {"
       , "edit = { o, row };"
       , "el(o.box).className = \"on\";"
@@ -5718,16 +6083,17 @@ shellGlue =
       , "window.addEventListener(\"resize\", placeEdit);"
       -- THE SNAPSHOT: a commit reads the row the overlay OPENED over, never the cursor.
       , "const r = edit.row;"
-      -- The six, each named by the predicate or the commit that asks for it.
+      -- The seven, each named by the predicate or the commit that asks for it.
       , "const dediting = () => !!edit && edit.o === DTITLE;"
       , "const dparaing = () => !!edit && edit.o === DPARA;"
       , "const dpairing = () => !!edit && edit.o === DPAIR;"
+      , "const ddating = () => !!edit && edit.o === DDATE;"
       , "const sediting = () => !!edit && edit.o === SROW;"
       -- SHARING THE STATE MUST NOT SHARE THE SHUTTER: an unscoped shut would cancel another surface's open edit.
       , "function shutEdit(o) {"
       , "if (!edit || edit.o !== o) return;"
       , "for (const o of shapes) shutEdit(o);"
-      , "cancelEdit(pair ? \"the drawer\" : \"element\", DTITLE, DPARA, DPAIR)"
+      , "cancelEdit(when ? \"the planning line\" : pair ? \"the drawer\" : \"element\","
       , "cancelEdit(\"tag\", TROW)"
       , "cancelEdit(\"link\", LROW)" ]
       [ "drows[docAt()]", "function place()", "function shutRename"
@@ -5878,7 +6244,7 @@ shellGlue =
       -- `+' IN THE DRAWER TYPES THE PAIR IN PLACE: a row is drawn where the pair
       -- will stand, the two fields cover it, and `:' hands the key to its value.
       , "dsend({ kind: \"draftpair\" });"
-      , "openEdit(DPAIR, { id: r.id, add: true });"
+      , "openEdit(DPAIR, { id: r.id, add: true, today: dateNow() });"
       , "if (onKey) { hop(); pairMoved(); return; }"
       , "dsend({ kind: \"addprop\", key, value });"
       -- THE COMMIT CARRIES ITS OWN CARGO: body and lists together, off the port.
@@ -5901,7 +6267,7 @@ shellGlue =
       , "return SURFACES.some((s) => s.up())"
       , "#mpanes{flex:1;min-height:0;overflow:hidden;"
       -- The open element's fields sit OVER the row; the document's box takes `font:inherit' so an edit renders in the PANE's line box.
-      , "#dtitle,#dpara,#dpair,#sedit,#tedit,#ledit{display:none;position:absolute;"
+      , "#dtitle,#dpara,#dpair,#ddate,#sedit,#tedit,#ledit{display:none;"
       , "#sedit input,#tedit input,#ledit input{"
       -- ONE FOCUS LANGUAGE: the browser can only dress the one pane that takes a real focus.
       , "#mtext:focus{outline:none;border-color:var(--g-accent)}"
@@ -7305,16 +7671,22 @@ commitSpec = testGroup "POST /headline"
         assertEqual "reason" "drift" =<< textAt "reason" =<< decoded r
         assertEqual "the file is the meddler's" meddled =<< document path
 
-    -- A planning value no timestamp parser would read back is refused BEFORE the write, naming the field.
-  , testCase "a planning entry that does not reparse is a 409 naming the field" $
+    -- A planning value NO reading takes is refused BEFORE the write, naming the
+    -- field.  The wall's own grammar is 'planningTimestamp' (TestQuery holds the
+    -- corpus); what this pins is that a phrase outside it never lands.
+  , testCase "a planning entry that no date reading takes is a 409 naming the field" $
       withCommitted $ \a path _v digest body' _props -> do
         r <- postTo a (headlinePath "first")
-               (planningBody body' [] [["SCHEDULED", "tomorrow"]] digest)
+               (planningBody body' [] [["SCHEDULED", "soon"]] digest)
         assertEqual "status" 409 (status r)
         b <- decoded r
         assertEqual "reason" "planning" =<< textAt "reason" b
         assertEqual "which field" "SCHEDULED" =<< textAt "field" b
-        assertContains "and what it wanted" "timestamp org would read back"
+        -- THE WALL'S OWN SENTENCE, carried through: the 409 says what the date
+        -- grammar says rather than a second spelling of it.
+        assertContains "and what it wanted, in the reader's own words"
+                       "soon is not a date: spell it" =<< textAt "error" b
+        assertContains "naming the forms it would have taken" "18 aug"
           =<< textAt "error" b
         -- No digest on this one: nothing about it is a lock.
         assertEqual "the fields it carries" ["error", "field", "reason"] =<< fieldsOf b
@@ -7323,6 +7695,76 @@ commitSpec = testGroup "POST /headline"
                  (planningBody body' [] [["WHENEVER", "<2026-08-01 Sat>"]] digest)
         assertEqual "status" 409 (status bad)
         assertEqual "named" "WHENEVER" =<< textAt "field" =<< decoded bad
+
+    -- THE WALL IS ALSO THE TRANSFORM.  The pane spells no org: it sends the raw
+    -- typed text and the server writes the bytes org itself would.  The year is
+    -- SPELLED here so the assertion does not move with the calendar.
+  , testCase "an English date on the planning line is REWRITTEN to org's own spelling" $
+      withCommitted $ \a path _v digest body' _props -> do
+        assertOk =<< postTo a (headlinePath "first")
+               (planningBody body' [] [["SCHEDULED", "18 aug 2027"]] digest)
+        assertContains "the stamp the server computed, weekday and all"
+                       "SCHEDULED: <2027-08-18 Wed>" =<< document path
+
+  , testCase "and an English interval as org's own -- pair" $
+      withCommitted $ \a path _v digest body' _props -> do
+        assertOk =<< postTo a (headlinePath "first")
+               (planningBody body' [] [["DEADLINE", "from 18 to 19 august 2027"]] digest)
+        assertContains "both ends, each weekday computed"
+                       "DEADLINE: <2027-08-18 Wed>--<2027-08-19 Thu>" =<< document path
+
+    -- The year defaults to the SERVER'S OWN CLOCK, read once per request, so the
+    -- expectation is computed off that same clock rather than written down.
+  , testCase "a year-less phrase takes the server's own year, flat" $
+      withCommitted $ \a path _v digest body' _props -> do
+        (year, _month, _day) <- toGregorian <$> today
+        assertOk =<< postTo a (headlinePath "first")
+               (planningBody body' [] [["SCHEDULED", "18 aug"]] digest)
+        assertContains "that August, in the clock's year"
+                       ("SCHEDULED: <" <> T.pack (show year) <> "-08-18 ")
+          =<< document path
+
+    -- An interval naming two good days in the wrong order takes the SAME column
+    -- as a phrase that never parsed: no new refusal machinery on this wall.
+  , testCase "an inverted interval is the same 409 as any other refusal" $
+      withCommitted $ \a path _v digest body' _props -> do
+        r <- postTo a (headlinePath "first")
+               (planningBody body' [] [["SCHEDULED", "from 30 dec to 2 jan"]] digest)
+        assertEqual "status" 409 (status r)
+        assertEqual "which field" "SCHEDULED" =<< textAt "field" =<< decoded r
+        -- ITS OWN WORDS: the 409 carries the inversion rather than flattening it.
+        assertContains "the inversion's own sentence" "ends before it starts"
+          =<< textAt "error" =<< decoded r
+        assertEqual "untouched" committable =<< document path
+
+    -- CLOSED IS ORG'S OWN BOOKKEEPING and takes REPARSE alone: the widget's
+    -- grammar is SCHEDULED's and DEADLINE's.
+  , testCase "CLOSED takes org's own spelling and no phrase beside it" $
+      withCommitted $ \a path _v digest body' _props -> do
+        r <- postTo a (headlinePath "first")
+               (planningBody body' [] [["CLOSED", "18 aug 2027"]] digest)
+        assertEqual "status" 409 (status r)
+        assertEqual "which field" "CLOSED" =<< textAt "field" =<< decoded r
+        -- AND IN REPARSE'S OWN WORDS, where the settable keys answer in the date
+        -- grammar's: `timestamp' is what this reading actually wants.
+        assertContains "the reparse wall's sentence" "is not a timestamp org would read back"
+          =<< textAt "error" =<< decoded r
+        assertEqual "untouched" committable =<< document path
+        assertOk =<< postTo a (headlinePath "first")
+               (planningBody body' [] [["CLOSED", "[2026-08-01 Sat]"]] digest)
+        assertContains "org's own, verbatim" "CLOSED: [2026-08-01 Sat]" =<< document path
+
+    -- THE RAW HALF TRANSFORMS NOTHING: `org' is a whole document the client
+    -- typed, and rewriting bytes inside it would be the server editing a buffer.
+  , testCase "the raw half is left exactly as it was typed" $
+      withCommitted $ \a path v digest _body _props -> do
+        org <- textAt "org" v
+        assertOk =<< postTo a (headlinePath "first")
+               (commitBody (T.replace "* TODO First :one:\n"
+                                      "* TODO First :one:\nSCHEDULED: 18 aug 2027\n" org)
+                           digest)
+        assertContains "the phrase stands where the client put it"
+                       "SCHEDULED: 18 aug 2027" =<< document path
 
   , testCase "a body that is not the two fields is a 400" $
       withCommitted $ \a _path _v _digest _body _props -> do
@@ -7752,8 +8194,69 @@ planningSpec = testGroup "POST /command set-planning"
                         (planningArg "SCHEDULED" (Just "next tuesday")))
         assertEqual "status" 400 (status r)
         assertContains "names the input" "next tuesday" (body r)
+        assertContains "and the English forms it does take" "18 aug" (body r)
         assertEqual "the first file is untouched" before =<< document path
         assertEqual "and so is the second" elsewhereOrg =<< document other
+
+    -- ONE PARSER, BOTH DOORS: `set-planning''s date argument and the planning
+    -- line's own wall read the same grammar, so a phrase the pane may type is a
+    -- phrase this command takes.
+  , testCase "an English date lands here too, weekday computed" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        assertOk =<< postTo a "/command"
+               (command "set-planning" ["first"] (planningArg "SCHEDULED" (Just "18 aug 2027")))
+        assertEqual "the stamp the server computed"
+                    (T.replace "* NEXT First :one:\n"
+                               "* NEXT First :one:\nSCHEDULED: <2027-08-18 Wed>\n" before)
+          =<< document path
+
+  , testCase "and an English interval as org's own -- pair" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        assertOk =<< postTo a "/command"
+               (command "set-planning" ["first"]
+                        (planningArg "DEADLINE" (Just "from 18 to 19 august 2027")))
+        assertEqual "both ends, each weekday computed"
+                    (T.replace "* NEXT First :one:\n"
+                               ("* NEXT First :one:\nDEADLINE: <2027-08-18 Wed>"
+                                  <> "--<2027-08-19 Thu>\n") before)
+          =<< document path
+
+    -- The degenerate pair COLLAPSES, so the two spellings of one day agree.
+  , testCase "a same-day interval collapses to the single stamp" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        assertOk =<< postTo a "/command"
+               (command "set-planning" ["first"]
+                        (planningArg "SCHEDULED" (Just "from 18 to 18 august 2027")))
+        assertEqual "one stamp, not two"
+                    (T.replace "* NEXT First :one:\n"
+                               "* NEXT First :one:\nSCHEDULED: <2027-08-18 Wed>\n" before)
+          =<< document path
+
+    -- "Not a date" reads oddly of a phrase naming two perfectly good ones.
+  , testCase "an inverted interval is refused in its own words" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command"
+               (command "set-planning" ["first"]
+                        (planningArg "SCHEDULED" (Just "from 30 dec to 2 jan")))
+        assertEqual "status" 400 (status r)
+        assertContains "names the input" "from 30 dec to 2 jan" (body r)
+        assertContains "says which way it runs" "ends before it starts" (body r)
+        assertContains "and names the remedy" "spell a year" (body r)
+        assertEqual "nothing written" before =<< document path
+
+    -- 'fromGregorianValid' is the wall, and a day it declines never reaches disk.
+  , testCase "a day the calendar has not got is refused, naming it" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- postTo a "/command"
+               (command "set-planning" ["first"] (planningArg "SCHEDULED" (Just "31 feb")))
+        assertEqual "status" 400 (status r)
+        assertContains "names the input" "31 feb" (body r)
+        assertEqual "nothing written" before =<< document path
 
   , testCase "and so does a keyword no key sets" $
       withCommandable $ \a _hub path _other -> do
@@ -9843,6 +10346,13 @@ expectedRows =
        Just "the settings sheet: general, theme, keyword cycles")
   , (["@"],          "@",       "org-glance-material:refer",       Just "refer",          "modal",
        Just "link a headline into the prose; at a word boundary, so an address stays text")
+  -- ONE COMMAND, TWO SURFACES, `@'-fashion: in the MATERIAL DOCUMENT the pair
+  -- raises the date widget over the row's own slot.  Listed behind the table's
+  -- own rows, so the resident key line still shows the command's FIRST row.
+  , (["C-c", "C-s"], "C-c C-s", "org-glance-overview:schedule",    Just "scheduleHere",   "modal",
+       hereHelp)
+  , (["C-c", "C-d"], "C-c C-d", "org-glance-overview:deadline",    Just "deadlineHere",   "modal",
+       hereHelp)
   , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "modal",
        Just "sync the sheet now; again to overwrite a conflict")
   , (["C-c", "C-c"], "C-c C-c", "org-ctrl-c-ctrl-c",               Just "commitEdit",     "modal",
@@ -9857,6 +10367,7 @@ expectedRows =
         topHelp   = Just "first row, again = page up"
         endHelp   = Just "last row, again = page down"
         planHelp  = Just "a date over the marked rows, or the row at point; empty clears it"
+        hereHelp  = Just "a date in this row's own slot, resolved as you type; empty clears it"
         openHelp  = Just "open links: the row here, the element in the sheet; several list them"
 
 blobOf :: T.Text -> IO Value

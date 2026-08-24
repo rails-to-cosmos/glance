@@ -2417,4 +2417,178 @@ export default [
     return [`typed "mark" over ${JSON.stringify(shown.map((r) => r.word))}, `
       + `the row now ${JSON.stringify(tags)}`];
   } },
+{ name: "the date widget stands in the value's own slot, and the phrase lands whole",
+  async run(p, base) {
+    const served = (id) => p.eval(async (row) => {
+      const h = await (await fetch(`/headline?id=${row}`)).json();
+      return { plan: h.planning || [], props: h.properties || [] };
+    }, id);
+    /** The widget's field open, focused and PLACED over the slot it writes.
+     * Placed is waited for by the box's own inline `top': the summon's
+     * placement can run before the pane has drawn the slot (the port redraw
+     * places it a beat later), and a rect measured in that window reads the
+     * box's resting spot — the filed read-races-render family. */
+    const widgetUp = (why) => p.until(() => {
+      const box = document.getElementById("ddate");
+      const f = document.getElementById("dwhen");
+      return box.classList.contains("on") && document.activeElement === f
+        && f.getBoundingClientRect().width > 0 && box.style.top !== "";
+    }, why);
+    /** The planning line as the pane DREW it, or `""' where the row has none. */
+    const planLine = () => p.eval(() => {
+      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
+      return at ? at.textContent : "";
+    });
+
+    // ------- over a value that stands: the entry comes up WHOLLY SELECTED.
+    await sheet(p, base, "drv-plan");
+    const wasLine = await planLine();
+    const stood = ((await served("drv-plan")).plan
+      .find(([k]) => k === "DEADLINE") || [])[1];
+    assert(!!stood, "drv-plan carries no DEADLINE for the widget to open over");
+    // A SELECTION IS A THING THE READER SEES, and no engine paints one in a
+    // document without the focus: a rung that skipped this would go green over
+    // a screen showing nothing.
+    assert(await p.eval(() => document.hasFocus()),
+      "the driven page has no focus, so nothing below could prove a selection");
+    await settled(p);
+    await p.press("C-c");
+    await p.press("C-d");
+    await widgetUp("the widget over the DEADLINE value");
+    const open = await p.eval(() => {
+      const f = document.getElementById("dwhen");
+      const r = f.getBoundingClientRect();
+      const at = document.querySelector("#mdoc .de.dat");
+      const token = (n) => getComputedStyle(document.documentElement)
+        .getPropertyValue(n).trim().toLowerCase();
+      return { val: f.value, sel: [f.selectionStart, f.selectionEnd],
+               ghost: document.getElementById("dghost").textContent,
+               box: { x: Math.round(r.x), y: Math.round(r.y),
+                      w: Math.round(r.width), h: Math.round(r.height) },
+               ground: rgb(getComputedStyle(document.getElementById("ddate")).backgroundColor),
+               surface: g("surface"),
+               wash: token("--g-sel"),
+               rowWash: getComputedStyle(at).backgroundColor };
+    });
+    assert(open.val === stood, `the widget opened holding ${JSON.stringify(open.val)}`
+      + ` where the row carries ${JSON.stringify(stood)}`);
+    assert(open.sel[0] === 0 && open.sel[1] === open.val.length,
+      `it opened selecting ${open.sel[0]}..${open.sel[1]} of ${open.val.length}`);
+    // THE GHOST IS SILENT AT ENTRY: the value that stands is its own answer.
+    assert(open.ghost === "",
+      `the ghost said ${JSON.stringify(open.ghost)} over org's own spelling`);
+    // THE TWO GOLDS, AND WHY ONE GOES.  `--g-sel' is the cursor row's wash AND
+    // every field's text selection; the widget stands INSIDE that row rather
+    // than covering it, so the box carries the pane's own edit ground and the
+    // row lifts its wash while one is open.
+    assert(open.ground === open.surface,
+      `the widget's ground is ${open.ground}, not the pane's ${open.surface}`);
+    assert(/rgba\(0, 0, 0, 0\)|transparent/.test(open.rowWash),
+      `the row at point still wears ${open.rowWash} under an open widget`);
+
+    // …AND THE SELECTION IS PAINTED.  Read in PIXELS, because "set" and "seen"
+    // are two claims: the same frame with the caret collapsed differs across the
+    // value, and what differs is the palette's own selection wash.
+    const on = await p.paint();
+    await p.eval(() => {
+      const f = document.getElementById("dwhen");
+      f.setSelectionRange(f.value.length, f.value.length);
+    });
+    // THE COLLAPSE IS WAITED FOR, not assumed: a capture can land before the
+    // engine draws it, and two identical frames would read as a selection
+    // never seen.  A selection truly invisible stays identical past the cap
+    // and fails below exactly as it should (the caret's return is too few
+    // pixels to pass the fifth of the field the assert wants).
+    let off = await p.paint();
+    for (let turn = 0; turn < 25 && on.differs(open.box, off) === 0; turn += 1)
+      off = await p.paint();
+    const area = open.box.w * open.box.h;
+    const diff = on.differs(open.box, off);
+    const wash = on.count(open.box, open.wash);
+    assert(area > 200, `the field's box is ${open.box.w}x${open.box.h}`);
+    assert(diff > area * 0.2,
+      `the selected frame differs from the collapsed one by ${diff}/${area}px `
+      + "— the selection is set but not SEEN");
+    assert(wash > area * 0.15,
+      `only ${wash}/${area}px of the field wear ${open.wash} `
+      + "— the value does not visibly carry the selection wash");
+
+    // ESC CANCELS THE INPUT WHOLE, and the line is the bytes it was.
+    await p.press("ESC");
+    await p.until(() => !document.getElementById("ddate").classList.contains("on"),
+                  "ESC to take the widget");
+    const backTo = await planLine();
+    assert(backTo === wasLine,
+      `the cancelled line reads ${JSON.stringify(backTo)} against ${JSON.stringify(wasLine)}`);
+
+    // ------- over a row with NO planning line: the line is DRAWN to stand in.
+    await sheet(p, base, "drv-prio");
+    const before = await served("drv-prio");
+    assert((await planLine()) === "", "drv-prio already carries a planning line");
+    await settled(p);
+    await p.press("C-c");
+    await p.press("C-s");
+    await widgetUp("the widget over a SCHEDULED slot the row had not got");
+    // The port lands a macrotask behind the press and Elm paints a frame behind
+    // that, so the line is WAITED for rather than read once.
+    const drawn = await p.until(() => {
+      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
+      return at ? at.textContent : false;
+    }, "the summon to draw the slot it stands in");
+    assert(drawn.trim() === "SCHEDULED:",
+      `the drawn line reads ${JSON.stringify(drawn)}`);
+    // THE DRAFT JOINS NO LIST: nothing half-typed reaches the file.
+    assert(JSON.stringify((await served("drv-prio")).plan) === "[]",
+      "the ghosted keyword reached the file before a key was pressed");
+
+    // THE ENGLISH PHRASE RESOLVES IN THE GHOST, before anything is written.
+    await p.type("18 aug");
+    const ghost = await p.until(() => {
+      const s = document.getElementById("dghost");
+      return s.textContent || false;
+    }, "the ghost to resolve the phrase");
+    // THE WEEKDAY IS COMPUTED and the year is the clock's, so the SHAPE is what
+    // is read here — and the server's own answer is asserted against it below.
+    assert(/^ → <\d{4}-08-18 (Mon|Tue|Wed|Thu|Fri|Sat|Sun)>$/.test(ghost),
+      `the ghost reads ${JSON.stringify(ghost)}`);
+    // AND IT RIDES THE FIELD'S OWN LINE, one space after what was typed, in the
+    // mute ink — a SPAN and never the field's value, so no caret enters it.
+    const rides = await p.eval(() => {
+      const f = document.getElementById("dwhen").getBoundingClientRect();
+      const s = document.getElementById("dghost");
+      const r = s.getBoundingClientRect();
+      return { gap: Math.round(r.left - f.right), sameLine: Math.abs(r.top - f.top) < 5,
+               wide: r.width > 0, ink: rgb(getComputedStyle(s).color), mute: g("mute"),
+               isField: s.tagName === "INPUT" || s.tagName === "TEXTAREA",
+               typed: document.getElementById("dwhen").value };
+    });
+    assert(rides.sameLine && rides.wide && rides.gap >= -2 && rides.gap <= 3,
+      `the ghost is not riding the field's line: ${JSON.stringify(rides)}`);
+    assert(rides.ink === rides.mute, `the ghost is inked ${rides.ink}, not ${rides.mute}`);
+    assert(!rides.isField, "the ghost is a field, so the caret can walk into it");
+    // THE FIELD HOLDS WHAT WAS TYPED and never the resolution.
+    assert(rides.typed === "18 aug", `the field holds ${JSON.stringify(rides.typed)}`);
+
+    // RET SENDS THE RAW PHRASE; the SERVER resolves it and the pane redraws off
+    // that answer.  What the ghost promised is what the file carries.
+    await p.press("RET");
+    const landed = await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-prio")).json();
+      const at = (h.planning || []).find(([k]) => k === "SCHEDULED");
+      return at ? h : false;
+    }, "the phrase to reach the planning line", 15000);
+    const stamp = (landed.planning.find(([k]) => k === "SCHEDULED") || [])[1];
+    assert(ghost === ` → ${stamp}`,
+      `the server wrote ${JSON.stringify(stamp)} where the ghost promised `
+      + JSON.stringify(ghost));
+    // AND THE DRAWER UNDER IT IS UNTOUCHED: this write is the planning line's.
+    assert(JSON.stringify(landed.properties || []) === JSON.stringify(before.props),
+      `the drawer reads ${JSON.stringify(landed.properties)} `
+      + `against ${JSON.stringify(before.props)}`);
+    return [`opened on ${JSON.stringify(open.val)} selected 0..${open.sel[1]}, `
+      + `${diff}/${area}px of the field repainted and ${wash} wearing ${open.wash}; `
+      + `the slot drawn as ${JSON.stringify(drawn.trim())}, "18 aug" previewed `
+      + `${JSON.stringify(ghost.trim())} and landed ${JSON.stringify(landed.planning)} `
+      + `over ${JSON.stringify(landed.properties)}`];
+  } },
 ];

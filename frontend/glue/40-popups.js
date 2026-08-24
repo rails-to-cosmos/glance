@@ -59,7 +59,7 @@ const Popups = ((deps) => {
         el("ltitle").value = r.link.desc;
         el("lurl").value = r.link.target;
       },
-      focus: () => { el("lurl").focus(); el("lurl").select(); },
+      focus: () => selectWhole(el("lurl")),
     };
     const lediting = () => { const e = editNow(); return !!e && e.o === LROW; };
     const openOver = (shape, at, none) =>
@@ -212,7 +212,7 @@ const Popups = ((deps) => {
       cells: ["title"], cols: TCOLS,
       mount: () => tmount,
       fill: (tag) => (el("tname").value = tag),
-      focus: () => { el("tname").focus(); el("tname").select(); },
+      focus: () => selectWhole(el("tname")),
     };
     const renaming = () => { const e = editNow(); return !!e && e.o === TROW; };
     const openRename = () =>

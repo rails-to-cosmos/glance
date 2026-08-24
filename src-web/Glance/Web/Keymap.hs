@@ -116,6 +116,14 @@ keyBindings =
   -- from the table and WRITES one from the sheet.
   , bind ["@"]          "org-glance-material:refer"       (Just "refer")          "modal"
       `helps` "link a headline into the prose; at a word boundary, so an address stays text"
+  -- THE SAME PAIR, THE SAME COMMAND, THE OTHER SURFACE, `@''s own split one row
+  -- up: in the material document they raise the widget over the row's own slot.
+  -- Listed AFTER the table's rows, so the key line still shows the command's
+  -- first one ('keyHints').
+  , bind ["C-c", "C-s"] "org-glance-overview:schedule"    (Just "scheduleHere")   "modal"
+      `helps` planningHereHelp
+  , bind ["C-c", "C-d"] "org-glance-overview:deadline"    (Just "deadlineHere")   "modal"
+      `helps` planningHereHelp
   , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
       `helps` "sync the sheet now; again to overwrite a conflict"
   , bind ["C-c", "C-c"] "org-ctrl-c-ctrl-c"               (Just "commitEdit")     "modal"
@@ -136,6 +144,9 @@ lastRowHelp  = "last row, again = page down"
 
 planningHelp :: Text
 planningHelp = "a date over the marked rows, or the row at point; empty clears it"
+
+planningHereHelp :: Text
+planningHereHelp = "a date in this row's own slot, resolved as you type; empty clears it"
 
 priorityHelp :: Text
 priorityHelp = "cycle the priority of the marked rows, or the row at point"

@@ -52,6 +52,7 @@ module Glance.Query ( BlobSeed (..)
                     , configPaths
                     , currentDocument
                     , dayOf
+                    , dayNamed
                     , defaultCaptureFile
                     , SavedView (..)
                     , defaultFilter
@@ -66,6 +67,9 @@ module Glance.Query ( BlobSeed (..)
                     , displayText
                     , documentPath
                     , editLinkEdits
+                    , englishDay
+                    , englishSpan
+                    , monthWords
                     , expandTemplate
                     , filterKeys
                     , fingerprint
@@ -136,9 +140,13 @@ module Glance.Query ( BlobSeed (..)
                     , noteCompletion
                     , shiftRepeat
                     , setTitleEdits
+                    , settableKeywords
                     , settableStates
                     , shiftDay
+                    , shiftIn
                     , shiftUnits
+                    , Sign (..)
+                    , signOf
                     , ownBodyLines
                     , subtreeEntries
                     , subtreeEntryAt
@@ -1190,6 +1198,18 @@ isoDay = spelled "%Y-%m-%d"
 dayOf :: Text -> Maybe Time.Day
 dayOf = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d" . T.unpack
 
+-- | The day W names against TODAY: THE EMPTY TEXT and @*today*@ are the
+-- request's own day, anything else the ISO day it spells ('dayOf').
+--
+-- THE ONE BASE READER, for the filter's date literals
+-- ('Glance.Web.Filter.dayIn') and the planning wall's own dates
+-- ('planningTimestamp') alike, so the bare shift is today-relative at both.  A
+-- surface owed a word of its own layers it OVER this, never inside it.
+dayNamed :: Time.Day -> Text -> Maybe Time.Day
+dayNamed today w
+  | T.null w || w == metaWord MToday = Just today
+  | otherwise                        = dayOf w
+
 -- | The unit LETTERS a date shift may carry — ORG'S WHOLE CHARSET, read off the
 -- parser's own map, so a unit org grows is offered the day it lands.
 shiftUnits :: [Char]
@@ -1201,6 +1221,51 @@ shiftUnits = map unitChar [minBound .. maxBound]
 -- where C names no unit.
 shiftDay :: Char -> Integer -> Time.Day -> Maybe Time.Day
 shiftDay c n day = (\u -> addUnit u n day) <$> unitOf c
+
+-- | THE SIGN A TOKEN OPENS WITH, and a token wears one: the scanner reads the
+-- FIRST CHARACTER alone, so a second sign is body text.
+data Sign
+  = Unsigned  -- ^ the token opened with neither sign.
+  | Neg       -- ^ the token opened with @-@.
+  | Add       -- ^ the token opened with @+@.
+  deriving (Eq, Show)
+
+-- | The sign C opens a token with, or 'Nothing' where C is body text.  ONE
+-- CHARSET: 'shiftIn' reads a shift's sign here and the filter's scanner reads a
+-- token's ('Glance.Web.Filter.scanQuery', which re-exports this), so @+@ and
+-- @-@ are spelled in exactly one place.
+signOf :: Char -> Maybe Sign
+signOf '-' = Just Neg
+signOf '+' = Just Add
+signOf _   = Nothing
+
+-- | HOW FAR A SIGN CARRIES a shifted day.  ONE EQUATION PER CONSTRUCTOR and no
+-- wildcard; 'signOf' spells no character for 'Unsigned', whose day stands still.
+shiftWay :: Sign -> Integer
+shiftWay Unsigned = 0
+shiftWay Add      = 1
+shiftWay Neg      = -1
+
+-- | A trailing SHIFT read off L: the BASE ahead of it, the SIGNED count and the
+-- unit letter.  READ FROM THE END, so the sign that opens a shift is the one
+-- before the unit and a date's own hyphens are never mistaken for it:
+-- @2026-09-15-7d@ is the week before that day.
+--
+-- THE ONE SHIFT GRAMMAR.  The filter compiles its shifted literals through this
+-- ('Glance.Web.Filter.literalIn', docs/query.md "A date can be shifted") and
+-- the planning wall reads its dates through it ('planningTimestamp'), so a
+-- shift the table serves is a shift a date-owed field takes, sign for sign.
+shiftIn :: Text -> Maybe (Text, Integer, Char)
+shiftIn l = case T.unsnoc l of
+  Just (run, unit)
+    | unit `elem` shiftUnits
+    , digits            <- T.takeWhileEnd isDigit run
+    , not (T.null digits)
+    , Just (base, mark) <- T.unsnoc (T.dropWhileEnd isDigit run)
+    , Just way          <- signOf mark
+    , Just n            <- digitsOnly digits
+    -> Just (base, shiftWay way * n, unit)
+  _noShift -> Nothing
 
 detach :: Text -> Text
 detach = T.copy
@@ -1630,38 +1695,184 @@ setPlanningEdits keyword stamp r
 
 -- | TEXT as a planning timestamp against TODAY.  Org's own spelling is kept
 -- verbatim once it REPARSES; the rest render with the weekday COMPUTED.
+--
+-- ONE GRAMMAR, ONE DOOR.  Every surface that owes a date reads TEXT here —
+-- @set-planning@'s argument, and the planning line's own wall — so a form this
+-- reader takes is a form the pane's date widget may type and a form it declines
+-- is refused the same way at both.
 planningTimestamp :: Time.Day -> Text -> Either Text Text
 planningTimestamp today text
-  | T.null want = refusal
-  | bracketed   = if readsAsTimestamp want then Right want else refusal
-  | otherwise   = maybe refusal Right (withTime <$> asLocal <|> (`stamped` Nothing) <$> dated)
+  | T.null want            = refusal
+  | bracketed              = if readsAsTimestamp want then Right want else refusal
+  | Just answer <- english = answer
+  | otherwise = maybe refusal Right (withTime <$> asLocal <|> (`stamped` Nothing) <$> dated)
   where
     want      = T.strip text
     bracketed = any (`T.isPrefixOf` want) timestampOpeners
     refusal   = Left (text <> " is not a date: spell it 2026-08-05, 2026-08-05 09:30, "
                         <> relativeForms
-                        <> ", today, tomorrow, or org's own <2026-08-05 Wed>")
+                        <> ", today, tomorrow, " <> metaWord MToday
+                        <> ", 18 aug, 18 august 2027, from 18 to 19 aug"
+                        <> ", or org's own <2026-08-05 Wed>")
 
-    dated = relative <|> asDay
-    relative = case T.toLower want of
-      "today"    -> Just today
-      "tomorrow" -> Just (Time.addDays 1 today)
-      offset     -> shifted offset
-    -- ORG'S WHOLE CHARSET, through the one reverse map: `+1y' parses everywhere.
-    shifted offset = do
-      digits <- T.stripPrefix "+" offset
-      (n, rest) <- either (const Nothing) Just (TR.decimal digits :: Either String (Integer, Text))
-      (c, "") <- T.uncons rest
-      (\u -> addUnit u n today) <$> unitOf c
+    -- THE ENGLISH PHRASE IS READ BEHIND ORG'S OWN BRACKETS AND AHEAD OF THE
+    -- REST, because it is the one reading with a refusal of its own to spend:
+    -- an inverted interval names two perfectly good days in the wrong order and
+    -- "is not a date" reads oddly of it.
+    english = case englishSpan today want of
+      Just (Left why)         -> Just (Left why)
+      Just (Right (from, to)) -> Just (Right (orgRange from to))
+      Nothing                 -> Right . (`stamped` Nothing) <$> englishDay today want
 
-    asDay :: Maybe Time.Day
-    asDay = dayOf want
+    -- THE ONE SHIFT GRAMMAR ('shiftIn') over THE ONE BASE READER ('dayNamed'):
+    -- what the filter's table serves and what a date-owed field takes are one
+    -- grammar, sign for sign, and the planning words compose because a word
+    -- legal alone is legal shifted.  Lower-casing leaves an ISO day's digits and
+    -- hyphens where they were, so the bare day needs no branch of its own.
+    dated = case T.toLower want of
+      w | Just d <- baseDay w             -> Just d
+        | Just (base, n, u) <- shiftIn w  -> shiftDay u n =<< baseDay base
+        | otherwise                       -> Nothing
+    -- @today@ and @tomorrow@ are THIS WALL'S OWN WORDS, layered over the shared
+    -- reader: a query spells @*today*@, so the filter is owed no English here.
+    baseDay w
+      | w == "today"    = Just today
+      | w == "tomorrow" = Just (Time.addDays 1 today)
+      | otherwise       = dayNamed today w
+
     -- @%k@ rather than @%H@: it reads one digit as well as two, so @9:05@ is the
     -- time a reader meant rather than a refusal over a zero.
     asLocal :: Maybe Time.LocalTime
     asLocal = Time.parseTimeM True Time.defaultTimeLocale "%Y-%m-%d %k:%M" (T.unpack want)
     withTime = timedStamp activeBrackets
     stamped  = orgStamp activeBrackets
+
+-- | The MONTH WORDS an English date may spell: org's three-letter form and the
+-- full one, lower case, matched after 'T.toLower'.  @may@ is ONE entry, its two
+-- forms coinciding; @sept@ and any form carrying a full stop are outside the
+-- table on purpose.
+--
+-- THE ONLY LANGUAGE-BEARING DATUM in the grammar: a second language is a second
+-- table and a selector — plus @from@ and @to@, which the same table can carry —
+-- and nothing else in the parser moves.
+monthWords :: [(Text, Int)]
+monthWords =
+  [ ("jan", 1),  ("january", 1),   ("feb", 2),  ("february", 2)
+  , ("mar", 3),  ("march", 3),     ("apr", 4),  ("april", 4)
+  , ("may", 5)
+  , ("jun", 6),  ("june", 6),      ("jul", 7),  ("july", 7)
+  , ("aug", 8),  ("august", 8),    ("sep", 9),  ("september", 9)
+  , ("oct", 10), ("october", 10),  ("nov", 11), ("november", 11)
+  , ("dec", 12), ("december", 12) ]
+
+-- | The day TEXT names in English against TODAY: @18 aug@ or @aug 18@, either
+-- arrangement optionally carrying a year.  'Nothing' where TEXT names no day —
+-- THE WHOLE FIELD IS THE PHRASE, so one word outside the grammar leaves the
+-- value text rather than guessing at a date inside it.
+--
+-- THE YEAR IS THE CLOCK'S, FLAT: @18 aug@ typed in December means that August,
+-- and a typist meaning next year writes the year.  'Time.fromGregorianValid' is
+-- the wall @31 feb@ and @29 feb@ in a common year meet.  THE WEEKDAY IS NEVER
+-- READ — it is computed on render — so @thu 18 aug@ is text even when Thursday
+-- is right.
+englishDay :: Time.Day -> Text -> Maybe Time.Day
+englishDay today text = case englishFields (wsWords (T.toLower text)) of
+  Just (d, Just m, y) -> Time.fromGregorianValid (fromMaybe (yearOf today) y) m d
+  _noEnglishDate      -> Nothing
+
+-- | The two days an English INTERVAL names against TODAY.  @from@ is optional
+-- and @to@ is not, so @18 to 19 aug@ is the interval where @18 19 aug@ is text.
+--
+-- THE LEFT END INHERITS EVERY FIELD IT ELIDES from the right — the English idiom
+-- says one month once — which is why @from 18 to 19 august 2027@ is two days in
+-- 2027 rather than a twelve-month span.  'Nothing' means TEXT spells no interval
+-- at all; 'Left' is the ONE refusal this parser spends a word on, an interval
+-- whose END FALLS BEFORE ITS START, and the remedy it names is a typed year.
+-- The degenerate pair is no refusal: it comes back with both ends equal and
+-- COLLAPSES at the renderer.
+englishSpan :: Time.Day -> Text -> Maybe (Either Text (Time.Day, Time.Day))
+englishSpan today text = do
+  (leftWs, rightWs) <- cut (dropFrom (wsWords (T.toLower text)))
+  (rd, rmonth, ry)  <- englishFields rightWs
+  -- THE RIGHT END SPELLS ITS OWN MONTH: it has nothing to inherit from.
+  rm                <- rmonth
+  (ld, lm, ly)      <- englishFields leftWs
+  let year = fromMaybe (yearOf today) ry
+  to   <- Time.fromGregorianValid year rm rd
+  from <- Time.fromGregorianValid (fromMaybe year ly) (fromMaybe rm lm) ld
+  pure (if from > to then Left (inverted text) else Right (from, to))
+  where
+    dropFrom ("from" : rest) = rest
+    dropFrom ws              = ws
+    cut ws = case break (== "to") ws of
+      (before, _to : after) | not (null before), not (null after) -> Just (before, after)
+      _noKeyword                                                  -> Nothing
+    inverted phrase =
+      phrase <> " ends before it starts: spell a year at each end,"
+             <> " as in from 30 dec 2026 to 2 jan 2027"
+
+-- | The DAY, the MONTH and the YEAR a phrase's WORDS name, the last two
+-- 'Nothing' where the words elide them — which only an interval's LEFT END may
+-- do.  A BARE DAY AND A BARE MONTH ARE NO DATE on their own; 'englishDay' is
+-- what refuses them, by demanding the month.
+englishFields :: [Text] -> Maybe (Int, Maybe Int, Maybe Integer)
+englishFields [d]       = (\n -> (n, Nothing, Nothing)) <$> dayWord d
+englishFields [a, b]    = dayAndMonth a b Nothing
+englishFields [a, b, y] = dayAndMonth a b . Just =<< yearWord y
+englishFields _noPhrase = Nothing
+
+-- | The day and month two words name, EITHER ARRANGEMENT — @18 aug@ and
+-- @aug 18@ — carrying the year Y its caller already read.
+dayAndMonth :: Text -> Text -> Maybe Integer -> Maybe (Int, Maybe Int, Maybe Integer)
+dayAndMonth a b y = shaped <$> dayWord a <*> monthWord b
+                <|> flip shaped <$> monthWord a <*> dayWord b
+  where shaped d m = (d, Just m, y)
+
+-- | A DAY NUMBER: one digit or two, naming 1..31.  @18th@ keeps its ordinal
+-- suffix and @018@ its third character, so neither is a day here.
+dayWord :: Text -> Maybe Int
+dayWord w
+  | T.length w <= 2, Just n <- digitsOnly w, n >= 1, n <= 31 = Just (fromInteger n)
+  | otherwise                                                = Nothing
+
+-- | A YEAR: FOUR DIGITS AND NEVER TWO, which is what keeps @18 aug 18@ text
+-- where a fuzzy reader answers 2018.
+yearWord :: Text -> Maybe Integer
+yearWord w | T.length w == 4 = digitsOnly w
+           | otherwise       = Nothing
+
+monthWord :: Text -> Maybe Int
+monthWord w = lookup w monthWords
+
+-- | W as a WHOLE decimal run, or 'Nothing': a suffix, a sign or a separator left
+-- over means W was never a number.
+digitsOnly :: Text -> Maybe Integer
+digitsOnly w = case TR.decimal w of
+  Right (n, "") -> Just n
+  _notANumber   -> Nothing
+
+-- | TEXT's words over THE GRAMMAR'S OWN SEPARATOR — a run of spaces and tabs and
+-- nothing else, so @18  aug@ is @18 aug@.  A NEWLINE IS NO SEPARATOR HERE: it
+-- stays inside its word, no phrase carrying one reads as a date, and none can
+-- reach a planning line to break it in two.
+wsWords :: Text -> [Text]
+wsWords = filter (not . T.null) . T.split (\c -> c == ' ' || c == '\t')
+
+yearOf :: Time.Day -> Integer
+yearOf day = y where (y, _month, _day) = Time.toGregorian day
+
+-- | The days FROM..TO as org spells them: the @--@ pair joining two stamps,
+-- each computing its OWN WEEKDAY off its date.  NO SECOND STAMP RENDERER —
+-- 'TextShow' is the lossy REPL re-serializer and never a write-back channel
+-- (docs/invariants.md), so the bytes a write lands are spelled through this
+-- module's own 'orgStamp', beside every other stamp this wall writes.
+--
+-- A DEGENERATE PAIR COLLAPSES to the single stamp: equal ENDS write one stamp
+-- and no @--@, so @from 18 to 18 aug@ and @18 aug@ land on the same bytes and
+-- the law stays "refuse end before start" rather than growing a second clause.
+orgRange :: Time.Day -> Time.Day -> Text
+orgRange from to = one from <> (if to == from then "" else "--" <> one to)
+  where one d = orgStamp activeBrackets d Nothing
 
 -- | The brackets org writes a timestamp in, DERIVED from the pair the parser
 -- matches on: a bracket it declines would reach the disk uncaught.

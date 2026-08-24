@@ -87,6 +87,11 @@ type alias Model =
     -- moment the sheet is left.  This field draws the row and nothing else.
     , draftPair : Bool
 
+    -- THE KEYWORD A SUMMONED DATE WIDGET HAS GHOSTED ONTO THE PLANNING LINE, so
+    -- the value it stands in has a slot even where the entry does not exist yet.
+    -- Like `draftPair' it draws and nothing more: `plan' is what a flush writes.
+    , draftPlan : Maybe String
+
     -- The FOLDED composites, by id; every drawer starts here.
     , shut : Set String
     }
@@ -94,7 +99,25 @@ type alias Model =
 
 empty : Model
 empty =
-    Model [] [] Array.empty Array.empty 0 [] [] Nothing 0 1 Nothing Nothing [] [] [] False Set.empty
+    { rows = []
+    , lines = []
+    , arr = Array.empty
+    , offsets = Array.empty
+    , at = 0
+    , flags = []
+    , links = []
+    , spanAt = Nothing
+    , shift = 0
+    , level = 1
+    , titleAt = Nothing
+    , landing = Nothing
+    , props = []
+    , plan = []
+    , planKeys = []
+    , draftPair = False
+    , draftPlan = Nothing
+    , shut = Set.empty
+    }
 
 
 {-| A SIBLING SHARES AN OWNER, and that is the step for contents: `n'/`p' walk
@@ -380,6 +403,8 @@ type Msg
     | Undraft String
     | DraftPair
     | UndraftPair String
+    | DraftPlan String
+    | UndraftPlan String
     | Tab
     | AddProp String String
     | SetMeta (List ( String, String )) (List ( String, String ))
@@ -720,11 +745,23 @@ update msg model =
         -- And the same row taken away, point back on the stop `+' was pressed
         -- over: the drawer is byte-identical, having never moved.
         UndraftPair id ->
+            backTo id { model | draftPair = False }
+
+        -- `C-c C-s' / `C-c C-d' SUMMON THE WIDGET OVER THE VALUE'S OWN SLOT, and
+        -- a row with no such entry has none to summon over: the keyword is
+        -- ghosted onto the planning line -- drawn where the row had none -- and
+        -- point lands on it, so the box is laid over the row it writes.
+        DraftPlan key ->
             let
                 fresh =
-                    remeta { model | draftPair = False }
+                    remeta { model | draftPlan = Just key }
             in
-            told { fresh | at = placeOf fresh id }
+            told { fresh | at = placeOf fresh Body.planId }
+
+        -- And the same keyword taken away: the line is the bytes it was,
+        -- including its ABSENCE where the summon drew it in.
+        UndraftPlan id ->
+            backTo id { model | draftPlan = Nothing }
 
 
 {-| THE PANE IS A NARROWING: what is written stays INSIDE the materialized
@@ -761,6 +798,19 @@ told m =
     ( m, docState (stateJSON m) )
 
 
+{-| A DRAFT TAKEN AWAY, point back on ID -- the stop it was summoned over, NAMED
+rather than counted back to.  The caller clears the field, so the lists are the
+bytes they were.
+-}
+backTo : String -> Model -> ( Model, Cmd Msg )
+backTo id m =
+    let
+        fresh =
+            remeta m
+    in
+    told { fresh | at = placeOf fresh id }
+
+
 {-| POINT IS NEVER HIDDEN: whatever moved it, every folded drawer holding it
 opens on the way.
 -}
@@ -784,11 +834,25 @@ remeta m =
         | rows =
             case List.filter (\r -> r.kind /= Meta) m.rows of
                 head :: rest ->
-                    head :: Body.metaRows m.plan m.props m.draftPair ++ rest
+                    head
+                        :: Body.metaRows
+                            { entries = entriesOf m
+                            , props = m.props
+                            , drafting = m.draftPair
+                            }
+                        ++ rest
 
                 [] ->
                     []
     }
+
+
+{-| ONE READING of the planning line for the row's text and for the HTML, so the
+span the date widget is laid over stands in the line the row spells out.
+-}
+entriesOf : Model -> List ( String, String )
+entriesOf m =
+    Body.planEntries m.plan m.draftPlan
 
 
 {-| Point lands on ID where its row survives, on the drawer -- always drawn --
@@ -1228,6 +1292,14 @@ msgD =
                     "undraftpair" ->
                         D.map UndraftPair (D.field "id" D.string)
 
+                    -- No id: the line is org's own one, and the keyword says
+                    -- which slot on it the widget is standing in.
+                    "draftplan" ->
+                        D.map DraftPlan (D.field "key" D.string)
+
+                    "undraftplan" ->
+                        D.map UndraftPlan (D.field "id" D.string)
+
                     "tab" ->
                         D.succeed Tab
 
@@ -1591,6 +1663,11 @@ viewPara m r =
 
 {-| The planning line, each keyword a reserved token the way org paints
 `SCHEDULED:' -- the timestamp itself stays the line's own.
+
+THE VALUE IS ITS OWN SLOT, named by the keyword: the date widget stands IN it
+rather than beside it, and the box is laid over the span this draws (`placeEdit',
+frontend/glue/20-sheet.js).  The span holds the value's text and nothing else, so
+the line reads character for character.
 -}
 viewPlanning : Model -> List (Html Msg)
 viewPlanning m =
@@ -1606,10 +1683,11 @@ viewPlanning m =
                     )
                 , span [ class "dk" ]
                     [ text key, span [ class "dpunc" ] [ text ":" ] ]
-                , text (" " ++ value)
+                , text " "
+                , span [ class "dpv", attribute "data-key" key ] [ text value ]
                 ]
             )
-            m.plan
+            (entriesOf m)
         )
 
 

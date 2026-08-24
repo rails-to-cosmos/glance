@@ -22,6 +22,7 @@ module Body exposing
     , propIndex
     , ownersOf
     , markerFor
+    , planEntries
     , planningKey
     , planningText
     , propertyText
@@ -256,13 +257,20 @@ rowsFrom lines own headCells kids =
 element when any pair exists, the drawer a composite (id `PR') over one leaf per
 pair.  The drawer is always drawn -- `+' needs a place to land.  DRAFTING draws
 one more leaf, empty, where the pair being typed will stand: a row and not a
-PAIR, since the drawer's list is what a flush writes.
+PAIR, since the drawer's list is what a flush writes.  ENTRIES is the line as the
+pane DRAWS it (`planEntries'), so it stands where the entry does not exist yet
+and the row and the HTML paint one list.
 -}
-metaRows : List ( String, String ) -> List ( String, String ) -> Bool -> List Row
-metaRows plan props drafting =
+metaRows :
+    { entries : List ( String, String )
+    , props : List ( String, String )
+    , drafting : Bool
+    }
+    -> List Row
+metaRows { entries, props, drafting } =
     let
         planning =
-            if List.isEmpty plan then
+            if List.isEmpty entries then
                 []
 
             else
@@ -270,8 +278,8 @@ metaRows plan props drafting =
                     | id = planId
                     , kind = Meta
                     , grain = Element
-                    , text = planningText plan
-                    , was = planningText plan
+                    , text = planningText entries
+                    , was = planningText entries
                   }
                 ]
 
@@ -312,6 +320,27 @@ metaRows plan props drafting =
 planningText : List ( String, String ) -> String
 planningText plan =
     String.join " " (List.map (\( k, v ) -> k ++ ": " ++ v) plan)
+
+
+{-| The planning entries as the pane DRAWS them: the model's own, and after them
+the keyword a summoned widget has ghosted in, valueless, so a value the entry has
+not got still has a slot to stand in.  It lands at the END, where `setPlanning'
+and the server's own composer put an entry the line did not already hold.
+A GHOSTED KEYWORD IS NO ENTRY: `plan' is what a flush writes, and this list is
+never that.
+-}
+planEntries : List ( String, String ) -> Maybe String -> List ( String, String )
+planEntries plan summoned =
+    case summoned of
+        Just key ->
+            if List.any (\( k, _ ) -> k == key) plan then
+                plan
+
+            else
+                plan ++ [ ( key, "" ) ]
+
+        Nothing ->
+            plan
 
 
 {-| KEY as one of KEYWORDS, the case folded away, or nothing. A drawer key that

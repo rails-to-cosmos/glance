@@ -317,18 +317,26 @@ page head' colours title body = T.unlines
   , "  .dc{margin-right:.6em;flex:none}"
   , "  .dc-title{flex:1 1 auto;min-width:0}"
   , "  .dc-tags{color:var(--punc);font-size:11px;margin-left:auto;margin-right:0}"
-  , "  #dtitle,#dpara,#dpair,#sedit,#tedit,#ledit{display:none;position:absolute;"
-  , "    background:var(--g-sel)}"
-  , "  #dpara,#dpair,#dtitle{background:var(--g-surface)}"
+  , "  #dtitle,#dpara,#dpair,#ddate,#sedit,#tedit,#ledit{display:none;"
+      <> "position:absolute;background:var(--g-sel)}"
+  , "  #dpara,#dpair,#ddate,#dtitle{background:var(--g-surface)}"
   , "  #dtitle{min-width:8em}"
   , "  #sedit{left:0;right:0}"
   , "  #chues{position:relative}"
   , "  #cstates{overflow:auto;max-height:40vh}"
   -- Fallback only; `placeEdit' places from the ROW's own box.
   , "  #dpara,#dpair{left:var(--g-doc-padx);right:var(--g-doc-padx)}"
-  , "  #dtitle.on,#dpair.on,#sedit.on,#tedit.on,#ledit.on{"
+  , "  #dtitle.on,#dpair.on,#ddate.on,#sedit.on,#tedit.on,#ledit.on{"
       <> "display:flex;align-items:center}"
   , "  #dpara.on{display:flex}"
+  -- THE TWO GOLDS, AND WHY ONE OF THEM HAS TO GO WHILE A TIGHT BOX STANDS.
+  -- `--g-sel' is spent on both the cursor row's own wash (`:154') and every
+  -- field's TEXT SELECTION (below): a box standing INSIDE its row over one slot
+  -- would select its entry in the gold already behind it -- SET, FOCUSED AND
+  -- INVISIBLE.  The box's own ground says where the edit is, so the row lifts
+  -- its.  THE SHAPE DECLARES ITSELF TIGHT (`openEdit' stamps the pane), so this
+  -- names no one box.
+  , "  #mdoc.on.tight .de.dat{background-color:transparent}"
   -- THE PAIR WEARS THE DRAWER'S OWN COLONS, since it is drawn where the pair
   -- will stand; `--punc' is a ROW's variable and no row holds this box.
   , "  #dpair{--punc:var(--g-mute)}"
@@ -336,11 +344,11 @@ page head' colours title body = T.unlines
   -- rows beneath: small and mute, since what is being read is the field.
   -- NO STACKING NUMBER: the box is positioned and stands after `#dlist', so it
   -- paints over the rows already — and the page's numbers are the backdrop's.
-  , "  #doffer{display:none;position:absolute;top:100%;left:0;"
+  , "  #doffer,#dwoffer{display:none;position:absolute;top:100%;left:0;"
   , "    min-width:12em;max-height:calc(6 * var(--g-doc-lh));overflow-y:auto;"
   , "    background:var(--g-surface);border:1px solid var(--g-border);"
   , "    border-radius:4px;font-size:11px}"
-  , "  #doffer.on{display:block}"
+  , "  #doffer.on,#dwoffer.on{display:block}"
   , "  .dof{display:flex;align-items:baseline;gap:8px;"
   , "    padding:1px var(--g-doc-pad);color:var(--g-mute);white-space:pre}"
   , "  .dof.dat{background:var(--g-sel);color:var(--g-fg)}"
@@ -353,9 +361,25 @@ page head' colours title body = T.unlines
   , "    background:transparent;color:var(--g-fg);min-width:0}"
   -- ONE DRESS FOR THE PANE'S OWN FIELDS: the document's face, since each one is
   -- laid over the row it writes.  The FLEX is each field's own.
-  , "  #dtin,#dpair input{font:inherit;padding:0;border:none;"
+  , "  #dtin,#dpair input,#ddate input{font:inherit;padding:0;border:none;"
   , "    background:transparent;color:var(--g-fg);min-width:0}"
   , "  #dtin{flex:1}"
+  -- NO WIDTH RULE HERE: a ghosted field is exactly as wide as what it holds, and
+  -- `drawGhost' writes the `ch' width AND takes the `flex' off per keystroke, so
+  -- a rule here would only restate what an inline style already wins.
+  , "  #dwhen::placeholder{color:var(--g-mute);opacity:1}"
+  -- THE GHOST: the resolution riding after what was typed, on the field's own
+  -- line -- mute where it resolves, the refusal's own ink where the grammar
+  -- refuses outright.  A SPAN AND NEVER THE FIELD'S VALUE: nothing selects it.
+  , "  .dgh{flex:none;white-space:pre;color:var(--g-mute);"
+  , "    user-select:none;pointer-events:none}"
+  , "  .dgh.bad{color:var(--g-bad)}"
+  -- THE VALUE'S OWN SLOT, which the widget is laid over: an inline-BLOCK, so its
+  -- box is the pane's own line whatever it holds, and a zero-width space where a
+  -- summoned keyword has no value yet -- an empty INLINE box has no height for
+  -- `placeEdit' to measure.
+  , "  .dpv{display:inline-block;line-height:var(--g-doc-lh)}"
+  , "  .dpv:empty::before{content:\"\\200B\"}"
   -- The key is the short half and the value the long one, org's own reading;
   -- the margin is the SPACE org writes after the closing colon.
   , "  #dkey{flex:1 1 30%}"
@@ -369,9 +393,9 @@ page head' colours title body = T.unlines
   , "  #dpara textarea::-webkit-scrollbar{width:0;height:0}"
   , "  #sedit input:focus,#tedit input:focus,"
   , "  #ledit input:focus{outline:none;border-bottom-color:var(--g-border)}"
-  , "  #dpara textarea:focus,#dtin:focus,#dpair input:focus{"
-      <> "outline:none;border:none}"
-  , "  #dtin::selection,#dpair input::selection,"
+  , "  #dpara textarea:focus,#dtin:focus,#dpair input:focus,"
+      <> "#ddate input:focus{outline:none;border:none}"
+  , "  #dtin::selection,#dpair input::selection,#ddate input::selection,"
   , "  #sedit input::selection,#tedit input::selection,"
   , "  #ledit input::selection,#dpara textarea::selection{"
   , "    background:var(--g-sel);color:var(--g-fg)}"
@@ -488,7 +512,7 @@ page head' colours title body = T.unlines
   , "    #app .tv-chips:empty::after{content:\"filter …\";color:var(--g-mute);"
   , "      font-size:12px}"
   , "    #mpanes{flex-direction:column}"
-  , "    #mtext,#pinput,#dtin,#dpair input,"
+  , "    #mtext,#pinput,#dtin,#dpair input,#ddate input,"
   , "    #sedit input,#tedit input,#ledit input,"
   , "    #dpara textarea,#ktag,#kfields input,#ktext,#app .tv-filter,"
   , "    .ctext,.cview{font-size:16px}}"

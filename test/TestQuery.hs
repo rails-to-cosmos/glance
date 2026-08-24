@@ -14,8 +14,10 @@ import System.FilePath ((</>))
 import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults ( assertContains, columnKeysOf, columnOf, entryAs, field, listAt
-                    , orgFile, textAt, viewDir, withDoc, withTempDirNamed )
+import TestDefaults ( assertContains, columnKeysOf, columnOf, dateCorpus, dateCorpusPath
+                    , entryAs, field, listAt
+                    , orgFile, refusedNaming, textAt, viewDir, withDoc
+                    , withTempDirNamed )
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -33,6 +35,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineParts (..
                     , BlobSeed (..), blobDocument, blobPathIn
                     , captureCodes, captureEdits, captureStamp, captureTemplateEdits
                     , captureTemplateIn, captureTemplateOf
+                    , dayOf, isoDay, monthWords, shiftDay, shiftIn
                     , defaultWalk, derivedPath, documentPath
                     , displayText, editLinkEdits, expandTemplate
                     , headlineParts, hiddenProperties
@@ -1802,7 +1805,15 @@ commandSpec = testGroup "Commands"
         , ("+2w",                   "<2026-08-15 Sat>")
         , ("+1m",                   "<2026-09-01 Tue>")
         -- ORG'S WHOLE CHARSET: the parser reads four units, so this reader takes four.
-        , ("+1y",                   "<2027-08-01 Sun>") ]
+        , ("+1y",                   "<2027-08-01 Sun>")
+        -- ONE SHIFT GRAMMAR ('shiftIn', the filter's own compile): both signs,
+        -- any base the field reads alone, month steps CLIPPED.
+        , ("-3d",                   "<2026-07-29 Wed>")
+        , ("today+3d",              "<2026-08-04 Tue>")
+        , ("tomorrow+1w",           "<2026-08-09 Sun>")
+        , ("*today*-7d",            "<2026-07-25 Sat>")
+        , ("2026-08-01+1d",         "<2026-08-02 Sun>")
+        , ("2026-01-31+1m",         "<2026-02-28 Sat>") ]
 
       -- Only an already-bracketed value is reparsed, so what the rest RENDER is asserted here.
     , testCase "and everything it computes reads back as a timestamp" $
@@ -1822,8 +1833,80 @@ commandSpec = testGroup "Commands"
                                ["+1d", "+1w", "+1m", "+1y"]
 
     , testCase "and everything else is refused, by name" $ mapM_ refuses
-        [ "", "   ", "next tuesday", "05/08/2026", "2026-13-01", "+3", "+3x", "-3d"
+        [ "", "   ", "next tuesday", "05/08/2026", "2026-13-01", "+3", "+3x"
+        , "today+3", "18 aug+1d", "2026-8-1+1d"
         , "<not a date>", "<2026-08-05 Wed", "2026-08-05 25:00" ]
+
+      -- THE PIN ON THE ONE SHIFT GRAMMAR: the wall reads shifts through the very
+      -- 'shiftIn' the filter compiles with (spec-pinned in TestSpec via Filter's
+      -- re-export), so a shifted literal resolves at the wall to the day
+      -- 'shiftDay' serves off its base, clip rule and all.
+    , testCase "a shifted literal lands on the day the filter's compile serves" $
+        sequence_
+          [ case shiftIn lit of
+              Nothing -> assertFailure (T.unpack lit <> " spells no shift")
+              Just (base, n, u) -> do
+                b <- maybe (assertFailure (T.unpack lit <> ": unreadable base")) pure
+                           (baseOf base)
+                d <- maybe (assertFailure (T.unpack lit <> ": unshiftable")) pure
+                           (shiftDay u n b)
+                assertEqual (T.unpack lit)
+                            (planningTimestamp today (isoDay d))
+                            (planningTimestamp today lit)
+          | lit <- [ "+3d", "-3d", "+03d", "*today*+30d", "*today*-7d"
+                   , "today+3d", "tomorrow+1w", "2026-08-01+1d", "2026-01-31+1m" ] ]
+    ]
+
+    -- THE SHARED CORPUS IS THE DRIFT PIN between the two resolvers
+    -- ('dateCorpusPath'): the SERVER'S answer is the truth the pane redraws
+    -- from, and every vector here is owed an answer by both halves.
+  , testGroup "the English dates a date-owed field takes"
+    [ testCase ("every vector in " <> dateCorpusPath <> ", resolved or refused") $ do
+        vectors <- dateVectors
+        -- The proposal's own table, whole: 48 single dates and 18 intervals.
+        assertBool ("the corpus carries the proposal's rows: " <> show (length vectors))
+                   (length vectors >= 66)
+        mapM_ resolvesAs vectors
+
+      -- "Not a date" reads oddly of a phrase naming two perfectly good ones, so
+      -- the inversion gets its own wording AND names the remedy.
+    , testCase "an inverted interval names the inversion and its remedy" $
+        refusedNaming "an inverted interval" ["ends before it starts", "spell a year"]
+                      (planningTimestamp today "from 30 dec to 2 jan")
+
+      -- Only an already-bracketed value is reparsed, so what the English forms
+      -- RENDER is asserted to read back here.
+    , testCase "and everything English computes reads back as a timestamp" $
+        mapM_ (\text' -> case planningTimestamp today text' of
+                 Left why    -> assertFailure (T.unpack text' <> " refused: " <> T.unpack why)
+                 Right stamp -> assertBool (T.unpack stamp <> " does not reparse")
+                                           (readsAsTimestamp stamp))
+              [ "18 aug", "18 august 2027", "from 18 to 19 aug"
+              , "from 30 dec 2026 to 2 jan 2027", "from 18 to 18 aug" ]
+
+      -- ONE ANSWER PER MEANING: the collapse is what makes the grammar's two
+      -- spellings of one day agree, so neither is a fixed point the other lacks.
+    , testCase "the degenerate interval and the bare date land on the same bytes" $
+        assertEqual "one day, two spellings"
+                    (planningTimestamp today "18 aug")
+                    (planningTimestamp today "from 18 to 18 aug")
+
+      -- RET, RET, RET on one field yields one answer: the second reading meets
+      -- the bracketed branch and hands the bytes straight back.
+    , testCase "and a stamp it computes is a fixed point under a second reading" $
+        mapM_ (\text' -> case planningTimestamp today text' of
+                 Left why    -> assertFailure (T.unpack text' <> " refused: " <> T.unpack why)
+                 Right stamp -> assertEqual (T.unpack text' <> ", read twice") (Right stamp)
+                                            (planningTimestamp today stamp))
+              [ "18 aug", "from 18 to 19 aug", "today", "+3d", "2026-08-05" ]
+
+      -- The table is the ONLY language-bearing datum, so it is stated whole here.
+    , testCase "the month table is twelve months, the short form and the full" $ do
+        assertEqual "twelve months" [1 .. 12] (nub (sort (map snd monthWords)))
+        assertEqual "may is ONE entry, its two forms coinciding"
+                    [("may", 5)] (filter ((== 5) . snd) monthWords)
+        assertEqual "and nothing outside it reads" [Nothing, Nothing, Nothing]
+                    (map (`lookup` monthWords) ["sept", "aug.", "augustus"])
     ]
 
   , testGroup "set-planning"
@@ -2046,6 +2129,29 @@ refuses :: Text -> Assertion
 refuses text' = case planningTimestamp today text' of
   Right stamp -> assertFailure (show text' <> ": read as " <> T.unpack stamp)
   Left why    -> assertBool (T.unpack why) ("is not a date" `T.isInfixOf` why)
+
+-- | The day a shift BASE names, restated for the pin.
+baseOf :: Text -> Maybe Time.Day
+baseOf b | T.null b || b `elem` ["today", "*today*"] = Just today
+         | b == "tomorrow"                           = Just (Time.addDays 1 today)
+         | otherwise                                 = dayOf b
+
+-- | 'dateCorpus' with its reference column read as a day: the shared loader
+-- carries the ISO text, and the wall under test here is asked in 'Time.Day'.
+dateVectors :: IO [(Text, Time.Day, Either Text Text)]
+dateVectors = mapM asked =<< dateCorpus
+  where
+    asked (typed, iso, owed) =
+      maybe (assertFailure ("not an ISO day: " <> T.unpack iso))
+            (\day -> pure (typed, day, owed))
+            (dayOf iso)
+
+-- | One corpus vector, asserted through the wall every date-owed surface shares.
+resolvesAs :: (Text, Time.Day, Either Text Text) -> Assertion
+resolvesAs (typed, day, Right stamp) =
+  assertEqual (T.unpack typed) (Right stamp) (planningTimestamp day typed)
+resolvesAs (typed, day, Left word) =
+  refusedNaming (show typed) [word] (planningTimestamp day typed)
 
 -- | DOC with TEXT captured into it, at 'stampedAt'.
 captured :: Text -> Text -> Either Text Text

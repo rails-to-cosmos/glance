@@ -165,6 +165,11 @@
       applyAgenda: (b) => applyView(b, savedQuery("agenda"), (total) => landedAgenda(b, total)),
       schedulePlan: (b) => planRows(b, "SCHEDULED"),
       deadlinePlan: (b) => planRows(b, "DEADLINE"),
+      // THE SAME PAIR OVER THE MATERIAL DOCUMENT, the one surface with a slot to
+      // stand in: the widget over the row's own value, where the table has
+      // marked rows and a prompt.  One command, two handlers -- `@''s split.
+      scheduleHere: (b) => planHere(b, "SCHEDULED"),
+      deadlineHere: (b) => planHere(b, "DEADLINE"),
       quitWindow: () => {
         if (editing) { leaveSheet(); return; }
         const host = window.webkit && window.webkit.messageHandlers

@@ -753,12 +753,19 @@ const makeText = (data) => {
   return t;
 };
 
-/** The selector subset written here: descendant chains of tag, `#id', `.class'
- * and `:not(...)'. */
+/** The selector subset written here: descendant chains of tag, `#id', `.class',
+ * `[attr]' / `[attr="value"]' and `:not(...)'. */
 const parseSel = (sel) => String(sel).split(",")
   .map((alt) => alt.trim().split(/\s+/).filter(Boolean).map((step) => {
-    const s = { tag: "", id: "", cls: [], not: [] };
+    const s = { tag: "", id: "", cls: [], not: [], attr: [] };
     let rest = step.replace(/:not\(([^)]*)\)/g, (_m, inner) => { s.not.push(inner); return ""; });
+    // A PLANNING SLOT IS NAMED BY ITS KEYWORD (`viewPlanning', Doc.elm), which
+    // is the one place the page asks for an attribute rather than a class.
+    rest = rest.replace(/\[([\w-]+)(?:=("[^"]*"|'[^']*'|[^\]]*))?\]/g,
+      (_m, name, val) => {
+        s.attr.push([name, val === undefined ? null : val.replace(/^["']|["']$/g, "")]);
+        return "";
+      });
     const tag = rest.match(/^[A-Za-z][\w-]*/);
     if (tag) { s.tag = tag[0].toUpperCase(); rest = rest.slice(tag[0].length); }
     for (const bit of rest.split(/(?=[.#])/).filter(Boolean))
@@ -770,6 +777,8 @@ const stepHits = (el, s) => isEl(el)
   && (!s.tag || el.tagName === s.tag)
   && (!s.id || el.id === s.id)
   && s.cls.every((c) => el.classList.contains(c))
+  && s.attr.every(([name, want]) => (want === null
+    ? el.getAttribute(name) !== null : el.getAttribute(name) === want))
   && s.not.every((inner) => !selHits(el, parseSel(inner)));
 const chainHits = (el, chain) => {
   if (!stepHits(el, chain[chain.length - 1])) return false;
@@ -1056,19 +1065,44 @@ const typeIn = (box, which, text) => {
     throw new Error(`the document has no ${box} open: ${which}`);
   typed(field(which), text);
 };
-const typeLink = (which, text) => {
-  if (field("ledit").className !== "on")
-    throw new Error(`no link is open for editing: ${which}`);
-  typed(field(which), text);
+/** Type TEXT into FIELDID, inside BOXID, which must be open.  THE FIELD IS
+ * FOCUSED because a driver types where the READER would, which is what the
+ * pair's own keys read; `_' is a space, this file's own notation, and VERBATIM
+ * is for a text that holds no space to spell that way -- a property key
+ * (`ORG_GLANCE_ID' is one it does hold), or a link's URL.  WHATEVER STANDS IN
+ * THE FIELD IS REPLACED, as an entry that came up wholly selected is. */
+const typeInto = (boxId, fieldId, text, verbatim) => {
+  if (field(boxId).className !== "on")
+    throw new Error(`no ${boxId} is open: ${fieldId}`);
+  field(fieldId).focus();
+  typed(field(fieldId),
+        verbatim ? String(text) : String(text).replace(/_/g, " "));
 };
-// A KEY IS TYPED VERBATIM and a value the way every other text is: a property
-// key holds no space to spell with `_', and `ORG_GLANCE_ID' is one it does hold.
-const typeHalf = (which, text) => {
-  if (field("dpair").className !== "on")
-    throw new Error(`the document has no pair open: ${which}`);
-  field(which).focus();
-  typed(field(which),
-        which === "dkey" ? String(text) : String(text).replace(/_/g, " "));
+// THE CORPUS THE TWO RESOLVERS ARE PINNED TO, driven through the GLUE's own
+// reader: `readsDate' is a declaration, so a direct eval of the page's script
+// reaches it here exactly as the shell's own code does.  The reference day is
+// the corpus's and rides the act, so a vector's answer never moves with the
+// clock this run happens to start on.
+const dateReads = [];
+// EVERY PREFIX OF A PHRASE IN TURN, and the ones the ghost answered in the
+// REFUSAL'S INK.  One vector per finished phrase cannot see a refusal that
+// flashes on the way in and is gone by the last keystroke; this walks the way
+// in.  `dateGhost' is a declaration like `readsDate', reached the same way.
+const dateFlashes = [];
+const asDay = (iso) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+  if (!m) throw new Error(`not an ISO day: ${iso}`);
+  return { y: +m[1], m: +m[2], d: +m[3] };
+};
+/** A DATE ACT'S ARGUMENT, `DAY/PHRASE': the day the phrase is asked against
+ * first, the phrase after it, `_' for a space and `~' for a literal
+ * underscore -- so a vector carrying either survives the split on spaces. */
+const dayPhrase = (act, spec) => {
+  const at = String(spec).indexOf("/");
+  if (at === -1) throw new Error(`${act}: wants DAY/PHRASE, got ${spec}`);
+  return { day: asDay(String(spec).slice(0, at)),
+           phrase: String(spec).slice(at + 1)
+             .replace(/_/g, " ").replace(/~/g, "_") };
 };
 const onKeywords = () => {
   const tab = field("ctabs").children.find((t) => t.textContent === "keywords");
@@ -1126,8 +1160,8 @@ const narrows = () => LISTS.map((h) => [h, narrowIn(h)])
   .filter(([, box]) => box).map(([h, box]) => [h, String(box.value)]);
 const listCols = (host) =>
   field(host).querySelectorAll("thead .tv-hn").map((h) => h.textContent);
-const FOCUSABLE = ["mtext", "dtin", "dtext", "dkey", "dval", "ltitle", "lurl",
-                   "tname", "pinput", "ktag", "ktext"];
+const FOCUSABLE = ["mtext", "dtin", "dtext", "dkey", "dval", "dwhen", "ltitle",
+                   "lurl", "tname", "pinput", "ktag", "ktext"];
 const focused = () => {
   if (!active) return "";
   // Drawn by the program that holds the rows, so it carries no id of its own.
@@ -1176,10 +1210,11 @@ const paletteRows = () => field("plist").children.map((row) => {
  * and the hint beside it that names where taking it would land.  ONE accessor
  * for both, the `paletteRows' precedent -- two walks of the same children
  * could answer about two different draws. */
-const docOffers = () => field("doffer").children.map((row) => ({
+const boxOffers = (id) => field(id).children.map((row) => ({
   word: (parts(row, "dow")[0] || {}).textContent || "",
   hint: (parts(row, "dot")[0] || {}).textContent || "",
 }));
+const docOffers = () => boxOffers("doffer");
 
 const logged = () => field("log").children.map((line) => ({
   sev: line.className,
@@ -1344,17 +1379,40 @@ const ACTIONS = {
     box.focus();
     typed(box, text);
   },
-  ltitle: (text) => typeLink("ltitle", text),
-  lurl: (text) => typeLink("lurl", text),
+  ltitle: (text) => typeInto("ledit", "ltitle", text, true),
+  lurl: (text) => typeInto("ledit", "lurl", text, true),
   dtin: (text) => typeIn("dtitle", "dtin", text),
   // `~' is a LITERAL bar, put back after the newlines so an org table row can be
   // typed into a paragraph spelling its line breaks with the same character.
   dpara: (text) => typeIn("dpara", "dtext",
     String(text).replace(/_/g, " ").replace(/\|/g, "\n").replace(/~/g, "|")),
-  // THE HALF IS FOCUSED BY THE VERB that types into it: the pair's own keys
-  // read which one holds point, and a driver types where the reader would.
-  dkey: (text) => typeHalf("dkey", text),
-  dval: (text) => typeHalf("dval", text),
+  dkey: (text) => typeInto("dpair", "dkey", text, true),
+  dval: (text) => typeInto("dpair", "dval", text),
+  /** THE READER'S CLOCK, PINNED.  The ghost resolves a phrase against the day
+   * the reader is on, so a vector's answer would move with the calendar the
+   * suite happens to run on.  `dateNow' is a declaration, so the eval'd glue and
+   * this act share one binding. */
+  dateon: (iso) => { const c = asDay(iso); dateNow = () => c; },
+  dwhen: (text) => typeInto("ddate", "dwhen", text),
+  // `dwhen' with NOTHING to type: the field is emptied the way DEL over a whole
+  // selection empties it, which is what `empty clears it' asks of a reader.
+  dclear: () => typeInto("ddate", "dwhen", ""),
+  /** ONE CORPUS VECTOR through the glue's reader. */
+  date: (spec) => {
+    const { day, phrase } = dayPhrase("date", spec);
+    const r = readsDate(phrase, day);
+    dateReads.push(r.ok ? r.stamp : `\u2717 ${r.short}`);
+  },
+  /** ONE PHRASE TYPED CHARACTER BY CHARACTER.  What lands in `dateFlashes' is
+   * every PROPER PREFIX the ghost refused -- empty for a phrase the reader may
+   * type without being told off mid-word. */
+  dtyping: (spec) => {
+    const { day, phrase } = dayPhrase("dtyping", spec);
+    for (let i = 1; i <= phrase.length; i++) {
+      const g = dateGhost(phrase.slice(0, i), day);
+      if (g.bad) dateFlashes.push(`${phrase.slice(0, i)} \u21d2${g.text}`);
+    }
+  },
   ctext: (text) => (onKeywords(), typeSetting("ctext", text)),
   // TAKING AN EDIT BACK: an act splits on spaces and a `#+TODO:' line is spaces.
   crevert: () => {
@@ -1541,6 +1599,22 @@ const settle = async () => {
     dopen: field("dtitle").className === "on",
     dparaopen: field("dpara").className === "on",
     dpairopen: field("dpair").className === "on",
+    ddateopen: field("ddate").className === "on",
+    dwhen: field("dwhen").value,
+    dghost: field("dghost").textContent,
+    dghostbad: wears(field("dghost"), "bad"),
+    dwoffers: boxOffers("dwoffer"),
+    dwofferat: field("dwoffer").children.findIndex((c) => wears(c, "dat")),
+    // THE ENTRY-SELECTION SHAPE, as a pair against the value's own length: a
+    // selection is a thing a reader SEES, and `0..n of n' is the only reading
+    // that means "one keystroke replaces the whole of it".
+    dwhensel: [field("dwhen").selectionStart, field("dwhen").selectionEnd,
+               field("dwhen").value.length],
+    // The pair box's value half wears the same ghost where its key routes.
+    dvghost: field("dvghost").textContent,
+    dvghostbad: wears(field("dvghost"), "bad"),
+    dateReads,
+    dateFlashes,
     dprows: field("mdoc").style.getPropertyValue("--g-doc-rows"),
     dtin: field("dtin").value,
     dtext: field("dtext").value,
@@ -1591,8 +1665,17 @@ const settle = async () => {
         const td = tr.appendChild(make("td"));
         td.textContent = `c${i}`;
       });
+      // The slot the date widget's overlay is laid over, so the attribute step
+      // has a keyword to pick it out by.
+      const slot = box.appendChild(make("span"));
+      slot.className = "dpv";
+      slot.setAttribute("data-key", "SCHEDULED");
+      slot.textContent = "<2026-08-01 Sat>";
       const sel = box.querySelector("tbody tr.tv-sel");
       return {
+        slot: (box.querySelector('.dpv[data-key="SCHEDULED"]') || {}).textContent || "",
+        // …and it is the KEYWORD that picks it out, not the class beside it.
+        otherSlot: box.querySelectorAll('.dpv[data-key="DEADLINE"]').length,
         rows: box.querySelectorAll("tbody tr").length,
         sel: sel ? sel.textContent : null,
         gutterless: box.querySelectorAll("td:not(.tv-box)").map((td) => td.textContent),

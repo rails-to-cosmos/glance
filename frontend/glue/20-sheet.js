@@ -27,7 +27,9 @@
         dflags = now.flags; dbody = now.body;
         dprops = now.properties; dplan = now.planning;
         // Elm pushes a port BEFORE it paints, so these are read a turn later.
-        soon(() => { seedInsert(now.caret); keepInView(docElAt()); placeEdit(); });
+        soon(() => {
+          seedInsert(now.caret); keepInView(docElAt()); placeEdit(); reselectDate();
+        });
       });
       dport.docSaid.subscribe((what) => { if (dwrote) { dwrote(what); dwrote = null; } });
       dport.docBody.subscribe(commitDoc);
@@ -256,7 +258,9 @@
       // half-typed pair joins the drawer's list, which is what a flush writes.
       if (r.kind === "meta") {
         dsend({ kind: "draftpair" });
-        openEdit(DPAIR, { id: r.id, add: true });
+        // ONE CLOCK READ PER SUMMON here too: the value half wears the date
+        // widget's own ghost and meets the same wall.
+        openEdit(DPAIR, { id: r.id, add: true, today: dateNow() });
         // THE BOX WEARS NO CHROME, so the echo carries what the popup's foot did.
         said(docBinding("org-set-property", "+"),
              "a key, then its value — RET applies · ESC cancels");
@@ -305,6 +309,11 @@
     function openEdit(o, row) {
       edit = { o, row };
       el(o.box).className = "on";
+      // A TIGHT BOX STANDS INSIDE THE ROW RATHER THAN COVERING IT, so the pane
+      // says one is up and the row lifts its own wash while it is (Style.hs:
+      // the two golds).  The stylesheet names no one box, so a new tight shape
+      // is dressed by declaring itself one.
+      el(o.pane).classList.toggle("tight", !!o.tight);
       o.fill(row);
       // The renderer stamps `tv-sel' a frame later, so measure a frame later.
       soon(placeEdit);
@@ -320,6 +329,7 @@
     function shutEdit(o) {
       if (!edit || edit.o !== o) return;
       el(edit.o.box).className = "";
+      el(edit.o.pane).classList.remove("tight");
       for (const id of edit.o.fields) el(id).blur();
       edit = null;
       sizeDocEdit();
@@ -448,10 +458,40 @@
       // half's list.
       focus: () => { el("dkey").focus(); pairMoved(); },
     };
+    // THE PLANNING VALUE'S OWN SLOT, named by the keyword the summon carries:
+    // `viewPlanning' draws each value in its own span (`Doc.elm'), and the box
+    // is laid over THAT rather than over the whole row -- the row already says
+    // the keyword, so the widget restates nothing.  `tight' runs the box to the
+    // row's edge, so the ghost has line to ride on.
+    const dPlanAt = () => {
+      const key = edit && edit.o === DDATE ? edit.row.key : null;
+      return key ? el("dlist").querySelector(`.dpv[data-key="${key}"]`) : null;
+    };
+    const DDATE = {
+      box: "ddate", pane: "mdoc", fields: ["dwhen"],
+      mount: () => null, anchor: dPlanAt, tight: true,
+      // THE FIELD OPENS ON THE VALUE THE WIDGET STANDS ON, so `RET' on an
+      // untouched widget recommits it and the shifted arrows have a day to adjust.
+      // THE OPEN PLACES THE BOX, synchronously: `soon(placeEdit)' lands a frame
+      // late, and the slot's anchor already stands.  Keystrokes never re-place.
+      fill: (r) => { el("dwhen").value = r.val; dateMoved(); placeEdit(); },
+      focus: () => selectWhole(el("dwhen")),
+    };
     const dediting = () => !!edit && edit.o === DTITLE;
     const dparaing = () => !!edit && edit.o === DPARA;
     const dpairing = () => !!edit && edit.o === DPAIR;
-    const sheetOpen = () => dediting() || dparaing() || dpairing();
+    const ddating = () => !!edit && edit.o === DDATE;
+    // THE DOC PANE'S OWN SHAPES, and the only enumeration of them: `edit' is
+    // shared with the table's, so this is asked as MEMBERSHIP rather than as
+    // `!!edit' -- an open rename on another surface is no open sheet edit.
+    const DOCEDITS = [DTITLE, DPARA, DPAIR, DDATE];
+    const sheetOpen = () => !!edit && DOCEDITS.indexOf(edit.o) !== -1;
+    /** THE DAY THE OPEN EDIT READS AGAINST, stamped once when the box was
+     * SUMMONED: the ghost must not answer two days for one phrase while the
+     * reader is looking at it, and the wall above the commit must not refuse
+     * what the ghost accepted.  A door opened over an unstamped row reads the
+     * clock itself, which is one read at that door too. */
+    const editDay = () => (edit && edit.row.today) || dateNow();
     const onPairKey = () => active() === el("dkey");
     // THE TREE'S OWN PROPERTY VOCABULARY, asked ONCE PER SHEET and kept: the
     // door answers `{ keys: {KEY: n}, values: {KEY: {VALUE: n}} }'.  A build
@@ -465,10 +505,15 @@
         .catch(() => {});
     }
     const OFFERS = 6;   // the knob, and the only place the cap is spelled
-    let doffers = [], dofferAt = -1;   // `-1' is point on NO offer
     // What an offer that would REROUTE says about itself, and the only warning
     // the key half gives that the word is no property.
     const PLAN_HINT = "planning";
+    /** ONE WIDGET, BOTH DOORS: a pair whose key routes to a settable planning
+     * word owes a DATE in its value half, so that half offers dates and wears
+     * the same ghost the date widget wears.  Asked in one place, or the offers
+     * and the ghost could disagree about what the half is for. */
+    const valueOwesDate = () =>
+      dpairing() && DATED.indexOf(planningWord(el("dkey").value.trim())) !== -1;
     /** What the FOCUSED half offers, each with the HINT that names where it
      * lands: every key, or the values the tree spells under the key standing
      * beside it.  Filtered the way this page filters everywhere -- a fold-case
@@ -477,6 +522,11 @@
     function offersFor() {
       if (!dpairing()) return [];
       const onKey = onPairKey();
+      // The key beside it routes to the planning line, so what the tree spells
+      // under other keys is no vocabulary for this half -- and a date offer
+      // RESOLVES, which no property vocabulary can: the hint column IS the
+      // offer's own preview.
+      if (!onKey && valueOwesDate()) return dateOffers(el("dval").value, editDay());
       const vocab = dvocab || {};
       // ORG UPPERCASES A PROPERTY KEY, so the door is keyed by the upper form;
       // the verbatim reading answers for a tree that spells one otherwise.
@@ -520,17 +570,86 @@
       return (minted ? [{ word: typed, hint: NEW_HINT }]
               : folds ? [dress(folds)] : []).concat(shown.map(dress));
     }
-    function drawOffers() {
-      const box = el("doffer");
+    /** LIST into the menu BOX names, point on AT.  ONE renderer over two mounts
+     * -- the pair's own and the date widget's -- since two walks of the same
+     * shape could answer about two different draws. */
+    function paintOffers(boxId, list, at) {
+      const box = el(boxId);
       box.textContent = "";
-      doffers = offersFor();
-      if (dofferAt >= doffers.length) dofferAt = doffers.length - 1;
-      box.className = doffers.length ? "on" : "";
-      doffers.forEach((o, i) => {
-        const row = part(box, "div", i === dofferAt ? "dof dat" : "dof");
+      box.className = list.length ? "on" : "";
+      list.forEach((o, i) => {
+        const row = part(box, "div", i === at ? "dof dat" : "dof");
         part(row, "span", "dow", o.word);
         if (o.hint) part(row, "span", "dot", o.hint);
       });
+    }
+    /** A MENU IS ITS BOX, ITS LIST AND ITS POINT, and ONE SET OF VERBS runs both
+     * of them -- the pair box's and the date widget's. */
+    const dmenu = { box: "doffer", list: [], at: -1 };   // `-1' is point on NO offer
+    const wmenu = { box: "dwoffer", list: [], at: -1 };
+    // POINT NEVER STANDS PAST THE LIST, and on an empty list it stands nowhere.
+    const menuPaint = (m) => {
+      if (m.at >= m.list.length) m.at = m.list.length - 1;
+      paintOffers(m.box, m.list, m.at);
+    };
+    /** The walk is a REPAINT of the list already drawn: nothing the arrows touch
+     * is an input to it, so asking for the offers again per press would spend a
+     * whole vocabulary filter to redraw the same words. */
+    const menuWalk = (m, step) => {
+      if (!m.list.length) return;
+      m.at = Math.max(0, Math.min(m.list.length - 1, m.at + step));
+      paintOffers(m.box, m.list, m.at);
+    };
+    /** The offer under point into FIELD, and whether that MOVED anything: an
+     * offer already standing in the field is nothing to take, so the same key
+     * goes on to hop or to apply rather than sticking here.  MOVED is the
+     * field's own redraw, since the take is a keystroke the field never saw. */
+    const menuTake = (m, field, moved) => {
+      const want = m.at < 0 ? undefined : m.list[m.at].word;
+      const f = el(field);
+      if (want === undefined || want === f.value.trim()) return false;
+      f.value = want;
+      f.setSelectionRange(want.length, want.length);
+      moved();
+      return true;
+    };
+    function drawOffers() {
+      dmenu.list = offersFor();
+      menuPaint(dmenu);
+    }
+    /** What a date-owed field offers over TYPED: the words of the grammar that
+     * still fit it, each hinted with WHAT IT RESOLVES TO, and the reader's own
+     * line leading them as it leads every open vocabulary on this page.
+     * OFFERS STAND AT FRESH AND UNFINISHED POSITIONS AND NOWHERE ELSE: a term
+     * that reads as a whole date carries none, and `RET' there APPLIES rather
+     * than taking a word the reader never chose (the dry law).
+     * READ is the reader's own answer for TEXT where the caller already has one,
+     * so one keystroke reads one date once. */
+    function dateOffers(text, today, read) {
+      const typed = String(text || "").trim();
+      if (typed && (read || readsDate(typed, today)).ok) return [];
+      const want = typed.toLowerCase();
+      // THE MONTH WORDS EARN THEIR PLACE ONCE A DAY IS TYPED: a bare month is
+      // refused by the grammar, so offering one would be offering a refusal.
+      const dayFirst = /^(\d{1,2})(?:[ \t]+(\S*))?$/.exec(want);
+      let pool = DATE_VOCAB;
+      if (dayFirst) {
+        const day = dayFirst[1], frag = dayFirst[2] || "";
+        pool = MONTH_FULL.filter((w) => w.indexOf(frag) === 0)
+          .map((w) => `${day} ${w}`);
+        if (frag === "" || "to".indexOf(frag) === 0) pool = [`${day} to `].concat(pool);
+      }
+      const fits = pool.filter((w) => !want || w.toLowerCase().indexOf(want) === 0)
+        .slice(0, OFFERS);
+      const dress = (w) => {
+        const r = readsDate(w, today);
+        return { word: w, hint: r.ok ? r.stamp : "…" };
+      };
+      // AN EMPTY FIELD OFFERS NO LITERAL, and point stands on NOTHING over one:
+      // `RET' there is the empty value's own meaning, which on this key is CLEAR.
+      // THE PAGE'S ONE FOLD-EQUALITY TEST decides it, as it does in the pair box.
+      const lead = leadTyped(typed, fits) ? [{ word: typed, hint: NEW_HINT }] : [];
+      return lead.concat(fits.map(dress));
     }
     /** The field or its text moved, so the list under it is another list.  POINT
      * STANDS ON THE LINE THE READER TYPED, which leads the offers, and on
@@ -538,32 +657,26 @@
      * walk, and `RET' there is the empty key's own refusal rather than a word
      * the reader never chose. */
     const pairMoved = () => {
-      dofferAt = el(onPairKey() ? "dkey" : "dval").value.trim() ? 0 : -1;
+      dmenu.at = el(onPairKey() ? "dkey" : "dval").value.trim() ? 0 : -1;
       drawOffers();
+      // A key that routes nowhere owes no date and carries no ghost.
+      drawGhost("dval", "dvghost", valueOwesDate());
     };
-    const walkOffer = (step) => {
-      if (!doffers.length) return;
-      dofferAt = Math.max(0, Math.min(doffers.length - 1, dofferAt + step));
-      drawOffers();
-    };
-    /** The offer under point into the half beside it, and whether that MOVED
-     * anything: an offer already standing in the field is nothing to take, so
-     * the same key goes on to hop or to apply rather than sticking here.  THE
-     * TYPED LINE IS ONE SUCH OFFER, which is what carries a partial key or value
-     * out of this box as the reader spelled it. */
-    function takeOffer() {
-      const want = dofferAt < 0 ? undefined : doffers[dofferAt].word;
-      const box = el(onPairKey() ? "dkey" : "dval");
-      if (want === undefined || want === box.value.trim()) return false;
-      box.value = want;
-      box.setSelectionRange(want.length, want.length);
-      pairMoved();
-      return true;
-    }
+    /** THE TYPED LINE IS ONE OFFER LIKE ANY OTHER, which is what carries a
+     * partial key or value out of this box as the reader spelled it. */
+    const takeOffer = () =>
+      menuTake(dmenu, onPairKey() ? "dkey" : "dval", pairMoved);
     // TYPING IS ONE DOOR AND THE CROSSING IS THE OTHER.  A value ASSIGNED fires
     // neither, so the two callers that assign one ask for the list themselves.
     for (const id of ["dkey", "dval"])
       for (const ev of ["input", "focus"]) el(id).addEventListener(ev, pairMoved);
+    // The widget has ONE field and nothing to cross to, so typing is its only
+    // door -- and the first character typed ends the entry's own selection.
+    el("dwhen").addEventListener("input", () => {
+      if (!ddating()) return;
+      edit.row.virgin = false;
+      dateMoved();
+    });
     /** TAB, RET or `:' over the pair.  An OFFER under point is taken first; a
      * KEY then hands over to its value -- taking one advances too, which is
      * `:''s own rule -- and a VALUE applies.  Taking a value offer is DRY: it
@@ -575,6 +688,139 @@
       if (onKey) { hop(); pairMoved(); return; }
       if (took) return;
       commitDocEdit(docBinding("org-set-property", k));
+    }
+
+    // ================================================ THE DATE WIDGET
+    // ONE LINE, AND THE ROW ALREADY SAYS THE KEYWORD.  `C-c C-s' and `C-c C-d'
+    // in the material document raise a FIELD in the value's own slot: what was
+    // typed stands in the field and the resolution rides after it as GHOST, so
+    // the document says what it is about to say while there is still something
+    // on screen to fix.
+
+    // The knob, and the only place the ghosted field's width cap is spelled.
+    const GHOST_CAP = 46;
+    /** The ghost after the field FIELDID, drawn where the field OWES a date and
+     * blank where it does not, against the day the summon stamped.  READ is the
+     * reader's own answer for what the field holds where the caller already has
+     * one.  A GHOSTED FIELD IS EXACTLY AS WIDE AS WHAT IT HOLDS, so the
+     * resolution lands one space after the last character typed rather than at a
+     * column the layout picked; monospace does the arithmetic, and the `flex' is
+     * taken off so the row's own stretch cannot undo it. */
+    function drawGhost(fieldId, ghostId, owes, read) {
+      const f = el(fieldId), g = el(ghostId);
+      const said = owes ? dateGhost(f.value, editDay(), read)
+                        : { text: "", bad: false };
+      g.className = said.bad ? "dgh bad" : "dgh";
+      g.textContent = said.text;
+      f.style.flex = owes ? "none" : "";
+      f.style.width =
+        owes ? `${Math.min(GHOST_CAP, Math.max(1, f.value.length) + 1)}ch` : "";
+    }
+    /** The field or its text moved, so the ghost and the list under it are
+     * another ghost and another list.  POINT STANDS ON THE LINE THE READER
+     * TYPED, and on NOTHING over an empty field -- where `RET' means CLEAR.
+     * ONE READING PER KEYSTROKE: the offers and the ghost ask the same question
+     * of the same text, so the answer is read once and handed to both. */
+    function dateMoved() {
+      const typed = el("dwhen").value.trim(), today = editDay();
+      const r = readsDate(typed, today);
+      wmenu.at = typed ? 0 : -1;
+      wmenu.list = dateOffers(typed, today, r);
+      menuPaint(wmenu);
+      // NO `placeEdit' HERE: the box hangs off the row's own slot, and no
+      // keystroke in the overlay moves that.  The open, the port's redraw and
+      // the resize listener are the three doors placement has.
+      drawGhost("dwhen", "dghost", true, r);
+    }
+    /** THE ENTRY'S SELECTION SURVIVES EVERY REDRAW THE OPEN TRIGGERS.  A summon
+     * that had to DRAW the planning line opens the box before Elm has painted
+     * the slot it stands in, and the port lands a macrotask behind with
+     * `placeEdit' after it -- so a selection set once at open is one a reader in
+     * a real browser may never see.  It is re-asserted while the widget is
+     * VIRGIN, nothing typed and nothing walked, and never after, which would
+     * fight the caret. */
+    function reselectDate() {
+      if (!ddating() || !edit.row.virgin) return;
+      selectWhole(el("dwhen"));
+    }
+    const dateBinding = (k) => docBinding(edit.row.b.command, k);
+    /** `C-c C-s' / `C-c C-d' in the material document: the widget over the row's
+     * own SCHEDULED / DEADLINE slot.  THE LINE IS DRAWN IF ABSENT, the draft
+     * pair's own move one row up -- a widget that stands in the value's place
+     * needs the place to exist.  The TABLE's own pair of keys is untouched: they
+     * ask over the marked rows through the shipped prompt, and reach the same
+     * grammar at the same door. */
+    function planHere(b, keyword) {
+      if (!editing || raw) { said(b, "no document here"); return; }
+      if (sheetOpen()) { said(b, "an edit is open — RET writes it, ESC leaves"); return; }
+      const at = dplan.find((p) => p[0] === keyword);
+      const stood = at ? at[1] : "";
+      const drew = !at;
+      // Read BEFORE the draft moves point: the port lands a macrotask later, so
+      // this is the stop the key was pressed over and the one ESC comes back to.
+      const back = docCursor().at;
+      if (drew) redraftPlan(keyword);
+      // ONE CLOCK READ PER SUMMON, stamped on the row the box opened over: the
+      // ghost, the offers and the wall above the commit all read this one day.
+      openEdit(DDATE, { key: keyword, val: stood, add: drew, back, b,
+                        virgin: true, today: dateNow() });
+      said(b, "RET sets it · empty clears it · ESC leaves");
+    }
+    /** `RET' over the widget.  DRY OVER AN OFFER AND FINAL OVER A COMPLETED
+     * VALUE: an offer under point is taken and nothing else happens, and the
+     * same key over the finished term applies -- the pair box's own `takeOffer'
+     * rule.  A REFUSAL IS SPOKEN HERE, above the commit and while what was typed
+     * is still on screen to fix. */
+    function dateKey(b) {
+      // A take is a keystroke the field never saw, so the widget redraws itself
+      // and the entry stops being VIRGIN -- the same move typing one would make.
+      if (menuTake(wmenu, "dwhen", () => { edit.row.virgin = false; dateMoved(); }))
+        return;
+      // AN EMPTY VALUE CLEARS THE ENTRY, the shipped foot's own promise kept
+      // verbatim -- and clearing is the widget's law, not the grammar's, so it
+      // never asks the reader whether nothing is a date.
+      const typed = el("dwhen").value.trim();
+      if (typed) {
+        const r = readsDate(typed, editDay());
+        if (!r.ok) { said(b, r.why); return; }
+      }
+      commitDate(b, typed);
+    }
+    /** WHAT TRAVELS IS WHAT WAS TYPED.  The ghost resolved for INK alone; the
+     * RAW text goes to `set-planning', the server resolves it ONCE against its
+     * own clock, and the pane redraws off THAT answer as it does off every
+     * other.  Two resolutions against two clocks is the midnight bug the
+     * one-clock-read invariant exists to prevent. */
+    function commitDate(b, typed) {
+      const row = edit.row, keyword = row.key, h = editing;
+      shutEdit(DDATE);
+      if (row.add) undraftPlan(row);
+      fire(b, "set-planning", [h.id], { keyword, date: typed || null },
+           typed || "cleared")
+        .then((results) => {
+          // THE SERVER'S ANSWER IS THE TRUTH THE PANE REDRAWS FROM: `fire'
+          // re-pinned the digest off the 200, so this re-read matches it.
+          if (editing === h && (results || []).some((x) => x.ok)) reload();
+        });
+    }
+    /** THE SHIFTED ARROWS ADJUST THE VALUE IN PLACE -- org-read-date's own walk
+     * in its own minibuffer, and for its own reason: the plain arrows belong to
+     * the caret.  A day on the horizontal, a week on the vertical, and THE GHOST
+     * FOLLOWS, because what they move is the field's own text.  THE WALK ALWAYS
+     * LANDS ON A WHOLE DATE, which is what keeps the walk and the offers from
+     * ever both asking. */
+    const dateStep = (k) =>
+      k === "S-<right>" ? 1 : k === "S-<left>" ? -1
+      : k === "S-<down>" ? 7 : k === "S-<up>" ? -7 : 0;
+    function dateAdjust(b, by) {
+      const f = el("dwhen");
+      const r = readsDate(f.value.trim(), editDay());
+      if (!r.ok || !r.start) { said(b, "no date here to move"); return; }
+      const to = addDays(r.start, by);
+      f.value = isoDay(to);
+      f.setSelectionRange(f.value.length, f.value.length);
+      edit.row.virgin = false;
+      dateMoved();
     }
     // The document holds the keys with NOTHING focused, so an open sheet counts as typing.
     const docHolds = () => editing !== null;
@@ -631,6 +877,11 @@
     };
     // ORG'S THREE PLANNING WORDS, the server's own list and the pane's `planKeys'.
     const PLANNING = CFG.planning;
+    // THE TWO OF THE THREE THIS SERVER SETS, carried in the same blob rather
+    // than respelled: CLOSED is org's own bookkeeping and no door writes it, so
+    // it is the one planning word the date widget never opens over and the one
+    // whose value keeps the plain stamp wall.
+    const DATED = CFG.settable;
     // A KEY ORG WOULD READ AS SOMETHING OTHER THAN A PROPERTY.  The frame words
     // are the drawer's own (AGENTS.hs `reservedProperties'): written as a key,
     // one of them TERMINATES the drawer and everything under it falls out of it.
@@ -653,15 +904,440 @@
     // ONE ORG STAMP, or two joined by org's `--' AND WEARING THE SAME BRACKET —
     // the server takes the pair's OPENING bracket again after the join, which is
     // why each kind is spelled as a whole alternative rather than one half twice.
-    // THE BOX'S READING OF THE SERVER'S OWN WALL (`badPlanning', which reparses):
-    // a planning value that does not read back stops being a planning entry on
-    // the next load.  Kept no looser than the server's, since a value this let
-    // through would meet the 409 with the box already shut, and no wider until
+    // THE BOX'S READING OF THE SERVER'S OWN WALL (`settledPlanning', which reads
+    // the date grammar): a planning value that does not read back stops being a
+    // planning entry on the next load.  Kept no looser than the server's, since a
+    // value this let through would meet the 409 with the box already shut, and no
+    // wider until
     // docs/proposals/proposed/2026-08-22-a-date-is-read-where-a-date-is-owed.md.
     const ACTIVE = `<${DATE}[^<>\\n]*>`;
     const INACTIVE = `\\[${DATE}[^\\[\\]\\n]*\\]`;
     const STAMP = new RegExp(
       `^(?:${ACTIVE}(?:--${ACTIVE})?|${INACTIVE}(?:--${INACTIVE})?)$`);
+
+    // ================================================== THE DATE, READ FOR INK
+    // THE PAGE SPELLS NO ORG, and this reader does not break that.  What a
+    // commit sends is the RAW text the reader typed; the SERVER resolves it once
+    // against its own clock at the planning wall, and the pane redraws off that
+    // answer as it does off every other (docs/commands.md "Dates").  This reader
+    // writes nothing and is never the value: its only output is INK.
+    //
+    // IT IS THE WALL'S FOURTH SPELLING -- beside `Glance.Query.planningTimestamp',
+    // `AGENTS.hs' `stampShaped' and the `STAMP' regex above -- and it is
+    // DRIFT-PINNED against the server's over ONE corpus,
+    // `test/fixtures/english-dates.json', the house pattern the planning wall's
+    // spellings already live by: a vector added there is owed an answer by both
+    // halves.  Where the two part, the server's answer is what the reader ends
+    // up looking at.
+    const DAY_MS = 86400000;
+    // UTC THROUGHOUT: a local-midnight `Date' shifts a day across a DST
+    // boundary, and arithmetic that moved with the reader's zone would give two
+    // answers for one phrase.  The CLOCK is read local (below) and the
+    // arithmetic runs in this civil space.
+    // THE YEAR IS SET EXPLICITLY, never passed to `Date.UTC': that constructor
+    // reads 0..99 as 1900+y, which would put `<0099-08-18>' in 1999 -- splitting
+    // the weekday from the wall's and landing an arrow walk nine centuries off.
+    // `civil' needs no such guard: it builds from a TIMESTAMP, where no
+    // two-digit window exists.
+    const dnum = (c) => {
+      const t = new Date(0);
+      t.setUTCFullYear(c.y, c.m - 1, c.d);
+      t.setUTCHours(0, 0, 0, 0);
+      return Math.round(t.getTime() / DAY_MS);
+    };
+    const civil = (n) => {
+      const t = new Date(n * DAY_MS);
+      return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() };
+    };
+    const leapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    const daysInMonth = (y, m) =>
+      [31, leapYear(y) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+    // `Time.fromGregorianValid' is the wall this stands for: `31 feb' is refused
+    // here as it is refused there, and never reaches the disk.
+    const dayReal = (c) =>
+      !!c && c.m >= 1 && c.m <= 12 && c.d >= 1 && c.d <= daysInMonth(c.y, c.m);
+    const addDays = (c, n) => civil(dnum(c) + n);
+    /** A resolved day FIT TO SHOW: every field finite, and the day real on the
+     * calendar.  The arithmetic above can return neither -- a shift far enough
+     * out runs off `Date''s own range and every field comes back `NaN' -- and a
+     * ghost that drew one would present `<NaN-NaN-NaN undefined>' as a
+     * RESOLUTION, with RET committing that string.  THE GHOST PRESENTS A STAMP
+     * OR A REFUSAL, never a third thing. */
+    const showable = (c) =>
+      !!c && Number.isFinite(c.y) && Number.isFinite(c.m) && Number.isFinite(c.d)
+      && dayReal(c);
+    // A MONTH STEP KEEPS THE DAY OF THE MONTH and clamps at the month's end, so
+    // `31 jan' + 1m is the 28th and never the 3rd of March.
+    const addMonths = (c, n) => {
+      const k = c.m - 1 + n;
+      const y = c.y + Math.floor(k / 12);
+      const m = ((k % 12) + 12) % 12 + 1;
+      return { y, m, d: Math.min(c.d, daysInMonth(y, m)) };
+    };
+    const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    // THE WEEKDAY IS COMPUTED, never carried: `TsMoment' holds no weekday field
+    // and recomputes on render, which is why a stamp cannot disagree with its
+    // own date.  Org's own bracket is the ONE exception, kept verbatim below.
+    const dowOf = (c) => DOW[new Date(dnum(c) * DAY_MS).getUTCDay()];
+    const pad2 = (n) => (n < 10 ? "0" : "") + n;
+    const isoDay = (c) => `${c.y}-${pad2(c.m)}-${pad2(c.d)}`;
+    const stampOf = (c, time) =>
+      `<${isoDay(c)} ${dowOf(c)}${time ? " " + time : ""}>`;
+    // THE MONTH TABLE IS EXACT and folds totally: twelve short forms and twelve
+    // full ones, no `sept', no form carrying a full stop.
+    const MONTH_WORDS = {
+      jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+      apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+      aug: 8, august: 8, sep: 9, september: 9, oct: 10, october: 10,
+      nov: 11, november: 11, dec: 12, december: 12,
+    };
+    const MONTH_LIST = Object.keys(MONTH_WORDS);
+    // WHAT THE OFFERS SPELL A MONTH AS: the full word, since a list is read and
+    // a three-letter form is the abbreviation of the word beside it.  `may' is
+    // its own full form.  Computed once -- the filter would otherwise walk
+    // twenty-four words per keystroke to answer the same twelve.
+    const MONTH_FULL = MONTH_LIST.filter((w) => w.length > 3 || w === "may");
+    // THE TWO WORDS A REFUSAL IS SPELLED IN, the corpus's own `refusals' and
+    // the ghost's whole vocabulary: a refusal riding an input line as trailing
+    // ghost has ONE LINE to say it in.  "Not a date" reads oddly of a phrase
+    // naming two perfectly good days in the wrong order, which is why the
+    // inversion is spelled apart -- the server spends its second word there too.
+    const NOT_A_DATE = "not a date";
+    const INVERTED = "ends before it starts";
+    // The sentence beside each, for the echo the commit's refusal writes: the
+    // wall's own 400 names the accepted spellings, and so does this.
+    const NO_DATE_WHY = "not a date — try 2026-08-18, today, +3d, 18 aug,"
+      + " from 18 to 19 aug, or org's own <2026-08-05 Wed>";
+    const INVERTED_WHY = "ends before it starts — spell a year at each end,"
+      + " as in from 30 dec 2026 to 2 jan 2027";
+    /** The reader's ONE refusal, with HOW it refuses — `{hard: true}' where no
+     * further character rescues the term, `{unfinished: true}' where the very
+     * next one may, and neither where the answer is simply no.  The two words
+     * ride every one of them, so a refusal cannot be spelled short of them. */
+    const noDate = (how) => ({ ok: false, ...how, short: NOT_A_DATE, why: NO_DATE_WHY });
+    // THE BARE ISO'S MONTH AND DAY ARE TWO-DIGIT — org's canonical spelling, and
+    // `Glance.Query.dayOf' (`%Y-%m-%d') reads no other.  DELIBERATELY STRICTER
+    // THAN `DATE' ABOVE: org's parser reads single digits inside a bracket, so
+    // `STAMP' stays liberal and `<2026-8-1 Sat>' is kept verbatim, while the same
+    // digits BARE are refused here exactly as the wall refuses them.
+    //
+    // THE YEAR IS ANY RUN OF DIGITS, which is what `%Y' reads: `99-01-01' and
+    // `12026-08-18' are both days the wall takes, and the corpus carries the
+    // wall's own answers for the small years, unpadded as `%Y' writes them.
+    const dayOf = (s) => {
+      const m = /^(\d+)-(\d{2})-(\d{2})$/.exec(s);
+      if (!m) return null;
+      const c = { y: +m[1], m: +m[2], d: +m[3] };
+      return dayReal(c) ? c : false;          // `false' is "spelled, not real"
+    };
+    /** Org's own spelling, KEPT VERBATIM once it reparses — the one form whose
+     * weekday is NOT recomputed, wrong weekday and all (pinned at
+     * test/TestQuery.hs:1791). */
+    function verbatimDate(s) {
+      if (!/^[<[]/.test(s)) return null;
+      if (STAMP.test(s)) {
+        // THE START RIDES ALONG for the shifted arrows: a summon lands on a
+        // STANDING stamp selected whole, and a walk with no day to move from
+        // would refuse the commonest open there is.  `STAMP' vouched for the
+        // shape; `dayReal' still guards a syntactic day the calendar lacks.
+        const m = /^[<[](\d+)-(\d{1,2})-(\d{1,2})/.exec(s);
+        const c = m ? { y: +m[1], m: +m[2], d: +m[3] } : null;
+        return { ok: true, verbatim: true, stamp: s,
+                 start: c && dayReal(c) ? c : undefined };
+      }
+      // A BRACKET STILL OPEN IS STILL BEING TYPED, and the very next character
+      // may be the one that closes it: `<2026-08-05 Mon' is rescued by `>'.  So
+      // an unclosed bracket is UNFINISHED and the ghost stays dark over it.
+      // THE TEXT MUST END ON THE CLOSER, not merely contain one, or the second
+      // half of an interval would count itself finished at the first `>'.
+      if (!/[>\]]$/.test(s)) return noDate({ unfinished: true });
+      // A CLOSED BRACKET THAT DOES NOT REPARSE IS NO STAMP, and no further
+      // character rescues one: what the field takes is org's own spelling or
+      // English, never half of one.  A MIXED pair names a timestamp that does
+      // not exist — one bracket kind, both halves.
+      return { ok: false, hard: true, short: NOT_A_DATE,
+               why: "that bracket is no stamp org would read back" };
+    }
+    /** A shift's BASE, `null' where the text is not one at all, `false` where it
+     * is SPELLED as one and names no real day.  An empty base is today-relative,
+     * the reading the planning grammar already gives a bare `+3d'. */
+    function shiftBase(t, today) {
+      // `*today*' IS THE FILTER'S OWN WORD for the request's day, read here too
+      // so one field spells one grammar.
+      if (t === "" || t === "today" || t === "*today*") return today;
+      if (t === "tomorrow") return addDays(today, 1);
+      // THE SAME DOOR AS THE BARE FORM, asked rather than re-spelled: a second
+      // ISO regex here is drift, one side reading a year the other refuses.
+      // `dayOf' answers `null' for "not this shape at all", which is this
+      // function's own answer for it.
+      const iso = dayOf(t);
+      if (iso !== null) return iso;
+      return null;
+    }
+    /** The grammar the planning path already reads: ISO, `today'/`*today*'/
+     * `tomorrow', and org's own shift charset on any of them.  `null' where the
+     * text is not this grammar's at all, so the English reader gets its turn. */
+    function shippedDate(s, today) {
+      const t = s.toLowerCase();
+      // AN ISO DATE TAKES A TIME OF DAY, org's own `<D W HH:MM>'.  The hour is
+      // read one digit or two, so `9:05' is the time a reader meant rather than
+      // a refusal over a missing zero.
+      const tm = /^(\d{4}-\d{1,2}-\d{1,2})[ \t]+(\d{1,2}):([0-5]\d)$/.exec(t);
+      if (tm) {
+        const c = dayOf(tm[1]);
+        if (!c || +tm[2] > 23) return noDate({ hard: true });
+        return { ok: true, start: c, time: `${pad2(+tm[2])}:${tm[3]}` };
+      }
+      // ONE SHIFT GRAMMAR, THE FILTER'S OWN (`shiftIn', Glance.Query): both
+      // signs, read off the END so a date's own hyphens are never the shift's —
+      // the greedy base leaves the LAST sign to open it, and `2026-09-15-7d'
+      // is the week before that day.  The wall reads the very same grammar
+      // (`planningTimestamp'), so what the ghost previews is what the commit
+      // lands.  NO TRIM ON THE BASE: the wall reads none, and a space the wall
+      // refuses previewed here would be the drift the corpus pins against.
+      const sh = /^(.*)([+-])(\d+)([dwmy])$/.exec(t);
+      if (sh) {
+        const base = shiftBase(sh[1], today);
+        if (base === null) return null;
+        if (base === false) return noDate({ hard: true });
+        const n = (sh[2] === "-" ? -1 : 1) * +sh[3], u = sh[4];
+        return { ok: true,
+                 start: u === "d" ? addDays(base, n)
+                      : u === "w" ? addDays(base, 7 * n)
+                      : u === "m" ? addMonths(base, n)
+                      : addMonths(base, 12 * n) };
+      }
+      // A HALF-TYPED SHIFT NARROWS NOTHING — and it is no refusal either: it is
+      // a term still being WRITTEN, which is what keeps the ghost silent over
+      // it.  BOTH SIGNS, like the finished form: an ISO's own hyphens fall
+      // through harmlessly because the base they leave is no base.
+      const half = /^(.*?)[+-]\d*$/.exec(t);
+      if (half) {
+        const under = shiftBase(half[1], today);
+        if (under !== null && under !== false) return noDate({ unfinished: true });
+      }
+      const b = shiftBase(t, today);
+      if (b === null) return null;
+      if (b === false) return noDate({ hard: true });
+      return { ok: true, start: b };
+    }
+    /** `day month [year]' or `month day [year]'.  THE YEAR IS FOUR DIGITS AND
+     * NEVER TWO, and where it is elided it is THE CLOCK'S, flat: a typist
+     * meaning next year writes the year.  A BARE DAY AND A BARE MONTH ARE NO
+     * DATE, and A WEEKDAY IS NEVER READ. */
+    function englishDay(w, today) {
+      if (w.length < 2 || w.length > 3) return null;
+      let y = null;
+      if (w.length === 3) {
+        if (!/^\d{4}$/.test(w[2])) return null;
+        y = +w[2];
+      }
+      let d = null, mo = null;
+      if (/^\d{1,2}$/.test(w[0]) && MONTH_WORDS[w[1]])
+        { d = +w[0]; mo = MONTH_WORDS[w[1]]; }
+      else if (MONTH_WORDS[w[0]] && /^\d{1,2}$/.test(w[1]))
+        { mo = MONTH_WORDS[w[0]]; d = +w[1]; }
+      else return null;
+      const c = { y: y === null ? today.y : y, m: mo, d };
+      return dayReal(c) ? { c } : { bad: true };
+    }
+    /** The interval's left end: a day alone, or a whole date read exactly as
+     * `englishDay' reads one — BOTH ARRANGEMENTS, so `from aug 18 to 19 sep'
+     * is the interval the wall already takes, the year optional.  EACH ELIDED
+     * FIELD TAKES THE RIGHT END'S VALUE — the English idiom says one month
+     * once, and defaulting the left year independently would read `from 18 to
+     * 19 august 2027' as a twelve-month span; the RIGHT end stands in for the
+     * clock below, so the inheritance is one rule spelled once. */
+    function englishLeft(w, right) {
+      if (w.length === 1) {
+        if (!/^\d{1,2}$/.test(w[0])) return null;
+        const c = { y: right.y, m: right.m, d: +w[0] };
+        return dayReal(c) ? { c } : { bad: true };
+      }
+      return englishDay(w, right);
+    }
+    /** The English day-and-month forms, single and interval.  THE SEPARATOR IS
+     * WHITESPACE and a RUN of it is one; `from' is optional and `to' is not. */
+    function englishDate(s, today) {
+      let w = s.toLowerCase().split(/[ \t]+/).filter(Boolean);
+      if (!w.length) return null;
+      if (w[0] === "from") w = w.slice(1);
+      const i = w.indexOf("to");
+      if (i > 0 && i < w.length - 1) {
+        const right = englishDay(w.slice(i + 1), today);
+        if (!right) return null;
+        if (right.bad) return noDate({ hard: true });
+        const left = englishLeft(w.slice(0, i), right.c);
+        if (!left) return null;
+        if (left.bad) return noDate({ hard: true });
+        const a = dnum(left.c), b = dnum(right.c);
+        // THE DEGENERATE INTERVAL COLLAPSES: with no times `<D>--<D>' and `<D>'
+        // denote the same interval, so one meaning keeps one spelling.
+        if (a === b) return { ok: true, start: left.c };
+        // AN INVERTED RANGE IS REFUSED — which is what keeps current-year-flat
+        // statable without a calendar: the typist spells both years.
+        if (a > b)
+          return { ok: false, hard: true, short: INVERTED, why: INVERTED_WHY };
+        return { ok: true, start: left.c, end: right.c };
+      }
+      const one = englishDay(w, today);
+      if (!one) return null;
+      if (one.bad) return noDate({ hard: true });
+      return { ok: true, start: one.c };
+    }
+    /** TEXT read as a planning date against TODAY.  A declaration, so a direct
+     * `eval' of this glue reaches it: the drift pin drives it over the corpus
+     * the server's own reader is driven over. */
+    function readsDate(text, today) {
+      const s = String(text == null ? "" : text).trim();
+      // NOTHING TYPED IS NOTHING RESOLVED.  Clearing an entry is the WIDGET's
+      // law and not the grammar's: an empty field names no date, so the ghost
+      // stays dark over one and the commit sends the clear without asking here.
+      if (!s) return noDate();
+      const v = verbatimDate(s);
+      if (v) return v;
+      // THE ENGLISH PHRASE IS READ BEHIND ORG'S OWN BRACKETS AND AHEAD OF THE
+      // REST, the server's own order: it is the one reading with a refusal of
+      // its own to spend, and a phrase it declines falls through to the rest.
+      const g = englishDate(s, today) || shippedDate(s, today);
+      if (!g) return noDate();
+      if (!g.ok) return g;
+      // A RESOLUTION THAT CANNOT BE SPELLED IS A REFUSAL, and a HARD one: the
+      // arithmetic ran off the calendar and no further character walks it back.
+      if (!showable(g.start) || (g.end && !showable(g.end)))
+        return noDate({ hard: true });
+      return { ok: true, start: g.start, end: g.end,
+               stamp: g.end ? stampOf(g.start) + "--" + stampOf(g.end)
+                            : stampOf(g.start, g.time) };
+    }
+    /** The reader's own day, civil.  THE GHOST IS A PREVIEW AND THE SERVER'S
+     * CLOCK DECIDES what a phrase resolves to, so this is read for INK alone; a
+     * summon pins it once at open, so a phrase does not change its answer under
+     * the reader mid-edit. */
+    function dateNow() {
+      const n = new Date();
+      return { y: n.getFullYear(), m: n.getMonth() + 1, d: n.getDate() };
+    }
+    const extendsAny = (list, w) => list.some((x) => x.indexOf(w) === 0);
+    // The words a fresh field offers, and what `writing' reads a prefix against.
+    // `*today*' RIDES ALONG UNOFFERED: `shiftBase' reads it, so its prefixes are
+    // a term being written like any other and the ghost owes them the same
+    // silence.  It sits at the END because the offer list is drawn in order and
+    // the filter's own spelling is not what a fresh field proposes first.
+    const DATE_VOCAB = ["today", "tomorrow", "+1d", "+1w", "+2w", "+1m", "+3m",
+                        "+1y", "*today*"];
+    /** An ISO month or day HALFWAY TYPED, against its own ceiling HI: absent, a
+     * first digit that some two-digit value under HI still starts with, or the
+     * finished pair itself.  `08' and `1' are both on the way to a real day; `8'
+     * is not, no month reading `8' alone. */
+    const partWriting = (p, hi) =>
+      p === undefined || p === ""
+      || (p.length === 1 ? +p <= Math.floor(hi / 10)
+                         : p.length === 2 && +p >= 1 && +p <= hi);
+    /** A FINISHED day and month, either arrangement — what a year may follow. */
+    const dayAndMonthTyped = (a, b) =>
+      (/^\d{1,2}$/.test(a) && !!MONTH_WORDS[b])
+      || (!!MONTH_WORDS[a] && /^\d{1,2}$/.test(b));
+    /** A YEAR HALFWAY TYPED: one digit to three.  The fourth completes it. */
+    const yearTyped = (y) => /^\d{1,3}$/.test(y);
+    /** Is TEXT a term still being WRITTEN — a proper prefix of something this
+     * grammar would accept?  THE GHOST SAYS NOTHING OVER ONE: a refusal flashed
+     * at every keystroke is a refusal nobody reads, and `18 a' is not a mistake,
+     * it is a month halfway typed.  A HARD refusal is never merely being
+     * written — no further character rescues a day that is not on the calendar,
+     * and `31 feb' is a prefix of `31 february', which is the same wrong day.
+     * R IS THE READER'S OWN ANSWER FOR TEXT, and the one caller asks only where
+     * it REFUSED, so a term this reads as written is one the reader declined. */
+    function dateWriting(text, r) {
+      if (r.hard) return false;
+      if (r.unfinished) return true;
+      const t = String(text).trim().toLowerCase();
+      if (!t) return false;
+      // AN ISO BEING SPELLED, COMPONENT BY COMPONENT — never one already spelled
+      // to the full shape, which is a date the calendar has judged.  The year run
+      // is unbounded, as at `dayOf': a fifth digit is still a year.  Each of the
+      // other two is judged AS A PREFIX OF THE CANONICAL TWO-DIGIT ONE, so
+      // `2026-08-1' on the way to the 18th stays dark, while `2026-8' — which no
+      // further character rescues, the wall reading two digits and never one —
+      // shows its refusal at the keystroke that makes it wrong.
+      const iso = /^(\d*)(?:-(\d*)(?:-(\d*))?)?$/.exec(t);
+      if (iso) {
+        const yy = iso[1], mm = iso[2], dd = iso[3];
+        const whole = !!yy && mm?.length === 2 && dd?.length === 2;
+        if (!whole && partWriting(mm, 12) && partWriting(dd, 31)) return true;
+      }
+      // A TIME OF DAY BEING SPELLED over a real ISO day, `<D HH:MM>' halfway.
+      // The HOUR AND MINUTE ARE JUDGED AS PREFIXES: `2026-08-18 1' may still
+      // become 13:00, where `2026-08-18 25' can become no hour at all and is
+      // left to the refusal below.
+      const tw = /^(\d+-\d{2}-\d{2})[ \t]+(\d{0,2})(:(\d{0,2}))?$/.exec(t);
+      if (tw && dayOf(tw[1])) {
+        const hh = tw[2], mm = tw[4] || "";
+        if (hh.length === 2 && +hh > 23) return false;
+        if (tw[3] === undefined) return true;      // no colon typed yet
+        return mm.length < 2 ? mm.length === 0 || +mm <= 5 : +mm <= 59;
+      }
+      if (extendsAny(DATE_VOCAB, t)) return true;
+      if ("from".indexOf(t) === 0) return true;
+      const w = t.replace(/^from[ \t]+/, "").split(/[ \t]+/);
+      const to = w.indexOf("to");
+      if (to > 0) {
+        const right = w.slice(to + 1);
+        if (!right.length) return true;
+        if (right.length === 1
+            && (/^\d{1,2}$/.test(right[0]) || extendsAny(MONTH_LIST, right[0])))
+          return true;
+        if (right.length === 2)
+          return (/^\d{1,2}$/.test(right[0]) && extendsAny(MONTH_LIST, right[1]))
+            || (!!MONTH_WORDS[right[0]] && /^\d{1,2}$/.test(right[1]));
+        // THE RIGHT END TAKES A YEAR TOO, and reads it exactly as the single
+        // phrase does below — `englishDay' is the one reader for both.
+        return right.length === 3 && dayAndMonthTyped(right[0], right[1])
+          && yearTyped(right[2]);
+      }
+      // `to' HALFWAY TYPED behind a finished left end: `from 30 dec 2026 t' is
+      // one keystroke from an interval and names no date at all on its own.
+      const last = w[w.length - 1];
+      if (w.length > 1 && last !== "" && "to".indexOf(last) === 0) {
+        const left = w.slice(0, -1);
+        if ((left.length === 1 && /^\d{1,2}$/.test(left[0]))
+            || (left.length === 2 && dayAndMonthTyped(left[0], left[1]))
+            || (left.length === 3 && dayAndMonthTyped(left[0], left[1])
+                && /^\d{4}$/.test(left[2])))
+          return true;
+      }
+      if (w.length === 1)
+        return /^\d{1,2}$/.test(w[0]) || extendsAny(MONTH_LIST, w[0]);
+      if (w.length === 2 && /^\d{1,2}$/.test(w[0]))
+        return extendsAny(MONTH_LIST, w[1]);
+      // A YEAR BEING TYPED behind a finished day and month: `18 aug 20' is three
+      // keystrokes from `18 aug 2027' and no mistake at any of them.  FOUR
+      // DIGITS ARE NOT WRITING — that is a year the calendar has judged, and
+      // `18 aug 1899' must show its answer rather than stay dark.
+      if (w.length === 3 && dayAndMonthTyped(w[0], w[1])) return yearTyped(w[2]);
+      return false;
+    }
+    /** WHAT THE GHOST SAYS, or `""' for nothing.  THREE STATES AND NO FOURTH: an
+     * empty field says nothing, a term still being WRITTEN says nothing, a term
+     * that RESOLVES shows the stamp the commit would land, and a term the
+     * grammar refuses outright shows the refusal's short word.  This is the dry
+     * law's complete-term reading, read for ink instead of for keys.
+     * AND IT FALLS SILENT WHEN IT HAS NOTHING TO ADD: where the resolution IS
+     * what was typed — org's own bracketed spelling, kept verbatim — drawing the
+     * same string twice on one line is the duplication the shape is against.
+     * READ is the reader's own answer for TEXT where the caller already has one,
+     * so the offers and the ghost read one keystroke once. */
+    function dateGhost(text, today, read) {
+      const t = String(text == null ? "" : text).trim();
+      if (!t) return { text: "", bad: false };
+      const r = read || readsDate(t, today);
+      if (!r.ok)
+        return dateWriting(t, r) ? { text: "", bad: false }
+                                 : { text: ` ✗ ${r.short}`, bad: true };
+      if (!r.stamp || r.stamp === t) return { text: "", bad: false };
+      return { text: ` → ${r.stamp}`, bad: false };
+    }
+
     /** Why this pair is not written, or `null'.  EVERY refusal the model has is
      * one of these: the box is shut before the model answers, so a wall it
      * alone knew would leave a drawn row with nothing left to reach it. */
@@ -676,8 +1352,16 @@
       if (!value) return "a value is required";
       // THE WALL'S OWN SENTENCE, echoed where the box still stands: the write
       // would come back 409 with the same words and nothing left to fix them in.
-      if (planningWord(up) && !STAMP.test(value))
-        return `${up} is not a timestamp org would read back`;
+      // THE TWO SETTABLE WORDS READ THE WHOLE GRAMMAR, since the wall transforms
+      // rather than reparses: the box asks the reader, not the regex — a phrase
+      // refused here would never reach the wall that accepts it.  CLOSED is not
+      // settable, so its wall stays the plain stamp.
+      if (planningWord(up)) {
+        if (DATED.indexOf(up) !== -1)
+          return readsDate(value, editDay()).ok
+            ? null : `${up} is not a date org would read back`;
+        if (!STAMP.test(value)) return `${up} is not a timestamp org would read back`;
+      }
       return null;
     }
     // The key and the value a drawer line opens with; the same reading the
@@ -699,6 +1383,10 @@
       const more = () => { if (at != null) soon(() => insertHere(at)); };
       if (!edit) return;
       const r = edit.row;
+      // THE WIDGET COMMITS THROUGH ITS OWN DOOR wherever the key came from, or
+      // `C-c C-c' over an open one would fall through to the title's branch and
+      // rename the headline with a date.
+      if (edit.o === DDATE) { dateKey(b || dateBinding("RET")); return; }
       if (edit.o === DPARA) {
         const text = el("dtext").value;
         const add = !!r.add;
@@ -766,14 +1454,23 @@
     const undraft = (r) => dsend({ kind: "undraft", id: r.id });
     const redraftPair = () => dsend({ kind: "draftpair" });
     const undraftPair = (r) => dsend({ kind: "undraftpair", id: r.id });
+    // THE PLANNING LINE'S OWN PAIR: the widget stands in the value's place, so
+    // the line is drawn to stand in and taken back with the box.
+    const redraftPlan = (keyword) => dsend({ kind: "draftplan", key: keyword });
+    const undraftPlan = (r) => dsend({ kind: "undraftplan", id: r.back });
     // THE ESCAPE IS FROM THE EDIT: the box goes, the drawn row with it, and the
     // drawer is the bytes it was — nothing typed here ever entered its list.
     const cancelSheetEdit = () => {
       const drawn = edit && edit.o === DPARA && edit.row.add ? edit.row : null;
       const pair = edit && edit.o === DPAIR ? edit.row : null;
-      cancelEdit(pair ? "the drawer" : "element", DTITLE, DPARA, DPAIR);
+      // AND THE KEYWORD THE SUMMON GHOSTED IN goes with the box: the planning
+      // line comes back the bytes it was, its own ABSENCE included.
+      const when = edit && edit.o === DDATE ? edit.row : null;
+      cancelEdit(when ? "the planning line" : pair ? "the drawer" : "element",
+                 ...DOCEDITS);
       if (drawn) undraft(drawn);
       if (pair) undraftPair(pair);
+      if (when && when.add) undraftPlan(when);
     };
 
     function ddelete(ids, how) {
@@ -943,9 +1640,22 @@
       // `:' hands a KEY over to its value — org's own muscle, and the character
       // is swallowed since no key holds one — and TAB and RET carry the form.
       // In the VALUE `:' is a character like any other, which a value may spell.
+      // TAB IS SWALLOWED over the widget: there is nowhere to hop, and letting it
+      // out would move the browser's focus off a box that is still open.  ESC is
+      // the keymap's own graduated ladder, as it is everywhere here.
+      if (ddating()) {
+        const by = dateStep(k);
+        if (by) { e.preventDefault(); dateAdjust(dateBinding(k), by); return; }
+        const walk = walkStep(k);
+        if (walk) { e.preventDefault(); once(() => menuWalk(wmenu, walk)); return; }
+        if (k !== "TAB" && k !== "RET") return;
+        e.preventDefault();
+        if (k === "RET") once(() => dateKey(dateBinding(k)));
+        return;
+      }
       if (dpairing()) {
         const step = walkStep(k);
-        if (step) { e.preventDefault(); once(() => walkOffer(step)); return; }
+        if (step) { e.preventDefault(); once(() => menuWalk(dmenu, step)); return; }
         if (k !== "TAB" && k !== "RET" && !(k === ":" && onPairKey())) return;
         e.preventDefault();
         once(() => pairKey(k));
@@ -1055,7 +1765,7 @@
     function shut() {
       el("modal").className = ""; editing = null; base = ""; baseProps = null;
       soon(remembered);
-      shutEdit(DTITLE); shutEdit(DPARA); shutEdit(DPAIR);
+      for (const o of DOCEDITS) shutEdit(o);
       docClear();
       el("mdoc").className = "";
       // THE VOCABULARY IS THE SHEET'S: the next one asks again, so a property
@@ -1278,7 +1988,7 @@
       el("mtext").value = base;
       // TOGGLE, never assign: the class also carries the sheet's size tier.
       el("sheet").classList.toggle("raw", raw);
-      shutEdit(DTITLE); shutEdit(DPARA); shutEdit(DPAIR);
+      for (const o of DOCEDITS) shutEdit(o);
       docFill(h, raw);
       el("mdoc").className = raw ? "" : "on";
       drawWhere(h.path || []);

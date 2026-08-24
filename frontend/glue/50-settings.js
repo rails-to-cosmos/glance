@@ -563,7 +563,7 @@ const SECTIONS = [
     const raiseFilter = (door) => {
       if (summons()) { table.openFilter(door); return; }
       const box = filterBox();
-      if (box) { box.focus(); box.select(); }
+      if (box) selectWhole(box);
     };
     // TWO DOORS, ONE QUERY: `/' edits the filter half and `.' the whole
     // expression; the standing sort: and columns: ride a `/' commit along.

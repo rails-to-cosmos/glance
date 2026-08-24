@@ -34,6 +34,7 @@ module Glance.Web.Filter ( Cmp (..)
                          , refusedOn
                          , scanQuery
                          , shiftIn     -- SPEC PIN, see 'halfShift'
+                         , signOf
                          , sortKey
                          , substringKey
                          , columnsKey
@@ -44,7 +45,7 @@ module Glance.Web.Filter ( Cmp (..)
                          , viewAddedIn
                          ) where
 
-import Data.Char (digitToInt, isDigit)
+import Data.Char (isDigit)
 import Data.List (elemIndex, find)
 import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
@@ -58,10 +59,10 @@ import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
                     , RefVia, refKind, refTarget, refVia
-                    , Meta (..), activeMeta, archiveTag, carriesKind, cellSep, dayOf
-                    , filterKeys, groupOn, inactiveMeta, isoDay, kindCut, metaWord
+                    , Meta (..), Sign (..), activeMeta, archiveTag, carriesKind, cellSep
+                    , dayNamed, dayOf, filterKeys, groupOn, inactiveMeta, isoDay, kindCut, metaWord
                     , pointedAtBy, pointsAt, priorityLetter, refNames, refsCarrying
-                    , shiftDay, shiftUnits, tagRunEntries )
+                    , shiftDay, shiftIn, signOf, tagRunEntries )
 
 
 dateKeys :: [Text]
@@ -106,14 +107,6 @@ viewAddedIn q = case find (\t -> tmKey t == Just viewKey && tmSign t == Add) (pa
 
 dateColumns :: [Int]
 dateColumns = mapMaybe (`elemIndex` filterKeys) dateKeys
-
--- | THE SIGN A TOKEN OPENS WITH, and a token wears one: the scanner reads the
--- FIRST CHARACTER alone, so a second sign is body text.
-data Sign
-  = Unsigned  -- ^ the token opened with neither sign.
-  | Neg       -- ^ the token opened with @-@.
-  | Add       -- ^ the token opened with @+@.
-  deriving (Eq, Show)
 
 data Token = Token
   { tkSign   :: !Sign  -- ^ the sign the token opened with.
@@ -164,12 +157,6 @@ scanQuery q = reverse (flush final out)
       | seen s    = Token (sign s) (quoted s) (T.pack (reverse (body s))) : acc
       | otherwise = acc
     fresh = Scan [] Unsigned False False False False
-
--- | The sign C opens a token with, or 'Nothing' where C is body text.
-signOf :: Char -> Maybe Sign
-signOf '-' = Just Neg
-signOf '+' = Just Add
-signOf _   = Nothing
 
 data Scan = Scan
   { body     :: [Char]
@@ -312,38 +299,10 @@ operatorIn v = listToMaybe
 -- IS ONE MORE SPELLING OF A DAY LITERAL and no new atom kind: 'Stamp' gains no
 -- constructor, the shift being read below the forms, at the literal.
 
--- | L as its BASE and the SIGNED COUNT and UNIT it moves that base by, or
--- 'Nothing' where L carries no shift.  READ FROM THE END, which is what keeps
--- ISO's own separator out of the sign's reach: @2026-08-03@ ends in a digit
--- where a shift ends in one of org's unit letters.  AN EMPTY BASE IS THE BARE
--- SHIFT, which 'dayIn' reads today-relative.
-shiftIn :: Text -> Maybe (Text, Integer, Char)
-shiftIn l = case T.unsnoc l of
-  Just (run, unit)
-    | unit `elem` shiftUnits
-    , digits            <- T.takeWhileEnd isDigit run
-    , not (T.null digits)
-    , Just (base, mark) <- T.unsnoc (T.dropWhileEnd isDigit run)
-    , Just way <- signOf mark
-    -> Just (base, shiftWay way * decimalIn digits, unit)
-  _noShift -> Nothing
-
--- | HOW FAR A SIGN CARRIES a shifted day.  THE SHIFT'S SIGN IS THE VALUE'S AND
--- NEVER THE TOKEN'S: 'scanQuery' reads a token's sign off its FIRST character
--- and stops there, so in @+scheduled:+30d@ the token's reader never sees the
--- value's sign and this one never sees the token's — one charset ('signOf'),
--- two readers.  ONE EQUATION PER CONSTRUCTOR and no wildcard, the discipline
--- 'valueFor' states; 'signOf' spells no character for 'Unsigned', whose day
--- stands still.
-shiftWay :: Sign -> Integer
-shiftWay Unsigned = 0
-shiftWay Add      = 1
-shiftWay Neg      = -1
-
--- | A decimal run as the number it spells; every character is a digit by
--- construction ('shiftIn' spans on 'isDigit' before calling this).
-decimalIn :: Text -> Integer
-decimalIn = T.foldl' (\n c -> n * 10 + toInteger (digitToInt c)) 0
+-- THE SHIFT'S SIGN IS THE VALUE'S AND NEVER THE TOKEN'S: 'scanQuery' reads a
+-- token's sign off its FIRST character and stops there, so in @+scheduled:+30d@
+-- the token's reader never sees the value's sign and 'shiftIn' never sees the
+-- token's — one charset ('signOf'), two readers.
 
 -- | Does L END MID-SHIFT — a @+@ with nothing but digits behind it?  THE PLUS
 -- FAMILY ALONE, because @+@ appears in no date a cell carries where @-@ is
@@ -651,17 +610,19 @@ literalIn env l = case shiftIn l of
   Nothing | l == todayMeta -> isoDay <$> feToday env
           | otherwise      -> Just l
 
--- | The DAY a shift's BASE names.  @*today*@ and THE EMPTY BASE are both the
--- request's own day: THE BARE SHIFT IS TODAY-RELATIVE, decided off the planning
--- grammar's own precedent, which already reads a bare @+3d@ that way
+-- | The DAY a shift's BASE names, THROUGH 'Glance.Query.dayNamed' — the base
+-- reader the planning wall goes through too.  @*today*@ and THE EMPTY BASE are
+-- both the request's own day: THE BARE SHIFT IS TODAY-RELATIVE, decided off the
+-- planning grammar's own precedent, which already reads a bare @+3d@ that way
 -- (@set-planning@'s date), consistency being the tiebreaker.  Any other base is
 -- the day it spells, so a base naming none — a month, a timed stamp — leaves
 -- the whole value naming none, and it then matches no row the way @state:TOD@
 -- matches none.
+--
+-- WITH NO CLOCK READ ('emptyEnv') the two clock spellings name no day, and a
+-- spelled base still spells its own.
 dayIn :: FilterEnv -> Text -> Maybe Day
-dayIn env base | T.null base       = feToday env
-               | base == todayMeta = feToday env
-               | otherwise         = dayOf base
+dayIn env base = maybe (dayOf base) (`dayNamed` base) (feToday env)
 
 -- | L as a literal BYTE ORDER may be asked about, which owes an opening digit.
 -- The prefix reading is total over any text; @<@ over @banana@ would serve every

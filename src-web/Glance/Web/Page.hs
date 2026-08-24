@@ -39,7 +39,14 @@ demoShell opts font colours views =
       -- so no second overlay is placed.
       <> "<div id=\"dpair\"><span class=\"dpunc dlead\">:</span>"
       <> docField "dkey" <> "<span class=\"dpunc\">:</span>" <> docField "dval"
+      <> ghost "dvghost"
       <> "<div id=\"doffer\"></div></div>"
+      -- THE DATE WIDGET STANDS IN THE VALUE'S OWN SLOT, and carries no label of
+      -- its own: the row it is laid over already names the keyword.
+      <> "<div id=\"ddate\">"
+      <> docFieldSaying "dwhen" "2026-08-18 · today · +3d · 18 aug"
+      <> ghost "dghost"
+      <> "<div id=\"dwoffer\"></div></div>"
       <> "</div>"
   , "      </div>"
   , "      <pre id=\"mlog\"></pre>"
@@ -159,9 +166,24 @@ field name = "<input id=\"" <> name <> "\" spellcheck=\"false\">"
 -- | A document field: every offer the browser makes declined, since these boxes
 -- write ORG into the reader's own files.
 docField :: Text -> Text
-docField name =
+docField name = docFieldSaying name ""
+
+-- | A pane field, HINT its placeholder where it has one.  The date widget is the
+-- one box a reader meets holding nothing with no row naming what it reads, so it
+-- is the one that says.
+docFieldSaying :: Text -> Text -> Text
+docFieldSaying name hint =
   "<input id=\"" <> name <> "\" spellcheck=\"false\" autocomplete=\"off\""
-    <> " autocapitalize=\"off\" autocorrect=\"off\">"
+    <> " autocapitalize=\"off\" autocorrect=\"off\""
+    <> (if T.null hint then "" else " placeholder=\"" <> escape hint <> "\"")
+    <> ">"
+
+-- | A GHOST IS A SPAN AND NEVER A FIELD'S VALUE: nothing selects or edits it,
+-- and @RET@ commits the resolution rather than the characters that drew it.
+-- @aria-hidden@ because it says again, in ink, what the field beside it holds.
+ghost :: Text -> Text
+ghost name =
+  "<span id=\"" <> name <> "\" class=\"dgh\" aria-hidden=\"true\"></span>"
 
 -- | A labelled row of the mint form, in the capture form's two classes.  The
 -- `nrow-NAME' class is the browser suite's handle for taking one field away.

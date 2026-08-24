@@ -132,6 +132,11 @@
     const stepIn = (mount, step) =>
       can(mount, "selectStep") && mount.selectStep(step);
     const flagsOn = (mount) => can(mount, "flagRow", "getFlagged");
+    /** Focus F with its whole value SELECTED, how every box on this page opens
+     * over a value that already stands: ONE KEYSTROKE REPLACES IT, and `RET'
+     * with none recommits it byte for byte -- `org-read-date' taking its
+     * default, and the rename overlays taking theirs. */
+    const selectWhole = (f) => { f.focus(); f.setSelectionRange(0, f.value.length); };
     /** Put TEXT over [FROM, TO) in BOX and leave the caret after it. */
     const spliceIn = (box, from, to, text) => {
       box.value = box.value.slice(0, from) + text + box.value.slice(to);

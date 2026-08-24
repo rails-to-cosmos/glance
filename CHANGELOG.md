@@ -13,6 +13,45 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **`C-c C-s` reads English, and shows you what it read before it writes it.**
+  In the material document `C-c C-s` and `C-c C-d` raised a blind text box with
+  nothing in it; they now open a FIELD in the value's own slot — the planning
+  line's SCHEDULED or DEADLINE value, the line drawn in where the row has none
+  — wearing the pane's own editing dress, and the resolution rides after what
+  was typed as ghost on that same line: `10 jan → <2026-01-10 Sat>` in the mute
+  ink, the weekday computed. A refusal no further character can rescue shows
+  its short word in the marked ink instead, and an empty field, a term still
+  being written and a value that already spells its own answer show nothing at
+  all — a refusal flashed at every keystroke is a refusal nobody reads. The
+  standing value opens WHOLLY SELECTED, so one keystroke replaces it and `RET`
+  with none recommits it byte for byte, the default `org-read-date` takes;
+  `RET` over a standing offer takes the offer and writes nothing, and over the
+  finished value it applies; `ESC` leaves the sheet the bytes it was, the
+  ghosted-in planning line included; an empty value clears the entry, as it
+  always did; `S-←`/`S-→` adjust a day and `S-↑`/`S-↓` a week in place, the
+  ghost following. A drawer pair whose key case-folds to `scheduled` or
+  `deadline` already routes to the planning line, and its value half wears the
+  same field and the same ghost — one widget, both doors. **And the grammar
+  under it reads English dates.** `18 aug`, `aug 18` and `18 August 2029` are
+  timestamps wherever a date is owed, and `from 18 to 19 august` — `from`
+  optional, `to` not — is org's own `--` pair with the weekday computed at both
+  ends, the left end inheriting the month and year it elides. The year is the
+  clock's, flat, so `18 aug` typed in December is that August and a typist
+  meaning the next one writes the year; the month word folds totally
+  (`August ≡ august ≡ AUGUST`) over an exact table of twelve short forms and
+  twelve full ones; a year is four digits or absent; a bare day, a bare month,
+  an ordinal and every separator but whitespace are refused rather than guessed
+  at, and so is a weekday word — `Thu 18 aug` even when the weekday is right,
+  the weekday being computed here and never read; an interval whose end falls
+  before its start is refused in those words, spelling both years the remedy;
+  and `from 18 to 18 aug` collapses to the single stamp `18 aug` writes. Org's
+  own bracket is still kept verbatim, wrong weekday and all. `set-planning`
+  takes every one of these over `POST /command`, since the field and the door
+  read ONE grammar: what the reader types travels as typed, the server
+  resolves it once against its own clock, and the pane redraws off that
+  answer — the page spells no org, and the field's own resolver is a preview
+  that writes nothing. `docs/commands.md` carries the law.
+
 - **Dates compare, and `*today*` is one of them.** `scheduled:`, `deadline:`
   and `planned:` now take a comparison in the value position: `>=`, `<=`, `>`
   and `<` at the head of the value, longest spelling read first, with the range
