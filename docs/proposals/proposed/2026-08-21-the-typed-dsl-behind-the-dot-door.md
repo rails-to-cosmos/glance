@@ -423,7 +423,7 @@ and be missing from the pane.
 | `Active` | constructor, nullary | `Meta` | filter value, on `state` | `*active*` | `AGENTS.hs`:2503, :2510, `metaHome`:2529; `docs/query.md`:328 |
 | `Inactive` | constructor, nullary | `Meta` | filter value, on `state` | `*inactive*` | `AGENTS.hs`:2503, :2511, `metaHome`:2530; `docs/query.md`:329 |
 | `Empty` | constructor, nullary | `Meta` | filter value, on the six column keys and `planned` | `*empty*` | `AGENTS.hs`:2503, :2512, `metaHome`:2527 (`EveryCell`); `docs/query.md`:327 |
-| `Archive` | constructor, nullary | `Meta` | filter value, on `tag` | `*archive*` | `AGENTS.hs`:2503, :2513, `metaHome`:2528 (`TagCell`); `docs/query.md`:330 |
+| `Archive` | constructor, nullary | `Meta` | filter value, on `tag` | `archive` (the plain word since 2026-08-25) | `AGENTS.hs`:2503, :2513, `metaHome`:2528 (`TagCell`); `docs/query.md`:330 |
 | `None` | constructor, nullary | `Chain` | `.sort(columns = ·)` alone | `sort:*none*` | `AGENTS.hs`:2503, :2514, `metaHome`:2531 (`OrderToken`); `docs/query.md`:332; `Sort.hs`:19, :57-59 |
 | `Today` | constructor, nullary | `Date` | a temporal field's value, bare or behind an operator ([L8](#l8--datetime-comparisons)) | `*today*` | `AGENTS.hs`:2503, :2515, `metaHome`:2534 (`DateValue`, the fifth home); `docs/query.md`:331 |
 | `Asc` | constructor | `Str → Seg` | a `.sort(…)` chain element | the bare key, no suffix | `Sort.hs`:15-16 (`directions`); `docs/query.md`:346-347 |
@@ -755,7 +755,7 @@ written, the header spelling preserved, quoted where it carries a separator
 | `.filter(deadline >= "2026-09-01", deadline < "2026-10-01")` | `deadline:>=2026-09-01 deadline:<2026-10-01` — the range, two tokens on one axis |
 | `.filter(not (deadline < "2026-09"))` | `-deadline:<2026-09` — the undated rows among them, and NOT `deadline >= "2026-09"` |
 | `.filter(planned = Empty)` | `planned:*empty*` |
-| `.filter(tag = Archive)` | `tag:*archive*` |
+| `.filter(tag = Archive)` | `tag:archive` |
 | `.filter(ref = "abc123")` | `ref:abc123` — the one value not case-folded |
 | `.filter(substring = "milk")`, `.filter("milk")` | `substring:milk` |
 | `.filter(tag = "-chore")` | `tag:"-chore"` — a literal, never a sign |
@@ -1523,7 +1523,7 @@ both. The client needs one rule on top: **a constructor is the grammar's, a
 quoted literal is the tree's.**
 
 The constructor roster is spec. `AGENTS.hs`:2501-2521 is titled "The starred
-family, and it is total": `data Meta = MActive | MInactive | MEmpty | MArchive |
+family, and it is total": `data Meta = MActive | MInactive | MEmpty |
 MNone`, with `metas = [minBound .. maxBound]` and `isMeta` decided against that
 list. Closed sums are matched one equation per constructor with no wildcard
 (`docs/invariants.md`:155-159), so a sixth meta is named by the compiler on the
@@ -1531,7 +1531,7 @@ Haskell side and lands in the divergence table on the renderer's — which is th
 mechanism the port already has for exactly this.
 
 **Why a wire field is worse.** `*empty*` is legal on all six column keys and on
-`planned`; `*archive*` only on `tag`; `*none*` only on `sort:`. A wire field
+`planned`; `*none*` only on `sort:`. A wire field
 would need one roster per key per column, and `stateValues` covers one of the
 seven. Growing the descriptor also moves `test/TestSpec.hs`:984, which pins the
 column descriptor's exact key roster

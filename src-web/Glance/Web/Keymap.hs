@@ -71,7 +71,9 @@ keyBindings =
   , bind ["P"]          "set-saved-view"                  (Just "pinView")        "table"
       `helps` "pin the applied view, into whichever saved view answers"
   , bind ["m"]          "mark-toggle"                     (Just "markToggle")     "table"
-      `helps` "toggle this row's mark, then step down"
+      `helps` markToggleHelp
+  , bind ["SPC"]        "mark-toggle"                     (Just "markToggle")     "table"
+      `helps` markToggleHelp
   , bind ["u"]          "unmark"                          (Just "unmarkRow")      "table"
       `helps` "take this row's archive flag off, else its mark, then step down"
   , bind ["U"]          "unmark-all"                      (Just "unmarkAll")      "table"
@@ -155,6 +157,9 @@ previousColumnHelp = "the cell to the left; a whole row has none"
 firstRowHelp, lastRowHelp :: Text
 firstRowHelp = "first row, again = page up"
 lastRowHelp  = "last row, again = page down"
+
+markToggleHelp :: Text
+markToggleHelp = "toggle this row's mark, then step down"
 
 planningHelp :: Text
 planningHelp = "a date over the marked rows, or the row at point; empty clears it"

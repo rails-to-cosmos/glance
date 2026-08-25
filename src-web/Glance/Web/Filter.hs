@@ -8,7 +8,6 @@ module Glance.Web.Filter ( Cmp (..)
                          , alternatives
                          , anyMeta
                          , archiveKey
-                         , archiveMeta
                          , cellAt
                          -- Exported for the SPEC PIN alone (TestSpec): the model
                          -- spells this comparison table too, and the two readings
@@ -186,9 +185,6 @@ tagsKey = "tag"
 archiveKey :: Text
 archiveKey = T.toLower archiveTag
 
-archiveMeta :: Text
-archiveMeta = metaWord MArchive
-
 emptyMeta :: Text
 emptyMeta = metaWord MEmpty
 
@@ -224,11 +220,14 @@ metaOf value = do
   inner <- T.stripSuffix "*" =<< T.stripPrefix "*" value
   if T.null inner then Nothing else Just inner
 
--- | Does Q name 'archiveMeta' through the @tag@ column?  Any spelling counts, alternatives included, and the STARRED spelling alone.
+-- | Does Q name the archive through the @tag@ column?  The PLAIN WORD alone —
+-- @tag:archive@; any spelling of the token counts, alternatives read too,
+-- both signs and @+@ included.  @tag:*archive*@ is the generic whole-tag
+-- match and names nothing.
 namesArchive :: Text -> Bool
 namesArchive = any names . parseFilter
   where names t = tmKey t == Just tagsKey
-                    && archiveMeta `elem` alternatives (T.toLower (tmValue t))
+                    && archiveKey `elem` alternatives (T.toLower (tmValue t))
 
 alternatives :: Text -> [Text]
 alternatives = filter (not . T.null) . T.splitOn "|"

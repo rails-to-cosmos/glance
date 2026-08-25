@@ -84,7 +84,7 @@ map. =т з о л= navigates on a Cyrillic layout.
 | =t= =:=       | state palette · tag popup                                     |
 | =d d= =D=     | flag-then-delete (archive)                                    |
 | =x=         | act on the flagged, after asking · =D= is the quick one         |
-| =m= =u= =M= =U=   | dired's marks                                                 |
+| =m= =u= =M= =U=   | dired's marks; =SPC= aliases =m=                                                 |
 | =o=         | follow the row's links (one opens, several list)              |
 | =+=         | capture                                                       |
 | =g=         | default view                                                  |

@@ -13,6 +13,18 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **`tag:archive` names the archive.** The plain word is the spelling: it
+  lifts the hiding and filters like any tag value — infix, so a near-miss
+  tag such as `archived` rides along. Alternatives, `+` tokens and negation
+  count, as every spelling did. `*archive*` leaves the meta roster and
+  names nothing: the starred form is the generic whole-tag match, and
+  matching only what the exclusion withholds, it serves nothing on its own.
+  The builtin archive
+  view is `tag:archive`, and completion never offers the word — the tag
+  vocabulary is the loaded rows', which the exclusion keeps archive-free.
+
+- **`SPC` marks.** The space bar aliases `m` (`mark-toggle`) on the table.
+
 - **The capture doc is the material doc.** `+` was a popup form — a tag field,
   one field per `%^{PROMPT}`, then one line of raw text that submitted on
   `RET` — and it gave the one moment a reader composes a whole headline the
@@ -462,6 +474,12 @@ section groups a feature arc, and its date is that arc's last commit.
   before.
 
 ### Fixed
+
+- **The title edit no longer sinks on an empty title.** The row's cells align
+  by baseline, and an empty title cell has none — its zero-height box sat on
+  the baseline and the edit box followed it down. A tight box now reads its
+  vertical off the row and only its horizontal off the slot, so the capture
+  draft's first edit stands on its line.
 
 - **The capture draft says where it lands, opens editing, and shows the day it
   read.** Four reports off the new capture doc, all of them the same shape —

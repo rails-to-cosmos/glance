@@ -598,7 +598,7 @@ specGroup06 = testGroup "Keyword configuration"
       assertEqual "the saved view registry moved"
         [ ("default", "GLANCE_DEFAULT_FILTER", "state:*active*")
         , ("agenda",  "GLANCE_AGENDA_FILTER",  "state:*active* -planned:*empty* sort:scheduled")
-        , ("archive", "GLANCE_ARCHIVE_FILTER", "tag:*archive*") ]
+        , ("archive", "GLANCE_ARCHIVE_FILTER", "tag:archive") ]
         [ (svId v, svPragma v, svBuiltin v) | v <- savedViews ]
 
   , testCase "every saved view is a GLANCE_ pragma" $

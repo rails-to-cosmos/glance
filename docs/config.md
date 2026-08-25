@@ -46,7 +46,7 @@ Three names, each one pragma, each with a built-in fallback
 | --- | --- | --- |
 | `default` | `#+GLANCE_DEFAULT_FILTER` | `state:*active*` |
 | `agenda` | `#+GLANCE_AGENDA_FILTER` | `state:*active* -planned:*empty* sort:scheduled` |
-| `archive` | `#+GLANCE_ARCHIVE_FILTER` | `tag:*archive*` |
+| `archive` | `#+GLANCE_ARCHIVE_FILTER` | `tag:archive` |
 
 `g` / `A` apply default and agenda; `P` pins the table's current query into
 a saved view — written back to the layer as the pragma line. Within one

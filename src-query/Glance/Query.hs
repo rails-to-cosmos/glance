@@ -2559,7 +2559,7 @@ priorityBadges =
 
 -- | THE RESERVED METAS, WHOLE, and no BARE word is reserved.  The other half is
 -- closed by two charset walls — 'keywordTextP' and 'tagText' — so none arrives as data.
-data Meta = MActive | MInactive | MEmpty | MArchive | MNone | MToday | MAny
+data Meta = MActive | MInactive | MEmpty | MNone | MToday | MAny
   deriving (Eq, Show, Enum, Bounded)
 
 metas :: [Meta]
@@ -2571,7 +2571,6 @@ metaWord = starred . bare
     bare MActive   = "active"
     bare MInactive = "inactive"
     bare MEmpty    = "empty"
-    bare MArchive  = T.toLower archiveTag
     bare MNone     = "none"
     -- A DATE VALUE rather than a cell predicate: it stands wherever a date
     -- literal stands and resolves to the request's own day ('Filter.onDay').

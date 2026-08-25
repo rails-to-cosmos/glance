@@ -3551,7 +3551,8 @@ export default [
       const box = (e) => {
         if (!e || !e.getBoundingClientRect) return null;
         const r = e.getBoundingClientRect();
-        return { x: Math.round(r.left), w: Math.round(r.width) };
+        return { x: Math.round(r.left), w: Math.round(r.width),
+                 t: Math.round(r.top), h: Math.round(r.height) };
       };
       const head = document.querySelector('#mdoc .de[data-id="H"]');
       const t = document.getElementById("dtitle");
@@ -3578,6 +3579,13 @@ export default [
         `${what}: the title edit is ${JSON.stringify([s.open, s.field])}`);
       assert(Math.abs(s.edit.x - s.title.x) <= 2,
         `${what}: the box opens at x${s.edit.x} and the slot at x${s.title.x}`);
+      // THE VERTICAL IS THE ROW'S: an empty slot's own rect sat on the
+      // baseline at zero height, and the box must never follow it there.
+      assert(s.edit.t - s.row.t >= 0 && s.edit.t - s.row.t <= 3,
+        `${what}: the box opens at y${s.edit.t} over a row at y${s.row.t} — `
+        + `it dropped to the baseline`);
+      assert(s.edit.h >= 18,
+        `${what}: the box is ${s.edit.h}px tall — it must cover the line`);
       assert(s.edit.w < s.row.w - 8,
         `${what}: the box is ${s.edit.w}px over a ${s.row.w}px row — it swallowed it`);
       for (const [cls, text, b] of s.before)

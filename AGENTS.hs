@@ -1399,7 +1399,7 @@ savedViews :: [SavedView]
 savedViews =
   [ SavedView "default" "GLANCE_DEFAULT_FILTER" (Query "state:*active*")
   , SavedView "agenda"  "GLANCE_AGENDA_FILTER"  (Query "state:*active* -planned:*empty* sort:scheduled")
-  , SavedView "archive" "GLANCE_ARCHIVE_FILTER" (Query "tag:*archive*")
+  , SavedView "archive" "GLANCE_ARCHIVE_FILTER" (Query "tag:archive")
   ]
 savedView :: String -> Maybe SavedView
 savedView vid = listToMaybe [ v | v <- savedViews, svId v == vid ]
@@ -2722,7 +2722,7 @@ qLetter v = qFold (fromMaybe v (unbracket v))
 
 -- ** The starred family, and it is total
 
-data Meta = MActive | MInactive | MEmpty | MArchive | MNone | MToday | MAny
+data Meta = MActive | MInactive | MEmpty | MNone | MToday | MAny
   deriving (Eq, Show, Enum, Bounded)
 metas :: [Meta]
 metas = [minBound .. maxBound]
@@ -2732,7 +2732,6 @@ metaWord :: Meta -> String
 metaWord MActive   = starred "active"
 metaWord MInactive = starred "inactive"
 metaWord MEmpty    = starred "empty"
-metaWord MArchive  = starred "archive"   -- DERIVED from org's own ARCHIVE tag, folded
 metaWord MNone     = starred "none"
 metaWord MToday    = starred "today"     -- READ-COMPAT: `today' is the word now
 metaWord MAny      = starred "any"       -- an ANCHOR, and the union over that slot
@@ -2743,12 +2742,11 @@ metaOf v | "*" `isPrefixOf` v, "*" `isSuffixOf` v, length v > 2 = Just (drop 1 (
 isMeta :: String -> Bool
 isMeta v = v `elem` map metaWord metas
 
-data MetaHome = EveryCell | TagCell | StateCell | OrderToken | DateValue | RefAnchor
+data MetaHome = EveryCell | StateCell | OrderToken | DateValue | RefAnchor
   deriving (Eq, Show)
 -- | Where each meta is answered.
 metaHome :: Meta -> MetaHome
 metaHome MEmpty    = EveryCell    -- every column key, and `planned'
-metaHome MArchive  = TagCell      -- a starred word on `tag' is that WHOLE tag
 metaHome MActive   = StateCell
 metaHome MInactive = StateCell
 metaHome MNone     = OrderToken   -- the ORDER token's own word, and it reads no cell
@@ -2770,7 +2768,6 @@ groupTest :: Meta -> StateOf -> Bool
 groupTest MActive   s = s /= SInactive
 groupTest MInactive s = s == SInactive
 groupTest MEmpty    s = s == SNone
-groupTest MArchive  _ = False
 groupTest MNone     _ = False
 groupTest MToday    _ = False
 groupTest MAny      _ = False
@@ -2778,17 +2775,17 @@ groupTest MAny      _ = False
 stateValues :: [String]
 stateValues = map metaWord [MActive, MInactive]
 
--- | Does Q name the archive meta through the @tag@ column?  Any spelling, the
--- alternatives read too, and the STARRED spelling alone.
+-- | Does Q name the archive through the @tag@ column?  The PLAIN WORD alone --
+-- `tag:archive'; any spelling of the token, alternatives read too, both
+-- signs and `+'.  The starred form is the generic whole-tag match and
+-- names nothing.
 namesArchive :: String -> Bool
 namesArchive = any named . parseQ
-  where named (Term _ k v) = k == Just "tag" && metaWord MArchive `elem` alts (qFold v)
--- | What @\/headlines@ lays under a query that does not name the meta.
+  where named (Term _ k v) = k == Just "tag" && "archive" `elem` alts (qFold v)
+-- | What @\/headlines@ lays under a query that does not name the archive:
+-- the WHOLE tag, org's ARCHIVE alone -- `archived' in the code.
 archiveExclusion :: Term
-archiveExclusion = parse1 ("-tag:" <> metaWord MArchive)
--- | (served, withheld) per spelling over ~\/sync at 2026-08-02.
-archiveCensus :: [(String, Int, Int)]
-archiveCensus = [ (metaWord MArchive, 322, 0), ("archive", 0, 322) ]
+archiveExclusion = parse1 ("-tag:" <> starred "archive")
 
 qnSocket :: Note
 qnSocket = Note "The socket is not filtered, so an unfiltered client splices in an \
@@ -3248,7 +3245,9 @@ queryNotes =
          \text `web:' is inside every row carrying the tag." [Test]
   -- Tier two until the checks moved into the suite: what no gate asks.
   , Note "A keyless token spells its key, quoting a separator." [Browser]
-  , Note "The starred spelling serves the rows the plain one withholds." [Unguarded]
+  , Note "Naming the archive serves the rows an unnamed query withholds; the plain\
+         \ word alone names it, and the whole-tag `*archive*' form matches only rows\
+         \ the exclusion still withholds." [Unguarded]
   , Note "Every gap is named once, with a direction." [Unguarded]
   , Note "The sort refusals are the one gap where this side is stricter." [Unguarded]
   , Note "Every other gap leaves the renderer narrower or undecided." [Unguarded]
@@ -3985,6 +3984,7 @@ bindings =
   , Binding ["g"]           (Elisp "apply-default-filter")            STable
   , Binding ["P"]           (Elisp "set-saved-view")                  STable
   , Binding ["m"]           (Elisp "mark-toggle")                     STable
+  , Binding ["SPC"]         (Elisp "mark-toggle")                     STable
   , Binding ["u"]           (Elisp "unmark")                          STable
   , Binding ["U"]           (Elisp "unmark-all")                      STable
   , Binding ["M"]           (Elisp "mark-all")                        STable
@@ -4039,7 +4039,7 @@ keyHelps =
   , (["DEL"],               "unmark all, else drop the filter's last token")
   , (["g"],                 "the view this tree opens on")
   , (["P"],                 "pin the applied view, into whichever saved view answers")
-  , (["m"],                 "toggle this row's mark, then step down")
+  , (["m", "SPC"],          "toggle this row's mark, then step down")
   , (["u"],                 "take this row's archive flag off, else its mark, then step down")
   , (["U"],                 "every mark and every archive flag off")
   , (["M"],                 "mark every row loaded")

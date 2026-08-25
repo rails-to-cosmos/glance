@@ -460,9 +460,18 @@
       const a = tr.getBoundingClientRect();
       const b = pane.getBoundingClientRect();
       const s = el(o.box).style;
+      // THE LINE VOUCHES FOR A TIGHT BOX'S VERTICAL: an empty slot has no
+      // baseline, so its rect sits on the row's baseline at zero height
+      // (docs/bugs/fixed/2026-08-25-the-title-box-sits-on-the-baseline-when-the-title-is-empty.md).
+      // The row carries the axis a cell's content cannot; the cell keeps the
+      // horizontal, where flex places even an empty box truly.
+      const row = o.tight && tr.closest ? tr.closest(".de") : null;
+      const rowed = row && typeof row.getBoundingClientRect === "function";
+      const [padT, padB] = rowed ? rowPads(row) : [0, 0];
+      const rr = rowed ? row.getBoundingClientRect() : a;
       // Absolute against the PADDING box, so a scrolling pane owes clientTop + scrollTop.
-      s.top = `${a.top - b.top - pane.clientTop + pane.scrollTop}px`;
-      s.height = `${a.height}px`;
+      s.top = `${(rowed ? rr.top + padT : a.top) - b.top - pane.clientTop + pane.scrollTop}px`;
+      s.height = `${rowed ? rr.height - padT - padB : a.height}px`;
       // THE BOX IS THE BLOCK IT COVERS ON EVERY EDGE: `.d-item' carries no horizontal padding.
       // EVERY field of it, since a two-field box laid over one row is two halves
       // of that row's line -- padding the first alone would inset only the key.
@@ -488,6 +497,19 @@
       const l = from.getBoundingClientRect(), rt = to.getBoundingClientRect();
       s.left = `${l.left - b.left}px`;
       s.width = `${rt.right - l.left}px`;
+    }
+    /** The ROW's vertical padding, measured ONCE PER ROW the way `inset' measures:
+     * `getComputedStyle' forces a style recalc, and `placeEdit' runs per scroll
+     * frame while a box is up. */
+    let padsRow = null, padsTB = [0, 0];
+    function rowPads(row) {
+      if (padsRow !== row) {
+        const c = typeof getComputedStyle === "function" ? getComputedStyle(row) : null;
+        if (!c) return [0, 0];
+        padsRow = row;
+        padsTB = [parseFloat(c.paddingTop) || 0, parseFloat(c.paddingBottom) || 0];
+      }
+      return padsTB;
     }
     /** FIELD padded the way ROW is, MEASURED ONCE PER ROW: `getComputedStyle' forces
      * a style recalc, and one open edit can outlive the element it was laid over. */

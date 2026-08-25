@@ -87,7 +87,7 @@ rather than of what a cap left standing.  An empty field offers no literal.
 AGENTS.hs carries the law; `docs/bugs/fixed/2026-08-22-an-open-completion-swallows-the-typed-value.md`
 carries what it cost to learn.
 
-**Stars mean meta.**  `*active*`, `*inactive*`, `*empty*`, `*archive*`,
+**Stars mean meta.**  `*active*`, `*inactive*`, `*empty*`,
 `*none*` — a starred word is reserved semantics in every context,
 never a literal; matching reads through the stars (completion is star-blind),
 the walls (`keywordTextP`, `isTagChar`) make a starred literal undeclarable.

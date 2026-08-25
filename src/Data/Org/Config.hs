@@ -118,7 +118,7 @@ builtinAgenda :: Text
 builtinAgenda = "state:*active* -planned:*empty* sort:scheduled"
 
 builtinArchive :: Text
-builtinArchive = "tag:*archive*"
+builtinArchive = "tag:archive"
 
 data SavedView = SavedView
   { svId      :: !Text  -- ^ what the wire and the selector spell.

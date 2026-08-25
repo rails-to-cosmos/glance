@@ -23,7 +23,7 @@ import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortC
 import Glance.Web.Columns (columnNamesIn)
 import Glance.Web.Filter ( FilterEnv, Sign (..), Term (..), Token (..), alternatives, anyMeta
                          , archiveKey
-                         , archiveMeta, cellAt, columnsKey, emptyEnv, emptyMeta, filterKeys
+                         , cellAt, columnsKey, emptyEnv, emptyMeta, filterKeys
                          , fromKey
                          , matchesFilter, metaOf, namesArchive, onDay, parseFilter
                          , plannedKey, refKey, scanQuery, sortKey, storeEnv
@@ -1346,27 +1346,31 @@ described cols = [ (key, header) | (key, header, _kind, _cell) <- cols ]
 
 archiveSpec :: TestTree
 archiveSpec = testGroup "Archive key"
-  [ testCase "the tag, the meta that names it, and the column both sit under" $ do
+  [ testCase "the tag and the column it is named under" $ do
       assertEqual "the value" "archive" archiveKey
-      assertEqual "the meta" "*archive*" archiveMeta
       assertEqual "and the key it is named under" "tag" tagsKey
 
-  , testCase "every spelling of the META counts as naming it" $
+  , testCase "every spelling that denotes the tag counts as naming it" $
       mapM_ (\q -> assertBool (show q <> " did not read as naming the tag")
                              (namesArchive q))
-            [ "tag:*archive*", "-tag:*archive*", "state:DONE tag:*archive*"
-            , "tag=*archive*", "tag:\"*archive*\"", "tag:*ARCHIVE*"
+            -- THE PLAIN WORD IS THE SPELLING, whole.
+            [ "tag:archive", "-tag:archive", "+tag:archive", "state:DONE tag:archive"
+            , "tag=archive", "tag:\"archive\"", "tag:ARCHIVE"
             -- An ALTERNATIVE names it too: archived rows have been asked for.
-            , "tag:*archive*|web", "tag:web|*archive*", "-tag:web|*archive*" ]
+            , "tag:archive|web", "tag:web|archive", "-tag:web|archive" ]
 
   , testCase "and a query that says nothing about it does not" $
       mapM_ (\q -> assertBool (show q <> " read as naming the tag")
                              (not (namesArchive q)))
             -- With tags out of the grammar, `archive:draft' is text like any other.
-            [ "", "*archive*", "\"tag:*archive*\"", "archive:", "archive:draft"
-            , "state:DONE", "title:*archive*"
-            -- THE STARRED SPELLING ALONE: `tag:archive' is the ordinary substring.
-            , "tag:archive", "-tag:archive", "tag:arch", "tag:archived" ]
+            [ "", "archive", "*archive*", "\"tag:archive\"", "archive:", "archive:draft"
+            , "state:DONE", "title:archive", "title:*archive*"
+            -- THE WHOLE WORD ALONE: a fragment or a longer tag says another
+            -- thing, and the STARRED form is the generic whole-tag match —
+            -- no special case rides on it.
+            , "tag:arch", "tag:archived", "tag:archives"
+            , "tag:*archive*", "-tag:*archive*", "tag:*ARCHIVE*"
+            , "tag:*archive*|web", "tag:web|*archive*" ]
   ]
 
 -- The starred family: this fixture spells both reserved words as ordinary org.
@@ -1422,7 +1426,7 @@ metaSpec = testGroup "Starred metas"
   -- THE ROSTER IS THE FAMILY: the type and the constants have to name one set.
   [ testCase "the roster is every starred word the code spells" $ do
       assertEqual "the family, in the order the type declares it"
-        [activeMeta, inactiveMeta, emptyMeta, archiveMeta, noOrder, todayMeta, anyMeta]
+        [activeMeta, inactiveMeta, emptyMeta, noOrder, todayMeta, anyMeta]
         (map metaWord metas)
       mapM_ (\m -> assertBool (show m <> " is not a starred word")
                               (maybe False (not . T.null) (metaOf (metaWord m))))
@@ -1943,10 +1947,6 @@ addedSpec = testGroup "Added tokens"
       -- THE FLOOD the drop prevents: left standing, `state:' is a match-all in
       -- the conjunction half and every row rides out on the added token's OR.
       matches "state: +state:DONE" [Schema]
-
-  , testCase "an added tag token names the archive like any other spelling" $
-      assertBool "+tag:*archive* did not read as naming the tag"
-                 (namesArchive "+tag:*archive*")
 
   , testCase "the three view keys refuse a + the way they refuse a -" $ do
       refusedNaming "sort" ["added", "+sort:title"] (sortChainIn "+sort:title")

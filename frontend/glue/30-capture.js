@@ -43,7 +43,7 @@ const Capture = ((deps) => {
         ? TableView.parseQuery(queryNow(), colsNow().map((c) => c.key)) : []);
     /** A FACT THE FILTER PINS TO ONE CONCRETE POSITIVE VALUE, or `""'.  A
      * negated predicate, a WIDENING (an alternative, never a facet every shown
-     * row carries), an alternation and a meta (`*archive*') each describe a SET
+     * row carries), an alternation and a meta (`*active*') each describe a SET
      * of rows rather than a value a capture could wear. */
     const pinned = (t) =>
       !t.negated && !t.added && t.value

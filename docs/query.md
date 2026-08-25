@@ -398,7 +398,6 @@ never a glob.
 | `*empty*` | any column key, `planned` | the named cells are empty |
 | `*active*` | `state:` | an active keyword **or no keyword** — stateless rows are live work |
 | `*inactive*` | `state:` | a done-like keyword (the empty cell is not included) |
-| `*archive*` | `tag:` | the whole tag `archive` — see below |
 | `*today*` | the date keys' values | `today`'s OLD spelling: the server's local day, `YYYY-MM-DD`. Read, never offered |
 | `*any*` | `ref:`, `from:` | any target at all: the row is on that relation |
 | `*none*` | `sort:` | no order at all: document order |
@@ -467,7 +466,7 @@ Three names exist, each a pragma in the tree's config layer
 | --- | --- | --- |
 | `default` | `#+GLANCE_DEFAULT_FILTER` | `state:*active*` |
 | `agenda` | `#+GLANCE_AGENDA_FILTER` | `state:*active* -planned:*empty* sort:scheduled` |
-| `archive` | `#+GLANCE_ARCHIVE_FILTER` | `tag:*archive*` |
+| `archive` | `#+GLANCE_ARCHIVE_FILTER` | `tag:archive` |
 
 The agenda's built-in serves every dated row; rewriting it for the day's work
 is [config.md](config.md#saved-views).
@@ -480,9 +479,16 @@ config layer that names one wins across directories.
 ## The archive
 
 A tree that carries the tag `archive` anywhere hides archived rows from
-every query that does not name them: `tag:*archive*` (or its negation)
-disarms the hiding; the literal `tag:archive` does not. The withheld count
-rides the `X-Glance-Archived` response header.
+every query that does not name them. A `tag:` value spelling the whole
+word — `tag:archive`, an alternative, a `+` token, the negation — disarms
+the hiding. The starred `tag:*archive*` is the generic whole-tag match and
+names nothing: matching only archived rows, unnamed it serves none. The
+predicate itself is the ordinary infix match, so a near-miss tag like
+`archived` rides along with the plain word. The withheld count rides the
+`X-Glance-Archived` response header. Completion never offers `archive`: the
+`tag:` vocabulary is the loaded rows', and the exclusion keeps archived rows
+out of them — inside the archive view the loaded rows are archived, and
+their tag is theirs to show.
 
 ## Order, duplicates, precedence
 

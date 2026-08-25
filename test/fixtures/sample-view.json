@@ -194,7 +194,7 @@
     },
     {
       "name": "archive",
-      "query": "tag:*archive*"
+      "query": "tag:archive"
     }
   ]
 }

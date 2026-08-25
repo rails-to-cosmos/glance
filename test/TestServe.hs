@@ -914,6 +914,10 @@ markSpec shell =
         assertEqual "nothing marked" [] =<< textsAt "marked" answer
         echoIs "and it says so" "m → mark-toggle (unmarked · 0)" answer
 
+    -- SPC IS m: the space bar is the other thumb on the same gesture.
+  , keyed shell "SPC toggles the mark, m's own alias" "" "press:Space" $
+        echoIs "the alias answers under its own key" "SPC → mark-toggle (marked · 1)"
+
     -- After `m' the cursor is on an unmarked row, so a toggle would mark it and the count read 2.
   , keyed shell "u never marks a row, it only unmarks one" "m u" "" $ \answer -> do
         assertEqual "the first mark stands alone" ["r1"] =<< textsAt "marked" answer
@@ -2650,7 +2654,7 @@ drillSpec shell = testGroup "Shell drill"
         =<< traverse (textAt "name") views
       assertEqual "each with the query it holds"
                   [ "state:*active*", "state:*active* -planned:*empty* sort:scheduled"
-                  , "tag:*archive*" ]
+                  , "tag:archive" ]
         =<< traverse (textAt "query") views
 
     -- `view:NAME' IS A MACRO: the token never survives into the applied query.
@@ -5607,7 +5611,7 @@ settingsSpec shell =
         assertEqual "the registry in order, what each holds, then the reset flag"
                     [ ("[d]efault", "state:*active*")
                     , ("[a]genda", "state:*active* -planned:*empty* sort:scheduled")
-                    , ("a[r]chive", "tag:*archive*")
+                    , ("a[r]chive", "tag:archive")
                     , ("reset", "off · put a view's built-in back") ]
           =<< paletteHints answer
         assertEqual "and the question wrote nothing" ([] :: [Value])
@@ -5662,7 +5666,7 @@ settingsSpec shell =
         assertEqual "the views stand, and the rung says it is on"
                     [ ("[d]efault", "state:*active*")
                     , ("[a]genda", "state:*active* -planned:*empty* sort:scheduled")
-                    , ("a[r]chive", "tag:*archive*")
+                    , ("a[r]chive", "tag:archive")
                     , ("reset", "on · a letter puts the built-in back") ]
           =<< paletteHints answer
         assertEqual "and nothing written by the flag" ([] :: [Value])
@@ -6214,7 +6218,7 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
   assertBool "the pane's inset is one name, read by both"
              ("padding:var(--g-doc-pady) var(--g-doc-padx)" `T.isInfixOf` page)
   assertBool "the placement takes the pane's border and scroll back out"
-             ("a.top - b.top - pane.clientTop + pane.scrollTop" `T.isInfixOf` page)
+             (") - b.top - pane.clientTop + pane.scrollTop" `T.isInfixOf` page)
   -- FOCUS DRAWS NO LINE: the document's box is read as text and must not grow one.
   focus <- need "the box's focus rule"
                 (between ("  #dpara textarea:focus,#dtin:focus,#dpair input:focus,"
@@ -11108,7 +11112,7 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
         assertEqual "nothing hidden from it" (Just "0")
                     (header "X-Glance-Archived" explicit)
 
-  , testCase "naming the META at all shows them" $
+  , testCase "naming the archive at all shows them, by the plain word" $
       withArchived $ \a ->
         mapM_ (\(path, wanted) -> do
                  r <- getFrom a path
@@ -11116,34 +11120,43 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
                    =<< rowsOf r
                  assertEqual (show path <> ": nothing hidden") (Just "0")
                              (header "X-Glance-Archived" r))
-              [ ("/headlines?q=tag%3A*archive*", ["filed"])
-              , ("/headlines?q=tag%3A*archive*%20filed", ["filed"])
-              , ("/headlines?q=state%3ADONE%20tag%3A*archive*", ["filed"]) ]
+              [ ("/headlines?q=tag%3Aarchive", ["filed", "near"])
+              , ("/headlines?q=tag%3Aarchive%20filed", ["filed"])
+              , ("/headlines?q=state%3ADONE%20tag%3Aarchive", ["filed"]) ]
 
-    -- THE COUPLING IS THE META'S ALONE: the bare word is an ordinary tag predicate and reveals nothing.
-  , testCase "the plain tag predicate filters without lifting the exclusion" $
+    -- THE PLAIN WORD IS THE SPELLING: `tag:archive' names the archive and
+    -- filters by the general tag logic -- infix, so a near-miss tag rides.
+  , testCase "the plain word lifts the exclusion, the general tag logic riding" $
       withArchived $ \a -> do
         plain <- getFrom a "/headlines?q=tag%3Aarchive"
-        assertEqual "the rows it reaches" ["near"] . map rowId =<< rowsOf plain
-        assertEqual "and the archived one it does not" (Just "1")
+        assertEqual "the rows it reaches" ["filed", "near"] . sort . map rowId
+          =<< rowsOf plain
+        assertEqual "nothing withheld from what named it" (Just "0")
                     (header "X-Glance-Archived" plain)
         meta <- getFrom a "/headlines?q=tag%3A*archive*"
-        assertEqual "the meta is the whole tag" ["filed"] . map rowId =<< rowsOf meta
+        assertEqual "the starred form names nothing, its matches all withheld"
+          [] . map rowId =<< rowsOf meta
 
-    -- As free text `tag:*archive*' matches nothing, so a match is the predicate reading the tags cell.
-  , testCase "the predicate survives the exclusion that hides its rows" $
+    -- As free text `tag:*archive*' matches nothing; as a predicate it reads the
+    -- tags cell, and the exclusion withholds every match -- which the header counts.
+  , testCase "the predicate reads the cell, and the exclusion counts its matches" $
       withArchived $ \a -> do
         faceted <- getFrom a "/headlines?q=tag%3A*archive*"
         text' <- getFrom a "/headlines?q=%22tag%3A*archive*%22"
-        assertEqual "as a predicate" (Just "1") (header "X-Glance-Total" faceted)
-        assertEqual "as free text" (Just "0") (header "X-Glance-Total" text')
+        assertEqual "as a predicate, every match withheld" (Just "0")
+                    (header "X-Glance-Total" faceted)
+        assertEqual "and counted" (Just "1") (header "X-Glance-Archived" faceted)
+        assertEqual "as free text, no match at all" (Just "0")
+                    (header "X-Glance-Total" text')
+        assertEqual "and nothing withheld" (Just "0")
+                    (header "X-Glance-Archived" text')
 
   , testCase "a tree with nothing archived says so" $ do
       r <- get assetsDir "/headlines"
       assertEqual "X-Glance-Archived" (Just "0") (header "X-Glance-Archived" r)
       assertEqual "and every row is served" (Just "6") (header "X-Glance-Total" r)
 
-  , testCase "and naming the meta against it lifts nothing" $ do
+  , testCase "and the starred form over a bare tree serves nothing" $ do
       r <- get assetsDir "/headlines?q=tag%3A*archive*"
       assertEqual "no row carries the tag" (Just "0") (header "X-Glance-Total" r)
       assertEqual "and none was withheld" (Just "0") (header "X-Glance-Archived" r)
@@ -11373,6 +11386,8 @@ expectedRows =
   , (["P"],          "P",       "set-saved-view",                  Just "pinView",        "table",
        Just "pin the applied view, into whichever saved view answers")
   , (["m"],          "m",       "mark-toggle",                     Just "markToggle",     "table",
+       Just "toggle this row's mark, then step down")
+  , (["SPC"],        "SPC",     "mark-toggle",                     Just "markToggle",     "table",
        Just "toggle this row's mark, then step down")
   , (["u"],          "u",       "unmark",                          Just "unmarkRow",      "table",
        Just "take this row's archive flag off, else its mark, then step down")
