@@ -369,8 +369,10 @@ diffSpec = testGroup "File diff"
       assertEqual "the row is the row it was" (rowJSON was) (rowJSON now)
       assertBool "the digest did not follow the file"
                  (hrDigest was /= hrDigest now)
-      assertBool ("the subtree is stale: " <> show (subtreeText now))
-                 ("second" `T.isInfixOf` subtreeText now)
+      -- READ BY PATH: the extent is cut out of the file the re-read landed on.
+      doc <- document path
+      assertBool ("the subtree is stale: " <> show (subtreeText doc now))
+                 ("second" `T.isInfixOf` subtreeText doc now)
 
     -- `linked' is a row FIELD off the whole subtree, so a child moves it with no cell.
   , testCase "unless that edit gives the subtree its first link" $
@@ -463,7 +465,9 @@ diffSpec = testGroup "File diff"
       was <- case rowsUnder path store of
         [r] -> pure r
         rs  -> assertFailure ("expected one row under a.org, got " <> show (map hrId rs))
-      edits <- either (assertFailure . T.unpack) pure (setStateEdits noConfig Nothing was)
+      doc <- document path
+      edits <- either (assertFailure . T.unpack) pure
+                 (setStateEdits noConfig Nothing doc was)
       _ <- either (assertFailure . show) pure
              =<< replaceSpans path (hrDigest was) edits
       left <- TIO.readFile path

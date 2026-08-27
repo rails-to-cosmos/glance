@@ -177,7 +177,9 @@ zoomHelp :: Text
 zoomHelp = "the window's own zoom, a tenth of itself at a time"
 
 -- | Chords left to the browser unless they complete a bound sequence.  None
--- is bound on its own, which is what leaves an abandoned prefix to it.
+-- is bound on its own, which is what leaves an abandoned prefix to it.  THE
+-- DOCUMENT PANE'S OWN LADDER IS A LISTENER AHEAD OF THIS ONE and may claim one
+-- outright: `C-l' is `recenter-top-bottom' while the sheet stands.
 reservedChords :: [Text]
 reservedChords = ["C-l", "C-r", "C-t", "C-u", "C-w", "C-n", "C-p", "<f5>"]
 

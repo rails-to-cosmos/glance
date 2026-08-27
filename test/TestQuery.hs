@@ -9,7 +9,7 @@ import Data.Either (fromRight, isRight)
 import Data.List (foldl', nub, sort, sortOn)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath ((</>))
 import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
@@ -47,6 +47,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineParts (..
                     , linkColumns, linkShown, linkType, removeTagEdits, renameTagEdits
                     , priorityText, rowJSON, setPlanningEdits, setPriorityEdits
                     , setStateEdits, setTitleEdits
+                    , resolveColumns
                     , settableStates, sortedForView, sortedForViewWith, sortedTagsCell
                     , storeRootIn
                     , subtreeEntries, subtreeEntryAt, subtreeLinks, subtreeText
@@ -132,7 +133,31 @@ spec = testGroup "Query"
   [ loadSpec, walkSpec, levelSpec, blankSpec, parallelSpec, cellSpec, searchSpec
   , linkSpec
   , viewSpec, schemaSpec, commandSpec, lensSpec, entrySpec, captureSpec
-  , repeatSpec ]
+  , repeatSpec, residencySpec ]
+
+-- | NO QUERY TOUCHES THE DISK: a custom column is asked per row per request,
+-- so `closed' and every drawer key ride the record itself.
+residencySpec :: TestTree
+residencySpec = testGroup "The document is read, never kept"
+  [ testCase "a custom column answers with the file gone" $
+      withDoc "residency" "closed.org"
+        (T.unlines [ "* DONE shipped", "CLOSED: [2026-08-01 Sat 09:30]"
+                   , ":PROPERTIES:", ":EFFORT: 0:30", ":END:" ]) $ \recs -> case recs of
+        (r : _rest) -> do
+          removeFile (hrFile r)
+          assertEqual "CLOSED, cut at parse"
+                      (Just "[2026-08-01 Sat 09:30]") (customColumn "closed" r)
+          assertEqual "and a drawer key with it" (Just "0:30") (customColumn "EFFORT" r)
+        []          -> assertFailure "the fixture loaded no rows"
+  ]
+
+-- | R's cell under the CUSTOM column NAME, through the facade's own resolution.
+customColumn :: Text -> HeadlineRecord -> Maybe Text
+customColumn name r =
+  case [ cell | (key, _header, _kind, cell) <- resolveColumns [name]
+              , key == T.toCaseFold name ] of
+    (cell : _rest) -> cell r
+    []             -> Nothing
 
 -- | ORG'S REPEATER, shifted.  The shape is TEXTUAL: only the dates move.
 repeatSpec :: TestTree
@@ -253,23 +278,25 @@ linkSpec = testGroup "Links" $
         [(cmd, "pnl"), (cmd, "alpha:grafana")] (shown text)
 
   , testCase "the subtree is what is read, body and children included" $
-      withRecordsOf (T.unlines
-        [ "* parent [[https://a.example][A]]"
-        , "body [[https://b.example][B]]"
-        , "** child https://c.example" ]) $ \recs ->
+      let linkedTree = T.unlines
+            [ "* parent [[https://a.example][A]]"
+            , "body [[https://b.example][B]]"
+            , "** child https://c.example" ] in
+      withRecordsOf linkedTree $ \recs ->
         assertEqual "the whole extent"
           [[ ("https://a.example", "A"), ("https://b.example", "B")
            , ("https://c.example", "https://c.example") ]]
-          (map (map linkPair . subtreeLinks) recs)
+          (map (map linkPair . subtreeLinks linkedTree) recs)
 
     -- Spans are shifted by where the subtree slice starts, so 'Data.Org.Edit' can splice.
   , testCase "a row's link spans are offsets into the document it was read from" $
-      withRecordsOf (T.unlines
-        [ "* first", "nothing here", "* second [[https://a.example][A]]"
-        , "body https://b.example" ]) $ \recs ->
+      let doc = T.unlines
+            [ "* first", "nothing here", "* second [[https://a.example][A]]"
+            , "body https://b.example" ] in
+      withRecordsOf doc $ \recs ->
         assertEqual "each cut out of the file itself"
           [[], ["[[https://a.example][A]]", "https://b.example"]]
-          [ [ cut (hrDoc r) (olSpan l) | l <- subtreeLinks r ] | r <- recs ]
+          [ [ cut doc (olSpan l) | l <- subtreeLinks doc r ] | r <- recs ]
 
     -- A URL is no reference, which keeps 'hrLinks' small enough for every record.
   , testCase "a row's links are the references its subtree carries" $
@@ -346,48 +373,48 @@ lensSpec :: TestTree
 lensSpec = testGroup "Subtree lens"
   [ testGroup "decompose"
     [ testCase "a drawer leaves the body and comes back as pairs" $
-        withParts drawered $ \r -> do
+        withParts drawered $ \doc r -> do
           assertEqual "the body is the subtree without the headline's drawer lines"
                       (T.unlines [ "* TODO First :one:", "body line", "** Child"
                                  , ":PROPERTIES:", ":ORG_GLANCE_ID: kid", ":END:"
                                  , "child body" ])
-                      (hpBody (headlineParts r))
+                      (hpBody (headlineParts doc r))
           assertEqual "the pairs, in file order, the server's own left out"
                       [("EFFORT", "0:30")]
-                      (hpProperties (headlineParts r))
+                      (hpProperties (headlineParts doc r))
 
     , testCase "a headline with no drawer is its whole subtree and no pairs" $
-        withParts (T.unlines ["* TODO Bare", "body line"]) $ \r -> do
-          assertEqual "the body is the subtree" (subtreeText r) (hpBody (headlineParts r))
-          assertEqual "and there is nothing to show" [] (hpProperties (headlineParts r))
+        withParts (T.unlines ["* TODO Bare", "body line"]) $ \doc r -> do
+          assertEqual "the body is the subtree" (subtreeText doc r) (hpBody (headlineParts doc r))
+          assertEqual "and there is nothing to show" [] (hpProperties (headlineParts doc r))
 
       -- The identity property is the row id, so the server keeps it back and writes it in itself.
     , testCase "a hidden property is in neither pane, whatever the file says" $
-        withParts drawered $ \r -> do
-          let parts = headlineParts r
+        withParts drawered $ \doc r -> do
+          let parts = headlineParts doc r
           assertEqual "no hidden key is offered" []
             [ key | (key, _v) <- hpProperties parts, key `elem` hiddenProperties ]
           assertBool "and its line is in no pane either"
                      (not (":ORG_GLANCE_ID: first" `T.isInfixOf` hpBody parts))
 
     , testCase "the planning line is its own region, out of the body" $
-        withParts planned $ \r -> do
+        withParts planned $ \doc r -> do
           assertEqual "body"
                       (T.unlines ["* TODO Timed", "after"])
-                      (hpBody (headlineParts r))
+                      (hpBody (headlineParts doc r))
           assertEqual "and the entries, in the order the line writes them"
                       [ ("SCHEDULED", "<2026-08-01 Sat 09:30>")
                       , ("DEADLINE", "<2026-08-05 Wed>") ]
-                      (hpPlanning (headlineParts r))
+                      (hpPlanning (headlineParts doc r))
 
     , testCase "a headline with no planning has no planning entries" $
-        withParts drawered $ \r ->
-          assertEqual "none" [] (hpPlanning (headlineParts r))
+        withParts drawered $ \doc r ->
+          assertEqual "none" [] (hpPlanning (headlineParts doc r))
 
       -- The logbook is located textually: the LOGBOOK drawer past the title, ahead of the first child.
     , testCase "the logbook is a region of its own, verbatim" $
-        withParts logged $ \r -> do
-          let parts = headlineParts r
+        withParts logged $ \doc r -> do
+          let parts = headlineParts doc r
           assertEqual "the drawer, whole"
                       ":LOGBOOK:\nCLOCK: [2026-08-01 Sat 09:00]--[2026-08-01 Sat 09:30]\n:END:\n"
                       (hpLogbook parts)
@@ -397,35 +424,35 @@ lensSpec = testGroup "Subtree lens"
                       (hpProperties parts)
 
     , testCase "a child's logbook is the child's, and stays body text" $
-        withParts childLogged $ \r -> do
-          let parts = headlineParts r
+        withParts childLogged $ \doc r -> do
+          let parts = headlineParts doc r
           assertEqual "this headline has none" "" (hpLogbook parts)
           assertContains "the child keeps its own" ":LOGBOOK:\nCLOCK: kid\n:END:\n"
                          (hpBody parts)
 
       -- The lens is over ONE headline: a child's drawer is body text here.
     , testCase "a child's drawer stays in the body untouched" $
-        withParts drawered $ \r -> do
-          let parts = headlineParts r
+        withParts drawered $ \doc r -> do
+          let parts = headlineParts doc r
           assertContains "the child keeps its own drawer, whole"
                          ":PROPERTIES:\n:ORG_GLANCE_ID: kid\n:END:\n" (hpBody parts)
           assertEqual "and it is no part of this headline's pairs"
                       ["EFFORT"] (map fst (hpProperties parts))
 
     , testCase "unicode is cut by characters, not bytes" $
-        withParts unicoded $ \r -> do
+        withParts unicoded $ \doc r -> do
           assertEqual "the body keeps its text"
                       (T.unlines ["* TODO Привет мир :unicode:", "тело письма"])
-                      (hpBody (headlineParts r))
+                      (hpBody (headlineParts doc r))
           assertEqual "and the value is the file's"
                       [("CATEGORY", "письма")]
-                      (hpProperties (headlineParts r))
+                      (hpProperties (headlineParts doc r))
 
     , testCase "odd spacing is stripped out of the pairs and left in the file" $
-        withParts oddly $ \r ->
+        withParts oddly $ \doc r ->
           assertEqual "the pairs as a panel would show them"
                       [("A", "one"), ("B", ""), ("C", "three")]
-                      (hpProperties (headlineParts r))
+                      (hpProperties (headlineParts doc r))
     ]
 
   , testGroup "recompose"
@@ -445,20 +472,20 @@ lensSpec = testGroup "Subtree lens"
 
       -- Horizontal space INSIDE a line is content and is not reachable from the end.
     , testCase "horizontal space inside a line is left alone" $
-        withParts (T.unlines ["* TODO Kept", "| a | b |", "#+begin_src", "    indented", "#+end_src"]) $ \r ->
+        withParts (T.unlines ["* TODO Kept", "| a | b |", "#+begin_src", "    indented", "#+end_src"]) $ \doc r ->
           assertEqual "the interior spacing is the file's"
-                      (subtreeText r) (recomposedSubtree r (headlineParts r))
+                      (subtreeText doc r) (recomposedSubtree doc r (headlineParts doc r))
 
     , testCase "a permuted planning line comes back in its own order" $
-        withParts permuted $ \r ->
+        withParts permuted $ \doc r ->
           assertContains "the file's own order"
                          "CLOSED: [2026-07-30 Thu] SCHEDULED: <2026-08-01 Sat>"
-                         (recomposedSubtree r (headlineParts r))
+                         (recomposedSubtree doc r (headlineParts doc r))
 
     , testCase "a property nobody touched keeps its own line, odd spacing and all" $
-        withParts oddly $ \r -> do
-          let parts = headlineParts r
-              back = recomposedSubtree r parts
+        withParts oddly $ \doc r -> do
+          let parts = headlineParts doc r
+              back = recomposedSubtree doc r parts
           assertContains "the crooked line is the file's own" ":A:one" back
           assertContains "and the empty one too" ":B:\n" back
           assertContains "and the padded one keeps the pad it opens with"
@@ -467,105 +494,105 @@ lensSpec = testGroup "Subtree lens"
                      (not (":C:   three   " `T.isInfixOf` back))
 
     , testCase "an edited property is rendered canonically, under the drawer's indent" $
-        withParts indented $ \r -> do
-          let parts = headlineParts r
-              back = recomposedSubtree r parts { hpProperties = [("A", "moved"), ("B", "2")] }
+        withParts indented $ \doc r -> do
+          let parts = headlineParts doc r
+              back = recomposedSubtree doc r parts { hpProperties = [("A", "moved"), ("B", "2")] }
           assertContains "the edited one is canonical, indented like its neighbours"
                          "  :A: moved\n" back
           assertContains "the untouched one is verbatim" "  :B:  2\n" back
 
     , testCase "an added property joins the drawer where the client put it" $
-        withParts drawered $ \r -> do
-          let parts = headlineParts r
-              back = recomposedSubtree r parts { hpProperties = hpProperties parts <> [("ADDED", "yes")] }
+        withParts drawered $ \doc r -> do
+          let parts = headlineParts doc r
+              back = recomposedSubtree doc r parts { hpProperties = hpProperties parts <> [("ADDED", "yes")] }
           assertEqual "the drawer, in order"
                       [":PROPERTIES:", ":ORG_GLANCE_ID: first", ":EFFORT: 0:30"
                       , ":ADDED: yes", ":END:"]
                       (drawerOf back)
 
     , testCase "a dropped property is simply not written" $
-        withParts drawered $ \r -> do
-          let back = recomposedSubtree r (headlineParts r) { hpProperties = [] }
+        withParts drawered $ \doc r -> do
+          let back = recomposedSubtree doc r (headlineParts doc r) { hpProperties = [] }
           assertEqual "the server's own line is what is left"
                       [":PROPERTIES:", ":ORG_GLANCE_ID: first", ":END:"] (drawerOf back)
 
       -- A hidden property is the server's, so an empty list empties the client's half alone.
     , testCase "a hidden property survives a sync that never mentioned it" $
-        withParts drawered $ \r -> do
-          let back = recomposedSubtree r (headlineParts r) { hpProperties = [] }
+        withParts drawered $ \doc r -> do
+          let back = recomposedSubtree doc r (headlineParts doc r) { hpProperties = [] }
           assertContains "verbatim" ":ORG_GLANCE_ID: first\n" back
           assertBool "and the edited half is gone"
                      (not (":EFFORT:" `T.isInfixOf` back))
 
       -- More than one entry, so "hidden" is the LIST rather than one key's case.
     , testCase "every hidden key survives, at the line it sat on" $
-        withParts stamped $ \r -> do
-          let parts = headlineParts r
+        withParts stamped $ \doc r -> do
+          let parts = headlineParts doc r
           assertEqual "neither is offered" [] [ k | (k, _v) <- hpProperties parts
                                                   , k `elem` hiddenProperties ]
           assertEqual "and both are woven back where they were"
                       [ ":PROPERTIES:", ":ORG_GLANCE_ID: kept"
                       , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:" ]
-                      (drawerOf (recomposedSubtree r parts { hpProperties = [] }))
+                      (drawerOf (recomposedSubtree doc r parts { hpProperties = [] }))
 
     , testCase "a client naming a hidden key does not move it" $
-        withParts drawered $ \r -> do
-          let back = recomposedSubtree r (headlineParts r)
+        withParts drawered $ \doc r -> do
+          let back = recomposedSubtree doc r (headlineParts doc r)
                        { hpProperties = [("ORG_GLANCE_ID", "hijacked")] }
           assertContains "the file's own value stands" ":ORG_GLANCE_ID: first\n" back
           assertBool "and the client's is nowhere"
                      (not ("hijacked" `T.isInfixOf` back))
 
     , testCase "an empty list takes the drawer away when nothing is hidden" $
-        withParts oddly $ \r -> do
-          let parts = headlineParts r
-              back = recomposedSubtree r parts { hpProperties = [] }
+        withParts oddly $ \doc r -> do
+          let parts = headlineParts doc r
+              back = recomposedSubtree doc r parts { hpProperties = [] }
           assertEqual "the body alone" (hpBody parts) back
           assertBool "and the drawer is gone with it"
                      (not (":PROPERTIES:" `T.isInfixOf` back))
 
     , testCase "a drawer for a headline that never had one goes after the title line" $
-        withParts (T.unlines ["* TODO Bare", "body line"]) $ \r ->
+        withParts (T.unlines ["* TODO Bare", "body line"]) $ \doc r ->
           assertEqual "written where org writes one"
                       (T.unlines [ "* TODO Bare", ":PROPERTIES:", ":NEW: 1", ":END:"
                                  , "body line" ])
-                      (recomposedSubtree r (headlineParts r) { hpProperties = [("NEW", "1")] })
+                      (recomposedSubtree doc r (headlineParts doc r) { hpProperties = [("NEW", "1")] })
 
     , testCase "and after the planning line when there is one" $
-        withParts (T.unlines ["* TODO Timed", "SCHEDULED: <2026-08-01 Sat 09:30>", "after"]) $ \r ->
+        withParts (T.unlines ["* TODO Timed", "SCHEDULED: <2026-08-01 Sat 09:30>", "after"]) $ \doc r ->
           assertEqual "the planning line keeps its place"
                       (T.unlines [ "* TODO Timed", "SCHEDULED: <2026-08-01 Sat 09:30>"
                                  , ":PROPERTIES:", ":NEW: 1", ":END:", "after" ])
-                      (recomposedSubtree r (headlineParts r) { hpProperties = [("NEW", "1")] })
+                      (recomposedSubtree doc r (headlineParts doc r) { hpProperties = [("NEW", "1")] })
 
     , testCase "an edit further down the body leaves the drawer where it was" $
-        withParts drawered $ \r -> do
-          let parts = headlineParts r
-              back = recomposedSubtree r parts { hpBody = hpBody parts <> "one more line\n" }
+        withParts drawered $ \doc r -> do
+          let parts = headlineParts doc r
+              back = recomposedSubtree doc r parts { hpBody = hpBody parts <> "one more line\n" }
           assertEqual "the drawer still opens the line under the headline"
                       ":PROPERTIES:" (T.lines back !! 1)
           assertContains "and the addition landed" "one more line\n" back
 
     , testCase "a body shorter than the drawer's line takes it at the end" $
-        withParts oddly $ \r ->
+        withParts oddly $ \doc r ->
           assertEqual "appended, and terminated"
                       "* only\n:PROPERTIES:\n:A: 1\n:END:\n"
-                      (recomposedSubtree r (headlineParts r)
+                      (recomposedSubtree doc r (headlineParts doc r)
                          { hpBody = "* only", hpProperties = [("A", "1")] })
     ]
 
   , testGroup "planning"
     [ testCase "an untouched entry keeps its own text, where it was" $
-        withParts planned $ \r -> do
-          let parts = headlineParts r
-              back  = recomposedSubtree r parts
+        withParts planned $ \doc r -> do
+          let parts = headlineParts doc r
+              back  = recomposedSubtree doc r parts
           assertEqual "the line, as the file wrote it"
                       "SCHEDULED: <2026-08-01 Sat 09:30> DEADLINE: <2026-08-05 Wed>"
                       (T.lines back !! 1)
 
     , testCase "an edited entry is canonical and the untouched one is not" $
-        withParts planned $ \r -> do
-          let back = recomposedSubtree r (headlineParts r)
+        withParts planned $ \doc r -> do
+          let back = recomposedSubtree doc r (headlineParts doc r)
                        { hpPlanning = [ ("DEADLINE", "<2026-08-05 Wed>")
                                       , ("SCHEDULED", "<2026-09-09 Wed>") ] }
           assertEqual "untouched first, in its own place; the edit rendered"
@@ -573,16 +600,16 @@ lensSpec = testGroup "Subtree lens"
                       (T.lines back !! 1)
 
     , testCase "an entry added to a headline that had none opens the line" $
-        withParts (T.unlines ["* TODO Bare", "body line"]) $ \r ->
+        withParts (T.unlines ["* TODO Bare", "body line"]) $ \doc r ->
           assertEqual "written where org writes one"
                       (T.unlines [ "* TODO Bare", "DEADLINE: <2026-08-05 Wed>", "body line" ])
-                      (recomposedSubtree r (headlineParts r)
+                      (recomposedSubtree doc r (headlineParts doc r)
                          { hpPlanning = [("DEADLINE", "<2026-08-05 Wed>")] })
 
     , testCase "an added entry lands in org's order behind the ones already there" $
-        withParts planned $ \r -> do
-          let parts = headlineParts r
-              back  = recomposedSubtree r parts
+        withParts planned $ \doc r -> do
+          let parts = headlineParts doc r
+              back  = recomposedSubtree doc r parts
                         { hpPlanning = hpPlanning parts <> [("CLOSED", "[2026-08-06 Thu]")] }
           assertEqual "appended, rendered"
                       ("SCHEDULED: <2026-08-01 Sat 09:30> DEADLINE: <2026-08-05 Wed>"
@@ -590,19 +617,19 @@ lensSpec = testGroup "Subtree lens"
                       (T.lines back !! 1)
 
     , testCase "clearing every entry takes the line with it" $
-        withParts planned $ \r -> do
-          let back = recomposedSubtree r (headlineParts r) { hpPlanning = [] }
+        withParts planned $ \doc r -> do
+          let back = recomposedSubtree doc r (headlineParts doc r) { hpPlanning = [] }
           assertBool "no planning line is left"
                      (not ("SCHEDULED:" `T.isInfixOf` back))
           assertEqual "and the drawer moved up under the title"
                       ":PROPERTIES:" (T.lines back !! 1)
 
     , testCase "a planning line added beside a new drawer takes the line above it" $
-        withParts (T.unlines ["* TODO Bare", "body line"]) $ \r ->
+        withParts (T.unlines ["* TODO Bare", "body line"]) $ \doc r ->
           assertEqual "planning, then the drawer, then the body"
                       (T.unlines [ "* TODO Bare", "SCHEDULED: <2026-08-01 Sat>"
                                  , ":PROPERTIES:", ":NEW: 1", ":END:", "body line" ])
-                      (recomposedSubtree r (headlineParts r)
+                      (recomposedSubtree doc r (headlineParts doc r)
                          { hpPlanning = [("SCHEDULED", "<2026-08-01 Sat>")]
                          , hpProperties = [("NEW", "1")] })
 
@@ -618,39 +645,39 @@ lensSpec = testGroup "Subtree lens"
 
   , testGroup "logbook"
     [ testCase "the logbook goes back verbatim, whatever the commit says" $
-        withParts logged $ \r -> do
-          let back = recomposedSubtree r (headlineParts r) { hpLogbook = "ignored" }
+        withParts logged $ \doc r -> do
+          let back = recomposedSubtree doc r (headlineParts doc r) { hpLogbook = "ignored" }
           assertContains "the file's own drawer"
                          ":LOGBOOK:\nCLOCK: [2026-08-01 Sat 09:00]--[2026-08-01 Sat 09:30]\n:END:\n"
                          back
           assertBool "and nothing a client sent" (not ("ignored" `T.isInfixOf` back))
 
     , testCase "a headline with none does not grow one" $
-        withParts drawered $ \r ->
+        withParts drawered $ \doc r ->
           assertBool "no drawer appeared"
             (not (":LOGBOOK:" `T.isInfixOf`
-                    recomposedSubtree r (headlineParts r) { hpLogbook = ":LOGBOOK:\n:END:\n" }))
+                    recomposedSubtree doc r (headlineParts doc r) { hpLogbook = ":LOGBOOK:\n:END:\n" }))
 
     , testCase "an emptied body still keeps the server's own regions" $
-        withParts logged $ \r -> do
-          let back = recomposedSubtree r (headlineParts r)
+        withParts logged $ \doc r -> do
+          let back = recomposedSubtree doc r (headlineParts doc r)
                        { hpBody = "* TODO Logged\n", hpProperties = [] }
           assertContains "the logbook stands" ":LOGBOOK:" back
           assertContains "and the hidden property with it" ":ORG_GLANCE_ID: logged" back
     ]
   ]
   where
-    roundTrips doc = withParts doc $ \r -> do
-      let parts = headlineParts r
+    roundTrips text' = withParts text' $ \doc r -> do
+      let parts = headlineParts doc r
       assertEqual ("round trip of " <> show doc)
-                  (asWritten (subtreeText r)) (recomposedSubtree r parts)
+                  (asWritten (subtreeText doc r)) (recomposedSubtree doc r parts)
 
-    trimsEveryLine doc = withParts doc $ \r -> do
-      let back = recomposedSubtree r (headlineParts r)
+    trimsEveryLine text' = withParts text' $ \doc r -> do
+      let back = recomposedSubtree doc r (headlineParts doc r)
       assertEqual ("no line of " <> show doc <> " trails")
                   [] [ l | l <- T.splitOn "\n" back, l /= asWritten l ]
       assertEqual "and the line endings are the file's"
-                  (T.count "\r\n" (subtreeText r)) (T.count "\r\n" back)
+                  (T.count "\r\n" (subtreeText doc r)) (T.count "\r\n" back)
 
 -- | TEXT as a write spells it: each line's trailing horizontal run off, its
 -- terminator kept.  An INDEPENDENT spelling of what 'recomposedSubtree'
@@ -666,11 +693,12 @@ drawerOf :: Text -> [Text]
 drawerOf text' = takeWhile (/= ":END:") opened <> [":END:"]
   where opened = dropWhile (/= ":PROPERTIES:") (map T.strip (T.lines text'))
 
--- | Run K over the FIRST record DOC loads to.
-withParts :: Text -> (HeadlineRecord -> Assertion) -> Assertion
+-- | Run K over DOC and the FIRST record it loads to; the lens cuts its spans
+-- out of the text handed alongside.
+withParts :: Text -> (Text -> HeadlineRecord -> Assertion) -> Assertion
 withParts doc k = withDoc "lens" "lens.org" doc first'
   where first' rs = case rs of
-          (r : _rest) -> k r
+          (r : _rest) -> k doc r
           []          -> assertFailure "the fixture loaded no headlines"
 
 -- | A headline with a drawer, a body, and a child carrying a drawer of its own.
@@ -847,7 +875,7 @@ shapeOf r = map T.pack
   , show (hrSubtree r), show (hrKeywords r), show (hrState r), show (hrPriority r)
   , show (hrTitle r), show (hrTags r), show (hrScheduled r), show (hrDeadline r)
   , show (hrSearch r), show (hrLinks r), show (hrLinked r)
-  , show (T.length (hrDoc r)) ]
+  , show (hrClosed r), show (hrDrawer r) ]
 
 outcomeShape :: Either LoadFailure [HeadlineRecord] -> Either LoadFailure [[Text]]
 outcomeShape = fmap (map shapeOf)
@@ -964,7 +992,7 @@ levelSpec = testGroup "Top entries"
       withRecordsOf nested $ \recs ->
         assertEqual "subtrees"
                     ["* one\n** two\n*** three\n** four\n", "* five\n"]
-                    (map subtreeText recs)
+                    (map (subtreeText nested) recs)
 
     -- The rule is the star count: a file opening at level two has no top entry.
   , testCase "a file that never reaches level one contributes no rows" $
@@ -1081,11 +1109,12 @@ searchSpec = testGroup "Search text"
 
     -- The visible cost of rows being top entries: a word only a child carries reaches nothing.
   , testCase "a word only a child carries matches nothing" $
-      withRecordsOf (T.unlines ["* parent", "** subterranean child"]) $ \recs -> do
+      let doc = T.unlines ["* parent", "** subterranean child"] in
+      withRecordsOf doc $ \recs -> do
         assertEqual "the entry is a row" 1 (length (filter (matchesSearch "parent") recs))
         assertEqual "the child is not" 0 (length (filter (matchesSearch "subterranean") recs))
         assertBool "though its subtree still spells it"
-                   (all (T.isInfixOf "subterranean" . subtreeText) recs)
+                   (all (T.isInfixOf "subterranean" . subtreeText doc) recs)
   ]
 
 -- | Cells are cut from the source, dates spelled the way the wire wants them.
@@ -1305,33 +1334,34 @@ splice :: Text -> [(Span, Text)] -> Text
 splice doc edits = foldl' one doc (sortOn (negate . spanStart . fst) edits)
   where one text (Span s e, new) = T.take s text <> new <> T.drop e text
 
--- | Run K over the one record DOC parses to.
-withRecord :: Text -> (HeadlineRecord -> Assertion) -> Assertion
+-- | Run K over DOC and the one record it parses to; an edit cuts its spans
+-- out of the text handed alongside.
+withRecord :: Text -> (Text -> HeadlineRecord -> Assertion) -> Assertion
 withRecord doc k = withDoc "command" "one.org" doc one
-  where one [r] = k r
+  where one [r] = k doc r
         one rs  = assertFailure ("expected one headline, got " <> show (length rs))
 
--- | Run K over the FIRST of DOC's records, for a case about the headline BELOW.
-withFirstRecord :: Text -> (HeadlineRecord -> Assertion) -> Assertion
+-- | Run K over DOC and the FIRST of its records, for a case about the headline BELOW.
+withFirstRecord :: Text -> (Text -> HeadlineRecord -> Assertion) -> Assertion
 withFirstRecord doc k = withDoc "command" "one.org" doc one
-  where one (r:_) = k r
+  where one (r:_) = k doc r
         one []    = assertFailure "expected a headline, got none"
 
 -- | WHAT: DOC with @set-state KEYWORD@ on its one headline is WANTED, under 'noConfig'.
 setStateIs :: String -> Text -> Maybe Text -> Text -> Assertion
-setStateIs what doc keyword = triedEditsAre what doc (setStateEdits noConfig keyword)
+setStateIs what doc keyword = triedEditsAre what doc (setStateEdits noConfig keyword doc)
 
 -- | @set-state KEYWORD@ on R under 'layered' is refused, naming keyword, row and WORDS.
-refusalNames :: HeadlineRecord -> Text -> [Text] -> Assertion
-refusalNames r keyword words' = case setStateEdits layered (Just keyword) r of
+refusalNames :: Text -> HeadlineRecord -> Text -> [Text] -> Assertion
+refusalNames doc r keyword words' = case setStateEdits layered (Just keyword) doc r of
   Right edits -> assertFailure ("expected a refusal, got " <> show edits)
   Left why    -> mapM_ (\w -> assertContains "names" w why) (keyword : hrId r : words')
 
 -- | @set-state@ on R under 'layered' takes each of WORDS.
-accepts :: HeadlineRecord -> [Text] -> Assertion
-accepts r = mapM_ (\w -> either (assertFailure . ((T.unpack w <> ": ") <>) . T.unpack)
-                                (const (pure ()))
-                                (setStateEdits layered (Just w) r))
+accepts :: Text -> HeadlineRecord -> [Text] -> Assertion
+accepts doc r = mapM_ (\w -> either (assertFailure . ((T.unpack w <> ": ") <>) . T.unpack)
+                                    (const (pure ()))
+                                    (setStateEdits layered (Just w) doc r))
 
 -- | A config with a cycle per tag and one in @system.org@.
 layered :: ConfigLayers
@@ -1343,13 +1373,13 @@ layered = noConfig
 
 -- | WHAT: DOC with EDITS applied to its one headline is WANTED, asserted whole.
 editsAre :: String -> Text -> (HeadlineRecord -> [(Span, Text)]) -> Text -> Assertion
-editsAre what doc edits wanted =
-  withRecord doc (assertEqual what wanted . splice doc . edits)
+editsAre what text' edits wanted =
+  withRecord text' (\doc -> assertEqual what wanted . splice doc . edits)
 
 -- | 'editsAre' for the commands whose span math can REFUSE.
 triedEditsAre :: String -> Text -> (HeadlineRecord -> Either Text [(Span, Text)])
               -> Text -> Assertion
-triedEditsAre what doc edits wanted = withRecord doc $ \r ->
+triedEditsAre what text' edits wanted = withRecord text' $ \doc r ->
   case edits r of
     Left why     -> assertFailure (what <> ": refused: " <> T.unpack why)
     Right splices -> assertEqual what wanted (splice doc splices)
@@ -1364,18 +1394,18 @@ addTagIs what doc tag = editsAre what doc (addTagEdits tag)
 
 -- | WHAT: DOC with @remove-tag TAG@ applied to its one headline is WANTED.
 removeTagIs :: String -> Text -> Text -> Text -> Assertion
-removeTagIs what doc tag = editsAre what doc (removeTagEdits tag)
+removeTagIs what doc tag = editsAre what doc (removeTagEdits tag doc)
 
 -- | WHAT: DOC with its FIRST link retargeted to TARGET under DESC is WANTED.
 editLinkIs :: String -> Text -> Text -> Maybe (Maybe Text) -> Text -> Assertion
 editLinkIs what doc target desc = triedEditsAre what doc $ \r ->
-  case subtreeLinks r of
+  case subtreeLinks doc r of
     []      -> Left "the document holds no link"
-    (l : _) -> editLinkEdits (olSpan l) target desc r
+    (l : _) -> editLinkEdits (olSpan l) target desc doc r
 
 -- | WHAT: DOC with @rename-tag FROM TO@ applied to its one headline is WANTED.
 renameTagIs :: String -> Text -> Text -> Text -> Text -> Assertion
-renameTagIs what doc from to = editsAre what doc (renameTagEdits from to)
+renameTagIs what doc from to = editsAre what doc (renameTagEdits from to doc)
 
 -- | Is TEXT a tag, as 'tagText' answers?  The charset is the parser's own.
 tagIs :: (Text, Bool) -> Assertion
@@ -1419,9 +1449,8 @@ commandSpec = testGroup "Commands"
 
       -- Without the newline the headline swallows the line below.
     , testCase "a keyword ending its line keeps the newline" $
-        let doc = keyworded "* NEXT\n* NEXT Second\n" in
-        withFirstRecord doc $ \r ->
-          case setStateEdits noConfig Nothing r of
+        withFirstRecord (keyworded "* NEXT\n* NEXT Second\n") $ \doc r ->
+          case setStateEdits noConfig Nothing doc r of
             Left why      -> assertFailure ("cleared at eol: refused: " <> T.unpack why)
             Right splices -> assertEqual "cleared at eol"
                                (keyworded "* \n* NEXT Second\n") (splice doc splices)
@@ -1430,34 +1459,34 @@ commandSpec = testGroup "Commands"
           assertEqual "two rows" 2 (length rs)
 
     , testCase "clearing a headline that has no keyword costs no edit" $
-        withRecord "* Plain\n" $ \r ->
-          assertEqual "no edits" (Right []) (setStateEdits noConfig Nothing r)
+        withRecord "* Plain\n" $ \doc r ->
+          assertEqual "no edits" (Right []) (setStateEdits noConfig Nothing doc r)
 
       -- Per CHAIN, and the file is its nearest scope.
     , testCase "a keyword the chain does not declare is refused, by name" $
-        withRecord "* TODO Plain\n" $ \r ->
-          refusalNames r "WAITING" ["TODO", "DONE"]
+        withRecord "* TODO Plain\n" $ \doc r ->
+          refusalNames doc r "WAITING" ["TODO", "DONE"]
 
     , testCase "the same keyword is legal once the file declares it" $
         setStateIs "declared" (keyworded "* TODO Plain\n") (Just "WAITING")
                               (keyworded "* WAITING Plain\n")
 
     , testCase "each scope of the chain is settable on a row that reaches it" $
-        withRecord (keyworded "* TODO Plain :book:\n") $ \r ->
-          accepts r ["NEXT", "READING", "STARTED", "DONE"]
+        withRecord (keyworded "* TODO Plain :book:\n") $ \doc r ->
+          accepts doc r ["NEXT", "READING", "STARTED", "DONE"]
 
       -- @film@'s cycle parses here — the seed carries it — and no scope this row reaches declares it.
     , testCase "another tag's keyword is refused on a row that does not carry it" $
-        withRecord "* TODO Plain\n" $ \r ->
-          refusalNames r "WATCHING" ["STARTED"]
+        withRecord "* TODO Plain\n" $ \doc r ->
+          refusalNames doc r "WATCHING" ["STARTED"]
 
     , testCase "and refused on a row carrying a different tag" $
-        withRecord "* TODO Plain :book:\n" $ \r ->
-          refusalNames r "WATCHING" ["READING"]
+        withRecord "* TODO Plain :book:\n" $ \doc r ->
+          refusalNames doc r "WATCHING" ["READING"]
 
       -- 'settableStates' IS 'keywordSources' flattened, so this guards the derivation.
     , testCase "everything the palette shows for a row is settable on it" $
-        withRecord (keyworded "* NEXT Plain :book:\n") $ \r -> do
+        withRecord (keyworded "* NEXT Plain :book:\n") $ \doc r -> do
           let shown = [ w | (_source, kw) <- keywordSources layered [r]
                           , w <- tkActive kw <> tkInactive kw ]
           assertEqual "every rung of this row's chain is on offer"
@@ -1466,18 +1495,18 @@ commandSpec = testGroup "Commands"
                       , "READING", "READ"                -- its `book' tag's
                       , "NEXT", "WAITING", "CANCELLED" ] -- the file's own
                       shown
-          accepts r shown
+          accepts doc r shown
 
     , testCase "and the reorder moved which source shows a word, never the set" $
-        withRecord (keyworded "* NEXT Plain :book:\n") $ \r ->
+        withRecord (keyworded "* NEXT Plain :book:\n") $ \_doc r ->
           assertEqual "the same eight words the nearest-scope chain offered"
                       (sort [ "NEXT", "WAITING", "CANCELLED", "READING", "READ"
                             , "STARTED", "TODO", "DONE" ])
                       (sort (settableStates layered r))
 
     , testCase "the state column's group meta-values are not keywords" $
-        withRecord (keyworded "* NEXT Plain\n") $ \r ->
-          mapM_ (\meta -> case setStateEdits noConfig (Just meta) r of
+        withRecord (keyworded "* NEXT Plain\n") $ \doc r ->
+          mapM_ (\meta -> case setStateEdits noConfig (Just meta) doc r of
                    Right edits -> assertFailure (T.unpack meta <> ": " <> show edits)
                    Left _why   -> pure ())
                 ["*active*", "*inactive*", "active"]
@@ -1500,21 +1529,21 @@ commandSpec = testGroup "Commands"
         archiveIs "titleless" "* TODO\n" "* TODO :ARCHIVE:\n"
 
     , testCase "a row already carrying the tag costs no edit" $
-        withRecord "* TODO Ship it :web:ARCHIVE:\n" $ \r -> do
+        withRecord "* TODO Ship it :web:ARCHIVE:\n" $ \_doc r -> do
           assertBool "reads as archived" (archived r)
           assertEqual "no edits" [] (archiveEdits r)
 
     , testCase "however the file spells the tag" $
-        withRecord "* TODO Ship it :archive:\n" $ \r ->
+        withRecord "* TODO Ship it :archive:\n" $ \_doc r ->
           assertEqual "no edits" [] (archiveEdits r)
 
     , testCase "and an untagged row does not read as archived" $
         withRecord "* TODO Ship it :web:\n"
-                   (assertBool "not archived" . not . archived)
+                   (\_doc -> assertBool "not archived" . not . archived)
 
       -- Archiving IS adding one tag, so there is no second insertion rule to drift.
     , testCase "archive is add-tag at org's own name" $
-        mapM_ (\doc -> withRecord doc $ \r ->
+        mapM_ (\text' -> withRecord text' $ \doc r ->
                  assertEqual (T.unpack doc) (addTagEdits "ARCHIVE" r) (archiveEdits r))
               [ "* TODO Ship it :web:\n", "* TODO Ship it\n"
               , "* TODO Ship it :ARCHIVE:\n", "* TODO\n" ]
@@ -1544,12 +1573,12 @@ commandSpec = testGroup "Commands"
                                       , "SCHEDULED: <2026-08-01 Sat>" ])
 
     , testCase "a row already carrying it costs no edit" $
-        withRecord "* TODO Ship it :web:work:\n" $ \r -> do
+        withRecord "* TODO Ship it :web:work:\n" $ \_doc r -> do
           assertBool "reads as tagged" (tagged "work" r)
           assertEqual "no edits" [] (addTagEdits "work" r)
 
     , testCase "however the file spells it" $
-        withRecord "* TODO Ship it :Work:\n" $ \r -> do
+        withRecord "* TODO Ship it :Work:\n" $ \_doc r -> do
           assertBool "reads as tagged" (tagged "work" r)
           assertEqual "no edits" [] (addTagEdits "work" r)
     ]
@@ -1571,13 +1600,13 @@ commandSpec = testGroup "Commands"
                               (plannedEntry "* TODO Ship it")
 
     , testCase "a row that never had it costs no edit" $
-        withRecord "* TODO Ship it :web:\n" $ \r -> do
+        withRecord "* TODO Ship it :web:\n" $ \doc r -> do
           assertBool "not tagged" (not (tagged "work" r))
-          assertEqual "no edits" [] (removeTagEdits "work" r)
+          assertEqual "no edits" [] (removeTagEdits "work" doc r)
 
     , testCase "and a row with no run at all costs none either" $
-        withRecord "* TODO Ship it\n" $ \r ->
-          assertEqual "no edits" [] (removeTagEdits "work" r)
+        withRecord "* TODO Ship it\n" $ \doc r ->
+          assertEqual "no edits" [] (removeTagEdits "work" doc r)
 
       -- Folded, and EVERY entry spelling it, so a file spelling one tag twice comes out clean.
     , testCase "however the file spells it, and however often" $ do
@@ -1586,12 +1615,11 @@ commandSpec = testGroup "Commands"
                             "* TODO Ship it :web:\n"
 
     , testCase "removing what was just added puts the file back" $ do
-        let doc = "* TODO Ship it :web:\n"
-        withRecord doc $ \r -> do
+        withRecord "* TODO Ship it :web:\n" $ \doc r -> do
           let added = splice doc (addTagEdits "work" r)
           assertEqual "added" "* TODO Ship it :web:work:\n" added
-          withRecord added $ \r' ->
-            assertEqual "and back" doc (splice added (removeTagEdits "work" r'))
+          withRecord added $ \addedDoc r' ->
+            assertEqual "and back" doc (splice added (removeTagEdits "work" addedDoc r'))
     ]
 
     -- A command rather than a composition: the edit sets touch, and 'applyEdits' rejects only overlap.
@@ -1615,12 +1643,12 @@ commandSpec = testGroup "Commands"
                               (plannedEntry "* TODO Ship it :projects:")
 
     , testCase "a row that does not carry the old name costs no edit" $
-        withRecord "* TODO Ship it :web:\n" $ \r ->
-          assertEqual "no edits" [] (renameTagEdits "work" "projects" r)
+        withRecord "* TODO Ship it :web:\n" $ \doc r ->
+          assertEqual "no edits" [] (renameTagEdits "work" "projects" doc r)
 
     , testCase "and a row with no run at all costs none either" $
-        withRecord "* TODO Ship it\n" $ \r ->
-          assertEqual "no edits" [] (renameTagEdits "work" "projects" r)
+        withRecord "* TODO Ship it\n" $ \doc r ->
+          assertEqual "no edits" [] (renameTagEdits "work" "projects" doc r)
 
     , testCase "the old name is matched folded, and the new one written as given" $ do
         renameTagIs "folded" "* TODO Ship it :Work:\n" "work" "projects"
@@ -1646,13 +1674,12 @@ commandSpec = testGroup "Commands"
 
       -- The removal ends where the addition inserts, and the anchor was measured BEFORE it.
     , testCase "the composition it replaces writes the tag onto the title" $ do
-        let doc = "* TODO Ship it :work:\n"
-        withRecord doc $ \r -> do
+        withRecord "* TODO Ship it :work:\n" $ \doc r -> do
           assertEqual "the removal takes the run, and the addition lands past it"
                       "* TODO Ship itprojects:\n"
-                      (splice doc (removeTagEdits "work" r <> addTagEdits "projects" r))
+                      (splice doc (removeTagEdits "work" doc r <> addTagEdits "projects" r))
           assertEqual "where the one command spells the file" "* TODO Ship it :projects:\n"
-                      (splice doc (renameTagEdits "work" "projects" r))
+                      (splice doc (renameTagEdits "work" "projects" doc r))
     ]
 
     -- @edit-link@: the one command whose args name a row's own BYTES, spanned by the scan.
@@ -1712,8 +1739,8 @@ commandSpec = testGroup "Commands"
 
       -- THE FIRST WALL: the span sits inside the ROW's subtree and covers one link edge to edge.
     , testCase "a span that does not cover exactly one link is refused" $
-        withRecord "* one\nsee [[https://a.example][A]] and https://b.example\n" $ \r -> do
-          let refused what sp = case editLinkEdits sp "https://c.example" Nothing r of
+        withRecord "* one\nsee [[https://a.example][A]] and https://b.example\n" $ \doc r -> do
+          let refused what sp = case editLinkEdits sp "https://c.example" Nothing doc r of
                 Right edits -> assertFailure (what <> ": expected a refusal, got "
                                                 <> show edits)
                 Left why    -> assertContains what "does not read as one link" why
@@ -1723,8 +1750,8 @@ commandSpec = testGroup "Commands"
           refused "two links at once" (Span 10 52)
 
     , testCase "a span outside the row's subtree is refused, naming both" $
-        withRecord "* one [[https://a.example][A]]\n" $ \r ->
-          case editLinkEdits (Span 900 950) "https://c.example" Nothing r of
+        withRecord "* one [[https://a.example][A]]\n" $ \doc r ->
+          case editLinkEdits (Span 900 950) "https://c.example" Nothing doc r of
             Right edits -> assertFailure ("expected a refusal, got " <> show edits)
             Left why    -> do
               assertContains "names the span" "[900,950)" why
@@ -1733,9 +1760,9 @@ commandSpec = testGroup "Commands"
       -- THE SECOND WALL: the write engine is content-agnostic by law, so this layer owes the reparse.
     , testCase "a replacement that would not read as one link is refused" $
         mapM_ (\(what, wrote, target) ->
-                 withRecord ("* one " <> wrote <> "\n") $ \r ->
-                   case subtreeLinks r of
-                     (l : _) -> case editLinkEdits (olSpan l) target Nothing r of
+                 withRecord ("* one " <> wrote <> "\n") $ \doc r ->
+                   case subtreeLinks doc r of
+                     (l : _) -> case editLinkEdits (olSpan l) target Nothing doc r of
                        Right edits -> assertFailure (what <> ": expected a refusal, got "
                                                        <> show edits)
                        Left why -> assertContains what "does not read as one link" why
@@ -1746,9 +1773,9 @@ commandSpec = testGroup "Commands"
 
       -- REPARSING ALONE IS NOT THE WALL: @a][b@ renders one link the request never named.
     , testCase "a target that reparses as another link is refused, naming both" $
-        withRecord "* one [[https://a.example]]\n" $ \r ->
-          case subtreeLinks r of
-            (l : _) -> case editLinkEdits (olSpan l) "https://a][b" Nothing r of
+        withRecord "* one [[https://a.example]]\n" $ \doc r ->
+          case subtreeLinks doc r of
+            (l : _) -> case editLinkEdits (olSpan l) "https://a][b" Nothing doc r of
               Right edits -> assertFailure ("expected a refusal, got " <> show edits)
               Left why -> do
                 assertContains "names what would have been written" "[[https://a][b]]" why
@@ -1757,10 +1784,10 @@ commandSpec = testGroup "Commands"
 
       -- A NEWLINE reparses as itself and lands a column-1 star the ORG parser reads as a headline.
     , testCase "a newline in either half is refused before anything is written" $
-        withRecord "* one [[https://a.example][A]]\n" $ \r ->
-          case subtreeLinks r of
+        withRecord "* one [[https://a.example][A]]\n" $ \doc r ->
+          case subtreeLinks doc r of
             (l : _) -> mapM_ (\(what, target, desc) ->
-                                case editLinkEdits (olSpan l) target desc r of
+                                case editLinkEdits (olSpan l) target desc doc r of
                                   Right edits -> assertFailure (what <> ": expected a"
                                                    <> " refusal, got " <> show edits)
                                   Left why -> assertContains what "one line" why)
@@ -2008,16 +2035,16 @@ commandSpec = testGroup "Commands"
           (T.unlines ["* TODO Ship it", "CLOSED: [2026-07-30 Thu]"])
 
     , testCase "clearing an entry the headline never had costs no edit" $
-        withRecord "* TODO Plain\n" $ \r ->
-          assertEqual "no edits" (Right []) (setPlanningEdits "DEADLINE" Nothing r)
+        withRecord "* TODO Plain\n" $ \doc r ->
+          assertEqual "no edits" (Right []) (setPlanningEdits "DEADLINE" Nothing doc r)
 
       -- ORG'S THREE, AND THE CASE IS ORG'S TOO: the span math composes
       -- @KEYWORD: STAMP@ into the line, so a word naming no entry may not reach
       -- it.  What each key's VALUE has to read as is the write door's wall, not
       -- this one's -- @CLOSED@ takes a bracket here as the other two do.
     , testCase "a keyword that names no planning entry is refused, by name" $
-        withRecord "* TODO Plain\n" $ \r ->
-          mapM_ (\keyword -> case setPlanningEdits keyword (Just "<2026-08-05 Wed>") r of
+        withRecord "* TODO Plain\n" $ \doc r ->
+          mapM_ (\keyword -> case setPlanningEdits keyword (Just "<2026-08-05 Wed>") doc r of
                    Right edits -> assertFailure (T.unpack keyword <> ": " <> show edits)
                    Left why -> assertBool (T.unpack why) (keyword `T.isInfixOf` why))
                 ["scheduled", "TIMESTAMP", "CLOCK"]
@@ -2110,8 +2137,8 @@ commandSpec = testGroup "Commands"
         setPriorityIs "cleared wide" "* [#A]   Ship it\n" Nothing "* Ship it\n"
 
     , testCase "clearing a headline that carries none costs no edit" $
-        withRecord "* Plain\n" $ \r ->
-          assertEqual "no edits" (Right []) (setPriorityEdits Nothing r)
+        withRecord "* Plain\n" $ \doc r ->
+          assertEqual "no edits" (Right []) (setPriorityEdits Nothing doc r)
 
     , testCase "the letter is uppercased and stripped" $
         setPriorityIs "folded" "* Plain\n" (Just "  b  ") "* [#B] Plain\n"
@@ -2155,8 +2182,8 @@ commandSpec = testGroup "Commands"
 
       -- BY NAME: a non-empty refusal says only that something refused, so each rule names itself.
     , testCase "an empty title and a multi-line one are refused, by name" $
-        withRecord "* Plain\n" $ \r ->
-          mapM_ (\(what, text', named) -> case setTitleEdits text' r of
+        withRecord "* Plain\n" $ \doc r ->
+          mapM_ (\(what, text', named) -> case setTitleEdits text' doc r of
                    Right edits -> assertFailure (what <> ": " <> show edits)
                    Left why    -> assertBool (what <> ": " <> T.unpack why)
                                              (named `T.isInfixOf` why))
@@ -2174,7 +2201,7 @@ commandSpec = testGroup "Commands"
 
 -- | WHAT: DOC with @set-planning KEYWORD STAMP@ on its one headline is WANTED.
 planningIs :: String -> Text -> Maybe Text -> Text -> Text -> Assertion
-planningIs what keyword stamp doc = triedEditsAre what doc (setPlanningEdits keyword stamp)
+planningIs what keyword stamp doc = triedEditsAre what doc (setPlanningEdits keyword stamp doc)
 
 -- | The day every relative date is worked out from and every capture stamped with.
 today :: Time.Day
@@ -2227,11 +2254,11 @@ captured doc text' = do
 
 -- | WHAT: DOC with @set-priority LETTER@ applied to its one headline is WANTED.
 setPriorityIs :: String -> Text -> Maybe Text -> Text -> Assertion
-setPriorityIs what doc letter = triedEditsAre what doc (setPriorityEdits letter)
+setPriorityIs what doc letter = triedEditsAre what doc (setPriorityEdits letter doc)
 
 -- | WHAT: DOC with @set-title TITLE@ applied to its one headline is WANTED.
 setTitleIs :: String -> Text -> Text -> Text -> Assertion
-setTitleIs what doc title = triedEditsAre what doc (setTitleEdits title)
+setTitleIs what doc title = triedEditsAre what doc (setTitleEdits title doc)
 
 -- Subtree entries: which headlines are inside a row's subtree, how they are
 -- numbered, what each hangs under and where each extent runs — all out of a
@@ -2249,44 +2276,44 @@ deep = T.unlines
   , "* five"
   ]
 
--- | Run K over the FIRST row of DOC and the entries inside it.
-withEntries :: Text -> (HeadlineRecord -> [SubtreeEntry] -> Assertion) -> Assertion
+-- | Run K over DOC, its FIRST row and the entries inside it.
+withEntries :: Text -> (Text -> HeadlineRecord -> [SubtreeEntry] -> Assertion) -> Assertion
 withEntries doc k = withRecordsOf doc $ \records -> case records of
-  (r : _rest) -> k r (subtreeEntries noConfig r)
+  (r : _rest) -> k doc r (subtreeEntries noConfig doc r)
   []          -> assertFailure "expected at least one row"
 
 entrySpec :: TestTree
 entrySpec = testGroup "Subtree entries"
   [ testCase "every headline inside the subtree, in document order" $
-      withEntries deep $ \_r entries ->
+      withEntries deep $ \_doc _r entries ->
         assertEqual "the row's own is not among them"
                     ["two", "three", "four"] (map (hrTitle . seRecord) entries)
 
   , testCase "each one's level, as org spells it" $
-      withEntries deep $ \_r entries ->
+      withEntries deep $ \_doc _r entries ->
         assertEqual "the stars counted" [2, 3, 2] (map seLevel entries)
 
     -- The nearest SHALLOWER entry, which is what a level jump needs.
   , testCase "each one's parent is the nearest shallower entry" $
-      withEntries deep $ \_r entries ->
+      withEntries deep $ \_doc _r entries ->
         assertEqual "-1 is the row itself" [-1, 0, -1] (map seParent entries)
 
   , testCase "each one's extent is its own subtree" $
-      withEntries deep $ \_r entries ->
+      withEntries deep $ \doc _r entries ->
         assertEqual "two carries three, three carries its body, four is one line"
           [ "** two\n*** three\nbody of three\n"
           , "*** three\nbody of three\n"
           , "** four\n" ]
-          (map (subtreeText . seRecord) entries)
+          (map (subtreeText doc . seRecord) entries)
 
     -- The lens over a child is the lens: three regions out of the child's own extent.
   , testCase "a child materializes through the same lens the row does" $
       withEntries (T.unlines [ "* one", "** two", "SCHEDULED: <2026-08-05 Wed>"
                              , ":PROPERTIES:", ":EFFORT: 0:30", ":END:"
-                             , "body of two" ]) $ \_r entries ->
+                             , "body of two" ]) $ \doc _r entries ->
         case entries of
           (e : _rest) -> do
-            let parts = headlineParts (seRecord e)
+            let parts = headlineParts doc (seRecord e)
             assertEqual "the body, both regions lifted out"
                         "** two\nbody of two\n" (hpBody parts)
             assertEqual "the drawer" [("EFFORT", "0:30")] (hpProperties parts)
@@ -2295,38 +2322,38 @@ entrySpec = testGroup "Subtree entries"
           [] -> assertFailure "expected one entry"
 
   , testCase "and decompose then recompose is the identity on it" $
-      withEntries deep $ \_r entries ->
+      withEntries deep $ \doc _r entries ->
         mapM_ (\e -> let rec' = seRecord e
                      in assertEqual (T.unpack (hrTitle rec'))
-                                    (subtreeText rec')
-                                    (recomposedSubtree rec' (headlineParts rec')))
+                                    (subtreeText doc rec')
+                                    (recomposedSubtree doc rec' (headlineParts doc rec')))
               entries
 
     -- The digest is the FILE's: one file, one lock, whichever entry the sheet is on.
   , testCase "a child pins the file's own digest" $
-      withEntries deep $ \r entries ->
+      withEntries deep $ \_doc r entries ->
         assertEqual "the row's" (replicate (length entries) (hrDigest r))
                     (map (hrDigest . seRecord) entries)
 
   , testCase "a child's id is the row's with its index behind it" $
-      withEntries deep $ \r entries ->
+      withEntries deep $ \_doc r entries ->
         assertEqual "row/K" [ hrId r <> "/" <> T.pack (show k) | k <- [0 :: Int, 1, 2] ]
                     (map (hrId . seRecord) entries)
 
   , testCase "the index is what addresses one, and it is bounds-checked" $
-      withEntries deep $ \_r entries -> do
+      withEntries deep $ \_doc _r entries -> do
         assertEqual "in range" (Just "three")
                     (hrTitle . seRecord <$> subtreeEntryAt entries 1)
         assertEqual "past the end" Nothing (hrTitle . seRecord <$> subtreeEntryAt entries 3)
         assertEqual "and below it" Nothing (hrTitle . seRecord <$> subtreeEntryAt entries (-1))
 
   , testCase "a row with no children has no entries" $
-      withEntries "* one\nbody\n" $ \_r entries ->
+      withEntries "* one\nbody\n" $ \_doc _r entries ->
         assertEqual "none" 0 (length entries)
 
   , testCase "a child's cells are read the way a row's are" $
       withEntries (keyworded (T.unlines ["* one", "** NEXT [#B] two :web:x:"])) $
-        \_r entries -> case entries of
+        \_doc _r entries -> case entries of
           (e : _rest) -> do
             let rec' = seRecord e
             assertEqual "state" (Just "NEXT") (hrState rec')

@@ -13,8 +13,9 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
-import Data.Org ( Headline, Indent (Indent), Span (..), hsFull, indent, spans )
-import Glance.Query ( HeadlineRecord (hrHeadline, hrSubtree), loadFile, subtreeText )
+import Data.Org ( Span (..), hsFull )
+import Glance.Query ( HeadlineRecord (hrLevel, hrSpans, hrSubtree), loadFile
+                    , subtreeText )
 
 
 fixtureDir :: FilePath
@@ -25,13 +26,12 @@ fixture name = fixtureDir <> "/" <> name
 
 
 subtreesOf :: FilePath -> IO [Text]
-subtreesOf name = map subtreeText <$> recordsOf (fixture name)
-
-levelOf :: Headline -> Int
-levelOf h = case indent h of Indent n -> n
+subtreesOf name = do
+  doc <- document (fixture name)
+  map (subtreeText doc) <$> recordsOf (fixture name)
 
 fullOf :: HeadlineRecord -> Span
-fullOf = hsFull . spans . hrHeadline
+fullOf = hsFull . hrSpans
 
 -- | Extents TILE rather than nest: one per top entry, meeting exactly.
 assertGeometry :: String -> Text -> [HeadlineRecord] -> Assertion
@@ -46,7 +46,7 @@ assertGeometry label doc recs = do
   where
     at r = label <> ", subtree " <> show (hrSubtree r)
 
-    isATopEntry r = assertEqual (at r <> ": not a top entry") 1 (levelOf (hrHeadline r))
+    isATopEntry r = assertEqual (at r <> ": not a top entry") 1 (hrLevel r)
 
     coversItsHeadline r = do
       assertEqual (at r <> ": starts at the headline")

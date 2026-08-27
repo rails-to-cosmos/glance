@@ -89,10 +89,15 @@ const linkyLinks = [
   { target: "https://b.example/", desc: "https://b.example/", type: "https", span: [88, 110] },
   { target: "https://c.example/", desc: "https://c.example/", type: "https", span: [122, 140] },
 ];
+// A SUBTREE WITH A GRANDCHILD: a promote or a demote moves a whole subtree, so
+// the star arithmetic needs a headline UNDER the child to carry along.
+const deepBody = ["* TODO one", "first para", "** two", "*** three",
+                  "deep body", ""].join("\n");
 let linky = false;
 let grainy = false;
 let tabled = false;
 let checky = false;
+let deep = false;
 let org = "* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
   + ":ORG_GLANCE_ID: r1\n:EFFORT: 0:30\n:END:\n:LOGBOOK:\n- moved here\n:END:\n"
   + "first para\n\nsecond para\n** two\nchild body\n";
@@ -115,7 +120,12 @@ let headPriority = null;
  * coordinates -- which is `ownLines', the child opening where the own body
  * stops -- and its file-coordinate span. */
 // One arithmetic for `line' and `ownLines': the child opens where the own body stops.
-const kidLine = () => (grainy ? 16 : tabled ? 11 : checky ? 5 : 4);
+const kidLine = () => (grainy ? 16 : tabled ? 11 : checky ? 5 : deep ? 2 : 4);
+/** The lines the fixture stands on, PLAIN being what no act replaced -- the raw
+ * subtree and the lifted body differ only there. */
+const fixtureBody = (plain) =>
+  (linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody
+   : checky ? checkyBody : deep ? deepBody : plain);
 const subtree = (child) => (child === null
   ? { id: "r1", file: "a.org", child: null, parent: null, path: ["one"],
       cells: { state: "TODO", priority: headPriority,
@@ -123,18 +133,18 @@ const subtree = (child) => (child === null
       children: [ { index: 0, level: 2, state: null, priority: null,
                     title: "two", tags: ":web:",
                     line: kidLine(),
-                    span: { start: 0, end: 24 } } ],
+                    span: { start: 0, end: 24 } } ].concat(deep
+                  ? [ { index: 1, level: 3, state: null, priority: null,
+                        title: "three", tags: "",
+                        line: 3, span: { start: 0, end: 24 } } ]
+                  : []),
       level: 1, properties, planning, logbook, digest,
       titleAt: linky ? 7 : 11,
       // The link scan rides the materialize, one source with the `/links' stub.
       links: linky || grainy ? links : [],
-      org: linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody
-           : checky ? checkyBody : org,
-      span: { start: 0,
-              end: (linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody
-                          : checky ? checkyBody : org).length },
-      body: linky ? linkyBody : grainy ? grainBody : tabled ? tabledBody
-            : checky ? checkyBody : body,
+      org: fixtureBody(org),
+      span: { start: 0, end: fixtureBody(org).length },
+      body: fixtureBody(body),
       ownLines: kidLine() }
   : { id: "r1", file: "a.org", child: 0, parent: null, path: ["one", "two"],
       cells: { state: null, priority: null, title: "two", tags: ":web:" },
@@ -1576,6 +1586,7 @@ const ACTIONS = {
   // Set before the sheet opens: the document is built out of the answer.
   grain: () => { grainy = true; },
   checky: () => { checky = true; },
+  deep: () => { deep = true; },
   tabled: () => { tabled = true; },
   linky: () => { linky = true; links = linkyLinks; },
   grainlinks: () => {

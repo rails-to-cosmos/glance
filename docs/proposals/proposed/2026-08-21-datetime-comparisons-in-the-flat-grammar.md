@@ -247,11 +247,11 @@ planning line's `CLOSED:` stamp as ISO, and `planned:` is untouched.**
 `CLOSED:` is parsed, spanned and displayed today:
 
 - `hsClosed :: !(Maybe Span)  -- ^ the CLOSED: timestamp alone, keyword
-  excluded` (`src/Data/Org/Types.hs`:225), filled at `src/Data/Org/Parser.hs`:126.
-- `customCell` serves it as a COLUMN — `wanted == "closed" = sliceSpan (hrDoc r)
-  <$> hsClosed (headlineSpans r)` (`Query.hs`:1924-1930), which
-  `docs/query.md`:371-374 documents as the one custom column that is not a
-  drawer key.
+  excluded` (`src/Data/Org/Types.hs`:223), filled at `src/Data/Org/Parser.hs`:126.
+- `customCell` serves it as a COLUMN — `wanted == "closed" = hrClosed r`
+  (`Query.hs`:2563), the timestamp cut at parse because no query touches the
+  disk; `docs/query.md`:371-374 documents it as the one custom column that is
+  no drawer key.
 - The model names it as a closed sum: `data CustomSrc = PlanClosed | FromDrawer`
   (`AGENTS.hs`:2689-2693).
 

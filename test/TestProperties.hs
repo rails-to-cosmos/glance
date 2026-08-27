@@ -218,12 +218,13 @@ lensSpec :: TestTree
 lensSpec = testGroup "Subtree lens"
   [ testPropertyWith 60 "decompose then recompose is the subtree, its line ends trimmed" $ \ds ->
       let r = render ds
-      in  lensRepresentable ds ==> ioProperty (withLoaded r (\_doc recs -> conjoin
-            [ recomposedSubtree q (headlineParts q) === asWritten (subtreeText q) | q <- recs ]))
+      in  lensRepresentable ds ==> ioProperty (withLoaded r (\doc recs -> conjoin
+            [ recomposedSubtree doc q (headlineParts doc q) === asWritten (subtreeText doc q)
+            | q <- recs ]))
 
   , testPropertyWith 60 "the body's lines are the subtree's, minus the regions" $ \ds ->
       let r = render ds
-      in  ioProperty (withLoaded r (\_doc recs -> conjoin (map ownsEachByte recs)))
+      in  ioProperty (withLoaded r (\doc recs -> conjoin (map (ownsEachByte doc) recs)))
 
   , testPropertyWith 20 "re-decomposing an edited body answers the parts it was given" $ \ds ->
       let r = render ds
@@ -312,13 +313,13 @@ withLoaded r k = withTempDirNamed "prop" $ \dir -> do
     Left why -> counterexample ("load failed: " <> show why) (property False)
 
 -- | The region SPANS are module-private, so this is the subsequence alone.
-ownsEachByte :: HeadlineRecord -> Property
-ownsEachByte r = counterexample (show (subtreeText r, hpBody parts)) $
-  property (subsequence (T.lines (hpBody parts)) (T.lines (subtreeText r)))
+ownsEachByte :: Text -> HeadlineRecord -> Property
+ownsEachByte doc r = counterexample (show (subtreeText doc r, hpBody parts)) $
+  property (subsequence (T.lines (hpBody parts)) (T.lines (subtreeText doc r)))
     .&&. counterexample "the logbook is in the body too"
            (property (T.null (hpLogbook parts)
                       || not (T.strip (hpLogbook parts) `T.isInfixOf` hpBody parts)))
-  where parts = headlineParts r
+  where parts = headlineParts doc r
 
 settled :: HeadlineParts -> HeadlineParts
 settled parts = parts { hpBody    = asWritten (hpBody parts)
@@ -340,13 +341,13 @@ subsequence (x : xs) (y : ys) | x == y = subsequence xs ys
 
 reDecomposes :: Text -> HeadlineRecord -> Property
 reDecomposes doc r = ioProperty $ withTempDirNamed "prop-lens" $ \dir -> do
-  let parts = headlineParts r
+  let parts = headlineParts doc r
       ending | T.null (hpBody parts) || "\n" `T.isSuffixOf` hpBody parts = ""
              | otherwise = "\n"
       parts' = parts { hpBody = hpBody parts <> ending <> "extra\n" }
       sp = hrSubtree r
       doc' = T.take (spanStart sp) doc
-               <> recomposedSubtree r parts'
+               <> recomposedSubtree doc r parts'
                <> T.drop (spanEnd sp) doc
       path = dir </> "lens.org"
   BS.writeFile path (TE.encodeUtf8 doc')
@@ -354,7 +355,7 @@ reDecomposes doc r = ioProperty $ withTempDirNamed "prop-lens" $ \dir -> do
   pure $ counterexample (T.unpack doc') $ case loaded of
     Left why -> counterexample ("load failed: " <> show why) (property False)
     Right recs -> case [ q | q <- recs, spanStart (hrSubtree q) == spanStart sp ] of
-      (q : _) -> settled (headlineParts q) === settled parts'
+      (q : _) -> settled (headlineParts doc' q) === settled parts'
       [] -> counterexample "the edited row is gone" (property False)
 
 -- | The QUADRATIC rule 'applyEdits' reduces to a neighbour check.

@@ -7,6 +7,7 @@ import Control.Monad (join)
 import Data.Bifunctor (first)
 import Data.Aeson (Object, Value, object, (.:), (.:!), (.:?), (.=))
 import Data.Aeson.Types (Pair, Parser)
+import Data.Either (partitionEithers)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe)
@@ -21,15 +22,15 @@ import qualified Data.Text as T
 import qualified Data.Time as Time
 
 import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn
-                    , rowOrgId
                     , BlobSeed (..), ConfigLayers
                     , DraftCargo (..), draftEntry, draftStates
-                    , HeadlineRecord (hrDigest, hrFile, hrId)
+                    , HeadlineRecord (hrDigest, hrFile, hrId, hrOrgId)
                     , Span (Span), WriteFailure (..)
                     , addTagEdits, archiveEdits, archived, bareTemplate
                     , blobDocument
                     , blobPathIn, captureEdits, captureStamp, captureText
                     , captureTargetIn, captureTemplateIn, currentDocument
+                    , pinnedDocument, rowSnapshot
                     , editLinkEdits, eolOf, expandTemplate, groupOn, mintBlobId
                     , plannedValue
                     , priorityText
@@ -41,7 +42,7 @@ import Glance.Web.Base ( ServeOptions (soDir), answerWrite, bodyObject, captureM
                        , jsonError, jsonResponse, noSuchRow, today
                        , walkFor, withBody )
 import Glance.Web.Store ( Hub, Store (stConfig), headlinesIn, hubStore, layersFor
-                        , recordsUnder, storeDocument, storeRecords )
+                        , recordsUnder, storeRecords )
 import Glance.Web.Watch (nudge, writeSpans)
 
 
@@ -98,7 +99,9 @@ data RowWrite = RowWrite
 plain :: [(Span, Text)] -> Either Text RowWrite
 plain edits = Right (RowWrite edits Nothing)
 
-type RowEdits = ConfigLayers -> Asked -> Args -> HeadlineRecord
+-- | A row's edits over the DOCUMENT its file holds now, read once per request
+-- ('documentsFor').
+type RowEdits = ConfigLayers -> Asked -> Args -> Text -> HeadlineRecord
               -> Either Text RowWrite
 
 data Asked = Asked
@@ -114,56 +117,63 @@ data CommandSpec = CommandSpec
   }
 
 data CommandKind
-  = Splices RowEdits
+  = Splices Reads RowEdits
     -- ^ edits each named row in place; the nine that write spans.
   | Makes
     -- ^ MAKES a row rather than naming one: @capture@, the one that owes no ids.
   | Moves
     -- ^ moves a file out of the tree: @delete@.
 
+-- | Does an edit set READ the file it lands in?  Most cut their spans out of
+-- the text on disk and are handed a pinned read per file; @add-tag@ and
+-- @archive@ compute off the ROW alone, so their request opens no file at all.
+data Reads = ReadsFile | ReadsNothing
+
 namesRows :: CommandKind -> Bool
 namesRows Makes = False
-namesRows (Splices _) = True
+namesRows (Splices _reads _edits) = True
 namesRows Moves = True
 
 commands :: [(Text, CommandSpec)]
 commands =
   [ ("add-tag", CommandSpec (overIds (wantsTag "add-tag")) False
-      (Splices (\_cfg _asked args r -> plain (addTagEdits (tagOf args) r))))
+      (Splices ReadsNothing (\_cfg _asked args _doc r -> plain (addTagEdits (tagOf args) r))))
   , ("archive", CommandSpec (overIds (const Nothing)) False
-      (Splices (\_cfg _asked _args r -> plain (archiveEdits r))))
+      (Splices ReadsNothing (\_cfg _asked _args _doc r -> plain (archiveEdits r))))
   , ("capture", CommandSpec (overIds wantsCapture) False Makes)
     -- THE ONE DESTRUCTIVE COMMAND: it moves a FILE rather than splicing spans,
     -- and every wall it has is per row and checked HERE as well as in the shell.
   , ("delete", CommandSpec (overIds (const Nothing)) False Moves)
   , ("edit-link", CommandSpec wantsLink False
-      (Splices (\_cfg _asked args r ->
+      (Splices ReadsFile (\_cfg _asked args doc r ->
                plain =<< editLinkEdits (fromMaybe (Span 0 0) (agSpan args))
-                                       (word agTarget args) (agDesc args) r)))
+                                       (word agTarget args) (agDesc args) doc r)))
   , ("remove-tag", CommandSpec (overIds (wantsTag "remove-tag")) False
-      (Splices (\_cfg _asked args r -> plain (removeTagEdits (tagOf args) r))))
+      (Splices ReadsFile (\_cfg _asked args doc r -> plain (removeTagEdits (tagOf args) doc r))))
   , ("rename-tag", CommandSpec (overIds wantsRename) False
-      (Splices (\_cfg _asked args r ->
-               plain (renameTagEdits (word agFrom args) (word agTo args) r))))
+      (Splices ReadsFile (\_cfg _asked args doc r ->
+               plain (renameTagEdits (word agFrom args) (word agTo args) doc r))))
   , ("set-planning", CommandSpec (overIds wantsPlanning) True
-      (Splices (\_cfg asked args r ->
-               plain =<< setPlanningEdits (keyOf args) (askStamp asked) r)))
+      (Splices ReadsFile (\_cfg asked args doc r ->
+               plain =<< setPlanningEdits (keyOf args) (askStamp asked) doc r)))
     -- A REPEAT IS A `set-state', and the one command that RECORDS anything.
   , ("set-state", CommandSpec (overIds wantsState) False
-      (Splices stateEdits))
+      (Splices ReadsFile stateEdits))
   , ("set-priority", CommandSpec (overIds wantsPriority) False
-      (Splices (\_cfg _asked args r -> plain =<< setPriorityEdits (join (agPriority args)) r)))
+      (Splices ReadsFile
+        (\_cfg _asked args doc r -> plain =<< setPriorityEdits (join (agPriority args)) doc r)))
   , ("set-title", CommandSpec (overIds wantsTitle) False
-      (Splices (\_cfg _asked args r -> plain =<< setTitleEdits (word agTitle args) r)))
+      (Splices ReadsFile
+        (\_cfg _asked args doc r -> plain =<< setTitleEdits (word agTitle args) doc r)))
   ]
   where
     overIds = const
-    stateEdits cfg asked args r = case repeating cfg asked args r of
+    stateEdits cfg asked args doc r = case repeating cfg asked args doc r of
       -- ONE `repeatOn': the spans and the line recorded come off one answer.
       Just rp -> Right (RowWrite (rpEdits rp) (Just (rpState rp, rpShifted rp)))
-      Nothing -> plain =<< setStateEdits cfg (join (agKeyword args)) r
-    repeating cfg asked args r =
-      join (agKeyword args) >>= \keyword -> repeatOn cfg (askToday asked) keyword r
+      Nothing -> plain =<< setStateEdits cfg (join (agKeyword args)) doc r
+    repeating cfg asked args doc r =
+      join (agKeyword args) >>= \keyword -> repeatOn cfg (askToday asked) keyword doc r
     word field = fromMaybe "" . field
     tagOf = word agTag
     -- The one command whose keyword may be NULL: that is how a state comes off.
@@ -238,10 +248,10 @@ runCommand opts hub request = withBody request $ \raw -> do
     Right cmd -> case csKind (cmdSpec cmd) of
       Moves -> deleteRows opts hub st cmd
       Makes -> captureInto opts hub st cmd
-      Splices edits -> do
+      Splices reads' edits -> do
         asked <- resolveAsked cmd
-        either (pure . jsonError status400) id
-               (asked >>= \at -> overRows opts hub st at edits cmd)
+        either (pure . jsonError status400)
+               (\at -> overRows opts hub st at reads' edits cmd) asked
 
 -- | CMD's rows moved into the store's trash, answered per id in the order named.
 -- THREE WALLS PER ROW, checked HERE as well as in the shell.  Splicing no spans,
@@ -268,15 +278,29 @@ namedRows st cmd =
   | rid <- cmdIds cmd ]
   where found = [ (hrId r, r) | r <- fst (headlinesIn (storeRecords st) (cmdIds cmd)) ]
 
-overRows :: ServeOptions -> Hub -> Store -> Asked -> RowEdits -> Command
-         -> Either Text (IO Response)
-overRows opts hub st asked edits cmd = do
-  (plans, said) <- planCommand st asked edits cmd
-  pure $ do
-    written <- mapM (writeOne opts hub) plans
-    let outcomes = said <> concat written
-    pure (jsonResponse status200
-            ["results" .= [ v | rid <- cmdIds cmd, Just v <- [lookup rid outcomes] ]])
+overRows :: ServeOptions -> Hub -> Store -> Asked -> Reads -> RowEdits -> Command
+         -> IO Response
+overRows opts hub st asked reads' edits cmd = do
+  -- RESOLVED AT THE DOOR, once: 'storeRecords' is a full resolution per call.
+  let named = headlinesIn (storeRecords st) (cmdIds cmd)
+  docs <- case reads' of
+    ReadsFile    -> documentsFor (fst named)
+    ReadsNothing -> pure Map.empty
+  case planCommand docs named st asked edits cmd of
+    Left why -> pure (jsonError status400 why)
+    Right (plans, said) -> do
+      written <- mapM (writeOne opts hub) plans
+      let outcomes = said <> concat written
+      pure (jsonResponse status200
+              ["results" .= [ v | rid <- cmdIds cmd, Just v <- [lookup rid outcomes] ]])
+
+-- | The FILES ROWS sit in, each read ONCE per request and PINNED against the
+-- digest their parse took ('rowSnapshot').  Rows of one file share that digest,
+-- so which of them supplies the pin does not matter; a file that has moved
+-- comes back as the refusal its rows are answered with.
+documentsFor :: [HeadlineRecord] -> IO (Map FilePath (Either WriteFailure Text))
+documentsFor rows =
+  traverse pinnedDocument (Map.fromList [ (hrFile r, rowSnapshot r) | r <- rows ])
 
 -- | ONE clock read, before any row: a marked set must not cross midnight.
 --
@@ -299,7 +323,7 @@ captureInto opts hub st cmd =
 
 captureInbox :: ServeOptions -> Hub -> Store -> Args -> IO Response
 captureInbox opts hub st args = do
-    (doc, digest) <- maybe (currentDocument inbox) pure (storeDocument inbox st)
+    (doc, digest) <- currentDocument inbox
     now <- Time.getZonedTime
     let composed = do
           entry <- capturedEntry (stConfig st) now (eolOf doc) Nothing args
@@ -430,26 +454,41 @@ writeOne opts hub plan = do
     record (_rid, _write, note) = mapM_ (noteCompletion (soDir opts)) note
     report written = [ (rid, either (refused rid . why) (done rid) written)
                      | (rid, _write, _note) <- fpRows plan ]
-    why (WriteDrift found) = T.pack (fpPath plan) <> " changed on disk (it digests to "
-                               <> T.take 12 found <> "… now); nothing was written to it"
-    why (WriteRefused spelled) = spelled
+    why = writeWhy (fpPath plan)
 
-planCommand :: Store -> Asked -> RowEdits -> Command
+-- | Why PATH wrote nothing.  ONE SENTENCE, TWO ASKS: the plan refuses a row
+-- whose file moved before the parse's spans are cut, and 'writeSpans' refuses
+-- one that moved after.
+writeWhy :: FilePath -> WriteFailure -> Text
+writeWhy path (WriteDrift found) =
+  T.pack path <> " changed on disk (it digests to " <> T.take 12 found
+    <> "… now); nothing was written to it"
+writeWhy _path (WriteRefused spelled) = spelled
+
+planCommand :: Map FilePath (Either WriteFailure Text) -> ([HeadlineRecord], [Text])
+            -> Store -> Asked -> RowEdits -> Command
             -> Either Text ([FilePlan], [(Text, Value)])
-planCommand st asked rowEdits cmd = do
-  rows <- mapM withEdits held
+planCommand docs (held, absent) st asked rowEdits cmd = do
+  rows <- mapM withEdits standing
   let groups = groupOn (hrFile . fst) rows
   pure ( [ FilePlan path (hrDigest r0) [ (hrId r, w, noted r w) | (r, w) <- rs ]
          | (path, rs@((r0, _) : _)) <- groups, not (stale rs) ]
-       , missing <> [ (hrId r, refused (hrId r) (staleWhy path))
-                    | (path, rs) <- groups, stale rs, (r, _w) <- rs ] )
+       , missing <> moved <> [ (hrId r, refused (hrId r) (staleWhy path))
+                             | (path, rs) <- groups, stale rs, (r, _w) <- rs ] )
   where
-    (held, absent) = headlinesIn (storeRecords st) (cmdIds cmd)
-    withEdits r = (,) r <$> rowEdits (stConfig st) asked (cmdArgs cmd) r
+    -- A ROW WHOSE PINNED READ WAS REFUSED IS REFUSED HERE, in the write door's
+    -- own words: its spans were cut from bytes the file no longer holds, so
+    -- nothing computes edits over it.  A command whose edits ignore the
+    -- document reads no file, so its map is empty and every row stands.
+    (moved, standing) = partitionEithers (map textFor held)
+    textFor r = case fromMaybe (Right "") (Map.lookup (hrFile r) docs) of
+      Left failed -> Left (hrId r, refused (hrId r) (writeWhy (hrFile r) failed))
+      Right doc   -> Right (r, doc)
+    withEdits (r, doc) = (,) r <$> rowEdits (stConfig st) asked (cmdArgs cmd) doc r
     -- Keyed by `ORG_GLANCE_ID': an ordinal names a different row a week on.
     noted r w = do
       (state, shifted) <- rwNote w
-      ident <- rowOrgId r
+      ident <- hrOrgId r
       pure (Completion ident state shifted)
     missing = [ (rid, refused rid (noSuchRow rid)) | rid <- absent ]
     stale rs = or [ pinned /= hrDigest r

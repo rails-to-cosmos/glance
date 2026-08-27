@@ -125,6 +125,42 @@ const settled = (p, why) =>
     return !!at && at.dataset.id === docAtNow();
   }, why || "the mirror to agree with the draw");
 
+/** THE SCROLL A PORT PUSH MAKES: `keepInView' runs a macrotask behind the state
+ * the walk waited on, so a geometry read waits a frame out first. */
+const rested = (p) => p.eval(() => new Promise((done) =>
+  requestAnimationFrame(() => requestAnimationFrame(done))));
+
+/** A PAGE FUNCTION, passed to `p.eval': the pane, point's row and where the two
+ * stand, taken as ONE reading so nothing drifts between two round trips. */
+const paneRead = () => {
+  const at = document.querySelector("#mdoc .de.dat");
+  // THE SCROLLER THE PANE ACTUALLY HAS, asked for the way the page asks: `#mdoc'
+  // stretches to `#mpanes' where the document fits and grows past it where it
+  // does not, and `#mpanes' is what clips and scrolls then.
+  let pane = at.parentElement;
+  for (; pane; pane = pane.parentElement) {
+    if (pane.clientHeight > 0 && pane.scrollHeight > pane.clientHeight + 1) break;
+    if (pane.id === "modal") { pane = document.getElementById("mdoc"); break; }
+  }
+  if (!pane) pane = document.getElementById("mdoc");
+  const r = at.getBoundingClientRect();
+  const top = pane.getBoundingClientRect().top + pane.clientTop;
+  return { top, height: pane.clientHeight, scroll: pane.scrollTop,
+           room: pane.scrollHeight - pane.clientHeight,
+           off: parseFloat(getComputedStyle(at).scrollMarginBlockStart) || 0,
+           rowTop: r.top, rowBottom: r.bottom, rowHeight: r.height,
+           text: at.textContent.trim().slice(0, 28) };
+};
+
+/** WHERE THE THREE RUNGS WOULD PUT THE SCROLLER, off one `paneRead'.  A rung
+ * outside [0, room] is one the pane must clamp, and clamping proves nothing. */
+const rungs = (b) => {
+  const deep = b.rowTop - b.top + b.scroll;
+  return { center: deep + b.rowHeight / 2 - b.height / 2,
+           top: deep - b.off,
+           bottom: deep + b.rowHeight - b.height + b.off };
+};
+
 /** Press KEY and wait for point to land on SEL -- a NEW row the mirror owns,
  * since the old row satisfies every wait until the press is processed. */
 async function stepped(p, key, sel, why) {
@@ -2569,6 +2605,206 @@ export default [
     return ["one empty tail line; RET wrote a paragraph at the end; the tail regrew"];
   } },
 
+// THE READING LINE.  `block:"nearest"' put point's row on the pane's LAST line
+// and left the reader with no text under it; the pane now rests the row on a
+// line drawn part of the way down.  Only a real layout can say where that is.
+{ name: "walking down, point's row rests on the reading line and never falls past it",
+  async run(p, base) {
+    // A SHORT PANE, so an ordinary fixture is a long document against it.
+    await p.size(1000, 380);
+    await sheet(p, base, "drv-marks");
+    await rested(p);
+    const opened = await p.eval(paneRead);
+    assert(opened.room > 100,
+      `the pane does not overflow: ${px(opened.room)} of scroll under `
+      + `${px(opened.height)} of pane`);
+    assert(opened.scroll === 0,
+      `the sheet opened already scrolled to ${px(opened.scroll)}`);
+
+    const line = (b) => b.height * 0.6;
+    const past = [], onLine = [];
+    let first = null;
+    for (let i = 0; i < 8; i += 1) {
+      await stepped(p, "n", ".de", `the step ${i + 1} rows down the document`);
+      await rested(p);
+      const now = await p.eval(paneRead);
+      if (first === null && now.scroll > 0) first = i + 1;
+      // AT THE END THE PANE CLAMPS, which is the law's own "if possible"; and a
+      // row TALLER than the band above the line has no rest there to take.
+      if (now.scroll >= now.room - 1 || now.rowHeight > line(now)) continue;
+      if (now.rowBottom - now.top > line(now) + 1)
+        past.push(`${JSON.stringify(now.text)} sits ${px(now.rowBottom - now.top)} `
+          + `down a ${px(now.height)} pane, past its ${px(line(now))} line`);
+      if (now.scroll > 0) onLine.push(now.rowBottom - now.top - line(now));
+    }
+    assert(past.length === 0, past.join(" · "));
+    assert(first !== null && first > 1,
+      `the pane scrolled on step ${first} — the rows above the line must move nothing`);
+    assert(onLine.length > 0,
+      "no step ever scrolled the pane, so the line was never measured");
+    assert(onLine.every((d) => Math.abs(d) <= 1),
+      `a scrolled row came to rest off the line by ${onLine.map(px).join(", ")}`);
+    return [`the pane first scrolled on step ${first}; `
+      + `${onLine.length} rows came to rest on the line, off by at most `
+      + px(Math.max(...onLine.map((d) => Math.abs(d))))];
+  } },
+
+// THE LINE IS THE READER'S, remembered per browser like the theme.
+{ name: "the reading line is a stored preference, and 40 puts it two fifths down",
+  async run(p, base) {
+    await p.size(1000, 380);
+    await sheet(p, base, "drv-marks");
+    await p.eval(() => localStorage.setItem("glance-reading-line", "40"));
+    try {
+      await sheet(p, base, "drv-marks");
+      const seen = [];
+      for (let i = 0; i < 8; i += 1) {
+        await stepped(p, "n", ".de", `the step ${i + 1} rows down the document`);
+        await rested(p);
+        const now = await p.eval(paneRead);
+        if (now.scroll <= 0 || now.scroll >= now.room - 1) continue;
+        if (now.rowHeight > now.height * 0.4) continue;
+        seen.push({ at: (now.rowBottom - now.top) / now.height, text: now.text });
+      }
+      assert(seen.length > 0, "no step scrolled the pane, so the line was never measured");
+      const off = seen.filter((s) => Math.abs(s.at - 0.4) > 0.02);
+      assert(off.length === 0,
+        `the stored 40% was not honoured: `
+        + off.map((s) => `${JSON.stringify(s.text)} at ${Math.round(s.at * 100)}%`).join(", "));
+      const shown = await p.eval(() => document.getElementById("readsel").value);
+      assert(shown === "40", `the settings select reads ${JSON.stringify(shown)}`);
+      return [`${seen.length} rows rested at `
+        + `${seen.map((s) => Math.round(s.at * 100) + "%").join(", ")}`];
+    } finally {
+      await p.eval(() => localStorage.removeItem("glance-reading-line"));
+    }
+  } },
+
+// `C-l' IS `recenter-top-bottom': three placements in a cycle, and only a real
+// layout can say whether the row landed on any of them.
+{ name: "C-l puts the row at the middle, then the top, then the bottom",
+  async run(p, base) {
+    await p.size(1000, 380);
+    await sheet(p, base, "drv-marks");
+    // Far enough down that every rung is a scroll the pane can actually make:
+    // a clamped one would measure the pane's end rather than the placement.
+    const reachable = (b) => {
+      const r = rungs(b);
+      return Math.min(r.center, r.top, r.bottom) >= 0
+        && Math.max(r.center, r.top, r.bottom) <= b.room;
+    };
+    let now = null;
+    for (let i = 0; i < 12; i += 1) {
+      await stepped(p, "n", ".de", `the step ${i + 1} rows down the document`);
+      await rested(p);
+      now = await p.eval(paneRead);
+      if (reachable(now)) break;
+    }
+    assert(reachable(now),
+      `no row the walk reached leaves room for all three rungs: `
+      + `${JSON.stringify(rungs(now))} against ${px(now.room)} of scroll`);
+    const deep = now.rowTop - now.top + now.scroll;
+
+    await p.press("C-l");
+    await rested(p);
+    const mid = await p.eval(paneRead);
+    assert(Math.abs((mid.rowTop + mid.rowHeight / 2) - (mid.top + mid.height / 2)) <= 2,
+      `the first press left the row's middle ${px((mid.rowTop + mid.rowHeight / 2)
+        - (mid.top + mid.height / 2))} off the pane's`);
+
+    await p.press("C-l");
+    await rested(p);
+    const top = await p.eval(paneRead);
+    assert(Math.abs(top.rowTop - (top.top + top.off)) <= 2,
+      `the second press left the row's top ${px(top.rowTop - (top.top + top.off))} `
+      + `off the ${px(top.off)} band`);
+
+    await p.press("C-l");
+    await rested(p);
+    const low = await p.eval(paneRead);
+    assert(Math.abs(low.rowBottom - (low.top + low.height - low.off)) <= 2,
+      `the third press left the row's bottom `
+      + `${px(low.rowBottom - (low.top + low.height - low.off))} off the band above `
+      + "the pane's end");
+    return [`the row is ${px(deep)} down a ${px(now.height)} pane: middle `
+      + `${px(mid.rowTop + mid.rowHeight / 2 - mid.top)}, top ${px(top.rowTop - top.top)}, `
+      + `bottom ${px(low.rowBottom - low.top)} of ${px(low.height)}`];
+  } },
+
+// `M-<left>'/`M-<right>' ARE org's `org-promote-subtree'/`org-demote-subtree':
+// the headline under point and every headline inside it, one star at a time.
+{ name: "M-arrows move a child's whole subtree, and the narrowing wall refuses",
+  async run(p, base) {
+    const org = () => p.eval(async () =>
+      (await (await fetch("/headline?id=drv-marks")).json()).org);
+    const pill = () => p.eval(() => document.getElementById("echo").textContent);
+    await sheet(p, base, "drv-marks");
+    const was = await org();
+    assert(/\n\*\* TODO A child whose body/.test(was)
+      && /\n\*\*\* DONE A grandchild/.test(was),
+      "drv-marks no longer carries a child with a grandchild under it");
+
+    // ------- THE NARROWING WALL IS A FLOOR, and it is asked FIRST, over bytes
+    // nothing has written: a DIRECT child promoted would leave the subtree.
+    // BY ITS WORDS, never by its class: earlier cases leave drv-marks carrying
+    // children of their own, and the FIRST `.d-child' is one of those.
+    let landed = false;
+    for (let i = 0; i < 20 && !landed; i += 1) {
+      const seen = await p.eval(() => {
+        const at = document.querySelector("#mdoc .de.dat");
+        return { synced: !!at && at.dataset.id === docAtNow(),
+                 hit: !!at && at.matches(".d-child")
+                   && /A child whose body/.test(at.textContent) };
+      });
+      if (seen.hit) { landed = true; break; }
+      if (!seen.synced) { await settled(p); continue; }
+      await stepped(p, "n", ".de", "the step toward the child with a grandchild");
+    }
+    assert(landed, "`n' never reached the child whose body is drawn in place");
+    await settled(p);
+    await p.press("M-<left>");
+    const said = await p.until(() => {
+      const t = document.getElementById("echo").textContent;
+      return /org-promote-subtree/.test(t) ? t : false;
+    }, "the refusal to be spoken");
+    assert(said === "M-<left> \u2192 org-promote-subtree "
+      + "(nothing shallower than a child of the entry)",
+      `the pill read ${JSON.stringify(said)}`);
+    assert((await org()) === was, "the refused promote moved a byte");
+
+    // ------- AND THE DEMOTE MOVES THE SUBTREE WHOLE.
+    await settled(p);
+    await p.press("M-<right>");
+    const deeper = await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return /\n\*\*\* TODO A child whose body/.test(h.org || "") ? h.org : false;
+    }, "the demote to reach the file", 15000);
+    assert(/\n\*\*\*\* DONE A grandchild/.test(deeper),
+      "the grandchild stayed behind: a subtree moves whole");
+    assert(deeper === was
+      .replace("\n** TODO A child whose body", "\n*** TODO A child whose body")
+      .replace("\n*** DONE A grandchild", "\n**** DONE A grandchild"),
+      "the demote moved a byte that is no headline's stars");
+    assert((await pill()) === "M-<right> \u2192 org-demote-subtree (level 3)",
+      `the pill read ${JSON.stringify(await pill())}`);
+
+    // ------- POINT IS STILL ON THE CHILD, the write and its refill behind it:
+    // a child's id is its POSITION among the file's headlines, which no shift
+    // moves.  AND THE PROMOTE PUTS THE TREE BACK, which every later case needs.
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.dataset.id === docAtNow() && at.matches(".d-child")
+        && /A child whose body/.test(at.textContent);
+    }, "point back on the child the write moved", 15000);
+    await p.press("M-<left>");
+    await p.until(async (bytes) => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return h.org === bytes;
+    }, "the promote to put the bytes back", 15000, was);
+    return [`the wall said ${JSON.stringify(said)}; `
+      + "the child and its grandchild went 2/3 to 3/4 and back"];
+  } },
+
 // THE TYPED VALUE IS ALWAYS AN OFFER where the vocabulary is open (AGENTS.hs).
 // REPORTED: `shelf' typed against a tree holding `bookshelf' narrowed to the one
 // match, point sat on it, and RET wrote `bookshelf' — the reader's own word was
@@ -3113,7 +3349,11 @@ export default [
                   "the field to empty under DEL");
     await p.press("RET");
     const gone = await p.until(async () => {
-      const kid = await (await fetch("/headline?id=drv-marks&child=0")).json();
+      // A NON-200 IS NO ANSWER: while the store lags the write the materialize
+      // refuses by digest, and an empty body would read as a cleared entry.
+      const r = await fetch("/headline?id=drv-marks&child=0");
+      if (!r.ok) return false;
+      const kid = await r.json();
       return (kid.planning || []).length === 0 ? "cleared" : false;
     }, "the entry to leave the CHILD's planning line", 15000);
     const back = await served();

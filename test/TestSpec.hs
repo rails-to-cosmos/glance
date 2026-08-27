@@ -123,9 +123,10 @@ specGroup03 = testGroup "Parse"
 
     -- No fixture carries a preamble, so this half of the geometry rests on the rule alone.
   , testCase "the #+ preamble sits ahead of the first extent" $
-      withDoc "spec-preamble" "pre.org" "#+TODO: A | B\n* one\nbody\n" $ \recs ->
+      let doc = "#+TODO: A | B\n* one\nbody\n" in
+      withDoc "spec-preamble" "pre.org" doc $ \recs ->
         assertEqual "the pragma line landed inside a subtree extent"
-                    ["* one\nbody\n"] (map subtreeText recs)
+                    ["* one\nbody\n"] (map (subtreeText doc) recs)
 
     -- No other case doubles a cookie, so the first-of-each-kind rule is unasserted without this.
   , testCase "at most one repeater and one warning, first of each winning" $ do
@@ -292,39 +293,39 @@ specGroup04 = testGroup "Scan and the ledgers"
       withTempDirNamed "closed" $ \dir -> do
         assertEqual "the spec names org's three planning keywords" 3 (length Spec.planStamps)
         forM_ Spec.planStamps $ \(kw, moves) -> do
-          r <- rowOf dir (kw <> ".org")
-                 ("* TODO t\n" <> T.pack kw <> ": <2020-01-06 Mon +1w>\n")
+          (doc, r) <- rowOf dir (kw <> ".org")
+                        ("* TODO t\n" <> T.pack kw <> ": <2020-01-06 Mon +1w>\n")
           assertEqual (kw <> ": does a repeater on it make a repeat?")
-                      moves (isJust (repeatOn noConfig today "DONE" r))
-        both <- rowOf dir "both.org"
+                      moves (isJust (repeatOn noConfig today "DONE" doc r))
+        (bothDoc, both) <- rowOf dir "both.org"
                   "* TODO t\nSCHEDULED: <2020-01-06 Mon +1w> CLOSED: <2020-01-06 Mon +1w>\n"
         assertEqual "the plan alone moves, beside the keyword's own reset"
-                    2 (length (maybe [] rpEdits (repeatOn noConfig today "DONE" both)))
+                    2 (length (maybe [] rpEdits (repeatOn noConfig today "DONE" bothDoc both)))
 
     -- ORG'S OWN CONDITION IS BOTH HALVES: an inactive keyword, and a planning stamp carrying a repeater.
   , testCase "a repeat needs BOTH halves" $
       withTempDirNamed "halves" $ \dir -> do
-        row <- rowOf dir "r.org" repeatingRow
+        (rowDoc, row) <- rowOf dir "r.org" repeatingRow
         assertBool "an inactive keyword over a repeater repeats"
-                   (isJust (repeatOn noConfig today "DONE" row))
+                   (isJust (repeatOn noConfig today "DONE" rowDoc row))
         assertEqual "an ACTIVE keyword over the same row is a plain state change"
-                    Nothing (repeatOn noConfig today "TODO" row)
-        unrepeating <- rowOf dir "p.org" "* TODO t\nSCHEDULED: <2020-01-06 Mon>\n"
+                    Nothing (repeatOn noConfig today "TODO" rowDoc row)
+        (plainDoc, unrepeating) <- rowOf dir "p.org" "* TODO t\nSCHEDULED: <2020-01-06 Mon>\n"
         assertEqual "and an inactive keyword with no repeater is one too"
-                    Nothing (repeatOn noConfig today "DONE" unrepeating)
+                    Nothing (repeatOn noConfig today "DONE" plainDoc unrepeating)
 
     -- ONE WRITE, ONE DIGEST, ONE EVENT: 'applyEdits' takes the shift and the reset because the spans are disjoint.
   , testCase "the shift and the reset are ONE set of disjoint spans" $
       withTempDirNamed "oneset" $ \dir -> do
-        r <- rowOf dir "r.org" repeatingRow
-        rp <- theRepeat (repeatOn noConfig today "DONE" r)
+        (doc, r) <- rowOf dir "r.org" repeatingRow
+        rp <- theRepeat (repeatOn noConfig today "DONE" doc r)
         let sorted = sortOn spanStart (map fst (rpEdits rp))
         assertEqual "one shift and one reset" 2 (length (rpEdits rp))
         assertBool ("the two spans overlap: " <> show sorted)
                    (and [ spanEnd a <= spanStart b | (a, b) <- zip sorted (drop 1 sorted) ])
         assertEqual "and applyEdits takes them as ONE write"
                     (Right "* TODO t\nSCHEDULED: <2020-01-13 Mon +1w>\n")
-                    (applyEdits (hrDoc r) [ Edit sp t | (sp, t) <- rpEdits rp ])
+                    (applyEdits doc [ Edit sp t | (sp, t) <- rpEdits rp ])
 
     -- Every command is fired at ONE repeating blob, and the 200 keeps a request refused for its shape from reading as a command that records nothing.
   , testCase "nine commands answer through plain and one records" $ do
@@ -398,10 +399,12 @@ specGroup04 = testGroup "Scan and the ledgers"
       pure path
       where path = blobPathIn (storeRootIn dir) ident
 
+    -- THE DOCUMENT COMES BACK BESIDE THE ROW: a caller that computes spans
+    -- hands the text in.
     rowOf dir name text = do
       loaded <- loadFile =<< orgFile dir name text
       case loaded of
-        Right [r] -> pure r
+        Right [r] -> pure (text, r)
         other -> assertFailure (name <> " is no longer one row: " <> show (fmap length other))
 
     theRepeat = maybe (assertFailure "the fixture no longer repeats") pure
@@ -1047,16 +1050,18 @@ specGroup09 = testGroup "Commands and writes"
   , testCase "only set-state's answer records" $ do
       assertEqual "the spec no longer names set-state the one recording command"
         [Spec.SetState] [Spec.cName c | c <- Spec.cmds, Spec.cRecords c]
-      withDoc "spec-repeat" "repeat.org" (repeating "<2026-08-01 Sat +1w>") $ \recs ->
+      let cookied = repeating "<2026-08-01 Sat +1w>"
+          bare' = repeating "<2026-08-01 Sat>"
+      withDoc "spec-repeat" "repeat.org" cookied $ \recs ->
         withFirst recs $ \r -> do
           assertBool "an inactive keyword over a repeating stamp no longer records"
-            (isJust (repeatOn noConfig today "CANCELLED" r))
+            (isJust (repeatOn noConfig today "CANCELLED" cookied r))
           assertEqual "an active keyword records where org calls it a state change"
-            noRepeat (repeatOn noConfig today "NEXT" r)
-      withDoc "spec-repeat" "plain.org" (repeating "<2026-08-01 Sat>") $ \recs ->
+            noRepeat (repeatOn noConfig today "NEXT" cookied r)
+      withDoc "spec-repeat" "plain.org" bare' $ \recs ->
         withFirst recs $ \r ->
           assertEqual "a stamp with no repeater records"
-            noRepeat (repeatOn noConfig today "CANCELLED" r)
+            noRepeat (repeatOn noConfig today "CANCELLED" bare' r)
 
     -- The @.:!@ \/ @.:?@ split asked of the ROUTE; the ids name no row, what is under test being decided ahead of one.
   , testCase "one nullable field per clearing command" $ do
@@ -1343,7 +1348,7 @@ specGroup11 = testGroup "Sheets, document pane, Elm"
       assertEqual "orgLinks answered a link opening inside the one before it"
                   [] (overlaps nested)
       withDocDir "spec-links" "links.org" linkDoc $ \recs -> do
-        let scanned = map subtreeLinks recs
+        let scanned = map (subtreeLinks linkDoc) recs
         assertEqual "the link fixture stopped yielding both rows' links"
                     [4, 4] (map length scanned)
         assertEqual "subtreeLinks answered a link opening inside the one before it"

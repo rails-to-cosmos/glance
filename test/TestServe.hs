@@ -3011,6 +3011,71 @@ sheetSpec shell =
         assertEqual "the materialize itself asked, on the headline"
                     (Just "de d-head dat lvl-top") (listToMaybe seen)
 
+    -- `C-l' IS org's own `recenter-top-bottom'.  GEOMETRY IS BEYOND THE STUB,
+    -- so the rung is read off the WORD and the ask the placement degrades to.
+  , testCase "C-l walks recenter-top-bottom's three rungs, and any key starts it over" $ do
+      insheet shell "press:C-l" $ \answer -> do
+        echoIs "the first press centres" "C-l \8594 recenter-top-bottom (center)" answer
+        assertEqual "asked as a re-centring"
+                    (object [ "block" .= ("center" :: T.Text) ])
+          =<< field "scrollAsked" answer
+      insheet shell "press:C-l press:C-l" $ \answer -> do
+        echoIs "the second puts its top under the band"
+               "C-l \8594 recenter-top-bottom (top)" answer
+        assertEqual "asked at the pane's start"
+                    (object [ "block" .= ("start" :: T.Text) ])
+          =<< field "scrollAsked" answer
+      insheet shell "press:C-l press:C-l press:C-l" $ \answer -> do
+        echoIs "the third its bottom above it"
+               "C-l \8594 recenter-top-bottom (bottom)" answer
+        assertEqual "asked at the pane's end"
+                    (object [ "block" .= ("end" :: T.Text) ])
+          =<< field "scrollAsked" answer
+      insheet shell "press:C-l press:C-l press:C-l press:C-l" $
+        echoIs "and the fourth is round again"
+               "C-l \8594 recenter-top-bottom (center)"
+      insheet shell "press:C-l press:n press:C-l" $
+        echoIs "a step between two presses is a fresh cycle"
+               "C-l \8594 recenter-top-bottom (center)"
+
+    -- ONE STAR ON OR OFF, THE SUBTREE WHOLE: the write is the rewritten lines,
+    -- which is why the deep fixture carries a headline under the child.
+  , testCase "M-arrows promote and demote the subtree under point" $ do
+      onTable shell (ontoDeep <> " press:M-ArrowRight") $ \answer -> do
+        echoIs "org's own word, and the level it landed on"
+               "M-<right> \8594 org-demote-subtree (level 3)" answer
+        assertEqual "one write, aimed at the entry" ["r1"] =<< textsAt "wroteAt" answer
+        assertEqual "the child's line and its descendant's, each one star deeper"
+                    ["* TODO one\nfirst para\n*** two\n**** three\ndeep body\n"]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+        assertEqual "and point stands on the child it moved" 4 =<< pointOf answer
+      onTable shell (ontoDeep <> " press:M-ArrowRight press:M-ArrowLeft") $ \answer -> do
+        echoIs "and back the way it came"
+               "M-<left> \8594 org-promote-subtree (level 2)" answer
+        assertEqual "the second write is the bytes the first started from"
+                    [ "* TODO one\nfirst para\n*** two\n**** three\ndeep body\n"
+                    , "* TODO one\nfirst para\n** two\n*** three\ndeep body\n" ]
+          =<< traverse (textAt "body") =<< listAt "writes" answer
+        assertEqual "and point never left the child" 4 =<< pointOf answer
+
+    -- THREE REFUSALS, AND NONE OF THEM WRITES: the entry's own line, a row that
+    -- is no headline, and the narrowing wall read as a floor.
+  , testCase "a promote that would leave the subtree is refused, and writes nothing" $ do
+      insheet shell "press:M-ArrowLeft" $ \answer -> do
+        echoIs "the root's level is the table's row"
+               ("M-<left> \8594 org-promote-subtree "
+                <> "(the entry's own level is the table's)") answer
+        assertEqual "and nothing was written" [] =<< textsAt "wroteAt" answer
+      insheet shell (ontoChild <> " press:M-ArrowLeft") $ \answer -> do
+        echoIs "nothing shallower than a child of the entry is reachable"
+               ("M-<left> \8594 org-promote-subtree "
+                <> "(nothing shallower than a child of the entry)") answer
+        assertEqual "and nothing was written" [] =<< textsAt "wroteAt" answer
+      insheet shell "press:n press:n press:n press:M-ArrowRight" $ \answer -> do
+        echoIs "a paragraph has no level to move"
+               "M-<right> \8594 org-demote-subtree (a headline alone)" answer
+        assertEqual "and nothing was written" [] =<< textsAt "wroteAt" answer
+
     -- THE HEADLINE IS ONE STOP: its parts have their own keys, so `f' does not
     -- walk into the line -- it enters the CONTENTS, everything being under them.
   , testCase "f on the headline enters the body, and a paragraph has nothing finer" $ do
@@ -6087,6 +6152,11 @@ intoChecky    = "checky press:Enter press:f press:n press:n press:f"
 ontoChild :: T.Text
 ontoChild = "press:n press:n press:n press:n press:n"
 
+-- | THE DEEP FIXTURE'S CHILD, opened and walked to: the planning line, the
+-- folded drawer, the one paragraph, then the child a grandchild hangs off.
+ontoDeep :: T.Text
+ontoDeep = "deep press:Enter press:n press:n press:n press:n"
+
 -- | 'bootOf' over a browser that already REMEMBERS something: a preference the BOOT reads is unreachable from an act.
 bootWith :: IO T.Text -> T.Text -> T.Text -> Int -> T.Text -> T.Text
          -> (Value -> Assertion) -> Assertion
@@ -6267,9 +6337,10 @@ scrollSweep shell = testCase "the one scrollIntoView is the document's own" $ do
   assertEqual "exactly one call site" 1 (T.count "scrollIntoView(" code)
   assertEqual "named twice: the call, and the detect that guards it" 2
               (T.count "scrollIntoView" code)
-  assertContains "and it is the document cursor's"
-    "        row.scrollIntoView({ block: \"nearest\" });" page
-  -- THE BAND IS CSS: `nearest' honours `scroll-margin', so the movement code measures nothing.
+  assertContains "and it is what a page with no layout degrades to"
+    "        row.scrollIntoView({ block });" page
+  -- THE BAND IS CSS WHERE THE ASK IS `nearest', which is the fallback and the
+  -- climb; `C-l''s top and bottom rungs read the same margin off the row.
   assertContains "the band rides the elements" "  .de{scroll-margin-block:var(--g-doc-off);" page
   assertContains "three of the pane's lines"
     "    --g-doc-off:calc(3 * var(--g-doc-lh));" page
@@ -7047,6 +7118,20 @@ shellGlue =
       , "const themed = pref(\"glance-theme\", \"auto\");"
       , "el(\"themesel\").addEventListener(\"change\""
       , "<script>try{var v=localStorage.getItem(\"glance-theme\");" ]
+
+  -- THE PANE RESTS POINT'S ROW ON A LINE, and where that line is drawn is the
+  -- reader's, browser-local like the theme and banded so a band always stands.
+  , glue "the reading line is a stored preference the pane rests point on"
+      [ "id=\"readsel\"", "<option value=\"40\">40%</option>"
+      , "<option value=\"60\">60%</option>", "<option value=\"80\">80%</option>"
+      , "const READ = { key: \"glance-reading-line\", def: 60, min: 20, max: 90 };"
+      , "const readPref = pref(READ.key, String(READ.def));"
+      , "return Math.max(READ.min, Math.min(READ.max, +t));"
+      , "el(\"readsel\").addEventListener(\"change\""
+      , "echo(`reading line: ${readingLine()}%`);"
+      -- 20-sheet loads first, so the preference goes in as a THUNK.
+      , "const readingPct = () => readingLine();"
+      , "line: (b) => b.height * readingPct() / 100 };" ]
 
   -- A value outside the band is declined rather than clamped, and blank is how a reader asks for the default back.
   , glue "the log's height is a stored preference no field reaches"
@@ -8232,6 +8317,29 @@ materializeSpec = testGroup "GET /headline"
       assertEqual "and the planning line named apart"
                   [["SCHEDULED", "<2026-08-03 Mon>"]] =<< pairsAt "planning" v
 
+    -- A READ RELOADS ON DRIFT: the answer is the file as it stands, and where
+    -- the store lags its own tree the file goes back through the watch's door
+    -- first, so it is served under the digest it holds now.
+  , testCase "a file that moved since the load is reloaded, and served as it stands" $
+      withTempDir $ \dir -> do
+        path <- orgFile dir "notes.org" committable
+        (a, _hub) <- serverOver dir
+        was <- getFrom a (headlinePath "first") >>= decoded
+        assertContains "the load's own text" "body of first" =<< textAt "org" was
+        TIO.writeFile path (T.replace "body of first" "body moved"
+                             (T.replace "First :one:" "First moved :one:" committable))
+        r <- getFrom a (headlinePath "first")
+        assertEqual "status" 200 (status r)
+        v <- decoded r
+        assertContains "the file's own bytes now" "body moved" =<< textAt "org" v
+        assertBool "and no byte of the parse's own text came back"
+                   (not ("body of first" `T.isInfixOf` body r))
+        onDisk <- digestOnDisk path
+        assertEqual "under the digest the file holds now" onDisk =<< textAt "digest" v
+        -- THE WATCH'S OWN DOOR was taken, so the store holds the reloaded row.
+        assertEqual "and the store's rows moved with the file" ["First moved", "Second"]
+          =<< traverse (cellAt "title") =<< rowsOf =<< getFrom a "/headlines"
+
   , testCase "an id no row carries is a 404" $ do
       (a, _hub) <- serverOver viewDir
       r <- getFrom a (headlinePath "no-such-headline")
@@ -8324,12 +8432,18 @@ commitSpec = testGroup "POST /headline"
   , testCase "leaves the store alone — the watch is what updates rows" $
       withCommitted $ \a path before digest _body _props -> do
         org <- textAt "org" before
+        rows <- rowsOf =<< getFrom a "/headlines"
         assertOk =<< postTo a (headlinePath "first") (commitBody (org <> "a line\n") digest)
-        after <- decoded =<< getFrom a (headlinePath "first")
-        assertEqual "the store's subtree" (Just org) . Just =<< textAt "org" after
-        assertEqual "the store's digest" (Just digest) . Just =<< textAt "digest" after
+        assertEqual "the rows the store still answers with" rows
+          =<< rowsOf =<< getFrom a "/headlines"
         onDisk <- digestOnDisk path
         assertBool "but the file was written" (onDisk /= digest)
+        -- A READ RELOADS ON DRIFT: the materialize behind the write finds the
+        -- store lagging, takes the watch's own door and answers under the
+        -- digest on disk rather than the row's stale pin.
+        v <- decoded =<< getFrom a (headlinePath "first")
+        assertEqual "the digest the file holds now" onDisk =<< textAt "digest" v
+        assertContains "and the line the write added" "a line" =<< textAt "org" v
 
   , testCase "a file rewritten behind the client is a conflict, and stays as it is" $
       withCommitted $ \a path v digest _body _props -> do
@@ -8832,13 +8946,17 @@ commandSpec = testGroup "POST /command"
 
   , testCase "leaves the store alone — the watch is what updates rows" $
       withCommandable $ \a _hub path _other -> do
-        before <- decoded =<< getFrom a (headlinePath "first")
+        pinned <- textAt "digest" =<< decoded =<< getFrom a (headlinePath "first")
+        before <- rowsOf =<< getFrom a "/headlines"
         assertOk =<< postTo a "/command" (command "archive" ["first"] (object []))
-        after <- decoded =<< getFrom a (headlinePath "first")
-        assertEqual "the store answers exactly what it did" before after
+        assertEqual "the store answers exactly what it did" before
+          =<< rowsOf =<< getFrom a "/headlines"
         onDisk <- digestOnDisk path
-        pinned <- textAt "digest" before
         assertBool "the file was written" (onDisk /= pinned)
+        -- A READ RELOADS ON DRIFT, so the materialize behind the write answers
+        -- under the digest on disk rather than the row's stale pin.
+        assertEqual "the digest the file holds now" onDisk
+          =<< textAt "digest" =<< decoded =<< getFrom a (headlinePath "first")
 
   , testCase "a body that is not a command is a 400, and says what one is" $
       withCommandable $ \a _hub _path _other -> do
@@ -8867,6 +8985,22 @@ commandSpec = testGroup "POST /command"
         r <- postTo a "/command" (command "archive" ["first", "first"] (object []))
         assertEqual "one result" [("first", True)] =<< outcomesOf r
         assertEqual "one tag" 1 . T.count "ARCHIVE" =<< document path
+
+    -- A WRITE REFUSES: the spans a command computes are cut from the file as it
+    -- stands, so a row whose file moved under the store is refused in the drift
+    -- lock's own words and no byte is written.
+  , testCase "a row whose file moved since the load writes nothing" $
+      withCommandable $ \a _hub path _other -> do
+        moved <- (<> "* TODO appended\n") <$> document path
+        TIO.writeFile path moved
+        r <- ok =<< postTo a "/command" (command "archive" ["first"] (object []))
+        assertEqual "refused" [("first", False)] =<< outcomesOf r
+        results <- listAt "results" =<< decoded r
+        case results of
+          [row] -> assertContains "in the drift lock's own words" "changed on disk"
+                     =<< textAt "error" row
+          _rows -> assertFailure ("one result, got " <> show (length results))
+        assertEqual "and the file is byte-identical" moved =<< document path
 
   , testCase "a body over the cap is refused before it is read" $
       withCommandable $ \a _hub path _other -> do
@@ -11627,7 +11761,8 @@ keymapSpec shell = testGroup "Shell keymap"
         ["<select", "<input", "<textarea", "<button", "<a "] after
       sheet <- maybe (assertFailure "no settings sheet in the shell") pure
                      (between "<div id=\"config\">" "<div id=\"echo\"" b)
-      holdsAll "the theme panel" ["id=\"ctheme\"", "id=\"themesel\""] sheet
+      holdsAll "the theme panel"
+        ["id=\"ctheme\"", "id=\"themesel\"", "id=\"readsel\""] sheet
       holdsNone "the shell" ["e.target.blur();"] b
 
     -- A `parts' id the markup does not carry throws at boot and takes the inline script with it, and the harness cannot see it.

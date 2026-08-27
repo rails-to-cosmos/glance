@@ -31,6 +31,7 @@ module Glance.Web.Base ( ServeOptions (..)
                        , configMoved
                        , captureMoved
                        , answerWrite
+                       , writeRefusal
                          -- * Responses
                        , jsonType
                        , sized
@@ -168,12 +169,17 @@ captureMoved :: FilePath -> Text
 captureMoved path =
   T.pack path <> " changed on disk while the entry was being written; capture it again"
 
--- | A drift-locked write's answer: OK's fields, the 409 MOVED spells, or a 500.
+-- | A drift-locked write's answer: OK's fields, or 'writeRefusal'.
 answerWrite :: Text -> (Text -> [Pair]) -> Either WriteFailure Text -> Response
-answerWrite moved ok written = case written of
-  Right fresh              -> jsonResponse status200 (ok fresh)
-  Left (WriteDrift onDisk) -> conflict "drift" onDisk moved
-  Left (WriteRefused why)  -> jsonError status500 why
+answerWrite moved ok = either (writeRefusal moved) (jsonResponse status200 . ok)
+
+-- | Why a pinned read or a drift-locked write gave nothing: the 409 MOVED
+-- spells, or a 500.  ONE SPELLING for both doors — 'Glance.Query.pinnedDocument'
+-- refuses in these very words, so a read that finds a file moved answers the
+-- 409 the shell already handles.
+writeRefusal :: Text -> WriteFailure -> Response
+writeRefusal moved (WriteDrift onDisk) = conflict "drift" onDisk moved
+writeRefusal _moved (WriteRefused why) = jsonError status500 why
 
 again :: Text
 again = "; materialize it again and re-apply the edit"

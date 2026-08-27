@@ -116,6 +116,13 @@ drawer and every child headline drawn in place.
   =f=/=b= go a grain finer / broader.
 - A list, block, table or drawer is *one* stop, so holding =n= skims; =TAB=
   folds a drawer or a child's subtree, org's own cycle.
+- Point's row comes to rest on a *reading line* part of the way down the pane:
+  a row whose bottom falls below it is scrolled up until its bottom sits on
+  it, so there is always text under what is being read. The settings sheet
+  (=,=) draws the line; 60% by default, remembered per browser.
+- =C-l= is =recenter-top-bottom=: point's row to the middle of the pane, then
+  its top under the three-line band, then its bottom above it, then round
+  again. Any other key starts the cycle over.
 - =+= in the drawer types a property inline, a two-field box over the row the
   pair will stand in, both halves completing from the tree's own vocabulary.
   A key case-folding to =scheduled=, =deadline= or =closed= is a planning
@@ -135,6 +142,11 @@ drawer and every child headline drawn in place.
   is owned by what point stands on.
 - =o= opens the links of the row's *reach* -- a headline's whole subtree,
   the root's the entry.
+- =M-<left>= / =M-<right>= on a child headline are =org-promote-subtree= /
+  =org-demote-subtree=: its headline line and every headline under it gain or
+  lose one star together, the contents untouched. The narrowing is a *floor* --
+  a direct child cannot be promoted out of the entry -- and demoting has no
+  ceiling.
 - Every element commits on its own (=C-x C-s= / =C-c C-c=); =RET= on a child
   drills in, =DEL= walks out. Nothing written can leave the subtree: a typed
   root-level headline is demoted to a child.

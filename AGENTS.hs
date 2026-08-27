@@ -423,8 +423,10 @@ newtype Txt (h :: Held) = Txt String
 -- ^ A slice shares the document's array, so a cell a row KEEPS is a copy.
 detach :: Txt 'Sliced -> Txt 'Copied
 detach (Txt t) = Txt t
-data Kept = Kept [Txt 'Copied] (Txt 'Sliced) (Txt 'Sliced)
--- ^ the cells, then `hrHeadline' and `hrDoc' — the two that keep the document.
+data Kept = Kept [Txt 'Copied]
+-- ^ the cells, and NOTHING ELSE.  A RECORD RETAINS NO DOCUMENT BYTES: `hrDoc'
+-- is gone and the parsed headline with it, so the text a reader wants is read
+-- by path and pinned against `hrDigest'.
 
 newtype Forced a = Forced a
 -- ^ A worker forces before returning: in-flight memory is pool width × one document.
@@ -780,8 +782,20 @@ scanNotes =
          \five runs deep to pin the id-resolution winner." [Test]
   , Note "Under a non-threaded runtime `getNumCapabilities' is 1 whatever -N says and every \
          \assertion still passes, so TestQuery asserts `rtsSupportsBoundThreads'." [Test]
-  , Note "`hrHeadline' and `hrDoc' keep the parsed document on purpose, and are the lever if \
-         \store residency ever exceeds the scan budget." [Docs]
+  , Note "A RECORD RETAINS NO DOCUMENT BYTES: `hrDoc' is gone and the parsed headline with \
+         \it — what a row kept off that parse is cut into fields (`hrSpans', `hrLevel', \
+         \`hrOrgId', `hrIdProperty', `hrRepeats') — so a loaded store is its cells and no \
+         \file's text. Residency is rows times cells rather than the tree's bytes." [Typed]
+  , Note "A REQUEST-TIME READER TAKES THE DOCUMENT AS AN ARGUMENT — `subtreeText', \
+         \`headlineParts', `subtreeEntries', `subtreeLinks' and every edit's span math — and \
+         \the route reads it ONCE per request, PINNED against `hrDigest' by `pinnedDocument', \
+         \which is the read `replaceSpans' itself opens with. A READ RELOADS ON DRIFT — the \
+         \store lagging its own tree is this server's signal, so `Watch.reload' runs and the \
+         \id is addressed again under the fresh digest — where a WRITE takes the 409, a write \
+         \never re-targeting bytes the client did not see." [Test]
+  , Note "NO QUERY TOUCHES THE DISK: a custom column is asked per row per request, so \
+         \`closed' and the drawer pairs are cut at parse into `hrClosed' and `hrDrawer' and \
+         \`/properties' walks those." [Test]
   , Note "`Cursor' assumes non-decreasing span starts; an out-of-order visit degrades to \
          \O(start) per slice." [Comment]
   , Note "`Data.Org.Index' is the only reader of `.org-glance/meta' in this repo, and \
@@ -5101,7 +5115,7 @@ secs = [ Sec "ui"       ["ctheme"]                   True
 
 -- | The fields each panel draws.
 secFields :: [(String, [String])]
-secFields = [ ("ui",       ["#themesel", "#czoom", "the tree's own state hues"])
+secFields = [ ("ui",       ["#themesel", "#readsel", "#czoom", "the tree's own state hues"])
             , ("keywords", ["the layer select", "#ctext", "#ctpl", "#ceff", "#clab", "#clerr"]) ]
 
 data SCol = SColTag | SColState | SColGroup | SColColour deriving (Eq, Show, Enum, Bounded)
@@ -5409,7 +5423,38 @@ sheetNotes =
          \ the display is compact from the FIRST frame; links are no stops and bind no\
          \ mouse, `o' sharing the same held answer." [Test]
   , Note "`scrollIntoView' is forbidden over the TABLE's rows and ordinary here; the\
-         \ suite keeps the distinction by COUNTING call sites." [Test]
+         \ suite keeps the distinction by COUNTING call sites -- ONE, which is what\
+         \ a page with no layout degrades to." [Test]
+  , Note "THE READING LINE: after a move, point's row whose BOTTOM has fallen below a\
+         \ line drawn `glance-reading-line' percent down the pane comes to rest ON\
+         \ that line, so there is always text under what is being read.\
+         \ DIRECTION-FREE, and if possible -- the pane clamps at its end.  A row\
+         \ TALLER than the band above the line, and one standing ABOVE the pane's\
+         \ top, keep the `nearest' ask, which is what the three-line scroll-margin\
+         \ already covers.  THE SCROLLER IS ASKED FOR RATHER THAN NAMED: `#mdoc'\
+         \ stretches to `#mpanes' where the document fits its box and grows past it\
+         \ -- `#mpanes' clipping -- where it does not.  The percent is browser-local\
+         \ like the theme and banded 20-90, outside which no band stands above the\
+         \ line for a row to rest in." [Browser, Test]
+  , Note "`C-l' IS `recenter-top-bottom', org's own cycle: point's row to the pane's\
+         \ MIDDLE, then its TOP under the three-line band, then its BOTTOM above it,\
+         \ and round again.  ANY OTHER KEY STARTS THE CYCLE OVER, which is the whole\
+         \ of what makes a run of presses one gesture.  ONE PLACEMENT LAW SERVES IT\
+         \ AND THE READING LINE BOTH (`placeRow'): an edge of the row on a line\
+         \ measured down the band.  The key is CLAIMED, the browser owning `C-l' for\
+         \ its address bar; it stays reserved on the table, where no pane stands." [Browser, Test]
+  , Note "`M-<left>'/`M-<right>' OVER A NESTED HEADLINE are org's own\
+         \ `org-promote-subtree' and `org-demote-subtree': the child's headline line\
+         \ and every headline line inside its EXTENT gain or lose ONE star, the\
+         \ contents untouched.  A LINE REWRITE the `Para' splice cannot express, so\
+         \ the rewritten lines ride the ordinary commit cargo -- `bodyText' walks\
+         \ `Para' alone and passes clean rows through, which is what lets one door\
+         \ write both.  THE ENTRY'S OWN LINE REFUSES, its level being the table's\
+         \ row, and so does a row that is no headline.  THE NARROWING WALL IS A\
+         \ FLOOR: a direct child promoted would leave the subtree, so nothing\
+         \ shallower than a child of the entry is reachable; demoting has no\
+         \ ceiling.  POINT DOES NOT MOVE -- a child's id is its POSITION among the\
+         \ file's headlines, which no shift changes." [Elm, Test, Browser]
   , Note "Content sits under the head's own TITLE column, by PADDING: a margin would take\
          \ the selection wash off the left of the line and a `text-indent' would indent a\
          \ block's first line alone." [Test]

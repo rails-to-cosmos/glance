@@ -6,7 +6,6 @@ module Glance.Web.Store
   , emptyStore
   , loadStore
   , loadStoreWith
-  , storeDocument
   , recordsUnder
   , headlinesIn
   , storeRecords
@@ -56,7 +55,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import Glance.Query ( ConfigLayerFile, ConfigLayers (clPrint)
-                    , HeadlineRecord (hrDigest, hrDoc, hrId, hrKeywords, hrTags)
+                    , HeadlineRecord (hrDigest, hrId, hrKeywords, hrTags)
                     , LoadFailure (..)
                     , QueryResult (..), TodoKeywords, WalkOptions, configDirsIn
                     , defaultWalk
@@ -127,9 +126,6 @@ headlinesIn resolved ids =
   where wanted = Set.fromList ids
         held   = Map.fromList [ (hrId r, r) | r <- resolved
                                             , Set.member (hrId r) wanted ]
-
-storeDocument :: FilePath -> Store -> Maybe (Text, Text)
-storeDocument path st = (\r -> (hrDoc r, hrDigest r)) <$> listToMaybe (recordsUnder path st)
 
 -- | Every org tag the store's rows carry, sorted; counted per FILE, not row.
 storeTags :: Store -> [Text]

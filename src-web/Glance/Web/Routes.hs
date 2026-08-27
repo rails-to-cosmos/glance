@@ -50,16 +50,17 @@ import qualified Network.WebSockets as WS
 
 import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , HeadlineParts (..)
-                    , HeadlineRecord ( hrDigest, hrFile, hrId, hrLinks, hrSubtree, hrTags
-                                     , hrTitle )
-                    , rowOrgId
+                    , HeadlineRecord ( hrDigest, hrFile, hrId, hrLinks, hrOrgId, hrSubtree
+                                     , hrTags, hrTitle )
                     , rowProperties
                     , OrgLink (olSpan, olTarget)
                     , QueryResult (..), SortChain
+                    , WriteFailure (WriteDrift, WriteRefused)
                     , Span (spanEnd, spanStart)
                     , SubtreeEntry (..)
                     , TodoKeywords (..)
                     , SavedView (..), archived, configDirsIn, configPaths
+                    , pinnedDocument, rowSnapshot
                     , captureTemplateIn, captureTemplateOf
                     , bareTemplate
                     , Inherited (..)
@@ -85,7 +86,7 @@ import Glance.Web.Base ( Day, ServeOptions (..), answerWrite, bodyObject, config
                        , jsonResponse, jsonType
                        , noSuchRow
                        , plain, rendererAsset, reparsed, rewritten, sized, tenths, today
-                       , viewTitleFor, walkFor, withBody )
+                       , viewTitleFor, walkFor, withBody, writeRefusal )
 import Glance.Web.Commands (runCommand)
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, onDay, storeEnv, viewAddedIn)
 import Glance.Web.Page (assetsMissing, demoShell)
@@ -101,7 +102,7 @@ import Glance.Web.Store ( Client, CloseReason (Resync), Frame (Close), Hub
                         , storeKeywords
                         , storeRecords, storeResult
                         , storeTags, subscribe, unsubscribe )
-import Glance.Web.Watch (writeSpans)
+import Glance.Web.Watch (reload, writeSpans)
 
 -- | The renderer, embedded at COMPILE time; @make sync-renderer@ vendors the file.
 embeddedRenderer :: BS.ByteString
@@ -205,7 +206,7 @@ refer opts hub request = viewPage opts hub request keep (referExtra asked)
   where
     self = queryText "row" request
     asked = queryText "kind" request
-    keep r = isJust (rowOrgId r) && Just (hrId r) /= self
+    keep r = isJust (hrOrgId r) && Just (hrId r) /= self
 
 -- | What the picker completes from, over every row THE QUERY MATCHED rather than
 -- the page served.  A reader narrowing the picker narrows what it offers, which
@@ -379,12 +380,11 @@ wholeNumber name raw = do
 
 
 
--- | @GET \/headline?id=…@: a subtree from the store.  The id rides the query string; a @#@ in a path opens a fragment.
+-- | @GET \/headline?id=…@: a subtree, over the file as it stands.  The id rides the query string; a @#@ in a path opens a fragment.
 materialize :: Hub -> Maybe Text -> Either Text (Maybe Int) -> IO Response
 materialize _hub Nothing _child = pure (jsonError status400 "GET /headline?id=<row id>")
-materialize hub (Just rid) child = do
-  st <- readTVarIO (hubStore hub)
-  pure $ either id (jsonResponse status200 . subtreeJSON) (focusIn st rid child)
+materialize hub (Just rid) child =
+  either id (jsonResponse status200 . uncurry subtreeJSON) <$> focused Reading hub rid child
 
 data Focus = Focus
   { fcRow     :: !HeadlineRecord   -- ^ the row the id named.
@@ -392,20 +392,61 @@ data Focus = Focus
   , fcAt      :: !(Maybe Int)      -- ^ the @child@ index; 'Nothing' is the row itself.
   }
 
--- | ST's answer to @?id=RID&child=K@.  Read and write share it, so a commit cannot address what a materialize would refuse.
-focusIn :: Store -> Text -> Either Text (Maybe Int) -> Either Response Focus
-focusIn st rid child = do
-  at <- first (jsonError status400) child
-  r  <- maybe (Left (jsonError status404 (noSuchRow rid))) Right
-              (rowIn (storeRecords st) rid)
-  let entries = subtreeEntries (stConfig st) r
-  case at of
-    Nothing -> Right (Focus r entries Nothing)
-    Just k | Nothing <- subtreeEntryAt entries k ->
-      Left (jsonError status404
-             (rid <> " has no child " <> T.pack (show k)
-                <> "; it holds " <> T.pack (show (length entries))))
-    _held -> Right (Focus r entries at)
+-- | What a pinned read does where the STORE LAGS THE FILE.
+data Pin
+  = Reading  -- ^ RELOAD: the store lagging its own tree is this server's signal.
+  | Writing  -- ^ REFUSE: the drift lock, so no write re-targets bytes unseen.
+
+-- | HUB's answer to @?id=RID&child=K@, K's own, over the file AS IT STANDS.
+--
+-- A READ RELOADS ON DRIFT: a row pinned to bytes its file no longer holds goes
+-- back through the WATCH'S OWN DOOR ('Glance.Web.Watch.reload') and is
+-- addressed again under the fresh digest, so the answer is the file rather than
+-- a refusal.  A second drift is a genuine race and takes the 409.  A WRITE
+-- takes it the first time: re-targeting would move bytes the client never saw.
+onRow :: Pin -> Hub -> Text -> Either Text (Maybe Int)
+      -> (Store -> Text -> (HeadlineRecord, Maybe Int) -> Either Response a)
+      -> IO (Either Response a)
+onRow pin hub rid child k = do
+  first' <- turn
+  case (pin, first') of
+    (Reading, Left (Just path, _refusal)) -> reload hub path >> (settled <$> turn)
+    _once                                 -> pure (settled first')
+  where
+    settled = either (Left . snd) Right
+    -- ONE TURN: the id addressed in the store as it stands, its file read under
+    -- the row's own pin.  A refusal carries the path that DRIFTED, where one did.
+    turn = do
+      st <- readTVarIO (hubStore hub)
+      case addressed st of
+        Left refusal -> pure (Left (Nothing, refusal))
+        Right at -> either (unread (hrFile (fst at))) (standing st at)
+                      <$> pinnedDocument (rowSnapshot (fst at))
+    standing st at doc = either (\why -> Left (Nothing, why)) Right (k st doc at)
+    unread path failed = Left (drifted failed path, writeRefusal rewritten failed)
+    drifted (WriteDrift _found) path  = Just path
+    drifted (WriteRefused _why) _path = Nothing
+    -- The ROW and the CHILD index the query string addresses, BEFORE ANY DISK
+    -- READ; the coarsest refusal is still first, the shape's.
+    addressed st = do
+      at <- first (jsonError status400) child
+      r  <- maybe (Left (jsonError status404 (noSuchRow rid))) Right
+                  (rowIn (storeRecords st) rid)
+      pure (r, at)
+
+-- | The file as it stands and what @?id=RID&child=K@ focuses in it.  ONE
+-- PIPELINE for the read door and the write door, so a commit cannot address
+-- what a materialize would refuse.
+focused :: Pin -> Hub -> Text -> Either Text (Maybe Int)
+        -> IO (Either Response (Text, Focus))
+focused pin hub rid child = onRow pin hub rid child $ \st doc (r, at) ->
+  let entries = subtreeEntries (stConfig st) doc r
+  in case at of
+       Just k | Nothing <- subtreeEntryAt entries k ->
+         Left (jsonError status404
+                (hrId r <> " has no child " <> T.pack (show k)
+                   <> "; it holds " <> T.pack (show (length entries))))
+       _held -> Right (doc, Focus r entries at)
 
 focusEntry :: Focus -> Maybe SubtreeEntry
 focusEntry f = fcAt f >>= subtreeEntryAt (fcEntries f)
@@ -417,8 +458,8 @@ focusHere f = maybe (fcRow f) seRecord (focusEntry f)
 parentOf :: SubtreeEntry -> Maybe Int
 parentOf e = if seParent e < 0 then Nothing else Just (seParent e)
 
-subtreeJSON :: Focus -> [Pair]
-subtreeJSON f =
+subtreeJSON :: Text -> Focus -> [Pair]
+subtreeJSON doc f =
   [ "id"         .= hrId (fcRow f)
   , "file"       .= hrFile (fcRow f)
   , "child"      .= fcAt f
@@ -426,21 +467,21 @@ subtreeJSON f =
   , "path"       .= trailTo f
   , "level"      .= levelOf f
   , "cells"      .= object (cells here)
-  , "children"   .= [ childJSON here (subtreeText here) (hpBody parts) i e | (i, e) <- beneath f ]
-  , "org"        .= subtreeText here
+  , "children"   .= [ childJSON here (subtreeText doc here) (hpBody parts) i e | (i, e) <- beneath f ]
+  , "org"        .= subtreeText doc here
   , "body"       .= hpBody parts
-  , "ownLines"   .= ownBodyLines here (hpBody parts) (firstUnder f)
+  , "ownLines"   .= ownBodyLines doc here (hpBody parts) (firstUnder f)
   , "properties" .= [ [key, value] | (key, value) <- hpProperties parts ]
   , "planning"   .= [ [key, value] | (key, value) <- hpPlanning parts ]
   , "logbook"    .= hpLogbook parts
   , "digest"     .= hrDigest here
   , "span"       .= extentJSON here
     -- The ROW's whole scan, in FILE coordinates: a second request opened an async gap every fill had to bridge.
-  , "links"      .= map linkJSON (subtreeLinks (fcRow f))
+  , "links"      .= map linkJSON (subtreeLinks doc (fcRow f))
   , "titleAt"    .= (spanStart <$> titleSpan here)
   ]
   where here  = focusHere f
-        parts = headlineParts here
+        parts = headlineParts doc here
 
 levelOf :: Focus -> Int
 levelOf = maybe 1 seLevel . focusEntry
@@ -501,33 +542,35 @@ commit _opts _hub Nothing _child _request =
   pure (jsonError status400 "POST /headline?id=<row id>")
 -- The cap outranks the lookup, so the id resolves behind the body.
 commit opts hub (Just rid) child request = withBody request $ \raw -> do
-  st <- readTVarIO (hubStore hub)
   -- ONE CLOCK READ PER REQUEST, above the row: the planning wall reads a
   -- relative date against this day, and one commit must mean ONE day.
   day <- today
-  case focusIn st rid child >>= \f ->
-         (,) (focusHere f) <$> prepare day raw (focusHere f) of
+  got <- focused Writing hub rid child
+  case got >>= \(doc, f) -> (,) (focusHere f) <$> prepare day raw doc (focusHere f) of
     Left refusal -> pure refusal
     Right (here, (digest, org)) ->
       answerWrite rewritten (\fresh -> ["digest" .= fresh])
         <$> writeSpans (walkFor opts) hub (hrFile here) digest
                        [(hrSubtree here, org)]
 
-prepare :: Day -> BL.ByteString -> HeadlineRecord -> Either Response (Text, Text)
-prepare day raw r = case parseCommit raw of
+-- | The CLIENT's pin against the row's, and the subtree it asked to write.  A
+-- SECOND LAW, not the drift lock's: the client names the digest it materialized
+-- at, and a store re-read since is a @stale@ 409 rather than a silent rewrite.
+prepare :: Day -> BL.ByteString -> Text -> HeadlineRecord -> Either Response (Text, Text)
+prepare day raw doc r = case parseCommit raw of
   Left why -> Left (jsonError status400 why)
   Right (asked, digest)
     | digest /= hrDigest r  -> Left (conflict "stale" (hrDigest r) reparsed)
     | otherwise             -> case settledPlanning day asked of
         Left (key, why) -> Left (jsonResponse status409
           [ "error" .= why, "reason" .= ("planning" :: Text), "field" .= key ])
-        Right settled   -> Right (digest, committed r settled)
+        Right settled   -> Right (digest, committed doc r settled)
 
--- | The subtree ASKED for, over R.  'untrailed' EITHER WAY: the raw shape is a whole document the client hands back.
-committed :: HeadlineRecord -> Commitment -> Text
-committed _r (WholeSubtree org)         = untrailed org
-committed r  (SplitSubtree body ps pln) =
-  recomposedSubtree r (HeadlineParts body ps pln "")
+-- | The subtree ASKED for, over R in DOC.  'untrailed' EITHER WAY: the raw shape is a whole document the client hands back.
+committed :: Text -> HeadlineRecord -> Commitment -> Text
+committed _doc _r (WholeSubtree org)         = untrailed org
+committed doc  r  (SplitSubtree body ps pln) =
+  recomposedSubtree doc r (HeadlineParts body ps pln "")
 
 -- | The commitment with its planning entries READ AND REWRITTEN, or the KEY that
 -- stops the write and WHY.  Each entry meets 'plannedValue', its own key's wall
@@ -581,12 +624,11 @@ idsView hub request usage fields = do
                        else jsonResponse status200 (fields st rows found unknown)
   where asked = queryIds request
 
-withRow :: Hub -> Text -> (HeadlineRecord -> [Pair]) -> IO Response
-withRow hub rid fields = do
-  st <- readTVarIO (hubStore hub)
-  pure $ maybe (jsonError status404 (noSuchRow rid))
-               (jsonResponse status200 . fields)
-               (rowIn (storeRecords st) rid)
+-- | The row RID names, ITS FILE AS IT STANDS beside it ('onRow').
+withRow :: Hub -> Text -> (Text -> HeadlineRecord -> [Pair]) -> IO Response
+withRow hub rid fields =
+  either id (jsonResponse status200)
+    <$> onRow Reading hub rid (Right Nothing) (\_st doc (r, _at) -> Right (fields doc r))
 
 -- Tags
 
@@ -678,16 +720,17 @@ captureView opts hub request = do
         -- The point is read off the EXPANDED doc: what the filter lends edits the
         -- headline and the planning line, neither of them lines the body carries,
         -- so the line index survives the seeding it is measured before.
-        opens <- draftPointLine <$> draftRecord cfg expanded <*> pure at
-        r <- draftRecord cfg =<< draftSeeded cfg worn (inheritedIn day request) expanded
-        pure (draftJSON st worn r opens)
+        opens <- draftPointLine expanded <$> draftRecord cfg expanded <*> pure at
+        seeded <- draftSeeded cfg worn (inheritedIn day request) expanded
+        r <- draftRecord cfg seeded
+        pure (draftJSON st worn seeded r opens)
   pure (either (jsonError status400) (jsonResponse status200) drafted)
 
 -- | A DRAFT as the wire carries it: 'subtreeJSON''s own members, and the three
 -- a doc with no file behind it owes.  The empty digest is the CREATE PIN, which
 -- is why the commit that follows meets the very wall a materialize commit does.
-draftJSON :: Store -> [Text] -> HeadlineRecord -> Maybe Int -> [Pair]
-draftJSON st worn r opens =
+draftJSON :: Store -> [Text] -> Text -> HeadlineRecord -> Maybe Int -> [Pair]
+draftJSON st worn doc r opens =
   [ "id"         .= Null
   , "file"       .= ("" :: Text)
   , "child"      .= Null
@@ -695,10 +738,10 @@ draftJSON st worn r opens =
   , "path"       .= [hrTitle r]
   , "level"      .= (1 :: Int)
   , "cells"      .= object (draftCells worn r)
-  , "children"   .= [ childJSON r (subtreeText r) (hpBody parts) i e | (i, e) <- beneath f ]
-  , "org"        .= subtreeText r
+  , "children"   .= [ childJSON r (subtreeText doc r) (hpBody parts) i e | (i, e) <- beneath f ]
+  , "org"        .= subtreeText doc r
   , "body"       .= hpBody parts
-  , "ownLines"   .= ownBodyLines r (hpBody parts) (firstUnder f)
+  , "ownLines"   .= ownBodyLines doc r (hpBody parts) (firstUnder f)
   , "properties" .= [ [key, value] | (key, value) <- hpProperties parts ]
   , "planning"   .= [ [key, value] | (key, value) <- hpPlanning parts ]
   , "logbook"    .= hpLogbook parts
@@ -710,8 +753,8 @@ draftJSON st worn r opens =
   , "point"      .= opens
   , "tags"       .= storeTags st
   ]
-  where f = Focus r (subtreeEntries (stConfig st) r) Nothing
-        parts = headlineParts r
+  where f = Focus r (subtreeEntries (stConfig st) doc r) Nothing
+        parts = headlineParts doc r
 
 -- | A DRAFT'S DISPLAY CELLS: 'cells', with the tag run saying WHERE THIS LANDS.
 -- A DISPLAY CELL IS CONSTRUCTED and owes no round trip through the org line,
@@ -759,9 +802,9 @@ inheritedTags request =
 -- | @GET \/links?id=ROW@: where that row points.  @span@ is the FILE range @edit-link@ takes back, under @digest@ as the lock.
 linksView :: Hub -> Maybe Text -> IO Response
 linksView _hub Nothing = pure (jsonError status400 "GET /links?id=<row id>")
-linksView hub (Just rid) = withRow hub rid $ \r ->
+linksView hub (Just rid) = withRow hub rid $ \doc r ->
   [ "digest" .= hrDigest r
-  , "links" .= map linkJSON (subtreeLinks r) ]
+  , "links" .= map linkJSON (subtreeLinks doc r) ]
 
 -- | One link as the wire spells it -- @\/links@' entry and the materialize rider are ONE builder.
 linkJSON :: OrgLink -> Value

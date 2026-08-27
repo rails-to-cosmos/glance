@@ -107,6 +107,13 @@ demoShell opts font colours views =
             <> T.concat [ "<option value=\"" <> thId t <> "\">" <> escape (thLabel t)
                             <> "</option>" | t <- themes ]
             <> "</select>")
+  -- THE READING LINE the document pane rests point's row on, browser-local like
+  -- the theme.  PRESETS: the band is a taste rather than a measurement.
+  , crow (clab "reading line")
+         ("<select id=\"readsel\" class=\"cview\" title=\"reading line\">"
+            <> T.concat [ "<option value=\"" <> p <> "\">" <> p <> "%</option>"
+                        | p <- ["40", "50", "60", "70", "80"] ]
+            <> "</select>")
   -- READ-ONLY, and the keys beside it: the level is the keymap's to move, and
   -- this panel's editable rows are a closed select or a file the server owns.
   , crow (clab "zoom") "<div id=\"czoom\" class=\"cval\"></div>"

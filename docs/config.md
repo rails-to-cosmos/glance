@@ -103,9 +103,11 @@ and unlike the views, colors gather across **every** layer.
 ## What the page remembers outside the tree
 
 Browser-local, per profile, never written to the tree: the theme
-(`glance-theme`: `auto`, or a theme id, stamped before first paint) and the
-log panel's height. Everything else — views, cycles, hues, templates — is
-the tree's, so every device reads the same configuration.
+(`glance-theme`: `auto`, or a theme id, stamped before first paint), the
+reading line the document pane rests point's row on (`glance-reading-line`: a
+whole percent, banded 20–90, 60 by default) and the log panel's height.
+Everything else — views, cycles, hues, templates — is the tree's, so every
+device reads the same configuration.
 
 ## Untagged captures
 

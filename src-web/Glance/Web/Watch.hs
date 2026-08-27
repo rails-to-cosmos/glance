@@ -6,6 +6,7 @@ module Glance.Web.Watch
   , due
   , isWatchable
   , nudge
+  , reload
   , say
   , settle
   , watched

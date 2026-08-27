@@ -32,6 +32,7 @@ module Data.Org.Types ( Context (..)
                       , defaultContext
                       , defaultHeadline
                       , firstHeadlineOf
+                      , forcedSpans
                       , headlineSpanParts
                       , headlinesOf
                       , hsFull
@@ -209,6 +210,7 @@ data Headline = Headline { indent     :: !Indent
                          , spans      :: !HeadlineSpans
                          } deriving (Show, Eq)
 
+
 -- | Spans of a headline's mutable parts, tight; the extent is 'hsFull', derived.
 data HeadlineSpans = HeadlineSpans
   { hsStars      :: !Span          -- ^ the stars alone, where the headline begins.
@@ -258,6 +260,11 @@ spanParts hs = before ++ sortOn (fmap spanStart . snd) planning ++ after
         planning = [ (SpSchedule, hsSchedule hs), (SpDeadline, hsDeadline hs)
                    , (SpClosed, hsClosed hs) ]
         after    = [ (SpProperties, hsProperties hs) ]
+
+-- | HS with every sub-span FORCED.  A row keeps these past the parse it cut
+-- them at, and a thunk over one retains whatever computed it.
+forcedSpans :: HeadlineSpans -> HeadlineSpans
+forcedSpans hs = foldr seq hs (hsStars hs : [ sp | (_part, Just sp) <- spanParts hs ])
 
 -- | The stars through the LAST component present, never the whitespace after it.
 hsFull :: HeadlineSpans -> Span

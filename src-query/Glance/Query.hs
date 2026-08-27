@@ -51,6 +51,7 @@ module Glance.Query ( BlobSeed (..)
                     , configPath
                     , configPaths
                     , currentDocument
+                    , pinnedDocument
                     , dayOf
                     , dayNamed
                     , dayWordIn
@@ -128,7 +129,6 @@ module Glance.Query ( BlobSeed (..)
                     , Ref (..)
                     , RefVia (..)
                     , carriesKind
-                    , idPropertyOf
                     , kindCut
                     , kindSlug
                     , namesRow
@@ -142,6 +142,7 @@ module Glance.Query ( BlobSeed (..)
                     , removeTagEdits
                     , renameTagEdits
                     , replaceSpans
+                    , rowSnapshot
                     , resolveIds
                     , rowIdIn
                     , rowJSON
@@ -151,7 +152,6 @@ module Glance.Query ( BlobSeed (..)
                     , setStateEdits
                     , Repeat (..)
                     , repeatOn
-                    , rowOrgId
                     , Completion (..)
                     , noteCompletion
                     , shiftRepeat
@@ -228,7 +228,8 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , TimestampStatus (TimestampActive, TimestampInactive)
                 , Todo (name)
                 , TsMoment (tsmHasTime, tsmTime), archiveTag, deadline, defaultContext
-                , firstHeadlineOf, headlineIdProperty, headlinesOf, hsFull, identity
+                , firstHeadlineOf, forcedSpans, headlineIdProperty, headlinesOf, hsFull
+                , identity
                 , isKeywordChar, isTagChar, levelOf
                 , metaCategory
                 , orgIdentity, orgParse, priority, schedule, shiftSpan, sliceSpan, spans, spelled
@@ -261,26 +262,38 @@ import qualified Data.Org.Edit as Edit
 import qualified Data.Org.External as External
 
 
+-- | One row: a headline's cells, and the spans that cut them out of its file.
+--
+-- A RECORD RETAINS NO DOCUMENT BYTES, the parsed 'Headline' included.  The
+-- file's text is read by path at request time and pinned against 'hrDigest'
+-- ('pinnedDocument'), so residency is the cells rather than the tree's bytes;
+-- every 'Text' kept here is copied out of the parse ('detach') and forced
+-- ('forceRecord').
 data HeadlineRecord = HeadlineRecord
-  { hrFile      :: !FilePath        -- ^ path the headline was read from, as walked.
-  , hrId        :: !Text            -- ^ row identity; see 'rowId'.
-  , hrCategory  :: !Text            -- ^ the file's final @#+CATEGORY@, empty when unset.
-  , hrHeadline  :: !Headline        -- ^ the parsed headline; its type stays private.
-  , hrKeywords  :: !TodoKeywords    -- ^ every keyword the file's parse recognized — config seed included; one value shared per file.
-  , hrDeclared  :: !TodoKeywords    -- ^ what the file's OWN @#+TODO:@ lines declare; the nearest scope, see 'keywordSources'.
-  , hrDoc       :: !Text            -- ^ the file's text as parsed; shared with 'hrHeadline', not copied.
-  , hrDigest    :: !Text            -- ^ SHA-256 of that text's bytes, lowercase hex; one value shared per file.
-  , hrSubtree   :: !Span            -- ^ the headline's outline extent in 'hrDoc'; see 'subtreeSpans'.
-  , hrState     :: !(Maybe Text)    -- ^ TODO keyword verbatim.
-  , hrPriority  :: !(Maybe Text)    -- ^ priority letter, brackets dropped.
-  , hrTitle     :: !Text            -- ^ title text as the file spells it.
-  , hrTags      :: !Text            -- ^ @":a:b:"@ in FILE order, empty when untagged; the COLUMN sorts ('sortedTagsCell').
-  , hrScheduled :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
-  , hrDeadline  :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
-  , hrSearch    :: !Text            -- ^ the cells as they display, lowercased; see 'searchTextOf'.
-  , hrLinks     :: ![Ref]           -- ^ the references this subtree makes, normalized; see 'refTargets'.
-  , hrLinked    :: !Bool            -- ^ does the subtree hold a link at all — what @o@ follows; see 'subtreeLinks'.
-  , hrActive    :: !(Maybe Bool)    -- ^ whether 'hrState' is an active state HERE; see 'Data.Org.Config.classify'.
+  { hrFile       :: !FilePath        -- ^ path the headline was read from, as walked.
+  , hrId         :: !Text            -- ^ row identity: 'hrOrgId' where the headline carries one, else 'rowIdIn'.
+  , hrOrgId      :: !(Maybe Text)    -- ^ the @ORG_GLANCE_ID@ property.  THE LEDGER'S KEY: an ordinal names another row a week on.
+  , hrIdProperty :: !(Maybe Text)    -- ^ org-id's own @:ID:@ property, the OTHER namespace — what an @id:@ link resolves against.
+  , hrCategory   :: !Text            -- ^ the file's final @#+CATEGORY@, empty when unset.
+  , hrLevel      :: !Int             -- ^ org's outline level; a stored row is 1, a subtree entry its own.
+  , hrKeywords   :: !TodoKeywords    -- ^ every keyword the file's parse recognized — config seed included; one value shared per file.
+  , hrDeclared   :: !TodoKeywords    -- ^ what the file's OWN @#+TODO:@ lines declare; the nearest scope, see 'keywordSources'.
+  , hrDigest     :: !Text            -- ^ SHA-256 of the file's bytes as parsed, lowercase hex; one value shared per file.
+  , hrSubtree    :: !Span            -- ^ the headline's outline extent in that text; see 'subtreeSpans'.
+  , hrSpans      :: !HeadlineSpans   -- ^ where the headline's own parts sit in it; every edit's span math starts here.
+  , hrState      :: !(Maybe Text)    -- ^ TODO keyword verbatim.
+  , hrPriority   :: !(Maybe Text)    -- ^ priority letter, brackets dropped.
+  , hrTitle      :: !Text            -- ^ title text as the file spells it.
+  , hrTags       :: !Text            -- ^ @":a:b:"@ in FILE order, empty when untagged; the COLUMN sorts ('sortedTagsCell').
+  , hrScheduled  :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
+  , hrDeadline   :: !(Maybe Text)    -- ^ ISO date, see 'isoStamp'.
+  , hrClosed     :: !(Maybe Text)    -- ^ the @CLOSED@ timestamp verbatim; a CUSTOM COLUMN reads it, so it is cut at parse.
+  , hrDrawer     :: ![(Text, Text)]  -- ^ the headline's OWN drawer pairs in file order, the hidden keys KEPT; see 'drawerPairs'.
+  , hrRepeats    :: ![(Span, TimestampRepeaterInterval)]  -- ^ where each repeating planning stamp sits and what it repeats by; the @repeats@ cookie rides every wire row.
+  , hrSearch     :: !Text            -- ^ the cells as they display, lowercased; see 'searchTextOf'.
+  , hrLinks      :: ![Ref]           -- ^ the references this subtree makes, normalized; see 'refTargets'.
+  , hrLinked     :: !Bool            -- ^ does the subtree hold a link at all — what @o@ follows; see 'subtreeLinks'.
+  , hrActive     :: !(Maybe Bool)    -- ^ whether 'hrState' is an active state HERE; see 'Data.Org.Config.classify'.
   } deriving (Show)
 
 data QueryResult = QueryResult
@@ -371,7 +384,7 @@ recordsOf :: ConfigLayers -> FilePath -> Text -> Text -> Context -> [Spanned Ele
 recordsOf cfg path doc digest ctx elems =
   [ recordOf cfg declared path ordinal doc digest category keywords h subtree
   | (ordinal, (h, subtree)) <- zip [0 ..] entries ]
-  where category = detach (metaCategory ctx)
+  where category = metaCategory ctx
         -- Off the config CHAIN rather than CTX's sets: the org files' own order.
         keywords = forcedKeywords (recognizedKeywords cfg declared)
         -- Forced once per file: it is STORED, and an unforced set thunks over ELEMS.
@@ -398,37 +411,63 @@ blankEntry h = all isNothing [ hsTodo sp
                              , hsDeadline sp ]
   where sp = spans h
 
+-- | One STORED row: 'recordWith' COPYING every 'Text' it keeps.
 recordOf :: ConfigLayers -> TodoKeywords -> FilePath -> Int -> Text -> Text -> Text
          -> TodoKeywords -> Headline -> Span -> HeadlineRecord
-recordOf cfg declared path ordinal doc digest category keywords h subtree =
+recordOf = recordWith detach
+
+-- | H at EXTENT in DOC as a row.  COPY is what keeps a 'Text' past the parse:
+-- 'detach' for a row the store holds, 'id' for one that outlives no request.
+recordWith :: (Text -> Text) -> ConfigLayers -> TodoKeywords -> FilePath -> Int
+           -> Text -> Text -> Text -> TodoKeywords -> Headline -> Span
+           -> HeadlineRecord
+recordWith copy cfg declared path ordinal doc digest category keywords h extent =
   forceRecord (row { hrSearch = searchTextOf (viewCells row) })
   where
         -- The haystack is the view's columns by construction: 'viewCells' reads ROW.
         row = HeadlineRecord
-          { hrFile      = path
-          , hrId        = rowId path ordinal h
-          , hrCategory  = category
-          , hrHeadline  = h
-          , hrKeywords  = keywords
-          , hrDeclared  = declared
-          , hrDoc       = doc
-          , hrDigest    = digest
-          , hrSubtree   = subtree
-          , hrState     = state
-          , hrPriority  = pri
-          , hrTitle     = titleCell
-          , hrTags      = tagsCell
-          , hrScheduled = scheduled
-          , hrDeadline  = due
-          , hrSearch    = ""
-          , hrLinks     = refTargetsOf links
-          , hrLinked    = not (null links)
-          , hrActive    = classify cfg declared (tagsOfCell tagsCell) <$> state
+          { hrFile       = path
+          , hrId         = fromMaybe (rowIdIn path ordinal) orgId
+          , hrOrgId      = orgId
+          , hrIdProperty = orgIdentity h
+          , hrCategory   = category
+          , hrLevel      = levelOf h
+          , hrKeywords   = keywords
+          , hrDeclared   = declared
+          , hrDigest     = digest
+          , hrSubtree    = extent
+          , hrSpans      = forcedSpans sp
+          , hrState      = state
+          , hrPriority   = pri
+          , hrTitle      = titleCell
+          , hrTags       = tagsCell
+          , hrScheduled  = scheduled
+          , hrDeadline   = due
+          , hrClosed     = copy <$> cutting (hsClosed sp)
+          , hrDrawer     = [ (copy key, copy value) | (key, value) <- drawer ]
+          , hrRepeats    = repeats
+          , hrSearch     = ""
+          , hrLinks      = refTargetsOf copy links
+          , hrLinked     = not (null links)
+          , hrActive     = classify cfg declared (tagsOfCell tagsCell) <$> state
           }
         sp = spans h
-        links = orgLinks (sliceSpan doc subtree)
-        cut mspan render = detach (maybe render (sliceSpan doc) mspan)
-        state     = detach . name <$> todo h
+        orgId = identity h
+        -- CUT OUT OF THE SUBTREE, never the file: 'sliceSpan' walks from the
+        -- text's start, so a cell cut at a file offset is one long scan each.
+        subtree = sliceSpan doc extent
+        cutting mspan = sliceSpan subtree <$> (mspan >>= localSpan extent subtree)
+        cut mspan render = maybe render copy (cutting mspan)
+        links = orgLinks subtree
+        -- READ AT PARSE, because a custom column reads it PER ROW PER REQUEST
+        -- and no query may touch the disk.
+        drawer = drawerPairs subtree (drawerSlice extent subtree sp)
+        repeats = [ (stampAt, i)
+                  | (at, stamp) <- [ (hsSchedule, schedule), (hsDeadline, deadline) ]
+                  , Just stampAt <- [at sp]
+                  , Just ts      <- [stamp h]
+                  , Just i       <- [tsInterval ts] ]
+        state     = name <$> todo h
         pri       = (\(Priority c) -> priorityCell (T.singleton c)) <$> priority h
         titleCell = cut (hsTitle sp) (showt (title h))
         tagsCell  = cut (hsTags sp) (showt (tags h))
@@ -441,7 +480,7 @@ cellSep = '\US'
 
 -- | CELLS as one lowercase haystack — @table-view.js@'s own row text, to the byte.
 searchTextOf :: [Text] -> Text
-searchTextOf = detach . T.toLower . T.intercalate (T.singleton cellSep) . map displayText
+searchTextOf = T.toLower . T.intercalate (T.singleton cellSep) . map displayText
 
 displayText :: Text -> Text
 displayText = squashControls . showLinks
@@ -489,9 +528,9 @@ linkAt text
   where (target, rest) = T.break (== ']') (T.drop 2 text)
 
 
--- | Every link R's subtree points at, spanned in the DOCUMENT ('Data.Org.Edit').
-subtreeLinks :: HeadlineRecord -> [OrgLink]
-subtreeLinks r = map (shiftLink (spanStart (hrSubtree r))) (orgLinks (subtreeText r))
+-- | Every link R's subtree points at in DOC, spanned in the DOCUMENT ('Data.Org.Edit').
+subtreeLinks :: Text -> HeadlineRecord -> [OrgLink]
+subtreeLinks doc r = map (shiftLink (spanStart (hrSubtree r))) (orgLinks (subtreeText doc r))
 
 shiftLink :: Int -> OrgLink -> OrgLink
 shiftLink by l = l { olSpan = shiftSpan by (olSpan l) }
@@ -613,17 +652,19 @@ data Ref = Ref
   } deriving (Eq, Ord, Show)
 
 refTargets :: Text -> [Ref]
-refTargets = refTargetsOf . orgLinks
+refTargets = refTargetsOf detach . orgLinks
 
 -- | DEDUP IS ON THE PAIR, which is the peer's own rule: two typed edges to one
--- row are two references, where two plain mentions are one.
-refTargetsOf :: [OrgLink] -> [Ref]
-refTargetsOf = nub . map detachRef . mapMaybe (refTargetOf . olTarget)
+-- row are two references, where two plain mentions are one.  COPY is
+-- 'recordWith''s.
+refTargetsOf :: (Text -> Text) -> [OrgLink] -> [Ref]
+refTargetsOf copy = nub . map (refWith copy) . mapMaybe (refTargetOf . olTarget)
 
--- | The document is a slice of the file's text, so a reference kept out of it
--- retains the whole file; 'detach' copies, and the KIND must not reopen that.
-detachRef :: Ref -> Ref
-detachRef (Ref t k v) = Ref (detach t) (detach <$> k) v
+-- | A reference kept past the parse.  The TARGET is a slice of the file's text
+-- and is COPIED; the KIND is 'kindSlug''s own fresh text and is only FORCED,
+-- since a thunk over it would retain the slice a copy was meant to drop.
+refWith :: (Text -> Text) -> Ref -> Ref
+refWith copy (Ref t k v) = foldr seq (Ref (copy t) k v) k
 
 refTargetOf :: Text -> Maybe Ref
 refTargetOf target
@@ -669,13 +710,7 @@ kindSlug :: Text -> Text
 kindSlug = T.intercalate "-" . T.words . T.toLower
 
 refSpellings :: HeadlineRecord -> [Text]
-refSpellings r = maybe id (:) (identity (hrHeadline r)) [hrTitle r]
-
--- | R's @:ID:@ property — org-id's own, the one spelling a 'ViaOrgId'
---   reference matches.  Named after the PROPERTY: 'rowOrgId' nearby reads
---   @ORG_GLANCE_ID@, the other namespace.
-idPropertyOf :: HeadlineRecord -> Maybe Text
-idPropertyOf = orgIdentity . hrHeadline
+refSpellings r = maybe id (:) (hrOrgId r) [hrTitle r]
 
 -- | THE NAMES R ANSWERS TO, each bound to the namespace it answers in:
 -- 'refSpellings' — @ORG_GLANCE_ID@ and the title, what @[[Title]]@ and
@@ -685,7 +720,7 @@ idPropertyOf = orgIdentity . hrHeadline
 -- the two keys cannot drift into two namespace rules.
 refNames :: HeadlineRecord -> [(RefVia, Text)]
 refNames r = [ (ViaRow, s) | s <- refSpellings r ]
-          <> [ (ViaOrgId, o) | Just o <- [idPropertyOf r] ]
+          <> [ (ViaOrgId, o) | Just o <- [hrIdProperty r] ]
 
 -- | Does a reference name ROW?  The link's own namespace decides ('refNames').
 -- PARTIALLY APPLIED AT COMPILE where the row is the one fixed end, which is
@@ -831,8 +866,10 @@ sortedForView records =
   sortedForViewWith (mergeKeywords (map hrKeywords records)) defaultSortChain records
 
 
-subtreeText :: HeadlineRecord -> Text
-subtreeText r = sliceSpan (hrDoc r) (hrSubtree r)
+-- | R's outline extent cut out of DOC — the file's text, read by path and
+-- pinned ('pinnedDocument'), since a record keeps none of it.
+subtreeText :: Text -> HeadlineRecord -> Text
+subtreeText doc r = sliceSpan doc (hrSubtree r)
 
 data SubtreeEntry = SubtreeEntry
   { seLevel  :: !Int             -- ^ org's outline level; the row's own is 1.
@@ -840,22 +877,23 @@ data SubtreeEntry = SubtreeEntry
   , seRecord :: !HeadlineRecord  -- ^ the entry as a record: cells, extent, digest.
   } deriving (Show)
 
--- | R's descendants: one re-parse per call, from the load's own seed.
-subtreeEntries :: ConfigLayers -> HeadlineRecord -> [SubtreeEntry]
-subtreeEntries cfg r = case orgParse (seedContext cfg) doc of
+-- | R's descendants in DOC: one re-parse per call, from the load's own seed.
+-- The entries are TRANSIENT — they outlive no request, and DOC with them — so
+-- they are built with no copy ('recordWith').
+subtreeEntries :: ConfigLayers -> Text -> HeadlineRecord -> [SubtreeEntry]
+subtreeEntries cfg doc r = case orgParse (seedContext cfg) doc of
   (_elems, _ctx, Just _err) -> []
   (elems, _ctx, Nothing)    -> parented (zip [0 ..] (inside elems))
   where
-    doc   = hrDoc r
     outer = hrSubtree r
     inside elems =
       [ (levelOf h, h, sub)
       | (h, sub) <- outlineEntries doc elems
       , spanStart sub > spanStart outer, spanStart sub < spanEnd outer ]
     made k (_lvl, h, sub) =
-      (recordOf cfg (hrDeclared r) (hrFile r) k doc (hrDigest r)
-                (hrCategory r) (hrKeywords r) h sub)
-        { hrId = detach (hrId r <> "/" <> T.pack (show k)) }
+      (recordWith id cfg (hrDeclared r) (hrFile r) k doc (hrDigest r)
+                  (hrCategory r) (hrKeywords r) h sub)
+        { hrId = hrId r <> "/" <> T.pack (show k) }
     -- Org permits a level jump, so the parent is the nearest SHALLOWER entry.
     parented = go []
       where
@@ -874,10 +912,10 @@ subtreeEntryAt entries k
 
 -- | How many lines of BODY are R's OWN.  Counted by DIFFERENCE rather than by
 -- reading a leading @*@, which would cut the entry short at a @*bold*@ line.
-ownBodyLines :: HeadlineRecord -> Text -> Maybe HeadlineRecord -> Int
-ownBodyLines r body first' = case first' of
+ownBodyLines :: Text -> HeadlineRecord -> Text -> Maybe HeadlineRecord -> Int
+ownBodyLines doc r body first' = case first' of
   Nothing     -> whole
-  Just deeper -> whole - length (linesWith (T.drop (cut deeper) (subtreeText r)))
+  Just deeper -> whole - length (linesWith (T.drop (cut deeper) (subtreeText doc r)))
   where whole = length (linesWith body)
         cut deeper = spanStart (hrSubtree deeper) - spanStart (hrSubtree r)
 
@@ -907,28 +945,28 @@ data HeadlineParts = HeadlineParts
   , hpLogbook    :: !Text            -- ^ the headline's own @:LOGBOOK:@ drawer verbatim; @""@ when it has none.
   } deriving (Eq, Show)
 
-headlineParts :: HeadlineRecord -> HeadlineParts
-headlineParts r = HeadlineParts
+headlineParts :: Text -> HeadlineRecord -> HeadlineParts
+headlineParts doc r = HeadlineParts
   { hpBody       = withoutSpans subtree (regionSpans [planAt, drawAt, logAt])
   , hpProperties = shownPairs (drawerPairs subtree drawAt)
   , hpPlanning   = [ (key, sliceSpan subtree sp) | (key, sp) <- entries ]
   , hpLogbook    = maybe "" (sliceSpan subtree) logAt
   }
-  where (subtree, entries, planAt, drawAt, logAt) = regionsOf r
+  where (subtree, entries, planAt, drawAt, logAt) = regionsOf doc r
 
-regionsOf :: HeadlineRecord
+regionsOf :: Text -> HeadlineRecord
           -> (Text, [(Text, Span)], Maybe Span, Maybe Span, Maybe Span)
-regionsOf r = (subtree, entries, planAt, drawAt, logAt)
-  where subtree = subtreeText r
+regionsOf doc r = (subtree, entries, planAt, drawAt, logAt)
+  where subtree = subtreeText doc r
         entries = planningEntries r subtree
         planAt  = planningSlice entries subtree
-        drawAt  = drawerSlice r subtree
+        drawAt  = drawerSlice (hrSubtree r) subtree (hrSpans r)
         logAt   = logbookSlice drawAt subtree
 
-recomposedSubtree :: HeadlineRecord -> HeadlineParts -> Text
-recomposedSubtree r parts = untrailed (spliceRegions (hpBody parts) regions)
+recomposedSubtree :: Text -> HeadlineRecord -> HeadlineParts -> Text
+recomposedSubtree doc r parts = untrailed (spliceRegions (hpBody parts) regions)
   where
-    (subtree, entries, planAt, drawAt, logAt) = regionsOf r
+    (subtree, entries, planAt, drawAt, logAt) = regionsOf doc r
     -- Body coordinates: the subtree line less the lines every region ahead of it
     -- took out.  Subtree indices leave a GAP where a region was cleared.
     cut = catMaybes [planAt, drawAt, logAt]
@@ -971,10 +1009,13 @@ regionSpans :: [Maybe Span] -> [Span]
 regionSpans = sortOn spanStart . catMaybes
 
 
-drawerSlice :: HeadlineRecord -> Text -> Maybe Span
-drawerSlice r subtree = do
-  sp <- hsProperties (spans (hrHeadline r))
-  Span from to <- localSpan r subtree sp
+-- | Where the OWN drawer sits inside SUBTREE, whose extent in the document is
+-- OUTER and whose headline spans are HS.  SPANS RATHER THAN A ROW, because
+-- 'recordWith' cuts the pairs before there is a record to ask.
+drawerSlice :: Span -> Text -> HeadlineSpans -> Maybe Span
+drawerSlice outer subtree hs = do
+  sp <- hsProperties hs
+  Span from to <- localSpan outer subtree sp
   pure (Span from (pastLine subtree to))
 
 planningSlice :: [(Text, Span)] -> Text -> Maybe Span
@@ -986,8 +1027,8 @@ planningSlice entries subtree = case map snd entries of
 planningEntries :: HeadlineRecord -> Text -> [(Text, Span)]
 planningEntries r subtree = sortOn (spanStart . snd)
   [ (key, local)
-  | (key, sp) <- presentPlanning (headlineSpans r)
-  , Just local <- [localSpan r subtree sp] ]
+  | (key, sp) <- presentPlanning (hrSpans r)
+  , Just local <- [localSpan (hrSubtree r) subtree sp] ]
 
 presentPlanning :: HeadlineSpans -> [(Text, Span)]
 presentPlanning hs =
@@ -1012,11 +1053,13 @@ logbookSlice skip subtree = case break (opens . snd) own of
       (_before, (e, _line) : _after) -> spanEnd e
       (before, [])                   -> foldl' max (spanEnd sp) (map (spanEnd . fst) before)
 
-localSpan :: HeadlineRecord -> Text -> Span -> Maybe Span
-localSpan r subtree sp
+-- | SP, a span of the document, in SUBTREE's own coordinates; OUTER is where
+-- SUBTREE sits.  'Nothing' where it does not fit.
+localSpan :: Span -> Text -> Span -> Maybe Span
+localSpan outer subtree sp
   | from < 0 || to > T.length subtree || from > to = Nothing
   | otherwise                                      = Just local
-  where local@(Span from to) = shiftSpan (negate (spanStart (hrSubtree r))) sp
+  where local@(Span from to) = shiftSpan (negate (spanStart outer)) sp
 
 
 data PlanningStyle = PlanningStyle
@@ -1071,11 +1114,11 @@ drawerPairs subtree slice = case slice of
   Just sp -> [ (key, value) | (key, value, _raw) <- drawerRows (sliceSpan subtree sp) ]
 
 -- | R's OWN drawer pairs in file order, the hidden keys dropped.  The same
--- pairs 'headlineParts' answers under @hpProperties@, READ ALONE: a caller that
--- wants the vocabulary and not the write pays for no other region.
+-- pairs 'headlineParts' answers under @hpProperties@, READ OFF THE ROW: a
+-- vocabulary walk asks every row per request, and NO QUERY TOUCHES THE DISK,
+-- so the pairs were cut at parse ('hrDrawer').
 rowProperties :: HeadlineRecord -> [(Text, Text)]
-rowProperties r = shownPairs (drawerPairs subtree (drawerSlice r subtree))
-  where subtree = subtreeText r
+rowProperties = shownPairs . hrDrawer
 
 data DrawerStyle = DrawerStyle
   { dsOpen   :: !Text                    -- ^ the @:PROPERTIES:@ line, terminator and all.
@@ -1190,9 +1233,6 @@ forcedKeywords kw = forcing (tkActive kw <> tkInactive kw) kw
 
 -- | H's row identity: @ORG_GLANCE_ID@, else @"FILE#K"@ with K its place among
 -- the file's EMITTED ROWS.  One namespace, resolved by exact string.
-rowId :: FilePath -> Int -> Headline -> Text
-rowId path ordinal h = maybe (rowIdIn path ordinal) detach (identity h)
-
 rowIdIn :: FilePath -> Int -> Text
 rowIdIn path ordinal = T.pack path <> "#" <> T.pack (show ordinal)
 
@@ -1311,10 +1351,17 @@ forcing ts x = foldr seq x ts
 -- beside its elements: a lazy tail retains the document it was cut from.
 forceRecord :: HeadlineRecord -> HeadlineRecord
 forceRecord r =
-  forcing (hrId r : hrCategory r : hrTitle r : hrTags r : hrDigest r : hrSearch r
-             : optional)
-          (forcing (hrLinks r) (foldr seq r (hrActive r)))
-  where optional = catMaybes [hrState r, hrPriority r, hrScheduled r, hrDeadline r]
+  forcing texts (forcing (hrLinks r) (forcing repeats (foldr seq r (hrActive r))))
+  where
+    -- THE RESIDENCY LAW'S ENFORCEMENT.  A cell left as a thunk over the parse
+    -- retains the whole document however carefully it was copied, so a field a
+    -- row KEEPS belongs on this list.
+    texts    = hrId r : hrCategory r : hrTitle r : hrTags r : hrDigest r : hrSearch r
+                 : optional <> drawer
+    optional = catMaybes [ hrState r, hrPriority r, hrScheduled r, hrDeadline r
+                         , hrClosed r, hrOrgId r, hrIdProperty r ]
+    drawer   = concat [ [key, value] | (key, value) <- hrDrawer r ]
+    repeats  = [ at `seq` i | (at, i) <- hrRepeats r ]
 
 
 -- | Why a 'replaceSpans' did not land.  Either way the file is byte-identical
@@ -1328,24 +1375,39 @@ data WriteFailure
 currentDocument :: FilePath -> IO (Text, Text)
 currentDocument = fmap (fromMaybe ("", "")) . Edit.readDocument
 
+-- | R's file as the drift lock names it: the path, and the digest its parse took.
+rowSnapshot :: HeadlineRecord -> Edit.Snapshot
+rowSnapshot r = Edit.Snapshot (hrFile r) (hrDigest r)
+
+-- | SNAP's file as it stands, or why it gave nothing.  ONE PIN CHECK: this is
+-- 'replaceSpans''s own opening read, so a reader and a writer agree to the byte
+-- on when a file has moved — and a drift is told apart from a file that cannot
+-- be read or decoded.
+pinnedDocument :: Edit.Snapshot -> IO (Either WriteFailure Text)
+pinnedDocument snap =
+  either (Left . writeFailure (Edit.snapPath snap)) Right <$> Edit.currentText snap
+
+-- | An 'Data.Org.Edit' trouble as a caller shows it.
+writeFailure :: FilePath -> Edit.EditIOError -> WriteFailure
+writeFailure path err = case err of
+  Edit.Drift _path _pinned found -> WriteDrift found
+  Edit.ReadFailed _path why      -> WriteRefused ("cannot read " <> named <> ": " <> why)
+  Edit.DecodeFailed _path        -> WriteRefused (named <> " is not valid UTF-8")
+  Edit.Rejected editError        -> WriteRefused ("the edit does not apply to " <> named
+                                                   <> ": " <> T.pack (show editError))
+  Edit.WriteFailed _path why     -> WriteRefused ("cannot write " <> named <> ": " <> why)
+  where named = T.pack path
+
 -- | Replace each span of FILE, provided it still digests to DIGEST.  THE DOOR
 -- every write leaves through, so the note to org-glance is taken here (AGENTS.hs).
 replaceSpans :: FilePath -> Text -> [(Span, Text)] -> IO (Either WriteFailure Text)
 replaceSpans path digest edits = do
   written <- Edit.editFile (Edit.Snapshot path digest) [ Edit.Edit sp new | (sp, new) <- edits ]
-  either (pure . Left . failure) noted written
+  either (pure . Left . writeFailure path) noted written
   where
     noted receipt = do
       External.noteExternalWrite path (Edit.receiptText receipt)
       pure (Right (Edit.snapDigest (Edit.receiptSnapshot receipt)))
-    failure err = case err of
-      Edit.Drift _path _pinned found -> WriteDrift found
-      Edit.ReadFailed _path why      -> WriteRefused ("cannot read " <> named <> ": " <> why)
-      Edit.DecodeFailed _path        -> WriteRefused (named <> " is not valid UTF-8")
-      Edit.Rejected editError        -> WriteRefused ("the edit does not apply to " <> named
-                                                       <> ": " <> T.pack (show editError))
-      Edit.WriteFailed _path why     -> WriteRefused ("cannot write " <> named <> ": " <> why)
-    named = T.pack path
 
 -- Commands
 --
@@ -1410,26 +1472,27 @@ keywordChain scopes = widest Set.empty (sortOn fst [ (rank, (source, kw))
             taken     = foldr Set.insert seen (actives <> inactives)
 
 -- | @set-state@'s edits.  KEYWORD is refused unless R's OWN CHAIN declares it.
-setStateEdits :: ConfigLayers -> Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
-setStateEdits _cfg Nothing r = Right (tokenEdits hsTodo (spanEnd . hsStars) Nothing r)
-setStateEdits cfg (Just keyword) r
+setStateEdits :: ConfigLayers -> Maybe Text -> Text -> HeadlineRecord
+              -> Either Text [(Span, Text)]
+setStateEdits _cfg Nothing doc r = Right (tokenEdits hsTodo (spanEnd . hsStars) Nothing doc r)
+setStateEdits cfg (Just keyword) doc r
   | keyword `notElem` settable =
       Left (keyword <> " is not a TODO keyword for " <> hrId r <> " in " <> T.pack (hrFile r)
               <> "; that row may be set to " <> T.intercalate ", " settable)
-  | otherwise = Right (tokenEdits hsTodo (spanEnd . hsStars) (Just keyword) r)
+  | otherwise = Right (tokenEdits hsTodo (spanEnd . hsStars) (Just keyword) doc r)
   where settable = settableStates cfg r
 
 -- | The token AT set to TOKEN, PLACE saying where one goes on a headline with
 -- none.  'Nothing' deletes it WITH the horizontal run — so a line's end survives.
 tokenEdits :: (HeadlineSpans -> Maybe Span) -> (HeadlineSpans -> Int)
-           -> Maybe Text -> HeadlineRecord -> [(Span, Text)]
-tokenEdits at place token r = case (at hs, token) of
+           -> Maybe Text -> Text -> HeadlineRecord -> [(Span, Text)]
+tokenEdits at place token doc r = case (at hs, token) of
   (Just sp, Just new) -> [(sp, new)]
   (Just sp, Nothing)  -> [(Span (spanStart sp) (spanEnd sp + trailing sp), "")]
   (Nothing, Just new) -> [(insertAt (place hs), " " <> new)]
   (Nothing, Nothing)  -> []
-  where hs = headlineSpans r
-        trailing sp = runWidth (T.drop (spanEnd sp) (hrDoc r))
+  where hs = hrSpans r
+        trailing sp = runWidth (T.drop (spanEnd sp) doc)
 
 -- | The states R may be set to: 'keywordSources' flattened, so offer and wall agree.
 settableStates :: ConfigLayers -> HeadlineRecord -> [Text]
@@ -1445,10 +1508,6 @@ flatKeywords :: [(Text, TodoKeywords)] -> [Text]
 flatKeywords chain = [ word | (_source, kw) <- chain, word <- tkActive kw <> tkInactive kw ]
 
 
--- | R's `ORG_GLANCE_ID`.  The ledger's key: an ordinal names another row a week on.
-rowOrgId :: HeadlineRecord -> Maybe Text
-rowOrgId = identity . hrHeadline
-
 data Repeat = Repeat
   { rpState   :: !Text            -- ^ the keyword the entry lands on.
   , rpShifted :: !Text            -- ^ its next occurrence, cookie and all.
@@ -1458,16 +1517,16 @@ data Repeat = Repeat
 -- | R completed into KEYWORD, else 'Nothing'.  ORG'S OWN CONDITION, both
 -- halves: an INACTIVE keyword AND a stamp carrying a repeater.  ONE EDIT SET,
 -- so one write and one event; the reset is the chain's first ACTIVE word.
-repeatOn :: ConfigLayers -> Time.Day -> Text -> HeadlineRecord -> Maybe Repeat
-repeatOn cfg today keyword r
+repeatOn :: ConfigLayers -> Time.Day -> Text -> Text -> HeadlineRecord -> Maybe Repeat
+repeatOn cfg today keyword doc r
   | keyword `notElem` chainOf tkInactive = Nothing
   | null shifts                          = Nothing
   | otherwise = Just Repeat { rpState = fromMaybe "" reset
                             , rpShifted = snd (head shifts)
-                            , rpEdits = shifts <> tokenEdits hsTodo (spanEnd . hsStars) reset r }
+                            , rpEdits = shifts <> tokenEdits hsTodo (spanEnd . hsStars) reset doc r }
   where
-    shifts = [ (sp, rewriteDates (repeatDay today i) text)
-           | (sp, text, i) <- repeatingSpans r ]
+    shifts = [ (sp, rewriteDates (repeatDay today i) (sliceSpan doc sp))
+           | (sp, i) <- hrRepeats r ]
     reset  = listToMaybe (chainOf tkActive)
     chain  = keywordSources cfg [r]
     chainOf half = [ word | (_source, kw) <- chain, word <- half kw ]
@@ -1479,15 +1538,7 @@ timestampOf text = case orgParse defaultContext ("* probe\nSCHEDULED: " <> text 
   _failed                -> Nothing
 
 repeatsOf :: HeadlineRecord -> Maybe Text
-repeatsOf r = listToMaybe [ repeaterFormat i | (_sp, _text, i) <- repeatingSpans r ]
-
-repeatingSpans :: HeadlineRecord -> [(Span, Text, TimestampRepeaterInterval)]
-repeatingSpans r =
-  [ (sp, sliceSpan (hrDoc r) sp, i)
-  | (at, stamp) <- [ (hsSchedule, schedule), (hsDeadline, deadline) ]
-  , Just sp <- [at (headlineSpans r)]
-  , Just ts <- [stamp (hrHeadline r)]
-  , Just i  <- [tsInterval ts] ]
+repeatsOf r = listToMaybe [ repeaterFormat i | (_sp, i) <- hrRepeats r ]
 
 -- | DAY one repeat on under INTERVAL.  A zero-width interval takes the `+N`
 -- arm, since the `++` loop over one would not end.
@@ -1539,7 +1590,7 @@ rewriteDates move = go
       _noWeekday         -> (False, rest)
 
 titleSpan :: HeadlineRecord -> Maybe Span
-titleSpan = hsTitle . headlineSpans
+titleSpan = hsTitle . hrSpans
 
 oneLine :: e -> e -> Text -> Either e Text
 oneLine empty many text
@@ -1554,16 +1605,16 @@ titleText = oneLine "a headline needs a title: the text after the keyword"
 
 -- | @set-title@'s edits.  'titleLineEnd' cannot serve — its answer includes
 -- 'hsTags', past which a title reads back as tag text.
-setTitleEdits :: Text -> HeadlineRecord -> Either Text [(Span, Text)]
-setTitleEdits text r = do
+setTitleEdits :: Text -> Text -> HeadlineRecord -> Either Text [(Span, Text)]
+setTitleEdits text doc r = do
   want <- titleText text
   pure $ case hsTitle hs of
     Just sp -> [(sp, want)]
     Nothing -> case [ spanEnd sp | Just sp <- [hsPriority hs, hsTodo hs] ] of
       (at : _rest) -> [(insertAt at, " " <> want)]
       []           -> [(insertAt (pastRun (spanEnd (hsStars hs))), want)]
-  where hs = headlineSpans r
-        pastRun at = at + runWidth (T.drop at (hrDoc r))
+  where hs = hrSpans r
+        pastRun at = at + runWidth (T.drop at doc)
 
 priorityText :: Text -> Either Text Text
 priorityText text
@@ -1572,11 +1623,11 @@ priorityText text
                         <> " letter, A to C in its own cycle")
   where want = T.toUpper (T.strip text)
 
-setPriorityEdits :: Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
-setPriorityEdits Nothing r = Right (tokenEdits hsPriority afterKeyword Nothing r)
-setPriorityEdits (Just letter) r = do
+setPriorityEdits :: Maybe Text -> Text -> HeadlineRecord -> Either Text [(Span, Text)]
+setPriorityEdits Nothing doc r = Right (tokenEdits hsPriority afterKeyword Nothing doc r)
+setPriorityEdits (Just letter) doc r = do
   want <- priorityText letter
-  pure (tokenEdits hsPriority afterKeyword (Just (priorityCell want)) r)
+  pure (tokenEdits hsPriority afterKeyword (Just (priorityCell want)) doc r)
 
 afterKeyword :: HeadlineSpans -> Int
 afterKeyword hs = maybe (spanEnd (hsStars hs)) spanEnd (hsTodo hs)
@@ -1584,7 +1635,7 @@ afterKeyword hs = maybe (spanEnd (hsStars hs)) spanEnd (hsTodo hs)
 -- | @add-tag@'s edits.  With no tags the run joins the TITLE LINE: 'hsFull' ends
 -- at a timestamp on the NEXT line for a scheduled headline.
 addTagEdits :: Text -> HeadlineRecord -> [(Span, Text)]
-addTagEdits tag r = addTagEditsIn (hrTags r) tag (headlineSpans r)
+addTagEdits tag r = addTagEditsIn (hrTags r) tag (hrSpans r)
 
 addTagEditsIn :: Text -> Text -> HeadlineSpans -> [(Span, Text)]
 addTagEditsIn cell tag hs
@@ -1594,8 +1645,8 @@ addTagEditsIn cell tag hs
 
 -- | @remove-tag@'s edits.  The LAST entry takes the whole run and the space in
 -- front of it, a lone @:@ not being a tag list.  Matching is FOLDED.
-removeTagEdits :: Text -> HeadlineRecord -> [(Span, Text)]
-removeTagEdits tag r = case tagRun r of
+removeTagEdits :: Text -> Text -> HeadlineRecord -> [(Span, Text)]
+removeTagEdits tag doc r = case tagRun doc r of
   Nothing -> []
   Just (run, separator, entries)
     | null hit  -> []
@@ -1606,8 +1657,8 @@ removeTagEdits tag r = case tagRun r of
 -- | @rename-tag@'s edits, in place.  A remove plus an add is wrong twice over —
 -- the addition's anchor is measured BEFORE the removal and it appends at the
 -- RUN'S END — and is two writes under two digests.  FROM is FOLDED.
-renameTagEdits :: Text -> Text -> HeadlineRecord -> [(Span, Text)]
-renameTagEdits from to r = case tagRun r of
+renameTagEdits :: Text -> Text -> Text -> HeadlineRecord -> [(Span, Text)]
+renameTagEdits from to doc r = case tagRun doc r of
   Nothing -> []
   Just (_run, _separator, entries) -> case partition (spells from) entries of
     ([], _left) -> []
@@ -1620,16 +1671,16 @@ renameTagEdits from to r = case tagRun r of
           | otherwise   = [(Span at (at + T.length entry), to)]
 
 -- | R's tag RUN, read once.  A headline parses at column 1, so its stars ARE its line's start.
-tagRun :: HeadlineRecord -> Maybe (Span, Int, [(Int, Text)])
-tagRun r = case hsTags hs of
+tagRun :: Text -> HeadlineRecord -> Maybe (Span, Int, [(Int, Text)])
+tagRun doc r = case hsTags hs of
   Nothing  -> Nothing
-  Just run -> let line  = sliceSpan (hrDoc r) (Span from (spanEnd run))
+  Just run -> let line  = sliceSpan doc (Span from (spanEnd run))
                   ahead = spanStart run - from
               in Just ( run
                       , runWidthEnd (T.take ahead line)
                       , [ (spanStart run + at, entry)
                         | (at, entry) <- tagEntries (T.drop ahead line) ] )
-  where hs   = headlineSpans r
+  where hs   = hrSpans r
         from = spanStart (hsStars hs)
 
 spells :: Text -> (Int, Text) -> Bool
@@ -1651,10 +1702,10 @@ archiveEdits = addTagEdits archiveTag
 
 -- | @edit-link@'s edits.  THE FORM IS PRESERVED and ABSENT IS NOT NULL.  TWO
 -- WALLS ('linkAtSpan', 'spelling'), the write engine being content-agnostic by law.
-editLinkEdits :: Span -> Text -> Maybe (Maybe Text) -> HeadlineRecord
+editLinkEdits :: Span -> Text -> Maybe (Maybe Text) -> Text -> HeadlineRecord
               -> Either Text [(Span, Text)]
-editLinkEdits sp target desc r = do
-  found <- linkAtSpan sp r
+editLinkEdits sp target desc doc r = do
+  found <- linkAtSpan sp doc r
   written <- spelling target (reshaped (olShape found) desc)
   pure [(sp, written)]
 
@@ -1673,14 +1724,14 @@ spelling target shape
 
 -- | The one link SP covers.  It must sit inside the ROW's own subtree — a digest
 -- is per file — and cover the link EDGE TO EDGE.
-linkAtSpan :: Span -> HeadlineRecord -> Either Text OrgLink
-linkAtSpan sp r
+linkAtSpan :: Span -> Text -> HeadlineRecord -> Either Text OrgLink
+linkAtSpan sp doc r
   | spanStart sp >= spanEnd sp =
       Left (spanned sp <> " covers no characters")
   | spanStart sp < spanStart sub || spanEnd sp > spanEnd sub =
       Left (spanned sp <> " is not inside " <> hrId r <> "'s subtree " <> spanned sub)
   | otherwise = maybe (Left (spanned sp <> " does not read as one link")) Right
-                      (onlyLink (sliceSpan (hrDoc r) sp))
+                      (onlyLink (sliceSpan doc sp))
   where sub = hrSubtree r
 
 onlyLink :: Text -> Maybe OrgLink
@@ -1747,8 +1798,9 @@ unreadable :: Text -> Text
 unreadable key = key <> " is not a timestamp org would read back"
   <> "; spell it <2026-08-01 Sat> or clear the row"
 
-setPlanningEdits :: Text -> Maybe Text -> HeadlineRecord -> Either Text [(Span, Text)]
-setPlanningEdits keyword stamp r
+setPlanningEdits :: Text -> Maybe Text -> Text -> HeadlineRecord
+                 -> Either Text [(Span, Text)]
+setPlanningEdits keyword stamp doc r
   | Just why <- unplanned keyword = Left why
   | otherwise = Right $ case (lookup keyword present, stamp) of
       (Just sp, Just ts) -> [(sp, ts)]
@@ -1756,8 +1808,7 @@ setPlanningEdits keyword stamp r
       (Nothing, Just ts) -> [added ts]
       (Nothing, Nothing) -> []
   where
-    hs      = headlineSpans r
-    doc     = hrDoc r
+    hs      = hrSpans r
     present = presentPlanning hs
     others  = [ sp | (key, sp) <- present, key /= keyword ]
 
@@ -2209,27 +2260,27 @@ draftRecord cfg doc = maybe (Left noEntryRefusal) Right (listToMaybe entries)
   where
     (elems, ctx, _err) = orgParse (seedContext cfg) doc
     declared = forcedKeywords (declaredKeywords elems)
-    entries = [ recordOf cfg declared "" 0 doc "" (detach (metaCategory ctx))
-                         (forcedKeywords (recognizedKeywords cfg declared)) h subtree
-              | (h, subtree) <- outlineEntries doc elems, topLevel h ]
+    entries = [ recordWith id cfg declared "" 0 doc "" (metaCategory ctx)
+                           (forcedKeywords (recognizedKeywords cfg declared)) h extent
+              | (h, extent) <- outlineEntries doc elems, topLevel h ]
 
 -- | Which line of R's BODY the offset AT stands in — the answer @point@ carries,
 -- 'Nothing' being the head row.  The lifted regions are NOT the body's, so a
 -- @%?@ standing in the planning line or the drawer lands on the head row too:
 -- the pane walks to those from there.
-draftPointLine :: HeadlineRecord -> Int -> Maybe Int
-draftPointLine r at
+draftPointLine :: Text -> HeadlineRecord -> Int -> Maybe Int
+draftPointLine doc r at
   | i > 0, not (lifted i) = Just (length [ j | j <- [0 .. i - 1], not (lifted j) ])
   | otherwise             = Nothing
   where
-    subtree = subtreeText r
+    subtree = subtreeText doc r
     here    = at - spanStart (hrSubtree r)
     rows    = lineSpansIn subtree
     -- The LAST line where the offset is the text's end: a template is stored
     -- right-trimmed, so a trailing @%?@ has no line of its own to open on.
     i = fromMaybe (length rows - 1)
                   (listToMaybe [ k | (k, (sp, _l)) <- zip [0 ..] rows, here < spanEnd sp ])
-    (_sub, _entries, planAt, drawAt, logAt) = regionsOf r
+    (_sub, _entries, planAt, drawAt, logAt) = regionsOf doc r
     cut = regionSpans [planAt, drawAt, logAt]
     lifted k = case drop k rows of
       ((sp, _l) : _) -> any (\q -> spanStart sp >= spanStart q && spanEnd sp <= spanEnd q) cut
@@ -2256,30 +2307,30 @@ draftSeeded cfg cycleTags inh doc0 = foldM step doc0 seeds
     seeds = [state, letter] <> map tag (inhTags inh) <> map planned (inhPlanning inh)
     step doc seed = do
       r <- draftRecord cfg doc
-      edits <- seed r
+      edits <- seed doc r
       either (Left . spliceRefused) Right
              (Edit.applyEdits doc [ Edit.Edit sp new | (sp, new) <- edits ])
     -- AN INHERITED FACT IS NEVER A REFUSAL.  A state outside this capture's own
     -- cycle, a letter that is no priority, a tag outside the charset, a day the
     -- grammar will not read: each is the standing filter talking about other
     -- rows.  It fills the gap or it does not, and `+' opens either way.
-    state r = Right $ case inhState inh of
+    state doc r = Right $ case inhState inh of
       Just want | isNothing (hrState r), want `elem` draftStates cfg cycleTags ->
-        tokenEdits hsTodo (spanEnd . hsStars) (Just want) r
+        tokenEdits hsTodo (spanEnd . hsStars) (Just want) doc r
       _spoken -> []
-    letter r = Right $ case inhPriority inh of
-      Just want | isNothing (hrPriority r) -> lends (setPriorityEdits (Just want) r)
+    letter doc r = Right $ case inhPriority inh of
+      Just want | isNothing (hrPriority r) -> lends (setPriorityEdits (Just want) doc r)
       _spoken -> []
     -- A TAG RUN NEEDS A TITLE TO STAND AFTER: on a title-less draft this
     -- parser reads @:work:@ as the title itself, so the tag is not lent until
     -- the reader has typed one and the tags door can put it on.
-    tag want r
+    tag want _doc r
       | T.null (hrTitle r) = Right []
       | otherwise          = Right (lends ((`addTagEdits` r) <$> tagText want))
-    planned (key, value) r
+    planned (key, value) doc r
       | isJust (unplanned key) = Right []
-      | key `elem` map fst (hpPlanning (headlineParts r)) = Right []
-      | otherwise = Right (lends (setPlanningEdits key (Just value) r))
+      | key `elem` map fst (hpPlanning (headlineParts doc r)) = Right []
+      | otherwise = Right (lends (setPlanningEdits key (Just value) doc r))
     lends = either (const []) id
 
 spliceRefused :: Edit.EditError -> Text
@@ -2318,7 +2369,7 @@ draftEntry cfg eol cargo = do
   r <- draftRecord cfg doc
   reads' r titled state letter run
   alone doc
-  Right (recomposedSubtree r (HeadlineParts doc (dcProperties cargo) (dcPlanning cargo) ""))
+  Right (recomposedSubtree doc r (HeadlineParts doc (dcProperties cargo) (dcPlanning cargo) ""))
   where
     -- ONE FILE, ONE ENDING.  The pane speaks `\n' and knows no other, so a body
     -- landing where EOL is CRLF is owed the conversion here — the very rule
@@ -2431,9 +2482,6 @@ declaresNothing =
     <> "active states before the bar and done-like ones after it. "
     <> "*active* and *inactive* are the filter's group names, not keywords."
 
-headlineSpans :: HeadlineRecord -> HeadlineSpans
-headlineSpans = spans . hrHeadline
-
 insertAt :: Int -> Span
 insertAt at' = Span at' at'
 
@@ -2514,11 +2562,9 @@ resolveColumns names = withTitle (map pick names)
 -- NOT hidden here — a read-only cell rewrites nothing.
 customCell :: HeadlineRecord -> Text -> Maybe Text
 customCell r wanted
-  | wanted == "closed" = sliceSpan (hrDoc r) <$> hsClosed (headlineSpans r)
-  | otherwise          =
-      listToMaybe [ v | (k, v) <- drawerPairs subtree (drawerSlice r subtree)
-                      , T.toCaseFold k == wanted ]
-  where subtree = subtreeText r
+  | wanted == "closed" = hrClosed r
+  | otherwise          = listToMaybe [ value | (key, value) <- hrDrawer r
+                                             , T.toCaseFold key == wanted ]
 
 viewCells :: HeadlineRecord -> [Text]
 viewCells r = [ fromMaybe "" (cell r) | (_key, _header, _kind, cell) <- viewColumns ]

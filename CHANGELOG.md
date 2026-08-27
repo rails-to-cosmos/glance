@@ -13,6 +13,36 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **The reading line.** Point's row used to come to rest wherever
+  `scrollIntoView({block:"nearest"})` left it, which on a step down is the
+  pane's last line with nothing under it. The pane now draws a **reading
+  line** part of the way down and rests the row's bottom on it: a row whose
+  bottom has fallen below the line is scrolled up until it sits on it,
+  direction-free and if possible — the pane clamps at its end. A row taller
+  than the band above the line, and one above the pane's top, keep the
+  `nearest` ask, which is what the three-line scroll-margin already covers.
+  Where the line is drawn is the reader's, remembered per browser like the
+  theme (`glance-reading-line`, a whole percent banded 20–90, 60 by default)
+  and set from the `ui` panel of the settings sheet.
+
+- **`C-l` is `recenter-top-bottom`.** Org's own cycle, in the document pane:
+  point's row to the middle of the pane, a second press its top under the
+  three-line band, a third its bottom above it, then round again. Any other
+  key starts the cycle over. It shares ONE placement law with the reading
+  line — an edge of the row on a line measured down the pane — and claims the
+  key from the browser's address bar while the sheet stands.
+
+- **`M-<left>` / `M-<right>` promote and demote a subtree.**
+  `org-promote-subtree` and `org-demote-subtree` on a child headline: its own
+  line and every headline line inside its extent gain or lose one star
+  together, the contents untouched. A subtree shift is a LINE rewrite the
+  paragraph splice cannot express, so the rewritten lines ride the ordinary
+  commit cargo and the one write door carries them. The entry's own line
+  refuses — its level is the table's row — and so does a row that is no
+  headline. The narrowing is a floor: a direct child promoted would leave the
+  subtree, so nothing shallower than a child of the entry is reachable, while
+  demoting has no ceiling. Point stays on the child it moved.
+
 - **`tag:archive` names the archive.** The plain word is the spelling: it
   lifts the hiding and filters like any tag value — infix, so a near-miss
   tag such as `archived` rides along. Alternatives, `+` tokens and negation
@@ -388,6 +418,26 @@ section groups a feature arc, and its date is that arc's last commit.
   `docs/query.md` carries the law.
 
 ### Changed
+
+- **Bytes leave the heap: a record retains no document bytes.** The daemon held
+  every file's text on every row it parsed (`hrDoc`, shared with the parsed
+  headline), so a tree of 26 MB of blobs sat in 305 MB of RSS after a day up.
+  The row projection — cells, search text, spans, digest, links — stays in
+  memory; the document is read from disk by path when a request wants it, once
+  per request, and pinned against the digest the parse took, through the very
+  read the write door opens with. The parsed headline left the row with
+  `hrDoc`: what a row kept off it is cut into fields at parse (`hrSpans`,
+  `hrLevel`, `hrOrgId`, `hrIdProperty`, `hrRepeats`). Every reader that needs
+  text takes it as an argument: `subtreeText`, `headlineParts`,
+  `subtreeEntries`, `subtreeLinks` and every command's span math. Cells a QUERY
+  reads keep answering from the row — `closed` and the drawer pairs are cut at
+  parse (`hrClosed`, `hrDrawer`) — so a custom column and `/properties` touch no
+  file, and `add-tag` and `archive` open none either. **Where the store lags the
+  file a READ reloads and a WRITE refuses**: a materialize whose file moved
+  re-reads it through the watch's own door and answers the bytes on disk under
+  their own digest, where a commit or a command takes the drift 409 the shell
+  already handles rather than re-targeting bytes the client never saw. Org files
+  stay the source of truth; the store stays a projection.
 
 - **`today` is the date word, and `tomorrow` came with it.** The filter grammar
   spelled the clock `*today*`, the starred family's one date value; it now

@@ -62,10 +62,87 @@
     // The word for what a grain key landed on is the model's, so Elm says it.
     const dsay = (k, m) => { dwrote = keySaid(k); dsend(m); };
     const dmount = flagPort(dsend, () => dflags);
-    // Forbidden over the TABLE's rows; `block:"nearest"' honours `.de''s scroll-margin.
-    function keepInView(row) {
+    // THE READING LINE AS A WHOLE PERCENT, a FORWARD dep taken as a thunk: the
+    // preference is a `const' in a later part, so it is CALLED here rather than
+    // named at load.
+    const readingPct = () => readingLine();
+    /** THE BAND POINT'S ROW MOVES IN: the nearest scroller over the document,
+     * and its INSIDE -- the border stepped over, which is where `scrollTop' is
+     * measured from and what a line down it is a fraction of.  THE SCROLLER IS
+     * ASKED FOR RATHER THAN NAMED, and it is the one `block:"nearest"' would
+     * have moved: `#mdoc' stretches to `#mpanes' where the document fits its
+     * box, and grows past it -- `#mpanes' clipping -- where it does not.  NULL
+     * where nothing scrolls, which is a document that fits and a page with no
+     * layout alike. */
+    function docBand(row) {
+      for (let pane = row.parentElement; pane; pane = pane.parentElement) {
+        if (pane.clientHeight > 0 && pane.scrollHeight > pane.clientHeight + 1)
+          return { pane, top: pane.getBoundingClientRect().top + pane.clientTop,
+                   height: pane.clientHeight };
+        if (pane.id === "modal") break;
+      }
+      return null;
+    }
+    // The `.de' scroll-margin as a number: three of the pane's own lines, and
+    // the very band `block:"nearest"' honours.
+    const bandOff = (row) =>
+      parseFloat(getComputedStyle(row).scrollMarginBlockStart) || 0;
+    // Forbidden over the TABLE's rows; THE ONE CALL SITE, and the whole of what
+    // a page with no layout can still ask for.
+    const askScroller = (row, block) => {
       if (row && typeof row.scrollIntoView === "function")
-        row.scrollIntoView({ block: "nearest" });
+        row.scrollIntoView({ block });
+    };
+    /** ONE PLACEMENT LAW, TWO CALLERS: put one of ROW's edges -- its `top', its
+     * `bottom' or its `middle' -- on a LINE measured in pixels down the pane's
+     * band, which `line' reads off the band and the row.  The pane clamps at
+     * either end, so every ask is "if possible".  WITH NO LAYOUT there is
+     * nothing to measure and the row asks its pane's own scroller instead,
+     * under `block'. */
+    function placeRow(row, want) {
+      const band = row && docBand(row);
+      if (!band) { askScroller(row, want.block); return; }
+      const r = row.getBoundingClientRect();
+      const edge = want.edge === "top" ? r.top
+                 : want.edge === "bottom" ? r.bottom
+                 : r.top + r.height / 2;
+      band.pane.scrollTop += edge - band.top - want.line(band, row);
+    }
+    // The reading line itself, in pixels down the band.
+    const READING = { edge: "bottom", block: "nearest",
+                      line: (b) => b.height * readingPct() / 100 };
+    /** POINT'S ROW COMES TO REST ON THE READING LINE: after a move, a row whose
+     * BOTTOM has fallen below the line drawn that far down the pane is scrolled
+     * up until its bottom sits on it -- DIRECTION-FREE, and if possible, the
+     * pane clamping at its end.  A ROW TALLER THAN THE BAND ABOVE THE LINE has
+     * no rest there, and one standing above the pane's top is the
+     * scroll-margin's business, so both keep the `nearest' ask. */
+    function keepInView(row) {
+      const band = row && docBand(row);
+      if (!band) { askScroller(row, "nearest"); return; }
+      const r = row.getBoundingClientRect(), line = READING.line(band);
+      if (r.top < band.top || r.height > line || r.bottom - band.top <= line)
+        { askScroller(row, "nearest"); return; }
+      placeRow(row, READING);
+    }
+    /** `C-l' IS org's own `recenter-top-bottom': point's row to the pane's
+     * MIDDLE, then its TOP under the scroll-margin, then its BOTTOM above it,
+     * and round again.  ANY OTHER KEY STARTS THE CYCLE OVER, which is the whole
+     * of what makes a run of presses one gesture. */
+    const RECENTER = [
+      { word: "center", edge: "middle", block: "center",
+        line: (b) => b.height / 2 },
+      { word: "top", edge: "top", block: "start",
+        line: (b, row) => bandOff(row) },
+      { word: "bottom", edge: "bottom", block: "end",
+        line: (b, row) => b.height - bandOff(row) },
+    ];
+    let recentres = 0;
+    function recenterHere(k) {
+      const want = RECENTER[recentres % RECENTER.length];
+      recentres += 1;
+      placeRow(docElAt(), want);
+      keySaid(k)(`recenter-top-bottom (${want.word})`);
     }
     // OFFSETS ARE IN CHARACTERS (AGENTS.hs); JS counts UTF-16 units.
     const clen = (s) => Array.from(String(s)).length;
@@ -89,6 +166,17 @@
     const docStep = (step) => dsend({ kind: "step", by: step });
     const docFiner = (k) => dsay(k, { kind: "finer" });
     const docBroader = (k) => dsay(k, { kind: "broader" });
+    /** `M-<left>'/`M-<right>' OVER A NESTED HEADLINE: org's own
+     * `org-promote-subtree' / `org-demote-subtree'.  THE MODEL OWNS THE ROWS,
+     * THE WALLS AND THE WORD -- the star arithmetic is a LINE rewrite the
+     * paragraph splice cannot express -- so the key names the direction and
+     * nothing else, and both the write and the refusal come back named.
+     */
+    function shiftHere(k, by) {
+      const say = keySaid(k);
+      answerOnce((cargo) => say(cargo.said), say);
+      dsend({ kind: "shift", by });
+    }
     function openHere() {
       const r = docRowAt(), b = docBinding("org-glance-overview:open");
       const at = reachOf(r) || spanOf(r);
@@ -2061,6 +2149,8 @@
       if (!editing || raw || momentary()) return;
       const k = keyName(e);
       if (!k) return;
+      // ANY OTHER KEY STARTS `C-l''s CYCLE OVER, org's own rule for it.
+      if (k !== "C-l") recentres = 0;
       const once = (act) => { if (!repeating(e)) act(); };
       // THE PAIR TAKES FOUR KEYS: the offers walk on the arrows and `C-n'/`C-p',
       // `:' hands a KEY over to its value — org's own muscle, and the character
@@ -2120,6 +2210,10 @@
         else if (k === "S-<up>" || k === "S-<down>")
           once(() => atElement(() => cycleHere(k === "S-<up>" ? 1 : -1)));
         else if (k === "o" || k === "!") once(openHere);
+        // THE BROWSER OWNS `C-l' FOR ITS ADDRESS BAR, so the key is claimed.
+        else if (k === "C-l") once(() => recenterHere(k));
+        else if (k === "M-<left>" || k === "M-<right>")
+          once(() => shiftHere(k, k === "M-<right>" ? 1 : -1));
         else if (k === "t") once(() => atElement(stateHere));
         else if (k === ":") once(() => atElement(tagsHere));
         else if (k === "SPC")

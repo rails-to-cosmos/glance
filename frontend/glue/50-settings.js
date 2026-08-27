@@ -793,6 +793,26 @@ const SECTIONS = [
       if (settings) showHues();
       echo(`theme: ${targetOf(e).value}`);
     });
+    // THE READING LINE the document pane rests point's row on: a per-machine
+    // display preference like the theme, held as a WHOLE PERCENT of the pane's
+    // visible height.  BANDED 20-90 -- outside that there is no band above the
+    // line for a row to rest in -- and anything else stored falls to the default.
+    const READ = { key: "glance-reading-line", def: 60, min: 20, max: 90 };
+    const readPref = pref(READ.key, String(READ.def));
+    const readingLine = () => {
+      const t = String(readPref.get()).trim();
+      if (!/^[0-9]+$/.test(t)) return READ.def;
+      return Math.max(READ.min, Math.min(READ.max, +t));
+    };
+    function setReadingLine(pct) {
+      readPref.set(String(pct));
+      el("readsel").value = String(readingLine());
+    }
+    setReadingLine(readingLine());
+    el("readsel").addEventListener("change", (e) => {
+      setReadingLine(targetOf(e).value);
+      echo(`reading line: ${readingLine()}%`);
+    });
     const LOG = CFG.log;
     const logLines = (text) => {
       const t = String(text).trim();

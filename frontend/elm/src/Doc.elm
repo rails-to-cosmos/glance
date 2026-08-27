@@ -494,6 +494,7 @@ type Msg
     | DraftPlan String
     | UndraftPlan String
     | Tab
+    | Shift Int
     | AddProp String String
     | SetMeta (List ( String, String )) (List ( String, String ))
     | SetCells (List Cell)
@@ -622,6 +623,9 @@ update msg model =
                                     " folded)"
                                )
                         )
+
+        Shift by ->
+            shifted by model
 
         SetMeta props plan ->
             told (remeta { model | props = props, plan = plan })
@@ -896,26 +900,147 @@ first child level -- editing anything outside the subtree is forbidden.
 narrowed : Model -> String -> String
 narrowed m text =
     let
-        starsAt line =
-            case String.uncons line of
-                Just ( '*', rest ) ->
-                    1 + starsAt rest
-
-                _ ->
-                    0
-
         deepen line =
             let
                 n =
                     starsAt line
             in
-            if n > 0 && n <= m.level && String.startsWith " " (String.dropLeft n line) then
+            if n > 0 && n <= m.level && headlineAt line then
                 String.repeat (m.level + 1) "*" ++ String.dropLeft n line
 
             else
                 line
     in
     String.join "\n" (List.map deepen (String.split "\n" text))
+
+
+{-| How many stars LINE opens with.
+-}
+starsAt : String -> Int
+starsAt line =
+    case String.uncons line of
+        Just ( '*', rest ) ->
+            1 + starsAt rest
+
+        _ ->
+            0
+
+
+{-| A HEADLINE LINE IS STARS THEN A SPACE, and this is the one place that says so.
+-}
+headlineAt : String -> Bool
+headlineAt line =
+    let
+        n =
+            starsAt line
+    in
+    n > 0 && String.startsWith " " (String.dropLeft n line)
+
+
+{-| THE LINES A CHILD'S SUBTREE STANDS ON: its own headline line down to the
+next headline at its level or above, the body's end where there is none.  A
+`Child' row's own `to' stops at the next headline of ANY level, so the subtree
+is asked for here rather than read off the row.
+-}
+extentOf : Model -> Row -> ( Int, Int )
+extentOf m r =
+    ( r.from
+    , case List.filter (\k -> k.kind == Child && k.from > r.from && k.level <= r.level) m.rows of
+        next :: _ ->
+            next.from
+
+        [] ->
+            List.length m.lines
+    )
+
+
+{-| ONE STAR ON OR OFF every headline line in the range; anything else is left
+as it is.  NEVER PAST ONE STAR: a line the walk read as a headline stays one.
+-}
+restarred : Int -> ( Int, Int ) -> List String -> List String
+restarred by ( from, to ) =
+    List.indexedMap
+        (\i line ->
+            if i < from || i >= to || not (headlineAt line) then
+                line
+
+            else
+                let
+                    n =
+                        starsAt line
+                in
+                String.repeat (max 1 (n + by)) "*" ++ String.dropLeft n line
+        )
+
+
+{-| `M-<left>'/`M-<right>' OVER A NESTED HEADLINE: org's own
+`org-promote-subtree' and `org-demote-subtree'.  The child's headline line and
+every headline line inside its extent gain or lose ONE star; the contents are
+untouched.  A SUBTREE SHIFT IS A LINE REWRITE the paragraph splice cannot
+express, so the rewritten lines are what the cargo carries -- `bodyText' walks
+`Para' alone and passes clean rows through, so the same door writes it.
+
+THE ENTRY'S OWN LINE REFUSES: the root's level is the table's row, and no key in
+this pane may move it.  A row that is no headline has no level to move.  THE
+NARROWING WALL IS A FLOOR: a direct child promoted would leave the subtree, so
+nothing shallower than a child of the entry is reachable.  Demoting has no
+ceiling.
+
+POINT DOES NOT MOVE.  A child's id is its POSITION among the file's headlines,
+which a shift moves none of, so the refill lands point back on the same row.
+-}
+shifted : Int -> Model -> ( Model, Cmd Msg )
+shifted by m =
+    let
+        word =
+            if by < 0 then
+                "org-promote-subtree"
+
+            else
+                "org-demote-subtree"
+
+        no why =
+            spoke ( m, word ++ " (" ++ why ++ ")" )
+    in
+    case rowAt m of
+        Nothing ->
+            no "a headline alone"
+
+        Just r ->
+            if r.kind == Head then
+                no "the entry's own level is the table's"
+
+            else if r.kind /= Child then
+                no "a headline alone"
+
+            else if by < 0 && r.level <= m.level + 1 then
+                no "nothing shallower than a child of the entry"
+
+            else
+                let
+                    ( from, to ) =
+                        extentOf m r
+
+                    fresh =
+                        restarred by ( from, to ) m.lines
+
+                    -- The rows the shift moved, drawn at their new depth until
+                    -- the write comes back and the pane is filled again.
+                    deepen k =
+                        if k.from >= from && k.from < to && (k.kind == Child || k.kind == Para) then
+                            { k | level = k.level + by }
+
+                        else
+                            k
+                in
+                composedWith
+                    (Just (word ++ " (level " ++ String.fromInt (r.level + by) ++ ")"))
+                    { m
+                        | lines = fresh
+                        , arr = Array.fromList fresh
+                        , offsets = offsetsOf fresh
+                        , rows = List.map deepen m.rows
+                    }
 
 
 {-| THE MODEL AT THE DOOR: `planAt' is the planning row's own axis, so a model
@@ -1490,6 +1615,11 @@ msgD =
 
                     "tab" ->
                         D.succeed Tab
+
+                    -- The DIRECTION and nothing else: which row it moves, and
+                    -- whether it may, is the model's to say.
+                    "shift" ->
+                        D.map Shift (D.field "by" D.int)
 
                     "addprop" ->
                         D.map2 AddProp (D.field "key" D.string) (D.field "value" D.string)
