@@ -22,8 +22,13 @@ import TestDefaults ( assertContains, columnKeysOf, columnOf, dateCorpus, dateCo
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Time as Time
+
+import Data.Org (defaultContext, orgParse)
+import Glance.Backfill ( FilePlan (fpEdits, fpTiers), Tier (..)
+                       , earliestLogbookStamp, planDocument )
 
 import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineParts (..)
                     , refTarget
@@ -133,7 +138,70 @@ spec = testGroup "Query"
   [ loadSpec, walkSpec, levelSpec, blankSpec, parallelSpec, cellSpec, searchSpec
   , linkSpec
   , viewSpec, schemaSpec, commandSpec, lensSpec, entrySpec, captureSpec
-  , repeatSpec, residencySpec ]
+  , repeatSpec, residencySpec, backfillSpec ]
+
+-- | The @backfill-created@ migration's evidence tiers, pure over one document:
+-- a stamped headline is kept, a logbook lends its earliest time, and a silent
+-- one takes the FALLBACK the file supplies ('Mtime') or the run's day ('RunDay').
+backfillSpec :: TestTree
+backfillSpec = testGroup "Backfill"
+  [ testCase "a headline with a logbook is stamped from its earliest logbook time" $
+      assertEqual "the drawer lands before the logbook, the earliest time in it"
+        (T.unlines [ "* TODO logged task", ":PROPERTIES:"
+                   , ":ORG_GLANCE_CREATION_TIME: [2021-09-10 Fri 08:00]", ":END:"
+                   , ":LOGBOOK:"
+                   , "- State \"DONE\" from \"TODO\" [2021-09-13 Mon 23:14]"
+                   , "- State \"TODO\" from \"\" [2021-09-10 Fri 08:00]", ":END:" ])
+        (backfilled Mtime "[2026-08-01 Sat 09:30]" logged)
+
+  , testCase "and the logbook tier is the one it counts" $
+      assertEqual "one logbook, no fallback"
+        (1, 0, 0) (tiersOf (planOf Mtime "[2026-08-01 Sat 09:30]" logged))
+
+  , testCase "a headline with no logbook falls to the file mtime" $ do
+      assertEqual "the mtime stamp, in a fresh drawer"
+        (T.unlines [ "* TODO plain task", ":PROPERTIES:"
+                   , ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:" ])
+        (backfilled Mtime "[2026-08-01 Sat 09:30]" "* TODO plain task\n")
+      assertEqual "and it is the mtime tier"
+        (0, 1, 0) (tiersOf (planOf Mtime "[2026-08-01 Sat 09:30]" "* TODO plain task\n"))
+
+  , testCase "with no mtime the same headline falls to the run day" $
+      assertEqual "the run stamp, the run-day tier"
+        (0, 0, 1) (tiersOf (planOf RunDay "[2026-08-27 Thu 00:00]" "* TODO plain task\n"))
+
+  , testCase "a headline already carrying the property is untouched" $ do
+      let doc = T.unlines [ "* TODO already stamped", ":PROPERTIES:"
+                          , ":ORG_GLANCE_CREATION_TIME: [2020-01-01 Wed 00:00]", ":END:" ]
+      assertEqual "no edit" [] (fpEdits (planOf RunDay "[2026-08-27 Thu 00:00]" doc))
+      assertEqual "counted present, not stamped"
+        1 (Map.findWithDefault 0 Present (fpTiers (planOf RunDay "[2026-08-27 Thu 00:00]" doc)))
+
+  , testCase "the earliest logbook time reads through clock lines and skips non-stamps" $ do
+      assertEqual "the earliest of several"
+        (Just "[2021-09-10 Fri 08:00]") (earliestLogbookStamp logged)
+      assertEqual "a clock range's own opening"
+        (Just "[2021-09-13 Mon 09:00]")
+        (earliestLogbookStamp (T.unlines
+          [ ":LOGBOOK:"
+          , "CLOCK: [2021-09-13 Mon 09:00]--[2021-09-13 Mon 10:00] =>  1:00", ":END:" ]))
+      assertEqual "a bracket that is no date is no stamp"
+        Nothing
+        (earliestLogbookStamp (T.unlines [ ":LOGBOOK:", "- note [see elsewhere]", ":END:" ]))
+      assertEqual "a stamp outside a logbook drawer is not read"
+        Nothing (earliestLogbookStamp "SCHEDULED: [2021-09-13 Mon]\n")
+  ]
+  where
+    logged = T.unlines
+      [ "* TODO logged task", ":LOGBOOK:"
+      , "- State \"DONE\" from \"TODO\" [2021-09-13 Mon 23:14]"
+      , "- State \"TODO\" from \"\" [2021-09-10 Fri 08:00]", ":END:" ]
+    planOf tier stamp doc = planDocument tier stamp doc elems
+      where (elems, _ctx, _err) = orgParse defaultContext doc
+    backfilled tier stamp doc = splice doc (fpEdits (planOf tier stamp doc))
+    tiersOf plan = ( Map.findWithDefault 0 Logbook (fpTiers plan)
+                   , Map.findWithDefault 0 Mtime   (fpTiers plan)
+                   , Map.findWithDefault 0 RunDay  (fpTiers plan) )
 
 -- | NO QUERY TOUCHES THE DISK: a custom column is asked per row per request,
 -- so `closed' and every drawer key ride the record itself.

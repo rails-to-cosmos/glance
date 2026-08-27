@@ -1199,6 +1199,13 @@ sortSpec = testGroup "Sort tokens" $
                   (Right [("state", True), ("title", True)])
                   (sortChainIn "sort:state tag:web sort:title")
 
+    -- `created' is a sort key past the six view columns, the creation alias.
+  , testCase "the created alias is a sort key, direction and all" $ do
+      assertEqual "ascends by default" (Right [("created", True)])
+                  (sortChainIn "sort:created")
+      assertEqual "and descends when asked" (Right [("created", False)])
+                  (sortChainIn "sort:created:desc")
+
   -- @->@ is SUGAR: each case is asserted against the spelling it is sugar FOR.
   , testCase "an arrow chains one token's columns" $
       mapM_ (\(chained, spelled') ->
@@ -1299,6 +1306,8 @@ columnsSpec = testGroup "Columns tokens" $
                   (columnNamesIn "columns:State,Title,Tags")
       assertEqual "two tokens compose" (Right (Just ["state", "title"]))
                   (columnNamesIn "columns:state columns:title")
+      assertEqual "the created alias is a name like any other"
+                  (Right (Just ["created"])) (columnNamesIn "columns:created")
 
   , testCase "a name named twice keeps its first place, case-insensitively" $
       assertEqual "state once, first spelling"

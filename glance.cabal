@@ -67,6 +67,7 @@ library glance-internal
       Data.Org
       Data.Org.Blob
       Data.Org.Config
+      Data.Org.Doctor
       Data.Org.Edit
       Data.Org.External
       Data.Org.Index
@@ -128,6 +129,29 @@ library
     , bytestring
     , containers
     , glance:glance-internal
+    , text
+    , text-show
+    , time
+  default-language: Haskell2010
+
+-- The one-shot migration engine `glance backfill-created' drives.  Private, on
+-- the public library plus the parser: it needs `Glance.Query''s stamp and drawer
+-- splice AND `Data.Org''s walk and parse, so it sits above the facade, not in it.
+library glance-migrate
+  visibility: private
+  exposed-modules:
+      Glance.Backfill
+  hs-source-dirs:
+      src-migrate
+  default-extensions:
+      OverloadedStrings
+  ghc-options: -Wall -Werror=incomplete-patterns -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      base >=4.7 && <5
+    , containers
+    -- Reads a file's mtime for the migration's evidence tier.
+    , directory
+    , glance:{glance, glance-internal}
     , text
     , text-show
     , time
@@ -249,7 +273,7 @@ executable glance
     , containers
     , directory
     , filepath
-    , glance:{glance-desktop-native, glance-internal, glance-web}
+    , glance:{glance-desktop-native, glance-internal, glance-migrate, glance-web}
     , haskeline
     , megaparsec
     , text
@@ -308,7 +332,7 @@ test-suite glance-test
     -- `glance-desktop-native' is trivial and base-only while `native-window' is
     -- off, so depending on it puts no GTK in the way of building the suite; it
     -- is what lets 'TestDesktop' call `zoomAsked' rather than read its source.
-    , glance:{glance, glance-desktop-native, glance-internal, glance-web}
+    , glance:{glance, glance-desktop-native, glance-internal, glance-migrate, glance-web}
     , http-types
     , process
     , stm

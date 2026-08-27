@@ -8,8 +8,8 @@ import Data.Text (Text)
 
 import qualified Data.Text as T
 
-import Glance.Query (Meta (..), SortChain, defaultSortChain, firstBy, metaWord)
-import Glance.Web.Filter ( Sign (..), Term (tmKey, tmSign, tmValue), filterKeys
+import Glance.Query (Meta (..), SortChain, defaultSortChain, firstBy, metaWord, sortKeys)
+import Glance.Web.Filter ( Sign (..), Term (tmKey, tmSign, tmValue)
                          , parseFilter, refusedOn, sortKey )
 
 directions :: [(Text, Bool)]
@@ -57,7 +57,7 @@ nameOf t seg
   | column == noOrder           =
       if T.null rest then Right NoOrder
       else Left (refused t (quoted noOrder <> " has no key to reverse"))
-  | column `notElem` filterKeys = Left (refused t ("no column is called "
+  | column `notElem` sortKeys   = Left (refused t ("no column is called "
                                                      <> quoted column))
   | otherwise = maybe (Left (refused t ("a sort direction is "
                                           <> spelled (map fst (drop 1 directions)))))

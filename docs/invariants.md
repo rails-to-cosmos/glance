@@ -168,10 +168,9 @@ nothing catches it.
   array and is FORCED instead. `Query.hs:1344`, `:666`, `Config.hs:98`. A field
   that forgets the copy retains the whole source document for the process's
   life — a residency regression `cabal test` cannot see; only
-  `glance scan ~/sync` exposes it. The forcing is `forceRecord`'s
+  `glance doctor ~/sync` exposes it. The forcing is `forceRecord`'s
   (`Query.hs:1352`): a cell left as a thunk retains the parse however carefully
   it was copied. *fragility: high*
-
 - **A parse failure fails exactly one file.** `evaluate` inside `try` scopes it,
   and the store keeps that file's previous rows. `Edit.hs:170`, `Store.hs:209`.
   Dropping the rows empties the table between two keystrokes while a file is

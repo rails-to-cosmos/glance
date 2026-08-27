@@ -21,7 +21,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Time as Time
 
-import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn
+import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn, writeRefusalText
                     , BlobSeed (..), ConfigLayers
                     , DraftCargo (..), draftEntry, draftStates
                     , HeadlineRecord (hrDigest, hrFile, hrId, hrOrgId)
@@ -459,11 +459,9 @@ writeOne opts hub plan = do
 -- | Why PATH wrote nothing.  ONE SENTENCE, TWO ASKS: the plan refuses a row
 -- whose file moved before the parse's spans are cut, and 'writeSpans' refuses
 -- one that moved after.
+-- | The shared 'Glance.Query.writeRefusalText', named locally for its two sites.
 writeWhy :: FilePath -> WriteFailure -> Text
-writeWhy path (WriteDrift found) =
-  T.pack path <> " changed on disk (it digests to " <> T.take 12 found
-    <> "… now); nothing was written to it"
-writeWhy _path (WriteRefused spelled) = spelled
+writeWhy = writeRefusalText
 
 planCommand :: Map FilePath (Either WriteFailure Text) -> ([HeadlineRecord], [Text])
             -> Store -> Asked -> RowEdits -> Command

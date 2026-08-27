@@ -53,13 +53,13 @@ import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
 import Network.Wai.Test (SResponse (simpleBody, simpleHeaders), request, runSession, setPath)
 import System.Directory (removeFile)
 import Test.Tasty.HUnit (Assertion)
-import TestDefaults (assertContains, committable, document, rewrite, textAt, valueAfter, viewDir, withStoreOf, withTempDir)
+import TestDefaults (assertContains, boolAt, committable, document, intAt, rewrite, sparseAt, textAt, valueAfter, viewDir, withStoreOf, withTempDir)
 import TestWire (assertOk)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text.Encoding as TE
-import AGENTS (Method (GET), RefusalBody (JsonRefusal), notFoundText, pageHeaders, rMethods, rNeeds, rPath, rRefusal, routeAt, routes, statsHeaders, takesText, writeHint)
+import AGENTS (Method (GET), RefusalBody (JsonRefusal), doctorFields, notFoundText, pageHeaders, rMethods, rNeeds, rPath, rRefusal, routeAt, routes, statsHeaders, takesText, writeHint)
 import Glance.Web (ServeOptions (..), application, defaultPort)
 import Glance.Web.Store (CloseReason, Frame (Op), Hub (hubPending, hubStore), RowOp (DeleteRow, UpsertRow), Store (stGen, stPrint, stTags), closeReason, loadStore, newHub, newLoadingHub, recordsUnder, storeRecords)
 import Glance.Web.Watch (settle)
@@ -225,7 +225,7 @@ specGroup03 = testGroup "Parse"
 specGroup04 :: TestTree
 specGroup04 = testGroup "Scan and the ledgers"
   [ -- ONE POOL, TWO CALLERS.  'Data.Org.Walk.mapFilesConcurrently' is the read
-    -- pool 'Glance.Query.loadDirFilesWith' and the scan share; nothing in the types says so, which is why it is swept for.
+    -- pool 'Glance.Query.loadDirFilesWith' and the scan engine ('Data.Org.Doctor.scanCorpus') share; nothing in the types says so, which is why it is swept for.
     testCase "the pool is one implementation with two callers" $ do
       files <- buildSources
       assertBool ("too few sources swept: " <> show (length files)) (length files >= 12)
@@ -233,7 +233,7 @@ specGroup04 = testGroup "Scan and the ledgers"
       callers <- concat <$> mapM (callsIn "mapFilesConcurrently")
                                  [ f | f <- files, f /= poolModule ]
       assertEqual "callers of the one pool"
-                  ["app/Scan.hs", "src-query/Glance/Query.hs"] (sort (nub callers))
+                  ["src-query/Glance/Query.hs", "src/Data/Org/Doctor.hs"] (sort (nub callers))
 
     -- A load of one file forks nothing: the pool costs a worker per capability.
   , testCase "a path list of one skips the pool" $ do
@@ -707,13 +707,49 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
       assertEqual "ETag" (header "ETag" g) (header "ETag" h)
       assertEqual "X-Glance-Rows" (header "X-Glance-Rows" g) (header "X-Glance-Rows" h)
 
-  , testCase "only / serves while the walk runs" $ do
+  , testCase "the needs-free routes serve while the walk runs" $ do
       a <- loadingApp
       mapM_ (\r -> do
                resp <- getFrom a (BSC.pack (rPath r))
                assertEqual (rPath r <> ": while the store loads")
                            (if rNeeds r then 503 else 200) (status resp))
             routes
+
+  , testCase "/status is the liveness the load gate does not close" $ do
+      a <- loadingApp
+      v <- either (assertFailure . ("status JSON: " <>)) pure . eitherDecode . simpleBody
+             =<< getFrom a "/status"
+      assertEqual "ok while the walk runs" True =<< boolAt "ok" v
+      assertEqual "not ready yet" False =<< boolAt "ready" v
+      assertEqual "and it says it is loading" True =<< boolAt "loading" v
+      el <- sparseAt "elapsed" v
+      assertBool "elapsed rides the load" (isJust el)
+      assertEqual "no row count is claimed" Nothing =<< sparseAt "rows" v
+
+  , testCase "/status reports readiness and the row count once loaded" $ do
+      a <- app assetsDir
+      v <- either (assertFailure . ("status JSON: " <>)) pure . eitherDecode . simpleBody
+             =<< getFrom a "/status"
+      assertEqual "ok" True =<< boolAt "ok" v
+      assertEqual "ready" True =<< boolAt "ready" v
+      assertEqual "done loading" False =<< boolAt "loading" v
+      rows <- intAt "rows" v
+      assertBool ("a loaded store serves rows: " <> show rows) (rows > 0)
+      assertEqual "and claims no elapsed" Nothing =<< sparseAt "elapsed" v
+
+  , testCase "the doctor summary's JSON has exactly the fields the model names" $ do
+      keys <- case Q.doctorJSON Q.cleanDoctor of
+        Object o -> pure (map Key.toText (KM.keys o))
+        _notObj  -> assertFailure "doctorJSON is no object"
+      assertEqual "doctor envelope fields" (sort (map T.pack doctorFields)) (sort keys)
+      assertBool "a clean doctor is clean" (Q.doctorClean Q.cleanDoctor)
+      assertEqual "a clean doctor warns of nothing" [] (Q.doctorWarnings Q.cleanDoctor)
+
+  , testCase "each nonzero finding is one plural-correct warn sentence" $
+      assertEqual "the sentences the boot log logs"
+        ["3 files failed to parse", "1 id collision", "12 rows disagree with the org-glance index"]
+        (Q.doctorWarnings (Q.cleanDoctor { Q.docParseFailures = 3
+                                         , Q.docIdCollisions = 1, Q.docDrift = 12 }))
 
   , testCase "a route spells its 405 in JSON exactly where it takes a POST" $ do
       a <- app assetsDir
@@ -1748,7 +1784,7 @@ revealingComments path = report . T.lines <$> TIO.readFile path
 
 specGroup12 :: TestTree
 specGroup12 = testGroup "Build and discipline"
-  [ testCase "six components, each named once" $ do
+  [ testCase "eight components, each named once" $ do
       cab <- TIO.readFile "glance.cabal"
       assertEqual "the stanzas glance.cabal declares"
         (sort (map coName components)) (sort (stanzaNames cab))
@@ -1771,7 +1807,7 @@ specGroup12 = testGroup "Build and discipline"
       assertEqual "a web target naming the parser"
         [] [ n | n <- webTargets, "glance-internal" `elem` intraDeps n cab ]
 
-  , testCase "the CLI dispatches to three sublibraries" $ do
+  , testCase "the CLI dispatches to four sublibraries" $ do
       cab <- TIO.readFile "glance.cabal"
       assertEqual "exe:glance's sublibraries"
         (sort (compDeps "exe:glance")) (sort (intraDeps "exe:glance" cab))

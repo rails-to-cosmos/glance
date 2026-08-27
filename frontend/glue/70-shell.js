@@ -424,6 +424,7 @@
         if (a.view && !sameColumns(a.view.columns || [])) { remount(); return; }
         if (blind) adopt();
         if (a.view && query === asked) { paint(a); settled(); }
+        sayDoctor(a.view);
         backoff = 1000;
         listen();
         append("ws", "info", a.view ? "reconnected · rows refreshed" : "reconnected");
@@ -479,6 +480,17 @@
       const hues = (cfg.colors || []).length;
       if (hues) append("boot", "info", `${hues} keyword ${hues === 1 ? "hue" : "hues"}`);
     }
+    // THE DOCTOR'S VERDICT, ONCE PER BOOT: the daemon runs a scan before the
+    // routes open and rides its summary on the first view.  A warn line per
+    // finding, or one clean line when nothing is wrong.  Refetches say nothing.
+    let doctorSaid = false;
+    function sayDoctor(view) {
+      if (doctorSaid || !view || !view.doctor) return;
+      doctorSaid = true;
+      const warns = view.doctor.warnings || [];
+      if (warns.length) warns.forEach((w) => append("boot", "warn", `doctor: ${w}`));
+      else append("boot", "info", "doctor: clean");
+    }
     const bootBinding = { seq: "", command: "apply-default-filter" };
     function start(after) {
       const asked = (query = bootQuery());
@@ -489,6 +501,7 @@
       viewing(load(swap ? asking(asked) : `${narrow}limit=${PAGE}`)).then((a) => {
         if (blind) adopt();
         mount(a.view);
+        sayDoctor(a.view);
         if (after) after(a.total); else land(null);
         // AFTER THE ROWS ARE IN HAND, so a rowed surface has a row.  Boot only.
         if (!swap) bootPage();

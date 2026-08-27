@@ -534,7 +534,7 @@ weekdayFix = [ ("idless blobs", 49, 21), ("records without blobs", 57, 29) ]
 lostWeekdays :: Int
 lostWeekdays = 28
 corpusScan :: (Int, Int, Int)
--- ^ @glance scan ~/sync@: span violations, headlines, seconds of walk.
+-- ^ @glance doctor ~/sync@: span violations, headlines, seconds of walk.
 corpusScan = (0, 12600, 10)
 
 -- ** Repeat
@@ -774,7 +774,7 @@ scanNotes :: [Note]
 scanNotes =
   [ Note "`forceResult' runs inside `evaluate' + `try', so one pathological file cannot abort \
          \the run and no thunk retains a document." [Comment, Docs]
-  , Note "Only `glance scan ~/sync' exposes a strictness regression; `cabal test' cannot see one." [Docs]
+  , Note "Only `glance doctor ~/sync' exposes a strictness regression; `cabal test' cannot see one." [Docs]
   , Note "The pool is sound because there is no shared parse state: every file parses from \
          \`defaultContext'." [Test]
   , Note "`loadDirFilesSerially' is exported for the assertion — TestQuery compares the two \
@@ -913,6 +913,26 @@ scanNotes =
   , Note "The skip names which of four is missing." [Interop]
   , Note "The hole is asserted as it is today." [Interop]
   , Note "`watchOrgTree' is covered by nothing in test/." [Interop]
+  -- The doctor at startup: the same scan, cached for the wire.
+  , Note "THE DAEMON RUNS THE DOCTOR AT STARTUP: after the store loads and BEFORE \
+         \`finishLoading' opens the routes, `diagnose' caches a `Doctor' on the hub — \
+         \failures and id collisions off the store's own QR, span violations and index \
+         \drift off a fresh scan. It rides the view JSON — `/headlines' and the \
+         \`set-rows' frame — as `doctor', never the banner." [Test]
+  , Note "The CLI report and the daemon's `Doctor' fold off ONE `corpusDoctor' over the \
+         \same scan, so `glance doctor' and the boot log cannot disagree on a count." [Test]
+  , Note "The boot log shows one `doctor:' warn line per nonzero finding \
+         \(`doctorWarnings'), or one `doctor: clean' info line, ONCE per boot off the \
+         \first view the boot processes; a refetch says nothing." [Browser]
+  -- The one-shot migration: the same walk, honest about the evidence.
+  , Note "BACKFILL-CREATED IS HONEST ABOUT PRECISION: `Glance.Backfill' stamps every \
+         \headline lacking `creationProperty' from the earliest `:LOGBOOK:' time in its \
+         \subtree, else the file's mtime, else the run's day — and the report COUNTS each \
+         \tier, so a wall of run-day stamps is never mistaken for real creation times." [Test]
+  , Note "The backfill writes through `replaceSpans', ONE drift-locked splice per file that \
+         \adds one drawer line and leaves every other byte alone, so it is idempotent and \
+         \org-glance adopts it on the `EXTERNAL.jsonl' note; `--dry-run' reports and writes \
+         \nothing." [Test]
   ]
 -- * Walk
 --
@@ -1086,12 +1106,15 @@ scanCounts :: ScanRow -> Counted
 scanCounts DirsScanned    = Roots
 scanCounts DerivedSkipped = Directories
 -- | The commands, each asked for BY NAME: a bare @glance@ prints the usage.
-data Cli = CliScan | CliServe | CliDesktop | CliRepl deriving (Eq, Show, Enum, Bounded)
+data Cli = CliScan | CliServe | CliDesktop | CliBackfill | CliRepl
+  deriving (Eq, Show, Enum, Bounded)
 permissiveArgs :: Cli -> Bool
-permissiveArgs CliScan    = True
-permissiveArgs CliServe   = False
-permissiveArgs CliDesktop = False
-permissiveArgs CliRepl    = True
+permissiveArgs CliScan     = True
+permissiveArgs CliServe    = False
+permissiveArgs CliDesktop  = False
+-- @backfill-created [DIR...] [--dry-run]@: roots and one flag, like @doctor@.
+permissiveArgs CliBackfill = True
+permissiveArgs CliRepl     = True
 data ScanArg = ArgFlag | ArgRoot Path deriving (Eq, Show)
 scanArg :: String -> ScanArg
 scanArg "--include-derived" = ArgFlag
@@ -1203,7 +1226,7 @@ corpusDocs    = 6287
 corpusDirs    = 89691
 corpusEntries = 702296
 walkSecs, poolSecs, findSecs, strLoopSecs, rawLoopSecs :: Double
-walkSecs    = 10.4   -- ^ the serial walk: most of a @glance scan@
+walkSecs    = 10.4   -- ^ the serial walk: most of a @glance doctor@
 poolSecs    = 1.2    -- ^ the parallel read of every file, inside it
 findSecs    = 2.0    -- ^ @find .@ — the syscall floor
 strLoopSecs = 7.6    -- ^ @listDirectory@ + @lstat@ in `String'
@@ -1789,6 +1812,7 @@ routes =
   , Route "/tags"       True  TextRefusal [GET]
   , Route "/properties" True  TextRefusal [GET]
   , Route "/ws"         True  TextRefusal [GET]
+  , Route "/status"     False JsonRefusal [GET]
   ]
 
 data Verb = VGet | VHead | VPost | VOther deriving (Eq, Show)
@@ -1812,6 +1836,12 @@ takesText :: Route -> String
 takesText r = rPath r ++ " takes " ++ intercalate " and " (map show (rMethods r))
 notFoundText :: String
 notFoundText = "not found: " ++ intercalate ", " (map rPath routes) ++ ", or an asset name"
+
+-- | @\/status@ answers whether or not the tree has loaded (`rNeeds' False), so
+-- the 200 is LIVENESS and the `ready' flag READINESS: `{ok, ready, loading}',
+-- plus `elapsed' while loading or `rows' once loaded.
+statusFields :: [String]
+statusFields = ["ok", "ready", "loading", "elapsed", "rows"]
 writeHint :: String                               -- ^ DERIVED, like `notFoundText'; spelled by hand it had missed @/config@
 writeHint = "method not allowed; "
          ++ intercalate " and " [ "POST " ++ rPath r | r <- routes, POST `elem` rMethods r ]
@@ -1831,6 +1861,14 @@ statsHeaders = [ "X-Glance-Rows", "X-Glance-Files", "X-Glance-Parse-Failures"
                , "X-Glance-Decode-Failures", "X-Glance-Read-Failures", "X-Glance-Id-Collisions" ]
 pageHeaders :: [String]
 pageHeaders = ["X-Glance-Total", "X-Glance-Has-Next", "X-Glance-Archived"]
+
+-- | The startup doctor's summary, a GLOBAL field on every view JSON envelope
+-- (`/headlines' and the `set-rows' frame): the eight counts, the `clean' flag
+-- and the `warnings' the boot log shows.  `TestSpec' pins it against `doctorJSON'.
+doctorFields :: [String]
+doctorFields = [ "clean", "warnings", "parseFailures", "decodeFailures"
+               , "readFailures", "spanViolations", "idCollisions", "drift"
+               , "unindexed", "recordless" ]
 
 data Answered = A200 | A304 deriving (Eq, Show)
 headersOn :: Answered -> [String]
@@ -3246,6 +3284,11 @@ queryNotes =
          \from the mounted ones." [Docs]
   , Note "A custom column's cells are read-only, so the hidden properties are not \
          \hidden there." [Test]
+  , Note "THE `created' ALIAS IS SORTABLE, NOT A DEFAULT COLUMN: `aliasColumns' names \
+         \`created'/`Created' over `creationProperty', absent from `viewColumns' so no \
+         \default table shows it, yet `resolveColumns' picks it and `sortKeys'/`sortCell' \
+         \order by it — the bracketed inactive stamp stripped to its ISO prefix, \
+         \chronological like `scheduled'/`deadline', empties last." [Test]
   , Note "TestFilter's hardcoded six-cell layout list is an INDEPENDENT oracle and \
          \moves by hand, as do Filter.dateKeys and keyTest's name switch, neither \
          \positional." [Test]
@@ -5821,10 +5864,11 @@ components =
   [ Component "glance-internal"       "src/"                Private []
   , Component "glance"                "src-query/"          Public  ["glance-internal"]
   , Component "glance-web"            "src-web/"            Private ["glance"]
+  , Component "glance-migrate"        "src-migrate/"        Private ["glance","glance-internal"]
   , Component "glance-desktop-native" "src-desktop-native/" Private []
-  , Component "exe:glance"            "app/"                Exe     ["glance-desktop-native","glance-internal","glance-web"]
+  , Component "exe:glance"            "app/"                Exe     ["glance-desktop-native","glance-internal","glance-migrate","glance-web"]
   , Component "exe:glance-wasm-probe" "app/"                Exe     ["glance"]
-  , Component "glance-test"           "test/"               Suite   ["glance","glance-desktop-native","glance-internal","glance-web"]
+  , Component "glance-test"           "test/"               Suite   ["glance","glance-desktop-native","glance-internal","glance-migrate","glance-web"]
   ]
 -- ^ The wasm probe is buildable under `pure-crypto' alone (@buildable: False@
 -- otherwise), so it costs the ordinary build nothing and is a stanza like any

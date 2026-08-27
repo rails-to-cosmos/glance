@@ -13,6 +13,38 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **`glance backfill-created`, a one-shot migration that stamps every headline's
+  creation time.** It walks the same tree `doctor` does and sets
+  `ORG_GLANCE_CREATION_TIME` on every headline that lacks one, from the best
+  evidence available: the earliest `:LOGBOOK:` time in the subtree, else the
+  file's mtime, else the run's own day. The report counts how many rows fell to
+  each tier, so an approximation is never mistaken for a real creation time.
+  Every file is one atomic, drift-locked write that adds a single drawer line
+  and leaves every other byte alone — the same write door every command uses, so
+  the `meta/EXTERNAL.jsonl` note lands and org-glance adopts it. The run is
+  idempotent, and `--dry-run` reports the tiers without touching a byte.
+
+- **A `created` column and `sort:created`.** `created` is a friendly alias for
+  `ORG_GLANCE_CREATION_TIME`, shown under a `Created` header, so `columns:created`
+  reads the creation stamp cleanly. Unlike a plain custom column it is sortable:
+  `sort:created` orders rows by their creation time — the bracketed inactive
+  stamp reads chronologically by its `YYYY-MM-DD` prefix, the way `scheduled` and
+  `deadline` do, with the undated rows last.
+
+- **The daemon runs the doctor at startup; warnings land in the log panel.**
+  As the store finishes loading and before the routes open, the daemon computes
+  a doctor summary — parse/decode/read failures, span violations, id collisions,
+  and org-glance index drift — and caches it. It rides the view JSON (the
+  `/headlines` body and the `set-rows` frame) as a `doctor` field, and the main
+  page's boot log shows one `doctor:` warn line per finding, or one
+  `doctor: clean` info line when there is nothing wrong. The `glance doctor` CLI
+  is unchanged; both now derive their counts from one shared summary.
+
+- **`GET /status`, a liveness-and-readiness probe.** JSON
+  `{ok, ready, loading}` — plus `elapsed` while the startup walk runs or
+  `rows` once loaded. It answers whether or not the tree has loaded, so a
+  monitor can tell process-up from tree-ready. `127.0.0.1` only.
+
 - **The reading line.** Point's row used to come to rest wherever
   `scrollIntoView({block:"nearest"})` left it, which on a step down is the
   pane's last line with nothing under it. The pane now draws a **reading
@@ -418,6 +450,11 @@ section groups a feature arc, and its date is that arc's last commit.
   `docs/query.md` carries the law.
 
 ### Changed
+
+- **`glance scan` is `glance doctor`.** The CLI verb that parses a corpus and
+  reports coverage, span violations and org-glance index drift is renamed; the
+  behaviour and output are unchanged. Pre-release, so there is no `scan` alias.
+  The doctor still RUNS a scan — the internal machinery keeps that name.
 
 - **Bytes leave the heap: a record retains no document bytes.** The daemon held
   every file's text on every row it parsed (`hrDoc`, shared with the parsed

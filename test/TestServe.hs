@@ -1,6 +1,7 @@
 -- | The server, driven as a WAI 'Application'.  No socket is bound.
 module TestServe (spec) where
 
+import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Monad (filterM, forM_, unless, when, (<=<))
 import Data.Aeson ( FromJSON, Value (Array, Bool, Null, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, toJSON, (.=) )
@@ -48,6 +49,7 @@ import qualified Data.Text.IO as TIO
 
 import Glance.Query ( ConfigSetting (csName), QueryResult (qrRecords)
                     , blobPathIn, builtinFilter, configSettings
+                    , defaultWalk, diagnose
                     , linkColumns, loadDir, loadFile, prioritySlots, stateSlots
                     , storeRootIn, tagColumns, todoLines
                     , trashPathFor, viewJSON )
@@ -57,8 +59,9 @@ import Glance.Web.Page.Popups (Popup (..), Tier (..), popups, tierClass)
 import Glance.Web.Base (gluePartFiles, today)
 import Glance.Web.Commands (commandNames)
 import Glance.Web.Theme (Theme (..), themes)
-import Glance.Web.Store ( Hub, applyFile, finishLoading, loadStore, newHub
-                       , newLoadingHub, publish )
+import Glance.Web.Store ( Hub, applyFile, finishLoading, frameJSON, hubStore
+                       , loadStore, newHub, newLoadingHub, publish
+                       , stashDoctor, storeResult, subscribe )
 
 import qualified Glance.Web.Routes as Routes
 
@@ -256,6 +259,12 @@ decoded :: SResponse -> IO Value
 decoded r = either (\e -> assertFailure ("response JSON: " <> e)) pure
                    (eitherDecode (simpleBody r))
 
+-- | VALUE less one top-level KEY: the startup doctor rides the view envelope
+-- globally, so a test pinning the view document proper drops it first.
+withoutKey :: T.Text -> Value -> Value
+withoutKey key (Object o) = Object (KM.delete (Key.fromText key) o)
+withoutKey _ v = v
+
 rowsOf :: SResponse -> IO [Value]
 rowsOf r = listAt "rows" =<< decoded r
 
@@ -451,6 +460,7 @@ spec = withResource bootFixture dropBootFixture $ \shell ->
     , tagCommandSpec, deleteCommandSpec, renameCommandSpec, tagsSpec, captureSpec
     , propertiesSpec, blobCaptureSpec, captureViewSpec
     , configSpec, keywordsSpec, linksSpec, referSpec, editLinkSpec, indexingSpec
+    , doctorSpec
     , pageSpec shell, keymapSpec shell, layoutSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
     , paletteSpec shell
@@ -464,6 +474,45 @@ spec = withResource bootFixture dropBootFixture $ \shell ->
     , settingsSpec shell
     , touchSpec shell
     , shellFontSpec shell, assetSpec, embeddedSpec, errorSpec ]
+
+-- | THE STARTUP DOCTOR RIDES THE VIEW JSON: the daemon caches a verdict before
+-- the routes open, and it reaches a boot over /headlines AND over the set-rows
+-- frame.  A genuine finding shows as a warn sentence; a clean tree as `clean'.
+doctorSpec :: TestTree
+doctorSpec = testGroup "The startup doctor rides the view JSON"
+  [ testCase "a clean tree carries a clean doctor with no warnings" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "good.org" "* TODO one\n* DONE two\n"
+        (a, hub) <- serverOver dir
+        stashDoctor hub =<< diagnose defaultWalk [dir] . storeResult
+                        =<< readTVarIO (hubStore hub)
+        d <- field "doctor" =<< decoded =<< getFrom a "/headlines"
+        assertEqual "clean" True =<< boolAt "clean" d
+        assertEqual "no warnings" [] =<< textsAt "warnings" d
+        assertEqual "no span violations" 0 =<< intAt "spanViolations" d
+        assertEqual "no drift" 0 =<< intAt "drift" d
+
+  , testCase "a decode failure shows on /headlines and on the set-rows frame" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "good.org" "* TODO one\n"
+        -- `* ' then a byte no UTF-8 decoder accepts: a decode failure, not a parse one.
+        BS.writeFile (dir <> "/bad.org") (BS.pack [0x2a, 0x20, 0xff, 0x0a])
+        (a, hub) <- serverOver dir
+        stashDoctor hub =<< diagnose defaultWalk [dir] . storeResult
+                        =<< readTVarIO (hubStore hub)
+        d <- field "doctor" =<< decoded =<< getFrom a "/headlines"
+        assertEqual "not clean" False =<< boolAt "clean" d
+        assertEqual "one decode failure" 1 =<< intAt "decodeFailures" d
+        warns <- textsAt "warnings" d
+        assertBool ("a UTF-8 warn sentence, got " <> show warns)
+                   (any ("not valid UTF-8" `T.isInfixOf`) warns)
+        -- The set-rows frame, over the SAME hub, carries the same verdict.
+        (_cid, _client, boot) <- atomically (subscribe hub)
+        frame <- maybe (assertFailure "the bootstrap frame had no JSON") pure (frameJSON boot)
+        assertEqual "the frame is a set-rows" "set-rows" =<< textAt "op" frame
+        fd <- field "doctor" frame
+        assertEqual "the frame's doctor agrees" 1 =<< intAt "decodeFailures" fd
+  ]
 
 -- | One boot of the shell's glue, RUN: a call written and never reached matches a text search too.
 data Boot = Boot
@@ -7602,7 +7651,7 @@ indexingSpec = testGroup "Indexing (bind before load)"
 indexingApp :: IO Application
 indexingApp = application (served assetsDir) <$> (newLoadingHub =<< getMonotonicTime)
 
--- | @\/headlines@ is the facade's view document — the same 'Value' 'viewJSON' builds, so the server adds nothing to the wire.
+-- | @\/headlines@ is the facade's view document — the same 'Value' 'viewJSON' builds, plus the one global @doctor@ field the server rides on the envelope.
 headlineSpec :: TestTree
 headlineSpec = testGroup "GET /headlines"
   [ testCase "is the view JSON for the served directory, rendered from the store" $ do
@@ -7610,7 +7659,10 @@ headlineSpec = testGroup "GET /headlines"
       expected <- viewJSON (viewTitleFor viewDir) . qrRecords <$> loadDir viewDir
       assertEqual "status" 200 (status r)
       got <- decoded r
-      assertEqual "view" expected got
+      -- The server adds ONE global field, the startup doctor; the rest is viewJSON's.
+      assertEqual "a clean doctor rides the envelope" True
+        =<< boolAt "clean" =<< field "doctor" got
+      assertEqual "view" expected (withoutKey "doctor" got)
 
   , testCase "is UTF-8 JSON, and says so" $ do
       r <- get assetsDir "/headlines"
@@ -7676,11 +7728,11 @@ statsSpec = testGroup "Load stats"
       assertEqual "and it says how many it chose between"
                   (Just "1") (header "X-Glance-Id-Collisions" r)
 
-  , testCase "leave the view document's field set alone" $ do
+  , testCase "leave the view document's field set alone, the global doctor apart" $ do
       v <- get assetsDir "/headlines" >>= decoded
       case v of
         Object o -> assertEqual "top-level keys"
-                                ["actions", "columns", "rows", "sort", "title", "views"]
+                                ["actions", "columns", "doctor", "rows", "sort", "title", "views"]
                                 (sort (map Key.toText (KM.keys o)))
         _        -> assertFailure ("expected an object, got " <> show v)
   ]
@@ -8014,7 +8066,7 @@ orderSpec = testGroup "GET /headlines?q=sort:*none*"
 
   , testCase "document order declares none at all" $ do
       v <- get assetsDir "/headlines?q=sort:*none*" >>= decoded
-      assertEqual "top-level keys" ["actions", "columns", "rows", "title", "views"]
+      assertEqual "top-level keys" ["actions", "columns", "doctor", "rows", "title", "views"]
         . sort =<< fieldsOf v
 
   , testCase "and the page it cuts is walk order, where the default's is sorted" $ do
@@ -8089,6 +8141,27 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
         , "test/fixtures/view/sample.org#1", "test/fixtures/view/sample.org#3"
         , "test/fixtures/view/sample.org#4", "test/fixtures/view/sample.org#5" ]
         (map rowId down)
+
+    -- `created' is an alias over the creation drawer property, sortable like the
+    -- date columns: the bracketed ISO stamp orders chronologically, empties last.
+  , testCase "sort:created orders rows by their creation time, the undated last" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "notes.org" $ T.unlines
+          [ "* TODO later"
+          , ":PROPERTIES:", ":ORG_GLANCE_CREATION_TIME: [2026-08-10 Mon 12:00]", ":END:"
+          , "* TODO earlier"
+          , ":PROPERTIES:", ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:"
+          , "* TODO undated" ]
+        (a, _hub) <- serverOver dir
+        -- A limit engages the server's own ordering; the full page is store order.
+        rows <- rowsOf =<< getFrom a "/headlines?q=sort:created&limit=10"
+        titles <- mapM (maybeTextAt "title" <=< field "cells") rows
+        assertEqual "earliest creation first, the undated behind them"
+                    [Just "earlier", Just "later", Just "undated"] titles
+        down <- rowsOf =<< getFrom a "/headlines?q=sort:created:desc&limit=10"
+        dtitles <- mapM (maybeTextAt "title" <=< field "cells") down
+        assertEqual "reversing the key leaves the undated where it was"
+                    [Just "later", Just "earlier", Just "undated"] dtitles
 
     -- A page-sized first answer has to be the first page of the order asked for.
   , testCase "page one of a limited answer is the first page of that order" $ do
@@ -11211,6 +11284,26 @@ columnsQuerySpec = testGroup "GET /headlines?q=columns:"
         stamps <- mapM (maybeTextAt "closed" <=< field "cells") rows
         assertEqual "the stamp verbatim, and null where there is none"
                     [Just "[2026-08-01 Sat 10:30]", Nothing] stamps
+
+    -- `created' is the friendly alias for ORG_GLANCE_CREATION_TIME, under a
+    -- "Created" header; its cell is the stored inactive stamp, verbatim.
+  , testCase "created reads ORG_GLANCE_CREATION_TIME under a Created header" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "notes.org" $ T.unlines
+          [ "* TODO stamped task"
+          , ":PROPERTIES:", ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:"
+          , "* TODO bare task" ]
+        (a, _hub) <- serverOver dir
+        v <- decoded =<< getFrom a "/headlines?q=columns:title,created&limit=10"
+        cols <- listAt "columns" v
+        pairs <- mapM (\c -> (,) <$> textAt "key" c <*> textAt "header" c) cols
+        assertEqual "the alias resolves to a Created header"
+                    [("title", "Title"), ("created", "Created")] pairs
+        rows <- listAt "rows" v
+        -- With a limit the default chain orders by title, so "bare" precedes "stamped".
+        stamps <- mapM (maybeTextAt "created" <=< field "cells") rows
+        assertEqual "the stamp verbatim, and null where there is none"
+                    [Nothing, Just "[2026-08-01 Sat 09:30]"] stamps
 
   , testCase "a negation and an alternation are the whole request's 400" $ do
       bad <- get assetsDir "/headlines?q=-columns:state"

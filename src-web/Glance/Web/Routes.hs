@@ -55,6 +55,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , rowProperties
                     , OrgLink (olSpan, olTarget)
                     , QueryResult (..), SortChain
+                    , doctorJSON
                     , WriteFailure (WriteDrift, WriteRefused)
                     , Span (spanEnd, spanStart)
                     , SubtreeEntry (..)
@@ -97,7 +98,7 @@ import Glance.Web.Theme (themeIds)
 import Glance.Web.Store ( Client, CloseReason (Resync), Frame (Close), Hub
                         , LoadState (..), closeReason
                         , Store (stConfig, stGen, stPrint), frameText, layersFor
-                        , hubLoad, hubStore, nextFrame
+                        , hubDoctor, hubLoad, hubStore, nextFrame
                         , headlinesIn
                         , storeKeywords
                         , storeRecords, storeResult
@@ -151,6 +152,7 @@ httpApp opts hub request respond = route >>= respond
       , (["tags"],       True,  textRefusal, [(methodGet, tagsView hub request)])
       , (["properties"], True,  textRefusal, [(methodGet, propertiesView hub)])
       , (["ws"],         True,  textRefusal, [(methodGet, pure (plain status400 wsHint))])
+      , (["status"],     False, jsonRefusal, [(methodGet, statusView hub)])
       ]
     route = case [ r | r@(path, _, _, _) <- named, path == pathInfo request ] of
       ((path, needs, refuse, methods) : _) -> do
@@ -187,6 +189,20 @@ indexing since = do
   now <- getMonotonicTime
   pure . sized status503 [jsonType, ("Retry-After", "1")] . encode
        $ object ["loading" .= True, "elapsed" .= tenths (now - since)]
+
+-- | @GET \/status@: LIVENESS is the 200 itself (no store needed), READINESS
+-- the @ready@ flag.  Loading carries the elapsed tenths; loaded, the row count.
+statusView :: Hub -> IO Response
+statusView hub = do
+  load <- readTVarIO (hubLoad hub)
+  fields <- case load of
+    Loading since -> do
+      now <- getMonotonicTime
+      pure ["ready" .= False, "loading" .= True, "elapsed" .= tenths (now - since)]
+    Loaded -> do
+      st <- readTVarIO (hubStore hub)
+      pure ["ready" .= True, "loading" .= False, "rows" .= length (storeRecords st)]
+  pure . sized status200 [jsonType] . encode $ object (("ok" .= True) : fields)
 
 safeName :: Text -> Bool
 safeName name = not (T.null name)
@@ -243,12 +259,18 @@ commonest = sortOn (\(k, n) -> (negate n, k)) . Map.toList
 
 -- | ONE PIPELINE, and KEEP is all a door may add: every caller answers the same
 -- shape with the same headers, so a mount cannot tell two doors apart.
-viewPage :: ServeOptions -> Hub -> Request -> (HeadlineRecord -> Bool)
-         -> ([HeadlineRecord] -> [Pair]) -> IO Response
+viewPage :: ServeOptions
+         -> Hub
+         -> Request
+         -> (HeadlineRecord -> Bool)
+         -> ([HeadlineRecord] -> [Pair])
+         -> IO Response
 viewPage opts hub request keep extra = case pageParams request of
   Left why -> pure (jsonError status400 why)
   Right PageAsk {..} -> do
     st <- readTVarIO (hubStore hub)
+    -- GLOBAL, not per-view: the startup verdict, read O(1) and never recomputed.
+    doctor <- readTVarIO (hubDoctor hub)
     -- ONE CLOCK READ PER REQUEST, and ABOVE the revalidation: a day word is
     -- resolved once at filter compile, so a query asked across midnight cannot
     -- mean two days -- and the tag folds the day in (`etagOf').
@@ -283,7 +305,9 @@ viewPage opts hub request keep extra = case pageParams request of
             -- EXTRA rides the ONE encoding, over every row the query MATCHED.
             view    = viewJSONFor cols (savedViewsIn st) paChain
                                   (viewTitleFor dir) (storeKeywords st) shown
-            body    = TLE.encodeUtf8 (encodeToLazyText (merged view (extra matched)))
+            -- The doctor rides the envelope GLOBALLY, beside a door's own EXTRA.
+            body    = TLE.encodeUtf8 (encodeToLazyText
+                        (merged view (("doctor" .= doctorJSON doctor) : extra matched)))
         -- The encode is lazy: an exception in warp's sender would truncate a sent 200.
         forced <- try (evaluate (BL.length body))
         pure $ case forced of

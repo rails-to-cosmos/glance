@@ -16,6 +16,7 @@ import Repl.Org
 import Scan (runScan)
 
 import Data.Org.Walk (WalkOptions (..), defaultWalk)
+import Glance.Backfill (BackfillOptions (..), runBackfill)
 import Glance.Desktop (DesktopOptions (..))
 import Glance.Desktop.Native (desktopWith)
 import Glance.Desktop.WebKit (nativeAvailable, nativeWindow)
@@ -60,11 +61,12 @@ parse [] = putStrLn glanceUsage >> exitSuccess
 
 parse args | wantsHelp args = do
   putStrLn $ case args of
-    ("repl":_)    -> replUsage
-    ("serve":_)   -> serveUsage
-    ("desktop":_) -> desktopUsage
-    ("scan":_)    -> scanUsage
-    _everything   -> glanceUsage
+    ("repl":_)             -> replUsage
+    ("serve":_)            -> serveUsage
+    ("desktop":_)          -> desktopUsage
+    ("doctor":_)           -> doctorUsage
+    ("backfill-created":_) -> backfillUsage
+    _everything            -> glanceUsage
   exitSuccess
 
 parse ("repl":[])           = repl [] [] defaultContext
@@ -83,10 +85,16 @@ parse ("repl":filename:_) = do
            context
       where (_elements, context, maybeErr) = orgParse defaultContext text
 
-parse ("scan":args) = do
+parse ("doctor":args) = do
   let derived = "--include-derived" `elem` args
       dirs = filter (/= "--include-derived") args
   runScan (WalkOptions derived) (if null dirs then ["."] else dirs)
+  exitSuccess
+
+parse ("backfill-created":args) = do
+  let dry = "--dry-run" `elem` args
+      dirs = filter (/= "--dry-run") args
+  runBackfill (BackfillOptions defaultWalk dry) (if null dirs then ["."] else dirs)
   exitSuccess
 
 parse ("serve":args) = run "serve" serveUsage serve (serveOptions args)
@@ -130,16 +138,19 @@ wantsHelp (a:rest)
 -- | Every command in one screen, each flag-taking one spelled in full under it.
 glanceUsage :: String
 glanceUsage = intercalate "\n"
-  [ "usage: glance serve    serve an org tree over HTTP"
-  , "       glance desktop  the same daemon in an app window"
-  , "       glance scan     parse a corpus and report what drifted"
-  , "       glance repl     the org parser at a prompt"
+  [ "usage: glance serve            serve an org tree over HTTP"
+  , "       glance desktop          the same daemon in an app window"
+  , "       glance doctor           parse a corpus and report what drifted"
+  , "       glance backfill-created stamp every headline's creation time"
+  , "       glance repl             the org parser at a prompt"
   , ""
   , serveUsage
   , ""
   , desktopUsage
   , ""
-  , scanUsage
+  , doctorUsage
+  , ""
+  , backfillUsage
   , ""
   , replUsage
   ]
@@ -167,14 +178,24 @@ desktopUsage = intercalate "\n" $
      , "Opens this build's WebKitGTK window when it has one and neither --browser"
      , "nor GLANCE_BROWSER names another." ]
 
-scanUsage :: String
-scanUsage = intercalate "\n" $
-  [ "usage: glance scan [DIR...] [--include-derived]"
+doctorUsage :: String
+doctorUsage = intercalate "\n" $
+  [ "usage: glance doctor [DIR...] [--include-derived]"
   , described "DIR..." "the trees to parse (default .)" ]
   <> flagLines [ f | f <- flags, fName f == "--include-derived" ]
   <> [ ""
      , "Reports parse coverage, span-invariant violations, and how far each"
      , "org-glance index has drifted from the blobs it indexes." ]
+
+backfillUsage :: String
+backfillUsage = intercalate "\n" $
+  [ "usage: glance backfill-created [DIR...] [--dry-run]"
+  , described "DIR..." "the trees to migrate (default .)"
+  , described "--dry-run" "compute and report the tiers, writing nothing" ]
+  <> [ ""
+     , "Stamps ORG_GLANCE_CREATION_TIME on every headline that lacks it, from the"
+     , "earliest LOGBOOK time, else the file's mtime, else the run's day, and reports"
+     , "how many fell to each tier.  Idempotent; one drift-locked write per file." ]
 
 -- | What a flag does to the options it lands in; 'Val' names its value for the
 -- usage line.

@@ -37,6 +37,7 @@ module Data.Org.Types ( Context (..)
                       , headlinesOf
                       , hsFull
                       , headlineIdProperty
+                      , getProperty
                       , identity
                       , orgIdentity
                       , inTodo

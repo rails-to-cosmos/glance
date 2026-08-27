@@ -25,19 +25,21 @@ module Glance.Web.Store
   , frameText
   , bootstrapFrame
     -- * The hub
-  , Hub (hubStore, hubLoad, hubPending)
+  , Hub (hubStore, hubLoad, hubPending, hubDoctor)
   , LoadState (..)
   , Client
   , clientCapacity
   , newHub
   , newLoadingHub
   , finishLoading
+  , stashDoctor
   , subscribe
   , unsubscribe
   , nextFrame
   , publish
   ) where
 
+import Control.Exception (evaluate)
 import Control.Concurrent.STM (STM, TVar, atomically, modifyTVar', newTVar, newTVarIO, readTVar, writeTVar)
 import Control.Concurrent.STM.TBQueue (TBQueue, isFullTBQueue, newTBQueue, readTBQueue, writeTBQueue)
 import Control.Monad (filterM, (<=<))
@@ -55,6 +57,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
 import Glance.Query ( ConfigLayerFile, ConfigLayers (clPrint)
+                    , Doctor, cleanDoctor, doctorJSON
                     , HeadlineRecord (hrDigest, hrId, hrKeywords, hrTags)
                     , LoadFailure (..)
                     , QueryResult (..), TodoKeywords, WalkOptions, configDirsIn
@@ -232,9 +235,9 @@ data Frame
 
 -- | The row operations SCHEMA.md's socket carries, and the whole of them.
 data RowOp
-  = SetRows ![Value]   -- ^ every row, as sent on connect.
-  | UpsertRow !Value   -- ^ one row, added or replaced by @id@.
-  | DeleteRow !Text    -- ^ one row's @id@, dropped.
+  = SetRows ![Value] !Value  -- ^ every row and the doctor summary, as sent on connect.
+  | UpsertRow !Value         -- ^ one row, added or replaced by @id@.
+  | DeleteRow !Text          -- ^ one row's @id@, dropped.
   deriving (Eq, Show)
 
 -- | THE WHOLE VOCABULARY OF A SERVER-INITIATED CLOSE.
@@ -249,7 +252,8 @@ closeReason Resync      = "resync"
 
 frameJSON :: Frame -> Maybe Value
 frameJSON frame = case frame of
-  Op (SetRows rows) -> Just (object [ "op" .= ("set-rows" :: Text),   "rows" .= rows ])
+  Op (SetRows rows doctor) ->
+    Just (object [ "op" .= ("set-rows" :: Text), "rows" .= rows, "doctor" .= doctor ])
   Op (UpsertRow r)  -> Just (object [ "op" .= ("upsert-row" :: Text), "row"  .= r ])
   Op (DeleteRow i)  -> Just (object [ "op" .= ("delete-row" :: Text), "id"   .= i ])
   Close _           -> Nothing
@@ -258,8 +262,10 @@ frameText :: Frame -> Maybe BL.ByteString
 frameText = fmap encode . frameJSON
 
 -- | The frame a socket opens with, snapshotted in the subscribing transaction.
-bootstrapFrame :: Store -> Frame
-bootstrapFrame = Op . SetRows . map rowJSON . storeRecords
+-- The doctor summary rides it, so a boot over the socket sees the same finding
+-- a boot over @\/headlines@ does.
+bootstrapFrame :: Doctor -> Store -> Frame
+bootstrapFrame doctor st = Op (SetRows (map rowJSON (storeRecords st)) (doctorJSON doctor))
 
 
 -- | The live store, its sockets, and the paths waiting to be re-read.
@@ -269,6 +275,7 @@ data Hub = Hub
   , hubNextId  :: !(TVar Int)
   , hubLoad    :: !(TVar LoadState)
   , hubPending :: !(TVar (Map FilePath Double))  -- ^ path → when it was last touched, monotonic.
+  , hubDoctor  :: !(TVar Doctor)                 -- ^ the startup verdict; clean until the first scan lands.
   }
 
 data LoadState
@@ -294,7 +301,7 @@ newLoadingHub started = hubOver emptyStore (Loading started)
 hubOver :: Store -> LoadState -> IO Hub
 hubOver st load =
   Hub <$> newTVarIO st <*> newTVarIO Map.empty <*> newTVarIO 0 <*> newTVarIO load
-      <*> newTVarIO Map.empty
+      <*> newTVarIO Map.empty <*> newTVarIO cleanDoctor
 
 -- | Install ST and open the store routes, in ONE transaction.
 finishLoading :: Hub -> Store -> IO ()
@@ -302,13 +309,22 @@ finishLoading hub st = atomically $ do
   writeTVar (hubStore hub) st
   writeTVar (hubLoad hub) Loaded
 
+-- | Cache DOCTOR on HUB.  Written once at startup BEFORE 'finishLoading' opens
+-- the routes, so the first served view already carries the verdict.
+stashDoctor :: Hub -> Doctor -> IO ()
+stashDoctor hub d = do
+  -- FORCED before it is stashed: the eight strict counts pull the fold to a
+  -- head and let the whole scanned corpus be collected rather than retained.
+  _ <- evaluate d
+  atomically (writeTVar (hubDoctor hub) d)
+
 subscribe :: Hub -> STM (Int, Client, Frame)
 subscribe hub = do
   cid <- readTVar (hubNextId hub)
   writeTVar (hubNextId hub) (cid + 1)
   client <- Client <$> newTBQueue clientCapacity <*> newTVar False
   modifyTVar' (hubClients hub) (Map.insert cid client)
-  boot <- bootstrapFrame <$> readTVar (hubStore hub)
+  boot <- bootstrapFrame <$> readTVar (hubDoctor hub) <*> readTVar (hubStore hub)
   pure (cid, client, boot)
 
 unsubscribe :: Hub -> Int -> IO ()

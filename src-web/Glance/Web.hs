@@ -19,12 +19,12 @@ import System.Exit (die)
 import qualified Data.Text as T
 import qualified Network.Wai.Handler.Warp as Warp
 
-import Glance.Query (IdCollision (..), QueryResult (..), captureTargetIn)
+import Glance.Query (IdCollision (..), QueryResult (..), captureTargetIn, diagnose)
 import Glance.Web.Base ( ServeOptions (..), defaultPort, tenths, viewTitleFor
                        , walkFor )
 import Glance.Web.Routes (application, bootstrapWanted, hasRenderer)
 import Glance.Web.Store ( Hub, finishLoading, loadStoreWith
-                        , newLoadingHub, storeResult )
+                        , newLoadingHub, stashDoctor, storeResult )
 import Glance.Web.Watch (say, watchOrgTree)
 
 
@@ -70,8 +70,12 @@ indexTree :: ServeOptions -> Hub -> Double -> IO ()
 indexTree opts hub started = do
   store <- loadStoreWith (walkFor opts) (soDir opts)
   loaded <- getMonotonicTime
-  finishLoading hub store
   let stats = storeResult store
+  -- THE DOCTOR RUNS BEFORE THE ROUTES OPEN: a fresh scan for span violations and
+  -- index drift, failures and collisions off the store just loaded.  The verdict
+  -- is cached for the wire; the banner is untouched.
+  stashDoctor hub =<< diagnose (walkFor opts) [soDir opts] stats
+  finishLoading hub store
   say
     [ "  loaded:  " <> show (length (qrRecords stats)) <> " rows from "
         <> show (qrFiles stats) <> " files in " <> seconds (loaded - started)

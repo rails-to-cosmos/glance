@@ -131,14 +131,14 @@ const getJSON = async (url) => {
 };
 
 function scan(bin, root) {
-  const r = run([bin, "scan", root], {});
-  if (r.code !== 0) throw new Error(`glance scan exited ${r.code}\n${r.err}`);
+  const r = run([bin, "doctor", root], {});
+  if (r.code !== 0) throw new Error(`glance doctor exited ${r.code}\n${r.err}`);
   return r.out.split("\n").map((l) => l.trim());
 }
 
 function scanLine(lines, what) {
   const hit = lines.find((l) => l.startsWith(what));
-  if (!hit) throw new Error(`glance scan printed no "${what}" line:\n${lines.join("\n")}`);
+  if (!hit) throw new Error(`glance doctor printed no "${what}" line:\n${lines.join("\n")}`);
   return hit.replace(/\s+/g, " ").trim();
 }
 

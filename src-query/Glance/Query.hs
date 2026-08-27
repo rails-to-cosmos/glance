@@ -18,12 +18,19 @@ module Glance.Query ( BlobSeed (..)
                     , LoadFailure (..)
                     , OrgLink (..)
                     , QueryResult (..)
+                    , Doctor (..)
+                    , diagnose
+                    , cleanDoctor
+                    , doctorClean
+                    , doctorJSON
+                    , doctorWarnings
                     , Span (..)
                     , SortChain
                     , SubtreeEntry (..)
                     , TodoKeywords (..)
                     , WalkOptions (..)
                     , WriteFailure (..)
+                    , writeRefusalText
                     , activeMeta
                     , Meta (..)
                     , metaWord
@@ -39,6 +46,7 @@ module Glance.Query ( BlobSeed (..)
                     , builtinFilter
                     , captureCodes
                     , captureEdits
+                    , captureProperty
                     , captureStamp
                     , captureText
                     , captureTargetIn
@@ -87,6 +95,7 @@ module Glance.Query ( BlobSeed (..)
                     , monthWords
                     , expandTemplate
                     , filterKeys
+                    , sortKeys
                     , fingerprint
                     , firstBy
                     , groupOn
@@ -126,6 +135,8 @@ module Glance.Query ( BlobSeed (..)
                     , recognizedKeywords
                     , untrailed
                     , recomposedSubtree
+                    , drawerInsertEdit
+                    , outlineEntries
                     , Ref (..)
                     , RefVia (..)
                     , carriesKind
@@ -249,6 +260,8 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
                        , loadConfigDirs, mergeKeywords, mintableLayer, noConfig, noKeywords
                        , readConfigLayers, recognizedKeywords, seedContext
                        , systemSetting, todoLineEdits, todoLines, todoPragmas )
+import Data.Org.Doctor ( Doctor (..), cleanDoctor, corpusDoctor, doctorClean
+                       , doctorJSON, doctorWarnings, scanCorpus )
 import Data.Org.External (Completion (..), noteCompletion)
 import Data.Org.Blob (blobPathIn, mintBlobId, storeRootIn, uuidFrom)
 import Data.Org.Trash (trashBlob, trashDirIn, trashPathFor)
@@ -313,6 +326,21 @@ data IdCollision = IdCollision
 
 emptyResult :: QueryResult
 emptyResult = QueryResult [] 0 0 0 0 []
+
+-- | The daemon's startup verdict on ROOTS.  The parse\/decode\/read failures and
+-- the id collisions are taken from the store's own QR, so the doctor's counts
+-- match the rows it serves; the span violations and the index drift come from a
+-- fresh scan, which no loaded store retains.  The CLI folds the SAME 'Doctor'
+-- off its own 'scanCorpus' ('corpusDoctor'), so the two never disagree.
+diagnose :: WalkOptions -> [FilePath] -> QueryResult -> IO Doctor
+diagnose opts roots qr = do
+  corpus <- scanCorpus opts roots
+  pure (corpusDoctor corpus)
+    { docParseFailures  = qrParseFailures qr
+    , docDecodeFailures = qrDecodeFailures qr
+    , docReadFailures   = qrReadFailures qr
+    , docIdCollisions   = length (qrIdCollisions qr)
+    }
 
 
 loadDir :: FilePath -> IO QueryResult
@@ -828,7 +856,7 @@ defaultSortChain =
 
 -- | R's value for the column KEY: (palette POSITION, folded TEXT), built ONCE per sort.
 sortCell :: TodoKeywords -> Text -> Maybe (HeadlineRecord -> Maybe (Int, Text))
-sortCell palette key = read' <$> lookup key [(k, cell) | (k, _, _, cell) <- viewColumns]
+sortCell palette key = read' <$> lookup key [(k, cell) | (k, _, _, cell) <- sortColumns]
   where
     ranked = paletteRank palette
     read' cell r = case cell r of
@@ -836,6 +864,9 @@ sortCell palette key = read' <$> lookup key [(k, cell) | (k, _, _, cell) <- view
       _empty                          -> Nothing
     -- The priority cell wears org's brackets, so the comparator reads through them.
     rank value  = if key == "state" then ranked value else 0
+    -- 'created' needs no case of its own: its inactive-stamp cell wears a
+    -- constant '[' affix, so the plain text branch sorts it chronologically,
+    -- the way 'scheduled'/'deadline' sort their bare ISO.
     text' value | key == "state"    = ""
                 | key == "priority" = priorityLetter value
                 | otherwise         = T.toCaseFold value
@@ -1388,6 +1419,15 @@ pinnedDocument snap =
   either (Left . writeFailure (Edit.snapPath snap)) Right <$> Edit.currentText snap
 
 -- | An 'Data.Org.Edit' trouble as a caller shows it.
+-- | A 'WriteFailure' spelled for a person: the drift digest with the do-nothing
+-- outcome, or the refusal's own sentence.  ONE renderer, so command and
+-- migration cannot word the same event two ways.
+writeRefusalText :: FilePath -> WriteFailure -> Text
+writeRefusalText path (WriteDrift found) =
+  T.pack path <> " changed on disk (it digests to " <> T.take 12 found
+    <> "\8230 now); nothing was written to it"
+writeRefusalText _path (WriteRefused why) = why
+
 writeFailure :: FilePath -> Edit.EditIOError -> WriteFailure
 writeFailure path err = case err of
   Edit.Drift _path _pinned found -> WriteDrift found
@@ -2222,22 +2262,24 @@ stampedEntry eol pairs tag given = case firstHeadlineOf elems of
     spliced hs = either (Left . refused) (Right . untrailed)
                         (Edit.applyEdits entry [ Edit.Edit sp new | (sp, new) <- edits hs ])
     edits hs = concat [ addTagEditsIn (cellOf (hsTags hs)) t hs | Just t <- [tag] ]
-                 <> drawerEdits hs
+                 <> [ drawerInsertEdit entry eol pairs hs ]
     refused err = "this capture template does not splice: " <> T.pack (show err)
     cellOf = maybe "" (sliceSpan entry)
 
-    -- INSIDE an existing drawer, else under the PLANNING LINE.  Measuring from the
-    -- title line splices it BETWEEN the headline and its @SCHEDULED:@, where the
-    -- planning line stops being read as one.
-    drawerEdits hs = case hsProperties hs of
-      Just sp -> [ (insertAt (pastLine entry (spanStart sp))
-                   , rows (indentOf (T.drop (lineStart entry (spanStart sp)) entry))) ]
-      Nothing -> [ (insertAt (pastLine entry (planningEnd hs))
-                   , T.concat [ ":PROPERTIES:" <> eol, rows "", ":END:" <> eol ]) ]
-
+-- | The ONE edit adding PAIRS to HS's property drawer inside DOC, EOL ending
+-- each line.  INSIDE an existing drawer, else a fresh one UNDER THE PLANNING
+-- LINE — measured from the title line, the splice lands BETWEEN the headline and
+-- its @SCHEDULED:@ where the planning line stops being read as one.  HS is spanned
+-- in DOC, so capture (one entry) and the backfill (a whole file) splice by one rule.
+drawerInsertEdit :: Text -> Text -> [(Text, Text)] -> HeadlineSpans -> (Span, Text)
+drawerInsertEdit doc eol pairs hs = case hsProperties hs of
+  Just sp -> ( insertAt (pastLine doc (spanStart sp))
+             , rows (indentOf (T.drop (lineStart doc (spanStart sp)) doc)) )
+  Nothing -> ( insertAt (pastLine doc (drawerAnchor hs))
+             , T.concat [ ":PROPERTIES:" <> eol, rows "", ":END:" <> eol ] )
+  where
     -- The three planning spans permute freely, so this is a maximum over the ends.
-    planningEnd hs = foldl' max (titleLineEnd hs)
-                       [ spanEnd sp | (_key, sp) <- presentPlanning hs ]
+    drawerAnchor h = foldl' max (titleLineEnd h) [ spanEnd sp | (_key, sp) <- presentPlanning h ]
     rows indent = T.concat [ indent <> ":" <> key <> ": " <> value <> eol
                            | (key, value) <- pairs ]
 
@@ -2544,8 +2586,24 @@ viewColumns =
 
 type ViewColumn = (Text, Text, Text, HeadlineRecord -> Maybe Text)
 
+-- | Columns beyond the default view: a friendly key/header over a drawer
+-- property.  OPT-IN — none is in 'viewColumns', so no default table shows one —
+-- yet 'resolveColumns' picks one by name and 'sortCell' orders by it.  @created@
+-- reads org-glance's own 'captureProperty', LABELLED "Created".
+-- | The creation-time property key, folded once for the alias cell.
+createdKey :: Text
+createdKey = T.toCaseFold captureProperty
+
+aliasColumns :: [ViewColumn]
+aliasColumns = [ ("created", "Created", "text", \r -> customCell r createdKey) ]
+
+-- | The default view's columns and the aliases: the one roster a sort reads.
+sortColumns :: [ViewColumn]
+sortColumns = viewColumns <> aliasColumns
+
 -- | NAMES as columns, matched CASE-INSENSITIVELY against the default view's
--- keys and headers; an unknown name is a CUSTOM column.  THE MINIMAL SET IS TITLE.
+-- keys and headers and the aliases; an unknown name is a CUSTOM column.  THE
+-- MINIMAL SET IS TITLE.
 resolveColumns :: [Text] -> [ViewColumn]
 resolveColumns names = withTitle (map pick names)
   where
@@ -2554,7 +2612,7 @@ resolveColumns names = withTitle (map pick names)
       | otherwise = [ col | col@("title", _h, _k, _c) <- viewColumns ] <> cols
     pick wanted = fromMaybe (custom wanted) (lookup (T.toCaseFold wanted) builtins)
     builtins    = concat [ [ (T.toCaseFold key, col), (T.toCaseFold header, col) ]
-                         | col@(key, header, _kind, _cell) <- viewColumns ]
+                         | col@(key, header, _kind, _cell) <- sortColumns ]
     custom wanted = ( T.toCaseFold wanted, wanted, "text"
                     , \r -> customCell r (T.toCaseFold wanted) )
 
@@ -2571,6 +2629,12 @@ viewCells r = [ fromMaybe "" (cell r) | (_key, _header, _kind, cell) <- viewColu
 
 filterKeys :: [Text]
 filterKeys = [ key | (key, _header, _kind, _cell) <- viewColumns ]
+
+-- | Every key a sort may name: 'filterKeys' widened by the aliases.  A sort reads
+-- a cell no filter indexes, so an alias orders without joining the filter's
+-- index-keyed columns.
+sortKeys :: [Text]
+sortKeys = [ key | (key, _header, _kind, _cell) <- sortColumns ]
 
 columnsFor :: [ViewColumn] -> TodoKeywords -> [Value]
 columnsFor cols palette =

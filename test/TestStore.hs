@@ -3,16 +3,21 @@
 module TestStore (spec) where
 
 import Control.Concurrent.STM (STM, atomically, orElse, readTVarIO)
+import Control.Exception (finally)
 import Control.Monad (replicateM_)
 import Data.Aeson (Value (Object, String))
 import Data.Maybe (listToMaybe)
-import System.Directory (createDirectoryIfMissing, removeFile)
+import System.Directory ( createDirectoryIfMissing, getPermissions, removeFile
+                        , setPermissions, writable )
 import System.FilePath ((</>))
+import System.IO (hPutStrLn, stderr)
 import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults
 import TestWire (drainNow)
+
+import Glance.Backfill (BackfillOptions (..), Report (..), Tier (..), backfillRoots)
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -21,7 +26,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 
 import Glance.Query ( HeadlineRecord (hrDigest, hrFile, hrId, hrLinked, hrTitle)
-                    , IdCollision (..)
+                    , IdCollision (..), cleanDoctor
                     , LoadFailure (..), QueryResult (..), TodoKeywords (..)
                     , WalkOptions (..), defaultWalk, loadDir, loadDirWith, loadFile
                     , noConfig, replaceSpans, rowJSON, setStateEdits, subtreeText )
@@ -77,7 +82,52 @@ spec :: TestTree
 spec = testGroup "Store"
   [ diffSpec, failureSpec, generationSpec, fingerprintSpec, keywordSpec, tagSpec
   , derivedSpec, sidecarSpec, sharedSpec, bootstrapSpec, hubSpec, debounceSpec
-  , nudgeSpec ]
+  , nudgeSpec, backfillSpec ]
+
+-- | The @backfill-created@ migration over a fixture tree: it stamps, it is
+-- idempotent, a dry run touches nothing, and a locked file is refused by name.
+backfillSpec :: TestTree
+backfillSpec = testGroup "Backfill migration"
+  [ testCase "stamps a headline that lacks the property; a second run writes nothing" $
+      withTempDir $ \dir -> do
+        path <- orgFile dir "notes.org" "* TODO plain\n* TODO another\n"
+        rep <- backfillIn False dir
+        assertEqual "both headlines seen" 2 (rHeadlines rep)
+        assertEqual "the file was written once" 1 (rWritten rep)
+        assertEqual "no refusal" [] (rRefusals rep)
+        assertEqual "both took the mtime tier" 2 (tier Mtime rep)
+        doc <- document path
+        assertBool "the stamp is on disk"
+                   (T.isInfixOf ":ORG_GLANCE_CREATION_TIME:" doc)
+        again <- backfillIn False dir
+        assertEqual "the second run writes nothing" 0 (rWritten again)
+        assertEqual "both now count as present" 2 (tier Present again)
+
+  , testCase "a dry run reports the tiers and writes nothing" $
+      withTempDir $ \dir -> do
+        path <- orgFile dir "notes.org" "* TODO plain\n"
+        rep <- backfillIn True dir
+        assertEqual "the tier is counted" 1 (tier Mtime rep)
+        assertEqual "no file written" 0 (rWritten rep)
+        doc <- document path
+        assertEqual "the file is byte-identical" "* TODO plain\n" doc
+
+  , testCase "a locked file is refused, and named in the report" $
+      withTempDir $ \dir -> do
+        let sub = dir </> "locked"
+        createDirectoryIfMissing True sub
+        _path <- orgFile sub "notes.org" "* TODO plain\n"
+        perms <- getPermissions sub
+        setPermissions sub perms { writable = False }
+        rep <- backfillIn False dir `finally` setPermissions sub perms
+        if rWritten rep == 1 && null (rRefusals rep)
+          then hPutStrLn stderr "\nSKIPPED - the OS allowed the write (root?): backfill refusal"
+          else do assertEqual "no write landed" 0 (rWritten rep)
+                  assertEqual "one refusal" 1 (length (rRefusals rep))
+  ]
+  where
+    backfillIn dry dir = backfillRoots (BackfillOptions defaultWalk dry) [dir]
+    tier t rep = Map.findWithDefault 0 t (rTiers rep)
 
 -- | Emacs's sidecars, which the walk and the watch have to refuse together.
 sidecarSpec :: TestTree
@@ -596,8 +646,8 @@ bootstrapSpec = testGroup "Bootstrap"
   [ testCase "is a set-rows carrying every row the store holds"
       $ withStoreOf [("a.org", "* TODO one\n* NEXT two\n"), ("b.org", "* DONE three\n")]
       $ \_dir _path store ->
-      case bootstrapFrame store of
-        Op (SetRows rows) -> do
+      case bootstrapFrame cleanDoctor store of
+        Op (SetRows rows _doctor) -> do
           assertEqual "rows" (map rowJSON (storeRecords store)) rows
           assertEqual "count" 3 (length rows)
         other -> assertFailure ("expected set-rows, got " <> show other)
@@ -605,7 +655,7 @@ bootstrapSpec = testGroup "Bootstrap"
   , testCase "encodes as SCHEMA.md's op names"
       $ withStoreOf [("a.org", "* TODO one\n")] $ \_dir path store -> do
       rows <- map rowJSON <$> recordsOf path
-      assertEqual "set-rows" (Just "set-rows") (opOf (bootstrapFrame store))
+      assertEqual "set-rows" (Just "set-rows") (opOf (bootstrapFrame cleanDoctor store))
       assertEqual "upsert-row" [Just "upsert-row"] (map (opOf . Op . UpsertRow) rows)
       assertEqual "delete-row" (Just "delete-row") (opOf (Op (DeleteRow "x")))
       assertEqual "a view change is no op at all" Nothing (frameJSON (Close ViewChanged))
@@ -618,7 +668,7 @@ bootstrapSpec = testGroup "Bootstrap"
       _ <- publish hub (applyFile path fresh)
       (_cid, _client, boot) <- atomically (subscribe hub)
       case boot of
-        Op (SetRows rows) -> assertEqual "rows" 2 (length rows)
+        Op (SetRows rows _doctor) -> assertEqual "rows" 2 (length rows)
         other        -> assertFailure ("expected set-rows, got " <> show other)
   ]
   where opOf frame = frameJSON frame >>= stringAt "op"
@@ -661,7 +711,7 @@ hubSpec = testGroup "Hub"
       _ <- publish hub . applyFile path =<< loadFile path
       (_cid', _client', boot) <- atomically (subscribe hub)
       case boot of
-        Op (SetRows rows) -> assertEqual "the resync carries both rows" 2 (length rows)
+        Op (SetRows rows _doctor) -> assertEqual "the resync carries both rows" 2 (length rows)
         other        -> assertFailure ("expected set-rows, got " <> show other)
   ]
   where subscribed dir = do

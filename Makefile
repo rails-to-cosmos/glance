@@ -1,4 +1,4 @@
-.PHONY: test spec spec-debt typecheck loc major minor patch native elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
+.PHONY: test spec spec-debt typecheck loc major minor patch native install elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 -include .env
 GLANCE_DIR ?= ~/sync/views
@@ -147,6 +147,17 @@ NATIVE_BUILD = --project-file=cabal.project.native --builddir=dist-newstyle-nati
 native:
 	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
 	  cabal build $(NATIVE_BUILD) all
+
+# The native build's own binary, copied over ~/.local/bin/glance atomically
+# (a running daemon keeps the unlinked inode; the next launch takes the new one).
+PREFIX ?= $(HOME)/.local
+install: native
+	@dest="$(PREFIX)/bin/glance"; \
+	  bin="$$(HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
+	          cabal list-bin -v0 $(NATIVE_BUILD) exe:glance)"; \
+	  mkdir -p "$(PREFIX)/bin"; \
+	  install -m 755 "$$bin" "$$dest.new" && mv -f "$$dest.new" "$$dest"; \
+	  echo "installed glance ($$(git -C $(CURDIR) rev-parse --short HEAD 2>/dev/null || echo local)) -> $$dest"
 
 wasm-spike:
 	@if [ ! -x "$$HOME/.ghc-wasm/wasm32-wasi-ghc/bin/wasm32-wasi-ghc" ]; then \

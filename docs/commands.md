@@ -191,3 +191,80 @@ curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
 The two capture shapes are the same command: the first is the capture
 sheet's own cargo, the second the older raw line through the tag's
 template. Naming both `text` and `title` is refused rather than resolved.
+
+## Health
+
+`GET /status` is a JSON liveness-and-readiness probe that answers whether or
+not the tree has loaded, so it never blocks on the startup walk:
+
+```sh
+curl -s localhost:7777/status
+# while the walk runs: {"ok":true,"ready":false,"loading":true,"elapsed":0.4}
+# once the tree is in: {"ok":true,"ready":true,"loading":false,"rows":6107}
+```
+
+The 200 itself is liveness; `ready` is readiness. Binds `127.0.0.1` only,
+like every route.
+
+### The doctor at startup
+
+As the store finishes loading and before the routes open, the daemon runs the
+same scan `glance doctor` runs and caches its summary. The summary rides the
+view JSON — the `/headlines` body and the `set-rows` frame — as a top-level
+`doctor` field, global rather than per-view:
+
+```json
+{ "clean": false,
+  "warnings": ["3 files failed to parse", "12 rows disagree with the org-glance index"],
+  "parseFailures": 3, "decodeFailures": 0, "readFailures": 0,
+  "spanViolations": 0, "idCollisions": 0,
+  "drift": 12, "unindexed": 0, "recordless": 0 }
+```
+
+The main page's boot log shows one `doctor:` warn line per `warnings` sentence,
+or one `doctor: clean` info line when the summary is clean — once per boot, off
+the first view. `/status` stays liveness and readiness only; the findings live
+here. The `glance doctor` CLI still prints its full report to stdout, and both
+derive their counts from this one summary, so they never disagree.
+
+## Migration
+
+`glance backfill-created [DIR...] [--dry-run]` is a one-shot over the same tree
+`doctor` walks (default `.`). It stamps `ORG_GLANCE_CREATION_TIME` — org-glance's
+own inactive creation timestamp — on every headline that lacks one, so a
+`created` column or `sort:created` is no longer blind on rows a prior tool never
+stamped.
+
+The stamp is chosen from the **best evidence available, in order**, and the
+report names how many rows fell to each tier so an approximation is never taken
+for a real creation time:
+
+1. **present** — a headline already carrying the property is kept, untouched.
+2. **logbook** — the earliest `:LOGBOOK:` inactive timestamp in the headline's
+   subtree, its own recorded history.
+3. **mtime** — the file's modification time, when the history is silent.
+4. **run day** — the migration run's own day, the last resort when even the
+   mtime cannot be read.
+
+```sh
+glance backfill-created ~/org --dry-run   # report the tiers, write nothing
+glance backfill-created ~/org             # then do it
+
+# backfill-created ~/org
+#   files                  412
+#   headlines             6110
+#   already stamped       2825
+#   logbook                311
+#   mtime                 2974
+#   run day                  0
+#   files written          388
+#   refused                  0
+```
+
+Each file is one atomic, drift-locked write that adds a single property line
+inside the headline's `:PROPERTIES:` drawer and leaves every other byte alone —
+the same write door every command uses, so the `meta/EXTERNAL.jsonl` note lands
+and org-glance adopts the backfill on its next refresh. The run is **idempotent**
+(a second run writes nothing) and `--dry-run` computes and reports without
+touching a byte. A file that drifted or could not be written is **refused** and
+named in the report, never half-written.

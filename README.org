@@ -45,6 +45,7 @@ cabal run glance                            # the commands and their flags
 cabal run glance -- serve   --dir ~/org     # http://127.0.0.1:7777/
 cabal run glance -- desktop --dir ~/org     # same daemon, app window
 cabal run glance -- repl    ~/org/todo.org  # the parser at a prompt
+cabal run glance -- backfill-created ~/org --dry-run  # stamp creation times
 make native                                 # build the WebKitGTK window in
 #+end_src
 
@@ -189,7 +190,15 @@ Reads and writes the same tree Emacs's org-glance does.
 - Every daemon write into a blob appends to =meta/EXTERNAL.jsonl=; a delete
   appends the same line wearing ="tombstone":true=. =M-x
   org-glance-graph:refresh-external= folds both back.
-- =glance scan= reads org-glance's index read-only and reports drift.
+- =glance doctor= reads org-glance's index read-only and reports drift.
+- The daemon runs the doctor at startup, before the routes open: its summary
+  rides the view JSON and the main page's boot log shows one line per finding,
+  or =doctor: clean= when there is nothing wrong.
+- =glance backfill-created= is the one-shot migration: it stamps
+  =ORG_GLANCE_CREATION_TIME= on every headline that lacks one — from the
+  earliest =:LOGBOOK:= time, else the file's mtime, else the run's day — writing
+  through the same drift-locked door, so org-glance adopts it. =--dry-run=
+  reports the per-tier counts and writes nothing.
 
 Details: [[file:AGENTS.hs][AGENTS.hs]] (Scan, Walk).
 
@@ -203,7 +212,7 @@ hand-maintained — no hpack.
 cabal build all                      # no GTK anywhere
 cabal test                           # the suite
 GLANCE_CORPUS=~/sync cabal test      # plus corpus-sampled groups (they SAY when skipped)
-cabal run -v0 glance -- scan ~/sync  # the parser oracle: expect 0 span violations
+cabal run -v0 glance -- doctor ~/sync  # the parser oracle: expect 0 span violations
 make native                          # WebKitGTK window: vendored/ + GIR path, -f native-window
 make sync-renderer                   # refresh assets/table-view.js from ../table-view/web
 make elm                             # rebuild assets/elm.js (reproduces the committed bytes)

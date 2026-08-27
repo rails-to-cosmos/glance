@@ -415,9 +415,12 @@ spelled NONE.
 sort:COLUMN[:desc][->COLUMN[:desc]]…
 ```
 
-- Chain keys are the six column keys only. `->` is sugar for writing several
-  `sort:` tokens; written order is the chain's order, and a repeated column
-  keeps its **first** spelling, direction included.
+- Chain keys are the six column keys, plus `created`. `->` is sugar for writing
+  several `sort:` tokens; written order is the chain's order, and a repeated
+  column keeps its **first** spelling, direction included.
+- `sort:created` orders by `ORG_GLANCE_CREATION_TIME`, the creation stamp: the
+  bracketed inactive timestamp reads chronologically by its `YYYY-MM-DD` prefix,
+  the way `scheduled`/`deadline` do. Rows with no creation time sort last.
 - Directions: nothing or `:asc`, and `:desc`. Empty cells always sort last,
   whatever the direction; ties keep document order.
 - The default chain — state → title → deadline → scheduled, state in the
@@ -443,6 +446,9 @@ columns:Name,Name,…
   (case-insensitively). Names resolve against each builtin's key **and**
   header — `State`, `#`, `Title`, `Scheduled`, `Deadline`, `Tags` — so the
   header you see is a name you can write.
+- `created` is a friendly alias for `ORG_GLANCE_CREATION_TIME`, shown under a
+  `Created` header: `columns:created` reads the creation stamp cleanly, and
+  unlike a plain custom column it is a sortable chain key (`sort:created`).
 - Any other name is a **custom column**: its cells read the row's property
   drawer by that key (`columns:owner`), except `closed`, which reads the
   planning line's `CLOSED:` stamp. Custom cells are read-only and are not

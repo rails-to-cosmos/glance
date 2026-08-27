@@ -31,7 +31,8 @@ spec = testGroup "The CLI's own help"
                      (flag `isInfixOf` out)
   ]
   where commands = [ ("serve", "--dir"), ("desktop", "--browser")
-                   , ("scan", "--include-derived"), ("repl", "FILE") ]
+                   , ("doctor", "--include-derived"), ("repl", "FILE")
+                   , ("backfill-created", "--dry-run") ]
 
 helping :: FilePath -> [String] -> IO String
 helping exe args = do
