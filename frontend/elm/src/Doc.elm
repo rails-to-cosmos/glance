@@ -2327,8 +2327,12 @@ subtreeDone m r =
 
 
 {-| The rows a hide-done run hides: every checkbox item whose subtree is done,
-under a run the reader turned the mode on for.  Empty when no run is on, so the
-render pays for it only in the mode.
+under a run the reader turned the mode on for, AND the run's own composite when
+its ENTIRE checkbox subtree is done -- a wholly-done run vanishes container and
+all, rather than leaving an empty box behind.  `subtreeDone' reads the composite
+the same way it reads an interim item (all its checkbox children done), so the
+rule stays recursive-consistent.  Empty when no run is on, so the render pays for
+it only in the mode.
 -}
 hiddenDone : Model -> Set String
 hiddenDone m =
@@ -2339,16 +2343,26 @@ hiddenDone m =
         Set.fromList
             (List.filterMap
                 (\r ->
-                    case ( boxState m r, listRootOf m r.id ) of
-                        ( Just _, Just root ) ->
-                            if Set.member root m.hideDone && subtreeDone m r then
-                                Just r.id
+                    if isListRoot m r.id then
+                        -- THE RUN'S ROOT keys on itself; it goes only when its
+                        -- whole checkbox subtree is done.
+                        if Set.member r.id m.hideDone && subtreeDone m r then
+                            Just r.id
 
-                            else
-                                Nothing
-
-                        _ ->
+                        else
                             Nothing
+
+                    else
+                        case ( boxState m r, listRootOf m r.id ) of
+                            ( Just _, Just root ) ->
+                                if Set.member root m.hideDone && subtreeDone m r then
+                                    Just r.id
+
+                                else
+                                    Nothing
+
+                            _ ->
+                                Nothing
                 )
                 m.rows
             )

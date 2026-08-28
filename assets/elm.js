@@ -6127,7 +6127,7 @@ var $elm$core$Set$Set_elm_builtin = $elm$core$Basics$identity;
 var $elm$core$Dict$RBEmpty_elm_builtin = {$: -2};
 var $elm$core$Dict$empty = $elm$core$Dict$RBEmpty_elm_builtin;
 var $elm$core$Set$empty = $elm$core$Dict$empty;
-var $author$project$Doc$empty = {at: $elm$core$Array$empty, aG: 0, T: false, av: $elm$core$Maybe$Nothing, N: _List_Nil, E: $elm$core$Set$empty, O: $elm$core$Maybe$Nothing, U: 1, aM: _List_Nil, aN: _List_Nil, aA: $elm$core$Array$empty, y: _List_Nil, Q: $elm$core$Maybe$Nothing, am: _List_Nil, cK: _List_Nil, z: _List_Nil, Y: 0, h: $elm$core$Set$empty, aB: $elm$core$Maybe$Nothing, aV: $elm$core$Maybe$Nothing};
+var $author$project$Doc$empty = {at: $elm$core$Array$empty, aG: 0, T: false, av: $elm$core$Maybe$Nothing, N: _List_Nil, D: $elm$core$Set$empty, O: $elm$core$Maybe$Nothing, U: 1, aM: _List_Nil, aN: _List_Nil, aA: $elm$core$Array$empty, y: _List_Nil, Q: $elm$core$Maybe$Nothing, am: _List_Nil, cK: _List_Nil, z: _List_Nil, Y: 0, h: $elm$core$Set$empty, aB: $elm$core$Maybe$Nothing, aV: $elm$core$Maybe$Nothing};
 var $author$project$Doc$AddProp = F2(
 	function (a, b) {
 		return {$: 21, a: a, b: b};
@@ -10580,18 +10580,22 @@ var $author$project$Doc$subtreeDone = F2(
 		}
 	});
 var $author$project$Doc$hiddenDone = function (m) {
-	return $elm$core$Set$isEmpty(m.E) ? $elm$core$Set$empty : $elm$core$Set$fromList(
+	return $elm$core$Set$isEmpty(m.D) ? $elm$core$Set$empty : $elm$core$Set$fromList(
 		A2(
 			$elm$core$List$filterMap,
 			function (r) {
-				var _v0 = _Utils_Tuple2(
-					A2($author$project$Doc$boxState, m, r),
-					A2($author$project$Doc$listRootOf, m, r.c));
-				if ((!_v0.a.$) && (!_v0.b.$)) {
-					var root = _v0.b.a;
-					return (A2($elm$core$Set$member, root, m.E) && A2($author$project$Doc$subtreeDone, m, r)) ? $elm$core$Maybe$Just(r.c) : $elm$core$Maybe$Nothing;
+				if (A2($author$project$Doc$isListRoot, m, r.c)) {
+					return (A2($elm$core$Set$member, r.c, m.D) && A2($author$project$Doc$subtreeDone, m, r)) ? $elm$core$Maybe$Just(r.c) : $elm$core$Maybe$Nothing;
 				} else {
-					return $elm$core$Maybe$Nothing;
+					var _v0 = _Utils_Tuple2(
+						A2($author$project$Doc$boxState, m, r),
+						A2($author$project$Doc$listRootOf, m, r.c));
+					if ((!_v0.a.$) && (!_v0.b.$)) {
+						var root = _v0.b.a;
+						return (A2($elm$core$Set$member, root, m.D) && A2($author$project$Doc$subtreeDone, m, r)) ? $elm$core$Maybe$Just(r.c) : $elm$core$Maybe$Nothing;
+					} else {
+						return $elm$core$Maybe$Nothing;
+					}
 				}
 			},
 			m.z));
@@ -10796,9 +10800,9 @@ var $author$project$Doc$update = F2(
 								fresh,
 								{
 									aG: landed,
-									E: A2(
+									D: A2(
 										$elm$core$Set$intersect,
-										model.E,
+										model.D,
 										$elm$core$Set$fromList(
 											$author$project$Doc$listRoots(fresh))),
 									O: $elm$core$Maybe$Nothing,
@@ -10887,9 +10891,9 @@ var $author$project$Doc$update = F2(
 				var next = function () {
 					if (!scoped.$) {
 						var root = scoped.a;
-						return A2($elm$core$Set$member, root, model.E) ? A2($elm$core$Set$remove, root, model.E) : A2($elm$core$Set$insert, root, model.E);
+						return A2($elm$core$Set$member, root, model.D) ? A2($elm$core$Set$remove, root, model.D) : A2($elm$core$Set$insert, root, model.D);
 					} else {
-						return $elm$core$Set$isEmpty(model.E) ? $elm$core$Set$fromList(
+						return $elm$core$Set$isEmpty(model.D) ? $elm$core$Set$fromList(
 							$author$project$Doc$listRoots(model)) : $elm$core$Set$empty;
 					}
 				}();
@@ -10907,7 +10911,7 @@ var $author$project$Doc$update = F2(
 							$author$project$Doc$snapVisible(
 								_Utils_update(
 									model,
-									{E: next}))),
+									{D: next}))),
 						word));
 			case 18:
 				var _v10 = $author$project$Doc$foldTarget(model);

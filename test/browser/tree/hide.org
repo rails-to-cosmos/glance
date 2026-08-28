@@ -20,3 +20,8 @@ A paragraph between the two lists, so the second list is its own run.
 
 - [X] epsilon, a done leaf in the second list
 - [ ] zeta, an open leaf in the second list
+
+A paragraph before the wholly-done run, so it stands on its own.
+
+- [X] iota, a done leaf whose run is wholly done
+- [X] kappa, the other done leaf of that run

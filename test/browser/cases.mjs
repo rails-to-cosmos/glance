@@ -2043,31 +2043,50 @@ export default [
                hidden: !!at && at.classList.contains("d-hidden"),
                visible: !!at && at.getClientRects().length > 0 };
     };
+    // THE RUN CONTAINERS, by the words inside them: `marked'/`visible' say
+    // whether a wholly-done run's own box vanished with its items.
+    const lists = () => [...document.querySelectorAll("#mdoc .d-comp.d-list")]
+      .map((e) => ({ text: e.textContent.trim().slice(0, 40),
+                     marked: e.classList.contains("d-hidden"),
+                     visible: e.getClientRects().length > 0 }));
     const figures = [];
 
     // --- OFF: every row stands ---------------------------------------------
     await sheet(p, base, "drv-hide");
     const before = await p.eval(read);
-    assert(before.length === 10, `the fixture drew ${before.length} items, not ten`);
+    assert(before.length === 12, `the fixture drew ${before.length} items, not twelve`);
     assert(before.every((r) => r.visible && !r.marked),
       `a row was hidden before the mode: ${JSON.stringify(before)}`);
+    assert((await p.eval(lists)).every((r) => r.visible && !r.marked),
+      "a run container was hidden before the mode");
     // --- MASTER TOGGLE from a row off every list ---------------------------
     await walkToText(p, "paragraph before", "the paragraph before the first list");
     await settled(p, "the mirror before the master toggle");
     await p.press("X");
     await p.until(someHidden, "the master toggle to hide the done rows");
     const all = await p.eval(read);
-    // The done leaves and the fully-done branch go, in BOTH lists; the open
-    // leaves and the interim over an open box stay.
-    for (const t of ["beta", "delta", "delta one", "delta two", "gamma one", "epsilon"])
+    // The done leaves and the fully-done branches go, across all three runs; the
+    // open leaves and the interim over an open box stay.
+    for (const t of ["beta", "delta", "delta one", "delta two", "gamma one",
+                     "epsilon", "iota", "kappa"])
       assert(of(all, t).marked && !of(all, t).visible,
         `${t} was not hidden by the master toggle: ${JSON.stringify(of(all, t))}`);
     for (const t of ["alpha", "gamma,", "gamma two", "zeta"])
       assert(!of(all, t).marked && of(all, t).visible,
         `${t} was hidden but must stand: ${JSON.stringify(of(all, t))}`);
+    // THE WHOLLY-DONE RUN VANISHES CONTAINER AND ALL: its `.d-list' box is gone,
+    // never present-but-empty; the partly-done runs keep theirs.
+    const onLists = await p.eval(lists);
+    const runOf = (rs, t) => rs.find((r) => r.text.includes(t)) || {};
+    assert(runOf(onLists, "iota").marked && !runOf(onLists, "iota").visible,
+      `the wholly-done run's container stood: ${JSON.stringify(runOf(onLists, "iota"))}`);
+    for (const t of ["alpha", "epsilon"])
+      assert(!runOf(onLists, t).marked && runOf(onLists, t).visible,
+        `a partly-done run's container vanished: ${JSON.stringify(runOf(onLists, t))}`);
     assert((await p.eval(dat)).visible,
       "point was left on a hidden row after the master toggle");
-    figures.push(`master on: ${all.filter((r) => r.marked).length} of 10 hidden`);
+    figures.push(`master on: ${all.filter((r) => r.marked).length} of 12 hidden, `
+      + `the wholly-done container gone`);
 
     // Again, off every list, shows them all back.
     await p.press("X");
@@ -2077,6 +2096,8 @@ export default [
     const restored = await p.eval(read);
     assert(restored.every((r) => r.visible && !r.marked),
       `a row stayed hidden after the toggle off: ${JSON.stringify(restored)}`);
+    assert((await p.eval(lists)).every((r) => r.visible && !r.marked),
+      "the wholly-done run's container stayed gone after the toggle off");
 
     // --- SCOPE: point in the first list hides that run alone ----------------
     await walkToText(p, "beta", "the done leaf in the first list");

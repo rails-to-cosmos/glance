@@ -5785,7 +5785,9 @@ sheetNotes =
          \ its marker in the ink its connector takes." [Browser]
   , Note "`X' HIDES DONE CHECKBOXES ('subtreeDone', 'hideScope'): a ticked leaf and\
          \ any interim item all of whose leaves are ticked wear `.d-hidden'\
-         \ (display:none), the walk and point stepping past them; the mode is a\
+         \ (display:none), the walk and point stepping past them; a WHOLLY-DONE run\
+         \ hides its own composite too ('subtreeDone' reads it like an interim), so\
+         \ the container vanishes rather than leaving an empty box.  The mode is a\
          \ client-side Set of run-root ids that survives a rescan -- so ticking the\
          \ last box hides its branch live -- but never the org text, and is gone on\
          \ reload.  Point inside a list scopes to that run; off every list is the\
