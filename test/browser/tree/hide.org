@@ -1,0 +1,22 @@
+#+TITLE: Hide done
+#+TODO: TODO NEXT | DONE CANCELLED
+
+* TODO Hide the done checkboxes                              :driver:hide:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-hide
+:END:
+A paragraph before the first list, which the mode never touches.
+
+- [ ] alpha, an open leaf
+- [X] beta, a done leaf
+- [-] gamma, an interim with one box still open
+  - [X] gamma one, done
+  - [ ] gamma two, open
+- [X] delta, an interim whose boxes are all done
+  - [X] delta one, done
+  - [X] delta two, done
+
+A paragraph between the two lists, so the second list is its own run.
+
+- [X] epsilon, a done leaf in the second list
+- [ ] zeta, an open leaf in the second list

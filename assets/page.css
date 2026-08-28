@@ -347,6 +347,13 @@ code {
     min-height: var(--g-doc-lh);
 }
 
+/* HIDE-DONE (X): a ticked checkbox leaf, and an interim item all of whose */
+/* leaves are ticked, are taken out of flow while the mode is on.  Elm keeps */
+/* point and the n/p walk off them, so this only stops the paint. */
+.de.d-hidden {
+    display: none;
+}
+
 /* STICKY INSIDE THE SCROLLER, so the strip holds while the rows move under it; the */
 /* negative margins reach the pane's edges.  It always names something, so no floor. */
 .dpath {

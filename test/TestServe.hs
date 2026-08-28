@@ -11738,6 +11738,10 @@ expectedRows =
        hereHelp)
   , (["C-c", "C-d"], "C-c C-d", "org-glance-overview:deadline",    Just "deadlineHere",   "modal",
        hereHelp)
+  -- DISPLAY-ONLY AND EPHEMERAL: `X' hides ticked checkboxes and fully-done
+  -- branches in the material document, live and lost on reload.
+  , (["X"],          "X",       "org-glance-material:hide-done",   Just "hideDoneHere",   "modal",
+       hideHelp)
   , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "modal",
        Just "sync the sheet now; again to overwrite a conflict")
   , (["C-c", "C-c"], "C-c C-c", "org-ctrl-c-ctrl-c",               Just "commitEdit",     "modal",
@@ -11766,6 +11770,7 @@ expectedRows =
         endHelp   = Just "last row, again = page down"
         planHelp  = Just "a date over the marked rows, or the row at point; empty clears it"
         hereHelp  = Just "a date in this row's own slot, resolved as you type; empty clears it"
+        hideHelp  = Just "hide ticked checkboxes and fully-done branches; again shows them, off a list toggles all"
         openHelp  = Just "open links: the row here, the element in the sheet; several list them"
 
 blobOf :: T.Text -> IO Value

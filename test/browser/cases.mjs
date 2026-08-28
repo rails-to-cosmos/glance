@@ -218,6 +218,42 @@ async function intoNestedItem(p, base, row) {
   await walkTo(p, ".d-item:has(> .de)", "an item with rows drawn inside it");
 }
 
+/** WALK POINT TO THE ROW WHOSE OWN LINE CARRIES TEXT.  `walkTo''s twin, keyed on
+ * the row's own `.dp'/`.ds' rather than a selector: `f' dives off a container
+ * (a headline, a list, an item with rows inside it) and `n' steps along a run,
+ * so a leaf nested two lists deep is reachable by its words alone. */
+async function walkToText(p, text, why) {
+  for (let i = 0; i < 25; i += 1) {
+    const seen = await p.eval((t) => {
+      const at = document.querySelector("#mdoc .de.dat");
+      if (!at) return { synced: false };
+      const synced = at.dataset.id === docAtNow();
+      const own = at.querySelector(":scope > .dp") || at.querySelector(":scope > .ds");
+      const inOwn = !!own && own.textContent.includes(t);
+      // A HEADLINE'S BODY IS A SIBLING, so `f' off it is unconditional; every
+      // other container is dived only when the target is somewhere inside it, so
+      // the walk never descends into the empty drawer that has none.
+      const isHead = at.matches(".d-head, .d-child");
+      const holds = (at.matches(".d-list, .d-comp")
+        || (at.matches(".d-item") && !!at.querySelector(":scope > .de")))
+        && at.textContent.includes(t);
+      return { synced, hit: synced && inOwn,
+               dive: synced && !inOwn && (isHead || holds),
+               // A COMPOSITE'S text STARTS WITH ITS FIRST CHILD'S, so the step is
+               // read off the id the mirror owns, never off the words.
+               id: at.dataset.id };
+    }, text);
+    if (seen.hit) return;
+    if (!seen.synced) { await settled(p, why); continue; }
+    await p.press(seen.dive ? "f" : "n");
+    await p.until((was) => {
+      const at = document.querySelector("#mdoc .de.dat");
+      return !!at && at.dataset.id === docAtNow() && at.dataset.id !== was;
+    }, why || `the walk to "${text}"`, undefined, seen.id);
+  }
+  assert(false, `the walk never reached "${text}"`);
+}
+
 /** The sheet over ROW with its first paragraph open for editing. */
 async function paraOpen(p, base, row) {
   await sheet(p, base, row);
@@ -1979,6 +2015,144 @@ export default [
       + `${seen.marker.length}: ${JSON.stringify(seen.value)}`);
     return [`"${seen.marker}" is ${seen.marker.length} wide, and the continuation `
       + `carries ${seen.under.length}`];
+  } },
+
+{ name: "X hides done checkboxes and the branches all of whose boxes are done",
+  async run(p, base) {
+    // `drv-hide' carries two runs: the first mixes open and done leaves with two
+    // interim items -- one still open, one fully done -- and the second is a done
+    // leaf beside an open one, so scope has two lists to tell apart.
+    //
+    // ONE READING keyed on each item's OWN line: `marked' is the class the mode
+    // stamps, `visible' the client rects an ancestor's `display:none' zeroes too.
+    const read = () => [...document.querySelectorAll("#mdoc .d-item")].map((e) => {
+      const line = e.querySelector(":scope > .dp");
+      return { text: (line || e).textContent.trim().slice(0, 30),
+               marked: e.classList.contains("d-hidden"),
+               visible: e.getClientRects().length > 0 };
+    });
+    const of = (rows, t) => rows.find((r) => r.text.includes(t)) || {};
+    const someHidden = () =>
+      [...document.querySelectorAll("#mdoc .d-item")]
+        .some((e) => e.classList.contains("d-hidden"));
+    const dat = () => {
+      const at = document.querySelector("#mdoc .de.dat");
+      const line = at && at.querySelector(":scope > .dp");
+      return { text: (line || at || {}).textContent
+                 ? (line || at).textContent.trim().slice(0, 30) : "",
+               hidden: !!at && at.classList.contains("d-hidden"),
+               visible: !!at && at.getClientRects().length > 0 };
+    };
+    const figures = [];
+
+    // --- OFF: every row stands ---------------------------------------------
+    await sheet(p, base, "drv-hide");
+    const before = await p.eval(read);
+    assert(before.length === 10, `the fixture drew ${before.length} items, not ten`);
+    assert(before.every((r) => r.visible && !r.marked),
+      `a row was hidden before the mode: ${JSON.stringify(before)}`);
+    // --- MASTER TOGGLE from a row off every list ---------------------------
+    await walkToText(p, "paragraph before", "the paragraph before the first list");
+    await settled(p, "the mirror before the master toggle");
+    await p.press("X");
+    await p.until(someHidden, "the master toggle to hide the done rows");
+    const all = await p.eval(read);
+    // The done leaves and the fully-done branch go, in BOTH lists; the open
+    // leaves and the interim over an open box stay.
+    for (const t of ["beta", "delta", "delta one", "delta two", "gamma one", "epsilon"])
+      assert(of(all, t).marked && !of(all, t).visible,
+        `${t} was not hidden by the master toggle: ${JSON.stringify(of(all, t))}`);
+    for (const t of ["alpha", "gamma,", "gamma two", "zeta"])
+      assert(!of(all, t).marked && of(all, t).visible,
+        `${t} was hidden but must stand: ${JSON.stringify(of(all, t))}`);
+    assert((await p.eval(dat)).visible,
+      "point was left on a hidden row after the master toggle");
+    figures.push(`master on: ${all.filter((r) => r.marked).length} of 10 hidden`);
+
+    // Again, off every list, shows them all back.
+    await p.press("X");
+    await p.until(() => ![...document.querySelectorAll("#mdoc .d-item")]
+                    .some((e) => e.classList.contains("d-hidden")),
+                  "the second master press to restore every row");
+    const restored = await p.eval(read);
+    assert(restored.every((r) => r.visible && !r.marked),
+      `a row stayed hidden after the toggle off: ${JSON.stringify(restored)}`);
+
+    // --- SCOPE: point in the first list hides that run alone ----------------
+    await walkToText(p, "beta", "the done leaf in the first list");
+    await settled(p, "the mirror before the scoped toggle");
+    await p.press("X");
+    await p.until(someHidden, "the scoped toggle to hide the first list's done rows");
+    const scoped = await p.eval(read);
+    assert(of(scoped, "beta").marked && of(scoped, "delta").marked,
+      "the scoped toggle missed the first list's done rows");
+    // The SECOND list is untouched: `epsilon' is done but was not in scope.
+    assert(!of(scoped, "epsilon").marked && of(scoped, "epsilon").visible,
+      `the scoped toggle reached the second list: ${JSON.stringify(of(scoped, "epsilon"))}`);
+    // POINT SAFETY: `X' hid the beta row point stood on, so point stepped off it.
+    const snapped = await p.eval(dat);
+    assert(snapped.visible && !snapped.hidden && !snapped.text.includes("beta"),
+      `point stayed on the hidden beta row: ${JSON.stringify(snapped)}`);
+    figures.push(`scoped: point snapped to "${snapped.text}"`);
+
+    // --- n/p STEP PAST THE HIDDEN SET --------------------------------------
+    // A fresh sheet, point armed ON the open alpha above the hidden beta, so the
+    // step has a deterministic start.
+    await sheet(p, base, "drv-hide");
+    await walkToText(p, "alpha", "the open leaf above the hidden beta");
+    await settled(p, "the mirror before arming the mode");
+    await p.press("X");
+    await p.until(someHidden, "the scoped mode over alpha's own run");
+    const onAlpha = await p.eval(dat);
+    assert(onAlpha.text.includes("alpha"),
+      `arming the mode moved point off alpha: ${JSON.stringify(onAlpha)}`);
+    // `n' lands on gamma, the hidden beta between them stepped over.
+    await p.press("n");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      const l = at && at.querySelector(":scope > .dp");
+      return !!at && at.dataset.id === docAtNow() && !!l
+        && l.textContent.includes("gamma,");
+    }, "`n' to skip the hidden beta and land on gamma");
+    const afterN = await p.eval(dat);
+    assert(!afterN.text.includes("beta"),
+      `n landed on the hidden beta: ${JSON.stringify(afterN)}`);
+    // `p' walks back over the same hidden beta to alpha.
+    await p.press("p");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      const l = at && at.querySelector(":scope > .dp");
+      return !!at && at.dataset.id === docAtNow() && !!l
+        && l.textContent.includes("alpha");
+    }, "`p' to skip the hidden beta on the way back to alpha");
+    figures.push(`n/p step over the hidden beta, alpha↔"${afterN.text}"`);
+
+    // --- REACTIVE: ticking the last box hides its branch live ---------------
+    // A fresh sheet drops the ephemeral mode; walk to the open box first, then
+    // turn the run's mode on while it still stands, then tick it.
+    await sheet(p, base, "drv-hide");
+    await walkToText(p, "gamma two", "the open box under gamma");
+    await settled(p, "the mirror before arming the mode");
+    await p.press("X");
+    await p.until(someHidden, "the mode on the first list to take");
+    assert(!of(await p.eval(read), "gamma,").marked,
+      "the interim gamma hid while a box under it was still open");
+    await p.press("SPC");
+    // The tick writes the box, the file round-trips, and the fill re-hides: the
+    // interim gamma now has every leaf done.
+    await p.until(() => {
+      const g = [...document.querySelectorAll("#mdoc .d-item")].find((e) => {
+        const l = e.querySelector(":scope > .dp");
+        return l && l.textContent.includes("gamma,");
+      });
+      return !!g && g.classList.contains("d-hidden");
+    }, "ticking gamma's last box to hide the branch live", 12_000);
+    const live = await p.eval(dat);
+    assert(live.visible && !live.hidden,
+      `point was left on the branch the tick hid: ${JSON.stringify(live)}`);
+    figures.push(`live tick hid gamma; point rests on "${live.text}"`);
+
+    return figures;
   } },
 
 { name: "a bullet always paints, and a run wears an unbroken spine",

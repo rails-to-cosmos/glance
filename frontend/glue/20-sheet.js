@@ -373,6 +373,25 @@
       const now = was === " " || was === "-" ? "X" : " ";
       editPara(r, r.text.replace(CHECKBOX, `$1[${now}]`), () => said(b, `[${now}]`));
     }
+    /** `X' — HIDE DONE CHECKBOXES.  A display-only, ephemeral UI mode the Elm
+     * side owns: on the row's own list run when point is inside one, across
+     * every list when it is not.  The model decides the scope and speaks the
+     * word, so this only opens the door and echoes the answer.
+     *
+     * `X' IS A CHARACTER FIRST, the way `@' is: the binding claimed the key, so
+     * while a doc field holds the keys this writes the letter and the mode
+     * stays put.  A raw sheet has no rows to hide, so it says so. */
+    function hideDoneHere(b) {
+      const box = active();
+      if (box && typeof box.selectionStart === "number") {
+        spliceIn(box, box.selectionStart, box.selectionEnd, "X");
+        box.dispatchEvent(new Event("input", { bubbles: true }));
+        return;
+      }
+      if (!editing || raw) { said(b, "no document here"); return; }
+      dwrote = (what) => said(b, what);
+      dsend({ kind: "hidedone" });
+    }
     // TAB WALKS THE RUNGS A LIST ITEM MAY SIT ON: its own, one deeper -- which
     // needs a PREVIOUS SIBLING to hang under -- and one shallower, which needs a
     // parent.  It is a toggle, so illegal rungs are skipped and the walk comes

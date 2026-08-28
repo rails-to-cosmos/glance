@@ -126,6 +126,11 @@ keyBindings =
       `helps` planningHereHelp
   , bind ["C-c", "C-d"] "org-glance-overview:deadline"    (Just "deadlineHere")   "modal"
       `helps` planningHereHelp
+  -- DISPLAY-ONLY AND EPHEMERAL: the pane hides ticked checkbox items and the
+  -- branches all of whose boxes are ticked, live and lost on reload.  On the
+  -- run at point when point is in a list, across every list when it is not.
+  , bind ["X"]          "org-glance-material:hide-done"   (Just "hideDoneHere")   "modal"
+      `helps` hideDoneHelp
   , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
       `helps` "sync the sheet now; again to overwrite a conflict"
   , bind ["C-c", "C-c"] "org-ctrl-c-ctrl-c"               (Just "commitEdit")     "modal"
@@ -166,6 +171,9 @@ planningHelp = "a date over the marked rows, or the row at point; empty clears i
 
 planningHereHelp :: Text
 planningHereHelp = "a date in this row's own slot, resolved as you type; empty clears it"
+
+hideDoneHelp :: Text
+hideDoneHelp = "hide ticked checkboxes and fully-done branches; again shows them, off a list toggles all"
 
 priorityHelp :: Text
 priorityHelp = "cycle the priority of the marked rows, or the row at point"

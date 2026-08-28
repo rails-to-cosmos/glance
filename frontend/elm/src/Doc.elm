@@ -103,6 +103,13 @@ type alias Model =
 
     -- The FOLDED composites, by id; every drawer starts here.
     , shut : Set String
+
+    -- THE LIST RUNS HIDING THEIR DONE CHECKBOXES, by the id of each run's own
+    -- OUTERMOST list composite.  Display-only and ephemeral: it never edits the
+    -- org text, and a reload starts it empty.  A run in the set hides every
+    -- checkbox leaf that is ticked and every interim item all of whose leaves
+    -- are (`hiddenDone`); it is INDEPENDENT of `.focus`.
+    , hideDone : Set String
     }
 
 
@@ -127,6 +134,7 @@ empty =
     , draftPair = False
     , draftPlan = Nothing
     , shut = Set.empty
+    , hideDone = Set.empty
     }
 
 
@@ -153,6 +161,11 @@ step by m =
                 n =
                     List.length m.rows
 
+                -- WHAT THE HIDE-DONE MODE TOOK OUT is never a stop: `n'/`p' step
+                -- over a hidden checkbox the way they step over a folded subtree.
+                gone =
+                    hiddenDone m
+
                 -- ONE SCAN, THREE COHORTS: from a CHILD headline the walk is
                 -- every visible headline in document order, org's own
                 -- next-visible-heading, a folded subtree skipped whole; from
@@ -164,7 +177,7 @@ step by m =
                 -- though headlines walking up still land on it.  Contents
                 -- are otherwise behind `f'/`b'.  The hidden fold is the
                 -- headline walk's own cost, paid only on its branches.
-                fits =
+                cohort =
                     if cur.kind == Child then
                         let
                             hidden =
@@ -193,6 +206,9 @@ step by m =
 
                     else
                         \r -> r.owner == cur.owner
+
+                fits r =
+                    cohort r && not (Set.member r.id gone)
 
                 scan i =
                     if i < 0 || i >= n then
@@ -494,6 +510,7 @@ type Msg
     | DraftPlan String
     | UndraftPlan String
     | Tab
+    | HideDone
     | Shift Int
     | AddProp String String
     | SetMeta (List ( String, String )) (List ( String, String ))
@@ -539,18 +556,27 @@ update msg model =
             in
             told
                 (reveal
-                    { fresh
-                        | at = landed
-                        , landing = Nothing
+                    (snapVisible
+                        { fresh
+                            | at = landed
+                            , landing = Nothing
 
-                        -- WHAT THE READER FOLDED OR OPENED STAYS SO across the
-                        -- rescan: the old answer where the id is known, the
-                        -- default -- a drawer folded, a child open -- where new.
-                        , shut =
-                            Set.union
-                                (Set.intersect model.shut (foldables fresh))
-                                (Set.diff fresh.shut (foldables model))
-                    }
+                            -- WHAT THE READER FOLDED OR OPENED STAYS SO across the
+                            -- rescan: the old answer where the id is known, the
+                            -- default -- a drawer folded, a child open -- where new.
+                            , shut =
+                                Set.union
+                                    (Set.intersect model.shut (foldables fresh))
+                                    (Set.diff fresh.shut (foldables model))
+
+                            -- THE HIDE-DONE MODE SURVIVES THE RESCAN so a box
+                            -- ticked while it is on hides its branch live; a run
+                            -- whose id the reparse dropped falls out of the set.
+                            , hideDone =
+                                Set.intersect model.hideDone
+                                    (Set.fromList (listRoots fresh))
+                        }
+                    )
                 )
 
         Select id ->
@@ -588,6 +614,59 @@ update msg model =
 
         ClearFlags ->
             told { model | flags = [] }
+
+        HideDone ->
+            let
+                -- POINT IN A CHECKBOX LIST scopes to that run's own root; off
+                -- every list it is the master toggle across all of them.
+                scoped =
+                    case rowAt model of
+                        Just r ->
+                            if isListRoot model r.id then
+                                Just r.id
+
+                            else
+                                listRootOf model r.id
+
+                        Nothing ->
+                            Nothing
+
+                next =
+                    case scoped of
+                        Just root ->
+                            if Set.member root model.hideDone then
+                                Set.remove root model.hideDone
+
+                            else
+                                Set.insert root model.hideDone
+
+                        Nothing ->
+                            -- ANY ON TURNS ALL OFF; else ALL ON.
+                            if Set.isEmpty model.hideDone then
+                                Set.fromList (listRoots model)
+
+                            else
+                                Set.empty
+
+                word =
+                    case scoped of
+                        Just root ->
+                            if Set.member root next then
+                                "hide-done (this list)"
+
+                            else
+                                "hide-done (this list off)"
+
+                        Nothing ->
+                            if Set.isEmpty next then
+                                "hide-done (all lists off)"
+
+                            else
+                                "hide-done (all lists)"
+            in
+            -- POINT SAFETY: snap off a row this made invisible, then open any
+            -- fold that holds where it landed.
+            spoke ( reveal (snapVisible { model | hideDone = next }), word )
 
         Tab ->
             case foldTarget model of
@@ -1616,6 +1695,11 @@ msgD =
                     "tab" ->
                         D.succeed Tab
 
+                    -- No id: the row at point names the run, or its absence the
+                    -- master toggle across every list -- the model's to decide.
+                    "hidedone" ->
+                        D.succeed HideDone
+
                     -- The DIRECTION and nothing else: which row it moves, and
                     -- whether it may, is the model's to say.
                     "shift" ->
@@ -1666,7 +1750,7 @@ rung depth =
 attribute — see `rung`.
 -}
 type alias Lit =
-    { ups : List String, sib : Maybe String, owned : Set String }
+    { ups : List String, sib : Maybe String, owned : Set String, done : Set String }
 
 
 {-| Point's owners, its owner, and the ids owning anything, computed ONCE per
@@ -1678,6 +1762,7 @@ litOf m =
     { ups = ownersOf m (idAtRow m m.at)
     , sib = Maybe.andThen .owner (rowAt m)
     , owned = Set.fromList (List.filterMap .owner m.rows)
+    , done = hiddenDone m
     }
 
 
@@ -1796,6 +1881,14 @@ rowClass lit m i r top =
         ++ (if r.id == tailId then
                 -- The empty line keeps a LINE's height, or nothing shows.
                 " d-tail"
+
+            else
+                ""
+           )
+        ++ (if Set.member r.id lit.done then
+                -- A DONE CHECKBOX HIDDEN by the hide-done mode; the stylesheet
+                -- takes it out of flow, the walk already steps past it.
+                " d-hidden"
 
             else
                 ""
@@ -2143,6 +2236,168 @@ boxLen rest =
 
     else
         0
+
+
+{-| The checkbox a leaf item wears, read the way `viewPara' draws it: `Just True`
+for a ticked box, `Just False` for an empty or partial one, `Nothing` when the
+row is no checkbox item at all.  The one reading the hide-done mode is built on.
+-}
+boxState : Model -> Row -> Maybe Bool
+boxState m r =
+    let
+        op =
+            openerAt m r
+
+        line =
+            lineOf m r
+
+        opened =
+            openedLen op
+
+        k =
+            markerOf op line
+
+        box =
+            String.slice opened k line
+    in
+    if k <= opened || String.isEmpty (String.trim box) then
+        Nothing
+
+    else
+        Just (String.contains "X" box || String.contains "x" box)
+
+
+{-| Is ID the OUTERMOST composite of a list run -- the root a hide-done toggle
+keys on?  Nested sublists carry no composite of their own, so a run has exactly
+one.
+-}
+isListRoot : Model -> String -> Bool
+isListRoot m id =
+    case rowById m id of
+        Just r ->
+            r.grain == Composite && r.name == Just "list"
+
+        Nothing ->
+            False
+
+
+{-| Every list run's root id, for the master toggle.
+-}
+listRoots : Model -> List String
+listRoots m =
+    List.filterMap
+        (\r ->
+            if isListRoot m r.id then
+                Just r.id
+
+            else
+                Nothing
+        )
+        m.rows
+
+
+{-| The list run ID sits in, by its OUTERMOST composite; nothing when ID is no
+list item.  A run holds one composite, so the owner walk meets it at most once.
+-}
+listRootOf : Model -> String -> Maybe String
+listRootOf m id =
+    List.head (List.filter (isListRoot m) (ownersOf m id))
+
+
+{-| The checkbox items a row OWNS directly -- a run's top items under its
+composite, an interim item's nested ones under it.
+-}
+checkKids : Model -> String -> List Row
+checkKids m id =
+    List.filter (\r -> r.owner == Just id && boxState m r /= Nothing) m.rows
+
+
+{-| Is R's whole checkbox subtree done?  A LEAF is done when it is ticked; an
+INTERIM item when every descendant leaf is -- so an item with one empty box
+anywhere under it stays visible, and it and its ancestors with it.
+-}
+subtreeDone : Model -> Row -> Bool
+subtreeDone m r =
+    case checkKids m r.id of
+        [] ->
+            boxState m r == Just True
+
+        kids ->
+            List.all (subtreeDone m) kids
+
+
+{-| The rows a hide-done run hides: every checkbox item whose subtree is done,
+under a run the reader turned the mode on for.  Empty when no run is on, so the
+render pays for it only in the mode.
+-}
+hiddenDone : Model -> Set String
+hiddenDone m =
+    if Set.isEmpty m.hideDone then
+        Set.empty
+
+    else
+        Set.fromList
+            (List.filterMap
+                (\r ->
+                    case ( boxState m r, listRootOf m r.id ) of
+                        ( Just _, Just root ) ->
+                            if Set.member root m.hideDone && subtreeDone m r then
+                                Just r.id
+
+                            else
+                                Nothing
+
+                        _ ->
+                            Nothing
+                )
+                m.rows
+            )
+
+
+{-| POINT IS NEVER LEFT ON A HIDDEN ROW: after a recompute, a point that a
+hide-done run just swallowed steps to the nearest visible row -- the next one,
+else the previous -- past both the mode's hidden set and any folded away.
+-}
+snapVisible : Model -> Model
+snapVisible m =
+    let
+        hidden =
+            Set.union (hiddenDone m) (hiddenIn m)
+
+        n =
+            List.length m.rows
+
+        visibleAt i =
+            case nth i m.rows of
+                Just r ->
+                    not (Set.member r.id hidden)
+
+                Nothing ->
+                    False
+
+        seek by i =
+            if i < 0 || i >= n then
+                -1
+
+            else if visibleAt i then
+                i
+
+            else
+                seek by (i + by)
+
+        -- PREFER THE NEXT visible row, then the previous.
+        landing =
+            if seek 1 m.at >= 0 then
+                seek 1 m.at
+
+            else
+                seek -1 m.at
+    in
+    if Set.member (idAtRow m m.at) hidden && landing >= 0 then
+        { m | at = landing }
+
+    else
+        m
 
 
 viewCells : Model -> Row -> List (Html Msg)

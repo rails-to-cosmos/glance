@@ -195,6 +195,9 @@
       // marked rows and a prompt.  One command, two handlers -- `@''s split.
       scheduleHere: (b) => planHere(b, "SCHEDULED"),
       deadlineHere: (b) => planHere(b, "DEADLINE"),
+      // `X' HIDES DONE CHECKBOXES over the material document, a display-only
+      // mode the Elm pane owns; scoped to the run at point or every list.
+      hideDoneHere: (b) => hideDoneHere(b),
       // THE THREE THE WINDOW OWNS, and the only rows in the `window' scope: the
       // level is the page's to keep and the window's to wear.
       textScaleIncrease: (b) => said(b, `${zoomedBy(1)}%`),

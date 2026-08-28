@@ -4749,6 +4749,37 @@ flipBox BoxPartial = BoxX
 boxes :: [String]
 boxes = ["[ ]", "[X]", "[x]", "[-]"]
 
+-- | `X' (Shift-x) HIDES DONE CHECKBOXES in the material doc: a display-only,
+--   ephemeral UI mode (never an org edit, lost on reload) INDEPENDENT of the
+--   `.focus' dim.  A LEAF -- a checkbox item owning no checkbox sublist -- is
+--   hidden iff its box is ticked; an INTERIM item -- one that does own such a
+--   sublist -- iff EVERY descendant leaf is, so one empty box anywhere keeps it
+--   and every ancestor up to the run's root visible.  Non-checkbox content is
+--   never hidden.  The set of hidden rows is a pure post-order over the owner
+--   tree, so a box ticked while the mode is on hides its subtree live and
+--   unticking re-shows it; point snaps off a swallowed row (next, else prev)
+--   and `n'/`p' step past the set.
+data Item = ILeaf CheckBox | IInterim [Item]
+
+boxDone :: CheckBox -> Bool
+boxDone BoxX       = True
+boxDone BoxLower   = True
+boxDone BoxEmpty   = False
+boxDone BoxPartial = False
+
+subtreeDone :: Item -> Bool
+subtreeDone (ILeaf b)     = boxDone b
+subtreeDone (IInterim ks) = all subtreeDone ks
+
+data HideScope = ThisRun | AllRuns deriving (Eq, Show)
+-- | `X' keys on the run's OUTERMOST list composite: point inside a list scopes
+--   to that run alone (a nested sublist carries no composite of its own, so the
+--   owner walk meets exactly one).  Point off every list is the MASTER toggle --
+--   any run on turns them all off, none on turns them all on.
+hideScope :: Bool -> HideScope
+hideScope True  = ThisRun
+hideScope False = AllRuns
+
 -- | `drawText' walks the segments in order and SILENTLY DROPS a link opening inside the
 --   previous one.  SPAN-driven, never search-driven; the shown text is the server's
 --   `desc' verbatim and the range its `span'.
@@ -5752,6 +5783,13 @@ sheetNotes =
          \ at, so the marker runs the indent, the bullet and the box with its gap --\
          \ `.dm' over the first two and `.dbx' over the box.  What point CARRIES wears\
          \ its marker in the ink its connector takes." [Browser]
+  , Note "`X' HIDES DONE CHECKBOXES ('subtreeDone', 'hideScope'): a ticked leaf and\
+         \ any interim item all of whose leaves are ticked wear `.d-hidden'\
+         \ (display:none), the walk and point stepping past them; the mode is a\
+         \ client-side Set of run-root ids that survives a rescan -- so ticking the\
+         \ last box hides its branch live -- but never the org text, and is gone on\
+         \ reload.  Point inside a list scopes to that run; off every list is the\
+         \ master toggle.  INDEPENDENT of `.focus'." [Browser]
   , Note "THE MARKER ORG WROTE IS THE MARKER: a headline under point draws no connector,\
          \ its stars sitting in the column one would use, and an item keeps whatever org\
          \ wrote -- `-', `+', `*', `1.', `1)'.  Every one of them reads over point's\
