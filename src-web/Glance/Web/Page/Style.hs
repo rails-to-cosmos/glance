@@ -68,7 +68,7 @@ page head' colours title body = T.unlines
   , "  p{margin:0;max-width:70ch}"
   , "  code{font-size:12px;color:var(--g-mute)}"
   , "  #app{flex:1 1 auto;min-height:0}"
-  , "  #app .tv-root{font-family:var(--glance-mono)}"
+  , "  #app .tv-root{font-family:var(--glance-mono);height:100%}"
   , "  #app,#log{width:100%;box-sizing:border-box}"
   , "  #log{font-size:12px;color:var(--g-mute);padding:6px 10px;"
   , "    border:1px solid var(--g-border);border-radius:8px;"
@@ -552,4 +552,3 @@ themeBoot = T.concat
       [ "var v=localStorage.getItem(\"", key, "\");"
       , "if(", T.intercalate "||" [ "v===\"" <> name <> "\"" | name <- ids ]
       , ")document.documentElement.dataset.", prop, "=v;" ]
-
