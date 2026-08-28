@@ -29,6 +29,8 @@ extra-source-files:
     CHANGELOG.md
     -- The renderer glance-web compiles in; vendored by `make sync-renderer'.
     assets/table-view.js
+    -- The shell's stylesheet, embedded by `Glance.Web.Page.Style'.
+    assets/page.css
     -- And the shell, one widget per file, in `Glance.Web.Base.gluePartFiles' order.
     frontend/glue/*.js
     -- The Elm programs, compiled to one file by `make elm'.

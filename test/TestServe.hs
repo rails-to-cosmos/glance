@@ -55,7 +55,8 @@ import Glance.Query ( ConfigSetting (csName), QueryResult (qrRecords)
                     , trashPathFor, viewJSON )
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
-import Glance.Web.Page.Popups (Popup (..), Tier (..), popups, tierClass)
+import Glance.Web.Page.Popups ( Popup (..), Tier (..), popups, tierClass
+                              , boxes, chromeBoxes, chromeFeet, chromeHeads, veiled, washed )
 import Glance.Web.Base (gluePartFiles, today)
 import Glance.Web.Commands (commandNames)
 import Glance.Web.Theme (Theme (..), themes)
@@ -411,6 +412,49 @@ between open close haystack
   | otherwise    = Just inner
   where (_before, after) = T.breakOn open haystack
         (inner, rest)    = T.breakOn close (T.drop (T.length open) after)
+
+-- | CSS the tests can match however it is laid out: cosmetic whitespace collapsed
+--   (runs to one space, spaces next to @{ } : ; ,@ dropped) and a @;@ before @}@
+--   read as none, so a rule compares equal minified or pretty-printed.  The page
+--   renders identically either way, so a value or a rule is what is checked, never
+--   a byte of layout.
+nz :: T.Text -> T.Text
+nz = T.strip . T.replace ";}" "}" . stripPunct . T.unwords . T.words
+  where
+    stripPunct t = foldl clip t ("{};:," :: String)
+    clip acc c = T.replace (T.pack [' ', c]) (T.singleton c)
+               $ T.replace (T.pack [c, ' ']) (T.singleton c) acc
+
+-- | The page CSS-normalized with one rule per line, so a rule START anchors at a
+--   line (what a leading indent marked before the file was pretty-printed).
+nzp :: T.Text -> T.Text
+nzp = T.replace "}" "}\n" . nz
+
+-- | NEEDLE is in PAGE, ignoring cosmetic CSS whitespace.
+hasCss :: T.Text -> T.Text -> Bool
+hasCss needle page = nz needle `T.isInfixOf` nz page
+
+-- | 'assertContains' that ignores cosmetic CSS whitespace.
+assertContainsCss :: String -> T.Text -> T.Text -> Assertion
+assertContainsCss what needle page =
+  assertBool (what <> ": missing " <> show needle) (hasCss needle page)
+
+-- | 'holdsAll' that falls back to CSS-normalized matching, so a reformatted
+--   stylesheet still answers a needle it carries verbatim in meaning.  RAW first,
+--   so no JS\/HTML\/JSON needle is loosened.
+holdsAllCss :: String -> [T.Text] -> T.Text -> Assertion
+holdsAllCss what needles page =
+  let np = nz page
+  in mapM_ (\n -> assertBool (what <> ": missing " <> show n)
+                    (n `T.isInfixOf` page || nz n `T.isInfixOf` np)) needles
+
+-- | The declaration body of the top-level rule whose selector list is exactly SEL,
+--   read off NRP (the one-rule-per-line normal form from 'nzp'), or Nothing.
+ruleLine :: T.Text -> T.Text -> Maybe T.Text
+ruleLine sel nrp =
+  listToMaybe [ T.dropWhileEnd (== '}') rest
+              | l <- T.lines nrp
+              , Just rest <- [T.stripPrefix (nz sel <> "{") l] ]
 
 -- | THE FIXTURE THE WHOLE SUITE BOOTS OUT OF, acquired once: the page PLUS the
 -- script it names, so a text sweep reads one universe, and on disk the five
@@ -6287,12 +6331,30 @@ glueSpec shell = testGroup "Shell glue"
   ([ testCase glLabel $ do
        -- The fixture is page-plus-script, one universe, so a row may pin either side.
        b <- shell
-       holdsAll glLabel glHas b
+       holdsAllCss glLabel glHas b
        holdsNone glLabel glGone b
    | Glue{..} <- shellGlue ]
    <> [ groundSweep shell, tierSweep shell, gridSweep shell, editIndentSweep shell
       , scrollSweep shell, containSweep shell, logColumnSweep shell
-      , paletteSweep shell ])
+      , paletteSweep shell, popupSelectorSweep shell ])
+
+-- | THE STYLESHEET CANNOT FORK FROM THE REGISTRY: @assets\/page.css@ splices its
+-- aggregate selectors from 'Glance.Web.Page.Popups' at build time, so the served
+-- page must carry each list's expansion verbatim.  Read off the registry, not
+-- copied, so a surface added to 'popups' is swept here by itself.
+popupSelectorSweep :: IO T.Text -> TestTree
+popupSelectorSweep shell = testCase "the stylesheet's aggregate selectors are the Popups registry's" $ do
+  page <- shell
+  mapM_ (\(what, sel) -> assertContains (what <> " expansion is in the page") sel page)
+    [ ("veiled", veiled)
+    , ("veiled-on", T.intercalate "," (map (<> ".on") (T.splitOn "," veiled)))
+    , ("boxes", boxes)
+    , ("chrome boxes", chromeBoxes)
+    , ("chrome heads", chromeHeads)
+    , ("chrome feet", chromeFeet)
+    , ("washed", washed)
+    , ("washed-stale", T.intercalate "," (map ("html.stale " <>) (T.splitOn "," washed)))
+    ]
 
 -- | WHAT A SWEEP READS OUT OF THE SERVED PAGE, or the case fails naming what it wanted.
 need :: String -> Maybe a -> IO a
@@ -6306,11 +6368,13 @@ paraIndent = "  .d-para,.d-comp,.d-meta{margin:7px 0;"
 editIndentSweep :: IO T.Text -> TestTree
 editIndentSweep shell = testCase "the paragraph's edit box is the block it covers" $ do
   page <- shell
-  para <- need "the paragraph's indent"
-               (between (paraIndent <> "\n    padding-left:") "}" page)
-  box <- need "the edit box's rule" (between "  #dpara textarea{" "}" page)
+  let np = nzp page
+  paraBody <- need "the paragraph's rule" (ruleLine ".d-para,.d-comp,.d-meta" np)
+  let para = T.drop (T.length ("padding-left:" :: T.Text))
+                    (snd (T.breakOn "padding-left:" paraBody))
+  box <- need "the edit box's rule" (ruleLine "#dpara textarea" np)
   assertBool ("the box is indented by what the block is: " <> T.unpack box)
-             (("padding-left:" <> para) `T.isInfixOf` box)
+             (nz ("padding-left:" <> para) `T.isInfixOf` box)
   assertBool ("the box takes the block's type: " <> T.unpack box)
              ("font:inherit" `T.isInfixOf` box)
   assertBool ("the box takes the grid inset: " <> T.unpack box)
@@ -6325,23 +6389,23 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
                   , n `T.isInfixOf` box ]
   -- REGISTRATION: the overlay is positioned against the pane's PADDING box while the text it covers sits in the CONTENT box.
   -- The pair's box takes the same fallback: both are laid over a whole row.
-  span' <- need "the paragraph overlay's span" (between "  #dpara,#dpair{" "}" page)
+  span' <- need "the paragraph overlay's span" (ruleLine "#dpara,#dpair" np)
   assertEqual "the paragraph overlay spans the pane's content box"
-              "left:var(--g-doc-padx);right:var(--g-doc-padx)" span'
+              (nz "left:var(--g-doc-padx);right:var(--g-doc-padx)") span'
   -- AND THE EDIT IS INLINE: what grows is the BLOCK, and the cap is spelled in the shell and nowhere else.
-  block <- need "the block's floor" (between "  .de.dat{" "}" page)
+  block <- need "the block's floor" (ruleLine ".de.dat" np)
   assertBool ("the block's floor is the line count it was handed: " <> T.unpack block)
-             ("min-height:calc(var(--g-doc-rows, 0)" `T.isInfixOf` block)
+             (nz "min-height:calc(var(--g-doc-rows, 0)" `T.isInfixOf` block)
   assertEqual "a metric the floor restates instead of reading" []
               [ n | n <- ["13px", "1.5 "], n `T.isInfixOf` block ]
   assertBool "the pane's inset is one name, read by both"
-             ("padding:var(--g-doc-pady) var(--g-doc-padx)" `T.isInfixOf` page)
+             (hasCss "padding:var(--g-doc-pady) var(--g-doc-padx)" page)
   assertBool "the placement takes the pane's border and scroll back out"
              (") - b.top - pane.clientTop + pane.scrollTop" `T.isInfixOf` page)
   -- FOCUS DRAWS NO LINE: the document's box is read as text and must not grow one.
   focus <- need "the box's focus rule"
-                (between ("  #dpara textarea:focus,#dtin:focus,#dpair input:focus,"
-                            <> "#ddate input:focus{") "}" page)
+                (ruleLine ("#dpara textarea:focus,#dtin:focus,#dpair input:focus,"
+                            <> "#ddate input:focus") np)
   assertEqual "a line the document box would grow on focus" []
               [ n | n <- ["border-bottom-color", "border-bottom:"], n `T.isInfixOf` focus ]
   -- THE GROUND IS THE SIGNAL, and one the block is not already wearing.  THE DATE
@@ -6349,12 +6413,12 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
   -- `--g-sel' is spent on both that row's wash and every field's text selection,
   -- so a widget with no ground of its own would select its entry in exactly the
   -- colour already behind it.
-  ground <- need "the box's ground" (between "  #dpara,#dpair,#ddate,#dtitle{" "}" page)
+  ground <- need "the box's ground" (ruleLine "#dpara,#dpair,#ddate,#dtitle" np)
   assertEqual "the edit ground is the page's input surface"
-              "background:var(--g-surface)" ground
+              (nz "background:var(--g-surface)") ground
   -- …and the row lifts its own wash while one stands, so the two golds are never
   -- on one line.
-  assertContains "the row at point drops its wash under an open widget"
+  assertContainsCss "the row at point drops its wash under an open widget"
     "  #mdoc.on.tight .de.dat{background-color:transparent}" page
 
 -- | THE LOG'S SEVERITY AND SCOPE ARE COLUMNS, derived off the page's OWN @append@ calls rather than copied.
@@ -6374,7 +6438,7 @@ logColumnSweep shell = testCase "the log's severity and scope are columns" $ do
               5 (widest (map snd calls))
   assertEqual "and the scope column as wide as the longest scope"
               6 (widest (map fst calls))
-  mapM_ (\needle -> assertContains "the column is declared" needle page)
+  mapM_ (\needle -> assertContainsCss "the column is declared" needle page)
     [ "  #log .lv,#log .lc{display:inline-block}"
     , "  #log .lv{width:5ch}", "  #log .lc{width:6ch}" ]
 
@@ -6390,10 +6454,10 @@ scrollSweep shell = testCase "the one scrollIntoView is the document's own" $ do
     "        row.scrollIntoView({ block });" page
   -- THE BAND IS CSS WHERE THE ASK IS `nearest', which is the fallback and the
   -- climb; `C-l''s top and bottom rungs read the same margin off the row.
-  assertContains "the band rides the elements" "  .de{scroll-margin-block:var(--g-doc-off);" page
-  assertContains "three of the pane's lines"
+  assertContainsCss "the band rides the elements" "  .de{scroll-margin-block:var(--g-doc-off);" page
+  assertContainsCss "three of the pane's lines"
     "    --g-doc-off:calc(3 * var(--g-doc-lh));" page
-  assertContains "and the pane is set in those same two"
+  assertContainsCss "and the pane is set in those same two"
     "    font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);" page
 
 -- | A POPUP CLAMPS AT ITS BOUND AND SCROLLS INSIDE IT, and the CHAIN is what a stray declaration breaks silently.
@@ -6401,12 +6465,13 @@ scrollSweep shell = testCase "the one scrollIntoView is the document's own" $ do
 containSweep :: IO T.Text -> TestTree
 containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
   page <- shell
+  let np = nzp page
   -- THE BOUND IS CAPPED: 90vh is the ceiling whatever the arithmetic works out to.
-  assertContains "the bound caps at 90vh"
+  assertContainsCss "the bound caps at 90vh"
     "    --g-pop-max:min(90vh," page
   -- RULE-SCOPED and asserted first: a flat `isInfixOf' cannot say which rule answered, and EVERY rule the selector appears in is read.
   let swept = [ (sel, bodies) | (sel, _decls) <- clamps
-              , let bodies = rulesIn sel page, not (null bodies) ]
+              , let bodies = rulesIn sel np, not (null bodies) ]
   assertEqual "the sweep found a rule for every selector it names"
               (map fst clamps) (map fst swept)
   mapM_ (\((sel, decls), (_sel, bodies)) ->
@@ -6417,10 +6482,10 @@ containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
                  decls)
         (zip clamps swept)
   assertEqual "a floor under the working box, whose height is fixed" []
-              [ line | line <- T.lines page, ".pop-sheet{" `T.isInfixOf` line
+              [ line | line <- T.lines np, ".pop-sheet{" `T.isInfixOf` line
                      , "min-height" `T.isInfixOf` line ]
   assertEqual "and no pane declares a viewport floor at all" []
-    [ line | line <- T.lines page
+    [ line | line <- T.lines np
            , any (`T.isInfixOf` line) ["#mtext{", "#mdoc{", "#mpanes{"]
            , "min-height:" `T.isInfixOf` line
            , not ("min-height:0" `T.isInfixOf` line) ]
@@ -6442,13 +6507,14 @@ containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
 gridSweep :: IO T.Text -> TestTree
 gridSweep shell = testCase "the star gutter and the body indent are one arithmetic" $ do
   page <- shell
-  gutter <- need "the head's star gutter" (between "  .d-head .ds{width:calc(" ")}" page)
-  para <- need "the paragraph's indent" (between paraIndent "}" page)
-  base <- need "the document's base padding" (between "--g-doc-pad:" ";" page)
+  let np = nzp page
+  gutter <- need "the head's star gutter" (between (nz "  .d-head .ds{width:calc(") ")}" np)
+  para <- need "the paragraph's indent" (between (nz paraIndent) "}" np)
+  base <- need "the document's base padding" (between "--g-doc-pad:" ";" np)
   assertEqual "the paragraph is padded by the base plus the gutter"
-              ("padding-left:calc(var(--g-doc-pad) + " <> gutter <> ")")
-              (T.strip (T.replace "\n" "" (T.replace "  " "" para)))
-  assertContains "the base is the element's own inset"
+              (nz ("padding-left:calc(var(--g-doc-pad) + " <> gutter <> ")"))
+              para
+  assertContainsCss "the base is the element's own inset"
                  "    padding:1px var(--g-doc-pad);" page
   assertBool ("the base is a length: " <> T.unpack base) (not (T.null base))
 
@@ -6507,17 +6573,18 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
 tierSweep :: IO T.Text -> TestTree
 tierSweep shell = testCase "every popup wears one size tier, and declares none" $ do
   page <- shell
+  let np = nzp page
   mapM_ (\(box, tier) ->
            assertContains "the box wears its tier"
                           ("id=\"" <> box <> "\" class=\"" <> tier <> "\"") page)
         tiers
-  mapM_ (\tier -> assertContains "the tier is defined" ("." <> tier <> "{") page)
+  mapM_ (\tier -> assertContainsCss "the tier is defined" ("." <> tier <> "{") page)
         (nub (map snd tiers))
   assertEqual "no tier beyond the two the list names" []
               [ t | t <- ["pop-wide", "pop-fullscreen", "pop-compact", "pop-eighty"]
-                  , ("." <> t <> "{") `T.isInfixOf` page ]
+                  , ("." <> t <> "{") `T.isInfixOf` np ]
   -- WHAT IT SWEPT IS ASSERTED FIRST: a box with no rule to read is a failure rather than a silent pass.
-  let swept = [ (box, body) | (box, _tier) <- tiers, Just body <- [ruleIn ("#" <> box) page] ]
+  let swept = [ (box, body) | (box, _tier) <- tiers, Just body <- [ruleIn ("#" <> box) np] ]
   assertEqual "the sweep found a rule for every box it names"
               (map fst tiers) (map fst swept)
   assertEqual "a box that declares its own size" []
@@ -6526,22 +6593,22 @@ tierSweep shell = testCase "every popup wears one size tier, and declares none" 
               , prop <- ["width:", "height:"]
               , prop `T.isInfixOf` body ]
   -- ONE TOP LINE, and every backdrop reads it, so growth is downward and no box runs off the bottom.
-  assertContains "the anchor is declared once" "--g-pop-top:5vh;" page
-  assertContains "and what it leaves is derived from it"
+  assertContainsCss "the anchor is declared once" "--g-pop-top:5vh;" page
+  assertContainsCss "and what it leaves is derived from it"
                  "--g-pop-max:min(90vh," page
   -- SYMMETRIC: the foot margin is the head's, derived from the anchor rather than spelled as a second figure.
-  assertContains "and the bound is the anchor twice over"
+  assertContainsCss "and the bound is the anchor twice over"
                  "calc(100vh - 2 * var(--g-pop-top))" page
   assertEqual "no second figure under the box" []
               [ n | n <- ["100vh - var(--g-pop-top) - var(--g-pop-pad)"]
-                  , n `T.isInfixOf` page ]
-  assertContains "every backdrop anchors its top, and none centres"
+                  , nz n `T.isInfixOf` np ]
+  assertContainsCss "every backdrop anchors its top, and none centres"
                  "padding-top:var(--g-pop-top);" page
   assertEqual "a backdrop that centres, or anchors at a line of its own" []
               [ n | n <- ["align-items:center;justify-content:center"
                         , "padding-top:15vh", "padding-top:12vh", "padding-top:8vh" ]
-                  , n `T.isInfixOf` page ]
-  mapM_ (\needle -> assertContains "a tier bounded by the anchor's room" needle page)
+                  , nz n `T.isInfixOf` np ]
+  mapM_ (\needle -> assertContainsCss "a tier bounded by the anchor's room" needle page)
         [ ".pop-band{width:min(560px,100%);max-height:var(--g-pop-max)}"
         , ".pop-sheet{width:min(80vw,100%);height:var(--g-pop-max)}" ]
   where
@@ -6554,8 +6621,9 @@ tierSweep shell = testCase "every popup wears one size tier, and declares none" 
 groundSweep :: IO T.Text -> TestTree
 groundSweep shell = testCase "the cursor grounds its own line, a flag marks it, and neither draws a line" $ do
   page <- shell
+  let np = nzp page
   -- EVERY SELECTION IS A GROUND: no underline, outline or border on either.
-  let bodies = [ (sel, body) | sel <- selectors, Just body <- [ruleIn sel page] ]
+  let bodies = [ (sel, body) | sel <- selectors, Just body <- [ruleIn sel np] ]
   mapM_ (\(sel, body) ->
            mapM_ (\decl -> assertBool
                     (T.unpack sel <> " draws a " <> T.unpack decl <> ": " <> T.unpack body)
@@ -6565,25 +6633,25 @@ groundSweep shell = testCase "the cursor grounds its own line, a flag marks it, 
   -- A FLAG CARRIES NO GROUND, its mark being the branch it takes.
   mapM_ (\body -> assertBool ("the flag grounds its row: " <> T.unpack body)
                             (not ("background" `T.isInfixOf` body)))
-        [ body | Just body <- [ruleIn ".de.dfl" page] ]
+        [ body | Just body <- [ruleIn ".de.dfl" np] ]
   -- THE CURSOR GROUNDS ITS OWN LINE, and a row drawn INSIDE it takes the page's back:
   -- a nested item is drawn inside its parent, so the ground would run the subtree.
-  cursor <- need "cursor ground" (ruleIn "#mdoc.on .de.dat" page)
+  cursor <- need "cursor ground" (ruleIn "#mdoc.on .de.dat" np)
   assertBool ("the cursor grounds " <> T.unpack cursor)
              ("background-color:var(--g-sel)" `T.isInfixOf` cursor)
   kid <- maybe (assertFailure "nothing gives the page's ground back to a nested row") pure
-               (ruleIn "#mdoc.on .de.dat:not(.d-comp) .de" page)
+               (ruleIn "#mdoc.on .de.dat:not(.d-comp) .de" np)
   assertBool ("a row inside point grounds " <> T.unpack kid)
              ("background-color:var(--g-bg)" `T.isInfixOf` kid)
   -- THE MARK IS THE ROW'S OWN COLUMN: thin over what the row carries, bold over the
   -- line it owns, and a flag says the same in red.
   -- ANY RULE THE SELECTOR OWNS, since a row at point takes both a ground and an ink.
   mapM_ (\(sel, ink) -> do
-           let bodies' = rulesIn sel page
+           let bodies' = rulesIn sel np
            assertBool ("no " <> T.unpack sel <> " rule in the page") (not (null bodies'))
            assertBool (T.unpack sel <> " paints no " <> T.unpack ink <> ": "
                          <> T.unpack (T.intercalate " | " bodies'))
-                      (any (ink `T.isInfixOf`) bodies'))
+                      (any (nz ink `T.isInfixOf`) bodies'))
         marks
   where
     selectors = [".de.dat", ".de.dfl"]
@@ -7552,7 +7620,7 @@ shellGlue =
   , glue "asks for one font stack, everywhere in the page"
       [ "--glance-mono:\"JetBrains Mono\", \"Fira Code\", \"SF Mono\", Menlo, Consolas, monospace"
       -- The renderer injects `.tv-root{font:…}' after this page's style element, so the extra selector step wins.
-      , "#app .tv-root{font-family:var(--glance-mono)}"
+      , "#app .tv-root{font-family:var(--glance-mono);height:100%}"
       , "font:14px/1.5 var(--glance-mono)", "font:12px/1.5 var(--dk-mono)" ]
 
   -- The assets directory holds no font file, so the declaration must not be there to point at one.
@@ -11500,7 +11568,7 @@ pageSpec shell = testGroup "GET /"
 
   , testCase "with assets, the page is one column the viewport tall" $ do
       b <- shell
-      holdsAll "column"
+      holdsAllCss "column"
             [ "height:100vh;box-sizing:border-box;overflow:hidden;"
             , "padding:24px;display:flex;flex-direction:column;gap:14px}"
             -- The key line never gives its height up, so a short window squeezes the table rather than clipping the line.
@@ -12035,17 +12103,18 @@ touchSpec shell = testGroup "Touch"
 
   , testCase "a fine pointer sees none of it" $ do
       b <- shell
-      let (before, coarse') = T.breakOn "@media (pointer:coarse){" b
+      let (before, coarse') = T.breakOn "@media (pointer:coarse)" b
+          (nb, nc) = (nz before, nz coarse')
       assertBool "no coarse block in the page" (not (T.null coarse'))
       -- EACH NEEDLE IS WITNESSED INSIDE THE BLOCK FIRST: an absence over a string the page cannot hold can never fail.
       mapM_ (\needle -> do
                assertBool ("the query does not carry it: " <> show needle)
-                          (needle `T.isInfixOf` coarse')
+                          (nz needle `T.isInfixOf` nc)
                assertBool ("a touch rule outside the query: " <> show needle)
-                          (not (needle `T.isInfixOf` before)))
+                          (not (nz needle `T.isInfixOf` nb)))
             ["min-height:44px", ".ctext,.cview{font-size:16px}", "tv-chips:empty"]
       assertEqual "one coarse block, and one gate on it" 1
-                  (T.count "@media (pointer:coarse){" b)
+                  (T.count "@media (pointer:coarse)" b)
   ]
 
 shellFontSpec :: IO T.Text -> TestTree

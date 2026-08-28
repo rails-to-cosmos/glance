@@ -94,7 +94,7 @@ import Glance.Query (OrgLink (olSpan), cellSep, orgLinks, planningKeywords,
 import Data.Char (isAlphaNum, isDigit, isSpace, toLower)
 import Data.List (isPrefixOf, (\\))
 import qualified Glance.Web.Base as WB (gluePartFiles)
-import AGENTS (BuildAsset (baPath, baSplice), CabalFlag (flCpp, flManual, flName, flOn, flStanza), Component (coName, coVis), Proj (DefaultProj, NativeProj), Status, Vis (Public), WMod (WBase, WDesktop, WNative, WRoutes, WWeb), authorEmail, buildAssets, compDeps, components, flags, giSpellings, gluePartFiles, negationReveal, projBuildDir, projFlags, projGir, projPackages, sdistExtras, statusWord, vendoredGirs, versionSites, webExposed, webTargets, wimports, wmods, wname)
+import AGENTS (BuildAsset (baPath, baSplice), CabalFlag (flCpp, flManual, flName, flOn, flStanza), Component (coName, coVis), Proj (DefaultProj, NativeProj), Status, Vis (Public), WMod (WBase, WDesktop, WNative, WRoutes, WWeb), authorEmail, buildAssets, compDeps, components, flags, giSpellings, gluePartFiles, negationReveal, projBuildDir, projFlags, projGir, projPackages, sdistExtras, statusWord, vendoredGirs, versionSites, webExposed, webTargets, webTH, wimports, wmods, wname)
 
 -- | Parse: the headline's sub-spans, the extent they fold to, and what the parser keeps, drops and folds on its way in.
 specGroup03 :: TestTree
@@ -1843,13 +1843,13 @@ specGroup12 = testGroup "Build and discipline"
       assertEqual "the spec's two spellings of the web module set"
         (sort webExposed) (sort (map wname wmods))
 
-  , testCase "Routes alone carries TemplateHaskell, and every splice sits in it" $ do
+  , testCase "the TemplateHaskell modules are the spec's, and every splice sits in one" $ do
       files <- buildSources
       assertBool ("too few sources swept: " <> show (length files)) (length files >= 12)
       hits <- sort <$> filterM (fmap ("TemplateHaskell" `T.isInfixOf`) . TIO.readFile) files
-      assertEqual "sources carrying TemplateHaskell" [modPath WRoutes] hits
+      assertEqual "sources carrying TemplateHaskell" (sort (map modPath webTH)) hits
       assertEqual "the modules the spec's assets are spliced into"
-        [wname WRoutes] (map wname (nub (mapMaybe baSplice buildAssets)))
+        (sort (map wname webTH)) (sort (map wname (nub (mapMaybe baSplice buildAssets))))
 
     -- `assets/' IS THE EMBEDDED BYTES AND NOTHING ELSE: front-end source lives
     -- under `frontend/', and a source file put back beside the bytes goes red

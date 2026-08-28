@@ -1,0 +1,211 @@
+<!doctype html>
+<!-- Spike for docs/proposals/proposed/2026-08-28-pixel-art-visual-style.md
+     Standalone. Open in a browser. Toggle font / palette / chrome / dither.
+     Touches no glance code — a mock of a glance list + popup card only. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>glance · pixel-art spike</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=VT323&family=Handjet:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  /* ---- palettes: each is a theme entry's worth of vars ---- */
+  :root{
+    --mono:"JetBrains Mono",monospace; --fs:13px; --lh:1.6;
+    --bg:#1a1b1e; --surface:#232428; --fg:#e6e6e6; --mute:#8a8f98;
+    --accent:#7aa2f7; --accent2:#bb9af7; --border:#33353a;
+    --ok:#9ece6a; --bad:#f7768e; --warn:#e0af68; --sel:#2e3b58;
+    --radius:8px; --bw:1px; --shadow:0 4px 14px rgba(0,0,0,.4);
+    --pad:14px;
+  }
+  :root[data-pal="pebble"]{
+    --bg:#0d1620; --surface:#16283a; --fg:#f0f6fc; --mute:#7fa8c9;
+    --accent:#ff9f1c; --accent2:#2ec4f1; --border:#2e4a63;
+    --ok:#8bd450; --bad:#ff4d4d; --warn:#ffd23f; --sel:#1f3d5c;
+  }
+  :root[data-pal="gruvbox"]{
+    --bg:#282828; --surface:#3c3836; --fg:#ebdbb2; --mute:#a89984;
+    --accent:#fe8019; --accent2:#83a598; --border:#504945;
+    --ok:#b8bb26; --bad:#fb4934; --warn:#fabd2f; --sel:#504945;
+  }
+  :root[data-pal="amber"]{   /* monochrome CRT phosphor */
+    --bg:#120d00; --surface:#1f1600; --fg:#ffb000; --mute:#9c6a00;
+    --accent:#ffd000; --accent2:#ff8a00; --border:#4a3500;
+    --ok:#ffb000; --bad:#ff4d00; --warn:#ffd000; --sel:#3a2900;
+  }
+  :root[data-pal="c64"]{     /* Commodore 64 blue-on-blue */
+    --bg:#40318d; --surface:#4a3ba0; --fg:#a89bff; --mute:#6c5cc9;
+    --accent:#e8d9a0; --accent2:#7be0d0; --border:#6c5cc9;
+    --ok:#9ee89e; --bad:#ff8f8f; --warn:#e8d9a0; --sel:#584aad;
+  }
+  /* ---- font levers ---- */
+  :root[data-font="silk"]{ --mono:"Silkscreen",monospace; --fs:12px; --lh:1.7; }   /* PROPORTIONAL - breaks ch-columns */
+  :root[data-font="vt323"]{ --mono:"VT323",monospace; --fs:17px; --lh:1.15; }       /* monospace */
+  :root[data-font="handjet"]{ --mono:"Handjet",monospace; --fs:16px; --lh:1.3; }    /* monospace */
+  /* ---- chrome mode: soft (default) vs hard pixel ---- */
+  :root[data-chrome="pixel"]{
+    --radius:0; --bw:3px; --shadow:5px 5px 0 rgba(0,0,0,.55);
+  }
+  :root[data-chrome="pixel"] .card{ clip-path:polygon(
+    0 6px,6px 6px,6px 0, calc(100% - 6px) 0, calc(100% - 6px) 6px, 100% 6px,
+    100% calc(100% - 6px), calc(100% - 6px) calc(100% - 6px),
+    calc(100% - 6px) 100%, 6px 100%, 6px calc(100% - 6px), 0 calc(100% - 6px)); }
+  :root[data-chrome="pixel"] *{ image-rendering:pixelated; }
+  :root[data-chrome="pixel"] .chip,:root[data-chrome="pixel"] .tag,
+  :root[data-chrome="pixel"] .kw{ border-radius:0; }
+
+  *{box-sizing:border-box}
+  body{margin:0;font:var(--fs)/var(--lh) var(--mono);
+    background:var(--bg);color:var(--fg);padding:20px;
+    -webkit-font-smoothing:none;font-smooth:never;}
+  h1{font-size:calc(var(--fs) + 3px);margin:0 0 4px}
+  .sub{color:var(--mute);margin:0 0 18px;font-size:calc(var(--fs) - 1px)}
+
+  /* control bar */
+  .ctl{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:22px;
+    padding:12px;background:var(--surface);border:var(--bw) solid var(--border);
+    border-radius:var(--radius)}
+  .grp{display:flex;flex-direction:column;gap:4px}
+  .grp b{font-size:calc(var(--fs) - 2px);color:var(--mute)}
+  .grp .btns{display:flex;gap:4px;flex-wrap:wrap}
+  .ctl button{font:inherit;font-size:calc(var(--fs) - 2px);cursor:pointer;
+    padding:4px 8px;background:transparent;color:var(--mute);
+    border:var(--bw) solid var(--border);border-radius:calc(var(--radius)/2)}
+  .ctl button.on{color:var(--fg);border-color:var(--accent);background:var(--sel)}
+
+  /* glance-ish surfaces */
+  .row-wrap{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+  .list{flex:2 1 420px;min-width:320px;background:var(--surface);
+    border:var(--bw) solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow);overflow:hidden}
+  .filter{display:flex;gap:6px;padding:8px 10px;
+    border-bottom:var(--bw) solid var(--border);align-items:center}
+  .chip{padding:2px 10px;border-radius:999px;border:var(--bw) solid var(--border);
+    color:var(--mute);font-size:calc(var(--fs) - 1px)}
+  .chip.at{color:var(--fg);border-color:var(--accent);background:var(--sel)}
+  .r{display:flex;gap:8px;align-items:baseline;padding:6px 12px;
+    border-bottom:var(--bw) solid var(--border)}
+  .r:last-child{border-bottom:0}
+  .r.cur{background:var(--sel)}
+  .kw{font-size:calc(var(--fs) - 1px);padding:0 6px;border-radius:4px;
+    border:var(--bw) solid var(--accent2);color:var(--accent2);flex:none}
+  .kw.done{border-color:var(--ok);color:var(--ok)}
+  .kw.wait{border-color:var(--warn);color:var(--warn)}
+  .pri{color:var(--bad);flex:none}
+  .ttl{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .when{color:var(--mute);flex:none;font-size:calc(var(--fs) - 1px)}
+  .tags{display:flex;gap:4px;flex:none}
+  .tag{padding:0 7px;border-radius:999px;border:var(--bw) solid var(--border);
+    color:var(--mute);font-size:calc(var(--fs) - 2px)}
+  .box{position:absolute}
+
+  /* popup card (capture/material-doc-ish) */
+  .card{flex:1 1 300px;min-width:260px;background:var(--surface);
+    border:var(--bw) solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow);padding:var(--pad)}
+  .card h2{margin:0 0 10px;font-size:var(--fs);color:var(--mute);
+    display:flex;justify-content:space-between}
+  .card .accept{color:var(--ok)}
+  .field{margin:8px 0}
+  .field label{display:block;color:var(--mute);font-size:calc(var(--fs) - 2px);margin-bottom:3px}
+  .field .v{padding:5px 8px;background:var(--bg);color:var(--fg);
+    border:var(--bw) solid var(--border);border-radius:calc(var(--radius)/2)}
+  .field .v.cursor::after{content:"\2588";color:var(--accent);animation:bl 1s step-end infinite}
+  @keyframes bl{50%{opacity:0}}
+
+  /* dither overlay */
+  .dither{position:fixed;inset:0;pointer-events:none;display:none;z-index:99;
+    background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.10) 0 1px,transparent 1px 3px);}
+  :root[data-dither="on"] .dither{display:block}
+  :root[data-dither="on"][data-chrome="pixel"] .dither{
+    background-image:repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0 2px,transparent 2px 4px);}
+</style>
+</head>
+<body>
+<div class="dither"></div>
+<h1>glance · pixel-art spike</h1>
+<p class="sub">Toggle a combination. Mock content — touches no glance code.
+  Silkscreen is [prop] — watch the list columns drift; the [mono] faces hold them.</p>
+
+<div class="ctl">
+  <div class="grp"><b>font</b><div class="btns" data-k="font">
+    <button data-v="jb" class="on">JetBrains [mono]</button>
+    <button data-v="silk">Silkscreen [prop]</button>
+    <button data-v="vt323">VT323 [mono]</button>
+    <button data-v="handjet">Handjet [mono]</button>
+  </div></div>
+  <div class="grp"><b>palette</b><div class="btns" data-k="pal">
+    <button data-v="glance" class="on">glance</button>
+    <button data-v="pebble">pebble</button>
+    <button data-v="gruvbox">gruvbox</button>
+    <button data-v="amber">amber CRT</button>
+    <button data-v="c64">c64</button>
+  </div></div>
+  <div class="grp"><b>chrome</b><div class="btns" data-k="chrome">
+    <button data-v="soft" class="on">soft</button>
+    <button data-v="pixel">pixel-hard</button>
+  </div></div>
+  <div class="grp"><b>dither</b><div class="btns" data-k="dither">
+    <button data-v="off" class="on">off</button>
+    <button data-v="on">on</button>
+  </div></div>
+</div>
+
+<div class="row-wrap">
+  <div class="list">
+    <div class="filter">
+      <span class="chip at">scheduled: today..+30d</span>
+      <span class="chip">tag: bicycle</span>
+      <span class="chip">state: -DONE</span>
+    </div>
+    <div class="r cur"><span class="kw">TODO</span><span class="pri">[#A]</span>
+      <span class="ttl">Replace the chain and re-index the rear cassette</span>
+      <span class="when">Fri 29</span>
+      <span class="tags"><span class="tag">bicycle</span><span class="tag">shop</span></span></div>
+    <div class="r"><span class="kw wait">WAIT</span>
+      <span class="ttl">Order the torque wrench before the weekend build</span>
+      <span class="when">Sep 1</span>
+      <span class="tags"><span class="tag">bicycle</span></span></div>
+    <div class="r"><span class="kw done">DONE</span>
+      <span class="ttl">Bleed the front brake line</span>
+      <span class="when">Aug 26</span>
+      <span class="tags"><span class="tag">bicycle</span><span class="tag">done</span></span></div>
+    <div class="r"><span class="kw">TODO</span><span class="pri">[#B]</span>
+      <span class="ttl">Write up the pixel-art theme proposal</span>
+      <span class="when">today</span>
+      <span class="tags"><span class="tag">glance</span><span class="tag">design</span></span></div>
+  </div>
+
+  <div class="card">
+    <h2><span>capture · bicycle</span><span class="accept">saved</span></h2>
+    <div class="field"><label>title</label>
+      <div class="v cursor">True the rear wheel</div></div>
+    <div class="field"><label>SCHEDULED</label>
+      <div class="v">&lt;2026-08-30 Sun&gt;</div></div>
+    <div class="field"><label>state · priority</label>
+      <div class="v">TODO · [#B]</div></div>
+    <div class="field"><label>tags</label>
+      <div class="v">:bicycle:shop:</div></div>
+  </div>
+</div>
+
+<script>
+  var root=document.documentElement;
+  document.querySelectorAll('.btns').forEach(function(g){
+    var key=g.dataset.k;
+    g.addEventListener('click',function(e){
+      var b=e.target.closest('button'); if(!b) return;
+      g.querySelectorAll('button').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on');
+      var v=b.dataset.v;
+      if(key==='pal'){ if(v==='glance') root.removeAttribute('data-pal'); else root.dataset.pal=v; }
+      else if(key==='font'){ if(v==='jb') root.removeAttribute('data-font'); else root.dataset.font=v; }
+      else if(key==='chrome'){ if(v==='soft') root.removeAttribute('data-chrome'); else root.dataset.chrome=v; }
+      else if(key==='dither'){ if(v==='off') root.removeAttribute('data-dither'); else root.dataset.dither=v; }
+    });
+  });
+</script>
+</body>
+</html>

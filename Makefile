@@ -1,4 +1,4 @@
-.PHONY: test spec spec-debt typecheck loc major minor patch native install elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
+.PHONY: test test-p test-list spec spec-debt typecheck loc major minor patch native install elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 -include .env
 GLANCE_DIR ?= ~/sync/views
@@ -11,6 +11,21 @@ test:
 	cabal build -v0 exe:glance
 	GLANCE_BIN="$$(cabal list-bin -v0 exe:glance)" cabal test
 	@$(MAKE) --no-print-directory elm-test
+
+# A SUBSET OF THE HASKELL SUITE by tasty pattern, exe built as in `test'; no elm.
+# `-p' is an awk-like expr: terms are `/slashed/', combined with `&&' `||' `!'.
+#   make test-p    P='/font stack/'
+#   make test-p    P='/Serve/ && /log/'
+test-p:
+	@test -n "$(P)" || { echo "test-p: pass P='/pattern/' (tasty -p expr)"; exit 2; }
+	cabal build -v0 exe:glance
+	GLANCE_BIN="$$(cabal list-bin -v0 exe:glance)" cabal test --test-options='-p "$(P)"'
+
+# The matching names, run none -- to find a pattern before `test-p'.
+test-list:
+	@test -n "$(P)" || { echo "test-list: pass P='/pattern/'"; exit 2; }
+	cabal build -v0 exe:glance
+	GLANCE_BIN="$$(cabal list-bin -v0 exe:glance)" cabal test --test-options='-p "$(P)" --list-tests'
 
 # The spec is AGENTS.hs; this prints the ledger.  The model itself is checked by
 # `cabal test' (TestSpec), which reads its registries beside the real code's.

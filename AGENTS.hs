@@ -5941,7 +5941,7 @@ wimports WNative       = [WDesktop, WWeb, WWatch]
 webFloor :: [String]
 webFloor = ["ServeOptions", "response constructors", "body reader", "write-refusal vocabulary"]
 webTH :: [WMod]
-webTH = [WRoutes]                 -- ^ the one module carrying `TemplateHaskell'
+webTH = [WRoutes, WStyle]         -- ^ the modules carrying `TemplateHaskell'
 webExposed :: [String]
 webExposed =
   [ "Glance.Desktop", "Glance.Desktop.Native", "Glance.Web", "Glance.Web.Base"
@@ -5964,6 +5964,7 @@ buildAssets :: [BuildAsset]
 buildAssets =
   [ BuildAsset "assets/table-view.js"   Sibling (Just "make sync-renderer") (Just WRoutes)
   , BuildAsset "assets/elm.js"          Built   (Just "make elm")           (Just WRoutes)
+  , BuildAsset "assets/page.css"        Hand    Nothing                     (Just WStyle)
   , BuildAsset "frontend/glue/*.js"     Hand    Nothing                     (Just WRoutes)
   , BuildAsset "frontend/jsconfig.json" Hand    Nothing                     Nothing
   ]
@@ -5986,7 +5987,7 @@ jsconfigFiles :: [Path]
 jsconfigFiles = map ("glue/" <>) gluePartFiles <> ["glue.d.ts"]
 
 sdistExtras :: [Path]
-sdistExtras = ["assets/table-view.js", "assets/elm.js"]
+sdistExtras = ["assets/table-view.js", "assets/elm.js", "assets/page.css"]
 
 -- | `openBinaryTempFile' splits at the LAST dot, so the suffix IS the
 -- leftover's extension and a half-written document is out of the walk's reach.
