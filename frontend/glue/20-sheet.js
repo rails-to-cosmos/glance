@@ -1300,8 +1300,7 @@
       [31, leapYear(y) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
     // `Time.fromGregorianValid' is the wall this stands for: `31 feb' is refused
     // here as it is refused there, and never reaches the disk.
-    const dayReal = (c) =>
-      !!c && c.m >= 1 && c.m <= 12 && c.d >= 1 && c.d <= daysInMonth(c.y, c.m);
+    const dayReal = (c) => !!c && c.m >= 1 && c.m <= 12 && c.d >= 1 && c.d <= daysInMonth(c.y, c.m);
     const addDays = (c, n) => civil(dnum(c) + n);
     /** A resolved day FIT TO SHOW: every field finite, and the day real on the
      * calendar.  The arithmetic above can return neither -- a shift far enough
@@ -1309,8 +1308,10 @@
      * ghost that drew one would present `<NaN-NaN-NaN undefined>' as a
      * RESOLUTION, with RET committing that string.  THE GHOST PRESENTS A STAMP
      * OR A REFUSAL, never a third thing. */
-    const showable = (c) =>
-      !!c && Number.isFinite(c.y) && Number.isFinite(c.m) && Number.isFinite(c.d)
+     const showable = (c) => !!c
+      && Number.isFinite(c.y)
+      && Number.isFinite(c.m)
+      && Number.isFinite(c.d)
       && dayReal(c);
     // A MONTH STEP KEEPS THE DAY OF THE MONTH and clamps at the month's end, so
     // `31 jan' + 1m is the 28th and never the 3rd of March.

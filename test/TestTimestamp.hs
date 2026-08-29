@@ -35,8 +35,7 @@ parseCases =
     , Just (plainTs TimestampInactive (at "2024-06-15 14:00:00")) )
 
   , ( "Active range", "<2024-01-15 Mon>--<2024-01-19 Fri>"
-    , Just (plainTs TimestampActive (on "2024-01-15 00:00:00"))
-             { tsEnd = Just (on "2024-01-19 00:00:00") } )
+    , Just (plainTs TimestampActive (on "2024-01-15 00:00:00")) { tsEnd = Just (on "2024-01-19 00:00:00") } )
 
   , ( "Compact range, both times land on the start's day"
     , "<2024-01-15 Mon 10:30-11:30>"
