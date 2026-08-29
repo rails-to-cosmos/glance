@@ -868,10 +868,13 @@ update msg model =
                 -- moved, or the shell's mirror lands on the wrong row until the fill.
                 done =
                     landOn (idAtRow model model.at) { model_ | landing = landsOn }
+
+                snapped =
+                    snapVisible done
             in
-            ( done
+            ( snapped
             , Cmd.batch
-                [ docState (stateJSON done)
+                [ docState (stateJSON snapped)
                 , docTook
                     (E.object
                         ([ ( "taken", E.list E.string (List.map .id taken) )
@@ -879,7 +882,7 @@ update msg model =
                          , ( "meta", E.int metaN )
                          , ( "body", E.string written )
                          ]
-                            ++ headerJSON done
+                            ++ headerJSON snapped
                         )
                     )
                 ]
@@ -1129,11 +1132,16 @@ THE PLANNING ROW -- point never left it -- so that one is `landAt''s to clear.
 -}
 settled : Model -> Model
 settled m =
-    if idAtRow m m.at == Body.planId then
-        m
+    -- A HIDE-DONE RUN HAS FEWER ROWS: no mover may rest point on one it hid, so
+    -- the door snaps off it the way the toggle does -- `f' into a compacted run
+    -- steps past its done head like `n' already steps over it.
+    snapVisible
+        (if idAtRow m m.at == Body.planId then
+            m
 
-    else
-        { m | planAt = Nothing }
+         else
+            { m | planAt = Nothing }
+        )
 
 
 told : Model -> ( Model, Cmd Msg )
@@ -1838,7 +1846,6 @@ rowClass : Lit -> Model -> Int -> Row -> Bool -> String
 rowClass lit m i r top =
     (if r.id == draftId || r.id == draftPairId then
         "de d-draft d-"
-
      else
         "de d-"
     )
@@ -1889,6 +1896,13 @@ rowClass lit m i r top =
                 -- A DONE CHECKBOX HIDDEN by the hide-done mode; the stylesheet
                 -- takes it out of flow, the walk already steps past it.
                 " d-hidden"
+
+            else
+                ""
+           )
+        ++ (if compactedRun m lit.done r then
+                -- A PARTIAL COMPACTED RUN: its gutter spine goes dashed accent.
+                " d-compacted"
 
             else
                 ""
@@ -2368,6 +2382,20 @@ hiddenDone m =
             )
 
 
+{-| A run the mode has COMPACTED but not emptied: its root is on and it hides at
+least one row while its own composite still stands.  Its gutter spine goes dashed
+to say so; a wholly-done run is gone (its composite in DONE) and draws none, and a
+run with the mode on but nothing done yet is not compacted.  DONE is `hiddenDone',
+passed so the render reads it once.
+-}
+compactedRun : Model -> Set String -> Row -> Bool
+compactedRun m done r =
+    isListRoot m r.id
+        && Set.member r.id m.hideDone
+        && not (Set.member r.id done)
+        && List.any (\h -> listRootOf m h == Just r.id) (Set.toList done)
+
+
 {-| POINT IS NEVER LEFT ON A HIDDEN ROW: after a recompute, a point that a
 hide-done run just swallowed steps to the nearest visible row -- the next one,
 else the previous -- past both the mode's hidden set and any folded away.
@@ -2817,7 +2845,8 @@ viewPath m =
             (List.indexedMap
                 (\i w ->
                     (if i > 0 then
-                        [ span [ class "dsep" ] [ text "→" ] ]
+                        -- THE PATH READS `A › B', org-breadcrumb fashion.
+                        [ span [ class "dsep" ] [ text "›" ] ]
 
                      else
                         []

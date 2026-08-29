@@ -404,6 +404,25 @@ code {
     background: var(--ink);
 }
 
+/* HIDE-DONE COMPACTED (X): a run hiding some but not all of its rows wears the */
+/* SAME spine, only broken -- its own `--ink', so it ramps and mutes exactly as */
+/* the solid one; dashing is the only delta.  ONE UNBROKEN BAR ON THE COMPOSITE, */
+/* never per item: an item's own `::before' restarts the gradient at its top, so */
+/* per-item dashes drift row to row and read ragged.  The run's box spans every */
+/* visible row at the primary rail; its `--g-bg' base occludes the solid item */
+/* bars and the block spine it rides, so a paragraph sharing the block keeps its */
+/* own bar and a nested run keeps its deeper column.  A wholly-done run has */
+/* vanished and draws none. */
+.d-list.d-compacted::before {
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    border-radius: 1px;
+    z-index: 2;
+    background-color: var(--g-bg);
+    background-image: repeating-linear-gradient(var(--ink) 0 4px, transparent 4px 8px);
+}
+
 /* A BLOCK IS AN ELEMENT AND ITS SPINE IS ITS OWN `::before': one unbroken */
 /* bar the block's whole height, margins and deeper blocks included, at the */
 /* shelf's rail. */

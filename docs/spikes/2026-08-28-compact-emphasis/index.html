@@ -1,0 +1,140 @@
+<!doctype html>
+<!-- Spike: how to show a checkbox list is compacted (hide-done mode).
+     Standalone, glance-styled mock of the #mdoc pane. Toggle Mode + Emphasis.
+     Touches no glance code. See docs proposal / the hide-done feature (X kbd). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>glance · compact-emphasis spike</title>
+<style>
+  :root{
+    --bg:#1a1b1e; --surface:#232428; --fg:#e6e6e6; --mute:#8a8f98;
+    --accent:#7aa2f7; --border:#33353a; --ok:#9ece6a; --sel:#2e3b58;
+    --mono:"JetBrains Mono","SF Mono",Menlo,Consolas,monospace;
+    --rail:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:22px;background:var(--bg);color:var(--fg);
+    font:13px/1.6 var(--mono)}
+  h1{font-size:16px;margin:0 0 2px}
+  .sub{color:var(--mute);margin:0 0 16px;font-size:12px;max-width:70ch}
+
+  /* controls */
+  .ctl{display:flex;flex-wrap:wrap;gap:16px;margin-bottom:16px;padding:12px;
+    background:var(--surface);border:1px solid var(--border);border-radius:8px}
+  .grp{display:flex;flex-direction:column;gap:4px}
+  .grp b{font-size:11px;color:var(--mute)}
+  .grp .btns{display:flex;gap:4px;flex-wrap:wrap}
+  .ctl button{font:11px var(--mono);cursor:pointer;padding:4px 9px;
+    background:transparent;color:var(--mute);border:1px solid var(--border);border-radius:4px}
+  .ctl button.on{color:var(--fg);border-color:var(--accent);background:var(--sel)}
+  .legend{font-size:11px;color:var(--mute);margin:0 0 18px;max-width:78ch}
+  .legend code{color:var(--fg)}
+
+  /* the mdoc pane */
+  .doc{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+    padding:12px 14px;max-width:640px}
+  .crumb{font-size:11px;color:var(--mute);padding-bottom:8px;margin-bottom:8px;
+    border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+  .badge{display:none;font-size:10px;color:var(--accent);
+    border:1px dashed var(--accent);border-radius:999px;padding:0 7px}
+  .hl{font-weight:600;margin:2px 0 6px}
+  .para{color:var(--mute);margin:8px 0;padding-left:var(--rail)}
+
+  .list{position:relative;margin:6px 0;padding-left:calc(var(--rail) + 8px)}
+  .spinebar{position:absolute;left:var(--rail);top:2px;bottom:2px;width:1px;
+    background:var(--mute);opacity:.5;border-radius:1px}
+  .item{position:relative;white-space:pre;padding:1px 0}
+  .item.done .bx{color:var(--ok)}
+  .bx{color:var(--mute)}
+  .sub{padding-left:16px}
+  .tail{display:none;color:var(--mute);font-style:italic;padding:1px 0;opacity:.85}
+
+  /* --- compacted state --- */
+  [data-mode="compact"] .item.done{display:none}
+  [data-mode="compact"] .list.alldone{display:none}
+
+  /* #1 ellipsis + count (partial lists only; not a vanished list) */
+  [data-mode="compact"][data-emph~="ellipsis"] .list:not(.alldone) .tail{display:block}
+
+  /* #2 dashed spine over a compacted run */
+  [data-mode="compact"][data-emph~="spine"] .list:not(.alldone) .spinebar{
+    width:2px;opacity:1;background:transparent;
+    background-image:repeating-linear-gradient(var(--accent) 0 4px,transparent 4px 8px)}
+
+  /* #3 global indicator */
+  [data-mode="compact"][data-emph~="global"] .badge{display:inline-block}
+</style>
+</head>
+<body>
+<h1>glance · compact-emphasis spike</h1>
+<p class="sub">How to signal a checkbox list is compacted. Flip <b>Mode</b> to see
+before/after; flip <b>Emphasis</b> to compare treatments.</p>
+
+<div class="ctl">
+  <div class="grp"><b>mode</b><div class="btns" data-k="mode">
+    <button data-v="expanded" class="on">expanded</button>
+    <button data-v="compact">compacted</button>
+  </div></div>
+  <div class="grp"><b>emphasis</b><div class="btns" data-k="emph">
+    <button data-v="" class="on">none</button>
+    <button data-v="ellipsis">#1 ellipsis+count</button>
+    <button data-v="spine">#2 dashed spine</button>
+    <button data-v="global">#3 global badge</button>
+    <button data-v="ellipsis global">#1 + #3</button>
+    <button data-v="ellipsis spine global">all</button>
+  </div></div>
+</div>
+
+<p class="legend">
+  <b>#1</b> <code>⋯ N done hidden</code> at a list's tail — org's folding idiom, and
+  a count. <b>#2</b> the run's gutter spine goes dashed accent. <b>#3</b> a
+  <code>hide-done</code> badge in the breadcrumb — the only cue that survives a
+  <em>wholly-done</em> list, which vanishes entirely (List B below).
+</p>
+
+<div class="doc">
+  <div class="crumb"><span>Errands › Weekend</span><span class="badge">hide-done</span></div>
+  <div class="hl">* Weekend</div>
+
+  <!-- List A: partial -> keeps container, gets #1/#2 -->
+  <div class="list" data-hidden="3">
+    <div class="spinebar"></div>
+    <div class="item"><span class="bx">[ ]</span> patch the inner tube</div>
+    <div class="item done"><span class="bx">[x]</span> pump the tyres</div>
+    <div class="item"><span class="bx">[ ]</span> service the brakes</div>
+    <div class="sub">
+      <div class="item done"><span class="bx">[x]</span> bleed front</div>
+      <div class="item"><span class="bx">[ ]</span> bleed rear</div>
+    </div>
+    <div class="item done"><span class="bx">[x]</span> oil the chain</div>
+    <div class="tail">⋯ 3 done hidden</div>
+  </div>
+
+  <div class="para">— take the bike to the shop if the rear won't bleed —</div>
+
+  <!-- List B: wholly done -> vanishes; only #3 signals it -->
+  <div class="list alldone" data-hidden="2">
+    <div class="spinebar"></div>
+    <div class="item done"><span class="bx">[x]</span> return the library books</div>
+    <div class="item done"><span class="bx">[x]</span> post the parcel</div>
+    <div class="tail">⋯ 2 done hidden</div>
+  </div>
+</div>
+
+<script>
+  var root=document.documentElement;
+  root.dataset.mode='expanded'; root.dataset.emph='';
+  document.querySelectorAll('.btns').forEach(function(g){
+    var key=g.dataset.k;
+    g.addEventListener('click',function(e){
+      var b=e.target.closest('button'); if(!b) return;
+      g.querySelectorAll('button').forEach(function(x){x.classList.remove('on')});
+      b.classList.add('on');
+      root.dataset[key]=b.dataset.v;
+    });
+  });
+</script>
+</body>
+</html>

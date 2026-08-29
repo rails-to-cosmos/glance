@@ -1878,12 +1878,17 @@ export default [
       const crumbs = [...document.querySelectorAll("#mdoc .dpath .dcr")];
       const at = document.querySelector("#mdoc .de.dat");
       const own = at.querySelector(":scope > .dp");
+      const sep = document.querySelector("#mdoc .dpath .dsep");
       return { words: crumbs.map((c) => c.textContent),
                last: getComputedStyle(crumbs[crumbs.length - 1]).color,
                point: g("point"),
                said: own ? own.textContent.trim() : "",
+               sep: sep ? sep.textContent.trim() : "",
                sticky: getComputedStyle(document.querySelector("#mdoc .dpath")).position };
     });
+    // THE PATH READS `A › B', org-breadcrumb fashion, and stays sticky.
+    assert(seen.sep === "›",
+      `the strip separator is "${seen.sep}", not the angle glyph`);
     // THE LAST CRUMB IS POINT, in the ink point's own connector takes.
     assert(seen.last === seen.point,
       `the last crumb paints ${seen.last}, not the point ink ${seen.point}`);
@@ -1899,7 +1904,7 @@ export default [
       `the strip's second step is "${seen.words[1]}" rather than the list`);
     assert(seen.sticky === "sticky",
       `the strip is ${seen.sticky}, so it leaves the top when the rows scroll`);
-    return [`${seen.words.join(" → ")} — the last in ${seen.last}`];
+    return [`${seen.words.join(" › ")} — the last in ${seen.last}`];
   } },
 { name: "the pane dims every branch but the one the reader is in",
   async run(p, base) {
@@ -2047,8 +2052,12 @@ export default [
     // whether a wholly-done run's own box vanished with its items.
     const lists = () => [...document.querySelectorAll("#mdoc .d-comp.d-list")]
       .map((e) => ({ text: e.textContent.trim().slice(0, 40),
-                     marked: e.classList.contains("d-hidden"),
-                     visible: e.getClientRects().length > 0 }));
+                    marked: e.classList.contains("d-hidden"),
+                    compacted: e.classList.contains("d-compacted"),
+                    // The dashed spine the compacted run wears is ONE bar on the
+                    // composite itself, read off its own `::before'.
+                    dashed: getComputedStyle(e, "::before").backgroundImage,
+                    visible: e.getClientRects().length > 0 }));
     const figures = [];
 
     // --- OFF: every row stands ---------------------------------------------
@@ -2057,8 +2066,8 @@ export default [
     assert(before.length === 12, `the fixture drew ${before.length} items, not twelve`);
     assert(before.every((r) => r.visible && !r.marked),
       `a row was hidden before the mode: ${JSON.stringify(before)}`);
-    assert((await p.eval(lists)).every((r) => r.visible && !r.marked),
-      "a run container was hidden before the mode");
+    assert((await p.eval(lists)).every((r) => r.visible && !r.marked && !r.compacted),
+      "a run container was hidden or compacted before the mode");
     // --- MASTER TOGGLE from a row off every list ---------------------------
     await walkToText(p, "paragraph before", "the paragraph before the first list");
     await settled(p, "the mirror before the master toggle");
@@ -2083,10 +2092,29 @@ export default [
     for (const t of ["alpha", "epsilon"])
       assert(!runOf(onLists, t).marked && runOf(onLists, t).visible,
         `a partly-done run's container vanished: ${JSON.stringify(runOf(onLists, t))}`);
+    // THE PARTIAL RUNS WEAR THE DASHED SPINE; the vanished one wears none.
+    for (const t of ["alpha", "epsilon"]) {
+      assert(runOf(onLists, t).compacted,
+        `a partly-done run lost the dashed-spine class: ${JSON.stringify(runOf(onLists, t))}`);
+      assert(runOf(onLists, t).dashed.includes("repeating-linear-gradient"),
+        `a compacted run drew no dashed spine: ${runOf(onLists, t).dashed}`);
+    }
+    assert(!runOf(onLists, "iota").compacted,
+      "the wholly-done run wore the compacted spine instead of vanishing");
     assert((await p.eval(dat)).visible,
       "point was left on a hidden row after the master toggle");
+    // THE PARAGRAPHS KEEP THEIR BAR: a paragraph borrows its headline block's
+    // one spine, so compacting a list in that block must not erase it -- the
+    // compacted run occludes the block spine on its OWN rows, never the block's.
+    const blkSpine = await p.eval(() => {
+      const b = document.querySelector("#mdoc .blk");
+      return b ? getComputedStyle(b, "::before").backgroundColor : "none";
+    });
+    assert(blkSpine !== "none" && !/,\s*0\)\s*$/.test(blkSpine)
+             && blkSpine !== "transparent",
+      `the block spine went transparent under a compacted list: ${blkSpine}`);
     figures.push(`master on: ${all.filter((r) => r.marked).length} of 12 hidden, `
-      + `the wholly-done container gone`);
+      + `two dashed spines, the wholly-done container gone`);
 
     // Again, off every list, shows them all back.
     await p.press("X");
@@ -2096,8 +2124,8 @@ export default [
     const restored = await p.eval(read);
     assert(restored.every((r) => r.visible && !r.marked),
       `a row stayed hidden after the toggle off: ${JSON.stringify(restored)}`);
-    assert((await p.eval(lists)).every((r) => r.visible && !r.marked),
-      "the wholly-done run's container stayed gone after the toggle off");
+    assert((await p.eval(lists)).every((r) => r.visible && !r.marked && !r.compacted),
+      "a run stayed hidden or dashed after the toggle off");
 
     // --- SCOPE: point in the first list hides that run alone ----------------
     await walkToText(p, "beta", "the done leaf in the first list");
@@ -2110,11 +2138,39 @@ export default [
     // The SECOND list is untouched: `epsilon' is done but was not in scope.
     assert(!of(scoped, "epsilon").marked && of(scoped, "epsilon").visible,
       `the scoped toggle reached the second list: ${JSON.stringify(of(scoped, "epsilon"))}`);
+    // ONLY THE SCOPED RUN GOES DASHED: the first list's container is compacted,
+    // the second's rests.
+    const scopedLists = await p.eval(lists);
+    assert(runOf(scopedLists, "alpha").compacted,
+      "the scoped run wore no dashed spine");
+    assert(!runOf(scopedLists, "epsilon").compacted,
+      "a run outside the scope went dashed");
     // POINT SAFETY: `X' hid the beta row point stood on, so point stepped off it.
     const snapped = await p.eval(dat);
     assert(snapped.visible && !snapped.hidden && !snapped.text.includes("beta"),
       `point stayed on the hidden beta row: ${JSON.stringify(snapped)}`);
     figures.push(`scoped: point snapped to "${snapped.text}"`);
+
+    // --- `f' DESCENDS PAST A HIDDEN HEAD -----------------------------------
+    // A run whose first child is done reads as one with fewer rows: grain-finer
+    // into gamma steps over the hidden gamma-one onto the open gamma-two, never
+    // resting point on a row the mode took out.
+    await sheet(p, base, "drv-hide");
+    await walkToText(p, "gamma,", "the interim gamma");
+    await settled(p, "the mirror before arming the mode");
+    await p.press("X");
+    await p.until(someHidden, "the scoped mode to hide the done gamma-one");
+    await p.press("f");
+    await p.until(() => {
+      const at = document.querySelector("#mdoc .de.dat");
+      const l = at && at.querySelector(":scope > .dp");
+      return !!at && at.dataset.id === docAtNow() && !!l
+        && l.textContent.includes("gamma two");
+    }, "`f' to descend past the hidden gamma-one onto gamma-two");
+    const dived = await p.eval(dat);
+    assert(dived.visible && !dived.hidden && dived.text.includes("gamma two"),
+      `f landed on the hidden gamma-one: ${JSON.stringify(dived)}`);
+    figures.push(`f descends past the hidden head onto "${dived.text}"`);
 
     // --- n/p STEP PAST THE HIDDEN SET --------------------------------------
     // A fresh sheet, point armed ON the open alpha above the hidden beta, so the

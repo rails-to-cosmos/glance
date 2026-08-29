@@ -34,3 +34,4 @@ devenv.local.nix
 # elm's own build cache, written beside the source it compiles.
 /frontend/elm/elm-stuff/
 /frontend/elm/tests/elm-stuff/
+*.elm#
