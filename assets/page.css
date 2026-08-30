@@ -666,6 +666,23 @@ code {
     color: var(--box);
 }
 
+/* A PARTIAL BOX -- some of its children done, not all -- wears the lit-bar hue, */
+/* a step short of the done face, so `[-]' reads as underway, not settled. */
+.dbx.part {
+    color: var(--g-mark);
+}
+
+/* A STATISTICS COOKIE reads its count off the item's checkbox children, org's */
+/* `[n/m]' and `[k%]'; it is metadata, so it wears the mute until it is full, */
+/* when it takes the done face the way a ticked box does. */
+.dcookie {
+    color: var(--g-mute);
+}
+
+.dcookie.done {
+    color: var(--box);
+}
+
 /* A CHILD HEADLINE IS A HEADLINE: the same face as the sheet's own, indented. */
 .d-head,.d-child {
     display: flex;

@@ -1,0 +1,22 @@
+#+TITLE: Rolled boxes
+#+TODO: TODO NEXT | DONE CANCELLED
+
+* TODO Boxes roll up from their children                      :driver:roll:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-roll
+:END:
+A paragraph, so the list is its own run.
+
+- [ ] some done, some not, so this rolls to a dash
+  - [X] a child that is done
+  - [ ] a child still open
+- [ ] every child done, so this rolls to a tick
+  - [X] one done
+  - [X] two done
+- [ ] a leaf with no children, its own literal box
+- a fraction cookie counts its children [/]
+  - [X] this bit is done
+  - [ ] this bit is open
+- a percent cookie, every child done [%]
+  - [X] first
+  - [X] second

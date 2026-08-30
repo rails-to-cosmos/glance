@@ -2232,6 +2232,112 @@ export default [
     return figures;
   } },
 
+{ name: "a checkbox with children shows a face rolled up from them, and is read-only",
+  async run(p, base) {
+    // `drv-roll' has two parents written `[ ]' -- one with a done child and an
+    // open one, one with two done -- and a childless leaf, so the DERIVED face is
+    // visibly not the literal box.
+    await sheet(p, base, "drv-roll");
+    const boxes = () => [...document.querySelectorAll("#mdoc .d-item")].map((e) => {
+      const line = e.querySelector(":scope > .dp");
+      const bx = line && line.querySelector(":scope > .dbx");
+      return { text: (line || e).textContent.trim().slice(0, 40),
+               glyph: bx ? bx.textContent.replace(/\s+/g, " ").trim() : null,
+               on: !!bx && bx.classList.contains("on"),
+               part: !!bx && bx.classList.contains("part"),
+               derived: !!bx && bx.classList.contains("derived") };
+    });
+    const of = (rs, t) => rs.find((r) => r.text.includes(t)) || {};
+    await p.until(() => document.querySelectorAll("#mdoc .d-item .dbx").length >= 5,
+                  "the pane to draw the rolled boxes");
+    const seen = await p.eval(boxes);
+
+    // SOME DONE, SOME NOT -> `[-]', partial and derived, though written `[ ]'.
+    const mix = of(seen, "some done, some not");
+    assert(mix.derived && mix.part && !mix.on && (mix.glyph || "").includes("-"),
+      `a part-done parent did not roll to a dash: ${JSON.stringify(mix)}`);
+
+    // EVERY CHILD DONE -> `[X]', on and derived, though written `[ ]'.
+    const full = of(seen, "every child done");
+    assert(full.derived && full.on && !full.part && (full.glyph || "").includes("X"),
+      `an all-done parent did not roll to a tick: ${JSON.stringify(full)}`);
+
+    // A LEAF WEARS ITS OWN BOX, never derived.
+    const leaf = of(seen, "a leaf with no children");
+    assert(!leaf.derived && !leaf.on && !leaf.part && (leaf.glyph || "").includes("[ ]"),
+      `a leaf's own box was rewritten: ${JSON.stringify(leaf)}`);
+
+    // READ-ONLY: SPC on a derived box is refused, its state its children's to tell.
+    await walkToText(p, "some done, some not", "the part-done parent");
+    await settled(p, "the mirror before the toggle");
+    await p.press("SPC");
+    await p.until(() => /derived from children/.test(
+                    document.getElementById("echo").textContent),
+                  "the derived box to refuse a hand tick");
+    const after = of(await p.eval(boxes), "some done, some not");
+    assert(after.part && (after.glyph || "").includes("-"),
+      `a derived box changed under a hand tick: ${JSON.stringify(after)}`);
+
+    // STATISTICS COOKIES read their count off the same children: `[/]' fills to
+    // `[done/total]', `[%]' to the whole percent, and a full one wears the done
+    // face -- the literal `[/]'/`[%]' stays in the file, the count collapses over.
+    const cookies = () => [...document.querySelectorAll("#mdoc .d-item")].map((e) => {
+      const line = e.querySelector(":scope > .dp");
+      const ck = line && line.querySelector(":scope > .dcookie");
+      return { text: (line || e).textContent.trim().slice(0, 48),
+               cookie: ck ? ck.textContent.trim() : null,
+               done: !!ck && ck.classList.contains("done") };
+    });
+    const cks = await p.eval(cookies);
+    const frac = of(cks, "a fraction cookie");
+    assert(frac.cookie === "[1/2]" && !frac.done,
+      `[/] did not fill to [1/2]: ${JSON.stringify(frac)}`);
+    const pct = of(cks, "a percent cookie");
+    assert(pct.cookie === "[100%]" && pct.done,
+      `[%] did not fill to a done [100%]: ${JSON.stringify(pct)}`);
+
+    return [`written [ ] rolls: mix -> "${mix.glyph}", full -> "${full.glyph}", `
+      + `leaf literal "${leaf.glyph}"; SPC on a derived box refused; `
+      + `cookies [/] -> "${frac.cookie}", [%] -> "${pct.cookie}"`];
+  } },
+
+{ name: "f walks the graph depth-first, rolling to the next node where nothing is finer",
+  async run(p, base) {
+    // `drv-roll' nests: the first parent holds two leaf children, then a second
+    // parent follows.  Held `f' descends into the first child, and at that leaf --
+    // nothing finer -- falls through to `n': on to the sibling, then climbing to
+    // the next parent.  A pre-order walk of the whole tree from one key.
+    await sheet(p, base, "drv-roll");
+    const datText = () => {
+      const e = document.querySelector("#mdoc .de.dat");
+      const l = e && e.querySelector(":scope > .dp");
+      return { id: e ? e.dataset.id : null,
+               text: (l || e || {}).textContent ? (l || e).textContent.trim().slice(0, 40) : "" };
+    };
+    await walkToText(p, "some done, some not", "the first parent");
+    await settled(p, "the mirror before the walk");
+    // The three stops a held `f' makes, in order: descend, advance at the leaf,
+    // climb to the next subtree.
+    const want = ["a child that is done", "a child still open", "every child done"];
+    const seen = [];
+    for (const expect of want) {
+      await p.press("f");
+      await p.until((ex) => {
+        const e = document.querySelector("#mdoc .de.dat");
+        const l = e && e.querySelector(":scope > .dp");
+        return !!e && e.dataset.id === docAtNow() && !!l && l.textContent.includes(ex);
+      }, `f to reach "${expect}"`, undefined, expect);
+      seen.push((await p.eval(datText)).text);
+    }
+    assert(seen[0].includes("a child that is done"),
+      `f did not descend into the first child: ${JSON.stringify(seen)}`);
+    assert(seen[1].includes("a child still open"),
+      `f did not fall through to n at the leaf: ${JSON.stringify(seen)}`);
+    assert(seen[2].includes("every child done"),
+      `f did not climb to the next subtree: ${JSON.stringify(seen)}`);
+    return [`f DFS: parent -> ${seen.map((s) => JSON.stringify(s.slice(0, 16))).join(" -> ")}`];
+  } },
+
 { name: "a bullet always paints, and a run wears an unbroken spine",
   async run(p, base) {
     // `drv-marks' spells every marker org writes: `-', `+', an indented `*', both

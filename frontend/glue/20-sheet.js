@@ -370,6 +370,12 @@
       const r = docRowAt();
       const was = checkboxAt(r);
       if (was === null) { said(b, "no checkbox here"); return; }
+      // A DERIVED BOX IS ITS CHILDREN'S TO TELL: an item with checkbox children
+      // wears the face rolled up from them (`boxFace', Doc.elm), so ticking it by
+      // hand is refused -- toggle a leaf and the parents follow.
+      if (drows.some((x) => x.owner === r.id && checkboxAt(x) !== null)) {
+        said(b, "derived from children"); return;
+      }
       const now = was === " " || was === "-" ? "X" : " ";
       editPara(r, r.text.replace(CHECKBOX, `$1[${now}]`), () => said(b, `[${now}]`));
     }

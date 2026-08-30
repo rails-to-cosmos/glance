@@ -231,6 +231,40 @@ step by m =
                     { m | at = i }
 
 
+{-| Where a DFS `f'/`b' goes once its grain is exhausted: the next VISIBLE row in
+document order, which IS the graph's pre-order, so a held `f' descends a subtree
+and rolls on to the next -- `n'/`p' cannot, their forward cohort being one owner's
+own rows and so never climbing out.  BY is +1 down, -1 up; folded and hide-done
+rows are stepped over, and at the far end point stays put.
+-}
+nextVisible : Int -> Model -> Model
+nextVisible by m =
+    let
+        gone =
+            Set.union (hiddenDone m) (hiddenIn m)
+
+        total =
+            List.length m.rows
+
+        scan i =
+            if i < 0 || i >= total then
+                m.at
+
+            else
+                case nth i m.rows of
+                    Just r ->
+                        if Set.member r.id gone then
+                            scan (i + by)
+
+                        else
+                            i
+
+                    Nothing ->
+                        m.at
+    in
+    { m | at = scan (m.at + by) }
+
+
 {-| The one spelling of "is this row a headline?" -- the sheet's own line or
 a nested child.
 -}
@@ -587,9 +621,9 @@ update msg model =
 
         Finer ->
             -- `f' INTO A FOLDED DRAWER OPENS IT: a step into what is hidden shows it.
-            spoke
-                (finer
-                    (case rowAt model of
+            let
+                opened =
+                    case rowAt model of
                         Just r ->
                             if foldable model r then
                                 { model | shut = Set.remove r.id model.shut }
@@ -599,11 +633,31 @@ update msg model =
 
                         Nothing ->
                             model
-                    )
-                )
+
+                ( fined, word ) =
+                    finer opened
+            in
+            -- NOWHERE FINER ROLLS ON: held `f' then walks the whole graph
+            -- depth-first, down into a subtree and on to the next once its floor
+            -- is reached -- document order IS pre-order.  Only a true no-op rolls
+            -- on; opening a drawer or moving point is `f' having somewhere to go.
+            if fined.at == model.at && fined.planAt == model.planAt && fined.shut == model.shut then
+                told (nextVisible 1 model)
+
+            else
+                spoke ( fined, word )
 
         Broader ->
-            spoke (broader model)
+            -- AND `b' ROLLS BACK, the same walk reversed, once nothing is broader.
+            let
+                ( broadened, word ) =
+                    broader model
+            in
+            if broadened.at == model.at && broadened.planAt == model.planAt then
+                told (nextVisible -1 model)
+
+            else
+                spoke ( broadened, word )
 
         Flag id ->
             -- OLDEST FIRST, the rule for every flag surface; `Listing' spells it so.
@@ -2053,26 +2107,14 @@ viewPara m r =
                             []
 
                         else
-                            [ span
-                                [ class
-                                    ("dbx"
-                                        ++ (if String.contains "X" box || String.contains "x" box then
-                                                " on"
-
-                                            else
-                                                ""
-                                           )
-                                    )
-                                ]
-                                [ text box ]
-                            ]
+                            [ boxSpan m r box ]
                        )
     in
     div [ class "dp" ]
         (mark
             ++ (case ( elementSpan m r, keyOf r ) of
                     ( Just ( a, _ ), _ ) ->
-                        drawText m rest (a + k)
+                        drawWithCookie m r rest (a + k)
 
                     -- A PAIR'S KEY IS A RESERVED TOKEN and wears the drawer's ink,
                     -- org's `org-special-keyword' by another name.
@@ -2338,6 +2380,275 @@ subtreeDone m r =
 
         kids ->
             List.all (subtreeDone m) kids
+
+
+{-| The FACE a checkbox item shows, org's three states rolled up from its
+children: `Full' (`[X]') when the whole subtree is done, `Empty' (`[ ]') when
+nothing in it is, `Part' (`[-]') when some but not all.  `Full' is exactly
+`subtreeDone', so the derived box and the hide-done mode agree on a run.  A LEAF
+wears its own literal box; only an item WITH checkbox children derives its face,
+and so is read-only -- `toggleCheckbox' (20-sheet.js) refuses to tick a derived
+box, its state being its children's to tell.
+-}
+type BoxFace
+    = BoxEmpty
+    | BoxPart
+    | BoxFull
+
+
+{-| The state char a checkbox item's literal box holds: `X' (ticked, `x' folded
+in), `-' (a hand-written partial), else a space.  Nothing when the row is no
+checkbox item.
+-}
+boxChar : Model -> Row -> Maybe Char
+boxChar m r =
+    let
+        op =
+            openerAt m r
+
+        line =
+            lineOf m r
+
+        opened =
+            openedLen op
+
+        k =
+            markerOf op line
+
+        box =
+            String.slice opened k line
+    in
+    if k <= opened || String.isEmpty (String.trim box) then
+        Nothing
+
+    else if String.contains "X" box || String.contains "x" box then
+        Just 'X'
+
+    else if String.contains "-" box then
+        Just '-'
+
+    else
+        Just ' '
+
+
+boxFace : Model -> Row -> Maybe BoxFace
+boxFace m r =
+    case boxChar m r of
+        Nothing ->
+            Nothing
+
+        Just c ->
+            case checkKids m r.id of
+                [] ->
+                    Just (leafFace c)
+
+                kids ->
+                    Just (rollUp (List.filterMap (boxFace m) kids))
+
+
+leafFace : Char -> BoxFace
+leafFace c =
+    case c of
+        'X' ->
+            BoxFull
+
+        '-' ->
+            BoxPart
+
+        _ ->
+            BoxEmpty
+
+
+{-| A parent's face from its children's: `Full' only when every child is, `Empty'
+only when every child is, `Part' the moment they disagree or any child is itself
+partial.
+-}
+rollUp : List BoxFace -> BoxFace
+rollUp faces =
+    if List.all ((==) BoxFull) faces then
+        BoxFull
+
+    else if List.all ((==) BoxEmpty) faces then
+        BoxEmpty
+
+    else
+        BoxPart
+
+
+{-| The checkbox glyph a row draws.  A LEAF wears its own literal box, `x' and
+all; an item WITH checkbox children wears the face rolled up from them and marks
+itself `derived', the read-only box whose state is its children's to tell.
+-}
+boxSpan : Model -> Row -> String -> Html Msg
+boxSpan m r box =
+    case checkKids m r.id of
+        [] ->
+            span
+                [ class
+                    ("dbx"
+                        ++ (if String.contains "X" box || String.contains "x" box then
+                                " on"
+
+                            else
+                                ""
+                           )
+                    )
+                ]
+                [ text box ]
+
+        _ ->
+            let
+                ( ch, cls ) =
+                    case Maybe.withDefault BoxEmpty (boxFace m r) of
+                        BoxFull ->
+                            ( 'X', " on" )
+
+                        BoxPart ->
+                            ( '-', " part" )
+
+                        BoxEmpty ->
+                            ( ' ', "" )
+            in
+            span [ class ("dbx derived" ++ cls) ] [ text (setBox ch box) ]
+
+
+{-| BOX with its state char set to C, its brackets and any trailing gap kept, so
+a derived glyph is the literal's width to the pixel.
+-}
+setBox : Char -> String -> String
+setBox c box =
+    case String.indexes "[" box of
+        i :: _ ->
+            String.left (i + 1) box ++ String.fromChar c ++ String.dropLeft (i + 2) box
+
+        [] ->
+            box
+
+
+{-| Draw REST (a row's text past its marker) with any org STATISTICS COOKIE in it
+filled from the item's checkbox children -- `[/]' as `[done/total]', `[%]' as the
+whole-percent, the way org's `[n/m]'/`[k%]' read.  A cookie is DERIVED like the
+box, so its digits are its children's to tell, not the reader's; the literal `[/]'
+stays in the file and the shown count collapses over it the way a link's does.
+BASE keeps `drawText's absolute offsets across the split so links either side
+still slice true.
+-}
+drawWithCookie : Model -> Row -> String -> Int -> List (Html Msg)
+drawWithCookie m r rest base =
+    case cookieIn rest of
+        Just ( from, to, percent ) ->
+            drawText m (String.left from rest) base
+                ++ [ cookieSpan m r percent ]
+                ++ drawWithCookie m r (String.dropLeft to rest) (base + to)
+
+        Nothing ->
+            drawText m rest base
+
+
+{-| The filled cookie span: `done'/`total' are the item's DIRECT checkbox children
+(org's default `org-checkbox-hierarchical-statistics'), a child counting as done
+when its own face is `Full'.  A complete cookie wears the done face.
+-}
+cookieSpan : Model -> Row -> Bool -> Html Msg
+cookieSpan m r percent =
+    let
+        kids =
+            checkKids m r.id
+
+        total =
+            List.length kids
+
+        done =
+            List.length (List.filter (\k -> boxFace m k == Just BoxFull) kids)
+
+        shown =
+            if percent then
+                "["
+                    ++ String.fromInt
+                        (if total == 0 then
+                            0
+
+                         else
+                            (100 * done) // total
+                        )
+                    ++ "%]"
+
+            else
+                "[" ++ String.fromInt done ++ "/" ++ String.fromInt total ++ "]"
+    in
+    span
+        [ class
+            ("dcookie"
+                ++ (if total > 0 && done == total then
+                        " done"
+
+                    else
+                        ""
+                   )
+            )
+        ]
+        [ text shown ]
+
+
+{-| The FIRST statistics cookie in S -- `[n/m]', `[/]', `[k%]' or `[%]' with the
+digits optional -- as (from, to, isPercent), searching past every other `[...]'
+(a checkbox, a priority, a timestamp).  The box never reaches here; it is in the
+marker, ahead of the text this scans.
+-}
+cookieIn : String -> Maybe ( Int, Int, Bool )
+cookieIn s =
+    findCookie s 0
+
+
+findCookie : String -> Int -> Maybe ( Int, Int, Bool )
+findCookie s from =
+    case indexFrom '[' s from of
+        Nothing ->
+            Nothing
+
+        Just lb ->
+            case indexFrom ']' s (lb + 1) of
+                Nothing ->
+                    Nothing
+
+                Just rb ->
+                    case cookieKind (String.slice (lb + 1) rb s) of
+                        Just percent ->
+                            Just ( lb, rb + 1, percent )
+
+                        Nothing ->
+                            findCookie s (lb + 1)
+
+
+{-| Nothing when INSIDE is no cookie body, `Just True' for a percent (`k%', `%'),
+`Just False' for a fraction (`n/m', `/'); the digits may be absent, as org writes
+an empty cookie.
+-}
+cookieKind : String -> Maybe Bool
+cookieKind inside =
+    let
+        digits str =
+            String.all (\c -> c >= '0' && c <= '9') str
+    in
+    if String.endsWith "%" inside && digits (String.dropRight 1 inside) then
+        Just True
+
+    else
+        case String.split "/" inside of
+            [ a, b ] ->
+                if digits a && digits b then
+                    Just False
+
+                else
+                    Nothing
+
+            _ ->
+                Nothing
+
+
+indexFrom : Char -> String -> Int -> Maybe Int
+indexFrom c s from =
+    List.head (List.filter (\i -> i >= from) (String.indexes (String.fromChar c) s))
 
 
 {-| The rows a hide-done run hides: every checkbox item whose subtree is done,
