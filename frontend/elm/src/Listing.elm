@@ -270,17 +270,14 @@ rowClass m i r =
         (List.filterMap identity
             [ if modBy 2 i == 1 then
                 Just "tv-alt"
-
               else
                 Nothing
             , if List.member r.id m.flags then
                 Just "tv-flagged"
-
               else
                 Nothing
             , if i == m.at then
                 Just "tv-sel"
-
               else
                 Nothing
             ]
@@ -295,7 +292,6 @@ cellOf r key =
                 (\( k, v ) ->
                     if k == key then
                         Just v
-
                     else
                         Nothing
                 )
@@ -388,7 +384,6 @@ view m =
                         , style "display"
                             (if List.isEmpty (shown m) then
                                 ""
-
                              else
                                 "none"
                             )

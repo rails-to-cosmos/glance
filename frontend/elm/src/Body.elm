@@ -194,7 +194,6 @@ rowsFrom lines own headCells kids =
             in
             if stop == r.to then
                 r
-
             else
                 { r | text = cut lines r.from stop, was = cut lines r.from stop }
 
@@ -273,7 +272,6 @@ metaRows { entries, props, drafting } =
         planning =
             if List.isEmpty entries then
                 []
-
             else
                 [ { blank
                     | id = planId
@@ -311,7 +309,6 @@ metaRows { entries, props, drafting } =
                     , owner = Just drawerId
                   }
                 ]
-
             else
                 []
     in
@@ -336,7 +333,6 @@ planEntries plan summoned =
         Just key ->
             if List.any (\( k, _ ) -> k == key) plan then
                 plan
-
             else
                 plan ++ [ ( key, "" ) ]
 
@@ -356,7 +352,6 @@ planningKey keywords key =
     in
     if List.member up keywords then
         Just up
-
     else
         Nothing
 
@@ -371,18 +366,15 @@ setPlanning : ( String, String ) -> List ( String, String ) -> List ( String, St
 setPlanning ( key, value ) plan =
     if value == "" then
         List.filter (\( k, _ ) -> k /= key) plan
-
     else if List.any (\( k, _ ) -> k == key) plan then
         List.map
             (\p ->
                 if Tuple.first p == key then
                     ( key, value )
-
                 else
                     p
             )
             plan
-
     else
         plan ++ [ ( key, value ) ]
 
@@ -398,7 +390,6 @@ routedWord : String -> ( String, String ) -> String
 routedWord landing ( key, value ) =
     if value == "" then
         key ++ " cleared, and the drawer pair with it"
-
     else
         planningText [ ( key, value ) ] ++ " — " ++ landing
 
@@ -426,13 +417,11 @@ readProperty line =
                 in
                 if key == "" || String.contains " " key then
                     Nothing
-
                 else
                     Just ( key, String.trim (String.dropLeft (close + 2) t) )
 
             [] ->
                 Nothing
-
     else
         Nothing
 
@@ -491,7 +480,6 @@ ownEnd rows r =
         -- A COMPOSITE IS THE WHOLE THING: the list is one stop, so editing it
         -- rewrites the list and its leaves are silenced under it.
         r.to
-
     else
         case List.filter (\k -> k.owner == Just r.id) rows of
             kid :: _ ->
@@ -525,10 +513,8 @@ nudge : Int -> String -> String
 nudge n line =
     if n > 0 then
         String.repeat n " " ++ line
-
     else if n < 0 then
         String.dropLeft (min -n (String.length (Scan.indentOf line))) line
-
     else
         line
 
@@ -557,12 +543,10 @@ bodyText m gone =
                     spare =
                         if r.to < List.length out - 1 && blankAt r.to out then
                             1
-
                         else
                             0
                 in
                 List.take r.from out ++ List.drop (r.to + spare) out
-
             else if r.text /= r.was then
                 let
                     typed =
@@ -592,13 +576,11 @@ bodyText m gone =
                             -- The blanks that keep a paragraph one are the
                             -- SPLICE's: a zero-width range ADDS lines.
                             apart out r.from written
-
                         else
                             written
                        )
                     ++ under
                     ++ List.drop r.to out
-
             else
                 out
     in
@@ -669,7 +651,6 @@ boxAfter : String -> String
 boxAfter after =
     if List.member (String.left 3 after) [ "[ ]", "[X]", "[x]", "[-]" ] then
         "[ ] "
-
     else
         ""
 
@@ -701,7 +682,6 @@ tableCells line =
     in
     if nth (n - 1) cells == Just "" then
         List.take (n - 1) cells
-
     else
         cells
 
@@ -720,7 +700,6 @@ caretIn marker =
     in
     if isTable marker then
         clamp open firstCell (open + 1)
-
     else
         String.length marker
 
@@ -775,7 +754,6 @@ pastWord top =
         Nothing ->
             if top.grain == Composite then
                 "after the block"
-
             else
                 "after this paragraph"
 
@@ -846,7 +824,6 @@ sibling m r =
             r.owner
             False
             (regionWord Item)
-
     else
         Join top.id top.to "" Nothing True (pastWord top)
 
@@ -869,7 +846,6 @@ inside m r line =
     in
     if reg.kind == Plain || closerAt reg line then
         Join top.id reg.to "" Nothing True (pastWord top)
-
     else
         anchored m r (line + 1) (markerFor lines reg) (regionWord reg.kind)
 
@@ -888,7 +864,6 @@ anchored m r line marker word =
         marker
         (if line >= host.to then
             host.owner
-
          else
             Just host.id
         )
@@ -907,7 +882,6 @@ holding m r line =
         (\s best ->
             if s.from >= best.from then
                 s
-
             else
                 best
         )
@@ -955,7 +929,6 @@ joinLine m id caret =
             -- A REGION'S OWN LINE owes no blank above, where a paragraph's does.
             if j.alone && j.line > 1 && not (blankAt (j.line - 1) m.lines) then
                 j.line + 1
-
             else
                 j.line
         )
@@ -979,14 +952,12 @@ apart : List String -> Int -> List String -> List String
 apart lines line written =
     (if line > 1 && not (blankAt (line - 1) lines) then
         [ "" ]
-
      else
         []
     )
         ++ written
         ++ (if blankAt line lines then
                 []
-
             else
                 [ "" ]
            )
@@ -1023,7 +994,6 @@ riding : Int -> String -> String
 riding n text =
     if n == 0 then
         text
-
     else
         String.join ("\n" ++ String.repeat n " ") (String.split "\n" text)
 
@@ -1052,7 +1022,6 @@ joined m under row =
                                 takeWhileList owned rest
                         in
                         out ++ (r :: kin) ++ (row :: List.drop (List.length kin) rest)
-
                     else
                         place (out ++ [ r ]) rest
     in
@@ -1088,7 +1057,6 @@ placeAtLine m line =
                 (\( i, r ) held ->
                     if r.from <= line && line < r.to then
                         Just i
-
                     else
                         held
                 )

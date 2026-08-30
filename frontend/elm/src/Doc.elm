@@ -188,7 +188,6 @@ step by m =
                         \r ->
                             (heading r || r.id == tailId)
                                 && not (Set.member r.id hidden)
-
                     else if by < 0 && shelved m cur then
                         let
                             hidden =
@@ -203,7 +202,6 @@ step by m =
                         \r ->
                             (r.owner == cur.owner || heading r)
                                 && not (Set.member r.id hidden)
-
                     else
                         \r -> r.owner == cur.owner
 
@@ -213,10 +211,8 @@ step by m =
                 scan i =
                     if i < 0 || i >= n then
                         Nothing
-
                     else if Maybe.withDefault False (Maybe.map fits (nth i m.rows)) then
                         Just i
-
                     else
                         scan (i + by)
             in
@@ -249,13 +245,11 @@ nextVisible by m =
         scan i =
             if i < 0 || i >= total then
                 m.at
-
             else
                 case nth i m.rows of
                     Just r ->
                         if Set.member r.id gone then
                             scan (i + by)
-
                         else
                             i
 
@@ -304,7 +298,6 @@ finer m =
                 entered =
                     if r.kind == Head then
                         List.length m.rows > 1
-
                     else
                         kids > 0
             in
@@ -312,23 +305,18 @@ finer m =
             -- rows, so the walk inside it is over the entries it draws.
             if r.id == Body.planId then
                 planFiner m
-
             else if heading r then
                 if entered then
                     ( { m | at = m.at + 1 }, "grain-finer (the body)" )
-
                 else
                     ( m, "grain-finer (an empty entry)" )
-
             else if kids > 0 then
                 -- The first child immediately follows its parent in emission order.
                 ( { m | at = m.at + 1 }
                 , grainWord "grain-finer" (Maybe.withDefault "item" r.name) 1 kids
                 )
-
             else if r.grain == Leaf then
                 ( m, "grain-finer (at the finest)" )
-
             else
                 ( m, "grain-finer (nothing finer here)" )
 
@@ -359,7 +347,6 @@ broader m =
                                 Nothing ->
                                     if up.grain == Leaf then
                                         "item"
-
                                     else
                                         kindWord up.kind
                     in
@@ -370,7 +357,6 @@ broader m =
                 Nothing ->
                     if r.kind == Head then
                         ( m, "grain-broader (the whole entry)" )
-
                     else
                         -- REVERSED EXPAND-REGION at its widest step: out of a row to
                         -- its owner, out of an owner-less one to THE ENTRY'S OWN LINE.
@@ -412,7 +398,6 @@ planBroader i m =
     in
     if i <= 0 then
         ( { m | planAt = Nothing }, "grain-broader (the planning line)" )
-
     else
         ( { m | planAt = Just (i - 1) }
         , planWord "grain-broader" (i - 1) entries
@@ -512,7 +497,6 @@ elementSpan m r =
                         -- The pane's own row: no span, so the flag and delete
                         -- doors refuse it the way they refuse a planning row.
                         Nothing
-
                     else
                         Just ( base + m.shift + charOf m r.from, base + m.shift + charOf m r.to )
 
@@ -618,7 +602,10 @@ update msg model =
             told (reveal (landAt (placeOf model id) model))
 
         Step by ->
-            told (step by model)
+            -- A ROW STEP OWES ITS WORD too, so `n'/`p' echo like `f'/`b'; the
+            -- programmatic walk sends this keyless and arms no `dwrote', so its
+            -- `docSaid' lands on nothing.
+            spoke ( step by model, if by > 0 then "next-row" else "previous-row" )
 
         Finer ->
             -- `f' INTO A FOLDED DRAWER OPENS IT: a step into what is hidden shows it.
@@ -628,7 +615,6 @@ update msg model =
                         Just r ->
                             if foldable model r then
                                 { model | shut = Set.remove r.id model.shut }
-
                             else
                                 model
 
@@ -646,7 +632,6 @@ update msg model =
                 -- SPOKEN, NOT TOLD: every doc key owes `docSaid' a word, else the
                 -- `dwrote' the shell armed for it is left to fire on the next.
                 spoke ( nextVisible 1 model, "grain-finer" )
-
             else
                 spoke ( fined, word )
 
@@ -681,7 +666,6 @@ update msg model =
                         Just r ->
                             if isListRoot model r.id then
                                 Just r.id
-
                             else
                                 listRootOf model r.id
 
@@ -693,7 +677,6 @@ update msg model =
                         Just root ->
                             if Set.member root model.hideDone then
                                 Set.remove root model.hideDone
-
                             else
                                 Set.insert root model.hideDone
 
@@ -701,7 +684,6 @@ update msg model =
                             -- ANY ON TURNS ALL OFF; else ALL ON.
                             if Set.isEmpty model.hideDone then
                                 Set.fromList (listRoots model)
-
                             else
                                 Set.empty
 
@@ -710,14 +692,12 @@ update msg model =
                         Just root ->
                             if Set.member root next then
                                 "hide-done (this list)"
-
                             else
                                 "hide-done (this list off)"
 
                         Nothing ->
                             if Set.isEmpty next then
                                 "hide-done (all lists off)"
-
                             else
                                 "hide-done (all lists)"
             in
@@ -740,7 +720,6 @@ update msg model =
                             | shut =
                                 if opened then
                                     Set.remove r.id model.shut
-
                                 else
                                     Set.insert r.id model.shut
                             , at = placeOf model r.id
@@ -748,13 +727,11 @@ update msg model =
                         , "org-cycle ("
                             ++ (if r.kind == Child then
                                     "subtree"
-
                                 else
                                     Maybe.withDefault "drawer" r.name
                                )
                             ++ (if opened then
                                     " open)"
-
                                 else
                                     " folded)"
                                )
@@ -781,7 +758,6 @@ update msg model =
                             (\r ->
                                 if r.kind == Head then
                                     { r | cells = cells }
-
                                 else
                                     r
                             )
@@ -823,7 +799,6 @@ update msg model =
                             ( landOn Body.drawerId (remeta { model | draftPair = False })
                             , "a property needs a key and a value"
                             )
-
                     else
                         let
                             fresh =
@@ -847,14 +822,12 @@ update msg model =
                 keptPlan =
                     if List.member Body.planId ids then
                         []
-
                     else
                         model.plan
 
                 keptProps =
                     if List.member Body.drawerId ids then
                         []
-
                     else
                         List.map Tuple.second
                             (List.filter
@@ -948,13 +921,11 @@ update msg model =
         Edit id written ->
             if Maybe.map .kind (rowById model id) == Just Meta then
                 editMeta model id written
-
             else
                 let
                     write r =
                         if r.id == id then
                             { r | text = narrowed model written }
-
                         else
                             r
                 in
@@ -1046,7 +1017,6 @@ narrowed m text =
             in
             if n > 0 && n <= m.level && headlineAt line then
                 String.repeat (m.level + 1) "*" ++ String.dropLeft n line
-
             else
                 line
     in
@@ -1102,7 +1072,6 @@ restarred by ( from, to ) =
         (\i line ->
             if i < from || i >= to || not (headlineAt line) then
                 line
-
             else
                 let
                     n =
@@ -1134,7 +1103,6 @@ shifted by m =
         word =
             if by < 0 then
                 "org-promote-subtree"
-
             else
                 "org-demote-subtree"
 
@@ -1148,13 +1116,10 @@ shifted by m =
         Just r ->
             if r.kind == Head then
                 no "the entry's own level is the table's"
-
             else if r.kind /= Child then
                 no "a headline alone"
-
             else if by < 0 && r.level <= m.level + 1 then
                 no "nothing shallower than a child of the entry"
-
             else
                 let
                     ( from, to ) =
@@ -1168,7 +1133,6 @@ shifted by m =
                     deepen k =
                         if k.from >= from && k.from < to && (k.kind == Child || k.kind == Para) then
                             { k | level = k.level + by }
-
                         else
                             k
                 in
@@ -1195,7 +1159,6 @@ settled m =
     snapVisible
         (if idAtRow m m.at == Body.planId then
             m
-
          else
             { m | planAt = Nothing }
         )
@@ -1292,7 +1255,6 @@ landOn id m =
         (placeOf m
             (if rowById m id /= Nothing then
                 id
-
              else
                 Body.drawerId
             )
@@ -1336,7 +1298,6 @@ editMeta : Model -> String -> String -> ( Model, Cmd Msg )
 editMeta m id written =
     if id == Body.planId then
         keep id (remeta { m | plan = Body.readPlanning m.planKeys written })
-
     else
         case ( Body.readProperty written, Body.propIndex id ) of
             ( Just ( key, value ), Just i ) ->
@@ -1881,7 +1842,6 @@ spineRanks m heads =
                 (\r ->
                     if heading r then
                         Just r.id
-
                     else
                         Dict.get r.id heads
                 )
@@ -1890,7 +1850,6 @@ spineRanks m heads =
         chain id acc =
             if id == "H" then
                 acc ++ [ "H" ]
-
             else
                 chain (Maybe.withDefault "H" (Dict.get id heads)) (acc ++ [ id ])
     in
@@ -1914,7 +1873,6 @@ rowClass lit m i r top =
                     -- A PAIR IS NOT NESTED: no tree, a paragraph's own face.
                     if r.kind == Meta then
                         "meta"
-
                     else
                         "item"
 
@@ -1926,13 +1884,11 @@ rowClass lit m i r top =
            )
         ++ (if i == m.at then
                 " dat"
-
             else
                 ""
            )
         ++ (if List.member r.id m.flags then
                 " dfl"
-
             else
                 ""
            )
@@ -1941,14 +1897,12 @@ rowClass lit m i r top =
                 -- nothing and a top-level row says so itself.  NOT `d-top': the
                 -- harness reads a row's KIND off its `d-' classes.
                 " lvl-top"
-
             else
                 ""
            )
         ++ (if r.id == tailId then
                 -- The empty line keeps a LINE's height, or nothing shows.
                 " d-tail"
-
             else
                 ""
            )
@@ -1956,14 +1910,12 @@ rowClass lit m i r top =
                 -- A DONE CHECKBOX HIDDEN by the hide-done mode; the stylesheet
                 -- takes it out of flow, the walk already steps past it.
                 " d-hidden"
-
             else
                 ""
            )
         ++ (if compactedRun m lit.done r then
                 -- A PARTIAL COMPACTED RUN: its gutter spine goes dashed accent.
                 " d-compacted"
-
             else
                 ""
            )
@@ -1973,10 +1925,8 @@ rowClass lit m i r top =
                 -- A drawer holding nothing is BARE, and its frame dims.
                 if Set.member r.id lit.owned then
                     " d-drawer"
-
                 else
                     " d-drawer bare"
-
             else
                 ""
            )
@@ -1997,18 +1947,15 @@ markOf : Lit -> Model -> Int -> Row -> String
 markOf lit m i r =
     if i == m.at then
         ""
-
     else if List.member r.id lit.ups then
         -- THE RUN'S BARS RIDE F'S RAMP TOO: an enclosing run steps down the
         -- accent by its distance out, and only point's own run bars in `fg'.
         " up up-"
             ++ String.fromInt
                 (min 2 (Maybe.withDefault 0 (indexOfIn r.id lit.ups)))
-
     else if r.owner /= Nothing && r.owner == lit.sib then
         -- A SIBLING IS WHAT THE READER IS CHOOSING BETWEEN, so it stays readable.
         " sib"
-
     else
         ""
 
@@ -2045,10 +1992,8 @@ drawText m body base =
                 [] ->
                     if seen == 0 then
                         [ text body ]
-
                     else if seen < n then
                         out ++ [ span [ class "dt" ] [ text (String.dropLeft seen body) ] ]
-
                     else
                         out
 
@@ -2062,14 +2007,12 @@ drawText m body base =
                     in
                     if a < seen then
                         go rest seen out
-
                     else
                         go rest
                             b
                             (out
                                 ++ (if a > seen then
                                         [ span [ class "dt" ] [ text (String.slice seen a body) ] ]
-
                                     else
                                         []
                                    )
@@ -2106,12 +2049,10 @@ viewPara m r =
         mark =
             if k <= 0 then
                 []
-
             else
                 span [ class "dm" ] (markParts op (String.left opened r.text))
                     :: (if String.isEmpty box then
                             []
-
                         else
                             [ boxSpan m r box ]
                        )
@@ -2132,7 +2073,6 @@ viewPara m r =
                     ( Nothing, Nothing ) ->
                         if r.id == Body.planId then
                             viewPlanning m
-
                         else
                             [ text rest ]
                )
@@ -2164,7 +2104,6 @@ viewPlanning m =
                 [ text
                     (if i == 0 then
                         ""
-
                      else
                         " "
                     )
@@ -2175,7 +2114,6 @@ viewPlanning m =
                     [ class
                         (if picked == Just i then
                             "dpv dat"
-
                          else
                             "dpv"
                         )
@@ -2203,7 +2141,6 @@ keyOf : Row -> Maybe String
 keyOf r =
     if r.kind == Meta && r.grain == Leaf then
         Maybe.map Tuple.first (Body.readProperty r.text)
-
     else
         Nothing
 
@@ -2222,7 +2159,6 @@ openerAt m r =
     -- A synthesized row has NO LINE, so reading one would read the body's first.
     if r.grain /= Leaf || r.kind /= Para then
         Nothing
-
     else
         Scan.listOpener (lineOf m r)
 
@@ -2279,7 +2215,6 @@ markParts op head =
                 , span [ class "dbul" ] [ text tok ]
                 , text (String.dropLeft (o.indent + String.length tok) head)
                 ]
-
             else
                 [ text head ]
 
@@ -2295,7 +2230,6 @@ boxLen : String -> Int
 boxLen rest =
     if List.member (String.left 3 rest) [ "[ ]", "[X]", "[x]", "[-]" ] then
         3 + String.length (Scan.indentOf (String.dropLeft 3 rest))
-
     else
         0
 
@@ -2324,7 +2258,6 @@ boxState m r =
     in
     if k <= opened || String.isEmpty (String.trim box) then
         Nothing
-
     else
         Just (String.contains "X" box || String.contains "x" box)
 
@@ -2351,7 +2284,6 @@ listRoots m =
         (\r ->
             if isListRoot m r.id then
                 Just r.id
-
             else
                 Nothing
         )
@@ -2426,13 +2358,10 @@ boxChar m r =
     in
     if k <= opened || String.isEmpty (String.trim box) then
         Nothing
-
     else if String.contains "X" box || String.contains "x" box then
         Just 'X'
-
     else if String.contains "-" box then
         Just '-'
-
     else
         Just ' '
 
@@ -2473,10 +2402,8 @@ rollUp : List BoxFace -> BoxFace
 rollUp faces =
     if List.all ((==) BoxFull) faces then
         BoxFull
-
     else if List.all ((==) BoxEmpty) faces then
         BoxEmpty
-
     else
         BoxPart
 
@@ -2494,7 +2421,6 @@ boxSpan m r box =
                     ("dbx"
                         ++ (if String.contains "X" box || String.contains "x" box then
                                 " on"
-
                             else
                                 ""
                            )
@@ -2573,12 +2499,10 @@ cookieSpan m r percent =
                     ++ String.fromInt
                         (if total == 0 then
                             0
-
                          else
                             (100 * done) // total
                         )
                     ++ "%]"
-
             else
                 "[" ++ String.fromInt done ++ "/" ++ String.fromInt total ++ "]"
     in
@@ -2587,7 +2511,6 @@ cookieSpan m r percent =
             ("dcookie"
                 ++ (if total > 0 && done == total then
                         " done"
-
                     else
                         ""
                    )
@@ -2638,13 +2561,11 @@ cookieKind inside =
     in
     if String.endsWith "%" inside && digits (String.dropRight 1 inside) then
         Just True
-
     else
         case String.split "/" inside of
             [ a, b ] ->
                 if digits a && digits b then
                     Just False
-
                 else
                     Nothing
 
@@ -2669,7 +2590,6 @@ hiddenDone : Model -> Set String
 hiddenDone m =
     if Set.isEmpty m.hideDone then
         Set.empty
-
     else
         Set.fromList
             (List.filterMap
@@ -2679,16 +2599,13 @@ hiddenDone m =
                         -- whole checkbox subtree is done.
                         if Set.member r.id m.hideDone && subtreeDone m r then
                             Just r.id
-
                         else
                             Nothing
-
                     else
                         case ( boxState m r, listRootOf m r.id ) of
                             ( Just _, Just root ) ->
                                 if Set.member root m.hideDone && subtreeDone m r then
                                     Just r.id
-
                                 else
                                     Nothing
 
@@ -2737,10 +2654,8 @@ snapVisible m =
         seek by i =
             if i < 0 || i >= n then
                 -1
-
             else if visibleAt i then
                 i
-
             else
                 seek by (i + by)
 
@@ -2748,13 +2663,11 @@ snapVisible m =
         landing =
             if seek 1 m.at >= 0 then
                 seek 1 m.at
-
             else
                 seek -1 m.at
     in
     if Set.member (idAtRow m m.at) hidden && landing >= 0 then
         { m | at = landing }
-
     else
         m
 
@@ -2766,7 +2679,6 @@ viewCells m r =
             (stars m
                 (if r.kind == Child then
                     r.level
-
                  else
                     m.level
                 )
@@ -2790,7 +2702,6 @@ viewCells m r =
                             text c.val
                                 :: (if Set.member r.id m.shut then
                                         [ span [ class "dg" ] [ text " …" ] ]
-
                                     else
                                         []
                                    )
@@ -2812,7 +2723,6 @@ drawnCells : Row -> List Cell
 drawnCells r =
     if r.kind == Head then
         List.filter (\c -> c.val /= "" || c.key == "title") r.cells
-
     else
         shown r
 
@@ -2837,7 +2747,6 @@ viewKids lit m parent from at0 depth =
                             gap =
                                 if kid.from > mark then
                                     [ div [ class "dg" ] [ text (cut m.lines mark kid.from) ] ]
-
                                 else
                                     []
 
@@ -2860,7 +2769,6 @@ viewKids lit m parent from at0 depth =
                                                 [ viewPara m
                                                     { kid | to = headAt, text = cut m.lines kid.from headAt }
                                                 ]
-
                                             else
                                                 []
 
@@ -2868,7 +2776,6 @@ viewKids lit m parent from at0 depth =
                                             viewKids lit m kid (j + 1) headAt (depth + 1)
                                     in
                                     ( own ++ deeper, jj )
-
                                 else
                                     ( [ viewPara m kid ], j + 1 )
 
@@ -2879,7 +2786,6 @@ viewKids lit m parent from at0 depth =
                                 ++ gap
                                 ++ [ rowEl lit m j kid False [ rung depth ] inner ]
                             )
-
                     else
                         ( tail mark out, j )
 
@@ -2889,7 +2795,6 @@ viewKids lit m parent from at0 depth =
         tail mark out =
             if mark < parent.to then
                 out ++ [ div [ class "dg" ] [ text (cut m.lines mark parent.to) ] ]
-
             else
                 out
     in
@@ -2919,7 +2824,6 @@ inset m r =
                 ++ rail m r.level
             )
         ]
-
     else
         []
 
@@ -2944,7 +2848,6 @@ hiddenIn m =
                 Just o ->
                     if Set.member o m.shut || Set.member o acc then
                         Set.insert r.id acc
-
                     else
                         acc
 
@@ -2976,7 +2879,6 @@ view m =
         blkOf id level inner =
             if List.isEmpty inner then
                 []
-
             else
                 [ div
                     [ class
@@ -2998,7 +2900,6 @@ view m =
         go i level out =
             if i >= n then
                 ( out, i )
-
             else
                 let
                     r =
@@ -3006,12 +2907,10 @@ view m =
                 in
                 if r.kind == Child && r.level <= level then
                     ( out, i )
-
                 else if Set.member r.id hidden then
                     -- FOLDED AWAY with its owner.  What a composite holds is
                     -- transitively hidden too, so each row skips in its turn.
                     go (i + 1) level out
-
                 else if r.kind == Child then
                     -- The headline's own line on its parent's shelf, then its
                     -- contents as a BLOCK beside it; a folded child has no
@@ -3024,13 +2923,11 @@ view m =
                             go (i + 1) r.level []
                     in
                     go j level (out ++ headline :: blkOf r.id r.level inner)
-
                 else if r.grain == Composite then
                     let
                         ( inner, j ) =
                             if r.kind == Meta then
                                 viewMeta lit m r (i + 1)
-
                             else
                                 viewKids lit m r (i + 1) r.from 0
 
@@ -3041,12 +2938,10 @@ view m =
                                 [ div [ class "dg" ]
                                     (opener r ++ [ text " …" ])
                                 ]
-
                             else
                                 inner
                     in
                     go j level (out ++ [ rowEl lit m i r True (inset m r) shown ])
-
                 else
                     go (i + 1) level (out ++ [ rowEl lit m i r True (inset m r) [ viewPara m r ] ])
 
@@ -3055,7 +2950,6 @@ view m =
         opener r =
             if r.kind == Meta then
                 token "PROPERTIES"
-
             else
                 [ text (Maybe.withDefault "" (nth r.from m.lines)) ]
 
@@ -3089,7 +2983,6 @@ viewMeta lit m parent from =
                 Just kid ->
                     if kid.kind == Meta && kid.owner == Just parent.id then
                         walk (j + 1) (got ++ [ ( j, kid ) ])
-
                     else
                         ( got, j )
 
@@ -3141,16 +3034,13 @@ viewPath m =
         words =
             if Maybe.map .kind (rowAt m) == Just Head then
                 [ "headline" ]
-
             else if List.isEmpty named then
                 [ "headline"
                 , if Maybe.map .kind (rowAt m) == Just Meta then
                     "planning"
-
                   else
                     "paragraph"
                 ]
-
             else
                 "headline" :: named
 
@@ -3164,7 +3054,6 @@ viewPath m =
                     (if i > 0 then
                         -- THE PATH READS `A › B', org-breadcrumb fashion.
                         [ span [ class "dsep" ] [ text "›" ] ]
-
                      else
                         []
                     )
@@ -3187,7 +3076,6 @@ crumb m r =
         clip s =
             if String.length s > 24 then
                 String.left 23 s ++ "…"
-
             else
                 s
     in
@@ -3200,20 +3088,16 @@ crumb m r =
         clip
             (if String.isEmpty t then
                 "child"
-
              else
                 t
             )
-
     else if r.grain == Composite then
         -- A DRAWER'S CRUMB IS ORG'S OWN TOKEN, `:PROPERTIES:', so the strip says
         -- the reader stands in something reserved rather than in prose of theirs.
         if drawer m r then
             ":" ++ String.toUpper (Maybe.withDefault "drawer" r.name) ++ ":"
-
         else
             Maybe.withDefault "item" r.name
-
     else
         clip
             -- A PAIR'S CRUMB IS ITS KEY ALONE: the value is the line's own

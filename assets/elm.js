@@ -10866,8 +10866,10 @@ var $author$project$Doc$update = F2(
 							model)));
 			case 3:
 				var by = msg.a;
-				return $author$project$Doc$told(
-					A2($author$project$Doc$step, by, model));
+				return $author$project$Doc$spoke(
+					_Utils_Tuple2(
+						A2($author$project$Doc$step, by, model),
+						(by > 0) ? 'next-row' : 'previous-row'));
 			case 4:
 				var opened = function () {
 					var _v7 = $author$project$Body$rowAt(model);

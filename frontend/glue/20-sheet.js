@@ -163,7 +163,10 @@
     // MOVEMENT IS TWO AXES, and `l'/`h' and the arrows ALIAS `f'/`b' — AGENTS.hs.
     const grainStep = (k) => (k === "f" || k === "l" || k === "<right>" ? 1
                             : k === "b" || k === "h" || k === "<left>" ? -1 : 0);
-    const docStep = (step) => dsend({ kind: "step", by: step });
+    // A KEY ARMS THE ECHO (`dsay'), the programmatic walk does not (`dsend'):
+    // `n'/`p' say their word, the flag-delete's own step stays quiet.
+    const docStep = (step, k) =>
+      k ? dsay(k, { kind: "step", by: step }) : dsend({ kind: "step", by: step });
     const docFiner = (k) => dsay(k, { kind: "finer" });
     const docBroader = (k) => dsay(k, { kind: "broader" });
     // `B' -- SHIFT-b -- CLIMBS THE GRAIN to the owner in one press, the headline
@@ -2228,7 +2231,7 @@
         else if (k !== "TAB") return;   // ESC is the keymap's, and puts the element back
       } else {
         const step = rowStep(k), depth = grainStep(k);
-        if (step) docStep(step);
+        if (step) docStep(step, k);
         else if (depth > 0) docFiner(k);
         else if (depth < 0) docBroader(k);
         else if (k === "B") docClimb(k);

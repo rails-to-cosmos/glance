@@ -51,3 +51,8 @@ body {
     color: var(--g-fg);
 }
 ```
+
+## Elm (`frontend/elm/`)
+
+Elm conventions live beside the sources, in
+[`frontend/elm/CODESTYLE.md`](../frontend/elm/CODESTYLE.md).

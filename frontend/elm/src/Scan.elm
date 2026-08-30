@@ -56,13 +56,10 @@ listOpener line =
         tokenAt =
             if String.startsWith "- " rest || rest == "-" then
                 Just "-"
-
             else if String.startsWith "+ " rest || rest == "+" then
                 Just "+"
-
             else if String.startsWith "* " rest || rest == "*" then
                 Just "*"
-
             else
                 Maybe.map
                     (\d -> d ++ String.slice (String.length d) (String.length d + 1) rest)
@@ -80,7 +77,6 @@ listOpener line =
         Just "*" ->
             if spaces == 0 then
                 Nothing
-
             else
                 Just (opened "*")
 
@@ -98,7 +94,6 @@ gapAfter after =
     in
     if String.isEmpty run then
         " "
-
     else
         run
 
@@ -114,7 +109,6 @@ numberedAt rest =
     in
     if String.isEmpty digits then
         Nothing
-
     else if
         String.startsWith ". " after
             || String.startsWith ") " after
@@ -124,7 +118,6 @@ numberedAt rest =
             == ")"
     then
         Just digits
-
     else
         Nothing
 
@@ -147,7 +140,6 @@ takeWhileList f xs =
         y :: rest ->
             if f y then
                 y :: takeWhileList f rest
-
             else
                 []
 
@@ -163,13 +155,11 @@ blockName line =
             w :: _ ->
                 if String.isEmpty w then
                     Nothing
-
                 else
                     Just w
 
             [] ->
                 Nothing
-
     else
         Nothing
 
@@ -197,7 +187,6 @@ drawerName line =
             /= "END"
     then
         Just (String.toUpper inner)
-
     else
         Nothing
 
@@ -226,7 +215,6 @@ closers lines =
     in
     (if empty then
         [ "" ]
-
      else
         []
     )
@@ -246,10 +234,8 @@ closerStep line ( stack, _ ) =
         top :: below ->
             if top.shut line then
                 ( below, False )
-
             else if top.opaque then
                 ( stack, False )
-
             else
                 closerPush line stack
 
@@ -305,7 +291,6 @@ closerWord line name =
     "#+"
         ++ (if begin == String.toUpper begin then
                 "END"
-
             else
                 "end"
            )
@@ -319,10 +304,8 @@ drawerRun lines i end =
         go j =
             if j >= end then
                 -1
-
             else if drawerEnds (at j lines) then
                 j + 1
-
             else
                 go (j + 1)
     in
@@ -338,7 +321,6 @@ tableEnd : Array String -> Int -> Int -> Int
 tableEnd lines end j =
     if j < end && isTable (at j lines) then
         tableEnd lines end (j + 1)
-
     else
         j
 
@@ -368,7 +350,6 @@ indexWhere pred xs =
             (\( i, x ) ->
                 if pred x then
                     Just i
-
                 else
                     Nothing
             )
@@ -404,10 +385,8 @@ blockRun lines i end name =
         go j =
             if j >= end then
                 -1
-
             else if endsBlock name (at j lines) then
                 j + 1
-
             else
                 go (j + 1)
     in
@@ -436,16 +415,12 @@ kindAt lines i =
     in
     if drawerName line /= Nothing then
         Drawer
-
     else if blockName line /= Nothing then
         Block
-
     else if isTable line then
         Table
-
     else if listOpener line /= Nothing then
         Item
-
     else
         Plain
 
@@ -495,7 +470,6 @@ proseEnd : Array String -> Int -> Int -> Int
 proseEnd lines end j =
     if j >= end || isBlank (at j lines) || kindAt lines j /= Plain then
         j
-
     else
         proseEnd lines end (j + 1)
 
@@ -509,13 +483,11 @@ closedRun lines end j =
         shut =
             if closes kind then
                 extentOf lines end j kind
-
             else
                 -1
     in
     if shut == -1 then
         Nothing
-
     else
         Just shut
 
@@ -541,14 +513,12 @@ listRun lines i end =
         blanksFrom j =
             if j < end && isBlank (at j lines) then
                 blanksFrom (j + 1)
-
             else
                 j
 
         go j from last items =
             if j >= end then
                 Run last (close from last items)
-
             else if isBlank (at j lines) then
                 let
                     k =
@@ -556,16 +526,13 @@ listRun lines i end =
                 in
                 if k - j > 1 || k >= end || not (rides (at k lines)) then
                     Run last (close from last items)
-
                 else
                     go k from last items
-
             else
                 case listOpener (at j lines) of
                     Just o ->
                         if o.indent <= base then
                             go (j + 1) j (j + 1) (close from last items)
-
                         else
                             go (j + 1) from (j + 1) items
 
@@ -579,14 +546,12 @@ listRun lines i end =
 
                                 Nothing ->
                                     go (j + 1) from (j + 1) items
-
                         else
                             Run last (close from last items)
 
         close from last items =
             if from == -1 then
                 items
-
             else
                 items ++ [ ( from, last ) ]
     in
@@ -610,10 +575,8 @@ regionsIn lines from end =
         go i out =
             if i >= end then
                 out
-
             else if isBlank (at i lines) then
                 go (i + 1) out
-
             else
                 case kindAt lines i of
                     Plain ->
@@ -643,7 +606,6 @@ regionsIn lines from end =
             in
             if to == -1 then
                 prose i out
-
             else
                 go to (out ++ [ Region kind i to ])
 
@@ -699,7 +661,6 @@ regionAt lines from end line =
         reg :: _ ->
             if greater lines reg then
                 within lines reg line
-
             else
                 reg
 
@@ -715,7 +676,6 @@ within lines reg line =
     in
     if nested.kind == Plain || closerAt nested line then
         reg
-
     else
         nested
 
@@ -724,7 +684,6 @@ interiorEnd : Region -> Int
 interiorEnd reg =
     if closes reg.kind then
         reg.to - 1
-
     else
         reg.to
 
@@ -738,7 +697,6 @@ snug : Array String -> Int -> Int -> Int
 snug lines from to =
     if to > from && isBlank (at (to - 1) lines) then
         snug lines from (to - 1)
-
     else
         to
 
@@ -753,17 +711,13 @@ runsIn lines a b =
         go i from out =
             if i > b then
                 out
-
             else if i == b || isBlank (at i lines) then
                 if from == -1 then
                     go (i + 1) -1 out
-
                 else
                     go (i + 1) -1 (out ++ [ ( from, i ) ])
-
             else if from == -1 then
                 go (i + 1) i out
-
             else
                 go (i + 1) from out
     in
@@ -780,10 +734,8 @@ drawerLeaves lines a b =
         go j out =
             if j >= b then
                 out
-
             else if isBlank (at j lines) then
                 go (j + 1) out
-
             else
                 let
                     stop =
@@ -819,7 +771,6 @@ blocksInRange lines start own =
                 deeper reg got =
                     if reg.kind == Item then
                         pushItem reg.from (snug lines reg.from reg.to) (Just here) got
-
                     else
                         got
             in
@@ -839,10 +790,8 @@ blocksInRange lines start own =
         go i out =
             if i >= end then
                 out
-
             else if isBlank (at i lines) then
                 go (i + 1) out
-
             else
                 case kindAt lines i of
                     -- A CLOSED REGION IS ONE STOP: the composite wears the
@@ -882,7 +831,6 @@ blocksInRange lines start own =
             in
             if closes kind && shut <= i + 1 then
                 plain i out
-
             else
                 go shut (whole i shut (stopName kind i) (leavesOf kind i shut) out)
 
