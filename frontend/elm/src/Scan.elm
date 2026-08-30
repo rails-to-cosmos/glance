@@ -75,10 +75,7 @@ listOpener line =
 
         -- A `* ' at COLUMN 1 is a headline rather than an item.
         Just "*" ->
-            if spaces == 0 then
-                Nothing
-            else
-                Just (opened "*")
+            if spaces == 0 then Nothing else Just (opened "*")
 
         Just token ->
             Just (opened token)
@@ -92,10 +89,7 @@ gapAfter after =
                 |> takeWhileList (\c -> c == ' ' || c == '\t')
                 |> String.fromList
     in
-    if String.isEmpty run then
-        " "
-    else
-        run
+    if String.isEmpty run then " " else run
 
 
 numberedAt : String -> Maybe String
@@ -138,10 +132,7 @@ takeWhileList f xs =
             []
 
         y :: rest ->
-            if f y then
-                y :: takeWhileList f rest
-            else
-                []
+            if f y then y :: takeWhileList f rest else []
 
 
 blockName : String -> Maybe String
@@ -153,10 +144,7 @@ blockName line =
     if String.startsWith "#+begin_" low then
         case String.words (String.dropLeft 8 low) of
             w :: _ ->
-                if String.isEmpty w then
-                    Nothing
-                else
-                    Just w
+                if String.isEmpty w then Nothing else Just w
 
             [] ->
                 Nothing
@@ -319,10 +307,7 @@ isTable line =
 
 tableEnd : Array String -> Int -> Int -> Int
 tableEnd lines end j =
-    if j < end && isTable (at j lines) then
-        tableEnd lines end (j + 1)
-    else
-        j
+    if j < end && isTable (at j lines) then tableEnd lines end (j + 1) else j
 
 
 indentOf : String -> String
@@ -486,10 +471,7 @@ closedRun lines end j =
             else
                 -1
     in
-    if shut == -1 then
-        Nothing
-    else
-        Just shut
+    if shut == -1 then Nothing else Just shut
 
 
 type alias Run =
@@ -511,10 +493,7 @@ listRun lines i end =
                     0
 
         blanksFrom j =
-            if j < end && isBlank (at j lines) then
-                blanksFrom (j + 1)
-            else
-                j
+            if j < end && isBlank (at j lines) then blanksFrom (j + 1) else j
 
         go j from last items =
             if j >= end then
@@ -550,10 +529,7 @@ listRun lines i end =
                             Run last (close from last items)
 
         close from last items =
-            if from == -1 then
-                items
-            else
-                items ++ [ ( from, last ) ]
+            if from == -1 then items else items ++ [ ( from, last ) ]
     in
     go i -1 i []
 
@@ -604,10 +580,7 @@ regionsIn lines from end =
                 to =
                     extentOf lines end i kind
             in
-            if to == -1 then
-                prose i out
-            else
-                go to (out ++ [ Region kind i to ])
+            if to == -1 then prose i out else go to (out ++ [ Region kind i to ])
 
         items run =
             List.map2 (\( a, _ ) b -> Region Item a b)
@@ -659,10 +632,7 @@ regionAt : Array String -> Int -> Int -> Int -> Region
 regionAt lines from end line =
     case List.filter (\r -> r.from <= line && line < r.to) (regionsIn lines from end) of
         reg :: _ ->
-            if greater lines reg then
-                within lines reg line
-            else
-                reg
+            if greater lines reg then within lines reg line else reg
 
         [] ->
             Region Plain line (line + 1)
@@ -674,18 +644,12 @@ within lines reg line =
         nested =
             regionAt lines (reg.from + 1) (interiorEnd reg) line
     in
-    if nested.kind == Plain || closerAt nested line then
-        reg
-    else
-        nested
+    if nested.kind == Plain || closerAt nested line then reg else nested
 
 
 interiorEnd : Region -> Int
 interiorEnd reg =
-    if closes reg.kind then
-        reg.to - 1
-    else
-        reg.to
+    if closes reg.kind then reg.to - 1 else reg.to
 
 
 closerAt : Region -> Int -> Bool
@@ -695,10 +659,7 @@ closerAt reg line =
 
 snug : Array String -> Int -> Int -> Int
 snug lines from to =
-    if to > from && isBlank (at (to - 1) lines) then
-        snug lines from (to - 1)
-    else
-        to
+    if to > from && isBlank (at (to - 1) lines) then snug lines from (to - 1) else to
 
 
 

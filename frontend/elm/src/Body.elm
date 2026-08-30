@@ -331,10 +331,7 @@ planEntries : List ( String, String ) -> Maybe String -> List ( String, String )
 planEntries plan summoned =
     case summoned of
         Just key ->
-            if List.any (\( k, _ ) -> k == key) plan then
-                plan
-            else
-                plan ++ [ ( key, "" ) ]
+            if List.any (\( k, _ ) -> k == key) plan then plan else plan ++ [ ( key, "" ) ]
 
         Nothing ->
             plan
@@ -350,10 +347,7 @@ planningKey keywords key =
         up =
             String.toUpper key
     in
-    if List.member up keywords then
-        Just up
-    else
-        Nothing
+    if List.member up keywords then Just up else Nothing
 
 
 {-| KEY set to VALUE on the planning line: an entry already there is replaced
@@ -649,10 +643,7 @@ nextBullet line o =
 
 boxAfter : String -> String
 boxAfter after =
-    if List.member (String.left 3 after) [ "[ ]", "[X]", "[x]", "[-]" ] then
-        "[ ] "
-    else
-        ""
+    if List.member (String.left 3 after) [ "[ ]", "[X]", "[x]", "[-]" ] then "[ ] " else ""
 
 
 tableRow : Array String -> Int -> Int -> String
@@ -698,10 +689,7 @@ caretIn marker =
         firstCell =
             open + String.length (Maybe.withDefault "" (List.head (tableCells marker)))
     in
-    if isTable marker then
-        clamp open firstCell (open + 1)
-    else
-        String.length marker
+    if isTable marker then clamp open firstCell (open + 1) else String.length marker
 
 
 widest : List Int -> List Int -> List Int
@@ -992,10 +980,7 @@ ONE item: a continuation at column 1 closes the run in org.
 -}
 riding : Int -> String -> String
 riding n text =
-    if n == 0 then
-        text
-    else
-        String.join ("\n" ++ String.repeat n " ") (String.split "\n" text)
+    if n == 0 then text else String.join ("\n" ++ String.repeat n " ") (String.split "\n" text)
 
 
 {-| ROWS with ROW put in after UNDER and everything UNDER owns UP TO ROW'S OWN

@@ -248,10 +248,7 @@ nextVisible by m =
             else
                 case nth i m.rows of
                     Just r ->
-                        if Set.member r.id gone then
-                            scan (i + by)
-                        else
-                            i
+                        if Set.member r.id gone then scan (i + by) else i
 
                     Nothing ->
                         m.at
@@ -296,10 +293,7 @@ finer m =
                 -- `f' ON A HEADLINE ENTERS THE BODY: everything is under it.
                 -- The root's rows carry no owner, so its test is the count.
                 entered =
-                    if r.kind == Head then
-                        List.length m.rows > 1
-                    else
-                        kids > 0
+                    if r.kind == Head then List.length m.rows > 1 else kids > 0
             in
             -- THE PLANNING LINE'S ENTRIES ARE ITS FINER GRAIN: the row holds no
             -- rows, so the walk inside it is over the entries it draws.
@@ -345,10 +339,7 @@ broader m =
                                     w
 
                                 Nothing ->
-                                    if up.grain == Leaf then
-                                        "item"
-                                    else
-                                        kindWord up.kind
+                                    if up.grain == Leaf then "item" else kindWord up.kind
                     in
                     ( { m | at = i }
                     , "grain-broader (" ++ word ++ ")"
@@ -664,10 +655,7 @@ update msg model =
                 scoped =
                     case rowAt model of
                         Just r ->
-                            if isListRoot model r.id then
-                                Just r.id
-                            else
-                                listRootOf model r.id
+                            if isListRoot model r.id then Just r.id else listRootOf model r.id
 
                         Nothing ->
                             Nothing
@@ -820,10 +808,7 @@ update msg model =
                 -- A DELETED PAIR LEAVES THROUGH THE LISTS, never the splice: `d' on
                 -- the drawer takes every pair, on the planning line the whole line.
                 keptPlan =
-                    if List.member Body.planId ids then
-                        []
-                    else
-                        model.plan
+                    if List.member Body.planId ids then [] else model.plan
 
                 keptProps =
                     if List.member Body.drawerId ids then
@@ -924,10 +909,7 @@ update msg model =
             else
                 let
                     write r =
-                        if r.id == id then
-                            { r | text = narrowed model written }
-                        else
-                            r
+                        if r.id == id then { r | text = narrowed model written } else r
                 in
                 composed { model | rows = List.map write model.rows }
 
@@ -1101,10 +1083,7 @@ shifted : Int -> Model -> ( Model, Cmd Msg )
 shifted by m =
     let
         word =
-            if by < 0 then
-                "org-promote-subtree"
-            else
-                "org-demote-subtree"
+            if by < 0 then "org-promote-subtree" else "org-demote-subtree"
 
         no why =
             spoke ( m, word ++ " (" ++ why ++ ")" )
@@ -1156,12 +1135,7 @@ settled m =
     -- A HIDE-DONE RUN HAS FEWER ROWS: no mover may rest point on one it hid, so
     -- the door snaps off it the way the toggle does -- `f' into a compacted run
     -- steps past its done head like `n' already steps over it.
-    snapVisible
-        (if idAtRow m m.at == Body.planId then
-            m
-         else
-            { m | planAt = Nothing }
-        )
+    snapVisible (if idAtRow m m.at == Body.planId then m else { m | planAt = Nothing })
 
 
 told : Model -> ( Model, Cmd Msg )
@@ -2157,10 +2131,7 @@ lineOf m r =
 openerAt : Model -> Row -> Maybe Scan.Opener
 openerAt m r =
     -- A synthesized row has NO LINE, so reading one would read the body's first.
-    if r.grain /= Leaf || r.kind /= Para then
-        Nothing
-    else
-        Scan.listOpener (lineOf m r)
+    if r.grain /= Leaf || r.kind /= Para then Nothing else Scan.listOpener (lineOf m r)
 
 
 {-| How many characters org spent on the indent and the bullet alone, the box after
@@ -2661,15 +2632,9 @@ snapVisible m =
 
         -- PREFER THE NEXT visible row, then the previous.
         landing =
-            if seek 1 m.at >= 0 then
-                seek 1 m.at
-            else
-                seek -1 m.at
+            if seek 1 m.at >= 0 then seek 1 m.at else seek -1 m.at
     in
-    if Set.member (idAtRow m m.at) hidden && landing >= 0 then
-        { m | at = landing }
-    else
-        m
+    if Set.member (idAtRow m m.at) hidden && landing >= 0 then { m | at = landing } else m
 
 
 viewCells : Model -> Row -> List (Html Msg)
@@ -2721,10 +2686,7 @@ stand among. Every other cell is drawn only when it says something.
 -}
 drawnCells : Row -> List Cell
 drawnCells r =
-    if r.kind == Head then
-        List.filter (\c -> c.val /= "" || c.key == "title") r.cells
-    else
-        shown r
+    if r.kind == Head then List.filter (\c -> c.val /= "" || c.key == "title") r.cells else shown r
 
 
 {-| ONE OWNER PER BYTE: a composite is drawn once with its leaves inside it, and
@@ -3074,10 +3036,7 @@ crumb : Model -> Row -> String
 crumb m r =
     let
         clip s =
-            if String.length s > 24 then
-                String.left 23 s ++ "…"
-            else
-                s
+            if String.length s > 24 then String.left 23 s ++ "…" else s
     in
     if r.kind == Child then
         -- A CHILD'S CRUMB IS ITS TITLE: a headline names itself.
@@ -3085,12 +3044,7 @@ crumb m r =
             t =
                 cellOf "title" r
         in
-        clip
-            (if String.isEmpty t then
-                "child"
-             else
-                t
-            )
+        clip (if String.isEmpty t then "child" else t)
     else if r.grain == Composite then
         -- A DRAWER'S CRUMB IS ORG'S OWN TOKEN, `:PROPERTIES:', so the strip says
         -- the reader stands in something reserved rather than in prose of theirs.
