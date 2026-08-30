@@ -1,4 +1,4 @@
-.PHONY: test test-p test-list spec spec-debt typecheck loc major minor patch native install elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
+.PHONY: test test-p test-list spec spec-debt typecheck loc major minor patch native install release dist dist-wasm elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 -include .env
 GLANCE_DIR ?= ~/sync/views
@@ -159,9 +159,18 @@ sync-renderer:
 # `make' overwrites the other's binary and a window serves the last build's glue.
 NATIVE_BUILD = --project-file=cabal.project.native --builddir=dist-newstyle-native
 
+# Cabal build knobs threaded through `native'/`install', EMPTY by default so a
+# plain build stays -O1; `release' sets -O2 and split-sections.  `list-bin' takes
+# the same OPT, or cabal reads a different config and reports the wrong binary.
+# STRIP is the COPY's own flag: this install is a `cabal build' plus a hand copy,
+# so cabal's own executable-stripping never runs -- `install -s' strips the copy
+# instead, and only `release' asks for it, leaving a plain install's symbols.
+OPT ?=
+STRIP ?=
+
 native:
 	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
-	  cabal build $(NATIVE_BUILD) all
+	  cabal build $(NATIVE_BUILD) $(OPT) all
 
 # The native build's own binary, copied over ~/.local/bin/glance atomically
 # (a running daemon keeps the unlinked inode; the next launch takes the new one).
@@ -169,10 +178,63 @@ PREFIX ?= $(HOME)/.local
 install: native
 	@dest="$(PREFIX)/bin/glance"; \
 	  bin="$$(HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
-	          cabal list-bin -v0 $(NATIVE_BUILD) exe:glance)"; \
+	          cabal list-bin -v0 $(NATIVE_BUILD) $(OPT) exe:glance)"; \
 	  mkdir -p "$(PREFIX)/bin"; \
-	  install -m 755 "$$bin" "$$dest.new" && mv -f "$$dest.new" "$$dest"; \
+	  install -m 755 $(STRIP) "$$bin" "$$dest.new" && mv -f "$$dest.new" "$$dest"; \
 	  echo "installed glance ($$(git -C $(CURDIR) rev-parse --short HEAD 2>/dev/null || echo local)) -> $$dest"
+
+# The production build flags, ONE source for `release' and `dist': -O2 and
+# split-sections.  Stripping is the copy's own (`STRIP=-s'), not a build flag.
+RELEASE_OPT := --enable-optimization=2 --enable-split-sections
+
+# THE PRODUCTION INSTALL: the UI rebuilt `--optimize' and re-embedded, the native
+# binary at -O2 with its sections split, and the installed copy stripped -- the
+# last two size-only, no runtime cost.  A plain `install' at -O1 embeds whatever
+# `assets/' already holds; this forces all of it.  NOT a version cut (`major' etc).
+release: elm
+	@$(MAKE) --no-print-directory install OPT='$(RELEASE_OPT)' STRIP=-s
+
+# THE PER-SYSTEM BUNDLE `dist/{triple}/', honest: only the systems THIS machine
+# actually built.  The host triple's self-contained native binary always -- one
+# file, the fresh `--optimize' UI and every asset embedded, -O2, split, stripped;
+# `wasm32-wasi' when the ghc-wasm toolchain is there.  NO empty system dirs: cross
+# and CI fill the rest, this box never fakes a folder it did not build.  `dist/'
+# is throwaway (gitignored), wiped and rebuilt whole.
+DIST := dist
+# ghc's OWN target triple, not `uname''s, so the dir names the ABI the binary carries.
+GHC_TRIPLE = $(shell ghc --info 2>/dev/null | sed -n 's/.*"target platform string","\([^"]*\)".*/\1/p')
+
+dist: elm
+	@triple="$(GHC_TRIPLE)"; test -n "$$triple" || { echo "dist: no ghc on PATH"; exit 1; }; \
+	  rm -rf "$(DIST)"; d="$(DIST)/$$triple"; mkdir -p "$$d"; \
+	  HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
+	    cabal build $(NATIVE_BUILD) $(RELEASE_OPT) all; \
+	  bin="$$(HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
+	          cabal list-bin -v0 $(NATIVE_BUILD) $(RELEASE_OPT) exe:glance)"; \
+	  install -m 755 -s "$$bin" "$$d/glance"; \
+	  printf '#!/bin/sh\n# Pick a FREE port; 7777 is the desktop daemon port.\nexec ./glance "$$@"\n' > "$$d/run.sh"; \
+	  chmod +x "$$d/run.sh"; \
+	  printf 'glance -- %s native build.  Self-contained: the UI and every asset\nare embedded in the binary, so this one file is the whole thing.\n\n  ./glance serve   --dir <org-tree> --port <port>   # headless server\n  ./glance desktop --dir <org-tree> --port <port>   # windowed (needs GTK/WebKit)\n  ./glance doctor                                    # check the tree\n  ./glance --help\n\nrun.sh execs ./glance with your args.  Pick a free port; 7777 is the daemon.\n' "$$triple" > "$$d/README.md"; \
+	  echo "dist: $$d/glance ($$(du -h "$$d/glance" | cut -f1)), stripped -O2"
+	@$(MAKE) --no-print-directory dist-wasm
+	@printf 'glance -- distribution bundle.\n\nPer-system folders, each a self-contained build THIS machine produced:\n  %s/   native binary -- cd in, ./run.sh (or ./glance serve --dir <tree> --port <port>)\n  wasm32-wasi/    EXPERIMENTAL headless probe, present only when ghc-wasm was\n\nOnly systems built here appear; cross and CI fill the rest, none are faked.\n' "$(GHC_TRIPLE)" > "$(DIST)/README.md"
+	@echo "dist/ ready:"; ls -R "$(DIST)"
+
+# wasm32-wasi, the one cross target the tree can fill besides the host.  SKIPS
+# LOUDLY without the ghc-wasm toolchain; the host build stays in dist/ regardless.
+dist-wasm:
+	@if [ ! -x "$$HOME/.ghc-wasm/wasm32-wasi-ghc/bin/wasm32-wasi-ghc" ]; then \
+	  echo "dist-wasm: no toolchain at ~/.ghc-wasm -- skipped"; \
+	else \
+	  . "$$HOME/.ghc-wasm/env" && \
+	  wasm32-wasi-cabal build --project-file=cabal.project.wasm glance-wasm-probe && \
+	  d="$(DIST)/wasm32-wasi"; mkdir -p "$$d" && \
+	  cp "$$(wasm32-wasi-cabal list-bin -v0 --project-file=cabal.project.wasm glance-wasm-probe)" \
+	     "$$d/glance-wasm-probe.wasm" && \
+	  printf 'glance -- wasm32-wasi probe (EXPERIMENTAL, headless).\n\n  wasmtime run --dir <org-tree>::/tree glance-wasm-probe.wasm /tree\n' \
+	     > "$$d/README.md" && \
+	  echo "dist-wasm: $$d/glance-wasm-probe.wasm"; \
+	fi
 
 wasm-spike:
 	@if [ ! -x "$$HOME/.ghc-wasm/wasm32-wasi-ghc/bin/wasm32-wasi-ghc" ]; then \

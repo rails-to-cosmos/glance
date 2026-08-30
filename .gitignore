@@ -5,6 +5,9 @@
 /.org-repl-history
 /dist-newstyle/
 /dist-newstyle-native/
+
+# `make dist' assembles a throwaway per-system bundle here; it is rebuilt whole.
+/dist/
 *.sqlite
 
 # Devenv
