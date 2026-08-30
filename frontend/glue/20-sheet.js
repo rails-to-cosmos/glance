@@ -166,6 +166,9 @@
     const docStep = (step) => dsend({ kind: "step", by: step });
     const docFiner = (k) => dsay(k, { kind: "finer" });
     const docBroader = (k) => dsay(k, { kind: "broader" });
+    // `B' -- SHIFT-b -- CLIMBS THE GRAIN to the owner in one press, the headline
+    // over a body; `b' itself is `f' reversed and steps a row back.
+    const docClimb = (k) => dsay(k, { kind: "climb" });
     /** `M-<left>'/`M-<right>' OVER A NESTED HEADLINE: org's own
      * `org-promote-subtree' / `org-demote-subtree'.  THE MODEL OWNS THE ROWS,
      * THE WALLS AND THE WORD -- the star arithmetic is a LINE rewrite the
@@ -2228,6 +2231,7 @@
         if (step) docStep(step);
         else if (depth > 0) docFiner(k);
         else if (depth < 0) docBroader(k);
+        else if (k === "B") docClimb(k);
         else if (k === "RET") once(docEnter);
         else if (k === "DEL") once(docUp);
         // TAB FOLDS, as it does in org: the model says whether anything did.

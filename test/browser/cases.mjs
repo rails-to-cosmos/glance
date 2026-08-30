@@ -1846,7 +1846,7 @@ export default [
       `the span read is "${seen.text}", which is not an org list marker`);
     // AND THE HEADLINE DRAWS NO MARK: its stars sit in the connector's own column.
     await stepped(p, "b", ".d-comp", "the cursor to go back out to the list");
-    await stepped(p, "b", ".d-head", "the cursor to climb back to the headline");
+    await stepped(p, "B", ".d-head", "the cursor to climb back to the headline");
     const head = await p.eval(() => {
       const at = document.querySelector("#mdoc .de.dat");
       return { stars: getComputedStyle(at.querySelector(".ds")).color,
@@ -2335,7 +2335,23 @@ export default [
       `f did not fall through to n at the leaf: ${JSON.stringify(seen)}`);
     assert(seen[2].includes("every child done"),
       `f did not climb to the next subtree: ${JSON.stringify(seen)}`);
-    return [`f DFS: parent -> ${seen.map((s) => JSON.stringify(s.slice(0, 16))).join(" -> ")}`];
+    // `b' IS `f' REVERSED: from where the walk stopped, held `b' retraces the
+    // same three stops back to the first parent.
+    const back = ["a child still open", "a child that is done", "some done, some not"];
+    const rseen = [];
+    for (const expect of back) {
+      await p.press("b");
+      await p.until((ex) => {
+        const e = document.querySelector("#mdoc .de.dat");
+        const l = e && e.querySelector(":scope > .dp");
+        return !!e && e.dataset.id === docAtNow() && !!l && l.textContent.includes(ex);
+      }, `b to reach "${expect}"`, undefined, expect);
+      rseen.push((await p.eval(datText)).text);
+    }
+    assert(rseen[2].includes("some done, some not"),
+      `b did not retrace f back to the parent: ${JSON.stringify(rseen)}`);
+    return [`f DFS: parent -> ${seen.map((s) => JSON.stringify(s.slice(0, 16))).join(" -> ")}`
+      + `; b retraces to parent`];
   } },
 
 { name: "a bullet always paints, and a run wears an unbroken spine",
@@ -2745,7 +2761,7 @@ export default [
     // A HEADLINE AT POINT LIGHTS ONE SHELF: on the entry's own headline the
     // shelf's runs bar in the mark, and the child's list keeps its resting
     // bar -- the light stops at the child's block.
-    await stepped(p, "b", ".d-head", "b once more, to the entry's own headline");
+    await stepped(p, "B", ".d-head", "B climbs to the entry's own headline");
     const shelfLight = await p.eval(() => {
       const item = (re) => [...document.querySelectorAll("#mdoc .d-item")]
         .find((e) => re.test(e.textContent));
@@ -2864,7 +2880,7 @@ export default [
     // THE TAIL IS ONE PRESS FROM THE DOCUMENT'S LAST HEADLINE, the subtrees
     // between them crossed whole.
     await stepped(p, "b", ".d-list", "b out of the item to its list");
-    await stepped(p, "b", ".d-child", "b out of the list to the child headline");
+    await stepped(p, "B", ".d-child", "B climbs out of the list to the child headline");
     await to("n", /grandchild/, "n to the grandchild");
     await to("n", /second child/, "n to the last headline");
     await stepped(p, "n", ".d-tail", "n past the last subtree onto the tail");

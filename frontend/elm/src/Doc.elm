@@ -531,6 +531,7 @@ type Msg
     | Step Int
     | Finer
     | Broader
+    | Climb
     | Flag String
     | Unflag String
     | ClearFlags
@@ -642,22 +643,24 @@ update msg model =
             -- is reached -- document order IS pre-order.  Only a true no-op rolls
             -- on; opening a drawer or moving point is `f' having somewhere to go.
             if fined.at == model.at && fined.planAt == model.planAt && fined.shut == model.shut then
-                told (nextVisible 1 model)
+                -- SPOKEN, NOT TOLD: every doc key owes `docSaid' a word, else the
+                -- `dwrote' the shell armed for it is left to fire on the next.
+                spoke ( nextVisible 1 model, "grain-finer" )
 
             else
                 spoke ( fined, word )
 
         Broader ->
-            -- AND `b' ROLLS BACK, the same walk reversed, once nothing is broader.
-            let
-                ( broadened, word ) =
-                    broader model
-            in
-            if broadened.at == model.at && broadened.planAt == model.planAt then
-                told (nextVisible -1 model)
+            -- `b' IS `f' REVERSED: the previous row in document order, so a held
+            -- `b' retraces a held `f' step for step back up the graph.  The old
+            -- broader-grain climb to the owner moved to `B' (`Climb') below.
+            spoke ( nextVisible -1 model, "grain-broader" )
 
-            else
-                spoke ( broadened, word )
+        Climb ->
+            -- `B' CLIMBS THE GRAIN: one press to the owner, the headline over a
+            -- body, the way `b' used to before it became `f' reversed.  Lowercase
+            -- steps a row back, uppercase leaves the run for what holds it.
+            spoke (broader model)
 
         Flag id ->
             -- OLDEST FIRST, the rule for every flag surface; `Listing' spells it so.
@@ -1711,6 +1714,9 @@ msgD =
 
                     "broader" ->
                         D.succeed Broader
+
+                    "climb" ->
+                        D.succeed Climb
 
                     "flag" ->
                         D.map Flag (D.field "id" D.string)
