@@ -14,8 +14,20 @@ from it only where the extra air costs more than it gives.
 - **Expand only when a branch is itself a block** — a `let`, a `case`, a nested
   `if`, a multi-line record or list — or when the if is a broken-out element of
   an already multi-line tuple.
-- Otherwise follow `elm-format`: `case` arms multi-line, one blank line between
-  top-level declarations and between `let` bindings.
+- **A short `let` binding stays on ONE line** — `name = expr` when it fits
+  (~100 columns) and the RHS is one simple expression (a literal, a variable, one
+  application): `here = List.length out`. Expand when the RHS is itself a block —
+  a `let`, `case`, `if`, multi-line record or list.
+- **`let` bindings sit tight** — NO blank line between them. `elm-format` spaces
+  them; here they read as one block, the way tight `if` branches do.
+- **A short `case` arm stays on ONE line** — `pattern -> expr` when it fits
+  (~100 columns) and the body is one simple expression; the arms then sit tight,
+  no blank line between them. Expand an arm whose body is a block — a `let`,
+  `case`, nested `if`, multi-line record or list.
+- **A short top-level definition stays on ONE line** — `name args = expr` when
+  it fits (~100 columns) and the body is one simple expression; expand when the
+  body is a block (a `let`, `case`, `if`, multi-line record/list/pipe).
+- Otherwise follow `elm-format`: one blank line between top-level declarations.
 
 Canonical shape:
 

@@ -225,12 +225,14 @@ calls path = report . T.lines <$> TIO.readFile path
 kindsIn :: FilePath -> IO [T.Text]
 kindsIn path = branches <$> TIO.readFile path
   where
+    -- A `"kind" ->' arm, its body on the line or below it, so `" ->' is an
+    -- INFIX not a suffix: CODESTYLE folds a short arm onto one line.
     branches body =
       [ T.takeWhile (/= '"') (T.drop 1 line)
       | raw <- T.lines body
       , let line = T.strip raw
       , "\"" `T.isPrefixOf` line
-      , "\" ->" `T.isSuffixOf` line ]
+      , "\" ->" `T.isInfixOf` line ]
 
 -- | The kind strings a glue part sends: @kind: "step"@.
 sendsIn :: FilePath -> IO [T.Text]

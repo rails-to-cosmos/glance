@@ -1,4 +1,15 @@
-port module Doc exposing (main)
+port module Doc exposing
+    ( BoxFace(..)
+    , Model
+    , compactedRun
+    , cookieIn
+    , cookieKind
+    , empty
+    , findCookie
+    , hiddenDone
+    , main
+    , rollUp
+    )
 
 {-| The materialize sheet's LEFT pane. It owns the parse, the rows, the two-axis
 cursor, the grain and the delete flags; the shell keeps the keys, the edit
@@ -48,14 +59,10 @@ import Body
         )
 import Scan exposing (Grain(..), cut, nth)
 
-
-
 -- MODEL
-
 
 type alias Link =
     { from : Int, to : Int, desc : String }
-
 
 type alias Model =
     { rows : List Row
@@ -112,7 +119,6 @@ type alias Model =
     , hideDone : Set String
     }
 
-
 empty : Model
 empty =
     { rows = []
@@ -137,7 +143,6 @@ empty =
     , hideDone = Set.empty
     }
 
-
 {-| A SIBLING SHARES AN OWNER, and that is the step for contents: `n'/`p' walk
 the rows owned by what owns point -- a leaf its item run, an element its shelf
 -- and never dive.  A LEAF'S RUN STILL ENDS AT ITS LIST'S EDGE: past the run
@@ -153,18 +158,13 @@ subtree is one press from the document's last one.
 step : Int -> Model -> Model
 step by m =
     case rowAt m of
-        Nothing ->
-            m
-
+        Nothing -> m
         Just cur ->
             let
-                n =
-                    List.length m.rows
-
+                n = List.length m.rows
                 -- WHAT THE HIDE-DONE MODE TOOK OUT is never a stop: `n'/`p' step
                 -- over a hidden checkbox the way they step over a folded subtree.
-                gone =
-                    hiddenDone m
+                gone = hiddenDone m
 
                 -- ONE SCAN, THREE COHORTS: from a CHILD headline the walk is
                 -- every visible headline in document order, org's own
@@ -180,8 +180,7 @@ step by m =
                 cohort =
                     if cur.kind == Child then
                         let
-                            hidden =
-                                hiddenIn m
+                            hidden = hiddenIn m
                         in
                         -- The TAIL is the outline's last stop, so the walk
                         -- down has somewhere to end past the last subtree.
@@ -190,8 +189,7 @@ step by m =
                                 && not (Set.member r.id hidden)
                     else if by < 0 && shelved m cur then
                         let
-                            hidden =
-                                hiddenIn m
+                            hidden = hiddenIn m
                         in
                         -- WHICHEVER COMES FIRST: the shelf's own previous
                         -- element while the shelf has one, else the nearest
@@ -204,10 +202,7 @@ step by m =
                                 && not (Set.member r.id hidden)
                     else
                         \r -> r.owner == cur.owner
-
-                fits r =
-                    cohort r && not (Set.member r.id gone)
-
+                fits r = cohort r && not (Set.member r.id gone)
                 scan i =
                     if i < 0 || i >= n then
                         Nothing
@@ -217,15 +212,12 @@ step by m =
                         scan (i + by)
             in
             case scan (m.at + by) of
-                Nothing ->
-                    m
-
+                Nothing -> m
                 Just i ->
                     -- A ROW STEP LEAVES THE ENTRIES -- `settled' at the push
                     -- drops them: the sub-row grain is the planning line's own
                     -- and does not ride to another row.
                     { m | at = i }
-
 
 {-| Where a DFS `f'/`b' goes once its grain is exhausted: the next VISIBLE row in
 document order, which IS the graph's pre-order, so a held `f' descends a subtree
@@ -236,12 +228,8 @@ rows are stepped over, and at the far end point stays put.
 nextVisible : Int -> Model -> Model
 nextVisible by m =
     let
-        gone =
-            Set.union (hiddenDone m) (hiddenIn m)
-
-        total =
-            List.length m.rows
-
+        gone = Set.union (hiddenDone m) (hiddenIn m)
+        total = List.length m.rows
         scan i =
             if i < 0 || i >= total then
                 m.at
@@ -249,20 +237,15 @@ nextVisible by m =
                 case nth i m.rows of
                     Just r ->
                         if Set.member r.id gone then scan (i + by) else i
-
-                    Nothing ->
-                        m.at
+                    Nothing -> m.at
     in
     { m | at = scan (m.at + by) }
-
 
 {-| The one spelling of "is this row a headline?" -- the sheet's own line or
 a nested child.
 -}
 heading : Row -> Bool
-heading r =
-    r.kind == Head || r.kind == Child
-
+heading r = r.kind == Head || r.kind == Child
 
 {-| Is ROW an element of a BODY -- the entry's own shelf or a child's -- rather
 than something a composite holds?  A BODY ANSWERS TO A HEADLINE, and that is
@@ -272,24 +255,16 @@ answer to the composite over them, so their walk still ends at ITS edge.
 shelved : Model -> Row -> Bool
 shelved m r =
     case r.owner of
-        Nothing ->
-            True
-
-        Just up ->
-            Maybe.withDefault False (Maybe.map heading (rowById m up))
-
+        Nothing -> True
+        Just up -> Maybe.withDefault False (Maybe.map heading (rowById m up))
 
 finer : Model -> ( Model, String )
 finer m =
     case rowAt m of
-        Nothing ->
-            ( m, "" )
-
+        Nothing -> ( m, "" )
         Just r ->
             let
-                kids =
-                    kidsOf m r.id
-
+                kids = kidsOf m r.id
                 -- `f' ON A HEADLINE ENTERS THE BODY: everything is under it.
                 -- The root's rows carry no owner, so its test is the count.
                 entered =
@@ -314,37 +289,27 @@ finer m =
             else
                 ( m, "grain-finer (nothing finer here)" )
 
-
 broader : Model -> ( Model, String )
 broader m =
     case ( rowAt m, planPick m ) of
-        ( Nothing, _ ) ->
-            ( m, "" )
-
+        ( Nothing, _ ) -> ( m, "" )
         -- POINT IS IN AN ENTRY: `b' steps back through the planning line's own
         -- entries and off the first one to the whole line, before any row grain.
-        ( Just _, Just i ) ->
-            planBroader i m
-
+        ( Just _, Just i ) -> planBroader i m
         ( Just r, Nothing ) ->
             case Maybe.map (placeOf m) r.owner of
                 Just i ->
                     let
-                        up =
-                            Maybe.withDefault blank (nth i m.rows)
-
+                        up = Maybe.withDefault blank (nth i m.rows)
                         word =
                             case up.name of
-                                Just w ->
-                                    w
-
+                                Just w -> w
                                 Nothing ->
                                     if up.grain == Leaf then "item" else kindWord up.kind
                     in
                     ( { m | at = i }
                     , "grain-broader (" ++ word ++ ")"
                     )
-
                 Nothing ->
                     if r.kind == Head then
                         ( m, "grain-broader (the whole entry)" )
@@ -355,7 +320,6 @@ broader m =
                         , "grain-broader (the headline)"
                         )
 
-
 {-| `f' ON THE PLANNING LINE TAKES AN ENTRY: the first one from the whole line,
 the next one from an entry, and the last one is the finest thing the line holds
 -- the leaf's own edge, spoken and standing still.
@@ -363,20 +327,13 @@ the next one from an entry, and the last one is the finest thing the line holds
 planFiner : Model -> ( Model, String )
 planFiner m =
     let
-        entries =
-            entriesOf m
-
+        entries = entriesOf m
         -- The next entry along, and the FIRST one from the whole line.
-        want =
-            1 + Maybe.withDefault -1 m.planAt
+        want = 1 + Maybe.withDefault -1 m.planAt
     in
     case nth want entries of
-        Nothing ->
-            ( m, "grain-finer (at the finest)" )
-
-        Just _ ->
-            ( { m | planAt = Just want }, planWord "grain-finer" want entries )
-
+        Nothing -> ( m, "grain-finer (at the finest)" )
+        Just _ -> ( { m | planAt = Just want }, planWord "grain-finer" want entries )
 
 {-| `b' OUT OF AN ENTRY: the one before it, and out of the FIRST one the whole
 line again -- the step the row grain then answers.
@@ -384,8 +341,7 @@ line again -- the step the row grain then answers.
 planBroader : Int -> Model -> ( Model, String )
 planBroader i m =
     let
-        entries =
-            entriesOf m
+        entries = entriesOf m
     in
     if i <= 0 then
         ( { m | planAt = Nothing }, "grain-broader (the planning line)" )
@@ -393,7 +349,6 @@ planBroader i m =
         ( { m | planAt = Just (i - 1) }
         , planWord "grain-broader" (i - 1) entries
         )
-
 
 {-| Where the walk landed, in the run walk's own count: `SCHEDULED 1/2'.
 -}
@@ -403,7 +358,6 @@ planWord grain i entries =
         (Maybe.withDefault "" (Maybe.map Tuple.first (nth i entries)))
         (i + 1)
         (List.length entries)
-
 
 {-| ONE SPELLING of a grain step's echo, for the rows and for the planning
 line's entries alike: `grain-finer (SCHEDULED 1/3)'.
@@ -419,20 +373,15 @@ grainWord grain name i n =
         ++ String.fromInt n
         ++ ")"
 
-
-
 -- SPANS.  OFFSETS ARE IN CHARACTERS: the title, body and properties the lens lifts out sit
 -- ABOVE the paragraphs, so a body offset past the title line is displaced by
 -- one constant.
-
 
 {-| Chars before LINE, the line's own newlines counted: a prefix-sum read,
 since the walk it replaced ran once per row per render.
 -}
 charOf : Model -> Int -> Int
-charOf m line =
-    Maybe.withDefault 0 (Array.get line m.offsets)
-
+charOf m line = Maybe.withDefault 0 (Array.get line m.offsets)
 
 offsetsOf : List String -> Array Int
 offsetsOf lines =
@@ -441,17 +390,13 @@ offsetsOf lines =
             (List.foldl
                 (\ln acc ->
                     case acc of
-                        prev :: _ ->
-                            (prev + String.length ln + 1) :: acc
-
-                        [] ->
-                            acc
+                        prev :: _ -> (prev + String.length ln + 1) :: acc
+                        [] -> acc
                 )
                 [ 0 ]
                 lines
             )
         )
-
 
 {-| The span the LINKS door reads off a headline: the WHOLE SUBTREE under it,
 where 'elementSpan' is a row's own extent.  The root's reach is the entry.
@@ -459,30 +404,19 @@ where 'elementSpan' is a row's own extent.  The root's reach is the entry.
 reachSpan : Model -> Row -> Maybe ( Int, Int )
 reachSpan m r =
     case ( m.spanAt, r.kind ) of
-        ( Just base, Head ) ->
-            Just ( base, base + m.shift + charOf m (List.length m.lines) )
-
+        ( Just base, Head ) -> Just ( base, base + m.shift + charOf m (List.length m.lines) )
         ( Just base, Child ) ->
             Just ( base + m.shift + charOf m r.from, base + m.shift + charOf m r.to )
-
-        _ ->
-            Nothing
-
+        _ -> Nothing
 
 elementSpan : Model -> Row -> Maybe ( Int, Int )
 elementSpan m r =
     case m.spanAt of
-        Nothing ->
-            Nothing
-
+        Nothing -> Nothing
         Just base ->
             case r.kind of
-                Child ->
-                    Nothing
-
-                Meta ->
-                    Nothing
-
+                Child -> Nothing
+                Meta -> Nothing
                 Para ->
                     if r.id == tailId then
                         -- The pane's own row: no span, so the flag and delete
@@ -490,14 +424,9 @@ elementSpan m r =
                         Nothing
                     else
                         Just ( base + m.shift + charOf m r.from, base + m.shift + charOf m r.to )
-
-                Head ->
-                    Just ( base, base + charOf m 1 )
-
-
+                Head -> Just ( base, base + charOf m 1 )
 
 -- UPDATE
-
 
 type Msg
     = Fill Model
@@ -527,77 +456,18 @@ type Msg
     | SetCells (List Cell)
     | Ignore
 
-
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        Ignore ->
-            ( model, Cmd.none )
-
-        Clear ->
-            told empty
-
-        Fill fresh ->
-            -- The cursor comes back to the row it stood on where that row survives.
-            let
-                was =
-                    Maybe.map .id (rowAt model)
-
-                landed =
-                    case ( fresh.landing, model.landing ) of
-                        -- THE FILL'S OWN LANDING FIRST: a served draft says
-                        -- where `%?' stood, and that is a fact about the
-                        -- document arriving rather than the one going.
-                        ( Just line, _ ) ->
-                            placeAtLine fresh line
-
-                        -- A LANDING IS OWED and is spent here: the paragraph an
-                        -- insert made has no id until this rescan mints one.
-                        ( Nothing, Just line ) ->
-                            placeOfLine fresh line
-
-                        ( Nothing, Nothing ) ->
-                            case was of
-                                Just id ->
-                                    placeOf fresh id
-
-                                Nothing ->
-                                    0
-            in
-            told
-                (reveal
-                    (snapVisible
-                        { fresh
-                            | at = landed
-                            , landing = Nothing
-
-                            -- WHAT THE READER FOLDED OR OPENED STAYS SO across the
-                            -- rescan: the old answer where the id is known, the
-                            -- default -- a drawer folded, a child open -- where new.
-                            , shut =
-                                Set.union
-                                    (Set.intersect model.shut (foldables fresh))
-                                    (Set.diff fresh.shut (foldables model))
-
-                            -- THE HIDE-DONE MODE SURVIVES THE RESCAN so a box
-                            -- ticked while it is on hides its branch live; a run
-                            -- whose id the reparse dropped falls out of the set.
-                            , hideDone =
-                                Set.intersect model.hideDone
-                                    (Set.fromList (listRoots fresh))
-                        }
-                    )
-                )
-
-        Select id ->
-            told (reveal (landAt (placeOf model id) model))
-
+        Ignore -> ( model, Cmd.none )
+        Clear -> told empty
+        Fill fresh -> applyFill fresh model
+        Select id -> told (reveal (landAt (placeOf model id) model))
         Step by ->
             -- A ROW STEP OWES ITS WORD too, so `n'/`p' echo like `f'/`b'; the
             -- programmatic walk sends this keyless and arms no `dwrote', so its
             -- `docSaid' lands on nothing.
             spoke ( step by model, if by > 0 then "next-row" else "previous-row" )
-
         Finer ->
             -- `f' INTO A FOLDED DRAWER OPENS IT: a step into what is hidden shows it.
             let
@@ -608,12 +478,8 @@ update msg model =
                                 { model | shut = Set.remove r.id model.shut }
                             else
                                 model
-
-                        Nothing ->
-                            model
-
-                ( fined, word ) =
-                    finer opened
+                        Nothing -> model
+                ( fined, word ) = finer opened
             in
             -- NOWHERE FINER ROLLS ON: held `f' then walks the whole graph
             -- depth-first, down into a subtree and on to the next once its floor
@@ -625,29 +491,21 @@ update msg model =
                 spoke ( nextVisible 1 model, "grain-finer" )
             else
                 spoke ( fined, word )
-
         Broader ->
             -- `b' IS `f' REVERSED: the previous row in document order, so a held
             -- `b' retraces a held `f' step for step back up the graph.  The old
             -- broader-grain climb to the owner moved to `B' (`Climb') below.
             spoke ( nextVisible -1 model, "grain-broader" )
-
         Climb ->
             -- `B' CLIMBS THE GRAIN: one press to the owner, the headline over a
             -- body, the way `b' used to before it became `f' reversed.  Lowercase
             -- steps a row back, uppercase leaves the run for what holds it.
             spoke (broader model)
-
         Flag id ->
             -- OLDEST FIRST, the rule for every flag surface; `Listing' spells it so.
             told { model | flags = List.filter ((/=) id) model.flags ++ [ id ] }
-
-        Unflag id ->
-            told { model | flags = List.filter ((/=) id) model.flags }
-
-        ClearFlags ->
-            told { model | flags = [] }
-
+        Unflag id -> told { model | flags = List.filter ((/=) id) model.flags }
+        ClearFlags -> told { model | flags = [] }
         HideDone ->
             let
                 -- POINT IN A CHECKBOX LIST scopes to that run's own root; off
@@ -656,10 +514,7 @@ update msg model =
                     case rowAt model of
                         Just r ->
                             if isListRoot model r.id then Just r.id else listRootOf model r.id
-
-                        Nothing ->
-                            Nothing
-
+                        Nothing -> Nothing
                 next =
                     case scoped of
                         Just root ->
@@ -667,14 +522,12 @@ update msg model =
                                 Set.remove root model.hideDone
                             else
                                 Set.insert root model.hideDone
-
                         Nothing ->
                             -- ANY ON TURNS ALL OFF; else ALL ON.
                             if Set.isEmpty model.hideDone then
                                 Set.fromList (listRoots model)
                             else
                                 Set.empty
-
                 word =
                     case scoped of
                         Just root ->
@@ -682,7 +535,6 @@ update msg model =
                                 "hide-done (this list)"
                             else
                                 "hide-done (this list off)"
-
                         Nothing ->
                             if Set.isEmpty next then
                                 "hide-done (all lists off)"
@@ -692,16 +544,12 @@ update msg model =
             -- POINT SAFETY: snap off a row this made invisible, then open any
             -- fold that holds where it landed.
             spoke ( reveal (snapVisible { model | hideDone = next }), word )
-
         Tab ->
             case foldTarget model of
-                Nothing ->
-                    spoke ( model, "nothing folds here" )
-
+                Nothing -> spoke ( model, "nothing folds here" )
                 Just r ->
                     let
-                        opened =
-                            Set.member r.id model.shut
+                        opened = Set.member r.id model.shut
                     in
                     spoke
                         ( { model
@@ -724,13 +572,8 @@ update msg model =
                                     " folded)"
                                )
                         )
-
-        Shift by ->
-            shifted by model
-
-        SetMeta props plan ->
-            told (remeta { model | props = props, plan = plan })
-
+        Shift by -> shifted by model
+        SetMeta props plan -> told (remeta { model | props = props, plan = plan })
         -- THE HEADLINE'S OWN CELLS, WRITTEN FROM OUTSIDE.  The pane draws the
         -- head line and never writes it: a materialized row's state, priority,
         -- title and tags leave through `/command' and come back on the reread.
@@ -743,15 +586,9 @@ update msg model =
                 { model
                     | rows =
                         List.map
-                            (\r ->
-                                if r.kind == Head then
-                                    { r | cells = cells }
-                                else
-                                    r
-                            )
+                            (\r -> if r.kind == Head then { r | cells = cells } else r)
                             model.rows
                 }
-
         -- THE PAIR ARRIVES WHOLE -- the shell typed both halves -- so the write
         -- follows at once, and point lands on the new pair, drawer open.  THE
         -- DRAFT ROW GOES EITHER WAY: it became this pair, or the box that drew
@@ -780,7 +617,6 @@ update msg model =
                                 }
                             )
                         )
-
                 Nothing ->
                     if key == "" || value == "" || String.contains " " key || String.contains ":" key then
                         spoke
@@ -801,108 +637,7 @@ update msg model =
                                 | at = placeOf fresh (Body.propId (List.length model.props))
                                 , shut = Set.remove Body.drawerId fresh.shut
                             }
-
-        -- Composed HERE: a deletion cannot be rebuilt out of the model it changed.
-        Delete ids ->
-            let
-                -- A DELETED PAIR LEAVES THROUGH THE LISTS, never the splice: `d' on
-                -- the drawer takes every pair, on the planning line the whole line.
-                keptPlan =
-                    if List.member Body.planId ids then [] else model.plan
-
-                keptProps =
-                    if List.member Body.drawerId ids then
-                        []
-                    else
-                        List.map Tuple.second
-                            (List.filter
-                                (\( j, _ ) -> not (List.member (Body.propId j) ids))
-                                (List.indexedMap Tuple.pair model.props)
-                            )
-
-                model_ =
-                    remeta { model | plan = keptPlan, props = keptProps }
-
-                named =
-                    List.filter (\r -> List.member r.id ids) model.rows
-
-                taken =
-                    List.filter (\r -> r.kind == Para) named
-
-                -- WHAT THE MODEL REFUSED, by name: a headline is never spliced here.
-                refused =
-                    List.length
-                        (List.filter heading named)
-
-                metaN =
-                    List.length (List.filter (\r -> r.kind == Meta) named)
-
-                written =
-                    bodyText model (List.map .id taken)
-
-                -- WHAT THE SPLICE ACTUALLY DROPPED, counted rather than guessed: a
-                -- paragraph taken out takes the blank line under it too.
-                cut =
-                    List.length model.lines
-                        - List.length (String.split "\n" written)
-
-                -- THE NEXT SIBLING IS WHERE THE READER WAS WORKING, and the parent
-                -- is where they end up only when the branch is emptied.  A LINE
-                -- rather than an id -- the rescan mints new ones -- and a line BELOW
-                -- the cut has moved up by what the cut took.
-                landsOn =
-                    case List.head taken of
-                        Nothing ->
-                            model.landing
-
-                        Just first ->
-                            let
-                                kin =
-                                    List.filter
-                                        (\r ->
-                                            r.kind == Para
-                                                && r.owner == first.owner
-                                                && not (List.member r.id (List.map .id taken))
-                                        )
-                                        model.rows
-                            in
-                            case List.filter (\r -> r.from > first.from) kin of
-                                next :: _ ->
-                                    Just (next.from - cut)
-
-                                [] ->
-                                    case List.reverse (List.filter (\r -> r.from < first.from) kin) of
-                                        prev :: _ ->
-                                            Just prev.from
-
-                                        [] ->
-                                            first.owner
-                                                |> Maybe.andThen (rowById model)
-                                                |> Maybe.map .from
-                -- COMPOSED OVER THE MOVED MODEL: `at' re-derived after the rows
-                -- moved, or the shell's mirror lands on the wrong row until the fill.
-                done =
-                    landOn (idAtRow model model.at) { model_ | landing = landsOn }
-
-                snapped =
-                    snapVisible done
-            in
-            ( snapped
-            , Cmd.batch
-                [ docState (stateJSON snapped)
-                , docTook
-                    (E.object
-                        ([ ( "taken", E.list E.string (List.map .id taken) )
-                         , ( "refused", E.int refused )
-                         , ( "meta", E.int metaN )
-                         , ( "body", E.string written )
-                         ]
-                            ++ headerJSON snapped
-                        )
-                    )
-                ]
-            )
-
+        Delete ids -> applyDelete ids model
         Edit id written ->
             if Maybe.map .kind (rowById model id) == Just Meta then
                 editMeta model id written
@@ -912,7 +647,6 @@ update msg model =
                         if r.id == id then { r | text = narrowed model written } else r
                 in
                 composed { model | rows = List.map write model.rows }
-
         -- `+' DRAWS THE PARAGRAPH BEFORE IT IS WRITTEN, so the reader fills a line
         -- of their own.  The row is zero-width, which `bodyText' passes over.
         Draft id caret ->
@@ -924,66 +658,181 @@ update msg model =
                         ( { model | rows = rows, at = placeOf { model | rows = rows } draftId }
                         , word
                         )
-
-                _ ->
-                    ( model, docSaid (E.string "nothing here takes a paragraph") )
-
+                _ -> ( model, docSaid (E.string "nothing here takes a paragraph") )
         -- And the same row filled, which IS the write: zero-width, so the splice
         -- puts the lines in rather than replacing any.  The cursor stays put.
         Insert id caret written ->
             case ( insertion model id caret (narrowed model written), joinLine model id caret ) of
-                ( Just rows, line ) ->
-                    composed { model | rows = rows, landing = line }
-
-                ( Nothing, _ ) ->
-                    ( model, docSaid (E.string "nothing here takes a paragraph") )
-
+                ( Just rows, line ) -> composed { model | rows = rows, landing = line }
+                ( Nothing, _ ) -> ( model, docSaid (E.string "nothing here takes a paragraph") )
         -- ESC, and an empty commit: what it leaves behind is what it found, point
         -- included — the STOP is NAMED rather than a place counted back to.
         Undraft id ->
             let
-                rows =
-                    undrafted model
+                rows = undrafted model
             in
             told { model | rows = rows, at = placeOf { model | rows = rows } id }
-
         -- `+' IN THE DRAWER DRAWS THE PAIR BEFORE IT IS WRITTEN, at the end of
         -- the drawer, which OPENS to show it -- a row typed behind a fold is no
         -- draft.  It joins no list: `props' is what a flush writes.
         DraftPair ->
             let
-                fresh =
-                    remeta { model | draftPair = True }
+                fresh = remeta { model | draftPair = True }
             in
             told
                 { fresh
                     | at = placeOf fresh draftPairId
                     , shut = Set.remove Body.drawerId fresh.shut
                 }
-
         -- And the same row taken away, point back on the stop `+' was pressed
         -- over: the drawer is byte-identical, having never moved.
-        UndraftPair id ->
-            backTo id { model | draftPair = False }
-
+        UndraftPair id -> backTo id { model | draftPair = False }
         -- `C-c C-s' / `C-c C-d' SUMMON THE WIDGET OVER THE VALUE'S OWN SLOT, and
         -- a row with no such entry has none to summon over: the keyword is
         -- ghosted onto the planning line -- drawn where the row had none -- and
         -- point lands on it, so the box is laid over the row it writes.
         DraftPlan key ->
             let
-                fresh =
-                    remeta { model | draftPlan = Just key }
+                fresh = remeta { model | draftPlan = Just key }
             in
             -- A SUMMON LANDS ON THE LINE, not in an entry: the widget names the
             -- slot it stands in, and the walk starts over from the whole line.
             told (landAt (placeOf fresh Body.planId) fresh)
-
         -- And the same keyword taken away: the line is the bytes it was,
         -- including its ABSENCE where the summon drew it in.
-        UndraftPlan id ->
-            backTo id { model | draftPlan = Nothing }
+        UndraftPlan id -> backTo id { model | draftPlan = Nothing }
 
+{-| The ROW a fill lands point on: the served draft's own `%?' landing first,
+then an owed insert's line, then the row point stood on, else the top.  FRESH is
+the arriving subtree, MODEL the one going.
+-}
+fillLanding : Model -> Model -> Int
+fillLanding fresh model =
+    case ( fresh.landing, model.landing ) of
+        -- THE FILL'S OWN LANDING FIRST: a served draft says
+        -- where `%?' stood, and that is a fact about the
+        -- document arriving rather than the one going.
+        ( Just line, _ ) -> placeAtLine fresh line
+        -- A LANDING IS OWED and is spent here: the paragraph an
+        -- insert made has no id until this rescan mints one.
+        ( Nothing, Just line ) -> placeOfLine fresh line
+        ( Nothing, Nothing ) ->
+            case Maybe.map .id (rowAt model) of
+                Just id -> placeOf fresh id
+                Nothing -> 0
+
+{-| A FILL swaps in the served subtree, the cursor coming back to the row it
+stood on where that row survives, and the fold and hide-done state carried over.
+-}
+applyFill : Model -> Model -> ( Model, Cmd Msg )
+applyFill fresh model =
+    told
+        (reveal
+            (snapVisible
+                { fresh
+                    | at = fillLanding fresh model
+                    , landing = Nothing
+
+                    -- WHAT THE READER FOLDED OR OPENED STAYS SO across the
+                    -- rescan: the old answer where the id is known, the
+                    -- default -- a drawer folded, a child open -- where new.
+                    , shut =
+                        Set.union
+                            (Set.intersect model.shut (foldables fresh))
+                            (Set.diff fresh.shut (foldables model))
+
+                    -- THE HIDE-DONE MODE SURVIVES THE RESCAN so a box
+                    -- ticked while it is on hides its branch live; a run
+                    -- whose id the reparse dropped falls out of the set.
+                    , hideDone =
+                        Set.intersect model.hideDone
+                            (Set.fromList (listRoots fresh))
+                }
+            )
+        )
+
+{-| A DELETE splices out the named paragraph rows and drops the named lists.
+Composed HERE: a deletion cannot be rebuilt out of the model it changed.
+-}
+applyDelete : List String -> Model -> ( Model, Cmd Msg )
+applyDelete ids model =
+    let
+        -- A DELETED PAIR LEAVES THROUGH THE LISTS, never the splice: `d' on
+        -- the drawer takes every pair, on the planning line the whole line.
+        keptPlan = if List.member Body.planId ids then [] else model.plan
+        keptProps =
+            if List.member Body.drawerId ids then
+                []
+            else
+                List.map Tuple.second
+                    (List.filter
+                        (\( j, _ ) -> not (List.member (Body.propId j) ids))
+                        (List.indexedMap Tuple.pair model.props)
+                    )
+        model_ = remeta { model | plan = keptPlan, props = keptProps }
+        named = List.filter (\r -> List.member r.id ids) model.rows
+        taken = List.filter (\r -> r.kind == Para) named
+        -- WHAT THE MODEL REFUSED, by name: a headline is never spliced here.
+        refused = List.length (List.filter heading named)
+        metaN = List.length (List.filter (\r -> r.kind == Meta) named)
+        written = bodyText model (List.map .id taken)
+        -- WHAT THE SPLICE ACTUALLY DROPPED, counted rather than guessed: a
+        -- paragraph taken out takes the blank line under it too.
+        cut = List.length model.lines - List.length (String.split "\n" written)
+        -- THE NEXT SIBLING IS WHERE THE READER WAS WORKING, and the parent
+        -- is where they end up only when the branch is emptied.  A LINE
+        -- rather than an id -- the rescan mints new ones -- and a line BELOW
+        -- the cut has moved up by what the cut took.
+        landsOn = landingAfter model taken cut
+        -- COMPOSED OVER THE MOVED MODEL: `at' re-derived after the rows
+        -- moved, or the shell's mirror lands on the wrong row until the fill.
+        done = landOn (idAtRow model model.at) { model_ | landing = landsOn }
+        snapped = snapVisible done
+    in
+    ( snapped
+    , Cmd.batch
+        [ docState (stateJSON snapped)
+        , docTook
+            (E.object
+                ([ ( "taken", E.list E.string (List.map .id taken) )
+                 , ( "refused", E.int refused )
+                 , ( "meta", E.int metaN )
+                 , ( "body", E.string written )
+                 ]
+                    ++ headerJSON snapped
+                )
+            )
+        ]
+    )
+
+{-| The LINE a delete lands point on, the rescan then re-iding it: see the
+`landsOn' comment in `applyDelete'.  TAKEN is the paragraph rows removed and CUT
+the lines the splice dropped.
+-}
+landingAfter : Model -> List Row -> Int -> Maybe Int
+landingAfter model taken cut =
+    case List.head taken of
+        Nothing -> model.landing
+        Just first ->
+            let
+                kin =
+                    List.filter
+                        (\r ->
+                            r.kind == Para
+                                && r.owner == first.owner
+                                && not (List.member r.id (List.map .id taken))
+                        )
+                        model.rows
+            in
+            case List.filter (\r -> r.from > first.from) kin of
+                next :: _ -> Just (next.from - cut)
+                [] ->
+                    case List.reverse (List.filter (\r -> r.from < first.from) kin) of
+                        prev :: _ -> Just prev.from
+                        [] ->
+                            first.owner
+                                |> Maybe.andThen (rowById model)
+                                |> Maybe.map .from
 
 {-| THE PANE IS A NARROWING: what is written stays INSIDE the materialized
 subtree, so a typed headline at the root's level or above is DEMOTED to the
@@ -994,8 +843,7 @@ narrowed m text =
     let
         deepen line =
             let
-                n =
-                    starsAt line
+                n = starsAt line
             in
             if n > 0 && n <= m.level && headlineAt line then
                 String.repeat (m.level + 1) "*" ++ String.dropLeft n line
@@ -1004,29 +852,22 @@ narrowed m text =
     in
     String.join "\n" (List.map deepen (String.split "\n" text))
 
-
 {-| How many stars LINE opens with.
 -}
 starsAt : String -> Int
 starsAt line =
     case String.uncons line of
-        Just ( '*', rest ) ->
-            1 + starsAt rest
-
-        _ ->
-            0
-
+        Just ( '*', rest ) -> 1 + starsAt rest
+        _ -> 0
 
 {-| A HEADLINE LINE IS STARS THEN A SPACE, and this is the one place that says so.
 -}
 headlineAt : String -> Bool
 headlineAt line =
     let
-        n =
-            starsAt line
+        n = starsAt line
     in
     n > 0 && String.startsWith " " (String.dropLeft n line)
-
 
 {-| THE LINES A CHILD'S SUBTREE STANDS ON: its own headline line down to the
 next headline at its level or above, the body's end where there is none.  A
@@ -1037,13 +878,9 @@ extentOf : Model -> Row -> ( Int, Int )
 extentOf m r =
     ( r.from
     , case List.filter (\k -> k.kind == Child && k.from > r.from && k.level <= r.level) m.rows of
-        next :: _ ->
-            next.from
-
-        [] ->
-            List.length m.lines
+        next :: _ -> next.from
+        [] -> List.length m.lines
     )
-
 
 {-| ONE STAR ON OR OFF every headline line in the range; anything else is left
 as it is.  NEVER PAST ONE STAR: a line the walk read as a headline stays one.
@@ -1056,12 +893,10 @@ restarred by ( from, to ) =
                 line
             else
                 let
-                    n =
-                        starsAt line
+                    n = starsAt line
                 in
                 String.repeat (max 1 (n + by)) "*" ++ String.dropLeft n line
         )
-
 
 {-| `M-<left>'/`M-<right>' OVER A NESTED HEADLINE: org's own
 `org-promote-subtree' and `org-demote-subtree'.  The child's headline line and
@@ -1085,13 +920,10 @@ shifted by m =
         word =
             if by < 0 then "org-promote-subtree" else "org-demote-subtree"
 
-        no why =
-            spoke ( m, word ++ " (" ++ why ++ ")" )
+        no why = spoke ( m, word ++ " (" ++ why ++ ")" )
     in
     case rowAt m of
-        Nothing ->
-            no "a headline alone"
-
+        Nothing -> no "a headline alone"
         Just r ->
             if r.kind == Head then
                 no "the entry's own level is the table's"
@@ -1101,11 +933,9 @@ shifted by m =
                 no "nothing shallower than a child of the entry"
             else
                 let
-                    ( from, to ) =
-                        extentOf m r
+                    ( from, to ) = extentOf m r
 
-                    fresh =
-                        restarred by ( from, to ) m.lines
+                    fresh = restarred by ( from, to ) m.lines
 
                     -- The rows the shift moved, drawn at their new depth until
                     -- the write comes back and the pane is filled again.
@@ -1124,7 +954,6 @@ shifted by m =
                         , rows = List.map deepen m.rows
                     }
 
-
 {-| THE MODEL AT THE DOOR: `planAt' is the planning row's own axis, so a model
 whose point stands anywhere else does not hold one. Every push runs this, so no
 mover that touches `at' resets the field itself. IT CANNOT SEE A LANDING BACK ON
@@ -1137,15 +966,12 @@ settled m =
     -- steps past its done head like `n' already steps over it.
     snapVisible (if idAtRow m m.at == Body.planId then m else { m | planAt = Nothing })
 
-
 told : Model -> ( Model, Cmd Msg )
 told model =
     let
-        m =
-            settled model
+        m = settled model
     in
     ( m, docState (stateJSON m) )
-
 
 {-| A DRAFT TAKEN AWAY, point back on ID -- the stop it was summoned over, NAMED
 rather than counted back to.  The caller clears the field, so the lists are the
@@ -1154,11 +980,9 @@ bytes they were.
 backTo : String -> Model -> ( Model, Cmd Msg )
 backTo id m =
     let
-        fresh =
-            remeta m
+        fresh = remeta m
     in
     told { fresh | at = placeOf fresh id }
-
 
 {-| POINT IS NEVER HIDDEN: whatever moved it, every folded drawer holding it
 opens on the way.
@@ -1173,7 +997,6 @@ reveal m =
                     (ownersOf m (idAtRow m m.at))
                 )
     }
-
 
 {-| The synthesized rows rebuilt after the lists moved; everything else stands.
 -}
@@ -1190,35 +1013,26 @@ remeta m =
                             , drafting = m.draftPair
                             }
                         ++ rest
-
-                [] ->
-                    []
+                [] -> []
     }
-
 
 {-| ONE READING of the planning line for the row's text and for the HTML, so the
 span the date widget is laid over stands in the line the row spells out.
 -}
 entriesOf : Model -> List ( String, String )
-entriesOf m =
-    Body.planEntries m.plan m.draftPlan
-
+entriesOf m = Body.planEntries m.plan m.draftPlan
 
 {-| Which entry point stands in, or nothing -- the whole line. `settled' holds
 `planAt' to the planning row at every push, so this is a plain read.
 -}
 planPick : Model -> Maybe Int
-planPick m =
-    m.planAt
-
+planPick m = m.planAt
 
 {-| The KEYWORD of the entry point stands in: what the shell opens its widget
 over, and nothing where point holds the whole line.
 -}
 planKeyAt : Model -> Maybe String
-planKeyAt m =
-    Maybe.andThen (\i -> Maybe.map Tuple.first (nth i (entriesOf m))) (planPick m)
-
+planKeyAt m = Maybe.andThen (\i -> Maybe.map Tuple.first (nth i (entriesOf m))) (planPick m)
 
 {-| Point lands on ID where its row survives, on the drawer -- always drawn --
 where it does not.
@@ -1235,7 +1049,6 @@ landOn id m =
         )
         m
 
-
 {-| Point put down at row I. A NAMED LANDING IS A ROW'S, so the entry the
 planning line held goes with it -- INCLUDING a landing back on that same line,
 where `settled' has nothing to drop and the walk must still start over.
@@ -1244,20 +1057,17 @@ landAt : Int -> Model -> Model
 landAt i m =
     { m | at = i, planAt = Nothing }
 
-
 {-| The nearest foldable stop at or above point.
 -}
 foldTarget : Model -> Maybe Row
 foldTarget m =
     let
-        here =
-            idAtRow m m.at
+        here = idAtRow m m.at
     in
     List.head
         (List.filter (foldable m)
             (List.filterMap (rowById m) (here :: ownersOf m here))
         )
-
 
 {-| A meta row's text read back into its list: the planning line by its
 keywords, a drawer line as `:KEY: value'.
@@ -1278,8 +1088,7 @@ editMeta m id written =
                 let
                     -- The pair at I written over, or dropped: the migration takes
                     -- it out of the drawer, an ordinary edit rewrites it in place.
-                    pairsWith now =
-                        List.take i m.props ++ now ++ List.drop (i + 1) m.props
+                    pairsWith now = List.take i m.props ++ now ++ List.drop (i + 1) m.props
                 in
                 case Body.planningKey m.planKeys key of
                     Just word ->
@@ -1293,26 +1102,17 @@ editMeta m id written =
                                     }
                                 )
                             )
-
-                    Nothing ->
-                        keep id (remeta { m | props = pairsWith [ ( key, value ) ] })
-
-            _ ->
-                spoke ( m, "not a `:KEY: value' line — left as it was" )
-
+                    Nothing -> keep id (remeta { m | props = pairsWith [ ( key, value ) ] })
+            _ -> spoke ( m, "not a `:KEY: value' line — left as it was" )
 
 keep : String -> Model -> ( Model, Cmd Msg )
-keep id m =
-    composed (landOn id m)
-
+keep id m = composed (landOn id m)
 
 {-| A model whose rows have MOVED. BOTH ports, always — a `docBody' with no
 `docState' would leave the shell's own copy a flush behind the file.
 -}
 composed : Model -> ( Model, Cmd Msg )
-composed =
-    composedWith Nothing
-
+composed = composedWith Nothing
 
 {-| The same write carrying SAID, the model's own word for where it landed. THE
 WORD RIDES THE CARGO rather than `docSaid': two ports carry no order between
@@ -1323,47 +1123,36 @@ so race nothing.
 composedWith : Maybe String -> Model -> ( Model, Cmd Msg )
 composedWith said model =
     let
-        m =
-            settled model
+        m = settled model
     in
     ( m
     , Cmd.batch [ docState (stateJSON m), docBody (cargoJSON said m) ]
     )
-
 
 {-| A refusal: the model is left as it was and only the word goes out.
 -}
 spoke : ( Model, String ) -> ( Model, Cmd Msg )
 spoke ( model, said ) =
     let
-        m =
-            settled model
+        m = settled model
     in
     ( m, Cmd.batch [ docState (stateJSON m), docSaid (E.string said) ] )
 
-
-
 -- PORTS
-
 
 port docIn : (D.Value -> msg) -> Sub msg
 
-
 port docState : E.Value -> Cmd msg
-
 
 {-| What a grain key did, for the shell's echo to speak.
 -}
 port docSaid : E.Value -> Cmd msg
 
-
 port docBody : E.Value -> Cmd msg
-
 
 {-| A delete's answer: which rows it took, how many were named, and the body.
 -}
 port docTook : E.Value -> Cmd msg
-
 
 cellJSON : Cell -> E.Value
 cellJSON c =
@@ -1372,7 +1161,6 @@ cellJSON c =
         , ( "val", E.string c.val )
         , ( "colour", E.string c.colour )
         ]
-
 
 rowJSON : Model -> Row -> E.Value
 rowJSON m r =
@@ -1389,14 +1177,9 @@ rowJSON m r =
         , ( "grain"
           , E.string
                 (case r.grain of
-                    Leaf ->
-                        "leaf"
-
-                    Composite ->
-                        "composite"
-
-                    Element ->
-                        "element"
+                    Leaf -> "leaf"
+                    Composite -> "composite"
+                    Element -> "element"
                 )
           )
         , ( "name", Maybe.withDefault E.null (Maybe.map E.string r.name) )
@@ -1409,22 +1192,15 @@ rowJSON m r =
         , ( "cells", E.list cellJSON r.cells )
         , ( "span"
           , case elementSpan m r of
-                Just ( a, b ) ->
-                    E.list E.int [ a, b ]
-
-                Nothing ->
-                    E.null
+                Just ( a, b ) -> E.list E.int [ a, b ]
+                Nothing -> E.null
           )
         , ( "reach"
           , case reachSpan m r of
-                Just ( a, b ) ->
-                    E.list E.int [ a, b ]
-
-                Nothing ->
-                    E.null
+                Just ( a, b ) -> E.list E.int [ a, b ]
+                Nothing -> E.null
           )
         ]
-
 
 stateJSON : Model -> E.Value
 stateJSON m =
@@ -1451,11 +1227,8 @@ stateJSON m =
             ++ headerJSON m
         )
 
-
 pairsJSON : List ( String, String ) -> E.Value
-pairsJSON =
-    E.list (\( k, v ) -> E.list E.string [ k, v ])
-
+pairsJSON = E.list (\( k, v ) -> E.list E.string [ k, v ])
 
 {-| The header as the wire spells it, ONCE: every write and every state push
 splices these same two fields.
@@ -1466,7 +1239,6 @@ headerJSON m =
     , ( "planning", pairsJSON m.plan )
     ]
 
-
 {-| THE COMMIT CARRIES ITS OWN CARGO: a flush reading the shell's mirrors would
 race the state push for them. SAID rides with it where the model has a word of
 its own for the write, and the shell echoes that in place of the wording the
@@ -1475,22 +1247,16 @@ caller brought.
 cargoJSON : Maybe String -> Model -> E.Value
 cargoJSON said m =
     let
-        fields =
-            ( "body", E.string (bodyText m []) ) :: headerJSON m
+        fields = ( "body", E.string (bodyText m []) ) :: headerJSON m
     in
     E.object
         (case said of
             Just what ->
                 ( "said", E.string what ) :: fields
-
-            Nothing ->
-                fields
+            Nothing -> fields
         )
 
-
-
 -- DECODERS
-
 
 cellD : D.Decoder Cell
 cellD =
@@ -1499,14 +1265,12 @@ cellD =
         (D.field "val" D.string)
         (D.field "colour" D.string)
 
-
 linkD : D.Decoder Link
 linkD =
     D.map3 Link
         (D.field "from" D.int)
         (D.field "to" D.int)
         (D.field "desc" D.string)
-
 
 {-| A fill carries the subtree the server served plus what only the shell knows:
 where the span starts, how far the body is displaced, and the depth of the stars.
@@ -1551,11 +1315,8 @@ fillD =
                     (D.field "planKeys" (D.list D.string))
             )
 
-
 pairD : D.Decoder ( String, String )
-pairD =
-    D.map2 Tuple.pair (D.index 0 D.string) (D.index 1 D.string)
-
+pairD = D.map2 Tuple.pair (D.index 0 D.string) (D.index 1 D.string)
 
 {-| The synthesized rows put in after the headline, and EVERY DRAWER FOLDED --
 the synthesized one and any the body spells raw.
@@ -1563,31 +1324,23 @@ the synthesized one and any the body spells raw.
 seedMeta : Model -> Model
 seedMeta m =
     let
-        seeded =
-            remeta m
+        seeded = remeta m
     in
     { seeded | shut = seedShut seeded }
 
-
 idsWhere : (Row -> Bool) -> Model -> Set String
-idsWhere p m =
-    Set.fromList (List.filterMap (\r -> if p r then Just r.id else Nothing) m.rows)
-
+idsWhere p m = Set.fromList (List.filterMap (\r -> if p r then Just r.id else Nothing) m.rows)
 
 {-| The ids TAB may fold, over whatever rows stand.
 -}
 foldables : Model -> Set String
-foldables m =
-    idsWhere (foldable m) m
-
+foldables m = idsWhere (foldable m) m
 
 {-| The ids that START folded: the drawers alone.  A child headline folds on
 demand and arrives open.
 -}
 seedShut : Model -> Set String
-seedShut m =
-    idsWhere (drawer m) m
-
+seedShut m = idsWhere (drawer m) m
 
 {-| A DRAWER'S FRAME, synthesized or spelled raw: what wears `d-drawer', what
 starts folded, what the strip names as a reserved token.
@@ -1598,14 +1351,11 @@ drawer m r =
         == Composite
         && (r.kind == Meta || Scan.drawerName (lineOf m r) /= Nothing)
 
-
 {-| What TAB can fold: a drawer, and a CHILD HEADLINE, whose subtree hides
 whole, org's own cycle.
 -}
 foldable : Model -> Row -> Bool
-foldable m r =
-    r.kind == Child || drawer m r
-
+foldable m r = r.kind == Child || drawer m r
 
 kidD : D.Decoder Body.Kid
 kidD =
@@ -1615,16 +1365,13 @@ kidD =
         (D.field "line" D.int)
         (D.field "cells" (D.list cellD))
 
-
 {-| THE LINE THE CARET STOOD ON, and a NUMBER is the whole of what the shell
 sends: WHICH REGION holds that line is asked here, and the region says both what
 the new stop opens with and where it goes. ABSENT is `+' with no box open and so
 no caret to read; line 0 is a line a reader stood on.
 -}
 caretD : D.Decoder (Maybe Int)
-caretD =
-    D.maybe (D.field "at" D.int)
-
+caretD = D.maybe (D.field "at" D.int)
 
 msgD : D.Decoder Msg
 msgD =
@@ -1632,111 +1379,57 @@ msgD =
         |> D.andThen
             (\kind ->
                 case kind of
-                    "fill" ->
-                        D.map Fill fillD
-
-                    "clear" ->
-                        D.succeed Clear
-
-                    "select" ->
-                        D.map Select (D.field "id" D.string)
-
-                    "step" ->
-                        D.map Step (D.field "by" D.int)
-
-                    "finer" ->
-                        D.succeed Finer
-
-                    "broader" ->
-                        D.succeed Broader
-
-                    "climb" ->
-                        D.succeed Climb
-
-                    "flag" ->
-                        D.map Flag (D.field "id" D.string)
-
-                    "unflag" ->
-                        D.map Unflag (D.field "id" D.string)
-
-                    "clearFlags" ->
-                        D.succeed ClearFlags
-
-                    "delete" ->
-                        D.map Delete (D.field "ids" (D.list D.string))
-
-                    "edit" ->
-                        D.map2 Edit (D.field "id" D.string) (D.field "text" D.string)
-
+                    "fill" -> D.map Fill fillD
+                    "clear" -> D.succeed Clear
+                    "select" -> D.map Select (D.field "id" D.string)
+                    "step" -> D.map Step (D.field "by" D.int)
+                    "finer" -> D.succeed Finer
+                    "broader" -> D.succeed Broader
+                    "climb" -> D.succeed Climb
+                    "flag" -> D.map Flag (D.field "id" D.string)
+                    "unflag" -> D.map Unflag (D.field "id" D.string)
+                    "clearFlags" -> D.succeed ClearFlags
+                    "delete" -> D.map Delete (D.field "ids" (D.list D.string))
+                    "edit" -> D.map2 Edit (D.field "id" D.string) (D.field "text" D.string)
                     "insert" ->
                         D.map3 Insert
                             (D.field "id" D.string)
                             caretD
                             (D.field "text" D.string)
-
-                    "draft" ->
-                        D.map2 Draft (D.field "id" D.string) caretD
-
-                    "undraft" ->
-                        D.map Undraft (D.field "id" D.string)
-
+                    "draft" -> D.map2 Draft (D.field "id" D.string) caretD
+                    "undraft" -> D.map Undraft (D.field "id" D.string)
                     -- No id: a pair joins at the drawer's end and nowhere else.
-                    "draftpair" ->
-                        D.succeed DraftPair
-
-                    "undraftpair" ->
-                        D.map UndraftPair (D.field "id" D.string)
-
+                    "draftpair" -> D.succeed DraftPair
+                    "undraftpair" -> D.map UndraftPair (D.field "id" D.string)
                     -- No id: the line is org's own one, and the keyword says
                     -- which slot on it the widget is standing in.
-                    "draftplan" ->
-                        D.map DraftPlan (D.field "key" D.string)
-
-                    "undraftplan" ->
-                        D.map UndraftPlan (D.field "id" D.string)
-
-                    "tab" ->
-                        D.succeed Tab
-
+                    "draftplan" -> D.map DraftPlan (D.field "key" D.string)
+                    "undraftplan" -> D.map UndraftPlan (D.field "id" D.string)
+                    "tab" -> D.succeed Tab
                     -- No id: the row at point names the run, or its absence the
                     -- master toggle across every list -- the model's to decide.
-                    "hidedone" ->
-                        D.succeed HideDone
-
+                    "hidedone" -> D.succeed HideDone
                     -- The DIRECTION and nothing else: which row it moves, and
                     -- whether it may, is the model's to say.
-                    "shift" ->
-                        D.map Shift (D.field "by" D.int)
-
-                    "addprop" ->
-                        D.map2 AddProp (D.field "key" D.string) (D.field "value" D.string)
-
+                    "shift" -> D.map Shift (D.field "by" D.int)
+                    "addprop" -> D.map2 AddProp (D.field "key" D.string) (D.field "value" D.string)
                     -- The stash coming back: lists edited before a detour survive it.
                     "meta" ->
                         D.map2 SetMeta
                             (D.field "props" (D.list pairD))
                             (D.field "plan" (D.list pairD))
-
                     -- The head line's cells, for a document with no row behind
                     -- it to reread them off.
-                    "cells" ->
-                        D.map SetCells (D.field "cells" (D.list cellD))
-
-                    _ ->
-                        D.succeed Ignore
+                    "cells" -> D.map SetCells (D.field "cells" (D.list cellD))
+                    _ -> D.succeed Ignore
             )
 
-
-
 -- VIEW
-
 
 {-| ORG-CLEANED STARS: every star but the last a space, two spaces a level.
 -}
 stars : Model -> Int -> String
-stars m level =
-    String.repeat (max 0 (2 * (level - m.level))) " " ++ "* "
-
+stars m level = String.repeat (max 0 (2 * (level - m.level))) " " ++ "* "
 
 {-| THE COLUMN A ROW'S CONNECTOR STANDS IN, under the marker of the line it hangs
 off -- the headline's stars for the outermost rung, the parent's bullet below that.
@@ -1744,9 +1437,7 @@ An attribute rather than `style`, which in 0.19 assigns `style[key]` and is igno
 for a custom property; twelve stylesheet rules said this before, one per rung.
 -}
 rung : Int -> Html.Attribute Msg
-rung depth =
-    attribute "style" ("--rail:calc(" ++ String.fromInt (2 * depth) ++ "ch - 1.5ch)")
-
+rung depth = attribute "style" ("--rail:calc(" ++ String.fromInt (2 * depth) ++ "ch - 1.5ch)")
 
 {-| The classes a row wears. `up` lights the connector of an owner of point, and
 `lvl-top` says a row is drawn at the pane's own level. The rung itself rides an
@@ -1754,7 +1445,6 @@ attribute — see `rung`.
 -}
 type alias Lit =
     { ups : List String, sib : Maybe String, owned : Set String, done : Set String }
-
 
 {-| Point's owners, its owner, and the ids owning anything, computed ONCE per
 render: `markOf' and `rowClass' read them for every row, and deriving them
@@ -1768,7 +1458,6 @@ litOf m =
     , done = hiddenDone m
     }
 
-
 {-| Every row's owning HEADLINE, one ordered pass over the emission order: a
 headline's own line sits on its PARENT's shelf, its contents on its own, so
 the map answers which block a row's bar belongs to.
@@ -1779,19 +1468,13 @@ headOf m =
         (List.foldl
             (\r ( stack, acc ) ->
                 case r.kind of
-                    Head ->
-                        ( [ ( m.level, "H" ) ], acc )
-
+                    Head -> ( [ ( m.level, "H" ) ], acc )
                     Child ->
                         let
-                            kept =
-                                List.filter (\( l, _ ) -> l < r.level) stack
-
-                            up =
-                                Maybe.withDefault "H" (Maybe.map Tuple.second (List.head kept))
+                            kept = List.filter (\( l, _ ) -> l < r.level) stack
+                            up = Maybe.withDefault "H" (Maybe.map Tuple.second (List.head kept))
                         in
                         ( ( r.level, r.id ) :: kept, Dict.insert r.id up acc )
-
                     _ ->
                         ( stack
                         , Dict.insert r.id
@@ -1803,7 +1486,6 @@ headOf m =
             m.rows
         )
 
-
 {-| THE RAMP THE SPIKE'S F TAB WON WITH: every block that holds point is lit,
 brightening inward — rank 0 the block point is in, a step per shelf out along
 the chain, the other branches unranked and resting.
@@ -1813,14 +1495,8 @@ spineRanks m heads =
     let
         start =
             Maybe.andThen
-                (\r ->
-                    if heading r then
-                        Just r.id
-                    else
-                        Dict.get r.id heads
-                )
+                (\r -> if heading r then Just r.id else Dict.get r.id heads)
                 (rowAt m)
-
         chain id acc =
             if id == "H" then
                 acc ++ [ "H" ]
@@ -1828,12 +1504,8 @@ spineRanks m heads =
                 chain (Maybe.withDefault "H" (Dict.get id heads)) (acc ++ [ id ])
     in
     case start of
-        Nothing ->
-            Dict.empty
-
-        Just s ->
-            Dict.fromList (List.indexedMap (\k h -> ( h, k )) (chain s []))
-
+        Nothing -> Dict.empty
+        Just s -> Dict.fromList (List.indexedMap (\k h -> ( h, k )) (chain s []))
 
 rowClass : Lit -> Model -> Int -> Row -> Bool -> String
 rowClass lit m i r top =
@@ -1849,12 +1521,8 @@ rowClass lit m i r top =
                         "meta"
                     else
                         "item"
-
-                Composite ->
-                    "comp d-" ++ Maybe.withDefault "" r.name
-
-                Element ->
-                    kindWord r.kind
+                Composite -> "comp d-" ++ Maybe.withDefault "" r.name
+                Element -> kindWord r.kind
            )
         ++ (if i == m.at then
                 " dat"
@@ -1906,7 +1574,6 @@ rowClass lit m i r top =
            )
         ++ markOf lit m i r
 
-
 {-| `up` — the row is one of point's OWNERS: THE WAY BACK.  `sib` — the row shares
 point's owner: the choice the reader is standing in. Lighting every sibling
 of every ancestor lights whole levels and says nothing about it. FLAT, with no
@@ -1933,20 +1600,15 @@ markOf lit m i r =
     else
         ""
 
-
 {-| Which id point is on, or @""@ when the model holds no such row.
 -}
 idAtRow : Model -> Int -> String
-idAtRow m i =
-    Maybe.withDefault "" (Maybe.map .id (nth i m.rows))
-
+idAtRow m i = Maybe.withDefault "" (Maybe.map .id (nth i m.rows))
 
 {-| How many steps out ID sits in UPS, nearest first.
 -}
 indexOfIn : String -> List String -> Maybe Int
-indexOfIn id ups =
-    Scan.indexWhere ((==) id) ups
-
+indexOfIn id ups = Scan.indexWhere ((==) id) ups
 
 {-| Text with its links marked: the shown description is the server's, the range
 its span, so this page holds no bracket grammar. A link opening inside the one
@@ -1955,12 +1617,8 @@ before it is dropped, which rests on the scanner's non-overlap.
 drawText : Model -> String -> Int -> List (Html Msg)
 drawText m body base =
     let
-        n =
-            String.length body
-
-        inside l =
-            l.from >= base && l.to <= base + n
-
+        n = String.length body
+        inside l = l.from >= base && l.to <= base + n
         go links seen out =
             case links of
                 [] ->
@@ -1970,14 +1628,10 @@ drawText m body base =
                         out ++ [ span [ class "dt" ] [ text (String.dropLeft seen body) ] ]
                     else
                         out
-
                 l :: rest ->
                     let
-                        a =
-                            l.from - base
-
-                        b =
-                            l.to - base
+                        a = l.from - base
+                        b = l.to - base
                     in
                     if a < seen then
                         go rest seen out
@@ -1995,7 +1649,6 @@ drawText m body base =
     in
     go (List.filter inside m.links) 0 []
 
-
 {-| A row's own line. THE MARKER ORG WROTE IS ITS OWN SPAN, so point can light it
 the way a headline lights its stars; `drawText` slices by ABSOLUTE offsets, so the
 prefix moves the base with it rather than being spliced out of the middle.
@@ -2003,21 +1656,11 @@ prefix moves the base with it rather than being spliced out of the middle.
 viewPara : Model -> Row -> Html Msg
 viewPara m r =
     let
-        op =
-            openerAt m r
-
-        k =
-            markerOf op (lineOf m r)
-
-        rest =
-            String.dropLeft k r.text
-
-        opened =
-            openedLen op
-
-        box =
-            String.slice opened k r.text
-
+        op = openerAt m r
+        k = markerOf op (lineOf m r)
+        rest = String.dropLeft k r.text
+        opened = openedLen op
+        box = String.slice opened k r.text
         -- A TICKED BOX WEARS THE DONE FACE and an empty one wears the line's, so the
         -- box is its own span: the bullet answers "a list item", the box "settled".
         mark =
@@ -2034,16 +1677,13 @@ viewPara m r =
     div [ class "dp" ]
         (mark
             ++ (case ( elementSpan m r, keyOf r ) of
-                    ( Just ( a, _ ), _ ) ->
-                        drawWithCookie m r rest (a + k)
-
+                    ( Just ( a, _ ), _ ) -> drawWithCookie m r rest (a + k)
                     -- A PAIR'S KEY IS A RESERVED TOKEN and wears the drawer's ink,
                     -- org's `org-special-keyword' by another name.
                     ( Nothing, Just key ) ->
                         [ span [ class "dk" ] (token key)
                         , text (String.dropLeft (String.length key + 2) r.text)
                         ]
-
                     ( Nothing, Nothing ) ->
                         if r.id == Body.planId then
                             viewPlanning m
@@ -2051,7 +1691,6 @@ viewPara m r =
                             [ text rest ]
                )
         )
-
 
 {-| The planning line, each keyword a reserved token the way org paints
 `SCHEDULED:' -- the timestamp itself stays the line's own.
@@ -2069,8 +1708,7 @@ it is in the cursor's colour and never a second one.
 viewPlanning : Model -> List (Html Msg)
 viewPlanning m =
     let
-        picked =
-            planPick m
+        picked = planPick m
     in
     List.concat
         (List.indexedMap
@@ -2099,7 +1737,6 @@ viewPlanning m =
             (entriesOf m)
         )
 
-
 {-| A reserved token drawn BY ITS LETTER: the colons dim, and the leading one
 hangs into the gutter so the eye lines up on `P', never on punctuation.
 -}
@@ -2110,7 +1747,6 @@ token word =
     , span [ class "dpunc" ] [ text ":" ]
     ]
 
-
 keyOf : Row -> Maybe String
 keyOf r =
     if r.kind == Meta && r.grain == Leaf then
@@ -2118,13 +1754,10 @@ keyOf r =
     else
         Nothing
 
-
 {-| The row's own line as org wrote it.
 -}
 lineOf : Model -> Row -> String
-lineOf m r =
-    Maybe.withDefault "" (Array.get r.from m.arr)
-
+lineOf m r = Maybe.withDefault "" (Array.get r.from m.arr)
 
 {-| Org's own opener for a LEAF's line; nothing when the row is not a list item.
 -}
@@ -2133,14 +1766,11 @@ openerAt m r =
     -- A synthesized row has NO LINE, so reading one would read the body's first.
     if r.grain /= Leaf || r.kind /= Para then Nothing else Scan.listOpener (lineOf m r)
 
-
 {-| How many characters org spent on the indent and the bullet alone, the box after
 it excluded.
 -}
 openedLen : Maybe Scan.Opener -> Int
-openedLen =
-    Maybe.withDefault 0 << Maybe.map (\o -> o.indent + String.length o.bullet)
-
+openedLen = Maybe.withDefault 0 << Maybe.map (\o -> o.indent + String.length o.bullet)
 
 {-| How many characters of a leaf's own line org spent on its indent, its bullet --
 `-', `+', `*', `1.' or `1)' -- and the checkbox after it.
@@ -2148,25 +1778,17 @@ openedLen =
 markerOf : Maybe Scan.Opener -> String -> Int
 markerOf op line =
     case openedLen op of
-        0 ->
-            0
-
-        k ->
-            k + boxLen (String.dropLeft k line)
-
+        0 -> 0
+        k -> k + boxLen (String.dropLeft k line)
 
 markerLen : Model -> Row -> Int
-markerLen m r =
-    markerOf (openerAt m r) (lineOf m r)
-
+markerLen m r = markerOf (openerAt m r) (lineOf m r)
 
 {-| THE BULLETS THE TREE ALREADY DRAWS, which are the ones a stylesheet may take
 away; an ordinal is content and is never one of them.
 -}
 stepsAside : String -> Bool
-stepsAside tok =
-    List.member tok [ "-", "+", "*" ]
-
+stepsAside tok = List.member tok [ "-", "+", "*" ]
 
 {-| The marker's own spans, PARTITIONING the head org wrote: the indent, a steppable
 bullet in a span of its own, then whatever gap follows it.
@@ -2188,10 +1810,7 @@ markParts op head =
                 ]
             else
                 [ text head ]
-
-        Nothing ->
-            [ text head ]
-
+        Nothing -> [ text head ]
 
 {-| The checkbox org may write after a bullet, with the gap that follows it. IT IS
 PART OF THE MARKER: `- [X]` is one thing the reader points at, bullet and box
@@ -2204,7 +1823,6 @@ boxLen rest =
     else
         0
 
-
 {-| The checkbox a leaf item wears, read the way `viewPara' draws it: `Just True`
 for a ticked box, `Just False` for an empty or partial one, `Nothing` when the
 row is no checkbox item at all.  The one reading the hide-done mode is built on.
@@ -2212,26 +1830,16 @@ row is no checkbox item at all.  The one reading the hide-done mode is built on.
 boxState : Model -> Row -> Maybe Bool
 boxState m r =
     let
-        op =
-            openerAt m r
-
-        line =
-            lineOf m r
-
-        opened =
-            openedLen op
-
-        k =
-            markerOf op line
-
-        box =
-            String.slice opened k line
+        op = openerAt m r
+        line = lineOf m r
+        opened = openedLen op
+        k = markerOf op line
+        box = String.slice opened k line
     in
     if k <= opened || String.isEmpty (String.trim box) then
         Nothing
     else
         Just (String.contains "X" box || String.contains "x" box)
-
 
 {-| Is ID the OUTERMOST composite of a list run -- the root a hide-done toggle
 keys on?  Nested sublists carry no composite of their own, so a run has exactly
@@ -2240,42 +1848,28 @@ one.
 isListRoot : Model -> String -> Bool
 isListRoot m id =
     case rowById m id of
-        Just r ->
-            r.grain == Composite && r.name == Just "list"
-
-        Nothing ->
-            False
-
+        Just r -> r.grain == Composite && r.name == Just "list"
+        Nothing -> False
 
 {-| Every list run's root id, for the master toggle.
 -}
 listRoots : Model -> List String
 listRoots m =
     List.filterMap
-        (\r ->
-            if isListRoot m r.id then
-                Just r.id
-            else
-                Nothing
-        )
+        (\r -> if isListRoot m r.id then Just r.id else Nothing)
         m.rows
-
 
 {-| The list run ID sits in, by its OUTERMOST composite; nothing when ID is no
 list item.  A run holds one composite, so the owner walk meets it at most once.
 -}
 listRootOf : Model -> String -> Maybe String
-listRootOf m id =
-    List.head (List.filter (isListRoot m) (ownersOf m id))
-
+listRootOf m id = List.head (List.filter (isListRoot m) (ownersOf m id))
 
 {-| The checkbox items a row OWNS directly -- a run's top items under its
 composite, an interim item's nested ones under it.
 -}
 checkKids : Model -> String -> List Row
-checkKids m id =
-    List.filter (\r -> r.owner == Just id && boxState m r /= Nothing) m.rows
-
+checkKids m id = List.filter (\r -> r.owner == Just id && boxState m r /= Nothing) m.rows
 
 {-| Is R's whole checkbox subtree done?  A LEAF is done when it is ticked; an
 INTERIM item when every descendant leaf is -- so an item with one empty box
@@ -2284,12 +1878,8 @@ anywhere under it stays visible, and it and its ancestors with it.
 subtreeDone : Model -> Row -> Bool
 subtreeDone m r =
     case checkKids m r.id of
-        [] ->
-            boxState m r == Just True
-
-        kids ->
-            List.all (subtreeDone m) kids
-
+        [] -> boxState m r == Just True
+        kids -> List.all (subtreeDone m) kids
 
 {-| The FACE a checkbox item shows, org's three states rolled up from its
 children: `Full' (`[X]') when the whole subtree is done, `Empty' (`[ ]') when
@@ -2304,7 +1894,6 @@ type BoxFace
     | BoxPart
     | BoxFull
 
-
 {-| The state char a checkbox item's literal box holds: `X' (ticked, `x' folded
 in), `-' (a hand-written partial), else a space.  Nothing when the row is no
 checkbox item.
@@ -2312,20 +1901,11 @@ checkbox item.
 boxChar : Model -> Row -> Maybe Char
 boxChar m r =
     let
-        op =
-            openerAt m r
-
-        line =
-            lineOf m r
-
-        opened =
-            openedLen op
-
-        k =
-            markerOf op line
-
-        box =
-            String.slice opened k line
+        op = openerAt m r
+        line = lineOf m r
+        opened = openedLen op
+        k = markerOf op line
+        box = String.slice opened k line
     in
     if k <= opened || String.isEmpty (String.trim box) then
         Nothing
@@ -2336,34 +1916,21 @@ boxChar m r =
     else
         Just ' '
 
-
 boxFace : Model -> Row -> Maybe BoxFace
 boxFace m r =
     case boxChar m r of
-        Nothing ->
-            Nothing
-
+        Nothing -> Nothing
         Just c ->
             case checkKids m r.id of
-                [] ->
-                    Just (leafFace c)
-
-                kids ->
-                    Just (rollUp (List.filterMap (boxFace m) kids))
-
+                [] -> Just (leafFace c)
+                kids -> Just (rollUp (List.filterMap (boxFace m) kids))
 
 leafFace : Char -> BoxFace
 leafFace c =
     case c of
-        'X' ->
-            BoxFull
-
-        '-' ->
-            BoxPart
-
-        _ ->
-            BoxEmpty
-
+        'X' -> BoxFull
+        '-' -> BoxPart
+        _ -> BoxEmpty
 
 {-| A parent's face from its children's: `Full' only when every child is, `Empty'
 only when every child is, `Part' the moment they disagree or any child is itself
@@ -2377,7 +1944,6 @@ rollUp faces =
         BoxEmpty
     else
         BoxPart
-
 
 {-| The checkbox glyph a row draws.  A LEAF wears its own literal box, `x' and
 all; an item WITH checkbox children wears the face rolled up from them and marks
@@ -2398,22 +1964,15 @@ boxSpan m r box =
                     )
                 ]
                 [ text box ]
-
         _ ->
             let
                 ( ch, cls ) =
                     case Maybe.withDefault BoxEmpty (boxFace m r) of
-                        BoxFull ->
-                            ( 'X', " on" )
-
-                        BoxPart ->
-                            ( '-', " part" )
-
-                        BoxEmpty ->
-                            ( ' ', "" )
+                        BoxFull -> ( 'X', " on" )
+                        BoxPart -> ( '-', " part" )
+                        BoxEmpty -> ( ' ', "" )
             in
             span [ class ("dbx derived" ++ cls) ] [ text (setBox ch box) ]
-
 
 {-| BOX with its state char set to C, its brackets and any trailing gap kept, so
 a derived glyph is the literal's width to the pixel.
@@ -2421,12 +1980,8 @@ a derived glyph is the literal's width to the pixel.
 setBox : Char -> String -> String
 setBox c box =
     case String.indexes "[" box of
-        i :: _ ->
-            String.left (i + 1) box ++ String.fromChar c ++ String.dropLeft (i + 2) box
-
-        [] ->
-            box
-
+        i :: _ -> String.left (i + 1) box ++ String.fromChar c ++ String.dropLeft (i + 2) box
+        [] -> box
 
 {-| Draw REST (a row's text past its marker) with any org STATISTICS COOKIE in it
 filled from the item's checkbox children -- `[/]' as `[done/total]', `[%]' as the
@@ -2443,10 +1998,7 @@ drawWithCookie m r rest base =
             drawText m (String.left from rest) base
                 ++ [ cookieSpan m r percent ]
                 ++ drawWithCookie m r (String.dropLeft to rest) (base + to)
-
-        Nothing ->
-            drawText m rest base
-
+        Nothing -> drawText m rest base
 
 {-| The filled cookie span: `done'/`total' are the item's DIRECT checkbox children
 (org's default `org-checkbox-hierarchical-statistics'), a child counting as done
@@ -2455,15 +2007,9 @@ when its own face is `Full'.  A complete cookie wears the done face.
 cookieSpan : Model -> Row -> Bool -> Html Msg
 cookieSpan m r percent =
     let
-        kids =
-            checkKids m r.id
-
-        total =
-            List.length kids
-
-        done =
-            List.length (List.filter (\k -> boxFace m k == Just BoxFull) kids)
-
+        kids = checkKids m r.id
+        total = List.length kids
+        done = List.length (List.filter (\k -> boxFace m k == Just BoxFull) kids)
         shown =
             if percent then
                 "["
@@ -2489,36 +2035,25 @@ cookieSpan m r percent =
         ]
         [ text shown ]
 
-
 {-| The FIRST statistics cookie in S -- `[n/m]', `[/]', `[k%]' or `[%]' with the
 digits optional -- as (from, to, isPercent), searching past every other `[...]'
 (a checkbox, a priority, a timestamp).  The box never reaches here; it is in the
 marker, ahead of the text this scans.
 -}
 cookieIn : String -> Maybe ( Int, Int, Bool )
-cookieIn s =
-    findCookie s 0
-
+cookieIn s = findCookie s 0
 
 findCookie : String -> Int -> Maybe ( Int, Int, Bool )
 findCookie s from =
     case indexFrom '[' s from of
-        Nothing ->
-            Nothing
-
+        Nothing -> Nothing
         Just lb ->
             case indexFrom ']' s (lb + 1) of
-                Nothing ->
-                    Nothing
-
+                Nothing -> Nothing
                 Just rb ->
                     case cookieKind (String.slice (lb + 1) rb s) of
-                        Just percent ->
-                            Just ( lb, rb + 1, percent )
-
-                        Nothing ->
-                            findCookie s (lb + 1)
-
+                        Just percent -> Just ( lb, rb + 1, percent )
+                        Nothing -> findCookie s (lb + 1)
 
 {-| Nothing when INSIDE is no cookie body, `Just True' for a percent (`k%', `%'),
 `Just False' for a fraction (`n/m', `/'); the digits may be absent, as org writes
@@ -2527,8 +2062,7 @@ an empty cookie.
 cookieKind : String -> Maybe Bool
 cookieKind inside =
     let
-        digits str =
-            String.all (\c -> c >= '0' && c <= '9') str
+        digits str = String.all (\c -> c >= '0' && c <= '9') str
     in
     if String.endsWith "%" inside && digits (String.dropRight 1 inside) then
         Just True
@@ -2539,15 +2073,11 @@ cookieKind inside =
                     Just False
                 else
                     Nothing
-
-            _ ->
-                Nothing
-
+            _ -> Nothing
 
 indexFrom : Char -> String -> Int -> Maybe Int
 indexFrom c s from =
     List.head (List.filter (\i -> i >= from) (String.indexes (String.fromChar c) s))
-
 
 {-| The rows a hide-done run hides: every checkbox item whose subtree is done,
 under a run the reader turned the mode on for, AND the run's own composite when
@@ -2579,13 +2109,10 @@ hiddenDone m =
                                     Just r.id
                                 else
                                     Nothing
-
-                            _ ->
-                                Nothing
+                            _ -> Nothing
                 )
                 m.rows
             )
-
 
 {-| A run the mode has COMPACTED but not emptied: its root is on and it hides at
 least one row while its own composite still stands.  Its gutter spine goes dashed
@@ -2600,7 +2127,6 @@ compactedRun m done r =
         && not (Set.member r.id done)
         && List.any (\h -> listRootOf m h == Just r.id) (Set.toList done)
 
-
 {-| POINT IS NEVER LEFT ON A HIDDEN ROW: after a recompute, a point that a
 hide-done run just swallowed steps to the nearest visible row -- the next one,
 else the previous -- past both the mode's hidden set and any folded away.
@@ -2608,20 +2134,12 @@ else the previous -- past both the mode's hidden set and any folded away.
 snapVisible : Model -> Model
 snapVisible m =
     let
-        hidden =
-            Set.union (hiddenDone m) (hiddenIn m)
-
-        n =
-            List.length m.rows
-
+        hidden = Set.union (hiddenDone m) (hiddenIn m)
+        n = List.length m.rows
         visibleAt i =
             case nth i m.rows of
-                Just r ->
-                    not (Set.member r.id hidden)
-
-                Nothing ->
-                    False
-
+                Just r -> not (Set.member r.id hidden)
+                Nothing -> False
         seek by i =
             if i < 0 || i >= n then
                 -1
@@ -2629,13 +2147,11 @@ snapVisible m =
                 i
             else
                 seek by (i + by)
-
         -- PREFER THE NEXT visible row, then the previous.
         landing =
             if seek 1 m.at >= 0 then seek 1 m.at else seek -1 m.at
     in
     if Set.member (idAtRow m m.at) hidden && landing >= 0 then { m | at = landing } else m
-
 
 viewCells : Model -> Row -> List (Html Msg)
 viewCells m r =
@@ -2657,9 +2173,7 @@ viewCells m r =
                     , style "color" c.colour
                     ]
                     (case ( c.key, r.kind, m.titleAt ) of
-                        ( "title", Head, Just t ) ->
-                            drawText m c.val t
-
+                        ( "title", Head, Just t ) -> drawText m c.val t
                         ( "title", Child, _ ) ->
                             -- THE ELLIPSIS RIDES THE TITLE: the cell grows to
                             -- fill the row, and a sibling span lands at the far
@@ -2670,13 +2184,10 @@ viewCells m r =
                                     else
                                         []
                                    )
-
-                        _ ->
-                            [ text c.val ]
+                        _ -> [ text c.val ]
                     )
             )
             (drawnCells r)
-
 
 {-| The cells a row draws. THE HEADLINE ALWAYS DRAWS ITS TITLE CELL, empty or
 not: that cell is the SLOT the title edit stands in (`dTitleAt`, 20-sheet.js),
@@ -2688,19 +2199,14 @@ drawnCells : Row -> List Cell
 drawnCells r =
     if r.kind == Head then List.filter (\c -> c.val /= "" || c.key == "title") r.cells else shown r
 
-
 {-| ONE OWNER PER BYTE: a composite is drawn once with its leaves inside it, and
 what no rung claims is drawn INERT (`dg`).
 -}
 viewKids : Lit -> Model -> Row -> Int -> Int -> Int -> ( List (Html Msg), Int )
 viewKids lit m parent from at0 depth =
     let
-        n =
-            List.length m.rows
-
-        rowN j =
-            nth j m.rows
-
+        n = List.length m.rows
+        rowN j = nth j m.rows
         go j mark out =
             case rowN j of
                 Just kid ->
@@ -2711,21 +2217,15 @@ viewKids lit m parent from at0 depth =
                                     [ div [ class "dg" ] [ text (cut m.lines mark kid.from) ] ]
                                 else
                                     []
-
                             under =
                                 case rowN (j + 1) of
-                                    Just next ->
-                                        next.owner == Just kid.id
-
-                                    Nothing ->
-                                        False
-
+                                    Just next -> next.owner == Just kid.id
+                                    Nothing -> False
                             ( inner, jNext ) =
                                 if under then
                                     let
                                         headAt =
                                             Maybe.withDefault kid.from (Maybe.map .from (rowN (j + 1)))
-
                                         own =
                                             if headAt > kid.from then
                                                 [ viewPara m
@@ -2733,7 +2233,6 @@ viewKids lit m parent from at0 depth =
                                                 ]
                                             else
                                                 []
-
                                         ( deeper, jj ) =
                                             viewKids lit m kid (j + 1) headAt (depth + 1)
                                     in
@@ -2750,10 +2249,7 @@ viewKids lit m parent from at0 depth =
                             )
                     else
                         ( tail mark out, j )
-
-                Nothing ->
-                    ( tail mark out, j )
-
+                Nothing -> ( tail mark out, j )
         tail mark out =
             if mark < parent.to then
                 out ++ [ div [ class "dg" ] [ text (cut m.lines mark parent.to) ] ]
@@ -2761,7 +2257,6 @@ viewKids lit m parent from at0 depth =
                 out
     in
     go from at0 []
-
 
 {-| The shelf's rail, `indent - 1.5' off the stylesheet's own arithmetic, so
 every mark on a shelf agrees on its column.
@@ -2771,7 +2266,6 @@ rail m level =
     "--rail:calc(var(--g-doc-pad) + "
         ++ String.fromFloat (toFloat (String.length (stars m level)) - 1.5)
         ++ "ch)"
-
 
 {-| A ROW ON A DEEPER SHELF indents under its own headline's FIRST LETTER --
 the width its cleaned stars take, exactly the root's own geometry.
@@ -2789,14 +2283,12 @@ inset m r =
     else
         []
 
-
 {-| ONE DOOR FOR A ROW'S DIV: the `data-id' every driver's mirror agreement
 rides is owed here, so no row can be drawn without it.
 -}
 rowEl : Lit -> Model -> Int -> Row -> Bool -> List (Html.Attribute Msg) -> List (Html Msg) -> Html Msg
 rowEl lit m i r top extra inner =
     div (class (rowClass lit m i r top) :: attribute "data-id" r.id :: extra) inner
-
 
 {-| The rows a FOLD hides: everything owned, transitively, by a shut row.  An
 owner is emitted before what it owns, so one ordered pass settles the set --
@@ -2812,29 +2304,18 @@ hiddenIn m =
                         Set.insert r.id acc
                     else
                         acc
-
-                Nothing ->
-                    acc
+                Nothing -> acc
         )
         Set.empty
         m.rows
 
-
 view : Model -> Html Msg
 view m =
     let
-        lit =
-            litOf m
-
-        hidden =
-            hiddenIn m
-
-        ranks =
-            spineRanks m (headOf m)
-
-        n =
-            List.length m.rows
-
+        lit = litOf m
+        hidden = hiddenIn m
+        ranks = spineRanks m (headOf m)
+        n = List.length m.rows
         -- A BLOCK IS AN ELEMENT: a headline's contents share one wrapper whose
         -- `::before' is the SPINE — continuous past margins and past deeper
         -- blocks alike, ranked on the ramp by its own class.
@@ -2846,11 +2327,8 @@ view m =
                     [ class
                         ("blk"
                             ++ (case Dict.get id ranks of
-                                    Just k ->
-                                        " sp-" ++ String.fromInt (min 3 k)
-
-                                    Nothing ->
-                                        ""
+                                    Just k -> " sp-" ++ String.fromInt (min 3 k)
+                                    Nothing -> ""
                                )
                         )
                     , attribute "style" (rail m level)
@@ -2864,8 +2342,7 @@ view m =
                 ( out, i )
             else
                 let
-                    r =
-                        Maybe.withDefault blank (nth i m.rows)
+                    r = Maybe.withDefault blank (nth i m.rows)
                 in
                 if r.kind == Child && r.level <= level then
                     ( out, i )
@@ -2878,11 +2355,8 @@ view m =
                     -- contents as a BLOCK beside it; a folded child has no
                     -- visible contents and so no block, and no spine.
                     let
-                        headline =
-                            rowEl lit m i r True [] (viewCells m r)
-
-                        ( inner, j ) =
-                            go (i + 1) r.level []
+                        headline = rowEl lit m i r True [] (viewCells m r)
+                        ( inner, j ) = go (i + 1) r.level []
                     in
                     go j level (out ++ headline :: blkOf r.id r.level inner)
                 else if r.grain == Composite then
@@ -2892,7 +2366,6 @@ view m =
                                 viewMeta lit m r (i + 1)
                             else
                                 viewKids lit m r (i + 1) r.from 0
-
                         -- FOLDED, THE FRAME IS THE WHOLE OF IT: the opener line
                         -- and org's own ellipsis, the way org draws a shut drawer.
                         shown =
@@ -2906,7 +2379,6 @@ view m =
                     go j level (out ++ [ rowEl lit m i r True (inset m r) shown ])
                 else
                     go (i + 1) level (out ++ [ rowEl lit m i r True (inset m r) [ viewPara m r ] ])
-
         -- The folded frame's own line: org's token for the synthesized drawer,
         -- the file's opener for a raw one.
         opener r =
@@ -2914,24 +2386,17 @@ view m =
                 token "PROPERTIES"
             else
                 [ text (Maybe.withDefault "" (nth r.from m.lines)) ]
-
         body =
             case m.rows of
                 head :: _ ->
                     let
-                        headline =
-                            rowEl lit m 0 head True [] (viewCells m head)
-
-                        ( inner, _ ) =
-                            go 1 m.level []
+                        headline = rowEl lit m 0 head True [] (viewCells m head)
+                        ( inner, _ ) = go 1 m.level []
                     in
                     headline :: blkOf "H" m.level inner
-
-                [] ->
-                    []
+                [] -> []
     in
     div [ class (if inList m then "focus" else "") ] (viewPath m :: body)
-
 
 {-| The drawer's rows: the frame lines are the composite's own — inert, like the
 lines no rung claims — and each pair is a leaf between them.  Folded, the frame
@@ -2947,15 +2412,9 @@ viewMeta lit m parent from =
                         walk (j + 1) (got ++ [ ( j, kid ) ])
                     else
                         ( got, j )
-
-                Nothing ->
-                    ( got, j )
-
-        ( kids, next ) =
-            walk from []
-
-        leaf ( j, kid ) =
-            rowEl lit m j kid False [] [ viewPara m kid ]
+                Nothing -> ( got, j )
+        ( kids, next ) = walk from []
+        leaf ( j, kid ) = rowEl lit m j kid False [] [ viewPara m kid ]
     in
     ( div [ class "dg" ] (token "PROPERTIES")
         :: List.map leaf kids
@@ -2963,15 +2422,12 @@ viewMeta lit m parent from =
     , next
     )
 
-
 {-| Is point INSIDE a block -- a list run, a drawer's pairs, a child's
 contents? Dimming answers "which branch am I in", so it engages when there is
 a branch to be in and leaves the root shelf alone.
 -}
 inList : Model -> Bool
-inList m =
-    Maybe.andThen .owner (rowAt m) /= Nothing
-
+inList m = Maybe.andThen .owner (rowAt m) /= Nothing
 
 {-| THE WAY BACK, IN WORDS. The rails say how deep and which branch; the strip
 names the same chain, so the two readings are one thing said twice. It rides the
@@ -2980,9 +2436,7 @@ pane's top, where the eye already is, and takes the same ramp the connectors do.
 viewPath : Model -> Html Msg
 viewPath m =
     let
-        here =
-            idAtRow m m.at
-
+        here = idAtRow m m.at
         named =
             -- A CHILD IS A RUNG OF THE PATH: a headline names the way back the
             -- way a composite does, whatever its grain.
@@ -2990,7 +2444,6 @@ viewPath m =
                 (List.filter (\r -> r.grain /= Element || r.kind == Child)
                     (List.filterMap (rowById m) (List.reverse (here :: ownersOf m here)))
                 )
-
         -- EVERYTHING IS UNDER THE HEADLINE, so the way back starts there: the entry's
         -- own line is the root the list and the prose alike hang off.
         words =
@@ -3005,9 +2458,7 @@ viewPath m =
                 ]
             else
                 "headline" :: named
-
-        n =
-            List.length words
+        n = List.length words
     in
     div [ class "dpath" ]
         (List.concat
@@ -3028,7 +2479,6 @@ viewPath m =
             )
         )
 
-
 {-| What a row is called on the strip: a composite by its NAME, anything else by
 its own line with the marker org wrote taken off the front.
 -}
@@ -3041,8 +2491,7 @@ crumb m r =
     if r.kind == Child then
         -- A CHILD'S CRUMB IS ITS TITLE: a headline names itself.
         let
-            t =
-                cellOf "title" r
+            t = cellOf "title" r
         in
         clip (if String.isEmpty t then "child" else t)
     else if r.grain == Composite then
@@ -3057,17 +2506,11 @@ crumb m r =
             -- A PAIR'S CRUMB IS ITS KEY ALONE: the value is the line's own
             -- business, and the strip names the way back.
             (case ( r.kind, Body.readProperty r.text ) of
-                ( Meta, Just ( key, _ ) ) ->
-                    ":" ++ key ++ ":"
-
-                _ ->
-                    String.trim (String.dropLeft (markerLen m r) r.text)
+                ( Meta, Just ( key, _ ) ) -> ":" ++ key ++ ":"
+                _ -> String.trim (String.dropLeft (markerLen m r) r.text)
             )
 
-
-
 -- MAIN
-
 
 main : Program () Model Msg
 main =

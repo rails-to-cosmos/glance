@@ -297,6 +297,7 @@ stamped = go . T.words
       , not (close `T.isSuffixOf` w) = T.take 1 w : go (drop 1 (dropWhile (not . T.isSuffixOf close) ws))
       | Just _ <- closer w           = T.take 1 w : go ws
       | otherwise                    = w : go ws
+    closer :: Text -> Maybe Text
     closer w = case T.uncons w of
       Just ('[', _) -> Just "]"
       Just ('<', _) -> Just ">"

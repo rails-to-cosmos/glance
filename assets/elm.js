@@ -6326,8 +6326,6 @@ var $author$project$Body$blank = $author$project$Body$Row('')(1)(0)($elm$core$Ma
 var $author$project$Scan$Block = 3;
 var $author$project$Scan$Composite = 1;
 var $author$project$Scan$Drawer = 4;
-var $author$project$Scan$Item = 1;
-var $author$project$Scan$Leaf = 2;
 var $author$project$Scan$Stop = F5(
 	function (from, to, grain, name, up) {
 		return {d: from, w: grain, al: name, f: to, cV: up};
@@ -6382,24 +6380,6 @@ var $author$project$Scan$at = F2(
 			'',
 			A2($elm$core$Array$get, i, xs));
 	});
-var $elm$core$String$trimLeft = _String_trimLeft;
-var $elm$core$String$words = _String_words;
-var $author$project$Scan$blockName = function (line) {
-	var low = $elm$core$String$toLower(
-		$elm$core$String$trimLeft(line));
-	if (A2($elm$core$String$startsWith, '#+begin_', low)) {
-		var _v0 = $elm$core$String$words(
-			A2($elm$core$String$dropLeft, 8, low));
-		if (_v0.b) {
-			var w = _v0.a;
-			return $elm$core$String$isEmpty(w) ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(w);
-		} else {
-			return $elm$core$Maybe$Nothing;
-		}
-	} else {
-		return $elm$core$Maybe$Nothing;
-	}
-};
 var $author$project$Scan$closes = function (kind) {
 	switch (kind) {
 		case 3:
@@ -6418,6 +6398,24 @@ var $author$project$Scan$Run = F2(
 	function (to, items) {
 		return {aM: items, f: to};
 	});
+var $elm$core$String$trimLeft = _String_trimLeft;
+var $elm$core$String$words = _String_words;
+var $author$project$Scan$blockName = function (line) {
+	var low = $elm$core$String$toLower(
+		$elm$core$String$trimLeft(line));
+	if (A2($elm$core$String$startsWith, '#+begin_', low)) {
+		var _v0 = $elm$core$String$words(
+			A2($elm$core$String$dropLeft, 8, low));
+		if (_v0.b) {
+			var w = _v0.a;
+			return $elm$core$String$isEmpty(w) ? $elm$core$Maybe$Nothing : $elm$core$Maybe$Just(w);
+		} else {
+			return $elm$core$Maybe$Nothing;
+		}
+	} else {
+		return $elm$core$Maybe$Nothing;
+	}
+};
 var $elm$core$String$trim = _String_trim;
 var $author$project$Scan$endsBlock = F2(
 	function (name, line) {
@@ -6481,6 +6479,7 @@ var $author$project$Scan$drawerRun = F3(
 var $author$project$Scan$isBlank = function (line) {
 	return $elm$core$String$trim(line) === '';
 };
+var $author$project$Scan$Item = 1;
 var $author$project$Scan$Plain = 0;
 var $author$project$Scan$drawerChar = function (c) {
 	return $elm$core$Char$isAlphaNum(c) || ((c === '-') || (c === '_'));
@@ -6835,10 +6834,88 @@ var $author$project$Scan$drawerLeaves = F3(
 		return $elm$core$List$reverse(
 			A2(go, a, _List_Nil));
 	});
+var $author$project$Scan$runsIn = F3(
+	function (lines, a, b) {
+		var go = F3(
+			function (i, from, out) {
+				go:
+				while (true) {
+					if (_Utils_cmp(i, b) > 0) {
+						return out;
+					} else {
+						if (_Utils_eq(i, b) || $author$project$Scan$isBlank(
+							A2($author$project$Scan$at, i, lines))) {
+							if (_Utils_eq(from, -1)) {
+								var $temp$i = i + 1,
+									$temp$from = -1,
+									$temp$out = out;
+								i = $temp$i;
+								from = $temp$from;
+								out = $temp$out;
+								continue go;
+							} else {
+								var $temp$i = i + 1,
+									$temp$from = -1,
+									$temp$out = _Utils_ap(
+									out,
+									_List_fromArray(
+										[
+											_Utils_Tuple2(from, i)
+										]));
+								i = $temp$i;
+								from = $temp$from;
+								out = $temp$out;
+								continue go;
+							}
+						} else {
+							if (_Utils_eq(from, -1)) {
+								var $temp$i = i + 1,
+									$temp$from = i,
+									$temp$out = out;
+								i = $temp$i;
+								from = $temp$from;
+								out = $temp$out;
+								continue go;
+							} else {
+								var $temp$i = i + 1,
+									$temp$from = from,
+									$temp$out = out;
+								i = $temp$i;
+								from = $temp$from;
+								out = $temp$out;
+								continue go;
+							}
+						}
+					}
+				}
+			});
+		return A3(go, a, -1, _List_Nil);
+	});
+var $author$project$Scan$leavesOf = F4(
+	function (lines, kind, i, shut) {
+		switch (kind) {
+			case 4:
+				return A3($author$project$Scan$drawerLeaves, lines, i + 1, shut - 1);
+			case 3:
+				return A3($author$project$Scan$runsIn, lines, i + 1, shut - 1);
+			case 2:
+				return A2(
+					$elm$core$List$map,
+					function (n) {
+						return _Utils_Tuple2(n, n + 1);
+					},
+					A2($elm$core$List$range, i, shut - 1));
+			case 0:
+				return _List_Nil;
+			default:
+				return _List_Nil;
+		}
+	});
 var $elm$core$Array$length = function (_v0) {
 	var len = _v0.a;
 	return len;
 };
+var $author$project$Scan$Leaf = 2;
 var $author$project$Scan$Region = F3(
 	function (kind, from, to) {
 		return {d: from, l: kind, f: to};
@@ -6921,63 +6998,6 @@ var $author$project$Scan$regionsIn = F3(
 			});
 		return A2(go, from, _List_Nil);
 	});
-var $author$project$Scan$runsIn = F3(
-	function (lines, a, b) {
-		var go = F3(
-			function (i, from, out) {
-				go:
-				while (true) {
-					if (_Utils_cmp(i, b) > 0) {
-						return out;
-					} else {
-						if (_Utils_eq(i, b) || $author$project$Scan$isBlank(
-							A2($author$project$Scan$at, i, lines))) {
-							if (_Utils_eq(from, -1)) {
-								var $temp$i = i + 1,
-									$temp$from = -1,
-									$temp$out = out;
-								i = $temp$i;
-								from = $temp$from;
-								out = $temp$out;
-								continue go;
-							} else {
-								var $temp$i = i + 1,
-									$temp$from = -1,
-									$temp$out = _Utils_ap(
-									out,
-									_List_fromArray(
-										[
-											_Utils_Tuple2(from, i)
-										]));
-								i = $temp$i;
-								from = $temp$from;
-								out = $temp$out;
-								continue go;
-							}
-						} else {
-							if (_Utils_eq(from, -1)) {
-								var $temp$i = i + 1,
-									$temp$from = i,
-									$temp$out = out;
-								i = $temp$i;
-								from = $temp$from;
-								out = $temp$out;
-								continue go;
-							} else {
-								var $temp$i = i + 1,
-									$temp$from = from,
-									$temp$out = out;
-								i = $temp$i;
-								from = $temp$from;
-								out = $temp$out;
-								continue go;
-							}
-						}
-					}
-				}
-			});
-		return A3(go, a, -1, _List_Nil);
-	});
 var $author$project$Scan$snug = F3(
 	function (lines, from, to) {
 		snug:
@@ -6996,111 +7016,92 @@ var $author$project$Scan$snug = F3(
 			}
 		}
 	});
-var $author$project$Scan$blocksInRange = F3(
-	function (lines, start, own) {
-		var whole = F5(
-			function (a, b, name, leaves, out) {
-				var here = $elm$core$List$length(out);
-				return A3(
-					$elm$core$List$foldl,
-					F2(
-						function (_v4, got) {
-							var p = _v4.a;
-							var q = _v4.b;
-							return _Utils_ap(
-								got,
-								_List_fromArray(
-									[
-										A5(
-										$author$project$Scan$Stop,
-										p,
-										q,
-										2,
-										$elm$core$Maybe$Nothing,
-										$elm$core$Maybe$Just(here))
-									]));
-						}),
-					_Utils_ap(
-						out,
+var $author$project$Scan$pushItem = F5(
+	function (lines, from, to, up, out) {
+		var here = $elm$core$List$length(out);
+		var deeper = F2(
+			function (reg, got) {
+				return (reg.l === 1) ? A5(
+					$author$project$Scan$pushItem,
+					lines,
+					reg.d,
+					A3($author$project$Scan$snug, lines, reg.d, reg.f),
+					$elm$core$Maybe$Just(here),
+					got) : got;
+			});
+		return A3(
+			$elm$core$List$foldl,
+			deeper,
+			_Utils_ap(
+				out,
+				_List_fromArray(
+					[
+						A5($author$project$Scan$Stop, from, to, 2, $elm$core$Maybe$Nothing, up)
+					])),
+			A3($author$project$Scan$regionsIn, lines, from + 1, to));
+	});
+var $author$project$Scan$stopName = F3(
+	function (lines, kind, i) {
+		switch (kind) {
+			case 4:
+				return $elm$core$String$toLower(
+					A2(
+						$elm$core$Maybe$withDefault,
+						'drawer',
+						$author$project$Scan$drawerName(
+							A2($author$project$Scan$at, i, lines))));
+			case 3:
+				return A2(
+					$elm$core$Maybe$withDefault,
+					'',
+					$author$project$Scan$blockName(
+						A2($author$project$Scan$at, i, lines)));
+			case 2:
+				return 'table';
+			case 0:
+				return '';
+			default:
+				return '';
+		}
+	});
+var $author$project$Scan$whole = F5(
+	function (a, b, name, leaves, out) {
+		var here = $elm$core$List$length(out);
+		return A3(
+			$elm$core$List$foldl,
+			F2(
+				function (_v0, got) {
+					var p = _v0.a;
+					var q = _v0.b;
+					return _Utils_ap(
+						got,
 						_List_fromArray(
 							[
 								A5(
 								$author$project$Scan$Stop,
-								a,
-								b,
-								1,
-								$elm$core$Maybe$Just(name),
-								$elm$core$Maybe$Nothing)
-							])),
-					leaves);
-			});
-		var stopName = F2(
-			function (kind, i) {
-				switch (kind) {
-					case 4:
-						return $elm$core$String$toLower(
-							A2(
-								$elm$core$Maybe$withDefault,
-								'drawer',
-								$author$project$Scan$drawerName(
-									A2($author$project$Scan$at, i, lines))));
-					case 3:
-						return A2(
-							$elm$core$Maybe$withDefault,
-							'',
-							$author$project$Scan$blockName(
-								A2($author$project$Scan$at, i, lines)));
-					case 2:
-						return 'table';
-					case 0:
-						return '';
-					default:
-						return '';
-				}
-			});
-		var pushItem = F4(
-			function (from, to, up, out) {
-				var here = $elm$core$List$length(out);
-				var deeper = F2(
-					function (reg, got) {
-						return (reg.l === 1) ? A4(
-							pushItem,
-							reg.d,
-							A3($author$project$Scan$snug, lines, reg.d, reg.f),
-							$elm$core$Maybe$Just(here),
-							got) : got;
-					});
-				return A3(
-					$elm$core$List$foldl,
-					deeper,
-					_Utils_ap(
-						out,
-						_List_fromArray(
-							[
-								A5($author$project$Scan$Stop, from, to, 2, $elm$core$Maybe$Nothing, up)
-							])),
-					A3($author$project$Scan$regionsIn, lines, from + 1, to));
-			});
-		var leavesOf = F3(
-			function (kind, i, shut) {
-				switch (kind) {
-					case 4:
-						return A3($author$project$Scan$drawerLeaves, lines, i + 1, shut - 1);
-					case 3:
-						return A3($author$project$Scan$runsIn, lines, i + 1, shut - 1);
-					case 2:
-						return A2(
-							$elm$core$List$map,
-							function (n) {
-								return _Utils_Tuple2(n, n + 1);
-							},
-							A2($elm$core$List$range, i, shut - 1));
-					case 0:
-						return _List_Nil;
-					default:
-						return _List_Nil;
-				}
-			});
+								p,
+								q,
+								2,
+								$elm$core$Maybe$Nothing,
+								$elm$core$Maybe$Just(here))
+							]));
+				}),
+			_Utils_ap(
+				out,
+				_List_fromArray(
+					[
+						A5(
+						$author$project$Scan$Stop,
+						a,
+						b,
+						1,
+						$elm$core$Maybe$Just(name),
+						$elm$core$Maybe$Nothing)
+					])),
+			leaves);
+	});
+var $author$project$Scan$blocksInRange = F3(
+	function (lines, start, own) {
 		var end = A2(
 			$elm$core$Basics$max,
 			0,
@@ -7164,8 +7165,9 @@ var $author$project$Scan$blocksInRange = F3(
 											function (_v1, got) {
 												var a = _v1.a;
 												var b = _v1.b;
-												return A4(
-													pushItem,
+												return A5(
+													$author$project$Scan$pushItem,
+													lines,
 													a,
 													b,
 													$elm$core$Maybe$Just(here),
@@ -7184,11 +7186,11 @@ var $author$project$Scan$blocksInRange = F3(
 					go,
 					shut,
 					A5(
-						whole,
+						$author$project$Scan$whole,
 						i,
 						shut,
-						A2(stopName, kind, i),
-						A3(leavesOf, kind, i, shut),
+						A3($author$project$Scan$stopName, lines, kind, i),
+						A4($author$project$Scan$leavesOf, lines, kind, i, shut),
 						out));
 			});
 		return A2(
@@ -8013,6 +8015,152 @@ var $author$project$Doc$msgD = A2(
 		}
 	},
 	A2($elm$json$Json$Decode$field, 'kind', $elm$json$Json$Decode$string));
+var $author$project$Scan$blankAt = F2(
+	function (i, xs) {
+		return $author$project$Scan$isBlank(
+			A2(
+				$elm$core$Maybe$withDefault,
+				'',
+				A2($author$project$Scan$nth, i, xs)));
+	});
+var $author$project$Body$apart = F3(
+	function (lines, line, written) {
+		return _Utils_ap(
+			((line > 1) && (!A2($author$project$Scan$blankAt, line - 1, lines))) ? _List_fromArray(
+				['']) : _List_Nil,
+			_Utils_ap(
+				written,
+				A2($author$project$Scan$blankAt, line, lines) ? _List_Nil : _List_fromArray(
+					[''])));
+	});
+var $author$project$Scan$closerWord = F2(
+	function (line, name) {
+		var raw = $elm$core$String$trimLeft(line);
+		var begin = A3($elm$core$String$slice, 2, 7, raw);
+		return '#+' + ((_Utils_eq(
+			begin,
+			$elm$core$String$toUpper(begin)) ? 'END' : 'end') + ('_' + A3(
+			$elm$core$String$slice,
+			8,
+			8 + $elm$core$String$length(name),
+			raw)));
+	});
+var $author$project$Scan$indentOf = function (line) {
+	return A2(
+		$elm$core$String$left,
+		$elm$core$String$length(line) - $elm$core$String$length(
+			$elm$core$String$trimLeft(line)),
+		line);
+};
+var $author$project$Scan$verbatim = function (name) {
+	return A2(
+		$elm$core$List$member,
+		name,
+		_List_fromArray(
+			['comment', 'example', 'export', 'src', 'verse']));
+};
+var $author$project$Scan$closerOpen = function (line) {
+	var _v0 = $author$project$Scan$blockName(line);
+	if (!_v0.$) {
+		var name = _v0.a;
+		return $elm$core$Maybe$Just(
+			{
+				aI: _Utils_ap(
+					$author$project$Scan$indentOf(line),
+					A2($author$project$Scan$closerWord, line, name)),
+				aR: $author$project$Scan$verbatim(name),
+				g: $author$project$Scan$endsBlock(name)
+			});
+	} else {
+		var _v1 = $author$project$Scan$drawerName(line);
+		if (!_v1.$) {
+			return $elm$core$Maybe$Just(
+				{
+					aI: $author$project$Scan$indentOf(line) + ':END:',
+					aR: false,
+					g: $author$project$Scan$drawerEnds
+				});
+		} else {
+			return $elm$core$Maybe$Nothing;
+		}
+	}
+};
+var $author$project$Scan$closerPush = F2(
+	function (line, stack) {
+		var _v0 = $author$project$Scan$closerOpen(line);
+		if (!_v0.$) {
+			var open = _v0.a;
+			return _Utils_Tuple2(
+				A2($elm$core$List$cons, open, stack),
+				true);
+		} else {
+			return _Utils_Tuple2(stack, false);
+		}
+	});
+var $author$project$Scan$closerStep = F2(
+	function (line, _v0) {
+		var stack = _v0.a;
+		if (stack.b) {
+			var top = stack.a;
+			var below = stack.b;
+			return top.g(line) ? _Utils_Tuple2(below, false) : (top.aR ? _Utils_Tuple2(stack, false) : A2($author$project$Scan$closerPush, line, stack));
+		} else {
+			return A2($author$project$Scan$closerPush, line, stack);
+		}
+	});
+var $author$project$Scan$closers = function (lines) {
+	var _v0 = A3(
+		$elm$core$List$foldl,
+		$author$project$Scan$closerStep,
+		_Utils_Tuple2(_List_Nil, false),
+		lines);
+	var stack = _v0.a;
+	var empty = _v0.b;
+	return _Utils_ap(
+		empty ? _List_fromArray(
+			['']) : _List_Nil,
+		A2(
+			$elm$core$List$map,
+			function ($) {
+				return $.aI;
+			},
+			stack));
+};
+var $author$project$Body$indentIn = function (text) {
+	return $elm$core$String$length(
+		$author$project$Scan$indentOf(
+			A2(
+				$elm$core$Maybe$withDefault,
+				'',
+				$elm$core$List$head(
+					A2($elm$core$String$split, '\u000A', text)))));
+};
+var $elm$core$Bitwise$shiftRightBy = _Bitwise_shiftRightBy;
+var $elm$core$String$repeatHelp = F3(
+	function (n, chunk, result) {
+		return (n <= 0) ? result : A3(
+			$elm$core$String$repeatHelp,
+			n >> 1,
+			_Utils_ap(chunk, chunk),
+			(!(n & 1)) ? result : _Utils_ap(result, chunk));
+	});
+var $elm$core$String$repeat = F2(
+	function (n, chunk) {
+		return A3($elm$core$String$repeatHelp, n, chunk, '');
+	});
+var $author$project$Body$nudge = F2(
+	function (n, line) {
+		return (n > 0) ? _Utils_ap(
+			A2($elm$core$String$repeat, n, ' '),
+			line) : ((n < 0) ? A2(
+			$elm$core$String$dropLeft,
+			A2(
+				$elm$core$Basics$min,
+				-n,
+				$elm$core$String$length(
+					$author$project$Scan$indentOf(line))),
+			line) : line);
+	});
 var $elm$core$Maybe$andThen = F2(
 	function (callback, maybeValue) {
 		if (!maybeValue.$) {
@@ -8021,6 +8169,145 @@ var $elm$core$Maybe$andThen = F2(
 		} else {
 			return $elm$core$Maybe$Nothing;
 		}
+	});
+var $author$project$Body$rowById = F2(
+	function (m, id) {
+		return $elm$core$List$head(
+			A2(
+				$elm$core$List$filter,
+				function (r) {
+					return _Utils_eq(r.c, id);
+				},
+				m.A));
+	});
+var $author$project$Body$ownersOf = F2(
+	function (m, id) {
+		var _v0 = A2(
+			$elm$core$Maybe$andThen,
+			function ($) {
+				return $.t;
+			},
+			A2($author$project$Body$rowById, m, id));
+		if (_v0.$ === 1) {
+			return _List_Nil;
+		} else {
+			var up = _v0.a;
+			return A2(
+				$elm$core$List$cons,
+				up,
+				A2($author$project$Body$ownersOf, m, up));
+		}
+	});
+var $author$project$Body$bodyText = F2(
+	function (m, gone) {
+		var splice = F2(
+			function (r, out) {
+				if (A2($elm$core$List$member, r.c, gone)) {
+					var spare = ((_Utils_cmp(
+						r.f,
+						$elm$core$List$length(out) - 1) < 0) && A2($author$project$Scan$blankAt, r.f, out)) ? 1 : 0;
+					return _Utils_ap(
+						A2($elm$core$List$take, r.d, out),
+						A2($elm$core$List$drop, r.f + spare, out));
+				} else {
+					if (!_Utils_eq(r.N, r.R)) {
+						var typed = A2($elm$core$String$split, '\u000A', r.N);
+						var written = _Utils_ap(
+							typed,
+							$author$project$Scan$closers(typed));
+						var shift = $author$project$Body$indentIn(r.N) - $author$project$Body$indentIn(r.R);
+						var cut = A2($author$project$Body$ownEnd, m.A, r);
+						var under = A2(
+							$elm$core$List$map,
+							$author$project$Body$nudge(shift),
+							A2(
+								$elm$core$List$take,
+								r.f - cut,
+								A2($elm$core$List$drop, cut, out)));
+						return _Utils_ap(
+							A2($elm$core$List$take, r.d, out),
+							_Utils_ap(
+								r._ ? A3($author$project$Body$apart, out, r.d, written) : written,
+								_Utils_ap(
+									under,
+									A2($elm$core$List$drop, r.f, out))));
+					} else {
+						return out;
+					}
+				}
+			});
+		var moved = function (r) {
+			return (r.l === 1) && (A2($elm$core$List$member, r.c, gone) || (!_Utils_eq(r.N, r.R)));
+		};
+		var spoken = A2(
+			$elm$core$List$map,
+			function ($) {
+				return $.c;
+			},
+			A2($elm$core$List$filter, moved, m.A));
+		var silenced = function (r) {
+			return (!$elm$core$List$isEmpty(spoken)) && A2(
+				$elm$core$List$any,
+				function (o) {
+					return A2($elm$core$List$member, o, spoken);
+				},
+				A2($author$project$Body$ownersOf, m, r.c));
+		};
+		var paras = $elm$core$List$reverse(
+			A2(
+				$elm$core$List$filter,
+				function (r) {
+					return (r.l === 1) && (!silenced(r));
+				},
+				m.A));
+		return A2(
+			$elm$core$String$join,
+			'\u000A',
+			A3($elm$core$List$foldl, splice, m.aN, paras));
+	});
+var $author$project$Doc$docState = _Platform_outgoingPort('docState', $elm$core$Basics$identity);
+var $author$project$Doc$docTook = _Platform_outgoingPort('docTook', $elm$core$Basics$identity);
+var $author$project$Doc$pairsJSON = $elm$json$Json$Encode$list(
+	function (_v0) {
+		var k = _v0.a;
+		var v = _v0.b;
+		return A2(
+			$elm$json$Json$Encode$list,
+			$elm$json$Json$Encode$string,
+			_List_fromArray(
+				[k, v]));
+	});
+var $author$project$Doc$headerJSON = function (m) {
+	return _List_fromArray(
+		[
+			_Utils_Tuple2(
+			'properties',
+			$author$project$Doc$pairsJSON(m.cK)),
+			_Utils_Tuple2(
+			'planning',
+			$author$project$Doc$pairsJSON(m.z))
+		]);
+};
+var $author$project$Doc$heading = function (r) {
+	return (!r.l) || (r.l === 2);
+};
+var $author$project$Doc$idAtRow = F2(
+	function (m, i) {
+		return A2(
+			$elm$core$Maybe$withDefault,
+			'',
+			A2(
+				$elm$core$Maybe$map,
+				function ($) {
+					return $.c;
+				},
+				A2($author$project$Scan$nth, i, m.A)));
+	});
+var $author$project$Doc$landAt = F2(
+	function (i, m) {
+		return _Utils_update(
+			m,
+			{aG: i, H: $elm$core$Maybe$Nothing});
 	});
 var $author$project$Body$placeOf = F2(
 	function (m, id) {
@@ -8034,26 +8321,73 @@ var $author$project$Body$placeOf = F2(
 				},
 				m.A));
 	});
-var $author$project$Doc$docState = _Platform_outgoingPort('docState', $elm$core$Basics$identity);
-var $author$project$Doc$idAtRow = F2(
-	function (m, i) {
+var $author$project$Doc$landOn = F2(
+	function (id, m) {
 		return A2(
-			$elm$core$Maybe$withDefault,
-			'',
+			$author$project$Doc$landAt,
 			A2(
-				$elm$core$Maybe$map,
-				function ($) {
-					return $.c;
-				},
-				A2($author$project$Scan$nth, i, m.A)));
+				$author$project$Body$placeOf,
+				m,
+				(!_Utils_eq(
+					A2($author$project$Body$rowById, m, id),
+					$elm$core$Maybe$Nothing)) ? id : $author$project$Body$drawerId),
+			m);
 	});
-var $author$project$Scan$indentOf = function (line) {
-	return A2(
-		$elm$core$String$left,
-		$elm$core$String$length(line) - $elm$core$String$length(
-			$elm$core$String$trimLeft(line)),
-		line);
-};
+var $author$project$Doc$landingAfter = F3(
+	function (model, taken, cut) {
+		var _v0 = $elm$core$List$head(taken);
+		if (_v0.$ === 1) {
+			return model.P;
+		} else {
+			var first = _v0.a;
+			var kin = A2(
+				$elm$core$List$filter,
+				function (r) {
+					return (r.l === 1) && (_Utils_eq(r.t, first.t) && (!A2(
+						$elm$core$List$member,
+						r.c,
+						A2(
+							$elm$core$List$map,
+							function ($) {
+								return $.c;
+							},
+							taken))));
+				},
+				model.A);
+			var _v1 = A2(
+				$elm$core$List$filter,
+				function (r) {
+					return _Utils_cmp(r.d, first.d) > 0;
+				},
+				kin);
+			if (_v1.b) {
+				var next = _v1.a;
+				return $elm$core$Maybe$Just(next.d - cut);
+			} else {
+				var _v2 = $elm$core$List$reverse(
+					A2(
+						$elm$core$List$filter,
+						function (r) {
+							return _Utils_cmp(r.d, first.d) < 0;
+						},
+						kin));
+				if (_v2.b) {
+					var prev = _v2.a;
+					return $elm$core$Maybe$Just(prev.d);
+				} else {
+					return A2(
+						$elm$core$Maybe$map,
+						function ($) {
+							return $.d;
+						},
+						A2(
+							$elm$core$Maybe$andThen,
+							$author$project$Body$rowById(model),
+							first.t));
+				}
+			}
+		}
+	});
 var $author$project$Doc$boxLen = function (rest) {
 	return A2(
 		$elm$core$List$member,
@@ -8108,16 +8442,6 @@ var $elm$core$Set$isEmpty = function (_v0) {
 	var dict = _v0;
 	return $elm$core$Dict$isEmpty(dict);
 };
-var $author$project$Body$rowById = F2(
-	function (m, id) {
-		return $elm$core$List$head(
-			A2(
-				$elm$core$List$filter,
-				function (r) {
-					return _Utils_eq(r.c, id);
-				},
-				m.A));
-	});
 var $author$project$Doc$isListRoot = F2(
 	function (m, id) {
 		var _v0 = A2($author$project$Body$rowById, m, id);
@@ -8128,24 +8452,6 @@ var $author$project$Doc$isListRoot = F2(
 				$elm$core$Maybe$Just('list'));
 		} else {
 			return false;
-		}
-	});
-var $author$project$Body$ownersOf = F2(
-	function (m, id) {
-		var _v0 = A2(
-			$elm$core$Maybe$andThen,
-			function ($) {
-				return $.t;
-			},
-			A2($author$project$Body$rowById, m, id));
-		if (_v0.$ === 1) {
-			return _List_Nil;
-		} else {
-			var up = _v0.a;
-			return A2(
-				$elm$core$List$cons,
-				up,
-				A2($author$project$Body$ownersOf, m, up));
 		}
 	});
 var $author$project$Doc$listRootOf = F2(
@@ -8350,220 +8656,6 @@ var $author$project$Doc$snapVisible = function (m) {
 		m,
 		{aG: landing}) : m;
 };
-var $author$project$Doc$settled = function (m) {
-	return $author$project$Doc$snapVisible(
-		_Utils_eq(
-			A2($author$project$Doc$idAtRow, m, m.aG),
-			$author$project$Body$planId) ? m : _Utils_update(
-			m,
-			{H: $elm$core$Maybe$Nothing}));
-};
-var $author$project$Scan$blankAt = F2(
-	function (i, xs) {
-		return $author$project$Scan$isBlank(
-			A2(
-				$elm$core$Maybe$withDefault,
-				'',
-				A2($author$project$Scan$nth, i, xs)));
-	});
-var $author$project$Body$apart = F3(
-	function (lines, line, written) {
-		return _Utils_ap(
-			((line > 1) && (!A2($author$project$Scan$blankAt, line - 1, lines))) ? _List_fromArray(
-				['']) : _List_Nil,
-			_Utils_ap(
-				written,
-				A2($author$project$Scan$blankAt, line, lines) ? _List_Nil : _List_fromArray(
-					[''])));
-	});
-var $author$project$Scan$closerWord = F2(
-	function (line, name) {
-		var raw = $elm$core$String$trimLeft(line);
-		var begin = A3($elm$core$String$slice, 2, 7, raw);
-		return '#+' + ((_Utils_eq(
-			begin,
-			$elm$core$String$toUpper(begin)) ? 'END' : 'end') + ('_' + A3(
-			$elm$core$String$slice,
-			8,
-			8 + $elm$core$String$length(name),
-			raw)));
-	});
-var $author$project$Scan$verbatim = function (name) {
-	return A2(
-		$elm$core$List$member,
-		name,
-		_List_fromArray(
-			['comment', 'example', 'export', 'src', 'verse']));
-};
-var $author$project$Scan$closerOpen = function (line) {
-	var _v0 = $author$project$Scan$blockName(line);
-	if (!_v0.$) {
-		var name = _v0.a;
-		return $elm$core$Maybe$Just(
-			{
-				aI: _Utils_ap(
-					$author$project$Scan$indentOf(line),
-					A2($author$project$Scan$closerWord, line, name)),
-				aR: $author$project$Scan$verbatim(name),
-				g: $author$project$Scan$endsBlock(name)
-			});
-	} else {
-		var _v1 = $author$project$Scan$drawerName(line);
-		if (!_v1.$) {
-			return $elm$core$Maybe$Just(
-				{
-					aI: $author$project$Scan$indentOf(line) + ':END:',
-					aR: false,
-					g: $author$project$Scan$drawerEnds
-				});
-		} else {
-			return $elm$core$Maybe$Nothing;
-		}
-	}
-};
-var $author$project$Scan$closerPush = F2(
-	function (line, stack) {
-		var _v0 = $author$project$Scan$closerOpen(line);
-		if (!_v0.$) {
-			var open = _v0.a;
-			return _Utils_Tuple2(
-				A2($elm$core$List$cons, open, stack),
-				true);
-		} else {
-			return _Utils_Tuple2(stack, false);
-		}
-	});
-var $author$project$Scan$closerStep = F2(
-	function (line, _v0) {
-		var stack = _v0.a;
-		if (stack.b) {
-			var top = stack.a;
-			var below = stack.b;
-			return top.g(line) ? _Utils_Tuple2(below, false) : (top.aR ? _Utils_Tuple2(stack, false) : A2($author$project$Scan$closerPush, line, stack));
-		} else {
-			return A2($author$project$Scan$closerPush, line, stack);
-		}
-	});
-var $author$project$Scan$closers = function (lines) {
-	var _v0 = A3(
-		$elm$core$List$foldl,
-		$author$project$Scan$closerStep,
-		_Utils_Tuple2(_List_Nil, false),
-		lines);
-	var stack = _v0.a;
-	var empty = _v0.b;
-	return _Utils_ap(
-		empty ? _List_fromArray(
-			['']) : _List_Nil,
-		A2(
-			$elm$core$List$map,
-			function ($) {
-				return $.aI;
-			},
-			stack));
-};
-var $author$project$Body$indentIn = function (text) {
-	return $elm$core$String$length(
-		$author$project$Scan$indentOf(
-			A2(
-				$elm$core$Maybe$withDefault,
-				'',
-				$elm$core$List$head(
-					A2($elm$core$String$split, '\u000A', text)))));
-};
-var $elm$core$Bitwise$shiftRightBy = _Bitwise_shiftRightBy;
-var $elm$core$String$repeatHelp = F3(
-	function (n, chunk, result) {
-		return (n <= 0) ? result : A3(
-			$elm$core$String$repeatHelp,
-			n >> 1,
-			_Utils_ap(chunk, chunk),
-			(!(n & 1)) ? result : _Utils_ap(result, chunk));
-	});
-var $elm$core$String$repeat = F2(
-	function (n, chunk) {
-		return A3($elm$core$String$repeatHelp, n, chunk, '');
-	});
-var $author$project$Body$nudge = F2(
-	function (n, line) {
-		return (n > 0) ? _Utils_ap(
-			A2($elm$core$String$repeat, n, ' '),
-			line) : ((n < 0) ? A2(
-			$elm$core$String$dropLeft,
-			A2(
-				$elm$core$Basics$min,
-				-n,
-				$elm$core$String$length(
-					$author$project$Scan$indentOf(line))),
-			line) : line);
-	});
-var $author$project$Body$bodyText = F2(
-	function (m, gone) {
-		var splice = F2(
-			function (r, out) {
-				if (A2($elm$core$List$member, r.c, gone)) {
-					var spare = ((_Utils_cmp(
-						r.f,
-						$elm$core$List$length(out) - 1) < 0) && A2($author$project$Scan$blankAt, r.f, out)) ? 1 : 0;
-					return _Utils_ap(
-						A2($elm$core$List$take, r.d, out),
-						A2($elm$core$List$drop, r.f + spare, out));
-				} else {
-					if (!_Utils_eq(r.N, r.R)) {
-						var typed = A2($elm$core$String$split, '\u000A', r.N);
-						var written = _Utils_ap(
-							typed,
-							$author$project$Scan$closers(typed));
-						var shift = $author$project$Body$indentIn(r.N) - $author$project$Body$indentIn(r.R);
-						var cut = A2($author$project$Body$ownEnd, m.A, r);
-						var under = A2(
-							$elm$core$List$map,
-							$author$project$Body$nudge(shift),
-							A2(
-								$elm$core$List$take,
-								r.f - cut,
-								A2($elm$core$List$drop, cut, out)));
-						return _Utils_ap(
-							A2($elm$core$List$take, r.d, out),
-							_Utils_ap(
-								r._ ? A3($author$project$Body$apart, out, r.d, written) : written,
-								_Utils_ap(
-									under,
-									A2($elm$core$List$drop, r.f, out))));
-					} else {
-						return out;
-					}
-				}
-			});
-		var moved = function (r) {
-			return (r.l === 1) && (A2($elm$core$List$member, r.c, gone) || (!_Utils_eq(r.N, r.R)));
-		};
-		var spoken = A2(
-			$elm$core$List$map,
-			function ($) {
-				return $.c;
-			},
-			A2($elm$core$List$filter, moved, m.A));
-		var silenced = function (r) {
-			return (!$elm$core$List$isEmpty(spoken)) && A2(
-				$elm$core$List$any,
-				function (o) {
-					return A2($elm$core$List$member, o, spoken);
-				},
-				A2($author$project$Body$ownersOf, m, r.c));
-		};
-		var paras = $elm$core$List$reverse(
-			A2(
-				$elm$core$List$filter,
-				function (r) {
-					return (r.l === 1) && (!silenced(r));
-				},
-				m.A));
-		return A2(
-			$elm$core$String$join,
-			'\u000A',
-			A3($elm$core$List$foldl, splice, m.aN, paras));
-	});
 var $elm$core$Basics$clamp = F3(
 	function (low, high, number) {
 		return (_Utils_cmp(number, low) < 0) ? low : ((_Utils_cmp(number, high) > 0) ? high : number);
@@ -8593,27 +8685,6 @@ var $author$project$Body$caretIn = function (marker) {
 	return $author$project$Scan$isTable(marker) ? A3($elm$core$Basics$clamp, open, firstCell, open + 1) : $elm$core$String$length(marker);
 };
 var $author$project$Body$draftId = 'D';
-var $author$project$Doc$pairsJSON = $elm$json$Json$Encode$list(
-	function (_v0) {
-		var k = _v0.a;
-		var v = _v0.b;
-		return A2(
-			$elm$json$Json$Encode$list,
-			$elm$json$Json$Encode$string,
-			_List_fromArray(
-				[k, v]));
-	});
-var $author$project$Doc$headerJSON = function (m) {
-	return _List_fromArray(
-		[
-			_Utils_Tuple2(
-			'properties',
-			$author$project$Doc$pairsJSON(m.cK)),
-			_Utils_Tuple2(
-			'planning',
-			$author$project$Doc$pairsJSON(m.z))
-		]);
-};
 var $author$project$Doc$planPick = function (m) {
 	return m.H;
 };
@@ -8894,147 +8965,102 @@ var $author$project$Doc$stateJSON = function (m) {
 				]),
 			$author$project$Doc$headerJSON(m)));
 };
-var $author$project$Doc$told = function (model) {
-	var m = $author$project$Doc$settled(model);
-	return _Utils_Tuple2(
-		m,
-		$author$project$Doc$docState(
-			$author$project$Doc$stateJSON(m)));
-};
-var $author$project$Doc$backTo = F2(
-	function (id, m) {
-		var fresh = $author$project$Doc$remeta(m);
-		return $author$project$Doc$told(
-			_Utils_update(
-				fresh,
-				{
-					aG: A2($author$project$Body$placeOf, fresh, id)
-				}));
-	});
-var $author$project$Doc$grainWord = F4(
-	function (grain, name, i, n) {
-		return grain + (' (' + (name + (' ' + ($elm$core$String$fromInt(i) + ('/' + ($elm$core$String$fromInt(n) + ')'))))));
-	});
-var $author$project$Doc$planWord = F3(
-	function (grain, i, entries) {
-		return A4(
-			$author$project$Doc$grainWord,
-			grain,
+var $author$project$Doc$applyDelete = F2(
+	function (ids, model) {
+		var named = A2(
+			$elm$core$List$filter,
+			function (r) {
+				return A2($elm$core$List$member, r.c, ids);
+			},
+			model.A);
+		var refused = $elm$core$List$length(
+			A2($elm$core$List$filter, $author$project$Doc$heading, named));
+		var taken = A2(
+			$elm$core$List$filter,
+			function (r) {
+				return r.l === 1;
+			},
+			named);
+		var written = A2(
+			$author$project$Body$bodyText,
+			model,
 			A2(
-				$elm$core$Maybe$withDefault,
-				'',
-				A2(
-					$elm$core$Maybe$map,
-					$elm$core$Tuple$first,
-					A2($author$project$Scan$nth, i, entries))),
-			i + 1,
-			$elm$core$List$length(entries));
-	});
-var $author$project$Doc$planBroader = F2(
-	function (i, m) {
-		var entries = $author$project$Doc$entriesOf(m);
-		return (i <= 0) ? _Utils_Tuple2(
+				$elm$core$List$map,
+				function ($) {
+					return $.c;
+				},
+				taken));
+		var metaN = $elm$core$List$length(
+			A2(
+				$elm$core$List$filter,
+				function (r) {
+					return r.l === 3;
+				},
+				named));
+		var keptProps = A2($elm$core$List$member, $author$project$Body$drawerId, ids) ? _List_Nil : A2(
+			$elm$core$List$map,
+			$elm$core$Tuple$second,
+			A2(
+				$elm$core$List$filter,
+				function (_v0) {
+					var j = _v0.a;
+					return !A2(
+						$elm$core$List$member,
+						$author$project$Body$propId(j),
+						ids);
+				},
+				A2($elm$core$List$indexedMap, $elm$core$Tuple$pair, model.cK)));
+		var keptPlan = A2($elm$core$List$member, $author$project$Body$planId, ids) ? _List_Nil : model.z;
+		var model_ = $author$project$Doc$remeta(
 			_Utils_update(
-				m,
-				{H: $elm$core$Maybe$Nothing}),
-			'grain-broader (the planning line)') : _Utils_Tuple2(
+				model,
+				{z: keptPlan, cK: keptProps}));
+		var cut = $elm$core$List$length(model.aN) - $elm$core$List$length(
+			A2($elm$core$String$split, '\u000A', written));
+		var landsOn = A3($author$project$Doc$landingAfter, model, taken, cut);
+		var done = A2(
+			$author$project$Doc$landOn,
+			A2($author$project$Doc$idAtRow, model, model.aG),
 			_Utils_update(
-				m,
-				{
-					H: $elm$core$Maybe$Just(i - 1)
-				}),
-			A3($author$project$Doc$planWord, 'grain-broader', i - 1, entries));
-	});
-var $author$project$Doc$broader = function (m) {
-	var _v0 = _Utils_Tuple2(
-		$author$project$Body$rowAt(m),
-		$author$project$Doc$planPick(m));
-	if (_v0.a.$ === 1) {
-		var _v1 = _v0.a;
-		return _Utils_Tuple2(m, '');
-	} else {
-		if (!_v0.b.$) {
-			var i = _v0.b.a;
-			return A2($author$project$Doc$planBroader, i, m);
-		} else {
-			var r = _v0.a.a;
-			var _v2 = _v0.b;
-			var _v3 = A2(
-				$elm$core$Maybe$map,
-				$author$project$Body$placeOf(m),
-				r.t);
-			if (!_v3.$) {
-				var i = _v3.a;
-				var up = A2(
-					$elm$core$Maybe$withDefault,
-					$author$project$Body$blank,
-					A2($author$project$Scan$nth, i, m.A));
-				var word = function () {
-					var _v4 = up.al;
-					if (!_v4.$) {
-						var w = _v4.a;
-						return w;
-					} else {
-						return (up.w === 2) ? 'item' : $author$project$Body$kindWord(up.l);
-					}
-				}();
-				return _Utils_Tuple2(
-					_Utils_update(
-						m,
-						{aG: i}),
-					'grain-broader (' + (word + ')'));
-			} else {
-				return (!r.l) ? _Utils_Tuple2(m, 'grain-broader (the whole entry)') : _Utils_Tuple2(
-					_Utils_update(
-						m,
-						{
-							aG: A2($author$project$Body$placeOf, m, 'H')
-						}),
-					'grain-broader (the headline)');
-			}
-		}
-	}
-};
-var $author$project$Doc$cargoJSON = F2(
-	function (said, m) {
-		var fields = A2(
-			$elm$core$List$cons,
-			_Utils_Tuple2(
-				'body',
-				$elm$json$Json$Encode$string(
-					A2($author$project$Body$bodyText, m, _List_Nil))),
-			$author$project$Doc$headerJSON(m));
-		return $elm$json$Json$Encode$object(
-			function () {
-				if (!said.$) {
-					var what = said.a;
-					return A2(
-						$elm$core$List$cons,
-						_Utils_Tuple2(
-							'said',
-							$elm$json$Json$Encode$string(what)),
-						fields);
-				} else {
-					return fields;
-				}
-			}());
-	});
-var $author$project$Doc$docBody = _Platform_outgoingPort('docBody', $elm$core$Basics$identity);
-var $author$project$Doc$composedWith = F2(
-	function (said, model) {
-		var m = $author$project$Doc$settled(model);
+				model_,
+				{P: landsOn}));
+		var snapped = $author$project$Doc$snapVisible(done);
 		return _Utils_Tuple2(
-			m,
+			snapped,
 			$elm$core$Platform$Cmd$batch(
 				_List_fromArray(
 					[
 						$author$project$Doc$docState(
-						$author$project$Doc$stateJSON(m)),
-						$author$project$Doc$docBody(
-						A2($author$project$Doc$cargoJSON, said, m))
+						$author$project$Doc$stateJSON(snapped)),
+						$author$project$Doc$docTook(
+						$elm$json$Json$Encode$object(
+							_Utils_ap(
+								_List_fromArray(
+									[
+										_Utils_Tuple2(
+										'taken',
+										A2(
+											$elm$json$Json$Encode$list,
+											$elm$json$Json$Encode$string,
+											A2(
+												$elm$core$List$map,
+												function ($) {
+													return $.c;
+												},
+												taken))),
+										_Utils_Tuple2(
+										'refused',
+										$elm$json$Json$Encode$int(refused)),
+										_Utils_Tuple2(
+										'meta',
+										$elm$json$Json$Encode$int(metaN)),
+										_Utils_Tuple2(
+										'body',
+										$elm$json$Json$Encode$string(written))
+									]),
+								$author$project$Doc$headerJSON(snapped))))
 					])));
 	});
-var $author$project$Doc$composed = $author$project$Doc$composedWith($elm$core$Maybe$Nothing);
 var $elm$core$Dict$getMin = function (dict) {
 	getMin:
 	while (true) {
@@ -9414,8 +9440,343 @@ var $elm$core$Set$diff = F2(
 		var dict2 = _v1;
 		return A2($elm$core$Dict$diff, dict1, dict2);
 	});
+var $author$project$Body$placeAtLine = F2(
+	function (m, line) {
+		var stops = A2(
+			$elm$core$List$filter,
+			function (_v7) {
+				var r = _v7.b;
+				return r.l === 1;
+			},
+			A2($elm$core$List$indexedMap, $elm$core$Tuple$pair, m.A));
+		var last = $elm$core$List$head(
+			$elm$core$List$reverse(stops));
+		var covering = A3(
+			$elm$core$List$foldl,
+			F2(
+				function (_v6, held) {
+					var i = _v6.a;
+					var r = _v6.b;
+					return ((_Utils_cmp(r.d, line) < 1) && (_Utils_cmp(line, r.f) < 0)) ? $elm$core$Maybe$Just(i) : held;
+				}),
+			$elm$core$Maybe$Nothing,
+			stops);
+		var after = $elm$core$List$head(
+			A2(
+				$elm$core$List$filter,
+				function (_v5) {
+					var r = _v5.b;
+					return _Utils_cmp(r.d, line) > -1;
+				},
+				stops));
+		var _v0 = _Utils_Tuple2(covering, after);
+		if (!_v0.a.$) {
+			var i = _v0.a.a;
+			return i;
+		} else {
+			if (!_v0.b.$) {
+				var _v1 = _v0.a;
+				var _v2 = _v0.b.a;
+				var i = _v2.a;
+				return i;
+			} else {
+				var _v3 = _v0.a;
+				var _v4 = _v0.b;
+				return A2(
+					$elm$core$Maybe$withDefault,
+					m.aG,
+					A2($elm$core$Maybe$map, $elm$core$Tuple$first, last));
+			}
+		}
+	});
+var $author$project$Body$placeOfLine = F2(
+	function (m, line) {
+		return A2(
+			$elm$core$Maybe$withDefault,
+			m.aG,
+			A2(
+				$author$project$Scan$indexWhere,
+				function (r) {
+					return (r.l === 1) && _Utils_eq(r.d, line);
+				},
+				m.A));
+	});
+var $author$project$Doc$fillLanding = F2(
+	function (fresh, model) {
+		var _v0 = _Utils_Tuple2(fresh.P, model.P);
+		if (!_v0.a.$) {
+			var line = _v0.a.a;
+			return A2($author$project$Body$placeAtLine, fresh, line);
+		} else {
+			if (!_v0.b.$) {
+				var _v1 = _v0.a;
+				var line = _v0.b.a;
+				return A2($author$project$Body$placeOfLine, fresh, line);
+			} else {
+				var _v2 = _v0.a;
+				var _v3 = _v0.b;
+				var _v4 = A2(
+					$elm$core$Maybe$map,
+					function ($) {
+						return $.c;
+					},
+					$author$project$Body$rowAt(model));
+				if (!_v4.$) {
+					var id = _v4.a;
+					return A2($author$project$Body$placeOf, fresh, id);
+				} else {
+					return 0;
+				}
+			}
+		}
+	});
+var $author$project$Doc$foldables = function (m) {
+	return A2(
+		$author$project$Doc$idsWhere,
+		$author$project$Doc$foldable(m),
+		m);
+};
+var $elm$core$Dict$filter = F2(
+	function (isGood, dict) {
+		return A3(
+			$elm$core$Dict$foldl,
+			F3(
+				function (k, v, d) {
+					return A2(isGood, k, v) ? A3($elm$core$Dict$insert, k, v, d) : d;
+				}),
+			$elm$core$Dict$empty,
+			dict);
+	});
+var $elm$core$Dict$intersect = F2(
+	function (t1, t2) {
+		return A2(
+			$elm$core$Dict$filter,
+			F2(
+				function (k, _v0) {
+					return A2($elm$core$Dict$member, k, t2);
+				}),
+			t1);
+	});
+var $elm$core$Set$intersect = F2(
+	function (_v0, _v1) {
+		var dict1 = _v0;
+		var dict2 = _v1;
+		return A2($elm$core$Dict$intersect, dict1, dict2);
+	});
+var $author$project$Doc$listRoots = function (m) {
+	return A2(
+		$elm$core$List$filterMap,
+		function (r) {
+			return A2($author$project$Doc$isListRoot, m, r.c) ? $elm$core$Maybe$Just(r.c) : $elm$core$Maybe$Nothing;
+		},
+		m.A);
+};
+var $elm$core$Set$remove = F2(
+	function (key, _v0) {
+		var dict = _v0;
+		return A2($elm$core$Dict$remove, key, dict);
+	});
+var $author$project$Doc$reveal = function (m) {
+	return _Utils_update(
+		m,
+		{
+			g: A3(
+				$elm$core$List$foldl,
+				$elm$core$Set$remove,
+				m.g,
+				A2(
+					$elm$core$List$filter,
+					function (id) {
+						return _Utils_eq(
+							A2(
+								$elm$core$Maybe$map,
+								$author$project$Doc$foldable(m),
+								A2($author$project$Body$rowById, m, id)),
+							$elm$core$Maybe$Just(true));
+					},
+					A2(
+						$author$project$Body$ownersOf,
+						m,
+						A2($author$project$Doc$idAtRow, m, m.aG))))
+		});
+};
+var $author$project$Doc$settled = function (m) {
+	return $author$project$Doc$snapVisible(
+		_Utils_eq(
+			A2($author$project$Doc$idAtRow, m, m.aG),
+			$author$project$Body$planId) ? m : _Utils_update(
+			m,
+			{H: $elm$core$Maybe$Nothing}));
+};
+var $author$project$Doc$told = function (model) {
+	var m = $author$project$Doc$settled(model);
+	return _Utils_Tuple2(
+		m,
+		$author$project$Doc$docState(
+			$author$project$Doc$stateJSON(m)));
+};
+var $author$project$Doc$applyFill = F2(
+	function (fresh, model) {
+		return $author$project$Doc$told(
+			$author$project$Doc$reveal(
+				$author$project$Doc$snapVisible(
+					_Utils_update(
+						fresh,
+						{
+							aG: A2($author$project$Doc$fillLanding, fresh, model),
+							x: A2(
+								$elm$core$Set$intersect,
+								model.x,
+								$elm$core$Set$fromList(
+									$author$project$Doc$listRoots(fresh))),
+							P: $elm$core$Maybe$Nothing,
+							g: A2(
+								$elm$core$Set$union,
+								A2(
+									$elm$core$Set$intersect,
+									model.g,
+									$author$project$Doc$foldables(fresh)),
+								A2(
+									$elm$core$Set$diff,
+									fresh.g,
+									$author$project$Doc$foldables(model)))
+						}))));
+	});
+var $author$project$Doc$backTo = F2(
+	function (id, m) {
+		var fresh = $author$project$Doc$remeta(m);
+		return $author$project$Doc$told(
+			_Utils_update(
+				fresh,
+				{
+					aG: A2($author$project$Body$placeOf, fresh, id)
+				}));
+	});
+var $author$project$Doc$grainWord = F4(
+	function (grain, name, i, n) {
+		return grain + (' (' + (name + (' ' + ($elm$core$String$fromInt(i) + ('/' + ($elm$core$String$fromInt(n) + ')'))))));
+	});
+var $author$project$Doc$planWord = F3(
+	function (grain, i, entries) {
+		return A4(
+			$author$project$Doc$grainWord,
+			grain,
+			A2(
+				$elm$core$Maybe$withDefault,
+				'',
+				A2(
+					$elm$core$Maybe$map,
+					$elm$core$Tuple$first,
+					A2($author$project$Scan$nth, i, entries))),
+			i + 1,
+			$elm$core$List$length(entries));
+	});
+var $author$project$Doc$planBroader = F2(
+	function (i, m) {
+		var entries = $author$project$Doc$entriesOf(m);
+		return (i <= 0) ? _Utils_Tuple2(
+			_Utils_update(
+				m,
+				{H: $elm$core$Maybe$Nothing}),
+			'grain-broader (the planning line)') : _Utils_Tuple2(
+			_Utils_update(
+				m,
+				{
+					H: $elm$core$Maybe$Just(i - 1)
+				}),
+			A3($author$project$Doc$planWord, 'grain-broader', i - 1, entries));
+	});
+var $author$project$Doc$broader = function (m) {
+	var _v0 = _Utils_Tuple2(
+		$author$project$Body$rowAt(m),
+		$author$project$Doc$planPick(m));
+	if (_v0.a.$ === 1) {
+		var _v1 = _v0.a;
+		return _Utils_Tuple2(m, '');
+	} else {
+		if (!_v0.b.$) {
+			var i = _v0.b.a;
+			return A2($author$project$Doc$planBroader, i, m);
+		} else {
+			var r = _v0.a.a;
+			var _v2 = _v0.b;
+			var _v3 = A2(
+				$elm$core$Maybe$map,
+				$author$project$Body$placeOf(m),
+				r.t);
+			if (!_v3.$) {
+				var i = _v3.a;
+				var up = A2(
+					$elm$core$Maybe$withDefault,
+					$author$project$Body$blank,
+					A2($author$project$Scan$nth, i, m.A));
+				var word = function () {
+					var _v4 = up.al;
+					if (!_v4.$) {
+						var w = _v4.a;
+						return w;
+					} else {
+						return (up.w === 2) ? 'item' : $author$project$Body$kindWord(up.l);
+					}
+				}();
+				return _Utils_Tuple2(
+					_Utils_update(
+						m,
+						{aG: i}),
+					'grain-broader (' + (word + ')'));
+			} else {
+				return (!r.l) ? _Utils_Tuple2(m, 'grain-broader (the whole entry)') : _Utils_Tuple2(
+					_Utils_update(
+						m,
+						{
+							aG: A2($author$project$Body$placeOf, m, 'H')
+						}),
+					'grain-broader (the headline)');
+			}
+		}
+	}
+};
+var $author$project$Doc$cargoJSON = F2(
+	function (said, m) {
+		var fields = A2(
+			$elm$core$List$cons,
+			_Utils_Tuple2(
+				'body',
+				$elm$json$Json$Encode$string(
+					A2($author$project$Body$bodyText, m, _List_Nil))),
+			$author$project$Doc$headerJSON(m));
+		return $elm$json$Json$Encode$object(
+			function () {
+				if (!said.$) {
+					var what = said.a;
+					return A2(
+						$elm$core$List$cons,
+						_Utils_Tuple2(
+							'said',
+							$elm$json$Json$Encode$string(what)),
+						fields);
+				} else {
+					return fields;
+				}
+			}());
+	});
+var $author$project$Doc$docBody = _Platform_outgoingPort('docBody', $elm$core$Basics$identity);
+var $author$project$Doc$composedWith = F2(
+	function (said, model) {
+		var m = $author$project$Doc$settled(model);
+		return _Utils_Tuple2(
+			m,
+			$elm$core$Platform$Cmd$batch(
+				_List_fromArray(
+					[
+						$author$project$Doc$docState(
+						$author$project$Doc$stateJSON(m)),
+						$author$project$Doc$docBody(
+						A2($author$project$Doc$cargoJSON, said, m))
+					])));
+	});
+var $author$project$Doc$composed = $author$project$Doc$composedWith($elm$core$Maybe$Nothing);
 var $author$project$Doc$docSaid = _Platform_outgoingPort('docSaid', $elm$core$Basics$identity);
-var $author$project$Doc$docTook = _Platform_outgoingPort('docTook', $elm$core$Basics$identity);
 var $author$project$Body$riding = F2(
 	function (n, text) {
 		return (!n) ? text : A2(
@@ -10063,24 +10424,6 @@ var $author$project$Body$drafted = F3(
 			},
 			A3($author$project$Body$joinAt, m, id, caret));
 	});
-var $author$project$Doc$landAt = F2(
-	function (i, m) {
-		return _Utils_update(
-			m,
-			{aG: i, H: $elm$core$Maybe$Nothing});
-	});
-var $author$project$Doc$landOn = F2(
-	function (id, m) {
-		return A2(
-			$author$project$Doc$landAt,
-			A2(
-				$author$project$Body$placeOf,
-				m,
-				(!_Utils_eq(
-					A2($author$project$Body$rowById, m, id),
-					$elm$core$Maybe$Nothing)) ? id : $author$project$Body$drawerId),
-			m);
-	});
 var $author$project$Doc$keep = F2(
 	function (id, m) {
 		return $author$project$Doc$composed(
@@ -10318,9 +10661,6 @@ var $author$project$Doc$editMeta = F3(
 			}
 		}
 	});
-var $author$project$Doc$heading = function (r) {
-	return (!r.l) || (r.l === 2);
-};
 var $author$project$Body$kidsOf = F2(
 	function (m, id) {
 		return $elm$core$List$length(
@@ -10387,12 +10727,6 @@ var $author$project$Doc$foldTarget = function (m) {
 					here,
 					A2($author$project$Body$ownersOf, m, here)))));
 };
-var $author$project$Doc$foldables = function (m) {
-	return A2(
-		$author$project$Doc$idsWhere,
-		$author$project$Doc$foldable(m),
-		m);
-};
 var $author$project$Body$insertion = F4(
 	function (m, id, caret, text) {
 		return A2(
@@ -10405,33 +10739,6 @@ var $author$project$Body$insertion = F4(
 					A2($author$project$Body$draftRow, j, text));
 			},
 			A3($author$project$Body$joinAt, m, id, caret));
-	});
-var $elm$core$Dict$filter = F2(
-	function (isGood, dict) {
-		return A3(
-			$elm$core$Dict$foldl,
-			F3(
-				function (k, v, d) {
-					return A2(isGood, k, v) ? A3($elm$core$Dict$insert, k, v, d) : d;
-				}),
-			$elm$core$Dict$empty,
-			dict);
-	});
-var $elm$core$Dict$intersect = F2(
-	function (t1, t2) {
-		return A2(
-			$elm$core$Dict$filter,
-			F2(
-				function (k, _v0) {
-					return A2($elm$core$Dict$member, k, t2);
-				}),
-			t1);
-	});
-var $elm$core$Set$intersect = F2(
-	function (_v0, _v1) {
-		var dict1 = _v0;
-		var dict2 = _v1;
-		return A2($elm$core$Dict$intersect, dict1, dict2);
 	});
 var $author$project$Body$joinLine = F3(
 	function (m, id, caret) {
@@ -10451,14 +10758,6 @@ var $author$project$Body$joinWord = F3(
 			},
 			A3($author$project$Body$joinAt, m, id, caret));
 	});
-var $author$project$Doc$listRoots = function (m) {
-	return A2(
-		$elm$core$List$filterMap,
-		function (r) {
-			return A2($author$project$Doc$isListRoot, m, r.c) ? $elm$core$Maybe$Just(r.c) : $elm$core$Maybe$Nothing;
-		},
-		m.A);
-};
 var $author$project$Doc$starsAt = function (line) {
 	var _v0 = $elm$core$String$uncons(line);
 	if ((!_v0.$) && ('*' === _v0.a.a)) {
@@ -10527,96 +10826,6 @@ var $author$project$Doc$nextVisible = F2(
 				aG: scan(m.aG + by)
 			});
 	});
-var $author$project$Body$placeAtLine = F2(
-	function (m, line) {
-		var stops = A2(
-			$elm$core$List$filter,
-			function (_v7) {
-				var r = _v7.b;
-				return r.l === 1;
-			},
-			A2($elm$core$List$indexedMap, $elm$core$Tuple$pair, m.A));
-		var last = $elm$core$List$head(
-			$elm$core$List$reverse(stops));
-		var covering = A3(
-			$elm$core$List$foldl,
-			F2(
-				function (_v6, held) {
-					var i = _v6.a;
-					var r = _v6.b;
-					return ((_Utils_cmp(r.d, line) < 1) && (_Utils_cmp(line, r.f) < 0)) ? $elm$core$Maybe$Just(i) : held;
-				}),
-			$elm$core$Maybe$Nothing,
-			stops);
-		var after = $elm$core$List$head(
-			A2(
-				$elm$core$List$filter,
-				function (_v5) {
-					var r = _v5.b;
-					return _Utils_cmp(r.d, line) > -1;
-				},
-				stops));
-		var _v0 = _Utils_Tuple2(covering, after);
-		if (!_v0.a.$) {
-			var i = _v0.a.a;
-			return i;
-		} else {
-			if (!_v0.b.$) {
-				var _v1 = _v0.a;
-				var _v2 = _v0.b.a;
-				var i = _v2.a;
-				return i;
-			} else {
-				var _v3 = _v0.a;
-				var _v4 = _v0.b;
-				return A2(
-					$elm$core$Maybe$withDefault,
-					m.aG,
-					A2($elm$core$Maybe$map, $elm$core$Tuple$first, last));
-			}
-		}
-	});
-var $author$project$Body$placeOfLine = F2(
-	function (m, line) {
-		return A2(
-			$elm$core$Maybe$withDefault,
-			m.aG,
-			A2(
-				$author$project$Scan$indexWhere,
-				function (r) {
-					return (r.l === 1) && _Utils_eq(r.d, line);
-				},
-				m.A));
-	});
-var $elm$core$Set$remove = F2(
-	function (key, _v0) {
-		var dict = _v0;
-		return A2($elm$core$Dict$remove, key, dict);
-	});
-var $author$project$Doc$reveal = function (m) {
-	return _Utils_update(
-		m,
-		{
-			g: A3(
-				$elm$core$List$foldl,
-				$elm$core$Set$remove,
-				m.g,
-				A2(
-					$elm$core$List$filter,
-					function (id) {
-						return _Utils_eq(
-							A2(
-								$elm$core$Maybe$map,
-								$author$project$Doc$foldable(m),
-								A2($author$project$Body$rowById, m, id)),
-							$elm$core$Maybe$Just(true));
-					},
-					A2(
-						$author$project$Body$ownersOf,
-						m,
-						A2($author$project$Doc$idAtRow, m, m.aG))))
-		});
-};
 var $author$project$Doc$extentOf = F2(
 	function (m, r) {
 		return _Utils_Tuple2(
@@ -10804,58 +11013,7 @@ var $author$project$Doc$update = F2(
 				return $author$project$Doc$told($author$project$Doc$empty);
 			case 0:
 				var fresh = msg.a;
-				var was = A2(
-					$elm$core$Maybe$map,
-					function ($) {
-						return $.c;
-					},
-					$author$project$Body$rowAt(model));
-				var landed = function () {
-					var _v1 = _Utils_Tuple2(fresh.P, model.P);
-					if (!_v1.a.$) {
-						var line = _v1.a.a;
-						return A2($author$project$Body$placeAtLine, fresh, line);
-					} else {
-						if (!_v1.b.$) {
-							var _v2 = _v1.a;
-							var line = _v1.b.a;
-							return A2($author$project$Body$placeOfLine, fresh, line);
-						} else {
-							var _v3 = _v1.a;
-							var _v4 = _v1.b;
-							if (!was.$) {
-								var id = was.a;
-								return A2($author$project$Body$placeOf, fresh, id);
-							} else {
-								return 0;
-							}
-						}
-					}
-				}();
-				return $author$project$Doc$told(
-					$author$project$Doc$reveal(
-						$author$project$Doc$snapVisible(
-							_Utils_update(
-								fresh,
-								{
-									aG: landed,
-									x: A2(
-										$elm$core$Set$intersect,
-										model.x,
-										$elm$core$Set$fromList(
-											$author$project$Doc$listRoots(fresh))),
-									P: $elm$core$Maybe$Nothing,
-									g: A2(
-										$elm$core$Set$union,
-										A2(
-											$elm$core$Set$intersect,
-											model.g,
-											$author$project$Doc$foldables(fresh)),
-										A2(
-											$elm$core$Set$diff,
-											fresh.g,
-											$author$project$Doc$foldables(model)))
-								}))));
+				return A2($author$project$Doc$applyFill, fresh, model);
 			case 2:
 				var id = msg.a;
 				return $author$project$Doc$told(
@@ -10872,9 +11030,9 @@ var $author$project$Doc$update = F2(
 						(by > 0) ? 'next-row' : 'previous-row'));
 			case 4:
 				var opened = function () {
-					var _v7 = $author$project$Body$rowAt(model);
-					if (!_v7.$) {
-						var r = _v7.a;
+					var _v2 = $author$project$Body$rowAt(model);
+					if (!_v2.$) {
+						var r = _v2.a;
 						return A2($author$project$Doc$foldable, model, r) ? _Utils_update(
 							model,
 							{
@@ -10884,9 +11042,9 @@ var $author$project$Doc$update = F2(
 						return model;
 					}
 				}();
-				var _v6 = $author$project$Doc$finer(opened);
-				var fined = _v6.a;
-				var word = _v6.b;
+				var _v1 = $author$project$Doc$finer(opened);
+				var fined = _v1.a;
+				var word = _v1.b;
 				return (_Utils_eq(fined.aG, model.aG) && (_Utils_eq(fined.H, model.H) && _Utils_eq(fined.g, model.g))) ? $author$project$Doc$spoke(
 					_Utils_Tuple2(
 						A2($author$project$Doc$nextVisible, 1, model),
@@ -10932,9 +11090,9 @@ var $author$project$Doc$update = F2(
 						{O: _List_Nil}));
 			case 20:
 				var scoped = function () {
-					var _v10 = $author$project$Body$rowAt(model);
-					if (!_v10.$) {
-						var r = _v10.a;
+					var _v5 = $author$project$Body$rowAt(model);
+					if (!_v5.$) {
+						var r = _v5.a;
 						return A2($author$project$Doc$isListRoot, model, r.c) ? $elm$core$Maybe$Just(r.c) : A2($author$project$Doc$listRootOf, model, r.c);
 					} else {
 						return $elm$core$Maybe$Nothing;
@@ -10966,12 +11124,12 @@ var $author$project$Doc$update = F2(
 									{x: next}))),
 						word));
 			case 19:
-				var _v11 = $author$project$Doc$foldTarget(model);
-				if (_v11.$ === 1) {
+				var _v6 = $author$project$Doc$foldTarget(model);
+				if (_v6.$ === 1) {
 					return $author$project$Doc$spoke(
 						_Utils_Tuple2(model, 'nothing folds here'));
 				} else {
-					var r = _v11.a;
+					var r = _v6.a;
 					var opened = A2($elm$core$Set$member, r.c, model.g);
 					return $author$project$Doc$spoke(
 						_Utils_Tuple2(
@@ -11012,9 +11170,9 @@ var $author$project$Doc$update = F2(
 			case 22:
 				var key = msg.a;
 				var value = msg.b;
-				var _v12 = A2($author$project$Body$planningKey, model.am, key);
-				if (!_v12.$) {
-					var word = _v12.a;
+				var _v7 = A2($author$project$Body$planningKey, model.am, key);
+				if (!_v7.$) {
+					var word = _v7.a;
 					return A2(
 						$author$project$Doc$composedWith,
 						$elm$core$Maybe$Just(
@@ -11079,152 +11237,7 @@ var $author$project$Doc$update = F2(
 				}
 			case 10:
 				var ids = msg.a;
-				var named = A2(
-					$elm$core$List$filter,
-					function (r) {
-						return A2($elm$core$List$member, r.c, ids);
-					},
-					model.A);
-				var refused = $elm$core$List$length(
-					A2($elm$core$List$filter, $author$project$Doc$heading, named));
-				var taken = A2(
-					$elm$core$List$filter,
-					function (r) {
-						return r.l === 1;
-					},
-					named);
-				var written = A2(
-					$author$project$Body$bodyText,
-					model,
-					A2(
-						$elm$core$List$map,
-						function ($) {
-							return $.c;
-						},
-						taken));
-				var metaN = $elm$core$List$length(
-					A2(
-						$elm$core$List$filter,
-						function (r) {
-							return r.l === 3;
-						},
-						named));
-				var keptProps = A2($elm$core$List$member, $author$project$Body$drawerId, ids) ? _List_Nil : A2(
-					$elm$core$List$map,
-					$elm$core$Tuple$second,
-					A2(
-						$elm$core$List$filter,
-						function (_v16) {
-							var j = _v16.a;
-							return !A2(
-								$elm$core$List$member,
-								$author$project$Body$propId(j),
-								ids);
-						},
-						A2($elm$core$List$indexedMap, $elm$core$Tuple$pair, model.cK)));
-				var keptPlan = A2($elm$core$List$member, $author$project$Body$planId, ids) ? _List_Nil : model.z;
-				var model_ = $author$project$Doc$remeta(
-					_Utils_update(
-						model,
-						{z: keptPlan, cK: keptProps}));
-				var cut = $elm$core$List$length(model.aN) - $elm$core$List$length(
-					A2($elm$core$String$split, '\u000A', written));
-				var landsOn = function () {
-					var _v13 = $elm$core$List$head(taken);
-					if (_v13.$ === 1) {
-						return model.P;
-					} else {
-						var first = _v13.a;
-						var kin = A2(
-							$elm$core$List$filter,
-							function (r) {
-								return (r.l === 1) && (_Utils_eq(r.t, first.t) && (!A2(
-									$elm$core$List$member,
-									r.c,
-									A2(
-										$elm$core$List$map,
-										function ($) {
-											return $.c;
-										},
-										taken))));
-							},
-							model.A);
-						var _v14 = A2(
-							$elm$core$List$filter,
-							function (r) {
-								return _Utils_cmp(r.d, first.d) > 0;
-							},
-							kin);
-						if (_v14.b) {
-							var next = _v14.a;
-							return $elm$core$Maybe$Just(next.d - cut);
-						} else {
-							var _v15 = $elm$core$List$reverse(
-								A2(
-									$elm$core$List$filter,
-									function (r) {
-										return _Utils_cmp(r.d, first.d) < 0;
-									},
-									kin));
-							if (_v15.b) {
-								var prev = _v15.a;
-								return $elm$core$Maybe$Just(prev.d);
-							} else {
-								return A2(
-									$elm$core$Maybe$map,
-									function ($) {
-										return $.d;
-									},
-									A2(
-										$elm$core$Maybe$andThen,
-										$author$project$Body$rowById(model),
-										first.t));
-							}
-						}
-					}
-				}();
-				var done = A2(
-					$author$project$Doc$landOn,
-					A2($author$project$Doc$idAtRow, model, model.aG),
-					_Utils_update(
-						model_,
-						{P: landsOn}));
-				var snapped = $author$project$Doc$snapVisible(done);
-				return _Utils_Tuple2(
-					snapped,
-					$elm$core$Platform$Cmd$batch(
-						_List_fromArray(
-							[
-								$author$project$Doc$docState(
-								$author$project$Doc$stateJSON(snapped)),
-								$author$project$Doc$docTook(
-								$elm$json$Json$Encode$object(
-									_Utils_ap(
-										_List_fromArray(
-											[
-												_Utils_Tuple2(
-												'taken',
-												A2(
-													$elm$json$Json$Encode$list,
-													$elm$json$Json$Encode$string,
-													A2(
-														$elm$core$List$map,
-														function ($) {
-															return $.c;
-														},
-														taken))),
-												_Utils_Tuple2(
-												'refused',
-												$elm$json$Json$Encode$int(refused)),
-												_Utils_Tuple2(
-												'meta',
-												$elm$json$Json$Encode$int(metaN)),
-												_Utils_Tuple2(
-												'body',
-												$elm$json$Json$Encode$string(written))
-											]),
-										$author$project$Doc$headerJSON(snapped))))
-							])));
+				return A2($author$project$Doc$applyDelete, ids, model);
 			case 11:
 				var id = msg.a;
 				var written = msg.b;
@@ -11255,12 +11268,12 @@ var $author$project$Doc$update = F2(
 			case 12:
 				var id = msg.a;
 				var caret = msg.b;
-				var _v17 = _Utils_Tuple2(
+				var _v8 = _Utils_Tuple2(
 					A3($author$project$Body$drafted, model, id, caret),
 					A3($author$project$Body$joinWord, model, id, caret));
-				if ((!_v17.a.$) && (!_v17.b.$)) {
-					var rows = _v17.a.a;
-					var word = _v17.b.a;
+				if ((!_v8.a.$) && (!_v8.b.$)) {
+					var rows = _v8.a.a;
+					var word = _v8.b.a;
 					return $author$project$Doc$spoke(
 						_Utils_Tuple2(
 							_Utils_update(
@@ -11285,7 +11298,7 @@ var $author$project$Doc$update = F2(
 				var id = msg.a;
 				var caret = msg.b;
 				var written = msg.c;
-				var _v18 = _Utils_Tuple2(
+				var _v9 = _Utils_Tuple2(
 					A4(
 						$author$project$Body$insertion,
 						model,
@@ -11293,15 +11306,15 @@ var $author$project$Doc$update = F2(
 						caret,
 						A2($author$project$Doc$narrowed, model, written)),
 					A3($author$project$Body$joinLine, model, id, caret));
-				if (!_v18.a.$) {
-					var rows = _v18.a.a;
-					var line = _v18.b;
+				if (!_v9.a.$) {
+					var rows = _v9.a.a;
+					var line = _v9.b;
 					return $author$project$Doc$composed(
 						_Utils_update(
 							model,
 							{P: line, A: rows}));
 				} else {
-					var _v19 = _v18.a;
+					var _v10 = _v9.a;
 					return _Utils_Tuple2(
 						model,
 						$author$project$Doc$docSaid(

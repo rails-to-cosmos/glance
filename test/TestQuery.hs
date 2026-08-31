@@ -2431,6 +2431,22 @@ entrySpec = testGroup "Subtree entries"
           [] -> assertFailure "expected one entry"
   ]
 
+-- | Does T read as a lowercase version-4 UUID?  The predicate spells the regex
+-- @^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$@, so the
+-- version and variant nibbles are asserted on the SHAPE rather than on one vector.
+isUuidV4 :: Text -> Bool
+isUuidV4 t = case T.splitOn "-" t of
+  [a, b, c, d, e] ->
+       hexOf 8 a
+    && hexOf 4 b
+    && hexOf 4 c && T.take 1 c == "4"
+    && hexOf 4 d && T.take 1 d `elem` ["8", "9", "a", "b"]
+    && hexOf 12 e
+  _ -> False
+  where
+    hexOf n s = T.length s == n && T.all isLowerHex s
+    isLowerHex ch = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')
+
 -- | CAPTURE: the template grammar, the blob a tagged capture composes, the store layout.
 captureSpec :: TestTree
 captureSpec = testGroup "Capture"
@@ -2619,6 +2635,13 @@ captureSpec = testGroup "Capture"
 
       , testCase "and a short string is padded rather than answering short" $
           assertEqual "36 characters either way" 36 (T.length (uuidFrom BS.empty))
+
+      , testCase "a stamped id reads as the v4 regex, whatever the bytes" $ do
+          assertBool "all zeros"
+            (isUuidV4 (uuidFrom (BS.replicate 16 0)))
+          assertBool "a fixed non-trivial vector"
+            (isUuidV4 (uuidFrom (BS.pack [ 0xde, 0xad, 0xbe, 0xef, 0x01, 0x23, 0x45, 0x67
+                                        , 0x89, 0xab, 0xcd, 0xef, 0x10, 0x20, 0x30, 0x40 ])))
 
       , testCase "a minted id is one of those" $ do
           ident <- mintBlobId
