@@ -733,7 +733,7 @@ interopCases =
   , ("browser-sees-emacs",                           "CLAIM 19")
   , ("archive-flag-round-trips",                     "CLAIM 14")
   , ("scan-agrees-with-the-writer",                  "CLAIM 15")
-  , ("HOLE: a tagged capture never reaches the WAL", "CLAIM 17")
+  , ("a tagged capture reaches the WAL",             "CLAIM 17")
   , ("delete-tombstones-the-record",                 "CLAIM 18") ]
 breaks :: [(String, String)]
 -- ^ @BREAK=name@ takes ONE harness step out and names the case that must go red.
@@ -758,11 +758,14 @@ drainedAsks :: [String]
 -- ^ the fold and the READ PATH ask different things of one cursor, so `drained'
 -- asks both: a peer that polls by SIZE passes the first and fails the second.
 drainedAsks = ["the cursor against the file", "what the peer's read path says is owed"]
-holeCase :: String
-holeCase = "HOLE: a tagged capture never reaches the WAL"
+captureCase :: String
+-- ^ an external capture reaches the WAL: org-glance INGESTS the fresh id now
+-- (`refresh-external' derives it from the blob), where once it skipped it.
+captureCase = "a tagged capture reaches the WAL"
 unmatchedLine :: (Int, Int)
--- ^ glance's own instrument on that hole: unindexed blobs, records without blobs.
-unmatchedLine = (1, 0)
+-- ^ glance's own instrument at the delete leg: unindexed blobs, records without
+-- blobs -- the capture is ingested, so no blob is left unindexed.
+unmatchedLine = (0, 0)
 watchCallSites :: (Int, Int)
 -- ^ `watchOrgTree' in @src@, and in @test@.
 watchCallSites = (1, 0)

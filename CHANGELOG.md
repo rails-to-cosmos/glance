@@ -9,7 +9,7 @@ and this project adheres to the
 Versions 0.1 through 0.4 were cut retroactively over one dense build: each
 section groups a feature arc, and its date is that arc's last commit.
 
-## Unreleased
+## 0.7.1.0 - 2026-08-31
 
 ### Added
 

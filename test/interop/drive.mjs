@@ -445,21 +445,22 @@ async function main() {
     });
 
     // ------------------------------------------- the lifecycle at both ends
-    // DELETE IS CLOSED; CREATE IS A HOLE pinned AS IT STANDS, so closing it reddens its case.
+    // DELETE IS CLOSED, AND SO IS CREATE: an external capture reaches the WAL,
+    // and org-glance ingests the fresh id rather than skipping it.
 
-    await step("HOLE: a tagged capture never reaches the WAL", "CLAIM 17", async () => {
+    await step("a tagged capture reaches the WAL", "CLAIM 17", async () => {
       const made = await command(base, { name: "capture",
                                          args: { text: "gamma from the browser", tag: TAG } });
       ok(made.ok, `the capture: ${JSON.stringify(made)}`);
       const seen = emacs(runner, root, "read-external");
       eq(Array.from(seen.ids), [made.id], "the id the capture notified");
       const fold = emacs(runner, root, "refresh");
-      eq(fold.n, 0, "the entries a fresh id folds");
+      eq(fold.n, 1, "the entries a fresh id folds");
       const field = emacs(runner, root, "field", { IID: made.id });
-      eq(field.live, false, "whether org-glance holds the captured entry");
+      eq(field.live, true, "whether org-glance holds the captured entry");
       const table = await getJSON(`${base}/headline?id=${encodeURIComponent(made.id)}`);
       ok(table.file.startsWith(join(store, "data")), "glance serves it as a row");
-      return [`glance made ${made.id} and serves it; org-glance holds nothing`,
+      return [`glance made ${made.id}; org-glance ingested it and both serve it`,
               `org-glance said: ${fold.$said || "(nothing)"}`];
     });
 
@@ -489,7 +490,7 @@ async function main() {
       // A TOMBSTONED ID LEAVES THE FOLD, so it is no longer a record without a blob.
       const lines = scan(bin, root);
       eq(scanLine(lines, "unmatched"),
-         "unmatched 1 unindexed blobs, 0 records without blobs",
+         "unmatched 0 unindexed blobs, 0 records without blobs",
          "what glance's own instrument says with the delete leg closed");
       ok(scanLine(lines, "records").includes("1 tombstones"),
          `the tombstones glance's fold reads: ${scanLine(lines, "records")}`);
@@ -497,7 +498,7 @@ async function main() {
               `line: ${last.trim()}  (last of ${jsonl(raw).length})`,
               scanLine(lines, "records"),
               scanLine(lines, "unmatched")
-                + "  (the unindexed blob is the capture hole, still open)"];
+                + "  (the capture is ingested; no unindexed blob remains)"];
     });
 
   } finally {
