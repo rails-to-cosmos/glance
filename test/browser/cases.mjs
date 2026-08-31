@@ -340,6 +340,32 @@ export default [
 
 // cb6db85.  THE BOX GREW AND STOOD OVER THE DOCUMENT.  Where the next line
 // ENDS UP is unaskable in TestServe.hs: the node harness returns zeroed rects.
+{ name: "the editor debug surface reports point, box, marker and the mirror",
+  async run(p, base) {
+    // The #1/#2 debug tooling.  `typeKeys' types through the REAL keydown path (a
+    // human's, not `insertText'); `editorState' (window.__glance.editor) dumps what
+    // the closures hide.  The field a doc-editing bug needs FIRST is `caret' --
+    // point's offset in the box, which no rendered row shows.
+    await sheet(p, base, "drv-roll");
+    await walkToText(p, "a leaf with no children", "a list item");
+    await p.press("+");                                    // draft a sibling item
+    await p.until(() => !!document.querySelector("#dpara.on")
+      && document.activeElement === document.getElementById("dtext"), "the draft, focused");
+    await p.typeKeys("hi");                                // real keystrokes
+    const st = await p.editorState();
+    assert(st && typeof st.caret === "number",
+      `editorState gave no caret offset: ${JSON.stringify(st)}`);
+    assert((st.dtext || "").includes("hi"),
+      `typeKeys did not reach the box through the real path: ${JSON.stringify(st.dtext)}`);
+    assert(st.box === "dpara" && Array.isArray(st.rows),
+      `editorState is missing fields: ${JSON.stringify(st)}`);
+    assert(st.rows.some((r) => r.id === "D"),
+      `the mirror carries no open-draft row: ${JSON.stringify(st.rows.map((r) => r.id))}`);
+    await p.press("ESC");
+    return [`caret ${st.caret}, box ${JSON.stringify(st.dtext)}, `
+      + `marker ${JSON.stringify(st.drawnLead)}, ${st.rows.length} mirror rows`];
+  } },
+
 { name: "an open edit moves the line under it down, never covers it",
   async run(p, base) {
     await sheet(p, base, "drv-box");

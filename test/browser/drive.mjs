@@ -340,7 +340,16 @@ function pageHandle(cdp, sid) {
     },
     press: (name) => held(name, 0),
     hold: held,
+    // `Input.insertText' PLANTS a string; it fires no keydown, so the shell's key
+    // handler and the per-keystroke seeding never run -- a test typing this way
+    // exercises a path the reader never takes.
     type(text) { return call("Input.insertText", { text }); },
+    // WHAT A HUMAN DOES: one real keyDown per character, through the shell's own
+    // handler.  Use this for editor tests, where the keydown path is the point.
+    async typeKeys(text) { for (const ch of text) await held(ch, 0); },
+    // The editor state the closures hide (`window.__glance.editor()', 20-sheet.js):
+    // point's OFFSET in the box, the box's text, the seeded marker, the mirror.
+    editorState() { return evaluate(() => window["__glance"] && window["__glance"].editor()); },
     async size(width, height) {
       await call("Emulation.setDeviceMetricsOverride",
         { width, height, deviceScaleFactor: 1, mobile: false });

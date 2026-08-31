@@ -734,6 +734,36 @@
      * what the ghost accepted.  A door opened over an unstamped row reads the
      * clock itself, which is one read at that door too. */
     const editDay = () => (edit && edit.row.today) || dateNow();
+
+    // A DEBUG SURFACE, read-only, always on: the editor state the closures hold
+    // out of the console and the harness.  `window.__glance.editor()' answers the
+    // questions a doc-editing bug asks first -- where point is, what the box holds,
+    // what marker the draft was seeded with, what the model drew.  The single most
+    // useful thing is `caret': the cursor's OFFSET in the box, which no rendered
+    // row shows.  `rows' is the mirror Elm drew (`D' is the open draft's own row).
+    window["__glance"] = Object.assign(window["__glance"] || {}, {
+      editor() {
+        const box = el("dtext");
+        const drawn = drows.find((r) => r.id === "D") || null;
+        const pill = el("echo");
+        return {
+          dtext: box ? box.value : null,
+          caret: box ? box.selectionStart : null,
+          caretEnd: box ? box.selectionEnd : null,
+          editing: !!edit,
+          box: edit ? edit.o.box : null,
+          add: edit ? !!edit.row.add : null,
+          lead: edit ? edit.row.lead : null,
+          rowId: edit ? edit.row.id : null,
+          rowAt: edit ? edit.row.at : null,
+          drawnLead: drawn ? drawn.text : null,
+          at: dat,
+          echo: pill ? pill.textContent : null,
+          rows: drows.map((r) => ({ id: r.id, grain: r.grain, owner: r.owner,
+                                    level: r.level, text: (r.text || "").slice(0, 40) })),
+        };
+      },
+    });
     const onPairKey = () => active() === el("dkey");
     // THE TREE'S OWN PROPERTY VOCABULARY, asked ONCE PER SHEET and kept: the
     // door answers `{ keys: {KEY: n}, values: {KEY: {VALUE: n}} }'.  A build
