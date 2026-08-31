@@ -3171,13 +3171,13 @@ sheetSpec shell =
 
     -- THE HEADLINE IS ONE STOP: its parts have their own keys, so `f' does not
     -- walk into the line -- it enters the CONTENTS, everything being under them.
-  , testCase "f on the headline enters the body, and a paragraph has nothing finer" $ do
+  , testCase "f on the headline enters the body, and a paragraph advances to the next row" $ do
       insheet shell "press:f" $ \answer -> do
         assertEqual "the first row of the body" 1 =<< pointOf answer
         echoIs "and the key named what it entered" "f → grain-finer (the body)" answer
       insheet shell "press:f press:n press:n press:f" $ \answer -> do
-        assertEqual "a paragraph does not move" 3 =<< pointOf answer
-        echoIs "and says why" "f → grain-finer (nothing finer here)" answer
+        assertEqual "a paragraph has nothing finer, so f rolls on to the next row" 4 =<< pointOf answer
+        echoIs "and says it advanced" "f → grain-finer" answer
 
     -- Asserted as the EQUALITY of two numbers this page produces independently.
   , atBoot sheet "a child's star sits in the parent's body column" $ \answer -> do
@@ -3641,14 +3641,13 @@ sheetSpec shell =
           <=< pointOf
       onTable shell (intoRun <> " press:C-n press:C-n") $ \answer -> do
         assertEqual "inside a run the chord walks the leaves" 8 =<< pointOf answer
-        -- The step says nothing of its own, so what stands is still the `f' that
-        -- entered the run.
-        echoIs "and adds no line of its own" "f → grain-finer (list 1/3)" answer
+        -- The chord echoes its own row step, `n' by another name.
+        echoIs "and speaks the row step it is" "C-n → next-row" answer
       onTable shell (intoRun <> " press:C-p") $
         assertEqual "and C-p clamps at the first as p does" 5 <=< pointOf
 
-    -- At the finest and at the floor the keys refuse with an echo; going OUT of the sheet stays DEL's.
-  , testCase "f enters a composite's leaves, n/p walk them, b re-selects the whole" $ do
+    -- `f' rolls on past the finest; `B' climbs, re-selecting what holds the leaf; going OUT of the sheet stays DEL's.
+  , testCase "f enters a composite's leaves, n/p walk them, B re-selects the whole" $ do
       onTable shell intoRun $ \answer -> do
         assertEqual "f lands on the first item" 5 =<< pointOf answer
         echoIs "and says where it is" "f → grain-finer (list 1/3)" answer
@@ -3663,31 +3662,31 @@ sheetSpec shell =
       onTable shell (intoRun <> " press:n press:p") $
         assertEqual "p from beta crosses the nested run to alpha" 5
           <=< pointOf
-      onTable shell (intoRun <> " press:n press:b") $ \answer -> do
-        assertEqual "b is the whole list again, from any item" 4
+      onTable shell (intoRun <> " press:n press:B") $ \answer -> do
+        assertEqual "B is the whole list again, from any item" 4
           =<< pointOf answer
-        echoIs "named by its kind" "b → grain-broader (list)" answer
+        echoIs "named by its kind" "B → grain-broader (list)" answer
       onTable shell intoNestedRun $ \answer -> do
         assertEqual "the nested item is one rung down" 6 =<< pointOf answer
         echoIs "counted under its parent" "f → grain-finer (item 1/1)" answer
       onTable shell (intoNestedRun <> " press:n") $
         assertEqual "a run of one clamps at once" 6 <=< pointOf
-      onTable shell (intoNestedRun <> " press:b") $ \answer -> do
-        assertEqual "b climbs to the item" 5 =<< pointOf answer
-        echoIs "named as one" "b → grain-broader (item)" answer
+      onTable shell (intoNestedRun <> " press:B") $ \answer -> do
+        assertEqual "B climbs to the item" 5 =<< pointOf answer
+        echoIs "named as one" "B → grain-broader (item)" answer
       onTable shell (intoRun <> " press:n press:f") $ \answer -> do
-        assertEqual "nothing finer than a childless leaf" 7 =<< pointOf answer
-        echoIs "and the key says so" "f → grain-finer (at the finest)" answer
-      onTable shell "grain press:Enter press:b" $ \answer -> do
+        assertEqual "a childless leaf has nothing finer, so f rolls to the next row" 8 =<< pointOf answer
+        echoIs "and the key says it advanced" "f → grain-finer" answer
+      onTable shell "grain press:Enter press:B" $ \answer -> do
         assertEqual "the entry's own line is the floor" 0 =<< pointOf answer
-        echoIs "b never closes" "b → grain-broader (the whole entry)" answer
+        echoIs "B never closes" "B → grain-broader (the whole entry)" answer
 
-    -- REVERSED EXPAND-REGION: `b' out of an element goes to THE ENTRY'S OWN LINE.
-  , testCase "b out of an element marks the whole headline" $ do
-      onTable shell "grain press:Enter press:f press:n press:n press:b" $ \answer -> do
+    -- REVERSED EXPAND-REGION: `B' out of an element climbs to THE ENTRY'S OWN LINE.
+  , testCase "B out of an element marks the whole headline" $ do
+      onTable shell "grain press:Enter press:f press:n press:n press:B" $ \answer -> do
         assertEqual "up from the lead paragraph" 0 =<< pointOf answer
-        echoIs "" "b → grain-broader (the headline)" answer
-      onTable shell (intoRun <> " press:b press:b") $ \answer ->
+        echoIs "" "B → grain-broader (the headline)" answer
+      onTable shell (intoRun <> " press:B press:B") $ \answer ->
         assertEqual "the item, its list, then the entry" 0 =<< pointOf answer
 
     -- THREE DIALECTS, ONE AXIS: `l'/`h' and the horizontal arrows are ALIASES of `f'/`b'.
@@ -3698,8 +3697,8 @@ sheetSpec shell =
       onTable shell "grain press:Enter press:f press:n press:n press:n press:ArrowRight" $
         assertEqual "and so does the right arrow" 5 <=< pointOf
       onTable shell "grain press:Enter press:f press:h" $ \answer -> do
-        assertEqual "h climbs like b" 0 =<< pointOf answer
-        echoIs "" "h → grain-broader (the headline)" answer
+        assertEqual "h steps back like b" 0 =<< pointOf answer
+        echoIs "" "h → grain-broader" answer
       onTable shell "grain press:Enter press:f press:ArrowLeft" $
         assertEqual "and so does the left arrow" 0 <=< pointOf
 
@@ -3734,8 +3733,8 @@ sheetSpec shell =
         assertEqual "f enters the first row" 5 <=< pointOf
       onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:n press:n press:n" $
         assertEqual "n walks the rows, the rule among them" 8 <=< pointOf
-      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:n press:b" $
-        assertEqual "and b is the table whole again" 4 <=< pointOf
+      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:n press:B" $
+        assertEqual "and B is the table whole again" 4 <=< pointOf
 
     -- A ROW EDIT IS A LINE SPLICE: the row remembers the line it came out of.
   , testCase "editing a table row splices that line and nothing else" $ do
@@ -4249,11 +4248,13 @@ sheetSpec shell =
     -- the sub-row grain.  `b' steps back along it and off the FIRST entry to the
     -- whole line, where the row grain answers again; the LAST entry clamps in the
     -- house's own word.
-  , testCase "f walks the planning line's entries, and b comes back out" $ do
+  , testCase "f walks the planning line's entries, and B comes back out" $ do
       -- ONE WALK IN AND BACK OUT, read off the ECHO HISTORY: the pill is
       -- last-writer-wins, so the words it was SET to are the steps in order.
-      onTable shell ("planned press:Enter press:f press:f press:f press:f press:f"
-                     <> " press:b press:b press:b") $ \answer -> do
+      -- Four `f' land on the last entry -- a fifth would roll OFF the row -- and
+      -- `B' climbs back out along the entries the way `b' used to.
+      onTable shell ("planned press:Enter press:f press:f press:f press:f"
+                     <> " press:B press:B press:B") $ \answer -> do
         steps <- filter ("grain-" `T.isInfixOf`) <$> textsAt "echoes" answer
         assertEqual "every step of the walk, in the order it was taken"
                     [ "f → grain-finer (the body)"
@@ -4261,21 +4262,19 @@ sheetSpec shell =
                       -- Org's own order, its third word a stop like any other.
                     , "f → grain-finer (DEADLINE 2/3)"
                     , "f → grain-finer (CLOSED 3/3)"
-                      -- The last one clamps, spoken and standing still.
-                    , "f → grain-finer (at the finest)"
-                    , "b → grain-broader (DEADLINE 2/3)"
-                    , "b → grain-broader (SCHEDULED 1/3)"
+                    , "B → grain-broader (DEADLINE 2/3)"
+                    , "B → grain-broader (SCHEDULED 1/3)"
                       -- And off the first entry to the whole line.
-                    , "b → grain-broader (the planning line)" ]
+                    , "B → grain-broader (the planning line)" ]
                     steps
         -- POINT NEVER LEFT THE ROW: the entries are a sub-row grain, so the line
         -- the walk came back out to is the row it walked inside all along.
         assertEqual "which is the step the row grain then answers" 1 =<< pointOf answer
       -- A ROW STEP LEAVES THE ENTRIES: the sub-row grain is this line's own and
-      -- does not ride to another row, so `b' after one is the row's, not an entry's.
-      onTable shell "planned press:Enter press:f press:f press:n press:p press:b" $
+      -- does not ride to another row, so `B' after one climbs the row, not an entry.
+      onTable shell "planned press:Enter press:f press:f press:n press:p press:B" $
         echoIs "the entry did not ride the row step"
-               "b → grain-broader (the headline)"
+               "B → grain-broader (the headline)"
 
     -- A COMMITTED PAIR EDIT IS A WRITE: the cargo rides the port, body and lists together.
   , keyed shell "a committed pair edit writes at once, the whole header on it"
