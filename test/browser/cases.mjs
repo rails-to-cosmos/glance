@@ -3768,7 +3768,7 @@ export default [
 // entry at point is the CURSOR one grain finer -- so it must wear the cursor's
 // ground, and the line must lift its while it does, or the gold is drawn on gold
 // and the reader sees a selection that is set and invisible (the widget's own
-// `--g-sel' lesson, `Style.hs' "THE TWO GOLDS").  READ RELATIONALLY and behind
+// `--g-sel' lesson, `page.css' "THE TWO GOLDS").  READ RELATIONALLY and behind
 // the mirror's own guards: the port lands a macrotask behind the press and Elm
 // paints a frame behind that (docs/bugs/…read-races-render).
 { name: "the planning line's entries walk, and RET opens the one at point",

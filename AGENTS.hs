@@ -5660,8 +5660,9 @@ sheetNotes =
          \ headline where it does not, so a body's first element climbs to its own\
          \ headline and the TAIL past every subtree is one press from the document's\
          \ last one, a folded subtree counting as its line alone.  A run's leaves\
-         \ answer to the composite, so their edge still clamps.  `f' steps into what\
-         \ point owns, `b' climbs to the owner.  THE VERTICAL ARROWS, `j'/`k' AND\
+         \ answer to the composite, so their edge still clamps.  `f' descends a grain\
+         \ finer into what point owns, then to the next visible row at a leaf;\
+         \ `b' is `f' reversed and `B' climbs to the owner.  THE VERTICAL ARROWS, `j'/`k' AND\
          \ `C-n'/`C-p' ALIAS `n'/`p' wherever this page walks rows -- one `rowStep',\
          \ four dialects -- and the chord pair is the half that survives a field\
          \ beside it, which is all a narrowed list is left with." [Elm, Test, Browser]

@@ -36,8 +36,9 @@ COARSE axis and `f`/`b` the FINE one — rows and cells in the table, siblings
 and grain in the document.  One habit serves both surfaces: in the material
 document `n` steps composite-to-sibling (a list is one stop, so holding `n`
 skims at reading grain), `f` goes a grain finer (a composite's leaves, a
-headline's cells) and `b` a grain broader — `b` as in BROADER — with the
-refusals spoken rather than swallowed.  The grain keys are still movement:
+headline's cells) and `b` is `f` reversed, a step back along the same walk;
+the one-press climb a grain broader to the owner moved to `B` — `B` as in
+BROADER — with the refusals spoken rather than swallowed.  The grain keys are still movement:
 `b` at the floor is a no-op with an echo, never a close, because going out of
 the sheet belongs to `DEL`.  (This replaced the earlier one-walk grain, where
 `n` dived into every composite: elegant, but private to this pane, and the

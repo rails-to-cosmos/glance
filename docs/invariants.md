@@ -18,7 +18,7 @@ nothing catches it.
 
 - **One door.** Every byte written to the tree leaves through
   `Watch.writeSpans` → `Query.replaceSpans` → `Edit.editFile`; no module calls
-  the splice engine directly. `Watch.hs:67`, `Query.hs:1208`,
+  the splice engine directly. `Watch.hs:68`, `Query.hs:1443`,
   `TestSelfContained.hs:182`. A write that bypasses it skips the drift lock,
   the external ledger note and the watch nudge, so the store diverges from disk
   and org-glance never learns of the write. **The guard sweep filters to
@@ -27,11 +27,11 @@ nothing catches it.
 
 - **Every write is drift-locked.** A write is pinned by a SHA-256 of the exact
   bytes it was read from, and a mismatch aborts before any byte is touched.
-  `Edit.hs:206`, `Edit.hs:212`, `Routes.hs:496`. Dropping or defaulting the
+  `Edit.hs:206`, `Edit.hs:212`, `Routes.hs:501`. Dropping or defaulting the
   digest turns a stale tab into a silent whole-file overwrite. *fragility: high*
 
 - **The empty digest is the create pin.** An absent file under `""` is created;
-  an occupied path under `""` drifts. `Edit.hs:207`, `Query.hs:1204`,
+  an occupied path under `""` drifts. `Edit.hs:207`, `Query.hs:1405`,
   `Commands.hs:357`, `Config.hs:322`. Making a missing file a hard `ReadFailed`
   breaks blob capture and tag-layer minting; making a present file writable
   under `""` turns capture into a silent overwrite. *fragility: high*
@@ -91,7 +91,7 @@ nothing catches it.
 ## The store and the routes
 
 - **The `Store` TVar has exactly two writers** — `finishLoading` and `publish` —
-  and every route reads it only. `Store.hs:305`, `:330`. A third writer breaks
+  and every route reads it only. `Store.hs:307`, `:340`. A third writer breaks
   the generation-bump/frame-derivation pairing, so live sockets stop receiving
   ops for rows that moved and the ETag stops changing. **Nothing tests this.**
   *fragility: high*
@@ -201,11 +201,11 @@ nothing catches it.
   standing INSIDE a coarser one is drawn on the colour already behind it unless
   the coarser lifts. Both lifts spell the same `background-color:transparent` on
   the OUTER ground: the pane wears `tight` while a box stands inside its row
-  (`Style.hs:339`, `20-sheet.js:335`), and the planning line drops its wash
-  while an entry is picked (`Style.hs:394`, `:395`). Dropping either lift, or
+  (`page.css:772`, `20-sheet.js:536`), and the planning line drops its wash
+  while an entry is picked (`page.css:897`). Dropping either lift, or
   adding a third gold one grain finer without one, leaves the wash set, focused
   and invisible — a state only PIXELS see, which is why the entry's case counts
-  them (`cases.mjs:2684`, `:2689`) rather than reading a class.
+  them (`cases.mjs:3830`, `:3833`) rather than reading a class.
   *fragility: medium*
 
 - **The empty cell sits outside every date comparison, and negation is no
@@ -214,7 +214,7 @@ nothing catches it.
   undated row; `*empty*` stays the one name for those rows. It follows that
   `-k:<D` serves the undated rows where `k:>=D` does not, so the operators do
   not pair off under the sign and no surface may rewrite one into the other.
-  `Filter.hs:664`, `table-view.js:702`, `AGENTS.hs:2591`. A tidying pass that
+  `Filter.hs:664`, `table-view.js:702`, `AGENTS.hs:2646`. A tidying pass that
   normalizes `-k:<D` into `k:>=D`, or drops the guard because byte order
   "already sorts an empty cell first", turns nothing red but the one case that
   names the pair (`TestFilter.hs:978`). **That case and its renderer twin are
