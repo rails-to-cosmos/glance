@@ -4707,4 +4707,37 @@ export default [
       + `${draft.row.w}px row; the real doc drew ${JSON.stringify(real.head)}: `
       + `slot x${real.title.x} w${real.title.w}, box x${real.edit.x} w${real.edit.w}`];
   } },
+
+// PROPOSAL 2026-08-26.  An org table in the doc is drawn by the table-view
+// renderer inside its own block: one <glance-table> host, the composite and its
+// item leaves still Elm's stops.
+{ name: "an org table in the material doc mounts a table-view widget",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    const t = await p.eval(() => {
+      const host = document.querySelector("#mdoc glance-table");
+      const tv = host && host.querySelector(".tv-table");
+      const rows = tv ? [...tv.querySelectorAll("tbody tr[data-id]")] : [];
+      const cells = rows.map((tr) =>
+        [...tr.querySelectorAll("td")].map((td) => td.textContent.trim()));
+      const link = tv ? tv.querySelector("a.tv-link") : null;
+      const heads = tv
+        ? [...tv.querySelectorAll("thead th")].map((th) => th.textContent.trim())
+        : [];
+      return { host: !!host, table: !!tv, nrows: rows.length,
+               first: cells[0] || [], heads,
+               link: link ? link.textContent.trim() : null };
+    });
+    assert(t.host, "no <glance-table> host rendered for the org table");
+    assert(t.table, "the host mounted no table-view (.tv-table)");
+    assert(t.nrows === 3, `the table drew ${t.nrows} data rows, not 3`);
+    assert(t.first[0] === "Klarenbeekstraat",
+      `the first cell reads ${JSON.stringify(t.first[0])}, not the street`);
+    assert(t.heads[0] === "Street",
+      `the first header reads ${JSON.stringify(t.heads[0])}, not "Street"`);
+    assert(t.link === "see the plot",
+      `the link cell shows ${JSON.stringify(t.link)}, not its description`);
+    return [`org table mounts a table-view: ${t.nrows} rows under `
+      + `[${t.heads.join(", ")}], link "${t.link}"`];
+  } },
 ];

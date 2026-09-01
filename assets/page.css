@@ -649,6 +649,29 @@ code {
     color: var(--g-accent);
 }
 
+/* AN ORG TABLE IS A TABLE-VIEW MOUNT, drawn in flow inside its own block: the */
+/* renderer's page furniture (title, filter, `N rows' hint) and card frame are */
+/* dropped so the table sits IN the doc, not in a card of its own. */
+#mdoc glance-table {
+    display: block;
+}
+
+#mdoc glance-table .tv-root {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    max-height: none;
+    font: var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+}
+
+#mdoc glance-table .tv-bar,#mdoc glance-table .tv-hint {
+    display: none;
+}
+
+#mdoc glance-table .tv-dock > .tv-scroll {
+    border-top: none;
+}
+
 /* THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink; */
 /* ITS COLONS ARE PUNCTUATION -- dimmed, the leading one HANGING into the */
 /* gutter so the token lines up on its letter. */

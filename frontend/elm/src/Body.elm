@@ -36,6 +36,8 @@ module Body exposing
     , rowAt
     , rowById
     , rowsFrom
+    , tableCells
+    , isRule
     , tailId
     , shown
     , undrafted

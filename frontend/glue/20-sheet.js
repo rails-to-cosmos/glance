@@ -1,4 +1,25 @@
 // THE MATERIALIZE SHEET: two panes over one subtree, one flush carrying both — AGENTS.hs.
+
+    // AN ORG TABLE IN THE DOC IS A TABLE-VIEW MOUNT.  Elm draws one
+    // <glance-table> host carrying the view as a `view' property and NO children
+    // of its own; this element mounts the renderer into itself, so Elm's vdom —
+    // which owns zero children here — never fights the mount.  The composite and
+    // its leaves stay Elm's walk stops; only the DRAW moves onto the renderer.
+    if (window.customElements && !customElements.get("glance-table")) {
+      class GlanceTable extends HTMLElement {
+        constructor() { super(); this._view = null; this._tv = null; }
+        set view(v) { this._view = v; if (this._tv) this._tv.setView(v); else this._mount(); }
+        get view() { return this._view; }
+        connectedCallback() { this._mount(); }
+        disconnectedCallback() { if (this._tv) { this._tv.destroy(); this._tv = null; } }
+        _mount() {
+          if (this._tv || !this.isConnected || !this._view) return;
+          this._tv = TableView.mount(this, this._view, {});
+        }
+      }
+      customElements.define("glance-table", GlanceTable);
+    }
+
     let editing = null;
     // A CAPTURE IS THE SHEET OVER A SUBTREE THAT DOES NOT EXIST YET.  The handle
     // is the served DRAFT, and `capture' is everything true of it and of no

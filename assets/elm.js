@@ -11488,6 +11488,173 @@ var $author$project$Doc$foldSign = F2(
 					A2($elm$core$Set$member, r.c, m.f) ? '+' : '\u2212')
 				]));
 	});
+var $elm$virtual_dom$VirtualDom$node = function (tag) {
+	return _VirtualDom_node(
+		_VirtualDom_noScript(tag));
+};
+var $elm$html$Html$node = $elm$virtual_dom$VirtualDom$node;
+var $elm$virtual_dom$VirtualDom$property = F2(
+	function (key, value) {
+		return A2(
+			_VirtualDom_property,
+			_VirtualDom_noInnerHtmlOrFormAction(key),
+			_VirtualDom_noJavaScriptOrHtmlJson(value));
+	});
+var $elm$html$Html$Attributes$property = $elm$virtual_dom$VirtualDom$property;
+var $elm$core$List$maximum = function (list) {
+	if (list.b) {
+		var x = list.a;
+		var xs = list.b;
+		return $elm$core$Maybe$Just(
+			A3($elm$core$List$foldl, $elm$core$Basics$max, x, xs));
+	} else {
+		return $elm$core$Maybe$Nothing;
+	}
+};
+var $author$project$Doc$tableView = F2(
+	function (m, r) {
+		var kids = A2(
+			$elm$core$List$filter,
+			function (k) {
+				return _Utils_eq(
+					k.t,
+					$elm$core$Maybe$Just(r.c));
+			},
+			m.A);
+		var hasHeader = function () {
+			if (kids.b && kids.b.b) {
+				var _v2 = kids.b;
+				var second = _v2.a;
+				return $author$project$Body$isRule(second.N);
+			} else {
+				return false;
+			}
+		}();
+		var dataKids = A2(
+			$elm$core$List$filter,
+			A2(
+				$elm$core$Basics$composeL,
+				A2($elm$core$Basics$composeL, $elm$core$Basics$not, $author$project$Body$isRule),
+				function ($) {
+					return $.N;
+				}),
+			kids);
+		var headCells = hasHeader ? A2(
+			$elm$core$Maybe$withDefault,
+			_List_Nil,
+			A2(
+				$elm$core$Maybe$map,
+				A2(
+					$elm$core$Basics$composeL,
+					$author$project$Body$tableCells,
+					function ($) {
+						return $.N;
+					}),
+				$elm$core$List$head(dataKids))) : _List_Nil;
+		var ncols = A2(
+			$elm$core$Maybe$withDefault,
+			1,
+			$elm$core$List$maximum(
+				A2(
+					$elm$core$List$map,
+					A2(
+						$elm$core$Basics$composeL,
+						A2($elm$core$Basics$composeL, $elm$core$List$length, $author$project$Body$tableCells),
+						function ($) {
+							return $.N;
+						}),
+					dataKids)));
+		var rowVal = function (k) {
+			var cs = $author$project$Body$tableCells(k.N);
+			var cell = function (i) {
+				return _Utils_Tuple2(
+					'c' + $elm$core$String$fromInt(i),
+					$elm$json$Json$Encode$string(
+						A2(
+							$elm$core$Maybe$withDefault,
+							'',
+							A2($author$project$Scan$nth, i, cs))));
+			};
+			return $elm$json$Json$Encode$object(
+				_List_fromArray(
+					[
+						_Utils_Tuple2(
+						'id',
+						$elm$json$Json$Encode$string(k.c)),
+						_Utils_Tuple2(
+						'cells',
+						$elm$json$Json$Encode$object(
+							A2(
+								$elm$core$List$map,
+								cell,
+								A2($elm$core$List$range, 0, ncols - 1))))
+					]));
+		};
+		var colHeader = function (i) {
+			var _v0 = $elm$core$String$trim(
+				A2(
+					$elm$core$Maybe$withDefault,
+					'',
+					A2($author$project$Scan$nth, i, headCells)));
+			if (_v0 === '') {
+				return ' ';
+			} else {
+				var h = _v0;
+				return h;
+			}
+		};
+		var column = function (i) {
+			return $elm$json$Json$Encode$object(
+				_List_fromArray(
+					[
+						_Utils_Tuple2(
+						'key',
+						$elm$json$Json$Encode$string(
+							'c' + $elm$core$String$fromInt(i))),
+						_Utils_Tuple2(
+						'header',
+						$elm$json$Json$Encode$string(
+							colHeader(i))),
+						_Utils_Tuple2(
+						'type',
+						$elm$json$Json$Encode$string('text')),
+						_Utils_Tuple2(
+						'sortable',
+						$elm$json$Json$Encode$bool(true))
+					]));
+		};
+		var bodyKids = hasHeader ? A2($elm$core$List$drop, 1, dataKids) : dataKids;
+		return $elm$json$Json$Encode$object(
+			_List_fromArray(
+				[
+					_Utils_Tuple2(
+					'columns',
+					A2(
+						$elm$json$Json$Encode$list,
+						column,
+						A2($elm$core$List$range, 0, ncols - 1))),
+					_Utils_Tuple2(
+					'rows',
+					A2($elm$json$Json$Encode$list, rowVal, bodyKids)),
+					_Utils_Tuple2(
+					'hasHeader',
+					$elm$json$Json$Encode$bool(hasHeader))
+				]));
+	});
+var $author$project$Doc$glanceTable = F2(
+	function (m, r) {
+		return A3(
+			$elm$html$Html$node,
+			'glance-table',
+			_List_fromArray(
+				[
+					A2(
+					$elm$html$Html$Attributes$property,
+					'view',
+					A2($author$project$Doc$tableView, m, r))
+				]),
+			_List_Nil);
+	});
 var $author$project$Doc$headOf = function (m) {
 	return A3(
 		$elm$core$List$foldl,
@@ -12895,7 +13062,12 @@ var $author$project$Doc$view = function (m) {
 													[
 														$elm$html$Html$text(' …')
 													])))
-										]) : inner;
+										]) : (_Utils_eq(
+										r.al,
+										$elm$core$Maybe$Just('table')) ? _List_fromArray(
+										[
+											A2($author$project$Doc$glanceTable, m, r)
+										]) : inner);
 									var signed = A2($author$project$Doc$drawer, m, r) ? A2(
 										$elm$core$List$cons,
 										A2($author$project$Doc$foldSign, m, r),

@@ -24,8 +24,8 @@ stop wearing its KIND as a `d-*` class, `.dat` at point, `.dfl` on a flag,
 
 import Array exposing (Array)
 import Browser
-import Html exposing (Html, div, span, text)
-import Html.Attributes exposing (attribute, class, style)
+import Html exposing (Html, div, node, span, text)
+import Html.Attributes exposing (attribute, class, property, style)
 import Dict exposing (Dict)
 import Json.Decode as D
 import Json.Encode as E
@@ -54,6 +54,8 @@ import Body
         , rowAt
         , rowById
         , rowsFrom
+        , tableCells
+        , isRule
         , tailId
         , shown
         , undrafted
@@ -2329,6 +2331,65 @@ foldSign m r =
     span [ class "fold" ]
         [ text (if Set.member r.id m.shut then "+" else "\u{2212}") ]
 
+{-| THE TABLE'S HOST NODE: one custom element carrying the view as a property,
+no children of its own -- the glue mounts `table-view' into it and Elm's vdom
+never fights the mount.  The composite and its leaves stay the walk's stops; only
+the DRAW moves off the aligned lines onto the renderer.
+-}
+glanceTable : Model -> Row -> Html Msg
+glanceTable m r =
+    node "glance-table" [ property "view" (tableView m r) ] []
+
+{-| The table composite's leaves AS A table-view View: columns from the header
+row (the first, when an hline follows it), data rows keyed by the LEAF ROW'S OWN
+id so a selection maps back to the walk.  Hlines are boundaries, never rows; a
+blank header carries a space so the renderer never falls back to the column key.
+-}
+tableView : Model -> Row -> E.Value
+tableView m r =
+    let
+        kids = List.filter (\k -> k.owner == Just r.id) m.rows
+        hasHeader =
+            case kids of
+                _ :: second :: _ -> isRule second.text
+                _ -> False
+        dataKids = List.filter (not << isRule << .text) kids
+        bodyKids = if hasHeader then List.drop 1 dataKids else dataKids
+        headCells =
+            if hasHeader then
+                Maybe.withDefault [] (Maybe.map (tableCells << .text) (List.head dataKids))
+            else
+                []
+        ncols =
+            Maybe.withDefault 1
+                (List.maximum (List.map (List.length << tableCells << .text) dataKids))
+        colHeader i =
+            case String.trim (Maybe.withDefault "" (nth i headCells)) of
+                "" -> " "
+                h -> h
+        column i =
+            E.object
+                [ ( "key", E.string ("c" ++ String.fromInt i) )
+                , ( "header", E.string (colHeader i) )
+                , ( "type", E.string "text" )
+                , ( "sortable", E.bool True )
+                ]
+        rowVal k =
+            let
+                cs = tableCells k.text
+                cell i = ( "c" ++ String.fromInt i, E.string (Maybe.withDefault "" (nth i cs)) )
+            in
+            E.object
+                [ ( "id", E.string k.id )
+                , ( "cells", E.object (List.map cell (List.range 0 (ncols - 1))) )
+                ]
+    in
+    E.object
+        [ ( "columns", E.list column (List.range 0 (ncols - 1)) )
+        , ( "rows", E.list rowVal bodyKids )
+        , ( "hasHeader", E.bool hasHeader )
+        ]
+
 {-| The rows a FOLD hides: everything owned, transitively, by a shut row.  An
 owner is emitted before what it owns, so one ordered pass settles the set --
 `ownersOf' per row walks the list once per row, and this runs every render.
@@ -2412,6 +2473,10 @@ view m =
                                 [ div [ class "dg" ]
                                     (opener r ++ [ text " …" ])
                                 ]
+                            else if r.name == Just "table" then
+                                -- THE RENDERER DRAWS THE TABLE inside its block;
+                                -- the composite and its leaves stay the walk's.
+                                [ glanceTable m r ]
                             else
                                 inner
                         -- A DRAWER WEARS A CLICKABLE SIGN ON ITS SPINE: one press
