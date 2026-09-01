@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Org table = a table-view mount — in the real material doc</title>
+<style>
+  /* Palette from `Theme/Default.hs', the doc geometry and `.d-*' rules from
+     `Page/Style.hs', so the mount is judged in the REAL material doc: a
+     headline, a paragraph, then an ORG TABLE drawn by the vendored table-view
+     renderer as one composite block in flow, then a second paragraph so the
+     reader can see the table take its height and the prose flow past it. */
+  :root{
+    --dk-mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --g-bg:#FFFFFF; --g-fg:#000000; --g-surface:#F8F8FF; --g-mute:#667071;
+    --g-border:#E3E6EA; --g-accent:#31769F; --g-sel:#FFD600; --g-link:#30739B;
+    --g-point:#005A8D; --g-point-off:#B9C2C6; --g-mark:#565f60;
+    --g-todo:#B54708; --g-done:#3D7A4A; --g-state-i0:#3D7A4A;
+    --g-doc-pad:6px; --g-doc-padx:10px; --g-doc-pady:8px;
+    --g-doc-fs:13px; --g-doc-lh:21px; --g-doc-off:63px;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+    --g-point:#FFC777; --g-point-off:#4A5064; --g-mark:#9aa6ac;
+    --g-todo:#FF9E64; --g-done:#7FBC85; --g-state-i0:#7FBC85;
+  }}
+  :root[data-theme="dark"]{
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+    --g-point:#FFC777; --g-point-off:#4A5064; --g-mark:#9aa6ac;
+    --g-todo:#FF9E64; --g-done:#7FBC85; --g-state-i0:#7FBC85;
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--g-bg); color:var(--g-fg);
+    font:14px/1.5 var(--dk-mono); padding:20px; box-sizing:border-box;
+    display:flex; flex-direction:column; gap:12px;
+  }
+  header{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; flex:none}
+  h1{margin:0; font-size:14px; font-weight:600}
+  header small{color:var(--g-mute)}
+  button{font:inherit; font-size:12px; color:var(--g-mute); background:var(--g-surface);
+    border:1px solid var(--g-border); border-radius:6px; padding:3px 10px; cursor:pointer}
+  footer{flex:none; color:var(--g-mute); font-size:11px; max-width:94ch}
+  kbd{font:inherit; font-size:11px; background:var(--g-surface); border:1px solid var(--g-border);
+    border-radius:4px; padding:0 5px}
+  code{color:var(--g-accent)}
+
+  /* ---- the doc pane, real geometry (Page/Style.hs) --------------------- */
+  #mdoc{
+    align-self:flex-start; width:min(620px,100%);
+    position:relative; overflow:auto;
+    padding:var(--g-doc-pady) var(--g-doc-padx);
+    padding-left:calc(var(--g-doc-padx) + 1ch);
+    font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+    border:1px solid var(--g-accent); border-radius:8px; outline:none;
+    --g-mark:color-mix(in srgb, var(--g-fg) 68%, var(--g-bg));
+  }
+  .de{position:relative; padding:1px var(--g-doc-pad); border-radius:4px;
+    white-space:pre-wrap; overflow-wrap:anywhere;
+    --ink:var(--g-point-off); --fg:var(--g-fg); --tok:var(--g-point);
+    --punc:var(--g-mute); --lnk:var(--g-link); --box:var(--g-state-i0);
+    --rail:calc(var(--g-doc-pad) + 0.5ch)}
+  .de::before{content:""; position:absolute; left:var(--rail); pointer-events:none}
+  #mdoc.on .de.dat{background-color:var(--g-sel); color:var(--g-fg)}
+  #mdoc .de.dat{--ink:var(--g-fg)}
+  /* a paragraph and the table wear a 1px bar down their rail */
+  .lvl-top:not(.d-head):not(.d-comp)::before,.lvl-top.d-table::before{
+    content:""; position:absolute; left:var(--rail); top:0; bottom:0; width:1px;
+    border-radius:1px; background:var(--ink); z-index:1}
+  #mdoc .de.dat.d-head::before{display:none}
+
+  .d-para,.d-comp{margin:7px 0; padding-left:calc(var(--g-doc-pad) + 2 * 1ch)}
+  .d-comp{white-space:normal}
+  .d-head{display:flex; align-items:baseline; font-weight:600}
+  .dc{margin-right:.6em; flex:none}
+  .dc-state{color:var(--g-todo)}
+  .dc-title{flex:1 1 auto; min-width:0; margin-right:.6em}
+  .dc-tags{color:var(--g-mute); font-size:11px; margin-left:auto; margin-right:0}
+
+  /* THE MOUNT IN FLOW.  A plain (non-inline) table-view mount fills to its
+     content — `.tv-root{max-height:100%}' over an auto-height host draws every
+     row, no scroll of its own — so the block takes its height and the prose
+     flows past it.  The renderer's own frame (border, radius, ground) is
+     suppressed here to preview the EMBEDDED look the proposal names: the table
+     sits IN the block, not in a card of its own.  Keeping the frame, the filter
+     strip and a capped window is the vendored `embedded'/`window:0' option. */
+  glance-table{display:block}
+  #mdoc .d-table .tv-root{
+    border:none; border-radius:0; background:transparent; max-height:none;
+    font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+  }
+  /* EMBEDDED drops the renderer's page furniture: no title, no persistent
+     filter box, no `N rows' hint — the strip is summoned only when asked.
+     Hiding them here previews that look; the real switch is the vendored
+     `embedded'/`window:0' option, off by default in flow. */
+  #mdoc .d-table .tv-bar,
+  #mdoc .d-table .tv-hint{display:none}
+  #mdoc .d-table .tv-dock > .tv-scroll{border-top:none}
+  /* point INSIDE the table: the block wears the sheet's ring at its rail, and
+     the renderer's own cell bands draw the (row,column) crossing on top. */
+  #mdoc.on .de.dat.d-table{background:transparent}
+  #mdoc.on .de.dat.d-table::before{background:var(--g-fg)}
+  /* the header cell the point names, and the one-line edit box laid over a cell */
+  #mdoc .d-table thead th.gt-hsel{
+    outline:2px solid var(--g-accent); outline-offset:-2px; border-radius:3px; color:var(--g-fg)}
+  #mdoc .gt-edit{
+    position:absolute; z-index:5; box-sizing:border-box; padding:0 6px; margin:0;
+    font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+    border:1px solid var(--g-accent); border-radius:3px;
+    background:var(--g-bg); color:var(--g-fg); outline:none}
+  /* a headerless table draws NO header row until the point climbs to it, when an
+     EPHEMERAL (ghosted) header appears — RET names a column and makes it real */
+  #mdoc glance-table.noheader thead{display:none}
+  #mdoc glance-table.noheader.ephemeral thead{display:table-header-group}
+  #mdoc glance-table.noheader.ephemeral thead th{
+    color:var(--g-mute); font-style:italic; background:transparent;
+    border-bottom:1px dashed var(--g-mark)}
+  /* whole-table state: mask the renderer's selection grounds (no row picked) */
+  #mdoc glance-table.gt-nosel tbody tr.tv-sel,
+  #mdoc glance-table.gt-nosel td.tv-colsel,
+  #mdoc glance-table.gt-nosel td.tv-cell-sel{background:transparent !important}
+
+  #stat{align-self:flex-start; width:min(620px,100%); box-sizing:border-box;
+    font-size:12px; color:var(--g-mute); background:var(--g-surface);
+    border:1px solid var(--g-border); border-radius:6px; padding:6px 10px;
+    display:flex; flex-direction:column; gap:2px}
+  #stat b{color:var(--g-fg); font-weight:600}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Org table · a table-view mount</h1>
+    <small>the renderer draws the composite, Elm keeps the rows — one custom element</small>
+    <button id="theme">theme</button>
+  </header>
+
+  <div id="mdoc" class="on" tabindex="0">
+    <div class="de d-head lvl-top">
+      <span class="dc dc-state">NEXT</span>
+      <span class="dc dc-title">Streets to survey this week</span>
+      <span class="dc dc-tags">:survey:plan:</span>
+    </div>
+
+    <div class="de d-para lvl-top">The block below is an org table. It is one composite stop; <kbd>f</kbd> enters it.</div>
+
+    <div class="de d-comp d-table lvl-top" id="tblock">
+      <glance-table id="gt" data-org="| Street | Owner | Ward | Note |
+|--------+-------+------+------|
+| Klarenbeekstraat | reader | North | [[glance:aa11][see the plot]] |
+| Molenweg | writer | North | corner lot |
+| Dorpsstraat | reader | South | [[glance:cc33][church end]] |
+| Kerkpad | survey | South | narrow |"></glance-table>
+    </div>
+
+    <div class="de d-para lvl-top">A second table has NO header line in the file — it shows no header at all. <kbd>p</kbd> above row 1 summons an EPHEMERAL header (ghosted); <kbd>RET</kbd> on a column names it and makes the header real.</div>
+
+    <div class="de d-comp d-table lvl-top" id="tblock2">
+      <glance-table id="gt2" data-org="| Alpha | 12 | open |
+| Beta | 7 | done |
+| Gamma | 3 | open |"></glance-table>
+    </div>
+
+    <div class="de d-para lvl-top">Prose after both tables, so their height and the flow past them are visible.</div>
+  </div>
+
+  <div id="stat">
+    <div>point: <b id="pt">—</b></div>
+    <div>event: <b id="ev">—</b></div>
+  </div>
+
+  <footer>
+    One <code>&lt;glance-table&gt;</code> custom element mounts the vendored
+    <code>table-view.js</code> in <code>connectedCallback</code> from the org
+    table text — Elm would render only this host and never its children.
+    <b>Both axes:</b> <kbd>n</kbd>/<kbd>p</kbd> rows, <kbd>f</kbd>/<kbd>b</kbd>
+    cells; <kbd>f</kbd> on the block enters row 1 cell 1, <kbd>b</kbd> at cell 1
+    climbs out. <b>Both ways:</b> those keys drive <code>tv.select(id,col)</code>;
+    a mouse click on a cell reports back through <code>getSelection()</code> (the
+    event the glue would forward as a <code>SelectCell</code> port message).
+    A <b>link</b> cell opens with <kbd>o</kbd> (<code>tableview-link</code>);
+    a click on a <b>header</b> sorts the draw and writes nothing.
+    <b>Add:</b> <kbd>+</kbd> on a ROW (no column selected — <kbd>f</kbd> once)
+    adds a row; <kbd>+</kbd> on a CELL (<kbd>f</kbd> again into a column) adds a
+    column after it. The point line says which — the row wash vs the cell
+    crossing is the affordance; <kbd>b</kbd> off a row clears its highlight (the
+    whole table, no row picked). <b>Edit:</b> <kbd>RET</kbd> on a cell edits its
+    RAW text (link syntax and all); <kbd>p</kbd> above row 1 climbs to the
+    column's HEADER and <kbd>RET</kbd> names it. A headerless table (the second
+    one) has no header until <kbd>p</kbd> summons an EPHEMERAL one — naming a
+    column makes it real. Judge both palettes with <b>theme</b>. Throwaway.
+  </footer>
+
+<script src="../../assets/table-view.js"></script>
+<script>
+(function () {
+  "use strict";
+  var pt = document.getElementById("pt"), ev = document.getElementById("ev");
+  function say(what){ ev.textContent = what; }
+
+  // ---- <glance-table>: the host that owns the mount, nothing rendered into it
+  // by Elm.  It parses the org table text to a table-view View, mounts the
+  // vendored renderer, and reports a click's landing cell as a bubbling event.
+  // The live View is kept so a column add (which the delta API does not cover)
+  // rebuilds through `setView'; a row add is a cheap `applyDelta' insert.
+  var GlanceTable = (function () {
+    function G(){ return Reflect.construct(HTMLElement, [], G); }
+    G.prototype = Object.create(HTMLElement.prototype);
+    G.prototype.constructor = G;
+
+    G.prototype.connectedCallback = function () {
+      if (this._tv) return;
+      this._view = parseOrg(this.getAttribute("data-org") || "");
+      this._rseq = this._view.rows.length;
+      this._cseq = this._view.columns.length;
+      this._hasHeader = this._view.hasHeader;
+      this.classList.toggle("noheader", !this._hasHeader);   // no header row drawn at all
+      var self = this;
+      this._tv = window.TableView.mount(this, this._view, {
+        onLink: function (target){ emit(self, { kind: "link", target: target }); }
+      });
+      // No native selection event: read the handle after the renderer's own
+      // click handler has set the cell.  The real renderer wants an `onSelect'
+      // callback (the vendored change the proposal already names).
+      this.addEventListener("click", function (e){
+        if (e.target.closest("a.tv-link") || e.target.closest("th")) return;
+        var s = self._tv.getSelection();
+        if (s.id != null) emit(self, { kind: "select", id: s.id, col: s.col });
+      });
+      // A header click sorts; there is no sort event either, so read the sort
+      // a tick later to prove the draw reordered and nothing wrote.
+      this.addEventListener("click", function (e){
+        if (!e.target.closest("th")) return;
+        setTimeout(function (){
+          var s = self._tv.getSort()[0];
+          emit(self, { kind: "sort", col: s ? s.column : "?", asc: s ? s.ascending : true });
+        }, 0);
+      });
+    };
+    G.prototype.select = function (id, col){ return this._tv.select(id, col); };
+    G.prototype.cols = function (){ return this._view.columns.length; };
+    G.prototype.ids = function (){ return this._view.rows.map(function (r){ return r.id; }); };
+    G.prototype.colKey = function (i){ return this._view.columns[i].key; };
+    G.prototype.cellText = function (id, col){
+      var r = this._view.rows.find(function (x){ return x.id === id; });
+      return r ? (r.cells[this.colKey(col)] || "") : "";
+    };
+    // + on a ROW: a new blank row after IDX (one new `item' leaf in the file).
+    G.prototype.addRowAfter = function (idx){
+      var id = "r" + (this._rseq++), cells = {};
+      this._view.columns.forEach(function (c){ cells[c.key] = ""; });
+      var row = { id: id, cells: cells };
+      this._view.rows.splice(idx + 1, 0, row);
+      this._tv.applyDelta([{ op: "insert", index: idx + 1, row: row }]);
+      return id;
+    };
+    // + on a CELL: a new blank column after COL (rewrites every row's line and
+    // the header in the file — not a one-line splice).  Columns are not
+    // delta-editable, so the whole View is put back.
+    G.prototype.addColAfter = function (col){
+      var key = "k" + (this._cseq++);
+      this._view.columns.splice(col + 1, 0, { key: key, header: " ", type: "text", sortable: true });
+      this._view.rows.forEach(function (r){ r.cells[key] = ""; });
+      this._tv.setView(this._view);
+      return col + 1;
+    };
+    // The RAW cell text (link syntax and all) — what the edit box shows.
+    G.prototype.cellRaw = function (id, col){
+      var r = this._view.rows.find(function (x){ return x.id === id; });
+      return r ? (r.cells[this.colKey(col)] || "") : "";
+    };
+    G.prototype.headerText = function (col){
+      var h = this._view.columns[col].header || "";
+      return h.trim() === "" ? "" : h;   // a blank (space) column reads as unnamed
+    };
+    G.prototype.cellEl = function (id, col){
+      var tr = this.querySelector('tbody tr[data-id="' + id + '"]');
+      return tr ? tr.querySelectorAll("td")[col] : null;
+    };
+    G.prototype.headerEl = function (col){
+      return this.querySelector('thead th[data-key="' + this.colKey(col) + '"]');
+    };
+    // A cell edit rewrites ONE row's line: redraw just that row.
+    G.prototype.setCell = function (id, col, val){
+      var r = this._view.rows.find(function (x){ return x.id === id; });
+      if (!r) return;
+      r.cells[this.colKey(col)] = val;
+      this._tv.upsertRow(r);
+    };
+    G.prototype.hasHeader = function (){ return this._hasHeader; };
+    // Show/hide the EPHEMERAL header of a headerless table (a no-op once real).
+    G.prototype.showEphemeral = function (on){
+      this.classList.toggle("ephemeral", !!on && !this._hasHeader);
+    };
+    // Naming a column rewrites the HEADER line; on a headerless table the FIRST
+    // name MATERIALIZES the header (writes the header row + hline). A blank name
+    // on an ephemeral header adds nothing — it was never real.
+    G.prototype.setHeader = function (col, val){
+      if (!this._hasHeader && val.trim() === "") return;               // ephemeral, unnamed: add nothing
+      this._view.columns[col].header = val.trim() === "" ? " " : val;  // never empty -> never the key
+      if (!this._hasHeader){ this._hasHeader = true; this.classList.remove("noheader", "ephemeral"); }
+      this._tv.setView(this._view);
+    };
+    customElements.define("glance-table", G);
+    return G;
+  })();
+
+  function emit(node, detail){
+    node.dispatchEvent(new CustomEvent("glance-cell", { bubbles: true, detail: detail }));
+  }
+
+  // ---- org table text -> table-view View ------------------------------------
+  // Cells split on `|'; the row before an hline is the header (org's own
+  // convention); dash-only rows are hlines and never become table rows.  Column
+  // keys are position-independent (`k0…') so a mid-table column add is a splice.
+  function cells(line){
+    return line.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|")
+      .map(function (c){ return c.trim(); });
+  }
+  function isHline(line){ return /^\s*\|[-+|]+\|?\s*$/.test(line); }
+  function parseOrg(text){
+    var lines = text.split("\n").filter(function (l){ return /\S/.test(l); });
+    var head = null, rows = [], i = 0;
+    if (lines[1] && isHline(lines[1])){ head = cells(lines[0]); i = 2; }
+    // No hline in the file -> no header names.  Never leave a header EMPTY:
+    // table-view falls back to the column key (`k0'…) for a blank one, so an
+    // unnamed column carries a space and reads as unnamed.
+    var columns = (head || cells(lines[0]) || []).map(function (h, k){
+      return { key: "k" + k, header: ((head ? h : "").trim()) || " ", type: "text", sortable: true };
+    });
+    for (; i < lines.length; i++){
+      if (isHline(lines[i])) continue;
+      var cs = cells(lines[i]), cellMap = {};
+      columns.forEach(function (c, k){ cellMap[c.key] = cs[k] || ""; });
+      rows.push({ id: "r" + rows.length, cells: cellMap });
+    }
+    return { columns: columns, rows: rows, hasHeader: head !== null };
+  }
+
+  // ---- the doc point: the walk the glue would run, driving tv.select --------
+  // Inside the table `col' is null for a WHOLE-ROW selection and an index for a
+  // CELL.  That state — which table-view draws distinctly (one wash vs a
+  // crossing) — is what tells `+' whether to add a row or a column.
+  // The doc is a list of blocks; a table block carries its <glance-table>.  The
+  // point is a block index plus, inside a table, (row, col) — row === -1 is the
+  // header, col === null a whole-row selection.
+  var paras = document.querySelectorAll(".d-para");
+  var blocks = [
+    { el: document.querySelector(".d-head"),  gt: null,                            name: "headline" },
+    { el: paras[0],                           gt: null,                            name: "para 1" },
+    { el: document.getElementById("tblock"),  gt: document.getElementById("gt"),   name: "table 1" },
+    { el: paras[1],                           gt: null,                            name: "para 2" },
+    { el: document.getElementById("tblock2"), gt: document.getElementById("gt2"),  name: "table 2 · headerless" },
+    { el: paras[2],                           gt: null,                            name: "para 3" }
+  ];
+  var point = { i: 1, inTable: false, row: 0, col: null };
+  var editing = false;
+  function curGt(){ return blocks[point.i].gt; }
+
+  function clearHeaders(){
+    [].forEach.call(document.querySelectorAll("#mdoc thead th.gt-hsel"),
+      function (th){ th.classList.remove("gt-hsel"); });
+  }
+  function markHeader(g, col){
+    clearHeaders();
+    if (g && col != null){ var th = g.headerEl(col); if (th) th.classList.add("gt-hsel"); }
+  }
+  function clearEphemeral(){
+    [].forEach.call(document.querySelectorAll("#mdoc glance-table.ephemeral"),
+      function (el){ el.classList.remove("ephemeral"); });
+  }
+
+  function paint(){
+    blocks.forEach(function (b){ b.el.classList.remove("dat"); });
+    blocks[point.i].el.classList.add("dat");
+    clearEphemeral();
+    var g = curGt();
+    // A table shows its selection ONLY while the point is inside it; the whole-
+    // table state (and any table left behind) masks the row wash.  A CSS mask
+    // beats table-view's own rAF repaint; the handle wants a real `select(null)'.
+    blocks.forEach(function (b){ if (b.gt) b.gt.classList.toggle("gt-nosel", !(b.gt === g && point.inTable)); });
+    if (g && point.inTable){
+      if (point.row === -1){                                   // the header of a column
+        g.showEphemeral(true);                                 // a headerless table summons its ghost header
+        markHeader(g, point.col);
+        g.select(g.ids()[0], point.col);                       // its column, faintly, under the name
+        var h = g.headerText(point.col);
+        if (g.hasHeader()){
+          pt.textContent = blocks[point.i].name + " · header c" + (point.col + 1)
+            + "   — " + (h || "(unnamed)") + "   (RET names the column)";
+        } else {
+          pt.textContent = blocks[point.i].name + " · EPHEMERAL header c" + (point.col + 1)
+            + "   — RET names it and adds the header row";
+        }
+      } else {
+        markHeader(g, null);
+        var id = g.ids()[point.row];
+        g.select(id, point.col);
+        if (point.col === null){
+          pt.textContent = blocks[point.i].name + " · r" + (point.row + 1) + " · ROW   "
+            + g.cols() + "×" + g.ids().length + "   (+ adds a row)";
+        } else {
+          pt.textContent = blocks[point.i].name + " · r" + (point.row + 1) + " c" + (point.col + 1) + " · CELL"
+            + "   — " + g.cellText(id, point.col) + "   (RET edits · + adds a column after)";
+        }
+      }
+    } else {
+      clearHeaders();
+      pt.textContent = g ? (blocks[point.i].name + " (whole) — f enters the row") : blocks[point.i].name;
+    }
+  }
+
+  // The one-line edit box: an overlay input over the target cell's rect, laid in
+  // #mdoc so a table-view redraw under it does not wipe it.  This is the shape
+  // `placeEdit' anchors for real; here it is a bare input to feel the door.
+  function openEdit(cellEl, initial, commit, label){
+    if (!cellEl) return;
+    var host = document.getElementById("mdoc");
+    var hr = host.getBoundingClientRect(), r = cellEl.getBoundingClientRect();
+    var inp = document.createElement("input");
+    inp.className = "gt-edit"; inp.value = initial;
+    inp.style.left = (r.left - hr.left + host.scrollLeft) + "px";
+    inp.style.top = (r.top - hr.top + host.scrollTop) + "px";
+    inp.style.width = r.width + "px"; inp.style.height = r.height + "px";
+    host.appendChild(inp); editing = true; inp.focus(); inp.select();
+    function close(){ editing = false; inp.remove(); host.focus(); }
+    inp.addEventListener("keydown", function (e){
+      e.stopPropagation();
+      if (e.key === "Enter"){ e.preventDefault(); commit(inp.value); close(); say(label + " → " + (inp.value || "(blank)")); paint(); }
+      else if (e.key === "Escape"){ e.preventDefault(); close(); say("edit cancelled"); }
+    });
+  }
+
+  document.getElementById("mdoc").addEventListener("keydown", function (e){
+    if (editing) return;
+    var k = e.key, g = curGt(), handled = true;
+    if (g && point.inTable){
+      var last = g.cols() - 1, header = point.row === -1;
+      if (k === "f"){
+        point.col = point.col === null ? 0 : Math.min(point.col + 1, last);
+      }
+      else if (k === "b"){
+        if (header){ point.col = Math.max(point.col - 1, 0); }   // header: columns only
+        else if (point.col === null){ point.inTable = false; }   // row -> out to the composite
+        else if (point.col === 0){ point.col = null; }           // cell 1 -> the whole row
+        else { point.col--; }
+      }
+      else if (k === "n"){
+        point.row = header ? 0 : Math.min(point.row + 1, g.ids().length - 1);
+      }
+      else if (k === "p"){
+        if (header){ point.inTable = false; }                    // above the header: out
+        else if (point.col === null){ point.row = Math.max(point.row - 1, 0); }
+        else { point.row -= 1; if (point.row < 0) point.row = -1; }  // row 1 -> the header
+      }
+      else if (k === "Enter"){
+        if (header){
+          openEdit(g.headerEl(point.col), g.headerText(point.col),
+            function (v){ g.setHeader(point.col, v); }, "named column c" + (point.col + 1));
+        } else if (point.col !== null){
+          var cid = g.ids()[point.row];
+          openEdit(g.cellEl(cid, point.col), g.cellRaw(cid, point.col),
+            function (v){ g.setCell(cid, point.col, v); }, "edited r" + (point.row + 1) + " c" + (point.col + 1));
+        } else { handled = false; }                              // RET on a whole row: nothing yet
+      }
+      else if (k === "+"){
+        if (point.col === null){
+          var id = g.addRowAfter(point.row); point.row = g.ids().indexOf(id);
+          say("+ row → r" + (point.row + 1) + "  (a new item leaf; one line spliced)");
+        } else {
+          point.col = g.addColAfter(point.col);
+          say("+ column after → c" + (point.col + 1) + "  (every row's line rewritten)");
+        }
+      }
+      else if (k === "o"){ handled = false; }   // links open via the cell only
+      else { handled = false; }
+    } else {
+      if (k === "n"){ point.i = Math.min(point.i + 1, blocks.length - 1); }
+      else if (k === "p"){ point.i = Math.max(point.i - 1, 0); }
+      else if (k === "f" && g){ point.inTable = true; point.row = 0; point.col = null; }
+      else { handled = false; }
+    }
+    if (handled){ e.preventDefault(); paint(); }
+  });
+
+  // ---- the widget's own moves reported back (both ways) ---------------------
+  document.getElementById("mdoc").addEventListener("glance-cell", function (e){
+    var d = e.detail;
+    var host = e.target instanceof Element ? e.target.closest("glance-table") : null;
+    var bi = blocks.findIndex(function (b){ return b.gt === host; });
+    if (d.kind === "select"){
+      if (bi < 0) return;
+      point.i = bi; point.inTable = true;
+      var g = curGt();
+      point.row = g.ids().indexOf(d.id); point.col = d.col == null ? null : d.col;
+      say("click → " + blocks[bi].name + " r" + (point.row + 1)
+        + (point.col === null ? " (row)" : " c" + (point.col + 1) + " (cell)"));
+      paint();
+    } else if (d.kind === "link"){
+      say("link → open " + d.target + "  (the o door)");
+    } else if (d.kind === "sort"){
+      say("sort " + d.col + (d.asc ? " ↑" : " ↓") + "  (presentation — no write)");
+    }
+  });
+
+  document.getElementById("theme").addEventListener("click", function () {
+    var r = document.documentElement, now = r.getAttribute("data-theme");
+    r.setAttribute("data-theme", now === "dark" ? "light" : "dark");
+  });
+
+  document.getElementById("mdoc").focus();
+  paint();
+})();
+</script>
+</body>
+</html>
