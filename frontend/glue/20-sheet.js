@@ -533,18 +533,11 @@
       if (r.owner) {
         const comp = drows.find((x) => x.id === r.owner);
         if (comp && comp.name === "table") {
+          // The org line construction (ragged blank row, widened row) is Elm's:
+          // the shell names the row and the column and nothing of the syntax.
           if (dcol == null) {
-            // A RAGGED blank row, not the aligned marker: a row whose content
-            // equalled its marker would read as unchanged and never write.  The
-            // draw re-aligns it and org aligns the file on its next TAB.
-            const host = el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`);
-            const ncols = (host && host.querySelectorAll("thead th").length) || 1;
-            const cur = drows.find((x) => x.id === r.id);
-            const indent = ((cur && cur.text) || "").match(/^\s*/)[0];
             dcommit = (cargo) => said(INSERT, cargo.said || "row added");
-            // `at:0' routes the join THROUGH the table (`inside') rather than
-            // PAST it (`sibling'): a table row is contiguous, not blank-wrapped.
-            dsend({ kind: "insert", id: r.id, at: 0, text: indent + "|" + " |".repeat(ncols) });
+            dsend({ kind: "addrow", id: r.id });
           } else {
             dcommit = (cargo) => said(INSERT, cargo.said || "column added");
             dsend({ kind: "addcol", id: r.id, col: dcol });
@@ -743,6 +736,9 @@
     const gtUnder = (e) => (e.target instanceof Element ? e.target.closest("#mdoc glance-table") : null);
     // The mounted table-view handle a <glance-table> host carries.
     const tvOf = (host) => (host ? /** @type {any} */ (host)._tv : null);
+    // The <glance-table> host mounted inside a table composite's block -- the
+    // composite-id -> mounted-widget DOM path, spelled once.
+    const hostFor = (compId) => el("mdoc").querySelector(`.de[data-id="${compId}"] glance-table`);
     // SELECT THE CELL POINT STANDS IN, in the mounted widget: the leaf row's
     // own id, `null' the whole row.  The widget's row ids ARE the Elm leaf ids,
     // so no lookup -- Elm's point drives the renderer's selection.
@@ -752,9 +748,7 @@
       for (const th of marks) th.classList.remove("gt-hsel");
       const r = drows[dat];
       const comp = r && r.owner && drows.find((x) => x.id === r.owner);
-      const host = comp && comp.name === "table"
-        ? el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`)
-        : null;
+      const host = comp && comp.name === "table" ? hostFor(comp.id) : null;
       // A TABLE SHOWS ITS ROW SELECTION ONLY while point stands on one of its
       // BODY cells: climbing out (or onto the header) masks the wash, so `b' off
       // a row reads as the whole table with no row picked.  A HEADERLESS table
@@ -878,11 +872,13 @@
       focus: () => el("dtext").focus(),
     };
     function openCellEdit(r, comp, col) {
-      const host = el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`);
+      const host = hostFor(comp.id);
       const tv = tvOf(host);
       if (!tv || !host) return;
-      const ncols = host.querySelectorAll("thead th").length || (col + 1);
-      const cols = Array.from({ length: ncols }, (_, i) => ({ key: "c" + i }));
+      // The columns are the view's own -- the `c<i>' key contract is Elm's, read
+      // off the property the element carries, not counted back off the DOM.
+      const view = /** @type {any} */ (host).view;
+      const cols = (view && view.columns) || [{ key: "c" + col }];
       const vr = tv.getRows().find((x) => x.id === r.id);
       const raw = vr && vr.cells ? (vr.cells["c" + col] || "") : "";
       dcell = { tv, col, cols, raw, id: r.id, th: null };
@@ -898,7 +894,7 @@
       focus: () => el("dtext").focus(),
     };
     function openHeaderEdit(r, comp, col, ephem) {
-      const host = el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`);
+      const host = hostFor(comp.id);
       if (!host) return;
       const th = host.querySelectorAll("thead th")[col];
       if (!th) return;

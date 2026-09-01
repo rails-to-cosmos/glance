@@ -60,7 +60,7 @@ import Body
         , shown
         , undrafted
         )
-import Scan exposing (Grain(..), cut, nth)
+import Scan exposing (Grain(..), cut, indentOf, indexWhere, nth)
 
 -- MODEL
 
@@ -475,6 +475,7 @@ type Msg
     | Delete (List String)
     | Edit String String
     | EditCell String Int String
+    | AddRow String
     | AddCol String Int
     | NameCol String Int String
     | Draft String (Maybe Int)
@@ -739,6 +740,22 @@ update msg model =
         -- with a blank cell after COL; hlines are separators org re-aligns, left
         -- alone.  Point lands on the new column.  Not a one-line splice: the one
         -- mutation here that touches every row's bytes, all inside the subtree.
+        -- A ROW ADD is a CONTIGUOUS one-line splice: a ragged blank row joined
+        -- THROUGH the table (`inside', caret 0) rather than PAST it (`sibling'),
+        -- so it is not blank-wrapped into a table of its own.  A row whose
+        -- content equalled its aligned marker would read unchanged and never
+        -- write, so the blank is ragged; the draw re-aligns, org on its TAB.
+        AddRow id ->
+            case Maybe.andThen (tableCompOf model) (rowById model id) of
+                Just comp ->
+                    let
+                        blank = raggedRow (indentOf (Maybe.withDefault "" (Maybe.map .text (rowById model id))))
+                                    (List.repeat (tableColCount model comp) "")
+                    in
+                    case ( insertion model id (Just 0) blank, joinLine model id (Just 0) ) of
+                        ( Just rows, line ) -> composed { model | rows = rows, landing = line }
+                        ( Nothing, _ ) -> ( model, docSaid (E.string "nothing takes a row here") )
+                Nothing -> ( model, docSaid (E.string "no table row here") )
         AddCol id col ->
             case Maybe.andThen (tableCellCompOf model) (rowById model id) of
                 Just comp ->
@@ -762,9 +779,9 @@ update msg model =
                             Just comp ->
                                 let
                                     ncols = tableColCount model comp
-                                    indent = String.left (String.length r.text - String.length (String.trimLeft r.text)) r.text
+                                    indent = indentOf r.text
                                     headCells = List.map (\i -> if i == col then name else "") (List.range 0 (ncols - 1))
-                                    headerLine = indent ++ "| " ++ String.join " | " headCells ++ " |"
+                                    headerLine = raggedRow indent headCells
                                     hline = indent ++ "|" ++ String.join "+" (List.repeat ncols "---") ++ "|"
                                     prepend row =
                                         if row.id == id then
@@ -1569,6 +1586,7 @@ msgD =
                     -- The leaf row, the column, and the raw value typed into it.
                     "editcell" -> D.map3 EditCell (D.field "id" D.string) (D.field "col" D.int) (D.field "text" D.string)
                     -- The leaf row and the column a new blank column follows.
+                    "addrow" -> D.map AddRow (D.field "id" D.string)
                     "addcol" -> D.map2 AddCol (D.field "id" D.string) (D.field "col" D.int)
                     -- Naming a column on a headerless table materializes its header.
                     "namecol" -> D.map3 NameCol (D.field "id" D.string) (D.field "col" D.int) (D.field "text" D.string)
@@ -2545,14 +2563,13 @@ the value grew -- the draw re-aligns, org on its next TAB.
 replaceCell : Int -> String -> String -> String
 replaceCell col value line =
     let
-        indent = String.left (String.length line - String.length (String.trimLeft line)) line
         flat = String.replace "\n" " " (String.trim value)
         cells = tableCells line
         n = Basics.max (col + 1) (List.length cells)
         padded = cells ++ List.repeat (n - List.length cells) ""
         replaced = List.indexedMap (\i c -> if i == col then flat else c) padded
     in
-    indent ++ "| " ++ String.join " | " replaced ++ " |"
+    raggedRow (indentOf line) replaced
 
 {-| A table row's line with a BLANK cell inserted after column COL, its cells
 `|'-joined afresh.  An hline is a separator org re-aligns and is left alone.
@@ -2563,11 +2580,18 @@ insertCol col line =
         line
     else
         let
-            indent = String.left (String.length line - String.length (String.trimLeft line)) line
             cells = List.map String.trim (tableCells line)
             widened = List.take (col + 1) cells ++ [ "" ] ++ List.drop (col + 1) cells
         in
-        indent ++ "| " ++ String.join " | " widened ++ " |"
+        raggedRow (indentOf line) widened
+
+{-| A table row's line from its trimmed CELLS, the INDENT kept: `| a | b |'.
+RAGGED where a cell grew -- the draw re-aligns and org aligns the file on TAB.
+The org pipe-table byte format is spelled here, once.
+-}
+raggedRow : String -> List String -> String
+raggedRow indent cells =
+    indent ++ "| " ++ String.join " | " cells ++ " |"
 
 {-| The table composite's leaves AS A table-view View: columns from the header
 row (the first, when an hline follows it), data rows keyed by the LEAF ROW'S OWN
@@ -2577,8 +2601,24 @@ blank header carries a space so the renderer never falls back to the column key.
 tableView : Model -> Row -> E.Value
 tableView m r =
     let
-        headCells = Maybe.withDefault [] (Maybe.map (tableCells << .text) (tableHeadRow m r))
-        ncols = tableColCount m r
+        -- ONE FILTER PASS over the doc's rows, everything derived from it:
+        -- `tableKids' walks the whole row list, so calling the per-view helpers
+        -- (head/body/count/hasHeader) apart would re-walk it five times a render.
+        kids = tableKids m r
+        dataKids = List.filter (not << isRule << .text) kids
+        hasHeader =
+            case kids of
+                _ :: second :: _ -> isRule second.text
+                _ -> False
+        bodyRows = if hasHeader then List.drop 1 dataKids else dataKids
+        headCells =
+            if hasHeader then
+                Maybe.withDefault [] (Maybe.map (tableCells << .text) (List.head dataKids))
+            else
+                []
+        ncols =
+            Maybe.withDefault 1
+                (List.maximum (List.map (List.length << tableCells << .text) dataKids))
         colHeader i =
             case String.trim (Maybe.withDefault "" (nth i headCells)) of
                 "" -> " "
@@ -2602,8 +2642,8 @@ tableView m r =
     in
     E.object
         [ ( "columns", E.list column (List.range 0 (ncols - 1)) )
-        , ( "rows", E.list rowVal (tableBodyRows m r) )
-        , ( "hasHeader", E.bool (tableHasHeader m r) )
+        , ( "rows", E.list rowVal bodyRows )
+        , ( "hasHeader", E.bool hasHeader )
         ]
 
 {-| The table composite R is a BODY LEAF of, if it is one: the row's owner is a
@@ -2666,32 +2706,28 @@ tableStep : Int -> Model -> Row -> Model
 tableStep by m comp =
     let
         rows = tableBodyRows m comp
-        idx = indexOfId (idAtRow m m.at) rows
+        here = idAtRow m m.at
+        idx = Maybe.withDefault 0 (indexWhere (\x -> x.id == here) rows)
     in
     case nth (clamp 0 (List.length rows - 1) (idx + by)) rows of
         Just target -> { m | at = placeOf m target.id }
         Nothing -> m
 
-indexOfId : String -> List Row -> Int
-indexOfId id rows =
-    let
-        go i rs =
-            case rs of
-                x :: xs -> if x.id == id then i else go (i + 1) xs
-                [] -> 0
-    in
-    go 0 rows
-
 {-| The table R is the HEADER LEAF of, if it is one.  The header is not a body
 row and so not `tableCompOf''s -- it is the column NAMES, reached by climbing.
+The `name' test short-circuits before the header walk, so an owned row of any
+non-table composite pays nothing.
 -}
 tableHeadCompOf : Model -> Row -> Maybe Row
 tableHeadCompOf m r =
     case Maybe.andThen (rowById m) r.owner of
         Just comp ->
-            case tableHeadRow m comp of
-                Just h -> if h.id == r.id then Just comp else Nothing
-                Nothing -> Nothing
+            if comp.name /= Just "table" then
+                Nothing
+            else
+                case tableHeadRow m comp of
+                    Just h -> if h.id == r.id then Just comp else Nothing
+                    Nothing -> Nothing
         Nothing -> Nothing
 
 {-| The table whose HEADER point stands on, if it does.
@@ -2711,7 +2747,7 @@ tableCellCompOf m r =
 {-| Point is in a table, on a body row OR its header -- where `col' is held.
 -}
 inTableAt : Model -> Bool
-inTableAt m = tableCompAt m /= Nothing || tableHeadAt m /= Nothing
+inTableAt m = Maybe.andThen (tableCellCompOf m) (rowAt m) /= Nothing
 
 {-| `p' ABOVE THE FIRST BODY ROW climbs to the header of the SAME column.
 -}
