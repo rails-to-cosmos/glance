@@ -656,19 +656,23 @@
     // RET does.  Point is the model's -- the click NAMES the row and the model
     // moves point there; the edit opens on the very row named, waiting on no
     // round-trip.  Clicks inside the open edit box carry no row and are ignored.
-    const clickedRow = (e) => {
-      const t = e.target;
-      const de = t instanceof Element ? t.closest("#mdoc .de") : null;
-      const id = de && de.getAttribute("data-id");
-      return id ? drows.find((x) => x.id === id) : null;
-    };
+    const deUnder = (e) => (e.target instanceof Element ? e.target.closest("#mdoc .de") : null);
+    const rowOfDe = (de) => (de ? drows.find((x) => x.id === de.getAttribute("data-id")) : null);
     el("mdoc").addEventListener("click", (e) => {
       if (edit && e.target instanceof Node && el("dpara").contains(e.target)) return;
-      const r = clickedRow(e);
-      if (r) dsend({ kind: "select", id: r.id });
+      const de = deUnder(e), r = rowOfDe(de);
+      if (!r || !de) return;
+      const dpv = e.target instanceof Element ? e.target.closest(".dpv") : null;
+      // A PLANNING VALUE names its OWN entry, not the whole line: `plan' is the
+      // value's index among the line's values, so point lands on the value.
+      if (dpv && r.entries) {
+        dsend({ kind: "select", id: r.id, plan: [...de.querySelectorAll(".dpv")].indexOf(dpv) });
+      } else {
+        dsend({ kind: "select", id: r.id });
+      }
     });
     el("mdoc").addEventListener("dblclick", (e) => {
-      const r = clickedRow(e);
+      const r = rowOfDe(deUnder(e));
       if (r) docEnter(r);
     });
     // Read off what Elm drew: a composite draws its leaves inside itself.
@@ -776,6 +780,7 @@
           rowAt: edit ? edit.row.at : null,
           drawnLead: drawn ? drawn.text : null,
           at: dat,
+          planKey: dplankey,
           echo: pill ? pill.textContent : null,
           rows: drows.map((r) => ({ id: r.id, grain: r.grain, owner: r.owner,
                                     level: r.level, text: (r.text || "").slice(0, 40) })),
@@ -2718,12 +2723,16 @@
     // ONE SPELLING for the baseline and the reading, or the two drift into dirt.
     const stamp = (props, plan) => JSON.stringify([props || [], plan || []]);
     const edited = () => stamp(dprops, dplan);
+    // An org link reads as its DESCRIPTION (or its target, description-less), the
+    // way the body draws it -- a breadcrumb shows the word, not `[[..]]'.
+    const linkText = (s) =>
+      String(s || "").replace(/\[\[([^\]]*)\](?:\[([^\]]*)\])?\]/g, (_, tgt, desc) => desc || tgt);
     function drawWhere(path) {
       const bar = el("mwhere");
       bar.textContent = "";
       path.forEach((title, i) =>
         part(bar, "span", "wc" + (i === path.length - 1 ? " wat" : ""),
-             title || "(untitled)"));
+             linkText(title) || "(untitled)"));
     }
     // Display-only: the file keeps the whole drawer, delimiters and all.
     function drawLog(text) {

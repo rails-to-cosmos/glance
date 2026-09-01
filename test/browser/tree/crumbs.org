@@ -1,0 +1,7 @@
+#+TITLE: Crumbs
+
+* A place, [[glance:ddafaac1-eefe-4b4c-8037-94a6fabb5378][Klarenbeekstraat]] linked
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-crumbs
+:END:
+The entry a breadcrumb case materializes; its title carries an org link.

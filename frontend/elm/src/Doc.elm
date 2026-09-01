@@ -431,7 +431,7 @@ elementSpan m r =
 type Msg
     = Fill Model
     | Clear
-    | Select String
+    | Select String (Maybe Int)
     | Step Int
     | Finer
     | Broader
@@ -462,7 +462,13 @@ update msg model =
         Ignore -> ( model, Cmd.none )
         Clear -> told empty
         Fill fresh -> applyFill fresh model
-        Select id -> told (reveal (landAt (placeOf model id) model))
+        Select id plan ->
+            let
+                base = landAt (placeOf model id) model
+            in
+            told (reveal (case plan of
+                Nothing -> base
+                Just i -> { base | planAt = Just i }))
         Step by ->
             -- A ROW STEP OWES ITS WORD too, so `n'/`p' echo like `f'/`b'; the
             -- programmatic walk sends this keyless and arms no `dwrote', so its
@@ -1386,7 +1392,7 @@ msgD =
                 case kind of
                     "fill" -> D.map Fill fillD
                     "clear" -> D.succeed Clear
-                    "select" -> D.map Select (D.field "id" D.string)
+                    "select" -> D.map2 Select (D.field "id" D.string) (D.maybe (D.field "plan" D.int))
                     "step" -> D.map Step (D.field "by" D.int)
                     "finer" -> D.succeed Finer
                     "broader" -> D.succeed Broader

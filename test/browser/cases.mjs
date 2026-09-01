@@ -388,6 +388,33 @@ export default [
     return [`double-click opened edit ${JSON.stringify(st.dtext)}`];
   } },
 
+// The planning line is ONE row of several values; a click on a value selects
+// THAT entry (SCHEDULED/DEADLINE/CLOSED), not the whole line, so the mouse can
+// reach one to edit.  plans.org `drv-plan' has SCHEDULED and DEADLINE.
+{ name: "a click on a planning value selects that entry, not the whole line",
+  async run(p, base) {
+    await sheet(p, base, "drv-plan");
+    await settled(p, "the plan sheet");
+    await p.click('#mdoc .dpv[data-key="DEADLINE"]');
+    await p.until(() => { const s = window["__glance"] && window["__glance"].editor(); return !!s && (s.planKey || "").toUpperCase() === "DEADLINE"; },
+                  "the click to select the deadline entry").catch(() => {});
+    const st = await p.editorState();
+    assert((st.planKey || "").toUpperCase() === "DEADLINE",
+      `a click on the deadline value did not select it; planKey=${JSON.stringify(st.planKey)}`);
+    return [`click selected planning entry ${JSON.stringify(st.planKey)}`];
+  } },
+
+{ name: "the breadcrumbs render a link as its text, not raw org syntax",
+  async run(p, base) {
+    await sheet(p, base, "drv-crumbs");
+    await settled(p, "the crumbs sheet");
+    const crumb = await p.eval(() => { const b = document.getElementById("mwhere"); return b ? b.textContent : null; });
+    assert(!/\[\[/.test(crumb || ""), `the breadcrumb shows raw link syntax: ${JSON.stringify(crumb)}`);
+    assert(/Klarenbeekstraat/.test(crumb || ""), `the breadcrumb lost the link text: ${JSON.stringify(crumb)}`);
+    return [`breadcrumb reads ${JSON.stringify(crumb)}`];
+  } },
+
+
 // cb6db85.  THE BOX GREW AND STOOD OVER THE DOCUMENT.  Where the next line
 // ENDS UP is unaskable in TestServe.hs: the node harness returns zeroed rects.
 { name: "the editor debug surface reports point, box, marker and the mirror",
