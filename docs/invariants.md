@@ -242,3 +242,19 @@ nothing catches it.
   config dir's `tags/`;** `POST /config` accepts only a path `GET /config`
   listed. `Config.hs:322`, `Routes.hs:656`, `:667`. That membership check is the
   whole path-traversal defence for `POST /config`. *fragility: low*
+
+- **A child headline is a scope boundary; body under it behaves as body at the
+  root.** Every editor operation on a paragraph or list item below a child
+  headline acts within the child's own scope, exactly as the same operation acts
+  at the entry root — a walk up the owner chain to name a row's container or its
+  fold target stops BELOW the child and never crosses it. `Body.outermost`
+  filters `Child` owners so `sibling`/`inside` find the item's own list rather
+  than the child, and `Doc.foldTarget` filters them so TAB on nested body folds
+  nothing rather than the whole child. `Body.elm:721`, `Body.elm:620`,
+  `Doc.elm:1066`. Pinned by the paired root/nested browser cases over `pairs.org`
+  (`cases.mjs:399` — `+`, RET, `d`, TAB, SPC), each asserting the nested outcome
+  equals the root's. A walker that climbs to the TOPMOST owner instead reaches
+  past the boundary: `+` on a nested list item drew a dash-less unindented row
+  and TAB on it folded the enclosing child — content under a child diverging
+  from identical content at the root, only the paired half going red.
+  *fragility: high*

@@ -1,0 +1,17 @@
+#+TITLE: Pairs
+#+TODO: TODO NEXT | DONE CANCELLED
+
+* Paired root and nested content, one entry                  :driver:pairs:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-pairs
+:END:
+A paragraph the entry owns.
+
+- a plain root item
+- [ ] a root box the reader has not ticked
+
+** A child whose body mirrors the root                              :kid:
+A paragraph the child owns.
+
+- a plain nested item
+- [ ] a nested box the reader has not ticked

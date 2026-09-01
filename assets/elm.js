@@ -10727,6 +10727,19 @@ var $author$project$Doc$finer = function (m) {
 };
 var $author$project$Doc$foldTarget = function (m) {
 	var here = A2($author$project$Doc$idAtRow, m, m.aG);
+	var ups = A2(
+		$elm$core$List$filter,
+		function (o) {
+			return !_Utils_eq(
+				A2(
+					$elm$core$Maybe$map,
+					function ($) {
+						return $.j;
+					},
+					A2($author$project$Body$rowById, m, o)),
+				$elm$core$Maybe$Just(2));
+		},
+		A2($author$project$Body$ownersOf, m, here));
 	return $elm$core$List$head(
 		A2(
 			$elm$core$List$filter,
@@ -10734,10 +10747,7 @@ var $author$project$Doc$foldTarget = function (m) {
 			A2(
 				$elm$core$List$filterMap,
 				$author$project$Body$rowById(m),
-				A2(
-					$elm$core$List$cons,
-					here,
-					A2($author$project$Body$ownersOf, m, here)))));
+				A2($elm$core$List$cons, here, ups))));
 };
 var $author$project$Body$insertion = F4(
 	function (m, id, caret, text) {

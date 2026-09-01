@@ -1057,16 +1057,21 @@ landAt : Int -> Model -> Model
 landAt i m =
     { m | at = i, planAt = Nothing }
 
-{-| The nearest foldable stop at or above point.
+{-| The nearest foldable stop at or above point.  A CHILD HEADLINE IS A SCOPE
+BOUNDARY the climb stops below: TAB on a child folds it (`here' is kept), but TAB
+on the body under one folds nothing rather than reaching past the boundary to
+fold the whole child -- exactly as TAB on body at the root reaches no headline to
+fold.  The same class `Body.outermost' was fixed for.
 -}
 foldTarget : Model -> Maybe Row
 foldTarget m =
     let
         here = idAtRow m m.at
+        ups = List.filter (\o -> Maybe.map .kind (rowById m o) /= Just Child) (ownersOf m here)
     in
     List.head
         (List.filter (foldable m)
-            (List.filterMap (rowById m) (here :: ownersOf m here))
+            (List.filterMap (rowById m) (here :: ups))
         )
 
 {-| A meta row's text read back into its list: the planning line by its

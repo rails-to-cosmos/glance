@@ -395,6 +395,153 @@ export default [
     return [`nested list item drafts with marker ${JSON.stringify(st.drawnLead)}`];
   } },
 
+// ===================================================================
+// PAIRED ROOT/NESTED REGRESSION over `pairs.org' (`drv-pairs'): one entry
+// carrying a top-level list (a plain item `B2', a `- [ ]' box `B3') and a child
+// `** ' (`C0') whose body carries the SAME shape (plain item `C0:B2', box
+// `C0:B3').  THE INVARIANT: body content under a child headline behaves EXACTLY
+// as content at the root, within the child's own scope -- so every editor
+// operation is run at a ROOT item and at the MATCHING NESTED one, and the two
+// outcomes are asserted equivalent.  A child-boundary divergence (an owner-chain
+// walker that climbs past the child, the class `Body.outermost' was fixed for)
+// turns the paired case red rather than passing silently.  Each half reopens a
+// fresh sheet, so a mutating op at the root cannot perturb the nested half.
+{ name: "+ on a list item draws the same bullet at the root and under a child",
+  async run(p, base) {
+    // `+' drafts a sibling wearing the list's own bullet (`Body.sibling' ->
+    // `outermost').  Under a child the owner chain runs item -> list -> CHILD;
+    // the walk must stop at the list so the nested item drafts with the "- " a
+    // root item does, not the empty marker the past-the-container branch gives.
+    const leadAt = async (text) => {
+      await sheet(p, base, "drv-pairs");
+      await walkToText(p, text, `the item "${text}"`);
+      await settled(p, "the mirror before +");
+      await p.press("+");
+      await p.until(() => !!document.querySelector("#dpara.on"), "the draft to open");
+      return (await p.editorState()).drawnLead || "";
+    };
+    const root = await leadAt("a plain root item");
+    const nested = await leadAt("a plain nested item");
+    assert(root.trim() !== "" && root.trimStart().startsWith("-"),
+      `the root item drew no bullet: ${JSON.stringify(root)}`);
+    assert(nested === root,
+      `nested drafted ${JSON.stringify(nested)}, root drafted ${JSON.stringify(root)}`);
+    return [`+ drafts ${JSON.stringify(root)} at the root and the child alike`];
+  } },
+
+{ name: "RET edits a list item's text the same at the root and under a child",
+  async run(p, base) {
+    // Opening an item, appending to it and committing rewrites its own line
+    // through the same splice (`Edit' -> `narrowed' -> `bodyText'), the item's
+    // OWN extent (`ownEnd') the same whether it sits at the root or under a child.
+    const editAt = async (text) => {
+      await sheet(p, base, "drv-pairs");
+      await walkToText(p, text, `the item "${text}"`);
+      await settled(p, "the mirror before RET");
+      await p.press("RET");
+      await editUp(p, "the item's edit box");
+      const now = await p.eval(() => document.getElementById("dtext").value);
+      await p.eval((v) => { document.getElementById("dtext").value = v; }, now + " edited");
+      await p.press("RET");
+      await p.until((t) => [...document.querySelectorAll("#mdoc .d-item > .dp")]
+          .some((l) => l.textContent.includes(t) && l.textContent.includes("edited")),
+        `"${text} edited" to reach the pane`, 15000, text);
+      return true;
+    };
+    await editAt("a plain root item");
+    const nested = await editAt("a plain nested item");
+    assert(nested, "the nested item never took the edit");
+    return ["RET appends and commits equivalently at the root and under the child"];
+  } },
+
+{ name: "SPC ticks a checkbox item the same at the root and under a child",
+  async run(p, base) {
+    // A leaf box toggles through the same `Edit' the shell rewrites its marker
+    // with (`toggleCheckbox').  Point on the box at the root or under a child:
+    // the box flips to `[X]' and the door echoes `[X]' either way.
+    const tickAt = async (text) => {
+      await sheet(p, base, "drv-pairs");
+      await walkToText(p, text, `the box "${text}"`);
+      await settled(p, "the mirror before SPC");
+      await p.press("SPC");
+      await p.until((t) => {
+        const box = [...document.querySelectorAll("#mdoc .d-item")].find((e) => {
+          const l = e.querySelector(":scope > .dp");
+          return l && l.textContent.includes(t);
+        });
+        const l = box && box.querySelector(":scope > .dp");
+        const bx = l && l.querySelector(":scope > .dbx");
+        return !!bx && bx.classList.contains("on");
+      }, `the box "${text}" to flip on`, 12000, text);
+      return p.eval(() => document.getElementById("echo").textContent);
+    };
+    const root = await tickAt("a root box the reader has not ticked");
+    const nested = await tickAt("a nested box the reader has not ticked");
+    assert(/\[X\]/.test(root), `the root tick echoed ${JSON.stringify(root)}`);
+    assert(/\[X\]/.test(nested), `the nested tick echoed ${JSON.stringify(nested)}`);
+    return [`SPC flips the box to [X] at the root and the child, echoing `
+      + `${JSON.stringify(root)} / ${JSON.stringify(nested)}`];
+  } },
+
+{ name: "TAB on a list item folds nothing, at the root and under a child alike",
+  async run(p, base) {
+    // TAB climbs to the nearest foldable stop AT OR ABOVE point (`Doc.foldTarget').
+    // A list and its items fold nothing, so at the root TAB on an item says so.
+    // Under a child the owner chain runs item -> list -> CHILD, and the climb
+    // must STOP at the child boundary -- else TAB on a nested item folds a whole
+    // subtree a root item never could.  This is the `outermost' bug class in
+    // `foldTarget': the paired echo goes red on the divergence.
+    const foldAt = async (text) => {
+      await sheet(p, base, "drv-pairs");
+      await walkToText(p, text, `the item "${text}"`);
+      await settled(p, "the mirror before TAB");
+      const before = await p.eval(() => document.getElementById("echo").textContent);
+      await p.press("TAB");
+      await p.until((b) => document.getElementById("echo").textContent !== b,
+        "TAB to answer", undefined, before);
+      return p.eval(() => document.getElementById("echo").textContent);
+    };
+    const root = await foldAt("a plain root item");
+    const nested = await foldAt("a plain nested item");
+    assert(/nothing folds here/.test(root),
+      `TAB on the root item said ${JSON.stringify(root)}`);
+    assert(/nothing folds here/.test(nested),
+      `TAB on the nested item reached past the child boundary: ${JSON.stringify(nested)}`);
+    return [`TAB folds nothing on an item at the root and under the child alike`];
+  } },
+
+{ name: "d deletes a list item and lands on its box sibling, at root and child",
+  async run(p, base) {
+    // Deleting the plain item drops it and lands point on the next sibling in the
+    // SAME list -- the checkbox item -- whether the list is at the root or under a
+    // child (`applyDelete' -> `landingAfter', scoped by shared owner).
+    const deleteAt = async (text) => {
+      await sheet(p, base, "drv-pairs");
+      await walkToText(p, text, `the item "${text}"`);
+      await settled(p, "the mirror before the delete");
+      await p.press("d");                                 // flag it
+      await p.until(() => !!document.querySelector("#mdoc .de.dfl"), "the flag to land");
+      await p.press("d");                                 // d again deletes
+      await p.until((t) => ![...document.querySelectorAll("#mdoc .d-item > .dp")]
+          .some((l) => l.textContent.includes(t)),
+        `the item "${text}" to leave the pane`, 15000, text);
+      return p.eval(() => {
+        const at = document.querySelector("#mdoc .de.dat");
+        const l = at && at.querySelector(":scope > .dp");
+        return { id: at ? at.dataset.id : null,
+                 text: l ? l.textContent : (at ? at.textContent : null) };
+      });
+    };
+    const root = await deleteAt("a plain root item");
+    const nested = await deleteAt("a plain nested item");
+    assert(/box the reader has not ticked/.test(root.text || ""),
+      `deleting the root item landed on ${JSON.stringify(root)}`);
+    assert(/box the reader has not ticked/.test(nested.text || ""),
+      `deleting the nested item landed on ${JSON.stringify(nested)}`);
+    return [`delete lands on the box sibling at the root and under the child alike`];
+  } },
+// ===================================================================
+
 { name: "an open edit moves the line under it down, never covers it",
   async run(p, base) {
     await sheet(p, base, "drv-box");
