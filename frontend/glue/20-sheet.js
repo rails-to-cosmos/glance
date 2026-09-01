@@ -8,7 +8,12 @@
     if (window.customElements && !customElements.get("glance-table")) {
       class GlanceTable extends HTMLElement {
         constructor() { super(); this._view = null; this._tv = null; }
-        set view(v) { this._view = v; if (this._tv) this._tv.setView(v); else this._mount(); }
+        set view(v) {
+          this._view = v;
+          // A HEADERLESS table draws NO header until an ephemeral one is summoned.
+          this.classList.toggle("noheader", !(v && v.hasHeader));
+          if (this._tv) this._tv.setView(v); else this._mount();
+        }
         get view() { return this._view; }
         connectedCallback() { this._mount(); }
         disconnectedCallback() { if (this._tv) { this._tv.destroy(); this._tv = null; } }
@@ -51,6 +56,8 @@
     let dcol = null;
     // POINT IS ON A COLUMN HEADER: RET names it rather than editing a cell.
     let dhead = false;
+    // POINT IS ON A HEADERLESS TABLE'S EPHEMERAL HEADER: RET materializes it.
+    let dephem = false;
     // A DRAFT WHOSE `%?' STOOD IN THE BODY still owes its editor: the row that
     // line became lands a macrotask behind the fill, so the open waits for it.
     // ONE SHOT — the next fill is somebody else's document.
@@ -82,6 +89,7 @@
         dplankey = now.planKey || null;
         dcol = (now.col === undefined ? null : now.col);
         dhead = !!now.head;
+        dephem = !!now.ephem;
         // Elm pushes a port BEFORE it paints, so these are read a turn later.
         soon(() => {
           seedInsert(now.caret); keepInView(docElAt()); placeEdit(); reselectDate();
@@ -237,8 +245,9 @@
       if (r.owner) {
         const comp = drows.find((x) => x.id === r.owner);
         if (comp && comp.name === "table") {
-          if (dcol == null) { echo(`RET → f takes a ${dhead ? "column" : "cell"}`); return; }
-          if (dhead) openHeaderEdit(r, comp, dcol);
+          if (dcol == null) { echo(`RET → f takes a ${dhead || dephem ? "column" : "cell"}`); return; }
+          if (dephem) openHeaderEdit(r, comp, dcol, true);
+          else if (dhead) openHeaderEdit(r, comp, dcol, false);
           else openCellEdit(r, comp, dcol);
           return;
         }
@@ -748,15 +757,18 @@
         : null;
       // A TABLE SHOWS ITS ROW SELECTION ONLY while point stands on one of its
       // BODY cells: climbing out (or onto the header) masks the wash, so `b' off
-      // a row reads as the whole table with no row picked.  The CSS mask beats
-      // the renderer's own repaint.
+      // a row reads as the whole table with no row picked.  A HEADERLESS table
+      // SUMMONS its ghost header only while point is on the ephemeral one.
+      const onHead = dhead || dephem;
       for (const g of document.querySelectorAll("#mdoc glance-table")) {
-        g.classList.toggle("gt-nosel", g !== host || dhead);
+        g.classList.toggle("gt-nosel", g !== host || onHead);
+        g.classList.toggle("ephemeral", dephem && g === host);
       }
       const tv = tvOf(host);
       if (!tv || !host) return;
-      // ON THE HEADER, mark the column's th; on a body row, select the cell.
-      if (dhead) {
+      // ON THE HEADER (real or ephemeral), mark the column's th; on a body row,
+      // select the cell.
+      if (onHead) {
         if (dcol != null) {
           const th = host.querySelectorAll("thead th")[dcol];
           if (th) th.classList.add("gt-hsel");
@@ -885,12 +897,14 @@
       fill: () => { el("dtext").value = dcell ? dcell.raw : ""; sizeDocEdit(); },
       focus: () => el("dtext").focus(),
     };
-    function openHeaderEdit(r, comp, col) {
+    function openHeaderEdit(r, comp, col, ephem) {
       const host = el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`);
       if (!host) return;
       const th = host.querySelectorAll("thead th")[col];
       if (!th) return;
-      dcell = { tv: tvOf(host), col, cols: null, raw: th.textContent.trim(), id: r.id, th };
+      // The ephemeral header has no name yet; a real one opens on its current name.
+      dcell = { tv: tvOf(host), col, cols: null,
+                raw: ephem ? "" : th.textContent.trim(), id: r.id, th, ephem: !!ephem };
       openEdit(DHEAD, r);
     }
     // A PAIR IS TWO FIELDS OVER ONE ROW: `block', so the box is the row's own
@@ -2068,6 +2082,14 @@
         const c = dcell;
         shutEdit(edit.o);
         dcell = null;
+        // AN EPHEMERAL HEADER: naming a column MATERIALIZES the header (writes
+        // the header line and its hline); a blank name adds nothing.
+        if (c && c.ephem) {
+          if (!text.trim()) { spoke("nothing named"); return; }
+          dcommit = (cargo) => spoke(cargo.said || "header added");
+          dsend({ kind: "namecol", id: c.id, col: c.col, text });
+          return;
+        }
         if (!c || text === c.raw) { spoke(head ? "column unchanged" : "cell unchanged"); return; }
         dcommit = (cargo) => spoke(cargo.said || (head ? "column named" : "cell written"));
         dsend({ kind: "editcell", id: c.id, col: c.col, text });

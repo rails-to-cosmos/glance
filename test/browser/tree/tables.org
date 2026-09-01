@@ -19,3 +19,15 @@ Prose after the table.
 :ORG_GLANCE_ID: drv-plot
 :END:
 The entry a table's link cell materializes when it opens.
+
+* NEXT A table with no header line                                  :survey:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-noheader
+:END:
+The table below has no header line; its header is summoned on demand.
+
+| Alpha | 12 | open |
+| Beta  | 7  | done |
+| Gamma | 3  | open |
+
+Prose after the headerless table.

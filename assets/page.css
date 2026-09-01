@@ -686,6 +686,24 @@ code {
     background: transparent !important;
 }
 
+/* A HEADERLESS table draws no header until the point climbs to it, when an */
+/* EPHEMERAL (ghosted, dashed) header appears -- RET names a column, making it */
+/* real. */
+#mdoc glance-table.noheader thead {
+    display: none;
+}
+
+#mdoc glance-table.noheader.ephemeral thead {
+    display: table-header-group;
+}
+
+#mdoc glance-table.noheader.ephemeral thead th {
+    color: var(--g-mute);
+    font-style: italic;
+    background: transparent;
+    border-bottom: 1px dashed var(--g-mark);
+}
+
 /* THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink; */
 /* ITS COLONS ARE PUNCTUATION -- dimmed, the leading one HANGING into the */
 /* gutter so the token lines up on its letter. */

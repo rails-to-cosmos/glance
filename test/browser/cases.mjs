@@ -4955,4 +4955,56 @@ export default [
       `the table is ${shape.rows}x${shape.cols}, not 4x4`);
     return [`+ grew the table to ${shape.rows} rows and ${shape.cols} columns`];
   } },
+
+// PHASE 5.  A headerless table shows no header until p summons an EPHEMERAL one;
+// naming a column materializes it -- the header line and its hline are written.
+{ name: "a headerless table summons an ephemeral header that RET makes real",
+  async run(p, base) {
+    await sheet(p, base, "drv-noheader");
+    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+      "the headerless table to mount");
+    const start = await p.eval(() => {
+      const g = document.querySelector("#mdoc glance-table");
+      return { noheader: g.classList.contains("noheader"),
+               theadShown: getComputedStyle(g.querySelector("thead")).display !== "none" };
+    });
+    assert(start.noheader, "the headerless table did not carry the noheader class");
+    assert(!start.theadShown, "the headerless table showed a header before it was summoned");
+    const id = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((x) => x.textContent.includes("Alpha")).dataset.id);
+    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
+    await p.until((w) => docAtNow() === w, "point on the first cell", undefined, id);
+    await p.until(() => {
+      const tv = document.querySelector("#mdoc glance-table")._tv;
+      return tv && tv.getSelection().col === 0;
+    }, "a column selected");
+    await p.press("p"); // summon the ephemeral header
+    await p.until(() => document.querySelector("#mdoc glance-table").classList.contains("ephemeral"),
+      "the ephemeral header to be summoned");
+    await p.press("RET");
+    await p.until(() => {
+      const b = document.getElementById("dpara");
+      return b && b.className.includes("on");
+    }, "the ephemeral header name box to open");
+    const opened = await p.eval(() => document.getElementById("dtext").value);
+    assert(opened === "", `the ephemeral header box opened on ${JSON.stringify(opened)}, not empty`);
+    await p.eval(() => {
+      const t = document.getElementById("dtext");
+      t.value = "Item"; t.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await p.press("RET"); // name -> materialize the header
+    await p.until(() => {
+      const g = document.querySelector("#mdoc glance-table");
+      const th = g && g.querySelector("thead th");
+      return g && !g.classList.contains("noheader") && th && th.textContent.trim() === "Item";
+    }, "the ephemeral header to materialize into a real one named Item");
+    const head = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table thead th")].map((th) => th.textContent.trim()));
+    const rows = await p.eval(() =>
+      document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length);
+    assert(head[0] === "Item", `the materialized header reads ${JSON.stringify(head[0])}, not "Item"`);
+    assert(rows === 3, `materializing the header changed the data rows to ${rows}, not 3`);
+    return [`a headerless table's ephemeral header materialized as [${head.join(", ")}] over ${rows} rows`];
+  } },
 ];

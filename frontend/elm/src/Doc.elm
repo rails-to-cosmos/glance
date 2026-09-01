@@ -87,6 +87,13 @@ type alias Model =
     -- The table's own within-row axis, the planning line's `planAt' for cells:
     -- it stands only while point is on a table body leaf, held by `settled'.
     , col : Maybe Int
+
+    -- POINT IS ON THE EPHEMERAL HEADER of a HEADERLESS table: summoned by `p'
+    -- above the first body row, it has no row of its own (point rests on that
+    -- first body row) and is gone the moment the walk leaves.  `RET' names a
+    -- column here and MATERIALIZES the header -- writes the header line and its
+    -- hline -- after which the header is real and this flag never sets again.
+    , ephemHead : Bool
     , flags : List String
     , links : List Link
     , spanAt : Maybe Int
@@ -142,6 +149,7 @@ empty =
     , at = 0
     , planAt = Nothing
     , col = Nothing
+    , ephemHead = False
     , flags = []
     , links = []
     , spanAt = Nothing
@@ -468,6 +476,7 @@ type Msg
     | Edit String String
     | EditCell String Int String
     | AddCol String Int
+    | NameCol String Int String
     | Draft String (Maybe Int)
     | Insert String (Maybe Int) String
     | Undraft String
@@ -509,24 +518,39 @@ update msg model =
             -- programmatic walk sends this keyless and arms no `dwrote', so its
             -- `docSaid' lands on nothing.  INSIDE A TABLE, `n'/`p' step data rows,
             -- hlines skipped, and keep the column.
-            case tableCompAt model of
-                Just comp ->
-                    -- `p' OFF THE FIRST BODY CELL climbs to the column's header;
-                    -- otherwise step the data rows.
-                    if by < 0 && atFirstBody model comp && model.col /= Nothing then
-                        spoke (toHeader model comp)
-                    else
-                        spoke ( tableStep by model comp, if by > 0 then "next-row" else "previous-row" )
-                Nothing ->
-                    case tableHeadAt model of
-                        Just comp ->
-                            -- `n' BACK DOWN to the first body row, `p' out of the table.
-                            if by > 0 then
-                                spoke (toFirstBody model comp)
+            if model.ephemHead then
+                -- ON THE EPHEMERAL HEADER (point rests on the first body row):
+                -- `n' drops back to that row, `p' climbs out of the table.
+                case tableCompAt model of
+                    Just comp ->
+                        if by > 0 then
+                            spoke ( { model | ephemHead = False }, "next-row" )
+                        else
+                            spoke ( { model | at = placeOf model comp.id, col = Nothing, ephemHead = False }, "previous-row" )
+                    Nothing -> spoke ( { model | ephemHead = False }, "previous-row" )
+            else
+                case tableCompAt model of
+                    Just comp ->
+                        -- `p' OFF THE FIRST BODY CELL climbs to the column's header
+                        -- -- a real one, or an ephemeral one where the file gave
+                        -- none; otherwise step the data rows.
+                        if by < 0 && atFirstBody model comp && model.col /= Nothing then
+                            if tableHasHeader model comp then
+                                spoke (toHeader model comp)
                             else
-                                spoke ( { model | at = placeOf model comp.id, col = Nothing }, "previous-row" )
-                        Nothing ->
-                            spoke ( step by model, if by > 0 then "next-row" else "previous-row" )
+                                spoke ( { model | ephemHead = True }, "grain-broader (the header)" )
+                        else
+                            spoke ( tableStep by model comp, if by > 0 then "next-row" else "previous-row" )
+                    Nothing ->
+                        case tableHeadAt model of
+                            Just comp ->
+                                -- `n' BACK DOWN to the first body row, `p' out.
+                                if by > 0 then
+                                    spoke (toFirstBody model comp)
+                                else
+                                    spoke ( { model | at = placeOf model comp.id, col = Nothing }, "previous-row" )
+                            Nothing ->
+                                spoke ( step by model, if by > 0 then "next-row" else "previous-row" )
         Finer ->
             -- `f' INTO A FOLDED DRAWER OPENS IT: a step into what is hidden shows it.
             let
@@ -559,12 +583,16 @@ update msg model =
             -- `b' retraces a held `f' step for step back up the graph.  INSIDE A
             -- TABLE `b' unwinds the cell axis instead -- cell, whole row, out.
             -- The old broader-grain climb to the owner is `B' (`Climb') below.
-            case tableCompAt model of
-                Just comp -> spoke (tableBroader model comp)
-                Nothing ->
-                    case tableHeadAt model of
-                        Just _ -> spoke (tableHeadBroader model)
-                        Nothing -> spoke ( nextVisible -1 model, "grain-broader" )
+            if model.ephemHead then
+                -- ON THE EPHEMERAL HEADER `b' moves columns only, the first holds.
+                spoke (tableHeadBroader model)
+            else
+                case tableCompAt model of
+                    Just comp -> spoke (tableBroader model comp)
+                    Nothing ->
+                        case tableHeadAt model of
+                            Just _ -> spoke (tableHeadBroader model)
+                            Nothing -> spoke ( nextVisible -1 model, "grain-broader" )
         Climb ->
             -- `B' CLIMBS THE GRAIN: one press to the owner, the headline over a
             -- body, the way `b' used to before it became `f' reversed.  Lowercase
@@ -720,6 +748,33 @@ update msg model =
                     in
                     composed { model | rows = List.map widen model.rows, col = Just (col + 1) }
                 Nothing -> ( model, docSaid (E.string "no table column to add here") )
+        -- NAMING A COLUMN ON A HEADERLESS TABLE MATERIALIZES the header: the
+        -- header line (the name in its column) and an hline are PREPENDED to the
+        -- first body row, so on the reload the table is headered.  A blank name
+        -- adds nothing.
+        NameCol id col value ->
+            case ( rowById model id, String.trim value ) of
+                ( Just r, name ) ->
+                    if name == "" then
+                        ( { model | ephemHead = False }, docSaid (E.string "nothing named") )
+                    else
+                        case tableCompOf model r of
+                            Just comp ->
+                                let
+                                    ncols = tableColCount model comp
+                                    indent = String.left (String.length r.text - String.length (String.trimLeft r.text)) r.text
+                                    headCells = List.map (\i -> if i == col then name else "") (List.range 0 (ncols - 1))
+                                    headerLine = indent ++ "| " ++ String.join " | " headCells ++ " |"
+                                    hline = indent ++ "|" ++ String.join "+" (List.repeat ncols "---") ++ "|"
+                                    prepend row =
+                                        if row.id == id then
+                                            { row | text = headerLine ++ "\n" ++ hline ++ "\n" ++ row.text }
+                                        else
+                                            row
+                                in
+                                composed { model | rows = List.map prepend model.rows, ephemHead = False }
+                            Nothing -> ( { model | ephemHead = False }, docSaid (E.string "no headerless table here") )
+                ( Nothing, _ ) -> ( { model | ephemHead = False }, docSaid (E.string "no row here") )
         -- `+' DRAWS THE PARAGRAPH BEFORE IT IS WRITTEN, so the reader fills a line
         -- of their own.  The row is zero-width, which `bodyText' passes over.
         Draft id caret ->
@@ -1042,8 +1097,9 @@ settled m =
     let
         keptPlan = if idAtRow m m.at == Body.planId then m.planAt else Nothing
         keptCol = if inTableAt m then m.col else Nothing
+        keptEphem = m.ephemHead && headerlessFirst m /= Nothing
     in
-    snapVisible { m | planAt = keptPlan, col = keptCol }
+    snapVisible { m | planAt = keptPlan, col = keptCol, ephemHead = keptEphem }
 
 told : Model -> ( Model, Cmd Msg )
 told model =
@@ -1134,7 +1190,7 @@ where `settled' has nothing to drop and the walk must still start over.
 -}
 landAt : Int -> Model -> Model
 landAt i m =
-    { m | at = i, planAt = Nothing, col = Nothing }
+    { m | at = i, planAt = Nothing, col = Nothing, ephemHead = False }
 
 {-| The nearest foldable stop at or above point.  A CHILD HEADLINE IS A SCOPE
 BOUNDARY the climb stops below: TAB on a child folds it (`here' is kept), but TAB
@@ -1323,6 +1379,10 @@ stateJSON m =
         -- POINT IS ON A COLUMN HEADER: what RET names rather than edits, and the
         -- one place a headerless table's ephemeral header is summoned.
         , ( "head", E.bool (tableHeadAt m /= Nothing) )
+
+        -- POINT IS ON A HEADERLESS TABLE'S EPHEMERAL HEADER: the shell reveals
+        -- the ghost header and RET here MATERIALIZES it.
+        , ( "ephem", E.bool m.ephemHead )
         , ( "flags", E.list E.string m.flags )
         , ( "lines", E.int (List.length m.lines) )
 
@@ -1510,6 +1570,8 @@ msgD =
                     "editcell" -> D.map3 EditCell (D.field "id" D.string) (D.field "col" D.int) (D.field "text" D.string)
                     -- The leaf row and the column a new blank column follows.
                     "addcol" -> D.map2 AddCol (D.field "id" D.string) (D.field "col" D.int)
+                    -- Naming a column on a headerless table materializes its header.
+                    "namecol" -> D.map3 NameCol (D.field "id" D.string) (D.field "col" D.int) (D.field "text" D.string)
                     "insert" ->
                         D.map3 Insert
                             (D.field "id" D.string)
@@ -2674,6 +2736,16 @@ atFirstBody m comp =
     case List.head (tableBodyRows m comp) of
         Just first -> idAtRow m m.at == first.id
         Nothing -> False
+
+{-| The HEADERLESS table point stands on the first body row of, if it does --
+where `p' summons an ephemeral header rather than climbing to a real one.
+-}
+headerlessFirst : Model -> Maybe Row
+headerlessFirst m =
+    case tableCompAt m of
+        Just comp ->
+            if not (tableHasHeader m comp) && atFirstBody m comp then Just comp else Nothing
+        Nothing -> Nothing
 
 {-| `b' IN THE HEADER moves columns only: the first column holds, and `p' is the
 one way out.
