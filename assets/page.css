@@ -680,6 +680,12 @@ code {
     color: var(--g-fg);
 }
 
+/* THE WHOLE-TABLE STATE picks no row: `b' off a row masks the renderer's own */
+/* selection wash, so climbing out reads as the table with nothing selected. */
+#mdoc glance-table.gt-nosel tbody tr.tv-sel,#mdoc glance-table.gt-nosel td.tv-colsel,#mdoc glance-table.gt-nosel td.tv-cell-sel {
+    background: transparent !important;
+}
+
 /* THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink; */
 /* ITS COLONS ARE PUNCTUATION -- dimmed, the leading one HANGING into the */
 /* gutter so the token lines up on its letter. */

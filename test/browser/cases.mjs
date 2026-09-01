@@ -4877,4 +4877,39 @@ export default [
       `renaming the column changed a data cell to ${JSON.stringify(first)}`);
     return [`p climbed to the header and RET renamed the column: [${head.join(", ")}]`];
   } },
+
+// PHASE 3c.  b off a row leaves the whole table with no row picked; a link cell
+// opens through the doc's own door.
+{ name: "b off a table row clears the row highlight",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+      "the table to mount");
+    const id = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((x) => x.textContent.includes("Molenweg")).dataset.id);
+    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
+    await p.until((w) => docAtNow() === w, "point in the table", undefined, id);
+    await p.until(() => !document.querySelector("#mdoc glance-table").classList.contains("gt-nosel"),
+      "the table under point to show its selection");
+    await p.press("b"); // cell 0 -> whole row
+    await p.press("b"); // whole row -> climb out of the table
+    await p.until((w) => docAtNow() !== w, "point to climb out of the table", undefined, id);
+    await p.until(() => document.querySelector("#mdoc glance-table").classList.contains("gt-nosel"),
+      "the table to mask its row wash once point climbed out");
+    return ["b off the row climbed out and the row wash cleared"];
+  } },
+
+{ name: "a click on a table link cell materializes its target",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    await p.until(() => !!document.querySelector("#mdoc glance-table a.tv-link"),
+      "the link cell to render");
+    await p.click("#mdoc glance-table a.tv-link");
+    await p.until(() => {
+      const doc = document.getElementById("mdoc");
+      return doc && doc.textContent.includes("materializes when it opens");
+    }, "the link target drv-plot to materialize into the sheet");
+    return ["a click on the link cell materialized its target entry"];
+  } },
 ];

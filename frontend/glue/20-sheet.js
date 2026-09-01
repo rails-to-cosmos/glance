@@ -14,7 +14,14 @@
         disconnectedCallback() { if (this._tv) { this._tv.destroy(); this._tv = null; } }
         _mount() {
           if (this._tv || !this.isConnected || !this._view) return;
-          this._tv = TableView.mount(this, this._view, {});
+          // `onLink' is claimed so the renderer never opens a link itself, and
+          // re-announced as a BUBBLING event (the renderer's own does not bubble
+          // out of its root) so the doc's link door catches it on #mdoc.
+          const host = this;
+          this._tv = TableView.mount(this, this._view, {
+            onLink: (target) => host.dispatchEvent(
+              new CustomEvent("glance-open", { bubbles: true, detail: { target } })),
+          });
         }
       }
       customElements.define("glance-table", GlanceTable);
@@ -710,10 +717,17 @@
       const marks = document.querySelectorAll("#mdoc glance-table thead th.gt-hsel");
       for (const th of marks) th.classList.remove("gt-hsel");
       const r = drows[dat];
-      if (!r || !r.owner) return;
-      const comp = drows.find((x) => x.id === r.owner);
-      if (!comp || comp.name !== "table") return;
-      const host = el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`);
+      const comp = r && r.owner && drows.find((x) => x.id === r.owner);
+      const host = comp && comp.name === "table"
+        ? el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`)
+        : null;
+      // A TABLE SHOWS ITS ROW SELECTION ONLY while point stands on one of its
+      // BODY cells: climbing out (or onto the header) masks the wash, so `b' off
+      // a row reads as the whole table with no row picked.  The CSS mask beats
+      // the renderer's own repaint.
+      for (const g of document.querySelectorAll("#mdoc glance-table")) {
+        g.classList.toggle("gt-nosel", g !== host || dhead);
+      }
       const tv = tvOf(host);
       if (!tv || !host) return;
       // ON THE HEADER, mark the column's th; on a body row, select the cell.
@@ -766,6 +780,20 @@
       if (foldUnder(e)) return;
       const r = rowOfDe(deUnder(e));
       if (r) docEnter(r);
+    });
+    // A LINK CELL OPENS: the renderer fires `tableview-link' with the raw target,
+    // which the doc's own link door materializes or follows -- the `o' door, by
+    // click.
+    el("mdoc").addEventListener("glance-open", (e) => {
+      const detail = /** @type {CustomEvent} */ (e).detail;
+      const target = detail && detail.target;
+      if (!target || !editing) return;
+      // THE ENTRY'S OWN TYPED LINKS carry the scheme's type, so a cell link is
+      // matched to one rather than re-typed here; an unknown one follows as a url.
+      const link = dlinks.find((l) => l.target === target)
+        || { target: String(target), desc: String(target), type: "url" };
+      followLinks(docBinding("org-glance-overview:open"), editing.id,
+                  { digest: editing.digest, links: [link] }, [link]);
     });
     // Read off what Elm drew: a composite draws its leaves inside itself.
     const docElAt = () => el("dlist").querySelector(".dat");

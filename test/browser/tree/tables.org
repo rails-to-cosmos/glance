@@ -8,8 +8,14 @@ The block below is an org table.
 
 | Street           | Owner  | Note                          |
 |------------------+--------+-------------------------------|
-| Klarenbeekstraat | reader | [[glance:aa11][see the plot]] |
+| Klarenbeekstraat | reader | [[glance:drv-plot][see the plot]] |
 | Molenweg         | writer | corner lot                    |
 | Dorpsstraat      | reader | church end                    |
 
 Prose after the table.
+
+* NEXT The plot a link cell points at                               :survey:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-plot
+:END:
+The entry a table's link cell materializes when it opens.
