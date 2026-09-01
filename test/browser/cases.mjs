@@ -366,6 +366,35 @@ export default [
       + `marker ${JSON.stringify(st.drawnLead)}, ${st.rows.length} mirror rows`];
   } },
 
+// A list under a NESTED headline must take a new item with its bullet, exactly
+// like a list at the top level.  `outermost' crossed the child-headline boundary
+// and `sibling' fell through to the empty-marker branch, so `+'/S-RET/M-RET drew
+// an unindented, dash-less row (marks.org `C0:B2' under the `** A child').
+{ name: "a list under a nested headline takes a new item with its marker",
+  async run(p, base) {
+    const pointId = () => p.eval(() => { const a = document.querySelector("#mdoc .de.dat"); return a ? a.dataset.id : null; });
+    await sheet(p, base, "drv-marks");
+    await settled(p, "the nested-headline sheet");
+    let reached = (await pointId()) === "C0:B2";
+    for (let i = 0; i < 40 && !reached; i += 1) {
+      const was = await pointId();
+      await p.press("f");
+      await p.until((w) => {
+        const a = document.querySelector("#mdoc .de.dat");
+        return !!a && a.dataset.id !== w;
+      }, "an f-step down the graph", 2000, was).catch(() => {});
+      reached = (await pointId()) === "C0:B2";
+    }
+    assert(reached, "the walk never reached the nested list item C0:B2");
+    await p.press("+");
+    await p.until(() => !!document.querySelector("#dpara.on"), "the nested-list draft");
+    const st = await p.editorState();
+    assert((st.drawnLead || "").trimStart().startsWith("-"),
+      `the nested list item drew no bullet: lead=${JSON.stringify(st.drawnLead)}`);
+    await p.press("ESC");
+    return [`nested list item drafts with marker ${JSON.stringify(st.drawnLead)}`];
+  } },
+
 { name: "an open edit moves the line under it down, never covers it",
   async run(p, base) {
     await sheet(p, base, "drv-box");

@@ -720,7 +720,10 @@ joinLine m id caret =
 
 outermost : { a | rows : List Row } -> Row -> Row
 outermost m r =
-    case List.reverse (ownersOf m r.id) of
+    -- A CHILD HEADLINE IS A SCOPE BOUNDARY the walk stops below: a list item
+    -- under a child finds its LIST, not the child, so it inserts like one at the
+    -- top level rather than falling through to the past-the-container branch.
+    case List.reverse (List.filter (\o -> Maybe.map .kind (rowById m o) /= Just Child) (ownersOf m r.id)) of
         top :: _ -> Maybe.withDefault r (rowById m top)
         [] -> r
 
