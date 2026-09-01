@@ -214,12 +214,14 @@ code {
     color: var(--g-bad);
 }
 
+/* NO WRAP: `#mtext' and `#mdoc' are mutually exclusive (raw vs material), so a */
+/* wrapped line only lets the one visible pane size to its content and grow past */
+/* the sheet instead of scrolling inside its own bounded height. */
 #mpanes {
     flex: 1;
     min-height: 0;
     overflow: hidden;
     display: flex;
-    flex-wrap: wrap;
     gap: 10px;
 }
 

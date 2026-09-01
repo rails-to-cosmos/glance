@@ -338,6 +338,28 @@ const appRows = () => document.querySelectorAll("#app .tv-table tbody tr").lengt
 
 export default [
 
+// A material doc taller than the pane must SCROLL inside the pane, not grow the
+// sheet past the viewport.  `tall.org' `drv-tall' is a body of 80 items.
+{ name: "a material doc taller than the pane scrolls in the pane",
+  async run(p, base) {
+    await sheet(p, base, "drv-tall");
+    await settled(p, "the tall sheet");
+    const d = await p.eval(() => {
+      const D = (id) => { const e = document.getElementById(id); const r = e.getBoundingClientRect(); return { ch: e.clientHeight, sh: e.scrollHeight, bottom: Math.round(r.bottom) }; };
+      const mdoc = document.getElementById("mdoc");
+      mdoc.scrollTop = 400;
+      const moved = mdoc.scrollTop;
+      mdoc.scrollTop = 0;
+      return { sheet: D("sheet"), mdoc: D("mdoc"), moved, vh: window.innerHeight };
+    });
+    assert(d.mdoc.sh > d.mdoc.ch + 50,
+      `the pane does not contain the overflow: content ${d.mdoc.sh}px is not taller than its ${d.mdoc.ch}px visible box — it grew to fit instead of scrolling`);
+    assert(d.sheet.bottom <= d.vh + 1,
+      `the sheet overflows the viewport: it ends at ${d.sheet.bottom}px past ${d.vh}px`);
+    assert(d.moved > 0, `#mdoc did not scroll: scrollTop stuck at ${d.moved}`);
+    return [`content ${d.mdoc.sh}px scrolls in a ${d.mdoc.ch}px pane (moved ${d.moved}px); sheet ends at ${d.sheet.bottom}/${d.vh}`];
+  } },
+
 // cb6db85.  THE BOX GREW AND STOOD OVER THE DOCUMENT.  Where the next line
 // ENDS UP is unaskable in TestServe.hs: the node harness returns zeroed rects.
 { name: "the editor debug surface reports point, box, marker and the mirror",
