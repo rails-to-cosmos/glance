@@ -287,7 +287,7 @@ finer m =
             else if r.name == Just "table" && r.grain == Composite then
                 tableEnter m r
             else
-                case tableCompOf m r of
+                case tableCellCompOf m r of
                     Just comp -> tableFiner m comp
                     Nothing ->
                         let
@@ -510,9 +510,22 @@ update msg model =
             -- hlines skipped, and keep the column.
             case tableCompAt model of
                 Just comp ->
-                    spoke ( tableStep by model comp, if by > 0 then "next-row" else "previous-row" )
+                    -- `p' OFF THE FIRST BODY CELL climbs to the column's header;
+                    -- otherwise step the data rows.
+                    if by < 0 && atFirstBody model comp && model.col /= Nothing then
+                        spoke (toHeader model comp)
+                    else
+                        spoke ( tableStep by model comp, if by > 0 then "next-row" else "previous-row" )
                 Nothing ->
-                    spoke ( step by model, if by > 0 then "next-row" else "previous-row" )
+                    case tableHeadAt model of
+                        Just comp ->
+                            -- `n' BACK DOWN to the first body row, `p' out of the table.
+                            if by > 0 then
+                                spoke (toFirstBody model comp)
+                            else
+                                spoke ( { model | at = placeOf model comp.id, col = Nothing }, "previous-row" )
+                        Nothing ->
+                            spoke ( step by model, if by > 0 then "next-row" else "previous-row" )
         Finer ->
             -- `f' INTO A FOLDED DRAWER OPENS IT: a step into what is hidden shows it.
             let
@@ -532,7 +545,7 @@ update msg model =
             -- on; opening a drawer or moving point is `f' having somewhere to go.
             -- A TABLE'S CELL AXIS IS BOUNDED: `f' at the last column holds rather
             -- than rolling out of the table.
-            if tableCompAt model /= Nothing then
+            if inTableAt model then
                 spoke ( fined, word )
             else if fined.at == model.at && fined.planAt == model.planAt && fined.col == model.col && fined.shut == model.shut then
                 -- SPOKEN, NOT TOLD: every doc key owes `docSaid' a word, else the
@@ -547,7 +560,10 @@ update msg model =
             -- The old broader-grain climb to the owner is `B' (`Climb') below.
             case tableCompAt model of
                 Just comp -> spoke (tableBroader model comp)
-                Nothing -> spoke ( nextVisible -1 model, "grain-broader" )
+                Nothing ->
+                    case tableHeadAt model of
+                        Just _ -> spoke (tableHeadBroader model)
+                        Nothing -> spoke ( nextVisible -1 model, "grain-broader" )
         Climb ->
             -- `B' CLIMBS THE GRAIN: one press to the owner, the headline over a
             -- body, the way `b' used to before it became `f' reversed.  Lowercase
@@ -1011,7 +1027,7 @@ settled m =
     -- body leaf -- and dropped anywhere else.
     let
         keptPlan = if idAtRow m m.at == Body.planId then m.planAt else Nothing
-        keptCol = if tableCompAt m /= Nothing then m.col else Nothing
+        keptCol = if inTableAt m then m.col else Nothing
     in
     snapVisible { m | planAt = keptPlan, col = keptCol }
 
@@ -1289,6 +1305,10 @@ stateJSON m =
         -- shell selects the cell in the mounted widget and reads no index of its
         -- own, the same shape `planKey' takes for the planning line.
         , ( "col", Maybe.withDefault E.null (Maybe.map E.int m.col) )
+
+        -- POINT IS ON A COLUMN HEADER: what RET names rather than edits, and the
+        -- one place a headerless table's ephemeral header is summoned.
+        , ( "head", E.bool (tableHeadAt m /= Nothing) )
         , ( "flags", E.list E.string m.flags )
         , ( "lines", E.int (List.length m.lines) )
 
@@ -2568,6 +2588,72 @@ indexOfId id rows =
                 [] -> 0
     in
     go 0 rows
+
+{-| The table R is the HEADER LEAF of, if it is one.  The header is not a body
+row and so not `tableCompOf''s -- it is the column NAMES, reached by climbing.
+-}
+tableHeadCompOf : Model -> Row -> Maybe Row
+tableHeadCompOf m r =
+    case Maybe.andThen (rowById m) r.owner of
+        Just comp ->
+            case tableHeadRow m comp of
+                Just h -> if h.id == r.id then Just comp else Nothing
+                Nothing -> Nothing
+        Nothing -> Nothing
+
+{-| The table whose HEADER point stands on, if it does.
+-}
+tableHeadAt : Model -> Maybe Row
+tableHeadAt m = Maybe.andThen (tableHeadCompOf m) (rowAt m)
+
+{-| The table a row is a CELL of -- a body row or the header, both of which the
+cell axis (`f'/`b') crosses.
+-}
+tableCellCompOf : Model -> Row -> Maybe Row
+tableCellCompOf m r =
+    case tableCompOf m r of
+        Just comp -> Just comp
+        Nothing -> tableHeadCompOf m r
+
+{-| Point is in a table, on a body row OR its header -- where `col' is held.
+-}
+inTableAt : Model -> Bool
+inTableAt m = tableCompAt m /= Nothing || tableHeadAt m /= Nothing
+
+{-| `p' ABOVE THE FIRST BODY ROW climbs to the header of the SAME column.
+-}
+toHeader : Model -> Row -> ( Model, String )
+toHeader m comp =
+    case tableHeadRow m comp of
+        Just h -> ( { m | at = placeOf m h.id }, "grain-broader (the header)" )
+        Nothing -> ( m, "grain-broader (no header)" )
+
+{-| `n' OFF THE HEADER lands on the first body row, the column kept.
+-}
+toFirstBody : Model -> Row -> ( Model, String )
+toFirstBody m comp =
+    case List.head (tableBodyRows m comp) of
+        Just first -> ( { m | at = placeOf m first.id }, "next-row" )
+        Nothing -> ( m, "next-row" )
+
+{-| Is point on the FIRST body row -- the one `p' climbs off to the header?
+-}
+atFirstBody : Model -> Row -> Bool
+atFirstBody m comp =
+    case List.head (tableBodyRows m comp) of
+        Just first -> idAtRow m m.at == first.id
+        Nothing -> False
+
+{-| `b' IN THE HEADER moves columns only: the first column holds, and `p' is the
+one way out.
+-}
+tableHeadBroader : Model -> ( Model, String )
+tableHeadBroader m =
+    case m.col of
+        Just i ->
+            if i > 0 then ( { m | col = Just (i - 1) }, "grain-broader (column)" )
+            else ( m, "grain-broader (the first column)" )
+        Nothing -> ( m, "grain-broader (the header)" )
 
 {-| The rows a FOLD hides: everything owned, transitively, by a shut row.  An
 owner is emitted before what it owns, so one ordered pass settles the set --

@@ -42,6 +42,8 @@
     // WHICH COLUMN POINT STANDS IN inside a table, `null' the whole row -- the
     // model's own axis, mirrored so the push can select the cell in the widget.
     let dcol = null;
+    // POINT IS ON A COLUMN HEADER: RET names it rather than editing a cell.
+    let dhead = false;
     // A DRAFT WHOSE `%?' STOOD IN THE BODY still owes its editor: the row that
     // line became lands a macrotask behind the fill, so the open waits for it.
     // ONE SHOT — the next fill is somebody else's document.
@@ -72,6 +74,7 @@
         dprops = now.properties; dplan = now.planning;
         dplankey = now.planKey || null;
         dcol = (now.col === undefined ? null : now.col);
+        dhead = !!now.head;
         // Elm pushes a port BEFORE it paints, so these are read a turn later.
         soon(() => {
           seedInsert(now.caret); keepInView(docElAt()); placeEdit(); reselectDate();
@@ -227,8 +230,9 @@
       if (r.owner) {
         const comp = drows.find((x) => x.id === r.owner);
         if (comp && comp.name === "table") {
-          if (dcol == null) { echo("RET → f takes a cell"); return; }
-          openCellEdit(r, comp, dcol);
+          if (dcol == null) { echo(`RET → f takes a ${dhead ? "column" : "cell"}`); return; }
+          if (dhead) openHeaderEdit(r, comp, dcol);
+          else openCellEdit(r, comp, dcol);
           return;
         }
       }
@@ -702,15 +706,26 @@
     // own id, `null' the whole row.  The widget's row ids ARE the Elm leaf ids,
     // so no lookup -- Elm's point drives the renderer's selection.
     const tableSelSync = () => {
+      // Clear any header-column mark: it stands only while point is on a header.
+      const marks = document.querySelectorAll("#mdoc glance-table thead th.gt-hsel");
+      for (const th of marks) th.classList.remove("gt-hsel");
       const r = drows[dat];
       if (!r || !r.owner) return;
       const comp = drows.find((x) => x.id === r.owner);
       if (!comp || comp.name !== "table") return;
-      const tv = tvOf(el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`));
-      if (tv) {
-        if (dcol == null) tv.select(r.id);
-        else tv.select(r.id, dcol);
+      const host = el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`);
+      const tv = tvOf(host);
+      if (!tv || !host) return;
+      // ON THE HEADER, mark the column's th; on a body row, select the cell.
+      if (dhead) {
+        if (dcol != null) {
+          const th = host.querySelectorAll("thead th")[dcol];
+          if (th) th.classList.add("gt-hsel");
+        }
+        return;
       }
+      if (dcol == null) tv.select(r.id);
+      else tv.select(r.id, dcol);
     };
     el("mdoc").addEventListener("click", (e) => {
       if (edit && e.target instanceof Node && el("dpara").contains(e.target)) return;
@@ -805,8 +820,25 @@
       const cols = Array.from({ length: ncols }, (_, i) => ({ key: "c" + i }));
       const vr = tv.getRows().find((x) => x.id === r.id);
       const raw = vr && vr.cells ? (vr.cells["c" + col] || "") : "";
-      dcell = { tv, col, cols, raw, id: r.id };
+      dcell = { tv, col, cols, raw, id: r.id, th: null };
       openEdit(DCELL, r);
+    }
+    // A COLUMN NAME EDIT: the box laid over the `th' (block-mode over the header
+    // cell), filled with the column's current name and committed through the
+    // SAME cell door -- the header leaf's line, its `col'-th cell replaced.
+    const DHEAD = {
+      box: "dpara", pane: "mdoc", fields: ["dtext"], block: true,
+      anchor: () => (dcell ? dcell.th : null),
+      fill: () => { el("dtext").value = dcell ? dcell.raw : ""; sizeDocEdit(); },
+      focus: () => el("dtext").focus(),
+    };
+    function openHeaderEdit(r, comp, col) {
+      const host = el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`);
+      if (!host) return;
+      const th = host.querySelectorAll("thead th")[col];
+      if (!th) return;
+      dcell = { tv: tvOf(host), col, cols: null, raw: th.textContent.trim(), id: r.id, th };
+      openEdit(DHEAD, r);
     }
     // A PAIR IS TWO FIELDS OVER ONE ROW: `block', so the box is the row's own
     // box on every edge and each field is padded the way the row is.
@@ -844,13 +876,13 @@
     };
     const dediting = () => !!edit && edit.o === DTITLE;
     const dparaing = () => !!edit && edit.o === DPARA;
-    const dcelling = () => !!edit && edit.o === DCELL;
+    const dcelling = () => !!edit && (edit.o === DCELL || edit.o === DHEAD);
     const dpairing = () => !!edit && edit.o === DPAIR;
     const ddating = () => !!edit && edit.o === DDATE;
     // THE DOC PANE'S OWN SHAPES, and the only enumeration of them: `edit' is
     // shared with the table's, so this is asked as MEMBERSHIP rather than as
     // `!!edit' -- an open rename on another surface is no open sheet edit.
-    const DOCEDITS = [DTITLE, DPARA, DPAIR, DDATE, DCELL];
+    const DOCEDITS = [DTITLE, DPARA, DPAIR, DDATE, DCELL, DHEAD];
     const sheetOpen = () => !!edit && DOCEDITS.indexOf(edit.o) !== -1;
     /** THE DAY THE OPEN EDIT READS AGAINST, stamped once when the box was
      * SUMMONED: the ghost must not answer two days for one phrase while the
@@ -1977,13 +2009,14 @@
       // A CELL: the raw value goes through the cell door, which rebuilds the
       // row's line with the one cell replaced and writes it.  An unchanged value
       // writes nothing.
-      if (edit.o === DCELL) {
+      if (edit.o === DCELL || edit.o === DHEAD) {
+        const head = edit.o === DHEAD;
         const text = el("dtext").value;
         const c = dcell;
-        shutEdit(DCELL);
+        shutEdit(edit.o);
         dcell = null;
-        if (!c || text === c.raw) { spoke("cell unchanged"); return; }
-        dcommit = (cargo) => spoke(cargo.said || "cell written");
+        if (!c || text === c.raw) { spoke(head ? "column unchanged" : "cell unchanged"); return; }
+        dcommit = (cargo) => spoke(cargo.said || (head ? "column named" : "cell written"));
         dsend({ kind: "editcell", id: c.id, col: c.col, text });
         return;
       }

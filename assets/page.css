@@ -672,6 +672,14 @@ code {
     border-top: none;
 }
 
+/* THE COLUMN HEADER POINT NAMES: a boxed th, the widget draws no header cursor. */
+#mdoc glance-table thead th.gt-hsel {
+    outline: 2px solid var(--g-accent);
+    outline-offset: -2px;
+    border-radius: 3px;
+    color: var(--g-fg);
+}
+
 /* THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink; */
 /* ITS COLONS ARE PUNCTUATION -- dimmed, the leading one HANGING into the */
 /* gutter so the token lines up on its letter. */

@@ -4832,4 +4832,49 @@ export default [
     assert(got[1] === "keeper", `the Owner cell reads ${JSON.stringify(got[1])}, not "keeper"`);
     return [`RET edited the cell raw and wrote the row: [${got.join(", ")}]`];
   } },
+
+// PHASE 3b.  A column name is the header cell: p above row 1 climbs to it,
+// RET names it, and the write rewrites the header line alone.
+{ name: "p climbs to a column header and RET renames it",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+      "the table to mount");
+    const id = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((x) => x.textContent.includes("Klarenbeekstraat")).dataset.id);
+    // Into the first column of the first row, then p to climb to its header.
+    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
+    await p.until((w) => docAtNow() === w, "point on the Street cell", undefined, id);
+    await p.press("p");
+    // p above the row lands on the header leaf -- a different row than the data.
+    await p.until((w) => docAtNow() !== w, "point to climb to the header", undefined, id);
+    await p.press("RET");
+    await p.until(() => {
+      const b = document.getElementById("dpara");
+      return b && b.className.includes("on");
+    }, "the header edit box to open");
+    const opened = await p.eval(() => document.getElementById("dtext").value);
+    assert(opened === "Street",
+      `the header box opened on ${JSON.stringify(opened)}, not the column name "Street"`);
+    await p.eval(() => {
+      const t = document.getElementById("dtext");
+      t.value = "Straat"; t.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await p.press("RET");
+    await p.until(() => {
+      const th = document.querySelector("#mdoc glance-table thead th");
+      return th && th.textContent.trim() === "Straat";
+    }, "the renamed column to round-trip into the header");
+    const head = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table thead th")].map((th) => th.textContent.trim()));
+    const first = await p.eval((wid) => {
+      const tr = document.querySelector(`#mdoc glance-table tbody tr[data-id="${wid}"]`);
+      return tr.querySelector("td").textContent.trim();
+    }, id);
+    assert(head[0] === "Straat", `the first header reads ${JSON.stringify(head[0])}, not "Straat"`);
+    assert(first === "Klarenbeekstraat",
+      `renaming the column changed a data cell to ${JSON.stringify(first)}`);
+    return [`p climbed to the header and RET renamed the column: [${head.join(", ")}]`];
+  } },
 ];
