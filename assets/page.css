@@ -612,6 +612,43 @@ code {
     background: var(--g-bad);
 }
 
+/* A DRAWER WEARS A CLICKABLE SIGN ON ITS SPINE: `+' shut, `−' open, boxed at */
+/* the rail, its ground the page's so the spine reads as passing behind it. */
+/* One press folds or expands the drawer -- the shell reads the `.fold' and */
+/* sends `fold', no keyboard TAB and no point move. */
+#mdoc .de.d-drawer > .fold {
+    position: absolute;
+    left: var(--rail);
+    transform: translateX(-50%);
+    top: calc(var(--g-doc-lh) / 2 + 1px);
+    margin-top: -6px;
+    width: 12px;
+    height: 12px;
+    box-sizing: border-box;
+    border: 1px solid var(--g-mark);
+    border-radius: 3px;
+    background: var(--g-bg);
+    color: var(--g-mark);
+    font: 10px/1 var(--dk-mono);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+    z-index: 2;
+}
+
+/* POINT ON THE DRAWER lifts the sign to the page's own ink, like the spine. */
+#mdoc.on .de.dat.d-drawer > .fold {
+    border-color: var(--g-fg);
+    color: var(--g-fg);
+}
+
+#mdoc .de.d-drawer > .fold:hover {
+    border-color: var(--g-accent);
+    color: var(--g-accent);
+}
+
 /* THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink; */
 /* ITS COLONS ARE PUNCTUATION -- dimmed, the leading one HANGING into the */
 /* gutter so the token lines up on its letter. */

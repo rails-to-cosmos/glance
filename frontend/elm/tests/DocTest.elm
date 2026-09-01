@@ -206,4 +206,17 @@ suite =
                     Expect.equal [ ( "SCHEDULED", "" ), ( "DEADLINE", "" ), ( "CLOSED", "" ) ]
                         (Body.planEntries [ "SCHEDULED", "DEADLINE" ] [] (Just "CLOSED"))
             ]
+        , describe "delink — org link syntax to its display text on the strip"
+            [ test "text with no link is untouched" <|
+                \_ -> Expect.equal "plain words" (Doc.delink "plain words")
+            , test "a described link reads its description" <|
+                \_ -> Expect.equal "A Straat child" (Doc.delink "A [[glance:id][Straat]] child")
+            , test "a bare link reads its target" <|
+                \_ -> Expect.equal "see http://x" (Doc.delink "see [[http://x]]")
+            , test "two links each read their face" <|
+                \_ -> Expect.equal "a X and b Y"
+                        (Doc.delink "a [[t1][X]] and b [[t2][Y]]")
+            , test "an empty description reads empty, keeping the surround" <|
+                \_ -> Expect.equal "before  after" (Doc.delink "before [[t][]] after")
+            ]
         ]

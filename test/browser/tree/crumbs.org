@@ -5,3 +5,12 @@
 :ORG_GLANCE_ID: drv-crumbs
 :END:
 The entry a breadcrumb case materializes; its title carries an org link.
+
+* A parent holding a linked child
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-crumb-kid
+:END:
+Intro prose, so the parent has a body of its own.
+
+** A [[glance:ddafaac1-eefe-4b4c-8037-94a6fabb5378][Straat]] child
+Body under the child, where point lands to read the in-doc path.

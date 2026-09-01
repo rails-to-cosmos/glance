@@ -483,6 +483,64 @@ export default [
     return [`breadcrumb reads ${JSON.stringify(crumb)}`];
   } },
 
+// THE IN-DOC PATH STRIP (`.dpath') NAMES A CHILD BY ITS TITLE: a title carrying
+// an org link must read its DESCRIPTION, not `[[glance:id][Straat]]', the way
+// the breadcrumbs do.  crumbs.org `drv-crumb-kid' holds a child titled with a
+// link; point in its body puts that child on the strip.
+{ name: "the in-doc path renders a linked crumb as its text, not raw org syntax",
+  async run(p, base) {
+    await sheet(p, base, "drv-crumb-kid");
+    await walkToText(p, "Body under the child", "the child's body");
+    const path = await p.eval(() => {
+      const d = document.querySelector("#mdoc .dpath");
+      return d ? d.textContent : null;
+    });
+    assert(!/\[\[/.test(path || ""), `the path shows raw link syntax: ${JSON.stringify(path)}`);
+    assert(/Straat/.test(path || ""), `the path lost the link text: ${JSON.stringify(path)}`);
+    return [`the in-doc path reads ${JSON.stringify(path)}`];
+  } },
+
+// A DRAWER WEARS A CLICKABLE SIGN ON ITS SPINE: one press folds or expands it,
+// no keyboard TAB and no point move.  A drawer starts shut, so its box reads
+// `+' and its pairs are hidden; a click opens it -- the sign flips, the pairs
+// stand -- and a second click shuts it again.  drv-plan carries a PROPERTIES
+// drawer (its ORG_GLANCE_ID).
+{ name: "a click on a drawer's spine sign folds and expands it",
+  async run(p, base) {
+    await sheet(p, base, "drv-plan");
+    await settled(p, "the plan sheet");
+    // A SHUT DRAWER IS ITS FRAME AND ORG'S `…'; OPEN, the frame stands with no
+    // ellipsis.  The sign rides its spine: `+' shut, flipped open.
+    const drawer = () => p.eval(() => {
+      const de = document.querySelector("#mdoc .de.d-drawer");
+      const fold = de ? de.querySelector(":scope > .fold") : null;
+      return { has: !!de, sign: fold ? fold.textContent.trim() : null,
+               folded: de ? /…/.test(de.textContent) : true };
+    });
+    const shut = await drawer();
+    assert(shut.has, "drv-plan drew no properties drawer");
+    assert(shut.sign === "+", `a shut drawer's sign is not '+': ${JSON.stringify(shut.sign)}`);
+    assert(shut.folded, "a shut drawer does not show org's ellipsis");
+    // ONE CLICK OPENS IT: the sign flips off `+' and the ellipsis goes.
+    await p.click("#mdoc .de.d-drawer > .fold");
+    await p.until(() => {
+      const de = document.querySelector("#mdoc .de.d-drawer");
+      return !!de && !/…/.test(de.textContent);
+    }, "the click to expand the drawer");
+    const open = await drawer();
+    assert(open.sign && open.sign !== "+",
+      `an open drawer's sign did not flip off '+': ${JSON.stringify(open.sign)}`);
+    // A SECOND CLICK SHUTS IT AGAIN, back to `+' and the ellipsis.
+    await p.click("#mdoc .de.d-drawer > .fold");
+    await p.until(() => {
+      const de = document.querySelector("#mdoc .de.d-drawer");
+      return !!de && /…/.test(de.textContent);
+    }, "the second click to fold the drawer");
+    const reshut = await drawer();
+    assert(reshut.sign === "+", `the refolded drawer's sign is not '+': ${JSON.stringify(reshut.sign)}`);
+    return [`the spine sign folded (${JSON.stringify(shut.sign)}), expanded `
+      + `(${JSON.stringify(open.sign)}), and folded again`];
+  } },
 
 // cb6db85.  THE BOX GREW AND STOOD OVER THE DOCUMENT.  Where the next line
 // ENDS UP is unaskable in TestServe.hs: the node harness returns zeroed rects.
@@ -2793,7 +2851,9 @@ export default [
     const read = () => p.eval(() => {
       const drawer = document.querySelector("#mdoc .d-drawer");
       const point = g("point");
-      return { folded: drawer.textContent,
+      return { // THE FOLDED LINE IS THE FRAME ALONE: the spine's `.fold' sign is
+               // chrome beside it, so the reading takes the `.dg' frame text.
+               folded: [...drawer.querySelectorAll(".dg")].map((g) => g.textContent).join(""),
                point,
                frameInk: [...drawer.querySelectorAll(".dg")].map((g) =>
                  getComputedStyle(g).color),
@@ -4233,7 +4293,9 @@ export default [
         tags: (document.querySelector('#mdoc .de[data-id="H"] .dc-tags')
                  || {}).textContent || "",
         plan: (document.querySelector('#mdoc .de[data-id="PLN"]') || {}).textContent || "",
-        drawer: (document.querySelector("#mdoc .d-drawer") || {}).textContent || "",
+        // THE FRAME ALONE, past the spine's `.fold' sign: the drawer's own line.
+        drawer: ((d) => d ? [...d.querySelectorAll(".dg")].map((g) => g.textContent).join("") : "")(
+          document.querySelector("#mdoc .d-drawer")),
         // WHERE `%?' STOOD, spent as the fill's own landing: without it point
         // would rest on row 0, the headline every other fill opens on.
         atClass: at.className, atText: at.textContent, atIndex: docAtNow(),

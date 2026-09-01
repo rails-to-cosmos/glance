@@ -4,6 +4,7 @@ port module Doc exposing
     , compactedRun
     , cookieIn
     , cookieKind
+    , delink
     , empty
     , findCookie
     , hiddenDone
@@ -456,6 +457,7 @@ type Msg
     | DraftPlan String
     | UndraftPlan String
     | Tab
+    | Fold String
     | HideDone
     | Shift Int
     | AddProp String String
@@ -560,31 +562,13 @@ update msg model =
         Tab ->
             case foldTarget model of
                 Nothing -> spoke ( model, "nothing folds here" )
-                Just r ->
-                    let
-                        opened = Set.member r.id model.shut
-                    in
-                    spoke
-                        ( { model
-                            | shut =
-                                if opened then
-                                    Set.remove r.id model.shut
-                                else
-                                    Set.insert r.id model.shut
-                            , at = placeOf model r.id
-                          }
-                        , "org-cycle ("
-                            ++ (if r.kind == Child then
-                                    "subtree"
-                                else
-                                    Maybe.withDefault "drawer" r.name
-                               )
-                            ++ (if opened then
-                                    " open)"
-                                else
-                                    " folded)"
-                               )
-                        )
+                Just r -> spoke (foldAt r model)
+        -- A DRAWER'S SPINE SIGN folds the drawer the reader clicked, wherever
+        -- point stands -- unlike TAB, which folds the nearest foldable at point.
+        Fold id ->
+            case rowById model id of
+                Nothing -> ( model, Cmd.none )
+                Just r -> spoke (foldAt r model)
         Shift by -> shifted by model
         SetMeta props plan -> told (remeta { model | props = props, plan = plan })
         -- THE HEADLINE'S OWN CELLS, WRITTEN FROM OUTSIDE.  The pane draws the
@@ -1087,6 +1071,24 @@ foldTarget m =
             (List.filterMap (rowById m) (here :: ups))
         )
 
+{-| Fold R over MODEL: toggle its `shut', land point on it, and the word org's
+own cycle says.  TAB's own act, named so a spine sign folds a drawer point
+never reached and both say the same word.
+-}
+foldAt : Row -> Model -> ( Model, String )
+foldAt r m =
+    let
+        opened = Set.member r.id m.shut
+    in
+    ( { m
+        | shut = if opened then Set.remove r.id m.shut else Set.insert r.id m.shut
+        , at = placeOf m r.id
+      }
+    , "org-cycle ("
+        ++ (if r.kind == Child then "subtree" else Maybe.withDefault "drawer" r.name)
+        ++ (if opened then " open)" else " folded)")
+    )
+
 {-| A meta row's text read back into its list: the planning line by its
 keywords, a drawer line as `:KEY: value'.
 
@@ -1425,6 +1427,8 @@ msgD =
                     "draftplan" -> D.map DraftPlan (D.field "key" D.string)
                     "undraftplan" -> D.map UndraftPlan (D.field "id" D.string)
                     "tab" -> D.succeed Tab
+                    -- The id the spine sign carries: the drawer the reader clicked.
+                    "fold" -> D.map Fold (D.field "id" D.string)
                     -- No id: the row at point names the run, or its absence the
                     -- master toggle across every list -- the model's to decide.
                     "hidedone" -> D.succeed HideDone
@@ -2316,6 +2320,15 @@ rowEl : Lit -> Model -> Int -> Row -> Bool -> List (Html.Attribute Msg) -> List 
 rowEl lit m i r top extra inner =
     div (class (rowClass lit m i r top) :: attribute "data-id" r.id :: extra) inner
 
+{-| A DRAWER'S SPINE SIGN: `+' shut, `−' open, boxed at the rail.  INERT, like
+every row -- the shell's own click on `#mdoc' reads the `.fold' and sends
+`fold', the one way into the pane a door has ever been.
+-}
+foldSign : Model -> Row -> Html Msg
+foldSign m r =
+    span [ class "fold" ]
+        [ text (if Set.member r.id m.shut then "+" else "\u{2212}") ]
+
 {-| The rows a FOLD hides: everything owned, transitively, by a shut row.  An
 owner is emitted before what it owns, so one ordered pass settles the set --
 `ownersOf' per row walks the list once per row, and this runs every render.
@@ -2401,8 +2414,13 @@ view m =
                                 ]
                             else
                                 inner
+                        -- A DRAWER WEARS A CLICKABLE SIGN ON ITS SPINE: one press
+                        -- folds or expands it.  Only a drawer, never a bare
+                        -- composite -- a list run has no frame to fold onto.
+                        signed =
+                            if drawer m r then foldSign m r :: shown else shown
                     in
-                    go j level (out ++ [ rowEl lit m i r True (inset m r) shown ])
+                    go j level (out ++ [ rowEl lit m i r True (inset m r) signed ])
                 else
                     go (i + 1) level (out ++ [ rowEl lit m i r True (inset m r) [ viewPara m r ] ])
         -- The folded frame's own line: org's token for the synthesized drawer,
@@ -2505,6 +2523,29 @@ viewPath m =
             )
         )
 
+{-| Org link syntax to its display text: `[[target][desc]]' to DESC, a plain
+`[[target]]' to TARGET.  The strip wears a link's FACE, not its brackets -- the
+breadcrumbs' own rule (`linkText', 20-sheet.js).  Clipped AFTER this, so a cut
+falls on the shown text and never mid-bracket.
+-}
+delink : String -> String
+delink s =
+    case String.indices "[[" s of
+        [] -> s
+        i :: _ ->
+            case String.indices "]]" (String.dropLeft (i + 2) s) of
+                [] -> s
+                j :: _ ->
+                    let
+                        close = i + 2 + j
+                        inner = String.slice (i + 2) close s
+                        shown =
+                            case String.indices "][" inner of
+                                k :: _ -> String.dropLeft (k + 2) inner
+                                [] -> inner
+                    in
+                    String.left i s ++ shown ++ delink (String.dropLeft (close + 2) s)
+
 {-| What a row is called on the strip: a composite by its NAME, anything else by
 its own line with the marker org wrote taken off the front.
 -}
@@ -2517,7 +2558,7 @@ crumb m r =
     if r.kind == Child then
         -- A CHILD'S CRUMB IS ITS TITLE: a headline names itself.
         let
-            t = cellOf "title" r
+            t = delink (cellOf "title" r)
         in
         clip (if String.isEmpty t then "child" else t)
     else if r.grain == Composite then
@@ -2533,7 +2574,7 @@ crumb m r =
             -- business, and the strip names the way back.
             (case ( r.kind, Body.readProperty r.text ) of
                 ( Meta, Just ( key, _ ) ) -> ":" ++ key ++ ":"
-                _ -> String.trim (String.dropLeft (markerLen m r) r.text)
+                _ -> delink (String.trim (String.dropLeft (markerLen m r) r.text))
             )
 
 -- MAIN

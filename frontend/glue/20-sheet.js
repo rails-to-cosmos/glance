@@ -658,10 +658,17 @@
     // round-trip.  Clicks inside the open edit box carry no row and are ignored.
     const deUnder = (e) => (e.target instanceof Element ? e.target.closest("#mdoc .de") : null);
     const rowOfDe = (de) => (de ? drows.find((x) => x.id === de.getAttribute("data-id")) : null);
+    const foldUnder = (e) => (e.target instanceof Element ? e.target.closest("#mdoc .fold") : null);
     el("mdoc").addEventListener("click", (e) => {
       if (edit && e.target instanceof Node && el("dpara").contains(e.target)) return;
       const de = deUnder(e), r = rowOfDe(de);
       if (!r || !de) return;
+      // THE SPINE SIGN FOLDS ITS OWN DRAWER in one press: it names the row, so
+      // point need not have reached it -- unlike TAB, which folds at point.
+      if (foldUnder(e)) {
+        dsend({ kind: "fold", id: r.id });
+        return;
+      }
       const dpv = e.target instanceof Element ? e.target.closest(".dpv") : null;
       // A PLANNING VALUE names its OWN entry, not the whole line: `plan' is the
       // value's index among the line's values, so point lands on the value.
@@ -672,6 +679,9 @@
       }
     });
     el("mdoc").addEventListener("dblclick", (e) => {
+      // A double-click on the spine sign is two folds, not an edit: the sign
+      // has no text to open, so it never becomes the editor's row.
+      if (foldUnder(e)) return;
       const r = rowOfDe(deUnder(e));
       if (r) docEnter(r);
     });
