@@ -1,0 +1,17 @@
+#+TITLE: Unset planning
+#+TODO: TODO NEXT | DONE CANCELLED
+
+* NEXT A headline the org file gave no planning line             :driver:plan:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-unset-none
+:END:
+The entry a case opens when it wants a headline with no SCHEDULED and no
+DEADLINE, so both slots must stand unset and editable.
+
+* TODO A headline the org file scheduled but left undated             :plan:
+SCHEDULED: <2026-09-02 Wed>
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-unset-one
+:END:
+The entry a case opens when it wants one planning value set and the other
+unset, so the pane draws the set value beside the unset slot.

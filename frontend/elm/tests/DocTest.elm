@@ -181,4 +181,29 @@ suite =
                     Expect.equal (Just False)
                         (Maybe.map (compactedRun m (hiddenDone m)) (rootRow m))
             ]
+        , describe "planEntries — every settable slot draws, unset where the file gave none"
+            [ test "no plan and no summon still draws both slots unset" <|
+                \_ ->
+                    Expect.equal [ ( "SCHEDULED", "" ), ( "DEADLINE", "" ) ]
+                        (Body.planEntries [ "SCHEDULED", "DEADLINE" ] [] Nothing)
+            , test "a slot the file filled carries its value, in slots order" <|
+                \_ ->
+                    Expect.equal [ ( "SCHEDULED", "" ), ( "DEADLINE", "<d>" ) ]
+                        (Body.planEntries [ "SCHEDULED", "DEADLINE" ] [ ( "DEADLINE", "<d>" ) ] Nothing)
+            , test "an entry beyond the slots (CLOSED) is kept after them" <|
+                \_ ->
+                    Expect.equal [ ( "SCHEDULED", "<s>" ), ( "DEADLINE", "" ), ( "CLOSED", "<c>" ) ]
+                        (Body.planEntries [ "SCHEDULED", "DEADLINE" ]
+                            [ ( "SCHEDULED", "<s>" ), ( "CLOSED", "<c>" ) ]
+                            Nothing
+                        )
+            , test "a summoned keyword already a slot ghosts nothing new" <|
+                \_ ->
+                    Expect.equal [ ( "SCHEDULED", "" ), ( "DEADLINE", "" ) ]
+                        (Body.planEntries [ "SCHEDULED", "DEADLINE" ] [] (Just "SCHEDULED"))
+            , test "a summoned keyword that is no slot lands at the end, valueless" <|
+                \_ ->
+                    Expect.equal [ ( "SCHEDULED", "" ), ( "DEADLINE", "" ), ( "CLOSED", "" ) ]
+                        (Body.planEntries [ "SCHEDULED", "DEADLINE" ] [] (Just "CLOSED"))
+            ]
         ]

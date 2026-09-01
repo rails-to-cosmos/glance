@@ -887,6 +887,12 @@ code {
     content: "\200B";
 }
 
+/* AN UNSET SLOT shows a muted dash the reader can click and RET to set -- */
+/* DISPLAY-ONLY, the model value staying org's own empty. */
+.dpunset {
+    color: var(--punc);
+}
+
 /* THE ENTRY AT POINT IS THE CURSOR, one grain finer than the row: it wears the */
 /* same `--g-sel' ground the row wears (`:154') and the line lifts its while one */
 /* does -- "THE TWO GOLDS" above, one grain finer, since gold inside gold is a */

@@ -265,19 +265,30 @@ metaRows { entries, props, drafting } =
 planningText : List ( String, String ) -> String
 planningText plan = String.join " " (List.map (\( k, v ) -> k ++ ": " ++ v) plan)
 
-{-| The planning entries as the pane DRAWS them: the model's own, and after them
-the keyword a summoned widget has ghosted in, valueless, so a value the entry has
-not got still has a slot to stand in.  It lands at the END, where `setPlanning'
-and the server's own composer put an entry the line did not already hold.
-A GHOSTED KEYWORD IS NO ENTRY: `plan' is what a flush writes, and this list is
-never that.
+{-| The planning entries as the pane DRAWS them: EVERY SETTABLE SLOT first, in
+SLOTS order, carrying its value from the model or standing UNSET (`""') where the
+file gave none, so SCHEDULED and DEADLINE always have a place to click and set;
+then any entry the file spells beyond them -- `CLOSED', org's own bookkeeping --
+kept where it stands; and last the keyword a summoned widget has ghosted in,
+valueless, where it is not already one of these.
+AN UNSET SLOT AND A GHOST ARE NO ENTRY: `plan' is what a flush writes and this
+list is never that.  A slot's `""' clears nothing -- it draws a place to set one.
 -}
-planEntries : List ( String, String ) -> Maybe String -> List ( String, String )
-planEntries plan summoned =
+planEntries : List String -> List ( String, String ) -> Maybe String -> List ( String, String )
+planEntries slots plan summoned =
+    let
+        valueOf key =
+            Maybe.withDefault ""
+                (Maybe.map Tuple.second
+                    (List.head (List.filter (\( k, _ ) -> k == key) plan)))
+        drawn =
+            List.map (\key -> ( key, valueOf key )) slots
+                ++ List.filter (\( k, _ ) -> not (List.member k slots)) plan
+    in
     case summoned of
         Just key ->
-            if List.any (\( k, _ ) -> k == key) plan then plan else plan ++ [ ( key, "" ) ]
-        Nothing -> plan
+            if List.any (\( k, _ ) -> k == key) drawn then drawn else drawn ++ [ ( key, "" ) ]
+        Nothing -> drawn
 
 {-| KEY as one of KEYWORDS, the case folded away, or nothing. A drawer key that
 folds to a planning word is a PLANNING ENTRY WEARING A PROPERTY'S CLOTHES: it

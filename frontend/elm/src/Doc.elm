@@ -98,6 +98,12 @@ type alias Model =
     , plan : List ( String, String )
     , planKeys : List String
 
+    -- THE SETTABLE PLANNING WORDS, the server's own list (SCHEDULED, DEADLINE):
+    -- the slots the line ALWAYS draws, unset where the file gave no value, so a
+    -- reader has a place to click and set one.  A SUBSET of `planKeys' -- CLOSED
+    -- is org's own bookkeeping and draws no unset slot.
+    , planSlots : List String
+
     -- A PAIR BEING TYPED IS A ROW AND NOT A PAIR: `props' is what a flush
     -- writes to the file, so a half-typed key in it would land on disk the
     -- moment the sheet is left.  This field draws the row and nothing else.
@@ -137,6 +143,7 @@ empty =
     , props = []
     , plan = []
     , planKeys = []
+    , planSlots = []
     , draftPair = False
     , draftPlan = Nothing
     , shut = Set.empty
@@ -1026,7 +1033,7 @@ remeta m =
 span the date widget is laid over stands in the line the row spells out.
 -}
 entriesOf : Model -> List ( String, String )
-entriesOf m = Body.planEntries m.plan m.draftPlan
+entriesOf m = Body.planEntries m.planSlots m.plan m.draftPlan
 
 {-| Which entry point stands in, or nothing -- the whole line. `settled' holds
 `planAt' to the planning row at every push, so this is a plain read.
@@ -1320,10 +1327,11 @@ fillD =
             (\m -> D.map (\l -> { m | landing = l }) (D.maybe (D.field "landing" D.int)))
         |> D.andThen
             (\m ->
-                D.map3 (\props plan keys -> seedMeta { m | props = props, plan = plan, planKeys = keys })
+                D.map4 (\props plan keys slots -> seedMeta { m | props = props, plan = plan, planKeys = keys, planSlots = slots })
                     (D.field "props" (D.list pairD))
                     (D.field "plan" (D.list pairD))
                     (D.field "planKeys" (D.list D.string))
+                    (D.field "planSlots" (D.list D.string))
             )
 
 pairD : D.Decoder ( String, String )
@@ -1742,11 +1750,18 @@ viewPlanning m =
                         )
                     , attribute "data-key" key
                     ]
-                    [ text value ]
+                    (if value == "" then unsetSlot else [ text value ])
                 ]
             )
             (entriesOf m)
         )
+
+{-| WHAT AN UNSET SLOT SHOWS: a muted dash the reader can click and RET to set.
+DISPLAY-ONLY -- the model value stays `""', org's own "no entry" -- so the slot
+draws a place to set one without a byte being written.
+-}
+unsetSlot : List (Html Msg)
+unsetSlot = [ span [ class "dpunset" ] [ text "—" ] ]
 
 {-| A reserved token drawn BY ITS LETTER: the colons dim, and the leading one
 hangs into the gutter so the eye lines up on `P', never on punctuation.

@@ -2121,6 +2121,10 @@
               props: h.properties || [],
               plan: h.planning || [],
               planKeys: PLANNING,
+              // THE SETTABLE WORDS DRAW ALWAYS: SCHEDULED and DEADLINE stand as
+              // unset slots where the file gave no value, so the reader can set
+              // one.  CLOSED is org's own bookkeeping and keeps no unset slot.
+              planSlots: DATED,
               cells: cellsOf(h.cells),
               kids: (h.children || []).map((c) =>
                 ({ index: c.index, level: c.level, line: c.line,

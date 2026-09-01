@@ -404,6 +404,75 @@ export default [
     return [`click selected planning entry ${JSON.stringify(st.planKey)}`];
   } },
 
+// EVERY HEADLINE ALWAYS SHOWS A SCHEDULED AND A DEADLINE SLOT: where the file
+// spells no value the slot stands UNSET -- a muted, clickable placeholder -- so
+// the reader can reach one to set it.  unset.org `drv-unset-none' has neither
+// keyword; `drv-unset-one' scheduled but never dated.
+{ name: "a headline with no planning still shows unset SCHEDULED and DEADLINE slots",
+  async run(p, base) {
+    const slots = () => p.eval(() => {
+      const read = (key) => {
+        const s = document.querySelector(`#mdoc .dpv[data-key="${key}"]`);
+        return s ? { has: true, unset: !!s.querySelector(".dpunset"),
+                     text: s.textContent } : { has: false, unset: false, text: null };
+      };
+      return { sched: read("SCHEDULED"), dead: read("DEADLINE") };
+    });
+    // ------- a headline the file gave NO planning line: both slots stand unset.
+    await sheet(p, base, "drv-unset-none");
+    await settled(p, "the no-planning sheet");
+    const none = await slots();
+    assert(none.sched.has && none.dead.has,
+      `the no-planning headline drew no slots: SCHEDULED ${none.sched.has}, `
+      + `DEADLINE ${none.dead.has}`);
+    assert(none.sched.unset && none.dead.unset,
+      `a slot is not the unset placeholder: ${JSON.stringify(none)}`);
+    // ------- a headline scheduled but never dated: the set value stands beside
+    // the still-unset DEADLINE slot.
+    await sheet(p, base, "drv-unset-one");
+    await settled(p, "the one-planning sheet");
+    const one = await slots();
+    assert(one.sched.has && !one.sched.unset && /</.test(one.sched.text || ""),
+      `the scheduled headline drew its SCHEDULED value wrong: ${JSON.stringify(one.sched)}`);
+    assert(one.dead.has && one.dead.unset,
+      `the scheduled headline did not draw an unset DEADLINE slot: ${JSON.stringify(one.dead)}`);
+    return [`no-planning headline draws SCHEDULED ${JSON.stringify(none.sched.text)} and `
+      + `DEADLINE ${JSON.stringify(none.dead.text)} unset; the scheduled one keeps its `
+      + `${JSON.stringify(one.sched.text)} beside an unset DEADLINE`];
+  } },
+
+// AND AN UNSET SLOT IS EDITABLE END TO END: a click selects that entry, RET
+// opens the date widget over it, and committing WRITES the keyword -- a headline
+// that had no planning line at all gains one.
+{ name: "an unset DEADLINE slot selects, edits, and writes to a headline that had none",
+  async run(p, base) {
+    await sheet(p, base, "drv-unset-none");
+    await settled(p, "the no-planning sheet");
+    const was = await p.eval(async () =>
+      (await (await fetch("/headline?id=drv-unset-none")).json()).planning || []);
+    assert(was.length === 0, `drv-unset-none already carries ${JSON.stringify(was)}`);
+    // A CLICK ON THE UNSET SLOT SELECTS THAT ENTRY, not the whole line.
+    await p.click('#mdoc .dpv[data-key="DEADLINE"]');
+    await p.until(() => { const s = window["__glance"] && window["__glance"].editor();
+      return !!s && (s.planKey || "").toUpperCase() === "DEADLINE"; },
+      "the click to select the unset DEADLINE entry");
+    // RET OVER IT OPENS THE DATE WIDGET, keyed on the entry point stands in.
+    await p.press("RET");
+    await widgetUp(p, "the date widget over the unset DEADLINE slot");
+    // TYPING A DATE AND COMMITTING WRITES DEADLINE to a headline that had none.
+    await p.type("20 aug");
+    await p.press("RET");
+    const landed = await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-unset-none")).json();
+      const at = (h.planning || []).find(([k]) => k === "DEADLINE");
+      return at ? at[1] : false;
+    }, "the DEADLINE to reach the planning line", 15000);
+    assert(/^<\d{4}-08-20 /.test(landed),
+      `the file wrote ${JSON.stringify(landed)} for DEADLINE`);
+    return [`clicked the unset DEADLINE slot, RET opened the widget, "20 aug" wrote `
+      + `${JSON.stringify(landed)} to a headline that had no planning line`];
+  } },
+
 { name: "the breadcrumbs render a link as its text, not raw org syntax",
   async run(p, base) {
     await sheet(p, base, "drv-crumbs");
@@ -2742,7 +2811,10 @@ export default [
     // FOLDED IS THE DEFAULT, org's own ellipsis with its breathing space.
     assert(shut.folded === ":PROPERTIES: …" && shut.pairs.length === 0,
       `the drawer opens showing ${JSON.stringify(shut.folded)}`);
-    assert(shut.planning.length === 1 && /^DEADLINE: </.test(shut.planning[0]),
+    // THE LINE ALWAYS DRAWS BOTH SETTABLE SLOTS: an unset SCHEDULED stands
+    // beside drv-marks's own DEADLINE value, still one `.d-meta' row.
+    assert(shut.planning.length === 1 && /SCHEDULED:/.test(shut.planning[0])
+             && /DEADLINE: </.test(shut.planning[0]),
       `the planning line reads ${JSON.stringify(shut.planning)}`);
     await walkTo(p, ".d-drawer", "the drawer");
     await p.press("TAB");
@@ -3728,21 +3800,22 @@ export default [
     await p.until(() => !document.getElementById("ddate").classList.contains("on"),
                   "ESC to take the switched widget");
 
-    // ------- over a row with NO planning line: the line is DRAWN to stand in.
+    // ------- over a row with NO planning IN THE FILE: both settable slots stand
+    // unset from the start, and the summon opens the widget over SCHEDULED.
     await sheet(p, base, "drv-prio");
     const before = await served("drv-prio");
-    assert((await planLine()) === "", "drv-prio already carries a planning line");
+    assert(before.plan.length === 0, "drv-prio already carries planning in the file");
     await settled(p);
     await p.press("C-c");
     await p.press("C-s");
-    await widgetUp(p, "the widget over a SCHEDULED slot the row had not got");
+    await widgetUp(p, "the widget over a SCHEDULED slot the file had not filled");
     // The port lands a macrotask behind the press and Elm paints a frame behind
     // that, so the line is WAITED for rather than read once.
     const drawn = await p.until(() => {
       const at = document.querySelector('#mdoc .de[data-id="PLN"]');
       return at ? at.textContent : false;
-    }, "the summon to draw the slot it stands in");
-    assert(drawn.trim() === "SCHEDULED:",
+    }, "the planning line to draw its slots");
+    assert(/SCHEDULED:/.test(drawn) && /DEADLINE:/.test(drawn),
       `the drawn line reads ${JSON.stringify(drawn)}`);
     // THE DRAFT JOINS NO LIST: nothing half-typed reaches the file.
     assert(JSON.stringify((await served("drv-prio")).plan) === "[]",
@@ -3930,8 +4003,8 @@ export default [
     const drew = await p.until(() => {
       const at = document.querySelector('#mdoc .de[data-id="PLN"]');
       return at ? at.textContent : false;
-    }, "the summon to draw the slot it stands in");
-    assert(drew.trim() === "SCHEDULED:",
+    }, "the child's planning line to draw its slots");
+    assert(/SCHEDULED:/.test(drew) && /DEADLINE:/.test(drew),
       `the drawn line reads ${JSON.stringify(drew)}`);
 
     // ------- ESC LEAVES EVERY BYTE ALONE, the draft's own absence included.
@@ -3945,11 +4018,12 @@ export default [
     assert(JSON.stringify(escaped.kid) === "[]",
       `ESC left the child carrying ${JSON.stringify(escaped.kid)}`);
     // THE DRAFT GOES WITH THE BOX, waited for rather than read once: the undraft
-    // is a port message and the pane repaints a frame behind it.
+    // is a port message and the pane repaints a frame behind it.  The SLOTS stay
+    // -- they always draw -- but the child's SCHEDULED comes up VALUELESS again.
     await p.until(() => {
-      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
-      return !at || at.textContent.trim() === "";
-    }, "the ghosted keyword to leave with the box that drew it");
+      const slot = document.querySelector('#mdoc .dpv[data-key="SCHEDULED"]');
+      return !!slot && !/</.test(slot.textContent);
+    }, "the ghosted value to leave with the box that drew it");
 
     // ------- AND THE COMMIT LANDS ON THE CHILD.  The pane is already the
     // child's, so this is the second fault on its own: the widget's own door.
