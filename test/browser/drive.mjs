@@ -324,6 +324,21 @@ function pageHandle(cdp, sid) {
     await call("Input.dispatchKeyEvent",
       { type: "keyUp", key: e.key, code: e.code, modifiers: e.modifiers });
   }
+  async function mouseClick(sel, count) {
+    const at = await evaluate((s) => {
+      const e = document.querySelector(s);
+      if (!e) return null;
+      const r = e.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    }, sel);
+    if (!at) throw new Error(`click: no element for ${sel}`);
+    for (let n = 1; n <= count; n += 1) {
+      await call("Input.dispatchMouseEvent",
+        { type: "mousePressed", x: at.x, y: at.y, button: "left", clickCount: n, buttons: 1 });
+      await call("Input.dispatchMouseEvent",
+        { type: "mouseReleased", x: at.x, y: at.y, button: "left", clickCount: n, buttons: 0 });
+    }
+  }
   async function capture() {
     const r = await call("Page.captureScreenshot", { format: "png" });
     return Buffer.from(r.data, "base64");
@@ -347,6 +362,10 @@ function pageHandle(cdp, sid) {
     // WHAT A HUMAN DOES: one real keyDown per character, through the shell's own
     // handler.  Use this for editor tests, where the keydown path is the point.
     async typeKeys(text) { for (const ch of text) await held(ch, 0); },
+    // A REAL left click, or two, at the element's centre through the browser's
+    // own mouse dispatch -- the material doc's click path has no TestServe reach.
+    click(sel) { return mouseClick(sel, 1); },
+    dblclick(sel) { return mouseClick(sel, 2); },
     // The editor state the closures hide (`window.__glance.editor()', 20-sheet.js):
     // point's OFFSET in the box, the box's text, the seeded marker, the mirror.
     editorState() { return evaluate(() => window["__glance"] && window["__glance"].editor()); },

@@ -194,8 +194,7 @@
       ((editing && editing.cells && editing.cells.title)
        || (capturing() ? CAPTURE_WORD : (editing || {}).id) || "");
     const docBinding = (command, seq) => ({ seq: seq || "RET", command });
-    function docEnter() {
-      const r = drows[dat];
+    function docEnter(r = drows[dat]) {
       if (!r) return;
       if (r.kind === "child") { into(r.index); return; }
       // A FRAME is not a line, the raw drawer's as much as the synthesized one:
@@ -653,6 +652,25 @@
     el("dtext").addEventListener("input", () => { sizeDocEdit(); placeEdit(); });
     window.addEventListener("resize", placeEdit);
     el("mdoc").addEventListener("scroll", placeEdit, true);
+    // A LEFT CLICK SELECTS the element it lands on; a DOUBLE CLICK edits it, as
+    // RET does.  Point is the model's -- the click NAMES the row and the model
+    // moves point there; the edit opens on the very row named, waiting on no
+    // round-trip.  Clicks inside the open edit box carry no row and are ignored.
+    const clickedRow = (e) => {
+      const t = e.target;
+      const de = t instanceof Element ? t.closest("#mdoc .de") : null;
+      const id = de && de.getAttribute("data-id");
+      return id ? drows.find((x) => x.id === id) : null;
+    };
+    el("mdoc").addEventListener("click", (e) => {
+      if (edit && e.target instanceof Node && el("dpara").contains(e.target)) return;
+      const r = clickedRow(e);
+      if (r) dsend({ kind: "select", id: r.id });
+    });
+    el("mdoc").addEventListener("dblclick", (e) => {
+      const r = clickedRow(e);
+      if (r) docEnter(r);
+    });
     // Read off what Elm drew: a composite draws its leaves inside itself.
     const docElAt = () => el("dlist").querySelector(".dat");
     // `tight' over the TITLE CELL's box, falling back to the line where there is none.

@@ -360,6 +360,34 @@ export default [
     return [`content ${d.mdoc.sh}px scrolls in a ${d.mdoc.ch}px pane (moved ${d.moved}px); sheet ends at ${d.sheet.bottom}/${d.vh}`];
   } },
 
+// A left click selects the element it lands on (point moves there); a double
+// click edits it, exactly as RET does.  marks.org `B5' is a checkbox item.
+{ name: "a left click selects the material-doc element under it",
+  async run(p, base) {
+    await sheet(p, base, "drv-marks");
+    await settled(p, "the sheet");
+    await p.click('#mdoc .de[data-id="B5"]');
+    await p.until(() => { const a = document.querySelector("#mdoc .de.dat"); return !!a && a.dataset.id === "B5"; },
+                  "the click to select B5");
+    const id = await p.eval(() => { const a = document.querySelector("#mdoc .de.dat"); return a ? a.dataset.id : null; });
+    assert(id === "B5", `a click did not select the element it landed on; point is on ${id}`);
+    return [`click selected ${id}`];
+  } },
+
+{ name: "a double click edits the material-doc element, as RET does",
+  async run(p, base) {
+    await sheet(p, base, "drv-marks");
+    await settled(p, "the sheet");
+    await p.dblclick('#mdoc .de[data-id="B5"]');
+    await p.until(() => !!document.querySelector("#dpara.on") && document.activeElement === document.getElementById("dtext"),
+                  "the double-click to open an edit");
+    const st = await p.editorState();
+    assert((st.dtext || "").includes("a box the reader has not"),
+      `a double click did not open the element's edit; dtext=${JSON.stringify(st.dtext)}`);
+    await p.press("ESC");
+    return [`double-click opened edit ${JSON.stringify(st.dtext)}`];
+  } },
+
 // cb6db85.  THE BOX GREW AND STOOD OVER THE DOCUMENT.  Where the next line
 // ENDS UP is unaskable in TestServe.hs: the node harness returns zeroed rects.
 { name: "the editor debug surface reports point, box, marker and the mirror",
