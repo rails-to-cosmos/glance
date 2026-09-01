@@ -4912,4 +4912,47 @@ export default [
     }, "the link target drv-plot to materialize into the sheet");
     return ["a click on the link cell materialized its target entry"];
   } },
+
+// PHASE 4.  + adds a ROW after a whole row, a COLUMN after a cell -- the row
+// wash vs the cell crossing is the affordance.
+{ name: "+ adds a row on a whole row and a column on a cell",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    const shapeOf = () => p.eval(() => ({
+      rows: document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length,
+      cols: document.querySelectorAll("#mdoc glance-table thead th").length }));
+    await p.until(() =>
+      document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length === 3
+      && document.querySelectorAll("#mdoc glance-table thead th").length === 3,
+      "the table to mount 3x3");
+    const id = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((x) => x.textContent.includes("Molenweg")).dataset.id);
+    const colIs = (want, why) => p.until((w) => {
+      const tv = document.querySelector("#mdoc glance-table")._tv;
+      return tv && tv.getSelection().col === w;
+    }, why, undefined, want);
+    // ADD A ROW: into a cell, b to the whole row (wait for it), +.
+    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
+    await p.until((w) => docAtNow() === w, "point in the table", undefined, id);
+    await colIs(0, "the clicked cell to read column 0");
+    await p.press("b");  // cell -> whole row (no column)
+    await colIs(null, "the whole-row state before +");
+    await p.press("+");
+    await p.until(() =>
+      document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length === 4,
+      "a blank row to be added");
+    // ADD A COLUMN: into a cell (a column selected, wait for it), +.
+    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
+    await p.until((w) => docAtNow() === w, "point back on the cell", undefined, id);
+    await colIs(0, "a column selected before +");
+    await p.press("+");
+    await p.until(() =>
+      document.querySelectorAll("#mdoc glance-table thead th").length === 4,
+      "a blank column to be added");
+    const shape = await shapeOf();
+    assert(shape.rows === 4 && shape.cols === 4,
+      `the table is ${shape.rows}x${shape.cols}, not 4x4`);
+    return [`+ grew the table to ${shape.rows} rows and ${shape.cols} columns`];
+  } },
 ];

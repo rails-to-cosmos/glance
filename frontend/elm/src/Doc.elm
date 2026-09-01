@@ -467,6 +467,7 @@ type Msg
     | Delete (List String)
     | Edit String String
     | EditCell String Int String
+    | AddCol String Int
     | Draft String (Maybe Int)
     | Insert String (Maybe Int) String
     | Undraft String
@@ -706,6 +707,19 @@ update msg model =
                     if r.id == id then { r | text = replaceCell col written r.text } else r
             in
             composed { model | rows = List.map write model.rows }
+        -- A COLUMN ADD widens EVERY row of the table -- header and data alike --
+        -- with a blank cell after COL; hlines are separators org re-aligns, left
+        -- alone.  Point lands on the new column.  Not a one-line splice: the one
+        -- mutation here that touches every row's bytes, all inside the subtree.
+        AddCol id col ->
+            case Maybe.andThen (tableCellCompOf model) (rowById model id) of
+                Just comp ->
+                    let
+                        widen r =
+                            if r.owner == Just comp.id then { r | text = insertCol col r.text } else r
+                    in
+                    composed { model | rows = List.map widen model.rows, col = Just (col + 1) }
+                Nothing -> ( model, docSaid (E.string "no table column to add here") )
         -- `+' DRAWS THE PARAGRAPH BEFORE IT IS WRITTEN, so the reader fills a line
         -- of their own.  The row is zero-width, which `bodyText' passes over.
         Draft id caret ->
@@ -1494,6 +1508,8 @@ msgD =
                     "edit" -> D.map2 Edit (D.field "id" D.string) (D.field "text" D.string)
                     -- The leaf row, the column, and the raw value typed into it.
                     "editcell" -> D.map3 EditCell (D.field "id" D.string) (D.field "col" D.int) (D.field "text" D.string)
+                    -- The leaf row and the column a new blank column follows.
+                    "addcol" -> D.map2 AddCol (D.field "id" D.string) (D.field "col" D.int)
                     "insert" ->
                         D.map3 Insert
                             (D.field "id" D.string)
@@ -2475,6 +2491,21 @@ replaceCell col value line =
         replaced = List.indexedMap (\i c -> if i == col then flat else c) padded
     in
     indent ++ "| " ++ String.join " | " replaced ++ " |"
+
+{-| A table row's line with a BLANK cell inserted after column COL, its cells
+`|'-joined afresh.  An hline is a separator org re-aligns and is left alone.
+-}
+insertCol : Int -> String -> String
+insertCol col line =
+    if isRule line then
+        line
+    else
+        let
+            indent = String.left (String.length line - String.length (String.trimLeft line)) line
+            cells = List.map String.trim (tableCells line)
+            widened = List.take (col + 1) cells ++ [ "" ] ++ List.drop (col + 1) cells
+        in
+        indent ++ "| " ++ String.join " | " widened ++ " |"
 
 {-| The table composite's leaves AS A table-view View: columns from the header
 row (the first, when an hline follows it), data rows keyed by the LEAF ROW'S OWN

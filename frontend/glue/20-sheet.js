@@ -518,6 +518,31 @@
     function insertHere(at) {
       const r = docRowAt();
       if (!r) { said(INSERT, "no element"); return; }
+      // A TABLE: `+' adds a ROW after a whole row, a COLUMN after a cell -- the
+      // row wash vs the cell crossing is the affordance.  A blank row is a
+      // one-line splice; a column widens every row's line.
+      if (r.owner) {
+        const comp = drows.find((x) => x.id === r.owner);
+        if (comp && comp.name === "table") {
+          if (dcol == null) {
+            // A RAGGED blank row, not the aligned marker: a row whose content
+            // equalled its marker would read as unchanged and never write.  The
+            // draw re-aligns it and org aligns the file on its next TAB.
+            const host = el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`);
+            const ncols = (host && host.querySelectorAll("thead th").length) || 1;
+            const cur = drows.find((x) => x.id === r.id);
+            const indent = ((cur && cur.text) || "").match(/^\s*/)[0];
+            dcommit = (cargo) => said(INSERT, cargo.said || "row added");
+            // `at:0' routes the join THROUGH the table (`inside') rather than
+            // PAST it (`sibling'): a table row is contiguous, not blank-wrapped.
+            dsend({ kind: "insert", id: r.id, at: 0, text: indent + "|" + " |".repeat(ncols) });
+          } else {
+            dcommit = (cargo) => said(INSERT, cargo.said || "column added");
+            dsend({ kind: "addcol", id: r.id, col: dcol });
+          }
+          return;
+        }
+      }
       if (r.kind === "child")
         { said(INSERT, "a child's body is its own — RET opens it"); return; }
       // `+' IN THE DRAWER TYPES THE PAIR IN PLACE, org's own way: a property is
