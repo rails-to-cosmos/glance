@@ -139,7 +139,7 @@ reader renames the id.
   rather than a command"* (`docs/plan-org-console-web.md`:1370-1372). Silent
   CLAMPING is worse than either: it serves MORE rows than were asked, and more
   is the one direction a reader cannot check (variant g's own line,
-  `../../spikes/2026-08-21-dot-chain-box/g-sql.html`:24-26). So a depth above
+  `spikes/2026-08-21-dot-chain-box/g-sql.html`:24-26). So a depth above
   the cap serves nothing, the way `state:TOD` does, and the typed surface warns
   where it can.
 - **The number.** Recommend **8**, pending one census pass for the longest chain
@@ -434,7 +434,7 @@ A bounded closure is what SQL calls `WITH RECURSIVE`, and **variant g refuses
 it, with a named diagnostic.** The ground is the variant's own central law: g
 refuses a cross-axis `OR` because it has no flat spelling, and a filter that
 quietly drops a conjunct serves MORE rows
-(`../../spikes/2026-08-21-dot-chain-box/g-sql.html`:20-27). A recursive CTE is a
+(`spikes/2026-08-21-dot-chain-box/g-sql.html`:20-27). A recursive CTE is a
 NAMED SUBQUERY with an arbitrary body, of which the flat grammar composes
 exactly one shape; accepting the keyword and refusing every body but one would
 teach a language that is not there.

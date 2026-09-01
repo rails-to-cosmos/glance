@@ -723,7 +723,7 @@ recommendation, and what is left out is named below rather than assumed.
   stated, and `docs/commands.md` states it.
 
 - **The date widget — the delivery's own addition, settled by the spike**
-  ([five places for org-calendar's job](../../spikes/2026-08-23-date-widget/README.md),
+  ([five places for org-calendar's job](../../../spikes/2026-08-23-date-widget/README.md),
   whose D is the shipped shape). `C-c C-s` and `C-c C-d` in the material
   document raise a FIELD in the value's own slot — the planning line's, the
   line drawn in if the row has none — where they raised a blind `askText`

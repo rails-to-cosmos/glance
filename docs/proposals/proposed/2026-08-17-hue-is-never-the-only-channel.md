@@ -90,7 +90,7 @@ channel, and each is a small drawing change:
 - **The flag's connector takes a shape of its own** — drawn DOUBLE (two hairlines
   a pixel apart) or dashed, so a flagged row differs from the cursor with the hue
   discarded. The spike's `STUB` knob shows the machinery is already there
-  (`docs/spikes/2026-08-17-indent-guides/k-tree.html`).
+  (`spikes/2026-08-17-indent-guides/k-tree.html`).
 - **The table's flagged row keeps its inset edge** — it already draws one
   (`groundSweep` asserts `box-shadow:inset 3px 0 0 var(--g-bad)`), so the fix is
   to make the EDGE the primary signal and the wash its reinforcement.

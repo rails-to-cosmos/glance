@@ -126,7 +126,7 @@ resolves today and `ref:` follows it. Layer 1 needed no protocol change.
 
 Three rehearsals were built and driven in real Firefox and Chromium before a
 line of shell code was written —
-[`../spikes/2026-08-16-refer-picker/`](../spikes/2026-08-16-refer-picker/),
+[`spikes/2026-08-16-refer-picker/`](../../../spikes/2026-08-16-refer-picker/),
 open `index.html`:
 
 | | | |

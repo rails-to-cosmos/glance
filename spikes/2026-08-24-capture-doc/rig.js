@@ -35,7 +35,7 @@ var RIG = (function () {
 
   // =============================================================== resolver
   // THE DATE GRAMMAR IS FAKED HERE and faked small.  The real one is the
-  // date-widget spike's (`docs/spikes/2026-08-23-date-widget/rig.js'), which
+  // date-widget spike's (`spikes/2026-08-23-date-widget/rig.js'), which
   // shipped as `#ddate'/`#dwhen'/`.dgh' (`Web/Page/Style.hs'); this spike is
   // about the DOC around it, so it carries a few canned phrases and the shape
   // of the answer rather than the whole grammar.

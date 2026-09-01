@@ -72,7 +72,7 @@ on later as a disambiguator (`in=harness/3`) once there is a reason to want it.
 - **A hash-only change is a same-document navigation.** Nothing reloads, so the
   page must listen for `hashchange` rather than expect a boot. The refer spike's
   runners carry a workaround for exactly this
-  (`docs/spikes/2026-08-16-refer-picker/README.md`).
+  (`spikes/2026-08-16-refer-picker/README.md`).
 - **The address is written from the pane and read by the boot**, so the two must
   agree on the slug rule or a link will fail to resolve the document that wrote
   it. One function, called from both ends, tested against org-glance's own

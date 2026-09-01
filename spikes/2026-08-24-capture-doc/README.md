@@ -6,7 +6,7 @@ whose direction is accepted and whose SHAPE is not yet picked. **Against:**
 today's form ([`docs/capture.md`](../../capture.md)) — a tag field, one field
 per `%^{PROMPT}`, one line, `RET` submits. **Inherits:** the date-widget
 spike's editing laws whole
-([`docs/spikes/2026-08-23-date-widget/`](../2026-08-23-date-widget/README.md)),
+([`spikes/2026-08-23-date-widget/`](../2026-08-23-date-widget/README.md)),
 because the date widget it picked is one of the editors this doc hands out.
 
 The proposal settles WHAT: capture stops being a raw-text form and becomes the

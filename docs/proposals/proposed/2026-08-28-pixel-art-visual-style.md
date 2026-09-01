@@ -1,7 +1,7 @@
 # Pixel-art visual style (Pebble Time 2 direction)
 
 **Status:** proposed · **Date:** 2026-08-28 · experiment
-Spike: [`docs/spikes/2026-08-28-pixel-style/index.html`](../../spikes/2026-08-28-pixel-style/index.html)
+Spike: [`spikes/2026-08-28-pixel-style/index.html`](../../../spikes/2026-08-28-pixel-style/index.html)
 
 ## Want
 

@@ -22,7 +22,7 @@ datetime comparisons, gated on
 ([L5](#the-denotation-is-a-function-algebra)) and the context as data
 ([L9](#l9--the-context-is-data)).
 
-The spike is [`docs/spikes/2026-08-21-dot-chain-box/`](../../spikes/2026-08-21-dot-chain-box/README.md);
+The spike is [`spikes/2026-08-21-dot-chain-box/`](../../../spikes/2026-08-21-dot-chain-box/README.md);
 six tabs, argued in sixteen rounds, every amendment pinned in its `check.mjs`.
 This proposal synthesizes that argument into a landing. It re-derives nothing.
 
@@ -1926,7 +1926,7 @@ this file moves to `docs/proposals/done/` with an "As delivered" section.
   that phase on this one landing.
 - [`/` filters, `.` composes the whole expression](../done/2026-08-20-slash-filters-dot-expression.md)
   — the two doors this proposal re-reads as two surfaces.
-- [`docs/spikes/2026-08-21-dot-chain-box/README.md`](../../spikes/2026-08-21-dot-chain-box/README.md)
+- [`spikes/2026-08-21-dot-chain-box/README.md`](../../../spikes/2026-08-21-dot-chain-box/README.md)
   — the six tabs, the sixteen rounds, the corners and the mechanised check.
 - [`docs/query.md`](../../query.md) — the whole law of the string being composed,
   and the sibling `docs/dsl.md` is written against.

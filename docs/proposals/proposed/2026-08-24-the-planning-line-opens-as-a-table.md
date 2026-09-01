@@ -240,7 +240,7 @@ ghost, the offers and the wall above the commit (`planHere`, `:796`;
 `editDay = () => (edit && edit.row.today) || dateNow()`, `:513`). The reason is
 stated where the field was first built: a walk that crosses midnight must not
 answer two days for one phrase while the reader is looking at it
-(`docs/spikes/2026-08-23-date-widget/rig.js:1148`).
+(`spikes/2026-08-23-date-widget/rig.js:1148`).
 
 **The table extends the law one surface out: the POPUP takes the stamp, and a
 widget opened in one of its cells inherits it rather than reading the clock
