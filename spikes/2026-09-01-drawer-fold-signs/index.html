@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drawer fold sign — boxed +/− on the real spine</title>
+<style>
+  /* Palette from `Theme/Default.hs', geometry and the `.d-*' rules lifted from
+     `Page/Style.hs', so the sign is judged in the REAL material doc: a headline,
+     its planning line, a foldable properties drawer, a paragraph and a list with
+     a checkbox.  The one thing added is the boxed +/− on the drawer's own spine
+     column -- click it to fold/expand in one press. */
+  :root{
+    --dk-mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --g-bg:#FFFFFF; --g-fg:#000000; --g-surface:#F8F8FF; --g-mute:#667071;
+    --g-border:#E3E6EA; --g-accent:#31769F; --g-sel:#FFD600; --g-link:#30739B;
+    --g-point:#005A8D; --g-point-off:#B9C2C6; --g-mark:#565f60;
+    --g-todo:#B54708; --g-done:#3D7A4A; --g-state-i0:#3D7A4A;
+    --g-doc-pad:6px; --g-doc-padx:10px; --g-doc-pady:8px;
+    --g-doc-fs:13px; --g-doc-lh:21px; --g-doc-off:63px;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+    --g-point:#FFC777; --g-point-off:#4A5064; --g-mark:#9aa6ac;
+    --g-todo:#FF9E64; --g-done:#7FBC85; --g-state-i0:#7FBC85;
+  }}
+  :root[data-theme="dark"]{
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+    --g-point:#FFC777; --g-point-off:#4A5064; --g-mark:#9aa6ac;
+    --g-todo:#FF9E64; --g-done:#7FBC85; --g-state-i0:#7FBC85;
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--g-bg); color:var(--g-fg);
+    font:14px/1.5 var(--dk-mono); padding:20px; box-sizing:border-box;
+    display:flex; flex-direction:column; gap:12px;
+  }
+  header{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; flex:none}
+  h1{margin:0; font-size:14px; font-weight:600}
+  header small{color:var(--g-mute)}
+  button{font:inherit; font-size:12px; color:var(--g-mute); background:var(--g-surface);
+    border:1px solid var(--g-border); border-radius:6px; padding:3px 10px; cursor:pointer}
+  footer{flex:none; color:var(--g-mute); font-size:11px; max-width:90ch}
+
+  /* ---- the doc pane, real geometry (Page/Style.hs) --------------------- */
+  #mdoc{
+    align-self:flex-start; width:min(560px,100%);
+    position:relative; overflow:auto;
+    padding:var(--g-doc-pady) var(--g-doc-padx);
+    padding-left:calc(var(--g-doc-padx) + 1ch);
+    font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+    border:1px solid var(--g-accent); border-radius:8px;
+    --g-mark:color-mix(in srgb, var(--g-fg) 68%, var(--g-bg));
+  }
+  .de{position:relative; padding:1px var(--g-doc-pad); border-radius:4px;
+    white-space:pre-wrap; overflow-wrap:anywhere;
+    --ink:var(--g-point-off); --fg:var(--g-fg); --tok:var(--g-point);
+    --punc:var(--g-mute); --lnk:var(--g-link); --box:var(--g-state-i0);
+    --rail:calc(var(--g-doc-pad) + 0.5ch)}
+  .dp{position:relative}
+  .de::before{content:""; position:absolute; left:var(--rail); pointer-events:none}
+  #mdoc.on .de.dat{background-color:var(--g-sel); color:var(--g-fg)}
+  #mdoc .up,#mdoc .de.dat{--ink:var(--g-fg)}
+
+  /* a paragraph or the drawer wears a 1px bar down its rail */
+  .lvl-top:not(.d-head):not(.d-comp)::before,.lvl-top.d-drawer::before{
+    content:""; position:absolute; left:var(--rail); top:0; bottom:0; width:1px;
+    border-radius:1px; background:var(--ink); z-index:1}
+  /* a list draws a connector per item, half a cell left of the tab stop */
+  .d-list .d-item::before{content:""; position:absolute; left:var(--rail); top:0;
+    width:0.8ch; height:calc(var(--g-doc-lh) / 2 + 1.5px);
+    border-left:1px solid var(--ink); border-bottom:1px solid var(--ink);
+    border-radius:0 0 0 3px}
+  .d-list .d-item.kin::after{content:""; position:absolute; left:var(--rail);
+    top:calc(var(--g-doc-lh) / 2 + 1.5px); bottom:0; width:1px;
+    border-radius:1px; background:var(--ink)}
+  #mdoc .de.dat.d-head::before,#mdoc .de.dat.d-child::before{display:none}
+
+  .d-para,.d-comp,.d-meta{margin:7px 0; padding-left:calc(var(--g-doc-pad) + 2 * 1ch)}
+  .d-comp{white-space:normal}
+  .d-comp .de{margin:0; padding-top:0; padding-bottom:0}
+  .d-item,.d-drawer .d-meta{padding-left:0; padding-right:0}
+
+  .d-head,.d-child{display:flex; align-items:baseline; font-weight:600}
+  .dc{margin-right:.6em; flex:none}
+  .dc-state{color:var(--g-todo)}
+  .dc-title{flex:1 1 auto; min-width:0; margin-right:.6em}
+  .dc-tags{color:var(--g-mute); font-size:11px; margin-left:auto; margin-right:0}
+
+  .dk,.d-drawer .dg{color:var(--tok)}
+  .dg{padding:0; color:var(--punc)}
+  .dpunc{color:var(--punc)}
+  .dpunc.dlead{margin-left:-1ch}
+  .dpv{display:inline-block}
+  .dpunset{color:var(--punc)}        /* an unset planning slot: a muted dash */
+  .dbx.on{color:var(--box)}
+  .dbx{color:var(--ink)}
+
+  /* THE BOXED SIGN on the drawer's own spine: the fold's state in a box at the
+     rail, its ground the page's so the bar reads as passing behind it. */
+  .drawer > .fold{
+    position:absolute; left:var(--rail); transform:translateX(-50%);
+    top:calc(var(--g-doc-lh) / 2 + 1px); margin-top:-6px;
+    width:12px; height:12px; box-sizing:border-box;
+    border:1px solid var(--g-mark); border-radius:3px; background:var(--g-bg);
+    color:var(--g-mark); font:10px/1 var(--dk-mono);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; user-select:none; z-index:2}
+  /* Point on the drawer lifts the sign to the page's own ink, like the spine. */
+  #mdoc.on .de.dat.drawer > .fold{border-color:var(--g-fg); color:var(--g-fg)}
+  .drawer > .fold:hover{border-color:var(--g-accent); color:var(--g-accent)}
+  .drawer.shut > .kids{display:none}
+  .drawer:not(.shut) .dots{display:none}
+  .dots{color:var(--punc)}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Drawer fold sign · boxed +/−</h1>
+    <small>the winner, on the real spine — click the box to fold/expand the drawer</small>
+    <button id="theme">theme</button>
+  </header>
+
+  <div id="mdoc" class="on">
+    <div class="de d-head lvl-top">
+      <span class="dc dc-state">NEXT</span>
+      <span class="dc dc-title">Ship the browser driver</span>
+      <span class="dc dc-tags">:driver:plan:</span>
+    </div>
+
+    <div class="de lvl-top"><span class="dp"><span class="dk">SCHEDULED<span class="dpunc">:</span></span> <span class="dpv" data-key="SCHEDULED">&lt;2026-09-20 Sun&gt;</span> <span class="dk">DEADLINE<span class="dpunc">:</span></span> <span class="dpv dpunset" data-key="DEADLINE">—</span></span></div>
+
+    <div class="de d-comp d-drawer d-properties lvl-top drawer shut">
+      <span class="fold" role="button" tabindex="0" aria-label="toggle drawer">+</span>
+      <div class="de d-meta"><span class="dg"><span class="dpunc dlead">:</span>PROPERTIES<span class="dpunc">:</span></span><span class="dots"> …</span></div>
+      <div class="kids">
+        <div class="de d-meta d-item"><span class="dg"><span class="dpunc dlead">:</span>ORG_GLANCE_ID<span class="dpunc">:</span> drv-plan</span></div>
+        <div class="de d-meta d-item"><span class="dg"><span class="dpunc dlead">:</span>OWNER<span class="dpunc">:</span> reader</span></div>
+        <div class="de d-meta d-item"><span class="dg"><span class="dpunc dlead">:</span>END<span class="dpunc">:</span></span></div>
+      </div>
+    </div>
+
+    <div class="de d-para lvl-top">The entry the sheet opens when a case needs a planning line.</div>
+
+    <div class="de d-comp d-list lvl-top">
+      <div class="de d-item kin">- a list item, so the pane has a composite stop</div>
+      <div class="de d-item kin"><span class="dbx on">[X]</span> a box the reader has ticked</div>
+      <div class="de d-item">[ ] a box the reader has not</div>
+    </div>
+  </div>
+
+  <footer>The boxed +/− rides the drawer's spine at the rail column, its ground occluding the bar
+    behind it. Shut, the drawer is its <code>:PROPERTIES: …</code> summary; open, the box reads
+    <code>−</code> and the pairs stand. Judge at both palettes (the <b>theme</b> button). Throwaway —
+    the real one toggles the fold through <code>TAB</code>'s own door.</footer>
+
+<script>
+(function () {
+  var dr = document.querySelector(".drawer"), fold = dr.querySelector(".fold");
+  function paint(){ fold.textContent = dr.classList.contains("shut") ? "+" : "−"; }
+  function toggle(){ dr.classList.toggle("shut"); paint(); }
+  fold.addEventListener("click", toggle);
+  fold.addEventListener("keydown", function (e){ if (e.key==="Enter"||e.key===" "){ e.preventDefault(); toggle(); }});
+  document.getElementById("theme").addEventListener("click", function () {
+    var r = document.documentElement, now = r.getAttribute("data-theme");
+    r.setAttribute("data-theme", now === "dark" ? "light" : "dark");
+  });
+  paint();
+})();
+</script>
+</body>
+</html>
