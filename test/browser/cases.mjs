@@ -4792,4 +4792,44 @@ export default [
     assert((await at()) !== id, "b off the whole row did not climb out of the table");
     return [`f/b crossed the cells of ${id} and climbed out, the widget mirroring`];
   } },
+
+// PHASE 3.  RET on a cell edits its RAW text in a box over the td; commit
+// rewrites that row's line alone and the write round-trips back into the cell.
+{ name: "RET on a table cell edits its raw text and writes that row's line",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+      "the table to mount");
+    const owner = await p.eval(() => {
+      const tr = [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((x) => x.textContent.includes("Molenweg"));
+      return { id: tr.dataset.id };
+    });
+    // Click the Owner cell (column 1) to land point on it.
+    await p.click(`#mdoc glance-table tbody tr[data-id="${owner.id}"] td:nth-child(2)`);
+    await p.until((w) => docAtNow() === w, "point on the Owner cell", undefined, owner.id);
+    await p.press("RET");
+    await p.until(() => {
+      const b = document.getElementById("dpara");
+      return b && b.className.includes("on");
+    }, "the cell edit box to open");
+    const opened = await p.eval(() => document.getElementById("dtext").value);
+    assert(opened === "writer",
+      `the box opened on ${JSON.stringify(opened)}, not the raw cell "writer"`);
+    await p.eval(() => {
+      const t = document.getElementById("dtext");
+      t.value = "keeper"; t.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await p.press("RET");
+    await p.until((wid) => {
+      const tr = document.querySelector(`#mdoc glance-table tbody tr[data-id="${wid}"]`);
+      return tr && [...tr.querySelectorAll("td")].some((td) => td.textContent.trim() === "keeper");
+    }, "the written value to round-trip into the cell", undefined, owner.id);
+    const got = await p.eval((wid) => {
+      const tr = document.querySelector(`#mdoc glance-table tbody tr[data-id="${wid}"]`);
+      return [...tr.querySelectorAll("td")].map((td) => td.textContent.trim());
+    }, owner.id);
+    assert(got[1] === "keeper", `the Owner cell reads ${JSON.stringify(got[1])}, not "keeper"`);
+    return [`RET edited the cell raw and wrote the row: [${got.join(", ")}]`];
+  } },
 ];

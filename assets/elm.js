@@ -6121,7 +6121,7 @@ var $author$project$Listing$main = $elm$browser$Browser$element(
 		cY: $author$project$Listing$update,
 		cZ: $author$project$Listing$view
 	});
-var $author$project$Doc$Ignore = {$: 27};
+var $author$project$Doc$Ignore = {$: 28};
 var $author$project$Doc$docIn = _Platform_incomingPort('docIn', $elm$json$Json$Decode$value);
 var $elm$core$Set$Set_elm_builtin = $elm$core$Basics$identity;
 var $elm$core$Dict$RBEmpty_elm_builtin = {$: -2};
@@ -6130,7 +6130,7 @@ var $elm$core$Set$empty = $elm$core$Dict$empty;
 var $author$project$Doc$empty = {au: $elm$core$Array$empty, aH: 0, q: $elm$core$Maybe$Nothing, U: false, aw: $elm$core$Maybe$Nothing, P: _List_Nil, y: $elm$core$Set$empty, Q: $elm$core$Maybe$Nothing, V: 1, aO: _List_Nil, aP: _List_Nil, aB: $elm$core$Array$empty, A: _List_Nil, B: $elm$core$Maybe$Nothing, an: _List_Nil, aT: _List_Nil, cM: _List_Nil, C: _List_Nil, Z: 0, f: $elm$core$Set$empty, aC: $elm$core$Maybe$Nothing, aY: $elm$core$Maybe$Nothing};
 var $author$project$Doc$AddProp = F2(
 	function (a, b) {
-		return {$: 24, a: a, b: b};
+		return {$: 25, a: a, b: b};
 	});
 var $author$project$Doc$Broader = {$: 6};
 var $author$project$Doc$Clear = {$: 1};
@@ -6141,15 +6141,19 @@ var $author$project$Doc$Delete = function (a) {
 };
 var $author$project$Doc$Draft = F2(
 	function (a, b) {
-		return {$: 13, a: a, b: b};
+		return {$: 14, a: a, b: b};
 	});
-var $author$project$Doc$DraftPair = {$: 16};
+var $author$project$Doc$DraftPair = {$: 17};
 var $author$project$Doc$DraftPlan = function (a) {
-	return {$: 18, a: a};
+	return {$: 19, a: a};
 };
 var $author$project$Doc$Edit = F2(
 	function (a, b) {
 		return {$: 12, a: a, b: b};
+	});
+var $author$project$Doc$EditCell = F3(
+	function (a, b, c) {
+		return {$: 13, a: a, b: b, c: c};
 	});
 var $author$project$Doc$Fill = function (a) {
 	return {$: 0, a: a};
@@ -6159,12 +6163,12 @@ var $author$project$Doc$Flag = function (a) {
 	return {$: 8, a: a};
 };
 var $author$project$Doc$Fold = function (a) {
-	return {$: 21, a: a};
+	return {$: 22, a: a};
 };
-var $author$project$Doc$HideDone = {$: 22};
+var $author$project$Doc$HideDone = {$: 23};
 var $author$project$Doc$Insert = F3(
 	function (a, b, c) {
-		return {$: 14, a: a, b: b, c: c};
+		return {$: 15, a: a, b: b, c: c};
 	});
 var $author$project$Doc$Select = F2(
 	function (a, b) {
@@ -6175,27 +6179,27 @@ var $author$project$Doc$SelectCell = F2(
 		return {$: 3, a: a, b: b};
 	});
 var $author$project$Doc$SetCells = function (a) {
-	return {$: 26, a: a};
+	return {$: 27, a: a};
 };
 var $author$project$Doc$SetMeta = F2(
 	function (a, b) {
-		return {$: 25, a: a, b: b};
+		return {$: 26, a: a, b: b};
 	});
 var $author$project$Doc$Shift = function (a) {
-	return {$: 23, a: a};
+	return {$: 24, a: a};
 };
 var $author$project$Doc$Step = function (a) {
 	return {$: 4, a: a};
 };
-var $author$project$Doc$Tab = {$: 20};
+var $author$project$Doc$Tab = {$: 21};
 var $author$project$Doc$Undraft = function (a) {
-	return {$: 15, a: a};
+	return {$: 16, a: a};
 };
 var $author$project$Doc$UndraftPair = function (a) {
-	return {$: 17, a: a};
+	return {$: 18, a: a};
 };
 var $author$project$Doc$UndraftPlan = function (a) {
-	return {$: 19, a: a};
+	return {$: 20, a: a};
 };
 var $author$project$Doc$Unflag = function (a) {
 	return {$: 9, a: a};
@@ -7992,6 +7996,13 @@ var $author$project$Doc$msgD = A2(
 					$elm$json$Json$Decode$map2,
 					$author$project$Doc$Edit,
 					A2($elm$json$Json$Decode$field, 'id', $elm$json$Json$Decode$string),
+					A2($elm$json$Json$Decode$field, 'text', $elm$json$Json$Decode$string));
+			case 'editcell':
+				return A4(
+					$elm$json$Json$Decode$map3,
+					$author$project$Doc$EditCell,
+					A2($elm$json$Json$Decode$field, 'id', $elm$json$Json$Decode$string),
+					A2($elm$json$Json$Decode$field, 'col', $elm$json$Json$Decode$int),
 					A2($elm$json$Json$Decode$field, 'text', $elm$json$Json$Decode$string));
 			case 'insert':
 				return A4(
@@ -11077,6 +11088,66 @@ var $author$project$Doc$nextVisible = F2(
 				aH: scan(m.aH + by)
 			});
 	});
+var $elm$core$List$repeatHelp = F3(
+	function (result, n, value) {
+		repeatHelp:
+		while (true) {
+			if (n <= 0) {
+				return result;
+			} else {
+				var $temp$result = A2($elm$core$List$cons, value, result),
+					$temp$n = n - 1,
+					$temp$value = value;
+				result = $temp$result;
+				n = $temp$n;
+				value = $temp$value;
+				continue repeatHelp;
+			}
+		}
+	});
+var $elm$core$List$repeat = F2(
+	function (n, value) {
+		return A3($elm$core$List$repeatHelp, _List_Nil, n, value);
+	});
+var $elm$core$String$replace = F3(
+	function (before, after, string) {
+		return A2(
+			$elm$core$String$join,
+			after,
+			A2($elm$core$String$split, before, string));
+	});
+var $author$project$Doc$replaceCell = F3(
+	function (col, value, line) {
+		var indent = A2(
+			$elm$core$String$left,
+			$elm$core$String$length(line) - $elm$core$String$length(
+				$elm$core$String$trimLeft(line)),
+			line);
+		var flat = A3(
+			$elm$core$String$replace,
+			'\u000A',
+			' ',
+			$elm$core$String$trim(value));
+		var cells = $author$project$Body$tableCells(line);
+		var n = A2(
+			$elm$core$Basics$max,
+			col + 1,
+			$elm$core$List$length(cells));
+		var padded = _Utils_ap(
+			cells,
+			A2(
+				$elm$core$List$repeat,
+				n - $elm$core$List$length(cells),
+				''));
+		var replaced = A2(
+			$elm$core$List$indexedMap,
+			F2(
+				function (i, c) {
+					return _Utils_eq(i, col) ? flat : c;
+				}),
+			padded);
+		return indent + ('| ' + (A2($elm$core$String$join, ' | ', replaced) + ' |'));
+	});
 var $author$project$Doc$extentOf = F2(
 	function (m, r) {
 		return _Utils_Tuple2(
@@ -11341,7 +11412,7 @@ var $author$project$Body$undrafted = function (m) {
 var $author$project$Doc$update = F2(
 	function (msg, model) {
 		switch (msg.$) {
-			case 27:
+			case 28:
 				return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
 			case 1:
 				return $author$project$Doc$told($author$project$Doc$empty);
@@ -11466,7 +11537,7 @@ var $author$project$Doc$update = F2(
 					_Utils_update(
 						model,
 						{P: _List_Nil}));
-			case 22:
+			case 23:
 				var scoped = function () {
 					var _v8 = $author$project$Body$rowAt(model);
 					if (!_v8.$) {
@@ -11501,7 +11572,7 @@ var $author$project$Doc$update = F2(
 									model,
 									{y: next}))),
 						word));
-			case 20:
+			case 21:
 				var _v9 = $author$project$Doc$foldTarget(model);
 				if (_v9.$ === 1) {
 					return $author$project$Doc$spoke(
@@ -11511,7 +11582,7 @@ var $author$project$Doc$update = F2(
 					return $author$project$Doc$spoke(
 						A2($author$project$Doc$foldAt, r, model));
 				}
-			case 21:
+			case 22:
 				var id = msg.a;
 				var _v10 = A2($author$project$Body$rowById, model, id);
 				if (_v10.$ === 1) {
@@ -11521,10 +11592,10 @@ var $author$project$Doc$update = F2(
 					return $author$project$Doc$spoke(
 						A2($author$project$Doc$foldAt, r, model));
 				}
-			case 23:
+			case 24:
 				var by = msg.a;
 				return A2($author$project$Doc$shifted, by, model);
-			case 25:
+			case 26:
 				var props = msg.a;
 				var plan = msg.b;
 				return $author$project$Doc$told(
@@ -11532,7 +11603,7 @@ var $author$project$Doc$update = F2(
 						_Utils_update(
 							model,
 							{A: plan, cM: props})));
-			case 26:
+			case 27:
 				var cells = msg.a;
 				return $author$project$Doc$told(
 					_Utils_update(
@@ -11547,7 +11618,7 @@ var $author$project$Doc$update = F2(
 								},
 								model.C)
 						}));
-			case 24:
+			case 25:
 				var key = msg.a;
 				var value = msg.b;
 				var _v11 = A2($author$project$Body$planningKey, model.an, key);
@@ -11647,6 +11718,23 @@ var $author$project$Doc$update = F2(
 				}
 			case 13:
 				var id = msg.a;
+				var col = msg.b;
+				var written = msg.c;
+				var write = function (r) {
+					return _Utils_eq(r.c, id) ? _Utils_update(
+						r,
+						{
+							O: A3($author$project$Doc$replaceCell, col, written, r.O)
+						}) : r;
+				};
+				return $author$project$Doc$composed(
+					_Utils_update(
+						model,
+						{
+							C: A2($elm$core$List$map, write, model.C)
+						}));
+			case 14:
+				var id = msg.a;
 				var caret = msg.b;
 				var _v12 = _Utils_Tuple2(
 					A3($author$project$Body$drafted, model, id, caret),
@@ -11674,7 +11762,7 @@ var $author$project$Doc$update = F2(
 						$author$project$Doc$docSaid(
 							$elm$json$Json$Encode$string('nothing here takes a paragraph')));
 				}
-			case 14:
+			case 15:
 				var id = msg.a;
 				var caret = msg.b;
 				var written = msg.c;
@@ -11700,7 +11788,7 @@ var $author$project$Doc$update = F2(
 						$author$project$Doc$docSaid(
 							$elm$json$Json$Encode$string('nothing here takes a paragraph')));
 				}
-			case 15:
+			case 16:
 				var id = msg.a;
 				var rows = $author$project$Body$undrafted(model);
 				return $author$project$Doc$told(
@@ -11715,7 +11803,7 @@ var $author$project$Doc$update = F2(
 								id),
 							C: rows
 						}));
-			case 16:
+			case 17:
 				var fresh = $author$project$Doc$remeta(
 					_Utils_update(
 						model,
@@ -11727,7 +11815,7 @@ var $author$project$Doc$update = F2(
 							aH: A2($author$project$Body$placeOf, fresh, $author$project$Body$draftPairId),
 							f: A2($elm$core$Set$remove, $author$project$Body$drawerId, fresh.f)
 						}));
-			case 17:
+			case 18:
 				var id = msg.a;
 				return A2(
 					$author$project$Doc$backTo,
@@ -11735,7 +11823,7 @@ var $author$project$Doc$update = F2(
 					_Utils_update(
 						model,
 						{U: false}));
-			case 18:
+			case 19:
 				var key = msg.a;
 				var fresh = $author$project$Doc$remeta(
 					_Utils_update(
@@ -11799,10 +11887,11 @@ var $author$project$Doc$tableView = F2(
 				return _Utils_Tuple2(
 					'c' + $elm$core$String$fromInt(i),
 					$elm$json$Json$Encode$string(
-						A2(
-							$elm$core$Maybe$withDefault,
-							'',
-							A2($author$project$Scan$nth, i, cs))));
+						$elm$core$String$trim(
+							A2(
+								$elm$core$Maybe$withDefault,
+								'',
+								A2($author$project$Scan$nth, i, cs)))));
 			};
 			return $elm$json$Json$Encode$object(
 				_List_fromArray(

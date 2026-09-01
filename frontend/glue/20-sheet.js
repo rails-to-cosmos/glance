@@ -221,6 +221,17 @@
     const docBinding = (command, seq) => ({ seq: seq || "RET", command });
     function docEnter(r = drows[dat]) {
       if (!r) return;
+      // A TABLE: RET on a CELL edits its raw text; on the whole row or the table
+      // itself it is `f' that reaches a cell -- the frame's own rule, one finer.
+      if (r.name === "table") { echo("RET → f enters the table"); return; }
+      if (r.owner) {
+        const comp = drows.find((x) => x.id === r.owner);
+        if (comp && comp.name === "table") {
+          if (dcol == null) { echo("RET → f takes a cell"); return; }
+          openCellEdit(r, comp, dcol);
+          return;
+        }
+      }
       if (r.kind === "child") { into(r.index); return; }
       // A FRAME is not a line, the raw drawer's as much as the synthesized one:
       // what RET edits is a row inside, and TAB folds.  RET itself is reserved.
@@ -773,6 +784,30 @@
       fill: (r) => { drung = null; el("dtext").value = r.text; sizeDocEdit(); },
       focus: () => el("dtext").focus(),
     };
+    // A TABLE CELL EDIT: the paragraph box laid over the ONE td (cells-mode)
+    // instead of the whole line, filled with the cell's RAW text and committed
+    // as a cell.  The per-open column and table ride `dcell', so the one shape
+    // serves every cell; the widget's row is the `.tv-sel' `placeEdit' anchors.
+    let dcell = null;
+    const DCELL = {
+      box: "dpara", pane: "mdoc", fields: ["dtext"],
+      mount: () => (dcell ? dcell.tv : null),
+      get cells() { return dcell ? ["c" + dcell.col] : null; },
+      get cols() { return dcell ? dcell.cols : null; },
+      fill: () => { el("dtext").value = dcell ? dcell.raw : ""; sizeDocEdit(); },
+      focus: () => el("dtext").focus(),
+    };
+    function openCellEdit(r, comp, col) {
+      const host = el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`);
+      const tv = tvOf(host);
+      if (!tv || !host) return;
+      const ncols = host.querySelectorAll("thead th").length || (col + 1);
+      const cols = Array.from({ length: ncols }, (_, i) => ({ key: "c" + i }));
+      const vr = tv.getRows().find((x) => x.id === r.id);
+      const raw = vr && vr.cells ? (vr.cells["c" + col] || "") : "";
+      dcell = { tv, col, cols, raw, id: r.id };
+      openEdit(DCELL, r);
+    }
     // A PAIR IS TWO FIELDS OVER ONE ROW: `block', so the box is the row's own
     // box on every edge and each field is padded the way the row is.
     const DPAIR = {
@@ -809,12 +844,13 @@
     };
     const dediting = () => !!edit && edit.o === DTITLE;
     const dparaing = () => !!edit && edit.o === DPARA;
+    const dcelling = () => !!edit && edit.o === DCELL;
     const dpairing = () => !!edit && edit.o === DPAIR;
     const ddating = () => !!edit && edit.o === DDATE;
     // THE DOC PANE'S OWN SHAPES, and the only enumeration of them: `edit' is
     // shared with the table's, so this is asked as MEMBERSHIP rather than as
     // `!!edit' -- an open rename on another surface is no open sheet edit.
-    const DOCEDITS = [DTITLE, DPARA, DPAIR, DDATE];
+    const DOCEDITS = [DTITLE, DPARA, DPAIR, DDATE, DCELL];
     const sheetOpen = () => !!edit && DOCEDITS.indexOf(edit.o) !== -1;
     /** THE DAY THE OPEN EDIT READS AGAINST, stamped once when the box was
      * SUMMONED: the ghost must not answer two days for one phrase while the
@@ -1938,6 +1974,19 @@
       // `C-c C-c' over an open one would fall through to the title's branch and
       // rename the headline with a date.
       if (edit.o === DDATE) { dateKey(b || dateBinding("RET")); return; }
+      // A CELL: the raw value goes through the cell door, which rebuilds the
+      // row's line with the one cell replaced and writes it.  An unchanged value
+      // writes nothing.
+      if (edit.o === DCELL) {
+        const text = el("dtext").value;
+        const c = dcell;
+        shutEdit(DCELL);
+        dcell = null;
+        if (!c || text === c.raw) { spoke("cell unchanged"); return; }
+        dcommit = (cargo) => spoke(cargo.said || "cell written");
+        dsend({ kind: "editcell", id: c.id, col: c.col, text });
+        return;
+      }
       if (edit.o === DPARA) {
         const text = el("dtext").value;
         const add = !!r.add;
@@ -2330,6 +2379,14 @@
         if (k !== "TAB" && k !== "RET" && !(k === ":" && onPairKey())) return;
         e.preventDefault();
         once(() => pairKey(k));
+        return;
+      }
+      // A CELL EDIT IS ONE LINE: `RET' commits it and nothing summons another.
+      // `TAB' is claimed so the browser keeps focus in the box; ESC is the
+      // keymap's ladder, which shuts every DOCEDITS shape, this among them.
+      if (dcelling()) {
+        if (k === "RET") { e.preventDefault(); once(() => commitDocEdit(paraBinding)); }
+        else if (k === "TAB") { e.preventDefault(); }
         return;
       }
       // `RET' COMMITS here, `S-RET' commits and asks for ANOTHER, `M-RET' is the newline.

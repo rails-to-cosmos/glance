@@ -466,6 +466,7 @@ type Msg
     | ClearFlags
     | Delete (List String)
     | Edit String String
+    | EditCell String Int String
     | Draft String (Maybe Int)
     | Insert String (Maybe Int) String
     | Undraft String
@@ -680,6 +681,15 @@ update msg model =
                         if r.id == id then { r | text = narrowed model written } else r
                 in
                 composed { model | rows = List.map write model.rows }
+        -- A CELL EDIT REWRITES ONE ROW'S LINE: the row's cells with the one
+        -- replaced, `|'-joined.  The line is RAGGED where the cell grew; the
+        -- draw re-aligns and org aligns the file on its next TAB.
+        EditCell id col written ->
+            let
+                write r =
+                    if r.id == id then { r | text = replaceCell col written r.text } else r
+            in
+            composed { model | rows = List.map write model.rows }
         -- `+' DRAWS THE PARAGRAPH BEFORE IT IS WRITTEN, so the reader fills a line
         -- of their own.  The row is zero-width, which `bodyText' passes over.
         Draft id caret ->
@@ -1462,6 +1472,8 @@ msgD =
                     "clearFlags" -> D.succeed ClearFlags
                     "delete" -> D.map Delete (D.field "ids" (D.list D.string))
                     "edit" -> D.map2 Edit (D.field "id" D.string) (D.field "text" D.string)
+                    -- The leaf row, the column, and the raw value typed into it.
+                    "editcell" -> D.map3 EditCell (D.field "id" D.string) (D.field "col" D.int) (D.field "text" D.string)
                     "insert" ->
                         D.map3 Insert
                             (D.field "id" D.string)
@@ -2428,6 +2440,22 @@ tableColCount m comp =
             (List.map (List.length << tableCells << .text)
                 (List.filter (not << isRule << .text) (tableKids m comp))))
 
+{-| A table row's line with column COL set to VALUE: its cells `|'-joined afresh,
+newlines flattened (a cell spans no line), the leading indent kept.  RAGGED where
+the value grew -- the draw re-aligns, org on its next TAB.
+-}
+replaceCell : Int -> String -> String -> String
+replaceCell col value line =
+    let
+        indent = String.left (String.length line - String.length (String.trimLeft line)) line
+        flat = String.replace "\n" " " (String.trim value)
+        cells = tableCells line
+        n = Basics.max (col + 1) (List.length cells)
+        padded = cells ++ List.repeat (n - List.length cells) ""
+        replaced = List.indexedMap (\i c -> if i == col then flat else c) padded
+    in
+    indent ++ "| " ++ String.join " | " replaced ++ " |"
+
 {-| The table composite's leaves AS A table-view View: columns from the header
 row (the first, when an hline follows it), data rows keyed by the LEAF ROW'S OWN
 id so a selection maps back to the walk.  Hlines are boundaries, never rows; a
@@ -2452,7 +2480,7 @@ tableView m r =
         rowVal k =
             let
                 cs = tableCells k.text
-                cell i = ( "c" ++ String.fromInt i, E.string (Maybe.withDefault "" (nth i cs)) )
+                cell i = ( "c" ++ String.fromInt i, E.string (String.trim (Maybe.withDefault "" (nth i cs))) )
             in
             E.object
                 [ ( "id", E.string k.id )
