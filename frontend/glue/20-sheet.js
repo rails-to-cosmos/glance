@@ -39,6 +39,9 @@
     // shell holds no index into a list Elm draws, and the keyword is what every
     // door below it asks for anyway.
     let dplankey = null;
+    // WHICH COLUMN POINT STANDS IN inside a table, `null' the whole row -- the
+    // model's own axis, mirrored so the push can select the cell in the widget.
+    let dcol = null;
     // A DRAFT WHOSE `%?' STOOD IN THE BODY still owes its editor: the row that
     // line became lands a macrotask behind the fill, so the open waits for it.
     // ONE SHOT — the next fill is somebody else's document.
@@ -68,10 +71,11 @@
         dflags = now.flags; dbody = now.body;
         dprops = now.properties; dplan = now.planning;
         dplankey = now.planKey || null;
+        dcol = (now.col === undefined ? null : now.col);
         // Elm pushes a port BEFORE it paints, so these are read a turn later.
         soon(() => {
           seedInsert(now.caret); keepInView(docElAt()); placeEdit(); reselectDate();
-          openLanding();
+          openLanding(); tableSelSync();
         });
       });
       dport.docSaid.subscribe((what) => { if (dwrote) { dwrote(what); dwrote = null; } });
@@ -680,8 +684,39 @@
     const deUnder = (e) => (e.target instanceof Element ? e.target.closest("#mdoc .de") : null);
     const rowOfDe = (de) => (de ? drows.find((x) => x.id === de.getAttribute("data-id")) : null);
     const foldUnder = (e) => (e.target instanceof Element ? e.target.closest("#mdoc .fold") : null);
+    const gtUnder = (e) => (e.target instanceof Element ? e.target.closest("#mdoc glance-table") : null);
+    // The mounted table-view handle a <glance-table> host carries.
+    const tvOf = (host) => (host ? /** @type {any} */ (host)._tv : null);
+    // SELECT THE CELL POINT STANDS IN, in the mounted widget: the leaf row's
+    // own id, `null' the whole row.  The widget's row ids ARE the Elm leaf ids,
+    // so no lookup -- Elm's point drives the renderer's selection.
+    const tableSelSync = () => {
+      const r = drows[dat];
+      if (!r || !r.owner) return;
+      const comp = drows.find((x) => x.id === r.owner);
+      if (!comp || comp.name !== "table") return;
+      const tv = tvOf(el("mdoc").querySelector(`.de[data-id="${comp.id}"] glance-table`));
+      if (tv) {
+        if (dcol == null) tv.select(r.id);
+        else tv.select(r.id, dcol);
+      }
+    };
     el("mdoc").addEventListener("click", (e) => {
       if (edit && e.target instanceof Node && el("dpara").contains(e.target)) return;
+      // A CLICK IN THE TABLE'S WIDGET names a CELL: the renderer set its own
+      // selection first (the event bubbles out through it), so read it back and
+      // move point there.  A header sorts and a link opens -- neither is a cell.
+      const gt = gtUnder(e);
+      if (gt) {
+        if (e.target instanceof Element
+            && (e.target.closest("thead") || e.target.closest("a.tv-link"))) return;
+        const tv = tvOf(gt);
+        if (tv) {
+          const s = tv.getSelection();
+          if (s.id != null) { dsend({ kind: "selectcell", id: s.id, col: s.col }); }
+        }
+        return;
+      }
       const de = deUnder(e), r = rowOfDe(de);
       if (!r || !de) return;
       // THE SPINE SIGN FOLDS ITS OWN DRAWER in one press: it names the row, so

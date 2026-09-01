@@ -82,6 +82,11 @@ type alias Model =
     -- STANDS ONLY WHILE POINT IS ON THE PLANNING ROW, held there by 'settled'
     -- and 'landAt', so a read of the field needs no test of its own.
     , planAt : Maybe Int
+
+    -- THE COLUMN POINT STANDS IN inside a table, NOTHING being the whole row.
+    -- The table's own within-row axis, the planning line's `planAt' for cells:
+    -- it stands only while point is on a table body leaf, held by `settled'.
+    , col : Maybe Int
     , flags : List String
     , links : List Link
     , spanAt : Maybe Int
@@ -136,6 +141,7 @@ empty =
     , offsets = Array.empty
     , at = 0
     , planAt = Nothing
+    , col = Nothing
     , flags = []
     , links = []
     , spanAt = Nothing
@@ -273,31 +279,39 @@ finer m =
     case rowAt m of
         Nothing -> ( m, "" )
         Just r ->
-            let
-                kids = kidsOf m r.id
-                -- `f' ON A HEADLINE ENTERS THE BODY: everything is under it.
-                -- The root's rows carry no owner, so its test is the count.
-                entered =
-                    if r.kind == Head then List.length m.rows > 1 else kids > 0
-            in
-            -- THE PLANNING LINE'S ENTRIES ARE ITS FINER GRAIN: the row holds no
-            -- rows, so the walk inside it is over the entries it draws.
+            -- THE PLANNING LINE'S ENTRIES ARE ITS FINER GRAIN, and a TABLE'S ARE
+            -- ITS CELLS: each row holds no rows, so the walk inside it is over
+            -- what it draws -- entries there, columns here.
             if r.id == Body.planId then
                 planFiner m
-            else if heading r then
-                if entered then
-                    ( { m | at = m.at + 1 }, "grain-finer (the body)" )
-                else
-                    ( m, "grain-finer (an empty entry)" )
-            else if kids > 0 then
-                -- The first child immediately follows its parent in emission order.
-                ( { m | at = m.at + 1 }
-                , grainWord "grain-finer" (Maybe.withDefault "item" r.name) 1 kids
-                )
-            else if r.grain == Leaf then
-                ( m, "grain-finer (at the finest)" )
+            else if r.name == Just "table" && r.grain == Composite then
+                tableEnter m r
             else
-                ( m, "grain-finer (nothing finer here)" )
+                case tableCompOf m r of
+                    Just comp -> tableFiner m comp
+                    Nothing ->
+                        let
+                            kids = kidsOf m r.id
+                            -- `f' ON A HEADLINE ENTERS THE BODY: everything is
+                            -- under it.  The root's rows carry no owner, so its
+                            -- test is the count.
+                            entered =
+                                if r.kind == Head then List.length m.rows > 1 else kids > 0
+                        in
+                        if heading r then
+                            if entered then
+                                ( { m | at = m.at + 1 }, "grain-finer (the body)" )
+                            else
+                                ( m, "grain-finer (an empty entry)" )
+                        else if kids > 0 then
+                            -- The first child immediately follows its parent.
+                            ( { m | at = m.at + 1 }
+                            , grainWord "grain-finer" (Maybe.withDefault "item" r.name) 1 kids
+                            )
+                        else if r.grain == Leaf then
+                            ( m, "grain-finer (at the finest)" )
+                        else
+                            ( m, "grain-finer (nothing finer here)" )
 
 broader : Model -> ( Model, String )
 broader m =
@@ -442,6 +456,7 @@ type Msg
     = Fill Model
     | Clear
     | Select String (Maybe Int)
+    | SelectCell String (Maybe Int)
     | Step Int
     | Finer
     | Broader
@@ -480,11 +495,23 @@ update msg model =
             told (reveal (case plan of
                 Nothing -> base
                 Just i -> { base | planAt = Just i }))
+        -- A CELL NAMED FROM OUTSIDE: a click in the table's widget reports the
+        -- row and column it landed on, and point follows it there.
+        SelectCell id col ->
+            let
+                landed = landAt (placeOf model id) model
+            in
+            told (reveal { landed | col = col })
         Step by ->
             -- A ROW STEP OWES ITS WORD too, so `n'/`p' echo like `f'/`b'; the
             -- programmatic walk sends this keyless and arms no `dwrote', so its
-            -- `docSaid' lands on nothing.
-            spoke ( step by model, if by > 0 then "next-row" else "previous-row" )
+            -- `docSaid' lands on nothing.  INSIDE A TABLE, `n'/`p' step data rows,
+            -- hlines skipped, and keep the column.
+            case tableCompAt model of
+                Just comp ->
+                    spoke ( tableStep by model comp, if by > 0 then "next-row" else "previous-row" )
+                Nothing ->
+                    spoke ( step by model, if by > 0 then "next-row" else "previous-row" )
         Finer ->
             -- `f' INTO A FOLDED DRAWER OPENS IT: a step into what is hidden shows it.
             let
@@ -502,7 +529,11 @@ update msg model =
             -- depth-first, down into a subtree and on to the next once its floor
             -- is reached -- document order IS pre-order.  Only a true no-op rolls
             -- on; opening a drawer or moving point is `f' having somewhere to go.
-            if fined.at == model.at && fined.planAt == model.planAt && fined.shut == model.shut then
+            -- A TABLE'S CELL AXIS IS BOUNDED: `f' at the last column holds rather
+            -- than rolling out of the table.
+            if tableCompAt model /= Nothing then
+                spoke ( fined, word )
+            else if fined.at == model.at && fined.planAt == model.planAt && fined.col == model.col && fined.shut == model.shut then
                 -- SPOKEN, NOT TOLD: every doc key owes `docSaid' a word, else the
                 -- `dwrote' the shell armed for it is left to fire on the next.
                 spoke ( nextVisible 1 model, "grain-finer" )
@@ -510,9 +541,12 @@ update msg model =
                 spoke ( fined, word )
         Broader ->
             -- `b' IS `f' REVERSED: the previous row in document order, so a held
-            -- `b' retraces a held `f' step for step back up the graph.  The old
-            -- broader-grain climb to the owner moved to `B' (`Climb') below.
-            spoke ( nextVisible -1 model, "grain-broader" )
+            -- `b' retraces a held `f' step for step back up the graph.  INSIDE A
+            -- TABLE `b' unwinds the cell axis instead -- cell, whole row, out.
+            -- The old broader-grain climb to the owner is `B' (`Climb') below.
+            case tableCompAt model of
+                Just comp -> spoke (tableBroader model comp)
+                Nothing -> spoke ( nextVisible -1 model, "grain-broader" )
         Climb ->
             -- `B' CLIMBS THE GRAIN: one press to the owner, the headline over a
             -- body, the way `b' used to before it became `f' reversed.  Lowercase
@@ -962,8 +996,14 @@ settled : Model -> Model
 settled m =
     -- A HIDE-DONE RUN HAS FEWER ROWS: no mover may rest point on one it hid, so
     -- the door snaps off it the way the toggle does -- `f' into a compacted run
-    -- steps past its done head like `n' already steps over it.
-    snapVisible (if idAtRow m m.at == Body.planId then m else { m | planAt = Nothing })
+    -- steps past its done head like `n' already steps over it.  `planAt' and
+    -- `col' are each held ONLY on their own row -- the planning line, a table
+    -- body leaf -- and dropped anywhere else.
+    let
+        keptPlan = if idAtRow m m.at == Body.planId then m.planAt else Nothing
+        keptCol = if tableCompAt m /= Nothing then m.col else Nothing
+    in
+    snapVisible { m | planAt = keptPlan, col = keptCol }
 
 told : Model -> ( Model, Cmd Msg )
 told model =
@@ -1054,7 +1094,7 @@ where `settled' has nothing to drop and the walk must still start over.
 -}
 landAt : Int -> Model -> Model
 landAt i m =
-    { m | at = i, planAt = Nothing }
+    { m | at = i, planAt = Nothing, col = Nothing }
 
 {-| The nearest foldable stop at or above point.  A CHILD HEADLINE IS A SCOPE
 BOUNDARY the climb stops below: TAB on a child folds it (`here' is kept), but TAB
@@ -1234,6 +1274,11 @@ stateJSON m =
         -- WHICH ENTRY OF THE PLANNING LINE POINT STANDS IN, by its KEYWORD:
         -- null is the whole line, and the shell reads no index of its own.
         , ( "planKey", Maybe.withDefault E.null (Maybe.map E.string (planKeyAt m)) )
+
+        -- WHICH COLUMN POINT STANDS IN inside a table, null the whole row: the
+        -- shell selects the cell in the mounted widget and reads no index of its
+        -- own, the same shape `planKey' takes for the planning line.
+        , ( "col", Maybe.withDefault E.null (Maybe.map E.int m.col) )
         , ( "flags", E.list E.string m.flags )
         , ( "lines", E.int (List.length m.lines) )
 
@@ -1405,6 +1450,9 @@ msgD =
                     "fill" -> D.map Fill fillD
                     "clear" -> D.succeed Clear
                     "select" -> D.map2 Select (D.field "id" D.string) (D.maybe (D.field "plan" D.int))
+                    -- A cell the widget reported: the leaf row's id and the
+                    -- column, null the whole row.
+                    "selectcell" -> D.map2 SelectCell (D.field "id" D.string) (D.maybe (D.field "col" D.int))
                     "step" -> D.map Step (D.field "by" D.int)
                     "finer" -> D.succeed Finer
                     "broader" -> D.succeed Broader
@@ -2340,6 +2388,46 @@ glanceTable : Model -> Row -> Html Msg
 glanceTable m r =
     node "glance-table" [ property "view" (tableView m r) ] []
 
+{-| The LEAF ROWS of a table composite, in order.  Hlines are among them -- Scan
+makes a leaf per line -- and the readers below drop them where they must.
+-}
+tableKids : Model -> Row -> List Row
+tableKids m comp =
+    List.filter (\k -> k.owner == Just comp.id) m.rows
+
+{-| Whether the file gave the table a header: the SECOND line is an hline.
+-}
+tableHasHeader : Model -> Row -> Bool
+tableHasHeader m comp =
+    case tableKids m comp of
+        _ :: second :: _ -> isRule second.text
+        _ -> False
+
+{-| The DATA rows -- what the renderer draws and the walk crosses: the non-hline
+leaves, less the header row when there is one.
+-}
+tableBodyRows : Model -> Row -> List Row
+tableBodyRows m comp =
+    let
+        data = List.filter (not << isRule << .text) (tableKids m comp)
+    in
+    if tableHasHeader m comp then List.drop 1 data else data
+
+{-| The header leaf, when the file gave one.
+-}
+tableHeadRow : Model -> Row -> Maybe Row
+tableHeadRow m comp =
+    if tableHasHeader m comp then List.head (tableKids m comp) else Nothing
+
+{-| How many columns the table has, the widest data row deciding.
+-}
+tableColCount : Model -> Row -> Int
+tableColCount m comp =
+    Maybe.withDefault 1
+        (List.maximum
+            (List.map (List.length << tableCells << .text)
+                (List.filter (not << isRule << .text) (tableKids m comp))))
+
 {-| The table composite's leaves AS A table-view View: columns from the header
 row (the first, when an hline follows it), data rows keyed by the LEAF ROW'S OWN
 id so a selection maps back to the walk.  Hlines are boundaries, never rows; a
@@ -2348,21 +2436,8 @@ blank header carries a space so the renderer never falls back to the column key.
 tableView : Model -> Row -> E.Value
 tableView m r =
     let
-        kids = List.filter (\k -> k.owner == Just r.id) m.rows
-        hasHeader =
-            case kids of
-                _ :: second :: _ -> isRule second.text
-                _ -> False
-        dataKids = List.filter (not << isRule << .text) kids
-        bodyKids = if hasHeader then List.drop 1 dataKids else dataKids
-        headCells =
-            if hasHeader then
-                Maybe.withDefault [] (Maybe.map (tableCells << .text) (List.head dataKids))
-            else
-                []
-        ncols =
-            Maybe.withDefault 1
-                (List.maximum (List.map (List.length << tableCells << .text) dataKids))
+        headCells = Maybe.withDefault [] (Maybe.map (tableCells << .text) (tableHeadRow m r))
+        ncols = tableColCount m r
         colHeader i =
             case String.trim (Maybe.withDefault "" (nth i headCells)) of
                 "" -> " "
@@ -2386,9 +2461,85 @@ tableView m r =
     in
     E.object
         [ ( "columns", E.list column (List.range 0 (ncols - 1)) )
-        , ( "rows", E.list rowVal bodyKids )
-        , ( "hasHeader", E.bool hasHeader )
+        , ( "rows", E.list rowVal (tableBodyRows m r) )
+        , ( "hasHeader", E.bool (tableHasHeader m r) )
         ]
+
+{-| The table composite R is a BODY LEAF of, if it is one: the row's owner is a
+table and the row is among its data rows (a header or hline leaf is neither).
+-}
+tableCompOf : Model -> Row -> Maybe Row
+tableCompOf m r =
+    case Maybe.andThen (rowById m) r.owner of
+        Just comp ->
+            if comp.name == Just "table" && List.any (\k -> k.id == r.id) (tableBodyRows m comp) then
+                Just comp
+            else
+                Nothing
+        Nothing -> Nothing
+
+{-| The table point stands in, if point is on one of its body rows.
+-}
+tableCompAt : Model -> Maybe Row
+tableCompAt m = Maybe.andThen (tableCompOf m) (rowAt m)
+
+{-| `f' ON THE TABLE COMPOSITE ENTERS its first body row, whole (no column).
+-}
+tableEnter : Model -> Row -> ( Model, String )
+tableEnter m comp =
+    case List.head (tableBodyRows m comp) of
+        Just first -> ( { m | at = placeOf m first.id, col = Nothing }, "grain-finer (a row)" )
+        Nothing -> ( m, "grain-finer (an empty table)" )
+
+{-| `f' INSIDE A TABLE ROW takes a cell: the first from the whole row, the next
+from a cell, the last column holding.
+-}
+tableFiner : Model -> Row -> ( Model, String )
+tableFiner m comp =
+    let
+        ncols = tableColCount m comp
+        next =
+            case m.col of
+                Nothing -> 0
+                Just i -> min (i + 1) (ncols - 1)
+    in
+    ( { m | col = Just next }, grainWord "grain-finer" "cell" (next + 1) ncols )
+
+{-| `b' INSIDE A TABLE ROW: the cell before it, off cell 1 the whole row, and off
+the whole row the table itself.
+-}
+tableBroader : Model -> Row -> ( Model, String )
+tableBroader m comp =
+    case m.col of
+        Just i ->
+            if i > 0 then
+                ( { m | col = Just (i - 1) }, grainWord "grain-broader" "cell" i (tableColCount m comp) )
+            else
+                ( { m | col = Nothing }, "grain-broader (the row)" )
+        Nothing ->
+            ( { m | at = placeOf m comp.id, col = Nothing }, "grain-broader (the table)" )
+
+{-| `n'/`p' INSIDE A TABLE step data rows, hlines skipped, the column kept.
+-}
+tableStep : Int -> Model -> Row -> Model
+tableStep by m comp =
+    let
+        rows = tableBodyRows m comp
+        idx = indexOfId (idAtRow m m.at) rows
+    in
+    case nth (clamp 0 (List.length rows - 1) (idx + by)) rows of
+        Just target -> { m | at = placeOf m target.id }
+        Nothing -> m
+
+indexOfId : String -> List Row -> Int
+indexOfId id rows =
+    let
+        go i rs =
+            case rs of
+                x :: xs -> if x.id == id then i else go (i + 1) xs
+                [] -> 0
+    in
+    go 0 rows
 
 {-| The rows a FOLD hides: everything owned, transitively, by a shut row.  An
 owner is emitted before what it owns, so one ordered pass settles the set --

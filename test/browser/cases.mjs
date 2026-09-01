@@ -4740,4 +4740,56 @@ export default [
     return [`org table mounts a table-view: ${t.nrows} rows under `
       + `[${t.heads.join(", ")}], link "${t.link}"`];
   } },
+
+// PHASE 2.  Selection flows both ways: a click on a cell moves point onto that
+// leaf row, and the doc's own f/b walk crosses the row's cells, the widget's
+// selection mirroring the point.
+{ name: "a click on a table cell moves point to that row",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+      "the table to mount its rows");
+    const want = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((tr) => tr.textContent.includes("Molenweg")).dataset.id);
+    await p.click(`#mdoc glance-table tbody tr[data-id="${want}"] td`);
+    await p.until((id) => docAtNow() === id,
+      "point to land on the clicked leaf row", undefined, want);
+    const got = await p.eval(() => docAtNow());
+    assert(got === want, `point is ${got}, not the clicked leaf ${want}`);
+    return [`a click on a cell put point on its leaf row ${want}`];
+  } },
+
+{ name: "f and b walk the cells of a table row, the widget mirroring point",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+      "the table to mount");
+    const id = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((tr) => tr.textContent.includes("Klarenbeekstraat")).dataset.id);
+    // Land in the table by clicking its first cell, then read the widget's cell.
+    // The widget's selection is driven by the point a MACROTASK behind the key,
+    // so each step waits for the mirror rather than reading it at once.
+    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
+    await p.until((w) => docAtNow() === w, "point in the table", undefined, id);
+    const colIs = (want, why) => p.until((w) => {
+      const tv = document.querySelector("#mdoc glance-table")._tv;
+      return tv.getSelection().col === w;
+    }, why, undefined, want);
+    const at = () => p.eval(() => docAtNow());
+    await colIs(0, "the clicked cell to read column 0");
+    await p.press("f"); await colIs(1, "f to step to column 1");
+    await p.press("f"); await colIs(2, "f to step to column 2");
+    await p.press("f"); await colIs(2, "f past the last column to hold");
+    assert((await at()) === id, "the row moved while walking its cells");
+    await p.press("b"); await colIs(1, "b to step back to column 1");
+    await p.press("b"); await colIs(0, "b to step back to column 0");
+    await p.press("b"); await colIs(null, "b off column 0 to clear to the whole row");
+    assert((await at()) === id, "the whole-row state left the row");
+    await p.press("b");
+    await p.until((w) => docAtNow() !== w, "b off the row to climb out", undefined, id);
+    assert((await at()) !== id, "b off the whole row did not climb out of the table");
+    return [`f/b crossed the cells of ${id} and climbed out, the widget mirroring`];
+  } },
 ];
