@@ -5149,9 +5149,10 @@ export default [
     return ["a column move drove the selection without rebuilding the table"];
   } },
 
-// UI 2026-09-02.  Point on the WHOLE table lifts only its HEADER as the handle,
-// not a wash over the whole region.
-{ name: "the whole-table selection lifts only the header row",
+// UI 2026-09-02.  Point on the WHOLE table washes the WHOLE table region with
+// the selection ground -- the composite is one stop, so its whole block is lit,
+// not only its header row.
+{ name: "the whole-table selection washes the whole table",
   async run(p, base) {
     await sheet(p, base, "drv-table");
     await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
@@ -5167,23 +5168,24 @@ export default [
       return tv && tv.getSelection().col === null;
     }, "the whole-row state before climbing out");
     await p.press("b"); // whole row -> the whole table (composite)
-    // Poll the settled ground: the header lifted, the data plain -- a retry
-    // rides out the mirror/paint lag the multi-step walk lands with.
+    // Poll the settled ground: the composite block wears the selection wash over
+    // its whole region -- a retry rides out the mirror/paint lag the multi-step
+    // walk lands with.
+    const transparent = (c) => c === "rgba(0, 0, 0, 0)" || c === "transparent";
     await p.until(() => {
       const de = document.querySelector("#mdoc .de.dat.d-table");
       if (!de) return false;
-      const th = de.querySelector("glance-table thead th");
-      const td = de.querySelector("glance-table tbody td");
-      if (!th || !td) return false;
-      const transparent = (c) => c === "rgba(0, 0, 0, 0)" || c === "transparent";
-      return !transparent(getComputedStyle(th).backgroundColor)
-        && transparent(getComputedStyle(td).backgroundColor);
-    }, "the whole table to lift only its header");
+      const bg = getComputedStyle(de).backgroundColor;
+      return bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent";
+    }, "the whole table region to carry the selection wash");
     const g = await p.eval(() => {
       const de = document.querySelector("#mdoc .de.dat.d-table");
-      return { header: getComputedStyle(de.querySelector("glance-table thead th")).backgroundColor,
-               data: getComputedStyle(de.querySelector("glance-table tbody td")).backgroundColor };
+      const mdoc = document.getElementById("mdoc");
+      return { ground: getComputedStyle(de).backgroundColor,
+               sel: getComputedStyle(mdoc).getPropertyValue("--g-sel").trim() };
     });
-    return [`whole-table selection lifts the header (${g.header}) over plain data (${g.data})`];
+    assert(!transparent(g.ground),
+      `the whole-table ground is ${g.ground}, not a wash over the region`);
+    return [`whole-table selection washes the region (${g.ground}, --g-sel ${g.sel})`];
   } },
 ];

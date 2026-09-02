@@ -687,17 +687,9 @@ code {
     color: var(--g-fg);
 }
 
-/* POINT ON THE WHOLE TABLE lifts only its HEADER as the table's handle -- the */
-/* block ground drops (the generic `.de.dat' wash would otherwise show through */
-/* the mount's transparent ground and select the whole region). */
-#mdoc.on .de.dat.d-table {
-    background-color: transparent;
-}
-
-#mdoc.on .de.dat.d-table glance-table thead th {
-    background: var(--g-sel);
-    color: var(--g-fg);
-}
+/* POINT ON THE WHOLE TABLE washes the WHOLE region: the composite is one stop, */
+/* so the generic `.de.dat' selection ground shows through the mount's */
+/* transparent ground over the whole table, header and body alike. */
 
 /* A COLUMN FLAGGED FOR DELETION (dired's `d'): the whole column wears the */
 /* renderer's OWN flagged-row red (`--tv-flag'/`--tv-flag-wash', cascaded from */
