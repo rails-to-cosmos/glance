@@ -2569,7 +2569,6 @@
       note: unlogged,
       missing: lacks("delete flags"),
       idle: "dired-do-flagged-delete (no deletions requested)",
-      spared: "dired-do-flagged-delete (left standing)",
       unflag: "delete-unflag (flag cleared)",
     };
     // This mount is a Set of ids rather than a renderer, so `missing' is unreachable.
@@ -2868,10 +2867,7 @@
       missing: lacks("archive flags"),
       none: "no row",
       idle: "no deletions requested",
-      spared: "left standing",
       verb: "archive",
-      // Already archived is the delete path, and it asks for a WORD of its own.
-      walled: (ids) => ids.every(archivedRow),
       unflag: "flag cleared",
       flag: "flagged — d again archives",
     });

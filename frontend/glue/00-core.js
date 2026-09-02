@@ -403,7 +403,6 @@
       postJSON(at(id, child), { ...asked, digest }, extra);
 
     // dired's `d'/`D'/`x'/`u' over five surfaces, each declaring a SHAPE — AGENTS.hs.
-    const YES = "YES";
     function flagKey(k, s, say) {
       const m = s.mount();
       const at = s.at();
@@ -417,18 +416,13 @@
         return;
       }
       if (!flagsOn(m)) { say(s.missing); return; }
-      // `x' takes the FLAGS alone and ASKS, naming the count.  ONE QUESTION,
-      // WEIGHTED TO THE ACT: a take raising a wall of its own is not asked twice.
+      // `x' TAKES THE FLAGS at once, unasked: a delete is a recoverable move to
+      // trash, so the flag IS the confirmation.  The one irreversible take --
+      // expunging already-trashed rows -- keeps its own wall in `take'.
       if (k === "x") {
         if (!flags.length) { say(s.idle); return; }
-        const go = () => {
-          if (can(m, "clearFlags")) m.clearFlags();
-          s.take(flags, (n) => `${n} flagged`);
-        };
-        if (s.walled && s.walled(flags)) { go(); return; }
-        askText(`${s.verb} · ${flags.length} flagged`,
-                `type ${YES} and RET · ESC leaves them`,
-                (c) => (c.text.trim().toUpperCase() === YES ? go() : say(s.spared)));
+        if (can(m, "clearFlags")) m.clearFlags();
+        s.take(flags, (n) => `${n} flagged`);
         return;
       }
       if (k === "u") {

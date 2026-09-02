@@ -1571,27 +1571,15 @@ tagKeySpec shell =
       "" "archived:r1,r2 press:d press:n press:d press:D type:delete press:Enter" $ \answer -> do
         assertEqual "one delete over both" [("delete", ["r1", "r2"])] =<< postedOf answer
 
-    -- `x' IS `dired-do-flagged-delete': the FLAGS alone, never the row at point, and it asks first.
-  , keyed shell "x takes the flags and asks, naming the count"
+    -- `x' IS `dired-do-flagged-delete': the FLAGS alone, never the row at point,
+    -- and it COMMITS AT ONCE -- an archive is a recoverable move, so the flag is
+    -- the confirmation.  The irreversible take keeps its own wall below.
+  , keyed shell "x archives the flagged rows at once, over exactly those"
       "" "press:d press:n press:d press:x" $ \answer -> do
-        assertEqual "nothing posted on the press alone" [] =<< namesOf answer
-        assertEqual "the question is up" "on" =<< textAt "prompt" answer
-        assertEqual "naming the act and how many" "archive · 2 flagged"
-          =<< textAt "phead" answer
-
-  , keyed shell "and the word sends it over exactly those rows"
-      "" "press:d press:n press:d press:x type:yes press:Enter" $ \answer -> do
         assertEqual "one archive, over both flagged rows"
                     [("archive", ["r1", "r2"])] =<< postedOf answer
+        assertEqual "nothing asked" "" =<< textAt "prompt" answer
         assertEqual "and the flags are spent" [] =<< textsAt "flagged" answer
-
-  , keyed shell "and anything else leaves them standing"
-      "" "press:d press:n press:d press:x type:no press:Enter" $ \answer -> do
-        assertEqual "nothing posted" [] =<< namesOf answer
-        echoIs "and it says so"
-          "x → dired-do-flagged-delete (left standing)" answer
-        assertEqual "the flags are where they were" ["r1", "r2"]
-          =<< textsAt "flagged" answer
 
   , keyed shell "x with nothing flagged writes nothing and says dired's words"
       "" "press:x" $ \answer -> do
@@ -1599,7 +1587,8 @@ tagKeySpec shell =
         assertEqual "and nothing asked" "" =<< textAt "prompt" answer
         echoIs "" "x → dired-do-flagged-delete (no deletions requested)" answer
 
-    -- ONE QUESTION, WEIGHTED TO THE ACT: a wholly archived set asks for the stronger word instead.
+    -- THE ONE IRREVERSIBLE TAKE KEEPS ITS WALL: an archive commits unasked, but a
+    -- wholly-archived set is a permanent DELETE and asks for the stronger word.
   , keyed shell "x over a wholly archived set asks for the delete word, once"
       "" "archived:r1,r2 press:d press:n press:d press:x" $ \answer -> do
         assertEqual "nothing posted yet" [] =<< namesOf answer

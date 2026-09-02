@@ -4109,7 +4109,7 @@ keyHelps =
   , (["+"],                 "a headline for the inbox, typed as org")
   , (["d"],                 "flag for archive; d again archives all flagged")
   , (["D"],                 "archive the flagged; an already-archived row deletes, on a typed word")
-  , (["x"],                 "act on the flagged rows, after asking; d flags, D is the quick one")
+  , (["x"],                 "act on the flagged rows at once; d flags, D is the quick one")
   , (["S-<up>", "S-<down>"], "cycle the priority of the marked rows, or the row at point")
   , (["t"],                 "set the state of the marked rows, or the row at point")
   , (["C-c C-t"],           "the org spelling, where the browser lets it through")
