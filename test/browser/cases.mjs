@@ -4960,7 +4960,7 @@ export default [
 // naming a column materializes it -- the header line and its hline are written.
 { name: "a headerless table summons an ephemeral header that RET makes real",
   async run(p, base) {
-    await sheet(p, base, "drv-noheader");
+    await sheet(p, base, "drv-materialize");
     await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
       "the headerless table to mount");
     const start = await p.eval(() => {
@@ -5078,5 +5078,72 @@ export default [
     assert(shape.rows === 3, `deleting a column changed the row count to ${shape.rows}`);
     assert(!shape.heads.includes("Owner"), `the Owner column survived: [${shape.heads.join(", ")}]`);
     return [`d on the Owner column deleted it: [${shape.heads.join(", ")}], ${shape.rows} rows`];
+  } },
+
+// BUG 2026-09-02.  The column-name box over a BLANK header cell was a thin
+// sliver (it took the empty th's height); it must stand a full line.
+{ name: "the ephemeral header name box stands a full line, not a sliver",
+  async run(p, base) {
+    await sheet(p, base, "drv-noheader");
+    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+      "the headerless table to mount");
+    const id = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((x) => x.textContent.includes("Alpha")).dataset.id);
+    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
+    await p.until((w) => docAtNow() === w, "point on the first cell", undefined, id);
+    await p.until(() => {
+      const tv = document.querySelector("#mdoc glance-table")._tv;
+      return tv && tv.getSelection().col === 0;
+    }, "a column selected");
+    await p.press("p"); // summon the ephemeral header
+    await p.until(() => document.querySelector("#mdoc glance-table").classList.contains("ephemeral"),
+      "the ephemeral header to be summoned");
+    // The ghost header cell -- which the name box measures its height from --
+    // must stand a full doc line, not the sliver an empty line box gives.
+    const geo = await p.eval(() => {
+      const th = document.querySelector("#mdoc glance-table thead th");
+      const lh = parseFloat(getComputedStyle(document.getElementById("mdoc"))
+        .getPropertyValue("--g-doc-lh")) || 21;
+      return { h: th.getBoundingClientRect().height, lh };
+    });
+    assert(geo.h >= geo.lh - 1,
+      `the ghost header cell is ${Math.round(geo.h)}px tall, under the ${geo.lh}px line — a sliver`);
+    return [`the ghost header cell stands ${Math.round(geo.h)}px, a full ${geo.lh}px line`];
+  } },
+
+// BUG 2026-09-02.  A column move must not rebuild the widget (the blink): Elm
+// re-set the view property every render, so setView fired on a bare point move.
+{ name: "a column move does not rebuild the table (no selection blink)",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+      "the table to mount");
+    const id = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((x) => x.textContent.includes("Klarenbeekstraat")).dataset.id);
+    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
+    await p.until((w) => docAtNow() === w, "point in the table", undefined, id);
+    await p.until(() => {
+      const tv = document.querySelector("#mdoc glance-table")._tv;
+      return tv && tv.getSelection().col === 0;
+    }, "the first column selected");
+    // Tag the rendered row; if a column move rebuilds the table, the tagged
+    // element is replaced and the tag is lost.
+    await p.eval((wid) => {
+      const tr = document.querySelector(`#mdoc glance-table tbody tr[data-id="${wid}"]`);
+      tr.dataset.blinkProbe = "kept";
+    }, id);
+    await p.press("f"); // f -> column 1: a bare column move, no data change
+    await p.until(() => {
+      const tv = document.querySelector("#mdoc glance-table")._tv;
+      return tv && tv.getSelection().col === 1;
+    }, "the column to advance to 1");
+    const survived = await p.eval((wid) => {
+      const tr = document.querySelector(`#mdoc glance-table tbody tr[data-id="${wid}"]`);
+      return tr && tr.dataset.blinkProbe === "kept";
+    }, id);
+    assert(survived, "the column move rebuilt the table (the row element was replaced) — the blink");
+    return ["a column move drove the selection without rebuilding the table"];
   } },
 ];

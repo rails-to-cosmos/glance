@@ -672,6 +672,13 @@ code {
     border-top: none;
 }
 
+/* A HEADER CELL STANDS A FULL LINE (a table cell reads `height' as a minimum), */
+/* so a BLANK one -- a ghost header, an unnamed column -- is not a sliver the */
+/* name box then measures its own height from. */
+#mdoc glance-table thead th {
+    height: var(--g-doc-lh);
+}
+
 /* THE COLUMN HEADER POINT NAMES: a boxed th, the widget draws no header cursor. */
 #mdoc glance-table thead th.gt-hsel {
     outline: 2px solid var(--g-accent);

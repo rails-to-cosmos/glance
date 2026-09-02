@@ -7,8 +7,15 @@
     // its leaves stay Elm's walk stops; only the DRAW moves onto the renderer.
     if (window.customElements && !customElements.get("glance-table")) {
       class GlanceTable extends HTMLElement {
-        constructor() { super(); this._view = null; this._tv = null; }
+        constructor() { super(); this._view = null; this._tv = null; this._viewJson = null; }
         set view(v) {
+          // A BARE POINT MOVE re-renders Elm, which re-sets this property with an
+          // equal-but-fresh value every time; rebuilding the widget on each would
+          // clear and re-paint the selection (the blink).  Rebuild only when the
+          // table's own data actually changed.
+          const json = JSON.stringify(v);
+          if (json === this._viewJson) return;
+          this._viewJson = json;
           this._view = v;
           // A HEADERLESS table draws NO header until an ephemeral one is summoned.
           this.classList.toggle("noheader", !(v && v.hasHeader));

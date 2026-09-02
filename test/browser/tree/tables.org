@@ -32,6 +32,18 @@ The table below has no header line; its header is summoned on demand.
 
 Prose after the headerless table.
 
+* NEXT A headerless table the materialize case names                :survey:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-materialize
+:END:
+Its own headerless table, so materializing its header leaves drv-noheader clean.
+
+| Alpha | 12 | open |
+| Beta  | 7  | done |
+| Gamma | 3  | open |
+
+Prose after the materializable table.
+
 * NEXT A table the + case grows                                     :survey:
 :PROPERTIES:
 :ORG_GLANCE_ID: drv-grow
