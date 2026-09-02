@@ -2651,6 +2651,9 @@ tableView m r =
         ncols =
             Maybe.withDefault 1
                 (List.maximum (List.map (List.length << tableCells << .text) dataKids))
+        -- An unnamed column keeps a BLANK (not empty) header, so the widget draws
+        -- a blank cell rather than falling back to the column key; the header
+        -- editor opens on the trimmed value, so the blank opens as empty.
         colHeader i =
             case String.trim (Maybe.withDefault "" (nth i headCells)) of
                 "" -> " "
@@ -2661,6 +2664,10 @@ tableView m r =
                 , ( "header", E.string (colHeader i) )
                 , ( "type", E.string "text" )
                 , ( "sortable", E.bool True )
+                -- THE WIDGET OWNS THE IN-CELL EDITOR: every column is editable, so
+                -- `RET' (`tv.editCell'/`editHeader') and a double-click open an
+                -- input IN the cell and report the write back as `tableview-edit'.
+                , ( "editable", E.bool True )
                 ]
         rowVal k =
             let

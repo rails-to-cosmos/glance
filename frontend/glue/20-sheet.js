@@ -33,6 +33,13 @@
           this._tv = TableView.mount(this, this._view, {
             onLink: (target) => host.dispatchEvent(
               new CustomEvent("glance-open", { bubbles: true, detail: { target } })),
+            // THE WIDGET OWNS THE IN-CELL EDITOR; the WRITE is the doc's.  A
+            // commit re-announces as a BUBBLING event (the renderer's own does
+            // not leave its root) so the doc's cell door catches it on #mdoc and
+            // routes it to the Elm write.  `host' names which table it was.
+            onEdit: (id, col, value, kind) => host.dispatchEvent(
+              new CustomEvent("glance-edit",
+                { bubbles: true, detail: { id, col, value, kind, host } })),
           });
         }
       }
@@ -253,9 +260,12 @@
         const comp = drows.find((x) => x.id === r.owner);
         if (comp && comp.name === "table") {
           if (dcol == null) { echo(`RET → f takes a ${dhead || dephem ? "column" : "cell"}`); return; }
-          if (dephem) openHeaderEdit(r, comp, dcol, true);
-          else if (dhead) openHeaderEdit(r, comp, dcol, false);
-          else openCellEdit(r, comp, dcol);
+          // THE WIDGET OPENS ITS OWN EDITOR at the column point stands in: `RET'
+          // is the programmatic door the widget's own double-click also opens.
+          const tv = tvOf(hostFor(comp.id));
+          if (!tv) return;
+          if (dhead || dephem) tv.editHeader(dcol);
+          else tv.editCell(r.id, dcol);
           return;
         }
       }
@@ -752,6 +762,17 @@
       const comp = r && r.owner && drows.find((x) => x.id === r.owner);
       return comp && comp.name === "table" ? comp : null;
     };
+    // The composite id of the table a mounted host belongs to, read off the
+    // `.de' block the host sits inside.
+    const tableHostCompId = (host) => {
+      const de = host && host.closest ? host.closest(".de[data-id]") : null;
+      return de ? de.getAttribute("data-id") : null;
+    };
+    // An org HLINE (a `|---+---|' rule row): a separator, no cells to edit.
+    const isRuleLine = (t) => {
+      const s = (t || "").trim();
+      return s.startsWith("|") && /^[|+\-\s]+$/.test(s) && s.includes("-");
+    };
     // COLUMNS FLAGGED FOR DELETION, dired-style, keyed `compId:col' -- display
     // only: `d' flags, a second `d' on a flagged column deletes it.
     let dcolFlags = new Set();
@@ -845,6 +866,9 @@
       // A double-click on the spine sign is two folds, not an edit: the sign
       // has no text to open, so it never becomes the editor's row.
       if (foldUnder(e)) return;
+      // THE TABLE WIDGET OWNS ITS OWN DOUBLE-CLICK (opens the in-cell editor on
+      // an editable cell/header), so the doc does not re-open it from out here.
+      if (gtUnder(e)) return;
       const r = rowOfDe(deUnder(e));
       if (r) docEnter(r);
     });
@@ -861,6 +885,43 @@
         || { target: String(target), desc: String(target), type: "url" };
       followLinks(docBinding("org-glance-overview:open"), editing.id,
                   { digest: editing.digest, links: [link] }, [link]);
+    });
+    // A COMMITTED IN-CELL EDIT: the widget reports (id, col, value, kind); the
+    // WRITE is the doc's.  A body cell rebuilds its row's line with the one cell
+    // replaced.  A header on a table that HAS one is a rename through the same
+    // door; a header on a HEADERLESS table MATERIALIZES it (writes the header
+    // line and its hline).  An unchanged value writes nothing.
+    el("mdoc").addEventListener("glance-edit", (e) => {
+      const d = /** @type {CustomEvent} */ (e).detail;
+      const host = d && d.host, view = host && /** @type {any} */ (host).view;
+      if (!view) return;
+      if (d.kind === "header") {
+        const cur = ((view.columns[d.col] || {}).header || "").trim();
+        if (d.value.trim() === cur) { echo("RET → column unchanged"); return; }
+        if (view.hasHeader) {
+          // Rename: the header leaf's OWN line, its `col'-th cell replaced.  Its
+          // id is the composite leaf that is neither a body row nor an hline.
+          const compId = tableHostCompId(host);
+          const bodyIds = new Set(view.rows.map((x) => x.id));
+          const head = drows.find((x) => x.owner === compId
+                        && !bodyIds.has(x.id) && !isRuleLine(x.text));
+          if (!head) return;
+          dcommit = (cargo) => echo(`RET → ${cargo.said || "column named"}`);
+          dsend({ kind: "editcell", id: head.id, col: d.col, text: d.value });
+        } else {
+          if (!d.value.trim()) { echo("RET → nothing named"); return; }
+          const first = view.rows[0];
+          if (!first) return;
+          dcommit = (cargo) => echo(`RET → ${cargo.said || "header added"}`);
+          dsend({ kind: "namecol", id: first.id, col: d.col, text: d.value });
+        }
+        return;
+      }
+      const row = view.rows.find((x) => x.id === d.id);
+      const cur = row && row.cells ? String(row.cells["c" + d.col] || "") : "";
+      if (d.value === cur) { echo("RET → cell unchanged"); return; }
+      dcommit = (cargo) => echo(`RET → ${cargo.said || "cell written"}`);
+      dsend({ kind: "editcell", id: d.id, col: d.col, text: d.value });
     });
     // Read off what Elm drew: a composite draws its leaves inside itself.
     const docElAt = () => el("dlist").querySelector(".dat");
@@ -894,51 +955,10 @@
       fill: (r) => { drung = null; el("dtext").value = r.text; sizeDocEdit(); },
       focus: () => el("dtext").focus(),
     };
-    // A TABLE CELL EDIT: the paragraph box laid over the ONE td (cells-mode)
-    // instead of the whole line, filled with the cell's RAW text and committed
-    // as a cell.  The per-open column and table ride `dcell', so the one shape
-    // serves every cell; the widget's row is the `.tv-sel' `placeEdit' anchors.
-    let dcell = null;
-    const DCELL = {
-      box: "dpara", pane: "mdoc", fields: ["dtext"],
-      mount: () => (dcell ? dcell.tv : null),
-      get cells() { return dcell ? ["c" + dcell.col] : null; },
-      get cols() { return dcell ? dcell.cols : null; },
-      fill: () => { el("dtext").value = dcell ? dcell.raw : ""; sizeDocEdit(); },
-      focus: () => el("dtext").focus(),
-    };
-    function openCellEdit(r, comp, col) {
-      const host = hostFor(comp.id);
-      const tv = tvOf(host);
-      if (!tv || !host) return;
-      // The columns are the view's own -- the `c<i>' key contract is Elm's, read
-      // off the property the element carries, not counted back off the DOM.
-      const view = /** @type {any} */ (host).view;
-      const cols = (view && view.columns) || [{ key: "c" + col }];
-      const vr = tv.getRows().find((x) => x.id === r.id);
-      const raw = vr && vr.cells ? (vr.cells["c" + col] || "") : "";
-      dcell = { tv, col, cols, raw, id: r.id, th: null };
-      openEdit(DCELL, r);
-    }
-    // A COLUMN NAME EDIT: the box laid over the `th' (block-mode over the header
-    // cell), filled with the column's current name and committed through the
-    // SAME cell door -- the header leaf's line, its `col'-th cell replaced.
-    const DHEAD = {
-      box: "dpara", pane: "mdoc", fields: ["dtext"], block: true,
-      anchor: () => (dcell ? dcell.th : null),
-      fill: () => { el("dtext").value = dcell ? dcell.raw : ""; sizeDocEdit(); },
-      focus: () => el("dtext").focus(),
-    };
-    function openHeaderEdit(r, comp, col, ephem) {
-      const host = hostFor(comp.id);
-      if (!host) return;
-      const th = host.querySelectorAll("thead th")[col];
-      if (!th) return;
-      // The ephemeral header has no name yet; a real one opens on its current name.
-      dcell = { tv: tvOf(host), col, cols: null,
-                raw: ephem ? "" : th.textContent.trim(), id: r.id, th, ephem: !!ephem };
-      openEdit(DHEAD, r);
-    }
+    // A TABLE CELL / COLUMN NAME is edited IN the cell: the widget owns the
+    // editor (`tv.editCell'/`editHeader', a double-click), and the write comes
+    // back as `glance-edit' (routed above).  No doc-side overlay stands over a
+    // table.
     // A PAIR IS TWO FIELDS OVER ONE ROW: `block', so the box is the row's own
     // box on every edge and each field is padded the way the row is.
     const DPAIR = {
@@ -975,13 +995,12 @@
     };
     const dediting = () => !!edit && edit.o === DTITLE;
     const dparaing = () => !!edit && edit.o === DPARA;
-    const dcelling = () => !!edit && (edit.o === DCELL || edit.o === DHEAD);
     const dpairing = () => !!edit && edit.o === DPAIR;
     const ddating = () => !!edit && edit.o === DDATE;
     // THE DOC PANE'S OWN SHAPES, and the only enumeration of them: `edit' is
     // shared with the table's, so this is asked as MEMBERSHIP rather than as
     // `!!edit' -- an open rename on another surface is no open sheet edit.
-    const DOCEDITS = [DTITLE, DPARA, DPAIR, DDATE, DCELL, DHEAD];
+    const DOCEDITS = [DTITLE, DPARA, DPAIR, DDATE];
     const sheetOpen = () => !!edit && DOCEDITS.indexOf(edit.o) !== -1;
     /** THE DAY THE OPEN EDIT READS AGAINST, stamped once when the box was
      * SUMMONED: the ghost must not answer two days for one phrase while the
@@ -2105,28 +2124,6 @@
       // `C-c C-c' over an open one would fall through to the title's branch and
       // rename the headline with a date.
       if (edit.o === DDATE) { dateKey(b || dateBinding("RET")); return; }
-      // A CELL: the raw value goes through the cell door, which rebuilds the
-      // row's line with the one cell replaced and writes it.  An unchanged value
-      // writes nothing.
-      if (edit.o === DCELL || edit.o === DHEAD) {
-        const head = edit.o === DHEAD;
-        const text = el("dtext").value;
-        const c = dcell;
-        shutEdit(edit.o);
-        dcell = null;
-        // AN EPHEMERAL HEADER: naming a column MATERIALIZES the header (writes
-        // the header line and its hline); a blank name adds nothing.
-        if (c && c.ephem) {
-          if (!text.trim()) { spoke("nothing named"); return; }
-          dcommit = (cargo) => spoke(cargo.said || "header added");
-          dsend({ kind: "namecol", id: c.id, col: c.col, text });
-          return;
-        }
-        if (!c || text === c.raw) { spoke(head ? "column unchanged" : "cell unchanged"); return; }
-        dcommit = (cargo) => spoke(cargo.said || (head ? "column named" : "cell written"));
-        dsend({ kind: "editcell", id: c.id, col: c.col, text });
-        return;
-      }
       if (edit.o === DPARA) {
         const text = el("dtext").value;
         const add = !!r.add;
@@ -2519,14 +2516,6 @@
         if (k !== "TAB" && k !== "RET" && !(k === ":" && onPairKey())) return;
         e.preventDefault();
         once(() => pairKey(k));
-        return;
-      }
-      // A CELL EDIT IS ONE LINE: `RET' commits it and nothing summons another.
-      // `TAB' is claimed so the browser keeps focus in the box; ESC is the
-      // keymap's ladder, which shuts every DOCEDITS shape, this among them.
-      if (dcelling()) {
-        if (k === "RET") { e.preventDefault(); once(() => commitDocEdit(paraBinding)); }
-        else if (k === "TAB") { e.preventDefault(); }
         return;
       }
       // `RET' COMMITS here, `S-RET' commits and asks for ANOTHER, `M-RET' is the newline.

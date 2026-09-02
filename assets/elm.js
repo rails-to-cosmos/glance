@@ -12424,6 +12424,9 @@ var $author$project$Doc$tableView = F2(
 						$elm$json$Json$Encode$string('text')),
 						_Utils_Tuple2(
 						'sortable',
+						$elm$json$Json$Encode$bool(true)),
+						_Utils_Tuple2(
+						'editable',
 						$elm$json$Json$Encode$bool(true))
 					]));
 		};

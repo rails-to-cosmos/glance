@@ -4809,16 +4809,14 @@ export default [
     await p.click(`#mdoc glance-table tbody tr[data-id="${owner.id}"] td:nth-child(2)`);
     await p.until((w) => docAtNow() === w, "point on the Owner cell", undefined, owner.id);
     await p.press("RET");
-    await p.until(() => {
-      const b = document.getElementById("dpara");
-      return b && b.className.includes("on");
-    }, "the cell edit box to open");
-    const opened = await p.eval(() => document.getElementById("dtext").value);
+    await p.until(() => !!document.querySelector("#mdoc glance-table td .tv-cell-edit"),
+      "the in-cell edit input to open");
+    const opened = await p.eval(() =>
+      document.querySelector("#mdoc glance-table td .tv-cell-edit").value);
     assert(opened === "writer",
-      `the box opened on ${JSON.stringify(opened)}, not the raw cell "writer"`);
+      `the input opened on ${JSON.stringify(opened)}, not the raw cell "writer"`);
     await p.eval(() => {
-      const t = document.getElementById("dtext");
-      t.value = "keeper"; t.dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector("#mdoc glance-table td .tv-cell-edit").value = "keeper";
     });
     await p.press("RET");
     await p.until((wid) => {
@@ -4850,16 +4848,14 @@ export default [
     // p above the row lands on the header leaf -- a different row than the data.
     await p.until((w) => docAtNow() !== w, "point to climb to the header", undefined, id);
     await p.press("RET");
-    await p.until(() => {
-      const b = document.getElementById("dpara");
-      return b && b.className.includes("on");
-    }, "the header edit box to open");
-    const opened = await p.eval(() => document.getElementById("dtext").value);
+    await p.until(() => !!document.querySelector("#mdoc glance-table th .tv-cell-edit"),
+      "the in-header edit input to open");
+    const opened = await p.eval(() =>
+      document.querySelector("#mdoc glance-table th .tv-cell-edit").value);
     assert(opened === "Street",
-      `the header box opened on ${JSON.stringify(opened)}, not the column name "Street"`);
+      `the header input opened on ${JSON.stringify(opened)}, not the column name "Street"`);
     await p.eval(() => {
-      const t = document.getElementById("dtext");
-      t.value = "Straat"; t.dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector("#mdoc glance-table th .tv-cell-edit").value = "Straat";
     });
     await p.press("RET");
     await p.until(() => {
@@ -4983,15 +4979,13 @@ export default [
     await p.until(() => document.querySelector("#mdoc glance-table").classList.contains("ephemeral"),
       "the ephemeral header to be summoned");
     await p.press("RET");
-    await p.until(() => {
-      const b = document.getElementById("dpara");
-      return b && b.className.includes("on");
-    }, "the ephemeral header name box to open");
-    const opened = await p.eval(() => document.getElementById("dtext").value);
-    assert(opened === "", `the ephemeral header box opened on ${JSON.stringify(opened)}, not empty`);
+    await p.until(() => !!document.querySelector("#mdoc glance-table th .tv-cell-edit"),
+      "the ephemeral header name input to open");
+    const opened = await p.eval(() =>
+      document.querySelector("#mdoc glance-table th .tv-cell-edit").value);
+    assert(opened === "", `the ephemeral header input opened on ${JSON.stringify(opened)}, not empty`);
     await p.eval(() => {
-      const t = document.getElementById("dtext");
-      t.value = "Item"; t.dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector("#mdoc glance-table th .tv-cell-edit").value = "Item";
     });
     await p.press("RET"); // name -> materialize the header
     await p.until(() => {
@@ -5022,13 +5016,10 @@ export default [
     await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:nth-child(2)`);
     await p.until((w) => docAtNow() === w, "point on the Owner cell", undefined, id);
     await p.press("RET");
-    await p.until(() => {
-      const b = document.getElementById("dpara");
-      return b && b.className.includes("on");
-    }, "the cell edit box to open");
+    await p.until(() => !!document.querySelector("#mdoc glance-table td .tv-cell-edit"),
+      "the in-cell edit input to open");
     await p.eval(() => {
-      const t = document.getElementById("dtext");
-      t.value = "keeper2"; t.dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector("#mdoc glance-table td .tv-cell-edit").value = "keeper2";
     });
     await p.press("RET");
     await p.until((wid) => {
@@ -5091,8 +5082,8 @@ export default [
     return [`d flagged the Owner column, a second d deleted it: [${gone.heads.join(", ")}]`];
   } },
 
-// BUG 2026-09-02.  The column-name box over a BLANK header cell was a thin
-// sliver (it took the empty th's height); it must stand a full line.
+// BUG 2026-09-02.  The in-cell header editor fills the header cell, so the
+// ghost header th must stand a full doc line (an empty th once gave a sliver).
 { name: "the ephemeral header name box stands a full line, not a sliver",
   async run(p, base) {
     await sheet(p, base, "drv-noheader");

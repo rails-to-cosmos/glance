@@ -846,9 +846,9 @@ code {
     display: none;
     position: absolute;
     background: var(--g-sel);
-    /* ABOVE THE MOUNTED TABLE: the widget's sticky header (z-index 1) and its */
+    /* ABOVE A MOUNTED TABLE: the widget's sticky header (z-index 1) and its */
     /* summoned filter dock (z-index 91) share this pane's stacking context, so */
-    /* an edit box laid over a cell needs to out-rank them or it paints behind. */
+    /* a doc edit box near one out-ranks them or it paints behind the widget. */
     z-index: 100;
 }
 

@@ -48,7 +48,10 @@
  *             badges?: Badge[],
  *             values?: string[],
  *             multi?: boolean,
+ *             editable?: boolean,
  *             compare?: string }} Column
+ *          `editable' opts the column into cell editing (`editCell'/double-
+ *          click / `onEdit'); columns are read-only by default.
  * @typedef {{ key?: string, command: string, label?: string }} Action
  * @typedef {{ column: string, ascending?: boolean, direction?: string,
  *             nullsFirst?: boolean }} Sort
@@ -79,6 +82,8 @@
  * @typedef {{ onAction?: (command: string, id: string, row: Row) => void,
  *             onLink?: (target: string, row: Row | null) => void,
  *             onFilter?: (q: string) => void,
+ *             onEdit?: (id: string | null, col: number, value: string,
+ *                       kind: "cell" | "header") => void,
  *             omnibox?: boolean,
  *             palette?: boolean,
  *             marks?: boolean,
@@ -104,6 +109,8 @@
  *             getVisible: () => Row[],
  *             select: (id: string, col?: number) => boolean,
  *             getSelection: () => { id: string|null, col: number|null },
+ *             editCell: (id: string, col: number) => boolean,
+ *             editHeader: (col: number) => boolean,
  *             getQuery: () => string,
  *             setCrumbs: (list: Crumb[]) => void,
  *             getCrumbs: () => Crumb[],
@@ -1220,6 +1227,20 @@
   background:var(--tv-bg);
   color:var(--tv-fg);
   min-width:140px;
+}
+/* THE IN-CELL EDITOR fills the cell it stands in, its accent edge the one sign
+   it is an input and not the drawn value. */
+.tv-cell-edit{
+  font:inherit;
+  box-sizing:border-box;
+  width:100%;
+  padding:0;
+  margin:0;
+  border:none;
+  outline:2px solid var(--tv-accent);
+  outline-offset:-2px;
+  background:var(--tv-bg);
+  color:var(--tv-fg);
 }
 /* Quiet enough to be read past, not so quiet it cannot be read. Firefox dims
    placeholders on top of the colour, which is what the opacity is undoing. */
@@ -3845,6 +3866,89 @@
                   colOf(tr, /** @type {HTMLElement|null} */ (t.closest("td"))));
     });
 
+    // ── CELL EDITING ──────────────────────────────────────────────────────
+    // AN IN-CELL EDITOR THE WIDGET OWNS: an <input> placed IN the td/th, filled
+    // with the cell's RAW value (what `displayText' renders FROM, so a link cell
+    // edits its `[[..]]'), committed as an `onEdit' + `tableview-edit'.  The
+    // producer owns the write: the widget REPORTS and does not touch its own
+    // view -- the consumer writes and feeds the new view back.  One editor at a
+    // time; a column opts in with `editable'.
+    /** @type {{ cell: any, id: string|null, col: number, kind: "cell"|"header", input: any } | null} */
+    let cellEdit = null;
+    const columnEditable = (col) => { const c = columns()[col]; return !!(c && c.editable); };
+    const cellRaw = (id, col) => {
+      const r = state.rows.find((x) => x.id === id), c = columns()[col];
+      return r && c ? String((r.cells || {})[c.key] ?? "") : "";
+    };
+    function closeCellEditor() {
+      if (!cellEdit) return;
+      cellEdit = null;
+      // Restore the drawn cell: the producer may have changed the data (a redraw
+      // shows it) or not (the redraw shows the value unchanged).
+      renderRows(true);
+      renderHead();
+    }
+    function commitCellEditor() {
+      if (!cellEdit) return;
+      const { id, col, kind, input } = cellEdit;
+      const value = input.value;
+      closeCellEditor();
+      if (o.onEdit) o.onEdit(id, col, value, kind);
+      root.dispatchEvent(new CustomEvent("tableview-edit",
+        { detail: { id, col, value, kind } }));
+    }
+    function openCellEditor(cell, id, col, kind, raw) {
+      if (!cell) return false;
+      closeCellEditor();
+      const input = document.createElement("input");
+      input.className = "tv-cell-edit";
+      input.value = raw;
+      cell.innerHTML = "";
+      cell.appendChild(input);
+      cellEdit = { cell, id, col, kind, input };
+      input.focus();
+      if (input.select) input.select();
+      input.addEventListener("keydown", (e) => {
+        // The input takes its own keys; a driver's key map does not see them.
+        e.stopPropagation();
+        if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); commitCellEditor(); }
+        else if (e.key === "Escape") { e.preventDefault(); closeCellEditor(); }
+      });
+      return true;
+    }
+    function editCell(id, col) {
+      if (!columnEditable(col)) return false;
+      const tr = /** @type {HTMLElement|null} */
+        ([...tbody.querySelectorAll("tr[data-id]")]
+          .find((x) => /** @type {HTMLElement} */ (x).dataset.id === id) || null);
+      if (!tr) return false;
+      const td = [...tr.querySelectorAll("td:not(.tv-box)")][col];
+      return openCellEditor(td, id, col, "cell", cellRaw(id, col));
+    }
+    function editHeader(col) {
+      if (!columnEditable(col)) return false;
+      const th = [...headRow.querySelectorAll("th[data-key]")][col];
+      const c = columns()[col];
+      // Open on the TRIMMED name, so a header a producer left blank (a space, to
+      // draw a blank cell rather than the key fallback) opens as empty.
+      return openCellEditor(th, null, col, "header", c ? String(c.header || "").trim() : "");
+    }
+    // A DOUBLE-CLICK on an editable cell (or its header) opens the editor.
+    scroll.addEventListener("dblclick", (e) => {
+      const t = hit(e);
+      if (!t) return;
+      const th = /** @type {HTMLElement|null} */ (t.closest("th[data-key]"));
+      if (th) {
+        const col = columns().findIndex((c) => c.key === th.dataset.key);
+        if (col >= 0) editHeader(col);
+        return;
+      }
+      const tr = /** @type {HTMLElement|null} */ (t.closest("tr[data-id]"));
+      const td = /** @type {HTMLElement|null} */ (t.closest("td"));
+      if (tr && td && tr.dataset.id !== undefined) editCell(tr.dataset.id, colOf(tr, td));
+    });
+    // ──────────────────────────────────────────────────────────────────────
+
     let pressAt = 0, pressX = 0, pressY = 0, pressRan = false;
     /** @type {string|null} */
     let pressOn = null;
@@ -5011,6 +5115,15 @@
        * @returns {{id: string|null, col: number|null}}
        */
       getSelection() { return { id: state.selected, col: state.selCol }; },
+      /**
+       * Open the in-cell editor on ID's COL cell, or on COL's header. The
+       * column must be `editable'; returns whether it opened. Commit reports
+       * through `onEdit' / `tableview-edit' and the producer owns the write.
+       * @param {string} id  @param {number} col  @returns {boolean}
+       */
+      editCell,
+      /** Open the editor on COL's header. @param {number} col  @returns {boolean} */
+      editHeader,
       /**
        * The query as last delivered: the chips and whatever had been committed
        * with them. What a consumer echoes, or writes into a URL.
