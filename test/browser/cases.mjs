@@ -5178,14 +5178,34 @@ export default [
       const bg = getComputedStyle(de).backgroundColor;
       return bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent";
     }, "the whole table region to carry the selection wash");
+    // The header and a zebra row carry the widget's OWN opaque grounds, which
+    // a selected table clears to transparent so the `--g-sel' ground shows
+    // through the cells, not just the gaps.  The clearing rides the widget's
+    // `background-color' transition, so poll until it settles rather than
+    // catching a mid-flight frame.
+    await p.until(() => {
+      const de = document.querySelector("#mdoc .de.dat.d-table");
+      const th = de && de.querySelector("glance-table thead th");
+      const alt = de && de.querySelector("glance-table tbody tr.tv-alt");
+      const clear = (el) => el && getComputedStyle(el).backgroundColor === "rgba(0, 0, 0, 0)";
+      return clear(th) && clear(alt);
+    }, "the header and zebra rows to clear to the selection wash");
     const g = await p.eval(() => {
       const de = document.querySelector("#mdoc .de.dat.d-table");
       const mdoc = document.getElementById("mdoc");
+      const th = de.querySelector("glance-table thead th");
+      const alt = de.querySelector("glance-table tbody tr.tv-alt");
       return { ground: getComputedStyle(de).backgroundColor,
+               head: th && getComputedStyle(th).backgroundColor,
+               alt: alt && getComputedStyle(alt).backgroundColor,
                sel: getComputedStyle(mdoc).getPropertyValue("--g-sel").trim() };
     });
     assert(!transparent(g.ground),
       `the whole-table ground is ${g.ground}, not a wash over the region`);
-    return [`whole-table selection washes the region (${g.ground}, --g-sel ${g.sel})`];
+    assert(transparent(g.head),
+      `the header keeps its own ground ${g.head}, blocking the wash`);
+    assert(transparent(g.alt),
+      `a zebra row keeps its own ground ${g.alt}, blocking the wash`);
+    return [`whole-table selection washes the region (ground ${g.ground}, head/zebra cleared, --g-sel ${g.sel})`];
   } },
 ];

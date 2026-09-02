@@ -689,7 +689,13 @@ code {
 
 /* POINT ON THE WHOLE TABLE washes the WHOLE region: the composite is one stop, */
 /* so the generic `.de.dat' selection ground shows through the mount's */
-/* transparent ground over the whole table, header and body alike. */
+/* transparent ground over the whole table, header and body alike.  The widget */
+/* still paints its OWN grounds -- the header's `--tv-bg', the zebra's */
+/* `--tv-alt' -- which would checker the wash, so a selected table clears them */
+/* to transparent and the one `--g-sel' ground reaches every cell. */
+#mdoc.on .de.dat.d-table glance-table thead th,#mdoc.on .de.dat.d-table glance-table tbody tr.tv-alt {
+    background: transparent;
+}
 
 /* A COLUMN FLAGGED FOR DELETION (dired's `d'): the whole column wears the */
 /* renderer's OWN flagged-row red (`--tv-flag'/`--tv-flag-wash', cascaded from */
