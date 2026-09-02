@@ -4917,7 +4917,7 @@ export default [
 // wash vs the cell crossing is the affordance.
 { name: "+ adds a row on a whole row and a column on a cell",
   async run(p, base) {
-    await sheet(p, base, "drv-table");
+    await sheet(p, base, "drv-grow");
     const shapeOf = () => p.eval(() => ({
       rows: document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length,
       cols: document.querySelectorAll("#mdoc glance-table thead th").length }));
@@ -5006,5 +5006,77 @@ export default [
     assert(head[0] === "Item", `the materialized header reads ${JSON.stringify(head[0])}, not "Item"`);
     assert(rows === 3, `materializing the header changed the data rows to ${rows}, not 3`);
     return [`a headerless table's ephemeral header materialized as [${head.join(", ")}] over ${rows} rows`];
+  } },
+
+// BUG 2026-09-02.  A cell must keep its selection (row AND column) after RET
+// commits the edit; applyFill dropped `col' across the reload.
+{ name: "a table cell keeps its selection after RET commits the edit",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+      "the table to mount");
+    const id = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((x) => x.textContent.includes("Molenweg")).dataset.id);
+    // Into the Owner cell (column 1), edit, commit.
+    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:nth-child(2)`);
+    await p.until((w) => docAtNow() === w, "point on the Owner cell", undefined, id);
+    await p.press("RET");
+    await p.until(() => {
+      const b = document.getElementById("dpara");
+      return b && b.className.includes("on");
+    }, "the cell edit box to open");
+    await p.eval(() => {
+      const t = document.getElementById("dtext");
+      t.value = "keeper2"; t.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await p.press("RET");
+    await p.until((wid) => {
+      const tr = document.querySelector(`#mdoc glance-table tbody tr[data-id="${wid}"]`);
+      return tr && [...tr.querySelectorAll("td")].some((td) => td.textContent.trim() === "keeper2");
+    }, "the write to round-trip into the cell", undefined, id);
+    // After the write reloads, the SAME cell (row + column 1) must still be selected.
+    await p.until((wid) => {
+      const tv = document.querySelector("#mdoc glance-table")._tv;
+      const s = tv.getSelection();
+      return s.id === wid && s.col === 1;
+    }, "the edited cell to keep its row-and-column selection", undefined, id);
+    const sel = await p.eval(() => document.querySelector("#mdoc glance-table")._tv.getSelection());
+    assert(sel.col === 1, `after the edit the column is ${sel.col}, not 1`);
+    return [`the cell kept its selection r=${sel.id} c=${sel.col} across the write`];
+  } },
+
+// BUG 2026-09-02.  d on a selected column deletes the COLUMN, not the row; d on
+// a whole row still deletes the row.
+{ name: "d on a selected table column deletes the column",
+  async run(p, base) {
+    await sheet(p, base, "drv-del");
+    const shapeOf = () => p.eval(() => ({
+      rows: document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length,
+      cols: document.querySelectorAll("#mdoc glance-table thead th").length,
+      heads: [...document.querySelectorAll("#mdoc glance-table thead th")].map((t) => t.textContent.trim()) }));
+    await p.until(() =>
+      document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length === 3
+      && document.querySelectorAll("#mdoc glance-table thead th").length === 3,
+      "the table to mount 3x3");
+    const id = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((x) => x.textContent.includes("Klarenbeekstraat")).dataset.id);
+    // Into the Owner column (column 1), then d deletes that column.
+    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:nth-child(2)`);
+    await p.until((w) => docAtNow() === w, "point on the Owner cell", undefined, id);
+    await p.until(() => {
+      const tv = document.querySelector("#mdoc glance-table")._tv;
+      return tv && tv.getSelection().col === 1;
+    }, "the Owner column selected");
+    await p.press("d");
+    await p.until(() =>
+      document.querySelectorAll("#mdoc glance-table thead th").length === 2,
+      "the Owner column to be deleted");
+    const shape = await shapeOf();
+    assert(shape.cols === 2, `the table has ${shape.cols} columns, not 2`);
+    assert(shape.rows === 3, `deleting a column changed the row count to ${shape.rows}`);
+    assert(!shape.heads.includes("Owner"), `the Owner column survived: [${shape.heads.join(", ")}]`);
+    return [`d on the Owner column deleted it: [${shape.heads.join(", ")}], ${shape.rows} rows`];
   } },
 ];

@@ -477,6 +477,7 @@ type Msg
     | EditCell String Int String
     | AddRow String
     | AddCol String Int
+    | DelCol String Int
     | NameCol String Int String
     | Draft String (Maybe Int)
     | Insert String (Maybe Int) String
@@ -765,6 +766,22 @@ update msg model =
                     in
                     composed { model | rows = List.map widen model.rows, col = Just (col + 1) }
                 Nothing -> ( model, docSaid (E.string "no table column to add here") )
+        -- A COLUMN DELETE strikes COL from every row of the table -- header and
+        -- data alike, hlines left as separators org re-aligns.  The last column
+        -- stands: a table is at least one column.  Point lands on the column the
+        -- deleted one's neighbour shifted into.
+        DelCol id col ->
+            case Maybe.andThen (tableCellCompOf model) (rowById model id) of
+                Just comp ->
+                    if tableColCount model comp <= 1 then
+                        ( model, docSaid (E.string "the table's last column stands") )
+                    else
+                        let
+                            narrow r =
+                                if r.owner == Just comp.id then { r | text = removeCol col r.text } else r
+                        in
+                        composed { model | rows = List.map narrow model.rows, col = Just (Basics.min col (tableColCount model comp - 2)) }
+                Nothing -> ( model, docSaid (E.string "no table column to delete here") )
         -- NAMING A COLUMN ON A HEADERLESS TABLE MATERIALIZES the header: the
         -- header line (the name in its column) and an hline are PREPENDED to the
         -- first body row, so on the reload the table is headered.  A blank name
@@ -877,6 +894,12 @@ applyFill fresh model =
                 { fresh
                     | at = fillLanding fresh model
                     , landing = Nothing
+
+                    -- THE WITHIN-ROW COLUMN SURVIVES THE RESCAN, so a cell edit
+                    -- comes back to the cell it wrote, not the whole row.
+                    -- `settled' drops it where the landed row is no cell.
+                    , col = model.col
+                    , ephemHead = model.ephemHead
 
                     -- WHAT THE READER FOLDED OR OPENED STAYS SO across the
                     -- rescan: the old answer where the id is known, the
@@ -1584,6 +1607,7 @@ msgD =
                     "editcell" -> D.map3 EditCell (D.field "id" D.string) (D.field "col" D.int) (D.field "text" D.string)
                     "addrow" -> D.map AddRow (D.field "id" D.string)
                     "addcol" -> D.map2 AddCol (D.field "id" D.string) (D.field "col" D.int)
+                    "delcol" -> D.map2 DelCol (D.field "id" D.string) (D.field "col" D.int)
                     "namecol" -> D.map3 NameCol (D.field "id" D.string) (D.field "col" D.int) (D.field "text" D.string)
                     "insert" ->
                         D.map3 Insert
@@ -2579,6 +2603,19 @@ insertCol col line =
             widened = List.take (col + 1) cells ++ [ "" ] ++ List.drop (col + 1) cells
         in
         raggedRow (indentOf line) widened
+
+{-| A table row's line with column COL STRUCK OUT, its cells `|'-joined afresh.
+An hline is a separator org re-aligns and is left alone.
+-}
+removeCol : Int -> String -> String
+removeCol col line =
+    if isRule line then
+        line
+    else
+        let
+            cells = List.map String.trim (tableCells line)
+        in
+        raggedRow (indentOf line) (List.take col cells ++ List.drop (col + 1) cells)
 
 {-| A table row's line from its trimmed CELLS, the INDENT kept: `| a | b |'.
 RAGGED where a cell grew -- the draw re-aligns and org aligns the file on TAB.

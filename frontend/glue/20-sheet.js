@@ -739,6 +739,12 @@
     // The <glance-table> host mounted inside a table composite's block -- the
     // composite-id -> mounted-widget DOM path, spelled once.
     const hostFor = (compId) => el("mdoc").querySelector(`.de[data-id="${compId}"] glance-table`);
+    // The table composite ROW is a cell of, or null -- its owner, when that is a
+    // `table' composite.
+    const tableCompOfRow = (r) => {
+      const comp = r && r.owner && drows.find((x) => x.id === r.owner);
+      return comp && comp.name === "table" ? comp : null;
+    };
     // SELECT THE CELL POINT STANDS IN, in the mounted widget: the leaf row's
     // own id, `null' the whole row.  The widget's row ids ARE the Elm leaf ids,
     // so no lookup -- Elm's point drives the renderer's selection.
@@ -2537,6 +2543,14 @@
           once(() => toggleCheckbox(docBinding("org-toggle-checkbox", "SPC")));
         // `S-RET' IS `+' WHEREVER IT IS PRESSED; none of the three reads a caret here.
         else if (k === "+" || k === "S-RET" || k === "M-RET") once(insertHere);
+        // `d' ON A SELECTED COLUMN deletes the COLUMN, not the row: the same
+        // row-wash-vs-cell-crossing affordance `+' reads.  Off a column it is
+        // the row's own dired flag, below.
+        else if (k === "d" && dcol != null && tableCompOfRow(docRowAt())) once(() => {
+          const r = docRowAt();
+          dcommit = (cargo) => echo(`d → ${cargo.said || "column deleted"}`);
+          dsend({ kind: "delcol", id: r.id, col: dcol });
+        });
         else if (!flagPress(k, e, DFLAGS)) return;
       }
       e.preventDefault();

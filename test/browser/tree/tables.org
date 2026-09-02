@@ -31,3 +31,31 @@ The table below has no header line; its header is summoned on demand.
 | Gamma | 3  | open |
 
 Prose after the headerless table.
+
+* NEXT A table the + case grows                                     :survey:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-grow
+:END:
+Its own table, so the structural + case does not disturb the others.
+
+| Street           | Owner  | Note                          |
+|------------------+--------+-------------------------------|
+| Klarenbeekstraat | reader | corner lot                    |
+| Molenweg         | writer | church end                    |
+| Dorpsstraat      | reader | narrow                        |
+
+Prose after the growable table.
+
+* NEXT A table the delete case strikes a column from               :survey:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-del
+:END:
+Its own table, so the delete-column case does not disturb the others.
+
+| Street           | Owner  | Note                          |
+|------------------+--------+-------------------------------|
+| Klarenbeekstraat | reader | corner lot                    |
+| Molenweg         | writer | church end                    |
+| Dorpsstraat      | reader | narrow                        |
+
+Prose after the deletable table.
