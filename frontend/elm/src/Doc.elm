@@ -1571,8 +1571,6 @@ msgD =
                     "fill" -> D.map Fill fillD
                     "clear" -> D.succeed Clear
                     "select" -> D.map2 Select (D.field "id" D.string) (D.maybe (D.field "plan" D.int))
-                    -- A cell the widget reported: the leaf row's id and the
-                    -- column, null the whole row.
                     "selectcell" -> D.map2 SelectCell (D.field "id" D.string) (D.maybe (D.field "col" D.int))
                     "step" -> D.map Step (D.field "by" D.int)
                     "finer" -> D.succeed Finer
@@ -1583,12 +1581,9 @@ msgD =
                     "clearFlags" -> D.succeed ClearFlags
                     "delete" -> D.map Delete (D.field "ids" (D.list D.string))
                     "edit" -> D.map2 Edit (D.field "id" D.string) (D.field "text" D.string)
-                    -- The leaf row, the column, and the raw value typed into it.
                     "editcell" -> D.map3 EditCell (D.field "id" D.string) (D.field "col" D.int) (D.field "text" D.string)
-                    -- The leaf row and the column a new blank column follows.
                     "addrow" -> D.map AddRow (D.field "id" D.string)
                     "addcol" -> D.map2 AddCol (D.field "id" D.string) (D.field "col" D.int)
-                    -- Naming a column on a headerless table materializes its header.
                     "namecol" -> D.map3 NameCol (D.field "id" D.string) (D.field "col" D.int) (D.field "text" D.string)
                     "insert" ->
                         D.map3 Insert
