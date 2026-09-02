@@ -24,8 +24,8 @@ import qualified Data.Text.IO as TIO
 
 import Glance.Desktop ( browserCandidates, desktopURL, dryRunLines, openWindow
                       , resolveBrowser, windowLine )
-import Glance.Desktop.Native ( nativeDryRunLines, nativeTitle, nativeWindowLine
-                             , prefersNative, runNative )
+import Glance.Desktop.Native ( nativeDryRunLines, nativeEngine, nativeTitle
+                             , nativeWindowLine, prefersNative, runNative )
 import Glance.Desktop.WebKit (zoomAsked)
 import Glance.Web.Base (zoomMax, zoomMin)
 
@@ -260,7 +260,7 @@ nativeSpec = testGroup "Preferring the window this build owns"
       let title = nativeTitle "/home/x/org"
       assertEqual "three lines, the middle one this build's window"
         [ "glance desktop — " <> url
-        , "  window:  native window (WebKitGTK) — " <> title
+        , "  window:  native window (" <> nativeEngine <> ") — " <> title
         , "  dry run — nothing started." ] (nativeDryRunLines title url)
       -- The lines that are not about which window opened must be the same lines.
       let browser = dryRunLines (Just ("/usr/bin/chromium", ["--app=" <> url])) url
@@ -272,7 +272,7 @@ nativeSpec = testGroup "Preferring the window this build owns"
       let said = nativeWindowLine "glance — /home/x/org"
       mapM_ (\needle -> assertBool (show needle <> " missing from " <> said)
                                    (needle `isInfixOf` said))
-            ["native window", "WebKitGTK", "/home/x/org"]
+            ["native window", nativeEngine, "/home/x/org"]
   ]
 
 

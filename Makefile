@@ -157,7 +157,17 @@ sync-renderer:
 
 # ITS OWN BUILD DIR: both project files name the same package, so without it each
 # `make' overwrites the other's binary and a window serves the last build's glue.
+# ENGINE BY OS: Linux builds the WebKitGTK window from `cabal.project.native'
+# (the vendored gi-webkit2 4.1 bindings + the GIR path); macOS builds the
+# Cocoa/WKWebView shim, which is just the `native-window' flag on the plain
+# project -- no vendored GTK bindings, no GIR, so no project file and no GIR env.
+ifeq ($(shell uname -s),Darwin)
+NATIVE_BUILD = --builddir=dist-newstyle-native --flags=native-window
+NATIVE_ENV =
+else
 NATIVE_BUILD = --project-file=cabal.project.native --builddir=dist-newstyle-native
+NATIVE_ENV = HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir
+endif
 
 # Cabal build knobs threaded through `native'/`install', EMPTY by default so a
 # plain build stays -O1; `release' sets -O2 and split-sections.  `list-bin' takes
@@ -175,7 +185,7 @@ bootstrap:
 	@tools/bootstrap
 
 native: bootstrap
-	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
+	$(NATIVE_ENV) \
 	  cabal build $(NATIVE_BUILD) $(OPT) all
 
 # The native build's own binary, copied over ~/.local/bin/glance atomically
@@ -183,7 +193,7 @@ native: bootstrap
 PREFIX ?= $(HOME)/.local
 install: native
 	@dest="$(PREFIX)/bin/glance"; \
-	  bin="$$(HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
+	  bin="$$($(NATIVE_ENV) \
 	          cabal list-bin -v0 $(NATIVE_BUILD) $(OPT) exe:glance)"; \
 	  mkdir -p "$(PREFIX)/bin"; \
 	  install -m 755 $(STRIP) "$$bin" "$$dest.new" && mv -f "$$dest.new" "$$dest"; \
@@ -213,9 +223,9 @@ GHC_TRIPLE = $(shell ghc --info 2>/dev/null | sed -n 's/.*"target platform strin
 dist: elm
 	@triple="$(GHC_TRIPLE)"; test -n "$$triple" || { echo "dist: no ghc on PATH"; exit 1; }; \
 	  rm -rf "$(DIST)"; d="$(DIST)/$$triple"; mkdir -p "$$d"; \
-	  HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
+	  $(NATIVE_ENV) \
 	    cabal build $(NATIVE_BUILD) $(RELEASE_OPT) all; \
-	  bin="$$(HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
+	  bin="$$($(NATIVE_ENV) \
 	          cabal list-bin -v0 $(NATIVE_BUILD) $(RELEASE_OPT) exe:glance)"; \
 	  install -m 755 -s "$$bin" "$$d/glance"; \
 	  printf '#!/bin/sh\n# Pick a FREE port; 7777 is the desktop daemon port.\nexec ./glance "$$@"\n' > "$$d/run.sh"; \

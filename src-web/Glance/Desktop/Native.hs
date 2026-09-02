@@ -1,8 +1,11 @@
+{-# LANGUAGE CPP #-}
+
 -- | @glance desktop@ with a window this process owns (AGENTS.hs).  The engine
 -- arrives as a plain @URL -> IO ()@, so this compiles in both flag states.
 module Glance.Desktop.Native
   ( desktopWith
   , nativeDryRunLines
+  , nativeEngine
   , nativeTitle
   , nativeWindowLine
   , prefersNative
@@ -31,8 +34,17 @@ nativeTitle dir = "glance — " <> dir
 prefersNative :: Bool -> Maybe String -> Maybe String -> Bool
 prefersNative available env flag = available && isNothing (env <|> flag)
 
+-- | The window engine THIS os builds: WebKitGTK on Linux, WKWebView on macOS.
+-- One source for the report line and the test that reads it.
+nativeEngine :: String
+#ifdef darwin_HOST_OS
+nativeEngine = "WKWebView"
+#else
+nativeEngine = "WebKitGTK"
+#endif
+
 nativeWindowLine :: String -> String
-nativeWindowLine title = "  window:  native window (WebKitGTK) — " <> title
+nativeWindowLine title = "  window:  native window (" <> nativeEngine <> ") — " <> title
 
 -- | The browser path's report with its window line swapped, so shared lines
 -- cannot drift.

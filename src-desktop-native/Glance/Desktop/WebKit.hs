@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
 
 -- | A @WebKitWebView@ filling a @GtkWindow@ and nothing else; the policy is
 -- 'Glance.Desktop.Native''s.  Built only under the @native-window@ flag.
@@ -12,6 +13,12 @@ module Glance.Desktop.WebKit
 import Text.Read (readMaybe)
 
 #ifdef NATIVE_WINDOW
+#ifdef darwin_HOST_OS
+
+import Foreign.C.String (CString, withCString)
+import Foreign.C.Types (CInt)
+
+#else
 
 import Control.Exception (SomeException, throwIO, try)
 import Control.Monad (unless, void)
@@ -28,6 +35,7 @@ import qualified GI.Gtk as Gtk
 import qualified GI.JavaScriptCore as JSC
 import qualified GI.WebKit2 as WK
 
+#endif
 #endif
 
 nativeAvailable :: Bool
@@ -56,6 +64,21 @@ zoomAsked (low, high) said = do
   where asLevel percent = fromIntegral percent / 100
 
 #ifdef NATIVE_WINDOW
+#ifdef darwin_HOST_OS
+
+nativeAvailable = True
+
+-- The WKWebView window lives in `cbits/glance_wkwebview.m'; it BLOCKS until the
+-- window closes and answers every JS message itself, so this is one call in.
+foreign import ccall safe "glance_native_window"
+  c_glance_native_window :: CInt -> CInt -> CString -> CString -> IO ()
+
+nativeWindow (low, high) title url =
+  withCString title $ \ctitle ->
+    withCString url $ \curl ->
+      c_glance_native_window (fromIntegral low) (fromIntegral high) ctitle curl
+
+#else
 
 nativeAvailable = True
 
@@ -231,6 +254,7 @@ black = do
   Gdk.setRGBAAlpha rgba 1
   pure rgba
 
+#endif
 #else
 
 nativeAvailable = False

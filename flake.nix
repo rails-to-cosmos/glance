@@ -42,6 +42,15 @@
           harfbuzz
           at-spi2-core
         ];
+
+        # The Darwin window is a Cocoa/WKWebView shim linked `-framework Cocoa
+        # -framework WebKit' (the cabal file's `frameworks:').  The SDK carries
+        # them; the per-framework `darwin.apple_sdk.frameworks.*' attrs became
+        # no-op stubs in nixpkgs 25.05, so the SDK derivation is what to name.
+        # Outside nix the Command Line Tools are the same SDK.
+        darwinFrameworks = with pkgs; lib.optionals stdenv.isDarwin [
+          apple-sdk
+        ];
       in {
         devShells.default = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
@@ -51,12 +60,12 @@
             gobject-introspection   # g-ir tooling + system GIRs / typelibs
             nodejs_22               # the browser + interop drivers
           ];
-          buildInputs = nativeLibs;
+          buildInputs = nativeLibs ++ darwinFrameworks;
 
           shellHook = ''
             echo "glance dev shell -- GHC ${ghc.version}, $(cabal --version | head -1)"
-          '' + lib.optionalString (!pkgs.stdenv.isLinux) ''
-            echo "note: on Darwin the server build works; the native WebKitGTK window does not -- it needs a WKWebView shell that is not built."
+          '' + lib.optionalString pkgs.stdenv.isDarwin ''
+            echo "note: the Darwin native window is a Cocoa/WKWebView shim (src-desktop-native/cbits); build it with 'make native'."
           '';
         };
       });

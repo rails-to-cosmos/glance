@@ -28,17 +28,25 @@ if ! command -v cabal >/dev/null 2>&1; then
   ghcup install cabal --set
 fi
 
-# --- The native window is Linux-only --------------------------------------
-# WebKitGTK is a Linux toolkit.  On a mac the toolchain above is enough for the
-# SERVER build ('cabal build exe:glance', 'glance serve'), which links no system
-# libraries; the desktop window needs a WKWebView shell that is not built.  Stop
-# here with that, rather than chase GTK a mac cannot use.
+# --- The window engine is per-OS ------------------------------------------
+# macOS builds a Cocoa/WKWebView shim from the Command Line Tools -- clang plus
+# the Cocoa/WebKit frameworks, no package to install -- so ensure those and let
+# `make native' build the window.  Only Linux goes on to the pacman WebKitGTK
+# libraries below.
 os=$(uname -s)
+if [ "$os" = Darwin ]; then
+  if ! xcode-select -p >/dev/null 2>&1; then
+    die "the Command Line Tools are missing -- clang and the Cocoa/WebKit
+frameworks the native window links.  Install them with 'xcode-select --install',
+then re-run."
+  fi
+  say "toolchain and Command Line Tools present"
+  exit 0
+fi
 if [ "$os" != Linux ]; then
-  die "$os: the native WebKitGTK window is Linux-only.
-The toolchain above is set for the server build -- 'cabal build exe:glance',
-'glance serve' -- which links no system libraries.  For a reproducible env use
-the nix dev shell: 'nix develop' (see flake.nix)."
+  die "$os: no native-window backend here.  Build the server
+('cabal build exe:glance', 'glance serve'), or use the nix dev shell
+('nix develop')."
 fi
 
 # --- The WebKitGTK system libraries, from pacman --------------------------

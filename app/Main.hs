@@ -175,7 +175,7 @@ desktopUsage = intercalate "\n" $
   [ "usage: glance desktop --dir DIR [options]" ]
   <> flagLines flags
   <> [ ""
-     , "Opens this build's WebKitGTK window when it has one and neither --browser"
+     , "Opens this build's native window when it has one and neither --browser"
      , "nor GLANCE_BROWSER names another." ]
 
 doctorUsage :: String

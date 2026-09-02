@@ -47,11 +47,13 @@ source-repository head
   type: git
   location: https://github.com/rails-to-cosmos/glance
 
--- Build `glance desktop''s own WebKitGTK window.  Off and manual: on, the solver
--- pulls the haskell-gi tree and the build needs GTK3/WebKitGTK headers.
--- The flag alone is not enough -- `make native' adds `vendored/' and the GIR path.
+-- Build `glance desktop''s own native window.  Off and manual: on, the solver
+-- pulls the engine for THIS os -- haskell-gi + WebKitGTK on Linux, a Cocoa/
+-- WKWebView shim (`cbits/') on macOS -- and the build needs that engine.
+-- The flag alone is not enough on Linux -- `make native' adds `vendored/' and
+-- the GIR path; on macOS the Command Line Tools carry the frameworks.
 flag native-window
-  description: Build the native WebKitGTK window (gi-gtk 3 + gi-webkit2).
+  description: Build glance desktop's native window (WebKitGTK on Linux, WKWebView on macOS).
   default: False
   manual: True
 
@@ -226,19 +228,26 @@ library glance-desktop-native
       base >=4.7 && <5
   if flag(native-window)
     cpp-options: -DNATIVE_WINDOW
-    -- gi-gtk3/gi-gdk3 are the names gi-webkit2 depends on; the other spelling
-    -- puts two packages claiming GI.Gtk in one plan.
-    build-depends:
-        gi-gdk3 >=3.0 && <3.1
-      , gi-glib >=2.0 && <2.1
-      , gi-gtk3 >=3.0 && <3.1
-      -- Reads the URL a patched `window.open' posts back; gi-webkit2 pulls it anyway.
-      , gi-javascriptcore >=4.0 && <4.1
-      , gi-webkit2 >=4.0 && <4.1
-      -- `castTo' downcasts a WebKitPolicyDecision; every gi-* already pulls it.
-      , haskell-gi-base >=0.26 && <0.27
-      , text
-      , unix
+    if os(osx)
+      -- The Darwin window is a WKWebView shim linked against Cocoa + WebKit; no
+      -- haskell-gi, no GTK.  ARC owns the ObjC objects (`-fobjc-arc').
+      c-sources: src-desktop-native/cbits/glance_wkwebview.m
+      cc-options: -fobjc-arc
+      frameworks: Cocoa WebKit
+    else
+      -- gi-gtk3/gi-gdk3 are the names gi-webkit2 depends on; the other spelling
+      -- puts two packages claiming GI.Gtk in one plan.
+      build-depends:
+          gi-gdk3 >=3.0 && <3.1
+        , gi-glib >=2.0 && <2.1
+        , gi-gtk3 >=3.0 && <3.1
+        -- Reads the URL a patched `window.open' posts back; gi-webkit2 pulls it anyway.
+        , gi-javascriptcore >=4.0 && <4.1
+        , gi-webkit2 >=4.0 && <4.1
+        -- `castTo' downcasts a WebKitPolicyDecision; every gi-* already pulls it.
+        , haskell-gi-base >=0.26 && <0.27
+        , text
+        , unix
   default-language: Haskell2010
 
 -- The WASM probe: the core inside a WASI runtime — `make run-wasm`.  Buildable
