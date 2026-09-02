@@ -300,8 +300,13 @@ code {
     --box: var(--g-state-i0);
     padding: 1px var(--g-doc-pad);
     border-radius: 4px;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
+    /* WHILE READING, A LONG LINE STANDS ONE LINE and clips with an ellipsis: a */
+    /* wrapped continuation runs back under the block spine and crosses it.  The */
+    /* editor is an opaque overlay laid over the row, so the full text is still */
+    /* reached there -- no reader loses a byte, only the wrap goes. */
+    white-space: pre;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .dp {

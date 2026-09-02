@@ -360,6 +360,35 @@ export default [
     return [`content ${d.mdoc.sh}px scrolls in a ${d.mdoc.ch}px pane (moved ${d.moved}px); sheet ends at ${d.sheet.bottom}/${d.vh}`];
   } },
 
+// A long line does NOT wrap while the reader is only reading it: a wrapped
+// continuation runs back under the block spine and crosses it.  The row stands
+// ONE line tall and clips its overflow with an ellipsis instead.  wide.org
+// `drv-wide' carries an unbreakable URL that overruns a 360px pane.
+{ name: "a long line does not wrap in the doc; it clips with an ellipsis",
+  async run(p, base) {
+    await p.size(360, 720);
+    await sheet(p, base, "drv-wide");
+    await settled(p, "the wide sheet");
+    const d = await p.eval(() => {
+      const row = [...document.querySelectorAll("#mdoc .de")]
+        .find((e) => e.textContent.includes("never/breaks"));
+      if (!row) return { found: false };
+      const cs = getComputedStyle(row);
+      return { found: true, h: row.clientHeight, lh: parseFloat(cs.lineHeight),
+               ws: cs.whiteSpace, over: cs.textOverflow,
+               clipped: row.scrollWidth > row.clientWidth + 1 };
+    });
+    assert(d.found, "the unbreakable URL row did not draw");
+    assert(d.h <= d.lh * 1.5,
+      `the long line wrapped: the row is ${d.h}px over one line of ${d.lh}px`);
+    assert(d.clipped,
+      `the long line was not clipped: its scrollWidth did not exceed its box`);
+    assert(d.over === "ellipsis",
+      `the row's text-overflow is ${JSON.stringify(d.over)}, not "ellipsis"`);
+    return [`the ${d.h}px one-line row (line ${d.lh}px, white-space ${d.ws}) `
+      + `clips its overflow with ${d.over}`];
+  } },
+
 // A left click selects the element it lands on (point moves there); a double
 // click edits it, exactly as RET does.  marks.org `B5' is a checkbox item.
 { name: "a left click selects the material-doc element under it",
