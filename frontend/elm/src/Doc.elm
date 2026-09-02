@@ -1939,14 +1939,7 @@ viewPlanning m =
                      else
                         " "
                     )
-                , span
-                    [ class
-                        (if value == "" then
-                            "dk dkunset"
-                         else
-                            "dk"
-                        )
-                    ]
+                , span [ class "dk" ]
                     [ text key, span [ class "dpunc" ] [ text ":" ] ]
                 , text " "
                 , span

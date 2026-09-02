@@ -448,7 +448,7 @@ export default [
         return { has: true, unset: !!u, text: s.textContent,
                  unsetText: u ? u.textContent : null,
                  keyColor: k ? getComputedStyle(k).color : null,
-                 valColor: u ? getComputedStyle(u).color : null };
+                 valColor: getComputedStyle(u || s).color };
       };
       return { sched: read("SCHEDULED"), dead: read("DEADLINE") };
     });
@@ -461,14 +461,14 @@ export default [
       + `DEADLINE ${none.dead.has}`);
     assert(none.sched.unset && none.dead.unset,
       `a slot is not the unset placeholder: ${JSON.stringify(none)}`);
-    // The unset value reads "<unset>", and BOTH the keyword and the value are
-    // dimmed to the one muted ink -- so "SCHEDULED: <unset>" stands visible and
-    // quiet, key and value alike.
+    // The unset value reads "<unset>", and it wears the SAME reserved-token ink
+    // as the keyword -- "SCHEDULED: <unset>" reads as a dimmed drawer pair, key
+    // and value alike.
     for (const [name, sl] of [["SCHEDULED", none.sched], ["DEADLINE", none.dead]]) {
       assert(sl.unsetText === "<unset>",
         `the unset ${name} value is ${JSON.stringify(sl.unsetText)}, not "<unset>"`);
       assert(sl.keyColor === sl.valColor,
-        `the unset ${name} keyword ${sl.keyColor} is not dimmed to its value ${sl.valColor}`);
+        `the unset ${name} value ${sl.valColor} is not the keyword's token ink ${sl.keyColor}`);
     }
     // ------- a headline scheduled but never dated: the set value stands beside
     // the still-unset DEADLINE slot.
@@ -477,9 +477,10 @@ export default [
     const one = await slots();
     assert(one.sched.has && !one.sched.unset && /</.test(one.sched.text || ""),
       `the scheduled headline drew its SCHEDULED value wrong: ${JSON.stringify(one.sched)}`);
-    // A SET slot keeps its keyword in the bright token ink, not the unset dim.
-    assert(one.sched.keyColor !== none.sched.valColor,
-      `the set SCHEDULED keyword ${one.sched.keyColor} wears the unset dim`);
+    // A SET slot's VALUE is the brighter row ink, not the unset dim -- the
+    // keyword is the one reserved-token tone either way.
+    assert(one.sched.valColor !== none.sched.valColor,
+      `the set SCHEDULED value ${one.sched.valColor} wears the unset dim ${none.sched.valColor}`);
     assert(one.dead.has && one.dead.unset,
       `the scheduled headline did not draw an unset DEADLINE slot: ${JSON.stringify(one.dead)}`);
     return [`no-planning headline draws SCHEDULED ${JSON.stringify(none.sched.text)} and `

@@ -1017,11 +1017,12 @@ code {
 }
 
 /* AN UNSET SLOT shows a muted `<unset>' the reader can click and RET to set -- */
-/* DISPLAY-ONLY, the model value staying org's own empty.  Its keyword dims to */
-/* the SAME ink (`.dkunset'), so "SCHEDULED: <unset>" stands visible and quiet, */
-/* key and value alike; a set slot keeps its keyword in `--tok'. */
-.dpunset,.dkunset {
-    color: var(--punc);
+/* DISPLAY-ONLY, the model value staying org's own empty.  It wears the drawer's */
+/* own reserved-token ink (`--tok'): the keyword is already `.dk' in `--tok', so */
+/* the value joins it and "SCHEDULED: <unset>" reads as a dimmed drawer pair, key */
+/* and value alike.  A set slot keeps its VALUE in the brighter row ink. */
+.dpunset {
+    color: var(--tok);
 }
 
 /* THE ENTRY AT POINT IS THE CURSOR, one grain finer than the row: it wears the */
