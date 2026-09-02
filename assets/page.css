@@ -699,6 +699,16 @@ code {
     color: var(--g-fg);
 }
 
+/* A COLUMN FLAGGED FOR DELETION (dired's `d'): the column wears a warning wash */
+/* and its header a strike, until a second `d' deletes it or the flag is spent. */
+#mdoc glance-table th.gt-cflag,#mdoc glance-table td.gt-cflag {
+    background: color-mix(in srgb, var(--g-todo) 22%, transparent);
+}
+
+#mdoc glance-table th.gt-cflag {
+    text-decoration: line-through;
+}
+
 /* THE WHOLE-TABLE STATE picks no row: `b' off a row masks the renderer's own */
 /* selection wash, so climbing out reads as the table with nothing selected. */
 #mdoc glance-table.gt-nosel tbody tr.tv-sel,#mdoc glance-table.gt-nosel td.tv-colsel,#mdoc glance-table.gt-nosel td.tv-cell-sel {

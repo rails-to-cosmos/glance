@@ -752,6 +752,28 @@
       const comp = r && r.owner && drows.find((x) => x.id === r.owner);
       return comp && comp.name === "table" ? comp : null;
     };
+    // COLUMNS FLAGGED FOR DELETION, dired-style, keyed `compId:col' -- display
+    // only: `d' flags, a second `d' on a flagged column deletes it.
+    let dcolFlags = new Set();
+    const colFlagKey = (compId, col) => `${compId}:${col}`;
+    // Re-stamp the flag mark on every push (a re-render drops the classes), and
+    // forget a flag whose column the table no longer has.
+    const applyColFlags = () => {
+      for (const el2 of document.querySelectorAll("#mdoc glance-table .gt-cflag"))
+        el2.classList.remove("gt-cflag");
+      for (const key of [...dcolFlags]) {
+        const sep = key.lastIndexOf(":");
+        const compId = key.slice(0, sep), col = +key.slice(sep + 1);
+        const host = hostFor(compId);
+        const ths = host ? host.querySelectorAll("thead th") : [];
+        if (!host || col >= ths.length) { dcolFlags.delete(key); continue; }
+        ths[col].classList.add("gt-cflag");
+        for (const tr of host.querySelectorAll("tbody tr[data-id]")) {
+          const td = tr.querySelectorAll("td")[col];
+          if (td) td.classList.add("gt-cflag");
+        }
+      }
+    };
     // SELECT THE CELL POINT STANDS IN, in the mounted widget: the leaf row's
     // own id, `null' the whole row.  The widget's row ids ARE the Elm leaf ids,
     // so no lookup -- Elm's point drives the renderer's selection.
@@ -759,6 +781,7 @@
       // Clear any header-column mark: it stands only while point is on a header.
       for (const th of document.querySelectorAll("#mdoc glance-table thead th.gt-hsel"))
         th.classList.remove("gt-hsel");
+      applyColFlags();   // re-stamp column delete-flags a re-render dropped
       const r = drows[dat];
       const comp = r && r.owner && drows.find((x) => x.id === r.owner);
       const host = comp && comp.name === "table" ? hostFor(comp.id) : null;
@@ -2550,13 +2573,22 @@
           once(() => toggleCheckbox(docBinding("org-toggle-checkbox", "SPC")));
         // `S-RET' IS `+' WHEREVER IT IS PRESSED; none of the three reads a caret here.
         else if (k === "+" || k === "S-RET" || k === "M-RET") once(insertHere);
-        // `d' ON A SELECTED COLUMN deletes the COLUMN, not the row: the same
-        // row-wash-vs-cell-crossing affordance `+' reads.  Off a column it is
-        // the row's own dired flag, below.
+        // `d' ON A SELECTED COLUMN FLAGS it, dired-style; a second `d' on the
+        // flagged column deletes it -- never an instant delete.  Off a column
+        // it is the row's own dired flag, below.
         else if (k === "d" && dcol != null && tableCompOfRow(docRowAt())) once(() => {
-          const r = docRowAt();
-          dcommit = (cargo) => echo(`d → ${cargo.said || "column deleted"}`);
-          dsend({ kind: "delcol", id: r.id, col: dcol });
+          const r = docRowAt(), comp = tableCompOfRow(r);
+          const key = colFlagKey(comp.id, dcol);
+          if (dcolFlags.has(key)) {
+            // The columns shift on a delete, so this table's flags are spent.
+            dcolFlags = new Set([...dcolFlags].filter((k2) => !k2.startsWith(`${comp.id}:`)));
+            dcommit = (cargo) => echo(`d → ${cargo.said || "column deleted"}`);
+            dsend({ kind: "delcol", id: r.id, col: dcol });
+          } else {
+            dcolFlags.add(key);
+            applyColFlags();
+            echo("d → column flagged (d again deletes)");
+          }
         });
         else if (!flagPress(k, e, DFLAGS)) return;
       }

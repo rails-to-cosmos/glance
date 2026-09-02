@@ -5046,9 +5046,10 @@ export default [
     return [`the cell kept its selection r=${sel.id} c=${sel.col} across the write`];
   } },
 
-// BUG 2026-09-02.  d on a selected column deletes the COLUMN, not the row; d on
-// a whole row still deletes the row.
-{ name: "d on a selected table column deletes the column",
+// BUG 2026-09-02.  d on a selected column FLAGS the COLUMN, dired-style; a
+// second d deletes the flagged one -- not an instant delete.  d on a whole row
+// still flags the row.
+{ name: "d flags a table column, a second d deletes it",
   async run(p, base) {
     await sheet(p, base, "drv-del");
     const shapeOf = () => p.eval(() => ({
@@ -5062,22 +5063,32 @@ export default [
     const id = await p.eval(() =>
       [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
         .find((x) => x.textContent.includes("Klarenbeekstraat")).dataset.id);
-    // Into the Owner column (column 1), then d deletes that column.
+    // Into the Owner column (column 1).
     await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:nth-child(2)`);
     await p.until((w) => docAtNow() === w, "point on the Owner cell", undefined, id);
     await p.until(() => {
       const tv = document.querySelector("#mdoc glance-table")._tv;
       return tv && tv.getSelection().col === 1;
     }, "the Owner column selected");
+    // First d FLAGS the column: it is marked, and NOT deleted.
+    await p.press("d");
+    await p.until(() => !!document.querySelector("#mdoc glance-table thead th.gt-cflag"),
+      "the Owner column to be flagged");
+    const flagged = await shapeOf();
+    assert(flagged.cols === 3, `the flag deleted a column (now ${flagged.cols}) instead of flagging`);
+    assert(flagged.heads.includes("Owner"), `the Owner column vanished on the flag`);
+    const flaggedCol = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table thead th")].findIndex((t) => t.classList.contains("gt-cflag")));
+    assert(flaggedCol === 1, `column ${flaggedCol} is flagged, not the Owner column 1`);
+    // A second d on the flagged column deletes it.
     await p.press("d");
     await p.until(() =>
       document.querySelectorAll("#mdoc glance-table thead th").length === 2,
-      "the Owner column to be deleted");
-    const shape = await shapeOf();
-    assert(shape.cols === 2, `the table has ${shape.cols} columns, not 2`);
-    assert(shape.rows === 3, `deleting a column changed the row count to ${shape.rows}`);
-    assert(!shape.heads.includes("Owner"), `the Owner column survived: [${shape.heads.join(", ")}]`);
-    return [`d on the Owner column deleted it: [${shape.heads.join(", ")}], ${shape.rows} rows`];
+      "the flagged column to be deleted on the second d");
+    const gone = await shapeOf();
+    assert(gone.cols === 2 && gone.rows === 3 && !gone.heads.includes("Owner"),
+      `after the second d the table is [${gone.heads.join(", ")}], ${gone.rows} rows`);
+    return [`d flagged the Owner column, a second d deleted it: [${gone.heads.join(", ")}]`];
   } },
 
 // BUG 2026-09-02.  The column-name box over a BLANK header cell was a thin

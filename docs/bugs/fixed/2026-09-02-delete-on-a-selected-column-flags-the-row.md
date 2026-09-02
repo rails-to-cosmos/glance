@@ -27,8 +27,12 @@ twin).
 
 ## The fix
 
-Give delete the same `dcol` branch `+` has: on a cell, `d` deletes the COLUMN
-through a new `DelCol` Elm message (`removeCol` striking the column from every
-row's line, hlines left as separators, the last column refused); on a whole row
-it flags the row as before. A browser case pins it: select a cell, press `d`,
-and assert the column count dropped while the rows stand.
+Give delete the same `dcol` branch `+` has, and keep the dired FLAG step: on a
+cell, the first `d` FLAGS the column (a warning wash + a struck header, held in
+`dcolFlags` and re-stamped each push), and a SECOND `d` on the flagged column
+deletes it through a new `DelCol` Elm message (`removeCol` striking the column
+from every row's line, hlines left as separators, the last column refused). Off
+a column, `d` flags the row as before. A first cut deleted on one `d`, which the
+reader found too eager (accidental column loss); the flag-then-delete matches
+the row's own `d`-flags / `d`-again-deletes. A browser case pins both presses:
+the first flags without deleting, the second deletes.
