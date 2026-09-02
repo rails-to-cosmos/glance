@@ -413,8 +413,13 @@ export default [
     const slots = () => p.eval(() => {
       const read = (key) => {
         const s = document.querySelector(`#mdoc .dpv[data-key="${key}"]`);
-        return s ? { has: true, unset: !!s.querySelector(".dpunset"),
-                     text: s.textContent } : { has: false, unset: false, text: null };
+        if (!s) return { has: false, unset: false, text: null };
+        const k = s.previousElementSibling; // the `.dk' keyword span
+        const u = s.querySelector(".dpunset");
+        return { has: true, unset: !!u, text: s.textContent,
+                 unsetText: u ? u.textContent : null,
+                 keyColor: k ? getComputedStyle(k).color : null,
+                 valColor: u ? getComputedStyle(u).color : null };
       };
       return { sched: read("SCHEDULED"), dead: read("DEADLINE") };
     });
@@ -427,6 +432,15 @@ export default [
       + `DEADLINE ${none.dead.has}`);
     assert(none.sched.unset && none.dead.unset,
       `a slot is not the unset placeholder: ${JSON.stringify(none)}`);
+    // The unset value reads "<unset>", and BOTH the keyword and the value are
+    // dimmed to the one muted ink -- so "SCHEDULED: <unset>" stands visible and
+    // quiet, key and value alike.
+    for (const [name, sl] of [["SCHEDULED", none.sched], ["DEADLINE", none.dead]]) {
+      assert(sl.unsetText === "<unset>",
+        `the unset ${name} value is ${JSON.stringify(sl.unsetText)}, not "<unset>"`);
+      assert(sl.keyColor === sl.valColor,
+        `the unset ${name} keyword ${sl.keyColor} is not dimmed to its value ${sl.valColor}`);
+    }
     // ------- a headline scheduled but never dated: the set value stands beside
     // the still-unset DEADLINE slot.
     await sheet(p, base, "drv-unset-one");
@@ -434,6 +448,9 @@ export default [
     const one = await slots();
     assert(one.sched.has && !one.sched.unset && /</.test(one.sched.text || ""),
       `the scheduled headline drew its SCHEDULED value wrong: ${JSON.stringify(one.sched)}`);
+    // A SET slot keeps its keyword in the bright token ink, not the unset dim.
+    assert(one.sched.keyColor !== none.sched.valColor,
+      `the set SCHEDULED keyword ${one.sched.keyColor} wears the unset dim`);
     assert(one.dead.has && one.dead.unset,
       `the scheduled headline did not draw an unset DEADLINE slot: ${JSON.stringify(one.dead)}`);
     return [`no-planning headline draws SCHEDULED ${JSON.stringify(none.sched.text)} and `
@@ -4082,7 +4099,7 @@ export default [
     // -- they always draw -- but the child's SCHEDULED comes up VALUELESS again.
     await p.until(() => {
       const slot = document.querySelector('#mdoc .dpv[data-key="SCHEDULED"]');
-      return !!slot && !/</.test(slot.textContent);
+      return !!slot && !!slot.querySelector(".dpunset");
     }, "the ghosted value to leave with the box that drew it");
 
     // ------- AND THE COMMIT LANDS ON THE CHILD.  The pane is already the

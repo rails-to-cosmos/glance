@@ -1011,9 +1011,11 @@ code {
     content: "\200B";
 }
 
-/* AN UNSET SLOT shows a muted dash the reader can click and RET to set -- */
-/* DISPLAY-ONLY, the model value staying org's own empty. */
-.dpunset {
+/* AN UNSET SLOT shows a muted `<unset>' the reader can click and RET to set -- */
+/* DISPLAY-ONLY, the model value staying org's own empty.  Its keyword dims to */
+/* the SAME ink (`.dkunset'), so "SCHEDULED: <unset>" stands visible and quiet, */
+/* key and value alike; a set slot keeps its keyword in `--tok'. */
+.dpunset,.dkunset {
     color: var(--punc);
 }
 

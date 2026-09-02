@@ -1939,7 +1939,14 @@ viewPlanning m =
                      else
                         " "
                     )
-                , span [ class "dk" ]
+                , span
+                    [ class
+                        (if value == "" then
+                            "dk dkunset"
+                         else
+                            "dk"
+                        )
+                    ]
                     [ text key, span [ class "dpunc" ] [ text ":" ] ]
                 , text " "
                 , span
@@ -1957,12 +1964,12 @@ viewPlanning m =
             (entriesOf m)
         )
 
-{-| WHAT AN UNSET SLOT SHOWS: a muted dash the reader can click and RET to set.
-DISPLAY-ONLY -- the model value stays `""', org's own "no entry" -- so the slot
-draws a place to set one without a byte being written.
+{-| WHAT AN UNSET SLOT SHOWS: a muted `<unset>' the reader can click and RET to
+set.  DISPLAY-ONLY -- the model value stays `""', org's own "no entry" -- so the
+slot draws a place to set one without a byte being written.
 -}
 unsetSlot : List (Html Msg)
-unsetSlot = [ span [ class "dpunset" ] [ text "—" ] ]
+unsetSlot = [ span [ class "dpunset" ] [ text "<unset>" ] ]
 
 {-| A reserved token drawn BY ITS LETTER: the colons dim, and the leading one
 hangs into the gutter so the eye lines up on `P', never on punctuation.

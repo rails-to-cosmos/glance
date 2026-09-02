@@ -13239,7 +13239,7 @@ var $author$project$Doc$unsetSlot = _List_fromArray(
 			]),
 		_List_fromArray(
 			[
-				$elm$html$Html$text('—')
+				$elm$html$Html$text('<unset>')
 			]))
 	]);
 var $author$project$Doc$viewPlanning = function (m) {
@@ -13259,7 +13259,8 @@ var $author$project$Doc$viewPlanning = function (m) {
 							$elm$html$Html$span,
 							_List_fromArray(
 								[
-									$elm$html$Html$Attributes$class('dk')
+									$elm$html$Html$Attributes$class(
+									(value === '') ? 'dk dkunset' : 'dk')
 								]),
 							_List_fromArray(
 								[
