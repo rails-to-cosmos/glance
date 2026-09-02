@@ -835,6 +835,10 @@ code {
     display: none;
     position: absolute;
     background: var(--g-sel);
+    /* ABOVE THE MOUNTED TABLE: the widget's sticky header (z-index 1) and its */
+    /* summoned filter dock (z-index 91) share this pane's stacking context, so */
+    /* an edit box laid over a cell needs to out-rank them or it paints behind. */
+    z-index: 100;
 }
 
 #dpara,#dpair,#ddate,#dtitle {
