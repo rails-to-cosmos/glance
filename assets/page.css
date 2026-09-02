@@ -699,14 +699,15 @@ code {
     color: var(--g-fg);
 }
 
-/* A COLUMN FLAGGED FOR DELETION (dired's `d'): the column wears a warning wash */
-/* and its header a strike, until a second `d' deletes it or the flag is spent. */
+/* A COLUMN FLAGGED FOR DELETION (dired's `d'): the whole column wears the */
+/* renderer's OWN flagged-row red (`--tv-flag'/`--tv-flag-wash', cascaded from */
+/* `.tv-root'), its header edged, until a second `d' deletes it or it is spent. */
 #mdoc glance-table th.gt-cflag,#mdoc glance-table td.gt-cflag {
-    background: color-mix(in srgb, var(--g-todo) 22%, transparent);
+    background: color-mix(in srgb, var(--tv-flag) var(--tv-flag-wash), transparent);
 }
 
 #mdoc glance-table th.gt-cflag {
-    text-decoration: line-through;
+    box-shadow: inset 0 3px 0 var(--tv-flag);
 }
 
 /* THE WHOLE-TABLE STATE picks no row: `b' off a row masks the renderer's own */
