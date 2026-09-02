@@ -7,7 +7,7 @@
   # `nix develop', then `make', `make install', `make browser-check' -- the
   # shell carries GHC, cabal, and (on Linux) the whole GTK/WebKitGTK stack.
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
