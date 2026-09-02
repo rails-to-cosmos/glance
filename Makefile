@@ -1,4 +1,4 @@
-.PHONY: test test-p test-list spec spec-debt typecheck loc major minor patch native install release dist dist-wasm elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
+.PHONY: test test-p test-list spec spec-debt typecheck loc major minor patch bootstrap native install release dist dist-wasm elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 -include .env
 GLANCE_DIR ?= ~/sync/views
@@ -168,7 +168,13 @@ NATIVE_BUILD = --project-file=cabal.project.native --builddir=dist-newstyle-nati
 OPT ?=
 STRIP ?=
 
-native:
+# ONE PREREQUISITE, GHCUP: bootstrap the pinned GHC + cabal from it and the
+# WebKitGTK system libraries from pacman, so `make install' needs nothing else
+# pre-installed.  Idempotent -- a satisfied machine installs nothing.
+bootstrap:
+	@tools/bootstrap
+
+native: bootstrap
 	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \
 	  cabal build $(NATIVE_BUILD) $(OPT) all
 

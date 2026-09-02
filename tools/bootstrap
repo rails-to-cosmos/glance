@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# ONE PREREQUISITE, GHCUP.  Everything else the native build needs -- the pinned
+# GHC, cabal, and the WebKitGTK system libraries the desktop window links -- is
+# bootstrapped from here.  IDEMPOTENT: a satisfied machine installs nothing.
+set -euo pipefail
+
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+say() { printf 'bootstrap: %s\n' "$*"; }
+die() { printf 'bootstrap: %s\n' "$*" >&2; exit 1; }
+
+# --- The Haskell toolchain, from ghcup ------------------------------------
+command -v ghcup >/dev/null 2>&1 \
+  || die "ghcup is the one prerequisite and is not on PATH -- install it from https://www.haskell.org/ghcup/ and re-run"
+
+# The compiler the project PINS, read from cabal.project so the two never drift.
+ghc_ver=$(sed -n 's/^with-compiler: *ghc-\(.*\)$/\1/p' cabal.project)
+[ -n "$ghc_ver" ] || die "cabal.project names no 'with-compiler: ghc-<version>'"
+
+if ! ghcup whereis ghc "$ghc_ver" >/dev/null 2>&1; then
+  say "installing GHC $ghc_ver via ghcup"
+  ghcup install ghc "$ghc_ver"
+fi
+
+if ! command -v cabal >/dev/null 2>&1; then
+  say "installing cabal via ghcup"
+  ghcup install cabal --set
+fi
+
+# --- The WebKitGTK system libraries, from pacman --------------------------
+# The native window links these C libraries; a plain server build needs NONE,
+# which is why they hang off `native'/`install' and not the test build.  Each
+# pkg-config module maps to the Arch package that carries it (4.1 is the
+# libsoup3 WebKitGTK the vendored bindings repoint to -- see cabal.project.native).
+declare -A pkg_of=(
+  [gtk+-3.0]=gtk3
+  [webkit2gtk-4.1]=webkit2gtk-4.1
+  [javascriptcoregtk-4.1]=webkit2gtk-4.1
+  [gobject-introspection-1.0]=gobject-introspection
+)
+
+pc=""
+command -v pkg-config >/dev/null 2>&1 && pc=pkg-config
+[ -z "$pc" ] && command -v pkgconf >/dev/null 2>&1 && pc=pkgconf
+has() { [ -n "$pc" ] && "$pc" --exists "$1" 2>/dev/null; }
+
+missing=()
+[ -z "$pc" ] && missing+=(pkgconf)
+for mod in "${!pkg_of[@]}"; do
+  has "$mod" || missing+=("${pkg_of[$mod]}")
+done
+[ "${#missing[@]}" -gt 0 ] && mapfile -t missing < <(printf '%s\n' "${missing[@]}" | sort -u)
+
+if [ "${#missing[@]}" -eq 0 ]; then
+  say "toolchain and system libraries present"
+  exit 0
+fi
+
+# pacman is this bootstrap's one package manager.  Elsewhere, name what is
+# missing and point at the reproducible dev shell rather than guessing a distro.
+command -v pacman >/dev/null 2>&1 || die "missing system libraries: ${missing[*]}
+This bootstrap installs them only via pacman.  On another distro install their
+equivalents (WebKitGTK 4.1, GTK 3, gobject-introspection, pkgconf) by hand, or
+use the reproducible nix dev shell: 'nix develop' (see flake.nix)."
+
+say "installing system libraries via pacman: ${missing[*]}"
+sudo pacman -S --needed "${missing[@]}"
+say "done"
