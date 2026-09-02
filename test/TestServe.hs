@@ -306,8 +306,8 @@ closedStamp = "[2026-08-02 Sun]"
 fixtureDoc :: [[T.Text]]
 fixtureDoc =
   [ ["head", "* ", "TODO", "one"]
-  , ["meta", "SCHEDULED: " <> sheetStamp]
-  , ["comp:properties:drawer", ":PROPERTIES: \8230"]
+  , ["meta", "SCHEDULED: " <> sheetStamp <> " DEADLINE: <unset>"]
+  , ["comp:properties:drawer", "+", ":PROPERTIES: \8230"]
   , ["para", "first para"]
   , ["para", "second para"]
   , ["child", "  * ", "two", ":web:"]
@@ -3205,7 +3205,8 @@ sheetSpec shell =
         -- The drawer is drawn even with no pairs: `+' needs a place to land.
         assertEqual "the child's own document"
           [ ["head", "* ", "two", ":web:"]
-          , ["comp:properties:drawer", ":PROPERTIES: \8230"]
+          , ["meta", "SCHEDULED: <unset> DEADLINE: <unset>"]
+          , ["comp:properties:drawer", "+", ":PROPERTIES: \8230"]
           , ["para", "child body"]
           , ["para:tail", ""] ] =<< docOf answer
         assertEqual "the trail gained a crumb" ["one", "two"] =<< textsAt "where" answer
@@ -4186,13 +4187,13 @@ sheetSpec shell =
   , testCase "TAB folds and opens the drawer, and f steps into a folded one" $ do
       insheet shell "press:f press:n press:Tab" $ \answer -> do
         assertEqual "the drawer opened, its pairs drawn as leaves"
-                    [ ["comp:properties:drawer", ":PROPERTIES:", ":END:"]
+                    [ ["comp:properties:drawer", "\8722", ":PROPERTIES:", ":END:"]
                     , ["meta", ":EFFORT: 0:30"] ]
           =<< take 2 . drop 2 <$> docOf answer
         echoIs "named org's own way" "TAB → org-cycle (properties open)" answer
       insheet shell "press:f press:n press:Tab press:Tab" $ \answer -> do
         assertEqual "TAB again is the one folded line, org's ellipsis on it"
-                    ["comp:properties:drawer", ":PROPERTIES: \8230"]
+                    ["comp:properties:drawer", "+", ":PROPERTIES: \8230"]
           =<< (!! 2) <$> docOf answer
         echoIs "" "TAB → org-cycle (properties folded)" answer
       insheet shell "press:f press:n press:f" $ \answer -> do
@@ -4215,7 +4216,7 @@ sheetSpec shell =
         assertEqual "the drawer's own line is its frame, so RET declines"
                     False =<< boolAt "dparaopen" answer
         assertEqual "and the fold is left where it stood, folded"
-                    ["comp:properties:drawer", ":PROPERTIES: \8230"]
+                    ["comp:properties:drawer", "+", ":PROPERTIES: \8230"]
           =<< (!! 2) <$> docOf answer
         echoIs "and names the two doors" "RET → f reaches the rows inside — TAB folds" answer
 
@@ -4388,7 +4389,7 @@ sheetSpec shell =
           assertEqual "and the drawer written exactly as it stood"
                       [[["EFFORT", "0:30"]]] =<< wroteAt "properties" answer
           assertEqual "the two meta rows the pane is left with"
-                      ["SCHEDULED: <2026-09-01 Tue>", ":EFFORT: 0:30"]
+                      ["SCHEDULED: <2026-09-01 Tue> DEADLINE: <unset>", ":EFFORT: 0:30"]
             . partsOf "meta" =<< docOf answer
           assertEqual "with the cursor on the line it landed on" 1 =<< intAt "dat" answer
           assertEqual "and the fields went with the draft row" False
@@ -4514,7 +4515,7 @@ sheetSpec shell =
         assertEqual "and the planning entry set in that same one"
                     [[["SCHEDULED", "<2026-09-01 Tue>"]]] =<< wroteAt "planning" answer
         assertEqual "the two meta rows the pane is left with"
-                    ["SCHEDULED: <2026-09-01 Tue>", ":EFFORT: 0:30"]
+                    ["SCHEDULED: <2026-09-01 Tue> DEADLINE: <unset>", ":EFFORT: 0:30"]
           . partsOf "meta" =<< docOf answer
         assertEqual "with the cursor on the line it moved to" 1 =<< intAt "dat" answer
         echoIs "and the model's own word for where it went"
@@ -4727,7 +4728,7 @@ sheetSpec shell =
   , keyed shell "the drawer starts folded again when the sheet is reopened"
       "Enter" "press:f press:n press:f press:Escape press:Enter" $
         \answer -> do
-          assertEqual "one folded line again" ["comp:properties:drawer", ":PROPERTIES: \8230"]
+          assertEqual "one folded line again" ["comp:properties:drawer", "+", ":PROPERTIES: \8230"]
             =<< (!! 2) <$> docOf answer
           assertEqual "and the cursor back on the headline" 0 =<< intAt "dat" answer
 
@@ -4758,13 +4759,14 @@ sheetSpec shell =
             =<< wroteAt "properties" answer
           echoIs "and says so" "D → org-delete-element (row taken)" answer
 
-    -- The row is SYNTHESIZED off the list, so clearing the entries takes the line with them.
-  , keyed shell "deleting the planning line clears its entries, and the row goes with them"
+    -- The row is SYNTHESIZED off the list; clearing the entries empties the write,
+    -- but the SCHEDULED/DEADLINE slots always draw, so the line falls back to unset.
+  , keyed shell "deleting the planning line clears its entries, and the slots fall back to unset"
       "Enter" "press:f press:d press:d" $ \answer -> do
         assertEqual "the write carries no planning entry" [[]]
                     =<< wroteAt "planning" answer
-        assertEqual "and no planning line is drawn"
-                    [] . partsOf "meta" =<< docOf answer
+        assertEqual "and the planning line stands with both slots unset"
+                    ["SCHEDULED: <unset> DEADLINE: <unset>"] . partsOf "meta" =<< docOf answer
 
   , keyed shell "u takes a flag off and steps on"
       "Enter" "press:f press:d press:u press:D" $ \answer -> do
@@ -4986,8 +4988,8 @@ dateWidgetSpec shell = testGroup "Shell date widget"
         assertEqual "the widget is up" True =<< boolAt "ddateopen" answer
         assertEqual "over a slot this child has not got, so it opens empty" ""
           =<< textAt "dwhen" answer
-        assertEqual "and the keyword is ghosted onto the CHILD's line"
-                    ["SCHEDULED: "] . partsOf "meta" =<< docOf answer
+        assertEqual "and the CHILD's line stands with both slots, SCHEDULED being set"
+                    ["SCHEDULED: <unset> DEADLINE: <unset>"] . partsOf "meta" =<< docOf answer
         assertEqual "nothing written by opening it" ([] :: [Value])
           =<< listAt "writes" answer
         echoIs "and the pill is the widget's own foot"
@@ -5093,8 +5095,8 @@ dateWidgetSpec shell = testGroup "Shell date widget"
     -- the disk the moment the sheet is left.
   , testCase "C-c C-d draws the line it needs, and the draft joins no list" $
       insheet shell (pinned <> " press:C-c press:C-d") $ \answer -> do
-        assertEqual "the keyword is ghosted onto the planning line"
-                    ["SCHEDULED: " <> sheetStamp <> " DEADLINE: "]
+        assertEqual "the DEADLINE slot the draft opens over stands unset"
+                    ["SCHEDULED: " <> sheetStamp <> " DEADLINE: <unset>"]
           . partsOf "meta" =<< docOf answer
         assertEqual "the list a flush writes is the list it was"
                     [["SCHEDULED", sheetStamp]] =<< pairsAt "dplan" answer
@@ -5141,8 +5143,8 @@ dateWidgetSpec shell = testGroup "Shell date widget"
           assertEqual "the widget stands" True =<< boolAt "ddateopen" answer
           assertEqual "over the SCHEDULED value the row already carries"
                       sheetStamp =<< textAt "dwhen" answer
-          assertEqual "and the DEADLINE the first chord ghosted in went with it"
-                      ["SCHEDULED: " <> sheetStamp] . partsOf "meta" =<< docOf answer
+          assertEqual "and the DEADLINE the first chord ghosted in fell back to unset"
+                      ["SCHEDULED: " <> sheetStamp <> " DEADLINE: <unset>"] . partsOf "meta" =<< docOf answer
           assertEqual "the list a flush writes is the list it was"
                       [["SCHEDULED", sheetStamp]] =<< pairsAt "dplan" answer
           assertEqual "nothing written on the way" ([] :: [Value])
@@ -5179,7 +5181,7 @@ dateWidgetSpec shell = testGroup "Shell date widget"
           assertEqual "over an empty slot, as the first summon left it" ""
             =<< textAt "dwhen" answer
           assertEqual "the keyword is ghosted in ONCE, not twice"
-                      ["SCHEDULED: " <> sheetStamp <> " DEADLINE: "]
+                      ["SCHEDULED: " <> sheetStamp <> " DEADLINE: <unset>"]
             . partsOf "meta" =<< docOf answer
           assertEqual "with point on the line the widget stands in" 1
             =<< intAt "dat" answer
@@ -5201,8 +5203,8 @@ dateWidgetSpec shell = testGroup "Shell date widget"
           =<< boolAt "ddateopen" answer
         assertEqual "holding what was typed into it" "18 aug"
           =<< textAt "dwhen" answer
-        assertEqual "with the keyword it was summoned for still drawn"
-                    ["SCHEDULED: " <> sheetStamp <> " DEADLINE: "]
+        assertEqual "with the DEADLINE slot it was summoned for still drawn, unset"
+                    ["SCHEDULED: " <> sheetStamp <> " DEADLINE: <unset>"]
           . partsOf "meta" =<< docOf answer
 
     -- AND THE SAME EXEMPTION OVER A BOX THAT IS NOT THE WIDGET.  Every overlay
