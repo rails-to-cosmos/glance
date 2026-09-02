@@ -28,42 +28,57 @@ if ! command -v cabal >/dev/null 2>&1; then
   ghcup install cabal --set
 fi
 
+# --- The native window is Linux-only --------------------------------------
+# WebKitGTK is a Linux toolkit.  On a mac the toolchain above is enough for the
+# SERVER build ('cabal build exe:glance', 'glance serve'), which links no system
+# libraries; the desktop window needs a WKWebView shell that is not built.  Stop
+# here with that, rather than chase GTK a mac cannot use.
+os=$(uname -s)
+if [ "$os" != Linux ]; then
+  die "$os: the native WebKitGTK window is Linux-only.
+The toolchain above is set for the server build -- 'cabal build exe:glance',
+'glance serve' -- which links no system libraries.  For a reproducible env use
+the nix dev shell: 'nix develop' (see flake.nix)."
+fi
+
 # --- The WebKitGTK system libraries, from pacman --------------------------
 # The native window links these C libraries; a plain server build needs NONE,
 # which is why they hang off `native'/`install' and not the test build.  Each
-# pkg-config module maps to the Arch package that carries it (4.1 is the
-# libsoup3 WebKitGTK the vendored bindings repoint to -- see cabal.project.native).
-declare -A pkg_of=(
-  [gtk+-3.0]=gtk3
-  [webkit2gtk-4.1]=webkit2gtk-4.1
-  [javascriptcoregtk-4.1]=webkit2gtk-4.1
-  [gobject-introspection-1.0]=gobject-introspection
-)
+# pkg-config module maps to the Arch package that carries it (4.1 is the libsoup3
+# WebKitGTK the vendored bindings repoint to -- see cabal.project.native).  A
+# COLON LIST, not a bash-4 associative array: this stays runnable on the bash 3.2
+# a mac still ships, the same reason the dedup below is spelled out without `mapfile'.
+modules="gtk+-3.0:gtk3 \
+         webkit2gtk-4.1:webkit2gtk-4.1 \
+         javascriptcoregtk-4.1:webkit2gtk-4.1 \
+         gobject-introspection-1.0:gobject-introspection"
 
 pc=""
 command -v pkg-config >/dev/null 2>&1 && pc=pkg-config
 [ -z "$pc" ] && command -v pkgconf >/dev/null 2>&1 && pc=pkgconf
 has() { [ -n "$pc" ] && "$pc" --exists "$1" 2>/dev/null; }
 
-missing=()
-[ -z "$pc" ] && missing+=(pkgconf)
-for mod in "${!pkg_of[@]}"; do
-  has "$mod" || missing+=("${pkg_of[$mod]}")
+missing=""
+[ -z "$pc" ] && missing="pkgconf"
+for pair in $modules; do
+  has "${pair%%:*}" || missing="$missing ${pair##*:}"
 done
-[ "${#missing[@]}" -gt 0 ] && mapfile -t missing < <(printf '%s\n' "${missing[@]}" | sort -u)
+# One package backs two of the modules; dedup without `mapfile'.
+[ -n "$missing" ] && missing=$(printf '%s\n' $missing | sort -u | tr '\n' ' ')
+missing=${missing% }
 
-if [ "${#missing[@]}" -eq 0 ]; then
+if [ -z "$missing" ]; then
   say "toolchain and system libraries present"
   exit 0
 fi
 
 # pacman is this bootstrap's one package manager.  Elsewhere, name what is
 # missing and point at the reproducible dev shell rather than guessing a distro.
-command -v pacman >/dev/null 2>&1 || die "missing system libraries: ${missing[*]}
+command -v pacman >/dev/null 2>&1 || die "missing system libraries: $missing
 This bootstrap installs them only via pacman.  On another distro install their
 equivalents (WebKitGTK 4.1, GTK 3, gobject-introspection, pkgconf) by hand, or
 use the reproducible nix dev shell: 'nix develop' (see flake.nix)."
 
-say "installing system libraries via pacman: ${missing[*]}"
-sudo pacman -S --needed "${missing[@]}"
+say "installing system libraries via pacman: $missing"
+sudo pacman -S --needed $missing
 say "done"
