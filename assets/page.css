@@ -687,6 +687,18 @@ code {
     color: var(--g-fg);
 }
 
+/* POINT ON THE WHOLE TABLE lifts only its HEADER as the table's handle -- the */
+/* block ground drops (the generic `.de.dat' wash would otherwise show through */
+/* the mount's transparent ground and select the whole region). */
+#mdoc.on .de.dat.d-table {
+    background-color: transparent;
+}
+
+#mdoc.on .de.dat.d-table glance-table thead th {
+    background: var(--g-sel);
+    color: var(--g-fg);
+}
+
 /* THE WHOLE-TABLE STATE picks no row: `b' off a row masks the renderer's own */
 /* selection wash, so climbing out reads as the table with nothing selected. */
 #mdoc glance-table.gt-nosel tbody tr.tv-sel,#mdoc glance-table.gt-nosel td.tv-colsel,#mdoc glance-table.gt-nosel td.tv-cell-sel {

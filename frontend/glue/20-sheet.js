@@ -757,8 +757,8 @@
     // so no lookup -- Elm's point drives the renderer's selection.
     const tableSelSync = () => {
       // Clear any header-column mark: it stands only while point is on a header.
-      const marks = document.querySelectorAll("#mdoc glance-table thead th.gt-hsel");
-      for (const th of marks) th.classList.remove("gt-hsel");
+      for (const th of document.querySelectorAll("#mdoc glance-table thead th.gt-hsel"))
+        th.classList.remove("gt-hsel");
       const r = drows[dat];
       const comp = r && r.owner && drows.find((x) => x.id === r.owner);
       const host = comp && comp.name === "table" ? hostFor(comp.id) : null;

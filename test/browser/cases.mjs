@@ -5146,4 +5146,42 @@ export default [
     assert(survived, "the column move rebuilt the table (the row element was replaced) — the blink");
     return ["a column move drove the selection without rebuilding the table"];
   } },
+
+// UI 2026-09-02.  Point on the WHOLE table lifts only its HEADER as the handle,
+// not a wash over the whole region.
+{ name: "the whole-table selection lifts only the header row",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+      "the table to mount");
+    const id = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((x) => x.textContent.includes("Klarenbeekstraat")).dataset.id);
+    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
+    await p.until((w) => docAtNow() === w, "point in the table", undefined, id);
+    await p.press("b"); // cell -> whole row
+    await p.until(() => {
+      const tv = document.querySelector("#mdoc glance-table")._tv;
+      return tv && tv.getSelection().col === null;
+    }, "the whole-row state before climbing out");
+    await p.press("b"); // whole row -> the whole table (composite)
+    // Poll the settled ground: the header lifted, the data plain -- a retry
+    // rides out the mirror/paint lag the multi-step walk lands with.
+    await p.until(() => {
+      const de = document.querySelector("#mdoc .de.dat.d-table");
+      if (!de) return false;
+      const th = de.querySelector("glance-table thead th");
+      const td = de.querySelector("glance-table tbody td");
+      if (!th || !td) return false;
+      const transparent = (c) => c === "rgba(0, 0, 0, 0)" || c === "transparent";
+      return !transparent(getComputedStyle(th).backgroundColor)
+        && transparent(getComputedStyle(td).backgroundColor);
+    }, "the whole table to lift only its header");
+    const g = await p.eval(() => {
+      const de = document.querySelector("#mdoc .de.dat.d-table");
+      return { header: getComputedStyle(de.querySelector("glance-table thead th")).backgroundColor,
+               data: getComputedStyle(de.querySelector("glance-table tbody td")).backgroundColor };
+    });
+    return [`whole-table selection lifts the header (${g.header}) over plain data (${g.data})`];
+  } },
 ];
