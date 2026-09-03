@@ -608,6 +608,21 @@ regionWord kind =
         Drawer -> "a line in this drawer"
         Plain -> "a line here"
 
+{-| WHERE `+' ON A HEADLINE JOINS: past the head's own synthesized META rows --
+the planning line and the properties drawer the server lifts (`metaRows'), which
+sit between the title and the body -- so a fresh paragraph opens at the TOP OF
+THE BODY, never between the title and its planning line.  Every `Meta' row is one
+of these and they run contiguously after the head, so the LAST of them is the
+header's end; the head itself where it wears none.
+-}
+headerEnd : { a | rows : List Row } -> String -> String
+headerEnd m headId =
+    List.reverse m.rows
+        |> List.filter (\r -> r.kind == Meta)
+        |> List.head
+        |> Maybe.map .id
+        |> Maybe.withDefault headId
+
 {-| WHERE `+' joins. A CARET is a line INSIDE the stop, where `S-RET' was
 pressed; without one there is nothing to be inside, so it is a sibling of it.
 -}
@@ -619,7 +634,7 @@ joinAt m id caret =
             case r.kind of
                 Child -> Nothing
                 Meta -> Nothing
-                Head -> Just (Join r.id 1 "" Nothing True "at the top")
+                Head -> Just (Join (headerEnd m r.id) 1 "" Nothing True "at the top")
                 Para ->
                     Just
                         (case caret of

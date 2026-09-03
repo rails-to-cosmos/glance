@@ -37,6 +37,26 @@ cabal build exe:glance      # ghc + cabal only
 
 Portable to any machine with the toolchain — macOS included.
 
+## Offline / locked-down machines
+
+A box that can't reach Hackage — a corporate firewall stalls `cabal update`'s
+hackage-security fetch even where a plain `curl` of the index succeeds — builds
+against a **copied index** instead:
+
+```
+# on a machine that has a full index:
+tar -C ~/.cache/cabal/packages -czf hackage-index.tgz hackage.haskell.org
+# on the offline box (find its dir with `cabal path`, see 'cache-dir'):
+tar -C <cache-dir>/packages -xzf hackage-index.tgz
+cabal build --offline exe:glance        # --offline never phones home
+```
+
+`cabal.project` pins `index-state:` so a copied index and a freshly-updated one
+resolve the **same** plan. **Bump that pin only when a new dependency needs a
+package published after it — and in the same change re-copy the index to every
+offline machine, or their `--offline` build resolves against the stale snapshot
+and breaks.** No routine bumps.
+
 ## nix — reproducible, cross-platform
 
 [`flake.nix`](../flake.nix) pins the same toolchain by hash, the companion to

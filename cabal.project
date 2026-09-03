@@ -1,3 +1,9 @@
 packages: .
 
 with-compiler: ghc-9.6.7
+
+-- Pin the Hackage index so every machine resolves the same plan.  A locked-down
+-- box (corp firewall stalls `cabal update' hackage-security) copies this box's
+-- `~/.cache/cabal/packages/hackage.haskell.org' and builds `--offline'; this
+-- state is <= that copied index, so the offline solve matches.
+index-state: 2026-09-03T20:40:47Z

@@ -5255,4 +5255,47 @@ export default [
       `a zebra row keeps its own ground ${g.alt}, blocking the wash`);
     return [`whole-table selection washes the region (ground ${g.ground}, head/zebra cleared, --g-sel ${g.sel})`];
   } },
+
+// `+' ON A HEADLINE OPENS A PARAGRAPH AT THE TOP OF THE BODY, past the header
+// the server lifts -- the planning line and the properties drawer -- NEVER
+// between the title and its planning line.  `drv-marks' wears both a DEADLINE
+// planning line and a `:PROPERTIES:' drawer, so the draft must clear all of it.
+{ name: "+ on a headline drafts below the planning line and drawer, not above them",
+  async run(p, base) {
+    await sheet(p, base, "drv-marks");
+    await walkTo(p, ".d-head", "the headline");
+    await settled(p, "point on the headline");
+    await p.press("+");
+    await editUp(p, "the paragraph edit to open");
+    // THE DRAFT ROW STANDS AFTER EVERY META ROW: its model index is past the
+    // planning line and every drawer/property row, so it opens at the top of the
+    // body rather than between the title and the header the server lifts.
+    const at = await p.eval(() => {
+      const rows = window.__glance.editor().rows;
+      const draft = rows.findIndex((r) => r.id === "D");
+      const lastMeta = rows.reduce((m, r, i) =>
+        (r.id === "PLN" || /^PR/.test(r.id)) ? i : m, -1);
+      const firstBody = rows.findIndex((r) => r.id === "B0");
+      return { draft, lastMeta, firstBody };
+    });
+    assert(at.draft > at.lastMeta && at.draft < at.firstBody,
+      `the draft sits at index ${at.draft}; the header ends at ${at.lastMeta} and `
+      + `the body opens at ${at.firstBody} -- it did not land between them`);
+    // AND THE WRITE MATCHES THE DRAW: the committed paragraph stands after the
+    // drawer's `:END:', at the top of the body.
+    await p.type("a fresh paragraph");
+    await p.press("RET");
+    const org = await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return (h.org || "").includes("a fresh paragraph") ? h.org : false;
+    }, "the write to reach the file");
+    const lines = org.split("\n");
+    const end = lines.findIndex((l) => l.trim() === ":END:");
+    const para = lines.findIndex((l) => l.includes("a fresh paragraph"));
+    assert(end !== -1 && para > end,
+      `the paragraph landed at line ${para} but the drawer's :END: is at ${end} -- `
+      + `it was not written past the header`);
+    return [`+ on the headline drafts at model index ${at.draft} (past the header at `
+      + `${at.lastMeta}) and writes the paragraph at org line ${para}, after :END: at ${end}`];
+  } },
 ];
