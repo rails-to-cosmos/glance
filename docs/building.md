@@ -47,8 +47,15 @@ nix develop        # GHC, cabal, and (on Linux) the whole GTK/WebKitGTK stack
 make install       # or: cabal build exe:glance, make browser-check, …
 ```
 
-**macOS.** The server build works. The native window does **not**: it is
-WebKitGTK, a Linux toolkit, and nixpkgs `webkitgtk` on Darwin is commonly
-broken. A real mac app needs a **WKWebView (Cocoa) shell** — a separate delivery
-alongside the WebKitGTK one, not yet built — so nix cannot conjure it. On a mac,
-use nix for the server build and treat the desktop window as Linux-only.
+**macOS.** The server build always works. The native window is a **Cocoa/
+WKWebView shim** (`src-desktop-native/cbits/glance_wkwebview.m`), a second
+backend beside the Linux WebKitGTK one, chosen by OS at build time — WebKitGTK
+itself is a Linux toolkit and does not run on a mac. `make install` builds it
+(needs the Xcode **Command Line Tools** — `xcode-select --install` — for clang
+and the Cocoa/WebKit frameworks; `nix develop` supplies them from the SDK). The
+shim is **built and verified on Linux only so far**; the WKWebView window awaits
+a build on a mac.
+
+The design — a Cocoa/WKWebView backend behind the same two-function seam, and
+the `.app`/codesign packaging still to come — is
+[proposals/proposed/2026-09-02-a-darwin-window-cocoa-owns.md](proposals/proposed/2026-09-02-a-darwin-window-cocoa-owns.md).
