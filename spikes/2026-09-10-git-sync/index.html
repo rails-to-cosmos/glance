@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>git sync control — spike</title>
+<style>
+  :root {
+    --bg: #1b1e24; --panel: #21252b; --fg: #d7dae0; --mute: #7b828d;
+    --border: #333842; --accent: #d19a66;
+    --clean: #7b828d; --behind: #61afef; --ahead: #98c379; --dirty: #d19a66; --diverged: #e06c75;
+    /* glance's own main-page (omnibox) tokens, dark */
+    --tv-fg: #FFFFFF; --tv-muted: #A4C2EB; --tv-bg: #000000; --tv-alt: #21252B;
+    --tv-border: #2a2d3d; --tv-accent: #4CB5F5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .wrap { max-width: 60rem; margin: 0 auto; padding: 1.5rem; }
+  h1 { font-size: 1.15rem; margin: 0 0 .25rem; }
+  .sub { color: var(--mute); margin: 0 0 1.5rem; }
+
+  /* glance's omnibox filter, then a sugary "@" joining it to location:branch —
+     reads "tag:headline @ views:master": this filter AT this place ON this
+     branch. The sync glyph trails as the branch's status. */
+  .bar { display: flex; align-items: center; gap: 8px; background: var(--tv-alt);
+         border: 1px solid var(--tv-border); border-radius: 8px; padding: 10px 12px; }
+  .tv-filter { font: inherit; flex: 0 1 20rem; min-width: 10rem; font-size: 15px;
+               padding: 7px 11px; border: 1px solid var(--tv-border); border-radius: 6px;
+               background: var(--tv-bg); color: var(--tv-fg); }
+  .tv-filter::placeholder { color: var(--tv-muted); opacity: 1; }
+  .bar .at { color: var(--tv-muted); opacity: .55; }
+  .bar .loc { color: var(--tv-fg); opacity: .9; white-space: nowrap; }
+  .bar .loc .g { color: var(--tv-muted); opacity: .8; }
+  .bar .loc .dir { color: var(--tv-muted); }
+  .btn { font: inherit; color: var(--fg); background: transparent; cursor: pointer;
+         border: 1px solid var(--border); border-radius: 6px; padding: .25rem .6rem; }
+  .btn:hover { background: rgba(255,255,255,.06); }
+
+  /* the sync glyph — a button in the bar. One click runs the state's one
+     obvious action inline, echoed in the log below. No panel. */
+  .sync .glyph { display: inline-flex; align-items: center; gap: .35rem; }
+  .sync .dot { font-size: 1rem; line-height: 1; }
+  .sync .n { font-variant-numeric: tabular-nums; }
+
+  .controls { margin: 1.5rem 0 .5rem; display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
+  .controls .lbl { color: var(--mute); margin-right: .25rem; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-right: 1px solid var(--border); }
+  .seg button:last-child { border-right: 0; }
+  .seg button.on { background: rgba(209,154,102,.18); color: var(--accent); }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.5rem; }
+  @media (max-width: 46rem) { .split { grid-template-columns: 1fr; } }
+  .card { border: 1px solid var(--border); border-radius: 8px; padding: .75rem 1rem; }
+  .card h2 { font-size: .95rem; margin: 0 0 .5rem; }
+  .card p { color: var(--mute); margin: .25rem 0 .75rem; }
+  .log { background: var(--bg); border-radius: 6px; padding: .5rem; height: 12rem; overflow: auto;
+         font-size: .8rem; white-space: pre-wrap; }
+  .log .push { color: var(--ahead); }
+  .log .warn { color: var(--diverged); }
+  .toggle { display: inline-flex; gap: .4rem; align-items: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>git sync control</h1>
+  <p class="sub">A magit-style one-glance sync for the served git dir. Brainstorm — no real git.</p>
+
+  <div class="bar">
+    <input class="tv-filter" type="text" placeholder="tag:headline …" aria-label="filter">
+    <span class="at">@</span>
+    <span class="loc"><span class="g">⎇</span> <span class="dir">views</span>:<span id="branchName">master</span></span>
+    <button class="btn sync" id="syncBtn"><span class="glyph"><span class="dot" id="glyphDot">✓</span><span class="n" id="glyphN"></span></span></button>
+  </div>
+
+  <div class="controls">
+    <span class="lbl">git state:</span>
+    <span class="seg" id="stateSeg"></span>
+  </div>
+
+  <div class="split">
+    <div class="card">
+      <h2>A · manual one-button sync</h2>
+      <p>The glyph reflects state; a click does the state's one obvious next step
+        and logs it — clean fetches, behind pulls, ahead pushes, dirty commits +
+        pushes. No panel. Nothing leaves the machine until you ask.</p>
+      <div class="log" id="actionLog">click the sync glyph above…</div>
+    </div>
+    <div class="card">
+      <h2>B · auto-sync on every atomic change</h2>
+      <p>After each glance edit: <code>git add -A</code> → commit → push, so the
+        repo is always in sync. The <em>behind</em> half still needs a pull.</p>
+      <label class="toggle"><input type="checkbox" id="auto"> auto-sync on</label>
+      <button class="btn" id="edit">make an edit</button>
+      <div class="log" id="syncLog" style="margin-top:.5rem"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const STATES = {
+  clean:    { label: "clean",    branch: "master", upstream: "origin/master", ahead: 0, behind: 0, staged: 0, unstaged: 0, untracked: 0 },
+  behind:   { label: "behind",   branch: "master", upstream: "origin/master", ahead: 0, behind: 3, staged: 0, unstaged: 0, untracked: 0 },
+  ahead:    { label: "ahead",    branch: "master", upstream: "origin/master", ahead: 2, behind: 0, staged: 0, unstaged: 0, untracked: 0 },
+  dirty:    { label: "dirty",    branch: "master", upstream: "origin/master", ahead: 0, behind: 0, staged: 1, unstaged: 3, untracked: 2 },
+  diverged: { label: "diverged", branch: "master", upstream: "origin/master", ahead: 1, behind: 2, staged: 0, unstaged: 1, untracked: 0 },
+  detached: { label: "detached", branch: null,     upstream: null,            ahead: 0, behind: 0, staged: 0, unstaged: 0, untracked: 0 },
+};
+let current = "clean";
+
+function glyphFor(s) {
+  const dirty = s.staged + s.unstaged + s.untracked;
+  if (!s.branch || !s.upstream) return { dot: "⚠", n: "", color: "var(--clean)", action: null, label: "detached / no upstream — nothing safe to one-click" };
+  if (dirty > 0 && !s.ahead && !s.behind) return { dot: "●", n: dirty, color: "var(--dirty)", action: "commit + push", label: `${dirty} uncommitted` };
+  if (s.ahead && s.behind) return { dot: "↕", n: `${s.behind}↓ ${s.ahead}↑`, color: "var(--diverged)", action: "pull --rebase, then push", label: "diverged" };
+  if (dirty > 0) return { dot: "●", n: dirty, color: "var(--dirty)", action: "commit + push", label: `${dirty} uncommitted` };
+  if (s.behind) return { dot: "↓", n: s.behind, color: "var(--behind)", action: "pull", label: `${s.behind} behind` };
+  if (s.ahead) return { dot: "↑", n: s.ahead, color: "var(--ahead)", action: "push", label: `${s.ahead} ahead` };
+  return { dot: "✓", n: "", color: "var(--clean)", action: "fetch", label: "up to date — click to fetch" };
+}
+
+function render() {
+  const s = STATES[current], g = glyphFor(s);
+  document.getElementById("branchName").textContent = s.branch || "(detached HEAD)";
+  const dot = document.getElementById("glyphDot");
+  dot.textContent = g.dot; dot.style.color = g.color;
+  document.getElementById("glyphN").textContent = g.n;
+  document.getElementById("glyphN").style.color = g.color;
+  document.getElementById("syncBtn").title = g.label + (g.action ? ` — click: ${g.action}` : "");
+  renderSeg();
+}
+
+function renderSeg() {
+  const seg = document.getElementById("stateSeg");
+  seg.innerHTML = "";
+  for (const [k, s] of Object.entries(STATES)) {
+    const b = document.createElement("button");
+    b.className = "btn" + (k === current ? " on" : "");
+    b.textContent = s.label;
+    b.onclick = () => { current = k; render(); };
+    seg.appendChild(b);
+  }
+}
+
+function runAction(name) {
+  const log = document.getElementById("actionLog");
+  const steps = {
+    "Pull": ["git pull --ff-only", "✓ fast-forwarded"],
+    "Push": ["git push", "✓ pushed"],
+    "Commit + Push": ["git add -A", "git commit -m 'sync'", "git push", "✓ committed and pushed"],
+    "Sync (pull --rebase, push)": ["git pull --rebase", "git push", "✓ synced"],
+    "Fetch": ["git fetch", "✓ up to date with the remote's tip"],
+    "Detached": ["detached HEAD — nothing to sync; resolve by hand"],
+  }[name] || [name];
+  log.textContent = steps.join("\n");
+  // reflect the effect on the mock state
+  if (name === "Pull") STATES[current].behind = 0;
+  if (name === "Push") STATES[current].ahead = 0;
+  if (name.startsWith("Commit")) { STATES[current].staged = STATES[current].unstaged = STATES[current].untracked = 0; STATES[current].ahead = 0; }
+  if (name.startsWith("Sync")) { STATES[current].ahead = STATES[current].behind = 0; STATES[current].unstaged = 0; }
+  render();
+}
+
+document.getElementById("syncBtn").onclick = () => {
+  const g = glyphFor(STATES[current]);
+  // the whole control: one click runs the state's one obvious action, inline.
+  const action = {
+    "fetch": "Fetch", "pull": "Pull", "push": "Push",
+    "commit + push": "Commit + Push", "pull --rebase, then push": "Sync (pull --rebase, push)",
+  }[g.action] || "Detached";
+  runAction(action);
+};
+
+// Model B: auto-sync on atomic change.
+let n = 0;
+document.getElementById("edit").onclick = () => {
+  const log = document.getElementById("syncLog");
+  n += 1;
+  const line = (t, cls) => { const d = document.createElement("div"); d.textContent = t; if (cls) d.className = cls; log.appendChild(d); log.scrollTop = log.scrollHeight; };
+  line(`edit #${n}: span-splice notes-${n}.org`);
+  if (document.getElementById("auto").checked) {
+    line("  git add -A");
+    line(`  git commit -m 'glance: edit #${n}'`);
+    line("  git push", "push");
+    // keep the glyph on ✓ under auto-sync (ahead/dirty cleared)
+    if (current !== "behind" && current !== "diverged") { current = "clean"; render(); }
+  } else {
+    line("  (not synced — auto-sync is off)");
+    STATES.clean.unstaged += 1;
+    if (current === "clean") render();
+  }
+  // upstream can still move under you — the behind half auto-sync can't close.
+  if (Math.random() < 0.15) line("  note: upstream moved — a pull is still owed", "warn");
+};
+
+render();
+</script>
+</body>
+</html>
