@@ -5342,6 +5342,29 @@ export default [
     return ["a column move drove the selection without rebuilding the table"];
   } },
 
+// UI 2026-09-09.  The doc drops the whole-table wash the same frame it calls
+// tv.select (20-sheet.js), so if the widget stamps tv-sel only on the NEXT
+// frame that frame wears neither — the one-frame blink `f' into a table shows.
+// The stamp must land in the SAME tick the selection moved.
+// docs/bugs/open/2026-09-09-entering-a-table-with-f-blinks-the-row-highlight-one-frame.md
+{ name: "the widget stamps a selection in the same tick, no f-enter blink",
+  async run(p, base) {
+    await sheet(p, base, "drv-table");
+    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+      "the table to mount");
+    const stamped = await p.eval(() => {
+      const tv = document.querySelector("#mdoc glance-table")._tv;
+      const trs = [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")];
+      tv.select(trs[0].dataset.id);
+      tv.select(trs[1].dataset.id);   // move to the second row: it must light NOW
+      return document.querySelector(`#mdoc glance-table tbody tr[data-id="${trs[1].dataset.id}"]`)
+        .classList.contains("tv-sel");
+    });
+    assert(stamped,
+      "tv.select left the row unstamped until the next frame — the one-frame f-enter blink");
+    return ["tv.select stamped the row's tv-sel in the same tick it moved"];
+  } },
+
 // UI 2026-09-02.  Point on the WHOLE table washes the WHOLE table region with
 // the selection ground -- the composite is one stop, so its whole block is lit,
 // not only its header row.

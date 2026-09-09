@@ -17,13 +17,26 @@ Cosmetic: the Elm compiler emits byte-identical =assets/elm.js=, so after
 Already collapsed in =Doc.elm=: the planning-slot separator and the =.dk dunset=
 class (both were violations, one pre-existing, one from the unset-colour fix).
 
-* TODO Fix the selected-row repaint artifact when a column is selected
-See [[file:bugs/open/2026-09-08-a-selected-row-repaints-with-artifacts-when-a-column-is-selected.md]].
-The row band (=tr=) and the translucent column / crossing bands (=td=) both
-transition background on an =n=/=p= move, so the two stacked crossfades
-mis-compose at the crossing cell.  Fix in the widget source
-=../table-view/web/table-view.js=, vendor with =make sync-renderer=.  A
-screenshot diff across the move is the oracle — the artifact is transient paint.
+* CANCELLED Fix the selected-row repaint artifact when a column is selected
+See [[file:bugs/fixed/2026-09-08-a-selected-row-repaints-with-artifacts-when-a-column-is-selected.md]].
+CANNOT REPRODUCE (2026-09-09): the reporter no longer sees it and no code touched
+the widget, so the diagnosed CSS mechanism can't be the standing cause — likely a
+transient GPU/compositing paint.  Reopen and re-diagnose if it returns.
+
+* DONE Fix the one-frame row-highlight blink when =f= enters a table
+See [[file:bugs/fixed/2026-09-09-entering-a-table-with-f-blinks-the-row-highlight-one-frame.md]].
+=paintSelection= stamps the selection synchronously in =assets/table-view.js=;
+regression test =the widget stamps a selection in the same tick=, full browser
+suite 97/97.  Vendored copy only — see the reconcile task below.
+
+* TODO Reconcile the table-view source with the vendored copy — =sync-renderer= is unsafe
+=assets/table-view.js= is AHEAD of the source =../table-view/web/table-view.js=:
+the vendored copy carries the in-cell editor (=editCell=/=editHeader=/=onEdit=/
+=.tv-cell-edit=, the 696d480 work) that the source LACKS.  So =make sync-renderer=
+would REGRESS the widget (copy the older source over the newer asset).  The
+=f=-enter blink fix (=paintSelection= stamps synchronously) is therefore in
+=assets/table-view.js= only.  Back-port the in-cell editor AND the blink stamp to
+=../table-view/web/table-view.js=, then =sync-renderer= is safe again.
 
 * TODO MCP stage 3 — a daemon-aware =glance mcp=
 See [[file:proposals/proposed/2026-09-08-the-commands-are-mcp-tools.md]].  Stage 1

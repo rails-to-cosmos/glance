@@ -1,10 +1,20 @@
 # Bug — a selected row repaints with artifacts when a column is selected
 
-**Status:** open · **Filed:** 2026-09-08 · **Re-confirmed:** 2026-09-09
-(`assets/table-view.js` untouched, the diagnosed lines still present) ·
-**Tracked:** [docs/tasks.org](../../tasks.org) · **Surface:** the table-view
-widget (`assets/table-view.js`), both the main table and the material-doc table
-mount — the same widget, so the bug is consistent across both.
+**Status:** cannot reproduce · **Filed:** 2026-09-08 · **Closed:** 2026-09-09 ·
+**Surface:** the table-view widget (`assets/table-view.js`), both the main table
+and the material-doc table mount — the same widget, so the bug was reported
+consistent across both.
+
+## Resolution — cannot reproduce (2026-09-09)
+
+The reporter can no longer reproduce the artifact, and NO code change touched it:
+`assets/table-view.js` is byte-identical, so the CSS mechanism diagnosed below is
+still present verbatim. A DETERMINISTIC CSS-compositing fault would therefore
+still show — its disappearance means the original artifact was most likely a
+TRANSIENT paint (GPU / SwiftShader / a driver compositing state), not the
+stacked-transition issue diagnosed. The diagnosis was probably a mis-call: a
+one-off paint glitch read as a standing CSS bug. Kept here as the first place to
+look if it returns on a specific build — reopen and re-diagnose then.
 
 ## Symptom
 

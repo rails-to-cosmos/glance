@@ -3477,6 +3477,14 @@
       wantSelection = true;
       if (flagHelp) wantHint = true;
       if (selAt >= 0) easeToRow(selAt, was === undefined ? selAt : was);
+      // Stamp the selection NOW, the same tick it moved, so a single move (a doc
+      // entering a table, f/b between cells) hands off with no one-frame gap: the
+      // consumer drops its own whole-table wash this frame, and a frame-late
+      // stamp would leave neither.  A re-stamp only toggles classes on the
+      // rendered window — no scroll, no rebuild — so it is safe outside the frame
+      // loop the window and ease keep; a row not yet in the window has no element
+      // to stamp and waits for `tick', as it did before.
+      stampSelection();
       schedule();
     }
 
