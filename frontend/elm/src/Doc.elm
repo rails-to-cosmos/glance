@@ -189,7 +189,6 @@ step by m =
                 -- WHAT THE HIDE-DONE MODE TOOK OUT is never a stop: `n'/`p' step
                 -- over a hidden checkbox the way they step over a folded subtree.
                 gone = hiddenDone m
-
                 -- ONE SCAN, THREE COHORTS: from a CHILD headline the walk is
                 -- every visible headline in document order, org's own
                 -- next-visible-heading, a folded subtree skipped whole; from
@@ -1087,7 +1086,6 @@ shifted by m =
     let
         word =
             if by < 0 then "org-promote-subtree" else "org-demote-subtree"
-
         no why = spoke ( m, word ++ " (" ++ why ++ ")" )
     in
     case rowAt m of
@@ -1102,9 +1100,7 @@ shifted by m =
             else
                 let
                     ( from, to ) = extentOf m r
-
                     fresh = restarred by ( from, to ) m.lines
-
                     -- The rows the shift moved, drawn at their new depth until
                     -- the write comes back and the pane is filled again.
                     deepen k =
@@ -1462,8 +1458,7 @@ cargoJSON said m =
     in
     E.object
         (case said of
-            Just what ->
-                ( "said", E.string what ) :: fields
+            Just what -> ( "said", E.string what ) :: fields
             Nothing -> fields
         )
 
@@ -1737,10 +1732,7 @@ rowClass lit m i r top =
         ++ (case r.grain of
                 Leaf ->
                     -- A PAIR IS NOT NESTED: no tree, a paragraph's own face.
-                    if r.kind == Meta then
-                        "meta"
-                    else
-                        "item"
+                    if r.kind == Meta then "meta" else "item"
                 Composite -> "comp d-" ++ Maybe.withDefault "" r.name
                 Element -> kindWord r.kind
            )
@@ -1785,10 +1777,7 @@ rowClass lit m i r top =
                 -- THE CLASS IS THE DRAWER'S, not the fold's: a child headline
                 -- folds too but is no drawer, and `.d-drawer' styles frames.
                 -- A drawer holding nothing is BARE, and its frame dims.
-                if Set.member r.id lit.owned then
-                    " d-drawer"
-                else
-                    " d-drawer bare"
+                if Set.member r.id lit.owned then " d-drawer" else " d-drawer bare"
             else
                 ""
            )
@@ -2462,7 +2451,6 @@ viewKids lit m parent from at0 depth =
                                     ( own ++ deeper, jj )
                                 else
                                     ( [ viewPara m kid ], j + 1 )
-
                         in
                         go jNext
                             kid.to
@@ -2528,15 +2516,13 @@ never fights the mount.  The composite and its leaves stay the walk's stops; onl
 the DRAW moves off the aligned lines onto the renderer.
 -}
 glanceTable : Model -> Row -> Html Msg
-glanceTable m r =
-    node "glance-table" [ property "view" (tableView m r) ] []
+glanceTable m r = node "glance-table" [ property "view" (tableView m r) ] []
 
 {-| The LEAF ROWS of a table composite, in order.  Hlines are among them -- Scan
 makes a leaf per line -- and the readers below drop them where they must.
 -}
 tableKids : Model -> Row -> List Row
-tableKids m comp =
-    List.filter (\k -> k.owner == Just comp.id) m.rows
+tableKids m comp = List.filter (\k -> k.owner == Just comp.id) m.rows
 
 {-| Whether the file gave the table a header: the SECOND line is an hline.
 -}
@@ -2618,8 +2604,7 @@ RAGGED where a cell grew -- the draw re-aligns and org aligns the file on TAB.
 The org pipe-table byte format is spelled here, once.
 -}
 raggedRow : String -> List String -> String
-raggedRow indent cells =
-    indent ++ "| " ++ String.join " | " cells ++ " |"
+raggedRow indent cells = indent ++ "| " ++ String.join " | " cells ++ " |"
 
 {-| The table composite's leaves AS A table-view View: columns from the header
 row (the first, when an hline follows it), data rows keyed by the LEAF ROW'S OWN
@@ -2732,8 +2717,7 @@ tableBroader m comp =
                 ( { m | col = Just (i - 1) }, grainWord "grain-broader" "cell" i (tableColCount m comp) )
             else
                 ( { m | col = Nothing }, "grain-broader (the row)" )
-        Nothing ->
-            ( { m | at = placeOf m comp.id, col = Nothing }, "grain-broader (the table)" )
+        Nothing -> ( { m | at = placeOf m comp.id, col = Nothing }, "grain-broader (the table)" )
 
 {-| `n'/`p' INSIDE A TABLE step data rows, hlines skipped, the column kept.
 -}
@@ -2874,7 +2858,6 @@ view m =
                     ]
                     inner
                 ]
-
         -- Rows until a child headline at or above LEVEL closes the block.
         go i level out =
             if i >= n then

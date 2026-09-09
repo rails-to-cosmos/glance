@@ -358,10 +358,7 @@ closedRun lines end j =
     let
         kind = kindAt lines j
         shut =
-            if closes kind then
-                extentOf lines end j kind
-            else
-                -1
+            if closes kind then extentOf lines end j kind else -1
     in
     if shut == -1 then Nothing else Just shut
 
@@ -446,7 +443,6 @@ regionsIn lines from end =
                 to = extentOf lines end i kind
             in
             if to == -1 then prose i out else go to (out ++ [ Region kind i to ])
-
         items run =
             List.map2 (\( a, _ ) b -> Region Item a b)
                 run.items

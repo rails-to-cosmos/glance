@@ -449,10 +449,7 @@ bodyText m gone =
                 let
                     -- A paragraph taken out takes the blank line under it too.
                     spare =
-                        if r.to < List.length out - 1 && blankAt r.to out then
-                            1
-                        else
-                            0
+                        if r.to < List.length out - 1 && blankAt r.to out then 1 else 0
                 in
                 List.take r.from out ++ List.drop (r.to + spare) out
             else if r.text /= r.was then
@@ -687,11 +684,7 @@ anchored m r line marker word =
     Join r.id
         line
         marker
-        (if line >= host.to then
-            host.owner
-         else
-            Just host.id
-        )
+        (if line >= host.to then host.owner else Just host.id)
         False
         word
 
@@ -760,17 +753,9 @@ Line 0 is the entry's own headline, the one place nothing is owed above.
 -}
 apart : List String -> Int -> List String -> List String
 apart lines line written =
-    (if line > 1 && not (blankAt (line - 1) lines) then
-        [ "" ]
-     else
-        []
-    )
+    (if line > 1 && not (blankAt (line - 1) lines) then [ "" ] else [])
         ++ written
-        ++ (if blankAt line lines then
-                []
-            else
-                [ "" ]
-           )
+        ++ (if blankAt line lines then [] else [ "" ])
 
 {-| The row a draft stands in, wearing TEXT exactly: the marker is already in the
 box, so this prepends NOTHING and `was` stays the MARKER.

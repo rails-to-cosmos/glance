@@ -215,10 +215,7 @@ cellOf r key =
         (List.head
             (List.filterMap
                 (\( k, v ) ->
-                    if k == key then
-                        Just v
-                    else
-                        Nothing
+                    if k == key then Just v else Nothing
                 )
                 r.cells
             )
@@ -266,8 +263,7 @@ renderer's own dress class for class — the box a reader knows from the table.
 bar : Model -> List (Html Msg)
 bar m =
     case m.narrow of
-        Nothing ->
-            []
+        Nothing -> []
         Just want ->
             [ div [ class "tv-chips" ]
                 [ div [ class "tv-filter-wrap" ]
@@ -296,11 +292,7 @@ view m =
                     , div
                         [ class "tv-empty"
                         , style "display"
-                            (if List.isEmpty (shown m) then
-                                ""
-                             else
-                                "none"
-                            )
+                            (if List.isEmpty (shown m) then "" else "none")
                         ]
                         [ text "no rows" ]
                     ]

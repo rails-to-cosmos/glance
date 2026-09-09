@@ -4,18 +4,17 @@
 Deferred work, one headline a task.  Close it with DONE when it lands.  Opened
 during the MCP + doc-pane session (2026-09-08).
 
-* TODO Sweep the Elm sources to CODESTYLE.md
-Bring every =frontend/elm/src/*.elm= to [[file:../frontend/elm/CODESTYLE.md]]:
-collapse short multi-line =if= / =let= / =case= and top-level defs to one line
-where the whole thing fits (~100 columns) and each branch is one simple
-expression — a literal, a variable, one application.  The rule already lives in
-CODESTYLE.md; this is enforcement across the tree, not a new rule.
+* DONE Sweep the Elm sources to CODESTYLE.md
+Collapsed ~22 short multi-line =if= / =let= / =case= / top-level defs across
+=Body.elm=, =Doc.elm=, =Listing.elm=, =Scan.elm=, and removed blank lines between
+=let= bindings — −44 lines.  =make elm= gave a byte-identical =assets/elm.js= and
+=elm-test= stayed 189/189, so every change is pure formatting.
 
-Cosmetic: the Elm compiler emits byte-identical =assets/elm.js=, so after
-=make elm= confirm =git diff --stat assets/elm.js= is empty, per file.
-
-Already collapsed in =Doc.elm=: the planning-slot separator and the =.dk dunset=
-class (both were violations, one pre-existing, one from the unset-colour fix).
+OPEN convention call: argument-position =if=s (e.g. =f (if c then a else b)=) —
+CODESTYLE Rule 1 does not exempt them, but the author keeps some expanded
+(=viewCells=) and one-lines others (=Doc.elm:1938=).  This sweep collapsed the
+short ones in =Body=/=Listing= and left =Doc.elm='s expanded; pick one and I
+finish it uniformly.
 
 * CANCELLED Fix the selected-row repaint artifact when a column is selected
 See [[file:bugs/fixed/2026-09-08-a-selected-row-repaints-with-artifacts-when-a-column-is-selected.md]].
