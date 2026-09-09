@@ -48,3 +48,38 @@ mount model, case 84 and 15 fixed, case 70 split into 5, the retry defect fixed,
 the unset-planning colour bug), the Elm one-liners, and the repaint-bug file.
 All four gates green: cabal 2276, elm 189, browser 96, AGENTS 0.  Nothing
 committed yet.
+
+* TODO Put the graph on the MCP wire
+See [[file:proposals/draft/2026-09-10-the-graph-an-agent-can-walk.md]].
+Opened 2026-09-10 from a live agent session over =glance mcp=.  =ref:=/=from:=
+already answer both ends of an edge; what an agent lacks is the edges as a row
+field, a =neighbors= tool, a chrome-free =list-headlines= shape with =total=,
+and =add-link= for a body edge.  Four additive steps, none touching the WAL.
+
+* TODO Fix the path-id leak on a broken property drawer
+See [[file:bugs/open/2026-09-10-a-broken-drawer-gives-a-row-a-path-id-the-other-routes-refuse.md]].
+=:END= without its colon drops =ORG_GLANCE_ID=, the row gets =<path>#0=, and
+=get-headline=/=edit-link= refuse the uuid the file still spells.  17 such rows
+live in =~/sync/views= today and =doctor= names none of them.  Failing test first.
+
+* TODO Finish the two-writer relay: a hash on the note, a pending layer in the fold
+See [[file:proposals/draft/2026-09-10-two-writers-one-wal.md]].
+Direct dual append to =headlines.jsonl= is refused (PIPE_BUF, seal ownership,
+=seq=, two parsers).  Instead: =hash= in =EXTERNAL.jsonl= lines, =foldSegments=
+reads the note file as a provisional segment so =doctor= tells pending from
+drift, and one interop parity case on =relations= vs =hrLinks= as sets.
+
+* TODO Repair the live store's git handling of the notification family
+See [[file:bugs/open/2026-09-10-the-live-store-tracks-external-jsonl-and-union-merges-every-jsonl.md]].
+=EXTERNAL.jsonl= and =COMPLETIONS.jsonl= are tracked and =*.jsonl merge=union=
+is the retired glob; a note folded on another host makes a record with no blob
+(30 today).  One-time =git rm --cached= + two-predicate =.gitattributes=, then a
+=doctor= check so it cannot silently recur.
+
+* TODO Decide: the files are the log, the cache stays home
+See [[file:proposals/draft/2026-09-10-the-files-are-the-log-and-the-cache-stays-home.md]].
+Direction, not a patch: one git-ignored SQLite cache per machine, keyed by blob
+hash, written by Emacs alone or by Emacs and the daemon (SQLite is the lock; the
+daemon stays optional so org-glance still ships standalone); only blobs travel.
+Retires =org-glance-graph.el= (1806 lines) and invariants 1/7/8/34.  The middle
+stop is =two-writers-one-wal.md=; pick one before either lands.
