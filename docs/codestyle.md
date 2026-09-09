@@ -3,7 +3,7 @@
 **Status:** doctrine · **Date:** 2026-08-28
 
 Formatting conventions the sources hold to. Values, not bytes: the tests read
-CSS whitespace-blind, so these rules serve the *reader*, not the machine.
+CSS whitespace-blind, so these rules serve the *reader*.
 
 ## CSS (`assets/page.css`)
 
