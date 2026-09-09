@@ -630,10 +630,12 @@ code {
     width: 12px;
     height: 12px;
     box-sizing: border-box;
-    border: 1px solid var(--g-mark);
+    /* THE SPINE'S OWN INK: the sign sits on the block spine, so it reads
+       `--spine' and tracks it through every state rather than a fixed mark. */
+    border: 1px solid var(--spine, var(--g-mark));
     border-radius: 3px;
     background: var(--g-bg);
-    color: var(--g-mark);
+    color: var(--spine, var(--g-mark));
     font: 10px/1 var(--dk-mono);
     display: flex;
     align-items: center;
@@ -643,12 +645,8 @@ code {
     z-index: 2;
 }
 
-/* POINT ON THE DRAWER lifts the sign to the page's own ink, like the spine. */
-#mdoc.on .de.dat.d-drawer > .fold {
-    border-color: var(--g-fg);
-    color: var(--g-fg);
-}
-
+/* The sign lifts with the spine at point, since both read `--spine'; no rule
+   of its own is needed. */
 #mdoc .de.d-drawer > .fold:hover {
     border-color: var(--g-accent);
     color: var(--g-accent);

@@ -655,6 +655,17 @@ export default [
     assert(shut.has, "drv-plan drew no properties drawer");
     assert(shut.sign === "+", `a shut drawer's sign is not '+': ${JSON.stringify(shut.sign)}`);
     assert(shut.folded, "a shut drawer does not show org's ellipsis");
+    // THE SIGN IS THE SPINE'S OWN INK: it reads `--spine', so it matches the
+    // block spine it rides rather than a fixed mark.
+    const ink = await p.eval(() => {
+      const de = document.querySelector("#mdoc .de.d-drawer");
+      const fold = de.querySelector(":scope > .fold");
+      const blk = fold.closest(".blk");
+      return { fold: getComputedStyle(fold).color,
+               spine: blk ? getComputedStyle(blk, "::before").backgroundColor : null };
+    });
+    assert(ink.spine && ink.fold === ink.spine,
+      `the fold sign is ${ink.fold} but its spine is ${ink.spine}`);
     // ONE CLICK OPENS IT: the sign flips off `+' and the ellipsis goes.
     await p.click("#mdoc .de.d-drawer > .fold");
     await p.until(() => {

@@ -1,7 +1,13 @@
 # Bug — the document pane never scrolls itself; `#mpanes` clips it instead
 
-**Status:** open · **Reported:** 2026-08-26 · **Browser:** Chromium
+**Status:** fixed · **Reported:** 2026-08-26 · **Fixed:** 2026-09-09 · **Browser:** Chromium
 · **Surface:** the materialize sheet's document pane
+
+## Fixed (2026-09-09)
+
+`flex-wrap:wrap` was dropped from `#mpanes` (`assets/page.css`, now carrying a
+`NO WRAP` comment); with the single line taking the container's bounded cross
+size, `#mdoc`'s `overflow:auto` + `min-height:0` scroll the pane itself.
 
 ## Symptom
 
