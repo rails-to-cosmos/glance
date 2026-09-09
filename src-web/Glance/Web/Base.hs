@@ -123,6 +123,7 @@ gluePartFiles =
   , "50-settings.js"   -- the settings sheet: tabs, saved views, the states table, the theme
   , "60-refer.js"      -- `@' in the sheet: the reference picker, a table-view over /refer
   , "70-shell.js"      -- the modal surfaces, the dispatch and the boot
+  , "80-git.js"        -- the git sync control at the end of table-view's bar
   ]
 
 tenths :: Double -> Double

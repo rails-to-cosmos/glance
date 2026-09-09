@@ -83,3 +83,13 @@ hash, written by Emacs alone or by Emacs and the daemon (SQLite is the lock; the
 daemon stays optional so org-glance still ships standalone); only blobs travel.
 Retires =org-glance-graph.el= (1806 lines) and invariants 1/7/8/34.  The middle
 stop is =two-writers-one-wal.md=; pick one before either lands.
+
+* WAITING Review the git sync UI (branch =feat/git-sync=)
+From =spikes/2026-09-10-git-sync/=, now wired into the daemon.  =GET /git= reads
+the work tree (=git status --porcelain=v2=), =POST /git/sync= runs the one action
+per state; =Glance.Web.Git= shells git in =soDir=, loopback only.  A control at
+the end of table-view's chip strip (=80-git.js=): =@ ⎇ dir:branch= then a state
+glyph — clean fetches, behind pulls, ahead pushes, dirty commits + pushes,
+diverged syncs.  Model B (auto-sync) commits + pushes after each write, off the
+request path, gated behind =git config glance.autosync= AND a UI arm (=⟳=).
+Tests: =TestGit= (parse + one-step); manual browser probe.  NOT merged.

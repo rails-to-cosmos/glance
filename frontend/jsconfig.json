@@ -35,6 +35,7 @@
     "glue/50-settings.js",
     "glue/60-refer.js",
     "glue/70-shell.js",
+    "glue/80-git.js",
     "glue.d.ts"
   ]
 }

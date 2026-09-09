@@ -89,6 +89,7 @@ import Glance.Web.Base ( Day, ServeOptions (..), answerWrite, bodyObject, config
                        , plain, rendererAsset, reparsed, rewritten, sized, tenths, today
                        , viewTitleFor, walkFor, withBody, writeRefusal )
 import Glance.Web.Commands (runCommand, runCommandRaw)
+import Glance.Web.Git (gitStatusView, gitSyncRoute)
 import Glance.Web.Mcp (McpTools (..), mcpRoute)
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, onDay, storeEnv, viewAddedIn)
 import Glance.Web.Page (assetsMissing, demoShell)
@@ -99,7 +100,7 @@ import Glance.Web.Theme (themeIds)
 import Glance.Web.Store ( Client, CloseReason (Resync), Frame (Close), Hub
                         , LoadState (..), closeReason
                         , Store (stConfig, stGen, stPrint), frameText, layersFor
-                        , hubDoctor, hubLoad, hubStore, nextFrame
+                        , hubAutoSync, hubDoctor, hubLoad, hubStore, nextFrame
                         , headlinesIn
                         , storeKeywords
                         , storeRecords, storeResult
@@ -165,6 +166,10 @@ httpApp opts hub request respond = route >>= respond
       , (["status"],     False, jsonRefusal, [(methodGet, statusView opts hub)])
       , (["mcp"],        True,  jsonRefusal, [ (methodGet, pure mcpUiResponse)
                                              , (methodPost, mcpRoute (mcpToolsFor opts hub) request) ])
+      -- git is independent of the org walk, so it answers while the store loads.
+      , (["git"],        False, jsonRefusal,
+          [ (methodGet,  readTVarIO (hubAutoSync hub) >>= gitStatusView opts)
+          , (methodPost, readTVarIO (hubAutoSync hub) >>= \mas -> gitSyncRoute opts mas request) ])
       ]
     route = case [ r | r@(path, _, _, _) <- named, path == pathInfo request ] of
       ((path, needs, refuse, methods) : _) -> do

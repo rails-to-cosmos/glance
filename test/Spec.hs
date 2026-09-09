@@ -5,6 +5,7 @@ import qualified TestConfig as Config
 import qualified TestEdit as Edit
 import qualified TestExternal as External
 import qualified TestFilter as Filter
+import qualified TestGit as Git
 import qualified TestIndex as Index
 import qualified TestParser as Parser
 import qualified TestProperties as Properties
@@ -37,6 +38,7 @@ tests = testGroup "Tests"
   , Index.spec
   , External.spec
   , Filter.spec
+  , Git.spec
   , Subtree.spec
   , Serve.spec
   , SelfContained.spec

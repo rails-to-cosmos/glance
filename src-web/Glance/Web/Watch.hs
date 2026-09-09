@@ -30,7 +30,9 @@ import qualified System.FSNotify as FS
 import Glance.Query ( LoadFailure (..), Span, WalkOptions (..), WriteFailure
                     , configPath, derivedPath, documentPath, loadFileWith
                     , replaceSpans )
-import Glance.Web.Store ( CloseReason (ViewChanged), Frame (..), Hub (hubPending, hubStore)
+import Glance.Web.Git (autoSyncPoke)
+import Glance.Web.Store ( CloseReason (ViewChanged), Frame (..)
+                        , Hub (hubAutoSync, hubPending, hubStore)
                         , RowOp (..), Store (stConfig)
                         , applyFile, dropFile, loadStoreWith, publish, reseeded )
 
@@ -69,8 +71,12 @@ writeSpans :: WalkOptions -> Hub -> FilePath -> Text -> [(Span, Text)]
            -> IO (Either WriteFailure Text)
 writeSpans opts hub path digest edits = do
   written <- replaceSpans path digest edits
-  either (const (pure ())) (const (nudge opts hub path)) written
+  either (const (pure ())) (const landed) written
   pure written
+  where
+    -- On the success branch only: nudge the re-read, then poke Model B (a no-op
+    -- unless auto-sync is on and armed).  Off the request path; never blocks the write.
+    landed = nudge opts hub path >> (readTVarIO (hubAutoSync hub) >>= mapM_ autoSyncPoke)
 
 -- | The ripe PATHS folded into HUB; a config file among them makes it a reseed.
 settle :: WalkOptions -> FilePath -> Hub -> [FilePath] -> IO ()

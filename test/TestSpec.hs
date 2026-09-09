@@ -1867,7 +1867,7 @@ specGroup12 = testGroup "Build and discipline"
       assertEqual "a splice input outside extra-source-files"
         [] [ p | p <- sdistExtras, p `notElem` extras ]
 
-  , testCase "the shell is seven parts, folded in their numbered order" $
+  , testCase "the shell is eight parts, folded in their numbered order" $
       -- ORDER INCLUDED; the on-disk half is 'TestSelfContained''s.
       assertEqual "the shell's parts, as the spec and the build fold them"
         gluePartFiles WB.gluePartFiles

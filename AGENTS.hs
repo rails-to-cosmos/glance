@@ -1817,6 +1817,7 @@ routes =
   , Route "/ws"         True  TextRefusal [GET]
   , Route "/status"     False JsonRefusal [GET]
   , Route "/mcp"        True  JsonRefusal [GET, POST]
+  , Route "/git"        False JsonRefusal [GET, POST]
   ]
 
 data Verb = VGet | VHead | VPost | VOther deriving (Eq, Show)
@@ -5934,7 +5935,7 @@ acyclic edge xs = all (go (length xs)) xs
 
 data WMod = WBase | WKeymap | WThemeTypes | WThemeDefault | WTheme | WPopups | WStyle
           | WGlue | WPage
-          | WFilter | WSort | WColumns | WStore | WWatch | WCommands | WMcp | WRoutes | WWeb
+          | WFilter | WSort | WColumns | WGit | WStore | WWatch | WCommands | WMcp | WRoutes | WWeb
           | WDesktop | WNative deriving (Eq, Show, Enum, Bounded)
 wmods :: [WMod]
 wmods = [minBound .. maxBound]
@@ -5952,6 +5953,7 @@ wname WPage         = "Glance.Web.Page"
 wname WFilter       = "Glance.Web.Filter"
 wname WSort         = "Glance.Web.Sort"
 wname WColumns      = "Glance.Web.Columns"
+wname WGit          = "Glance.Web.Git"
 wname WStore        = "Glance.Web.Store"
 wname WWatch        = "Glance.Web.Watch"
 wname WCommands     = "Glance.Web.Commands"
@@ -5975,12 +5977,13 @@ wimports WPage         = [WBase, WKeymap, WTheme, WGlue, WPopups, WStyle]
 wimports WFilter       = []
 wimports WSort         = [WFilter]
 wimports WColumns      = [WFilter]
-wimports WStore        = []
-wimports WWatch        = [WStore]
+wimports WGit          = [WBase]
+wimports WStore        = [WGit]
+wimports WWatch        = [WStore, WGit]
 wimports WCommands     = [WBase, WStore, WWatch]
 wimports WMcp          = [WBase]
-wimports WRoutes       = [WBase, WCommands, WMcp, WFilter, WSort, WColumns, WPage, WStyle, WTheme, WStore, WWatch]
-wimports WWeb          = [WBase, WRoutes, WStore, WWatch]
+wimports WRoutes       = [WBase, WCommands, WGit, WMcp, WFilter, WSort, WColumns, WPage, WStyle, WTheme, WStore, WWatch]
+wimports WWeb          = [WBase, WGit, WRoutes, WStore, WWatch]
 wimports WDesktop      = [WWeb, WWatch]
 wimports WNative       = [WDesktop, WWeb, WWatch]
 
@@ -5992,7 +5995,8 @@ webTH = [WRoutes, WStyle]         -- ^ the modules carrying `TemplateHaskell'
 webExposed :: [String]
 webExposed =
   [ "Glance.Desktop", "Glance.Desktop.Native", "Glance.Web", "Glance.Web.Base"
-  , "Glance.Web.Columns", "Glance.Web.Commands", "Glance.Web.Filter", "Glance.Web.Keymap"
+  , "Glance.Web.Columns", "Glance.Web.Commands", "Glance.Web.Filter", "Glance.Web.Git"
+  , "Glance.Web.Keymap"
   , "Glance.Web.Mcp"
   , "Glance.Web.Page", "Glance.Web.Page.Glue", "Glance.Web.Page.Popups"
   , "Glance.Web.Page.Style", "Glance.Web.Routes"
@@ -6030,6 +6034,7 @@ gluePartFiles =
   , "50-settings.js"  -- tabs, saved views, the states table, the theme
   , "60-refer.js"     -- `@' in the sheet: the reference picker over /refer
   , "70-shell.js"     -- the modal surfaces, the dispatch and the boot
+  , "80-git.js"       -- the git sync control at the end of table-view's chip strip
   ]
 -- | The same list as `tsc' reads it: a part named once cannot drift into two.
 jsconfigFiles :: [Path]

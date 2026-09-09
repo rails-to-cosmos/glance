@@ -1534,6 +1534,45 @@ html.stale #app,{{WASHED_STALE}} {
     pointer-events: none;
 }
 
+/* THE GIT SYNC CONTROL: injected at the end of table-view's own bar by
+   80-git.js.  One glance of the work tree; a click runs the state's one step. */
+#gitctl {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 8px;
+    white-space: nowrap;
+    font-size: 13px;
+}
+#gitctl[hidden] { display: none; }
+#gitctl .g-at { color: var(--g-mute); opacity: .55; }
+#gitctl .g-loc { color: var(--g-fg); opacity: .9; }
+#gitctl .g-loc .g-vc { color: var(--g-mute); opacity: .8; }
+#gitctl .g-loc .g-dir { color: var(--g-mute); }
+#gitctl button {
+    font: inherit;
+    color: var(--g-fg);
+    background: transparent;
+    border: 1px solid var(--g-border);
+    border-radius: 6px;
+    padding: 1px 7px;
+    cursor: pointer;
+    line-height: 1.4;
+}
+#gitctl button:hover { background: var(--g-surface); }
+#gitctl .g-glyph { display: inline-flex; align-items: center; gap: 5px; }
+#gitctl .g-glyph .g-n { font-variant-numeric: tabular-nums; }
+/* The dot carries the state's colour; the count follows it. */
+#gitctl .g-clean    .g-dot, #gitctl .g-clean    .g-n { color: var(--g-mute); }
+#gitctl .g-detached .g-dot, #gitctl .g-detached .g-n { color: var(--g-mute); }
+#gitctl .g-behind   .g-dot, #gitctl .g-behind   .g-n { color: var(--g-link); }
+#gitctl .g-ahead    .g-dot, #gitctl .g-ahead    .g-n { color: var(--g-ok); }
+#gitctl .g-dirty    .g-dot, #gitctl .g-dirty    .g-n { color: var(--g-warn); }
+#gitctl .g-diverged .g-dot, #gitctl .g-diverged .g-n { color: var(--g-bad); }
+/* Auto-sync (Model B): lit only when on AND armed. */
+#gitctl .g-auto.g-on { color: var(--g-ok); border-color: var(--g-ok); }
+#gitctl .g-flash { color: var(--g-mute); font-size: 12px; opacity: .85; }
+
 /* Every touch rule is in this query; iOS zooms a field under 16px and stays there. */
 @media (pointer:coarse) {
     #app .tv-chips {

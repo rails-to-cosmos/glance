@@ -175,6 +175,7 @@ library glance-web
       Glance.Web.Columns
       Glance.Web.Commands
       Glance.Web.Filter
+      Glance.Web.Git
       Glance.Web.Keymap
       Glance.Web.Mcp
       Glance.Web.Page
@@ -308,6 +309,7 @@ test-suite glance-test
       TestExternal
       TestFilter
       TestGen
+      TestGit
       TestIndex
       TestParser
       TestProperties
