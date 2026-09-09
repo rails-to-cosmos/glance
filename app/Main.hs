@@ -22,7 +22,7 @@ import Glance.Desktop.Native (desktopWith)
 import Glance.Desktop.WebKit (nativeAvailable, nativeWindow)
 import Glance.Web (ServeOptions (..), defaultPort, serve)
 import Glance.Web.Base (walkFor, zoomMax, zoomMin)
-import Glance.Web.Mcp (runMcpStdio)
+import Glance.Web.Mcp (mcpDaemonAt, runMcpStdio, runMcpStdioWith)
 import Glance.Web.Routes (mcpToolsFor)
 import Glance.Web.Store (loadStoreWith, newHub)
 
@@ -184,9 +184,10 @@ mcpUsage = intercalate "\n" $
   [ "usage: glance mcp --dir DIR [options]" ]
   <> flagLines (filter fServed flags)
   <> [ ""
-     , "An MCP server over stdin/stdout (newline-delimited JSON-RPC): the same"
-     , "tool catalog POST /mcp serves, over a store walked once with no HTTP port."
-     , "Writes land on disk; a read reloads the file it names." ]
+     , "An MCP server over stdin/stdout (newline-delimited JSON-RPC), the same"
+     , "tool catalog POST /mcp serves.  When a ready daemon on --port already owns"
+     , "--dir, this forwards to its /mcp (one live store); otherwise it walks the"
+     , "tree once into a headless store and dispatches locally." ]
 
 desktopUsage :: String
 desktopUsage = intercalate "\n" $
@@ -275,12 +276,15 @@ runDesktop :: Desktop -> IO ()
 runDesktop d = desktopWith nativeAvailable (nativeWindow (zoomMin, zoomMax))
                            (dKeepServing d) (dWindow d)
 
--- | @glance mcp@: walk the tree once into a headless hub and speak MCP over
--- stdin\/stdout, the same 'mcpToolsFor' catalog @POST \/mcp@ serves.
+-- | @glance mcp@: MCP over stdin\/stdout.  When a READY daemon on @--port@
+-- already owns @--dir@, forward to its @\/mcp@ — one live store, no stale view;
+-- else walk the tree once into a headless hub and dispatch locally.
 runMcp :: ServeOptions -> IO ()
-runMcp opts = do
-  hub <- newHub =<< loadStoreWith (walkFor opts) (soDir opts)
-  runMcpStdio (mcpToolsFor opts hub)
+runMcp opts = mcpDaemonAt (soPort opts) (soDir opts) >>= \daemon -> case daemon of
+  Just forward -> runMcpStdioWith forward
+  Nothing      -> do
+    hub <- newHub =<< loadStoreWith (walkFor opts) (soDir opts)
+    runMcpStdio (mcpToolsFor opts hub)
 
 -- | Everything @glance desktop@ takes.
 data Desktop = Desktop

@@ -202,6 +202,8 @@ library glance-web
     , filepath
     , fsnotify
     , glance:glance
+    -- `glance mcp' proxies stdio to a running daemon's /mcp when /status owns the tree.
+    , http-client
     , http-types
     , process
     , stm
@@ -357,4 +359,6 @@ test-suite glance-test
     , zlib
     , wai
     , wai-extra
+    -- Starts the app on a real port so the `glance mcp' daemon proxy can be tested in-process.
+    , warp
   default-language: Haskell2010

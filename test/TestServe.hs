@@ -59,7 +59,8 @@ import Glance.Web.Page.Popups ( Popup (..), Tier (..), popups, tierClass
                               , boxes, chromeBoxes, chromeFeet, chromeHeads, veiled, washed )
 import Glance.Web.Base (gluePartFiles, today)
 import Glance.Web.Commands (commandNames)
-import Glance.Web.Mcp (mcpWriteToolNames)
+import Glance.Web.Mcp (mcpDaemonAt, mcpWriteToolNames)
+import qualified Network.Wai.Handler.Warp as Warp
 import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Store ( Hub, applyFile, finishLoading, frameJSON, hubStore
                        , loadStore, newHub, newLoadingHub, publish
@@ -8991,6 +8992,31 @@ mcpSpec = testGroup "POST /mcp"
              (object ["name" .= ("get-headline" :: T.Text), "arguments" .= object []])
       assertEqual "the missing-id refusal rides isError" True
         =<< boolAt "isError" =<< field "result" =<< decoded r
+
+    -- STAGE 3: `glance mcp' forwards to a running daemon that owns its --dir,
+    -- and boots its own store otherwise.  `mcpDaemonAt' is that decision.
+  , testCase "mcp proxies to a daemon that owns the tree, and probes safely otherwise" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "notes.org" commandable
+        (app', _hub) <- serverOver dir
+        Warp.withApplication (pure app') $ \port -> do
+          forward <- maybe (assertFailure "no forwarder for the owning daemon") pure
+                       =<< mcpDaemonAt port dir
+          reply <- maybe (assertFailure "tools/list got no reply") pure
+                     =<< forward (encode (object
+                           [ "jsonrpc" .= ("2.0" :: T.Text), "id" .= (1 :: Int)
+                           , "method" .= ("tools/list" :: T.Text), "params" .= object [] ]))
+          v <- either (assertFailure . ("proxied JSON: " <>)) pure (eitherDecode reply)
+          tools <- listAt "tools" =<< field "result" v
+          assertBool "the daemon's own catalog came back through the proxy" (not (null tools))
+          note <- forward (encode (object
+                    [ "jsonrpc" .= ("2.0" :: T.Text)
+                    , "method" .= ("notifications/initialized" :: T.Text) ]))
+          assertEqual "a notification the proxy leaves unanswered" Nothing (() <$ note)
+          other <- mcpDaemonAt port (dir </> "elsewhere")
+          assertEqual "a daemon owning another tree is not proxied to" Nothing (() <$ other)
+        none <- mcpDaemonAt 1 dir
+        assertEqual "no daemon on the port means no proxy" Nothing (() <$ none)
   ]
 
 commandSpec :: TestTree

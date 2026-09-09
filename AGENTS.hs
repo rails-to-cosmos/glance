@@ -1845,7 +1845,7 @@ notFoundText = "not found: " ++ intercalate ", " (map rPath routes) ++ ", or an 
 -- the 200 is LIVENESS and the `ready' flag READINESS: `{ok, ready, loading}',
 -- plus `elapsed' while loading or `rows' once loaded.
 statusFields :: [String]
-statusFields = ["ok", "ready", "loading", "elapsed", "rows"]
+statusFields = ["ok", "ready", "loading", "elapsed", "rows", "dir"]
 writeHint :: String                               -- ^ DERIVED, like `notFoundText'; spelled by hand it had missed @/config@
 writeHint = "method not allowed; "
          ++ intercalate " and " [ "POST " ++ rPath r | r <- routes, POST `elem` rMethods r ]

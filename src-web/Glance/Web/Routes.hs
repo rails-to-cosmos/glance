@@ -34,7 +34,7 @@ import Network.Wai ( Application, Request (pathInfo, queryString, requestHeaders
 import Network.Wai.Handler.WebSockets (websocketsOr)
 import Network.Wai.Middleware.Gzip ( GzipFiles (GzipCompress), defaultGzipSettings
                                    , gzip, gzipFiles )
-import System.Directory (doesFileExist)
+import System.Directory (canonicalizePath, doesFileExist)
 import System.FilePath (takeExtension, (</>))
 
 import qualified Data.ByteString as BS
@@ -153,7 +153,7 @@ httpApp opts hub request respond = route >>= respond
       , (["tags"],       True,  textRefusal, [(methodGet, tagsView hub request)])
       , (["properties"], True,  textRefusal, [(methodGet, propertiesView hub)])
       , (["ws"],         True,  textRefusal, [(methodGet, pure (plain status400 wsHint))])
-      , (["status"],     False, jsonRefusal, [(methodGet, statusView hub)])
+      , (["status"],     False, jsonRefusal, [(methodGet, statusView opts hub)])
       , (["mcp"],        True,  jsonRefusal, [(methodPost, mcpRoute (mcpToolsFor opts hub) request)])
       ]
     route = case [ r | r@(path, _, _, _) <- named, path == pathInfo request ] of
@@ -194,8 +194,9 @@ indexing since = do
 
 -- | @GET \/status@: LIVENESS is the 200 itself (no store needed), READINESS
 -- the @ready@ flag.  Loading carries the elapsed tenths; loaded, the row count.
-statusView :: Hub -> IO Response
-statusView hub = do
+statusView :: ServeOptions -> Hub -> IO Response
+statusView opts hub = do
+  dir <- canonicalizePath (soDir opts)
   load <- readTVarIO (hubLoad hub)
   fields <- case load of
     Loading since -> do
@@ -204,7 +205,8 @@ statusView hub = do
     Loaded -> do
       st <- readTVarIO (hubStore hub)
       pure ["ready" .= True, "loading" .= False, "rows" .= length (storeRecords st)]
-  pure . sized status200 [jsonType] . encode $ object (("ok" .= True) : fields)
+  -- The served TREE, so `glance mcp' proxies only to a daemon that owns its --dir.
+  pure . sized status200 [jsonType] . encode $ object (("ok" .= True) : ("dir" .= dir) : fields)
 
 -- | The MCP door's handlers, wired to the live Hub: the write core
 -- ('runCommandRaw') and the two reads ('materialize', 'headlines').  A list is

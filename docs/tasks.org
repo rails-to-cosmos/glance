@@ -34,11 +34,13 @@ The source =../table-view/web/table-view.js= carried the in-cell editor on
 replayed the blink-stamp fix on top, and =assets/table-view.js= now matches the
 source byte for byte — =sync-renderer= is safe again.
 
-* TODO MCP stage 3 — a daemon-aware =glance mcp=
-See [[file:proposals/proposed/2026-09-08-the-commands-are-mcp-tools.md]].  Stage 1
-(=POST /mcp=) and stage 2 (=glance mcp= stdio) are done and green.  Stage 3: when
-=/status= says a daemon already owns the tree, proxy to its =/mcp= instead of
-booting a second store — folds the two-writer stale-view risk away.
+* DONE MCP stage 3 — a daemon-aware =glance mcp=
+See [[file:proposals/proposed/2026-09-08-the-commands-are-mcp-tools.md]].  =/status=
+now carries the served =dir=; =glance mcp= probes it (=mcpDaemonAt=) and, when a
+ready daemon on =--port= owns =--dir=, forwards stdin/stdout JSON-RPC to that
+daemon's =/mcp= — one live store, no stale view — else boots an offline store.
+Test =mcp proxies to a daemon that owns the tree, and probes safely otherwise=;
+cabal 2277, AGENTS 0.
 
 * TODO Review and commit the session's stack
 MCP stage 1 + 2, the doc-pane batch (9 stale TestServe cases aligned to the

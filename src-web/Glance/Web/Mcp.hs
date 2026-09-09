@@ -8,18 +8,23 @@ module Glance.Web.Mcp
   , mcpRoute
   , mcpHandle
   , runMcpStdio
+  , runMcpStdioWith
+  , mcpDaemonAt
   , mcpWriteToolNames
   ) where
 
+import Control.Exception (try)
 import Control.Monad (unless)
-import Data.Aeson (Value (Number, Object, String), encode, eitherDecode', object, (.=))
+import Data.Aeson ( FromJSON (parseJSON), Value (Number, Object, String), decode
+                  , encode, eitherDecode', object, withObject, (.:), (.=) )
 import Data.Char (isSpace)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import Network.HTTP.Types (Status, status200, status202, statusCode)
+import Network.HTTP.Types (Status, hContentType, status200, status202, statusCode)
 import Network.Wai (Request, Response, responseToStream)
+import System.Directory (canonicalizePath)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, isEOF, stdin, stdout)
 
 import qualified Data.Aeson.Key as Key
@@ -28,6 +33,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
+import qualified Network.HTTP.Client as HC
 
 import Glance.Web.Base (jsonType, jsonValue, sized, withBody)
 
@@ -60,19 +66,60 @@ mcpHandle tools raw = case eitherDecode' raw of
     Right (Just rid, method, params) -> Just <$> answer tools rid method params
 
 -- | @glance mcp@'s transport: newline-delimited JSON-RPC over stdin\/stdout, the
--- MCP stdio contract.  A message a line, its response a line; a notification is
--- read and answered with nothing; a blank line is skipped.  Ends at EOF.
+-- MCP stdio contract, dispatched by the local tool catalog.
 runMcpStdio :: McpTools -> IO ()
-runMcpStdio tools = hSetBuffering stdout LineBuffering >> loop
+runMcpStdio tools = runMcpStdioWith (fmap (fmap encode) . mcpHandle tools)
+
+-- | The stdio transport over ANY per-message handler: a message a line, its
+-- response a line ('Nothing' for a notification writes nothing), a blank line
+-- skipped, ends at EOF.  'runMcpStdio' dispatches locally; @glance mcp@'s proxy
+-- hands the same loop a forwarder to a running daemon's @\/mcp@.
+runMcpStdioWith :: (BL.ByteString -> IO (Maybe BL.ByteString)) -> IO ()
+runMcpStdioWith handle = hSetBuffering stdout LineBuffering >> loop
   where
     loop = do
       eof <- isEOF
       unless eof $ do
         line <- BSC.hGetLine stdin
         unless (BSC.all isSpace line) $ do
-          resp <- mcpHandle tools (BL.fromStrict line)
-          mapM_ (\v -> BL.hPut stdout (encode v) >> BS.hPut stdout "\n") resp
+          resp <- handle (BL.fromStrict line)
+          mapM_ (\b -> BL.hPut stdout b >> BS.hPut stdout "\n") resp
         loop
+
+-- | A daemon's @\/status@, the two fields the proxy reads.
+data StatusInfo = StatusInfo { siReady :: !Bool, siDir :: !FilePath }
+
+instance FromJSON StatusInfo where
+  parseJSON = withObject "status" $ \o -> StatusInfo <$> o .: "ready" <*> o .: "dir"
+
+-- | A READY glance daemon on PORT that already owns DIR (its @\/status@ says so)
+-- yields a forwarder handing each JSON-RPC message to that daemon's @\/mcp@ —
+-- one live store, so no second walk and no stale view.  No such daemon
+-- ('Nothing') and the caller boots an offline store instead.  Loopback only.
+mcpDaemonAt :: Int -> FilePath -> IO (Maybe (BL.ByteString -> IO (Maybe BL.ByteString)))
+mcpDaemonAt port dir = do
+  want <- canonicalizePath dir
+  mgr <- HC.newManager HC.defaultManagerSettings
+  probe <- try (HC.parseRequest (base <> "/status") >>= flip HC.httpLbs mgr)
+             :: IO (Either HC.HttpException (HC.Response BL.ByteString))
+  pure $ case probe of
+    Right resp
+      | statusCode (HC.responseStatus resp) == 200
+      , Just si <- decode (HC.responseBody resp)
+      , siReady si, siDir si == want -> Just (forward mgr)
+    _noOwner -> Nothing
+  where
+    base = "http://127.0.0.1:" <> show port
+    -- The daemon's own @\/mcp@ answers a request with a JSON body and a
+    -- notification with an empty 202, so an empty body is the "no reply" the
+    -- stdio loop wants.
+    forward mgr raw = do
+      req0 <- HC.parseRequest (base <> "/mcp")
+      let req = req0 { HC.method = "POST"
+                     , HC.requestHeaders = [(hContentType, "application/json")]
+                     , HC.requestBody = HC.RequestBodyLBS raw }
+      body <- HC.responseBody <$> HC.httpLbs req mgr
+      pure (if BL.null body then Nothing else Just body)
 
 jsonRpc :: Status -> Value -> Response
 jsonRpc status v = sized status [jsonType] (encode v)
