@@ -29,14 +29,11 @@ See [[file:bugs/fixed/2026-09-09-entering-a-table-with-f-blinks-the-row-highligh
 regression test =the widget stamps a selection in the same tick=, full browser
 suite 97/97.  Vendored copy only — see the reconcile task below.
 
-* TODO Reconcile the table-view source with the vendored copy — =sync-renderer= is unsafe
-=assets/table-view.js= is AHEAD of the source =../table-view/web/table-view.js=:
-the vendored copy carries the in-cell editor (=editCell=/=editHeader=/=onEdit=/
-=.tv-cell-edit=, the 696d480 work) that the source LACKS.  So =make sync-renderer=
-would REGRESS the widget (copy the older source over the newer asset).  The
-=f=-enter blink fix (=paintSelection= stamps synchronously) is therefore in
-=assets/table-view.js= only.  Back-port the in-cell editor AND the blink stamp to
-=../table-view/web/table-view.js=, then =sync-renderer= is safe again.
+* DONE Reconcile the table-view source with the vendored copy
+The source =../table-view/web/table-view.js= carried the in-cell editor on
+=origin= all along; the local checkout was just stale.  A rebase pulled it in and
+replayed the blink-stamp fix on top, and =assets/table-view.js= now matches the
+source byte for byte — =sync-renderer= is safe again.
 
 * TODO MCP stage 3 — a daemon-aware =glance mcp=
 See [[file:proposals/proposed/2026-09-08-the-commands-are-mcp-tools.md]].  Stage 1
