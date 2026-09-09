@@ -4,7 +4,7 @@
 -- Routes, caching, the 503 gate and what a write may touch are AGENTS.hs.
 -- 'etagOf' is out for the pin alone: the DAY it folds in is a law a unit can
 -- state — one store, two days, two tags — where the wall clock cannot.
-module Glance.Web.Routes (application, bootstrapWanted, etagOf, hasRenderer) where
+module Glance.Web.Routes (application, bootstrapWanted, etagOf, hasRenderer, mcpToolsFor) where
 
 import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVar)
 import Control.Concurrent.STM (atomically, readTVarIO)
@@ -30,7 +30,7 @@ import Network.HTTP.Types ( Header, hCacheControl, hContentType, methodGet, meth
                           , status404, status405, status409, status500, status503 )
 import Network.HTTP.Types.Header (hETag, hIfNoneMatch)
 import Network.Wai ( Application, Request (pathInfo, queryString, requestHeaders, requestMethod)
-                   , Response, responseFile, responseLBS )
+                   , Response, defaultRequest, responseFile, responseLBS )
 import Network.Wai.Handler.WebSockets (websocketsOr)
 import Network.Wai.Middleware.Gzip ( GzipFiles (GzipCompress), defaultGzipSettings
                                    , gzip, gzipFiles )
@@ -88,7 +88,8 @@ import Glance.Web.Base ( Day, ServeOptions (..), answerWrite, bodyObject, config
                        , noSuchRow
                        , plain, rendererAsset, reparsed, rewritten, sized, tenths, today
                        , viewTitleFor, walkFor, withBody, writeRefusal )
-import Glance.Web.Commands (runCommand)
+import Glance.Web.Commands (runCommand, runCommandRaw)
+import Glance.Web.Mcp (McpTools (..), mcpRoute)
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, onDay, storeEnv, viewAddedIn)
 import Glance.Web.Page (assetsMissing, demoShell)
 import Glance.Web.Page.Style (fontAssets)
@@ -153,6 +154,7 @@ httpApp opts hub request respond = route >>= respond
       , (["properties"], True,  textRefusal, [(methodGet, propertiesView hub)])
       , (["ws"],         True,  textRefusal, [(methodGet, pure (plain status400 wsHint))])
       , (["status"],     False, jsonRefusal, [(methodGet, statusView hub)])
+      , (["mcp"],        True,  jsonRefusal, [(methodPost, mcpRoute (mcpToolsFor opts hub) request)])
       ]
     route = case [ r | r@(path, _, _, _) <- named, path == pathInfo request ] of
       ((path, needs, refuse, methods) : _) -> do
@@ -203,6 +205,22 @@ statusView hub = do
       st <- readTVarIO (hubStore hub)
       pure ["ready" .= True, "loading" .= False, "rows" .= length (storeRecords st)]
   pure . sized status200 [jsonType] . encode $ object (("ok" .= True) : fields)
+
+-- | The MCP door's handlers, wired to the live Hub: the write core
+-- ('runCommandRaw') and the two reads ('materialize', 'headlines').  A list is
+-- @GET \/headlines@ over a synthesized query string, so its filter, paging and
+-- archive rules are the ones the UI table already answers.
+mcpToolsFor :: ServeOptions -> Hub -> McpTools
+mcpToolsFor opts hub = McpTools
+  { mtWrite     = runCommandRaw opts hub
+  , mtHeadline  = \rid -> materialize hub (Just rid) (Right Nothing)
+  , mtHeadlines = \q limit -> headlines opts hub (listRequest q limit)
+  }
+
+listRequest :: Maybe Text -> Maybe Int -> Request
+listRequest q limit = defaultRequest
+  { queryString = [ ("q", Just (TE.encodeUtf8 t)) | Just t <- [q] ]
+               <> [ ("limit", Just (BSC.pack (show n))) | Just n <- [limit] ] }
 
 safeName :: Text -> Bool
 safeName name = not (T.null name)

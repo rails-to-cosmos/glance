@@ -29,8 +29,25 @@ spec = testGroup "The CLI's own help"
             [name] [ c | (c, _) <- commands, ("usage: glance " <> c) `isInfixOf` out ]
           assertBool ("glance " <> name <> " --help never names " <> flag)
                      (flag `isInfixOf` out)
+
+    -- THE STDIO TRANSPORT END TO END: a request a line, its response a line, a
+    -- notification answered with nothing, and EOF a clean exit.
+  , testCase "glance mcp answers JSON-RPC over stdin, the notification silent" $
+      withGlanceBinary "mcp stdio" $ \exe -> do
+        let msgs = unlines
+              [ "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"
+              , "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}"
+              , "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}" ]
+        (code, out, _err) <-
+          readProcessWithExitCode exe ["mcp", "--dir", "test/fixtures/subtree"] msgs
+        assertEqual "glance mcp exits clean at EOF" ExitSuccess code
+        assertEqual "one reply a request, the notification silent" 2 (length (lines out))
+        assertBool ("the initialize names the server: " <> out)
+                   ("\"name\":\"glance\"" `isInfixOf` out)
+        assertBool ("tools/list carries the catalog: " <> out)
+                   ("\"tools\"" `isInfixOf` out)
   ]
-  where commands = [ ("serve", "--dir"), ("desktop", "--browser")
+  where commands = [ ("serve", "--dir"), ("mcp", "--dir"), ("desktop", "--browser")
                    , ("doctor", "--include-derived"), ("repl", "FILE")
                    , ("backfill-created", "--dry-run") ]
 

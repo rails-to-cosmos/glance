@@ -1017,12 +1017,19 @@ code {
 }
 
 /* AN UNSET SLOT shows a muted `<unset>' the reader can click and RET to set -- */
-/* DISPLAY-ONLY, the model value staying org's own empty.  It wears the drawer's */
-/* own reserved-token ink (`--tok'): the keyword is already `.dk' in `--tok', so */
-/* the value joins it and "SCHEDULED: <unset>" reads as a dimmed drawer pair, key */
-/* and value alike.  A set slot keeps its VALUE in the brighter row ink. */
-.dpunset {
-    color: var(--tok);
+/* DISPLAY-ONLY, the model value staying org's own empty.  KEY, COLON AND VALUE */
+/* ALL DROP to `--g-point-off', the EMPTY DRAWER's own dim (`.de.d-drawer.bare' */
+/* above): "SCHEDULED: <unset>" is furniture nobody is reading, so it reads as */
+/* dim as a bare drawer, never a tone brighter in `--g-point'.  The keyword's */
+/* `.dk' carries `dunset' from the model when the value is empty; a SET slot */
+/* keeps its key the row token and its value the brighter row ink. */
+.dpunset,.dk.dunset,.dk.dunset .dpunc {
+    color: var(--g-point-off);
+}
+/* POINT ON THE UNSET SLOT still lights its VALUE, the `.dpv.dat' cursor rule */
+/* below reaching past the `.dpunset' child that would else hold the dim. */
+#mdoc.on .dpv.dat .dpunset {
+    color: var(--g-fg);
 }
 
 /* THE ENTRY AT POINT IS THE CURSOR, one grain finer than the row: it wears the */

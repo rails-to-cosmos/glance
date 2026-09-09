@@ -1,0 +1,28 @@
+#+TITLE: Date widget fixtures
+#+TODO: TODO NEXT | DONE CANCELLED
+
+# One entry per date-widget browser case, so each is short, independent, and
+# re-seedable.  The sheet page opens only a row that is in the active view, so
+# these are TODO; the write cases clear back to no planning, and the walk case's
+# SCHEDULED is inactive from the start.
+
+* TODO A row a case types a date phrase into                        :datefix:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-date-phrase
+:END:
+No planning line: a case types a phrase, RET writes the resolved stamp, and the
+case clears it back to none.
+
+* TODO A row a case brackets [today] into                           :datefix:
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-date-bracket
+:END:
+No planning line: a case writes an inactive stamp and clears it back to none.
+
+* TODO A row standing on an inactive stamp to walk                  :datefix:
+SCHEDULED: [2026-08-24 Mon]
+:PROPERTIES:
+:ORG_GLANCE_ID: drv-date-walk
+:END:
+Its SCHEDULED is inactive, so a case can S-<right> the day in the widget and ESC
+without a write, leaving the bytes as they were.

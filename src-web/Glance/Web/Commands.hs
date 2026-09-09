@@ -1,6 +1,6 @@
 -- | @POST \/command@: the structured writes, as ONE table ('commands'); the
 -- edits are 'Glance.Query''s.  `commandNames' rides out for the SUITE alone.
-module Glance.Web.Commands (commandNames, runCommand) where
+module Glance.Web.Commands (commandNames, runCommand, runCommandRaw) where
 
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (join)
@@ -240,7 +240,13 @@ commandNames = map fst commands
 -- drift-locked write per file, no rollback across files, so the answer is per
 -- id; a shape or keyword refusal is the WHOLE request's.  The store is untouched.
 runCommand :: ServeOptions -> Hub -> Request -> IO Response
-runCommand opts hub request = withBody request $ \raw -> do
+runCommand opts hub request = withBody request (runCommandRaw opts hub)
+
+-- | The command engine over an already-read body: @\/command@ past its 413
+-- gate, and the MCP door's write path speak the same core.  The store is
+-- untouched.
+runCommandRaw :: ServeOptions -> Hub -> BL.ByteString -> IO Response
+runCommandRaw opts hub raw = do
   st <- readTVarIO (hubStore hub)
   case parseCommand raw of
     Left why -> pure (jsonError status400 why)

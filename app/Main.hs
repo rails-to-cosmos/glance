@@ -21,7 +21,10 @@ import Glance.Desktop (DesktopOptions (..))
 import Glance.Desktop.Native (desktopWith)
 import Glance.Desktop.WebKit (nativeAvailable, nativeWindow)
 import Glance.Web (ServeOptions (..), defaultPort, serve)
-import Glance.Web.Base (zoomMax, zoomMin)
+import Glance.Web.Base (walkFor, zoomMax, zoomMin)
+import Glance.Web.Mcp (runMcpStdio)
+import Glance.Web.Routes (mcpToolsFor)
+import Glance.Web.Store (loadStoreWith, newHub)
 
 import System.Directory
 import System.FilePath
@@ -63,6 +66,7 @@ parse args | wantsHelp args = do
   putStrLn $ case args of
     ("repl":_)             -> replUsage
     ("serve":_)            -> serveUsage
+    ("mcp":_)              -> mcpUsage
     ("desktop":_)          -> desktopUsage
     ("doctor":_)           -> doctorUsage
     ("backfill-created":_) -> backfillUsage
@@ -98,6 +102,8 @@ parse ("backfill-created":args) = do
   exitSuccess
 
 parse ("serve":args) = run "serve" serveUsage serve (serveOptions args)
+
+parse ("mcp":args) = run "mcp" mcpUsage runMcp (serveOptions args)
 
 parse ("desktop":args) = run "desktop" desktopUsage runDesktop (desktopOptions args)
 
@@ -139,12 +145,15 @@ wantsHelp (a:rest)
 glanceUsage :: String
 glanceUsage = intercalate "\n"
   [ "usage: glance serve            serve an org tree over HTTP"
+  , "       glance mcp              serve the tool catalog over stdio (MCP)"
   , "       glance desktop          the same daemon in an app window"
   , "       glance doctor           parse a corpus and report what drifted"
   , "       glance backfill-created stamp every headline's creation time"
   , "       glance repl             the org parser at a prompt"
   , ""
   , serveUsage
+  , ""
+  , mcpUsage
   , ""
   , desktopUsage
   , ""
@@ -169,6 +178,15 @@ serveUsage = intercalate "\n" $
   <> [ ""
      , "Binds 127.0.0.1 only, and binds BEFORE the walk, so store routes answer 503"
      , "with a loading body until the tree lands." ]
+
+mcpUsage :: String
+mcpUsage = intercalate "\n" $
+  [ "usage: glance mcp --dir DIR [options]" ]
+  <> flagLines (filter fServed flags)
+  <> [ ""
+     , "An MCP server over stdin/stdout (newline-delimited JSON-RPC): the same"
+     , "tool catalog POST /mcp serves, over a store walked once with no HTTP port."
+     , "Writes land on disk; a read reloads the file it names." ]
 
 desktopUsage :: String
 desktopUsage = intercalate "\n" $
@@ -256,6 +274,13 @@ described name what = "  " <> name <> replicate (gutter - length name) ' ' <> wh
 runDesktop :: Desktop -> IO ()
 runDesktop d = desktopWith nativeAvailable (nativeWindow (zoomMin, zoomMax))
                            (dKeepServing d) (dWindow d)
+
+-- | @glance mcp@: walk the tree once into a headless hub and speak MCP over
+-- stdin\/stdout, the same 'mcpToolsFor' catalog @POST \/mcp@ serves.
+runMcp :: ServeOptions -> IO ()
+runMcp opts = do
+  hub <- newHub =<< loadStoreWith (walkFor opts) (soDir opts)
+  runMcpStdio (mcpToolsFor opts hub)
 
 -- | Everything @glance desktop@ takes.
 data Desktop = Desktop

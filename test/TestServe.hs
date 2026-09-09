@@ -59,6 +59,7 @@ import Glance.Web.Page.Popups ( Popup (..), Tier (..), popups, tierClass
                               , boxes, chromeBoxes, chromeFeet, chromeHeads, veiled, washed )
 import Glance.Web.Base (gluePartFiles, today)
 import Glance.Web.Commands (commandNames)
+import Glance.Web.Mcp (mcpWriteToolNames)
 import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Store ( Hub, applyFile, finishLoading, frameJSON, hubStore
                        , loadStore, newHub, newLoadingHub, publish
@@ -326,15 +327,6 @@ fixtureOrg = "* TODO one\nSCHEDULED: <2026-08-01 Sat>\n:PROPERTIES:\n"
   <> "first para\n\nsecond para\n** two\nchild body\n"
 fixtureBody = "* TODO one\nfirst para\n\nsecond para\n** two\nchild body\n"
 
--- | 'tabledBody' with WAS replaced by NOW — the whole document, so every other byte is asserted with it.
-tabledAfter :: T.Text -> T.Text -> T.Text
-tabledAfter was now = T.replace was now tabledBody
-
-tabledBody :: T.Text
-tabledBody = T.unlines
-  [ "* TODO one", "lead in", "| a | b |", "|---+---|", "| 1 | 2 |", "| 3 | 4 |"
-  , "", "- alpha", "- beta", "", "tail para", "** two", "child body" ]
-
 -- | The structured document as the sheet DREW it, read off the draw rather than out of a model.
 docOf :: Value -> IO [[T.Text]]
 docOf = traverse parts <=< listAt "doc"
@@ -501,7 +493,7 @@ spec = withResource bootFixture dropBootFixture $ \shell ->
     [ headlineSpec, bannerSpec, statsSpec, cacheSpec, gzipSpec, querySpec
     , orderSpec, sortQuerySpec, columnsQuerySpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
-    , tagCommandSpec, deleteCommandSpec, renameCommandSpec, tagsSpec, captureSpec
+    , tagCommandSpec, deleteCommandSpec, renameCommandSpec, tagsSpec, captureSpec, mcpSpec
     , propertiesSpec, blobCaptureSpec, captureViewSpec
     , configSpec, keywordsSpec, linksSpec, referSpec, editLinkSpec, indexingSpec
     , doctorSpec
@@ -3477,14 +3469,11 @@ sheetSpec shell =
         assertEqual "and a PARAGRAPH opens empty, owing no token" ""
           <=< textAt "dtext"
 
-    -- A marker is a LEAD everywhere but a TABLE, whose row closes with a pipe — point at its end types a THIRD column.
-  , testCase "point stands inside a seeded table row, past a seeded lead" $ do
-      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:Enter press:S-Enter" $
-        \answer -> do
-          assertEqual "the row is drawn at the table's own widths" "|   |   |"
-            =<< textAt "dtext" answer
-          assertEqual "with point one space into its first cell" 2
-            =<< intAt "dcaret" answer
+    -- A marker is a LEAD, so `+' opens its box with point PAST the bullet.  A
+    -- table row is no lead — its cells edit in the mounted table-view widget,
+    -- which the headless harness can't drive; the browser case "+ adds a row on
+    -- a whole row and a column on a cell" seeds a blank row in the mount.
+  , testCase "a bullet is a lead, and point follows it" $
       onTable shell (intoRun <> " press:+") $
         assertEqual "where a bullet is a lead and point follows it" 2
           <=< intAt "dcaret"
@@ -3535,9 +3524,10 @@ sheetSpec shell =
               <> "#+end_quote\n\ntail para\n** two\nchild body\n" ]
             =<< traverse (textAt "body") =<< listAt "writes" answer
 
-    -- `+' with no box open names no line, so the region's interior is reachable from `S-RET' alone.
+    -- `+' on the table's one composite stop inserts AFTER it: a table is no
+    -- prefix a paragraph could join, so the element lands past the whole block.
   , testCase "a table's line keeps the composite's landing" $
-      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:+ dpara:note press:Enter" $
+      onTable shell "tabled press:Enter press:f press:n press:n press:n press:+ dpara:note press:Enter" $
         \answer ->
           assertEqual "a pipe row is no prefix, so the paragraph goes past the table"
             [ "* TODO one\nlead in\n| a | b |\n|---+---|\n| 1 | 2 |\n| 3 | 4 |\n\n"
@@ -3692,57 +3682,54 @@ sheetSpec shell =
       onTable shell "grain press:Enter press:f press:ArrowLeft" $
         assertEqual "and so does the left arrow" 0 <=< pointOf
 
-    -- AN ORG TABLE IS THAT SAME SHAPE: one coarse stop, then its rows.  A LINE IS A LEAF, the `|---+---|' rule included.
-  , keyed shell "a table is one stop, then its rows" "" "tabled press:Enter" $ \answer -> do
+    -- AN ORG TABLE IS ONE COMPOSITE STOP: it MOUNTS a table-view widget, so its
+    -- rows live in the widget, not as doc leaves.  The walk shows the table as a
+    -- single `comp:table', the list past it keeping its own `item' leaves.  The
+    -- rows and cells inside the mount are walked by browser cases 77–90.
+  , keyed shell "a table is one composite stop, its rows in the mount" "" "tabled press:Enter" $ \answer -> do
         assertEqual "the walk, kind by kind, over a MIXED body"
                     [ "head", "meta", "comp:properties:drawer", "para", "comp:table"
-                    , "item", "item", "item", "item"
                     , "comp:list", "item", "item", "para", "child", "para", "para:tail" ]
           =<< map head <$> docOf answer
-        assertEqual "and the grain of each stop"
+        assertEqual "and the grain of each stop, the table one composite"
                     [ "element", "element", "composite", "element", "composite"
-                    , "leaf", "leaf", "leaf", "leaf"
                     , "composite", "leaf", "leaf", "element", "element", "element"
                     , "element" ]
           =<< textsAt "dgrains" answer
-        assertEqual "and who each row hangs under"
-                    [-1, -1, -1, -1, -1, 4, 4, 4, 4, -1, 9, 9, -1, -1, -1, -1]
+        assertEqual "and who each row hangs under — the list's two items alone"
+                    [-1, -1, -1, -1, -1, -1, 5, 5, -1, -1, -1, -1]
           =<< flaggedAt "downers" answer
-        assertEqual "the four rows, the rule among them"
-                    [["| a | b |"], ["|---+---|"], ["| 1 | 2 |"], ["| 3 | 4 |"]]
-          . map (drop 1) . take 4 . drop 5 =<< docOf answer
 
-  , testCase "the table is one stop, and f walks its rows" $ do
+  , testCase "the table is one stop; f hands off to the mounted widget" $ do
       onTable shell "tabled press:Enter press:f press:n press:n press:n" $
         assertEqual "n from the lead-in meets the WHOLE table" 4
           <=< pointOf
       onTable shell "tabled press:Enter press:f press:n press:n press:n press:n" $
-        assertEqual "and the next n crosses it whole to the list" 9
+        assertEqual "and the next n crosses it whole to the list" 5
           <=< pointOf
+      -- `f' INTO the table hands point to the table-view widget's own cell
+      -- selection, so no `.de' row wears it: point leaves the doc walk.  The row
+      -- and cell walk inside the mount is browser cases 77–90's ("f and b walk
+      -- the cells of a table row, the widget mirroring point").
       onTable shell "tabled press:Enter press:f press:n press:n press:n press:f" $
-        assertEqual "f enters the first row" 5 <=< pointOf
-      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:n press:n press:n" $
-        assertEqual "n walks the rows, the rule among them" 8 <=< pointOf
+        assertEqual "f enters the widget, off the doc walk" (-1) <=< pointOf
+      -- And `B' climbs back out of the widget to the table stop whole, from any
+      -- cell the widget's own row-walk left point on.
+      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:B" $
+        assertEqual "B is the table whole again" 4 <=< pointOf
       onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:n press:B" $
-        assertEqual "and B is the table whole again" 4 <=< pointOf
+        assertEqual "and from a walked cell too" 4 <=< pointOf
 
-    -- A ROW EDIT IS A LINE SPLICE: the row remembers the line it came out of.
-  , testCase "editing a table row splices that line and nothing else" $ do
-      onTable shell
-             ("tabled press:Enter press:f press:n press:n press:n press:f press:n press:n"
-                <> " press:Enter dpara:~9~9~ press:C-x press:C-s") $ \answer ->
-        assertEqual "the body with that row replaced and nothing else"
-                    [tabledAfter "| 1 | 2 |" "|9|9|"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable shell
-             ("tabled press:Enter press:f press:n press:n press:n press:f press:n"
-                <> " press:Enter dpara:~-+-~ press:C-x press:C-s") $ \answer ->
-        assertEqual "the rule replaced, and the rows around it untouched"
-                    [tabledAfter "|---+---|" "|-+-|"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable shell "tabled press:Enter press:f press:n press:n press:n press:Enter" $
-        assertEqual "the block whole, rule and all"
-                    "| a | b |\n|---+---|\n| 1 | 2 |\n| 3 | 4 |" <=< textAt "dtext"
+    -- A ROW EDIT IS A LINE SPLICE, but it happens IN the mounted widget's cell
+    -- (`.tv-cell-edit'), which the headless harness can't drive; the browser
+    -- case "RET on a table cell edits its raw text and writes that row's line"
+    -- walks that splice.  RET on the table stop itself declines and names the
+    -- door, the way the drawer's own frame does.
+  , testCase "RET on the whole table is inert, and names the way in" $
+      onTable shell "tabled press:Enter press:f press:n press:n press:n press:Enter" $ \answer -> do
+        assertEqual "no text block over the table stop" False =<< boolAt "dparaopen" answer
+        assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
+        echoIs "and it names the grain inside" "RET \8594 f enters the table" answer
 
     -- ORG'S CHECKBOX on the stop under point, `[-]' checking the way org checks it.
   , testCase "SPC toggles a checkbox item and writes the box alone" $ do
@@ -3987,22 +3974,18 @@ sheetSpec shell =
         assertEqual "the flag is still there" [3] =<< flaggedOf answer
         assertEqual "and nothing was written" ([] :: [Value]) =<< listAt "writes" answer
 
-    -- AND `x' IS THE SAME GESTURE HERE: `flagPress' is the one door for the sheet's four surfaces.
-  , testCase "x over the document asks before it splices" $ do
+    -- AND `x' IS THE SAME GESTURE HERE: `flagPress' is the one door for the
+    -- sheet's four surfaces.  It splices the flagged elements AT ONCE, no ask --
+    -- an element delete is a recoverable trash move, so the flag is the
+    -- confirmation (mirrors c880831's table-view `x').
+  , testCase "x over the document splices the flagged elements at once" $ do
       insheet shell "press:f press:n press:n press:d press:x" $ \answer -> do
-        assertEqual "nothing written on the press alone" ([] :: [Value])
-          =<< listAt "writes" answer
-        assertEqual "the question is up" "on" =<< textAt "prompt" answer
-        assertEqual "naming the act and how many" "delete · 1 flagged"
-          =<< textAt "phead" answer
-      insheet shell "press:f press:n press:n press:d press:x type:yes press:Enter" $ \answer ->
-        assertEqual "and the word splices it out"
+        assertEqual "the flagged element spliced out at once, no ask"
                     ["* TODO one\nsecond para\n** two\nchild body\n"]
           =<< traverse (textAt "body") =<< listAt "writes" answer
-      insheet shell "press:f press:n press:n press:d press:x type:no press:Enter" $ \answer -> do
-        assertEqual "anything else writes nothing" ([] :: [Value])
-          =<< listAt "writes" answer
-        assertEqual "and the flag stands" [3] =<< flaggedOf answer
+        assertEqual "nothing asked" "" =<< textAt "prompt" answer
+        assertEqual "and the flag is spent" [] =<< flaggedOf answer
+        echoIs "the pill counted the set" "D \8594 org-delete-element (1 flagged taken)" answer
       insheet shell "press:f press:x" $ \answer -> do
         assertEqual "nothing flagged is nothing to do" ([] :: [Value])
           =<< listAt "writes" answer
@@ -4091,8 +4074,10 @@ sheetSpec shell =
              "press:f press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $
         assertEqual "opened once, and read again on the answer"
                     ["r1", "r1"] <=< textsAt "readAt"
+      -- The child's own body: `f' into it, past its meta line and its
+      -- always-shown properties drawer, to the paragraph.
       insheet shell
-             (ontoChild <> " press:Enter press:f press:n press:Enter"
+             (ontoChild <> " press:Enter press:f press:n press:n press:Enter"
                 <> " dpara:reworded press:C-x press:C-s") $
         assertEqual "the row, the child, and the child again"
                     ["r1", "r1#0", "r1#0"] <=< textsAt "readAt"
@@ -4168,7 +4153,7 @@ sheetSpec shell =
 
     -- A CHILD'S OWN PARTS are editable through the lens that materialized it, at that entry's extent.
   , keyed shell "a child's paragraph writes the child's own extent"
-      "Enter" (ontoChild <> " press:Enter press:f press:n press:Enter"
+      "Enter" (ontoChild <> " press:Enter press:f press:n press:n press:Enter"
                 <> " dpara:reworded press:C-x press:C-s") $ \answer -> do
         assertEqual "aimed at the entry, not the row" ["r1#0"]
           =<< textsAt "wroteAt" answer
@@ -6594,10 +6579,17 @@ tierSweep shell = testCase "every popup wears one size tier, and declares none" 
                   , nz n `T.isInfixOf` np ]
   assertContainsCss "every backdrop anchors its top, and none centres"
                  "padding-top:var(--g-pop-top);" page
-  assertEqual "a backdrop that centres, or anchors at a line of its own" []
-              [ n | n <- ["align-items:center;justify-content:center"
-                        , "padding-top:15vh", "padding-top:12vh", "padding-top:8vh" ]
+  assertEqual "no backdrop anchors at a hardcoded line of its own" []
+              [ n | n <- ["padding-top:15vh", "padding-top:12vh", "padding-top:8vh" ]
                   , nz n `T.isInfixOf` np ]
+  -- THE ONE BOX THAT CENTRES BOTH AXES is the drawer's clickable `.fold' sign, a
+  -- 12px glyph centring its `+'/`−' — no backdrop.  A backdrop that centred would
+  -- show a SECOND occurrence, which is the regression this still guards against.
+  let centred = "align-items:center;justify-content:center"
+  assertBool "the drawer's fold sign centres its glyph"
+             (any (centred `T.isInfixOf`) (rulesIn ".fold" np))
+  assertEqual "and nothing but that glyph centres both axes, so no backdrop does"
+              1 (length (T.breakOnAll centred np))
   mapM_ (\needle -> assertContainsCss "a tier bounded by the anchor's room" needle page)
         [ ".pop-band{width:min(560px,100%);max-height:var(--g-pop-max)}"
         , ".pop-sheet{width:min(80vw,100%);height:var(--g-pop-max)}" ]
@@ -8909,6 +8901,97 @@ loneMissingId cmd (order, outcomes) (moved, named) =
       r <- ok =<< postTo a "/command" cmd
       assertEqual order outcomes =<< outcomesOf r
       assertContains moved named =<< document path
+
+-- | A JSON-RPC request over @\/mcp@, id 1.
+mcpPost :: Application -> T.Text -> Value -> IO SResponse
+mcpPost a method params = postTo a "/mcp"
+  (encode (object ["jsonrpc" .= ("2.0" :: T.Text), "id" .= (1 :: Int)
+                  , "method" .= method, "params" .= params]))
+
+-- | The JSON a tool answered, parsed out of @result.content[0].text@.
+toolContent :: SResponse -> IO Value
+toolContent r = do
+  result <- field "result" =<< decoded r
+  block <- listAt "content" result
+  case block of
+    (b : _) -> do
+      t <- textAt "text" b
+      either (assertFailure . ("tool content JSON: " <>)) pure
+             (eitherDecode (BL.fromStrict (TE.encodeUtf8 t)))
+    [] -> assertFailure "a tool answered with no content"
+
+mcpSpec :: TestTree
+mcpSpec = testGroup "POST /mcp"
+  [ testCase "the write tools are exactly the command verbs" $
+      assertEqual "an MCP write tool per POST /command verb, and no more"
+                  (sort commandNames) (sort mcpWriteToolNames)
+
+  , testCase "initialize answers with glance's server info" $ do
+      a <- app assetsDir
+      v <- field "result" =<< decoded
+             =<< mcpPost a "initialize" (object ["protocolVersion" .= ("2024-11-05" :: T.Text)])
+      assertEqual "the version the client asked is echoed" "2024-11-05"
+        =<< textAt "protocolVersion" v
+      name <- field "serverInfo" v >>= textAt "name"
+      assertEqual "the server names itself" "glance" name
+
+  , testCase "tools/list carries every write verb and both reads" $ do
+      a <- app assetsDir
+      tools <- listAt "tools" =<< field "result" =<< decoded =<< mcpPost a "tools/list" (object [])
+      names <- traverse (textAt "name") tools
+      assertEqual "every write verb and the two reads are listed, once"
+        (sort (commandNames <> ["get-headline", "list-headlines"])) (sort names)
+      mapM_ (\t -> field "inputSchema" t >>= textAt "type"
+                     >>= assertEqual "each tool declares an object schema" "object") tools
+
+  , testCase "an unknown tool is a JSON-RPC error, not a crash" $ do
+      a <- app assetsDir
+      err <- field "error" =<< decoded
+               =<< mcpPost a "tools/call" (object ["name" .= ("no-such-tool" :: T.Text)])
+      assertContains "the message names the miss" "no-such-tool" =<< textAt "message" err
+
+  , testCase "an unknown method is method-not-found" $ do
+      a <- app assetsDir
+      code <- field "error" =<< decoded =<< mcpPost a "frobnicate" (object [])
+      assertEqual "the JSON-RPC method-not-found code" (-32601) =<< intAt "code" code
+
+  , testCase "a notification is acknowledged with no body" $ do
+      a <- app assetsDir
+      r <- postTo a "/mcp" (encode (object [ "jsonrpc" .= ("2.0" :: T.Text)
+                                           , "method" .= ("notifications/initialized" :: T.Text) ]))
+      assertEqual "202 Accepted" 202 (status r)
+      assertEqual "and nothing to answer" "" (simpleBody r)
+
+  , testCase "tools/call set-title runs the command engine and lands on disk" $
+      withCommandable $ \a _hub path _other -> do
+        before <- document path
+        r <- ok =<< mcpPost a "tools/call"
+               (object [ "name" .= ("set-title" :: T.Text)
+                       , "arguments" .= object ["id" .= ("first" :: T.Text)
+                                               , "title" .= ("From MCP" :: T.Text)] ])
+        assertEqual "the call did not error" False =<< boolAt "isError" =<< field "result" =<< decoded r
+        results <- listAt "results" =<< toolContent r
+        assertEqual "the row landed" [("first", True)]
+          =<< traverse (\v -> (,) <$> textAt "id" v <*> boolAt "ok" v) results
+        assertEqual "the title on disk is the one MCP set"
+                    (T.replace "* NEXT First" "* NEXT From MCP" before) =<< document path
+
+  , testCase "tools/call list-headlines reads the tree through the query view" $ do
+      a <- app assetsDir
+      r <- ok =<< mcpPost a "tools/call"
+             (object ["name" .= ("list-headlines" :: T.Text), "arguments" .= object []])
+      assertEqual "a read is no error" False
+        =<< boolAt "isError" =<< field "result" =<< decoded r
+      rows <- listAt "rows" =<< toolContent r
+      assertBool "the view answers rows" (not (null rows))
+
+  , testCase "tools/call get-headline with no id is surfaced as an error" $ do
+      a <- app assetsDir
+      r <- ok =<< mcpPost a "tools/call"
+             (object ["name" .= ("get-headline" :: T.Text), "arguments" .= object []])
+      assertEqual "the missing-id refusal rides isError" True
+        =<< boolAt "isError" =<< field "result" =<< decoded r
+  ]
 
 commandSpec :: TestTree
 commandSpec = testGroup "POST /command"

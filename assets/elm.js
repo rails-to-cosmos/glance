@@ -13284,7 +13284,8 @@ var $author$project$Doc$viewPlanning = function (m) {
 							$elm$html$Html$span,
 							_List_fromArray(
 								[
-									$elm$html$Html$Attributes$class('dk')
+									$elm$html$Html$Attributes$class(
+									(value === '') ? 'dk dunset' : 'dk')
 								]),
 							_List_fromArray(
 								[

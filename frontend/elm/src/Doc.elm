@@ -1933,13 +1933,9 @@ viewPlanning m =
     List.concat
         (List.indexedMap
             (\i ( key, value ) ->
-                [ text
-                    (if i == 0 then
-                        ""
-                     else
-                        " "
-                    )
-                , span [ class "dk" ]
+                [ text (if i == 0 then "" else " ")
+                , span
+                    [ class (if value == "" then "dk dunset" else "dk") ]
                     [ text key, span [ class "dpunc" ] [ text ":" ] ]
                 , text " "
                 , span

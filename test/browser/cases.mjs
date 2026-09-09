@@ -181,6 +181,37 @@ const editUp = (p, why) =>
   p.until(() => document.getElementById("dpara").classList.contains("on"),
           why || "the edit to open");
 
+/** An ADD-DRAFT open AND its lead SEEDED into the mirror.  `+' pushes the `D'
+ * row a macrotask behind the box, and `seedInsert' fills the lead (and the box)
+ * a macrotask behind THAT: a `drawnLead' read or a keystroke in that window sees
+ * a null lead or is clobbered by the late seed (the "- [ ] i" drop).  `lead' is
+ * `undefined' until the seed runs and a string after, so it gates both. */
+const draftUp = (p, why) => p.until(() => {
+  const box = document.getElementById("dpara");
+  const e = window.__glance && window.__glance.editor();
+  return box.classList.contains("on") && !!e && e.lead != null && e.drawnLead != null;
+}, why || "the draft to open and seed its lead");
+
+/** PUT A PLANNING SLOT BACK to unset, through the widget's own door: summon it
+ * over KEY, empty the field, commit -- `dateKey' takes an empty value as a CLEAR
+ * (20-sheet.js:1390), so `set-planning' writes a null date.  The wait reads the
+ * SERVER, so it confirms the clear whatever the pane's own redraw does; a write
+ * case calls it so its fixture is the bytes it was for the next run. */
+async function clearSlot(p, row, key) {
+  await p.press("C-c");
+  await p.press(key === "DEADLINE" ? "C-d" : "C-s");
+  await widgetUp(p, `the widget to clear ${key} back to unset`);
+  await p.eval(() => {
+    const f = document.getElementById("dwhen");
+    f.value = "";
+    f.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await p.press("RET");
+  await p.until(async (r) =>
+    ((await (await fetch(`/headline?id=${r}`)).json()).planning || []).length === 0,
+    `${key} to clear back to none`, 15000, row);
+}
+
 /** The pair box open over its drawn row, which the box needs to be placed on. */
 const pairUp = (p, why) =>
   p.until(() => document.getElementById("dpair").classList.contains("on")
@@ -206,8 +237,13 @@ const boxPlaced = (p, why) =>
     const b = document.getElementById("dpara");
     const at = document.querySelector("#mdoc .de.dat");
     if (!b || !b.classList.contains("on") || !at) return false;
-    const h = b.getBoundingClientRect().height;
-    return h > 0 && Math.abs(h - at.getBoundingClientRect().height) < 1;
+    // The box covers its row EDGE TO EDGE.  `placeEdit' lands a frame behind the
+    // open and under full-suite load a geometry read can beat the horizontal
+    // placement, so wait for height AND left AND width to sit on the row before
+    // any rect is measured -- not the height alone, which lands first.
+    const br = b.getBoundingClientRect(), ar = at.getBoundingClientRect();
+    return br.height > 0 && Math.abs(br.height - ar.height) < 1
+      && Math.abs(br.left - ar.left) < 1 && Math.abs(br.width - ar.width) < 1;
   }, why || "the box to be placed over its row");
 
 /** Down to an item that has rows drawn inside it. */
@@ -488,6 +524,57 @@ export default [
       + `${JSON.stringify(one.sched.text)} beside an unset DEADLINE`];
   } },
 
+// AN UNSET PLANNING SLOT READS AS DIM AS AN EMPTY DRAWER.  A bare PROPERTIES
+// drawer drops to `--g-point-off' (furniture nobody is reading, page.css `.de.
+// d-drawer.bare'); an unset `SCHEDULED: <unset>' must match it -- key, colon and
+// value alike -- not stand a tone brighter in `--g-point'.  `drv-unset-none'
+// carries both: two unset slots and a drawer holding only the hidden
+// ORG_GLANCE_ID, so it renders `.bare' with its `.dg' frame at --g-point-off.
+{ name: "an unset planning slot reads as dim as an empty drawer",
+  async run(p, base) {
+    await sheet(p, base, "drv-unset-none");
+    await settled(p, "the no-planning sheet");
+    const seen = await p.eval(() => {
+      // Resolve a token to rgb IN the pane, so the compare is colour to colour.
+      const probe = (v) => {
+        const s = document.createElement("span");
+        s.style.color = `var(${v})`;
+        document.getElementById("mdoc").appendChild(s);
+        const c = getComputedStyle(s).color;
+        s.remove();
+        return c;
+      };
+      const dim = probe("--g-point-off"), bright = probe("--g-point");
+      const sched = document.querySelector('#mdoc .dpv[data-key="SCHEDULED"]');
+      const key = sched.previousElementSibling;       // the `.dk' keyword span
+      const colon = key.querySelector(".dpunc");
+      const val = sched.querySelector(".dpunset");
+      const bare = document.querySelector("#mdoc .de.d-drawer.bare");
+      const bareTok = bare && bare.querySelector(".dg");
+      return {
+        dim, bright, hasBare: !!bare, hasBareTok: !!bareTok,
+        keyColor: getComputedStyle(key).color,
+        colonColor: colon ? getComputedStyle(colon).color : null,
+        valColor: getComputedStyle(val).color,
+        bareColor: bareTok ? getComputedStyle(bareTok).color : null,
+      };
+    });
+    assert(seen.hasBare && seen.hasBareTok,
+      `drv-unset-none drew no bare drawer frame to match against: ${JSON.stringify(seen)}`);
+    assert(seen.bareColor === seen.dim,
+      `the empty drawer frame reads ${seen.bareColor}, not the dim --g-point-off ${seen.dim}`);
+    // THE UNSET SLOT DIMS WHOLE: key, its colon, and the `<unset>' value all drop
+    // to the empty drawer's --g-point-off, never the brighter --g-point.
+    assert(seen.keyColor === seen.dim,
+      `the unset SCHEDULED key reads ${seen.keyColor}, the drawer dim is ${seen.dim} (bright is ${seen.bright})`);
+    assert(seen.colonColor === seen.dim,
+      `the unset SCHEDULED colon reads ${seen.colonColor}, not the drawer dim ${seen.dim}`);
+    assert(seen.valColor === seen.dim,
+      `the unset SCHEDULED value reads ${seen.valColor}, not the drawer dim ${seen.dim}`);
+    return [`unset slot key/colon/value ${seen.keyColor} match the empty drawer `
+      + `${seen.bareColor} at --g-point-off (bright would be ${seen.bright})`];
+  } },
+
 // AND AN UNSET SLOT IS EDITABLE END TO END: a click selects that entry, RET
 // opens the date widget over it, and committing WRITES the keyword -- a headline
 // that had no planning line at all gains one.
@@ -600,9 +687,20 @@ export default [
     await sheet(p, base, "drv-roll");
     await walkToText(p, "a leaf with no children", "a list item");
     await p.press("+");                                    // draft a sibling item
-    await p.until(() => !!document.querySelector("#dpara.on")
-      && document.activeElement === document.getElementById("dtext"), "the draft, focused");
+    // The box opens focused, but `seedInsert' fills the lead a MACROTASK later
+    // and would CLOBBER a keystroke typed into the gap (dropping the `h' of
+    // "hi").  Wait for the seed, then type, then wait for BOTH chars to land.
+    await p.until(() => {
+      const e = window.__glance && window.__glance.editor();
+      return !!document.querySelector("#dpara.on")
+        && document.activeElement === document.getElementById("dtext")
+        && !!e && e.lead != null;
+    }, "the draft, focused and seeded");
     await p.typeKeys("hi");                                // real keystrokes
+    await p.until(() => {
+      const e = window.__glance && window.__glance.editor();
+      return !!e && (e.dtext || "").includes("hi");
+    }, "both typed chars to reach the box");
     const st = await p.editorState();
     assert(st && typeof st.caret === "number",
       `editorState gave no caret offset: ${JSON.stringify(st)}`);
@@ -638,7 +736,7 @@ export default [
     }
     assert(reached, "the walk never reached the nested list item C0:B2");
     await p.press("+");
-    await p.until(() => !!document.querySelector("#dpara.on"), "the nested-list draft");
+    await draftUp(p, "the nested-list draft to open and seed its bullet");
     const st = await p.editorState();
     assert((st.drawnLead || "").trimStart().startsWith("-"),
       `the nested list item drew no bullet: lead=${JSON.stringify(st.drawnLead)}`);
@@ -668,7 +766,7 @@ export default [
       await walkToText(p, text, `the item "${text}"`);
       await settled(p, "the mirror before +");
       await p.press("+");
-      await p.until(() => !!document.querySelector("#dpara.on"), "the draft to open");
+      await draftUp(p, "the draft to open and seed its bullet");
       return (await p.editorState()).drawnLead || "";
     };
     const root = await leadAt("a plain root item");
@@ -715,6 +813,10 @@ export default [
       await walkToText(p, text, `the box "${text}"`);
       await settled(p, "the mirror before SPC");
       await p.press("SPC");
+      // The box flips ON in the DOM a MACROTASK BEFORE the toggle's echo lands,
+      // so a read the instant the box flips catches the walk's stale `n' echo.
+      // Wait for BOTH the box on AND the toggle's own echo -- the echo is what
+      // the assertion below reads.
       await p.until((t) => {
         const box = [...document.querySelectorAll("#mdoc .d-item")].find((e) => {
           const l = e.querySelector(":scope > .dp");
@@ -722,8 +824,9 @@ export default [
         });
         const l = box && box.querySelector(":scope > .dp");
         const bx = l && l.querySelector(":scope > .dbx");
-        return !!bx && bx.classList.contains("on");
-      }, `the box "${text}" to flip on`, 12000, text);
+        return !!bx && bx.classList.contains("on")
+          && /org-toggle-checkbox/.test(document.getElementById("echo").textContent);
+      }, `the box "${text}" to flip on and echo its toggle`, 12000, text);
       return p.eval(() => document.getElementById("echo").textContent);
     };
     const root = await tickAt("a root box the reader has not ticked");
@@ -3762,30 +3865,35 @@ export default [
       + ` (${cell.over}px past the column), and the click opened `
       + `${JSON.stringify(clicked.head)} over ${clicked.tags.length} tags`];
   } },
-{ name: "the date widget stands in the value's own slot, and the phrase lands whole",
+// ===================================================================
+// THE DATE WIDGET, ONE BEHAVIOUR PER CASE.  The 300-line monolith split so no
+// single async chain gates them all; each opens its OWN fixture (`drv-plan' for
+// the two read-only cases, a `dates.org' row each for the rest), and the two
+// that write clear the slot back through the same door so the tree stays
+// byte-identical.  THE PURE GRAMMAR -- which day "18 aug"/"[today]" resolves to,
+// the S-<right> day arithmetic -- is deterministic and lives in the FAST suite
+// (test/TestServe.hs `the ghost previews...' and `the shifted arrows adjust...',
+// which drive the glue's own date reader); the browser keeps ONE integration
+// round-trip and the pixel/geometry facts no unit test can see.
+{ name: "the date widget opens in the value's slot, wholly selected, and paints the selection",
   async run(p, base) {
-    const served = (id) => p.eval(async (row) => {
-      const h = await (await fetch(`/headline?id=${row}`)).json();
-      return { plan: h.planning || [], props: h.properties || [] };
-    }, id);
-    /** The planning line as the pane DREW it, or `""' where the row has none. */
     const planLine = () => p.eval(() => {
       const at = document.querySelector('#mdoc .de[data-id="PLN"]');
       return at ? at.textContent : "";
     });
-
-    // ------- over a value that stands: the entry comes up WHOLLY SELECTED.
     await sheet(p, base, "drv-plan");
+    await settled(p);
     const wasLine = await planLine();
-    const stood = ((await served("drv-plan")).plan
-      .find(([k]) => k === "DEADLINE") || [])[1];
+    const stood = await p.eval(async () => {
+      const h = await (await fetch("/headline?id=drv-plan")).json();
+      return ((h.planning || []).find(([k]) => k === "DEADLINE") || [])[1];
+    });
     assert(!!stood, "drv-plan carries no DEADLINE for the widget to open over");
     // A SELECTION IS A THING THE READER SEES, and no engine paints one in a
-    // document without the focus: a rung that skipped this would go green over
-    // a screen showing nothing.
+    // document without the focus: a rung that skipped this would go green over a
+    // screen showing nothing.
     assert(await p.eval(() => document.hasFocus()),
       "the driven page has no focus, so nothing below could prove a selection");
-    await settled(p);
     await p.press("C-c");
     await p.press("C-d");
     await widgetUp(p, "the widget over the DEADLINE value");
@@ -3812,16 +3920,15 @@ export default [
     assert(open.ghost === "",
       `the ghost said ${JSON.stringify(open.ghost)} over org's own spelling`);
     // THE TWO GOLDS, AND WHY ONE GOES.  `--g-sel' is the cursor row's wash AND
-    // every field's text selection; the widget stands INSIDE that row rather
-    // than covering it, so the box carries the pane's own edit ground and the
-    // row lifts its wash while one is open.
+    // every field's text selection; the widget stands INSIDE that row rather than
+    // covering it, so the box carries the pane's own edit ground and the row lifts
+    // its wash while one is open.
     assert(open.ground === open.surface,
       `the widget's ground is ${open.ground}, not the pane's ${open.surface}`);
     assert(/rgba\(0, 0, 0, 0\)|transparent/.test(open.rowWash),
       `the row at point still wears ${open.rowWash} under an open widget`);
-
-    // …AND THE SELECTION IS PAINTED.  Read in PIXELS, because "set" and "seen"
-    // are two claims: the same frame with the caret collapsed differs across the
+    // …AND THE SELECTION IS PAINTED.  Read in PIXELS, because "set" and "seen" are
+    // two claims: the same frame with the caret collapsed differs across the
     // value, and what differs is the palette's own selection wash.
     const on = await p.paint();
     await p.eval(() => {
@@ -3829,10 +3936,9 @@ export default [
       f.setSelectionRange(f.value.length, f.value.length);
     });
     // THE COLLAPSE IS WAITED FOR, not assumed: a capture can land before the
-    // engine draws it, and two identical frames would read as a selection
-    // never seen.  A selection truly invisible stays identical past the cap
-    // and fails below exactly as it should (the caret's return is too few
-    // pixels to pass the fifth of the field the assert wants).
+    // engine draws it, and two identical frames would read as a selection never
+    // seen.  A selection truly invisible stays identical past the cap and fails
+    // below exactly as it should.
     let off = await p.paint();
     for (let turn = 0; turn < 25 && on.differs(open.box, off) === 0; turn += 1)
       off = await p.paint();
@@ -3846,20 +3952,33 @@ export default [
     assert(wash > area * 0.15,
       `only ${wash}/${area}px of the field wear ${open.wash} `
       + "— the value does not visibly carry the selection wash");
-
     // ESC CANCELS THE INPUT WHOLE, and the line is the bytes it was.
     await p.press("ESC");
     await p.until(() => !document.getElementById("ddate").classList.contains("on"),
                   "ESC to take the widget");
-    const backTo = await planLine();
-    assert(backTo === wasLine,
-      `the cancelled line reads ${JSON.stringify(backTo)} against ${JSON.stringify(wasLine)}`);
+    assert((await planLine()) === wasLine,
+      `the cancelled line reads differently than ${JSON.stringify(wasLine)}`);
+    return [`opened on ${JSON.stringify(open.val)} selected 0..${open.sel[1]}, `
+      + `${diff}/${area}px of the field repainted, ${wash} wearing ${open.wash}`];
+  } },
 
-    // ------- THE OTHER SUMMON KEY SWITCHES THE BOX THAT STANDS.  Two rungs in
-    // one, and only a real engine has both: the entry comes up WHOLLY SELECTED
-    // and a live selection is what makes `C-c' a copy, so the chord has to
-    // PREFIX over a virgin widget at all; and what it opens is the ASKED
-    // keyword's slot, the standing box having left exactly as ESC takes it.
+{ name: "the date widget's switch key swaps to the other slot, over that slot's geometry",
+  async run(p, base) {
+    const planLine = () => p.eval(() => {
+      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
+      return at ? at.textContent : "";
+    });
+    const valOf = (key) => p.eval(async (k) => {
+      const h = await (await fetch("/headline?id=drv-plan")).json();
+      return ((h.planning || []).find(([kk]) => kk === k) || [])[1];
+    }, key);
+    await sheet(p, base, "drv-plan");
+    await settled(p);
+    const wasLine = await planLine();
+    const stood = await valOf("DEADLINE");
+    // THE OTHER SUMMON KEY SWITCHES THE BOX THAT STANDS.  The entry comes up
+    // WHOLLY SELECTED and a live selection is what makes `C-c' a copy, so the
+    // chord has to PREFIX over a virgin widget at all.
     await p.press("C-c");
     await p.press("C-d");
     await widgetUp(p, "the DEADLINE widget again, to switch out of");
@@ -3874,8 +3993,8 @@ export default [
       `it opened selecting ${virgin.sel[0]}..${virgin.sel[1]} of ${virgin.val.length}`);
     await p.press("C-c");
     await p.press("C-s");
-    // THE FILL IS SYNCHRONOUS WITH THE PRESS, so this races nothing: a chord
-    // that died leaves the DEADLINE box standing and is read here as its value.
+    // THE FILL IS SYNCHRONOUS WITH THE PRESS, so this races nothing: a chord that
+    // died leaves the DEADLINE box standing and is read here as its value.
     const swapped = await p.until(() => {
       const box = document.getElementById("ddate");
       const f = document.getElementById("dwhen");
@@ -3883,8 +4002,7 @@ export default [
       return box.classList.contains("on") && document.activeElement === f && line
         ? { val: f.value, line: line.textContent } : false;
     }, "a widget still standing after the second chord");
-    const wantSched = ((await served("drv-plan")).plan
-      .find(([k]) => k === "SCHEDULED") || [])[1];
+    const wantSched = await valOf("SCHEDULED");
     assert(swapped.val === wantSched,
       `the switched widget holds ${JSON.stringify(swapped.val)} where SCHEDULED `
       + `reads ${JSON.stringify(wantSched)}`);
@@ -3893,8 +4011,8 @@ export default [
       `the switched-over line reads ${JSON.stringify(swapped.line)} against `
       + JSON.stringify(wasLine));
     // …AND IT STANDS IN THE SLOT IT NOW WRITES.  RELATIVE GEOMETRY, and WAITED
-    // FOR: `placeEdit' lands a frame behind the switch, so a rect read once
-    // would still measure the slot the box just left.
+    // FOR: `placeEdit' lands a frame behind the switch, so a rect read once would
+    // still measure the slot the box just left.
     const placed = await p.until(() => {
       const slot = document.querySelector('#mdoc .dpv[data-key="SCHEDULED"]');
       if (!slot) return false;
@@ -3906,12 +4024,20 @@ export default [
     await p.press("ESC");
     await p.until(() => !document.getElementById("ddate").classList.contains("on"),
                   "ESC to take the switched widget");
+    return [`C-c C-d then C-c C-s switched to ${JSON.stringify(swapped.val)}, `
+      + `${placed.off}px off the SCHEDULED slot, writing nothing`];
+  } },
 
-    // ------- over a row with NO planning IN THE FILE: both settable slots stand
-    // unset from the start, and the summon opens the widget over SCHEDULED.
-    await sheet(p, base, "drv-prio");
-    const before = await served("drv-prio");
-    assert(before.plan.length === 0, "drv-prio already carries planning in the file");
+{ name: "a typed date phrase commits through the server onto the file",
+  async run(p, base) {
+    const ROW = "drv-date-phrase";
+    const served = () => p.eval(async (r) => {
+      const h = await (await fetch(`/headline?id=${r}`)).json();
+      return { plan: h.planning || [], props: h.properties || [] };
+    }, ROW);
+    await sheet(p, base, ROW);
+    const before = await served();
+    assert(before.plan.length === 0, `${ROW} already carries planning`);
     await settled(p);
     await p.press("C-c");
     await p.press("C-s");
@@ -3925,19 +4051,18 @@ export default [
     assert(/SCHEDULED:/.test(drawn) && /DEADLINE:/.test(drawn),
       `the drawn line reads ${JSON.stringify(drawn)}`);
     // THE DRAFT JOINS NO LIST: nothing half-typed reaches the file.
-    assert(JSON.stringify((await served("drv-prio")).plan) === "[]",
+    assert(JSON.stringify((await served()).plan) === "[]",
       "the ghosted keyword reached the file before a key was pressed");
-
-    // THE ENGLISH PHRASE RESOLVES IN THE GHOST, before anything is written.
+    // THE ENGLISH PHRASE PREVIEWS IN THE GHOST -- WHICH day it names is the fast
+    // suite's; here the ghost's own stamp is what the file must carry, tying the
+    // client preview to the server's answer.
     await p.type("18 aug");
     const ghost = await p.until(() => {
       const s = document.getElementById("dghost");
       return s.textContent || false;
     }, "the ghost to resolve the phrase");
-    // THE WEEKDAY IS COMPUTED and the year is the clock's, so the SHAPE is what
-    // is read here — and the server's own answer is asserted against it below.
-    assert(/^ → <\d{4}-08-18 (Mon|Tue|Wed|Thu|Fri|Sat|Sun)>$/.test(ghost),
-      `the ghost reads ${JSON.stringify(ghost)}`);
+    assert(/^ → <\d{4}-\d{2}-\d{2} (Mon|Tue|Wed|Thu|Fri|Sat|Sun)>$/.test(ghost),
+      `the ghost reads ${JSON.stringify(ghost)}, not a resolved stamp`);
     // AND IT RIDES THE FIELD'S OWN LINE, one space after what was typed, in the
     // mute ink — a SPAN and never the field's value, so no caret enters it.
     const rides = await p.eval(() => {
@@ -3953,17 +4078,16 @@ export default [
       `the ghost is not riding the field's line: ${JSON.stringify(rides)}`);
     assert(rides.ink === rides.mute, `the ghost is inked ${rides.ink}, not ${rides.mute}`);
     assert(!rides.isField, "the ghost is a field, so the caret can walk into it");
-    // THE FIELD HOLDS WHAT WAS TYPED and never the resolution.
     assert(rides.typed === "18 aug", `the field holds ${JSON.stringify(rides.typed)}`);
-
-    // RET SENDS THE RAW PHRASE; the SERVER resolves it and the pane redraws off
-    // that answer.  What the ghost promised is what the file carries.
+    // RET SENDS THE RAW PHRASE; the SERVER resolves it once and the pane redraws
+    // off that answer.  What the ghost promised is what the file carries -- the
+    // ONE integration round-trip.
     await p.press("RET");
-    const landed = await p.until(async () => {
-      const h = await (await fetch("/headline?id=drv-prio")).json();
+    const landed = await p.until(async (r) => {
+      const h = await (await fetch(`/headline?id=${r}`)).json();
       const at = (h.planning || []).find(([k]) => k === "SCHEDULED");
       return at ? h : false;
-    }, "the phrase to reach the planning line", 15000);
+    }, "the phrase to reach the planning line", 15000, ROW);
     const stamp = (landed.planning.find(([k]) => k === "SCHEDULED") || [])[1];
     assert(ghost === ` → ${stamp}`,
       `the server wrote ${JSON.stringify(stamp)} where the ghost promised `
@@ -3972,57 +4096,79 @@ export default [
     assert(JSON.stringify(landed.properties || []) === JSON.stringify(before.props),
       `the drawer reads ${JSON.stringify(landed.properties)} `
       + `against ${JSON.stringify(before.props)}`);
+    // PUT THE TREE BACK: clear the slot through the same door.
+    await clearSlot(p, ROW, "SCHEDULED");
+    return [`"18 aug" previewed ${JSON.stringify(ghost.trim())} and the server `
+      + `wrote ${JSON.stringify(stamp)}, cleared back to none`];
+  } },
 
-    // ------- THE BRACKET IS THE ASK FOR AN ACTIVITY.  `[today]' is the clock
-    // day INACTIVE — the one way this widget reaches org's other bracket — and
-    // the whole grammar rides inside the pair.  READ RELATIVE TO THE DRIVEN
-    // CLOCK: the server resolves against its own day, so the day is measured
-    // rather than written down, and only the SHAPE is spelled here.
+{ name: "a bracketed [today] commits an inactive stamp the pane redraws",
+  async run(p, base) {
+    const ROW = "drv-date-bracket";
+    await sheet(p, base, ROW);
+    await settled(p);
+    const before = await p.eval(async (r) =>
+      (await (await fetch(`/headline?id=${r}`)).json()).planning || [], ROW);
+    assert(before.length === 0, `${ROW} already carries planning`);
     await p.press("C-c");
     await p.press("C-s");
-    await widgetUp(p, "the widget again, to type a bracketed phrase into");
-    // The entry comes up WHOLLY SELECTED, so what is typed replaces it.
+    await widgetUp(p, "the widget over the unset SCHEDULED slot");
+    // THE BRACKET IS THE ASK FOR AN ACTIVITY: `[today]' is the clock day INACTIVE.
+    // WHICH day it is is the fast suite's; here the ghost's stamp is what lands.
     await p.type("[today]");
     const bracket = await p.until(() => {
       const s = document.getElementById("dghost");
       return s.textContent || false;
     }, "the ghost to resolve the bracketed phrase");
-    const clockDay = await p.eval(() => {
-      const n = new Date(), pad = (x) => (x < 10 ? "0" : "") + x;
-      return `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`;
-    });
-    assert(new RegExp(`^ → \\[${clockDay} (Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\]$`).test(bracket),
-      `the ghost reads ${JSON.stringify(bracket)} over "[today]" on ${clockDay}`);
-    // AND THE INACTIVE STAMP IS WHAT LANDS ON DISK: the raw phrase travelled,
-    // the server resolved it once, and the pane redrew off that answer.
+    assert(/^ → \[\d{4}-\d{2}-\d{2} (Mon|Tue|Wed|Thu|Fri|Sat|Sun)\]$/.test(bracket),
+      `the ghost reads ${JSON.stringify(bracket)}, not an inactive stamp`);
+    // AND THE INACTIVE STAMP IS WHAT LANDS ON DISK.
     await p.press("RET");
-    const inactive = await p.until(async () => {
-      const h = await (await fetch("/headline?id=drv-prio")).json();
+    const inactive = await p.until(async (r) => {
+      const h = await (await fetch(`/headline?id=${r}`)).json();
       const at = (h.planning || []).find(([k]) => k === "SCHEDULED");
       return at && at[1].charAt(0) === "[" ? at[1] : false;
-    }, "the bracketed phrase to reach the planning line as an inactive stamp", 15000);
+    }, "the bracketed phrase to reach the planning line as an inactive stamp", 15000, ROW);
     assert(bracket === ` → ${inactive}`,
       `the server wrote ${JSON.stringify(inactive)} where the ghost promised `
       + JSON.stringify(bracket));
-    // …AND THE PANE DREW THE BYTES: `SCHEDULED: [YYYY-MM-DD Day]' on the line.
-    const inactiveLine = await p.until(() => {
+    // …AND THE PANE REDRAWS IT: `SCHEDULED: [YYYY-MM-DD Day]' on the line.
+    const line = await p.until(() => {
       const at = document.querySelector('#mdoc .de[data-id="PLN"]');
       return at && at.textContent.indexOf("[") !== -1 ? at.textContent : false;
-    }, "the pane to redraw the inactive stamp");
-    assert(inactiveLine.indexOf(`SCHEDULED: ${inactive}`) !== -1,
-      `the line reads ${JSON.stringify(inactiveLine)} against ${JSON.stringify(inactive)}`);
+    }, "the pane to redraw the inactive stamp", 15000);
+    assert(line.indexOf(`SCHEDULED: ${inactive}`) !== -1,
+      `the line reads ${JSON.stringify(line)} against ${JSON.stringify(inactive)}`);
+    // PUT THE TREE BACK.
+    await clearSlot(p, ROW, "SCHEDULED");
+    return [`"[today]" landed ${JSON.stringify(inactive)} and the pane drew it, `
+      + `cleared back to none`];
+  } },
 
-    // ------- THE WALK MOVES THE DAY AND NOTHING ELSE.  Shift+Arrow is a real
-    // engine's chord and reaches this box nowhere else: the step carries the day
-    // and leaves org's BRACKET standing, where a bare ISO written back would
-    // drop the inactive intent the reader just spelled.  The day is COMPUTED off
-    // what landed, the clock being the driven machine's.
+{ name: "S-<right> walks the widget's day, keeps org's bracket, and ESC writes nothing",
+  async run(p, base) {
+    const ROW = "drv-date-walk";
+    const planLine = () => p.eval(() => {
+      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
+      return at ? at.textContent : "";
+    });
+    await sheet(p, base, ROW);
+    await settled(p);
+    const wasLine = await planLine();
+    const inactive = await p.eval(async (r) => {
+      const h = await (await fetch(`/headline?id=${r}`)).json();
+      return ((h.planning || []).find(([k]) => k === "SCHEDULED") || [])[1];
+    }, ROW);
+    assert(inactive && inactive.charAt(0) === "[",
+      `${ROW} carries no inactive SCHEDULED to walk: ${JSON.stringify(inactive)}`);
     await p.press("C-c");
     await p.press("C-s");
     await widgetUp(p, "the widget over the inactive stamp, to walk it");
     const stoodOn = await p.eval(() => document.getElementById("dwhen").value);
     assert(stoodOn === inactive,
       `the walk opens over ${JSON.stringify(stoodOn)}, not ${JSON.stringify(inactive)}`);
+    // THE WALK MOVES THE DAY AND NOTHING ELSE, keeping org's BRACKET.  The day is
+    // COMPUTED off what stood -- the arithmetic itself is the fast suite's.
     const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const pad = (x) => (x < 10 ? "0" : "") + x;
     const then = new Date(`${inactive.slice(1, 11)}T00:00:00Z`);
@@ -4046,19 +4192,10 @@ export default [
     await p.press("ESC");
     await p.until(() => !document.getElementById("ddate").classList.contains("on"),
                   "ESC to take the walked widget");
-    const afterWalk = await planLine();
-    assert(afterWalk === inactiveLine,
-      `the cancelled walk left ${JSON.stringify(afterWalk)} against `
-      + JSON.stringify(inactiveLine));
-    return [`opened on ${JSON.stringify(open.val)} selected 0..${open.sel[1]}, `
-      + `${diff}/${area}px of the field repainted and ${wash} wearing ${open.wash}; `
-      + `C-c C-s over it switched to ${JSON.stringify(swapped.val)} `
-      + `${placed.off}px off the SCHEDULED slot; `
-      + `the slot drawn as ${JSON.stringify(drawn.trim())}, "18 aug" previewed `
-      + `${JSON.stringify(ghost.trim())} and landed ${JSON.stringify(landed.planning)} `
-      + `over ${JSON.stringify(landed.properties)}; "[today]" previewed `
-      + `${JSON.stringify(bracket.trim())} and landed ${JSON.stringify(inactive)}; `
-      + `S-<right> walked it to ${JSON.stringify(walked.val)}`];
+    assert((await planLine()) === wasLine,
+      `the cancelled walk left the line changed against ${JSON.stringify(wasLine)}`);
+    return [`opened on ${JSON.stringify(inactive)}, S-<right> walked it to `
+      + `${JSON.stringify(walked.val)}, ESC wrote nothing`];
   } },
 
 // ORG SCHEDULES THE ENTRY AT POINT, AND THE STAMP LANDS ON THAT ENTRY.  Two
@@ -4982,12 +5119,21 @@ export default [
     await p.press("b");  // cell -> whole row (no column)
     await colIs(null, "the whole-row state before +");
     await p.press("+");
+    // The row-add WRITES and re-materializes with fresh ids (the optimistic draft
+    // row `D' becomes a committed leaf).  WAIT FOR THAT COMMIT before the column
+    // add: a `+' fired while the re-read is in flight is dropped, so pressing it
+    // against the settled table is what makes the column add deterministic.
     await p.until(() =>
-      document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length === 4,
-      "a blank row to be added");
-    // ADD A COLUMN: into a cell (a column selected, wait for it), +.
-    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
-    await p.until((w) => docAtNow() === w, "point back on the cell", undefined, id);
+      document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length === 4
+      && !document.querySelector('#mdoc glance-table tbody tr[data-id="D"]'),
+      "the added row to commit with a fresh id");
+    // ADD A COLUMN: re-find the row (its id is fresh after the write), into a
+    // cell (a column selected, wait for it), +.
+    const rowId = await p.eval(() =>
+      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+        .find((x) => x.textContent.includes("Molenweg")).dataset.id);
+    await p.click(`#mdoc glance-table tbody tr[data-id="${rowId}"] td:first-child`);
+    await p.until((w) => docAtNow() === w, "point back on the cell", undefined, rowId);
     await colIs(0, "a column selected before +");
     await p.press("+");
     await p.until(() =>

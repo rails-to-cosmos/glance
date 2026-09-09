@@ -1,0 +1,39 @@
+#+TITLE: glance — our tasks
+#+TODO: TODO NEXT WAITING | DONE CANCELLED
+
+Deferred work, one headline a task.  Close it with DONE when it lands.  Opened
+during the MCP + doc-pane session (2026-09-08).
+
+* TODO Sweep the Elm sources to CODESTYLE.md
+Bring every =frontend/elm/src/*.elm= to [[file:../frontend/elm/CODESTYLE.md]]:
+collapse short multi-line =if= / =let= / =case= and top-level defs to one line
+where the whole thing fits (~100 columns) and each branch is one simple
+expression — a literal, a variable, one application.  The rule already lives in
+CODESTYLE.md; this is enforcement across the tree, not a new rule.
+
+Cosmetic: the Elm compiler emits byte-identical =assets/elm.js=, so after
+=make elm= confirm =git diff --stat assets/elm.js= is empty, per file.
+
+Already collapsed in =Doc.elm=: the planning-slot separator and the =.dk dunset=
+class (both were violations, one pre-existing, one from the unset-colour fix).
+
+* TODO Fix the selected-row repaint artifact when a column is selected
+See [[file:bugs/open/2026-09-08-a-selected-row-repaints-with-artifacts-when-a-column-is-selected.md]].
+The row band (=tr=) and the translucent column / crossing bands (=td=) both
+transition background on an =n=/=p= move, so the two stacked crossfades
+mis-compose at the crossing cell.  Fix in the widget source
+=../table-view/web/table-view.js=, vendor with =make sync-renderer=.  A
+screenshot diff across the move is the oracle — the artifact is transient paint.
+
+* TODO MCP stage 3 — a daemon-aware =glance mcp=
+See [[file:proposals/proposed/2026-09-08-the-commands-are-mcp-tools.md]].  Stage 1
+(=POST /mcp=) and stage 2 (=glance mcp= stdio) are done and green.  Stage 3: when
+=/status= says a daemon already owns the tree, proxy to its =/mcp= instead of
+booting a second store — folds the two-writer stale-view risk away.
+
+* TODO Review and commit the session's stack
+MCP stage 1 + 2, the doc-pane batch (9 stale TestServe cases aligned to the
+mount model, case 84 and 15 fixed, case 70 split into 5, the retry defect fixed,
+the unset-planning colour bug), the Elm one-liners, and the repaint-bug file.
+All four gates green: cabal 2276, elm 189, browser 96, AGENTS 0.  Nothing
+committed yet.

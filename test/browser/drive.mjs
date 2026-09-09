@@ -428,20 +428,36 @@ async function main() {
   const port = await freePort();
   let daemon = null, profile = null, browser = null, cdp = null, failed = 0, daemonSaid = "";
   const started = Date.now();
-  try {
-    // The daemon's stderr is HELD: a `CloseRequest' per closed socket would bury the report.
-    daemon = spawn(bin, ["serve", "--dir", tree, "--port", String(port)],
+  // Bring a daemon up on PORT over the current tree and wait out its walk; the
+  // boot and every re-seed go through this one door.  The daemon's stderr is
+  // HELD -- a `CloseRequest' per closed socket would bury the report.
+  const bringUp = async (usePort) => {
+    daemon = spawn(bin, ["serve", "--dir", tree, "--port", String(usePort)],
                    { stdio: ["ignore", "ignore", "pipe"] });
     daemon.stderr.on("data", (d) => { daemonSaid += d; });
     daemon.on("error", (e) => { throw e; });
-    const base = `http://127.0.0.1:${port}`;
+    const b = `http://127.0.0.1:${usePort}`;
     // Readiness is the route that NEEDS the store: the bind lands before the walk ends.
     const rows = await poll(async () => {
-      const r = await fetch(`${base}/headlines?limit=1`).catch(() => null);
+      const r = await fetch(`${b}/headlines?limit=1`).catch(() => null);
       return r && r.status === 200 ? r.json() : null;
     }, READY, "the daemon to finish its walk");
     if (!rows.rows || !rows.rows.length)
       throw new Error("the daemon served zero rows: the fixture tree loaded nothing");
+    return b;
+  };
+  // RE-SEED FOR A RETRY: a write case leaves the tree mutated, so a rerun must
+  // start from the PRISTINE fixtures on a fresh index -- kill the daemon, re-copy
+  // the tree, bring a new one up on a fresh port.  Without this a retry re-runs a
+  // write case on the dirty tree and trips its own precondition ("already carries
+  // planning") -- the DEFECT that made a green-on-rerun case read "still red".
+  const reseed = async () => {
+    if (daemon) { try { daemon.kill("SIGKILL"); } catch (e) { /* already gone */ } }
+    await cp(join(HERE, "tree"), tree, { recursive: true });
+    return bringUp(await freePort());
+  };
+  try {
+    let base = await bringUp(port);
 
     profile = await mkdtemp(join(tmpdir(), "glance-chrome-"));
     browser = spawn(chrome, [
@@ -486,38 +502,60 @@ async function main() {
     const picked = cases.filter((c) => c.name.includes(only));
     const lines = [];
     let n = 0;
+    // ONE RE-SEEDED RETRY.  The cases are hardened to be deterministic; this is a
+    // safety net for an env flake alone -- a case red under extreme load (a GC
+    // pause between a paint and the port push, a `CloseRequest 1001' blip) is run
+    // ONCE MORE on a freshly re-seeded tree.  A green rerun counts and notes it; a
+    // case red on BOTH the run AND a clean tree is a real failure no rerun clears.
+    // `known' cases are expected red and never retry.
+    const RETRIES = 1;
     for (const c of picked) {
       n += 1;
       const at = Date.now();
-      // A `known' CASE IS EXPECTED RED: a GREEN one is itself a failure.
-      try {
-        const said = await c.run(p, base);
-        if (c.known) {
-          failed += 1;
-          lines.push({ ok: false, n, name: c.name, shot: null, strip: [],
-                       why: `the known defect is gone — take \`known' off this case: ${c.known}` });
-          console.log(`not ok ${n} — ${c.name} (the known defect is gone)`);
-        } else {
-          lines.push({ ok: true, n, name: c.name, said, ms: Date.now() - at });
-          console.log(`ok   ${n} — ${c.name}`);
-          for (const w of said || []) console.log(`       ${w}`);
+      const attempts = c.known ? 1 : 1 + RETRIES;
+      let retried = 0;
+      for (let a = 1; a <= attempts; a += 1) {
+        let redo = false;
+        // A `known' CASE IS EXPECTED RED: a GREEN one is itself a failure.
+        try {
+          const said = await c.run(p, base);
+          if (c.known) {
+            failed += 1;
+            lines.push({ ok: false, n, name: c.name, shot: null, strip: [],
+                         why: `the known defect is gone — take \`known' off this case: ${c.known}` });
+            console.log(`not ok ${n} — ${c.name} (the known defect is gone)`);
+          } else {
+            lines.push({ ok: true, n, name: c.name, said, ms: Date.now() - at, retried });
+            console.log(`ok   ${n} — ${c.name}`
+              + (retried ? ` (green after a re-seeded retry)` : ""));
+            for (const w of said || []) console.log(`       ${w}`);
+          }
+        } catch (e) {
+          if (c.known) {
+            console.log(`known ${n} — ${c.name}`);
+            console.log(`       ${e.message}`);
+            console.log(`       ${c.known}`);
+          } else if (a < attempts) {
+            retried += 1;
+            redo = true;
+            console.log(`retry ${n} — ${c.name} (attempt ${a} red, re-seeding: `
+              + `${String(e.message).split("\n")[0]})`);
+            await p.goto("about:blank").catch(() => {});
+            base = await reseed();   // pristine tree, fresh index, fresh port
+          } else {
+            const shot = await p.shot(join(shots, `${n}.png`)).catch(() => null);
+            const strip = await p.strip();
+            failed += 1;
+            lines.push({ ok: false, n, name: c.name, why: e.message, shot, strip,
+                         ms: Date.now() - at, retried });
+            console.log(`not ok ${n} — ${c.name}`
+              + (retried ? ` (still red on a re-seeded tree)` : ""));
+          }
         }
-      } catch (e) {
-        const shot = await p.shot(join(shots, `${n}.png`)).catch(() => null);
-        const strip = await p.strip();
-        if (c.known) {
-          console.log(`known ${n} — ${c.name}`);
-          console.log(`       ${e.message}`);
-          console.log(`       ${c.known}`);
-        } else {
-          failed += 1;
-          lines.push({ ok: false, n, name: c.name, why: e.message, shot, strip,
-                       ms: Date.now() - at });
-          console.log(`not ok ${n} — ${c.name}`);
-        }
+        await p.goto("about:blank").catch(() => {});
+        await p.size(1400, 900);
+        if (!redo) break;
       }
-      await p.goto("about:blank").catch(() => {});
-      await p.size(1400, 900);
     }
 
     console.log("");

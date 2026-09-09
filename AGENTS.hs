@@ -1816,6 +1816,7 @@ routes =
   , Route "/properties" True  TextRefusal [GET]
   , Route "/ws"         True  TextRefusal [GET]
   , Route "/status"     False JsonRefusal [GET]
+  , Route "/mcp"        True  JsonRefusal [POST]
   ]
 
 data Verb = VGet | VHead | VPost | VOther deriving (Eq, Show)
@@ -5933,7 +5934,7 @@ acyclic edge xs = all (go (length xs)) xs
 
 data WMod = WBase | WKeymap | WThemeTypes | WThemeDefault | WTheme | WPopups | WStyle
           | WGlue | WPage
-          | WFilter | WSort | WColumns | WStore | WWatch | WCommands | WRoutes | WWeb
+          | WFilter | WSort | WColumns | WStore | WWatch | WCommands | WMcp | WRoutes | WWeb
           | WDesktop | WNative deriving (Eq, Show, Enum, Bounded)
 wmods :: [WMod]
 wmods = [minBound .. maxBound]
@@ -5954,6 +5955,7 @@ wname WColumns      = "Glance.Web.Columns"
 wname WStore        = "Glance.Web.Store"
 wname WWatch        = "Glance.Web.Watch"
 wname WCommands     = "Glance.Web.Commands"
+wname WMcp          = "Glance.Web.Mcp"
 wname WRoutes       = "Glance.Web.Routes"
 wname WWeb          = "Glance.Web"
 wname WDesktop      = "Glance.Desktop"
@@ -5976,7 +5978,8 @@ wimports WColumns      = [WFilter]
 wimports WStore        = []
 wimports WWatch        = [WStore]
 wimports WCommands     = [WBase, WStore, WWatch]
-wimports WRoutes       = [WBase, WCommands, WFilter, WSort, WColumns, WPage, WStyle, WTheme, WStore, WWatch]
+wimports WMcp          = [WBase]
+wimports WRoutes       = [WBase, WCommands, WMcp, WFilter, WSort, WColumns, WPage, WStyle, WTheme, WStore, WWatch]
 wimports WWeb          = [WBase, WRoutes, WStore, WWatch]
 wimports WDesktop      = [WWeb, WWatch]
 wimports WNative       = [WDesktop, WWeb, WWatch]
@@ -5990,6 +5993,7 @@ webExposed :: [String]
 webExposed =
   [ "Glance.Desktop", "Glance.Desktop.Native", "Glance.Web", "Glance.Web.Base"
   , "Glance.Web.Columns", "Glance.Web.Commands", "Glance.Web.Filter", "Glance.Web.Keymap"
+  , "Glance.Web.Mcp"
   , "Glance.Web.Page", "Glance.Web.Page.Glue", "Glance.Web.Page.Popups"
   , "Glance.Web.Page.Style", "Glance.Web.Routes"
   , "Glance.Web.Sort", "Glance.Web.Store", "Glance.Web.Theme", "Glance.Web.Theme.Default"

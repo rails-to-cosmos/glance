@@ -228,11 +228,15 @@ kindsIn path = branches <$> TIO.readFile path
     -- A `"kind" ->' arm, its body on the line or below it, so `" ->' is an
     -- INFIX not a suffix: CODESTYLE folds a short arm onto one line.
     branches body =
-      [ T.takeWhile (/= '"') (T.drop 1 line)
+      [ kind
       | raw <- T.lines body
       , let line = T.strip raw
       , "\"" `T.isPrefixOf` line
-      , "\" ->" `T.isInfixOf` line ]
+      , "\" ->" `T.isInfixOf` line
+      , let kind = T.takeWhile (/= '"') (T.drop 1 line)
+      -- The wire never carries an empty kind, so `"" ->' (a `case' over a
+      -- trimmed string, not the wire's word) is a false match, not a decoder.
+      , not (T.null kind) ]
 
 -- | The kind strings a glue part sends: @kind: "step"@.
 sendsIn :: FilePath -> IO [T.Text]
