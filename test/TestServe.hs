@@ -9017,6 +9017,13 @@ mcpSpec = testGroup "POST /mcp"
           assertEqual "a daemon owning another tree is not proxied to" Nothing (() <$ other)
         none <- mcpDaemonAt 1 dir
         assertEqual "no daemon on the port means no proxy" Nothing (() <$ none)
+
+  , testCase "GET /mcp serves the explorer page" $ do
+      a <- app assetsDir
+      r <- ok =<< getFrom a "/mcp"
+      assertContains "the page names itself" "glance · MCP" (body r)
+      assertContains "it reads its catalog over POST /mcp" "POST /mcp" (body r)
+      assertContains "and carries the raw console" "Raw JSON-RPC" (body r)
   ]
 
 commandSpec :: TestTree

@@ -119,6 +119,15 @@ embeddedGlue = BS.concat
 embeddedElm :: BS.ByteString
 embeddedElm = $(makeRelativeToProject "assets/elm.js" >>= embedFile)
 
+-- | The @GET \/mcp@ explorer: a hand-written page that reads the tool catalog
+-- off @POST \/mcp@ and lets a browser invoke a tool or send raw JSON-RPC.
+embeddedMcpUi :: BS.ByteString
+embeddedMcpUi = $(makeRelativeToProject "assets/mcp.html" >>= embedFile)
+
+mcpUiResponse :: Response
+mcpUiResponse = sized status200 [(hContentType, "text/html; charset=utf-8")]
+                      (BL.fromStrict embeddedMcpUi)
+
 hasRenderer :: ServeOptions -> IO Bool
 hasRenderer opts = isJust <$> assetSource opts rendererAsset
 
@@ -154,7 +163,8 @@ httpApp opts hub request respond = route >>= respond
       , (["properties"], True,  textRefusal, [(methodGet, propertiesView hub)])
       , (["ws"],         True,  textRefusal, [(methodGet, pure (plain status400 wsHint))])
       , (["status"],     False, jsonRefusal, [(methodGet, statusView opts hub)])
-      , (["mcp"],        True,  jsonRefusal, [(methodPost, mcpRoute (mcpToolsFor opts hub) request)])
+      , (["mcp"],        True,  jsonRefusal, [ (methodGet, pure mcpUiResponse)
+                                             , (methodPost, mcpRoute (mcpToolsFor opts hub) request) ])
       ]
     route = case [ r | r@(path, _, _, _) <- named, path == pathInfo request ] of
       ((path, needs, refuse, methods) : _) -> do

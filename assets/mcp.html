@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>glance · MCP</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0; padding: 1.5rem; max-width: 62rem; }
+  h1 { font-size: 1.2rem; margin: 0; }
+  .sub { opacity: .6; margin: .2rem 0 1.5rem; }
+  h2 { font-size: 1rem; border-top: 1px solid rgba(128,128,128,.3); padding-top: 1rem; margin: 2rem 0 .5rem; }
+  code { background: rgba(128,128,128,.14); padding: 0 .25em; border-radius: 3px; }
+  .tool { border: 1px solid rgba(128,128,128,.3); border-radius: 6px; padding: .75rem 1rem; margin: .75rem 0; }
+  .tool h3 { margin: 0; font-size: .95rem; }
+  .tool p { margin: .25rem 0 .6rem; opacity: .75; }
+  form { display: grid; gap: .4rem; }
+  label { display: grid; gap: .15rem; font-size: .8rem; }
+  label > span { opacity: .7; }
+  .req { color: #c0392b; }
+  input, textarea { font: inherit; padding: .3rem .4rem; border: 1px solid rgba(128,128,128,.4); border-radius: 4px; background: transparent; color: inherit; }
+  textarea { min-height: 4rem; width: 100%; box-sizing: border-box; }
+  button { font: inherit; padding: .3rem .8rem; border: 1px solid rgba(128,128,128,.5); border-radius: 4px; background: transparent; color: inherit; cursor: pointer; justify-self: start; }
+  button:hover { background: rgba(128,128,128,.12); }
+  pre { background: rgba(128,128,128,.1); padding: .5rem; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin: .5rem 0 0; }
+  pre.err { background: rgba(192,57,43,.14); }
+  pre:empty { display: none; }
+</style>
+</head>
+<body>
+<h1>glance · MCP</h1>
+<p class="sub">Its tool catalog, over <code>POST /mcp</code> — read live from this page.</p>
+<div id="tools">loading the catalog…</div>
+
+<h2>Raw JSON-RPC</h2>
+<textarea id="raw">{"jsonrpc":"2.0","id":1,"method":"tools/list"}</textarea>
+<button id="send">Send</button>
+<pre id="rawout"></pre>
+
+<script>
+"use strict";
+const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const fieldType = schema => Array.isArray(schema.type) ? schema.type[0] : (schema.type || "string");
+
+async function rpc(msg) {
+  const r = await fetch("/mcp", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(msg) });
+  return r.status === 202 ? null : r.json();
+}
+
+async function loadTools() {
+  const root = document.getElementById("tools");
+  let res;
+  try { res = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }); }
+  catch (e) { root.textContent = "the catalog did not load: " + e.message; return; }
+  const tools = (res && res.result && res.result.tools) || [];
+  root.textContent = "";
+  if (!tools.length) { root.textContent = "no tools"; return; }
+  for (const t of tools) {
+    const props = (t.inputSchema && t.inputSchema.properties) || {};
+    const required = new Set((t.inputSchema && t.inputSchema.required) || []);
+    const card = document.createElement("div"); card.className = "tool";
+    card.innerHTML = "<h3>" + esc(t.name) + "</h3><p>" + esc(t.description || "") + "</p>";
+    const form = document.createElement("form");
+    for (const [k, schema] of Object.entries(props)) {
+      const type = fieldType(schema);
+      const label = document.createElement("label");
+      const span = document.createElement("span");
+      span.innerHTML = esc(k) + (required.has(k) ? " <span class=\"req\">*</span>" : "") + " · " + esc(type);
+      const el = (type === "array" || type === "object") ? document.createElement("textarea") : document.createElement("input");
+      el.name = k;
+      el.placeholder = schema.description || (type === "array" ? "JSON array" : type === "object" ? "JSON object" : "");
+      label.appendChild(span); label.appendChild(el); form.appendChild(label);
+    }
+    const out = document.createElement("pre");
+    const btn = document.createElement("button"); btn.type = "button"; btn.textContent = "Invoke";
+    btn.onclick = async () => {
+      const args = {};
+      for (const [k, schema] of Object.entries(props)) {
+        const v = form.elements[k].value.trim();
+        if (v === "") continue;
+        const type = fieldType(schema);
+        try {
+          args[k] = (type === "integer" || type === "number") ? Number(v)
+                  : (type === "array" || type === "object") ? JSON.parse(v)
+                  : v;
+        } catch (e) { out.className = "err"; out.textContent = k + ": " + e.message; return; }
+      }
+      const r = await rpc({ jsonrpc: "2.0", id: Date.now(), method: "tools/call", params: { name: t.name, arguments: args } });
+      out.className = (r && r.result && r.result.isError) ? "err" : "";
+      out.textContent = JSON.stringify(r, null, 2);
+    };
+    form.appendChild(btn); card.appendChild(form); card.appendChild(out);
+    root.appendChild(card);
+  }
+}
+
+document.getElementById("send").onclick = async () => {
+  const out = document.getElementById("rawout");
+  let msg;
+  try { msg = JSON.parse(document.getElementById("raw").value); }
+  catch (e) { out.className = "err"; out.textContent = "not JSON: " + e.message; return; }
+  const r = await rpc(msg);
+  out.className = "";
+  out.textContent = r === null ? "(notification — no reply)" : JSON.stringify(r, null, 2);
+};
+
+loadTools();
+</script>
+</body>
+</html>

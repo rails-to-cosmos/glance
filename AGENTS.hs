@@ -1816,7 +1816,7 @@ routes =
   , Route "/properties" True  TextRefusal [GET]
   , Route "/ws"         True  TextRefusal [GET]
   , Route "/status"     False JsonRefusal [GET]
-  , Route "/mcp"        True  JsonRefusal [POST]
+  , Route "/mcp"        True  JsonRefusal [GET, POST]
   ]
 
 data Verb = VGet | VHead | VPost | VOther deriving (Eq, Show)
@@ -6013,6 +6013,7 @@ buildAssets =
   [ BuildAsset "assets/table-view.js"   Sibling (Just "make sync-renderer") (Just WRoutes)
   , BuildAsset "assets/elm.js"          Built   (Just "make elm")           (Just WRoutes)
   , BuildAsset "assets/page.css"        Hand    Nothing                     (Just WStyle)
+  , BuildAsset "assets/mcp.html"        Hand    Nothing                     (Just WRoutes)
   , BuildAsset "frontend/glue/*.js"     Hand    Nothing                     (Just WRoutes)
   , BuildAsset "frontend/jsconfig.json" Hand    Nothing                     Nothing
   ]

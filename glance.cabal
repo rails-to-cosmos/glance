@@ -35,6 +35,8 @@ extra-source-files:
     frontend/glue/*.js
     -- The Elm programs, compiled to one file by `make elm'.
     assets/elm.js
+    -- The GET /mcp explorer page, embedded by `Glance.Web.Routes'.
+    assets/mcp.html
     test/fixtures/*.js
     test/fixtures/*.json
     test/fixtures/assets/*.js

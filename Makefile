@@ -1,4 +1,4 @@
-.PHONY: test test-p test-list spec spec-debt typecheck loc major minor patch bootstrap native install release dist dist-wasm elm elm-test browser browser-path browser-check interop sync-renderer run run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
+.PHONY: test test-p test-list spec spec-debt typecheck loc major minor patch bootstrap native install release dist dist-wasm elm elm-test browser browser-path browser-check interop sync-renderer run mcp run-native run-wasm wasm-spike check-glue mutate mutate-list mutate-clean
 
 -include .env
 GLANCE_DIR ?= ~/sync/views
@@ -263,6 +263,11 @@ wasm-spike:
 # The default browser's own tab; `run-native' is the app window.
 run:
 	cabal run glance -- serve --dir $(GLANCE_DIR) --port $(GLANCE_PORT)
+
+# An MCP server over stdin/stdout for GLANCE_DIR.  Forwards to a `make run'
+# daemon on GLANCE_PORT when one owns the tree, else serves its own store.
+mcp:
+	cabal run glance -- mcp --dir $(GLANCE_DIR) --port $(GLANCE_PORT)
 
 run-native:
 	HASKELL_GI_GIR_SEARCH_PATH=$(CURDIR)/vendored/gir \

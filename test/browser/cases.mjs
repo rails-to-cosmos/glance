@@ -5467,4 +5467,31 @@ export default [
     return [`+ on the headline drafts at model index ${at.draft} (past the header at `
       + `${at.lastMeta}) and writes the paragraph at org line ${para}, after :END: at ${end}`];
   } },
+
+// UI 2026-09-09.  GET /mcp is a self-hosted explorer: it reads the tool catalog
+// off POST /mcp and invokes a tool from the browser.
+{ name: "the /mcp explorer lists the tools and invokes one",
+  async run(p, base) {
+    await p.goto(base + "/mcp");
+    await p.until(() => document.querySelectorAll("#tools .tool").length > 0,
+      "the tool cards to render from tools/list");
+    const names = await p.eval(() =>
+      [...document.querySelectorAll("#tools .tool h3")].map((h) => h.textContent));
+    assert(names.includes("list-headlines"),
+      "list-headlines is not among the explorer's tools: " + names.join(", "));
+    await p.eval(() => {
+      const card = [...document.querySelectorAll("#tools .tool")]
+        .find((c) => c.querySelector("h3").textContent === "list-headlines");
+      card.querySelector("button").click();
+    });
+    const out = await p.until(() => {
+      const card = [...document.querySelectorAll("#tools .tool")]
+        .find((c) => c.querySelector("h3").textContent === "list-headlines");
+      const pre = card && card.querySelector("pre");
+      return pre && pre.textContent.includes("\"content\"") ? pre.textContent : false;
+    }, "the invoke result to render its content block");
+    assert(out.includes("\"isError\": false"),
+      "invoking list-headlines errored: " + out.slice(0, 200));
+    return [`the /mcp explorer listed ${names.length} tools and invoked list-headlines`];
+  } },
 ];
