@@ -1,7 +1,7 @@
 # Proposal — the files are the log, and the cache stays home
 
 **Status:** draft — a direction, argued against the industry's answers, with
-a cheaper middle stop named · **Date:** 2026-09-10 · **Origin:** user, after
+a cheaper middle stop named and two cache shapes (2, 2a) · **Date:** 2026-09-10 · **Origin:** user, after
 `2026-09-10-two-writers-one-wal.md` — *"what do you think of the design
 overall? Can it be better? What does the industry do — RocksDB, the best
 people?"*
@@ -64,7 +64,7 @@ people?"*
 
 Three moves, each one the industry's default.
 
-### 1. One cache per machine, any writer; the lock is SQLite's
+### 1. One cache per machine, any writer; the lock is the cache's (2) or absent (2a)
 
 Not *the daemon is the writer* — the user's objection (2026-09-10) stands:
 *"a single writer that is the daemon complicates org-glance for the Emacs
@@ -112,6 +112,72 @@ INDEX headline_path ON headline(path)
   time, the lock is the database's. Emacs and the daemon are both writers
   and neither knows about the other. Invariants 7 and 34 retire; so does
   invariant 8's resolver, because nothing under `meta/` is in git any more.
+
+### 2a. Or: one snapshot file per producer, no embedded database
+
+Raised by the user (2026-09-10) over a thesis against embedded databases —
+in short: *a program can scribble over its own address space, an in-process
+database writes the scribble to disk, so keep embedded stores for data you
+can lose; otherwise use a database in another process, or write a whole new
+file and atomically rename it, or append to a log, which is its own art.*
+
+Half of it holds. SQLite shares the process; a wild write into the page
+cache followed by a checkpoint lands on disk, and the default build has no
+page checksums (WAL frames are checksummed, main-file pages are not; the
+`cksumvfs` shim is opt-in — SQLite's own *How To Corrupt* page lists the
+family). The other half conflates crash consistency with memory safety: an
+atomic rename protects against a torn write, not against serializing
+already-corrupt structures and renaming them into place. Only another
+process isolates, and even it accepts wrong data. And the third way, the
+append log, is what `org-glance-graph.el` is — the 1806 lines are the
+asterisk's price, measured.
+
+For this store the thesis is an endorsement of the layering: the truth is
+the org files, written temp-then-rename (the thesis's second way), and the
+cache is by construction *data you can lose*. Two shapes satisfy it.
+
+**Option A — SQLite, treated as disposable** (move 2 as written) plus:
+
+- `PRAGMA integrity_check` (or `quick_check`) at every open; any failure,
+  any schema mismatch (`PRAGMA user_version`), any read error: delete the
+  file and rebuild from the walk. No heal, no reconcile — there is nothing
+  to reconcile.
+- The cache is never a source for a blob write. Blob → cache only. A
+  corrupt cache can mislead a view for one session; it cannot reach a file.
+- Cost: none beyond move 2. Gain: SQL, an index on `edge.dst`, one lock
+  for any number of writers.
+
+**Option B — one snapshot per producer, whole-file rename**:
+
+```
+.org-glance/cache/emacs.json     -- written by org-glance
+.org-glance/cache/daemon.json    -- written by glance
+```
+
+- Each producer serializes ITS whole view — `[{id, path, hash, title,
+  state, tags, …, edges: [{dst, kind, at}]}]` — to a temp file and renames
+  it over its own snapshot, on every change. 6167 rows is ~2 MB; a rewrite
+  is milliseconds, an Emacs load ~100 ms.
+- A reader loads every snapshot and merges by id, keeping the row whose
+  `hash` matches the blob (or the newest by hash when it cannot check).
+  Backlinks are computed on load; at 6000 rows it is a hash-map pass.
+- No lock and no shared file: writers never touch each other's snapshot.
+  Lost-update between Emacs and the daemon, the one thing a shared JSON
+  file would suffer, cannot happen. The two-producer merge is the same
+  hash rule move 1 already states.
+- Cost: no SQL, no index — every query is a scan over a list in memory
+  (fine at 10⁴, not at 10⁶); a snapshot per writer means N files for N
+  writers on a host, which today is two. Gain: the thesis is met in its
+  own terms, with no database in the process and nothing to corrupt but a
+  file that is replaced whole.
+
+**The choice.** Both keep the three moves; the difference is the cache's
+shape. A is the industry's default and org-roam's; B is the thesis's, and
+simpler by a dependency. What decides it is whether the store will ever
+outgrow an in-memory scan — 6 k rows today, and org-roam users report SQLite
+earning its keep around 10⁵ nodes. The recommendation is A with the
+disposable rule above; B stays here as the documented fallback if the
+in-process objection is held as a policy rather than a risk estimate.
 
 ### 3. Only blobs travel
 
