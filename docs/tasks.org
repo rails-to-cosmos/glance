@@ -83,3 +83,14 @@ hash, written by Emacs alone or by Emacs and the daemon (SQLite is the lock; the
 daemon stays optional so org-glance still ships standalone); only blobs travel.
 Retires =org-glance-graph.el= (1806 lines) and invariants 1/7/8/34.  The middle
 stop is =two-writers-one-wal.md=; pick one before either lands.
+
+* WAITING Review the additive SQLite cache (branch =feat/sqlite-cache=)
+The ADDITIVE subset of =the-files-are-the-log=: a per-machine, git-ignored
+=Glance.Web.Cache= (SQLite, WAL) that MIRRORS the in-memory store — a headline
+row per store row plus an edge table for =hrLinks= — filled from the walk
+(=Web.indexTree=) and kept up on reload (=Watch.reload=: drop / keep-on-parse-fail
+/ apply).  Lives under XDG cache (=~/.cache/glance/<hash>.sqlite=), keyed by the
+served path, so it never touches the tree or =.gitignore=.  The store still
+answers every query; nothing reads the cache yet — =backlinks=/=neighbors= are
+tested (=TestCache=) and ready for a startup-read or a graph route.  No invariant
+retires; =invariants.md= records which the full cut would.  NOT merged.

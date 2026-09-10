@@ -30,7 +30,9 @@ import qualified System.FSNotify as FS
 import Glance.Query ( LoadFailure (..), Span, WalkOptions (..), WriteFailure
                     , configPath, derivedPath, documentPath, loadFileWith
                     , replaceSpans )
-import Glance.Web.Store ( CloseReason (ViewChanged), Frame (..), Hub (hubPending, hubStore)
+import Glance.Web.Cache (cacheApplyFile, cacheDropFile)
+import Glance.Web.Store ( CloseReason (ViewChanged), Frame (..)
+                        , Hub (hubCache, hubPending, hubStore)
                         , RowOp (..), Store (stConfig)
                         , applyFile, dropFile, loadStoreWith, publish, reseeded )
 
@@ -99,6 +101,13 @@ reload hub path = do
   exists <- doesFileExist path
   outcome <- if exists then Just <$> loadFileWith cfg path else pure Nothing
   frames <- publish hub (maybe (dropFile path) (applyFile path) outcome)
+  -- Mirror the store move into the durable cache, if one is installed: a
+  -- deletion drops the file's rows, a parse failure keeps them (as the store
+  -- does), a good parse replaces them.
+  readTVarIO (hubCache hub) >>= mapM_ (\c -> case outcome of
+    Nothing         -> cacheDropFile c path
+    Just (Left _)   -> pure ()
+    Just (Right rs) -> cacheApplyFile c path rs)
   finished <- getMonotonicTime
   report path outcome frames (finished - started)
 

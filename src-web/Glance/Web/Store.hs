@@ -25,12 +25,13 @@ module Glance.Web.Store
   , frameText
   , bootstrapFrame
     -- * The hub
-  , Hub (hubStore, hubLoad, hubPending, hubDoctor)
+  , Hub (hubStore, hubLoad, hubPending, hubDoctor, hubCache)
   , LoadState (..)
   , Client
   , clientCapacity
   , newHub
   , newLoadingHub
+  , setCache
   , finishLoading
   , stashDoctor
   , subscribe
@@ -56,6 +57,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
+import Glance.Web.Cache (Cache)
 import Glance.Query ( ConfigLayerFile, ConfigLayers (clPrint)
                     , Doctor, cleanDoctor, doctorJSON
                     , HeadlineRecord (hrDigest, hrId, hrKeywords, hrTags)
@@ -276,6 +278,7 @@ data Hub = Hub
   , hubLoad    :: !(TVar LoadState)
   , hubPending :: !(TVar (Map FilePath Double))  -- ^ path → when it was last touched, monotonic.
   , hubDoctor  :: !(TVar Doctor)                 -- ^ the startup verdict; clean until the first scan lands.
+  , hubCache   :: !(TVar (Maybe Cache))          -- ^ the durable SQLite shadow, set by the serve path; Nothing elsewhere.
   }
 
 data LoadState
@@ -301,7 +304,12 @@ newLoadingHub started = hubOver emptyStore (Loading started)
 hubOver :: Store -> LoadState -> IO Hub
 hubOver st load =
   Hub <$> newTVarIO st <*> newTVarIO Map.empty <*> newTVarIO 0 <*> newTVarIO load
-      <*> newTVarIO Map.empty <*> newTVarIO cleanDoctor
+      <*> newTVarIO Map.empty <*> newTVarIO cleanDoctor <*> newTVarIO Nothing
+
+-- | Install the SQLite cache the serve path built; a no-op in modes that never
+-- call it, so 'hubCache' stays 'Nothing' and the watch updates nothing.
+setCache :: Hub -> Cache -> IO ()
+setCache hub c = atomically (writeTVar (hubCache hub) (Just c))
 
 -- | Install ST and open the store routes, in ONE transaction.
 finishLoading :: Hub -> Store -> IO ()

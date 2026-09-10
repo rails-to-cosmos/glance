@@ -5934,7 +5934,7 @@ acyclic edge xs = all (go (length xs)) xs
 
 data WMod = WBase | WKeymap | WThemeTypes | WThemeDefault | WTheme | WPopups | WStyle
           | WGlue | WPage
-          | WFilter | WSort | WColumns | WStore | WWatch | WCommands | WMcp | WRoutes | WWeb
+          | WFilter | WSort | WColumns | WCache | WStore | WWatch | WCommands | WMcp | WRoutes | WWeb
           | WDesktop | WNative deriving (Eq, Show, Enum, Bounded)
 wmods :: [WMod]
 wmods = [minBound .. maxBound]
@@ -5952,6 +5952,7 @@ wname WPage         = "Glance.Web.Page"
 wname WFilter       = "Glance.Web.Filter"
 wname WSort         = "Glance.Web.Sort"
 wname WColumns      = "Glance.Web.Columns"
+wname WCache        = "Glance.Web.Cache"
 wname WStore        = "Glance.Web.Store"
 wname WWatch        = "Glance.Web.Watch"
 wname WCommands     = "Glance.Web.Commands"
@@ -5975,12 +5976,13 @@ wimports WPage         = [WBase, WKeymap, WTheme, WGlue, WPopups, WStyle]
 wimports WFilter       = []
 wimports WSort         = [WFilter]
 wimports WColumns      = [WFilter]
-wimports WStore        = []
-wimports WWatch        = [WStore]
+wimports WCache        = []
+wimports WStore        = [WCache]
+wimports WWatch        = [WStore, WCache]
 wimports WCommands     = [WBase, WStore, WWatch]
 wimports WMcp          = [WBase]
 wimports WRoutes       = [WBase, WCommands, WMcp, WFilter, WSort, WColumns, WPage, WStyle, WTheme, WStore, WWatch]
-wimports WWeb          = [WBase, WRoutes, WStore, WWatch]
+wimports WWeb          = [WBase, WCache, WRoutes, WStore, WWatch]
 wimports WDesktop      = [WWeb, WWatch]
 wimports WNative       = [WDesktop, WWeb, WWatch]
 
@@ -5992,6 +5994,7 @@ webTH = [WRoutes, WStyle]         -- ^ the modules carrying `TemplateHaskell'
 webExposed :: [String]
 webExposed =
   [ "Glance.Desktop", "Glance.Desktop.Native", "Glance.Web", "Glance.Web.Base"
+  , "Glance.Web.Cache"
   , "Glance.Web.Columns", "Glance.Web.Commands", "Glance.Web.Filter", "Glance.Web.Keymap"
   , "Glance.Web.Mcp"
   , "Glance.Web.Page", "Glance.Web.Page.Glue", "Glance.Web.Page.Popups"
