@@ -4,6 +4,7 @@
 module Glance.Web.Page.Style ( page
                              , fontAssets
                              , fontFace
+                             , stripSpans
                              ) where
 
 import Glance.Web.Page.Popups (chromeBoxes, chromeFeet, chromeHeads, boxes, veiled, washed)
@@ -41,8 +42,9 @@ styleBody :: Text
 styleBody = foldr (\(tok, val) -> T.replace tok val) trimmed tokens
   where
     trimmed = T.intercalate "\n"
-            . filter (\l -> not (T.null (T.strip l)) && not ("/*" `T.isInfixOf` l))
+            . filter (not . T.null . T.strip)
             . T.lines
+            . stripSpans "/*" "*/"
             $ TE.decodeUtf8 rawPageCss
     tokens =
       [ ("{{LOGN}}",         T.pack (show logLinesDefault))
@@ -55,6 +57,18 @@ styleBody = foldr (\(tok, val) -> T.replace tok val) trimmed tokens
       , ("{{WASHED}}",       washed)
       , ("{{WASHED_STALE}}", staleEach washed)
       ]
+
+-- | Drop every span from OPEN to CLOSE inclusive, multi-line included, replacing
+-- each with a space so no two tokens join.  Assumes OPEN never appears inside a
+-- string.  A line-by-line filter used to keep a multi-line span's tail and so
+-- drop what followed it.
+stripSpans :: Text -> Text -> Text -> Text
+stripSpans open close = go
+  where
+    go t = let (before, rest) = T.breakOn open t
+           in if T.null rest then before
+              else let (_, closing) = T.breakOn close (T.drop (T.length open) rest)
+                   in before <> " " <> go (T.drop (T.length close) closing)
 
 fontAssets :: [FilePath]
 fontAssets = ["JetBrainsMono-Regular.woff2", "JetBrainsMono-Regular.ttf"]

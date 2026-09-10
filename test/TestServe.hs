@@ -10,7 +10,7 @@ import Data.ByteString (ByteString)
 import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isSpace)
 import Data.Foldable (toList)
 import Data.List (elemIndex, find, isInfixOf, nub, sort, sortOn)
-import Data.Maybe (fromJust, fromMaybe, listToMaybe)
+import Data.Maybe (fromJust, fromMaybe, isJust, listToMaybe)
 import Data.Time (fromGregorian, toGregorian)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
@@ -57,6 +57,7 @@ import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
 import Glance.Web.Page.Popups ( Popup (..), Tier (..), popups, tierClass
                               , boxes, chromeBoxes, chromeFeet, chromeHeads, veiled, washed )
+import Glance.Web.Page.Style (stripSpans)
 import Glance.Web.Base (gluePartFiles, today)
 import Glance.Web.Commands (commandNames)
 import Glance.Web.Mcp (mcpDaemonAt, mcpWriteToolNames)
@@ -6312,7 +6313,31 @@ glueSpec shell = testGroup "Shell glue"
    | Glue{..} <- shellGlue ]
    <> [ groundSweep shell, tierSweep shell, gridSweep shell, editIndentSweep shell
       , scrollSweep shell, containSweep shell, logColumnSweep shell
-      , paletteSweep shell, popupSelectorSweep shell ])
+      , paletteSweep shell, popupSelectorSweep shell, commentStripSweep shell
+      , stripSpansUnit ])
+
+-- | A COMMENT NEVER REACHES THE SERVED STYLESHEET: 'Glance.Web.Page.Style'
+-- strips @page.css@'s @\/* … *\/@ comments, so no comment byte survives and no
+-- rule after one is dropped.  A multi-line comment before a rule used to leak its
+-- tail into that rule's selector and drop it.
+-- | The shared helper on its own: a span between its delimiters goes, multi-line
+-- included, the code on either side stays, and the delimiters are a parameter.
+stripSpansUnit :: TestTree
+stripSpansUnit = testCase "stripSpans drops a span between its delimiters, multi-line included" $ do
+  let css = stripSpans "/*" "*/" "a: 1; /* one\n   two */ b: 2;"
+  assertBool "no comment markers survive" (not ("/*" `T.isInfixOf` css) && not ("*/" `T.isInfixOf` css))
+  assertBool "code before the span is kept" ("a: 1;" `T.isInfixOf` css)
+  assertBool "code after the span is kept" ("b: 2;" `T.isInfixOf` css)
+  assertEqual "any paired delimiter, not just comments" "x y" (stripSpans "<!--" "-->" "x<!--z-->y")
+
+commentStripSweep :: IO T.Text -> TestTree
+commentStripSweep shell = testCase "no CSS comment leaks into the served stylesheet" $ do
+  page <- shell
+  let css = fst (T.breakOn "</style>" (snd (T.breakOn "<style" page)))
+  assertBool "a comment's bytes leaked into the stylesheet"
+             (not ("*/" `T.isInfixOf` css))
+  assertBool "the rule a leaked comment would garble survives"
+             (isJust (ruleLine "#mdoc .de.d-drawer > .fold:hover" (nzp page)))
 
 -- | THE STYLESHEET CANNOT FORK FROM THE REGISTRY: @assets\/page.css@ splices its
 -- aggregate selectors from 'Glance.Web.Page.Popups' at build time, so the served
