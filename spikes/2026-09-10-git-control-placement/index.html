@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>git control placement — spike</title>
+<style>
+  :root {
+    --bg:#1b1e24; --panel:#21252b; --fg:#d7dae0; --mute:#7b828d; --border:#333842;
+    --accent:#d19a66; --ok:#98c379; --bad:#e06c75; --blue:#61afef;
+    --tv-bg:#000; --tv-alt:#21252b; --tv-border:#2a2d3d; --tv-fg:#fff; --tv-mute:#a4c2eb;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .wrap { max-width:64rem; margin:0 auto; padding:1.5rem; }
+  h1 { font-size:1.15rem; margin:0 0 .25rem; }
+  .sub { color:var(--mute); margin:0 0 1.25rem; }
+  .controls { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin:1rem 0; }
+  .controls .lbl { color:var(--mute); }
+  .seg { display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+  .seg button { border:0; border-right:1px solid var(--border); background:transparent; color:var(--fg);
+                font:inherit; padding:.3rem .6rem; cursor:pointer; }
+  .seg button:last-child { border-right:0; }
+  .seg button.on { background:rgba(209,154,102,.18); color:var(--accent); }
+  .btn { font:inherit; color:var(--fg); background:transparent; border:1px solid var(--border);
+         border-radius:6px; padding:.3rem .7rem; cursor:pointer; }
+  .btn:hover { background:rgba(255,255,255,.06); }
+
+  /* The stage: a shell like glance's — a header slot, the table mount, a log. */
+  #stage { position:relative; border:1px solid var(--border); border-radius:10px; padding:14px;
+           background:#15181d; margin-top:1rem; min-height:22rem; }
+  #ghead { display:flex; justify-content:flex-end; min-height:0; }
+  #ghead:empty { display:none; }
+  #appwrap { position:relative; margin-top:10px; }
+
+  /* A faithful-enough mock of table-view's strip: a chip row it rewrites wholesale. */
+  .tv-root { border:1px solid var(--tv-border); border-radius:8px; background:var(--tv-alt); overflow:hidden; }
+  .tv-strip { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--tv-border); }
+  .tv-chips { display:flex; align-items:center; gap:6px; flex-wrap:wrap; flex:1 1 auto; }
+  .tv-chip { border:1px solid var(--tv-border); border-radius:999px; padding:1px 10px; font-size:12px; color:var(--tv-fg); }
+  .tv-pin { margin-left:auto; opacity:.5; cursor:pointer; }
+  .tv-aside { display:inline-flex; align-items:center; }
+  .tv-table { padding:12px; color:var(--tv-mute); }
+  .tv-table .row { padding:3px 0; }
+
+  /* The control itself — the same pill in every placement. */
+  .gitctl { display:inline-flex; align-items:center; gap:8px; white-space:nowrap; font-size:13px; }
+  .gitctl .at { color:var(--mute); opacity:.55; }
+  .gitctl .loc { color:var(--fg); opacity:.9; }
+  .gitctl .loc .vc { color:var(--mute); }
+  .gitctl .loc .dir { color:var(--mute); }
+  .gitctl .glyph { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border);
+                   border-radius:6px; padding:1px 7px; }
+  .gitctl .dot { color:var(--accent); } .gitctl .n { color:var(--accent); font-variant-numeric:tabular-nums; }
+  .gitctl .auto { border:1px solid var(--border); border-radius:6px; padding:1px 7px; color:var(--mute); }
+
+  /* C — corner badge: fixed to the stage's top-right. */
+  #stage .gitctl.corner { position:absolute; top:8px; right:12px; z-index:5;
+                          background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:3px 8px; }
+
+  .verdict { margin-top:1rem; display:flex; gap:1rem; align-items:baseline; flex-wrap:wrap; }
+  .verdict .present { font-weight:600; }
+  .verdict .yes { color:var(--ok); } .verdict .no { color:var(--bad); }
+  .log { margin-top:.6rem; background:#0f1216; border:1px solid var(--border); border-radius:6px;
+         padding:.5rem .6rem; height:8rem; overflow:auto; font-size:.8rem; white-space:pre-wrap; }
+  .log .ok { color:var(--ok); } .log .no { color:var(--bad); } .log .ev { color:var(--blue); }
+  .note { color:var(--mute); margin-top:1rem; font-size:.85rem; }
+  .note b { color:var(--fg); font-weight:600; }
+  code { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>git control placement — spike</h1>
+  <p class="sub">Evaluate where the control should live. Pick a placement, then
+    <b>re-render</b> the strip (table-view's <code>innerHTML=</code>) or
+    <b>re-mount</b> the table (what <code>g</code> does) and watch whether the
+    control survives — and how each looks.</p>
+
+  <div class="controls">
+    <span class="lbl">placement:</span>
+    <span class="seg" id="modeSeg"></span>
+  </div>
+  <div class="controls">
+    <button class="btn" id="reRender">re-render strip (renderChips)</button>
+    <button class="btn" id="reMount">re-mount table (g)</button>
+    <button class="btn" id="reset">reset</button>
+  </div>
+
+  <div id="stage">
+    <div id="ghead"></div>
+    <div id="appwrap"><div id="app"></div></div>
+  </div>
+
+  <div class="verdict">
+    <span>control present after last action:
+      <span class="present" id="present">—</span></span>
+    <span class="lbl" id="modeNote"></span>
+  </div>
+  <div class="log" id="log"></div>
+
+  <p class="note" id="tradeoff"></p>
+</div>
+
+<script>
+"use strict";
+const MODES = {
+  old:    { label: "Old (injected)", note: "injected into .tv-chips — table-view reclaims it",
+            tradeoff: "<b>Old (current bug).</b> The control is appended into <code>.tv-chips</code>. renderChips wipes it (innerHTML), and re-mount replaces the whole element — so it vanishes until a poll re-injects it. This is the instability." },
+  slot:   { label: "A · table-view slot", note: "table-view owns a persistent .tv-aside, re-offers on re-mount",
+            tradeoff: "<b>A — table-view bar slot.</b> table-view creates a <code>.tv-aside</code> it never rewrites and re-offers on re-mount; glance renders into it. Exact in-bar placement, no observers. Cost: a change in the sibling ../table-view repo + re-sync." },
+  header: { label: "B · shell header row", note: "#ghead above the table — the shell owns it, table-view never touches it",
+            tradeoff: "<b>B — shell header row.</b> The control sits in <code>#ghead</code> above the table, in the shell's own DOM. Glance-only, dead simple, always consistent. Trade-off: its own row, not inside the bar." },
+  corner: { label: "C · corner badge", note: "fixed to the stage corner — outside the table entirely",
+            tradeoff: "<b>C — fixed corner badge.</b> A pill pinned to the top-right, in the shell's DOM. Minimal and glance-only. Trade-off: floats detached from the bar." },
+};
+let mode = "old";
+let survivedFlag = null;
+
+function controlHTML() {
+  return '<span class="gitctl">'
+    + '<span class="at">@</span>'
+    + '<span class="loc"><span class="vc">⎇</span> <span class="dir">views</span>:master</span>'
+    + '<span class="glyph"><span class="dot">●</span><span class="n">2</span></span>'
+    + '<span class="auto">⟳</span></span>';
+}
+
+function chipsInner() {
+  return '<span class="tv-chip">state:*active*</span>'
+       + '<span class="tv-chip">tag:work</span>'
+       + '<span class="tv-pin" title="pin">📌</span>';
+}
+
+// Build (or rebuild) the mock table.  In slot mode the strip carries a
+// persistent .tv-aside the chip re-render never touches.
+function mountTable() {
+  const app = document.getElementById("app");
+  app.innerHTML = "";
+  const root = document.createElement("div");
+  root.className = "tv-root";
+  const strip = document.createElement("div");
+  strip.className = "tv-strip";
+  const chips = document.createElement("div");
+  chips.className = "tv-chips";
+  chips.innerHTML = chipsInner();
+  strip.appendChild(chips);
+  if (mode === "slot") {
+    const aside = document.createElement("div");
+    aside.className = "tv-aside";
+    aside.innerHTML = controlHTML();      // table-view re-offers the slot on every mount
+    strip.appendChild(aside);
+  }
+  root.appendChild(strip);
+  const body = document.createElement("div");
+  body.className = "tv-table";
+  body.innerHTML = "<div class='row'>[ ] TODO one</div><div class='row'>[ ] DONE two</div>"
+                 + "<div class='row'>[ ] NEXT three</div>";
+  root.appendChild(body);
+  app.appendChild(root);
+}
+
+function el(html) { const d = document.createElement("div"); d.innerHTML = html; return d.firstChild; }
+
+// Place the shell-owned controls (B, C) once; they live outside the table.
+function placeShell() {
+  document.getElementById("ghead").innerHTML = mode === "header" ? controlHTML() : "";
+  const old = document.querySelector("#stage > .gitctl.corner");
+  if (old) old.remove();
+  if (mode === "corner") { const c = el(controlHTML()); c.classList.add("corner"); document.getElementById("stage").appendChild(c); }
+}
+
+function render() {
+  document.getElementById("modeNote").textContent = MODES[mode].note;
+  document.getElementById("tradeoff").innerHTML = MODES[mode].tradeoff;
+  mountTable();
+  placeShell();
+  // Old mode: glance injects the control ONCE after boot.  Nothing re-injects it
+  // on a strip re-render or a re-mount, so those make it vanish — the bug.
+  if (mode === "old") { const chips = document.querySelector(".tv-chips"); if (chips) chips.appendChild(el(controlHTML())); }
+  survivedFlag = null;
+  updatePresent("(mounted)");
+}
+
+function present() { return !!document.querySelector(".gitctl"); }
+
+function updatePresent(after) {
+  const p = present();
+  const span = document.getElementById("present");
+  span.textContent = p ? "yes" : "no";
+  span.className = "present " + (p ? "yes" : "no");
+  if (after) log(after + ": control " + (p ? "survived" : "VANISHED"), p ? "ok" : "no");
+}
+
+function log(msg, cls) {
+  const box = document.getElementById("log");
+  const d = document.createElement("div"); d.textContent = msg; if (cls) d.className = cls;
+  box.appendChild(d); box.scrollTop = box.scrollHeight;
+}
+
+function renderSeg() {
+  const seg = document.getElementById("modeSeg"); seg.innerHTML = "";
+  for (const [k, m] of Object.entries(MODES)) {
+    const b = document.createElement("button");
+    b.textContent = m.label; b.className = k === mode ? "on" : "";
+    b.onclick = () => { mode = k; log("— placement: " + m.label, "ev"); render(); renderSeg(); };
+    seg.appendChild(b);
+  }
+}
+
+document.getElementById("reRender").onclick = () => {
+  const chips = document.querySelector(".tv-chips");
+  if (chips) chips.innerHTML = chipsInner();   // table-view's renderChips: wholesale rewrite
+  log("re-render strip (chips.innerHTML = …)", "ev");
+  updatePresent("after re-render");
+};
+document.getElementById("reMount").onclick = () => {
+  mountTable();                                // g: a fresh .tv-root / .tv-chips
+  log("re-mount table (fresh .tv-root)", "ev");
+  updatePresent("after re-mount");
+};
+document.getElementById("reset").onclick = () => { document.getElementById("log").innerHTML = ""; render(); };
+
+renderSeg();
+render();
+log("tip: try re-render and re-mount under 'Old' (it vanishes), then under A/B/C (it stays).", "ev");
+</script>
+</body>
+</html>
