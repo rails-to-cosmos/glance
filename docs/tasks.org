@@ -93,3 +93,14 @@ glyph — clean fetches, behind pulls, ahead pushes, dirty commits + pushes,
 diverged syncs.  Model B (auto-sync) commits + pushes after each write, off the
 request path, gated behind =git config glance.autosync= AND a UI arm (=⟳=).
 Tests: =TestGit= (parse + one-step); manual browser probe.  NOT merged.
+UPDATE 2026-09-10: the control was redesigned to a shell-owned row (=#ghead=,
+above the table) after it kept vanishing on =g= — see
+[[file:bugs/fixed/2026-09-10-the-git-control-vanishes-on-a-view-re-apply.md]].
+
+* TODO A git-repo fixture for the browser suite, and a git-control case
+=test/browser/drive.mjs= serves a copy of =test/browser/tree/= that is not a git
+repo, so =GET /git= answers =repo:false= and the git control never mounts under
+the suite — it is verified only by a CDP probe today.  =git init= the served
+tree (or a dedicated fixture) so a case can assert the control shows, runs its
+one-click action, and survives =g= (a re-mount).  Guard that the added =#ghead=
+row does not perturb the position-sensitive table cases.

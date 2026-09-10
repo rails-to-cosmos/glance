@@ -18,7 +18,8 @@ demoShell :: ServeOptions -> Maybe FilePath -> [(Text, [(Text, Text)])]
           -> [(Text, Text)] -> Text
 demoShell opts font colours views =
   page (fontFace font) colours (viewTitleFor (soDir opts)) $ T.unlines $
-  [ "  <div id=\"app\"></div>"
+  [ "  <div id=\"ghead\"></div>"
+  , "  <div id=\"app\"></div>"
   , "  <div id=\"log\"></div>"
   , "  <div id=\"kbd\"></div>"
   , "  <div id=\"modal\">"

@@ -1534,13 +1534,19 @@ html.stale #app,{{WASHED_STALE}} {
     pointer-events: none;
 }
 
-/* THE GIT SYNC CONTROL: injected at the end of table-view's own bar by
-   80-git.js.  One glance of the work tree; a click runs the state's one step. */
+/* THE GIT SYNC CONTROL, in its own shell-owned row (#ghead) above the table, */
+/* so table-view's re-renders and re-mounts never touch it; empty it collapses. */
+#ghead {
+    display: flex;
+    justify-content: flex-end;
+}
+#ghead:empty {
+    display: none;
+}
 #gitctl {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    margin-left: 8px;
     white-space: nowrap;
     font-size: 13px;
 }

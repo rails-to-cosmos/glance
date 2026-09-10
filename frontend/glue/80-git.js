@@ -1,17 +1,15 @@
-    // The git sync control: a one-glance status of the served dir at the end of
-    // table-view's own chip strip.  A click runs the state's one safe step
-    // (clean fetches, behind pulls, ahead pushes, dirty commits + pushes,
-    // diverged syncs); auto-sync (Model B) is a second, opt-in control.  It
-    // appears ONLY when the served dir is a git work tree, so a non-git tree
-    // (every test fixture) sees no added DOM.  Backend: GET/POST /git.
+    // The git sync control: a one-glance status of the served dir, in its own
+    // shell-owned row (#ghead) above the table.  It lives OUTSIDE #app, so
+    // table-view's re-renders and re-mounts never touch it — consistent by
+    // construction, no observers.  Shown only when the dir is a git work tree;
+    // #ghead collapses (CSS :empty) otherwise.  Backend: GET/POST /git.
     {
       const GIT_POLL = 15000;   // ms between background re-reads
+      const head = document.getElementById("ghead");
       /** @type {any} */ let ctl = null;
       let elDir = null, elBranch = null, elGlyph = null,
           elDot = null, elN = null, elAuto = null, elFlash = null;
       /** @type {any} */ let status = null;
-      /** @type {any} */ let watched = null, obs = null;
-      let placing = 0;
 
       // The one obvious step per state — mirrors the backend's `actionFor'.
       const glyphFor = (s) => {
@@ -48,7 +46,7 @@
       const tidyLine = (s) => String(s || "").split("\n").map((l) => l.trim())
         .filter(Boolean).filter((l) => !NOISE.test(l)).pop() || "";
 
-      // Build the control once (only reached when the dir is a repo).
+      // Build the control once, into the shell's stable #ghead.
       function build() {
         ctl = document.createElement("span");
         ctl.id = "gitctl";
@@ -69,52 +67,13 @@
         elFlash = ctl.querySelector(".g-flash");
         elGlyph.addEventListener("click", act);
         elAuto.addEventListener("click", toggleAuto);
+        head.appendChild(ctl);
       }
 
-      // Attach the control to the visible chip strip; the strip is rewritten on
-      // every chip render, so a MutationObserver re-attaches it.  Returns false
-      // when the strip is not mounted yet.
-      // Table-view pushes its pin to the right with margin-left:auto; move it to
-      // the far left instead, so the control sits at the strip's end alone.
-      // Inline styles, re-applied on every re-render, beat the vendored
-      // stylesheet without a fragile cascade fight.
-      function place(strip) {
-        if (!strip.contains(ctl)) strip.appendChild(ctl);
-        const pin = strip.querySelector(".tv-pin");
-        if (pin) { pin.style.order = "-1"; pin.style.marginLeft = "0"; }
-      }
-
-      function attach() {
-        const strip = document.querySelector("#app .tv-chips");
-        if (!strip) return false;
-        if (!ctl) build();
-        if (watched !== strip && typeof MutationObserver === "function") {
-          if (obs) obs.disconnect();
-          obs = new MutationObserver(() => {
-            const s = document.querySelector("#app .tv-chips");
-            if (s) place(s);
-          });
-          obs.observe(strip, { childList: true });
-          watched = strip;
-        }
-        place(strip);
-        return true;
-      }
-
-      function detach() {
-        if (obs) { obs.disconnect(); obs = null; watched = null; }
-        if (ctl && ctl.parentNode) ctl.parentNode.removeChild(ctl);
-      }
-
-      // Render the control from the last /git, attaching or removing it as the
-      // dir is or is not a repo.  Retries attachment while the mount is async.
       function render() {
-        if (!status || !status.repo) { detach(); return; }
-        if (!attach()) {
-          if (placing++ < 40) setTimeout(render, 150);
-          return;
-        }
-        placing = 0;
+        if (!head) return;
+        if (!status || !status.repo) { if (ctl) { ctl.remove(); ctl = null; } return; }
+        if (!ctl) build();
         const s = status;
         elDir.textContent = baseName(s.dir);
         elBranch.textContent = s.branch || "(detached)";
@@ -173,11 +132,4 @@
       poll();
       window.addEventListener("focus", poll);
       setInterval(poll, GIT_POLL);
-      // `g' (and any full re-mount) replaces #app's child with a fresh table, so
-      // a new .tv-chips the strip-scoped observer never saw.  Watch #app's own
-      // children and re-place at once, rather than waiting for the next poll.
-      const app = document.getElementById("app");
-      if (app && typeof MutationObserver === "function")
-        new MutationObserver(() => { if (status && status.repo) render(); })
-          .observe(app, { childList: true });
     }
