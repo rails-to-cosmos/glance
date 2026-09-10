@@ -3,9 +3,12 @@ module TestCache (spec) where
 import Control.Exception (bracket)
 import Data.List (sort)
 import Data.Text (Text)
+import Database.SQLite3 (close, exec, open)
 import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+
+import qualified Data.Text as T
 
 import Glance.Query (HeadlineRecord (..), Ref (..))
 import Glance.Web.Cache
@@ -84,4 +87,21 @@ spec = testGroup "Cache"
         assertEqual "a's rows are gone, b's remain" (length records - rowsIn aPath records) h
         backs <- backlinks c "id-b"
         assertEqual "a's backlink to b is gone with it" [] (sort backs)
+
+  , testCase "a stale schema version is dropped and rebuilt, never healed" $ withTempDir $ \dir -> do
+      seedTree dir
+      records <- storeRecords <$> loadStore dir
+      let dbPath = dir </> "cache.sqlite"
+      withCache dir $ \c -> do
+        cacheFill c records
+        (h0, _) <- cacheCounts c
+        assertBool "filled before the version is corrupted" (h0 > 0)
+      -- Stamp a version this build does not know; the rows stay on disk.
+      raw <- open (T.pack dbPath)
+      exec raw "PRAGMA user_version=999;"
+      close raw
+      withCache dir $ \c -> do
+        (h1, e1) <- cacheCounts c
+        assertEqual "the stale headline table was dropped" 0 h1
+        assertEqual "and the stale edge table with it" 0 e1
   ]

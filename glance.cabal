@@ -347,6 +347,8 @@ test-suite glance-test
     , async
     , bytestring
     , containers
+    -- `TestCache' stamps a stale schema version to prove the cache rebuilds.
+    , direct-sqlite
     , directory
     , filepath
     -- `glance-desktop-native' is trivial and base-only while `native-window' is

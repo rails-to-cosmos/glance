@@ -26,6 +26,7 @@ module Glance.Web.Cache
   ) where
 
 import Control.Exception (onException)
+import Control.Monad (when)
 import Data.Bits (xor)
 import Data.Int (Int64)
 import Data.List (nub)
@@ -70,11 +71,15 @@ fnv1a = BS.foldl' mix 0xcbf29ce484222325 . TE.encodeUtf8
 openCache :: FilePath -> IO Cache
 openCache path = do
   db <- open (T.pack path)
+  exec db "PRAGMA journal_mode=WAL;"
+  exec db "PRAGMA synchronous=NORMAL;"
+  -- Disposable, never healed: a schema this build does not recognise is dropped
+  -- and rebuilt from the walk.  A fresh file reads version 0 and is left alone.
+  ver <- userVersion db
+  when (ver /= 0 && ver /= cacheVersion) $
+    mapM_ (exec db) ["DROP TABLE IF EXISTS headline;", "DROP TABLE IF EXISTS edge;"]
   mapM_ (exec db)
-    [ "PRAGMA journal_mode=WAL;"
-    , "PRAGMA synchronous=NORMAL;"
-    , T.pack ("PRAGMA user_version=" <> show cacheVersion <> ";")
-    , "CREATE TABLE IF NOT EXISTS headline\
+    [ "CREATE TABLE IF NOT EXISTS headline\
       \ (id TEXT PRIMARY KEY, path TEXT, hash TEXT, title TEXT, state TEXT,\
       \  priority TEXT, tags TEXT, scheduled TEXT, deadline TEXT, closed TEXT, created TEXT);"
     , "CREATE TABLE IF NOT EXISTS edge (src TEXT, dst TEXT, kind TEXT);"
@@ -82,7 +87,19 @@ openCache path = do
     , "CREATE INDEX IF NOT EXISTS edge_src ON edge(src);"
     , "CREATE INDEX IF NOT EXISTS headline_path ON headline(path);"
     ]
+  -- Stamp the version only after the schema is this build's, so an interrupted
+  -- rebuild is re-attempted next open rather than wearing a version it lacks.
+  exec db (T.pack ("PRAGMA user_version=" <> show cacheVersion <> ";"))
   pure (Cache db)
+
+-- | The cache file's schema version; a fresh file reads 0.
+userVersion :: Database -> IO Int64
+userVersion db = do
+  st <- prepare db "PRAGMA user_version;"
+  _ <- step st
+  cols <- columns st
+  finalize st
+  pure (case cols of SQLInteger n : _ -> n; _ -> 0)
 
 closeCache :: Cache -> IO ()
 closeCache (Cache db) = close db
