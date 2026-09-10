@@ -88,7 +88,7 @@
         const strip = document.querySelector("#app .tv-chips");
         if (!strip) return false;
         if (!ctl) build();
-        if (watched !== strip) {
+        if (watched !== strip && typeof MutationObserver === "function") {
           if (obs) obs.disconnect();
           obs = new MutationObserver(() => {
             const s = document.querySelector("#app .tv-chips");
@@ -173,4 +173,11 @@
       poll();
       window.addEventListener("focus", poll);
       setInterval(poll, GIT_POLL);
+      // `g' (and any full re-mount) replaces #app's child with a fresh table, so
+      // a new .tv-chips the strip-scoped observer never saw.  Watch #app's own
+      // children and re-place at once, rather than waiting for the next poll.
+      const app = document.getElementById("app");
+      if (app && typeof MutationObserver === "function")
+        new MutationObserver(() => { if (status && status.repo) render(); })
+          .observe(app, { childList: true });
     }
