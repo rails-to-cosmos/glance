@@ -42,6 +42,12 @@
         return parts.length ? parts[parts.length - 1] : "";
       };
 
+      // The last meaningful line of a git command's output, dropping ssh/library
+      // chatter (e.g. openssh's post-quantum warning) that is not the result.
+      const NOISE = /post-quantum|decrypt later|openssh\.com\/pq|need to be upgraded|^\*\*/i;
+      const tidyLine = (s) => String(s || "").split("\n").map((l) => l.trim())
+        .filter(Boolean).filter((l) => !NOISE.test(l)).pop() || "";
+
       // Build the control once (only reached when the dir is a repo).
       function build() {
         ctl = document.createElement("span");
@@ -68,6 +74,16 @@
       // Attach the control to the visible chip strip; the strip is rewritten on
       // every chip render, so a MutationObserver re-attaches it.  Returns false
       // when the strip is not mounted yet.
+      // Table-view pushes its pin to the right with margin-left:auto; move it to
+      // the far left instead, so the control sits at the strip's end alone.
+      // Inline styles, re-applied on every re-render, beat the vendored
+      // stylesheet without a fragile cascade fight.
+      function place(strip) {
+        if (!strip.contains(ctl)) strip.appendChild(ctl);
+        const pin = strip.querySelector(".tv-pin");
+        if (pin) { pin.style.order = "-1"; pin.style.marginLeft = "0"; }
+      }
+
       function attach() {
         const strip = document.querySelector("#app .tv-chips");
         if (!strip) return false;
@@ -76,12 +92,12 @@
           if (obs) obs.disconnect();
           obs = new MutationObserver(() => {
             const s = document.querySelector("#app .tv-chips");
-            if (ctl && s && !s.contains(ctl)) s.appendChild(ctl);
+            if (s) place(s);
           });
           obs.observe(strip, { childList: true });
           watched = strip;
         }
-        if (!strip.contains(ctl)) strip.appendChild(ctl);
+        place(strip);
         return true;
       }
 
@@ -132,8 +148,12 @@
         try {
           const r = await postJSON("/git", { action: g.action }).then((x) => x.json());
           flash(r.ok ? `${g.action} ✓` : `${g.action} failed`);
+          // A concise line, never the raw subprocess dump: the glyph shows the
+          // new state; the log just says what ran and, on failure, why.
           if (typeof append === "function")
-            append("git", r.ok ? "info" : "warn", (r.output || r.error || g.action).trim());
+            append("git", r.ok ? "info" : "warn",
+                   r.ok ? `${g.action} ✓`
+                        : `${g.action} failed: ${tidyLine(r.error || r.output) || "see the server log"}`);
         } catch (e) { flash("failed"); }
         poll();
       }
