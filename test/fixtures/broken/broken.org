@@ -1,1 +1,1 @@
-* A title with a :: double colon
+* Foo :bar::baz:

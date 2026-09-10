@@ -322,10 +322,10 @@ instance Arbitrary Broken where
 
 -- | The text the parser refuses, @test\/fixtures\/broken\/broken.org@'s own
 -- spelling: a headline whose tag run stops mid-line, leaving a @:@ behind it
--- that no element may abut.  A MISMATCHED RANGE used to stand here and no
--- longer refuses -- prose abuts a timestamp, so @--<...>@ behind one is text.
+-- that no element may abut.  A @::@ IN THE TITLE used to stand here and no
+-- longer refuses -- a lone colon is title text, not an empty tag block.
 brokenLine :: Text
-brokenLine = "* A title with a :: double colon"
+brokenLine = "* Foo :bar::baz:"
 
 genDoc :: [Text] -> [Text] -> Gen DocSpec
 genDoc words' tags = sized $ \n -> do
