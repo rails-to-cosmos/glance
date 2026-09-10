@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Test.Tasty (TestTree, defaultMain, testGroup)
+import qualified TestCache as Cache
 import qualified TestConfig as Config
 import qualified TestEdit as Edit
 import qualified TestExternal as External
@@ -41,6 +42,7 @@ tests = testGroup "Tests"
   , Serve.spec
   , SelfContained.spec
   , Store.spec
+  , Cache.spec
   , Config.spec
   , Desktop.spec
   , Cli.spec

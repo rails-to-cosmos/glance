@@ -22,9 +22,10 @@ import qualified Network.Wai.Handler.Warp as Warp
 import Glance.Query (IdCollision (..), QueryResult (..), captureTargetIn, diagnose)
 import Glance.Web.Base ( ServeOptions (..), defaultPort, tenths, viewTitleFor
                        , walkFor )
+import Glance.Web.Cache (cacheFileFor, cacheFill, openCache)
 import Glance.Web.Routes (application, bootstrapWanted, hasRenderer)
 import Glance.Web.Store ( Hub, finishLoading, loadStoreWith
-                        , newLoadingHub, stashDoctor, storeResult )
+                        , newLoadingHub, setCache, stashDoctor, storeRecords, storeResult )
 import Glance.Web.Watch (say, watchOrgTree)
 
 
@@ -76,10 +77,17 @@ indexTree opts hub started = do
   -- is cached for the wire; the banner is untouched.
   stashDoctor hub =<< diagnose (walkFor opts) [soDir opts] stats
   finishLoading hub store
+  -- The durable SQLite shadow: filled from the walk, then kept up on reload.
+  -- Per-machine and out of the tree (XDG cache), so it never travels.
+  cachePath <- cacheFileFor (soDir opts)
+  cache <- openCache cachePath
+  cacheFill cache (storeRecords store)
+  setCache hub cache
   say
     [ "  loaded:  " <> show (length (qrRecords stats)) <> " rows from "
         <> show (qrFiles stats) <> " files in " <> seconds (loaded - started)
         <> collisionNote (qrIdCollisions stats)
+    , "  cache:   " <> cachePath <> " (" <> show (length (qrRecords stats)) <> " rows)"
     , "  capture: " <> captureTargetIn (soDir opts)
     ]
   watchOrgTree (walkFor opts) (soDir opts) hub

@@ -132,6 +132,18 @@ nothing catches it.
   (`Routes.hs:309`) — no reader tests for a clock word, so renaming one cannot
   leave a stale detector behind. One extra revalidation a day. *fragility: medium*
 
+- **The SQLite cache is a rebuildable shadow, never the source of truth.** The
+  in-memory `Store` answers every query; `Glance.Web.Cache` is a durable mirror
+  filled from the walk and kept up on reload (`Web.hs` `indexTree`, `Watch.hs`
+  `reload`), so no query reads it and losing it costs only a re-walk. It lives
+  per-machine under XDG cache, out of the tree, so it never travels and needs no
+  `.gitignore` line. This is the ADDITIVE step of
+  `docs/proposals/draft/2026-09-10-the-files-are-the-log-and-the-cache-stays-home.md`:
+  the store is unchanged and every invariant here is kept. That proposal's full
+  cut — the store served FROM the cache — is what would retire invariants 1, 7,
+  8 and 34; making the cache authoritative before then is the way to break them.
+  *fragility: low*
+
 ## Parsing and the walk
 
 - **A record retains no document bytes.** `HeadlineRecord` carries cells, spans,
