@@ -45,6 +45,7 @@ data McpTools = McpTools
   { mtWrite     :: BL.ByteString -> IO Response         -- ^ a @\/command@ body.
   , mtHeadline  :: Text -> IO Response                  -- ^ one subtree by row id.
   , mtHeadlines :: Maybe Text -> Maybe Int -> IO Response  -- ^ a query and a cap.
+  , mtDoctor    :: IO Response                          -- ^ the startup health verdict.
   }
 
 -- | @POST \/mcp@: one JSON-RPC message in, one response out (a notification
@@ -252,10 +253,18 @@ readTools =
       (schema [("id", str "the row id, e.g. FILE.org#3")] ["id"])
       (\tools args -> value =<< mtHeadline tools (fromMaybe "" (argText "id" args)))
   , Tool "list-headlines"
-      "List headlines matching a query (the filter language the UI table uses)."
+      "List headlines matching a query (the filter language the UI table uses). Answers\
+      \ {total, clean, rows}: total is the uncapped match count, clean the index's\
+      \ health flag, and each row {id, title, state, priority, scheduled, deadline, tags}."
       (schema [ ("query", str "a filter query like state:*active* or tag:work; empty lists all")
               , ("limit", int "cap on the number of rows returned") ] [])
       (\tools args -> value =<< mtHeadlines tools (argText "query" args) (argInt "limit" args))
+  , Tool "doctor"
+      "The index's health as measured at startup: the clean flag, one sentence per\
+      \ finding, and the counts (parse and decode and read failures, span violations,\
+      \ id collisions, org-glance drift, unindexed and recordless rows)."
+      (schema [] [])
+      (\tools _args -> value =<< mtDoctor tools)
   ]
 
 -- | A write tool: its arguments become a @\/command@ body, run through the

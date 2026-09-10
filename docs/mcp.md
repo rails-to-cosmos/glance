@@ -67,6 +67,16 @@ record, so there is no second write path. The suite checks that the write
 tools equal `commandNames`, so the catalog cannot drift from the engine. The
 general lesson: keep the MCP layer a thin adapter that owns no logic.
 
+The read tools answer the shape an AGENT reads, not the shape the browser
+boots off. `list-headlines` returns `{total, clean, rows}` — `total` the
+uncapped match count, `clean` the health flag, each row the seven fields an
+agent acts on — where the table's `/headlines` envelope also carries
+`columns`, badge colours, `actions`, `sort` and `views` it never renders. The
+`shape=rows` query parameter drives this off the one filter pipeline; the
+browser never sends it. Health is its own tool, `doctor`, over the cached
+startup verdict (`GET /doctor`), so checking the index costs no listing and a
+listing costs no verdict.
+
 `glance mcp` is daemon-aware: when a ready daemon already owns the port, the
 stdio process proxies to its `POST /mcp` (`mcpDaemonAt`, `runMcpStdioWith`)
 instead of opening the tree a second time.

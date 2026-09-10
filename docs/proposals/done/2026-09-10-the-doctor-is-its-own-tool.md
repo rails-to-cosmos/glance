@@ -1,6 +1,8 @@
 # Proposal — the doctor is its own tool
 
-**Status:** draft · **Date:** 2026-09-10 · **Origin:** user, after an agent's
+**Status:** done — delivered 2026-09-11 (both edits, plus a `shape=rows` query
+flag driving the compact answer off one filter pipeline) · **Date:** 2026-09-10
+· **Origin:** user, after an agent's
 first `list-headlines` over `glance mcp` answered five rows wrapped in the
 table's chrome and a `doctor` block — *"perhaps better to split doctor and
 other methods?"*

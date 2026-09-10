@@ -227,6 +227,16 @@ the first view. `/status` stays liveness and readiness only; the findings live
 here. The `glance doctor` CLI still prints its full report to stdout, and both
 derive their counts from this one summary, so they never disagree.
 
+`GET /doctor` answers the same summary object on its own, read O(1) off the
+cached verdict — the door a caller that wants health without listing anything
+uses (the MCP `doctor` tool is this route). It never rescans; the startup scan
+is the measurement.
+
+```sh
+curl -s localhost:7777/doctor
+# {"clean":false,"warnings":["6 files failed to parse"],"parseFailures":6, …}
+```
+
 ## Migration
 
 `glance backfill-created [DIR...] [--dry-run]` is a one-shot over the same tree
