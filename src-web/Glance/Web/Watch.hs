@@ -101,15 +101,15 @@ reload hub path = do
   exists <- doesFileExist path
   outcome <- if exists then Just <$> loadFileWith cfg path else pure Nothing
   frames <- publish hub (maybe (dropFile path) (applyFile path) outcome)
-  -- Mirror the store move into the durable cache, if one is installed: a
-  -- deletion drops the file's rows, a parse failure keeps them (as the store
-  -- does), a good parse replaces them.
-  readTVarIO (hubCache hub) >>= mapM_ (\c -> case outcome of
-    Nothing         -> cacheDropFile c path
-    Just (Left _)   -> pure ()
-    Just (Right rs) -> cacheApplyFile c path rs)
+  -- Mirror the store move into the durable cache, if one is installed, and note
+  -- it on the watch line: a deletion drops the file's rows, a parse failure
+  -- keeps them (as the store does), a good parse replaces them.
+  cnote <- readTVarIO (hubCache hub) >>= maybe (pure "") (\c -> case outcome of
+    Nothing         -> cacheDropFile c path    >> pure " · cache dropped"
+    Just (Left _)   -> pure ""
+    Just (Right rs) -> cacheApplyFile c path rs >> pure (" · cache " <> show (length rs)))
   finished <- getMonotonicTime
-  report path outcome frames (finished - started)
+  report path outcome frames (finished - started) cnote
 
 reseed :: WalkOptions -> FilePath -> Hub -> [FilePath] -> IO ()
 reseed opts dir hub paths = do
@@ -120,9 +120,9 @@ reseed opts dir hub paths = do
   say [ "glance watch: " <> unwords (map show paths) <> " config reseed — "
           <> frameSummary frames <> " " <> millis (finished - started) ]
 
-report :: FilePath -> Maybe (Either LoadFailure [a]) -> [Frame] -> Double -> IO ()
-report path outcome frames elapsed = unless (null note && null frames) $
-  say [ "glance watch: " <> path <> " " <> summary <> " " <> millis elapsed ]
+report :: FilePath -> Maybe (Either LoadFailure [a]) -> [Frame] -> Double -> String -> IO ()
+report path outcome frames elapsed cnote = unless (null note && null frames) $
+  say [ "glance watch: " <> path <> " " <> summary <> cnote <> " " <> millis elapsed ]
   where
     summary | null note = frameSummary frames
             | otherwise = note

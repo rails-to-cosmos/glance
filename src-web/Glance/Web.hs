@@ -79,13 +79,15 @@ indexTree opts hub started = do
   finishLoading hub store
   -- The durable SQLite shadow: filled from the walk, then kept up on reload.
   -- Per-machine and out of the tree (XDG cache), so it never travels.
-  cache <- openCache =<< cacheFileFor (soDir opts)
+  cachePath <- cacheFileFor (soDir opts)
+  cache <- openCache cachePath
   cacheFill cache (storeRecords store)
   setCache hub cache
   say
     [ "  loaded:  " <> show (length (qrRecords stats)) <> " rows from "
         <> show (qrFiles stats) <> " files in " <> seconds (loaded - started)
         <> collisionNote (qrIdCollisions stats)
+    , "  cache:   " <> cachePath <> " (" <> show (length (qrRecords stats)) <> " rows)"
     , "  capture: " <> captureTargetIn (soDir opts)
     ]
   watchOrgTree (walkFor opts) (soDir opts) hub
