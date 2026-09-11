@@ -158,6 +158,8 @@ module Glance.Query ( BlobSeed (..)
                     , rowIdIn
                     , rowJSON
                     , rowProperties
+                    , rowSummaryJSON
+                    , summaryEnvelope
                     , setPlanningEdits
                     , setPriorityEdits
                     , setStateEdits
@@ -2711,6 +2713,29 @@ column key header kind extra =
 -- it an addition to SCHEMA.md's Row rather than a field every row now owes.
 rowJSON :: HeadlineRecord -> Value
 rowJSON = rowJSONFor viewColumns
+
+-- | A headline as the MCP @list-headlines@ rows shape: the fields an agent
+-- reads and no more — no badge chrome, no @columns@\/@actions@\/@views@.  SPARSE:
+-- an unset planning stamp, state or priority is omitted and an empty tag run
+-- drops out, so the answer spends only the bytes it carries.  @id@ and @title@
+-- always ride; @tags@ is the file's own run, file-cased ('tagRunEntries'), never
+-- the sorted display cell 'rowJSON' fills.
+rowSummaryJSON :: HeadlineRecord -> Value
+rowSummaryJSON r = object $
+     [ "id" .= hrId r, "title" .= hrTitle r ]
+  <> [ "state"     .= s  | Just s <- [hrState r] ]
+  <> [ "priority"  .= p  | Just p <- [hrPriority r] ]
+  <> [ "scheduled" .= d  | Just d <- [hrScheduled r] ]
+  <> [ "deadline"  .= d  | Just d <- [hrDeadline r] ]
+  <> [ "tags"      .= ts | let ts = tagRunEntries (hrTags r), not (null ts) ]
+
+-- | The @list-headlines@ answer: @{total, clean, rows}@.  TOTAL is the uncapped
+-- match count so a @limit@ is honest against it; CLEAN is the startup verdict a
+-- caller may read without a second @doctor@ call; ROWS is the paged rows in
+-- 'rowSummaryJSON'.
+summaryEnvelope :: Int -> Bool -> [HeadlineRecord] -> Value
+summaryEnvelope total clean rows = object
+  [ "total" .= total, "clean" .= clean, "rows" .= map rowSummaryJSON rows ]
 
 rowJSONFor :: [ViewColumn] -> HeadlineRecord -> Value
 rowJSONFor cols r = object

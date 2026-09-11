@@ -6,6 +6,7 @@ module Glance.Web ( ServeOptions (..)
                   , bootstrapWanted
                   , serve
                   , serveAs
+                  , stashStartupDoctor
                   , viewTitleFor
                   ) where
 
@@ -23,7 +24,7 @@ import Glance.Query (IdCollision (..), QueryResult (..), captureTargetIn, diagno
 import Glance.Web.Base ( ServeOptions (..), defaultPort, tenths, viewTitleFor
                        , walkFor )
 import Glance.Web.Routes (application, bootstrapWanted, hasRenderer)
-import Glance.Web.Store ( Hub, finishLoading, loadStoreWith
+import Glance.Web.Store ( Hub, Store, finishLoading, loadStoreWith
                         , newLoadingHub, stashDoctor, storeResult )
 import Glance.Web.Watch (say, watchOrgTree)
 
@@ -74,7 +75,7 @@ indexTree opts hub started = do
   -- THE DOCTOR RUNS BEFORE THE ROUTES OPEN: a fresh scan for span violations and
   -- index drift, failures and collisions off the store just loaded.  The verdict
   -- is cached for the wire; the banner is untouched.
-  stashDoctor hub =<< diagnose (walkFor opts) [soDir opts] stats
+  stashStartupDoctor opts hub store
   finishLoading hub store
   say
     [ "  loaded:  " <> show (length (qrRecords stats)) <> " rows from "
@@ -83,6 +84,14 @@ indexTree opts hub started = do
     , "  capture: " <> captureTargetIn (soDir opts)
     ]
   watchOrgTree (walkFor opts) (soDir opts) hub
+
+-- | Diagnose the freshly loaded STORE under OPTS's walk and cache the verdict on
+-- HUB: the startup scan 'indexTree' runs before the routes open, factored so the
+-- offline @glance mcp@ store caches the same 'Doctor' rather than the empty
+-- 'cleanDoctor' a bare hub carries.
+stashStartupDoctor :: ServeOptions -> Hub -> Store -> IO ()
+stashStartupDoctor opts hub store =
+  stashDoctor hub =<< diagnose (walkFor opts) [soDir opts] (storeResult store)
 
 -- | What to say about CLASHES on the startup banner: the count with one example.
 collisionNote :: [IdCollision] -> String
