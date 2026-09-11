@@ -169,6 +169,14 @@ childPath :: T.Text -> Int -> ByteString
 childPath rid k = "/headline" <> renderQuery True
   [("id", Just (TE.encodeUtf8 rid)), ("child", Just (BSC.pack (show k)))]
 
+-- | A blob whose drawer closer lost its colon: `propertiesP' stops there, the
+-- properties go whole, and the id line is still bytes in the file.
+brokenDrawer :: T.Text
+brokenDrawer = T.unlines
+  [ "* TODO Broken :work:", ":PROPERTIES:", ":ORG_GLANCE_ID: u-1", ":END"
+  , "body of the broken one"
+  ]
+
 nestedDoc :: T.Text
 nestedDoc = T.unlines
   [ "* TODO parent", ":PROPERTIES:", ":ORG_GLANCE_ID: top", ":END:"
@@ -9048,6 +9056,18 @@ mcpSpec = testGroup "POST /mcp"
       keys <- fieldsOf ans
       mapM_ (\k -> assertBool (T.unpack k <> " rides the doctor answer") (k `elem` keys))
             ["clean", "warnings", "parseFailures", "recordless"]
+
+  , testCase "tools/call get-headline answers a broken drawer's own id" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "broken.org" brokenDrawer
+        (a, _hub) <- serverOver dir
+        r <- ok =<< mcpPost a "tools/call"
+               (object [ "name" .= ("get-headline" :: T.Text)
+                       , "arguments" .= object ["id" .= ("u-1" :: T.Text)] ])
+        assertEqual "the uuid the file still spells was refused" False
+          =<< boolAt "isError" =<< field "result" =<< decoded r
+        assertContains "the subtree came back" "Broken"
+          =<< textAt "body" =<< toolContent r
 
   , testCase "tools/call get-headline with no id is surfaced as an error" $ do
       a <- app assetsDir

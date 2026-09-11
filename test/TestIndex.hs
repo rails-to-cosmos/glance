@@ -14,10 +14,13 @@ import TestDefaults (withTempDirNamed)
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 
+import Data.Org.Doctor (Corpus (..), Totals (..), scanCorpus)
 import Data.Org.Index ( BlobEntry (..), IndexDrift (..), IndexFold (..)
                       , IndexRecord (..), blobEntryOf, driftOf, foldSegments
                       , indexReportLines, manifestFile, openSegment, segmentNames )
+import Data.Org.Walk (defaultWalk)
 
 
 -- | One JSON record line as org-glance writes it, @nil@ spelled @{}@.
@@ -65,12 +68,30 @@ readBytes :: FilePath -> IO BC.ByteString
 readBytes = BC.readFile
 
 blob :: Text -> Text -> Bool -> (FilePath, Maybe BlobEntry)
-blob ident state arch = (path, Just (BlobEntry ident state arch path))
+blob ident state arch = (path, Just (BlobEntry ident state arch False path))
   where path = "/store/data/" <> T.unpack ident <> "/data.org"
+
+-- | A blob whose id was read off a drawer the parse refused.
+broken :: Text -> FilePath -> (FilePath, Maybe BlobEntry)
+broken ident path = (path, Just (BlobEntry ident "" False True path))
 
 -- | A blob no id was read out of: a fourth answer beside indexed and unindexed.
 idless :: FilePath -> (FilePath, Maybe BlobEntry)
 idless path = (path, Nothing)
+
+-- | A headline as 'Data.Org.Doctor.indexTerms' spells it, its drawer parse-read.
+term :: Maybe Text -> Text -> Bool -> (Maybe Text, Text, Bool, Bool)
+term ident state arch = (ident, state, arch, False)
+
+-- | Write DOC as the one blob of a store under DIR, then scan DIR as the doctor
+-- does and answer the entry read out of it.
+scannedBlob :: FilePath -> Text -> IO (Maybe BlobEntry)
+scannedBlob dir doc = do
+  createDirectoryIfMissing True blobDir
+  TIO.writeFile (blobDir </> "data.org") doc
+  entries <- reverse . tBlobs . coTotals <$> scanCorpus defaultWalk [dir]
+  pure (case entries of (_, entry) : _ -> entry; [] -> Nothing)
+  where blobDir = dir </> ".org-glance" </> "data" </> "fe" </> "6180a2-ac42"
 
 drift :: [IndexRecord] -> [(FilePath, Maybe BlobEntry)] -> IndexDrift
 drift records = driftOf "/store" folded
@@ -221,6 +242,24 @@ driftSpec = testGroup "Index against blobs"
       assertEqual "recordless" 1 (dfRecordless d)
       assertEqual "rows" 0 (dfRows d)
 
+    -- The count alone named none of them, so the file could not be found.
+  , testCase "the idless and the broken-drawer blobs are named by path" $ do
+      let d = drift [rec "a" "" Nothing]
+                    [ blob "a" "" False, idless "/store/data/z/data.org"
+                    , idless "/store/data/y/data.org", broken "r" "/store/data/x/data.org" ]
+      assertEqual "idless" 2 (dfIdless d)
+      assertEqual "idless paths, path-ordered"
+                  ["/store/data/y/data.org", "/store/data/z/data.org"] (dfIdlessPaths d)
+      assertEqual "broken paths" ["/store/data/x/data.org"] (dfBrokenPaths d)
+
+    -- The drift holds every one of them; the REPORT is where the cap lives.
+  , testCase "the named paths are capped where the samples are" $ do
+      let d = drift [] [ idless ("/store/data/" <> show n <> "/data.org") | n <- [1 .. 30 :: Int] ]
+          named = [ l | l <- indexReportLines d, "/store/data/" `T.isInfixOf` l ]
+      assertEqual "idless" 30 (dfIdless d)
+      assertEqual "paths held" 30 (length (dfIdlessPaths d))
+      assertEqual "paths printed" 10 (length named)
+
   , testCase "the sample list is capped at ten" $ do
       let ids = [ T.pack (show n) | n <- [100 .. 199 :: Int] ]
           d = drift [ rec i "DONE" Nothing | i <- ids ] [ blob i "TODO" False | i <- ids ]
@@ -237,10 +276,10 @@ blobSpec = testGroup "What a blob says"
     testCase "the first headline is the entry, whatever depth it opens at" $
       assertEqual "id" (Just "wanted")
                   (beId <$> blobEntryOf "b.org"
-                     [(Just "wanted", "DONE", True), (Just "child", "", False)])
+                     [term (Just "wanted") "DONE" True, term (Just "child") "" False])
 
   , testCase "its state and archive flag come off that headline" $ do
-      let entry = blobEntryOf "b.org" [(Just "i", "STARTED", True)]
+      let entry = blobEntryOf "b.org" [term (Just "i") "STARTED" True]
       assertEqual "state" (Just "STARTED") (beState <$> entry)
       assertEqual "archived" (Just True) (beArchived <$> entry)
       assertEqual "file" (Just "b.org") (beFile <$> entry)
@@ -250,10 +289,32 @@ blobSpec = testGroup "What a blob says"
   , testCase "a child's id is not the blob's" $
       assertEqual "entry" Nothing
                   (beId <$> blobEntryOf "b.org"
-                     [(Nothing, "TODO", False), (Just "child", "DONE", False)])
+                     [term Nothing "TODO" False, term (Just "child") "DONE" False])
 
   , testCase "a file with no headline at all is no entry" $
       assertEqual "entry" Nothing (beId <$> blobEntryOf "b.org" [])
+
+  , testCase "the salvage mark comes off that headline too" $ do
+      let entry = blobEntryOf "b.org" [(Just "raw", "TODO", False, True)]
+      assertEqual "id" (Just "raw") (beId <$> entry)
+      assertEqual "salvaged" (Just True) (beSalvaged <$> entry)
+
+    -- END TO END over the real scan, which is what pins the tail arithmetic:
+    -- a closer that lost its colon costs the parse the properties whole, and the
+    -- id line is still bytes in the file.
+  , testCase "a broken drawer's own id is the entry, marked as salvaged" $
+      withTempDirNamed "scan-broken-drawer" $ \dir -> do
+        entry <- scannedBlob dir
+          "* TODO Broken :work:\n:PROPERTIES:\n:ORG_GLANCE_ID: u-1\n:END\nbody\n"
+        assertEqual "id" (Just "u-1") (beId <$> entry)
+        assertEqual "salvaged" (Just True) (beSalvaged <$> entry)
+        assertEqual "state" (Just "TODO") (beState <$> entry)
+
+  , testCase "a drawer the parse read is taken at its word" $
+      withTempDirNamed "scan-read-drawer" $ \dir -> do
+        entry <- scannedBlob dir
+          "* TODO Whole\n:PROPERTIES:\n:CATEGORY: c\n:END:\nbody\n"
+        assertEqual "the path form went to a blob whose drawer parsed" Nothing entry
   ]
 
 
@@ -274,6 +335,16 @@ reportSpec = testGroup "The scan's index report"
       hasLine ls "records" "2 read, 2 live, 0 tombstones, 0 malformed"
       hasLine ls "blobs" "3 parsed, 1 carrying no id"
       hasLine ls "unmatched" "1 unindexed blobs, 1 records without blobs"
+
+  , testCase "the idless and broken blobs are listed under their counts" $ do
+      let ls = indexReportLines
+                 (drift [] [ idless "/store/data/y/data.org"
+                           , broken "r" "/store/data/x/data.org" ])
+      assertBool ("the idless blob went unnamed in " <> show ls)
+                 ("    /store/data/y/data.org" `elem` ls)
+      hasLine ls "drawers" "1 with a drawer the parse refused"
+      assertBool ("the broken-drawer blob went unnamed in " <> show ls)
+                 ("    /store/data/x/data.org" `elem` ls)
 
   , testCase "an agreeing store reports itself and samples nothing" $ do
       let ls = indexReportLines (drift [rec "a" "" Nothing] [blob "a" "" False])

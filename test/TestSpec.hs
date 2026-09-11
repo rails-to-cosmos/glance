@@ -548,6 +548,19 @@ specGroup05 = testGroup "Walk"
           assertEqual "an entry going blank ahead of it renamed the row"
                       (map hrId alone) (map hrId withBlank)
 
+    -- A closer that lost its colon stops `propertiesP', so the headline loses
+    -- its properties whole while the id line is still bytes in the file.
+  , testCase "a broken drawer's id still names the row" $
+      withTempDirNamed "walk-broken-drawer" $ \dir -> do
+        path <- orgFile dir "notes.org"
+                  "* TODO one\n:PROPERTIES:\n:ORG_GLANCE_ID: u-1\n:END\nbody\n\
+                  \* TODO two\nno drawer at all\n"
+        rows <- qrRecords <$> loadDir dir
+        assertEqual "the broken drawer cost the row the id its own file spells"
+                    ["u-1", rowIdIn path 1] (map hrId rows)
+        assertEqual "and the ledger's key went with it"
+                    [Just "u-1", Nothing] (map hrOrgId rows)
+
     -- A walked path always ends in its @.org@ extension, so the separator needs no rule of its own.
   , testCase "FILE#K is recoverable at its LAST hash" $ do
       assertEqual "the ordinal id is spelled another way"

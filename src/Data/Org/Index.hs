@@ -17,7 +17,7 @@ module Data.Org.Index ( BlobEntry (..)
 import Data.Aeson (Value (Array, Bool, Object, String), decodeStrict')
 import Data.Char (isDigit)
 import Data.Foldable (toList)
-import Data.List (foldl')
+import Data.List (foldl', sort)
 import Data.Map.Strict (Map)
 import Data.Maybe (listToMaybe)
 import Data.Text (Text)
@@ -53,14 +53,17 @@ data BlobEntry = BlobEntry
   { beId       :: !Text
   , beState    :: !Text      -- ^ TODO keyword verbatim; empty when the headline has none.
   , beArchived :: !Bool      -- ^ does the headline wear org's @ARCHIVE@ tag?
+  , beSalvaged :: !Bool      -- ^ was the id read off a drawer the parse refused ('Data.Org.Types.salvagedIdentity')?
   , beFile     :: !FilePath  -- ^ the blob, as walked.
   } deriving (Eq, Show)
 
-blobEntryOf :: FilePath -> [(Maybe Text, Text, Bool)] -> Maybe BlobEntry
+-- | PATH's entry off HEADLINES — id, state, archived, salvaged, as the scan
+-- spells each — the FIRST of them being the blob's.
+blobEntryOf :: FilePath -> [(Maybe Text, Text, Bool, Bool)] -> Maybe BlobEntry
 blobEntryOf path headlines = do
-  (ident, state, arch) <- listToMaybe headlines
+  (ident, state, arch, salvaged) <- listToMaybe headlines
   i <- ident
-  pure (BlobEntry i state arch path)
+  pure (BlobEntry i state arch salvaged path)
 
 
 data IndexFold = IndexFold
@@ -146,34 +149,40 @@ splitLines = filter (not . BC.null) . BC.split '\n'
 
 
 data IndexDrift = IndexDrift
-  { dfStore      :: !FilePath  -- ^ the @.org-glance@ directory the index belongs to.
-  , dfFold       :: !IndexFold
-  , dfBlobs      :: !Int       -- ^ blobs the walk parsed under that store.
-  , dfIdless     :: !Int       -- ^ of those, how many carried no id to match by.
-  , dfRows       :: !Int       -- ^ ids disagreeing in EITHER term.
-  , dfState      :: !Int       -- ^ ids whose TODO keyword disagrees.
-  , dfArchived   :: !Int       -- ^ ids whose archive flag disagrees, of those the record states.
-  , dfUnindexed  :: !Int       -- ^ blobs no live record names.
-  , dfRecordless :: !Int       -- ^ live records with no blob.
-  , dfSamples    :: ![Text]    -- ^ up to 'driftSamples' disagreements, id-ordered.
+  { dfStore       :: !FilePath    -- ^ the @.org-glance@ directory the index belongs to.
+  , dfFold        :: !IndexFold
+  , dfBlobs       :: !Int         -- ^ blobs the walk parsed under that store.
+  , dfIdless      :: !Int         -- ^ of those, how many carried no id to match by.
+  , dfIdlessPaths :: ![FilePath]  -- ^ those blobs, path-ordered; a count alone names no file.
+  , dfBrokenPaths :: ![FilePath]  -- ^ blobs whose id was read off a drawer the parse refused, path-ordered.
+  , dfRows        :: !Int         -- ^ ids disagreeing in EITHER term.
+  , dfState       :: !Int         -- ^ ids whose TODO keyword disagrees.
+  , dfArchived    :: !Int         -- ^ ids whose archive flag disagrees, of those the record states.
+  , dfUnindexed   :: !Int         -- ^ blobs no live record names.
+  , dfRecordless  :: !Int         -- ^ live records with no blob.
+  , dfSamples     :: ![Text]      -- ^ up to 'driftSamples' disagreements, id-ordered.
   } deriving (Eq, Show)
 
 -- | Compare STORE's folded index against the BLOBS the walk parsed under it.
 -- An idless blob is counted ('dfIdless'), which keeps 'dfRecordless' honest.
 driftOf :: FilePath -> IndexFold -> [(FilePath, Maybe BlobEntry)] -> IndexDrift
 driftOf store folded blobs = IndexDrift
-  { dfStore      = store
-  , dfFold       = folded
-  , dfBlobs      = length blobs
-  , dfIdless     = length [ () | (_, Nothing) <- blobs ]
-  , dfRows       = length disagreeing
-  , dfState      = length [ () | (_, s, _) <- disagreeing, not (T.null s) ]
-  , dfArchived   = length [ () | (_, _, a) <- disagreeing, not (T.null a) ]
-  , dfUnindexed  = Map.size (Map.difference byId (ifRecords folded))
-  , dfRecordless = Map.size (Map.difference (ifRecords folded) byId)
-  , dfSamples    = take driftSamples (concatMap sample disagreeing)
+  { dfStore       = store
+  , dfFold        = folded
+  , dfBlobs       = length blobs
+  , dfIdless      = length idless
+  , dfIdlessPaths = sort idless
+  , dfBrokenPaths = sort broken
+  , dfRows        = length disagreeing
+  , dfState       = length [ () | (_, s, _) <- disagreeing, not (T.null s) ]
+  , dfArchived    = length [ () | (_, _, a) <- disagreeing, not (T.null a) ]
+  , dfUnindexed   = Map.size (Map.difference byId (ifRecords folded))
+  , dfRecordless  = Map.size (Map.difference (ifRecords folded) byId)
+  , dfSamples     = take driftSamples (concatMap sample disagreeing)
   }
   where
+    idless = [ p | (p, Nothing) <- blobs ]
+    broken = [ p | (p, Just b) <- blobs, beSalvaged b ]
     byId = Map.fromListWith (\_new old -> old) [ (beId b, b) | (_, Just b) <- blobs ]
     disagreeing = [ (i, state, arch)
                   | (i, rec) <- Map.toAscList (ifRecords folded)
@@ -198,23 +207,33 @@ archiveNote rec blob =
   where yesNo b = if b then "true" else "false"
 
 
--- | DRIFT as the scan prints it: the verdict line, three rows of counts, samples.
+-- | DRIFT as the scan prints it: the verdict line, the rows of counts, each
+-- count that names files followed by up to 'driftSamples' of them, then the samples.
 indexReportLines :: IndexDrift -> [Text]
-indexReportLines d =
-  [ "org-glance index: " <> num (dfRows d) <> " rows disagree ("
-      <> num (dfState d) <> " state, " <> num (dfArchived d) <> " archived)"
-  , field "store" (T.pack (dfStore d))
-  , field "records" (T.intercalate ", "
-      [ num (ifRead folded) <> " read"
-      , num (Map.size (ifRecords folded)) <> " live"
-      , num (ifTombstones folded) <> " tombstones"
-      , num (ifMalformed folded) <> " malformed" ])
-  , field "blobs" (num (dfBlobs d) <> " parsed, " <> num (dfIdless d) <> " carrying no id")
-  , field "unmatched" (num (dfUnindexed d) <> " unindexed blobs, "
-                         <> num (dfRecordless d) <> " records without blobs")
-  ] ++ map ("  " <>) (dfSamples d)
+indexReportLines d = concat
+  [ [ "org-glance index: " <> num (dfRows d) <> " rows disagree ("
+        <> num (dfState d) <> " state, " <> num (dfArchived d) <> " archived)"
+    , field "store" (T.pack (dfStore d))
+    , field "records" (T.intercalate ", "
+        [ num (ifRead folded) <> " read"
+        , num (Map.size (ifRecords folded)) <> " live"
+        , num (ifTombstones folded) <> " tombstones"
+        , num (ifMalformed folded) <> " malformed" ])
+    , field "blobs" (num (dfBlobs d) <> " parsed, " <> num (dfIdless d) <> " carrying no id") ]
+  , listed (dfIdlessPaths d)
+  , naming "drawers" (num (length broken) <> " with a drawer the parse refused, "
+                        <> "the id read off the raw lines") broken
+  , [ field "unmatched" (num (dfUnindexed d) <> " unindexed blobs, "
+                            <> num (dfRecordless d) <> " records without blobs") ]
+  , map ("  " <>) (dfSamples d)
+  ]
   where
     folded = dfFold d
+    broken = dfBrokenPaths d
     field label value = "  " <> T.justifyLeft 11 ' ' label <> value
+    sampled = take driftSamples
+    -- A count that names files prints WITH them; neither prints where there are none.
+    naming label value paths = [ field label value | not (null paths) ] ++ listed paths
+    listed paths = [ "    " <> T.pack p | p <- sampled paths ]
     num :: Int -> Text
     num = TS.showt

@@ -80,6 +80,8 @@ tombstoneLine :: Text -> Time.UTCTime -> BS.ByteString
 tombstoneLine = noteLine [",\"tombstone\":true"]
 
 -- | The blob's entry is its FIRST headline; a child's own id is not it.
+-- Bare 'identity' on purpose: org-glance's elisp cannot resolve an id only a
+-- broken drawer spells, so a salvaged one earns no ledger line.
 blobIdOf :: Text -> Maybe Text
 blobIdOf doc = firstHeadlineOf elems >>= identity
   where (elems, _ctx, _err) = orgParse defaultContext doc

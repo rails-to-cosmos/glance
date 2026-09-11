@@ -241,10 +241,11 @@ import Data.Org ( Context, Element (EHeadline), Headline
                 , Todo (name)
                 , TsMoment (tsmHasTime, tsmTime), archiveTag, deadline, defaultContext
                 , firstHeadlineOf, forcedSpans, headlineIdProperty, headlinesOf, hsFull
-                , identity
+                , identityOf
                 , isKeywordChar, isTagChar, levelOf
                 , metaCategory
-                , orgIdentity, orgParse, priority, schedule, shiftSpan, sliceSpan, spans, spelled
+                , orgIdentity, orgParse, priority, propertyLine, schedule, shiftSpan
+                , sliceSpan, spans, spelled
                 , addUnit, relativeForms, repeaterFormat, tags, title, todo
                 , tsBrackets, unitChar, unitOf )
 import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (..)
@@ -283,7 +284,7 @@ import qualified Data.Org.External as External
 data HeadlineRecord = HeadlineRecord
   { hrFile       :: !FilePath        -- ^ path the headline was read from, as walked.
   , hrId         :: !Text            -- ^ row identity: 'hrOrgId' where the headline carries one, else 'rowIdIn'.
-  , hrOrgId      :: !(Maybe Text)    -- ^ the @ORG_GLANCE_ID@ property.  THE LEDGER'S KEY: an ordinal names another row a week on.
+  , hrOrgId      :: !(Maybe Text)    -- ^ the @ORG_GLANCE_ID@ property, or the one a broken drawer still spells ('identityOf').  THE LEDGER'S KEY: an ordinal names another row a week on.
   , hrIdProperty :: !(Maybe Text)    -- ^ org-id's own @:ID:@ property, the OTHER namespace — what an @id:@ link resolves against.
   , hrCategory   :: !Text            -- ^ the file's final @#+CATEGORY@, empty when unset.
   , hrLevel      :: !Int             -- ^ org's outline level; a stored row is 1, a subtree entry its own.
@@ -471,7 +472,7 @@ recordWith copy cfg declared path ordinal doc digest category keywords h extent 
           , hrActive     = classify cfg declared (tagsOfCell tagsCell) <$> state
           }
         sp = spans h
-        orgId = identity h
+        orgId = copy <$> identityOf h subtree
         -- CUT OUT OF THE SUBTREE, never the file: 'sliceSpan' walks from the
         -- text's start, so a cell cut at a file offset is one long scan each.
         subtree = sliceSpan doc extent
@@ -1147,11 +1148,9 @@ drawerRows block = [ (key, value, raw) | raw <- inner (linesWith block)
                                        , let (key, value) = propertyOf raw ]
   where inner ls = drop 1 (take (length ls - 1) ls)
 
+-- | 'propertyLine' with a total answer: a line spelling no property is all value.
 propertyOf :: Text -> (Text, Text)
-propertyOf line = case T.uncons (T.stripStart line) of
-  Just (':', rest) | (key, closed) <- T.breakOn ":" rest, not (T.null closed)
-                   -> (key, T.strip (T.drop 1 closed))
-  _notAProperty    -> ("", T.strip line)
+propertyOf line = fromMaybe ("", T.strip line) (propertyLine line)
 
 pastLine :: Text -> Int -> Int
 pastLine t at = maybe (T.length t) (\i -> at + i + 1) (T.findIndex (== '\n') (T.drop at t))

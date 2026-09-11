@@ -211,18 +211,24 @@ scanFile seed path = do
 analyse :: FilePath -> ParsedDocument -> FileResult
 analyse path pd =
   FileResult BOk (accElements acc) (accHeadlines acc) (accViolations acc) (accSample acc)
-             [ T.copy i | h <- heads, Just i <- [identity h] ]
-             (if isBlob path then blobEntryOf path (map indexTerms heads) else Nothing)
+             [ T.copy i | Just i <- idents ]
+             (if isBlob path then blobEntryOf path (zipWith indexTerms heads idents) else Nothing)
   where doc   = pdText pd
         elems = pdElements pd
         acc   = foldl' (step path doc (T.length doc)) (Acc 0 0 0 [] (Cursor 0 doc)) elems
         heads = headlinesOf elems
+        -- ONCE per headline, on one left-to-right pass: 'T.drop' per headline is
+        -- quadratic in the document, which is what 'Cursor' is here for.
+        idents = snd (mapAccumL effective (Cursor 0 doc) heads)
+        effective cur h = let (tl, cur') = tailWith doc cur (hsFull (spans h))
+                          in (cur', identityOf h tl)
 
--- | H as the index comparison reads it, each field copied out of the document so no blob entry pins the text it was sliced from.
-indexTerms :: Headline -> (Maybe Text, Text, Bool)
-indexTerms h = ( T.copy <$> identity h
-               , maybe "" (T.copy . name) (todo h)
-               , archiveTag `elem` tagList (tags h) )
+-- | H as the index comparison reads it, IDENT its effective id, each field copied out of the document so no blob entry pins the text it was sliced from.
+indexTerms :: Headline -> Maybe Text -> (Maybe Text, Text, Bool, Bool)
+indexTerms h ident = ( T.copy <$> ident
+                     , maybe "" (T.copy . name) (todo h)
+                     , archiveTag `elem` tagList (tags h)
+                     , ident /= identity h )
   where tagList (Tags ts) = ts
 
 data Acc = Acc
@@ -264,6 +270,14 @@ sliceWith doc cur@(Cursor off rest) sp
   | start >= off = let rest' = T.drop (start - off) rest
                    in (T.take (spanEnd sp - start) rest', Cursor start rest')
   | otherwise    = (sliceSpan doc sp, cur)
+  where start = spanStart sp
+
+-- | The text from SP's start onward, reusing CUR: what 'identityOf' reads a
+-- broken drawer off, at the cost of the characters skipped since the last slice.
+tailWith :: Text -> Cursor -> Span -> (Text, Cursor)
+tailWith doc cur@(Cursor off rest) sp
+  | start >= off = let rest' = T.drop (start - off) rest in (rest', Cursor start rest')
+  | otherwise    = (T.drop start doc, cur)
   where start = spanStart sp
 
 elementViolations :: FilePath -> Text -> Int -> Cursor -> Spanned Element -> ([Text], Cursor)

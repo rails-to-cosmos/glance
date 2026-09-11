@@ -56,11 +56,11 @@ already answer both ends of an edge; what an agent lacks is the edges as a row
 field, a =neighbors= tool, a chrome-free =list-headlines= shape with =total=,
 and =add-link= for a body edge.  Four additive steps, none touching the WAL.
 
-* TODO Fix the path-id leak on a broken property drawer
-See [[file:bugs/open/2026-09-10-a-broken-drawer-gives-a-row-a-path-id-the-other-routes-refuse.md]].
-=:END= without its colon drops =ORG_GLANCE_ID=, the row gets =<path>#0=, and
-=get-headline=/=edit-link= refuse the uuid the file still spells.  17 such rows
-live in =~/sync/views= today and =doctor= names none of them.  Failing test first.
+* DONE Fix the path-id leak on a broken property drawer
+See [[file:bugs/fixed/2026-09-10-a-broken-drawer-gives-a-row-a-path-id-the-other-routes-refuse.md]].
+=salvagedIdentity= reads the =ORG_GLANCE_ID= line out of a drawer the parse
+refused, so the row, the ledger key and =get-headline= all spell the uuid again;
+=doctor= now lists the idless and the broken-drawer blobs by path.
 
 * TODO Finish the two-writer relay: a hash on the note, a pending layer in the fold
 See [[file:proposals/draft/2026-09-10-two-writers-one-wal.md]].

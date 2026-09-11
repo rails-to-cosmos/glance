@@ -814,9 +814,14 @@ scanNotes =
   , Note "It named the largest cause: 28 blobs carried a non-English weekday in the planning \
          \line, so `planningP' failed, the drawer was no longer next and the headline lost its \
          \properties whole." [Corpus]
-  , Note "What is left of the 21 idless blobs has not been attributed." [Corpus]
+  , Note "One cause of the 21 idless blobs is now named and repaired: a broken property \
+         \drawer, whose id `salvagedIdentity' reads off the raw lines; the report lists what \
+         \is left by path." [Test, Corpus]
   , Note "The report spells the store, the fold's counts, the blob counts, the unmatched pair, \
-         \then up to ten disagreeing ids with both values." [Test]
+         \then up to ten disagreeing ids with both values. A count that names files is followed \
+         \by up to ten of them, path-ordered: the idless blobs and the broken-drawer ones. The \
+         \drift holds every path; the cap is the report's, and a count that names nothing is \
+         \left unprinted." [Test]
   , Note "Re-rendering a shifted stamp from `Timestamp' would spell it this library's way, \
          \which is `TextShow''s lossy job." [Comment]
   , Note "Month and year steps are the calendar's own; the widths modelled here are nominal." [Docs]
@@ -1275,6 +1280,19 @@ walkNotes =
   , Note "The one reachable path to a blank entry is set-state with a null keyword over a title-less row, which leaves `* ' in the file and deletes the row; a blank parent takes its whole subtree out of the view." [Test]
   , Note "A file whose last row goes takes its keyword contribution with it, so where it alone declared TODO the step is a moved palette and the socket closes instead of streaming the delete." [Test]
   , Note "An edit under a child moves the document, the digest and the extent and no cell: the entry is refreshed so materialize is drift-free, with no frame and no generation bump; `linked' rides in that JSON, so the child edit that does stream is the one giving the subtree its first link or taking its last." [Test]
+  , Note "A DRAWER THE PARSE REFUSED STILL NAMES ITS ROW: `propertiesP' stops at a closer \
+         \that lost its colon, so the headline loses its properties whole, and \
+         \`salvagedIdentity' reads the `ORG_GLANCE_ID' line out of the subtree the walk \
+         \and the scan both hold. Without it the row falls to `rowIdIn' while `get-headline', \
+         \`edit-link' and `from:' refuse the uuid the file itself spells." [Test]
+  , Note "A drawer the parse DID read is taken at its word, id or none, so the path form \
+         \stays for a blob that truly carries no id." [Test]
+  , Note "`identityOf' is the ONE reader of a headline's effective id, the walk's and the \
+         \scan's alike, so a call site cannot disagree by leaving the salvage out." [Test]
+  , Note "The scan spends that read once per headline on a `Cursor' walk; a `T.drop' per \
+         \headline would be quadratic in the document." [Comment]
+  , Note "The completion ledger keeps bare `identity': org-glance's elisp cannot resolve an id \
+         \only a broken drawer spells, so a salvaged one earns no note." [Comment]
   , Note "FILE#K replaced FILE:START, the offset that moved on any edit above the headline: measured live, one upsert where the offset id shipped three deletes and three inserts." [Test]
   , Note "The id carries a #, which a raw URL reads as a fragment: it rides the query string percent-encoded on both sides, and POST /command carries ids in a JSON body." [Test]
   , Note "The nine surviving collisions are genuine duplicates — an elpa working copy of a checkout, and documents whose data.org repeats the source document's id." [Corpus]

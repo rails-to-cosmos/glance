@@ -39,12 +39,15 @@ module Data.Org.Types ( Context (..)
                       , headlineIdProperty
                       , getProperty
                       , identity
+                      , identityOf
                       , orgIdentity
                       , inTodo
                       , levelOf
+                      , propertyLine
                       , registerHeadline
                       , repeaterFormat
                       , resolveHeadline
+                      , salvagedIdentity
                       , setCategory
                       , setTodo
                       , shiftSpan
@@ -61,10 +64,11 @@ module Data.Org.Types ( Context (..)
                       , unitOf
                       ) where
 
+import Control.Applicative ((<|>))
 import Data.List (find, foldl', intersperse, nub, sortOn)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (listToMaybe, maybeToList)
+import Data.Maybe (isJust, listToMaybe, maybeToList)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.String (IsString(..))
@@ -334,6 +338,46 @@ identity = getProperty headlineIdProperty . properties
 -- | H's org-id: the @:ID:@ property, org's own namespace beside 'identity'.
 orgIdentity :: Headline -> Maybe Text
 orgIdentity = getProperty "ID" . properties
+
+-- | H's id: the one its parse read, else the one a broken drawer still spells in
+-- TEXT, which starts at H's own line.  THE ONE READER: the walk and the scan
+-- both call it, so neither names a row the other would not.
+identityOf :: Headline -> Text -> Maybe Text
+identityOf h text = identity h <|> salvagedIdentity h text
+
+-- | The @ORG_GLANCE_ID@ H's BROKEN drawer still spells, TEXT starting at H's own
+-- line.  A drawer the parse read is taken at its word, id or none.
+salvagedIdentity :: Headline -> Text -> Maybe Text
+salvagedIdentity h text
+  | isJust (hsProperties (spans h)) = Nothing
+  | otherwise = listToMaybe
+      [ value
+      | line <- drawerRun (drop 1 (map T.strip (T.lines text)))
+      , Just (key, value) <- [propertyLine line]
+      , T.toUpper key == headlineIdProperty, not (T.null value) ]
+
+-- | The property drawer's own lines in LS.  It opens within the first two,
+-- org putting it after the headline's planning line at the latest, and runs to
+-- the closer, a blank line or a child headline.
+drawerRun :: [Text] -> [Text]
+drawerRun ls = case break opens near of
+    (_, _open : rest) -> takeWhile (not . closes) (rest ++ far)
+    _noDrawer         -> []
+  where (near, far) = splitAt 2 (takeWhile inside ls)
+        inside l = not (T.null l) && not ("*" `T.isPrefixOf` l)
+        opens  l = T.toUpper (T.take 12 l) == ":PROPERTIES:"
+        -- @:ENDORSED:@ is a property line; only @:END@ and @:END:@ close.
+        closes l = case T.stripPrefix ":END" (T.toUpper (T.take 5 l)) of
+          Just rest -> T.null rest || rest == ":"
+          Nothing   -> False
+
+-- | LINE as @(key, value)@ where it spells @:KEY: value@, leading indent allowed.
+propertyLine :: Text -> Maybe (Text, Text)
+propertyLine line = do
+  rest <- T.stripPrefix ":" (T.stripStart line)
+  let (key, closing) = T.breakOn ":" rest
+  value <- T.stripPrefix ":" closing
+  pure (key, T.strip value)
 
 instance Display Headline where
   display h@Headline{..} =
