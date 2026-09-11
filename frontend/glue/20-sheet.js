@@ -2737,6 +2737,8 @@
     };
     const VERBED = {
       "edit-link": (args, verb) => verb,
+      "add-link": (args) =>
+        `linked → ${args.target}${args.kind ? ` (${args.kind})` : ""}`,
       "set-title": (args) => `retitled ${JSON.stringify(args.title)}`,
       "set-priority": (args) =>
         (args.priority ? `priority [#${args.priority}]` : "priority cleared"),

@@ -49,12 +49,11 @@ the unset-planning colour bug), the Elm one-liners, and the repaint-bug file.
 All four gates green: cabal 2276, elm 189, browser 96, AGENTS 0.  Nothing
 committed yet.
 
-* TODO Put the graph on the MCP wire
-See [[file:proposals/draft/2026-09-10-the-graph-an-agent-can-walk.md]].
-Opened 2026-09-10 from a live agent session over =glance mcp=.  =ref:=/=from:=
-already answer both ends of an edge; what an agent lacks is the edges as a row
-field, a =neighbors= tool, a chrome-free =list-headlines= shape with =total=,
-and =add-link= for a body edge.  Four additive steps, none touching the WAL.
+* DONE Put the graph on the MCP wire
+See [[file:proposals/done/2026-09-10-the-graph-an-agent-can-walk.md]].
+=edges: true= carries each row's =refs= and =referrers= off one reverse index,
+=neighbors= walks the subgraph inside the daemon, the rows shape was already
+there, and =add-link= writes a body or title edge through the one write door.
 
 * DONE Fix the path-id leak on a broken property drawer
 See [[file:bugs/fixed/2026-09-10-a-broken-drawer-gives-a-row-a-path-id-the-other-routes-refuse.md]].

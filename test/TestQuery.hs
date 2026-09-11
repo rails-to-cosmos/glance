@@ -43,7 +43,8 @@ import Glance.Query ( ConfigLayerFile (..), ConfigLayers (..), HeadlineParts (..
                     , captureTemplateIn, captureTemplateOf
                     , dayOf, isoDay, monthWords, shiftDay, shiftIn
                     , defaultWalk, derivedPath, documentPath
-                    , displayText, editLinkEdits, expandTemplate
+                    , addLinkEdits, displayText, edgeIndex, editLinkEdits, expandTemplate
+                    , glanceLink, LinkPlace (..), linkTargetIn, ownBody, referrersIn
                     , headlineParts, hiddenProperties
                     , keywordSources, loadDir
                     , loadDirFilesSerially, loadDirFilesWith, matchesSearch
@@ -1471,6 +1472,10 @@ editLinkIs what doc target desc = triedEditsAre what doc $ \r ->
     []      -> Left "the document holds no link"
     (l : _) -> editLinkEdits (olSpan l) target desc doc r
 
+-- | WHAT: DOC with LINK appended to its one headline is WANTED; PLACE picks the road.
+addLinkIs :: String -> Text -> LinkPlace -> Text -> Text -> Assertion
+addLinkIs what doc place link = triedEditsAre what doc (addLinkEdits place link doc)
+
 -- | WHAT: DOC with @rename-tag FROM TO@ applied to its one headline is WANTED.
 renameTagIs :: String -> Text -> Text -> Text -> Text -> Assertion
 renameTagIs what doc from to = editsAre what doc (renameTagEdits from to doc)
@@ -1863,6 +1868,92 @@ commandSpec = testGroup "Commands"
                              , ("in the description", "https://a.example",
                                 Just (Just "A\n* B")) ]
             [] -> assertFailure "no link to edit"
+    ]
+
+    -- @add-link@ APPENDS rather than retargeting, so its subject is WHERE a link
+    -- lands: the end of the row's own last paragraph, or a fresh line under
+    -- whatever header the row carries.
+  , testGroup "the edge add-link appends"
+    [ testCase "a row with a body takes the link on its last line" $
+        addLinkIs "the paragraph keeps its text and grows one link"
+                  "* one\nsee the notes.\n" InBody "[[glance:b]]"
+                  "* one\nsee the notes. [[glance:b]]\n"
+
+    , testCase "a row with no body takes a line of its own" $
+        addLinkIs "the link opens the body"
+                  "* one\n" InBody "[[glance:b]]"
+                  "* one\n[[glance:b]]\n"
+
+      -- ONE OWNER PER BYTE: the planning line and the drawer are lifted regions,
+      -- so a link appended to \"the body\" may not land inside either.
+    , testCase "the planning line and the drawer are no paragraph of the body" $
+        addLinkIs "the link opens the body under them both"
+                  (T.unlines [ "* one", "SCHEDULED: <2026-08-01 Sat>"
+                             , ":PROPERTIES:", ":ORG_GLANCE_ID: a", ":END:" ])
+                  InBody "[[glance:b]]"
+                  (T.unlines [ "* one", "SCHEDULED: <2026-08-01 Sat>"
+                             , ":PROPERTIES:", ":ORG_GLANCE_ID: a", ":END:"
+                             , "[[glance:b]]" ])
+
+      -- A CHILD IS A SCOPE BOUNDARY: the row's own body stops above it.
+    , testCase "a child headline ends the body the link lands in" $
+        addLinkIs "the link joins the row's own last line, not the child's"
+                  "* one\nmine.\n** child\ntheirs.\n" InBody "[[glance:b]]"
+                  "* one\nmine. [[glance:b]]\n** child\ntheirs.\n"
+
+    , testCase "a blank line below the paragraph is no paragraph" $
+        addLinkIs "the link lands on the written line"
+                  "* one\nsee the notes.\n\n" InBody "[[glance:b]]"
+                  "* one\nsee the notes. [[glance:b]]\n\n"
+
+      -- THE TITLE ROAD IS `setTitleEdits'', so the tag run is left where it is.
+    , testCase "the title road writes ahead of the tag run" $
+        addLinkIs "the link joins the title text"
+                  "* one :work:\n" InTitle "[[glance:b]]"
+                  "* one [[glance:b]] :work:\n"
+
+    , testCase "the link is org-glance's own spelling, slug and all" $ do
+        assertEqual "a kind rides the target, slugged the peer's way"
+          (Right "[[glance:abc?kind=blocked-by][Sign it]]")
+          (glanceLink "abc" (Just "Blocked By") (Just "Sign it"))
+        assertEqual "no description is a bare bracketed link"
+          (Right "[[glance:abc]]") (glanceLink "abc" Nothing Nothing)
+        assertEqual "a blank kind declares none"
+          (Right "[[glance:abc]]") (glanceLink "abc" (Just "  ") (Just " "))
+
+      -- A `*bold*' LINE IS BODY TEXT: org's own heading is stars and a SPACE, so a
+      -- line merely opening with a star is no child and no scope boundary.
+    , testCase "a bold line is no child, so the link joins it" $ do
+        addLinkIs "the link joins the bold line, the row's own last"
+                  "* one\n*bold* words.\n" InBody "[[glance:b]]"
+                  "* one\n*bold* words. [[glance:b]]\n"
+        let doc = "* one\n*bold* words.\n** child\ntheirs.\n"
+        withRecordsOf doc $ \rows ->
+          assertEqual "and the row's own body stops at the real child"
+            ["*bold* words.\n"] [ line | r <- take 1 rows, (_sp, line) <- ownBody doc r ]
+
+      -- THE TARGET IS A ROW, and the link is written by the name it answers to.
+    , testCase "a row's link name is its org id, or why it has none" $
+        withRecordsOf (T.unlines
+          [ "* one", ":PROPERTIES:", ":ORG_GLANCE_ID: abc", ":END:", "* two" ]) $ \rows -> do
+            assertEqual "the org id is the name a link spells"
+              [Right "abc"] [ linkTargetIn r | r <- rows, hrOrgId r == Just "abc" ]
+            assertContains "and a row no link can name says so" "ORG_GLANCE_ID"
+              (T.concat [ either id id (linkTargetIn r) | r <- rows, Nothing <- [hrOrgId r] ])
+
+      -- ONE PASS, BOTH NAMESPACES: `refNames' is the index's key, so a title
+      -- mention and an `id:' link answer the same reverse question.
+    , testCase "the reverse index answers ref: over every namespace" $
+        withRecordsOf (T.unlines
+          [ "* Target", ":PROPERTIES:", ":ORG_GLANCE_ID: t", ":ID: u-1", ":END:"
+          , "* Source", ":PROPERTIES:", ":ORG_GLANCE_ID: s", ":END:"
+          , "points [[glance:t]] and [[Target]] and [[id:u-1]]"
+          , "* Lonely", ":PROPERTIES:", ":ORG_GLANCE_ID: l", ":END:" ]) $ \rows -> do
+            let ix = edgeIndex rows
+                referrers rid = concat [ referrersIn ix r | r <- rows, hrId r == rid ]
+            assertEqual "every spelling resolves to the one row" ["s"] (referrers "t")
+            assertEqual "and a row nothing points at answers nothing" [] (referrers "l")
+            assertEqual "a row is never its own reference" [] (referrers "s")
     ]
 
     -- The PARSER's own charset: a character @tagsP@ declines takes the run down into title text.

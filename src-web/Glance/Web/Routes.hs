@@ -72,6 +72,8 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , headlineParts, keywordSources, linkShown, linkType
                     , mintableLayer
                     , kindSlug, refKind
+                    , edgePairs, neighborDepth, neighborDepthCap, neighborLimit
+                    , neighborhood
                     , plannedValue, readConfigLayers
                     , unplanned
                     , untrailed
@@ -100,7 +102,7 @@ import Glance.Web.Sort (sortChainIn)
 import Glance.Web.Theme (themeIds)
 import Glance.Web.Store ( Client, CloseReason (Resync), Frame (Close), Hub
                         , LoadState (..), closeReason
-                        , Store (stConfig, stGen, stPrint), frameText, layersFor
+                        , Store (stConfig, stEdges, stGen, stPrint), frameText, layersFor
                         , hubAutoSync, hubDoctor, hubLoad, hubStore, nextFrame
                         , headlinesIn
                         , storeKeywords
@@ -151,7 +153,7 @@ httpApp opts hub request respond = route >>= respond
       , (["headlines"],  True,  textRefusal, [(methodGet, headlines opts hub request)])
       , (["refer"],      True,  textRefusal, [(methodGet, refer opts hub request)])
       , (["headline"],   True,  jsonRefusal,
-          [ (methodGet, materialize hub (queryId request) (queryChild request))
+          [ (methodGet, materialize hub (queryEdges request) (queryId request) (queryChild request))
           , (methodPost, commit opts hub (queryId request) (queryChild request) request) ])
       , (["command"],    True,  jsonRefusal, [(methodPost, runCommand opts hub request)])
       , (["config"],     True,  jsonRefusal,
@@ -160,6 +162,7 @@ httpApp opts hub request respond = route >>= respond
       , (["capture"],    True,  textRefusal, [(methodGet, captureView opts hub request)])
       , (["keywords"],   True,  textRefusal, [(methodGet, keywordsView hub request)])
       , (["links"],      True,  textRefusal, [(methodGet, linksView hub (queryId request))])
+      , (["neighbors"],  True,  jsonRefusal, [(methodGet, neighborsView hub request)])
       , (["tags"],       True,  textRefusal, [(methodGet, tagsView hub request)])
       , (["properties"], True,  textRefusal, [(methodGet, propertiesView hub)])
       , (["ws"],         True,  textRefusal, [(methodGet, pure (plain status400 wsHint))])
@@ -227,18 +230,65 @@ statusView opts hub = do
 mcpToolsFor :: ServeOptions -> Hub -> McpTools
 mcpToolsFor opts hub = McpTools
   { mtWrite     = runCommandRaw opts hub
-  , mtHeadline  = \rid -> materialize hub (Just rid) (Right Nothing)
-  , mtHeadlines = \q limit -> headlines opts hub (listRequest q limit)
+  , mtHeadline  = \rid edges -> materialize hub (Right edges) (Just rid) (Right Nothing)
+  , mtHeadlines = \q limit edges -> headlines opts hub (listRequest q limit edges)
+  , mtNeighbors = \rid depth limit kind ->
+                    neighborsView hub (neighborRequest rid depth limit kind)
   , mtDoctor    = doctorView hub
   }
 
--- | The @\/headlines@ request an MCP @list-headlines@ synthesizes: query, cap and
--- @shape=rows@ — the browser never sends it, so an agent gets 'summaryEnvelope'.
-listRequest :: Maybe Text -> Maybe Int -> Request
-listRequest q limit = defaultRequest
+-- | The @\/headlines@ request an MCP @list-headlines@ synthesizes: query, cap,
+-- @shape=rows@ and the @edges@ it was asked for — the browser sends neither, so
+-- an agent gets 'summaryEnvelope' and the table gets the page it always did.
+listRequest :: Maybe Text -> Maybe Int -> Bool -> Request
+listRequest q limit edges = defaultRequest
   { queryString = [ ("q", Just (TE.encodeUtf8 t)) | Just t <- [q] ]
                <> [ ("limit", Just (BSC.pack (show n))) | Just n <- [limit] ]
-               <> [ ("shape", Just "rows") ] }
+               <> [ ("shape", Just "rows") ]
+               <> [ ("edges", Just "true") | edges ] }
+
+-- | The @\/neighbors@ request an MCP @neighbors@ synthesizes.  ONE DOOR, so the
+-- walls the query string meets — a depth over the cap, a negative one — are the
+-- walls the tool meets.
+neighborRequest :: Text -> Maybe Int -> Maybe Int -> Maybe Text -> Request
+neighborRequest rid depth limit kind = defaultRequest
+  { queryString = [ ("id", Just (TE.encodeUtf8 rid)) ]
+               <> [ ("depth", Just (BSC.pack (show n))) | Just n <- [depth] ]
+               <> [ ("limit", Just (BSC.pack (show n))) | Just n <- [limit] ]
+               <> [ ("kind", Just (TE.encodeUtf8 t)) | Just t <- [kind] ] }
+
+-- | @GET \/neighbors?id=…@: the subgraph around a row, DEPTH hops either way,
+-- narrowed to a KIND and capped at LIMIT nodes.  OFF THE STORE'S OWN GRAPH
+-- ('stEdges'), which is built once per store version — the @from:@\/@ref:@ round
+-- trips an agent would otherwise pay per hop.  Both caps refuse rather than trim.
+neighborsView :: Hub -> Request -> IO Response
+neighborsView hub request = case neighborParams request of
+  Left why -> pure (jsonError status400 why)
+  Right ask -> do
+    st <- readTVarIO (hubStore hub)
+    pure (either (jsonError status404) (sized status200 [jsonType] . encode)
+            (neighborhood (naKind ask) (naDepth ask) (naLimit ask) (stEdges st) (naId ask)))
+
+data NeighborAsk = NeighborAsk
+  { naId    :: !Text
+  , naDepth :: !Int
+  , naLimit :: !Int
+  , naKind  :: !(Maybe Text)
+  }
+
+-- | What @\/neighbors@ was asked for, or what is wrong with the asking.  The two
+-- numbers meet 'wholeNumber' and 'cappedAt', the walls @\/headlines@' own @limit@ meets.
+neighborParams :: Request -> Either Text NeighborAsk
+neighborParams request = do
+  rid   <- queryWord request "id"
+  depth <- cappedAt neighborDepthCap "depth" fromTheFarEnd =<< queryCount request "depth"
+  limit <- cappedAt limitCap "limit" pageOn =<< queryCount request "limit"
+  kind  <- queryWord request "kind"
+  case rid of
+    Nothing -> Left "GET /neighbors?id=<row id>"
+    Just i  -> Right NeighborAsk { naId = i, naDepth = fromMaybe neighborDepth depth
+                                 , naLimit = fromMaybe neighborLimit limit, naKind = kind }
+  where fromTheFarEnd = "ask the far rows from their own end"
 
 -- | @GET \/doctor@: the startup scan's health, read O(1) off the hub and never
 -- recomputed — one 'doctorJSON' the boot log and @glance doctor@ share too.
@@ -327,14 +377,17 @@ viewPage opts hub request keep extra = case pageParams request of
             shown   = maybe matched (\n -> take n (drop paOffset ordered)) paLimit
             hasNext = maybe False (\n -> paOffset + n < total) paLimit
             cols    = maybe viewColumns resolveColumns paPicked
+            -- OFF THE STORE'S OWN GRAPH, built once per store version: a `ref:'
+            -- pass per row served would be one pass over the tree per row.
+            edges   = if paEdges then edgePairs (stEdges st) else const []
             -- EXTRA rides the ONE encoding, over every row the query MATCHED.
-            view    = viewJSONFor cols (savedViewsIn st) paChain
+            view    = viewJSONFor cols edges (savedViewsIn st) paChain
                                   (viewTitleFor dir) (storeKeywords st) shown
             -- @shape=rows@ (an MCP caller) gets the compact answer; TOTAL stays the
             -- uncapped match count so @limit@ is honest.
             body
               | paRows    = TLE.encodeUtf8 (encodeToLazyText
-                              (summaryEnvelope total (doctorClean doctor) shown))
+                              (summaryEnvelope edges total (doctorClean doctor) shown))
               | otherwise = TLE.encodeUtf8 (encodeToLazyText
                               (merged view (("doctor" .= doctorJSON doctor) : extra matched)))
         -- The encode is lazy: an exception in warp's sender would truncate a sent 200.
@@ -388,39 +441,58 @@ data PageAsk = PageAsk
   , paChain  :: !SortChain       -- ^ the order @q@'s @sort:@ tokens state.
   , paPicked :: !(Maybe [Text])  -- ^ the set @q@'s @columns:@ tokens state.
   , paRows   :: !Bool            -- ^ @shape=rows@: the compact 'summaryEnvelope', never the table's own.
+  , paEdges  :: !Bool            -- ^ @edges=true@: 'edgePairs' on every row served, under either shape.
   }
 
 -- | @q@, @limit@ and @offset@ out of REQUEST, or what is wrong with one.  @order=@ is refused rather than ignored.
 pageParams :: Request -> Either Text PageAsk
 pageParams request = do
-  q      <- maybe (Right "") text (raw "q")
-  limit  <- traverse count (raw "limit")
-  offset <- maybe (Right 0) count (raw "offset")
-  _order <- maybe (Right ()) (const (Left retired)) (raw "order")
+  q      <- fromMaybe "" <$> queryWord request "q"
+  limit  <- cappedAt limitCap "limit" pageOn =<< queryCount request "limit"
+  offset <- fromMaybe 0 <$> queryCount request "offset"
+  _order <- maybe (Right ()) (const (Left retired)) =<< queryWord request "order"
   chain  <- sortChainIn q
   picked <- columnNamesIn q
   -- The third view key's own refusal: it has no reader of its own to carry one.
   _added <- viewAddedIn q
-  rows   <- maybe (Right False) shapeRows (raw "shape")
-  case limit of
-    Just n | n > limitCap -> Left ("limit is at most " <> T.pack (show limitCap)
-                                     <> "; page with offset for more")
-    _within                -> Right PageAsk { paQuery = q, paLimit = limit
-                                           , paOffset = offset, paChain = chain
-                                           , paPicked = picked, paRows = rows }
+  rows   <- shapeRows =<< queryWord request "shape"
+  edges  <- queryEdges request
+  Right PageAsk { paQuery = q, paLimit = limit, paOffset = offset, paChain = chain
+                , paPicked = picked, paRows = rows, paEdges = edges }
   where
     -- Only @rows@ is a shape; an unknown value is refused rather than ignored.
-    shapeRows v = case text v of
-      Right "rows" -> Right True
-      _other       -> Left "shape is rows, or absent for the table view"
+    shapeRows given = case given of
+      Just "rows" -> Right True
+      Nothing     -> Right False
+      Just _other -> Left "shape is rows, or absent for the table view"
     retired = "order= is gone; the order is the query's: ?q=sort:COL, \
               \or ?q=sort:*none* for document order"
-    -- A parameter with no @=@ reads as absent, so @?limit@ is not a zero page.
-    raw name = case lookup (TE.encodeUtf8 name) (queryString request) of
-      Just (Just bytes) -> Just (name, bytes)
-      _absent           -> Nothing
-    text (name, bytes) = first (const (name <> " is not UTF-8")) (TE.decodeUtf8' bytes)
-    count (name, bytes) = wholeNumber name bytes
+
+-- | What a caller over the page cap is told to do instead.
+pageOn :: Text
+pageOn = "page with offset for more"
+
+-- | N under CAP, or the refusal naming the cap and the way round it.  ONE
+-- SENTENCE for every capped number, so @limit@ and @depth@ refuse alike.
+cappedAt :: Int -> Text -> Text -> Maybe Int -> Either Text (Maybe Int)
+cappedAt cap name hint n
+  | any (> cap) n = Left (name <> " is at most " <> T.pack (show cap) <> "; " <> hint)
+  | otherwise     = Right n
+
+-- | NAME's value in REQUEST, or why it is no text.  A parameter with no @=@
+-- reads as absent, so @?limit@ is not a zero page.
+queryWord :: Request -> Text -> Either Text (Maybe Text)
+queryWord request name = traverse decode' (rawParam request name)
+  where decode' bytes = first (const (name <> " is not UTF-8")) (TE.decodeUtf8' bytes)
+
+-- | NAME's value in REQUEST as a whole number, or why it is none.
+queryCount :: Request -> Text -> Either Text (Maybe Int)
+queryCount request name = traverse (wholeNumber name) (rawParam request name)
+
+rawParam :: Request -> Text -> Maybe BS.ByteString
+rawParam request name = case lookup (TE.encodeUtf8 name) (queryString request) of
+  Just (Just bytes) -> Just bytes
+  _absent           -> Nothing
 
 -- | NAME's value RAW as a whole number.  Read as 'Integer' first: a wrapped 'Int' would page from a negative offset.
 wholeNumber :: Text -> BS.ByteString -> Either Text Int
@@ -436,13 +508,22 @@ wholeNumber name raw = do
 
 
 -- | @GET \/headline?id=…@: a subtree, over the file as it stands.  The id rides the query string; a @#@ in a path opens a fragment.
-materialize :: Hub -> Maybe Text -> Either Text (Maybe Int) -> IO Response
-materialize _hub Nothing _child = pure (jsonError status400 "GET /headline?id=<row id>")
-materialize hub (Just rid) child =
-  either id (jsonResponse status200 . uncurry subtreeJSON) <$> focused Reading hub rid child
+-- EDGES adds the row's own references and the rows pointing at it, off the store the read resolved in.
+materialize :: Hub -> Either Text Bool -> Maybe Text -> Either Text (Maybe Int) -> IO Response
+materialize _hub _edges Nothing _child = pure (jsonError status400 "GET /headline?id=<row id>")
+materialize hub edges (Just rid) child = case edges of
+  Left why   -> pure (jsonError status400 why)
+  Right want -> either id (answered want) <$> focused Reading hub rid child
+  where
+    answered want (doc, f) = jsonResponse status200 (subtreeJSON doc f <> rider want f)
+    -- OFF THE STORE THE READ RESOLVED IN, never a second resolution of its rows.
+    rider want f
+      | want      = edgePairs (stEdges (fcStore f)) (fcRow f)
+      | otherwise = []
 
 data Focus = Focus
-  { fcRow     :: !HeadlineRecord   -- ^ the row the id named.
+  { fcStore   :: !Store            -- ^ the store version the id resolved in; its graph is 'stEdges'.
+  , fcRow     :: !HeadlineRecord   -- ^ the row the id named.
   , fcEntries :: ![SubtreeEntry]   -- ^ every headline inside it, in document order.
   , fcAt      :: !(Maybe Int)      -- ^ the @child@ index; 'Nothing' is the row itself.
   }
@@ -496,7 +577,7 @@ focused pin hub rid child = onRow pin hub rid child $ \st doc (r, at) ->
          Left (jsonError status404
                 (hrId r <> " has no child " <> T.pack (show k)
                    <> "; it holds " <> T.pack (show (length entries))))
-       _held -> Right (doc, Focus r entries at)
+       _held -> Right (doc, Focus st r entries at)
 
 focusEntry :: Focus -> Maybe SubtreeEntry
 focusEntry f = fcAt f >>= subtreeEntryAt (fcEntries f)
@@ -775,7 +856,7 @@ draftJSON st worn doc r opens =
   , "point"      .= opens
   , "tags"       .= storeTags st
   ]
-  where f = Focus r (subtreeEntries (stConfig st) doc r) Nothing
+  where f = Focus st r (subtreeEntries (stConfig st) doc r) Nothing
         parts = headlineParts doc r
 
 -- | A DRAFT'S DISPLAY CELLS: 'cells', with the tag run saying WHERE THIS LANDS.
@@ -938,6 +1019,15 @@ data LayerWrite = LayerWrite
 
 queryId :: Request -> Maybe Text
 queryId = queryText "id"
+
+-- | @?edges=true@: does this read owe each row's references and the rows pointing
+-- at it?  THE ONE READER, for the subtree door and the table's own; an unknown
+-- value is refused rather than ignored, the way @shape=@ is.
+queryEdges :: Request -> Either Text Bool
+queryEdges request = queryWord request "edges" >>= \given -> case given of
+  Just "true" -> Right True
+  Nothing     -> Right False
+  Just _other -> Left "edges is true, or absent for the rows without them"
 
 queryText :: BS.ByteString -> Request -> Maybe Text
 queryText name request = case lookup name (queryString request) of

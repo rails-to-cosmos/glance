@@ -328,7 +328,7 @@ specGroup04 = testGroup "Scan and the ledgers"
                     (applyEdits doc [ Edit sp t | (sp, t) <- rpEdits rp ])
 
     -- Every command is fired at ONE repeating blob, and the 200 keeps a request refused for its shape from reading as a command that records nothing.
-  , testCase "nine commands answer through plain and one records" $ do
+  , testCase "ten commands answer through plain and one records" $ do
       assertEqual "the command table the spec carries and the one that runs"
                   (sort (map T.pack Spec.commandNames)) (sort commandNames)
       let asked = [ c | c <- Spec.cmds, Spec.cKind c /= Spec.Makes ]
@@ -390,6 +390,8 @@ specGroup04 = testGroup "Scan and the ledgers"
       "set-priority" -> object ["priority" .= ("A" :: Text)]
       "edit-link"    -> object [ "span" .= [linkFrom, linkFrom + T.length linkLiteral]
                                , "target" .= ("https://y.example" :: Text) ]
+      -- A ROW'S OWN ID: `add-link' points at a row, so the fixture's own is the one target there is.
+      "add-link"     -> object ["target" .= ("abcdef" :: Text)]
       _takesNoArgs   -> object []
 
     -- Write ID's blob under DIR's store: the layout is the LIBRARY's, so the fixture shards an id the way the writer does.
@@ -1069,10 +1071,10 @@ specGroup08 = testGroup "Query language"
 -- | The one command route's table, the request shapes it refuses before a byte moves, and the palette every answer is drawn in.
 specGroup09 :: TestTree
 specGroup09 = testGroup "Commands and writes"
-  [ testCase "eleven commands, each spelled once" $ do
+  [ testCase "twelve commands, each spelled once" $ do
       assertEqual "the spec's registry and the route's table have drifted"
         (sort (map (T.pack . Spec.cWire) Spec.cmds)) (sort commandNames)
-      assertEqual "the command count moved" 11 (length commandNames)
+      assertEqual "the command count moved" 12 (length commandNames)
 
     -- The ids wall runs off the KIND, ahead of the entry's own @csArgs@.
   , testCase "capture is the one id-less command" $ do
@@ -1279,6 +1281,8 @@ argValue "to"       = "projects"
 argValue "span"     = toJSON ([0, 1] :: [Int])
 argValue "target"   = "https://example.org"
 argValue "desc"     = "the link"
+argValue "kind"     = "blocked-by"
+argValue "where"    = "body"
 argValue other      = error ("no fixture value for the arg " <> other)
 
 -- | Shell: keys, table gestures, surfaces.  Both rules here are figures written down TWICE, and each case compares the copies.

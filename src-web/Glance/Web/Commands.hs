@@ -10,7 +10,7 @@ import Data.Aeson.Types (Pair, Parser)
 import Data.Either (partitionEithers)
 import Data.List (nub)
 import Data.Map.Strict (Map)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Text (Text)
 import Network.HTTP.Types (status200, status400)
 import Network.Wai (Request, Response)
@@ -31,7 +31,9 @@ import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn, wr
                     , blobPathIn, captureEdits, captureStamp, captureText
                     , captureTargetIn, captureTemplateIn, currentDocument
                     , pinnedDocument, rowSnapshot
-                    , editLinkEdits, eolOf, expandTemplate, groupOn, mintBlobId
+                    , addLinkEdits, editLinkEdits, eolOf, expandTemplate, glanceLink
+                    , groupOn, LinkPlace (InBody), linkPlaceOf, linkPlaceWord, linkPlaces
+                    , linkTargetIn, mintBlobId
                     , plannedValue
                     , priorityText
                     , removeTagEdits
@@ -74,6 +76,8 @@ data Args = Args
   , agSpan    :: !(Maybe Span)
   , agTarget  :: !(Maybe Text)
   , agDesc    :: !(Maybe (Maybe Text))
+  , agKind    :: !(Maybe Text)
+  , agWhere   :: !(Maybe Text)
   }
 
 -- | The planning keyword ARGS names, absent and null alike reading as @""@ — a
@@ -104,21 +108,29 @@ plain edits = Right (RowWrite edits Nothing)
 type RowEdits = ConfigLayers -> Asked -> Args -> Text -> HeadlineRecord
               -> Either Text RowWrite
 
+-- | WHAT A REQUEST RESOLVES before any row is touched: the day off ONE clock
+-- read, and whichever request-level value the command owes.
 data Asked = Asked
   { askToday :: !Time.Day      -- ^ the day every date is worked out against.
   , askStamp :: !(Maybe Text)  -- ^ @set-planning@'s date, already rendered.
+  , askLink  :: !(Maybe Text)  -- ^ @add-link@'s org link, its target resolved to a row.
   }
+
+-- | WHAT THE DOOR RESOLVES FOR A COMMAND, the whole vocabulary.  A closed word
+-- rather than a flag apiece, so a fourth request-level value is named by the
+-- compiler at 'resolveAsked' rather than defaulted there.
+data Asks = AsksNothing | AsksDate | AsksLink
 
 data CommandSpec = CommandSpec
   { csArgs  :: [Text] -> Args -> Maybe Text
       -- ^ why the request's shape is refused, where it is.
-  , csDated :: Bool                -- ^ its @date@ is read against today, once per request.
+  , csAsks  :: Asks                -- ^ what the door resolves for it, once per request.
   , csKind  :: CommandKind         -- ^ what it does to the rows it names.
   }
 
 data CommandKind
   = Splices Reads RowEdits
-    -- ^ edits each named row in place; the nine that write spans.
+    -- ^ edits each named row in place; the ten that write spans.
   | Makes
     -- ^ MAKES a row rather than naming one: @capture@, the one that owes no ids.
   | Moves
@@ -136,33 +148,38 @@ namesRows Moves = True
 
 commands :: [(Text, CommandSpec)]
 commands =
-  [ ("add-tag", CommandSpec (overIds (wantsTag "add-tag")) False
+    -- THE EDGE NOTHING COULD WRITE: `edit-link' takes a span that is already a
+    -- link, so linking two rows meant rewriting the file outside the daemon.
+  [ ("add-link", CommandSpec (overIds wantsAddLink) AsksLink
+      (Splices ReadsFile (\_cfg asked args doc r ->
+               plain =<< addLinkEdits (placeOf args) (word askLink asked) doc r)))
+  , ("add-tag", CommandSpec (overIds (wantsTag "add-tag")) AsksNothing
       (Splices ReadsNothing (\_cfg _asked args _doc r -> plain (addTagEdits (tagOf args) r))))
-  , ("archive", CommandSpec (overIds (const Nothing)) False
+  , ("archive", CommandSpec (overIds (const Nothing)) AsksNothing
       (Splices ReadsNothing (\_cfg _asked _args _doc r -> plain (archiveEdits r))))
-  , ("capture", CommandSpec (overIds wantsCapture) False Makes)
+  , ("capture", CommandSpec (overIds wantsCapture) AsksNothing Makes)
     -- THE ONE DESTRUCTIVE COMMAND: it moves a FILE rather than splicing spans,
     -- and every wall it has is per row and checked HERE as well as in the shell.
-  , ("delete", CommandSpec (overIds (const Nothing)) False Moves)
-  , ("edit-link", CommandSpec wantsLink False
+  , ("delete", CommandSpec (overIds (const Nothing)) AsksNothing Moves)
+  , ("edit-link", CommandSpec wantsLink AsksNothing
       (Splices ReadsFile (\_cfg _asked args doc r ->
                plain =<< editLinkEdits (fromMaybe (Span 0 0) (agSpan args))
                                        (word agTarget args) (agDesc args) doc r)))
-  , ("remove-tag", CommandSpec (overIds (wantsTag "remove-tag")) False
+  , ("remove-tag", CommandSpec (overIds (wantsTag "remove-tag")) AsksNothing
       (Splices ReadsFile (\_cfg _asked args doc r -> plain (removeTagEdits (tagOf args) doc r))))
-  , ("rename-tag", CommandSpec (overIds wantsRename) False
+  , ("rename-tag", CommandSpec (overIds wantsRename) AsksNothing
       (Splices ReadsFile (\_cfg _asked args doc r ->
                plain (renameTagEdits (word agFrom args) (word agTo args) doc r))))
-  , ("set-planning", CommandSpec (overIds wantsPlanning) True
+  , ("set-planning", CommandSpec (overIds wantsPlanning) AsksDate
       (Splices ReadsFile (\_cfg asked args doc r ->
                plain =<< setPlanningEdits (keyOf args) (askStamp asked) doc r)))
     -- A REPEAT IS A `set-state', and the one command that RECORDS anything.
-  , ("set-state", CommandSpec (overIds wantsState) False
+  , ("set-state", CommandSpec (overIds wantsState) AsksNothing
       (Splices ReadsFile stateEdits))
-  , ("set-priority", CommandSpec (overIds wantsPriority) False
+  , ("set-priority", CommandSpec (overIds wantsPriority) AsksNothing
       (Splices ReadsFile
         (\_cfg _asked args doc r -> plain =<< setPriorityEdits (join (agPriority args)) doc r)))
-  , ("set-title", CommandSpec (overIds wantsTitle) False
+  , ("set-title", CommandSpec (overIds wantsTitle) AsksNothing
       (Splices ReadsFile
         (\_cfg _asked args doc r -> plain =<< setTitleEdits (word agTitle args) doc r)))
   ]
@@ -218,6 +235,17 @@ commands =
           Just ("edit-link wants a target with no leading or trailing space: "
                   <> T.strip given)
       | otherwise = Nothing
+    -- WHERE IS A CLOSED WORD and TARGET IS A ROW: the row itself is resolved
+    -- per id the way every command resolves one, so only the args wall here.
+    wantsAddLink args
+      | maybe True (T.null . T.strip) (agTarget args) =
+          Just "add-link wants args {\"target\": \"<a row id>\"}: a link points at a row"
+      | Just given <- agWhere args, Nothing <- linkPlaceOf given =
+          Just (given <> " is no place for a link; add-link writes into "
+                  <> T.intercalate " or " (map linkPlaceWord linkPlaces))
+      | otherwise = Nothing
+    -- THE BODY IS THE DEFAULT: a link appended where no byte of the headline moves.
+    placeOf args = fromMaybe InBody (linkPlaceOf =<< agWhere args)
     wantsTag name args = case agTag args of
       Nothing    -> Just (name <> " wants args {\"tag\": \"work\"}")
       Just given -> either Just (const Nothing) (tagText given)
@@ -255,7 +283,8 @@ runCommandRaw opts hub raw = do
       Moves -> deleteRows opts hub st cmd
       Makes -> captureInto opts hub st cmd
       Splices reads' edits -> do
-        asked <- resolveAsked cmd
+        -- The target a row points at is named among the same rows the ids are.
+        asked <- resolveAsked (storeRecords st) cmd
         either (pure . jsonError status400)
                (\at -> overRows opts hub st at reads' edits cmd) asked
 
@@ -308,19 +337,34 @@ documentsFor :: [HeadlineRecord] -> IO (Map FilePath (Either WriteFailure Text))
 documentsFor rows =
   traverse pinnedDocument (Map.fromList [ (hrFile r, rowSnapshot r) | r <- rows ])
 
--- | ONE clock read, before any row: a marked set must not cross midnight.
+-- | ONE clock read, before any row: a marked set must not cross midnight.  What
+-- ELSE is resolved here is the entry's own ('csAsks'), and a refusal is the whole
+-- REQUEST's — the value is the same for every id it names.
 --
 -- THE KEYWORD PICKS THE WALL, 'plannedValue' being the one place that choice is
 -- made: the two this server composes for read the whole date grammar, @CLOSED@
 -- reparses org's own bracket and nothing else.  A word naming no planning entry
 -- never reaches here — `wantsPlanning' has refused the request already.
-resolveAsked :: Command -> IO (Either Text Asked)
-resolveAsked cmd = do
+resolveAsked :: [HeadlineRecord] -> Command -> IO (Either Text Asked)
+resolveAsked rows cmd = do
   day <- today
-  pure $ case join (agDate (cmdArgs cmd)) of
-    Just text | csDated (cmdSpec cmd) -> Asked day . Just <$> plannedValue day key text
-    _nothingToResolve                 -> Right (Asked day Nothing)
-  where key = keyOf (cmdArgs cmd)
+  pure $ case csAsks (cmdSpec cmd) of
+    AsksNothing -> Right (Asked day Nothing Nothing)
+    AsksDate    -> (\v -> Asked day v Nothing) <$> traverse (plannedValue day key)
+                                                            (join (agDate args))
+    AsksLink    -> Asked day Nothing . Just <$> link
+  where
+    args = cmdArgs cmd
+    key  = keyOf args
+    want = fromMaybe "" (agTarget args)
+    -- ONE LINK FOR THE WHOLE REQUEST: the same bytes land in every id named, so
+    -- the target is resolved HERE, among the rows the ids resolve among, and a
+    -- target naming no row refuses the request rather than each row in turn.
+    link = do
+      r <- maybe (Left (want <> " is no row in this tree; add-link points at a row's own id"))
+                 Right (listToMaybe (fst (headlinesIn rows [want])))
+      target <- linkTargetIn r
+      glanceLink target (agKind args) (join (agDesc args))
 
 captureInto :: ServeOptions -> Hub -> Store -> Command -> IO Response
 captureInto opts hub st cmd =
@@ -525,6 +569,7 @@ parseCommand raw = bodyObject "command" command raw >>= checked
                      <*> a .:? "body"
                      <*> a .:? "from" <*> a .:? "to"
                      <*> pure sp <*> a .:? "target" <*> a .:! "desc"
+                     <*> a .:? "kind" <*> a .:? "where"
       pure ( name :: Text, nub (maybe [] pure one <> fromMaybe [] several)
            , parsed, fromMaybe Map.empty digests )
     -- @[[KEY, VALUE], …]@, the shape @POST \/headline@'s own cargo carries: one

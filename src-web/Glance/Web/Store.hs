@@ -64,6 +64,7 @@ import Glance.Query ( ConfigLayerFile, ConfigLayers (clPrint)
                     , LoadFailure (..)
                     , QueryResult (..), TodoKeywords, WalkOptions, configDirsIn
                     , defaultWalk
+                    , EdgeIndex, edgeIndex
                     , fingerprint, loadDirWithConfig, mergeKeywords, noConfig
                     , noKeywords, readConfigLayers, recognizedKeywords, resolveIds
                     , rowJSON, tagsOfCell )
@@ -76,6 +77,8 @@ data Store = Store
   , stGen     :: !Int                       -- ^ update counter; see 'guarded'.
   , stPrint   :: !Text                      -- ^ which tree this is; see 'fingerprintOf'.
   , stConfig  :: !ConfigLayers              -- ^ the keyword config every file here was parsed under.
+  , stEdges   :: EdgeIndex
+      -- ^ the reference graph these rows spell, DERIVED and LAZY; see 'withEdges'.
   }
 
 data FileEntry = FileEntry
@@ -84,7 +87,7 @@ data FileEntry = FileEntry
   }
 
 emptyStore :: Store
-emptyStore = Store Map.empty Map.empty 0 0 "" noConfig
+emptyStore = Store Map.empty Map.empty 0 0 "" noConfig (edgeIndex [])
 
 loadStore :: FilePath -> IO Store
 loadStore = loadStoreWith defaultWalk
@@ -106,10 +109,24 @@ fingerprintOf st =
   where stamp = maybe "" hrDigest . listToMaybe . feRecords
 
 storeRows :: Store -> [HeadlineRecord]
-storeRows = concatMap feRecords . Map.elems . stFiles
+storeRows = rowsIn . stFiles
+
+rowsIn :: Map FilePath FileEntry -> [HeadlineRecord]
+rowsIn = concatMap feRecords . Map.elems
 
 storeRecords :: Store -> [HeadlineRecord]
 storeRecords = fst . resolveIds . storeRows
+
+-- | ST with its graph re-bound.  LAZY: the thunk costs nothing until a request
+-- asks for an edge, and one forced index then serves every reader of this store
+-- version — @edges=true@ over any shape, and every @neighbors@ walk.  EVERY
+-- WRITER OF 'stFiles' passes through here.
+--
+-- It reads the FILES rather than ST, so the thunk retains the map this store
+-- already holds and no store version retains the one before it.
+withEdges :: Store -> Store
+withEdges st = st { stEdges = edgeIndex (fst (resolveIds (rowsIn files))) }
+  where files = stFiles st
 
 storeResult :: Store -> QueryResult
 storeResult st = QueryResult
@@ -208,7 +225,7 @@ recordsUnder :: FilePath -> Store -> [HeadlineRecord]
 recordsUnder path = maybe [] feRecords . Map.lookup path . stFiles
 
 putFile :: FilePath -> Either LoadFailure [HeadlineRecord] -> Store -> Store
-putFile path outcome st = case outcome of
+putFile path outcome st = withEdges $ case outcome of
   Left failure -> st { stFiles = Map.insert path (FileEntry old (Just failure)) files }
   Right new    -> st { stFiles = Map.insert path (FileEntry new Nothing) files
                      , stTags  = stepIndex old new (stTags st) }
@@ -216,8 +233,8 @@ putFile path outcome st = case outcome of
         old   = recordsUnder path st
 
 removeFile :: FilePath -> Store -> Store
-removeFile path st = st { stFiles = Map.delete path (stFiles st)
-                        , stTags  = stepIndex (recordsUnder path st) [] (stTags st) }
+removeFile path st = withEdges st { stFiles = Map.delete path (stFiles st)
+                                  , stTags  = stepIndex (recordsUnder path st) [] (stTags st) }
 
 stepIndex :: [HeadlineRecord] -> [HeadlineRecord] -> Map Text Int -> Map Text Int
 stepIndex old new ix = Set.foldl' claim (Set.foldl' release ix (tagsOf old)) (tagsOf new)

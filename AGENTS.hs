@@ -604,7 +604,7 @@ data Repeat = Repeat (Maybe Kw) Dayno [Span] deriving (Eq, Show)
 -- and the shift and the reset as ONE set of disjoint spans: one write, one
 -- digest, one event.
 repeatOn :: Asked -> Bool -> Span -> [(Span, Cookie, Every, Dayno)] -> [Kw] -> Maybe Repeat
-repeatOn (Asked today _) inactive kwAt stamps actives
+repeatOn (Asked today _ _) inactive kwAt stamps actives
   | inactive, (_, c, e, d) : _ <- stamps =
       Just (Repeat (listToMaybe actives) (repeatDay c e today d) (kwAt : map stampAt stamps))
   | otherwise = Nothing
@@ -614,10 +614,12 @@ edStart (Span a _) = a
 
 -- ** What a request resolved, and what a row answers
 
-data Asked = Asked Dayno (Maybe String)
--- ^ read from ONE clock before any row is touched: the day, and
--- `set-planning''s rendered stamp.  The next request-level value joins here and
--- ten row signatures stay put (`ConfigParts''s reason).
+data Asked = Asked Dayno (Maybe String) (Maybe String)
+-- ^ resolved ONCE before any row is touched: the day off one clock read,
+-- `set-planning''s rendered stamp, and `add-link''s org link with its target
+-- already resolved to a row -- one link for every id the request names.  WHICH
+-- ONE a command owes is its own entry's (`cAsks'); the next request-level value
+-- joins here and ten row signatures stay put (`ConfigParts''s reason).
 
 data Completion = Completion Id Kw String deriving (Eq, Show)
 -- ^ one repeat as the ledger records it: the entry, the state it landed on, its
@@ -627,7 +629,7 @@ data RowWrite = RowWrite [Span] (Maybe Completion)
 plain :: [Span] -> RowWrite
 plain es = RowWrite es Nothing
 plainCommands, recordingCommands :: Int
-plainCommands = 9
+plainCommands = 10
 recordingCommands = 1
 setStateWrite :: Id -> [Span] -> Maybe Repeat -> RowWrite
 -- ^ ONE `repeatOn': the spans and the line it records come off one answer.
@@ -1830,6 +1832,7 @@ routes =
   , Route "/capture"    True  TextRefusal [GET]
   , Route "/keywords"   True  TextRefusal [GET]
   , Route "/links"      True  TextRefusal [GET]
+  , Route "/neighbors"  True  JsonRefusal [GET]
   , Route "/tags"       True  TextRefusal [GET]
   , Route "/properties" True  TextRefusal [GET]
   , Route "/ws"         True  TextRefusal [GET]
@@ -3341,7 +3344,7 @@ queryNotes =
 -- than off the name.
 
 data CmdName = SetState | SetPlanning | SetTitle | SetPriority | Archive | Capture
-             | AddTag | RemoveTag | RenameTag | EditLink | Delete
+             | AddTag | RemoveTag | RenameTag | AddLink | EditLink | Delete
   deriving (Eq, Ord, Show, Enum, Bounded)
 
 data CmdKind = Splices | Makes | Moves deriving (Eq, Show)
@@ -3359,23 +3362,34 @@ data Cmd = Cmd
   , cKind    :: CmdKind
   , cArgs    :: [Arg]   -- ^ the entry's own request-shape guard (@csArgs@)
   , cIds     :: Ids
-  , cDated   :: Bool    -- ^ resolves 'Asked'''s day before any row is touched
+  , cAsks    :: Asks    -- ^ what the door resolves into 'Asked' before any row is touched
   , cRecords :: Bool    -- ^ its 'RowWrite' may carry a ledger line
   }
 
+-- | WHAT THE DOOR RESOLVES for a command, once, before any row is touched.  A
+-- closed word rather than a flag apiece: a fourth request-level value is named
+-- by the compiler where `Asked' is built, never defaulted there.
+data Asks = AsksNothing | AsksDate | AsksLink deriving (Eq, Show)
+
 cmds :: [Cmd]
 cmds =
-  [ Cmd SetState    "set-state"    Splices [Arg "keyword" Nul]                                IdsMany False True
-  , Cmd SetPlanning "set-planning" Splices [Arg "keyword" Req, Arg "date" Nul]                IdsMany True  False
-  , Cmd SetTitle    "set-title"    Splices [Arg "title" Req]                                  IdsMany False False
-  , Cmd SetPriority "set-priority" Splices [Arg "priority" Nul]                               IdsMany False False
-  , Cmd Archive     "archive"      Splices []                                                 IdsMany False False
-  , Cmd Capture     "capture"      Makes   captureArgs                                       IdsNone False False
-  , Cmd AddTag      "add-tag"      Splices [Arg "tag" Req]                                    IdsMany False False
-  , Cmd RemoveTag   "remove-tag"   Splices [Arg "tag" Req]                                    IdsMany False False
-  , Cmd RenameTag   "rename-tag"   Splices [Arg "from" Req, Arg "to" Req]                     IdsMany False False
-  , Cmd EditLink    "edit-link"    Splices [Arg "span" Req, Arg "target" Req, Arg "desc" Nul] IdsOne  False False
-  , Cmd Delete      "delete"       Moves   []                                                 IdsMany False False
+  [ Cmd SetState    "set-state"    Splices [Arg "keyword" Nul]                                IdsMany AsksNothing True
+  , Cmd SetPlanning "set-planning" Splices [Arg "keyword" Req, Arg "date" Nul]                IdsMany AsksDate    False
+  , Cmd SetTitle    "set-title"    Splices [Arg "title" Req]                                  IdsMany AsksNothing False
+  , Cmd SetPriority "set-priority" Splices [Arg "priority" Nul]                               IdsMany AsksNothing False
+  , Cmd Archive     "archive"      Splices []                                                 IdsMany AsksNothing False
+  , Cmd Capture     "capture"      Makes   captureArgs                                       IdsNone AsksNothing False
+  , Cmd AddTag      "add-tag"      Splices [Arg "tag" Req]                                    IdsMany AsksNothing False
+  , Cmd RemoveTag   "remove-tag"   Splices [Arg "tag" Req]                                    IdsMany AsksNothing False
+  , Cmd RenameTag   "rename-tag"   Splices [Arg "from" Req, Arg "to" Req]                     IdsMany AsksNothing False
+    -- A LINK IS APPENDED, so nothing it takes may CLEAR: the three beyond the
+    -- target are 'Opt', where `edit-link''s @desc@ rewrites one and so is 'Nul'.
+    -- THE TARGET IS A ROW, so it resolves at the door ('AsksLink') and one link
+    -- lands in every id the request names.
+  , Cmd AddLink     "add-link"     Splices [Arg "target" Req, Arg "kind" Opt, Arg "desc" Opt, Arg "where" Opt]
+                                                                                             IdsMany AsksLink    False
+  , Cmd EditLink    "edit-link"    Splices [Arg "span" Req, Arg "target" Req, Arg "desc" Nul] IdsOne  AsksNothing False
+  , Cmd Delete      "delete"       Moves   []                                                 IdsMany AsksNothing False
   ]
 
 -- | @capture@'s TWO ROADS in ONE arg list: @text@ (with @fields@, through the
@@ -3522,6 +3536,7 @@ composers = ["recomposedSubtree", "draftEntry", "stampedEntry", "captureEdits"]
 
 data EditSite = OwnSpan | AfterStars | AfterKeyword | AfterPriority | PastStarsHSpace
               | TagRunEnd | TitleLineEnd | PlanningLineEnd | UnderTitleLine
+              | LastOwnBodyLineEnd | UnderTheHeaderLines
               | EntryTextNoColon | GivenSpan | FileEnd
   deriving (Eq, Show)
 data EditCut = TokenAndHSpaceBehind | EntryAndColon | LastEntryRunAndHSpaceBefore
@@ -3541,6 +3556,18 @@ archiveEdits   = addTagEdits            -- ^ ONE insertion rule, not two that mu
 removeTagEdits = Math OwnSpan [] [EntryAndColon, LastEntryRunAndHSpaceBefore]
 renameTagEdits = Math EntryTextNoColon [] [FurtherEntries]
 editLinkEdits  = Math GivenSpan [] []   -- ^ the range @\/links@ measured and handed out
+
+data LinkPlace = InBody | InTitle deriving (Eq, Show, Enum, Bounded)
+-- ^ WHERE `add-link' writes: a closed word, so the arg wall, the sentence it
+-- refuses with and the two roads read ONE vocabulary.
+
+-- | TOTAL OVER BOTH ROADS.  The title road IS `setTitleEdits'' own — the title
+-- plus the link, composed rather than spelled a second time — so a headline
+-- meets one wall whichever door writes it.
+addLinkEdits :: LinkPlace -> Math
+addLinkEdits InBody  = Math LastOwnBodyLineEnd [UnderTheHeaderLines] []
+addLinkEdits InTitle = setTitleEdits
+
 captureAt :: EditSite                   -- ^ the END of the target, a missing newline written first
 captureAt = FileEnd
 
@@ -3554,6 +3581,7 @@ mathOf AddTag      = Just addTagEdits
 mathOf RemoveTag   = Just removeTagEdits
 mathOf RenameTag   = Just renameTagEdits
 mathOf EditLink    = Just editLinkEdits
+mathOf AddLink     = Just (addLinkEdits InBody)   -- ^ the road a request naming none takes
 mathOf Capture     = Nothing
 mathOf Delete      = Nothing
 
@@ -3567,6 +3595,7 @@ costsNoEdit SetPlanning = True
 costsNoEdit SetState    = False
 costsNoEdit SetTitle    = False
 costsNoEdit EditLink    = False
+costsNoEdit AddLink     = False
 costsNoEdit Capture     = False
 costsNoEdit Delete      = False
 

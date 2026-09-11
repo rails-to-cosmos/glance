@@ -46,22 +46,18 @@ module Glance.Web.Filter ( Cmp (..)
 
 import Data.Char (isDigit)
 import Data.List (elemIndex, find)
-import Data.Map.Strict (Map)
 import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
-import Data.Set (Set)
 import Data.Text (Text)
 import Data.Time (Day)
 
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
 import qualified Data.Text as T
 
-import Glance.Query ( HeadlineRecord (hrActive, hrId, hrLinks, hrSearch)
-                    , RefVia, refKind, refTarget, refVia
+import Glance.Query ( HeadlineRecord (hrActive, hrId, hrSearch)
+                    , edKind, edgeIndex, edgesInto, edgesOutOf
                     , Meta (..), Sign (..), activeMeta, archiveTag, carriesKind, cellSep
                     , dayNamed, dayOf, dayWordIn, dayWords, filterKeys, groupOn
                     , inactiveMeta, isoDay, kindCut, metaWord
-                    , pointedAtBy, pointsAt, priorityLetter, refNames, refsCarrying
+                    , pointedAtBy, pointsAt, priorityLetter
                     , shiftDay, shiftIn, signOf, tagRunEntries )
 
 
@@ -372,42 +368,26 @@ emptyEnv :: FilterEnv
 emptyEnv = FilterEnv (const Nothing) noEdge noEdge Nothing
   where noEdge _kind _r = False
 
--- | ROWS as the reference keys read them.  THE EDGE MAPS ARE BOUND LAZILY and
--- built at most once per request, never per row: a query naming no @*any*@
--- forces neither, so the whole cost sits behind the one token that asks for it.
--- The row-to-row tests need no map at all — each fixes one end at compile
--- ('pointsAt', 'pointedAtBy') — and it is the STARRED anchor alone, which fixes
--- neither end, that these answer.
+-- | ROWS as the reference keys read them.  THE EDGE RELATION IS BOUND LAZILY and
+-- resolved at most once per request, never per row: a query naming no @*any*@
+-- forces it not at all, so the whole cost sits behind the one token that asks
+-- for it.  The row-to-row tests need no index at all — each fixes one end at
+-- compile ('pointsAt', 'pointedAtBy') — and it is the STARRED anchor alone,
+-- which fixes neither end, that these answer.
+--
+-- ONE RELATION, 'edgeIndex''s: a link naming no row is no reference and a row is
+-- never its own, and both cuts are made where the edges are resolved rather than
+-- a second time here.
 storeEnv :: [HeadlineRecord] -> FilterEnv
 storeEnv rows = FilterEnv
   { feRef     = \rid -> find ((== rid) . hrId) rows
-  , feRefAny  = \kind r -> any (claimedByAnother (hrId r)) (refsCarrying kind r)
-  , feFromAny = \kind r -> any (namedByAnother (hrId r) kind) (refNames r)
+  , feRefAny  = \kind r -> carries kind (edgesOutOf ix (hrId r))
+  , feFromAny = \kind r -> carries kind (edgesInto ix (hrId r))
   , feToday   = Nothing
   }
   where
-    -- A NAME → THE ROWS CLAIMING IT, each in its own namespace: the forward
-    -- half, which is what a link resolves THROUGH.  @ref:*any*@ needs it
-    -- because a link naming no row is no reference.
-    claims :: Map (RefVia, Text) (Set Text)
-    claims = Map.fromListWith Set.union
-               [ (n, Set.singleton (hrId r)) | r <- rows, n <- refNames r ]
-    -- A NAME → THE EDGES NAMING IT, each as its kind and its source row: THE
-    -- REVERSE EDGE MAP, and the one fact no row carries about itself.  The kind
-    -- rides in because the edge is where a kind lives, so a kind test on
-    -- @from:*any*@ reads the same slot @from:T@ reads.
-    namers :: Map (RefVia, Text) [(Maybe Text, Text)]
-    namers = Map.fromListWith (<>)
-               [ ((refVia l, refTarget l), [(refKind l, hrId r)])
-               | r <- rows, l <- hrLinks r ]
-    -- ANOTHER row, in both: the self-edge is excluded at the map exactly as it
-    -- is at the row-to-row test, so the two readings of "not its own reference"
-    -- are one.
-    claimedByAnother mine l =
-      any (/= mine) (Map.findWithDefault Set.empty (refVia l, refTarget l) claims)
-    namedByAnother mine kind n =
-      any (\(k, src) -> src /= mine && carriesKind kind k)
-          (Map.findWithDefault [] n namers)
+    ix = edgeIndex rows
+    carries kind = any (carriesKind kind . edKind)
 
 -- | ENV with the request's own day on it.  THE DAY IS CARRIED AS A DAY and
 -- spelled only where a literal is owed ('literalIn'), which is what lets a

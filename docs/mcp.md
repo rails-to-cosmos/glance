@@ -67,9 +67,9 @@ record, so there is no second write path. The suite checks that the write
 tools equal `commandNames`, so the catalog cannot drift from the engine. The
 general lesson: keep the MCP layer a thin adapter that owns no logic.
 
-The read tools answer the shape an AGENT reads, not the shape the browser
-boots off. `list-headlines` returns `{total, clean, rows}` — `total` the
-uncapped match count, `clean` the health flag, each row the seven fields an
+The read tools answer the shape an AGENT reads rather than the shape the
+browser boots off. `list-headlines` returns `{total, clean, rows}` — `total`
+the uncapped match count, `clean` the health flag, each row the seven fields an
 agent acts on — where the table's `/headlines` envelope also carries
 `columns`, badge colours, `actions`, `sort` and `views` it never renders. The
 `shape=rows` query parameter drives this off the one filter pipeline; the
@@ -80,6 +80,38 @@ listing costs no verdict.
 `glance mcp` is daemon-aware: when a ready daemon already owns the port, the
 stdio process proxies to its `POST /mcp` (`mcpDaemonAt`, `runMcpStdioWith`)
 instead of opening the tree a second time.
+
+## The graph
+
+The reference graph ([query.md](query.md), `ref:` and `from:`) is on the wire
+as well as in the query language.
+
+- `edges: true` on `list-headlines` and `get-headline` adds two fields to each
+  row: `refs`, what it points at — `[{to, kind, via}]`, `to` a ROW ID, `kind`
+  the edge's own `?kind=` slug or `null`, `via` the namespace (`"row"` or
+  `"org-id"`) — and `referrers`, the ids pointing back at it. Without the flag
+  the answer is the one it always was. Both read the store's own graph, built
+  once per store version, so the flag costs what the rows served cost — and
+  `?edges=true` rides `GET /headlines` under either shape.
+- `GET /links?id=ROW` and `refs` answer two different questions: `/links` lists
+  EVERY org link in the subtree as written (`{target, desc, type, span}`, the
+  span `edit-link` edits by), and `refs` lists the RESOLVED row edges
+  (`{to, kind, via}`) the graph is made of. A link naming no row is a `/links`
+  entry and no edge.
+- `neighbors {id, depth?, limit?, kind?}` walks that graph inside the daemon
+  and answers `{total, nodes, edges}` — `nodes` the rows within `depth` hops of
+  `id` in either direction (each the row shape `list-headlines` serves),
+  `edges` every `{from, to, kind}` between them, `total` the count before
+  `limit` trims. Depth is 1 by default and 3 at most; a fourth hop is refused
+  rather than trimmed, as an over-cap `limit` is. One call instead of a `from:`
+  or `ref:` query per hop, and `GET /neighbors` is the same door under the same
+  walls.
+- `add-link {id, target, kind?, desc?, where?}` writes the one edge nothing
+  could: `[[glance:TARGET?kind=KIND][DESC]]` under the headline (`where:
+  "body"`, the default) or after its title text (`where: "title"`), through the
+  same `/command` path every other write tool takes. `target` names a row; it
+  is resolved ONCE for the whole request, and an unknown one is a 400. The
+  reverse edge needs no write.
 
 ## Client side (Claude Code)
 

@@ -41,6 +41,7 @@ argument wall and its own splice.
 | `archive` | `{}` | `add-tag ARCHIVE`; idempotent |
 | `capture` | `{title, tag?, state?, priority?, tags?, planning?, properties?, body?}`, or the older `{text, tag?, fields?}` | a headline in the inbox, or a minted store blob — the whole flow is [capture.md](capture.md) |
 | `edit-link` | `{span, target, desc?}` | one link's own character range |
+| `add-link` | `{target, kind?, desc?, where?}` | a new `[[glance:TARGET?kind=KIND][DESC]]` under the headline — at the end of its last own body line under `where: "body"` (the default), after the title text under `where: "title"`, and no other word is a place. `target` names a ROW, by its id, resolved once for the whole request; an unknown one is a 400. The reverse edge needs no write, `ref:` derives it |
 | `delete` | `{}` | the row's blob, gzipped into the store's `trash/` |
 
 Tags and titles pass the same charset walls the page enforces — padding is

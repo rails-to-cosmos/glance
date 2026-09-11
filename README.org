@@ -166,7 +166,7 @@ curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
      -d '{"name": "set-state", "ids": ["ROW-ID"], "args": {"keyword": "DONE"}}'
 #+end_src
 
-The registry -- ten commands, their walls, the date grammar, the delete
+The registry -- twelve commands, their walls, the date grammar, the delete
 rules: [[file:docs/commands.md][docs/commands.md]].
 
 ** Config

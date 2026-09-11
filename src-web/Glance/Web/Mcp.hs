@@ -13,15 +13,15 @@ module Glance.Web.Mcp
   ) where
 
 import Control.Exception (try)
-import Control.Monad (unless)
-import Data.Aeson ( FromJSON (parseJSON), Value (Number, Object, String), decode
+import Control.Monad (unless, (<=<))
+import Data.Aeson ( FromJSON (parseJSON), Value (Bool, Number, Object, String), decode
                   , encode, eitherDecode', object, withObject, (.:), (.=) )
 import Data.Char (isSpace)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import Network.HTTP.Types (Status, hContentType, status200, status202, statusCode)
+import Network.HTTP.Types (Status, hContentType, status200, status202, status400, statusCode)
 import Network.Wai (Request, Response, responseToStream)
 import System.Directory (canonicalizePath)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, isEOF, stdin, stdout)
@@ -32,16 +32,20 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Text as T
 import qualified Network.HTTP.Client as HC
 
+import Glance.Query (neighborDepth, neighborDepthCap)
 import Glance.Web.Base (jsonType, jsonValue, sized, withBody)
 
 
 -- | The handlers the door dispatches to, wired to the live Hub by the caller.
 data McpTools = McpTools
   { mtWrite     :: BL.ByteString -> IO Response         -- ^ a @\/command@ body.
-  , mtHeadline  :: Text -> IO Response                  -- ^ one subtree by row id.
-  , mtHeadlines :: Maybe Text -> Maybe Int -> IO Response  -- ^ a query and a cap.
+  , mtHeadline  :: Text -> Bool -> IO Response          -- ^ one subtree by row id, edges or not.
+  , mtHeadlines :: Maybe Text -> Maybe Int -> Bool -> IO Response  -- ^ a query, a cap, and edges or not.
+  , mtNeighbors :: Text -> Maybe Int -> Maybe Int -> Maybe Text -> IO Response
+      -- ^ the subgraph around a row: id, depth, cap and the kind it walks.
   , mtDoctor    :: IO Response                          -- ^ the startup health verdict.
   }
 
@@ -221,6 +225,14 @@ writeTools =
       [idProp, ("span", span'), ("target", str "where the link points")
       , ("desc", strOrNull "the link's description; null for a bare link")]
       ["id", "span", "target"]
+  , writeTool "add-link"
+      "Link one headline to another: append [[glance:TARGET?kind=KIND][DESC]] under it.\
+      \ The reverse edge needs no write -- list-headlines with edges reads it back."
+      [idProp, ("target", str "the row id this one points at")
+      , ("kind", str "the edge's own kind, e.g. blocked-by; omit for a plain mention")
+      , ("desc", str "the link's description; omit for a bare link")
+      , ("where", str "body (the default) or title")]
+      ["id", "target"]
   , writeTool "archive" "Add the archive tag to a headline (a soft delete)."
       [idProp] ["id"]
   , writeTool "delete" "Move an archived headline's blob to the trash (only after archive)."
@@ -232,15 +244,33 @@ readTools :: [Tool]
 readTools =
   [ Tool "get-headline"
       "Read one headline subtree as it stands on disk, by row id."
-      (schema [("id", str "the row id, e.g. FILE.org#3")] ["id"])
-      (\tools args -> value =<< mtHeadline tools (fromMaybe "" (argText "id" args)))
+      (schema [("id", str "the row id, e.g. FILE.org#3"), ("edges", edgesProp)] ["id"])
+      (\tools args -> either refused
+                        (value <=< mtHeadline tools (fromMaybe "" (argText "id" args)))
+                        (argFlag "edges" args))
   , Tool "list-headlines"
       "List headlines matching a query (the filter language the UI table uses). Answers\
       \ {total, clean, rows}: total is the uncapped match count, clean the index's\
       \ health flag, and each row {id, title, state, priority, scheduled, deadline, tags}."
       (schema [ ("query", str "a filter query like state:*active* or tag:work; empty lists all")
-              , ("limit", int "cap on the number of rows returned") ] [])
-      (\tools args -> value =<< mtHeadlines tools (argText "query" args) (argInt "limit" args))
+              , ("limit", int "cap on the number of rows returned")
+              , ("edges", edgesProp) ] [])
+      (\tools args -> either refused
+                        (value <=< mtHeadlines tools (argText "query" args) (argInt "limit" args))
+                        (argFlag "edges" args))
+  , Tool "neighbors"
+      "Walk the reference graph around one headline: the rows within depth hops of it,\
+      \ either direction, as {total, nodes: [a row each], edges: [{from, to, kind}]}.\
+      \ One call instead of a ref:/from: query per hop."
+      (schema [ ("id", str "the row to walk out from")
+              , ("depth", int ("hops to take, " <> count neighborDepth <> " (the default) to "
+                                 <> count neighborDepthCap))
+              , ("limit", int "cap on the number of nodes returned")
+              , ("kind", str "walk only edges carrying this kind, e.g. blocked-by") ]
+              ["id"])
+      (\tools args -> value =<< mtNeighbors tools (fromMaybe "" (argText "id" args))
+                                              (argInt "depth" args) (argInt "limit" args)
+                                              (argText "kind" args))
   , Tool "doctor"
       "The index's health as measured at startup: the clean flag, one sentence per\
       \ finding, and the counts (parse and decode and read failures, span violations,\
@@ -279,6 +309,14 @@ pairs d = object
   [ "type" .= ("array" :: Text), "description" .= d
   , "items" .= object ["type" .= ("array" :: Text), "items" .= str ""] ]
 
+-- | The @edges@ argument both read tools take.  WITHOUT IT the answer is the one
+-- they always gave, byte for byte.
+edgesProp :: Value
+edgesProp = object
+  [ "type" .= ("boolean" :: Text)
+  , "description" .= ("also answer each row's refs (what it points at) and referrers\
+                      \ (what points at it)" :: Text) ]
+
 strOrNull :: Text -> Value
 strOrNull d = object ["type" .= (["string", "null"] :: [Text]), "description" .= d]
 
@@ -292,6 +330,23 @@ argText k (Object o) = case KM.lookup (Key.fromText k) o of
   Just (String s) -> Just s
   _               -> Nothing
 argText _ _ = Nothing
+
+-- | A boolean argument, absent reading as @false@.  ANY OTHER VALUE IS REFUSED
+-- rather than read as unasked: ONE POLICY AT BOTH DOORS, the one @?edges=@ has.
+argFlag :: Text -> Value -> Either Text Bool
+argFlag k (Object o) = case KM.lookup (Key.fromText k) o of
+  Nothing       -> Right False
+  Just (Bool b) -> Right b
+  Just _other   -> Left (k <> " is true or false")
+argFlag _ _ = Right False
+
+-- | An argument the door refuses, answered as the 400 a query string would get.
+refused :: Text -> IO (Status, Value)
+refused why = pure (status400, object ["error" .= why])
+
+-- | A wall's own number, spelled into the schema text rather than beside it.
+count :: Int -> Text
+count = T.pack . show
 
 argInt :: Text -> Value -> Maybe Int
 argInt k (Object o) = case KM.lookup (Key.fromText k) o of

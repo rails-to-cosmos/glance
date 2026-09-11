@@ -8195,6 +8195,23 @@ orderSpec = testGroup "GET /headlines?q=sort:*none*"
       -- A parameter with no value reads as absent, here as everywhere.
       bare <- getFrom a "/headlines?order"
       assertEqual "a bare parameter is an absent one" 200 (status bare)
+
+    -- ONE READER FOR @edges@, over EITHER SHAPE: the store's graph is built once
+    -- per version, so a table row costs what a rows-shape row costs.
+  , testCase "edges is true, and it rides either shape" $ do
+      a <- app assetsDir
+      refuses400 a "says what edges takes"
+        [ ("/headlines?shape=rows&edges=yes", "edges is true")
+        , ("/headlines?edges=1", "edges is true")
+        , ("/headline?id=nosuchrow&edges=1", "edges is true") ]
+      rows <- getFrom a "/headlines?shape=rows&edges=true"
+      assertEqual "the pair the MCP door sends is served" 200 (status rows)
+      table <- getFrom a "/headlines?edges=true"
+      assertEqual "and the table shape takes it too" 200 (status table)
+      drawn <- listAt "rows" =<< decoded table
+      assertBool "every table row carries the two edge fields"
+        . all (\ks -> "refs" `elem` ks && "referrers" `elem` ks)
+        =<< traverse fieldsOf drawn
   ]
 
 -- | The ORDER a query states, served AND declared: what the view declares is the EFFECTIVE chain.
@@ -8861,6 +8878,83 @@ elsewhereOrg = T.unlines
   , ":END:"
   ]
 
+-- | A CHAIN of three rows: alpha cites beta, beta mentions gamma, and gamma
+-- points at a row that is not there -- two hops, so a depth cap has somewhere to
+-- stop, one typed edge beside one plain mention, and one link that is NO EDGE.
+graphTree :: T.Text
+graphTree = T.unlines
+  [ "* Alpha :one:"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: alpha"
+  , ":END:"
+  , "cites [[glance:beta?kind=cites][Beta]]"
+  , "* Beta"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: beta"
+  , ":END:"
+  , "sees [[glance:gamma][Gamma]]"
+  , "* Gamma"
+  , ":PROPERTIES:"
+  , ":ORG_GLANCE_ID: gamma"
+  , ":END:"
+  , "cites [[glance:nowhere][a row that left]]"
+  ]
+
+withGraphTree :: (Application -> Hub -> FilePath -> Assertion) -> Assertion
+withGraphTree k = withTempDir $ \dir -> do
+  path <- orgFile dir "graph.org" graphTree
+  (a, hub) <- serverOver dir
+  k a hub path
+
+-- | The row RID among ROWS, by the id it answers to.
+rowNamed :: [Value] -> T.Text -> IO Value
+rowNamed rows rid = case [ v | v <- rows, rowId v == rid ] of
+  (v : _) -> pure v
+  []      -> assertFailure ("no row " <> T.unpack rid <> " among " <> show (map rowId rows))
+
+-- | A row's outgoing edges as (target, kind, namespace) triples.
+refsOf :: Value -> IO [(T.Text, Maybe T.Text, T.Text)]
+refsOf v = traverse triple =<< listAt "refs" v
+  where triple e = (,,) <$> textAt "to" e <*> sparseTextAt "kind" e <*> textAt "via" e
+
+-- | @neighbors@' answer, both halves sorted so the walk's own order is no contract.
+neighborsAt :: Application -> Value -> IO ([T.Text], [(T.Text, T.Text, Maybe T.Text)])
+neighborsAt a args = do
+  ans <- toolRead a "neighbors" args
+  nodes <- traverse (textAt "id") =<< listAt "nodes" ans
+  edges <- traverse (\e -> (,,) <$> textAt "from" e <*> textAt "to" e <*> sparseTextAt "kind" e)
+             =<< listAt "edges" ans
+  pure (sort nodes, sort edges)
+
+-- | One MCP write tool over ARGS, answered per id the way @\/command@ answers —
+-- the engine's own @results@, unwrapped from the tool's content block.  A per-row
+-- refusal is a 200, so the call itself is no error.
+toolWrite :: Application -> T.Text -> Value -> IO [(T.Text, Bool)]
+toolWrite a name args = do
+  r <- toolCall a name args
+  results <- listAt "results" =<< toolContent r
+  traverse (\v -> (,) <$> textAt "id" v <*> boolAt "ok" v) results
+
+-- | One MCP read tool over ARGS, as the JSON it answered with.
+toolRead :: Application -> T.Text -> Value -> IO Value
+toolRead a name args = toolContent =<< toolCall a name args
+
+-- | One MCP tool over ARGS that is REFUSED: @isError@ pinned, and the sentence it rides.
+toolFails :: Application -> T.Text -> Value -> IO T.Text
+toolFails a name args = do
+  r <- ok =<< mcpPost a "tools/call" (object ["name" .= name, "arguments" .= args])
+  assertEqual (T.unpack name <> " is refused") True
+    =<< boolAt "isError" =<< field "result" =<< decoded r
+  textAt "error" =<< toolContent r
+
+-- | One MCP tool over ARGS that ANSWERS: the raw response, @isError@ off.
+toolCall :: Application -> T.Text -> Value -> IO SResponse
+toolCall a name args = do
+  r <- ok =<< mcpPost a "tools/call" (object ["name" .= name, "arguments" .= args])
+  assertEqual (T.unpack name <> " answered") False
+    =<< boolAt "isError" =<< field "result" =<< decoded r
+  pure r
+
 -- | @add-tag@ and @remove-tag@'s argument.  Flat rather than nullable: a tag comes off through the other command.
 tagArg :: T.Text -> Value
 tagArg tag = object ["tag" .= tag]
@@ -8981,12 +9075,13 @@ mcpSpec = testGroup "POST /mcp"
       name <- field "serverInfo" v >>= textAt "name"
       assertEqual "the server names itself" "glance" name
 
-  , testCase "tools/list carries every write verb and the three reads" $ do
+  , testCase "tools/list carries every write verb and the four reads" $ do
       a <- app assetsDir
       tools <- listAt "tools" =<< field "result" =<< decoded =<< mcpPost a "tools/list" (object [])
       names <- traverse (textAt "name") tools
-      assertEqual "every write verb and the three reads are listed, once"
-        (sort (commandNames <> ["get-headline", "list-headlines", "doctor"])) (sort names)
+      assertEqual "every write verb and the four reads are listed, once"
+        (sort (commandNames <> ["get-headline", "list-headlines", "doctor", "neighbors"]))
+        (sort names)
       mapM_ (\t -> field "inputSchema" t >>= textAt "type"
                      >>= assertEqual "each tool declares an object schema" "object") tools
 
@@ -9011,24 +9106,14 @@ mcpSpec = testGroup "POST /mcp"
   , testCase "tools/call set-title runs the command engine and lands on disk" $
       withCommandable $ \a _hub path _other -> do
         before <- document path
-        r <- ok =<< mcpPost a "tools/call"
-               (object [ "name" .= ("set-title" :: T.Text)
-                       , "arguments" .= object ["id" .= ("first" :: T.Text)
-                                               , "title" .= ("From MCP" :: T.Text)] ])
-        assertEqual "the call did not error" False =<< boolAt "isError" =<< field "result" =<< decoded r
-        results <- listAt "results" =<< toolContent r
-        assertEqual "the row landed" [("first", True)]
-          =<< traverse (\v -> (,) <$> textAt "id" v <*> boolAt "ok" v) results
+        assertEqual "the row landed" [("first", True)] =<< toolWrite a "set-title"
+          (object ["id" .= ("first" :: T.Text), "title" .= ("From MCP" :: T.Text)])
         assertEqual "the title on disk is the one MCP set"
                     (T.replace "* NEXT First" "* NEXT From MCP" before) =<< document path
 
   , testCase "tools/call list-headlines answers the compact rows shape, no table chrome" $ do
       a <- app assetsDir
-      r <- ok =<< mcpPost a "tools/call"
-             (object ["name" .= ("list-headlines" :: T.Text), "arguments" .= object []])
-      assertEqual "a read is no error" False
-        =<< boolAt "isError" =<< field "result" =<< decoded r
-      ans <- toolContent r
+      ans <- toolRead a "list-headlines" (object [])
       -- {total, clean, rows} and nothing else: the columns, actions, sort, views
       -- and doctor block the browser envelope carries are gone.
       assertEqual "the compact answer's keys" ["clean", "rows", "total"]
@@ -9046,11 +9131,7 @@ mcpSpec = testGroup "POST /mcp"
 
   , testCase "tools/call doctor answers the startup health verdict" $ do
       a <- app assetsDir
-      r <- ok =<< mcpPost a "tools/call"
-             (object ["name" .= ("doctor" :: T.Text), "arguments" .= object []])
-      assertEqual "a read is no error" False
-        =<< boolAt "isError" =<< field "result" =<< decoded r
-      ans <- toolContent r
+      ans <- toolRead a "doctor" (object [])
       _clean <- boolAt "clean" ans
       _warnings <- listAt "warnings" ans
       keys <- fieldsOf ans
@@ -9061,20 +9142,133 @@ mcpSpec = testGroup "POST /mcp"
       withTempDir $ \dir -> do
         _ <- orgFile dir "broken.org" brokenDrawer
         (a, _hub) <- serverOver dir
-        r <- ok =<< mcpPost a "tools/call"
-               (object [ "name" .= ("get-headline" :: T.Text)
-                       , "arguments" .= object ["id" .= ("u-1" :: T.Text)] ])
-        assertEqual "the uuid the file still spells was refused" False
-          =<< boolAt "isError" =<< field "result" =<< decoded r
-        assertContains "the subtree came back" "Broken"
-          =<< textAt "body" =<< toolContent r
+        assertContains "the subtree the file still spells came back" "Broken"
+          =<< textAt "body" =<< toolRead a "get-headline" (object ["id" .= ("u-1" :: T.Text)])
 
   , testCase "tools/call get-headline with no id is surfaced as an error" $ do
       a <- app assetsDir
-      r <- ok =<< mcpPost a "tools/call"
-             (object ["name" .= ("get-headline" :: T.Text), "arguments" .= object []])
-      assertEqual "the missing-id refusal rides isError" True
-        =<< boolAt "isError" =<< field "result" =<< decoded r
+      assertContains "the missing-id refusal rides isError" "no headline with id"
+        =<< toolFails a "get-headline" (object [])
+
+    -- THE GRAPH ON THE WIRE: `edges' rides the rows an agent reads, `neighbors'
+    -- walks them inside the daemon, and `add-link' writes the one edge nothing could.
+  , testCase "tools/call list-headlines with edges carries refs and referrers" $
+      withGraphTree $ \a _hub _path -> do
+        ans <- toolRead a "list-headlines" (object ["edges" .= True])
+        rows <- listAt "rows" ans
+        alpha <- rowNamed rows "alpha"
+        assertEqual "the edge alpha wrote, kind and namespace and all"
+          [("beta", Just "cites", "row")] =<< refsOf alpha
+        assertEqual "and nothing points at alpha" [] =<< textsAt "referrers" alpha
+        beta <- rowNamed rows "beta"
+        assertEqual "a plain mention declares no kind" [("gamma", Nothing, "row")]
+          =<< refsOf beta
+        assertEqual "the ref: answer rides the row it is about" ["alpha"]
+          =<< textsAt "referrers" beta
+        -- A LINK NAMING NO ROW IS NO EDGE: @refs@ is the resolved relation
+        -- @referrers@ is read off, never the row's own link scan (@\/links@ is that).
+        gamma <- rowNamed rows "gamma"
+        assertEqual "gamma's link to a row that left is no edge" [] =<< refsOf gamma
+
+  , testCase "without edges a row carries neither field" $
+      withGraphTree $ \a _hub _path -> do
+        ans <- toolRead a "list-headlines" (object [])
+        rows <- listAt "rows" ans
+        keys <- concat <$> traverse fieldsOf rows
+        assertEqual "an edge field rode a row that asked for none" []
+          (filter (`elem` ["refs", "referrers"]) keys)
+        assertEqual "and the envelope is the one it was" ["clean", "rows", "total"]
+          . sort =<< fieldsOf ans
+
+  , testCase "tools/call get-headline with edges carries that row's own edges" $
+      withGraphTree $ \a _hub _path -> do
+        ans <- toolRead a "get-headline"
+                 (object ["id" .= ("beta" :: T.Text), "edges" .= True])
+        keys <- fieldsOf ans
+        assertBool "the subtree grew the two edge fields"
+                   (all (`elem` keys) ["refs", "referrers"])
+        bare <- toolRead a "get-headline" (object ["id" .= ("beta" :: T.Text)])
+        assertBool "and a subtree asked for no edges carries none"
+          . notElem "refs" =<< fieldsOf bare
+
+    -- ONE POLICY AT BOTH DOORS: a value that is no boolean is refused here
+    -- exactly as @?edges=yes@ is refused over the query string.
+  , testCase "an edges argument that is no boolean is refused" $ do
+      a <- app assetsDir
+      assertContains "the tool says what edges takes" "true or false"
+        =<< toolFails a "list-headlines" (object ["edges" .= ("yes" :: T.Text)])
+
+  , testCase "tools/call neighbors walks both ways, one hop by default" $
+      withGraphTree $ \a _hub _path -> do
+        one <- neighborsAt a (object ["id" .= ("alpha" :: T.Text)])
+        assertEqual "one hop reaches what alpha points at" ["alpha", "beta"] (fst one)
+        assertEqual "and names the edge it walked" [("alpha", "beta", Just "cites")] (snd one)
+        two <- neighborsAt a (object ["id" .= ("alpha" :: T.Text), "depth" .= (2 :: Int)])
+        assertEqual "two hops reach beta's own target" ["alpha", "beta", "gamma"] (fst two)
+        back <- neighborsAt a (object ["id" .= ("gamma" :: T.Text)])
+        assertEqual "and the reverse edge is walked the same" ["beta", "gamma"] (fst back)
+
+  , testCase "neighbors narrows to a kind, caps its depth and refuses a stranger" $
+      withGraphTree $ \a _hub _path -> do
+        cited <- neighborsAt a (object [ "id" .= ("alpha" :: T.Text)
+                                       , "depth" .= (3 :: Int)
+                                       , "kind" .= ("cites" :: T.Text) ])
+        assertEqual "the plain mention is off the kind's walk" ["alpha", "beta"] (fst cited)
+        assertContains "a fourth hop is refused rather than trimmed" "depth is at most 3"
+          =<< toolFails a "neighbors" (object [ "id" .= ("alpha" :: T.Text)
+                                              , "depth" .= (4 :: Int) ])
+        -- THE NUMERIC WALLS ARE THE QUERY STRING'S, inherited by synthesising one.
+        assertContains "and a negative hop is no hop" "whole number"
+          =<< toolFails a "neighbors" (object [ "id" .= ("alpha" :: T.Text)
+                                              , "depth" .= (-1 :: Int) ])
+        assertContains "an id no row carries is refused" "no row in this tree"
+          =<< toolFails a "neighbors" (object ["id" .= ("nosuchrow" :: T.Text)])
+
+    -- THE HTTP DOOR IS THE SAME DOOR: the tool synthesises this very request.
+  , testCase "GET /neighbors walks the graph and meets the same walls" $
+      withGraphTree $ \a _hub _path -> do
+        v <- decoded =<< getFrom a "/neighbors?id=alpha&depth=2"
+        assertEqual "two hops reach the whole chain" 3 =<< intAt "total" v
+        assertEqual "and the nodes are the rows an agent reads"
+          ["alpha", "beta", "gamma"] . sort =<< traverse (textAt "id") =<< listAt "nodes" v
+        refuses400 a "the route names its own walls"
+          [ ("/neighbors", "id=")
+          , ("/neighbors?id=alpha&depth=9", "depth is at most 3")
+          , ("/neighbors?id=alpha&limit=-1", "whole number") ]
+        gone <- getFrom a "/neighbors?id=nosuchrow"
+        assertEqual "an id no row carries is a 404" 404 (status gone)
+
+  , testCase "tools/call add-link writes a body edge the reverse read answers" $
+      withGraphTree $ \a hub path -> do
+        assertEqual "the row landed" [("gamma", True)] =<< toolWrite a "add-link"
+          (object [ "id" .= ("gamma" :: T.Text), "target" .= ("alpha" :: T.Text)
+                  , "kind" .= ("blocked by" :: T.Text), "desc" .= ("Alpha" :: T.Text) ])
+        assertContains "the peer's own slug, written under the headline"
+          "[[glance:alpha?kind=blocked-by][Alpha]]" =<< document path
+        watchStep hub path
+        ans <- toolRead a "list-headlines" (object ["edges" .= True])
+        rows <- listAt "rows" ans
+        assertEqual "and the reverse edge needed no write of its own" ["gamma"]
+          =<< textsAt "referrers" =<< rowNamed rows "alpha"
+
+  , testCase "add-link lands in the title where it is asked to" $
+      withGraphTree $ \a _hub path -> do
+        assertEqual "the row landed" [("alpha", True)] =<< toolWrite a "add-link"
+          (object [ "id" .= ("alpha" :: T.Text), "target" .= ("gamma" :: T.Text)
+                  , "where" .= ("title" :: T.Text) ])
+        assertContains "the link joins the title text, ahead of the tag run"
+          "* Alpha [[glance:gamma]] :one:" =<< document path
+
+  , testCase "add-link refuses a target no row carries, and an id that is no row" $
+      withGraphTree $ \a _hub path -> do
+        before <- document path
+        assertContains "a target naming no row is the request's own refusal" "no row in this tree"
+          =<< toolFails a "add-link" (object [ "id" .= ("alpha" :: T.Text)
+                                             , "target" .= ("nowhere" :: T.Text) ])
+        assertEqual "an id no row carries is refused on its own" [("nosuchrow", False)]
+          =<< toolWrite a "add-link"
+                (object ["id" .= ("nosuchrow" :: T.Text), "target" .= ("alpha" :: T.Text)])
+        assertEqual "and neither wrote a byte" before =<< document path
 
     -- STAGE 3: `glance mcp' forwards to a running daemon that owns its --dir,
     -- and boots its own store otherwise.  `mcpDaemonAt' is that decision.

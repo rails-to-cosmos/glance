@@ -87,6 +87,7 @@ module Glance.Query ( BlobSeed (..)
                     , draftSeeded
                     , draftStates
                     , draftTemplate
+                    , addLinkEdits
                     , editLinkEdits
                     , englishDay
                     , englishSpan
@@ -138,13 +139,32 @@ module Glance.Query ( BlobSeed (..)
                     , outlineEntries
                     , Ref (..)
                     , RefVia (..)
+                    , Edge (..)
+                    , EdgeIndex
                     , carriesKind
+                    , edgeIndex
+                    , edgePairs
+                    , edgesInto
+                    , edgesOutOf
+                    , glanceLink
                     , kindCut
                     , kindSlug
+                    , LinkPlace (..)
+                    , linkPlaceOf
+                    , linkPlaceWord
+                    , linkPlaces
+                    , linkTargetIn
+                    , nameClaims
                     , namesRow
+                    , neighborDepth
+                    , neighborDepthCap
+                    , neighborLimit
+                    , neighborhood
+                    , ownBody
                     , pointedAtBy
                     , pointsAt
                     , refNames
+                    , referrersIn
                     , refSpellings
                     , refTargetOf
                     , refTargets
@@ -158,6 +178,7 @@ module Glance.Query ( BlobSeed (..)
                     , rowJSON
                     , rowProperties
                     , rowSummaryJSON
+                    , rowSummaryPairs
                     , summaryEnvelope
                     , setPlanningEdits
                     , setPriorityEdits
@@ -617,7 +638,12 @@ followableTypes = ["https", "http"]
 -- | The SCHEMES whose target is a HEADLINE ID: following one opens the material
 --   doc.  'linkType' folds the family to "glance", so 'materialTypes' derives to that one word.
 materialSchemes :: [Text]
-materialSchemes = ["glance", "org-glance-material", "org-glance-visit", "org-glance-open"]
+materialSchemes = [writtenScheme, "org-glance-material", "org-glance-visit", "org-glance-open"]
+
+-- | The scheme this server WRITES, first of the family it reads: org-glance's
+-- own, so a link @add-link@ lands is a link org-glance follows.
+writtenScheme :: Text
+writtenScheme = "glance"
 
 materialTypes :: [Text]
 materialTypes = nub (map (linkType . (<> ":")) materialSchemes)
@@ -746,6 +772,119 @@ pointsAt kind t = \r -> hrId r /= hrId t && any names (refsCarrying kind r)
 pointedAtBy :: Maybe Text -> HeadlineRecord -> HeadlineRecord -> Bool
 pointedAtBy kind t = \r -> hrId r /= hrId t && any (namesRow r) out
   where out = refsCarrying kind t
+
+-- | ONE RESOLVED EDGE: the row that wrote the link, the row the link names, the
+-- kind the edge declares ('Nothing' is a plain mention) and the namespace it
+-- resolved through.  A LINK NAMING NO ROW IS NO EDGE and a row is never its own
+-- reference, so both cuts are made once, here, and @refs@, @referrers@ and a
+-- walk are one relation rather than three readings.
+data Edge = Edge
+  { edFrom :: !Text
+  , edTo   :: !Text
+  , edKind :: !(Maybe Text)
+  , edVia  :: !RefVia
+  } deriving (Eq, Ord, Show)
+
+-- | The graph RECORDS spell, resolved ONCE per store version: the rows by id and
+-- the edges read from both ends.  ONE PASS over every link, where a 'pointedAtBy'
+-- per row is one pass per row.
+data EdgeIndex = EdgeIndex
+  { exRows :: Map.Map Text HeadlineRecord    -- ^ the rows the edges join, by id.
+  , exOut  :: Map.Map Text (Set.Set Edge)    -- ^ a row, and what it points at.
+  , exInto :: Map.Map Text (Set.Set Edge)    -- ^ a row, and what points at it.
+  }
+
+edgeIndex :: [HeadlineRecord] -> EdgeIndex
+edgeIndex records = EdgeIndex
+  { exRows = Map.fromList [ (hrId r, r) | r <- records ]
+  , exOut  = Map.fromListWith (<>) [ (edFrom e, Set.singleton e) | e <- es ]
+  , exInto = Map.fromListWith (<>) [ (edTo e, Set.singleton e) | e <- es ]
+  }
+  where es = resolvedEdges records
+
+-- | EVERY LINK IN RECORDS RESOLVED THROUGH 'nameClaims': one edge per row the
+-- link's own namespace claims, the self-edge dropped.
+resolvedEdges :: [HeadlineRecord] -> [Edge]
+resolvedEdges records =
+  [ Edge (hrId r) to (refKind l) (refVia l)
+  | r <- records, l <- hrLinks r
+  , to <- Set.toList (Map.findWithDefault Set.empty (refVia l, refTarget l) claims)
+  , to /= hrId r ]
+  where claims = nameClaims records
+
+-- | A NAME → THE ROWS CLAIMING IT, each in its own namespace ('refNames'): the
+-- forward half, which is what a link resolves THROUGH.  ONE INDEX for the graph
+-- and for @ref:*any*@, so "a row is never its own reference" has one spelling.
+nameClaims :: [HeadlineRecord] -> Map.Map (RefVia, Text) (Set.Set Text)
+nameClaims records = Map.fromListWith (<>)
+  [ (n, Set.singleton (hrId r)) | r <- records, n <- refNames r ]
+
+edgesOutOf, edgesInto :: EdgeIndex -> Text -> Set.Set Edge
+edgesOutOf ix i = Map.findWithDefault Set.empty i (exOut ix)
+edgesInto  ix i = Map.findWithDefault Set.empty i (exInto ix)
+
+-- | The rows pointing at R, @ref:ID@'s answer read off IX.
+referrersIn :: EdgeIndex -> HeadlineRecord -> [Text]
+referrersIn ix r = Set.toAscList (Set.map edFrom (edgesInto ix (hrId r)))
+
+-- | R's edges as the @edges@ rider carries them: @refs@ out and @referrers@ in,
+-- both RESOLVED, so every id here addresses a row this server serves.
+edgePairs :: EdgeIndex -> HeadlineRecord -> [Pair]
+edgePairs ix r =
+  [ "refs" .= [ refJSON e | e <- Set.toAscList (edgesOutOf ix (hrId r)) ]
+  , "referrers" .= referrersIn ix r ]
+
+-- | ONE reference for the wire: the row it points at, the kind the edge declares
+-- (@null@ for a plain mention) and the namespace it resolved in.
+refJSON :: Edge -> Value
+refJSON e = object ["to" .= edTo e, "kind" .= edKind e, "via" .= viaWord (edVia e)]
+
+-- | The wire's word for a namespace.  ONE spelling, so every reader agrees.
+viaWord :: RefVia -> Text
+viaWord ViaRow   = "row"
+viaWord ViaOrgId = "org-id"
+
+-- | THE THREE NUMBERS A @neighbors@ WALK IS BOUND BY, beside the walk itself:
+-- the most hops one may take, the hops it takes when the caller names none, and
+-- the nodes it serves when the caller caps none.
+neighborDepthCap, neighborDepth, neighborLimit :: Int
+neighborDepthCap = 3
+neighborDepth = 1
+neighborLimit = 200
+
+-- | The subgraph around IDENT: the rows within DEPTH hops of it either way, and
+-- every edge carrying KIND between them.  Breadth-first over IX, which the store
+-- built once, so a walk costs no pass over the records and no round trip a hop.
+--
+-- DEPTH IS WHAT BOUNDS THE WORK and CAP only what is drawn, so @total@ is the
+-- count before the cap and a @limit@ is honest — 'summaryEnvelope''s own rule.
+-- The edges are every one BETWEEN HELD NODES, the last layer's to each other
+-- included: a subgraph, not a tree.
+neighborhood :: Maybe Text -> Int -> Int -> EdgeIndex -> Text -> Either Text Value
+neighborhood kind depth cap ix ident
+  | Map.notMember ident (exRows ix) = Left (ident <> " is no row in this tree")
+  | otherwise = Right (object
+      [ "total" .= Set.size reached
+      , "nodes" .= [ rowSummaryJSON r | i <- Set.toAscList held
+                                      , Just r <- [Map.lookup i (exRows ix)] ]
+      , "edges" .= [ edgeJSON e | e <- Set.toAscList drawn ] ])
+  where
+    reached = walk depth (Set.singleton ident) (Set.singleton ident)
+    held    = Set.fromList (take cap (Set.toAscList reached))
+    drawn   = Set.filter (\e -> Set.member (edTo e) held)
+                         (foldMap (kinded . edgesOutOf ix) (Set.toList held))
+    -- BOTH ENDS EVERY HOP: `from:' out of the row and `ref:' into it, the two
+    -- keys the query language already reads, iterated here instead of over HTTP.
+    hops i  = Set.map edTo (kinded (edgesOutOf ix i))
+                <> Set.map edFrom (kinded (edgesInto ix i))
+    kinded  = Set.filter (carriesKind kind . edKind)
+    walk d frontier seen
+      | d <= 0 || Set.null fresh = seen
+      | otherwise                = walk (d - 1) fresh (seen <> fresh)
+      where fresh = Set.filter (`Set.notMember` seen) (foldMap hops (Set.toList frontier))
+
+edgeJSON :: Edge -> Value
+edgeJSON e = object ["from" .= edFrom e, "to" .= edTo e, "kind" .= edKind e]
 
 squashControls :: Text -> Text
 squashControls = T.concat . go
@@ -1630,6 +1769,84 @@ editLinkEdits sp target desc doc r = do
   written <- spelling target (reshaped (olShape found) desc)
   pure [(sp, written)]
 
+-- | WHERE @add-link@ WRITES.  A CLOSED WORD, like 'RefVia': the arg wall, the
+-- sentence it refuses with and the two roads read one vocabulary.
+data LinkPlace = InBody | InTitle
+  deriving (Eq, Show, Enum, Bounded)
+
+linkPlaces :: [LinkPlace]
+linkPlaces = [minBound .. maxBound]
+
+linkPlaceWord :: LinkPlace -> Text
+linkPlaceWord InBody  = "body"
+linkPlaceWord InTitle = "title"
+
+-- | The place WORD names, 'Nothing' where it names none.
+linkPlaceOf :: Text -> Maybe LinkPlace
+linkPlaceOf word = listToMaybe [ p | p <- linkPlaces, linkPlaceWord p == word ]
+
+-- | @add-link@'s edits: LINK appended in R's own BODY, or to its TITLE.  The
+-- title road is 'setTitleEdits'' own, so a headline meets ONE wall whichever
+-- door writes it.
+addLinkEdits :: LinkPlace -> Text -> Text -> HeadlineRecord -> Either Text [(Span, Text)]
+addLinkEdits InBody  link doc r = Right [bodyLinkEdit link doc r]
+addLinkEdits InTitle link doc r = setTitleEdits (hrTitle r <> " " <> link) doc r
+
+-- | R's OWN BODY LINES in DOC: the subtree's lines past its title, less every
+-- lifted region, and only as far as its first child.  THE CHILD TEST IS
+-- 'headingStars', org-glance's own @^\*+ @, so a @*bold*@ line is body text.
+--
+-- 'logbookSlice' cannot read this — it is what decides the logbook region this
+-- subtracts — and 'draftPointLine' counts over EVERY line, a child's included,
+-- which is the opposite cut.
+ownBody :: Text -> HeadlineRecord -> [(Span, Text)]
+ownBody doc r = filter outside (takeWhile (isNothing . headingStars . snd) (drop 1 rows))
+  where
+    subtree = subtreeText doc r
+    rows    = lineSpansIn subtree
+    (_sub, _entries, planAt, drawAt, logAt) = regionsOf doc r
+    cut     = regionSpans [planAt, drawAt, logAt]
+    outside (sp, _line) =
+      not (any (\q -> spanStart sp >= spanStart q && spanEnd sp <= spanEnd q) cut)
+
+-- | Where an appended link lands in R's own body: at the end of its last written
+-- line, else on a line opened at the body's start.
+bodyLinkEdit :: Text -> Text -> HeadlineRecord -> (Span, Text)
+bodyLinkEdit link doc r = case reverse [ e | e@(_sp, line) <- own, written line ] of
+  ((sp, line) : _) -> (insertAt (base + spanStart sp + ends line), " " <> link)
+  []               -> (insertAt (base + at), openingFor (T.take at subtree) eol <> link <> eol)
+  where
+    base    = spanStart (hrSubtree r)
+    subtree = subtreeText doc r
+    eol     = eolOf doc
+    own     = ownBody doc r
+    -- NOTHING WRITTEN TO JOIN: the link opens the body at its first line, and
+    -- where the row owns no line at all, under every header line it carries.
+    at      = maybe opens (spanStart . fst) (listToMaybe own)
+    opens   = foldl' max (pastLine subtree (titleLineEnd (hrSpans r) - base))
+                        [ spanEnd sp | sp <- regionSpans [planAt, drawAt, logAt] ]
+    (_sub, _entries, planAt, drawAt, logAt) = regionsOf doc r
+    written line = not (T.null (T.strip line))
+    ends line    = T.length (T.dropWhileEnd isSpace line)
+
+-- | The org link @add-link@ writes: @[[glance:TARGET?kind=KIND][DESC]]@, the
+-- spelling org-glance writes and 'refTargetOf' reads back.  The KIND is slugged
+-- to the peer's rule and a blank one declares none; the description meets
+-- 'reshaped', the wall @edit-link@'s own rewrite meets.  Through 'spelling', so
+-- what lands reparses as ONE link pointing where it says.
+glanceLink :: Text -> Maybe Text -> Maybe Text -> Either Text Text
+glanceLink target kind desc =
+  spelling (writtenScheme <> ":" <> target <> query) (reshaped (Bracketed Nothing) (Just desc))
+  where query = T.concat [ "?kind=" <> slug | Just given <- [kind]
+                                            , let slug = kindSlug given, not (T.null slug) ]
+
+-- | The name a @glance:@ link spells R by, or why none does.  THE ORG ID: the one
+-- name 'refSpellings' answers to, and 'hrId' already IS it where a row carries one.
+linkTargetIn :: HeadlineRecord -> Either Text Text
+linkTargetIn r =
+  maybe (Left (hrId r <> " carries no ORG_GLANCE_ID, so no link can name it"))
+        Right (hrOrgId r)
+
 -- | TARGET in SHAPE, or why that text is not that link.  REPARSE AND COMPARE: @a][b@ renders one wrong link.
 spelling :: Text -> LinkShape -> Either Text Text
 spelling target shape
@@ -2310,19 +2527,21 @@ viewJSON viewTitle records =
 -- | 'viewJSON' declaring CHAIN with PALETTE given.  A server passes the whole
 -- store's palette: this page's rows would move the badge list on every page.
 viewJSONWith :: SortChain -> Text -> TodoKeywords -> [HeadlineRecord] -> Value
-viewJSONWith = viewJSONFor viewColumns builtinViews
+viewJSONWith = viewJSONFor viewColumns (const []) builtinViews
 
 builtinViews :: [(Text, Text)]
 builtinViews = [ (svId v, viewQuery (svId v) noConfig) | v <- savedViews ]
 
-viewJSONFor :: [ViewColumn] -> [(Text, Text)] -> SortChain -> Text -> TodoKeywords
-            -> [HeadlineRecord] -> Value
-viewJSONFor cols views chain viewTitle palette records = object
+-- | The table's own envelope.  EXTRA rides every row served — 'edgePairs' where
+-- @edges@ was asked, nothing where it was not; the browser asks for none.
+viewJSONFor :: [ViewColumn] -> (HeadlineRecord -> [Pair]) -> [(Text, Text)] -> SortChain
+            -> Text -> TodoKeywords -> [HeadlineRecord] -> Value
+viewJSONFor cols extra views chain viewTitle palette records = object
   (  [ "title" .= viewTitle, "columns" .= columnsFor cols palette
      , "actions" .= actions ]
   <> declaredSort chain
   <> declaredViews views
-  <> [ "rows" .= map (rowJSONFor cols) records ])
+  <> [ "rows" .= [ rowJSONFor cols (extra r) r | r <- records ] ])
 
 declaredViews :: [(Text, Text)] -> [Pair]
 declaredViews [] = []
@@ -2343,7 +2562,7 @@ actions =
 viewJSONTextFor :: [ViewColumn] -> [(Text, Text)] -> SortChain -> Text
                 -> TodoKeywords -> [HeadlineRecord] -> TL.Text
 viewJSONTextFor cols views chain viewTitle palette =
-  encodeToLazyText . viewJSONFor cols views chain viewTitle palette
+  encodeToLazyText . viewJSONFor cols (const []) views chain viewTitle palette
 
 -- | The view's columns in draw order.  ONE TABLE, so the four that must agree
 -- cannot drift — 'columnsFor' declares, 'rowJSONFor' fills, 'filterKeys' names,
@@ -2478,13 +2697,13 @@ column key header kind extra =
 
 -- | One row for the wire.  @linked@ is SPARSE (@true@ or absent), additive to SCHEMA.md's Row, not a field every row owes.
 rowJSON :: HeadlineRecord -> Value
-rowJSON = rowJSONFor viewColumns
+rowJSON = rowJSONFor viewColumns []
 
 -- | A headline as the MCP @list-headlines@ rows shape: the fields an agent reads, no badge chrome or
 -- @columns@\/@actions@\/@views@.  SPARSE: unset planning, state, priority and an empty tag run drop out.  @tags@ is
 -- the file's own run, file-cased ('tagRunEntries'), never 'rowJSON''s sorted cell.
-rowSummaryJSON :: HeadlineRecord -> Value
-rowSummaryJSON r = object $
+rowSummaryPairs :: HeadlineRecord -> [Pair]
+rowSummaryPairs r =
      [ "id" .= hrId r, "title" .= hrTitle r ]
   <> [ "state"     .= s  | Just s <- [hrState r] ]
   <> [ "priority"  .= p  | Just p <- [hrPriority r] ]
@@ -2492,20 +2711,27 @@ rowSummaryJSON r = object $
   <> [ "deadline"  .= d  | Just d <- [hrDeadline r] ]
   <> [ "tags"      .= ts | let ts = tagRunEntries (hrTags r), not (null ts) ]
 
--- | The @list-headlines@ answer @{total, clean, rows}@: TOTAL the uncapped match count so a @limit@ is honest; CLEAN
--- the startup verdict (no second @doctor@ call); ROWS the paged 'rowSummaryJSON'.
-summaryEnvelope :: Int -> Bool -> [HeadlineRecord] -> Value
-summaryEnvelope total clean rows = object
-  [ "total" .= total, "clean" .= clean, "rows" .= map rowSummaryJSON rows ]
+rowSummaryJSON :: HeadlineRecord -> Value
+rowSummaryJSON = object . rowSummaryPairs
 
-rowJSONFor :: [ViewColumn] -> HeadlineRecord -> Value
-rowJSONFor cols r = object
+-- | The @list-headlines@ answer @{total, clean, rows}@: TOTAL the uncapped match count so a @limit@ is honest; CLEAN
+-- the startup verdict (no second @doctor@ call); ROWS the paged 'rowSummaryPairs', each carrying what EXTRA rides —
+-- 'edgePairs' where @edges@ was asked, nothing where it was not.
+summaryEnvelope :: (HeadlineRecord -> [Pair]) -> Int -> Bool -> [HeadlineRecord] -> Value
+summaryEnvelope extra total clean rows = object
+  [ "total" .= total, "clean" .= clean
+  , "rows" .= [ object (rowSummaryPairs r <> extra r) | r <- rows ] ]
+
+-- | One table row over COLS, EXTRA riding what the request asked for beyond the cells.
+rowJSONFor :: [ViewColumn] -> [Pair] -> HeadlineRecord -> Value
+rowJSONFor cols extra r = object
   (  [ "id" .= hrId r
      , "cells" .= object [ Key.fromText key .= toJSON (cell r)
                          | (key, _header, _kind, cell) <- cols ] ]
   <> [ "linked" .= True | hrLinked r ]
   -- SPARSE like `linked`, so SCHEMA.md's Row stays additive.
-  <> [ "repeats" .= cookie | Just cookie <- [repeatsOf r] ])
+  <> [ "repeats" .= cookie | Just cookie <- [repeatsOf r] ]
+  <> extra)
 
 badges :: TodoKeywords -> [Value]
 badges (TodoKeywords actives inactives) =

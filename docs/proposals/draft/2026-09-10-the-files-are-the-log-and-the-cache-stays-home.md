@@ -167,7 +167,7 @@ cannot be scheduled; take this file when it can.
 - `docs/proposals/proposed/2026-08-26-the-daemon-tails-the-wal.md` (walk:
   0.71 s / 6107 files), `2026-08-18-one-writer-per-file-…`,
   `draft/2026-09-10-two-writers-one-wal.md`,
-  `draft/2026-09-10-the-graph-an-agent-can-walk.md`
+  `done/2026-09-10-the-graph-an-agent-can-walk.md`
 - RocksDB wiki: *Write Ahead Log*, *MANIFEST*, *Secondary Instance*
   (one primary writer, read-only secondaries); SQLite *Write-Ahead Logging*
   (one writer, concurrent readers); org-roam v2 (`org-roam-db`, SQLite keyed

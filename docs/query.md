@@ -133,6 +133,15 @@ sides.
 On the pair above, `ref:def456?kind=blocked-by` still serves Ship the release,
 and `ref:def456?kind=see-also` serves nothing.
 
+### The same graph over MCP
+
+The two keys read the graph a query at a time. The MCP catalog reads it a row
+at a time: `edges: true` on `list-headlines` and `get-headline` adds each row's
+own `refs` (`[{to, kind, via}]`) and its `referrers` (the `ref:ID` answer), and
+`neighbors {id, depth?, kind?}` walks out from one row in both directions and
+answers the induced subgraph. `add-link` writes an edge. See
+[mcp.md](mcp.md).
+
 ### `*any*`, the existence meta
 
 `*any*` stands where an id stands, and asks whether the row is on the relation
