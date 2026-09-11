@@ -20,7 +20,7 @@ import Glance.Backfill (BackfillOptions (..), runBackfill)
 import Glance.Desktop (DesktopOptions (..))
 import Glance.Desktop.Native (desktopWith)
 import Glance.Desktop.WebKit (nativeAvailable, nativeWindow)
-import Glance.Web (ServeOptions (..), defaultPort, serve)
+import Glance.Web (ServeOptions (..), defaultPort, serve, stashStartupDoctor)
 import Glance.Web.Base (walkFor, zoomMax, zoomMin)
 import Glance.Web.Mcp (mcpDaemonAt, runMcpStdio, runMcpStdioWith)
 import Glance.Web.Routes (mcpToolsFor)
@@ -283,7 +283,12 @@ runMcp :: ServeOptions -> IO ()
 runMcp opts = mcpDaemonAt (soPort opts) (soDir opts) >>= \daemon -> case daemon of
   Just forward -> runMcpStdioWith forward
   Nothing      -> do
-    hub <- newHub =<< loadStoreWith (walkFor opts) (soDir opts)
+    store <- loadStoreWith (walkFor opts) (soDir opts)
+    hub <- newHub store
+    -- The same startup verdict the daemon caches (Web.indexTree), so the
+    -- `doctor' tool and a `list-headlines' answer honest health OFFLINE too,
+    -- not the empty `cleanDoctor' a bare hub carries.
+    stashStartupDoctor opts hub store
     runMcpStdio (mcpToolsFor opts hub)
 
 -- | Everything @glance desktop@ takes.

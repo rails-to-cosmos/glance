@@ -85,7 +85,7 @@ spec = testGroup "Negative / Edge cases"
     -- 'test/fixtures/broken/broken.org' to the byte: a headline whose tag run
     -- stops mid-line leaves a ':' behind it, and only a TIMESTAMP may be abutted.
     [ testCase "A headline stopping mid-line fails the whole document" $
-        case orgParse defaultContext "* A title with a :: double colon" of
+        case orgParse defaultContext "* Foo :bar::baz:" of
           (elems, ctx, err) -> do
             assertBool "expected a parse error" (isJust err)
             assertEqual "no elements on error" [] (bare elems)
