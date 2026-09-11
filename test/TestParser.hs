@@ -38,6 +38,20 @@ testCases =
                                                   , OrgLineToken "world"
                                                   , OrgLineToken ":a:b:c" ] } ]
 
+    -- A `:' inside the title is title text; only a trailing `:tag:' block is tags.
+    -- org-glance overview titles use `name :: description', and users write `:)'.
+  , plain "A '::' in the title is not a tag" ["* Foo :: Bar :c:"]
+      [ EHeadline defaultHeadline { title = Title [ OrgLineToken "Foo"
+                                                  , OrgLineToken "::"
+                                                  , OrgLineToken "Bar" ]
+                                  , tags = Tags ["c"] } ]
+
+  , plain "A ':)' smiley in the title is not a tag" ["* Leave it :) :task:"]
+      [ EHeadline defaultHeadline { title = Title [ OrgLineToken "Leave"
+                                                  , OrgLineToken "it"
+                                                  , OrgLineToken ":)" ]
+                                  , tags = Tags ["task"] } ]
+
   , plain "Property block" ["* Hello", ":PROPERTIES:", ":TITLE: New title", ":END:"]
       [ EHeadline (titled "Hello")
           { properties = Properties [ Property (Keyword "TITLE")

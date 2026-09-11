@@ -930,7 +930,7 @@ withCorpus act = withTempDirNamed "parallel" $ \dir -> do
             (entryAs (T.pack name) ("TODO " <> T.pack name) <> entryAs (T.pack (name <> "-b")) "DONE second")
   forM_ ["a-claims-shared.org", "z-claims-shared.org"] $ \name ->
     orgFile dir name (entryAs "shared" ("TODO from " <> T.pack name))
-  _ <- orgFile dir "unparseable.org" "* A title with a :: double colon\n"
+  _ <- orgFile dir "unparseable.org" "* Foo :bar::baz:\n"
   BS.writeFile (dir </> "bad-utf8.org") (BS.pack [0x2a, 0x20, 0xff, 0xfe, 0x0a])
   createSymbolicLink "nowhere-at-all" (dir </> "dangling.org")
   act dir

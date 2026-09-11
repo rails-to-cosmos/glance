@@ -1816,6 +1816,7 @@ routes =
   , Route "/properties" True  TextRefusal [GET]
   , Route "/ws"         True  TextRefusal [GET]
   , Route "/status"     False JsonRefusal [GET]
+  , Route "/doctor"     True  JsonRefusal [GET]
   , Route "/mcp"        True  JsonRefusal [GET, POST]
   , Route "/git"        False JsonRefusal [GET, POST]
   ]

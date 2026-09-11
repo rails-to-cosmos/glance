@@ -10,7 +10,7 @@ import Data.ByteString (ByteString)
 import Data.Char (isAlpha, isAlphaNum, isDigit, isLower, isSpace)
 import Data.Foldable (toList)
 import Data.List (elemIndex, find, isInfixOf, nub, sort, sortOn)
-import Data.Maybe (fromJust, fromMaybe, listToMaybe)
+import Data.Maybe (fromJust, fromMaybe, isJust, listToMaybe)
 import Data.Time (fromGregorian, toGregorian)
 import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
@@ -57,6 +57,7 @@ import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
 import Glance.Web.Page.Popups ( Popup (..), Tier (..), popups, tierClass
                               , boxes, chromeBoxes, chromeFeet, chromeHeads, veiled, washed )
+import Glance.Web.Page.Style (stripSpans)
 import Glance.Web.Base (gluePartFiles, today)
 import Glance.Web.Commands (commandNames)
 import Glance.Web.Mcp (mcpDaemonAt, mcpWriteToolNames)
@@ -549,6 +550,18 @@ doctorSpec = testGroup "The startup doctor rides the view JSON"
         assertEqual "the frame is a set-rows" "set-rows" =<< textAt "op" frame
         fd <- field "doctor" frame
         assertEqual "the frame's doctor agrees" 1 =<< intAt "decodeFailures" fd
+
+  , testCase "GET /doctor answers the same verdict the envelope carries" $
+      withTempDir $ \dir -> do
+        _ <- orgFile dir "good.org" "* TODO one\n"
+        BS.writeFile (dir <> "/bad.org") (BS.pack [0x2a, 0x20, 0xff, 0x0a])
+        (a, hub) <- serverOver dir
+        stashDoctor hub =<< diagnose defaultWalk [dir] . storeResult
+                        =<< readTVarIO (hubStore hub)
+        door  <- decoded =<< getFrom a "/doctor"
+        block <- field "doctor" =<< decoded =<< getFrom a "/headlines"
+        assertEqual "GET /doctor is the envelope's doctor block, verbatim" block door
+        assertEqual "and it names the decode failure" 1 =<< intAt "decodeFailures" door
   ]
 
 -- | One boot of the shell's glue, RUN: a call written and never reached matches a text search too.
@@ -6312,7 +6325,31 @@ glueSpec shell = testGroup "Shell glue"
    | Glue{..} <- shellGlue ]
    <> [ groundSweep shell, tierSweep shell, gridSweep shell, editIndentSweep shell
       , scrollSweep shell, containSweep shell, logColumnSweep shell
-      , paletteSweep shell, popupSelectorSweep shell ])
+      , paletteSweep shell, popupSelectorSweep shell, commentStripSweep shell
+      , stripSpansUnit ])
+
+-- | A COMMENT NEVER REACHES THE SERVED STYLESHEET: 'Glance.Web.Page.Style'
+-- strips @page.css@'s @\/* … *\/@ comments, so no comment byte survives and no
+-- rule after one is dropped.  A multi-line comment before a rule used to leak its
+-- tail into that rule's selector and drop it.
+-- | The shared helper on its own: a span between its delimiters goes, multi-line
+-- included, the code on either side stays, and the delimiters are a parameter.
+stripSpansUnit :: TestTree
+stripSpansUnit = testCase "stripSpans drops a span between its delimiters, multi-line included" $ do
+  let css = stripSpans "/*" "*/" "a: 1; /* one\n   two */ b: 2;"
+  assertBool "no comment markers survive" (not ("/*" `T.isInfixOf` css) && not ("*/" `T.isInfixOf` css))
+  assertBool "code before the span is kept" ("a: 1;" `T.isInfixOf` css)
+  assertBool "code after the span is kept" ("b: 2;" `T.isInfixOf` css)
+  assertEqual "any paired delimiter, not just comments" "x y" (stripSpans "<!--" "-->" "x<!--z-->y")
+
+commentStripSweep :: IO T.Text -> TestTree
+commentStripSweep shell = testCase "no CSS comment leaks into the served stylesheet" $ do
+  page <- shell
+  let css = fst (T.breakOn "</style>" (snd (T.breakOn "<style" page)))
+  assertBool "a comment's bytes leaked into the stylesheet"
+             (not ("*/" `T.isInfixOf` css))
+  assertBool "the rule a leaked comment would garble survives"
+             (isJust (ruleLine "#mdoc .de.d-drawer > .fold:hover" (nzp page)))
 
 -- | THE STYLESHEET CANNOT FORK FROM THE REGISTRY: @assets\/page.css@ splices its
 -- aggregate selectors from 'Glance.Web.Page.Popups' at build time, so the served
@@ -8936,12 +8973,12 @@ mcpSpec = testGroup "POST /mcp"
       name <- field "serverInfo" v >>= textAt "name"
       assertEqual "the server names itself" "glance" name
 
-  , testCase "tools/list carries every write verb and both reads" $ do
+  , testCase "tools/list carries every write verb and the three reads" $ do
       a <- app assetsDir
       tools <- listAt "tools" =<< field "result" =<< decoded =<< mcpPost a "tools/list" (object [])
       names <- traverse (textAt "name") tools
-      assertEqual "every write verb and the two reads are listed, once"
-        (sort (commandNames <> ["get-headline", "list-headlines"])) (sort names)
+      assertEqual "every write verb and the three reads are listed, once"
+        (sort (commandNames <> ["get-headline", "list-headlines", "doctor"])) (sort names)
       mapM_ (\t -> field "inputSchema" t >>= textAt "type"
                      >>= assertEqual "each tool declares an object schema" "object") tools
 
@@ -8977,14 +9014,40 @@ mcpSpec = testGroup "POST /mcp"
         assertEqual "the title on disk is the one MCP set"
                     (T.replace "* NEXT First" "* NEXT From MCP" before) =<< document path
 
-  , testCase "tools/call list-headlines reads the tree through the query view" $ do
+  , testCase "tools/call list-headlines answers the compact rows shape, no table chrome" $ do
       a <- app assetsDir
       r <- ok =<< mcpPost a "tools/call"
              (object ["name" .= ("list-headlines" :: T.Text), "arguments" .= object []])
       assertEqual "a read is no error" False
         =<< boolAt "isError" =<< field "result" =<< decoded r
-      rows <- listAt "rows" =<< toolContent r
+      ans <- toolContent r
+      -- {total, clean, rows} and nothing else: the columns, actions, sort, views
+      -- and doctor block the browser envelope carries are gone.
+      assertEqual "the compact answer's keys" ["clean", "rows", "total"]
+        . sort =<< fieldsOf ans
+      _total <- intAt "total" ans
+      _clean <- boolAt "clean" ans
+      rows <- listAt "rows" ans
       assertBool "the view answers rows" (not (null rows))
+      case rows of
+        (row : _) -> do
+          _ <- textAt "id" row
+          _ <- textAt "title" row
+          assertBool "a row carries no badge cells" . notElem "cells" =<< fieldsOf row
+        [] -> pure ()
+
+  , testCase "tools/call doctor answers the startup health verdict" $ do
+      a <- app assetsDir
+      r <- ok =<< mcpPost a "tools/call"
+             (object ["name" .= ("doctor" :: T.Text), "arguments" .= object []])
+      assertEqual "a read is no error" False
+        =<< boolAt "isError" =<< field "result" =<< decoded r
+      ans <- toolContent r
+      _clean <- boolAt "clean" ans
+      _warnings <- listAt "warnings" ans
+      keys <- fieldsOf ans
+      mapM_ (\k -> assertBool (T.unpack k <> " rides the doctor answer") (k `elem` keys))
+            ["clean", "warnings", "parseFailures", "recordless"]
 
   , testCase "tools/call get-headline with no id is surfaced as an error" $ do
       a <- app assetsDir

@@ -256,8 +256,8 @@ instance Parse Tags where
 tagsP :: StatefulParser (Maybe Span, Tags)
 tagsP = do
     _ <- MPC.hspace1
-    Spanned sp ts <- spannedP (char ':' *> many tag)
-    return (if null ts then Nothing else Just sp, Tags ts)
+    Spanned sp ts <- spannedP (char ':' *> some tag)
+    return (Just sp, Tags ts)
     where tag = takeWhile1P (Just "tag") isTagChar <* char ':'
 
 -- | Exported so a command layer writes what this reads; @org-tag-re@ plus @-@ and @%@.

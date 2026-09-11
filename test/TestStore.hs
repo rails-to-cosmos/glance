@@ -588,7 +588,7 @@ failureSpec :: TestTree
 failureSpec = testGroup "Load failure"
   [ testCase "a parse failure keeps the file's rows and streams nothing"
       $ withStoreOf [("a.org", "* TODO one\n* TODO two\n")] $ \dir path store -> do
-      _ <- orgFile dir "a.org" "* A title with a :: double colon\n"
+      _ <- orgFile dir "a.org" "* Foo :bar::baz:\n"
       fresh <- loadFile path
       assertEqual "load" (Left ParseFailed) (fmap (map hrId) fresh)
       let (next, frames) = applyFile path fresh store
@@ -807,7 +807,7 @@ nudgeSpec = testGroup "Nudge"
       withStoreOf [("a.org", "* TODO one\n")] $ \dir path store -> do
       hub <- newHub store
       (_cid, client, _boot) <- atomically (subscribe hub)
-      TIO.writeFile path "* A title with a :: double colon\n"
+      TIO.writeFile path "* Foo :bar::baz:\n"
       nudge defaultWalk hub path
       drainNow dir hub
       next <- readTVarIO (hubStore hub)

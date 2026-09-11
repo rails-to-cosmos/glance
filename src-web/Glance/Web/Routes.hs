@@ -55,7 +55,9 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , rowProperties
                     , OrgLink (olSpan, olTarget)
                     , QueryResult (..), SortChain
+                    , doctorClean
                     , doctorJSON
+                    , summaryEnvelope
                     , WriteFailure (WriteDrift, WriteRefused)
                     , Span (spanEnd, spanStart)
                     , SubtreeEntry (..)
@@ -164,6 +166,7 @@ httpApp opts hub request respond = route >>= respond
       , (["properties"], True,  textRefusal, [(methodGet, propertiesView hub)])
       , (["ws"],         True,  textRefusal, [(methodGet, pure (plain status400 wsHint))])
       , (["status"],     False, jsonRefusal, [(methodGet, statusView opts hub)])
+      , (["doctor"],     True,  jsonRefusal, [(methodGet, doctorView hub)])
       , (["mcp"],        True,  jsonRefusal, [ (methodGet, pure mcpUiResponse)
                                              , (methodPost, mcpRoute (mcpToolsFor opts hub) request) ])
       -- git is independent of the org walk, so it answers while the store loads.
@@ -232,12 +235,25 @@ mcpToolsFor opts hub = McpTools
   { mtWrite     = runCommandRaw opts hub
   , mtHeadline  = \rid -> materialize hub (Just rid) (Right Nothing)
   , mtHeadlines = \q limit -> headlines opts hub (listRequest q limit)
+  , mtDoctor    = doctorView hub
   }
 
+-- | The @\/headlines@ request an MCP @list-headlines@ synthesizes: the query and
+-- cap, and @shape=rows@ — the browser never sends it, so an agent gets
+-- 'summaryEnvelope' where the table gets the full envelope.
 listRequest :: Maybe Text -> Maybe Int -> Request
 listRequest q limit = defaultRequest
   { queryString = [ ("q", Just (TE.encodeUtf8 t)) | Just t <- [q] ]
-               <> [ ("limit", Just (BSC.pack (show n))) | Just n <- [limit] ] }
+               <> [ ("limit", Just (BSC.pack (show n))) | Just n <- [limit] ]
+               <> [ ("shape", Just "rows") ] }
+
+-- | @GET \/doctor@: the index's health as the startup scan measured it, read
+-- O(1) off the hub and never recomputed — the same 'doctorJSON' the boot log
+-- and @glance doctor@ derive from, so one 'Doctor' answers three readers.
+doctorView :: Hub -> IO Response
+doctorView hub = do
+  doctor <- readTVarIO (hubDoctor hub)
+  pure (sized status200 [jsonType] (encode (doctorJSON doctor)))
 
 safeName :: Text -> Bool
 safeName name = not (T.null name)
@@ -340,9 +356,15 @@ viewPage opts hub request keep extra = case pageParams request of
             -- EXTRA rides the ONE encoding, over every row the query MATCHED.
             view    = viewJSONFor cols (savedViewsIn st) paChain
                                   (viewTitleFor dir) (storeKeywords st) shown
-            -- The doctor rides the envelope GLOBALLY, beside a door's own EXTRA.
-            body    = TLE.encodeUtf8 (encodeToLazyText
-                        (merged view (("doctor" .= doctorJSON doctor) : extra matched)))
+            -- @shape=rows@ (an MCP caller, never the table) gets the compact
+            -- answer; TOTAL stays the uncapped match count so @limit@ is honest.
+            -- Otherwise the doctor rides the envelope GLOBALLY, beside a door's
+            -- own EXTRA.
+            body
+              | paRows    = TLE.encodeUtf8 (encodeToLazyText
+                              (summaryEnvelope total (doctorClean doctor) shown))
+              | otherwise = TLE.encodeUtf8 (encodeToLazyText
+                              (merged view (("doctor" .= doctorJSON doctor) : extra matched)))
         -- The encode is lazy: an exception in warp's sender would truncate a sent 200.
         forced <- try (evaluate (BL.length body))
         pure $ case forced of
@@ -397,6 +419,7 @@ data PageAsk = PageAsk
   , paOffset :: !Int             -- ^ @offset@ into the effective order.
   , paChain  :: !SortChain       -- ^ the order @q@'s @sort:@ tokens state.
   , paPicked :: !(Maybe [Text])  -- ^ the set @q@'s @columns:@ tokens state.
+  , paRows   :: !Bool            -- ^ @shape=rows@: the compact 'summaryEnvelope', never the table's own.
   }
 
 -- | @q@, @limit@ and @offset@ out of REQUEST, or what is wrong with one.  @order=@ is refused rather than ignored.
@@ -410,13 +433,19 @@ pageParams request = do
   picked <- columnNamesIn q
   -- The third view key's own refusal: it has no reader of its own to carry one.
   _added <- viewAddedIn q
+  rows   <- maybe (Right False) shapeRows (raw "shape")
   case limit of
     Just n | n > limitCap -> Left ("limit is at most " <> T.pack (show limitCap)
                                      <> "; page with offset for more")
     _within                -> Right PageAsk { paQuery = q, paLimit = limit
                                            , paOffset = offset, paChain = chain
-                                           , paPicked = picked }
+                                           , paPicked = picked, paRows = rows }
   where
+    -- Only @rows@ is a shape; an unknown value is refused rather than ignored,
+    -- the way @order=@ is.  The browser sends none and gets the envelope.
+    shapeRows v = case text v of
+      Right "rows" -> Right True
+      _other       -> Left "shape is rows, or absent for the table view"
     retired = "order= is gone; the order is the query's: ?q=sort:COL, \
               \or ?q=sort:*none* for document order"
     -- A parameter with no @=@ reads as absent, so @?limit@ is not a zero page.
