@@ -2,8 +2,7 @@
 
 -- | The HTTP surface: a fixed route table, its handlers, and the live socket.
 -- Routes, caching, the 503 gate and what a write may touch are AGENTS.hs.
--- 'etagOf' is out for the pin alone: the DAY it folds in is a law a unit can
--- state — one store, two days, two tags — where the wall clock cannot.
+-- 'etagOf' is exported so a unit can state the DAY-folds-in law.
 module Glance.Web.Routes (application, bootstrapWanted, etagOf, hasRenderer, mcpToolsFor) where
 
 import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVar)
@@ -122,8 +121,7 @@ embeddedGlue = BS.concat
 embeddedElm :: BS.ByteString
 embeddedElm = $(makeRelativeToProject "assets/elm.js" >>= embedFile)
 
--- | The @GET \/mcp@ explorer: a hand-written page that reads the tool catalog
--- off @POST \/mcp@ and lets a browser invoke a tool or send raw JSON-RPC.
+-- | The @GET \/mcp@ explorer: reads the tool catalog off @POST \/mcp@ and invokes a tool or raw JSON-RPC.
 embeddedMcpUi :: BS.ByteString
 embeddedMcpUi = $(makeRelativeToProject "assets/mcp.html" >>= embedFile)
 
@@ -192,8 +190,7 @@ httpApp opts hub request respond = route >>= respond
           [name] | safeName name -> asset opts (T.unpack name)
           _other                 -> pure (plain status404 notFound)
     wsHint    = "/ws is a websocket endpoint; connect with Upgrade: websocket"
-    -- DERIVED, like `notFound' under it: the table above knows which entries
-    -- carry `methodPost', and a hand-written sentence had missed /config.
+    -- DERIVED from the table, like `notFound' below: no hand-written list to drift.
     writeHint = "method not allowed; " <> T.intercalate " and "
                   [ "POST /" <> T.intercalate "/" p
                   | (p, _, _, ms) <- named, isJust (lookup methodPost ms) ]
@@ -210,8 +207,7 @@ indexing since = do
   pure . sized status503 [jsonType, ("Retry-After", "1")] . encode
        $ object ["loading" .= True, "elapsed" .= tenths (now - since)]
 
--- | @GET \/status@: LIVENESS is the 200 itself (no store needed), READINESS
--- the @ready@ flag.  Loading carries the elapsed tenths; loaded, the row count.
+-- | @GET \/status@: LIVENESS is the 200 itself (no store needed), READINESS the @ready@ flag.
 statusView :: ServeOptions -> Hub -> IO Response
 statusView opts hub = do
   dir <- canonicalizePath (soDir opts)
@@ -226,10 +222,8 @@ statusView opts hub = do
   -- The served TREE, so `glance mcp' proxies only to a daemon that owns its --dir.
   pure . sized status200 [jsonType] . encode $ object (("ok" .= True) : ("dir" .= dir) : fields)
 
--- | The MCP door's handlers, wired to the live Hub: the write core
--- ('runCommandRaw') and the two reads ('materialize', 'headlines').  A list is
--- @GET \/headlines@ over a synthesized query string, so its filter, paging and
--- archive rules are the ones the UI table already answers.
+-- | The MCP door's handlers on the live Hub: 'runCommandRaw' to write,
+-- 'materialize' and 'headlines' to read — a list reuses the table's rules.
 mcpToolsFor :: ServeOptions -> Hub -> McpTools
 mcpToolsFor opts hub = McpTools
   { mtWrite     = runCommandRaw opts hub
@@ -238,18 +232,16 @@ mcpToolsFor opts hub = McpTools
   , mtDoctor    = doctorView hub
   }
 
--- | The @\/headlines@ request an MCP @list-headlines@ synthesizes: the query and
--- cap, and @shape=rows@ — the browser never sends it, so an agent gets
--- 'summaryEnvelope' where the table gets the full envelope.
+-- | The @\/headlines@ request an MCP @list-headlines@ synthesizes: query, cap and
+-- @shape=rows@ — the browser never sends it, so an agent gets 'summaryEnvelope'.
 listRequest :: Maybe Text -> Maybe Int -> Request
 listRequest q limit = defaultRequest
   { queryString = [ ("q", Just (TE.encodeUtf8 t)) | Just t <- [q] ]
                <> [ ("limit", Just (BSC.pack (show n))) | Just n <- [limit] ]
                <> [ ("shape", Just "rows") ] }
 
--- | @GET \/doctor@: the index's health as the startup scan measured it, read
--- O(1) off the hub and never recomputed — the same 'doctorJSON' the boot log
--- and @glance doctor@ derive from, so one 'Doctor' answers three readers.
+-- | @GET \/doctor@: the startup scan's health, read O(1) off the hub and never
+-- recomputed — one 'doctorJSON' the boot log and @glance doctor@ share too.
 doctorView :: Hub -> IO Response
 doctorView hub = do
   doctor <- readTVarIO (hubDoctor hub)
@@ -266,8 +258,7 @@ safeName name = not (T.null name)
 headlines :: ServeOptions -> Hub -> Request -> IO Response
 headlines opts hub request = viewPage opts hub request (const True) (const [])
 
--- | @GET \/refer?q=…[&row=ID]@: the rows a REFERENCE may name — 'headlines''
--- own view, cut to the addressable rows and never the one asked from.
+-- | @GET \/refer?q=…[&row=ID]@: 'headlines'' view cut to addressable rows, never the one asked from.
 refer :: ServeOptions -> Hub -> Request -> IO Response
 refer opts hub request = viewPage opts hub request keep (referExtra asked)
   where
@@ -275,30 +266,21 @@ refer opts hub request = viewPage opts hub request keep (referExtra asked)
     asked = queryText "kind" request
     keep r = isJust (hrOrgId r) && Just (hrId r) /= self
 
--- | What the picker completes from, over every row THE QUERY MATCHED rather than
--- the page served.  A reader narrowing the picker narrows what it offers, which
--- is the same rule the @tag@ half has always had.
+-- | What the picker completes from, over every row THE QUERY MATCHED rather than the page served.
 referExtra :: Maybe Text -> [HeadlineRecord] -> [Pair]
 referExtra asked rows = referVocabulary rows <> referKinds rows <> echo
   where
-    -- THE SLUG IS THE SERVER'S, said once: a kind typed into the picker comes
-    -- back canonical, so the page writes what org-glance would have written and
-    -- no second spelling of the rule lives on the page ('kindSlug').
+    -- THE SLUG IS THE SERVER'S ('kindSlug'): a kind comes back canonical, so no second spelling lives on the page.
     echo = [ "kind" .= kindSlug k | Just k <- [asked], not (T.null (kindSlug k)) ]
 
--- | What the picker may complete a @tag:@ from: the tags of every row THE QUERY
--- MATCHED rather than the page served, commonest first.  The @state@ and
--- @priority@ domains ride their COLUMNS already ('columnsFor'), so the one
--- column that declares none is all this owes — and the count is
--- 'tagRowCounts'', the same rule @\/tags@ answers with.
+-- | The @tag:@ vocabulary: tags of every row THE QUERY MATCHED, commonest first.
+-- @state@ and @priority@ ride their columns already, so tags is all this owes.
 referVocabulary :: [HeadlineRecord] -> [Pair]
 referVocabulary rows =
   [ "vocabulary" .= object [ "tag" .= map fst (commonest (tagRowCounts rows)) ] ]
 
--- | THE KINDS THE TREE ALREADY USES, commonest first, counted in ROWS the way
--- @\/tags@ counts them.  The COUNT is what the picker shows beside each: free
--- text is how a kind is minted, so an established spelling has to be tellable
--- from a typo made once, or the vocabulary forks.
+-- | The kinds the tree uses, commonest first, counted in ROWS like @\/tags@.
+-- The count tells an established spelling from a typo, or the vocabulary forks.
 referKinds :: [HeadlineRecord] -> [Pair]
 referKinds rows =
   [ "kinds" .= [ object ["kind" .= k, "rows" .= n] | (k, n) <- kinds ] ]
@@ -322,26 +304,18 @@ viewPage opts hub request keep extra = case pageParams request of
     st <- readTVarIO (hubStore hub)
     -- GLOBAL, not per-view: the startup verdict, read O(1) and never recomputed.
     doctor <- readTVarIO (hubDoctor hub)
-    -- ONE CLOCK READ PER REQUEST, and ABOVE the revalidation: a day word is
-    -- resolved once at filter compile, so a query asked across midnight cannot
-    -- mean two days -- and the tag folds the day in (`etagOf').
+    -- ONE CLOCK READ PER REQUEST, ABOVE the revalidation: a day word resolves once,
+    -- so a query across midnight cannot mean two days, and the tag folds it in (`etagOf').
     day <- today
     let tag = etagOf day st
     if tag `elem` ifNoneMatch request
       then pure (responseLBS status304 (cacheHeaders tag) "")
       else do
         let qr      = storeResult st
-            -- The reference keys read the link graph, so the match runs over the
-            -- store's own rows.
+            -- The reference keys read the link graph, so the match runs over the store's own rows.
             env     = onDay day (storeEnv (qrRecords qr))
-            -- THE FILTER IS COMPILED ONCE, AND THIS BINDING IS WHAT MAKES IT SO.
-            -- Applied inside the row lambda the partial application is rebuilt
-            -- per row, and everything `matchesFilter' promises to do above the
-            -- rows -- the parse, a `ref:' anchor's resolution through a LINEAR
-            -- `feRef', the fixed end's own half -- then runs per row too.
-            -- Measured over 10452 rows: `ref:' on an anchor at the store's end
-            -- cost 830 ms inside the lambda against 11 ms bound here, six times
-            -- past the budget a filter keystroke has.
+            -- THE FILTER IS COMPILED ONCE, AND THIS BINDING IS WHAT MAKES IT SO: applied
+            -- inside the row lambda, `matchesFilter''s parse and `ref:' resolution rerun per row.
             passes  = matchesFilter env paQuery
             asked   = filter (\r -> keep r && passes r) (qrRecords qr)
             matched = if hiding then filter (not . archived) asked else asked
@@ -356,10 +330,8 @@ viewPage opts hub request keep extra = case pageParams request of
             -- EXTRA rides the ONE encoding, over every row the query MATCHED.
             view    = viewJSONFor cols (savedViewsIn st) paChain
                                   (viewTitleFor dir) (storeKeywords st) shown
-            -- @shape=rows@ (an MCP caller, never the table) gets the compact
-            -- answer; TOTAL stays the uncapped match count so @limit@ is honest.
-            -- Otherwise the doctor rides the envelope GLOBALLY, beside a door's
-            -- own EXTRA.
+            -- @shape=rows@ (an MCP caller) gets the compact answer; TOTAL stays the
+            -- uncapped match count so @limit@ is honest.
             body
               | paRows    = TLE.encodeUtf8 (encodeToLazyText
                               (summaryEnvelope total (doctorClean doctor) shown))
@@ -376,8 +348,7 @@ viewPage opts hub request keep extra = case pageParams request of
         renderError :: SomeException -> Text
         renderError e = "headline render failed: " <> T.pack (displayException e)
 
--- | VIEW with MORE members: a door that answers more than the table does adds
--- them here, so there is one encoding and one shape to read.
+-- | VIEW with MORE members added here, so there is one encoding and one shape to read.
 merged :: Value -> [Pair] -> Value
 merged (Object o) more = Object (o <> KM.fromList more)
 merged v _more = v
@@ -386,12 +357,9 @@ merged v _more = v
 limitCap :: Int
 limitCap = 20000
 
--- | ST as an entity tag ON DAY.  The generation restarts at zero each process,
--- so the fingerprint is what survives one.  THE DAY RIDES ALONG WHATEVER THE
--- QUERY SPELLS, and no reader tests for a clock word: a day word resolves per
--- request, so a store nothing touched across midnight must revalidate rather
--- than 304 yesterday's rows back, and renaming the word cannot leave a stale
--- detector behind.  One extra revalidation a day is the whole cost.
+-- | ST as an entity tag ON DAY.  The generation resets each process, so the
+-- fingerprint is what survives one.  THE DAY RIDES ALONG: a store untouched across
+-- midnight revalidates rather than 304 yesterday's rows, at one extra hit a day.
 etagOf :: Day -> Store -> BSC.ByteString
 etagOf day st = "\"" <> TE.encodeUtf8 (T.take 16 (stPrint st))
                   <> "-g" <> BSC.pack (show (stGen st))
@@ -441,8 +409,7 @@ pageParams request = do
                                            , paOffset = offset, paChain = chain
                                            , paPicked = picked, paRows = rows }
   where
-    -- Only @rows@ is a shape; an unknown value is refused rather than ignored,
-    -- the way @order=@ is.  The browser sends none and gets the envelope.
+    -- Only @rows@ is a shape; an unknown value is refused rather than ignored.
     shapeRows v = case text v of
       Right "rows" -> Right True
       _other       -> Left "shape is rows, or absent for the table view"
@@ -485,13 +452,11 @@ data Pin
   = Reading  -- ^ RELOAD: the store lagging its own tree is this server's signal.
   | Writing  -- ^ REFUSE: the drift lock, so no write re-targets bytes unseen.
 
--- | HUB's answer to @?id=RID&child=K@, K's own, over the file AS IT STANDS.
+-- | HUB's answer to @?id=RID&child=K@, over the file AS IT STANDS.
 --
--- A READ RELOADS ON DRIFT: a row pinned to bytes its file no longer holds goes
--- back through the WATCH'S OWN DOOR ('Glance.Web.Watch.reload') and is
--- addressed again under the fresh digest, so the answer is the file rather than
--- a refusal.  A second drift is a genuine race and takes the 409.  A WRITE
--- takes it the first time: re-targeting would move bytes the client never saw.
+-- A READ RELOADS ON DRIFT ('Glance.Web.Watch.reload') and re-addresses under the
+-- fresh digest; a second drift is a genuine race and takes the 409.  A WRITE takes
+-- it the first time: re-targeting would move bytes the client never saw.
 onRow :: Pin -> Hub -> Text -> Either Text (Maybe Int)
       -> (Store -> Text -> (HeadlineRecord, Maybe Int) -> Either Response a)
       -> IO (Either Response a)
@@ -502,8 +467,7 @@ onRow pin hub rid child k = do
     _once                                 -> pure (settled first')
   where
     settled = either (Left . snd) Right
-    -- ONE TURN: the id addressed in the store as it stands, its file read under
-    -- the row's own pin.  A refusal carries the path that DRIFTED, where one did.
+    -- ONE TURN: the id addressed in the store as it stands; a refusal carries the path that DRIFTED.
     turn = do
       st <- readTVarIO (hubStore hub)
       case addressed st of
@@ -514,17 +478,15 @@ onRow pin hub rid child k = do
     unread path failed = Left (drifted failed path, writeRefusal rewritten failed)
     drifted (WriteDrift _found) path  = Just path
     drifted (WriteRefused _why) _path = Nothing
-    -- The ROW and the CHILD index the query string addresses, BEFORE ANY DISK
-    -- READ; the coarsest refusal is still first, the shape's.
+    -- The ROW and CHILD the query addresses, BEFORE ANY DISK READ; coarsest refusal first.
     addressed st = do
       at <- first (jsonError status400) child
       r  <- maybe (Left (jsonError status404 (noSuchRow rid))) Right
                   (rowIn (storeRecords st) rid)
       pure (r, at)
 
--- | The file as it stands and what @?id=RID&child=K@ focuses in it.  ONE
--- PIPELINE for the read door and the write door, so a commit cannot address
--- what a materialize would refuse.
+-- | The file as it stands and what @?id=RID&child=K@ focuses.  ONE PIPELINE for
+-- read and write, so a commit cannot address what a materialize would refuse.
 focused :: Pin -> Hub -> Text -> Either Text (Maybe Int)
         -> IO (Either Response (Text, Focus))
 focused pin hub rid child = onRow pin hub rid child $ \st doc (r, at) ->
@@ -564,7 +526,7 @@ subtreeJSON doc f =
   , "logbook"    .= hpLogbook parts
   , "digest"     .= hrDigest here
   , "span"       .= extentJSON here
-    -- The ROW's whole scan, in FILE coordinates: a second request opened an async gap every fill had to bridge.
+    -- The ROW's whole scan, in FILE coordinates: one request, so no async gap to bridge.
   , "links"      .= map linkJSON (subtreeLinks doc (fcRow f))
   , "titleAt"    .= (spanStart <$> titleSpan here)
   ]
@@ -577,10 +539,8 @@ levelOf = maybe 1 seLevel . focusEntry
 cells :: HeadlineRecord -> [Pair]
 cells r = [ Key.fromText k .= f r | (k, f) <- docCells ]
 
--- | A descendant with WHERE IT STANDS in the lifted body: its headline's line, by
---   the same subtraction 'ownBodyLines' makes -- every lifted region sits above the
---   first child, so the offset holds for every descendant.  The SUBTREE is passed
---   in, rendered once for the whole brood.
+-- | A descendant's line in the lifted body, by the same subtraction 'ownBodyLines'
+--   makes.  The SUBTREE is passed in, rendered once for the whole brood.
 childJSON :: HeadlineRecord -> Text -> Text -> Int -> SubtreeEntry -> Value
 childJSON root subtree body i e = object
   ([ "index" .= i, "level" .= seLevel e
@@ -588,8 +548,7 @@ childJSON root subtree body i e = object
    , "span" .= extentJSON (seRecord e) ]
    <> cells (seRecord e))
   where
-    -- Newlines COUNTED on both sides, so any convention cancels: the difference
-    -- is the newlines above the child, which is its line.
+    -- Newlines COUNTED on both sides, so any convention cancels: the difference is the child's line.
     bodyLine = T.count "\n" body - T.count "\n" (T.drop cut subtree)
     cut = spanStart (hrSubtree (seRecord e)) - spanStart (hrSubtree root)
 
@@ -600,9 +559,8 @@ firstUnder :: Focus -> Maybe HeadlineRecord
 firstUnder f = listToMaybe [ seRecord e | e <- fcEntries f, seParent e == mine ]
   where mine = fromMaybe (-1) (fcAt f)
 
--- | EVERY descendant of the focus, document order.  ONE LEFT FOLD: a parent
---   precedes its child in document order, so each entry asks a set the walk has
---   already settled -- no per-entry chain, and a malformed pointer cannot loop.
+-- | EVERY descendant of the focus, document order.  ONE LEFT FOLD: a parent precedes
+--   its child, so no per-entry chain and a malformed pointer cannot loop.
 beneath :: Focus -> [(Int, SubtreeEntry)]
 beneath f = [ (i, e) | (i, e) <- zip [0 ..] entries, i `IntSet.member` hit ]
   where
@@ -630,8 +588,7 @@ commit _opts _hub Nothing _child _request =
   pure (jsonError status400 "POST /headline?id=<row id>")
 -- The cap outranks the lookup, so the id resolves behind the body.
 commit opts hub (Just rid) child request = withBody request $ \raw -> do
-  -- ONE CLOCK READ PER REQUEST, above the row: the planning wall reads a
-  -- relative date against this day, and one commit must mean ONE day.
+  -- ONE CLOCK READ PER REQUEST, above the row: one commit must mean ONE day.
   day <- today
   got <- focused Writing hub rid child
   case got >>= \(doc, f) -> (,) (focusHere f) <$> prepare day raw doc (focusHere f) of
@@ -641,9 +598,8 @@ commit opts hub (Just rid) child request = withBody request $ \raw -> do
         <$> writeSpans (walkFor opts) hub (hrFile here) digest
                        [(hrSubtree here, org)]
 
--- | The CLIENT's pin against the row's, and the subtree it asked to write.  A
--- SECOND LAW, not the drift lock's: the client names the digest it materialized
--- at, and a store re-read since is a @stale@ 409 rather than a silent rewrite.
+-- | The CLIENT's pin against the row's.  A SECOND LAW beyond the drift lock: the
+-- client names the digest it materialized at, and a re-read store is a @stale@ 409.
 prepare :: Day -> BL.ByteString -> Text -> HeadlineRecord -> Either Response (Text, Text)
 prepare day raw doc r = case parseCommit raw of
   Left why -> Left (jsonError status400 why)
@@ -661,12 +617,9 @@ committed doc  r  (SplitSubtree body ps pln) =
   recomposedSubtree doc r (HeadlineParts body ps pln "")
 
 -- | The commitment with its planning entries READ AND REWRITTEN, or the KEY that
--- stops the write and WHY.  Each entry meets 'plannedValue', its own key's wall
--- and the one @set-planning@ meets; the pane redraws from THIS answer and
--- resolves nothing of its own.
+-- stops the write and WHY.  Each entry meets 'plannedValue', the wall @set-planning@ meets.
 --
--- THE RAW HALF TRANSFORMS NOTHING: 'WholeSubtree' is a whole document the client
--- typed, and rewriting bytes inside it would be the server editing a buffer.
+-- THE RAW HALF TRANSFORMS NOTHING: rewriting bytes in a 'WholeSubtree' would be the server editing a client's buffer.
 settledPlanning :: Day -> Commitment -> Either (Text, Text) Commitment
 settledPlanning _day whole@(WholeSubtree _org) = Right whole
 -- An unknown KEY outranks every value.
@@ -675,9 +628,8 @@ settledPlanning day (SplitSubtree body ps pln)
   | otherwise = SplitSubtree body ps <$> traverse (plannedEntry day) pln
   where refused = [ (key, why) | (key, _v) <- pln, Just why <- [unplanned key] ]
 
--- | One planning entry through 'plannedValue', the refusal carrying the KEY
--- beside THE READER'S OWN SENTENCE — the 409 says what the wall says rather than
--- a second spelling of it.
+-- | One planning entry through 'plannedValue', the refusal carrying the KEY beside
+-- THE READER'S OWN SENTENCE, so the 409 has no second spelling of the wall.
 plannedEntry :: Day -> (Text, Text) -> Either (Text, Text) (Text, Text)
 plannedEntry day (key, value) = case plannedValue day key value of
   Left why    -> Left (key, why)
@@ -695,8 +647,7 @@ keywordsView hub request =
     , "unknown" .= unknown
     ]
 
--- | One scope as the wire spells it.  @\/keywords@' entry and the draft door's
--- @cycle@ are ONE builder: the cycle a capture is offered is the cycle a row is.
+-- | One scope as the wire spells it.  @\/keywords@ and the draft @cycle@ are ONE builder.
 sourceJSON :: (Text, TodoKeywords) -> Value
 sourceJSON (source, kw) = object ("source" .= source : keywordsPair kw)
 
@@ -712,7 +663,6 @@ idsView hub request usage fields = do
                        else jsonResponse status200 (fields st rows found unknown)
   where asked = queryIds request
 
--- | The row RID names, ITS FILE AS IT STANDS beside it ('onRow').
 withRow :: Hub -> Text -> (Text -> HeadlineRecord -> [Pair]) -> IO Response
 withRow hub rid fields =
   either id (jsonResponse status200)
@@ -734,8 +684,7 @@ tagsView hub request =
 tagRowCounts :: [HeadlineRecord] -> Map Text Int
 tagRowCounts = countedBy (tagsOfCell . hrTags)
 
--- | ROWS per key, a row counted ONCE however often it names one.  The count
--- @\/tags@ answers with, and the picker's two vocabularies ride it too.
+-- | ROWS per key, a row counted ONCE however often it names one.
 {-# INLINE countedBy #-}
 countedBy :: Ord k => (a -> [k]) -> [a] -> Map k Int
 countedBy keys rows =
@@ -743,32 +692,25 @@ countedBy keys rows =
 
 -- Properties
 
--- | @GET \/properties@: the drawer vocabulary a completing client draws on --
--- every key the tree spells, every value under it, and the ROWS each sits on.
--- NAMES NO ROW, so the whole store answers; recomputed per request, as
--- @\/tags@' counts are.
+-- | @GET \/properties@: the drawer vocabulary — every key, every value, and the ROWS
+-- each sits on.  NAMES NO ROW, so the whole store answers, recomputed per request.
 propertiesView :: Hub -> IO Response
 propertiesView hub = do
   st <- readTVarIO (hubStore hub)
-  -- ONE drawer walk, counted twice: a key's rows are no arithmetic on its
-  -- values' -- a row spelling one key twice is ONE row under that key and a row
-  -- under each of the two values.
+  -- ONE drawer walk, counted twice: a key's rows are no arithmetic on its values' —
+  -- a row spelling one key twice is ONE row under the key, one under each value.
   let drawers = map completable (storeRecords st)
   pure (jsonResponse status200
           [ "keys"   .= countedBy (map fst) drawers
           , "values" .= valuesUnder drawers ])
 
--- | R's pairs a client may COMPLETE from.  'rowProperties' has dropped the
--- hidden keys -- completing one would write it -- and the reserved keys are
--- absent by construction: @:PROPERTIES:@ and @:END:@ bound the drawer rather
--- than sit in it ('Data.Org.Parser', which refuses them as keys).  A drawer
--- line that parses to no key is no vocabulary either -- the client drops that
--- row wherever else it reads a drawer.
+-- | R's pairs a client may COMPLETE from.  'rowProperties' drops the hidden keys —
+-- completing one would write it — and reserved keys are absent by construction.
+-- A drawer line that parses to no key is no vocabulary.
 completable :: HeadlineRecord -> [(Text, Text)]
 completable r = [ p | p <- rowProperties r, not (T.null (fst p)) ]
 
--- | ROWS per VALUE, under the key it was spelled with.  Nested from ONE
--- 'countedBy' over the PAIRS, so a value counts by the rule its key counts by.
+-- | ROWS per VALUE under its key, nested from ONE 'countedBy' so a value counts by its key's rule.
 valuesUnder :: [[(Text, Text)]] -> Map Text (Map Text Int)
 valuesUnder drawers = Map.fromListWith (Map.unionWith (+))
   [ (key, Map.singleton value n)
@@ -778,45 +720,37 @@ valuesUnder drawers = Map.fromListWith (Map.unionWith (+))
 
 -- | @GET \/capture[?tag=NAME]@: the DRAFT a capture under that tag opens on.
 --
--- THE SHAPE @\/headline@ SERVES, field for field, off bytes that exist only in
--- this answer — the pane draws a draft as it draws any doc, so capture is the
--- one editor pointed at nothing rather than a second editor with its own rules.
--- Three fields ride beside it: the tag's own @cycle@ (@\/keywords@' shape, which
--- needs a ROW and a draft has none), the @point@ @%?@ stood at, and the tree's
--- @tags@ (here because a capture names no rows).  NO FILE IS CREATED.
+-- THE SHAPE @\/headline@ SERVES, field for field, off bytes that exist only in this
+-- answer, so the pane draws a draft as it draws any doc.  Three fields ride beside it:
+-- the @cycle@ (a draft has no ROW), the @point@ @%?@ stood at, and the tree's @tags@.
+-- NO FILE IS CREATED.
 captureView :: ServeOptions -> Hub -> Request -> IO Response
 captureView opts hub request = do
   st <- readTVarIO (hubStore hub)
   layers <- layersFor (soDir opts) st
-  -- ONE CLOCK READ PER REQUEST, above the expansion: a template's own stamps and
-  -- a day the filter lends must name one instant, as a capture's two already do.
+  -- ONE CLOCK READ PER REQUEST, above the expansion: template stamps and a lent day must name one instant.
   now <- Time.getZonedTime
   let cfg = stConfig st
       tag = fromMaybe "" (queryText "tag" request)
-      -- WHAT THE DRAFT WEARS.  THE DESTINATION LEADS, being the address the
-      -- reader settled and the fact the file line already names; the lent tags
-      -- follow it, each through the CHARSET the splice below walls them with —
-      -- a lent tag org cannot read is the filter talking about other rows, and
-      -- is no more worn here than it is written there.  Deduplicated: a caller
-      -- naming one tag twice is naming one tag.
+      -- WHAT THE DRAFT WEARS.  THE DESTINATION LEADS; lent tags follow, each through
+      -- the CHARSET wall below — a lent tag org cannot read is filter noise, worn no
+      -- more here than written there.  Deduplicated: one tag named twice is one tag.
       worn = nub ([ T.toLower tag | not (T.null tag) ] <> lent)
       lent = [ T.toLower raw | raw <- inheritedTags request
                              , Right _ <- [tagText raw] ]
       day = Time.localDay (Time.zonedTimeToLocalTime now)
       drafted = do
         (expanded, at) <- draftTemplate now (fromMaybe bareTemplate (captureTemplateIn tag layers))
-        -- The point is read off the EXPANDED doc: what the filter lends edits the
-        -- headline and the planning line, neither of them lines the body carries,
-        -- so the line index survives the seeding it is measured before.
+        -- The point is read off the EXPANDED doc: seeding edits the headline and planning,
+        -- not body lines, so the line index survives the seeding measured before it.
         opens <- draftPointLine expanded <$> draftRecord cfg expanded <*> pure at
         seeded <- draftSeeded cfg worn (inheritedIn day request) expanded
         r <- draftRecord cfg seeded
         pure (draftJSON st worn seeded r opens)
   pure (either (jsonError status400) (jsonResponse status200) drafted)
 
--- | A DRAFT as the wire carries it: 'subtreeJSON''s own members, and the three
--- a doc with no file behind it owes.  The empty digest is the CREATE PIN, which
--- is why the commit that follows meets the very wall a materialize commit does.
+-- | A DRAFT as the wire carries it: 'subtreeJSON''s members plus the three a
+-- fileless doc owes.  The empty digest is the CREATE PIN, walling the commit like a materialize's.
 draftJSON :: Store -> [Text] -> Text -> HeadlineRecord -> Maybe Int -> [Pair]
 draftJSON st worn doc r opens =
   [ "id"         .= Null
@@ -845,29 +779,24 @@ draftJSON st worn doc r opens =
         parts = headlineParts doc r
 
 -- | A DRAFT'S DISPLAY CELLS: 'cells', with the tag run saying WHERE THIS LANDS.
--- A DISPLAY CELL IS CONSTRUCTED and owes no round trip through the org line,
--- which is what lets this one be honest: a title-less headline cannot spell a
--- run in this parser ('draftSeeded' lends none), and a pane that showed nothing
--- would leave the reader composing into a destination it never named.
+-- A DISPLAY CELL IS CONSTRUCTED, owing no round trip through the org line: a
+-- title-less headline spells no run here, and the reader must see the destination.
 draftCells :: [Text] -> HeadlineRecord -> [Pair]
 draftCells worn r =
   [ if k == "tags" then Key.fromText k .= draftTagsCell worn r
                    else Key.fromText k .= f r
   | (k, f) <- docCells ]
 
--- | WORN — the destination and what the filter lent — then whatever the draft's
--- own line spells beyond them, as an org tag cell.  THE COMMIT WEARS EACH ONCE:
--- this list rides out as the capture's @tags@ and the minting joins the
--- destination idempotently ('addTagEditsIn' folds), so no blob carries a twin.
+-- | WORN — destination and lent — then the draft's own line beyond them, as an org
+-- tag cell.  THE COMMIT WEARS EACH ONCE: minting folds idempotently, so no twin.
 draftTagsCell :: [Text] -> HeadlineRecord -> Text
 draftTagsCell worn r
   | null run  = ""
   | otherwise = ":" <> T.intercalate ":" run <> ":"
   where run = worn <> [ t | t <- tagsOfCell (hrTags r), t `notElem` worn ]
 
--- | What the standing filter LENDS this draft.  NEVER A REFUSAL: an inherited
--- fact this server cannot read is the filter talking about other rows, so it
--- fills the gap or it does not and @+@ opens either way.
+-- | What the standing filter LENDS this draft.  NEVER A REFUSAL: an unreadable
+-- inherited fact is filter noise, so it fills the gap or not and @+@ opens either way.
 inheritedIn :: Day -> Request -> Inherited
 inheritedIn day request = Inherited
   { inhState    = queryText "state" request
@@ -922,9 +851,8 @@ configView opts hub = do
   let tree = treeSettings layers
   pure (jsonResponse status200
           [ "layers"   .= map layerJSON layers
-            -- WHERE A TAG LAYER GOES that has no file yet.  Served rather than
-            -- composed on the page: the path rule is this server's, and
-            -- 'mintableLayer' is the same rule again on the way back in.
+            -- WHERE A TAG LAYER GOES that has no file yet.  The path rule is the
+            -- server's, served here and applied again inbound by 'mintableLayer'.
           , "tagsDir"  .= maybe "" (snd . configPaths)
                                 (listToMaybe (configDirsIn (soDir opts) (stConfig st)))
           , "keywords" .= keywordsJSON (storeKeywords st)
@@ -962,8 +890,8 @@ configWrite opts hub request = withBody request $ \raw -> do
 writeLayer :: ServeOptions -> Hub -> [FilePath] -> LayerWrite -> IO Response
 writeLayer opts hub dirs want = do
   layers <- readConfigLayers dirs
-  -- A TAG LAYER IS MINTED BY BEING WRITTEN TO.  Only under the FIRST config
-  -- dir's own `tags/', so a write still cannot name a path this tree does not own.
+  -- A TAG LAYER IS MINTED BY BEING WRITTEN TO, only under the FIRST config dir's
+  -- `tags/', so a write cannot name a path this tree does not own.
   case find ((== path) . T.pack . lfPath) layers
          <|> (listToMaybe dirs >>= \d -> mintableLayer d (T.unpack path)) of
     Nothing -> pure (jsonError status400 (noSuchLayer path layers))
@@ -1002,9 +930,8 @@ instance FromJSON Hue where
 data LayerWrite = LayerWrite
   { lwPath   :: !Text          -- ^ which layer, and it must be one @GET \/config@ listed.
   , lwLines  :: !(Maybe [Text])
-      -- ^ the @#+TODO:@ block, one entry per line; ABSENT leaves it standing
-      -- (the optional parts' own rule — a pin writes the filter alone),
-      -- and the EMPTY list is still the deletion.
+      -- ^ the @#+TODO:@ block, one per line; ABSENT leaves it standing (a pin writes
+      -- the filter alone), and the EMPTY list is the deletion.
   , lwParts  :: !ConfigParts   -- ^ the three optional parts riding in the same write.
   , lwDigest :: !Text          -- ^ the pin, empty for a layer that is not there yet.
   }
@@ -1123,7 +1050,6 @@ assetSource opts name = case soAssets opts of
   Just dir | name == glueAsset -> devGlue dir
   Just dir -> fileAt (dir </> name)
 
--- | PATH as a source, where there is a file there at all.
 fileAt :: FilePath -> IO (Maybe (Either FilePath BS.ByteString))
 fileAt path = (\there -> if there then Just (Left path) else Nothing) <$> doesFileExist path
 

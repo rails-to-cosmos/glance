@@ -5,9 +5,6 @@
     --g-doc-pad: 6px;
     --g-doc-padx: 10px;
     --g-doc-pady: 8px;
-    /* A WHOLE NUMBER OF PIXELS PER LINE: a 1px hairline and a hinted glyph land on */
-    /* one device row only when the row itself starts on the grid, and 13 x 1.6 is */
-    /* 20.8.  The line height is a LENGTH for it, and every reader multiplies no more. */
     --g-doc-fs: 13px;
     --g-doc-lh: 21px;
     --g-doc-off: calc(3 * var(--g-doc-lh));
@@ -214,9 +211,7 @@ code {
     color: var(--g-bad);
 }
 
-/* NO WRAP: `#mtext' and `#mdoc' are mutually exclusive (raw vs material), so a */
-/* wrapped line only lets the one visible pane size to its content and grow past */
-/* the sheet instead of scrolling inside its own bounded height. */
+/* NO WRAP: `#mtext'/`#mdoc' are mutually exclusive, so a wrap lets the visible pane grow past the sheet instead of scrolling. */
 #mpanes {
     flex: 1;
     min-height: 0;
@@ -249,8 +244,6 @@ code {
     border-color: var(--g-accent);
 }
 
-/* THE LIT MARK'S INK: a step short of the page's, so a bar leads the eye */
-/* without competing with the words beside it.  Bars only; text stays full. */
 #mdoc {
     --g-mark: color-mix(in srgb, var(--g-fg) 68%, var(--g-bg));
     flex: 2 1 320px;
@@ -284,11 +277,7 @@ code {
     font-family: var(--dk-mono);
 }
 
-/* POINT IS A MARK BESIDE THE LINE: a nested item is drawn INSIDE its parent, so a */
-/* ground would run the whole subtree.  The mark sits one tab stop left of the text. */
-/* EVERY TOKEN INK RIDES THE ROW: `--fg' the stars and lit text, `--tok' the */
-/* reserved words, `--punc' the colons, `--lnk' links, `--box' a ticked box. */
-/* One dim rule and one lit rule move them all; no token is named twice. */
+/* TOKEN INKS: `--fg' stars and lit text, `--tok' reserved words, `--punc' colons, `--lnk' links, `--box' a ticked box; one dim rule and one lit rule move them all. */
 .de {
     scroll-margin-block: var(--g-doc-off);
     position: relative;
@@ -300,10 +289,7 @@ code {
     --box: var(--g-state-i0);
     padding: 1px var(--g-doc-pad);
     border-radius: 4px;
-    /* WHILE READING, A LONG LINE STANDS ONE LINE and clips with an ellipsis: a */
-    /* wrapped continuation runs back under the block spine and crosses it.  The */
-    /* editor is an opaque overlay laid over the row, so the full text is still */
-    /* reached there -- no reader loses a byte, only the wrap goes. */
+    /* NO WRAP: a wrapped continuation runs back under the block spine and crosses it; the editor overlay still reaches the full text. */
     white-space: pre;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -320,10 +306,7 @@ code {
     pointer-events: none;
 }
 
-/* THE CURSOR IS THE GROUND THE TABLE'S CURSOR WEARS, `--g-sel' on both surfaces. */
-/* A NESTED ROW IS DRAWN INSIDE ITS PARENT, so the ground would run the whole */
-/* subtree; the page's own ground takes it back.  A COMPOSITE is the exception -- */
-/* the list itself is the stop, so its rows are what it grounds. */
+/* Cursor ground is `--g-sel'; a nested row is drawn inside its parent, so the ground would run the whole subtree — the page ground takes it back, except a composite, whose rows it grounds. */
 #mdoc.on .de.dat {
     background-color: var(--g-sel);
     color: var(--g-fg);
@@ -337,14 +320,12 @@ code {
     min-height: calc(var(--g-doc-rows, 0) * var(--g-doc-lh));
 }
 
-/* ONE TAB STOP LEFT OF THE ROW'S TEXT: a top-level row is indented by PADDING and */
-/* a nested one by SPACES.  Elm writes `--rail' per row; this is the fallback. */
+/* `--rail' is the mark's x, one tab stop left of the text; Elm writes it per row, this is the fallback. */
 .de {
     --rail: calc(var(--g-doc-pad) + 0.5ch);
 }
 
-/* THE TAIL HIDES until the walk reaches it: an empty last line is noise */
-/* until it is the door in use.  Reached, it keeps a LINE's height. */
+/* The tail is hidden until the walk reaches it (`.dat'), then keeps a line's height. */
 .de.d-tail {
     display: none;
 }
@@ -354,15 +335,12 @@ code {
     min-height: var(--g-doc-lh);
 }
 
-/* HIDE-DONE (X): a ticked checkbox leaf, and an interim item all of whose */
-/* leaves are ticked, are taken out of flow while the mode is on.  Elm keeps */
-/* point and the n/p walk off them, so this only stops the paint. */
+/* HIDE-DONE (X): ticked leaves and all-ticked items leave flow; Elm keeps point and the walk off them, so this only stops the paint. */
 .de.d-hidden {
     display: none;
 }
 
-/* STICKY INSIDE THE SCROLLER, so the strip holds while the rows move under it; the */
-/* negative margins reach the pane's edges.  It always names something, so no floor. */
+/* Sticky inside the scroller so the strip holds as rows move under it; negative margins reach the pane's edges. */
 .dpath {
     position: sticky;
     z-index: 2;
@@ -384,8 +362,7 @@ code {
     opacity: .6;
 }
 
-/* WHAT THE CONNECTORS SAY, said again: point in its own ink, the way back in the */
-/* page's.  The strip is never dimmed -- it is the answer to where you are. */
+/* The path strip is never dimmed: point in its own ink, the way back in the page's. */
 #mdoc.on .cr-0 {
     color: var(--g-point);
     font-weight: 600;
@@ -395,13 +372,7 @@ code {
     color: var(--g-fg);
 }
 
-/* A LIST RUN WEARS A SPINE, the blocks' own grammar one storey down: every */
-/* item bars its whole extent at its run's rail, siblings stack seamlessly */
-/* (a composite's rows carry no margin), and a nested run adds its deeper */
-/* column inside the parent item's.  Tiers set `--ink'; org's bullet paints. */
-/* OVER THE SUBTREE'S GROUND: a dat item's nested rows win the page ground */
-/* back, and an element's background paints over its parent's pseudo-edge -- */
-/* the run's bar lifts a level, the way the block spine and the flag do. */
+/* A list run bars its whole extent at its run's rail; tiers set `--ink'. z-index:1 lifts the bar over the subtree ground, which else paints over the pseudo-edge. */
 .d-list .d-item::before {
     top: 0;
     bottom: 0;
@@ -411,15 +382,7 @@ code {
     background: var(--ink);
 }
 
-/* HIDE-DONE COMPACTED (X): a run hiding some but not all of its rows wears the */
-/* SAME spine, only broken -- its own `--ink', so it ramps and mutes exactly as */
-/* the solid one; dashing is the only delta.  ONE UNBROKEN BAR ON THE COMPOSITE, */
-/* never per item: an item's own `::before' restarts the gradient at its top, so */
-/* per-item dashes drift row to row and read ragged.  The run's box spans every */
-/* visible row at the primary rail; its `--g-bg' base occludes the solid item */
-/* bars and the block spine it rides, so a paragraph sharing the block keeps its */
-/* own bar and a nested run keeps its deeper column.  A wholly-done run has */
-/* vanished and draws none. */
+/* HIDE-DONE COMPACTED (X): a partly-hidden run wears the same spine, dashed. ONE BAR ON THE COMPOSITE, never per item — a per-item `::before' restarts the gradient each row and reads ragged; its `--g-bg' base occludes the solid bars it rides. */
 .d-list.d-compacted::before {
     top: 0;
     bottom: 0;
@@ -430,17 +393,13 @@ code {
     background-image: repeating-linear-gradient(var(--ink) 0 4px, transparent 4px 8px);
 }
 
-/* A BLOCK IS AN ELEMENT AND ITS SPINE IS ITS OWN `::before': one unbroken */
-/* bar the block's whole height, margins and deeper blocks included, at the */
-/* shelf's rail. */
+/* A block's spine is its own `::before': one bar its whole height, margins and deeper blocks included, at the shelf's rail. */
 .blk {
     position: relative;
     --spine: var(--g-point-off);
 }
 
-/* OVER THE GROUND: the rows are the spine's siblings' children and their */
-/* backgrounds paint above the wrapper's edge, so the cursor's ground was */
-/* erasing the bar beside it -- the spine lifts one stacking level instead. */
+/* z-index:1: row backgrounds paint above the wrapper's edge and erased the bar, so the spine lifts a stacking level. */
 .blk::before {
     content: "";
     position: absolute;
@@ -454,10 +413,7 @@ code {
     pointer-events: none;
 }
 
-/* F'S RAMP, the spike's winner: the block point is IN takes the page's ink, */
-/* each enclosing block a step dimmer in the accent, the rest resting.  A */
-/* FLAG OUTRANKS THE RAMP.  The `up'/`sib' tiers below stay FLAT — they light */
-/* the list's connectors and the text, where a ramp cost more than it said. */
+/* Spine ramp: the block point is in takes the page's ink, each enclosing block a step dimmer in the accent; a flag outranks it, and the `up'/`sib' tiers stay flat. */
 .blk.sp-0 {
     --spine: var(--g-mark);
 }
@@ -479,9 +435,7 @@ code {
     display: none;
 }
 
-/* A FLAG'S MARK RIDES THE SPINE: the flagged row's own stretch turns red, */
-/* and a flagged headline reddens the whole block it carries.  ONE LEVEL */
-/* OVER THE SPINE, which paints over row grounds and covered the flag too. */
+/* A flag's mark rides the spine in red; z-index:2 over the spine, which paints over row grounds and else covers it. */
 .lvl-top.dfl:not(.d-head):not(.d-child)::before {
     top: -7px;
     bottom: 0;
@@ -496,27 +450,17 @@ code {
     --spine: var(--g-bad);
 }
 
-/* A HEADLINE AT POINT LIGHTS ITS BLOCK ONE LEVEL DEEP: the block's spine */
-/* and the shelf's own TOP runs light; a nested run keeps its resting bar, */
-/* and a child headline's block keeps every bar.  THE CHILD COMBINATOR HOLDS */
-/* THE LIGHT TO ONE SHELF: a descendant one lit lists through child blocks */
-/* where paragraphs stayed resting, a depth the picture never claimed. */
-/* AND SO DOES ANY STOP ON THE BLOCK'S OWN SHELF: point on the drawer, the */
-/* planning line or a paragraph reads the same level-1 picture as point on */
-/* the headline -- the shelf, not the row, is what is being stood on. */
+/* A headline at point lights its block one level deep; the child combinator (`>') holds the light to one shelf — a descendant would light through child blocks. Any stop on the block's shelf reads the same picture. */
 #mdoc.on .de.dat.d-head + .blk > .d-comp > .de,#mdoc.on .de.dat.d-child + .blk > .d-comp > .de,#mdoc.on .blk:has(> .de.dat) > .d-comp > .de {
     --ink: var(--g-mark);
 }
 
-/* A SIBLING'S OWN SUBTREE COMES WITH IT: the reader is choosing between BRANCHES, */
-/* and a branch whose contents are dimmed is a branch they cannot weigh. */
+/* A sibling's own subtree lights with it: the reader is choosing between branches. */
 #mdoc.on .up,#mdoc.on .sib,#mdoc.on .sib .de {
     --ink: var(--g-mark);
 }
 
-/* AND THE RUNS RIDE THE RAMP: an enclosing run's bar steps down the accent */
-/* by its distance out -- `up-0' the nearest -- and only point's own run */
-/* (dat and sib segments) bars in the page's ink. */
+/* Enclosing runs ride the ramp: `up-0' nearest, stepping down the accent by distance out; point's own run bars in the page's ink. */
 #mdoc.on .up.up-0 {
     --ink: color-mix(in srgb, var(--g-accent) 67%, var(--g-bg));
 }
@@ -529,16 +473,12 @@ code {
     --ink: color-mix(in srgb, var(--g-accent) 25%, var(--g-bg));
 }
 
-/* THE GROUND SAYS WHERE POINT IS; a bar never wears gold for it, and */
-/* what point carries -- OWNERSHIP IS IN THE NESTING -- takes the same ink. */
+/* The ground says where point is; what point carries takes the same ink (ownership is in the nesting). */
 #mdoc.on .de.dat,#mdoc.on .de.dat .de {
     --ink: var(--g-mark);
 }
 
-/* FULL INK UNTIL THE READER GOES INTO A BLOCK -- a list, a drawer, a */
-/* child's contents.  `focus' rides the program's own root, so dimming is a */
-/* MODE rather than the resting look.  ONE RULE MOVES EVERY INK: it matches */
-/* each row DIRECTLY, so a dim cousin nested inside a lit owner still dims. */
+/* `.focus' dims every row directly, so a dim cousin inside a lit owner still dims; dimming is a mode, full ink until the reader enters a block. */
 #mdoc.on .focus .de {
     color: var(--g-point-off);
     --fg: var(--g-point-off);
@@ -548,10 +488,7 @@ code {
     --box: var(--g-point-off);
 }
 
-/* THE PATH NAMES ITSELF BACK OUT: point, what it carries, its owners, the */
-/* choice beside it, the root's line, and the block a lit headline stands */
-/* over -- every ink at once, stars and tokens and links riding along.  A */
-/* child headline off the chain is matched by neither list and stays dim. */
+/* The path names itself back out: point, what it carries, its owners, the choice beside it, the root; a child headline off the chain stays dim. */
 #mdoc.on .focus .de.dat,#mdoc.on .focus .de.dat .de,#mdoc.on .focus .up,#mdoc.on .focus .sib,#mdoc.on .focus .sib .de,#mdoc.on .focus .d-head,#mdoc.on .focus .de.dat.d-head + .blk .de,#mdoc.on .focus .de.dat.d-child + .blk .de,#mdoc.on .focus .de.sib.d-child + .blk .de {
     color: var(--g-fg);
     --fg: var(--g-fg);
@@ -561,32 +498,23 @@ code {
     --box: var(--g-state-i0);
 }
 
-/* A BARE DRAWER DIMS: a frame holding no pairs is furniture, and it drops */
-/* to the ink nobody is looking at -- word and colons alike, whatever else */
-/* the row wears.  The lit selectors are spelled again at their own weight, */
-/* so a bare drawer inside a lit block still dims. */
+/* A bare drawer (no pairs) dims to the unlooked-at ink; the lit selectors are respelled at their own weight so it dims even inside a lit block. */
 #mdoc.on .de.d-drawer.bare,#mdoc.on .focus .de.d-drawer.bare,#mdoc.on .focus .de.dat.d-head + .blk .de.d-drawer.bare,#mdoc.on .focus .de.dat.d-child + .blk .de.d-drawer.bare,#mdoc.on .focus .de.sib.d-child + .blk .de.d-drawer.bare {
     --tok: var(--g-point-off);
     --punc: var(--g-point-off);
 }
 
-/* AND SO DOES ITS BAR: a pair's gutter bar rides the block's spine ink, */
-/* which stays lit while the drawer itself dims -- off the path it drops */
-/* with its frame, the flag's red still outranking. */
+/* The bare drawer's gutter bar dims with its frame, else it rides the lit spine; the flag's red still outranks. */
 #mdoc.on .focus .d-drawer:not(.up):not(.sib):not(.dat) .d-meta:not(.dfl)::before {
     background: var(--g-point-off);
 }
 
-/* WHAT STANDS ON THE GROUND TAKES THE PAGE'S INK: the ground says which line, and a */
-/* marker in point's own hue vanished into it -- gold on gold, and the ordinals with */
-/* it.  THE SPINE KEEPS ITS HUE, its column being outside the ground. */
+/* A marker on the cursor ground takes the page's ink — point's own hue vanished into it (gold on gold); the spine keeps its hue, its column outside the ground. */
 #mdoc.on .de.dat>.dp>.dm,#mdoc.on .de.dat .de>.dp>.dm {
     color: var(--g-fg);
 }
 
-/* A FLAG TAKES THE BRANCH.  What hangs off a flagged row goes with it wherever */
-/* the flag leads -- a delete takes the subtree, so the mark says so; the second */
-/* selector outweighs the rule carrying what point holds. */
+/* A flag takes the branch (a delete takes the subtree); its selector outweighs the one carrying what point holds. */
 #mdoc.on .de.dfl,#mdoc.on .de.dfl .de,#mdoc.on .de.dat .de.dfl,#mdoc.on .de.dat .de.dfl .de {
     --ink: var(--g-bad);
 }
@@ -595,14 +523,7 @@ code {
     color: var(--g-bad);
 }
 
-/* PADDING: a margin would take the selection wash off the left of the line. */
-/* A PAIR IS NOT NESTED: the drawer's lines read as paragraphs, flush under the */
-/* frame, wearing the paragraph's own thin bar IN THE GUTTER, left of the flush */
-/* text -- the bar spends `--ink', so a flag reddens a pair marked for the drop. */
-/* AT THE RAIL'S OWN X: the composite's indent is `rail + 1.5ch' at every */
-/* shelf, so the pair's bar continues the drawer's line rather than a second one. */
-/* IN THE SPINE'S OWN INK: the block's bar runs behind the drawer, and a pair */
-/* segment in another tier read as a break in it.  A flag reddens its stretch. */
+/* The pair's gutter bar sits at `-1.5ch' (the composite indent) in the spine's own ink, continuing the drawer's line; it spends `--ink', so a flag reddens a pair marked for the drop. */
 .d-drawer .d-meta::before {
     top: 0;
     bottom: 0;
@@ -617,10 +538,7 @@ code {
     background: var(--g-bad);
 }
 
-/* A DRAWER WEARS A CLICKABLE SIGN ON ITS SPINE: `+' shut, `−' open, boxed at */
-/* the rail, its ground the page's so the spine reads as passing behind it. */
-/* One press folds or expands the drawer -- the shell reads the `.fold' and */
-/* sends `fold', no keyboard TAB and no point move. */
+/* A drawer wears a clickable fold sign on its spine (`+' shut, `−' open), boxed at the rail; a press sends `fold' via `.fold', no point move. */
 #mdoc .de.d-drawer > .fold {
     position: absolute;
     left: var(--rail);
@@ -630,8 +548,7 @@ code {
     width: 12px;
     height: 12px;
     box-sizing: border-box;
-    /* THE SPINE'S OWN INK: the sign sits on the block spine, so it reads
-       `--spine' and tracks it through every state rather than a fixed mark. */
+    /* Reads `--spine' so the sign tracks the block spine through every state. */
     border: 1px solid var(--spine, var(--g-mark));
     border-radius: 3px;
     background: var(--g-bg);
@@ -645,16 +562,12 @@ code {
     z-index: 2;
 }
 
-/* The sign lifts with the spine at point, since both read `--spine'; no rule
-   of its own is needed. */
 #mdoc .de.d-drawer > .fold:hover {
     border-color: var(--g-accent);
     color: var(--g-accent);
 }
 
-/* AN ORG TABLE IS A TABLE-VIEW MOUNT, drawn in flow inside its own block: the */
-/* renderer's page furniture (title, filter, `N rows' hint) and card frame are */
-/* dropped so the table sits IN the doc, not in a card of its own. */
+/* An org table is a table-view mount drawn in flow; the renderer's page furniture and card frame are dropped so it sits in the doc. */
 #mdoc glance-table {
     display: block;
 }
@@ -675,9 +588,7 @@ code {
     border-top: none;
 }
 
-/* A HEADER CELL STANDS A FULL LINE (a table cell reads `height' as a minimum), */
-/* so a BLANK one -- a ghost header, an unnamed column -- is not a sliver the */
-/* name box then measures its own height from. */
+/* A header cell stands a full line (a cell reads `height' as a minimum), so a blank one is not a sliver the name box measures from. */
 #mdoc glance-table thead th {
     height: var(--g-doc-lh);
 }
@@ -690,19 +601,12 @@ code {
     color: var(--g-fg);
 }
 
-/* POINT ON THE WHOLE TABLE washes the WHOLE region: the composite is one stop, */
-/* so the generic `.de.dat' selection ground shows through the mount's */
-/* transparent ground over the whole table, header and body alike.  The widget */
-/* still paints its OWN grounds -- the header's `--tv-bg', the zebra's */
-/* `--tv-alt' -- which would checker the wash, so a selected table clears them */
-/* to transparent and the one `--g-sel' ground reaches every cell. */
+/* Point on the whole table washes the whole region: the widget's own header (`--tv-bg') and zebra (`--tv-alt') grounds would checker the `--g-sel' wash, so a selected table clears them to transparent. */
 #mdoc.on .de.dat.d-table glance-table thead th,#mdoc.on .de.dat.d-table glance-table tbody tr.tv-alt {
     background: transparent;
 }
 
-/* A COLUMN FLAGGED FOR DELETION (dired's `d'): the whole column wears the */
-/* renderer's OWN flagged-row red (`--tv-flag'/`--tv-flag-wash', cascaded from */
-/* `.tv-root'), its header edged, until a second `d' deletes it or it is spent. */
+/* A column flagged for deletion (dired's `d') wears the renderer's own flagged-row red (`--tv-flag'/`--tv-flag-wash' from `.tv-root'), header edged. */
 #mdoc glance-table th.gt-cflag,#mdoc glance-table td.gt-cflag {
     background: color-mix(in srgb, var(--tv-flag) var(--tv-flag-wash), transparent);
 }
@@ -711,15 +615,12 @@ code {
     box-shadow: inset 0 3px 0 var(--tv-flag);
 }
 
-/* THE WHOLE-TABLE STATE picks no row: `b' off a row masks the renderer's own */
-/* selection wash, so climbing out reads as the table with nothing selected. */
+/* The whole-table state picks no row: `b' off a row masks the renderer's own selection wash, so climbing out reads as nothing selected. */
 #mdoc glance-table.gt-nosel tbody tr.tv-sel,#mdoc glance-table.gt-nosel td.tv-colsel,#mdoc glance-table.gt-nosel td.tv-cell-sel {
     background: transparent !important;
 }
 
-/* A HEADERLESS table draws no header until the point climbs to it, when an */
-/* EPHEMERAL (ghosted, dashed) header appears -- RET names a column, making it */
-/* real. */
+/* A headerless table draws no header until point climbs to it, when an ephemeral (ghosted, dashed) header appears; RET names a column and makes it real. */
 #mdoc glance-table.noheader thead {
     display: none;
 }
@@ -735,15 +636,12 @@ code {
     border-bottom: 1px dashed var(--g-mark);
 }
 
-/* THE DRAWER IS A RESERVED TOKEN, frame and keys alike, in point's own ink; */
-/* ITS COLONS ARE PUNCTUATION -- dimmed, the leading one HANGING into the */
-/* gutter so the token lines up on its letter. */
+/* The drawer frame and keys are a reserved token in point's ink; its colons are punctuation, the leading one hanging into the gutter so the token lines up on its letter. */
 .d-drawer .dg,.dk {
     color: var(--tok);
 }
 
-/* ONLY A LEADING COLON HANGS: `:first-child' counts elements, so a trailing */
-/* colon after a text node matched it and overlapped the key's last letter. */
+/* Only a leading colon hangs: `:first-child' counts elements, so a trailing colon after a text node matched it and overlapped the key's last letter. */
 .dpunc {
     color: var(--punc);
 }
@@ -784,22 +682,17 @@ code {
     text-decoration: underline;
 }
 
-/* A TICKED BOX WEARS THE DONE FACE: the first inactive slot is the hue an org */
-/* keyword takes when it is settled, and a box is the same statement in one glyph. */
-/* An EMPTY box wears the line's ink, since it says nothing yet. */
+/* A ticked box wears the done face (the settled-keyword hue); an empty box wears the line's ink. */
 .dbx.on {
     color: var(--box);
 }
 
-/* A PARTIAL BOX -- some of its children done, not all -- wears the lit-bar hue, */
-/* a step short of the done face, so `[-]' reads as underway, not settled. */
+/* A partial box (`[-]', some children done) wears the lit-bar hue, a step short of the done face. */
 .dbx.part {
     color: var(--g-mark);
 }
 
-/* A STATISTICS COOKIE reads its count off the item's checkbox children, org's */
-/* `[n/m]' and `[k%]'; it is metadata, so it wears the mute until it is full, */
-/* when it takes the done face the way a ticked box does. */
+/* A statistics cookie (`[n/m]', `[k%]') is metadata, muted until full, then the done face. */
 .dcookie {
     color: var(--g-mute);
 }
@@ -847,9 +740,7 @@ code {
     display: none;
     position: absolute;
     background: var(--g-sel);
-    /* ABOVE A MOUNTED TABLE: the widget's sticky header (z-index 1) and its */
-    /* summoned filter dock (z-index 91) share this pane's stacking context, so */
-    /* a doc edit box near one out-ranks them or it paints behind the widget. */
+    /* z-index:100 clears a mounted table's sticky header (1) and filter dock (91), which share this pane's stacking context. */
     z-index: 100;
 }
 
@@ -890,27 +781,17 @@ code {
     display: flex;
 }
 
-/* THE TWO GOLDS, AND WHY ONE OF THEM HAS TO GO WHILE A TIGHT BOX STANDS. */
-/* `--g-sel' is spent on both the cursor row's own wash (`:154') and every */
-/* field's TEXT SELECTION (below): a box standing INSIDE its row over one slot */
-/* would select its entry in the gold already behind it -- SET, FOCUSED AND */
-/* INVISIBLE.  The box's own ground says where the edit is, so the row lifts */
-/* its.  THE SHAPE DECLARES ITSELF TIGHT (`openEdit' stamps the pane), so this */
-/* names no one box. */
+/* TWO GOLDS: `--g-sel' is both the row wash and a field's text selection, so a box over one slot would select in the gold behind it — invisible. The row lifts its ground; `.tight' (stamped by `openEdit') names no one box. */
 #mdoc.on.tight .de.dat {
     background-color: transparent;
 }
 
-/* THE PAIR WEARS THE DRAWER'S OWN COLONS, since it is drawn where the pair */
-/* will stand; `--punc' is a ROW's variable and no row holds this box. */
+/* The pair box wears the drawer's colons: `--punc' is a row's variable and no row holds this box. */
 #dpair {
     --punc: var(--g-mute);
 }
 
-/* THE OFFERS HANG UNDER THE FIELD, out of the box's own flex row and over the */
-/* rows beneath: small and mute, since what is being read is the field. */
-/* NO STACKING NUMBER: the box is positioned and stands after `#dlist', so it */
-/* paints over the rows already — and the page's numbers are the backdrop's. */
+/* The offers hang under the field, out of its flex row; no stacking number needed since the box is positioned after `#dlist'. */
 #doffer,#dwoffer {
     display: none;
     position: absolute;
@@ -943,8 +824,7 @@ code {
     color: var(--g-fg);
 }
 
-/* THE HINT NAMES WHERE THE OFFER LANDS, off to the right and mute under the */
-/* selection too: what is being read is the word. */
+/* The hint names where the offer lands, off to the right and mute. */
 .dot {
     flex: 1 1 0;
     text-align: right;
@@ -962,8 +842,7 @@ code {
     min-width: 0;
 }
 
-/* ONE DRESS FOR THE PANE'S OWN FIELDS: the document's face, since each one is */
-/* laid over the row it writes.  The FLEX is each field's own. */
+/* One dress for the pane's own fields — the document's face, since each is laid over the row it writes; the flex is each field's own. */
 #dtin,#dpair input,#ddate input {
     font: inherit;
     padding: 0;
@@ -977,18 +856,13 @@ code {
     flex: 1;
 }
 
-/* NO WIDTH RULE HERE, AND NO FLOOR EITHER: `drawGhost' writes the `ch' width */
-/* and takes the `flex' off per keystroke, so a rule here would only restate */
-/* what an inline style wins -- and the floor an empty ghosted field wants is */
-/* TWO cells, the caret's and the ghost's leading space, which the script keeps. */
+/* No width or floor here: `drawGhost' writes the `ch' width per keystroke, and keeps the two-cell floor (caret plus the ghost's leading space) an empty field wants. */
 #dwhen::placeholder {
     color: var(--g-mute);
     opacity: 1;
 }
 
-/* THE GHOST: the resolution riding after what was typed, on the field's own */
-/* line -- mute where it resolves, the refusal's own ink where the grammar */
-/* refuses outright.  A SPAN AND NEVER THE FIELD'S VALUE: nothing selects it. */
+/* The ghost: the resolution riding after what was typed — mute where it resolves, `--g-bad' where the grammar refuses; a span, never the field's value, so nothing selects it. */
 .dgh {
     flex: none;
     white-space: pre;
@@ -1001,10 +875,7 @@ code {
     color: var(--g-bad);
 }
 
-/* THE VALUE'S OWN SLOT, which the widget is laid over: an inline-BLOCK, so its */
-/* box is the pane's own line whatever it holds, and a zero-width space where a */
-/* summoned keyword has no value yet -- an empty INLINE box has no height for */
-/* `placeEdit' to measure. */
+/* The value's own slot the widget is laid over: inline-block so its box is a full line, with a zero-width space where an empty inline box would have no height for `placeEdit' to measure. */
 .dpv {
     display: inline-block;
     line-height: var(--g-doc-lh);
@@ -1014,30 +885,16 @@ code {
     content: "\200B";
 }
 
-/* AN UNSET SLOT shows a muted `<unset>' the reader can click and RET to set -- */
-/* DISPLAY-ONLY, the model value staying org's own empty.  KEY, COLON AND VALUE */
-/* ALL DROP to `--g-point-off', the EMPTY DRAWER's own dim (`.de.d-drawer.bare' */
-/* above): "SCHEDULED: <unset>" is furniture nobody is reading, so it reads as */
-/* dim as a bare drawer, never a tone brighter in `--g-point'.  The keyword's */
-/* `.dk' carries `dunset' from the model when the value is empty; a SET slot */
-/* keeps its key the row token and its value the brighter row ink. */
+/* An unset slot shows a display-only `<unset>'; key, colon and value all drop to `--g-point-off' (the bare-drawer dim), the `.dk' carrying `dunset' from the model when the value is empty. */
 .dpunset,.dk.dunset,.dk.dunset .dpunc {
     color: var(--g-point-off);
 }
-/* POINT ON THE UNSET SLOT still lights its VALUE, the `.dpv.dat' cursor rule */
-/* below reaching past the `.dpunset' child that would else hold the dim. */
+/* Point on the unset slot still lights its value, reaching past the `.dpunset' child that would else hold the dim. */
 #mdoc.on .dpv.dat .dpunset {
     color: var(--g-fg);
 }
 
-/* THE ENTRY AT POINT IS THE CURSOR, one grain finer than the row: it wears the */
-/* same `--g-sel' ground the row wears (`:154') and the line lifts its while one */
-/* does -- "THE TWO GOLDS" above, one grain finer, since gold inside gold is a */
-/* selection nobody can see.  WHAT LIGHTS IS THE VALUE: the keyword beside it is */
-/* the line's own token, not a stop the walk makes.  THE CHAIN IS SPELLED WITH */
-/* CHILD COMBINATORS: `.dat' is the hottest class on the page, and a descendant */
-/* `:has' would make every `n'/`p' walk the ancestors of every `.dpv' to */
-/* invalidate. */
+/* The entry at point is the cursor: the row lifts its `--g-sel' ground so gold is not inside gold. Spelled with child combinators, not a descendant `:has' — `.dat' is the hottest class, and `:has' would walk every `.dpv' ancestor on each `n'/`p'. */
 #mdoc.on .de.dat:has(> .dp > .dpv.dat) {
     background-color: transparent;
 }
@@ -1047,13 +904,7 @@ code {
     color: var(--g-fg);
 }
 
-/* THE KEY IS EXACTLY AS WIDE AS WHAT IT HOLDS, so the closing colon stands */
-/* flush against the text the way it does on the drawer line the box is laid */
-/* over.  `pairMoved' writes the `ch' width per keystroke -- monospace does the */
-/* arithmetic -- and this `min-width' is the ONE FLOOR, standing before the */
-/* script has run and over an empty key, which keeps a cell for its caret. */
-/* TWO IDS: the shared `#dpair input' dress outweighs one.  The value takes the */
-/* rest, and the margin is the SPACE org writes after the closing colon. */
+/* The key is exactly as wide as what it holds; `pairMoved' writes the `ch' width per keystroke and this `min-width' is the one floor (a cell for the caret before the script runs). Two ids outweigh the shared `#dpair input' dress. */
 #dpair #dkey {
     flex: 0 0 auto;
     width: 0;
@@ -1412,8 +1263,7 @@ code {
     color: var(--g-fg);
 }
 
-/* A READ-ONLY VALUE, drawn in the boxes' own type so it reads as the value it */
-/* is rather than as a second label. */
+/* A read-only value drawn in the boxes' own type so it reads as a value, not a second label. */
 .cval {
     font: 12px/1.5 var(--dk-mono);
 }
@@ -1534,8 +1384,7 @@ html.stale #app,{{WASHED_STALE}} {
     pointer-events: none;
 }
 
-/* THE GIT SYNC CONTROL, in its own shell-owned row (#ghead) above the table, */
-/* so table-view's re-renders and re-mounts never touch it; empty it collapses. */
+/* The git sync control lives in its own shell-owned row (`#ghead') above the table, so table-view's re-mounts never touch it; empty, it collapses. */
 #ghead {
     display: flex;
     justify-content: flex-end;
@@ -1578,6 +1427,23 @@ html.stale #app,{{WASHED_STALE}} {
 /* Auto-sync (Model B): lit only when on AND armed. */
 #gitctl .g-auto.g-on { color: var(--g-ok); border-color: var(--g-ok); }
 #gitctl .g-flash { color: var(--g-mute); font-size: 12px; opacity: .85; }
+
+/* The view-pin badge stays at the whole panel's right edge: the chips span the full row (col2 idle) and the pin is absolute to its right edge, centred on the chip row; `padding-right' keeps a wrapping chip clear of it. */
+#app .tv-dock > .tv-chips {
+    grid-column: 1 / -1;
+    position: relative;
+    padding-right: 26px;
+    min-height: 22px;
+}
+#app .tv-dock > .tv-chips .tv-pin {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 0;
+}
+/* Typing summons the filter box into col2 — give the column back to it. */
+#app .tv-dock.tv-typing > .tv-chips { grid-column: 1 / 2; }
 
 /* Every touch rule is in this query; iOS zooms a field under 16px and stays there. */
 @media (pointer:coarse) {

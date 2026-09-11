@@ -1,8 +1,7 @@
--- | @POST \/mcp@: the command engine and the read views as an MCP tool
--- catalog, over JSON-RPC 2.0.  ONE CORE, injected transports: the door is
--- handed the very handlers @\/command@ and @\/headline@ run
--- ('McpTools'), so a tool is that handler's answer re-wrapped, never a
--- second write path.  The write tools ARE 'commandNames', checked by the suite.
+-- | @POST \/mcp@: the command engine and read views as an MCP tool catalog over
+-- JSON-RPC 2.0.  ONE CORE, injected transports — a tool re-wraps the live
+-- @\/command@ and @\/headline@ handlers ('McpTools'), never a second write path.
+-- The write tools ARE 'commandNames', pinned by the suite.
 module Glance.Web.Mcp
   ( McpTools (..)
   , mcpRoute
@@ -39,8 +38,6 @@ import Glance.Web.Base (jsonType, jsonValue, sized, withBody)
 
 
 -- | The handlers the door dispatches to, wired to the live Hub by the caller.
--- The write path is @\/command@'s own core over an already-read body; the two
--- reads are @GET \/headline@ and @GET \/headlines@.
 data McpTools = McpTools
   { mtWrite     :: BL.ByteString -> IO Response         -- ^ a @\/command@ body.
   , mtHeadline  :: Text -> IO Response                  -- ^ one subtree by row id.
@@ -48,33 +45,27 @@ data McpTools = McpTools
   , mtDoctor    :: IO Response                          -- ^ the startup health verdict.
   }
 
--- | @POST \/mcp@: one JSON-RPC message in, one response out (a notification
--- gets an empty 202).  Streamable-HTTP's single-JSON subset.
+-- | @POST \/mcp@: one JSON-RPC message in, one out; a notification gets an empty 202.
 mcpRoute :: McpTools -> Request -> IO Response
 mcpRoute tools request = withBody request $ \raw ->
   maybe (sized status202 [jsonType] "") (jsonRpc status200) <$> mcpHandle tools raw
 
--- | ONE JSON-RPC message to its response, the core both transports share:
--- 'Nothing' for a notification (no reply owed), 'Just' the response Value
--- otherwise, a parse or shape error included.
+-- | One JSON-RPC message to its response, the core both transports share:
+-- 'Nothing' for a notification (no reply owed), 'Just' otherwise.
 mcpHandle :: McpTools -> BL.ByteString -> IO (Maybe Value)
 mcpHandle tools raw = case eitherDecode' raw of
   Left _ -> pure (Just (rpcError Nothing (-32700) "parse error: expected a JSON-RPC message"))
   Right v -> case message v of
     Left why -> pure (Just (rpcError Nothing (-32600) why))
-    -- ABSENT id is a notification: acknowledged, never answered.
     Right (Nothing, _method, _params) -> pure Nothing
     Right (Just rid, method, params) -> Just <$> answer tools rid method params
 
--- | @glance mcp@'s transport: newline-delimited JSON-RPC over stdin\/stdout, the
--- MCP stdio contract, dispatched by the local tool catalog.
+-- | @glance mcp@'s transport: the MCP stdio contract (newline-delimited JSON-RPC over stdin\/stdout), dispatched locally.
 runMcpStdio :: McpTools -> IO ()
 runMcpStdio tools = runMcpStdioWith (fmap (fmap encode) . mcpHandle tools)
 
 -- | The stdio transport over ANY per-message handler: a message a line, its
--- response a line ('Nothing' for a notification writes nothing), a blank line
--- skipped, ends at EOF.  'runMcpStdio' dispatches locally; @glance mcp@'s proxy
--- hands the same loop a forwarder to a running daemon's @\/mcp@.
+-- response a line ('Nothing' writes nothing), blank lines skipped, ends at EOF.
 runMcpStdioWith :: (BL.ByteString -> IO (Maybe BL.ByteString)) -> IO ()
 runMcpStdioWith handle = hSetBuffering stdout LineBuffering >> loop
   where
@@ -87,16 +78,14 @@ runMcpStdioWith handle = hSetBuffering stdout LineBuffering >> loop
           mapM_ (\b -> BL.hPut stdout b >> BS.hPut stdout "\n") resp
         loop
 
--- | A daemon's @\/status@, the two fields the proxy reads.
 data StatusInfo = StatusInfo { siReady :: !Bool, siDir :: !FilePath }
 
 instance FromJSON StatusInfo where
   parseJSON = withObject "status" $ \o -> StatusInfo <$> o .: "ready" <*> o .: "dir"
 
--- | A READY glance daemon on PORT that already owns DIR (its @\/status@ says so)
--- yields a forwarder handing each JSON-RPC message to that daemon's @\/mcp@ —
--- one live store, so no second walk and no stale view.  No such daemon
--- ('Nothing') and the caller boots an offline store instead.  Loopback only.
+-- | A READY glance daemon on PORT already owning DIR (per its @\/status@) yields
+-- a forwarder to that daemon's @\/mcp@ — one live store, no second walk, no stale
+-- view; 'Nothing' when there's none, and the caller boots offline.  Loopback only.
 mcpDaemonAt :: Int -> FilePath -> IO (Maybe (BL.ByteString -> IO (Maybe BL.ByteString)))
 mcpDaemonAt port dir = do
   want <- canonicalizePath dir
@@ -111,9 +100,7 @@ mcpDaemonAt port dir = do
     _noOwner -> Nothing
   where
     base = "http://127.0.0.1:" <> show port
-    -- The daemon's own @\/mcp@ answers a request with a JSON body and a
-    -- notification with an empty 202, so an empty body is the "no reply" the
-    -- stdio loop wants.
+    -- An empty body is the daemon's empty-202 to a notification: the stdio loop's "no reply".
     forward mgr raw = do
       req0 <- HC.parseRequest (base <> "/mcp")
       let req = req0 { HC.method = "POST"
@@ -143,8 +130,7 @@ answer tools rid method params = case method of
 rpcResult :: Value -> Value -> Value
 rpcResult rid result = object ["jsonrpc" .= ("2.0" :: Text), "id" .= rid, "result" .= result]
 
--- | An absent id ('Nothing') echoes as JSON @null@, which is what a parse or a
--- shape error owes when the id could not be read.
+-- | An absent id ('Nothing') echoes as JSON @null@, per the spec when the id could not be read.
 rpcError :: Maybe Value -> Int -> Text -> Value
 rpcError rid code msg = object
   [ "jsonrpc" .= ("2.0" :: Text)
@@ -152,8 +138,7 @@ rpcError rid code msg = object
   , "error" .= object ["code" .= code, "message" .= msg]
   ]
 
--- | The @initialize@ result: echo the client's protocol version when it names
--- one, else the version glance speaks.
+-- | The @initialize@ result: echo the client's protocol version, else glance's own.
 initialized :: Value -> Value
 initialized params = object
   [ "protocolVersion" .= fromMaybe protocolVersion (argText "protocolVersion" params)
@@ -173,16 +158,14 @@ callTool tools rid params = case argText "name" params of
       (status, val) <- toolRun t tools (argValue "arguments" params)
       pure (rpcResult rid (content status val))
 
--- | A tool answer wrapped as MCP content: the handler's JSON as text, and
--- @isError@ off its HTTP status (a per-row refusal is a 200 the agent reads).
+-- | A tool answer as MCP content: the handler's JSON as text, @isError@ off its
+-- HTTP status (a per-row refusal is a 200, not flagged).
 content :: Status -> Value -> Value
 content status val = object
   [ "content" .= [ object ["type" .= ("text" :: Text), "text" .= jsonValue val] ]
   , "isError" .= (statusCode status >= 400)
   ]
 
-
--- The catalog
 
 data Tool = Tool
   { toolName   :: !Text
@@ -198,8 +181,7 @@ info t = object
 toolTable :: [Tool]
 toolTable = writeTools <> readTools
 
--- | The write tools, one per command verb; the suite pins these to
--- 'Glance.Web.Commands.commandNames'.
+-- | The write tools, one per command verb; the suite pins these to 'Glance.Web.Commands.commandNames'.
 mcpWriteToolNames :: [Text]
 mcpWriteToolNames = map toolName writeTools
 
@@ -267,14 +249,12 @@ readTools =
       (\tools _args -> value =<< mtDoctor tools)
   ]
 
--- | A write tool: its arguments become a @\/command@ body, run through the
--- engine, its JSON answer wrapped back.
+-- | A write tool: its arguments become a @\/command@ body, run and wrapped back.
 writeTool :: Text -> Text -> [(Text, Value)] -> [Text] -> Tool
 writeTool name desc props required = Tool name desc (schema props required) run
   where run tools args = value =<< mtWrite tools (encode (asCommand name args))
 
--- | Arguments become @{name, id\/ids, args}@: @id@ and @ids@ ride the top
--- level the command engine names them at, everything else is the @args@ object.
+-- | Arguments become @{name, id\/ids, args}@: @id@ and @ids@ ride the top level the command engine names them at, the rest is @args@.
 asCommand :: Text -> Value -> Value
 asCommand name (Object o) = object $
   ["name" .= name, "args" .= Object (KM.delete "id" (KM.delete "ids" o))]
@@ -282,8 +262,6 @@ asCommand name (Object o) = object $
     <> ["ids" .= v | Just v <- [KM.lookup "ids" o]]
 asCommand name _ = object ["name" .= name, "args" .= object []]
 
-
--- JSON-Schema builders and argument readers
 
 schema :: [(Text, Value)] -> [Text] -> Value
 schema props required = object
@@ -326,9 +304,7 @@ argValue k (Object o) = fromMaybe (object []) (KM.lookup (Key.fromText k) o)
 argValue _ _ = object []
 
 
--- | A handler's 'Response' as its status and its JSON body: MCP re-wraps what
--- @\/command@ and @\/headline@ already answer.  A non-JSON body is a bug the
--- error surfaces rather than hides.
+-- | A handler's 'Response' as its status and JSON body; a non-JSON body becomes an error value.
 value :: Response -> IO (Status, Value)
 value res = do
   let (status, _headers, runStream) = responseToStream res

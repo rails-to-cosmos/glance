@@ -1,8 +1,4 @@
-    // The git sync control: a one-glance status of the served dir, in its own
-    // shell-owned row (#ghead) above the table.  It lives OUTSIDE #app, so
-    // table-view's re-renders and re-mounts never touch it — consistent by
-    // construction, no observers.  Shown only when the dir is a git work tree;
-    // #ghead collapses (CSS :empty) otherwise.  Backend: GET/POST /git.
+    // Lives in #ghead OUTSIDE #app, so table-view re-renders/re-mounts never touch it.
     {
       const GIT_POLL = 15000;   // ms between background re-reads
       const head = document.getElementById("ghead");
@@ -11,7 +7,7 @@
           elDot = null, elN = null, elAuto = null, elFlash = null;
       /** @type {any} */ let status = null;
 
-      // The one obvious step per state — mirrors the backend's `actionFor'.
+      // Mirrors the backend's `actionFor'.
       const glyphFor = (s) => {
         const dirty = s.staged + s.unstaged + s.untracked;
         if (s.detached || !s.upstream)
@@ -40,13 +36,11 @@
         return parts.length ? parts[parts.length - 1] : "";
       };
 
-      // The last meaningful line of a git command's output, dropping ssh/library
-      // chatter (e.g. openssh's post-quantum warning) that is not the result.
+      // Last meaningful output line, dropping ssh/library noise.
       const NOISE = /post-quantum|decrypt later|openssh\.com\/pq|need to be upgraded|^\*\*/i;
       const tidyLine = (s) => String(s || "").split("\n").map((l) => l.trim())
         .filter(Boolean).filter((l) => !NOISE.test(l)).pop() || "";
 
-      // Build the control once, into the shell's stable #ghead.
       function build() {
         ctl = document.createElement("span");
         ctl.id = "gitctl";
@@ -56,7 +50,7 @@
           + '<span class="g-dir"></span>:<span class="g-branch"></span></span>'
           + '<button class="g-glyph" type="button">'
           + '<span class="g-dot"></span><span class="g-n"></span></button>'
-          + '<button class="g-auto" type="button">⟳</button>'
+          + '<button class="g-auto" type="button">⇄</button>'
           + '<span class="g-flash"></span>';
         elDir = ctl.querySelector(".g-dir");
         elBranch = ctl.querySelector(".g-branch");
@@ -107,8 +101,7 @@
         try {
           const r = await postJSON("/git", { action: g.action }).then((x) => x.json());
           flash(r.ok ? `${g.action} ✓` : `${g.action} failed`);
-          // A concise line, never the raw subprocess dump: the glyph shows the
-          // new state; the log just says what ran and, on failure, why.
+          // Log a tidied one-liner; the glyph already shows the new state.
           if (typeof append === "function")
             append("git", r.ok ? "info" : "warn",
                    r.ok ? `${g.action} ✓`
@@ -117,8 +110,7 @@
         poll();
       }
 
-      // Off → enable (set, not yet armed) → arm (allow the first push) → off.
-      // Two deliberate clicks to publish, no blocking dialog.
+      // Off → enable → arm → off: two deliberate clicks guard the first push.
       async function toggleAuto() {
         if (!status || !status.repo) return;
         const step = status.autosync && status.armed ? "autosync-off"

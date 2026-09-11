@@ -1,11 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | @GET \/git@ and @POST \/git\/sync@: a one-glance git status of the served
--- dir and the one safe action per state, plus Model B auto-sync.  Shells @git@
--- in the served dir; loopback only, as the rest of the server is.  Push is
--- outward-facing, so auto-sync stays off until BOTH @git config glance.autosync@
--- is set and the first push is armed through the UI — a surprise auto-publish
--- takes two deliberate steps, never one.
+-- dir, the one safe action per state, and Model B auto-sync, which fires only once BOTH @glance.autosync@ is set AND a push is armed in the UI.
 module Glance.Web.Git
   ( GitStatus (..)
   , emptyStatus
@@ -49,8 +45,7 @@ import qualified Data.Text as T
 import Glance.Web.Base (ServeOptions (..), jsonError, jsonType, sized, withBody)
 
 
--- | A magit-style one-glance read of the work tree.  'gsRepo' 'False' means the
--- served dir is not a git work tree at all; every other field is then 0/Nothing.
+-- | A magit-style one-glance read of the work tree; @gsRepo = False@ leaves every other field 0/Nothing.
 data GitStatus = GitStatus
   { gsRepo      :: !Bool
   , gsBranch    :: !(Maybe Text)  -- ^ 'Nothing' when detached or on an unborn HEAD.
@@ -66,9 +61,7 @@ data GitStatus = GitStatus
 emptyStatus :: GitStatus
 emptyStatus = GitStatus False Nothing Nothing False 0 0 0 0 0
 
--- | Fold @git status --porcelain=v2 --branch@ lines into a 'GitStatus'.  Pure,
--- so the whole parse is unit-tested off captured output.  The caller has already
--- decided the dir is a repo, so 'gsRepo' is 'True' here.
+-- | Fold @git status --porcelain=v2 --branch@ lines into a 'GitStatus'; the caller has confirmed the dir is a repo, so 'gsRepo' starts 'True'.
 parsePorcelain :: [Text] -> GitStatus
 parsePorcelain = foldl' step emptyStatus { gsRepo = True }
   where
@@ -91,8 +84,7 @@ parsePorcelain = foldl' step emptyStatus { gsRepo = True }
                        , gsUnstaged = gsUnstaged s + fromEnum (y /= '.') }
       _           -> s
 
--- | Run git in DIR and read the work tree's status.  A dir that is not a work
--- tree answers 'emptyStatus' (@gsRepo = False@).
+-- | Read the work tree's status in DIR; a non-work-tree answers 'emptyStatus' (@gsRepo = False@).
 gitStatus :: FilePath -> IO GitStatus
 gitStatus dir = do
   inside <- gitBool dir ["rev-parse", "--is-inside-work-tree"]
@@ -103,8 +95,7 @@ gitStatus dir = do
       pure (parsePorcelain (T.lines (T.pack out)))
 
 
--- | The action a click runs.  The first five are git; the last three are the
--- Model B toggles, handled by the route rather than 'runSync'.
+-- | The action a click runs.
 data SyncAction = Fetch | Pull | Push | CommitPush | Sync | AutoOn | AutoOff | Arm
   deriving (Eq, Show)
 
@@ -120,8 +111,7 @@ syncActionOf t = case t of
   "arm"          -> Just Arm
   _              -> Nothing
 
--- | The one obvious step for a state — what a click does and what auto-sync
--- fires.  'Nothing' where nothing is safe to one-click (detached, no upstream).
+-- | The one safe step for a state; 'Nothing' when nothing is one-click-safe (detached, no upstream).
 actionFor :: GitStatus -> Maybe SyncAction
 actionFor s
   | not (gsRepo s)                           = Nothing
@@ -143,9 +133,7 @@ data SyncResult = SyncResult
   , srOutput :: !Text
   }
 
--- | Perform a git 'SyncAction' in DIR, step by step, stopping at the first that
--- fails (an empty commit is not a failure — auto-sync fires on writes that may
--- not touch a tracked file).
+-- | Perform a git 'SyncAction' in DIR step by step, stopping at the first failure.
 runSync :: FilePath -> SyncAction -> IO SyncResult
 runSync dir action = go (stepsFor action) (SyncResult True [] "")
   where
@@ -158,8 +146,7 @@ runSync dir action = go (stepsFor action) (SyncResult True [] "")
       if code == ExitSuccess || tolerable args (out <> err)
         then go rest acc'
         else pure acc' { srOk = False }
-    -- @commit@ with nothing staged exits non-zero; under auto-sync that is a
-    -- no-op to carry past, not a failure.
+    -- @commit@ with nothing staged exits non-zero; auto-sync must carry past it.
     tolerable ("commit" : _) msg = "nothing to commit" `T.isInfixOf` T.pack msg
     tolerable _              _   = False
 
@@ -173,9 +160,8 @@ stepsFor a = case a of
   _          -> []  -- AutoOn/AutoOff/Arm are the route's, never git steps.
 
 
--- | Model B state: the on/armed flags mirror @git config@ so they survive a
--- restart and the UI can read them, and a single-slot poke channel debounces a
--- burst of edits into one commit + push.
+-- | Model B state: the on/armed flags mirror @git config@ so they survive a restart;
+-- the single-slot poke channel debounces a burst of edits into one commit + push.
 data AutoSync = AutoSync
   { asDir   :: !FilePath
   , asOn    :: !(IORef Bool)
@@ -183,8 +169,7 @@ data AutoSync = AutoSync
   , asPoke  :: !(MVar ())
   }
 
--- | Build the handle and fork its debounced worker.  On/armed are read from the
--- repo's own git config, so a repo opted in yesterday is opted in today.
+-- | Build the handle and fork its debounced worker.
 newAutoSync :: FilePath -> IO AutoSync
 newAutoSync dir = do
   on    <- newIORef =<< configBool dir "glance.autosync"
@@ -228,9 +213,7 @@ gitStatusView opts mas = do
   (on, armed) <- maybe (pure (False, False)) autoSyncState mas
   pure . sized status200 [jsonType] . A.encode $ statusJSON dir st on armed
 
--- | @POST \/git\/sync@: a body @{"action":"…"}@ runs that one action.  An
--- unknown or missing action is a 400; the git actions answer their step log,
--- the Model B toggles answer the fresh flag state.
+-- | @POST \/git\/sync@: body @{"action":"…"}@ runs that one action; unknown or missing is a 400.
 gitSyncRoute :: ServeOptions -> Maybe AutoSync -> Request -> IO Response
 gitSyncRoute opts mas request = withBody request $ \raw ->
   case actionOf raw of
