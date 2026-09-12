@@ -5394,8 +5394,8 @@ sheetNotes =
          \ rides beside its index, so the walk names its cells rather than counting them,\
          \ and `getEditing' answers the same pair to a caller holding no event.  Over the\
          \ draft alone `TAB' walks the draft's own cells IN THE ORDER THE HEADER DRAWS\
-         \ THEM (`draftWalk' filters `cols' by the four a draft owns -- state, priority,\
-         \ title, tags in this table, a date among none of them) and `S-TAB' walks them\
+         \ THEM (`draftWalk' filters `cols' by the six a draft owns -- state, priority,\
+         \ title, the two dates and tags in this table) and `S-TAB' walks them\
          \ back, wrapping at either end, the TITLE still opening first whatever that\
          \ order is; the CLOSING cell's value is written\
          \ into the phantom row BEFORE the next cell opens, `closeCellEditor' redrawing\
@@ -5424,18 +5424,41 @@ sheetNotes =
          \ The caret rule follows: a STANDING row's held line rides in the handle and NEVER\
          \ enters `r.cells', those being the store's, so a repaint puts the editor, the\
          \ caret and the strip back over a cell the store still owns." [Browser]
+  , Note "THE CELL IS THE FOURTH CALLER OF `set-planning''s ONE ROAD.  `RET' in the table is\
+         \ COLUMN-SENSITIVE the way `^' is -- it reads the shipped column cursor\
+         \ (`getSelection().col'), opens the editor over a SCHEDULED or DEADLINE cell and\
+         \ materializes over every other column -- so no binding and no scope is added.\
+         \ The editor opens on the cell's own ISO day WHOLLY SELECTED, stamping the\
+         \ reader's day ONCE at that moment and spending it on INK: the strip reads\
+         \ `dateGhost' and stays DARK while the phrase resolves to the day the cell already\
+         \ holds, which is the pane's own silence read against ISO's ten characters rather\
+         \ than a rule of its own.  `S-<arrows>' write the stepped STAMP into the field,\
+         \ ±1d and ±7d, so what the reader sees is what travels.  `RET' posts the FIELD'S\
+         \ OWN BYTES as `{keyword, date}' and an emptied field posts `null' -- `\"\"' is no\
+         \ date and would meet the wall's 400 rather than clear the entry -- while a phrase\
+         \ no reading takes REFUSES IN PLACE, the editor standing, the strip wearing the\
+         \ mark and nothing posted.  THE EDITOR PAINTS NO STAMP: the wire's cell is ISO and\
+         \ the file's value is org's, so the close redraws off the store and the settle\
+         \ brings the day.  `C-c C-s' and `C-c C-d' split on the MARKS, where `targets()'\
+         \ splits already -- the prompt over a marked set, which has no cell to stand in,\
+         \ and the cell over the row at point, the column cursor moved onto it -- so\
+         \ `takesRows' says the same thing it always did and only the surface differs." [Browser]
   , Note "`RET' FROM ANY OF THE DRAFT'S CELLS IS THE COMMIT.  The open editor's value is\
          \ folded into the phantom first, the walk having accumulated and posted nothing,\
          \ and the whole capture then goes out at ONE press through the one command that\
-         \ mints a blob.  A ROW CARRIES NO BODY, NO DRAWER AND NO PLANNING LINE,\
+         \ mints a blob.  A ROW CARRIES NO BODY AND NO DRAWER,\
          \ so the args are the title, the DESTINATION as `tag' (the capture's address), the\
-         \ row's own run as `tags' and the two scalars -- and the state among them is\
+         \ row's own run as `tags', the two scalars and `planning' -- one entry per date\
+         \ cell that holds something, carrying THE PHRASE and never the stamp the strip\
+         \ drew, `plannedEntry' resolving it against the request's one clock read; an empty\
+         \ cell is no entry and no entry is no line.  The state among them is\
          \ already the destination's own, `+' having dropped what that cycle lacks.  THE ROW\
          \ ARRIVES BEHIND ITS OWN 200: a command publishes nothing and the watch's nudge is\
          \ what reloads the store, so the draft is spliced out, the server's order is asked\
          \ for at once, and `arriving' carries point onto the id on the FIRST settle that\
-         \ holds the row -- wherever `sort:' puts it, a capture having no SCHEDULED to keep\
-         \ it where it was typed.  THE HOLD IS BOUNDED at both ends: the id is dropped with\
+         \ holds the row -- wherever `sort:' puts it, which under `sort:scheduled' is among\
+         \ the days where the draft filled its SCHEDULED cell and the undated tail where it\
+         \ did not.  THE HOLD IS BOUNDED at both ends: the id is dropped with\
          \ the view it belonged to and after ten settles that never held the row, since a\
          \ capture the standing filter hides never arrives and an id left standing would\
          \ spend the NEXT write's settle." [Browser]
@@ -6113,6 +6136,7 @@ gluePartFiles =
   , "20-sheet.js"     -- the materialize sheet: both panes, the ladder, the opening
   , "30-palette.js"   -- the value palette and the link door
   , "35-draft.js"     -- the draft row: the seeding rule, the phantom, the walk
+  , "36-date-cell.js" -- the date in the cell: the editor, the strip, the step
   , "40-popups.js"    -- the link popup and the tags popup
   , "50-settings.js"  -- tabs, saved views, the states table, the theme
   , "60-refer.js"     -- `@' in the sheet: the reference picker over /refer

@@ -31,9 +31,9 @@
     };
     /** WHAT THE FILTER SEEDS A DRAFT ROW WITH: the FIRST positive `tag:' is the
      * destination, every later one rides as the draft's own, and each scalar the
-     * filter pins once is worn as it stands.  A day is not among them, a row
-     * carrying no planning line (AGENTS.hs).  ONE PARSE of the query feeds every
-     * clause. */
+     * filter pins once is worn as it stands.  A day is not among them: a date
+     * cell is the reader's own to type, and `draftArgs' carries what they typed
+     * (AGENTS.hs).  ONE PARSE of the query feeds every clause. */
     function draftSeed() {
       const terms = filterTerms();
       const tags = filteredTags(terms);
@@ -131,9 +131,10 @@
     // THE WALK.  A draft's keys can be bound nowhere but `onCellKey'
     // (assets/table-view.js), which is where the seam and its reason are stated.
 
-    /** THE CELLS A DRAFT OWNS.  A date is not among them, a row carrying no
-     * planning line. */
-    const DRAFT_CELLS = ["title", "state", "priority", "tag"];
+    /** THE CELLS A DRAFT OWNS.  The two dates are among them: a draft's date
+     * rides out in the capture's own `planning' (`draftArgs'), and the cell it is
+     * typed into is the standing row's own editor (36-date-cell.js). */
+    const DRAFT_CELLS = ["title", "state", "priority", "scheduled", "deadline", "tag"];
     /** THE RING `TAB' WALKS: those of the draft's cells this view draws, IN THE
      * ORDER THE HEADER DRAWS THEM, left to right; `S-TAB' is the same ring the
      * other way.  The walk follows the eye rather than a list of its own, so a
@@ -200,10 +201,11 @@
      * DESTINATION rides as `tag' — it is the capture's address, `→ book' minting
      * a blob under that layer and `→ inbox' appending to the inbox — and the
      * row's whole run rides as `tags', the destination leading it.  A ROW HAS NO
-     * BODY, NO DRAWER AND NO PLANNING LINE, so the widened cargo's other three
-     * keys are absent.  THE STATE IS ALREADY THE DESTINATION'S OWN: `askCycle'
-     * cleared a keyword that cycle lacks, so the wire carries none the commit
-     * door would refuse. */
+     * BODY AND NO DRAWER, so two of the widened cargo's keys are absent; the
+     * PLANNING LINE it does carry is the two date cells, each present only where
+     * its cell holds something.  THE STATE IS ALREADY THE DESTINATION'S OWN:
+     * `askCycle' cleared a keyword that cycle lacks, so the wire carries none the
+     * commit door would refuse. */
     function draftArgs() {
       const c = drafting.cells;
       const args = { title: draftTitle() };
@@ -214,8 +216,18 @@
       if (priority) args.priority = priority;
       const tags = cellTags(c.tag);
       if (tags.length) args.tags = tags;
+      const planning = draftPlanning(c);
+      if (planning.length) args.planning = planning;
       return args;
     }
+
+    /** THE DRAFT'S PLANNING LINE, in keyword order: the PHRASE each date cell
+     * holds, never the stamp the strip drew -- `plannedEntry' resolves it against
+     * the request's one clock read, the way `set-planning' does
+     * (docs/invariants.md).  An empty cell is no entry, and no entry is no line. */
+    const draftPlanning = (c) =>
+      DATE_CELLS.map((pair) => [planKeyword(pair[0]), String(c[pair[0]] || "").trim()])
+                .filter((pair) => pair[1]);
 
     /** `RET' FROM ANY CELL: THE WHOLE CAPTURE AT ONE PRESS.  The OPEN editor's
      * value is folded in first — the walk accumulates and posts nothing, so the

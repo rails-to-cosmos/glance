@@ -534,6 +534,122 @@ const rigFocused = (p) => p.until(() => {
   return !!box && document.activeElement === box;
 }, "the rig's cell editor to take focus");
 
+/** POINT'S COLUMN WALKED ONTO KEY by the table's own `f' — one press per column,
+ * the way a reader reaches a cell, and ONE KEY PER CDP CALL: each press is gated
+ * on the column cursor having arrived where the last one put it. */
+async function columnTo(p, key, why) {
+  const keys = await p.eval(() =>
+    [...document.querySelectorAll("#app thead th[data-key]")].map((th) => th.dataset.key));
+  const want = keys.indexOf(key);
+  assert(want !== -1, `${why}: the view draws no ${key} column: ${JSON.stringify(keys)}`);
+  for (let at = 0; at <= want; at += 1) {
+    await p.press("f");
+    await p.until((n) => [...document.querySelectorAll("#app thead th[data-key]")]
+        .findIndex((th) => th.classList.contains("tv-colsel")) === n,
+      `${why}: the column cursor to reach column ${at}`, undefined, at);
+  }
+  return want;
+}
+
+/** THE TABLE'S OPEN CELL EDITOR AND THE STRIP UNDER IT, as ONE reading: the row
+ * it stands in, the column it names, what it holds and what it selected, and the
+ * line the producer drew beneath that row. */
+const cellEditor = (p, why) => p.until(() => {
+  const box = /** @type {any} */ (document.querySelector("#app input.tv-cell-edit"));
+  if (!box || document.activeElement !== box) return false;
+  const tr = box.closest("tr");
+  const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+    .map((th) => th.dataset.key);
+  const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+  const strip = document.querySelector("#app tbody tr.tv-strip");
+  return { id: tr.dataset.id, key: keys[tds.indexOf(box.closest("td"))],
+           value: box.value, sel: [box.selectionStart, box.selectionEnd],
+           strip: strip ? strip.querySelector("td").textContent : null,
+           refused: !!strip && strip.classList.contains("tv-refused"),
+           under: strip && strip.previousElementSibling
+             ? strip.previousElementSibling.dataset.id : null,
+           sheet: !!document.querySelector("#modal.on") };
+}, why);
+
+/** The open cell once the strip under it says WHAT — a string matched whole, or
+ * `null' for no strip at all, which is the producer's own silence. */
+const stripSays = (p, what, why) => p.until((want) => {
+  const box = /** @type {any} */ (document.querySelector("#app input.tv-cell-edit"));
+  if (!box) return false;
+  const strip = document.querySelector("#app tbody tr.tv-strip");
+  const said = strip ? strip.querySelector("td").textContent : null;
+  return said === want
+    ? { value: box.value, said,
+        refused: !!strip && strip.classList.contains("tv-refused") }
+    : false;
+}, why, undefined, what);
+
+/** RECORD WHAT THE PAGE POSTS TO `/command'. The phrase travelling rather than
+ * the ghost's own reading is a fact about the BODY, and the stamp the server
+ * writes is the same either way — so the body is what a case reads. */
+const watchPosts = (p) => p.eval(() => {
+  window["__posts"] = [];
+  const was = window.fetch;
+  window.fetch = function (url, init) {
+    if (init && init.method === "POST" && String(url).indexOf("/command") === 0)
+      window["__posts"].push(JSON.parse(String(init.body)));
+    return was.apply(this, arguments);
+  };
+});
+const postsSeen = (p) => p.eval(() => window["__posts"] || []);
+
+/** ROW's planning line as the daemon holds it. */
+const planningOf = (p, row) => p.eval(async (r) =>
+  (await (await fetch(`/headline?id=${encodeURIComponent(r)}`)).json()).planning || [], row);
+
+/** A planning entry put back through the command door, so a write case leaves
+ * the tree the bytes it found. */
+const putPlanning = async (p, row, keyword, date) => {
+  await p.eval(async (a) => {
+    await fetch("/command", { method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "set-planning", ids: [a.row],
+                             args: { keyword: a.keyword, date: a.date } }) });
+  }, { row, keyword, date });
+  await p.until(async (a) => {
+    const h = await (await fetch(`/headline?id=${encodeURIComponent(a.row)}`)).json();
+    const at = ((h.planning || []).find(([k]) => k === a.keyword) || [])[1] || null;
+    return at === a.date;
+  }, `${keyword} to go back to ${JSON.stringify(date)}`, 15000, { row, keyword, date });
+};
+
+/** The cell ROW draws for KEY, polled until it reads WANT. */
+const cellReads = (p, row, key, want, why) => p.until((a) => {
+  const tr = [...document.querySelectorAll("#app tbody tr[data-id]")]
+    .find((r) => r.dataset.id === a.row);
+  if (!tr) return false;
+  const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+    .map((th) => th.dataset.key);
+  const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+  const text = tds[keys.indexOf(a.key)].textContent.trim();
+  return text === a.want
+    ? { text, editors: document.querySelectorAll("#app input.tv-cell-edit").length,
+        strips: document.querySelectorAll("#app tbody tr.tv-strip").length }
+    : false;
+}, why, 20_000, { row, key, want });
+
+/** The one row QUERY draws, the table up and point on it. */
+async function oneRow(p, base, q, id) {
+  await p.goto(`${base}/?q=${encodeURIComponent(q)}`);
+  const seen = await p.until(() => {
+    const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+    const sel = document.querySelector("#app tbody tr.tv-sel");
+    return rows.length && sel ? rows.map((r) => r.dataset.id) : false;
+  }, `${JSON.stringify(q)} to draw its rows with point on one`);
+  assert(seen.length === 1 && seen[0] === id,
+    `${JSON.stringify(q)} drew ${JSON.stringify(seen)} rather than ${JSON.stringify([id])}`);
+}
+
+/** The weekday org spells for a fixed ISO day — the ghost's own `dowOf', so a
+ * case names the stamp the grammar builds rather than a calendar it guessed. */
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const orgStamp = (iso) => `<${iso} ${DOW[new Date(`${iso}T00:00:00Z`).getUTCDay()]}>`;
+
 /** The rig's row the case drives: the first dated one with rows left under it. */
 function datedRow(up) {
   const one = up.dated.find((x) => x.i + 2 < up.ids.length);
@@ -4790,8 +4906,9 @@ export default [
     const order = await p.eval(() =>
       [...document.querySelectorAll("#app thead th[data-key]")]
         .map((th) => th.dataset.key));
-    assert(JSON.stringify(order.filter((k) => k !== "scheduled" && k !== "deadline"))
-             === JSON.stringify(["state", "priority", "title", "tag"]),
+    assert(JSON.stringify(order)
+             === JSON.stringify(["state", "priority", "title", "scheduled",
+                                 "deadline", "tag"]),
       `the header draws ${JSON.stringify(order)}, which the walk below is written to`);
     await p.press("+");
     // THE TITLE OPENS FIRST whatever the header's order: a capture is a title,
@@ -4802,9 +4919,19 @@ export default [
     // ONE KEY PER CALL, each gated on the editor having LEFT the cell it was in.
     const walk = async (key, from, why) => { await p.press(key); return draftEditor(p, from, why); };
     const cellOf = (r, key) => (r.cells.find(([k]) => k === key) || [])[1];
-    const toTag = await walk("TAB", "title", "TAB to move the editor off the title cell");
+    // THE TWO DATE STOPS ARE ON THE RING, in the header's own order: a draft's
+    // date rides out in the capture's own `planning', so the cells it is typed
+    // into are the draft's like every other.
+    const toSched = await walk("TAB", "title", "TAB to move the editor off the title cell");
+    assert(toSched.col === "scheduled",
+      `TAB from the title reached ${JSON.stringify(toSched.col)} rather than the `
+      + `SCHEDULED cell, which is the next one the header draws`);
+    const toDead = await walk("TAB", "scheduled", "TAB to move the editor off the SCHEDULED cell");
+    assert(toDead.col === "deadline",
+      `TAB from SCHEDULED reached ${JSON.stringify(toDead.col)} rather than DEADLINE`);
+    const toTag = await walk("TAB", "deadline", "TAB to move the editor off the DEADLINE cell");
     assert(toTag.col === "tag",
-      `TAB from the title reached ${JSON.stringify(toTag.col)} rather than the tags `
+      `TAB from DEADLINE reached ${JSON.stringify(toTag.col)} rather than the tags `
       + `cell, which is the next one the header draws`);
     const toState = await walk("TAB", "tag", "TAB at the last column to wrap the editor round");
     assert(toState.col === "state",
@@ -4831,6 +4958,11 @@ export default [
     assert(backTitle.col === "title",
       `TAB from the priority reached ${JSON.stringify(backTitle.col)} rather than the `
       + `title, which is where the ring came round to`);
+    // AND THE TWO DATE CELLS WALKED THROUGH UNTOUCHED CARRY NOTHING: a draft
+    // opens with no planning line at all, so an untyped stop stays empty.
+    assert(cellOf(backTitle, "scheduled") === "" && cellOf(backTitle, "deadline") === "",
+      `the date cells draw ${JSON.stringify(cellOf(backTitle, "scheduled"))} and `
+      + `${JSON.stringify(cellOf(backTitle, "deadline"))} after the walk passed through`);
     // WALKED THROUGH UNTOUCHED, and still wearing what it was seeded with.
     assert(cellOf(backTitle, "priority") === "[#A]",
       `the priority cell draws ${JSON.stringify(cellOf(backTitle, "priority"))} after the `
@@ -4853,8 +4985,8 @@ export default [
       + `wrapping back to the tags cell`);
     assert(backTag.rows === rows + 1,
       `the walk left ${backTag.rows} rows where the draft makes ${rows + 1}`);
-    return [`TAB walked title→tag→state→priority→title, the header's own order, and `
-      + `S-TAB walked it back over ${backTag.rows} rows`,
+    return [`TAB walked title→scheduled→deadline→tag→state→priority→title, the `
+      + `header's own order, and S-TAB walked it back over ${backTag.rows} rows`,
       `"NEXT" typed in the state cell drew as ${JSON.stringify(cellOf(toPriority, "state"))} `
       + `and reopened as ${JSON.stringify(backState.value)}`];
   } },
@@ -5014,9 +5146,10 @@ export default [
     await p.press("+");
     await draftEditor(p, null, "the draft's title cell to open");
     await p.typeKeys("zqinbox");
-    // COMMITTED FROM A CELL THAT IS NOT THE TITLE — the tags cell, which is where
-    // the header's order puts TAB from the title: `RET' from ANY cell captures,
-    // and the title it sends is the one the walk left in the row.
+    // COMMITTED FROM A CELL THAT IS NOT THE TITLE — the SCHEDULED cell, which is
+    // where the header's order puts TAB from the title: `RET' from ANY cell
+    // captures, and the title it sends is the one the walk left in the row.  The
+    // cell is walked through untouched, so this capture carries no planning line.
     await p.press("TAB");
     await draftEditor(p, "title", "TAB to move the editor off the title cell");
     await p.press("RET");
@@ -5071,7 +5204,7 @@ export default [
       editors: document.querySelectorAll("#app input.tv-cell-edit").length }));
     assert(gone.drafts === 0 && gone.editors === 0,
       `the blob commit left ${gone.drafts} draft rows and ${gone.editors} editors behind`);
-    return [`RET from the tags cell captured ${JSON.stringify(jot.split("\n")[0])} into `
+    return [`RET from the SCHEDULED cell captured ${JSON.stringify(jot.split("\n")[0])} into `
       + `the inbox and point followed it to row ${seen.at} of ${seen.n}`,
       `and under tag:book state:NEXT priority:A the blob landed as `
       + `${JSON.stringify(head)}`];
@@ -5555,6 +5688,373 @@ export default [
       + `${JSON.stringify(after)} against ${JSON.stringify(before)}`);
     return [`onCellInput answered null ${seen.asks.length} times and the table `
       + `drew no strip, every row where it began`];
+  } },
+
+// PROPOSAL 2026-09-12, THE DATE WIDGET LIVES IN THE CELL, stages 3 and 4.  A
+// date is edited where it is DRAWN: `RET' over a SCHEDULED or DEADLINE cell
+// opens the widget's own in-cell editor on the day that cell holds, the reading
+// rides the strip under that row, and THE PHRASE IS WHAT TRAVELS -- the server
+// resolves it once, against its own clock (docs/invariants.md).
+{ name: "RET on a SCHEDULED cell opens the date editor and sends the phrase",
+  async run(p, base) {
+    const ROW = "drv-unset-one", WAS = "<2026-09-02 Wed>";
+    await oneRow(p, base, "title:undated", ROW);
+    await watchPosts(p);
+    await columnTo(p, "scheduled", "RET over a date cell");
+    await p.press("RET");
+    const open = await cellEditor(p, "RET to open the date editor in the cell");
+    assert(open.id === ROW && open.key === "scheduled",
+      `the editor opened in ${JSON.stringify(open.id)}'s ${JSON.stringify(open.key)} cell`);
+    // ON THE CELL'S OWN ISO DAY, WHOLLY SELECTED: one keystroke replaces it, and
+    // `RET' with none recommits it -- org-read-date's own default.
+    assert(open.value === "2026-09-02",
+      `the editor opened on ${JSON.stringify(open.value)} rather than the cell's own day`);
+    assert(open.sel[0] === 0 && open.sel[1] === open.value.length,
+      `the opening value is selected ${JSON.stringify(open.sel)} of ${open.value.length}`);
+    // AND `RET' DID NOT MATERIALIZE: over a date column the key is the cell's.
+    assert(!open.sheet, "RET over the date cell raised the sheet as well");
+    // THE STRIP IS DARK AT THE OPEN, the phrase being the day already drawn.
+    assert(open.strip === null,
+      `the strip said ${JSON.stringify(open.strip)} before a key was pressed`);
+
+    // THE ENGLISH PHRASE, previewed whole on the strip: the phrase AND the day it
+    // resolves to, which is the placement the spike measured C for.
+    await p.typeKeys("18 aug");
+    const Y = new Date().getFullYear();   // `18 aug''s elided year is the clock's
+    const STAMP = orgStamp(`${Y}-08-18`);
+    const drew = await stripSays(p, `18 aug → ${STAMP}`,
+      "the strip to read the phrase and the day it resolves to");
+    assert(drew.value === "18 aug" && !drew.refused,
+      `the field holds ${JSON.stringify(drew.value)} under a strip that reads `
+      + `${JSON.stringify(drew.said)}`);
+
+    await p.press("RET");
+    const landed = await p.until(async (a) => {
+      const h = await (await fetch(`/headline?id=${a.row}`)).json();
+      const at = ((h.planning || []).find(([k]) => k === "SCHEDULED") || [])[1];
+      return at && at !== a.was ? at : false;
+    }, "the phrase to reach the planning line", 15000, { row: ROW, was: WAS });
+    assert(landed === STAMP,
+      `the server wrote ${JSON.stringify(landed)} where the strip promised `
+      + JSON.stringify(STAMP));
+    // WHAT WENT DOWN THE WIRE IS THE BYTES THAT STOOD IN THE FIELD.  The stamp
+    // the server wrote is the same either way, so the BODY is the evidence: the
+    // ghost is ink, and the phrase is what travels.
+    const posts = await postsSeen(p);
+    assert(posts.length === 1 && posts[0].name === "set-planning",
+      `the cell posted ${JSON.stringify(posts)}`);
+    assert(JSON.stringify(posts[0].ids) === JSON.stringify([ROW]),
+      `over ${JSON.stringify(posts[0].ids)} rather than the row at point`);
+    assert(posts[0].args.keyword === "SCHEDULED" && posts[0].args.date === "18 aug",
+      `carrying ${JSON.stringify(posts[0].args)} rather than the phrase that was typed`);
+    // AND THE CELL WAITS FOR THE SETTLE: the wire's cell is ISO, so the editor
+    // paints no stamp of its own and the reload brings the day.
+    const cell = await cellReads(p, ROW, "scheduled", `${Y}-08-18`,
+      "the settle to bring the ISO day into the cell");
+    assert(cell.editors === 0 && cell.strips === 0,
+      `the commit left ${cell.editors} editors and ${cell.strips} strips behind`);
+
+    await putPlanning(p, ROW, "SCHEDULED", WAS);
+    return [`RET opened ${JSON.stringify(open.value)} wholly selected, the strip read `
+      + `${JSON.stringify(drew.said)}, the wire carried `
+      + `${JSON.stringify(posts[0].args.date)} and the file took ${JSON.stringify(landed)}`];
+  } },
+
+// LAW 5 (spike finding 2, `ENTRY-GHOST').  The doc pane opens on the planning
+// line's own `<2026-08-18 Tue>' and the shipped ghost falls quiet over it; a CELL
+// opens on `2026-08-18', a different spelling of the same day, so the shipped
+// reading would draw the widget's widest thing before a key is pressed.  The
+// strip stays dark while the phrase names the day the cell already holds.
+{ name: "the strip is dark on the cell's own day",
+  async run(p, base) {
+    const ROW = "drv-plan", OWN = "2026-08-18";
+    await oneRow(p, base, "title:Ship", ROW);
+    const before = await planningOf(p, ROW);
+    await columnTo(p, "scheduled", "the strip over a cell that holds a day");
+    await p.press("RET");
+    const open = await cellEditor(p, "RET to open the date editor on a dated cell");
+    assert(open.value === OWN && open.strip === null,
+      `the cell opened on ${JSON.stringify(open.value)} under a strip reading `
+      + `${JSON.stringify(open.strip)} — the day it already holds has nothing to add`);
+
+    // IT IS ASKED ON EVERY KEY, and it SPEAKS the moment the phrase names another
+    // day: the silence is the cell's own day, never an absent producer.
+    await p.press("S-<right>");
+    const spoke = await stripSays(p, `2026-08-19 → ${orgStamp("2026-08-19")}`,
+      "the strip to speak over the day after the cell's own");
+    assert(spoke.value === "2026-08-19",
+      `the step left ${JSON.stringify(spoke.value)} in the field`);
+    // AND DARK AGAIN on the way back, where the shipped `dateGhost' alone would
+    // have drawn ` → <2026-08-18 Tue>' over the very day the row is wearing.
+    await p.press("S-<left>");
+    const dark = await stripSays(p, null, "the strip to go dark on the cell's own day again");
+    assert(dark.value === OWN,
+      `the step back left ${JSON.stringify(dark.value)} rather than the cell's own day`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app input.tv-cell-edit"),
+                  "ESC to close the editor");
+    assert(JSON.stringify(await planningOf(p, ROW)) === JSON.stringify(before),
+      `the dark strip's walk changed the planning line to `
+      + `${JSON.stringify(await planningOf(p, ROW))}`);
+    return [`the cell opened on ${JSON.stringify(OWN)} with no strip, spoke `
+      + `${JSON.stringify(spoke.said)} a day on, and went dark again on the way back`];
+  } },
+
+{ name: "an unreadable date refuses in the cell",
+  async run(p, base) {
+    const ROW = "drv-plan";
+    await oneRow(p, base, "title:Ship", ROW);
+    await watchPosts(p);
+    const before = await planningOf(p, ROW);
+    await columnTo(p, "scheduled", "a phrase no reading takes");
+    await p.press("RET");
+    await cellEditor(p, "RET to open the date editor");
+    // `18 au' IS A MONTH HALFWAY TYPED and says nothing; `18 auk' is a refusal
+    // no further character rescues, and it is the reader's own word.
+    await p.typeKeys("18 auk");
+    const bad = await stripSays(p, "✗ not a date",
+      "the strip to refuse the phrase in the refusal's own word");
+    assert(bad.refused,
+      `the strip reads ${JSON.stringify(bad.said)} without the refused row's own warn`);
+
+    // AND `RET' REFUSES IN PLACE: the editor stands where the phrase can be
+    // fixed, the strip keeps the mark, and no command is posted.
+    await p.press("RET");
+    const held = await cellEditor(p, "the editor to stand through the refused RET");
+    assert(held.value === "18 auk" && held.strip === "✗ not a date" && held.refused,
+      `the refused RET left ${JSON.stringify(held)}`);
+    assert((await postsSeen(p)).length === 0,
+      `a phrase the reader cannot spell reached the server: `
+      + `${JSON.stringify(await postsSeen(p))}`);
+    // THE PILL CARRIES THE LONG WORD, the one the reader's own grammar gives.
+    const pill = await p.eval(() => document.getElementById("echo").textContent);
+    assert(pill.indexOf("→ org-glance-overview:schedule (not a date — try") !== -1,
+      `the pill says ${JSON.stringify(pill)}`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app input.tv-cell-edit")
+      && document.querySelectorAll("#app tbody tr.tv-strip").length === 0,
+      "ESC to close the refused editor and take the strip with it");
+    assert(JSON.stringify(await planningOf(p, ROW)) === JSON.stringify(before),
+      `the refused phrase changed the planning line`);
+    return [`"18 auk" drew ${JSON.stringify(bad.said)} in the refusal's ink, RET kept `
+      + `the editor open, posted nothing and said ${JSON.stringify(pill.slice(0, 60))}`];
+  } },
+
+{ name: "S-<right> steps the ghost a day",
+  async run(p, base) {
+    const ROW = "drv-plan";
+    await oneRow(p, base, "title:Ship", ROW);
+    await watchPosts(p);
+    const before = await planningOf(p, ROW);
+    await columnTo(p, "deadline", "the step over the DEADLINE cell");
+    await p.press("RET");
+    const open = await cellEditor(p, "RET to open the date editor on the DEADLINE cell");
+    assert(open.key === "deadline" && open.value === "2026-08-20",
+      `the editor opened on ${JSON.stringify(open.key)} = ${JSON.stringify(open.value)}`);
+    // TWO GRAINS, org-read-date's own: the sideways pair walks a DAY and the
+    // upright pair a WEEK, and the strip follows what stands in the field.
+    const step = async (key, want, why) => {
+      await p.press(key);
+      const seen = await stripSays(p, `${want} → ${orgStamp(want)}`, why);
+      assert(seen.value === want,
+        `${key} left ${JSON.stringify(seen.value)} where the day is ${JSON.stringify(want)}`);
+      return seen;
+    };
+    await step("S-<right>", "2026-08-21", "the strip a day on");
+    await step("S-<down>", "2026-08-28", "the strip a week on");
+    await step("S-<up>", "2026-08-21", "the strip a week back");
+    const back = await p.press("S-<left>").then(() =>
+      stripSays(p, null, "the strip to go dark back on the cell's own day"));
+    assert(back.value === "2026-08-20",
+      `the walk came back to ${JSON.stringify(back.value)}`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app input.tv-cell-edit"),
+                  "ESC to close the walked editor");
+    assert((await postsSeen(p)).length === 0, "the walk posted a command of its own");
+    assert(JSON.stringify(await planningOf(p, ROW)) === JSON.stringify(before),
+      "the walk wrote to the file");
+    return [`the DEADLINE cell walked 2026-08-20 → 21 → 28 → 21 → 20 on the shifted `
+      + `arrows, the strip following each step, and wrote nothing`];
+  } },
+
+{ name: "ESC leaves the cell's date as it was",
+  async run(p, base) {
+    const ROW = "drv-plan", OWN = "2026-08-18";
+    await oneRow(p, base, "title:Ship", ROW);
+    await watchPosts(p);
+    const before = await planningOf(p, ROW);
+    const tops = () => p.eval(() =>
+      [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .map((r) => [r.dataset.id, Math.round(r.getBoundingClientRect().top)]));
+    const stood = await tops();
+    await columnTo(p, "scheduled", "ESC over a typed date");
+    await p.press("RET");
+    await cellEditor(p, "RET to open the date editor");
+    await p.typeKeys("2026-12-25");
+    const drew = await stripSays(p, `2026-12-25 → ${orgStamp("2026-12-25")}`,
+      "the strip to resolve the typed day");
+    assert(drew.value === "2026-12-25", `the field holds ${JSON.stringify(drew.value)}`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app input.tv-cell-edit")
+      && document.querySelectorAll("#app tbody tr.tv-strip").length === 0,
+      "ESC to close the editor and take the strip with it");
+    // THE CELL IS THE CELL IT WAS: a standing row's cells are the STORE's, so the
+    // phrase stood in the input and never entered the row.
+    const cell = await cellReads(p, ROW, "scheduled", OWN,
+                                 "the cell to draw the day it drew before the open");
+    assert(cell.strips === 0, `ESC left ${cell.strips} strips standing`);
+    assert(JSON.stringify(await tops()) === JSON.stringify(stood),
+      `ESC left the rows at ${JSON.stringify(await tops())} against ${JSON.stringify(stood)}`);
+    assert((await postsSeen(p)).length === 0, "ESC posted a command");
+    assert(JSON.stringify(await planningOf(p, ROW)) === JSON.stringify(before),
+      `ESC changed the planning line to ${JSON.stringify(await planningOf(p, ROW))}`);
+    return [`"2026-12-25" previewed ${JSON.stringify(drew.said)} and ESC left the cell `
+      + `reading ${JSON.stringify(cell.text)}, every row back to the pixel and nothing posted`];
+  } },
+
+// LAW 4.  An empty date commits `null' and never `""': an empty cell is `""' and
+// sits outside every date comparison (docs/invariants.md), and `""' down the wire
+// meets `planningTimestamp''s refusal as a 400 rather than a clear.
+{ name: "an empty date clears the planning line",
+  async run(p, base) {
+    const ROW = "drv-unset-one", WAS = "<2026-09-02 Wed>";
+    await oneRow(p, base, "title:undated", ROW);
+    await watchPosts(p);
+    await columnTo(p, "scheduled", "an emptied date cell");
+    await p.press("RET");
+    const open = await cellEditor(p, "RET to open the date editor");
+    assert(open.value === "2026-09-02", `the editor opened on ${JSON.stringify(open.value)}`);
+    // ONE `DEL' TAKES THE WHOLE OF IT, the opening value being wholly selected.
+    await p.press("DEL");
+    const empty = await stripSays(p, null, "the emptied field to draw no strip at all");
+    assert(empty.value === "", `DEL left ${JSON.stringify(empty.value)} in the field`);
+
+    await p.press("RET");
+    const gone = await p.until(async (r) => {
+      const h = await (await fetch(`/headline?id=${r}`)).json();
+      return (h.planning || []).length === 0 ? (h.org || "") : false;
+    }, "the planning line to go off the file", 15000, ROW);
+    assert(gone.indexOf("SCHEDULED") === -1,
+      `the file still reads ${JSON.stringify(gone.split("\n").slice(0, 3))}`);
+    const posts = await postsSeen(p);
+    assert(posts.length === 1 && posts[0].args.keyword === "SCHEDULED"
+             && posts[0].args.date === null,
+      `the emptied cell posted ${JSON.stringify(posts)} rather than a null date`);
+    const cell = await cellReads(p, ROW, "scheduled", "",
+                                 "the cell to empty behind the settle");
+    assert(cell.editors === 0, `the clear left ${cell.editors} editors behind`);
+
+    await putPlanning(p, ROW, "SCHEDULED", WAS);
+    return [`DEL emptied the cell, RET posted ${JSON.stringify(posts[0].args)} and the `
+      + `planning line left the file; set back to ${JSON.stringify(WAS)}`];
+  } },
+
+// STAGE 4, AND F's PREMISE.  The capture-in-table spike measured a landed capture
+// jumping five rows and 145px precisely because a capture had no date; with the
+// two date stops on the draft's ring it lands where `sort:scheduled' puts it.
+{ name: "the draft's SCHEDULED stop lands the row where the sort puts it",
+  async run(p, base) {
+    const DAY = "2026-08-20";
+    await p.goto(`${base}/?q=${encodeURIComponent("-scheduled:*empty* sort:scheduled")}`);
+    const order = await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      return rows.length && document.querySelector("#app tbody tr.tv-sel")
+        ? rows.map((r) => r.dataset.id) : false;
+    }, "the dated rows to draw in the sort's own order");
+    assert(JSON.stringify(order) === JSON.stringify(["drv-plan", "drv-date-walk", "drv-unset-one"]),
+      `the sorted view drew ${JSON.stringify(order)}`);
+    await watchPosts(p);
+
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.typeKeys("zqdated");
+    await p.press("TAB");
+    const at = await draftEditor(p, "title", "TAB to carry the editor to the SCHEDULED cell");
+    assert(at.col === "scheduled",
+      `TAB from the title reached ${JSON.stringify(at.col)} rather than SCHEDULED`);
+    await p.typeKeys(DAY);
+    const drew = await stripSays(p, `${DAY} → ${orgStamp(DAY)}`,
+      "the strip under the draft to resolve the typed day");
+    assert(drew.value === DAY, `the draft's date cell holds ${JSON.stringify(drew.value)}`);
+
+    // `RET' IN A DRAFT'S DATE CELL COMMITS THE CAPTURE: a draft has no id and no
+    // span for a per-cell verb to name, so the date rides out in `planning'.
+    await p.press("RET");
+    const landed = await landedRow(p, "zqdated", "the dated capture to reach the store");
+    const posts = await postsSeen(p);
+    assert(posts.length === 1 && posts[0].name === "capture",
+      `the draft posted ${JSON.stringify(posts.map((x) => x.name))}`);
+    assert(JSON.stringify(posts[0].args.planning) === JSON.stringify([["SCHEDULED", DAY]]),
+      `the capture carried ${JSON.stringify(posts[0].args.planning)} rather than the phrase`);
+    // THE SERVER RESOLVED IT, through `plannedEntry''s own wall.
+    const org = await fileSays(p, landed, /^SCHEDULED: /m,
+                               "the captured entry to carry its planning line");
+    assert(org.indexOf(`SCHEDULED: ${orgStamp(DAY)}`) !== -1,
+      `the entry reads ${JSON.stringify(org.split("\n").slice(0, 3))}`);
+    // AND IT LANDS WHERE THE SORT PUTS IT, between the two days it falls between.
+    const placed = await p.until((id) => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .map((r) => r.dataset.id);
+      return rows.indexOf(id) === -1 ? false : rows;
+    }, "the dated capture to arrive in the sorted view", 20_000, landed);
+    assert(JSON.stringify(placed)
+             === JSON.stringify(["drv-plan", landed, "drv-date-walk", "drv-unset-one"]),
+      `the capture landed in ${JSON.stringify(placed)} rather than between 2026-08-18 `
+      + `and 2026-08-24`);
+    return [`the draft's SCHEDULED stop sent ${JSON.stringify(posts[0].args.planning)}, the `
+      + `server wrote ${JSON.stringify(orgStamp(DAY))} and the row landed at index `
+      + `${placed.indexOf(landed)} of ${placed.length}`];
+  } },
+
+// STAGE 5's SPLIT, and the reason for it: a SET of rows has no cell to stand in,
+// which is the whole reason the prompt exists.  `targets()' splits exactly there,
+// so which rows the key takes is unchanged and only the surface differs.
+{ name: "C-c C-s with nothing marked opens the cell at point",
+  async run(p, base) {
+    const ROW = "drv-plan";
+    await oneRow(p, base, "title:Ship", ROW);
+    await p.press("C-c");
+    await p.press("C-s");
+    const open = await cellEditor(p, "C-c C-s to open the SCHEDULED cell at point");
+    assert(open.id === ROW && open.key === "scheduled" && open.value === "2026-08-18",
+      `C-c C-s opened ${JSON.stringify(open)}`);
+    // THE COLUMN CURSOR FOLLOWED THE KEY: the reader is left standing in the
+    // column the command names.
+    const at = await p.eval(() =>
+      [...document.querySelectorAll("#app thead th[data-key]")]
+        .findIndex((th) => th.classList.contains("tv-colsel")));
+    const keys = await p.eval(() =>
+      [...document.querySelectorAll("#app thead th[data-key]")].map((th) => th.dataset.key));
+    assert(keys[at] === "scheduled",
+      `the column cursor stands on ${JSON.stringify(keys[at])}`);
+    assert(!(await p.eval(() => document.getElementById("prompt").className === "on")),
+      "C-c C-s over one row raised the prompt as well as the cell");
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app input.tv-cell-edit"),
+                  "ESC to close the cell editor");
+
+    // AND WITH A ROW MARKED IT IS THE PROMPT, today's bulk surface, unchanged.
+    await p.press("m");
+    await p.until(() => document.querySelectorAll("#app tbody tr.tv-marked").length === 1,
+                  "m to mark the row at point");
+    await p.press("C-c");
+    await p.press("C-s");
+    const asked = await p.until(() =>
+      document.getElementById("prompt").className === "on"
+        ? { head: document.getElementById("phead").textContent,
+            editors: document.querySelectorAll("#app input.tv-cell-edit").length }
+        : false, "C-c C-s over a marked row to raise the prompt");
+    assert(asked.head === "scheduled · 1 row",
+      `the prompt is titled ${JSON.stringify(asked.head)}`);
+    assert(asked.editors === 0,
+      `the marked set opened ${asked.editors} cell editors as well as the prompt`);
+    await p.press("ESC");
+    return [`C-c C-s with nothing marked opened ${JSON.stringify(open.value)} in the `
+      + `SCHEDULED cell; with the row marked it raised ${JSON.stringify(asked.head)}`];
   } },
 
 // PROPOSAL 2026-08-26.  An org table in the doc is drawn by the table-view

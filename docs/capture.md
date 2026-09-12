@@ -20,6 +20,12 @@ everything a capture says.
 | `TAB` / `S-TAB` | walk the draft's cells in the header's own order, wrapping |
 | `RET` | commit, from any cell |
 | `ESC` | drop the draft whole |
+| `S-<arrows>` | in a date cell, walk the day by one and by a week |
+
+The ring is **every cell the draft owns that this view draws**, the two dates
+among them: `title → scheduled → deadline → tag → state → priority` in the
+shipped column order. A date cell is the standing row's own editor, so the
+phrase reads back on the strip under the draft while it is typed.
 
 Three laws hold it:
 
@@ -40,8 +46,9 @@ standing with what the reader had typed, and the caret where it was.
 **`RET` is the whole capture at one press.** The open cell's value is folded in,
 the draft is spliced out, and the fresh rows are asked for at once; point
 follows the id the command answered onto the **first settle that carries the
-row**, wherever `sort:` puts it. A capture has no SCHEDULED, so the undated tail
-is where it belongs whatever row it was typed beside. The wait is bounded: ten
+row**, wherever `sort:` puts it — under `sort:scheduled` a draft that filled its
+SCHEDULED cell lands among the days rather than in the undated tail. The wait is
+bounded: ten
 settles without the row, or a query change, drop the id rather than let it
 spend a later write's settle.
 
@@ -52,10 +59,13 @@ row as its whole note, the editor comes back to the title with its text
 selected, and the dress turns warn. The next content keystroke clears both; a
 walk and a movement leave them; only `ESC` dismisses.
 
-**A row carries no body, no drawer and no planning line**, so the commit's args
-are the title, the destination as `tag`, the row's own run as `tags`, and the
-two scalars. A template seeds nothing — the server already ignores it on this
-road.
+**A row carries no body and no drawer**, so the commit's args are the title, the
+destination as `tag`, the row's own run as `tags`, the two scalars, and
+`planning` — one entry per date cell that holds something, carrying **the phrase
+the reader typed** and never the stamp the strip drew, which `plannedEntry`
+resolves against the request's one clock read. An empty cell is no entry, and no
+entry is no planning line. A template seeds nothing — the server already ignores
+it on this road.
 
 ## What the filter lends
 
@@ -249,7 +259,8 @@ can spoil. Each is a spoken refusal — nothing is written.
   whole capture goes out at one `RET`. A draft has no id and no span for a
   per-cell verb to name.
 - **A filter-lent planning day.** A day is no fact the filter pins into a
-  capture: a captured row has no planning line to put one on.
+  capture: the reader types it into the date cell, and a `scheduled:` predicate
+  describes a comparison rather than a day a row could wear.
 - **A destination hint beside the row.** `→ book` / `→ inbox` rode the last
   column the draft left free; removed on review 2026-09-12. The tags cell says
   the destination.

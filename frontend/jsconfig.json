@@ -33,6 +33,7 @@
     "glue/20-sheet.js",
     "glue/30-palette.js",
     "glue/35-draft.js",
+    "glue/36-date-cell.js",
     "glue/40-popups.js",
     "glue/50-settings.js",
     "glue/60-refer.js",

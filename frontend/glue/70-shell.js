@@ -134,10 +134,12 @@
         const chain = table.getSort() || [], head = chain[0];
         said(b, head ? `${named} ${head.ascending !== false ? "▲" : "▼"}` + (chain.length > 1 ? ` · ${chain.length} keys` : "") : named);
       },
+      // COLUMN-SENSITIVE, the way `^' is: over a date column `RET' opens that
+      // cell's own editor, and over every other column it materializes.
       materializeRow: () => {
         const id = focusedId();
-        if (id) materialize(id);
-        else append("cmd", "info", "no row focused — n or p picks one");
+        if (!id) { append("cmd", "info", "no row focused — n or p picks one"); return; }
+        if (!dateCellAt(id)) materialize(id);
       },
       markToggle: (b) => mark(b, true),
       unmarkRow: (b) => mark(b, false),
@@ -173,8 +175,10 @@
           .catch(failed(b, "open"));
       },
       applyAgenda: (b) => applyView(b, savedQuery("agenda"), (total) => landedAgenda(b, total)),
-      schedulePlan: (b) => planRows(b, "SCHEDULED"),
-      deadlinePlan: (b) => planRows(b, "DEADLINE"),
+      // WITH ROWS MARKED THE PROMPT, WITH NONE THE CELL AT POINT: a set of
+      // rows has no cell to stand in (`planKey', 36-date-cell.js).
+      schedulePlan: (b) => planKey(b, "SCHEDULED"),
+      deadlinePlan: (b) => planKey(b, "DEADLINE"),
       // THE SAME PAIR OVER THE MATERIAL DOCUMENT, the one surface with a slot to
       // stand in: the widget over the row's own value, where the table has
       // marked rows and a prompt.  One command, two handlers -- `@''s split.

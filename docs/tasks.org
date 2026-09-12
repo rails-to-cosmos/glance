@@ -364,6 +364,54 @@ What STAYED in =20-sheet.js= and why: =dateAdjust= (reads =el("dwhen")=, =said=,
 parts=.  −328 from =20-sheet.js=, +335 in =15-dates.js=.  Gate: check-glue
 clean, cabal 2323, elm 189, =runghc AGENTS.hs= 0, browser 105/105.
 
+* DONE Date-widget-in-the-cell stages 3 and 4 — the cell's editor, and the draft's date stops
+See [[file:proposals/proposed/2026-09-12-the-date-widget-lives-in-the-cell.md]]
+stages 3 and 4.  =frontend/glue/36-date-cell.js= is a new BARE fragment (+153)
+holding the in-cell editor both a landed row and a draft use: =DATE_CELLS= (the
+two columns and the keyword each names), =dateCellDay= (the day stamped when the
+editor ENTERS a cell, kept across a repaint), =dateCellNote= (the strip's line),
+=dateCellKey=/=dateCellStep=/=commitDateCell=, the composed =cellKey=, and
+=planKey=, which is the =C-c C-s= split.  The shipped mount gains
+=editableKeys: DATE_KEYS=, =onCellInput: dateCellNote= and =onCellKey: cellKey=
+(=00-core.js:211-216=).  Rosters: =Base.hs=, =AGENTS.hs=,
+=frontend/jsconfig.json=, and =TestSpec='s title, now =the shell is twelve
+parts=.  =assets/table-view.js= is UNTOUCHED, so the upstream list below stands
+as it was.
+
+THE =RET= SEAM IS THE HANDLER, never a binding: =HANDLERS.materializeRow=
+(=70-shell.js:139=) reads the shipped column cursor and materializes only where
+the column draws no date — the way =^= reads =state.selCol=.  =Keymap.hs= and
+=AGENTS.hs='s =bindings= gain no row.
+
+ONE EDITOR, TWO READINGS OF =RET=: =cellKey= asks =dateCellKey= first and
+=draftKey= under it, so a date cell's STEP keys belong to every row while =RET=
+over a STANDING row commits =set-planning= and a DRAFT's falls through to the
+capture.  =DRAFT_CELLS= gains =scheduled= and =deadline= — the walk already
+follows header order — and =draftArgs= gains =planning=, one entry per date cell
+that holds something, carrying THE PHRASE.  No server change was owed:
+=plannedEntry= already resolves =capture='s planning against the request's one
+clock read.
+
+Cases (browser, +8, 108 → 116): =RET on a SCHEDULED cell opens the date editor
+and sends the phrase= (which reads the POST BODY, so the phrase travelling is
+pinned rather than inferred from a stamp both roads would write), =the strip is
+dark on the cell's own day=, =an unreadable date refuses in the cell=,
+=S-<right> steps the ghost a day=, =ESC leaves the cell's date as it was=, =an
+empty date clears the planning line=, =the draft's SCHEDULED stop lands the row
+where the sort puts it=, =C-c C-s with nothing marked opens the cell at point=.
+Three shipped cases moved with the ring: the draft's =TAB= walk, the capture
+commit's comment, and the header-order assertion.  Gate: check-glue clean, cabal
+2323, elm 189, =runghc AGENTS.hs= 0, browser 116/116 twice.
+
+* TODO Date-widget-in-the-cell stage 5 — the keymap prose, README.org and the last cases
+See [[file:proposals/proposed/2026-09-12-the-date-widget-lives-in-the-cell.md]]
+stage 5.  The BEHAVIOUR of the split landed with stage 3 (=planKey=,
+=36-date-cell.js=) and =docs/capture.md=, =CHANGELOG.md= and =AGENTS.hs= carry
+the new laws; what is left is README.org's =C-c C-s= paragraph (=:134-:142=),
+the shell suite's ghost vectors re-pointed at =15-dates.js='s declarations (a
+path change, the corpus being the corpus), and moving the proposal out of
+=proposals/proposed/= with its status line when it is whole.
+
 * TODO A tag on an inbox headline moves it under the tag (first tag wins)
 See [[file:bugs/open/2026-09-12-a-tag-on-an-inbox-headline-leaves-it-in-the-inbox.md]].
 =add-tag= edits the title line only; the tagged road (=captureBlob=) exists at

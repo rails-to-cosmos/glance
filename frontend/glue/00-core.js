@@ -206,9 +206,14 @@
           command === "materialize" ? materialize(id)
                                      : append("cmd", "info", `action: ${command}  id=${id}`),
         onLink: (target) => append("cmd", "info", `link: ${target}`),
-        // The draft's own keys, which can be bound nowhere else (`onCellKey',
-        // assets/table-view.js).
-        onCellKey: draftKey,
+        // The draft's own keys and the date cell's, which can be bound nowhere
+        // else (`onCellKey', assets/table-view.js).
+        onCellKey: cellKey,
+        // A DATE IS EDITED WHERE IT IS DRAWN: a standing row's two date cells
+        // open, and what the reader typed is read back on the strip under that
+        // row (36-date-cell.js).
+        editableKeys: DATE_KEYS,
+        onCellInput: dateCellNote,
         onFilter: filter,   // the server narrows; the renderer shows what it is given
         onRefused: refused, // a shaping token typed at `/', which the box keeps
         onPin: () => pinHere(),

@@ -9,6 +9,31 @@ and this project adheres to the
 Versions 0.1 through 0.4 were cut retroactively over one dense build: each
 section groups a feature arc, and its date is that arc's last commit.
 
+## Unreleased
+
+### Added
+
+- **A date is edited where it is drawn.** With point on a `SCHEDULED` or
+  `DEADLINE` cell, `RET` opens a date editor in the cell itself, on the day that
+  cell already holds and wholly selected, and what the reader types reads back on
+  a one-line strip under that row — the phrase and the day it resolves to, or the
+  refusal's own word. `S-<left>`/`S-<right>` walk the day and `S-<up>`/`S-<down>`
+  the week, `RET` commits, an emptied cell clears the entry and `ESC` leaves the
+  cell as it was. The grammar is the doc pane's, unchanged: ISO, `today`,
+  `tomorrow`, `+3d`, `18 aug`, `from 18 to 19 august` and org's own bracket. What
+  travels is the phrase the reader typed; the server resolves it once against its
+  own clock. `RET` over any other column still materializes the row.
+
+- **`C-c C-s` and `C-c C-d` over the table open the cell at point** when no rows
+  are marked, moving the column cursor onto that keyword's column. With rows
+  marked they raise today's bulk prompt, over the same rows as before.
+
+- **A capture can carry its dates.** The draft row's `TAB` walk now stops in the
+  `SCHEDULED` and `DEADLINE` cells, with the same editor, strip and step keys;
+  `RET` from any cell still commits the whole capture, and each date cell that
+  holds something rides out as a planning entry. Under `sort:scheduled` a dated
+  capture lands among the days rather than in the undated tail.
+
 ## 0.7.1.0 - 2026-08-31
 
 ### Added
