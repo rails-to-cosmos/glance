@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>F · at point, on TAB</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* F — B'S PLACE, E'S KEYS.  The draft row is inserted BELOW the row at point,
+     org's own `org-insert-heading-after'; `TAB' walks its cells and `S-TAB'
+     walks back; `RET' writes from whichever cell point stands in; `ESC'
+     anywhere drops the whole draft.
+
+       TODO    [#B]   Renew the passport         ← point was here
+     ▏ NEXT    [#A]   ▮        → trip  draft     ← TAB ⇄ S-TAB across the cells
+       NEXT    [#A]   Book the Kyoto flights
+
+     THE QUESTION F EXISTS TO ASK.  B's placement was argued down because the
+     row jumps to its sorted place at the write, so the position the reader
+     chose was never a position the row keeps.  `TAB' changes what the reader
+     CAN do in that position — every cell of the draft is reachable before the
+     write, SCHEDULED excepted — so the question is whether the extra reach buys
+     back the jump.
+
+     IT DOES NOT BUY BACK THE JUMP, and the rig prints why: SCHEDULED is the one
+     cell the walk never reaches, and SCHEDULED is the only cell the sort reads.
+     A reader who sets state, priority and tags from the draft has changed
+     nothing about where the row lands.  Watch the number after `RET'.
+
+     WHAT IT DOES BUY is the half-push shown honestly: only the rows BELOW point
+     move when the draft opens, and `ESC' from any cell puts them back exactly
+     where they were.  The rig measures that too. */
+</style>
+</head>
+<body>
+  <h1>F · at point, on TAB
+    <small>B's placement with E's keys: insert below the cursor, walk on TAB, RET writes</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> pick a row · <kbd>+</kbd> a draft
+      below it · type a title · <kbd>TAB</kbd> the next cell ·
+      <kbd>S-TAB</kbd> the one before · <kbd>RET</kbd> captures from any cell and
+      the row sorts · <kbd>RET</kbd> on an empty title sends you back to the
+      title · <kbd>ESC</kbd> drops the whole draft · <kbd>r</kbd> a repaint ·
+      <kbd>`</kbd> the next filter · <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="align"></span>
+    <span id="says"></span>
+  </footer>
+
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { at: "point", settle: "now", tab: true } });
+})();
+</script>
+</body>
+</html>

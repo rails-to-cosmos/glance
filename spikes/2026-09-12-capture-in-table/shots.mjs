@@ -15,6 +15,10 @@ const url = (f) => pathToFileURL(join(HERE, f)).href;
 const type = (s) => [...s];
 const CTRL = (...ks) => [{ down: "Ctrl" }, ...ks, { up: "Ctrl" }];
 const SHIFT = (...ks) => [{ down: "Shift" }, ...ks, { up: "Shift" }];
+/** TAB, N TIMES, ONE PRESS PER CALL.  Each walk step redraws the row and the
+ * fresh input is focused a macrotask later, so two TABs in one dispatch reach
+ * the same (detached) input twice. */
+const tabs = async (page, n) => { for (let i = 0; i < n; i += 1) await page.keys([KEY.Tab]); };
 const JOT = "Swap the SIM card";
 
 const VARIANTS = [
@@ -23,7 +27,10 @@ const VARIANTS = [
   ["c-walk-the-row.html", "C", "c-walk-the-row"],
   ["d-form-strip.html", "D", "d-form-strip"],
   ["e-walk-on-tab.html", "E", "e-walk-on-tab"],
+  ["f-at-point-on-tab.html", "F", "f-at-point-on-tab"],
 ];
+// The tabs whose draft walks on TAB rather than committing on it.
+const WALKS = new Set(["E", "F"]);
 // C is the only tab whose `RET' walks, so it alone needs four of them to write.
 const write = (name) =>
   name === "C" ? [KEY.Enter, KEY.Enter, KEY.Enter, KEY.Enter] : [KEY.Enter];
@@ -80,8 +87,8 @@ async function open(file) {
   await page.settle();
 }
 
-// ---- the five shots --------------------------------------------------------
-console.log("\nthe five shots\n");
+// ---- the six shots --------------------------------------------------------
+console.log("\nthe six shots\n");
 
 // A — the draft standing at the head with the title half typed: the ghosts the
 // filter seeded, the destination, and the badge that says no file exists yet.
@@ -152,25 +159,47 @@ await open("e-walk-on-tab.html");
 {
   await page.keys(["+"]);
   await page.keys(type(JOT));
-  await page.keys([KEY.Tab]);
-  await page.keys([KEY.Tab]);
-  await page.keys([KEY.Tab]);
+  await tabs(page, 3);
   await page.settle();
   const g = await geom();
   await page.shot(join(HERE, "e-walk-on-tab.png"));
   console.log("e-walk-on-tab   " + g.state);
 }
 
-// The refusal, its own picture because it is the one law with a shipped wording.
+// F — after the write, and after every cell the walk reaches was set: the row
+// still flew, because the walk never reaches SCHEDULED and SCHEDULED is what
+// the sort reads.  That is the whole of F's answer to its own question.
+await open("f-at-point-on-tab.html");
+{
+  const base = await geom();
+  await page.keys(["+"]);
+  const opened = await geom();
+  await page.keys(type(JOT));
+  await tabs(page, 1);
+  await page.keys(type("WAITING"));
+  await tabs(page, 1);
+  await page.keys(type("C"));
+  await page.keys([KEY.Enter]);
+  await page.settle();
+  const g = await geom();
+  await page.shot(join(HERE, "f-at-point-on-tab.png"));
+  console.log("f-at-point-on-tab  draft below point · the rows below moved "
+    + (opened.last - base.last) + "px, the rows above "
+    + (opened.first - base.first) + "px · after the write: " + g.moved);
+}
+
+// The refusal, its own picture because the draft SURVIVES it: the note stands
+// in the row beside the destination hint and the title is open and waiting.
 await open("a-top-row.html");
 {
-  await page.eval(() => window.RIG_TEST.dwell(600000));
   await page.keys(["+"]);
   await page.keys([KEY.Enter]);
   await page.settle();
   const g = await geom();
+  const r = await rig();
   await page.shot(join(HERE, "refusal.png"));
-  console.log("refusal         " + JSON.stringify(g.refuse) + " · " + g.truth);
+  console.log("refusal         " + JSON.stringify(g.refuse)
+    + " · the draft stands, point in the " + r.cell + " cell");
 }
 
 // ---- what the bare jot costs ----------------------------------------------
@@ -252,7 +281,6 @@ for (const [file, name] of VARIANTS) {
   !r.draft && !r.minted ? ok(name + " · ESC drops it silently, nothing written")
                         : fail(name + " · ESC left something behind");
 
-  await page.eval(() => window.RIG_TEST.dwell(600000));
   await page.keys(["+"]);
   await page.keys([KEY.Enter]);
   let g = await geom();
@@ -262,6 +290,13 @@ for (const [file, name] of VARIANTS) {
   r = await rig();
   !r.minted ? ok(name + " · the refusal wrote nothing")
             : fail(name + " · the refusal wrote a row");
+  r.draft && r.cell === "title"
+    ? ok(name + " · the refused draft stands, point in the title")
+    : fail(name + " · the refusal took the draft away");
+  await page.keys(type("x"));
+  g = await geom();
+  g.refuse === "" ? ok(name + " · the next keystroke clears the note")
+                  : fail(name + " · the note outlived the keystroke");
   await page.keys([KEY.Escape]);
 
   await page.keys(["+"]);
@@ -303,7 +338,7 @@ await open("e-walk-on-tab.html");
   await page.keys(SHIFT(KEY.Tab));
   (await cellNow()) === "title" ? ok("E · S-TAB walks back to the title")
                                 : fail("E · S-TAB landed on " + await cellNow());
-  await page.keys([KEY.Tab, KEY.Tab, KEY.Tab]);
+  await tabs(page, 3);
   (await cellNow()) === "tag" ? ok("E · three TABs reach the tags cell")
                               : fail("E · three TABs landed on " + await cellNow());
   await page.keys([KEY.Enter]);
@@ -315,7 +350,7 @@ await open("e-walk-on-tab.html");
   // ESC from a cell that is not the title still drops the WHOLE draft.
   await page.keys(["+"]);
   await page.keys(type("half a thought"));
-  await page.keys([KEY.Tab, KEY.Tab]);
+  await tabs(page, 2);
   await page.keys([KEY.Escape]);
   r = await rig();
   !r.draft && r.minted === 1 && !r.rows.includes("half a thought")
@@ -323,21 +358,82 @@ await open("e-walk-on-tab.html");
     : fail("E · ESC from a non-title cell left something behind");
 
   // AN EMPTY TITLE IS A WALL ON THE TITLE, wherever RET is pressed.
-  await page.eval(() => window.RIG_TEST.dwell(600000));
   await page.keys(["+"]);
-  await page.keys([KEY.Tab, KEY.Tab]);
+  await tabs(page, 2);
   (await cellNow()) === "priority" ? ok("E · TAB reaches priority with no title typed")
                                    : fail("E · landed on " + await cellNow());
   await page.keys([KEY.Enter]);
   const g = await geom();
   r = await rig();
   g.refuse === "nothing to capture" && r.minted === 1
-    ? ok("E · RET from the priority cell refuses on the empty TITLE")
-    : fail("E · the empty-title wall did not hold off the title cell");
+      && r.draft && r.cell === "title"
+    ? ok("E · RET from the priority cell refuses and puts point back in the title")
+    : fail("E · the empty-title wall did not return point to the title");
   await page.keys([KEY.Escape]);
 }
+// F's own five: B's placement under E's keys, and the two numbers that decide
+// whether "at point" survives the walk.
+await open("f-at-point-on-tab.html");
+{
+  const cellNow = () => page.eval(() => window.RIG_TEST.state().cell);
+  const base = await geom();
+  await page.keys(["+"]);
+  const opened = await geom();
+  opened.first - base.first === 0 && opened.last - base.last === 29
+    ? ok("F · the draft pushes the rows BELOW point and leaves those above")
+    : fail("F · pushed " + (opened.first - base.first) + "px above, "
+           + (opened.last - base.last) + "px below");
+  await page.keys(type(JOT));
+  await tabs(page, 1);
+  (await cellNow()) === "state" ? ok("F · TAB walks the title to the state cell")
+                                : fail("F · TAB landed on " + await cellNow());
+  await page.keys(SHIFT(KEY.Tab));
+  (await cellNow()) === "title" ? ok("F · S-TAB walks back to the title")
+                                : fail("F · S-TAB landed on " + await cellNow());
+  await tabs(page, 3);
+  (await cellNow()) === "tag" ? ok("F · three TABs reach the tags cell")
+                              : fail("F · three TABs landed on " + await cellNow());
+  await page.keys([KEY.Enter]);
+  await page.settle();
+  let r = await rig();
+  let g = await geom();
+  r.minted === 1 && r.rows[r.rows.length - 1] === JOT
+    ? ok("F · RET from the tags cell writes, and the row goes to the server's order")
+    : fail("F · the write landed at " + r.rows.indexOf(JOT));
+  /moved \d+ rows? down/.test(g.moved)
+    ? ok("F · the written row still jumped: " + g.moved)
+    : fail("F · expected a jump, got " + JSON.stringify(g.moved));
+
+  // ESC FROM A CELL THAT IS NOT THE TITLE, and the rows below point go back.
+  const settled = await geom();
+  await page.keys(["+"]);
+  await page.keys(type("half a thought"));
+  await tabs(page, 2);
+  await page.keys([KEY.Escape]);
+  await page.settle();
+  r = await rig();
+  g = await geom();
+  !r.draft && r.minted === 1 && !r.rows.includes("half a thought")
+    ? ok("F · ESC from the priority cell drops the whole draft")
+    : fail("F · ESC from a non-title cell left something behind");
+  g.first === settled.first && g.last === settled.last
+    ? ok("F · the rows below point are back exactly where they were")
+    : fail("F · the rows did not return: " + (g.last - settled.last) + "px off");
+
+  // The empty-title wall, from a cell that is not the title.
+  await page.keys(["+"]);
+  await tabs(page, 2);
+  await page.keys([KEY.Enter]);
+  g = await geom();
+  r = await rig();
+  g.refuse === "nothing to capture" && r.draft && r.cell === "title"
+    ? ok("F · RET from the priority cell refuses and puts point back in the title")
+    : fail("F · the empty-title wall did not return point to the title");
+  await page.keys([KEY.Escape]);
+}
+
 for (const [file, name] of VARIANTS) {
-  if (name === "E") continue;
+  if (WALKS.has(name)) continue;
   await open(file);
   await page.keys(["+"]);
   await page.keys(type(JOT));
@@ -356,8 +452,8 @@ await open("index.html");
     src: document.getElementById("stage").getAttribute("src"),
     note: (document.getElementById("note").textContent || "").length,
   }));
-  shell.tabs.length === 5 && shell.src === "a-top-row.html" && shell.note > 40
-    ? ok("index · five tabs, A mounted, the note written")
+  shell.tabs.length === 6 && shell.src === "a-top-row.html" && shell.note > 40
+    ? ok("index · six tabs, A mounted, the note written")
     : fail("index · " + JSON.stringify(shell));
 }
 

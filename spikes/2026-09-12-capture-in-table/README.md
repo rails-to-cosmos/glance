@@ -1,4 +1,4 @@
-# Spike — capture in the table, five shapes for a draft row
+# Spike — capture in the table, six shapes for a draft row
 
 **Date:** 2026-09-12 · **For:** the user's direction of the same day — capture
 loses its popup and happens INSIDE the main table. **Against:** the shipped
@@ -15,8 +15,9 @@ document beneath it. This spike keeps B's row and drops B's document.
 defaults come from the standing filter: `priority:A` in the omnibox makes the
 row's priority A, `tag:x` tags it `x`, `state:NEXT` states it NEXT. Only
 POSITIVE atoms count — `-tag:x` contributes nothing. The reader supplies the
-title and nothing else. An empty title on commit warns and the draft goes;
-`ESC` drops it silently.
+title and nothing else. An empty title on commit warns in the row and sends
+point back to the title, the draft standing; `ESC` is the only key that drops
+it, and it drops it silently.
 
 Against the 08-24 ancestor this drops three things and says so:
 
@@ -56,11 +57,12 @@ real hues and the real metrics.
 | `c-walk-the-row.html` | **C** — `RET` walks title → state → priority → tags |
 | `d-form-strip.html` | **D** — a capture strip above the table, on a surface of its own |
 | `e-walk-on-tab.html` | **E** — A's row, plus `TAB`/`S-TAB` between the draft's cells |
+| `f-at-point-on-tab.html` | **F** — B's placement with E's keys |
 | `rig.js` | the fixture, the filter and its tokeniser, the seeding rule, the draft row, the commit and dismiss laws, the sort, the measurements |
 | `pane.css` | the palette, the row strip, the in-cell editor, the omnibox, the ghost and draft dress — both themes |
-| `shots.mjs` | the six PNGs, every number below, and a 59-rung check of every key |
+| `shots.mjs` | the seven PNGs, every number below, and an 89-rung check of every key |
 | `cdp.mjs` | the 08-24 spike's Chromium driver, copied so this directory stands alone |
-| `a-top-row.png` … `e-walk-on-tab.png`, `refusal.png` | each tab at the moment that shows what it is for, and the refusal |
+| `a-top-row.png` … `f-at-point-on-tab.png`, `refusal.png` | each tab at the moment that shows what it is for, and the refusal |
 
 ```sh
 xdg-open index.html      # or double-click it — no server, no build step
@@ -155,13 +157,26 @@ tags arrive from the filter; SCHEDULED arrives empty and the date widget stays
 its own door (`Keymap.hs:100`). `RET` writes.
 
 **An empty title refuses in the shipped words — `nothing to capture`
-(`20-sheet.js:1628`) — and the draft goes with the refusal.** A row that cannot
-commit is a row the reader should not have to dismiss twice. The refusal turns
-the row's accent edge and its dashed rule red (`#E74C3C`) and stands for a
-second and a half.
+(`20-sheet.js:1628`) — and the draft stands.** The editor goes back to the
+TITLE cell with its (empty) text selected, whichever cell `RET` was pressed in,
+because the wall is on the title rather than on the cell point happens to be in.
+The row's accent edge and its dashed rule turn red (`#E74C3C`) and the note
+rides in the row; the next content key clears it and the `draft` badge comes
+back. A refusal is a CORRECTION: it names what is missing and leaves the reader
+standing where they can supply it, along with every cell they had already set.
 
-**`ESC` drops the draft and says nothing.** No file was written, so nothing is
-put back, and the row count is the six it was.
+*Where the note goes, and why there.* It sits **in the title cell's own run,
+beside the `→ trip` hint and in place of the `draft` badge** — the one slack
+run in a `white-space: nowrap` row, and the one immediately right of the input
+the reader has to fix. The alternative, a flash UNDER the cell, needs a second
+line, and a second line changes the row's height and pushes every row beneath it
+down by the note's height: motion, for a message. The clear is surgical for the
+same reason — a redraw would destroy the input the reader is typing into and
+take the caret with it, so `clearWarn` swaps the note back to the badge in
+place.
+
+**`ESC` is the only key that dismisses, and it says nothing.** No file was
+written, so nothing is put back, and the row count is the six it was.
 
 ## What each tab argues
 
@@ -178,8 +193,9 @@ reach the place `sort:scheduled->title` puts it.
 | **C** walk the row | the strip's first row | every row, 29px | **22**, or 20 with `C-c C-c` | 6 rows / 174px, on the next paint |
 | **D** form strip | its own strip above the table | the whole table, 29px | **19** | none — it lands at row 7 of 7 and nothing moved for it |
 | **E** walk on TAB | the strip's first row | every row, 29px | **19** | 6 rows / 174px, **on the next paint** |
+| **F** at point, on TAB | below the row at point | the rows below point, 29px | **19** | 5 rows / 145px, **at the write — even with every walked cell set** |
 
-**Four of the five cost the jot the same 19 keys.** That is the first finding
+**Five of the six cost the jot the same 19 keys.** That is the first finding
 and it settles most of the argument.
 
 ---
@@ -376,9 +392,50 @@ column of the table above — same placement, same push, same 19 keys, same
 field (`tab: true`) and nothing else. So the question is only whether the added
 key earns its collision, and finding 9 is the answer.
 
+---
+
+## F — AT POINT, ON TAB
+
+![F · at point, on TAB](f-at-point-on-tab.png)
+
+*After the write, with the walk actually used: the state cell typed over to
+`WAITING` and the priority to `[#C]` before `RET` — and the row still sits at
+the foot of the strip wearing `moved 5 rows down (145px)`. Everything the walk
+can reach was set, and the jump is the same jump.*
+
+**The shape.** B's placement under E's keys. `n`/`p` to a row, `+` puts the
+draft BELOW it, `TAB` and `S-TAB` walk its cells, `RET` writes from any of them,
+`ESC` anywhere drops the whole draft.
+
+**The question it exists to ask.** B's placement was argued down because the row
+flies to its sorted place at the write, so the position the reader chose was
+never a position the row keeps. `TAB` changes what the reader CAN do in that
+position — state, priority and tags, all before the bytes land. Does the extra
+reach buy back the jump?
+
+**It does not, and the reason is structural rather than a matter of degree.**
+The walk reaches title, state, priority and tags. **SCHEDULED is the one cell it
+never reaches, and SCHEDULED is the only cell `sort:scheduled->title` reads.** A
+reader who sets every cell the walk offers has changed nothing about where the
+row lands: measured, **5 rows / 145px, identical to B's**. The screenshot is
+that measurement — `WAITING` and `[#C]` were both typed into the draft before
+`RET`, and the number did not move.
+
+**What it does buy, honestly.** The push is a half-push and the rig measures
+both halves: the rows BELOW point move 29px when the draft opens, the rows above
+move **0px**. And `ESC` from any cell puts them back to the pixel — the check
+asserts `first` and `last` against their pre-draft tops and both hold.
+
+**What it costs.** B's two costs, undiminished: the jump at the write, and `+`
+meaning two different placements depending on where the cursor stood. Plus E's
+collision, since it spends the same `TAB`.
+
+**What it refuses.** The claim that the walk was what B lacked. F is the variant
+built to test that claim and the variant that falsifies it.
+
 ## Findings
 
-1. **The jot costs 19 keys in four of the five shapes, and the line itself is
+1. **The jot costs 19 keys in five of the six shapes, and the line itself is
    17 of them.** `+`, the line, `RET`. Today's popup path costs `+`, `RET`, the
    line, `RET` — one more, for the tag field. **In-table capture is the first
    capture shape that is cheaper than the one it replaces**, and it is cheaper
@@ -400,7 +457,7 @@ key earns its collision, and finding 9 is the answer.
 4. **The draft row is not walkable, and it is free.** `openCellEditor` already
    calls `e.stopPropagation()` on every key the open input sees
    (`table-view.js:3917`), so `n` in an open title types an `n`. The check
-   drives exactly this on all five tabs. The corollary is a law rather than an
+   drives exactly this on all six tabs. The corollary is a law rather than an
    accident: **a draft must always have an open editor**, or `n`/`p` acquire a
    meaning over a row that has no id, no span and no file.
 
@@ -446,6 +503,28 @@ key earns its collision, and finding 9 is the answer.
    one narrowed key (`TAB` commits in a cell, walks in a draft) and one set of
    cells the reader has to learn twice.
 
+10. **A typed position survives only when the reader has set every cell the
+    applied sort reads, and the draft cannot know which those are.** F was built
+    to test whether `TAB` rescues "at point": it does not, and the reason is
+    structural. The walk reaches title, state, priority and tags; the applied
+    view sorts on SCHEDULED, which the walk never reaches — so a draft with
+    every walkable cell filled travelled the same 5 rows / 145px as B's empty
+    one. Generalise it and the hole is worse: the sort is a query modifier the
+    reader writes (`sort:title`, `sort:priority`, a chain of three), so the set
+    of cells that would have to be filled to keep a position is a **property of
+    the query**, unknown when the draft opens. **"Below the row at point" is
+    therefore a promise about placement that no amount of in-draft editing can
+    make good.**
+
+11. **A refusal that dismissed would cost more as the draft got richer, which is
+    what settles the empty-title law.** With A's single cell there is nothing to
+    lose; with E's and F's walk a reader can have set state, priority and tags
+    before pressing `RET` on a title they forgot, and a dismissing refusal
+    throws all three away. Keeping the row and returning point to the title
+    costs one keystroke to recover from and loses nothing — and the note has to
+    clear surgically, because a redraw would take the caret out of the input the
+    reader is being asked to type into.
+
 ## The recommendation
 
 **Ship A's placement with B's settle: the draft is the strip's first row, and
@@ -476,7 +555,22 @@ The reasons, in order of weight:
    the in-draft editing question will come up again the moment the destination
    veto (finding 6) needs a cell — take E's `TAB` off the shelf and leave C's
    `RET` on it.
-5. **D's no-motion claim is real, and it costs a second surface and a
+5. **F is the user's stated preference, and the measurements split on it.**
+   F asks whether "at point" is worth the jump now that `TAB` sets every cell
+   before the write. **Where they agree with F:** its push is a HALF-push and
+   the better one of the two — the rows above point move 0px against A's and
+   E's 29px for every row — `ESC` from any cell restores them to the pixel, and
+   the jot is still 19 keys. **Where they refute it:** the jump survives the
+   walk untouched, 5 rows / 145px with `WAITING` and `[#C]` both typed into the
+   draft, because the walk never reaches SCHEDULED and SCHEDULED is what the
+   sort reads (finding 10). So the extra reach buys the row's POSITION nothing,
+   and the jump argues for the top MORE than before rather than less: the top is
+   the one place that never pretended the row would stay. **The one change that
+   would make F's premise true** is a draft that can reach the cells the applied
+   sort reads — a fifth walk stop on SCHEDULED, or `C-c C-s` over the draft
+   (`Keymap.hs:100`). Worth knowing, and it is a bigger feature than the
+   placement question it would settle.
+6. **D's no-motion claim is real, and it costs a second surface and a
    measurement loop between two DOM trees.** Keep it on the shelf: if a
    shipped A turns out to move the reader's eye too much, D is the answer and
    it needs nothing from A to be built. And D is the natural home for a capture
@@ -486,7 +580,7 @@ The reasons, in order of weight:
 loses the reader's veto over the destination. Either the tags cell is editable
 before the commit — **E's `TAB` to exactly that one cell**, which is a much
 smaller claim than either walking variant makes — or a key re-opens today's tag
-field over the draft row. That decision is independent of A, B, C, D and E, and
+field over the draft row. That decision is independent of all six shapes, and
 it should be made. E is the cheapest place to put the answer.
 
 ## What shipping would need
@@ -518,8 +612,11 @@ Nothing here is a proposal; this is what the proposal would have to answer.
   cell, `RET` commits the capture and `ESC` drops it.* The shipped sheet already
   says those words (`20-sheet.js:2196`) and they can be said in the row.
 - **The refusal's home.** `nothing to capture` is a sheet message today
-  (`20-sheet.js:1628`); in the row it needs a place, a dwell, and a decision
-  about whether it removes the row (this spike says yes) or leaves it standing.
+  (`20-sheet.js:1628`); in the row it needs a place (the title cell's own run,
+  argued above), a rule for clearing it (the next content key), and the decision
+  this spike settles the other way from its first draft: **the refusal keeps the
+  row**. Dismissing on a refusal throws away every cell the reader had set, and
+  in E and F that can be three of them.
 - **Where the destination is said, and whether it can be changed** (finding 6).
   `→ trip` costs 98px of the title cell at a 1366px window.
 - **The state wall** (finding 7): the tag's cycle has to be known at seed time,
@@ -538,6 +635,6 @@ Nothing here is a proposal; this is what the proposal would have to answer.
   `parseQuery`'s own tests. A fixture under `test/browser/tree/` carrying a tag
   layer, so `→ trip` and `→ inbox` are both reachable.
 
-`shots.mjs` runs 59 rungs of exactly those keys against these five pages and all
+`shots.mjs` runs 89 rungs of exactly those keys against these six pages and all
 of them are green, which is evidence that the laws are consistent and no
 evidence at all that they are right in the shipped app.

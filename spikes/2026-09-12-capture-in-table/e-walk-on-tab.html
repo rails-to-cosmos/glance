@@ -20,8 +20,9 @@
      `RET' COMMITS FROM ANY CELL, so the bare jot is A's `+', the line, `RET' —
      the same 19 keys, and the walk costs the reader who never takes it nothing
      at all.  `ESC' anywhere drops the whole draft.  An empty title refuses
-     whichever cell `RET' was pressed in, because the wall is on the TITLE and
-     never on the cell point happens to stand in.
+     whichever cell `RET' was pressed in and PUTS POINT BACK IN THE TITLE,
+     because the wall is on the TITLE and never on the cell point happens to
+     stand in.
 
      THE COLLISION, AND IT IS REAL.  In an open table cell `TAB' already commits
      exactly as `RET' does (`table-view.js:3918' — `if (e.key === "Enter" ||
@@ -52,7 +53,7 @@
     <span class="keys"><kbd>+</kbd> a draft row · type a title ·
       <kbd>TAB</kbd> the next cell · <kbd>S-TAB</kbd> the one before ·
       <kbd>RET</kbd> captures from any cell ·
-      <kbd>RET</kbd> on an empty title refuses wherever it is pressed ·
+      <kbd>RET</kbd> on an empty title sends you back to the title ·
       <kbd>ESC</kbd> drops the whole draft · <kbd>n</kbd><kbd>p</kbd> walk ·
       <kbd>r</kbd> a repaint · <kbd>`</kbd> the next filter ·
       <kbd>~</kbd> theme</span>

@@ -182,8 +182,6 @@ const RIG = (function () {
     let minted = 0;
     let told = "";              // the last thing the rig said
     let cost = "";              // the last commit's key count
-    let dwell = 1500;           // how long the refusal stands before the row goes
-    let warnTimer = 0;
     let chord = false;          // a `C-c' waiting for its second half
 
     const wrap = el("tablewrap");
@@ -373,21 +371,32 @@ const RIG = (function () {
     function drop() {
       if (!draft) return;
       draft = null;
-      clearTimeout(warnTimer);
       say("ESC · the draft is gone, silently");
       draw();
     }
-    /** AN EMPTY TITLE REFUSES, in the shipped words (`20-sheet.js:1628'), and
-     * the row goes with the refusal — a draft that cannot commit is not a row
-     * the reader should have to dismiss twice. */
+    /** AN EMPTY TITLE REFUSES, in the shipped words (`20-sheet.js:1628'), AND
+     * THE DRAFT STANDS.  The refusal is a correction rather than a verdict: the
+     * editor goes back to the TITLE with its (empty) text selected, the note
+     * rides in the row beside the destination hint, and `ESC' is the only key
+     * that takes the row away.  A refusal that dismissed would throw away the
+     * cells the reader had already set. */
     function refuse() {
       draft.warned = true;
-      say("RET on an empty title · nothing to capture");
+      draft.cell = "title";
+      say("RET on an empty title · nothing to capture · the title is waiting");
       draw();
-      clearTimeout(warnTimer);
-      warnTimer = setTimeout(() => {
-        if (draft && draft.warned) { draft = null; say("the draft was dismissed"); draw(); }
-      }, dwell);
+    }
+    /** THE NOTE GOES ON THE NEXT KEYSTROKE, and it goes SURGICALLY: a redraw
+     * here would destroy the very input the reader is typing into and take the
+     * caret with it, so the note is swapped back to the badge in place. */
+    function clearWarn() {
+      if (!draft || !draft.warned) return;
+      draft.warned = false;
+      const note = document.querySelector(".cx-refuse");
+      if (note) { note.className = "cx-badge"; note.textContent = "draft"; }
+      const tr = document.querySelector("tr.cx-draft")
+        || (strip && strip.querySelector("tbody tr"));
+      if (tr) tr.classList.remove("cx-refused");
     }
     /** THE COMMIT: the draft becomes a real row through the one command that
      * mints a blob (`/command {"name":"capture"}', `Commands.hs:160'), with the
@@ -485,9 +494,11 @@ const RIG = (function () {
       draft.cells[input.dataset.cell] = input.value;
       draft.cells.typed[input.dataset.cell] =
         input.dataset.cell === "title" ? true : input.value !== seedOf(input.dataset.cell);
-      if (draft.warned && e.key.length === 1) {
-        draft.warned = false; clearTimeout(warnTimer);
-      }
+      // A CONTENT KEY clears the note, since the note is about the title's
+      // content; a movement key leaves it standing, because the title is still
+      // empty and the statement is still true.
+      if (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete")
+        clearWarn();
       if (e.ctrlKey && e.key === "c") {
         e.preventDefault();
         if (chord) { chord = false; commit(); }
@@ -544,7 +555,6 @@ const RIG = (function () {
     draw();
     // The hooks `shots.mjs' drives the pages through; no variant reads them.
     window.RIG_TEST = {
-      dwell: (ms) => { dwell = ms; },
       open, drop, settle,
       state: () => ({
         draft: !!draft, cell: draft && draft.cell, keys: draft && draft.keys,

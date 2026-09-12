@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Capture in the table — four shapes</title>
+<title>Capture in the table — six shapes</title>
 <style>
   /* THE SHELL ONLY.  Each variant is its own page; what they share is `rig.js'
      and `pane.css', which is the point — the tabs differ by WHERE THE DRAFT ROW
      STANDS and what `RET' does in it, never by what it knows.  One fixture, one
-     filter, one seeding rule, one pair of commit/dismiss laws, four shapes. */
+     filter, one seeding rule, one set of commit/refuse/dismiss laws, six shapes. */
   :root{
     --mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
     --bg:#FFFFFF; --fg:#000000; --mute:#667071; --border:#E3E6EA;
@@ -46,13 +46,14 @@
 </head>
 <body>
   <header>
-    <h1>Capture in the table <small>five shapes for a capture with no popup</small></h1>
+    <h1>Capture in the table <small>six shapes for a capture with no popup</small></h1>
     <nav id="tabs" aria-label="variants">
       <a href="#a" data-src="a-top-row.html">A · top row</a>
       <a href="#b" data-src="b-row-at-point.html">B · row at point</a>
       <a href="#c" data-src="c-walk-the-row.html">C · walk the row</a>
       <a href="#d" data-src="d-form-strip.html">D · form strip</a>
       <a href="#e" data-src="e-walk-on-tab.html">E · walk on TAB</a>
+      <a href="#f" data-src="f-at-point-on-tab.html">F · at point, on TAB</a>
     </nav>
   </header>
   <p class="note" id="note"></p>
@@ -72,8 +73,9 @@
   const NOTE = {
     a: K + "The draft is the strip's FIRST row, seeded from the filter, title "
      + "cell open. <kbd>RET</kbd> captures and point stays on the row; "
-     + "<kbd>RET</kbd> on an empty title refuses in the shipped words and takes "
-     + "the row away; <kbd>ESC</kbd> takes it away silently. The applied sort is "
+     + "<kbd>RET</kbd> on an empty title refuses in the shipped words and sends "
+     + "you back to the title with the row standing; only <kbd>ESC</kbd> takes "
+     + "it away. The applied sort is "
      + "<code>sort:scheduled->title</code> and a capture has no date, so the "
      + "fresh row does not belong at the head — <kbd>r</kbd> is the next "
      + "<code>/headlines</code> answer arriving to sort it." + TAIL,
@@ -98,9 +100,16 @@
      + "wrapping at both ends. <kbd>RET</kbd> keeps its one meaning and writes "
      + "from any cell, so the bare jot is still <kbd>+</kbd>, the line, "
      + "<kbd>RET</kbd>, and an empty title refuses wherever <kbd>RET</kbd> was "
-     + "pressed. The collision is worth feeling: in every other tab "
+     + "pressed, putting point back in the title. The collision is worth "
+     + "feeling: in every other tab "
      + "<kbd>TAB</kbd> COMMITS, which is what an open table cell already does "
      + "(<code>table-view.js:3918</code>)." + TAIL,
+    f: K + "B's placement with E's keys: <kbd>n</kbd>/<kbd>p</kbd> to a row, "
+     + "<kbd>+</kbd> puts the draft BELOW it, <kbd>TAB</kbd>/<kbd>S-TAB</kbd> "
+     + "walk its cells, <kbd>RET</kbd> writes from any of them. The question it "
+     + "asks: does being able to set every cell before the write buy back the "
+     + "jump? Watch the number after <kbd>RET</kbd> — the walk never reaches "
+     + "SCHEDULED, and SCHEDULED is the only cell the sort reads." + TAIL,
   };
   const tabs = [...document.querySelectorAll("#tabs a")];
   const stage = document.getElementById("stage");
