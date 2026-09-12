@@ -143,17 +143,17 @@ drawer and every child headline drawn in place.
   the standing value opens selected, =RET= commits,
   =ESC= leaves it, empty clears the entry. The drawer pair's value half wears
   the same field where its key routes to the planning line.
-- *A date is edited where it is drawn*, so the *table* opens the same widget in
-  the cell: =RET= over a =SCHEDULED= or =DEADLINE= cell -- or =C-c C-s= /
-  =C-c C-d= with nothing marked -- edits that day on the cell's own ISO value,
-  and the reading rides a one-line strip under the row, silent while the phrase
-  resolves to the day already there and wearing =✗= where it reads as no date at
-  all. =S-<left>= / =S-<right>= step a day and =S-<up>= / =S-<down>= a week,
-  writing the stepped stamp into the field. With rows *marked* the two sequences
-  keep the bulk prompt -- a set of rows has no cell to stand in. What goes down
-  the wire is the phrase that was typed, never the ghost's reading: the server
+- *A date is edited where it is drawn*, so the *table* gets THAT widget --
+  field, ghost and offers -- standing in the cell's own place: =RET= over a
+  =SCHEDULED= or =DEADLINE= cell, or =C-c C-s= / =C-c C-d= with nothing marked,
+  opens the box on the cell's own ISO value, over the cell it replaces. =TAB= and the arrows take an offer,
+  =S-<left>= / =S-<right>= step a day and =S-<up>= / =S-<down>= a week, writing
+  the stepped stamp into the field. With rows *marked* the two sequences keep
+  the bulk prompt -- a set of rows has no cell to stand in. What goes down the
+  wire is the phrase that was typed, never the ghost's reading: the server
   resolves it once against its own clock and the settle brings the day back.
-  The draft row's two date cells are the same editor.
+  The draft row's two date stops open the same box; =RET= there captures the
+  whole row and =TAB= walks on.
 - The pane ends on one empty line, shown only when the walk reaches it:
   =RET= there writes a fresh paragraph at the document's end, wherever =+=
   is owned by what point stands on.

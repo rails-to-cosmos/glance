@@ -119,26 +119,31 @@ The design, the prior art and the vector table are
 
 ## The date widget
 
-**A date is edited where it is drawn.** `C-c C-s` and `C-c C-d` raise a field
-rather than a blind prompt, and the field stands in the value's own slot — the
-planning line's in the material document, the CELL's in the table — reads the
-grammar above, and shows what it will write before it writes it.
+**A date is edited where it is drawn, with one widget.** `C-c C-s` and `C-c C-d`
+raise a field rather than a blind prompt. The same box — field, ghost and offers
+— covers the planning line's own slot in the material document and hangs over
+the date CELL in the table, reads the grammar above, and shows what it will
+write before it writes it.
 
 | key | what it opens | what `RET` sends |
 | --- | --- | --- |
 | `C-c C-s` | the row's SCHEDULED value, in the planning line's own slot | `set-planning {keyword: "SCHEDULED", date}` |
 | `C-c C-d` | the row's DEADLINE value, the same slot | `set-planning {keyword: "DEADLINE", date}` |
 | `RET` on a planning ENTRY | that entry's value — `f` walks into the line and along it, `b` back out | `set-planning {keyword: the entry's own, date}` |
-| `RET` on a date CELL | that cell's own ISO day, in the table; the reading rides a one-line strip under the row | `set-planning {keyword: the column's own, date}` |
-| `C-c C-s` / `C-c C-d`, nothing marked | the same cell, the column cursor moved onto it | the same |
+| `RET` on a date CELL | that cell's own ISO day, in the box hanging under the cell | `set-planning {keyword: the column's own, date}` |
+| `C-c C-s` / `C-c C-d`, nothing marked | the same box, the column cursor moved onto it | the same |
 | `C-c C-s` / `C-c C-d`, rows MARKED | one prompt over the marked set, which has no cell to stand in | one `set-planning` per file, over those ids |
 
-The cell's strip stays DARK while the phrase resolves to the day the cell
-already holds — the pane's own silence, read against ISO's ten characters — and
-wears `✗` where the phrase reads as no date at all. The commit paints no stamp:
-the wire's cell is ISO and the file's value is org's, so the settle brings the
-day. A draft row's two date cells are the same editor, and what they hold rides
-out in `capture`'s own `planning`.
+The box over a cell is the pane's box, standing in that cell's own place —
+same top, same left, same height — and growing right past the cell's edge, so
+the ghost runs on over the neighbour as a tail. The offers drop below it and
+turn over above it at the window's foot; the box itself never moves. The ghost
+reads the phrase back, the offers complete `today`, `+1w` and the month words
+with `TAB` and the arrows, and `S-<arrows>` step the day and the week. The commit paints no stamp: the
+wire's cell is ISO and the file's value is org's, so the settle brings the day.
+A draft row's two date stops open the same box — there `TAB` takes the offer
+that stands and else walks on, `RET` captures the whole row and `ESC` drops the
+draft — and what they hold rides out in `capture`'s own `planning`.
 
 `RET` on the whole planning line is inert and names the way in; the entry under
 point is what opens. Over `CLOSED` the box reads that key's own wall: org's

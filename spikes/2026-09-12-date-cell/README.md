@@ -1,5 +1,18 @@
 # Spike — the date widget moves into a table cell, three places for the ghost
 
+> **Addendum, 2026-09-12 (review).** **C shipped, then lost.** The strip under
+> the row was built and driven, and seen live it had no OFFERS: the completion
+> menu is `#dwoffer`, a box the pane owns, and the design refused a 118px cell
+> one. So the cell was the pane's widget minus its completion — one widget with
+> a hole in it, which is two widgets. What replaced it is the pane's own
+> `#ddate` box laid over the cell as an OVERLAY, which wins the measurement
+> argument below on the same terms C did (an overlay negotiates against no
+> column measure) and keeps the offers. The three rigs still stand as the
+> measurement; what this spike got wrong is treating a placement as the only
+> question, when the widget's completeness was the one that decided it. See the
+> proposal's *Departures*.
+
+
 **Date:** 2026-09-12 · **After:**
 [`spikes/2026-08-23-date-widget/`](../2026-08-23-date-widget/README.md), whose
 twenty rounds settled the widget's editing laws and whose **D** is the picked

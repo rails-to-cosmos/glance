@@ -20,12 +20,14 @@ everything a capture says.
 | `TAB` / `S-TAB` | walk the draft's cells in the header's own order, wrapping |
 | `RET` | commit, from any cell |
 | `ESC` | drop the draft whole |
-| `S-<arrows>` | in a date cell, walk the day by one and by a week |
+| `S-<arrows>` | in a date stop, walk the day by one and by a week |
 
 The ring is **every cell the draft owns that this view draws**, the two dates
 among them: `title → scheduled → deadline → tag → state → priority` in the
-shipped column order. A date cell is the standing row's own editor, so the
-phrase reads back on the strip under the draft while it is typed.
+shipped column order. A date stop opens the material document's own date box
+over that cell, so the phrase reads back in its ghost and completes from its
+offers; `TAB` there takes the offer that stands and else folds the phrase in and
+walks on.
 
 Three laws hold it:
 
@@ -54,15 +56,16 @@ spend a later write's settle.
 
 **A refusal keeps the draft standing** — a row that cannot commit is a row the
 reader would otherwise have to retype. `RET` on an empty title says `nothing to
-capture`, the server's 400 says its own sentence, the word is drawn beside the
-row as its whole note, the editor comes back to the title with its text
-selected, and the dress turns warn. The next content keystroke clears both; a
-walk and a movement leave them; only `ESC` dismisses.
+capture`, the server's 400 says its own sentence, the word is said in the echo
+pill — it is about the ROW, so it belongs to no column and survives the walk —
+the editor comes back to the title with its text selected, and the dress turns
+warn. The next content keystroke clears the dress; a walk and a movement leave
+it; only `ESC` dismisses.
 
 **A row carries no body and no drawer**, so the commit's args are the title, the
 destination as `tag`, the row's own run as `tags`, the two scalars, and
 `planning` — one entry per date cell that holds something, carrying **the phrase
-the reader typed** and never the stamp the strip drew, which `plannedEntry`
+the reader typed** and never the stamp the ghost drew, which `plannedEntry`
 resolves against the request's one clock read. An empty cell is no entry, and no
 entry is no planning line. A template seeds nothing — the server already ignores
 it on this road.

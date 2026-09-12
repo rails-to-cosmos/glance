@@ -305,9 +305,11 @@ nothing catches it.
   `S-<arrow>` wrote there — and the SERVER resolves them, once per request,
   against its own clock. The client's reading is spent on the preview and on the
   wall above the commit, never on the wire, and an emptied field commits `null`
-  rather than `""`. Four surfaces take the one road: the pane's field
-  (`20-sheet.js:1006`), the bulk prompt (`30-palette.js:44`), the cell
-  (`36-date-cell.js:102`) and the draft's `planning` (`35-draft.js:209`), all
+  rather than `""`. Four surfaces take the one road, and the first three are ONE
+  WIDGET over three rects (`openDateBox`, `20-sheet.js:1080`): the pane's slot
+  (`commitDate`, `20-sheet.js:1110`), the cell (`36-date-cell.js:36`) and the
+  draft's stop (`35-draft.js:99`) — plus the bulk prompt (`30-palette.js:48`)
+  and the draft's `planning` (`35-draft.js:276`), all
   met by `plannedValue` (`Query.hs:1907`) under the request's single `today`
   (`Commands.hs:350`). Pinned by the three cases that name it —
   `TestServe.hs:2046`, `:4876`, `:4883`. Sending `readsDate(typed, …).stamp`
@@ -316,8 +318,10 @@ nothing catches it.
   red on any day the two clocks agree. *fragility: high*
 
 - **A draft is the renderer's own row, and nothing else can reach it.** `+`'s
-  capture row carries an open editor at all times (an editor-less row would have
-  no id, no span and no file for the movement keys to stand on), is never marked
+  capture row carries an open FIELD at all times — the widget's in-cell editor,
+  or the date box laid over one of its two date stops (`35-draft.js:99`); a
+  field-less row would have no id, no span and no file for the movement keys to
+  stand on, and those keys would reach the table. It is never marked
   (`table-view.js:3608`), never selected (`:3874`), never ordered with the rest
   (`:3194`), and its reserved id never reaches `targets()` (`00-core.js:537`) or
   a `/command`; `ESC` leaves the rows byte-identical, no file having been

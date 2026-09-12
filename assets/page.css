@@ -736,7 +736,7 @@ code {
     margin-right: 0;
 }
 
-#dtitle,#dpara,#dpair,#ddate,#sedit,#tedit,#ledit {
+#dtitle,#dpara,#dpair,#sedit,#tedit,#ledit {
     display: none;
     position: absolute;
     background: var(--g-sel);
@@ -746,6 +746,30 @@ code {
 
 #dpara,#dpair,#ddate,#dtitle {
     background: var(--g-surface);
+}
+
+/* ONE DATE WIDGET, TWO SURFACES.  The box hangs at the PAGE's root — the sheet is `display:none' while the table is up — so it is placed against the VIEWPORT (`placeEdit' fixed) and carries the document's own face rather than inheriting the pane's.  102 clears the veiled surfaces (100) and their boxes (101). */
+#ddate {
+    display: none;
+    position: fixed;
+    z-index: 102;
+    --dk-mono: "Hack", var(--glance-mono);
+    font: var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+    box-sizing: border-box;
+}
+
+/* OVER A TABLE CELL the box stands IN the cell's own place, covering it: it owes an edge and a shadow to be read as a field standing over a row it is not part of. The pane's box wears none of this — over a planning line the row's own wash lifts instead, which is the one place the two surfaces differ. */
+#ddate.cell {
+    padding: 0 var(--g-doc-pad);
+    border: 1px solid var(--g-accent);
+    border-radius: 4px;
+    box-shadow: 0 4px 14px var(--g-shadow);
+}
+
+/* THE FLIP, AND IT IS THE OFFERS' ALONE: the box IS the cell and never moves, so at the viewport's bottom edge the menu turns over and hangs above it (spikes/2026-09-12-date-overlay). */
+#ddate.flipped #dwoffer {
+    top: auto;
+    bottom: 100%;
 }
 
 #dtitle {

@@ -20,30 +20,35 @@ section groups a feature arc, and its date is that arc's last commit.
   `ESC` drops it leaving the rows byte for byte. The destination leads the tags
   cell — `:book:` mints a real org-glance blob, an empty run appends to the
   inbox — and a state the destination's cycle lacks is cleared before the wire.
-  A refusal keeps the draft standing with its word beside it, so nothing typed
+  A refusal keeps the draft standing, its word in the echo pill, so nothing typed
   is retyped. The capture popup and the document sheet over a draft are gone:
   the table already says everything a capture says.
 
-- **A date is edited where it is drawn.** With point on a `SCHEDULED` or
-  `DEADLINE` cell, `RET` opens a date editor in the cell itself, on the day that
-  cell already holds and wholly selected, and what the reader types reads back on
-  a one-line strip under that row — the phrase and the day it resolves to, or the
-  refusal's own word. `S-<left>`/`S-<right>` walk the day and `S-<up>`/`S-<down>`
-  the week, `RET` commits, an emptied cell clears the entry and `ESC` leaves the
-  cell as it was. The grammar is the doc pane's, unchanged: ISO, `today`,
-  `tomorrow`, `+3d`, `18 aug`, `from 18 to 19 august` and org's own bracket. What
-  travels is the phrase the reader typed; the server resolves it once against its
-  own clock. `RET` over any other column still materializes the row.
+- **A date is edited where it is drawn, with the widget the material document
+  has.** With point on a `SCHEDULED` or `DEADLINE` cell, `RET` stands that box
+  in the cell's own place — the same field, ghost and offers menu the doc pane
+  raises — opened on the day the cell already holds and wholly selected. It
+  takes the cell's top, left and height and grows right, so the ghost runs on
+  over the neighbour; the offers drop below and turn over above at the window's
+  foot. `TAB` and the
+  arrows take an offer (`today`, `+1w`, `18 august`), `S-<left>`/`S-<right>` walk
+  the day and `S-<up>`/`S-<down>` the week, `RET` commits, an emptied field clears
+  the entry and `ESC` leaves the cell as it was. The grammar is the doc pane's,
+  unchanged: ISO, `today`, `tomorrow`, `+3d`, `18 aug`, `from 18 to 19 august` and
+  org's own bracket. What travels is the phrase the reader typed; the server
+  resolves it once against its own clock. `RET` over any other column still
+  materializes the row.
 
-- **`C-c C-s` and `C-c C-d` over the table open the cell at point** when no rows
+- **`C-c C-s` and `C-c C-d` over the table open that box at point** when no rows
   are marked, moving the column cursor onto that keyword's column. With rows
   marked they raise today's bulk prompt, over the same rows as before.
 
 - **A capture can carry its dates.** The draft row's `TAB` walk now stops in the
-  `SCHEDULED` and `DEADLINE` cells, with the same editor, strip and step keys;
-  `RET` from any cell still commits the whole capture, and each date cell that
-  holds something rides out as a planning entry. Under `sort:scheduled` a dated
-  capture lands among the days rather than in the undated tail.
+  `SCHEDULED` and `DEADLINE` cells, where the same box opens; `TAB` there takes
+  the offer that stands and else walks on, `RET` from any cell still commits the
+  whole capture, and each date cell that holds something rides out as a planning
+  entry. Under `sort:scheduled` a dated capture lands among the days rather than
+  in the undated tail.
 
 ## 0.7.1.0 - 2026-08-31
 

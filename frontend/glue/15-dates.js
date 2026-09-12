@@ -351,8 +351,8 @@
      * page's walls cannot drift from the wall they stand in front of. */
     const DATED = CFG.settable;
     /** THE COLUMNS A DATE IS DRAWN IN, which is those keywords as the view spells
-     * a column key.  ONE LIST: the mount's `editableKeys', the cell editor's
-     * door, the draft's ring and `C-c C-s''s split all read it. */
+     * a column key.  ONE LIST: the box's door over a cell, the draft's ring and
+     * `C-c C-s''s split all read it. */
     const DATE_KEYS = DATED.map((k) => k.toLowerCase());
     const dateCell = (key) => DATE_KEYS.indexOf(key) !== -1;
     /** The planning keyword a date column names.  The pair is the CASE and

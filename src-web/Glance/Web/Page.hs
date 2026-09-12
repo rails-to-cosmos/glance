@@ -42,17 +42,19 @@ demoShell opts font colours views =
       <> docField "dkey" <> "<span class=\"dpunc\">:</span>" <> docField "dval"
       <> ghost "dvghost"
       <> "<div id=\"doffer\"></div></div>"
-      -- THE DATE WIDGET STANDS IN THE VALUE'S OWN SLOT, and carries no label of
-      -- its own: the row it is laid over already names the keyword.
-      <> "<div id=\"ddate\">"
-      <> docFieldSaying "dwhen" "2026-08-18 · today · +3d · 18 aug"
-      <> ghost "dghost"
-      <> "<div id=\"dwoffer\"></div></div>"
       <> "</div>"
   , "      </div>"
   , "      <pre id=\"mlog\"></pre>"
   , "    </div>"
   , "  </div>"
+  -- THE DATE WIDGET IS THE PAGE'S, not the pane's: ONE overlay stands over the
+  -- planning value's slot inside the sheet and over a date CELL in the table,
+  -- so it hangs at the ROOT and is placed against the viewport.  It carries no
+  -- label of its own: whatever it is laid over already names the keyword.
+  , "  <div id=\"ddate\">"
+      <> docFieldSaying "dwhen" "2026-08-18 · today · +3d · 18 aug"
+      <> ghost "dghost"
+      <> "<div id=\"dwoffer\"></div></div>"
   ]
   <> tableFrame "tags" "t" ("<div id=\"tedit\">" <> field "tname" <> "</div>")
   <> popupFrame "prompt" "p" "" ""

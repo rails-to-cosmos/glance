@@ -448,7 +448,9 @@
     let edit = null;
     function openEdit(o, row) {
       edit = { o, row };
-      el(o.box).className = "on";
+      // THE DRESS IS THE OPEN'S: one box over two surfaces wears what the
+      // surface it stands over asks for (`dateShape').
+      el(o.box).className = o.dress ? `on ${o.dress}` : "on";
       // A TIGHT BOX STANDS INSIDE THE ROW, which lifts its own wash (Style.hs).
       el(o.pane).classList.toggle("tight", !!o.tight);
       o.fill(row);
@@ -462,7 +464,9 @@
       el(ids[(at + 1) % ids.length]).focus();
     }
     // ONE `edit' OVER FOUR SURFACES: an unscoped shut would cancel a rename.
-    const editIn = (o) => !!edit && edit.o === o;
+    // The BOX is what names one, so a shape built per open (`dateShape') is the
+    // same surface as the shape it was built from.
+    const editIn = (o) => !!edit && edit.o.box === o.box;
     function shutEdit(o) {
       if (!editIn(o)) return;
       el(edit.o.box).className = "";
@@ -480,12 +484,30 @@
       const m = o.mount();
       return m ? m.el.querySelector("tbody tr.tv-sel") : null;
     };
+    /** WHAT AN ANCHOR MEASURES, element or rect alike: a box laid over a widget's
+     * own cell is handed the rect, the widget owning where its rows are. */
+    const rectOf = (at) =>
+      !at ? null
+      : typeof at.getBoundingClientRect === "function" ? at.getBoundingClientRect()
+      : typeof at.width === "number" ? at : null;
+    const EDGE = 8;   // what a box laid against the viewport keeps clear of it
+    // A FIXED BOX MEASURES AGAINST THE VIEWPORT, which is the origin it is placed in.
+    const viewRect = () =>
+      ({ top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight });
+    /** The height the offers claim under the box, 0 while the menu is shut.  The
+     * MODEL says whether it is up (`wmenu'); the DOM is only measured. */
+    const offersTall = () => {
+      const m = el("dwoffer");
+      return wmenu.list.length && typeof m.getBoundingClientRect === "function"
+        ? m.getBoundingClientRect().height : 0;
+    };
     function placeEdit() {
       if (!edit) return;
       const o = edit.o;
       const tr = anchorOf(o);
       // A page with no layout measures nothing and leaves the overlay put.
-      if (!tr || typeof tr.getBoundingClientRect !== "function") return;
+      const a = rectOf(tr);
+      if (!a) return;
       const span = o.cells && cellSpan(o.cells, o.cols);
       if (o.cells && !span) return;
       const tds = span && [...tr.querySelectorAll("td:not(.tv-box)")];
@@ -493,9 +515,33 @@
       if (o.cells && !(from && to)) return;
       const pane = el(o.pane);
       if (typeof pane.getBoundingClientRect !== "function") return;
-      const a = tr.getBoundingClientRect();
-      const b = pane.getBoundingClientRect();
+      // A BOX AT THE PAGE'S ROOT is placed against the viewport; one inside a
+      // pane against that pane's padding box, scroll and all.
+      const b = o.fixed ? viewRect() : pane.getBoundingClientRect();
+      const [inX, inY] = o.fixed ? [0, 0] : [pane.clientLeft, pane.clientTop];
+      const [byX, byY] = o.fixed ? [0, 0] : [pane.scrollLeft, pane.scrollTop];
       const s = el(o.box).style;
+      // A CELL'S BOX STANDS IN THE CELL'S OWN PLACE: its top, its left and its
+      // height, so the field replaces the value where the value stood and the
+      // reader's eye never leaves the line it asked the question on.  It
+      // shrink-wraps past the cell's right edge -- the ghost runs on over the
+      // neighbour as a tail -- with the cell's width as the floor, and the near
+      // edge gives way only where the far one would run off the viewport.
+      // ONLY THE OFFERS CAN WANT THE FLIP: the box itself IS the cell
+      // (spikes/2026-09-12-date-overlay, B).
+      if (o.over) {
+        const box = el(o.box);
+        box.classList.remove("flipped");
+        const wide = box.offsetWidth || a.width;
+        s.top = `${a.top - b.top}px`;
+        s.height = `${a.height}px`;
+        s.width = "";
+        s.minWidth = `${a.width}px`;
+        s.left = `${Math.max(b.left + EDGE,
+                             Math.min(a.left, b.right - wide - EDGE)) - b.left}px`;
+        if (a.bottom + offersTall() + EDGE > b.bottom) box.classList.add("flipped");
+        return;
+      }
       // THE ROW VOUCHES FOR A TIGHT BOX'S VERTICAL: an empty slot's rect has no height
       // (docs/bugs/fixed/2026-08-25-the-title-box-sits-on-the-baseline-when-the-title-is-empty.md).
       const row = o.tight && tr.closest ? tr.closest(".de") : null;
@@ -503,11 +549,11 @@
       const [padT, padB] = rowed ? rowPads(row) : [0, 0];
       const rr = rowed ? row.getBoundingClientRect() : a;
       // Absolute against the PADDING box: a scrolling pane owes clientTop+scrollTop.
-      s.top = `${(rowed ? rr.top + padT : a.top) - b.top - pane.clientTop + pane.scrollTop}px`;
+      s.top = `${(rowed ? rr.top + padT : a.top) - b.top - inY + byY}px`;
       s.height = `${rowed ? rr.height - padT - padB : a.height}px`;
       // THE BOX COVERS THE BLOCK ON EVERY EDGE, and EVERY field of a two-field box.
       if (o.block) {
-        s.left = `${a.left - b.left - pane.clientLeft + pane.scrollLeft}px`;
+        s.left = `${a.left - b.left - inX + byX}px`;
         s.width = `${a.width}px`;
         for (const id of o.fields) inset(el(id), tr);
         return;
@@ -522,6 +568,7 @@
             : b.right;
         s.left = `${a.left - b.left}px`;
         s.width = `${stop - a.left}px`;
+        s.minWidth = "";
         return;
       }
       if (!o.cells) return;
@@ -561,7 +608,9 @@
     // Typing is the third door; `placeEdit' after it, so a box that grew is re-laid.
     el("dtext").addEventListener("input", () => { sizeDocEdit(); placeEdit(); });
     window.addEventListener("resize", placeEdit);
-    el("mdoc").addEventListener("scroll", placeEdit, true);
+    // EVERY SCROLLER, IN THE CAPTURE PHASE: `scroll' does not bubble, and the box
+    // stands over a pane's row and over a mounted table's cell alike.
+    document.addEventListener("scroll", placeEdit, true);
     // A LEFT CLICK SELECTS the row it lands on, a DOUBLE CLICK edits it, waiting on
     // no round-trip.  Clicks inside the open edit box carry no row and are ignored.
     const deUnder = (e) => (e.target instanceof Element ? e.target.closest("#mdoc .de") : null);
@@ -748,23 +797,24 @@
     };
     // `viewPlanning' gives each value its own span (`Doc.elm'); the box lies there.
     const dPlanAt = () => {
-      const key = editIn(DDATE) ? edit.row.key : null;
+      const key = ddating() ? edit.row.key : null;
       return key ? el("dlist").querySelector(`.dpv[data-key="${key}"]`) : null;
     };
-    const DDATE = {
-      box: "ddate", pane: "mdoc", fields: ["dwhen"],
-      mount: () => null, anchor: dPlanAt, tight: true,
-      // Placed synchronously -- `soon(placeEdit)' would land a frame late.
-      fill: (r) => { el("dwhen").value = r.val; dateMoved(); placeEdit(); },
-      focus: () => selectWhole(el("dwhen")),
-    };
+    // THE DATE BOX IS NAMED BY ITS BOX ALONE: where it stands and what it wears
+    // are the OPEN's (`dateShape'), so this is what `editIn' and `shutEdit' match.
+    const DDATE = { box: "ddate" };
     const dediting = () => editIn(DTITLE);
     const dparaing = () => editIn(DPARA);
     const dpairing = () => editIn(DPAIR);
     const ddating = () => editIn(DDATE);
+    // WHICH SURFACE THE BOX STANDS OVER: the pane's open covers the planning
+    // slot inside a row and hands ESC to the sheet's own ladder; a cell's hangs
+    // under a table row, which is nobody's sheet and cancels itself.
+    const dateOverCell = () => ddating() && !edit.row.tight;
     // `edit' is shared with the table's rename, so this asks MEMBERSHIP of it.
     const DOCEDITS = [DTITLE, DPARA, DPAIR, DDATE];
-    const sheetOpen = () => !!edit && DOCEDITS.indexOf(edit.o) !== -1;
+    const sheetOpen = () =>
+      !!edit && DOCEDITS.some((o) => o.box === edit.o.box) && !dateOverCell();
     /** Answer the day the open edit reads against, stamped when it was summoned.
      * The ghost and the wall above the commit must never disagree on the day. */
     const editDay = () => (edit && edit.row.today) || dateNow();
@@ -959,6 +1009,10 @@
       wmenu.list = only ? [] : dateOffers(typed, today, r);
       menuPaint(wmenu);
       drawGhost("dwhen", "dghost", true, r);
+      // THE BOX IS RE-PLACED ON EVERY KEYSTROKE: the field grew or shrank by a
+      // `ch' and the offers came or went, and over a cell BOTH decide where the
+      // box's far edge lands and whether the menu has to turn over.
+      placeEdit();
     }
     /** Re-assert the VIRGIN selection: the port lands a macrotask behind the open. */
     function reselectDate() {
@@ -988,15 +1042,73 @@
       const back = docCursor().at;
       if (drew) redraftPlan(keyword);
       // ONE CLOCK READ PER SUMMON: ghost, offers and commit all read this day.
-      openEdit(DDATE, { key: keyword, val: stood, add: drew, back, b,
-                        today: dateNow() });
-      said(b, DATE_FOOT);
+      openDateBox({ rect: dPlanAt, tight: true, edge: null,
+                    key: keyword, initial: stood, add: drew, back, b,
+                    today: dateNow(), foot: DATE_FOOT,
+                    onCommit: (typed, k) => commitDate(k, typed) });
     }
+
+    /** THE DATE BOX'S SHAPE FOR ONE OPEN.  `#ddate' is ONE widget over two
+     * surfaces, so WHERE IT STANDS IS THE OPEN'S rather than the box's: over the
+     * pane it covers the planning value's slot to the entry's edge and lifts
+     * that row's wash (`tight', docs/invariants.md), and over a table cell it
+     * covers THAT cell -- same top, same left, same height -- at the cell's own
+     * width or wider.  Both are the box standing in the value's own slot; the
+     * box hangs at the page's root, so both are placed against the viewport. */
+    const dateShape = (o) => ({
+      box: "ddate", pane: "mdoc", fields: ["dwhen"], mount: () => null,
+      fixed: true, anchor: o.rect, edge: o.edge,
+      tight: !!o.tight, over: !o.tight, dress: o.tight ? "" : "cell",
+      // Placed synchronously by `dateMoved' -- `soon(placeEdit)' would land a
+      // frame late, and the offers decide the flip.
+      fill: (r) => { el("dwhen").value = r.val; dateMoved(); },
+      focus: () => selectWhole(el("dwhen")),
+    });
+    /** THE DATE WIDGET OVER WHAT RECT ANSWERS: the field, the ghost, the offers,
+     * the step keys and RET/ESC, wherever a date is owed.  ONE WIDGET AND ONE
+     * CODE PATH, so no surface can lack what another has.
+     *
+     * INITIAL fills the field, wholly selected -- org-read-date's own default.
+     * TODAY is the ONE CLOCK READ the ghost, the offers and the wall above the
+     * commit all spend, stamped here so they cannot disagree mid-edit; it is
+     * spent on INK alone and THE PHRASE is what travels (docs/invariants.md).
+     * ONCOMMIT takes the phrase that passed that wall AND THE KEY'S OWN BINDING,
+     * so the pill names the key that committed rather than the one that summoned;
+     * ONCANCEL the `ESC' where the surface owns it, and ONWALK `TAB''s step where
+     * the surface has a ring.  Every one of them owns the SHUT, the pane's
+     * undrafting its own line.
+     * @param {{rect: () => any, initial?: string, today: any, b: any,
+     *          key?: string, tight?: boolean, edge?: (() => any)|null,
+     *          add?: boolean, back?: any, foot?: string,
+     *          onCommit: (typed: string, b: any) => void, onCancel?: () => void,
+     *          onWalk?: (step: number, typed: string) => void}} o */
+    function openDateBox(o) {
+      openEdit(dateShape(o), Object.assign({ val: o.initial || "" }, o));
+      if (o.foot) said(o.b, o.foot);
+    }
+    /** `RET' INSIDE THE BOX: the offer that stands, else THE WALL and the open's
+     * own commit.  `datePassed' says the reader's own word and posts nothing
+     * where no reading takes the phrase, so the server's refusal is the backstop
+     * rather than the reader's first news. */
     function dateKey(b) {
       if (menuTake(wmenu, "dwhen", dateMoved)) return;
       // The pane reads CLOSED verbatim, so the wall above ITS commit is `readsWhen'.
       const typed = datePassed(b, el("dwhen").value, editDay(), readsWhen);
-      if (typed !== null) commitDate(b, typed);
+      if (typed !== null) edit.row.onCommit(typed, b);
+    }
+    /** `TAB' INSIDE THE BOX: the offer first, then the surface's own ring.  A box
+     * with no ring swallows the key, which is where the pane's has always left it. */
+    function dateTab(step) {
+      if (step > 0 && menuTake(wmenu, "dwhen", dateMoved)) return;
+      const walk = edit.row.onWalk;
+      if (walk) walk(step, el("dwhen").value.trim());
+    }
+    /** `ESC' OVER A BOX THAT IS NOBODY'S SHEET: the box down first, so whatever
+     * the open hands back to finds nothing standing over it. */
+    function cancelDateBox() {
+      const go = edit.row.onCancel;
+      shutEdit(DDATE);
+      go();
     }
     /** Send TYPED verbatim: ONE CLOCK READ, the server's own (docs/invariants.md).
      * A CHILD has no row id and rides `?child='. */
@@ -1322,7 +1434,9 @@
     }
     // Registers AHEAD of the dispatch, so it sees a key first — AGENTS.hs.
     // Without the guard the sheet claims the letter a palette was raised to read.
-    onKeys(() => editing && !raw && !momentary(), (k, e) => {
+    // THE DATE BOX IS THE ONE SURFACE THAT STANDS WITHOUT THE SHEET: over a
+    // table cell there is no document open, so the gate takes it on its own.
+    onKeys(() => ddating() || (editing && !raw && !momentary()), (k, e) => {
       // ANY OTHER KEY STARTS `C-l''s CYCLE OVER, org's own rule for it.
       if (k !== "C-l") recentres = 0;
       const once = (act) => { if (!repeating(e)) act(); };
@@ -1333,11 +1447,17 @@
         if (by) { e.preventDefault(); dateAdjust(dateBinding(k), by); return; }
         const walk = walkStep(k);
         if (walk) { e.preventDefault(); once(() => menuWalk(wmenu, walk)); return; }
-        if (k !== "TAB" && k !== "RET") return;
+        // A BOX OVER NOBODY'S SHEET CANCELS ITSELF; the pane's hands ESC to the
+        // sheet's own ladder, which is where it has always gone.
+        if (k === "ESC" && edit.row.onCancel)
+          { e.preventDefault(); once(cancelDateBox); return; }
+        if (k !== "TAB" && k !== "S-TAB" && k !== "RET") return;
         e.preventDefault();
         if (k === "RET") once(() => dateKey(dateBinding(k)));
+        else once(() => dateTab(k === "TAB" ? 1 : -1));
         return;
       }
+      if (!editing || raw || momentary()) return;
       if (dpairing()) {
         const step = walkStep(k);
         if (step) { e.preventDefault(); once(() => menuWalk(dmenu, step)); return; }

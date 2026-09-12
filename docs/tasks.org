@@ -461,16 +461,74 @@ or the row at point", =takesRows= is unchanged and only the surface splits.
 Gate: =runghc AGENTS.hs= 0, =/Spec/= green.  No case touched, so no
 =browser-check=.
 
+* DONE The date cell is the pane's own box, laid over the cell
+THE STRIP LOST ON REVIEW (2026-09-12, after seeing it live): it had no OFFERS —
+the menu is =#dwoffer=, a box the pane owns, and a 118px cell had no room for it
+— so completion was the one thing the cell lacked.  A date cell now opens THE
+WIDGET THE MATERIAL DOCUMENT HAS, as an overlay.
+
+=#ddate= moved OUT of =#mdoc= to the PAGE's root (=Page.hs:54=) and is
+=position:fixed= (=page.css:752=): the sheet is =display:none= while the table
+is up, so a box living in it could never stand over a row.  =placeEdit=
+(=20-sheet.js:497=) gained two branches — =o.fixed= measures against the
+VIEWPORT rather than the pane's padding box, and =o.over= puts the box IN THE
+CELL'S OWN PLACE (its top, its left, its height), growing right past the cell's
+edge with the cell's width as the floor and clamped off the viewport's edge.
+THE BOX NEVER FLIPS, being the cell; only =#dwoffer= turns over, on
+=#ddate.flipped= (=page.css:770=), where the window's foot leaves it no room —
+the pick is =spikes/2026-09-12-date-overlay='s B.  =placeEdit= is now wired to
+EVERY scroller in the capture phase rather than to =#mdoc='s alone, so the
+mounted table's own scroll re-places the box.  =DDATE= is now the SURFACE'S NAME
+alone (={box: "ddate"}=) and =editIn= matches on the box id, so =dateShape(o)=
+can build a shape per open.  The door is
+=openDateBox({rect, initial, today, b, foot, key, tight, onCommit, onCancel,
+onWalk})= (=20-sheet.js:1080=); =dateKey= routes =RET= through the shipped wall
+(=datePassed=) to =onCommit=, =dateTab= takes the offer then =onWalk=, and
+=cancelDateBox= is =ESC= where the open owns it.  The listener's gate is now
+=ddating() || (editing && ...)=: the box is the one surface that stands with no
+document open.
+
+Three callers, one path: the pane (=summonPlan=, =tight=, =dPlanAt=), a standing
+row's cell (=openDateCell=, =36-date-cell.js:26=) and the draft's date stop
+(=openDraftDate=, =35-draft.js:99=).  The widget owes two verbs for it —
+=cellRect(id, col)= and =closeEditor()= — and LOSES =editableKeys=,
+=onCellInput=, =refreshStrip= and the whole =tr.tv-strip= row with its sheet
+(−97 lines).  =36-date-cell.js= went 115 → 61; =dateCellNote=, =dateCellKey=,
+=dateCellStep=, =commitDateCell=, =cellKey= and =cellNote= are gone, the box's
+own ghost and keys doing all of it.  The draft's refusal is the ECHO PILL's
+(=said=) rather than a strip, the row keeping its warn dress.
+
+Cases: five date-cell cases rewritten for the box, three new (=the offers
+complete a month word in the cell's box=, =the draft's date stop opens the box,
+TAB with no offer walks on=, =on the bottom row the offers flip above the box=),
+five deleted with the strip and the rig that drove the two mount options.
+Browser 119 → 117.  The flip case shrinks the log strip (=--g-logn=, the
+settings sheet's own property) to one line first: at its default the chrome under
+the table leaves 153px, which the 128px menu fits in, so the flip is unreachable
+without it.  Three shell pins moved: the overlay's
+=className=, the =display:none= family =#ddate= left, and =placeEdit='s origin.
+
+* TODO A browser case writes a date and never puts it back, so a later case re-seeds
+=a headlines answer arriving under a draft leaves it standing=
+(=test/browser/cases.mjs=) fires =set-planning SCHEDULED 2026-12-01= at whichever
+row the draft landed under — =drv-wide= in the shipped order — and restores
+nothing.  =the draft's SCHEDULED stop lands the row where the sort puts it= then
+opens on =-scheduled:*empty* sort:scheduled= and finds five rows where it names
+three, so it goes red once and passes on the harness's re-seeded tree.  Both
+full runs of 2026-09-12 carried that one retry.  The fix is the =putPlanning=
+restore every other writing case already does, taken from a reading of the row
+BEFORE the write since the row is chosen at run time; it costs two full
+=browser-check= runs to prove and was left out of the date-overlay change.
+
 * TODO A browser case for the frame tick's repaint, which needs a taller tree
 =tick()= now redraws through =repaint()= (=assets/table-view.js=), so a window
-that MOVED never wipes an open cell editor and its strip.  NOTHING DRIVES IT:
-=renderRows= only repaints when the window moves, =first= leaves 0 only past
-=OVERSCAN= (15) rows of scroll — 450px at =ROW_H= 30 — and the fixture's 29 rows
-give the shell and the rig alike about 260px of scroll.  A case is owed either a
-fixture of ~60 headlines (which shifts every position-sensitive case, so it
-wants a tree of its own the way =repo: true= has one) or a viewport override in
-the driver.  The two SIBLING defects are pinned: =the strip is paid once= and
-=a store settle under an open draft leaves its date ghost lit=.
+that MOVED never wipes an open cell editor.  NOTHING DRIVES IT: =renderRows=
+only repaints when the window moves, =first= leaves 0 only past =OVERSCAN= (15)
+rows of scroll — 450px at =ROW_H= 30 — and the fixture's 29 rows give about
+260px of scroll.  A case is owed either a fixture of ~60 headlines (which shifts
+every position-sensitive case, so it wants a tree of its own the way =repo: true=
+has one) or a viewport override in the driver.  The SIBLING defect is pinned:
+=a store settle under an open draft leaves its date box standing=.
 
 * TODO A tag on an inbox headline moves it under the tag (first tag wins)
 See [[file:bugs/open/2026-09-12-a-tag-on-an-inbox-headline-leaves-it-in-the-inbox.md]].
@@ -507,12 +565,12 @@ branch):
   =domainOf=) and out of a long press's and a double-click's default command.
 - =refused= DRESSES a producer's row =tv-refused= (=rowClasses=) and draws
   nothing: =noteOf= and =noteCell= are GONE, with =rowText='s measurement of
-  them and =rowHTML='s note cell.  What a row was refused for rides the strip
-  under the cell being typed in — one note mechanism, and no second slot.
+  them and =rowHTML='s note cell.  What a row was refused for is the producer's
+  to say where it says such things — one note mechanism, and no second slot.
 - =holdEditor= / =resumeEditor= / =repaint= (=:4224=): a repaint holds the open
   input's value in the HANDLE and puts the caret back, never =select()=;
   =repaint(force)= takes the flag =renderRows= takes, and the FRAME TICK goes
-  through it, so a window that moved never wipes an open editor and its strip.
+  through it, so a window that moved never wipes an open editor.
 - =getEditing()= on the handle (=:4147=, =:5463=), and =onCellKey='s cell
   carries the column =key= beside =col= (=:4111=).
 - =openCellEditor= no longer closes for its callers; =editCell= takes an
@@ -520,32 +578,22 @@ branch):
 - The producer row's dress moved OUT of =assets/page.css= into the widget's own
   sheet as =tv-producer= / =tv-refused= (=:1799=), with a new =--tv-warn= token
   (=:1160=, paired with =--g-warn= in =Glance.Web.Theme=).
-- =MountOptions= gains =editableKeys: string[]= (typedef =:105=, read by
-  =keyEditable= =:4128=): the columns a STANDING row's cells open in, gating
-  =editCell= (=:4134=) beside =producerRow= and the column's own =editable=.
-  =editHeader= (=:4229=) does NOT read it — a key on the list opens a cell and
-  never a header.
-- =MountOptions= gains
-  =onCellInput(e, cell) => string | {text, bad} | null= (typedef =:101=), asked
-  once at the open, on every =input= an open cell sees, and whenever
-  =refreshStrip= asks again (=askStrip=, =dropStrip=, =mountStrip=).
-- THE STRIP IS ONE NODE FOR THE EDITOR'S LIFE: a =colspan='ed =tr.tv-strip=
-  spliced directly under the edited row at the table's whole width, dressed in
-  the widget's own sheet (=:1834=, a ={bad: true}= answer wearing
-  =tv-refused='s warn), MOUNTED AT THE OPEN and left EMPTY where the producer
-  says nothing — so the line it costs is paid once and an answer that comes and
-  goes never moves the rows below.  It is no =Row= — =standing=, =ordered=, the
-  marks and the selection never see it — and it goes with the editor on RET and
-  ESC alike.
-- =refreshStrip()= on the handle: the producer asks the strip to be redrawn
-  outside an =input= event, for an answer that turned on something other than a
-  keystroke.
+- =closeEditor()= on the handle: the open in-cell editor taken down writing
+  nothing, for a producer that has moved the reader somewhere else.
+- =cellRect(id, col)= on the handle: WHERE a cell is drawn, so a producer laying
+  its own overlay over one asks the widget rather than walking its DOM.
 - =OpenCell= (typedef): the cell a producer is asked about carries =raw= — the
   value the editor OPENED on — and =token=, a counter bumped per open, beside
-  ={id, col, key, value}=.  Both ride =onCellKey= and =onCellInput=.
+  ={id, col, key, value}=.  It rides =onCellKey=.
 - =holdEditor= / =resumeEditor= (=:4201=, =:4220=) hold EVERY row's editor the
   same way: the typed line rides in the handle's =value= and never enters
   =r.cells= — a standing row's cells being the store's and a producer's own
   cell being drawn by the input in it — and the re-open carries =raw= and
   =token= through =editCell='s fourth and fifth arguments, so a repaint is the
   SAME open rather than a new one.
+
+RETIRED ON REVIEW (2026-09-12): =editableKeys=, =onCellInput=, =refreshStrip=
+and the =tr.tv-strip= row were built for the date cell's reading and lost with
+it — a date is edited in the document's own box laid over the cell, so no
+standing row's cell opens an editor at all.  Nothing above was ever upstreamed,
+so they are gone rather than deprecated.

@@ -6361,7 +6361,11 @@ editIndentSweep shell = testCase "the paragraph's edit box is the block it cover
   assertBool "the pane's inset is one name, read by both"
              (hasCss "padding:var(--g-doc-pady) var(--g-doc-padx)" page)
   assertBool "the placement takes the pane's border and scroll back out"
-             (") - b.top - pane.clientTop + pane.scrollTop" `T.isInfixOf` page)
+             (") - b.top - inY + byY" `T.isInfixOf` page)
+  -- …AND A BOX AT THE PAGE'S ROOT TAKES NEITHER: it is laid against the VIEWPORT,
+  -- which is the one origin the sheet and the table share.
+  assertBool "a fixed box measures against the viewport"
+             ("o.fixed ? viewRect() : pane.getBoundingClientRect()" `T.isInfixOf` page)
   -- FOCUS DRAWS NO LINE: the document's box is read as text and must not grow one.
   focus <- need "the box's focus rule"
                 (ruleLine ("#dpara textarea:focus,#dtin:focus,#dpair input:focus,"
@@ -6893,7 +6897,7 @@ shellGlue =
   , Glue "the edit overlay is one mechanism, seven shapes over four surfaces"
       [ "function openEdit(o, row) {"
       , "edit = { o, row };"
-      , "el(o.box).className = \"on\";"
+      , "el(o.box).className = o.dress ? `on ${o.dress}` : \"on\";"
       , "o.fill(row);"
       , "o.focus(row);"
       -- The anchor is the SHAPE's: a mount names its root and selected row, the document names the element under point.
@@ -6910,7 +6914,9 @@ shellGlue =
       -- THE SNAPSHOT: a commit reads the row the overlay OPENED over, never the cursor.
       , "const r = edit.row;"
       -- The seven, each named by the predicate or the commit that asks for it.
-      , "const editIn = (o) => !!edit && edit.o === o;"
+      -- THE BOX NAMES THE SURFACE, so a shape built PER OPEN (the date box, which
+      -- stands over the pane's slot and over a table cell) is the same surface.
+      , "const editIn = (o) => !!edit && edit.o.box === o.box;"
       , "const dediting = () => editIn(DTITLE);"
       , "const dparaing = () => editIn(DPARA);"
       , "const dpairing = () => editIn(DPAIR);"
@@ -7112,7 +7118,10 @@ shellGlue =
       , "return SURFACES.some((s) => s.up())"
       , "#mpanes{flex:1;min-height:0;overflow:hidden;"
       -- The open element's fields sit OVER the row; the document's box takes `font:inherit' so an edit renders in the PANE's line box.
-      , "#dtitle,#dpara,#dpair,#ddate,#sedit,#tedit,#ledit{display:none;"
+      , "#dtitle,#dpara,#dpair,#sedit,#tedit,#ledit{display:none;"
+      -- THE DATE BOX HANGS AT THE PAGE'S ROOT, the pane being `display:none' while
+      -- the table is up, so it is FIXED and carries the document's face itself.
+      , "#ddate{display:none;position:fixed;z-index:102;"
       , "#sedit input,#tedit input,#ledit input{"
       -- ONE FOCUS LANGUAGE: the browser can only dress the one pane that takes a real focus.
       , "#mtext:focus{outline:none;border-color:var(--g-accent)}"

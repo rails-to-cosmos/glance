@@ -551,3 +551,25 @@ design:
   `TestServe.hs:11748`). `C-c C-s` still takes "the marked rows, or the row at
   point": `takesRows` is unchanged and only the surface splits, so the help is
   still true.
+- **2026-09-12 review: the strip lost to the pane's own box as an overlay —
+  offers included.** Seen live, the shipped cell had no completion: `dateOffers`
+  paints into `#dwoffer`, a box the pane owns, and the design refused it a cell
+  ("An offers menu in the cell", above). One widget with a hole in it is two
+  widgets. What replaced it is that very box, laid over the cell as an
+  OVERLAY — so the cell's placement negotiates against no column measure either,
+  which was the strip's whole argument, and the reading, the offers, the step
+  keys and the walls are one code path. Where the overlay goes was then measured
+  in [`spikes/2026-09-12-date-overlay/`](../../../spikes/2026-09-12-date-overlay/README.md),
+  whose **B** is the pick: the box stands IN THE CELL'S OWN PLACE — same top,
+  same left, same height — and grows right, the ghost running on over the
+  neighbour as a tail; only the OFFERS turn over at the window's foot, the box
+  itself never moving because it is the cell. `#ddate` moved out of `#mdoc` to
+  the page's root and is placed against the viewport (`Page.hs:54`,
+  `page.css:752`, `placeEdit`'s `fixed`/`over` branches); the door is
+  `openDateBox` (`20-sheet.js:1080`). `editableKeys`, `onCellInput`,
+  `refreshStrip` and `tr.tv-strip` are gone from the widget — none had been
+  upstreamed — and it gained `cellRect(id, col)` and `closeEditor()` instead.
+  The draft's refusal moved from the strip to the echo pill. Laws 1–4 and 6
+  stand unchanged; **law 5 is retired**: the cell opens on ISO and the shipped
+  ghost speaks over it, which is the pane's own reading applied without an
+  exception rather than a silence rule of its own.

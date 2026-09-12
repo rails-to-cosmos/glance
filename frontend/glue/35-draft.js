@@ -61,8 +61,8 @@
     /** THE DRAFT, AS ONE OBJECT: the very row the widget holds, with the page's
      * own two facts on it.  The cells, the anchor and the refusal are the row's —
      * two copies of a cell is how the drawn row and the posted capture come to
-     * disagree.  `refused' DRESSES the row warn and says nothing; the word rides
-     * the strip under the cell that is open (`draftNote').
+     * disagree.  `refused' DRESSES the row warn and says nothing; the WORD is
+     * the echo pill's, which belongs to no cell and survives the walk.
      * @type {{id: string, producer: boolean, under: string|null,
      *         refused: string, dest: string,
      *         cells: Record<string, string>} | null} */
@@ -82,6 +82,46 @@
       const at = colAt(key);
       return at !== -1 && can(table, "editCell") && table.editCell(DRAFT_ID, at);
     };
+    /** THE STOP KEY OPENED.  A DATE CELL TAKES THE DATE BOX, laid over it -- the
+     * same widget the material document has, offers and all -- and every other
+     * cell the widget's own in-cell editor.  ONE RING either way. */
+    const openDraftStop = (key) =>
+      ((dateCell(key) && openDraftDate(key)) || openDraftAt(key));
+    /** THE THREE KEYS A DRAFT'S DATE STOP ANSWERS, which are not the three a
+     * landed row's cell answers: nothing is SET here, the whole row being
+     * captured or never having been. */
+    const DRAFT_DATE_FOOT = "RET captures · TAB walks on · ESC drops the draft";
+    /** THE DRAFT'S DATE STOP.  `RET' commits the WHOLE capture (a draft has no id
+     * and no span for a per-cell verb to name), `TAB' takes the offer that stands
+     * and else walks on, and `ESC' drops the draft the way it does from every
+     * other cell.  The phrase is folded into the row before either leaves, the
+     * walk accumulating and posting nothing. */
+    function openDraftDate(key) {
+      const at = colAt(key);
+      // ASKED BEFORE THE CLOSE: a renderer that cannot answer where a cell is
+      // leaves the reader in the plain editor rather than in nothing at all.
+      if (at === -1 || !can(table, "cellRect", "closeEditor")
+            || !table.cellRect(DRAFT_ID, at)) return false;
+      // THE IN-CELL EDITOR GOES NEXT: the box is laid over the cell, so the
+      // widget's own input must not be standing under it.
+      table.closeEditor();
+      // THE ROW IS REPUBLISHED WITH THE PHRASE IN IT: the box is no cell editor,
+      // so nothing else redraws the cell it was laid over.
+      const fold = (typed) => {
+        drafting.cells[key] = typed;
+        shutEdit(DDATE);
+        redrawDraft();
+      };
+      openDateBox({
+        rect: () => table.cellRect(DRAFT_ID, at),
+        initial: String(drafting.cells[key] || ""), key: planKeyword(key),
+        today: dateNow(), b: cellBinding(key), foot: DRAFT_DATE_FOOT,
+        onCommit: (typed) => { fold(typed); commitDraft(null); },
+        onCancel: dropDraft,
+        onWalk: (step, typed) => { fold(typed); walkFrom(key, step); },
+      });
+      return true;
+    }
 
     /** `+': A DRAFT ROW UNDER THE ROW AT POINT, wearing what the filter pins,
      * with the title cell's editor open.  The open input takes every key it
@@ -134,8 +174,8 @@
 
     /** THE CELLS A DRAFT OWNS.  The date columns are among them, SPLICED FROM THE
      * ONE LIST (15-dates.js): a draft's date rides out in the capture's own
-     * `planning' (`draftArgs'), and the cell it is typed into is the standing
-     * row's own editor (36-date-cell.js). */
+     * `planning' (`draftArgs'), and the stop it is typed at is the document's own
+     * date widget laid over that cell (36-date-cell.js). */
     const DRAFT_CELLS = ["title", "state", "priority"].concat(DATE_KEYS, ["tag"]);
     /** THE RING `TAB' WALKS: those of the draft's cells this view draws, IN THE
      * ORDER THE HEADER DRAWS THEM, left to right; `S-TAB' is the same ring the
@@ -172,20 +212,26 @@
     }
 
     /** ONE STEP OF THE WALK: the CLOSING cell's value into the row, then the
-     * next cell opens.  The row's value is what the next editor opens on, so a
+     * next stop opens.  The row's value is what the next editor opens on, so a
      * cell walked through untouched keeps what it held. */
     function walkDraft(cell, step) {
-      const ring = draftWalk();
-      const at = ring.indexOf(cell.key);
-      if (at === -1) { openDraftAt(ring[0]); return; }
+      if (draftWalk().indexOf(cell.key) === -1) { openDraftStop(draftWalk()[0]); return; }
       drafting.cells[cell.key] = cell.value;
-      openDraftAt(ring[(at + step + ring.length) % ring.length]);
+      walkFrom(cell.key, step);
+    }
+    /** ONE STEP OF THE RING FROM KEY, whose value is already in the row: what a
+     * stop calls once it has folded what was typed at it into the draft. */
+    function walkFrom(key, step) {
+      const ring = draftWalk();
+      const at = ring.indexOf(key);
+      openDraftStop(at === -1 ? ring[0] : ring[(at + step + ring.length) % ring.length]);
     }
 
     /** `ESC': THE WHOLE DRAFT GOES.  No file was written, so nothing is put back
      * — the row is spliced out and the count is the count it was. */
     function dropDraft() {
       drafting = null;
+      shutEdit(DDATE);
       if (can(table, "deleteRow")) table.deleteRow(DRAFT_ID);
     }
 
@@ -224,7 +270,7 @@
     }
 
     /** THE DRAFT'S PLANNING LINE, in keyword order: the PHRASE each date cell
-     * holds, never the stamp the strip drew -- `plannedEntry' resolves it against
+     * holds, never the stamp the ghost drew -- `plannedEntry' resolves it against
      * the request's one clock read, the way `set-planning' does
      * (docs/invariants.md).  An empty cell is no entry, and no entry is no line. */
     const draftPlanning = (c) =>
@@ -238,7 +284,8 @@
      * the settle that carries the row, and the re-query is asked for at once so
      * the fresh row arrives where `sort:' puts it rather than where it was typed. */
     function commitDraft(cell) {
-      if (DRAFT_CELLS.indexOf(cell.key) !== -1) drafting.cells[cell.key] = cell.value;
+      if (cell && DRAFT_CELLS.indexOf(cell.key) !== -1)
+        drafting.cells[cell.key] = cell.value;
       const title = draftTitle(), dest = drafting.dest;
       if (!title) { refuseDraft("nothing to capture"); return; }
       postCommand({ name: "capture", args: draftArgs() })
@@ -256,25 +303,19 @@
         });
     }
 
-    /** WHAT THE STRIP SAYS UNDER A REFUSED DRAFT, whichever of its cells is open:
-     * the refusal is about the ROW and not about the cell, so it outranks the
-     * cell's own reading and follows the walk rather than riding one column.
-     * ONE NOTE MECHANISM -- the drawn cells stay the cells they are. */
-    const draftNote = (cell) =>
-      drafting && cell.id === DRAFT_ID && drafting.refused
-        ? { text: drafting.refused, bad: true } : null;
-
     /** A REFUSAL KEEPS THE DRAFT STANDING — a row that cannot commit is a row the
-     * reader would otherwise have to retype.  The word rides the strip under the
-     * open cell; the editor goes back to the title with its text selected, and
-     * the widget dresses the row warn.  Only `ESC' dismisses the draft; the next
-     * content keystroke takes the note and the dress back. */
+     * reader would otherwise have to retype.  THE WORD IS THE ECHO PILL'S: the
+     * refusal is about the ROW and not about the cell, so it belongs to no column
+     * and survives the walk.  The editor goes back to the title with its text
+     * selected and the widget dresses the row warn; only `ESC' dismisses the
+     * draft, and the next content keystroke takes the dress back. */
     function refuseDraft(why) {
       drafting.refused = why;
-      // THE EDITOR'S OWN REDRAW CARRIES THE DRESS; a view drawing no title cell
-      // has none to carry it, so the row is republished instead.
-      if (!openDraftAt("title")) redrawDraft();
-      refreshStrip();
+      // THE DRESS IS THE ROW'S, so the row is REPUBLISHED for it rather than
+      // left to whatever the next open happens to redraw -- a refusal from a
+      // date stop closes no cell editor and so redraws nothing by itself.
+      redrawDraft();
+      openDraftAt("title");
       said(FINALIZE, why);
     }
     /** ONE FRAME BEHIND THE KEY that answered it: the redraw rebuilds the very
@@ -284,8 +325,5 @@
       soon(() => {
         if (!drafting || drafting.refused) return;
         redrawDraft();
-        refreshStrip();
       });
     }
-    // The strip is the widget's, and it is asked for outside an `input' here.
-    const refreshStrip = () => { if (can(table, "refreshStrip")) table.refreshStrip(); };
