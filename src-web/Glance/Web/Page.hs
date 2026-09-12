@@ -86,13 +86,6 @@ demoShell opts font colours views =
   , "    </div>"
   , "  </div>"
   ]
-  -- ONE FIELD: the tag settles and the SHEET takes over, so the form holds the
-  -- destination question and nothing else (`docs/capture.md', The flow).
-  <> popupFrame "capture" "k" "" ""
-       [ "      <input id=\"ktag\" spellcheck=\"false\" autocomplete=\"off\""
-           <> " placeholder=\"tag — empty is the inbox\">"
-       , "      <div id=\"klist\"></div>"
-       ]
   -- Panel bodies wear `cpart'; glue.js's `SECTIONS' wraps them at boot.
   <>
   [ "  <div id=\"config\">"

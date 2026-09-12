@@ -4604,6 +4604,63 @@ export default [
       + `${JSON.stringify(drew.cells)}, dressed ${drew.rule}/${drew.ink}`];
   } },
 
+// THE SEEDING RULE, WHOLE, IN ONE ROW: the filter's POSITIVE PINNED atoms fill
+// the draft -- the FIRST `tag:' is the destination and every later one rides as
+// the draft's own run, the one `state:' and the one `priority:' are worn as they
+// stand -- and the SCHEDULED cell says where the capture lands.  `book' is the
+// tree's one tag layer and its cycle declares READING, so nothing is dropped
+// here; the DROPPED half is its own case below.
+{ name: "the draft wears what the filter pins, and says where it lands",
+  async run(p, base) {
+    const q = "tag:book tag:work state:READING priority:B";
+    await p.goto(`${base}/?q=${encodeURIComponent(q)}`);
+    await p.until(() => !!document.querySelector("#app table tbody"),
+                  "the filtered table to mount");
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    // WAITED FOR RATHER THAN READ ONCE: `+' draws the row and asks the cycle in
+    // the same breath, and the answer lands behind it -- so a reading taken at
+    // the open could not tell a state that STANDS from one not yet dropped.
+    await droppedHint(p, "→ book", "the cycle's answer to leave the hint alone");
+    const drew = await p.eval(() => {
+      const tr = document.querySelector("#app tbody tr.tv-draft");
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+      const at = (key) => tds[keys.indexOf(key)];
+      return {
+        state: at("state").textContent,
+        priority: at("priority").textContent,
+        title: at("title").textContent,
+        // AN ORG RUN DRAWS AS ITS CHIPS, so the run is read as the names in it.
+        tags: [...at("tag").querySelectorAll(".tv-tag")].map((e) => e.textContent),
+        hint: at("scheduled").textContent,
+        deadline: at("deadline").textContent,
+      };
+    });
+    assert(drew.state === "READING",
+      `the state cell reads ${JSON.stringify(drew.state)} where the filter pinned READING`);
+    assert(drew.priority === "B",
+      `the priority cell reads ${JSON.stringify(drew.priority)} — org's own [#B] is `
+      + `folded to the letter the wire takes`);
+    // THE TITLE IS THE ONE CELL THE FILTER NEVER FILLS: the editor empties the
+    // cell it opens in, and a `title:' atom is no fact a row wears.
+    assert(drew.title === "",
+      `the title cell reads ${JSON.stringify(drew.title)} rather than nothing`);
+    assert(JSON.stringify(drew.tags) === JSON.stringify(["book", "work"]),
+      `the run reads ${JSON.stringify(drew.tags)} — the destination must lead it, `
+      + `with every later tag: after`);
+    assert(drew.hint === "→ book",
+      `the hint reads ${JSON.stringify(drew.hint)} rather than the destination`);
+    // A FILTER-LENT DAY IS REFUSED BY THE DESIGN: the hint has the SCHEDULED
+    // cell, and DEADLINE is left as empty as the draft found it.
+    assert(drew.deadline === "",
+      `the DEADLINE cell reads ${JSON.stringify(drew.deadline)}`);
+    return [`under ${JSON.stringify(q)} the draft wore `
+      + `${JSON.stringify([drew.state, drew.priority, drew.tags])} and said `
+      + `${JSON.stringify(drew.hint)}`];
+  } },
+
 // `setRows' RESETS the widget's rows, so a draft left out of the splice is
 // erased — and suppressing the paint instead would leave a stale table under a
 // live draft.  THE PHANTOM GOES BACK IN ON EVERY PAINT, and the editor with it.

@@ -25,33 +25,6 @@
       const hits = pinnedTo(key);
       return hits.length === 1 ? String(hits[0].value) : "";
     };
-    // A DAY THE FILTER PINS: a bare ISO or one word the server resolves.  A
-    // comparison, a range or an alternation names a SPAN of days, and a planning
-    // entry is one day — so those seed nothing.  READ SYNTACTICALLY: the day
-    // WORDS are the server's vocabulary and this page holds no copy of them.
-    const ONE_DAY = /^(?:\d{4}-\d{2}-\d{2}|[A-Za-z]+)$/;
-    /** WHAT THE STANDING FILTER LENDS THE DRAFT SHEET, as the read door's own
-     * args.  TEMPLATE-FIRST IS THE SERVER'S: these are what the filter leaves no
-     * choice about, and the composer there fills only the silences the template
-     * left.  The destination TAG rides apart, being the capture's address rather
-     * than one of its facts. */
-    function inherited(tag) {
-      const args = [];
-      const state = soleValue("state");
-      if (state) args.push(["state", state]);
-      const priority = soleValue("priority");
-      // ORG'S OWN SPELLING IS `[#B]' and the wire takes the letter.
-      if (priority) args.push(["priority", priority.replace(/^\[#(.)\]$/, "$1")]);
-      // EVERY POSITIVE TAG BEYOND THE DESTINATION joins the draft's own.
-      const more = filteredTags().filter((t) => t !== tag);
-      if (more.length) args.push(["tags", more.join(",")]);
-      for (const word of CFG.settable) {
-        const day = soleValue(word.toLowerCase());
-        if (day && ONE_DAY.test(day)) args.push([word.toLowerCase(), day]);
-      }
-      return args;
-    }
-
     /** WHAT THE FILTER SEEDS A DRAFT ROW WITH: the FIRST positive `tag:' is the
      * destination, every later one rides as the draft's own, and each scalar the
      * filter pins once is worn as it stands.  A day is not among them — the
@@ -269,8 +242,7 @@
      * BODY, NO DRAWER AND NO PLANNING LINE, so the widened cargo's other three
      * keys are absent.  THE STATE IS ALREADY THE DESTINATION'S OWN: `askCycle'
      * cleared a keyword that cycle lacks, so the wire carries none `stated'
-     * would refuse.  (`commitCapture', 20-sheet.js, spells this again for the
-     * sheet over a draft; that copy dies with the sheet, stage 6.) */
+     * would refuse. */
     function draftArgs(title, c, dest) {
       const args = { title };
       if (dest) args.tag = dest;

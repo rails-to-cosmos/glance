@@ -99,12 +99,14 @@ map. =т з о л= navigates on a Cyrillic layout.
 
 ** Capture
 
-=+= is one form: a tag completing over the tree's vocabulary (empty = the
-inbox), the tag's template fields grown in place, the line last. A tagged
-capture mints a real org-glance blob -- id, shard path, =EXTERNAL.jsonl=
-note -- that Emacs adopts on its next refresh.
+=+= types a *draft row* into the table already on screen, below the row at
+point, seeded from the standing filter: =TAB= walks its cells, =RET= commits
+from any of them, =ESC= drops it. The destination is the filter's first =tag:=
+and the row says so -- =→ book=, =→ inbox=. A tagged capture mints a real
+org-glance blob -- id, shard path, =EXTERNAL.jsonl= note -- that Emacs adopts
+on its next refresh.
 
-The form, the template law and the =%=-code subset: [[file:docs/capture.md][docs/capture.md]].
+The draft's keys, the seeding rule and the two doors: [[file:docs/capture.md][docs/capture.md]].
 
 ** The material document
 

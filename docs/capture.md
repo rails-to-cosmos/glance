@@ -4,101 +4,89 @@
 way: a tagged capture is a real blob in the store — id, shard path, creation
 stamp, ledger note — that Emacs adopts without importing anything. The
 README's Capture section is the crib; this page is the whole law. The design
-history is `docs/proposals/done/2026-08-03-capture.md`, and the redesign that
-made the capture doc the material doc is
-`docs/proposals/proposed/2026-08-24-the-capture-doc-is-the-material-doc.md`.
-What that redesign got wrong on its first day, and why each rule below reads
-the way it does, is four files under `docs/bugs/fixed/`:
-[the draft never says where it lands](bugs/fixed/2026-08-24-the-draft-never-says-where-it-lands.md),
-[a rich draft opens with no editor](bugs/fixed/2026-08-24-a-rich-draft-opens-with-no-editor.md),
-[an empty title's edit swallows its own line](bugs/fixed/2026-08-24-an-empty-titles-edit-swallows-its-own-line.md),
-[a planning phrase stays raw in the draft](bugs/fixed/2026-08-24-a-planning-phrase-stays-raw-in-the-draft.md).
+history is `docs/proposals/done/2026-08-03-capture.md`; the form and its sheet
+were retired by
+`docs/proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md`.
 
 ## The flow
 
-**One editor.** The sheet already edits a subtree; capture is the sheet over a
-subtree that does not exist yet. Two steps:
+**A capture is a row.** `+` splices a **draft row** into the table already on
+screen, below the row at point, seeded from the standing filter, with the title
+cell's editor open. There is no form and no sheet: the table can already say
+everything a capture says.
 
-1. **Tag** — a field completing over the tree's own tag vocabulary,
-   commonest first. Free text names a tag that does not exist yet (the
-   server's charset wall refuses garbage, the same wall `manage-tags` has).
-   An **empty tag is the inbox**: the capture lands in `<root>/inbox.org` —
-   the quick-jot path. The field opens on the tag the standing filter names,
-   so a filtered table needs no keystroke here.
-2. **The doc** — `GET /capture?tag=TAG` expands the tag's template and answers
-   a **draft**, and the sheet opens over it in capture mode. The draft is a
-   doc, so every shipped door works on it: `RET` on the title, the pair box,
-   the date widget and its summon keys, the tags door, the state door —
-   offering the tag's own cycle. Point lands where `%?` stood.
+| key | over the draft |
+| --- | --- |
+| `TAB` / `S-TAB` | walk the cells — title, state, priority, tags — wrapping |
+| `RET` | commit, from any cell |
+| `ESC` | drop the draft whole |
 
-**Every draft opens editing.** A reader who asked for a capture is composing
-one, so the pane opens the editor at the place `%?` named rather than asking
-for a `RET` first. Point on the headline is the **title edit**; a `%?` on a
-body line is the **paragraph editor** over that line, seeded with what the
-template left standing there and the caret at its end (`point` names a line,
-not an offset). A line no editor claims — a template's own child headline —
-keeps point, and the pane's `RET` is the way in as on any doc.
+Three laws hold it:
 
-`C-c C-c` commits the draft whole. `ESC` leaves nothing: **no file ever
-existed**, so there is nothing to undo — no autosave, no draft store.
+1. **A draft always carries an open editor.** The open input takes every key it
+   sees, so `n` in a draft types an `n`. An editor-less draft would be a row
+   with no id, no span and no file that the movement keys could stand on.
+2. **No other row can reach a draft.** It is never marked, never selected,
+   never sorted with the rest, and its reserved id never reaches a `/command`.
+3. **`ESC` leaves the rows byte-identical.** No file was written, so nothing is
+   put back — the draft is spliced out and the count is the count it was.
 
-**The bare-draft law.** Where the draft is the bare default — star, space,
-empty title and nothing else — the title edit *is* the capture: `RET` on the
-typed title commits immediately, so the inbox jot stays `+`, `RET`, the line,
-`RET`, key for key. The **destination tag does not make a draft rich**: it is
-the address `+` already asked for, so a bare template under a tag is the bare
-draft too. A template with more than a bare headline commits on `C-c C-c`
-alone, and `RET` on the title just closes the title edit as usual.
-`ESC` in the bare title edit drops the capture whole.
+`+` under a live draft puts the editor back on the title rather than splicing a
+second one. A `/headlines` answer arriving under a draft — a WAL tick, a poll,
+a filter change — re-splices it with what the reader had typed intact.
 
-On a rich draft the box the landing opened is an ordinary sheet edit, so the
-**standing ladder** holds: `RET` closes it and `C-c C-c` behind it takes the
-capture; `ESC` closes it and the next `ESC` drops the draft.
+**`RET` is the whole capture at one press.** The open cell's value is folded in,
+the draft is spliced out, and the fresh rows are asked for at once; point
+follows the id the command answered onto the **first settle that carries the
+row**, wherever `sort:` puts it. A capture has no SCHEDULED, so the undated tail
+is where it belongs whatever row it was typed beside.
 
-**The planning line resolves in the draft.** A row's planning phrase is posted
-and comes back transformed; a draft posts nothing, so it resolves the phrase
-itself with the **ghost's own reader** — the pane says what the file will
-hold. What travels at `C-c C-c` is still the **raw phrase**: the wall
-transforms it once, against the server's clock. A phrase the resolver refuses
-stays as it stands and meets the wall's own sentence.
+**A refusal keeps the draft standing** — a row that cannot commit is a row the
+reader would otherwise have to retype. `RET` on an empty title says `nothing to
+capture`, the server's 400 says its own sentence, the word takes the hint's
+place beside the row, the editor comes back to the title with its text
+selected, and the dress turns `--g-warn`. The next content keystroke clears
+both; a walk and a movement leave them; only `ESC` dismisses.
 
-The cursor lands on the new row when the current view carries it, and stays
-put when the view filters it out.
+**A row carries no body, no drawer and no planning line**, so the commit's args
+are the title, the destination as `tag`, the row's own run as `tags`, and the
+two scalars. A template seeds nothing — the server already ignores it on this
+road.
 
 ## What the filter lends
 
-A capture inherits from the **current filter** whatever the template leaves
-unspecified. **The template speaks first**; where it is silent, a fact the
-standing filter pins to *one ordinary positive value* fills the gap:
+The filter's **positive, pinned** atoms fill the draft. A negation, a `+`
+widening, an alternation and a `*meta*` each describe a *set* of rows rather
+than a value a capture could wear; a scalar named twice describes a union and
+lends nothing.
 
-| the filter pins | the draft gets |
+| the filter pins | the draft wears |
 | --- | --- |
-| `tag:book` | the destination — and with it the template and the cycle |
-| `state:TODO` | the keyword, where the template spells none **and** the draft's own cycle declares it |
-| `priority:[#B]` | the priority, where the template spells none |
-| further `tag:` terms | joined to the draft's run, beyond the template's |
-| `scheduled:2026-09-09`, `deadline:friday` | that entry, where the line has none |
+| the first `tag:` | the destination: the blob's layer |
+| every later `tag:` | the draft's own tag cell |
+| one `state:` | that keyword, if the destination's cycle has it |
+| one `priority:` | that letter, `[#B]` folded to `B` |
+| anything else | nothing |
 
-Never a negation, never an alternation, never a `*meta*`. The page extracts
-the facts from the parsed query and passes them to `GET /capture` as optional
-arguments; the **server** merges them template-first, so one composer owns
-precedence and a day word resolves under the door's one clock read.
+**The destination is said in the row** as `→ book` or `→ inbox`, drawn in the
+SCHEDULED cell — the one column a capture never fills. The title cell cannot
+hold it: the cell editor empties the cell it opens in, so a hint drawn beside
+the title is wiped the moment the editor arrives.
 
-**Inheritance never refuses a capture.** A lent fact the draft's own walls
-turn down — a state outside its cycle, a letter that is no priority, a tag
-outside the charset, a day the grammar will not read — is simply not
-inherited. It is the filter talking about other rows.
+**A state the destination's cycle lacks is dropped, and the hint says so.** `+`
+asks `GET /capture` for the cycle at the same moment it draws the row; the
+answer either confirms the seeded state or clears it, and the hint reads
+`→ book · NEXT dropped`. The wire never carries the refused state, so the
+commit's own wall stays exactly as strict as it is for every other caller,
+the MCP `capture` tool included.
 
-**The draft says where it lands.** Its tag cell is *constructed* — the
-destination first, then the template's own run and the lent tags — so the head
-row wears the destination before a title is typed. The commit carries that
-cell out as the capture's `tags` and the minting joins the destination
-idempotently, so the blob wears each tag once.
+**Seeding never refuses a capture.** A fact the commit's walls would turn down
+is simply never seeded. It is the filter talking about other rows.
 
-The **org line** is the one thing that cannot spell it: the parser reads
-`* :work:` as the title itself, so the draft's own bytes carry no run until a
-title stands in front of one. The display cell says it all the same, and the
-commit composes the header out of the cell rather than out of that line.
+**The draft's keys belong to the editor.** An open cell stops every key it
+sees, so the shell's dispatch never hears one and `Keymap.hs` gains no row and
+no scope. The seam is one table-view mount option, `onCellKey`, asked at the
+head of the cell editor's keydown.
 
 ## Templates
 
@@ -130,10 +118,10 @@ Expansion is server-side; the page never holds template logic.
 | `%T` | active timestamp, the server's clock |
 | `%^{PROMPT}` | its **empty value**: a drawer pair with none, a slot in the body |
 
-The prompting escape dissolved. `%^{PROMPT}` was a pre-form field only
-because the form could not edit structure; the pane can, so the ask arrives as
-the editor it belongs in — the pair box for a drawer, the body walk for a
-slot. The stamping escapes stay server-side: the page spells no org.
+The expansion codes serve the **older road** alone — `text` with `fields`,
+which org-glance drives. A draft row carries no template: it is composed out of
+its cells, and `title` names the road that ignores the template entirely. The
+stamping escapes stay server-side: the page spells no org.
 
 Anything else copies through **verbatim** — an unknown `%`-code stays
 visible in the captured entry and the capture still lands. Typing `%` in
@@ -142,43 +130,36 @@ completion offers is what expands. That list is **closed**: `RET` there
 takes an entry off it, and a code the expansion does not know is typed into
 the box by hand rather than through the completion.
 
-A template with no `%?` has nowhere for point to open, and is refused **when
-`+` opens** rather than after a whole entry has been composed over it.
+A template with no `%?` has nowhere for the older road's text to go, and is
+refused at the commit.
 
 ## The two doors
 
-### `GET /capture[?tag=NAME]` — the draft
+### `GET /capture[?tag=NAME]` — the destination's cycle
 
-The shape `GET /headline` serves, field for field, off bytes that exist only
-in the answer. **No file is created.** `id` is null, `file` is empty and
-`digest` is `""` — the **create pin**, the very lock the write path already
-spells for a target that is not there, which is what makes the commit that
-follows an ordinary drift-locked write.
+One member, and nothing else:
 
-`cycle` leads the answer and is **the door's own**; three members ride beside
-the headline shape:
+```json
+{"cycle": [{"source": "default", "active": ["TODO"], "inactive": ["DONE"]},
+           {"source": "book", "active": ["READING"], "inactive": ["READ"]}]}
+```
 
-- **`cycle`** — the destination's TODO words in the shape `GET /keywords`
-  answers in, one entry per source, widest first. It rides here because
-  `/keywords` is **row-keyed** and a draft has no row. The cycle the state
-  door offers is the list the commit door walls with. It is composed off the
-  destination alone and owes the template nothing.
-- **`point`** — an integer line of `body`, or `null` for the headline row.
-  The coordinates `ownLines` and a child's `line` are already in, so the pane
-  lands by a reading it makes anyway. Line 0 *is* the headline, so the
-  integer form never names it; a `%?` standing in the planning line or the
-  drawer answers `null` too, those being lifted out of `body`.
-- **`tags`** — the tree's whole tag vocabulary, for step 1's field. It rides
-  here rather than on `/tags` because a capture names no rows.
+The destination's TODO words in the shape `GET /keywords` answers in, one entry
+per source, widest first. It rides here because `/keywords` is **row-keyed**
+and a draft has no row. The cycle the draft's state cell is checked against is
+the list the commit door walls with, and it is composed off the destination
+alone — the template is never read, so a layer whose template has no `%?` is
+still a 200 here and meets its refusal where bytes are written.
 
-The optional inheritance arguments are `?state=`, `?priority=`, `?tags=a,b`,
-`?scheduled=` and `?deadline=`.
+**No file is created**, and there is nothing to inherit into: the draft is a
+row the page types, so the door takes no `?state=`, no `?priority=`, no
+`?tags=` and no day.
 
 ### `POST /command {"name": "capture"}` — the commit
 
 **Two roads, exactly one taken.** `text` (with `fields`, through the tag's
 template) is the older wire and stays — the door is public, and org-glance may
-drive it. `title` opens the sheet's own cargo:
+drive it. `title` opens the cargo road, which the draft row posts:
 
 ```
 {tag?, title, state?, priority?, tags[], planning[[K,V]], properties[[K,V]], body}
@@ -238,9 +219,9 @@ for the same seam from the tag side.
 
 Coarsest first, every one of them ahead of a byte: a missing store root; a
 capture that is not one headline; a template with no `%?`; an unanswered
-prompt on the older road; a template that expands to no headline. The two a
-template can be wrong in are raised at the **draft** door as well, so a broken
-layer is named when `+` opens. Each is a spoken refusal — nothing is written.
+prompt on the older road; a template that expands to no headline. All of them
+are spoken at the **commit** door, the read door answering a cycle no template
+can spoil. Each is a spoken refusal — nothing is written.
 
 ## Refused designs
 
@@ -248,7 +229,14 @@ layer is named when `+` opens. Each is a spoken refusal — nothing is written.
   children arrive as the draft's children, but the template contributes one
   headline.
 - **Template logic on the page.** The page renders a draft; it never expands.
-- **Editing the template from the capture doc.** The settings sheet owns the
-  layer file; capture consumes it.
+- **Editing the template from a capture.** The settings sheet owns the layer
+  file; the older road consumes it.
 - **A draft that outlives `ESC`.** No autosave, no draft store; a capture is
   committed or it never was.
+- **A tag field.** The destination is read off the filter and stated in the
+  row. The tags cell is one `TAB` away.
+- **A per-cell write before the commit.** The draft's cells accumulate; the
+  whole capture goes out at one `RET`. A draft has no id and no span for a
+  per-cell verb to name.
+- **A filter-lent planning day.** The SCHEDULED cell carries the destination
+  hint instead.

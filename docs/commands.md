@@ -189,9 +189,9 @@ curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
                                       "fields": {"Author": "Herbert"}}}'
 ```
 
-The two capture shapes are the same command: the first is the capture
-sheet's own cargo, the second the older raw line through the tag's
-template. Naming both `text` and `title` is refused rather than resolved.
+The two capture shapes are the same command: the first is the cargo road the
+draft row posts, the second the older raw line through the tag's template.
+Naming both `text` and `title` is refused rather than resolved.
 
 ## Health
 

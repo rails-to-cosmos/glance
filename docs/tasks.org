@@ -154,11 +154,9 @@ CAPTURE phase (=addEventListener(..., true)=), which =onKeys= does not offer;
 mutation would have to live inside the predicate.  Give =onKeys= a capture flag
 and the first two fold too.
 
-* TODO Fold the glue's =VERBED= table and =draftWrote= ladder into one =VERBS= table
-=VERBED= (=20-sheet.js:2000-2016=) names a verb per command and =draftWrote=
-(=:2023-2041=) re-lists five of the same commands as an =if/else if= ladder over
-the draft's cells; one =VERBS= table with a =say= and an optional =onDraft= per
-row makes a twelfth command one row rather than two edits in two shapes.
+* CANCELLED Fold the glue's =VERBED= table and =draftWrote= ladder into one =VERBS= table
+MOOT 2026-09-12: =draftWrote= died with the sheet over a draft (capture-is-a-row
+stage 6), so =VERBED= is the only table left and a twelfth command is one row.
 
 * TODO Collapse the browser driver's =reseed= and =repoUp= into one =fixture(name, seed)=
 =reseed= (=test/browser/drive.mjs:385-389=) and =repoUp= (=:396-409=) are the same
@@ -203,20 +201,16 @@ git cases can only read the warned =⚠= and a hover text saying =no upstream=; 
 bare origin cloned beside it would let a case read =✓=, =↑=, =↓= and the
 =tracking origin/main= half of the title for real.
 
-* TODO Retire the draft-document half of =GET /capture= (capture-is-a-row stage 1)
+* DONE Retire the draft-document half of =GET /capture= (capture-is-a-row stage 1)
 See [[file:proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md]] stage 1.
-The =cycle= half landed — it is the door's own answer, composed off the
-destination and lifted out of =draftJSON= (=src-web/Glance/Web/Routes.hs:831=,
-=:843=) — but the DELETIONS the stage names cannot precede stage 6: the sheet
-still reads the draft document (=frontend/glue/30-capture.js:111=,
-=frontend/glue/20-sheet.js:2182= =showDraft=), reached now through
-=?page=capture= rather than =+= (stage 2).  What waits:
-=draftJSON=/=draftCells=/=draftTagsCell=/=inheritedIn=/=inheritedTags=
-(=Routes.hs:843-900=) and =draftTemplate=/=draftPointLine=/=Inherited=/=draftSeeded=
-(=Query.hs:2210=, =:2329=, =:2346=, =:2355=) with their exports (=Query.hs:82-89=).
-Each is reachable ONLY from the draft doc; =draftRecord=, =draftEntry=,
-=DraftCargo=, =draftKeywords=, =draftStates=, =expandTemplate=, =templateParts=,
-=captureTemplateIn= and =bareTemplate= are the capture COMMAND's and stay.
+DONE 2026-09-12 with stage 6: =GET /capture= answers ={cycle}= alone
+(=captureView=, =src-web/Glance/Web/Routes.hs=), and
+=draftJSON=/=draftCells=/=draftTagsCell=/=inheritedIn=/=inheritedTags= went with
+it, as did =draftTemplate=/=draftPointLine=/=Inherited=/=draftSeeded= and their
+exports in =Query.hs=.  =captureTemplateIn= and =bareTemplate= are now the
+COMMAND's alone, so =Routes.hs= no longer imports them.  The capture command's
+own road — =draftRecord=, =draftEntry=, =DraftCargo=, =draftKeywords=,
+=draftStates=, =expandTemplate=, =templateParts= — is untouched and green.
 
 * DONE Capture-is-a-row stage 3 — the keys inside the draft's cells
 See [[file:proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md]] stage 3.
@@ -299,17 +293,37 @@ it would need a new act plus a =title= column in the fixture, which moves every
 case that reads a column index.  A glue-source pin stands in
 (=a draft commits at one RET, and a refusal keeps it standing=).
 
-* TODO Capture-is-a-row stage 6 — the cases the re-pointed form owes
-=+= no longer raises the tag field, so stage 2 moved =promptKeySpec='s runs onto
-=?page=capture= (=capturing=, =test/TestServe.hs:2029=) rather than deleting
-coverage for code that still ships.  Every one of those dies with the surface at
-stage 6, along with the =ktag:= driver step and the =/capture= draft stub
-(=test/fixtures/shell-harness.js=).  RETIRED ALREADY, the deletion stage 6 owed
-anyway: the three browser capture-sheet cases and the draft half of a fourth
-(=a tagged capture opens as a document=, =the inbox jot is + RET the line RET=,
-=ESC over a draft leaves nothing behind=, and the draft half of =an empty title
-still has a slot=), the helpers =captureForm=/=draftOver=, and the two settings
-URL cases (=the capture form says so in the URL= and its closer).
+* DONE Capture-is-a-row stages 6 and 7 — the deletions, and the cases
+See [[file:proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md]] stages
+6 and 7.  THE FORM AND THE SHEET OVER A DRAFT ARE GONE.  =30-capture.js= kept
+only the value palette and the link door and was =git mv='d to =30-palette.js=
+(the one list is =Base.hs= =gluePartFiles=; =AGENTS.hs=, =frontend/jsconfig.json=
+and =TestSelfContained= read it).  Out with them: the =#ktag=/=#klist= field and
+its popup row (=Page.hs=, =Page/Popups.hs=, =AGENTS.hs= =surfaces=/=popTiers=),
+=captureShape=, =draftIn=/=statesFor=/=tagsFor='s draft branches, and in
+=20-sheet.js= =capturing()= with all ~20 branches, =showDraft=/=draftOf=/
+=captureWhere=, =commitCapture=, =settleDraftPlan=/=typedPlan=/=dtyped=,
+=captureSheet=/=capnote=, =bareCapture=/=bareDraft=/=tagsBeyond=/=bodyBelow=,
+=openLanding=/=dlanding= and =draftWrote=/=drawCells= — the last of which the
+=VERBED=/=draftWrote= fold task below was about, so that task is moot.
+=70-shell.js= lost the =capture= surface and, with it, the =ghost= field no
+other surface used.  =inherited=/=ONE_DAY= went from =35-draft.js=: a
+filter-lent planning day is refused by the design.  ONE PORT KIND WENT WITH
+=drawCells=: =Doc.elm='s =SetCells= had no sender left, which
+=every port kind the shell sends is one an Elm program decodes= turned red —
+=make elm= rebuilt =assets/elm.js=, elm-test 189.
+
+Cases: =promptKeySpec= is now =Shell reschedule= — its capture half was the
+form's, and the draft's own keys reach =onCellKey= alone, which the rig's table
+stub never calls, so that half lives in =Shell draft row= and in the browser
+suite.  Two drivable cases joined =draftRowSpec= (=+ raises no surface and
+writes nothing=, =a second + leaves the one draft standing=); the =ktag:= step
+and the =/capture= draft stub went from =test/fixtures/shell-harness.js=, whose
+stub now answers a cycle per destination.  =captureViewSpec= pins ={cycle}=
+alone.  Three glue-source pins lost their subjects and were re-pointed: the
+wash lists (=#capture=), =cancelSheetEdit= (=bareCapture=) and the 16px field
+guard (=#ktag=).  Browser: =the draft wears what the filter pins, and says
+where it lands= added, the last of the proposal's ten.
 
 * TODO A tag on an inbox headline moves it under the tag (first tag wins)
 See [[file:bugs/open/2026-09-12-a-tag-on-an-inbox-headline-leaves-it-in-the-inbox.md]].

@@ -6121,7 +6121,7 @@ var $author$project$Listing$main = $elm$browser$Browser$element(
 		cZ: $author$project$Listing$update,
 		c_: $author$project$Listing$view
 	});
-var $author$project$Doc$Ignore = {$: 32};
+var $author$project$Doc$Ignore = {$: 31};
 var $author$project$Doc$docIn = _Platform_incomingPort('docIn', $elm$json$Json$Decode$value);
 var $elm$core$Set$Set_elm_builtin = $elm$core$Basics$identity;
 var $elm$core$Dict$RBEmpty_elm_builtin = {$: -2};
@@ -6193,9 +6193,6 @@ var $author$project$Doc$SelectCell = F2(
 	function (a, b) {
 		return {$: 3, a: a, b: b};
 	});
-var $author$project$Doc$SetCells = function (a) {
-	return {$: 31, a: a};
-};
 var $author$project$Doc$SetMeta = F2(
 	function (a, b) {
 		return {$: 30, a: a, b: b};
@@ -8110,14 +8107,6 @@ var $author$project$Doc$msgD = A2(
 						$elm$json$Json$Decode$field,
 						'plan',
 						$elm$json$Json$Decode$list($author$project$Doc$pairD)));
-			case 'cells':
-				return A2(
-					$elm$json$Json$Decode$map,
-					$author$project$Doc$SetCells,
-					A2(
-						$elm$json$Json$Decode$field,
-						'cells',
-						$elm$json$Json$Decode$list($author$project$Doc$cellD)));
 			default:
 				return $elm$json$Json$Decode$succeed($author$project$Doc$Ignore);
 		}
@@ -11633,7 +11622,7 @@ var $author$project$Body$undrafted = function (m) {
 var $author$project$Doc$update = F2(
 	function (msg, model) {
 		switch (msg.$) {
-			case 32:
+			case 31:
 				return _Utils_Tuple2(model, $elm$core$Platform$Cmd$none);
 			case 1:
 				return $author$project$Doc$told($author$project$Doc$empty);
@@ -11883,21 +11872,6 @@ var $author$project$Doc$update = F2(
 						_Utils_update(
 							model,
 							{C: plan, cN: props})));
-			case 31:
-				var cells = msg.a;
-				return $author$project$Doc$told(
-					_Utils_update(
-						model,
-						{
-							w: A2(
-								$elm$core$List$map,
-								function (r) {
-									return (!r.j) ? _Utils_update(
-										r,
-										{ad: cells}) : r;
-								},
-								model.w)
-						}));
 			case 29:
 				var key = msg.a;
 				var value = msg.b;

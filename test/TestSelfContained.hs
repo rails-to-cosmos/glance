@@ -20,7 +20,7 @@ wrappedWidgets =
     -- `!!edit' and `edit.o' name the `let'; `openEdit' merely holds the letters.
   , ("40-popups.js", [ "table.", "query", "prompting", "SURFACES", "MAPS"
                      , "socket", "!!edit", "edit.o", "drows", "crows" ])
-  , ("30-capture.js", [ "can(table", "table.get", "SURFACES", "MAPS", "socket"
+  , ("30-palette.js", [ "can(table", "table.get", "SURFACES", "MAPS", "socket"
                       , "crows", "drows", "editing.", "arriving =" ]) ]
 
 -- | Inside the wrapper alone — the call site names the very forbidden bindings.

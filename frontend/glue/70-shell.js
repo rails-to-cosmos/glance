@@ -10,7 +10,6 @@
      * @property {() => boolean} [narrow] is a `/' narrow open INSIDE its list.
      * @property {() => void} [wide]   clear that narrow and leave the surface up.
      * @property {(id?: string|null) => void} [open]  raise it from `?page='.
-     * @property {() => boolean} [ghost] it is standing over nothing the URL can name.
      * @property {boolean} [rowed]     it needs a row, so its URL carries one.
      * @property {() => string} [panel] the panel it is showing, as the fragment.
      */
@@ -24,8 +23,6 @@
       // The picker hangs at the caret and takes no tier, but it is momentary
       // like the rest: ESC walks out of it before anything else.
       { name: "refer", momentary: true, up: referUp, off: () => shutRefer(null) },
-      { name: "capture", momentary: true, up: capUp, off: shutCapture,
-        open: () => openCapture(RESTORED) },
       // The rowed three open over the row `bootPage' has already landed on.
       { name: "links", momentary: true, up: linking, off: shutLinks,
         edit: lediting, shut: cancelLinkEdit, rowed: true,
@@ -35,11 +32,8 @@
         edit: renaming, shut: cancelRename, rowed: true,
         narrow: () => narrowed(tagMount()), wide: () => widen(tagMount(), "ESC"),
         open: () => overTargets(RESTORED, "tags", askTags) },
-      // A CAPTURE SHEET IS A GHOST: it stands over a draft, and no row id in a
-      // URL could bring that draft back — so it is remembered as nothing and the
-      // address stays the view's own.
       { name: "sheet", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit,
-        rowed: true, ghost: capturing, open: (id) => materialize(id) },
+        rowed: true, open: (id) => materialize(id) },
       { name: "config", up: () => settings, edit: sediting,
         shut: () => shutEdit(SROW), open: () => openSettings(),
         narrow: () => narrowed(smount), wide: () => widen(smount, "ESC"),
@@ -49,7 +43,7 @@
     const surfaceUp = () => SURFACES.find((s) => s.up()) || null;
     function remembered() {
       const p = params(), s = surfaceUp();
-      if (!s || !s.open || (s.ghost && s.ghost())) { p.delete("page"); p.delete("row"); }
+      if (!s || !s.open) { p.delete("page"); p.delete("row"); }
       else {
         p.set("page", s.name);
         const id = s.rowed && focusedId();
@@ -163,11 +157,7 @@
       refer: (b) => referKey(b),
       applyDefault, pinView, relations, focusFilter, focusQuery, toggleRaw, openSettings,
       save: saveSheet,
-      // `org-ctrl-c-ctrl-c', and org-capture's own finalize where the sheet
-      // stands over a draft: an OPEN EDIT commits first, as it always has, and
-      // the press behind it takes the whole capture.
       commitEdit: (b) => { if (sheetOpen()) commitDocEdit(b);
-                           else if (capturing()) commitCapture(b);
                            else if (editing && !raw && checkboxHere() !== null)
                              toggleCheckbox(b);
                            else said(b, "nothing open here"); },
@@ -380,10 +370,8 @@
 
     function apply(frame) {
       const moved = frame.op === "delete-row" ? frame.id : (frame.row || {}).id;
-      // `reload' rebuilds both panes, so never over an open edit or unflushed
-      // work — and never over a DRAFT, which no row in the store is.
-      if (editing && !raw && !capturing() && !sheetOpen() && !dirty()
-          && moved === editing.id)
+      // `reload' rebuilds both panes, so never over an open edit or unflushed work.
+      if (editing && !raw && !sheetOpen() && !dirty() && moved === editing.id)
         reload();
       if (!table) return;
       // Only the server knows whether the changed row still matches.

@@ -1005,7 +1005,7 @@ code {
     color: var(--g-mute);
 }
 
-#pinput,#ktag,#nbox .krow input,#nbox .krow select {
+#pinput,#nbox .krow input,#nbox .krow select {
     font: 12px/1.5 var(--dk-mono);
     padding: 5px 7px;
     border-radius: 4px;
@@ -1022,20 +1022,6 @@ code {
     max-height: 40vh;
     overflow-y: auto;
     font-size: 12px;
-}
-
-#klist {
-    overflow-y: auto;
-    font-size: 12px;
-    flex: 0 1 auto;
-}
-
-.ke {
-    padding: 2px 7px;
-}
-
-.ke.kh {
-    background: var(--g-sel);
 }
 
 .krow {
@@ -1497,7 +1483,7 @@ html.stale #app,{{WASHED_STALE}} {
     #mpanes {
         flex-direction: column;
     }
-    #mtext,#pinput,#dtin,#dpair input,#ddate input,#sedit input,#tedit input,#ledit input,#dpara textarea,#ktag,#app .tv-filter,.ctext,.cview {
+    #mtext,#pinput,#dtin,#dpair input,#ddate input,#sedit input,#tedit input,#ledit input,#dpara textarea,#app .tv-filter,.ctext,.cview {
         font-size: 16px;
     }
 }

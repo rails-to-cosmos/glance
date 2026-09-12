@@ -2026,251 +2026,13 @@ renamesPosted = traverse one <=< argsOf
 tagsPosted :: Value -> IO [T.Text]
 tagsPosted = traverse (textAt "tag") <=< argsOf
 
--- | The capture FORM, raised through its own URL.  @+@ types a DRAFT ROW into
--- the table now (@35-draft.js@), so @?page=capture@ is the door the sheet's
--- flow is still reached through (@SURFACES@, @70-shell.js@).  Dies with the
--- surface, stage 6.
-capturing :: IO T.Text -> String -> T.Text -> (Value -> Assertion) -> TestTree
-capturing shell label = keyedAt shell "?page=capture" 500 label ""
-
--- | The line the capture form collects, and the reschedule chords' own.
+-- | The reschedule chords.  THE CAPTURE HALF IS THE DRAFT ROW'S, so it lives in
+-- 'draftRowSpec' and in the browser suite: `+' types into the table and the
+-- draft's own keys reach `onCellKey' alone, which this rig's table stub never
+-- calls.
 promptKeySpec :: IO T.Text -> TestTree
-promptKeySpec shell = testGroup "Shell capture and reschedule"
-    -- THE FORM ASKS THE DESTINATION AND NOTHING ELSE, and over the BARE DRAFT
-    -- the title box IS the capture: RET, the line, RET is the inbox jot, key for
-    -- key what it always was, with the SHEET standing where the one-line form
-    -- used to.
-  [ capturing shell "RET the line RET is the inbox jot, through the sheet now"
-      "press:Enter dtin:milk press:Enter" $ \answer -> do
-        assertEqual "the vocabulary, then the draft the settled tag opened"
-                    ["/capture", "/capture"] =<< textsAt "capturing" answer
-        assertEqual "one capture, naming no rows" ["capture"] =<< namesOf answer
-        assertEqual "carrying the title as typed" ["milk"] =<< titledOf answer
-        assertEqual "and no tag with it" [Nothing] =<< taggedOf answer
-        assertEqual "no raw line rides the widened road" [Nothing] =<< textedOf answer
-        echoIs "the pill is org-capture's own finalize, under the key that ran it"
-          "RET → org-capture-finalize (captured · /o/inbox.org)" answer
-        assertEqual "and the log names the headline"
-                    (Just "headline \"milk\" captured into /o/inbox.org")
-          =<< lastLog answer
-        assertEqual "the tag field went down when the tag settled"
-                    "" =<< textAt "capture" answer
-        assertEqual "and the sheet went with the 200" "" =<< textAt "modal" answer
-
-    -- THIS PAGE HOLDS NO TEMPLATE GRAMMAR: the draft arrives EXPANDED, and the
-    -- prompting escapes are the editors the pane already has -- a `%^{PROMPT}'
-    -- in a drawer is the pair with no value.  NO FIELD IS GROWN for it.
-  , capturing shell "a tag's template arrives as a document, its asks opened empty"
-      "ktag:book press:Enter" $ \answer -> do
-        assertEqual "the tag was resolved when it settled"
-                    ["/capture", "/capture?tag=book"] =<< textsAt "capturing" answer
-        assertEqual "the form is down: it asked its one question"
-                    "" =<< textAt "capture" answer
-        assertEqual "and the sheet stands over the draft" "on" =<< textAt "modal" answer
-        assertEqual "the file line says where it WILL land, there being no file"
-                    "the capture  ·  :book:" =<< textAt "mfile" answer
-        assertEqual "the ask is a drawer pair with nothing in it"
-                    [["AUTHOR", ""]] =<< pairsAt "dprops" answer
-        -- EVERY DRAFT OPENS EDITING, at the place `%?' named: this template's
-        -- point stands in the BODY, so the paragraph editor is what is up and
-        -- the title box is not.
-        assertEqual "no title box: this draft's point is not the headline"
-                    False =<< boolAt "dopen" answer
-        assertEqual "the body editor is up where %? stood"
-                    True =<< boolAt "dparaopen" answer
-        assertEqual "and the destination is drawn on the head row"
-                    [["head", "* ", "Book", ":book:"]] . take 1 =<< docOf answer
-        assertEqual "nothing is written until C-c C-c" [] =<< namesOf answer
-        echoIs "and the foot says which key takes it"
-          "?page → restore-view (C-c C-c captures · ESC leaves)" answer
-
-    -- THE OPEN EDIT COMMITS FIRST, as it always has, and the press behind it
-    -- takes the whole capture: on a rich draft `RET' closes the box the landing
-    -- opened and `C-c C-c' is the door out, exactly as on any doc.
-  , capturing shell "and C-c C-c commits the draft whole, through the capture command"
-      "ktag:book press:Enter press:Enter press:C-c press:C-c" $ \answer -> do
-        assertEqual "the landing's own box is down" False =<< boolAt "dparaopen" answer
-        assertEqual "one capture" ["capture"] =<< namesOf answer
-        assertEqual "the template's own title" ["Book"] =<< titledOf answer
-        assertEqual "under the tag the destination question settled"
-                    [Just "book"] =<< taggedOf answer
-        assertEqual "the drawer rides as the cargo's own list"
-                    [[["AUTHOR", ""]]] =<< cargoOf "properties" answer
-        echoIs "the pill names the chord and the tag"
-          "C-c C-c → org-ctrl-c-ctrl-c (captured · :book:)" answer
-        assertEqual "and the sheet went with the 200" "" =<< textAt "modal" answer
-
-    -- A DRAFT POSTS NOTHING, so a planning value it takes never comes back
-    -- TRANSFORMED the way a row's does.  The draft resolves it ITSELF, with the
-    -- ghost's own reader, and what travels is still the phrase that was typed:
-    -- the wall transforms once, against the SERVER's clock.
-  , capturing shell "a planning phrase typed into a draft is drawn resolved"
-      "ktag:book press:Enter press:Enter dateon:2026-08-22\
-       \ press:C-c press:C-d dwhen:1_oct press:Enter" $ \answer -> do
-        assertEqual "the entry stands as the file will hold it"
-                    [["DEADLINE", "<2026-10-01 Thu>"]] =<< pairsAt "dplan" answer
-        assertEqual "nothing was written: a draft posts nothing" [] =<< namesOf answer
-        echoIs "the pill names what the reader typed"
-          "RET → org-glance-overview:deadline (1 oct)" answer
-
-  , capturing shell "and the phrase itself is what the capture carries"
-      "ktag:book press:Enter press:Enter dateon:2026-08-22\
-       \ press:C-c press:C-d dwhen:1_oct press:Enter press:C-c press:C-c" $ \answer ->
-        assertEqual "the raw phrase, for the wall to transform"
-                    [[["DEADLINE", "1 oct"]]] =<< cargoOf "planning" answer
-
-    -- THE PAIR BOX ROUTES TO THE SAME LINE and settles the same way: one rule
-    -- for every door that puts a day on a draft.
-  , capturing shell "the pair box's routed value settles in the draft too"
-      "ktag:book press:Enter press:Enter dateon:2026-08-22\
-       \ press:p press:+ dkey:DEADLINE press:: dval:1_oct press:Enter" $ \answer -> do
-        assertEqual "drawn resolved" [["DEADLINE", "<2026-10-01 Thu>"]]
-          =<< pairsAt "dplan" answer
-        assertEqual "and the drawer never held it" [["AUTHOR", ""]]
-          =<< pairsAt "dprops" answer
-
-  , capturing shell "and the pair box's phrase is what the capture carries"
-      "ktag:book press:Enter press:Enter dateon:2026-08-22\
-       \ press:p press:+ dkey:DEADLINE press:: dval:1_oct press:Enter\
-       \ press:C-c press:C-c" $ \answer ->
-        assertEqual "carried raw" [[["DEADLINE", "1 oct"]]]
-          =<< cargoOf "planning" answer
-
-    -- A PHRASE THE RESOLVER REFUSES STAYS RAW, and meets the wall's own sentence
-    -- at the commit rather than a resolution this page invented.
-  , capturing shell "a phrase no reader reads is left as it stands"
-      "ktag:odd press:Enter press:Enter" $ \answer ->
-        assertEqual "the template's own phrase, untouched"
-                    [["DEADLINE", "someday"]] =<< pairsAt "dplan" answer
-
-  , capturing shell "and that is what travels, for the wall to refuse or take"
-      "ktag:odd press:Enter press:Enter press:C-c press:C-c" $ \answer ->
-        assertEqual "no resolution this page invented"
-                    [[["DEADLINE", "someday"]]] =<< cargoOf "planning" answer
-
-    -- THE VIEW'S OWN TAG IS A SEED AND NEVER A SETTLEMENT: the field carries it,
-    -- the destination question still stands, and backspacing to the inbox is one
-    -- key.  NOTHING IS RESOLVED until the reader says so.
-  , keyedAt shell "?page=capture&q=tag%3Abook" 500
-      "the tag field opens seeded from the filter, unsettled"
-      "" "" $ \answer -> do
-        assertEqual "the field carries it" "book" =<< textAt "ktag" answer
-        assertEqual "and no draft was asked for" ["/capture"]
-          =<< textsAt "capturing" answer
-        assertEqual "the form is the surface that stands" "on" =<< textAt "capture" answer
-        assertEqual "and no sheet opened behind it" "" =<< textAt "modal" answer
-
-  , keyedAt shell "?page=capture&q=-tag%3Abook%20tag%3Aa%7Cb%20tag%3A*archive*" 500
-      "a negated, alternated or starred tag seeds nothing"
-      "" "" $ \answer -> do
-        assertEqual "the field is empty" "" =<< textAt "ktag" answer
-        assertEqual "and nothing was resolved" ["/capture"]
-          =<< textsAt "capturing" answer
-
-    -- WHAT THE FILTER LENDS RIDES THE DRAFT DOOR'S OWN ARGUMENTS: this page
-    -- reads the facts off the parsed query and passes them, and the SERVER
-    -- merges them template-first -- one composer owns precedence, and a day
-    -- resolves under the door's one clock read.
-  , keyedAt shell ("?page=capture&q=tag%3Abook%20tag%3Awork%20state%3ATODO"
-                     <> "%20priority%3A%5B%23B%5D%20scheduled%3A2026-09-09") 500
-      "the filter's own facts ride out as the draft door's arguments"
-      "" "press:Enter" $ \answer -> do
-        assertEqual "the seeded tag settles, and every lent fact goes with it"
-                    [ "/capture"
-                    , "/capture?tag=book&state=TODO&priority=B&tags=work\
-                      \&scheduled=2026-09-09" ]
-          =<< textsAt "capturing" answer
-        -- THE DESTINATION LEADS THE RUN and the lent tag follows it, so the head
-        -- row says where the capture goes as well as what it wears.
-        assertEqual "and the draft came back wearing what it took"
-                    [["head", "* ", "TODO", "[#B]", "Book", ":book:work:"]]
-          . take 1 =<< docOf answer
-        assertEqual "the day among them"
-                    [["SCHEDULED", "<2026-09-09 Wed>"]] =<< pairsAt "dplan" answer
-
-    -- THE DESTINATION IS THE CAPTURE'S ADDRESS AND NOT A FACT IT WEARS: a bare
-    -- template under a tag is still the BARE draft, so the tagged jot is the
-    -- four keys the inbox jot is.
-  , capturing shell "a tag with no template of its own falls to the bare draft"
-      "ktag:web press:Enter dtin:milk press:Enter" $ \answer -> do
-        assertEqual "resolved all the same" ["/capture", "/capture?tag=web"]
-          =<< textsAt "capturing" answer
-        assertEqual "the title as typed" ["milk"] =<< titledOf answer
-        assertEqual "under the tag" [Just "web"] =<< taggedOf answer
-
-    -- ESC LEAVES NOTHING, wherever it is pressed: no file ever existed, so the
-    -- born-at-open memory is trivially empty and the escape is free.
-  , capturing shell "ESC at the tag field writes nothing"
-      "press:Escape" $ \answer -> do
-        assertEqual "no command went" [] =<< namesOf answer
-        assertEqual "the form is down" "" =<< textAt "capture" answer
-
-    -- THE STANDING ESC LADDER, one rung per surface: on a rich draft the first
-    -- ESC closes the box the landing opened, and the second drops the capture.
-  , capturing shell "ESC closes the landing's box, and the next takes the draft"
-      "ktag:book press:Enter press:Escape" $ \answer -> do
-        assertEqual "the tag was resolved" ["/capture", "/capture?tag=book"]
-          =<< textsAt "capturing" answer
-        assertEqual "the box the landing opened is down"
-                    False =<< boolAt "dparaopen" answer
-        assertEqual "and the sheet stands behind it" "on" =<< textAt "modal" answer
-
-  , capturing shell "ESC over a drawn draft takes the sheet and writes nothing"
-      "ktag:book press:Enter press:Escape press:Escape" $ \answer -> do
-        assertEqual "the tag was resolved" ["/capture", "/capture?tag=book"]
-          =<< textsAt "capturing" answer
-        assertEqual "no command went" [] =<< namesOf answer
-        assertEqual "the sheet is down" "" =<< textAt "modal" answer
-        assertEqual "and the form with it" "" =<< textAt "capture" answer
-
-    -- IN THE BARE DRAFT'S TITLE THE BOX IS THE CAPTURE, so ESC there drops the
-    -- WHOLE thing rather than coming back to a sheet standing over no file.
-  , capturing shell "ESC in the bare title edit drops the capture whole"
-      "press:Enter dtin:milk press:Escape" $ \answer -> do
-        assertEqual "no command went" [] =<< namesOf answer
-        assertEqual "the sheet went with the edit" "" =<< textAt "modal" answer
-        echoIs "the pill says nothing was captured"
-          "ESC → keyboard-quit (nothing captured)" answer
-
-    -- THE REFUSAL IS SPOKEN OVER THE BOX THAT EARNED IT, and the box stays: what
-    -- was typed is still on screen to be fixed.
-  , capturing shell "an empty title captures nothing, and the box stays up"
-      "press:Enter press:Enter" $ \answer -> do
-        assertEqual "no command went" [] =<< namesOf answer
-        echoIs "the pill says why"
-          "RET → org-capture-finalize (nothing to capture)" answer
-        assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
-        assertEqual "and the title box with it" True =<< boolAt "dopen" answer
-
-  , capturing shell "a refused capture is one cmd error line, and the SHEET stays"
-      "refuse press:Enter dtin:milk press:Enter" $ \answer -> do
-        assertEqual "the command still went" ["capture"] =<< namesOf answer
-        assertEqual "and the log carries the server's own words"
-                    (Just "capture failed: inbox.org changed on disk")
-          =<< lastLog answer
-        assertEqual "the draft is still standing, and C-c C-c retries it"
-                    "on" =<< textAt "modal" answer
-        assertEqual "with the title it was refused under"
-                    [["head", "* ", "milk"]] . take 1 =<< docOf answer
-
-  , capturing shell "the captured row is where point lands when it arrives"
-      "press:Enter dtin:milk press:Enter frame:upsert=r3 wait:300" $ \answer ->
-        assertEqual "point is on the row the capture made" (Just "r3")
-          =<< maybeTextAt "selected" answer
-
-    -- THE WHOLE DRAFT FOR A TAGGED CAPTURE: the blob sits under directories fsnotify never entered, so the nudge is what delivers it.
-  , capturing shell "a tagged capture lands point on the blob when the watch delivers it"
-      "ktag:book press:Enter press:Enter press:C-c press:C-c\
-       \ frame:upsert=r3 wait:300" $ \answer -> do
-        assertEqual "the tag was resolved off the server"
-                    ["/capture", "/capture?tag=book"] =<< textsAt "capturing" answer
-        assertEqual "one capture, under that tag" [Just "book"] =<< taggedOf answer
-        assertEqual "point left the row the boot landed on" (Just "r3")
-          =<< maybeTextAt "selected" answer
-        assertEqual "which is the third row" 2 =<< intAt "cursor" answer
-        assertEqual "nothing was spliced under the filter" [] =<< textsAt "spliced" answer
-
-  , testCase "both reschedule chords are claimed, and name the keyword" $
+promptKeySpec shell = testGroup "Shell reschedule"
+  [ testCase "both reschedule chords are claimed, and name the keyword" $
       mapM_ (\(keys, chord, keyword) ->
                bootOf shell "" 500 keys "" $ \answer -> do
                  assertEqual (T.unpack keys <> ": the palette is up") "on"
@@ -2375,6 +2137,24 @@ draftRowSpec shell = testGroup "Shell draft row"
       "+" "press:m" $ \answer -> do
         assertEqual "the mark went to the row at point" ["r1"] =<< textsAt "marked" answer
         assertEqual "and the draft is still there" (Just "r1") =<< draftUnder answer
+
+    -- `+' RAISES NO SURFACE.  The capture form was one, with a `?page=capture'
+    -- of its own; a draft is a ROW, so the address stays the view's and nothing
+    -- is written until a cell's `RET' commits.
+  , keyedAt shell "?q=state%3ATODO" 500 "+ raises no surface and writes nothing"
+      "+" "" $ \answer -> do
+        assertEqual "the address is the query alone" "?q=state%3ATODO"
+          =<< textAt "url" answer
+        assertEqual "no command went" [] =<< namesOf answer
+        assertEqual "and the row stands" (Just "r1") =<< draftUnder answer
+
+    -- ONE DRAFT AT A TIME: the second `+' puts the editor back on the title
+    -- rather than splicing a row under a row that has no id.
+  , keyedAt shell "?q=state%3ATODO" 500 "a second + leaves the one draft standing"
+      "+" "press:+" $ \answer -> do
+        assertEqual "still under the row at point" (Just "r1") =<< draftUnder answer
+        echoIs "and the pill says so"
+          "+ \8594 org-glance-overview:capture (the draft is up)" answer
   ]
 
 -- | The row @+@ spliced, as the page handed it to the table.
@@ -6904,9 +6684,9 @@ shellGlue =
       -- EVERY VEILED SURFACE, in the order `Popups.popups' names them: the list is
       -- joined from the registry, so a surface added there joins the wash by itself.
       [ "html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
-          <> "html.stale #links,html.stale #tags,html.stale #capture,"
+          <> "html.stale #links,html.stale #tags,"
           <> "html.stale #mint{opacity:.55}"
-      , "#app,#modal,#prompt,#config,#links,#tags,#capture,#mint"
+      , "#app,#modal,#prompt,#config,#links,#tags,#mint"
           <> "{transition:opacity .18s ease}" ]
       [ "html.stale #log", "html.stale #kbd"
       , "html.stale #echo", "html.stale body", "stale #app{filter", "filter:blur"
@@ -7144,13 +6924,7 @@ shellGlue =
       -- switch takes the standing widget down through it and speaks for the box
       -- it opens.
       , "return when ? \"the planning line\" : pair ? \"the drawer\" : \"element\";"
-      -- THE ONE SHAPE WHOSE ESCAPE IS NOT FROM THE EDIT: in a bare draft's title
-      -- the box IS the capture, so ESC there drops the whole thing rather than
-      -- coming back to a sheet that stands over no file.
-      , "function cancelSheetEdit() {"
-      , "if (bareCapture()) {"
-      , "cancelEdit(restoreSheetEdit());"
-      , "const bareCapture = () => capturing() && dediting() && !!edit.row.bare;"
+      , "const cancelSheetEdit = () => cancelEdit(restoreSheetEdit());"
       , "if (ddating()) restoreSheetEdit();"
       , "cancelEdit(\"tag\", TROW)"
       , "cancelEdit(\"link\", LROW)" ]
@@ -7794,9 +7568,9 @@ shellGlue =
       [ "#mtext,#pinput,#dtin,#dpair input,"
       , "#sedit input,#tedit input,#ledit input,"
       , "#dpara textarea,"
-      -- The capture's ONE field, and the DOCKED box, which is a field on this
-      -- page's own row: both take the guard with the rest.
-      , "#ktag,#app .tv-filter,"
+      -- The DOCKED box is a field on this page's own row and takes the guard
+      -- with the rest.
+      , "#app .tv-filter,"
       , ".ctext,.cview{font-size:16px}}"
       , "#mpanes{flex-direction:column}" ]
 
@@ -10562,44 +10336,12 @@ refusedCapture Refused{..} = testCase rfLabel $
     mapM_ (\(what, named) -> assertContains what named (body r)) rfNames
     assertEqual "and no blob was written" [] =<< blobsIn dir
 
--- | The READ door.  @cycle@ is the DOOR'S OWN ANSWER and is pinned first here;
--- the draft document's own members follow it and die with the sheet (stage 6).
+-- | The READ door, which answers ONE MEMBER: the destination's cycle, for the
+-- draft row's state cell to be checked against before the wire carries one.
 captureViewSpec :: TestTree
 captureViewSpec = testGroup "GET /capture"
-  [ testCase "with no tag the draft is the bare headline the pane opens on" $
-      withStoreTree $ \a _hub _dir -> do
-        v <- decoded =<< ok =<< getFrom a "/capture"
-        assertEqual "an empty title" "" =<< textAt "title" =<< field "cells" v
-        assertEqual "one star and a space" "* " =<< textAt "body" v
-        assertEqual "no drawer" [] =<< pairsAt "properties" v
-        assertEqual "and nothing planned" [] =<< pairsAt "planning" v
-        assertEqual "no descendants" [] =<< listAt "children" v
-        -- THE CREATE PIN: the commit that follows meets the very wall a
-        -- materialize commit does, and an occupied path drifts.
-        assertEqual "the empty digest" "" =<< textAt "digest" v
-        assertEqual "and no id, the row not existing yet" (Just Null) =<< sparseAt "id" v
-        assertEqual "point is the head row" (Just Null) =<< sparseAt "point" v
-
-  , testCase "a tag's template arrives expanded, its asks opened empty" $
-      withStoreTree $ \a _hub _dir -> do
-        v <- decoded =<< ok =<< getFrom a "/capture?tag=book"
-        assertEqual "the ask is the pair, with no value" [["AUTHOR", ""]]
-          =<< pairsAt "properties" v
-        assertContains "and the template's own child came with it" "*** Notes"
-          =<< textAt "org" v
-        assertEqual "which the pane is told about" 1 . length =<< listAt "children" v
-        assertEqual "no file is named: nothing was created" "" =<< textAt "file" v
-
-    -- The stamping codes still take the server's clock; the page spells no org.
-  , testCase "a stamping code is expanded and a body point is a line index" $
-      withStoreTree $ \a _hub _dir -> do
-        v <- decoded =<< ok =<< getFrom a "/capture?tag=note"
-        assertContains "the moment of capture, inactive" ":SOURCE:" =<< textAt "org" v
-        assertContains "and the stamp is org's own" "captured [" =<< textAt "body" v
-        assertEqual "point is where %? stood, counted in body lines" 1 =<< intAt "point" v
-
     -- A DRAFT HAS NO ROW, so /keywords cannot answer for it; the cycle rides here.
-  , testCase "the cycle is the tag's own, in the shape /keywords answers in" $
+  [ testCase "the cycle is the tag's own, in the shape /keywords answers in" $
       withStoreTree $ \a _hub _dir -> do
         cyc <- listAt "cycle" =<< decoded =<< ok =<< getFrom a "/capture?tag=book"
         assertEqual "widest first, one entry per source" ["default", "book"]
@@ -10625,95 +10367,31 @@ captureViewSpec = testGroup "GET /capture"
         assertEqual "its words" [["TODO"]] =<< traverse (textsAt "active") cyc
         assertEqual "and its done words" [["DONE"]] =<< traverse (textsAt "inactive") cyc
 
-    -- THE CYCLE IS THE DOOR'S, NOT THE DRAFT'S: it is the DESTINATION LAYER'S
-    -- chain — the very list `stated' walls the commit with — and owes nothing to
-    -- what the template put in the draft's own state cell.  This is the member
-    -- the draft document is dismantled around (stage 6).
-  , testCase "the cycle is the destination's chain, whatever the draft wears" $
+    -- THE CYCLE IS THE DESTINATION LAYER'S CHAIN — the very list `stated' walls
+    -- the commit with — and owes nothing to the template that layer also carries.
+  , testCase "the cycle is the destination's chain, whatever the template says" $
       withStoreTree $ \a _hub _dir -> do
-        v <- decoded =<< ok =<< getFrom a "/capture?tag=task"
-        assertEqual "the template seeded the draft's own state" (Just "TODO")
-          =<< maybeTextAt "state" =<< field "cells" v
-        cyc <- listAt "cycle" v
+        cyc <- listAt "cycle" =<< decoded =<< ok =<< getFrom a "/capture?tag=task"
         assertEqual "the layer's scope rides beside the wider one" ["default", "task"]
           =<< traverse (textAt "source") cyc
-        -- NEXT is nowhere in the draft and is settable all the same, the cycle
-        -- being what the LAYER declares rather than what the draft happens to say.
+        -- The template seeds `TODO' and NEXT is settable all the same: the cycle
+        -- is what the LAYER declares, never what a template happens to spell.
         assertEqual "every word the layer declares" [["TODO"], ["NEXT"]]
           =<< traverse (textsAt "active") cyc
 
-    -- The vocabulary is the TREE's rather than any row's — a capture names no rows to ask about.
-  , testCase "the tag vocabulary is the tree's" $
-      withStoreTree $ \a _hub _dir ->
-        assertEqual "every tag the store holds" ["book"]
-          =<< textsAt "tags" =<< decoded =<< getFrom a "/capture"
-
-    -- TEMPLATE-FIRST: the filter fills gaps, it does not overrule the template.
-  , testCase "the filter's own facts fill what the template left unsaid" $
-      withStoreTree $ \a _hub _dir -> do
-        v <- decoded =<< ok =<< getFrom a
-               "/capture?tag=trip&state=TODO&priority=B&tags=work&scheduled=2026-09-09"
-        cells <- field "cells" v
-        assertEqual "the state" (Just "TODO") =<< maybeTextAt "state" cells
-        assertEqual "the letter, org's own token" (Just "[#B]")
-          =<< maybeTextAt "priority" cells
-        assertEqual "the destination leads the run, the lent tag after it"
-          ":trip:work:" =<< textAt "tags" cells
-        assertEqual "and the day, resolved under this door's own clock read"
-          [["SCHEDULED", "<2026-09-09 Wed>"]] =<< pairsAt "planning" v
-
-    -- THE DRAFT SAYS WHERE IT LANDS.  The tag cell is CONSTRUCTED — a display
-    -- cell owes no round trip through the org line — so the destination is on
-    -- it before a title is, which is the whole of what a reader composing into
-    -- `:bicycle:' needs the pane to admit.
-  , testCase "the destination tag is on the draft before a title is typed" $
-      withStoreTree $ \a _hub _dir -> do
-        v <- decoded =<< ok =<< getFrom a "/capture?tag=bicycle"
-        cells <- field "cells" v
-        assertEqual "the cell names the destination" ":bicycle:"
-          =<< textAt "tags" cells
-        assertEqual "with no title in front of it" "" =<< textAt "title" cells
-
-    -- KNOWN LIMIT, NARROWED TO WHAT REMAINS TRUE: the ORG LINE cannot carry a
-    -- run with no title before it, this parser reading `* :work:' as the title
-    -- itself.  The cell says where the capture lands all the same, and the
-    -- commit composes the header off the cell rather than off this line.
-  , testCase "the org line carries no run until a title stands before it" $
-      withStoreTree $ \a _hub _dir -> do
-        v <- decoded =<< ok =<< getFrom a "/capture?tags=work"
-        assertEqual "one star and a space" "* " =<< textAt "org" v
-        assertEqual "and the cell says the lent tag all the same" ":work:"
-          =<< textAt "tags" =<< field "cells" v
-        titled <- decoded =<< ok =<< getFrom a "/capture?tag=trip&tags=work"
-        assertContains "where a title stands, the run is spliced onto the line"
-          "* Trip :work:" =<< textAt "org" titled
-
-  , testCase "and a template that speaks first is not overruled" $
-      withStoreTree $ \a _hub _dir -> do
-        v <- decoded =<< ok =<< getFrom a "/capture?tag=task&state=READING"
-        assertEqual "the template's own word stands" (Just "TODO")
-          =<< maybeTextAt "state" =<< field "cells" v
-
-    -- AN INHERITED FACT IS NEVER A REFUSAL: it is the filter talking about other rows.
-  , testCase "a fact that does not fit is dropped rather than refused" $
-      withStoreTree $ \a _hub _dir -> do
-        v <- decoded =<< ok =<< getFrom a
-               ("/capture?tag=book&state=NOPE&priority=zz&tags=not%20a%20tag"
-                  <> "&scheduled=never%20o%27clock")
-        cells <- field "cells" v
-        assertEqual "no state" Nothing =<< maybeTextAt "state" cells
-        assertEqual "no letter" Nothing =<< maybeTextAt "priority" cells
-        -- THE DESTINATION IS NO LENT FACT: it is the address the reader settled
-        -- and stands; the tag the charset turns down is simply not inherited.
-        assertEqual "the destination alone" ":book:" =<< textAt "tags" cells
-        assertEqual "and nothing planned" [] =<< pairsAt "planning" v
-
-    -- THE TEMPLATE'S OWN WALL, raised at OPEN rather than after the doc is typed.
-  , testCase "a template with no %? refuses the draft, naming what it lacks" $
+    -- THE WHOLE ANSWER.  Every draft-document member went with the sheet: no
+    -- cells, no org, no `point', no tag vocabulary and no expansion to refuse,
+    -- so a layer whose template has no `%?' is still a 200 here and meets its
+    -- refusal at the one door that writes bytes.
+  , testCase "the answer is the cycle and nothing else" $
       withStoreTree $ \a _hub dir -> do
+        v <- decoded =<< ok =<< getFrom a "/capture?tag=book"
+        assertEqual "one member" ["cycle"] =<< keysOf v
         TIO.writeFile (tagFileIn dir "film") "#+TITLE: Film\n\n* nothing here\n"
-        r <- getFrom a "/capture?tag=film"
-        refused r ["%?"]
+        broken <- decoded =<< ok =<< getFrom a "/capture?tag=film"
+        assertEqual "a template with no %? refuses nothing here" ["cycle"] =<< keysOf broken
+        assertEqual "the tree's own cycle stands behind it" ["default"]
+          =<< traverse (textAt "source") =<< listAt "cycle" broken
 
   , postIs405 "/capture"
   ]
