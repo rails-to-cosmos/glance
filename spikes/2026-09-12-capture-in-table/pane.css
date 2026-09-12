@@ -1,0 +1,206 @@
+/* The surfaces every variant of this spike draws into, lifted from
+   `Theme/Default.hs', `assets/table-view.js' and `assets/page.css' so the draft
+   row is judged at the real hues and the real metrics: the 12px/1.5 row, the
+   5px/12px cell padding, `.tv-cell-edit''s accent outline, the omnibox bar and
+   its chip strip, the pill's 15% wash.
+
+   A variant adds its own `<style>' after this and overrides nothing here — what
+   differs between two tabs is WHERE THE DRAFT ROW STANDS and what `RET' does in
+   it, never what it knows.  Palette verbatim from the 2026-08-24 capture-doc
+   spike, because it is the same palette. */
+
+:root{
+  --dk-mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+  --g-bg:#FFFFFF; --g-fg:#000000; --g-surface:#F8F8FF; --g-mute:#667071;
+  --g-border:#E3E6EA; --g-accent:#31769F; --g-sel:#FFD600; --g-link:#30739B;
+  --g-bad:#E74C3C; --g-warn:#FFA500; --g-ok:#27AE60;
+  --g-point:#005A8D; --g-point-dim:#6E8CA0; --g-point-off:#D9E2EC;
+  --g-todo:#9A3412; --g-done:#166534; --g-hover:#FAFAFA;
+  --g-veil:#00000066; --g-shadow:#00000033;
+  /* `pPriority' (`Theme/Default.hs:41'), A B C in turn. */
+  --g-prio-a:#B91C1C; --g-prio-b:#A16207; --g-prio-c:#15803D;
+  --tv-flag:#E74C3C; --tv-mark-wash:8%; --tv-pill-pad:8px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+    --g-point:#FFC777; --g-point-dim:#A79E86; --g-point-off:#2B4B6E;
+    --g-todo:#E0AF68; --g-done:#9ECE6A; --g-hover:#1F1F1F; --g-ok:#B6E63E;
+    --g-prio-a:#E74C3C; --g-prio-b:#FFCC00; --g-prio-c:#27AE60;
+    --g-veil:#00000099; --g-shadow:#00000077;
+    --tv-mark-wash:30%;
+  }
+}
+:root[data-theme="dark"]{
+  --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+  --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+  --g-point:#FFC777; --g-point-dim:#A79E86; --g-point-off:#2B4B6E;
+  --g-todo:#E0AF68; --g-done:#9ECE6A; --g-hover:#1F1F1F; --g-ok:#B6E63E;
+  --g-prio-a:#E74C3C; --g-prio-b:#FFCC00; --g-prio-c:#27AE60;
+  --g-veil:#00000099; --g-shadow:#00000077;
+  --tv-mark-wash:30%;
+}
+/* THE TABLE SPENDS THE PAGE'S OWN TOKENS under its own names (`Theme.hs'), which
+   is why the table's cursor and the page's selection are one gold. */
+:root{
+  --tv-bg:var(--g-bg); --tv-fg:var(--g-fg); --tv-muted:var(--g-mute);
+  --tv-border:var(--g-border); --tv-accent:var(--g-accent);
+  --tv-alt:var(--g-surface); --tv-sel:var(--g-sel);
+}
+
+html,body{height:100%}
+body{
+  margin:0; background:var(--g-bg); color:var(--g-fg);
+  font:12px/1.5 var(--dk-mono);
+  display:flex; flex-direction:column; gap:8px; padding:12px;
+  box-sizing:border-box;
+}
+h1{
+  margin:0; font-size:12px; font-weight:600; flex:none;
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+}
+h1 small{font-weight:400; color:var(--g-mute)}
+kbd{
+  font:inherit; border:1px solid var(--g-border); border-radius:3px;
+  padding:0 3px; color:var(--g-mute);
+}
+/* THREE LINES AND NO MORE: the keys, then what the rig did, then what the
+   standing filter is for.  Each takes a whole row of its own or the three
+   interleave into an unreadable ribbon. */
+footer{
+  flex:none; color:var(--g-mute); font-size:11px;
+  display:flex; flex-wrap:wrap; gap:4px 14px; align-items:baseline;
+}
+footer .keys,#says{flex:1 0 100%; min-width:0}
+#truth,#state,#align{min-width:0; overflow-wrap:anywhere}
+#truth{color:var(--g-fg)}
+#state{color:var(--g-point)}
+#says{color:var(--g-point-dim)}
+#stage{
+  flex:1 1 auto; min-height:0; position:relative;
+  display:flex; flex-direction:column; gap:8px;
+}
+
+/* ---- the shell the table lives in --------------------------------------- */
+#frame{
+  flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+  border:1px solid var(--g-border); border-radius:8px; background:var(--g-bg);
+  overflow:hidden;
+}
+
+/* ---- the omnibox and its chip strip (`table-view.js:1209', `:1257') ------ */
+.tv-bar{
+  display:flex; align-items:center; gap:8px; padding:10px 12px;
+  border-bottom:1px solid var(--tv-border); flex-wrap:wrap;
+}
+.tv-filter{
+  font:inherit; flex:1 1 auto; font-size:15px; padding:7px 11px;
+  border:1px solid var(--tv-border); border-radius:6px;
+  background:var(--tv-bg); color:var(--tv-fg); min-width:140px;
+}
+.tv-chips{
+  display:flex; flex-wrap:wrap; gap:5px; align-items:center;
+  padding:8px 12px; border-bottom:1px solid var(--tv-border);
+}
+.tv-chip{
+  display:inline-flex; align-items:center; gap:5px;
+  padding:1px 8px; border-radius:999px; font-size:12px;
+  color:var(--tv-fg); border:1px solid var(--tv-border);
+  background:var(--tv-alt);
+}
+/* A TOKEN THE DRAFT TAKES SOMETHING FROM wears the accent, and one that lends
+   nothing stays plain — the seeding rule, read off the strip. */
+.tv-chip.cx-lends{border-color:var(--g-accent); color:var(--g-accent)}
+.tv-chip.cx-mute{color:var(--tv-muted); background:transparent}
+.cx-lendmark{font-size:10px; opacity:.8}
+
+/* ---- the row strip, verbatim (`table-view.js:1620'ff) ------------------- */
+#tablewrap{flex:1 1 auto; min-height:0; overflow:auto}
+.tv-table{border-collapse:collapse; width:100%; table-layout:fixed}
+.tv-table th,.tv-table td{
+  padding:5px 12px; text-align:left; white-space:nowrap;
+  border-bottom:1px solid var(--tv-border);
+  overflow:hidden; text-overflow:ellipsis;
+}
+.tv-table td:empty::after{content:"\200B"}
+.tv-table th{
+  position:sticky; top:0; background:var(--tv-bg); font-weight:600;
+  color:var(--tv-muted); user-select:none; z-index:1;
+}
+.tv-table tbody tr.tv-alt{background:var(--tv-alt)}
+.tv-table tbody tr.tv-sel{background:var(--tv-sel)}
+.tv-pill{
+  display:inline-block; padding:0 var(--tv-pill-pad); border-radius:999px;
+  font-weight:600; color:var(--tv-badge);
+  background:color-mix(in srgb,var(--tv-badge) 15%,transparent);
+}
+.tv-tag{color:var(--g-mute); text-transform:lowercase}
+.tv-date{color:var(--g-fg); font-variant-numeric:tabular-nums}
+
+/* THE IN-CELL EDITOR, verbatim (`table-view.js:1233'): the accent outline is
+   the one sign it is an input and not the drawn value. */
+.tv-cell-edit{
+  font:inherit; box-sizing:border-box; width:100%; padding:0; margin:0;
+  border:none; outline:2px solid var(--tv-accent); outline-offset:-2px;
+  background:var(--tv-bg); color:var(--tv-fg);
+}
+
+/* ---- what a DRAFT ROW looks like, and nothing else does ----------------- */
+/* NOT YET WRITTEN, said in three channels at once, because the row otherwise
+   sits among six rows that are facts: an accent edge on the leading cell, a
+   badge that names the state, and MUTE INK on every cell the filter seeded
+   rather than the reader typed. */
+.tv-table tbody tr.cx-draft td:first-child{box-shadow:inset 3px 0 0 var(--g-accent)}
+.tv-table tbody tr.cx-draft{background:color-mix(in srgb,var(--g-accent) 7%,transparent)}
+.tv-table tbody tr.cx-draft td{border-bottom:1px dashed var(--g-accent)}
+/* A SEED IS NOT A VALUE: the ghost ink is the doc pane's own (`Style.hs:375'
+   `.dgh' — `--g-mute', unselectable), and the dashed rule under it says the
+   value arrived from the filter and no one typed it. */
+.cx-ghost{
+  color:var(--g-point-dim); user-select:none;
+  border-bottom:1px dashed var(--g-point-dim);
+}
+.cx-ghost.tv-pill{
+  color:var(--g-point-dim); background:transparent;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--g-point-dim) 55%,transparent);
+  border-bottom:none;
+}
+.cx-titlecell{display:flex; align-items:center; gap:8px; min-width:0}
+.cx-titlecell .tv-cell-edit{flex:1 1 auto; min-width:0}
+/* WHERE IT WILL LAND, said in the row, the way `captureWhere' says it in the
+   sheet's file line (`20-sheet.js:2217'). */
+.cx-where{flex:none; color:var(--g-mute); font-size:11px; white-space:nowrap}
+.cx-badge{
+  flex:none; font-size:10px; color:var(--g-accent);
+  border:1px solid var(--g-accent); border-radius:3px; padding:0 4px;
+  letter-spacing:.04em;
+}
+/* THE REFUSAL, in the shipped words (`20-sheet.js:1628'). */
+.cx-refuse{flex:none; color:var(--g-bad); font-size:11px; font-weight:600}
+.tv-table tbody tr.cx-refused td{border-bottom-color:var(--g-bad)}
+.tv-table tbody tr.cx-refused td:first-child{box-shadow:inset 3px 0 0 var(--g-bad)}
+/* THE ROW THAT JUST LANDED, and the distance it travelled to land there. */
+.tv-table tbody tr.cx-fresh td{
+  box-shadow:inset 0 1px 0 var(--g-ok), inset 0 -1px 0 var(--g-ok);
+}
+.cx-moved{color:var(--g-ok); font-size:11px; margin-left:10px}
+.cx-note{color:var(--g-mute); font-size:11px; margin-left:10px}
+
+/* ---- D's capture strip: a row that is not a table row ------------------- */
+/* Its own surface between the omnibox and the table, the way `#ghead' is the
+   shell's own row above the table (`page.css:1387') so a re-mount never touches
+   it.  The cells mirror the table's measured column widths; that mirroring is
+   the whole of D's build cost and it is drawn here rather than described. */
+#strip{
+  flex:none; border-bottom:1px solid var(--tv-border);
+  background:color-mix(in srgb,var(--g-accent) 7%,transparent);
+  box-shadow:inset 3px 0 0 var(--g-accent);
+}
+#strip:empty{display:none}
+#strip table{border-collapse:collapse; width:100%; table-layout:fixed}
+#strip td{
+  padding:5px 12px; text-align:left; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis;
+}
+#strip .cx-lead{color:var(--g-accent); font-weight:600}

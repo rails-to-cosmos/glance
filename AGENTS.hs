@@ -5460,9 +5460,12 @@ sheetNotes =
          \ commit, no remote and an identity of the repo's own, and a fresh one per case:\
          \ a mounted git control fills `#ghead', whose 22px row moves every table row\
          \ below it, so the position-sensitive cases keep the plain tree." [Browser]
-  , Note "NO REMOTE IS NO UPSTREAM, which `actionFor' refuses, so the fixture's control\
-         \ draws the warned dead button dirty and clean alike — the tick and the one-click\
-         \ commit are states an upstream buys." [Browser]
+  , Note "THE GLYPH IS A READOUT: a span the state colours, whose HOVER TEXT spells the\
+         \ branch, its upstream or the want of one, the staged/unstaged/untracked counts\
+         \ and the ahead/behind pair.  Only the auto-sync toggle takes a click, so no\
+         \ reading of the row can start a push.  NO REMOTE IS NO UPSTREAM, so the fixture\
+         \ wears the warned ⚠ dirty and clean alike and the title is what tells them\
+         \ apart; the tick is a state an upstream buys." [Browser]
   , Note "The sheet is one `SURFACES' entry, the fourth `flagKey' surface and the fourth\
          \ `openEdit' surface -- four of the seven shapes are its own, the title, the\
          \ paragraph, the drawer's pair and the planning date -- whose `anchor' is the\

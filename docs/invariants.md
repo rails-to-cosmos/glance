@@ -343,8 +343,9 @@ nothing catches it.
   identity the repo carries in its own `.git/config` — on its own daemon and
   fresh per case; every other case keeps the plain tree, because a mounted
   control draws `#ghead` above the table and moves every row below it.
-  `drive.mjs:368`, `:396`, `cases.mjs:5396`, `:5444`. Serving the repo tree to
+  `drive.mjs:368`, `:396`, `cases.mjs:5396`, `:5447`. Serving the repo tree to
   all of them shifts every position-sensitive case by that row, and
   `BREAK=ghead-row` (`drive.mjs:160`) is what turns the control's own case red.
-  NO REMOTE IS NO UPSTREAM, which `actionFor` refuses, so the fixture draws the
-  warned dead button dirty and clean alike. *fragility: medium*
+  NO REMOTE IS NO UPSTREAM, so the fixture wears the warned ⚠ dirty and clean
+  alike; the glyph is a static span and its hover text is what tells the two
+  apart. *fragility: medium*

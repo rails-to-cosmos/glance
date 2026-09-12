@@ -382,16 +382,16 @@ const gitRead = (p, why) => p.until(() => {
            branch: c.querySelector(".g-branch").textContent,
            dot: c.querySelector(".g-dot").textContent,
            n: c.querySelector(".g-n").textContent,
-           cls: b.className, title: b.title, off: b.disabled,
+           cls: b.className, title: b.title, tag: b.tagName,
            mark: c.dataset.mark || "",
            row: document.getElementById("ghead").getBoundingClientRect().height };
 }, why || "the git control to mount and fill");
 
-/** A FRESH `/git' READ, the control's own.  Clean and dirty draw the SAME glyph
- * with no upstream, so nothing in the DOM says a re-render happened: blank a
- * field `render()' always refills, nudge the control the way the page nudges it
- * (`window.addEventListener("focus", poll)'), and wait for the refill.  What
- * comes back is that render's, never the one before the nudge. */
+/** A FRESH `/git' READ, the control's own.  Clean and dirty draw the SAME dot
+ * with no upstream, so waiting on the glyph could pass on the render before the
+ * write: blank a field `render()' always refills, nudge the control the way the
+ * page nudges it (`window.addEventListener("focus", poll)'), and wait for the
+ * refill.  What comes back is that render's, never the one before the nudge. */
 async function gitPoll(p, why) {
   await p.eval(() => {
     document.querySelector("#gitctl .g-dir").textContent = "";
@@ -5400,13 +5400,16 @@ export default [
     const up = await gitRead(p, "the control to mount off the first /git poll");
     assert(/^⎇ .+:main$/.test(up.loc),
       `the control reads ${JSON.stringify(up.loc)}, not the served dir and its branch`);
-    // NO REMOTE IS NO UPSTREAM, which `actionFor' refuses (Git.hs:118) and
-    // `glyphFor' draws as the warned, DEAD button -- the clean tick is a state
-    // an upstream buys, and this fixture has none.
+    // NO REMOTE IS NO UPSTREAM, which `glyphFor' draws as the warned ⚠ -- the
+    // clean tick is a state an upstream buys, and this fixture has none.
     assert(up.dot === "⚠" && up.cls.includes("g-detached"),
       `a fresh repo with no upstream drew ${JSON.stringify(up.dot)} (${up.cls})`);
-    assert(up.off && !/\(click\)/.test(up.title),
-      `the glyph offers a click on a state with no safe action: ${JSON.stringify(up.title)}`);
+    // THE GLYPH IS A READOUT: a span whose hover text SAYS the state, with no
+    // click on it to run anything.
+    assert(up.tag === "SPAN",
+      `the glyph draws as <${up.tag.toLowerCase()}>; the readout is a span`);
+    assert(/no upstream/.test(up.title) && !/\(click\)/.test(up.title),
+      `the hover text does not read as a state: ${JSON.stringify(up.title)}`);
     const said = await gitSaid(p);
     assert(said.repo && said.branch === "main" && said.upstream === null && !said.dirty,
       `the fixture is not a clean unborn-upstream repo: ${JSON.stringify(said)}`);
@@ -5432,16 +5435,16 @@ export default [
     assert(after.loc === up.loc && after.dot === up.dot && after.cls === up.cls,
       `the re-mount changed the control: ${JSON.stringify(up)} -> ${JSON.stringify(after)}`);
     return [`the control reads ${JSON.stringify(up.loc)} on a repo with no upstream: `
-      + `${up.dot}, the button dead ("${up.title}")`,
+      + `${up.dot} in a static span ("${up.title}")`,
       `#ghead costs ${px(up.row)} above the table, which is why only \`repo' cases `
       + `are served a git tree`,
       "`g' re-mounted the table and the same #gitctl node came through"];
   } },
 
 // UI 2026-09-12.  The other half of the fixture: the dirt reaches the daemon,
-// and the one-click stays refused, which is what `actionFor' says for a repo
-// with no upstream (Git.hs:118, TestGit.hs "no upstream -- no one-click").
-{ name: "a write dirties the git fixture, and no upstream still means no one-click",
+// and the glyph's hover text spells the count `/git' answers with -- the dot
+// stays the same ⚠ a repo with no upstream always wears.
+{ name: "a write dirties the git fixture, and the glyph's hover text says so",
   repo: true,
   async run(p, base) {
     await paraOpen(p, base, "drv-marks");
@@ -5457,22 +5460,18 @@ export default [
     }, "git to see the write in the work tree");
     assert(dirt.unstaged > 0,
       `the edited file is not counted unstaged: ${JSON.stringify(dirt)}`);
-    // The glyph is the SAME ⚠ dirty or clean with no upstream, so the reading
-    // is gated on a render of its own rather than on a change.
+    // The dot is the SAME ⚠ dirty or clean with no upstream, so the reading is
+    // gated on a render of its own rather than on a change.
     const on = await gitPoll(p, "the control to re-read /git after the write");
-    assert(on.dot === "⚠" && on.off,
-      `a dirty repo with no upstream offered ${JSON.stringify(on.dot)}, `
-      + `button ${on.off ? "dead" : "live"} -- ${JSON.stringify(on.title)}`);
-    // AND THE CLICK IS A NO-OP, end to end: the dead button runs no action, so
-    // the dirt is still there on the NEXT reading, which the nudge forces.
-    await p.click("#gitctl .g-glyph");
-    const after = await gitPoll(p, "the control to read /git once more after the click");
-    const still = await gitSaid(p);
-    assert(still.dirty >= dirt.dirty && after.dot === "⚠",
-      `the click committed something: ${dirt.dirty} dirty before, ${still.dirty} after`);
+    assert(on.dot === "⚠" && on.tag === "SPAN",
+      `a dirty repo with no upstream drew ${JSON.stringify(on.dot)} `
+      + `in a <${on.tag.toLowerCase()}> -- ${JSON.stringify(on.title)}`);
+    // THE COUNT IS IN THE HOVER TEXT, which is the whole of what the static
+    // glyph offers: the dirt `/git' counted, spelled out, upstream and all.
+    const says = new RegExp(`${dirt.unstaged} unstaged`);
+    assert(says.test(on.title) && /no upstream/.test(on.title),
+      `the hover text does not name the dirt: ${JSON.stringify(on.title)}`);
     return [`the write leaves ${dirt.unstaged} unstaged and ${dirt.untracked} untracked`,
-      `the glyph stays ${on.dot} and the button dead ("${on.title}"), `
-      + "which is `actionFor' refusing a repo with no upstream",
-      "a click on the dead glyph committed nothing"];
+      `the glyph stays ${on.dot} and its hover text spells the state ("${on.title}")`];
   } },
 ];

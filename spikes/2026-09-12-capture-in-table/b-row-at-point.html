@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · row at point</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* B — ROW AT POINT.  Everything A does, one place over: the draft is inserted
+     BELOW the row point stands on, which is org's own `org-insert-heading-after'
+     read into a table.  The new thing goes where the reader is.
+
+       TODO    [#B]   Renew the passport         ← point was here
+     ▏ NEXT    [#A]   ▮              → trip  draft
+       NEXT    [#A]   Book the Kyoto flights
+
+     THE SORT PROBLEM IS B'S WHOLE ARGUMENT, and it is not a bug in B — it is
+     the same problem A has, paid at commit instead of deferred.  The applied
+     view is `sort:scheduled->title' and a capture leaves SCHEDULED empty, so
+     the fresh row belongs in the undated tail whatever row it was typed beside.
+     B asks for the server's order AT ONCE (`settle: "now"'), so the row flies
+     from where it was typed to where it sorts, and the rig prints how far.
+
+     The reader's claim on the draft's position therefore survives exactly as
+     long as the commit: the place they chose is a place for TYPING, never a
+     place the row keeps.  A hides this until the next paint; B shows it while
+     the reader is still looking. */
+</style>
+</head>
+<body>
+  <h1>B · row at point
+    <small>the draft is inserted below the cursor's row, and the real row sorts away</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> pick a row · <kbd>+</kbd> a draft
+      below it · type a title · <kbd>RET</kbd> captures and the row sorts ·
+      <kbd>ESC</kbd> drops it silently · <kbd>r</kbd> a repaint ·
+      <kbd>`</kbd> the next filter · <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="align"></span>
+    <span id="says"></span>
+  </footer>
+
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { at: "point", settle: "now" } });
+})();
+</script>
+</body>
+</html>

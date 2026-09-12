@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E · walk on TAB</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* E — A, PLUS `TAB'.  The placement is A's exactly: the draft is the strip's
+     first row, seeded from the filter, title cell open.  What E adds is a
+     MOVEMENT key inside the draft, which is what lets the commit key keep its
+     one meaning.
+
+       ┌── TAB ──▶ ── TAB ──▶ ── TAB ──▶ ── TAB ──┐
+       │                                          │
+       title      state      priority      tags ──┘        (S-TAB walks back)
+         │          │           │            │
+         └──────────┴─── RET ───┴────────────┘  ──▶ the write, from any cell
+
+     `RET' COMMITS FROM ANY CELL, so the bare jot is A's `+', the line, `RET' —
+     the same 19 keys, and the walk costs the reader who never takes it nothing
+     at all.  `ESC' anywhere drops the whole draft.  An empty title refuses
+     whichever cell `RET' was pressed in, because the wall is on the TITLE and
+     never on the cell point happens to stand in.
+
+     THE COLLISION, AND IT IS REAL.  In an open table cell `TAB' already commits
+     exactly as `RET' does (`table-view.js:3918' — `if (e.key === "Enter" ||
+     e.key === "Tab")').  E changes that reading INSIDE A DRAFT ONLY: on a real
+     row's cell editor `TAB' still writes and closes.  So the same key means
+     `write this cell' one row down and `next cell' in the draft.  The rig
+     answers to the shipped reading in every other tab, so the two can be felt
+     against each other.
+
+     WHAT IT RHYMES WITH.  The pair box already walks to the next field on `TAB'
+     (`20-sheet.js:1802', `tabRung'), the settings sheet walks its panels on
+     `TAB' and back on `S-TAB' (`50-settings.js:55'), and org-table's own `TAB'
+     is `next field' — which is the closest rhyme of the three, since this is a
+     table and these are its cells. */
+</style>
+</head>
+<body>
+  <h1>E · walk on TAB
+    <small>A's row, plus TAB between the draft's cells; RET still writes from anywhere</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <footer>
+    <span class="keys"><kbd>+</kbd> a draft row · type a title ·
+      <kbd>TAB</kbd> the next cell · <kbd>S-TAB</kbd> the one before ·
+      <kbd>RET</kbd> captures from any cell ·
+      <kbd>RET</kbd> on an empty title refuses wherever it is pressed ·
+      <kbd>ESC</kbd> drops the whole draft · <kbd>n</kbd><kbd>p</kbd> walk ·
+      <kbd>r</kbd> a repaint · <kbd>`</kbd> the next filter ·
+      <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="align"></span>
+    <span id="says"></span>
+  </footer>
+
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { at: "top", settle: "defer", tab: true } });
+})();
+</script>
+</body>
+</html>

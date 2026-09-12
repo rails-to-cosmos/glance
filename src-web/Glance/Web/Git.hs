@@ -105,7 +105,7 @@ syncActionOf t = case t of
   "arm"          -> Just Arm
   _              -> Nothing
 
--- | The one safe step for a state; 'Nothing' when nothing is one-click-safe (detached, no upstream).
+-- | The one safe step for a state, which auto-sync runs; 'Nothing' when none is safe (detached, no upstream).
 actionFor :: GitStatus -> Maybe SyncAction
 actionFor s
   | not (gsRepo s)                           = Nothing

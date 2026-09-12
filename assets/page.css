@@ -1404,7 +1404,8 @@ html.stale #app,{{WASHED_STALE}} {
 #gitctl .g-loc { color: var(--g-fg); opacity: .9; }
 #gitctl .g-loc .g-vc { color: var(--g-mute); opacity: .8; }
 #gitctl .g-loc .g-dir { color: var(--g-mute); }
-#gitctl button {
+/* The auto-sync toggle is the row's only button; the glyph is a static readout. */
+#gitctl .g-auto {
     font: inherit;
     color: var(--g-fg);
     background: transparent;
@@ -1414,8 +1415,8 @@ html.stale #app,{{WASHED_STALE}} {
     cursor: pointer;
     line-height: 1.4;
 }
-#gitctl button:hover { background: var(--g-surface); }
-#gitctl .g-glyph { display: inline-flex; align-items: center; gap: 5px; }
+#gitctl .g-auto:hover { background: var(--g-surface); }
+#gitctl .g-glyph { display: inline-flex; align-items: center; gap: 5px; cursor: default; }
 #gitctl .g-glyph .g-n { font-variant-numeric: tabular-nums; }
 /* The dot carries the state's colour; the count follows it. */
 #gitctl .g-clean    .g-dot, #gitctl .g-clean    .g-n { color: var(--g-mute); }

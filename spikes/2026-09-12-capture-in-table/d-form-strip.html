@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D · form strip</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* D — THE ROW IS A FORM STRIP ABOVE THE TABLE.  Same cells, same seeds, same
+     two laws — but the draft is not a table row at all.  It is a one-row
+     surface of the shell's own between the omnibox and the strip, the way
+     `#ghead' carries the git control (`page.css:1387') so a table re-mount
+     never touches it.
+
+       ┌ omnibox ───────────────────────────────────────────────┐
+       │ priority:A tag:trip state:NEXT sort:scheduled->title    │
+       ├ chips ─────────────────────────────────────────────────┤
+       ├ capture strip ─────────────────────────────────────────┤
+     ▏ │ NEXT  [#A]  ▮            → trip  draft   :trip:        │
+       ├ the table ─────────────────────────────────────────────┤
+       │ TODO  [#B]  Renew the passport   :trip:admin: 2026-09-15│
+
+     WHAT IT BUYS is that no row moves: the six rows sit exactly where they sat,
+     the cursor keeps its place, and the commit appends to whatever order the
+     server answers.  Nothing is ever inserted into the strip and then taken out
+     of it again.
+
+     WHAT IT COSTS is a SECOND SURFACE that has to impersonate the first.  The
+     cells only read as a row if they sit on the table's column grid, so the
+     strip's widths are MIRRORED from the table's measured header on every draw
+     — and the footer prints what that mirroring is still off by.  That number
+     is the honest size of the cost. */
+</style>
+</head>
+<body>
+  <h1>D · form strip
+    <small>a capture strip between the omnibox and the table; no row ever moves</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="strip"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <footer>
+    <span class="keys"><kbd>+</kbd> the capture strip · type a title ·
+      <kbd>RET</kbd> captures into the table below ·
+      <kbd>ESC</kbd> drops it silently · <kbd>n</kbd><kbd>p</kbd> walk ·
+      <kbd>r</kbd> a repaint · <kbd>`</kbd> the next filter ·
+      <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="align"></span>
+    <span id="says"></span>
+  </footer>
+
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { at: "strip", settle: "now" } });
+})();
+</script>
+</body>
+</html>

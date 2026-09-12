@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C · walk the row</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* C — TITLE, THEN WALK THE ROW.  The draft stands at the head as in A, but
+     `RET' on the title does not commit: it closes the title and takes point to
+     the next editable cell, so the seeded facts can be refined before anything
+     is written.
+
+       title  ──RET──▶  state  ──RET──▶  priority  ──RET──▶  tags  ──RET──▶  commit
+
+     `C-c C-c' commits from wherever point stands — which is org-capture's own
+     reading of the key (`org-capture-finalize') and the reading the 2026-08-24
+     spike already pinned.  `ESC' anywhere drops the WHOLE draft, never one
+     cell of it: there is one input open at a time and the input IS the capture.
+
+     WHAT IT COSTS IS COUNTED.  The footer prints the keys the bare jot took,
+     from `+' to the write.  A's number is the floor, because A commits on the
+     title's own `RET'. */
+</style>
+</head>
+<body>
+  <h1>C · walk the row
+    <small>RET closes the title and walks on; the last cell, or C-c C-c, commits</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <footer>
+    <span class="keys"><kbd>+</kbd> a draft row · type a title ·
+      <kbd>RET</kbd> walks title → state → priority → tags ·
+      <kbd>RET</kbd> on tags captures · <kbd>C-c C-c</kbd> captures now ·
+      <kbd>ESC</kbd> drops the whole draft · <kbd>r</kbd> a repaint ·
+      <kbd>`</kbd> the next filter · <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="align"></span>
+    <span id="says"></span>
+  </footer>
+
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { at: "top", settle: "defer", walk: true } });
+})();
+</script>
+</body>
+</html>

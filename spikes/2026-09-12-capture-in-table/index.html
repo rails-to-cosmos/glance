@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capture in the table — four shapes</title>
+<style>
+  /* THE SHELL ONLY.  Each variant is its own page; what they share is `rig.js'
+     and `pane.css', which is the point — the tabs differ by WHERE THE DRAFT ROW
+     STANDS and what `RET' does in it, never by what it knows.  One fixture, one
+     filter, one seeding rule, one pair of commit/dismiss laws, four shapes. */
+  :root{
+    --mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --bg:#FFFFFF; --fg:#000000; --mute:#667071; --border:#E3E6EA;
+    --accent:#31769F; --surface:#F8F8FF;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --fg:#FFFFFF; --mute:#A4C2EB; --border:#2A2D3D;
+      --accent:#4CB5F5; --surface:#21252B;
+    }
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 var(--mono); display:flex; flex-direction:column;
+  }
+  header{flex:none; border-bottom:1px solid var(--border); background:var(--surface)}
+  h1{margin:0; padding:10px 20px 0; font-size:13px; font-weight:600; letter-spacing:.02em}
+  h1 small{font-weight:400; color:var(--mute); margin-left:8px}
+  nav{display:flex; flex-wrap:wrap; padding:0 20px}
+  nav a{
+    font-size:12px; color:var(--mute); text-decoration:none;
+    border-bottom:2px solid transparent; padding:10px 12px;
+  }
+  nav a:hover{color:var(--fg)}
+  nav a[aria-current="page"]{color:var(--fg); border-bottom-color:var(--accent)}
+  nav a:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  p.note{
+    margin:0; padding:8px 20px; font-size:11px; color:var(--mute);
+    border-bottom:1px solid var(--border); max-width:110ch;
+  }
+  p.note code,p.note kbd{font-size:11px}
+  iframe{flex:1 1 auto; width:100%; border:0; display:block; min-height:0}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Capture in the table <small>five shapes for a capture with no popup</small></h1>
+    <nav id="tabs" aria-label="variants">
+      <a href="#a" data-src="a-top-row.html">A · top row</a>
+      <a href="#b" data-src="b-row-at-point.html">B · row at point</a>
+      <a href="#c" data-src="c-walk-the-row.html">C · walk the row</a>
+      <a href="#d" data-src="d-form-strip.html">D · form strip</a>
+      <a href="#e" data-src="e-walk-on-tab.html">E · walk on TAB</a>
+    </nav>
+  </header>
+  <p class="note" id="note"></p>
+  <iframe id="stage" title="variant"></iframe>
+
+<script>
+(() => {
+  "use strict";
+  // CLICK THE PANE ONCE, THEN PRESS `+'.  A `file://' iframe is an opaque
+  // origin, so the shell's own `contentWindow.focus()' is refused and the
+  // keyboard stays with the shell until the reader clicks in.  Opening a
+  // variant's own page directly needs no click.
+  const K = "<b>Click the pane, then press <kbd>+</kbd>.</b> ";
+  const TAIL = " <kbd>`</kbd> cycles the four filters — the defaults follow "
+    + "the omnibox, and the chip strip marks which token lent what. The six "
+    + "rows do not re-filter; the filter is here for what it LENDS.";
+  const NOTE = {
+    a: K + "The draft is the strip's FIRST row, seeded from the filter, title "
+     + "cell open. <kbd>RET</kbd> captures and point stays on the row; "
+     + "<kbd>RET</kbd> on an empty title refuses in the shipped words and takes "
+     + "the row away; <kbd>ESC</kbd> takes it away silently. The applied sort is "
+     + "<code>sort:scheduled->title</code> and a capture has no date, so the "
+     + "fresh row does not belong at the head — <kbd>r</kbd> is the next "
+     + "<code>/headlines</code> answer arriving to sort it." + TAIL,
+    b: K + "<kbd>n</kbd>/<kbd>p</kbd> to a row first: the draft is inserted "
+     + "BELOW it, org's <code>insert-heading-after</code>. <kbd>RET</kbd> "
+     + "captures and asks for the server's order at once, so the row flies from "
+     + "where it was typed to where it sorts — the rig prints how far. Same "
+     + "problem as A's, paid now instead of later." + TAIL,
+    c: K + "<kbd>RET</kbd> on the title WALKS rather than commits: title → "
+     + "state → priority → tags, each cell open in turn, <kbd>RET</kbd> on the "
+     + "last one writing. <kbd>C-c C-c</kbd> writes from anywhere; "
+     + "<kbd>ESC</kbd> anywhere drops the whole draft. The footer counts the "
+     + "keys the bare jot cost — compare it with A's." + TAIL,
+    d: K + "No table row at all: a one-row capture strip between the chips and "
+     + "the table, the shell's own surface the way <code>#ghead</code> is. "
+     + "Nothing in the table moves while it stands. The price is that the "
+     + "strip has to impersonate a row — its columns are mirrored from the "
+     + "table's measured header on every draw, and the footer prints what the "
+     + "mirroring is still off by." + TAIL,
+    e: K + "A's row and A's keys, plus one: <kbd>TAB</kbd> takes the open "
+     + "editor to the next cell of the draft and <kbd>S-TAB</kbd> back, "
+     + "wrapping at both ends. <kbd>RET</kbd> keeps its one meaning and writes "
+     + "from any cell, so the bare jot is still <kbd>+</kbd>, the line, "
+     + "<kbd>RET</kbd>, and an empty title refuses wherever <kbd>RET</kbd> was "
+     + "pressed. The collision is worth feeling: in every other tab "
+     + "<kbd>TAB</kbd> COMMITS, which is what an open table cell already does "
+     + "(<code>table-view.js:3918</code>)." + TAIL,
+  };
+  const tabs = [...document.querySelectorAll("#tabs a")];
+  const stage = document.getElementById("stage");
+  const note = document.getElementById("note");
+
+  function show(key) {
+    const tab = tabs.find((t) => t.hash === "#" + key) || tabs[0];
+    for (const t of tabs) {
+      if (t === tab) t.setAttribute("aria-current", "page");
+      else t.removeAttribute("aria-current");
+    }
+    note.innerHTML = NOTE[tab.hash.slice(1)] || "";
+    const src = tab.dataset.src;
+    if (stage.getAttribute("src") !== src) stage.setAttribute("src", src);
+    stage.addEventListener("load", () => {
+      try { stage.contentWindow.focus(); } catch (e) { /* another origin */ }
+    }, { once: true });
+  }
+
+  addEventListener("hashchange", () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || "a");
+})();
+</script>
+</body>
+</html>

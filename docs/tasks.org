@@ -127,9 +127,13 @@ DONE 2026-09-12: a =repo: true= case is served a SECOND =git init='ed copy of th
 tree (one commit, no remote, the repo's own identity), fresh per case — =#ghead=
 costs 22.2px above the table, so every other position-sensitive case keeps the
 plain tree.  Two cases: the control mounts reading =repo:main= and the same =#gitctl=
-node survives =g=; a sheet write dirties the work tree and the one-click stays
-refused, which is =actionFor= on a repo with no upstream.  =BREAK=ghead-row=
-turns the first red.  100/100, four full runs.
+node survives =g=; a sheet write dirties the work tree and the glyph's hover text
+names the count.  =BREAK=ghead-row= turns the first red.  100/100, four full runs.
+
+UPDATE 2026-09-12: the glyph stopped being a button.  It is a =span= the state
+colours, its =title= a sentence built from the =/git= fields (=main tracking
+origin/main · 3 uncommitted (1 staged, 2 unstaged, 0 untracked) · 2 behind · 1
+ahead=); only the auto-sync toggle takes a click.
 
 * TODO Fold the three lazy list mounts in the glue onto one helper
 =linksMounted= (=40-popups.js=), =tagsMounted= (=40-popups.js=) and
@@ -193,8 +197,8 @@ close, and nothing says so — the popup-registry failure in a second object.
 (=:2573-2580=) the table's; both read the same =HeadlineRecord= fields, they
 disagree on the tag key (=tags= against =tag=), and no test names them together.
 
-* TODO A git fixture with a local bare origin, for the clean-glyph and commit+push cases
-=repoUp= (=test/browser/drive.mjs:396-409=) makes a repo with NO REMOTE, which
-=actionFor= refuses, so both git cases can only assert the warned dead button; a
-bare origin cloned beside it would let a case press the one-click and read =✓= and
-=● commit + push= for real.
+* TODO A git fixture with a local bare origin, for the clean, ahead and behind glyphs
+=repoUp= (=test/browser/drive.mjs:396-409=) makes a repo with NO REMOTE, so both
+git cases can only read the warned =⚠= and a hover text saying =no upstream=; a
+bare origin cloned beside it would let a case read =✓=, =↑=, =↓= and the
+=tracking origin/main= half of the title for real.

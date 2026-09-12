@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A · top row</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* A — TOP ROW, TITLE THEN COMMIT.  `+' puts the draft at the HEAD of the
+     strip, seeded from the filter, with the title cell open.  The reader types
+     a title and presses `RET'.  Nothing else is asked.
+
+       State   #      Title                                Tags          Scheduled
+       ────────────────────────────────────────────────────────────────────────────
+     ▏ NEXT    [#A]   ▮                        → trip  draft   :trip:
+       TODO    [#B]   Renew the passport                  :trip:admin:  2026-09-15
+       NEXT    [#A]   Book the Kyoto flights              :trip:travel: 2026-09-18
+
+     THE HEAD IS A PLACE NOTHING ELSE WANTS.  Wherever point stands, the draft
+     lands where the eye already is when a table is read top-down, and it never
+     moves a row the reader was looking at — the six rows shift down by one and
+     keep their order among themselves.
+
+     THE SORT IS DEFERRED, and that is A's one piece of dishonesty made
+     explicit: the applied view is `sort:scheduled->title', a capture leaves
+     SCHEDULED empty, so the fresh row does NOT belong at the head.  A client
+     cannot re-order a `sort:' view by itself, so A leaves the row where it put
+     it and lets the next `/headlines' answer sort it (`00-core.js:244').  `r'
+     here is that answer arriving. */
+</style>
+</head>
+<body>
+  <h1>A · top row
+    <small>the draft is the strip's first row; type a title, RET commits</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <footer>
+    <span class="keys"><kbd>+</kbd> a draft row · type a title ·
+      <kbd>RET</kbd> captures · <kbd>RET</kbd> on an empty title refuses ·
+      <kbd>ESC</kbd> drops it silently · <kbd>n</kbd><kbd>p</kbd> walk ·
+      <kbd>r</kbd> a repaint · <kbd>`</kbd> the next filter ·
+      <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="align"></span>
+    <span id="says"></span>
+  </footer>
+
+<script src="rig.js"></script>
+<script>
+(function () {
+  RIG.mount({ look: { at: "top", settle: "defer" } });
+})();
+</script>
+</body>
+</html>
