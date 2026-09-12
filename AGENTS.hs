@@ -5462,6 +5462,26 @@ sheetNotes =
          \ to the widget, whose own reading of that key is exactly that, so no editor is\
          \ stranded over a row the splice has already taken away.  Every OTHER row keeps\
          \ the shipped reading, which costs nothing while no other row is editable." [Browser]
+  , Note "`RET' FROM ANY OF THE DRAFT'S CELLS IS THE COMMIT.  The open editor's value is\
+         \ folded into the phantom first, the walk having accumulated and posted nothing,\
+         \ and the whole capture then goes out at ONE press through the same command the\
+         \ sheet's `C-c C-c' used.  A ROW CARRIES NO BODY, NO DRAWER AND NO PLANNING LINE,\
+         \ so the args are the title, the DESTINATION as `tag' (the capture's address), the\
+         \ row's own run as `tags' and the two scalars -- and the state among them is\
+         \ already the destination's own, `+' having dropped what that cycle lacks.  THE ROW\
+         \ ARRIVES BEHIND ITS OWN 200: a command publishes nothing and the watch's nudge is\
+         \ what reloads the store, so the draft is spliced out, the server's order is asked\
+         \ for at once, and `arriving' carries point onto the id on the FIRST settle that\
+         \ holds the row -- wherever `sort:' puts it, a capture having no SCHEDULED to keep\
+         \ it where it was typed." [Browser]
+  , Note "A REFUSED CAPTURE REFUSES IN PLACE: the draft STAYS, a row that cannot commit\
+         \ being a row the reader would otherwise have to retype.  The editor comes back to\
+         \ the title with its text selected, the word takes the hint's place beside the row\
+         \ -- `nothing to capture' for an empty title, the server's own sentence for its\
+         \ 400 -- and the two channels that fence the row off, the dashed rule and the\
+         \ accent edge, turn `--g-warn'.  The next CONTENT keystroke takes the note and the\
+         \ dress back; a walk and a movement leave them standing, and only `ESC' dismisses\
+         \ the draft." [Browser]
   , Note "A HEADLINE ALWAYS DRAWS ITS TITLE CELL, empty or not (`drawnCells', Doc.elm):\
          \ that cell is the SLOT the title edit anchors in (`dTitleAt'), and a row that drew\
          \ none left the box anchored on the whole line — swallowing the star, the state,\

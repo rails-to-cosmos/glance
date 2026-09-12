@@ -1619,7 +1619,9 @@
     /** `C-c C-c' OVER A DRAFT: the whole capture at one press, through the ONE
      * command that mints a blob.  THE BODY STARTS UNDER THE HEADLINE LINE: the
      * capture spells its own headline from the cells, so the whole cargo would
-     * spell it twice. */
+     * spell it twice.  The draft ROW spells the args again (`draftArgs',
+     * 35-draft.js) because it carries no body, no drawer and no planning line;
+     * this copy dies with the sheet, stage 6. */
     function commitCapture(b) {
       const h = editing, c = h.cells || {};
       const tag = h.capture.tag;
@@ -2096,11 +2098,17 @@
       if (visible().some((r) => r.id === want.from)) return;
       land({ id: want.id, col: column() }, want.at);
     }
+    /** POINT ONTO THE ROW A WRITE PLACED, once it is there to stand on.  A
+     * capture's row arrives BEHIND its own 200 — `/command' publishes nothing,
+     * so the watch's nudge is what reloads the store — and the FIRST settle that
+     * carries the row is the one that spends this.  Held until then, and dropped
+     * with the view it belonged to (`commit', 00-core.js). */
     function arrived() {
+      if (!arriving || !table) return;
+      if (!visible().some((r) => r.id === arriving)) return;
       const want = arriving;
       arriving = null;
-      if (!want || !table) return;
-      if (visible().some((r) => r.id === want)) land({ id: want, col: column() });
+      land({ id: want, col: column() });
     }
     // MINE is compared, since two archives can be out at once.
     const spent = (mine) => (results) => {

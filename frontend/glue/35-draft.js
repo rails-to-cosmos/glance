@@ -81,7 +81,11 @@
     // A ROW ID NO STORE ANSWERS: an id is a uuid or a path, and neither spells a
     // space.  A draft is never a target, so this id never reaches a `/command'.
     const DRAFT_ID = "· draft";
-    /** @type {{under: string|null, dest: string, cells: Record<string, string>} | null} */
+    /** THE DRAFT AS THE PAGE HOLDS IT: the row it stands under, its destination,
+     * the keyword that destination's cycle dropped, the refusal it is standing
+     * on, and the cells themselves -- which the drawn row shares by reference.
+     * @type {{under: string|null, dest: string, dropped: string, refused: string,
+     *         cells: Record<string, string>} | null} */
     let drafting = null;
     const colAt = (key) => cols.findIndex((c) => c.key === key);
 
@@ -119,6 +123,7 @@
       if (at !== -1 && cols[at]) drafting.cells[cols[at].key] = box.value;
       table.setRows(withDraft(rows));
       if (at !== -1 && can(table, "editCell")) table.editCell(DRAFT_ID, at);
+      dressDraft();
     }
 
     /** `+': A DRAFT ROW UNDER THE ROW AT POINT, wearing what the filter pins,
@@ -133,6 +138,8 @@
       drafting = {
         under: focusedId(),
         dest: seed.dest,
+        dropped: "",
+        refused: "",
         cells: { state: seed.state, priority: seed.priority, title: "",
                  tag: draftTags([seed.dest].concat(seed.tags)),
                  scheduled: draftHint(seed.dest, ""), deadline: "" },
@@ -146,7 +153,11 @@
      * such column, the draft being the rows' shape and not the view's. */
     function openDraftCell(key) {
       const at = colAt(key);
-      return at !== -1 && can(table, "editCell") && table.editCell(DRAFT_ID, at);
+      const opened = at !== -1 && can(table, "editCell")
+        && table.editCell(DRAFT_ID, at);
+      // `editCell' REDRAWS THE ROWS on its way in, taking the dress with them.
+      dressDraft();
+      return opened;
     }
     const cycleWords = (sources) =>
       (sources || []).reduce((all, s) =>
@@ -161,6 +172,7 @@
           if (!drafting || drafting.dest !== dest || !state) return;
           if (cycleWords(a.cycle).indexOf(state) !== -1) return;
           drafting.cells.state = "";
+          drafting.dropped = state;
           drafting.cells.scheduled = draftHint(dest, state);
           drawDraftCells(["state", "scheduled"]);
         })
@@ -189,24 +201,31 @@
      * one of the facts it wears. */
     const DRAFT_WALK = ["title", "state", "priority", "tag"];
 
+    /** Does KEY put a character into the open box or take one out?  A refusal's
+     * note is the reader's to CLEAR BY TYPING, so a walk and a movement leave it
+     * standing and the word survives the trip to the cell that needs fixing. */
+    const contentKey = (key) =>
+      key === "SPC" || key === "DEL" || key === "<delete>" || key.length === 1;
+
     /** A KEY INSIDE AN OPEN CELL, asked before the widget's own reading of it; a
      * `true' answer says this glue took it.  OVER THE DRAFT ALONE: `TAB'/`S-TAB'
-     * walk the ring, `RET' waits for the commit and `ESC' drops the row.  Every
-     * other row keeps the shipped reading, which costs nothing while no other
-     * row is editable. */
+     * walk the ring, `RET' commits and `ESC' drops the row.  Every other row
+     * keeps the shipped reading, which costs nothing while no other row is
+     * editable. */
     function draftKey(e, cell) {
       if (!drafting || cell.id !== DRAFT_ID) return false;
       // NAMED THE WAY EVERY OTHER LISTENER NAMES A KEY: the raw event is read in
       // `keyName' and nowhere else, so `S-TAB' is a name here rather than a flag.
       const key = keyName(e);
+      if (!key) return false;
+      // THE READER IS ANSWERING THE REFUSAL, so the row stops standing on it.
+      if (drafting.refused && contentKey(key)) clearRefusal();
       if (key === "TAB" || key === "S-TAB") {
         e.preventDefault();
         walkDraft(cell, key === "TAB" ? 1 : -1);
         return true;
       }
-      // Stage 4 takes `RET' as the commit; until then it holds the editor open,
-      // the draft having an exit but no commit.
-      if (key === "RET") { e.preventDefault(); return true; }
+      if (key === "RET") { e.preventDefault(); commitDraft(cell); return true; }
       // `ESC' DROPS THE ROW AND LEAVES THE CLOSE TO THE WIDGET, whose own
       // reading of the key is exactly that: taking the key here would strand the
       // widget holding the editor the splice has already unparented.
@@ -233,4 +252,88 @@
       drafting = null;
       if (can(table, "setRows", "getRows"))
         table.setRows(table.getRows().filter((r) => !r.draft));
+    }
+
+    // THE COMMIT.  `RET' from ANY cell sends the whole capture through the one
+    // command that mints a blob; the draft is committed or it never was.
+
+    /** `RET' OVER A DRAFT FINALIZES A CAPTURE, which is the verb org-capture
+     * spells rather than any row-write; no binding is added for it, the key
+     * belonging to the editor and reaching no dispatch. */
+    const FINALIZE = docBinding("org-capture-finalize");
+
+    /** WHAT A ROW CAN CARRY AND NO MORE, as the capture command's own args.  The
+     * DESTINATION rides as `tag' — it is the capture's address, `→ book' minting
+     * a blob under that layer and `→ inbox' appending to the inbox — and the
+     * row's whole run rides as `tags', the destination leading it.  A ROW HAS NO
+     * BODY, NO DRAWER AND NO PLANNING LINE, so the widened cargo's other three
+     * keys are absent.  THE STATE IS ALREADY THE DESTINATION'S OWN: `askCycle'
+     * cleared a keyword that cycle lacks, so the wire carries none `stated'
+     * would refuse.  (`commitCapture', 20-sheet.js, spells this again for the
+     * sheet over a draft; that copy dies with the sheet, stage 6.) */
+    function draftArgs(title, c, dest) {
+      const args = { title };
+      if (dest) args.tag = dest;
+      const state = String(c.state || "").trim();
+      if (state) args.state = state;
+      const priority = priorityIn(c.priority);
+      if (priority) args.priority = priority;
+      const tags = cellTags(c.tag);
+      if (tags.length) args.tags = tags;
+      return args;
+    }
+
+    /** `RET' FROM ANY CELL: THE WHOLE CAPTURE AT ONE PRESS.  The OPEN editor's
+     * value is folded in first — the walk accumulates and posts nothing, so the
+     * cell the reader stands in has not reached the row yet.  POINT FOLLOWS THE
+     * ROW THE SERVER PLACES: the id the command answers is spent by `arrived' on
+     * the settle that carries the row, and the re-query is asked for at once so
+     * the fresh row arrives where `sort:' puts it rather than where it was typed. */
+    function commitDraft(cell) {
+      const from = cols[cell.col];
+      if (from && DRAFT_WALK.indexOf(from.key) !== -1)
+        drafting.cells[from.key] = cell.value;
+      const c = drafting.cells, dest = drafting.dest;
+      const title = String(c.title || "").trim();
+      if (!title) { refuseDraft("nothing to capture"); return; }
+      postCommand({ name: "capture", args: draftArgs(title, c, dest) })
+        .then((a) => {
+          arriving = a.id || null;
+          dropDraft();
+          fetchRows(settled);
+          said(FINALIZE, dest ? `captured · :${dest}:` : `captured · ${a.file}`);
+          append("cmd", "info",
+                 `headline ${JSON.stringify(title)} captured into ${a.file}`);
+        })
+        .catch((e) => {
+          refuseDraft(e.message);
+          append("cmd", "error", `capture failed: ${e.message}`);
+        });
+    }
+
+    /** A REFUSAL KEEPS THE DRAFT STANDING — a row that cannot commit is a row the
+     * reader would otherwise have to retype.  The word takes the hint's place
+     * beside the row, the editor goes back to the title with its text selected,
+     * and the dress turns `--g-warn'.  Only `ESC' dismisses the draft; the next
+     * content keystroke takes the note and the dress back. */
+    function refuseDraft(why) {
+      drafting.refused = why;
+      drafting.cells.scheduled = why;
+      openDraftCell("title");
+      said(FINALIZE, why);
+    }
+    function clearRefusal() {
+      drafting.refused = "";
+      drafting.cells.scheduled = draftHint(drafting.dest, drafting.dropped);
+      // IN PLACE, never through a paint: a redraw here would destroy the very
+      // input the reader is answering into and take the caret with it.
+      drawDraftCells(["scheduled"]);
+      dressDraft();
+    }
+    /** THE REFUSAL'S OWN DRESS, STAMPED ON THE DRAWN ROW: every redraw rebuilds
+     * the tbody, so the class is put back after each rather than set once.  Hue
+     * is no channel of its own — the WORD stands in the hint beside it. */
+    function dressDraft() {
+      const tr = document.querySelector("#app tr.tv-draft");
+      if (tr) tr.classList.toggle("g-refused", !!(drafting && drafting.refused));
     }

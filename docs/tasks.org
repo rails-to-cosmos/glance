@@ -232,11 +232,11 @@ widget, whose own reading of the key is exactly that.  =Keymap.hs= is unchanged 
 an open cell stops every key it sees, so the draft's keys belong to the editor and
 can be bound nowhere else.
 
-STILL OWED: =RET= is stage 4's commit and is a no-op here that holds the editor
-open, so a draft is dropped or it stands.  The state and priority cells offer a
-plain text input; the value palette from =30-capture.js= is a later refinement,
-and the seeded value is the input's initial text, so a cell walked through
-untouched keeps what it held.
+=RET= was owed to stage 4 and is now the commit (below), so a draft is committed,
+dropped, or standing on a refusal.  The state and priority cells offer a plain
+text input; the value palette from =30-capture.js= is a later refinement, and the
+seeded value is the input's initial text, so a cell walked through untouched keeps
+what it held.
 
 Four browser cases, red before the change: =TAB walks the draft's cells and wraps,
 S-TAB walks them back=, =n and p in an open draft cell type rather than walk=,
@@ -252,6 +252,53 @@ of the sort.  The main view declares a sort chain, and a draft's title is empty,
 so the chain would park it in the blanks at the end rather than under the row the
 reader opened it at.
 
+* DONE Capture-is-a-row stages 4 and 5 — the commit, and the refusal in place
+See [[file:proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md]] stages
+4 and 5.  =RET= from ANY of the draft's cells folds the open editor's value into
+the phantom and posts the whole capture through the ONE command that mints a blob
+(=commitDraft=/=draftArgs=, =frontend/glue/35-draft.js:292=, =:274=).  The args
+are the title, the DESTINATION as =tag=, the row's own run as =tags= and the two
+scalars; no body, no drawer, no planning line, and no state the destination's
+cycle lacks — =askCycle= already dropped that.  On =ok=: =arriving = a.id=, the
+draft is spliced out, and the server's order is asked for at once
+(=fetchRows(settled)=).
+
+=arrived= (=frontend/glue/20-sheet.js:2106=) now HOLDS the id until the row is
+visible rather than spending it on the next settle whatever it carries.
+A command publishes nothing (=docs/invariants.md=, "No write route publishes its
+own write") and the watch debounces 0.1 s, so the commit's own re-query answers
+the store as it was BEFORE the write; spending =arriving= there left point where
+it stood.  It is still dropped with the view it belonged to.
+
+Stage 5: a refusal keeps the draft STANDING (=refuseDraft=, =:319=; the dress is
+=dressDraft=, =:336=).  The word takes the hint cell's place beside the row —
+=nothing to capture= for an empty
+title, the server's own sentence for its 400 — the editor comes back to the title
+with its text selected, and =g-refused= turns the dashed rule and the accent edge
+=--g-warn= (=assets/page.css:1469=).  The next CONTENT keystroke clears both
+(=contentKey=, =:207=); a walk and a movement leave them; only =ESC= dismisses.
+
+Three browser cases, the first two red before the change: =RET from any cell
+captures, and point follows the row the server places= (the inbox run asserting
+the store, the table, point and =inbox.org=; the =tag:book state:NEXT priority:A=
+run asserting the blob's headline is exactly =* [#A] zqbook :book:=, which reads
+the letter, the run and the ABSENCE of the dropped keyword at once), =RET on an
+empty title keeps the draft and says what it wants=, and the proposal's case 9,
+=a state the destination's cycle lacks is dropped, and the hint says so=.  Suite
+104/104.  THE ACCENT EDGE IS TRANSITIONED (=transition: box-shadow=, table-view's
+own sheet), so the warn dress is waited out rather than read once — a reading
+taken the moment the class lands still shows the colour it is moving off.
+
+NOT DRIVABLE IN THE SHELL RIG: the POST body is observable there (=argsOf=,
+=taggedOf=, =test/TestServe.hs=), but the rig's table stub opens no in-cell
+=<input>= (=editCell= records =[id, col]= and nothing else,
+=test/fixtures/shell-harness.js:669=), so =onCellKey= — the one dispatch a key
+inside a cell reaches — is never called; and the fixture view declares only
+=state= and =tag= columns, so the draft's title cell cannot open at all.  Driving
+it would need a new act plus a =title= column in the fixture, which moves every
+case that reads a column index.  A glue-source pin stands in
+(=a draft commits at one RET, and a refusal keeps it standing=).
+
 * TODO Capture-is-a-row stage 6 — the cases the re-pointed form owes
 =+= no longer raises the tag field, so stage 2 moved =promptKeySpec='s runs onto
 =?page=capture= (=capturing=, =test/TestServe.hs:2029=) rather than deleting
@@ -263,3 +310,14 @@ anyway: the three browser capture-sheet cases and the draft half of a fourth
 =ESC over a draft leaves nothing behind=, and the draft half of =an empty title
 still has a slot=), the helpers =captureForm=/=draftOver=, and the two settings
 URL cases (=the capture form says so in the URL= and its closer).
+
+* TODO A tag on an inbox headline moves it under the tag (first tag wins)
+See [[file:bugs/open/2026-09-12-a-tag-on-an-inbox-headline-leaves-it-in-the-inbox.md]].
+=add-tag= edits the title line only; the tagged road (=captureBlob=) exists at
+capture time alone. Two-file write through the one door: blob first, then the
+inbox cut, ledger noted, both paths nudged. After the capture-row build.
+
+* TODO A killed auto-sync leaves a stale index.lock; the readout says nothing
+See [[file:bugs/open/2026-09-12-a-killed-auto-sync-leaves-a-stale-index-lock.md]].
+Bracket each git step so shutdown never abandons a child; =gitStatus= reads a
+stale lock as a state the glyph wears; never delete it from glance.

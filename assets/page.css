@@ -1466,6 +1466,14 @@ html.stale #app,{{WASHED_STALE}} {
     font-style: normal;
     color: var(--g-fg);
 }
+/* A REFUSED CAPTURE KEEPS ITS DRAFT STANDING and says what it wants: the WORD goes into the hint cell beside the row and the two channels that fence the row off — the dashed rule and the accent edge — turn `--g-warn'.  The next content keystroke takes both back, so the dress lasts exactly as long as the reader has not answered it. */
+#app tr.tv-draft.g-refused > td {
+    border-top-color: var(--g-warn);
+    border-bottom-color: var(--g-warn);
+}
+#app tr.tv-draft.g-refused > td:first-child {
+    box-shadow: inset 3px 0 0 var(--g-warn);
+}
 
 /* Every touch rule is in this query; iOS zooms a field under 16px and stays there. */
 @media (pointer:coarse) {

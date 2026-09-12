@@ -7588,6 +7588,28 @@ shellGlue =
       []
 
   -- THE SUBTREE WRITE'S ANSWER, once: a 200 re-pins the digest, and under it is one ladder for every refusal.
+  -- CAPTURE IS A ROW, STAGES 4 AND 5.  The draft's `RET' cannot be DRIVEN here --
+  -- the rig's table stub opens no in-cell <input>, so `onCellKey', the one dispatch
+  -- a key inside a cell reaches, is never called, and the fixture view declares no
+  -- `title' column for the editor to stand in.  The browser suite drives it; this
+  -- pins the shape the source must keep.
+  , glue "a draft commits at one RET, and a refusal keeps it standing"
+      [ "if (key === \"RET\") { e.preventDefault(); commitDraft(cell); return true; }"
+      , "if (drafting.refused && contentKey(key)) clearRefusal();"
+      , "function draftArgs(title, c, dest) {"
+      , "if (dest) args.tag = dest;"
+      , "const tags = cellTags(c.tag);"
+      , "postCommand({ name: \"capture\", args: draftArgs(title, c, dest) })"
+      -- Point follows the row the server placed, and the order is asked for at once.
+      , "arriving = a.id || null;"
+      , "fetchRows(settled);"
+      , "if (!title) { refuseDraft(\"nothing to capture\"); return; }"
+      , "function refuseDraft(why) {"
+      , "drafting.cells.scheduled = why;"
+      , "tr.classList.toggle(\"g-refused\", !!(drafting && drafting.refused));"
+      , "#app tr.tv-draft.g-refused > td { border-top-color: var(--g-warn);"
+      , "#app tr.tv-draft.g-refused > td:first-child { box-shadow: inset 3px 0 0 var(--g-warn); }" ]
+
   , glue "one ladder answers every subtree write"
       [ "function landed(h, onOk) {"
       , "const commitDoc = (cargo) => {"
