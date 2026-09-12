@@ -213,7 +213,7 @@
         // open, and what the reader typed is read back on the strip under that
         // row (36-date-cell.js).
         editableKeys: DATE_KEYS,
-        onCellInput: dateCellNote,
+        onCellInput: cellNote,
         onFilter: filter,   // the server narrows; the renderer shows what it is given
         onRefused: refused, // a shaping token typed at `/', which the box keeps
         onPin: () => pinHere(),
@@ -534,8 +534,12 @@
       said(b, `${on ? "marked" : "unmarked"} · ${table.markedCount()}`);
       move(1);
     }
+    /** THE MARKED ROWS, or none where this table does no marking.  ONE READING:
+     * `targets()' and `C-c C-s''s split read the same answer, so which rows a key
+     * takes and which surface it opens cannot come apart (36-date-cell.js). */
+    const marks = () => (marking() ? table.getMarked() : []);
     const targets = () => {
-      const marked = marking() ? table.getMarked() : [];
+      const marked = marks();
       if (marked.length) return marked;
       const id = focusedId();
       return id ? [id] : [];

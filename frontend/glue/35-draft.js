@@ -61,7 +61,8 @@
     /** THE DRAFT, AS ONE OBJECT: the very row the widget holds, with the page's
      * own two facts on it.  The cells, the anchor and the refusal are the row's —
      * two copies of a cell is how the drawn row and the posted capture come to
-     * disagree.
+     * disagree.  `refused' DRESSES the row warn and says nothing; the word rides
+     * the strip under the cell that is open (`draftNote').
      * @type {{id: string, producer: boolean, under: string|null,
      *         refused: string, dest: string,
      *         cells: Record<string, string>} | null} */
@@ -131,10 +132,11 @@
     // THE WALK.  A draft's keys can be bound nowhere but `onCellKey'
     // (assets/table-view.js), which is where the seam and its reason are stated.
 
-    /** THE CELLS A DRAFT OWNS.  The two dates are among them: a draft's date
-     * rides out in the capture's own `planning' (`draftArgs'), and the cell it is
-     * typed into is the standing row's own editor (36-date-cell.js). */
-    const DRAFT_CELLS = ["title", "state", "priority", "scheduled", "deadline", "tag"];
+    /** THE CELLS A DRAFT OWNS.  The date columns are among them, SPLICED FROM THE
+     * ONE LIST (15-dates.js): a draft's date rides out in the capture's own
+     * `planning' (`draftArgs'), and the cell it is typed into is the standing
+     * row's own editor (36-date-cell.js). */
+    const DRAFT_CELLS = ["title", "state", "priority"].concat(DATE_KEYS, ["tag"]);
     /** THE RING `TAB' WALKS: those of the draft's cells this view draws, IN THE
      * ORDER THE HEADER DRAWS THEM, left to right; `S-TAB' is the same ring the
      * other way.  The walk follows the eye rather than a list of its own, so a
@@ -226,8 +228,8 @@
      * the request's one clock read, the way `set-planning' does
      * (docs/invariants.md).  An empty cell is no entry, and no entry is no line. */
     const draftPlanning = (c) =>
-      DATE_CELLS.map((pair) => [planKeyword(pair[0]), String(c[pair[0]] || "").trim()])
-                .filter((pair) => pair[1]);
+      DATE_KEYS.map((key) => [planKeyword(key), String(c[key] || "").trim()])
+               .filter((pair) => pair[1]);
 
     /** `RET' FROM ANY CELL: THE WHOLE CAPTURE AT ONE PRESS.  The OPEN editor's
      * value is folded in first — the walk accumulates and posts nothing, so the
@@ -254,21 +256,36 @@
         });
     }
 
+    /** WHAT THE STRIP SAYS UNDER A REFUSED DRAFT, whichever of its cells is open:
+     * the refusal is about the ROW and not about the cell, so it outranks the
+     * cell's own reading and follows the walk rather than riding one column.
+     * ONE NOTE MECHANISM -- the drawn cells stay the cells they are. */
+    const draftNote = (cell) =>
+      drafting && cell.id === DRAFT_ID && drafting.refused
+        ? { text: drafting.refused, bad: true } : null;
+
     /** A REFUSAL KEEPS THE DRAFT STANDING — a row that cannot commit is a row the
-     * reader would otherwise have to retype.  The word is the row's whole note,
-     * drawn beside it; the editor goes back to the title with its text selected,
-     * and the widget dresses the row warn.  Only `ESC' dismisses the draft; the
-     * next content keystroke takes the note and the dress back. */
+     * reader would otherwise have to retype.  The word rides the strip under the
+     * open cell; the editor goes back to the title with its text selected, and
+     * the widget dresses the row warn.  Only `ESC' dismisses the draft; the next
+     * content keystroke takes the note and the dress back. */
     function refuseDraft(why) {
       drafting.refused = why;
-      // THE EDITOR'S OWN REDRAW CARRIES THE WORD AND THE DRESS; a view drawing
-      // no title cell has none to carry them, so the row is republished instead.
+      // THE EDITOR'S OWN REDRAW CARRIES THE DRESS; a view drawing no title cell
+      // has none to carry it, so the row is republished instead.
       if (!openDraftAt("title")) redrawDraft();
+      refreshStrip();
       said(FINALIZE, why);
     }
     /** ONE FRAME BEHIND THE KEY that answered it: the redraw rebuilds the very
      * cell the keystroke is still landing in, so it is left to finish first. */
     function clearRefusal() {
       drafting.refused = "";
-      soon(() => { if (drafting && !drafting.refused) redrawDraft(); });
+      soon(() => {
+        if (!drafting || drafting.refused) return;
+        redrawDraft();
+        refreshStrip();
+      });
     }
+    // The strip is the widget's, and it is asked for outside an `input' here.
+    const refreshStrip = () => { if (can(table, "refreshStrip")) table.refreshStrip(); };

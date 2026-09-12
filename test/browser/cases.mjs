@@ -553,7 +553,9 @@ async function columnTo(p, key, why) {
 
 /** THE TABLE'S OPEN CELL EDITOR AND THE STRIP UNDER IT, as ONE reading: the row
  * it stands in, the column it names, what it holds and what it selected, and the
- * line the producer drew beneath that row. */
+ * line the producer drew beneath that row.  THE STRIP NODE STANDS FOR THE
+ * EDITOR'S LIFE, so `mounted' is whether it is there and `strip' is what it SAYS
+ * — `null' for the producer's own silence, which the node wears as empty. */
 const cellEditor = (p, why) => p.until(() => {
   const box = /** @type {any} */ (document.querySelector("#app input.tv-cell-edit"));
   if (!box || document.activeElement !== box) return false;
@@ -564,7 +566,8 @@ const cellEditor = (p, why) => p.until(() => {
   const strip = document.querySelector("#app tbody tr.tv-strip");
   return { id: tr.dataset.id, key: keys[tds.indexOf(box.closest("td"))],
            value: box.value, sel: [box.selectionStart, box.selectionEnd],
-           strip: strip ? strip.querySelector("td").textContent : null,
+           mounted: !!strip,
+           strip: (strip && strip.querySelector("td").textContent) || null,
            refused: !!strip && strip.classList.contains("tv-refused"),
            under: strip && strip.previousElementSibling
              ? strip.previousElementSibling.dataset.id : null,
@@ -572,14 +575,15 @@ const cellEditor = (p, why) => p.until(() => {
 }, why);
 
 /** The open cell once the strip under it says WHAT — a string matched whole, or
- * `null' for no strip at all, which is the producer's own silence. */
+ * `null' for the producer's own silence, which the mounted strip wears as an
+ * empty line rather than by going away. */
 const stripSays = (p, what, why) => p.until((want) => {
   const box = /** @type {any} */ (document.querySelector("#app input.tv-cell-edit"));
   if (!box) return false;
   const strip = document.querySelector("#app tbody tr.tv-strip");
-  const said = strip ? strip.querySelector("td").textContent : null;
+  const said = (strip && strip.querySelector("td").textContent) || null;
   return said === want
-    ? { value: box.value, said,
+    ? { value: box.value, said, mounted: !!strip,
         refused: !!strip && strip.classList.contains("tv-refused") }
     : false;
 }, why, undefined, what);
@@ -5265,9 +5269,10 @@ export default [
 // CAPTURE IS A ROW, STAGE 5: THE REFUSAL REFUSES IN PLACE.  `RET' on a title
 // that holds nothing keeps the draft STANDING -- a row that cannot commit is a
 // row the reader would otherwise have to retype -- and the editor comes back to
-// the title with its text selected.  The word is the shipped one, the dress is
-// the accent edge and the dashed rule turning `--g-warn', and the next CONTENT
-// keystroke takes both back; a movement leaves them, and only `ESC' dismisses.
+// the title with its text selected.  The word RIDES THE STRIP under the open
+// cell, the dress is the accent edge and the dashed rule turning `--g-warn',
+// and the next CONTENT keystroke takes both back; a movement leaves them, and
+// only `ESC' dismisses.
 { name: "RET on an empty title keeps the draft and says what it wants",
   async run(p, base) {
     await tableUp(p, base);
@@ -5293,9 +5298,14 @@ export default [
       // moment the class lands still shows the colour it is moving off.
       const want = g("warn");
       const edge = getComputedStyle(tr.children[0]).boxShadow;
+      const strip = document.querySelector("#app tbody tr.tv-strip");
       return at === "title" && edge.indexOf(want) !== -1
         ? { n: document.querySelectorAll("#app tbody tr[data-id]").length,
-            note: tds[keys.indexOf("deadline")].textContent,
+            note: strip ? strip.querySelector("td").textContent : null,
+            stripWarn: !!strip && strip.classList.contains("tv-refused"),
+            under: strip && strip.previousElementSibling
+              ? strip.previousElementSibling.dataset.id : null,
+            cells: keys.map((k, i) => [k, tds[i].textContent]),
             warn: tr.classList.contains("tv-refused"),
             rule: getComputedStyle(tds[0]).borderTopColor, edge, want,
             sel: [box.selectionStart, box.selectionEnd, box.value.length] }
@@ -5304,9 +5314,15 @@ export default [
 
     assert(refused.n === before + 1,
       `the table holds ${refused.n} rows where the standing draft makes ${before + 1}`);
-    // THE WORD IS THE ROW'S WHOLE NOTE, and it is the shipped sentence.
-    assert(refused.note === "nothing to capture",
-      `the note reads ${JSON.stringify(refused.note)} rather than the shipped word`);
+    // THE WORD RIDES THE STRIP UNDER THE OPEN CELL, and it is the shipped
+    // sentence: the row's own cells are left the cells they are.
+    assert(refused.note === "nothing to capture" && refused.stripWarn,
+      `the strip reads ${JSON.stringify(refused.note)} (refused: `
+      + `${refused.stripWarn}) rather than the shipped word in the warn's ink`);
+    assert(refused.under === "· draft",
+      `the strip stands under ${JSON.stringify(refused.under)} rather than the draft`);
+    assert(refused.cells.every(([, text]) => text !== "nothing to capture"),
+      `the refusal drew into a cell as well: ${JSON.stringify(refused.cells)}`);
     assert(refused.warn && refused.rule === refused.want,
       `the refused row wears ${JSON.stringify([refused.warn, refused.rule, refused.edge])} `
       + `where the dashed rule and the accent edge must both be ${refused.want}`);
@@ -5318,10 +5334,8 @@ export default [
     await p.press("<left>");
     const moved = await p.eval(() => {
       const tr = document.querySelector("#app tbody tr.tv-producer");
-      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
-        .map((th) => th.dataset.key);
-      const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
-      return { note: tds[keys.indexOf("deadline")].textContent,
+      const strip = document.querySelector("#app tbody tr.tv-strip");
+      return { note: strip ? strip.querySelector("td").textContent : null,
                warn: tr.classList.contains("tv-refused") };
     });
     assert(moved.note === "nothing to capture" && moved.warn,
@@ -5333,12 +5347,13 @@ export default [
       const tr = document.querySelector("#app tbody tr.tv-producer");
       const box = tr && tr.querySelector("input.tv-cell-edit");
       if (!box) return false;
-      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
-        .map((th) => th.dataset.key);
       const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
-      const note = tds[keys.indexOf("deadline")].textContent;
+      const strip = document.querySelector("#app tbody tr.tv-strip");
+      const note = strip ? strip.querySelector("td").textContent : null;
       const want = g("warn");
       const edge = getComputedStyle(tr.children[0]).boxShadow;
+      // THE STRIP STAYS MOUNTED AND GOES EMPTY: the line is the editor's, not
+      // the refusal's, so answering the refusal moves no row below.
       return note === "" && !tr.classList.contains("tv-refused")
                && edge.indexOf(want) === -1
         ? { note, value: box.value, edge, want,
@@ -5659,11 +5674,13 @@ export default [
       + `${moved.length - at - 1} rows below moved ${drew.h}px and ESC put them back`];
   } },
 
-{ name: "an empty note draws no strip",
+{ name: "an empty note keeps the strip mounted and empty",
   async run(p, base) {
     await tableUp(p, base);
     // THE PRODUCER'S OWN SILENCE: `null' is an answer, and it is the one the
     // date cell gives on a phrase that resolves to the day already in the cell.
+    // THE NODE STANDS THROUGH IT — the line is paid at the OPEN, once, so a
+    // producer that finds its voice mid-phrase moves no row below.
     const up = await rigUp(p, { keys: ["scheduled"], note: null });
     const one = datedRow(up);
     const before = await rigTops(p);
@@ -5673,21 +5690,38 @@ export default [
     await p.press("x");
     const seen = await p.until(() => {
       const asks = window["__asks"];
+      const strip = document.querySelector("#rig tbody tr.tv-strip");
       return asks.length >= 2 ? {
         asks: asks.map((a) => a.when),
         strips: document.querySelectorAll("#rig tbody tr.tv-strip").length,
+        said: strip ? strip.querySelector("td").textContent : null,
+        h: strip ? Math.round(strip.getBoundingClientRect().height) : 0,
         editing: !!window["__rig"].getEditing(),
       } : false;
     }, "the producer to be asked at the open and on the key");
-    assert(seen.strips === 0 && seen.editing,
-      `a null note drew ${seen.strips} strips under an open editor: `
-      + `${JSON.stringify(seen)}`);
+    assert(seen.strips === 1 && seen.said === "" && seen.editing,
+      `a null note left ${seen.strips} strips saying ${JSON.stringify(seen.said)} `
+      + `under an open editor: ${JSON.stringify(seen)}`);
     const after = await rigTops(p);
-    assert(JSON.stringify(after) === JSON.stringify(before),
-      `the rows moved for a strip that was never drawn: `
-      + `${JSON.stringify(after)} against ${JSON.stringify(before)}`);
-    return [`onCellInput answered null ${seen.asks.length} times and the table `
-      + `drew no strip, every row where it began`];
+    const at = before.findIndex(([id]) => id === one.id);
+    const moved = before.map(([id, y], i) => [id, after[i][1] - y]);
+    assert(moved.slice(0, at + 1).every(([, d]) => d === 0),
+      `the edited row and those above it moved ${JSON.stringify(moved.slice(0, at + 1))}`);
+    assert(moved.slice(at + 1).every(([, d]) => d === seen.h),
+      `the rows below moved ${JSON.stringify(moved.slice(at + 1))} rather than by `
+      + `the empty strip's own ${seen.h}px`);
+
+    // AND THE CLOSE GIVES IT BACK WHOLE.
+    await p.press("ESC");
+    await p.until(() => document.querySelectorAll("#rig tbody tr.tv-strip").length === 0
+                     && !window["__rig"].getEditing(),
+                  "ESC to close the editor and take the empty strip with it");
+    const back = await rigTops(p);
+    assert(JSON.stringify(back) === JSON.stringify(before),
+      `ESC left the rows at ${JSON.stringify(back)} against ${JSON.stringify(before)}`);
+    return [`onCellInput answered null ${seen.asks.length} times and the strip `
+      + `stood empty at ${seen.h}px, the rows below paying it once and ESC `
+      + `putting every one of them back`];
   } },
 
 // PROPOSAL 2026-09-12, THE DATE WIDGET LIVES IN THE CELL, stages 3 and 4.  A
@@ -6055,6 +6089,215 @@ export default [
     await p.press("ESC");
     return [`C-c C-s with nothing marked opened ${JSON.stringify(open.value)} in the `
       + `SCHEDULED cell; with the row marked it raised ${JSON.stringify(asked.head)}`];
+  } },
+
+// THE STRIP IS ONE NODE FOR THE EDITOR'S LIFE.  It was spliced and destroyed per
+// answer, so every keystroke that crossed the producer's silence -- a half-typed
+// month saying nothing, the whole phrase saying its day, a `DEL' back into the
+// silence -- moved every row below by 21px and back.  The line is paid ONCE, at
+// the open, and the rows under it hold still until the editor closes.
+{ name: "the strip is paid once: keystrokes never move the rows below",
+  async run(p, base) {
+    const ROW = "drv-plan";
+    await p.goto(`${base}/?q=${encodeURIComponent("-scheduled:*empty* sort:scheduled")}`);
+    const order = await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const sel = document.querySelector("#app tbody tr.tv-sel");
+      return rows.length > 1 && sel ? { ids: rows.map((r) => r.dataset.id),
+                                        at: sel.dataset.id } : false;
+    }, "the dated rows to draw with point on one");
+    assert(order.at === ROW && order.ids[0] === ROW,
+      `point stands on ${JSON.stringify(order.at)} of ${JSON.stringify(order.ids)}`);
+    const tops = () => p.eval(() =>
+      [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .map((r) => [r.dataset.id, Math.round(r.getBoundingClientRect().top)]));
+    const shut = await tops();
+
+    await columnTo(p, "scheduled", "the strip's cost, measured");
+    await p.press("RET");
+    const open = await cellEditor(p, "RET to open the date editor in the cell");
+    // MOUNTED AT THE OPEN AND SAYING NOTHING: the cell's own day has nothing to
+    // add (law 5), and the node stands there anyway.
+    assert(open.mounted && open.strip === null,
+      `the strip opened ${JSON.stringify([open.mounted, open.strip])} where it must `
+      + `stand there empty`);
+    const paid = await p.eval(() => {
+      const strip = document.querySelector("#app tbody tr.tv-strip");
+      return Math.round(strip.getBoundingClientRect().height);
+    });
+    const at = shut.findIndex(([id]) => id === ROW);
+    const opened = await tops();
+    const cost = shut.map(([id, y], i) => [id, opened[i][1] - y]);
+    assert(cost.slice(0, at + 1).every(([, d]) => d === 0),
+      `the edited row and those above it moved ${JSON.stringify(cost.slice(0, at + 1))}`);
+    assert(cost.slice(at + 1).length > 0
+             && cost.slice(at + 1).every(([, d]) => d === paid),
+      `the open moved the rows below ${JSON.stringify(cost.slice(at + 1))} rather `
+      + `than by the strip's own ${paid}px`);
+
+    // A SILENT PREFIX, THE WHOLE PHRASE, AND BACK INTO THE SILENCE.  Each of the
+    // three is a different answer from the producer, and NONE of them may move a
+    // row: the reading changes, the line it is written on does not.
+    const held = [];
+    const still = async (why) => {
+      const now = await tops();
+      assert(JSON.stringify(now) === JSON.stringify(opened),
+        `${why}: the rows stand at ${JSON.stringify(now)} against the open's `
+        + JSON.stringify(opened));
+      held.push(why);
+    };
+    // A DAY OTHER THAN THE CELL'S OWN, or the reading would be law 5's silence
+    // rather than a reading (the cell holds 2026-08-18).
+    await p.typeKeys("25 de");
+    const writing = await stripSays(p, null, "the half-typed month to say nothing");
+    assert(writing.value === "25 de" && writing.mounted,
+      `the silent prefix left ${JSON.stringify(writing)}`);
+    await still("a half-typed month");
+
+    await p.typeKeys("c");
+    const Y = new Date().getFullYear();
+    const spoke = await stripSays(p, `25 dec → ${orgStamp(`${Y}-12-25`)}`,
+      "the whole phrase to read back on the strip");
+    assert(spoke.value === "25 dec", `the field holds ${JSON.stringify(spoke.value)}`);
+    await still("the whole phrase");
+
+    await p.press("DEL");
+    const back = await stripSays(p, null, "the deletion to take the reading back off");
+    assert(back.value === "25 de", `DEL left ${JSON.stringify(back.value)}`);
+    await still("a deletion back into the silence");
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app input.tv-cell-edit")
+      && document.querySelectorAll("#app tbody tr.tv-strip").length === 0,
+      "ESC to close the editor and take the strip with it");
+    const after = await tops();
+    assert(JSON.stringify(after) === JSON.stringify(shut),
+      `ESC left the rows at ${JSON.stringify(after)} against ${JSON.stringify(shut)}`);
+    return [`the open paid ${paid}px once for ${cost.length - at - 1} rows; `
+      + `${held.length} answers (${held.join(", ")}) moved none of them, and ESC `
+      + `gave the ${paid}px back`];
+  } },
+
+// THE OPEN IS THE WIDGET'S FACT.  A repaint used to fold the open input's value
+// into the PRODUCER's own row, so a WAL tick under an open draft turned the
+// typed day into the cell's own day -- and the ghost, which is silent on exactly
+// that, went dark mid-phrase.  The value the editor OPENED on rides the handle
+// as `raw', so a settle under the draft leaves the reading lit.
+{ name: "a store settle under an open draft leaves its date ghost lit",
+  async run(p, base) {
+    const DAY = "2026-08-20", OTHER = "drv-unset-one", WAS = "<2026-09-02 Wed>";
+    await p.goto(`${base}/?q=${encodeURIComponent("-scheduled:*empty* sort:scheduled")}`);
+    await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      return rows.length > 1 && !!document.querySelector("#app tbody tr.tv-sel");
+    }, "the dated rows to draw with point on one");
+
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.press("TAB");
+    const at = await draftEditor(p, "title", "TAB to carry the editor to the date cell");
+    assert(at.col === "scheduled",
+      `TAB from the title reached ${JSON.stringify(at.col)} rather than SCHEDULED`);
+    await p.typeKeys(DAY);
+    const lit = await stripSays(p, `${DAY} → ${orgStamp(DAY)}`,
+      "the strip under the draft to resolve the typed day");
+    assert(lit.value === DAY, `the draft's date cell holds ${JSON.stringify(lit.value)}`);
+
+    // A REAL WRITE ELSEWHERE IN THE TREE: the watch nudges, the socket ticks and
+    // the page asks for the whole answer again -- which repaints under the draft.
+    const wrote = await p.eval(async (id) => {
+      const r = await fetch("/command", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "set-planning", ids: [id],
+                               args: { keyword: "SCHEDULED", date: "2026-12-01" } }) });
+      return r.status;
+    }, OTHER);
+    assert(wrote === 200, `the write answered ${wrote}`);
+    await p.until((id) => {
+      const tr = [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .find((r) => r.dataset.id === id);
+      return !!tr && /2026-12-01/.test(tr.textContent);
+    }, "the fresh answer to reach the table", 20_000, OTHER);
+
+    // THE GHOST IS STILL LIT, and the editor still holds the phrase: the settle
+    // rebuilt the tbody under an open cell and carried the OPEN across with it.
+    const after = await cellEditor(p, "the draft's date editor to stand through the settle");
+    assert(after.key === "scheduled" && after.value === DAY,
+      `the settle left the editor at ${JSON.stringify([after.key, after.value])}`);
+    assert(after.strip === `${DAY} → ${orgStamp(DAY)}`,
+      `the strip reads ${JSON.stringify(after.strip)} after the settle rather than `
+      + `the day it read before it`);
+    assert(after.id === "· draft",
+      `the editor came back in ${JSON.stringify(after.id)} rather than the draft`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer"),
+                  "ESC to drop the draft");
+    await putPlanning(p, OTHER, "SCHEDULED", WAS);
+    return [`a settle under the open draft left the editor holding `
+      + `${JSON.stringify(after.value)} and the strip reading `
+      + `${JSON.stringify(after.strip)}`];
+  } },
+
+// ONE NOTE MECHANISM.  The refusal used to ride the LAST column the row carried
+// no cell for -- and one TAB round fills every one of them, so the second refusal
+// drew `nothing to capture' OVER THE TAG CELL, taking that fact off the screen.
+// The word rides the strip, which belongs to no column at all.
+{ name: "a refusal after a full TAB round rides the strip, never a cell",
+  async run(p, base) {
+    await tableUp(p, base);
+    await p.press("+");
+    let seen = await draftEditor(p, null, "the draft's title cell to open");
+    assert(seen.col === "title", `the draft opened in ${JSON.stringify(seen.col)}`);
+    // THE WHOLE RING, ONE KEY PER CALL: a fresh input takes focus a macrotask
+    // behind the press, so TABs sent together advance fewer cells than they name.
+    const ring = [seen.col];
+    for (let i = 0; i < 8 && (ring.length === 1 || seen.col !== "title"); i += 1) {
+      await p.press("TAB");
+      seen = await draftEditor(p, seen.col, `TAB ${i + 1} to move the editor on`);
+      ring.push(seen.col);
+    }
+    assert(ring.length > 2 && ring[ring.length - 1] === "title",
+      `the walk went ${JSON.stringify(ring)} rather than a full round`);
+    const stood = seen.cells;
+
+    await p.press("RET");
+    const refused = await p.until(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      const box = tr && tr.querySelector("input.tv-cell-edit");
+      const strip = document.querySelector("#app tbody tr.tv-strip");
+      if (!box || document.activeElement !== box || !strip) return false;
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+      const note = strip.querySelector("td").textContent;
+      return note ? {
+        note, warn: strip.classList.contains("tv-refused"),
+        under: strip.previousElementSibling
+          ? strip.previousElementSibling.dataset.id : null,
+        cells: keys.map((k, i) => [k, tds[i].textContent]),
+        at: keys[tds.indexOf(box.closest("td"))],
+      } : false;
+    }, "the refusal after the walk to reach the strip");
+
+    assert(refused.note === "nothing to capture" && refused.warn,
+      `the strip reads ${JSON.stringify(refused.note)} (refused: ${refused.warn})`);
+    assert(refused.under === "· draft" && refused.at === "title",
+      `the strip stands under ${JSON.stringify(refused.under)} with the editor in `
+      + `${JSON.stringify(refused.at)}`);
+    // EVERY CELL IS THE CELL IT WAS: the walk filled them all, and the refusal
+    // has no column to take one of them over with.
+    assert(JSON.stringify(refused.cells) === JSON.stringify(stood),
+      `the refusal rewrote the row's cells: ${JSON.stringify(refused.cells)} `
+      + `against ${JSON.stringify(stood)}`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
+                     && document.querySelectorAll("#app tbody tr.tv-strip").length === 0,
+                  "ESC to drop the refused draft whole");
+    return [`the walk ${ring.join(" → ")} filled every cell, and the refusal said `
+      + `${JSON.stringify(refused.note)} on the strip with all `
+      + `${refused.cells.length} cells untouched`];
   } },
 
 // PROPOSAL 2026-08-26.  An org table in the doc is drawn by the table-view

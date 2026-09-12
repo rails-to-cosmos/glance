@@ -202,7 +202,7 @@ bare origin cloned beside it would let a case read =✓=, =↑=, =↓= and the
 =tracking origin/main= half of the title for real.
 
 * DONE Retire the draft-document half of =GET /capture= (capture-is-a-row stage 1)
-See [[file:proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md]] stage 1.
+See [[file:proposals/done/2026-09-12-capture-is-a-row-in-the-table.md]] stage 1.
 DONE 2026-09-12 with stage 6: =GET /capture= answers ={cycle}= alone
 (=captureView=, =src-web/Glance/Web/Routes.hs=), and
 =draftJSON=/=draftCells=/=draftTagsCell=/=inheritedIn=/=inheritedTags= went with
@@ -213,7 +213,7 @@ own road — =draftRecord=, =draftEntry=, =DraftCargo=, =draftKeywords=,
 =draftStates=, =expandTemplate=, =templateParts= — is untouched and green.
 
 * DONE Capture-is-a-row stage 3 — the keys inside the draft's cells
-See [[file:proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md]] stage 3.
+See [[file:proposals/done/2026-09-12-capture-is-a-row-in-the-table.md]] stage 3.
 THE WALK LANDED, and with it the draft's way out.  The widget grew one mount
 option, =onCellKey(e, {id, col, value})= (=assets/table-view.js:3960=, typedef
 =:92=), asked at the head of the cell editor's keydown; =true= means the producer
@@ -247,7 +247,7 @@ so the chain would park it in the blanks at the end rather than under the row th
 reader opened it at.
 
 * DONE Capture-is-a-row stages 4 and 5 — the commit, and the refusal in place
-See [[file:proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md]] stages
+See [[file:proposals/done/2026-09-12-capture-is-a-row-in-the-table.md]] stages
 4 and 5.  =RET= from ANY of the draft's cells folds the open editor's value into
 the phantom and posts the whole capture through the ONE command that mints a blob
 (=commitDraft=/=draftArgs=, =frontend/glue/35-draft.js:292=, =:274=).  The args
@@ -294,7 +294,7 @@ case that reads a column index.  A glue-source pin stands in
 (=a draft commits at one RET, and a refusal keeps it standing=).
 
 * DONE Capture-is-a-row stages 6 and 7 — the deletions, and the cases
-See [[file:proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md]] stages
+See [[file:proposals/done/2026-09-12-capture-is-a-row-in-the-table.md]] stages
 6 and 7.  THE FORM AND THE SHEET OVER A DRAFT ARE GONE.  =30-capture.js= kept
 only the value palette and the link door and was =git mv='d to =30-palette.js=
 (the one list is =Base.hs= =gluePartFiles=; =AGENTS.hs=, =frontend/jsconfig.json=
@@ -338,7 +338,7 @@ the header draws — state, priority, title, tags in this table — and the titl
 still opens first.  Suite: cabal 2323, elm 189, browser 105.
 
 * DONE Date-widget-in-the-cell stage 1 — the grammar moves to a shared part
-See [[file:proposals/proposed/2026-09-12-the-date-widget-lives-in-the-cell.md]]
+See [[file:proposals/done/2026-09-12-the-date-widget-lives-in-the-cell.md]]
 stage 1.  ONE GRAMMAR, ONE FILE: =frontend/glue/15-dates.js= is a new BARE
 fragment holding what =20-sheet.js= carried at =:1087-:1403= and =:1021-:1031= —
 the stamp regexes (=DATE=, =ACTIVE=, =INACTIVE=, =STAMP=, =STAMP_HEAD=), the
@@ -365,7 +365,7 @@ parts=.  −328 from =20-sheet.js=, +335 in =15-dates.js=.  Gate: check-glue
 clean, cabal 2323, elm 189, =runghc AGENTS.hs= 0, browser 105/105.
 
 * DONE Date-widget-in-the-cell stages 3 and 4 — the cell's editor, and the draft's date stops
-See [[file:proposals/proposed/2026-09-12-the-date-widget-lives-in-the-cell.md]]
+See [[file:proposals/done/2026-09-12-the-date-widget-lives-in-the-cell.md]]
 stages 3 and 4.  =frontend/glue/36-date-cell.js= is a new BARE fragment (+153)
 holding the in-cell editor both a landed row and a draft use: =DATE_CELLS= (the
 two columns and the keyword each names), =dateCellDay= (the day stamped when the
@@ -403,14 +403,74 @@ Three shipped cases moved with the ring: the draft's =TAB= walk, the capture
 commit's comment, and the header-order assertion.  Gate: check-glue clean, cabal
 2323, elm 189, =runghc AGENTS.hs= 0, browser 116/116 twice.
 
-* TODO Date-widget-in-the-cell stage 5 — the keymap prose, README.org and the last cases
-See [[file:proposals/proposed/2026-09-12-the-date-widget-lives-in-the-cell.md]]
+* DONE Date-widget-in-the-cell stage 5 — the keymap prose, README.org and the last cases
+See [[file:proposals/done/2026-09-12-the-date-widget-lives-in-the-cell.md]]
 stage 5.  The BEHAVIOUR of the split landed with stage 3 (=planKey=,
-=36-date-cell.js=) and =docs/capture.md=, =CHANGELOG.md= and =AGENTS.hs= carry
-the new laws; what is left is README.org's =C-c C-s= paragraph (=:134-:142=),
-the shell suite's ghost vectors re-pointed at =15-dates.js='s declarations (a
-path change, the corpus being the corpus), and moving the proposal out of
-=proposals/proposed/= with its status line when it is whole.
+=36-date-cell.js=), so this is the prose and the filing.
+
+README.org: the key table's =RET= row now reads /over a date cell, edit the
+date/ (=:83=) and the two planning sequences have a row of their own (=:86=); a
+bullet under the material document's own =C-c C-s= paragraph (=:146=) carries
+the table half — the cell, the strip, its silence on the cell's own day, the
+=S-arrows=, the marked/unmarked split and the phrase travelling.  THE CAPTURE
+PARAGRAPH WAS STALE (=:103=): it still promised the =→ book= hint the review
+pass deleted, and said nothing of the two date stops.
+
+=docs/commands.md=: the date widget's own key table listed the pane's two keys
+alone (=:127=).  It now carries the three table rows — =RET= on a date cell, the
+two sequences with nothing marked, the two with rows marked — the strip's
+silence, the unpainted stamp and the draft's =planning=, and /One widget, every
+door/ names the four callers of the one argument spelling.
+
+=CHANGELOG.md=: the date widget had three Unreleased bullets already; CAPTURE
+IS A ROW HAD NONE — that whole arc (=7228806..b16b274=) never touched the
+changelog — so it gained one.
+
+=docs/invariants.md=: two entries, neither of which existed.  /The phrase
+travels; the ghost is ink/ (=:303=) names the four surfaces that send the
+field's own bytes and the one server read that resolves them, and is the rule a
+client-side resolve would break on a day the two clocks agree — red nowhere.
+/A draft is the renderer's own row/ (=:318=) is the capture-row laws: the open
+editor, the row nothing else can reach, the byte-identical =ESC=, and the
+=producer= placement that keeps a phantom out of the store's row list.
+Re-anchored while there: =table-view.js:702= → =:743= (=dated=) and
+=20-sheet.js:2160= → =:1693=, both carried off by the capture deletions and the
+date move.
+
+=AGENTS.hs:5358= gains the clause the proposal owed: the client's whole grammar
+is =frontend/glue/15-dates.js=, which the pane and the cell both read.
+
+Both proposals are =git mv='d to =proposals/done/= with =Status: done ·
+2026-09-12= and a /Landed/ section — file:line per stage, and the departures:
+the strip's silence is the PRODUCER's law rather than the widget's, the =RET=
+seam is =HANDLERS.materializeRow= rather than a binding, and the draft's POST is
+undrivable in the shell rig.  The capture-row one carries the review pass and
+one more departure: =GET /capture= was RETIRED rather than narrowed — the cycle is
+=GET /keywords?tag=NAME= (=Routes.hs:159=), the same question =?ids== answers
+for a row that does not exist yet.
+
+TWO ITEMS WERE ALREADY WHOLE.  The shell suite's ghost vectors needed no
+re-pointing: they read =glueSource= (=TestServe.hs:11825=), every part
+concatenated in =gluePartFiles= order, so no case spells a part's path and the
+move cost them nothing.  And the last case, =C-c C-s with nothing marked opens
+the cell at point= (=cases.mjs:6016=), already drives BOTH halves of the split —
+the cell with none marked, the prompt with one.
+
+=Keymap.hs:157= =planningHelp= stands: =C-c C-s= still takes "the marked rows,
+or the row at point", =takesRows= is unchanged and only the surface splits.
+Gate: =runghc AGENTS.hs= 0, =/Spec/= green.  No case touched, so no
+=browser-check=.
+
+* TODO A browser case for the frame tick's repaint, which needs a taller tree
+=tick()= now redraws through =repaint()= (=assets/table-view.js=), so a window
+that MOVED never wipes an open cell editor and its strip.  NOTHING DRIVES IT:
+=renderRows= only repaints when the window moves, =first= leaves 0 only past
+=OVERSCAN= (15) rows of scroll — 450px at =ROW_H= 30 — and the fixture's 29 rows
+give the shell and the rig alike about 260px of scroll.  A case is owed either a
+fixture of ~60 headlines (which shifts every position-sensitive case, so it
+wants a tree of its own the way =repo: true= has one) or a viewport override in
+the driver.  The two SIBLING defects are pinned: =the strip is paid once= and
+=a store settle under an open draft leaves its date ghost lit=.
 
 * TODO A tag on an inbox headline moves it under the tag (first tag wins)
 See [[file:bugs/open/2026-09-12-a-tag-on-an-inbox-headline-leaves-it-in-the-inbox.md]].
@@ -445,11 +505,14 @@ branch):
 - =ownRows()= (=:2196=) holds the producer's rows across a =setRows=, and
   =standing= also keeps them out of the filter's own vocabulary (=tagVocab=,
   =domainOf=) and out of a long press's and a double-click's default command.
-- =noteOf= (=:3198=), =noteCell= (=:3205=) and =rowHTML= (=:3281=) draw
-  =refused= in the last column the row carries no cell for, and =rowText=
-  measures the column against it.
-- =holdEditor= / =resumeEditor= / =repaint= (=:4224=): a repaint folds the open
-  input's value into its row and puts the caret back, never =select()=.
+- =refused= DRESSES a producer's row =tv-refused= (=rowClasses=) and draws
+  nothing: =noteOf= and =noteCell= are GONE, with =rowText='s measurement of
+  them and =rowHTML='s note cell.  What a row was refused for rides the strip
+  under the cell being typed in — one note mechanism, and no second slot.
+- =holdEditor= / =resumeEditor= / =repaint= (=:4224=): a repaint holds the open
+  input's value in the HANDLE and puts the caret back, never =select()=;
+  =repaint(force)= takes the flag =renderRows= takes, and the FRAME TICK goes
+  through it, so a window that moved never wipes an open editor and its strip.
 - =getEditing()= on the handle (=:4147=, =:5463=), and =onCellKey='s cell
   carries the column =key= beside =col= (=:4111=).
 - =openCellEditor= no longer closes for its callers; =editCell= takes an
@@ -462,15 +525,27 @@ branch):
   =editCell= (=:4134=) beside =producerRow= and the column's own =editable=.
   =editHeader= (=:4229=) does NOT read it — a key on the list opens a cell and
   never a header.
-- =MountOptions= gains =onCellInput(e, {id, col, key, value}) => string|null=
-  (typedef =:101=), asked once at the open and on every =input= an open cell
-  sees (=askStrip=, =:4172=; =dropStrip=, =:4154=).
-- THE STRIP: a non-empty answer draws a =colspan='ed =tr.tv-strip= spliced
-  directly under the edited row at the table's whole width, dressed in the
-  widget's own sheet (=:1834=, the refusal wearing =tv-refused='s warn). It is
-  no =Row= — =standing=, =ordered=, the marks and the selection never see it —
-  and it goes with the editor on RET and ESC alike.
-- =holdEditor= / =resumeEditor= (=:4201=, =:4220=) hold a STANDING row's editor
-  too: its typed line rides in the handle's =value= and never enters =r.cells=,
-  those cells being the store's, and =editCell= takes the opening value as its
-  fourth argument.
+- =MountOptions= gains
+  =onCellInput(e, cell) => string | {text, bad} | null= (typedef =:101=), asked
+  once at the open, on every =input= an open cell sees, and whenever
+  =refreshStrip= asks again (=askStrip=, =dropStrip=, =mountStrip=).
+- THE STRIP IS ONE NODE FOR THE EDITOR'S LIFE: a =colspan='ed =tr.tv-strip=
+  spliced directly under the edited row at the table's whole width, dressed in
+  the widget's own sheet (=:1834=, a ={bad: true}= answer wearing
+  =tv-refused='s warn), MOUNTED AT THE OPEN and left EMPTY where the producer
+  says nothing — so the line it costs is paid once and an answer that comes and
+  goes never moves the rows below.  It is no =Row= — =standing=, =ordered=, the
+  marks and the selection never see it — and it goes with the editor on RET and
+  ESC alike.
+- =refreshStrip()= on the handle: the producer asks the strip to be redrawn
+  outside an =input= event, for an answer that turned on something other than a
+  keystroke.
+- =OpenCell= (typedef): the cell a producer is asked about carries =raw= — the
+  value the editor OPENED on — and =token=, a counter bumped per open, beside
+  ={id, col, key, value}=.  Both ride =onCellKey= and =onCellInput=.
+- =holdEditor= / =resumeEditor= (=:4201=, =:4220=) hold EVERY row's editor the
+  same way: the typed line rides in the handle's =value= and never enters
+  =r.cells= — a standing row's cells being the store's and a producer's own
+  cell being drawn by the input in it — and the re-open carries =raw= and
+  =token= through =editCell='s fourth and fifth arguments, so a repaint is the
+  SAME open rather than a new one.

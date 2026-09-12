@@ -333,3 +333,31 @@
       return stampOf(to, null, stood.charAt(0) === "[",
                     head ? stood.slice(head[0].length, -1) : "");
     };
+    const NO_DATE_HERE = "no date here to move";
+    /** BY DAYS INTO F, off R -- the reader's own answer for what stands there.
+     * Whether it moved: a field holding no day has nothing to step.  The stepped
+     * STAMP is written where the reader can see it, which is why it travels, and
+     * setting `value' fires no `input', so the caller redraws its own ghost. */
+    function dateStepInto(f, r, by) {
+      if (!r.ok || !r.start) return false;
+      f.value = dateStepped(r, addDays(r.start, by));
+      f.setSelectionRange(f.value.length, f.value.length);
+      return true;
+    }
+
+    // ================================ WHERE A DATE IS DRAWN, AND WHAT IT IS CALLED
+    /** THE PLANNING KEYWORDS A DATE MAY BE SET UNDER: the server's own list
+     * (`settableKeywords', Glance.Query), CARRIED rather than respelled, so the
+     * page's walls cannot drift from the wall they stand in front of. */
+    const DATED = CFG.settable;
+    /** THE COLUMNS A DATE IS DRAWN IN, which is those keywords as the view spells
+     * a column key.  ONE LIST: the mount's `editableKeys', the cell editor's
+     * door, the draft's ring and `C-c C-s''s split all read it. */
+    const DATE_KEYS = DATED.map((k) => k.toLowerCase());
+    const dateCell = (key) => DATE_KEYS.indexOf(key) !== -1;
+    /** The planning keyword a date column names.  The pair is the CASE and
+     * nothing else, so no table has to be kept agreeing with the server's list. */
+    const planKeyword = (key) => String(key).toUpperCase();
+    /** The foot every date surface draws: the pane's field, the bulk prompt and
+     * the cell say ONE sentence about the same three keys. */
+    const DATE_FOOT = "RET sets it · empty clears it · ESC leaves";

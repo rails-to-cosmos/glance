@@ -41,12 +41,31 @@ const Palette = ((deps) => {
         showTags(b, title, answer);
       }).catch(failed(b, "tags"));
     }
+    /** `set-planning''s ONE ROAD, from every surface that spells a date: the
+     * FIELD'S OWN BYTES go out and the server resolves them once against its own
+     * clock, an emptied field committing `null' -- `""' is no date and would meet
+     * the wall's 400 rather than clear the entry (docs/invariants.md). */
+    const firePlanning = (b, ids, keyword, typed) =>
+      fire(b, "set-planning", ids, { keyword, date: typed || null },
+           typed || "cleared");
+    /** THE WALL ABOVE EVERY COMMIT: TEXT trimmed, read against TODAY, and the
+     * reader's own word said on B where no reading takes it -- so the server's
+     * refusal is the backstop rather than the reader's first news.  Answers the
+     * phrase to commit, `""' for the clear, and `null' for what was refused.
+     * READ is a surface with a stricter reader than the day's (`readsWhen'). */
+    function datePassed(b, text, today, read) {
+      const typed = String(text == null ? "" : text).trim();
+      if (!typed) return "";
+      const r = read ? read(typed) : readsDate(typed, today);
+      if (r.ok) return typed;
+      said(b, r.why);
+      return null;
+    }
     function planRows(b, keyword) {
       overTargets(b, keyword.toLowerCase(), (bind, ids, title) =>
-        askText(title, "RET sets it · empty clears it · ESC leaves", (c) => {
-          const date = c.text.trim();
-          fire(bind, "set-planning", ids, { keyword, date: date || null },
-               date || "cleared");
+        askText(title, DATE_FOOT, (c) => {
+          const typed = datePassed(bind, c.text, dateNow());
+          if (typed !== null) firePlanning(bind, ids, keyword, typed);
         }));
     }
     let prompting = null;
@@ -284,19 +303,20 @@ const Palette = ((deps) => {
     // `prompting' is this widget's own, so it leaves as an answer.
     const promptNow = () => prompting;
     return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags,
-             askText, docTargets, entry, fieldMode, foldTag, followLinks,
-             keywordSources, linksOf, offer, openLink, overTargets, planRows,
-             promptNow, raise, restate, rowsWord, shortly, tagFrom, takeChoice,
-             unask, walkChoices };
+             askText, datePassed, docTargets, entry, fieldMode, firePlanning,
+             foldTag, followLinks, keywordSources, linksOf, offer, openLink,
+             overTargets, planRows, promptNow, raise, restate, rowsWord,
+             shortly, tagFrom, takeChoice, unask, walkChoices };
 })({ CFG, EMPTY, NEW_HINT, append, askFailed, atIn, badgeColor, docTitle,
      el, failed, fire, getJSON, leadTyped, materialize, part,
      said, targetOf, targets,
      // A `let' cannot ride in as itself: the open sheet arrives as an accessor.
      entryNow: () => editing });
-const { CODES, ask, askFrom, askState, askTags, askText, docTargets, entry,
-        fieldMode, foldTag, followLinks, keywordSources, linksOf, offer,
-        openLink, overTargets, planRows, promptNow, raise, restate, rowsWord,
-        shortly, tagFrom, takeChoice, unask, walkChoices } = Palette;
+const { CODES, ask, askFrom, askState, askTags, askText, datePassed, docTargets,
+        entry, fieldMode, firePlanning, foldTag, followLinks, keywordSources,
+        linksOf, offer, openLink, overTargets, planRows, promptNow, raise,
+        restate, rowsWord, shortly, tagFrom, takeChoice, unask,
+        walkChoices } = Palette;
 // The suite drives these two as the pure functions they are, through a direct
 // `eval' -- where a `var' reaches the caller's scope and a `const' does not.
 var whichKeys = Palette.whichKeys, letterAt = Palette.letterAt;

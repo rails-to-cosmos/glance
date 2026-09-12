@@ -5355,7 +5355,7 @@ sheetNotes :: [Note]
 sheetNotes =
   [ Note "`beforeunload' flushes with `keepalive' only when the sheet is dirty." [Test]
   , Note "The page holds no org parser and must not grow one." [Docs]
-  , Note "TWO RESOLVERS, ONE TRUTH. Because the page spells no org, the date field's client reading is for THE GHOST'S PREVIEW ALONE: the commit sends the RAW TYPED TEXT, the server transforms at the planning wall, and the pane redraws off that answer. The two are DRIFT-PINNED over one shared corpus, `test/fixtures/english-dates.json', which both suites read -- a vector added there is owed an answer by both halves, so neither can grow a reading the other lacks." [Test]
+  , Note "TWO RESOLVERS, ONE TRUTH, AND THE CLIENT'S IS ONE FILE. The whole client grammar -- org's stamp, the phrase, the ghost and the step -- is `frontend/glue/15-dates.js', which the pane and the cell both read, a second reader of one phrase being the drift the corpus pin exists to catch. Because the page spells no org, that reading is for THE GHOST'S PREVIEW ALONE: the commit sends the RAW TYPED TEXT, the server transforms at the planning wall, and the pane redraws off that answer. The two are DRIFT-PINNED over one shared corpus, `test/fixtures/english-dates.json', which both suites read -- a vector added there is owed an answer by both halves, so neither can grow a reading the other lacks." [Test]
   , Note "Movement relocates attention alone and `RET'/`DEL' are the context axis, which\
          \ is why the movement keys are the ones left out of `ONCE'." [Docs]
   , Note "The materialize sheet is ONE file — both panes, the ladder and the opening —\
@@ -5408,22 +5408,31 @@ sheetNotes =
          \ reading, which costs nothing while no other row is editable." [Browser]
   , Note "A DATE IS EDITED WHERE IT IS DRAWN, and what the reader typed is read back on a\
          \ LINE OF ITS OWN.  The widget owes two mount options for it.  `editableKeys' names\
-         \ the columns a STANDING row's cells open in -- a LIST and never the column's own\
-         \ `editable', which would make the HEADER editable too and open a dead editor\
-         \ wherever the producer has no verb; a producer's own row stays editable whole.\
-         \ `onCellInput(e, {id, col, key, value})' is asked ONCE AT THE OPEN and on every\
-         \ `input' the cell sees, and a non-empty answer is drawn as the STRIP: one\
-         \ `colspan'ed `tr.tv-strip' spliced DIRECTLY UNDER the edited row at the table's\
-         \ whole width, 21px tall, a `\10007' answer wearing the refused row's own warn.\
-         \ An EMPTY answer and a null draw none.  THE STRIP IS NO ROW -- `standing',\
-         \ `ordered', the marks and the selection never see it, the way the open input is\
-         \ no cell value -- and it\
-         \ goes with the editor on `RET' and `ESC' alike, the rows below coming back to the\
-         \ pixel.  A date column is 118px against a 137px ghost, which is why the answer\
-         \ stops using the row's horizontal space at all (spike 2026-09-12-date-cell, C).\
-         \ The caret rule follows: a STANDING row's held line rides in the handle and NEVER\
-         \ enters `r.cells', those being the store's, so a repaint puts the editor, the\
-         \ caret and the strip back over a cell the store still owns." [Browser]
+         \ the columns a STANDING row's cells open in -- a LIST being the simplest seam that\
+         \ answers it, and never the column's own `editable', which would make the HEADER\
+         \ editable too and open a dead editor wherever the producer has no verb; an\
+         \ `editable(row, key)' predicate waits for a producer with a ROW-LEVEL need, and a\
+         \ producer's own row stays editable whole.  `onCellInput(e, cell)' is asked ONCE AT\
+         \ THE OPEN, on every `input' the cell sees and whenever `refreshStrip' asks again,\
+         \ and the answer is written on the STRIP: one `colspan'ed `tr.tv-strip' spliced\
+         \ DIRECTLY UNDER the edited row at the table's whole width, 21px tall, a `{text,\
+         \ bad}' answer wearing `bad' dressed in the refused row's own warn.  THE STRIP IS\
+         \ ONE NODE FOR THE EDITOR'S LIFE: it is mounted at the open, an empty answer\
+         \ leaving it EMPTY rather than taking it away, so the line it costs is paid once\
+         \ and an answer that comes and goes between two keystrokes never moves the rows\
+         \ below.  THE STRIP IS NO ROW -- `standing', `ordered', the marks and the selection\
+         \ never see it, the way the open input is no cell value -- and it goes with the\
+         \ editor on `RET' and `ESC' alike, the rows below coming back to the pixel.  A date\
+         \ column is 118px against a 137px ghost, which is why the answer stops using the\
+         \ row's horizontal space at all (spike 2026-09-12-date-cell, C).  THE OPEN IS THE\
+         \ WIDGET'S FACT and rides on the cell: `raw' is the value the editor OPENED on and\
+         \ `token' counts the opens, so a producer reads its own silence against what was\
+         \ there rather than against a row it must go and find.  The caret rule follows: a\
+         \ held line rides in the HANDLE and never enters `r.cells' -- a standing row's\
+         \ being the store's and a producer's own being drawn by the input in it -- and the\
+         \ re-open carries `raw' and `token', so a repaint is the SAME open and not a new\
+         \ one.  EVERY redraw goes through `repaint', the frame tick's among them, or a\
+         \ window that moved wipes an open editor and its strip." [Browser]
   , Note "THE CELL IS THE FOURTH CALLER OF `set-planning''s ONE ROAD.  `RET' in the table is\
          \ COLUMN-SENSITIVE the way `^' is -- it reads the shipped column cursor\
          \ (`getSelection().col'), opens the editor over a SCHEDULED or DEADLINE cell and\
@@ -5464,13 +5473,17 @@ sheetNotes =
          \ spend the NEXT write's settle." [Browser]
   , Note "A REFUSED CAPTURE REFUSES IN PLACE: the draft STAYS, a row that cannot commit\
          \ being a row the reader would otherwise have to retype. The editor comes back\
-         \ to the title with its text selected, and the word is the row's WHOLE note —\
-         \ `nothing to capture', the shipped sentence for an empty title, and the\
-         \ server's own for its 400 — while the two channels that fence the row\
-         \ off, the dashed rule and the accent edge, turn warn. The next CONTENT\
-         \ keystroke takes the note and the dress back ONE FRAME BEHIND the key that\
-         \ answered it, the redraw rebuilding the very cell that key is still landing in;\
-         \ a walk and a movement leave them standing, and only `ESC' dismisses the draft." [Browser]
+         \ to the title with its text selected, and the word — `nothing to capture', the\
+         \ shipped sentence for an empty title, and the server's own for its 400 — RIDES\
+         \ THE STRIP under the open cell, while the two channels that fence the row off,\
+         \ the dashed rule and the accent edge, turn warn.  ONE NOTE MECHANISM AND NO\
+         \ SECOND SLOT: the refusal is about the ROW, so it follows the walk instead of\
+         \ riding one column, and the drawn cells stay the cells they are — a note written\
+         \ into the last free column drew over the tag cell after one TAB round, the row\
+         \ having filled every column by then.  The next CONTENT keystroke takes the note\
+         \ and the dress back ONE FRAME BEHIND the key that answered it, the redraw\
+         \ rebuilding the very cell that key is still landing in; a walk and a movement\
+         \ leave them standing, and only `ESC' dismisses the draft." [Browser]
   , Note "A HEADLINE ALWAYS DRAWS ITS TITLE CELL, empty or not (`drawnCells', Doc.elm):\
          \ that cell is the SLOT the title edit anchors in (`dTitleAt'), and a row that drew\
          \ none left the box anchored on the whole line — swallowing the star, the state,\

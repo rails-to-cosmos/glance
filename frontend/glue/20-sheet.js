@@ -990,16 +990,13 @@
       // ONE CLOCK READ PER SUMMON: ghost, offers and commit all read this day.
       openEdit(DDATE, { key: keyword, val: stood, add: drew, back, b,
                         today: dateNow() });
-      said(b, "RET sets it · empty clears it · ESC leaves");
+      said(b, DATE_FOOT);
     }
     function dateKey(b) {
       if (menuTake(wmenu, "dwhen", dateMoved)) return;
-      const typed = el("dwhen").value.trim();
-      if (typed) {
-        const r = readsWhen(typed);
-        if (!r.ok) { said(b, r.why); return; }
-      }
-      commitDate(b, typed);
+      // The pane reads CLOSED verbatim, so the wall above ITS commit is `readsWhen'.
+      const typed = datePassed(b, el("dwhen").value, editDay(), readsWhen);
+      if (typed !== null) commitDate(b, typed);
     }
     /** Send TYPED verbatim: ONE CLOCK READ, the server's own (docs/invariants.md).
      * A CHILD has no row id and rides `?child='. */
@@ -1012,18 +1009,14 @@
         dsend({ kind: "addprop", key: keyword, value: typed });
         return;
       }
-      fire(b, "set-planning", [h.id], { keyword, date: typed || null },
-           typed || "cleared")
+      firePlanning(b, [h.id], keyword, typed)
         .then((results) => {
           if (editing === h && (results || []).some((x) => x.ok)) reload();
         });
     }
     function dateAdjust(b, by) {
       const f = el("dwhen");
-      const r = readsWhen(f.value.trim());
-      if (!r.ok || !r.start) { said(b, "no date here to move"); return; }
-      f.value = dateStepped(r, addDays(r.start, by));
-      f.setSelectionRange(f.value.length, f.value.length);
+      if (!dateStepInto(f, readsWhen(f.value.trim()), by)) { said(b, NO_DATE_HERE); return; }
       dateMoved();
     }
     const docHolds = () => editing !== null;
@@ -1065,7 +1058,6 @@
       return box.value.slice(0, box.selectionStart).split("\n").length - 1;
     };
     const PLANNING = CFG.planning;
-    const DATED = CFG.settable;
     // Written as a key, a frame word TERMINATES the drawer -- AGENTS.hs.
     const DRAWER_FRAME = ["PROPERTIES", "END"];
     const IDENTITY_KEYS = ["ORG_GLANCE_ID", "ORG_GLANCE_CREATION_TIME"];
