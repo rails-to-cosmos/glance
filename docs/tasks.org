@@ -218,15 +218,33 @@ Each is reachable ONLY from the draft doc; =draftRecord=, =draftEntry=,
 =DraftCargo=, =draftKeywords=, =draftStates=, =expandTemplate=, =templateParts=,
 =captureTemplateIn= and =bareTemplate= are the capture COMMAND's and stay.
 
-* TODO Capture-is-a-row stage 3 — the keys inside the draft's cells
+* DONE Capture-is-a-row stage 3 — the keys inside the draft's cells
 See [[file:proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md]] stage 3.
-Stage 2 landed the draft ROW: =+= splices it below the row at point with the
-title cell's editor open (=frontend/glue/35-draft.js=), and =paint= re-splices it
-on every answer (=frontend/glue/00-core.js:245=).  WHAT IS OWED: a draft has no
-way out yet.  Inside the open cell the widget's shipped reading applies —
-=Enter=/=Tab= commit the cell and =Escape= closes it — so nothing drops the row
-and nothing commits the capture.  Stage 3's =onCellKey= seam is what takes
-=TAB=/=S-TAB= (the walk), =RET= (stage 4's commit) and =ESC= (drop the draft).
+THE WALK LANDED, and with it the draft's way out.  The widget grew one mount
+option, =onCellKey(e, {id, col, value})= (=assets/table-view.js:3960=, typedef
+=:92=), asked at the head of the cell editor's keydown; =true= means the producer
+took the key.
+Over the draft alone (=draftKey=, =frontend/glue/35-draft.js:197=): =TAB= walks
+the ring title → state → priority → tags and =S-TAB= walks it back, wrapping; the
+closing cell's value goes into the phantom row before the next cell opens, since
+=closeCellEditor= redraws; =ESC= drops the whole draft and leaves the close to the
+widget, whose own reading of the key is exactly that.  =Keymap.hs= is unchanged —
+an open cell stops every key it sees, so the draft's keys belong to the editor and
+can be bound nowhere else.
+
+STILL OWED: =RET= is stage 4's commit and is a no-op here that holds the editor
+open, so a draft is dropped or it stands.  The state and priority cells offer a
+plain text input; the value palette from =30-capture.js= is a later refinement,
+and the seeded value is the input's initial text, so a cell walked through
+untouched keeps what it held.
+
+Four browser cases, red before the change: =TAB walks the draft's cells and wraps,
+S-TAB walks them back=, =n and p in an open draft cell type rather than walk=,
+=ESC drops the draft and leaves the rows byte for byte= (the proposal's oracle 6,
+pulled forward with ESC) and =a landed row opens no cell editor, and the draft is
+the only row that does=.  Suite 101/101.  ONE KEY PER CDP CALL in the walk case:
+a fresh input takes focus a macrotask behind the press, so three TABs sent
+together advance two cells.
 
 The =draft= row field went in with FIVE readings, where the proposal named four:
 the fifth is =placeDrafts= (=assets/table-view.js:2817=), which keeps a draft out

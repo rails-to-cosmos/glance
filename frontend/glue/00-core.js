@@ -206,6 +206,9 @@
           command === "materialize" ? materialize(id)
                                      : append("cmd", "info", `action: ${command}  id=${id}`),
         onLink: (target) => append("cmd", "info", `link: ${target}`),
+        // The draft's own keys, which can be bound nowhere else: an open cell
+        // stops every key it sees from reaching this page's dispatch (35-draft.js).
+        onCellKey: draftKey,
         onFilter: filter,   // the server narrows; the renderer shows what it is given
         onRefused: refused, // a shaping token typed at `/', which the box keeps
         onPin: () => pinHere(),

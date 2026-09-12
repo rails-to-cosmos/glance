@@ -439,6 +439,26 @@ const orgSays = (p, row, re, why) => p.until(async (a) => {
   return new RegExp(a.re).test(h.org || "") ? h.org : false;
 }, why, 15000, { row, re: re.source });
 
+/** THE DRAFT'S OPEN EDITOR, waited for by the cell it is NOT in: a walk's
+ * reading is the key's own outcome, so the gate is MOVEMENT off FROM rather than
+ * arrival at a cell the editor may not have left yet.  A null FROM waits for an
+ * editor at all.  ONE KEY PER CALL is what this buys: a fresh input takes focus
+ * a macrotask behind the press, so three TABs sent together advance two cells. */
+const draftEditor = (p, from, why) => p.until((left) => {
+  const tr = document.querySelector("#app tbody tr.tv-draft");
+  const box = tr && tr.querySelector("input.tv-cell-edit");
+  if (!box || document.activeElement !== box) return false;
+  const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+    .map((th) => th.dataset.key);
+  const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+  const at = keys[tds.indexOf(box.closest("td"))];
+  return at && at !== left
+    ? { col: at, value: box.value,
+        rows: document.querySelectorAll("#app tbody tr[data-id]").length,
+        cells: keys.map((k, i) => [k, tds[i].textContent]) }
+    : false;
+}, why, undefined, from);
+
 export default [
 
 // A material doc taller than the pane must SCROLL inside the pane, not grow the
@@ -4614,6 +4634,223 @@ export default [
       `the editor is ${JSON.stringify([after.open, after.focused])} after the paint`);
     return [`a /headlines answer rebuilt ${after.n} rows and the draft stood on `
       + `at row ${after.at} under ${JSON.stringify(after.under)}, editor open`];
+  } },
+
+// CAPTURE IS A ROW, STAGE 3: THE WALK.  The open cell stops every key it sees
+// from reaching the shell (`e.stopPropagation()'), so a draft's keys can be
+// bound nowhere but the editor -- `onCellKey' is the seam, asked at the head of
+// that keydown, and a `true' answer means the producer took the key.  `TAB'
+// walks title -> state -> priority -> tags and wraps, `S-TAB' walks back, and
+// the CLOSING cell's value is written into the phantom row BEFORE the next cell
+// opens, `closeCellEditor' redrawing the rows on its way out.
+{ name: "TAB walks the draft's cells and wraps, S-TAB walks them back",
+  async run(p, base) {
+    // UNDER A FILTER THAT PINS BOTH SCALARS, so the state and priority cells are
+    // SEEDED: what the editor offers there is a plain text input, and the seeded
+    // value is its INITIAL TEXT — which is how a cell walked through untouched
+    // keeps what it held.
+    await p.goto(`${base}/?q=${encodeURIComponent("state:TODO priority:A")}`);
+    await p.until(() => !!document.querySelector("#app tbody tr[data-id]"),
+                  "the filtered table to mount its row");
+    const rows = await p.eval(() =>
+      document.querySelectorAll("#app tbody tr[data-id]").length);
+    await p.press("+");
+    const open = await draftEditor(p, null, "the draft's title cell to open");
+    assert(open.col === "title", `the draft opened on ${JSON.stringify(open.col)}`);
+
+    // ONE KEY PER CALL, each gated on the editor having LEFT the cell it was in.
+    const walk = async (key, from, why) => { await p.press(key); return draftEditor(p, from, why); };
+    const toState = await walk("TAB", "title", "TAB to move the editor off the title cell");
+    assert(toState.col === "state",
+      `TAB from the title reached ${JSON.stringify(toState.col)} rather than the state cell`);
+    assert(toState.value === "TODO",
+      `the state cell opened on ${JSON.stringify(toState.value)} rather than the state `
+      + `the filter seeded it with`);
+    // TYPED WHERE THE WALK WILL LEAVE IT: the walk accumulates and posts nothing,
+    // so the value has to be in the phantom row before the redraw or the redraw
+    // shows it gone.
+    await p.typeKeys("NEXT");
+    const toPriority = await walk("TAB", "state", "TAB to move the editor off the state cell");
+    assert(toPriority.col === "priority",
+      `TAB from the state reached ${JSON.stringify(toPriority.col)}`);
+    const cellOf = (r, key) => (r.cells.find(([k]) => k === key) || [])[1];
+    assert(cellOf(toPriority, "state") === "NEXT",
+      `the state cell draws ${JSON.stringify(cellOf(toPriority, "state"))} after the `
+      + `walk left it, rather than what was typed there`);
+    assert(toPriority.value === "A",
+      `the priority cell opened on ${JSON.stringify(toPriority.value)} rather than the `
+      + `letter the filter seeded it with`);
+    const toTag = await walk("TAB", "priority", "TAB to move the editor off the priority cell");
+    assert(toTag.col === "tag",
+      `TAB from the priority reached ${JSON.stringify(toTag.col)}`);
+    // WALKED THROUGH UNTOUCHED, and still wearing what it was seeded with.
+    assert(cellOf(toTag, "priority") === "A",
+      `the priority cell draws ${JSON.stringify(cellOf(toTag, "priority"))} after the walk `
+      + `passed through it without a keystroke`);
+    const wrapped = await walk("TAB", "tag", "TAB at the last cell to wrap the editor round");
+    assert(wrapped.col === "title",
+      `TAB at the tags cell reached ${JSON.stringify(wrapped.col)} rather than wrapping `
+      + `to the title`);
+
+    const backTag = await walk("S-TAB", "title", "S-TAB to wrap the editor back off the title");
+    assert(backTag.col === "tag",
+      `S-TAB at the title reached ${JSON.stringify(backTag.col)} rather than wrapping back `
+      + `to the tags cell`);
+    const backPriority = await walk("S-TAB", "tag", "S-TAB to walk back off the tags cell");
+    assert(backPriority.col === "priority",
+      `S-TAB from the tags cell reached ${JSON.stringify(backPriority.col)}`);
+    const backState = await walk("S-TAB", "priority", "S-TAB to walk back off the priority cell");
+    assert(backState.col === "state",
+      `S-TAB from the priority reached ${JSON.stringify(backState.col)}`);
+    // THE CELL'S VALUE IS THE INPUT'S INITIAL TEXT, so a cell the walk passes
+    // through untouched keeps what it held.
+    assert(backState.value === "NEXT",
+      `the state cell reopened on ${JSON.stringify(backState.value)} rather than the `
+      + `value the walk left in it`);
+    assert(backState.rows === rows + 1,
+      `the walk left ${backState.rows} rows where the draft makes ${rows + 1}`);
+    return [`TAB walked title→state→priority→tag→title and S-TAB walked it back, over `
+      + `${backState.rows} rows`,
+      `"NEXT" typed in the state cell drew as ${JSON.stringify(cellOf(toPriority, "state"))} `
+      + `and reopened as ${JSON.stringify(backState.value)}`];
+  } },
+
+// A DRAFT ALWAYS CARRIES AN OPEN EDITOR, and the open input takes every key it
+// sees: `n' and `p' are the table's own movement keys, and inside a draft's cell
+// they are two characters.  An editor-less draft would be a row with no id, no
+// span and no file that the movement keys could stand on.
+{ name: "n and p in an open draft cell type rather than walk",
+  async run(p, base) {
+    await tableUp(p, base);
+    // POINT OFF THE HEAD FIRST, so a walk would have somewhere to show.
+    await p.press("n");
+    const before = await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const sel = document.querySelector("#app tbody tr.tv-sel");
+      return sel && rows.indexOf(sel) === 1 && rows.length > 2
+        ? { at: 1, id: sel.dataset.id, n: rows.length } : false;
+    }, "point to step onto the second of at least three rows");
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+
+    await p.press("n");
+    await p.press("p");
+    const typed = await p.until(() => {
+      const box = document.querySelector("#app tr.tv-draft input.tv-cell-edit");
+      if (!box || box.value.length !== 2) return false;
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const sel = document.querySelector("#app tbody tr.tv-sel");
+      return { value: box.value, start: box.selectionStart, end: box.selectionEnd,
+               id: sel ? sel.dataset.id : null, at: sel ? rows.indexOf(sel) : -1,
+               n: rows.length };
+    }, "the two keys to land in the title cell as text");
+
+    assert(typed.value === "np",
+      `the title cell holds ${JSON.stringify(typed.value)} rather than the two characters`);
+    // POINT DID NOT MOVE: `n' would have stepped down a row and `p' back up.
+    assert(typed.id === before.id && typed.at === before.at,
+      `point is on ${JSON.stringify(typed.id)} at row ${typed.at}, against `
+      + `${JSON.stringify(before.id)} at row ${before.at}`);
+    // NOR DID THE SELECTION INSIDE THE BOX: the caret rests past what was typed,
+    // where an untouched `select()' would still cover the whole value.
+    assert(typed.start === 2 && typed.end === 2,
+      `the caret rests at ${typed.start}..${typed.end} rather than past the two characters`);
+    assert(typed.n === before.n + 1,
+      `the table holds ${typed.n} rows where the draft makes ${before.n + 1}`);
+    return [`n p typed ${JSON.stringify(typed.value)} into the draft's title, caret at `
+      + `${typed.end}, point unmoved on ${JSON.stringify(typed.id)} at row ${typed.at}`];
+  } },
+
+// `ESC' LEAVES THE ROWS BYTE-IDENTICAL.  No file was written, so nothing is put
+// back: the draft is spliced out whole and the count is the count it was.
+{ name: "ESC drops the draft and leaves the rows byte for byte",
+  async run(p, base) {
+    await tableUp(p, base);
+    // EVERY ROW AS IT IS DRAWN -- its id and its text, in order.
+    const read = () => p.eval(() =>
+      [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .map((tr) => [tr.dataset.id, tr.textContent]));
+    const before = await read();
+    assert(before.length > 1, `the fixture drew ${before.length} rows to compare`);
+
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    // TYPED, so what ESC drops is a draft carrying something.
+    await p.typeKeys("zzqq");
+    await p.until(() => {
+      const box = document.querySelector("#app tr.tv-draft input.tv-cell-edit");
+      return !!box && box.value === "zzqq";
+    }, "the jot to land in the draft's title cell");
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-draft")
+                     && !document.querySelector("#app input.tv-cell-edit"),
+                  "ESC to splice the draft out and take its editor with it");
+    const after = await read();
+    assert(JSON.stringify(after) === JSON.stringify(before),
+      `the rows came back as ${JSON.stringify(after)} against ${JSON.stringify(before)}`);
+    // AND THE TREE NEVER HEARD OF IT: a capture is committed or it never was.
+    const hits = await idsUnder(p, "zzqq");
+    assert(hits.length === 0,
+      `the store answers ${JSON.stringify(hits)} for the jot ESC dropped`);
+    return [`ESC dropped a typed draft and left ${after.length} rows byte for byte, the `
+      + `store answering nothing for the jot`];
+  } },
+
+// THE DRAFT'S CELLS ARE THE ONLY EDITABLE CELLS IN THE TABLE.  A per-COLUMN
+// `editable' cannot carry that: the main table mounts with no editable column
+// and no `onEdit' at all, so opting the columns in would open a dead editor on
+// every real row's double-click.
+{ name: "a landed row opens no cell editor, and the draft is the only row that does",
+  async run(p, base) {
+    await tableUp(p, base);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    const only = await p.eval(() => ({
+      all: document.querySelectorAll("#app input.tv-cell-edit").length,
+      inDraft: document.querySelectorAll("#app tr.tv-draft input.tv-cell-edit").length }));
+    assert(only.all === 1 && only.inDraft === 1,
+      `the table carries ${only.all} cell editors, ${only.inDraft} of them in the draft`);
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-draft"),
+                  "ESC to drop the draft again");
+
+    // A DOUBLE-CLICK ON A LANDED ROW'S TITLE CELL, the widget's other door into
+    // the editor.  The cell is NAMED rather than counted: the mark box is chrome
+    // and belongs to no column.
+    const target = await p.eval(() => {
+      const tr = document.querySelector("#app tbody tr[data-id]:not(.tv-draft)");
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const td = [...tr.querySelectorAll("td:not(.tv-box)")][keys.indexOf("title")];
+      td.id = "probe-cell";
+      return { id: tr.dataset.id, text: td.textContent };
+    });
+    await p.dblclick("#probe-cell");
+    const clicked = await p.until((a) => {
+      const td = document.getElementById("probe-cell");
+      const sel = document.querySelector("#app tbody tr.tv-sel");
+      // The click LANDED -- point moved onto the row it names -- and opened nothing.
+      return td && sel && sel.dataset.id === a.id
+        ? { editors: document.querySelectorAll("#app input.tv-cell-edit").length,
+            text: td.textContent } : false;
+    }, "the double-click to put point on the landed row", undefined, target);
+    assert(clicked.editors === 0,
+      `a double-click on a landed row opened ${clicked.editors} cell editors`);
+    assert(clicked.text === target.text,
+      `the cell reads ${JSON.stringify(clicked.text)} against `
+      + `${JSON.stringify(target.text)} before the click`);
+
+    // AND `RET' ON IT MATERIALIZES, the landed row's own reading: the key reaches
+    // the shell because no editor is standing in its way.
+    await p.press("RET");
+    await p.until(() => !!document.querySelector("#modal.on"),
+                  "RET on the landed row to open its sheet");
+    const after = await p.eval(() =>
+      document.querySelectorAll("#app input.tv-cell-edit").length);
+    assert(after === 0, `RET on a landed row opened ${after} cell editors`);
+    return [`the draft carried the table's one cell editor; a double-click and RET on `
+      + `${JSON.stringify(target.id)} opened none, RET raising the sheet instead`];
   } },
 
 // AN EMPTY TITLE DREW NO CELL, so the title edit fell back to the whole line and

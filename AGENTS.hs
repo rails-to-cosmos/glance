@@ -5449,6 +5449,19 @@ sheetNotes =
          \ `\8594 book \183 NEXT dropped' — which leaves `stated''s 400 exactly as strict as\
          \ it is for every other caller, the MCP tool included.  THREE CHANNELS say draft and\
          \ hue is none of them alone: the accent edge, the dashed rule and the ghost ink." [Browser]
+  , Note "A DRAFT'S KEYS BELONG TO THE EDITOR AND CAN BE BOUND NOWHERE ELSE: the open cell\
+         \ stops every key it sees, so the shell's dispatch never hears one and `Keymap.hs'\
+         \ gains no row and no scope.  The seam the widget owes is one mount option,\
+         \ `onCellKey(e, {id, col, value})', asked at the HEAD of the cell editor's keydown,\
+         \ a `true' answer meaning the producer took the key.  Over the draft alone `TAB'\
+         \ walks the ring title, state, priority, tags and `S-TAB' walks it back, wrapping\
+         \ at either end; the CLOSING cell's value is written into the phantom row BEFORE\
+         \ the next cell opens, `closeCellEditor' redrawing the rows on its way out, and the\
+         \ ROW's value is what the next editor opens on — so a cell walked through\
+         \ untouched keeps what it held.  `ESC' drops the whole draft and leaves the CLOSE\
+         \ to the widget, whose own reading of that key is exactly that, so no editor is\
+         \ stranded over a row the splice has already taken away.  Every OTHER row keeps\
+         \ the shipped reading, which costs nothing while no other row is editable." [Browser]
   , Note "A HEADLINE ALWAYS DRAWS ITS TITLE CELL, empty or not (`drawnCells', Doc.elm):\
          \ that cell is the SLOT the title edit anchors in (`dTitleAt'), and a row that drew\
          \ none left the box anchored on the whole line — swallowing the star, the state,\

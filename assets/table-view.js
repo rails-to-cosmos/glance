@@ -89,6 +89,9 @@
  *             onFilter?: (q: string) => void,
  *             onEdit?: (id: string | null, col: number, value: string,
  *                       kind: "cell" | "header") => void,
+ *             onCellKey?: (e: KeyboardEvent,
+ *                          cell: { id: string | null, col: number,
+ *                                  value: string }) => boolean,
  *             omnibox?: boolean,
  *             palette?: boolean,
  *             marks?: boolean,
@@ -104,6 +107,11 @@
  *             onPin?: () => void,
  *             onRefused?: (token: string) => void,
  *             pinned?: boolean }} MountOptions
+ *          `onCellKey' is asked at the HEAD of an open cell's keydown, before
+ *          the widget's own reading of it; `true' means the producer took the
+ *          key. An open input stops propagation, so a key typed in a cell
+ *          reaches no other dispatch — a producer-owned row (a `draft') can
+ *          bind its keys here and nowhere else.
  * @typedef {{ el: HTMLElement,
  *             setView: (v: View) => void,
  *             setRows: (rows: Row[]) => void,
@@ -3946,6 +3954,10 @@
       input.addEventListener("keydown", (e) => {
         // The input takes its own keys; a driver's key map does not see them.
         e.stopPropagation();
+        // THE PRODUCER IS ASKED FIRST, this being the only dispatch a key inside
+        // a cell reaches: a row it owns has keys of its own, and `true' says it
+        // took this one.
+        if (o.onCellKey && o.onCellKey(e, { id, col, value: input.value })) return;
         if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); commitCellEditor(); }
         else if (e.key === "Escape") { e.preventDefault(); closeCellEditor(); }
       });

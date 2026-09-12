@@ -178,3 +178,59 @@
         if (td) td.textContent = drafting.cells[key];
       }
     }
+
+    // THE WALK.  `openCellEditor' STOPS PROPAGATION, so no key typed in a cell
+    // reaches the shell's dispatch: a draft's keys can be bound nowhere but the
+    // editor, and `onCellKey' (assets/table-view.js) is that seam.
+
+    /** THE CELLS THE WALK VISITS, in the order `TAB' takes them; `S-TAB' is the
+     * same ring the other way.  The SCHEDULED cell is not among them — it
+     * carries the destination hint, which is the capture's address rather than
+     * one of the facts it wears. */
+    const DRAFT_WALK = ["title", "state", "priority", "tag"];
+
+    /** A KEY INSIDE AN OPEN CELL, asked before the widget's own reading of it; a
+     * `true' answer says this glue took it.  OVER THE DRAFT ALONE: `TAB'/`S-TAB'
+     * walk the ring, `RET' waits for the commit and `ESC' drops the row.  Every
+     * other row keeps the shipped reading, which costs nothing while no other
+     * row is editable. */
+    function draftKey(e, cell) {
+      if (!drafting || cell.id !== DRAFT_ID) return false;
+      // NAMED THE WAY EVERY OTHER LISTENER NAMES A KEY: the raw event is read in
+      // `keyName' and nowhere else, so `S-TAB' is a name here rather than a flag.
+      const key = keyName(e);
+      if (key === "TAB" || key === "S-TAB") {
+        e.preventDefault();
+        walkDraft(cell, key === "TAB" ? 1 : -1);
+        return true;
+      }
+      // Stage 4 takes `RET' as the commit; until then it holds the editor open,
+      // the draft having an exit but no commit.
+      if (key === "RET") { e.preventDefault(); return true; }
+      // `ESC' DROPS THE ROW AND LEAVES THE CLOSE TO THE WIDGET, whose own
+      // reading of the key is exactly that: taking the key here would strand the
+      // widget holding the editor the splice has already unparented.
+      if (key === "ESC") dropDraft();
+      return false;
+    }
+
+    /** ONE STEP OF THE WALK: the CLOSING cell's value into the phantom row, then
+     * the next cell opens.  `editCell' closes the standing editor first and that
+     * close redraws the rows, so a value written after it is drawn gone — and
+     * the row's value is what the next editor opens on, so a cell walked through
+     * untouched keeps what it held. */
+    function walkDraft(cell, step) {
+      const from = cols[cell.col];
+      const at = from ? DRAFT_WALK.indexOf(from.key) : -1;
+      if (at === -1) { openDraftCell(DRAFT_WALK[0]); return; }
+      drafting.cells[from.key] = cell.value;
+      openDraftCell(DRAFT_WALK[(at + step + DRAFT_WALK.length) % DRAFT_WALK.length]);
+    }
+
+    /** `ESC': THE WHOLE DRAFT GOES.  No file was written, so nothing is put back
+     * — the phantom is spliced out and the count is the count it was. */
+    function dropDraft() {
+      drafting = null;
+      if (can(table, "setRows", "getRows"))
+        table.setRows(table.getRows().filter((r) => !r.draft));
+    }
