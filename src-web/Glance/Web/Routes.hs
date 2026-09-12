@@ -93,7 +93,7 @@ import Glance.Web.Base ( Day, ServeOptions (..), answerWrite, bodyObject, config
                        , viewTitleFor, walkFor, withBody, writeRefusal )
 import Glance.Web.Commands (runCommand, runCommandRaw)
 import Glance.Web.Git (gitStatusView, gitSyncRoute)
-import Glance.Web.Mcp (McpTools (..), mcpRoute)
+import Glance.Web.Mcp (Arg, McpTools (..), mcpRoute)
 import Glance.Web.Filter (archiveKey, matchesFilter, namesArchive, onDay, storeEnv, viewAddedIn)
 import Glance.Web.Page (assetsMissing, demoShell)
 import Glance.Web.Page.Style (fontAssets)
@@ -230,32 +230,39 @@ statusView opts hub = do
 mcpToolsFor :: ServeOptions -> Hub -> McpTools
 mcpToolsFor opts hub = McpTools
   { mtWrite     = runCommandRaw opts hub
-  , mtHeadline  = \rid edges -> materialize hub (Right edges) (Just rid) (Right Nothing)
+  , mtHeadline  = \rid edges ->
+      materialize hub (queryEdges (headlineRequest edges)) (Just rid) (Right Nothing)
   , mtHeadlines = \q limit edges -> headlines opts hub (listRequest q limit edges)
   , mtNeighbors = \rid depth limit kind ->
                     neighborsView hub (neighborRequest rid depth limit kind)
   , mtDoctor    = doctorView hub
   }
 
+-- | The @\/headline@ request an MCP @get-headline@ synthesizes: the @edges@ it
+-- was asked for, the row id riding 'materialize' itself.
+headlineRequest :: Arg -> Request
+headlineRequest edges = defaultRequest { queryString = param "edges" edges }
+
 -- | The @\/headlines@ request an MCP @list-headlines@ synthesizes: query, cap,
 -- @shape=rows@ and the @edges@ it was asked for — the browser sends neither, so
 -- an agent gets 'summaryEnvelope' and the table gets the page it always did.
-listRequest :: Maybe Text -> Maybe Int -> Bool -> Request
+listRequest :: Arg -> Arg -> Arg -> Request
 listRequest q limit edges = defaultRequest
-  { queryString = [ ("q", Just (TE.encodeUtf8 t)) | Just t <- [q] ]
-               <> [ ("limit", Just (BSC.pack (show n))) | Just n <- [limit] ]
-               <> [ ("shape", Just "rows") ]
-               <> [ ("edges", Just "true") | edges ] }
+  { queryString = param "q" q <> param "limit" limit
+               <> [("shape", Just "rows")] <> param "edges" edges }
 
 -- | The @\/neighbors@ request an MCP @neighbors@ synthesizes.  ONE DOOR, so the
 -- walls the query string meets — a depth over the cap, a negative one — are the
 -- walls the tool meets.
-neighborRequest :: Text -> Maybe Int -> Maybe Int -> Maybe Text -> Request
+neighborRequest :: Text -> Arg -> Arg -> Arg -> Request
 neighborRequest rid depth limit kind = defaultRequest
   { queryString = [ ("id", Just (TE.encodeUtf8 rid)) ]
-               <> [ ("depth", Just (BSC.pack (show n))) | Just n <- [depth] ]
-               <> [ ("limit", Just (BSC.pack (show n))) | Just n <- [limit] ]
-               <> [ ("kind", Just (TE.encodeUtf8 t)) | Just t <- [kind] ] }
+               <> param "depth" depth <> param "limit" limit <> param "kind" kind }
+
+-- | NAME carrying the bytes a tool rendered, and no parameter at all for an
+-- argument it was not given — the absence every reader here already answers.
+param :: BS.ByteString -> Arg -> [(BS.ByteString, Maybe BS.ByteString)]
+param name = foldMap (\bytes -> [(name, Just bytes)])
 
 -- | @GET \/neighbors?id=…@: the subgraph around a row, DEPTH hops either way,
 -- narrowed to a KIND and capped at LIMIT nodes.  OFF THE STORE'S OWN GRAPH

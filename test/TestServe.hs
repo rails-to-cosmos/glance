@@ -9168,8 +9168,40 @@ mcpSpec = testGroup "POST /mcp"
     -- ONE POLICY AT BOTH DOORS: a value that is no boolean is refused here
     -- exactly as @?edges=yes@ is refused over the query string.
   , appCase "an edges argument that is no boolean is refused" $ \a -> do
-      assertContains "the tool says what edges takes" "true or false"
+      assertContains "the tool says what edges takes" "edges is true, or absent"
         =<< toolFails a "list-headlines" (object ["edges" .= ("yes" :: T.Text)])
+
+  , testCase "an edges flag that is off carries no edge field" $
+      withGraphTree $ \a _hub _path -> do
+        rows <- listAt "rows" =<< toolRead a "list-headlines" (object ["edges" .= False])
+        keys <- concat <$> traverse keysOf rows
+        assertEqual "a flag that is off is the absence the door reads" []
+          (filter (`elem` ["refs", "referrers"]) keys)
+
+    -- AN ARGUMENT IS QUERY BYTES: whatever JSON scalar it arrives as, the wall it
+    -- meets is @?limit=@'s own -- no second reading, and nothing rounded on the way.
+  , appCase "a cap given as a string pages like ?limit=5, and a stranger is refused" $ \a -> do
+      whole <- listAt "rows" =<< toolRead a "list-headlines" (object [])
+      capped <- listAt "rows"
+                  =<< toolRead a "list-headlines" (object ["limit" .= ("5" :: T.Text)])
+      assertEqual "the string cap is the number the door reads" 5 (length capped)
+      assertBool "and the uncapped page is longer" (length whole > length capped)
+      assertContains "a cap that is no number is the route's own refusal" "whole number"
+        =<< toolFails a "list-headlines" (object ["limit" .= ("abc" :: T.Text)])
+
+  , testCase "neighbors' numbers are the query string's, rounded by nobody" $
+      withGraphTree $ \a _hub _path -> do
+        two <- neighborsAt a (object ["id" .= ("alpha" :: T.Text), "depth" .= (2 :: Int)])
+        assertEqual "two hops still walk the chain" ["alpha", "beta", "gamma"] (fst two)
+        flat <- neighborsAt a
+                  (object ["id" .= ("alpha" :: T.Text), "depth" .= (2.0 :: Double)])
+        assertEqual "a whole number spelled with a point is that number" (fst two) (fst flat)
+        assertContains "a fractional depth is refused rather than rounded" "whole number"
+          =<< toolFails a "neighbors" (object [ "id" .= ("alpha" :: T.Text)
+                                              , "depth" .= (2.7 :: Double) ])
+        assertContains "and a negative cap is refused like ?limit=-1" "whole number"
+          =<< toolFails a "neighbors" (object [ "id" .= ("alpha" :: T.Text)
+                                              , "limit" .= (-1 :: Int) ])
 
   , testCase "tools/call neighbors walks both ways, one hop by default" $
       withGraphTree $ \a _hub _path -> do

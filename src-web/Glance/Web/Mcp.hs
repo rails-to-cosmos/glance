@@ -3,7 +3,8 @@
 -- @\/command@ and @\/headline@ handlers ('McpTools'), never a second write path.
 -- The write tools ARE 'commandNames', pinned by the suite.
 module Glance.Web.Mcp
-  ( McpTools (..)
+  ( Arg
+  , McpTools (..)
   , mcpRoute
   , runMcpStdio
   , runMcpStdioWith
@@ -12,9 +13,10 @@ module Glance.Web.Mcp
   ) where
 
 import Control.Exception (try)
-import Control.Monad (unless, (<=<))
-import Data.Aeson ( FromJSON (parseJSON), Value (Bool, Number, Object, String), decode
-                  , encode, eitherDecode', object, withObject, (.:), (.=) )
+import Control.Monad (unless)
+import Data.Aeson ( FromJSON (parseJSON), Result (Error, Success)
+                  , Value (Bool, Null, Number, Object, String), decode, encode
+                  , eitherDecode', fromJSON, object, withObject, (.:), (.=) )
 import Data.Char (isSpace)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (find)
@@ -32,19 +34,25 @@ import qualified Data.ByteString.Builder as B
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Network.HTTP.Client as HC
 
 import Glance.Query (neighborDepth, neighborDepthCap)
 import Glance.Web.Base (jsonType, jsonValue, sized, withBody)
 
 
+-- | One tool argument as the query bytes it was rendered to, 'Nothing' for one
+-- that was not given.  'argBytes' is the rendering, and the route's own readers
+-- ('Glance.Web.Routes.wholeNumber' and its kin) are the walls it then meets.
+type Arg = Maybe BS.ByteString
+
 -- | The handlers the door dispatches to, wired to the live Hub by the caller.
 data McpTools = McpTools
   { mtWrite     :: BL.ByteString -> IO Response         -- ^ a @\/command@ body.
-  , mtHeadline  :: Text -> Bool -> IO Response          -- ^ one subtree by row id, edges or not.
-  , mtHeadlines :: Maybe Text -> Maybe Int -> Bool -> IO Response  -- ^ a query, a cap, and edges or not.
-  , mtNeighbors :: Text -> Maybe Int -> Maybe Int -> Maybe Text -> IO Response
-      -- ^ the subgraph around a row: id, depth, cap and the kind it walks.
+  , mtHeadline  :: Text -> Arg -> IO Response           -- ^ one subtree by row id, @edges@ as given.
+  , mtHeadlines :: Arg -> Arg -> Arg -> IO Response     -- ^ a query, a cap and @edges@.
+  , mtNeighbors :: Text -> Arg -> Arg -> Arg -> IO Response
+      -- ^ the subgraph around a row: id, then depth, cap and the kind it walks.
   , mtDoctor    :: IO Response                          -- ^ the startup health verdict.
   }
 
@@ -244,9 +252,8 @@ readTools =
   [ Tool "get-headline"
       "Read one headline subtree as it stands on disk, by row id."
       (schema [("id", str "the row id, e.g. FILE.org#3"), ("edges", edgesProp)] ["id"])
-      (\tools args -> either refused
-                        (value <=< mtHeadline tools (fromMaybe "" (argText "id" args)))
-                        (argFlag "edges" args))
+      (\tools args -> reading (mtHeadline tools (fromMaybe "" (argText "id" args))
+                                 <$> argBytes "edges" args))
   , Tool "list-headlines"
       "List headlines matching a query (the filter language the UI table uses). Answers\
       \ {total, clean, rows}: total is the uncapped match count, clean the index's\
@@ -254,9 +261,9 @@ readTools =
       (schema [ ("query", str "a filter query like state:*active* or tag:work; empty lists all")
               , ("limit", int "cap on the number of rows returned")
               , ("edges", edgesProp) ] [])
-      (\tools args -> either refused
-                        (value <=< mtHeadlines tools (argText "query" args) (argInt "limit" args))
-                        (argFlag "edges" args))
+      (\tools args -> reading (mtHeadlines tools <$> argBytes "query" args
+                                                 <*> argBytes "limit" args
+                                                 <*> argBytes "edges" args))
   , Tool "neighbors"
       "Walk the reference graph around one headline: the rows within depth hops of it,\
       \ either direction, as {total, nodes: [a row each], edges: [{from, to, kind}]}.\
@@ -267,9 +274,10 @@ readTools =
               , ("limit", int "cap on the number of nodes returned")
               , ("kind", str "walk only edges carrying this kind, e.g. blocked-by") ]
               ["id"])
-      (\tools args -> value =<< mtNeighbors tools (fromMaybe "" (argText "id" args))
-                                              (argInt "depth" args) (argInt "limit" args)
-                                              (argText "kind" args))
+      (\tools args -> reading (mtNeighbors tools (fromMaybe "" (argText "id" args))
+                                 <$> argBytes "depth" args
+                                 <*> argBytes "limit" args
+                                 <*> argBytes "kind" args))
   , Tool "doctor"
       "The index's health as measured at startup: the clean flag, one sentence per\
       \ finding, and the counts (parse and decode and read failures, span violations,\
@@ -330,14 +338,31 @@ argText k (Object o) = case KM.lookup (Key.fromText k) o of
   _               -> Nothing
 argText _ _ = Nothing
 
--- | A boolean argument, absent reading as @false@.  ANY OTHER VALUE IS REFUSED
--- rather than read as unasked: ONE POLICY AT BOTH DOORS, the one @?edges=@ has.
-argFlag :: Text -> Value -> Either Text Bool
-argFlag k (Object o) = case KM.lookup (Key.fromText k) o of
-  Nothing       -> Right False
-  Just (Bool b) -> Right b
-  Just _other   -> Left (k <> " is true or false")
-argFlag _ _ = Right False
+-- | An argument as the query bytes the door reads it from: a string as itself, a
+-- number in its own decimal spelling, @true@ for a flag that is set.  A flag that
+-- is off, a @null@ and an absent argument are alike NO PARAMETER, the absence the
+-- query string spells with; anything else is refused naming the argument.  THE
+-- TOOL RENDERS AND THE ROUTE READS, so neither door grows a second vocabulary.
+argBytes :: Text -> Value -> Either Text Arg
+argBytes k (Object o) = case KM.lookup (Key.fromText k) o of
+  Nothing         -> Right Nothing
+  Just Null       -> Right Nothing
+  Just (Bool b)   -> Right (if b then Just "true" else Nothing)
+  Just (String s) -> Right (Just (TE.encodeUtf8 s))
+  Just n@Number{} -> Right (Just (spelled n))
+  Just _other     -> Left (k <> " is a string, a number, or true or false")
+argBytes _ _ = Right Nothing
+
+-- | A number as the query string spells it: a whole one without the @.0@ JSON
+-- would carry, any other as written.
+spelled :: Value -> BS.ByteString
+spelled v = case fromJSON v :: Result Integer of
+  Success n -> BSC.pack (show n)
+  Error _   -> BL.toStrict (encode v)
+
+-- | A read tool's answer, or the 400 an argument the door refuses earns.
+reading :: Either Text (IO Response) -> IO (Status, Value)
+reading = either refused (value =<<)
 
 -- | An argument the door refuses, answered as the 400 a query string would get.
 refused :: Text -> IO (Status, Value)
@@ -346,12 +371,6 @@ refused why = pure (status400, object ["error" .= why])
 -- | A wall's own number, spelled into the schema text rather than beside it.
 count :: Int -> Text
 count = T.pack . show
-
-argInt :: Text -> Value -> Maybe Int
-argInt k (Object o) = case KM.lookup (Key.fromText k) o of
-  Just (Number n) -> Just (round n)
-  _               -> Nothing
-argInt _ _ = Nothing
 
 argValue :: Text -> Value -> Value
 argValue k (Object o) = fromMaybe (object []) (KM.lookup (Key.fromText k) o)
