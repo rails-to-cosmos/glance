@@ -10454,9 +10454,8 @@ refusedCapture Refused{..} = testCase rfLabel $
     mapM_ (\(what, named) -> assertContains what named (body r)) rfNames
     assertEqual "and no blob was written" [] =<< blobsIn dir
 
--- | The DRAFT door: the shape @\/headline@ serves, off bytes with no file behind
--- them.  Every key here is one the doc pane already reads, plus the three a doc
--- with no row owes — the tag's own cycle, where @%?@ stood, and the vocabulary.
+-- | The READ door.  @cycle@ is the DOOR'S OWN ANSWER and is pinned first here;
+-- the draft document's own members follow it and die with the sheet (stage 6).
 captureViewSpec :: TestTree
 captureViewSpec = testGroup "GET /capture"
   [ testCase "with no tag the draft is the bare headline the pane opens on" $
@@ -10502,9 +10501,38 @@ captureViewSpec = testGroup "GET /capture"
         assertEqual "and its done words" [["DONE"], ["READ"]]
           =<< traverse (textsAt "inactive") cyc
 
+    -- A LAYER THAT DECLARES NO `#+TODO:' ADDS NO SCOPE: the chain's own dedup
+    -- drops an empty one, so the tag stands in the wider scope's words alone.
+  , testCase "a tag with no #+TODO: of its own stands in the wider cycle" $
+      withStoreTree $ \a _hub _dir -> do
+        cyc <- listAt "cycle" =<< decoded =<< ok =<< getFrom a "/capture?tag=trip"
+        assertEqual "the wider scope alone" ["default"]
+          =<< traverse (textAt "source") cyc
+        assertEqual "its words" [["TODO"]] =<< traverse (textsAt "active") cyc
+        assertEqual "and its done words" [["DONE"]] =<< traverse (textsAt "inactive") cyc
+
   , testCase "with no tag the cycle is the default one alone" $ withStoreTree $ \a _hub _dir -> do
         cyc <- listAt "cycle" =<< decoded =<< ok =<< getFrom a "/capture"
         assertEqual "one scope" ["default"] =<< traverse (textAt "source") cyc
+        assertEqual "its words" [["TODO"]] =<< traverse (textsAt "active") cyc
+        assertEqual "and its done words" [["DONE"]] =<< traverse (textsAt "inactive") cyc
+
+    -- THE CYCLE IS THE DOOR'S, NOT THE DRAFT'S: it is the DESTINATION LAYER'S
+    -- chain — the very list `stated' walls the commit with — and owes nothing to
+    -- what the template put in the draft's own state cell.  This is the member
+    -- the draft document is dismantled around (stage 6).
+  , testCase "the cycle is the destination's chain, whatever the draft wears" $
+      withStoreTree $ \a _hub _dir -> do
+        v <- decoded =<< ok =<< getFrom a "/capture?tag=task"
+        assertEqual "the template seeded the draft's own state" (Just "TODO")
+          =<< maybeTextAt "state" =<< field "cells" v
+        cyc <- listAt "cycle" v
+        assertEqual "the layer's scope rides beside the wider one" ["default", "task"]
+          =<< traverse (textAt "source") cyc
+        -- NEXT is nowhere in the draft and is settable all the same, the cycle
+        -- being what the LAYER declares rather than what the draft happens to say.
+        assertEqual "every word the layer declares" [["TODO"], ["NEXT"]]
+          =<< traverse (textsAt "active") cyc
 
     -- The vocabulary is the TREE's rather than any row's — a capture names no rows to ask about.
   , testCase "the tag vocabulary is the tree's" $

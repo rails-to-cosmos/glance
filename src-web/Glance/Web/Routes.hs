@@ -806,12 +806,13 @@ valuesUnder drawers = Map.fromListWith (Map.unionWith (+))
 
 -- Capture
 
--- | @GET \/capture[?tag=NAME]@: the DRAFT a capture under that tag opens on.
+-- | @GET \/capture[?tag=NAME]@: the DESTINATION'S CYCLE, and the draft the sheet
+-- still opens over.
 --
--- THE SHAPE @\/headline@ SERVES, field for field, off bytes that exist only in this
--- answer, so the pane draws a draft as it draws any doc.  Three fields ride beside it:
--- the @cycle@ (a draft has no ROW), the @point@ @%?@ stood at, and the tree's @tags@.
--- NO FILE IS CREATED.
+-- @cycle@ IS THE DOOR'S OWN ANSWER — the @#+TODO:@ chain a capture filed there may
+-- be stated in, in the shape @\/keywords@ answers in, off a rowless draft's scopes
+-- ('draftKeywords').  Every other member is the DRAFT DOCUMENT, the shape
+-- @\/headline@ serves off bytes that exist only in this answer.  NO FILE IS CREATED.
 captureView :: ServeOptions -> Hub -> Request -> IO Response
 captureView opts hub request = do
   st <- readTVarIO (hubStore hub)
@@ -827,6 +828,10 @@ captureView opts hub request = do
       lent = [ T.toLower raw | raw <- inheritedTags request
                              , Right _ <- [tagText raw] ]
       day = Time.localDay (Time.zonedTimeToLocalTime now)
+      -- THE DOOR'S ANSWER, composed off the DESTINATION alone: it owes the template
+      -- nothing, which is what lets the draft below it go without taking the cycle along.
+      cycleOf = [ "cycle" .= map sourceJSON (draftKeywords cfg worn) ]
+      -- Dies with the sheet, stage 6: every member below is the draft document.
       drafted = do
         (expanded, at) <- draftTemplate now (fromMaybe bareTemplate (captureTemplateIn tag layers))
         -- The point is read off the EXPANDED doc: seeding edits the headline and planning,
@@ -835,10 +840,11 @@ captureView opts hub request = do
         seeded <- draftSeeded cfg worn (inheritedIn day request) expanded
         r <- draftRecord cfg seeded
         pure (draftJSON st worn seeded r opens)
-  pure (either (jsonError status400) (jsonResponse status200) drafted)
+  pure (either (jsonError status400) (jsonResponse status200 . (cycleOf <>)) drafted)
 
--- | A DRAFT as the wire carries it: 'subtreeJSON''s members plus the three a
+-- | A DRAFT as the wire carries it: 'subtreeJSON''s members plus the two a
 -- fileless doc owes.  The empty digest is the CREATE PIN, walling the commit like a materialize's.
+-- Dies with the sheet, stage 6; the @cycle@ beside it is the door's and stands.
 draftJSON :: Store -> [Text] -> Text -> HeadlineRecord -> Maybe Int -> [Pair]
 draftJSON st worn doc r opens =
   [ "id"         .= Null
@@ -853,7 +859,6 @@ draftJSON st worn doc r opens =
   , "span"       .= Null
   , "links"      .= ([] :: [Value])
   , "titleAt"    .= Null
-  , "cycle"      .= map sourceJSON (draftKeywords (stConfig st) worn)
   , "point"      .= opens
   , "tags"       .= storeTags st
   ]

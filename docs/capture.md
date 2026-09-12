@@ -155,17 +155,19 @@ in the answer. **No file is created.** `id` is null, `file` is empty and
 spells for a target that is not there, which is what makes the commit that
 follows an ordinary drift-locked write.
 
-Three members ride beside the headline shape:
+`cycle` leads the answer and is **the door's own**; three members ride beside
+the headline shape:
 
+- **`cycle`** — the destination's TODO words in the shape `GET /keywords`
+  answers in, one entry per source, widest first. It rides here because
+  `/keywords` is **row-keyed** and a draft has no row. The cycle the state
+  door offers is the list the commit door walls with. It is composed off the
+  destination alone and owes the template nothing.
 - **`point`** — an integer line of `body`, or `null` for the headline row.
   The coordinates `ownLines` and a child's `line` are already in, so the pane
   lands by a reading it makes anyway. Line 0 *is* the headline, so the
   integer form never names it; a `%?` standing in the planning line or the
   drawer answers `null` too, those being lifted out of `body`.
-- **`cycle`** — the tag's own TODO words in the shape `GET /keywords` answers
-  in, one entry per source, widest first. It rides here because `/keywords`
-  is **row-keyed** and a draft has no row. The cycle the state door offers is
-  the list the commit door walls with.
 - **`tags`** — the tree's whole tag vocabulary, for step 1's field. It rides
   here rather than on `/tags` because a capture names no rows.
 

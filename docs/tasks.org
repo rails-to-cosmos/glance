@@ -202,3 +202,18 @@ disagree on the tag key (=tags= against =tag=), and no test names them together.
 git cases can only read the warned =⚠= and a hover text saying =no upstream=; a
 bare origin cloned beside it would let a case read =✓=, =↑=, =↓= and the
 =tracking origin/main= half of the title for real.
+
+* TODO Retire the draft-document half of =GET /capture= (capture-is-a-row stage 1)
+See [[file:proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md]] stage 1.
+The =cycle= half landed — it is the door's own answer, composed off the
+destination and lifted out of =draftJSON= (=src-web/Glance/Web/Routes.hs:831=,
+=:843=) — but the DELETIONS the stage names cannot precede stage 6: the sheet
+still reads the draft document (=frontend/glue/30-capture.js:111=,
+=frontend/glue/20-sheet.js:2182= =showDraft=), and five browser cases open it
+(=test/browser/cases.mjs:4513=, =:4692=, =:4745=, =:4760=, =:4778=).  What waits:
+=draftJSON=/=draftCells=/=draftTagsCell=/=inheritedIn=/=inheritedTags=
+(=Routes.hs:843-900=) and =draftTemplate=/=draftPointLine=/=Inherited=/=draftSeeded=
+(=Query.hs:2210=, =:2329=, =:2346=, =:2355=) with their exports (=Query.hs:82-89=).
+Each is reachable ONLY from the draft doc; =draftRecord=, =draftEntry=,
+=DraftCargo=, =draftKeywords=, =draftStates=, =expandTemplate=, =templateParts=,
+=captureTemplateIn= and =bareTemplate= are the capture COMMAND's and stay.

@@ -3783,12 +3783,14 @@ captureCodes =
 scanCodes :: [String]                   -- ^ @templateParts@ spells the same four as a CASE
 scanCodes = ["%?", "%U", "%T", "%^{PROMPT}"]
 
--- | @GET \/capture[?tag=NAME]@: the DRAFT.  @\/headline@'s own members off bytes
--- with no file behind them, and the three a doc that is not one yet owes.  NO
--- FILE IS CREATED; @id@ is null, @file@ empty and @digest@ @""@, which is the
--- CREATE PIN the commit that follows writes under.
+-- | @GET \/capture[?tag=NAME]@: the DESTINATION'S CYCLE, and the draft the sheet
+-- still opens over.  @cycle@ LEADS and is the DOOR'S OWN ANSWER, composed off the
+-- destination alone and owing the template nothing.  The rest is @\/headline@'s own
+-- members off bytes with no file behind them, and retires with the sheet: NO FILE IS
+-- CREATED; @id@ is null, @file@ empty and @digest@ @""@, which is the CREATE PIN the
+-- commit that follows writes under.
 captureRead :: [String]
-captureRead = headlineFields <> ["point", "cycle", "tags"]
+captureRead = ["cycle"] <> headlineFields <> ["point", "tags"]
 
 data DraftPoint = AtHeadline | AtBodyLine Int deriving (Eq, Show)
 -- ^ where @%?@ stood, in the coordinates @body@ is ALREADY read in — the ones
@@ -3990,7 +3992,7 @@ cmdNotes =
   , Note "THE CAPTURE DOC IS THE MATERIAL DOC: GET /capture answers a DRAFT in `headlineFields'' own shape off bytes with no file behind them, so the pane draws a capture with the doc code it already has rather than a second editor with rules of its own. `id' is null, `file' is empty and `digest' is \"\" — THE CREATE PIN, the very lock the write path already spells for a target that is not there, which is what makes the commit that follows an ordinary drift-locked write." [Test]
   , Note "The draft is composed by ONE PARSE the commit reads back through (`draftRecord'), and a BLANK ENTRY IS KEPT where `recordsOf' drops one: `* ' with an empty title is exactly what the bare template opens as, so the row the table would refuse to show is the row capture starts from." [Test]
   , Note "`point' is a LINE OF `body', the coordinates `ownLines' and a child's `line' are already in, and null is the headline itself — so the pane lands by a reading it makes anyway rather than by a second addressing scheme. It is measured on the EXPANDED doc before the filter's seeds are spliced, which is safe because a seed edits the headline line and the planning line and neither is a line `body' carries." [Test]
-  , Note "`cycle' rides the draft answer because /keywords is ROW-KEYED and a draft has no row: `draftKeywords' walks the same `keywordScopes' chain with an empty FILE scope, so the cycle the state door OFFERS is the list the commit door WALLS with, one fold (`flatKeywords') serving both." [Test]
+  , Note "`cycle' is GET /capture's OWN ANSWER and leads it, because /keywords is ROW-KEYED and a draft has no row: `draftKeywords' walks the same `keywordScopes' chain with an empty FILE scope, so the cycle the state door OFFERS is the list the commit door WALLS with, one fold (`flatKeywords') serving both. It is composed off the DESTINATION alone, beside the draft document rather than inside it, so the draft can be dismantled without taking the cycle along." [Test]
   , Note "The prompting escapes DISSOLVED: `%^{PROMPT}' expands to its EMPTY VALUE — a drawer pair with none, a slot in the body — because a pre-form field existed only where the form could not edit structure. The stamping escapes still take the server's clock, the page spelling no org, and `%?' writes nothing at all: it is where point opens." [Test]
   , Note "TWO ROADS, EXACTLY ONE TAKEN: `text' (with `fields', through the tag's template) is the older wire and stays, the door being public and org-glance able to drive it; `title' opens the sheet's cargo. NAMING BOTH IS REFUSED rather than resolved, and both roads hand the SAME org to the same minting, which is why the shard path, the id, the creation drawer, the ledger note and the inbox split are untouched by the widening." [Test]
   , Note "ONE WALL PER KEY AND EVERY ONE OF THEM THE ROW EDIT'S (`cargoWall'): planning through `plannedValue' with the KEY OUTRANKING THE VALUE, tags and the state through their charsets, the title through the headline reparse, and the state through the very cycle the draft door offered. A capture is ONE TOP ENTRY, so a body line opening a single star is refused rather than written — the one-headline wall reaching the widened road the way `captureText' reaches the older one." [Test]
