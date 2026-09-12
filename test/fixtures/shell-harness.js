@@ -539,6 +539,12 @@ let mounts = 0, sets = 0, raises = 0;
 const doors = [];
 let lmounts = 0, tmounts = 0, tsets = 0;
 const paints = [];
+// THE ROWS THE PAGE LAST HANDED THE TABLE, the producer's own among them: a
+// DRAFT has no store row behind it, so the fixture cannot answer for one and
+// the splice is only readable where the page made it.
+let painted = [];
+// Which cell the in-cell editor was opened on, there being no table DOM here.
+let editedCell = null;
 // Row ops SPLICED, recorded as well as their effect: landing right without
 // splicing reads the same off the rows alone.
 const spliced = [];
@@ -638,7 +644,8 @@ const makeMount = (host, view, options, own) => {
     setRows: (list) => {
       if (m.own) {
         m.own = (list || []).slice();
-      } else { sets += 1; paints.push((list || []).length); }
+      } else { sets += 1; paints.push((list || []).length);
+               painted = (list || []).slice(); }
       keep();
     },
     upsertRow: (row) => {
@@ -657,6 +664,13 @@ const makeMount = (host, view, options, own) => {
     },
     getQuery: () => m.held,
     getRows: () => all().slice(),
+    // The widget's own in-cell editor: a draft's cells are editable whatever
+    // their column declares, and a view drawing no such column opens nothing.
+    editCell: (id, col) => {
+      if (col < 0 || col >= m.cols.length) return false;
+      editedCell = [id, col];
+      return true;
+    },
     setQuery: (q) => { m.held = String(q == null ? "" : q).trim(); },
     setPinned: (on) => { m.pinned = !!on; },
     stripLastToken: () => {
@@ -1865,6 +1879,14 @@ const settle = async () => {
     ccap: field("ctarget").value,
     served: viewQuery, servedAgenda: agendaQuery,
     servedCapture: captureLine, capturing: captureAsked,
+    // THE DRAFT ROW as the page spliced it: where it sits, the row it stands
+    // under, the cells the filter seeded and the cell whose editor opened.
+    draft: (() => {
+      const at = painted.findIndex((r) => r.draft);
+      return at === -1 ? null
+        : { at, under: at ? painted[at - 1].id : null, cells: painted[at].cells,
+            editing: editedCell };
+    })(),
     chues: listCells("cstates").map((c) => c.join("|")),
     sat: listAt("cstates"), sflagged: listFlagged("cstates"),
     sedit: field("sedit").className,

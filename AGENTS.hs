@@ -5413,9 +5413,9 @@ sheetNotes =
          \ never dirty, so the leave-flush, the `beforeunload' keepalive and the socket's\
          \ reload all read it clean — which is the whole of what makes `ESC' free." [Test]
   , Note "THE BARE-DRAFT LAW: where the draft is star-space and nothing else the title box\
-         \ IS the capture — `RET' on the typed title commits, so the inbox jot stays `+',\
-         \ the line, `RET', and `ESC' there drops the capture whole rather than coming back\
-         \ to a sheet standing over no file.  `bareCapture' is asked in ONE place, so the\
+         \ IS the capture — `RET' on the typed title commits, so the inbox jot over the\
+         \ sheet is the line and `RET', and `ESC' there drops the capture whole rather than\
+         \ coming back to a sheet standing over no file.  `bareCapture' is asked in ONE place, so the\
          \ commit and the escape cannot part.  A template with more than a bare headline\
          \ commits on `C-c C-c' alone, where `RET' just closes the title.  THE DESTINATION\
          \ TAG IS NOT ONE OF THE THINGS THAT MAKE A DRAFT RICH (`tagsBeyond'): it is the\
@@ -5430,6 +5430,25 @@ sheetNotes =
          \ `point' naming a LINE and no offset to aim at.  On the RICH draft the box is an\
          \ ordinary sheet edit and the STANDING LADDER holds: `RET' closes it, `C-c C-c'\
          \ behind it takes the capture, ESC closes it and the next ESC drops the draft." [Test]
+  , Note "CAPTURE IS A ROW: `+' splices a DRAFT into the rows the widget already holds —\
+         \ below the row at point, seeded from what the filter PINS, with its title cell's\
+         \ editor open — and `paint' re-splices it on EVERY /headlines answer, `setRows'\
+         \ resetting the widget's rows so a draft left out of the splice is erased.\
+         \ Suppressing the paint instead would leave a stale table under a live draft.  The\
+         \ widget learns ONE row field, `draft', with five readings: it is dressed, kept out\
+         \ of the sort (its title being empty, the chain would park it in the blanks at the\
+         \ end), never marked, never stepped onto, and its cells are the only editable cells\
+         \ in the table.  A per-COLUMN `editable' cannot carry the last of those: the main\
+         \ table mounts no editable column, so opting the columns in would open a dead editor\
+         \ on every real row's double-click." [Browser]
+  , Note "THE DESTINATION IS SAID IN THE SCHEDULED CELL — `\8594 book', `\8594 inbox' — the\
+         \ one column a capture never fills: `openCellEditor' EMPTIES the cell it opens in,\
+         \ so a hint drawn beside the title is wiped the moment the editor arrives.  `+' asks\
+         \ the cycle door as it draws the row, and a seeded state that destination's\
+         \ `#+TODO:' lacks is DROPPED before the wire ever carries it, the hint reading\
+         \ `\8594 book \183 NEXT dropped' — which leaves `stated''s 400 exactly as strict as\
+         \ it is for every other caller, the MCP tool included.  THREE CHANNELS say draft and\
+         \ hue is none of them alone: the accent edge, the dashed rule and the ghost ink." [Browser]
   , Note "A HEADLINE ALWAYS DRAWS ITS TITLE CELL, empty or not (`drawnCells', Doc.elm):\
          \ that cell is the SLOT the title edit anchors in (`dTitleAt'), and a row that drew\
          \ none left the box anchored on the whole line — swallowing the star, the state,\
@@ -6104,6 +6123,7 @@ gluePartFiles =
   , "05-keys.js"      -- key naming and the echo pill
   , "20-sheet.js"     -- the materialize sheet: both panes, the ladder, the opening
   , "30-capture.js"   -- the capture form and the value palette
+  , "35-draft.js"     -- the draft row: the seeding rule, the phantom, the hint
   , "40-popups.js"    -- the link popup and the tags popup
   , "50-settings.js"  -- tabs, saved views, the states table, the theme
   , "60-refer.js"     -- `@' in the sheet: the reference picker over /refer

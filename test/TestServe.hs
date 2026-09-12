@@ -518,7 +518,8 @@ spec = withResource bootFixture dropBootFixture $ \shell ->
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
     , paletteSpec shell
     , moveSpec shell, sortKeySpec shell, markSpec shell, landingSpec shell
-    , commandKeySpec shell, promptKeySpec shell, whichKeySpec shell
+    , commandKeySpec shell, promptKeySpec shell, draftRowSpec shell
+    , whichKeySpec shell
     , cellSpanSpec shell, tagKeySpec shell
     , openKeySpec shell, narrowSpec shell, agendaSpec shell, drillSpec shell
     , logSpec shell
@@ -2025,15 +2026,22 @@ renamesPosted = traverse one <=< argsOf
 tagsPosted :: Value -> IO [T.Text]
 tagsPosted = traverse (textAt "tag") <=< argsOf
 
--- | The two keys that collect a LINE rather than pick from a list: @+@ and the reschedule chords.
+-- | The capture FORM, raised through its own URL.  @+@ types a DRAFT ROW into
+-- the table now (@35-draft.js@), so @?page=capture@ is the door the sheet's
+-- flow is still reached through (@SURFACES@, @70-shell.js@).  Dies with the
+-- surface, stage 6.
+capturing :: IO T.Text -> String -> T.Text -> (Value -> Assertion) -> TestTree
+capturing shell label = keyedAt shell "?page=capture" 500 label ""
+
+-- | The line the capture form collects, and the reschedule chords' own.
 promptKeySpec :: IO T.Text -> TestTree
 promptKeySpec shell = testGroup "Shell capture and reschedule"
-    -- `+' ASKS THE DESTINATION AND NOTHING ELSE, and over the BARE DRAFT the
-    -- title box IS the capture: `+', RET, the line, RET is the inbox jot, key
-    -- for key what it always was, with the SHEET standing where the one-line
-    -- form used to.
-  [ keyed shell "+ RET the line RET is the inbox jot, through the sheet now"
-      "+" "press:Enter dtin:milk press:Enter" $ \answer -> do
+    -- THE FORM ASKS THE DESTINATION AND NOTHING ELSE, and over the BARE DRAFT
+    -- the title box IS the capture: RET, the line, RET is the inbox jot, key for
+    -- key what it always was, with the SHEET standing where the one-line form
+    -- used to.
+  [ capturing shell "RET the line RET is the inbox jot, through the sheet now"
+      "press:Enter dtin:milk press:Enter" $ \answer -> do
         assertEqual "the vocabulary, then the draft the settled tag opened"
                     ["/capture", "/capture"] =<< textsAt "capturing" answer
         assertEqual "one capture, naming no rows" ["capture"] =<< namesOf answer
@@ -2052,8 +2060,8 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
     -- THIS PAGE HOLDS NO TEMPLATE GRAMMAR: the draft arrives EXPANDED, and the
     -- prompting escapes are the editors the pane already has -- a `%^{PROMPT}'
     -- in a drawer is the pair with no value.  NO FIELD IS GROWN for it.
-  , keyed shell "a tag's template arrives as a document, its asks opened empty"
-      "+" "ktag:book press:Enter" $ \answer -> do
+  , capturing shell "a tag's template arrives as a document, its asks opened empty"
+      "ktag:book press:Enter" $ \answer -> do
         assertEqual "the tag was resolved when it settled"
                     ["/capture", "/capture?tag=book"] =<< textsAt "capturing" answer
         assertEqual "the form is down: it asked its one question"
@@ -2073,14 +2081,14 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         assertEqual "and the destination is drawn on the head row"
                     [["head", "* ", "Book", ":book:"]] . take 1 =<< docOf answer
         assertEqual "nothing is written until C-c C-c" [] =<< namesOf answer
-        echoIs "and the foot says which key that is"
-          "+ → org-glance-overview:capture (C-c C-c captures · ESC leaves)" answer
+        echoIs "and the foot says which key takes it"
+          "?page → restore-view (C-c C-c captures · ESC leaves)" answer
 
     -- THE OPEN EDIT COMMITS FIRST, as it always has, and the press behind it
     -- takes the whole capture: on a rich draft `RET' closes the box the landing
     -- opened and `C-c C-c' is the door out, exactly as on any doc.
-  , keyed shell "and C-c C-c commits the draft whole, through the capture command"
-      "" "press:+ ktag:book press:Enter press:Enter press:C-c press:C-c" $ \answer -> do
+  , capturing shell "and C-c C-c commits the draft whole, through the capture command"
+      "ktag:book press:Enter press:Enter press:C-c press:C-c" $ \answer -> do
         assertEqual "the landing's own box is down" False =<< boolAt "dparaopen" answer
         assertEqual "one capture" ["capture"] =<< namesOf answer
         assertEqual "the template's own title" ["Book"] =<< titledOf answer
@@ -2096,64 +2104,65 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
     -- TRANSFORMED the way a row's does.  The draft resolves it ITSELF, with the
     -- ghost's own reader, and what travels is still the phrase that was typed:
     -- the wall transforms once, against the SERVER's clock.
-  , keyed shell "a planning phrase typed into a draft is drawn resolved"
-      "" "press:+ ktag:book press:Enter press:Enter dateon:2026-08-22\
-          \ press:C-c press:C-d dwhen:1_oct press:Enter" $ \answer -> do
+  , capturing shell "a planning phrase typed into a draft is drawn resolved"
+      "ktag:book press:Enter press:Enter dateon:2026-08-22\
+       \ press:C-c press:C-d dwhen:1_oct press:Enter" $ \answer -> do
         assertEqual "the entry stands as the file will hold it"
                     [["DEADLINE", "<2026-10-01 Thu>"]] =<< pairsAt "dplan" answer
         assertEqual "nothing was written: a draft posts nothing" [] =<< namesOf answer
         echoIs "the pill names what the reader typed"
           "RET → org-glance-overview:deadline (1 oct)" answer
 
-  , keyed shell "and the phrase itself is what the capture carries"
-      "" "press:+ ktag:book press:Enter press:Enter dateon:2026-08-22\
-          \ press:C-c press:C-d dwhen:1_oct press:Enter press:C-c press:C-c" $ \answer ->
+  , capturing shell "and the phrase itself is what the capture carries"
+      "ktag:book press:Enter press:Enter dateon:2026-08-22\
+       \ press:C-c press:C-d dwhen:1_oct press:Enter press:C-c press:C-c" $ \answer ->
         assertEqual "the raw phrase, for the wall to transform"
                     [[["DEADLINE", "1 oct"]]] =<< cargoOf "planning" answer
 
     -- THE PAIR BOX ROUTES TO THE SAME LINE and settles the same way: one rule
     -- for every door that puts a day on a draft.
-  , keyed shell "the pair box's routed value settles in the draft too"
-      "" "press:+ ktag:book press:Enter press:Enter dateon:2026-08-22\
-          \ press:p press:+ dkey:DEADLINE press:: dval:1_oct press:Enter" $ \answer -> do
+  , capturing shell "the pair box's routed value settles in the draft too"
+      "ktag:book press:Enter press:Enter dateon:2026-08-22\
+       \ press:p press:+ dkey:DEADLINE press:: dval:1_oct press:Enter" $ \answer -> do
         assertEqual "drawn resolved" [["DEADLINE", "<2026-10-01 Thu>"]]
           =<< pairsAt "dplan" answer
         assertEqual "and the drawer never held it" [["AUTHOR", ""]]
           =<< pairsAt "dprops" answer
 
-  , keyed shell "and the pair box's phrase is what the capture carries"
-      "" "press:+ ktag:book press:Enter press:Enter dateon:2026-08-22\
-          \ press:p press:+ dkey:DEADLINE press:: dval:1_oct press:Enter\
-          \ press:C-c press:C-c" $ \answer ->
+  , capturing shell "and the pair box's phrase is what the capture carries"
+      "ktag:book press:Enter press:Enter dateon:2026-08-22\
+       \ press:p press:+ dkey:DEADLINE press:: dval:1_oct press:Enter\
+       \ press:C-c press:C-c" $ \answer ->
         assertEqual "carried raw" [[["DEADLINE", "1 oct"]]]
           =<< cargoOf "planning" answer
 
     -- A PHRASE THE RESOLVER REFUSES STAYS RAW, and meets the wall's own sentence
     -- at the commit rather than a resolution this page invented.
-  , keyed shell "a phrase no reader reads is left as it stands"
-      "" "press:+ ktag:odd press:Enter press:Enter" $ \answer ->
+  , capturing shell "a phrase no reader reads is left as it stands"
+      "ktag:odd press:Enter press:Enter" $ \answer ->
         assertEqual "the template's own phrase, untouched"
                     [["DEADLINE", "someday"]] =<< pairsAt "dplan" answer
 
-  , keyed shell "and that is what travels, for the wall to refuse or take"
-      "" "press:+ ktag:odd press:Enter press:Enter press:C-c press:C-c" $ \answer ->
+  , capturing shell "and that is what travels, for the wall to refuse or take"
+      "ktag:odd press:Enter press:Enter press:C-c press:C-c" $ \answer ->
         assertEqual "no resolution this page invented"
                     [[["DEADLINE", "someday"]]] =<< cargoOf "planning" answer
 
     -- THE VIEW'S OWN TAG IS A SEED AND NEVER A SETTLEMENT: the field carries it,
     -- the destination question still stands, and backspacing to the inbox is one
     -- key.  NOTHING IS RESOLVED until the reader says so.
-  , keyedAt shell "?q=tag%3Abook" 500 "the tag field opens seeded from the filter, unsettled"
-      "" "press:+" $ \answer -> do
+  , keyedAt shell "?page=capture&q=tag%3Abook" 500
+      "the tag field opens seeded from the filter, unsettled"
+      "" "" $ \answer -> do
         assertEqual "the field carries it" "book" =<< textAt "ktag" answer
         assertEqual "and no draft was asked for" ["/capture"]
           =<< textsAt "capturing" answer
         assertEqual "the form is the surface that stands" "on" =<< textAt "capture" answer
         assertEqual "and no sheet opened behind it" "" =<< textAt "modal" answer
 
-  , keyedAt shell "?q=-tag%3Abook%20tag%3Aa%7Cb%20tag%3A*archive*" 500
+  , keyedAt shell "?page=capture&q=-tag%3Abook%20tag%3Aa%7Cb%20tag%3A*archive*" 500
       "a negated, alternated or starred tag seeds nothing"
-      "" "press:+" $ \answer -> do
+      "" "" $ \answer -> do
         assertEqual "the field is empty" "" =<< textAt "ktag" answer
         assertEqual "and nothing was resolved" ["/capture"]
           =<< textsAt "capturing" answer
@@ -2162,10 +2171,10 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
     -- reads the facts off the parsed query and passes them, and the SERVER
     -- merges them template-first -- one composer owns precedence, and a day
     -- resolves under the door's one clock read.
-  , keyedAt shell ("?q=tag%3Abook%20tag%3Awork%20state%3ATODO"
+  , keyedAt shell ("?page=capture&q=tag%3Abook%20tag%3Awork%20state%3ATODO"
                      <> "%20priority%3A%5B%23B%5D%20scheduled%3A2026-09-09") 500
       "the filter's own facts ride out as the draft door's arguments"
-      "" "press:+ press:Enter" $ \answer -> do
+      "" "press:Enter" $ \answer -> do
         assertEqual "the seeded tag settles, and every lent fact goes with it"
                     [ "/capture"
                     , "/capture?tag=book&state=TODO&priority=B&tags=work\
@@ -2182,8 +2191,8 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
     -- THE DESTINATION IS THE CAPTURE'S ADDRESS AND NOT A FACT IT WEARS: a bare
     -- template under a tag is still the BARE draft, so the tagged jot is the
     -- four keys the inbox jot is.
-  , keyed shell "a tag with no template of its own falls to the bare draft"
-      "+" "ktag:web press:Enter dtin:milk press:Enter" $ \answer -> do
+  , capturing shell "a tag with no template of its own falls to the bare draft"
+      "ktag:web press:Enter dtin:milk press:Enter" $ \answer -> do
         assertEqual "resolved all the same" ["/capture", "/capture?tag=web"]
           =<< textsAt "capturing" answer
         assertEqual "the title as typed" ["milk"] =<< titledOf answer
@@ -2191,23 +2200,23 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
 
     -- ESC LEAVES NOTHING, wherever it is pressed: no file ever existed, so the
     -- born-at-open memory is trivially empty and the escape is free.
-  , keyed shell "ESC at the tag field writes nothing"
-      "+" "press:Escape" $ \answer -> do
+  , capturing shell "ESC at the tag field writes nothing"
+      "press:Escape" $ \answer -> do
         assertEqual "no command went" [] =<< namesOf answer
         assertEqual "the form is down" "" =<< textAt "capture" answer
 
     -- THE STANDING ESC LADDER, one rung per surface: on a rich draft the first
     -- ESC closes the box the landing opened, and the second drops the capture.
-  , keyed shell "ESC closes the landing's box, and the next takes the draft"
-      "+" "ktag:book press:Enter press:Escape" $ \answer -> do
+  , capturing shell "ESC closes the landing's box, and the next takes the draft"
+      "ktag:book press:Enter press:Escape" $ \answer -> do
         assertEqual "the tag was resolved" ["/capture", "/capture?tag=book"]
           =<< textsAt "capturing" answer
         assertEqual "the box the landing opened is down"
                     False =<< boolAt "dparaopen" answer
         assertEqual "and the sheet stands behind it" "on" =<< textAt "modal" answer
 
-  , keyed shell "ESC over a drawn draft takes the sheet and writes nothing"
-      "+" "ktag:book press:Enter press:Escape press:Escape" $ \answer -> do
+  , capturing shell "ESC over a drawn draft takes the sheet and writes nothing"
+      "ktag:book press:Enter press:Escape press:Escape" $ \answer -> do
         assertEqual "the tag was resolved" ["/capture", "/capture?tag=book"]
           =<< textsAt "capturing" answer
         assertEqual "no command went" [] =<< namesOf answer
@@ -2216,8 +2225,8 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
 
     -- IN THE BARE DRAFT'S TITLE THE BOX IS THE CAPTURE, so ESC there drops the
     -- WHOLE thing rather than coming back to a sheet standing over no file.
-  , keyed shell "ESC in the bare title edit drops the capture whole"
-      "+" "press:Enter dtin:milk press:Escape" $ \answer -> do
+  , capturing shell "ESC in the bare title edit drops the capture whole"
+      "press:Enter dtin:milk press:Escape" $ \answer -> do
         assertEqual "no command went" [] =<< namesOf answer
         assertEqual "the sheet went with the edit" "" =<< textAt "modal" answer
         echoIs "the pill says nothing was captured"
@@ -2225,16 +2234,16 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
 
     -- THE REFUSAL IS SPOKEN OVER THE BOX THAT EARNED IT, and the box stays: what
     -- was typed is still on screen to be fixed.
-  , keyed shell "an empty title captures nothing, and the box stays up"
-      "+" "press:Enter press:Enter" $ \answer -> do
+  , capturing shell "an empty title captures nothing, and the box stays up"
+      "press:Enter press:Enter" $ \answer -> do
         assertEqual "no command went" [] =<< namesOf answer
         echoIs "the pill says why"
           "RET → org-capture-finalize (nothing to capture)" answer
         assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
         assertEqual "and the title box with it" True =<< boolAt "dopen" answer
 
-  , keyed shell "a refused capture is one cmd error line, and the SHEET stays"
-      "" "refuse press:+ press:Enter dtin:milk press:Enter" $ \answer -> do
+  , capturing shell "a refused capture is one cmd error line, and the SHEET stays"
+      "refuse press:Enter dtin:milk press:Enter" $ \answer -> do
         assertEqual "the command still went" ["capture"] =<< namesOf answer
         assertEqual "and the log carries the server's own words"
                     (Just "capture failed: inbox.org changed on disk")
@@ -2244,15 +2253,15 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         assertEqual "with the title it was refused under"
                     [["head", "* ", "milk"]] . take 1 =<< docOf answer
 
-  , keyed shell "the captured row is where point lands when it arrives"
-      "+" "press:Enter dtin:milk press:Enter frame:upsert=r3 wait:300" $ \answer ->
+  , capturing shell "the captured row is where point lands when it arrives"
+      "press:Enter dtin:milk press:Enter frame:upsert=r3 wait:300" $ \answer ->
         assertEqual "point is on the row the capture made" (Just "r3")
           =<< maybeTextAt "selected" answer
 
     -- THE WHOLE DRAFT FOR A TAGGED CAPTURE: the blob sits under directories fsnotify never entered, so the nudge is what delivers it.
-  , keyed shell "a tagged capture lands point on the blob when the watch delivers it"
-      "" "press:+ ktag:book press:Enter press:Enter press:C-c press:C-c\
-          \ frame:upsert=r3 wait:300" $ \answer -> do
+  , capturing shell "a tagged capture lands point on the blob when the watch delivers it"
+      "ktag:book press:Enter press:Enter press:C-c press:C-c\
+       \ frame:upsert=r3 wait:300" $ \answer -> do
         assertEqual "the tag was resolved off the server"
                     ["/capture", "/capture?tag=book"] =<< textsAt "capturing" answer
         assertEqual "one capture, under that tag" [Just "book"] =<< taggedOf answer
@@ -2296,6 +2305,88 @@ promptKeySpec shell = testGroup "Shell capture and reschedule"
         assertEqual "and the title counts them" "scheduled · 2 rows"
           =<< textAt "phead" answer
   ]
+
+-- | THE ROW `+' SPLICES.  The seeding rule is @35-draft.js@'s and the filters
+-- are the spike's own (@spikes\/2026-09-12-capture-in-table\/rig.js@): one
+-- clause of the rule apiece, over the same three rows every time — what is
+-- asked about is the DRAFT the filter lends to, never the rows it keeps.
+draftRowSpec :: IO T.Text -> TestTree
+draftRowSpec shell = testGroup "Shell draft row"
+  [ keyedAt shell "?q=priority%3AA%20tag%3Atrip%20state%3ATODO%20sort%3Ascheduled-%3Etitle" 500
+      "three positive atoms, one of each: the draft wears all three"
+      "+" "" $ \answer -> do
+        assertEqual "the state, the priority, an empty title, the run, the hint"
+                    ["TODO", "A", "", ":trip:", "\8594 trip"] =<< draftWears answer
+        assertEqual "spliced UNDER the row at point" (Just "r1") =<< draftUnder answer
+        assertEqual "which is the row below it" 1 =<< intAt "at" =<< field "draft" answer
+        -- `sort:' is a modifier rather than a column key, so it pins nothing.
+        echoIs "and the echo says where the capture will land"
+          "+ \8594 org-glance-overview:capture (\8594 trip)" answer
+
+  , keyedAt shell "?q=tag%3Atrip%20tag%3Agear%20priority%3AB" 500
+      "the FIRST positive tag names the destination and the rest ride as the draft's own"
+      "+" "" $ \answer ->
+        assertEqual "one run, the destination leading it"
+                    ["", "B", "", ":trip:gear:", "\8594 trip"] =<< draftWears answer
+
+  , keyedAt shell "?q=state%3ATODO%20-tag%3Awork" 500
+      "a negated atom lends nothing, so the destination falls back to the inbox"
+      "+" "" $ \answer ->
+        assertEqual "the state alone, and the inbox behind it"
+                    ["TODO", "", "", "", "\8594 inbox"] =<< draftWears answer
+
+  , keyedAt shell "?q=state%3ANEXT%7CTODO%20title%3Avisa" 500
+      "an alternation pins no value and title: is no fact a row wears"
+      "+" "" $ \answer ->
+        assertEqual "nothing is lent" ["", "", "", "", "\8594 inbox"] =<< draftWears answer
+
+    -- THE SEEDED STATE MEETS THE DESTINATION'S OWN CYCLE, which `+' asks for at
+    -- the moment it draws the row.  A keyword the cycle lacks is DROPPED here,
+    -- so the wire never carries it and `stated''s 400 stays as strict as it is
+    -- for every other caller.
+  , keyedAt shell "?q=tag%3Abook%20state%3ANEXT" 500
+      "a state the destination's cycle lacks is dropped, and the hint says so"
+      "+" "wait:50" $ \answer -> do
+        assertEqual "the state is gone and the hint names it"
+                    ["", "", "", ":book:", "\8594 book \183 NEXT dropped"]
+          =<< draftWears answer
+        assertEqual "asked of the read door, by destination"
+                    ["/capture?tag=book"] =<< textsAt "capturing" answer
+
+  , keyedAt shell "?q=tag%3Abook%20state%3AREADING" 500
+      "and a state the cycle HAS is worn as it stands"
+      "+" "wait:50" $ \answer ->
+        assertEqual "the layer's own keyword" ["READING", "", "", ":book:", "\8594 book"]
+          =<< draftWears answer
+
+    -- `setRows' RESETS the widget's rows, so a draft left out of the splice is
+    -- erased: the phantom goes back in on EVERY paint (`paint', 00-core.js).
+  , keyedAt shell "?q=state%3ATODO" 500
+      "a headlines answer arriving under a draft leaves it standing"
+      "+" "frame:upsert=r3 wait:300" $ \answer -> do
+        assertEqual "the draft stands where it was spliced" (Just "r1")
+          =<< draftUnder answer
+        assertEqual "wearing what it wore" ["TODO", "", "", "", "\8594 inbox"]
+          =<< draftWears answer
+
+    -- NO OTHER ROW CAN REACH A DRAFT: its reserved id is never a target, so the
+    -- keys that name rows go on naming the store's.
+  , keyedAt shell "?q=state%3ATODO" 500 "the draft is no row any command names"
+      "+" "press:m" $ \answer -> do
+        assertEqual "the mark went to the row at point" ["r1"] =<< textsAt "marked" answer
+        assertEqual "and the draft is still there" (Just "r1") =<< draftUnder answer
+  ]
+
+-- | The row @+@ spliced, as the page handed it to the table.
+draftUnder :: Value -> IO (Maybe T.Text)
+draftUnder = maybeTextAt "under" <=< field "draft"
+
+-- | The draft's cells in ONE reading: the state, the priority, the title, the
+-- tag run, and the SCHEDULED cell that says where the capture lands.
+draftWears :: Value -> IO [T.Text]
+draftWears answer = do
+  cells <- field "cells" =<< field "draft" answer
+  traverse (`textAt` cells) ["state", "priority", "title", "tag", "scheduled"]
 
 namesOf :: Value -> IO [T.Text]
 namesOf answer = traverse (textAt "name") =<< listAt "commands" answer
@@ -5602,14 +5693,9 @@ settingsSpec shell =
       "," "press:Escape" $ \answer ->
         urlIs "the query alone again" "?q=state%3A*active*" answer
 
-    -- ONE WRITER means one door at each end: a raise that wrote `?page=' and no close left it standing.
-  , keyed shell "the capture form says so in the URL"
-      "+" "" $ \answer ->
-        urlIs "the surface" "?q=state%3A*active*&page=capture" answer
-
-  , keyed shell "and closing the capture form takes the parameter off"
-      "+" "press:Escape" $ \answer ->
-        urlIs "the query alone again" "?q=state%3A*active*" answer
+    -- ONE WRITER means one door at each end: a raise that wrote `?page=' and no
+    -- close left it standing.  The capture form's own pair went with `+': the
+    -- key types a DRAFT ROW now, which is no surface and wears no `?page='.
 
   , keyed shell "TAB walks the panels and wraps"
       "," "press:Tab" $ \answer ->

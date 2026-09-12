@@ -175,7 +175,7 @@
       flaggedDelete: (b) => flagKey("x", XFLAGS(b), (what) => said(b, what)),
       setState: (b) => overTargets(b, "set state", askState),
       manageTags: (b) => overTargets(b, "tags", askTags),
-      capture: (b) => openCapture(b),
+      capture: (b) => openDraft(b),
       openLinks: (b) => {
         const id = focusedId();
         if (!id) { said(b, "no row"); return; }

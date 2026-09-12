@@ -240,9 +240,11 @@
       return p.finally(() => wash.step("view", -1));
     };
     let all = [], cols = [];
+    // A WAL tick, a poll and a filter change all land here, and `setRows' resets
+    // the widget's rows — so the draft is re-spliced on EVERY paint (35-draft.js).
     const paint = (a) => {
       const rows = a.view.rows || [];
-      table.setRows(rows);
+      paintRows(rows);
       if (!query) all = rows;
       parity(a.total);
     };

@@ -5,7 +5,7 @@ const Capture = ((deps) => {
             cellTags, clamp, docTitle, el, onKeys,
             failed, fire, getJSON, keyName, leadTyped, materialize, part,
             said, showDraft, targetOf, targets, walkStep } = deps;
-    const { queryNow, colsNow, entryNow } = deps;
+    const { entryNow } = deps;
     let capping = null;   // the tag field's state while it is up
     const capUp = () => !!capping;
     function shutCapture() {
@@ -36,55 +36,10 @@ const Capture = ((deps) => {
       }).catch(failed(b, "capture"));
     }
 
-    // THE APPLIED QUERY'S OWN PREDICATES, or none where there is no query and no
-    // renderer to read one.  EVERY inheritance below reads this one parse.
-    const filterTerms = () =>
-      (queryNow() && typeof TableView.parseQuery === "function"
-        ? TableView.parseQuery(queryNow(), colsNow().map((c) => c.key)) : []);
-    /** A FACT THE FILTER PINS TO ONE CONCRETE POSITIVE VALUE, or `""'.  A
-     * negated predicate, a WIDENING (an alternative, never a facet every shown
-     * row carries), an alternation and a meta (`*active*') each describe a SET
-     * of rows rather than a value a capture could wear. */
-    const pinned = (t) =>
-      !t.negated && !t.added && t.value
-      && !t.value.includes("|") && !/^\*.*\*$/.test(t.value);
-    const pinnedTo = (key) => filterTerms().filter((t) => t.key === key && pinned(t));
-    // EVERY tag the applied query names, in the order it names them.
-    const filteredTags = () => pinnedTo("tag").map((t) => t.value);
-    /** THE ONE ORDINARY POSITIVE VALUE the filter pins KEY to, or `""'.  Named
-     * ONCE is the whole rule: two `state:' predicates describe a union, and a
-     * capture inherits from a filter only what that filter leaves no choice
-     * about. */
-    const soleValue = (key) => {
-      const hits = pinnedTo(key);
-      return hits.length === 1 ? String(hits[0].value) : "";
-    };
-    // A DAY THE FILTER PINS: a bare ISO or one word the server resolves.  A
-    // comparison, a range or an alternation names a SPAN of days, and a planning
-    // entry is one day — so those seed nothing.  READ SYNTACTICALLY: the day
-    // WORDS are the server's vocabulary and this page holds no copy of them.
-    const ONE_DAY = /^(?:\d{4}-\d{2}-\d{2}|[A-Za-z]+)$/;
-    /** WHAT THE STANDING FILTER LENDS A CAPTURE, as the read door's own args.
-     * TEMPLATE-FIRST IS THE SERVER'S: these are what the filter leaves no choice
-     * about, and the composer there fills only the silences the template left.
-     * The destination TAG rides apart, being the capture's address rather than
-     * one of its facts. */
-    function inherited(tag) {
-      const args = [];
-      const state = soleValue("state");
-      if (state) args.push(["state", state]);
-      const priority = soleValue("priority");
-      // ORG'S OWN SPELLING IS `[#B]' and the wire takes the letter.
-      if (priority) args.push(["priority", priority.replace(/^\[#(.)\]$/, "$1")]);
-      // EVERY POSITIVE TAG BEYOND THE DESTINATION joins the draft's own.
-      const more = filteredTags().filter((t) => t !== tag);
-      if (more.length) args.push(["tags", more.join(",")]);
-      for (const word of CFG.settable) {
-        const day = soleValue(word.toLowerCase());
-        if (day && ONE_DAY.test(day)) args.push([word.toLowerCase(), day]);
-      }
-      return args;
-    }
+    // THE SEEDING RULE IS `35-draft.js''s: `filteredTags' and `inherited' read
+    // ONE parse of the applied query there, so this form and the draft row
+    // agree on what the filter pins by sharing the reading.
+
     function drawTagList(typed) {
       if (!capping) return;
       const want = foldTag(typed);
@@ -458,7 +413,7 @@ const Capture = ((deps) => {
     const promptNow = () => prompting;
     return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags, askText,
              capUp, docTargets, entry,
-             fieldMode, filteredTags, foldTag, followLinks, linksOf, offer,
+             fieldMode, foldTag, followLinks, linksOf, offer,
              keywordSources,
              openCapture, openLink, overTargets, planRows, promptNow, raise,
              restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
@@ -467,10 +422,10 @@ const Capture = ((deps) => {
      cellTags, clamp, docTitle, el, onKeys,
      failed, fire, getJSON, keyName, leadTyped, materialize, part,
      said, showDraft, targetOf, targets, walkStep,
-     // A `let' cannot ride in as itself: these three arrive as accessors.
-     queryNow: () => query, colsNow: () => cols, entryNow: () => editing });
+     // A `let' cannot ride in as itself: the open sheet arrives as an accessor.
+     entryNow: () => editing });
 const { CODES, ask, askFrom, askState, askTags, askText, capUp, docTargets, entry,
-        fieldMode, filteredTags, foldTag, followLinks, linksOf, offer,
+        fieldMode, foldTag, followLinks, linksOf, offer,
         keywordSources,
         openCapture, openLink, overTargets, planRows, promptNow, raise,
         restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,

@@ -59,9 +59,14 @@
  *          `getSort' answers with, so a chain survives a read and a put back.
  * @typedef {{ column: string, ascending: boolean, nullsFirst: boolean }} SortKey
  *          A normalized sort key (internal).
- * @typedef {{ id: string, cells?: Record<string, Cell>, linked?: boolean }} Row
+ * @typedef {{ id: string, cells?: Record<string, Cell>, linked?: boolean,
+ *             draft?: boolean }} Row
  *          `linked' says the row leads somewhere; its `title' cell is
  *          underlined, and a view with no such column shows nothing.
+ *          `draft' says the row is the PRODUCER'S OWN, spliced into the set and
+ *          backed by nothing: it is dressed `tv-draft', kept out of the sort,
+ *          never marked, never stepped onto, and its cells are editable whatever
+ *          their column declares.
  * @typedef {{ name: string, query?: string }} SavedView
  *          A view the producer has named, which `view:NAME' completes from.
  *          What applying one MEANS is the producer's: this side offers the
@@ -2802,13 +2807,32 @@
       };
     }
 
+    /**
+     * Put every draft back where the producer spliced it: out of the sort, and
+     * under the row it was handed beneath. A draft's cells are half-typed and
+     * its title is empty, so the chain would park it in the blanks at the end
+     * rather than beside the row the reader opened it at.
+     * @param {Row[]} rows  the sorted copy, rewritten in place
+     */
+    function placeDrafts(rows) {
+      for (let i = 0; i < state.rows.length; i++) {
+        const d = state.rows[i];
+        if (!d.draft) continue;
+        const was = rows.indexOf(d);
+        if (was !== -1) rows.splice(was, 1);
+        const under = i > 0 ? state.rows[i - 1].id : null;
+        const at = under === null ? -1 : rows.findIndex((r) => r.id === under);
+        rows.splice(at + 1, 0, d);
+      }
+    }
+
     /** The rows to display: sorted, then filtered. Cached. @returns {Row[]} */
     function ordered() {
       if (order) return order;
       if (!sorted) {
         orderCmp = chainComparator();
         sorted = state.rows.slice();     // never sort the store itself
-        if (orderCmp) sorted.sort(orderCmp);
+        if (orderCmp) { sorted.sort(orderCmp); placeDrafts(sorted); }
       }
       orderTest = queryMatcher(state.filter);
       order = orderTest ? sorted.filter(orderTest) : sorted.slice();
@@ -3056,6 +3080,11 @@
      */
     function linkedCell(r) { return r.linked ? titleColumn() : -1; }
 
+    /** A row the cursor and the marks may reach: never a DRAFT, which has no id
+     * the producer could name and whose open editor holds every key a walk
+     * would spend. @param {Row} r */
+    const standing = (r) => !r.draft;
+
     /**
      * The classes row R wears at display index I. Zebra striping is index-borne,
      * since `:nth-child' sees only the window.
@@ -3063,6 +3092,7 @@
      */
     function rowClasses(r, i) {
       return [["tv-alt", i % 2 === 1],
+              ["tv-draft", !!r.draft],
               ["tv-marked", markSet.shows(r.id)],
               ["tv-flagged", flagSet.shows(r.id)],
               ["tv-sel", r.id === state.selected]];
@@ -3427,7 +3457,7 @@
      * @returns {number} how many rows carry a mark afterwards
      */
     function markAll() {
-      return marks ? markSet.addAll(ordered()) : 0;
+      return marks ? markSet.addAll(ordered().filter(standing)) : 0;
     }
 
     /**
@@ -3693,7 +3723,7 @@
      * @param {number} step  @returns {boolean}
      */
     function selectStep(step) {
-      let rows = paged();
+      let rows = paged().filter(standing);
       if (!rows.length) return false;
       const dir = step < 0 ? -1 : 1;
       const col = state.selCol;
@@ -3704,7 +3734,7 @@
       if (next >= 0 && next < rows.length) return selectRow(rows[next].id, col ?? undefined);
       if (!pageSize || continuous) return false;         // the true end of the set
       goContinuous();
-      rows = paged();
+      rows = paged().filter(standing);
       const here = rows.findIndex((r) => r.id === state.selected);
       const across = here + dir;
       if (across < 0 || across >= rows.length) return false;
@@ -3876,7 +3906,8 @@
     // edits its `[[..]]'), committed as an `onEdit' + `tableview-edit'.  The
     // producer owns the write: the widget REPORTS and does not touch its own
     // view -- the consumer writes and feeds the new view back.  One editor at a
-    // time; a column opts in with `editable'.
+    // time; a column opts in with `editable', and a `draft' row is opted in
+    // whole, its cells being the producer's rather than the store's.
     /** @type {{ cell: any, id: string|null, col: number, kind: "cell"|"header", input: any } | null} */
     let cellEdit = null;
     const columnEditable = (col) => { const c = columns()[col]; return !!(c && c.editable); };
@@ -3920,8 +3951,16 @@
       });
       return true;
     }
+    /** Is ID the producer's own draft? ITS CELLS ARE THE ONLY EDITABLE ONES: a
+     * per-column `editable' cannot carry this, since the column would then open
+     * a dead editor on every real row's double-click. */
+    const draftRow = (id) =>
+      !!(state.rows.find((r) => r.id === id) || {}).draft;
+    // CLOSED BEFORE THE CELL IS LOOKED UP, never after: closing redraws the rows,
+    // so a node found first would be orphaned by the time the editor entered it.
     function editCell(id, col) {
-      if (!columnEditable(col)) return false;
+      if (!draftRow(id) && !columnEditable(col)) return false;
+      closeCellEditor();
       const tr = /** @type {HTMLElement|null} */
         ([...tbody.querySelectorAll("tr[data-id]")]
           .find((x) => /** @type {HTMLElement} */ (x).dataset.id === id) || null);
@@ -3931,6 +3970,7 @@
     }
     function editHeader(col) {
       if (!columnEditable(col)) return false;
+      closeCellEditor();
       const th = [...headRow.querySelectorAll("th[data-key]")][col];
       const c = columns()[col];
       // Open on the TRIMMED name, so a header a producer left blank (a space, to
@@ -5121,8 +5161,9 @@
       getSelection() { return { id: state.selected, col: state.selCol }; },
       /**
        * Open the in-cell editor on ID's COL cell, or on COL's header. The
-       * column must be `editable'; returns whether it opened. Commit reports
-       * through `onEdit' / `tableview-edit' and the producer owns the write.
+       * column must be `editable', or the row a `draft'; returns whether it
+       * opened. Commit reports through `onEdit' / `tableview-edit' and the
+       * producer owns the write.
        * @param {string} id  @param {number} col  @returns {boolean}
        */
       editCell,

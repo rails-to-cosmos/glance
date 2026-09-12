@@ -209,11 +209,39 @@ The =cycle= half landed — it is the door's own answer, composed off the
 destination and lifted out of =draftJSON= (=src-web/Glance/Web/Routes.hs:831=,
 =:843=) — but the DELETIONS the stage names cannot precede stage 6: the sheet
 still reads the draft document (=frontend/glue/30-capture.js:111=,
-=frontend/glue/20-sheet.js:2182= =showDraft=), and five browser cases open it
-(=test/browser/cases.mjs:4513=, =:4692=, =:4745=, =:4760=, =:4778=).  What waits:
+=frontend/glue/20-sheet.js:2182= =showDraft=), reached now through
+=?page=capture= rather than =+= (stage 2).  What waits:
 =draftJSON=/=draftCells=/=draftTagsCell=/=inheritedIn=/=inheritedTags=
 (=Routes.hs:843-900=) and =draftTemplate=/=draftPointLine=/=Inherited=/=draftSeeded=
 (=Query.hs:2210=, =:2329=, =:2346=, =:2355=) with their exports (=Query.hs:82-89=).
 Each is reachable ONLY from the draft doc; =draftRecord=, =draftEntry=,
 =DraftCargo=, =draftKeywords=, =draftStates=, =expandTemplate=, =templateParts=,
 =captureTemplateIn= and =bareTemplate= are the capture COMMAND's and stay.
+
+* TODO Capture-is-a-row stage 3 — the keys inside the draft's cells
+See [[file:proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md]] stage 3.
+Stage 2 landed the draft ROW: =+= splices it below the row at point with the
+title cell's editor open (=frontend/glue/35-draft.js=), and =paint= re-splices it
+on every answer (=frontend/glue/00-core.js:245=).  WHAT IS OWED: a draft has no
+way out yet.  Inside the open cell the widget's shipped reading applies —
+=Enter=/=Tab= commit the cell and =Escape= closes it — so nothing drops the row
+and nothing commits the capture.  Stage 3's =onCellKey= seam is what takes
+=TAB=/=S-TAB= (the walk), =RET= (stage 4's commit) and =ESC= (drop the draft).
+
+The =draft= row field went in with FIVE readings, where the proposal named four:
+the fifth is =placeDrafts= (=assets/table-view.js:2817=), which keeps a draft out
+of the sort.  The main view declares a sort chain, and a draft's title is empty,
+so the chain would park it in the blanks at the end rather than under the row the
+reader opened it at.
+
+* TODO Capture-is-a-row stage 6 — the cases the re-pointed form owes
+=+= no longer raises the tag field, so stage 2 moved =promptKeySpec='s runs onto
+=?page=capture= (=capturing=, =test/TestServe.hs:2029=) rather than deleting
+coverage for code that still ships.  Every one of those dies with the surface at
+stage 6, along with the =ktag:= driver step and the =/capture= draft stub
+(=test/fixtures/shell-harness.js=).  RETIRED ALREADY, the deletion stage 6 owed
+anyway: the three browser capture-sheet cases and the draft half of a fourth
+(=a tagged capture opens as a document=, =the inbox jot is + RET the line RET=,
+=ESC over a draft leaves nothing behind=, and the draft half of =an empty title
+still has a slot=), the helpers =captureForm=/=draftOver=, and the two settings
+URL cases (=the capture form says so in the URL= and its closer).

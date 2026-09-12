@@ -31,6 +31,7 @@
     "glue/05-keys.js",
     "glue/20-sheet.js",
     "glue/30-capture.js",
+    "glue/35-draft.js",
     "glue/40-popups.js",
     "glue/50-settings.js",
     "glue/60-refer.js",
