@@ -17,6 +17,7 @@ import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults
 import TestWire (drainNow)
 
+import Data.Org.Blob (metaIn, storeRootIn)
 import Glance.Backfill (BackfillOptions (..), Report (..), Tier (..), backfillRoots)
 
 import qualified Data.Aeson.Key as Key
@@ -343,7 +344,7 @@ derivedSpec = testGroup "Derived mirrors"
   , testCase "a mirror named as a root is still a mirror"
       $ withMirrorTree $ \dir -> do
       -- The exclusion is a property of the PATH rather than of the descent.
-      let meta = dir </> ".org-glance" </> "meta"
+      let meta = metaIn dir
       qr <- loadDirWith defaultWalk meta
       assertEqual "files" 0 (qrFiles qr)
       assertEqual "rows" 0 (length (qrRecords qr))
@@ -389,12 +390,13 @@ withMirrorTree :: (FilePath -> IO a) -> IO a
 withMirrorTree k = withTempDir $ \dir -> do
   let shared = "* TODO Курс :study:\n:PROPERTIES:\n:ORG_GLANCE_ID: shared-id\n:END:\n"
   _ <- orgFile dir "notes.org" "* TODO a plain note\n"
-  createDirectoryIfMissing True (dir </> ".org-glance" </> "data" </> "ed")
-  createDirectoryIfMissing True (dir </> ".org-glance" </> "overviews" </> "c1f3")
-  createDirectoryIfMissing True (dir </> ".org-glance" </> "meta")
-  _ <- orgFile (dir </> ".org-glance" </> "data" </> "ed") "data.org" shared
-  _ <- orgFile (dir </> ".org-glance" </> "overviews" </> "c1f3") "overview.org" shared
-  _ <- orgFile (dir </> ".org-glance" </> "meta") "agenda.org" "* TODO an agenda render\n"
+  let store = storeRootIn dir
+      blob = store </> "data" </> "ed"
+      mirror = store </> "overviews" </> "c1f3"
+  mapM_ (createDirectoryIfMissing True) [blob, mirror, metaIn dir]
+  _ <- orgFile blob "data.org" shared
+  _ <- orgFile mirror "overview.org" shared
+  _ <- orgFile (metaIn dir) "agenda.org" "* TODO an agenda render\n"
   k dir
 
 -- | One file re-read, and the frames the difference implies.

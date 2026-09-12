@@ -110,7 +110,7 @@ spec = testGroup "Negative / Edge cases"
 
     , testCase "Headline without title text after TODO" $
         withHeadline "* TODO" $ \h -> do
-          assertEqual "Should have TODO" (Just (Todo "TODO" True)) (todo h)
+          assertEqual "Should have TODO" (Just (Todo "TODO")) (todo h)
           assertEqual "Title should be empty" (Title []) (title h)
 
     , testCase "Priority without TODO" $

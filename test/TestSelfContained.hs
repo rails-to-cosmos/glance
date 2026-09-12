@@ -2,17 +2,16 @@
 module TestSelfContained (spec) where
 
 import Control.Monad (filterM, forM, forM_)
-import Data.List (isPrefixOf, nub, (\\))
+import Data.List ((\\), isPrefixOf, nub)
 import Data.Maybe (listToMaybe)
-import System.Directory (doesFileExist, listDirectory)
-import System.FilePath (dropExtension, takeExtension, (</>))
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
-import Glance.Web.Base (gluePartFiles)
-import TestDefaults (buildSources, holdsAll, namesIn, proposalsByStatus, valueAfter)
-
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import Glance.Web.Base (gluePartFiles)
+import System.Directory (doesFileExist, listDirectory)
+import System.FilePath ((</>), dropExtension, takeExtension)
+import Test.Tasty (testGroup, TestTree)
+import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import TestDefaults (buildSources, holdsAll, linesMatching, proposalsByStatus, uses, valueAfter)
 
 wrappedWidgets :: [(FilePath, [T.Text])]
 wrappedWidgets =
@@ -64,7 +63,7 @@ spec = testGroup "Self-containment"
       assertBool "the sweep missed the module that carried the path"
                  ("src-web/Glance/Web.hs" `elem` files)
       assertBool ("too few sources swept: " <> show (length files)) (length files >= 12)
-      hits <- concat <$> mapM (namesIn "/home/") files
+      hits <- concat <$> mapM (linesMatching (T.isInfixOf "/home/")) files
       assertEqual "sources naming an absolute home directory" [] hits
 
     -- tsc reports clean over whatever it is handed, so its own list is checked.
@@ -211,14 +210,9 @@ newestRelease body = listToMaybe
   | l <- T.lines body, Just rest <- [T.stripPrefix "## " l]
   , let v = fst (T.breakOn " - " rest), v /= rest ]
 
+-- | PATH's lines that splice spans; a comment naming the door is not one.
 calls :: FilePath -> IO [String]
-calls path = report . T.lines <$> TIO.readFile path
-  where
-    report ls = [ path <> ":" <> show n <> ": " <> T.unpack stripped
-                | (n, l) <- zip [(1 :: Int) ..] ls
-                , let stripped = T.strip l
-                , "replaceSpans" `T.isInfixOf` stripped
-                , not ("--" `T.isPrefixOf` stripped) ]
+calls = linesMatching (uses "replaceSpans")
 
 -- | The kind strings a program's decoder answers to: a @case@ arm over the wire's own
 --   word, @"step" ->@.

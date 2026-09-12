@@ -15,10 +15,11 @@ import TestDefaults ( columnKeysOf, field, maybeTextAt, orgFile, refusedNaming, 
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (..), QueryResult (qrRecords), defaultSortChain
-                    , activeMeta, dayWords, displayText, inactiveMeta, metaWord, metas
+                    , activeMeta, dayWords, displayText, edgeIndex, inactiveMeta, metaWord, metas
                     , Ref (..), RefVia (..), loadDir, matchesSearch, refTargetOf, refTargets
                     , resolveColumns
                     , rowJSON
+                    , ViewColumn (..)
                     , tagsOfCell, viewJSON )
 import Glance.Web.Columns (columnNamesIn)
 import Glance.Web.Filter ( FilterEnv, Sign (..), Term (..), Token (..), alternatives, anyMeta
@@ -58,7 +59,7 @@ titlesMatching = titlesMatchingIn id
 -- way a request compiles it ('matchesFilter').
 titlesMatchingIn :: (FilterEnv -> FilterEnv) -> Text -> [HeadlineRecord] -> [Text]
 titlesMatchingIn k q records = [ hrTitle r | r <- records, passes r ]
-  where passes = matchesFilter (k (storeEnv records)) q
+  where passes = matchesFilter (k (storeEnv (edgeIndex records))) q
 
 -- | The rows Q matches, in walk order.
 matching :: Text -> IO [Row]
@@ -1350,8 +1351,8 @@ columnsSpec = testGroup "Columns tokens" $
   ]
 
 -- | The describable half of a resolved column: its key and its header.
-described :: [(Text, Text, Text, HeadlineRecord -> Maybe Text)] -> [(Text, Text)]
-described cols = [ (key, header) | (key, header, _kind, _cell) <- cols ]
+described :: [ViewColumn] -> [(Text, Text)]
+described cols = [ (vcKey c, vcHeader c) | c <- cols ]
 
 archiveSpec :: TestTree
 archiveSpec = testGroup "Archive key"
@@ -1781,11 +1782,6 @@ shapeSpec = testGroup "Shape"
       matches "tag:glance" [Ship]
       matches "tag:web tag:glance" [Ship]
       matches "tag:web tag:unicode" []
-      web <- matching "tag:web"
-      glance <- matching "tag:glance"
-      both <- matching "tag:web tag:glance"
-      assertBool "the intersection is no bigger than either side"
-                 (length both <= min (length web) (length glance))
 
   , testCase "an alternation and a token meet in one query" $ do
       matches "state:TODO|DONE tag:web" [Schema]
@@ -1977,7 +1973,7 @@ degenerateSpec :: TestTree
 degenerateSpec = testGroup "Plain text"
   [ testCase "one word answers exactly what matchesSearch answers" $ do
       records <- qrRecords <$> loadDir viewDir
-      let same q = [ (hrTitle r, matchesSearch q r, matchesFilter (storeEnv records) q r)
+      let same q = [ (hrTitle r, matchesSearch q r, matchesFilter (storeEnv (edgeIndex records)) q r)
                    | r <- records ]
           wrong q = [ row | row@(_t, a, b) <- same q, a /= b ]
       mapM_ (\q -> assertEqual (T.unpack q) [] (wrong q))

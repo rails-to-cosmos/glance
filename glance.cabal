@@ -99,6 +99,8 @@ library glance-internal
     , async
     , bytestring
     , containers
+    -- A GHC boot library: `forceRecord' is its `force', over derived instances.
+    , deepseq
     , directory
     , filepath
     , haskeline
@@ -134,6 +136,8 @@ library
     , aeson
     , bytestring
     , containers
+    -- A GHC boot library: `forceRecord' is its `force', over derived instances.
+    , deepseq
     , glance:glance-internal
     , text
     , text-show

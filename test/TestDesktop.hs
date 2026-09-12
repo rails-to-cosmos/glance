@@ -238,19 +238,13 @@ pathOnly dir = do
 
 nativeSpec :: TestTree
 nativeSpec = testGroup "Preferring the window this build owns"
-  [ testCase "the resolution table, with the native path in it" $
+  [ testCase "the resolution table: a named browser is asking for one, whatever the build has" $
       assertEqual "available, $GLANCE_BROWSER, --browser -> native?"
         [ True, False, False, False, False, False, False, False ]
         [ prefersNative have env flag
         | have <- [True, False]
         , env  <- [Nothing, Just "envbrowser"]
         , flag <- [Nothing, Just "mybrowser"] ]
-
-  , testCase "naming a browser is asking for one, whatever the build has" $ do
-      assertBool "GLANCE_BROWSER left the native window preferred"
-                 (not (prefersNative True (Just "envbrowser") Nothing))
-      assertBool "--browser left the native window preferred"
-                 (not (prefersNative True Nothing (Just "mybrowser")))
 
   , testCase "the title names the directory the session is over" $
       assertEqual "one window per tree, told apart in a window list"

@@ -3,98 +3,66 @@
 -- | The spec asked of the tree: every case compares one of @AGENTS.hs@'s registries with the code's own, so the model and the tree cannot drift apart in silence.
 module TestSpec (spec) where
 
+import AGENTS (authorEmail, BuildAsset (baPath, baSplice), buildAssets, CabalFlag (flCpp, flManual, flName, flOn, flStanza), ColKind (KBadge), Column (cCellKind, cHead, cKey), compDeps, Component (coName, coVis), components, defaultSortChain, doctorFields, flags, giSpellings, gluePartFiles, keyOf, Method (GET), negationReveal, notFoundText, pageHeaders, Proj (DefaultProj, NativeProj), projBuildDir, projFlags, projGir, projPackages, RefusalBody (JsonRefusal), rMethods, rNeeds, routeAt, routes, rPath, rRefusal, sdistExtras, SortDir (Asc), statsHeaders, Status, statusWord, takesText, vendoredGirs, versionSites, viewColumns, viewKeys, Vis (Public), webExposed, webTargets, webTH, wimports, WMod (WBase, WDesktop, WNative, WRoutes, WWeb), wmods, wname, writeHint)
 import qualified AGENTS as Spec
-import Control.Monad (filterM)
-import Data.List (sort)
-import Data.Org (Element (EPragma, ETimestamp), Headline (spans), HeadlineSpans (..), Keyword (..), OrgLine (..), OrgLineElement (OrgLineToken), Pragma (..), Span (..), Spanned (..), Timestamp (..), TimestampRepeaterInterval (..), TimestampRepeaterSign (TRSPlus), TimestampRepeaterType (Restart), TimestampStatus (TimestampActive), TimestampUnit (Days, Weeks), TimestampWarningInterval (..), defaultContext, defaultHeadline, headlineSpanParts, hsFull, orgParse, todoActive)
-import Data.Text (Text)
-import Glance.Query (subtreeText)
-import System.Directory (doesFileExist, listDirectory)
-import System.FilePath (takeExtension, (</>))
-import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
-import TestDefaults (at, bare, bareParse, buildSources, compactTs, namesIn, on, plainTs, propertyKeys, proposalDirs, proposalsByStatus, sourcesUnder, withDoc, withHeadline)
-import TextShow (showt)
-import qualified Data.Set as Set
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
-import Control.Concurrent (ThreadId, myThreadId)
-import Control.Monad (forM, forM_)
-import Data.Aeson (object, (.=))
-import Data.List (nub, sortOn)
-import Data.Maybe (fromMaybe, isJust)
-import System.Directory (copyFile, createDirectoryIfMissing)
-import System.Exit (ExitCode (ExitSuccess))
-import System.Process (CreateProcess (cwd), proc, readCreateProcessWithExitCode)
-import System.FilePath (takeDirectory)
-import Test.Tasty.HUnit (assertFailure)
-import TestDefaults (orgFile, withTempDirNamed)
-import TestWire (command, postTo, serverAt, status)
-import qualified Data.Map.Strict as Map
-import qualified Data.Time as Time
-import Data.Org.Edit (Edit (..), applyEdits)
-import Data.Org.External (completionsFile, completionsPathOf, externalFile, externalPathOf)
-import Data.Org.Index (IndexFold (..), IndexRecord (..), foldSegments, metaDir)
-import Data.Org.Walk (Found (..), WalkOptions (..), defaultWalk, findOrgFilesWith, mapFilesConcurrently)
-import Glance.Query (HeadlineRecord (..), Repeat (..), blobPathIn, loadFile, noConfig, repeatOn, shiftRepeat, storeRootIn)
-import Glance.Web.Commands (commandNames)
-import System.Posix.Files (createSymbolicLink)
-import Data.Org.Walk (blobFile, claimById, configDir, isConfig, isDerived, isDocument, isWalked, orgGlanceDir, storeDir, trashDir)
-import Glance.Query (IdCollision (..), QueryResult (..), configPath, derivedPath, documentPath, loadDir, rowIdIn)
-import Data.Org.Config (ConfigLayerFile (..), SavedView (..), TodoKeywords (..), TreeSettings (..), noTreeSettings, savedViews, stateColorsOf, todoPragmas, treeSettings, viewQueryIn)
-import Glance.Query (ConfigSetting (..), SettingScope (..), configSettings)
+import Control.Concurrent (myThreadId, ThreadId)
 import Control.Concurrent.STM (readTVarIO)
-import Data.Aeson (Value, decode, eitherDecode, encode)
-import Data.ByteString (ByteString)
-import Data.String (fromString)
-import GHC.Clock (getMonotonicTime)
-import Network.HTTP.Types (HeaderName, RequestHeaders, methodDelete, methodHead, renderQuery)
-import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
-import Network.Wai.Test (SResponse (simpleBody, simpleHeaders), request, runSession, setPath)
-import System.Directory (removeFile)
-import Test.Tasty.HUnit (Assertion)
-import TestDefaults (assertContains, boolAt, committable, document, intAt, rewrite, sparseAt, textAt, valueAfter, viewDir, withStoreOf, withTempDir)
-import TestWire (assertOk)
+import Control.Monad (filterM, forM, forM_)
+import Data.Aeson ((.=), decode, eitherDecode, encode, object, toJSON, Value (Null, Object))
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Text.Encoding as TE
-import AGENTS (Method (GET), RefusalBody (JsonRefusal), doctorFields, notFoundText, pageHeaders, rMethods, rNeeds, rPath, rRefusal, routeAt, routes, statsHeaders, takesText, writeHint)
-import Glance.Web (ServeOptions (..), application, defaultPort)
-import Glance.Web.Store (CloseReason, Frame (Op), Hub (hubPending, hubStore), RowOp (DeleteRow, UpsertRow), Store (stGen, stPrint, stTags), closeReason, loadStore, newHub, newLoadingHub, recordsUnder, storeRecords)
-import Glance.Web.Watch (settle)
-import Data.Aeson (Value (Object))
-import qualified Data.Aeson.Key as Key
-import qualified Data.Aeson.KeyMap as KM
-import qualified Data.Text.Lazy.Encoding as TLE
-import AGENTS (ColKind (KBadge), Column (cCellKind, cHead, cKey), SortDir (Asc), defaultSortChain, keyOf, viewColumns, viewKeys)
-import Glance.Web.Columns (columnNamesIn)
-import Glance.Query (dayOf, dayWords, isoDay, monthWords, planningTimestamp, shiftDay, shiftUnits)
-import Data.List (isInfixOf)
-import Glance.Web.Filter (Sign (Unsigned), Term (tmKey), Token (..), cmpMark, cmpTest, columnsKey, emptyEnv, filterKeys, fromKey, halfShift, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, shiftIn, sortKey, substringKey, unspaced)
-import Glance.Web.Sort (sortChainIn)
-import TestDefaults (listAt, withDocDir)
-import qualified Glance.Query as Q
-import Data.Aeson (Value (Null), toJSON)
+import Data.Char (isAlphaNum, isDigit, isSpace, toLower)
 import Data.Either (isLeft)
-import Data.Maybe (isNothing, mapMaybe)
+import Data.List ((\\), isInfixOf, isPrefixOf, nub, sort, sortOn)
+import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
+import Data.Org (defaultContext, defaultHeadline, Element (EPragma), Headline (spans), headlineSpanParts, HeadlineSpans (..), hsFull, isTagChar, Keyword (..), OrgLine (..), OrgLineElement (OrgLineToken), orgParse, Pragma (..), Span (..), Timestamp (..), TimestampRepeaterInterval (..), TimestampRepeaterSign (TRSPlus), TimestampRepeaterType (Restart), TimestampStatus (TimestampActive), TimestampUnit (Days, Weeks), TimestampWarningInterval (..), todoActive)
+import Data.Org.Blob (metaIn)
+import Data.Org.Config (ConfigLayerFile (..), noTreeSettings, SavedView (..), savedViews, stateColorsOf, TodoKeywords (..), todoPragmas, TreeSettings (..), treeSettings, viewQueryIn)
+import Data.Org.Edit (applyEdits, Edit (..))
+import Data.Org.External (completionsFile, completionsPathOf, externalFile, externalPathOf)
+import Data.Org.Index (foldSegments, IndexFold (..), IndexRecord (..), metaDir)
+import Data.Org.Walk (blobFile, claimById, configDir, defaultWalk, findOrgFilesWith, Found (..), isConfig, isDerived, isDocument, isWalked, mapFilesConcurrently, orgGlanceDir, storeDir, trashDir, WalkOptions (..))
+import qualified Data.Set as Set
+import Data.String (fromString)
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.IO as TIO
+import qualified Data.Text.Lazy.Encoding as TLE
+import qualified Data.Text.Read as T.Read
+import qualified Data.Time as Time
 import Data.Time.Calendar (fromGregorian)
-import Data.Org (isTagChar)
-import Glance.Query (prioritySlots, stateSlots, tagText)
-import Glance.Web.Theme (Mode (Dark, Light), Theme (thId, thMode),
-                        themeCSS, themeIds, themes)
-import Glance.Web.Base ( logLinesDefault, logLinesMax, logLinesMin
-                       , zoomDefault, zoomMax, zoomMin, zoomStep )
+import Glance.Desktop (browserCandidates)
+import Glance.Query (blobPathIn, cellSep, configPath, ConfigSetting (..), configSettings, dayOf, dayWords, derivedPath, documentPath, HeadlineRecord (..), IdCollision (..), isoDay, loadDir, loadFile, monthWords, noConfig, OrgLink (olSpan), orgLinks, planningKeywords, planningTimestamp, prioritySlots, QueryResult (..), readsAsTimestamp, Repeat (..), repeatOn, rowIdIn, settableKeywords, SettingScope (..), shiftDay, shiftRepeat, shiftUnits, stateSlots, storeRootIn, subtreeLinks, subtreeText, tagText)
+import qualified Glance.Query as Q
+import Glance.Web.Base (logLinesDefault, logLinesMax, logLinesMin, zoomDefault, zoomMax, zoomMin, zoomStep)
+import qualified Glance.Web.Base as WB (gluePartFiles)
+import Glance.Web.Columns (columnNamesIn)
+import Glance.Web.Commands (commandNames)
+import Glance.Web.Filter (cmpMark, cmpTest, columnsKey, emptyEnv, filterKeys, fromKey, halfShift, matchesFilter, parseFilter, plannedKey, refKey, scanQuery, shiftIn, Sign (Unsigned), sortKey, substringKey, Term (tmKey), Token (..), unspaced)
 import Glance.Web.Page.Glue (glueConfig)
 import Glance.Web.Page.Style (page)
-import qualified Data.Text.Read as T.Read
-import Glance.Desktop (browserCandidates)
-import Glance.Query (OrgLink (olSpan), cellSep, orgLinks, planningKeywords,
-                     readsAsTimestamp, settableKeywords, subtreeLinks)
-import Data.Char (isAlphaNum, isDigit, isSpace, toLower)
-import Data.List (isPrefixOf, (\\))
-import qualified Glance.Web.Base as WB (gluePartFiles)
-import AGENTS (BuildAsset (baPath, baSplice), CabalFlag (flCpp, flManual, flName, flOn, flStanza), Component (coName, coVis), Proj (DefaultProj, NativeProj), Status, Vis (Public), WMod (WBase, WDesktop, WNative, WRoutes, WWeb), authorEmail, buildAssets, compDeps, components, flags, giSpellings, gluePartFiles, negationReveal, projBuildDir, projFlags, projGir, projPackages, sdistExtras, statusWord, vendoredGirs, versionSites, webExposed, webTargets, webTH, wimports, wmods, wname)
+import Glance.Web.Sort (sortChainIn)
+import Glance.Web.Store (CloseReason, closeReason, Frame (Op), Hub (hubPending, hubStore), loadStore, newHub, recordsUnder, RowOp (DeleteRow, UpsertRow), Store (stGen, stPrint, stTags), storeRecords)
+import Glance.Web.Theme (Mode (Dark, Light), Theme (thId, thMode), themeCSS, themeIds, themes)
+import Glance.Web.Watch (settle)
+import Network.HTTP.Types (methodDelete, methodHead)
+import Network.Wai (Application, defaultRequest, requestMethod)
+import Network.Wai.Test (request, runSession, setPath, SResponse (simpleBody))
+import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, listDirectory, removeFile)
+import System.Exit (ExitCode (ExitSuccess))
+import System.FilePath ((</>), takeExtension)
+import System.Posix.Files (createSymbolicLink)
+import System.Process (CreateProcess (cwd), proc, readCreateProcessWithExitCode)
+import Test.Tasty (testGroup, TestTree)
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, Assertion, testCase)
+import TestDefaults (assertContains, at, bare, bareParse, blobIn, boolAt, buildSources, compactTs, document, intAt, isComment, linesMatching, listAt, on, orgFile, plainTs, propertyKeys, proposalDirs, timestampIn, proposalsByStatus, rewrite, sourcesUnder, sparseAt, textAt, uses, valueAfter, viewDir, withDoc, withDocDir, withHeadline, withRow, withStoreOf, withTempDir, withTempDirNamed)
+import TestWire (app, assertOk, assetsDir, body, command, commitBody, etagOf, getFrom, getWith, header, headlinePath, loadingApp, postTo, serverAt, status, withCommittedAt)
+import TextShow (showt)
 
 -- | Parse: the headline's sub-spans, the extent they fold to, and what the parser keeps, drops and folds on its way in.
 specGroup03 :: TestTree
@@ -208,18 +176,8 @@ specGroup03 = testGroup "Parse"
     subLabels Spec.Planning   = ["hsSchedule", "hsDeadline", "hsClosed"]
     subLabels Spec.Properties = ["hsProperties"]
 
-    timestampIn :: Text -> Maybe Timestamp
-    timestampIn input = case orgParse defaultContext input of
-      (Spanned _ (ETimestamp ts) : _, _, _) -> Just ts
-      _                                     -> Nothing
-
     reserializes :: FilePath -> IO [String]
-    reserializes path = report . T.lines <$> TIO.readFile path
-      where report ls = [ path <> ":" <> show n <> ": " <> T.unpack stripped
-                        | (n, l) <- zip [(1 :: Int) ..] ls
-                        , let stripped = T.strip l
-                        , any (`T.isInfixOf` stripped) ["TextShow", "showt", "showb"]
-                        , not ("--" `T.isPrefixOf` stripped) ]
+    reserializes = linesMatching (\l -> any (\n -> uses n l) ["TextShow", "showt", "showb"])
 
 -- | THE SCAN AND THE TWO LEDGERS: the read pool both loaders share, the store the walk finds by DECLINING it, the WAL fold's truth rules, org's repeat, and where each ledger line is keyed.
 specGroup04 :: TestTree
@@ -230,10 +188,10 @@ specGroup04 = testGroup "Scan and the ledgers"
       files <- buildSources
       assertBool ("too few sources swept: " <> show (length files)) (length files >= 12)
       assertBool "the sweep missed the pool's own module" (poolModule `elem` files)
-      callers <- concat <$> mapM (callsIn "mapFilesConcurrently")
-                                 [ f | f <- files, f /= poolModule ]
+      callers <- filterM (fmap (not . null) . linesMatching (uses "mapFilesConcurrently"))
+                         [ f | f <- files, f /= poolModule ]
       assertEqual "callers of the one pool"
-                  ["src-query/Glance/Query.hs", "src/Data/Org/Doctor.hs"] (sort (nub callers))
+                  ["src-query/Glance/Query.hs", "src/Data/Org/Doctor.hs"] (sort callers)
 
     -- A load of one file forks nothing: the pool costs a worker per capability.
   , testCase "a path list of one skips the pool" $ do
@@ -256,7 +214,7 @@ specGroup04 = testGroup "Scan and the ledgers"
     -- A STORE IS FOUND BY BEING DECLINED, and @--include-derived@ walks into it, which is exactly how it goes missing.
   , testCase "a declined store is found, and missed under --include-derived" $
       withTempDirNamed "derived" $ \dir -> do
-        let store = dir </> ".org-glance" </> metaDir
+        let store = metaIn dir
         createDirectoryIfMissing True store
         found <- findOrgFilesWith defaultWalk [dir]
         opened <- findOrgFilesWith (WalkOptions True) [dir]
@@ -341,7 +299,7 @@ specGroup04 = testGroup "Scan and the ledgers"
           r <- postTo app "/command" (command name ["abcdef"] (argsFor name))
           assertEqual (Spec.cWire c <> " was refused before it could write")
                       200 (status r)
-          doesFileExist (dir </> ".org-glance" </> metaDir </> completionsFile)
+          doesFileExist (metaIn dir </> completionsFile)
         pure (Spec.cWire c, wrote)
       assertEqual "which commands leave a ledger line"
                   [ (Spec.cWire c, Spec.cRecords c) | c <- asked ] recorded
@@ -351,7 +309,7 @@ specGroup04 = testGroup "Scan and the ledgers"
     -- TWO NOTES, TWO KEYS: the write note follows the PATH the bytes moved at, the completion the SERVED root.
   , testCase "they sit at different layers and are keyed differently" $
       withTempDirNamed "served" $ \served -> do
-        createDirectoryIfMissing True (served </> ".org-glance" </> metaDir)
+        createDirectoryIfMissing True (metaIn served)
         assertEqual "the spec's name for the write ledger"
                     (Spec.ledgerFile Spec.ExternalL) (metaDir </> externalFile)
         assertEqual "the spec's name for the completions ledger"
@@ -360,7 +318,7 @@ specGroup04 = testGroup "Scan and the ledgers"
           (Just ("/a/.org-glance/data/x/y/.org-glance" </> metaDir </> externalFile))
           (externalPathOf "/a/.org-glance/data/x/y/.org-glance/data/ab/cd/data.org")
         assertEqual "the completion follows the SERVED root, whatever store the blob sat in"
-          (Just (served </> ".org-glance" </> metaDir </> completionsFile))
+          (Just (metaIn served </> completionsFile))
           =<< completionsPathOf served
   ]
   where
@@ -395,12 +353,6 @@ specGroup04 = testGroup "Scan and the ledgers"
       _takesNoArgs   -> object []
 
     -- Write ID's blob under DIR's store: the layout is the LIBRARY's, so the fixture shards an id the way the writer does.
-    blobIn dir ident text = do
-      createDirectoryIfMissing True (takeDirectory path)
-      TIO.writeFile path text
-      pure path
-      where path = blobPathIn (storeRootIn dir) ident
-
     -- THE DOCUMENT COMES BACK BESIDE THE ROW: a caller that computes spans
     -- hands the text in.
     rowOf dir name text = do
@@ -410,13 +362,6 @@ specGroup04 = testGroup "Scan and the ledgers"
         other -> assertFailure (name <> " is no longer one row: " <> show (fmap length other))
 
     theRepeat = maybe (assertFailure "the fixture no longer repeats") pure
-
-    -- TestSelfContained's own @calls@ idiom: PATH once per non-comment line naming SYMBOL.
-    callsIn symbol path = report . T.lines <$> TIO.readFile path
-      where
-        report ls = [ path | l <- ls, let stripped = T.strip l
-                           , symbol `T.isInfixOf` stripped
-                           , not ("--" `T.isPrefixOf` stripped) ]
 
     -- By whole stripped lines: @executable glance@ is a prefix of @executable glance-wasm-probe@, which declares no RTS options.
     ghcOptionsOf stanza body = case dropWhile (/= stanza) (map T.strip (T.lines body)) of
@@ -563,6 +508,23 @@ specGroup05 = testGroup "Walk"
         assertEqual "and the ledger's key went with it"
                     [Just "u-1", Nothing] (map hrOrgId rows)
 
+    -- THE SALVAGED RUN IS THE DRAWER'S OWN: it opens whatever the indent, stops
+    -- at either closer, and @:ENDORSED:@ is a property line rather than one.
+  , testCase "the salvaged run opens at the indent and stops at the closer" $
+      withTempDirNamed "walk-drawer-run" $ \dir -> do
+        path <- orgFile dir "notes.org" (T.concat
+          [ "* TODO indented\n  :PROPERTIES:\n  :ORG_GLANCE_ID: u-2\n  :END\nbody\n"
+          , "* TODO past the broken closer\n:PROPERTIES:\n:CATEGORY: c\n:END\n\
+            \:ORG_GLANCE_ID: past\nbody\n"
+          , "* TODO past the whole closer\n:PROPERTIES: stray\n:CATEGORY: c\n:END:\n\
+            \:ORG_GLANCE_ID: past\nbody\n"
+          , "* TODO endorsed\n:PROPERTIES:\n:ENDORSED: x\n:ORG_GLANCE_ID: u-3\n:END\nbody\n" ])
+        rows <- qrRecords <$> loadDir dir
+        assertEqual "the indent, the two closers, and the property that is not one"
+                    [Just "u-2", Nothing, Nothing, Just "u-3"] (map hrOrgId rows)
+        assertEqual "a row the run gave no id is keyed by its place"
+                    ["u-2", rowIdIn path 1, rowIdIn path 2, "u-3"] (map hrId rows)
+
     -- A walked path always ends in its @.org@ extension, so the separator needs no rule of its own.
   , testCase "FILE#K is recoverable at its LAST hash" $ do
       assertEqual "the ordinal id is spelled another way"
@@ -619,13 +581,6 @@ specGroup06 = testGroup "Keyword configuration"
         , ("archive", "GLANCE_ARCHIVE_FILTER", "tag:archive") ]
         [ (svId v, svPragma v, svBuiltin v) | v <- savedViews ]
 
-  , testCase "every saved view is a GLANCE_ pragma" $
-      -- Quantified over the registry, so a fourth view is covered with no case of its own.
-      mapM_ (\v -> assertBool (T.unpack (svId v) <> " names a pragma outside the GLANCE_ namespace: "
-                                 <> T.unpack (svPragma v))
-                              ("GLANCE_" `T.isPrefixOf` svPragma v))
-            savedViews
-
   , testCase "a view no build carries is the empty query" $
       -- The READ fallback for an unknown id; the WRITE refuses it by name.
       assertEqual "an id no build carries read back as something other than the empty query"
@@ -656,9 +611,9 @@ specGroup06 = testGroup "Keyword configuration"
 -- | The store as the wire sees it, the watch step that keeps it current, and the HTTP surface over both.
 specGroup07 :: TestTree
 specGroup07 = testGroup "Store, watch, HTTP surface"
-  [ testCase "stTags counts files, so two rows of one file are one vote" $
+  [ testCase "stTags is the tag vocabulary, so two rows of one tag are one member" $
       withStoreOf [("a.org", "* TODO one :web:\n* TODO two :web:\n")] $ \_dir _path st ->
-      assertEqual "one vote per file" (Just 1) (Map.lookup "web" (stTags st))
+      assertEqual "one member per tag" (Set.fromList ["web"]) (stTags st)
 
     -- The fingerprint stamps each file with its FIRST row's digest, so a rowless file stands in it as its path alone.
   , testCase "a rowless file stands in the fingerprint as its path alone" $
@@ -849,13 +804,13 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
                   (header "Content-Length" s)
 
   , testCase "413 outranks 404" $
-      withCommitted $ \a _path _v -> do
+      withCommittedAt $ \a _hub _path _v -> do
       r <- postTo a (headlinePath "no-such-headline")
                     (BL.fromStrict (BS.replicate (bodyCap + 1) 0x78))
       assertEqual "the cap outranks the id lookup" 413 (status r)
 
   , testCase "a refused write nudges nothing" $
-      withCommittedHub $ \a hub _path v -> do
+      withCommittedAt $ \a hub _path v -> do
       org <- textAt "org" v
       r <- postTo a (headlinePath "first") (commitBody org (T.replicate 64 "0"))
       assertEqual "status" 409 (status r)
@@ -864,7 +819,7 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
 
     -- The raw @{org}@ door hands a whole document back, so the trim is owed at the route.
   , testCase "the raw {org} door trims the trailing run like the composers" $
-      withCommitted $ \a path v -> do
+      withCommittedAt $ \a _hub path v -> do
       org <- textAt "org" v
       digest <- textAt "digest" v
       assertOk =<< postTo a (headlinePath "first")
@@ -885,69 +840,15 @@ specGroup07 = testGroup "Store, watch, HTTP surface"
       assertEqual "and the other file stands" 1 (length (storeRecords next))
   ]
   where
-    assetsDir :: FilePath
-    assetsDir = "test/fixtures/assets"
-
-    -- | The options a server over the suite's fixture directory runs.
-    served :: FilePath -> ServeOptions
-    served assets = ServeOptions { soDir = viewDir, soPort = defaultPort
-                                 , soAssets = Just assets, soDerived = False }
-
-    -- | The app a server with ASSETS runs over a store already loaded.
-    app :: FilePath -> IO Application
-    app assets = application (served assets) <$> (newHub =<< loadStore viewDir)
-
-    -- | The same app with the startup walk still running.
-    loadingApp :: IO Application
-    loadingApp = application (served assetsDir) <$> (newLoadingHub =<< getMonotonicTime)
-
-    getFrom :: Application -> ByteString -> IO SResponse
-    getFrom a path = getWith a path []
-
-    getWith :: Application -> ByteString -> RequestHeaders -> IO SResponse
-    getWith a path headers =
-      runSession (request (setPath defaultRequest path) { requestHeaders = headers }) a
-
-    header :: HeaderName -> SResponse -> Maybe ByteString
-    header name r = lookup name (simpleHeaders r)
-
-    body :: SResponse -> T.Text
-    body = TE.decodeUtf8 . BL.toStrict . simpleBody
-
-    etagOf :: SResponse -> IO ByteString
-    etagOf r = maybe (assertFailure "no ETag on the response") pure (header "ETag" r)
-
-    -- | @\/headline?id=…@ with ID percent-encoded, the way a client builds it.
-    headlinePath :: T.Text -> ByteString
-    headlinePath rid = "/headline" <> renderQuery True [("id", Just (TE.encodeUtf8 rid))]
-
-    commitBody :: T.Text -> T.Text -> BL.ByteString
-    commitBody org digest = encode (object ["org" .= org, "digest" .= digest])
-
     bodyCap :: Int
     bodyCap = 1024 * 1024
-
-    -- | A server holding 'committable' with its first headline materialized.
-    withCommittedHub :: (Application -> Hub -> FilePath -> Value -> Assertion) -> Assertion
-    withCommittedHub k = withTempDir $ \dir -> do
-      path <- orgFile dir "notes.org" committable
-      (a, hub) <- serverAt (Just assetsDir) dir
-      v <- decoded =<< getFrom a (headlinePath "first")
-      k a hub path v
-
-    withCommitted :: (Application -> FilePath -> Value -> Assertion) -> Assertion
-    withCommitted k = withCommittedHub (\a _hub path v -> k a path v)
-
-    decoded :: SResponse -> IO Value
-    decoded r = either (\e -> assertFailure ("response JSON: " <> e)) pure
-                       (eitherDecode (simpleBody r))
 
 -- | The query language's four registries — the view's columns, the tokens that state a VIEW, the default order, and the column set a @columns:@ token picks.
 specGroup08 :: TestTree
 specGroup08 = testGroup "Query language"
   [ testCase "viewColumns names every column once, in order" $
       assertEqual "the spec's column table and the served view's have drifted"
-        [ (key, header, kind) | (key, header, kind, _cell) <- Q.viewColumns ]
+        [ (Q.vcKey c, Q.vcHeader c, Q.vcKind c) | c <- Q.viewColumns ]
         [ (T.pack (cKey c), T.pack (cHead c), kindWord c) | c <- viewColumns ]
 
     -- The whole-tag meta is keyed by the CELL's index, which is what puts it out of @planned@'s reach.
@@ -1021,13 +922,12 @@ specGroup08 = testGroup "Query language"
                   (columnNamesIn "columns:Tags,tag")
       assertEqual "the header and the key no longer pick the same column twice"
         ["title", "tag", "tag"]
-        [ key | (key, _h, _kind, _cell) <- Q.resolveColumns ["Tags", "tag"] ]
+        (map Q.vcKey (Q.resolveColumns ["Tags", "tag"]))
 
   , testCase "an unknown name is a custom column: key folded, header as written, text" $
       assertEqual "a custom column's key, header or kind moved"
         [("title", "Title", "text"), ("effort", "Effort", "text")]
-        [ (key, header, kind)
-        | (key, header, kind, _cell) <- Q.resolveColumns ["Effort"] ]
+        [ (Q.vcKey c, Q.vcHeader c, Q.vcKind c) | c <- Q.resolveColumns ["Effort"] ]
 
   , testCase "a custom column is no filter key and no chain key" $ do
       assertEqual "columns:Effort" (Right (Just ["Effort"]))
@@ -1084,7 +984,7 @@ specGroup09 = testGroup "Commands and writes"
         forM_ commandNames $ \n -> do
           r <- postTo app "/command" (encode (object ["name" .= n]))
           assertEqual (T.unpack n <> ": the ids wall and the spec's Ids disagree")
-            (n `elem` idless) (not ("a command names rows" `T.isInfixOf` bodyText r))
+            (n `elem` idless) (not ("a command names rows" `T.isInfixOf` body r))
 
     -- @edit-link@'s args name a row's own TEXT, so the ROW COUNT is the coarsest thing wrong with the request.
   , testCase "edit-link is the one naming ONE row" $ do
@@ -1095,7 +995,7 @@ specGroup09 = testGroup "Commands and writes"
           r <- postTo app "/command"
                  (encode (object ["name" .= n, "ids" .= (["a", "b"] :: [T.Text])]))
           assertEqual (T.unpack n <> ": the row-count wall and the spec's Ids disagree")
-            (n `elem` single) ("names one row" `T.isInfixOf` bodyText r)
+            (n `elem` single) ("names one row" `T.isInfixOf` body r)
 
     -- org's condition is both halves: an INACTIVE keyword and a planning stamp carrying a repeater.
   , testCase "only set-state's answer records" $ do
@@ -1103,14 +1003,12 @@ specGroup09 = testGroup "Commands and writes"
         [Spec.SetState] [Spec.cName c | c <- Spec.cmds, Spec.cRecords c]
       let cookied = repeating "<2026-08-01 Sat +1w>"
           bare' = repeating "<2026-08-01 Sat>"
-      withDoc "spec-repeat" "repeat.org" cookied $ \recs ->
-        withFirst recs $ \r -> do
+      withRow cookied $ \_doc r -> do
           assertBool "an inactive keyword over a repeating stamp no longer records"
             (isJust (repeatOn noConfig today "CANCELLED" cookied r))
           assertEqual "an active keyword records where org calls it a state change"
             noRepeat (repeatOn noConfig today "NEXT" cookied r)
-      withDoc "spec-repeat" "plain.org" bare' $ \recs ->
-        withFirst recs $ \r ->
+      withRow bare' $ \_doc r ->
           assertEqual "a stamp with no repeater records"
             noRepeat (repeatOn noConfig today "CANCELLED" bare' r)
 
@@ -1128,7 +1026,7 @@ specGroup09 = testGroup "Commands and writes"
                  , "args" .= object [ fromString k .= v | (k, v) <- nulling f (Spec.cArgs c) ] ]))
           assertEqual (Spec.cWire c <> "." <> f <> ": a null and the field's arity disagree")
             (arity == Spec.Req)
-            (status r == 400 && T.pack f `T.isInfixOf` bodyText r)
+            (status r == 400 && T.pack f `T.isInfixOf` body r)
 
     -- 'Data.Org.isTagChar' has no star, which is what keeps the starred meta family total.
   , testCase "no starred meta is a legal tag" $ do
@@ -1236,9 +1134,6 @@ specGroup09 = testGroup "Commands and writes"
 declares :: T.Text -> Bool
 declares token = (token <> ":") `T.isInfixOf` themeCSS
 
--- | R's body as the refusals spell it.
-bodyText :: SResponse -> T.Text
-bodyText = TE.decodeUtf8 . BL.toStrict . simpleBody
 
 -- | A server over a tree of one row, for the cases that ask the ROUTE what it refuses.
 withCommandServer :: (Application -> Assertion) -> Assertion
@@ -1246,11 +1141,6 @@ withCommandServer k = withTempDirNamed "spec-command" $ \dir -> do
   _ <- orgFile dir "notes.org" "* TODO first\n"
   (app, _hub) <- serverAt Nothing dir
   k app
-
--- | K over the first of ROWS, or the failure that says the fixture loaded none.
-withFirst :: [a] -> (a -> Assertion) -> Assertion
-withFirst [] _ = assertFailure "the fixture loaded no rows"
-withFirst (x : _) k = k x
 
 -- | One entry carrying STAMP; the file's own @#+TODO:@ is the chain 'repeatOn' resets from.
 repeating :: T.Text -> T.Text
@@ -1793,11 +1683,7 @@ modPath m = "src-web" </> map (\c -> if c == '.' then '/' else c) (wname m) <> "
 
 -- | The COMMENT lines of PATH written as a negation reveal, by the spec's own detector.
 revealingComments :: FilePath -> IO [String]
-revealingComments path = report . T.lines <$> TIO.readFile path
-  where
-    report ls = [ path <> ":" <> show n <> ": " <> T.unpack s
-                | (n, l) <- zip [1 :: Int ..] ls, let s = T.stripStart l
-                , "--" `T.isPrefixOf` s, negationReveal (T.unpack s) ]
+revealingComments = linesMatching (\l -> isComment l && negationReveal (T.unpack l))
 
 specGroup12 :: TestTree
 specGroup12 = testGroup "Build and discipline"
@@ -2023,7 +1909,8 @@ specGroup12 = testGroup "Build and discipline"
       assertEqual "glance.cabal's maintainer" (T.pack authorEmail) (cabalField "maintainer:" cab)
       files <- buildSources
       assertBool ("too few sources swept: " <> show (length files)) (length files >= 12)
-      hits <- concat <$> mapM (namesIn "akatovda@gmail.com")
+      -- NO COMMENT EXEMPTION HERE: the other address is banned in a comment too.
+      hits <- concat <$> mapM (linesMatching (T.isInfixOf "akatovda@gmail.com"))
                               ("glance.cabal" : "README.org" : "CHANGELOG.md" : files)
       assertEqual "a tracked file naming the other address" [] hits
 

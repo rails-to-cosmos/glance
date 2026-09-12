@@ -34,7 +34,7 @@ import Glance.Query ( Completion (..), Repeat (..), noteCompletion, repeatOn, wr
                     , addLinkEdits, editLinkEdits, eolOf, expandTemplate, glanceLink
                     , groupOn, LinkPlace (InBody), linkPlaceOf, linkPlaceWord, linkPlaces
                     , linkTargetIn, mintBlobId
-                    , plannedValue
+                    , plannedEntry, plannedValue
                     , priorityText
                     , removeTagEdits
                     , renameTagEdits, rowIdIn, setPlanningEdits
@@ -430,7 +430,8 @@ capturedEntry :: ConfigLayers -> Time.ZonedTime -> Text -> Maybe Text -> Args
 capturedEntry cfg now eol template args = case agTitle args of
   Just title -> do
     stated cfg args
-    plan <- traverse (plannedPair (Time.localDay (Time.zonedTimeToLocalTime now)))
+    -- THE WALL IS 'plannedEntry''s, whose refusal names the key the door drops here.
+    plan <- traverse (first snd . plannedEntry (Time.localDay (Time.zonedTimeToLocalTime now)))
                      (fromMaybe [] (agPlanning args))
     draftEntry cfg eol DraftCargo
       { dcTitle      = title
@@ -446,14 +447,6 @@ capturedEntry cfg now eol template args = case agTitle args of
     Just tpl -> do
       (text, answers) <- capturedParts args
       expandTemplate now answers text tpl
-
--- | ONE PLANNING ENTRY through 'plannedValue', THE WALL'S OWN SENTENCE kept: the
--- draft meets what @set-planning@ and @POST \/headline@ meet, and an unknown key
--- outranks every value at all three.
-plannedPair :: Time.Day -> (Text, Text) -> Either Text (Text, Text)
-plannedPair day (key, value) = case unplanned key of
-  Just why -> Left why
-  Nothing  -> (,) key <$> plannedValue day key value
 
 -- | A DRAFT HAS NO ROW, so the cycle is its DESTINATION'S: the tag it is filed
 -- under and whatever its own run wears ('draftStates'), which is the very list
@@ -504,15 +497,11 @@ writeOne opts hub plan = do
     record (_rid, _write, note) = mapM_ (noteCompletion (soDir opts)) note
     report written = [ (rid, either (refused rid . why) (done rid) written)
                      | (rid, _write, _note) <- fpRows plan ]
-    why = writeWhy (fpPath plan)
+    why = writeRefusalText (fpPath plan)
 
 -- | Why PATH wrote nothing.  ONE SENTENCE, TWO ASKS: the plan refuses a row
 -- whose file moved before the parse's spans are cut, and 'writeSpans' refuses
 -- one that moved after.
--- | The shared 'Glance.Query.writeRefusalText', named locally for its two sites.
-writeWhy :: FilePath -> WriteFailure -> Text
-writeWhy = writeRefusalText
-
 planCommand :: Map FilePath (Either WriteFailure Text) -> ([HeadlineRecord], [Text])
             -> Store -> Asked -> RowEdits -> Command
             -> Either Text ([FilePlan], [(Text, Value)])
@@ -530,7 +519,7 @@ planCommand docs (held, absent) st asked rowEdits cmd = do
     -- document reads no file, so its map is empty and every row stands.
     (moved, standing) = partitionEithers (map textFor held)
     textFor r = case fromMaybe (Right "") (Map.lookup (hrFile r) docs) of
-      Left failed -> Left (hrId r, refused (hrId r) (writeWhy (hrFile r) failed))
+      Left failed -> Left (hrId r, refused (hrId r) (writeRefusalText (hrFile r) failed))
       Right doc   -> Right (r, doc)
     withEdits (r, doc) = (,) r <$> rowEdits (stConfig st) asked (cmdArgs cmd) doc r
     -- Keyed by `ORG_GLANCE_ID': an ordinal names a different row a week on.

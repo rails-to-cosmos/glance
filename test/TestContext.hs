@@ -37,10 +37,10 @@ todoCases =
 
   , TodoCase "Keywords registered by a pragma survive into a later parse"
       (Just "#+TODO: WAITING | CANCELLED") "* WAITING Something"
-      (Just (Todo "WAITING" True)) ["Something"]
+      (Just (Todo "WAITING")) ["Something"]
 
   , TodoCase "Lowercase keyword matches as written"
-      (Just "#+TODO: wip | done") "* wip Task" (Just (Todo "wip" True)) ["Task"]
+      (Just "#+TODO: wip | done") "* wip Task" (Just (Todo "wip")) ["Task"]
 
   , TodoCase "Uppercase spelling of a lowercase keyword does not match"
       (Just "#+TODO: wip | done") "* WIP Task" Nothing ["WIP", "Task"]

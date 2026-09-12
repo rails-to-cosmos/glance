@@ -6,11 +6,6 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import TestDefaults
 
-parseTimestamp :: Text -> Maybe Timestamp
-parseTimestamp input = case orgParse defaultContext input of
-  (Spanned _ (ETimestamp ts) : _, _, _) -> Just ts
-  _                                     -> Nothing
-
 -- | MOMENT repeating by INTERVAL, as an active timestamp.
 repeating :: TsMoment -> TimestampRepeaterInterval -> Timestamp
 repeating moment interval = (plainTs TimestampActive moment) { tsInterval = Just interval }
@@ -105,7 +100,7 @@ parseCases =
 -- | Check that INPUT parses to EXPECTED, as the case named LABEL.
 parseCase :: (String, Text, Maybe Timestamp) -> TestTree
 parseCase (label, input, expected) =
-  testCase label (assertEqual "" expected (parseTimestamp input))
+  testCase label (assertEqual "" expected (timestampIn input))
 
 spec :: TestTree
 spec = testGroup "Timestamp"
@@ -114,11 +109,11 @@ spec = testGroup "Timestamp"
   , testGroup "Ranges"
     -- The mismatched-bracket document itself fails to parse (see TestNegative).
     [ testCase "A lone half is not a range" $
-        assertEqual "" (Just Nothing) (tsEnd <$> parseTimestamp "[2023-07-15 Sat 15:54] tail")
+        assertEqual "" (Just Nothing) (tsEnd <$> timestampIn "[2023-07-15 Sat 15:54] tail")
 
     , testCase "The -- spelling is kept, not folded into the compact one" $
         assertEqual "" (Just False)
-          (tsCompactRange <$> parseTimestamp "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]")
+          (tsCompactRange <$> timestampIn "[2023-07-15 Sat 15:54]--[2023-07-15 Sat 17:10]")
     ]
 
   , testGroup "Timestamp in headline title"

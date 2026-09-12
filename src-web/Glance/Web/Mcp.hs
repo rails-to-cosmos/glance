@@ -5,7 +5,6 @@
 module Glance.Web.Mcp
   ( McpTools (..)
   , mcpRoute
-  , mcpHandle
   , runMcpStdio
   , runMcpStdioWith
   , mcpDaemonAt

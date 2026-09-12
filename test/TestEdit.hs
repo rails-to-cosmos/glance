@@ -157,8 +157,8 @@ spec = testGroup "Edit"
       [ testCase name (mapM_ (headlineSplices name doc) . headlinesOf =<< parsed name doc)
       | (name, doc) <- fixtures ]
   , testGroup "Round-trip with the parser"
-      [ toggleCase "same-length keyword" ("DONE", False)
-      , toggleCase "longer keyword"      ("CANCELLED", False)
+      [ toggleCase "same-length keyword" "DONE"
+      , toggleCase "longer keyword"      "CANCELLED"
       ]
   , testGroup "Digests" digestSpec
   , testGroup "Files" fileSpec
@@ -296,8 +296,8 @@ headlineSplices name doc h =
 -- | Replacing a headline's TODO span re-parses to the same document with that
 -- one keyword changed, and every span of the re-parse still slices to its own
 -- component — what the shifted offsets after a longer keyword would break.
-toggleCase :: String -> (Text, Bool) -> TestTree
-toggleCase label (keyword, isActive) = testCase label $ do
+toggleCase :: String -> Text -> TestTree
+toggleCase label keyword = testCase label $ do
   elems <- parsed label plannedDoc
   sp <- todoSpan plannedDoc
   edited <- expectRight label (applyEdits plannedDoc [Edit sp keyword])
@@ -312,7 +312,7 @@ toggleCase label (keyword, isActive) = testCase label $ do
     []    -> assertFailure "the re-parse lost the headlines"
   mapM_ (assertParts (\m -> label <> ", re-parse: " <> m) edited) (headlinesOf elems')
   where swapTodo (EHeadline h) | (name <$> todo h) == Just "TODO" =
-          EHeadline h { todo = Just (Todo keyword isActive) }
+          EHeadline h { todo = Just (Todo keyword) }
         swapTodo e = e
 
 

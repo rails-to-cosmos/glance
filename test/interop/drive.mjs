@@ -10,19 +10,18 @@
 //   BREAK=name   take ONE step out of the harness — see `BREAKS'
 //   KEEP=1       leave the store behind, named in the report
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { end, freePort, polling, sleep } from "../harness.mjs";
+import { end, freePort, guardEnv, polling, serveDaemon, sleep } from "../harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..");
 const TURN = 25;              // the poll, in ms — the watch's own drain rate
 const poll = polling(TURN);
-const READY = 30_000;         // the daemon's walk, capped
 const WATCH = 10_000;         // a watch step: debounce + parse + publish, capped
 
 // Org's own uuid form: what `org-id-uuid' produces and what both sides shard by.
@@ -163,17 +162,7 @@ async function socket(base) {
 
 async function main() {
   const keep = process.env.KEEP === "1";
-  const broke = process.env.BREAK || "";
-  if (broke && !BREAKS[broke]) {
-    console.error(`interop: no break named "${broke}" — `
-      + `try one of: ${Object.keys(BREAKS).join(", ")}`);
-    process.exit(2);
-  }
-  const bin = process.env.GLANCE_BIN;
-  if (!bin || !existsSync(bin)) {
-    console.error(`interop: no daemon at GLANCE_BIN=${bin || "<unset>"} — SKIPPED`);
-    process.exit(0);
-  }
+  const { broke, bin } = guardEnv("interop", BREAKS);
   const ogHome = process.env.OG_HOME || resolve(REPO, "..", "org-glance");
   if (!existsSync(join(ogHome, "src", "data"))) {
     console.error(`interop: no org-glance checkout at ${ogHome} — SKIPPED`);
@@ -233,15 +222,9 @@ async function main() {
     console.log(`interop: ${mode} emacs, org-glance ${peerHead(ogHome)}, `
       + `store ${seeded.store}\n`);
 
-    daemon = spawn(bin, ["serve", "--dir", root, "--port", String(port)],
-                   { stdio: ["ignore", "pipe", "pipe"] });
-    daemon.stdout.on("data", (d) => { daemonSaid += d; });
-    daemon.stderr.on("data", (d) => { daemonSaid += d; });
-    daemon.on("error", (e) => { throw e; });
-    const boot = await poll(async () => {
-      const r = await fetch(`${base}/headlines?limit=100`).catch(() => null);
-      return r && r.status === 200 ? r.json() : null;
-    }, READY, "the daemon to finish its walk");
+    const up = await serveDaemon(bin, root, port, (said) => { daemonSaid += said; });
+    daemon = up.child;
+    const boot = up.boot;
     ok(boot.rows.length === 2,
        `the daemon served ${boot.rows.length} rows off the seeded store, wanted 2`);
 

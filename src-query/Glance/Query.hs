@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 -- | The query facade: load org files into rows, render them as table-view JSON,
 -- write one headline's raw subtree back; wire is hand-built 'Value's (AGENTS.hs).
 module Glance.Query ( BlobSeed (..)
@@ -79,7 +80,6 @@ module Glance.Query ( BlobSeed (..)
                     , eolOf
                     , DraftCargo (..)
                     , Inherited (..)
-                    , noInheritance
                     , draftEntry
                     , draftKeywords
                     , draftPointLine
@@ -89,8 +89,6 @@ module Glance.Query ( BlobSeed (..)
                     , draftTemplate
                     , addLinkEdits
                     , editLinkEdits
-                    , englishDay
-                    , englishSpan
                     , keywordText
                     , monthWords
                     , expandTemplate
@@ -127,6 +125,7 @@ module Glance.Query ( BlobSeed (..)
                     , plannedValue
                     , planningKeywords
                     , planningTimestamp
+                    , plannedEntry
                     , unplanned
                     , priorityLetter
                     , priorityText
@@ -154,21 +153,15 @@ module Glance.Query ( BlobSeed (..)
                     , linkPlaceWord
                     , linkPlaces
                     , linkTargetIn
-                    , nameClaims
-                    , namesRow
                     , neighborDepth
                     , neighborDepthCap
                     , neighborLimit
                     , neighborhood
                     , ownBody
-                    , pointedAtBy
-                    , pointsAt
-                    , refNames
                     , referrersIn
                     , refSpellings
                     , refTargetOf
                     , refTargets
-                    , refsCarrying
                     , removeTagEdits
                     , renameTagEdits
                     , replaceSpans
@@ -177,8 +170,6 @@ module Glance.Query ( BlobSeed (..)
                     , rowIdIn
                     , rowJSON
                     , rowProperties
-                    , rowSummaryJSON
-                    , rowSummaryPairs
                     , summaryEnvelope
                     , setPlanningEdits
                     , setPriorityEdits
@@ -230,6 +221,7 @@ module Glance.Query ( BlobSeed (..)
                     , uuidFrom
                     , viewJSON
                     , resolveColumns
+                    , ViewColumn (..)
                     , viewColumns
                     , viewJSONFor
                     , viewJSONTextFor
@@ -241,6 +233,8 @@ import Control.Monad (foldM)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
+import Control.DeepSeq (NFData, force)
+import Data.Bifunctor (bimap)
 import Data.Char (isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isLetter, isSpace)
 import Data.Either (fromRight)
 import Data.List (foldl', nub, partition, sort, sortBy, sortOn)
@@ -255,6 +249,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Read as TR
 import qualified Data.Time as Time
+import GHC.Generics (Generic)
 
 import Data.Org ( Context, Element (EHeadline), Headline
                 , HeadlineSpans ( hsClosed, hsDeadline, hsPriority, hsProperties
@@ -333,7 +328,9 @@ data HeadlineRecord = HeadlineRecord
   , hrLinks      :: ![Ref]           -- ^ the references this subtree makes, normalized; see 'refTargets'.
   , hrLinked     :: !Bool            -- ^ does the subtree hold a link at all — what @o@ follows; see 'subtreeLinks'.
   , hrActive     :: !(Maybe Bool)    -- ^ whether 'hrState' is an active state HERE; see 'Data.Org.Config.classify'.
-  } deriving (Show)
+  } deriving (Show, Generic)
+
+instance NFData HeadlineRecord
 
 data QueryResult = QueryResult
   { qrRecords        :: ![HeadlineRecord]  -- ^ rows in walk order, one per id; paths sorted, headlines in file order.
@@ -686,7 +683,9 @@ refPrefixes = [ (s <> ":", ViaRow) | s <- materialSchemes ]
 -- | The NAMESPACE a reference resolves in.  @id:@ is org-id's protocol and names
 --   the @:ID:@ PROPERTY; everything else names the row.  @id:@ over @ORG_GLANCE_ID@ would conflict with org-mode.
 data RefVia = ViaRow | ViaOrgId
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
+
+instance NFData RefVia
 
 -- | A reference AS RESOLVED: the row it names, and the KIND its author declared on
 -- the edge.  The kind is the EDGE's, so it rides here not on 'HeadlineRecord'; 'Nothing' is a plain mention.
@@ -694,7 +693,9 @@ data Ref = Ref
   { refTarget :: !Text          -- ^ the id or title the link names, normalized.
   , refKind   :: !(Maybe Text)  -- ^ @?kind=SLUG@, as the author spelled it.
   , refVia    :: !RefVia        -- ^ the namespace the target lives in.
-  } deriving (Eq, Ord, Show)
+  } deriving (Eq, Ord, Show, Generic)
+
+instance NFData Ref
 
 refTargets :: Text -> [Ref]
 refTargets = refTargetsOf detach . orgLinks
@@ -750,34 +751,11 @@ refNames :: HeadlineRecord -> [(RefVia, Text)]
 refNames r = [ (ViaRow, s) | s <- refSpellings r ]
           <> [ (ViaOrgId, o) | Just o <- [hrIdProperty r] ]
 
--- | Does a reference name ROW?  The link's namespace decides ('refNames').
--- PARTIALLY APPLIED AT COMPILE with the row fixed, so @ref:@ reads names once, not per row.
-namesRow :: HeadlineRecord -> Ref -> Bool
-namesRow row = \l -> (refVia l, refTarget l) `elem` names
-  where names = refNames row
-
 -- | Does an edge carrying E answer a token asking for KIND?  'Nothing' IS THE KIND-BLIND
 -- READING every edge answers.  BOTH SIDES ARRIVE SLUGGED, so this compares canon to canon.
 carriesKind :: Maybe Text -> Maybe Text -> Bool
 carriesKind Nothing  _ = True
 carriesKind (Just k) e = e == Just k
-
--- | R's references narrowed to those carrying KIND.  THE KIND-BLIND ARM TAKES THE LIST WHOLE, so a bare @ref:@ walks the same list.
-refsCarrying :: Maybe Text -> HeadlineRecord -> [Ref]
-refsCarrying Nothing        = hrLinks
-refsCarrying k@(Just _kind) = filter (carriesKind k . refKind) . hrLinks
-
--- | Does a row POINT AT T over an edge carrying KIND?  @ref:T@'s test; T IS THE FIXED
--- END, read once at compile.  A ROW IS NEVER ITS OWN REFERENCE (the materialize self-link).
-pointsAt :: Maybe Text -> HeadlineRecord -> HeadlineRecord -> Bool
-pointsAt kind t = \r -> hrId r /= hrId t && any names (refsCarrying kind r)
-  where names = namesRow t
-
--- | Is a row POINTED AT BY T over an edge carrying KIND?  @from:T@'s test, 'pointsAt'
--- from the other end and THE SAME EDGE under both.
-pointedAtBy :: Maybe Text -> HeadlineRecord -> HeadlineRecord -> Bool
-pointedAtBy kind t = \r -> hrId r /= hrId t && any (namesRow r) out
-  where out = refsCarrying kind t
 
 -- | ONE RESOLVED EDGE: the row that wrote the link, the row the link names, the
 -- kind the edge declares ('Nothing' is a plain mention) and the namespace it
@@ -792,8 +770,8 @@ data Edge = Edge
   } deriving (Eq, Ord, Show)
 
 -- | The graph RECORDS spell, resolved ONCE per store version: the rows by id and
--- the edges read from both ends.  ONE PASS over every link, where a 'pointedAtBy'
--- per row is one pass per row.
+-- the edges read from both ends.  ONE PASS over every link, where a row-to-row
+-- test per row is one pass per row.
 data EdgeIndex = EdgeIndex
   { exRows :: Map.Map Text HeadlineRecord    -- ^ the rows the edges join, by id.
   , exOut  :: Map.Map Text (Set.Set Edge)    -- ^ a row, and what it points at.
@@ -957,7 +935,7 @@ defaultSortChain =
 
 -- | R's value for the column KEY: (palette POSITION, folded TEXT), built ONCE per sort.
 sortCell :: TodoKeywords -> Text -> Maybe (HeadlineRecord -> Maybe (Int, Text))
-sortCell palette key = read' <$> lookup key [(k, cell) | (k, _, _, cell) <- sortColumns]
+sortCell palette key = read' <$> lookup key [ (vcKey c, vcCell c) | c <- sortColumns ]
   where
     ranked = paletteRank palette
     read' cell r = case cell r of
@@ -1072,28 +1050,47 @@ data HeadlineParts = HeadlineParts
 
 headlineParts :: Text -> HeadlineRecord -> HeadlineParts
 headlineParts doc r = HeadlineParts
-  { hpBody       = withoutSpans subtree (regionSpans [planAt, drawAt, logAt])
-  , hpProperties = shownPairs (drawerPairs subtree drawAt)
-  , hpPlanning   = [ (key, sliceSpan subtree sp) | (key, sp) <- entries ]
-  , hpLogbook    = maybe "" (sliceSpan subtree) logAt
+  { hpBody       = withoutSpans subtree (rgCut rg)
+  , hpProperties = shownPairs (drawerPairs subtree (rgDrawer rg))
+  , hpPlanning   = [ (key, sliceSpan subtree sp) | (key, sp) <- rgEntries rg ]
+  , hpLogbook    = maybe "" (sliceSpan subtree) (rgLog rg)
   }
-  where (subtree, entries, planAt, drawAt, logAt) = regionsOf doc r
+  where rg      = regionsOf doc r
+        subtree = rgSubtree rg
 
-regionsOf :: Text -> HeadlineRecord
-          -> (Text, [(Text, Span)], Maybe Span, Maybe Span, Maybe Span)
-regionsOf doc r = (subtree, entries, planAt, drawAt, logAt)
+-- | A SUBTREE CUT INTO ITS REGIONS: the text, the planning entries it spells and
+-- the three spans a body lifts out of it.  ONE CUT per reader, passed rather than
+-- re-taken, so the lifted regions cannot come apart between two readings.
+data Regions = Regions
+  { rgSubtree :: !Text              -- ^ the subtree's own text, in subtree coordinates.
+  , rgEntries :: ![(Text, Span)]    -- ^ each planning keyword present and where its timestamp sits.
+  , rgPlan    :: !(Maybe Span)      -- ^ the planning line.
+  , rgDrawer  :: !(Maybe Span)      -- ^ the property drawer.
+  , rgLog     :: !(Maybe Span)      -- ^ the @:LOGBOOK:@ drawer.
+  }
+
+regionsOf :: Text -> HeadlineRecord -> Regions
+regionsOf doc r = Regions { rgSubtree = subtree, rgEntries = entries
+                          , rgPlan = planAt, rgDrawer = drawAt, rgLog = logAt }
   where subtree = subtreeText doc r
         entries = planningEntries r subtree
         planAt  = planningSlice entries subtree
         drawAt  = drawerSlice (hrSubtree r) subtree (hrSpans r)
         logAt   = logbookSlice drawAt subtree
 
+-- | The three lifted spans in file order.  THE ONE SPELLING every reader of a body subtracts.
+rgCut :: Regions -> [Span]
+rgCut rg = regionSpans [rgPlan rg, rgDrawer rg, rgLog rg]
+
 recomposedSubtree :: Text -> HeadlineRecord -> HeadlineParts -> Text
 recomposedSubtree doc r parts = untrailed (spliceRegions (hpBody parts) regions)
   where
-    (subtree, entries, planAt, drawAt, logAt) = regionsOf doc r
+    rg      = regionsOf doc r
+    subtree = rgSubtree rg
+    entries = rgEntries rg
+    (planAt, drawAt, logAt) = (rgPlan rg, rgDrawer rg, rgLog rg)
     -- Body coordinates: subtree line less the lines regions ahead cleared; indices leave a GAP where one was removed.
-    cut = catMaybes [planAt, drawAt, logAt]
+    cut = rgCut rg
     lineOf sp = T.count "\n" (T.take (spanStart sp) subtree)
     height sp = length (linesWith (sliceSpan subtree sp))
     bodyLine fallback = maybe fallback (\sp -> lineOf sp - taken sp)
@@ -1431,18 +1428,12 @@ detach = T.copy
 forcing :: [a] -> b -> b
 forcing ts x = foldr seq x ts
 
--- | R with every cell evaluated.  'hrLinks' is a LIST, so its SPINE is forced too — a lazy tail retains the document.
+-- | R WITH EVERY CELL EVALUATED, to the leaf: THE RESIDENCY LAW'S ENFORCEMENT,
+-- since a thunk over the parse retains the whole document however carefully the
+-- cell was copied.  The 'NFData' instance is DERIVED, so a field added to the
+-- record is forced without a second list here to remember to add it to.
 forceRecord :: HeadlineRecord -> HeadlineRecord
-forceRecord r =
-  forcing texts (forcing (hrLinks r) (forcing repeats (foldr seq r (hrActive r))))
-  where
-    -- THE RESIDENCY LAW'S ENFORCEMENT: a thunk over the parse retains the whole document, so a field a row KEEPS belongs here.
-    texts    = hrId r : hrCategory r : hrTitle r : hrTags r : hrDigest r : hrSearch r
-                 : optional <> drawer
-    optional = catMaybes [ hrState r, hrPriority r, hrScheduled r, hrDeadline r
-                         , hrClosed r, hrOrgId r, hrIdProperty r ]
-    drawer   = concat [ [key, value] | (key, value) <- hrDrawer r ]
-    repeats  = [ at `seq` i | (at, i) <- hrRepeats r ]
+forceRecord = force
 
 
 -- | Why a 'replaceSpans' did not land.  Either way the file is byte-identical to before the call (AGENTS.hs).
@@ -1465,7 +1456,6 @@ pinnedDocument :: Edit.Snapshot -> IO (Either WriteFailure Text)
 pinnedDocument snap =
   either (Left . writeFailure (Edit.snapPath snap)) Right <$> Edit.currentText snap
 
--- | An 'Data.Org.Edit' trouble as a caller shows it.
 -- | A 'WriteFailure' spelled for a person: the drift digest and do-nothing, or the
 -- refusal's sentence.  ONE renderer, so command and migration cannot word one event two ways.
 writeRefusalText :: FilePath -> WriteFailure -> Text
@@ -1806,12 +1796,13 @@ addLinkEdits InTitle link doc r = setTitleEdits (hrTitle r <> " " <> link) doc r
 -- subtracts — and 'draftPointLine' counts over EVERY line, a child's included,
 -- which is the opposite cut.
 ownBody :: Text -> HeadlineRecord -> [(Span, Text)]
-ownBody doc r = filter outside (takeWhile (isNothing . headingStars . snd) (drop 1 rows))
+ownBody doc r = ownBodyIn (regionsOf doc r)
+
+ownBodyIn :: Regions -> [(Span, Text)]
+ownBodyIn rg = filter outside (takeWhile (isNothing . headingStars . snd) (drop 1 rows))
   where
-    subtree = subtreeText doc r
-    rows    = lineSpansIn subtree
-    (_sub, _entries, planAt, drawAt, logAt) = regionsOf doc r
-    cut     = regionSpans [planAt, drawAt, logAt]
+    rows = lineSpansIn (rgSubtree rg)
+    cut  = rgCut rg
     outside (sp, _line) =
       not (any (\q -> spanStart sp >= spanStart q && spanEnd sp <= spanEnd q) cut)
 
@@ -1823,15 +1814,15 @@ bodyLinkEdit link doc r = case reverse [ e | e@(_sp, line) <- own, written line 
   []               -> (insertAt (base + at), openingFor (T.take at subtree) eol <> link <> eol)
   where
     base    = spanStart (hrSubtree r)
-    subtree = subtreeText doc r
+    rg      = regionsOf doc r
+    subtree = rgSubtree rg
     eol     = eolOf doc
-    own     = ownBody doc r
+    own     = ownBodyIn rg
     -- NOTHING WRITTEN TO JOIN: the link opens the body at its first line, and
     -- where the row owns no line at all, under every header line it carries.
     at      = maybe opens (spanStart . fst) (listToMaybe own)
     opens   = foldl' max (pastLine subtree (titleLineEnd (hrSpans r) - base))
-                        [ spanEnd sp | sp <- regionSpans [planAt, drawAt, logAt] ]
-    (_sub, _entries, planAt, drawAt, logAt) = regionsOf doc r
+                        [ spanEnd sp | sp <- rgCut rg ]
     written line = not (T.null (T.strip line))
     ends line    = T.length (T.dropWhileEnd isSpace line)
 
@@ -1924,6 +1915,16 @@ plannedValue day key value
   | key `elem` settableKeywords = planningTimestamp day value
   | readsAsTimestamp value      = Right value
   | otherwise                   = Left (unreadable key)
+
+-- | ONE PLANNING ENTRY through both walls, the refusal carrying THE KEY beside
+-- the wall's own sentence.  AN UNKNOWN KEY OUTRANKS EVERY VALUE, and a value no
+-- timestamp parser reads back may not land: the line stops being a planning line
+-- on the next load.  THE ONE WALL a draft, @set-planning@ and @POST \/headline@
+-- all meet, so no door grows a second spelling of it.
+plannedEntry :: Time.Day -> (Text, Text) -> Either (Text, Text) (Text, Text)
+plannedEntry day (key, value) = bimap named named settled
+  where settled = maybe (plannedValue day key value) Left (unplanned key)
+        named t = (key, t)
 
 unreadable :: Text -> Text
 unreadable key = key <> " is not a timestamp org would read back"
@@ -2330,14 +2331,13 @@ draftPointLine doc r at
   | i > 0, not (lifted i) = Just (length [ j | j <- [0 .. i - 1], not (lifted j) ])
   | otherwise             = Nothing
   where
-    subtree = subtreeText doc r
+    rg      = regionsOf doc r
     here    = at - spanStart (hrSubtree r)
-    rows    = lineSpansIn subtree
+    rows    = lineSpansIn (rgSubtree rg)
     -- The LAST line where the offset is the text's end: a right-trimmed template's trailing @%?@ has no line to open on.
     i = fromMaybe (length rows - 1)
                   (listToMaybe [ k | (k, (sp, _l)) <- zip [0 ..] rows, here < spanEnd sp ])
-    (_sub, _entries, planAt, drawAt, logAt) = regionsOf doc r
-    cut = regionSpans [planAt, drawAt, logAt]
+    cut = rgCut rg
     lifted k = case drop k rows of
       ((sp, _l) : _) -> any (\q -> spanStart sp >= spanStart q && spanEnd sp <= spanEnd q) cut
       []             -> True
@@ -2349,9 +2349,6 @@ data Inherited = Inherited
   , inhTags     :: ![Text]             -- ^ positive filter tags beyond the template's own.
   , inhPlanning :: ![(Text, Text)]     -- ^ a settable key pinned to one day, ALREADY RESOLVED.
   } deriving (Eq, Show)
-
-noInheritance :: Inherited
-noInheritance = Inherited Nothing Nothing [] []
 
 -- | DOC with WHAT the filter lends filled into the gaps it left.  ONE SEED AT A TIME, each off a fresh parse: two tag
 -- runs against one record open runs the other cannot see, and the second lands inside the first.
@@ -2575,15 +2572,22 @@ viewJSONTextFor cols views chain viewTitle palette =
 -- 'viewCells' joins into 'hrSearch'.  Every index downstream resolves by KEY.
 viewColumns :: [ViewColumn]
 viewColumns =
-  [ ("state",     "State",     "badge", hrState)
-  , ("priority",  "#",         "badge", hrPriority)
-  , ("title",     "Title",     "text",  Just . hrTitle)
-  , ("scheduled", "Scheduled", "text",  hrScheduled)
-  , ("deadline",  "Deadline",  "text",  hrDeadline)
-  , ("tag",       "Tags",      "text",  Just . sortedTagsCell . hrTags)
+  [ ViewColumn "state"     "State"     "badge" hrState
+  , ViewColumn "priority"  "#"         "badge" hrPriority
+  , ViewColumn "title"     "Title"     "text"  (Just . hrTitle)
+  , ViewColumn "scheduled" "Scheduled" "text"  hrScheduled
+  , ViewColumn "deadline"  "Deadline"  "text"  hrDeadline
+  , ViewColumn "tag"       "Tags"      "text"  (Just . sortedTagsCell . hrTags)
   ]
 
-type ViewColumn = (Text, Text, Text, HeadlineRecord -> Maybe Text)
+-- | ONE COLUMN: the key every index resolves by, the header drawn, the kind the
+-- renderer draws it as, and the cell read off a row.
+data ViewColumn = ViewColumn
+  { vcKey    :: !Text
+  , vcHeader :: !Text
+  , vcKind   :: !Text
+  , vcCell   :: HeadlineRecord -> Maybe Text
+  }
 
 -- | Columns beyond the default view: a friendly key/header over a drawer property.  OPT-IN — none is in 'viewColumns',
 -- yet 'resolveColumns' picks one by name and 'sortCell' orders by it.  @created@ reads 'captureProperty', "Created".
@@ -2592,7 +2596,7 @@ createdKey :: Text
 createdKey = T.toCaseFold captureProperty
 
 aliasColumns :: [ViewColumn]
-aliasColumns = [ ("created", "Created", "text", \r -> customCell r createdKey) ]
+aliasColumns = [ ViewColumn "created" "Created" "text" (\r -> customCell r createdKey) ]
 
 -- | The default view's columns and the aliases: the one roster a sort reads.
 sortColumns :: [ViewColumn]
@@ -2604,13 +2608,13 @@ resolveColumns :: [Text] -> [ViewColumn]
 resolveColumns names = withTitle (map pick names)
   where
     withTitle cols
-      | any (\(key, _h, _k, _c) -> key == "title") cols = cols
-      | otherwise = [ col | col@("title", _h, _k, _c) <- viewColumns ] <> cols
+      | any ((== "title") . vcKey) cols = cols
+      | otherwise = filter ((== "title") . vcKey) viewColumns <> cols
     pick wanted = fromMaybe (custom wanted) (lookup (T.toCaseFold wanted) builtins)
-    builtins    = concat [ [ (T.toCaseFold key, col), (T.toCaseFold header, col) ]
-                         | col@(key, header, _kind, _cell) <- sortColumns ]
-    custom wanted = ( T.toCaseFold wanted, wanted, "text"
-                    , \r -> customCell r (T.toCaseFold wanted) )
+    builtins    = concat [ [ (T.toCaseFold (vcKey col), col), (T.toCaseFold (vcHeader col), col) ]
+                         | col <- sortColumns ]
+    custom wanted = ViewColumn (T.toCaseFold wanted) wanted "text"
+                               (\r -> customCell r (T.toCaseFold wanted))
 
 -- | R's value under a custom column NAME, folded.  The hidden properties are
 -- NOT hidden here — a read-only cell rewrites nothing.
@@ -2621,19 +2625,19 @@ customCell r wanted
                                              , T.toCaseFold key == wanted ]
 
 viewCells :: HeadlineRecord -> [Text]
-viewCells r = [ fromMaybe "" (cell r) | (_key, _header, _kind, cell) <- viewColumns ]
+viewCells r = [ fromMaybe "" (vcCell c r) | c <- viewColumns ]
 
 filterKeys :: [Text]
-filterKeys = [ key | (key, _header, _kind, _cell) <- viewColumns ]
+filterKeys = map vcKey viewColumns
 
 -- | Every key a sort may name: 'filterKeys' widened by the aliases.  A sort reads a
 -- cell no filter indexes, so an alias orders without joining the filter's columns.
 sortKeys :: [Text]
-sortKeys = [ key | (key, _header, _kind, _cell) <- sortColumns ]
+sortKeys = map vcKey sortColumns
 
 columnsFor :: [ViewColumn] -> TodoKeywords -> [Value]
 columnsFor cols palette =
-  [ column key header kind (extra key) | (key, header, kind, _cell) <- cols ]
+  [ column (vcKey c) (vcHeader c) (vcKind c) (extra (vcKey c)) | c <- cols ]
   where
     extra key = case key of
       "state"    -> [ "badges" .= badges palette, "values" .= stateValues ]
@@ -2732,8 +2736,8 @@ summaryEnvelope extra total clean rows = object
 rowJSONFor :: [ViewColumn] -> [Pair] -> HeadlineRecord -> Value
 rowJSONFor cols extra r = object
   (  [ "id" .= hrId r
-     , "cells" .= object [ Key.fromText key .= toJSON (cell r)
-                         | (key, _header, _kind, cell) <- cols ] ]
+     , "cells" .= object [ Key.fromText (vcKey c) .= toJSON (vcCell c r)
+                         | c <- cols ] ]
   <> [ "linked" .= True | hrLinked r ]
   -- SPARSE like `linked`, so SCHEMA.md's Row stays additive.
   <> [ "repeats" .= cookie | Just cookie <- [repeatsOf r] ]

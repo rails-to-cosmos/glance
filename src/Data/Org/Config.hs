@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 -- | @system.org@ and @tags\/TAG.org@ under @\<root\>\/.org-glance\/config@, read
 -- for their @#+TODO:@ lines; recognition, classification and order in AGENTS.hs.
 module Data.Org.Config ( ConfigLayerFile (..)
@@ -43,11 +44,13 @@ module Data.Org.Config ( ConfigLayerFile (..)
                        , todoPragmas
                        ) where
 
+import Control.DeepSeq (NFData)
 import Control.Exception (IOException, try)
 import Data.Foldable (asum)
 import Data.List (find, foldl', nub, sort)
 import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 import System.Directory (listDirectory)
 import System.FilePath (takeBaseName, takeDirectory, takeFileName, (</>))
 
@@ -64,7 +67,9 @@ import Data.Org.Walk (configDir, isDocument, orgGlanceDir)
 data TodoKeywords = TodoKeywords
   { tkActive   :: ![Text]
   , tkInactive :: ![Text]
-  } deriving (Eq, Show)
+  } deriving (Eq, Show, Generic)
+
+instance NFData TodoKeywords
 
 noKeywords :: TodoKeywords
 noKeywords = TodoKeywords [] []

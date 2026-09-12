@@ -6,17 +6,11 @@ module Glance.Web.Git
   ( GitStatus (..)
   , emptyStatus
   , parsePorcelain
-  , gitStatus
   , SyncAction (..)
   , syncActionOf
   , actionFor
-  , SyncResult (..)
-  , runSync
   , AutoSync
   , newAutoSync
-  , autoSyncState
-  , autoSyncSet
-  , autoSyncArm
   , autoSyncPoke
   , gitStatusView
   , gitSyncRoute

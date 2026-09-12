@@ -75,9 +75,9 @@ data ServeOptions = ServeOptions
 walkFor :: ServeOptions -> WalkOptions
 walkFor opts = WalkOptions { woIncludeDerived = soDerived opts }
 
--- | The server's own day, off the local clock.  ONE CLOCK READ PER REQUEST,
--- taken before any row: a request that spans midnight must mean ONE day, so
--- every reader takes the day from here and none reads the clock a second time.
+-- | The server's own day, off the local clock.  ONE CLOCK READ PER REQUEST and
+-- ONE SPELLING OF IT, taken before any row: every reader takes the day from here,
+-- so a request spanning midnight cannot mean two (docs\/invariants.md).
 today :: IO Day
 today = localDay . zonedTimeToLocalTime <$> getZonedTime
 

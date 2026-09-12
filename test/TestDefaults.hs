@@ -1,10 +1,13 @@
 -- | What more than one test module needs: fixture builders, the temp-directory scaffolding the on-disk cases run in, the JSON accessors every wire assertion reads a response through, and the one corpus gate.
 module TestDefaults ( assertContains
                     , assertParts
+                    , asWritten
                     , at
                     , bare
                     , bareParse
+                    , blobIn
                     , boolAt
+                    , boolOf
                     , buildSources
                     , columnKeysOf
                     , columnOf
@@ -16,6 +19,7 @@ module TestDefaults ( assertContains
                     , document
                     , entry
                     , entryAs
+                    , entryFlush
                     , eventually
                     , field
                     , headlinesOf
@@ -25,7 +29,9 @@ module TestDefaults ( assertContains
                     , intAt
                     , listAt
                     , maybeTextAt
-                    , namesIn
+                    , isComment
+                    , keysOf
+                    , linesMatching
                     , refusedNaming
                     , sparseTextAt
                     , sparseAt
@@ -47,10 +53,13 @@ module TestDefaults ( assertContains
                     , testProperty
                     , testPropertyWith
                     , writeLayers
+                    , text
                     , textAt
                     , valueAfter
                     , viewText
                     , textsAt
+                    , timestampIn
+                    , uses
                     , waitFor
                     , titled
                     , viewDir
@@ -61,6 +70,8 @@ module TestDefaults ( assertContains
                     , withGlanceBinary
                     , withHeadline
                     , withHeadlineIn
+                    , withOnlyRow
+                    , withRow
                     , withId
                     , withStoreOf
                     , withTempDir
@@ -87,7 +98,7 @@ import System.Directory ( createDirectory, createDirectoryIfMissing, doesDirecto
                         , doesFileExist, getTemporaryDirectory, listDirectory
                         , removeDirectoryRecursive )
 import System.Environment (lookupEnv)
-import System.FilePath (takeExtension, (</>))
+import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO (hPutStrLn, stderr)
 import System.IO.Error (isAlreadyExistsError)
 import System.Posix.Process (getProcessID)
@@ -106,7 +117,8 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 
-import Glance.Query (HeadlineRecord, QueryResult (qrRecords), digestOfText, loadDir, loadFile)
+import Glance.Query ( HeadlineRecord, QueryResult (qrRecords), blobPathIn
+                   , digestOfText, loadDir, loadFile, storeRootIn )
 import Glance.Web.Store (Frame, Store, applyFile, loadStore)
 
 -- | THE DATE CORPUS BOTH RESOLVERS ARE PINNED TO: the server's wall in
@@ -192,6 +204,10 @@ entryAs ident title' = T.unlines
   , "  :ORG_GLANCE_ID: " <> ident
   , "  :END:" ]
 
+-- | 'entryAs' at the flush margin, for a fixture compared byte for byte.
+entryFlush :: Text -> Text -> Text
+entryFlush ident title' = withId title' ident <> "\n"
+
 -- | 'entryAs' for the common fixture: a @TODO NAME@ entry whose id is NAME, so a frame naming an id names the headline it came from.
 entry :: Text -> Text
 entry name' = entryAs name' ("TODO " <> name')
@@ -201,15 +217,10 @@ titled t = defaultHeadline { title = Title [OrgLineToken (Token t)] }
 
 -- | A file whose first headline is materialized, edited and written back.
 committable :: Text
-committable = T.unlines
-  [ "#+CATEGORY: notes"
-  , "* TODO First :one:"
-  , ":PROPERTIES:"
-  , ":ORG_GLANCE_ID: first"
-  , ":END:"
-  , "body of first"
-  , "* TODO Second"
-  , "tail" ]
+committable = T.concat
+  [ "#+CATEGORY: notes\n"
+  , entryFlush "first" "TODO First :one:"
+  , "body of first\n* TODO Second\ntail\n" ]
 
 -- | Run ACT over a directory of its own, removed afterwards whatever happens.  LABEL, the process id and a unique name it; 'createDirectory' retries a name already taken, so two runs never share one.
 withTempDirNamed :: String -> (FilePath -> IO a) -> IO a
@@ -265,6 +276,19 @@ withDoc :: String -> FilePath -> Text -> ([HeadlineRecord] -> IO a) -> IO a
 withDoc label name doc k = withTempDirNamed label $ \dir -> do
   path <- orgFile dir name doc
   loadFile path >>= either (assertFailure . show) k
+
+-- | Run K over DOC and the FIRST row it loads to, the text handed alongside so
+-- a lens or an edit can cut its spans out of it.
+withRow :: Text -> (Text -> HeadlineRecord -> Assertion) -> Assertion
+withRow doc k = withDoc "row" "row.org" doc first'
+  where first' (r : _rest) = k doc r
+        first' []          = assertFailure "the fixture loaded no rows"
+
+-- | 'withRow' where DOC must parse to ONE row and no more.
+withOnlyRow :: Text -> (Text -> HeadlineRecord -> Assertion) -> Assertion
+withOnlyRow doc k = withDoc "row" "row.org" doc one
+  where one [r] = k doc r
+        one rs  = assertFailure ("expected one headline, got " <> show (length rs))
 
 -- | 'withDoc' read through 'loadDir': the same one-file tree, with the id resolution a directory load runs over it.
 withDocDir :: String -> FilePath -> Text -> ([HeadlineRecord] -> IO a) -> IO a
@@ -500,12 +524,62 @@ buildSources :: IO [FilePath]
 buildSources =
   concat <$> mapM sourcesUnder ["src", "src-query", "src-web", "src-desktop-native", "app"]
 
--- | The lines of PATH carrying NEEDLE, each with its file and number.
-namesIn :: Text -> FilePath -> IO [String]
-namesIn needle path = report . T.lines <$> TIO.readFile path
+-- | V as a string, V as a boolean, V's own field names: the three scalar
+-- readings a wire assertion takes straight off a value.
+text :: Value -> IO Text
+text (String t) = pure t
+text v = assertFailure ("expected a string, got " <> show v)
+
+boolOf :: Value -> IO Bool
+boolOf (Bool b) = pure b
+boolOf v = assertFailure ("expected a boolean, got " <> show v)
+
+keysOf :: Value -> IO [Text]
+keysOf (Object o) = pure (map Key.toText (KM.keys o))
+keysOf v = assertFailure ("expected an object, got " <> show v)
+
+-- | INPUT parsed as one timestamp and nothing else.
+timestampIn :: Text -> Maybe Timestamp
+timestampIn input = case orgParse defaultContext input of
+  (Spanned _ (ETimestamp ts) : _, _, _) -> Just ts
+  _notOne                               -> Nothing
+
+-- | IDENT's blob under DIR's store root, holding TEXT.
+blobIn :: FilePath -> Text -> Text -> IO FilePath
+blobIn dir ident text' = do
+  createDirectoryIfMissing True (takeDirectory path)
+  TIO.writeFile path text'
+  pure path
+  where path = blobPathIn (storeRootIn dir) ident
+
+-- | TEXT as a write spells it: each line's trailing horizontal run off, its
+-- terminator kept.  An INDEPENDENT spelling of what 'recomposedSubtree'
+-- enforces rather than the export of it.
+asWritten :: Text -> Text
+asWritten = T.intercalate "\n" . map line . T.splitOn "\n"
+  where line l = case T.stripSuffix "\r" l of
+          Just body -> T.dropWhileEnd horizontal body <> "\r"
+          Nothing   -> T.dropWhileEnd horizontal l
+        horizontal c = c == ' ' || c == '\t'
+
+-- | The lines of PATH that HOLDS keeps, each reported as @path:n: line@.  A
+-- line reaches HOLDS stripped and is reported the same way.
+linesMatching :: (Text -> Bool) -> FilePath -> IO [String]
+linesMatching holds path = report . T.lines <$> TIO.readFile path
   where
-    report ls = [ path <> ":" <> show n <> ": " <> T.unpack (T.strip l)
-                | (n, l) <- zip [1 :: Int ..] ls, needle `T.isInfixOf` l ]
+    report ls = [ path <> ":" <> show n <> ": " <> T.unpack stripped
+                | (n, l) <- zip [1 :: Int ..] ls, let stripped = T.strip l
+                , holds stripped ]
+
+-- | Is this stripped line a Haskell comment?  The one spelling the source
+-- sweeps share.
+isComment :: Text -> Bool
+isComment = T.isPrefixOf "--"
+
+-- | Does this stripped line USE NEEDLE?  Naming a rule in a comment is no use
+-- of it, so a sweep for a use passes one over.
+uses :: Text -> Text -> Bool
+uses needle l = not (isComment l) && needle `T.isInfixOf` l
 
 -- | @$GLANCE_BIN@, else the binary cabal's default layout holds for the version
 -- being built.  'Nothing' is a SKIP the caller must say out loud: a

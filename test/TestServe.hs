@@ -15,11 +15,9 @@ import Data.List (elemIndex, find, isInfixOf, nub, sort, sortOn)
 import Data.Maybe (fromJust, fromMaybe, isJust, listToMaybe)
 import Data.Time (fromGregorian, toGregorian)
 import GHC.Clock (getMonotonicTime)
-import Network.HTTP.Types ( HeaderName, RequestHeaders, methodDelete, methodPost
-                          , renderQuery )
-import Network.Wai (Application, defaultRequest, requestHeaders, requestMethod)
-import Network.Wai.Test ( SResponse (simpleBody, simpleHeaders)
-                        , request, runSession, setPath )
+import Network.HTTP.Types (methodDelete, methodPost, renderQuery)
+import Network.Wai (Application, defaultRequest, requestMethod)
+import Network.Wai.Test (SResponse (simpleBody), request, runSession, setPath)
 import System.Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
                         , findExecutable, getTemporaryDirectory, listDirectory
                         , removeDirectoryRecursive, removeFile, renameDirectory
@@ -32,14 +30,19 @@ import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults ( assertContains, boolAt, committable, dateCorpus, dateCorpusPath
-                    , digestOnDisk, document, entry, entryAs, eventually, field
+                    , digestOnDisk, document, entry, entryAs, entryFlush, eventually
+                    , field
                     , holdsAll, holdsNone
-                    , columnKeysOf, columnOf, intAt, listAt, maybeTextAt, orgFile, sparseAt
+                    , columnKeysOf, columnOf, intAt, keysOf, listAt, maybeTextAt
+                    , orgFile, sparseAt, text
                     , sparseTextAt, systemFileIn, tagFileIn, waitFor, writeLayers
                     , tagsDirIn, textAt, textsAt, viewDir, viewText, withTempDir
                     , withTempDirNamed )
-import TestWire ( assertOk, capture, command, drainNow, keywordArg, ok, postTo
-                , serverAt, status )
+import TestWire ( app, appOf, assertOk, assetsDir, body, builtIn, capture
+                , command, commitBody, decoded, drainNow, etagOf, getFrom
+                , getWith, header, headlinePath, keywordArg, loadingApp, ok
+                , postTo, served, serverAt, status, withCommittedAt
+                , withTreeOf )
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -61,6 +64,7 @@ import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
 import Glance.Web.Page.Popups ( Popup (..), Tier (..), popups, tierClass
                               , boxes, chromeBoxes, chromeFeet, chromeHeads, veiled, washed )
+import Data.Org.Blob (metaIn)
 import Glance.Web.Page.Style (stripSpans)
 import Glance.Web.Base (gluePartFiles, today)
 import Glance.Web.Commands (commandNames)
@@ -68,7 +72,7 @@ import Glance.Web.Mcp (mcpDaemonAt, mcpWriteToolNames)
 import qualified Network.Wai.Handler.Warp as Warp
 import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Store ( Hub, applyFile, finishLoading, frameJSON, hubStore
-                       , loadStore, newHub, newLoadingHub, publish
+                       , loadStore, newLoadingHub, publish
                        , stashDoctor, storeResult, subscribe )
 import Glance.Web.Watch (watchOrgTree)
 
@@ -81,28 +85,11 @@ sampleFile = viewDir <> "/sample.org"
 sampleDigest :: T.Text
 sampleDigest = "ba16aa19887a04a410a1f0047b4fcee147818d0c8471e4e1db60f5bc7dfe22dc"
 
-assetsDir :: FilePath
-assetsDir = "test/fixtures/assets"
-
 missingAssetsDir :: FilePath
 missingAssetsDir = "test/fixtures/assets-not-here"
 
 vendoredRenderer :: FilePath
 vendoredRenderer = "assets/table-view.js"
-
-served :: FilePath -> ServeOptions
-served assets = builtIn { soAssets = Just assets }
-
-builtIn :: ServeOptions
-builtIn = ServeOptions { soDir = viewDir, soPort = defaultPort, soAssets = Nothing
-                       , soDerived = False }
-
-app :: FilePath -> IO Application
-app assets = appOf (served assets)
-
--- | The app OPTS runs, over a store loaded from the directory OPTS names.
-appOf :: ServeOptions -> IO Application
-appOf opts = application opts <$> (newHub =<< loadStore (soDir opts))
 
 serverOver :: FilePath -> IO (Application, Hub)
 serverOver = serverAt (Just assetsDir)
@@ -118,8 +105,11 @@ getOf opts path = do
   application' <- appOf opts
   getFrom application' path
 
-getFrom :: Application -> ByteString -> IO SResponse
-getFrom application' path = getWith application' path []
+-- | R is a 400, and its body NAMES each of WORDS.
+refused :: SResponse -> [T.Text] -> Assertion
+refused r named = do
+  assertEqual "status" 400 (status r)
+  mapM_ (\w -> assertContains "the refusal names" w (body r)) named
 
 -- | Every PATH is the whole request's 400, and the body NAMES what it turned down.
 refuses400 :: Application -> String -> [(ByteString, T.Text)] -> Assertion
@@ -128,7 +118,6 @@ refuses400 a what = mapM_ $ \(path, named) -> do
   assertEqual (show path <> " status") 400 (status r)
   assertContains what named (body r)
 
--- | A 405 is settled ahead of any tree, so every read route answers one over the same app.
 -- | THE @?ids=@ GRAMMAR at one read route: an id nothing carries is NAMED rather than refused, the parameter repeats, a comma splits it, @id@ is its singular, and none at all is a 400.  TREE is the fixture, READ' what the door answers with, KNOWN one of the tree's ids beside what it alone resolves to, and the triple two ids beside what the pair resolves to.
 idsParamCases :: (Eq b, Show b)
               => ((Application -> Assertion) -> Assertion) -> ByteString
@@ -156,19 +145,12 @@ idsParamCases tree route read' (known, alone) (one, two, both) =
   ]
   where enc = TE.encodeUtf8
 
+-- | A 405 is settled ahead of any tree, so every read route answers one over the same app.
 postIs405 :: ByteString -> TestTree
 postIs405 path = testCase "and it is a read: POST is a 405" $ do
   a <- app assetsDir
   r <- postTo a path "{}"
   assertEqual "status" 405 (status r)
-
-getWith :: Application -> ByteString -> RequestHeaders -> IO SResponse
-getWith application' path headers =
-  runSession (request (setPath defaultRequest path) { requestHeaders = headers }) application'
-
--- | @\/headline?id=…@ percent-encoded: a row id is @FILE#K@, slashes and hash included.
-headlinePath :: T.Text -> ByteString
-headlinePath rid = "/headline" <> renderQuery True [("id", Just (TE.encodeUtf8 rid))]
 
 childPath :: T.Text -> Int -> ByteString
 childPath rid k = "/headline" <> renderQuery True
@@ -182,6 +164,11 @@ brokenDrawer = T.unlines
   , "body of the broken one"
   ]
 
+-- | A top entry whose children are body text to it: one row for the file.
+topDoc :: T.Text
+topDoc = T.unlines [ "* TODO parent", ":PROPERTIES:", ":ORG_GLANCE_ID: top"
+                   , ":END:", "** child", "child body", "*** grandchild" ]
+
 nestedDoc :: T.Text
 nestedDoc = T.unlines
   [ "* TODO parent", ":PROPERTIES:", ":ORG_GLANCE_ID: top", ":END:"
@@ -193,8 +180,39 @@ nestedDoc = T.unlines
   , "** child two"
   ]
 
-commitBody :: T.Text -> T.Text -> BL.ByteString
-commitBody org digest = encode (object ["org" .= org, "digest" .= digest])
+-- | The two ways a commit goes out of date: a file someone else rewrote, and a
+-- digest no store holds.
+meddled, staleDigest :: T.Text
+meddled = committable <> "* TODO Someone else\n"
+staleDigest = T.replicate 64 "0"
+
+-- | R is a 409 for REASON, and PATH still holds WAS.
+refusedWrite :: T.Text -> FilePath -> T.Text -> SResponse -> Assertion
+refusedWrite reason path was r = do
+  assertEqual "status" 409 (status r)
+  assertEqual "reason" reason =<< textAt "reason" =<< decoded r
+  assertEqual "the file the refusal left" was =<< document path
+
+-- | KEYWORD spelled VALUE on the planning line lands NAMED in the file.
+landsPlanning :: T.Text -> T.Text -> String -> T.Text -> Assertion
+landsPlanning keyword value what named =
+  withCommitted $ \a path _v digest body' _props -> do
+    assertOk =<< postTo a (headlinePath "first")
+           (planningBody body' [] [[keyword, value]] digest)
+    assertContains what named =<< document path
+
+-- | KEYWORD spelled VALUE is a 409 naming KEYWORD and SAYING each of WORDS, and
+-- the file is untouched.
+refusesPlanning :: T.Text -> T.Text -> [T.Text] -> Assertion
+refusesPlanning keyword value said =
+  withCommitted $ \a path _v digest body' _props -> do
+    r <- postTo a (headlinePath "first")
+           (planningBody body' [] [[keyword, value]] digest)
+    assertEqual "status" 409 (status r)
+    assertEqual "which field" keyword =<< textAt "field" =<< decoded r
+    mapM_ (\w -> assertContains "the wall's own words" w
+                   =<< textAt "error" =<< decoded r) said
+    assertEqual "untouched" committable =<< document path
 
 -- | The lens-shaped commit body; the server puts its own regions back beside the parts.
 splitBody :: T.Text -> [[T.Text]] -> T.Text -> BL.ByteString
@@ -207,10 +225,7 @@ planningBody body props plan digest = encode (object
 -- | A server over 'committable' with its first headline materialized, handed to K with the file, the answer, and the three fields a commit is composed of: the DIGEST, the BODY and the PROPERTIES.
 withCommitted :: (Application -> FilePath -> Value -> T.Text -> T.Text -> [[T.Text]] -> Assertion)
               -> Assertion
-withCommitted k = withTempDir $ \dir -> do
-  path <- orgFile dir "notes.org" committable
-  (a, _hub) <- serverOver dir
-  v <- getFrom a (headlinePath "first") >>= decoded
+withCommitted k = withCommittedAt $ \a _hub path v -> do
   digest <- textAt "digest" v
   body' <- textAt "body" v
   props <- pairsAt "properties" v
@@ -218,16 +233,8 @@ withCommitted k = withTempDir $ \dir -> do
 
 -- | A server over 'nestedDoc' alone: the tree the child routes address.
 withNested :: (Application -> FilePath -> Assertion) -> Assertion
-withNested k = withTempDir $ \dir -> do
-  path <- orgFile dir "tree.org" nestedDoc
-  (a, _hub) <- serverOver dir
-  k a path
-
-header :: HeaderName -> SResponse -> Maybe ByteString
-header name r = lookup name (simpleHeaders r)
-
-etagOf :: SResponse -> IO ByteString
-etagOf r = maybe (assertFailure "no ETag on the response") pure (header "ETag" r)
+withNested k = withTreeOf [("tree.org", nestedDoc)] $ \a _hub dir ->
+  k a (dir </> "tree.org")
 
 -- | WHAT: is TAG a store's tag at generation GEN, on some day?  Spelled out
 -- here rather than taken from the server.  The DAY is read for its SHAPE alone:
@@ -259,10 +266,6 @@ atGeneration n tag = BSC.takeWhile (/= '-') tag <> "-g" <> BSC.pack (show n)
 zeroes :: ByteString
 zeroes = BSC.replicate 16 '0'
 
-body :: SResponse -> T.Text
-body = TE.decodeUtf8 . BL.toStrict . simpleBody
-
-
 echoIs :: String -> T.Text -> Value -> Assertion
 echoIs what said = assertEqual what said <=< textAt "echo"
 
@@ -271,10 +274,6 @@ urlIs what wanted = assertEqual what wanted <=< textAt "url"
 
 rowIs :: String -> T.Text -> Value -> Assertion
 rowIs what wanted = assertEqual what wanted <=< textAt "selected"
-
-decoded :: SResponse -> IO Value
-decoded r = either (\e -> assertFailure ("response JSON: " <> e)) pure
-                   (eitherDecode (simpleBody r))
 
 -- | VALUE less one top-level KEY: the startup doctor rides the view envelope
 -- globally, so a test pinning the view document proper drops it first.
@@ -305,6 +304,10 @@ offersOf = offersIn "doffers"
 
 wroteAt :: T.Text -> Value -> IO [[[T.Text]]]
 wroteAt key = traverse (pairsAt key) <=< listAt "writes"
+
+-- | The body of each write the answer carries, in the order they were posted.
+bodiesOf :: Value -> IO [T.Text]
+bodiesOf = traverse (textAt "body") <=< listAt "writes"
 
 sheetStamp :: T.Text
 sheetStamp = "<2026-08-01 Sat>"
@@ -345,11 +348,9 @@ fixtureBody = "* TODO one\nfirst para\n\nsecond para\n** two\nchild body\n"
 -- | The structured document as the sheet DREW it, read off the draw rather than out of a model.
 docOf :: Value -> IO [[T.Text]]
 docOf = traverse parts <=< listAt "doc"
-  where parts v = mapM text' =<< listOf v
+  where parts v = mapM text =<< listOf v
         listOf (Array xs) = pure (toList xs)
         listOf v          = assertFailure ("expected an array, got " <> show v)
-        text' (String t)  = pure t
-        text' v           = assertFailure ("expected a string, got " <> show v)
 
 partsOf :: T.Text -> [[T.Text]] -> [T.Text]
 partsOf kind rows = [ T.intercalate "\n" (drop 1 r) | r <- rows, take 1 r == [kind] ]
@@ -357,6 +358,12 @@ partsOf kind rows = [ T.intercalate "\n" (drop 1 r) | r <- rows, take 1 r == [ki
 -- | Which element the document's cursor is on.
 pointOf :: Value -> IO Int
 pointOf = intAt "dat"
+
+-- | KEYS leave point on element N.  OPEN is the door they are pressed at --
+-- 'onTable' from the table, 'insheet' with the sheet already open.
+lands :: (T.Text -> (Value -> Assertion) -> Assertion) -> T.Text -> String -> Int
+      -> Assertion
+lands open keys what n = open keys (assertEqual what n <=< pointOf)
 
 flaggedOf :: Value -> IO [Int]
 flaggedOf = flaggedAt "dflagged"
@@ -373,11 +380,6 @@ flaggedAt :: T.Text -> Value -> IO [Int]
 flaggedAt key = traverse whole <=< listAt key
   where whole (Number n) = pure (round n)
         whole v          = assertFailure ("expected a number, got " <> show v)
-
--- | V's own field names; an absent field is an answer here rather than a failure.
-fieldsOf :: Value -> IO [T.Text]
-fieldsOf (Object o) = pure (map Key.toText (KM.keys o))
-fieldsOf v = assertFailure ("expected an object, got " <> show v)
 
 rowId :: Value -> T.Text
 rowId row = case row of
@@ -495,7 +497,7 @@ writeFixtureTo :: FilePath -> T.Text -> IO ()
 writeFixtureTo dir page = do
   glueOf page >>= TIO.writeFile (dir </> "shell.js")
   elmOf page >>= TIO.writeFile (dir </> "elm.js")
-  keysOf page >>= TIO.writeFile (dir </> "keys.json")
+  keysJsonOf page >>= TIO.writeFile (dir </> "keys.json")
   cfgOf page >>= TIO.writeFile (dir </> "cfg.json")
   -- THE MARKUP, so the harness DERIVES which ids are fields rather than
   -- keeping a second list by hand: one forgotten row there had `typing()'
@@ -537,14 +539,12 @@ walSpec = testGroup "The daemon tails org-glance's WAL"
           =<< titleServed a capturedId
 
     -- The delete door: the reload finds the blob gone and drops the row.
-  , testCase "a tombstone line drops the row" $
-      withCaptured $ \a root blob -> do
+  , testCase "a tombstone line drops the row" $ withCaptured $ \a root blob -> do
         removeFile blob
         appendWal root (walTombstone capturedId <> "\n")
         waitFor "the row to go" (not <$> serves a capturedId)
 
-  , testCase "a torn line waits for its newline" $
-      withWalDaemon $ \a root -> do
+  , testCase "a torn line waits for its newline" $ withWalDaemon $ \a root -> do
         _ <- walBlob root capturedId "Captured"
         appendWal root (walRecord capturedId)
         early <- eventually 0.3 (serves a capturedId)
@@ -634,7 +634,7 @@ rewriteUntil what write ask = go (20 :: Int)
 -- | ROOT's open WAL segment, and the @meta@ directory holding it.
 walSegment, walMeta :: FilePath -> FilePath
 walSegment = segmentIn
-walMeta = takeDirectory . segmentIn
+walMeta = metaIn
 
 -- | IDENT's blob under ROOT under TITLE, the shard arriving as ONE rename.
 -- Built in place it would RACE the tree watch walking down the new directories,
@@ -686,9 +686,7 @@ titleServed a ident =
 doctorSpec :: TestTree
 doctorSpec = testGroup "The startup doctor rides the view JSON"
   [ testCase "a clean tree carries a clean doctor with no warnings" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "good.org" "* TODO one\n* DONE two\n"
-        (a, hub) <- serverOver dir
+      withTreeOf [("good.org", "* TODO one\n* DONE two\n")] $ \a hub dir -> do
         stashDoctor hub =<< diagnose defaultWalk [dir] . storeResult
                         =<< readTVarIO (hubStore hub)
         d <- field "doctor" =<< decoded =<< getFrom a "/headlines"
@@ -718,8 +716,7 @@ doctorSpec = testGroup "The startup doctor rides the view JSON"
         fd <- field "doctor" frame
         assertEqual "the frame's doctor agrees" 1 =<< intAt "decodeFailures" fd
 
-  , testCase "GET /doctor answers the same verdict the envelope carries" $
-      withTempDir $ \dir -> do
+  , testCase "GET /doctor answers the same verdict the envelope carries" $ withTempDir $ \dir -> do
         _ <- orgFile dir "good.org" "* TODO one\n"
         BS.writeFile (dir <> "/bad.org") (BS.pack [0x2a, 0x20, 0xff, 0x0a])
         (a, hub) <- serverOver dir
@@ -2465,7 +2462,7 @@ openKeySpec shell =
         \answer -> do
           [cmd] <- listAt "commands" answer
           args <- field "args" cmd
-          assertEqual "no desc field" ["span", "target"] . sort =<< fieldsOf args
+          assertEqual "no desc field" ["span", "target"] . sort =<< keysOf args
 
   , keyed shell "and one the reader emptied is the null that takes it off"
       "o" "press:e ltitle: press:Enter" $ \answer -> do
@@ -2887,14 +2884,12 @@ drillSpec shell = testGroup "Shell drill"
       "n n @" "rows:2 press:Backspace" $ \answer -> do
         rowIs "the store lost r3, so the landing is row one" "r1" answer
 
-  , keyed shell "the remembered selection rides in the URL with the trail" "n @" "" $ \answer -> do
-        url <- textAt "url" answer
-        assertBool ("the pair is carried: " <> T.unpack url)
-                   ("sels" `T.isInfixOf` url)
+  , keyed shell "the remembered selection rides in the URL with the trail" "n @" "" $
+        urlIs "the crumb, its label and the row point stood on, whole"
+              "?q=ref%3Ar2&crumbs=%7B%22trail%22%3A%5B%7B%22label%22%3A%22state%3A*active*%22%2C%22query%22%3A%22state%3A*active*%22%7D%5D%2C%22labels%22%3A%7B%22ref%3Ar2%22%3A%22references+of+%C2%ABtwo%C2%BB%22%7D%2C%22sels%22%3A%5B%7B%22id%22%3A%22r2%22%2C%22col%22%3Anull%7D%5D%7D"
 
     -- THE TAGS COLUMN OFFERS NO META: the ARCHIVE VIEW is the door, and the PREDICATE is untouched.
-  , testCase "the tags column declares no metas, the archive view being the door" $ do
-      v <- get assetsDir "/headlines" >>= decoded
+  , answerCase "the tags column declares no metas, the archive view being the door" "/headlines" $ \v -> do
       cols <- listAt "columns" v
       tagCol <- filterM (fmap (== "tag") . textAt "key") cols
       case tagCol of
@@ -2902,8 +2897,7 @@ drillSpec shell = testGroup "Shell drill"
         []    -> assertFailure "no tag column"
 
     -- THE VOCABULARY IS THE SERVER'S: the view JSON declares every saved view with the query it holds NOW.
-  , testCase "the view JSON declares the saved views view: completes from" $ do
-      v <- get assetsDir "/headlines" >>= decoded
+  , answerCase "the view JSON declares the saved views view: completes from" "/headlines" $ \v -> do
       views <- listAt "views" v
       assertEqual "the registry's own order" ["default", "agenda", "archive"]
         =<< traverse (textAt "name") views
@@ -3209,47 +3203,43 @@ sheetSpec shell =
 
   , testCase "the document walks its elements on n/p, j/k and the arrows" $ do
       -- `f' FIRST, into the body the walks below measure.
-      insheet shell "press:f press:n" $
-        assertEqual "two stops down, the planning line and the drawer" 2 <=< pointOf
-      insheet shell "press:f press:j press:j press:k" $
-        assertEqual "vi's pair walks the same elements" 2 <=< pointOf
-      insheet shell "press:f press:ArrowDown press:ArrowDown press:ArrowUp" $
-        assertEqual "and so do the arrows" 2 <=< pointOf
-      insheet shell "press:p" $
-        assertEqual "the headline is the end of the walk up" 0 <=< pointOf
+      lands (insheet shell) "press:f press:n"
+            "two stops down, the planning line and the drawer" 2
+      lands (insheet shell) "press:f press:j press:j press:k"
+            "vi's pair walks the same elements" 2
+      lands (insheet shell) "press:f press:ArrowDown press:ArrowDown press:ArrowUp"
+            "and so do the arrows" 2
+      lands (insheet shell) "press:p" "the headline is the end of the walk up" 0
       -- THE WALK SKIPS OWNED ROWS: the child's own block is reached with f.
-      insheet shell "press:f press:n press:n press:n press:n" $
-        assertEqual "four stops down is the child, its block skipped" 5 <=< pointOf
+      lands (insheet shell) "press:f press:n press:n press:n press:n"
+            "four stops down is the child, its block skipped" 5
       -- THE TAIL CLOSES THE WALK: the synthesized empty row past everything.
-      insheet shell "press:f press:n press:n press:n press:n press:n" $
-        assertEqual "and the tail the end of the walk down" 7 <=< pointOf
+      lands (insheet shell) "press:f press:n press:n press:n press:n press:n"
+            "and the tail the end of the walk down" 7
 
     -- THE ROOT READS INTO ITS OWN CONTENTS: `n' from the entry's line is the
     -- reader's step.  A CHILD headline walks headlines -- org's own
     -- next/previous-visible-heading -- and its contents are behind `f'.
   , testCase "the root steps into its contents, and a child walks headlines" $ do
-      insheet shell "press:n" $
-        assertEqual "the entry's first content row" 1 <=< pointOf
-      insheet shell "press:n press:p" $
-        assertEqual "and p climbs back to the sheet's own line" 0 <=< pointOf
-      insheet shell "press:f" $
-        assertEqual "f enters the same body" 1 <=< pointOf
-      insheet shell "press:n press:n press:n press:n press:n press:p" $
-        assertEqual "p from the child crosses the contents whole" 0 <=< pointOf
-      insheet shell "press:n press:n press:n press:n press:n press:n" $
-        assertEqual "and n past the child lands on the tail" 7 <=< pointOf
-      insheet shell "press:n press:n press:n press:n press:n press:n press:n" $
-        assertEqual "nothing stands past the tail, so the walk stays" 7 <=< pointOf
+      lands (insheet shell) "press:n" "the entry's first content row" 1
+      lands (insheet shell) "press:n press:p" "and p climbs back to the sheet's own line" 0
+      lands (insheet shell) "press:f" "f enters the same body" 1
+      lands (insheet shell) "press:n press:n press:n press:n press:n press:p"
+            "p from the child crosses the contents whole" 0
+      lands (insheet shell) "press:n press:n press:n press:n press:n press:n"
+            "and n past the child lands on the tail" 7
+      lands (insheet shell) "press:n press:n press:n press:n press:n press:n press:n"
+            "nothing stands past the tail, so the walk stays" 7
 
     -- `p' IS HEADLINE-SIZED PAST A BODY'S EDGE: inside a body it is the shelf's
     -- own element step (`j/k' above), and where the shelf has nothing above --
     -- the body's first element, the TAIL past every subtree -- it lands on the
     -- NEAREST VISIBLE HEADLINE, org's own previous-visible-heading.
   , testCase "p climbs to a headline past its body's edge" $ do
-      insheet shell (ontoChild <> " press:f press:p") $
-        assertEqual "a body's first element climbs to its own headline" 5 <=< pointOf
-      insheet shell (ontoChild <> " press:n press:p") $
-        assertEqual "and the tail is one press from the last headline" 5 <=< pointOf
+      lands (insheet shell) (ontoChild <> " press:f press:p")
+            "a body's first element climbs to its own headline" 5
+      lands (insheet shell) (ontoChild <> " press:n press:p")
+            "and the tail is one press from the last headline" 5
 
     -- GEOMETRY IS BEYOND THE STUB, so what is asserted is that the page ASKED.
   , testCase "the element under point asks its pane's scroller" $ do
@@ -3302,7 +3292,7 @@ sheetSpec shell =
         assertEqual "one write, aimed at the entry" ["r1"] =<< textsAt "wroteAt" answer
         assertEqual "the child's line and its descendant's, each one star deeper"
                     ["* TODO one\nfirst para\n*** two\n**** three\ndeep body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
         assertEqual "and point stands on the child it moved" 4 =<< pointOf answer
       onTable shell (ontoDeep <> " press:M-ArrowRight press:M-ArrowLeft") $ \answer -> do
         echoIs "and back the way it came"
@@ -3310,7 +3300,7 @@ sheetSpec shell =
         assertEqual "the second write is the bytes the first started from"
                     [ "* TODO one\nfirst para\n*** two\n**** three\ndeep body\n"
                     , "* TODO one\nfirst para\n** two\n*** three\ndeep body\n" ]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
         assertEqual "and point never left the child" 4 =<< pointOf answer
 
     -- THREE REFUSALS, AND NONE OF THEM WRITES: the entry's own line, a row that
@@ -3387,8 +3377,7 @@ sheetSpec shell =
           =<< flaggedAt "whereAt" answer
         echoIs "and the pill names what it opened"
           "RET → org-glance-overview:materialize (two)" answer
-      insheet shell
-             (ontoChild <> " press:Enter press:Backspace") $ \answer -> do
+      insheet shell (ontoChild <> " press:Enter press:Backspace") $ \answer -> do
         assertEqual "back at the row, one crumb again" ["one"] =<< textsAt "where" answer
         assertEqual "with the cursor on the child it came out of" 5
           =<< pointOf answer
@@ -3406,26 +3395,26 @@ sheetSpec shell =
       insheet shell "press:q" $ \answer -> do
         assertEqual "the sheet is shut" "" =<< textAt "modal" answer
         echoIs "named as the command it is" "q → quit-window" answer
-      insheet shell "press:f press:n press:n press:Enter press:q" $ \answer -> do
+      insheet shell (ontoPara <> " press:Enter press:q") $ \answer -> do
         assertEqual "the sheet stands" "on" =<< textAt "modal" answer
         assertEqual "and the edit with it" True =<< boolAt "dparaopen" answer
       insheet shell "press:Enter press:q" $ \answer ->
         assertEqual "the sheet stands over an open title" "on" =<< textAt "modal" answer
 
   , testCase "RET commits the open paragraph and M-RET is the newline" $ do
-      insheet shell "press:f press:n press:n press:Enter dpara:rewritten press:Enter" $
+      insheet shell (ontoPara <> " press:Enter dpara:rewritten press:Enter") $
         \answer -> do
           assertEqual "the body with that block replaced"
             ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
-            =<< traverse (textAt "body") =<< listAt "writes" answer
+            =<< bodiesOf answer
           assertEqual "and the edit is shut" False =<< boolAt "dparaopen" answer
       -- `S-RET' COMMITS THE SAME BYTES; the sibling it asks for is what the key adds.
-      insheet shell "press:f press:n press:n press:Enter dpara:rewritten press:S-Enter" $
+      insheet shell (ontoPara <> " press:Enter dpara:rewritten press:S-Enter") $
         \answer ->
           assertEqual "the same body, under the key that asks for another"
             ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
-            =<< traverse (textAt "body") =<< listAt "writes" answer
-      insheet shell "press:f press:n press:n press:Enter dpara:one press:M-Enter" $
+            =<< bodiesOf answer
+      insheet shell (ontoPara <> " press:Enter dpara:one press:M-Enter") $
         \answer -> do
           assertEqual "nothing was written" [] =<< textsAt "wroteAt" answer
           assertEqual "the edit is still open" True =<< boolAt "dparaopen" answer
@@ -3435,41 +3424,40 @@ sheetSpec shell =
   , testCase "the paragraph box stands as tall as what is in it, up to ten" $ do
       mapM_ (\(keys, what, rows) ->
                insheet shell keys (assertEqual what rows <=< textAt "dprows"))
-        [ ("press:f press:n press:n press:Enter", "one line to open with", "1")
-        , ("press:f press:n press:n press:Enter dpara:one|two|three", "three where three were typed", "3")
+        [ ((ontoPara <> " press:Enter"), "one line to open with", "1")
+        , ((ontoPara <> " press:Enter dpara:one|two|three"), "three where three were typed", "3")
           -- The META key splices at the caret rather than going through the field's own event.
-        , ( "press:f press:n press:n press:Enter dpara:one press:M-Enter"
+        , ( (ontoPara <> " press:Enter dpara:one press:M-Enter")
           , "and M-RET grows it by the line it just made", "2" )
-        , ( "press:f press:n press:n press:Enter dpara:"
+        , ( (ontoPara <> " press:Enter dpara:")
               <> T.intercalate "|" (map (T.pack . show) [1 :: Int .. 14])
           , "capped, so the document under it stays readable", "10" )
-        , ( "press:f press:n press:n press:+ dpara:one|two|three|four"
+        , ( (ontoPara <> " press:+ dpara:one|two|three|four")
           , "an added paragraph grows the same way", "4" )
           -- The room goes back to ZERO rather than to one: the field's metrics differ from the pane's row.
-        , ( "press:f press:n press:n press:Enter dpara:one|two|three press:Escape"
+        , ( (ontoPara <> " press:Enter dpara:one|two|three press:Escape")
           , "no floor at all once the edit is gone", "0" )
-        , ( "press:f press:n press:n press:Enter dpara:one|two|three press:Enter"
+        , ( (ontoPara <> " press:Enter dpara:one|two|three press:Enter")
           , "and a commit gives it back too", "0" )
           -- A sheet that never opened an edit writes no number, and the STYLESHEET's own `0' covers it.
         , ("", "a sheet with nothing open never wrote one", "") ]
 
   , testCase "RET opens a paragraph as text, and C-x C-s writes it" $ do
-      insheet shell "press:f press:n press:n press:Enter" $ \answer -> do
+      insheet shell (ontoPara <> " press:Enter") $ \answer -> do
         assertEqual "the block is open" True =<< boolAt "dparaopen" answer
         assertEqual "with its text in the field" "first para" =<< textAt "dtext" answer
         assertEqual "and the focus in it" "dtext" =<< textAt "focus" answer
-      insheet shell
-             "press:f press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
+      insheet shell (ontoPara <> " press:Enter dpara:rewritten press:C-x press:C-s") $ \answer -> do
         assertEqual "one write, aimed at the row"
                     ["r1"] =<< textsAt "wroteAt" answer
         assertEqual "the body with that block replaced and nothing else"
                     ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
         assertEqual "and the sheet is synced" "synced" =<< textAt "state" answer
 
     -- The overlay opens EMPTY and nothing moves until `RET', so `ESC' is a no-op by construction.
   , testCase "+ opens an empty paragraph and writes nothing yet" $
-      insheet shell "press:f press:n press:n press:+" $ \answer -> do
+      insheet shell (ontoPara <> " press:+") $ \answer -> do
         assertEqual "the overlay is up" True =<< boolAt "dparaopen" answer
         assertEqual "and EMPTY, where RET opens with the text" ""
           =<< textAt "dtext" answer
@@ -3480,7 +3468,7 @@ sheetSpec shell =
 
     -- THE PARAGRAPH IS DRAWN BEFORE IT IS WRITTEN; the row is zero-width, which `bodyText' passes over.
   , testCase "+ draws the empty paragraph, and point goes to it" $
-      insheet shell "press:f press:n press:n press:+" $ \answer -> do
+      insheet shell (ontoPara <> " press:+") $ \answer -> do
         assertEqual "a line of its own, under the one point stood on"
                     [ "head", "meta", "comp:properties:drawer"
                     , "para", "draft:para", "para", "child", "para", "para:tail" ]
@@ -3513,7 +3501,7 @@ sheetSpec shell =
           assertEqual "the newline carried the marker's width"
                       "\n  - alpha\n  more alpha" box
       -- AND A PARAGRAPH TAKES NONE: there is no marker to sit under.
-      insheet shell "press:f press:n press:n press:Enter press:M-Enter" $
+      insheet shell (ontoPara <> " press:Enter press:M-Enter") $
         assertEqual "a paragraph's newline carried an indent" "\nfirst para"
           <=< textAt "dtext"
 
@@ -3537,17 +3525,17 @@ sheetSpec shell =
   , testCase "an item TABbed in is written under the one above it" $
       onTable shell (intoRun <> " press:+ press:Tab press:Enter") $
         \answer -> do
-          wrote <- traverse (textAt "body") =<< listAt "writes" answer
+          wrote <- bodiesOf answer
           assertBool ("the deeper marker was written: " <> show wrote)
                      (any (T.isInfixOf "\n  - \n") wrote)
 
   , testCase "TAB has no rung to take where there is no list item" $
-      insheet shell "press:f press:n press:n press:Enter press:Tab" $ \answer -> do
+      insheet shell (ontoPara <> " press:Enter press:Tab") $ \answer -> do
         echoIs "the paragraph is not one" "TAB \8594 org-metaright (not a list item)" answer
         assertEqual "and nothing moved" "first para" =<< textAt "dtext" answer
 
   , testCase "and ESC leaves behind what it found, point included" $
-      insheet shell "press:f press:n press:n press:+ dpara:typed press:Escape" $ \answer -> do
+      insheet shell (ontoPara <> " press:+ dpara:typed press:Escape") $ \answer -> do
         assertEqual "the drawn row goes with the box"
                     [ "head", "meta", "comp:properties:drawer"
                     , "para", "para", "child", "para", "para:tail" ]
@@ -3556,11 +3544,11 @@ sheetSpec shell =
                     3 =<< intAt "dat" answer
 
   , testCase "RET writes it in under the paragraph point stood on" $
-      insheet shell "press:f press:n press:n press:+ dpara:added press:Enter" $ \answer -> do
+      insheet shell (ontoPara <> " press:+ dpara:added press:Enter") $ \answer -> do
         assertEqual "one write, aimed at the row" ["r1"] =<< textsAt "wroteAt" answer
         assertEqual "the paragraph joined and nothing else"
           ["* TODO one\nfirst para\n\nadded\n\nsecond para\n** two\nchild body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
         assertEqual "the overlay is shut" False =<< boolAt "dparaopen" answer
         assertEqual "the pane shows it where it was drawn"
                     ["added"] . partsOf "draft:para" =<< docOf answer
@@ -3572,7 +3560,7 @@ sheetSpec shell =
       insheet shell "press:f press:n press:n press:n press:+ dpara:added press:Enter" $ \answer ->
         assertEqual ""
           ["* TODO one\nfirst para\n\nsecond para\n\nadded\n\n** two\nchild body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
 
   , testCase "+ on the headline line leads the body" $ do
       insheet shell "press:+" $ \answer ->
@@ -3581,7 +3569,7 @@ sheetSpec shell =
       insheet shell "press:+ dpara:opener press:Enter" $ \answer ->
         assertEqual "and the paragraph goes in ahead of the first"
           ["* TODO one\nopener\n\nfirst para\n\nsecond para\n** two\nchild body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
 
     -- `+' ADDS A SIBLING OF THE STOP, and THE GRAIN IS THE SELECTOR.
   , testCase "+ inside a list adds an item at the list's bottom" $
@@ -3591,7 +3579,7 @@ sheetSpec shell =
             [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n- note\n\n"
               <> "- beta\n- gamma\n\n#+begin_quote\nquoted one\n\nquoted two\n"
               <> "#+end_quote\n\ntail para\n** two\nchild body\n" ]
-            =<< traverse (textAt "body") =<< listAt "writes" answer
+            =<< bodiesOf answer
 
   , testCase "+ on a nested item joins the NESTED run, at its own indent" $ do
       onTable shell (intoNestedRun <> " press:+") $ \answer -> do
@@ -3613,17 +3601,17 @@ sheetSpec shell =
           [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n  - note\n\n"
             <> "- beta\n- gamma\n\n#+begin_quote\nquoted one\n\nquoted two\n"
             <> "#+end_quote\n\ntail para\n** two\nchild body\n" ]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
 
   , testCase "the composite still lands a paragraph past the whole list" $ do
-      onTable shell "grain press:Enter press:f press:n press:n press:n press:+ dpara:note press:Enter" $
+      onTable shell (ontoList <> " press:+ dpara:note press:Enter") $
         \answer ->
           assertEqual "past the last item, never between two"
             [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma\n\n"
               <> "note\n\n#+begin_quote\nquoted one\n\nquoted two\n#+end_quote\n\n"
               <> "tail para\n** two\nchild body\n" ]
-            =<< traverse (textAt "body") =<< listAt "writes" answer
-      onTable shell "grain press:Enter press:f press:n press:n press:n press:+" $
+            =<< bodiesOf answer
+      onTable shell (ontoList <> " press:+") $
         echoIs "and the echo is the structure's, as it was"
                "+ \8594 org-insert-element (after the list)"
 
@@ -3634,7 +3622,7 @@ sheetSpec shell =
           assertEqual "an EMPTY box, whatever the stop's own state"
             [ "* TODO one\n- [ ] alpha\n- [ ] epsilon\n- [X] beta\n- [-] gamma\n"
               <> "- delta\n** two\nchild body\n" ]
-            =<< traverse (textAt "body") =<< listAt "writes" answer
+            =<< bodiesOf answer
 
     -- AN ITEM'S TOKEN IS ON SCREEN WHILE IT IS TYPED: the box is laid over the drawn row exactly and opaquely.
   , testCase "the box opens wearing the token the row was drawn with" $ do
@@ -3666,7 +3654,7 @@ sheetSpec shell =
           assertEqual "typed after the token"
             [ "* TODO one\n- [ ] alpha\n- [ ] epsilon\n- [X] beta\n- [-] gamma\n"
               <> "- delta\n** two\nchild body\n" ]
-            =<< traverse (textAt "body") =<< listAt "writes" answer
+            =<< bodiesOf answer
       -- AND A BOX HOLDING NOTHING BUT ITS OWN TOKEN IS NO ITEM.
       onTable shell (intoChecky <> " press:+ dpara:-_[_]_ press:Enter") $
         \answer -> do
@@ -3674,15 +3662,13 @@ sheetSpec shell =
           echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
 
     -- EVERY COMMAND THAT NAMES ROWS OWES A LOG PHRASE, and the join between the two tables is checked rather than kept by hand.
-  , testCase "every command that names rows spells its own log phrase" $ do
-      page <- shell
+  , shellCase shell "every command that names rows spells its own log phrase" $ \page -> do
       let phraseless = ["capture"]   -- makes a row rather than naming one
           owed = filter (`notElem` phraseless) commandNames
-          quoted n = "\"" <> n <> "\":"
-          spelled n = quoted n `T.isInfixOf` page
+          -- `archive' and `delete' are unquoted keys in the glue's own verb
+          -- table, so a bare `name:' spells the phrase as surely as a quoted one.
+          spelled n = ("\"" <> n <> "\":") `T.isInfixOf` page
                         || (n <> ":") `T.isInfixOf` page
-      assertBool ("too few commands swept: " <> show (length owed))
-                 (length owed >= 8)
       assertEqual "a command whose rows would log another command's phrase" []
                   [ n | n <- owed, not (spelled n) ]
 
@@ -3693,7 +3679,7 @@ sheetSpec shell =
           assertEqual "their line, and no second token in front of it"
             [ "* TODO one\n- [ ] alpha\n- DONE ship it\n- [X] beta\n- [-] gamma\n"
               <> "- delta\n** two\nchild body\n" ]
-            =<< traverse (textAt "body") =<< listAt "writes" answer
+            =<< bodiesOf answer
       onTable shell (intoRun <> " press:+") $
         assertEqual "the plain run's own token, drawn before a key is struck"
           "- " <=< textAt "dtext"
@@ -3703,7 +3689,7 @@ sheetSpec shell =
             [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n- note\n\n"
               <> "- beta\n- gamma\n\n#+begin_quote\nquoted one\n\nquoted two\n"
               <> "#+end_quote\n\ntail para\n** two\nchild body\n" ]
-            =<< traverse (textAt "body") =<< listAt "writes" answer
+            =<< bodiesOf answer
 
     -- `+' on the table's one composite stop inserts AFTER it: a table is no
     -- prefix a paragraph could join, so the element lands past the whole block.
@@ -3713,7 +3699,7 @@ sheetSpec shell =
           assertEqual "a pipe row is no prefix, so the paragraph goes past the table"
             [ "* TODO one\nlead in\n| a | b |\n|---+---|\n| 1 | 2 |\n| 3 | 4 |\n\n"
               <> "note\n\n- alpha\n- beta\n\ntail para\n** two\nchild body\n" ]
-            =<< traverse (textAt "body") =<< listAt "writes" answer
+            =<< bodiesOf answer
 
   , testCase "+ inside a block lands under #+end_, never in the source" $ do
       onTable shell ("grain press:Enter press:f press:n press:n press:n press:n press:f press:+"
@@ -3722,7 +3708,7 @@ sheetSpec shell =
           [ "* TODO one\nlead in\n- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma\n\n"
             <> "#+begin_quote\nquoted one\n\nquoted two\n#+end_quote\n\nnote\n\n"
             <> "tail para\n** two\nchild body\n" ]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
       onTable shell "grain press:Enter press:f press:n press:n press:n press:n press:f press:+" $
         echoIs "named by the block's own word"
                "+ \8594 org-insert-element (after the quote)"
@@ -3735,12 +3721,12 @@ sheetSpec shell =
           "+ \8594 org-insert-element (a child's body is its own \8212 RET opens it)" answer
 
   , testCase "an empty + adds nothing, and ESC undoes nothing" $ do
-      insheet shell "press:f press:n press:n press:+ press:Enter" $ \answer -> do
+      insheet shell (ontoPara <> " press:+ press:Enter") $ \answer -> do
         assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
         echoIs "" "RET \8594 org-ctrl-c-ctrl-c (nothing added)" answer
-      insheet shell "press:f press:n press:n press:+ dpara:__ press:Enter" $ \answer ->
+      insheet shell (ontoPara <> " press:+ dpara:__ press:Enter") $ \answer ->
         assertEqual "nor whitespace" [] =<< textsAt "wroteAt" answer
-      insheet shell "press:f press:n press:n press:+ dpara:typed press:Escape" $ \answer -> do
+      insheet shell (ontoPara <> " press:+ dpara:typed press:Escape") $ \answer -> do
         assertEqual "nothing written" [] =<< textsAt "wroteAt" answer
         assertEqual "and the pane is the document it was"
                     ["first para", "second para", "child body"]
@@ -3773,15 +3759,11 @@ sheetSpec shell =
           =<< flaggedAt "downers" answer
 
   , testCase "n skims the composites whole, and p is the skim reversed" $ do
-      onTable shell "grain press:Enter press:f press:n press:n press:n press:n" $
-        assertEqual "five down crosses the list whole to the quote" 9
-          <=< pointOf
-      onTable shell ("grain press:Enter press:f press:n press:n press:n"
-               <> " press:n press:n press:n") $
-        assertEqual "seven down is the tail child, the document skimmed" 13
-          <=< pointOf
-      onTable shell
-             "grain press:Enter press:f press:n press:n press:n press:n press:p" $
+      lands (onTable shell) "grain press:Enter press:f press:n press:n press:n press:n"
+            "five down crosses the list whole to the quote" 9
+      lands (onTable shell) (ontoList <> " press:n press:n press:n")
+            "seven down is the tail child, the document skimmed" 13
+      onTable shell "grain press:Enter press:f press:n press:n press:n press:n press:p" $
         assertEqual "and p steps back over the list without entering it" 4
           <=< pointOf
 
@@ -3792,37 +3774,29 @@ sheetSpec shell =
     -- walk below — a number that moves there and not here is a red run in one of
     -- the two.
   , testCase "C-n and C-p walk the rows exactly as n and p do" $ do
-      onTable shell
-             "grain press:Enter press:f press:C-n press:C-n press:C-n press:C-n" $
+      onTable shell "grain press:Enter press:f press:C-n press:C-n press:C-n press:C-n" $
         assertEqual "five down crosses the list whole to the quote" 9
           <=< pointOf
-      onTable shell ("grain press:Enter press:f press:C-n press:C-n press:C-n"
-                     <> " press:C-n press:C-p") $
-        assertEqual "and back over the list without entering it" 4
-          <=< pointOf
+      lands (onTable shell) ("grain press:Enter press:f press:C-n press:C-n press:C-n" <> " press:C-n press:C-p")
+            "and back over the list without entering it" 4
       onTable shell (intoRun <> " press:C-n press:C-n") $ \answer -> do
         assertEqual "inside a run the chord walks the leaves" 8 =<< pointOf answer
         -- The chord echoes its own row step, `n' by another name.
         echoIs "and speaks the row step it is" "C-n → next-row" answer
-      onTable shell (intoRun <> " press:C-p") $
-        assertEqual "and C-p clamps at the first as p does" 5 <=< pointOf
+      lands (onTable shell) (intoRun <> " press:C-p") "and C-p clamps at the first as p does" 5
 
     -- `f' rolls on past the finest; `B' climbs, re-selecting what holds the leaf; going OUT of the sheet stays DEL's.
   , testCase "f enters a composite's leaves, n/p walk them, B re-selects the whole" $ do
       onTable shell intoRun $ \answer -> do
         assertEqual "f lands on the first item" 5 =<< pointOf answer
         echoIs "and says where it is" "f → grain-finer (list 1/3)" answer
-      onTable shell (intoRun <> " press:n press:n") $
-        assertEqual "n walks the items" 8 <=< pointOf
-      onTable shell (intoRun <> " press:n press:n press:n") $
-        assertEqual "and clamps at the last rather than leaving the run" 8
-          <=< pointOf
-      onTable shell (intoRun <> " press:p") $
-        assertEqual "p clamps at the first the same way" 5 <=< pointOf
+      lands (onTable shell) (intoRun <> " press:n press:n") "n walks the items" 8
+      lands (onTable shell) (intoRun <> " press:n press:n press:n")
+            "and clamps at the last rather than leaving the run" 8
+      lands (onTable shell) (intoRun <> " press:p") "p clamps at the first the same way" 5
       -- The walk steps past a sibling's descendants coming back exactly as it steps past its own going forward.
-      onTable shell (intoRun <> " press:n press:p") $
-        assertEqual "p from beta crosses the nested run to alpha" 5
-          <=< pointOf
+      lands (onTable shell) (intoRun <> " press:n press:p")
+            "p from beta crosses the nested run to alpha" 5
       onTable shell (intoRun <> " press:n press:B") $ \answer -> do
         assertEqual "B is the whole list again, from any item" 4
           =<< pointOf answer
@@ -3830,8 +3804,7 @@ sheetSpec shell =
       onTable shell intoNestedRun $ \answer -> do
         assertEqual "the nested item is one rung down" 6 =<< pointOf answer
         echoIs "counted under its parent" "f → grain-finer (item 1/1)" answer
-      onTable shell (intoNestedRun <> " press:n") $
-        assertEqual "a run of one clamps at once" 6 <=< pointOf
+      lands (onTable shell) (intoNestedRun <> " press:n") "a run of one clamps at once" 6
       onTable shell (intoNestedRun <> " press:B") $ \answer -> do
         assertEqual "B climbs to the item" 5 =<< pointOf answer
         echoIs "named as one" "B → grain-broader (item)" answer
@@ -3855,13 +3828,13 @@ sheetSpec shell =
       onTable shell "grain press:Enter press:f press:n press:n press:n press:l" $ \answer -> do
         assertEqual "l dives like f" 5 =<< pointOf answer
         echoIs "and speaks as the key pressed" "l → grain-finer (list 1/3)" answer
-      onTable shell "grain press:Enter press:f press:n press:n press:n press:ArrowRight" $
-        assertEqual "and so does the right arrow" 5 <=< pointOf
+      lands (onTable shell) "grain press:Enter press:f press:n press:n press:n press:ArrowRight"
+            "and so does the right arrow" 5
       onTable shell "grain press:Enter press:f press:h" $ \answer -> do
         assertEqual "h steps back like b" 0 =<< pointOf answer
         echoIs "" "h → grain-broader" answer
-      onTable shell "grain press:Enter press:f press:ArrowLeft" $
-        assertEqual "and so does the left arrow" 0 <=< pointOf
+      lands (onTable shell) "grain press:Enter press:f press:ArrowLeft"
+            "and so does the left arrow" 0
 
     -- AN ORG TABLE IS ONE COMPOSITE STOP: it MOUNTS a table-view widget, so its
     -- rows live in the widget, not as doc leaves.  The walk shows the table as a
@@ -3882,24 +3855,22 @@ sheetSpec shell =
           =<< flaggedAt "downers" answer
 
   , testCase "the table is one stop; f hands off to the mounted widget" $ do
-      onTable shell "tabled press:Enter press:f press:n press:n press:n" $
-        assertEqual "n from the lead-in meets the WHOLE table" 4
-          <=< pointOf
-      onTable shell "tabled press:Enter press:f press:n press:n press:n press:n" $
-        assertEqual "and the next n crosses it whole to the list" 5
-          <=< pointOf
+      lands (onTable shell) "tabled press:Enter press:f press:n press:n press:n"
+            "n from the lead-in meets the WHOLE table" 4
+      lands (onTable shell) "tabled press:Enter press:f press:n press:n press:n press:n"
+            "and the next n crosses it whole to the list" 5
       -- `f' INTO the table hands point to the table-view widget's own cell
       -- selection, so no `.de' row wears it: point leaves the doc walk.  The row
       -- and cell walk inside the mount is browser cases 77–90's ("f and b walk
       -- the cells of a table row, the widget mirroring point").
-      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f" $
-        assertEqual "f enters the widget, off the doc walk" (-1) <=< pointOf
+      lands (onTable shell) "tabled press:Enter press:f press:n press:n press:n press:f"
+            "f enters the widget, off the doc walk" (-1)
       -- And `B' climbs back out of the widget to the table stop whole, from any
       -- cell the widget's own row-walk left point on.
-      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:B" $
-        assertEqual "B is the table whole again" 4 <=< pointOf
-      onTable shell "tabled press:Enter press:f press:n press:n press:n press:f press:n press:B" $
-        assertEqual "and from a walked cell too" 4 <=< pointOf
+      lands (onTable shell) "tabled press:Enter press:f press:n press:n press:n press:f press:B"
+            "B is the table whole again" 4
+      lands (onTable shell) "tabled press:Enter press:f press:n press:n press:n press:f press:n press:B"
+            "and from a walked cell too" 4
 
     -- A ROW EDIT IS A LINE SPLICE, but it happens IN the mounted widget's cell
     -- (`.tv-cell-edit'), which the headless harness can't drive; the browser
@@ -3914,36 +3885,31 @@ sheetSpec shell =
 
     -- ORG'S CHECKBOX on the stop under point, `[-]' checking the way org checks it.
   , testCase "SPC toggles a checkbox item and writes the box alone" $ do
-      onTable shell
-             (intoChecky <> " press:Space") $ \answer -> do
+      onTable shell (intoChecky <> " press:Space") $ \answer -> do
         assertEqual "the box checked, every other byte where it was"
                     ["* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
         echoIs "and the echo names org's command"
                "SPC → org-toggle-checkbox ([X])" answer
-      onTable shell
-             (intoChecky <> " press:n press:Space") $ \answer -> do
+      onTable shell (intoChecky <> " press:n press:Space") $ \answer -> do
         assertEqual "a checked box clears"
                     ["* TODO one\n- [ ] alpha\n- [ ] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
         echoIs "and says so" "SPC → org-toggle-checkbox ([ ])" answer
-      onTable shell
-             (intoChecky <> " press:n press:n press:Space") $ \answer ->
+      onTable shell (intoChecky <> " press:n press:n press:Space") $ \answer ->
         assertEqual "the partial state checks, org's own rule"
                     ["* TODO one\n- [ ] alpha\n- [X] beta\n- [X] gamma\n- delta\n** two\nchild body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
 
     -- THE STORE LAGS THE WRITE IT ANSWERS FOR, so the reload a 200 fires DROPS any answer that is not the write's own receipt.
   , testCase "the toggle survives its own reload: the stale store answer is dropped" $ do
-      onTable shell
-             (intoChecky <> " press:Space") $ \answer -> do
+      onTable shell (intoChecky <> " press:Space") $ \answer -> do
         assertEqual "the box is flipped ON SCREEN as well as in the file"
                     ["- [X] alpha"]
           =<< (take 1 . partsOf "item" <$> docOf answer)
         assertEqual "and the sheet is synced, never conflict"
                     "synced" =<< textAt "state" answer
-      onTable shell
-             (intoChecky <> " press:Space press:Space") $ \answer -> do
+      onTable shell (intoChecky <> " press:Space press:Space") $ \answer -> do
         writes <- listAt "writes" answer
         assertEqual "two writes, the box back off"
                     [ "* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"
@@ -3964,24 +3930,22 @@ sheetSpec shell =
                       "synced" =<< textAt "state" answer
 
   , testCase "a paragraph commit keeps the pane's text over the stale re-read" $
-      insheet shell "press:f press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $ \answer -> do
+      insheet shell (ontoPara <> " press:Enter dpara:rewritten press:C-x press:C-s") $ \answer -> do
         assertEqual "the pane holds what was written"
                     ["rewritten"]
           =<< (take 1 . partsOf "para" <$> docOf answer)
         assertEqual "under the write's own receipt" "synced" =<< textAt "state" answer
 
   , testCase "SPC off a checkbox refuses, and C-c C-c is the same toggle" $ do
-      onTable shell
-             (intoChecky <> " press:n press:n press:n press:Space") $ \answer -> do
+      onTable shell (intoChecky <> " press:n press:n press:n press:Space") $ \answer -> do
         assertEqual "a bare item takes no write" ([] :: [Value])
           =<< listAt "writes" answer
         echoIs "and the echo says why"
                "SPC → org-toggle-checkbox (no checkbox here)" answer
-      onTable shell
-             (intoChecky <> " press:C-c press:C-c") $ \answer -> do
+      onTable shell (intoChecky <> " press:C-c press:C-c") $ \answer -> do
         assertEqual "org's own key runs the same toggle"
                     ["* TODO one\n- [X] alpha\n- [X] beta\n- [-] gamma\n- delta\n** two\nchild body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
         echoIs "under its own name"
                "C-c C-c → org-ctrl-c-ctrl-c ([X])" answer
 
@@ -4050,8 +4014,7 @@ sheetSpec shell =
 
     -- `o' SCOPES TO THE STOP: every lifted region sits above the paragraphs, so body lines and file lines differ by one constant.
   , testCase "o asks over the stop the cursor is on" $ do
-      onTable shell
-             "grain grainlinks press:Enter press:f press:n press:n press:n press:f press:o" $
+      onTable shell "grain grainlinks press:Enter press:f press:n press:n press:n press:f press:o" $
         \answer -> do
           assertEqual "the item's own link, opened"
                       [("https://alpha.example/", "_blank", "noopener")]
@@ -4091,9 +4054,8 @@ sheetSpec shell =
         \answer -> assertEqual "the item's OWN lines, the nested one being its own stop"
                                "- alpha\n  more alpha"
                      =<< textAt "dtext" answer
-      onTable shell
-             (intoRun <> " press:Enter dpara:-_ALPHA press:C-x press:C-s") $ \answer -> do
-        body <- traverse (textAt "body") =<< listAt "writes" answer
+      onTable shell (intoRun <> " press:Enter dpara:-_ALPHA press:C-x press:C-s") $ \answer -> do
+        body <- bodiesOf answer
         -- THE NESTED ITEM SURVIVES ITS PARENT'S EDIT: it is a stop of its own,
         -- so the parent's commit replaces the parent's lines and no more.
         assertEqual "the item's lines, and every other byte where it was"
@@ -4101,14 +4063,13 @@ sheetSpec shell =
             <> "quoted one\n\nquoted two\n#+end_quote\n\ntail para\n** two\nchild body\n" ]
           body
   , testCase "RET at the whole list edits the whole list" $ do
-      onTable shell "grain press:Enter press:f press:n press:n press:n press:Enter" $
+      onTable shell (ontoList <> " press:Enter") $
         \answer -> assertEqual "every line the composite covers"
                                "- alpha\n  more alpha\n  - nested\n\n- beta\n- gamma"
                      =<< textAt "dtext" answer
-      onTable shell
-             ("grain press:Enter press:f press:n press:n press:n press:Enter dpara:-_one|-_two"
+      onTable shell ((ontoList <> " press:Enter dpara:-_one|-_two")
               <> " press:C-x press:C-s") $ \answer -> do
-        body <- traverse (textAt "body") =<< listAt "writes" answer
+        body <- bodiesOf answer
         assertEqual "the list's whole range replaced, and nothing beyond it"
           [ "* TODO one\nlead in\n- one\n- two\n\n#+begin_quote\n"
             <> "quoted one\n\nquoted two\n#+end_quote\n\ntail para\n** two\nchild body\n" ]
@@ -4118,40 +4079,40 @@ sheetSpec shell =
   , testCase "d flags one item, or the whole list" $ do
       onTable shell (intoRun <> " press:d") $
         assertEqual "the item alone" [5] <=< flaggedOf
-      onTable shell "grain press:Enter press:f press:n press:n press:n press:d" $
+      onTable shell (ontoList <> " press:d") $
         assertEqual "or the composite alone" [4] <=< flaggedOf
-      onTable shell "grain press:Enter press:f press:n press:n press:n press:d press:d" $
+      onTable shell (ontoList <> " press:d press:d") $
         \answer -> do
-          body <- traverse (textAt "body") =<< listAt "writes" answer
+          body <- bodiesOf answer
           assertEqual "the whole list is gone, the rest untouched"
             [ "* TODO one\nlead in\n#+begin_quote\nquoted one\n\nquoted two\n"
               <> "#+end_quote\n\ntail para\n** two\nchild body\n" ] body
 
     -- ESC over an open element is the ELEMENT's; the next one reaches the sheet's own ladder.
   , testCase "ESC puts an open paragraph back, and the next one closes the sheet" $ do
-      insheet shell "press:f press:n press:n press:Enter dpara:rewritten press:Escape" $
+      insheet shell (ontoPara <> " press:Enter dpara:rewritten press:Escape") $
         \answer -> do
           assertEqual "the overlay is gone" False =<< boolAt "dparaopen" answer
           assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
           assertEqual "with nothing written" ([] :: [Value]) =<< listAt "writes" answer
           echoIs "and it said so" "ESC → keyboard-quit (element unchanged)" answer
-      insheet shell "press:f press:n press:n press:Enter press:Escape press:Escape" $
+      insheet shell (ontoPara <> " press:Enter press:Escape press:Escape") $
         assertEqual "the second one is the sheet's" "" <=< textAt "modal"
 
   , testCase "d flags a paragraph and d again splices it out of the body" $ do
-      insheet shell "press:f press:n press:n press:d" $ \answer -> do
+      insheet shell (ontoPara <> " press:d") $ \answer -> do
         assertEqual "the block wears the flag" [3] =<< flaggedOf answer
         assertEqual "and nothing is written yet" ([] :: [Value])
           =<< listAt "writes" answer
         echoIs "the pill says what the second press will do"
           "d → delete-flag (d again deletes)" answer
-      insheet shell "press:f press:n press:n press:d press:d" $ \answer -> do
+      insheet shell (ontoPara <> " press:d press:d") $ \answer -> do
         assertEqual "the body with the block and its blank line gone"
                     ["* TODO one\nsecond para\n** two\nchild body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
         echoIs "and the pill counted the set" "D → org-delete-element (1 flagged taken)" answer
       -- A HELD `d' must not flag and delete from one press.
-      insheet shell "press:f press:n press:n press:d repeat:d" $ \answer -> do
+      insheet shell (ontoPara <> " press:d repeat:d") $ \answer -> do
         assertEqual "the flag is still there" [3] =<< flaggedOf answer
         assertEqual "and nothing was written" ([] :: [Value]) =<< listAt "writes" answer
 
@@ -4160,10 +4121,10 @@ sheetSpec shell =
     -- an element delete is a recoverable trash move, so the flag is the
     -- confirmation (mirrors c880831's table-view `x').
   , testCase "x over the document splices the flagged elements at once" $ do
-      insheet shell "press:f press:n press:n press:d press:x" $ \answer -> do
+      insheet shell (ontoPara <> " press:d press:x") $ \answer -> do
         assertEqual "the flagged element spliced out at once, no ask"
                     ["* TODO one\nsecond para\n** two\nchild body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
         assertEqual "nothing asked" "" =<< textAt "prompt" answer
         assertEqual "and the flag is spent" [] =<< flaggedOf answer
         echoIs "the pill counted the set" "D \8594 org-delete-element (1 flagged taken)" answer
@@ -4216,8 +4177,7 @@ sheetSpec shell =
         assertEqual "the overlay is open" True =<< boolAt "dopen" answer
         assertEqual "and holds the title" "one" =<< textAt "dtin" answer
         assertEqual "with the focus in it" "dtin" =<< textAt "focus" answer
-      insheet shell
-             "press:Enter dtin:renamed press:Enter" $ \answer -> do
+      insheet shell "press:Enter dtin:renamed press:Enter" $ \answer -> do
         assertEqual "one set-title over this row"
                     [("set-title", ["r1"])] =<< postedOf answer
         assertEqual "and the log named both ends"
@@ -4227,22 +4187,20 @@ sheetSpec shell =
 
     -- TWO KEYS COMMIT AN OPEN ELEMENT: `C-c C-c' stops where the element does, `C-x C-s' keeps the BUFFER's half.
   , testCase "C-c C-c commits the open element, where C-x C-s does" $ do
-      insheet shell "press:f press:n press:n press:Enter dpara:rewritten press:C-c press:C-c" $
+      insheet shell (ontoPara <> " press:Enter dpara:rewritten press:C-c press:C-c") $
         \answer ->
           assertEqual "the block replaced and nothing else"
                       ["* TODO one\nrewritten\n\nsecond para\n** two\nchild body\n"]
-            =<< traverse (textAt "body") =<< listAt "writes" answer
-      insheet shell
-             "press:Enter dtin:renamed press:C-c press:C-c" $
+            =<< bodiesOf answer
+      insheet shell "press:Enter dtin:renamed press:C-c press:C-c" $
         \answer -> do
           assertEqual "one set-title over this row"
                       [("set-title", ["r1"])] =<< postedOf answer
           assertEqual "the overlay is closed" False =<< boolAt "dopen" answer
-      insheet shell
-             "press:f press:n press:n press:Enter press:C-c press:C-c" $
+      insheet shell (ontoPara <> " press:Enter press:C-c press:C-c") $
         echoIs "org's own name, on an element nothing changed in"
           "C-c C-c → org-ctrl-c-ctrl-c (paragraph unchanged)"
-      insheet shell "press:f press:n press:n press:Enter press:C-x press:C-s" $
+      insheet shell (ontoPara <> " press:Enter press:C-x press:C-s") $
         echoIs "and the buffer's name where that key ran"
           "C-x C-s → save-buffer (paragraph unchanged)"
       insheet shell "press:C-c press:C-c" $ \answer -> do
@@ -4251,14 +4209,12 @@ sheetSpec shell =
 
     -- EVERY COMMIT RE-READS THE ENTRY IT WROTE, and the entry the sheet stands on rather than the row.
   , testCase "a commit re-materializes the entry it wrote" $ do
-      insheet shell
-             "press:f press:n press:n press:Enter dpara:rewritten press:C-x press:C-s" $
+      insheet shell (ontoPara <> " press:Enter dpara:rewritten press:C-x press:C-s") $
         assertEqual "opened once, and read again on the answer"
                     ["r1", "r1"] <=< textsAt "readAt"
       -- The child's own body: `f' into it, past its meta line and its
       -- always-shown properties drawer, to the paragraph.
-      insheet shell
-             (ontoChild <> " press:Enter press:f press:n press:n press:Enter"
+      insheet shell (ontoChild <> " press:Enter press:f press:n press:n press:Enter"
                 <> " dpara:reworded press:C-x press:C-s") $
         assertEqual "the row, the child, and the child again"
                     ["r1", "r1#0", "r1#0"] <=< textsAt "readAt"
@@ -4278,15 +4234,14 @@ sheetSpec shell =
         assertEqual "opened once, then re-read on the frame"
                     ["r1", "r1"] <=< textsAt "readAt"
       -- Not while an edit is open: a re-read would pull the model out from under the fields.
-      insheet shell "press:f press:n press:n press:Enter frame:upsert=r1" $
+      insheet shell (ontoPara <> " press:Enter frame:upsert=r1") $
         assertEqual "left alone under an open element" ["r1"] <=< textsAt "readAt"
       -- Nor over an open PAIR line: it is the same overlay, over a synthesized row.
-      insheet shell "press:f press:n press:f press:Enter frame:upsert=r1" $
+      insheet shell (ontoPair <> " press:Enter frame:upsert=r1") $
         assertEqual "left alone under an open pair line" ["r1"] <=< textsAt "readAt"
       -- A COMMITTED pair edit wrote at once; until the store catches its receipt
       -- up the sheet is DIRTY, and the frame is left to the write's own retry.
-      insheet shell
-             ("press:f press:n press:f press:Enter dpara::EFFORT:_0:45"
+      insheet shell ((ontoPair <> " press:Enter dpara::EFFORT:_0:45")
                 <> " press:Enter frame:upsert=r1") $
         \answer -> do
           assertEqual "the open, then the write's own re-read and no third"
@@ -4304,16 +4259,14 @@ sheetSpec shell =
         assertEqual "the fixture entry has none, so it lands on C"
                     [Just "C"] =<< prioritiesOf answer
         echoIs "and the pill names the key that ran it" "S-<up> → priority-up ([#C] · 1)" answer
-      insheet shell
-             (ontoChild <> " press:Enter press:S-ArrowUp") $ \answer -> do
+      insheet shell (ontoChild <> " press:Enter press:S-ArrowUp") $ \answer -> do
         assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
         echoIs "and it said which key climbs out"
           "a child is not settable yet — DEL opens its parent" answer
 
     -- This listener runs AHEAD of the dispatch, so the map's ONCE list can never reach a key of its own.
   , testCase "a held S-up cycles once" $ do
-      insheet shell
-             "press:S-ArrowUp repeat:S-ArrowUp repeat:S-ArrowUp" $ \answer -> do
+      insheet shell "press:S-ArrowUp repeat:S-ArrowUp repeat:S-ArrowUp" $ \answer -> do
         assertEqual "one command, however long the key is held"
                     [("set-priority", ["r1"])] =<< postedOf answer
       insheet shell "press:f repeat:n repeat:n" $
@@ -4321,8 +4274,7 @@ sheetSpec shell =
 
     -- A CHILD IS READ-ONLY: no row id, so no `/command' can address it.
   , testCase "a child is not settable yet, and the echo says so" $ do
-      insheet shell
-             (ontoChild <> " press:Enter press:Enter") $ \answer -> do
+      insheet shell (ontoChild <> " press:Enter press:Enter") $ \answer -> do
         assertEqual "nothing posted" ([] :: [Value]) =<< listAt "commands" answer
         echoIs "and the pill named the way out"
           "RET → a child's title is not settable yet — DEL opens its parent" answer
@@ -4340,7 +4292,7 @@ sheetSpec shell =
           =<< textsAt "wroteAt" answer
         assertEqual "carrying the child's own body"
                     ["** two :web:\nreworded\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
 
   , atBoot sheet "the identity property never reaches the pane" $ \answer -> do
         rows <- pairsAt "dprops" answer
@@ -4362,19 +4314,19 @@ sheetSpec shell =
                     ["comp:properties:drawer", "+", ":PROPERTIES: \8230"]
           =<< (!! 2) <$> docOf answer
         echoIs "" "TAB → org-cycle (properties folded)" answer
-      insheet shell "press:f press:n press:f" $ \answer -> do
+      insheet shell ontoPair $ \answer -> do
         assertEqual "f into the folded drawer opens it and lands on the pair" 3
           =<< pointOf answer
         echoIs "counted like any composite" "f → grain-finer (properties 1/1)" answer
       -- FROM INSIDE, TAB reaches the nearest foldable owner: the drawer folds over point.
-      insheet shell "press:f press:n press:f press:Tab" $ \answer -> do
+      insheet shell (ontoPair <> " press:Tab") $ \answer -> do
         assertEqual "folded from the pair, point on the frame" 2 =<< pointOf answer
         echoIs "" "TAB → org-cycle (properties folded)" answer
       insheet shell "press:Tab" $
         echoIs "nowhere foldable says so" "TAB → nothing folds here"
 
   , testCase "RET on a pair opens its own line as text" $ do
-      insheet shell "press:f press:n press:f press:Enter" $ \answer -> do
+      insheet shell (ontoPair <> " press:Enter") $ \answer -> do
         assertEqual "a pair opens as its `:KEY: value' line"
                     ":EFFORT: 0:30" =<< textAt "dtext" answer
         assertEqual "over the pair's own row" 3 =<< intAt "dat" answer
@@ -4434,7 +4386,7 @@ sheetSpec shell =
 
     -- A COMMITTED PAIR EDIT IS A WRITE: the cargo rides the port, body and lists together.
   , keyed shell "a committed pair edit writes at once, the whole header on it"
-      "Enter" "press:f press:n press:f press:Enter dpara::EFFORT:_0:45 press:Enter" $
+      "Enter" (ontoPair <> " press:Enter dpara::EFFORT:_0:45 press:Enter") $
         \answer -> do
           assertEqual "one write" [fixtureBody] =<< traverse (textAt "body")
                                                 =<< listAt "writes" answer
@@ -4454,7 +4406,7 @@ sheetSpec shell =
 
     -- A TYPO NEVER WRITES PROSE INTO THE DRAWER: a line opening no `:KEY:' is refused.
   , keyed shell "a pair edited to no `:KEY: value' line is refused"
-      "Enter" "press:f press:n press:f press:Enter dpara:nonsense press:Enter" $
+      "Enter" (ontoPair <> " press:Enter dpara:nonsense press:Enter") $
         \answer -> do
           assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
           assertEqual "and the pair stands as it was" ["meta", ":EFFORT: 0:30"]
@@ -4547,8 +4499,7 @@ sheetSpec shell =
     -- is a planning entry wearing a property's clothes, and the box routes it
     -- to the planning line, upcased, with the drawer never seeing it.
   , testCase "a pair keyed for planning is written to the planning line" $ do
-      insheet shell
-             "press:f press:+ dkey:SCHEDULED press:: dval:<2026-09-01_Tue> press:Enter" $
+      insheet shell "press:f press:+ dkey:SCHEDULED press:: dval:<2026-09-01_Tue> press:Enter" $
         \answer -> do
           assertEqual "the entry replaced on the planning line"
                       [[["SCHEDULED", "<2026-09-01 Tue>"]]] =<< wroteAt "planning" answer
@@ -4565,8 +4516,7 @@ sheetSpec shell =
                     <> " — the planning line)") answer
       -- THE CASE IS THE TYPIST'S and the write's is org's, so a key case-folds
       -- to the word and lands upcased.  A word the line does not spell is ADDED.
-      insheet shell
-             "press:f press:+ dkey:deadline press:: dval:<2026-09-05_Sat> press:Enter" $
+      insheet shell "press:f press:+ dkey:deadline press:: dval:<2026-09-05_Sat> press:Enter" $
         \answer -> do
           assertEqual "the line's own entry kept, the fresh one at its end"
                       [[["SCHEDULED", sheetStamp], ["DEADLINE", "<2026-09-05 Sat>"]]]
@@ -4581,8 +4531,7 @@ sheetSpec shell =
                        <> " — the planning line)") answer
       -- CLOSED IS ONE OF THE THREE, and THE BRACKET KIND IS THE TYPIST'S: the
       -- wall asks whether org reads the value back, never which brackets it wears.
-      insheet shell
-             ("press:f press:+ dkey:Closed press::"
+      insheet shell ("press:f press:+ dkey:Closed press::"
                 <> " dval:[2026-09-02_Wed_18:30] press:Enter") $
         \answer -> do
           assertEqual "the inactive stamp the typist spelled"
@@ -4591,24 +4540,21 @@ sheetSpec shell =
           assertEqual "and no pair joined the drawer" [[["EFFORT", "0:30"]]]
             =<< wroteAt "properties" answer
       -- A RANGE IS ONE VALUE, and org's own `--' joins it.
-      insheet shell
-             ("press:f press:+ dkey:SCHEDULED press::"
+      insheet shell ("press:f press:+ dkey:SCHEDULED press::"
                 <> " dval:<2026-09-01_Tue>--<2026-09-05_Sat> press:Enter") $
         assertEqual "the range written whole"
                     [[["SCHEDULED", "<2026-09-01 Tue>--<2026-09-05 Sat>"]]]
           <=< wroteAt "planning"
       -- AND THE `--7d' INSIDE A STAMP IS A WARNING COOKIE rather than that join:
       -- a stamp ends at its own bracket, so the wall never has to guess.
-      insheet shell
-             ("press:f press:+ dkey:DEADLINE press::"
+      insheet shell ("press:f press:+ dkey:DEADLINE press::"
                 <> " dval:<2026-09-05_Sat_.+2d_--7d> press:Enter") $
         assertEqual "org's own cookies ride the value"
                     [[["SCHEDULED", sheetStamp], ["DEADLINE", "<2026-09-05 Sat .+2d --7d>"]]]
           <=< wroteAt "planning"
       -- EACH FIELD IS A DECIMAL RUN to the parser, so a date spelled without its
       -- leading zeroes IS a date: the box may not refuse a value the server takes.
-      insheet shell
-             "press:f press:+ dkey:SCHEDULED press:: dval:<2026-8-1_Sat> press:Enter" $
+      insheet shell "press:f press:+ dkey:SCHEDULED press:: dval:<2026-8-1_Sat> press:Enter" $
         \answer -> do
           assertEqual "the single-digit month and day written as they were typed"
                       [[["SCHEDULED", "<2026-8-1 Sat>"]]] =<< wroteAt "planning" answer
@@ -4647,8 +4593,7 @@ sheetSpec shell =
       -- BOTH HALVES OF A RANGE WEAR ONE BRACKET: the parser takes the pair's
       -- OPENING bracket again after the `--', so a mixed range reparses as
       -- nothing and the box has to refuse it where the box still stands.
-      insheet shell
-             ("press:f press:+ dkey:SCHEDULED press::"
+      insheet shell ("press:f press:+ dkey:SCHEDULED press::"
                 <> " dval:<2026-09-01_Tue>--[2026-09-05_Sat] press:Enter") $
         \answer -> do
           assertEqual "nothing written" ([] :: [Value]) =<< listAt "writes" answer
@@ -4725,8 +4670,7 @@ sheetSpec shell =
           =<< intAt "dofferat" answer
       -- ACCEPTING ONE FLOWS THE NORMAL `:'/TAB ADVANCE, and the write routes.
       -- The offer is one `C-n' under the typed line, which is how it is reached.
-      insheet shell
-             ("press:f press:+ dkey:sch press:C-n press::"
+      insheet shell ("press:f press:+ dkey:sch press:C-n press::"
                 <> " dval:<2026-09-01_Tue> press:Enter") $
         \answer -> do
           assertEqual "the offer taken, upcased, and routed"
@@ -4735,8 +4679,7 @@ sheetSpec shell =
             =<< wroteAt "properties" answer
       -- AND WITHOUT THAT WALK THE PARTIAL KEY IS THE KEY: `sch' is a property
       -- the tree has never held, so it lands in the drawer as it was spelled.
-      insheet shell
-             "press:f press:+ dkey:sch press:: dval:soon press:Enter" $
+      insheet shell "press:f press:+ dkey:sch press:: dval:soon press:Enter" $
         \answer -> do
           assertEqual "the drawer takes the word typed"
                       [[["EFFORT", "0:30"], ["sch", "soon"]]]
@@ -4767,14 +4710,12 @@ sheetSpec shell =
             =<< wroteAt "properties" answer
       -- Taking a VALUE offer is DRY: it fills the field, and the apply stays the
       -- reader's own next press.
-      insheet shell
-             "press:f press:+ dkey:OWNER press:: dval:ad press:C-n press:Enter press:Enter" $
+      insheet shell "press:f press:+ dkey:OWNER press:: dval:ad press:C-n press:Enter press:Enter" $
         \answer ->
           assertEqual "walking onto the offer still completes to it"
                       [[["EFFORT", "0:30"], ["OWNER", "ada"]]]
             =<< wroteAt "properties" answer
-      insheet shell
-             ("press:f press:+ dkey:OWNER press:: dval:ad"
+      insheet shell ("press:f press:+ dkey:OWNER press:: dval:ad"
                 <> " press:C-n press:C-p press:Enter") $
         \answer ->
           assertEqual "and walking back lands on the typed line again"
@@ -4804,14 +4745,12 @@ sheetSpec shell =
             =<< wroteAt "properties" answer
 
   , testCase "ESC puts an open pair back, and the next one closes the sheet" $ do
-      insheet shell
-             "press:f press:n press:f press:Enter dpara:junk press:Escape" $ \answer -> do
+      insheet shell (ontoPair <> " press:Enter dpara:junk press:Escape") $ \answer -> do
         assertEqual "the pair as it was" ["meta", ":EFFORT: 0:30"]
           =<< (!! 3) <$> docOf answer
         assertEqual "the sheet is still up" "on" =<< textAt "modal" answer
         assertEqual "with nothing written" ([] :: [Value]) =<< listAt "writes" answer
-      insheet shell
-             "press:f press:n press:f press:Enter press:Escape press:Escape" $
+      insheet shell (ontoPair <> " press:Enter press:Escape press:Escape") $
         assertEqual "the second one is the sheet's" "" <=< textAt "modal"
 
     -- C-c ' RE-MATERIALIZES rather than converting locally, which keeps an org parser out of this page.
@@ -4836,8 +4775,7 @@ sheetSpec shell =
           echoIs "named the key" "C-c ' → org-edit-special (sync first — C-x C-s)" answer
       -- The write LANDED but the store still answers the old digest: until the
       -- re-read catches the receipt up, the sheet is dirty and the toggle waits.
-      insheet shell
-             ("press:f press:n press:f press:Enter dpara::EFFORT:_0:45"
+      insheet shell ((ontoPair <> " press:Enter dpara::EFFORT:_0:45")
                 <> " press:Enter press:C-c press:'") $
         \answer -> do
           assertEqual "a header edit the store has not caught up with is dirty too"
@@ -4846,13 +4784,13 @@ sheetSpec shell =
 
     -- An edit nobody committed is not one.
   , keyed shell "an open pair line is not an edit until it is committed"
-      "Enter" ("press:f press:n press:f press:Enter dpara::EFFORT:_0:45"
+      "Enter" ((ontoPair <> " press:Enter dpara::EFFORT:_0:45")
                 <> " press:C-c press:'") $ \answer -> do
         assertEqual "the toggle went through" "raw" =<< textAt "shape" answer
         echoIs "and said so" "C-c ' → org-edit-special (raw org)" answer
 
   , keyed shell "a remount carries the sheet's edited header across it"
-      "Enter" ("press:f press:n press:f press:Enter dpara::EFFORT:_0:45"
+      "Enter" ((ontoPair <> " press:Enter dpara::EFFORT:_0:45")
                 <> " press:Enter close:view-changed") $
         \answer -> do
           assertEqual "mounted twice" 2 =<< intAt "mounts" answer
@@ -4892,7 +4830,7 @@ sheetSpec shell =
 
     -- The FOLDS are reseeded per fill: what the reader opened does not outlive the sheet.
   , keyed shell "the drawer starts folded again when the sheet is reopened"
-      "Enter" "press:f press:n press:f press:Escape press:Enter" $
+      "Enter" (ontoPair <> " press:Escape press:Enter") $
         \answer -> do
           assertEqual "one folded line again" ["comp:properties:drawer", "+", ":PROPERTIES: \8230"]
             =<< (!! 2) <$> docOf answer
@@ -4912,14 +4850,13 @@ sheetSpec shell =
 
     -- A DELETED PAIR LEAVES THROUGH THE LISTS, never the splice: the write follows at once.
   , testCase "d again deletes the pair through the lists, and D is that press alone" $ do
-      insheet shell
-             "press:f press:n press:f press:d press:d" $ \answer -> do
+      insheet shell (ontoPair <> " press:d press:d") $ \answer -> do
         assertEqual "the drawer the write asks for" [[]]
                     =<< wroteAt "properties" answer
         assertEqual "the flag was spent with it" ([] :: [Int])
                     =<< flaggedOf answer
         echoIs "and the pill counted the set" "D → org-delete-element (1 flagged taken)" answer
-      insheet shell "press:f press:n press:f press:D" $
+      insheet shell (ontoPair <> " press:D") $
         \answer -> do
           assertEqual "D needs no flag: the row at point is the set" [[]]
             =<< wroteAt "properties" answer
@@ -4951,8 +4888,7 @@ sheetSpec shell =
         assertEqual "and nothing written" ([] :: [Value]) =<< listAt "writes" answer
 
   , testCase "a deletion writes at once, and a flag alone writes nothing" $ do
-      insheet shell
-             "press:f press:n press:f press:d press:d" $
+      insheet shell (ontoPair <> " press:d press:d") $
         \answer ->
           assertEqual "and it landed" "synced" =<< textAt "state" answer
       insheet shell "press:f press:d press:Escape" $
@@ -5012,22 +4948,15 @@ dateWidgetSpec shell = testGroup "Shell date widget"
                     ([] :: [Value]) =<< listAt "commands" answer
       -- A TERM STILL BEING WRITTEN IS NO MISTAKE: `18 a' is a month halfway
       -- typed, and a refusal flashed at every keystroke is one nobody reads.
-      insheet shell (pinned <> " press:C-c press:C-s dwhen:18_a") $ \answer -> do
-        assertEqual "the ghost is dark over a half-typed month" ""
-          =<< textAt "dghost" answer
-        assertEqual "and wears no refusal" False =<< boolAt "dghostbad" answer
+      ghostOver "18_a" "the ghost is dark over a half-typed month" ("", Just False)
       -- A HARD REFUSAL SPEAKS, in the refusal's own ink and the corpus's own
       -- word: no further character rescues a day that is not on the calendar.
-      insheet shell (pinned <> " press:C-c press:C-s dwhen:31_february") $ \answer -> do
-        assertEqual "the short word, which is all a trailing ghost has room for"
-                    " \10007 not a date" =<< textAt "dghost" answer
-        assertEqual "wearing the refusal's ink" True =<< boolAt "dghostbad" answer
+      ghostOver "31_february" "the short word a trailing ghost has room for"
+                (" \10007 not a date", Just True)
       -- AN INVERTED RANGE GETS THE SECOND WORD: "not a date" reads oddly of a
       -- phrase naming two perfectly good days in the wrong order.
-      insheet shell (pinned <> " press:C-c press:C-s dwhen:from_30_dec_to_2_jan") $
-        \answer ->
-          assertEqual "the inversion is spelled apart"
-                      " \10007 ends before it starts" =<< textAt "dghost" answer
+      ghostOver "from_30_dec_to_2_jan" "the inversion is spelled apart"
+                (" \10007 ends before it starts", Nothing)
       -- AND IT FALLS SILENT WHERE THE RESOLUTION IS WHAT WAS TYPED: drawing the
       -- same string twice on one line is the duplication the shape is against.
       insheet shell (pinned <> " press:C-c press:C-s dwhen:<2026-08-05_Mon>") $
@@ -5040,8 +4969,7 @@ dateWidgetSpec shell = testGroup "Shell date widget"
       -- Wednesday, and org's own bracket goes through VERBATIM, wrong weekday
       -- and all (`test/TestQuery.hs:1791' pins the wall's half of it).  A pass
       -- that made the renderer uniform would silently respell this.
-      insheet shell
-              (pinned <> " press:C-c press:C-s dwhen:<2026-08-05_Mon> press:Enter") $
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:<2026-08-05_Mon> press:Enter") $
         \answer ->
           assertEqual "the bytes the reader typed, not the bytes a calendar says"
                       [("SCHEDULED", Just "<2026-08-05 Mon>")] =<< plannedOf answer
@@ -5058,15 +4986,11 @@ dateWidgetSpec shell = testGroup "Shell date widget"
                     " \8594 [2026-08-22 Sat]" =<< textAt "dghost" answer
         assertEqual "in the mute ink, not the marked one" False
           =<< boolAt "dghostbad" answer
-      insheet shell (pinned <> " press:C-c press:C-s dwhen:[18_aug]") $ \answer ->
-        assertEqual "the English phrase inside the bracket, likewise"
-                    " \8594 [2026-08-18 Tue]" =<< textAt "dghost" answer
+      ghostOver "[18_aug]" "the English phrase inside the bracket, likewise"
+                (" \8594 [2026-08-18 Tue]", Nothing)
       -- AN UNCLOSED BRACKET IS STILL BEING TYPED, and the very next character
       -- may be the `]' that resolves it: the shipped law, kept under the new arm.
-      insheet shell (pinned <> " press:C-c press:C-s dwhen:[18_aug") $ \answer -> do
-        assertEqual "the ghost is dark over an unclosed bracket" ""
-          =<< textAt "dghost" answer
-        assertEqual "and wears no refusal" False =<< boolAt "dghostbad" answer
+      ghostOver "[18_aug" "the ghost is dark over an unclosed bracket" ("", Just False)
       -- ORG'S OWN SPELLING OUTRANKS THE ARM: an inactive bracket that reparses
       -- is kept verbatim, so the ghost still has nothing to add to it.
       insheet shell (pinned <> " press:C-c press:C-s dwhen:[2026-08-05_Mon]") $
@@ -5075,10 +4999,8 @@ dateWidgetSpec shell = testGroup "Shell date widget"
             =<< textAt "dwhen" answer
           assertEqual "and the ghost adds nothing to it" "" =<< textAt "dghost" answer
       -- A BODY NO READING TAKES KEEPS THE BRACKET'S OWN REFUSAL, in its word.
-      insheet shell (pinned <> " press:C-c press:C-s dwhen:[foo]") $ \answer -> do
-        assertEqual "the short word a trailing ghost has room for"
-                    " \10007 not a date" =<< textAt "dghost" answer
-        assertEqual "wearing the refusal's ink" True =<< boolAt "dghostbad" answer
+      ghostOver "[foo]" "the short word a trailing ghost has room for"
+                (" \10007 not a date", Just True)
 
     -- AND THE BRACKETS TRAVEL RAW LIKE EVERY OTHER PHRASE: the ghost resolved
     -- for ink, the server resolves for bytes.
@@ -5125,7 +5047,7 @@ dateWidgetSpec shell = testGroup "Shell date widget"
                     [[["SCHEDULED", "18 aug"]]] =<< wroteAt "planning" answer
         assertEqual "beside the child's own body, so no byte of the row rides along"
                     ["** two :web:\nchild body\n"]
-          =<< traverse (textAt "body") =<< listAt "writes" answer
+          =<< bodiesOf answer
         echoIs "and the pill names the commit's own key"
                "RET \8594 org-glance-overview:schedule (18 aug)" answer
       -- AND THE CLEAR RIDES THE SAME DOOR: an empty value is how org takes an
@@ -5280,8 +5202,7 @@ dateWidgetSpec shell = testGroup "Shell date widget"
     -- THE ESCAPE IS FROM THE EDIT, and the sheet comes back byte for byte --
     -- including the planning line's own ABSENCE where the summon drew it in.
   , testCase "ESC takes the widget and the keyword it ghosted in" $
-      insheet shell
-              (pinned <> " press:C-c press:C-d dwhen:18_aug press:Escape") $ \answer -> do
+      insheet shell (pinned <> " press:C-c press:C-d dwhen:18_aug press:Escape") $ \answer -> do
         assertEqual "the widget is gone" False =<< boolAt "ddateopen" answer
         assertEqual "and the document is the one it opened over"
                     fixtureDoc =<< docOf answer
@@ -5428,56 +5349,37 @@ dateWidgetSpec shell = testGroup "Shell date widget"
     -- THE DAY AND NOTHING ELSE: the row's own value is org's bracket, so the
     -- step writes a bracket back rather than the bare ISO it once wrote.
   , testCase "the shifted arrows adjust in place, and the ghost follows" $ do
-      insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowRight") $ \answer -> do
-        assertEqual "a day forward, written into the field"
-                    "<2026-08-02 Sun>" =<< textAt "dwhen" answer
-        assertEqual "and the ghost has nothing to add to its own spelling"
-                    "" =<< textAt "dghost" answer
-      insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowLeft") $ \answer ->
-        assertEqual "and back" "<2026-07-31 Fri>" =<< textAt "dwhen" answer
-      insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowDown") $ \answer ->
-        assertEqual "a week down" "<2026-08-08 Sat>" =<< textAt "dwhen" answer
-      insheet shell (pinned <> " press:C-c press:C-s press:S-ArrowUp") $ \answer ->
-        assertEqual "and a week up" "<2026-07-25 Sat>" =<< textAt "dwhen" answer
+      stepsTo "press:S-ArrowRight" "a day forward, written into the field"
+              ("<2026-08-02 Sun>", Just "")
+      stepsTo "press:S-ArrowLeft" "and back" ("<2026-07-31 Fri>", Nothing)
+      stepsTo "press:S-ArrowDown" "a week down" ("<2026-08-08 Sat>", Nothing)
+      stepsTo "press:S-ArrowUp" "and a week up" ("<2026-07-25 Sat>", Nothing)
       -- A BARE PHRASE CARRIES NO BRACKET, so the step writes the bare ISO every
       -- wall reads back -- and THAT is the ghost the walk still follows.
-      insheet shell (pinned <> " press:C-c press:C-s dwhen:18_aug"
-                            <> " press:S-ArrowRight") $ \answer -> do
-        assertEqual "a phrase resolves and walks as bare ISO" "2026-08-19"
-          =<< textAt "dwhen" answer
-        assertEqual "and the ghost is the day it now names"
-                    " \8594 <2026-08-19 Wed>" =<< textAt "dghost" answer
+      stepsTo "dwhen:18_aug press:S-ArrowRight"
+              "a phrase resolves and walks as bare ISO"
+              ("2026-08-19", Just " \8594 <2026-08-19 Wed>")
       -- THE BRACKET THE READER ASKED FOR IS THE READER'S: a step off a resolved
       -- `[today]' that wrote bare ISO back would drop the INACTIVE intent, and
       -- there is no other way to ask this widget for org's other bracket.
-      insheet shell (pinned <> " press:C-c press:C-s dwhen:[today]"
-                            <> " press:S-ArrowRight") $ \answer -> do
-        assertEqual "the day moved and the pair it was asked in stands"
-                    "[2026-08-23 Sun]" =<< textAt "dwhen" answer
-        assertEqual "so the ghost has nothing to add" "" =<< textAt "dghost" answer
+      stepsTo "dwhen:[today] press:S-ArrowRight"
+              "the day moved and the pair it was asked in stands"
+              ("[2026-08-23 Sun]", Just "")
       -- AND THE TAIL RIDES BYTE FOR BYTE: a repeater is the entry's own, and a
       -- step that RECOMPOSED the stamp dropped it on the first press.
-      insheet shell (pinned <> " press:C-c press:C-s dwhen:<2026-08-24_Mon_+1y>"
-                            <> " press:S-ArrowRight") $ \answer -> do
-        assertEqual "the day moved, the cookie behind the weekday did not"
-                    "<2026-08-25 Tue +1y>" =<< textAt "dwhen" answer
-        assertEqual "and it still reads back as org's own spelling" ""
-          =<< textAt "dghost" answer
+      stepsTo "dwhen:<2026-08-24_Mon_+1y> press:S-ArrowRight"
+              "the day moved, the cookie behind the weekday did not"
+              ("<2026-08-25 Tue +1y>", Just "")
       -- A YEAR UNDER 100 WALKS ONE DAY AND NOT NINETEEN CENTURIES: `Date.UTC'
       -- reads 0..99 as 1900+y, and the arrows ran their arithmetic through it.
       -- TWICE, because the step WRITES ITS ANSWER BACK into the field and the
       -- next press must read that answer: the bare ISO's year is any digit run
       -- at both doors, or the walk stops dead after one step.
-      insheet shell (pinned <> " press:C-c press:C-s dwhen:0099-01-01"
-                            <> " press:S-ArrowRight") $ \answer -> do
-        assertEqual "a day forward off a small year" "99-01-02"
-          =<< textAt "dwhen" answer
-        assertEqual "and the ghost is the wall's own stamp for it"
-                    " \8594 <99-01-02 Fri>" =<< textAt "dghost" answer
-      insheet shell (pinned <> " press:C-c press:C-s dwhen:0099-01-01"
-                            <> " press:S-ArrowRight press:S-ArrowRight") $ \answer ->
-        assertEqual "and the walk goes on from what it wrote" "99-01-03"
-          =<< textAt "dwhen" answer
+      stepsTo "dwhen:0099-01-01 press:S-ArrowRight"
+              "a day forward off a small year"
+              ("99-01-02", Just " \8594 <99-01-02 Fri>")
+      stepsTo "dwhen:0099-01-01 press:S-ArrowRight press:S-ArrowRight"
+              "and the walk goes on from what it wrote" ("99-01-03", Nothing)
 
     -- OFFERS STAND AT FRESH AND UNFINISHED POSITIONS AND NOWHERE ELSE, and a
     -- DATE offer resolves -- so the hint column is the offer's own preview.
@@ -5503,8 +5405,7 @@ dateWidgetSpec shell = testGroup "Shell date widget"
             =<< listAt "commands" answer
       -- RET IS DRY OVER AN OFFER THE WALK LANDED ON, and FINAL over the value
       -- taking it left standing: two presses, and the first writes nothing.
-      insheet shell
-              (pinned <> " press:C-c press:C-s dwhen:18_a press:C-n press:Enter") $
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:18_a press:C-n press:Enter") $
         \answer -> do
           assertEqual "the offer under point is taken" "18 april"
             =<< textAt "dwhen" answer
@@ -5519,16 +5420,14 @@ dateWidgetSpec shell = testGroup "Shell date widget"
 
     -- ONE WIDGET, BOTH DOORS: the pair box's value half, where its key routes.
   , testCase "the pair box's value half wears the same ghost" $ do
-      insheet shell
-              (pinned <> " press:f press:+ dkey:SCHEDULED press:: dval:18_aug") $
+      insheet shell (pinned <> " press:f press:+ dkey:SCHEDULED press:: dval:18_aug") $
         \answer -> do
           assertEqual "the value half previews what it will land"
                       " \8594 <2026-08-18 Tue>" =<< textAt "dvghost" answer
           assertEqual "and a finished value carries no offers" [] =<< offersOf answer
       -- ITS OFFERS ARE DATES, hinted with what they RESOLVE TO -- the one thing
       -- a date vocabulary can do that the tree's property vocabulary cannot.
-      insheet shell
-              (pinned <> " press:f press:+ dkey:SCHEDULED press:: dval:18_a") $
+      insheet shell (pinned <> " press:f press:+ dkey:SCHEDULED press:: dval:18_a") $
         \answer ->
           assertEqual "the reader's own line, then the months it could be"
                       [ ("18 a", "new")
@@ -5542,8 +5441,7 @@ dateWidgetSpec shell = testGroup "Shell date widget"
                       "" =<< textAt "dvghost" answer
       -- AND THE PHRASE REACHES THE WALL AS IT WAS TYPED: the box's own wall is
       -- the grammar's, or a phrase the server would accept is refused here.
-      insheet shell
-              (pinned <> " press:f press:+ dkey:SCHEDULED press:: dval:18_aug press:Enter") $
+      insheet shell (pinned <> " press:f press:+ dkey:SCHEDULED press:: dval:18_aug press:Enter") $
         \answer ->
           assertEqual "the raw phrase on the planning line"
                       [[["SCHEDULED", "18 aug"]]] =<< wroteAt "planning" answer
@@ -5581,6 +5479,21 @@ dateWidgetSpec shell = testGroup "Shell date widget"
     -- asks for this one, or an answer moves with the calendar the suite runs on.
     refDay = "2026-08-22"
     pinned = "dateon:" <> refDay
+    -- SCRIPT typed into the open widget: the field reads WROTE, and the ghost
+    -- SAYS where the case states anything about it.
+    -- TYPED into the open widget: the ink trailing the field, and whether it
+    -- wears the refusal's mark where the case states anything about it.
+    ghostOver typed what (said, bad) =
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:" <> typed) $ \answer -> do
+        assertEqual what said =<< textAt "dghost" answer
+        mapM_ (\m -> assertEqual (what <> ": the refusal's ink") m
+                       =<< boolAt "dghostbad" answer)
+              bad
+    stepsTo script what (wrote, said) =
+      insheet shell (pinned <> " press:C-c press:C-s " <> script) $ \answer -> do
+        assertEqual what wrote =<< textAt "dwhen" answer
+        mapM_ (\g -> assertEqual (what <> ": the ghost") g =<< textAt "dghost" answer)
+              said
     typing p = "dtyping:" <> refDay <> "/" <> spelled p
     -- ONE ALLOWANCE, and it PINS rather than excuses: a phrase the corpus
     -- REFUSES may be a proper prefix of one it accepts, and there the ghost is
@@ -5673,8 +5586,7 @@ settingsSpec shell =
         assertEqual "ui" "ui" <=< textAt "ctab"
 
     -- THE THEME SELECT IS THE REGISTRY'S: a DERIVED oracle, so a hard-coded option here fails.
-  , testCase "the theme select is one option per theme this build carries" $ do
-      page <- shell
+  , shellCase shell "the theme select is one option per theme this build carries" $ \page -> do
       holdsAll "auto leads, then the registry in its own order"
         (  ["<option value=\"auto\">auto</option>"]
         <> [ "<option value=\"" <> thId t <> "\">" <> thLabel t <> "</option>"
@@ -5698,10 +5610,6 @@ settingsSpec shell =
   , keyed shell "and closing the capture form takes the parameter off"
       "+" "press:Escape" $ \answer ->
         urlIs "the query alone again" "?q=state%3A*active*" answer
-
-  , keyed shell "a tab shows its own panel and no other"
-      "," "ctab:ui" $ \answer ->
-        assertEqual "the ui panel" "ui" =<< textAt "ctab" answer
 
   , keyed shell "TAB walks the panels and wraps"
       "," "press:Tab" $ \answer ->
@@ -6392,9 +6300,16 @@ insheet shell = bootOf shell "" 500 "Enter"
 
 -- | The three key scripts that put point INSIDE a list: the grain tree's outer run, its nested run, and the checkbox tree's run.  Each opens the sheet, enters the body with `f' and walks down to the list and steps into it.
 intoRun, intoNestedRun, intoChecky :: T.Text
-intoRun       = "grain press:Enter press:f press:n press:n press:n press:f"
+intoRun       = ontoList <> " press:f"
 intoNestedRun = intoRun <> " press:f"
 intoChecky    = "checky press:Enter press:f press:n press:n press:f"
+
+-- | The three walks an action is pressed AFTER: onto the fixture's first
+-- paragraph, onto its drawer, and onto the grain tree's outer list.
+ontoPara, ontoPair, ontoList :: T.Text
+ontoPara = "press:f press:n press:n"
+ontoPair = "press:f press:n press:f"
+ontoList = "grain press:Enter press:f press:n press:n press:n"
 
 -- | THE ROOT STEPS INTO ITS CONTENTS, so the fixture's child is five `n' down:
 -- the planning line, the drawer and the two paragraphs, then the child itself.
@@ -6698,7 +6613,6 @@ gridSweep shell = testCase "the star gutter and the body indent are one arithmet
                  "    padding:1px var(--g-doc-pad);" page
   assertBool ("the base is a length: " <> T.unpack base) (not (T.null base))
 
--- | POPUP SIZE IS A TIER: every box wears one of the three and no box rule declares a size.
 -- | ONE PALETTE, TWO NAMESPACES, DERIVED: the values are read out of the served page and COMPARED.
 paletteSweep :: IO T.Text -> TestTree
 paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
@@ -6750,6 +6664,7 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
         , ":where(:root[data-theme=\"dark\"] .tv-root){"
         , ":where(:root[data-theme=\"light\"] .tv-root){" ]
 
+-- | POPUP SIZE IS A TIER: every box wears one of the three and no box rule declares a size.
 tierSweep :: IO T.Text -> TestTree
 tierSweep shell = testCase "every popup wears one size tier, and declares none" $ do
   page <- shell
@@ -7080,7 +6995,7 @@ shellGlue =
       , "tmount = listing(\"ttable\", TCOLS, \"d/D remove · u unflag\", \"tpane\");"
       , "const managing = () => !!tagging;"
       , "cells: [\"title\"], cols: TCOLS,"
-      , "const renaming = () => { const e = editNow(); return !!e && e.o === TROW; };"
+      , "const renaming = () => editIn(TROW);"
       , "openOver(TROW, tagAt(), \"org-rename-tag (no tag)\")"
       -- The write is ONE command over the tag the overlay OPENED on rather than the one under the cursor.
       , "renameTag(edit.row, el(\"tname\").value);"
@@ -7129,14 +7044,15 @@ shellGlue =
       -- THE SNAPSHOT: a commit reads the row the overlay OPENED over, never the cursor.
       , "const r = edit.row;"
       -- The seven, each named by the predicate or the commit that asks for it.
-      , "const dediting = () => !!edit && edit.o === DTITLE;"
-      , "const dparaing = () => !!edit && edit.o === DPARA;"
-      , "const dpairing = () => !!edit && edit.o === DPAIR;"
-      , "const ddating = () => !!edit && edit.o === DDATE;"
-      , "const sediting = () => !!edit && edit.o === SROW;"
+      , "const editIn = (o) => !!edit && edit.o === o;"
+      , "const dediting = () => editIn(DTITLE);"
+      , "const dparaing = () => editIn(DPARA);"
+      , "const dpairing = () => editIn(DPAIR);"
+      , "const ddating = () => editIn(DDATE);"
+      , "const sediting = () => editIn(SROW);"
       -- SHARING THE STATE MUST NOT SHARE THE SHUTTER: an unscoped shut would cancel another surface's open edit.
       , "function shutEdit(o) {"
-      , "if (!edit || edit.o !== o) return;"
+      , "if (!editIn(o)) return;"
       , "for (const o of shapes) shutEdit(o);"
       -- THE RESTORE ANSWERS WITH THE ECHO'S WORD AND NEVER SPEAKS IT: the summon
       -- switch takes the standing widget down through it and speaks for the box
@@ -7166,7 +7082,7 @@ shellGlue =
       , "if (editing.child === null) { leaveSheet(); return; }"
       , "reread(up === null ? undefined : up, (h, fresh) => {"
       -- A KEY THIS LISTENER CLAIMED IS NOT THE MAP'S, or the table's own `DEL' would strip a token on the same press.
-      , "if (e.defaultPrevented) return;"
+      , "onKeys((e) => !e.defaultPrevented, (k, e) => {"
       , "let drows = [], dat = 0;"
       , "dflags = now.flags; dbody = now.body;"
       -- THE LIFTED HEADER RIDES THE SAME PUSH: the mirrors are the write's lists.
@@ -7430,12 +7346,11 @@ shellGlue =
       , "<option value=\"60\">60%</option>", "<option value=\"80\">80%</option>"
       , "const READ = { key: \"glance-reading-line\", def: 60, min: 20, max: 90 };"
       , "const readPref = pref(READ.key, String(READ.def));"
-      , "return Math.max(READ.min, Math.min(READ.max, +t));"
+      , "return clamp(+t, READ.min, READ.max);"
       , "el(\"readsel\").addEventListener(\"change\""
       , "echo(`reading line: ${readingLine()}%`);"
       -- 20-sheet loads first, so the preference goes in as a THUNK.
-      , "const readingPct = () => readingLine();"
-      , "line: (b) => b.height * readingPct() / 100 };" ]
+      , "line: (b) => b.height * readingLine() / 100 };" ]
 
   -- A value outside the band is declined rather than clamped, and blank is how a reader asks for the default back.
   , glue "the log's height is a stored preference no field reaches"
@@ -7458,7 +7373,7 @@ shellGlue =
       , "\"def\":100", "\"min\":50", "\"max\":300", "\"key\":\"glance-zoom\""
       , "\"step\":1.1"
       , "const zoomPref = pref(ZOOM.key, \"\");"
-      , "const zoomBand = (n) => Math.max(ZOOM.min, Math.min(ZOOM.max, Math.round(n)));"
+      , "const zoomBand = (n) => clamp(Math.round(n), ZOOM.min, ZOOM.max);"
       , "return /^[0-9]+$/.test(t) ? zoomBand(+t) : ZOOM.def;"
       -- THE POST IS IMMEDIATE AND THE STORE'S WRITE TRAILS IT: a held key
       -- repeats some thirty times a second, and the store is synchronous.
@@ -7558,7 +7473,7 @@ shellGlue =
       [ "box: \"ledit\", pane: \"lpane\", fields: [\"ltitle\", \"lurl\"],"
       -- BY KEY against the column list the server declared, so reordering those columns takes the box with them.
       , "cells: [\"title\", \"url\"], cols: LCOLS,"
-      , "const lediting = () => { const e = editNow(); return !!e && e.o === LROW; };"
+      , "const lediting = () => editIn(LROW);"
       , "openOver(LROW, pointedRow(), \"org-insert-link (no link)\")"
       , "else if (k === \"RET\") commitLink(edit.row);"
       , "const args = { span: link.span, target };"
@@ -7617,7 +7532,7 @@ shellGlue =
   -- ONE LISTENER SHAPE FOR THE TWO BROWSING POPUPS: a key another listener has already CLAIMED is nobody else's.
   , Glue "the two browsing popups share one listener"
       [ "function popupKeys(name, mount, o) {"
-      , "if (momentary() !== name || e.defaultPrevented) return;"
+      , "onKeys((e) => momentary() === name && !e.defaultPrevented, (k, e) => {"
       , "popupKeys(\"links\", linkMount, {"
       , "popupKeys(\"tags\", tagMount, {"
       , "flagPress(k, e, TFLAGS)" ]
@@ -7818,7 +7733,7 @@ shellGlue =
 indexingSpec :: TestTree
 indexingSpec = testGroup "Indexing (bind before load)"
   [ testCase "/headlines is a 503 that says when to come back" $ do
-      application' <- indexingApp
+      application' <- loadingApp
       r <- getFrom application' "/headlines"
       assertEqual "status" 503 (status r)
       assertEqual "retry" (Just "1") (header "Retry-After" r)
@@ -7838,7 +7753,7 @@ indexingSpec = testGroup "Indexing (bind before load)"
       assertEqual "with parameters" 503 (status q)
 
   , testCase "materialize and commit wait for the load too" $ do
-      application' <- indexingApp
+      application' <- loadingApp
       r <- getFrom application' (headlinePath "sample.org#0")
       assertEqual "GET /headline" 503 (status r)
       -- The 503 is the honest answer, and the retriable one.
@@ -7847,26 +7762,26 @@ indexingSpec = testGroup "Indexing (bind before load)"
       assertEqual "retry" (Just "1") (header "Retry-After" w)
 
   , testCase "/ws says the same, so a client reconnects rather than mounts" $ do
-      application' <- indexingApp
+      application' <- loadingApp
       r <- getFrom application' "/ws"
       assertEqual "status" 503 (status r)
 
     -- The resolution is the store's, so serving it early would answer for a row the walk has not reached.
   , testCase "/keywords waits for the store the rows come out of" $ do
-      application' <- indexingApp
+      application' <- loadingApp
       r <- getFrom application' "/keywords?ids=sample.org%230"
       assertEqual "status" 503 (status r)
       assertEqual "retry" (Just "1") (header "Retry-After" r)
 
   , testCase "and /tags waits for the same store" $ do
-      application' <- indexingApp
+      application' <- loadingApp
       r <- getFrom application' "/tags?ids=sample.org%230"
       assertEqual "status" 503 (status r)
       assertEqual "retry" (Just "1") (header "Retry-After" r)
 
     -- The layer list comes off the store's own `clDirs' — the config directories the WALK met.
   , testCase "/config waits for the walk, since the layers are what it found" $ do
-      application' <- indexingApp
+      application' <- loadingApp
       r <- getFrom application' "/config"
       assertEqual "GET" 503 (status r)
       w <- postTo application' "/config" (configBody "/x.org" [] "")
@@ -7882,7 +7797,7 @@ indexingSpec = testGroup "Indexing (bind before load)"
       assertEqual "elapsed" (Number 12.4) elapsed
 
   , testCase "the shell and its assets are served the whole time" $ do
-      application' <- indexingApp
+      application' <- loadingApp
       r <- ok =<< getFrom application' "/"
       assertContains "the shell names its script" "src=\"glue.js\"" (body r)
       js <- getFrom application' "/table-view.js"
@@ -7903,8 +7818,6 @@ indexingSpec = testGroup "Indexing (bind before load)"
       etagOf after >>= assertTreeTag "the store the walk landed" 0
   ]
 
-indexingApp :: IO Application
-indexingApp = application (served assetsDir) <$> (newLoadingHub =<< getMonotonicTime)
 
 -- | @\/headlines@ is the facade's view document — the same 'Value' 'viewJSON' builds, plus the one global @doctor@ field the server rides on the envelope.
 headlineSpec :: TestTree
@@ -7972,19 +7885,16 @@ statsSpec = testGroup "Load stats"
       assertEqual "read failures" (Just "0") (header "X-Glance-Read-Failures" r)
       assertEqual "id collisions" (Just "0") (header "X-Glance-Id-Collisions" r)
 
-  , testCase "count the rows two files claimed one id for" $ withTempDir $ \dir -> do
-      -- Both are named here, so the walk's own exclusion is not what is under test.
-      let shared = "* TODO one\n:PROPERTIES:\n:ORG_GLANCE_ID: shared-id\n:END:\n"
-      _ <- orgFile dir "canonical.org" shared
-      _ <- orgFile dir "mirror.org" shared
-      (a, _hub) <- serverOver dir
+    -- Both are named here, so the walk's own exclusion is not what is under test.
+  , testCase "count the rows two files claimed one id for" $
+      let shared = "* TODO one\n:PROPERTIES:\n:ORG_GLANCE_ID: shared-id\n:END:\n" in
+      withTreeOf [("canonical.org", shared), ("mirror.org", shared)] $ \a _hub _dir -> do
       r <- getFrom a "/headlines"
       assertEqual "one row per id" 1 . length =<< rowsOf r
       assertEqual "and it says how many it chose between"
                   (Just "1") (header "X-Glance-Id-Collisions" r)
 
-  , testCase "leave the view document's field set alone, the global doctor apart" $ do
-      v <- get assetsDir "/headlines" >>= decoded
+  , answerCase "leave the view document's field set alone, the global doctor apart" "/headlines" $ \v -> do
       case v of
         Object o -> assertEqual "top-level keys"
                                 ["actions", "columns", "doctor", "rows", "sort", "title", "views"]
@@ -8010,11 +7920,9 @@ cacheSpec = testGroup "GET /headlines cache validation"
       let tagOn y m d = Routes.etagOf (fromGregorian y m d) st
       assertBool "midnight is a fresh tag"
                  (tagOn 2026 8 21 /= tagOn 2026 8 22)
-      assertEqual "and one day is one tag" (tagOn 2026 8 22) (tagOn 2026 8 22)
       assertTreeTag "the injected day" 0 (tagOn 2026 8 22)
 
-  , testCase "the tag it just gave out is a 304 with no body" $ do
-      a <- app assetsDir
+  , appCase "the tag it just gave out is a 304 with no body" $ \a -> do
       first' <- getFrom a "/headlines"
       let tag = fromMaybe "" (header "ETag" first')
       again <- getWith a "/headlines" [("If-None-Match", tag)]
@@ -8023,16 +7931,14 @@ cacheSpec = testGroup "GET /headlines cache validation"
       assertEqual "the tag comes back" (Just tag) (header "ETag" again)
       assertEqual "no content type" Nothing (header "Content-Type" again)
 
-  , testCase "a weak tag, or one in a list, still matches" $ do
-      a <- app assetsDir
+  , appCase "a weak tag, or one in a list, still matches" $ \a -> do
       tag <- etagOf =<< getFrom a "/headlines"
       weak <- getWith a "/headlines" [("If-None-Match", "W/" <> tag)]
       listed <- getWith a "/headlines" [("If-None-Match", "\"" <> zeroes <> "-g9\", " <> tag)]
       assertEqual "weak" 304 (status weak)
       assertEqual "listed" 304 (status listed)
 
-  , testCase "a tag from another generation is the whole document again" $ do
-      a <- app assetsDir
+  , appCase "a tag from another generation is the whole document again" $ \a -> do
       tag <- etagOf =<< getFrom a "/headlines"
       r <- ok =<< getWith a "/headlines" [("If-None-Match", atGeneration 7 tag)]
       assertEqual "X-Glance-Rows" (Just "6") (header "X-Glance-Rows" r)
@@ -8048,9 +7954,9 @@ cacheSpec = testGroup "GET /headlines cache validation"
       assertEqual "another tree, same generation" 200 (status stale)
       assertEqual "this tree" 304 (status fresh)
 
-  , testCase "a store the watch moved is a fresh tag" $ withTempDir $ \dir -> do
-      path <- orgFile dir "notes.org" committable
-      (a, hub) <- serverOver dir
+  , testCase "a store the watch moved is a fresh tag" $
+      withTreeOf [("notes.org", committable)] $ \a hub dir -> do
+      let path = dir </> "notes.org"
       before <- getFrom a "/headlines"
       let tag = fromMaybe "" (header "ETag" before)
       -- The watch's own step, taken here without a watcher: re-load the file and publish it.
@@ -8063,17 +7969,14 @@ cacheSpec = testGroup "GET /headlines cache validation"
       assertEqual "and the new row is in it" (Just "3") (header "X-Glance-Rows" after)
 
   , testCase "a re-load that changes nothing leaves the tag where it was" $
-      withTempDir $ \dir -> do
-        path <- orgFile dir "notes.org" committable
-        (a, hub) <- serverOver dir
+      withTreeOf [("notes.org", committable)] $ \a hub dir -> do
         before <- getFrom a "/headlines"
-        outcome <- loadFile path
-        _ <- publish hub (applyFile path outcome)
+        outcome <- loadFile (dir </> "notes.org")
+        _ <- publish hub (applyFile (dir </> "notes.org") outcome)
         after <- getFrom a "/headlines"
         assertEqual "the tag" (header "ETag" before) (header "ETag" after)
 
-  , testCase "one tag serves every variant, which the URL keeps apart" $ do
-      a <- app assetsDir
+  , appCase "one tag serves every variant, which the URL keeps apart" $ \a -> do
       full <- getFrom a "/headlines"
       paged <- getFrom a "/headlines?limit=2"
       filtered <- getFrom a "/headlines?q=table"
@@ -8099,23 +8002,20 @@ gzipSpec = testGroup "Compression"
       assertEqual "Content-Encoding" Nothing (header "Content-Encoding" r)
       assertContains "the body is JSON" "\"rows\"" (body r)
 
-  , testCase "every answer varies on the encoding, 304s included" $ do
-      a <- app assetsDir
+  , appCase "every answer varies on the encoding, 304s included" $ \a -> do
       r <- getFrom a "/headlines"
       notModified <- getWith a "/headlines"
         [("If-None-Match", fromMaybe "" (header "ETag" r))]
       assertEqual "on the 200" (Just "Accept-Encoding") (header "Vary" r)
       assertEqual "on the 304" (Just "Accept-Encoding") (header "Vary" notModified)
 
-  , testCase "a body under the threshold is not worth compressing" $ do
-      a <- app assetsDir
+  , appCase "a body under the threshold is not worth compressing" $ \a -> do
       r <- getWith a "/headline" [("Accept-Encoding", "gzip")]
       assertEqual "status" 400 (status r)
       assertBool "the error JSON is small" (BL.length (simpleBody r) < 860)
       assertEqual "Content-Encoding" Nothing (header "Content-Encoding" r)
 
-  , testCase "the renderer is compressed too, though it is a file" $ do
-      a <- app assetsDir
+  , appCase "the renderer is compressed too, though it is a file" $ \a -> do
       r <- ok =<< getWith a "/table-view.js" [("Accept-Encoding", "gzip")]
       assertEqual "Content-Encoding" (Just "gzip") (header "Content-Encoding" r)
   ]
@@ -8128,31 +8028,27 @@ querySpec = testGroup "GET /headlines filter and paging"
       assertEqual "X-Glance-Has-Next" (Just "false") (header "X-Glance-Has-Next" r)
       assertEqual "rows" 6 . length =<< rowsOf r
 
-  , testCase "q narrows on the row as it displays, case-insensitively" $ do
-      a <- app assetsDir
+  , appCase "q narrows on the row as it displays, case-insensitively" $ \a -> do
       r <- getFrom a "/headlines?q=SHIP%20THE%20TABLE"
       assertEqual "X-Glance-Total" (Just "1") (header "X-Glance-Total" r)
       ids <- map rowId <$> rowsOf r
       assertEqual "the matching row" ["ship-table-view"] ids
 
   , testCase "q matches a bracket link by its description, not its target" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "links.org"
-               "* TODO Read [[file:table-view/SCHEMA.md][the schema]]\n"
-        (a, _hub) <- serverOver dir
+      withTreeOf [ ("links.org"
+                   , "* TODO Read [[file:table-view/SCHEMA.md][the schema]]\n") ]
+        $ \a _hub _dir -> do
         shown <- getFrom a "/headlines?q=the%20schema"
         target <- getFrom a "/headlines?q=SCHEMA.md"
         assertEqual "the description matches" (Just "1") (header "X-Glance-Total" shown)
         assertEqual "the target does not" (Just "0") (header "X-Glance-Total" target)
 
-  , testCase "q matching nothing is an empty page under a 200" $ do
-      a <- app assetsDir
+  , appCase "q matching nothing is an empty page under a 200" $ \a -> do
       r <- ok =<< getFrom a "/headlines?q=no-such-headline-anywhere"
       assertEqual "X-Glance-Total" (Just "0") (header "X-Glance-Total" r)
       assertEqual "rows" 0 . length =<< rowsOf r
 
-  , testCase "q reaches the filter grammar intact" $ do
-      a <- app assetsDir
+  , appCase "q reaches the filter grammar intact" $ \a -> do
       let total path = fmap TE.decodeUtf8 . header "X-Glance-Total" <$> getFrom a path
       -- This route's subject is transport; TestFilter is the grammar's home and states every rule.
       assertEqual "a predicate" (Just "1") =<< total "/headlines?q=state:DONE"
@@ -8188,19 +8084,11 @@ querySpec = testGroup "GET /headlines filter and paging"
     -- test.  This route's subject is transport; TestFilter draws the graph and
     -- states every rule.  `?' travels as %3F and `*' as itself.
   , testCase "both reference directions reach the filter, kind and all" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "edges.org" (T.unlines
-               [ "* Anchor"
-               , ":PROPERTIES:"
-               , ":ORG_GLANCE_ID: anchor"
-               , ":END:"
-               , "cites [[glance:target?kind=cites][T]]"
-               , "* Target"
-               , ":PROPERTIES:"
-               , ":ORG_GLANCE_ID: target"
-               , ":END:"
-               , "* Bystander" ])
-        (a, _hub) <- serverOver dir
+      withTreeOf [("edges.org", T.concat
+                    [ entryFlush "anchor" "Anchor"
+                    , "cites [[glance:target?kind=cites][T]]\n"
+                    , entryFlush "target" "Target"
+                    , "* Bystander\n" ])] $ \a _hub _dir -> do
         let titles path = fmap sort . mapM (textAt "title" <=< field "cells")
                             =<< rowsOf =<< getFrom a path
         assertEqual "ref: serves the row pointing at the target" ["Anchor"]
@@ -8217,10 +8105,9 @@ querySpec = testGroup "GET /headlines filter and paging"
           =<< titles "/headlines?q=from%3A*any*"
 
   , testCase "the default view carries the entry nobody stated" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "notes.org" (T.unlines
-               [ "* TODO Ship it", "* DONE Shipped", "* Jotted and never stated" ])
-        (a, _hub) <- serverOver dir
+      withTreeOf [("notes.org", T.unlines
+                    [ "* TODO Ship it", "* DONE Shipped", "* Jotted and never stated" ])]
+        $ \a _hub _dir -> do
         let titles path = fmap sort . mapM (textAt "title" <=< field "cells")
                             =<< rowsOf =<< getFrom a path
         assertEqual "which query the shell boots on" "state:*active*" builtinFilter
@@ -8236,8 +8123,7 @@ querySpec = testGroup "GET /headlines filter and paging"
         assertEqual "so negating the default view drops it too" ["Shipped"]
           =<< titles "/headlines?q=-state%3A*active*"
 
-  , testCase "a filtered OR query pages out of the view's own sort" $ do
-      a <- app assetsDir
+  , appCase "a filtered OR query pages out of the view's own sort" $ \a -> do
       whole <- rowsOf =<< getFrom a "/headlines?q=state:*active*"
       one <- getFrom a "/headlines?q=state:*active*&limit=2&offset=0"
       two <- getFrom a "/headlines?q=state:*active*&limit=2&offset=2"
@@ -8250,8 +8136,7 @@ querySpec = testGroup "GET /headlines filter and paging"
       assertEqual "more follows page one" (Just "true") (header "X-Glance-Has-Next" one)
       assertEqual "nothing follows page two" (Just "false") (header "X-Glance-Has-Next" two)
 
-  , testCase "limit cuts a page out of the view's own sort" $ do
-      a <- app assetsDir
+  , appCase "limit cuts a page out of the view's own sort" $ \a -> do
       whole <- rowsOf =<< getFrom a "/headlines"
       page <- rowsOf =<< getFrom a "/headlines?limit=3"
       assertEqual "page size" 3 (length page)
@@ -8259,8 +8144,7 @@ querySpec = testGroup "GET /headlines filter and paging"
                   (take 3 (map rowId (sortOn sortKeyOf whole)))
                   (map rowId page)
 
-  , testCase "offset walks the pages, and has-next says when to stop" $ do
-      a <- app assetsDir
+  , appCase "offset walks the pages, and has-next says when to stop" $ \a -> do
       whole <- map rowId . sortOn sortKeyOf <$> (rowsOf =<< getFrom a "/headlines")
       one <- getFrom a "/headlines?limit=4&offset=0"
       two <- getFrom a "/headlines?limit=4&offset=4"
@@ -8272,8 +8156,7 @@ querySpec = testGroup "GET /headlines filter and paging"
       assertEqual "past the end is empty" 0 . length =<< rowsOf past
       assertEqual "and says so" (Just "false") (header "X-Glance-Has-Next" past)
 
-  , testCase "the filter runs before the page, so the total is the match count" $ do
-      a <- app assetsDir
+  , appCase "the filter runs before the page, so the total is the match count" $ \a -> do
       r <- getFrom a "/headlines?q=e&limit=2&offset=1"
       matched <- length <$> (rowsOf =<< getFrom a "/headlines?q=e")
       assertEqual "the total is what matched" (Just (T.pack (show matched)))
@@ -8283,8 +8166,7 @@ querySpec = testGroup "GET /headlines filter and paging"
       assertEqual "the page is a slice of it" 2 (length page)
       assertEqual "and more follows" (Just "true") (header "X-Glance-Has-Next" r)
 
-  , testCase "the state palette is the store's, whatever the page holds" $ do
-      a <- app assetsDir
+  , appCase "the state palette is the store's, whatever the page holds" $ \a -> do
       whole <- badgeValues =<< decoded =<< getFrom a "/headlines"
       page <- badgeValues =<< decoded =<< getFrom a "/headlines?limit=1"
       none <- badgeValues =<< decoded =<< getFrom a "/headlines?q=no-such-headline"
@@ -8292,22 +8174,19 @@ querySpec = testGroup "GET /headlines filter and paging"
       assertEqual "the empty page's palette" whole none
       assertBool "the fixture declares keywords" (length whole > 2)
 
-  , testCase "a limit past the cap is refused, and named" $ do
-      a <- app assetsDir
+  , appCase "a limit past the cap is refused, and named" $ \a -> do
       r <- getFrom a "/headlines?limit=20001"
       ok <- getFrom a "/headlines?limit=20000"
       assertEqual "over" 400 (status r)
       assertContains "the cap" "20000" (body r)
       assertEqual "at the cap" 200 (status ok)
 
-  , testCase "a parameter that is not a number is a 400 saying which" $ do
-      a <- app assetsDir
+  , appCase "a parameter that is not a number is a 400 saying which" $ \a -> do
       refuses400 a "names the parameter"
         [ ("/headlines?limit=lots", "limit"), ("/headlines?limit=-1", "limit")
         , ("/headlines?offset=x", "offset"), ("/headlines?offset=-3", "offset") ]
 
-  , testCase "a bare parameter reads as an absent one" $ do
-      a <- app assetsDir
+  , appCase "a bare parameter reads as an absent one" $ \a -> do
       r <- ok =<< getFrom a "/headlines?limit&q"
       assertEqual "rows" 6 . length =<< rowsOf r
   ]
@@ -8317,15 +8196,13 @@ orderSpec :: TestTree
 orderSpec = testGroup "GET /headlines?q=sort:*none*"
   [ testCase "the default still declares the view's sort" $ do
       v <- get assetsDir "/headlines" >>= decoded
-      fieldsOf v >>= assertBool "no sort field" . elem "sort"
+      keysOf v >>= assertBool "no sort field" . elem "sort"
 
-  , testCase "document order declares none at all" $ do
-      v <- get assetsDir "/headlines?q=sort:*none*" >>= decoded
+  , answerCase "document order declares none at all" "/headlines?q=sort:*none*" $ \v -> do
       assertEqual "top-level keys" ["actions", "columns", "doctor", "rows", "title", "views"]
-        . sort =<< fieldsOf v
+        . sort =<< keysOf v
 
-  , testCase "and the page it cuts is walk order, where the default's is sorted" $ do
-      a <- app assetsDir
+  , appCase "and the page it cuts is walk order, where the default's is sorted" $ \a -> do
       walk <- map rowId <$> (rowsOf =<< getFrom a "/headlines")
       byState <- map rowId <$> (rowsOf =<< getFrom a "/headlines?limit=6")
       doc <- map rowId <$> (rowsOf =<< getFrom a "/headlines?q=sort:*none*&limit=6")
@@ -8335,15 +8212,13 @@ orderSpec = testGroup "GET /headlines?q=sort:*none*"
                  (byState /= doc)
 
     -- The empty chain admits no companions: a reader who wrote both meant one of them.
-  , testCase "a sort key beside it is a 400 naming the meta" $ do
-      a <- app assetsDir
+  , appCase "a sort key beside it is a 400 naming the meta" $ \a -> do
       refuses400 a "names the meta"
         [ ("/headlines?q=sort:*none*%20sort:title", "*none*")
         , ("/headlines?q=sort:title%20sort:*none*", "*none*")
         , ("/headlines?q=sort:*none*:desc", "*none*") ]
 
-  , testCase "order= is gone, and the refusal names its replacement" $ do
-      a <- app assetsDir
+  , appCase "order= is gone, and the refusal names its replacement" $ \a -> do
       mapM_ (\path -> do
                r <- getFrom a path
                assertEqual (show path <> " status") 400 (status r)
@@ -8357,8 +8232,7 @@ orderSpec = testGroup "GET /headlines?q=sort:*none*"
 
     -- ONE READER FOR @edges@, over EITHER SHAPE: the store's graph is built once
     -- per version, so a table row costs what a rows-shape row costs.
-  , testCase "edges is true, and it rides either shape" $ do
-      a <- app assetsDir
+  , appCase "edges is true, and it rides either shape" $ \a -> do
       refuses400 a "says what edges takes"
         [ ("/headlines?shape=rows&edges=yes", "edges is true")
         , ("/headlines?edges=1", "edges is true")
@@ -8370,7 +8244,7 @@ orderSpec = testGroup "GET /headlines?q=sort:*none*"
       drawn <- listAt "rows" =<< decoded table
       assertBool "every table row carries the two edge fields"
         . all (\ks -> "refs" `elem` ks && "referrers" `elem` ks)
-        =<< traverse fieldsOf drawn
+        =<< traverse keysOf drawn
   ]
 
 -- | The ORDER a query states, served AND declared: what the view declares is the EFFECTIVE chain.
@@ -8382,13 +8256,11 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
                                        , ("deadline", True), ("scheduled", True)]
         =<< chainDeclaredBy v
 
-  , testCase "a sort token replaces it, and the view declares what it did" $ do
-      v <- get assetsDir "/headlines?q=sort:deadline:desc" >>= decoded
+  , answerCase "a sort token replaces it, and the view declares what it did" "/headlines?q=sort:deadline:desc" $ \v -> do
       assertEqual "the chain declared" [("deadline", False)] =<< chainDeclaredBy v
 
     -- The arrow form is SUGAR, so the answer is the answer to the spelling it is sugar for.
-  , testCase "an arrow-chained token is the tokens it is sugar for" $ do
-      a <- app assetsDir
+  , appCase "an arrow-chained token is the tokens it is sugar for" $ \a -> do
       let asked q = do r <- getFrom a ("/headlines?q=" <> q)
                        v <- decoded r
                        (,) <$> (map rowId <$> rowsOf r) <*> chainDeclaredBy v
@@ -8398,8 +8270,7 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
       assertEqual "and the chain declared is the chain named"
                   [("deadline", False), ("title", True)] (snd chained)
 
-  , testCase "and the rows come back in it" $ do
-      a <- app assetsDir
+  , appCase "and the rows come back in it" $ \a -> do
       whole <- rowsOf =<< getFrom a "/headlines?q=sort:deadline&limit=6"
       -- The empty cells settle behind, outside the direction, keeping walk order among themselves.
       assertEqual "earliest deadline first, the undated behind them"
@@ -8436,8 +8307,7 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
                     [Just "later", Just "earlier", Just "undated"] dtitles
 
     -- A page-sized first answer has to be the first page of the order asked for.
-  , testCase "page one of a limited answer is the first page of that order" $ do
-      a <- app assetsDir
+  , appCase "page one of a limited answer is the first page of that order" $ \a -> do
       whole <- map rowId <$> (rowsOf =<< getFrom a "/headlines?q=sort:title&limit=6")
       page <- getFrom a "/headlines?q=sort:title&limit=2"
       two <- getFrom a "/headlines?q=sort:title&limit=2&offset=2"
@@ -8446,8 +8316,7 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
       assertEqual "the total is the store's, not the page's" (Just "6")
                   (header "X-Glance-Total" page)
 
-  , testCase "the token narrows nothing" $ do
-      a <- app assetsDir
+  , appCase "the token narrows nothing" $ \a -> do
       plain <- length <$> (rowsOf =<< getFrom a "/headlines")
       sorted' <- length <$> (rowsOf =<< getFrom a "/headlines?q=sort:title")
       beside <- length <$> (rowsOf =<< getFrom a "/headlines?q=state:*active*")
@@ -8456,8 +8325,7 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
       assertEqual "and beside a predicate" beside also
 
     -- ONE COLUMN, ONE DIRECTION: a token that is no chain key is the whole request's 400, where a renderer drops the key.
-  , testCase "a token that is no chain key is a 400 naming it" $ do
-      a <- app assetsDir
+  , appCase "a token that is no chain key is a 400 naming it" $ \a -> do
       mapM_ (\(q, named) -> do
                r <- getFrom a ("/headlines?q=" <> q)
                assertEqual (show q <> " status") 400 (status r)
@@ -8477,8 +8345,7 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
 
   , testCase "and it cannot state two orders at once" $ do
       r <- get assetsDir "/headlines?q=sort:title%20sort:*none*"
-      assertEqual "status" 400 (status r)
-      assertContains "names the meta" "*none*" (body r)
+      refused r ["*none*"]
       mid <- get assetsDir "/headlines?q=sort:title-%3E*none*"
       assertEqual "mid-chain is the same refusal" 400 (status mid)
       assertContains "and names the meta" "*none*" (body mid)
@@ -8486,7 +8353,7 @@ sortQuerySpec = testGroup "GET /headlines?q=sort:"
 
 chainDeclaredBy :: Value -> IO [(T.Text, Bool)]
 chainDeclaredBy view = do
-  fields <- fieldsOf view
+  fields <- keysOf view
   if "sort" `notElem` fields then pure []
     else traverse orderKeyOf =<< listAt "sort" view
 
@@ -8540,14 +8407,11 @@ materializeSpec = testGroup "GET /headline"
                   "#+CATEGORY: sample\n#+TODO: NEXT WAITING | CANCELLED\n\n" (T.take start doc)
 
     -- Rows are top entries, so materialize is the whole of how a client reaches a child.
-  , testCase "a top entry materializes with its children in it" $ withTempDir $ \dir -> do
-      let doc = T.unlines [ "* TODO parent", ":PROPERTIES:", ":ORG_GLANCE_ID: top"
-                          , ":END:", "** child", "child body", "*** grandchild" ]
-      _ <- orgFile dir "tree.org" doc
-      (a, _hub) <- serverOver dir
+  , testCase "a top entry materializes with its children in it" $
+      withTreeOf [("tree.org", topDoc)] $ \a _hub _dir -> do
       assertEqual "one row for the file" 1 . length =<< rowsOf =<< getFrom a "/headlines"
       v <- getFrom a (headlinePath "top") >>= decoded
-      assertEqual "the whole outline" doc =<< textAt "org" v
+      assertEqual "the whole outline" topDoc =<< textAt "org" v
       -- A child's drawer is body text here, so the split leaves the descendants in the pane a client edits.
       assertEqual "and the body keeps them"
                   (T.unlines ["* TODO parent", "** child", "child body", "*** grandchild"])
@@ -8666,9 +8530,8 @@ materializeSpec = testGroup "GET /headline"
     -- the store lags its own tree the file goes back through the watch's door
     -- first, so it is served under the digest it holds now.
   , testCase "a file that moved since the load is reloaded, and served as it stands" $
-      withTempDir $ \dir -> do
-        path <- orgFile dir "notes.org" committable
-        (a, _hub) <- serverOver dir
+      withTreeOf [("notes.org", committable)] $ \a _hub dir -> do
+        let path = dir </> "notes.org"
         was <- getFrom a (headlinePath "first") >>= decoded
         assertContains "the load's own text" "body of first" =<< textAt "org" was
         TIO.writeFile path (T.replace "body of first" "body moved"
@@ -8694,8 +8557,7 @@ materializeSpec = testGroup "GET /headline"
   , testCase "no id at all says what the route wants" $ do
       (a, _hub) <- serverOver viewDir
       r <- getFrom a "/headline"
-      assertEqual "status" 400 (status r)
-      assertContains "hint" "GET /headline?id=<row id>" (body r)
+      refused r ["GET /headline?id=<row id>"]
   ]
 
 commitSpec :: TestTree
@@ -8764,8 +8626,7 @@ commitSpec = testGroup "POST /headline"
       assertEqual "a round trip nobody edited is the file it was"
                   before =<< document path
 
-  , testCase "a commit aimed at a child that is not there is a 404" $
-      withNested $ \a path -> do
+  , testCase "a commit aimed at a child that is not there is a 404" $ withNested $ \a path -> do
         v <- getFrom a (headlinePath "top") >>= decoded
         digest <- textAt "digest" v
         before <- document path
@@ -8793,31 +8654,18 @@ commitSpec = testGroup "POST /headline"
   , testCase "a file rewritten behind the client is a conflict, and stays as it is" $
       withCommitted $ \a path v digest _body _props -> do
         org <- textAt "org" v
-        let meddled = committable <> "* TODO Someone else\n"
         TIO.writeFile path meddled
         r <- postTo a (headlinePath "first") (commitBody (org <> "mine\n") digest)
-        assertEqual "status" 409 (status r)
-        conflict <- decoded r
-        reason <- textAt "reason" conflict
-        assertEqual "reason" "drift" reason
+        refusedWrite "drift" path meddled r
         assertContains "the message says to materialize again" "materialize" (body r)
-        after <- document path
-        assertEqual "the file is the meddler's" meddled after
 
   , testCase "a digest the store no longer holds is a conflict too" $
       withCommitted $ \a path v _digest _body _props -> do
         org <- textAt "org" v
-        let stale = T.replicate 64 "0"
-        r <- postTo a (headlinePath "first") (commitBody org stale)
-        assertEqual "status" 409 (status r)
-        conflict <- decoded r
-        reason <- textAt "reason" conflict
-        current <- textAt "digest" conflict
-        assertEqual "reason" "stale" reason
-        assertEqual "the digest to re-materialize with" (Just current) . Just
-          =<< textAt "digest" v
-        after <- document path
-        assertEqual "untouched" committable after
+        r <- postTo a (headlinePath "first") (commitBody org staleDigest)
+        refusedWrite "stale" path committable r
+        current <- textAt "digest" =<< decoded r
+        assertEqual "the digest to re-materialize with" current =<< textAt "digest" v
 
     -- The split shape buys exactly the byte rule: a property nobody touched goes back as the line it came in on.
   , testCase "the split shape writes the same subtree, verbatim where nothing moved" $
@@ -8844,21 +8692,15 @@ commitSpec = testGroup "POST /headline"
                     after
 
   , testCase "the split shape is drift-locked like the whole one" $
-      withCommitted $ \a path _v _digest body' props -> do
-        let stale = T.replicate 64 "0"
-        r <- postTo a (headlinePath "first") (splitBody body' props stale)
-        assertEqual "status" 409 (status r)
-        assertEqual "reason" "stale" =<< textAt "reason" =<< decoded r
-        assertEqual "untouched" committable =<< document path
+      withCommitted $ \a path _v _digest body' props ->
+        refusedWrite "stale" path committable
+          =<< postTo a (headlinePath "first") (splitBody body' props staleDigest)
 
   , testCase "and by the file on disk as well as by the store" $
       withCommitted $ \a path _v digest body' props -> do
-        let meddled = committable <> "* TODO Someone else\n"
         TIO.writeFile path meddled
-        r <- postTo a (headlinePath "first") (splitBody body' props digest)
-        assertEqual "status" 409 (status r)
-        assertEqual "reason" "drift" =<< textAt "reason" =<< decoded r
-        assertEqual "the file is the meddler's" meddled =<< document path
+        refusedWrite "drift" path meddled
+          =<< postTo a (headlinePath "first") (splitBody body' props digest)
 
     -- A planning value NO reading takes is refused BEFORE the write, naming the
     -- field.  The wall's own grammar is 'planningTimestamp' (TestQuery holds the
@@ -8878,7 +8720,7 @@ commitSpec = testGroup "POST /headline"
         assertContains "naming the forms it would have taken" "18 aug"
           =<< textAt "error" b
         -- No digest on this one: nothing about it is a lock.
-        assertEqual "the fields it carries" ["error", "field", "reason"] =<< fieldsOf b
+        assertEqual "the fields it carries" ["error", "field", "reason"] =<< keysOf b
         assertEqual "untouched" committable =<< document path
         -- AN UNKNOWN KEY IS A KEY REFUSAL: 'unplanned''s own sentence, so the two
         -- write doors refuse it alike.
@@ -8894,29 +8736,12 @@ commitSpec = testGroup "POST /headline"
     -- THE WALL IS ALSO THE TRANSFORM.  The pane spells no org: it sends the raw
     -- typed text and the server writes the bytes org itself would.  The year is
     -- SPELLED here so the assertion does not move with the calendar.
+    -- ONE VECTOR HERE: the bracket and the interval are the same grammar, and
+    -- the `/command' trio below reads all three through it.
   , testCase "an English date on the planning line is REWRITTEN to org's own spelling" $
-      withCommitted $ \a path _v digest body' _props -> do
-        assertOk =<< postTo a (headlinePath "first")
-               (planningBody body' [] [["SCHEDULED", "18 aug 2027"]] digest)
-        assertContains "the stamp the server computed, weekday and all"
-                       "SCHEDULED: <2027-08-18 Wed>" =<< document path
-
-    -- A BRACKET CHOOSES THE ACTIVITY the answer is spelled in, which is how this
-    -- door is asked for org's INACTIVE stamp: the widget sends the brackets raw
-    -- with the phrase inside them, and one wall resolves the pair and the body.
-  , testCase "and a bracketed phrase lands wearing the activity it names" $
-      withCommitted $ \a path _v digest body' _props -> do
-        assertOk =<< postTo a (headlinePath "first")
-               (planningBody body' [] [["SCHEDULED", "[18 aug 2027]"]] digest)
-        assertContains "org's inactive bracket, weekday computed inside it"
-                       "SCHEDULED: [2027-08-18 Wed]" =<< document path
-
-  , testCase "and an English interval as org's own -- pair" $
-      withCommitted $ \a path _v digest body' _props -> do
-        assertOk =<< postTo a (headlinePath "first")
-               (planningBody body' [] [["DEADLINE", "from 18 to 19 august 2027"]] digest)
-        assertContains "both ends, each weekday computed"
-                       "DEADLINE: <2027-08-18 Wed>--<2027-08-19 Thu>" =<< document path
+      landsPlanning "SCHEDULED" "18 aug 2027"
+                    "the stamp the server computed, weekday and all"
+                    "SCHEDULED: <2027-08-18 Wed>"
 
     -- The year defaults to the SERVER'S OWN CLOCK, read once per request, so the
     -- expectation is computed off that same clock rather than written down.
@@ -8931,33 +8756,18 @@ commitSpec = testGroup "POST /headline"
 
     -- An interval naming two good days in the wrong order takes the SAME column
     -- as a phrase that never parsed: no new refusal machinery on this wall.
+    -- ITS OWN WORDS: the 409 carries the inversion rather than flattening it.
   , testCase "an inverted interval is the same 409 as any other refusal" $
-      withCommitted $ \a path _v digest body' _props -> do
-        r <- postTo a (headlinePath "first")
-               (planningBody body' [] [["SCHEDULED", "from 30 dec to 2 jan"]] digest)
-        assertEqual "status" 409 (status r)
-        assertEqual "which field" "SCHEDULED" =<< textAt "field" =<< decoded r
-        -- ITS OWN WORDS: the 409 carries the inversion rather than flattening it.
-        assertContains "the inversion's own sentence" "ends before it starts"
-          =<< textAt "error" =<< decoded r
-        assertEqual "untouched" committable =<< document path
+      refusesPlanning "SCHEDULED" "from 30 dec to 2 jan" ["ends before it starts"]
 
     -- CLOSED IS ORG'S OWN BOOKKEEPING and takes REPARSE alone: the widget's
     -- grammar is SCHEDULED's and DEADLINE's.
-  , testCase "CLOSED takes org's own spelling and no phrase beside it" $
-      withCommitted $ \a path _v digest body' _props -> do
-        r <- postTo a (headlinePath "first")
-               (planningBody body' [] [["CLOSED", "18 aug 2027"]] digest)
-        assertEqual "status" 409 (status r)
-        assertEqual "which field" "CLOSED" =<< textAt "field" =<< decoded r
-        -- AND IN REPARSE'S OWN WORDS, where the settable keys answer in the date
-        -- grammar's: `timestamp' is what this reading actually wants.
-        assertContains "the reparse wall's sentence" "is not a timestamp org would read back"
-          =<< textAt "error" =<< decoded r
-        assertEqual "untouched" committable =<< document path
-        assertOk =<< postTo a (headlinePath "first")
-               (planningBody body' [] [["CLOSED", "[2026-08-01 Sat]"]] digest)
-        assertContains "org's own, verbatim" "CLOSED: [2026-08-01 Sat]" =<< document path
+    -- AND IN REPARSE'S OWN WORDS, where the settable keys answer in the date
+    -- grammar's: `timestamp' is what this reading actually wants.
+  , testCase "CLOSED takes org's own spelling and no phrase beside it" $ do
+      refusesPlanning "CLOSED" "18 aug 2027" ["is not a timestamp org would read back"]
+      landsPlanning "CLOSED" "[2026-08-01 Sat]" "org's own, verbatim"
+                    "CLOSED: [2026-08-01 Sat]"
 
     -- THE RAW HALF TRANSFORMS NOTHING: `org' is a whole document the client
     -- typed, and rewriting bytes inside it would be the server editing a buffer.
@@ -9016,54 +8826,41 @@ commitSpec = testGroup "POST /headline"
 
 -- | The rows a structured command names.  Ids are in drawers, so they survive the temp directory's name and every edit.
 commandable :: T.Text
-commandable = T.unlines
-  [ "#+TODO: NEXT WAITING | CANCELLED"
-  , "* NEXT First :one:"
-  , ":PROPERTIES:"
-  , ":ORG_GLANCE_ID: first"
-  , ":END:"
-  , "* Second"
-  , ":PROPERTIES:"
-  , ":ORG_GLANCE_ID: second"
-  , ":END:"
-  ]
+commandable = T.concat
+  [ "#+TODO: NEXT WAITING | CANCELLED\n"
+  , entryFlush "first" "NEXT First :one:"
+  , entryFlush "second" "Second" ]
 
 -- | A second file declaring no keywords of its own, which is what makes legality per file observable.
 elsewhereOrg :: T.Text
-elsewhereOrg = T.unlines
-  [ "* TODO Third"
-  , ":PROPERTIES:"
-  , ":ORG_GLANCE_ID: third"
-  , ":END:"
-  ]
+elsewhereOrg = entryFlush "third" "TODO Third"
 
 -- | A CHAIN of three rows: alpha cites beta, beta mentions gamma, and gamma
 -- points at a row that is not there -- two hops, so a depth cap has somewhere to
 -- stop, one typed edge beside one plain mention, and one link that is NO EDGE.
 graphTree :: T.Text
-graphTree = T.unlines
-  [ "* Alpha :one:"
-  , ":PROPERTIES:"
-  , ":ORG_GLANCE_ID: alpha"
-  , ":END:"
-  , "cites [[glance:beta?kind=cites][Beta]]"
-  , "* Beta"
-  , ":PROPERTIES:"
-  , ":ORG_GLANCE_ID: beta"
-  , ":END:"
-  , "sees [[glance:gamma][Gamma]]"
-  , "* Gamma"
-  , ":PROPERTIES:"
-  , ":ORG_GLANCE_ID: gamma"
-  , ":END:"
-  , "cites [[glance:nowhere][a row that left]]"
-  ]
+graphTree = T.concat
+  [ entryFlush "alpha" "Alpha :one:"
+  , "cites [[glance:beta?kind=cites][Beta]]\n"
+  , entryFlush "beta" "Beta"
+  , "sees [[glance:gamma][Gamma]]\n"
+  , entryFlush "gamma" "Gamma"
+  , "cites [[glance:nowhere][a row that left]]\n" ]
 
 withGraphTree :: (Application -> Hub -> FilePath -> Assertion) -> Assertion
-withGraphTree k = withTempDir $ \dir -> do
-  path <- orgFile dir "graph.org" graphTree
-  (a, hub) <- serverOver dir
-  k a hub path
+withGraphTree k = withTreeOf [("graph.org", graphTree)] $ \a hub dir ->
+  k a hub (dir </> "graph.org")
+
+-- | Three openers the suite boots through: a case over a server on the fixture
+-- tree, a case over the booted shell, and a case over the answer PATH gives.
+appCase :: String -> (Application -> Assertion) -> TestTree
+appCase label k = testCase label (k =<< app assetsDir)
+
+shellCase :: IO T.Text -> String -> (T.Text -> Assertion) -> TestTree
+shellCase shell label k = testCase label (k =<< shell)
+
+answerCase :: String -> ByteString -> (Value -> Assertion) -> TestTree
+answerCase label path k = testCase label (k =<< decoded =<< get assetsDir path)
 
 -- | The row RID among ROWS, by the id it answers to.
 rowNamed :: [Value] -> T.Text -> IO Value
@@ -9125,12 +8922,41 @@ titleArg title = object ["title" .= title]
 renameArg :: T.Text -> T.Text -> Value
 renameArg from to = object ["from" .= from, "to" .= to]
 
+-- | POST's write over PATH leaves the file it found with OLD spelled NEW, and
+-- no other byte moved.
+splices :: FilePath -> String -> T.Text -> T.Text -> IO a -> Assertion
+splices path what old new post = do
+  before <- document path
+  _ <- post
+  assertEqual what (T.replace old new before) =<< document path
+
+-- | A one-row @\/command@ over the commandable tree, answered whole: ROW landed,
+-- the write is OLD spelled NEW, and the digest reported is the file's own.
+spliced :: String -> T.Text -> T.Text -> T.Text -> BL.ByteString -> Assertion
+spliced what row old new cmd =
+  withCommandable $ \a _hub path _other -> do
+    before <- document path
+    r <- ok =<< postTo a "/command" cmd
+    assertEqual "the row landed" [(row, True)] =<< outcomesOf r
+    assertEqual what (T.replace old new before) =<< document path
+    onDisk <- digestOnDisk path
+    assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
+
+-- | @set-planning KEYWORD DATE@ over the commandable tree writes LINE under the
+-- first row's own title line, and moves no other byte.
+plansAs :: T.Text -> T.Text -> T.Text -> String -> Assertion
+plansAs keyword date line what =
+  withCommandable $ \a _hub path _other ->
+    splices path what firstTitle (firstTitle <> line <> "\n") $ do
+      r <- ok =<< postTo a "/command"
+             (command "set-planning" ["first"] (planningArg keyword (Just date)))
+      assertEqual "the row landed" [("first", True)] =<< outcomesOf r
+  where firstTitle = "* NEXT First :one:\n"
+
 withCommandable :: (Application -> Hub -> FilePath -> FilePath -> Assertion) -> Assertion
-withCommandable k = withTempDir $ \dir -> do
-  here <- orgFile dir "notes.org" commandable
-  there <- orgFile dir "other.org" elsewhereOrg
-  (a, hub) <- serverOver dir
-  k a hub here there
+withCommandable k =
+  withTreeOf [("notes.org", commandable), ("other.org", elsewhereOrg)] $ \a hub dir ->
+    k a hub (dir </> "notes.org") (dir </> "other.org")
 
 -- | The watch's own step, taken here without a watcher: a command computes its spans and digest from the store.
 watchStep :: Hub -> FilePath -> Assertion
@@ -9225,8 +9051,7 @@ mcpSpec = testGroup "POST /mcp"
       assertEqual "an MCP write tool per POST /command verb, and no more"
                   (sort commandNames) (sort mcpWriteToolNames)
 
-  , testCase "initialize answers with glance's server info" $ do
-      a <- app assetsDir
+  , appCase "initialize answers with glance's server info" $ \a -> do
       v <- field "result" =<< decoded
              =<< mcpPost a "initialize" (object ["protocolVersion" .= ("2024-11-05" :: T.Text)])
       assertEqual "the version the client asked is echoed" "2024-11-05"
@@ -9234,8 +9059,7 @@ mcpSpec = testGroup "POST /mcp"
       name <- field "serverInfo" v >>= textAt "name"
       assertEqual "the server names itself" "glance" name
 
-  , testCase "tools/list carries every write verb and the four reads" $ do
-      a <- app assetsDir
+  , appCase "tools/list carries every write verb and the four reads" $ \a -> do
       tools <- listAt "tools" =<< field "result" =<< decoded =<< mcpPost a "tools/list" (object [])
       names <- traverse (textAt "name") tools
       assertEqual "every write verb and the four reads are listed, once"
@@ -9244,19 +9068,16 @@ mcpSpec = testGroup "POST /mcp"
       mapM_ (\t -> field "inputSchema" t >>= textAt "type"
                      >>= assertEqual "each tool declares an object schema" "object") tools
 
-  , testCase "an unknown tool is a JSON-RPC error, not a crash" $ do
-      a <- app assetsDir
+  , appCase "an unknown tool is a JSON-RPC error, not a crash" $ \a -> do
       err <- field "error" =<< decoded
                =<< mcpPost a "tools/call" (object ["name" .= ("no-such-tool" :: T.Text)])
       assertContains "the message names the miss" "no-such-tool" =<< textAt "message" err
 
-  , testCase "an unknown method is method-not-found" $ do
-      a <- app assetsDir
+  , appCase "an unknown method is method-not-found" $ \a -> do
       code <- field "error" =<< decoded =<< mcpPost a "frobnicate" (object [])
       assertEqual "the JSON-RPC method-not-found code" (-32601) =<< intAt "code" code
 
-  , testCase "a notification is acknowledged with no body" $ do
-      a <- app assetsDir
+  , appCase "a notification is acknowledged with no body" $ \a -> do
       r <- postTo a "/mcp" (encode (object [ "jsonrpc" .= ("2.0" :: T.Text)
                                            , "method" .= ("notifications/initialized" :: T.Text) ]))
       assertEqual "202 Accepted" 202 (status r)
@@ -9270,13 +9091,12 @@ mcpSpec = testGroup "POST /mcp"
         assertEqual "the title on disk is the one MCP set"
                     (T.replace "* NEXT First" "* NEXT From MCP" before) =<< document path
 
-  , testCase "tools/call list-headlines answers the compact rows shape, no table chrome" $ do
-      a <- app assetsDir
+  , appCase "tools/call list-headlines answers the compact rows shape, no table chrome" $ \a -> do
       ans <- toolRead a "list-headlines" (object [])
       -- {total, clean, rows} and nothing else: the columns, actions, sort, views
       -- and doctor block the browser envelope carries are gone.
       assertEqual "the compact answer's keys" ["clean", "rows", "total"]
-        . sort =<< fieldsOf ans
+        . sort =<< keysOf ans
       _total <- intAt "total" ans
       _clean <- boolAt "clean" ans
       rows <- listAt "rows" ans
@@ -9285,27 +9105,23 @@ mcpSpec = testGroup "POST /mcp"
         (row : _) -> do
           _ <- textAt "id" row
           _ <- textAt "title" row
-          assertBool "a row carries no badge cells" . notElem "cells" =<< fieldsOf row
+          assertBool "a row carries no badge cells" . notElem "cells" =<< keysOf row
         [] -> pure ()
 
-  , testCase "tools/call doctor answers the startup health verdict" $ do
-      a <- app assetsDir
+  , appCase "tools/call doctor answers the startup health verdict" $ \a -> do
       ans <- toolRead a "doctor" (object [])
       _clean <- boolAt "clean" ans
       _warnings <- listAt "warnings" ans
-      keys <- fieldsOf ans
+      keys <- keysOf ans
       mapM_ (\k -> assertBool (T.unpack k <> " rides the doctor answer") (k `elem` keys))
             ["clean", "warnings", "parseFailures", "recordless"]
 
   , testCase "tools/call get-headline answers a broken drawer's own id" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "broken.org" brokenDrawer
-        (a, _hub) <- serverOver dir
+      withTreeOf [("broken.org", brokenDrawer)] $ \a _hub _dir -> do
         assertContains "the subtree the file still spells came back" "Broken"
           =<< textAt "body" =<< toolRead a "get-headline" (object ["id" .= ("u-1" :: T.Text)])
 
-  , testCase "tools/call get-headline with no id is surfaced as an error" $ do
-      a <- app assetsDir
+  , appCase "tools/call get-headline with no id is surfaced as an error" $ \a -> do
       assertContains "the missing-id refusal rides isError" "no headline with id"
         =<< toolFails a "get-headline" (object [])
 
@@ -9329,31 +9145,29 @@ mcpSpec = testGroup "POST /mcp"
         gamma <- rowNamed rows "gamma"
         assertEqual "gamma's link to a row that left is no edge" [] =<< refsOf gamma
 
-  , testCase "without edges a row carries neither field" $
-      withGraphTree $ \a _hub _path -> do
+  , testCase "without edges a row carries neither field" $ withGraphTree $ \a _hub _path -> do
         ans <- toolRead a "list-headlines" (object [])
         rows <- listAt "rows" ans
-        keys <- concat <$> traverse fieldsOf rows
+        keys <- concat <$> traverse keysOf rows
         assertEqual "an edge field rode a row that asked for none" []
           (filter (`elem` ["refs", "referrers"]) keys)
         assertEqual "and the envelope is the one it was" ["clean", "rows", "total"]
-          . sort =<< fieldsOf ans
+          . sort =<< keysOf ans
 
   , testCase "tools/call get-headline with edges carries that row's own edges" $
       withGraphTree $ \a _hub _path -> do
         ans <- toolRead a "get-headline"
                  (object ["id" .= ("beta" :: T.Text), "edges" .= True])
-        keys <- fieldsOf ans
+        keys <- keysOf ans
         assertBool "the subtree grew the two edge fields"
                    (all (`elem` keys) ["refs", "referrers"])
         bare <- toolRead a "get-headline" (object ["id" .= ("beta" :: T.Text)])
         assertBool "and a subtree asked for no edges carries none"
-          . notElem "refs" =<< fieldsOf bare
+          . notElem "refs" =<< keysOf bare
 
     -- ONE POLICY AT BOTH DOORS: a value that is no boolean is refused here
     -- exactly as @?edges=yes@ is refused over the query string.
-  , testCase "an edges argument that is no boolean is refused" $ do
-      a <- app assetsDir
+  , appCase "an edges argument that is no boolean is refused" $ \a -> do
       assertContains "the tool says what edges takes" "true or false"
         =<< toolFails a "list-headlines" (object ["edges" .= ("yes" :: T.Text)])
 
@@ -9410,8 +9224,7 @@ mcpSpec = testGroup "POST /mcp"
         assertEqual "and the reverse edge needed no write of its own" ["gamma"]
           =<< textsAt "referrers" =<< rowNamed rows "alpha"
 
-  , testCase "add-link lands in the title where it is asked to" $
-      withGraphTree $ \a _hub path -> do
+  , testCase "add-link lands in the title where it is asked to" $ withGraphTree $ \a _hub path -> do
         assertEqual "the row landed" [("alpha", True)] =<< toolWrite a "add-link"
           (object [ "id" .= ("alpha" :: T.Text), "target" .= ("gamma" :: T.Text)
                   , "where" .= ("title" :: T.Text) ])
@@ -9432,9 +9245,7 @@ mcpSpec = testGroup "POST /mcp"
     -- STAGE 3: `glance mcp' forwards to a running daemon that owns its --dir,
     -- and boots its own store otherwise.  `mcpDaemonAt' is that decision.
   , testCase "mcp proxies to a daemon that owns the tree, and probes safely otherwise" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "notes.org" commandable
-        (app', _hub) <- serverOver dir
+      withTreeOf [("notes.org", commandable)] $ \app' _hub dir -> do
         Warp.withApplication (pure app') $ \port -> do
           forward <- maybe (assertFailure "no forwarder for the owning daemon") pure
                        =<< mcpDaemonAt port dir
@@ -9454,8 +9265,7 @@ mcpSpec = testGroup "POST /mcp"
         none <- mcpDaemonAt 1 dir
         assertEqual "no daemon on the port means no proxy" Nothing (() <$ none)
 
-  , testCase "GET /mcp serves the explorer page" $ do
-      a <- app assetsDir
+  , appCase "GET /mcp serves the explorer page" $ \a -> do
       r <- ok =<< getFrom a "/mcp"
       assertContains "the page names itself" "glance · MCP" (body r)
       assertContains "it reads its catalog over POST /mcp" "POST /mcp" (body r)
@@ -9465,27 +9275,15 @@ mcpSpec = testGroup "POST /mcp"
 commandSpec :: TestTree
 commandSpec = testGroup "POST /command"
   [ testCase "set-state replaces the keyword and moves no other byte" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        r <- ok =<< postTo a "/command" (command "set-state" ["first"] (keywordArg (Just "WAITING")))
-        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
-        after <- document path
-        assertEqual "the file is the old one with one word replaced"
-                    (T.replace "* NEXT First" "* WAITING First" before) after
-        onDisk <- digestOnDisk path
-        assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
+      spliced "the file is the old one with one word replaced" "first"
+              "* NEXT First" "* WAITING First"
+              (command "set-state" ["first"] (keywordArg (Just "WAITING")))
 
     -- The span is the title's own, so the assertion is about what it did NOT touch.
   , testCase "set-title replaces the title and nothing around it" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        r <- ok =<< postTo a "/command" (command "set-title" ["first"] (titleArg "Renamed"))
-        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
-        after <- document path
-        assertEqual "one title replaced, the rest of the file untouched"
-                    (T.replace "* NEXT First" "* NEXT Renamed" before) after
-        onDisk <- digestOnDisk path
-        assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
+      spliced "one title replaced, the rest of the file untouched" "first"
+              "* NEXT First" "* NEXT Renamed"
+              (command "set-title" ["first"] (titleArg "Renamed"))
 
   , testCase "and refuses a title org would not read back as one" $
       withCommandable $ \a _hub path _other -> do
@@ -9503,19 +9301,15 @@ commandSpec = testGroup "POST /command"
         assertContains "names the field" "\"title\"" =<< textAt "error" =<< decoded r
 
   , testCase "a keyword where there was none is inserted after the stars" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        assertOk =<< postTo a "/command" (command "set-state" ["second"] (keywordArg (Just "NEXT")))
-        after <- document path
-        assertEqual "inserted, and nothing else"
-                    (T.replace "* Second" "* NEXT Second" before) after
+      withCommandable $ \a _hub path _other ->
+        splices path "inserted, and nothing else" "* Second" "* NEXT Second"
+          (assertOk =<< postTo a "/command"
+             (command "set-state" ["second"] (keywordArg (Just "NEXT"))))
 
   , testCase "a null keyword takes the word and its space off" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        assertOk =<< postTo a "/command" (command "set-state" ["first"] (keywordArg Nothing))
-        assertEqual "the file closed up" (T.replace "* NEXT First" "* First" before)
-          =<< document path
+      withCommandable $ \a _hub path _other ->
+        splices path "the file closed up" "* NEXT First" "* First"
+          (postTo a "/command" (command "set-state" ["first"] (keywordArg Nothing)))
 
     -- Two rows of one file are ONE editFile: a write per row would pin the second to the digest the first invalidated.
   , oneFileOneWrite asIs
@@ -9531,13 +9325,13 @@ commandSpec = testGroup "POST /command"
     -- No cross-file rollback, and none is possible: the answer says which rows landed instead.
   , testCase "a file that moved refuses its rows while the others land" $
       withCommandable $ \a _hub path other -> do
-        meddled <- (<> "* TODO Someone else\n") <$> document other
-        TIO.writeFile other meddled
+        moved <- (<> "* TODO Someone else\n") <$> document other
+        TIO.writeFile other moved
         r <- ok =<< postTo a "/command" (command "archive" ["first", "third"] (object []))
         assertEqual "one landed, one did not"
                     [("first", True), ("third", False)] =<< outcomesOf r
         assertContains "the untouched file took its edit" ":one:ARCHIVE:" =<< document path
-        assertEqual "and the moved one is the meddler's" meddled =<< document other
+        assertEqual "and the moved one is the meddler's" moved =<< document other
 
   , loneMissingId (command "archive" ["nowhere", "first"] (object []))
       ("in the order asked", [("nowhere", False), ("first", True)])
@@ -9549,9 +9343,7 @@ commandSpec = testGroup "POST /command"
         before <- document path
         r <- postTo a "/command"
                (command "set-state" ["first", "third"] (keywordArg (Just "WAITING")))
-        assertEqual "status" 400 (status r)
-        assertContains "names the keyword" "WAITING" (body r)
-        assertContains "and the row it does not fit" "third" (body r)
+        refused r ["WAITING", "third"]
         assertEqual "the first file is untouched" before =<< document path
         assertEqual "and so is the second" elsewhereOrg =<< document other
 
@@ -9559,17 +9351,14 @@ commandSpec = testGroup "POST /command"
   , testCase "another tag's keyword is refused on a row that does not reach it" $
       withLayeredTree $ \a -> do
         r <- postTo a "/command" (command "set-state" ["bare"] (keywordArg (Just "WATCHING")))
-        assertEqual "status" 400 (status r)
-        assertContains "names the keyword" "WATCHING" (body r)
-        assertContains "and the row" "bare" (body r)
+        refused r ["WATCHING", "bare"]
 
     -- Each row against ITS OWN chain, which is the cost of the palette merging several rows into one table.
   , testCase "a marked set spanning tags is refused for the row that cannot take it" $
       withLayeredTree $ \a -> do
         r <- postTo a "/command"
                (command "set-state" ["tagged", "filmed"] (keywordArg (Just "READING")))
-        assertEqual "status" 400 (status r)
-        assertContains "names the row it does not fit" "filmed" (body r)
+        refused r ["filmed"]
         ok <- postTo a "/command" (command "set-state" ["tagged"] (keywordArg (Just "READING")))
         assertEqual "and the one it fits, alone" 200 (status ok)
         assertEqual "landed" [("tagged", True)] =<< outcomesOf ok
@@ -9663,8 +9452,7 @@ commandSpec = testGroup "POST /command"
         assertEqual "the row landed" [("first", True)] =<< outcomesOf r
         assertContains "written" ":one:ARCHIVE:" =<< document path
 
-  , testCase "an id named twice is written once" $
-      withCommandable $ \a _hub path _other -> do
+  , testCase "an id named twice is written once" $ withCommandable $ \a _hub path _other -> do
         r <- postTo a "/command" (command "archive" ["first", "first"] (object []))
         assertEqual "one result" [("first", True)] =<< outcomesOf r
         assertEqual "one tag" 1 . T.count "ARCHIVE" =<< document path
@@ -9693,8 +9481,7 @@ commandSpec = testGroup "POST /command"
         -- The cap outranks every other refusal, so nothing downstream of it ran.
         assertEqual "and no row moved" before =<< document path
 
-  , testCase "the route takes POST and nothing else" $
-      withCommandable $ \a _hub _path _other -> do
+  , testCase "the route takes POST and nothing else" $ withCommandable $ \a _hub _path _other -> do
         r <- getFrom a "/command"
         assertEqual "status" 405 (status r)
         assertContains "hint" "/command takes POST" (body r)
@@ -9715,15 +9502,8 @@ commandSpec = testGroup "POST /command"
 planningSpec :: TestTree
 planningSpec = testGroup "POST /command set-planning"
   [ testCase "a date lands as an active timestamp with the weekday computed" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        r <- ok =<< postTo a "/command"
-               (command "set-planning" ["first"] (planningArg "SCHEDULED" (Just "2026-08-05")))
-        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
-        assertEqual "the line went under the title line, and nothing else moved"
-                    (T.replace "* NEXT First :one:\n"
-                               "* NEXT First :one:\nSCHEDULED: <2026-08-05 Wed>\n" before)
-          =<< document path
+      plansAs "SCHEDULED" "2026-08-05" "SCHEDULED: <2026-08-05 Wed>"
+              "the line went under the title line, and nothing else moved"
 
   , testCase "and a null date takes the entry and its line off" $
       withCommandable $ \a hub path _other -> do
@@ -9755,9 +9535,7 @@ planningSpec = testGroup "POST /command set-planning"
         r <- postTo a "/command"
                (command "set-planning" ["first", "third"]
                         (planningArg "SCHEDULED" (Just "next tuesday")))
-        assertEqual "status" 400 (status r)
-        assertContains "names the input" "next tuesday" (body r)
-        assertContains "and the English forms it does take" "18 aug" (body r)
+        refused r ["next tuesday", "18 aug"]
         assertEqual "the first file is untouched" before =<< document path
         assertEqual "and so is the second" elsewhereOrg =<< document other
 
@@ -9765,50 +9543,24 @@ planningSpec = testGroup "POST /command set-planning"
     -- line's own wall read the same grammar, so a phrase the pane may type is a
     -- phrase this command takes.
   , testCase "an English date lands here too, weekday computed" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        assertOk =<< postTo a "/command"
-               (command "set-planning" ["first"] (planningArg "SCHEDULED" (Just "18 aug 2027")))
-        assertEqual "the stamp the server computed"
-                    (T.replace "* NEXT First :one:\n"
-                               "* NEXT First :one:\nSCHEDULED: <2027-08-18 Wed>\n" before)
-          =<< document path
+      plansAs "SCHEDULED" "18 aug 2027" "SCHEDULED: <2027-08-18 Wed>"
+              "the stamp the server computed"
 
     -- THE SAME BRACKET LAW AT THE OTHER DOOR: one wall, so the activity a
     -- reader spells is the activity that lands, whichever way the value arrived.
   , testCase "a bracketed phrase lands wearing the activity it names" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        assertOk =<< postTo a "/command"
-               (command "set-planning" ["first"] (planningArg "SCHEDULED" (Just "[18 aug 2027]")))
-        assertEqual "org's inactive bracket, weekday computed inside it"
-                    (T.replace "* NEXT First :one:\n"
-                               "* NEXT First :one:\nSCHEDULED: [2027-08-18 Wed]\n" before)
-          =<< document path
+      plansAs "SCHEDULED" "[18 aug 2027]" "SCHEDULED: [2027-08-18 Wed]"
+              "org's inactive bracket, weekday computed inside it"
 
   , testCase "and an English interval as org's own -- pair" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        assertOk =<< postTo a "/command"
-               (command "set-planning" ["first"]
-                        (planningArg "DEADLINE" (Just "from 18 to 19 august 2027")))
-        assertEqual "both ends, each weekday computed"
-                    (T.replace "* NEXT First :one:\n"
-                               ("* NEXT First :one:\nDEADLINE: <2027-08-18 Wed>"
-                                  <> "--<2027-08-19 Thu>\n") before)
-          =<< document path
+      plansAs "DEADLINE" "from 18 to 19 august 2027"
+              "DEADLINE: <2027-08-18 Wed>--<2027-08-19 Thu>"
+              "both ends, each weekday computed"
 
     -- The degenerate pair COLLAPSES, so the two spellings of one day agree.
   , testCase "a same-day interval collapses to the single stamp" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        assertOk =<< postTo a "/command"
-               (command "set-planning" ["first"]
-                        (planningArg "SCHEDULED" (Just "from 18 to 18 august 2027")))
-        assertEqual "one stamp, not two"
-                    (T.replace "* NEXT First :one:\n"
-                               "* NEXT First :one:\nSCHEDULED: <2027-08-18 Wed>\n" before)
-          =<< document path
+      plansAs "SCHEDULED" "from 18 to 18 august 2027" "SCHEDULED: <2027-08-18 Wed>"
+              "one stamp, not two"
 
     -- "Not a date" reads oddly of a phrase naming two perfectly good ones.
   , testCase "an inverted interval is refused in its own words" $
@@ -9817,10 +9569,7 @@ planningSpec = testGroup "POST /command set-planning"
         r <- postTo a "/command"
                (command "set-planning" ["first"]
                         (planningArg "SCHEDULED" (Just "from 30 dec to 2 jan")))
-        assertEqual "status" 400 (status r)
-        assertContains "names the input" "from 30 dec to 2 jan" (body r)
-        assertContains "says which way it runs" "ends before it starts" (body r)
-        assertContains "and names the remedy" "spell a year" (body r)
+        refused r ["from 30 dec to 2 jan", "ends before it starts", "spell a year"]
         assertEqual "nothing written" before =<< document path
 
     -- 'fromGregorianValid' is the wall, and a day it declines never reaches disk.
@@ -9829,8 +9578,7 @@ planningSpec = testGroup "POST /command set-planning"
         before <- document path
         r <- postTo a "/command"
                (command "set-planning" ["first"] (planningArg "SCHEDULED" (Just "31 feb")))
-        assertEqual "status" 400 (status r)
-        assertContains "names the input" "31 feb" (body r)
+        refused r ["31 feb"]
         assertEqual "nothing written" before =<< document path
 
     -- AN UNKNOWN KEY OUTRANKS EVERY VALUE: the keyword picks which wall the
@@ -9841,9 +9589,7 @@ planningSpec = testGroup "POST /command set-planning"
         before <- document path
         r <- postTo a "/command"
                (command "set-planning" ["first"] (planningArg "TIMESTAMP" (Just "2026-08-05")))
-        assertEqual "status" 400 (status r)
-        assertContains "names the keyword" "TIMESTAMP" (body r)
-        assertContains "and the three it writes" "SCHEDULED and DEADLINE and CLOSED" (body r)
+        refused r ["TIMESTAMP", "SCHEDULED and DEADLINE and CLOSED"]
         assertEqual "nothing written" before =<< document path
 
     -- ORG'S THIRD WORD IS NOT COMPOSED FOR, IT IS REPARSED.  The widget over
@@ -9883,19 +9629,15 @@ planningSpec = testGroup "POST /command set-planning"
           =<< document path
 
     -- Absent is not null: one says nothing about the entry and the other asks for it to come off.
-  , testCase "a request with no date at all is a 400" $
-      withCommandable $ \a _hub _path _other -> do
+  , testCase "a request with no date at all is a 400" $ withCommandable $ \a _hub _path _other -> do
         r <- postTo a "/command"
                (command "set-planning" ["first"] (object ["keyword" .= ("SCHEDULED" :: T.Text)]))
-        assertEqual "status" 400 (status r)
-        assertContains "asks for one" "date" (body r)
+        refused r ["date"]
 
-  , testCase "and one with no keyword either" $
-      withCommandable $ \a _hub _path _other -> do
+  , testCase "and one with no keyword either" $ withCommandable $ \a _hub _path _other -> do
         r <- postTo a "/command"
                (command "set-planning" ["first"] (object ["date" .= ("today" :: T.Text)]))
-        assertEqual "status" 400 (status r)
-        assertContains "asks for one" "keyword" (body r)
+        refused r ["keyword"]
   ]
 
 -- | @add-tag@ and @remove-tag@: the route — the batching, the per-id answer, and the request-shape refusals.
@@ -9947,8 +9689,7 @@ deleteCommandSpec = testGroup "POST /command delete"
         assertEqual "so nothing is noted" [] =<< noteLinesIn root
 
     -- It NAMES ROWS, and the id wall reads the NAME rather than "has edits".
-  , testCase "and it owes ids" $
-      withDeletable $ \a _root _archived _live _shared -> do
+  , testCase "and it owes ids" $ withDeletable $ \a _root _archived _live _shared -> do
         r <- postTo a "/command" (encode (object ["name" .= ("delete" :: T.Text)]))
         assertEqual "400" 400 (status r)
         assertContains "asks for them" "names rows" (body r)
@@ -9985,30 +9726,20 @@ sharedOrg = "* DONE Shared :archive:\n:PROPERTIES:\n:ORG_GLANCE_ID: shared\n:END
 
 tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
   [ testCase "add-tag joins the run and moves no other byte" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        r <- ok =<< postTo a "/command" (command "add-tag" ["first"] (tagArg "work"))
-        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
-        assertEqual "the file is the old one with one tag more"
-                    (T.replace "* NEXT First :one:" "* NEXT First :one:work:" before)
-          =<< document path
-        onDisk <- digestOnDisk path
-        assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
+      spliced "the file is the old one with one tag more" "first"
+              "* NEXT First :one:" "* NEXT First :one:work:"
+              (command "add-tag" ["first"] (tagArg "work"))
 
   , testCase "and opens a run on a row that had none" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        assertOk =<< postTo a "/command" (command "add-tag" ["second"] (tagArg "work"))
-        assertEqual "the run is the whole edit"
-                    (T.replace "* Second" "* Second :work:" before) =<< document path
+      withCommandable $ \a _hub path _other ->
+        splices path "the run is the whole edit" "* Second" "* Second :work:"
+          (assertOk =<< postTo a "/command" (command "add-tag" ["second"] (tagArg "work")))
 
   , testCase "remove-tag cuts it, and the last one takes the run away" $
       withCommandable $ \a hub path _other -> do
-        before <- document path
-        _ <- postTo a "/command" (command "remove-tag" ["first"] (tagArg "one"))
-        assertEqual "the run went with its last entry"
-                    (T.replace "* NEXT First :one:" "* NEXT First" before)
-          =<< document path
+        splices path "the run went with its last entry"
+                "* NEXT First :one:" "* NEXT First"
+                (postTo a "/command" (command "remove-tag" ["first"] (tagArg "one")))
         -- The store has to catch up before a second command can measure a span in this file.
         watchStep hub path
         _ <- postTo a "/command" (command "add-tag" ["first"] (tagArg "work"))
@@ -10054,20 +9785,17 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
       withCommandable $ \a _hub path _other -> do
         before <- document path
         r <- postTo a "/command" (command "add-tag" ["first"] (tagArg "a.b"))
-        assertEqual "status" 400 (status r)
-        assertContains "names what it turned down" "a.b" (body r)
+        refused r ["a.b"]
         assertEqual "and nothing was written" before =<< document path
 
-  , testCase "an empty tag is refused the same way" $
-      withCommandable $ \a _hub _path _other -> do
+  , testCase "an empty tag is refused the same way" $ withCommandable $ \a _hub _path _other -> do
         r <- postTo a "/command" (command "remove-tag" ["first"] (tagArg ""))
         assertEqual "status" 400 (status r)
 
   , testCase "and a request with no tag at all says what one wants" $
       withCommandable $ \a _hub _path _other -> do
         r <- postTo a "/command" (command "add-tag" ["first"] (object []))
-        assertEqual "status" 400 (status r)
-        assertContains "asks for one" "tag" (body r)
+        refused r ["tag"]
 
   , loneMissingId (command "add-tag" ["first", "nosuch"] (tagArg "work"))
       ("one landed, one did not", [("first", True), ("nosuch", False)])
@@ -10093,15 +9821,9 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
 renameCommandSpec :: TestTree
 renameCommandSpec = testGroup "POST /command rename-tag"
   [ testCase "replaces the entry where it stands, moving no other byte" $
-      withCommandable $ \a _hub path _other -> do
-        before <- document path
-        r <- ok =<< postTo a "/command" (command "rename-tag" ["first"] (renameArg "one" "two"))
-        assertEqual "the row landed" [("first", True)] =<< outcomesOf r
-        assertEqual "the file is the old one with that entry renamed"
-                    (T.replace "* NEXT First :one:" "* NEXT First :two:" before)
-          =<< document path
-        onDisk <- digestOnDisk path
-        assertEqual "the digest it reports is the file's" [onDisk] =<< digestsOf r
+      spliced "the file is the old one with that entry renamed" "first"
+              "* NEXT First :one:" "* NEXT First :two:"
+              (command "rename-tag" ["first"] (renameArg "one" "two"))
 
     -- BOTH DIRECTIONS from one edit set, which a remove-then-add composition cannot have.
   , testCase "and renaming it back puts the file where it was" $
@@ -10153,8 +9875,7 @@ renameCommandSpec = testGroup "POST /command rename-tag"
   , testCase "and a request naming only one end says what one wants" $
       mapM_ (\args -> withCommandable $ \a _hub _path _other -> do
                r <- postTo a "/command" (command "rename-tag" ["first"] args)
-               assertEqual "status" 400 (status r)
-               assertContains "asks for both ends" "from" (body r)
+               refused r ["from"]
                assertContains "by name" "to" (body r))
             [ object ["from" .= ("one" :: T.Text)]
             , object ["to" .= ("two" :: T.Text)]
@@ -10192,8 +9913,7 @@ tagsSpec = testGroup "GET /tags" $
         assertEqual "and nothing was asked for that is not there" []
           =<< textsAt "unknown" =<< decoded r
 
-  , testCase "several rows answer in the order they were named" $
-      withTaggedTree $ \a -> do
+  , testCase "several rows answer in the order they were named" $ withTaggedTree $ \a -> do
         assertEqual "as asked" [("bare", []), ("both", ["web", "work"])]
           =<< tagRowsOf =<< getFrom a "/tags?ids=bare,both"
         assertEqual "and the other way round"
@@ -10207,8 +9927,7 @@ tagsSpec = testGroup "GET /tags" $
           =<< textsAt "vocabulary" =<< decoded =<< getFrom a "/tags?ids=bare"
 
     -- The COUNTS are ROWS per tag: `stTags' counts FILES, so no arithmetic recovers this.
-  , testCase "the counts are the tree's rows per tag, folded" $
-      withTaggedTree $ \a -> do
+  , testCase "the counts are the tree's rows per tag, folded" $ withTaggedTree $ \a -> do
         counts <- field "counts" =<< decoded =<< getFrom a "/tags?ids=bare"
         assertEqual "one entry per tag the store holds"
                     ["archive", "shelf", "web", "work"] =<< countedNames counts
@@ -10231,27 +9950,25 @@ tagRowsOf = traverse one <=< rowsOf
 
 -- | The names a counts object spells, sorted: JSON object order is nobody's contract.
 countedNames :: Value -> IO [T.Text]
-countedNames = fmap sort . fieldsOf
+countedNames = fmap sort . keysOf
 
 -- | A tree holding one tag no resolved row carries, so the vocabulary being the STORE's is observable.
 withTaggedTree :: (Application -> IO a) -> IO a
-withTaggedTree k = withTempDir $ \dir -> do
-  _ <- orgFile dir "a.org" (T.unlines
-         [ "* one :Web:work:", ":PROPERTIES:", ":ORG_GLANCE_ID: both", ":END:"
-         , "* two :web:", ":PROPERTIES:", ":ORG_GLANCE_ID: one", ":END:"
-         , "* three", ":PROPERTIES:", ":ORG_GLANCE_ID: bare", ":END:" ])
-  _ <- orgFile dir "b.org" (T.unlines
-         [ "* four :shelf:ARCHIVE:", ":PROPERTIES:", ":ORG_GLANCE_ID: shelved", ":END:" ])
-  (a, _hub) <- serverOver dir
-  k a
+withTaggedTree k = withTreeOf
+  [ ("a.org", T.unlines
+      [ "* one :Web:work:", ":PROPERTIES:", ":ORG_GLANCE_ID: both", ":END:"
+      , "* two :web:", ":PROPERTIES:", ":ORG_GLANCE_ID: one", ":END:"
+      , "* three", ":PROPERTIES:", ":ORG_GLANCE_ID: bare", ":END:" ])
+  , ("b.org", T.unlines
+      [ "* four :shelf:ARCHIVE:", ":PROPERTIES:", ":ORG_GLANCE_ID: shelved", ":END:" ]) ]
+  (\a _hub _dir -> k a)
 
 -- | @GET \/properties@: the drawer vocabulary, which names no row, so the whole store answers.
 propertiesSpec :: TestTree
 propertiesSpec = testGroup "GET /properties"
   [ -- THE HIDDEN KEYS ARE NO VOCABULARY: both sit in every drawer of the
     -- fixture, and completing one would write it.
-    testCase "the keys are the tree's own, counted in rows" $
-      withDrawerTree $ \a -> do
+    testCase "the keys are the tree's own, counted in rows" $ withDrawerTree $ \a -> do
         keys <- field "keys" =<< decoded =<< ok =<< getFrom a "/properties"
         assertEqual "one entry per key a row spells, the server's own left out"
                     ["Author", "Genre", "Rating"] =<< countedNames keys
@@ -10259,8 +9976,7 @@ propertiesSpec = testGroup "GET /properties"
           =<< intAt "Genre" keys
         assertEqual "Rating on the one row that spells it" 1 =<< intAt "Rating" keys
 
-  , testCase "and every value under the key it was spelled with" $
-      withDrawerTree $ \a -> do
+  , testCase "and every value under the key it was spelled with" $ withDrawerTree $ \a -> do
         values <- field "values" =<< decoded =<< ok =<< getFrom a "/properties"
         genre <- field "Genre" values
         assertEqual "both spellings the tree holds" ["heist", "noir"]
@@ -10273,9 +9989,7 @@ propertiesSpec = testGroup "GET /properties"
     -- A tree with nothing to complete from is a tree, not a miss: the drawer's
     -- input opens on it and offers nothing.
   , testCase "a tree whose drawers hold nothing answers empty objects" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "bare.org" "* one\n"
-        (a, _hub) <- serverOver dir
+      withTreeOf [("bare.org", "* one\n")] $ \a _hub _dir -> do
         v <- decoded =<< ok =<< getFrom a "/properties"
         assertEqual "no keys" [] =<< countedNames =<< field "keys" v
         assertEqual "and no values" [] =<< countedNames =<< field "values" v
@@ -10284,12 +9998,10 @@ propertiesSpec = testGroup "GET /properties"
     -- DRAWERS, and the parser lifts planning off the headline before one is
     -- read.  The pair box offers the three out of `CFG.planning' instead.
   , testCase "a planned tree offers no planning word" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "plan.org" (T.unlines
-               [ "* one", "SCHEDULED: <2026-09-01 Tue> DEADLINE: <2026-09-05 Sat>"
-               , ":PROPERTIES:", ":Genre: noir", ":END:", "* two"
-               , "CLOSED: [2026-09-02 Wed 18:30]" ])
-        (a, _hub) <- serverOver dir
+      withTreeOf [("plan.org", T.unlines
+                    [ "* one", "SCHEDULED: <2026-09-01 Tue> DEADLINE: <2026-09-05 Sat>"
+                    , ":PROPERTIES:", ":Genre: noir", ":END:", "* two"
+                    , "CLOSED: [2026-09-02 Wed 18:30]" ])] $ \a _hub _dir -> do
         v <- decoded =<< ok =<< getFrom a "/properties"
         assertEqual "the drawer's own key, and nothing the planning lines spell"
                     ["Genre"] =<< countedNames =<< field "keys" v
@@ -10297,10 +10009,9 @@ propertiesSpec = testGroup "GET /properties"
     -- AND WHERE ANOTHER WRITER MINTED ONE INTO A DRAWER the route counts it,
     -- since that is literally where it stands: the pair the pane MIGRATES.
   , testCase "a `:SCHEDULED:' another writer put in a drawer is drawer vocabulary" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "stray.org" (T.unlines
-               [ "* one", ":PROPERTIES:", ":SCHEDULED: <2026-09-01 Tue>", ":END:" ])
-        (a, _hub) <- serverOver dir
+      withTreeOf [("stray.org", T.unlines
+                    [ "* one", ":PROPERTIES:", ":SCHEDULED: <2026-09-01 Tue>", ":END:" ])]
+        $ \a _hub _dir -> do
         keys <- field "keys" =<< decoded =<< ok =<< getFrom a "/properties"
         assertEqual "the pair as the file spells it" ["SCHEDULED"]
           =<< countedNames keys
@@ -10310,17 +10021,16 @@ propertiesSpec = testGroup "GET /properties"
 
 -- | A tree spelling one key across two files, one key on a single row, and the server's own pair in every drawer.
 withDrawerTree :: (Application -> IO a) -> IO a
-withDrawerTree k = withTempDir $ \dir -> do
-  _ <- orgFile dir "a.org" (T.unlines
-         [ "* one", ":PROPERTIES:", ":ORG_GLANCE_ID: one"
-         , ":ORG_GLANCE_CREATION_TIME: [2026-08-20 Thu]"
-         , ":Genre: noir", ":Rating: 5", ":END:"
-         , "* two", ":PROPERTIES:", ":ORG_GLANCE_ID: two", ":Genre: noir", ":END:" ])
-  _ <- orgFile dir "b.org" (T.unlines
-         [ "* three", ":PROPERTIES:", ":ORG_GLANCE_ID: three"
-         , ":Genre: heist", ":Author: Leonard", ":END:" ])
-  (a, _hub) <- serverOver dir
-  k a
+withDrawerTree k = withTreeOf
+  [ ("a.org", T.unlines
+      [ "* one", ":PROPERTIES:", ":ORG_GLANCE_ID: one"
+      , ":ORG_GLANCE_CREATION_TIME: [2026-08-20 Thu]"
+      , ":Genre: noir", ":Rating: 5", ":END:"
+      , "* two", ":PROPERTIES:", ":ORG_GLANCE_ID: two", ":Genre: noir", ":END:" ])
+  , ("b.org", T.unlines
+      [ "* three", ":PROPERTIES:", ":ORG_GLANCE_ID: three"
+      , ":Genre: heist", ":Author: Leonard", ":END:" ]) ]
+  (\a _hub _dir -> k a)
 
 -- | @capture@: the one command that names no row, and the one write whose target comes out of the config.
 captureSpec :: TestTree
@@ -10386,16 +10096,13 @@ captureSpec = testGroup "POST /command capture"
       withCaptureTree $ \a _hub _dir -> do
         r <- postTo a "/command"
                (encode (object ["name" .= ("capture" :: T.Text), "args" .= object []]))
-        assertEqual "status" 400 (status r)
-        assertContains "names the field" "text" (body r)
+        refused r ["text"]
 
-  , testCase "it names no rows, and is not refused for that" $
-      withCaptureTree $ \a _hub _dir -> do
+  , testCase "it names no rows, and is not refused for that" $ withCaptureTree $ \a _hub _dir -> do
         assertOk =<< postTo a "/command" (capture "no ids here")
 
     -- THE ID THE ANSWER CARRIES has to be the id the next load spells.
-  , testCase "the answer names the row the capture made" $
-      withCaptureTree $ \a hub dir -> do
+  , testCase "the answer names the row the capture made" $ withCaptureTree $ \a hub dir -> do
         r <- ok =<< postTo a "/command" (capture "TODO Buy milk")
         assertEqual "the file's own path and the next ordinal"
                     (T.pack (dir </> "inbox.org") <> "#0") =<< textAt "id" =<< decoded r
@@ -10446,8 +10153,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         assertContains "beside the creation time" ":ORG_GLANCE_CREATION_TIME: [" written
 
     -- fsnotify arms a blob's fresh shard without traversing into it, so the daemon queues the path itself at write time.
-  , testCase "and the row arrives with no event behind it" $
-      withStoreTree $ \a hub dir -> do
+  , testCase "and the row arrives with no event behind it" $ withStoreTree $ \a hub dir -> do
         ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
         drainNow dir hub
         rows <- rowsOf =<< getFrom a "/headlines"
@@ -10455,8 +10161,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
                    (ident `elem` map rowId rows)
 
     -- AND SO DOES EVERY WRITE AFTER IT: the shard is unwatched for the daemon's life.
-  , testCase "and so does a later write to that same blob" $
-      withStoreTree $ \a hub dir -> do
+  , testCase "and so does a later write to that same blob" $ withStoreTree $ \a hub dir -> do
         ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
         drainNow dir hub
         assertOk =<< postTo a "/command"
@@ -10467,16 +10172,14 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         assertEqual "the table caught up with the file" ["READING"] state
 
     -- The note rides the write door every other write leaves through: blob first, line second.
-  , testCase "and one EXTERNAL.jsonl line naming it" $
-      withStoreTree $ \a _hub dir -> do
+  , testCase "and one EXTERNAL.jsonl line naming it" $ withStoreTree $ \a _hub dir -> do
         ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
         noted <- document (dir </> ".org-glance/meta/EXTERNAL.jsonl")
         assertEqual "one line" 1 (length (T.lines noted))
         assertContains "naming the blob's own id" ("{\"id\":\"" <> ident <> "\"") noted
 
     -- AND SO DOES A MATERIALIZE COMMIT, the fifth write site, through the same door.
-  , testCase "and so does a materialize commit into that shard" $
-      withStoreTree $ \a hub dir -> do
+  , testCase "and so does a materialize commit into that shard" $ withStoreTree $ \a hub dir -> do
         ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
         drainNow dir hub
         before <- decoded =<< ok =<< getFrom a (headlinePath ident)
@@ -10489,8 +10192,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         state <- traverse (cellAt "state") [ r | r <- rows, rowId r == ident ]
         assertEqual "the table caught up with the commit" ["READING"] state
 
-  , testCase "the tag's template is expanded, prompts and all" $
-      withStoreTree $ \a _hub _dir -> do
+  , testCase "the tag's template is expanded, prompts and all" $ withStoreTree $ \a _hub _dir -> do
         v <- decoded =<< ok =<< postTo a "/command"
                                   (captureAs "book" [("Author", "Herbert")] "Dune")
         written <- document . T.unpack =<< textAt "file" v
@@ -10551,8 +10253,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
         assertEqual "the destination is worn once" 1
                     (length (T.breakOnAll ":book:" headline))
 
-  , testCase "and the ledger note rides the widened road too" $
-      withStoreTree $ \a _hub dir -> do
+  , testCase "and the ledger note rides the widened road too" $ withStoreTree $ \a _hub dir -> do
         ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command"
                    (draftPost [ "tag" .= ("book" :: T.Text), "title" .= ("Dune" :: T.Text) ])
         noted <- document (dir </> ".org-glance/meta/EXTERNAL.jsonl")
@@ -10562,8 +10263,7 @@ blobCaptureSpec = testGroup "POST /command capture, under a tag"
     -- ONE FILE, ONE ENDING.  A blob is a NEW file and has none of its own, so it
     -- takes the TEMPLATE'S — the bytes it is composed out of — headline, drawer
     -- and body alike, the pane speaking `\n' and knowing no other ending.
-  , testCase "a CRLF layer lands a CRLF blob, every line of it" $
-      withStoreTree $ \a _hub dir -> do
+  , testCase "a CRLF layer lands a CRLF blob, every line of it" $ withStoreTree $ \a _hub dir -> do
         TIO.writeFile (tagFileIn dir "crlf")
           "#+TITLE: CRLF\r\n\r\n* %?\r\n:PROPERTIES:\r\n:NOTE: %^{Note}\r\n:END:\r\n"
         v <- decoded =<< ok =<< postTo a "/command" (draftPost
@@ -10770,8 +10470,7 @@ captureViewSpec = testGroup "GET /capture"
         assertEqual "and its done words" [["DONE"], ["READ"]]
           =<< traverse (textsAt "inactive") cyc
 
-  , testCase "with no tag the cycle is the default one alone" $
-      withStoreTree $ \a _hub _dir -> do
+  , testCase "with no tag the cycle is the default one alone" $ withStoreTree $ \a _hub _dir -> do
         cyc <- listAt "cycle" =<< decoded =<< ok =<< getFrom a "/capture"
         assertEqual "one scope" ["default"] =<< traverse (textAt "source") cyc
 
@@ -10846,8 +10545,7 @@ captureViewSpec = testGroup "GET /capture"
       withStoreTree $ \a _hub dir -> do
         TIO.writeFile (tagFileIn dir "film") "#+TITLE: Film\n\n* nothing here\n"
         r <- getFrom a "/capture?tag=film"
-        assertEqual "status" 400 (status r)
-        assertContains "naming the code" "%?" (body r)
+        refused r ["%?"]
 
   , postIs405 "/capture"
   ]
@@ -10866,7 +10564,7 @@ withStoreTree k = withTempDir $ \dir -> do
     , ( Just "task", "#+TITLE: Task\n#+TODO: TODO NEXT | DONE\n\n* TODO %?\n" )
       -- One with a TITLE of its own: a tag run needs one to stand after.
     , ( Just "trip", "#+TITLE: Trip\n\n* Trip\n%?\n" ) ]
-  createDirectoryIfMissing True (dir </> ".org-glance" </> "data")
+  createDirectoryIfMissing True (storeRootIn dir </> "data")
   _ <- orgFile dir "notes.org" "* TODO Already here :book:\n"
   (a, hub) <- serverOver dir
   k a hub dir
@@ -10906,10 +10604,7 @@ planningArg :: T.Text -> Maybe T.Text -> Value
 planningArg keyword date = object ["keyword" .= keyword, "date" .= date]
 
 withCaptureTree :: (Application -> Hub -> FilePath -> Assertion) -> Assertion
-withCaptureTree k = withTempDir $ \dir -> do
-  _ <- orgFile dir "notes.org" "* TODO Already here\n"
-  (a, hub) <- serverOver dir
-  k a hub dir
+withCaptureTree k = withTreeOf [("notes.org", "* TODO Already here\n")] k
 
 -- | The keyword layers, read and written: @GET@ lists every config file the tree has, plus the @system.org@ it could have.
 configSpec :: TestTree
@@ -10933,14 +10628,12 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "inactive" ["DONE", "READ", "ABANDONED"] =<< textsAt "inactive" keywords
 
     -- The empty digest is the pin an absent file carries, so the record a reader is handed is the lock a writer presents back.
-  , testCase "the default view rides beside the layers" $
-      withConfigTree $ \a _dir -> do
+  , testCase "the default view rides beside the layers" $ withConfigTree $ \a _dir -> do
         v <- decoded =<< getFrom a "/config"
         assertEqual "with no line anywhere, the built-in"
                     "state:*active*" =<< viewText "default" v
 
-  , testCase "and a system layer naming one is what is served" $
-      withConfigTree $ \a dir -> do
+  , testCase "and a system layer naming one is what is served" $ withConfigTree $ \a dir -> do
         digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
         assertOk =<< postTo a "/config" (viewBody (systemAt dir) [] (Just "tag:work") digest)
         assertContains "the line is in the file" "#+GLANCE_DEFAULT_FILTER: tag:work"
@@ -10949,8 +10642,7 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "and the next read says so" "tag:work" =<< viewText "default" v
 
     -- Naming one view leaves the other's line where it was, which is what makes the sheet's per-view write honest.
-  , testCase "the agenda view is a line of its own" $
-      withConfigTree $ \a dir -> do
+  , testCase "the agenda view is a line of its own" $ withConfigTree $ \a dir -> do
         v <- decoded =<< getFrom a "/config"
         assertEqual "with no line anywhere, the built-in"
                     "state:*active* -planned:*empty* sort:scheduled"
@@ -10991,8 +10683,7 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "served back flat" ["#7B1FA2", "#00695C"]
           =<< (traverse (textAt "hue") =<< listAt "colors" =<< decoded =<< getFrom a "/config")
 
-  , testCase "a view no build carries is a 400 naming it" $
-      withConfigTree $ \a dir -> do
+  , testCase "a view no build carries is a 400 naming it" $ withConfigTree $ \a dir -> do
         digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
         answer <- postTo a "/config" (encode (object
           [ "path" .= systemAt dir, "digest" .= digest
@@ -11024,8 +10715,7 @@ configSpec = testGroup "GET and POST /config"
 
     -- A TAG LAYER IS MINTED BY BEING WRITTEN TO: `filesIn' can only list what is
     -- there, so without this a state can never be added to a tag that has no file.
-  , testCase "a write to a tag with no layer file mints one" $
-      withConfigTree $ \a dir -> do
+  , testCase "a write to a tag with no layer file mints one" $ withConfigTree $ \a dir -> do
         listed <- traverse (textAt "path") =<< listAt "layers" =<< decoded =<< getFrom a "/config"
         assertBool ("film.org was already listed: " <> show listed)
                    (tagAt dir "cinema" `notElem` listed)
@@ -11056,8 +10746,7 @@ configSpec = testGroup "GET and POST /config"
 
     -- A malformed word makes `todoPragmas' yield NOTHING, so without the wall the
     -- writer is told the block came to nothing rather than which word did it.
-  , testCase "a state org cannot read back is refused by name" $
-      withConfigTree $ \a dir -> do
+  , testCase "a state org cannot read back is refused by name" $ withConfigTree $ \a dir -> do
         digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
         answer <- postTo a "/config"
           (configBody (systemAt dir) ["#+TODO: TODO IN-PROGRESS | DONE"] digest)
@@ -11069,9 +10758,7 @@ configSpec = testGroup "GET and POST /config"
 
     -- `.org-glance/config/' is two directories minted at once, which fsnotify arms without entering; a config path settles as a RESEED.
   , testCase "the first config layer in a tree reseeds it with no event behind it" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "a.org" "* STARTED refactor\n"
-        (a, hub) <- serverOver dir
+      withTreeOf [("a.org", "* STARTED refactor\n")] $ \a hub dir -> do
         let stateCells = traverse (cellAt "state") <=< rowsOf <=< getFrom a
         assertEqual "before, the word is title text" [""]
           =<< stateCells "/headlines"
@@ -11082,8 +10769,7 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "and the palette moved with it" ["TODO", "STARTED", "DONE"]
           =<< badgeValues =<< decoded =<< getFrom a "/headlines"
 
-  , testCase "an emptied default view takes the line away" $
-      withConfigTree $ \a dir -> do
+  , testCase "an emptied default view takes the line away" $ withConfigTree $ \a dir -> do
         digest <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
         _ <- postTo a "/config" (viewBody (systemAt dir) [] (Just "tag:work") digest)
         fresh <- textAt "digest" . head =<< listAt "layers" =<< decoded =<< getFrom a "/config"
@@ -11095,14 +10781,12 @@ configSpec = testGroup "GET and POST /config"
           =<< viewText "default" =<< decoded =<< getFrom a "/config"
 
     -- THE CAPTURE TEMPLATE is a REGION of the same file: one file, one digest, and every layer may carry one.
-  , testCase "each layer's capture template is served verbatim" $
-      withConfigTree $ \a _dir -> do
+  , testCase "each layer's capture template is served verbatim" $ withConfigTree $ \a _dir -> do
         layers <- listAt "layers" =<< decoded =<< getFrom a "/config"
         assertEqual "the first heading of each, to the end of the file"
                     ["", "* Book", "* %?"] =<< traverse (textAt "template") layers
 
-  , testCase "and written back in the same call as the block" $
-      withConfigTree $ \a dir -> do
+  , testCase "and written back in the same call as the block" $ withConfigTree $ \a dir -> do
         digest <- digestOnDisk (T.unpack (tagAt dir "book"))
         assertOk =<< postTo a "/config"
           (templateBody (tagAt dir "book") ["#+TODO: TODO READING | READ ABANDONED"]
@@ -11117,8 +10801,7 @@ configSpec = testGroup "GET and POST /config"
                     "* %?\n:PROPERTIES:\n:AUTHOR: %^{Author}\n:END:"
           =<< textAt "template" . (!! 1) =<< listAt "layers" =<< decoded =<< getFrom a "/config"
 
-  , testCase "an empty template takes the heading away" $
-      withConfigTree $ \a dir -> do
+  , testCase "an empty template takes the heading away" $ withConfigTree $ \a dir -> do
         digest <- digestOnDisk (T.unpack (tagAt dir "book"))
         assertOk =<< postTo a "/config"
           (templateBody (tagAt dir "book") ["#+TODO: TODO READING | READ ABANDONED"]
@@ -11135,14 +10818,12 @@ configSpec = testGroup "GET and POST /config"
         r <- postTo a "/config"
                (templateBody (tagAt dir "book") ["#+TODO: TODO READING | READ ABANDONED"]
                              Nothing Nothing (Just "** %?") digest)
-        assertEqual "status" 400 (status r)
-        assertContains "naming the rule" "top entry" (body r)
+        refused r ["top entry"]
         assertEqual "and the file is untouched" before
           =<< document (T.unpack (tagAt dir "book"))
 
     -- A TREE-WIDE SETTING BELONGS TO A TREE rather than to a tag, and the route takes that off the LAYER it looked up.
-  , testCase "a tag layer's write reaches no tree-wide setting" $
-      withConfigTree $ \a dir -> do
+  , testCase "a tag layer's write reaches no tree-wide setting" $ withConfigTree $ \a dir -> do
         assertEqual "the body names every setting the registry carries"
                     (sort (map csName configSettings)) (sort (map fst everySetting))
         digest <- digestOnDisk (T.unpack (tagAt dir "book"))
@@ -11181,8 +10862,7 @@ configSpec = testGroup "GET and POST /config"
         assertBool "and the tag config is one" (not (T.null (digests !! 1)))
         assertEqual "which one it would be" (systemAt dir) =<< textAt "path" (head layers)
 
-  , testCase "replaces the block and leaves every other byte alone" $
-      withConfigTree $ \a dir -> do
+  , testCase "replaces the block and leaves every other byte alone" $ withConfigTree $ \a dir -> do
         before <- document (T.unpack (tagAt dir "book"))
         digest <- digestOnDisk (T.unpack (tagAt dir "book"))
         r <- ok =<< postTo a "/config"
@@ -11205,15 +10885,13 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "placed under the header"
                     "#+TITLE: Film\n#+TODO: A | B\n\n* %?\n" =<< document path
 
-  , testCase "creates the file, and the directories over it" $
-      withConfigTree $ \a dir -> do
+  , testCase "creates the file, and the directories over it" $ withConfigTree $ \a dir -> do
         assertOk =<< postTo a "/config"
                (configBody (systemAt dir) ["#+TODO: TODO STARTED | DONE"] "")
         assertEqual "the whole file is the block"
                     "#+TODO: TODO STARTED | DONE\n" =<< document (T.unpack (systemAt dir))
 
-  , testCase "an empty block takes the layer's line off" $
-      withConfigTree $ \a dir -> do
+  , testCase "an empty block takes the layer's line off" $ withConfigTree $ \a dir -> do
         let path = T.unpack (tagAt dir "book")
         digest <- digestOnDisk path
         assertOk =<< postTo a "/config" (configBody (tagAt dir "book") [] digest)
@@ -11230,14 +10908,12 @@ configSpec = testGroup "GET and POST /config"
         assertEqual "the file is as it was" before =<< document path
 
     -- The empty digest means "nothing is there", so a file that turned up meanwhile refuses the way a moved one does.
-  , testCase "creating over a file that exists is the same refusal" $
-      withConfigTree $ \a dir -> do
+  , testCase "creating over a file that exists is the same refusal" $ withConfigTree $ \a dir -> do
         r <- postTo a "/config" (configBody (tagAt dir "book") ["#+TODO: A | B"] "")
         assertEqual "status" 409 (status r)
         assertEqual "reason" "drift" =<< textAt "reason" =<< decoded r
 
-  , testCase "refuses lines that are not a #+TODO: block" $
-      withConfigTree $ \a dir -> do
+  , testCase "refuses lines that are not a #+TODO: block" $ withConfigTree $ \a dir -> do
         let path = T.unpack (tagAt dir "book")
         before <- document path
         digest <- digestOnDisk path
@@ -11248,20 +10924,17 @@ configSpec = testGroup "GET and POST /config"
               [ ("a headline is not a pragma", ["* TODO not a pragma"]) ]
         assertEqual "and nothing was written" before =<< document path
 
-  , testCase "refuses a path that is not one of this tree's layers" $
-      withConfigTree $ \a _dir -> do
+  , testCase "refuses a path that is not one of this tree's layers" $ withConfigTree $ \a _dir -> do
         r <- postTo a "/config" (configBody "/etc/passwd" ["#+TODO: A | B"] "")
         assertEqual "status" 400 (status r)
         assertContains "says which paths there are" ".org-glance/config/system.org"
           =<< textAt "error" =<< decoded r
 
-  , testCase "and a body that is not a layer write" $
-      withConfigTree $ \a _dir -> do
+  , testCase "and a body that is not a layer write" $ withConfigTree $ \a _dir -> do
         r <- postTo a "/config" (encode (object ["nope" .= True]))
         assertEqual "status" 400 (status r)
 
-  , testCase "takes GET and POST and nothing else" $
-      withConfigTree $ \a _dir -> do
+  , testCase "takes GET and POST and nothing else" $ withConfigTree $ \a _dir -> do
         r <- runSession (request (setPath defaultRequest "/config")
                                    { requestMethod = methodDelete }) a
         assertEqual "status" 405 (status r)
@@ -11269,8 +10942,7 @@ configSpec = testGroup "GET and POST /config"
                     (Just "application/json; charset=utf-8") (header "Content-Type" r)
 
     -- The route is a writer like the other two, so it leaves the store alone.
-  , testCase "leaves the store alone — the watch is what reseeds" $
-      withConfigTree $ \a dir -> do
+  , testCase "leaves the store alone — the watch is what reseeds" $ withConfigTree $ \a dir -> do
         before <- badgeValues =<< decoded =<< getFrom a "/headlines"
         digest <- digestOnDisk (T.unpack (tagAt dir "book"))
         _ <- postTo a "/config"
@@ -11333,8 +11005,7 @@ keywordsSpec = testGroup "GET /keywords"
   , postIs405 "/keywords"
 
     -- A tag keeps its tag RANK, so a tag spelled `system' sits BELOW the system layer.
-  , testCase "a tag spelled like a reserved source keeps its own rank" $
-      withTempDir $ \dir -> do
+  , testCase "a tag spelled like a reserved source keeps its own rank" $ withTempDir $ \dir -> do
         writeLayers dir [ (Nothing,       "#+TODO: STARTED | SHELVED\n")
                         , (Just "system", "#+TODO: PLANNED | SHELVED\n") ]
         _ <- orgFile dir "a.org" (T.unlines
@@ -11399,25 +11070,20 @@ editLinkSpec = testGroup "POST /command edit-link"
 
     -- Each form goes through the range the route itself reported, so what this pins is that the offsets survive the wire.
   , testCase "a description added, kept and taken off, over the wire" $ do
-      withLinkable $ \a _hub path -> do
-        before <- document path
-        _ <- postEditLink a "first" 1 [ "target" .= ("https://b.example" :: T.Text)
-                                      , "desc" .= ("B" :: T.Text) ]
-        assertEqual "the bracketed bare link took a description"
-          (T.replace "[[https://b.example]]" "[[https://b.example][B]]" before)
-          =<< document path
-      withLinkable $ \a _hub path -> do
-        before <- document path
-        _ <- postEditLink a "first" 2 ["target" .= ("https://d.example" :: T.Text)]
-        assertEqual "and the plain URL swapped its target and stayed plain"
-          (T.replace "https://c.example" "https://d.example" before) =<< document path
-      withLinkable $ \a _hub path -> do
-        before <- document path
-        _ <- postEditLink a "first" 0 [ "target" .= ("https://a.example" :: T.Text)
-                                      , "desc" .= Null ]
-        assertEqual "a null description leaves a desc-less bracketed link"
-          (T.replace "[[https://a.example][A]]" "[[https://a.example]]" before)
-          =<< document path
+      withLinkable $ \a _hub path ->
+        splices path "the bracketed bare link took a description"
+                "[[https://b.example]]" "[[https://b.example][B]]"
+                (postEditLink a "first" 1 [ "target" .= ("https://b.example" :: T.Text)
+                                          , "desc" .= ("B" :: T.Text) ])
+      withLinkable $ \a _hub path ->
+        splices path "and the plain URL swapped its target and stayed plain"
+                "https://c.example" "https://d.example"
+                (postEditLink a "first" 2 ["target" .= ("https://d.example" :: T.Text)])
+      withLinkable $ \a _hub path ->
+        splices path "a null description leaves a desc-less bracketed link"
+                "[[https://a.example][A]]" "[[https://a.example]]"
+                (postEditLink a "first" 0 [ "target" .= ("https://a.example" :: T.Text)
+                                          , "desc" .= Null ])
 
     -- THE PIN: a digest the store no longer has is refused per id, since a digest is per file.
   , testCase "a span measured against a text the store no longer holds is refused" $
@@ -11440,9 +11106,7 @@ editLinkSpec = testGroup "POST /command edit-link"
                (linkCommand "edit-link" ["first"]
                        (object ["span" .= sp, "target" .= ("https://z.example" :: T.Text)])
                        [("first", digest)])
-        assertEqual "status" 400 (status r)
-        assertContains "naming the row it does not belong to" "first" (body r)
-        assertContains "and the extent that does not hold it" "subtree" (body r)
+        refused r ["first", "subtree"]
         assertEqual "nothing was written" before =<< document path
 
     -- A SPAN NAMES ONE ROW's own text, so the command names one row.
@@ -11454,9 +11118,7 @@ editLinkSpec = testGroup "POST /command edit-link"
                (linkCommand "edit-link" ["first", "second"]
                        (object ["span" .= sp, "target" .= ("https://z.example" :: T.Text)])
                        [("first", digest)])
-        assertEqual "status" 400 (status r)
-        assertContains "naming the command" "edit-link" (body r)
-        assertContains "and the rule" "one row" (body r)
+        refused r ["edit-link", "one row"]
         assertEqual "nothing was written" before =<< document path
 
     -- THE ROW COUNT IS THE COARSEST THING WRONG, and it is `csArgs' asking — there is no separate ids rule above it.
@@ -11464,8 +11126,7 @@ editLinkSpec = testGroup "POST /command edit-link"
       withLinkable $ \a _hub _path -> do
         r <- postTo a "/command"
                (linkCommand "edit-link" ["first", "second"] (object []) [])
-        assertEqual "status" 400 (status r)
-        assertContains "the count outranks the missing span" "one row" (body r)
+        refused r ["one row"]
 
   , testCase "every refusal is a 400, and each names what it turned down" $
       mapM_ (\(what, args, named) ->
@@ -11502,8 +11163,7 @@ editLinkSpec = testGroup "POST /command edit-link"
           , "one line" ) ]
 
     -- A link in the TITLE is a cell; one in the body moves no cell at all, which is why the popup re-asks.
-  , testCase "a title link reaches the row over the watch" $
-      withLinkable $ \a hub path -> do
+  , testCase "a title link reaches the row over the watch" $ withLinkable $ \a hub path -> do
         _ <- postEditLink a "first" 0 [ "target" .= ("https://a.example" :: T.Text)
                                       , "desc" .= ("Alpha" :: T.Text) ]
         watchStep hub path
@@ -11529,24 +11189,15 @@ editLinkSpec = testGroup "POST /command edit-link"
 
 -- | A row pointing three ways, and a second row with a link of its OWN: the ids rule and the subtree wall each need one.
 linkable :: T.Text
-linkable = T.unlines
-  [ "* one [[https://a.example][A]]"
-  , ":PROPERTIES:"
-  , ":ORG_GLANCE_ID: first"
-  , ":END:"
-  , "body [[https://b.example]] and https://c.example here"
-  , "* two [[https://e.example][E]]"
-  , ":PROPERTIES:"
-  , ":ORG_GLANCE_ID: second"
-  , ":END:"
-  , "nothing else to follow"
-  ]
+linkable = T.concat
+  [ entryFlush "first" "one [[https://a.example][A]]"
+  , "body [[https://b.example]] and https://c.example here\n"
+  , entryFlush "second" "two [[https://e.example][E]]"
+  , "nothing else to follow\n" ]
 
 withLinkable :: (Application -> Hub -> FilePath -> Assertion) -> Assertion
-withLinkable k = withTempDir $ \dir -> do
-  path <- orgFile dir "notes.org" linkable
-  (a, hub) <- serverOver dir
-  k a hub path
+withLinkable k = withTreeOf [("notes.org", linkable)] $ \a hub dir ->
+  k a hub (dir </> "notes.org")
 
 -- | The span A reports for ROW's link at AT, and the digest that answer carried — what the popup holds and sends back.
 pinnedSpan :: Application -> ByteString -> Int -> IO (Value, T.Text)
@@ -11593,8 +11244,7 @@ referSpec = testGroup "GET /refer"
                    (any ("#" `T.isInfixOf`) table)
         assertEqual "every offered row is addressable" [] (filter ("#" `T.isInfixOf`) pick)
 
-  , testCase "a row is not its own reference" $
-      withReferTree $ \a -> do
+  , testCase "a row is not its own reference" $ withReferTree $ \a -> do
         with    <- referIds =<< ok =<< getFrom a "/refer"
         without <- referIds =<< ok =<< getFrom a "/refer?row=refer-a"
         assertBool "the fixture never offered it" ("refer-a" `elem` with)
@@ -11604,8 +11254,7 @@ referSpec = testGroup "GET /refer"
     -- THE KINDS THE TREE ALREADY USES, counted in ROWS the way `/tags' counts
     -- them: free text is how a kind is minted, so an established spelling has to
     -- be tellable from a typo made once.
-  , testCase "the kinds the tree uses come back counted, commonest first" $
-      withReferTree $ \a -> do
+  , testCase "the kinds the tree uses come back counted, commonest first" $ withReferTree $ \a -> do
         answer <- decoded =<< ok =<< getFrom a "/refer"
         kinds <- traverse (\v -> (,) <$> textAt "kind" v <*> intAt "rows" v)
                    =<< listAt "kinds" answer
@@ -11641,32 +11290,18 @@ referIds r = traverse (textAt "id") =<< rowsOf r
 
 -- | Two addressable rows and one without an id, which is the case the picker cuts.
 withReferTree :: (Application -> Assertion) -> Assertion
-withReferTree k = withTempDir $ \dir -> do
-  _ <- orgFile dir "refer.org" $ T.unlines
-    [ "* TODO refer-me alpha"
-    , ":PROPERTIES:"
-    , ":ORG_GLANCE_ID: refer-a"
-    , ":END:"
-    , "* DONE refer-me beta"
-    , ":PROPERTIES:"
-    , ":ORG_GLANCE_ID: refer-b"
-    , ":END:"
-    , "* TODO refer-me with no id at all"
+withReferTree k = withTreeOf [("refer.org", T.concat
+    [ entryFlush "refer-a" "TODO refer-me alpha"
+    , entryFlush "refer-b" "DONE refer-me beta"
+    , "* TODO refer-me with no id at all\n"
       -- TYPED EDGES, so the kind vocabulary has something to fold: one kind on
       -- two rows, one on one, and a plain mention that declares none.
-    , "* DONE refer-me cites two"
-    , ":PROPERTIES:"
-    , ":ORG_GLANCE_ID: refer-c"
-    , ":END:"
-    , "sees [[glance:refer-a?kind=cites][alpha]] and [[glance:refer-b][beta]]"
-    , "* DONE refer-me cites and refutes"
-    , ":PROPERTIES:"
-    , ":ORG_GLANCE_ID: refer-d"
-    , ":END:"
-    , "sees [[glance:refer-a?kind=cites][alpha]] and [[glance:refer-b?kind=refutes][beta]]"
-    ]
-  (a, _hub) <- serverOver dir
-  k a
+    , entryFlush "refer-c" "DONE refer-me cites two"
+    , "sees [[glance:refer-a?kind=cites][alpha]] and [[glance:refer-b][beta]]\n"
+    , entryFlush "refer-d" "DONE refer-me cites and refutes"
+    , "sees [[glance:refer-a?kind=cites][alpha]] and \
+      \[[glance:refer-b?kind=refutes][beta]]\n"
+    ])] (\a _hub _dir -> k a)
 
 -- | @GET \/links@: the route — the id it takes, the shape it answers in, and the refusals it shares with materialize.
 linksSpec :: TestTree
@@ -11696,8 +11331,7 @@ linksSpec = testGroup "GET /links"
         assertEqual "status" 404 (status r)
         assertContains "hint" "no headline with id" (body r)
 
-  , testCase "no id at all says what the route wants" $
-      withLinkTree $ \a _dir -> do
+  , testCase "no id at all says what the route wants" $ withLinkTree $ \a _dir -> do
         r <- getFrom a "/links"
         assertEqual "status" 400 (status r)
         assertEqual "naming the parameter" "GET /links?id=<row id>"
@@ -11708,8 +11342,7 @@ linksSpec = testGroup "GET /links"
         assertEqual "no links" [] =<< linksOf =<< getFrom a "/links?id=bare"
 
     -- EVERY LINK CARRIES ITS SPAN, into the FILE: asserted by cutting each range out of the file on disk.
-  , testCase "every link carries the file range that spells it" $
-      withLinkTree $ \a dir -> do
+  , testCase "every link carries the file range that spells it" $ withLinkTree $ \a dir -> do
         r <- getFrom a "/links?id=linked"
         text <- document (dir </> "a.org")
         assertEqual "each range cuts its own link out of the file"
@@ -11718,8 +11351,7 @@ linksSpec = testGroup "GET /links"
           . map (charSpan text) =<< spansOf r
 
     -- And the file's DIGEST, which is the lock an edit is pinned to.
-  , testCase "and the digest those spans were measured against" $
-      withLinkTree $ \a dir -> do
+  , testCase "and the digest those spans were measured against" $ withLinkTree $ \a dir -> do
         r <- getFrom a "/links?id=linked"
         onDisk <- digestOnDisk (dir </> "a.org")
         assertEqual "the file's own" onDisk =<< textAt "digest" =<< decoded r
@@ -11742,27 +11374,16 @@ charSpan text (from, to) = T.take (to - from) (T.drop from text)
 
 -- | The first row has a link under a child, so the route's answer shows it read the SUBTREE.
 withLinkTree :: (Application -> FilePath -> IO a) -> IO a
-withLinkTree k = withTempDir $ \dir -> do
-  _ <- orgFile dir "a.org" (T.unlines
-         [ "* one [[https://x.example/a][the first]]"
-         , ":PROPERTIES:"
-         , ":ORG_GLANCE_ID: linked"
-         , ":END:"
-         , "see https://y.example/b for the rest"
-         , "** a child https://z.example/c"
-         , "* two"
-         , ":PROPERTIES:"
-         , ":ORG_GLANCE_ID: bare"
-         , ":END:"
-         , "nothing to follow here"
-         , "* three"
-         , ":PROPERTIES:"
-         , ":ORG_GLANCE_ID: typed"
-         , ":END:"
-         , "[[mailto:t@example.org][write]] [[org-glance-visit:E1B2][the other row]]"
-         , "[[file:notes.org][notes]] [[Some Headline]]" ])
-  (a, _hub) <- serverOver dir
-  k a dir
+withLinkTree k = withTreeOf [("a.org", T.concat
+         [ entryFlush "linked" "one [[https://x.example/a][the first]]"
+         , "see https://y.example/b for the rest\n"
+         , "** a child https://z.example/c\n"
+         , entryFlush "bare" "two"
+         , "nothing to follow here\n"
+         , entryFlush "typed" "three"
+         , "[[mailto:t@example.org][write]] [[org-glance-visit:E1B2][the other row]]\n"
+         , "[[file:notes.org][notes]] [[Some Headline]]\n" ])]
+  (\a _hub dir -> k a dir)
 
 sourcesOf :: SResponse -> IO [(T.Text, [T.Text], [T.Text])]
 sourcesOf r = traverse one =<< listAt "sources" =<< decoded r
@@ -11847,8 +11468,7 @@ columnsQuerySpec = testGroup "GET /headlines?q=columns:"
                   ["state", "priority", "title", "scheduled", "deadline", "tag"]
         =<< columnKeysOf v
 
-  , testCase "a columns token picks the set, in written order" $ do
-      v <- get assetsDir "/headlines?q=columns:State,Title,Tags" >>= decoded
+  , answerCase "a columns token picks the set, in written order" "/headlines?q=columns:State,Title,Tags" $ \v -> do
       assertEqual "keys and headers resolve case-insensitively"
                   ["state", "title", "tag"] =<< columnKeysOf v
       row <- head <$> listAt "rows" v
@@ -11859,21 +11479,18 @@ columnsQuerySpec = testGroup "GET /headlines?q=columns:"
                                 (sort (map Key.toText (KM.keys o)))
         _        -> assertFailure ("expected a cells object, got " <> show cells)
 
-  , testCase "the minimal set is Title, injected in front when unnamed" $ do
-      v <- get assetsDir "/headlines?q=columns:state" >>= decoded
+  , answerCase "the minimal set is Title, injected in front when unnamed" "/headlines?q=columns:state" $ \v -> do
       assertEqual "title joined first" ["title", "state"] =<< columnKeysOf v
       named <- get assetsDir "/headlines?q=columns:tags,title,state" >>= decoded
       assertEqual "named, it stays where it was put"
                   ["tag", "title", "state"] =<< columnKeysOf named
 
-  , testCase "an empty list falls back to the default" $ do
-      v <- get assetsDir "/headlines?q=columns:" >>= decoded
+  , answerCase "an empty list falls back to the default" "/headlines?q=columns:" $ \v -> do
       assertEqual "the default view"
                   ["state", "priority", "title", "scheduled", "deadline", "tag"]
         =<< columnKeysOf v
 
-  , testCase "an unknown name is a custom column reading the property drawer" $ do
-      v <- get assetsDir "/headlines?q=columns:ORG_GLANCE_ID" >>= decoded
+  , answerCase "an unknown name is a custom column reading the property drawer" "/headlines?q=columns:ORG_GLANCE_ID" $ \v -> do
       cols <- listAt "columns" v
       pairs <- mapM (\c -> (,) <$> textAt "key" c <*> textAt "header" c) cols
       assertEqual "title's floor, then folded key under verbatim header"
@@ -11884,12 +11501,10 @@ columnsQuerySpec = testGroup "GET /headlines?q=columns:"
                  ("ship-table-view" `elem` [ i | Just i <- ids ])
 
   , testCase "closed is the planning line's own timestamp" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "notes.org" $ T.unlines
-          [ "* DONE finished task"
-          , "CLOSED: [2026-08-01 Sat 10:30]"
-          , "* TODO open task" ]
-        (a, _hub) <- serverOver dir
+      withTreeOf [("notes.org", T.unlines
+                    [ "* DONE finished task"
+                    , "CLOSED: [2026-08-01 Sat 10:30]"
+                    , "* TODO open task" ])] $ \a _hub _dir -> do
         rows <- rowsOf =<< getFrom a "/headlines?q=columns:title,Closed"
         stamps <- mapM (maybeTextAt "closed" <=< field "cells") rows
         assertEqual "the stamp verbatim, and null where there is none"
@@ -11898,12 +11513,10 @@ columnsQuerySpec = testGroup "GET /headlines?q=columns:"
     -- `created' is the friendly alias for ORG_GLANCE_CREATION_TIME, under a
     -- "Created" header; its cell is the stored inactive stamp, verbatim.
   , testCase "created reads ORG_GLANCE_CREATION_TIME under a Created header" $
-      withTempDir $ \dir -> do
-        _ <- orgFile dir "notes.org" $ T.unlines
-          [ "* TODO stamped task"
-          , ":PROPERTIES:", ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]", ":END:"
-          , "* TODO bare task" ]
-        (a, _hub) <- serverOver dir
+      withTreeOf [("notes.org", T.unlines
+                    [ "* TODO stamped task"
+                    , ":PROPERTIES:", ":ORG_GLANCE_CREATION_TIME: [2026-08-01 Sat 09:30]"
+                    , ":END:", "* TODO bare task" ])] $ \a _hub _dir -> do
         v <- decoded =<< getFrom a "/headlines?q=columns:title,created&limit=10"
         cols <- listAt "columns" v
         pairs <- mapM (\c -> (,) <$> textAt "key" c <*> textAt "header" c) cols
@@ -11917,15 +11530,12 @@ columnsQuerySpec = testGroup "GET /headlines?q=columns:"
 
   , testCase "a negation and an alternation are the whole request's 400" $ do
       bad <- get assetsDir "/headlines?q=-columns:state"
-      assertEqual "status" 400 (status bad)
-      assertContains "naming the token" "-columns:state" (body bad)
+      refused bad ["-columns:state"]
       alt <- get assetsDir "/headlines?q=columns:a%7Cb"
-      assertEqual "status" 400 (status alt)
-      assertContains "naming the token" "columns:a|b" (body alt)
+      refused alt ["columns:a|b"]
 
     -- The badge palette rides the KEY, so a picked state column still carries it.
-  , testCase "a picked state column keeps its badges" $ do
-      v <- get assetsDir "/headlines?q=columns:state,title" >>= decoded
+  , answerCase "a picked state column keeps its badges" "/headlines?q=columns:state,title" $ \v -> do
       col <- columnOf "state" v
       badges <- listAt "badges" col
       assertBool "the palette is there" (not (null badges))
@@ -11941,8 +11551,7 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
         assertEqual "X-Glance-Total" (Just "3") (header "X-Glance-Total" r)
         assertEqual "X-Glance-Archived" (Just "1") (header "X-Glance-Archived" r)
 
-  , testCase "the exclusion is exactly what -tag:*archive* spells" $
-      withArchived $ \a -> do
+  , testCase "the exclusion is exactly what -tag:*archive* spells" $ withArchived $ \a -> do
         implicit <- rowsOf =<< getFrom a "/headlines"
         explicit <- getFrom a "/headlines?q=-tag%3A*archive*"
         assertEqual "the same rows" (map rowId implicit) . map rowId =<< rowsOf explicit
@@ -11998,8 +11607,7 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
       assertEqual "no row carries the tag" (Just "0") (header "X-Glance-Total" r)
       assertEqual "and none was withheld" (Just "0") (header "X-Glance-Archived" r)
 
-  , testCase "the exclusion runs before the page, like the filter" $
-      withArchived $ \a -> do
+  , testCase "the exclusion runs before the page, like the filter" $ withArchived $ \a -> do
         r <- getFrom a "/headlines?limit=1"
         assertEqual "the total is what is left after it" (Just "3")
                     (header "X-Glance-Total" r)
@@ -12009,26 +11617,11 @@ archiveViewSpec = testGroup "GET /headlines and the archive"
 
 -- | Four rows, one tagged @ARCHIVE@ and one whose own tag merely HOLDS the word — which tells the meta from the predicate.
 withArchived :: (Application -> Assertion) -> Assertion
-withArchived k = withTempDir $ \dir -> do
-  _ <- orgFile dir "notes.org" (T.unlines
-         [ "* TODO Plain"
-         , ":PROPERTIES:"
-         , ":ORG_GLANCE_ID: plain"
-         , ":END:"
-         , "* DONE Shipped :web:"
-         , ":PROPERTIES:"
-         , ":ORG_GLANCE_ID: shipped"
-         , ":END:"
-         , "* TODO Near miss :archived:"
-         , ":PROPERTIES:"
-         , ":ORG_GLANCE_ID: near"
-         , ":END:"
-         , "* DONE Filed :web:ARCHIVE:"
-         , ":PROPERTIES:"
-         , ":ORG_GLANCE_ID: filed"
-         , ":END:" ])
-  (a, _hub) <- serverOver dir
-  k a
+withArchived k = withTreeOf [("notes.org", T.concat
+         [ entryFlush "plain" "TODO Plain"
+         , entryFlush "shipped" "DONE Shipped :web:"
+         , entryFlush "near" "TODO Near miss :archived:"
+         , entryFlush "filed" "DONE Filed :web:ARCHIVE:" ])] (\a _hub _dir -> k a)
 
 pageSpec :: IO T.Text -> TestTree
 pageSpec shell = testGroup "GET /"
@@ -12041,8 +11634,7 @@ pageSpec shell = testGroup "GET /"
       assertContains "fetch glue" "fetch(`/headlines${params}`" (body g)
       assertContains "mount" "TableView.mount(" (body g)
 
-  , testCase "with assets, the restored query is the renderer's own chips" $ do
-      b <- shell
+  , shellCase shell "with assets, the restored query is the renderer's own chips" $ \b -> do
       holdsAll "restore glue"
             [ "initialQuery: query,"
             -- An asset predating the option drops it silently, so the mount asks whether it took.
@@ -12055,14 +11647,12 @@ pageSpec shell = testGroup "GET /"
                   (T.count "!holds(query)) showQuery();" b)
       assertEqual "showQuery is defined once" 1 (T.count "function showQuery()" b)
 
-  , testCase "with assets, DEL takes the last token off through the renderer" $ do
-      b <- shell
+  , shellCase shell "with assets, DEL takes the last token off through the renderer" $ \b -> do
       -- The chips are the renderer's, so the strip is too: the shell asks and then follows.
       mapM_ (\needle -> assertContains "DEL glue" needle b)
             [ "table.stripLastToken()", "table.getQuery().trim()"
             , "filterDrop: (b) => {", "said(b, \"no filter\")"
             , "said(b, left ? `filter: ${JSON.stringify(left)}` : \"filter cleared\");"
-            , "wants(b, \"filter tokens\", \"stripLastToken\", \"getQuery\")"
             , "wants(b, \"filter tokens\", \"stripLastToken\", \"getQuery\")"
             -- One press, one token: a held DEL claims the key and runs once, where held movement keeps repeating.
             , "if (!(repeating(e) && MAPS.once.indexOf(hit.command) !== -1)) run(hit);" ]
@@ -12072,8 +11662,7 @@ pageSpec shell = testGroup "GET /"
                  (not ("if (e.repeat) return" `T.isInfixOf` b))
       holdsNone "a superseded filter path" ["glance-filter-history", "function withoutLast"] b
 
-  , testCase "with assets, the sheet is buttonless and syncs on the way out" $ do
-      b <- shell
+  , shellCase shell "with assets, the sheet is buttonless and syncs on the way out" $ \b -> do
       holdsAll "sheet glue"
             -- EITHER pane moving is dirty, and a pristine close is no request at all.
             [ "const dirty = () => editing !== null"
@@ -12108,8 +11697,7 @@ pageSpec shell = testGroup "GET /"
       holdsNone "a sheet button"
         [ "id=\"msave\"", "id=\"mcancel\"", "id=\"mredo\"", "id=\"mfoot\"", "Re-materialize" ] b
 
-  , testCase "with assets, the page is one column the viewport tall" $ do
-      b <- shell
+  , shellCase shell "with assets, the page is one column the viewport tall" $ \b -> do
       holdsAllCss "column"
             [ "height:100vh;box-sizing:border-box;overflow:hidden;"
             , "padding:24px;display:flex;flex-direction:column;gap:14px}"
@@ -12121,8 +11709,7 @@ pageSpec shell = testGroup "GET /"
                    <> show (at "id=\"app\"", at "id=\"log\"", at "id=\"kbd\""))
                  (at "id=\"app\"" < at "id=\"log\"" && at "id=\"log\"" < at "id=\"kbd\"")
 
-  , testCase "with assets, the last line is the map, resident" $ do
-      b <- shell
+  , shellCase shell "with assets, the last line is the map, resident" $ \b -> do
       holdsAll "key line"
             [ "<div id=\"kbd\"></div>"
             -- ONE LOOKUP over the map, the SCOPE named by the reader: this line
@@ -12316,12 +11903,12 @@ expectedRows =
         openHelp  = Just "open links: the row here, the element in the sheet; several list them"
 
 blobOf :: T.Text -> IO Value
-blobOf shell = keysOf shell >>= \raw ->
+blobOf shell = keysJsonOf shell >>= \raw ->
   either (\e -> assertFailure ("keymap JSON: " <> e)) pure
          (eitherDecode (BL.fromStrict (TE.encodeUtf8 raw)))
 
-keysOf :: T.Text -> IO T.Text
-keysOf shell = maybe (assertFailure "no keymap blob in the shell") pure
+keysJsonOf :: T.Text -> IO T.Text
+keysJsonOf shell = maybe (assertFailure "no keymap blob in the shell") pure
                      (between "<script id=\"keys\" type=\"application/json\">" "</script>" shell)
 
 hintsOf :: T.Text -> IO [([T.Text], T.Text)]
@@ -12400,8 +11987,7 @@ keymapSpec shell = testGroup "Shell keymap"
       rows <- keymapOf =<< shell
       assertEqual "the map, whole" expectedRows rows
 
-  , testCase "there is one map, and the profile machinery is gone with it" $ do
-      b <- shell
+  , shellCase shell "there is one map, and the profile machinery is gone with it" $ \b -> do
       holdsNone "a movement profile"
         [ "MAPS.profiles", "MAPS.default", "\"profiles\":", "\"shared\":"
         , "glance-keys", "keysel", "setProfile", "?keys=" ] b
@@ -12452,8 +12038,7 @@ keymapSpec shell = testGroup "Shell keymap"
         [ k | (k, _s, c, _h, _scope, _help) <- rows, c == "next-column" ]
 
     -- THERE IS NO STATUS CORNER, asserted as an ABSENCE so the box cannot come back by another name.
-  , testCase "the page has no status corner, and nothing focusable outside a popup" $ do
-      b <- shell
+  , shellCase shell "the page has no status corner, and nothing focusable outside a popup" $ \b -> do
       holdsNone "the shell"
         [ "id=\"corner\"", "#corner", "id=\"dot\"", "#dot", "dot(\"live\")"
         , "dot(\"down\")", "dot(\"wait\")", "id=\"gear\"", "#gear" ] b
@@ -12474,8 +12059,7 @@ keymapSpec shell = testGroup "Shell keymap"
       holdsNone "the shell" ["e.target.blur();"] b
 
     -- A `parts' id the markup does not carry throws at boot and takes the inline script with it, and the harness cannot see it.
-  , testCase "every panel body the sections list names is an id the markup carries" $ do
-      b <- shell
+  , shellCase shell "every panel body the sections list names is an id the markup carries" $ \b -> do
       let named = concatMap quotedIn (drop 1 (T.splitOn "parts: [" b))
           quotedIn seg = [ q | (i, q) <- zip [0 :: Int ..]
                                              (T.splitOn "\"" (T.takeWhile (/= ']') seg))
@@ -12483,8 +12067,7 @@ keymapSpec shell = testGroup "Shell keymap"
       assertBool "the sections list names no panel bodies" (not (null named))
       holdsAll "panel bodies" [ "id=\"" <> i <> "\"" | i <- named ] b
 
-  , testCase "the view title is the tab's alone, and nothing on the page repeats it" $ do
-      b <- shell
+  , shellCase shell "the view title is the tab's alone, and nothing on the page repeats it" $ \b -> do
       assertBool ("a heading survives in the shell: " <> show (between "<h1>" "</h1>" b))
                  (not ("<h1>" `T.isInfixOf` b))
       -- Written down rather than taken from the code: an oracle calling 'viewTitleFor' agrees with whatever it returns.
@@ -12492,8 +12075,7 @@ keymapSpec shell = testGroup "Shell keymap"
       assertEqual "the title, once in the document" 1
                   (T.count "test/fixtures/view — glance" b)
 
-  , testCase "the prefix keys are claimed only where they are ours" $ do
-      b <- shell
+  , shellCase shell "the prefix keys are claimed only where they are ours" $ \b -> do
       holdsAll "chord policy"
         -- A selection keeps C-c and C-x as copy and cut; the reserved chords reach the browser when they abandon a prefix.
         [ "if (!selecting()) { e.preventDefault();"
@@ -12526,8 +12108,7 @@ keymapSpec shell = testGroup "Shell keymap"
     -- shell answers by string equality, so a typo is bound, documented, drawn on
     -- the key line, echoed — and dead, printing the same M4 line a deliberately
     -- unhandled row prints.  Nothing else tells the two apart.
-  , testCase "a binding names a handler the shell carries" $ do
-      b <- shell
+  , shellCase shell "a binding names a handler the shell carries" $ \b -> do
       rows <- keymapOf b
       handlers <- objectKeys "HANDLERS" <$> glueOf b
       assertBool ("the sweep found handlers: " <> show (length handlers))
@@ -12540,8 +12121,7 @@ keymapSpec shell = testGroup "Shell keymap"
         [ sc | (_k, _s, _c, _h, sc, _help) <- rows
              , sc `notElem` ["any", "table", "modal", "window"] ]
 
-  , testCase "the writes are the commands auto-repeat is off for" $ do
-      b <- shell
+  , shellCase shell "the writes are the commands auto-repeat is off for" $ \b -> do
       onceOf b >>= assertEqual "once" onceNames
       rows <- keymapOf b
       once <- onceOf b
@@ -12648,8 +12228,7 @@ touchSpec shell = testGroup "Touch"
                  page')
             [("the shell", withAssets), ("the JSON-only page", bare)]
 
-  , testCase "a fine pointer sees none of it" $ do
-      b <- shell
+  , shellCase shell "a fine pointer sees none of it" $ \b -> do
       let (before, coarse') = T.breakOn "@media (pointer:coarse)" b
           (nb, nc) = (nz before, nz coarse')
       assertBool "no coarse block in the page" (not (T.null coarse'))
@@ -12772,6 +12351,5 @@ errorSpec = testGroup "Errors"
 
   , testCase "/ws without an upgrade says what it wants" $ do
       r <- get assetsDir "/ws"
-      assertEqual "status" 400 (status r)
-      assertContains "hint" "websocket" (body r)
+      refused r ["websocket"]
   ]

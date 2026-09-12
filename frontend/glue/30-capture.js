@@ -1,8 +1,8 @@
 // THE CAPTURE'S TAG FIELD AND THE VALUE PALETTE, behind an argument list (AGENTS.hs).
 // What it takes from the shell arrives as accessors: a handle cannot carry a `let'.
 const Capture = ((deps) => {
-    const { CFG, EMPTY, NEW_HINT, active, append, askFailed, badgeColor, cellTags,
-            docTitle, el,
+    const { CFG, EMPTY, NEW_HINT, active, append, askFailed, atIn, badgeColor,
+            cellTags, clamp, docTitle, el, onKeys,
             failed, fire, getJSON, keyName, leadTyped, materialize, part,
             said, showDraft, targetOf, targets, walkStep } = deps;
     const { queryNow, colsNow, entryNow } = deps;
@@ -24,7 +24,7 @@ const Capture = ((deps) => {
     function openCapture(b) {
       sole("capture");
       capping = { b, vocab: [], hot: -1, tag: null };
-      el("ktag").value = filteredTag();
+      el("ktag").value = filteredTags()[0] || "";   // a capture goes under ONE tag
       el("klist").textContent = "";
       showPopup("capture", "k", "capture",
                 `RET opens the capture · ${EMPTY} tag is the inbox · ESC leaves`);
@@ -51,8 +51,6 @@ const Capture = ((deps) => {
     const pinnedTo = (key) => filterTerms().filter((t) => t.key === key && pinned(t));
     // EVERY tag the applied query names, in the order it names them.
     const filteredTags = () => pinnedTo("tag").map((t) => t.value);
-    // A capture goes under ONE tag, so it takes the first of them.
-    const filteredTag = () => filteredTags()[0] || "";
     /** THE ONE ORDINARY POSITIVE VALUE the filter pins KEY to, or `""'.  Named
      * ONCE is the whole rule: two `state:' predicates describe a union, and a
      * capture inherits from a filter only what that filter leaves no choice
@@ -117,15 +115,12 @@ const Capture = ((deps) => {
       }).catch(failed(b, "capture"));
     }
     // Behind the dispatch; a key another surface claimed is left alone.
-    document.addEventListener("keydown", (e) => {
-      if (!capping || e.defaultPrevented) return;
-      const held = active();
-      const k = keyName(e);
-      if (held === el("ktag")) {
+    onKeys((e) => capping && !e.defaultPrevented, (k, e) => {
+      if (active() === el("ktag")) {
         const walk = walkStep(k);
         if (walk) {
-          capping.hot = Math.max(-1, Math.min(capping.hot + walk,
-                                              (capping.shown || []).length - 1));
+          capping.hot = clamp(capping.hot + walk, -1,
+                              (capping.shown || []).length - 1);
           drawTagList(el("ktag").value); e.preventDefault(); return;
         }
         // THE ONE FIELD, and RET carries it: dry over an offer, final over the
@@ -204,7 +199,7 @@ const Capture = ((deps) => {
      * COUNTS: those are rows per tag, and a draft is in nobody's count yet. */
     function tagsFor(ids) {
       const h = draftIn(ids);
-      if (!h) return tagsOf(ids);
+      if (!h) return askIds("/tags", ids);
       return captureShape(h.capture.tag || null).then((a) => ({
         rows: [{ id: h.id, tags: cellTags((h.cells || {}).tags) }],
         vocabulary: a.tags || [], counts: {}, unknown: [],
@@ -292,12 +287,11 @@ const Capture = ((deps) => {
       mode("narrow", foot);
       el("pinput").focus();
     }
-    // `raising' is cleared here: the press that reached this door came through
-    // another surface's listener and has been handled already.
-    /** The palette in its typing mode over LIST.  VOCABULARY IS SPELLED AT THE
-     * CALL rather than read off the list: `"open"' where the reader may commit a
-     * word the list has never held -- the typed line then leads the matches as an
-     * offer of its own -- and `"closed"' where the answer must come off the list.
+    /** The palette in its typing mode over LIST.  VOCABULARY is spelled at the
+     * CALL: `"open"' lets the reader commit a word the list never held, leading
+     * the matches as an offer of its own; `"closed"' takes only what is listed.
+     * `raising' is cleared here -- the press that reached this door came through
+     * another surface's listener and has been handled already.
      * @param {"open" | "closed"} vocabulary
      */
     function askFrom(title, list, foot, commit, vocabulary) {
@@ -394,7 +388,7 @@ const Capture = ((deps) => {
     }
     function walkChoices(step) {
       const n = prompting.shown.length;
-      if (n) prompting.at = Math.max(0, Math.min(n - 1, prompting.at + step));
+      if (n) prompting.at = atIn(prompting.shown, prompting.at + step);
       drawChoices();
     }
     // Overlay down FIRST, so the commit runs over a page with no prompt on it.
@@ -424,7 +418,6 @@ const Capture = ((deps) => {
       return getJSON("/capture" + (args.length ? "?" : "")
         + args.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&"));
     };
-    const tagsOf = (ids) => askIds("/tags", ids);
     // The server's list (`Glance.Query.followableTypes'), spliced like `CODES'.
     const FOLLOWABLE = CFG.followable;
     const MATERIAL = CFG.material;
@@ -470,15 +463,11 @@ const Capture = ((deps) => {
              openCapture, openLink, overTargets, planRows, promptNow, raise,
              restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
              walkChoices };
-})({ CFG, EMPTY, NEW_HINT, active, append, askFailed, badgeColor, cellTags,
-     docTitle, el,
+})({ CFG, EMPTY, NEW_HINT, active, append, askFailed, atIn, badgeColor,
+     cellTags, clamp, docTitle, el, onKeys,
      failed, fire, getJSON, keyName, leadTyped, materialize, part,
      said, showDraft, targetOf, targets, walkStep,
-     // FORWARD deps go in as thunks: these are declared in later parts, and a
-     // wrapped part's exports are destructured `const's -- naming one here
-     // would read it before its initialiser has run.
-     showLinks: (...a) => showLinks(...a), showPopup: (...a) => showPopup(...a),
-     showTags: (...a) => showTags(...a), sole: (...a) => sole(...a),
+     // A `let' cannot ride in as itself: these three arrive as accessors.
      queryNow: () => query, colsNow: () => cols, entryNow: () => editing });
 const { CODES, ask, askFrom, askState, askTags, askText, capUp, docTargets, entry,
         fieldMode, filteredTags, foldTag, followLinks, linksOf, offer,

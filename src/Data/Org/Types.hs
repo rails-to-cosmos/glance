@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
@@ -65,6 +66,7 @@ module Data.Org.Types ( Context (..)
                       ) where
 
 import Control.Applicative ((<|>))
+import Control.DeepSeq (NFData)
 import Data.List (find, foldl', intersperse, nub, sortOn)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -76,6 +78,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Time as Time
+import GHC.Generics (Generic)
 import TextShow (TextShow, fromText, showt, showb, showbSpace, Builder)
 import qualified TextShow as TS
 
@@ -93,7 +96,9 @@ class Display a where
 
 -- | Half-open character span [start, end) into the text given to 'orgParse'.
 data Span = Span { spanStart :: !Int, spanEnd :: !Int }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic)
+
+instance NFData Span
 
 -- | Cover from the first span's start through the second span's end.
 instance Semigroup Span where
@@ -227,7 +232,9 @@ data HeadlineSpans = HeadlineSpans
   , hsDeadline   :: !(Maybe Span)  -- ^ the DEADLINE: timestamp alone, keyword excluded.
   , hsClosed     :: !(Maybe Span)  -- ^ the CLOSED: timestamp alone, keyword excluded.
   , hsProperties :: !(Maybe Span)  -- ^ line start of ":PROPERTIES:" through end of ":END:".
-  } deriving (Show, Eq)
+  } deriving (Show, Eq, Generic)
+
+instance NFData HeadlineSpans
 
 emptyHeadlineSpans :: HeadlineSpans
 emptyHeadlineSpans = HeadlineSpans { hsStars      = Span 0 0
@@ -564,17 +571,23 @@ data TimestampRepeaterInterval = TimestampRepeaterInterval
   , repeaterValue :: !Int
   , repeaterUnit :: !TimestampUnit
   , repeaterSign :: !TimestampRepeaterSign
-  } deriving (Show, Eq)
+  } deriving (Show, Eq, Generic)
+
+instance NFData TimestampRepeaterInterval
 
 data TimestampRepeaterSign = TRSPlus | TRSMinus
-  deriving (Show, Eq, Enum, Bounded)
+  deriving (Show, Eq, Enum, Bounded, Generic)
+
+instance NFData TimestampRepeaterSign
 
 signChar :: TimestampRepeaterSign -> Char
 signChar TRSPlus = '+'
 signChar TRSMinus = '-'
 
 data TimestampRepeaterType = CatchUp | Restart | Cumulative
-  deriving (Show, Eq, Enum, Bounded)
+  deriving (Show, Eq, Enum, Bounded, Generic)
+
+instance NFData TimestampRepeaterType
 
 -- | The character prefixing TYPE; 'Restart' is spelled by its absence.
 typeChar :: TimestampRepeaterType -> Maybe Char
@@ -596,7 +609,9 @@ warningFormat TimestampWarningInterval{..} =
     <> T.singleton (unitChar warningUnit)
 
 data TimestampUnit = Days | Weeks | Months | Years
-  deriving (Show, Eq, Enum, Bounded)
+  deriving (Show, Eq, Enum, Bounded, Generic)
+
+instance NFData TimestampUnit
 
 unitChar :: TimestampUnit -> Char
 unitChar Days = 'd'
@@ -655,9 +670,10 @@ instance TextShow Title where
   showb (Title xs) = showbSpaced xs
 
 
--- | A headline's TODO keyword as the parser read it.  NAME is authoritative;
--- ACTIVE is a by-product of recognition — 'Data.Org.Config.classify' decides.
-data Todo = Todo { name :: Text, active :: Bool }
+-- | A headline's TODO keyword as the parser read it.  THE NAME IS THE WHOLE OF
+-- IT: whether it is active is the config's reading ('Data.Org.Config.classify'),
+-- which a per-headline copy could only repeat or contradict.
+newtype Todo = Todo { name :: Text }
   deriving (Show, Eq)
 
 instance TextShow Todo where

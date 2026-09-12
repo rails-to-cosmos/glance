@@ -19,40 +19,33 @@ data KeyBinding = KeyBinding
   , kbHelp    :: !(Maybe Text)  -- ^ what it does, when the command name does not say; see 'helps'.
   }
 
-bind :: [Text] -> Text -> Maybe Text -> Text -> KeyBinding
-bind keys command handler scope = KeyBinding keys command handler scope Nothing
+bind :: [Text] -> Text -> Maybe Text -> Text -> [KeyBinding]
+bind keys command handler scope = [KeyBinding keys command handler scope Nothing]
 
-helps :: KeyBinding -> Text -> KeyBinding
-helps b text' = b { kbHelp = Just text' }
+-- | One row per KEY, each a single-key spelling of one command: an ALIAS differs
+-- in the key alone, so the command is written once and its spellings are a list.
+aliased :: [Text] -> Text -> Maybe Text -> Text -> [KeyBinding]
+aliased keys command handler scope = concatMap (\k -> bind [k] command handler scope) keys
+
+helps :: [KeyBinding] -> Text -> [KeyBinding]
+helps bs text' = [ b { kbHelp = Just text' } | b <- bs ]
 
 -- | The map, whole.  Command names are org-glance's where org-glance has one;
 -- a row with no handler is recognized and says what it is waiting for.
 keyBindings :: [KeyBinding]
-keyBindings =
-  -- Order matters once: the key line shows a command's FIRST row ('keyHints').
-  [ bind ["n"]          "next-row"                        (Just "nextRow")        "table"
-  , bind ["p"]          "previous-row"                    (Just "previousRow")    "table"
-  , bind ["j"]          "next-row"                        (Just "nextRow")        "table"
-  , bind ["k"]          "previous-row"                    (Just "previousRow")    "table"
-  , bind ["<down>"]     "next-row"                        (Just "nextRow")        "table"
-  , bind ["<up>"]       "previous-row"                    (Just "previousRow")    "table"
-  , bind ["f"]          "next-column"                     (Just "nextColumn")     "table"
-      `helps` nextColumnHelp
-  , bind ["b"]          "previous-column"                 (Just "previousColumn") "table"
-      `helps` previousColumnHelp
-  , bind ["l"]          "next-column"                     (Just "nextColumn")     "table"
-      `helps` nextColumnHelp
-  , bind ["h"]          "previous-column"                 (Just "previousColumn") "table"
-      `helps` previousColumnHelp
-  , bind ["<right>"]    "next-column"                     (Just "nextColumn")     "table"
-      `helps` nextColumnHelp
-  , bind ["<left>"]     "previous-column"                 (Just "previousColumn") "table"
-      `helps` previousColumnHelp
+keyBindings = concat
+  -- Order matters once: the key line shows a command's FIRST row ('keyHints'),
+  -- which is why each movement dialect is a NEXT\/PREVIOUS pair in turn and the
+  -- letters lead, rather than one command's three spellings in a run.
+  [ concat [ bind [down] "next-row"     (Just "nextRow")     "table"
+          <> bind [up]   "previous-row" (Just "previousRow") "table"
+           | (down, up) <- [("n", "p"), ("j", "k"), ("<down>", "<up>")] ]
+  , concat [ bind [right] "next-column"     (Just "nextColumn")     "table" `helps` nextColumnHelp
+          <> bind [left]  "previous-column" (Just "previousColumn") "table" `helps` previousColumnHelp
+           | (right, left) <- [("f", "b"), ("l", "h"), ("<right>", "<left>")] ]
   , bind ["<"]          "first-row"                       (Just "firstRow")       "table"
       `helps` firstRowHelp
-  , bind [">"]          "last-row"                        (Just "lastRow")        "table"
-      `helps` lastRowHelp
-  , bind ["G"]          "last-row"                        (Just "lastRow")        "table"
+  , aliased [">", "G"]  "last-row"                        (Just "lastRow")        "table"
       `helps` lastRowHelp
   , bind ["]"]          "next-page"                       (Just "nextPage")       "table"
   , bind ["["]          "previous-page"                   (Just "previousPage")   "table"
@@ -70,9 +63,7 @@ keyBindings =
       `helps` "the view this tree opens on"
   , bind ["P"]          "set-saved-view"                  (Just "pinView")        "table"
       `helps` "pin the applied view, into whichever saved view answers"
-  , bind ["m"]          "mark-toggle"                     (Just "markToggle")     "table"
-      `helps` markToggleHelp
-  , bind ["SPC"]        "mark-toggle"                     (Just "markToggle")     "table"
+  , aliased ["m", "SPC"] "mark-toggle"                    (Just "markToggle")     "table"
       `helps` markToggleHelp
   , bind ["u"]          "unmark"                          (Just "unmarkRow")      "table"
       `helps` "take this row's archive flag off, else its mark, then step down"
@@ -82,9 +73,7 @@ keyBindings =
       `helps` "mark every row loaded"
   , bind ["q"]          "quit-window"                     (Just "quitWindow")     "table"
   , bind ["TAB"]        "org-cycle"                       Nothing                 "table"
-  , bind ["o"]          "org-glance-overview:open"        (Just "openLinks")      "table"
-      `helps` openHelp
-  , bind ["!"]          "org-glance-overview:open"        (Just "openLinks")      "table"
+  , aliased ["o", "!"]  "org-glance-overview:open"        (Just "openLinks")      "table"
       `helps` openHelp
   , bind ["a"]          "org-glance-agenda"               (Just "applyAgenda")    "table"
       `helps` "the active rows carrying a date, earliest first"
@@ -140,12 +129,10 @@ keyBindings =
   -- THE WINDOW'S OWN SCOPE, and the reason it exists: a browser tab owns these
   -- three keys already.  Live only where this build's window stands behind the
   -- page, so with none the dispatch never matches, never preventDefaults, and
-  -- the browser's own zoom keeps them.
-  , bind ["C-+"]        "text-scale-increase"             (Just "textScaleIncrease") "window"
-      `helps` zoomHelp
-  -- `+' WANTS THE SHIFT on most layouts, and browsers read the unshifted key as
-  -- zoom-in for exactly that reason; both spellings reach the one command.
-  , bind ["C-="]        "text-scale-increase"             (Just "textScaleIncrease") "window"
+  -- the browser's own zoom keeps them.  `+' WANTS THE SHIFT on most layouts, and
+  -- browsers read the unshifted key as zoom-in for exactly that reason; both
+  -- spellings reach the one command.
+  , aliased ["C-+", "C-="] "text-scale-increase"          (Just "textScaleIncrease") "window"
       `helps` zoomHelp
   , bind ["C--"]        "text-scale-decrease"             (Just "textScaleDecrease") "window"
       `helps` zoomHelp

@@ -811,7 +811,7 @@ scanNotes =
          \parse failure where this read-only instrument counts it (`ifMalformed') and carries on." [Test]
   , Note "A blob's entry is its file's FIRST headline — six corpus blobs open at level two, \
          \and a CHILD's id names a different record." [Test, Corpus]
-  , Note "`dfIdless' is the instrument on itself: blobs this parser read and found no \
+  , Note "`dfIdlessPaths' is the instrument on itself: blobs this parser read and found no \
          \ORG_GLANCE_ID in, which is what kept `records without blobs' from reading as index lag." [Corpus]
   , Note "It named the largest cause: 28 blobs carried a non-English weekday in the planning \
          \line, so `planningP' failed, the drawer was no longer next and the headline lost its \

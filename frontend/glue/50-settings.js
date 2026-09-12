@@ -51,9 +51,7 @@ const SECTIONS = [
       const first = cpanes[ctab].querySelector("input, select, textarea");
       if (first) first.focus(); else ctabels[ctab].focus();
     }
-    document.addEventListener("keydown", (e) => {
-      if (!settings || momentary()) return;
-      const k = keyName(e);
+    onKeys(() => settings && !momentary(), (k, e) => {
       if (k !== "TAB" && k !== "S-TAB") return;
       e.preventDefault();
       stepTab(k === "TAB" ? 1 : -1);
@@ -198,7 +196,7 @@ const SECTIONS = [
       },
       focus: (r) => (r.fixed || r.state ? el("shue") : el("sname")).focus(),
     };
-    const sediting = () => !!edit && edit.o === SROW;
+    const sediting = () => editIn(SROW);
     function commitState() {
       const r = edit.row, was = r.state;
       if (!r.fixed) {
@@ -256,9 +254,7 @@ const SECTIONS = [
       flag: "delete-flag (d again removes)",
       at: () => selectedId(smount),
     };
-    document.addEventListener("keydown", (e) => {
-      if (!settings || momentary() || !smount || !showingPart("ctheme")) return;
-      const k = keyName(e);
+    onKeys(() => settings && !momentary() && smount && showingPart("ctheme"), (k, e) => {
       if (narrowTyping(smount)) {
         if (narrowPress(k, smount)) e.preventDefault();
         return;
@@ -330,7 +326,7 @@ const SECTIONS = [
       el("clerr").textContent = r ? r.err : "";
     }
     function showLayer(i) {
-      cat = Math.max(0, Math.min(i, crows.length - 1));
+      cat = atIn(crows, i);
       el("clayer").value = String(cat);
       el("ctext").value = crows[cat] ? crows[cat].text : "";
       el("ctpl").value = crows[cat] ? crows[cat].tpl : "";
@@ -416,11 +412,10 @@ const SECTIONS = [
       cnote(ok ? "synced" : clashed ? "conflict" : "error");
       return ok;
     }
-    // `+' IN THE STATE PALETTE mints a state the store does not have yet: it is
-    // DECLARED in a config layer, and only then set on the rows the palette was
-    // raised over.  The namespace is where the declaration goes — `system' is the
-    // tree, `tag:X' is the rows carrying X — and `default' is org's own builtin
-    // pair, which is code and has no file to write into.
+    // `+' IN THE STATE PALETTE mints a state the store does not have: DECLARED
+    // in a config layer, then set on the rows the palette was raised over.  The
+    // namespace says where the declaration goes — `system' the tree, `tag:X' the
+    // rows carrying X — and `default' is org's builtin pair, code with no file.
     let minting = null;
     const mintUp = () => !!minting;
     const NFIELDS = ["nspace", "nname", "ngroup", "nlight", "ndark"];
@@ -802,7 +797,7 @@ const SECTIONS = [
     const readingLine = () => {
       const t = String(readPref.get()).trim();
       if (!/^[0-9]+$/.test(t)) return READ.def;
-      return Math.max(READ.min, Math.min(READ.max, +t));
+      return clamp(+t, READ.min, READ.max);
     };
     function setReadingLine(pct) {
       readPref.set(String(pct));
@@ -829,7 +824,7 @@ const SECTIONS = [
     // what the row shows are one number.  The window wears it as a level.
     const ZOOM = CFG.zoom;
     const zoomPref = pref(ZOOM.key, "");
-    const zoomBand = (n) => Math.max(ZOOM.min, Math.min(ZOOM.max, Math.round(n)));
+    const zoomBand = (n) => clamp(Math.round(n), ZOOM.min, ZOOM.max);
     const zoomStored = () => {
       const t = String(zoomPref.get()).trim();
       return /^[0-9]+$/.test(t) ? zoomBand(+t) : ZOOM.def;

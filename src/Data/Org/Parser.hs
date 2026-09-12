@@ -16,7 +16,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Time as Time
 import Data.Void (Void)
-import Text.Megaparsec (lookAhead, try, choice, eof, manyTill, takeWhile1P, (<|>), many, option, optional, some, ParseErrorBundle)
+import Text.Megaparsec (lookAhead, try, choice, eof, manyTill, takeWhile1P, (<|>), option, optional, some, ParseErrorBundle)
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char (eol, space, char)
 import qualified Text.Megaparsec.Char as MPC
@@ -250,9 +250,6 @@ instance Parse OrgLineElement where
 instance Parse OrgLine where
   parse = snd <$> spannedContainerUntil OrgLine (MP.empty :: StatefulParser ())
 
-instance Parse Tags where
-  parse = snd <$> tagsP
-
 tagsP :: StatefulParser (Maybe Span, Tags)
 tagsP = do
     _ <- MPC.hspace1
@@ -276,9 +273,7 @@ todoP = do
   ctx <- State.get
   Spanned sp result <- lexemeP keywordTextP
   guard $ inTodo result ctx
-  return $ Spanned sp Todo { name = result
-                           , active = result `elem` todoActive ctx
-                           }
+  return $ Spanned sp Todo { name = result }
 
 instance Parse Token where
   parse = Token <$> takeWhile1P (Just "token") (not . isSpace)

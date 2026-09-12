@@ -125,8 +125,27 @@ row does not perturb the position-sensitive table cases.
 
 DONE 2026-09-12: a =repo: true= case is served a SECOND =git init='ed copy of the
 tree (one commit, no remote, the repo's own identity), fresh per case — =#ghead=
-costs 22.2px above the table, so the 98 position-sensitive cases keep the plain
-tree.  Two cases: the control mounts reading =repo:main= and the same =#gitctl=
+costs 22.2px above the table, so every other position-sensitive case keeps the
+plain tree.  Two cases: the control mounts reading =repo:main= and the same =#gitctl=
 node survives =g=; a sheet write dirties the work tree and the one-click stays
 refused, which is =actionFor= on a repo with no upstream.  =BREAK=ghead-row=
 turns the first red.  100/100, four full runs.
+
+* TODO Fold the three lazy list mounts in the glue onto one helper
+=linksMounted= (=40-popups.js=), =tagsMounted= (=40-popups.js=) and
+=statesMounted= (=50-settings.js=) are the same four lines: return the mount if
+it stands, else =listing(...)= it.  A =lazyList(...args)= closure was tried and
+DROPPED — the three call sites also read the raw, possibly-null =let= in
+fourteen places (=mount: () => lmount=, =unnarrow(smount)=, and the
+=!smount= guard at =50-settings.js:260= that must NOT force a mount), so a
+closure that hides the variable either forces the mount or needs a second
+accessor: longer, and the guard changes meaning.  Worth revisiting if =listing=
+grows a handle that answers "mounted?" itself.
+
+* TODO Three keydown preambles the =onKeys= helper cannot take
+=onKeys= (=05-keys.js=) folded six of the nine document-level preambles.  Three
+stay hand-rolled: =60-refer.js:229= and =50-settings.js:541= register on the
+CAPTURE phase (=addEventListener(..., true)=), which =onKeys= does not offer;
+=70-shell.js:287= clears =promptNow().raising= BEFORE the key is named, so the
+mutation would have to live inside the predicate.  Give =onKeys= a capture flag
+and the first two fold too.

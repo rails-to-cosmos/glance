@@ -1,10 +1,9 @@
 // THE LINK AND TAGS POPUPS, and the popup chrome both wear (AGENTS.hs).
-// `edit' is a `let' the panel reassigns, so it arrives as the ACCESSOR `editNow'.
+// `editIn' reads the shared `edit', which is a `let' the panel reassigns.
 const Popups = ((deps) => {
-    const { CFG, askFrom, cancelEdit, echo, el, failed, fire, FLAG_WORDS, foldTag,
-            listing, openEdit, remembered, rowsWord, said, selectedId, shortly,
-            shutEdit, sole, soon, stepIn, tagFrom, unnarrow } = deps;
-    const editNow = deps.editNow;
+    const { CFG, askFrom, cancelEdit, echo, editIn, el, failed, fire, FLAG_WORDS,
+            foldTag, listing, openEdit, remembered, rowsWord, said, selectedId,
+            shortly, shutEdit, sole, soon, stepIn, tagFrom, unnarrow } = deps;
     const LCOLS = CFG.lcols;
     let lmount = null, lrows = [], opening = null, lfor = null, lpin = "";
     const linking = () => !!opening;
@@ -61,7 +60,7 @@ const Popups = ((deps) => {
       },
       focus: () => selectWhole(el("lurl")),
     };
-    const lediting = () => { const e = editNow(); return !!e && e.o === LROW; };
+    const lediting = () => editIn(LROW);
     const openOver = (shape, at, none) =>
       (at ? openEdit(shape, at) : echo(`RET → ${none}`));
     const openLinkEdit = () =>
@@ -214,7 +213,7 @@ const Popups = ((deps) => {
       fill: (tag) => (el("tname").value = tag),
       focus: () => selectWhole(el("tname")),
     };
-    const renaming = () => { const e = editNow(); return !!e && e.o === TROW; };
+    const renaming = () => editIn(TROW);
     const openRename = () =>
       openOver(TROW, tagAt(), "org-rename-tag (no tag)");
     const cancelRename = () => cancelEdit("tag", TROW);
@@ -238,10 +237,9 @@ const Popups = ((deps) => {
              linking, managing, openLinkEdit, openRename, pointedLink,
              renameTag, renaming, showLinks, showPopup, showTags, shutLinks,
              shutPopup, shutTags, TFLAGS };
-})({ CFG, askFrom, cancelEdit, echo, el, failed, fire, FLAG_WORDS, foldTag,
-     listing, openEdit, remembered, rowsWord, said, selectedId, shortly,
-     shutEdit, sole, soon, stepIn, tagFrom, unnarrow,
-     editNow: () => edit });
+})({ CFG, askFrom, cancelEdit, echo, editIn, el, failed, fire, FLAG_WORDS,
+     foldTag, listing, openEdit, remembered, rowsWord, said, selectedId,
+     shortly, shutEdit, sole, soon, stepIn, tagFrom, unnarrow });
 const { openedBy, linkMount, tagMount, addFlow, cancelLinkEdit, cancelRename, commitLink, landing, lediting,
         linking, managing, openLinkEdit, openRename, pointedLink,
         renameTag, renaming, showLinks, showPopup, showTags, shutLinks,

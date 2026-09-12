@@ -1,6 +1,7 @@
 module Main (main) where
 
-import Data.List (intercalate)
+import Data.List (intercalate, partition)
+import Data.Maybe (fromMaybe, listToMaybe)
 import System.Environment
 import System.Exit
 
@@ -62,15 +63,10 @@ parse :: [String] -> IO a
 -- @glance repl@ and is asked for by name like every other command.
 parse [] = putStrLn glanceUsage >> exitSuccess
 
+-- | ASKING OUTRANKS RUNNING, and the screen is the named command's own.
 parse args | wantsHelp args = do
-  putStrLn $ case args of
-    ("repl":_)             -> replUsage
-    ("serve":_)            -> serveUsage
-    ("mcp":_)              -> mcpUsage
-    ("desktop":_)          -> desktopUsage
-    ("doctor":_)           -> doctorUsage
-    ("backfill-created":_) -> backfillUsage
-    _everything            -> glanceUsage
+  putStrLn (fromMaybe glanceUsage
+              (listToMaybe [ cUsage c | c <- commands, [cWord c] == take 1 args ]))
   exitSuccess
 
 parse ("repl":[])           = repl [] [] defaultContext
@@ -90,15 +86,13 @@ parse ("repl":filename:_) = do
       where (_elements, context, maybeErr) = orgParse defaultContext text
 
 parse ("doctor":args) = do
-  let derived = "--include-derived" `elem` args
-      dirs = filter (/= "--include-derived") args
-  runScan (WalkOptions derived) (if null dirs then ["."] else dirs)
+  let (given, dirs) = takeFlags "doctor" args
+  runScan (WalkOptions ("--include-derived" `elem` given)) (treesIn dirs)
   exitSuccess
 
 parse ("backfill-created":args) = do
-  let dry = "--dry-run" `elem` args
-      dirs = filter (/= "--dry-run") args
-  runBackfill (BackfillOptions defaultWalk dry) (if null dirs then ["."] else dirs)
+  let (given, dirs) = takeFlags "backfill-created" args
+  runBackfill (BackfillOptions defaultWalk ("--dry-run" `elem` given)) (treesIn dirs)
   exitSuccess
 
 parse ("serve":args) = run "serve" serveUsage serve (serveOptions args)
@@ -139,30 +133,36 @@ wantsHelp []       = False
 wantsHelp (a:rest)
   | a `elem` ["--help", "-h", "help"] = True
   | otherwise                         = wantsHelp (drop (valued a) rest)
-  where valued x = length [ () | Flag n (Val _ _) _ _ <- flags, n == x ]
+  where valued x = length [ () | f <- flags, fName f == x, Val _ _ <- [fTake f] ]
+
+-- | DIRS, or the working directory where the caller named none.
+treesIn :: [String] -> [String]
+treesIn dirs = if null dirs then ["."] else dirs
+
+-- | ONE SUBCOMMAND: the word it is asked for by, the line the index draws, and
+-- its own screen.  THE INDEX AND THE HELP LOOKUP BOTH FOLD THIS, so a command
+-- cannot reach one and be missed by the other.
+data Command = Command { cWord :: String, cSummary :: String, cUsage :: String }
+
+commands :: [Command]
+commands =
+  [ Command "serve"            "serve an org tree over HTTP"              serveUsage
+  , Command "mcp"              "serve the tool catalog over stdio (MCP)"  mcpUsage
+  , Command "desktop"          "the same daemon in an app window"         desktopUsage
+  , Command "doctor"           "parse a corpus and report what drifted"   doctorUsage
+  , Command "backfill-created" "stamp every headline's creation time"     backfillUsage
+  , Command "repl"             "the org parser at a prompt"               replUsage
+  ]
 
 -- | Every command in one screen, each flag-taking one spelled in full under it.
 glanceUsage :: String
 glanceUsage = intercalate "\n"
-  [ "usage: glance serve            serve an org tree over HTTP"
-  , "       glance mcp              serve the tool catalog over stdio (MCP)"
-  , "       glance desktop          the same daemon in an app window"
-  , "       glance doctor           parse a corpus and report what drifted"
-  , "       glance backfill-created stamp every headline's creation time"
-  , "       glance repl             the org parser at a prompt"
-  , ""
-  , serveUsage
-  , ""
-  , mcpUsage
-  , ""
-  , desktopUsage
-  , ""
-  , doctorUsage
-  , ""
-  , backfillUsage
-  , ""
-  , replUsage
-  ]
+  (  zipWith (<>) ("usage: " : repeat "       ") (map indexLine commands)
+  <> concat [ ["", cUsage c] | c <- commands ] )
+  where
+    indexLine c = pad ("glance " <> cWord c) <> cSummary c
+    pad word = word <> replicate (column - length word) ' '
+    column = 1 + maximum [ length ("glance " <> cWord c) | c <- commands ]
 
 replUsage :: String
 replUsage = intercalate "\n" $
@@ -174,7 +174,7 @@ replUsage = intercalate "\n" $
 serveUsage :: String
 serveUsage = intercalate "\n" $
   [ "usage: glance serve --dir DIR [options]" ]
-  <> flagLines (filter fServed flags)
+  <> flagLines (commandFlags "serve")
   <> [ ""
      , "Binds 127.0.0.1 only, and binds BEFORE the walk, so store routes answer 503"
      , "with a loading body until the tree lands." ]
@@ -182,7 +182,7 @@ serveUsage = intercalate "\n" $
 mcpUsage :: String
 mcpUsage = intercalate "\n" $
   [ "usage: glance mcp --dir DIR [options]" ]
-  <> flagLines (filter fServed flags)
+  <> flagLines (commandFlags "mcp")
   <> [ ""
      , "An MCP server over stdin/stdout (newline-delimited JSON-RPC), the same"
      , "tool catalog POST /mcp serves.  When a ready daemon on --port already owns"
@@ -192,7 +192,7 @@ mcpUsage = intercalate "\n" $
 desktopUsage :: String
 desktopUsage = intercalate "\n" $
   [ "usage: glance desktop --dir DIR [options]" ]
-  <> flagLines flags
+  <> flagLines (commandFlags "desktop")
   <> [ ""
      , "Opens this build's native window when it has one and neither --browser"
      , "nor GLANCE_BROWSER names another." ]
@@ -201,7 +201,7 @@ doctorUsage :: String
 doctorUsage = intercalate "\n" $
   [ "usage: glance doctor [DIR...] [--include-derived]"
   , described "DIR..." "the trees to parse (default .)" ]
-  <> flagLines [ f | f <- flags, fName f == "--include-derived" ]
+  <> flagLines (commandFlags "doctor")
   <> [ ""
      , "Reports parse coverage, span-invariant violations, and how far each"
      , "org-glance index has drifted from the blobs it indexes." ]
@@ -209,8 +209,8 @@ doctorUsage = intercalate "\n" $
 backfillUsage :: String
 backfillUsage = intercalate "\n" $
   [ "usage: glance backfill-created [DIR...] [--dry-run]"
-  , described "DIR..." "the trees to migrate (default .)"
-  , described "--dry-run" "compute and report the tiers, writing nothing" ]
+  , described "DIR..." "the trees to migrate (default .)" ]
+  <> flagLines (commandFlags "backfill-created")
   <> [ ""
      , "Stamps ORG_GLANCE_CREATION_TIME on every headline that lacks it, from the"
      , "earliest LOGBOOK time, else the file's mtime, else the run's day, and reports"
@@ -221,32 +221,43 @@ backfillUsage = intercalate "\n" $
 data Take = Nul (Desktop -> Desktop)
           | Val String (String -> Desktop -> Either String Desktop)
 
--- | ONE FLAG, spelled once.  'fServed' is whether @serve@ takes it too.
-data Flag = Flag { fName :: String, fTake :: Take, fServed :: Bool, fHelp :: String }
+-- | ONE FLAG, spelled once.  'fCommands' names every subcommand that takes it,
+-- which is what the usage screens and the two scan commands' own split read.
+data Flag = Flag { fName :: String, fTake :: Take, fCommands :: [String], fHelp :: String }
 
--- | Every flag @serve@ and @desktop@ take.  THE PARSER AND THE USAGE BOTH FOLD
--- THIS, so a flag cannot be taken without being documented.
+-- | Every flag any subcommand takes.  THE PARSER AND THE USAGE BOTH FOLD THIS,
+-- so a flag cannot be taken without being documented.
 flags :: [Flag]
 flags =
-  [ Flag "--dir" (Val "DIR" (\v -> Right . onServe (\s -> s { soDir = v }))) True
+  [ Flag "--dir" (Val "DIR" (\v -> Right . onServe (\s -> s { soDir = v }))) daemons
       "the org tree to serve; required"
-  , Flag "--port" (Val "N" port) True
+  , Flag "--port" (Val "N" port) daemons
       ("the port to listen on (default " <> show defaultPort <> ")")
-  , Flag "--assets" (Val "PATH" (\v -> Right . onServe (\s -> s { soAssets = Just v }))) True
+  , Flag "--assets" (Val "PATH" (\v -> Right . onServe (\s -> s { soAssets = Just v }))) daemons
       "serve the front end from PATH instead of the embedded copy"
-  , Flag "--include-derived" (Nul (onServe (\s -> s { soDerived = True }))) True
+  , Flag "--include-derived" (Nul (onServe (\s -> s { soDerived = True }))) (daemons <> ["doctor"])
       "take org-glance's derived areas as row sources too"
-  , Flag "--browser" (Val "CMD" (\v -> Right . onWindow (\w -> w { doBrowser = Just v }))) False
+  , Flag "--browser" (Val "CMD" (\v -> Right . onWindow (\w -> w { doBrowser = Just v }))) ["desktop"]
       "open the window with CMD, declining this build's own one"
-  , Flag "--dry-run" (Nul (onWindow (\w -> w { doDryRun = True }))) False
-      "print the resolved window command, binding nothing"
-  , Flag "--keep-serving" (Nul (\d -> d { dKeepServing = True })) False
+  , Flag "--dry-run" (Nul (onWindow (\w -> w { doDryRun = True }))) ["desktop", "backfill-created"]
+      "report what the run would do, changing nothing"
+  , Flag "--keep-serving" (Nul (\d -> d { dKeepServing = True })) ["desktop"]
       "leave the daemon running after the window closes"
   ]
   where
+    daemons = ["serve", "mcp", "desktop"]
     port v d = case readMaybe v of
       Just n | n > 0 && n < 65536 -> Right (onServe (\s -> s { soPort = n }) d)
       _notAPort                   -> Left ("not a port number: " <> v)
+
+-- | The flags NAME takes, in table order.
+commandFlags :: String -> [Flag]
+commandFlags name = [ f | f <- flags, name `elem` fCommands f ]
+
+-- | ARGS split into the flags NAME takes and the rest, which the two scan
+-- commands read as trees: a flag NAME does not take stays a directory.
+takeFlags :: String -> [String] -> ([String], [String])
+takeFlags name = partition (`elem` map fName (commandFlags name))
 
 onWindow :: (DesktopOptions -> DesktopOptions) -> Desktop -> Desktop
 onWindow f d = d { dWindow = f (dWindow d) }
@@ -319,6 +330,6 @@ desktopOptions = go (Desktop (DesktopOptions bare Nothing False) False)
 serveOptions :: [String] -> Either String ServeOptions
 serveOptions args = do
   d <- desktopOptions args
-  case [ fName f | a <- args, f <- flags, fName f == a, not (fServed f) ] of
+  case [ fName f | a <- args, f <- flags, fName f == a, "serve" `notElem` fCommands f ] of
     (name:_) -> Left (name <> " is a desktop flag; serve opens no window")
     _serving -> Right (serveOf d)

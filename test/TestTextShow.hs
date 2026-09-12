@@ -20,9 +20,9 @@ showCases =
   [ ( "Headline rendering"
     , [ ("Minimal headline", showt (defaultHeadline { title = Title [] }), "* ")
       , ( "Headline with TODO"
-        , showt ((titled "Hello") { todo = Just (Todo "TODO" True) }), "* TODO Hello" )
+        , showt ((titled "Hello") { todo = Just (Todo "TODO") }), "* TODO Hello" )
       , ( "Headline with priority"
-        , showt ((titled "Hello") { todo = Just (Todo "TODO" True)
+        , showt ((titled "Hello") { todo = Just (Todo "TODO")
                                   , priority = Just (Priority 'A') })
         , "* TODO [#A] Hello" )
       , ( "Headline with tags"

@@ -28,7 +28,7 @@ testCases :: [TestCase]
 testCases =
   [ plain "Headline" ["** TODO [#A] Hello :a:b:c:"]
       [ EHeadline defaultHeadline { indent = Indent 2
-                                  , todo = Just Todo { name = "TODO", active = True }
+                                  , todo = Just Todo { name = "TODO" }
                                   , priority = Just (Priority 'A')
                                   , title = Title [OrgLineToken "Hello"]
                                   , tags = Tags ["a", "b", "c"] } ]
@@ -71,7 +71,7 @@ testCases =
 
   , ending "TODO pragma" ["#+TODO: TODO | CANCELLED", "* CANCELLED Mess"]
       [ EPragma (PTodo ["TODO"] ["CANCELLED"])
-      , EHeadline (titled "Mess") { todo = Just Todo { name = "CANCELLED", active = False } } ]
+      , EHeadline (titled "Mess") { todo = Just Todo { name = "CANCELLED" } } ]
       (initialState `withTodo` (["TODO"], ["DONE", "CANCELLED"]))
 
   , ending "TODO pragma (active only)" ["#+TODO: foo"]
@@ -82,7 +82,7 @@ testCases =
     -- both configure the cycle exactly as #+TODO: does.
   , ending "SEQ_TODO pragma is the TODO line" ["#+SEQ_TODO: NEXT | SHIPPED", "* NEXT Foo"]
       [ EPragma (PTodo ["NEXT"] ["SHIPPED"])
-      , EHeadline (titled "Foo") { todo = Just Todo { name = "NEXT", active = True } } ]
+      , EHeadline (titled "Foo") { todo = Just Todo { name = "NEXT" } } ]
       (initialState `withTodo` (["TODO", "NEXT"], ["DONE", "SHIPPED"]))
 
   , ending "TYP_TODO pragma is the TODO line" ["#+TYP_TODO: Fred | DONE"]
@@ -125,7 +125,7 @@ testCases =
 
   , plain "Planning: CLOSED" ["* DONE Task", "CLOSED: [2024-01-01 Mon 10:30]"]
       [ EHeadline (titled "Task")
-          { todo = Just Todo { name = "DONE", active = False }
+          { todo = Just Todo { name = "DONE" }
           , closed = Just (plainTs TimestampInactive (at "2024-01-01 10:30:00")) } ]
 
   , plain "Planning: two keywords on one line"

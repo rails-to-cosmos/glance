@@ -16,14 +16,10 @@ module Glance.Backfill
   , Tier (..)
   , FilePlan (..)
   , FileResult (..)
-  , WriteState (..)
   , Report (..)
-  , emptyReport
   , planDocument
   , earliestLogbookStamp
-  , backfillFile
   , backfillRoots
-  , reportLines
   , runBackfill
   ) where
 

@@ -85,27 +85,22 @@
         || (!!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA"
                      || a.tagName === "SELECT" || a.isContentEditable));
     };
-    // `window' IS THE SEAM THAT LEAVES A KEY TO THE BROWSER.  `run' is reached
-    // only past a `preventDefault', so a handler cannot decline a press; a row
-    // that is never LIVE is never matched, and the dispatch claims nothing.
-    // With no window behind the page, C-+/C--/C-0 stay the browser's own.
-    // NOW and WIN ARE CLOSED OVER, asked once per press by the dispatch below:
-    // both are the same question for all forty-odd rows, and `typing()' walks
-    // every surface to answer it.
+    // `window' IS THE SEAM THAT LEAVES A KEY TO THE BROWSER: `run' is past a
+    // `preventDefault', so a row that is never LIVE is the only way to decline a
+    // press -- with no window behind the page, C-+/C--/C-0 stay the browser's.
+    // NOW and WIN are closed over: one question for all forty-odd rows, and
+    // `typing()' walks every surface to answer it.
     const liveIn = (now, win) => (b) => b.scope === "any"
       || (b.scope === "modal" && SURFACES.some((s) => !s.momentary && s.up()))
       || (b.scope === "table" && now)
       || (b.scope === "window" && win);
     // A live selection makes C-c and C-x copy and cut, so no prefix claims them.
-    // A SELECTION THE SHELL LAID DOWN IS NOT THE READER'S: every box that opens
-    // over a value that already stands opens it wholly selected (`selectWhole'),
-    // and counting that one kills the very next summon chord — `C-c' copies
-    // instead of prefixing, and the chord behind it dies unheard.  A selection
-    // they MADE — typed over, dragged, walked with the shifted arrows — is live
-    // as it always was; `laidWhole' is the one spelling of the difference
-    // (00-core.js).  EXEMPTED IN THE FIELD'S OWN ARM ALONE: a selection lying in
-    // the DOCUMENT is nothing a box laid down, so it counts however the boxes
-    // stand.
+    // A SELECTION THE SHELL LAID DOWN IS THE READER'S ONLY where they made it:
+    // every box opens its standing value wholly selected (`selectWhole'), and
+    // counting that kills the very next summon chord — `C-c' copies instead of
+    // prefixing.  `laidWhole' (00-core.js) is the one spelling of the
+    // difference, and it is asked in the FIELD'S arm alone: a selection lying in
+    // the DOCUMENT is nothing a box laid down.
     function selecting() {
       const a = active();
       if (a && typeof a.selectionStart === "number")
@@ -258,11 +253,8 @@
       if (!t.closest || !t.closest("td.tv-multi")) return;
       run(Object.assign({}, tagsDoor, { seq: "click" }));
     });
-    document.addEventListener("keydown", (e) => {
-      // Listeners ahead of this one claim keys of their own — the sheet's `DEL'.
-      if (e.defaultPrevented) return;
-      const k = keyName(e);
-      if (!k) return;
+    // Listeners ahead of this one claim keys of their own — the sheet's `DEL'.
+    onKeys((e) => !e.defaultPrevented, (k, e) => {
       const keys = pendingKeys().concat([k]);
       const now = !typing(), win = !!hosted("zoom");
       const live = liveIn(now, win);
@@ -326,10 +318,7 @@
     });
     // `defaultPrevented': the RET that commits `+''s field must not also rename.
     function popupKeys(name, mount, o) {
-      document.addEventListener("keydown", (e) => {
-        if (momentary() !== name || e.defaultPrevented) return;
-        const k = keyName(e);
-        if (!k) return;
+      onKeys((e) => momentary() === name && !e.defaultPrevented, (k, e) => {
         if (narrowTyping(mount())) {
           if (narrowPress(k, mount())) e.preventDefault();
           return;

@@ -198,9 +198,7 @@ const draftUp = (p, why) => p.until(() => {
  * SERVER, so it confirms the clear whatever the pane's own redraw does; a write
  * case calls it so its fixture is the bytes it was for the next run. */
 async function clearSlot(p, row, key) {
-  await p.press("C-c");
-  await p.press(key === "DEADLINE" ? "C-d" : "C-s");
-  await widgetUp(p, `the widget to clear ${key} back to unset`);
+  await summonDate(p, key, `the widget to clear ${key} back to unset`);
   await p.eval(() => {
     const f = document.getElementById("dwhen");
     f.value = "";
@@ -407,6 +405,60 @@ const gitSaid = (p) => p.eval(async () => {
   const s = await (await fetch("/git")).json();
   return { ...s, dirty: s.staged + s.unstaged + s.untracked };
 });
+
+/** THE FIXTURE'S TABLE UP AND POINT IN IT: the sheet over ROW (`drv-table'
+ * unless named), the row whose text carries TEXT clicked in column COL
+ * (1-based, as the `td' is spelled), and the mirror agreeing.  Answers with the
+ * row's id, which a write makes fresh. */
+async function tableRowNamed(p, base, text, col, row) {
+  await sheet(p, base, row || "drv-table");
+  await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
+    "the table to mount");
+  const id = await p.eval((t) =>
+    [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
+      .find((x) => x.textContent.includes(t)).dataset.id, text);
+  await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:nth-child(${col || 1})`);
+  await p.until((w) => docAtNow() === w, "point in the table", undefined, id);
+  return id;
+}
+/** The column the WIDGET says is selected; `null' is the whole row. */
+const colIs = (p, want, why) => p.until((w) => {
+  const tv = document.querySelector("#mdoc glance-table")._tv;
+  return tv && tv.getSelection().col === w;
+}, why, undefined, want);
+/** `p' ABOVE ROW 1 SUMMONS THE EPHEMERAL HEADER a headerless table has none of. */
+async function summonHeader(p) {
+  await colIs(p, 0, "a column selected");
+  await p.press("p");
+  await p.until(() => document.querySelector("#mdoc glance-table").classList.contains("ephemeral"),
+    "the ephemeral header to be summoned");
+}
+/** The table's shape as the reader counts it. */
+const shapeOf = (p) => p.eval(() => ({
+  rows: document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length,
+  cols: document.querySelectorAll("#mdoc glance-table thead th").length,
+  heads: [...document.querySelectorAll("#mdoc glance-table thead th")]
+    .map((t) => t.textContent.trim()) }));
+
+/** The planning line as the pane DREW it, or `""' where the row has none. */
+const planLine = (p) => p.eval(() => {
+  const at = document.querySelector('#mdoc .de[data-id="PLN"]');
+  return at ? at.textContent : "";
+});
+/** SUMMON THE DATE WIDGET over the slot KEY names: `C-c', then org's own `C-d'
+ * or `C-s', waited out to a placed and focused field. */
+async function summonDate(p, key, why) {
+  await p.press("C-c");
+  await p.press(key === "DEADLINE" ? "C-d" : "C-s");
+  await widgetUp(p, why);
+}
+/** THE FILE ON DISK CARRIES THIS.  What a write did is a fact about the tree,
+ * so it is asked of the daemon rather than read off the pane; the answer is
+ * ROW's whole org, which a caller may go on to read. */
+const orgSays = (p, row, re, why) => p.until(async (a) => {
+  const h = await (await fetch(`/headline?id=${a.row}`)).json();
+  return new RegExp(a.re).test(h.org || "") ? h.org : false;
+}, why, 15000, { row, re: re.source });
 
 export default [
 
@@ -768,20 +820,11 @@ export default [
 // an unindented, dash-less row (marks.org `C0:B2' under the `** A child').
 { name: "a list under a nested headline takes a new item with its marker",
   async run(p, base) {
-    const pointId = () => p.eval(() => { const a = document.querySelector("#mdoc .de.dat"); return a ? a.dataset.id : null; });
     await sheet(p, base, "drv-marks");
     await settled(p, "the nested-headline sheet");
-    let reached = (await pointId()) === "C0:B2";
-    for (let i = 0; i < 40 && !reached; i += 1) {
-      const was = await pointId();
-      await p.press("f");
-      await p.until((w) => {
-        const a = document.querySelector("#mdoc .de.dat");
-        return !!a && a.dataset.id !== w;
-      }, "an f-step down the graph", 2000, was).catch(() => {});
-      reached = (await pointId()) === "C0:B2";
-    }
-    assert(reached, "the walk never reached the nested list item C0:B2");
+    await walkToText(p, "a list the child owns", "the nested list item C0:B2");
+    const at = await p.eval(() => docAtNow());
+    assert(at === "C0:B2", `the walk landed on ${at}, not the nested list item C0:B2`);
     await p.press("+");
     await draftUp(p, "the nested-list draft to open and seed its bullet");
     const st = await p.editorState();
@@ -839,15 +882,18 @@ export default [
       const now = await p.eval(() => document.getElementById("dtext").value);
       await p.eval((v) => { document.getElementById("dtext").value = v; }, now + " edited");
       await p.press("RET");
-      await p.until((t) => [...document.querySelectorAll("#mdoc .d-item > .dp")]
-          .some((l) => l.textContent.includes(t) && l.textContent.includes("edited")),
-        `"${text} edited" to reach the pane`, 15000, text);
-      return true;
+      return p.until((t) => {
+        const l = [...document.querySelectorAll("#mdoc .d-item > .dp")]
+          .find((x) => x.textContent.includes(t) && x.textContent.includes("edited"));
+        return l ? l.textContent.trim() : false;
+      }, `"${text} edited" to reach the pane`, 15000, text);
     };
-    await editAt("a plain root item");
+    const root = await editAt("a plain root item");
     const nested = await editAt("a plain nested item");
-    assert(nested, "the nested item never took the edit");
-    return ["RET appends and commits equivalently at the root and under the child"];
+    assert(/a plain nested item.*edited/.test(nested),
+      `the nested item committed ${JSON.stringify(nested)}`);
+    return [`RET appends and commits equivalently at the root (${JSON.stringify(root)}) `
+      + `and under the child (${JSON.stringify(nested)})`];
   } },
 
 { name: "SPC ticks a checkbox item the same at the root and under a child",
@@ -3358,10 +3404,8 @@ export default [
     await editUp(p, "the edit");
     await p.eval(() => { document.getElementById("dtext").value = "A paragraph the child edits."; });
     await p.press("RET");
-    await p.until(async () => {
-      const h = await (await fetch("/headline?id=drv-marks")).json();
-      return /A paragraph the child edits\./.test(h.org || "");
-    }, "the child's line to reach the file", 15000);
+    await orgSays(p, "drv-marks", /A paragraph the child edits\./,
+                  "the child's line to reach the file");
     // `b' CLIMBS TO THE OWNER: the paragraph's owner is the child headline.
     await p.until(() => !!document.querySelector("#mdoc .de.dat"), "point back");
     await settled(p);
@@ -3526,10 +3570,8 @@ export default [
     await p.eval(() => { document.getElementById("dtext").value
       += "\n\n* Sneak past the narrowing"; });
     await p.press("RET");
-    await p.until(async () => {
-      const h = await (await fetch("/headline?id=drv-marks")).json();
-      return /Sneak past the narrowing/.test(h.org || "");
-    }, "the write to reach the file", 15000);
+    await orgSays(p, "drv-marks", /Sneak past the narrowing/,
+                  "the write to reach the file");
     const seen = await p.eval(async () => {
       const h = await (await fetch("/headline?id=drv-marks")).json();
       return { deep: /\n\*\* Sneak past the narrowing/.test(h.org || ""),
@@ -3572,10 +3614,8 @@ export default [
     await p.eval(() => { document.getElementById("dtext").value
       = "A tail paragraph, minted at the end"; });
     await p.press("RET");
-    await p.until(async () => {
-      const h = await (await fetch("/headline?id=drv-marks")).json();
-      return /A tail paragraph, minted at the end/.test(h.org || "");
-    }, "the write to reach the file", 15000);
+    await orgSays(p, "drv-marks", /A tail paragraph, minted at the end/,
+                  "the write to reach the file");
     // AND THE TAIL REGROWS: still one empty line, now past the new paragraph.
     await p.until(() => {
       const rows = [...document.querySelectorAll("#mdoc .de")];
@@ -3756,10 +3796,8 @@ export default [
     // ------- AND THE DEMOTE MOVES THE SUBTREE WHOLE.
     await settled(p);
     await p.press("M-<right>");
-    const deeper = await p.until(async () => {
-      const h = await (await fetch("/headline?id=drv-marks")).json();
-      return /\n\*\*\* TODO A child whose body/.test(h.org || "") ? h.org : false;
-    }, "the demote to reach the file", 15000);
+    const deeper = await orgSays(p, "drv-marks", /\n\*\*\* TODO A child whose body/,
+                                 "the demote to reach the file");
     assert(/\n\*\*\*\* DONE A grandchild/.test(deeper),
       "the grandchild stayed behind: a subtree moves whole");
     assert(deeper === was
@@ -3924,13 +3962,9 @@ export default [
 // round-trip and the pixel/geometry facts no unit test can see.
 { name: "the date widget opens in the value's slot, wholly selected, and paints the selection",
   async run(p, base) {
-    const planLine = () => p.eval(() => {
-      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
-      return at ? at.textContent : "";
-    });
     await sheet(p, base, "drv-plan");
     await settled(p);
-    const wasLine = await planLine();
+    const wasLine = await planLine(p);
     const stood = await p.eval(async () => {
       const h = await (await fetch("/headline?id=drv-plan")).json();
       return ((h.planning || []).find(([k]) => k === "DEADLINE") || [])[1];
@@ -3941,9 +3975,7 @@ export default [
     // screen showing nothing.
     assert(await p.eval(() => document.hasFocus()),
       "the driven page has no focus, so nothing below could prove a selection");
-    await p.press("C-c");
-    await p.press("C-d");
-    await widgetUp(p, "the widget over the DEADLINE value");
+    await summonDate(p, "DEADLINE", "the widget over the DEADLINE value");
     const open = await p.eval(() => {
       const f = document.getElementById("dwhen");
       const r = f.getBoundingClientRect();
@@ -4003,7 +4035,7 @@ export default [
     await p.press("ESC");
     await p.until(() => !document.getElementById("ddate").classList.contains("on"),
                   "ESC to take the widget");
-    assert((await planLine()) === wasLine,
+    assert((await planLine(p)) === wasLine,
       `the cancelled line reads differently than ${JSON.stringify(wasLine)}`);
     return [`opened on ${JSON.stringify(open.val)} selected 0..${open.sel[1]}, `
       + `${diff}/${area}px of the field repainted, ${wash} wearing ${open.wash}`];
@@ -4011,24 +4043,18 @@ export default [
 
 { name: "the date widget's switch key swaps to the other slot, over that slot's geometry",
   async run(p, base) {
-    const planLine = () => p.eval(() => {
-      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
-      return at ? at.textContent : "";
-    });
     const valOf = (key) => p.eval(async (k) => {
       const h = await (await fetch("/headline?id=drv-plan")).json();
       return ((h.planning || []).find(([kk]) => kk === k) || [])[1];
     }, key);
     await sheet(p, base, "drv-plan");
     await settled(p);
-    const wasLine = await planLine();
+    const wasLine = await planLine(p);
     const stood = await valOf("DEADLINE");
     // THE OTHER SUMMON KEY SWITCHES THE BOX THAT STANDS.  The entry comes up
     // WHOLLY SELECTED and a live selection is what makes `C-c' a copy, so the
     // chord has to PREFIX over a virgin widget at all.
-    await p.press("C-c");
-    await p.press("C-d");
-    await widgetUp(p, "the DEADLINE widget again, to switch out of");
+    await summonDate(p, "DEADLINE", "the DEADLINE widget again, to switch out of");
     const virgin = await p.eval(() => {
       const f = document.getElementById("dwhen");
       return { val: f.value, sel: [f.selectionStart, f.selectionEnd] };
@@ -4086,9 +4112,7 @@ export default [
     const before = await served();
     assert(before.plan.length === 0, `${ROW} already carries planning`);
     await settled(p);
-    await p.press("C-c");
-    await p.press("C-s");
-    await widgetUp(p, "the widget over a SCHEDULED slot the file had not filled");
+    await summonDate(p, "SCHEDULED", "the widget over a SCHEDULED slot the file had not filled");
     // The port lands a macrotask behind the press and Elm paints a frame behind
     // that, so the line is WAITED for rather than read once.
     const drawn = await p.until(() => {
@@ -4157,9 +4181,7 @@ export default [
     const before = await p.eval(async (r) =>
       (await (await fetch(`/headline?id=${r}`)).json()).planning || [], ROW);
     assert(before.length === 0, `${ROW} already carries planning`);
-    await p.press("C-c");
-    await p.press("C-s");
-    await widgetUp(p, "the widget over the unset SCHEDULED slot");
+    await summonDate(p, "SCHEDULED", "the widget over the unset SCHEDULED slot");
     // THE BRACKET IS THE ASK FOR AN ACTIVITY: `[today]' is the clock day INACTIVE.
     // WHICH day it is is the fast suite's; here the ghost's stamp is what lands.
     await p.type("[today]");
@@ -4195,22 +4217,16 @@ export default [
 { name: "S-<right> walks the widget's day, keeps org's bracket, and ESC writes nothing",
   async run(p, base) {
     const ROW = "drv-date-walk";
-    const planLine = () => p.eval(() => {
-      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
-      return at ? at.textContent : "";
-    });
     await sheet(p, base, ROW);
     await settled(p);
-    const wasLine = await planLine();
+    const wasLine = await planLine(p);
     const inactive = await p.eval(async (r) => {
       const h = await (await fetch(`/headline?id=${r}`)).json();
       return ((h.planning || []).find(([k]) => k === "SCHEDULED") || [])[1];
     }, ROW);
     assert(inactive && inactive.charAt(0) === "[",
       `${ROW} carries no inactive SCHEDULED to walk: ${JSON.stringify(inactive)}`);
-    await p.press("C-c");
-    await p.press("C-s");
-    await widgetUp(p, "the widget over the inactive stamp, to walk it");
+    await summonDate(p, "SCHEDULED", "the widget over the inactive stamp, to walk it");
     const stoodOn = await p.eval(() => document.getElementById("dwhen").value);
     assert(stoodOn === inactive,
       `the walk opens over ${JSON.stringify(stoodOn)}, not ${JSON.stringify(inactive)}`);
@@ -4239,7 +4255,7 @@ export default [
     await p.press("ESC");
     await p.until(() => !document.getElementById("ddate").classList.contains("on"),
                   "ESC to take the walked widget");
-    assert((await planLine()) === wasLine,
+    assert((await planLine(p)) === wasLine,
       `the cancelled walk left the line changed against ${JSON.stringify(wasLine)}`);
     return [`opened on ${JSON.stringify(inactive)}, S-<right> walked it to `
       + `${JSON.stringify(walked.val)}, ESC wrote nothing`];
@@ -4273,9 +4289,7 @@ export default [
     // ------- THE SUMMON IS AT POINT: a child row materializes, then the box.
     await walkTo(p, ".d-child", "the first child headline");
     await settled(p);
-    await p.press("C-c");
-    await p.press("C-s");
-    await widgetUp(p, "the widget over the child's SCHEDULED slot");
+    await summonDate(p, "SCHEDULED", "the widget over the child's SCHEDULED slot");
     // THE MATERIALIZE IS WAITED FOR BY ITS CRUMB, never assumed: the reread is
     // a fetch, and the summon rides its continuation.
     const trail = await p.until(() => {
@@ -4319,9 +4333,7 @@ export default [
     // ------- AND THE COMMIT LANDS ON THE CHILD.  The pane is already the
     // child's, so this is the second fault on its own: the widget's own door.
     await settled(p);
-    await p.press("C-c");
-    await p.press("C-s");
-    await widgetUp(p, "the widget again, over the child's own slot");
+    await summonDate(p, "SCHEDULED", "the widget again, over the child's own slot");
     await p.type("18 aug");
     const ghost = await p.until(() => {
       const s = document.getElementById("dghost");
@@ -4350,9 +4362,7 @@ export default [
 
     // ------- AND THE CLEAR RIDES THE SAME DOOR, which puts the tree back.
     await settled(p);
-    await p.press("C-c");
-    await p.press("C-s");
-    await widgetUp(p, "the widget over the value that now stands");
+    await summonDate(p, "SCHEDULED", "the widget over the value that now stands");
     // THE ENTRY COMES UP WHOLLY SELECTED, so one DEL is the empty field the
     // shipped foot promises clears it.  The selection is WAITED for: it is
     // re-asserted while the widget is virgin, a redraw behind the open.
@@ -4393,11 +4403,6 @@ export default [
   async run(p, base) {
     const LINE = '.de[data-id="PLN"]';
     const PLN = `#mdoc ${LINE}`;
-    /** The planning line as the pane DREW it, or `""' where the row has none. */
-    const planLine = () => p.eval((pln) => {
-      const at = document.querySelector(pln);
-      return at ? at.textContent : "";
-    }, PLN);
     const entries = () => p.eval((pln) =>
       [...document.querySelectorAll(`${pln} .dpv`)].map((s) => s.dataset.key), PLN);
     /** `f' into the next entry, waited for BY THE KEYWORD point lands on: the
@@ -4409,7 +4414,7 @@ export default [
     }, `\`f' to reach the ${key} entry`, undefined, PLN, key);
 
     await sheet(p, base, "drv-plan");
-    const wasLine = await planLine();
+    const wasLine = await planLine(p);
     const served = await p.eval(async () =>
       (await (await fetch("/headline?id=drv-plan")).json()).planning || []);
     await walkTo(p, LINE, "the planning line");
@@ -4458,12 +4463,7 @@ export default [
 
     // RET OVER THE ENTRY IS THE SUMMON KEY'S OWN BOX, keyed by that entry.
     await p.press("RET");
-    await p.until(() => {
-      const box = document.getElementById("ddate");
-      const f = document.getElementById("dwhen");
-      return box.classList.contains("on") && document.activeElement === f
-        && f.getBoundingClientRect().width > 0 && box.style.top !== "";
-    }, `the widget over the ${keys[1]} value`);
+    await widgetUp(p, `the widget over the ${keys[1]} value`);
     const open = await p.eval((pln) => {
       const f = document.getElementById("dwhen");
       const slot = document.querySelector(`${pln} .dpv.dat`)
@@ -4485,7 +4485,7 @@ export default [
     await p.press("ESC");
     await p.until(() => !document.getElementById("ddate").classList.contains("on"),
                   "ESC to take the widget");
-    const backTo = await planLine();
+    const backTo = await planLine(p);
     assert(backTo === wasLine,
       `the cancelled line reads ${JSON.stringify(backTo)} against ${JSON.stringify(wasLine)}`);
     const after = await p.eval(async () =>
@@ -4610,9 +4610,7 @@ export default [
     // line — the ghost's own reading, drift-pinned to the wall — while the RAW
     // phrase is still what travels at `C-c C-c'.
     await settled(p);
-    await p.press("C-c");
-    await p.press("C-s");
-    await widgetUp(p, "the widget over the draft's SCHEDULED slot");
+    await summonDate(p, "SCHEDULED", "the widget over the draft's SCHEDULED slot");
     await p.until(() => {
       const f = document.getElementById("dwhen");
       return f.value.length > 0 && f.selectionStart === 0
@@ -4993,88 +4991,35 @@ export default [
 
 { name: "f and b walk the cells of a table row, the widget mirroring point",
   async run(p, base) {
-    await sheet(p, base, "drv-table");
-    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
-      "the table to mount");
-    const id = await p.eval(() =>
-      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
-        .find((tr) => tr.textContent.includes("Klarenbeekstraat")).dataset.id);
-    // Land in the table by clicking its first cell, then read the widget's cell.
     // The widget's selection is driven by the point a MACROTASK behind the key,
     // so each step waits for the mirror rather than reading it at once.
-    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
-    await p.until((w) => docAtNow() === w, "point in the table", undefined, id);
-    const colIs = (want, why) => p.until((w) => {
-      const tv = document.querySelector("#mdoc glance-table")._tv;
-      return tv.getSelection().col === w;
-    }, why, undefined, want);
+    const id = await tableRowNamed(p, base, "Klarenbeekstraat");
     const at = () => p.eval(() => docAtNow());
-    await colIs(0, "the clicked cell to read column 0");
-    await p.press("f"); await colIs(1, "f to step to column 1");
-    await p.press("f"); await colIs(2, "f to step to column 2");
-    await p.press("f"); await colIs(2, "f past the last column to hold");
+    await colIs(p, 0, "the clicked cell to read column 0");
+    await p.until(() => !document.querySelector("#mdoc glance-table").classList.contains("gt-nosel"),
+      "the table under point to show its selection");
+    await p.press("f"); await colIs(p, 1, "f to step to column 1");
+    await p.press("f"); await colIs(p, 2, "f to step to column 2");
+    await p.press("f"); await colIs(p, 2, "f past the last column to hold");
     assert((await at()) === id, "the row moved while walking its cells");
-    await p.press("b"); await colIs(1, "b to step back to column 1");
-    await p.press("b"); await colIs(0, "b to step back to column 0");
-    await p.press("b"); await colIs(null, "b off column 0 to clear to the whole row");
+    await p.press("b"); await colIs(p, 1, "b to step back to column 1");
+    await p.press("b"); await colIs(p, 0, "b to step back to column 0");
+    await p.press("b"); await colIs(p, null, "b off column 0 to clear to the whole row");
     assert((await at()) === id, "the whole-row state left the row");
     await p.press("b");
     await p.until((w) => docAtNow() !== w, "b off the row to climb out", undefined, id);
     assert((await at()) !== id, "b off the whole row did not climb out of the table");
-    return [`f/b crossed the cells of ${id} and climbed out, the widget mirroring`];
-  } },
-
-// PHASE 3.  RET on a cell edits its RAW text in a box over the td; commit
-// rewrites that row's line alone and the write round-trips back into the cell.
-{ name: "RET on a table cell edits its raw text and writes that row's line",
-  async run(p, base) {
-    await sheet(p, base, "drv-table");
-    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
-      "the table to mount");
-    const owner = await p.eval(() => {
-      const tr = [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
-        .find((x) => x.textContent.includes("Molenweg"));
-      return { id: tr.dataset.id };
-    });
-    // Click the Owner cell (column 1) to land point on it.
-    await p.click(`#mdoc glance-table tbody tr[data-id="${owner.id}"] td:nth-child(2)`);
-    await p.until((w) => docAtNow() === w, "point on the Owner cell", undefined, owner.id);
-    await p.press("RET");
-    await p.until(() => !!document.querySelector("#mdoc glance-table td .tv-cell-edit"),
-      "the in-cell edit input to open");
-    const opened = await p.eval(() =>
-      document.querySelector("#mdoc glance-table td .tv-cell-edit").value);
-    assert(opened === "writer",
-      `the input opened on ${JSON.stringify(opened)}, not the raw cell "writer"`);
-    await p.eval(() => {
-      document.querySelector("#mdoc glance-table td .tv-cell-edit").value = "keeper";
-    });
-    await p.press("RET");
-    await p.until((wid) => {
-      const tr = document.querySelector(`#mdoc glance-table tbody tr[data-id="${wid}"]`);
-      return tr && [...tr.querySelectorAll("td")].some((td) => td.textContent.trim() === "keeper");
-    }, "the written value to round-trip into the cell", undefined, owner.id);
-    const got = await p.eval((wid) => {
-      const tr = document.querySelector(`#mdoc glance-table tbody tr[data-id="${wid}"]`);
-      return [...tr.querySelectorAll("td")].map((td) => td.textContent.trim());
-    }, owner.id);
-    assert(got[1] === "keeper", `the Owner cell reads ${JSON.stringify(got[1])}, not "keeper"`);
-    return [`RET edited the cell raw and wrote the row: [${got.join(", ")}]`];
+    await p.until(() => document.querySelector("#mdoc glance-table").classList.contains("gt-nosel"),
+      "the table to mask its row wash once point climbed out");
+    return [`f/b crossed the cells of ${id} and climbed out, the row wash cleared`];
   } },
 
 // PHASE 3b.  A column name is the header cell: p above row 1 climbs to it,
 // RET names it, and the write rewrites the header line alone.
 { name: "p climbs to a column header and RET renames it",
   async run(p, base) {
-    await sheet(p, base, "drv-table");
-    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
-      "the table to mount");
-    const id = await p.eval(() =>
-      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
-        .find((x) => x.textContent.includes("Klarenbeekstraat")).dataset.id);
     // Into the first column of the first row, then p to climb to its header.
-    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
-    await p.until((w) => docAtNow() === w, "point on the Street cell", undefined, id);
+    const id = await tableRowNamed(p, base, "Klarenbeekstraat");
     await p.press("p");
     // p above the row lands on the header leaf -- a different row than the data.
     await p.until((w) => docAtNow() !== w, "point to climb to the header", undefined, id);
@@ -5105,28 +5050,7 @@ export default [
     return [`p climbed to the header and RET renamed the column: [${head.join(", ")}]`];
   } },
 
-// PHASE 3c.  b off a row leaves the whole table with no row picked; a link cell
-// opens through the doc's own door.
-{ name: "b off a table row clears the row highlight",
-  async run(p, base) {
-    await sheet(p, base, "drv-table");
-    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
-      "the table to mount");
-    const id = await p.eval(() =>
-      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
-        .find((x) => x.textContent.includes("Molenweg")).dataset.id);
-    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
-    await p.until((w) => docAtNow() === w, "point in the table", undefined, id);
-    await p.until(() => !document.querySelector("#mdoc glance-table").classList.contains("gt-nosel"),
-      "the table under point to show its selection");
-    await p.press("b"); // cell 0 -> whole row
-    await p.press("b"); // whole row -> climb out of the table
-    await p.until((w) => docAtNow() !== w, "point to climb out of the table", undefined, id);
-    await p.until(() => document.querySelector("#mdoc glance-table").classList.contains("gt-nosel"),
-      "the table to mask its row wash once point climbed out");
-    return ["b off the row climbed out and the row wash cleared"];
-  } },
-
+// PHASE 3c.  A link cell opens through the doc's own door.
 { name: "a click on a table link cell materializes its target",
   async run(p, base) {
     await sheet(p, base, "drv-table");
@@ -5144,27 +5068,15 @@ export default [
 // wash vs the cell crossing is the affordance.
 { name: "+ adds a row on a whole row and a column on a cell",
   async run(p, base) {
-    await sheet(p, base, "drv-grow");
-    const shapeOf = () => p.eval(() => ({
-      rows: document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length,
-      cols: document.querySelectorAll("#mdoc glance-table thead th").length }));
+    // ADD A ROW: into a cell, b to the whole row (wait for it), +.
+    const id = await tableRowNamed(p, base, "Molenweg", 1, "drv-grow");
     await p.until(() =>
       document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length === 3
       && document.querySelectorAll("#mdoc glance-table thead th").length === 3,
       "the table to mount 3x3");
-    const id = await p.eval(() =>
-      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
-        .find((x) => x.textContent.includes("Molenweg")).dataset.id);
-    const colIs = (want, why) => p.until((w) => {
-      const tv = document.querySelector("#mdoc glance-table")._tv;
-      return tv && tv.getSelection().col === w;
-    }, why, undefined, want);
-    // ADD A ROW: into a cell, b to the whole row (wait for it), +.
-    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
-    await p.until((w) => docAtNow() === w, "point in the table", undefined, id);
-    await colIs(0, "the clicked cell to read column 0");
+    await colIs(p, 0, "the clicked cell to read column 0");
     await p.press("b");  // cell -> whole row (no column)
-    await colIs(null, "the whole-row state before +");
+    await colIs(p, null, "the whole-row state before +");
     await p.press("+");
     // The row-add WRITES and re-materializes with fresh ids (the optimistic draft
     // row `D' becomes a committed leaf).  WAIT FOR THAT COMMIT before the column
@@ -5181,12 +5093,12 @@ export default [
         .find((x) => x.textContent.includes("Molenweg")).dataset.id);
     await p.click(`#mdoc glance-table tbody tr[data-id="${rowId}"] td:first-child`);
     await p.until((w) => docAtNow() === w, "point back on the cell", undefined, rowId);
-    await colIs(0, "a column selected before +");
+    await colIs(p, 0, "a column selected before +");
     await p.press("+");
     await p.until(() =>
       document.querySelectorAll("#mdoc glance-table thead th").length === 4,
       "a blank column to be added");
-    const shape = await shapeOf();
+    const shape = await shapeOf(p);
     assert(shape.rows === 4 && shape.cols === 4,
       `the table is ${shape.rows}x${shape.cols}, not 4x4`);
     return [`+ grew the table to ${shape.rows} rows and ${shape.cols} columns`];
@@ -5196,28 +5108,15 @@ export default [
 // naming a column materializes it -- the header line and its hline are written.
 { name: "a headerless table summons an ephemeral header that RET makes real",
   async run(p, base) {
-    await sheet(p, base, "drv-materialize");
-    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
-      "the headerless table to mount");
-    const start = await p.eval(() => {
+    await tableRowNamed(p, base, "Alpha", 1, "drv-materialize");
+    const start = await p.eval(() => {   // read BEFORE any summon
       const g = document.querySelector("#mdoc glance-table");
       return { noheader: g.classList.contains("noheader"),
                theadShown: getComputedStyle(g.querySelector("thead")).display !== "none" };
     });
     assert(start.noheader, "the headerless table did not carry the noheader class");
     assert(!start.theadShown, "the headerless table showed a header before it was summoned");
-    const id = await p.eval(() =>
-      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
-        .find((x) => x.textContent.includes("Alpha")).dataset.id);
-    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
-    await p.until((w) => docAtNow() === w, "point on the first cell", undefined, id);
-    await p.until(() => {
-      const tv = document.querySelector("#mdoc glance-table")._tv;
-      return tv && tv.getSelection().col === 0;
-    }, "a column selected");
-    await p.press("p"); // summon the ephemeral header
-    await p.until(() => document.querySelector("#mdoc glance-table").classList.contains("ephemeral"),
-      "the ephemeral header to be summoned");
+    await summonHeader(p);
     await p.press("RET");
     await p.until(() => !!document.querySelector("#mdoc glance-table th .tv-cell-edit"),
       "the ephemeral header name input to open");
@@ -5243,21 +5142,18 @@ export default [
   } },
 
 // BUG 2026-09-02.  A cell must keep its selection (row AND column) after RET
-// commits the edit; applyFill dropped `col' across the reload.
+// commits the edit; applyFill dropped `col' across the reload.  RET also opens
+// the cell on its RAW text, and the commit rewrites that row's line alone.
 { name: "a table cell keeps its selection after RET commits the edit",
   async run(p, base) {
-    await sheet(p, base, "drv-table");
-    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
-      "the table to mount");
-    const id = await p.eval(() =>
-      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
-        .find((x) => x.textContent.includes("Molenweg")).dataset.id);
-    // Into the Owner cell (column 1), edit, commit.
-    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:nth-child(2)`);
-    await p.until((w) => docAtNow() === w, "point on the Owner cell", undefined, id);
+    const id = await tableRowNamed(p, base, "Molenweg", 2);
     await p.press("RET");
     await p.until(() => !!document.querySelector("#mdoc glance-table td .tv-cell-edit"),
       "the in-cell edit input to open");
+    const opened = await p.eval(() =>
+      document.querySelector("#mdoc glance-table td .tv-cell-edit").value);
+    assert(opened === "writer",
+      `the input opened on ${JSON.stringify(opened)}, not the raw cell "writer"`);
     await p.eval(() => {
       document.querySelector("#mdoc glance-table td .tv-cell-edit").value = "keeper2";
     });
@@ -5274,7 +5170,8 @@ export default [
     }, "the edited cell to keep its row-and-column selection", undefined, id);
     const sel = await p.eval(() => document.querySelector("#mdoc glance-table")._tv.getSelection());
     assert(sel.col === 1, `after the edit the column is ${sel.col}, not 1`);
-    return [`the cell kept its selection r=${sel.id} c=${sel.col} across the write`];
+    return [`RET opened the cell raw ("${opened}"), the write took, and the cell `
+      + `kept its selection r=${sel.id} c=${sel.col} across it`];
   } },
 
 // BUG 2026-09-02.  d on a selected column FLAGS the COLUMN, dired-style; a
@@ -5282,30 +5179,18 @@ export default [
 // still flags the row.
 { name: "d flags a table column, a second d deletes it",
   async run(p, base) {
-    await sheet(p, base, "drv-del");
-    const shapeOf = () => p.eval(() => ({
-      rows: document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length,
-      cols: document.querySelectorAll("#mdoc glance-table thead th").length,
-      heads: [...document.querySelectorAll("#mdoc glance-table thead th")].map((t) => t.textContent.trim()) }));
+    // Into the Owner column (column 1).
+    await tableRowNamed(p, base, "Klarenbeekstraat", 2, "drv-del");
     await p.until(() =>
       document.querySelectorAll("#mdoc glance-table tbody tr[data-id]").length === 3
       && document.querySelectorAll("#mdoc glance-table thead th").length === 3,
       "the table to mount 3x3");
-    const id = await p.eval(() =>
-      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
-        .find((x) => x.textContent.includes("Klarenbeekstraat")).dataset.id);
-    // Into the Owner column (column 1).
-    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:nth-child(2)`);
-    await p.until((w) => docAtNow() === w, "point on the Owner cell", undefined, id);
-    await p.until(() => {
-      const tv = document.querySelector("#mdoc glance-table")._tv;
-      return tv && tv.getSelection().col === 1;
-    }, "the Owner column selected");
+    await colIs(p, 1, "the Owner column selected");
     // First d FLAGS the column: it is marked, and NOT deleted.
     await p.press("d");
     await p.until(() => !!document.querySelector("#mdoc glance-table thead th.gt-cflag"),
       "the Owner column to be flagged");
-    const flagged = await shapeOf();
+    const flagged = await shapeOf(p);
     assert(flagged.cols === 3, `the flag deleted a column (now ${flagged.cols}) instead of flagging`);
     assert(flagged.heads.includes("Owner"), `the Owner column vanished on the flag`);
     const flaggedCol = await p.eval(() =>
@@ -5316,7 +5201,7 @@ export default [
     await p.until(() =>
       document.querySelectorAll("#mdoc glance-table thead th").length === 2,
       "the flagged column to be deleted on the second d");
-    const gone = await shapeOf();
+    const gone = await shapeOf(p);
     assert(gone.cols === 2 && gone.rows === 3 && !gone.heads.includes("Owner"),
       `after the second d the table is [${gone.heads.join(", ")}], ${gone.rows} rows`);
     return [`d flagged the Owner column, a second d deleted it: [${gone.heads.join(", ")}]`];
@@ -5326,21 +5211,8 @@ export default [
 // ghost header th must stand a full doc line (an empty th once gave a sliver).
 { name: "the ephemeral header name box stands a full line, not a sliver",
   async run(p, base) {
-    await sheet(p, base, "drv-noheader");
-    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
-      "the headerless table to mount");
-    const id = await p.eval(() =>
-      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
-        .find((x) => x.textContent.includes("Alpha")).dataset.id);
-    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
-    await p.until((w) => docAtNow() === w, "point on the first cell", undefined, id);
-    await p.until(() => {
-      const tv = document.querySelector("#mdoc glance-table")._tv;
-      return tv && tv.getSelection().col === 0;
-    }, "a column selected");
-    await p.press("p"); // summon the ephemeral header
-    await p.until(() => document.querySelector("#mdoc glance-table").classList.contains("ephemeral"),
-      "the ephemeral header to be summoned");
+    await tableRowNamed(p, base, "Alpha", 1, "drv-noheader");
+    await summonHeader(p);
     // The ghost header cell -- which the name box measures its height from --
     // must stand a full doc line, not the sliver an empty line box gives.
     const geo = await p.eval(() => {
@@ -5358,18 +5230,8 @@ export default [
 // re-set the view property every render, so setView fired on a bare point move.
 { name: "a column move does not rebuild the table (no selection blink)",
   async run(p, base) {
-    await sheet(p, base, "drv-table");
-    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
-      "the table to mount");
-    const id = await p.eval(() =>
-      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
-        .find((x) => x.textContent.includes("Klarenbeekstraat")).dataset.id);
-    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
-    await p.until((w) => docAtNow() === w, "point in the table", undefined, id);
-    await p.until(() => {
-      const tv = document.querySelector("#mdoc glance-table")._tv;
-      return tv && tv.getSelection().col === 0;
-    }, "the first column selected");
+    const id = await tableRowNamed(p, base, "Klarenbeekstraat");
+    await colIs(p, 0, "the first column selected");
     // Tag the rendered row; if a column move rebuilds the table, the tagged
     // element is replaced and the tag is lost.
     await p.eval((wid) => {
@@ -5377,10 +5239,7 @@ export default [
       tr.dataset.blinkProbe = "kept";
     }, id);
     await p.press("f"); // f -> column 1: a bare column move, no data change
-    await p.until(() => {
-      const tv = document.querySelector("#mdoc glance-table")._tv;
-      return tv && tv.getSelection().col === 1;
-    }, "the column to advance to 1");
+    await colIs(p, 1, "the column to advance to 1");
     const survived = await p.eval((wid) => {
       const tr = document.querySelector(`#mdoc glance-table tbody tr[data-id="${wid}"]`);
       return tr && tr.dataset.blinkProbe === "kept";
@@ -5417,19 +5276,9 @@ export default [
 // not only its header row.
 { name: "the whole-table selection washes the whole table",
   async run(p, base) {
-    await sheet(p, base, "drv-table");
-    await p.until(() => !!document.querySelector("#mdoc glance-table tbody tr[data-id]"),
-      "the table to mount");
-    const id = await p.eval(() =>
-      [...document.querySelectorAll("#mdoc glance-table tbody tr[data-id]")]
-        .find((x) => x.textContent.includes("Klarenbeekstraat")).dataset.id);
-    await p.click(`#mdoc glance-table tbody tr[data-id="${id}"] td:first-child`);
-    await p.until((w) => docAtNow() === w, "point in the table", undefined, id);
+    await tableRowNamed(p, base, "Klarenbeekstraat");
     await p.press("b"); // cell -> whole row
-    await p.until(() => {
-      const tv = document.querySelector("#mdoc glance-table")._tv;
-      return tv && tv.getSelection().col === null;
-    }, "the whole-row state before climbing out");
+    await colIs(p, null, "the whole-row state before climbing out");
     await p.press("b"); // whole row -> the whole table (composite)
     // Poll the settled ground: the composite block wears the selection wash over
     // its whole region -- a retry rides out the mirror/paint lag the multi-step
@@ -5501,10 +5350,8 @@ export default [
     // drawer's `:END:', at the top of the body.
     await p.type("a fresh paragraph");
     await p.press("RET");
-    const org = await p.until(async () => {
-      const h = await (await fetch("/headline?id=drv-marks")).json();
-      return (h.org || "").includes("a fresh paragraph") ? h.org : false;
-    }, "the write to reach the file");
+    const org = await orgSays(p, "drv-marks", /a fresh paragraph/,
+                              "the write to reach the file");
     const lines = org.split("\n");
     const end = lines.findIndex((l) => l.trim() === ":END:");
     const para = lines.findIndex((l) => l.includes("a fresh paragraph"));
@@ -5601,10 +5448,8 @@ export default [
     await p.eval(() => { document.getElementById("dtext").value
       += "\n\nA line the work tree has to answer for"; });
     await p.press("RET");
-    await p.until(async () => {
-      const h = await (await fetch("/headline?id=drv-marks")).json();
-      return /the work tree has to answer for/.test(h.org || "");
-    }, "the write to reach the file", 15000);
+    await orgSays(p, "drv-marks", /the work tree has to answer for/,
+                  "the write to reach the file");
     const dirt = await p.until(async () => {
       const s = await (await fetch("/git")).json();
       const n = s.staged + s.unstaged + s.untracked;

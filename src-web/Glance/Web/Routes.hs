@@ -74,7 +74,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , kindSlug, refKind
                     , edgePairs, neighborDepth, neighborDepthCap, neighborLimit
                     , neighborhood
-                    , plannedValue, readConfigLayers
+                    , plannedEntry, plannedValue, readConfigLayers
                     , unplanned
                     , untrailed
                     , recomposedSubtree
@@ -282,7 +282,7 @@ neighborParams :: Request -> Either Text NeighborAsk
 neighborParams request = do
   rid   <- queryWord request "id"
   depth <- cappedAt neighborDepthCap "depth" fromTheFarEnd =<< queryCount request "depth"
-  limit <- cappedAt limitCap "limit" pageOn =<< queryCount request "limit"
+  limit <- queryLimit request
   kind  <- queryWord request "kind"
   case rid of
     Nothing -> Left "GET /neighbors?id=<row id>"
@@ -312,8 +312,8 @@ headlines opts hub request = viewPage opts hub request (const True) (const [])
 refer :: ServeOptions -> Hub -> Request -> IO Response
 refer opts hub request = viewPage opts hub request keep (referExtra asked)
   where
-    self = queryText "row" request
-    asked = queryText "kind" request
+    self = queryText request "row"
+    asked = queryText request "kind"
     keep r = isJust (hrOrgId r) && Just (hrId r) /= self
 
 -- | What the picker completes from, over every row THE QUERY MATCHED rather than the page served.
@@ -354,16 +354,16 @@ viewPage opts hub request keep extra = case pageParams request of
     st <- readTVarIO (hubStore hub)
     -- GLOBAL, not per-view: the startup verdict, read O(1) and never recomputed.
     doctor <- readTVarIO (hubDoctor hub)
-    -- ONE CLOCK READ PER REQUEST, ABOVE the revalidation: a day word resolves once,
-    -- so a query across midnight cannot mean two days, and the tag folds it in (`etagOf').
+    -- The request's one clock read ('Base.today'), ABOVE the revalidation: the
+    -- day rides in the tag, so a 304 cannot answer with yesterday's rows.
     day <- today
     let tag = etagOf day st
     if tag `elem` ifNoneMatch request
       then pure (responseLBS status304 (cacheHeaders tag) "")
       else do
         let qr      = storeResult st
-            -- The reference keys read the link graph, so the match runs over the store's own rows.
-            env     = onDay day (storeEnv (qrRecords qr))
+            -- The reference keys read the store's OWN graph, built once per store version.
+            env     = onDay day (storeEnv (stEdges st))
             -- THE FILTER IS COMPILED ONCE, AND THIS BINDING IS WHAT MAKES IT SO: applied
             -- inside the row lambda, `matchesFilter''s parse and `ref:' resolution rerun per row.
             passes  = matchesFilter env paQuery
@@ -448,29 +448,28 @@ data PageAsk = PageAsk
 pageParams :: Request -> Either Text PageAsk
 pageParams request = do
   q      <- fromMaybe "" <$> queryWord request "q"
-  limit  <- cappedAt limitCap "limit" pageOn =<< queryCount request "limit"
+  limit  <- queryLimit request
   offset <- fromMaybe 0 <$> queryCount request "offset"
   _order <- maybe (Right ()) (const (Left retired)) =<< queryWord request "order"
   chain  <- sortChainIn q
   picked <- columnNamesIn q
   -- The third view key's own refusal: it has no reader of its own to carry one.
   _added <- viewAddedIn q
-  rows   <- shapeRows =<< queryWord request "shape"
+  rows   <- queryFlag request "shape" "rows"
   edges  <- queryEdges request
   Right PageAsk { paQuery = q, paLimit = limit, paOffset = offset, paChain = chain
                 , paPicked = picked, paRows = rows, paEdges = edges }
   where
-    -- Only @rows@ is a shape; an unknown value is refused rather than ignored.
-    shapeRows given = case given of
-      Just "rows" -> Right True
-      Nothing     -> Right False
-      Just _other -> Left "shape is rows, or absent for the table view"
     retired = "order= is gone; the order is the query's: ?q=sort:COL, \
               \or ?q=sort:*none* for document order"
 
 -- | What a caller over the page cap is told to do instead.
 pageOn :: Text
 pageOn = "page with offset for more"
+
+-- | @limit@ under 'limitCap'.  ONE READING for the two doors that take one.
+queryLimit :: Request -> Either Text (Maybe Int)
+queryLimit request = cappedAt limitCap "limit" pageOn =<< queryCount request "limit"
 
 -- | N under CAP, or the refusal naming the cap and the way round it.  ONE
 -- SENTENCE for every capped number, so @limit@ and @depth@ refuse alike.
@@ -533,11 +532,10 @@ data Pin
   = Reading  -- ^ RELOAD: the store lagging its own tree is this server's signal.
   | Writing  -- ^ REFUSE: the drift lock, so no write re-targets bytes unseen.
 
--- | HUB's answer to @?id=RID&child=K@, over the file AS IT STANDS.
---
--- A READ RELOADS ON DRIFT ('Glance.Web.Watch.reload') and re-addresses under the
--- fresh digest; a second drift is a genuine race and takes the 409.  A WRITE takes
--- it the first time: re-targeting would move bytes the client never saw.
+-- | HUB's answer to @?id=RID&child=K@, over the file AS IT STANDS.  A READ
+-- RELOADS ON DRIFT ('Glance.Web.Watch.reload') and re-addresses under the fresh
+-- digest, a SECOND drift being the genuine race that takes the 409; a WRITE takes
+-- it the first time ('Pin', docs\/invariants.md).
 onRow :: Pin -> Hub -> Text -> Either Text (Maybe Int)
       -> (Store -> Text -> (HeadlineRecord, Maybe Int) -> Either Response a)
       -> IO (Either Response a)
@@ -598,21 +596,30 @@ subtreeJSON doc f =
   , "path"       .= trailTo f
   , "level"      .= levelOf f
   , "cells"      .= object (cells here)
-  , "children"   .= [ childJSON here (subtreeText doc here) (hpBody parts) i e | (i, e) <- beneath f ]
-  , "org"        .= subtreeText doc here
-  , "body"       .= hpBody parts
-  , "ownLines"   .= ownBodyLines doc here (hpBody parts) (firstUnder f)
-  , "properties" .= [ [key, value] | (key, value) <- hpProperties parts ]
-  , "planning"   .= [ [key, value] | (key, value) <- hpPlanning parts ]
-  , "logbook"    .= hpLogbook parts
-  , "digest"     .= hrDigest here
+  ] <> docPairs doc here f <>
+  [ "digest"     .= hrDigest here
   , "span"       .= extentJSON here
     -- The ROW's whole scan, in FILE coordinates: one request, so no async gap to bridge.
   , "links"      .= map linkJSON (subtreeLinks doc (fcRow f))
   , "titleAt"    .= (spanStart <$> titleSpan here)
   ]
-  where here  = focusHere f
-        parts = headlineParts doc here
+  where here = focusHere f
+
+-- | THE DOC PANE'S ENVELOPE: the text, the parts lifted out of it and the brood
+-- under it — the members a materialize and a draft both owe, spelled once.  DOC
+-- ARRIVES AS A 'Text', never off the row: a record retains no document bytes.
+docPairs :: Text -> HeadlineRecord -> Focus -> [Pair]
+docPairs doc here f =
+  [ "children"   .= [ childJSON here subtree (hpBody parts) i e | (i, e) <- beneath f ]
+  , "org"        .= subtree
+  , "body"       .= hpBody parts
+  , "ownLines"   .= ownBodyLines doc here (hpBody parts) (firstUnder f)
+  , "properties" .= [ [key, value] | (key, value) <- hpProperties parts ]
+  , "planning"   .= [ [key, value] | (key, value) <- hpPlanning parts ]
+  , "logbook"    .= hpLogbook parts
+  ]
+  where subtree = subtreeText doc here
+        parts   = headlineParts doc here
 
 levelOf :: Focus -> Int
 levelOf = maybe 1 seLevel . focusEntry
@@ -669,7 +676,7 @@ commit _opts _hub Nothing _child _request =
   pure (jsonError status400 "POST /headline?id=<row id>")
 -- The cap outranks the lookup, so the id resolves behind the body.
 commit opts hub (Just rid) child request = withBody request $ \raw -> do
-  -- ONE CLOCK READ PER REQUEST, above the row: one commit must mean ONE day.
+  -- The request's one clock read ('Base.today'), above the row: one commit is ONE day.
   day <- today
   got <- focused Writing hub rid child
   case got >>= \(doc, f) -> (,) (focusHere f) <$> prepare day raw doc (focusHere f) of
@@ -708,13 +715,6 @@ settledPlanning day (SplitSubtree body ps pln)
   | Just refusal <- listToMaybe refused = Left refusal
   | otherwise = SplitSubtree body ps <$> traverse (plannedEntry day) pln
   where refused = [ (key, why) | (key, _v) <- pln, Just why <- [unplanned key] ]
-
--- | One planning entry through 'plannedValue', the refusal carrying the KEY beside
--- THE READER'S OWN SENTENCE, so the 409 has no second spelling of the wall.
-plannedEntry :: Day -> (Text, Text) -> Either (Text, Text) (Text, Text)
-plannedEntry day (key, value) = case plannedValue day key value of
-  Left why    -> Left (key, why)
-  Right stamp -> Right (key, stamp)
 
 
 
@@ -809,10 +809,10 @@ captureView :: ServeOptions -> Hub -> Request -> IO Response
 captureView opts hub request = do
   st <- readTVarIO (hubStore hub)
   layers <- layersFor (soDir opts) st
-  -- ONE CLOCK READ PER REQUEST, above the expansion: template stamps and a lent day must name one instant.
+  -- One read, above the expansion ('Base.today''s rule): template stamps and a lent day name ONE instant.
   now <- Time.getZonedTime
   let cfg = stConfig st
-      tag = fromMaybe "" (queryText "tag" request)
+      tag = fromMaybe "" (queryText request "tag")
       -- WHAT THE DRAFT WEARS.  THE DESTINATION LEADS; lent tags follow, each through
       -- the CHARSET wall below — a lent tag org cannot read is filter noise, worn no
       -- more here than written there.  Deduplicated: one tag named twice is one tag.
@@ -841,14 +841,8 @@ draftJSON st worn doc r opens =
   , "path"       .= [hrTitle r]
   , "level"      .= (1 :: Int)
   , "cells"      .= object (draftCells worn r)
-  , "children"   .= [ childJSON r (subtreeText doc r) (hpBody parts) i e | (i, e) <- beneath f ]
-  , "org"        .= subtreeText doc r
-  , "body"       .= hpBody parts
-  , "ownLines"   .= ownBodyLines doc r (hpBody parts) (firstUnder f)
-  , "properties" .= [ [key, value] | (key, value) <- hpProperties parts ]
-  , "planning"   .= [ [key, value] | (key, value) <- hpPlanning parts ]
-  , "logbook"    .= hpLogbook parts
-  , "digest"     .= ("" :: Text)
+  ] <> docPairs doc r f <>
+  [ "digest"     .= ("" :: Text)
   , "span"       .= Null
   , "links"      .= ([] :: [Value])
   , "titleAt"    .= Null
@@ -857,7 +851,6 @@ draftJSON st worn doc r opens =
   , "tags"       .= storeTags st
   ]
   where f = Focus st r (subtreeEntries (stConfig st) doc r) Nothing
-        parts = headlineParts doc r
 
 -- | A DRAFT'S DISPLAY CELLS: 'cells', with the tag run saying WHERE THIS LANDS.
 -- A DISPLAY CELL IS CONSTRUCTED, owing no round trip through the org line: a
@@ -880,19 +873,19 @@ draftTagsCell worn r
 -- inherited fact is filter noise, so it fills the gap or not and @+@ opens either way.
 inheritedIn :: Day -> Request -> Inherited
 inheritedIn day request = Inherited
-  { inhState    = queryText "state" request
-  , inhPriority = queryText "priority" request
+  { inhState    = queryText request "state"
+  , inhPriority = queryText request "priority"
   , inhTags     = inheritedTags request
   , inhPlanning = [ (key, stamp)
                   | (key, name) <- [("SCHEDULED", "scheduled"), ("DEADLINE", "deadline")]
-                  , Just value <- [queryText name request]
+                  , Just value <- [queryText request name]
                   , Right stamp <- [plannedValue day key value] ]
   }
 
 -- | @?tags=a,b@: the positive filter tags a draft wears beyond the template's.
 inheritedTags :: Request -> [Text]
 inheritedTags request =
-  [ t | raw <- maybe [] (T.splitOn ",") (queryText "tags" request)
+  [ t | raw <- maybe [] (T.splitOn ",") (queryText request "tags")
       , let t = T.strip raw, not (T.null t) ]
 
 -- Links
@@ -919,7 +912,7 @@ queryIds :: Request -> [Text]
 queryIds request =
   nub [ rid
       | (key, Just raw) <- queryString request, key `elem` ["ids", "id"]
-      , Right text <- [TE.decodeUtf8' raw]
+      , Just text <- [silentText raw]
       , rid <- if key == "ids" then T.splitOn "," text else [text], not (T.null rid) ]
 
 -- Config
@@ -1018,27 +1011,35 @@ data LayerWrite = LayerWrite
   }
 
 queryId :: Request -> Maybe Text
-queryId = queryText "id"
+queryId request = queryText request "id"
 
 -- | @?edges=true@: does this read owe each row's references and the rows pointing
--- at it?  THE ONE READER, for the subtree door and the table's own; an unknown
--- value is refused rather than ignored, the way @shape=@ is.
+-- at it?  THE ONE READER, for the subtree door and the table's own.
 queryEdges :: Request -> Either Text Bool
-queryEdges request = queryWord request "edges" >>= \given -> case given of
-  Just "true" -> Right True
-  Nothing     -> Right False
-  Just _other -> Left "edges is true, or absent for the rows without them"
+queryEdges request = queryFlag request "edges" "true"
 
-queryText :: BS.ByteString -> Request -> Maybe Text
-queryText name request = case lookup name (queryString request) of
-  Just (Just raw) -> either (const Nothing) Just (TE.decodeUtf8' raw)
-  _absent         -> Nothing
+-- | @?NAME=WORD@ as a flag: WORD is 'True', absent is 'False', and every other
+-- value is REFUSED rather than read as unasked.  ONE SENTENCE for both flags, so
+-- @edges@ and @shape@ cannot grow two refusal vocabularies.
+queryFlag :: Request -> Text -> Text -> Either Text Bool
+queryFlag request name word = queryWord request name >>= \given -> case given of
+  Nothing    -> Right False
+  Just given'
+    | given' == word -> Right True
+    | otherwise      -> Left (name <> " is " <> word <> ", or absent")
+
+-- | NAME's value in REQUEST, bytes that are no UTF-8 reading as ABSENT.  THE
+-- SILENT WRAPPER, deliberately: these parameters lend rather than command, so an
+-- undecodable one fills no gap and refuses nothing ('queryWord' is the 400).
+queryText :: Request -> Text -> Maybe Text
+queryText request name = silentText =<< rawParam request name
+
+silentText :: BS.ByteString -> Maybe Text
+silentText = either (const Nothing) Just . TE.decodeUtf8'
 
 -- | The @child@ parameter.  A non-number is a 400: a write pinned to a mistyped index would splice the wrong subtree.
 queryChild :: Request -> Either Text (Maybe Int)
-queryChild request = case lookup "child" (queryString request) of
-  Just (Just raw) -> first (const refusal) (Just <$> wholeNumber "child" raw)
-  _absent         -> Right Nothing
+queryChild request = first (const refusal) (queryCount request "child")
   where refusal = "child must be a whole number, 0 or more: the entry's place \
                   \in the subtree, in document order"
 

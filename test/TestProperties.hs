@@ -25,7 +25,7 @@ import Data.Org ( Context, Element (EHeadline, ETimestamp), Headline (spans)
 import Data.Org.Edit (Edit (..), EditError, applyEdits)
 import Glance.Query ( HeadlineParts (..), HeadlineRecord (hrSubtree)
                     , headlineParts, loadFile, recomposedSubtree, subtreeText )
-import TestDefaults (bare, headlinesOf, testProperty, testPropertyWith, withTempDirNamed)
+import TestDefaults (asWritten, bare, headlinesOf, testProperty, testPropertyWith, withTempDirNamed)
 import TestGen ( Broken (Broken), DocSpec (dsEntries, dsFinalEol), EntrySpec (..)
                , Expected (exBlank, exLevel, exSpans)
                , Rendered (rdEntries, rdText), TsAny (TsAny), TsImage (TsImage)
@@ -324,14 +324,6 @@ ownsEachByte doc r = counterexample (show (subtreeText doc r, hpBody parts)) $
 settled :: HeadlineParts -> HeadlineParts
 settled parts = parts { hpBody    = asWritten (hpBody parts)
                       , hpLogbook = T.stripEnd (asWritten (hpLogbook parts)) }
-
--- | An INDEPENDENT spelling of what 'recomposedSubtree' enforces, CRLF included.
-asWritten :: Text -> Text
-asWritten = T.intercalate "\n" . map line . T.splitOn "\n"
-  where line l = case T.stripSuffix "\r" l of
-          Just body -> T.dropWhileEnd horizontal body <> "\r"
-          Nothing   -> T.dropWhileEnd horizontal l
-        horizontal c = c == ' ' || c == '\t'
 
 subsequence :: Eq a => [a] -> [a] -> Bool
 subsequence [] _ = True

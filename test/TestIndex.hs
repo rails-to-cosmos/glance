@@ -22,6 +22,7 @@ import Data.Org.Index ( BlobEntry (..), IndexDrift (..), IndexFold (..)
                       , indexReportLines, manifestFile, openSegment, segmentEnd
                       , segmentNames, tailFrom, tailIds, tailedFile )
 import Data.Org.Walk (defaultWalk)
+import Data.Org.Blob (blobPathIn, metaIn, storeRootIn)
 
 
 -- | One JSON record line as org-glance writes it, @nil@ spelled @{}@.
@@ -49,7 +50,7 @@ metaStore dir sealed open = do
   writeFile (meta </> openSegment) (T.unpack open)
   pure meta
   where
-    meta = dir </> ".org-glance" </> "meta"
+    meta = metaIn dir
     segment i lines' = name <$ writeFile (meta </> name) (T.unpack (T.unlines lines'))
       where name = "seg-" <> pad (show i) <> ".jsonl"
             pad s = replicate (10 - length s) '0' <> s
@@ -92,7 +93,7 @@ scannedBlob dir doc = do
   TIO.writeFile (blobDir </> "data.org") doc
   entries <- reverse . tBlobs . coTotals <$> scanCorpus defaultWalk [dir]
   pure (case entries of (_, entry) : _ -> entry; [] -> Nothing)
-  where blobDir = dir </> ".org-glance" </> "data" </> "fe" </> "6180a2-ac42"
+  where blobDir = takeDirectory (blobPathIn (storeRootIn dir) "fe6180a2-ac42")
 
 drift :: [IndexRecord] -> [(FilePath, Maybe BlobEntry)] -> IndexDrift
 drift records = driftOf "/store" folded
@@ -238,7 +239,7 @@ driftSpec = testGroup "Index against blobs"
       let d = drift [rec "a" "" Nothing, rec "b" "" Nothing]
                     [blob "a" "" False, idless "/store/data/b/data.org"]
       assertEqual "blobs" 2 (dfBlobs d)
-      assertEqual "idless" 1 (dfIdless d)
+      assertEqual "idless" 1 (length (dfIdlessPaths d))
       assertEqual "unindexed" 0 (dfUnindexed d)
       assertEqual "recordless" 1 (dfRecordless d)
       assertEqual "rows" 0 (dfRows d)
@@ -248,7 +249,7 @@ driftSpec = testGroup "Index against blobs"
       let d = drift [rec "a" "" Nothing]
                     [ blob "a" "" False, idless "/store/data/z/data.org"
                     , idless "/store/data/y/data.org", broken "r" "/store/data/x/data.org" ]
-      assertEqual "idless" 2 (dfIdless d)
+      assertEqual "idless" 2 (length (dfIdlessPaths d))
       assertEqual "idless paths, path-ordered"
                   ["/store/data/y/data.org", "/store/data/z/data.org"] (dfIdlessPaths d)
       assertEqual "broken paths" ["/store/data/x/data.org"] (dfBrokenPaths d)
@@ -257,8 +258,7 @@ driftSpec = testGroup "Index against blobs"
   , testCase "the named paths are capped where the samples are" $ do
       let d = drift [] [ idless ("/store/data/" <> show n <> "/data.org") | n <- [1 .. 30 :: Int] ]
           named = [ l | l <- indexReportLines d, "/store/data/" `T.isInfixOf` l ]
-      assertEqual "idless" 30 (dfIdless d)
-      assertEqual "paths held" 30 (length (dfIdlessPaths d))
+      assertEqual "idless paths held" 30 (length (dfIdlessPaths d))
       assertEqual "paths printed" 10 (length named)
 
   , testCase "the sample list is capped at ten" $ do
@@ -310,6 +310,25 @@ blobSpec = testGroup "What a blob says"
         assertEqual "id" (Just "u-1") (beId <$> entry)
         assertEqual "salvaged" (Just True) (beSalvaged <$> entry)
         assertEqual "state" (Just "TODO") (beState <$> entry)
+
+    -- THE SALVAGED RUN IS THE DRAWER'S OWN: it opens whatever the indent, stops
+    -- at either closer, and @:ENDORSED:@ is a property line rather than one.
+  , testCase "the salvaged run opens at the indent and stops at the closer" $
+      mapM_ (\(what, doc, want) ->
+               withTempDirNamed "scan-drawer-run" $ \dir ->
+                 assertEqual what want . fmap beId =<< scannedBlob dir doc)
+        [ ( "an indent leaves the drawer a drawer"
+          , "* TODO one\n  :PROPERTIES:\n  :ORG_GLANCE_ID: u-2\n  :END\nbody\n"
+          , Just "u-2" )
+        , ( "an id below the broken closer is no longer the drawer's"
+          , "* TODO one\n:PROPERTIES:\n:CATEGORY: c\n:END\n:ORG_GLANCE_ID: past\nbody\n"
+          , Nothing )
+        , ( "nor below the whole one"
+          , "* TODO one\n:PROPERTIES: stray\n:CATEGORY: c\n:END:\n:ORG_GLANCE_ID: past\nbody\n"
+          , Nothing )
+        , ( ":ENDORSED: is a property line and closes nothing"
+          , "* TODO one\n:PROPERTIES:\n:ENDORSED: x\n:ORG_GLANCE_ID: u-3\n:END\nbody\n"
+          , Just "u-3" ) ]
 
   , testCase "a drawer the parse read is taken at its word" $
       withTempDirNamed "scan-read-drawer" $ \dir -> do

@@ -4,7 +4,6 @@ module Data.Org.Index ( BlobEntry (..)
                       , IndexDrift (..)
                       , IndexFold (..)
                       , IndexRecord (..)
-                      , Place (..)
                       , TailCursor
                       , blobEntryOf
                       , driftOf
@@ -244,8 +243,7 @@ data IndexDrift = IndexDrift
   { dfStore       :: !FilePath    -- ^ the @.org-glance@ directory the index belongs to.
   , dfFold        :: !IndexFold
   , dfBlobs       :: !Int         -- ^ blobs the walk parsed under that store.
-  , dfIdless      :: !Int         -- ^ of those, how many carried no id to match by.
-  , dfIdlessPaths :: ![FilePath]  -- ^ those blobs, path-ordered; a count alone names no file.
+  , dfIdlessPaths :: ![FilePath]  -- ^ of those, the ones carrying no id to match by, path-ordered.
   , dfBrokenPaths :: ![FilePath]  -- ^ blobs whose id was read off a drawer the parse refused, path-ordered.
   , dfRows        :: !Int         -- ^ ids disagreeing in EITHER term.
   , dfState       :: !Int         -- ^ ids whose TODO keyword disagrees.
@@ -256,13 +254,12 @@ data IndexDrift = IndexDrift
   } deriving (Eq, Show)
 
 -- | Compare STORE's folded index against the BLOBS the walk parsed under it.
--- An idless blob is counted ('dfIdless'), which keeps 'dfRecordless' honest.
+-- An idless blob is named ('dfIdlessPaths'), which keeps 'dfRecordless' honest.
 driftOf :: FilePath -> IndexFold -> [(FilePath, Maybe BlobEntry)] -> IndexDrift
 driftOf store folded blobs = IndexDrift
   { dfStore       = store
   , dfFold        = folded
   , dfBlobs       = length blobs
-  , dfIdless      = length idless
   , dfIdlessPaths = sort idless
   , dfBrokenPaths = sort broken
   , dfRows        = length disagreeing
@@ -311,7 +308,8 @@ indexReportLines d = concat
         , num (Map.size (ifRecords folded)) <> " live"
         , num (ifTombstones folded) <> " tombstones"
         , num (ifMalformed folded) <> " malformed" ])
-    , field "blobs" (num (dfBlobs d) <> " parsed, " <> num (dfIdless d) <> " carrying no id") ]
+    , field "blobs" (num (dfBlobs d) <> " parsed, "
+                       <> num (length (dfIdlessPaths d)) <> " carrying no id") ]
   , listed (dfIdlessPaths d)
   , naming "drawers" (num (length broken) <> " with a drawer the parse refused, "
                         <> "the id read off the raw lines") broken

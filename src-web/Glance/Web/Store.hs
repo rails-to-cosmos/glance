@@ -72,7 +72,8 @@ import Glance.Query ( ConfigLayerFile, ConfigLayers (clPrint)
 
 data Store = Store
   { stFiles   :: !(Map FilePath FileEntry)  -- ^ path-keyed, hence walk-ordered.
-  , stTags    :: !(Map Text Int)            -- ^ org tag → how many files carry it; see 'storeTags'.
+  , stTags    :: Set Text
+      -- ^ every org tag these rows carry, DERIVED and LAZY; see 'withEdges'.
   , stDirErrs :: !Int                       -- ^ directories the startup walk could not list.
   , stGen     :: !Int                       -- ^ update counter; see 'guarded'.
   , stPrint   :: !Text                      -- ^ which tree this is; see 'fingerprintOf'.
@@ -87,7 +88,7 @@ data FileEntry = FileEntry
   }
 
 emptyStore :: Store
-emptyStore = Store Map.empty Map.empty 0 0 "" noConfig (edgeIndex [])
+emptyStore = Store Map.empty Set.empty 0 0 "" noConfig (edgeIndex [])
 
 loadStore :: FilePath -> IO Store
 loadStore = loadStoreWith defaultWalk
@@ -117,15 +118,17 @@ rowsIn = concatMap feRecords . Map.elems
 storeRecords :: Store -> [HeadlineRecord]
 storeRecords = fst . resolveIds . storeRows
 
--- | ST with its graph re-bound.  LAZY: the thunk costs nothing until a request
--- asks for an edge, and one forced index then serves every reader of this store
--- version — @edges=true@ over any shape, and every @neighbors@ walk.  EVERY
--- WRITER OF 'stFiles' passes through here.
+-- | ST with everything DERIVED FROM ITS FILES re-bound — the reference graph and
+-- the tag vocabulary.  LAZY: a thunk costs nothing until a request asks, and one
+-- forced index then serves every reader of this store version.  EVERY WRITER OF
+-- 'stFiles' passes through here, which is what keeps a derived field from lagging
+-- the map it is read off.
 --
--- It reads the FILES rather than ST, so the thunk retains the map this store
+-- Each thunk reads the FILES rather than ST, so it retains the map this store
 -- already holds and no store version retains the one before it.
 withEdges :: Store -> Store
-withEdges st = st { stEdges = edgeIndex (fst (resolveIds (rowsIn files))) }
+withEdges st = st { stEdges = edgeIndex (fst (resolveIds (rowsIn files)))
+                  , stTags  = tagsOf (rowsIn files) }
   where files = stFiles st
 
 storeResult :: Store -> QueryResult
@@ -149,9 +152,9 @@ headlinesIn resolved ids =
         held   = Map.fromList [ (hrId r, r) | r <- resolved
                                             , Set.member (hrId r) wanted ]
 
--- | Every org tag the store's rows carry, sorted; counted per FILE, not row.
+-- | Every org tag the store's rows carry, sorted.
 storeTags :: Store -> [Text]
-storeTags = Map.keys . stTags
+storeTags = Set.toAscList . stTags
 
 layersFor :: FilePath -> Store -> IO [ConfigLayerFile]
 layersFor root st = readConfigLayers (configDirsIn root (stConfig st))
@@ -227,19 +230,12 @@ recordsUnder path = maybe [] feRecords . Map.lookup path . stFiles
 putFile :: FilePath -> Either LoadFailure [HeadlineRecord] -> Store -> Store
 putFile path outcome st = withEdges $ case outcome of
   Left failure -> st { stFiles = Map.insert path (FileEntry old (Just failure)) files }
-  Right new    -> st { stFiles = Map.insert path (FileEntry new Nothing) files
-                     , stTags  = stepIndex old new (stTags st) }
+  Right new    -> st { stFiles = Map.insert path (FileEntry new Nothing) files }
   where files = stFiles st
         old   = recordsUnder path st
 
 removeFile :: FilePath -> Store -> Store
-removeFile path st = withEdges st { stFiles = Map.delete path (stFiles st)
-                                  , stTags  = stepIndex (recordsUnder path st) [] (stTags st) }
-
-stepIndex :: [HeadlineRecord] -> [HeadlineRecord] -> Map Text Int -> Map Text Int
-stepIndex old new ix = Set.foldl' claim (Set.foldl' release ix (tagsOf old)) (tagsOf new)
-  where release m k = Map.update (\n -> if n <= 1 then Nothing else Just (n - 1)) k m
-        claim   m k = Map.insertWith (+) k 1 m
+removeFile path st = withEdges st { stFiles = Map.delete path (stFiles st) }
 
 tagsOf :: [HeadlineRecord] -> Set Text
 tagsOf = Set.fromList . concatMap (tagsOfCell . hrTags)

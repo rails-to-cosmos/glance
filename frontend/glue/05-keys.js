@@ -57,3 +57,10 @@ const Keys = ((el) => {
 })(el);
 // Consumers keep their spelling: the boundary is what the widget may SEE.
 const { echo, keyName, prefix, pendingKeys, repeating } = Keys;
+/** A document key listener already past the naming: ACT runs on a NAMED key
+ * that OK let through, and an unnamed one reaches nobody. */
+const onKeys = (ok, act) => document.addEventListener("keydown", (e) => {
+  if (!ok(e)) return;
+  const k = keyName(e);
+  if (k) act(k, e);
+});

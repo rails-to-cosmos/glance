@@ -69,6 +69,9 @@
       const n = PRIORITY_RING.length;
       return PRIORITY_RING[((at === -1 ? 0 : at) + (step > 0 ? 1 : n - 1)) % n];
     };
+    const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+    /** An index clamped into LIST's own bounds. */
+    const atIn = (list, i) => clamp(i, 0, list.length - 1);
     const priorityIn = (cell) => {
       const t = String(cell || "").trim();
       const m = /^\[#(.)\]$/.exec(t);
@@ -76,17 +79,15 @@
     };
     const priorityOf = (id) => priorityIn((rowOf(id).cells || {}).priority);
     const EMPTY = "*empty*";
-    // WHAT AN OPEN FIELD CALLS THE LINE THE READER TYPED, and the only place the
-    // word is spelled: the add-a-tag palette, the kind picker and both halves of
-    // the pair box draw the same hint, and a second spelling would drift unseen.
+    // What an open field calls the line the reader typed, spelled ONCE: the
+    // tag palette, the kind picker and both halves of the pair box draw it.
     const NEW_HINT = "new";
-    /** Does the line the reader TYPED stand as an offer of its own?  THE TYPED
-     * VALUE IS ALWAYS AN OFFER where the vocabulary is open (AGENTS.hs), except
-     * where it FOLDS TO one already listed — one entry drawn rather than two —
-     * and an empty field offers no literal.  WORDS IS THE WHOLE VOCABULARY THE
-     * FILTER LEFT, before any cap: a word the tree really spells has to coincide
-     * with its own entry even where the cap keeps that entry off the drawn list,
-     * or a real word would draw itself hinted `new'. */
+    /** Does the line the reader TYPED stand as an offer of its own?  An open
+     * vocabulary always offers it (AGENTS.hs), except where it FOLDS TO one
+     * already listed; an empty field offers no literal.  WORDS is the whole
+     * vocabulary the filter left, BEFORE any cap -- a word the tree spells must
+     * coincide with its entry even where the cap keeps that entry off the drawn
+     * list, or a real word would draw itself hinted `new'. */
     const leadTyped = (typed, words) => {
       const want = String(typed).toLowerCase();
       return !!want && !words.some((w) => String(w).toLowerCase() === want);
@@ -311,7 +312,7 @@
       if (sel && sel.id
           && table.select(sel.id, sel.col === null ? undefined : sel.col)) return;
       const at = column();
-      const i = Math.max(0, Math.min(back || 0, rows.length - 1));
+      const i = atIn(rows, back || 0);
       table.select(rows[i].id, at === null ? undefined : at);
     }
     const refToken = (id) => `ref:${/[\s&"]/.test(id) ? `"${id}"` : id}`;
@@ -445,7 +446,7 @@
     };
     function pick(list, i) {
       if (!list.length) { append("cmd", "info", "no rows to move through"); return; }
-      const id = list[Math.max(0, Math.min(list.length - 1, i))].id;
+      const id = list[atIn(list, i)].id;
       table.select(id, column());
     }
     // `selectStep' turns the page at either end, which only the renderer knows about.

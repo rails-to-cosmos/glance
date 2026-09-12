@@ -17,7 +17,8 @@ import System.FilePath (takeDirectory, (</>))
 import System.Posix.Files (createSymbolicLink)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (digestOnDisk, document, entryAs, withTempDirNamed)
+import TestDefaults ( blobIn, digestOnDisk, document, entryAs, systemFileIn
+                    , withTempDirNamed )
 import TestWire (assertOk, capture, command, keywordArg, postTo, serverAt, status)
 
 import qualified Data.ByteString.Char8 as BC
@@ -26,11 +27,11 @@ import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Data.Time as Time
 
+import Data.Org.Blob (metaIn)
 import Data.Org.External ( Completion (..), blobIdOf, completionLine, completionsFile
                          , completionsPathOf, externalFile, externalLine
                          , externalPathOf, noteCompletion, tombstoneLine )
 import Data.Maybe (fromJust)
-import Data.Org.Index (metaDir)
 import Data.Org.Trash (trashBlob, trashPathFor)
 import Data.Org.Walk (isDerived)
 
@@ -43,18 +44,11 @@ entry :: Text -> Text -> Text
 entry ident state = entryAs ident (state <> " Entry " <> ident) <> "body\n"
 
 -- | Write ID's blob under DIR's store, sharded by the LIBRARY's own rule.
-blobIn :: FilePath -> Text -> Text -> IO FilePath
-blobIn dir ident text = do
-  createDirectoryIfMissing True (takeDirectory path)
-  TIO.writeFile path text
-  pure path
-  where path = blobPathIn (storeRootIn dir) ident
-
 withStore :: (FilePath -> Assertion) -> Assertion
 withStore = withTempDirNamed "external"
 
 notePath :: FilePath -> FilePath
-notePath dir = dir </> ".org-glance" </> metaDir </> externalFile
+notePath dir = metaIn dir </> externalFile
 
 noteLines :: FilePath -> IO [ByteString]
 noteLines dir = do
@@ -134,7 +128,7 @@ doorSpec = testGroup "The write door"
 
   , testCase "a config layer under the store is not noted" $
       withStore $ \dir -> do
-        let path = dir </> ".org-glance" </> "config" </> "system.org"
+        let path = systemFileIn dir
         createDirectoryIfMissing True (takeDirectory path)
         TIO.writeFile path "#+TODO: TODO | DONE\n"
         splice path "TODO |" "TODO NEXT |"
@@ -508,12 +502,12 @@ completionSpec = testGroup "Completions"
         assertEqual "nothing to write to" Nothing =<< completionsPathOf dir
         noteCompletion dir (Completion "i" "TODO" "<2026-08-15 Sat +1w>")
         assertEqual "and none was created" False
-          =<< doesFileExist (dir </> ".org-glance" </> "meta" </> completionsFile)
+          =<< doesFileExist (metaIn dir </> completionsFile)
 
   , testCase "a tree with one records under its own meta directory" $
       withTempDirNamed "store" $ \dir -> do
-        createDirectoryIfMissing True (dir </> ".org-glance" </> "meta")
-        let note = dir </> ".org-glance" </> "meta" </> completionsFile
+        createDirectoryIfMissing True (metaIn dir)
+        let note = metaIn dir </> completionsFile
         assertEqual "the path it answers with" (Just note) =<< completionsPathOf dir
         noteCompletion dir (Completion "i" "TODO" "<2026-08-15 Sat +1w>")
         noteCompletion dir (Completion "j" "NEXT" "<2026-08-16 Sun +1d>")
@@ -538,7 +532,7 @@ completionSpec = testGroup "Completions"
         assertBool ("the cookie is kept: " <> show after) ("+1w>" `T.isInfixOf` after)
         assertBool ("and the stamp moved: " <> show after)
                    (not ("<2020-01-06" `T.isInfixOf` after))
-        recorded <- T.lines <$> document (dir </> ".org-glance" </> "meta"
+        recorded <- T.lines <$> document (metaIn dir
                                               </> completionsFile)
         assertEqual "one completion" 1 (length recorded)
         assertBool ("names the row: " <> show recorded)
@@ -550,6 +544,6 @@ completionSpec = testGroup "Completions"
   , testCase "an ordinary state change records no completion" $
       withSetState (entry "abcdef" "TODO") $ \dir _path ->
         assertEqual "no ledger for a plain close" False
-          =<< doesFileExist (dir </> ".org-glance" </> "meta" </> completionsFile)
+          =<< doesFileExist (metaIn dir </> completionsFile)
   ]
   where stamp = Time.parseTimeOrError True Time.defaultTimeLocale "%Y-%m-%dT%H:%M:%S"

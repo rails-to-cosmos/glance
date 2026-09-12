@@ -187,8 +187,7 @@ data FileResult = FileResult
   { frBucket     :: !Bucket
   , frElements   :: !Int
   , frHeadlines  :: !Int
-  , frViolations :: !Int
-  , frSample     :: ![Text]
+  , frViolations :: !(Tally Text)        -- ^ span violations: how many, and a capped sample.
   , frIds        :: ![Text]              -- ^ the ORG_GLANCE_IDs the file claims, copied.
   , frBlob       :: !(Maybe BlobEntry)   -- ^ set only for a blob; see 'blobEntryOf'.
   }
@@ -205,17 +204,17 @@ scanFile seed path = do
       pure $ case outcome of
         Left e  -> bare (BFailed ParseFailed ("exception: " <> errText (e :: SomeException)))
         Right r -> r
-  where bare b = FileResult b 0 0 0 [] [] Nothing
+  where bare b = FileResult b 0 0 emptyTally [] Nothing
 
 -- | Tally PARSED's elements, headlines and span violations.
 analyse :: FilePath -> ParsedDocument -> FileResult
 analyse path pd =
-  FileResult BOk (accElements acc) (accHeadlines acc) (accViolations acc) (accSample acc)
+  FileResult BOk (accElements acc) (accHeadlines acc) (accViolations acc)
              [ T.copy i | Just i <- idents ]
              (if isBlob path then blobEntryOf path (zipWith indexTerms heads idents) else Nothing)
   where doc   = pdText pd
         elems = pdElements pd
-        acc   = foldl' (step path doc (T.length doc)) (Acc 0 0 0 [] (Cursor 0 doc)) elems
+        acc   = foldl' (step path doc (T.length doc)) (Acc 0 0 emptyTally (Cursor 0 doc)) elems
         heads = headlinesOf elems
         -- ONCE per headline, on one left-to-right pass: 'T.drop' per headline is
         -- quadratic in the document, which is what 'Cursor' is here for.
@@ -234,8 +233,7 @@ indexTerms h ident = ( T.copy <$> ident
 data Acc = Acc
   { accElements   :: !Int
   , accHeadlines  :: !Int
-  , accViolations :: !Int
-  , accSample     :: ![Text]
+  , accViolations :: !(Tally Text)
   , accCursor     :: !Cursor
   }
 
@@ -243,8 +241,7 @@ step :: FilePath -> Text -> Int -> Acc -> Spanned Element -> Acc
 step path doc len acc el = Acc
   { accElements   = accElements acc + 1
   , accHeadlines  = accHeadlines acc + headline
-  , accViolations = accViolations acc + length violations
-  , accSample     = capped (accSample acc) violations
+  , accViolations = add (length violations) violations (accViolations acc)
   , accCursor     = cursor
   }
   where (violations, cursor) = elementViolations path doc len (accCursor acc) el
@@ -255,8 +252,8 @@ step path doc len acc el = Acc
 -- | Force RESULT so that no thunk outlives the document it came from.
 forceResult :: FileResult -> FileResult
 forceResult r =
-  frBucket r `seq` frElements r `seq` frHeadlines r `seq` frViolations r
-              `seq` foldr seq (foldr seq (blob `seq` r) (frIds r)) (frSample r)
+  frBucket r `seq` frElements r `seq` frHeadlines r `seq` tallyCount (frViolations r)
+    `seq` foldr seq (foldr seq (blob `seq` r) (frIds r)) (tallySample (frViolations r))
 -- To WHNF and no further: 'BlobEntry' has strict fields, so applying the constructor forces the cells out of the document.
   where blob = maybe () (`seq` ()) (frBlob r)
 
@@ -264,13 +261,11 @@ forceResult r =
 -- | A slicer that remembers where it stopped, so left-to-right slicing of one document stays linear in its length.
 data Cursor = Cursor !Int !Text
 
--- | Slice SP out of DOC, reusing CUR when SP starts at or after it.
+-- | Slice SP out of DOC, reusing CUR when SP starts at or after it.  'tailWith'
+-- cut to SP's width, so the cursor arithmetic has ONE spelling.
 sliceWith :: Text -> Cursor -> Span -> (Text, Cursor)
-sliceWith doc cur@(Cursor off rest) sp
-  | start >= off = let rest' = T.drop (start - off) rest
-                   in (T.take (spanEnd sp - start) rest', Cursor start rest')
-  | otherwise    = (sliceSpan doc sp, cur)
-  where start = spanStart sp
+sliceWith doc cur sp = (T.take (spanEnd sp - spanStart sp) tl, cur')
+  where (tl, cur') = tailWith doc cur sp
 
 -- | The text from SP's start onward, reusing CUR: what 'identityOf' reads a
 -- broken drawer off, at the cost of the characters skipped since the last slice.
@@ -328,12 +323,16 @@ note path sp kind = T.pack path <> ":" <> TS.showt (spanStart sp) <> " " <> kind
 -- | HOW MANY, and a capped sample of them: a count and its listing spelled apart can be stepped apart.
 data Tally a = Tally { tallyCount :: !Int, tallySample :: ![a] }
 
+-- | THE ONE STEP: the counts add and the sample takes what 'sampleLimit' allows.
+instance Semigroup (Tally a) where
+  Tally seen sample <> Tally n new = Tally (seen + n) (capped sample new)
+
 emptyTally :: Tally a
 emptyTally = Tally 0 []
 
--- | N more counted, with NEW offered to the sample as far as 'sampleLimit' allows.  N is separate from @length NEW@.
+-- | N more counted, with NEW offered to the sample.  N is separate from @length NEW@.
 add :: Int -> [a] -> Tally a -> Tally a
-add n new (Tally seen sample) = Tally (seen + n) (capped sample new)
+add n new t = t <> Tally n new
 
 data Totals = Totals
   { tOk         :: !Int
@@ -360,8 +359,7 @@ merge t path r = case frBucket r of
   BOk              -> ids (blob (t { tOk         = tOk t + 1
                                    , tElements   = tElements t + frElements r
                                    , tHeadlines  = tHeadlines t + frHeadlines r
-                                   , tViolations = add (frViolations r) (frSample r)
-                                                       (tViolations t) }))
+                                   , tViolations = tViolations t <> frViolations r }))
   where ids acc = foldl' (claim path) acc (frIds r)
         blob acc | isBlob path = acc { tBlobs = (path, frBlob r) : tBlobs acc }
                  | otherwise   = acc

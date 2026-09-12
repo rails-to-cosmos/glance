@@ -50,14 +50,14 @@ import Data.Maybe (fromMaybe, isJust, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Time (Day)
 
+import qualified Data.Set as Set
 import qualified Data.Text as T
 
 import Glance.Query ( HeadlineRecord (hrActive, hrId, hrSearch)
-                    , edKind, edgeIndex, edgesInto, edgesOutOf
+                    , EdgeIndex, edFrom, edKind, edTo, edgesInto, edgesOutOf
                     , Meta (..), Sign (..), activeMeta, archiveTag, carriesKind, cellSep
                     , dayNamed, dayOf, dayWordIn, dayWords, filterKeys, groupOn
-                    , inactiveMeta, isoDay, kindCut, metaWord
-                    , pointedAtBy, pointsAt, priorityLetter
+                    , inactiveMeta, isoDay, kindCut, metaWord, priorityLetter
                     , shiftDay, shiftIn, signOf, tagRunEntries )
 
 
@@ -184,30 +184,16 @@ archiveKey = T.toLower archiveTag
 emptyMeta :: Text
 emptyMeta = metaWord MEmpty
 
--- | @*today*@ — @today@'s OLD SPELLING, and a member of the starred family
--- still ('metas' names every starred word the code spells).  READ AND NEVER
--- OFFERED: the canonical date word is the bare @today@ ('Glance.Query.dayWords'),
--- which is what completion proposes and what a chip shows, while this keeps
--- every stored view and typed habit that spells the stars working unchanged.
+-- | @*today*@ — @today@'s OLD spelling, READ AND NEVER OFFERED, so a stored view
+-- and a typed habit survive the rename.  The canonical word is the bare @today@
+-- ('Glance.Query.dayWords'); the roster law is AGENTS.hs (@metaHome MToday@).
 todayMeta :: Text
 todayMeta = metaWord MToday
 
--- | @*any*@ — the starred family's ANCHOR, legal wherever a @ref:@\/@from:@ row
--- id stands and NOWHERE ELSE.  IT IS THE UNION OVER THE ANCHOR SLOT, which is
--- the reading every starred word in a value slot already has (@*active*@ is the
--- union over the file's active keywords): @ref:*any*@ serves exactly the rows
--- some @ref:T@ serves, and @from:*any*@ the rows some @from:T@ serves.  So a
--- self-link alone answers neither — a row is not its own reference at either
--- end — and a link naming no row answers neither, an unresolvable anchor
--- serving nothing being the shipped law this is the union of.
---
--- IT IS A MEMBER OF THE FAMILY rather than a word this key reads privately, and
--- @*today*@ is the precedent: a starred word standing where a VALUE stands
--- joined the roster and took a 'MetaHome' of its own with it.  A word the code
--- spells and 'metas' does not list would falsify the roster's own law — every
--- starred word the code spells is in it — and leave the model's census blind to
--- it.  THE VALUE IS NOT FOLDED HERE, alone among the predicates ('valueFor'),
--- so @ref:*ANY*@ names no row and matches none, exactly as @ref:ALPHA@ does.
+-- | @*any*@ — the starred family's ANCHOR: legal wherever a @ref:@\/@from:@ row
+-- id stands and NOWHERE ELSE, and the UNION over that slot (AGENTS.hs,
+-- @anyTest@ and @metaHome MAny@).  A MEMBER OF 'metas' rather than a word this
+-- key reads privately, so the roster's own census sees it.
 anyMeta :: Text
 anyMeta = metaWord MAny
 
@@ -216,10 +202,8 @@ metaOf value = do
   inner <- T.stripSuffix "*" =<< T.stripPrefix "*" value
   if T.null inner then Nothing else Just inner
 
--- | Does Q name the archive through the @tag@ column?  The PLAIN WORD alone —
--- @tag:archive@; any spelling of the token counts, alternatives read too,
--- both signs and @+@ included.  @tag:*archive*@ is the generic whole-tag
--- match and names nothing.
+-- | Does Q name the archive through the @tag@ column?  THE PLAIN WORD alone, in
+-- any spelling of the token (AGENTS.hs, @archiveExclusion@).
 namesArchive :: Text -> Bool
 namesArchive = any names . parseFilter
   where names t = tmKey t == Just tagsKey
@@ -270,9 +254,7 @@ data Stamp
   deriving (Eq, Show)
 
 -- | V as a timestamp atom, or 'Nothing' where a literal is owed and missing —
--- @>@, @..@, @2026-08..@, @..2026-08@, @today+@.  Those are the HALF-TYPED
--- tokens, which narrow nothing; every other value is an atom, a literal naming
--- no date included (that one matches no row, the way @state:TOD@ matches none).
+-- the HALF-TYPED tokens, which narrow nothing (AGENTS.hs, @stampOf@).
 stampOf :: Text -> Maybe Stamp
 stampOf v = case operatorIn v of
   Just (cmp, lit) -> SCmp cmp <$> typed lit
@@ -293,43 +275,28 @@ operatorIn v = listToMaybe
 
 -- ** THE SHIFT a date literal may carry, as GRAMMAR
 --
--- @BASE(+|-)N UNIT@ — the base a day literal, a DAY WORD or nothing at all, N a
--- positive decimal run and UNIT org's own @d@\/@w@\/@m@\/@y@.  A SHIFTED VALUE
--- IS ONE MORE SPELLING OF A DAY LITERAL and no new atom kind: 'Stamp' gains no
--- constructor, the shift being read below the forms, at the literal.
-
--- THE SHIFT'S SIGN IS THE VALUE'S AND NEVER THE TOKEN'S: 'scanQuery' reads a
--- token's sign off its FIRST character and stops there, so in @+scheduled:+30d@
--- the token's reader never sees the value's sign and 'shiftIn' never sees the
--- token's — one charset ('signOf'), two readers.
+-- @BASE(+|-)N UNIT@, read below the forms at the literal, so a shifted value is
+-- ONE MORE SPELLING of a day literal and 'Stamp' gains no constructor.  The
+-- grammar, and the sign's two readers, are AGENTS.hs (@shiftIn@, @shiftWay@).
 
 -- | Does L END MID-SHIFT — a @+@ with nothing but digits behind it?  THE PLUS
--- FAMILY ALONE, because @+@ appears in no date a cell carries where @-@ is
--- ISO's own separator: a rule that read the incomplete minus would read
--- @2026-08-03@ as @2026-08@ moved @03@ of no unit.  An incomplete minus stays
--- the literal it always was, and @today-7@ matches no row rather than
--- narrowing none.
+-- FAMILY ALONE, @-@ being ISO's own separator (AGENTS.hs, @halfShift@).
 halfShift :: Text -> Bool
 halfShift l = case T.unsnoc (T.dropWhileEnd isDigit l) of
   Just (_base, mark) -> signOf mark == Just Add
   Nothing            -> False
 
--- | THE LONG UNIT WORDS the quoted value form admits, each folded onto org's
--- own letter, LONGEST FIRST so @days@ is read before @day@.  The quoted form is
--- the one that may carry spaces (the pinned law, @tag:"two words"@), so it is
--- the one that may spell a unit out.
+-- | THE LONG UNIT WORDS the quoted value form admits, each folded onto org's own
+-- letter, LONGEST FIRST so @days@ is read before @day@ (AGENTS.hs, @unitWords@).
 unitWords :: [(Text, Char)]
 unitWords = [ (stem <> plural, letter)
             | (stem, letter) <- [("day", 'd'), ("week", 'w'), ("month", 'm'), ("year", 'y')]
             , plural          <- ["s", ""] ]
 
--- | V with every space dropped BUT THE ONE BETWEEN TWO DIGITS, which is the
--- timed stamp's own: @2026-08-01 09:30@ keeps its space where @\<= 2026-08-01@
--- loses one it never meant.  ONE PARSER, TWO SPELLINGS: the quoted form is the
--- one that may carry spaces (@scheduled:"\<= today + 30 days"@) and folds
--- here onto the space-free one (@scheduled:\<=today+30d@) ABOVE every form
--- read.  An unquoted value carries no space at all — the scanner cuts a token
--- on one — so the fold is invisible to the compact spelling.
+-- | V with every space dropped BUT THE ONE BETWEEN TWO DIGITS, the timed stamp's
+-- own.  ONE PARSER, TWO SPELLINGS: the quoted form folds here, ABOVE every form
+-- read, and an unquoted value carries no space for the scanner to have left
+-- (AGENTS.hs, @unspaced@).
 unspaced :: Text -> Text
 unspaced = T.pack . go . T.unpack
   where go (a : ' ' : b : rest) | isDigit a, isDigit b = a : ' ' : go (b : rest)
@@ -355,7 +322,8 @@ unitFolded l = fromMaybe l (listToMaybe
 -- PER REQUEST, taken before any row: the day arrives here already read, so a
 -- query asked across midnight cannot mean two days.
 data FilterEnv = FilterEnv
-  { feRef     :: Text -> Maybe HeadlineRecord  -- ^ a row id resolved, or 'Nothing' where no row claims it.
+  { feSenders :: Maybe Text -> Text -> Set.Set Text  -- ^ @ref:ANCHOR@: the ids pointing AT the anchor over an edge of that kind; empty where no row claims the anchor.
+  , feTargets :: Maybe Text -> Text -> Set.Set Text  -- ^ @from:ANCHOR@: THE REVERSE — the ids the anchor points at.
   , feRefAny  :: Maybe Text -> HeadlineRecord -> Bool  -- ^ @ref:*any*@: does the row point at ANOTHER row over an edge of that kind?
   , feFromAny :: Maybe Text -> HeadlineRecord -> Bool  -- ^ @from:*any*@: does ANOTHER row point at it over an edge of that kind?
   , feToday   :: Maybe Day                     -- ^ the request's own day; 'Nothing' where no clock was read, and a day word then names no day — with a shift behind it or without.
@@ -365,29 +333,29 @@ data FilterEnv = FilterEnv
 -- direction and under either anchor, which is what a locally-filtered path
 -- answers: an id it cannot resolve, and an edge map it cannot read.
 emptyEnv :: FilterEnv
-emptyEnv = FilterEnv (const Nothing) noEdge noEdge Nothing
-  where noEdge _kind _r = False
+emptyEnv = FilterEnv noIds noIds noEdge noEdge Nothing
+  where noIds  _kind _anchor = Set.empty
+        noEdge _kind _r      = False
 
--- | ROWS as the reference keys read them.  THE EDGE RELATION IS BOUND LAZILY and
--- resolved at most once per request, never per row: a query naming no @*any*@
--- forces it not at all, so the whole cost sits behind the one token that asks
--- for it.  The row-to-row tests need no index at all — each fixes one end at
--- compile ('pointsAt', 'pointedAtBy') — and it is the STARRED anchor alone,
--- which fixes neither end, that these answer.
+-- | The store's own graph as the reference keys read it.  THE INDEX IS BOUND
+-- LAZILY and forced at most once per request, never per row: a query naming no
+-- reference key forces it not at all.
 --
 -- ONE RELATION, 'edgeIndex''s: a link naming no row is no reference and a row is
 -- never its own, and both cuts are made where the edges are resolved rather than
--- a second time here.
-storeEnv :: [HeadlineRecord] -> FilterEnv
-storeEnv rows = FilterEnv
-  { feRef     = \rid -> find ((== rid) . hrId) rows
+-- a second time here.  An anchor no row claims carries no edge either way, so
+-- the id resolution IS the lookup and needs no second reading of the rows.
+storeEnv :: EdgeIndex -> FilterEnv
+storeEnv ix = FilterEnv
+  { feSenders = \kind anchor -> ends edFrom kind (edgesInto ix anchor)
+  , feTargets = \kind anchor -> ends edTo kind (edgesOutOf ix anchor)
   , feRefAny  = \kind r -> carries kind (edgesOutOf ix (hrId r))
   , feFromAny = \kind r -> carries kind (edgesInto ix (hrId r))
   , feToday   = Nothing
   }
   where
-    ix = edgeIndex rows
-    carries kind = any (carriesKind kind . edKind)
+    ends end kind = Set.map end . Set.filter (carriesKind kind . edKind)
+    carries kind  = any (carriesKind kind . edKind)
 
 -- | ENV with the request's own day on it.  THE DAY IS CARRIED AS A DAY and
 -- spelled only where a literal is owed ('literalIn'), which is what lets a
@@ -402,14 +370,9 @@ matchesFilter env q | null tests = const True
                     | otherwise  = \r -> all ($ r) tests
   where tests = compile env (parseFilter q)
 
--- | THE AXIS A KEY JOINS, and @ref@ and @from@ STAND AS TWO.  They are one
--- edge read from its two ends and never one predicate: @ref:T@ asks what the
--- ROW's own subtree points at, @from:T@ what T's does, and no row's answer to
--- one decides its answer to the other.  Sharing an axis would make @+ref:T@
--- widen @from:@ too and put two unrelated questions inside one conjunction; as
--- two, every axis law reads them exactly as it reads @tag@ beside @state@ —
--- they AND, each folds its own alternatives and its own @+@ tokens, and the
--- grouping being by KEY, token order carries nothing across them either.
+-- | THE AXIS A KEY JOINS, and @ref@ and @from@ STAND AS TWO: one edge read from
+-- its two ends, never one predicate, so every axis law reads them exactly as it
+-- reads @tag@ beside @state@ (AGENTS.hs, @readsAs@).
 data Field = Col !Int | Planned | Ref | From | Order | Whole deriving Eq
 
 fieldOf :: Text -> Maybe Field
@@ -444,24 +407,20 @@ stamped :: Text -> Bool
 stamped = maybe False stampedField . fieldOf
 
 -- | Does FIELD name date cells, and ONLY date cells?  Read off the cells the
--- field carries rather than off a key list — the renderer's own reading, which
--- samples the column — so a field that grows a second date cell takes the
--- operator with it instead of silently missing it.
+-- field carries rather than off a key list, so a field that grows a second date
+-- cell takes the operator with it.
 stampedField :: Field -> Bool
 stampedField field = not (null cells) && all (`elem` dateColumns) cells
   where cells = fieldCells field
 
--- | TERMS as the tests a row must all pass, ONE PER AXIS.  A view token is
--- dropped HERE, above the inverter: a match-all under it would make @-sort:x@
--- empty the table.  A vacuous term is dropped beside it ('vacuous').
--- Grouping is by KEY and never by adjacency, so token order carries nothing.
+-- | TERMS as the tests a row must all pass, ONE PER AXIS (AGENTS.hs,
+-- @queryTest@).  A view token is dropped HERE, above the inverter: a match-all
+-- under it would make @-sort:x@ empty the table.
 compile :: FilterEnv -> [Term] -> [HeadlineRecord -> Bool]
 compile env terms = map (axisTest . snd) (groupOn axisOf narrowing)
   where
     narrowing = [ t | t <- terms, narrows (axisOf t), not (vacuous t) ]
-    -- WITHIN ONE AXIS the plain and negated terms AND and the added ones OR
-    -- against that conjunction; an axis of added terms alone is the
-    -- disjunction, so a lone @+tag:work@ is @tag:work@.
+    -- WITHIN ONE AXIS: plain and negated AND, added OR (AGENTS.hs, @axisTest@).
     axisTest ts = \r -> (some && all ($ r) base) || any ($ r) wide
       where
         some = not (null base)
@@ -475,11 +434,8 @@ axisOf :: Term -> Field
 axisOf t = fromMaybe Whole (tmKey t >>= fieldOf)
 
 -- | Does T narrow nothing and establish no axis?  AN UNSIGNED OR ADDED TERM
--- NAMING NO ATOM — @state:@, @+state:@, @+state:|@, a lone @+@ — is dropped
--- ahead of the grouping: left standing it is a match-all in the conjunction
--- half and saturates its axis's disjunction, so @state: +state:DONE@ would
--- serve every row where it must serve the DONE rows.  A NEGATED one keeps its
--- own law, and a lone @-@ or @-state:@ still empties the table.
+-- NAMING NO ATOM, dropped ahead of the grouping; a NEGATED one keeps its own law
+-- and a lone @-@ still empties the table (AGENTS.hs, @vacuous@).
 vacuous :: Term -> Bool
 vacuous t = tmSign t /= Neg && null (atoms t)
 
@@ -492,14 +448,10 @@ atoms t = case tmKey t of
           | otherwise          -> [tmValue t]
 
 -- | KEY's alternatives as the ATOMS its predicate offers.  ON A TIMESTAMP KEY A
--- HALF-TYPED COMPARISON IS NO ATOM — an operator or a range end with no literal
--- behind it, and a shift with no unit behind it — so @scheduled:>@ and
--- @scheduled:today+@ ride 'vacuous' and narrow nothing, and their negations
--- empty the table exactly as @-state:@ does.  THE QUOTED SPELLING'S SPACES GO
--- HERE, above every form read ('unspaced'), so one parser answers both
--- spellings.  ONE LAW, SPELLED HERE ALONE: 'vacuous' asks it of the whole term
--- and 'predTest' tests what it leaves, each calling this, so neither can hold a
--- rule the other does not.
+-- HALF-TYPED COMPARISON IS NO ATOM, so it rides 'vacuous' (AGENTS.hs, @stampOf@).
+-- THE QUOTED SPELLING'S SPACES GO HERE, above every form read ('unspaced').  ONE
+-- LAW, SPELLED HERE ALONE: 'vacuous' asks it of the whole term and 'predTest'
+-- tests what it leaves, each calling this.
 atomsUnder :: Text -> Text -> [Text]
 atomsUnder key value | stamped key = filter (isJust . stampOf) (map unspaced (alternatives value))
                      | otherwise   = alternatives value
@@ -537,41 +489,35 @@ freeTest value | T.null value = const True
                | otherwise    = T.isInfixOf value . hrSearch
 
 keyTest :: FilterEnv -> Text -> Field -> Text -> HeadlineRecord -> Bool
--- THE TWO ENDS OF ONE EDGE, each its own key and its own axis: @ref:T@ serves
--- the rows pointing AT T, @from:T@ the rows T points at.  Both read one
--- reader ('edgeTest'), so the anchor cut, the kind test, the unresolvable id
--- and the self-exclusion cannot come apart between them.
-keyTest env _key Ref value  = edgeTest env pointsAt feRefAny value
-keyTest env _key From value = edgeTest env pointedAtBy feFromAny value
+-- THE TWO ENDS OF ONE EDGE, each its own key and its own axis, through ONE
+-- reader ('edgeTest'), so no wall of theirs can come apart between them.
+keyTest env _key Ref value  = edgeTest env feSenders feRefAny value
+keyTest env _key From value = edgeTest env feTargets feFromAny value
 keyTest _env _key Order _value = const True
 keyTest _env _key Whole value = freeTest value
 -- The two that read a row's CELLS, spelled out: a fifth key falling in here would read an empty cell list and match nothing, with no warning.
 keyTest env key field@(Col _) value = cellsTest env key field value
 keyTest env key field@Planned value = cellsTest env key field value
 
--- | One reference atom, EDGE being the direction's row-to-row test and ANY its
--- starred anchor's.  The value is cut into an ANCHOR and a KIND, and the anchor
--- decides which reading answers: @*any*@ is the union over the slot, and every
--- other anchor is a row id — an id no row claims matching nothing and NOT 400,
--- this being a filter rather than a command.  COMPILED ONCE PER PREDICATE: the
--- cut, the resolution and the fixed end's own half all happen here, above the
--- rows, and what the rows run is the closure it leaves.
+-- | One reference atom, ANCHORED being the direction's id set and STARRED its
+-- starred anchor's test.  @*any*@ is the union over the slot; every other anchor
+-- is a row id, and one no row claims matches nothing rather than 400 — this is a
+-- filter, not a command.  COMPILED ONCE PER PREDICATE, so the rows run a
+-- 'Set.member'.
 edgeTest :: FilterEnv
-         -> (Maybe Text -> HeadlineRecord -> HeadlineRecord -> Bool)
+         -> (FilterEnv -> Maybe Text -> Text -> Set.Set Text)
          -> (FilterEnv -> Maybe Text -> HeadlineRecord -> Bool)
          -> Text -> HeadlineRecord -> Bool
-edgeTest env edge existing value
-  | anchor == anyMeta = existing env kind
-  | otherwise         = maybe (const False) (edge kind) (feRef env anchor)
+edgeTest env anchored starred value
+  | anchor == anyMeta = starred env kind
+  | otherwise         = \r -> Set.member (hrId r) ids
   where (anchor, kind) = anchorIn value
+        ids            = anchored env kind anchor
 
--- | A reference value as the ANCHOR it names and the KIND it tests for.  THE
--- CUT IS THE LINK TARGET'S OWN ('kindCut', at the first @?@, the peer's key
--- behind it), AND IT IS TAKEN ONLY WHERE A KIND COMES OUT OF IT — the
--- discipline 'unitFolded' states one field over.  A link's target is the peer's
--- URL, whose @?@ always opens a query; a row id is no URL, so a @?@ declaring
--- no kind stays in the id and every value that resolved before still resolves
--- to the same row.  A title's own question mark is text for the same reason.
+-- | A reference value as the ANCHOR it names and the KIND it tests for.  THE CUT
+-- IS THE LINK TARGET'S OWN ('kindCut') and is taken ONLY WHERE A KIND COMES OUT
+-- OF IT, so a @?@ declaring no kind stays in the id and a title's own question
+-- mark is text (AGENTS.hs, @anchorIn@).
 anchorIn :: Text -> (Text, Maybe Text)
 anchorIn value = case kindCut value of
   (row, Just kind) -> (row, Just kind)
@@ -579,51 +525,34 @@ anchorIn value = case kindCut value of
 
 -- * A 'Stamp' over a CELL, which is where the clock and the row arrive
 
--- | The DATE LITERAL L names.  A DAY WORD is the day it names off the request's
--- own ('Glance.Query.dayWords') and a SHIFT moves whichever day its base names;
--- both are resolved HERE — once per predicate, off the one clock read the
--- request already took, never per row.  THE SHIFT RESOLVES TO A PLAIN DAY
--- LITERAL and every law below then applies untouched, the granularity cuts and
--- the empty cell's exclusion included.  ONE FORMATTER SPELLS BOTH SIDES of a
--- date comparison: 'isoDay' writes the literal and @isoStamp@ writes the cells
--- it is compared against, so the two cannot drift into two shapes of one day.
+-- | The DATE LITERAL L names, resolved HERE — once per predicate, off the one
+-- clock read the request took, never per row.  THE SHIFT RESOLVES TO A PLAIN DAY
+-- LITERAL, so every law below applies untouched (AGENTS.hs, @litOf@).  ONE
+-- FORMATTER SPELLS BOTH SIDES: 'isoDay' the literal, @isoStamp@ the cells.
 literalIn :: FilterEnv -> Text -> Maybe Text
 literalIn env l = case shiftIn l of
   Just (base, n, unit) -> isoDay <$> (shiftDay unit n =<< dayIn env base)
   Nothing | namesDay l -> isoDay <$> dayWordIn (feToday env) l
           | otherwise  -> Just l
 
--- | Does L spell a DAY WORD rather than a date?  THE CLOCK WORDS ALONE go
--- through 'Glance.Query.dayWordIn' above; every other literal is left byte for
--- byte what it was, so @2026-08@ stays the month prefix it always was rather
--- than a day 'dayOf' refuses.  The roster is 'Glance.Query.dayWords' and never
--- a second list, so the words the base reader takes are exactly the words a
--- bare literal takes.
---
--- THE PREDICATE IS OWED SEPARATELY from the resolution: with no clock read a
--- day word still IS one, and answering 'Nothing' rather than the bytes back is
--- what leaves @today@ matching no row under 'emptyEnv'.
+-- | Does L spell a DAY WORD rather than a date?  THE CLOCK WORDS ALONE, off the
+-- one roster ('Glance.Query.dayWords'); every other literal is left byte for byte
+-- what it was.  THE PREDICATE IS OWED SEPARATELY from the resolution, which is
+-- what leaves @today@ matching no row under 'emptyEnv' (AGENTS.hs, @namesDay@).
 namesDay :: Text -> Bool
 namesDay l = isJust (lookup l dayWords)
 
 -- | The DAY a shift's BASE names, THROUGH 'Glance.Query.dayNamed' — the base
 -- reader the planning wall goes through too.  A DAY WORD and THE EMPTY BASE are
--- both read off the clock: THE BARE SHIFT IS TODAY-RELATIVE, decided off the
--- planning grammar's own precedent, which already reads a bare @+3d@ that way
--- (@set-planning@'s date), consistency being the tiebreaker.  Any other base is
--- the day it spells, so a base naming none — a month, a timed stamp — leaves
--- the whole value naming none, and it then matches no row the way @state:TOD@
--- matches none.
---
--- WITH NO CLOCK READ ('emptyEnv') no day word names a day, and a spelled base
--- still spells its own.
+-- both read off the clock, the bare shift being today-relative by
+-- @set-planning@'s own precedent; any other base is the day it spells, and one
+-- naming none leaves the whole value naming none (AGENTS.hs, @dayIn@).
 dayIn :: FilterEnv -> Text -> Maybe Day
 dayIn env base = maybe (dayOf base) (`dayNamed` base) (feToday env)
 
--- | L as a literal BYTE ORDER may be asked about, which owes an opening digit.
--- The prefix reading is total over any text; @<@ over @banana@ would serve every
--- ISO cell there is, so the guard sits on the COMPARED forms alone and the bare
--- form stays byte for byte what it was.
+-- | L as a literal BYTE ORDER may be asked about, which owes an opening digit:
+-- the guard sits on the COMPARED forms alone, the bare form staying byte for byte
+-- the prefix arm it was (AGENTS.hs, @dateOf@).
 comparableIn :: FilterEnv -> Text -> Maybe Text
 comparableIn env l = do
   d     <- literalIn env l
@@ -640,18 +569,14 @@ stampTest env (SRange lo hi) = case (comparableIn env lo, comparableIn env hi) o
   (Just a, Just b) -> dated (\c -> cmpTest CGe a c && cmpTest CLe b c)
   _noDate          -> const False
 
--- | THE EMPTY CELL SITS OUTSIDE EVERY COMPARISON AND EVERY RANGE: @""@ is below
--- every literal in byte order, so an unguarded @<@ would serve every undated
--- row.  @*empty*@ stays the one name for that cell, which is why @-k:\<D@ and
--- @k:>=D@ differ and NEGATION IS NO MIRROR.
+-- | THE EMPTY CELL SITS OUTSIDE EVERY COMPARISON AND EVERY RANGE, so NEGATION IS
+-- NO MIRROR and @-k:\<D@ serves rows @k:>=D@ does not (docs\/invariants.md).
 dated :: (Text -> Bool) -> Text -> Bool
 dated p c = not (T.null c) && p c
 
 -- | THE GRANULARITY LAW, one equation per constructor: @<@ and @>=@ cut at the
--- literal's FIRST instant, @<=@ and @>@ at its LAST.  The last instant is
--- spelled as "everything the prefix reaches", which is the prefix test the bare
--- form already runs — so NO DATE ARITHMETIC is owed anywhere, and @k:D@ is
--- exactly @k:>=D@ and @k:\<=D@ together.
+-- literal's FIRST instant, @<=@ and @>@ at its LAST, spelled as the prefix test
+-- the bare form already runs, so NO DATE ARITHMETIC is owed (AGENTS.hs).
 cmpTest :: Cmp -> Text -> Text -> Bool
 cmpTest CLt d c = c < d
 cmpTest CGe d c = c >= d
