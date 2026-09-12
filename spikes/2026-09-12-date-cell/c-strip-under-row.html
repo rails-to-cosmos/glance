@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C · one-line strip under the row</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* C — THE GHOST GETS ITS OWN LINE.  The input stays in the date cell; a
+     single 20px strip opens beneath the edited row carrying the phrase and its
+     resolution at the table's whole width, and the rows below shift by exactly
+     the strip's height until it closes.
+
+       │ TODO │ [#B] │ Renew the passport │ 18 aug    │ 2026-09-30 │ :trip: │
+       ▏18 aug → <2026-08-18 Tue>                                            ← 20px
+       │ NEXT │ [#A] │ Book the Kyoto fli…│ 2026-09-18│ 2026-10-02 │ :trip: │
+
+     ITS CLAIM.  It is the only placement with room for the answer — and for the
+     PHRASE, which a 94px cell cannot hold either once it is longer than
+     `from 18 to 19 aug'.  The strip is where a long phrase becomes readable.
+
+     ITS COST IS MOTION, and the rig measures it: the rows below move by the
+     strip's height when it opens and come back to the pixel when it closes.
+     That is what the 2026-08-23 spike's D bought its way out of by standing in
+     the value's own slot — and in a table there is no slot wide enough. */
+</style>
+</head>
+<body>
+  <h1>C · one-line strip under the row
+    <small>20px beneath the edited row, the whole table's width</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <span id="cdmeasure"></span>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> a row · <kbd>f</kbd><kbd>b</kbd>
+      (<kbd>l</kbd><kbd>h</kbd>, arrows) SCHEDULED ⇄ DEADLINE ·
+      <kbd>RET</kbd> opens the cell · <kbd>C-c C-s</kbd>/<kbd>C-c C-d</kbd> open
+      it over the row · type <code>18 aug</code>, <code>+3d</code>,
+      <code>2026-09-15</code>, <code>from 18 to 19 aug</code> ·
+      <kbd>S-&lt;left&gt;</kbd><kbd>S-&lt;right&gt;</kbd> a day ·
+      <kbd>S-&lt;up&gt;</kbd><kbd>S-&lt;down&gt;</kbd> a week ·
+      <kbd>RET</kbd> sets it · empty <kbd>RET</kbd> clears it · <kbd>ESC</kbd>
+      leaves · <kbd>+</kbd> a draft row, <kbd>TAB</kbd> walks its cells ·
+      <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="wire"></span>
+    <span id="align"></span>
+  </footer>
+
+<script src="dates.js"></script>
+<script src="rig.js"></script>
+<script>RIG.mount({ look: { ghost: "strip" } });</script>
+</body>
+</html>

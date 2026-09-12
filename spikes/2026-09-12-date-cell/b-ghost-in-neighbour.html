@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · ghost in the neighbour</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* B — THE GHOST BORROWS THE CELL NEXT DOOR.  The input has the whole date
+     cell to itself; the resolution draws in the cell to its RIGHT, whose own
+     value steps aside — dimmed, so the reader can see what is on loan — and
+     comes back on commit or cancel.
+
+       │ 18 aug      │ <2026-08-18 Tu… │      ← DEADLINE lent to SCHEDULED
+       │ 2026-09-15  │ 2026-09-30      │
+
+     ITS CLAIM.  Two runs instead of one: the phrase gets a whole cell and the
+     ghost gets a whole cell, and nothing in the table moves.
+
+     ITS COSTS ARE THREE.  The neighbour is a DATE column too, so it is the
+     same 118px and the stamp is still too long for it.  Editing DEADLINE has
+     to borrow whatever comes after it — Tags here, and the LEFT neighbour in a
+     view where DEADLINE is last — so the rule is conditional where A's and C's
+     are not.  And a cell that is showing someone else's answer is a cell that
+     is lying about its own row for the edit's duration. */
+</style>
+</head>
+<body>
+  <h1>B · ghost in the neighbour
+    <small>the cell to the right is lent to the edit and given back</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <span id="cdmeasure"></span>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> a row · <kbd>f</kbd><kbd>b</kbd>
+      (<kbd>l</kbd><kbd>h</kbd>, arrows) SCHEDULED ⇄ DEADLINE ·
+      <kbd>RET</kbd> opens the cell · <kbd>C-c C-s</kbd>/<kbd>C-c C-d</kbd> open
+      it over the row · type <code>18 aug</code>, <code>+3d</code>,
+      <code>2026-09-15</code>, <code>from 18 to 19 aug</code> ·
+      <kbd>S-&lt;left&gt;</kbd><kbd>S-&lt;right&gt;</kbd> a day ·
+      <kbd>S-&lt;up&gt;</kbd><kbd>S-&lt;down&gt;</kbd> a week ·
+      <kbd>RET</kbd> sets it · empty <kbd>RET</kbd> clears it · <kbd>ESC</kbd>
+      leaves · <kbd>+</kbd> a draft row, <kbd>TAB</kbd> walks its cells ·
+      <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="wire"></span>
+    <span id="align"></span>
+  </footer>
+
+<script src="dates.js"></script>
+<script src="rig.js"></script>
+<script>RIG.mount({ look: { ghost: "neighbour" } });</script>
+</body>
+</html>
