@@ -445,7 +445,7 @@ const orgSays = (p, row, re, why) => p.until(async (a) => {
  * editor at all.  ONE KEY PER CALL is what this buys: a fresh input takes focus
  * a macrotask behind the press, so three TABs sent together advance two cells. */
 const draftEditor = (p, from, why) => p.until((left) => {
-  const tr = document.querySelector("#app tbody tr.tv-draft");
+  const tr = document.querySelector("#app tbody tr.tv-producer");
   const box = tr && tr.querySelector("input.tv-cell-edit");
   if (!box || document.activeElement !== box) return false;
   const keys = [...document.querySelectorAll("#app thead th[data-key]")]
@@ -477,14 +477,16 @@ const fileSays = (p, row, re, why) => p.until(async (a) => {
 
 /** The draft's hint reading WORD.  `+' draws the row at once and asks the
  * destination's cycle in the same breath, so a reading taken the moment the
- * editor opens is taken before the answer that clears a dropped state. */
+ * editor opens is taken before the answer that clears a dropped state.  THE
+ * HINT IS A ROW FIELD and rides the last column the draft carries no cell for,
+ * which in this table is DEADLINE. */
 const droppedHint = (p, word, why) => p.until((want) => {
-  const tr = document.querySelector("#app tbody tr.tv-draft");
+  const tr = document.querySelector("#app tbody tr.tv-producer");
   const keys = [...document.querySelectorAll("#app thead th[data-key]")]
     .map((th) => th.dataset.key);
   if (!tr) return false;
   const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
-  return tds[keys.indexOf("scheduled")].textContent === want;
+  return tds[keys.indexOf("deadline")].textContent === want;
 }, why, undefined, word);
 
 export default [
@@ -4545,7 +4547,7 @@ export default [
 
     await p.press("+");
     const drew = await p.until(() => {
-      const tr = document.querySelector("#app tbody tr.tv-draft");
+      const tr = document.querySelector("#app tbody tr.tv-producer");
       const box = tr && tr.querySelector("input.tv-cell-edit");
       if (!box || document.activeElement !== box) return false;
       const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
@@ -4589,11 +4591,12 @@ export default [
     // A DRAFT IS NEVER STEPPED ONTO: point stays on the row `+' was pressed at.
     assert(drew.sel === before.ids[before.at],
       `point moved to ${JSON.stringify(drew.sel)} when the draft spliced in`);
-    // THE DESTINATION IS SAID IN THE ROW, in the one column a capture never
-    // fills: this view carries no `tag:', so the capture goes to the inbox.
+    // THE DESTINATION IS SAID IN THE ROW, as a field of its own that the widget
+    // draws in the last column the draft carries no cell for -- DEADLINE here.
+    // This view carries no `tag:', so the capture goes to the inbox.
     const cell = (key) => (drew.cells.find(([k]) => k === key) || [])[1];
-    assert(cell("scheduled") === "→ inbox",
-      `the SCHEDULED cell reads ${JSON.stringify(cell("scheduled"))} rather than `
+    assert(cell("deadline") === "→ inbox",
+      `the hint cell reads ${JSON.stringify(cell("deadline"))} rather than `
       + `the destination`);
     assert(drew.rule === "dashed" && drew.ink === "italic"
              && /\d/.test(drew.edge) && drew.edge !== "none",
@@ -4607,7 +4610,7 @@ export default [
 // THE SEEDING RULE, WHOLE, IN ONE ROW: the filter's POSITIVE PINNED atoms fill
 // the draft -- the FIRST `tag:' is the destination and every later one rides as
 // the draft's own run, the one `state:' and the one `priority:' are worn as they
-// stand -- and the SCHEDULED cell says where the capture lands.  `book' is the
+// stand -- and the row's own hint says where the capture lands.  `book' is the
 // tree's one tag layer and its cycle declares READING, so nothing is dropped
 // here; the DROPPED half is its own case below.
 { name: "the draft wears what the filter pins, and says where it lands",
@@ -4623,7 +4626,7 @@ export default [
     // the open could not tell a state that STANDS from one not yet dropped.
     await droppedHint(p, "→ book", "the cycle's answer to leave the hint alone");
     const drew = await p.eval(() => {
-      const tr = document.querySelector("#app tbody tr.tv-draft");
+      const tr = document.querySelector("#app tbody tr.tv-producer");
       const keys = [...document.querySelectorAll("#app thead th[data-key]")]
         .map((th) => th.dataset.key);
       const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
@@ -4634,8 +4637,8 @@ export default [
         title: at("title").textContent,
         // AN ORG RUN DRAWS AS ITS CHIPS, so the run is read as the names in it.
         tags: [...at("tag").querySelectorAll(".tv-tag")].map((e) => e.textContent),
-        hint: at("scheduled").textContent,
-        deadline: at("deadline").textContent,
+        hint: at("deadline").textContent,
+        scheduled: at("scheduled").textContent,
       };
     });
     assert(drew.state === "READING",
@@ -4652,10 +4655,10 @@ export default [
       + `with every later tag: after`);
     assert(drew.hint === "→ book",
       `the hint reads ${JSON.stringify(drew.hint)} rather than the destination`);
-    // A FILTER-LENT DAY IS REFUSED BY THE DESIGN: the hint has the SCHEDULED
-    // cell, and DEADLINE is left as empty as the draft found it.
-    assert(drew.deadline === "",
-      `the DEADLINE cell reads ${JSON.stringify(drew.deadline)}`);
+    // A FILTER-LENT DAY IS REFUSED BY THE DESIGN: the hint takes the last cell
+    // the draft leaves free, and no date cell is written at all.
+    assert(drew.scheduled === "",
+      `the SCHEDULED cell reads ${JSON.stringify(drew.scheduled)}`);
     return [`under ${JSON.stringify(q)} the draft wore `
       + `${JSON.stringify([drew.state, drew.priority, drew.tags])} and said `
       + `${JSON.stringify(drew.hint)}`];
@@ -4673,7 +4676,7 @@ export default [
                   "the filtered table to mount its rows");
     await p.press("+");
     const opened = await p.until(() => {
-      const tr = document.querySelector("#app tbody tr.tv-draft");
+      const tr = document.querySelector("#app tbody tr.tv-producer");
       const box = tr && tr.querySelector("input.tv-cell-edit");
       if (!box) return false;
       const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
@@ -4698,7 +4701,7 @@ export default [
     }, "the fresh answer to reach the table", 20_000, opened.under);
 
     const after = await p.eval(() => {
-      const drafts = [...document.querySelectorAll("#app tbody tr.tv-draft")];
+      const drafts = [...document.querySelectorAll("#app tbody tr.tv-producer")];
       const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
       const tr = drafts[0];
       const at = tr ? rows.indexOf(tr) : -1;
@@ -4821,7 +4824,7 @@ export default [
     await p.press("n");
     await p.press("p");
     const typed = await p.until(() => {
-      const box = document.querySelector("#app tr.tv-draft input.tv-cell-edit");
+      const box = document.querySelector("#app tr.tv-producer input.tv-cell-edit");
       if (!box || box.value.length !== 2) return false;
       const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
       const sel = document.querySelector("#app tbody tr.tv-sel");
@@ -4863,12 +4866,12 @@ export default [
     // TYPED, so what ESC drops is a draft carrying something.
     await p.typeKeys("zzqq");
     await p.until(() => {
-      const box = document.querySelector("#app tr.tv-draft input.tv-cell-edit");
+      const box = document.querySelector("#app tr.tv-producer input.tv-cell-edit");
       return !!box && box.value === "zzqq";
     }, "the jot to land in the draft's title cell");
 
     await p.press("ESC");
-    await p.until(() => !document.querySelector("#app tbody tr.tv-draft")
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
                      && !document.querySelector("#app input.tv-cell-edit"),
                   "ESC to splice the draft out and take its editor with it");
     const after = await read();
@@ -4893,18 +4896,18 @@ export default [
     await draftEditor(p, null, "the draft's title cell to open");
     const only = await p.eval(() => ({
       all: document.querySelectorAll("#app input.tv-cell-edit").length,
-      inDraft: document.querySelectorAll("#app tr.tv-draft input.tv-cell-edit").length }));
+      inDraft: document.querySelectorAll("#app tr.tv-producer input.tv-cell-edit").length }));
     assert(only.all === 1 && only.inDraft === 1,
       `the table carries ${only.all} cell editors, ${only.inDraft} of them in the draft`);
     await p.press("ESC");
-    await p.until(() => !document.querySelector("#app tbody tr.tv-draft"),
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer"),
                   "ESC to drop the draft again");
 
     // A DOUBLE-CLICK ON A LANDED ROW'S TITLE CELL, the widget's other door into
     // the editor.  The cell is NAMED rather than counted: the mark box is chrome
     // and belongs to no column.
     const target = await p.eval(() => {
-      const tr = document.querySelector("#app tbody tr[data-id]:not(.tv-draft)");
+      const tr = document.querySelector("#app tbody tr[data-id]:not(.tv-producer)");
       const keys = [...document.querySelectorAll("#app thead th[data-key]")]
         .map((th) => th.dataset.key);
       const td = [...tr.querySelectorAll("td:not(.tv-box)")][keys.indexOf("title")];
@@ -4967,7 +4970,7 @@ export default [
       const at = rows.findIndex((r) => r.dataset.id === id);
       return at === -1 ? false
         : { n: rows.length, at, text: rows[at].textContent,
-            drafts: document.querySelectorAll("#app tbody tr.tv-draft").length,
+            drafts: document.querySelectorAll("#app tbody tr.tv-producer").length,
             editors: document.querySelectorAll("#app input.tv-cell-edit").length };
     }, "the fresh row to reach the table", 20_000, inbox);
     assert(seen.drafts === 0 && seen.editors === 0,
@@ -5008,7 +5011,7 @@ export default [
       `the blob's headline is ${JSON.stringify(head)} rather than the priority, the `
       + `title and the run with no keyword among them`);
     const gone = await p.eval(() => ({
-      drafts: document.querySelectorAll("#app tbody tr.tv-draft").length,
+      drafts: document.querySelectorAll("#app tbody tr.tv-producer").length,
       editors: document.querySelectorAll("#app input.tv-cell-edit").length }));
     assert(gone.drafts === 0 && gone.editors === 0,
       `the blob commit left ${gone.drafts} draft rows and ${gone.editors} editors behind`);
@@ -5036,7 +5039,7 @@ export default [
     await droppedHint(p, "→ book · NEXT dropped",
                       "the cycle's answer to reach the hint");
     const after = await p.eval(() => {
-      const tr = document.querySelector("#app tbody tr.tv-draft");
+      const tr = document.querySelector("#app tbody tr.tv-producer");
       const keys = [...document.querySelectorAll("#app thead th[data-key]")]
         .map((th) => th.dataset.key);
       const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
@@ -5055,7 +5058,7 @@ export default [
       `the draft lost its editor when the cycle's answer landed`);
     return [`the draft opened wearing ${JSON.stringify(cellOf(seeded, "state"))} and the `
       + `cycle left ${JSON.stringify(cellOf(after, "state"))}, the hint reading `
-      + `${JSON.stringify(cellOf(after, "scheduled"))}`];
+      + `${JSON.stringify(cellOf(after, "deadline"))}`];
   } },
 
 // CAPTURE IS A ROW, STAGE 5: THE REFUSAL REFUSES IN PLACE.  `RET' on a title
@@ -5077,7 +5080,7 @@ export default [
     await p.press("RET");
 
     const refused = await p.until(() => {
-      const tr = document.querySelector("#app tbody tr.tv-draft");
+      const tr = document.querySelector("#app tbody tr.tv-producer");
       const box = tr && tr.querySelector("input.tv-cell-edit");
       if (!box || document.activeElement !== box) return false;
       const keys = [...document.querySelectorAll("#app thead th[data-key]")]
@@ -5091,8 +5094,8 @@ export default [
       const edge = getComputedStyle(tr.children[0]).boxShadow;
       return at === "title" && edge.indexOf(want) !== -1
         ? { n: document.querySelectorAll("#app tbody tr[data-id]").length,
-            hint: tds[keys.indexOf("scheduled")].textContent,
-            warn: tr.classList.contains("g-refused"),
+            hint: tds[keys.indexOf("deadline")].textContent,
+            warn: tr.classList.contains("tv-refused"),
             rule: getComputedStyle(tds[0]).borderTopColor, edge, want,
             sel: [box.selectionStart, box.selectionEnd, box.value.length] }
         : false;
@@ -5100,8 +5103,11 @@ export default [
 
     assert(refused.n === before + 1,
       `the table holds ${refused.n} rows where the standing draft makes ${before + 1}`);
-    assert(refused.hint === "nothing to capture",
-      `the hint reads ${JSON.stringify(refused.hint)} rather than the shipped word`);
+    // THE WORD LEADS THE HINT rather than taking its place: what the capture
+    // wanted and where it would land are both still readable.
+    assert(refused.hint === "nothing to capture · → inbox",
+      `the hint reads ${JSON.stringify(refused.hint)} rather than the shipped word `
+      + `ahead of the destination`);
     assert(refused.warn && refused.rule === refused.want,
       `the refused row wears ${JSON.stringify([refused.warn, refused.rule, refused.edge])} `
       + `where the dashed rule and the accent edge must both be ${refused.want}`);
@@ -5112,29 +5118,29 @@ export default [
     // A MOVEMENT LEAVES THE NOTE: the reader has not answered it yet.
     await p.press("<left>");
     const moved = await p.eval(() => {
-      const tr = document.querySelector("#app tbody tr.tv-draft");
+      const tr = document.querySelector("#app tbody tr.tv-producer");
       const keys = [...document.querySelectorAll("#app thead th[data-key]")]
         .map((th) => th.dataset.key);
       const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
-      return { hint: tds[keys.indexOf("scheduled")].textContent,
-               warn: tr.classList.contains("g-refused") };
+      return { hint: tds[keys.indexOf("deadline")].textContent,
+               warn: tr.classList.contains("tv-refused") };
     });
-    assert(moved.hint === "nothing to capture" && moved.warn,
+    assert(moved.hint === "nothing to capture · → inbox" && moved.warn,
       `a movement key took the refusal down: ${JSON.stringify(moved)}`);
 
     // AND THE NEXT CONTENT KEYSTROKE TAKES THE NOTE AND THE DRESS BACK.
     await p.typeKeys("q");
     const cleared = await p.until(() => {
-      const tr = document.querySelector("#app tbody tr.tv-draft");
+      const tr = document.querySelector("#app tbody tr.tv-producer");
       const box = tr && tr.querySelector("input.tv-cell-edit");
       if (!box) return false;
       const keys = [...document.querySelectorAll("#app thead th[data-key]")]
         .map((th) => th.dataset.key);
       const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
-      const hint = tds[keys.indexOf("scheduled")].textContent;
+      const hint = tds[keys.indexOf("deadline")].textContent;
       const want = g("warn");
       const edge = getComputedStyle(tr.children[0]).boxShadow;
-      return hint === "→ inbox" && !tr.classList.contains("g-refused")
+      return hint === "→ inbox" && !tr.classList.contains("tv-refused")
                && edge.indexOf(want) === -1
         ? { hint, value: box.value, edge, want,
             rule: getComputedStyle(tds[0]).borderTopColor }
@@ -5147,7 +5153,7 @@ export default [
 
     // ONLY `ESC' DISMISSES, and it leaves the count it found.
     await p.press("ESC");
-    await p.until(() => !document.querySelector("#app tbody tr.tv-draft")
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
                      && !document.querySelector("#app input.tv-cell-edit"),
                   "ESC to drop the refused draft whole");
     const after = await p.eval(() =>

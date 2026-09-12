@@ -1929,7 +1929,9 @@
       return { from, on, id: want.id,
                at: rows.filter((r) => !going(r.id)).indexOf(want) };
     }
-    // ALWAYS spent, so the anchor describes ONE watch step and outlives no other.
+    /** ONE SETTLE, TWO WATCHES, EACH ON ITS OWN RULE: the ANCHOR is spent every
+     * time, so it describes one watch step and outlives no other, while the
+     * ARRIVING id is HELD until the row it names is visible. */
     function settled() {
       arrived();
       const want = leaving;
@@ -1939,14 +1941,26 @@
       if (visible().some((r) => r.id === want.from)) return;
       land({ id: want.id, col: column() }, want.at);
     }
+    /** HOW MANY SETTLES A ROW HAS TO ARRIVE IN.  A capture the standing filter
+     * hides never comes, and an id left standing would take the NEXT write's
+     * settle with it.  The id it is counting is held beside the count, so a
+     * fresh arrival starts its own wait. */
+    const ARRIVAL_SETTLES = 10;
+    let awaited = null, arrivals = 0;
     /** POINT ONTO THE ROW A WRITE PLACED, once it is there to stand on.  A
      * capture's row arrives BEHIND its own 200 — `/command' publishes nothing,
      * so the watch's nudge is what reloads the store — and the FIRST settle that
-     * carries the row is the one that spends this.  Held until then, and dropped
-     * with the view it belonged to (`commit', 00-core.js). */
+     * carries the row is the one that spends this.  HELD UNTIL THEN, and dropped
+     * with the view it belonged to (`commit', 00-core.js) or after
+     * `ARRIVAL_SETTLES' settles that never held it. */
     function arrived() {
       if (!arriving || !table) return;
-      if (!visible().some((r) => r.id === arriving)) return;
+      if (awaited !== arriving) { awaited = arriving; arrivals = 0; }
+      if (!visible().some((r) => r.id === arriving)) {
+        arrivals += 1;
+        if (arrivals >= ARRIVAL_SETTLES) arriving = null;
+        return;
+      }
       const want = arriving;
       arriving = null;
       land({ id: want, col: column() });

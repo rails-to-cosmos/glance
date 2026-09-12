@@ -60,13 +60,17 @@
  * @typedef {{ column: string, ascending: boolean, nullsFirst: boolean }} SortKey
  *          A normalized sort key (internal).
  * @typedef {{ id: string, cells?: Record<string, Cell>, linked?: boolean,
- *             draft?: boolean }} Row
+ *             producer?: boolean, under?: string|null, hint?: string,
+ *             refused?: string }} Row
  *          `linked' says the row leads somewhere; its `title' cell is
  *          underlined, and a view with no such column shows nothing.
- *          `draft' says the row is the PRODUCER'S OWN, spliced into the set and
- *          backed by nothing: it is dressed `tv-draft', kept out of the sort,
- *          never marked, never stepped onto, and its cells are editable whatever
- *          their column declares.
+ *          `producer' says the row is the PRODUCER'S OWN and is no data: it
+ *          stands where `under' names — after that row, or first where it is
+ *          null — through every sort, filter, page and delta; it is dressed
+ *          `tv-producer', never marked, never stepped onto, and its cells are
+ *          editable whatever their column declares.  `hint' is drawn in the
+ *          last column the row carries no cell for, `refused' leading it and
+ *          dressing the row `tv-refused'.
  * @typedef {{ name: string, query?: string }} SavedView
  *          A view the producer has named, which `view:NAME' completes from.
  *          What applying one MEANS is the producer's: this side offers the
@@ -91,7 +95,7 @@
  *                       kind: "cell" | "header") => void,
  *             onCellKey?: (e: KeyboardEvent,
  *                          cell: { id: string | null, col: number,
- *                                  value: string }) => boolean,
+ *                                  key: string, value: string }) => boolean,
  *             omnibox?: boolean,
  *             palette?: boolean,
  *             marks?: boolean,
@@ -110,8 +114,9 @@
  *          `onCellKey' is asked at the HEAD of an open cell's keydown, before
  *          the widget's own reading of it; `true' means the producer took the
  *          key. An open input stops propagation, so a key typed in a cell
- *          reaches no other dispatch — a producer-owned row (a `draft') can
- *          bind its keys here and nowhere else.
+ *          reaches no other dispatch — a `producer' row can bind its keys here
+ *          and nowhere else. The cell carries the column's `key' beside its
+ *          index, so a producer reads its own cells by name.
  * @typedef {{ el: HTMLElement,
  *             setView: (v: View) => void,
  *             setRows: (rows: Row[]) => void,
@@ -123,6 +128,8 @@
  *             select: (id: string, col?: number) => boolean,
  *             getSelection: () => { id: string|null, col: number|null },
  *             editCell: (id: string, col: number) => boolean,
+ *             getEditing: () => { id: string|null, col: number,
+ *                                 key: string } | null,
  *             editHeader: (col: number) => boolean,
  *             getQuery: () => string,
  *             setCrumbs: (list: Crumb[]) => void,
@@ -1092,6 +1099,7 @@
     // palette & contrast (identity consts): docs/web-renderer.org
     const FROST = "#D0E1F9";
     const FLAG = "#E74C3C";
+    const WARN = "#FFA500";
     const COL = "#FFF3D0";
     const LINK_LIGHT = "#30739B";
     const LINK_DARK = "#7CC9F8";
@@ -1135,6 +1143,7 @@
   --tv-mark-wash:8%;
   --tv-flag:${FLAG};
   --tv-flag-wash:8%;
+  --tv-warn:${WARN};
   --tv-col:${COL};
   --tv-veil:#00000066;
   --tv-shadow:#00000033;
@@ -1768,6 +1777,40 @@
 .tv-table tbody tr.tv-flagged td:first-child{
   box-shadow:inset 3px 0 0 var(--tv-flag);
 }
+/* A PRODUCER'S OWN ROW SAYS SO IN THREE CHANNELS, hue being none of them on its
+   own: the ACCENT EDGE down its left, the DASHED RULE fencing it off the rows it
+   stands among, and GHOST INK -- muted and italic -- over the cells it was
+   handed rather than typed. The cell grounds are cleared with it: the row is no
+   data, so no wash that says something about a row may speak for it. */
+.tv-table tbody tr.tv-producer>td{
+  color:var(--tv-muted);
+  font-style:italic;
+  background-color:transparent;
+  border-top:1px dashed var(--tv-border);
+  border-bottom:1px dashed var(--tv-border);
+}
+.tv-table tbody tr.tv-producer>td:first-child{
+  box-shadow:inset 3px 0 0 var(--tv-accent);
+}
+/* A badge it was handed is ghosted like the ink beside it; the pill's hue rides
+   an inline custom property, so the dimming is all that is left to say it. */
+.tv-table tbody tr.tv-producer .tv-pill{
+  opacity:.6;
+}
+/* The open editor is the reader's own line and stands upright in the ghost. */
+.tv-table tbody tr.tv-producer .tv-cell-edit{
+  font-style:normal;
+  color:var(--tv-fg);
+}
+/* A REFUSED ROW SAYS WHAT IT WANTS: the word leads the note in its last cell,
+   and the two channels that fence the row off turn warn. */
+.tv-table tbody tr.tv-producer.tv-refused>td{
+  border-top-color:var(--tv-warn);
+  border-bottom-color:var(--tv-warn);
+}
+.tv-table tbody tr.tv-producer.tv-refused>td:first-child{
+  box-shadow:inset 3px 0 0 var(--tv-warn);
+}
 /* The gutter is chrome, the way the pager is: a fixed leading box that no
    producer sent and no width measurement sees. It is the CHECKBOX's alone —
    the flag's edge rides the row's FIRST cell whichever that is (the gutter
@@ -2110,6 +2153,11 @@
       sortKeys: normalizeSort(view && view.sort),
     };
 
+    /** The producer's own rows among the store's, in the order they were
+     * handed over. They are no data: a `setRows' replaces the data and leaves
+     * these standing, and every pass puts each back where its `under' names. */
+    const ownRows = () => state.rows.filter((r) => !standing(r));
+
     // two row lists between store and window: 'sorted' (all, in sort order) and 'order'
     // ('sorted' under the filter). Filter re-derives 'order' only; upsert/delete splice both; rows/sort drops both.
 
@@ -2153,6 +2201,14 @@
           const s = displayText(cs[cols[i].key]);
           len[i] = s.length;
           parts[i] = s.toLowerCase();
+        }
+        // A PRODUCER'S NOTE IS THE TEXT OF THE CELL IT RIDES, so the column it
+        // lands in is measured against it and the note is drawn whole.
+        const note = noteCell(r);
+        if (note !== -1) {
+          const s = noteOf(r);
+          len[note] = s.length;
+          parts[note] = s.toLowerCase();
         }
         t = { search: parts.join("\x1f"), len, cells: parts };
         texts.set(r.id, t);
@@ -2255,11 +2311,13 @@
       const at = multiColumn();
       const ids = new Map();
       if (at !== -1)
-        for (const r of state.rows)
+        for (const r of state.rows) {
+          if (!standing(r)) continue;   // a producer's own row is no data
           for (const tag of tagsIn(rowText(r).cells[at])) {
             const held = ids.get(tag);
             if (held) held.add(r.id); else ids.set(tag, new Set([r.id]));
           }
+        }
       vocab = { list: Array.from(ids.keys()).sort(), ids };
       return vocab;
     }
@@ -2816,34 +2874,37 @@
     }
 
     /**
-     * Put every draft back where the producer spliced it: out of the sort, and
-     * under the row it was handed beneath. A draft's cells are half-typed and
-     * its title is empty, so the chain would park it in the blanks at the end
-     * rather than beside the row the reader opened it at.
-     * @param {Row[]} rows  the sorted copy, rewritten in place
+     * Put every producer row where its `under' names — after that row, or first
+     * where it is null or gone — in the list ARR, rewritten in place. ONE
+     * PLACEMENT FOR EVERY PASS: a sort would park a half-typed row in the blanks
+     * at the end, and a store delta arriving between an anchor and its phantom
+     * would slide the two apart.
+     * @param {Row[]} arr
      */
-    function placeDrafts(rows) {
-      for (let i = 0; i < state.rows.length; i++) {
-        const d = state.rows[i];
-        if (!d.draft) continue;
-        const was = rows.indexOf(d);
-        if (was !== -1) rows.splice(was, 1);
-        const under = i > 0 ? state.rows[i - 1].id : null;
-        const at = under === null ? -1 : rows.findIndex((r) => r.id === under);
-        rows.splice(at + 1, 0, d);
+    function placeProducers(arr) {
+      for (const p of ownRows()) {
+        const was = arr.indexOf(p);
+        if (was !== -1) arr.splice(was, 1);
+        const at = p.under === null || p.under === undefined
+          ? -1 : arr.findIndex((r) => r.id === p.under);
+        arr.splice(at + 1, 0, p);
       }
     }
 
-    /** The rows to display: sorted, then filtered. Cached. @returns {Row[]} */
+    /** The rows to display: sorted, then filtered. Cached. A producer's own row
+     * survives both — it is no data, so no local query speaks about it and no
+     * order may carry it off the row it stands under. @returns {Row[]} */
     function ordered() {
       if (order) return order;
       if (!sorted) {
         orderCmp = chainComparator();
         sorted = state.rows.slice();     // never sort the store itself
-        if (orderCmp) { sorted.sort(orderCmp); placeDrafts(sorted); }
+        if (orderCmp) sorted.sort(orderCmp);
+        placeProducers(sorted);
       }
       orderTest = queryMatcher(state.filter);
-      order = orderTest ? sorted.filter(orderTest) : sorted.slice();
+      order = orderTest ? sorted.filter((r) => !standing(r) || orderTest(r))
+                        : sorted.slice();
       widths = null;
       return order;
     }
@@ -3088,10 +3149,41 @@
      */
     function linkedCell(r) { return r.linked ? titleColumn() : -1; }
 
-    /** A row the cursor and the marks may reach: never a DRAFT, which has no id
-     * the producer could name and whose open editor holds every key a walk
-     * would spend. @param {Row} r */
-    const standing = (r) => !r.draft;
+    /** A row the cursor, the marks and a local query may reach: never a
+     * PRODUCER'S OWN, which has no id the store answers for and whose open
+     * editor holds every key a walk would spend. THE ONE PREDICATE — every pass
+     * that reaches a row asks it, or a mouse reaches what the keyboard cannot.
+     * @param {Row} r */
+    const standing = (r) => !r.producer;
+
+    /** What a producer's row says beside itself: its hint, and a refusal ahead
+     * of it — so what the row was refused for never hides where it would land.
+     * @param {Row} r */
+    const noteOf = (r) =>
+      [r.refused, r.hint].filter(Boolean).join(" · ");
+
+    /** WHICH CELL THE NOTE RIDES: the LAST column the row carries no cell for,
+     * which is free space at the right-hand end — a note drawn over a cell the
+     * row fills would take that fact off the screen. A row that fills every
+     * column has no free slot and the note takes the last cell. -1 for a row
+     * with nothing to say. @param {Row} r */
+    function noteCell(r) {
+      if (!r.producer || !noteOf(r)) return -1;
+      const cols = columns(), cs = r.cells || {};
+      for (let c = cols.length - 1; c >= 0; c--)
+        if (!(cols[c].key in cs)) return c;
+      return cols.length - 1;
+    }
+
+    /** The first row from AT going DIR the cursor may stand on, -1 past either
+     * end. The skip is INSIDE the walk: a filtered copy of the page would
+     * renumber every index the caller holds.
+     * @param {Row[]} rows  @param {number} at  @param {number} dir */
+    function standingFrom(rows, at, dir) {
+      for (let i = at; i >= 0 && i < rows.length; i += dir)
+        if (standing(rows[i])) return i;
+      return -1;
+    }
 
     /**
      * The classes row R wears at display index I. Zebra striping is index-borne,
@@ -3100,7 +3192,8 @@
      */
     function rowClasses(r, i) {
       return [["tv-alt", i % 2 === 1],
-              ["tv-draft", !!r.draft],
+              ["tv-producer", !!r.producer],
+              ["tv-refused", !!r.refused],
               ["tv-marked", markSet.shows(r.id)],
               ["tv-flagged", flagSet.shows(r.id)],
               ["tv-sel", r.id === state.selected]];
@@ -3153,10 +3246,14 @@
     function rowHTML(r, i, multi, room) {
       const cols = columns(), cs = r.cells || {};
       const linkedAt = linkedCell(r);
+      // A PRODUCER'S NOTE IS DRAWN AS THE TEXT IT IS, never as a value of the
+      // column it rides in — it is no date, no badge and no tag run.
+      const noteAt = noteCell(r);
       let tds = chrome ? `<td class="tv-box"></td>` : "";
       for (let c = 0; c < cols.length; c++)
         tds += `<td class="${classAttr(cellClasses(r, c, linkedAt, multi))}">`
-             + `${cellHTML(cols[c], cs[cols[c].key], dark, c === multi ? room : null)}</td>`;
+             + `${c === noteAt ? esc(noteOf(r))
+                   : cellHTML(cols[c], cs[cols[c].key], dark, c === multi ? room : null)}</td>`;
       return `<tr class="${classAttr(rowClasses(r, i))}" data-id="${esc(r.id)}">${tds}</tr>`;
     }
 
@@ -3332,6 +3429,10 @@
      * @param {string|null} id  @param {number|null} [col]
      */
     function setSelected(id, col) {
+      // A CLICK REACHES NO ROW THE KEYBOARD CANNOT: a producer's own row is
+      // outside the cursor's set whichever gesture arrives at it.
+      const on = state.rows.find((r) => r.id === id);
+      if (on && !standing(on)) return;
       state.selected = id ?? null;
       state.selCol = id === null || id === undefined ? null : cellCol(col);
       selAt = indexOfSelected();
@@ -3351,7 +3452,12 @@
       if (!rows.length) { state.selected = null; state.selCol = null; selAt = -1; return; }
       if (selAt >= 0 && rows[selAt] && rows[selAt].id === state.selected) return;
       if (rows.some((r) => r.id === state.selected)) return;
-      selAt = Math.max(0, Math.min(rows.length - 1, selAt));
+      const want = Math.max(0, Math.min(rows.length - 1, selAt));
+      // The PLACE may now hold a producer's own row, which the cursor may not
+      // stand on; the nearest one it may, either way, is where it lands.
+      const at = standingFrom(rows, want, 1);
+      selAt = at === -1 ? standingFrom(rows, want, -1) : at;
+      if (selAt === -1) { state.selected = null; state.selCol = null; return; }
       state.selected = rows[selAt].id;
     }
 
@@ -3496,7 +3602,7 @@
     function selectRow(id, col) {
       const rows = paged();
       const i = rows.findIndex((r) => r.id === id);
-      if (i === -1) return false;
+      if (i === -1 || !standing(rows[i])) return false;
       const was = selAt;
       state.selected = id;
       state.selCol = cellCol(col);
@@ -3731,21 +3837,21 @@
      * @param {number} step  @returns {boolean}
      */
     function selectStep(step) {
-      let rows = paged().filter(standing);
+      let rows = paged();
       if (!rows.length) return false;
       const dir = step < 0 ? -1 : 1;
       const col = state.selCol;
       const at = state.selected === null
         ? -1 : rows.findIndex((r) => r.id === state.selected);
-      if (at === -1) return selectRow(rows[dir > 0 ? 0 : rows.length - 1].id, col ?? undefined);
-      const next = at + dir;
-      if (next >= 0 && next < rows.length) return selectRow(rows[next].id, col ?? undefined);
+      const from = at === -1 ? (dir > 0 ? 0 : rows.length - 1) : at + dir;
+      const next = standingFrom(rows, from, dir);
+      if (next !== -1) return selectRow(rows[next].id, col ?? undefined);
       if (!pageSize || continuous) return false;         // the true end of the set
       goContinuous();
-      rows = paged().filter(standing);
+      rows = paged();
       const here = rows.findIndex((r) => r.id === state.selected);
-      const across = here + dir;
-      if (across < 0 || across >= rows.length) return false;
+      const across = standingFrom(rows, here + dir, dir);
+      if (across === -1) return false;
       return selectRow(rows[across].id, col ?? undefined);
     }
 
@@ -3914,7 +4020,7 @@
     // edits its `[[..]]'), committed as an `onEdit' + `tableview-edit'.  The
     // producer owns the write: the widget REPORTS and does not touch its own
     // view -- the consumer writes and feeds the new view back.  One editor at a
-    // time; a column opts in with `editable', and a `draft' row is opted in
+    // time; a column opts in with `editable', and a `producer' row is opted in
     // whole, its cells being the producer's rather than the store's.
     /** @type {{ cell: any, id: string|null, col: number, kind: "cell"|"header", input: any } | null} */
     let cellEdit = null;
@@ -3940,9 +4046,12 @@
       root.dispatchEvent(new CustomEvent("tableview-edit",
         { detail: { id, col, value, kind } }));
     }
-    function openCellEditor(cell, id, col, kind, raw) {
+    /** THE CALLER CLOSES: both doors close before they look a cell up, a close
+     * redrawing the rows under whatever node was found first.
+     * @param {[number, number]|null} [sel]  what to leave selected, the WHOLE
+     * value where none is named. */
+    function openCellEditor(cell, id, col, kind, raw, sel) {
       if (!cell) return false;
-      closeCellEditor();
       const input = document.createElement("input");
       input.className = "tv-cell-edit";
       input.value = raw;
@@ -3950,35 +4059,75 @@
       cell.appendChild(input);
       cellEdit = { cell, id, col, kind, input };
       input.focus();
-      if (input.select) input.select();
+      if (sel) input.setSelectionRange(sel[0], sel[1]);
+      else if (input.select) input.select();
       input.addEventListener("keydown", (e) => {
         // The input takes its own keys; a driver's key map does not see them.
         e.stopPropagation();
         // THE PRODUCER IS ASKED FIRST, this being the only dispatch a key inside
         // a cell reaches: a row it owns has keys of its own, and `true' says it
         // took this one.
-        if (o.onCellKey && o.onCellKey(e, { id, col, value: input.value })) return;
+        if (o.onCellKey
+            && o.onCellKey(e, { id, col, key: keyOf(col), value: input.value })) return;
         if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); commitCellEditor(); }
         else if (e.key === "Escape") { e.preventDefault(); closeCellEditor(); }
       });
       return true;
     }
-    /** Is ID the producer's own draft? ITS CELLS ARE THE ONLY EDITABLE ONES: a
+    /** COL's key, or `"" ' past the columns. */
+    const keyOf = (col) => { const c = columns()[col]; return c ? c.key : ""; };
+    /** Is ID a producer's own row? ITS CELLS ARE THE ONLY EDITABLE ONES: a
      * per-column `editable' cannot carry this, since the column would then open
      * a dead editor on every real row's double-click. */
-    const draftRow = (id) =>
-      !!(state.rows.find((r) => r.id === id) || {}).draft;
+    const producerRow = (id) =>
+      !standing(state.rows.find((r) => r.id === id) || {});
     // CLOSED BEFORE THE CELL IS LOOKED UP, never after: closing redraws the rows,
     // so a node found first would be orphaned by the time the editor entered it.
-    function editCell(id, col) {
-      if (!draftRow(id) && !columnEditable(col)) return false;
+    function editCell(id, col, sel) {
+      if (!producerRow(id) && !columnEditable(col)) return false;
       closeCellEditor();
       const tr = /** @type {HTMLElement|null} */
         ([...tbody.querySelectorAll("tr[data-id]")]
           .find((x) => /** @type {HTMLElement} */ (x).dataset.id === id) || null);
       if (!tr) return false;
       const td = [...tr.querySelectorAll("td:not(.tv-box)")][col];
-      return openCellEditor(td, id, col, "cell", cellRaw(id, col));
+      return openCellEditor(td, id, col, "cell", cellRaw(id, col), sel);
+    }
+    /** WHICH CELL IS OPEN, by index and by column key, or null. The widget owns
+     * that state, so a producer asks it rather than reading the DOM back. */
+    const getEditing = () =>
+      (cellEdit && cellEdit.kind === "cell"
+        ? { id: cellEdit.id, col: cellEdit.col, key: keyOf(cellEdit.col) } : null);
+
+    /**
+     * A PRODUCER ROW'S OPEN EDITOR, HELD ACROSS A REPAINT: the line the reader
+     * has typed goes into the row's own cell — one object holds the value, not
+     * two — and the caret comes back where it stood. The handle is dropped
+     * rather than closed, the repaint being the close.
+     * @returns {{id: string, col: number, sel: [number, number]}|null}
+     */
+    function holdEditor() {
+      const at = getEditing();
+      if (!at || at.id === null || !producerRow(at.id)) return null;
+      const { input } = cellEdit;
+      const r = state.rows.find((x) => x.id === at.id);
+      if (at.key) (r.cells = r.cells || {})[at.key] = input.value;
+      cellEdit = null;
+      return { id: at.id, col: at.col,
+               sel: [input.selectionStart ?? input.value.length,
+                     input.selectionEnd ?? input.value.length] };
+    }
+    /** The editor HELD put back, caret and all — never `select()'d: every store
+     * tick repaints, and a select-all there swallows the reader's next key.
+     * @param {{id: string, col: number, sel: [number, number]}|null} held */
+    function resumeEditor(held) {
+      if (held) editCell(held.id, held.col, held.sel);
+    }
+    /** Redraw under a producer's open editor, which survives it. */
+    function repaint() {
+      const held = holdEditor();
+      renderRows(true);
+      resumeEditor(held);
     }
     function editHeader(col) {
       if (!columnEditable(col)) return false;
@@ -4021,6 +4170,9 @@
       if (!tr || !touch) return;
       // a press on the box stays the box; else the completing touchend swallows the toggle's click and the 44px target can't be checked.
       if (onBox(t)) return;
+      // A LONG PRESS IS A ROW'S DEFAULT COMMAND, and a producer's own row is no
+      // command's target — the same wall the cursor meets.
+      if (!standing(rowOf(state.rows, tr) || {})) return;
       cancelPress();
       pressRan = false;
       pressOn = tr.dataset.id ?? null;
@@ -4054,8 +4206,12 @@
       const t = hit(e);
       const tr = t && /** @type {HTMLElement|null} */ (t.closest("tr[data-id]"));
       if (!tr) return;
+      // A ROW'S DEFAULT COMMAND NAMES THE ROW, and a producer's own is no
+      // command's target — it opened its cell editor on the same click.
+      const r = rowOf(state.rows, tr);
+      if (!r || !standing(r)) return;
       const cmd = defaultCommand();
-      if (cmd) dispatch(cmd, rowOf(state.rows, tr));
+      if (cmd) dispatch(cmd, r);
     });
 
     scroll.addEventListener("scroll", () => { wantWindow = true; cancelPress(); schedule(); });
@@ -4460,6 +4616,7 @@
         const counts = new Map();
         const found = [];
         for (const r of state.rows) {
+          if (!standing(r)) continue;   // a producer's own row lends no value
           const lower = rowText(r).cells[i];
           if (!lower) continue;
           const n = counts.get(lower);
@@ -5093,14 +5250,21 @@
        * here, so an id that did not come back is HIDDEN rather than deleted and
        * must still be marked when the filter comes off.  A delta's `reset' is
        * the same op; `deleteRow' and a delta's `delete' do drop it.
+       *
+       * THE PRODUCER'S OWN ROWS STAND THROUGH IT: they are no part of the set
+       * being replaced, so each goes back under the row its `under' names and
+       * an open editor comes back with its caret.
        * @param {Row[]} rows
        */
       setRows(rows) {
-        state.rows = (rows || []).slice();
+        const held = holdEditor();
+        state.rows = (rows || []).slice().concat(ownRows());
+        placeProducers(state.rows);
         clearTexts();
         dropSorted();
         continuous = false;
         renderRows(true);
+        resumeEditor(held);
       },
       /** @param {Row} row */
       upsertRow(row) {
@@ -5108,33 +5272,45 @@
         if (i === -1) state.rows.push(row); else state.rows[i] = row;
         texts.delete(row.id);
         dropDomains();
-        if (sorted) place(sorted, row, false);
-        if (order && orderCmp) { place(order, row, true); growWidths(row); }
+        // PLACED AFTER THE INSERT, both lists: a delta landing between an anchor
+        // and its phantom would otherwise slide the two apart.
+        placeProducers(state.rows);
+        if (sorted) { place(sorted, row, false); placeProducers(sorted); }
+        if (order && orderCmp) { place(order, row, true); growWidths(row); placeProducers(order); }
         else if (order) dropOrder();
-        renderRows(true);
+        repaint();
       },
       /** @param {string} id */
       deleteRow(id) {
+        // TAKEN BEFORE THE ROW GOES, so an editor standing in it is dropped
+        // here rather than left holding a node the redraw has orphaned.
+        const held = holdEditor();
         state.rows = state.rows.filter((r) => r.id !== id);
         markSet.ids.delete(id);  // the row is gone; a mark on it would outlive it
         flagSet.ids.delete(id);
         texts.delete(id);
         dropDomains();
-        if (sorted) unplace(sorted, id);
-        if (order) unplace(order, id);
+        if (sorted) { unplace(sorted, id); placeProducers(sorted); }
+        if (order) { unplace(order, id); placeProducers(order); }
         renderRows(true);                               // which keeps the place
+        resumeEditor(held && held.id !== id ? held : null);
       },
       /** @param {Op[]} ops */
       applyDelta(ops) {
+        const held = holdEditor();
         for (const op of ops || []) {
           if (op.op === "reset") {
-            state.rows = (op.rows || []).slice();
+            // A `reset' IS a `setRows': the producer's own rows are no part of
+            // the set it replaces.
+            state.rows = (op.rows || []).slice().concat(ownRows());
             clearTexts();
             dropSorted();
             continue;
           }
           // delta op indices count in the window (display order) per SCHEMA.md; with no local sort/filter/page that's the store's own order.
-          const win = paged();
+          // A PRODUCER'S OWN ROW IS NO PART OF THAT COUNT: the ops describe the
+          // store's rows, and a phantom among them would shift every index.
+          const win = paged().filter(standing);
           const store = (row) => state.rows.findIndex((r) => r.id === row.id);
           if (op.op === "insert") {
             const at = op.index < win.length ? store(win[op.index]) : -1;
@@ -5152,8 +5328,10 @@
           }
           dropSorted();
         }
+        placeProducers(state.rows);
         dropDomains();
         renderRows(true);
+        resumeEditor(held);
       },
       getRows() { return state.rows.slice(); },
       /**
@@ -5173,12 +5351,19 @@
       getSelection() { return { id: state.selected, col: state.selCol }; },
       /**
        * Open the in-cell editor on ID's COL cell, or on COL's header. The
-       * column must be `editable', or the row a `draft'; returns whether it
-       * opened. Commit reports through `onEdit' / `tableview-edit' and the
-       * producer owns the write.
+       * column must be `editable', or the row the producer's own; returns
+       * whether it opened. Commit reports through `onEdit' / `tableview-edit'
+       * and the producer owns the write.
        * @param {string} id  @param {number} col  @returns {boolean}
        */
       editCell,
+      /**
+       * Which cell the editor stands in, by index and by column key, or null.
+       * The widget owns that state, so a producer asks rather than reading the
+       * DOM back.
+       * @returns {{id: string|null, col: number, key: string}|null}
+       */
+      getEditing,
       /** Open the editor on COL's header. @param {number} col  @returns {boolean} */
       editHeader,
       /**

@@ -228,15 +228,13 @@ let stateHues = [];
 let captureLine = "";
 const captureTarget = "/o/inbox.org";
 const capturedId = "r3";
-/** GET /capture's ANSWER, per destination: the `#+TODO:' chain a capture filed
- * there may be stated in, and nothing else.  `""' is the inbox and the tree's
- * own default cycle; a tag with a layer of its own adds a scope to it. */
+/** GET /keywords?tag='s ANSWER, per destination: the `#+TODO:' words a capture
+ * filed there may be stated in, FLAT, and nothing else.  `""' is the inbox and
+ * the tree's own default cycle; a tag with a layer of its own adds to it. */
 const captureCycles = {
-  "": [{ source: "default", active: ["TODO"], inactive: ["DONE"] }],
-  book: [{ source: "default", active: ["TODO"], inactive: ["DONE"] },
-         { source: "book", active: ["READING"], inactive: ["READ"] }],
-  work: [{ source: "default", active: ["TODO"], inactive: ["DONE"] },
-         { source: "work", active: ["TODO", "NEXT"], inactive: ["DONE"] }],
+  "": ["TODO", "DONE"],
+  book: ["TODO", "DONE", "READING", "READ"],
+  work: ["TODO", "DONE", "NEXT"],
 };
 const captureAsked = [];
 // GET /properties: what the tree spells, each with how often.  The counts are
@@ -340,11 +338,11 @@ globalThis.fetch = (url, init) => {
   }
   // Not gated on `refusing': what that flag stands for is a WRITE the server
   // turns down, and a read of a cycle could never reach one.
-  if (String(url) === "/capture" || String(url).startsWith("/capture?")) {
+  if (String(url).startsWith("/keywords?tag=")) {
     captureAsked.push(url);
     const at = /[?&]tag=([^&]*)/.exec(String(url));
     const tag = at ? decodeURIComponent(at[1].replace(/\+/g, " ")) : "";
-    return answer(200, { cycle: captureCycles[tag] || captureCycles[""] });
+    return answer(200, { states: captureCycles[tag] || captureCycles[""] });
   }
   if (String(url).startsWith("/keywords?ids=")) {
     resolved.push(url);
@@ -455,10 +453,22 @@ let mounts = 0, sets = 0, raises = 0;
 const doors = [];
 let lmounts = 0, tmounts = 0, tsets = 0;
 const paints = [];
-// THE ROWS THE PAGE LAST HANDED THE TABLE, the producer's own among them: a
-// DRAFT has no store row behind it, so the fixture cannot answer for one and
-// the splice is only readable where the page made it.
+// THE STORE ROWS THE PAGE LAST HANDED THE TABLE.  A DRAFT is no store row and
+// is never among them: the widget holds it apart and places it.
 let painted = [];
+/** The producer's own rows the widget holds.  They are no part of the set a
+ * `setRows' replaces, and each stands after the row its `under' names. */
+let ownRows = [];
+/** LIST as the widget would draw it, the producer's own rows placed. */
+const placeOwn = (list) => {
+  const out = list.filter((r) => !r.producer);
+  for (const p of ownRows) {
+    const at = p.under === null || p.under === undefined
+      ? -1 : out.findIndex((r) => r.id === p.under);
+    out.splice(at + 1, 0, p);
+  }
+  return out;
+};
 // Which cell the in-cell editor was opened on, there being no table DOM here.
 let editedCell = null;
 // Row ops SPLICED, recorded as well as their effect: landing right without
@@ -566,14 +576,28 @@ const makeMount = (host, view, options, own) => {
     },
     upsertRow: (row) => {
       spliced.push(`upsert ${row.id}`);
+      // A PRODUCER'S OWN ROW IS NO DATA: it never joins the fixture's rows, so
+      // no cursor, mark or command can reach it.
+      if (row.producer) {
+        const held = ownRows.findIndex((r) => r.id === row.id);
+        if (held === -1) ownRows.push(row); else ownRows[held] = row;
+        return;
+      }
       const list = all(), at = list.findIndex((r) => r.id === row.id);
       if (at === -1) list.push(row); else list[at] = row;
       keep();
     },
     deleteRow: (id) => {
       spliced.push(`delete ${id}`);
+      if (ownRows.some((r) => r.id === id)) {
+        ownRows = ownRows.filter((r) => r.id !== id);
+        // The editor goes with the row it stood in, as the widget's own does.
+        if (editedCell && editedCell[0] === id) editedCell = null;
+        return;
+      }
       const list = all(), at = list.findIndex((r) => r.id === id);
       if (at !== -1) list.splice(at, 1);
+      painted = painted.filter((r) => r.id !== id);
       m.marks.delete(id);   // the row is gone; a mark on it would outlive it
       m.flags.delete(id);
       keep();
@@ -587,6 +611,10 @@ const makeMount = (host, view, options, own) => {
       editedCell = [id, col];
       return true;
     },
+    // WHICH CELL IS OPEN, the widget's own state and never the DOM's.
+    getEditing: () => (editedCell
+      ? { id: editedCell[0], col: editedCell[1],
+          key: (m.cols[editedCell[1]] || {}).key || "" } : null),
     setQuery: (q) => { m.held = String(q == null ? "" : q).trim(); },
     setPinned: (on) => { m.pinned = !!on; },
     stripLastToken: () => {
@@ -1787,9 +1815,11 @@ const settle = async () => {
     // THE DRAFT ROW as the page spliced it: where it sits, the row it stands
     // under, the cells the filter seeded and the cell whose editor opened.
     draft: (() => {
-      const at = painted.findIndex((r) => r.draft);
+      const drawn = placeOwn(painted.length ? painted : rows);
+      const at = drawn.findIndex((r) => r.producer);
       return at === -1 ? null
-        : { at, under: at ? painted[at - 1].id : null, cells: painted[at].cells,
+        : { at, under: at ? drawn[at - 1].id : null, cells: drawn[at].cells,
+            hint: drawn[at].hint, refused: drawn[at].refused,
             editing: editedCell };
     })(),
     chues: listCells("cstates").map((c) => c.join("|")),

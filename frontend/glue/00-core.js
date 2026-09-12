@@ -206,8 +206,8 @@
           command === "materialize" ? materialize(id)
                                      : append("cmd", "info", `action: ${command}  id=${id}`),
         onLink: (target) => append("cmd", "info", `link: ${target}`),
-        // The draft's own keys, which can be bound nowhere else: an open cell
-        // stops every key it sees from reaching this page's dispatch (35-draft.js).
+        // The draft's own keys, which can be bound nowhere else (`onCellKey',
+        // assets/table-view.js).
         onCellKey: draftKey,
         onFilter: filter,   // the server narrows; the renderer shows what it is given
         onRefused: refused, // a shaping token typed at `/', which the box keeps
@@ -243,11 +243,12 @@
       return p.finally(() => wash.step("view", -1));
     };
     let all = [], cols = [];
-    // A WAL tick, a poll and a filter change all land here, and `setRows' resets
-    // the widget's rows — so the draft is re-spliced on EVERY paint (35-draft.js).
+    // A WAL tick, a poll and a filter change all land here.  `setRows' replaces
+    // the STORE's rows alone: a draft is the producer's own row and stands
+    // through the paint, editor and caret included (35-draft.js).
     const paint = (a) => {
       const rows = a.view.rows || [];
-      paintRows(rows);
+      table.setRows(rows);
       if (!query) all = rows;
       parity(a.total);
     };

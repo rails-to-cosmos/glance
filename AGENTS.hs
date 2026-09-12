@@ -1831,7 +1831,6 @@ routes =
   , Route "/headline"   True  JsonRefusal [GET, POST]
   , Route "/command"    True  JsonRefusal [POST]
   , Route "/config"     True  JsonRefusal [GET, POST]
-  , Route "/capture"    True  TextRefusal [GET]
   , Route "/keywords"   True  TextRefusal [GET]
   , Route "/links"      True  TextRefusal [GET]
   , Route "/neighbors"  True  JsonRefusal [GET]
@@ -3739,9 +3738,9 @@ yearRule = Flat
 --
 -- The ONE id-less command: it MAKES a row.  The answer is its own shape,
 -- @{ok, file, digest, id}@, and @id@ is what the cursor lands on.  A CAPTURE IS
--- A ROW: @+@ splices a DRAFT into the table already on screen, @GET \/capture@
--- answers the destination's cycle and nothing more, and @RET@ from any of the
--- draft's cells commits through this one command.
+-- A ROW: @+@ splices a DRAFT into the table already on screen,
+-- @GET \/keywords?tag=NAME@ answers the destination's cycle, and @RET@ from any
+-- of the draft's cells commits through this one command.
 
 data CaptureTo = ToInbox | ToBlob Tag deriving (Eq, Show)
 captureInto :: Maybe Tag -> CaptureTo   -- ^ ABSENT is the config's inbox, PRESENT a blob
@@ -3773,12 +3772,6 @@ captureCodes =
   ]
 scanCodes :: [String]                   -- ^ @templateParts@ spells the same four as a CASE
 scanCodes = ["%?", "%U", "%T", "%^{PROMPT}"]
-
--- | @GET \/capture[?tag=NAME]@: the DESTINATION'S CYCLE, and nothing else.  The
--- draft is a ROW the page types, so the door owes it no template, no cells, no
--- @%?@ and no tag vocabulary — and NO FILE IS CREATED.
-captureRead :: [String]
-captureRead = ["cycle"]
 
 data Lent = LentTag | LentState | LentPriority | LentTags deriving (Eq, Show)
 -- | WHAT THE STANDING FILTER SEEDS A DRAFT ROW WITH.  Only a fact the query pins
@@ -3965,7 +3958,7 @@ cmdNotes =
   , Note "A tagged capture's blob shard is unwatched for the daemon's life; it reaches the table because every write nudges its own path." [Test]
   , Note "ONE clock read covers both stamps a capture writes, so a template naming the moment and the creation time it is filed under can never name two." [Test]
   , Note "THE COMMIT DOOR IS THE ONLY DOOR A DRAFT HAS: a capture is composed as a ROW in the table and the read door answers a cycle, so a template's own refusals are spoken where its bytes are written and nowhere earlier. `draftRecord' reads the composed entry back through ONE PARSE, and a BLANK ENTRY IS KEPT where `recordsOf' drops one: `* ' with an empty title is exactly what the bare template opens as." [Test]
-  , Note "`cycle' is GET /capture's WHOLE ANSWER, because /keywords is ROW-KEYED and a draft has no row: `draftKeywords' walks the same `keywordScopes' chain with an empty FILE scope, so the cycle the draft row's state cell is checked against is the list the commit door WALLS with, one fold (`flatKeywords') serving both. It is composed off the DESTINATION alone and owes the template nothing." [Test]
+  , Note "THE DRAFT'S CYCLE RIDES /keywords, UNDER A SECOND ARM: that door is ROW-KEYED and a draft has no row, so `?tag=NAME' asks the same question for a row that does not exist yet -- `draftKeywords' walking the same `keywordScopes' chain with an empty FILE scope, flattened by `flatKeywords' into the very list the commit door WALLS with (`draftStates', one reading for the offer and the wall). It is composed off the DESTINATION alone, an empty tag being the inbox, and owes the template nothing. A door of its own answering the same fold under a second key is what this replaced." [Test]
   , Note "The prompting escapes DISSOLVED: `%^{PROMPT}' expands to its EMPTY VALUE — a drawer pair with none, a slot in the body — because a pre-form field existed only where the form could not edit structure. The stamping escapes still take the server's clock, the page spelling no org, and `%?' writes nothing at all: it is where point opens." [Test]
   , Note "TWO ROADS, EXACTLY ONE TAKEN: `text' (with `fields', through the tag's template) is the older wire and stays, the door being public and org-glance able to drive it; `title' opens the sheet's cargo. NAMING BOTH IS REFUSED rather than resolved, and both roads hand the SAME org to the same minting, which is why the shard path, the id, the creation drawer, the ledger note and the inbox split are untouched by the widening." [Test]
   , Note "ONE WALL PER KEY AND EVERY ONE OF THEM THE ROW EDIT'S (`cargoWall'): planning through `plannedValue' with the KEY OUTRANKING THE VALUE, tags and the state through their charsets, the title through the headline reparse, and the state through the very cycle the read door offered. A capture is ONE TOP ENTRY, so a body line opening a single star is refused rather than written — the one-headline wall reaching the widened road the way `captureText' reaches the older one." [Test]
@@ -5368,38 +5361,49 @@ sheetNotes =
   , Note "The materialize sheet is ONE file — both panes, the ladder and the opening —\
          \ and it owns the open entry, the shape, and the two baselines dirt is measured\
          \ against." [Test]
-  , Note "CAPTURE IS A ROW: `+' splices a DRAFT into the rows the widget already holds —\
-         \ below the row at point, seeded from what the filter PINS, with its title cell's\
-         \ editor open — and `paint' re-splices it on EVERY /headlines answer, `setRows'\
-         \ resetting the widget's rows so a draft left out of the splice is erased.\
-         \ Suppressing the paint instead would leave a stale table under a live draft.  The\
-         \ widget learns ONE row field, `draft', with five readings: it is dressed, kept out\
-         \ of the sort (its title being empty, the chain would park it in the blanks at the\
-         \ end), never marked, never stepped onto, and its cells are the only editable cells\
-         \ in the table.  A per-COLUMN `editable' cannot carry the last of those: the main\
-         \ table mounts no editable column, so opting the columns in would open a dead editor\
-         \ on every real row's double-click." [Browser]
-  , Note "THE DESTINATION IS SAID IN THE SCHEDULED CELL — `\8594 book', `\8594 inbox' — the\
-         \ one column a capture never fills: `openCellEditor' EMPTIES the cell it opens in,\
-         \ so a hint drawn beside the title is wiped the moment the editor arrives.  `+' asks\
-         \ the cycle door as it draws the row, and a seeded state that destination's\
-         \ `#+TODO:' lacks is DROPPED before the wire ever carries it, the hint reading\
-         \ `\8594 book \183 NEXT dropped' — which leaves `stated''s 400 exactly as strict as\
-         \ it is for every other caller, the MCP tool included.  THREE CHANNELS say draft and\
-         \ hue is none of them alone: the accent edge, the dashed rule and the ghost ink." [Browser]
+  , Note "CAPTURE IS A ROW, AND THE WIDGET OWNS THE ROW: `+' hands the table a\
+         \ PRODUCER-OWNED row — `producer', `under', `hint', `refused' — seeded from what\
+         \ the filter PINS, with its title cell's editor open, and the widget puts it\
+         \ back after the row `under' names through every pass it has: the sort, the\
+         \ local filter, a `setRows' (which replaces the STORE's rows and leaves the\
+         \ producer's standing, the open editor and its caret with them) and a socket\
+         \ delta, whose indices count the store's rows alone so no phantom shifts one or\
+         \ slides between an anchor and its row. ONE PREDICATE, `standing', is asked\
+         \ wherever the cursor or a pass reaches a row — the walk, the marks, a click,\
+         \ the kept selection — so a mouse reaches no row the keyboard cannot. Its cells\
+         \ are the only editable cells in the table: a per-COLUMN `editable' cannot carry\
+         \ that, the main table mounting no editable column, so opting the columns in\
+         \ would open a dead editor on every real row's double-click." [Browser]
+  , Note "THE DESTINATION IS SAID IN THE ROW'S OWN HINT — `\8594 book', `\8594 inbox' —\
+         \ which the widget draws in the LAST column the row carries no cell for --\
+         \ free space at the right-hand end, DEADLINE in this table -- as a row FIELD\
+         \ rather than a cell value, and never a date. The title cell cannot hold it, `openCellEditor'\
+         \ EMPTYING the cell it opens in, so a hint drawn beside the title is wiped the\
+         \ moment the editor arrives. `+' asks the cycle as it draws the row, and only\
+         \ where the filter seeded a state, there being nothing else to check; a keyword\
+         \ that destination's `#+TODO:' lacks is DROPPED before the wire ever carries it\
+         \ and the hint reads `\8594 book \183 NEXT dropped', which leaves `stated''s 400\
+         \ exactly as strict as it is for every other caller, the MCP tool included.\
+         \ THREE CHANNELS say producer and hue is none of them alone: the accent edge,\
+         \ the dashed rule and the ghost ink, all three in the widget's own sheet beside\
+         \ every other `tv-' class." [Browser]
   , Note "A DRAFT'S KEYS BELONG TO THE EDITOR AND CAN BE BOUND NOWHERE ELSE: the open cell\
          \ stops every key it sees, so the shell's dispatch never hears one and `Keymap.hs'\
          \ gains no row and no scope.  The seam the widget owes is one mount option,\
-         \ `onCellKey(e, {id, col, value})', asked at the HEAD of the cell editor's keydown,\
-         \ a `true' answer meaning the producer took the key.  Over the draft alone `TAB'\
-         \ walks the ring title, state, priority, tags and `S-TAB' walks it back, wrapping\
-         \ at either end; the CLOSING cell's value is written into the phantom row BEFORE\
-         \ the next cell opens, `closeCellEditor' redrawing the rows on its way out, and the\
+         \ `onCellKey(e, {id, col, key, value})', asked at the HEAD of the cell editor's\
+         \ keydown, a `true' answer meaning the producer took the key; the COLUMN'S KEY\
+         \ rides beside its index, so the walk names its cells rather than counting them,\
+         \ and `getEditing' answers the same pair to a caller holding no event.  Over the\
+         \ draft alone `TAB' walks the ring title, state, priority, tags and `S-TAB'\
+         \ walks it back, wrapping at either end; the CLOSING cell's value is written\
+         \ into the phantom row BEFORE the next cell opens, `closeCellEditor' redrawing\
+         \ the rows on its way out, and the\
          \ ROW's value is what the next editor opens on — so a cell walked through\
          \ untouched keeps what it held.  `ESC' drops the whole draft and leaves the CLOSE\
-         \ to the widget, whose own reading of that key is exactly that, so no editor is\
-         \ stranded over a row the splice has already taken away.  Every OTHER row keeps\
-         \ the shipped reading, which costs nothing while no other row is editable." [Browser]
+         \ to the widget, whose own reading of that key is exactly that, and whose own\
+         \ `deleteRow' drops the editor standing in the row it takes away, so none is\
+         \ left holding a node the redraw has orphaned.  Every OTHER row keeps the shipped\
+         \ reading, which costs nothing while no other row is editable." [Browser]
   , Note "`RET' FROM ANY OF THE DRAFT'S CELLS IS THE COMMIT.  The open editor's value is\
          \ folded into the phantom first, the walk having accumulated and posted nothing,\
          \ and the whole capture then goes out at ONE press through the one command that\
@@ -5411,15 +5415,20 @@ sheetNotes =
          \ what reloads the store, so the draft is spliced out, the server's order is asked\
          \ for at once, and `arriving' carries point onto the id on the FIRST settle that\
          \ holds the row -- wherever `sort:' puts it, a capture having no SCHEDULED to keep\
-         \ it where it was typed." [Browser]
+         \ it where it was typed.  THE HOLD IS BOUNDED at both ends: the id is dropped with\
+         \ the view it belonged to and after ten settles that never held the row, since a\
+         \ capture the standing filter hides never arrives and an id left standing would\
+         \ spend the NEXT write's settle." [Browser]
   , Note "A REFUSED CAPTURE REFUSES IN PLACE: the draft STAYS, a row that cannot commit\
-         \ being a row the reader would otherwise have to retype.  The editor comes back to\
-         \ the title with its text selected, the word takes the hint's place beside the row\
-         \ -- `nothing to capture' for an empty title, the server's own sentence for its\
-         \ 400 -- and the two channels that fence the row off, the dashed rule and the\
-         \ accent edge, turn `--g-warn'.  The next CONTENT keystroke takes the note and the\
-         \ dress back; a walk and a movement leave them standing, and only `ESC' dismisses\
-         \ the draft." [Browser]
+         \ being a row the reader would otherwise have to retype. The editor comes back\
+         \ to the title with its text selected, and the word LEADS the row's hint —\
+         \ `nothing to capture \183 \8594 inbox', the shipped sentence for an empty title\
+         \ and the server's own for its 400, the destination standing behind either\
+         \ rather than disappearing under it — while the two channels that fence the row\
+         \ off, the dashed rule and the accent edge, turn warn. The next CONTENT\
+         \ keystroke takes the note and the dress back ONE FRAME BEHIND the key that\
+         \ answered it, the redraw rebuilding the very cell that key is still landing in;\
+         \ a walk and a movement leave them standing, and only `ESC' dismisses the draft." [Browser]
   , Note "A HEADLINE ALWAYS DRAWS ITS TITLE CELL, empty or not (`drawnCells', Doc.elm):\
          \ that cell is the SLOT the title edit anchors in (`dTitleAt'), and a row that drew\
          \ none left the box anchored on the whole line — swallowing the star, the state,\

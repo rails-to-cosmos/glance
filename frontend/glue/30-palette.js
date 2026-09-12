@@ -1,11 +1,9 @@
 // THE VALUE PALETTE AND THE LINK DOOR, behind an argument list (AGENTS.hs).
 // What it takes from the shell arrives as accessors: a handle cannot carry a `let'.
 const Palette = ((deps) => {
-    const { CFG, EMPTY, NEW_HINT, append, askFailed, atIn, badgeColor,
-            docTitle, el,
-            failed, fire, getJSON, leadTyped, materialize, part,
+    const { CFG, EMPTY, NEW_HINT, append, askFailed, atIn, badgeColor, docTitle,
+            el, entryNow, failed, fire, getJSON, leadTyped, materialize, part,
             said, targetOf, targets } = deps;
-    const { entryNow } = deps;
     const rowsWord = (n) => `${n} row${n === 1 ? "" : "s"}`;
     const foldTag = (t) => String(t || "").trim().toLowerCase();
     const tagFrom = (c) => foldTag(c.tag);
@@ -285,25 +283,20 @@ const Palette = ((deps) => {
 
     // `prompting' is this widget's own, so it leaves as an answer.
     const promptNow = () => prompting;
-    return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags, askText,
-             docTargets, entry,
-             fieldMode, foldTag, followLinks, linksOf, offer,
-             keywordSources,
-             openLink, overTargets, planRows, promptNow, raise,
-             restate, rowsWord, shortly, tagFrom, takeChoice, unask,
-             walkChoices };
-})({ CFG, EMPTY, NEW_HINT, append, askFailed, atIn, badgeColor,
-     docTitle, el,
-     failed, fire, getJSON, leadTyped, materialize, part,
+    return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags,
+             askText, docTargets, entry, fieldMode, foldTag, followLinks,
+             keywordSources, linksOf, offer, openLink, overTargets, planRows,
+             promptNow, raise, restate, rowsWord, shortly, tagFrom, takeChoice,
+             unask, walkChoices };
+})({ CFG, EMPTY, NEW_HINT, append, askFailed, atIn, badgeColor, docTitle,
+     el, failed, fire, getJSON, leadTyped, materialize, part,
      said, targetOf, targets,
      // A `let' cannot ride in as itself: the open sheet arrives as an accessor.
      entryNow: () => editing });
 const { CODES, ask, askFrom, askState, askTags, askText, docTargets, entry,
-        fieldMode, foldTag, followLinks, linksOf, offer,
-        keywordSources,
-        openLink, overTargets, planRows, promptNow, raise,
-        restate, rowsWord, shortly, tagFrom, takeChoice, unask,
-        walkChoices } = Palette;
+        fieldMode, foldTag, followLinks, keywordSources, linksOf, offer,
+        openLink, overTargets, planRows, promptNow, raise, restate, rowsWord,
+        shortly, tagFrom, takeChoice, unask, walkChoices } = Palette;
 // The suite drives these two as the pure functions they are, through a direct
 // `eval' -- where a `var' reaches the caller's scope and a `const' does not.
 var whichKeys = Palette.whichKeys, letterAt = Palette.letterAt;

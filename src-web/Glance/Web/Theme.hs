@@ -76,6 +76,7 @@ slots p prefix n hues =
   where filled = if null hues then [pFg p] else hues
 
 -- | The renderer's FLAG is 'pBad': the archive flag and an error are one red.
+-- Its WARN is the page's: a producer's refused row and a page warning are one amber.
 tableTokens :: Palette -> [(Text, Text)]
 tableTokens p =
   [ ("--tv-bg",        pBg p)
@@ -89,6 +90,7 @@ tableTokens p =
   , ("--tv-link",      pLink p)
   , ("--tv-frost",     pFrost p)
   , ("--tv-flag",      pBad p)
+  , ("--tv-warn",      pWarn p)
   , ("--tv-col",       pColumn p)
   -- Reserved for an overlay dock; the main mount docks its box on the strip and draws no veil.
   , ("--tv-veil",      pVeil p)

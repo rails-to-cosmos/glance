@@ -63,7 +63,7 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , SavedView (..), archived, configDirsIn, configPaths
                     , pinnedDocument, rowSnapshot
                     , captureTemplateOf
-                    , draftKeywords
+                    , draftStates
                     , ConfigLayers (clTree), TreeSettings (..), treeSettings
                     , configEdits, viewQuery, viewQueryIn
                     , headlineParts, keywordSources, linkShown, linkType
@@ -156,7 +156,6 @@ httpApp opts hub request respond = route >>= respond
       , (["config"],     True,  jsonRefusal,
           [ (methodGet, configView opts hub)
           , (methodPost, configWrite opts hub request) ])
-      , (["capture"],    True,  textRefusal, [(methodGet, captureView opts hub request)])
       , (["keywords"],   True,  textRefusal, [(methodGet, keywordsView hub request)])
       , (["links"],      True,  textRefusal, [(methodGet, linksView hub (queryId request))])
       , (["neighbors"],  True,  jsonRefusal, [(methodGet, neighborsView hub request)])
@@ -725,14 +724,25 @@ settledPlanning day (SplitSubtree body ps pln)
 -- Keywords
 
 -- | @GET \/keywords?ids=A,B@: the states those rows may be set to, laid out as the chain that classifies them (AGENTS.hs).
+--
+-- @?tag=NAME@ IS THE SAME QUESTION FOR A ROW THAT DOES NOT EXIST YET -- a
+-- capture's draft filed under that layer, which no id names.  It answers the
+-- FLAT list, which is what a page checks a seeded keyword against and the very
+-- list the commit door walls with ('draftStates'); an EMPTY tag is the inbox,
+-- whose scope is the tree's own.  NO FILE IS CREATED.
 keywordsView :: Hub -> Request -> IO Response
-keywordsView hub request =
-  idsView hub request "GET /keywords?ids=<row id>,<row id>" $ \st _rows found unknown ->
-    [ "sources" .= map sourceJSON (keywordSources (stConfig st) found)
-    , "unknown" .= unknown
-    ]
+keywordsView hub request = case queryText request "tag" of
+  Just tag -> do
+    st <- readTVarIO (hubStore hub)
+    pure (jsonResponse status200
+            [ "states" .= draftStates (stConfig st) [ T.toLower tag | not (T.null tag) ] ])
+  Nothing  ->
+    idsView hub request "GET /keywords?ids=<row id>,<row id>" $ \st _rows found unknown ->
+      [ "sources" .= map sourceJSON (keywordSources (stConfig st) found)
+      , "unknown" .= unknown
+      ]
 
--- | One scope as the wire spells it.  @\/keywords@ and the draft @cycle@ are ONE builder.
+-- | One scope as the wire spells it.
 sourceJSON :: (Text, TodoKeywords) -> Value
 sourceJSON (source, kw) = object ("source" .= source : keywordsPair kw)
 
@@ -800,22 +810,6 @@ valuesUnder :: [[(Text, Text)]] -> Map Text (Map Text Int)
 valuesUnder drawers = Map.fromListWith (Map.unionWith (+))
   [ (key, Map.singleton value n)
   | ((key, value), n) <- Map.toList (countedBy id drawers) ]
-
--- Capture
-
--- | @GET \/capture[?tag=NAME]@: the DESTINATION'S CYCLE, and nothing else.
---
--- The @#+TODO:@ chain a capture filed there may be stated in, in the shape
--- @\/keywords@ answers in, off a rowless draft's scopes ('draftKeywords').  The
--- DRAFT ROW needs the cycle before the reader types and needs no template, no
--- cells and no tag vocabulary.  NO FILE IS CREATED.
-captureView :: ServeOptions -> Hub -> Request -> IO Response
-captureView _opts hub request = do
-  st <- readTVarIO (hubStore hub)
-  let tag = fromMaybe "" (queryText request "tag")
-      worn = [ T.toLower tag | not (T.null tag) ]
-  pure (jsonResponse status200
-          [ "cycle" .= map sourceJSON (draftKeywords (stConfig st) worn) ])
 
 -- Links
 

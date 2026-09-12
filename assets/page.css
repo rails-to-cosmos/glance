@@ -1432,35 +1432,6 @@ html.stale #app,{{WASHED_STALE}} {
 /* Typing summons the filter box into col2 — give the column back to it. */
 #app .tv-dock.tv-typing > .tv-chips { grid-column: 1 / 2; }
 
-/* THE DRAFT ROW SAYS SO IN THREE CHANNELS, hue being none of them on its own (`docs/proposals/proposed/2026-08-17-hue-is-never-the-only-channel.md'): an ACCENT EDGE down its left, the DASHED RULE fencing it off the rows it stands among, and GHOST INK — muted and italic — over cells the filter seeded rather than the reader typed.  THE BADGE IS THE DESTINATION, `→ book' or `→ inbox', written by the glue into the SCHEDULED cell: the one column a capture never fills, the title cell being unable to hold it since `openCellEditor' empties the cell it opens in. */
-#app tr.tv-draft > td {
-    color: var(--g-mute);
-    font-style: italic;
-    background-color: transparent;
-    border-top: 1px dashed var(--g-border);
-    border-bottom: 1px dashed var(--g-border);
-}
-#app tr.tv-draft > td:first-child {
-    box-shadow: inset 3px 0 0 var(--g-accent);
-}
-/* A seeded badge is ghosted like the ink beside it; the pill's hue rides an inline custom property, so the dimming is the only thing left to say it. */
-#app tr.tv-draft .tv-pill {
-    opacity: .6;
-}
-/* The open editor is the reader's own line and stands upright in the ghost. */
-#app tr.tv-draft .tv-cell-edit {
-    font-style: normal;
-    color: var(--g-fg);
-}
-/* A REFUSED CAPTURE KEEPS ITS DRAFT STANDING and says what it wants: the WORD goes into the hint cell beside the row and the two channels that fence the row off — the dashed rule and the accent edge — turn `--g-warn'.  The next content keystroke takes both back, so the dress lasts exactly as long as the reader has not answered it. */
-#app tr.tv-draft.g-refused > td {
-    border-top-color: var(--g-warn);
-    border-bottom-color: var(--g-warn);
-}
-#app tr.tv-draft.g-refused > td:first-child {
-    box-shadow: inset 3px 0 0 var(--g-warn);
-}
-
 /* Every touch rule is in this query; iOS zooms a field under 16px and stays there. */
 @media (pointer:coarse) {
     #app .tv-chips {

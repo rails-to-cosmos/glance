@@ -335,3 +335,38 @@ inbox cut, ledger noted, both paths nudged. After the capture-row build.
 See [[file:bugs/open/2026-09-12-a-killed-auto-sync-leaves-a-stale-index-lock.md]].
 Bracket each git step so shutdown never abandons a child; =gitStatus= reads a
 stale lock as a state the glyph wears; never delete it from glance.
+
+* TODO Upstream the producer row, =getEditing= and =onCellKey= to =../table-view= before the next sync-renderer
+=assets/table-view.js= is documented above as byte-identical to
+=../table-view/web/table-view.js= (see /Reconcile the table-view source with the
+vendored copy/).  THIS BRANCH FORKS IT.  =make sync-renderer= copies the sibling
+over the vendored copy, so run today it would clobber every change below without
+a word.  Upstream them, then re-sync.
+
+The widget changes, by name (line numbers are =assets/table-view.js='s on this
+branch):
+
+- =Row= gains the PRODUCER'S OWN ROW — ={producer, under, hint, refused}= —
+  replacing the glance-specific =draft= flag (typedef =:63=).
+- =standing(r)= (=:3157=) is =!r.producer=, and is asked at =ordered()=
+  (=:2897=), =placeProducers= (=:2884=, was =placeDrafts=), =markAll=,
+  =selectStep=, =selectRow=, =setSelected=, =keepSelection= and
+  =standingFrom= (=:3182=).
+- =placeProducers= places by =under= rather than by the neighbour it was handed
+  beside, on =setRows=, =upsertRow=, =deleteRow= and =applyDelta= alike; a
+  delta's indices count standing rows alone.
+- =ownRows()= (=:2159=) holds the producer's rows across a =setRows=, and
+  =standing= also keeps them out of the filter's own vocabulary (=tagVocab=,
+  =domainOf=) and out of a long press's and a double-click's default command.
+- =noteOf= (=:3162=), =noteCell= (=:3170=) and =rowHTML= (=:3246=) draw
+  =hint= — =refused · hint= where one stands — in the last column the row
+  carries no cell for, and =rowText= measures the column against it.
+- =holdEditor= / =resumeEditor= / =repaint= (=:4109=): a repaint folds the open
+  input's value into its row and puts the caret back, never =select()=.
+- =getEditing()= on the handle (=:4098=, =:5366=), and =onCellKey='s cell
+  carries the column =key= beside =col= (=:4071=).
+- =openCellEditor= no longer closes for its callers; =editCell= takes an
+  optional selection.
+- The producer row's dress moved OUT of =assets/page.css= into the widget's own
+  sheet as =tv-producer= / =tv-refused= (=:1785=), with a new =--tv-warn= token
+  (=:1146=, paired with =--g-warn= in =Glance.Web.Theme=).

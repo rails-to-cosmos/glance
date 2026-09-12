@@ -511,7 +511,7 @@ spec = withResource bootFixture dropBootFixture $ \shell ->
     , orderSpec, sortQuerySpec, columnsQuerySpec, archiveViewSpec
     , bootstrapSpec, materializeSpec, commitSpec, commandSpec, planningSpec
     , tagCommandSpec, deleteCommandSpec, renameCommandSpec, tagsSpec, captureSpec, mcpSpec
-    , propertiesSpec, blobCaptureSpec, captureViewSpec
+    , propertiesSpec, blobCaptureSpec, draftCycleSpec
     , configSpec, keywordsSpec, linksSpec, referSpec, editLinkSpec, indexingSpec
     , doctorSpec, walSpec
     , pageSpec shell, keymapSpec shell, layoutSpec shell
@@ -2113,7 +2113,7 @@ draftRowSpec shell = testGroup "Shell draft row"
                     ["", "", "", ":book:", "\8594 book \183 NEXT dropped"]
           =<< draftWears answer
         assertEqual "asked of the read door, by destination"
-                    ["/capture?tag=book"] =<< textsAt "capturing" answer
+                    ["/keywords?tag=book"] =<< textsAt "capturing" answer
 
   , keyedAt shell "?q=tag%3Abook%20state%3AREADING" 500
       "and a state the cycle HAS is worn as it stands"
@@ -2161,12 +2161,15 @@ draftRowSpec shell = testGroup "Shell draft row"
 draftUnder :: Value -> IO (Maybe T.Text)
 draftUnder = maybeTextAt "under" <=< field "draft"
 
--- | The draft's cells in ONE reading: the state, the priority, the title, the
--- tag run, and the SCHEDULED cell that says where the capture lands.
+-- | The draft in ONE reading: the state, the priority, the title and the tag
+-- run it wears, then the ROW'S OWN hint, which says where the capture lands --
+-- a field the widget draws in the last column rather than a cell of its own.
 draftWears :: Value -> IO [T.Text]
 draftWears answer = do
-  cells <- field "cells" =<< field "draft" answer
-  traverse (`textAt` cells) ["state", "priority", "title", "tag", "scheduled"]
+  row <- field "draft" answer
+  cells <- field "cells" row
+  (<>) <$> traverse (`textAt` cells) ["state", "priority", "title", "tag"]
+       <*> traverse (`textAt` row) ["hint"]
 
 namesOf :: Value -> IO [T.Text]
 namesOf answer = traverse (textAt "name") =<< listAt "commands" answer
@@ -6497,7 +6500,8 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
         , ("--g-border", "--tv-border"), ("--g-accent", "--tv-accent")
         , ("--g-sel", "--tv-sel"), ("--g-link", "--tv-link")
         , ("--g-col", "--tv-col"), ("--g-cell-wash", "--tv-cell-wash")
-        , ("--g-bad", "--tv-flag"), ("--g-flag-wash", "--tv-flag-wash") ]
+        , ("--g-bad", "--tv-flag"), ("--g-flag-wash", "--tv-flag-wash")
+        , ("--g-warn", "--tv-warn") ]
   -- A BADGE HUE IS THE THEME'S, so the wire carries a SLOT and the slots the served ROWS name are read off the view document.
   view <- get assetsDir "/headlines" >>= decoded
   cols <- listAt "columns" view
@@ -7370,19 +7374,21 @@ shellGlue =
   , glue "a draft commits at one RET, and a refusal keeps it standing"
       [ "if (key === \"RET\") { e.preventDefault(); commitDraft(cell); return true; }"
       , "if (drafting.refused && contentKey(key)) clearRefusal();"
-      , "function draftArgs(title, c, dest) {"
-      , "if (dest) args.tag = dest;"
+      , "function draftArgs() {"
+      , "if (drafting.dest) args.tag = drafting.dest;"
       , "const tags = cellTags(c.tag);"
-      , "postCommand({ name: \"capture\", args: draftArgs(title, c, dest) })"
+      , "postCommand({ name: \"capture\", args: draftArgs() })"
       -- Point follows the row the server placed, and the order is asked for at once.
       , "arriving = a.id || null;"
       , "fetchRows(settled);"
       , "if (!title) { refuseDraft(\"nothing to capture\"); return; }"
       , "function refuseDraft(why) {"
-      , "drafting.cells.scheduled = why;"
-      , "tr.classList.toggle(\"g-refused\", !!(drafting && drafting.refused));"
-      , "#app tr.tv-draft.g-refused > td { border-top-color: var(--g-warn);"
-      , "#app tr.tv-draft.g-refused > td:first-child { box-shadow: inset 3px 0 0 var(--g-warn); }" ]
+      -- THE WORD AND THE DRESS ARE THE ROW'S OWN FIELDS: the widget draws
+      -- `refused' ahead of the hint and wears `tv-refused' over it, so the page
+      -- writes a field and never a cell's text or a class (assets/table-view.js,
+      -- which this fixture does not carry).
+      , "drafting.refused = why;"
+      , "drafting.refused = \"\";" ]
 
   , glue "one ladder answers every subtree write"
       [ "function landed(h, onOk) {"
@@ -10336,64 +10342,64 @@ refusedCapture Refused{..} = testCase rfLabel $
     mapM_ (\(what, named) -> assertContains what named (body r)) rfNames
     assertEqual "and no blob was written" [] =<< blobsIn dir
 
--- | The READ door, which answers ONE MEMBER: the destination's cycle, for the
--- draft row's state cell to be checked against before the wire carries one.
-captureViewSpec :: TestTree
-captureViewSpec = testGroup "GET /capture"
-    -- A DRAFT HAS NO ROW, so /keywords cannot answer for it; the cycle rides here.
-  [ testCase "the cycle is the tag's own, in the shape /keywords answers in" $
+-- | The READ door a DRAFT knocks on: @\/keywords?tag=NAME@, the same question
+-- that door answers per row, asked for a row that does not exist yet.  ONE
+-- MEMBER -- the flat list the draft's state cell is checked against, which is
+-- the list the commit door walls with.
+draftCycleSpec :: TestTree
+draftCycleSpec = testGroup "GET /keywords?tag="
+    -- A DRAFT HAS NO ROW, so the ids arm cannot answer for it; the tag arm can.
+  [ testCase "the cycle is the tag's own, flattened" $
       withStoreTree $ \a _hub _dir -> do
-        cyc <- listAt "cycle" =<< decoded =<< ok =<< getFrom a "/capture?tag=book"
-        assertEqual "widest first, one entry per source" ["default", "book"]
-          =<< traverse (textAt "source") cyc
-        assertEqual "the tag's own words, the wider scope's not repeated"
-          [["TODO"], ["READING"]] =<< traverse (textsAt "active") cyc
-        assertEqual "and its done words" [["DONE"], ["READ"]]
-          =<< traverse (textsAt "inactive") cyc
+        v <- decoded =<< ok =<< getFrom a "/keywords?tag=book"
+        assertEqual "the wider scope's words, then the tag's"
+          ["TODO", "DONE", "READING", "READ"] =<< textsAt "states" v
 
     -- A LAYER THAT DECLARES NO `#+TODO:' ADDS NO SCOPE: the chain's own dedup
     -- drops an empty one, so the tag stands in the wider scope's words alone.
   , testCase "a tag with no #+TODO: of its own stands in the wider cycle" $
       withStoreTree $ \a _hub _dir -> do
-        cyc <- listAt "cycle" =<< decoded =<< ok =<< getFrom a "/capture?tag=trip"
-        assertEqual "the wider scope alone" ["default"]
-          =<< traverse (textAt "source") cyc
-        assertEqual "its words" [["TODO"]] =<< traverse (textsAt "active") cyc
-        assertEqual "and its done words" [["DONE"]] =<< traverse (textsAt "inactive") cyc
+        v <- decoded =<< ok =<< getFrom a "/keywords?tag=trip"
+        assertEqual "the wider scope alone" ["TODO", "DONE"] =<< textsAt "states" v
 
-  , testCase "with no tag the cycle is the default one alone" $ withStoreTree $ \a _hub _dir -> do
-        cyc <- listAt "cycle" =<< decoded =<< ok =<< getFrom a "/capture"
-        assertEqual "one scope" ["default"] =<< traverse (textAt "source") cyc
-        assertEqual "its words" [["TODO"]] =<< traverse (textsAt "active") cyc
-        assertEqual "and its done words" [["DONE"]] =<< traverse (textsAt "inactive") cyc
+  , testCase "an empty tag is the inbox, and its cycle is the default one" $
+      withStoreTree $ \a _hub _dir -> do
+        v <- decoded =<< ok =<< getFrom a "/keywords?tag="
+        assertEqual "the tree's own words" ["TODO", "DONE"] =<< textsAt "states" v
 
-    -- THE CYCLE IS THE DESTINATION LAYER'S CHAIN — the very list `stated' walls
-    -- the commit with — and owes nothing to the template that layer also carries.
+    -- THE CYCLE IS THE DESTINATION LAYER'S CHAIN -- the very list `stated' walls
+    -- the commit with -- and owes nothing to the template that layer also carries.
   , testCase "the cycle is the destination's chain, whatever the template says" $
       withStoreTree $ \a _hub _dir -> do
-        cyc <- listAt "cycle" =<< decoded =<< ok =<< getFrom a "/capture?tag=task"
-        assertEqual "the layer's scope rides beside the wider one" ["default", "task"]
-          =<< traverse (textAt "source") cyc
+        v <- decoded =<< ok =<< getFrom a "/keywords?tag=task"
         -- The template seeds `TODO' and NEXT is settable all the same: the cycle
         -- is what the LAYER declares, never what a template happens to spell.
-        assertEqual "every word the layer declares" [["TODO"], ["NEXT"]]
-          =<< traverse (textsAt "active") cyc
+        assertEqual "every word the layer declares, widest scope first"
+          ["TODO", "DONE", "NEXT"] =<< textsAt "states" v
 
     -- THE WHOLE ANSWER.  Every draft-document member went with the sheet: no
     -- cells, no org, no `point', no tag vocabulary and no expansion to refuse,
     -- so a layer whose template has no `%?' is still a 200 here and meets its
     -- refusal at the one door that writes bytes.
-  , testCase "the answer is the cycle and nothing else" $
+  , testCase "the answer is the states and nothing else" $
       withStoreTree $ \a _hub dir -> do
-        v <- decoded =<< ok =<< getFrom a "/capture?tag=book"
-        assertEqual "one member" ["cycle"] =<< keysOf v
+        v <- decoded =<< ok =<< getFrom a "/keywords?tag=book"
+        assertEqual "one member" ["states"] =<< keysOf v
         TIO.writeFile (tagFileIn dir "film") "#+TITLE: Film\n\n* nothing here\n"
-        broken <- decoded =<< ok =<< getFrom a "/capture?tag=film"
-        assertEqual "a template with no %? refuses nothing here" ["cycle"] =<< keysOf broken
-        assertEqual "the tree's own cycle stands behind it" ["default"]
-          =<< traverse (textAt "source") =<< listAt "cycle" broken
+        broken <- decoded =<< ok =<< getFrom a "/keywords?tag=film"
+        assertEqual "a template with no %? refuses nothing here" ["states"]
+          =<< keysOf broken
+        assertEqual "the tree's own cycle stands behind it" ["TODO", "DONE"]
+          =<< textsAt "states" broken
 
-  , postIs405 "/capture"
+    -- THE IDS ARM IS UNTOUCHED BY THE SECOND ONE: no `tag' at all is the row
+    -- question, and the refusal names the parameter it wanted.
+  , testCase "with no tag the door is the row-keyed one it always was" $
+      withStoreTree $ \a _hub _dir -> do
+        r <- getFrom a "/keywords"
+        assertEqual "status" 400 (status r)
+        assertEqual "naming the parameter" "GET /keywords?ids=<row id>,<row id>"
+          =<< textAt "error" =<< decoded r
   ]
 
 withStoreTree :: (Application -> Hub -> FilePath -> Assertion) -> Assertion
