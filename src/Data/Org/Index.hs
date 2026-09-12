@@ -4,6 +4,8 @@ module Data.Org.Index ( BlobEntry (..)
                       , IndexDrift (..)
                       , IndexFold (..)
                       , IndexRecord (..)
+                      , Place (..)
+                      , TailCursor
                       , blobEntryOf
                       , driftOf
                       , foldSegments
@@ -11,16 +13,29 @@ module Data.Org.Index ( BlobEntry (..)
                       , manifestFile
                       , metaDir
                       , openSegment
+                      , segmentEnd
                       , segmentNames
+                      , tailFrom
+                      , tailIds
+                      , tailedFile
+                      , withFd
                       ) where
 
+import Control.Exception (IOException, bracket, try)
 import Data.Aeson (Value (Array, Bool, Object, String), decodeStrict')
 import Data.Char (isDigit)
 import Data.Foldable (toList)
 import Data.List (foldl', sort)
 import Data.Map.Strict (Map)
-import Data.Maybe (listToMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Text (Text)
+import System.FilePath (takeFileName)
+import System.IO (SeekMode (AbsoluteSeek))
+import System.Posix.Files (deviceID, fileID, fileSize, getFdStatus)
+import System.Posix.IO ( OpenFileFlags, OpenMode (ReadOnly), closeFd
+                       , defaultFileFlags, fdSeek, openFd )
+import System.Posix.IO.ByteString (fdRead)
+import System.Posix.Types (ByteCount, DeviceID, Fd, FileID)
 
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
@@ -146,6 +161,83 @@ truthy _other = True
 
 splitLines :: BC.ByteString -> [BC.ByteString]
 splitLines = filter (not . BC.null) . BC.split '\n'
+
+-- | Does PATH name a file the tail listens to — the open segment, or the
+-- MANIFEST a seal is committed by?  The seal itself is read off the inode.
+tailedFile :: FilePath -> Bool
+tailedFile path = takeFileName path `elem` [openSegment, manifestFile]
+
+-- | The ids BYTES appends, and how many of its bytes those lines spend.  A torn
+-- tail waits for its newline, which is 'foldSegments'' policy at the open
+-- segment's end; a tombstone names its id like any other record, and a line no
+-- record reads out of names none.
+tailIds :: BC.ByteString -> ([Text], Int)
+tailIds bytes = (mapMaybe (fmap fst . recordOf) (splitLines whole), BC.length whole)
+  where whole = maybe BC.empty (\i -> BC.take (i + 1) bytes) (BC.elemIndexEnd '\n' bytes)
+
+-- | WHICH FILE a tail was reading and how far into it.  The file carries the
+-- seal — org-glance renames the segment away and touches a fresh one under the
+-- name, and two segments may be the same size.
+data Place = Place !DeviceID !FileID !Integer
+  deriving (Eq, Show)
+
+-- | 'Nothing' until a read has placed it.
+type TailCursor = Maybe Place
+
+-- | The cursor at SEGMENT's END, which is where a tail seeded at boot starts:
+-- the walk has read every blob the bytes behind it name, so none is replayed.
+-- 'Nothing' where the segment cannot be opened, there being nothing to skip.
+segmentEnd :: FilePath -> IO TailCursor
+segmentEnd segment =
+  either unread Just <$> try (withFd segment ReadOnly defaultFileFlags placeOf)
+  where
+    unread :: IOException -> TailCursor
+    unread _ = Nothing
+
+-- | FD's device, inode and size off ONE stat: the seal and the end together.
+placeOf :: Fd -> IO Place
+placeOf fd = shape <$> getFdStatus fd
+  where shape st = Place (deviceID st) (fileID st) (toInteger (fileSize st))
+
+-- | The ids appended to SEGMENT past CURSOR, and where the cursor stands after.
+-- A SEALED segment starts the read over at 0; a segment that cannot be read
+-- leaves the cursor where it was.
+tailFrom :: FilePath -> TailCursor -> IO ([Text], TailCursor)
+tailFrom segment cursor =
+  either unread landed <$> try (withFd segment ReadOnly defaultFileFlags grab)
+  where
+    grab fd = do
+      Place dev ino end <- placeOf fd
+      let from = if sealed dev ino end then 0 else maybe 0 offsetOf cursor
+      _ <- fdSeek fd AbsoluteSeek (fromInteger from)
+      (,) (Place dev ino from) <$> slurp fd (fromInteger (end - from))
+    -- A fresh file under the name, one shorter than the offset, or a cursor no
+    -- read has placed: each starts at the top.
+    sealed dev ino end =
+      maybe True (\(Place d i off) -> (d, i) /= (dev, ino) || end < off) cursor
+    offsetOf (Place _ _ off) = off
+    landed (Place dev ino from, bytes) =
+      let (idents, spent) = tailIds bytes
+      in (idents, Just (Place dev ino (from + toInteger spent)))
+    unread :: IOException -> ([Text], TailCursor)
+    unread _ = ([], cursor)
+
+-- | K over PATH's descriptor, opened with MODE and FLAGS and closed however K
+-- leaves.  NO GHC HANDLE LOCK is taken on the way: a handle locks its file
+-- against every other handle in the process, and these are the PEER's files —
+-- no reader of one may refuse org-glance its own write.
+withFd :: FilePath -> OpenMode -> OpenFileFlags -> (Fd -> IO a) -> IO a
+withFd path mode flags = bracket (openFd path mode flags) closeFd
+
+-- | OWED bytes off FD, a short read looped over.
+slurp :: Fd -> ByteCount -> IO BC.ByteString
+slurp fd owed
+  | owed <= 0 = pure BC.empty
+  | otherwise = do
+      chunk <- fdRead fd owed
+      if BC.null chunk
+        then pure chunk
+        else (chunk <>) <$> slurp fd (owed - fromIntegral (BC.length chunk))
 
 
 data IndexDrift = IndexDrift

@@ -164,7 +164,7 @@ cannot be scheduled; take this file when it can.
   definitions; `docs/invariants.org` inv 1, 7, 8, 34
 - `src/Data/Org/Index.hs`, `src/Data/Org/External.hs`,
   `src-web/Glance/Web/Store.hs`
-- `docs/proposals/proposed/2026-08-26-the-daemon-tails-the-wal.md` (walk:
+- `docs/proposals/done/2026-08-26-the-daemon-tails-the-wal.md` (walk:
   0.71 s / 6107 files), `2026-08-18-one-writer-per-file-…`,
   `draft/2026-09-10-two-writers-one-wal.md`,
   `done/2026-09-10-the-graph-an-agent-can-walk.md`

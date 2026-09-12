@@ -183,7 +183,7 @@ Gate: `cabal test` 2335, elm 189, `runghc AGENTS.hs` 0 (`commands 12`,
 ## Not proposed
 
 - Changing what the WAL carries. It is org-glance's contract; the daemon's
-  walk already has the edges, and `docs/proposals/proposed/2026-08-26-the-daemon-tails-the-wal.md`
+  walk already has the edges, and `docs/proposals/done/2026-08-26-the-daemon-tails-the-wal.md`
   covers the daemon reading it for nudges. A backfill of `links` on the
   5670 old records belongs to org-glance and is noted in its tasks, not
   here.

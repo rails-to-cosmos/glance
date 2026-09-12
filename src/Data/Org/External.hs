@@ -14,7 +14,7 @@ module Data.Org.External ( Completion (..)
                          , tombstoneLine
                          ) where
 
-import Control.Exception (IOException, bracket, try)
+import Control.Exception (IOException, try)
 import Control.Monad (void)
 import Data.Aeson (encode)
 import Data.Text (Text)
@@ -22,7 +22,7 @@ import Foreign.Ptr (castPtr)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist)
 import System.FilePath (takeDirectory, (</>))
 import System.Posix.IO ( OpenFileFlags (append, creat), OpenMode (WriteOnly)
-                       , closeFd, defaultFileFlags, fdWriteBuf, openFd )
+                       , defaultFileFlags, fdWriteBuf )
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -31,6 +31,7 @@ import qualified Data.Time as Time
 
 import Data.Org (defaultContext, firstHeadlineOf, identity, orgParse, spelled)
 import Data.Org.Blob (metaDirIn, storeRootIn)
+import Data.Org.Index (withFd)
 import Data.Org.Walk (isBlob, orgGlanceRoot)
 
 externalFile :: FilePath
@@ -108,7 +109,7 @@ appendNote note render = do
 -- | @O_APPEND@ and ONE @write(2)@: a 'System.IO.AppendMode' handle remembers
 -- the offset it opened at, so concurrent writers overwrite each other's lines.
 appendLine :: FilePath -> BS.ByteString -> IO ()
-appendLine path line = bracket (openFd path WriteOnly flags) closeFd $ \fd ->
+appendLine path line = withFd path WriteOnly flags $ \fd ->
   BU.unsafeUseAsCStringLen line $ \(bytes, len) ->
     void (fdWriteBuf fd (castPtr bytes) (fromIntegral len))
   where flags = defaultFileFlags { append = True, creat = Just 0o666 }

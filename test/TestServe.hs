@@ -1,7 +1,9 @@
 -- | The server, driven as a WAI 'Application'.  No socket is bound.
 module TestServe (spec) where
 
+import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.STM (atomically, readTVarIO)
+import Control.Exception (finally)
 import Control.Monad (filterM, forM_, unless, when, (<=<))
 import Data.Aeson ( FromJSON, Value (Array, Bool, Null, Number, Object, String)
                   , eitherDecode, encode, object, parseJSON, toJSON, (.=) )
@@ -20,7 +22,8 @@ import Network.Wai.Test ( SResponse (simpleBody, simpleHeaders)
                         , request, runSession, setPath )
 import System.Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
                         , findExecutable, getTemporaryDirectory, listDirectory
-                        , removeDirectoryRecursive )
+                        , removeDirectoryRecursive, removeFile, renameDirectory
+                        , renameFile )
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
@@ -29,11 +32,12 @@ import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
 import TestDefaults ( assertContains, boolAt, committable, dateCorpus, dateCorpusPath
-                    , digestOnDisk, document, field, holdsAll
-                    , holdsNone
+                    , digestOnDisk, document, entry, entryAs, eventually, field
+                    , holdsAll, holdsNone
                     , columnKeysOf, columnOf, intAt, listAt, maybeTextAt, orgFile, sparseAt
-                    , sparseTextAt, systemFileIn, tagFileIn, writeLayers
-                    , tagsDirIn, textAt, textsAt, viewDir, viewText, withTempDir )
+                    , sparseTextAt, systemFileIn, tagFileIn, waitFor, writeLayers
+                    , tagsDirIn, textAt, textsAt, viewDir, viewText, withTempDir
+                    , withTempDirNamed )
 import TestWire ( assertOk, capture, command, drainNow, keywordArg, ok, postTo
                 , serverAt, status )
 
@@ -51,7 +55,7 @@ import Glance.Query ( ConfigSetting (csName), QueryResult (qrRecords)
                     , blobPathIn, builtinFilter, configSettings
                     , defaultWalk, diagnose
                     , linkColumns, loadDir, loadFile, prioritySlots, stateSlots
-                    , storeRootIn, tagColumns, todoLines
+                    , segmentEnd, segmentIn, storeRootIn, tagColumns, todoLines
                     , trashPathFor, viewJSON )
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
@@ -66,6 +70,7 @@ import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Store ( Hub, applyFile, finishLoading, frameJSON, hubStore
                        , loadStore, newHub, newLoadingHub, publish
                        , stashDoctor, storeResult, subscribe )
+import Glance.Web.Watch (watchOrgTree)
 
 import qualified Glance.Web.Routes as Routes
 
@@ -506,7 +511,7 @@ spec = withResource bootFixture dropBootFixture $ \shell ->
     , tagCommandSpec, deleteCommandSpec, renameCommandSpec, tagsSpec, captureSpec, mcpSpec
     , propertiesSpec, blobCaptureSpec, captureViewSpec
     , configSpec, keywordsSpec, linksSpec, referSpec, editLinkSpec, indexingSpec
-    , doctorSpec
+    , doctorSpec, walSpec
     , pageSpec shell, keymapSpec shell, layoutSpec shell
     , glueSpec shell, bootSpec shell, liveSpec shell, washSpec shell
     , paletteSpec shell
@@ -520,6 +525,160 @@ spec = withResource bootFixture dropBootFixture $ \shell ->
     , settingsSpec shell
     , touchSpec shell
     , shellFontSpec shell, assetSpec, embeddedSpec, errorSpec ]
+
+-- | The daemon tails org-glance's WAL; the rationale is AGENTS.hs's store note.
+-- These cases run a REAL watch thread over a real store, so every wait is
+-- bounded and the negative ones are given longer than the debounce.
+walSpec :: TestTree
+walSpec = testGroup "The daemon tails org-glance's WAL"
+  [ testCase "a blob in a fresh shard lands when its record is appended" $
+      withCaptured $ \a _root _blob ->
+        assertEqual "the blob's own parse is what the row says" "Captured"
+          =<< titleServed a capturedId
+
+    -- The delete door: the reload finds the blob gone and drops the row.
+  , testCase "a tombstone line drops the row" $
+      withCaptured $ \a root blob -> do
+        removeFile blob
+        appendWal root (walTombstone capturedId <> "\n")
+        waitFor "the row to go" (not <$> serves a capturedId)
+
+  , testCase "a torn line waits for its newline" $
+      withWalDaemon $ \a root -> do
+        _ <- walBlob root capturedId "Captured"
+        appendWal root (walRecord capturedId)
+        early <- eventually 0.3 (serves a capturedId)
+        assertBool "bytes with no newline behind them are no record yet" (not early)
+        appendWal root "\n"
+        waitFor "the row once the newline lands" (serves a capturedId)
+
+    -- A seal is a rename with a MANIFEST behind it and a fresh empty segment
+    -- after: the open segment goes SHORTER than the cursor, which resets it.
+  , testCase "a seal resets the cursor and the next record still lands" $
+      withCaptured $ \a root _blob -> do
+        sealWal root "seg-0000000001.jsonl"
+        _ <- walBlob root sealedId "After the seal"
+        appendWal root (walRecord sealedId <> "\n")
+        waitFor "the row past the seal" (serves a sealedId)
+        assertBool "and the row the sealed segment named is still served"
+          =<< serves a capturedId
+
+    -- A tree watch arms a new directory without traversing into it, so the
+    -- @meta@ org-glance mints under a running daemon is armed by its own event.
+  , testCase "a meta directory minted after boot is tailed too" $
+      withTempDir $ \dir -> withDaemon dir $ \a root -> do
+        createDirectoryIfMissing True (walMeta root)
+        _ <- walBlob root capturedId "Captured"
+        -- The arming is an event of its own, and an append that beats it lands
+        -- behind the cursor the arming places.  The record names the same blob
+        -- however often it is written.
+        rewriteUntil "the row off a WAL minted under a running daemon"
+                     (appendWal root (walRecord capturedId <> "\n"))
+                     (serves a capturedId)
+
+  , testCase "a store org-glance never touched boots and watches as before" $
+      withTempDir $ \dir -> withDaemon dir $ \a root -> do
+        there <- doesDirectoryExist (walMeta root)
+        assertBool "no WAL to tail" (not there)
+        _ <- orgFile root "plain.org" (entry "plain")
+        waitFor "the file the tree watch heard" (serves a "plain")
+  ]
+
+capturedId, sealedId :: T.Text
+capturedId = "915358af-7c2a-4e0f-9a11-0000000000c1"
+sealedId = "2b0f41d6-5e8b-4a70-8c33-0000000000a2"
+
+-- | A store org-glance has already minted — a @meta@ directory with an empty
+-- open segment in it — under a real watch thread.
+withWalDaemon :: (Application -> FilePath -> Assertion) -> Assertion
+withWalDaemon k = withTempDir $ \dir -> do
+  createDirectoryIfMissing True (walMeta dir)
+  TIO.writeFile (walSegment dir) ""
+  withDaemon dir k
+
+-- | 'withWalDaemon' with 'capturedId' captured into it: the blob in a shard of
+-- its own, silent until the record naming it lands.  K is handed the blob.
+withCaptured :: (Application -> FilePath -> FilePath -> Assertion) -> Assertion
+withCaptured k = withWalDaemon $ \a root -> do
+  blob <- walBlob root capturedId "Captured"
+  early <- eventually 0.3 (serves a capturedId)
+  assertBool "the shard create raises no event of its own" (not early)
+  appendWal root (walRecord capturedId <> "\n")
+  waitFor "the captured row" (serves a capturedId)
+  k a root blob
+
+-- | DIR served with a real watch thread over it, killed when K is done.  The
+-- watch is PROVED LIVE first: 'watchOrgTree' arms the tree on its own thread,
+-- and a write that beats the arming raises no event ever.
+withDaemon :: FilePath -> (Application -> FilePath -> Assertion) -> Assertion
+withDaemon dir k = do
+  _ <- orgFile dir "seed.org" (entry "seed")
+  seen <- segmentEnd (segmentIn dir)  -- the boot cursor, taken as the daemon takes it
+  (a, hub) <- serverOver dir
+  watcher <- forkIO (watchOrgTree defaultWalk dir hub seen)
+  (armed a >> k a dir) `finally` killThread watcher
+  where
+    armed a = rewriteUntil "the watch to arm"
+                           (() <$ orgFile dir "armed.org" (entry "armed"))
+                           (serves a "armed")
+
+-- | WRITE again each round until ASK holds, or fail naming WHAT.  Each round is
+-- given the debounce's own window: a rewrite per poll would never ripen, the
+-- debounce counting from the last write.
+rewriteUntil :: String -> IO () -> IO Bool -> Assertion
+rewriteUntil what write ask = go (20 :: Int)
+  where
+    go 0 = assertFailure ("timed out waiting for " <> what)
+    go n = write >> eventually 0.2 ask >>= \there -> unless there (go (n - 1))
+
+-- | ROOT's open WAL segment, and the @meta@ directory holding it.
+walSegment, walMeta :: FilePath -> FilePath
+walSegment = segmentIn
+walMeta = takeDirectory . segmentIn
+
+-- | IDENT's blob under ROOT under TITLE, the shard arriving as ONE rename.
+-- Built in place it would RACE the tree watch walking down the new directories,
+-- which sometimes reaches the blob before it is written; fsnotify arms a created
+-- directory and never a moved-in one, so the silence these cases measure is a
+-- law rather than a timing.
+walBlob :: FilePath -> T.Text -> T.Text -> IO FilePath
+walBlob root ident title' = withTempDirNamed "walblob" $ \stage -> do
+  createDirectoryIfMissing True (stage </> "shard")
+  TIO.writeFile (stage </> "shard" </> "data.org") (entryAs ident ("TODO " <> title'))
+  createDirectoryIfMissing True (takeDirectory (takeDirectory path))
+  path <$ renameDirectory (stage </> "shard") (takeDirectory path)
+  where path = blobPathIn (storeRootIn root) ident
+
+-- | One record as org-glance appends it.  Only @id@ is read for the row; the
+-- rest is the shape the peer writes.
+walRecord :: T.Text -> T.Text
+walRecord ident =
+  "{\"id\":\"" <> ident <> "\",\"state\":\"TODO\",\"tags\":[],\"hash\":\"h\"}"
+
+walTombstone :: T.Text -> T.Text
+walTombstone ident = "{\"id\":\"" <> ident <> "\",\"tombstone\":true}"
+
+appendWal :: FilePath -> T.Text -> IO ()
+appendWal root = TIO.appendFile (walSegment root)
+
+-- | ROOT's open segment sealed away under NAME, in the peer's own order: the
+-- rename, the MANIFEST that commits it, then a fresh empty segment.
+sealWal :: FilePath -> FilePath -> IO ()
+sealWal root name = do
+  renameFile (walSegment root) (walMeta root </> name)
+  TIO.writeFile (walMeta root </> "MANIFEST")
+                ("{\"version\":2,\"segments\":[\"" <> T.pack name <> "\"]}\n")
+  TIO.writeFile (walSegment root) ""
+
+-- | Does A serve a row for IDENT?
+serves :: Application -> T.Text -> IO Bool
+serves a ident = elem ident . map rowId <$> (rowsOf =<< getFrom a "/headlines")
+
+-- | IDENT's title as A serves it.
+titleServed :: Application -> T.Text -> IO T.Text
+titleServed a ident =
+  cellAt "title" =<< flip rowNamed ident =<< rowsOf =<< getFrom a "/headlines"
+
 
 -- | THE STARTUP DOCTOR RIDES THE VIEW JSON: the daemon caches a verdict before
 -- the routes open, and it reaches a boot over /headlines AND over the set-rows

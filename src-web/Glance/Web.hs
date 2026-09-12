@@ -20,7 +20,8 @@ import System.Exit (die)
 import qualified Data.Text as T
 import qualified Network.Wai.Handler.Warp as Warp
 
-import Glance.Query (IdCollision (..), QueryResult (..), captureTargetIn, diagnose)
+import Glance.Query ( IdCollision (..), QueryResult (..), captureTargetIn, diagnose
+                   , segmentEnd, segmentIn )
 import Glance.Web.Base ( ServeOptions (..), defaultPort, tenths, viewTitleFor
                        , walkFor )
 import Glance.Web.Git (newAutoSync)
@@ -71,6 +72,10 @@ bannerLines mode opts assets =
 -- | Walk and parse OPTS's directory into HUB, then watch it: the watch's first event must land on a store the walk has finished building.
 indexTree :: ServeOptions -> Hub -> Double -> IO ()
 indexTree opts hub started = do
+  -- The WAL tail's cursor is taken BEFORE the walk: a record appended while the
+  -- walk runs is then replayed, and a replayed nudge is a re-parse of a blob the
+  -- walk has already read.  Taken after, it would be a row missed.
+  seen <- segmentEnd (segmentIn (soDir opts))
   store <- loadStoreWith (walkFor opts) (soDir opts)
   loaded <- getMonotonicTime
   let stats = storeResult store
@@ -85,7 +90,7 @@ indexTree opts hub started = do
         <> collisionNote (qrIdCollisions stats)
     , "  capture: " <> captureTargetIn (soDir opts)
     ]
-  watchOrgTree (walkFor opts) (soDir opts) hub
+  watchOrgTree (walkFor opts) (soDir opts) hub seen
 
 -- | Diagnose the freshly loaded STORE under OPTS's walk and cache the verdict on
 -- HUB: the startup scan 'indexTree' runs before the routes open, factored so the

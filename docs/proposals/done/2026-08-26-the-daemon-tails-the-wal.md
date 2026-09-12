@@ -1,8 +1,8 @@
 # Proposal — the daemon tails org-glance's WAL
 
-**Status:** proposed · **Date:** 2026-08-26 · **Origin:** user — *"it should
+**Status:** done · 2026-09-12 · **Date:** 2026-08-26 · **Origin:** user — *"it should
 sync with the main WAL and understand metadata at least"* — over
-`docs/bugs/open/2026-08-26-a-headline-org-glance-creates-is-invisible-until-restart.md`.
+`docs/bugs/fixed/2026-08-26-a-headline-org-glance-creates-is-invisible-until-restart.md`.
 
 ## The law in one line
 
@@ -118,4 +118,61 @@ unless the hash becomes a shared content hash.
 Reconciling `wal=` vs `blob=` drifts (28 on the reporter's tree today) —
 the scan reports them; this proposal only makes the daemon hear the writes.
 
-Inert until reviewed.
+## Landed
+
+2026-09-12, test-first: the `TestServe` cases were written against a real watch
+thread and went red — four of them — before a line of the tail existed.
+
+- **The read law is `Data.Org.Index`'s**, which keeps that module the only
+  reader of `.org-glance/meta` in this repo. `tailedFile` (`Index.hs:167`) is
+  the two names a tail listens to; `tailIds` (`:174`) takes appended bytes to
+  the ids their COMPLETE lines name and the bytes those spend, so a torn tail
+  waits for its newline exactly as `foldSegments` forgives one; `segmentEnd`
+  (`:190`) is the boot seed and `tailFrom` (`:205`) the read. The cursor is
+  `Maybe Place` (`:181-185`) — the file read and the offset into it, both off
+  one `getFdStatus` (`placeOf`, `:198`).
+- **The read takes no GHC handle lock** (`withFd`, `Index.hs:229`): the segment
+  is the peer's file, and a `System.IO` handle would refuse every other handle
+  in this process, which is how the seal case first went red. The same bracket
+  carries `External.appendLine` (`External.hs:112`), whose `O_APPEND` write
+  into the peer's ledger holds the same posture.
+- **The watch** (`Watch.hs:165-213`): ONE `watchTree` over the root, its
+  predicate taking the documents, the WAL's own files and the minting of the
+  directory the WAL lives in, and the callback dispatching — `tailedFile` to
+  `tailWal`, everything else to `nudge`. The tail reads the segment from the
+  cursor and `nudge`s each record's blob path (`blobPathIn`) through the one
+  queue door. `watched` already accepts a blob path, so the existing `reload` →
+  `applyFile` → `publish` carries the row to the socket. Nothing else about the
+  record is read: the blob's parse is the row.
+- **Tests.** `TestServe.hs:530` — six cases over a real temp store with a real
+  watch thread: a blob in a fresh shard landing on its record, a tombstone
+  dropping it, a torn line waiting for its newline, a seal that resets the
+  cursor, a `meta` minted under a daemon already running, and a store with no
+  `meta` booting and watching as before. `TestIndex.hs:364` — seven cases on the
+  read law itself. `AGENTS.hs:2155` retires `[Unguarded]` into `[Test]`.
+
+### Three departures from the mechanism above
+
+- **The seal is carried by the FILE.** Two segments can be the same length, and
+  a rename plus a touch is then invisible to a size comparison — the seal case
+  failed exactly that way. `tailFrom` reads the fd's `(deviceID, fileID)`: a
+  fresh file under the name starts the read over, and the size check stays for
+  a truncation in place.
+- **One watch carries both channels.** `watchTree` on the root already arms
+  `<root>/.org-glance/meta` and delivers `headlines.jsonl` events (measured
+  against fsnotify-0.4.4.0 / hinotify-0.4.2), so the tail rides the tree watch.
+  The second `watchDir` is kept for the one case the tree cannot reach: a `meta`
+  minted AFTER boot, which fsnotify arms without traversing into. That arming
+  rides the directory's own `Added` event (`armWal`, `Watch.hs:194`); the drain
+  loop polls for nothing.
+- **The boot cursor is taken BEFORE the walk** (`Web.hs:78`). A record appended
+  while the walk runs is then replayed rather than missed, and a replayed nudge
+  is a re-parse of a blob the walk already read.
+
+### Not landed
+
+The interop case. `test/interop/` needs Emacs and the peer, and the seed dies
+on an API that never landed
+(`docs/bugs/open/2026-08-20-interop-seed-dies-on-a-peer-api-that-never-landed.md`);
+the case would need a new elisp action nothing here can run. Tracked in
+`docs/tasks.org`.

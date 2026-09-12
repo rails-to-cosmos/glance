@@ -61,6 +61,25 @@ See [[file:bugs/fixed/2026-09-10-a-broken-drawer-gives-a-row-a-path-id-the-other
 refused, so the row, the ledger key and =get-headline= all spell the uuid again;
 =doctor= now lists the idless and the broken-drawer blobs by path.
 
+* DONE The daemon tails org-glance's WAL
+See [[file:proposals/done/2026-08-26-the-daemon-tails-the-wal.md]] and
+[[file:bugs/fixed/2026-08-26-a-headline-org-glance-creates-is-invisible-until-restart.md]].
+The one tree watch takes =.org-glance/meta='s own files beside the documents:
+each record appended to =headlines.jsonl= nudges its blob's path through the one
+queue door, so a headline org-glance captures into a FRESH shard no longer waits
+for a restart.  The cursor carries the file it read and the offset into it, so a
+seal — rename plus touch — starts the read over even when both segments are the
+same length.  A =meta= minted under a running daemon is armed by its own
+directory event, fsnotify arming a new directory without traversing into it.
+
+* TODO An interop case for the WAL tail (needs the peer)
+The proposal's own oracle: org-glance captures into a store the daemon is
+already watching, and =/headlines= grows the row inside a bounded poll.  Left
+out because =test/interop/= needs Emacs and a peer whose seed dies today
+([[file:bugs/open/2026-08-20-interop-seed-dies-on-a-peer-api-that-never-landed.md]]),
+and the case would want a new elisp action beside it.  The Haskell cases under
+=The daemon tails org-glance's WAL= carry the law meanwhile.
+
 * TODO Finish the two-writer relay: a hash on the note, a pending layer in the fold
 See [[file:proposals/draft/2026-09-10-two-writers-one-wal.md]].
 Direct dual append to =headlines.jsonl= is refused (PIPE_BUF, seal ownership,

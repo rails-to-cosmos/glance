@@ -18,7 +18,7 @@ nothing catches it.
 
 - **One door.** Every byte written to the tree leaves through
   `Watch.writeSpans` → `Query.replaceSpans` → `Edit.editFile`; no module calls
-  the splice engine directly. `Watch.hs:68`, `Query.hs:1443`,
+  the splice engine directly. `Watch.hs:87`, `Query.hs:1443`,
   `TestSelfContained.hs:182`. A write that bypasses it skips the drift lock,
   the external ledger note and the watch nudge, so the store diverges from disk
   and org-glance never learns of the write. **The guard sweep filters to
@@ -106,7 +106,7 @@ nothing catches it.
   written, and the commit then refuses on the client's pin. `Routes.hs:407`.
   *fragility: high*
 
-- **`nudge` runs on the success branch only.** `Watch.hs:71`, `Commands.hs:244`,
+- **`nudge` runs on the success branch only.** `Watch.hs:90`, `Commands.hs:244`,
   `TestSpec.hs:804`. Nudging unconditionally costs a re-read per 409; skipping
   it on success leaves the store holding pre-write rows until an inotify event
   that may never come. *fragility: high*
@@ -153,7 +153,7 @@ nothing catches it.
   this server's own signal, so a read whose file has moved runs `Watch.reload`,
   addresses the id again under the fresh digest and answers the file — a second
   drift being a genuine race, which takes the 409. A write takes the 409 the
-  first time and a command refuses the row. `Routes.hs:407`, `Watch.hs:95`,
+  first time and a command refuses the row. `Routes.hs:407`, `Watch.hs:114`,
   `Commands.hs:471`. Letting a write reload would land bytes over a subtree the
   client never saw. *fragility: high*
 
@@ -183,7 +183,7 @@ nothing catches it.
   *fragility: high*
 
 - **The walk and the watch share ONE set of path predicates,** reached through
-  the `Glance.Query` facade. `Query.hs:722`, `Watch.hs:83`, `Walk.hs:243`. A
+  the `Glance.Query` facade. `Query.hs:722`, `Watch.hs:102`, `Walk.hs:243`. A
   second hand-rolled predicate lets a file the walk never loaded arrive by
   inotify, so the store gains rows the next full load deletes. *fragility: high*
 

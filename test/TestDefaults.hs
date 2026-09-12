@@ -16,6 +16,7 @@ module TestDefaults ( assertContains
                     , document
                     , entry
                     , entryAs
+                    , eventually
                     , field
                     , headlinesOf
                     , holdsAll
@@ -50,6 +51,7 @@ module TestDefaults ( assertContains
                     , valueAfter
                     , viewText
                     , textsAt
+                    , waitFor
                     , titled
                     , viewDir
                     , withCategory
@@ -66,6 +68,7 @@ module TestDefaults ( assertContains
                     , withTodo
                     ) where
 
+import Control.Concurrent (threadDelay)
 import Control.Monad (filterM, forM)
 import Control.Exception (IOException, finally, throwIO, try)
 import Data.Aeson (Value (Bool, Null, Number, Object, String), eitherDecodeFileStrict', parseJSON)
@@ -79,6 +82,7 @@ import Data.Org.Walk (findOrgFiles, foundFiles)
 import Data.Text (Text)
 import Data.Time (UTCTime, defaultTimeLocale, parseTimeOrError)
 import Data.Unique (hashUnique, newUnique)
+import GHC.Clock (getMonotonicTime)
 import System.Directory ( createDirectory, createDirectoryIfMissing, doesDirectoryExist
                         , doesFileExist, getTemporaryDirectory, listDirectory
                         , removeDirectoryRecursive )
@@ -226,6 +230,21 @@ withTempDirNamed label act = do
 
 withTempDir :: (FilePath -> IO a) -> IO a
 withTempDir = withTempDirNamed "test"
+
+-- | Poll ASK until it holds or SECONDS run out, and say whether it did.  Every
+-- wait on a live thread here is bounded: a hang is a failure, never a stall.
+eventually :: Double -> IO Bool -> IO Bool
+eventually seconds ask = getMonotonicTime >>= go
+  where
+    go started = do
+      held <- ask
+      elapsed <- subtract started <$> getMonotonicTime
+      if held || elapsed > seconds then pure held
+        else threadDelay 20000 >> go started
+
+-- | ASK must hold inside the window a live thread is given; WHAT names it.
+waitFor :: String -> IO Bool -> Assertion
+waitFor what ask = assertBool ("timed out waiting for " <> what) =<< eventually 3 ask
 
 orgFile :: FilePath -> FilePath -> Text -> IO FilePath
 orgFile dir name text = path <$ TIO.writeFile path text

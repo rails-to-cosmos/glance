@@ -42,7 +42,7 @@ import qualified TextShow as TS
 import Data.Org
 import Data.Org.Config ( ConfigLayers (clSeed), TodoKeywords, loadConfigDirs
                        , seedContext )
-import Data.Org.Blob (metaDirIn, storeRootIn)
+import Data.Org.Blob (metaIn)
 import Data.Org.Edit (ParsedDocument (..), readBytes, readParsed)
 import Data.Org.Index ( BlobEntry (..), IndexDrift (..), blobEntryOf, driftOf
                       , foldSegments, manifestFile, metaDir, openSegment
@@ -401,7 +401,7 @@ blobsOf = reverse . tBlobs
 -- | The meta directories to compare, deduplicated and in the order they were named.  Textual, so a store reached two ways is compared twice.
 storeMetaDirs :: [FilePath] -> [FilePath] -> [FilePath]
 storeMetaDirs roots derived =
-  nub ([ metaDirIn (storeRootIn root) | root <- roots ]
+  nub ([ metaIn root | root <- roots ]
         ++ [ d | d <- derived, takeFileName d == metaDir ])
 
 -- | PATH's bytes, or 'Nothing' when it cannot be read: an index it cannot open is an index it says nothing about.

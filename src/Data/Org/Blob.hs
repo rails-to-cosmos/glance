@@ -2,7 +2,9 @@
 -- | org-glance's blob store from the writing side: the layout and the id.
 module Data.Org.Blob ( blobPathIn
                      , metaDirIn
+                     , metaIn
                      , mintBlobId
+                     , segmentIn
                      , storeRootIn
                      , uuidFrom
                      ) where
@@ -21,7 +23,7 @@ import qualified Crypto.Random.Entropy as Entropy
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 
-import Data.Org.Index (metaDir)
+import Data.Org.Index (metaDir, openSegment)
 import Data.Org.Walk (blobFile, orgGlanceDir, storeDir)
 
 storeRootIn :: FilePath -> FilePath
@@ -39,6 +41,11 @@ blobPathIn store ident = under </> blobFile
 
 metaDirIn :: FilePath -> FilePath
 metaDirIn store = store </> metaDir
+
+-- | ROOT's @.org-glance\/meta@, and the open WAL segment in it.
+metaIn, segmentIn :: FilePath -> FilePath
+metaIn = metaDirIn . storeRootIn
+segmentIn root = metaIn root </> openSegment
 
 -- | A fresh @ORG_GLANCE_ID@: a random version-4 UUID, @org-id-uuid@'s form.
 mintBlobId :: IO Text

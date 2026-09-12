@@ -103,7 +103,7 @@ Two consequences for the design:
   `Watch.hs` already distinguishes its own writes (`writeSpans`). Then N
   local writers collapse to one note stream per host, and a hand edit is
   adopted by the next Emacs pass like a capture. The fresh-shard gap
-  (`docs/bugs/open/2026-08-26-a-headline-org-glance-creates-is-invisible-until-restart.md`)
+  (`docs/bugs/fixed/2026-08-26-a-headline-org-glance-creates-is-invisible-until-restart.md`)
   applies here too and is fixed by the same nudge.
 - **Notes stay local; records travel.** The relay is N→1 per host; git is
   the 1→N between hosts, and only for the WAL. Fixing the tracked
@@ -120,7 +120,7 @@ is the per-file answer.
 - Direct appends to `headlines.jsonl` from the daemon (the four counts
   above).
 - Moving fact computation to the daemon. The WAL's fields are org-glance's;
-  the daemon's truth is the walk (`docs/proposals/proposed/2026-08-26-the-daemon-tails-the-wal.md`,
+  the daemon's truth is the walk (`docs/proposals/done/2026-08-26-the-daemon-tails-the-wal.md`,
   "Why not index FROM the WAL").
 - A backfill of `links`/`relations` on the 5670 pre-field records. It is an
   org-glance task, and after (2) the daemon does not need it.
@@ -138,7 +138,7 @@ is the per-file answer.
 - `src/Data/Org/External.hs:37,75-96`; `src/Data/Org/Index.hs:36-80`
 - `~/sync/stuff/org-glance/src/data/org-glance-graph.el:249-307,866-900,1335-1370`
 - `AGENTS.hs:729-742` (CLAIM 5 emacs-adopts, CLAIM 17)
-- `docs/proposals/proposed/2026-08-26-the-daemon-tails-the-wal.md`, "Why not
+- `docs/proposals/done/2026-08-26-the-daemon-tails-the-wal.md`, "Why not
   index FROM the WAL"
 - Live store 2026-09-10: `meta/EXTERNAL.jsonl` 1597 lines, five of them the
   session's captures, absent from the WAL and counted by `doctor` as

@@ -770,7 +770,7 @@ unmatchedLine :: (Int, Int)
 unmatchedLine = (0, 0)
 watchCallSites :: (Int, Int)
 -- ^ `watchOrgTree' in @src@, and in @test@.
-watchCallSites = (1, 0)
+watchCallSites = (1, 1)
 suiteSizes :: (Int, Int)
 -- ^ the Haskell suite when the severing was run, and today: green either way.
 suiteSizes = (1857, 1867)
@@ -922,7 +922,9 @@ scanNotes =
   , Note "Host Emacs is the default." [Interop]
   , Note "The skip names which of four is missing." [Interop]
   , Note "The hole is asserted as it is today." [Interop]
-  , Note "`watchOrgTree' is covered by nothing in test/." [Interop]
+  , Note "`watchOrgTree' was covered by nothing in test/ until the WAL tail landed; the five \
+         \cases under `The daemon tails org-glance''s WAL' run a real watch thread over a real \
+         \temp store, so the inotify leg is now red where it once was silent." [Test]
   -- The doctor at startup: the same scan, cached for the wire.
   , Note "THE DAEMON RUNS THE DOCTOR AT STARTUP: after the store loads and BEFORE \
          \`finishLoading' opens the routes, `diagnose' caches a `Doctor' on the hub — \
@@ -2150,7 +2152,19 @@ storeNotes =
   , Note "A config reseed BLOCKS the drain loop, so the 100 ms debounce means 100 ms or a full re-walk." [Docs]
   , Note "reseed builds the fresh store OUTSIDE the transaction and installs it wholesale; make the loop concurrent and any edit that landed during the walk is silently reverted." [Comment]
   , Note "fsnotify arms a newly created directory and does not traverse into it, so a blob under a fresh shard raises no event ever — which is what every write's nudge buys." [Test]
-  , Note "KNOWN GAP: an EXTERNAL create into a fresh shard is invisible until a restart." [Unguarded]
+  , Note "AN EXTERNAL CREATE INTO A FRESH SHARD ARRIVES BY THE WAL: the one tree watch takes \
+         \`.org-glance/meta''s own files beside the documents, and reads the open segment from \
+         \a byte cursor taken BEFORE the walk — a record appended while the walk runs is then \
+         \replayed, which an idempotent nudge can afford, where a cursor taken after would miss \
+         \it. Each appended record's blob path goes through the one queue door, a tombstone \
+         \line too, the reload finding the blob gone. A `meta' minted under a daemon already \
+         \running is armed by its own directory event, fsnotify arming a new directory without \
+         \traversing into it. A torn tail waits for its newline (`Data.Org.Index''s own policy) \
+         \and a SEALED segment — a fresh file under the name, or one shorter than the offset — \
+         \starts the read over at 0. The read takes NO GHC HANDLE LOCK: the segment is the \
+         \peer's file. No field of a record is read for the row; the blob's parse is the truth. \
+         \The tail covers the SERVED ROOT'S STORE ALONE: a nested store the walk declined \
+         \(`storeMetaDirs' knows them) is drift-reported and never tailed." [Test]
   , Note "Nothing loads or publishes at the nudge door; settle stays the sole store updater." [Comment]
   , Note "stDirErrs and stPrint are written by the load alone, so a directory that becomes readable is invisible until a reseed or a restart." [Unguarded]
   , Note "Two headlines of ONE file sharing an id keep the FIRST on both sides — a file does not outrank itself — the per-file tag projection never sees the duplicate, and X-Glance-Id-Collisions reports one whose kept and dropped paths are the same file." [Test]

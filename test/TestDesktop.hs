@@ -17,7 +17,7 @@ import System.IO (IOMode (WriteMode), hClose, hFlush, stdout, withFile)
 import System.Process (CreateProcess (env), proc, readCreateProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup, withResource)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
-import TestDefaults (withGlanceBinary, withTempDir)
+import TestDefaults (waitFor, withGlanceBinary, withTempDir)
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -176,7 +176,7 @@ capturedStdout lock path act = do
 -- | PATH's contents once something has written it.  The browser is spawned and
 -- not waited on, so the test does the waiting the launcher refuses to.
 waitForFile :: FilePath -> IO T.Text
-waitForFile path = waitUntil ("the file " <> path) (doesFileExist path) >> TIO.readFile path
+waitForFile path = waitFor ("the file " <> path) (doesFileExist path) >> TIO.readFile path
 
 
 dryRunSpec :: TestTree
@@ -331,23 +331,23 @@ flowSpec = testGroup "The window in front of the daemon"
   , testCase "closing the window stops the daemon" $
       session $ \log' held stopped -> do
         runNative (fakeDaemon log' held stopped) (window log') False url
-        waitUntil "the daemon to stop" (readIORef stopped)
+        waitFor "the daemon to stop" (readIORef stopped)
 
   , testCase "--keep-serving leaves the daemon running past the window" $
       session $ \log' held stopped -> do
         _ <- forkIO (runNative (fakeDaemon log' held stopped) (window log') True url)
-        waitUntil "the window to close" (opened log')
+        waitFor "the window to close" (opened log')
         left <- stillServing stopped
         assertBool "the window took the daemon with it anyway" left
         putMVar held ()
-        waitUntil "the daemon to stop when it is the daemon that stops"
+        waitFor "the daemon to stop when it is the daemon that stops"
                   (readIORef stopped)
 
   , testCase "a window that never opened leaves the daemon serving" $
       session $ \log' held stopped -> do
         let broken _at = throwIO (userError "no display")
         _ <- forkIO (runNative (fakeDaemon log' held stopped) broken False url)
-        waitUntil "the daemon to listen" (elem "listening" <$> readIORef log')
+        waitFor "the daemon to listen" (elem "listening" <$> readIORef log')
         -- A window that failed to build has never taken this daemon down.
         left <- stillServing stopped
         assertBool "a window that failed stopped the daemon" left
@@ -382,16 +382,6 @@ note log' line = atomicModifyIORef' log' (\ls -> (ls <> [line], ()))
 
 opened :: IORef [String] -> IO Bool
 opened log' = any ("window on " `isInfixOf`) <$> readIORef log'
-
--- | Wait for CHECK, or fail after two seconds naming WHAT.  Three threads hand
--- off here and none is asked to announce that it is finished.
-waitUntil :: String -> IO Bool -> IO ()
-waitUntil what check = go (200 :: Int)
-  where
-    go 0 = assertFailure ("timed out waiting for " <> what)
-    go n = do
-      ok <- check
-      if ok then pure () else threadDelay 10000 >> go (n - 1)
 
 stillServing :: IORef Bool -> IO Bool
 stillServing stopped = threadDelay 200000 >> (not <$> readIORef stopped)

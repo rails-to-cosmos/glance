@@ -1,8 +1,8 @@
 # Bug — a headline org-glance creates is invisible until the daemon restarts
 
-**Status:** open · **Reported:** 2026-08-26 (live use: a headline captured in
-Emacs, `~/sync/views/.org-glance/data/91/5358af-…/data.org`, absent from a
-daemon up since the day before) · **Surface:** the file watch; every row
+**Status:** fixed · 2026-09-12 · **Reported:** 2026-08-26 (live use: a headline
+captured in Emacs, `~/sync/views/.org-glance/data/91/5358af-…/data.org`, absent
+from a daemon up since the day before) · **Surface:** the file watch; every row
 org-glance mints into a fresh shard
 
 ## The symptom
@@ -41,8 +41,33 @@ the `wal=` side of `glance scan`'s drift report) — only once, in the CLI,
 never in the daemon. It is the exact mirror of `meta/EXTERNAL.jsonl`, which
 glance appends and org-glance polls.
 
-## The fix
+## Fix
 
-`docs/proposals/proposed/2026-08-26-the-daemon-tails-the-wal.md`: the daemon
-tails the open segment and nudges each appended record's blob path through
-the same door its own writes use.
+The daemon tails the open segment and nudges each appended record's blob path
+through the same door its own writes use —
+`docs/proposals/done/2026-08-26-the-daemon-tails-the-wal.md`.
+
+The tree's own `watchTree` takes the open segment and the `MANIFEST` beside the
+documents, and the callback routes them to the tail (`Watch.hs:165-213`). A
+cursor carries the file it read and how far in (`Maybe Place`,
+`Index.hs:181-185`), seeded to the segment's end BEFORE the walk starts
+(`Web.hs:78`) — the walk sees every blob behind it, and a record appended while
+it runs replays rather than being missed. Each event reads from the cursor,
+keeps only COMPLETE lines — a torn tail waits for its newline,
+`Data.Org.Index`'s own policy — and nudges each record's blob path; a sealed
+segment (a fresh file under the name, or one shorter than the offset) starts the
+read over at 0. A `meta` minted under a running daemon is armed by its own
+directory event (`armWal`, `Watch.hs:194`), fsnotify arming a new directory
+without traversing into it. A tombstone line rides the same way: the reload
+finds the blob gone and drops the row. No field of a record is read for the row
+— the blob's parse is the truth — and no byte the daemon writes into user data
+changed.
+
+## Reproduce
+
+`TestServe.hs:530`, six cases over a real temp store with a real watch thread:
+*"a blob in a fresh shard lands when its record is appended"* (red before the
+fix, along with the tombstone, torn-line and seal cases; the store with no
+`meta` at all was green throughout and stayed so, and the `meta` minted after
+boot came with the second watch). The read law itself is `TestIndex.hs:364`.
+`AGENTS.hs:2155` retires the `[Unguarded]` gap into a `[Test]` law.

@@ -206,6 +206,11 @@ module Glance.Query ( BlobSeed (..)
                     , sortedForViewWith
                     , sortedTagsCell
                     , storeRootIn
+                    , segmentEnd
+                    , segmentIn
+                    , TailCursor
+                    , tailFrom
+                    , tailedFile
                     , trashBlob
                     , trashDirIn
                     , trashPathFor
@@ -286,7 +291,8 @@ import Data.Org.Config ( ConfigLayerFile (..), ConfigLayers (..), TodoKeywords (
 import Data.Org.Doctor ( Doctor (..), cleanDoctor, corpusDoctor, doctorClean
                        , doctorJSON, doctorWarnings, scanCorpus )
 import Data.Org.External (Completion (..), noteCompletion)
-import Data.Org.Blob (blobPathIn, mintBlobId, storeRootIn, uuidFrom)
+import Data.Org.Index (TailCursor, segmentEnd, tailFrom, tailedFile)
+import Data.Org.Blob (blobPathIn, mintBlobId, segmentIn, storeRootIn, uuidFrom)
 import Data.Org.Trash (trashBlob, trashDirIn, trashPathFor)
 import Data.Org.Walk ( Found (..), LoadFailure (..), WalkOptions (..), claimById
                      , defaultWalk, findOrgFilesWith, isConfig, isDerived, isDocument

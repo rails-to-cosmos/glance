@@ -5,8 +5,8 @@ module TestIndex (spec) where
 
 import Control.Monad (filterM)
 import Data.Text (Text)
-import System.Directory (createDirectoryIfMissing, doesFileExist)
-import System.FilePath ((</>))
+import System.Directory (createDirectoryIfMissing, doesFileExist, renameFile)
+import System.FilePath (takeDirectory, (</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
 import TestDefaults (withTempDirNamed)
@@ -19,7 +19,8 @@ import qualified Data.Text.IO as TIO
 import Data.Org.Doctor (Corpus (..), Totals (..), scanCorpus)
 import Data.Org.Index ( BlobEntry (..), IndexDrift (..), IndexFold (..)
                       , IndexRecord (..), blobEntryOf, driftOf, foldSegments
-                      , indexReportLines, manifestFile, openSegment, segmentNames )
+                      , indexReportLines, manifestFile, openSegment, segmentEnd
+                      , segmentNames, tailFrom, tailIds, tailedFile )
 import Data.Org.Walk (defaultWalk)
 
 
@@ -358,5 +359,66 @@ reportSpec = testGroup "The scan's index report"
       assertBool (T.unpack label <> " row missing " <> T.unpack want <> " in " <> show ls)
                  (any (\l -> label `T.isInfixOf` l && want `T.isInfixOf` l) ls)
 
+-- | What the daemon's tail reads off bytes appended to the open segment: the
+-- ids it hands the queue, and how many bytes it may then step over.
+tailSpec :: TestTree
+tailSpec = testGroup "Tailing the open segment"
+  [ testCase "every complete line names its id, tombstones with the rest" $ do
+      let ls = [record "a" "TODO", tombstone "b"]
+          (idents, spent) = tailIds (bytes ls)
+      assertEqual "ids" ["a", "b"] idents
+      assertEqual "the whole of it is spent" (BC.length (bytes ls)) spent
+
+    -- The one forgivable failure is a crash that cut the last append.  A tail
+    -- WAITS on it instead: the bytes are still owed their newline.
+  , testCase "a torn tail is left for the next read" $ do
+      let ls = [record "a" "TODO"]
+          torn = bytes ls <> BC.pack (T.unpack (record "b" "TODO"))
+      assertEqual "the complete line alone" ["a"] (fst (tailIds torn))
+      assertEqual "and the torn one is not stepped over"
+                  (BC.length (bytes ls)) (snd (tailIds torn))
+
+  , testCase "bytes with no newline in them at all name nothing and spend nothing" $
+      assertEqual "nothing" ([], 0) (tailIds (BC.pack (T.unpack (record "a" "TODO"))))
+
+  , testCase "a line no record reads out of names no id and is stepped over" $ do
+      let ls = ["{oops", record "a" "TODO"]
+          (idents, spent) = tailIds (bytes ls)
+      assertEqual "ids" ["a"] idents
+      assertEqual "both lines spent" (BC.length (bytes ls)) spent
+
+  , testCase "only what is past the cursor is read, and it is read once" $
+      withSegment $ \seg -> do
+        TIO.writeFile seg (T.unlines [record "a" "TODO"])
+        (first, at1) <- tailFrom seg Nothing
+        assertEqual "the line" ["a"] first
+        assertEqual "and the cursor stands at the segment's end" at1 =<< segmentEnd seg
+        assertEqual "and nothing is owed twice" [] . fst =<< tailFrom seg at1
+        TIO.appendFile seg (T.unlines [record "b" "TODO"])
+        assertEqual "the append alone" ["b"] . fst =<< tailFrom seg at1
+
+    -- Two segments may be the same LENGTH, so the size cannot carry the seal:
+    -- a fresh file under the name is what starts the read over.
+  , testCase "a segment sealed away and reopened at the same size starts over" $
+      withSegment $ \seg -> do
+        TIO.writeFile seg (T.unlines [record "a" "TODO"])
+        (_first, at1) <- tailFrom seg Nothing
+        renameFile seg (takeDirectory seg </> "seg-0000000001.jsonl")
+        TIO.writeFile seg (T.unlines [record "b" "TODO"])
+        assertEqual "the new file whole" ["b"] . fst =<< tailFrom seg at1
+
+  , testCase "the two files a tail listens to, and no other" $ do
+      assertBool "the open segment" (tailedFile ("/s/.org-glance/meta" </> openSegment))
+      assertBool "the MANIFEST" (tailedFile ("/s/.org-glance/meta" </> manifestFile))
+      assertBool "a sealed segment is folded at boot, never tailed"
+                 (not (tailedFile "/s/.org-glance/meta/seg-0000000001.jsonl"))
+      assertBool "and the notes this daemon writes are its own"
+                 (not (tailedFile "/s/.org-glance/meta/EXTERNAL.jsonl"))
+  ]
+  where
+    bytes ls = BC.pack (T.unpack (T.unlines ls))
+    withSegment k = withTempDirNamed "index" (k . (</> openSegment))
+
+
 spec :: TestTree
-spec = testGroup "Index" [foldSpec, driftSpec, blobSpec, reportSpec]
+spec = testGroup "Index" [foldSpec, tailSpec, driftSpec, blobSpec, reportSpec]
