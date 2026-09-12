@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · in place over the cell</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* B — IN PLACE OVER THE CELL.  The same box given the cell's own top, left
+     and height, so the field stands exactly where the value it replaces stood
+     and the ghost keeps running right, over the neighbour, as a floating tail.
+
+       │ [18 aug  → <2026-08-18 Tue>] │  ← the box IS the cell, and then some
+       ├──────────────┬───────────────┤
+       │ 18 august    │ <2026-08-18 …>│  ← the offers, below, as always
+
+     ITS CLAIM.  The 2026-08-23 spike's D, read literally into a table: the
+     widget stands in the value's own slot and the resolution rides after it.
+     Nothing moves, nothing is borrowed, and the reader's eye never leaves the
+     cell it is editing.
+
+     WHAT IT COSTS.  The value it is about is UNDER the box rather than above
+     it, and the tail covers the neighbour's own value for the edit's duration.
+     Compare with `f' first: over DEADLINE the tail runs into Tags. */
+</style>
+</head>
+<body>
+  <h1>B · in place over the cell
+    <small>the box covers the cell, the ghost runs on over the neighbour</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <span id="cdmeasure"></span>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> a row ·
+      <kbd>f</kbd><kbd>b</kbd> (<kbd>l</kbd><kbd>h</kbd>, arrows) SCHEDULED &#8646; DEADLINE ·
+      <kbd>RET</kbd> opens the cell · <kbd>C-c C-s</kbd>/<kbd>C-c C-d</kbd> open it over the row ·
+      type <code>18 aug</code>, <code>+3d</code>, <code>from 18 to 19 aug</code> ·
+      <kbd>&lt;down&gt;</kbd><kbd>&lt;up&gt;</kbd> walk the offers ·
+      <kbd>TAB</kbd> takes one ·
+      <kbd>S-&lt;left&gt;</kbd><kbd>S-&lt;right&gt;</kbd> a day ·
+      <kbd>S-&lt;up&gt;</kbd><kbd>S-&lt;down&gt;</kbd> a week ·
+      <kbd>RET</kbd> sets it · empty <kbd>RET</kbd> clears it · <kbd>ESC</kbd> leaves ·
+      <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="wire"></span>
+    <span id="align"></span>
+  </footer>
+
+<script src="dates.js"></script>
+<script src="rig.js"></script>
+<script>RIG.mount({ look: { place: "over", surface: "table", dress: "cell" } });</script>
+</body>
+</html>

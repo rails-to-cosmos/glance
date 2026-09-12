@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0 · the pane, as shipped</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* 0 — THE REFERENCE, AND IT IS NOT A PROPOSAL.  This is the date widget where
+     it already lives: over the planning line of the material document, placed by
+     `placeEdit''s `tight' branch (`frontend/glue/20-sheet.js:530').
+
+       SCHEDULED: [ 18 aug  → <2026-08-18 Tue>          ] DEADLINE: <…>
+                  └ the box starts at the VALUE'S left edge and runs to the
+                    end of the line's own block, covering the entry beside it
+
+     WHY IT IS TAB ZERO.  Every other tab is the same box over a different rect,
+     so the question "is this still the document's widget?" has to have an answer
+     on screen to be asked at all.  Read this tab first; read every other tab
+     against it. */
+</style>
+</head>
+<body>
+  <h1>0 · the pane, as shipped
+    <small>the box over the planning line — the reference every other tab is read against</small></h1>
+  <div id="stage">
+    <div id="mdoc" class="on"><div id="dlist"></div></div>
+  </div>
+  <span id="cdmeasure"></span>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> a line ·
+      <kbd>f</kbd><kbd>b</kbd> (<kbd>l</kbd><kbd>h</kbd>, arrows) SCHEDULED ⇄ DEADLINE ·
+      <kbd>RET</kbd> opens the entry · <kbd>C-c C-s</kbd>/<kbd>C-c C-d</kbd> summon ·
+      type <code>18 aug</code>, <code>+3d</code>, <code>from 18 to 19 aug</code> ·
+      <kbd>&lt;down&gt;</kbd><kbd>&lt;up&gt;</kbd> walk the offers ·
+      <kbd>TAB</kbd> takes one ·
+      <kbd>S-&lt;left&gt;</kbd><kbd>S-&lt;right&gt;</kbd> a day ·
+      <kbd>S-&lt;up&gt;</kbd><kbd>S-&lt;down&gt;</kbd> a week ·
+      <kbd>RET</kbd> sets it · empty <kbd>RET</kbd> clears it · <kbd>ESC</kbd> leaves ·
+      <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="wire"></span>
+    <span id="align"></span>
+  </footer>
+
+<script src="dates.js"></script>
+<script src="rig.js"></script>
+<script>RIG.mount({ look: { place: "pane", surface: "pane", dress: "" } });</script>
+</body>
+</html>

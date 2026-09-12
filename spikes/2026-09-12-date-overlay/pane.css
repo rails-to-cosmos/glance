@@ -1,0 +1,365 @@
+/* The surfaces every variant of this spike draws into, carried over from
+   `spikes/2026-09-12-capture-in-table/pane.css' — which lifted them from
+   `Theme/Default.hs', `assets/table-view.js' and `assets/page.css' — so the
+   date cell is judged at the real hues and the real metrics: the 12px/1.5 row,
+   the 5px/12px cell padding, `.tv-cell-edit''s accent outline, the omnibox bar,
+   the pill's 15% wash.
+
+   THE HALF THIS SPIKE REPLACED.  The 2026-09-12-date-cell spike's own tail —
+   the in-cell ghost, the lent neighbour, the strip under the row — is gone, and
+   in its place stands the SHIPPED WIDGET, rule for rule out of `assets/page.css'
+   with the line beside each: `#ddate' (`:739', `:747', `:775'), its field
+   (`:846', `:860', `:946', `:951'), its ghost `.dgh' (`:866') and its offers
+   `#dwoffer' / `.dof' / `.dot' (`:795', `:809', `:813', `:828').  A variant adds
+   its own `<style>' after this and overrides nothing here — what differs between
+   five tabs is WHERE THE BOX IS ANCHORED, never what the widget is. */
+
+:root{
+  --dk-mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+  --g-bg:#FFFFFF; --g-fg:#000000; --g-surface:#F8F8FF; --g-mute:#667071;
+  --g-border:#E3E6EA; --g-accent:#31769F; --g-sel:#FFD600; --g-link:#30739B;
+  --g-bad:#E74C3C; --g-warn:#FFA500; --g-ok:#27AE60;
+  --g-point:#005A8D; --g-point-dim:#6E8CA0; --g-point-off:#D9E2EC;
+  --g-todo:#9A3412; --g-done:#166534; --g-hover:#FAFAFA;
+  --g-veil:#00000066; --g-shadow:#00000033;
+  /* `pPriority' (`Theme/Default.hs:41'), A B C in turn. */
+  --g-prio-a:#B91C1C; --g-prio-b:#A16207; --g-prio-c:#15803D;
+  --tv-flag:#E74C3C; --tv-mark-wash:8%; --tv-pill-pad:8px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+    --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+    --g-point:#FFC777; --g-point-dim:#A79E86; --g-point-off:#2B4B6E;
+    --g-todo:#E0AF68; --g-done:#9ECE6A; --g-hover:#1F1F1F; --g-ok:#B6E63E;
+    --g-prio-a:#E74C3C; --g-prio-b:#FFCC00; --g-prio-c:#27AE60;
+    --g-veil:#00000099; --g-shadow:#00000077;
+    --tv-mark-wash:30%;
+  }
+}
+:root[data-theme="dark"]{
+  --g-bg:#000000; --g-fg:#FFFFFF; --g-surface:#21252B; --g-mute:#A4C2EB;
+  --g-border:#2A2D3D; --g-accent:#4CB5F5; --g-sel:#373D4F; --g-link:#7CC9F8;
+  --g-point:#FFC777; --g-point-dim:#A79E86; --g-point-off:#2B4B6E;
+  --g-todo:#E0AF68; --g-done:#9ECE6A; --g-hover:#1F1F1F; --g-ok:#B6E63E;
+  --g-prio-a:#E74C3C; --g-prio-b:#FFCC00; --g-prio-c:#27AE60;
+  --g-veil:#00000099; --g-shadow:#00000077;
+  --tv-mark-wash:30%;
+}
+/* THE TABLE SPENDS THE PAGE'S OWN TOKENS under its own names (`Theme.hs'), which
+   is why the table's cursor and the page's selection are one gold. */
+:root{
+  --tv-bg:var(--g-bg); --tv-fg:var(--g-fg); --tv-muted:var(--g-mute);
+  --tv-border:var(--g-border); --tv-accent:var(--g-accent);
+  --tv-alt:var(--g-surface); --tv-sel:var(--g-sel);
+}
+
+html,body{height:100%}
+body{
+  margin:0; background:var(--g-bg); color:var(--g-fg);
+  font:12px/1.5 var(--dk-mono);
+  display:flex; flex-direction:column; gap:8px; padding:12px;
+  box-sizing:border-box;
+}
+h1{
+  margin:0; font-size:12px; font-weight:600; flex:none;
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+}
+h1 small{font-weight:400; color:var(--g-mute)}
+kbd{
+  font:inherit; border:1px solid var(--g-border); border-radius:3px;
+  padding:0 3px; color:var(--g-mute);
+}
+/* THREE LINES AND NO MORE: the keys, then what the rig did, then what the
+   standing filter is for.  Each takes a whole row of its own or the three
+   interleave into an unreadable ribbon. */
+footer{
+  flex:none; color:var(--g-mute); font-size:11px;
+  display:flex; flex-wrap:wrap; gap:4px 14px; align-items:baseline;
+}
+footer .keys,#says{flex:1 0 100%; min-width:0}
+#truth,#state,#align{min-width:0; overflow-wrap:anywhere}
+#truth{color:var(--g-fg)}
+#state{color:var(--g-point)}
+#says{color:var(--g-point-dim)}
+#stage{
+  flex:1 1 auto; min-height:0; position:relative;
+  display:flex; flex-direction:column; gap:8px;
+}
+
+/* ---- the shell the table lives in --------------------------------------- */
+#frame{
+  flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+  border:1px solid var(--g-border); border-radius:8px; background:var(--g-bg);
+  overflow:hidden;
+}
+
+/* ---- the omnibox and its chip strip (`table-view.js:1209', `:1257') ------ */
+.tv-bar{
+  display:flex; align-items:center; gap:8px; padding:10px 12px;
+  border-bottom:1px solid var(--tv-border); flex-wrap:wrap;
+}
+.tv-filter{
+  font:inherit; flex:1 1 auto; font-size:15px; padding:7px 11px;
+  border:1px solid var(--tv-border); border-radius:6px;
+  background:var(--tv-bg); color:var(--tv-fg); min-width:140px;
+}
+.tv-chips{
+  display:flex; flex-wrap:wrap; gap:5px; align-items:center;
+  padding:8px 12px; border-bottom:1px solid var(--tv-border);
+}
+.tv-chip{
+  display:inline-flex; align-items:center; gap:5px;
+  padding:1px 8px; border-radius:999px; font-size:12px;
+  color:var(--tv-fg); border:1px solid var(--tv-border);
+  background:var(--tv-alt);
+}
+/* A TOKEN THE DRAFT TAKES SOMETHING FROM wears the accent, and one that lends
+   nothing stays plain — the seeding rule, read off the strip. */
+.tv-chip.cx-lends{border-color:var(--g-accent); color:var(--g-accent)}
+.tv-chip.cx-mute{color:var(--tv-muted); background:transparent}
+.cx-lendmark{font-size:10px; opacity:.8}
+
+/* ---- the row strip, verbatim (`table-view.js:1620'ff) ------------------- */
+#tablewrap{flex:1 1 auto; min-height:0; overflow:auto}
+.tv-table{border-collapse:collapse; width:100%; table-layout:fixed}
+.tv-table th,.tv-table td{
+  padding:5px 12px; text-align:left; white-space:nowrap;
+  border-bottom:1px solid var(--tv-border);
+  overflow:hidden; text-overflow:ellipsis;
+}
+.tv-table td:empty::after{content:"\200B"}
+.tv-table th{
+  position:sticky; top:0; background:var(--tv-bg); font-weight:600;
+  color:var(--tv-muted); user-select:none; z-index:1;
+}
+.tv-table tbody tr.tv-alt{background:var(--tv-alt)}
+.tv-table tbody tr.tv-sel{background:var(--tv-sel)}
+.tv-pill{
+  display:inline-block; padding:0 var(--tv-pill-pad); border-radius:999px;
+  font-weight:600; color:var(--tv-badge);
+  background:color-mix(in srgb,var(--tv-badge) 15%,transparent);
+}
+.tv-tag{color:var(--g-mute); text-transform:lowercase}
+.tv-date{color:var(--g-fg); font-variant-numeric:tabular-nums}
+
+/* THE IN-CELL EDITOR, verbatim (`table-view.js:1263'): the accent outline is
+   the one sign it is an input and not the drawn value. */
+.tv-cell-edit{
+  font:inherit; box-sizing:border-box; width:100%; padding:0; margin:0;
+  border:none; outline:2px solid var(--tv-accent); outline-offset:-2px;
+  background:var(--tv-bg); color:var(--tv-fg);
+}
+
+
+/* ---- the date column, measured (carried from 2026-09-12-date-cell) ------ */
+/* THE COLUMN'S OWN MEASURE, transcribed from `colWidths' / `applyWidths'
+   (`table-view.js:2988', `:3050'): a sized column is `calc(Nch + GROUNDpx)',
+   N the widest CELL in characters and GROUND the cell padding both sides
+   (`CELL_PAD = 24', `:1062').  A date cell draws `isoStamp' — `2026-09-15',
+   TEN characters (`Glance/Query.hs:1342') — and a column in the sort chain
+   carries its header's mark besides (`▲¹', two glyphs and a space: `:3004').
+   So a SORTED date column is `calc(13ch + 24px)', which at this rig's face is
+   the 118px both spikes argue about. */
+:root{ --cd-date-col:calc(13ch + 24px); }
+.cd-date{color:var(--g-fg); font-variant-numeric:tabular-nums}
+/* THE CELL CURSOR.  The shipped table's cursor is a ROW (`.tv-sel'); a date
+   cell has to be reachable, so this rig adds a cell within it — the one thing
+   here the app does not have, and a seam the recommendation names. */
+.cd-at{box-shadow:inset 0 0 0 1px var(--g-point)}
+.tv-arrow{color:var(--g-point); font-size:10px}
+
+
+
+/* ========================================================================= */
+/* THE DOC PANE, so tab 0 is the REFERENCE AND NOT A DRAWING OF ONE.  The doc
+   geometry is `assets/page.css:5'-`:9' and the pane `:250'; the planning row is
+   `.de' (`:281'), its cursor ground `:310', the `.tight' lift `:803', and the
+   value's own slot `.dpv' (`:897') — which is the rect `placeEdit' anchors the
+   widget to in the shipped app (`dPlanAt', `20-sheet.js:784'). */
+:root{
+  --g-doc-pad:6px; --g-doc-padx:10px; --g-doc-pady:8px;
+  --g-doc-fs:13px; --g-doc-lh:21px;
+}
+#mdoc{
+  flex:1 1 auto; min-width:0; min-height:0; position:relative; overflow:auto;
+  padding:var(--g-doc-pady) var(--g-doc-padx);
+  /* THE TREE HAS A COLUMN OF ITS OWN, and the text never enters it. */
+  padding-left:calc(var(--g-doc-padx) + 1ch);
+  font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+  border:1px solid var(--g-border); border-radius:8px;
+  background:var(--g-bg);
+}
+#mdoc.on{border-color:var(--g-accent)}
+.de{
+  position:relative;
+  --fg:var(--g-fg); --tok:var(--g-point); --punc:var(--g-mute);
+  padding:1px var(--g-doc-pad); border-radius:4px;
+  /* NO WRAP: a wrapped continuation runs back under the block spine. */
+  white-space:pre; overflow:hidden; text-overflow:ellipsis;
+}
+.dp{position:relative}
+.dm{color:var(--g-point-off)}
+.dtitle{color:var(--fg)}
+.dstate{color:var(--g-todo); font-weight:600}
+/* Cursor ground is `--g-sel' (`page.css:310'), and the row LIFTS it while a box
+   stands over the row — two golds, one token (`:803'). */
+#mdoc.on .de.dat{background-color:var(--g-sel); color:var(--g-fg)}
+#mdoc.on.tight .de.dat{background-color:transparent}
+.dk{color:var(--tok)}
+.dpunc{color:var(--punc)}
+.dpunc.dlead{margin-left:-1ch}
+/* The value's own slot the widget is laid over: inline-block so its box is a
+   full line, with a zero-width space where an empty inline box would have no
+   height for `placeEdit' to measure (`page.css:897'). */
+.dpv{display:inline-block; line-height:var(--g-doc-lh)}
+.dpv:empty::before{content:"\200B"}
+#mdoc.on .de.dat:has(> .dp > .dpv.dat){background-color:transparent}
+#mdoc.on .dpv.dat{background-color:var(--g-sel); color:var(--g-fg)}
+
+/* ========================================================================= */
+/* THE WIDGET, VERBATIM.  Every rule below is `assets/page.css' AS THE WORKING
+   TREE HOLDS IT, with its line beside it and nothing else.  THIS IS THE WHOLE
+   OF WHAT TABS 0, A AND B REUSE — the box, its ground, its face, its field, its
+   ghost and its offers — and the only thing any of them writes is `top',
+   `left', `width', `height' and `min-width', which is what `placeEdit' writes
+   in the app too (`20-sheet.js:497').
+
+   THE BOX HANGS AT THE PAGE'S ROOT AND IS PLACED AGAINST THE VIEWPORT.  That is
+   not this rig's idea: `#ddate' is `position:fixed' in the tree (`page.css:752')
+   because the sheet is `display:none' while a table is up, and `placeEdit'
+   measures a `fixed' box against `viewRect()' (`20-sheet.js:495').  Every clip
+   argument below follows from it — the table's own `overflow:hidden'
+   (`.tv-root', table-view.js:1169) never touches this box, and the viewport's
+   four edges are the only walls there are. */
+#ddate{
+  display:none;                                             /* `page.css:752' */
+  position:fixed;
+  z-index:102;              /* clears the veiled surfaces (100) and boxes (101) */
+  background:var(--g-surface);                              /* `:747' */
+  /* THE DOCUMENT'S OWN FACE, carried rather than inherited: the box is the
+     document's box wherever it stands.  The app spells the stack
+     `"Hack", var(--glance-mono)'; this rig has one mono stack and spends it. */
+  font:var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+  box-sizing:border-box;
+}
+#ddate.on{display:flex; align-items:center}                 /* `:793' */
+/* OVER A TABLE CELL the box is its own thing rather than a slot it fills: it
+   hangs under the cell, so it owes an edge and a shadow to be read as standing
+   above the rows (`page.css:762').  THE PANE'S BOX WEARS NONE OF THIS — over a
+   planning line the row's own wash lifts instead (`:803'), which is the one
+   place the two surfaces genuinely differ. */
+#ddate.cell{
+  padding:0 var(--g-doc-pad);
+  border:1px solid var(--g-accent);
+  border-radius:4px;
+  box-shadow:0 4px 14px var(--g-shadow);
+}
+/* One dress for the pane's own fields — the document's face, since each is laid
+   over the row it writes; the flex is each field's own (`:864'). */
+#ddate input{
+  font:inherit; padding:0; border:none; background:transparent;
+  color:var(--g-fg); min-width:0;
+}
+/* No width or floor here: `drawGhost' writes the `ch' width per keystroke, and
+   keeps the two-cell floor an empty field wants (`:877'). */
+#dwhen::placeholder{color:var(--g-mute); opacity:1}
+#ddate input:focus{outline:none; border:none}                /* `:964' */
+#ddate input::selection{background:var(--g-sel); color:var(--g-fg)}   /* `:969' */
+/* The ghost: the resolution riding after what was typed — mute where it
+   resolves, `--g-bad' where the grammar refuses; a SPAN, never the field's
+   value, so nothing selects it (`:884'). */
+.dgh{
+  flex:none; white-space:pre; color:var(--g-mute);
+  user-select:none; pointer-events:none;
+}
+.dgh.bad{color:var(--g-bad)}
+/* The offers hang under the field, out of its flex row (`:813'). */
+#dwoffer{
+  display:none; position:absolute; top:100%; left:0;
+  min-width:12em; max-height:calc(6 * var(--g-doc-lh)); overflow-y:auto;
+  background:var(--g-surface); border:1px solid var(--g-border);
+  border-radius:4px; font-size:11px;
+}
+#dwoffer.on{display:block}                                    /* `:827' */
+.dof{
+  display:flex; align-items:baseline; gap:8px;
+  padding:1px var(--g-doc-pad); color:var(--g-mute); white-space:pre;
+}
+.dof.dat{background:var(--g-sel); color:var(--g-fg)}          /* `:840' */
+/* The hint names where the offer lands, off to the right and mute (`:846'). */
+.dot{flex:1 1 0; text-align:right; font-size:10px; color:var(--g-mute)}
+
+/* ========================================================================= */
+/* WHAT THE TABLE ADDS, and it is meant to be a short list.  The steer this
+   spike was written under names three: THE ANCHOR RECT, A FLIP ABOVE AT THE
+   BOTTOM EDGE, AND A WIDTH FLOOR OF THE CELL.  The rect and the floor are
+   numbers `place()' writes into `style' and cost no rule at all; the flip costs
+   the ONE rule below, and the `.cell' dress above is already in the tree.  That
+   is the whole CSS bill for A and B. */
+#ddate.flipped #dwoffer{top:auto; bottom:100%}
+
+/* ---- C: the card, and what it costs to draw ---------------------------- */
+/* SIX RULES FORK HERE, and that is C's whole argument against itself.  The
+   MARKUP is the same `#ddate' — C needs no new element — but every rule that
+   dresses the box needs a second branch: the box becomes a grid, the ghost
+   leaves the field's row and takes a colour of its own, the offers come in-flow
+   and turn horizontal, the offer rows become chips, and THE HINT COLUMN IS
+   DROPPED for want of room.  That hint is the offer RESOLVED — `18 august ·
+   <2026-08-18 Tue>' — which the 2026-08-23 spike named as the one thing a date
+   vocabulary can do that a property vocabulary cannot. */
+#ddate.card{
+  display:none;
+  grid-template-columns:1fr; align-content:start; gap:1px;
+  padding:3px var(--g-doc-pad);
+  border:1px solid var(--g-accent); border-radius:4px;
+  box-shadow:0 4px 14px var(--g-shadow);
+}
+#ddate.card.on{display:grid}
+#ddate.card #dwhen{width:auto !important}
+#ddate.card .dgh{
+  flex:auto; color:var(--g-point); overflow:hidden; text-overflow:ellipsis;
+}
+#ddate.card .dgh.bad{color:var(--g-bad)}
+#ddate.card #dwoffer{
+  position:static; display:none; max-height:none; min-width:0;
+  border:none; border-top:1px solid var(--g-border); border-radius:0;
+  background:transparent; padding-top:2px; overflow:hidden;
+}
+#ddate.card #dwoffer.on{display:flex; gap:4px}
+#ddate.card .dof{
+  display:block; flex:none; padding:0 5px; border-radius:999px;
+  border:1px solid var(--g-border); background:var(--g-bg);
+  overflow:hidden; text-overflow:ellipsis; max-width:13ch;
+}
+#ddate.card .dof.dat{border-color:var(--g-accent); background:var(--g-sel)}
+#ddate.card .dot{display:none}
+
+/* ---- D: beside the cell, with a pointer -------------------------------- */
+/* D forks ONE rule and it is a pseudo-element.  The box is the same box, the
+   field, ghost and offers are the shipped ones, and the anchor is a rect like
+   every other — D is much closer to A and B than "a popover" sounds. */
+#ddate.beside::after{
+  content:""; position:absolute; left:100%; top:50%;
+  margin-top:-5px; border:5px solid transparent;
+  border-left-color:var(--g-accent);
+}
+#ddate.beside #dwoffer{left:auto; right:0}
+
+/* THE TABLE'S OWN FACE, transcribed (`.tv-root', table-view.js:1166): a mounted
+   table is `13px/1.5' where the document is `13px/21px' — ONE SIZE, TWO
+   LEADINGS, which is the whole of the mismatch between the box and the rows it
+   stands over.  The 2026-09-12-date-cell spike measured its 118px column at a
+   12px face; this one measures at the app's, so its date column is wider and
+   every number here is that spike's number at the app's own size. */
+#frame{font:13px/1.5 var(--dk-mono)}
+
+/* A span nothing can see, in the surface's own font: how wide a run WANTS to
+   be, so "clipped" is a number rather than an impression. */
+#cdmeasure{
+  position:absolute; visibility:hidden; white-space:pre;
+  font:inherit; left:-9999px; top:0;
+}
+
+/* THE WIRE, printed: what `set-planning' / `capture' would be sent. */
+#wire{color:var(--g-point); overflow-wrap:anywhere}

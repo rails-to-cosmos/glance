@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A · the pane&#8217;s box below the cell</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* A — THE PANE'S BOX, DROPPED UNDER THE CELL.  This is not a proposal: it is
+     what `placeEdit''s `under' branch does in the working tree right now
+     (`frontend/glue/20-sheet.js:518'), reached by `openDateCell'
+     (`36-date-cell.js:26') handing `table.cellRect(id, at)' over as the anchor.
+
+       │ 2026-09-15 │           ← the cell, untouched, still saying what it says
+       ┌────────────────────────────┐
+       │ 18 aug  → <2026-08-18 Tue> │   ← the box, min-width the cell's, grown
+       ├────────────────────────────┤     to fit its own field and ghost
+       │ 18 august   <2026-08-18 …> │   ← the offers, the pane's own list
+       └────────────────────────────┘
+
+     ITS CLAIM.  The widget is the document's widget, whole: the same markup, the
+     same hues, the same offers, the same keys, and the value it is about stays
+     on screen above it.  The only numbers the table writes are `top', `left' and
+     `min-width'.
+
+     WHAT THIS TAB ADDS TO THE TREE.  The flip.  The tree clamps the box
+     HORIZONTALLY (`Math.max(b.left + EDGE, Math.min(a.left, b.right - wide -
+     EDGE))') and says nothing at all about the bottom, so on the last visible
+     row the box and its six offers hang past the viewport.  Press `n' to the
+     last row and watch the footer. */
+</style>
+</head>
+<body>
+  <h1>A · the pane&#8217;s box below the cell
+    <small>the same box, the cell&#8217;s rect, the cell&#8217;s width as a floor — the working tree&#8217;s own answer</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <span id="cdmeasure"></span>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> a row ·
+      <kbd>f</kbd><kbd>b</kbd> (<kbd>l</kbd><kbd>h</kbd>, arrows) SCHEDULED &#8646; DEADLINE ·
+      <kbd>RET</kbd> opens the cell · <kbd>C-c C-s</kbd>/<kbd>C-c C-d</kbd> open it over the row ·
+      type <code>18 aug</code>, <code>+3d</code>, <code>from 18 to 19 aug</code> ·
+      <kbd>&lt;down&gt;</kbd><kbd>&lt;up&gt;</kbd> walk the offers ·
+      <kbd>TAB</kbd> takes one ·
+      <kbd>S-&lt;left&gt;</kbd><kbd>S-&lt;right&gt;</kbd> a day ·
+      <kbd>S-&lt;up&gt;</kbd><kbd>S-&lt;down&gt;</kbd> a week ·
+      <kbd>RET</kbd> sets it · empty <kbd>RET</kbd> clears it · <kbd>ESC</kbd> leaves ·
+      <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="wire"></span>
+    <span id="align"></span>
+  </footer>
+
+<script src="dates.js"></script>
+<script src="rig.js"></script>
+<script>RIG.mount({ look: { place: "under", surface: "table", dress: "cell" } });</script>
+</body>
+</html>
