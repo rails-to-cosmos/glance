@@ -51,7 +51,9 @@
  *             editable?: boolean,
  *             compare?: string }} Column
  *          `editable' opts the column into cell editing (`editCell'/double-
- *          click / `onEdit'); columns are read-only by default.
+ *          click / `onEdit') AND into header editing; columns are read-only by
+ *          default. A standing row's cells open on `editableKeys' instead,
+ *          which leaves the header alone.
  * @typedef {{ key?: string, command: string, label?: string }} Action
  * @typedef {{ column: string, ascending?: boolean, direction?: string,
  *             nullsFirst?: boolean }} Sort
@@ -96,6 +98,11 @@
  *             onCellKey?: (e: KeyboardEvent,
  *                          cell: { id: string | null, col: number,
  *                                  key: string, value: string }) => boolean,
+ *             onCellInput?: (e: Event | null,
+ *                            cell: { id: string | null, col: number,
+ *                                    key: string, value: string })
+ *                           => string | null,
+ *             editableKeys?: string[],
  *             omnibox?: boolean,
  *             palette?: boolean,
  *             marks?: boolean,
@@ -117,6 +124,13 @@
  *          reaches no other dispatch — a `producer' row can bind its keys here
  *          and nowhere else. The cell carries the column's `key' beside its
  *          index, so a producer reads its own cells by name.
+ *          `editableKeys' names the columns a STANDING row's cell may be edited
+ *          in; a producer's own row is editable whole whatever the list holds,
+ *          and no key in it makes a HEADER editable.
+ *          `onCellInput' is asked once at the open and on every `input' an open
+ *          cell sees; a non-empty answer is drawn as the STRIP — one line under
+ *          the edited row at the table's whole width — and "" or null draws
+ *          none.
  * @typedef {{ el: HTMLElement,
  *             setView: (v: View) => void,
  *             setRows: (rows: Row[]) => void,
@@ -1809,6 +1823,29 @@
   border-bottom-color:var(--tv-warn);
 }
 .tv-table tbody tr.tv-producer.tv-refused>td:first-child{
+  box-shadow:inset 3px 0 0 var(--tv-warn);
+}
+/* THE STRIP: what the producer reads back about the cell being typed in, on a
+   line of its own under that row. Drawn at the table's WHOLE WIDTH because a
+   column is as wide as the value it holds and a reading of a typed phrase is
+   longer than that. It is NO ROW -- nothing steps onto it, nothing marks it,
+   and it goes with the editor it belongs to. One line, so the rows below pay
+   its height once and get it back on the close. */
+.tv-table tbody tr.tv-strip>td{
+  height:20px;
+  line-height:20px;
+  padding:0 12px;
+  white-space:pre;
+  user-select:none;
+  color:var(--tv-muted);
+  background:var(--tv-alt);
+  border-bottom:1px solid var(--tv-border);
+  box-shadow:inset 3px 0 0 var(--tv-accent);
+}
+/* A REFUSAL IS THE SAME SEAM WEARING THE WARN, which is the refused row's own
+   channel: the note leads with its mark and the edge turns with it. */
+.tv-table tbody tr.tv-strip.tv-refused>td{
+  color:var(--tv-warn);
   box-shadow:inset 3px 0 0 var(--tv-warn);
 }
 /* The gutter is chrome, the way the pager is: a fixed leading box that no
@@ -4030,6 +4067,7 @@
     function closeCellEditor() {
       if (!cellEdit) return;
       cellEdit = null;
+      dropStrip();
       // Restore the drawn cell: the producer may have changed the data (a redraw
       // shows it) or not (the redraw shows the value unchanged).
       renderRows(true);
@@ -4059,6 +4097,10 @@
       input.focus();
       if (sel) input.setSelectionRange(sel[0], sel[1]);
       else if (input.select) input.select();
+      // THE STRIP OPENS WITH THE CELL: the producer is asked before a key is
+      // pressed, so a cell that opens on something already worth saying says it.
+      askStrip(null);
+      input.addEventListener("input", (e) => askStrip(e));
       input.addEventListener("keydown", (e) => {
         // The input takes its own keys; a driver's key map does not see them.
         e.stopPropagation();
@@ -4074,22 +4116,31 @@
     }
     /** COL's key, or `"" ' past the columns. */
     const keyOf = (col) => { const c = columns()[col]; return c ? c.key : ""; };
-    /** Is ID a producer's own row? ITS CELLS ARE THE ONLY EDITABLE ONES: a
-     * per-column `editable' cannot carry this, since the column would then open
-     * a dead editor on every real row's double-click. */
+    /** Is ID a producer's own row? ITS CELLS ARE ALL EDITABLE: a per-column
+     * `editable' cannot carry this, since the column would then open a dead
+     * editor on every real row's double-click. */
     const producerRow = (id) =>
       !standing(state.rows.find((r) => r.id === id) || {});
+    /** Is COL one of the columns a STANDING row's cells open in? A LIST rather
+     * than a predicate, and a list rather than the column's own `editable':
+     * `editable' would open the HEADER too, and open a dead editor wherever the
+     * producer has no verb for the column. @param {number} col */
+    const keyEditable = (col) => (o.editableKeys || []).indexOf(keyOf(col)) !== -1;
     // CLOSED BEFORE THE CELL IS LOOKED UP, never after: closing redraws the rows,
     // so a node found first would be orphaned by the time the editor entered it.
-    function editCell(id, col, sel) {
-      if (!producerRow(id) && !columnEditable(col)) return false;
+    /** @param {[number, number]|null} [sel]  @param {string|null} [raw]  the
+     * value to open on, the CELL'S OWN where none is named — which is how a
+     * standing row's held line comes back without ever entering `r.cells'. */
+    function editCell(id, col, sel, raw) {
+      if (!producerRow(id) && !columnEditable(col) && !keyEditable(col)) return false;
       closeCellEditor();
       const tr = /** @type {HTMLElement|null} */
         ([...tbody.querySelectorAll("tr[data-id]")]
           .find((x) => /** @type {HTMLElement} */ (x).dataset.id === id) || null);
       if (!tr) return false;
       const td = [...tr.querySelectorAll("td:not(.tv-box)")][col];
-      return openCellEditor(td, id, col, "cell", cellRaw(id, col), sel);
+      return openCellEditor(td, id, col, "cell",
+                            raw == null ? cellRaw(id, col) : raw, sel);
     }
     /** WHICH CELL IS OPEN, by index and by column key, or null. The widget owns
      * that state, so a producer asks it rather than reading the DOM back. */
@@ -4097,31 +4148,79 @@
       (cellEdit && cellEdit.kind === "cell"
         ? { id: cellEdit.id, col: cellEdit.col, key: keyOf(cellEdit.col) } : null);
 
+    /** The line the producer last drew under the open cell, or "". */
+    let stripNote = "";
+    /** Take the strip off, the note with it. */
+    function dropStrip() {
+      stripNote = "";
+      const was = tbody.querySelector("tr.tv-strip");
+      if (was && was.parentNode) was.parentNode.removeChild(was);
+    }
     /**
-     * A PRODUCER ROW'S OPEN EDITOR, HELD ACROSS A REPAINT: the line the reader
-     * has typed goes into the row's own cell — one object holds the value, not
-     * two — and the caret comes back where it stood. The handle is dropped
-     * rather than closed, the repaint being the close.
-     * @returns {{id: string, col: number, sel: [number, number]}|null}
+     * ASK THE PRODUCER WHAT THE OPEN CELL SAYS, and draw the answer as the
+     * STRIP: one colspanned row spliced directly under the edited row, at the
+     * table's whole width — a column is as wide as the value it draws, and a
+     * reading of what was typed is longer than that. "" and null draw none.
+     *
+     * IT IS NO ROW. `standing', `ordered', the marks and the selection never
+     * see it: it is DOM beside the edited row, the way the open input is DOM
+     * inside the edited cell, and it goes when the editor goes — on `RET', on
+     * `Escape' and on a repaint, which re-splices it with the editor it
+     * belongs to.
+     * @param {Event|null} e  the `input' that asked; null at the open
+     */
+    function askStrip(e) {
+      if (!o.onCellInput || !cellEdit || cellEdit.kind !== "cell") return;
+      const { cell, id, col, input } = cellEdit;
+      const said = o.onCellInput(e, { id, col, key: keyOf(col), value: input.value });
+      dropStrip();
+      stripNote = said == null ? "" : String(said);
+      const tr = cell.parentNode;
+      if (!stripNote || !tr || !tr.parentNode) return;
+      const strip = document.createElement("tr");
+      // A REFUSAL WEARS THE REFUSED ROW'S OWN WARN: one vocabulary for "this
+      // will not do", whichever surface says it.
+      strip.className = "tv-strip" + (stripNote.charAt(0) === "✗" ? " tv-refused" : "");
+      const td = document.createElement("td");
+      td.colSpan = columns().length + chrome;
+      td.textContent = stripNote;
+      strip.appendChild(td);
+      tr.parentNode.insertBefore(strip, tr.nextSibling);
+    }
+
+    /**
+     * AN OPEN CELL EDITOR, HELD ACROSS A REPAINT: the caret comes back where it
+     * stood and the strip is re-spliced with it. A PRODUCER'S line goes into
+     * its own row's cell — one object holds the value, not two. A STANDING
+     * row's NEVER does: those cells are the store's, so its line rides in the
+     * handle and comes back as the value the editor re-opens on. The handle is
+     * dropped rather than closed, the repaint being the close.
+     * @returns {{id: string, col: number, value: string|null,
+     *            sel: [number, number]}|null}
      */
     function holdEditor() {
       const at = getEditing();
-      if (!at || at.id === null || !producerRow(at.id)) return null;
+      if (!at || at.id === null) return null;
       const { input } = cellEdit;
-      const r = state.rows.find((x) => x.id === at.id);
-      if (at.key) (r.cells = r.cells || {})[at.key] = input.value;
+      const own = producerRow(at.id);
+      if (own && at.key) {
+        const r = state.rows.find((x) => x.id === at.id);
+        (r.cells = r.cells || {})[at.key] = input.value;
+      }
       cellEdit = null;
-      return { id: at.id, col: at.col,
+      dropStrip();
+      return { id: at.id, col: at.col, value: own ? null : input.value,
                sel: [input.selectionStart ?? input.value.length,
                      input.selectionEnd ?? input.value.length] };
     }
     /** The editor HELD put back, caret and all — never `select()'d: every store
      * tick repaints, and a select-all there swallows the reader's next key.
-     * @param {{id: string, col: number, sel: [number, number]}|null} held */
+     * @param {{id: string, col: number, value: string|null,
+     *          sel: [number, number]}|null} held */
     function resumeEditor(held) {
-      if (held) editCell(held.id, held.col, held.sel);
+      if (held) editCell(held.id, held.col, held.sel, held.value);
     }
-    /** Redraw under a producer's open editor, which survives it. */
+    /** Redraw under an open cell editor, which survives it, strip and all. */
     function repaint() {
       const held = holdEditor();
       renderRows(true);
@@ -5348,10 +5447,10 @@
        */
       getSelection() { return { id: state.selected, col: state.selCol }; },
       /**
-       * Open the in-cell editor on ID's COL cell, or on COL's header. The
-       * column must be `editable', or the row the producer's own; returns
-       * whether it opened. Commit reports through `onEdit' / `tableview-edit'
-       * and the producer owns the write.
+       * Open the in-cell editor on ID's COL cell. The row must be the
+       * producer's own, or the column `editable', or its key one of
+       * `editableKeys'; returns whether it opened. Commit reports through
+       * `onEdit' / `tableview-edit' and the producer owns the write.
        * @param {string} id  @param {number} col  @returns {boolean}
        */
       editCell,

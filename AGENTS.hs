@@ -5406,6 +5406,24 @@ sheetNotes =
          \ `deleteRow' drops the editor standing in the row it takes away, so none is\
          \ left holding a node the redraw has orphaned.  Every OTHER row keeps the shipped\
          \ reading, which costs nothing while no other row is editable." [Browser]
+  , Note "A DATE IS EDITED WHERE IT IS DRAWN, and what the reader typed is read back on a\
+         \ LINE OF ITS OWN.  The widget owes two mount options for it.  `editableKeys' names\
+         \ the columns a STANDING row's cells open in -- a LIST and never the column's own\
+         \ `editable', which would make the HEADER editable too and open a dead editor\
+         \ wherever the producer has no verb; a producer's own row stays editable whole.\
+         \ `onCellInput(e, {id, col, key, value})' is asked ONCE AT THE OPEN and on every\
+         \ `input' the cell sees, and a non-empty answer is drawn as the STRIP: one\
+         \ `colspan'ed `tr.tv-strip' spliced DIRECTLY UNDER the edited row at the table's\
+         \ whole width, 21px tall, a `\10007' answer wearing the refused row's own warn.\
+         \ An EMPTY answer and a null draw none.  THE STRIP IS NO ROW -- `standing',\
+         \ `ordered', the marks and the selection never see it, the way the open input is\
+         \ no cell value -- and it\
+         \ goes with the editor on `RET' and `ESC' alike, the rows below coming back to the\
+         \ pixel.  A date column is 118px against a 137px ghost, which is why the answer\
+         \ stops using the row's horizontal space at all (spike 2026-09-12-date-cell, C).\
+         \ The caret rule follows: a STANDING row's held line rides in the handle and NEVER\
+         \ enters `r.cells', those being the store's, so a repaint puts the editor, the\
+         \ caret and the strip back over a cell the store still owns." [Browser]
   , Note "`RET' FROM ANY OF THE DRAFT'S CELLS IS THE COMMIT.  The open editor's value is\
          \ folded into the phantom first, the walk having accumulated and posted nothing,\
          \ and the whole capture then goes out at ONE press through the one command that\

@@ -488,6 +488,59 @@ const draftState = (p, word, why) => p.until((want) => {
   return tds[keys.indexOf("state")].textContent === want;
 }, why, undefined, word);
 
+/** Mount the rig over the served view.  HOW carries `keys' (the mount's
+ * `editableKeys') and, where a strip is wanted, `note' — what `onCellInput'
+ * answers, `null' for nothing at all.  With no `note' the option is absent, the
+ * way every mount in the shell has it today.  Answers the column keys, the row
+ * ids drawn, and the rows whose SCHEDULED cell holds a day. */
+const rigUp = (p, how) => p.eval(async (opts) => {
+  const was = document.getElementById("rig");
+  if (was) { window["__rig"].destroy(); was.remove(); }
+  const got = await (await fetch("/headlines?limit=40")).json();
+  const view = got.columns ? got : got.view;
+  const box = document.createElement("div");
+  box.id = "rig";
+  box.style.cssText = "position:fixed;left:0;top:0;width:1340px;height:640px;z-index:500";
+  document.body.appendChild(box);
+  window["__asks"] = [];
+  window["__rig"] = TableView.mount(box, view, {
+    editableKeys: opts.keys || [],
+    onCellInput: opts.note === undefined ? null : (e, cell) => {
+      window["__asks"].push({ when: e ? e.type : "open", key: cell.key,
+                              id: cell.id, col: cell.col, value: cell.value });
+      return opts.note;
+    },
+  });
+  const keys = (view.columns || []).map((c) => c.key);
+  const at = keys.indexOf("scheduled");
+  const rows = [...box.querySelectorAll("tbody tr[data-id]")];
+  return {
+    keys,
+    ids: rows.map((r) => r.dataset.id),
+    dated: rows.map((r, i) => ({ i, id: r.dataset.id,
+        date: r.children[at] ? r.children[at].textContent.trim() : "" }))
+      .filter((x) => /^\d{4}-\d\d-\d\d$/.test(x.date)),
+  };
+}, how);
+
+/** Every drawn row's top, id by id — the reading a strip's cost is measured in. */
+const rigTops = (p) => p.eval(() =>
+  [...document.querySelectorAll("#rig tbody tr[data-id]")]
+    .map((r) => [r.dataset.id, Math.round(r.getBoundingClientRect().top)]));
+
+/** The open cell's own input holding focus, before a key is spent on it. */
+const rigFocused = (p) => p.until(() => {
+  const box = document.querySelector("#rig input.tv-cell-edit");
+  return !!box && document.activeElement === box;
+}, "the rig's cell editor to take focus");
+
+/** The rig's row the case drives: the first dated one with rows left under it. */
+function datedRow(up) {
+  const one = up.dated.find((x) => x.i + 2 < up.ids.length);
+  assert(one, `no dated row with rows under it among ${JSON.stringify(up.dated)}`);
+  return one;
+}
+
 export default [
 
 // A material doc taller than the pane must SCROLL inside the pane, not grow the
@@ -5292,6 +5345,216 @@ export default [
     return [`the real doc drew ${JSON.stringify(real.head)}: slot x${real.title.x}`
       + ` w${real.title.w}, box x${real.edit.x} w${real.edit.w} inside a `
       + `${real.row.w}px row`];
+  } },
+
+// THE DATE WIDGET LIVES IN THE CELL, STAGE 2 (PROPOSAL 2026-09-12).  The widget
+// learns two mount options — `editableKeys' and `onCellInput' — and no glue
+// spends them yet (stage 3's date cell is what will), so the reader that drives
+// them here IS a producer: a SECOND table-view mounted over the daemon's own
+// rows and columns, in a box of its own above the shell's.  Everything asserted
+// below is paint — a cell that opens, a row spliced under another, and the
+// pixels every row beneath it moves by — which no model-reading test can see.
+
+{ name: "a standing row's date cell opens an editor only for an editable key",
+  async run(p, base) {
+    await tableUp(p, base);
+    // WITHOUT THE OPTION, TODAY'S ANSWER: a landed row's cell is the store's and
+    // the widget refuses it, whichever column it stands in.
+    const cold = await rigUp(p, {});
+    const sched = cold.keys.indexOf("scheduled");
+    const title = cold.keys.indexOf("title");
+    assert(sched > 0 && title >= 0,
+      `the served columns are ${JSON.stringify(cold.keys)}`);
+    const row = datedRow(cold);
+    const shut = await p.eval((at) => ({
+      opened: window["__rig"].editCell(at.id, at.col),
+      editing: window["__rig"].getEditing(),
+      inputs: document.querySelectorAll("#rig input.tv-cell-edit").length,
+    }), { id: row.id, col: sched });
+    assert(shut.opened === false && shut.inputs === 0 && shut.editing === null,
+      `a standing row's date cell opened with no editableKeys: ${JSON.stringify(shut)}`);
+
+    // WITH THE KEY NAMED: the same cell, the same row, the same call.
+    const warm = await rigUp(p, { keys: ["scheduled", "deadline"] });
+    const one = datedRow(warm);
+    const open = await p.eval((at) => {
+      const got = window["__rig"].editCell(at.id, at.col);
+      const box = document.querySelector("#rig input.tv-cell-edit");
+      const td = box && box.closest("td");
+      const tr = box && box.closest("tr");
+      return { got, editing: window["__rig"].getEditing(),
+               value: box ? box.value : null,
+               focused: !!box && document.activeElement === box,
+               col: box ? [...tr.children].indexOf(td) : -1,
+               row: tr ? tr.dataset.id : null,
+               inputs: document.querySelectorAll("#rig input.tv-cell-edit").length };
+    }, { id: one.id, col: sched });
+    assert(open.got === true && open.inputs === 1 && open.focused,
+      `the date cell did not open: ${JSON.stringify(open)}`);
+    assert(open.row === one.id && open.col === sched,
+      `the editor stands in row ${JSON.stringify(open.row)} column ${open.col}, `
+      + `not in ${JSON.stringify(one.id)}'s column ${sched}`);
+    // IT OPENS ON THE CELL'S OWN VALUE, which is `isoStamp''s ten characters.
+    assert(open.value === one.date,
+      `the editor opened on ${JSON.stringify(open.value)} rather than the cell's `
+      + `own ${JSON.stringify(one.date)}`);
+    assert(open.editing && open.editing.key === "scheduled",
+      `getEditing answered ${JSON.stringify(open.editing)}`);
+
+    // THE LIST NAMES KEYS, NOT ROWS: the title cell of the very same row stays
+    // shut, and the editor already standing is left where it is.
+    const held = await p.eval((at) => {
+      const got = window["__rig"].editCell(at.id, at.col);
+      return { got, editing: window["__rig"].getEditing(),
+               inputs: document.querySelectorAll("#rig input.tv-cell-edit").length };
+    }, { id: one.id, col: title });
+    assert(held.got === false && held.inputs === 1
+             && held.editing && held.editing.key === "scheduled",
+      `the title cell answered ${JSON.stringify(held)}`);
+    // AND NO HEADER: `editableKeys' is the cell's list, never the column's
+    // `editable', which would open the header too.
+    const head = await p.eval((col) => ({
+      got: window["__rig"].editHeader(col),
+      inputs: document.querySelectorAll("#rig thead input.tv-cell-edit").length,
+    }), sched);
+    assert(head.got === false && head.inputs === 0,
+      `the SCHEDULED header opened on editableKeys: ${JSON.stringify(head)}`);
+    return [`editCell on ${JSON.stringify(one.id)}'s scheduled cell answered `
+      + `${shut.opened} with no editableKeys and ${open.got} with it, on `
+      + `${JSON.stringify(open.value)}; title answered ${held.got}, the header `
+      + `${head.got}`];
+  } },
+
+// C, THE PICKED PLACEMENT (spike 2026-09-12-date-cell): the answer stops using
+// the row's horizontal space.  A date column is 118px and the ghost is 137px, so
+// the reading rides a line of its own under the row — and what that costs is
+// 21px of downward motion, once, which ESC gives back to the pixel.
+{ name: "the strip under the row shows the note whole, and ESC takes it away",
+  async run(p, base) {
+    await tableUp(p, base);
+    const NOTE = "18 aug → <2026-08-18 Tue>";
+    const up = await rigUp(p, { keys: ["scheduled"], note: NOTE });
+    const one = datedRow(up);
+    const before = await rigTops(p);
+
+    await p.eval((at) => window["__rig"].editCell(at.id, at.col),
+                 { id: one.id, col: up.keys.indexOf("scheduled") });
+    await rigFocused(p);
+    // A KEY THROUGH THE BROWSER'S OWN DISPATCH: the `input' the widget asks on
+    // is the one a reader's keystroke fires, not one a test synthesized.
+    await p.press("x");
+    const drew = await p.until((note) => {
+      const strip = document.querySelector("#rig tbody tr.tv-strip");
+      const td = strip && strip.querySelector("td");
+      if (!td || td.textContent !== note) return false;
+      const tr = strip.previousElementSibling;
+      const cs = getComputedStyle(td);
+      // WHAT IS DRAWN, not what was set: a range over the cell's own contents is
+      // the width the engine gave the text, and the room is the cell less its
+      // padding.  A note cut by an ellipsis measures wider than its room.
+      const r = document.createRange();
+      r.selectNodeContents(td);
+      const text = r.getBoundingClientRect().width;
+      const room = td.getBoundingClientRect().width
+                 - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      return {
+        under: tr ? tr.dataset.id : null,
+        cols: td.colSpan,
+        columns: document.querySelectorAll("#rig thead th[data-key]").length,
+        h: Math.round(strip.getBoundingClientRect().height),
+        w: Math.round(strip.getBoundingClientRect().width),
+        rowW: tr ? Math.round(tr.getBoundingClientRect().width) : 0,
+        text: Math.round(text), room: Math.round(room),
+        asks: window["__asks"].map((a) => a.when),
+        key: (window["__asks"][0] || {}).key,
+        value: (window["__asks"][window["__asks"].length - 1] || {}).value,
+      };
+    }, "the strip to draw the note under the edited row", undefined, NOTE);
+
+    assert(drew.under === one.id,
+      `the strip stands under ${JSON.stringify(drew.under)} rather than directly `
+      + `under the edited row ${JSON.stringify(one.id)}`);
+    assert(drew.cols === drew.columns && drew.w === drew.rowW,
+      `the strip spans ${drew.cols} of ${drew.columns} columns and ${drew.w}px of `
+      + `the row's ${drew.rowW}px — it must draw at the table's whole width`);
+    // UNCUT: the note is 137px of ghost after the phrase, and a date cell's text
+    // run is 94px.  The strip is the only placement that can draw it whole.
+    assert(drew.text > 0 && drew.text <= drew.room + 1,
+      `the note is drawn ${drew.text}px into ${drew.room}px of room — it is cut`);
+    // ASKED AT THE OPEN AND ON THE KEY, in that order, with the cell's own key.
+    assert(drew.asks.length >= 2 && drew.asks[0] === "open"
+             && drew.asks[drew.asks.length - 1] === "input" && drew.key === "scheduled",
+      `onCellInput was asked ${JSON.stringify(drew.asks)} for ${JSON.stringify(drew.key)}`);
+    assert(drew.value === "x",
+      `the last ask carried ${JSON.stringify(drew.value)} rather than the typed key`);
+
+    const under = await rigTops(p);
+    assert(under.length === before.length
+             && under.every(([id], i) => id === before[i][0]),
+      `the rows changed under the strip: ${JSON.stringify(under.map((r) => r[0]))}`);
+    const moved = before.map(([id, y], i) => [id, under[i][1] - y]);
+    const at = before.findIndex(([id]) => id === one.id);
+    assert(moved.slice(0, at + 1).every(([, d]) => d === 0),
+      `the edited row and those above it moved ${JSON.stringify(moved.slice(0, at + 1))}`);
+    assert(moved.slice(at + 1).length > 0
+             && moved.slice(at + 1).every(([, d]) => d === drew.h),
+      `the rows below moved ${JSON.stringify(moved.slice(at + 1))} rather than by `
+      + `the strip's own ${drew.h}px`);
+
+    await p.press("ESC");
+    const gone = await p.until(() =>
+      document.querySelectorAll("#rig tbody tr.tv-strip").length === 0
+        && !window["__rig"].getEditing(),
+      "ESC to close the editor and take the strip with it");
+    assert(gone, "the strip outlived the editor");
+    const after = await rigTops(p);
+    const back = before.filter((r, i) => !after[i] || after[i][1] !== r[1]);
+    assert(after.length === before.length && back.length === 0,
+      `ESC left the rows at ${JSON.stringify(after)} against ${JSON.stringify(before)}`);
+    // A LANDED ROW'S CELLS ARE THE STORE'S: the phrase stood in the input and
+    // never in `r.cells', so the cell draws the day it drew before the open.
+    const cell = await p.eval((at) => {
+      const tr = [...document.querySelectorAll("#rig tbody tr[data-id]")]
+        .find((r) => r.dataset.id === at.id);
+      return tr ? tr.children[at.col].textContent.trim() : null;
+    }, { id: one.id, col: up.keys.indexOf("scheduled") });
+    assert(cell === one.date,
+      `the cell reads ${JSON.stringify(cell)} after ESC rather than its own `
+      + `${JSON.stringify(one.date)}`);
+    return [`the strip drew ${JSON.stringify(NOTE)} in ${drew.text}px of `
+      + `${drew.room}px, spanning ${drew.cols} columns at ${drew.w}px; the `
+      + `${moved.length - at - 1} rows below moved ${drew.h}px and ESC put them back`];
+  } },
+
+{ name: "an empty note draws no strip",
+  async run(p, base) {
+    await tableUp(p, base);
+    // THE PRODUCER'S OWN SILENCE: `null' is an answer, and it is the one the
+    // date cell gives on a phrase that resolves to the day already in the cell.
+    const up = await rigUp(p, { keys: ["scheduled"], note: null });
+    const one = datedRow(up);
+    const before = await rigTops(p);
+    await p.eval((at) => window["__rig"].editCell(at.id, at.col),
+                 { id: one.id, col: up.keys.indexOf("scheduled") });
+    await rigFocused(p);
+    await p.press("x");
+    const seen = await p.until(() => {
+      const asks = window["__asks"];
+      return asks.length >= 2 ? {
+        asks: asks.map((a) => a.when),
+        strips: document.querySelectorAll("#rig tbody tr.tv-strip").length,
+        editing: !!window["__rig"].getEditing(),
+      } : false;
+    }, "the producer to be asked at the open and on the key");
+    assert(seen.strips === 0 && seen.editing,
+      `a null note drew ${seen.strips} strips under an open editor: `
+      + `${JSON.stringify(seen)}`);
+    const after = await rigTops(p);
+    assert(JSON.stringify(after) === JSON.stringify(before),
+      `the rows moved for a strip that was never drawn: `
+      + `${JSON.stringify(after)} against ${JSON.stringify(before)}`);
+    return [`onCellInput answered null ${seen.asks.length} times and the table `
+      + `drew no strip, every row where it began`];
   } },
 
 // PROPOSAL 2026-08-26.  An org table in the doc is drawn by the table-view

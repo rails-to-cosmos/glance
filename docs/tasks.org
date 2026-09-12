@@ -386,26 +386,43 @@ The widget changes, by name (line numbers are =assets/table-view.js='s on this
 branch):
 
 - =Row= gains the PRODUCER'S OWN ROW — ={producer, under, refused}= —
-  replacing the glance-specific =draft= flag (typedef =:63=).
-- =standing(r)= (=:3157=) is =!r.producer=, and is asked at =ordered()=
-  (=:2897=), =placeProducers= (=:2884=, was =placeDrafts=), =markAll=,
+  replacing the glance-specific =draft= flag (typedef =:65=).
+- =standing(r)= (=:3194=) is =!r.producer=, and is asked at =ordered()=
+  (=:2934=), =placeProducers= (=:2921=, was =placeDrafts=), =markAll=,
   =selectStep=, =selectRow=, =setSelected=, =keepSelection= and
-  =standingFrom= (=:3182=).
+  =standingFrom= (=:3217=).
 - =placeProducers= places by =under= rather than by the neighbour it was handed
   beside, on =setRows=, =upsertRow=, =deleteRow= and =applyDelta= alike; a
   delta's indices count standing rows alone.
-- =ownRows()= (=:2159=) holds the producer's rows across a =setRows=, and
+- =ownRows()= (=:2196=) holds the producer's rows across a =setRows=, and
   =standing= also keeps them out of the filter's own vocabulary (=tagVocab=,
   =domainOf=) and out of a long press's and a double-click's default command.
-- =noteOf= (=:3161=), =noteCell= (=:3168=) and =rowHTML= (=:3244=) draw
+- =noteOf= (=:3198=), =noteCell= (=:3205=) and =rowHTML= (=:3281=) draw
   =refused= in the last column the row carries no cell for, and =rowText=
   measures the column against it.
-- =holdEditor= / =resumeEditor= / =repaint= (=:4109=): a repaint folds the open
+- =holdEditor= / =resumeEditor= / =repaint= (=:4224=): a repaint folds the open
   input's value into its row and puts the caret back, never =select()=.
-- =getEditing()= on the handle (=:4098=, =:5366=), and =onCellKey='s cell
-  carries the column =key= beside =col= (=:4071=).
+- =getEditing()= on the handle (=:4147=, =:5463=), and =onCellKey='s cell
+  carries the column =key= beside =col= (=:4111=).
 - =openCellEditor= no longer closes for its callers; =editCell= takes an
   optional selection.
 - The producer row's dress moved OUT of =assets/page.css= into the widget's own
-  sheet as =tv-producer= / =tv-refused= (=:1785=), with a new =--tv-warn= token
-  (=:1146=, paired with =--g-warn= in =Glance.Web.Theme=).
+  sheet as =tv-producer= / =tv-refused= (=:1799=), with a new =--tv-warn= token
+  (=:1160=, paired with =--g-warn= in =Glance.Web.Theme=).
+- =MountOptions= gains =editableKeys: string[]= (typedef =:105=, read by
+  =keyEditable= =:4128=): the columns a STANDING row's cells open in, gating
+  =editCell= (=:4134=) beside =producerRow= and the column's own =editable=.
+  =editHeader= (=:4229=) does NOT read it — a key on the list opens a cell and
+  never a header.
+- =MountOptions= gains =onCellInput(e, {id, col, key, value}) => string|null=
+  (typedef =:101=), asked once at the open and on every =input= an open cell
+  sees (=askStrip=, =:4172=; =dropStrip=, =:4154=).
+- THE STRIP: a non-empty answer draws a =colspan='ed =tr.tv-strip= spliced
+  directly under the edited row at the table's whole width, dressed in the
+  widget's own sheet (=:1834=, the refusal wearing =tv-refused='s warn). It is
+  no =Row= — =standing=, =ordered=, the marks and the selection never see it —
+  and it goes with the editor on RET and ESC alike.
+- =holdEditor= / =resumeEditor= (=:4201=, =:4220=) hold a STANDING row's editor
+  too: its typed line rides in the handle's =value= and never enters =r.cells=,
+  those cells being the store's, and =editCell= takes the opening value as its
+  fourth argument.
