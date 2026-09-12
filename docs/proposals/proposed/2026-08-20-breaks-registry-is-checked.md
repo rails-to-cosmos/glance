@@ -47,3 +47,44 @@ break into a loud one.
 `drive.mjs` already validates its world at startup (fixture presence, the
 `SETTLE` discipline); TestServe's `objectKeys` check on `HANDLERS` is the
 same move — the registry's consumer verifies the registry.
+
+## 2026-09-12 re-measurement — and the first dead break
+
+Re-counted against the tree of 2026-09-12, by loading `test/browser/cases.mjs`
+and matching each break's target the way `drive.mjs:530-532` matches it
+(`l.name.includes(want)`, a substring):
+
+| | 2026-08-20 | 2026-09-12 |
+|---|---|---|
+| browser cases | 38 | **98** |
+| breaks | 32 | **34** |
+| cases a break can turn red | 23 | **24** |
+| cases with no break at all | 15 | **74** |
+| interop cases / breaks | 13 / 7 | 13 / 7 |
+
+The suite grew 2.6× and the registry grew by two. **Three quarters of the
+browser suite has no proof it can fail**, against two fifths when this was
+filed. The interop half is unchanged and still whole: all seven targets name a
+live `step(…)` (`test/interop/drive.mjs:61-69` against `:232-450`).
+
+**And the dangling-target check this proposal asks for now has a customer.**
+`"two-golds"` (`drive.mjs:152-158`) names
+
+> `"the date widget stands in the value's own slot"`
+
+and no case says that. The case was renamed to
+
+> `"the date widget opens in the value's slot, wholly selected, and paints the
+> selection"` (`cases.mjs:3963`)
+
+so the substring no longer matches and the break aims at nothing. It is the
+break whose own comment says *"ONLY THE PIXELS SEE IT"* — the one guarding a
+fault no computed reading can catch — and it has been dead since the rename,
+discoverable only by running `BREAK=two-golds` and reading the *"which no case
+run here is"* line at `drive.mjs:532-536`. That line exists; it fires one break
+per process, inside `browser-check`, which sits outside the gate. The startup
+check proposed above fires on every run.
+
+Repairing the target is one word and belongs with the check, so the check has
+something to prove. The coverage line proposed in item 3 would now read
+`breaks cover 24/98 cases`.

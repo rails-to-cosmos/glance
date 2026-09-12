@@ -149,3 +149,52 @@ CAPTURE phase (=addEventListener(..., true)=), which =onKeys= does not offer;
 =70-shell.js:287= clears =promptNow().raising= BEFORE the key is named, so the
 mutation would have to live inside the predicate.  Give =onKeys= a capture flag
 and the first two fold too.
+
+* TODO Fold the glue's =VERBED= table and =draftWrote= ladder into one =VERBS= table
+=VERBED= (=20-sheet.js:2000-2016=) names a verb per command and =draftWrote=
+(=:2023-2041=) re-lists five of the same commands as an =if/else if= ladder over
+the draft's cells; one =VERBS= table with a =say= and an optional =onDraft= per
+row makes a twelfth command one row rather than two edits in two shapes.
+
+* TODO Collapse the browser driver's =reseed= and =repoUp= into one =fixture(name, seed)=
+=reseed= (=test/browser/drive.mjs:385-389=) and =repoUp= (=:396-409=) are the same
+four moves — kill the daemon, re-copy =test/browser/tree/=, optionally seed, serve
+on a fresh port — so a third fixture (a bare origin, a two-file tree) is a third
+copy today.
+
+* TODO A =driftTerms= list in =Data.Org.Index= so a third WAL drift term is one row
+=state= and =archived= are spelled at six sites — =dfState=/=dfArchived=
+(=Index.hs:247,248=), the two =length= folds (=:265,266=), =stateNote= (=:288=),
+=archiveNote= (=:292=), the sample builder (=:280=) and the report line
+(=:303,304=); one list of (name, reader, shown) rows would fold all six.
+
+* TODO Decide whether =Data.Org.Index= splits, and weigh it against the files-are-the-log call
+329 lines hold three things: the store's layout names (=metaDir=/=openSegment=/
+=manifestFile=/=segmentNames=, =:46-101=), the fold over segments (=:110-186=) and a
+POSIX tailer with its own =Fd= discipline (=:189-231=) — a =Data.Org.Tail= and the
+layout names moving to Walk, unless
+[[file:proposals/draft/2026-09-10-the-files-are-the-log-and-the-cache-stays-home.md]]
+retires the fold altogether, which is the decision to take first.
+
+* TODO Move the salvage reader beside the parser it repairs for
+=salvagedIdentity=, =drawerRun= and =propertyLine= (=src/Data/Org/Types.hs:357-390=)
+re-read a property drawer out of raw lines, sitting in =Types= below the parse
+they exist because of; they belong beside =propertiesP= (=Parser.hs:238=) where the
+drawer's shape is already spelled.
+
+* TODO Enforce =DOCEDITS= membership so a new edit surface cannot be missed
+=DOCEDITS = [DTITLE, DPARA, DPAIR, DDATE]= (=20-sheet.js:805=) is read by
+=sheetOpen= (=:806=) and by three shut-everything loops (=:1550=, =:1930=, =:2226=);
+a fifth edit surface added to the openers and not to the list stays open under a
+close, and nothing says so — the popup-registry failure in a second object.
+
+* TODO Join =rowSummaryPairs= and =viewColumns=, the two row shapes nothing compares
+=rowSummaryPairs= (=Query.hs:2715-2722=) serves the MCP rows shape and =viewColumns=
+(=:2573-2580=) the table's; both read the same =HeadlineRecord= fields, they
+disagree on the tag key (=tags= against =tag=), and no test names them together.
+
+* TODO A git fixture with a local bare origin, for the clean-glyph and commit+push cases
+=repoUp= (=test/browser/drive.mjs:396-409=) makes a repo with NO REMOTE, which
+=actionFor= refuses, so both git cases can only assert the warned dead button; a
+bare origin cloned beside it would let a case press the one-click and read =✓= and
+=● commit + push= for real.

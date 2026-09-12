@@ -1,0 +1,227 @@
+#+TITLE: Overnight 2026-09-11 — two bugs, two proposals, a git fixture, and a sweep
+#+DATE: 2026-09-12
+
+Five commits, stacked on one review line off =master=. Nothing pushed. Every
+step landed green on all four gates and was =/simplify=-reviewed (four angles)
+before its commit; the sweep ran after.
+
+* Branches (stacked, tip is the review target)
+| step | branch                       | commit    |
+|------+------------------------------+-----------|
+| 1    | =fix/broken-drawer-path-id=  | =1bb4b74= |
+| 2    | =feat/graph-mcp=             | =e02150a= |
+| 3    | =feat/wal-tail=              | =3d8f40d= |
+| 4    | =test/git-fixture=           | =d7794d7= |
+| 5    | =test/git-fixture= (sweep)   | =8bbac05= |
+| 6    | =test/git-fixture= (mcp fix) | =fee9679= |
+| 7    | =test/git-fixture= (docs)    | =d8f358a= (amended; hash may differ) |
+
+Review =master..test/git-fixture=; each commit reads on its own.
+
+* Gate
+| gate                  | baseline | final |
+|-----------------------+----------+-------|
+| =cabal test=          | 2306     | 2342  |
+| =elm-test=            | 189      | 189   |
+| =make browser-check=  | 98/98    | 98/98 |
+| =runghc AGENTS.hs=    | 0        | 0     |
+| =make check-glue=     | clean    | clean |
+
+Cabal peaked at 2348 before the sweep removed eleven vacuous or duplicate
+cases and added two. Browser peaked at 100 with the two git-control cases;
+the sweep folded two duplicate table cases into their keepers.
+
+* 1. A broken property drawer no longer splits a row's identity
+[[file:docs/bugs/fixed/2026-09-10-a-broken-drawer-gives-a-row-a-path-id-the-other-routes-refuse.md]]
+- =identityOf= (=src/Data/Org/Types.hs=) is the ONE reader: the parsed id,
+  else the id a drawer whose =:END:= lost its colon still spells. A drawer
+  the parse read is taken at its word, so a truly idless blob keeps the path
+  id. The walk reads off the subtree; the doctor off its =Cursor= (linear).
+- =doctor= names idless and broken-drawer blobs by path.
+- =propertyLine= moved down into Types; =Query.propertyOf= is a wrapper.
+- Tests: TestSpec, TestServe (=get-headline= by the blob's own uuid),
+  TestIndex (end-to-end scan). Mutation testing later added: indented
+  drawer, id below the closer not salvaged, =:ENDORSED:= closes nothing.
+- Departure from the bug file: no wire field; the mark rides
+  =BlobEntry.beSalvaged= only. The ledger (=External.blobIdOf=) keeps bare
+  =identity= on purpose (org-glance cannot resolve a salvaged id either).
+
+* 2. The graph on the MCP wire
+[[file:docs/proposals/done/2026-09-10-the-graph-an-agent-can-walk.md]]
+- One edge relation per store version (=stEdges=, lazy, rebuilt through
+  =withEdges=). Every =hrLinks= entry resolves through the row-name index; a
+  link naming no row is no edge; a row is never its own reference. =refs=,
+  =referrers=, =neighbors= and =ref:=/=from:= (both =*any*= and named) read it.
+- =edges: true= on =list-headlines=, =get-headline=, =GET /headlines=,
+  =GET /headline= (both shapes): =refs= [{to, kind, via}] with =to= a
+  RESOLVED row id, and =referrers=. Without the flag the answer is
+  byte-identical to before.
+- =neighbors {id, depth?, kind?, limit?}= and =GET /neighbors=: the induced
+  subgraph breadth-first, depth ≤ 3, nodes capped by =limit=, =total= before
+  the cap. Nodes are the terse row shape. The MCP tool synthesises the route's
+  own request, so numeric walls are inherited.
+- =add-link {id, target, kind?, desc?, where?: body|title}=: twelfth
+  =/command= verb through the one door, digest-locked. =LinkPlace= is a
+  closed sum. Target resolves once at the door (=Asks= replaces =csDated=).
+  Body road appends to the row's last own body line (=ownBody=: lifted
+  regions excluded, =*bold*= is no child); title road composes =set-title=.
+- Proposal's part 2 (=shape: rows=) was already in the tree; only =refs?= was owed.
+- Docs: =docs/mcp.md= (graph section; =/links= vs =refs=), =docs/commands.md=,
+  =docs/query.md=, README.
+
+* 3. The daemon tails org-glance's WAL
+[[file:docs/proposals/done/2026-08-26-the-daemon-tails-the-wal.md]]
+[[file:docs/bugs/fixed/2026-08-26-a-headline-org-glance-creates-is-invisible-until-restart.md]]
+- One tree watch (=heard = watched || tailedFile || minted=) — measured:
+  =watchTree= already arms =.org-glance/meta= at boot; a second =watchDir=
+  merges into the same inotify watch. Dispatch in the callback.
+- Cursor seeded BEFORE the walk (=Web.hs=), so a record appended mid-walk
+  replays (idempotent). A store minted after boot is armed off its
+  directory's =Added= event, cursor placed before the first read.
+- Read law in =Data.Org.Index= beside =foldSegments=: =TailCursor = Maybe
+  Place=, seal by INODE (size alone fails when two segments are the same
+  length), torn tail waits, one =getFdStatus= per read, =withFd= shared with
+  =External.appendLine= (no GHC handle lock on the peer's files).
+- The blob's parse is the row's truth; no record field is read.
+- Tests: TestServe under a live watch (fresh shard, tombstone, torn, seal,
+  no meta, after-boot mint); TestIndex read law. Flake found and fixed:
+  fsnotify's =find= scan emitted a synthetic =Added= for a blob written into
+  a just-armed shard; the fixture now =renameDirectory=s the shard in.
+  10/10 green after.
+- AGENTS note "fresh shard" retired =[Unguarded]= → =[Test]=.
+- Not done: the interop case (peer broken, see open bug). TODO in tasks.org.
+- Known gap (unguarded, in the AGENTS note): a nested store the walk declined
+  is drift-reported, not tailed.
+
+* 4. A git-repo fixture and two git-control browser cases
+- =drive.mjs= keeps two trees: the plain copy (all position-sensitive cases)
+  and =repo/= — =git init -b main=, one commit, no remote, identity written
+  into that repo's =.git/config= only (=glance-test <glance-test@localhost>=).
+  Fresh per =repo: true= case on its own daemon. A mounted =#ghead= costs 22px
+  above the table, hence two trees.
+- Cases: the control mounts and the SAME node survives =g=; a UI write
+  dirties the repo, and with no upstream the glyph stays =⚠= and the one-click
+  is dead — what =Git.hs='s action table says. =BREAK=ghead-row= turns the
+  first red (verified).
+- Could not assert the clean glyph or clean→dirty transition: both need an
+  upstream; a local bare =origin= would give them. Filed under "next".
+
+* 5. Sweep (=/simplify-repo=, commit =8bbac05=)
+LOC: src 11667→11585, tests 26732→26256, glue 6136→5354, browser 6275→6102.
+** Source
+- =storeEnv= takes =stEdges=; named =ref:=/=from:= anchors read the index
+  (=pointsAt=/=pointedAtBy=/=namesRow=/=refsCarrying= retired).
+- Routes: one =rawParam=/=queryFlag=/=queryLimit=; =docPairs= for the doc-pane
+  envelope; =Regions= record (four re-spellings of =regionSpans= gone);
+  =ViewColumn= record; =plannedEntry= the one planning wall; =stTags= derived
+  in =withEdges=; =dfIdless= derived; =Tally= Semigroup; =Todo= drops
+  =active=; =forceRecord = force= over derived =NFData= (deepseq, boot lib);
+  Main's flag table serves =doctor= and =backfill-created=, one =commands=
+  table; Keymap aliases in one comprehension; =noInheritance= and dead
+  exports gone; comments restating AGENTS/invariants cut to a pointer.
+- Skipped: =closed= fold into =aliasColumns= (changes =sortKeys=);
+  =wantsPlanning= keeps =unplanned= (validates keyword only); =queryIds= keeps
+  its own scan (repeats); Display class removal.
+** Glue
+- =clamp=/=atIn=, =editIn(o)=, =onKeys= (six of nine preambles; three skipped:
+  capture phase, pre-key state); five single-use wrappers inlined; dead
+  capture deps dropped; 20-sheet.js comment density 24%→11% with code bytes
+  proven identical. Skipped =lazyList= (would change a null-guard's meaning).
+** Tests
+- TestWire owns the HTTP door (TestSpec's private copies gone);
+  =linesMatching=, =withTreeOf=, =withRow=, =blobIn=, =asWritten=, scalar JSON
+  readers, =splices=, =bodiesOf= ×30, =lands= ×30, =refused= ×23, =plansAs=,
+  =refusedWrite=, =ghostOver=, =stepsTo=, =landsPlanning=/=refusesPlanning=,
+  =ontoPara=/=ontoPair=/=ontoList=; drawers via =entryAs=/=entryFlush=;
+  imports merged 89→62.
+- Browser helpers: =tableRowNamed=, =colIs=, =summonHeader=, =summonDate=,
+  =orgSays=, =planLine=/=shapeOf= lifted; =serveDaemon=/=guardEnv= in
+  =test/harness.mjs= shared by both drivers; PNG decoder to =png.mjs=.
+- Removed: 11 vacuous assertions/cases (list in the commit); 2 duplicate
+  browser cases folded into keepers; 2 English-date vectors at the
+  =/headline= door; 5 TestQuery projections the golden subsumes.
+- One reviewer finding was WRONG and reverted: the =(n <> ":") isInfixOf page=
+  disjunct at TestServe's glue sweep is load-bearing (=archive=/=delete= are
+  unquoted keys in the verb table); a comment now says why.
+- Skipped: =viewRecords= cache (Filter group runs in 0.13s); case-builder
+  vocabulary for 172 openers (55 merged onto one line instead); spikes'
+  six =bidi.mjs= / two =cdp.mjs= copies (throwaway, ungated).
+** Mutation testing (=tools/mutate=, REV =d7794d7=)
+| target    | region       | mutants | killed | survived |
+|-----------+--------------+---------+--------+----------|
+| Watch.hs  | whole file   |      41 |     16 |       25 |
+| Types.hs  | salvage      |      25 |     19 |        6 |
+| Index.hs  | tail + drift |      25 |     23 |        2 |
+| Query.hs  | edges, links |      32 |     29 |        3 |
+- Watch.hs's 25 are all stdout logging (=reseed=/=report=/=frameSummary=) and
+  the 25ms =tick= — nothing asserts the daemon's console. Every WAL-tail site
+  was killed. Tool blind spot: =tailWal=/=armWal= generate no sites (IO
+  bodies, no operators).
+- Four strengthenings landed in the sweep commit (drawer indent, closer
+  bound, empty span, "is not inside"). Remaining survivors are equivalent.
+** Invariants
+=docs/invariants.md= gains six rules (add-link's own body; one edge relation;
+MCP tools meet the query string's walls; =identityOf= the one reader; the
+WAL tail's two names and no-lock read; the git fixture's own tree) and
+re-anchors ~50 evidence lines, some stale since before tonight.
+
+* Generalizer proposals (read-only, inert until picked)
+Three audit agents over the night's commits; ranked. Files under
+=docs/proposals/proposed/= unless noted.
+| # | slug                              | impact | safety | LOC now  | per variant |
+|---+-----------------------------------+--------+--------+----------+-------------|
+| 1 | generalize-mcp-read-tools         | HIGH   | MED    | ~-35     | 4 sites→1   |
+| 2 | generalize-git-sync-states        | HIGH   | MED    | ~+10/-20 | 4 files→2   |
+| 3 | generalize-ref-direction          | MED    | LOW    | ~-22     | -5 eqns     |
+| 4 | the-door-hands-over-values        | MED    | LOW    | ~-15     | closes 4 silent-compile holes |
+| 5 | generalize-cli-commands (update)  | MED    | LOW    | ~-22     | 6 spellings→1 |
+- 1: a read tool is an =McpTools= positional field + a =*Request= synthesizer +
+  a Routes lambda + a hand-typed name in the =tools/list= test. Propose
+  =toolRead :: ([Text], [(Text,Text)])= per tool and =mtRoute=; names derive
+  for the test as =mcpWriteToolNames= does. The renderer half (=argBytes=)
+  landed tonight as =fee9679= after the audit caught =limit:"5"= serving the
+  uncapped page and =depth:2.7= rounding; the positional =Arg= twins remain.
+- 2: =SyncAction= mixes five git step lists with three route pokes, held
+  apart by wildcards; =80-git.js= re-spells =actionFor= in JS. Propose
+  =SyncStep=/=AutoSet=/=GitPost=, total =stepsFor=, =GET /git= answering
+  =(action, glyph, label)= so the client renders. Latent bug filed:
+  [[file:docs/bugs/open/2026-09-12-a-new-git-action-runs-no-steps-and-answers-ok.md]].
+- 3: =ref:=/=from:= is one field with a direction; four =FilterEnv= closures
+  and five paired equations collapse onto =Ref !Dir= over one =EdgeIndex=.
+- 4: four instances of "the door hands over the Store/tag when it should hand
+  over the value": =fcStore=→=fcEdges=; =Asks= tag + parallel Maybes →
+  =Resolved= in the constructor; =SplitSubtree= positional twins →
+  =HeadlineParts=; =Args= 19 fields filled positionally → by name.
+- 5 (appended to the 2026-08-15 file): six subcommand words spelled in six
+  places incl. AGENTS' =Cli= (missing =mcp=, =CliScan= is the retired name);
+  =takeFlags= decides flag-vs-tree by string membership.
+- Also: =2026-09-08-the-commands-are-mcp-tools.md= moved to =partial/= — the
+  "catalog derived, not hand-written" step never shipped; =writeTools= is a
+  second registration beside =commands=. =breaks-registry-is-checked=
+  re-measured: 34 breaks / 98 cases, 74 uncovered, =two-golds= dead.
+- Bug: [[file:docs/bugs/open/2026-09-12-the-spec-counts-two-registries-nothing-walks.md]]
+  — AGENTS =keys= 56 vs served 59, =popups= 6 vs 8; neither read by a test.
+- Eight smaller findings as TODO headlines in =docs/tasks.org= (glue =VERBS=
+  table, driver =fixture()=, =driftTerms=, =Data.Org.Index= split, salvage
+  reader's home, =DOCEDITS= membership, two row shapes, bare-origin fixture).
+- Rejected as premature DRY: =rowSummaryPairs= vs =viewColumns= merge (wire
+  divergences are documented and load-bearing); =identityOf= vs
+  =salvagedIdentity= (one reader by design); the two browser trees'
+  =repo: true= flag (an invariant defends it; a fixture registry waits for a
+  third tree); spikes' =bidi.mjs=/=cdp.mjs= copies (throwaway, ungated).
+
+* 6. Fix committed after the audit (=fee9679=)
+=fix(mcp)=: every scalar MCP argument renders to query bytes and meets the
+route's =wholeNumber=/=cappedAt=/=queryFlag=; =argInt=/=argFlag= deleted;
+=false=/=null= render as absence. Three TestServe cases. Cabal 2342.
+
+* Needs your decision
+1. Merge order: the stack is linear; =feat/sqlite-cache= (4 commits, unmerged)
+   will conflict with =stEdges=/=withEdges= in =Store.hs=.
+2. Git fixture: add a local bare =origin= so the clean glyph and one-click
+   commit+push are asserted? Small, one case.
+3. Interop case for the WAL tail waits on the peer's missing
+   =external-path= API (open bug 2026-08-20).
+4. Sweep skips listed above — any you want taken anyway.
+5. Untracked Emacs autosaves =src-web/Glance/Web/#Routes.hs#= and
+   =test/#TestSelfContained.hs#= shadow greps; not touched (no deletions).

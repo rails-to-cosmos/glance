@@ -1,8 +1,10 @@
 # Proposal — the commands are already MCP tools
 
-**Status:** proposed · **Date:** 2026-09-08 · **Origin:** user — *"especially
-for agents. So perhaps it would be good to have 'glance mcp' cli and api route,
-what do you think?"*
+**Status:** partial — the three shippable increments landed (stages 1 and 2 in
+the 2026-09-08 stack, stage 3 the day after; `docs/tasks.org`); the section *the
+tool catalog, derived not hand-written* did not · **Date:** 2026-09-08 ·
+**Origin:** user — *"especially for agents. So perhaps it would be good to have
+'glance mcp' cli and api route, what do you think?"*
 
 ## Where the wall is
 
@@ -101,3 +103,90 @@ mcp` for the no-daemon case.** `glance mcp` may even detect a daemon (the
 - **Test baseline**: new route + subcommand need their own cases; the `commands`
   table and `Args` stay pinned by their existing tests, and the catalog derives
   from them, so a drift between catalog and verbs is a test, not a review.
+
+
+## 2026-09-12 update — what landed, and the one step left
+
+**Landed.** All three increments under *Shippable increments*:
+`Glance.Web.Mcp` and `POST /mcp` (`Routes.hs:171-172`), `glance mcp` over stdio
+(`app/Main.hs:100`, `runMcpStdio`), and the daemon-aware proxy (`mcpDaemonAt`,
+`/status` carrying the served `dir` at `Routes.hs:226`). The catalog grew four
+read tools rather than the six this file named, and the graph tools it did not
+foresee — see `docs/proposals/done/2026-09-10-the-graph-an-agent-can-walk.md`.
+
+**Not landed: the catalog is still hand-written.** This file's section at
+`:50-68` says *"a new verb in `commands` is a new MCP tool with no second
+edit."* It is a second edit today, and a third:
+
+- `writeTools` (`Mcp.hs:199-247`) hand-spells every verb's description, every
+  argument's JSON-Schema type and every `required` list. Twelve rows, ~48 lines.
+- `Commands.commands` (`Commands.hs:149`) holds the same twelve verbs with
+  `csArgs` — the request-shape guard — and no description, no property types.
+- `AGENTS.hs:3388-3407` holds them a THIRD time as `cmds`, whose `cArgs`
+  (`AGENTS.hs:3377`) carries each argument's name and arity (`Req`/`Nul`/`Opt`).
+
+`mcpWriteToolNames` (`Mcp.hs:196`) pins the NAMES against `commandNames`
+(`TestServe.hs:9051-9052`), and `TestSpec.hs:976` pins `cWire` against them too,
+so no verb can be missing from any of the three. **The ARGUMENTS are pinned
+across two of the three and not the third.** `TestSpec.hs:1016-1029` drives
+`cArgs` against the live `/command` door — one null per field, asserting a `Nul`
+field clears and a `Req` field is refused — so the model and the engine agree.
+Nothing compares either to `writeTools`' schema. A verb that gains an argument
+gets it in `Commands.hs` and `AGENTS.hs`, and an agent reading `tools/list`
+never learns the argument exists.
+
+### The remaining step
+
+`CommandSpec` (`Commands.hs:124-129`) carries what the catalog needs:
+
+```haskell
+-- | ONE ARGUMENT: the wire name, what it takes, whether it is owed, and the
+-- sentence the catalog shows.  The request-shape guard reads it, and so does
+-- the MCP schema, so a verb cannot document one and take another.
+data CommandArg = CommandArg
+  { caName :: !Text
+  , caType :: !ArgType          -- ^ Str | StrOrNull | Arr Str | Pairs | Span
+  , caNeed :: !Arity            -- ^ Req | Nul | Opt, `AGENTS.cArgs`' own word
+  , caHelp :: !Text
+  }
+
+data CommandSpec = CommandSpec
+  { csDesc  :: !Text            -- ^ the tool description, one sentence.
+  , csProps :: ![CommandArg]
+  , csArgs  :: [Text] -> Args -> Maybe Text
+  , csAsks  :: Asks
+  , csKind  :: CommandKind
+  }
+```
+
+and the catalog folds it:
+
+```haskell
+writeTools :: [Tool]
+writeTools =
+  [ writeTool n (csDesc s) (schemaOf (csProps s)) [ caName a | a <- csProps s, caNeed a == Req ]
+  | (n, s) <- commands ]
+```
+
+`csArgs` can then be DERIVED from `csProps` for the verbs whose guard is only
+arity (nine of twelve); `capture`'s either-or road and `edit-link`'s span stay
+hand-written, which is what `csArgs` is for.
+
+`TestSpec` gains the third diff beside its route, command and column ones:
+
+```haskell
+testCase "the spec's arguments are the engine's" $
+  assertEqual "an argument moved"
+    [ (Spec.cWire c, f, a) | c <- Spec.cmds, Spec.Arg f a <- Spec.cArgs c ]
+    [ (n, caName p, arityWord (caNeed p)) | (n, s) <- commands, p <- csProps s ]
+```
+
+**LOC**: added ~60 (`CommandArg`, `ArgType`, `schemaOf`, twelve `csDesc`/
+`csProps` rows), removed ~55 (`writeTools`' twelve hand-spelled schemas, nine
+`csArgs` bodies). **Per future verb: one `commands` row instead of a
+`commands` row plus a `writeTools` row plus an `AGENTS.cmds` row.**
+
+**Risk**: `tools/list`'s `inputSchema` is a wire surface an agent's client
+caches. Derivation must reproduce today's bytes for the twelve verbs, which the
+browser MCP explorer case and `TestServe`'s catalog cases are the check on.
+No write path, no org bytes.

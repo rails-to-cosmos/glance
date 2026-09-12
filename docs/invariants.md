@@ -160,17 +160,25 @@ nothing catches it.
   `ref:*any*` denies; a writer that skips `withEdges` serves the graph the store
   held before the write. *fragility: high*
 
-- **An MCP tool meets the query string's own walls.** `list-headlines`,
-  `get-headline` and `neighbors` synthesize the very `Request` the route takes,
-  so one refusal serves both doors: a flag is `true` or `false` or REFUSED
-  rather than read as unasked (`edges`, at `queryEdges` and at `argFlag`), a cap
-  refuses rather than trims and every capped number refuses in one sentence
-  (`cappedAt`, over `limit` and `depth`), and `total` counts BEFORE the cap so a
-  limit is honest. Without the flag the answer is the one the door always gave,
-  byte for byte. `Routes.hs:243`, `:253`, `:477`, `:1026`, `Mcp.hs:336`,
-  `Query.hs:869`, `TestServe.hs:8360`, `:9355`, `:9370`. A tool reading its own
-  arguments grows a second refusal vocabulary, and a cap that trims makes
-  `total` a lie. *fragility: medium*
+- **An MCP tool meets the query string's own walls.** `get-headline`,
+  `list-headlines` and `neighbors` synthesize the very `Request` the route
+  takes: ONE RENDERER on the tool's side, ONE WALL on the route's, one refusal
+  sentence per wall. `argBytes` renders every scalar argument to the query bytes
+  it would have arrived as — a string as itself, a number in its own decimal
+  spelling, `true` for a flag that is set, and NO PARAMETER for a flag that is
+  off, for a `null`, or for an argument left out — and `param` hangs it on the
+  request. The route reads it back: `wholeNumber` refuses a number that is none,
+  `cappedAt` refuses rather than trims and spells every capped number's refusal
+  in one sentence (`limit` and `depth` alike), `queryFlag` refuses a flag
+  spelled any other way. `total` counts BEFORE the cap, so a `limit` is honest.
+  Without the flag the answer is the one the door always gave, byte for byte.
+  `Mcp.hs:346`, `:358`, `:364`, `Routes.hs:243`, `:249`, `:257`, `:264`,
+  `:483`, `:504`, `:1025`, `:1031`, `Query.hs:851`, `:2731`,
+  `TestServe.hs:9170`, `:9183`, `:9192`, `:9233`. A tool that reads its own
+  arguments grows a second refusal vocabulary: the `argInt` deleted on
+  2026-09-12 rounded `{"depth": 2.7}` to 3 and served `{"limit": "5"}` the
+  uncapped page, where `?depth=2.7` and `?limit=abc` are 400s. A cap that trims
+  makes `total` a lie. *fragility: medium*
 
 ## Parsing and the walk
 
