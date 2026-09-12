@@ -2077,8 +2077,8 @@ draftRowSpec shell = testGroup "Shell draft row"
   [ keyedAt shell "?q=priority%3AA%20tag%3Atrip%20state%3ATODO%20sort%3Ascheduled-%3Etitle" 500
       "three positive atoms, one of each: the draft wears all three"
       "+" "" $ \answer -> do
-        assertEqual "the state, the priority, an empty title, the run, the hint"
-                    ["TODO", "A", "", ":trip:", "\8594 trip"] =<< draftWears answer
+        assertEqual "the state, the priority as org spells one, an empty title, the run"
+                    ["TODO", "[#A]", "", ":trip:"] =<< draftWears answer
         assertEqual "spliced UNDER the row at point" (Just "r1") =<< draftUnder answer
         assertEqual "which is the row below it" 1 =<< intAt "at" =<< field "draft" answer
         -- `sort:' is a modifier rather than a column key, so it pins nothing.
@@ -2089,36 +2089,35 @@ draftRowSpec shell = testGroup "Shell draft row"
       "the FIRST positive tag names the destination and the rest ride as the draft's own"
       "+" "" $ \answer ->
         assertEqual "one run, the destination leading it"
-                    ["", "B", "", ":trip:gear:", "\8594 trip"] =<< draftWears answer
+                    ["", "[#B]", "", ":trip:gear:"] =<< draftWears answer
 
   , keyedAt shell "?q=state%3ATODO%20-tag%3Awork" 500
       "a negated atom lends nothing, so the destination falls back to the inbox"
       "+" "" $ \answer ->
-        assertEqual "the state alone, and the inbox behind it"
-                    ["TODO", "", "", "", "\8594 inbox"] =<< draftWears answer
+        assertEqual "the state alone, and no tag to name a destination"
+                    ["TODO", "", "", ""] =<< draftWears answer
 
   , keyedAt shell "?q=state%3ANEXT%7CTODO%20title%3Avisa" 500
       "an alternation pins no value and title: is no fact a row wears"
       "+" "" $ \answer ->
-        assertEqual "nothing is lent" ["", "", "", "", "\8594 inbox"] =<< draftWears answer
+        assertEqual "nothing is lent" ["", "", "", ""] =<< draftWears answer
 
     -- THE SEEDED STATE MEETS THE DESTINATION'S OWN CYCLE, which `+' asks for at
     -- the moment it draws the row.  A keyword the cycle lacks is DROPPED here,
     -- so the wire never carries it and `stated''s 400 stays as strict as it is
     -- for every other caller.
   , keyedAt shell "?q=tag%3Abook%20state%3ANEXT" 500
-      "a state the destination's cycle lacks is dropped, and the hint says so"
+      "a state the destination's cycle lacks is dropped"
       "+" "wait:50" $ \answer -> do
-        assertEqual "the state is gone and the hint names it"
-                    ["", "", "", ":book:", "\8594 book \183 NEXT dropped"]
-          =<< draftWears answer
+        assertEqual "the state is gone, the run the filter seeded standing"
+                    ["", "", "", ":book:"] =<< draftWears answer
         assertEqual "asked of the read door, by destination"
                     ["/keywords?tag=book"] =<< textsAt "capturing" answer
 
   , keyedAt shell "?q=tag%3Abook%20state%3AREADING" 500
       "and a state the cycle HAS is worn as it stands"
       "+" "wait:50" $ \answer ->
-        assertEqual "the layer's own keyword" ["READING", "", "", ":book:", "\8594 book"]
+        assertEqual "the layer's own keyword" ["READING", "", "", ":book:"]
           =<< draftWears answer
 
     -- `setRows' RESETS the widget's rows, so a draft left out of the splice is
@@ -2128,7 +2127,7 @@ draftRowSpec shell = testGroup "Shell draft row"
       "+" "frame:upsert=r3 wait:300" $ \answer -> do
         assertEqual "the draft stands where it was spliced" (Just "r1")
           =<< draftUnder answer
-        assertEqual "wearing what it wore" ["TODO", "", "", "", "\8594 inbox"]
+        assertEqual "wearing what it wore" ["TODO", "", "", ""]
           =<< draftWears answer
 
     -- NO OTHER ROW CAN REACH A DRAFT: its reserved id is never a target, so the
@@ -2162,14 +2161,11 @@ draftUnder :: Value -> IO (Maybe T.Text)
 draftUnder = maybeTextAt "under" <=< field "draft"
 
 -- | The draft in ONE reading: the state, the priority, the title and the tag
--- run it wears, then the ROW'S OWN hint, which says where the capture lands --
--- a field the widget draws in the last column rather than a cell of its own.
+-- run it wears.  THE RUN SAYS WHERE IT LANDS, the destination leading it.
 draftWears :: Value -> IO [T.Text]
 draftWears answer = do
-  row <- field "draft" answer
-  cells <- field "cells" row
-  (<>) <$> traverse (`textAt` cells) ["state", "priority", "title", "tag"]
-       <*> traverse (`textAt` row) ["hint"]
+  cells <- field "cells" =<< field "draft" answer
+  traverse (`textAt` cells) ["state", "priority", "title", "tag"]
 
 namesOf :: Value -> IO [T.Text]
 namesOf answer = traverse (textAt "name") =<< listAt "commands" answer

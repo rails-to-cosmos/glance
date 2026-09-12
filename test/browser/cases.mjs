@@ -475,18 +475,17 @@ const fileSays = (p, row, re, why) => p.until(async (a) => {
   return new RegExp(a.re, "m").test(h.org || "") ? h.org : false;
 }, why, 20_000, { row, re: re.source });
 
-/** The draft's hint reading WORD.  `+' draws the row at once and asks the
- * destination's cycle in the same breath, so a reading taken the moment the
- * editor opens is taken before the answer that clears a dropped state.  THE
- * HINT IS A ROW FIELD and rides the last column the draft carries no cell for,
- * which in this table is DEADLINE. */
-const droppedHint = (p, word, why) => p.until((want) => {
+/** The draft's STATE cell reading WORD, polled.  `+' draws the row at once and
+ * asks the destination's cycle in the same breath, so a reading taken the moment
+ * the editor opens is taken before the answer that clears a dropped state — the
+ * cell emptying IS that answer arriving. */
+const draftState = (p, word, why) => p.until((want) => {
   const tr = document.querySelector("#app tbody tr.tv-producer");
+  if (!tr) return false;
   const keys = [...document.querySelectorAll("#app thead th[data-key]")]
     .map((th) => th.dataset.key);
-  if (!tr) return false;
   const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
-  return tds[keys.indexOf("deadline")].textContent === want;
+  return tds[keys.indexOf("state")].textContent === want;
 }, why, undefined, word);
 
 export default [
@@ -4591,13 +4590,6 @@ export default [
     // A DRAFT IS NEVER STEPPED ONTO: point stays on the row `+' was pressed at.
     assert(drew.sel === before.ids[before.at],
       `point moved to ${JSON.stringify(drew.sel)} when the draft spliced in`);
-    // THE DESTINATION IS SAID IN THE ROW, as a field of its own that the widget
-    // draws in the last column the draft carries no cell for -- DEADLINE here.
-    // This view carries no `tag:', so the capture goes to the inbox.
-    const cell = (key) => (drew.cells.find(([k]) => k === key) || [])[1];
-    assert(cell("deadline") === "→ inbox",
-      `the hint cell reads ${JSON.stringify(cell("deadline"))} rather than `
-      + `the destination`);
     assert(drew.rule === "dashed" && drew.ink === "italic"
              && /\d/.test(drew.edge) && drew.edge !== "none",
       `the draft wears ${JSON.stringify([drew.rule, drew.ink, drew.edge])} — the `
@@ -4608,12 +4600,12 @@ export default [
   } },
 
 // THE SEEDING RULE, WHOLE, IN ONE ROW: the filter's POSITIVE PINNED atoms fill
-// the draft -- the FIRST `tag:' is the destination and every later one rides as
-// the draft's own run, the one `state:' and the one `priority:' are worn as they
-// stand -- and the row's own hint says where the capture lands.  `book' is the
+// the draft -- the FIRST `tag:' is the destination and leads the TAGS CELL, which
+// is where the row says where it lands; every later `tag:' rides after it, and the
+// one `state:' and the one `priority:' are worn as they stand.  `book' is the
 // tree's one tag layer and its cycle declares READING, so nothing is dropped
 // here; the DROPPED half is its own case below.
-{ name: "the draft wears what the filter pins, and says where it lands",
+{ name: "the draft wears what the filter pins",
   async run(p, base) {
     const q = "tag:book tag:work state:READING priority:B";
     await p.goto(`${base}/?q=${encodeURIComponent(q)}`);
@@ -4624,7 +4616,7 @@ export default [
     // WAITED FOR RATHER THAN READ ONCE: `+' draws the row and asks the cycle in
     // the same breath, and the answer lands behind it -- so a reading taken at
     // the open could not tell a state that STANDS from one not yet dropped.
-    await droppedHint(p, "→ book", "the cycle's answer to leave the hint alone");
+    await draftState(p, "READING", "the cycle's answer to leave the state standing");
     const drew = await p.eval(() => {
       const tr = document.querySelector("#app tbody tr.tv-producer");
       const keys = [...document.querySelectorAll("#app thead th[data-key]")]
@@ -4637,15 +4629,16 @@ export default [
         title: at("title").textContent,
         // AN ORG RUN DRAWS AS ITS CHIPS, so the run is read as the names in it.
         tags: [...at("tag").querySelectorAll(".tv-tag")].map((e) => e.textContent),
-        hint: at("deadline").textContent,
         scheduled: at("scheduled").textContent,
       };
     });
     assert(drew.state === "READING",
       `the state cell reads ${JSON.stringify(drew.state)} where the filter pinned READING`);
-    assert(drew.priority === "B",
-      `the priority cell reads ${JSON.stringify(drew.priority)} — org's own [#B] is `
-      + `folded to the letter the wire takes`);
+    // ORG'S OWN SPELLING, the one every landed row's priority cell wears; the
+    // wire takes the letter alone, which `draftArgs' folds back out of it.
+    assert(drew.priority === "[#B]",
+      `the priority cell reads ${JSON.stringify(drew.priority)} rather than the `
+      + `[#B] a landed row draws`);
     // THE TITLE IS THE ONE CELL THE FILTER NEVER FILLS: the editor empties the
     // cell it opens in, and a `title:' atom is no fact a row wears.
     assert(drew.title === "",
@@ -4653,15 +4646,12 @@ export default [
     assert(JSON.stringify(drew.tags) === JSON.stringify(["book", "work"]),
       `the run reads ${JSON.stringify(drew.tags)} — the destination must lead it, `
       + `with every later tag: after`);
-    assert(drew.hint === "→ book",
-      `the hint reads ${JSON.stringify(drew.hint)} rather than the destination`);
-    // A FILTER-LENT DAY IS REFUSED BY THE DESIGN: the hint takes the last cell
-    // the draft leaves free, and no date cell is written at all.
+    // A FILTER-LENT DAY IS REFUSED BY THE DESIGN: a captured row carries no
+    // planning line, so no date cell is written at all.
     assert(drew.scheduled === "",
       `the SCHEDULED cell reads ${JSON.stringify(drew.scheduled)}`);
     return [`under ${JSON.stringify(q)} the draft wore `
-      + `${JSON.stringify([drew.state, drew.priority, drew.tags])} and said `
-      + `${JSON.stringify(drew.hint)}`];
+      + `${JSON.stringify([drew.state, drew.priority, drew.tags])}`];
   } },
 
 // `setRows' RESETS the widget's rows, so a draft left out of the splice is
@@ -4728,7 +4718,9 @@ export default [
 // from reaching the shell (`e.stopPropagation()'), so a draft's keys can be
 // bound nowhere but the editor -- `onCellKey' is the seam, asked at the head of
 // that keydown, and a `true' answer means the producer took the key.  `TAB'
-// walks title -> state -> priority -> tags and wraps, `S-TAB' walks back, and
+// walks the draft's cells IN THE ORDER THE HEADER DRAWS THEM, left to right and
+// wrapping -- state, priority, title, tags in this table, the dates skipped
+// because a captured row has no planning line -- `S-TAB' walks them back, and
 // the CLOSING cell's value is written into the phantom row BEFORE the next cell
 // opens, `closeCellEditor' redrawing the rows on its way out.
 { name: "TAB walks the draft's cells and wraps, S-TAB walks them back",
@@ -4742,15 +4734,29 @@ export default [
                   "the filtered table to mount its row");
     const rows = await p.eval(() =>
       document.querySelectorAll("#app tbody tr[data-id]").length);
+    const order = await p.eval(() =>
+      [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key));
+    assert(JSON.stringify(order.filter((k) => k !== "scheduled" && k !== "deadline"))
+             === JSON.stringify(["state", "priority", "title", "tag"]),
+      `the header draws ${JSON.stringify(order)}, which the walk below is written to`);
     await p.press("+");
+    // THE TITLE OPENS FIRST whatever the header's order: a capture is a title,
+    // and the walk only leaves from there.
     const open = await draftEditor(p, null, "the draft's title cell to open");
     assert(open.col === "title", `the draft opened on ${JSON.stringify(open.col)}`);
 
     // ONE KEY PER CALL, each gated on the editor having LEFT the cell it was in.
     const walk = async (key, from, why) => { await p.press(key); return draftEditor(p, from, why); };
-    const toState = await walk("TAB", "title", "TAB to move the editor off the title cell");
+    const cellOf = (r, key) => (r.cells.find(([k]) => k === key) || [])[1];
+    const toTag = await walk("TAB", "title", "TAB to move the editor off the title cell");
+    assert(toTag.col === "tag",
+      `TAB from the title reached ${JSON.stringify(toTag.col)} rather than the tags `
+      + `cell, which is the next one the header draws`);
+    const toState = await walk("TAB", "tag", "TAB at the last column to wrap the editor round");
     assert(toState.col === "state",
-      `TAB from the title reached ${JSON.stringify(toState.col)} rather than the state cell`);
+      `TAB from the tags cell reached ${JSON.stringify(toState.col)} rather than `
+      + `wrapping round to the first column`);
     assert(toState.value === "TODO",
       `the state cell opened on ${JSON.stringify(toState.value)} rather than the state `
       + `the filter seeded it with`);
@@ -4761,32 +4767,25 @@ export default [
     const toPriority = await walk("TAB", "state", "TAB to move the editor off the state cell");
     assert(toPriority.col === "priority",
       `TAB from the state reached ${JSON.stringify(toPriority.col)}`);
-    const cellOf = (r, key) => (r.cells.find(([k]) => k === key) || [])[1];
     assert(cellOf(toPriority, "state") === "NEXT",
       `the state cell draws ${JSON.stringify(cellOf(toPriority, "state"))} after the `
       + `walk left it, rather than what was typed there`);
-    assert(toPriority.value === "A",
+    // ORG'S OWN SPELLING, the one a landed row's priority cell wears.
+    assert(toPriority.value === "[#A]",
       `the priority cell opened on ${JSON.stringify(toPriority.value)} rather than the `
-      + `letter the filter seeded it with`);
-    const toTag = await walk("TAB", "priority", "TAB to move the editor off the priority cell");
-    assert(toTag.col === "tag",
-      `TAB from the priority reached ${JSON.stringify(toTag.col)}`);
+      + `[#A] the filter seeded it with`);
+    const backTitle = await walk("TAB", "priority", "TAB to bring the editor back to the title");
+    assert(backTitle.col === "title",
+      `TAB from the priority reached ${JSON.stringify(backTitle.col)} rather than the `
+      + `title, which is where the ring came round to`);
     // WALKED THROUGH UNTOUCHED, and still wearing what it was seeded with.
-    assert(cellOf(toTag, "priority") === "A",
-      `the priority cell draws ${JSON.stringify(cellOf(toTag, "priority"))} after the walk `
-      + `passed through it without a keystroke`);
-    const wrapped = await walk("TAB", "tag", "TAB at the last cell to wrap the editor round");
-    assert(wrapped.col === "title",
-      `TAB at the tags cell reached ${JSON.stringify(wrapped.col)} rather than wrapping `
-      + `to the title`);
+    assert(cellOf(backTitle, "priority") === "[#A]",
+      `the priority cell draws ${JSON.stringify(cellOf(backTitle, "priority"))} after the `
+      + `walk passed through it without a keystroke`);
 
-    const backTag = await walk("S-TAB", "title", "S-TAB to wrap the editor back off the title");
-    assert(backTag.col === "tag",
-      `S-TAB at the title reached ${JSON.stringify(backTag.col)} rather than wrapping back `
-      + `to the tags cell`);
-    const backPriority = await walk("S-TAB", "tag", "S-TAB to walk back off the tags cell");
+    const backPriority = await walk("S-TAB", "title", "S-TAB to walk back off the title");
     assert(backPriority.col === "priority",
-      `S-TAB from the tags cell reached ${JSON.stringify(backPriority.col)}`);
+      `S-TAB from the title reached ${JSON.stringify(backPriority.col)}`);
     const backState = await walk("S-TAB", "priority", "S-TAB to walk back off the priority cell");
     assert(backState.col === "state",
       `S-TAB from the priority reached ${JSON.stringify(backState.col)}`);
@@ -4795,10 +4794,14 @@ export default [
     assert(backState.value === "NEXT",
       `the state cell reopened on ${JSON.stringify(backState.value)} rather than the `
       + `value the walk left in it`);
-    assert(backState.rows === rows + 1,
-      `the walk left ${backState.rows} rows where the draft makes ${rows + 1}`);
-    return [`TAB walked title→state→priority→tag→title and S-TAB walked it back, over `
-      + `${backState.rows} rows`,
+    const backTag = await walk("S-TAB", "state", "S-TAB at the first column to wrap back round");
+    assert(backTag.col === "tag",
+      `S-TAB at the state cell reached ${JSON.stringify(backTag.col)} rather than `
+      + `wrapping back to the tags cell`);
+    assert(backTag.rows === rows + 1,
+      `the walk left ${backTag.rows} rows where the draft makes ${rows + 1}`);
+    return [`TAB walked title→tag→state→priority→title, the header's own order, and `
+      + `S-TAB walked it back over ${backTag.rows} rows`,
       `"NEXT" typed in the state cell drew as ${JSON.stringify(cellOf(toPriority, "state"))} `
       + `and reopened as ${JSON.stringify(backState.value)}`];
   } },
@@ -4958,7 +4961,8 @@ export default [
     await p.press("+");
     await draftEditor(p, null, "the draft's title cell to open");
     await p.typeKeys("zqinbox");
-    // COMMITTED FROM A CELL THAT IS NOT THE TITLE: `RET' from ANY cell captures,
+    // COMMITTED FROM A CELL THAT IS NOT THE TITLE — the tags cell, which is where
+    // the header's order puts TAB from the title: `RET' from ANY cell captures,
     // and the title it sends is the one the walk left in the row.
     await p.press("TAB");
     await draftEditor(p, "title", "TAB to move the editor off the title cell");
@@ -4997,8 +5001,7 @@ export default [
                   "the filtered table to mount");
     await p.press("+");
     await draftEditor(p, null, "the draft's title cell to open");
-    await droppedHint(p, "→ book · NEXT dropped",
-                      "the cycle's answer to clear the seeded state");
+    await draftState(p, "", "the cycle's answer to clear the seeded state");
     await p.typeKeys("zqbook");
     await p.press("RET");
 
@@ -5015,7 +5018,7 @@ export default [
       editors: document.querySelectorAll("#app input.tv-cell-edit").length }));
     assert(gone.drafts === 0 && gone.editors === 0,
       `the blob commit left ${gone.drafts} draft rows and ${gone.editors} editors behind`);
-    return [`RET from the state cell captured ${JSON.stringify(jot.split("\n")[0])} into `
+    return [`RET from the tags cell captured ${JSON.stringify(jot.split("\n")[0])} into `
       + `the inbox and point followed it to row ${seen.at} of ${seen.n}`,
       `and under tag:book state:NEXT priority:A the blob landed as `
       + `${JSON.stringify(head)}`];
@@ -5023,10 +5026,12 @@ export default [
 
 // A SEEDED STATE MEETS THE DESTINATION'S OWN `#+TODO:' CYCLE, asked for at the
 // moment the row is drawn: a keyword that cycle lacks is DROPPED before the wire
-// ever carries it, and the hint beside the row says which.  `stated''s 400 is
-// therefore exactly as strict as it is for every other caller, the MCP tool
-// included -- the page never asks the server to refuse what it can drop itself.
-{ name: "a state the destination's cycle lacks is dropped, and the hint says so",
+// ever carries it, SILENTLY -- the cell empties and nothing else is said.
+// `stated''s 400 is therefore exactly as strict as it is for every other caller,
+// the MCP tool included -- the page never asks the server to refuse what it can
+// drop itself.  THE BYTES ARE THE PROOF: the blob this commits carries no
+// keyword between its star and its title.
+{ name: "a state the destination's cycle lacks is dropped",
   async run(p, base) {
     await p.goto(`${base}/?q=${encodeURIComponent("tag:book state:NEXT")}`);
     await p.until(() => !!document.querySelector("#app table tbody"),
@@ -5036,8 +5041,7 @@ export default [
     // wearing what the filter pinned, and the door's answer is what takes it off.
     const seeded = await draftEditor(p, null, "the draft's title cell to open");
     const cellOf = (r, key) => (r.cells.find(([k]) => k === key) || [])[1];
-    await droppedHint(p, "→ book · NEXT dropped",
-                      "the cycle's answer to reach the hint");
+    await draftState(p, "", "the cycle's answer to empty the state cell");
     const after = await p.eval(() => {
       const tr = document.querySelector("#app tbody tr.tv-producer");
       const keys = [...document.querySelectorAll("#app thead th[data-key]")]
@@ -5056,9 +5060,20 @@ export default [
       `the tag run reads ${JSON.stringify(cellOf(after, "tag"))}`);
     assert(after.open,
       `the draft lost its editor when the cycle's answer landed`);
+
+    // AND THE WIRE NEVER CARRIED IT: the committed blob's headline opens on its
+    // title, with no keyword the destination's cycle would have had to refuse.
+    await p.typeKeys("zqdrop");
+    await p.press("RET");
+    const blob = await landedRow(p, "zqdrop", "the blob to reach the store");
+    const head = (await fileSays(p, blob, /^\* /m, "the blob's own file to carry the entry"))
+                   .split("\n")[0];
+    assert(head === "* zqdrop :book:",
+      `the blob's headline is ${JSON.stringify(head)} rather than the title and the `
+      + `run with no keyword among them`);
     return [`the draft opened wearing ${JSON.stringify(cellOf(seeded, "state"))} and the `
-      + `cycle left ${JSON.stringify(cellOf(after, "state"))}, the hint reading `
-      + `${JSON.stringify(cellOf(after, "deadline"))}`];
+      + `cycle left ${JSON.stringify(cellOf(after, "state"))}, the blob landing as `
+      + `${JSON.stringify(head)}`];
   } },
 
 // CAPTURE IS A ROW, STAGE 5: THE REFUSAL REFUSES IN PLACE.  `RET' on a title
@@ -5094,7 +5109,7 @@ export default [
       const edge = getComputedStyle(tr.children[0]).boxShadow;
       return at === "title" && edge.indexOf(want) !== -1
         ? { n: document.querySelectorAll("#app tbody tr[data-id]").length,
-            hint: tds[keys.indexOf("deadline")].textContent,
+            note: tds[keys.indexOf("deadline")].textContent,
             warn: tr.classList.contains("tv-refused"),
             rule: getComputedStyle(tds[0]).borderTopColor, edge, want,
             sel: [box.selectionStart, box.selectionEnd, box.value.length] }
@@ -5103,11 +5118,9 @@ export default [
 
     assert(refused.n === before + 1,
       `the table holds ${refused.n} rows where the standing draft makes ${before + 1}`);
-    // THE WORD LEADS THE HINT rather than taking its place: what the capture
-    // wanted and where it would land are both still readable.
-    assert(refused.hint === "nothing to capture · → inbox",
-      `the hint reads ${JSON.stringify(refused.hint)} rather than the shipped word `
-      + `ahead of the destination`);
+    // THE WORD IS THE ROW'S WHOLE NOTE, and it is the shipped sentence.
+    assert(refused.note === "nothing to capture",
+      `the note reads ${JSON.stringify(refused.note)} rather than the shipped word`);
     assert(refused.warn && refused.rule === refused.want,
       `the refused row wears ${JSON.stringify([refused.warn, refused.rule, refused.edge])} `
       + `where the dashed rule and the accent edge must both be ${refused.want}`);
@@ -5122,10 +5135,10 @@ export default [
       const keys = [...document.querySelectorAll("#app thead th[data-key]")]
         .map((th) => th.dataset.key);
       const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
-      return { hint: tds[keys.indexOf("deadline")].textContent,
+      return { note: tds[keys.indexOf("deadline")].textContent,
                warn: tr.classList.contains("tv-refused") };
     });
-    assert(moved.hint === "nothing to capture · → inbox" && moved.warn,
+    assert(moved.note === "nothing to capture" && moved.warn,
       `a movement key took the refusal down: ${JSON.stringify(moved)}`);
 
     // AND THE NEXT CONTENT KEYSTROKE TAKES THE NOTE AND THE DRESS BACK.
@@ -5137,12 +5150,12 @@ export default [
       const keys = [...document.querySelectorAll("#app thead th[data-key]")]
         .map((th) => th.dataset.key);
       const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
-      const hint = tds[keys.indexOf("deadline")].textContent;
+      const note = tds[keys.indexOf("deadline")].textContent;
       const want = g("warn");
       const edge = getComputedStyle(tr.children[0]).boxShadow;
-      return hint === "→ inbox" && !tr.classList.contains("tv-refused")
+      return note === "" && !tr.classList.contains("tv-refused")
                && edge.indexOf(want) === -1
-        ? { hint, value: box.value, edge, want,
+        ? { note, value: box.value, edge, want,
             rule: getComputedStyle(tds[0]).borderTopColor }
         : false;
     }, "the next content keystroke to clear the note and the dress");
@@ -5161,9 +5174,9 @@ export default [
     assert(after === before,
       `ESC left ${after} rows where the table held ${before} before the draft`);
     return [`RET on an empty title kept ${refused.n} rows, said `
-      + `${JSON.stringify(refused.hint)} and dressed the row ${refused.want}`,
-      `a movement left it, "q" cleared it to ${JSON.stringify(cleared.hint)}, and ESC `
-      + `left ${after} rows`];
+      + `${JSON.stringify(refused.note)} and dressed the row ${refused.want}`,
+      `a movement left it, "q" cleared the note and the dress, and ESC left `
+      + `${after} rows`];
   } },
 
 // AN EMPTY TITLE DREW NO CELL, so the title edit fell back to the whole line and

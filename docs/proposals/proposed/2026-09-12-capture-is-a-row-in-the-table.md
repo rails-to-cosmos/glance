@@ -322,6 +322,8 @@ including `a state outside the capture's own cycle is refused, naming the cycle`
   decision names, and the SCHEDULED cell carries the destination hint instead.
 - **A draft that outlives `ESC`.** No autosave, no draft store; a capture is
   committed or it never was.
+- **The destination hint** — removed on review 2026-09-12; the tags cell says
+  the destination.
 
 ## Oracles, in one list
 

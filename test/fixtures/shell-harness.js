@@ -1819,8 +1819,7 @@ const settle = async () => {
       const at = drawn.findIndex((r) => r.producer);
       return at === -1 ? null
         : { at, under: at ? drawn[at - 1].id : null, cells: drawn[at].cells,
-            hint: drawn[at].hint, refused: drawn[at].refused,
-            editing: editedCell };
+            refused: drawn[at].refused, editing: editedCell };
     })(),
     chues: listCells("cstates").map((c) => c.join("|")),
     sat: listAt("cstates"), sflagged: listFlagged("cstates"),

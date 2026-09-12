@@ -325,6 +325,18 @@ wash lists (=#capture=), =cancelSheetEdit= (=bareCapture=) and the 16px field
 guard (=#ktag=).  Browser: =the draft wears what the filter pins, and says
 where it lands= added, the last of the proposal's ten.
 
+* DONE Capture-is-a-row, the review pass — the hint, the priority, the walk
+Three calls on the landed draft row (2026-09-12).  THE DESTINATION HINT IS GONE:
+=draftHint=, the row's =hint= field and =dropped= went from =35-draft.js=, and
+the widget's =Row=/=noteOf= now draw =refused= alone — the tags cell says where
+the capture lands, and a dropped state is dropped silently.  THE PRIORITY CELL
+WEARS ORG'S OWN SPELLING: =draftSeed= seeds =[#A]= the way every landed row's
+cell reads (=priorityCell=, =Query.hs:2569=), =draftArgs= still sending the bare
+letter through =priorityIn=.  THE WALK FOLLOWS THE HEADER: =draftWalk()= filters
+=cols= by the four cells a draft owns, so =TAB= goes left to right in the order
+the header draws — state, priority, title, tags in this table — and the title
+still opens first.  Suite: cabal 2323, elm 189, browser 105.
+
 * TODO A tag on an inbox headline moves it under the tag (first tag wins)
 See [[file:bugs/open/2026-09-12-a-tag-on-an-inbox-headline-leaves-it-in-the-inbox.md]].
 =add-tag= edits the title line only; the tagged road (=captureBlob=) exists at
@@ -346,7 +358,7 @@ a word.  Upstream them, then re-sync.
 The widget changes, by name (line numbers are =assets/table-view.js='s on this
 branch):
 
-- =Row= gains the PRODUCER'S OWN ROW — ={producer, under, hint, refused}= —
+- =Row= gains the PRODUCER'S OWN ROW — ={producer, under, refused}= —
   replacing the glance-specific =draft= flag (typedef =:63=).
 - =standing(r)= (=:3157=) is =!r.producer=, and is asked at =ordered()=
   (=:2897=), =placeProducers= (=:2884=, was =placeDrafts=), =markAll=,
@@ -358,9 +370,9 @@ branch):
 - =ownRows()= (=:2159=) holds the producer's rows across a =setRows=, and
   =standing= also keeps them out of the filter's own vocabulary (=tagVocab=,
   =domainOf=) and out of a long press's and a double-click's default command.
-- =noteOf= (=:3162=), =noteCell= (=:3170=) and =rowHTML= (=:3246=) draw
-  =hint= — =refused · hint= where one stands — in the last column the row
-  carries no cell for, and =rowText= measures the column against it.
+- =noteOf= (=:3161=), =noteCell= (=:3168=) and =rowHTML= (=:3244=) draw
+  =refused= in the last column the row carries no cell for, and =rowText=
+  measures the column against it.
 - =holdEditor= / =resumeEditor= / =repaint= (=:4109=): a repaint folds the open
   input's value into its row and puts the caret back, never =select()=.
 - =getEditing()= on the handle (=:4098=, =:5366=), and =onCellKey='s cell

@@ -119,7 +119,7 @@ gluePartFiles =
   , "05-keys.js"       -- key naming and the echo pill, behind an argument list
   , "20-sheet.js"      -- the materialize sheet: both panes, the ladder, the opening
   , "30-palette.js"    -- the value palette and the link door
-  , "35-draft.js"      -- the draft row: the seeding rule, the phantom, the hint
+  , "35-draft.js"      -- the draft row: the seeding rule, the phantom, the walk
   , "40-popups.js"     -- the link popup and the tags popup
   , "50-settings.js"   -- the settings sheet: tabs, saved views, the states table, the theme
   , "60-refer.js"      -- `@' in the sheet: the reference picker, a table-view over /refer

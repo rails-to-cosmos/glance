@@ -60,7 +60,7 @@
  * @typedef {{ column: string, ascending: boolean, nullsFirst: boolean }} SortKey
  *          A normalized sort key (internal).
  * @typedef {{ id: string, cells?: Record<string, Cell>, linked?: boolean,
- *             producer?: boolean, under?: string|null, hint?: string,
+ *             producer?: boolean, under?: string|null,
  *             refused?: string }} Row
  *          `linked' says the row leads somewhere; its `title' cell is
  *          underlined, and a view with no such column shows nothing.
@@ -68,9 +68,9 @@
  *          stands where `under' names — after that row, or first where it is
  *          null — through every sort, filter, page and delta; it is dressed
  *          `tv-producer', never marked, never stepped onto, and its cells are
- *          editable whatever their column declares.  `hint' is drawn in the
- *          last column the row carries no cell for, `refused' leading it and
- *          dressing the row `tv-refused'.
+ *          editable whatever their column declares.  `refused' is drawn in the
+ *          last column the row carries no cell for, and dresses the row
+ *          `tv-refused'.
  * @typedef {{ name: string, query?: string }} SavedView
  *          A view the producer has named, which `view:NAME' completes from.
  *          What applying one MEANS is the producer's: this side offers the
@@ -3156,11 +3156,9 @@
      * @param {Row} r */
     const standing = (r) => !r.producer;
 
-    /** What a producer's row says beside itself: its hint, and a refusal ahead
-     * of it — so what the row was refused for never hides where it would land.
+    /** What a producer's row says beside itself: what it was refused for.
      * @param {Row} r */
-    const noteOf = (r) =>
-      [r.refused, r.hint].filter(Boolean).join(" · ");
+    const noteOf = (r) => r.refused || "";
 
     /** WHICH CELL THE NOTE RIDES: the LAST column the row carries no cell for,
      * which is free space at the right-hand end — a note drawn over a cell the

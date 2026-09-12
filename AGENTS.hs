@@ -3780,7 +3780,7 @@ data Lent = LentTag | LentState | LentPriority | LentTags deriving (Eq, Show)
 lentInto :: Lent -> String
 lentInto LentTag      = "the destination, which is also the cycle"
 lentInto LentState    = "the keyword, where the destination's cycle declares it"
-lentInto LentPriority = "the priority, the letter alone"
+lentInto LentPriority = "the priority, the cell wearing `[#A]' and the wire the letter"
 lentInto LentTags     = "every tag beyond the destination, as the draft's own run"
 
 data TplSrc = TplTag Tag | TplSystem | TplBare deriving (Eq, Show)
@@ -3966,7 +3966,7 @@ cmdNotes =
   , Note "The header is composed and READ BACK before it is written (`draftEntry'): a title carrying a tag run or a star reparses as something else, and is refused naming the part rather than written and misread on the next load." [Test]
   , Note "THE INBOX PATH GAINED THE BLOB PATH'S SPLICE AND NOTHING ELSE: `stampedEntry' joins the creation stamp to whatever drawer the entry has, `blobDocument' being that function with an id and a tag handed to it. No id, no tag and no ledger line for the inbox, and the old jot's bytes are unmoved." [Test]
   , Note "WHAT THE FILTER SEEDS IS THE PAGE'S ALONE (`lentInto'): only a fact the query pins to ONE ordinary positive value reaches the draft row, tags JOIN the run rather than filling a gap, and a fact the commit's own walls would turn down is simply never seeded — a template seeds nothing, the server ignoring it on the cargo road. So SEEDING NEVER REFUSES A CAPTURE." [Test]
-  , Note "THE DRAFT SAYS WHERE IT LANDS, in its tag cell and in the hint beside it: the DESTINATION leads the run and the seeded tags follow, and the cell is what the commit carries out as the capture's `tags'. The minting joins the destination IDEMPOTENTLY (`addTagEditsIn' folds), so the blob wears each tag once." [Test]
+  , Note "THE DRAFT SAYS WHERE IT LANDS IN ITS TAG CELL AND NOWHERE ELSE: the DESTINATION leads the run and the seeded tags follow, and the cell is what the commit carries out as the capture's `tags'. The minting joins the destination IDEMPOTENTLY (`addTagEditsIn' folds), so the blob wears each tag once." [Test]
   , Note "DELETION IS A MOVE: the whole blob DIRECTORY is gzipped under the trash's mirror of its path, the copy landing before the original goes, a destination that already exists refused." [Test]
   , Note "KNOWN LIMIT: one blob, one tombstone — a hand-written blob's SECOND top-level entry loses its bytes and keeps its record." [Test]
   , Note "delete's three walls are checked on the SERVER as well as in the shell, because a request is a request whoever wrote it." [Test]
@@ -5362,7 +5362,7 @@ sheetNotes =
          \ and it owns the open entry, the shape, and the two baselines dirt is measured\
          \ against." [Test]
   , Note "CAPTURE IS A ROW, AND THE WIDGET OWNS THE ROW: `+' hands the table a\
-         \ PRODUCER-OWNED row — `producer', `under', `hint', `refused' — seeded from what\
+         \ PRODUCER-OWNED row — `producer', `under', `refused' — seeded from what\
          \ the filter PINS, with its title cell's editor open, and the widget puts it\
          \ back after the row `under' names through every pass it has: the sort, the\
          \ local filter, a `setRows' (which replaces the STORE's rows and leaves the\
@@ -5374,16 +5374,15 @@ sheetNotes =
          \ are the only editable cells in the table: a per-COLUMN `editable' cannot carry\
          \ that, the main table mounting no editable column, so opting the columns in\
          \ would open a dead editor on every real row's double-click." [Browser]
-  , Note "THE DESTINATION IS SAID IN THE ROW'S OWN HINT — `\8594 book', `\8594 inbox' —\
-         \ which the widget draws in the LAST column the row carries no cell for --\
-         \ free space at the right-hand end, DEADLINE in this table -- as a row FIELD\
-         \ rather than a cell value, and never a date. The title cell cannot hold it, `openCellEditor'\
-         \ EMPTYING the cell it opens in, so a hint drawn beside the title is wiped the\
-         \ moment the editor arrives. `+' asks the cycle as it draws the row, and only\
+  , Note "THE DRAFT SAYS WHERE IT LANDS IN ITS TAG CELL, the destination leading the\
+         \ run; no note rides beside the row for it (a `\8594 book' hint did, and was\
+         \ dropped on review 2026-09-12). `+' asks the cycle as it draws the row, and only\
          \ where the filter seeded a state, there being nothing else to check; a keyword\
-         \ that destination's `#+TODO:' lacks is DROPPED before the wire ever carries it\
-         \ and the hint reads `\8594 book \183 NEXT dropped', which leaves `stated''s 400\
-         \ exactly as strict as it is for every other caller, the MCP tool included.\
+         \ that destination's `#+TODO:' lacks is DROPPED before the wire ever carries it,\
+         \ SILENTLY -- the cell empties and nothing else is said -- which leaves\
+         \ `stated''s 400 exactly as strict as it is for every other caller, the MCP tool\
+         \ included. A PRIORITY IS WORN AS ORG SPELLS IT, the seeded cell reading `[#A]'\
+         \ the way every landed row's does, and the wire taking the letter alone.\
          \ THREE CHANNELS say producer and hue is none of them alone: the accent edge,\
          \ the dashed rule and the ghost ink, all three in the widget's own sheet beside\
          \ every other `tv-' class." [Browser]
@@ -5394,8 +5393,11 @@ sheetNotes =
          \ keydown, a `true' answer meaning the producer took the key; the COLUMN'S KEY\
          \ rides beside its index, so the walk names its cells rather than counting them,\
          \ and `getEditing' answers the same pair to a caller holding no event.  Over the\
-         \ draft alone `TAB' walks the ring title, state, priority, tags and `S-TAB'\
-         \ walks it back, wrapping at either end; the CLOSING cell's value is written\
+         \ draft alone `TAB' walks the draft's own cells IN THE ORDER THE HEADER DRAWS\
+         \ THEM (`draftWalk' filters `cols' by the four a draft owns -- state, priority,\
+         \ title, tags in this table, a date among none of them) and `S-TAB' walks them\
+         \ back, wrapping at either end, the TITLE still opening first whatever that\
+         \ order is; the CLOSING cell's value is written\
          \ into the phantom row BEFORE the next cell opens, `closeCellEditor' redrawing\
          \ the rows on its way out, and the\
          \ ROW's value is what the next editor opens on — so a cell walked through\
@@ -5421,10 +5423,9 @@ sheetNotes =
          \ spend the NEXT write's settle." [Browser]
   , Note "A REFUSED CAPTURE REFUSES IN PLACE: the draft STAYS, a row that cannot commit\
          \ being a row the reader would otherwise have to retype. The editor comes back\
-         \ to the title with its text selected, and the word LEADS the row's hint —\
-         \ `nothing to capture \183 \8594 inbox', the shipped sentence for an empty title\
-         \ and the server's own for its 400, the destination standing behind either\
-         \ rather than disappearing under it — while the two channels that fence the row\
+         \ to the title with its text selected, and the word is the row's WHOLE note —\
+         \ `nothing to capture', the shipped sentence for an empty title, and the\
+         \ server's own for its 400 — while the two channels that fence the row\
          \ off, the dashed rule and the accent edge, turn warn. The next CONTENT\
          \ keystroke takes the note and the dress back ONE FRAME BEHIND the key that\
          \ answered it, the redraw rebuilding the very cell that key is still landing in;\
@@ -6092,7 +6093,7 @@ gluePartFiles =
   , "05-keys.js"      -- key naming and the echo pill
   , "20-sheet.js"     -- the materialize sheet: both panes, the ladder, the opening
   , "30-palette.js"   -- the value palette and the link door
-  , "35-draft.js"     -- the draft row: the seeding rule, the phantom, the hint
+  , "35-draft.js"     -- the draft row: the seeding rule, the phantom, the walk
   , "40-popups.js"    -- the link popup and the tags popup
   , "50-settings.js"  -- tabs, saved views, the states table, the theme
   , "60-refer.js"     -- `@' in the sheet: the reference picker over /refer

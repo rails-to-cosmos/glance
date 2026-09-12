@@ -31,9 +31,9 @@
     };
     /** WHAT THE FILTER SEEDS A DRAFT ROW WITH: the FIRST positive `tag:' is the
      * destination, every later one rides as the draft's own, and each scalar the
-     * filter pins once is worn as it stands.  A day is not among them — the
-     * hint beside the row carries the destination instead (AGENTS.hs).  ONE
-     * PARSE of the query feeds every clause. */
+     * filter pins once is worn as it stands.  A day is not among them, a row
+     * carrying no planning line (AGENTS.hs).  ONE PARSE of the query feeds every
+     * clause. */
     function draftSeed() {
       const terms = filterTerms();
       const tags = filteredTags(terms);
@@ -41,7 +41,7 @@
         dest: tags[0] || "",
         tags: tags.slice(1),
         state: soleValue("state", terms).toUpperCase(),
-        priority: priorityIn(soleValue("priority", terms)) || "",
+        priority: priorityCell(priorityIn(soleValue("priority", terms))),
       };
     }
     // The draft's tag run as org spells one, the destination leading it.
@@ -49,23 +49,21 @@
       const run = list.filter(Boolean);
       return run.length ? `:${run.join(":")}:` : "";
     };
-    /** THE DESTINATION, SAID IN THE ROW: `→ book' mints a blob under that layer
-     * and `→ inbox' appends to the inbox.  It rides the row's own hint, which the
-     * widget draws in the last column this row carries no cell for — the title
-     * cell cannot hold it, the cell editor emptying the cell it opens in.
-     * DROPPED names a seeded state the destination's own cycle lacks. */
-    const draftHint = (dest, dropped) =>
-      `→ ${dest || "inbox"}${dropped ? ` · ${dropped} dropped` : ""}`;
+    /** A PRIORITY AS THE TABLE SPELLS ONE: the draft's cell reads `[#A]' the way
+     * every landed row's does (`priorityCell', Query.hs), and `draftArgs' folds
+     * it back to the letter the wire takes.  LETTER is `priorityIn''s answer,
+     * null where the filter pinned none. */
+    const priorityCell = (letter) => (letter ? `[#${letter}]` : "");
 
     // A ROW ID NO STORE ANSWERS: an id is a uuid or a path, and neither spells a
     // space.  A draft is never a target, so this id never reaches a `/command'.
     const DRAFT_ID = "· draft";
     /** THE DRAFT, AS ONE OBJECT: the very row the widget holds, with the page's
-     * own two facts on it.  The cells, the anchor, the hint and the refusal are
-     * the row's — two copies of a cell is how the drawn row and the posted
-     * capture come to disagree.
-     * @type {{id: string, producer: boolean, under: string|null, hint: string,
-     *         refused: string, dest: string, dropped: string,
+     * own two facts on it.  The cells, the anchor and the refusal are the row's —
+     * two copies of a cell is how the drawn row and the posted capture come to
+     * disagree.
+     * @type {{id: string, producer: boolean, under: string|null,
+     *         refused: string, dest: string,
      *         cells: Record<string, string>} | null} */
     let drafting = null;
     const colAt = (key) => cols.findIndex((c) => c.key === key);
@@ -102,21 +100,20 @@
       const seed = draftSeed();
       drafting = {
         id: DRAFT_ID, producer: true, under: focusedId(),
-        hint: draftHint(seed.dest, ""), refused: "",
-        dest: seed.dest, dropped: "",
+        refused: "", dest: seed.dest,
         cells: { state: seed.state, priority: seed.priority, title: "",
                  tag: draftTags([seed.dest].concat(seed.tags)) },
       };
       table.upsertRow(drafting);
       openDraftAt("title");
       askCycle();
-      said(b, drafting.hint);
+      said(b, `→ ${seed.dest || "inbox"}`);
     }
     /** THE DESTINATION'S OWN `#+TODO:' CYCLE, asked at the moment the row is
      * drawn.  A seeded state the cycle lacks is DROPPED before the wire ever
-     * carries it and the hint says so, which leaves the commit door's 400
-     * exactly as strict as it is for every other caller.  WITH NO SEEDED STATE
-     * THERE IS NOTHING TO CHECK, so the door is not knocked on. */
+     * carries it, which leaves the commit door's 400 exactly as strict as it is
+     * for every other caller.  WITH NO SEEDED STATE THERE IS NOTHING TO CHECK,
+     * so the door is not knocked on. */
     function askCycle() {
       const { dest, cells } = drafting;
       const state = cells.state;
@@ -126,8 +123,6 @@
           if (!drafting || drafting.dest !== dest) return;
           if ((a.states || []).indexOf(state) !== -1) return;
           drafting.cells.state = "";
-          drafting.dropped = state;
-          drafting.hint = draftHint(dest, state);
           redrawDraft();
         })
         .catch((e) => append("cmd", "error", `capture failed: ${e.message}`));
@@ -136,10 +131,15 @@
     // THE WALK.  A draft's keys can be bound nowhere but `onCellKey'
     // (assets/table-view.js), which is where the seam and its reason are stated.
 
-    /** THE CELLS THE WALK VISITS, in the order `TAB' takes them; `S-TAB' is the
-     * same ring the other way.  The hint's column is not among them — it carries
-     * the capture's address rather than one of the facts it wears. */
-    const DRAFT_WALK = ["title", "state", "priority", "tag"];
+    /** THE CELLS A DRAFT OWNS.  A date is not among them, a row carrying no
+     * planning line. */
+    const DRAFT_CELLS = ["title", "state", "priority", "tag"];
+    /** THE RING `TAB' WALKS: those of the draft's cells this view draws, IN THE
+     * ORDER THE HEADER DRAWS THEM, left to right; `S-TAB' is the same ring the
+     * other way.  The walk follows the eye rather than a list of its own, so a
+     * view that reorders its columns reorders the walk with them. */
+    const draftWalk = () =>
+      cols.map((c) => c.key).filter((k) => DRAFT_CELLS.indexOf(k) !== -1);
 
     /** Does KEY put a character into the open box or take one out?  A refusal's
      * note is the reader's to CLEAR BY TYPING, so a walk and a movement leave it
@@ -172,10 +172,11 @@
      * next cell opens.  The row's value is what the next editor opens on, so a
      * cell walked through untouched keeps what it held. */
     function walkDraft(cell, step) {
-      const at = DRAFT_WALK.indexOf(cell.key);
-      if (at === -1) { openDraftAt(DRAFT_WALK[0]); return; }
+      const ring = draftWalk();
+      const at = ring.indexOf(cell.key);
+      if (at === -1) { openDraftAt(ring[0]); return; }
       drafting.cells[cell.key] = cell.value;
-      openDraftAt(DRAFT_WALK[(at + step + DRAFT_WALK.length) % DRAFT_WALK.length]);
+      openDraftAt(ring[(at + step + ring.length) % ring.length]);
     }
 
     /** `ESC': THE WHOLE DRAFT GOES.  No file was written, so nothing is put back
@@ -223,7 +224,7 @@
      * the settle that carries the row, and the re-query is asked for at once so
      * the fresh row arrives where `sort:' puts it rather than where it was typed. */
     function commitDraft(cell) {
-      if (DRAFT_WALK.indexOf(cell.key) !== -1) drafting.cells[cell.key] = cell.value;
+      if (DRAFT_CELLS.indexOf(cell.key) !== -1) drafting.cells[cell.key] = cell.value;
       const title = draftTitle(), dest = drafting.dest;
       if (!title) { refuseDraft("nothing to capture"); return; }
       postCommand({ name: "capture", args: draftArgs() })
@@ -242,11 +243,10 @@
     }
 
     /** A REFUSAL KEEPS THE DRAFT STANDING — a row that cannot commit is a row the
-     * reader would otherwise have to retype.  The word leads the hint beside the
-     * row, so the destination never disappears behind it; the editor goes back
-     * to the title with its text selected, and the widget dresses the row warn.
-     * Only `ESC' dismisses the draft; the next content keystroke takes the note
-     * and the dress back. */
+     * reader would otherwise have to retype.  The word is the row's whole note,
+     * drawn beside it; the editor goes back to the title with its text selected,
+     * and the widget dresses the row warn.  Only `ESC' dismisses the draft; the
+     * next content keystroke takes the note and the dress back. */
     function refuseDraft(why) {
       drafting.refused = why;
       // THE EDITOR'S OWN REDRAW CARRIES THE WORD AND THE DRESS; a view drawing
