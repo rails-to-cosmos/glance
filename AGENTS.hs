@@ -6091,6 +6091,7 @@ gluePartFiles :: [Path]
 gluePartFiles =
   [ "00-core.js"      -- the config blob, the log strip, the wash, fetching, the query, the crumbs
   , "05-keys.js"      -- key naming and the echo pill
+  , "15-dates.js"     -- the date grammar: org's stamp, the phrase, the ghost, the step
   , "20-sheet.js"     -- the materialize sheet: both panes, the ladder, the opening
   , "30-palette.js"   -- the value palette and the link door
   , "35-draft.js"     -- the draft row: the seeding rule, the phantom, the walk

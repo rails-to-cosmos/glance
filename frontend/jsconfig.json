@@ -29,6 +29,7 @@
   "files": [
     "glue/00-core.js",
     "glue/05-keys.js",
+    "glue/15-dates.js",
     "glue/20-sheet.js",
     "glue/30-palette.js",
     "glue/35-draft.js",
