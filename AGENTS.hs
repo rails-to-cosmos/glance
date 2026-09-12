@@ -5456,6 +5456,13 @@ sheetNotes =
          \ reader's own keystrokes wrote rather than a stub's answer — template expanded,\
          \ pair filled, date summoned, blob minted with its id, its shard path, its\
          \ creation drawer and its ledger line." [Browser]
+  , Note "A `repo: true' case is served a SECOND copy of that tree, `git init'ed with one\
+         \ commit, no remote and an identity of the repo's own, and a fresh one per case:\
+         \ a mounted git control fills `#ghead', whose 22px row moves every table row\
+         \ below it, so the position-sensitive cases keep the plain tree." [Browser]
+  , Note "NO REMOTE IS NO UPSTREAM, which `actionFor' refuses, so the fixture's control\
+         \ draws the warned dead button dirty and clean alike — the tick and the one-click\
+         \ commit are states an upstream buys." [Browser]
   , Note "The sheet is one `SURFACES' entry, the fourth `flagKey' surface and the fourth\
          \ `openEdit' surface -- four of the seven shapes are its own, the title, the\
          \ paragraph, the drawer's pair and the planning date -- whose `anchor' is the\

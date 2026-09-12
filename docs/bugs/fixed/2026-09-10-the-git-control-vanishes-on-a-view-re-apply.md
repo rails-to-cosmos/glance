@@ -28,9 +28,10 @@ component's contract.
 press **re-mount table (g)**: the verdict reads `control present: no`. Under the
 shell-owned placements (A/B/C) both re-render and re-mount leave it `yes`.
 
-The browser suite serves a non-git fixture tree, so `/git` answers `repo:false`
-and the control never mounts there — it is not yet exercised by `test/browser/`.
-See [[../../tasks.org]] for the harness git-fixture follow-up.
+Guarded since 2026-09-12: a `repo: true` case in `test/browser/cases.mjs` is
+served a `git init`ed copy of the fixture tree, and *the git control mounts over
+a repo and survives a view re-apply* marks `#gitctl`, presses `g` and asserts the
+same node came through the re-mount.
 
 ## Fix
 

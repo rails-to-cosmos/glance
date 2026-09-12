@@ -6,19 +6,26 @@
 //   KEEP=1       leave the temp tree and the shots behind
 //   ONLY=substr  run the cases whose name carries it
 //   BREAK=name   take ONE rule out of the page — see `BREAKS' below
+//
+// Every case runs over a copy of `tree/'.  A case declaring `repo: true' gets a
+// `git init'ed copy of its own instead — one commit, no remote — so the git
+// control mounts; `#ghead' costs the table a row, which is why the rest do not.
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { inflateSync } from "node:zlib";
 import { mkdtemp, cp, rm, writeFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { end, freePort, polling, sleep } from "../harness.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TURN = 25;              // the poll, in ms — the watch's own drain rate
 const poll = polling(TURN);
+// A child run to completion, rejecting with the command and its stderr.
+const run = promisify(execFile);
 const READY = 30_000;         // the daemon's walk, capped
 const SETTLE = 8_000;         // a page condition, capped
 
@@ -215,6 +222,9 @@ const BREAKS = {
   "two-golds": ["the date widget stands in the value's own slot",
                 "#ddate input::selection{background:var(--g-surface) !important;"
                   + "color:var(--g-fg) !important}"],
+  // The shell's git row stops taking a row, so the control draws over nothing.
+  "ghead-row": ["the git control mounts over a repo",
+                "#ghead{display:none !important}"],
   // Both surfaces draw the classic bar back, layout width and all.
   "bar-space": ["no surface on the page draws a scrollbar of its own",
                 ".tv-scroll,#kbd{scrollbar-width:auto !important}"
@@ -424,18 +434,20 @@ async function main() {
   const tree = join(shots, "tree");
   // THE CASES WRITE, so the repo's fixtures stay byte-identical.
   await cp(join(HERE, "tree"), tree, { recursive: true });
+  const repoTree = join(shots, "repo");   // the `repo: true' fixture, built by `repoUp'
 
   const port = await freePort();
-  let daemon = null, profile = null, browser = null, cdp = null, failed = 0, daemonSaid = "";
+  let daemon = null, repoDaemon = null,
+      profile = null, browser = null, cdp = null, failed = 0, daemonSaid = "";
   const started = Date.now();
-  // Bring a daemon up on PORT over the current tree and wait out its walk; the
-  // boot and every re-seed go through this one door.  The daemon's stderr is
-  // HELD -- a `CloseRequest' per closed socket would bury the report.
-  const bringUp = async (usePort) => {
-    daemon = spawn(bin, ["serve", "--dir", tree, "--port", String(usePort)],
-                   { stdio: ["ignore", "ignore", "pipe"] });
-    daemon.stderr.on("data", (d) => { daemonSaid += d; });
-    daemon.on("error", (e) => { throw e; });
+  // Bring a daemon up on PORT over DIR and wait out its walk; the boot, every
+  // re-seed and the git fixture go through this one door.  The daemon's stderr
+  // is HELD -- a `CloseRequest' per closed socket would bury the report.
+  const serve = async (dir, usePort) => {
+    const child = spawn(bin, ["serve", "--dir", dir, "--port", String(usePort)],
+                        { stdio: ["ignore", "ignore", "pipe"] });
+    child.stderr.on("data", (d) => { daemonSaid += d; });
+    child.on("error", (e) => { throw e; });
     const b = `http://127.0.0.1:${usePort}`;
     // Readiness is the route that NEEDS the store: the bind lands before the walk ends.
     const rows = await poll(async () => {
@@ -444,7 +456,12 @@ async function main() {
     }, READY, "the daemon to finish its walk");
     if (!rows.rows || !rows.rows.length)
       throw new Error("the daemon served zero rows: the fixture tree loaded nothing");
-    return b;
+    return { child, base: b };
+  };
+  const bringUp = async (usePort) => {
+    const { child, base } = await serve(tree, usePort);
+    daemon = child;
+    return base;
   };
   // RE-SEED FOR A RETRY: a write case leaves the tree mutated, so a rerun must
   // start from the PRISTINE fixtures on a fresh index -- kill the daemon, re-copy
@@ -455,6 +472,26 @@ async function main() {
     if (daemon) { try { daemon.kill("SIGKILL"); } catch (e) { /* already gone */ } }
     await cp(join(HERE, "tree"), tree, { recursive: true });
     return bringUp(await freePort());
+  };
+  const git = (args) => run("git", ["-C", repoTree, ...args]);
+  // THE GIT FIXTURE: the tree again, one commit, NO remote -- so `/git' answers
+  // `repo:true' on an unborn upstream, which is the state `actionFor' refuses.
+  // The identity is the REPO'S OWN (`.git/config'), so the machine's is never
+  // read nor written; `commit.gpgsign' off for the same reason.  A fresh repo
+  // PER CASE: these cases dirty it on purpose.
+  const repoUp = async () => {
+    if (repoDaemon) { try { repoDaemon.kill("SIGKILL"); } catch (e) { /* already gone */ } }
+    await rm(repoTree, { recursive: true, force: true });
+    await cp(join(HERE, "tree"), repoTree, { recursive: true });
+    await git(["init", "-q", "-b", "main"]);
+    await git(["config", "user.name", "glance-test"]);
+    await git(["config", "user.email", "glance-test@localhost"]);
+    await git(["config", "commit.gpgsign", "false"]);
+    await git(["add", "-A"]);
+    await git(["commit", "-q", "-m", "the browser fixture"]);
+    const { child, base } = await serve(repoTree, await freePort());
+    repoDaemon = child;
+    return base;
   };
   try {
     let base = await bringUp(port);
@@ -518,7 +555,7 @@ async function main() {
         let redo = false;
         // A `known' CASE IS EXPECTED RED: a GREEN one is itself a failure.
         try {
-          const said = await c.run(p, base);
+          const said = await c.run(p, c.repo ? await repoUp() : base);
           if (c.known) {
             failed += 1;
             lines.push({ ok: false, n, name: c.name, shot: null, strip: [],
@@ -541,7 +578,8 @@ async function main() {
             console.log(`retry ${n} — ${c.name} (attempt ${a} red, re-seeding: `
               + `${String(e.message).split("\n")[0]})`);
             await p.goto("about:blank").catch(() => {});
-            base = await reseed();   // pristine tree, fresh index, fresh port
+            // A `repo' case re-seeds through `repoUp' on its own next attempt.
+            if (!c.repo) base = await reseed();   // pristine tree, fresh index, fresh port
           } else {
             const shot = await p.shot(join(shots, `${n}.png`)).catch(() => null);
             const strip = await p.strip();
@@ -591,6 +629,7 @@ async function main() {
     if (cdp) cdp.close();
     if (browser) await end(browser);
     if (daemon) await end(daemon);
+    if (repoDaemon) await end(repoDaemon);
     if (profile) await rm(profile, { recursive: true, force: true }).catch(() => {});
     if (!keep && !failed) await rm(shots, { recursive: true, force: true }).catch(() => {});
   }

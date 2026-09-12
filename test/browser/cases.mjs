@@ -372,6 +372,42 @@ const stripText = () => [...document.querySelectorAll("#app .tv-chip[data-i]")]
   .map((c) => c.firstChild.textContent);
 const appRows = () => document.querySelectorAll("#app .tv-table tbody tr").length;
 
+/** THE GIT CONTROL AS ONE READING, gated on its being BUILT AND FILLED.
+ * `80-git.js' appends `#gitctl' to `#ghead' off the first `/git' answer and
+ * fills it in the same `render()', so everything here comes from ONE status:
+ * a field read in a second round trip could be a later poll's. */
+const gitRead = (p, why) => p.until(() => {
+  const c = document.getElementById("gitctl");
+  const b = c && c.querySelector(".g-glyph");
+  if (!b || !c.querySelector(".g-dir").textContent) return false;
+  return { loc: c.querySelector(".g-loc").textContent,
+           branch: c.querySelector(".g-branch").textContent,
+           dot: c.querySelector(".g-dot").textContent,
+           n: c.querySelector(".g-n").textContent,
+           cls: b.className, title: b.title, off: b.disabled,
+           mark: c.dataset.mark || "",
+           row: document.getElementById("ghead").getBoundingClientRect().height };
+}, why || "the git control to mount and fill");
+
+/** A FRESH `/git' READ, the control's own.  Clean and dirty draw the SAME glyph
+ * with no upstream, so nothing in the DOM says a re-render happened: blank a
+ * field `render()' always refills, nudge the control the way the page nudges it
+ * (`window.addEventListener("focus", poll)'), and wait for the refill.  What
+ * comes back is that render's, never the one before the nudge. */
+async function gitPoll(p, why) {
+  await p.eval(() => {
+    document.querySelector("#gitctl .g-dir").textContent = "";
+    window.dispatchEvent(new Event("focus"));
+  });
+  return gitRead(p, why);
+}
+
+/** What the daemon itself says about the work tree — the fact behind the glyph. */
+const gitSaid = (p) => p.eval(async () => {
+  const s = await (await fetch("/git")).json();
+  return { ...s, dirty: s.staged + s.unstaged + s.untracked };
+});
+
 export default [
 
 // A material doc taller than the pane must SCROLL inside the pane, not grow the
@@ -5504,5 +5540,94 @@ export default [
     assert(out.includes("\"isError\": false"),
       "invoking list-headlines errored: " + out.slice(0, 200));
     return [`the /mcp explorer listed ${names.length} tools and invoked list-headlines`];
+  } },
+
+// UI 2026-09-12.  `repo: true' serves the GIT FIXTURE (`drive.mjs'), the only
+// tree `/git' answers `repo:true' over, so the control mounts at all.  The bug
+// it exists for:
+// ../../docs/bugs/fixed/2026-09-10-the-git-control-vanishes-on-a-view-re-apply.md
+{ name: "the git control mounts over a repo and survives a view re-apply",
+  repo: true,
+  async run(p, base) {
+    await tableUp(p, base);
+    const up = await gitRead(p, "the control to mount off the first /git poll");
+    assert(/^⎇ .+:main$/.test(up.loc),
+      `the control reads ${JSON.stringify(up.loc)}, not the served dir and its branch`);
+    // NO REMOTE IS NO UPSTREAM, which `actionFor' refuses (Git.hs:118) and
+    // `glyphFor' draws as the warned, DEAD button -- the clean tick is a state
+    // an upstream buys, and this fixture has none.
+    assert(up.dot === "⚠" && up.cls.includes("g-detached"),
+      `a fresh repo with no upstream drew ${JSON.stringify(up.dot)} (${up.cls})`);
+    assert(up.off && !/\(click\)/.test(up.title),
+      `the glyph offers a click on a state with no safe action: ${JSON.stringify(up.title)}`);
+    const said = await gitSaid(p);
+    assert(said.repo && said.branch === "main" && said.upstream === null && !said.dirty,
+      `the fixture is not a clean unborn-upstream repo: ${JSON.stringify(said)}`);
+    // THE ROW IS DRAWN, and drawn is what costs the table its top: `#ghead' is
+    // `display:flex' and collapses only `:empty', so a mounted control moves
+    // every row below it -- the reason the other cases keep a non-repo tree.
+    assert(up.row > 0, "the mounted control draws a #ghead row of no height");
+    // `g' RE-MOUNTS THE TABLE (`applyDefault' -> `remount'), which is what used
+    // to take the control with it: the mark proves the SAME node came through.
+    await p.eval(() => {
+      document.getElementById("gitctl").dataset.mark = "before-g";
+      document.querySelector("#app table").dataset.mark = "before-g";
+    });
+    await p.press("g");
+    await p.until(() => {
+      const t = document.querySelector("#app table");
+      return !!t && t.dataset.mark !== "before-g"
+        && !!t.querySelector("tbody tr");
+    }, "`g' to re-mount the table with a fresh element");
+    const after = await gitRead(p, "the control to still be readable after the re-mount");
+    assert(after.mark === "before-g",
+      "`g' replaced the git control: the shell's own row did not keep it");
+    assert(after.loc === up.loc && after.dot === up.dot && after.cls === up.cls,
+      `the re-mount changed the control: ${JSON.stringify(up)} -> ${JSON.stringify(after)}`);
+    return [`the control reads ${JSON.stringify(up.loc)} on a repo with no upstream: `
+      + `${up.dot}, the button dead ("${up.title}")`,
+      `#ghead costs ${px(up.row)} above the table, which is why only \`repo' cases `
+      + `are served a git tree`,
+      "`g' re-mounted the table and the same #gitctl node came through"];
+  } },
+
+// UI 2026-09-12.  The other half of the fixture: the dirt reaches the daemon,
+// and the one-click stays refused, which is what `actionFor' says for a repo
+// with no upstream (Git.hs:118, TestGit.hs "no upstream -- no one-click").
+{ name: "a write dirties the git fixture, and no upstream still means no one-click",
+  repo: true,
+  async run(p, base) {
+    await paraOpen(p, base, "drv-marks");
+    await p.eval(() => { document.getElementById("dtext").value
+      += "\n\nA line the work tree has to answer for"; });
+    await p.press("RET");
+    await p.until(async () => {
+      const h = await (await fetch("/headline?id=drv-marks")).json();
+      return /the work tree has to answer for/.test(h.org || "");
+    }, "the write to reach the file", 15000);
+    const dirt = await p.until(async () => {
+      const s = await (await fetch("/git")).json();
+      const n = s.staged + s.unstaged + s.untracked;
+      return n > 0 ? { ...s, dirty: n } : false;
+    }, "git to see the write in the work tree");
+    assert(dirt.unstaged > 0,
+      `the edited file is not counted unstaged: ${JSON.stringify(dirt)}`);
+    // The glyph is the SAME ⚠ dirty or clean with no upstream, so the reading
+    // is gated on a render of its own rather than on a change.
+    const on = await gitPoll(p, "the control to re-read /git after the write");
+    assert(on.dot === "⚠" && on.off,
+      `a dirty repo with no upstream offered ${JSON.stringify(on.dot)}, `
+      + `button ${on.off ? "dead" : "live"} -- ${JSON.stringify(on.title)}`);
+    // AND THE CLICK IS A NO-OP, end to end: the dead button runs no action, so
+    // the dirt is still there on the NEXT reading, which the nudge forces.
+    await p.click("#gitctl .g-glyph");
+    const after = await gitPoll(p, "the control to read /git once more after the click");
+    const still = await gitSaid(p);
+    assert(still.dirty >= dirt.dirty && after.dot === "⚠",
+      `the click committed something: ${dirt.dirty} dirty before, ${still.dirty} after`);
+    return [`the write leaves ${dirt.unstaged} unstaged and ${dirt.untracked} untracked`,
+      `the glyph stays ${on.dot} and the button dead ("${on.title}"), `
+      + "which is `actionFor' refusing a repo with no upstream",
+      "a click on the dead glyph committed nothing"];
   } },
 ];

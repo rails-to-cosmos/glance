@@ -115,10 +115,18 @@ UPDATE 2026-09-10: the control was redesigned to a shell-owned row (=#ghead=,
 above the table) after it kept vanishing on =g= — see
 [[file:bugs/fixed/2026-09-10-the-git-control-vanishes-on-a-view-re-apply.md]].
 
-* TODO A git-repo fixture for the browser suite, and a git-control case
+* DONE A git-repo fixture for the browser suite, and a git-control case
 =test/browser/drive.mjs= serves a copy of =test/browser/tree/= that is not a git
 repo, so =GET /git= answers =repo:false= and the git control never mounts under
 the suite — it is verified only by a CDP probe today.  =git init= the served
 tree (or a dedicated fixture) so a case can assert the control shows, runs its
 one-click action, and survives =g= (a re-mount).  Guard that the added =#ghead=
 row does not perturb the position-sensitive table cases.
+
+DONE 2026-09-12: a =repo: true= case is served a SECOND =git init='ed copy of the
+tree (one commit, no remote, the repo's own identity), fresh per case — =#ghead=
+costs 22.2px above the table, so the 98 position-sensitive cases keep the plain
+tree.  Two cases: the control mounts reading =repo:main= and the same =#gitctl=
+node survives =g=; a sheet write dirties the work tree and the one-click stays
+refused, which is =actionFor= on a repo with no upstream.  =BREAK=ghead-row=
+turns the first red.  100/100, four full runs.
