@@ -80,9 +80,10 @@ The keymap is data (=Glance.Web.Keymap=): the page's last line is the whole
 map. =т з о л= navigates on a Cyrillic layout.
 
 | =n= =p= / =f= =b= | rows / cells — and in the document, siblings / grain          |
-| =RET=       | materialize the row; in the document, edit the element        |
+| =RET=       | materialize the row; over a date cell, edit the date; in the document, edit the element |
 | =DEL=       | the ladder: unmark, else drop a query token, else pop a drill |
 | =t= =:=       | state palette · tag popup                                     |
+| =C-c C-s= =C-c C-d= | the date, in its own cell; over marked rows, one prompt        |
 | =d d= =D=     | flag-then-delete (archive)                                    |
 | =x=         | act on the flagged, after asking · =D= is the quick one         |
 | =m= =u= =M= =U=   | dired's marks; =SPC= aliases =m=                                                 |
@@ -100,11 +101,13 @@ map. =т з о л= navigates on a Cyrillic layout.
 ** Capture
 
 =+= types a *draft row* into the table already on screen, below the row at
-point, seeded from the standing filter: =TAB= walks its cells, =RET= commits
-from any of them, =ESC= drops it. The destination is the filter's first =tag:=
-and the row says so -- =→ book=, =→ inbox=. A tagged capture mints a real
-org-glance blob -- id, shard path, =EXTERNAL.jsonl= note -- that Emacs adopts
-on its next refresh.
+point, seeded from the standing filter: =TAB= walks its cells in the header's
+own order, =RET= commits from any of them, =ESC= drops it. The destination is
+the filter's first =tag:=, leading the tags cell -- =:book:= mints a blob under
+that layer, an empty run appends to the inbox. The =SCHEDULED= and =DEADLINE=
+cells are stops on the walk, so a capture carries its dates out with it. A
+tagged capture mints a real org-glance blob -- id, shard path,
+=EXTERNAL.jsonl= note -- that Emacs adopts on its next refresh.
 
 The draft's keys, the seeding rule and the two doors: [[file:docs/capture.md][docs/capture.md]].
 
@@ -140,6 +143,17 @@ drawer and every child headline drawn in place.
   the standing value opens selected, =RET= commits,
   =ESC= leaves it, empty clears the entry. The drawer pair's value half wears
   the same field where its key routes to the planning line.
+- *A date is edited where it is drawn*, so the *table* opens the same widget in
+  the cell: =RET= over a =SCHEDULED= or =DEADLINE= cell -- or =C-c C-s= /
+  =C-c C-d= with nothing marked -- edits that day on the cell's own ISO value,
+  and the reading rides a one-line strip under the row, silent while the phrase
+  resolves to the day already there and wearing =✗= where it reads as no date at
+  all. =S-<left>= / =S-<right>= step a day and =S-<up>= / =S-<down>= a week,
+  writing the stepped stamp into the field. With rows *marked* the two sequences
+  keep the bulk prompt -- a set of rows has no cell to stand in. What goes down
+  the wire is the phrase that was typed, never the ghost's reading: the server
+  resolves it once against its own clock and the settle brings the day back.
+  The draft row's two date cells are the same editor.
 - The pane ends on one empty line, shown only when the walk reaches it:
   =RET= there writes a fresh paragraph at the document's end, wherever =+=
   is owned by what point stands on.

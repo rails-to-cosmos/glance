@@ -6,7 +6,7 @@ stamp, ledger note — that Emacs adopts without importing anything. The
 README's Capture section is the crib; this page is the whole law. The design
 history is `docs/proposals/done/2026-08-03-capture.md`; the form and its sheet
 were retired by
-`docs/proposals/proposed/2026-09-12-capture-is-a-row-in-the-table.md`.
+`docs/proposals/done/2026-09-12-capture-is-a-row-in-the-table.md`.
 
 ## The flow
 

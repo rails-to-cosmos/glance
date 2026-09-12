@@ -293,12 +293,40 @@ nothing catches it.
   undated row; `*empty*` stays the one name for those rows. It follows that
   `-k:<D` serves the undated rows where `k:>=D` does not, so the operators do
   not pair off under the sign and no surface may rewrite one into the other.
-  `Filter.hs:644`, `table-view.js:702`, `AGENTS.hs:2681`. A tidying pass that
+  `Filter.hs:644`, `table-view.js:743`, `AGENTS.hs:2681`. A tidying pass that
   normalizes `-k:<D` into `k:>=D`, or drops the guard because byte order
   "already sorts an empty cell first", turns nothing red but the one case that
   names the pair (`TestFilter.hs:978`). **That case and its renderer twin are
   the whole guard: the rewrite is the kind a normalizer or a query optimizer
   makes on purpose.** *fragility: high*
+
+- **The phrase travels; the ghost is ink.** What a date surface sends is the
+  bytes standing in its field — `10 jan`, `+3d`, `[18 aug]`, the stamp a
+  `S-<arrow>` wrote there — and the SERVER resolves them, once per request,
+  against its own clock. The client's reading is spent on the preview and on the
+  wall above the commit, never on the wire, and an emptied field commits `null`
+  rather than `""`. Four surfaces take the one road: the pane's field
+  (`20-sheet.js:1006`), the bulk prompt (`30-palette.js:44`), the cell
+  (`36-date-cell.js:102`) and the draft's `planning` (`35-draft.js:209`), all
+  met by `plannedValue` (`Query.hs:1907`) under the request's single `today`
+  (`Commands.hs:350`). Pinned by the three cases that name it —
+  `TestServe.hs:2046`, `:4876`, `:4883`. Sending `readsDate(typed, …).stamp`
+  instead hands the day to a clock the server has never read and splits
+  `set-planning`'s one argument into a spelling per surface; it turns nothing
+  red on any day the two clocks agree. *fragility: high*
+
+- **A draft is the renderer's own row, and nothing else can reach it.** `+`'s
+  capture row carries an open editor at all times (an editor-less row would have
+  no id, no span and no file for the movement keys to stand on), is never marked
+  (`table-view.js:3608`), never selected (`:3874`), never ordered with the rest
+  (`:3194`), and its reserved id never reaches `targets()` (`00-core.js:537`) or
+  a `/command`; `ESC` leaves the rows byte-identical, no file having been
+  written. The WIDGET places it, by the `under` its producer names
+  (`table-view.js:2914`), dresses it and repaints it through every sort, filter,
+  page and socket delta — so a `/headlines` answer arriving beneath it leaves it
+  standing with the caret where it was. Placing it from the glue instead puts a
+  phantom in the store's own row list, where the next settle drops it and the
+  sort parks it among the blanks. *fragility: medium*
 
 - **Closed sums are matched one equation per constructor, no wildcard,** so a
   new constructor is named by the compiler. `Filter.hs:302`, `Commands.hs:249`,
@@ -307,7 +335,7 @@ nothing catches it.
 
 - **The client issues one drift-locked write per file, awaited,** and re-asks
   for the digest rather than reusing a remembered one. `40-popups.js:177`,
-  `20-sheet.js:2160`, `50-settings.js:397`. Firing in parallel makes the second
+  `20-sheet.js:1693`, `50-settings.js:397`. Firing in parallel makes the second
   write drift against the first; a remembered digest across a reload is a silent
   overwrite. *fragility: medium*
 

@@ -119,16 +119,26 @@ The design, the prior art and the vector table are
 
 ## The date widget
 
-In the material document `C-c C-s` and `C-c C-d` raise a field rather than a
-blind prompt. It stands in the value's own slot — the planning line's, the
-line drawn if the row has none — reads the grammar above, and shows what it
-will write before it writes it.
+**A date is edited where it is drawn.** `C-c C-s` and `C-c C-d` raise a field
+rather than a blind prompt, and the field stands in the value's own slot — the
+planning line's in the material document, the CELL's in the table — reads the
+grammar above, and shows what it will write before it writes it.
 
 | key | what it opens | what `RET` sends |
 | --- | --- | --- |
 | `C-c C-s` | the row's SCHEDULED value, in the planning line's own slot | `set-planning {keyword: "SCHEDULED", date}` |
 | `C-c C-d` | the row's DEADLINE value, the same slot | `set-planning {keyword: "DEADLINE", date}` |
 | `RET` on a planning ENTRY | that entry's value — `f` walks into the line and along it, `b` back out | `set-planning {keyword: the entry's own, date}` |
+| `RET` on a date CELL | that cell's own ISO day, in the table; the reading rides a one-line strip under the row | `set-planning {keyword: the column's own, date}` |
+| `C-c C-s` / `C-c C-d`, nothing marked | the same cell, the column cursor moved onto it | the same |
+| `C-c C-s` / `C-c C-d`, rows MARKED | one prompt over the marked set, which has no cell to stand in | one `set-planning` per file, over those ids |
+
+The cell's strip stays DARK while the phrase resolves to the day the cell
+already holds — the pane's own silence, read against ISO's ten characters — and
+wears `✗` where the phrase reads as no date at all. The commit paints no stamp:
+the wire's cell is ISO and the file's value is org's, so the settle brings the
+day. A draft row's two date cells are the same editor, and what they hold rides
+out in `capture`'s own `planning`.
 
 `RET` on the whole planning line is inert and names the way in; the entry under
 point is what opens. Over `CLOSED` the box reads that key's own wall: org's
@@ -152,9 +162,11 @@ the box left standing to fix it in.
   writes nothing; the raw text comes to this door, the server resolves it once
   against its own clock, and the pane redraws off that answer. The page spells
   no org, and the two resolvers are pinned against one another over one corpus.
-- **One widget, every door.** A drawer pair whose key case-folds to
-  `scheduled` or `deadline` routes to the planning line already, and its value
-  half wears the same field and the same ghost. `CLOSED` opens the same box on
+- **One widget, every door.** The pane's field, the table's cell, the bulk
+  prompt and the draft's `planning` are four callers of ONE argument spelling. A
+  drawer pair whose key case-folds to `scheduled` or `deadline` routes to the
+  planning line already, and its value half wears the same field and the same
+  ghost. `CLOSED` opens the same box on
   its own wall — one widget, two readers, the mode asked in one place so the
   ghost, the offers and the commit cannot disagree. Date-shaped custom
   properties keep the plain box for now.

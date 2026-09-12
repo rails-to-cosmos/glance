@@ -9,7 +9,7 @@ it as ghost — and
 whose draft row is now shipped (`frontend/glue/35-draft.js`) and whose rig, table
 transcription and palette this one carries over. **The proposal this spike is the
 open question of** is
-[`docs/proposals/proposed/2026-09-12-the-date-widget-lives-in-the-cell.md`](../../proposals/proposed/2026-09-12-the-date-widget-lives-in-the-cell.md),
+[`docs/proposals/done/2026-09-12-the-date-widget-lives-in-the-cell.md`](../../docs/proposals/done/2026-09-12-the-date-widget-lives-in-the-cell.md),
 which settles everything except where the ghost is drawn.
 
 The ask, in the user's words:

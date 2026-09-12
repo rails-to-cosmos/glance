@@ -13,6 +13,17 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ### Added
 
+- **A capture is a row in the table.** `+` types a **draft row** into the table
+  already on screen, below the row at point, seeded from the standing filter,
+  with its title cell's editor open. `TAB` and `S-TAB` walk its cells in the
+  header's own order, `RET` commits the whole capture from any of them, and
+  `ESC` drops it leaving the rows byte for byte. The destination leads the tags
+  cell — `:book:` mints a real org-glance blob, an empty run appends to the
+  inbox — and a state the destination's cycle lacks is cleared before the wire.
+  A refusal keeps the draft standing with its word beside it, so nothing typed
+  is retyped. The capture popup and the document sheet over a draft are gone:
+  the table already says everything a capture says.
+
 - **A date is edited where it is drawn.** With point on a `SCHEDULED` or
   `DEADLINE` cell, `RET` opens a date editor in the cell itself, on the day that
   cell already holds and wholly selected, and what the reader types reads back on

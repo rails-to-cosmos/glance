@@ -1,6 +1,6 @@
 # The date widget lives in the cell
 
-**Status:** proposed · **Date:** 2026-09-12 · **Origin:** user — the date widget
+**Status:** done · 2026-09-12 · **Date:** 2026-09-12 · **Origin:** user — the date widget
 leaves the material document's planning line and opens in the table's SCHEDULED
 and DEADLINE cells, for a landed row and for a draft alike.
 
@@ -15,7 +15,7 @@ and the pick is that rig's **C** — a one-line strip under the edited row
 composes with
 [`2026-09-12-capture-is-a-row-in-the-table.md`](2026-09-12-capture-is-a-row-in-the-table.md),
 whose draft row gains two stops, and does not supersede
-[`2026-08-22-a-date-is-read-where-a-date-is-owed.md`](2026-08-22-a-date-is-read-where-a-date-is-owed.md),
+[`2026-08-22-a-date-is-read-where-a-date-is-owed.md`](../proposed/2026-08-22-a-date-is-read-where-a-date-is-owed.md),
 whose grammar is what moves.*
 
 ## What stands
@@ -477,3 +477,77 @@ design:
 - **Weekday words.** `next fri` reads nowhere today. Adding it is a corpus
   vector plus both readers, per law 6, and belongs to the English-dates
   proposal's phase 2.
+
+## Landed
+
+**done · 2026-09-12.** Five stages, each oracle red before its change.
+
+- **1. The grammar moves to a shared part.** `frontend/glue/15-dates.js:1`–`:335`
+  carries `DATE` through `dateGhost` plus `dateStep`/`dateStepped`, lifted whole
+  out of `20-sheet.js` (−328). No call site changed: the parts are one scope and
+  `15` folds before `20`. The four rosters agree — `Base.hs:120`,
+  `AGENTS.hs:6135`, `frontend/jsconfig.json:32`, and `TestSpec.hs:1773`'s own
+  title, now *twelve parts*. The corpus pins stayed green untouched, which is the
+  proof the move was pure.
+- **2. The widget learns editable keys and the strip.** `editableKeys` reaches
+  the cell gate through `keyEditable` (`assets/table-view.js:4128`, gated at
+  `:4135`); `onCellInput` is asked at the open and on every keystroke and its
+  answer is spliced as `tr.tv-strip` (`:4173`–`:4183`), dropped by `dropStrip`
+  (`:4154`) on `RET` and `ESC` alike. The strip is no row — `standing`
+  (`:3194`), the order, the marks and the selection never see it. The caret rule
+  is `holdEditor` (`:4201`), which now holds a STANDING row's editor without
+  writing the typed line into `r.cells`. Typedefs at `:55`, `:101`–`:130`; the
+  sheet at `:1828`–`:1847`.
+- **3. The real row's date editor.** `frontend/glue/36-date-cell.js:1`–`:153`:
+  `DATE_CELLS` (`:12`), `dateCellDay` (`:27`), `dateCellNote` (`:53`),
+  `dateCellKey` (`:70`), `dateCellStep` (`:85`), `commitDateCell` (`:102`),
+  `openDateCell` (`:124`), `planKey` (`:140`), `openPlanCell` (`:148`). The
+  shipped mount gains `onCellKey`, `editableKeys` and `onCellInput`
+  (`frontend/glue/00-core.js:211`–`:216`). `commitDate` and `planRows` are
+  untouched, so `set-planning`'s argument keeps ONE spelling across four
+  surfaces.
+- **4. The draft's date stops.** `DRAFT_CELLS` (`frontend/glue/35-draft.js:137`)
+  gains `scheduled` and `deadline`; `draftWalk` (`:142`) filters `cols`, so the
+  two stops land in the header's own order with no walk of their own; `draftArgs`
+  (`:209`–`:220`) carries `planning`, one entry per date cell that holds
+  something, THE PHRASE and never the stamp. No server change was owed —
+  `plannedEntry` (`Query.hs:1918`) already resolves `capture`'s planning against
+  the request's one clock read.
+- **5. The keymap, the docs and the cases.** `README.org:83` (the key table's
+  `RET`), `:86` (the two sequences), `:103` (the draft's date stops, and the
+  dropped hint), `:146` (the cell, the strip, the step keys and the split);
+  `CHANGELOG.md`'s Unreleased; `docs/capture.md:13`–`:68`, `:158`;
+  `docs/commands.md:122`–`:142` (the key table gains the cell, the two split
+  sequences, the strip and the draft's `planning`);
+  `AGENTS.hs:5358`, `:5409`, `:5427`, `:5446`; `docs/invariants.md:303` (*the
+  phrase travels; the ghost is ink*). Eight browser cases, `cases.mjs:5698`–
+  `:6058`, 108 → 116.
+
+### Departures
+
+- **The producer owns the strip's silence.** Law 5 asks the strip to stay dark
+  on the cell's own day. The widget draws whatever `onCellInput` answers and
+  `null`/`""` draws nothing, so the silence is `dateCellNote`'s
+  (`36-date-cell.js:53`) and the widget learned no date rule — which is what
+  made the seam general enough to go upstream.
+- **The `RET` seam is the handler, never a binding.** The design reads as though
+  `RET` itself became column-sensitive; what shipped is
+  `HANDLERS.materializeRow` (`frontend/glue/70-shell.js:139`), which reads the
+  shipped column cursor and materializes only where the column draws no date —
+  the way `^` reads `state.selCol`. `Keymap.hs` and `AGENTS.hs`'s `bindings`
+  gained no row, as asked.
+- **The draft's POST is not drivable in the shell rig.** The rig's table stub
+  opens no in-cell `<input>` (`test/fixtures/shell-harness.js`), so `onCellKey`
+  — the one dispatch a key inside a cell reaches — is never called there. The
+  cell's own POST body is read in the browser instead (`RET on a SCHEDULED cell
+  opens the date editor and sends the phrase`, `cases.mjs:5698`), and a
+  glue-source pin stands in for the shell.
+- **The ghost vectors needed no re-pointing.** Stage 5 expected the shell suite's
+  date vectors to follow the declarations into `15-dates.js`. They read
+  `glueSource` (`TestServe.hs:11825`) — every part concatenated in
+  `gluePartFiles` order — so no case spells a path and the move cost them
+  nothing.
+- **`planningHelp` stands as it was** (`Keymap.hs:157`, pinned at
+  `TestServe.hs:11748`). `C-c C-s` still takes "the marked rows, or the row at
+  point": `takesRows` is unchanged and only the surface splits, so the help is
+  still true.
