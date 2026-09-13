@@ -81,12 +81,17 @@
     const openDraftAt = (key) => {
       const at = colAt(key);
       const on = at !== -1 && can(table, "editCell") && table.editCell(DRAFT_ID, at);
-      // THE TAG CELL'S OFFERS COME UP WITH IT, laid under the cell's own rect,
-      // and go with every other stop: ONE MENU, standing under one field.
-      if (on && key === "tag" && can(table, "cellRect"))
-        openTagOffers({ field: draftCellField, run: true, listen: true,
-                        rect: () => table.cellRect(DRAFT_ID, at) });
-      else shutTagOffers();
+      // THE CELL'S OWN OFFERS COME UP WITH IT, laid under the cell's own rect,
+      // and go with every other stop: ONE MENU, standing under one field.  TWO
+      // OF THE DRAFT'S CELLS COMPLETE -- the tag run out of the store's
+      // vocabulary, the state out of the destination's cycle -- and every other
+      // cell is the reader's own text.
+      const anchor = key === "tag" ? tagAnchor(true)
+                   : key === "state" ? stateAnchor() : null;
+      if (on && anchor && can(table, "cellRect"))
+        openOffers({ ...anchor, field: draftCellField, listen: true,
+                     rect: () => table.cellRect(DRAFT_ID, at) });
+      else shutOffers();
       return on;
     };
     /** THE DRAFT'S OPEN CELL INPUT, ASKED RATHER THAN HELD: every repaint builds
@@ -122,10 +127,10 @@
       if (at === -1 || !can(table, "cellRect", "closeEditor")
             || !table.cellRect(DRAFT_ID, at)) return false;
       // THE IN-CELL EDITOR GOES NEXT: the box is laid over the cell, so the
-      // widget's own input must not be standing under it -- nor the tag cell's
-      // offers, which hung under the stop the walk has just left.
+      // widget's own input must not be standing under it -- nor the offers,
+      // which hung under the stop the walk has just left.
       table.closeEditor();
-      shutTagOffers();
+      shutOffers();
       // THE ROW IS REPUBLISHED WITH THE PHRASE IN IT: the box is no cell editor,
       // so nothing else redraws the cell it was laid over.
       const fold = (typed) => {
@@ -174,22 +179,75 @@
       said(b, `→ ${seed.dest || "inbox"}`);
     }
     /** THE DESTINATION'S OWN `#+TODO:' CYCLE, asked at the moment the row is
-     * drawn.  A seeded state the cycle lacks is DROPPED before the wire ever
+     * drawn and HELD: ONE ANSWER serves both readers of it -- the wall a seeded
+     * keyword meets, and the whole vocabulary the state cell completes from
+     * (`stateOffers') -- so a second fetch cannot hand the menu a cycle the drop
+     * never saw.  A seeded state the cycle lacks is DROPPED before the wire ever
      * carries it, which leaves the commit door's 400 exactly as strict as it is
-     * for every other caller.  WITH NO SEEDED STATE THERE IS NOTHING TO CHECK,
-     * so the door is not knocked on. */
+     * for every other caller.  THE DOOR IS KNOCKED ON WHATEVER THE CELL HOLDS,
+     * an empty state having a menu to fill all the same; an empty destination is
+     * the inbox, whose cycle the route answers for an empty tag.
+     * @type {{states: string[], active: string[], inactive: string[]}|null} */
+    let destCycle = null;
     function askCycle() {
       const { dest, cells } = drafting;
       const state = cells.state;
-      if (!state) return;
+      destCycle = null;
       getJSON(`/keywords?tag=${encodeURIComponent(dest)}`)
         .then((a) => {
           if (!drafting || drafting.dest !== dest) return;
-          if ((a.states || []).indexOf(state) !== -1) return;
-          drafting.cells.state = "";
-          redrawDraft();
+          destCycle = a;
+          if (state && (a.states || []).indexOf(state) === -1) {
+            drafting.cells.state = "";
+            redrawDraft();
+          }
+          // THE CELL MAY ALREADY BE OPEN OVER AN EMPTY MENU: the walk reaches
+          // the state stop long before a slow answer does.
+          redrawOffers();
         })
         .catch((e) => append("cmd", "error", `capture failed: ${e.message}`));
+    }
+
+    /** THE STATE CELL'S ANCHOR: the DESTINATION'S OWN CYCLE, and a whole-field
+     * take -- a state is ONE WORD, so there is no run to splice into. */
+    const stateAnchor = () =>
+      ({ run: false, offers: (w) => stateOffers(w, destCycle),
+         take: (w, f) => stateTake(f.value, w) });
+    /** THE HINT A DONE WORD WEARS.  The `s' palette draws the chain as an
+     * `active'/`inactive' pair of COLUMNS; a one-column menu carries that fact
+     * in the hint instead, and org's own word for the half is `done'. */
+    const DONE_HINT = "done";
+    /** WHAT WORD OFFERS out of CYCLE -- `GET /keywords?tag=''s own answer: the
+     * flat `states', which is the ORDER the chain classifies in, and the two
+     * halves that say which word is a done one.  The word narrows BY PREFIX,
+     * case-insensitively, and THE VOCABULARY IS CLOSED: a state outside the
+     * cycle is refused by the commit door (`stated'), so the reader's own line
+     * is never an offer here and a foreign word draws none at all.  THE
+     * PALETTE'S `*empty*' STAYS THE PALETTE'S: a FIXED entry on `DEL' committing
+     * a null keyword over landed rows, where a whole-field completion reads the
+     * field AS the word -- so such an entry could only ever stand where the cell
+     * is already empty.  A draft's cell clears by being emptied, the date cell's
+     * own rule.
+     * A DECLARATION, like `tagOffers': the suite drives it over vectors through a
+     * direct `eval' of this glue, which a `const' does not leak. */
+    function stateOffers(word, cycle) {
+      const want = String(word == null ? "" : word).trim().toLowerCase();
+      const states = (cycle && cycle.states) || [];
+      const done = (cycle && cycle.inactive) || [];
+      return states.filter((w) => w.toLowerCase().indexOf(want) === 0)
+        .slice(0, OFFERS)
+        .map((w) => ({ word: w, hint: done.indexOf(w) === -1 ? "" : DONE_HINT }));
+    }
+    /** THE FIELD BECOMES THE OFFER, WHOLE: a state is ONE WORD, so a take
+     * REPLACES what stands there rather than splicing into it, and the caret
+     * rests at the end.  COMPARED AS IT STANDS rather than folded -- org's
+     * keywords are case-sensitive and the commit door refuses a word by exact
+     * spelling -- so `read' completed to `READ' IS a take where `READ' is none.
+     * A take that changes nothing is no take, and `TAB' there walks the ring on.
+     * @returns {[string, number] | null} the value and the caret, or no take. */
+    function stateTake(value, word) {
+      return word === String(value == null ? "" : value).trim()
+        ? null : [word, word.length];
     }
 
     // THE WALK.  A draft's keys can be bound nowhere but `onCellKey'
@@ -226,10 +284,10 @@
       // date box's own order: the menu claims the walk keys, and `TAB'/`RET'
       // only where there is something to take.  `ESC' is never the menu's -- it
       // drops the draft whole and the offers go with it.
-      if (tagOfferKey(key)) { e.preventDefault(); return true; }
+      if (offerKey(key)) { e.preventDefault(); return true; }
       // AND THE MENU FOLLOWS THE TEXT AND THE CARET, a keystroke behind the key
       // that moved them: the character has not landed in the box yet.
-      if (tagOffering()) soon(drawTagOffers);
+      if (offering()) soon(redrawOffers);
       if (key === "TAB" || key === "S-TAB") {
         e.preventDefault();
         walkDraft(cell, key === "TAB" ? 1 : -1);
@@ -263,7 +321,7 @@
     function dropDraft() {
       drafting = null;
       shutEdit(DDATE);
-      shutTagOffers();
+      shutOffers();
       if (can(table, "deleteRow")) table.deleteRow(DRAFT_ID);
     }
 

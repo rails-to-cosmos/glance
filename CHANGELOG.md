@@ -26,6 +26,18 @@ section groups a feature arc, and its date is that arc's last commit.
   is the store-wide door behind it — the same two fields the per-row answer
   carries, for a surface that names no row.
 
+- **And a state completes where a state is typed.** The draft's state cell is
+  the same menu's third anchor, completing out of the DESTINATION'S OWN
+  `#+TODO:` cycle — the answer `+` already asked for when it drew the row, held
+  rather than fetched twice, so the offers and the wall a seeded keyword meets
+  are one list. The typed word narrows it by prefix, a done word is hinted
+  `done`, and `TAB` replaces the whole cell: a state is one word, so there is no
+  run to splice into. The vocabulary is **closed** — the commit door refuses a
+  keyword the destination's chain does not declare — so a word the cycle lacks
+  draws no offer and `TAB` there walks the ring on. `GET /keywords?tag=NAME` now
+  answers the chain's two halves beside the flat list, which is what lets the
+  hint say which word is a done one.
+
 ### Fixed
 
 - **`TAB` resolves a date into the surface's own spelling.** Over a table cell —

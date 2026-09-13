@@ -526,6 +526,7 @@ spec = withResource bootFixture dropBootFixture $ \shell ->
     , sheetSpec shell
     , dateWidgetSpec shell
     , tagOfferSpec shell
+    , stateOfferSpec shell
     , settingsSpec shell
     , touchSpec shell
     , shellFontSpec shell, assetSpec, embeddedSpec, errorSpec ]
@@ -5549,6 +5550,55 @@ tagOfferSpec shell = testGroup "Shell tag offers"
         (\answer -> assertEqual "the run, vector by vector" want
                        =<< textsAt "tagRuns" answer)
 
+-- | THE STATE CELL COMPLETES OUT OF THE DESTINATION'S CYCLE, in the very menu a
+-- tag completes in.  The vocabulary is CLOSED -- `stated' refuses a word the
+-- cycle lacks -- so there is no reader's own line here and a foreign prefix
+-- draws nothing at all.  The two vectors are the pure halves: the filter, and
+-- the take.
+stateOfferSpec :: IO T.Text -> TestTree
+stateOfferSpec shell = testGroup "Shell state offers"
+  [ -- THE NARROW IS A PREFIX, case-insensitively, and the DONE half is hinted:
+    -- the `s' palette draws its two halves as columns, and a one-column menu
+    -- carries that fact in the hint instead.
+    testCase "the offers narrow by prefix and hint the done half" $
+      fitsState shell [ "re/TODO,DONE,READING,READ/DONE,READ"
+                      , "RE/TODO,DONE,READING,READ/DONE,READ"
+                      , "d/TODO,DONE,READING,READ/DONE,READ" ]
+        [ "READING| READ|done", "READING| READ|done", "DONE|done" ]
+
+    -- AN EMPTY WORD OFFERS THE WHOLE CYCLE, in the order the chain classifies
+    -- in: the wider scope's words, then the destination layer's.  The palette's
+    -- `*empty*' is a verb on `DEL' and a word of no cycle, so it stands here at
+    -- all only if someone puts it there.
+  , testCase "an empty word offers the whole cycle, in the chain's own order" $
+      fitsState shell ["/TODO,DONE,READING,READ/DONE,READ"]
+        ["TODO| DONE|done READING| READ|done"]
+
+    -- A CLOSED VOCABULARY OFFERS NO LINE OF ITS OWN.  The second vector is the
+    -- PREFIX rule: `ea' stands inside READ and READING and prefixes neither.
+  , testCase "a word the cycle lacks draws no offer" $
+      fitsState shell [ "zz/TODO,DONE/DONE", "ea/TODO,DONE,READING,READ/DONE,READ" ]
+        ["", ""]
+
+    -- A STATE IS ONE WORD, so the take REPLACES the field rather than splicing
+    -- into it, the caret resting at the end.  COMPARED AS IT STANDS: org's
+    -- keywords are case-sensitive, so a half-typed `read' completed to `READ' is
+    -- a take where `READ' itself is none -- and a take that changes nothing is
+    -- NO take, so `TAB' there walks the draft's ring on.
+  , testCase "a take replaces the whole field, and an unchanged one is no take" $
+      takesState shell [ "./READING", "re/READING", "read/READ", "READ/READ" ]
+        [ "READING|7", "READING|7", "READ|4", "-" ]
+  ]
+  where
+    fitsState sh vectors want =
+      bootOf sh "" 500 "" (T.unwords [ "statefit:" <> v | v <- vectors ])
+        (\answer -> assertEqual "the offers, vector by vector" want
+                       =<< textsAt "stateFits" answer)
+    takesState sh vectors want =
+      bootOf sh "" 500 "" (T.unwords [ "statetake:" <> v | v <- vectors ])
+        (\answer -> assertEqual "the take, vector by vector" want
+                       =<< textsAt "stateTakes" answer)
+
 intsAt :: T.Text -> Value -> IO [Int]
 intsAt = decodedAt
 
@@ -10548,6 +10598,18 @@ draftCycleSpec = testGroup "GET /keywords?tag="
         assertEqual "the wider scope's words, then the tag's"
           ["TODO", "DONE", "READING", "READ"] =<< textsAt "states" v
 
+    -- THE TWO HALVES RIDE BESIDE THE FLAT LIST, 'keywordsPair' as every other
+    -- keywords answer spells them: the flat list is the ORDER a surface offers
+    -- the cycle in, and the halves say which word is a DONE one -- which is the
+    -- whole of what the state cell's hint column needs.
+  , testCase "the chain's two halves ride beside it" $
+      withStoreTree $ \a _hub _dir -> do
+        v <- decoded =<< ok =<< getFrom a "/keywords?tag=book"
+        assertEqual "every scope's active words" ["TODO", "READING"]
+          =<< textsAt "active" v
+        assertEqual "and every scope's done ones" ["DONE", "READ"]
+          =<< textsAt "inactive" v
+
     -- A LAYER THAT DECLARES NO `#+TODO:' ADDS NO SCOPE: the chain's own dedup
     -- drops an empty one, so the tag stands in the wider scope's words alone.
   , testCase "a tag with no #+TODO: of its own stands in the wider cycle" $
@@ -10574,14 +10636,15 @@ draftCycleSpec = testGroup "GET /keywords?tag="
     -- cells, no org, no `point', no tag vocabulary and no expansion to refuse,
     -- so a layer whose template has no `%?' is still a 200 here and meets its
     -- refusal at the one door that writes bytes.
-  , testCase "the answer is the states and nothing else" $
+  , testCase "the answer is the cycle and its halves, and nothing else" $
       withStoreTree $ \a _hub dir -> do
         v <- decoded =<< ok =<< getFrom a "/keywords?tag=book"
-        assertEqual "one member" ["states"] =<< keysOf v
+        assertEqual "three members" ["active", "inactive", "states"]
+          =<< (sort <$> keysOf v)
         TIO.writeFile (tagFileIn dir "film") "#+TITLE: Film\n\n* nothing here\n"
         broken <- decoded =<< ok =<< getFrom a "/keywords?tag=film"
-        assertEqual "a template with no %? refuses nothing here" ["states"]
-          =<< keysOf broken
+        assertEqual "a template with no %? refuses nothing here"
+          ["active", "inactive", "states"] =<< (sort <$> keysOf broken)
         assertEqual "the tree's own cycle stands behind it" ["TODO", "DONE"]
           =<< textsAt "states" broken
 

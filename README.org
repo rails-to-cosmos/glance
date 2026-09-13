@@ -83,7 +83,7 @@ map. =т з о л= navigates on a Cyrillic layout.
 | =RET=       | materialize the row; over a date cell, edit the date; in the document, edit the element |
 | =DEL=       | the ladder: unmark, else drop a query token, else pop a drill |
 | =t= =:=       | state palette · tag popup                                     |
-| =TAB=       | in an open field, take the offer standing under it — a tag, a date |
+| =TAB=       | in an open field, take the offer standing under it — a tag, a state, a date |
 | =C-c C-s= =C-c C-d= | the date, in its own cell; over marked rows, one prompt        |
 | =d d= =D=     | flag-then-delete (archive)                                    |
 | =x=         | act on the flagged, after asking · =D= is the quick one         |

@@ -21,7 +21,7 @@ everything a capture says.
 | `RET` | commit, from any cell |
 | `ESC` | drop the draft whole |
 | `S-<arrows>` | in a date stop, walk the day by one and by a week |
-| `<down>` / `<up>` | in the tag cell, walk the offers standing under it |
+| `<down>` / `<up>` | in the tag or state cell, walk the offers standing under it |
 
 The ring is **every cell the draft owns that this view draws**, the two dates
 among them: `title → scheduled → deadline → tag → state → priority` in the
@@ -37,8 +37,16 @@ resolves that to org's stamp when the capture lands. `S-TAB` walks back alone.
 this view's rows: the same menu the date box carries, hanging under the cell.
 The word the caret sits in filters it, `TAB` takes the offer point walked to and
 leaves the run colon-delimited — `:a:b` and `book` make `:a:book:` — and with no
-offer to take `TAB` is the ring's own key. The rules are in
-[commands.md](commands.md#the-tag-offers).
+offer to take `TAB` is the ring's own key.
+
+**And so does the state cell**, off the DESTINATION'S OWN `#+TODO:` cycle — the
+answer `+` already asked for when it drew the row, so the offers and the wall a
+seeded keyword meets are one list and one fetch. The typed word narrows it by
+prefix, a done word is hinted `done`, and `TAB` replaces the whole cell: a state
+is one word, so there is no run to splice into. That vocabulary is **closed** —
+the commit door refuses a keyword the destination's chain does not declare — so
+a word the cycle lacks draws no offer and `TAB` there walks the ring on. The
+rules are in [commands.md](commands.md#the-offer-menu).
 
 Three laws hold it:
 
@@ -103,10 +111,12 @@ review (2026-09-12).
 
 **A state the destination's cycle lacks is dropped, silently.** `+` asks
 `GET /keywords?tag=NAME` for the cycle at the same moment it draws the row, and
-only where the filter seeded a state — with none there is nothing to check. The
-answer either confirms the seeded state or clears the cell. The wire never
-carries the refused state, so the commit's own wall stays exactly as strict as
-it is for every other caller, the MCP `capture` tool included.
+**holds the answer**: it is both the wall a seeded keyword meets and the whole
+vocabulary the state cell completes from, so one fetch serves both and no second
+answer can disagree with the one the offers drew. The answer either confirms the
+seeded state or clears the cell. The wire never carries the refused state, so
+the commit's own wall stays exactly as strict as it is for every other caller,
+the MCP `capture` tool included.
 
 **Seeding never refuses a capture.** A fact the commit's walls would turn down
 is simply never seeded. It is the filter talking about other rows.
@@ -171,17 +181,21 @@ refused at the commit.
 
 ### `GET /keywords?tag=NAME` — the destination's cycle
 
-One member, and nothing else:
+The cycle, and the two halves that classify it:
 
 ```json
-{"states": ["TODO", "DONE", "READING", "READ"]}
+{"states": ["TODO", "DONE", "READING", "READ"],
+ "active": ["TODO", "READING"], "inactive": ["DONE", "READ"]}
 ```
 
 `/keywords` is otherwise **row-keyed**, and a draft has no row; `?tag=` is the
 same question asked for a row that does not exist yet. The answer is the FLAT
 list — every word of every scope, widest first — which is what the page checks
-a seeded keyword against and the very list the commit door walls with. An empty
-`?tag=` is the inbox, whose scope is the tree's own.
+a seeded keyword against, the order the state cell offers the cycle in, and the
+very list the commit door walls with. The halves ride beside it as
+`keywordsPair` spells them everywhere else, and say which word is a **done** one
+— the whole of what the menu's hint column needs. An empty `?tag=` is the
+inbox, whose scope is the tree's own.
 
 It is composed off the destination alone: the template is never read, so a
 layer whose template has no `%?` is still a 200 here and meets its refusal

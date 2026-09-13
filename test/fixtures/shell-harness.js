@@ -229,12 +229,16 @@ let captureLine = "";
 const captureTarget = "/o/inbox.org";
 const capturedId = "r3";
 /** GET /keywords?tag='s ANSWER, per destination: the `#+TODO:' words a capture
- * filed there may be stated in, FLAT, and nothing else.  `""' is the inbox and
- * the tree's own default cycle; a tag with a layer of its own adds to it. */
+ * filed there may be stated in -- the FLAT list in the chain's own order, and
+ * the two halves that say which of them is a done word.  `""' is the inbox and
+ * the tree's own default cycle; a tag with a layer of its own adds to it, so
+ * the wider scope's pair leads the flat list and the layer's follows. */
 const captureCycles = {
-  "": ["TODO", "DONE"],
-  book: ["TODO", "DONE", "READING", "READ"],
-  work: ["TODO", "DONE", "NEXT"],
+  "":   { states: ["TODO", "DONE"], active: ["TODO"], inactive: ["DONE"] },
+  book: { states: ["TODO", "DONE", "READING", "READ"],
+          active: ["TODO", "READING"], inactive: ["DONE", "READ"] },
+  work: { states: ["TODO", "DONE", "NEXT"],
+          active: ["TODO", "NEXT"], inactive: ["DONE"] },
 };
 const captureAsked = [];
 // GET /properties: what the tree spells, each with how often.  The counts are
@@ -342,7 +346,7 @@ globalThis.fetch = (url, init) => {
     captureAsked.push(url);
     const at = /[?&]tag=([^&]*)/.exec(String(url));
     const tag = at ? decodeURIComponent(at[1].replace(/\+/g, " ")) : "";
-    return answer(200, { states: captureCycles[tag] || captureCycles[""] });
+    return answer(200, captureCycles[tag] || captureCycles[""]);
   }
   if (String(url).startsWith("/keywords?ids=")) {
     resolved.push(url);
@@ -1173,6 +1177,8 @@ const dateFlashes = [];
 // like `readsDate', so a direct eval of the page's script reaches them here.
 const tagFits = [];
 const tagRuns = [];
+const stateFits = [];
+const stateTakes = [];
 const asDay = (iso) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
   if (!m) throw new Error(`not an ISO day: ${iso}`);
@@ -1511,6 +1517,23 @@ const ACTIONS = {
       tagRunTake(run, at === "-" ? undefined : Number(at), word);
     tagRuns.push(`${value}|${caret}`);
   },
+  /** ONE VECTOR THROUGH THE STATE FILTER: `WORD/STATES/INACTIVE' -- the word at
+   * the caret, then the two fields `GET /keywords?tag=' answers with, each
+   * comma-separated because an act splits on spaces. */
+  statefit: (spec) => {
+    const [word, states, inactive] = String(spec).split("/");
+    const list = (t) => String(t || "").split(",").filter(Boolean);
+    stateFits.push(
+      stateOffers(word, { states: list(states), inactive: list(inactive) })
+        .map((o) => `${o.word}|${o.hint}`).join(" "));
+  },
+  /** ONE VECTOR THROUGH THE STATE TAKE: `FIELD/WORD', `.' for an empty field.
+   * The answer is `VALUE|CARET', or `-' where the offer is no take at all. */
+  statetake: (spec) => {
+    const [text, word] = String(spec).split("/");
+    const took = stateTake(text === "." ? "" : text, word);
+    stateTakes.push(took === null ? "-" : `${took[0]}|${took[1]}`);
+  },
   ctext: (text) => (onKeywords(), typeSetting("ctext", text)),
   // TAKING AN EDIT BACK: an act splits on spaces and a `#+TODO:' line is spaces.
   crevert: () => {
@@ -1732,6 +1755,8 @@ const settle = async () => {
     tofferon: field("toffer").className === "on",
     tagFits,
     tagRuns,
+    stateFits,
+    stateTakes,
     dprows: field("mdoc").style.getPropertyValue("--g-doc-rows"),
     dtin: field("dtin").value,
     dtext: field("dtext").value,

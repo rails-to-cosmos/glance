@@ -919,7 +919,7 @@
      * TAKE THAT CHANGES NOTHING IS NO TAKE, so the press falls through to the
      * surface's own key.  MOVED redraws it, since the take fires no `input'.
      * ONE TAKE, TWO PUTS: a field that IS the offer, and a tag RUN the offer is
-     * spliced into (`takeTagOffer', 37-tags.js). */
+     * spliced into (`tagAnchor', 37-tags.js). */
     function menuTook(m, f, put, moved) {
       const took = m.at < 0 ? null : put(m.list[m.at].word);
       if (!took) return false;

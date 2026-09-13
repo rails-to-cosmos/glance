@@ -638,10 +638,10 @@ async function oneRow(p, base, q, id) {
     `${JSON.stringify(q)} drew ${JSON.stringify(seen)} rather than ${JSON.stringify([id])}`);
 }
 
-/** THE TAG OFFERS AS DRAWN, once WORD is among them: ONE MENU serves both tag
- * surfaces (`#toffer'), so one reading serves the draft's cell and the tags
- * popup's rename field alike. */
-const tagMenu = (p, word, why) => p.until((want) => {
+/** THE OFFERS AS DRAWN, once WORD is among them: ONE MENU serves all three
+ * anchors (`#toffer'), so one reading serves the draft's tag cell, its state
+ * cell and the tags popup's rename field alike. */
+const offerMenu = (p, word, why) => p.until((want) => {
   const menu = document.getElementById("toffer");
   if (!menu.classList.contains("on")) return false;
   const rows = [...menu.children];
@@ -687,6 +687,20 @@ async function draftWalkTo(p, key) {
     if (want === key) return on;
   }
   throw new Error(`the draft's ring has no ${key} stop`);
+}
+
+/** THE DRAFT'S STATE STOP, walked BACK to: the header draws state and priority
+ * ahead of the title the draft opens on, so `S-TAB' twice is the way to it --
+ * one key per call, as `draftWalkTo' sends them. */
+async function draftBackToState(p) {
+  let at = "title";
+  for (const want of ["priority", "state"]) {
+    await p.press("S-TAB");
+    const on = await draftStop(p, at, `S-TAB to reach the draft's ${want} stop`);
+    assert(on.col === want,
+      `S-TAB from ${JSON.stringify(at)} reached ${JSON.stringify(on.col)}`);
+    at = want;
+  }
 }
 
 /** The weekday org spells for a fixed ISO day — the ghost's own `dowOf', so a
@@ -6188,7 +6202,7 @@ export default [
     await draftWalkTo(p, "tag");
 
     await p.typeKeys(":dr");
-    const offered = await tagMenu(p, "driver", "the tag to be offered under the cell");
+    const offered = await offerMenu(p, "driver", "the tag to be offered under the cell");
     // THE READER'S OWN LINE LEADS AND POINT STANDS ON IT, hinted `new' — the
     // pane's own rule for an open vocabulary, kept here byte for byte.
     assert(offered.words[0] === "dr" && offered.at === 0 && offered.hints[0] === "new",
@@ -6241,7 +6255,7 @@ export default [
     await draftWalkTo(p, "tag");
 
     await p.typeKeys(":zqx");
-    const offered = await tagMenu(p, "zqx", "the reader's own line to stand alone");
+    const offered = await offerMenu(p, "zqx", "the reader's own line to stand alone");
     assert(offered.words.length === 1 && offered.hints[0] === "new",
       `the offers stand ${JSON.stringify(offered.words)} hinted `
       + JSON.stringify(offered.hints));
@@ -6256,10 +6270,15 @@ export default [
     const drawn = (on.cells.find(([k]) => k === "tag") || [])[1];
     assert(drawn === "zqx",
       `the tags cell draws ${JSON.stringify(drawn)} after the walk left it`);
-    // AND THE MENU WENT WITH THE CELL: one menu, and it stands under one field.
+    // AND THE MENU WENT WITH THE CELL: ONE MENU, standing under one field.  The
+    // state stop the walk wrapped round to raises its own, off the destination's
+    // cycle, so what the tag cell offered is gone out of it.
     const menu = await p.eval(() =>
-      document.getElementById("toffer").classList.contains("on"));
-    assert(!menu, "the offers stand on under a cell the walk has left");
+      [...document.getElementById("toffer").children]
+        .map((c) => c.querySelector(".dow").textContent));
+    assert(menu.indexOf("zqx") === -1,
+      `the tag cell's own offers still stand under the cell the walk reached: `
+      + JSON.stringify(menu));
 
     await p.press("S-TAB");
     const back = await draftStop(p, "state", "S-TAB to come back round to the tags cell");
@@ -6312,7 +6331,7 @@ export default [
     // measurement below prove nothing.  `e' is in most of the fixture's tags.
     const fill = async (why) => {
       await p.typeKeys(":e");
-      return tagMenu(p, "e", why);
+      return offerMenu(p, "e", why);
     };
 
     // ── UNDER THE CELL wherever there is room for it.
@@ -6410,7 +6429,7 @@ export default [
       + JSON.stringify(own.hints));
 
     await p.type("sur");
-    const offered = await tagMenu(p, "survey", "the typed line to narrow the offers");
+    const offered = await offerMenu(p, "survey", "the typed line to narrow the offers");
     assert(offered.words[0] === "sur" && offered.at === 0,
       `the offers stand ${JSON.stringify(offered.words)} with point on ${offered.at}`);
     await walkOffers(p, 1, "the walk to move point onto the tag");
@@ -6439,6 +6458,190 @@ export default [
     return [`the rename field drew ${JSON.stringify(own.words)}, "sur" narrowed to `
       + `${JSON.stringify(offered.words)} and TAB took ${JSON.stringify(took.value)} `
       + `without writing`];
+  } },
+
+// THE THIRD ANCHOR, AND THE SAME MENU: the draft's STATE cell completes out of
+// the DESTINATION'S OWN CYCLE -- the very answer `askCycle' already holds, so
+// the offers and the wall a seeded keyword meets are one fetch and one list.
+// The vocabulary is CLOSED: a state outside the cycle is refused by the commit
+// door, so there is no reader's own line here.  Book's layer declares
+// `#+TODO: TODO READING | READ' over the tree's own TODO|DONE, so the chain is
+// TODO DONE READING READ with the two done words hinted.
+{ name: "the state cell's offers are the destination's cycle, and TAB takes one",
+  async run(p, base) {
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:book")}`);
+    await p.until(() => !!document.querySelector("#app table tbody"),
+                  "the filtered table to mount");
+    await watchPosts(p);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.typeKeys("zqstate");
+    await draftBackToState(p);
+
+    await p.typeKeys("re");
+    const offered = await offerMenu(p, "READING", "book's own cycle under the state cell");
+    assert(JSON.stringify(offered.words) === JSON.stringify(["READING", "READ"]),
+      `"re" offered ${JSON.stringify(offered.words)} rather than the two the cycle `
+      + `spells with that prefix`);
+    // THE DONE HALF IS HINTED and the active half wears nothing, which is the
+    // one fact the `s' palette draws as a column of its own.
+    assert(JSON.stringify(offered.hints) === JSON.stringify(["", "done"]),
+      `the offers are hinted ${JSON.stringify(offered.hints)}`);
+    assert(offered.at === 0,
+      `point rests on ${offered.at} rather than the first offer`);
+
+    // `TAB' TAKES THE WHOLE FIELD: a state is one word, so the cell BECOMES the
+    // offer with the caret behind it -- there is no run to splice into.
+    await p.press("TAB");
+    const took = await p.until(() => {
+      const box = document.querySelector("#app tr.tv-producer input.tv-cell-edit");
+      return box && box.value === "READING"
+        ? { value: box.value, at: box.selectionStart } : false;
+    }, "TAB to take the offer into the state cell");
+    assert(took.at === "READING".length,
+      `the caret rests at ${took.at} rather than behind the word`);
+    assert((await postsSeen(p)).length === 0,
+      `taking an offer posted ${JSON.stringify(await postsSeen(p))}`);
+
+    // AND THE NEXT `TAB' WALKS ON: the offer that stands IS what the cell holds,
+    // so there is nothing to take and the key is the ring's own.
+    await p.press("TAB");
+    const on = await draftStop(p, "state", "TAB to walk the ring on off the state cell");
+    assert(on.col === "priority",
+      `TAB from the state cell reached ${JSON.stringify(on.col)}`);
+    const drawn = (on.cells.find(([k]) => k === "state") || [])[1];
+    assert(drawn === "READING",
+      `the state cell draws ${JSON.stringify(drawn)} after the walk left it`);
+
+    // AND THE WIRE CARRIES THE WORD THE OFFER NAMED: the blob's headline opens
+    // on the keyword the destination's own cycle declares.
+    await p.press("RET");
+    const blob = await landedRow(p, "zqstate", "the blob to reach the store");
+    const head = (await fileSays(p, blob, /^\* /m, "the blob's own file to carry the entry"))
+                   .split("\n")[0];
+    assert(head === "* READING zqstate :book:",
+      `the blob's headline is ${JSON.stringify(head)} rather than the completed `
+      + `keyword, the title and the run`);
+    return [`"re" offered ${JSON.stringify(offered.words)} hinted `
+      + `${JSON.stringify(offered.hints)}, TAB took ${JSON.stringify(took.value)} and the `
+      + `blob landed as ${JSON.stringify(head)}`];
+  } },
+
+// A CLOSED VOCABULARY DRAWS NOTHING FOR A WORD IT LACKS.  `stated' refuses a
+// state outside the destination's cycle, so the menu never offers the reader's
+// own line the way the tag cell does -- and with no offer standing, `TAB' is the
+// ring's own key exactly as it was.
+{ name: "a state the cycle lacks draws no offer",
+  async run(p, base) {
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:book")}`);
+    await p.until(() => !!document.querySelector("#app table tbody"),
+                  "the filtered table to mount");
+    await watchPosts(p);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await draftBackToState(p);
+
+    // WAITED FOR AT THE CYCLE: the menu draws the moment the cell opens and the
+    // answer lands a fetch later, so an empty menu read at the first paint would
+    // pass whatever the cycle turned out to hold.  READ AGAINST THE DOOR'S OWN
+    // ANSWER rather than a list written here: a case earlier in the run mints a
+    // keyword into this tree's system layer, and the claim is that the offers
+    // ARE the destination's cycle, whatever the tree has grown.
+    const whole = await offerMenu(p, "READ", "the destination's cycle to land under the cell");
+    const cycle = await p.eval(async () =>
+      await (await fetch("/keywords?tag=book")).json());
+    assert(JSON.stringify(whole.words) === JSON.stringify(cycle.states),
+      `the empty cell offered ${JSON.stringify(whole.words)} where the door answers `
+      + JSON.stringify(cycle.states));
+    assert(JSON.stringify(whole.hints)
+             === JSON.stringify(cycle.states.map((w) =>
+                  (cycle.inactive.indexOf(w) === -1 ? "" : "done"))),
+      `the chain is hinted ${JSON.stringify(whole.hints)} against the door's own `
+      + `${JSON.stringify(cycle.inactive)}`);
+    assert(cycle.states.indexOf("READING") !== -1 && cycle.inactive.indexOf("READ") !== -1,
+      `book's layer is meant to declare READING | READ: ${JSON.stringify(cycle)}`);
+    // POINT STANDS ON NO OFFER where nothing is typed, the date box's own rule.
+    assert(whole.at === -1, `point rests on ${whole.at} over an untyped cell`);
+
+    await p.typeKeys("zq");
+    const gone = await p.until(() => {
+      const menu = document.getElementById("toffer");
+      return menu.classList.contains("on")
+        ? false : { words: menu.children.length };
+    }, "the offers to go down over a word the cycle lacks");
+    assert(gone.words === 0,
+      `the menu drew ${gone.words} offers over a word no state prefixes`);
+
+    await p.press("TAB");
+    const on = await draftStop(p, "state", "TAB to walk the ring on with no offer to take");
+    assert(on.col === "priority",
+      `TAB from the state cell reached ${JSON.stringify(on.col)}`);
+    const drawn = (on.cells.find(([k]) => k === "state") || [])[1];
+    assert(drawn === "zq",
+      `the state cell draws ${JSON.stringify(drawn)} after the walk left it`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
+                     && !document.getElementById("toffer").classList.contains("on"),
+                  "ESC to drop the draft and take the menu with it");
+    assert((await postsSeen(p)).length === 0,
+      `the walk posted ${JSON.stringify(await postsSeen(p))}`);
+    return [`book's cycle stood ${JSON.stringify(whole.words)}, "zq" drew none of it and `
+      + `TAB walked on to ${JSON.stringify(on.col)}`];
+  } },
+
+// AND A DRAFT WITH NO DESTINATION IS THE INBOX, whose cycle is the tree's own --
+// which is what `/keywords?tag=' answers for an EMPTY tag.  The fixture declares
+// no system layer, so the default scope stands alone: TODO | DONE.
+{ name: "the default cycle serves the inbox draft",
+  async run(p, base) {
+    await tableUp(p, base);
+    await watchPosts(p);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await draftBackToState(p);
+
+    const whole = await offerMenu(p, "DONE", "the tree's own cycle under the state cell");
+    // THE DOOR'S OWN ANSWER FOR AN EMPTY TAG is what the menu must draw: a case
+    // earlier in the run mints a keyword into this tree's system layer, so the
+    // default cycle is read rather than written down here.
+    const cycle = await p.eval(async () =>
+      await (await fetch("/keywords?tag=")).json());
+    assert(JSON.stringify(whole.words) === JSON.stringify(cycle.states),
+      `the inbox draft offered ${JSON.stringify(whole.words)} where the door answers `
+      + JSON.stringify(cycle.states));
+    assert(JSON.stringify(whole.hints)
+             === JSON.stringify(cycle.states.map((w) =>
+                  (cycle.inactive.indexOf(w) === -1 ? "" : "done"))),
+      `the default cycle is hinted ${JSON.stringify(whole.hints)} against the door's own `
+      + JSON.stringify(cycle.inactive));
+    assert(whole.words[0] === "TODO" && cycle.inactive.indexOf("DONE") !== -1,
+      `the tree's own cycle is meant to open on TODO and call DONE done: `
+      + JSON.stringify(cycle));
+
+    await p.typeKeys("do");
+    const want = cycle.states.filter((w) => w.toLowerCase().indexOf("do") === 0);
+    const narrowed = await offerMenu(p, "DONE", "the typed letters to narrow the cycle");
+    assert(JSON.stringify(narrowed.words) === JSON.stringify(want) && narrowed.at === 0,
+      `"do" left ${JSON.stringify(narrowed.words)} with point on ${narrowed.at}, where the `
+      + `cycle prefixes ${JSON.stringify(want)}`);
+    await p.press("TAB");
+    const took = await p.until(() => {
+      const box = document.querySelector("#app tr.tv-producer input.tv-cell-edit");
+      return box && box.value === "DONE"
+        ? { value: box.value, at: box.selectionStart } : false;
+    }, "TAB to take the tree's own done word into the cell");
+    assert(took.at === "DONE".length,
+      `the caret rests at ${took.at} rather than behind the word`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
+                     && !document.getElementById("toffer").classList.contains("on"),
+                  "ESC to drop the draft and take the menu with it");
+    assert((await postsSeen(p)).length === 0,
+      `the completed draft posted ${JSON.stringify(await postsSeen(p))}`);
+    return [`the inbox draft's state cell offered ${JSON.stringify(whole.words)} hinted `
+      + `${JSON.stringify(whole.hints)}, and "do" completed to ${JSON.stringify(took.value)}`];
   } },
 
 // STAGE 4, AND F's PREMISE.  The capture-in-table spike measured a landed capture

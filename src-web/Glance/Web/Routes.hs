@@ -63,10 +63,12 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , SavedView (..), archived, configDirsIn, configPaths
                     , pinnedDocument, rowSnapshot
                     , captureTemplateOf
+                    , draftKeywords
                     , draftStates
                     , ConfigLayers (clTree), TreeSettings (..), treeSettings
                     , configEdits, viewQuery, viewQueryIn
                     , headlineParts, keywordSources, linkShown, linkType
+                    , mergeKeywords
                     , mintableLayer
                     , kindSlug, refKind
                     , edgePairs, neighborDepth, neighborDepthCap, neighborLimit
@@ -730,12 +732,19 @@ settledPlanning day (SplitSubtree body ps pln)
 -- FLAT list, which is what a page checks a seeded keyword against and the very
 -- list the commit door walls with ('draftStates'); an EMPTY tag is the inbox,
 -- whose scope is the tree's own.  NO FILE IS CREATED.
+--
+-- The CHAIN'S TWO HALVES ride beside it, 'keywordsPair' as every other keywords
+-- answer spells them: the flat list is the order a surface offers the cycle in,
+-- and the halves say which word is a DONE one, which is all a hint needs.
 keywordsView :: Hub -> Request -> IO Response
 keywordsView hub request = case queryText request "tag" of
   Just tag -> do
     st <- readTVarIO (hubStore hub)
+    let cfg = stConfig st
+        worn = [ T.toLower tag | not (T.null tag) ]
     pure (jsonResponse status200
-            [ "states" .= draftStates (stConfig st) [ T.toLower tag | not (T.null tag) ] ])
+            ( "states" .= draftStates cfg worn
+            : keywordsPair (mergeKeywords (map snd (draftKeywords cfg worn))) ))
   Nothing  ->
     idsView hub request "GET /keywords?ids=<row id>,<row id>" $ \st _rows found unknown ->
       [ "sources" .= map sourceJSON (keywordSources (stConfig st) found)

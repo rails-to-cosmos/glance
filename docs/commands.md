@@ -205,14 +205,16 @@ the box left standing to fix it in.
 The same keys over the TABLE are unchanged: they ask over the marked rows
 through the shipped prompt, and reach this door with the same grammar.
 
-## The tag offers
+## The offer menu
 
-**A tag completes the way a date does.** The very menu the date box carries —
+**A word completes the way a date does.** The very menu the date box carries —
 the list under the field, a hint column, the arrows walking it and `TAB` taking
-what point stands on — hangs under the two tag fields that stand in no box of
-their own: the draft row's **tag cell** and the tags popup's **rename field**.
-One element (`#toffer`), placed under whichever rect the surface names, turning
-over above it where the window's foot leaves no room.
+what point stands on — hangs under the three fields that stand in no box of
+their own: the draft row's **tag cell**, its **state cell**, and the tags
+popup's **rename field**. One element (`#toffer`), placed under whichever rect
+the anchor names, turning over above it where the window's foot leaves no room.
+Each anchor says what a word is there, what it offers and what taking one does;
+the walk, the paint and the take are one model.
 
 | key | over the offers |
 | --- | --- |
@@ -220,6 +222,8 @@ over above it where the window's foot leaves no room.
 | `TAB` | take the offer point stands on; with none to take, the key is the surface's own — the draft's ring walks on |
 | `RET` | take the offer point stands on; with none to take, commit — the capture, or the rename |
 | `ESC` | the surface goes down whole and the menu with it — the date box's own rule |
+
+### The tag anchors
 
 - **The vocabulary is the STORE's.** `GET /tags?vocabulary=true` names no row
   and answers the whole tree's tags with the rows wearing each, asked once and
@@ -240,6 +244,35 @@ over above it where the window's foot leaves no room.
   the whole field.
 - **Taking is a completion and never a commit.** Nothing is posted until `RET`
   over a field with no offer left to take.
+
+### The state cell's own vocabulary
+
+The draft's state cell completes out of **the destination's own `#+TODO:`
+cycle** — the answer `GET /keywords?tag=NAME` already gave the row when `+` drew
+it, held rather than asked for twice, so the offers and the wall a seeded
+keyword meets are one list. An empty destination is the inbox, whose cycle the
+route answers for an empty tag.
+
+| | the tag cell | the state cell |
+| --- | --- | --- |
+| vocabulary | the store's whole tag list | the destination's cycle |
+| open? | **open** — the reader's own line leads, hinted `new` | **closed** — a word the cycle lacks draws no offer at all |
+| narrows by | substring, the tag palette's own rule | prefix, case-insensitively |
+| hint | the rows wearing the tag | `done` for a word behind the `\|`, nothing for an active one |
+| a take | splices the caret's word into the run | replaces the whole field — a state is one word |
+
+The vocabulary is closed because the commit door is: `stated` refuses a keyword
+the destination's chain does not declare, so a line the menu could not offer is
+a line the capture could not carry. The `s` palette's `*empty*` stays the
+palette's own — a **fixed entry on `DEL`**, committing a null keyword over
+landed rows — and a whole-field completion reads the field *as* the word, so
+such an entry could only ever stand where the cell is already empty. A draft's
+cell clears by being emptied, which is the date cell's own rule.
+
+The `s` palette itself draws the same chain in its own shape — a `source |
+active | inactive` grid, one row per scope, with that fixed `*empty*` under it —
+so the menu's single column carries the `active`/`inactive` split in the hint
+instead.
 
 ## `delete`, the one destructive command
 

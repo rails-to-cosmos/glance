@@ -1,10 +1,12 @@
-    // THE TAG VOCABULARY AND ITS OFFERS.  A TAG COMPLETES THE WAY A DATE DOES:
-    // the very menu the date box carries -- the list under the field, the hint
-    // column, the arrows walking it and `TAB' taking what point stands on
-    // (`wmenu', 20-sheet.js).  TWO SURFACES STAND IN NO BOX OF THEIR OWN -- the
-    // draft's tag CELL, which is the renderer's in-cell input, and the tags
-    // popup's rename field -- so ONE menu element hangs at the page's root and is
-    // placed under whichever rect the surface names.
+    // THE OFFER MENU AND THE TAG VOCABULARY.  A WORD COMPLETES THE WAY A DATE
+    // DOES: the very menu the date box carries -- the list under the field, the
+    // hint column, the arrows walking it and `TAB' taking what point stands on
+    // (`wmenu', 20-sheet.js).  THREE SURFACES STAND IN NO BOX OF THEIR OWN --
+    // the draft's tag CELL and its state CELL, which are the renderer's in-cell
+    // input, and the tags popup's rename field -- so ONE menu element hangs at
+    // the page's root and is placed under whichever rect the anchor names.  The
+    // TAG vocabulary is this part's; the state cell's is the draft's own cycle
+    // (`stateOffers', 35-draft.js).
 
     /** THE STORE'S OWN TAGS, asked ONCE and kept until the store settles again.
      * `GET /tags?vocabulary=true' NAMES NO ROW, so it answers for the whole tree
@@ -25,7 +27,7 @@
           tpool = { list: a.vocabulary || [], counts: a.counts || {} };
           tpoolFresh = true;
           tpoolAsking = false;
-          drawTagOffers();
+          redrawOffers();
         })
         .catch(() => { tpoolAsking = false; });
     }
@@ -85,36 +87,53 @@
     /** WHICH SURFACE THE OFFERS STAND UNDER, or null.  FIELD and RECT are ASKED
      * rather than held: the draft's in-cell input is rebuilt by every repaint
      * (`resumeEditor', assets/table-view.js) and a held reference would dangle
-     * across a store settle.  RUN says the field holds a tag run rather than one
-     * tag, which is the whole difference between the two surfaces; LISTEN wires
-     * THIS open's field for `input', a field the page owns being wired once at
-     * boot instead.
+     * across a store settle.  ONE MENU, THREE ANCHORS, AND THE ANCHOR SAYS WHAT
+     * IT COMPLETES: OFFERS answers the list for the word under the caret, TAKE
+     * what the field becomes when one is taken (`null' for no take), RUN that the
+     * field holds a tag run rather than one word, ASK the vocabulary this open
+     * owes a fetch.  LISTEN wires THIS open's field for `input', a field the page
+     * owns being wired once at boot instead.
      * @type {{field: () => any, rect: () => any, run: boolean,
-     *         listen?: boolean}|null} */
+     *         offers: (word: string) => any[],
+     *         take: (word: string, field: any) => any,
+     *         ask?: () => void, listen?: boolean}|null} */
     let toffering = null;
     /** THE WORD THE DRAWN LIST ANSWERS FOR.  A cell's redraw is a keystroke
      * behind the key that moved the text (`draftKey', 35-draft.js), and a take
      * off a list the reader never saw would write a word nothing offered. */
     let tword = null;
-    const tagOffering = () => !!toffering && !!toffering.field();
+    const offering = () => !!toffering && !!toffering.field();
     /** THE CARET IS `selectionEnd': the open lays a WHOLE selection down, so the
      * word the reader means there is the one the run ENDS on rather than the one
      * it starts with. */
     const caretIn = (f) =>
       (typeof f.selectionEnd === "number" ? f.selectionEnd : String(f.value).length);
     /** The word this surface is completing: a run's own, else the whole field. */
-    const tagWordIn = (f) =>
+    const wordIn = (f) =>
       (toffering.run ? tagWordAt(f.value, caretIn(f)).word : String(f.value).trim());
-    function openTagOffers(o) {
+    /** A TAG SURFACE'S ANCHOR, the two of them differing in the RUN alone: the
+     * store's own vocabulary, and a take that keeps the run's spelling. */
+    const tagAnchor = (run) => ({
+      run, ask: askTagVocab, offers: (w) => tagOffers(w, tagPool()),
+      // FOLDED, because a tag's PRESENCE is (`foldTag'): an offer differing from
+      // what stands there only in case is the word already standing there, and
+      // the READER'S OWN LINE is nothing to take -- it IS that word.
+      take: (w, f) => {
+        const stood = run ? tagWordAt(f.value, caretIn(f)).word : f.value;
+        return foldTag(w) === foldTag(stood) ? null
+          : run ? tagRunTake(f.value, caretIn(f), w) : [w, w.length];
+      },
+    });
+    function openOffers(o) {
       toffering = o;
       // THE FIELD'S OWN `input' REDRAWS SYNCHRONOUSLY, so the list a `TAB' reads
       // is the one the text asks for.  A field this page owns is wired once at
       // boot; a cell's input is built fresh per open and wired here.
-      if (o.listen) { const f = o.field(); if (f) f.addEventListener("input", drawTagOffers); }
-      askTagVocab();
-      drawTagOffers();
+      if (o.listen) { const f = o.field(); if (f) f.addEventListener("input", redrawOffers); }
+      if (o.ask) o.ask();
+      redrawOffers();
     }
-    function shutTagOffers() {
+    function shutOffers() {
       toffering = null;
       tword = null;
       tmenu.list = [];
@@ -122,50 +141,44 @@
       paintOffers(tmenu.box, [], -1);
     }
     /** The offers over the word the caret sits in, painted and then placed.
-     * POINT STANDS ON THE READER'S OWN LINE where anything is typed and on NO
-     * OFFER where nothing is, which is `dateMoved''s own rule. */
-    function drawTagOffers() {
-      if (!tagOffering()) return;
-      const word = tagWordIn(toffering.field());
+     * POINT STANDS ON THE FIRST OFFER where anything is typed and on NO OFFER
+     * where nothing is, which is `dateMoved''s own rule. */
+    function redrawOffers() {
+      if (!offering()) return;
+      const word = wordIn(toffering.field());
       tword = word;
-      tmenu.list = tagOffers(word, tagPool());
+      tmenu.list = toffering.offers(word);
       tmenu.at = word ? 0 : -1;
       menuPaint(tmenu);
       placeMenu(tmenu, toffering.rect());
     }
-    /** THE OFFER THAT STANDS, taken the way the surface spells one: a RUN keeps
-     * its colons, a one-tag field simply becomes the word.  THE READER'S OWN
-     * LINE IS NOTHING TO TAKE -- it IS the word standing there -- so `TAB' over
-     * it falls through to the ring and `RET' to the commit. */
-    const takeTagOffer = () => {
-      if (!tagOffering()) return false;
+    /** THE OFFER THAT STANDS, taken the way THIS ANCHOR spells one: a tag run
+     * keeps its colons, a one-word field becomes the offer, `*empty*' clears the
+     * cell.  A TAKE THAT CHANGES NOTHING IS NO TAKE (`menuTook'), so `TAB' falls
+     * through to the ring and `RET' to the commit. */
+    const takeStanding = () => {
+      if (!offering()) return false;
       const f = toffering.field();
       // THE READER WALKED THE LIST THE WORD ASKED FOR: a word that has outrun
       // it redraws instead, and the press stays the surface's own.
-      if (tagWordIn(f) !== tword) { drawTagOffers(); return false; }
-      // FOLDED, because a tag's PRESENCE is (`foldTag'): an offer differing from
-      // what stands there only in case is the word already standing there.
-      const stood = foldTag(tagWordIn(f));
-      return menuTook(tmenu, f, (w) =>
-        (foldTag(w) === stood ? null
-         : toffering.run ? tagRunTake(f.value, caretIn(f), w) : [w, w.length]),
-        drawTagOffers);
+      if (wordIn(f) !== tword) { redrawOffers(); return false; }
+      return menuTook(tmenu, f, (w) => toffering.take(w, f), redrawOffers);
     };
     /** THE KEYS THE MENU CLAIMS wherever it stands, and whether it spent one: the
      * walk, and the take.  `ESC' IS NEVER ONE OF THEM -- the date box's own rule
      * -- so the surface goes down whole and the menu with it. */
-    function tagOfferKey(k) {
-      if (!tagOffering()) return false;
+    function offerKey(k) {
+      if (!offering()) return false;
       const step = walkStep(k);
       if (step) { menuWalk(tmenu, step); return true; }
-      return (k === "TAB" || k === "RET") && takeTagOffer();
+      return (k === "TAB" || k === "RET") && takeStanding();
     }
     // A FIELD THIS PAGE OWNS REDRAWS ON ITS OWN `input'; the draft's cell is the
     // renderer's, and redraws a keystroke behind (`draftKey', 35-draft.js).
-    el("tname").addEventListener("input", drawTagOffers);
+    el("tname").addEventListener("input", redrawOffers);
     // AND THE MENU FOLLOWS ITS ANCHOR, the way the date box does: every scroller
     // in the capture phase, since `scroll' does not bubble.
     const anchorMoved = () =>
-      { if (tagOffering()) placeMenu(tmenu, toffering.rect()); };
+      { if (offering()) placeMenu(tmenu, toffering.rect()); };
     window.addEventListener("resize", anchorMoved);
     document.addEventListener("scroll", anchorMoved, true);

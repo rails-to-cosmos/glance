@@ -716,6 +716,42 @@ the pane's stamp; browser /TAB in a cell's date box resolves the phrase in
 place/, /the draft's date stop opens the box, TAB with no offer walks on/ and
 /a TAB-resolved draft stop captures the day it shows/.
 
+* DONE Autocomplete for the state, like tags
+User call (2026-09-13).  THE MENU'S THIRD ANCHOR is the draft's STATE cell, and
+it is the same one: =#toffer= at the page's root, =placeMenu= against the cell's
+rect, =menuPaint= / =menuWalk= / =menuTook=.  What the anchors stopped sharing is
+what each one COMPLETES, so the descriptor now carries it -- =offers= answers the
+list for the word under the caret, =take= what the field becomes, =run= that the
+field holds a tag run rather than one word -- and the plumbing lost its "tag" in
+the name (=openOffers= / =shutOffers= / =offerKey=, =tagAnchor= spelling the two
+tag surfaces at once).
+
+The vocabulary is THE DESTINATION'S CYCLE and the same answer =askCycle= already
+holds: =GET /keywords?tag== is asked once when =+= draws the row, and the held
+answer is both the wall a seeded keyword meets and the cell's whole list, so no
+second fetch can hand the menu a cycle the drop never saw.  The door gained the
+chain's two halves beside the flat =states= (=keywordsPair=, as every other
+keywords answer spells them), which is what the =done= hint reads; the flat list
+stays =draftStates=, the commit door's own.
+
+CLOSED VOCABULARY, unlike the tag cell's: =stated= refuses a keyword the chain
+does not declare, so there is no reader's own line, a foreign prefix draws NO
+offer and =TAB= is then the ring's own key.  The narrow is a PREFIX (the date
+offers' rule), the take REPLACES the whole field, compared as it stands -- org's
+keywords are case-sensitive, so =read= → =READ= is a take where =READ= is none.
+The =s= palette's =*empty*= stays the palette's own -- a FIXED entry on =DEL=
+over LANDED rows -- and a whole-field completion reads the field AS the word, so
+it could only ever stand where the cell is already empty; a cell clears by being
+emptied, the date cell's rule.
+
+Code: =stateOffers= / =stateTake= / =stateAnchor= / =askCycle= (=35-draft.js=),
+the anchor plumbing (=37-tags.js=), =openDraftAt= (=35-draft.js=),
+=keywordsView= (=Routes.hs=).  Tests: shell /Shell state offers/ (the prefix
+filter, the done hint, a closed vocabulary, the whole-field take) and two
+=GET /keywords?tag== route cases; browser /the state cell's offers are the
+destination's cycle, and TAB takes one/, /a state the cycle lacks draws no offer/
+and /the default cycle serves the inbox draft/.
+
 * DONE Autocomplete for tags
 User call (2026-09-13).  ONE OFFER MENU, TWO ANCHORS: the draft's tag CELL and
 the tags popup's rename field both stand in no box of their own, so =#toffer=

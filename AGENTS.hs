@@ -3956,7 +3956,7 @@ cmdNotes =
   , Note "A tagged capture's blob shard is unwatched for the daemon's life; it reaches the table because every write nudges its own path." [Test]
   , Note "ONE clock read covers both stamps a capture writes, so a template naming the moment and the creation time it is filed under can never name two." [Test]
   , Note "THE COMMIT DOOR IS THE ONLY DOOR A DRAFT HAS: a capture is composed as a ROW in the table and the read door answers a cycle, so a template's own refusals are spoken where its bytes are written and nowhere earlier. `draftRecord' reads the composed entry back through ONE PARSE, and a BLANK ENTRY IS KEPT where `recordsOf' drops one: `* ' with an empty title is exactly what the bare template opens as." [Test]
-  , Note "THE DRAFT'S CYCLE RIDES /keywords, UNDER A SECOND ARM: that door is ROW-KEYED and a draft has no row, so `?tag=NAME' asks the same question for a row that does not exist yet -- `draftKeywords' walking the same `keywordScopes' chain with an empty FILE scope, flattened by `flatKeywords' into the very list the commit door WALLS with (`draftStates', one reading for the offer and the wall). It is composed off the DESTINATION alone, an empty tag being the inbox, and owes the template nothing. A door of its own answering the same fold under a second key is what this replaced." [Test]
+  , Note "THE DRAFT'S CYCLE RIDES /keywords, UNDER A SECOND ARM: that door is ROW-KEYED and a draft has no row, so `?tag=NAME' asks the same question for a row that does not exist yet -- `draftKeywords' walking the same `keywordScopes' chain with an empty FILE scope, flattened by `flatKeywords' into the very list the commit door WALLS with (`draftStates', one reading for the offer and the wall). The CHAIN'S TWO HALVES ride beside it, `keywordsPair' as every other keywords answer spells them: the flat list is the ORDER the state cell offers the cycle in and the halves say which word is a DONE one, which is the whole of what a hint column needs. It is composed off the DESTINATION alone, an empty tag being the inbox, and owes the template nothing. The page HOLDS that one answer: the wall a seeded keyword meets and the cell's whole vocabulary are the same list, so a second fetch cannot hand the menu a cycle the drop never saw. A door of its own answering the same fold under a second key is what this replaced." [Test]
   , Note "The prompting escapes DISSOLVED: `%^{PROMPT}' expands to its EMPTY VALUE — a drawer pair with none, a slot in the body — because a pre-form field existed only where the form could not edit structure. The stamping escapes still take the server's clock, the page spelling no org, and `%?' writes nothing at all: it is where point opens." [Test]
   , Note "TWO ROADS, EXACTLY ONE TAKEN: `text' (with `fields', through the tag's template) is the older wire and stays, the door being public and org-glance able to drive it; `title' opens the sheet's cargo. NAMING BOTH IS REFUSED rather than resolved, and both roads hand the SAME org to the same minting, which is why the shard path, the id, the creation drawer, the ledger note and the inbox split are untouched by the widening." [Test]
   , Note "ONE WALL PER KEY AND EVERY ONE OF THEM THE ROW EDIT'S (`cargoWall'): planning through `plannedValue' with the KEY OUTRANKING THE VALUE, tags and the state through their charsets, the title through the headline reparse, and the state through the very cycle the read door offered. A capture is ONE TOP ENTRY, so a body line opening a single star is refused rather than written — the one-headline wall reaching the widened road the way `captureText' reaches the older one." [Test]
@@ -4522,20 +4522,34 @@ shellNotes =
          \ IS SPELLED AT THE CALL rather than read off the list, so the CLOSED\
          \ fields — the state palette and the capture template's code list — keep\
          \ no free-text door." [Test, Browser]
-  , Note "ONE OFFER MENU, TWO ANCHORS, FOR A TAG.  A tag completes the way a date does\
+  , Note "ONE OFFER MENU, THREE ANCHORS.  A word completes the way a date does\
          \ -- the list under the field, a hint column, the arrows walking it and `TAB'\
-         \ taking what point stands on -- and the two tag fields stand in NO BOX OF THEIR\
-         \ OWN: the draft's tag CELL is the renderer's in-cell input and the tags popup's\
-         \ rename field sits in a popup that scrolls.  So ONE element hangs at the page's\
-         \ ROOT (`#toffer') and is PLACED PER ANCHOR against the viewport, turning over\
-         \ above its anchor at the window's foot -- the date box's own flip, measured in\
-         \ the glue because there is no box to hang it inside.  The WIDGET gains nothing:\
-         \ the cell's rect is `cellRect', the seam the date box already asks through.  The\
-         \ take is `menuTook' with a PUT apiece -- a one-tag field BECOMES the offer, a\
-         \ RUN has the caret's word spliced -- and a take that leaves the value the field\
-         \ already holds is NO TAKE, so `TAB' falls through to the ring and `RET' to the\
-         \ commit exactly as before.  `ESC' is never the menu's: the surface goes down\
-         \ whole and the menu with it, which is the date box's rule." [Test, Browser]
+         \ taking what point stands on -- and three fields stand in NO BOX OF THEIR\
+         \ OWN: the draft's tag CELL and its state CELL are the renderer's in-cell input\
+         \ and the tags popup's rename field sits in a popup that scrolls.  So ONE element\
+         \ hangs at the page's ROOT (`#toffer') and is PLACED PER ANCHOR against the\
+         \ viewport, turning over above its anchor at the window's foot -- the date box's\
+         \ own flip, measured in the glue because there is no box to hang it inside.  The\
+         \ WIDGET gains nothing: the cell's rect is `cellRect', the seam the date box\
+         \ already asks through.  THE ANCHOR SAYS WHAT IT COMPLETES and the model is one:\
+         \ OFFERS answers the list, TAKE what the field becomes, RUN that the field holds\
+         \ a tag run rather than one word.  A take that leaves the value the field already\
+         \ holds is NO TAKE, so `TAB' falls through to the ring and `RET' to the commit\
+         \ exactly as before.  `ESC' is never the menu's: the surface goes down whole and\
+         \ the menu with it, which is the date box's rule." [Test, Browser]
+  , Note "THE STATE CELL COMPLETES OUT OF THE DESTINATION'S OWN CYCLE, which is a CLOSED\
+         \ vocabulary: `stated' refuses a keyword the destination's chain does not\
+         \ declare, so a line the menu could not offer is a line the capture could not\
+         \ carry -- there is no reader's own line here and a word the cycle lacks draws NO\
+         \ OFFER, leaving `TAB' the ring's own key.  The narrow is a PREFIX (the date\
+         \ offers' rule, where a tag's is the palette's substring), the hint is `done' for\
+         \ a word behind the bar, and the take REPLACES THE WHOLE FIELD -- a state is one\
+         \ word -- compared as it stands rather than folded, org's keywords being\
+         \ case-sensitive.  The `s' palette's `*empty*' STAYS THE PALETTE'S: a FIXED entry\
+         \ on `DEL' committing a null keyword over landed rows, where a whole-field\
+         \ completion reads the field AS the word -- so such an entry could only stand\
+         \ where the cell is already empty.  A cell clears by being emptied, the date\
+         \ cell's own rule." [Test, Browser]
   , Note "A TAG RUN IS COLON-DELIMITED and a take KEEPS THAT SPELLING: the word the\
          \ caret sits in is what stands between the colon behind it and the one ahead,\
          \ and the take opens the word with a `:' where none stood behind it and always\
@@ -6206,7 +6220,7 @@ gluePartFiles =
   , "30-palette.js"   -- the value palette and the link door
   , "35-draft.js"     -- the draft row: the seeding rule, the phantom, the walk
   , "36-date-cell.js" -- the date in the cell: the box over the cell, and `C-c C-s's split
-  , "37-tags.js"      -- the tag vocabulary, its offers, and the run's own spelling
+  , "37-tags.js"      -- the offer menu, the tag vocabulary and the run's own spelling
   , "40-popups.js"    -- the link popup and the tags popup
   , "50-settings.js"  -- tabs, saved views, the states table, the theme
   , "60-refer.js"     -- `@' in the sheet: the reference picker over /refer
