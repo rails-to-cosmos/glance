@@ -914,16 +914,43 @@
       m.at = atIn(m.list, m.at + step);
       paintOffers(m.box, m.list, m.at);
     };
-    /** Take M's offer into FIELD; MOVED redraws it, since the take fires no input. */
-    const menuTake = (m, field, moved) => {
-      const want = m.at < 0 ? undefined : m.list[m.at].word;
-      const f = el(field);
-      if (want === undefined || want === f.value.trim()) return false;
-      f.value = want;
-      f.setSelectionRange(want.length, want.length);
+    /** Take M's offer into F, PUT saying what the field BECOMES and where the
+     * caret rests -- or `null' where the offer is ALREADY what stands there.  A
+     * TAKE THAT CHANGES NOTHING IS NO TAKE, so the press falls through to the
+     * surface's own key.  MOVED redraws it, since the take fires no `input'.
+     * ONE TAKE, TWO PUTS: a field that IS the offer, and a tag RUN the offer is
+     * spliced into (`takeTagOffer', 37-tags.js). */
+    function menuTook(m, f, put, moved) {
+      const took = m.at < 0 ? null : put(m.list[m.at].word);
+      if (!took) return false;
+      const [value, at] = took;
+      f.value = value;
+      f.setSelectionRange(at, at);
       moved();
       return true;
-    };
+    }
+    /** THE WHOLE FIELD IS THE OFFER, which is what a one-value field takes. */
+    const menuTake = (m, field, moved) =>
+      menuTook(m, el(field),
+               (w) => (w === el(field).value.trim() ? null : [w, w.length]),
+               moved);
+    /** THE MENU UNDER RECT, or ABOVE it where the viewport's foot leaves no room.
+     * A menu hanging at the page's ROOT is placed against the viewport, the way
+     * the date box is; one living inside its own box needs none of this and
+     * flips in CSS (`#ddate.flipped #dwoffer').  MEASURED AFTER THE PAINT: the
+     * height is the drawn list's own. */
+    function placeMenu(m, rect) {
+      const box = el(m.box);
+      if (!rect || typeof box.getBoundingClientRect !== "function") return;
+      const s = box.style;
+      s.minWidth = `${rect.width}px`;
+      const v = viewRect(), r = box.getBoundingClientRect();
+      const over = m.list.length > 0 && rect.bottom + r.height + EDGE > v.bottom;
+      box.classList.toggle("flipped", over);
+      s.top = `${over ? Math.max(v.top + EDGE, rect.top - r.height) : rect.bottom}px`;
+      s.left = `${Math.max(v.left + EDGE,
+                           Math.min(rect.left, v.right - r.width - EDGE))}px`;
+    }
     function drawOffers() {
       dmenu.list = offersFor();
       menuPaint(dmenu);
@@ -1077,9 +1104,13 @@
      * ONCANCEL the `ESC' where the surface owns it, and ONWALK `TAB''s step where
      * the surface has a ring.  Every one of them owns the SHUT, the pane's
      * undrafting its own line.
+     * SPELL is how the surface writes a day `TAB' resolved -- org's own stamp
+     * over the pane, the ISO day over a table cell, which is what that cell
+     * draws (`isoSpell', 15-dates.js).
      * @param {{rect: () => any, initial?: string, today: any, b: any,
      *          key?: string, tight?: boolean, edge?: (() => any)|null,
      *          add?: boolean, back?: any, foot?: string,
+     *          spell?: (r: any) => string,
      *          onCommit: (typed: string, b: any) => void, onCancel?: () => void,
      *          onWalk?: (step: number, typed: string) => void}} o */
     function openDateBox(o) {
@@ -1106,7 +1137,8 @@
       const f = el("dwhen");
       if (step > 0) {
         if (menuTake(wmenu, "dwhen", dateMoved)) return;
-        if (dateResolveInto(f, readsWhen(f.value.trim()))) dateMoved();
+        if (dateResolveInto(f, readsWhen(f.value.trim()), edit.row.spell))
+          dateMoved();
       }
       const walk = edit.row.onWalk;
       if (walk) walk(step, f.value.trim());
@@ -1725,6 +1757,9 @@
      * time, so it describes one watch step and outlives no other, while the
      * ARRIVING id is HELD until the row it names is visible. */
     function settled() {
+      // THE STORE MOVED, so a vocabulary read off it is one answer behind; the
+      // held one keeps drawing until a fresh one lands (`askTagVocab').
+      staleTagVocab();
       arrived();
       const want = leaving;
       leaving = null;

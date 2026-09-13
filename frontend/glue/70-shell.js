@@ -360,6 +360,9 @@
     popupKeys("tags", tagMount, {
       editing: renaming,
       editKeys: (k) => {
+        // THE OFFER THAT STANDS OUTRANKS THE COMMIT, the date box's own order:
+        // the menu claims the walk, and `RET' only where there is one to take.
+        if (tagOfferKey(k)) return true;
         if (k !== "RET") return false;   // ESC is the keymap's, and puts the tag back
         renameTag(edit.row, el("tname").value);
         return true;

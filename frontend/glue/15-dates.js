@@ -346,12 +346,25 @@
      * Whether it moved: a field holding no day has nothing to step. */
     const dateStepInto = (f, r, by) =>
       !!r.ok && !!r.start && dateWrote(f, dateStepped(r, addDays(r.start, by)));
-    /** R's OWN READING INTO F: the phrase made the stamp it resolves to, which
-     * is the ghost's ink written where the reader can edit it -- so the ghost
-     * falls silent behind it, the field being its own answer now.  Whether it
-     * moved: nothing to read, and nothing already its answer, is nothing done. */
-    const dateResolveInto = (f, r) =>
-      !!r.ok && !!r.stamp && r.stamp !== f.value.trim() && dateWrote(f, r.stamp);
+    /** HOW A SURFACE SPELLS A RESOLVED DAY.  The PANE writes org's own stamp, the
+     * spelling its planning slot draws; a box over a TABLE CELL writes the ISO
+     * day, the spelling the CELL draws once the settle brings it (`isoStamp',
+     * Query.hs) -- so what `TAB' leaves standing is what the reader will see
+     * there.  A CELL SHOWS ONE DAY, so a range's start is what it takes and the
+     * range stays the pane's.  EITHER SPELLING TRAVELS: the server reads a bare
+     * ISO day exactly as it reads org's bracket, both pinned over
+     * `test/fixtures/english-dates.json'. */
+    const stampSpell = (r) => r.stamp;
+    const isoSpell = (r) => (r.start ? isoDay(r.start) : r.stamp);
+    /** R's OWN READING INTO F, spelled the way SPELL asks (the stamp where no
+     * surface says): the ghost's ink written where the reader can edit it.
+     * Whether it moved: nothing to read, and nothing already its answer, is
+     * nothing done. */
+    const dateResolveInto = (f, r, spell) => {
+      if (!r.ok || !r.stamp) return false;
+      const text = (spell || stampSpell)(r);
+      return !!text && text !== f.value.trim() && dateWrote(f, text);
+    };
 
     // ================================ WHERE A DATE IS DRAWN, AND WHAT IT IS CALLED
     /** THE PLANNING KEYWORDS A DATE MAY BE SET UNDER: the server's own list

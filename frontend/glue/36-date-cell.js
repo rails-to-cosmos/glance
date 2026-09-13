@@ -32,7 +32,10 @@
       openDateBox({
         rect: () => table.cellRect(id, at),
         initial: cellValue(id, c.key), key: keyword, b,
-        today: dateNow(), foot: DATE_FOOT,
+        // THE CELL'S OWN SPELLING for what `TAB' resolves: the ISO day this very
+        // cell draws once the settle brings it, so the box says what the reader
+        // will see rather than a stamp only the file wears (15-dates.js).
+        today: dateNow(), foot: DATE_FOOT, spell: isoSpell,
         onCommit: (typed, k) => { shutEdit(DDATE); firePlanning(k, [id], keyword, typed); },
         onCancel: () => {},
       });

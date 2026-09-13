@@ -298,7 +298,11 @@ nothing catches it.
   the computed ground, the shadow against the token, and the neighbours down the
   column, in both themes
   (`cases.mjs`, *the selected cell is a ring and writes no ground of its own*).
-  *fragility: medium*
+  **A RING OWES EVERY MASK ITS OWN LINE**: `gt-nosel` — an in-doc table point has
+  climbed out of — spelled `background:transparent!important` and left the ring
+  standing, so it owes `box-shadow:none!important` beside it (`page.css`, and
+  *f and b walk the cells of a table row*, which now reads both grounds in
+  pixels rather than reading the class). *fragility: medium*
 
 - **The empty cell sits outside every date comparison, and negation is no
   mirror.** `dated` guards all four operators and both range ends, because `""`
@@ -319,10 +323,16 @@ nothing catches it.
   request, against its own clock. The client's reading is spent on the preview,
   on the wall above the commit, and on the TWO KEYS that write it into the field
   where the reader sees and may edit it — `S-<arrow>`'s step and `TAB`'s resolve
-  (`dateStepInto`, `dateResolveInto`, `15-dates.js:347`, `:353`,
-  `20-sheet.js:1109`) — and never on the commit's own path. An emptied field
-  commits `null`
-  rather than `""`. Four surfaces take the one road, and the first three are ONE
+  (`dateStepInto`, `dateResolveInto`, `15-dates.js`, `dateTab`, `20-sheet.js`) —
+  and never on the commit's own path. **Each of those two writes the SURFACE'S
+  OWN SPELLING**: org's stamp in the pane's planning slot, the ISO day in a
+  table cell, which is what that cell draws (`spell`, `stampSpell`/`isoSpell`,
+  `15-dates.js`). A cell shows one day, so a range resolves to its start there
+  and stays whole in the pane. Either spelling meets the wall unchanged — the
+  server reads a bare `2026-09-13` exactly as it reads org's bracket — so a
+  surface spelling the other one puts a day on screen the reader will never see
+  there, which is what the cell did until 2026-09-13. An emptied field commits
+  `null` rather than `""`. Four surfaces take the one road, and the first three are ONE
   WIDGET over three rects (`openDateBox`, `20-sheet.js:1080`): the pane's slot
   (`commitDate`, `20-sheet.js:1123`), the cell (`36-date-cell.js:36`) and the
   draft's stop (`35-draft.js:99`) — plus the bulk prompt (`30-palette.js:48`)

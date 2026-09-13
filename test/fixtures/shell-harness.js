@@ -359,6 +359,12 @@ globalThis.fetch = (url, init) => {
     return novocab ? answer(404, { error: "GET /properties" })
                    : answer(200, propertyVocab);
   }
+  // THE STORE'S OWN TAG VOCABULARY, the door a surface that NAMES NO ROW reads:
+  // the same two fields the ids answer carries, and no `rows'.
+  if (String(url) === "/tags?vocabulary=true") {
+    tagged.push(url);
+    return answer(200, { vocabulary, counts: tagCounts });
+  }
   if (String(url).startsWith("/tags?ids=")) {
     tagged.push(url);
     if (stalling) return new Promise(() => {});
@@ -1163,6 +1169,10 @@ const dateReads = [];
 // flashes on the way in and is gone by the last keystroke; this walks the way
 // in.  `dateGhost' is a declaration like `readsDate', reached the same way.
 const dateFlashes = [];
+// THE TAG OFFERS AND THE RUN'S OWN SPELLING, driven PURE: both are declarations
+// like `readsDate', so a direct eval of the page's script reaches them here.
+const tagFits = [];
+const tagRuns = [];
 const asDay = (iso) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
   if (!m) throw new Error(`not an ISO day: ${iso}`);
@@ -1479,6 +1489,28 @@ const ACTIONS = {
       if (g.bad) dateFlashes.push(`${phrase.slice(0, i)} \u21d2${g.text}`);
     }
   },
+  /** ONE VECTOR THROUGH THE OFFER FILTER: `WORD/TAG:N,TAG:N' -- the word at the
+   * caret, then the vocabulary with the rows wearing each. */
+  tagfit: (spec) => {
+    const [word, vocab] = String(spec).split("/");
+    const list = [], counts = {};
+    for (const pair of String(vocab || "").split(",").filter(Boolean)) {
+      const [w, n] = pair.split(":");
+      list.push(w);
+      counts[w] = Number(n);
+    }
+    tagFits.push(tagOffers(String(word).replace(/_/g, " "), { list, counts })
+      .map((o) => `${o.word}|${o.hint}`).join(" "));
+  },
+  /** ONE VECTOR THROUGH THE RUN'S SPELLING: `TEXT/AT/WORD', `-' for the caret at
+   * the end of TEXT and `.' for an empty TEXT. */
+  tagrun: (spec) => {
+    const [text, at, word] = String(spec).split("/");
+    const run = text === "." ? "" : text;
+    const [value, caret] =
+      tagRunTake(run, at === "-" ? undefined : Number(at), word);
+    tagRuns.push(`${value}|${caret}`);
+  },
   ctext: (text) => (onKeywords(), typeSetting("ctext", text)),
   // TAKING AN EDIT BACK: an act splits on spaces and a `#+TODO:' line is spaces.
   crevert: () => {
@@ -1694,6 +1726,12 @@ const settle = async () => {
     dvghostbad: wears(field("dvghost"), "bad"),
     dateReads,
     dateFlashes,
+    // The tag offers as drawn, and which one point stands on — `-1' for none.
+    toffers: boxOffers("toffer"),
+    tofferat: field("toffer").children.findIndex((c) => wears(c, "dat")),
+    tofferon: field("toffer").className === "on",
+    tagFits,
+    tagRuns,
     dprows: field("mdoc").style.getPropertyValue("--g-doc-rows"),
     dtin: field("dtin").value,
     dtext: field("dtext").value,

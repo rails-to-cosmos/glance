@@ -4399,9 +4399,12 @@ washExempt = ["#log", "#keys"]                   -- where a reader finds out why
 -- | `ZRefer' stands OVER the sheet because it is drawn INTO it: the picker hangs
 -- at the caret of the box it is about to write to, so a level under the sheet
 -- would put it behind the prose it is completing.
-data Z = ZSpine | ZEcho | ZBackdrop | ZSheet | ZRefer deriving (Eq, Show, Enum, Bounded)
+-- | @ZOffers@ is the tag menu, which stands over every surface that raises it.
+data Z = ZSpine | ZEcho | ZBackdrop | ZSheet | ZRefer | ZOffers
+  deriving (Eq, Show, Enum, Bounded)
 zOf :: Z -> Int
-zOf ZSpine = 1 ; zOf ZEcho = 2 ; zOf ZBackdrop = 100 ; zOf ZSheet = 101 ; zOf ZRefer = 102
+zOf ZSpine = 1 ; zOf ZEcho = 2 ; zOf ZBackdrop = 100 ; zOf ZSheet = 101
+zOf ZRefer = 102 ; zOf ZOffers = 103
 zRetired :: Int ; zRetired = 3               -- ^ the status corner's, forbidden coming back
 tvHeader, tvCompletion :: Int
 tvHeader = 1 ; tvCompletion = 5              -- the renderer's, which the backdrop must clear
@@ -4519,6 +4522,38 @@ shellNotes =
          \ IS SPELLED AT THE CALL rather than read off the list, so the CLOSED\
          \ fields — the state palette and the capture template's code list — keep\
          \ no free-text door." [Test, Browser]
+  , Note "ONE OFFER MENU, TWO ANCHORS, FOR A TAG.  A tag completes the way a date does\
+         \ -- the list under the field, a hint column, the arrows walking it and `TAB'\
+         \ taking what point stands on -- and the two tag fields stand in NO BOX OF THEIR\
+         \ OWN: the draft's tag CELL is the renderer's in-cell input and the tags popup's\
+         \ rename field sits in a popup that scrolls.  So ONE element hangs at the page's\
+         \ ROOT (`#toffer') and is PLACED PER ANCHOR against the viewport, turning over\
+         \ above its anchor at the window's foot -- the date box's own flip, measured in\
+         \ the glue because there is no box to hang it inside.  The WIDGET gains nothing:\
+         \ the cell's rect is `cellRect', the seam the date box already asks through.  The\
+         \ take is `menuTook' with a PUT apiece -- a one-tag field BECOMES the offer, a\
+         \ RUN has the caret's word spliced -- and a take that leaves the value the field\
+         \ already holds is NO TAKE, so `TAB' falls through to the ring and `RET' to the\
+         \ commit exactly as before.  `ESC' is never the menu's: the surface goes down\
+         \ whole and the menu with it, which is the date box's rule." [Test, Browser]
+  , Note "A TAG RUN IS COLON-DELIMITED and a take KEEPS THAT SPELLING: the word the\
+         \ caret sits in is what stands between the colon behind it and the one ahead,\
+         \ and the take opens the word with a `:' where none stood behind it and always\
+         \ closes it with one -- `:a:b' and `book' make `:a:book:', the caret left after\
+         \ that colon where the next tag is typed.  ONE READING of the run, `cellTags''s\
+         \ own, so what the offers complete is what `capture''s `tags' carries.  THE\
+         \ CARET IS `selectionEnd': an open lays a WHOLE selection down, so the word the\
+         \ reader means is the one the run ENDS on." [Test, Browser]
+  , Note "THE TAG VOCABULARY A CAPTURE COMPLETES FROM IS THE STORE'S, off a door that\
+         \ NAMES NO ROW: `GET /tags?vocabulary=true' answers the tree's tags and the rows\
+         \ wearing each, the same two fields the ids door carries and built once\
+         \ (`tagVocabulary') -- `/keywords?tag=' is the same shape, ONE ROUTE and TWO\
+         \ QUESTIONS.  Asked ONCE and kept until the store settles, the HELD answer still\
+         \ drawing while a fresh one flies, or a menu under an open cell would empty on\
+         \ every settle.  The RENDERER's own `tagVocab()' stays the FILTER's and is a\
+         \ different question: a filter completes over what the view can narrow TO, and a\
+         \ tag no row on screen wears narrows to nothing, while a capture files a row\
+         \ under a tag the view need not draw." [Test, Browser]
   , Note "A rung with nothing under it falls through in SILENCE, and the pill says the command that RAN." [Test]
   , Note "M is markAll and it TOGGLES: the renderer only adds, so a count that did not move takes them all off, the marks a filter is hiding included." [Test]
   , Note "m and u take the renderer's word for where a mark landed and then step down, dired's rule, and this page keeps no set of its own." [Test]
@@ -5450,11 +5485,18 @@ sheetNotes =
          \ The editor opens on the cell's own ISO day WHOLLY SELECTED, stamping the\
          \ reader's day ONCE at that moment and spending it on INK: the ghost and the\
          \ offers are the pane's own, silence and all.  `S-<arrows>' write the stepped\
-         \ STAMP into the field,\
+         \ day into the field,\
          \ ±1d and ±7d, and `TAB' with no offer left to take writes the GHOST'S OWN\
-         \ READING there -- one order, offer then resolve, the ink falling silent behind\
-         \ it because the field IS its answer now, and a phrase no reading takes left\
-         \ alone since the `✗' is already said -- so what the reader sees is what travels.\
+         \ READING there -- one order, offer then resolve -- and a phrase no reading takes\
+         \ is left alone since the `✗' is already said, so what the reader sees is what\
+         \ travels.  THE RESOLVE IS SPELLED THE WAY THE SURFACE DRAWS A DAY (`spell', an\
+         \ open's own): over the PANE org's stamp, which is what its planning slot draws\
+         \ and behind which the ghost falls silent; over a TABLE CELL, a standing row's\
+         \ and a draft's alike, the ISO DAY that cell itself draws -- so the box says what\
+         \ the reader will see there once the settle lands, the ghost staying lit over the\
+         \ stamp the FILE will take.  A CELL SHOWS ONE DAY, so a range resolves to its\
+         \ start there and stays whole in the pane; either spelling travels, the server\
+         \ reading a bare `2026-09-13' exactly as it reads org's bracket.\
          \  A CELL HAS NO RING, so the resolve is the whole press and the box stays.\
          \  `RET' posts the FIELD'S\
          \ OWN BYTES as `{keyword, date}' and an emptied field posts `null' -- `\"\"' is no\
@@ -6164,6 +6206,7 @@ gluePartFiles =
   , "30-palette.js"   -- the value palette and the link door
   , "35-draft.js"     -- the draft row: the seeding rule, the phantom, the walk
   , "36-date-cell.js" -- the date in the cell: the box over the cell, and `C-c C-s's split
+  , "37-tags.js"      -- the tag vocabulary, its offers, and the run's own spelling
   , "40-popups.js"    -- the link popup and the tags popup
   , "50-settings.js"  -- tabs, saved views, the states table, the theme
   , "60-refer.js"     -- `@' in the sheet: the reference picker over /refer

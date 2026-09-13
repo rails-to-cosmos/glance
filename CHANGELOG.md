@@ -11,6 +11,36 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Added
+
+- **A tag completes where a tag is typed.** The draft row's tag cell and the
+  tags popup's rename field carry the very offer menu the date box has — the
+  list under the field, a hint column, the arrows walking it and `TAB` taking
+  what point stands on — fed by the store's whole tag vocabulary rather than the
+  rows this view draws, since a capture files a row under a tag the view need
+  not show. One menu element, placed under whichever field raised it and
+  turning over above it at the window's foot. A take keeps the run's own
+  spelling: `:a:b` and `book` make `:a:book:`, with the caret after the closing
+  colon where the next tag is typed. With no offer to take, `TAB` is the ring's
+  own key and `RET` the commit, exactly as before. `GET /tags?vocabulary=true`
+  is the store-wide door behind it — the same two fields the per-row answer
+  carries, for a surface that names no row.
+
+### Fixed
+
+- **`TAB` resolves a date into the surface's own spelling.** Over a table cell —
+  a standing row's and a draft's alike — it now writes the ISO day that cell
+  draws rather than org's stamp, so what stands in the box is what the reader
+  will see there once the settle lands; the pane's box keeps the stamp its
+  planning slot draws. The wire law is untouched: `RET` sends the field's own
+  bytes and the server reads a bare `2026-09-13` exactly as it reads
+  `<2026-09-13 Sun>`.
+
+- **A mounted table point has climbed out of draws no cell ring.** The
+  `gt-nosel` mask spelled a transparent background alone, and the cell cursor is
+  now a `box-shadow` ring that writes no ground — so the ring stayed drawn over
+  a table nothing was selected in.
+
 ### Changed
 
 - **A table's columns are fitted once per view.** Each column's width is

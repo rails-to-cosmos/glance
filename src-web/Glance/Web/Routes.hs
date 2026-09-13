@@ -766,15 +766,26 @@ withRow hub rid fields =
 -- Tags
 
 -- | @GET \/tags?ids=A,B@: what those rows are tagged with.  PER ROW, since the client needs WHICH rows lack a tag.
+--
+-- @?vocabulary=true@ IS THE SAME TWO STORE-WIDE FIELDS FOR A SURFACE THAT NAMES NO ROW -- a capture's tag cell,
+-- whose completion must reach a tag the view does not draw, and which has no id to ask under.  @\/keywords?tag=@ is
+-- the same shape: ONE ROUTE, TWO QUESTIONS, and 'tagVocabulary' spelled once so the two answers cannot part.
 tagsView :: Hub -> Request -> IO Response
-tagsView hub request =
-  idsView hub request "GET /tags?ids=<row id>,<row id>" $ \st rows found unknown ->
-    [ "rows"       .= [ object [ "id" .= hrId r, "tags" .= tagsOfCell (hrTags r) ]
-                      | r <- found ]
-    , "vocabulary" .= storeTags st
-    , "counts"     .= tagRowCounts rows
-    , "unknown"    .= unknown
-    ]
+tagsView hub request = case queryFlag request "vocabulary" "true" of
+  Left why   -> pure (jsonError status400 why)
+  Right True -> do
+    st <- readTVarIO (hubStore hub)
+    pure (jsonResponse status200 ("rows" .= ([] :: [Value]) : tagVocabulary st (storeRecords st)))
+  Right False ->
+    idsView hub request "GET /tags?ids=<row id>,<row id>" $ \st rows found unknown ->
+      [ "rows"    .= [ object [ "id" .= hrId r, "tags" .= tagsOfCell (hrTags r) ]
+                     | r <- found ]
+      , "unknown" .= unknown
+      ] <> tagVocabulary st rows
+
+-- | The store's own tag vocabulary and the ROWS wearing each: the two fields BOTH doors answer with.
+tagVocabulary :: Store -> [HeadlineRecord] -> [Pair]
+tagVocabulary st rows = [ "vocabulary" .= storeTags st, "counts" .= tagRowCounts rows ]
 
 tagRowCounts :: [HeadlineRecord] -> Map Text Int
 tagRowCounts = countedBy (tagsOfCell . hrTags)

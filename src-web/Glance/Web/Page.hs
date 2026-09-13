@@ -55,6 +55,11 @@ demoShell opts font colours views =
       <> docFieldSaying "dwhen" "2026-08-18 · today · +3d · 18 aug"
       <> ghost "dghost"
       <> "<div id=\"dwoffer\"></div></div>"
+  -- THE TAG OFFERS, THE SAME MENU over a field that stands in no box of its own:
+  -- the draft's tag CELL, which is the renderer's in-cell input, and the tags
+  -- popup's rename field.  ONE ELEMENT, placed against the viewport per anchor
+  -- (`placeMenu'), so no surface carries a menu of its own.
+  , "  <div id=\"toffer\"></div>"
   ]
   <> tableFrame "tags" "t" ("<div id=\"tedit\">" <> field "tname" <> "</div>")
   <> popupFrame "prompt" "p" "" ""

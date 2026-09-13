@@ -21,6 +21,7 @@ everything a capture says.
 | `RET` | commit, from any cell |
 | `ESC` | drop the draft whole |
 | `S-<arrows>` | in a date stop, walk the day by one and by a week |
+| `<down>` / `<up>` | in the tag cell, walk the offers standing under it |
 
 The ring is **every cell the draft owns that this view draws**, the two dates
 among them: `title → scheduled → deadline → tag → state → priority` in the
@@ -28,8 +29,16 @@ shipped column order. A date stop opens the material document's own date box
 over that cell, so the phrase reads back in its ghost and completes from its
 offers; `TAB` there takes the offer that stands, and with none left to take
 resolves the phrase to its stamp and walks on at the same press — so the cell
-shows the concrete day and `capture`'s `planning` carries that stamp. `S-TAB`
-walks back alone.
+shows the concrete day and `capture`'s `planning` carries it. What the resolve
+writes is the CELL's own spelling — the ISO day the cell draws — and the server
+resolves that to org's stamp when the capture lands. `S-TAB` walks back alone.
+
+**The tag cell completes too**, off the store's whole tag vocabulary rather than
+this view's rows: the same menu the date box carries, hanging under the cell.
+The word the caret sits in filters it, `TAB` takes the offer point walked to and
+leaves the run colon-delimited — `:a:b` and `book` make `:a:book:` — and with no
+offer to take `TAB` is the ring's own key. The rules are in
+[commands.md](commands.md#the-tag-offers).
 
 Three laws hold it:
 

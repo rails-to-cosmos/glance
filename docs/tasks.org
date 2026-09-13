@@ -697,3 +697,60 @@ browser =TAB in a cell's date box resolves the phrase in place= (=:5561=) and
 draft's walk case now asserting the resolved stamp.  The shell helper =stepsTo=
 was renamed =boxAfter=, its name having said "step" for a reading that is the
 box's after any script.
+
+* DONE =TAB= resolves a date into the surface's own spelling
+Reported 2026-09-13: =dateResolveInto= wrote org's =<2026-09-13 Sun>= into the
+field everywhere, and over a TABLE CELL the value the reader sees after the
+settle is the ISO day (=isoStamp=, =Query.hs=) -- so =TAB= showed a spelling the
+cell never draws.  An open now carries =spell=: =stampSpell= (the default, the
+pane's planning slot) or =isoSpell= (a box over a cell, standing row and draft
+alike).  A CELL SHOWS ONE DAY, so a range resolves to its start there and stays
+whole in the pane.  The wire law is untouched -- =RET= sends the field's bytes
+and the server reads a bare ISO day exactly as it reads org's bracket
+(=test/fixtures/english-dates.json=, vector /ISO passthrough/).
+
+Code: =stampSpell= / =isoSpell= / =dateResolveInto= (=15-dates.js=), =dateTab=
+and =openDateBox='s =spell= (=20-sheet.js=), the two cell callers
+(=36-date-cell.js=, =35-draft.js=).  Tests: the shell's three =TAB= cases keep
+the pane's stamp; browser /TAB in a cell's date box resolves the phrase in
+place/, /the draft's date stop opens the box, TAB with no offer walks on/ and
+/a TAB-resolved draft stop captures the day it shows/.
+
+* DONE Autocomplete for tags
+User call (2026-09-13).  ONE OFFER MENU, TWO ANCHORS: the draft's tag CELL and
+the tags popup's rename field both stand in no box of their own, so =#toffer=
+hangs at the page's root and is placed per anchor against the viewport, turning
+over above it at the window's foot.  The menu MODEL, paint, walk and take are
+the date box's (=menuPaint= / =menuWalk= / =menuTook=, =20-sheet.js=); =menuTake=
+is the same take with the whole-field put.
+
+The vocabulary is the STORE's, off a second door on =/tags=:
+=GET /tags?vocabulary=true= names no row and answers the tree's tags with the
+rows wearing each -- the same two fields the ids answer carries, built once
+(=tagVocabulary=, =Routes.hs=).  Asked once and kept until the store settles,
+the held answer still drawing while a fresh one flies.  The RENDERER's
+=tagVocab()= stays the filter's: a filter completes over what the view can
+narrow TO, a capture over what the tree holds.
+
+A take keeps the RUN's spelling -- colon-delimited, =:a:b= + =book= = =:a:book:=,
+the caret after the closing colon.  =ESC= is never the menu's (the date box's
+rule): the surface goes down whole and the menu with it.
+
+Code: =frontend/glue/37-tags.js= (new part), =placeMenu= / =menuTook=
+(=20-sheet.js=), =openDraftAt= / =draftKey= (=35-draft.js=), =openRename=
+(=40-popups.js=), the tags popup's =editKeys= (=70-shell.js=),
+=#toffer= (=Page.hs=, =page.css=), =tagsView= (=Routes.hs=).
+=assets/table-view.js= is UNTOUCHED -- the menu is glue over =cellRect=, which
+the date box already asks through -- so the upstream list above stands as it is.
+Tests: shell /Shell tag offers/ (the pure filter, the run's spelling, and the
+rename field's menu end to end) and two =GET /tags= route cases; browser /the tag
+cell's offers complete a word, and TAB takes it/, /TAB with no tag offer walks
+on/, /the tag offers draw under the cell and flip above at the bottom edge/ and
+/the tags popup completes a tag on TAB/.
+
+* DONE A table point has climbed out of still drew its cell ring
+The =gt-nosel= mask (=page.css=) spelled =background: transparent !important= on
+=tr.tv-sel=, =td.tv-colsel= and =td.tv-cell-sel=; the cell cursor is now a
+=box-shadow= ring writing no ground at all, so the ring survived the mask.  The
+rule owes =box-shadow: none !important= too.  The browser case /f and b walk the
+cells of a table row/ now reads both grounds in PIXELS rather than the class.

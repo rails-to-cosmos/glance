@@ -525,6 +525,7 @@ spec = withResource bootFixture dropBootFixture $ \shell ->
     , logSpec shell
     , sheetSpec shell
     , dateWidgetSpec shell
+    , tagOfferSpec shell
     , settingsSpec shell
     , touchSpec shell
     , shellFontSpec shell, assetSpec, embeddedSpec, errorSpec ]
@@ -5438,6 +5439,116 @@ dateWidgetSpec shell = testGroup "Shell date widget"
 widgetOffers :: Value -> IO [(T.Text, T.Text)]
 widgetOffers = offersIn "dwoffers"
 
+-- | The tag offers as drawn under whichever field raised them.
+tagOffersOf :: Value -> IO [(T.Text, T.Text)]
+tagOffersOf = offersIn "toffers"
+
+-- | A TAG IS COMPLETED THE WAY A DATE IS: one menu, the reader's own line
+-- leading, a hint column, `TAB' and the arrows taking it.  The FILTER and the
+-- RUN'S SPELLING are pure and driven vector by vector; the menu itself is driven
+-- through the tags popup's rename field, the one of its two surfaces a headless
+-- DOM can reach (the other is the draft's in-cell editor, which is the
+-- renderer's -- browser cases carry it).
+tagOfferSpec :: IO T.Text -> TestTree
+tagOfferSpec shell = testGroup "Shell tag offers"
+  [ -- THE FILTER, over a vocabulary handed in: the substring the tag palette's
+    -- own narrow takes, ranked by the rows wearing each, hinted with that count.
+    testCase "the offers narrow, rank by rows and hint with them" $
+      fits shell [ "tr/trip:4,tripwire:2,book:9"
+                 , "book/trip:4,book:9"
+                 , "oo/book:9,notebook:2" ]
+        [ "tr|new trip|4 tripwire|2"
+        , "book|9"
+        , "oo|new book|9 notebook|2" ]
+
+    -- THE READER'S OWN LINE LEADS, hinted `new', wherever the tree spells no
+    -- such tag -- an open vocabulary's rule, the pair box's and the palette's.
+    -- A word the tree DOES spell coincides with its own entry instead.
+  , testCase "a word the store lacks leads the offers, hinted new" $
+      fits shell [ "zz/trip:4,book:9", "trip/trip:4,book:9" ]
+                 [ "zz|new", "trip|4" ]
+
+    -- AN EMPTY WORD OFFERS THE WHOLE VOCABULARY and leads with nothing: there is
+    -- no line to offer, which is the date box's rule for an empty field.
+  , testCase "an empty word offers the vocabulary and leads with nothing" $
+      fits shell ["/trip:4,book:9"] ["book|9 trip|4"]
+
+    -- THE RUN'S OWN SPELLING IS KEPT.  A tag run is COLON-DELIMITED -- how
+    -- `cellTags' reads one and how the draft's seed writes one -- so a take
+    -- swaps the word the caret sits in and leaves the run colon-delimited, the
+    -- caret resting after the closing colon where the next tag is typed.
+  , testCase "a take swaps the caret's word and keeps the run colon-delimited" $
+      runs shell [ ":a:b/-/book"      -- the last word, the run already open
+                 , ":tr/-/trip"       -- one word, half typed
+                 , "tr/-/trip"        -- no colon yet: the take opens the run
+                 , ":a:b:/4/book"     -- the caret before the closing colon
+                 , ":a:b:c:/4/book"   -- a word with a run behind AND ahead of it
+                 , "./-/book" ]       -- an empty cell
+        [ ":a:book:|8", ":trip:|6", ":trip:|6", ":a:book:|8"
+        , ":a:book:c:|8", ":book:|6" ]
+
+    -- THE MENU ITSELF, under the tags popup's rename field: the same element,
+    -- the same paint and the same walk the date box's offers wear.
+  , keyed shell "the rename field draws the tree's tags under it"
+      ":" "press:Enter" $ \answer -> do
+        assertEqual "the tag the rename opened on, coinciding with its own entry"
+                    [("web", "40")] =<< tagOffersOf answer
+        assertEqual "with point on it" 0 =<< intAt "tofferat" answer
+        assertEqual "and the menu is up" True =<< boolAt "tofferon" answer
+
+  , keyed shell "typing narrows them, the reader's own line leading"
+      ":" "press:Enter tname:bo" $ \answer -> do
+        assertEqual "the line as typed, then the tag it prefixes"
+                    [("bo", "new"), ("book", "3")] =<< tagOffersOf answer
+        assertEqual "with point on the line the reader typed" 0
+          =<< intAt "tofferat" answer
+
+    -- `TAB' TAKES THE OFFER POINT STANDS ON and writes nothing: a completion,
+    -- the way the date box's is.  `RET' still renames, which is the popup's own
+    -- verb -- so the menu steals neither key, it only outranks them.
+  , testCase "TAB takes the offer point walked to, and RET renames to it" $ do
+      insheetTags shell "press:Enter tname:bo press:C-n press:Tab" $ \answer -> do
+        assertEqual "the offer is in the field" "book" =<< textAt "tname" answer
+        assertEqual "and nothing was written" ([] :: [Value])
+          =<< listAt "commands" answer
+      -- AND THE NEXT `RET' IS THE RENAME, over what the take left standing.
+      insheetTags shell "press:Enter tname:bo press:C-n press:Tab press:Enter" $
+        \answer -> do
+          assertEqual "one rename, over the row wearing the old tag"
+                      [("rename-tag", ["r1"])] =<< postedOf answer
+          assertEqual "to the tag the offer named" [("web", "book")]
+            =<< renamesPosted answer
+
+    -- NOTHING TO TAKE IS NOTHING TAKEN: the line the reader typed IS the field,
+    -- so `TAB' over it leaves the field alone and the rename stands open.
+  , keyed shell "TAB over the reader's own line takes nothing"
+      ":" "press:Enter tname:brandnew press:Tab" $ \answer -> do
+        assertEqual "the reader's own line, alone" [("brandnew", "new")]
+          =<< tagOffersOf answer
+        assertEqual "still standing in the field" "brandnew"
+          =<< textAt "tname" answer
+        assertEqual "and nothing was written" ([] :: [Value])
+          =<< listAt "commands" answer
+
+    -- ONE DOOR FOR THE VOCABULARY, asked once: `GET /tags?vocabulary=true' names
+    -- no row, so a capture's cell can complete to a tag this view never drew.
+  , keyed shell "the vocabulary is asked for once, off the store-wide door"
+      ":" "press:Enter tname:bo press:Escape press:Enter tname:wo" $ \answer ->
+        assertEqual "the ids door for the popup's rows, the vocabulary door once"
+                    ["/tags?ids=r1", "/tags?vocabulary=true"]
+          =<< textsAt "tagged" answer
+  ]
+  where
+    insheetTags sh acts = bootOf sh "" 500 ":" acts
+    fits sh vectors want =
+      bootOf sh "" 500 "" (T.unwords [ "tagfit:" <> v | v <- vectors ])
+        (\answer -> assertEqual "the offers, vector by vector" want
+                       =<< textsAt "tagFits" answer)
+    runs sh vectors want =
+      bootOf sh "" 500 "" (T.unwords [ "tagrun:" <> v | v <- vectors ])
+        (\answer -> assertEqual "the run, vector by vector" want
+                       =<< textsAt "tagRuns" answer)
+
 intsAt :: T.Text -> Value -> IO [Int]
 intsAt = decodedAt
 
@@ -6552,7 +6663,7 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
         , ("--g-surface", "--tv-alt"), ("--g-mute", "--tv-muted")
         , ("--g-border", "--tv-border"), ("--g-accent", "--tv-accent")
         , ("--g-sel", "--tv-sel"), ("--g-link", "--tv-link")
-        , ("--g-col", "--tv-col")
+        , ("--g-col", "--tv-col"), ("--g-point", "--tv-point")
         , ("--g-bad", "--tv-flag"), ("--g-flag-wash", "--tv-flag-wash")
         , ("--g-warn", "--tv-warn") ]
   -- A BADGE HUE IS THE THEME'S, so the wire carries a SLOT and the slots the served ROWS name are read off the view document.
@@ -9917,6 +10028,29 @@ tagsSpec = testGroup "GET /tags" $
         assertEqual "and the archive tag counts like any other" 1
           =<< intAt "archive" counts
 
+    -- THE SECOND DOOR: the same two store-wide fields for a surface that NAMES
+    -- NO ROW.  A capture's tag cell completes against the whole tree -- the
+    -- point of filing a row under a tag this view does not draw -- and it has
+    -- no id to ask under.  `/keywords?tag=' is the same shape: one route, two
+    -- questions, one answer builder apiece.
+  , testCase "?vocabulary=true answers the tree's tags with no row named" $
+      withTaggedTree $ \a -> do
+        r <- ok =<< getFrom a "/tags?vocabulary=true"
+        assertEqual "every tag in the store, sorted"
+                    ["archive", "shelf", "web", "work"]
+          =<< textsAt "vocabulary" =<< decoded r
+        counts <- field "counts" =<< decoded r
+        assertEqual "counted the same way the ids door counts them" 2
+          =<< intAt "web" counts
+        assertEqual "and no rows, none having been asked about" ([] :: [Value])
+          =<< listAt "rows" =<< decoded r
+
+    -- ONE SPELLING OR A 400, which is `queryFlag''s own rule wherever a flag rides.
+  , testCase "the flag is spelled one way" $ withTaggedTree $ \a -> do
+        r <- getFrom a "/tags?vocabulary=yes"
+        assertEqual "status" 400 (status r)
+        assertEqual "naming the one spelling" "vocabulary is true, or absent"
+          =<< textAt "error" =<< decoded r
   ]
   <> idsParamCases withTaggedTree "/tags" tagRowsOf
        ("both", [("both", ["web", "work"])])

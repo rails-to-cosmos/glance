@@ -151,8 +151,18 @@ the whole row and `ESC` drops the draft — and what they hold rides out in
 | what stands | what `TAB` does |
 | --- | --- |
 | an offer under point in the menu | takes it into the field, writing nothing |
-| no offer, and the field reads as a date | rewrites the field to that reading's stamp, caret behind it, and the ghost falls silent |
+| no offer, and the field reads as a date | rewrites the field to that reading, caret behind it, **in the surface's own spelling** |
 | no offer, and no reading takes the field | nothing — the ghost already wears the `✗` |
+
+**The resolve is spelled the way the surface draws a day.** Over the pane it is
+org's own stamp — the planning slot's spelling — and the ghost falls silent
+behind it, the field being its answer now. Over a table CELL, a standing row's
+and a draft's alike, it is the ISO day the cell itself draws, so the box says
+what the reader will see there once the settle lands; the ghost stays lit and
+reads the stamp the FILE will take. A cell shows one day, so a range resolves to
+its start there and stays whole in the pane. Either spelling travels: `RET`
+sends the field's own bytes and the server reads a bare `2026-09-13` exactly as
+it reads `<2026-09-13 Sun>`.
 
 Over the pane and a standing row's cell there is no ring, so the resolve is the
 whole press and the box stays; over a draft's date stop that one press resolves
@@ -194,6 +204,42 @@ the box left standing to fix it in.
 
 The same keys over the TABLE are unchanged: they ask over the marked rows
 through the shipped prompt, and reach this door with the same grammar.
+
+## The tag offers
+
+**A tag completes the way a date does.** The very menu the date box carries —
+the list under the field, a hint column, the arrows walking it and `TAB` taking
+what point stands on — hangs under the two tag fields that stand in no box of
+their own: the draft row's **tag cell** and the tags popup's **rename field**.
+One element (`#toffer`), placed under whichever rect the surface names, turning
+over above it where the window's foot leaves no room.
+
+| key | over the offers |
+| --- | --- |
+| `<down>` / `<up>` / `C-n` / `C-p` | walk them; the walk stops at each end, the date box's own rule |
+| `TAB` | take the offer point stands on; with none to take, the key is the surface's own — the draft's ring walks on |
+| `RET` | take the offer point stands on; with none to take, commit — the capture, or the rename |
+| `ESC` | the surface goes down whole and the menu with it — the date box's own rule |
+
+- **The vocabulary is the STORE's.** `GET /tags?vocabulary=true` names no row
+  and answers the whole tree's tags with the rows wearing each, asked once and
+  kept until the store settles. A capture files a row under a tag the view need
+  not draw, so the view's own rows are the wrong list to complete from. The
+  renderer's filter keeps its own (`tagVocab()`, derived from the rows on
+  screen): a filter completes over what the view can narrow TO, and a tag no row
+  here wears narrows to nothing.
+- **The reader's own line leads**, hinted `new`, wherever the tree spells no
+  such tag; a word the tree does spell coincides with its own entry and is drawn
+  once, hinted with the rows wearing it. An open vocabulary's rule, the pair
+  box's and the tag palette's.
+- **A take keeps the run's own spelling.** A tag run is colon-delimited — how
+  `cellTags` reads one and how a draft's seed writes one — so the take swaps the
+  word the caret sits in and leaves the run colon-delimited: `:a:b` and `book`
+  make `:a:book:`, with the caret after that closing colon where the next tag is
+  typed. The rename field holds ONE tag rather than a run, so there the take is
+  the whole field.
+- **Taking is a completion and never a commit.** Nothing is posted until `RET`
+  over a field with no offer left to take.
 
 ## `delete`, the one destructive command
 

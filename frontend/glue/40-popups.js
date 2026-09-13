@@ -2,8 +2,9 @@
 // `editIn' reads the shared `edit', which is a `let' the panel reassigns.
 const Popups = ((deps) => {
     const { CFG, askFrom, cancelEdit, echo, editIn, el, failed, fire, FLAG_WORDS,
-            foldTag, listing, openEdit, remembered, rowsWord, said, selectedId,
-            shortly, shutEdit, sole, soon, stepIn, tagFrom, unnarrow } = deps;
+            foldTag, listing, openEdit, openTagOffers, rectOf, remembered,
+            rowsWord, said, selectedId, shortly, shutEdit, shutTagOffers, sole,
+            soon, stepIn, tagFrom, unnarrow } = deps;
     const LCOLS = CFG.lcols;
     let lmount = null, lrows = [], opening = null, lfor = null, lpin = "";
     const linking = () => !!opening;
@@ -127,6 +128,7 @@ const Popups = ((deps) => {
       repaintTags(tagUnion()[0]);
     }
     function shutTags() {
+      shutTagOffers();
       shutPopup("tags", TROW);
       unnarrow(tmount);
       tagging = null; ttargets = [];
@@ -189,6 +191,7 @@ const Popups = ((deps) => {
     function renameTag(from, typed) {
       const to = foldTag(typed);
       shutEdit(TROW);
+      shutTagOffers();
       if (!from || !to || to === from) { said(tagging, "unchanged"); return; }
       const over = carriers(from);
       fire(tagging, "rename-tag", over.map((r) => r.id), { from, to },
@@ -214,9 +217,16 @@ const Popups = ((deps) => {
       focus: () => selectWhole(el("tname")),
     };
     const renaming = () => editIn(TROW);
-    const openRename = () =>
+    /** THE RENAME FIELD IS THE MENU'S SECOND ANCHOR: it stands in no box of its
+     * own, so the offers are placed under its own rect.  ONE TAG rather than a
+     * run, which is the whole difference from the draft's cell. */
+    const openRename = () => {
       openOver(TROW, tagAt(), "org-rename-tag (no tag)");
-    const cancelRename = () => cancelEdit("tag", TROW);
+      if (renaming())
+        openTagOffers({ field: () => el("tname"), run: false,
+                        rect: () => rectOf(el("tname")) });
+    };
+    const cancelRename = () => { shutTagOffers(); cancelEdit("tag", TROW); };
     const TFLAGS = {
       ...FLAG_WORDS,
       mount: () => tmount, at: tagAt, take: removeTags,
@@ -238,8 +248,9 @@ const Popups = ((deps) => {
              renameTag, renaming, showLinks, showPopup, showTags, shutLinks,
              shutPopup, shutTags, TFLAGS };
 })({ CFG, askFrom, cancelEdit, echo, editIn, el, failed, fire, FLAG_WORDS,
-     foldTag, listing, openEdit, remembered, rowsWord, said, selectedId,
-     shortly, shutEdit, sole, soon, stepIn, tagFrom, unnarrow });
+     foldTag, listing, openEdit, openTagOffers, rectOf, remembered,
+     rowsWord, said, selectedId, shortly, shutEdit, shutTagOffers, sole,
+     soon, stepIn, tagFrom, unnarrow });
 const { openedBy, linkMount, tagMount, addFlow, cancelLinkEdit, cancelRename, commitLink, landing, lediting,
         linking, managing, openLinkEdit, openRename, pointedLink,
         renameTag, renaming, showLinks, showPopup, showTags, shutLinks,

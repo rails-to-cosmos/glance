@@ -615,9 +615,10 @@ code {
     box-shadow: inset 0 3px 0 var(--tv-flag);
 }
 
-/* The whole-table state picks no row: `b' off a row masks the renderer's own selection wash, so climbing out reads as nothing selected. */
+/* The whole-table state picks no row: `b' off a row masks the renderer's own selection wash, so climbing out reads as nothing selected. THE CELL CURSOR IS A RING and writes no ground at all (docs/invariants.md), so the mask owes the shadow too — a background alone left the ring drawn over a table point had climbed out of. */
 #mdoc glance-table.gt-nosel tbody tr.tv-sel,#mdoc glance-table.gt-nosel td.tv-colsel,#mdoc glance-table.gt-nosel td.tv-cell-sel {
     background: transparent !important;
+    box-shadow: none !important;
 }
 
 /* A headerless table draws no header until point climbs to it, when an ephemeral (ghosted, dashed) header appears; RET names a column and makes it real. */
@@ -816,7 +817,7 @@ code {
 }
 
 /* The offers hang under the field, out of its flex row; no stacking number needed since the box is positioned after `#dlist'. */
-#doffer,#dwoffer {
+#doffer,#dwoffer,#toffer {
     display: none;
     position: absolute;
     top: 100%;
@@ -830,8 +831,16 @@ code {
     font-size: 11px;
 }
 
-#doffer.on,#dwoffer.on {
+#doffer.on,#dwoffer.on,#toffer.on {
     display: block;
+}
+
+/* THE TAG OFFERS STAND UNDER A FIELD THAT IS IN NO BOX: the draft's tag cell is the renderer's own input and the tags popup's rename field sits inside a popup that scrolls, so this menu hangs at the page's ROOT and is placed against the VIEWPORT (`placeMenu'), turning over above its anchor at the foot the way the date box's do. 103 clears the date box (102). */
+#toffer {
+    position: fixed;
+    z-index: 103;
+    --dk-mono: "Hack", var(--glance-mono);
+    font-family: var(--dk-mono);
 }
 
 .dof {

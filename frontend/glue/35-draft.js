@@ -80,7 +80,24 @@
      * the row was changed to is drawn with it. */
     const openDraftAt = (key) => {
       const at = colAt(key);
-      return at !== -1 && can(table, "editCell") && table.editCell(DRAFT_ID, at);
+      const on = at !== -1 && can(table, "editCell") && table.editCell(DRAFT_ID, at);
+      // THE TAG CELL'S OFFERS COME UP WITH IT, laid under the cell's own rect,
+      // and go with every other stop: ONE MENU, standing under one field.
+      if (on && key === "tag" && can(table, "cellRect"))
+        openTagOffers({ field: draftCellField, run: true, listen: true,
+                        rect: () => table.cellRect(DRAFT_ID, at) });
+      else shutTagOffers();
+      return on;
+    };
+    /** THE DRAFT'S OPEN CELL INPUT, ASKED RATHER THAN HELD: every repaint builds
+     * a fresh one (`resumeEditor', assets/table-view.js), so a held reference
+     * would dangle the moment the store settled under the draft.  The widget
+     * writes that class and no other on it (`openCellEditor'), so the whole
+     * name is the test. */
+    const CELL_EDIT = "tv-cell-edit";
+    const draftCellField = () => {
+      const box = active();
+      return box && box.className === CELL_EDIT ? box : null;
     };
     /** THE STOP KEY OPENED.  A DATE CELL TAKES THE DATE BOX, laid over it -- the
      * same widget the material document has, offers and all -- and every other
@@ -105,8 +122,10 @@
       if (at === -1 || !can(table, "cellRect", "closeEditor")
             || !table.cellRect(DRAFT_ID, at)) return false;
       // THE IN-CELL EDITOR GOES NEXT: the box is laid over the cell, so the
-      // widget's own input must not be standing under it.
+      // widget's own input must not be standing under it -- nor the tag cell's
+      // offers, which hung under the stop the walk has just left.
       table.closeEditor();
+      shutTagOffers();
       // THE ROW IS REPUBLISHED WITH THE PHRASE IN IT: the box is no cell editor,
       // so nothing else redraws the cell it was laid over.
       const fold = (typed) => {
@@ -117,7 +136,9 @@
       openDateBox({
         rect: () => table.cellRect(DRAFT_ID, at),
         initial: String(drafting.cells[key] || ""), key: planKeyword(key),
+        // A CELL'S OWN SPELLING, the standing row's stop and this one alike.
         today: dateNow(), b: cellBinding(key), foot: DRAFT_DATE_FOOT,
+        spell: isoSpell,
         onCommit: (typed) => { fold(typed); commitDraft(null); },
         onCancel: dropDraft,
         onWalk: (step, typed) => { fold(typed); walkFrom(key, step); },
@@ -201,6 +222,14 @@
       if (!key) return false;
       // THE READER IS ANSWERING THE REFUSAL, so the row stops standing on it.
       if (drafting.refused && contentKey(key)) clearRefusal();
+      // THE OFFER THAT STANDS OUTRANKS THE WALK AND THE COMMIT, which is the
+      // date box's own order: the menu claims the walk keys, and `TAB'/`RET'
+      // only where there is something to take.  `ESC' is never the menu's -- it
+      // drops the draft whole and the offers go with it.
+      if (tagOfferKey(key)) { e.preventDefault(); return true; }
+      // AND THE MENU FOLLOWS THE TEXT AND THE CARET, a keystroke behind the key
+      // that moved them: the character has not landed in the box yet.
+      if (tagOffering()) soon(drawTagOffers);
       if (key === "TAB" || key === "S-TAB") {
         e.preventDefault();
         walkDraft(cell, key === "TAB" ? 1 : -1);
@@ -234,6 +263,7 @@
     function dropDraft() {
       drafting = null;
       shutEdit(DDATE);
+      shutTagOffers();
       if (can(table, "deleteRow")) table.deleteRow(DRAFT_ID);
     }
 
