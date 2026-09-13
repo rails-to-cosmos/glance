@@ -1,0 +1,114 @@
+#+TITLE: Status 2026-09-12 — capture is a row, the date widget in the cell, the inbox move
+#+DATE: 2026-09-13
+
+Interactive day, not an overnight run. Everything below is committed on
+branches, nothing pushed. Each step: spike where the shape was open, a
+proposal, stages with a failing test first, a review pass, one commit per
+stage. Baseline was =master= after the 2026-09-11 overnight merge.
+
+* Branches
+| branch                  | head      | commits | state                 |
+|-------------------------+-----------+---------+-----------------------|
+| =master=                | =7228806= |         | glyph readout + capture spike + proposal merged by you |
+| =feat/capture-row=      | =207278e= |      17 | awaiting review       |
+| =fix/inbox-tag-move=    | =d190a07= |       1 | awaiting review; off =master= |
+
+Review order: =master..feat/capture-row= first (it reads linearly), then
+=fix/inbox-tag-move= (independent, server side).
+
+* Gate at each head
+| branch               | cabal | elm | browser | AGENTS | glue  |
+|----------------------+-------+-----+---------+--------+-------|
+| =feat/capture-row=   |  2323 | 189 | 117/117 |      0 | clean |
+| =fix/inbox-tag-move= |  2355 | 189 |   99/99 |      0 | clean |
+Cabal drops on capture-row because 28 form and draft-document cases
+retired with the popup; the sweep added 8 shell cases and the browser suite
+grew from 98 to 117.
+
+* Live store repair (=~/sync/views=, staged, not committed)
+=EXTERNAL.jsonl= and =COMPLETIONS.jsonl= untracked; =.gitattributes= names
+=headlines.jsonl= and =seg-*.jsonl= only; =meta/COMPLETIONS.jsonl= ignored.
+Commit it yourself. A stale =.git/index.lock= (15:10, no git alive) was
+found; remove by hand — see the bug below.
+
+* Git glyph readout (merged)
+The glyph is a static span; hover text spells branch, upstream or its want,
+the three counts and ahead/behind. Only the auto-sync toggle takes a click.
+
+* Capture is a row in the table (=feat/capture-row=, commits 1–8)
+Spike =spikes/2026-09-12-capture-in-table/= (A–F; you picked F: row at
+point, TAB walks). Proposal in =docs/proposals/done/=.
+- =+= splices a draft row below point, seeded from the filter's positive
+  atoms (state, priority, every tag); title opens first; TAB/S-TAB walk the
+  draft's cells in the header's own order, wrapping; RET from any cell
+  commits through the =capture= command; ESC drops it, rows byte for byte;
+  empty title stays with "nothing to capture" in the echo pill and a warn
+  dress; =n=/=p= type inside; the mouse cannot land on it.
+- Destination: first positive =tag:= names the layer, else the inbox. A
+  state the tag's cycle lacks is dropped silently. No hint text (removed on
+  your review); priority cell wears =[#A]=.
+- The widget owns the phantom: =producer=/=under=/=refused= row fields, one
+  =standing= predicate at every cursor entry, placement by =under= on the
+  setRows and delta paths, =onCellKey= with =raw=/=token=, =getEditing=.
+- Deleted: the tag field, the popup, the material-doc sheet over a served
+  draft, =GET /capture= (=/keywords?tag== answers the states), =Doc.elm='s
+  =SetCells=. =30-capture.js= → =30-palette.js=. Glue 5646→5235.
+- Not drivable in the shell rig: the draft's RET and date POST (no in-cell
+  input in the stub); browser cases carry them.
+
+* The date widget lives in the cell (=feat/capture-row=, commits 9–17)
+Two spikes: =spikes/2026-09-12-date-cell/= (ghost placement: strip under the
+row won, shipped, then lost on your review — no offers, wrong place) and
+=spikes/2026-09-12-date-overlay/= (the pane's own =#ddate= box anchored to
+the cell; B, in place over the cell, won). Proposal in =done/=.
+- The date grammar is a shared glue part, =15-dates.js=, read by the pane
+  and the table; the pinned-clock harness still reaches it.
+- One door, =openDateBox({rect, …})=: =#ddate= is a page-root fixed box with
+  the same field, ghost, offers and keys over the pane's planning slot and
+  over a table cell. Over a cell it wears the cell's top, left and height,
+  grows right for the ghost, never flips; the offers flip above at the
+  bottom edge.
+- RET over a standing row's SCHEDULED/DEADLINE cell opens it (the
+  materialize handler yields on those two columns); =C-c C-s=/=C-c C-d=
+  keep the prompt over marked rows and open the cell at point with none.
+  RET posts =set-planning= with the PHRASE; the server's clock resolves it;
+  the settle brings the ISO day. Empty clears; ESC leaves.
+- The draft walks its two date cells the same way; =capture= carries them
+  as =planning=. Under =sort:scheduled= a dated draft lands where typed.
+- Retired along the way: the strip, =onCellInput=, =editableKeys=.
+- =assets/table-view.js= now diverges from =../table-view= (producer row,
+  =onCellKey=, =getEditing=, =raw=/=token=, =cellRect=, =closeEditor=,
+  repaint on the tick). NEVER =make sync-renderer= until upstreamed; the
+  list is in =docs/tasks.org=.
+
+* A tag on an inbox jot moves it under the tag (=fix/inbox-tag-move=)
+[[file:docs/bugs/fixed/2026-09-12-a-tag-on-an-inbox-headline-leaves-it-in-the-inbox.md]]
+After a command's edits are known, a top-level id-less inbox row whose
+edited title wears a tag run leaves: blob minted under the first tag with
+the whole subtree (=mintedBlob=/=writeBlob=, the road capture takes too),
+ledger noted, then the inbox cut under the request's digest. Blob first,
+cut second; a refused cut after the blob landed answers =orphaned= naming
+both. =add-tag=, =set-title= with a run, =rename-tag= inherit it. The answer
+names the new id; point follows. Uniform over any inbox write, so =archive=
+files a jot too — say if that should stay in the inbox.
+
+* Bugs filed
+- [[file:docs/bugs/open/2026-09-12-a-killed-auto-sync-leaves-a-stale-index-lock.md]]
+  — git steps run unbracketed; a daemon killed mid-step leaves
+  =index.lock=; =GET /git= cannot see it. Fix: bracket, read the lock as a
+  state the glyph wears, never delete it from glance.
+- The inbox bug's =open/= copy still exists on =feat/capture-row=; the merge
+  needs it removed (your call).
+
+* Generalizer and sweep leftovers (unchanged since 09-11)
+Four proposals under =docs/proposals/proposed/2026-09-12-*=, two registry
+bugs, the vendored-widget upstreaming task.
+
+* Needs your decision
+1. Merge =feat/capture-row=, then =fix/inbox-tag-move= (independent).
+2. =archive= on an inbox jot: file it as a blob (current) or keep in inbox.
+3. Upstream the table-view changes to =../table-view= before any
+   =sync-renderer=; or accept the fork.
+4. Index.lock bug: fix next, or after the two merges.
+5. Fixture leak in one draft case (writes =SCHEDULED 2026-12-01=, never
+   restores) costs one retry per run; TODO filed.
