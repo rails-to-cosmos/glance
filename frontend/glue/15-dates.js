@@ -321,7 +321,7 @@
       return { text: ` → ${r.stamp}`, bad: false };
     }
 
-    // ============================================== THE STEP, OVER THE STAMP
+    // ==================================== THE STEP AND THE RESOLVE, INTO THE FIELD
     const dateStep = (k) =>
       k === "S-<right>" ? 1 : k === "S-<left>" ? -1
       : k === "S-<down>" ? 7 : k === "S-<up>" ? -7 : 0;
@@ -334,16 +334,24 @@
                     head ? stood.slice(head[0].length, -1) : "");
     };
     const NO_DATE_HERE = "no date here to move";
-    /** BY DAYS INTO F, off R -- the reader's own answer for what stands there.
-     * Whether it moved: a field holding no day has nothing to step.  The stepped
-     * STAMP is written where the reader can see it, which is why it travels, and
-     * setting `value' fires no `input', so the caller redraws its own ghost. */
-    function dateStepInto(f, r, by) {
-      if (!r.ok || !r.start) return false;
-      f.value = dateStepped(r, addDays(r.start, by));
-      f.setSelectionRange(f.value.length, f.value.length);
+    /** TEXT into F, caret behind it -- the one way a key writes the field.  What
+     * a key puts there is what the reader SEES, which is why it travels; setting
+     * `value' fires no `input', so the caller redraws its own ghost. */
+    const dateWrote = (f, text) => {
+      f.value = text;
+      f.setSelectionRange(text.length, text.length);
       return true;
-    }
+    };
+    /** BY DAYS INTO F, off R -- the reader's own answer for what stands there.
+     * Whether it moved: a field holding no day has nothing to step. */
+    const dateStepInto = (f, r, by) =>
+      !!r.ok && !!r.start && dateWrote(f, dateStepped(r, addDays(r.start, by)));
+    /** R's OWN READING INTO F: the phrase made the stamp it resolves to, which
+     * is the ghost's ink written where the reader can edit it -- so the ghost
+     * falls silent behind it, the field being its own answer now.  Whether it
+     * moved: nothing to read, and nothing already its answer, is nothing done. */
+    const dateResolveInto = (f, r) =>
+      !!r.ok && !!r.stamp && r.stamp !== f.value.trim() && dateWrote(f, r.stamp);
 
     // ================================ WHERE A DATE IS DRAWN, AND WHAT IT IS CALLED
     /** THE PLANNING KEYWORDS A DATE MAY BE SET UNDER: the server's own list

@@ -39,16 +39,25 @@ section groups a feature arc, and its date is that arc's last commit.
   resolves it once against its own clock. `RET` over any other column still
   materializes the row.
 
+- **`TAB` resolves the phrase in the date box.** With no offer left to take, the
+  key writes the ghost's own reading into the field — `today` becomes
+  `<2026-09-13 Sun>`, `from 18 to 19 aug` its range spelling — and the ghost
+  falls silent, the field being its own answer now. A phrase no reading takes is
+  left alone, its `✗` already said. The wire law is unchanged: `RET` still sends
+  the field's own bytes, which after a `TAB` are a stamp the server takes
+  verbatim, the way a `S-<arrow>` step's already were.
+
 - **`C-c C-s` and `C-c C-d` over the table open that box at point** when no rows
   are marked, moving the column cursor onto that keyword's column. With rows
   marked they raise today's bulk prompt, over the same rows as before.
 
 - **A capture can carry its dates.** The draft row's `TAB` walk now stops in the
   `SCHEDULED` and `DEADLINE` cells, where the same box opens; `TAB` there takes
-  the offer that stands and else walks on, `RET` from any cell still commits the
-  whole capture, and each date cell that holds something rides out as a planning
-  entry. Under `sort:scheduled` a dated capture lands among the days rather than
-  in the undated tail.
+  the offer that stands, else resolves the phrase and walks on at one press —
+  the cell it leaves shows the concrete day and the capture carries that stamp.
+  `RET` from any cell still commits the whole capture, and each date cell that
+  holds something rides out as a planning entry. Under `sort:scheduled` a dated
+  capture lands among the days rather than in the undated tail.
 
 ## 0.7.1.0 - 2026-08-31
 

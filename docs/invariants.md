@@ -302,20 +302,26 @@ nothing catches it.
 
 - **The phrase travels; the ghost is ink.** What a date surface sends is the
   bytes standing in its field — `10 jan`, `+3d`, `[18 aug]`, the stamp a
-  `S-<arrow>` wrote there — and the SERVER resolves them, once per request,
-  against its own clock. The client's reading is spent on the preview and on the
-  wall above the commit, never on the wire, and an emptied field commits `null`
+  `S-<arrow>` or a `TAB` wrote there — and the SERVER resolves them, once per
+  request, against its own clock. The client's reading is spent on the preview,
+  on the wall above the commit, and on the TWO KEYS that write it into the field
+  where the reader sees and may edit it — `S-<arrow>`'s step and `TAB`'s resolve
+  (`dateStepInto`, `dateResolveInto`, `15-dates.js:347`, `:353`,
+  `20-sheet.js:1109`) — and never on the commit's own path. An emptied field
+  commits `null`
   rather than `""`. Four surfaces take the one road, and the first three are ONE
   WIDGET over three rects (`openDateBox`, `20-sheet.js:1080`): the pane's slot
-  (`commitDate`, `20-sheet.js:1110`), the cell (`36-date-cell.js:36`) and the
+  (`commitDate`, `20-sheet.js:1123`), the cell (`36-date-cell.js:36`) and the
   draft's stop (`35-draft.js:99`) — plus the bulk prompt (`30-palette.js:48`)
   and the draft's `planning` (`35-draft.js:276`), all
   met by `plannedValue` (`Query.hs:1907`) under the request's single `today`
   (`Commands.hs:350`). Pinned by the three cases that name it —
-  `TestServe.hs:2046`, `:4876`, `:4883`. Sending `readsDate(typed, …).stamp`
-  instead hands the day to a clock the server has never read and splits
-  `set-planning`'s one argument into a spelling per surface; it turns nothing
-  red on any day the two clocks agree. *fragility: high*
+  `TestServe.hs:2046`, `:4876`, `:4883` — and the resolve by its own three
+  (`TestServe.hs:5295`, `cases.mjs:5561`, `:6011`). Sending
+  `readsDate(typed, …).stamp` from the COMMIT instead hands the day to a clock
+  the server has never read and splits `set-planning`'s one argument into a
+  spelling per surface; it turns nothing red on any day the two clocks agree.
+  *fragility: high*
 
 - **A draft is the renderer's own row, and nothing else can reach it.** `+`'s
   capture row carries an open FIELD at all times — the widget's in-cell editor,

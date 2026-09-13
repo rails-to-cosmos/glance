@@ -5219,25 +5219,25 @@ dateWidgetSpec shell = testGroup "Shell date widget"
     -- THE DAY AND NOTHING ELSE: the row's own value is org's bracket, so the
     -- step writes a bracket back rather than the bare ISO it once wrote.
   , testCase "the shifted arrows adjust in place, and the ghost follows" $ do
-      stepsTo "press:S-ArrowRight" "a day forward, written into the field"
+      boxAfter "press:S-ArrowRight" "a day forward, written into the field"
               ("<2026-08-02 Sun>", Just "")
-      stepsTo "press:S-ArrowLeft" "and back" ("<2026-07-31 Fri>", Nothing)
-      stepsTo "press:S-ArrowDown" "a week down" ("<2026-08-08 Sat>", Nothing)
-      stepsTo "press:S-ArrowUp" "and a week up" ("<2026-07-25 Sat>", Nothing)
+      boxAfter "press:S-ArrowLeft" "and back" ("<2026-07-31 Fri>", Nothing)
+      boxAfter "press:S-ArrowDown" "a week down" ("<2026-08-08 Sat>", Nothing)
+      boxAfter "press:S-ArrowUp" "and a week up" ("<2026-07-25 Sat>", Nothing)
       -- A BARE PHRASE CARRIES NO BRACKET, so the step writes the bare ISO every
       -- wall reads back -- and THAT is the ghost the walk still follows.
-      stepsTo "dwhen:18_aug press:S-ArrowRight"
+      boxAfter "dwhen:18_aug press:S-ArrowRight"
               "a phrase resolves and walks as bare ISO"
               ("2026-08-19", Just " \8594 <2026-08-19 Wed>")
       -- THE BRACKET THE READER ASKED FOR IS THE READER'S: a step off a resolved
       -- `[today]' that wrote bare ISO back would drop the INACTIVE intent, and
       -- there is no other way to ask this widget for org's other bracket.
-      stepsTo "dwhen:[today] press:S-ArrowRight"
+      boxAfter "dwhen:[today] press:S-ArrowRight"
               "the day moved and the pair it was asked in stands"
               ("[2026-08-23 Sun]", Just "")
       -- AND THE TAIL RIDES BYTE FOR BYTE: a repeater is the entry's own, and a
       -- step that RECOMPOSED the stamp dropped it on the first press.
-      stepsTo "dwhen:<2026-08-24_Mon_+1y> press:S-ArrowRight"
+      boxAfter "dwhen:<2026-08-24_Mon_+1y> press:S-ArrowRight"
               "the day moved, the cookie behind the weekday did not"
               ("<2026-08-25 Tue +1y>", Just "")
       -- A YEAR UNDER 100 WALKS ONE DAY AND NOT NINETEEN CENTURIES: `Date.UTC'
@@ -5245,10 +5245,10 @@ dateWidgetSpec shell = testGroup "Shell date widget"
       -- TWICE, because the step WRITES ITS ANSWER BACK into the field and the
       -- next press must read that answer: the bare ISO's year is any digit run
       -- at both doors, or the walk stops dead after one step.
-      stepsTo "dwhen:0099-01-01 press:S-ArrowRight"
+      boxAfter "dwhen:0099-01-01 press:S-ArrowRight"
               "a day forward off a small year"
               ("99-01-02", Just " \8594 <99-01-02 Fri>")
-      stepsTo "dwhen:0099-01-01 press:S-ArrowRight press:S-ArrowRight"
+      boxAfter "dwhen:0099-01-01 press:S-ArrowRight press:S-ArrowRight"
               "and the walk goes on from what it wrote" ("99-01-03", Nothing)
 
     -- OFFERS STAND AT FRESH AND UNFINISHED POSITIONS AND NOWHERE ELSE, and a
@@ -5287,6 +5287,59 @@ dateWidgetSpec shell = testGroup "Shell date widget"
         \answer ->
           assertEqual "and the same key over the finished term applies"
                       [("SCHEDULED", Just "18 april")] =<< plannedOf answer
+
+    -- `TAB' IS THE RESOLVER, and the rule is ONE ORDER: the offer that stands,
+    -- else the phrase made the stamp it reads as.  What the ghost drew becomes
+    -- the field's own text, so the ink falls silent behind it -- the field IS
+    -- its answer now, exactly as a `S-<arrow>' step leaves it.
+  , testCase "TAB resolves a readable phrase to its stamp and the ghost falls silent" $ do
+      boxAfter "dwhen:today press:Tab" "the clock day, in the widget's own spelling"
+               ("<2026-08-22 Sat>", Just "")
+      -- A RANGE KEEPS ITS ARITY: the resolve is the ghost's reading and no other.
+      boxAfter "dwhen:from_18_to_19_aug press:Tab" "both ends, joined org's way"
+               ("<2026-08-18 Tue>--<2026-08-19 Wed>", Just "")
+      boxAfter "dwhen:+3d press:Tab" "a shift lands on the day it names"
+               ("<2026-08-25 Tue>", Just "")
+      -- AND THE RESOLVE POSTS NOTHING: it is a completion, the way taking an
+      -- offer is, and `RET' is still the only key that commits.
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:today press:Tab") $
+        \answer -> do
+          assertEqual "the box stands" True =<< boolAt "ddateopen" answer
+          assertEqual "and nothing was asked" ([] :: [Value])
+            =<< listAt "commands" answer
+      -- THE WIRE LAW IS UNTOUCHED: `RET' sends the FIELD'S TEXT verbatim, which
+      -- after a `TAB' is a stamp the server parses as a stamp (docs/invariants.md).
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:today press:Tab press:Enter") $
+        \answer ->
+          assertEqual "the bytes that stood in the field"
+                      [("SCHEDULED", Just "<2026-08-22 Sat>")] =<< plannedOf answer
+
+    -- NOTHING TO RESOLVE IS NOTHING DONE, and nothing said: the ghost already
+    -- wears the `✗', and a second sentence over it is noise.
+  , testCase "TAB on an unreadable phrase changes nothing" $
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:31_february press:Tab") $
+        \answer -> do
+          assertEqual "what was typed stands" "31 february" =<< textAt "dwhen" answer
+          assertEqual "under the refusal it already wore" " \10007 not a date"
+            =<< textAt "dghost" answer
+          assertEqual "in the refusal's own ink" True =<< boolAt "dghostbad" answer
+          assertEqual "the box stands, with nothing asked" ([] :: [Value])
+            =<< listAt "commands" answer
+
+    -- THE FIRST ARM OUTRANKS THE SECOND: a standing offer is what `TAB' takes,
+    -- and only a press with none left to take resolves.
+  , testCase "TAB with an offer standing still takes the offer" $ do
+      insheet shell (pinned <> " press:C-c press:C-s dwhen:18_a press:C-n press:Tab") $
+        \answer -> do
+          assertEqual "the offer under point is in the field" "18 april"
+            =<< textAt "dwhen" answer
+          assertEqual "as the phrase it is, its reading still the ghost's"
+                      " \8594 <2026-04-18 Sat>" =<< textAt "dghost" answer
+          assertEqual "and nothing was asked" ([] :: [Value])
+            =<< listAt "commands" answer
+      -- AND THE NEXT PRESS RESOLVES WHAT THE TAKE LEFT, the offers being spent.
+      boxAfter "dwhen:18_a press:C-n press:Tab press:Tab"
+               "the taken word, resolved" ("<2026-04-18 Sat>", Just "")
 
     -- ONE WIDGET, BOTH DOORS: the pair box's value half, where its key routes.
   , testCase "the pair box's value half wears the same ghost" $ do
@@ -5349,8 +5402,6 @@ dateWidgetSpec shell = testGroup "Shell date widget"
     -- asks for this one, or an answer moves with the calendar the suite runs on.
     refDay = "2026-08-22"
     pinned = "dateon:" <> refDay
-    -- SCRIPT typed into the open widget: the field reads WROTE, and the ghost
-    -- SAYS where the case states anything about it.
     -- TYPED into the open widget: the ink trailing the field, and whether it
     -- wears the refusal's mark where the case states anything about it.
     ghostOver typed what (said, bad) =
@@ -5359,7 +5410,9 @@ dateWidgetSpec shell = testGroup "Shell date widget"
         mapM_ (\m -> assertEqual (what <> ": the refusal's ink") m
                        =<< boolAt "dghostbad" answer)
               bad
-    stepsTo script what (wrote, said) =
+    -- SCRIPT run over the open widget: the field reads WROTE, and the ghost
+    -- SAYS where the case states anything about it.
+    boxAfter script what (wrote, said) =
       insheet shell (pinned <> " press:C-c press:C-s " <> script) $ \answer -> do
         assertEqual what wrote =<< textAt "dwhen" answer
         mapM_ (\g -> assertEqual (what <> ": the ghost") g =<< textAt "dghost" answer)

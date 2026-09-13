@@ -147,13 +147,15 @@ drawer and every child headline drawn in place.
   field, ghost and offers -- standing in the cell's own place: =RET= over a
   =SCHEDULED= or =DEADLINE= cell, or =C-c C-s= / =C-c C-d= with nothing marked,
   opens the box on the cell's own ISO value, over the cell it replaces. =TAB= and the arrows take an offer,
+  and =TAB= with none left to take *resolves the phrase in place* -- =today=
+  becomes =<2026-09-13 Sun>=, the ghost falling silent behind it.
   =S-<left>= / =S-<right>= step a day and =S-<up>= / =S-<down>= a week, writing
   the stepped stamp into the field. With rows *marked* the two sequences keep
   the bulk prompt -- a set of rows has no cell to stand in. What goes down the
-  wire is the phrase that was typed, never the ghost's reading: the server
+  wire is what stands in the *field*, never a reading of its own: the server
   resolves it once against its own clock and the settle brings the day back.
   The draft row's two date stops open the same box; =RET= there captures the
-  whole row and =TAB= walks on.
+  whole row and =TAB= resolves and walks on at one press.
 - The pane ends on one empty line, shown only when the walk reaches it:
   =RET= there writes a fresh paragraph at the document's end, wherever =+=
   is owned by what point stands on.

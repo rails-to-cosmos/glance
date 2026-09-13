@@ -142,8 +142,21 @@ reads the phrase back, the offers complete `today`, `+1w` and the month words
 with `TAB` and the arrows, and `S-<arrows>` step the day and the week. The commit paints no stamp: the
 wire's cell is ISO and the file's value is org's, so the settle brings the day.
 A draft row's two date stops open the same box — there `TAB` takes the offer
-that stands and else walks on, `RET` captures the whole row and `ESC` drops the
-draft — and what they hold rides out in `capture`'s own `planning`.
+that stands, else resolves the phrase and walks on at one press, `RET` captures
+the whole row and `ESC` drops the draft — and what they hold rides out in
+`capture`'s own `planning`.
+
+`TAB` inside the box reads in one order:
+
+| what stands | what `TAB` does |
+| --- | --- |
+| an offer under point in the menu | takes it into the field, writing nothing |
+| no offer, and the field reads as a date | rewrites the field to that reading's stamp, caret behind it, and the ghost falls silent |
+| no offer, and no reading takes the field | nothing — the ghost already wears the `✗` |
+
+Over the pane and a standing row's cell there is no ring, so the resolve is the
+whole press and the box stays; over a draft's date stop that one press resolves
+and walks on. `S-TAB` is the walk back alone and resolves nothing.
 
 `RET` on the whole planning line is inert and names the way in; the entry under
 point is what opens. Over `CLOSED` the box reads that key's own wall: org's
@@ -163,10 +176,13 @@ the box left standing to fix it in.
   the foot's own promise, kept. Over a standing offer `RET` takes the offer
   and writes nothing; over the finished value it applies. `S-←`/`S-→` adjust a
   day and `S-↑`/`S-↓` a week in place, the ghost following.
-- **What travels is what was TYPED.** The field's resolver draws the ghost and
-  writes nothing; the raw text comes to this door, the server resolves it once
-  against its own clock, and the pane redraws off that answer. The page spells
-  no org, and the two resolvers are pinned against one another over one corpus.
+- **What travels is what stands in the FIELD.** The field's resolver draws the
+  ghost and writes nothing; the text comes to this door, the server resolves it
+  once against its own clock, and the pane redraws off that answer. The reader's
+  own `TAB` or `S-<arrow>` may put a stamp there — the server then parses a
+  stamp — but no reading reaches the wire the reader has not seen. The page
+  spells no org, and the two resolvers are pinned against one another over one
+  corpus.
 - **One widget, every door.** The pane's field, the table's cell, the bulk
   prompt and the draft's `planning` are four callers of ONE argument spelling. A
   drawer pair whose key case-folds to `scheduled` or `deadline` routes to the

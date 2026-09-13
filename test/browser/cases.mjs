@@ -5552,6 +5552,61 @@ export default [
       + `${JSON.stringify(posts[0].args.date)} and the file took ${JSON.stringify(landed)}`];
   } },
 
+// `TAB' IS THE RESOLVER.  With no offer left to take, the key writes the ghost's
+// own reading INTO the field -- the widget's own spelling -- and the ink falls
+// silent behind it, the field being its answer now.  A CELL HAS NO RING, so the
+// resolve is the whole press and the box stays.  THE WIRE LAW IS UNTOUCHED: `RET'
+// still sends the field's own bytes, which after a `TAB' are a stamp the server
+// parses as a stamp rather than a phrase it resolves.
+{ name: "TAB in a cell's date box resolves the phrase in place",
+  async run(p, base) {
+    const ROW = "drv-unset-one", WAS = "<2026-09-02 Wed>";
+    await oneRow(p, base, "title:undated", ROW);
+    await watchPosts(p);
+    // THE READER'S OWN DAY, read the way the box reads it: `today' is the one
+    // phrase whose answer moves with the calendar the suite runs on.
+    const TODAY = await p.eval(() => {
+      const n = new Date(), pad = (x) => (x < 10 ? "0" : "") + x;
+      return `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`;
+    });
+    const STAMP = orgStamp(TODAY);
+    await columnTo(p, "scheduled", "TAB over a cell's box");
+    await p.press("RET");
+    await dateBox(p, "RET to open the date box over the cell");
+    await p.typeKeys("today");
+    const drew = await ghostSays(p, ` → ${STAMP}`, "the ghost to read the clock day");
+    assert(drew.value === "today",
+      `the field holds ${JSON.stringify(drew.value)} under the ghost`);
+
+    await p.press("TAB");
+    const took = await ghostSays(p, "", "TAB to resolve the phrase in the field");
+    assert(took.value === STAMP,
+      `TAB left ${JSON.stringify(took.value)} rather than ${JSON.stringify(STAMP)}`);
+    const still = await dateBox(p, "the box to stand on after the resolve");
+    assert(still.overCell && still.sel[0] === STAMP.length
+             && still.sel[1] === STAMP.length,
+      `the box stands ${JSON.stringify([still.overCell, still.sel])} with the caret `
+      + "behind the stamp");
+    assert((await postsSeen(p)).length === 0,
+      `the resolve posted ${JSON.stringify(await postsSeen(p))}`);
+
+    await p.press("RET");
+    const landed = await p.until(async (a) => {
+      const h = await (await fetch(`/headline?id=${a.row}`)).json();
+      const on = ((h.planning || []).find(([k]) => k === "SCHEDULED") || [])[1];
+      return on && on !== a.was ? on : false;
+    }, "the resolved stamp to reach the planning line", 15000, { row: ROW, was: WAS });
+    assert(landed === STAMP, `the file took ${JSON.stringify(landed)}`);
+    const posts = await postsSeen(p);
+    assert(posts.length === 1 && posts[0].args.date === STAMP,
+      `the wire carried ${JSON.stringify(posts[0] && posts[0].args)} rather than the `
+      + "bytes that stood in the field");
+
+    await putPlanning(p, ROW, "SCHEDULED", WAS);
+    return [`"today" resolved to ${JSON.stringify(took.value)} in place, the wire carried `
+      + `${JSON.stringify(posts[0].args.date)} and the file took ${JSON.stringify(landed)}`];
+  } },
+
 // THE REVIEW'S WHOLE POINT.  The strip that shipped first had no offers -- the
 // menu is the pane's box, and a cell had no room for it -- so completion was the
 // one thing the cell lacked.  With the pane's own box laid over the cell, the
@@ -5907,10 +5962,12 @@ export default [
     assert(under.title === "zqstop",
       `the walk lost the title, which reads ${JSON.stringify(under.title)}`);
 
-    // TAB WITH NO OFFER OPEN FOLDS THE PHRASE IN AND WALKS ON: `2026-08-20' is a
-    // whole reading, so `dateOffers' offers nothing to take first.
+    // TAB WITH NO OFFER OPEN RESOLVES THE PHRASE AND WALKS ON IN ONE PRESS:
+    // `2026-08-20' is a whole reading, so `dateOffers' offers nothing to take
+    // first and what folds into the cell is the STAMP the ghost drew.
+    const STAMP = orgStamp("2026-08-20");
     await p.typeKeys("2026-08-20");
-    await ghostSays(p, ` → ${orgStamp("2026-08-20")}`, "the typed day to resolve");
+    await ghostSays(p, ` → ${STAMP}`, "the typed day to resolve");
     await p.press("TAB");
     const on = await dateBox(p, "TAB to walk on to the DEADLINE stop");
     assert(on.value === "" ,
@@ -5922,13 +5979,15 @@ export default [
       const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
       return tds[keys.indexOf("scheduled")].textContent.trim();
     });
-    assert(kept === "2026-08-20",
-      `the walk folded ${JSON.stringify(kept)} into the SCHEDULED cell`);
+    assert(kept === STAMP,
+      `the walk folded ${JSON.stringify(kept)} into the SCHEDULED cell rather than `
+      + `the stamp ${JSON.stringify(STAMP)} it resolved to`);
 
-    // S-TAB WALKS BACK, onto the day it left standing there.
+    // S-TAB WALKS BACK, onto the stamp it left standing there — and resolves
+    // nothing of its own: the walk back is the whole key.
     await p.press("S-TAB");
     const back = await dateBox(p, "S-TAB to walk back to the SCHEDULED stop");
-    assert(back.value === "2026-08-20",
+    assert(back.value === STAMP,
       `S-TAB came back to ${JSON.stringify(back.value)}`);
 
     // AND `ESC' IN THE BOX DROPS THE WHOLE DRAFT, as it does from every cell.
@@ -5941,6 +6000,54 @@ export default [
     return [`TAB opened the box over the draft's SCHEDULED cell, TAB folded `
       + `${JSON.stringify(kept)} in and walked on, S-TAB came back to `
       + `${JSON.stringify(back.value)} and ESC dropped the draft`];
+  } },
+
+// AND THE STAMP A `TAB' RESOLVED IS WHAT THE CAPTURE CARRIES.  A draft's date
+// cell holds the field's own bytes, so a stop the reader TABbed out of rides out
+// in `capture''s `planning' as the STAMP -- which `plannedEntry' takes verbatim
+// rather than resolving a phrase against the request's clock.  THE DEADLINE STOP
+// carries it: a dated SCHEDULED would join `sort:scheduled''s own view and move
+// the case that counts its rows.
+{ name: "a TAB-resolved draft stop captures the stamp it shows",
+  async run(p, base) {
+    await tableUp(p, base);
+    await watchPosts(p);
+    const Y = new Date().getFullYear();   // `18 aug''s elided year is the clock's
+    const STAMP = orgStamp(`${Y}-08-18`);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.typeKeys("zqtabbed");
+    await p.press("TAB");
+    await draftStop(p, "title", "TAB to carry the reader into the SCHEDULED stop");
+    // AN EMPTY STOP HAS NOTHING TO RESOLVE AND WALKS ALL THE SAME: the clear is
+    // the widget's own law and never the grammar's.
+    await p.press("TAB");
+    const dead = await draftStop(p, "scheduled", "TAB to walk on to the DEADLINE stop");
+    assert(dead.col === "deadline" && dead.value === "",
+      `the walk landed on ${JSON.stringify([dead.col, dead.value])}`);
+    await p.typeKeys("18 aug");
+    await ghostSays(p, ` → ${STAMP}`, "the ghost to read the phrase");
+    await p.press("TAB");
+    // ONE PRESS RESOLVES AND WALKS: the ring's next stop is an ordinary cell, so
+    // the box goes down behind it.
+    const past = await draftStop(p, "deadline", "TAB to resolve and walk off the dates");
+    const kept = (past.cells.find(([k]) => k === "deadline") || [])[1];
+    assert(kept === STAMP,
+      `the walk folded ${JSON.stringify(kept)} into the DEADLINE cell`);
+
+    await p.press("RET");
+    const landed = await landedRow(p, "zqtabbed", "the capture to reach the store");
+    const posts = await postsSeen(p);
+    assert(posts.length === 1 && posts[0].name === "capture",
+      `the draft posted ${JSON.stringify(posts.map((x) => x.name))}`);
+    assert(JSON.stringify(posts[0].args.planning) === JSON.stringify([["DEADLINE", STAMP]]),
+      `the capture carried ${JSON.stringify(posts[0].args.planning)} rather than the stamp`);
+    const org = await fileSays(p, landed, /^DEADLINE: /m,
+                               "the captured entry to carry its planning line");
+    assert(org.indexOf(`DEADLINE: ${STAMP}`) !== -1,
+      `the entry reads ${JSON.stringify(org.split("\n").slice(0, 3))}`);
+    return [`TAB resolved the draft's DEADLINE stop to ${JSON.stringify(kept)}, the capture `
+      + `carried ${JSON.stringify(posts[0].args.planning)} and the blob took it verbatim`];
   } },
 
 // STAGE 4, AND F's PREMISE.  The capture-in-table spike measured a landed capture

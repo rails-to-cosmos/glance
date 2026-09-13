@@ -5404,7 +5404,9 @@ sheetNotes =
          \ untouched keeps what it held.  A DATE STOP OPENS THE DATE BOX over that cell\
          \ instead of the in-cell input (`openDateBox'), and the ring is one ring either\
          \ way: `TAB' there takes the OFFER that stands, and with none -- or once it has\
-         \ been taken -- folds the phrase into the cell and walks on, `S-TAB' walks back,\
+         \ been taken -- RESOLVES the phrase to its stamp and folds THAT into the cell on\
+         \ the way on, so the cell shows the concrete day and `capture''s `planning'\
+         \ carries the stamp; `S-TAB' walks back and resolves nothing,\
          \ `RET' commits the WHOLE capture and `ESC' drops the draft.  `ESC' from an\
          \ ordinary cell drops the draft and leaves the CLOSE to the widget, whose own\
          \ reading of that key is exactly that, and whose own `deleteRow' drops the editor\
@@ -5447,7 +5449,12 @@ sheetNotes =
          \ reader's day ONCE at that moment and spending it on INK: the ghost and the\
          \ offers are the pane's own, silence and all.  `S-<arrows>' write the stepped\
          \ STAMP into the field,\
-         \ ±1d and ±7d, so what the reader sees is what travels.  `RET' posts the FIELD'S\
+         \ ±1d and ±7d, and `TAB' with no offer left to take writes the GHOST'S OWN\
+         \ READING there -- one order, offer then resolve, the ink falling silent behind\
+         \ it because the field IS its answer now, and a phrase no reading takes left\
+         \ alone since the `✗' is already said -- so what the reader sees is what travels.\
+         \  A CELL HAS NO RING, so the resolve is the whole press and the box stays.\
+         \  `RET' posts the FIELD'S\
          \ OWN BYTES as `{keyword, date}' and an emptied field posts `null' -- `\"\"' is no\
          \ date and would meet the wall's 400 rather than clear the entry -- while a phrase\
          \ no reading takes REFUSES IN PLACE, the box standing, the ghost wearing the\

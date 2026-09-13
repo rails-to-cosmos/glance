@@ -90,12 +90,14 @@
     /** THE THREE KEYS A DRAFT'S DATE STOP ANSWERS, which are not the three a
      * landed row's cell answers: nothing is SET here, the whole row being
      * captured or never having been. */
-    const DRAFT_DATE_FOOT = "RET captures · TAB walks on · ESC drops the draft";
+    const DRAFT_DATE_FOOT =
+      "RET captures · TAB resolves and walks on · ESC drops the draft";
     /** THE DRAFT'S DATE STOP.  `RET' commits the WHOLE capture (a draft has no id
      * and no span for a per-cell verb to name), `TAB' takes the offer that stands
-     * and else walks on, and `ESC' drops the draft the way it does from every
-     * other cell.  The phrase is folded into the row before either leaves, the
-     * walk accumulating and posting nothing. */
+     * and else RESOLVES the phrase and walks on at the same press, and `ESC'
+     * drops the draft the way it does from every other cell.  What the field
+     * holds is folded into the row before either leaves -- the stamp, where the
+     * walk resolved one -- the walk accumulating and posting nothing. */
     function openDraftDate(key) {
       const at = colAt(key);
       // ASKED BEFORE THE CLOSE: a renderer that cannot answer where a cell is

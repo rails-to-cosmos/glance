@@ -597,3 +597,34 @@ and the =tr.tv-strip= row were built for the date cell's reading and lost with
 it — a date is edited in the document's own box laid over the cell, so no
 standing row's cell opens an editor at all.  Nothing above was ever upstreamed,
 so they are gone rather than deprecated.
+
+* DONE TAB resolves the phrase in the date widget
+User call (2026-09-13).  `TAB' inside the date box reads in ONE ORDER, and the
+box's other keys are untouched: (1) an offer standing in the menu is taken,
+exactly as it was; (2) with none left to take, a field that READS as a date is
+rewritten to that reading's stamp -- the ghost's own ink, written where the
+reader can edit it -- caret behind it, the ghost then silent because the field
+is its own answer; (3) a field no reading takes is left alone, the =✗= already
+said.  =S-TAB= is the walk back alone.
+
+The surfaces split on the RING and nothing else: the pane's slot and a standing
+row's cell have none, so the resolve is the whole press and the box stays; the
+draft's date stop resolves AND walks on at the same press, so the cell shows the
+concrete day and =capture='s =planning= carries that stamp -- no second =TAB=.
+
+THE WIRE LAW IS UNTOUCHED (docs/invariants.md, "the phrase travels; the ghost is
+ink"): =RET= still sends the field's own bytes, which after a =TAB= are a stamp
+the server parses as a stamp.  The reading reaches the wire only through a key
+the reader pressed and can see the answer of -- which is what =S-<arrow>='s step
+has always done.
+
+Code: =dateWrote= / =dateStepInto= / =dateResolveInto= in =15-dates.js:341-354=
+(the step folded onto the shared writer), =dateTab= in =20-sheet.js:1105=.
+Tests: shell =TAB resolves a readable phrase to its stamp and the ghost falls
+silent=, =TAB on an unreadable phrase changes nothing=, =TAB with an offer
+standing still takes the offer= (=TestServe.hs:5295=, =:5319=, =:5331=);
+browser =TAB in a cell's date box resolves the phrase in place= (=:5561=) and
+=a TAB-resolved draft stop captures the stamp it shows= (=:6011=), with the
+draft's walk case now asserting the resolved stamp.  The shell helper =stepsTo=
+was renamed =boxAfter=, its name having said "step" for a reading that is the
+box's after any script.

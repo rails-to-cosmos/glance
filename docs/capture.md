@@ -26,8 +26,10 @@ The ring is **every cell the draft owns that this view draws**, the two dates
 among them: `title → scheduled → deadline → tag → state → priority` in the
 shipped column order. A date stop opens the material document's own date box
 over that cell, so the phrase reads back in its ghost and completes from its
-offers; `TAB` there takes the offer that stands and else folds the phrase in and
-walks on.
+offers; `TAB` there takes the offer that stands, and with none left to take
+resolves the phrase to its stamp and walks on at the same press — so the cell
+shows the concrete day and `capture`'s `planning` carries that stamp. `S-TAB`
+walks back alone.
 
 Three laws hold it:
 

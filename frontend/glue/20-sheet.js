@@ -1096,12 +1096,20 @@
       const typed = datePassed(b, el("dwhen").value, editDay(), readsWhen);
       if (typed !== null) edit.row.onCommit(typed, b);
     }
-    /** `TAB' INSIDE THE BOX: the offer first, then the surface's own ring.  A box
-     * with no ring swallows the key, which is where the pane's has always left it. */
+    /** `TAB' INSIDE THE BOX, IN ONE ORDER: the offer that stands, else the phrase
+     * RESOLVED in place, and then the surface's own ring.  A box with no ring
+     * keeps the reader, which is where the pane's has always left them, so over
+     * the pane and a standing row's cell the resolve is the whole press; the
+     * draft's stop resolves AND walks on at one press, the cell it leaves
+     * holding the stamp.  `S-TAB' is the walk back alone and resolves nothing. */
     function dateTab(step) {
-      if (step > 0 && menuTake(wmenu, "dwhen", dateMoved)) return;
+      const f = el("dwhen");
+      if (step > 0) {
+        if (menuTake(wmenu, "dwhen", dateMoved)) return;
+        if (dateResolveInto(f, readsWhen(f.value.trim()))) dateMoved();
+      }
       const walk = edit.row.onWalk;
-      if (walk) walk(step, el("dwhen").value.trim());
+      if (walk) walk(step, f.value.trim());
     }
     /** `ESC' OVER A BOX THAT IS NOBODY'S SHEET: the box down first, so whatever
      * the open hands back to finds nothing standing over it. */
