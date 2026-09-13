@@ -280,19 +280,23 @@ nothing catches it.
   standing INSIDE a coarser one is drawn on the colour already behind it unless
   the coarser lifts. Both lifts spell the same `background-color:transparent` on
   the OUTER ground: the pane wears `tight` while a box stands inside its row
-  (`page.css:772`, `20-sheet.js:492`), and the planning line drops its wash
-  while an entry is picked (`page.css:897`). Dropping either lift, or
+  (`page.css:809`, `20-sheet.js:455`), and the planning line drops its wash
+  while an entry is picked (`page.css:922`). Dropping either lift, or
   adding a third gold one grain finer without one, leaves the wash set, focused
   and invisible — a state only PIXELS see, which is why the entry's case counts
-  them (`cases.mjs:4026`, `:4460`) rather than reading a class. **A RING IS FREE
+  them (`cases.mjs:4185`, `:4624`) rather than reading a class. **A RING IS FREE
   OF THIS,** writing no background slot at all: the table's cell cursor is
-  `box-shadow:inset 0 0 0 1px var(--tv-col)` over `background:transparent`
-  (`table-view.js:1890`), so it cannot stack with the cursor row's gold, the
+  `box-shadow:inset 0 0 0 1px var(--tv-point)` over `background:transparent`
+  (`table-view.js:1887`), so it cannot stack with the cursor row's gold, the
   mark, the flag or the zebra and needs no contrast budget from the ground under
-  it. The third ground it replaced was legal only because it was a different HUE
-  over a different element, which is why dark had to hold it at 9% — one point
+  it. `--tv-point` is `--g-point`, the page's own point ink, so the table's
+  finest cursor and the document's are ONE colour; the rows under it draw no
+  column band at all, the header's wash being the only locator. The third ground
+  it replaced was legal only because it was a different HUE over a different
+  element, which is why dark had to hold it at 9% — one point
   more put the tag ink under 4.5:1 on the cursor row. The case that pins it reads
-  the computed ground and the shadow in both themes
+  the computed ground, the shadow against the token, and the neighbours down the
+  column, in both themes
   (`cases.mjs`, *the selected cell is a ring and writes no ground of its own*).
   *fragility: medium*
 

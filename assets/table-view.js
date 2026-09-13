@@ -1112,6 +1112,8 @@
     const COL = "#FFF3D0";
     const LINK_LIGHT = "#30739B";
     const LINK_DARK = "#7CC9F8";
+    const POINT_LIGHT = "#005A8D";
+    const POINT_DARK = "#FFC777";
     const css = `
 /* Both palettes are the author's Emacs theme, mapped role for role from its
    default faces for dark, its light-* block for light. Three values are
@@ -1144,6 +1146,7 @@
   --tv-border:#E3E6EA;
   --tv-accent:#31769F;
   --tv-sel:#FFD600;
+  --tv-point:${POINT_LIGHT};
   --tv-hover:#FAFAFA;
   --tv-link:${LINK_LIGHT};
   --tv-frost:${FROST};
@@ -1180,6 +1183,7 @@
     --tv-border:#2a2d3d;
     --tv-accent:#4CB5F5;
     --tv-sel:#373D4F;
+    --tv-point:${POINT_DARK};
     --tv-link:${LINK_DARK};
     --tv-hover:#1F1F1F;
     --tv-veil:#00000099;
@@ -1201,6 +1205,7 @@
   --tv-border:#2a2d3d;
   --tv-accent:#4CB5F5;
   --tv-sel:#373D4F;
+  --tv-point:${POINT_DARK};
   --tv-link:${LINK_DARK};
   --tv-hover:#1F1F1F;
   --tv-veil:#00000099;
@@ -1221,6 +1226,7 @@
   --tv-border:#E3E6EA;
   --tv-accent:#31769F;
   --tv-sel:#FFD600;
+  --tv-point:${POINT_LIGHT};
   --tv-hover:#FAFAFA;
   --tv-link:${LINK_LIGHT};
   --tv-veil:#00000066;
@@ -1856,38 +1862,29 @@
 .tv-calm .tv-table tbody tr,.tv-calm .tv-table tbody td{
   transition:none;
 }
-/* A cell selection draws a BAND and a RING: the column is a ground, the cell
-   inside it is a 1px inset ring and no ground at all. The band is a wash of the
-   amber over whatever the ROW painted — the row states write the tr and this
-   writes the td, which the table paints above it, so the two never contest a
-   slot, and the film being translucent is what leaves the zebra, the mark, the
-   flag and the cursor all still reading through it, quieter inside the band
-   than out.
+/* THE CURSOR IS A ROW AND A CELL WITHIN IT, and the rows carry nothing else.
+   The cell is a 1px inset ring in --tv-point — the page's own point ink,
+   #005A8D light and #FFC777 dark — over no ground at all: no radius, no
+   border, the cell's own rect. The body draws no column band; tv-colsel is
+   still stamped on every body cell of the column for tests and callers and
+   dresses nothing.
 
-   The header is the same wash mixed into the page's ground rather than laid
-   over it — the same colour, arrived at opaquely, because the header is sticky
-   and rows scroll under it.
+   THE HEADER'S WASH IS THE COLUMN LOCATOR off the row: the amber mixed into
+   the page's ground rather than laid over it, arrived at opaquely because the
+   header is sticky and rows scroll under it. Its strength is measured against
+   the grounds it can land on, a locator staying quieter than a state.
 
    THE CELL WRITES NO BACKGROUND SLOT, which is what makes it free of
    "one gold at a time" (docs/invariants.md): a ring cannot stack with the
    cursor row's gold, with the mark, flag or zebra washes, and it needs no
    contrast budget from the ground under it. The ground-on-ground cell this
    replaced had to be held at 9% in dark — one point more put the tag ink under
-   4.5:1 on the cursor row — and the ring has no such ceiling. --tv-col is the
-   band's own hue at full strength, so the pair is one colour rather than two.
-
-   The band's strength is measured against the grounds it can land on — the
-   page, the stripe, a mark and a flag — the band moving a ground between half
-   and nine tenths as far as a mark moves the page, a locator staying quieter
-   than a state. */
+   4.5:1 on the cursor row — and the ring has no such ceiling. */
 .tv-table th.tv-colsel{
   background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),var(--tv-bg));
 }
-.tv-table tbody td.tv-colsel{
-  background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),transparent);
-}
 .tv-table tbody td.tv-cell-sel{
-  box-shadow:inset 0 0 0 1px var(--tv-col);
+  box-shadow:inset 0 0 0 1px var(--tv-point);
   background:transparent;
 }
 /* WHAT A LINK LOOKS LIKE, spelled once for the two places one is drawn: the

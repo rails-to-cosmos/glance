@@ -85,6 +85,9 @@ tableTokens p =
   , ("--tv-border",    pBorder p)
   , ("--tv-accent",    pAccent p)
   , ("--tv-sel",       pSelection p)
+  -- The cell cursor's RING is the page's point ink, so the table's finest
+  -- cursor and the doc's are one colour.
+  , ("--tv-point",     pPoint p)
   , ("--tv-hover",     pHover p)
   , ("--tv-link",      pLink p)
   , ("--tv-frost",     pFrost p)
