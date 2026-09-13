@@ -219,7 +219,13 @@ into a directory it has just armed).
 
 An **untagged** capture appends to the inbox and mints nothing: no id, no
 tag, no ledger line. It takes the blob path's drawer splice and nothing else,
-so the creation stamp joins whatever drawer the entry already carries.
+so the creation stamp joins whatever drawer the entry already carries. A write
+that leaves a **tag run** on such a row files it late — `add-tag`, a `set-title`
+spelling `:tag:` or a `rename-tag` alike, the rule being the inbox write's
+rather than one verb's: the subtree leaves the inbox and lands as a blob under
+the run's first tag, id minted and ledger noted, exactly as a tagged capture
+would have. The jot's own creation stamp rides along; only the id is the
+store's to hand out (see `add-tag` in [commands.md](commands.md)).
 
 ## What Emacs sees
 

@@ -2698,6 +2698,22 @@ blobCases =
     , [ "* milk :book:web:", ":PROPERTIES:", ":ORG_GLANCE_ID: i-1"
       , ":ORG_GLANCE_CREATION_TIME: [s]", ":END:" ] )
 
+    -- THE ID IS THE STORE'S TO HAND OUT: the blob's path, the answer and the
+    -- row's identity name one id, so a drawer claiming one is rewritten.
+  , ( "a drawer spelling an id of its own gets the minted one"
+    , "one id line, and it is the store's"
+    , "* milk\n:PROPERTIES:\n:ORG_GLANCE_ID: fake\n:AUTHOR: X\n:END:\n"
+    , [ "* milk :book:", ":PROPERTIES:", ":ORG_GLANCE_ID: i-1"
+      , ":ORG_GLANCE_CREATION_TIME: [s]", ":AUTHOR: X", ":END:" ] )
+
+    -- THE STAMP IS THE ENTRY'S OWN: a row moved out of the inbox keeps the one
+    -- its jot was written with, a second line making the value a reader's choice.
+  , ( "a creation stamp the drawer already spells is left alone"
+    , "one stamp, and it is the entry's"
+    , "* milk\n:PROPERTIES:\n:ORG_GLANCE_CREATION_TIME: [older]\n:END:\n"
+    , [ "* milk :book:", ":PROPERTIES:", ":ORG_GLANCE_ID: i-1"
+      , ":ORG_GLANCE_CREATION_TIME: [older]", ":END:" ] )
+
     -- Spliced between the headline and its @SCHEDULED:@, the planning line becomes body text.
   , ( "a template with a planning line keeps it under the title"
     , "planning first, drawer second", "* milk\nSCHEDULED: <2026-08-10 Mon>\n"

@@ -211,7 +211,9 @@ writeTools =
       , ("body", str "the draft's body text")
       , ("tag", str "file under this org-glance kind rather than the inbox")
       ] []
-  , writeTool "set-title" "Rename a headline."
+  , writeTool "set-title"
+      "Rename a headline. A title spelling :tag: reparses as a tag run, so on an\
+      \ inbox row it files the headline the way add-tag does."
       [idProp, ("title", str "the new title")] ["id", "title"]
   , writeTool "set-state" "Set (or clear) a headline's TODO keyword."
       [idProp, ("keyword", strOrNull "a TODO keyword, e.g. DONE; null clears it")] ["id"]
@@ -221,7 +223,12 @@ writeTools =
       [idProp, ("keyword", str "SCHEDULED, DEADLINE, or CLOSED")
       , ("date", strOrNull "a date like 2026-09-08 or +3d; null takes the entry off")]
       ["id", "keyword"]
-  , writeTool "add-tag" "Add a tag to a headline."
+    -- A TAG RUN FILES AN INBOX ROW, so the id in the answer may differ from the
+    -- id asked for; a caller stepping its own model off this needs to be told.
+  , writeTool "add-tag"
+      "Add a tag to a headline. A tag run gained by an inbox row FILES it: the\
+      \ headline leaves inbox.org for a blob under that tag's layer, and the\
+      \ result answers under a newly minted id, with \"from\" naming the id asked for."
       [idProp, ("tag", str "the tag, e.g. work")] ["id", "tag"]
   , writeTool "remove-tag" "Remove a tag from a headline."
       [idProp, ("tag", str "the tag to remove")] ["id", "tag"]

@@ -34,9 +34,9 @@ argument wall and its own splice.
 | --- | --- | --- |
 | `set-state` | `{keyword}`, null clears | the keyword span. A repeater task answers a done-keyword by **shifting its date** instead, org's own repeat, and records the turn in `:LOGBOOK:` — the one command that records anything |
 | `set-priority` | `{priority}`, null clears | org's `[#A]` token |
-| `set-title` | `{title}` | the title span alone |
+| `set-title` | `{title}` | the title span alone. A title spelling `:tag:` reparses as a run, so on an inbox row it is a move like `add-tag`'s |
 | `set-planning` | `{keyword, date}`, null date clears | one planning entry — `SCHEDULED`, `DEADLINE` or `CLOSED`; the first two read the grammar below, `CLOSED` takes org's own bracket **verbatim or not at all** |
-| `add-tag` / `remove-tag` | `{tag}` | the tag on / off the headline |
+| `add-tag` / `remove-tag` | `{tag}` | the tag on / off the headline. **A tag run gained by an inbox row is a move** — the rule is the inbox write's, so `set-title` and `rename-tag` grow it too: a top-level, id-less row of `<root>/inbox.org` whose *edited* title line wears a run is composed as a blob under the run's first tag — minted id, the row's own creation stamp kept, the whole subtree — written first, and only then spliced out of the inbox, so a failure between the two leaves a duplicate and never a loss. The answer names the id the row **arrives** under and `from` the id it left. A row already carrying an `ORG_GLANCE_ID`, a tree with no store and every row outside the inbox keep the in-place edit; a child headline is no row of its own and rides the subtree its parent takes; `remove-tag` of the last tag leaves no run, so it does not move it back |
 | `rename-tag` | `{from, to}` | both spellings, one write per file |
 | `archive` | `{}` | `add-tag ARCHIVE`; idempotent |
 | `capture` | `{title, tag?, state?, priority?, tags?, planning?, properties?, body?}`, or the older `{text, tag?, fields?}` | a headline in the inbox, or a minted store blob — the whole flow is [capture.md](capture.md) |

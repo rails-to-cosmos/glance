@@ -202,3 +202,12 @@ disagree on the tag key (=tags= against =tag=), and no test names them together.
 git cases can only read the warned =⚠= and a hover text saying =no upstream=; a
 bare origin cloned beside it would let a case read =✓=, =↑=, =↓= and the
 =tracking origin/main= half of the title for real.
+
+* DONE A tag on an inbox jot files it under that tag's layer
+See [[file:bugs/fixed/2026-09-12-a-tag-on-an-inbox-headline-leaves-it-in-the-inbox.md]].
+THE SPROUT IS A RULE OF THE INBOX WRITE rather than of one verb: =planCommand=
+(=Commands.hs:593=) asks =sprouted= (=:360=) once a row's edits are known, and a
+top-level, id-less inbox row whose EDITED title line wears a run leaves.
+=set-title= with a =:tag:= run inherits it, the run read back off the composed
+line by =editedEntry= (=Query.hs:987=); =writeOne= (=:561=) lands each blob
+BEFORE the inbox cut, which rides the inbox's one per-file write.

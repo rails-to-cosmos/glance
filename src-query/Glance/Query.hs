@@ -89,6 +89,7 @@ module Glance.Query ( BlobSeed (..)
                     , draftTemplate
                     , addLinkEdits
                     , editLinkEdits
+                    , editedEntry
                     , keywordText
                     , monthWords
                     , expandTemplate
@@ -978,6 +979,22 @@ sortedForView records =
 -- | R's outline extent cut out of DOC — read by path and pinned ('pinnedDocument'), since a record keeps none of it.
 subtreeText :: Text -> HeadlineRecord -> Text
 subtreeText doc r = sliceSpan doc (hrSubtree r)
+
+-- | R's subtree in DOC as EDITS leave it, and the tags its headline then wears.
+-- THE RUN IS READ BACK off the composed line, which is the only reading that
+-- tells @add-tag@'s run apart from one @set-title@ spelled inside a title.
+-- 'Nothing' where the edits do not splice; EDITS are spanned in DOC.
+editedEntry :: Text -> [(Span, Text)] -> HeadlineRecord -> Maybe (Text, [Text])
+editedEntry doc edits r = case Edit.applyEdits (subtreeText doc r) rebased of
+  Left _refused -> Nothing
+  Right entry   -> Just (entry, tagsOfCell (runIn entry))
+  where
+    rebased = [ Edit.Edit (shiftSpan (negate (spanStart (hrSubtree r))) sp) new
+              | (sp, new) <- edits ]
+    runIn entry = case firstHeadlineOf elems of
+        Just h  -> maybe "" (sliceSpan entry) (hsTags (spans h))
+        Nothing -> ""
+      where (elems, _ctx, _err) = orgParse defaultContext entry
 
 data SubtreeEntry = SubtreeEntry
   { seLevel  :: !Int             -- ^ org's outline level; the row's own is 1.
@@ -2284,7 +2301,23 @@ stampedEntry eol pairs tag given = case firstHeadlineOf elems of
     spliced hs = either (Left . refused) (Right . untrailed)
                         (Edit.applyEdits entry [ Edit.Edit sp new | (sp, new) <- edits hs ])
     edits hs = concat [ addTagEditsIn (cellOf (hsTags hs)) t hs | Just t <- [tag] ]
-                 <> [ drawerInsertEdit entry eol pairs hs ]
+                 <> [ drawerInsertEdit entry eol (owed hs) hs | not (null (owed hs)) ]
+                 <> [ (sp, "") | sp <- claimed hs ]
+    -- THE CREATION STAMP THE DRAWER ALREADY SPELLS IS LEFT ALONE: a second line
+    -- of one key makes its value depend on which of the two a reader takes, and
+    -- a row MOVED out of the inbox carries the stamp its jot was written with.
+    owed hs = [ p | p@(key, _v) <- pairs, T.toCaseFold key `notElem` kept hs ]
+    kept hs = [ T.toCaseFold key | (key, _value) <- drawerPairs entry (hsProperties hs)
+                                 , T.toCaseFold key `notElem` minted ]
+    -- THE ID IS THE STORE'S TO HAND OUT: a template claiming one has that line
+    -- CUT and the minted id written at the drawer's head, so the blob's path,
+    -- the answer and the row's identity name one id.
+    minted = [ T.toCaseFold key | (key, _v) <- pairs, key == headlineIdProperty ]
+    claimed hs = [ sp | (sp, raw) <- drawerLines hs
+                 , T.toCaseFold (fst (propertyOf raw)) `elem` minted ]
+    drawerLines hs = [ (shiftSpan (spanStart sp) lsp, raw)
+                     | Just sp <- [hsProperties hs]
+                     , (lsp, raw) <- lineSpansIn (sliceSpan entry sp) ]
     refused err = "this capture template does not splice: " <> T.pack (show err)
     cellOf = maybe "" (sliceSpan entry)
 

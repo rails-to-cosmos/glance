@@ -2045,6 +2045,8 @@
       const mine = draftWrote(name, ids, args);
       return (mine || postCommand({ name, ids, args, digests: pin })).then((answer) => {
         const results = answer.results || [];
+        const left = results.find((x) => x.ok && x.from);
+        if (left) arriving = left.id;
         // The store lags this write, so the per-id 200's digest re-pins the sheet.
         if (editing) {
           const held = results.find((x) => x.ok && x.id === editing.id && x.digest);
@@ -2058,17 +2060,23 @@
         for (const x of results)
           if (x.ok) {
             if (mine) append("cmd", "info", `${CAPTURE_WORD} ${what}`);
-            else noted(x.id, what);
+            else noted(x.from || x.id, what);
           }
+        // NAMED BY THE ID THE REQUEST ASKED FOR, as `noted' and `unmark' are:
+        // a move's `id' is the one it arrives at, which no reader has seen.
         if (bad.length)
-          append("cmd", "error", bad.map((x) => `${x.id}: ${x.error}`).join(" · "));
+          append("cmd", "error",
+                 bad.map((x) => `${x.from || x.id}: ${x.error}`).join(" · "));
         return results;
       }).catch(failed(b, name));
     }
     // An archived row SPENDS its mark, or it stays marked invisibly behind the filter.
     function unmark(results) {
-      for (const x of results || [])
-        if (x.ok && isMarked(x.id)) table.toggleMark(x.id);
+      for (const x of results || []) {
+        // THE MARK IS ON THE ROW THAT WAS NAMED, which a move leaves behind.
+        const id = x.from || x.id;
+        if (x.ok && isMarked(id)) table.toggleMark(id);
+      }
     }
     // Taken at FIRE time: once the rows have gone, a later read cannot see the gap.
     function anchorFor(ids) {

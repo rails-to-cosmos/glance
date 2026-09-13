@@ -4730,6 +4730,73 @@ export default [
       + `${landed}, point on it: ${sel}`];
   } },
 
+// THE FIRST TAG NAMES A DESTINATION, and the row it names is where point goes.
+// REPORTED: `:' `+' `book' RET over a jot rewrote the title line and nothing
+// else -- the headline stayed in `inbox.org' under its path id, minting no
+// identity and noting no ledger line.  See
+// docs/bugs/fixed/2026-09-12-a-tag-on-an-inbox-headline-leaves-it-in-the-inbox.md.
+// EVERY READING IS A DIFFERENCE: a retry re-seeds OVER the tree rather than
+// replacing it, so this run's own blob is the one `tag:book' gained.
+{ name: "a tag on an inbox jot moves it, and point follows",
+  async run(p, base) {
+    const TITLE = "docsjot";
+    await draftOver(p, base, "");
+    await p.type(TITLE);
+    await p.press("RET");
+    const jot = await p.until((title) => {
+      const tr = [...document.querySelectorAll("#app tbody tr")]
+        .find((r) => r.dataset.id.indexOf("inbox.org#") !== -1
+                  && new RegExp(title).test(r.textContent));
+      return tr ? tr.dataset.id : false;
+    }, "the jot to reach the table out of the inbox", 20000, TITLE);
+    // READ BEFORE THE WRITE: the jot wears no tag, so this is what `tag:book'
+    // held without it, and the difference after is this run's own blob.
+    const known = await idsUnder(p, "tag:book");
+    await p.until((id) => {
+      const tr = document.querySelector("#app tr.tv-sel");
+      return tr && tr.dataset.id === id;
+    }, "point to land on the jot", 20000, jot);
+
+    await p.press(":");
+    await p.until(() => document.getElementById("tags").classList.contains("on"),
+                  "the tags popup to open over the jot");
+    await p.press("+");
+    await p.until(() => document.getElementById("pbox").classList.contains("narrow"),
+                  "the add-a-tag field to raise over the popup");
+    await p.type("book");
+    await p.press("RET");
+
+    // THE STORE IS ASKED, not the table: where a row lives is a fact about the
+    // tree, and the tag the fixture never held is what this write added to it.
+    const gained = await p.until(async (held) => {
+      const r = await fetch(`/headlines?limit=500&q=${encodeURIComponent("tag:book")}`);
+      const j = await r.json();
+      const fresh = ((j.view && j.view.rows) || j.rows || [])
+        .map((x) => x.id).filter((id) => held.indexOf(id) === -1);
+      return fresh.length ? fresh : false;
+    }, "the tagged row to reach the store", 20000, known);
+    assert(gained.length === 1 && /^[0-9a-f-]{36}$/.test(gained[0]),
+      `tag:book gained ${JSON.stringify(gained)} rather than one minted uuid`);
+    const ident = gained[0];
+    const named = await idsUnder(p, TITLE);
+    assert(named.indexOf(ident) !== -1
+             && named.every((id) => id.indexOf("inbox.org#") === -1),
+      `the jot is still served out of the inbox: ${JSON.stringify(named)}`);
+    const org = await p.eval(async (id) =>
+      (await (await fetch(`/headline?id=${encodeURIComponent(id)}`)).json()).org, ident);
+    assert(new RegExp(`^\\* ${TITLE} :book:`).test(org),
+      `the moved subtree reads ${JSON.stringify(org)}`);
+    assert(org.indexOf(`:ORG_GLANCE_ID: ${ident}`) !== -1,
+      `the blob does not spell the id it is served under: ${JSON.stringify(org)}`);
+    assert((org.match(/:ORG_GLANCE_CREATION_TIME:/g) || []).length === 1,
+      `the blob wears two creation stamps: ${JSON.stringify(org)}`);
+    const sel = await p.until((id) => {
+      const tr = document.querySelector("#app tr.tv-sel");
+      return tr && tr.dataset.id === id;
+    }, "point to follow the row to its new id", 20000, ident);
+    return [`${jot} left the inbox as ${ident}, point on it: ${sel}`];
+  } },
+
 // A CAPTURE IS COMMITTED OR IT NEVER WAS.  No file is created when the draft
 // opens, so there is nothing for ESC to undo: the born-at-open memory is
 // trivially empty, and this is what proves it against a real store.

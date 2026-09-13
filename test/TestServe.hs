@@ -18,10 +18,11 @@ import GHC.Clock (getMonotonicTime)
 import Network.HTTP.Types (methodDelete, methodPost, renderQuery)
 import Network.Wai (Application, defaultRequest, requestMethod)
 import Network.Wai.Test (SResponse (simpleBody), request, runSession, setPath)
-import System.Directory ( createDirectoryIfMissing, doesDirectoryExist, doesFileExist
-                        , findExecutable, getTemporaryDirectory, listDirectory
-                        , removeDirectoryRecursive, removeFile, renameDirectory
-                        , renameFile )
+import System.Directory ( Permissions (writable), createDirectoryIfMissing
+                        , doesDirectoryExist, doesFileExist
+                        , findExecutable, getPermissions, getTemporaryDirectory
+                        , listDirectory, removeDirectoryRecursive, removeFile
+                        , renameDirectory, renameFile, setPermissions )
 import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hPutStrLn, stderr)
@@ -6985,8 +6986,12 @@ shellGlue =
       [ "for (const r of ttargets) for (const t of r.tags)"
       , "if (seen.indexOf(t) === -1) seen.push(t);"
       -- `/command' never writes the store, so a re-read here would answer with what the files said BEFORE the write.
-      , "const landedIds = (results) =>"
-      , "new Set((results || []).filter((x) => x.ok).map((x) => x.id));" ]
+      , "const okRows = (results) => (results || []).filter((x) => x.ok);"
+      -- BOTH ENDS OF A MOVE: a row the tag carried out of the inbox answers
+      -- under the id it ARRIVES at, and this list is read against the id it
+      -- left.  A COUNT IS OF ROWS, one row answering under two.
+      , "new Set(okRows(results).flatMap((x) => (x.from ? [x.from, x.id] : [x.id])));"
+      , "apply(landedIds(results), okRows(results).length);" ]
       ["seen.sort(", "tagsOf(over", "tagsOf(prompting", "tagsOf(ttargets"]
 
   -- The tags popup is a MOUNT and a mutable one, with the rename overlay laid over the tag CELL.
@@ -9813,6 +9818,186 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
         assertContains "and the one that lacked it has it" "* Second :one:" here
         assertContains "across the file boundary too" "* TODO Third :one:" =<< document other
 
+    -- A TAG RUN GAINED BY AN INBOX ROW NAMES ITS DESTINATION, the way a tagged
+    -- capture's does: the row leaves `inbox.org' and lands as a blob under that
+    -- layer (docs/bugs/fixed/2026-09-12-a-tag-on-an-inbox-headline-leaves-it-in-the-inbox.md).
+  , testCase "a tag on an inbox jot moves it under the tag's layer" $
+      withInboxJot $ \a hub dir kept rid -> do
+        stamp <- last . stampsIn <$> document (dir </> "inbox.org")
+        v <- onlyResult =<< ok =<< postTo a "/command" (command "add-tag" [rid] (tagArg "book"))
+        ident <- textAt "id" v
+        assertEqual "the answer names the id it ARRIVES under" [8, 4, 4, 4, 12]
+                    (map T.length (T.splitOn "-" ident))
+        assertEqual "and says which id left" rid =<< textAt "from" v
+        blob <- textAt "file" v
+        assertEqual "the blob sits where a tagged capture's does"
+                    (T.pack (blobPathIn (storeRootIn dir) ident)) blob
+        written <- document (T.unpack blob)
+        assertContains "the tag joined the title line" "* read the docs :book:" written
+        assertContains "the id is the drawer's" (":ORG_GLANCE_ID: " <> ident) written
+        -- THE JOT'S OWN STAMP IS KEPT: a second line of one key makes its value
+        -- depend on which of the two a reader takes.
+        assertEqual "one creation stamp, and it is the one the jot was written with"
+                    [stamp] (stampsIn written)
+        assertEqual "and the inbox holds what it held before the jot" kept
+          =<< document (dir </> "inbox.org")
+        noted <- noteLinesIn dir
+        assertEqual "one ledger line" 1 (length noted)
+        assertContains "naming the minted id" ("\"id\":\"" <> ident <> "\"") (head noted)
+        drainNow dir hub
+        assertContains "get-headline answers the new id" "read the docs"
+          =<< textAt "org" =<< decoded =<< ok =<< getFrom a (headlinePath ident)
+        served <- rowsOf =<< getFrom a "/headlines?q=tag%3Abook"
+        assertBool ("tag:book serves it by uuid: " <> show (map rowId served))
+                   (ident `elem` map rowId served)
+
+    -- THE ID IS THE HOME: once a row carries one, a further tag is an ordinary edit.
+  , testCase "a second tag on a moved row stays in place" $
+      withInboxJot $ \a hub dir _kept rid -> do
+        ident <- textAt "id" =<< onlyResult =<< ok
+                   =<< postTo a "/command" (command "add-tag" [rid] (tagArg "book"))
+        drainNow dir hub
+        again <- onlyResult =<< ok =<< postTo a "/command" (command "add-tag" [ident] (tagArg "film"))
+        assertEqual "the row keeps the id it earned" ident =<< textAt "id" again
+        blobs <- blobsIn dir
+        assertEqual "and no second blob was minted" 1 (length blobs)
+        assertContains "both tags on the one headline" "* read the docs :book:film:"
+          =<< document (head blobs)
+
+  , testCase "a tag on a blob row stays in place" $ withStoreTree $ \a hub dir -> do
+        ident <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" dune
+        drainNow dir hub
+        v <- onlyResult =<< ok =<< postTo a "/command" (command "add-tag" [ident] (tagArg "film"))
+        assertEqual "the id it always had" ident =<< textAt "id" v
+        assertEqual "and no second blob" 1 . length =<< blobsIn dir
+
+    -- THE MOVE IS ONE WAY: the blob is where the row lives now.
+  , testCase "remove-tag of the last tag does not move it back" $
+      withInboxJot $ \a hub dir _kept rid -> do
+        ident <- textAt "id" =<< onlyResult =<< ok
+                   =<< postTo a "/command" (command "add-tag" [rid] (tagArg "book"))
+        drainNow dir hub
+        v <- onlyResult =<< ok =<< postTo a "/command" (command "remove-tag" [ident] (tagArg "book"))
+        assertEqual "the row keeps its id" ident =<< textAt "id" v
+        blob <- head <$> blobsIn dir
+        assertContains "the run went and the blob stands" "* read the docs"
+          =<< document blob
+        inbox <- document (dir </> "inbox.org")
+        assertBool ("the inbox took it back: " <> show inbox)
+                   (not ("read the docs" `T.isInfixOf` inbox))
+
+    -- NOTHING IS MINTED BEHIND A STALE TAB: the client's own pin is read before
+    -- an id is drawn, not after the blob has landed.
+  , testCase "a stale inbox digest refuses before any byte moves" $
+      withInboxJot $ \a _hub dir _kept rid -> do
+        before <- document (dir </> "inbox.org")
+        r <- ok =<< postTo a "/command"
+               (linkCommand "add-tag" [rid] (tagArg "book") [(rid, T.replicate 64 "0")])
+        assertEqual "refused" [(rid, False)] =<< outcomesOf r
+        assertEqual "the inbox is untouched" before =<< document (dir </> "inbox.org")
+        assertEqual "no blob was minted" [] =<< blobsIn dir
+        assertEqual "and nothing is noted" [] =<< noteLinesIn dir
+
+    -- A BATCH IS PER FILE: two jots of one inbox are two blobs and ONE cut.
+  , testCase "two inbox jots named at once each leave, and the inbox is one write" $
+      withInboxJot $ \a hub dir kept rid -> do
+        second <- textAt "id" =<< decoded =<< ok
+                    =<< postTo a "/command" (capture "and another")
+        drainNow dir hub
+        r <- ok =<< postTo a "/command" (command "add-tag" [rid, second] (tagArg "book"))
+        results <- listAt "results" =<< decoded r
+        assertEqual "both landed" [True, True] =<< traverse (boolAt "ok") results
+        idents <- traverse (textAt "id") results
+        assertEqual "two ids of their own" 2 (length (nub idents))
+        assertEqual "and a blob apiece" 2 . length =<< blobsIn dir
+        onDisk <- digestOnDisk (dir </> "inbox.org")
+        assertEqual "one cut, so one digest, and it is the file's" [onDisk]
+          . nub =<< digestsOf r
+        assertEqual "the inbox holds the jot that stayed, and only it" kept
+          =<< document (dir </> "inbox.org")
+
+    -- THE SPROUT IS A RULE OF THE INBOX WRITE rather than of one verb: the run
+    -- `set-title' spells inside a title is read back off the composed line, and
+    -- it names a destination like any other.
+  , testCase "a title spelling a run moves the jot as a tag does" $
+      withInboxJot $ \a _hub dir kept rid -> do
+        v <- onlyResult =<< ok =<< postTo a "/command"
+               (command "set-title" [rid] (object ["title" .= ("read the docs :book:" :: T.Text)]))
+        ident <- textAt "id" v
+        assertEqual "the answer names the id it ARRIVES under" [8, 4, 4, 4, 12]
+                    (map T.length (T.splitOn "-" ident))
+        assertEqual "and says which id left" rid =<< textAt "from" v
+        blob <- textAt "file" v
+        written <- document (T.unpack blob)
+        assertContains "the run stands on the blob's headline" "* read the docs :book:" written
+        assertContains "under the id it is served by" (":ORG_GLANCE_ID: " <> ident) written
+        assertEqual "and the inbox holds what it held before the jot" kept
+          =<< document (dir </> "inbox.org")
+
+    -- A CHILD IS NO ROW OF ITS OWN ('recordsOf' keeps top entries), so nothing
+    -- names one: it hangs under the row that leaves and rides the whole subtree.
+  , testCase "a child headline in the inbox does not move on its own" $
+      withStoreTree $ \a hub dir -> do
+        let inbox = dir </> "inbox.org"
+        TIO.writeFile inbox "* abovejot\n** belowjot\n"
+        watchStep hub inbox
+        assertEqual "the child is no row" []
+          . map rowId =<< rowsOf =<< getFrom a "/headlines?q=belowjot"
+        rid <- onlyRowId a "abovejot"
+        v <- onlyResult =<< ok =<< postTo a "/command" (command "add-tag" [rid] (tagArg "book"))
+        blob <- document . T.unpack =<< textAt "file" v
+        assertContains "the parent left wearing the tag" "* abovejot :book:" blob
+        assertContains "and the child went with it" "** belowjot" blob
+        assertEqual "so the inbox is empty" "" =<< document inbox
+
+    -- AN ID IS A HOME: the row was filed once and is not filed again.
+  , testCase "an inbox row already carrying an ORG_GLANCE_ID does not move" $
+      withStoreTree $ \a hub dir -> do
+        let inbox = dir </> "inbox.org"
+        TIO.writeFile inbox "* jotted\n:PROPERTIES:\n:ORG_GLANCE_ID: kept\n:END:\n"
+        watchStep hub inbox
+        v <- onlyResult =<< ok =<< postTo a "/command" (command "add-tag" ["kept"] (tagArg "book"))
+        assertEqual "the id it always had" "kept" =<< textAt "id" v
+        assertEqual "no blob was minted" [] =<< blobsIn dir
+        assertContains "and the tag joined it where it stands" "* jotted :book:"
+          =<< document inbox
+
+    -- NOWHERE TO MINT INTO, so the tag goes in place as it always did.
+  , testCase "a tree with no org-glance store keeps the tag in place" $
+      withCaptureTree $ \a hub dir -> do
+        let inbox = dir </> "inbox.org"
+        TIO.writeFile inbox "* homeless\n"
+        watchStep hub inbox
+        rid <- onlyRowId a "homeless"
+        v <- onlyResult =<< ok =<< postTo a "/command" (command "add-tag" [rid] (tagArg "book"))
+        assertEqual "the id it always had" rid =<< textAt "id" v
+        assertEqual "and nothing was minted" [] =<< blobsIn dir
+        assertContains "the tag joined it where it stands" "* homeless :book:"
+          =<< document inbox
+
+    -- BLOB FIRST, CUT SECOND: a failure between the two leaves a DUPLICATE and
+    -- never a loss, and the answer names both ends of it.
+  , testCase "a blob that landed over an inbox that will not give the subtree up says so" $
+      withInboxJot $ \a _hub dir _kept rid -> do
+        perms <- getPermissions dir
+        setPermissions dir perms { writable = False }
+        r <- postTo a "/command" (command "add-tag" [rid] (tagArg "book"))
+               `finally` setPermissions dir perms
+        v <- onlyResult =<< ok r
+        blobs <- blobsIn dir
+        inbox <- document (dir </> "inbox.org")
+        if "read the docs" `T.isInfixOf` inbox && length blobs == 1
+          then do
+            assertEqual "refused" False =<< boolAt "ok" v
+            assertEqual "and it says which id left" rid =<< textAt "from" v
+            why <- textAt "error" v
+            assertContains "naming the file that would not move" "inbox.org" why
+            assertContains "and the blob already written" "stands in both" why
+            assertContains "which holds the subtree too" "read the docs"
+              =<< document (head blobs)
+          else hPutStrLn stderr
+                 "\nSKIPPED - the OS allowed the write (root?): the orphaned answer"
+
   , testCase "a tag no parser reads refuses the request, naming it" $
       withCommandable $ \a _hub path _other -> do
         before <- document path
@@ -9848,6 +10033,40 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
         assertEqual "and the row's search text moved with it" ["second"]
           . map rowId =<< rowsOf =<< getFrom a "/headlines?q=work"
   ]
+
+-- | A store tree whose inbox holds an untagged jot: the shape a tag run turns
+-- into a blob.  K takes the bytes the inbox held BEFORE that jot, so what a move
+-- left behind is measured against them, and the jot's own row id.
+withInboxJot :: (Application -> Hub -> FilePath -> T.Text -> T.Text -> Assertion) -> Assertion
+withInboxJot k = withStoreTree $ \a hub dir -> do
+  _ <- ok =<< postTo a "/command" (capture "a first jot")
+  drainNow dir hub
+  kept <- document (dir </> "inbox.org")
+  rid <- textAt "id" =<< decoded =<< ok =<< postTo a "/command" (capture "read the docs")
+  drainNow dir hub
+  k a hub dir kept rid
+
+-- | TEXT's @ORG_GLANCE_CREATION_TIME@ values, in file order.
+stampsIn :: T.Text -> [T.Text]
+stampsIn text =
+  [ T.strip v | l <- T.lines text
+              , Just v <- [T.stripPrefix ":ORG_GLANCE_CREATION_TIME:" (T.strip l)] ]
+
+-- | The one row Q serves, by id.  A fixture's own title, so one row answers.
+onlyRowId :: Application -> ByteString -> IO T.Text
+onlyRowId a q = do
+  rows <- rowsOf =<< getFrom a ("/headlines?q=" <> q)
+  case map rowId rows of
+    [rid]    -> pure rid
+    _several -> assertFailure ("one row for " <> show q <> ", got " <> show (length rows))
+
+-- | The ONE result a single-id command answers with.
+onlyResult :: SResponse -> IO Value
+onlyResult r = do
+  results <- listAt "results" =<< decoded r
+  case results of
+    [v] -> pure v
+    _several -> assertFailure ("one result, got " <> show (length results))
 
 -- | @rename-tag@: the argument shape, the two walls, and one atomic write over several rows of one file.
 renameCommandSpec :: TestTree

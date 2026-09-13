@@ -122,6 +122,23 @@ nothing catches it.
   it on success leaves the store holding pre-write rows until an inotify event
   that may never come. *fragility: high*
 
+- **A tag RUN gained by an inbox row is a MOVE: blob first, cut second, never a
+  loss.** The sprout is a rule of the inbox WRITE rather than of one verb:
+  `planCommand` decides it once a row's edits are known, so a top-level, id-less
+  row of `captureTargetIn` whose EDITED title line wears a run leaves — `add-tag`,
+  a `set-title` spelling `:tag:` and a `rename-tag` alike. Its subtree is composed
+  as a blob under the run's first tag (`blobDocument`, a minted id, the request's
+  one clock stamp), written under the empty create pin, and only then spliced out
+  of `inbox.org`. `Commands.hs:360`, `:390`, `:406`, `:561`, `:593`,
+  `TestServe.hs:9823`. Cutting first, or writing the two without an order, turns
+  any failure between them into a lost subtree; the duplicate the chosen order
+  leaves is recoverable and is what the refusal names. **The cut is an edit of the
+  inbox's own per-file plan**, so several inbox rows named at once still ride ONE
+  write and the batch rule is untouched. The client's pin is `planCommand`'s own
+  wall and is read before the plan mints anything, so a stale tab draws no uuid;
+  the inbox is read ONCE per request and only where a candidate stands, an
+  ordinary tag write opening no file at all. *fragility: high*
+
 - **A batch is one drift-locked write per FILE, with no rollback across files.**
   A 200 means the command ran, never that every row moved. `Commands.hs:230`,
   `:288`, `:390`. Merging the per-file plans turns a partial failure into a
@@ -135,8 +152,10 @@ nothing catches it.
   them. *fragility: medium*
 
 - **One clock read per request,** taken before any row, and there is ONE
-  spelling of it: `Base.today`. `Base.hs:78`, `Commands.hs:296`, `:299`,
-  `Routes.hs:301`. Per-row reads let a batch spanning midnight land on two
+  spelling of it: `Base.now`, off which `Base.today` derives the day (`dayAt`)
+  and every minted entry — a capture's and a moved jot's alike — takes its
+  creation stamp. `Base.hs:84`, `:88`, `Commands.hs:427`, `:455`, `:475`,
+  `Routes.hs:366`. Per-row reads let a batch spanning midnight land on two
   days. A read taken BELOW a route's revalidation branch is the same fault
   wearing a cache: the store is unchanged, so a `today` query 304s into
   yesterday's rows — which is why the day rides in the ETag unconditionally
@@ -145,7 +164,7 @@ nothing catches it.
   OF WHAT THE DOOR RESOLVES ONCE, before any row: `Asks` spells them in a
   closed word rather than a flag apiece, `add-link`'s target resolving among
   the same rows the ids do, so a refusal there is the whole REQUEST's.
-  `Commands.hs:122`, `:348`, `TestServe.hs:9421`. *fragility: medium*
+  `Commands.hs:126`, `:441`, `TestServe.hs:9421`. *fragility: medium*
 
 - **One edge relation, resolved once per store version.** Every `hrLinks` entry
   resolves through `nameClaims` to the rows claiming that name in that

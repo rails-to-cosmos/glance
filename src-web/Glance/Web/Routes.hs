@@ -23,7 +23,6 @@ import Data.FileEmbed (embedFile, makeRelativeToProject)
 import Language.Haskell.TH (listE)
 import Data.Text (Text)
 import GHC.Clock (getMonotonicTime)
-import qualified Data.Time as Time
 import Network.HTTP.Types ( Header, hCacheControl, hContentType, methodGet, methodHead
                           , methodPost, parseQuery, status200, status304, status400
                           , status404, status405, status409, status500, status503 )
@@ -88,7 +87,7 @@ import Glance.Web.Base ( Day, ServeOptions (..), answerWrite, bodyObject, config
                        , conflict, docCells, glueAsset, gluePartFiles, html, jsonError
                        , elmAsset
                        , jsonResponse, jsonType
-                       , noSuchRow
+                       , dayAt, noSuchRow, now
                        , plain, rendererAsset, reparsed, rewritten, sized, tenths, today
                        , viewTitleFor, walkFor, withBody, writeRefusal )
 import Glance.Web.Commands (runCommand, runCommandRaw)
@@ -206,9 +205,9 @@ httpApp opts hub request respond = route >>= respond
 -- | The 503 a store route gives while the startup walk runs; an empty 200 would be a claim about the tree.
 indexing :: Double -> IO Response
 indexing since = do
-  now <- getMonotonicTime
+  ticked <- getMonotonicTime
   pure . sized status503 [jsonType, ("Retry-After", "1")] . encode
-       $ object ["loading" .= True, "elapsed" .= tenths (now - since)]
+       $ object ["loading" .= True, "elapsed" .= tenths (ticked - since)]
 
 -- | @GET \/status@: LIVENESS is the 200 itself (no store needed), READINESS the @ready@ flag.
 statusView :: ServeOptions -> Hub -> IO Response
@@ -217,8 +216,8 @@ statusView opts hub = do
   load <- readTVarIO (hubLoad hub)
   fields <- case load of
     Loading since -> do
-      now <- getMonotonicTime
-      pure ["ready" .= False, "loading" .= True, "elapsed" .= tenths (now - since)]
+      ticked <- getMonotonicTime
+      pure ["ready" .= False, "loading" .= True, "elapsed" .= tenths (ticked - since)]
     Loaded -> do
       st <- readTVarIO (hubStore hub)
       pure ["ready" .= True, "loading" .= False, "rows" .= length (storeRecords st)]
@@ -816,8 +815,8 @@ captureView :: ServeOptions -> Hub -> Request -> IO Response
 captureView opts hub request = do
   st <- readTVarIO (hubStore hub)
   layers <- layersFor (soDir opts) st
-  -- One read, above the expansion ('Base.today''s rule): template stamps and a lent day name ONE instant.
-  now <- Time.getZonedTime
+  -- One read, above the expansion ('Base.now''s rule): template stamps and a lent day name ONE instant.
+  at <- now
   let cfg = stConfig st
       tag = fromMaybe "" (queryText request "tag")
       -- WHAT THE DRAFT WEARS.  THE DESTINATION LEADS; lent tags follow, each through
@@ -826,12 +825,12 @@ captureView opts hub request = do
       worn = nub ([ T.toLower tag | not (T.null tag) ] <> lent)
       lent = [ T.toLower raw | raw <- inheritedTags request
                              , Right _ <- [tagText raw] ]
-      day = Time.localDay (Time.zonedTimeToLocalTime now)
+      day = dayAt at
       drafted = do
-        (expanded, at) <- draftTemplate now (fromMaybe bareTemplate (captureTemplateIn tag layers))
+        (expanded, opensAt) <- draftTemplate at (fromMaybe bareTemplate (captureTemplateIn tag layers))
         -- The point is read off the EXPANDED doc: seeding edits the headline and planning,
         -- not body lines, so the line index survives the seeding measured before it.
-        opens <- draftPointLine expanded <$> draftRecord cfg expanded <*> pure at
+        opens <- draftPointLine expanded <$> draftRecord cfg expanded <*> pure opensAt
         seeded <- draftSeeded cfg worn (inheritedIn day request) expanded
         r <- draftRecord cfg seeded
         pure (draftJSON st worn seeded r opens)
