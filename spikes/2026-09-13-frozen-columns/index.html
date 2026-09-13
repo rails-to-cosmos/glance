@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frozen columns — when may a column be re-measured?</title>
+<style>
+  /* THE SHELL ONLY.  Each variant is its own page; what they share is `rig.js'
+     and `pane.css' — and, the point of the whole spike, ONE column measure,
+     transcribed out of `assets/table-view.js:2988'ff.  The tabs differ by WHEN
+     THAT MEASURE IS ALLOWED TO RUN and by nothing else. */
+  :root{
+    --mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --bg:#FFFFFF; --fg:#000000; --mute:#667071; --border:#E3E6EA;
+    --accent:#31769F; --surface:#F8F8FF;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --fg:#FFFFFF; --mute:#A4C2EB; --border:#2A2D3D;
+      --accent:#4CB5F5; --surface:#21252B;
+    }
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 var(--mono); display:flex; flex-direction:column;
+  }
+  header{flex:none; border-bottom:1px solid var(--border); background:var(--surface)}
+  h1{margin:0; padding:10px 20px 0; font-size:13px; font-weight:600; letter-spacing:.02em}
+  h1 small{font-weight:400; color:var(--mute); margin-left:8px}
+  nav{display:flex; flex-wrap:wrap; padding:0 20px}
+  nav a{
+    font-size:12px; color:var(--mute); text-decoration:none;
+    border-bottom:2px solid transparent; padding:10px 12px;
+  }
+  nav a:hover{color:var(--fg)}
+  nav a[aria-current="page"]{color:var(--fg); border-bottom-color:var(--accent)}
+  nav a.ref{color:var(--accent)}
+  nav a:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  p.note{
+    margin:0; padding:8px 20px; font-size:11px; color:var(--mute);
+    border-bottom:1px solid var(--border); max-width:110ch;
+  }
+  p.note code,p.note kbd{font-size:11px}
+  iframe{flex:1 1 auto; width:100%; border:0; display:block; min-height:0}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Frozen columns
+      <small>one measure, five policies about when it may run &mdash; and the first of them is what ships</small></h1>
+    <nav id="tabs" aria-label="variants">
+      <a href="#z" class="ref" data-src="0-as-shipped.html">0 &middot; as shipped</a>
+      <a href="#a" data-src="a-clipped-cell.html">A &middot; clipped cell</a>
+      <a href="#b" data-src="b-overlay-cell.html">B &middot; the cell overflows</a>
+      <a href="#c" data-src="c-row-alone.html">C &middot; the row alone</a>
+      <a href="#d" data-src="d-frozen-always.html">D &middot; frozen always</a>
+    </nav>
+  </header>
+  <p class="note" id="note"></p>
+  <iframe id="stage" title="variant"></iframe>
+
+<script>
+(() => {
+  "use strict";
+  // CLICK THE PANE ONCE, THEN PRESS `+'.  A `file://' iframe is an opaque
+  // origin, so the shell's own `contentWindow.focus()' is refused and the
+  // keyboard stays with the shell until the reader clicks in.  Opening a
+  // variant's own page directly needs no click.
+  const K = "<b>Click the pane, then press <kbd>+</kbd>.</b> ";
+  const TAIL = " The footer prints every column's width and how much of what you "
+    + "typed the box is actually showing, so \"it moved\" is a number. "
+    + "<kbd>TAB</kbd> walks the draft, <kbd>RET</kbd> captures, <kbd>ESC</kbd> "
+    + "drops it, <kbd>RET</kbd> on a standing row opens that cell, <kbd>a</kbd> "
+    + "lands a row with a tag run nothing was sized for, and <kbd>g</kbd> draws "
+    + "the header's x-positions over the rows.";
+  const NOTE = {
+    z: "<b>Read this one first.</b> " + K + "This is the widget's own arithmetic "
+     + "untouched &mdash; <code>colWidths</code>, <code>growWidths</code>, "
+     + "<code>applyWidths</code>. Type all you like: under "
+     + "<code>table-layout:fixed</code> nothing moves. Then press <kbd>TAB</kbd> "
+     + "once and watch <b>six equal columns</b>: <code>closeCellEditor</code> "
+     + "runs <code>renderRows(); renderHead();</code> in that order and the "
+     + "colgroup is left bare. Then <kbd>RET</kbd> to capture and watch the tag "
+     + "column take 202px off every title in the table." + TAIL,
+    a: K + "Every column's width is pinned in px at the open &mdash; the fill "
+     + "column among them &mdash; and the editor is the shipped one, filling a "
+     + "cell that cannot grow. Walk to Tags with <kbd>TAB</kbd> and type a long "
+     + "run: the box shows you <b>13 characters of 47</b>. On close the pin lifts "
+     + "and the table re-fits in one jump." + TAIL,
+    b: K + "Same pin, and the input is laid <b>over</b> the cell instead of in "
+     + "it, growing right to its own text the way the date box does. Nothing "
+     + "under it moves; the neighbours in that row are covered while it stands. "
+     + "On the last column it has nowhere to grow and clamps at the window's "
+     + "edge." + TAIL,
+    c: K + "Same pin for every other row. The editing row leaves the grid: its "
+     + "<code>&lt;tr&gt;</code> stays as a spacer and a one-row line is stacked "
+     + "over its slot, each cell taking its own content's width. Press "
+     + "<kbd>g</kbd> to draw the header's x-positions and watch the row walk off "
+     + "them." + TAIL,
+    d: K + "Sized once at mount and never again. There is nothing to freeze at "
+     + "an open because nothing was ever fluid. Press <kbd>a</kbd> to land a row "
+     + "with a tag run longer than anything at mount and watch it take the "
+     + "<code>&hellip;</code> and keep it." + TAIL,
+  };
+  const tabs = [...document.querySelectorAll("#tabs a")];
+  const stage = document.getElementById("stage");
+  const note = document.getElementById("note");
+
+  function show(key) {
+    const tab = tabs.find((t) => t.hash === "#" + key) || tabs[0];
+    for (const t of tabs) {
+      if (t === tab) t.setAttribute("aria-current", "page");
+      else t.removeAttribute("aria-current");
+    }
+    note.innerHTML = NOTE[tab.hash.slice(1)] || "";
+    const src = tab.dataset.src;
+    if (stage.getAttribute("src") !== src) stage.setAttribute("src", src);
+    stage.addEventListener("load", () => {
+      try { stage.contentWindow.focus(); } catch (e) { /* another origin */ }
+    }, { once: true });
+  }
+
+  addEventListener("hashchange", () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || "z");
+})();
+</script>
+</body>
+</html>
