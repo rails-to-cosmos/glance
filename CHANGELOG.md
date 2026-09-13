@@ -11,6 +11,32 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## Unreleased
 
+### Changed
+
+- **A table's columns are fitted once per view.** Each column's width is
+  measured from the header word and the widest value the result set holds at
+  that moment, and then left there: the fit runs at the first rows paint after a
+  mount or a `setView`, at a window resize, and at a query change the page asks
+  for (`fitColumns()` on the widget's handle — every answer reaches the widget
+  through one `setRows` door, so the asking side says which was which). Nothing
+  else moves a column: a 60-character title typed into a draft, a row arriving
+  over the socket with a longer value, a delta, a producer row spliced in and a
+  sort all move 0px. A value its column cannot hold is clipped with an ellipsis
+  and carries its whole text as the cell's hover.
+
+- **The selected cell is a ring rather than a third ground.** The row keeps its
+  gold, the column keeps its band, and the cell where the two cross wears a 1px
+  inset ring in the band's own hue over no background at all — so it cannot
+  stack with the row's wash, the mark, the flag or the zebra, and dark's 9%
+  ceiling on the old cell wash stops being a constraint.
+
+### Fixed
+
+- **A cell editor closing no longer rebuilds the head bare.** `renderHead` left
+  a colgroup with no widths on it, and under a fixed layout that is six equal
+  columns — every `TAB` out of a draft cell and every `ESC` out of an editor.
+  The head now returns its colgroup sized.
+
 ### Added
 
 - **A capture is a row in the table.** `+` types a **draft row** into the table

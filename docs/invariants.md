@@ -284,7 +284,16 @@ nothing catches it.
   while an entry is picked (`page.css:897`). Dropping either lift, or
   adding a third gold one grain finer without one, leaves the wash set, focused
   and invisible — a state only PIXELS see, which is why the entry's case counts
-  them (`cases.mjs:4026`, `:4460`) rather than reading a class.
+  them (`cases.mjs:4026`, `:4460`) rather than reading a class. **A RING IS FREE
+  OF THIS,** writing no background slot at all: the table's cell cursor is
+  `box-shadow:inset 0 0 0 1px var(--tv-col)` over `background:transparent`
+  (`table-view.js:1890`), so it cannot stack with the cursor row's gold, the
+  mark, the flag or the zebra and needs no contrast budget from the ground under
+  it. The third ground it replaced was legal only because it was a different HUE
+  over a different element, which is why dark had to hold it at 9% — one point
+  more put the tag ink under 4.5:1 on the cursor row. The case that pins it reads
+  the computed ground and the shadow in both themes
+  (`cases.mjs`, *the selected cell is a ring and writes no ground of its own*).
   *fragility: medium*
 
 - **The empty cell sits outside every date comparison, and negation is no

@@ -131,6 +131,7 @@
  *             applyDelta: (ops: Op[]) => void,
  *             getRows: () => Row[],
  *             getVisible: () => Row[],
+ *             fitColumns: () => void,
  *             select: (id: string, col?: number) => boolean,
  *             getSelection: () => { id: string|null, col: number|null },
  *             editCell: (id: string, col: number) => boolean,
@@ -1156,7 +1157,6 @@
   --tv-veil:#00000066;
   --tv-shadow:#00000033;
   --tv-col-wash:35%;
-  --tv-cell-wash:60%;
   --tv-sort-wash:52%;
   --tv-cols-wash:52%;
 }
@@ -1189,7 +1189,6 @@
     --tv-mark-wash:30%;
     --tv-flag-wash:30%;
     --tv-col-wash:8%;
-    --tv-cell-wash:9%;
     --tv-sort-wash:18%;
     --tv-cols-wash:18%;
   }
@@ -1211,7 +1210,6 @@
   --tv-mark-wash:30%;
   --tv-flag-wash:30%;
   --tv-col-wash:8%;
-  --tv-cell-wash:9%;
   --tv-sort-wash:18%;
   --tv-cols-wash:18%;
 }
@@ -1232,7 +1230,6 @@
   --tv-mark-wash:8%;
   --tv-flag-wash:8%;
   --tv-col-wash:35%;
-  --tv-cell-wash:60%;
   --tv-sort-wash:52%;
   --tv-cols-wash:52%;
 }
@@ -1651,7 +1648,10 @@
   border-collapse:collapse;
   width:100%;
 }
-/* THE TITLE COLUMN FILLS; EVERY OTHER COLUMN IS EXACTLY ITS CONTENT.
+/* THE TITLE COLUMN FILLS; EVERY OTHER COLUMN IS EXACTLY ITS CONTENT, AS IT WAS
+   FITTED — once per view, and never from content after that. A draft typed into
+   and a row arriving with a longer value both move 0px; a query change refits
+   (fitColumns), and so does a window resize.
    table-layout:fixed is what makes that real. Under auto a col width is a hint
    and the browser hands the window's slack to every column in proportion, so
    the gutter and the date columns grew with the window while the one column
@@ -1856,28 +1856,30 @@
 .tv-calm .tv-table tbody tr,.tv-calm .tv-table tbody td{
   transition:none;
 }
-/* A cell selection draws two bands and their crossing, and all three are
-   grounds — no outline, no border, no shadow anywhere in the selection. The
-   column's band is a wash of the amber over whatever the ROW painted: the row
-   states write the tr and these write the td, which the table paints above it,
-   so the two never contest a slot, and the film being translucent is what
-   leaves the zebra, the mark, the flag and the cursor all still reading
-   through it, quieter inside the band than out. The one contest is here,
-   between these two rules on the one td, and it is settled the way the row
-   stack settles its own: equal specificity, source order, cell after column.
+/* A cell selection draws a BAND and a RING: the column is a ground, the cell
+   inside it is a 1px inset ring and no ground at all. The band is a wash of the
+   amber over whatever the ROW painted — the row states write the tr and this
+   writes the td, which the table paints above it, so the two never contest a
+   slot, and the film being translucent is what leaves the zebra, the mark, the
+   flag and the cursor all still reading through it, quieter inside the band
+   than out.
 
    The header is the same wash mixed into the page's ground rather than laid
    over it — the same colour, arrived at opaquely, because the header is sticky
    and rows scroll under it.
 
-   Both strengths are measured against the grounds they can land on, and those
-   grounds differ: the film lands on the page, the stripe, a mark and a flag,
-   while the cell lands on the cursor row alone. Light is set by what reads —
-   the band moving a ground between half and nine tenths as far as a mark moves
-   the page, since a locator must stay quieter than a state — and dark's cell by
-   what the ink allows: 9% leaves the tag ink at 4.61:1 on the cursor row and
-   one point more puts it under 4.5, so the dark crosshair reads by the ground
-   beneath it rather than by the point of wash above it. */
+   THE CELL WRITES NO BACKGROUND SLOT, which is what makes it free of
+   "one gold at a time" (docs/invariants.md): a ring cannot stack with the
+   cursor row's gold, with the mark, flag or zebra washes, and it needs no
+   contrast budget from the ground under it. The ground-on-ground cell this
+   replaced had to be held at 9% in dark — one point more put the tag ink under
+   4.5:1 on the cursor row — and the ring has no such ceiling. --tv-col is the
+   band's own hue at full strength, so the pair is one colour rather than two.
+
+   The band's strength is measured against the grounds it can land on — the
+   page, the stripe, a mark and a flag — the band moving a ground between half
+   and nine tenths as far as a mark moves the page, a locator staying quieter
+   than a state. */
 .tv-table th.tv-colsel{
   background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),var(--tv-bg));
 }
@@ -1885,7 +1887,8 @@
   background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),transparent);
 }
 .tv-table tbody td.tv-cell-sel{
-  background:color-mix(in srgb,var(--tv-col) var(--tv-cell-wash),transparent);
+  box-shadow:inset 0 0 0 1px var(--tv-col);
+  background:transparent;
 }
 /* WHAT A LINK LOOKS LIKE, spelled once for the two places one is drawn: the
    anchor a cell's own Org markup produces, and the whole title cell of a row a
@@ -2185,11 +2188,14 @@
      */
     let orderCmp = null;
     /**
-     * Per column over `order': max display length in characters, and the ground
-     * its cells sit on in px. Null when stale.
+     * THE VIEW'S FITTED COLUMNS: per column, max display length in characters
+     * and the ground its cells sit on in px.  FITTED ONCE PER VIEW and never
+     * from content again — `fitColumns' is the one door that drops them.
      * @type {{ch: number, ground: number}[]|null}
      */
     let widths = null;
+    /** A pending refit, so a burst of resize events costs one measure. */
+    let fitWait = 0;
     /** @type {Map<string, RowText>} */
     const texts = new Map();
     /**
@@ -2322,8 +2328,9 @@
       return vocab;
     }
 
-    /** Drop the filtered list (and the widths it implies). */
-    function dropOrder() { order = null; widths = null; cancelEase(); }
+    /** Drop the filtered list.  THE WIDTHS STAND: they are the VIEW's, not the
+     * set's, and only `fitColumns' drops them. */
+    function dropOrder() { order = null; cancelEase(); }
     /** Drop the sort too: the rows, the columns or the sort keys moved. */
     function dropSorted() { dropOrder(); sorted = null; orderCmp = null; }
 
@@ -2905,7 +2912,6 @@
       orderTest = queryMatcher(state.filter);
       order = orderTest ? sorted.filter((r) => !standing(r) || orderTest(r))
                         : sorted.slice();
-      widths = null;
       return order;
     }
 
@@ -2983,22 +2989,27 @@
      * allowed for in characters is right at one font size and short at the rest.
      * The multi-valued column is measured on what it DRAWS (`tagsCh'), middots
      * and smaller type and all, so a run of values is paid for as it reads.
+     *
+     * THE ANSWER IS THE VIEW'S AND IS KEPT: this runs at the first rows paint,
+     * at a `fitColumns' and nowhere else.  A MEASURE OVER NO ROWS IS NOT KEPT —
+     * a mount before its rows and a filter matching none both look like this,
+     * and the headers alone are no answer to freeze a view on.
      * @returns {{ch: number, ground: number}[]}
      */
     function colWidths() {
       if (widths) return widths;
       const cols = columns(), chain = sortChain(), fill = titleColumn() !== -1;
-      const multi = multiColumn();
+      const multi = multiColumn(), rows = ordered();
       /** The widest CELL each column holds, in characters; 0 where it holds none. */
       const cell = cols.map(() => 0);
-      for (const r of ordered()) {
+      for (const r of rows) {
         const t = rowText(r);
         for (let i = 0; i < cell.length; i++) {
           const n = i === multi ? tagsCh(t.cells[i]) : t.len[i];
           if (n > cell[i]) cell[i] = n;
         }
       }
-      widths = cols.map((c, i) => {
+      const fitted = cols.map((c, i) => {
         const at = chain.findIndex(({ key }) => key.column === c.key);
         // column geometry (header marks paid outside the cells' measure): docs/web-renderer.org
         const mark = at === -1 ? 0 : sortMark(chain, at).length + 1;
@@ -3008,20 +3019,22 @@
                           : Math.max(head + mark, cell[i]),
                  ground: CELL_PAD + pill };
       });
-      return widths;
+      if (rows.length) widths = fitted;
+      return fitted;
     }
 
-    /** Widen the cached widths for ROW (an upsert can only add text). */
-    function growWidths(r) {
-      if (!widths) return;
-      const t = rowText(r), cols = columns(), multi = multiColumn();
-      for (let i = 0; i < widths.length; i++) {
-        const n = i === multi ? tagsCh(t.cells[i]) : t.len[i];
-        if (n > widths[i].ch) widths[i].ch = n;
-        if (t.len[i] && cols[i].type === "badge")
-          widths[i].ground = CELL_PAD + PILL_PAD;
-      }
-    }
+    /**
+     * FIT THE COLUMNS TO THE SET THE TABLE NOW HOLDS, and leave them there.
+     * The widths are otherwise the view's for its life: nothing a reader types
+     * and no row that arrives moves a column, so a 60-character title typed
+     * into a draft and a row landing with a longer run both move 0px.
+     *
+     * The occasions are the first rows paint after a mount or a `setView', a
+     * window resize, and a NEW RESULT SET.  A producer narrowing server-side
+     * asks for that last one here: every answer arrives through `setRows', so
+     * the widget cannot tell a new query's rows from a store tick's.
+     */
+    function fitColumns() { widths = null; repaint(true); }
 
     /**
      * Characters the multi-valued column's cells may draw in — the width its
@@ -3065,7 +3078,16 @@
     }
 
 
-    /** Rebuild the colgroup and the header row (mount, and a view change). */
+    /**
+     * Rebuild the colgroup and the header row (a mount, a view change, and a
+     * cell editor closing over a header a producer may have renamed).
+     *
+     * THE HEAD OWNS THE COLGROUP, so it puts the widths back on it before it
+     * returns: the `<col>' nodes it just built carry none, and under the fixed
+     * layout a bare colgroup is six EQUAL columns — which is what every TAB out
+     * of a draft cell and every ESC out of an editor used to draw
+     * (docs/bugs/fixed/2026-09-13-a-cell-editor-closing-rebuilds-the-head-bare.md).
+     */
     function renderHead() {
       colgroup.innerHTML = "";
       headRow.innerHTML = "";
@@ -3104,6 +3126,7 @@
         arrowEls.push(arrow);
       }
       renderArrows();
+      applyWidths();          // the colgroup is new; the widths are not on it
     }
 
     /**
@@ -3270,10 +3293,30 @@
       tbody.innerHTML = html;
 
       applyWidths();
+      markClipped();
       table.style.display = total ? "" : "none";
       empty.style.display = total ? "none" : "";
       renderHint();
       measure();
+    }
+
+    /**
+     * A CELL ITS COLUMN CANNOT HOLD CARRIES ITS WHOLE TEXT, so a hover reveals
+     * what the ellipsis took.  The columns are fitted once per view, so a value
+     * longer than the one they were fitted to is drawn clipped and stays that
+     * way until the next fit — which is the one cost of the frozen policy, and
+     * this is what pays it.
+     *
+     * READ IN ONE PASS AND WRITTEN IN A SECOND: `scrollWidth' forces layout, so
+     * every cell is asked before any is touched and the window costs one.
+     */
+    function markClipped() {
+      const tds = tbody.querySelectorAll("td:not(.tv-box)");
+      const over = [];
+      for (let i = 0; i < tds.length; i++)
+        over.push(tds[i].scrollWidth > tds[i].clientWidth + 1);
+      for (let i = 0; i < tds.length; i++)
+        if (over[i]) tds[i].title = tds[i].textContent;
     }
 
     /** The status line, off the state it reads; clears whoever asked for it. */
@@ -4522,12 +4565,17 @@
       return true;
     }
 
-    /** Adopt the query as it stands: re-filter, and redraw from the top. */
+    /** Adopt the query as it stands: re-filter, and redraw from the top.  A NEW
+     * QUESTION IS A NEW RESULT SET, so the columns are fitted to it — this is
+     * the refit `fitColumns' is for, named here because the widget can see the
+     * query change.  A producer narrowing server-side answers through `setRows'
+     * and asks for its own. */
     function applyFilter() {
       const v = effectiveQuery();
       if (v === state.filter) return;
       state.filter = v;
       dropOrder();                       // `sorted' stands: only the filter moved
+      widths = null;
       scroll.scrollTop = 0;
       renderRows(true);
     }
@@ -5232,6 +5280,15 @@
     if (themeWatch)
       themeWatch.observe(document.documentElement,
                          { attributes: true, attributeFilter: ["data-theme"] });
+    /** A RESIZE IS THE THIRD FIT: the sized columns are px and do not stretch,
+     * so the fill column alone absorbs the window — and its floor is what a
+     * narrowing eventually meets.  Coalesced on a frame: a drag fires a burst
+     * of these and one measure is what a settled resize is worth. */
+    const onResize = () => {
+      if (fitWait) return;
+      fitWait = frame(() => { fitWait = 0; fitColumns(); });
+    };
+    if (typeof addEventListener === "function") addEventListener("resize", onResize);
 
     return {
       el: root,
@@ -5252,6 +5309,7 @@
         renderChips();
         clearTexts();
         dropSorted();
+        widths = null;           // A NEW COLUMN SET: the head fits it (`renderHead')
         titleEl.textContent = state.view.title || "Table";
         renderHead();
         scroll.scrollTop = 0;
@@ -5289,7 +5347,7 @@
         // and its phantom would otherwise slide the two apart.
         placeProducers(state.rows);
         if (sorted) { place(sorted, row, false); placeProducers(sorted); }
-        if (order && orderCmp) { place(order, row, true); growWidths(row); placeProducers(order); }
+        if (order && orderCmp) { place(order, row, true); placeProducers(order); }
         else if (order) dropOrder();
         repaint(true);
       },
@@ -5447,7 +5505,16 @@
         if (themeQuery && themeQuery.removeEventListener)
           themeQuery.removeEventListener("change", onTheme);
         if (themeWatch) themeWatch.disconnect();
+        if (typeof removeEventListener === "function")
+          removeEventListener("resize", onResize);
       },
+      /**
+       * FIT THE COLUMNS TO THE ROWS THE TABLE NOW HOLDS.  The widths are the
+       * VIEW's and stand through every tick, delta, draft and keystroke; a
+       * producer that has just asked a NEW QUESTION says so here, every answer
+       * arriving through `setRows' whichever it was.
+       */
+      fitColumns,
       /**
        * Sort on COLUMN, ascending unless ASCENDING is false, replacing whatever
        * sort is in force.  A header click TOGGLES; this STATES an order.  It

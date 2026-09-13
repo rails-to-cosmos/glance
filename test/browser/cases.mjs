@@ -643,6 +643,45 @@ async function oneRow(p, base, q, id) {
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const orgStamp = (iso) => `<${iso} ${DOW[new Date(`${iso}T00:00:00Z`).getUTCDay()]}>`;
 
+// ── FROZEN COLUMNS ────────────────────────────────────────────────────────
+// USER CALL 2026-09-13, variant D of spikes/2026-09-13-frozen-columns.  THE
+// COLUMNS ARE FITTED ONCE PER VIEW and never from content again: the fit runs
+// at the first rows paint after a mount or a `setView', at a QUERY change
+// (`fitColumns', which the page asks for because every answer reaches the
+// widget through the one `setRows' door) and at a window resize.  Nothing else
+// may move a column -- not a keystroke, not a WAL tick, not a row that arrives
+// with a value longer than anything the fit ever saw.
+
+/** EVERY COLUMN'S WIDTH AS ONE READING: what the header measures, what the
+ * `<col>' was written at, and where each cell of the first row starts.  The px
+ * is what a reader would see move; the written style is what the widget meant;
+ * the lefts are the claim "the rows below did not move" in a reader's terms. */
+const columnWidths = (p) => p.eval(() => ({
+  px: [...document.querySelectorAll("#app thead th")]
+    .map((e) => +e.getBoundingClientRect().width.toFixed(1)),
+  keys: [...document.querySelectorAll("#app thead th")].map((e) => e.dataset.key || "·"),
+  style: [...document.querySelectorAll("#app colgroup col")].map((c) => c.style.width || ""),
+  // THE FIRST STANDING ROW'S OWN CELLS, never the window's: a draft spliced
+  // under it would otherwise add a row's worth of edges to the reading.
+  lefts: [...(document.querySelector("#app tbody tr[data-id]") || document.createElement("tr"))
+    .querySelectorAll("td")].map((e) => +e.getBoundingClientRect().left.toFixed(1)),
+}));
+const sameWidths = (a, b) =>
+  JSON.stringify(a.px) === JSON.stringify(b.px)
+    && JSON.stringify(a.style) === JSON.stringify(b.style);
+/** The draft's ring walked BACKWARD to KEY, one `S-TAB' per call and each gated
+ * on the editor having left the cell the last one put it in.  Backward, because
+ * the ring runs state · priority · title · scheduled · deadline · tag and the
+ * two date stops open the DATE BOX rather than an in-cell editor. */
+async function draftBackTo(p, from, key, why) {
+  let at = from;
+  for (let i = 0; i < 6 && at !== key; i += 1) {
+    await p.press("S-TAB");
+    at = (await draftEditor(p, at, why)).col;
+  }
+  assert(at === key, `the walk stopped on ${JSON.stringify(at)} rather than ${key}`);
+}
+
 export default [
 
 // A material doc taller than the pane must SCROLL inside the pane, not grow the
@@ -6276,6 +6315,302 @@ export default [
     return [`the walk ${ring.join(" → ")} filled every cell, and the refusal said `
       + `${JSON.stringify(refused.pill)} in the pill with all `
       + `${refused.cells.length} cells untouched`];
+  } },
+
+{ name: "typing into a draft moves no column",
+  async run(p, base) {
+    // UNDER A NARROW QUERY, so the set the columns were fitted to is small and
+    // what is typed into it is far longer than anything the fit ever saw.
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:hide")}`);
+    await p.until(() => !!document.querySelector("#app tbody tr[data-id]"),
+                  "the filtered table to mount its row");
+    const before = await columnWidths(p);
+    assert(before.px.length > 3 && before.style.some((w) => /ch/.test(w)),
+      `the columns are not pinned at all: ${JSON.stringify(before.style)}`);
+
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    // A REAL KEYDOWN PER CHARACTER, the reader's own path: `Input.insertText'
+    // plants a line without ever running the shell's handler.
+    await p.typeKeys("A sixty character title typed into a draft, and no more");
+    const typed = await columnWidths(p);
+    assert(sameWidths(before, typed),
+      `typing the title moved the columns: ${JSON.stringify(typed.px)} against `
+      + `${JSON.stringify(before.px)}, written ${JSON.stringify(typed.style)} `
+      + `against ${JSON.stringify(before.style)}`);
+
+    // THE TAG RUN IS THE COLUMN THAT USED TO MOVE: `growWidths' widened the
+    // cached measure on the `upsertRow' the walk republishes the row with, so
+    // the tag column jumped at the moment the reader left the cell.
+    await draftBackTo(p, "title", "tag", "the walk back to the tags cell");
+    await p.typeKeys("alongtagnobodyeversizedacolumnfor");
+    // FORWARD OFF THE TAGS CELL, which wraps to `state': the walk folds the
+    // closing cell's value into the row and republishes it, and `growWidths'
+    // widened the cached measure on exactly that `upsertRow'.
+    await p.press("TAB");
+    await draftEditor(p, "tag", "the walk to leave the tags cell, folding the run in");
+    const run = await columnWidths(p);
+    assert(sameWidths(before, run),
+      `a 33-character tag run moved the columns: ${JSON.stringify(run.px)} `
+      + `against ${JSON.stringify(before.px)}`);
+    assert(JSON.stringify(run.lefts) === JSON.stringify(before.lefts),
+      `the rows moved sideways under the draft: ${JSON.stringify(run.lefts)} `
+      + `against ${JSON.stringify(before.lefts)}`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer"),
+                  "ESC to drop the draft");
+    const after = await columnWidths(p);
+    assert(sameWidths(before, after),
+      `dropping the draft moved the columns: ${JSON.stringify(after.px)} against `
+      + `${JSON.stringify(before.px)}`);
+    return [`a 56-character title and a 33-character tag run moved 0px of `
+      + `${before.px.length} columns, written ${JSON.stringify(before.style)}`];
+  } },
+
+// BUG 2026-09-13, docs/bugs/fixed/2026-09-13-a-cell-editor-closing-rebuilds-the-head-bare.md.
+// `closeCellEditor' ran `renderRows(true); renderHead();' -- the rows write the
+// widths onto the `<col>'s and the head then rebuilt the colgroup BARE, so a
+// fixed-layout table divided the window into six EQUAL columns on every TAB out
+// of a draft cell and every ESC out of an editor.  The head owns the colgroup
+// and now puts the widths back on it.
+{ name: "TAB out of a draft cell leaves every column where it was",
+  async run(p, base) {
+    await tableUp(p, base);
+    const before = await columnWidths(p);
+    // SIX EQUAL COLUMNS IS THE SYMPTOM, so the reading that catches it is the
+    // SPREAD: a fitted table's columns differ, a bare colgroup's do not.
+    const spread = (w) => Math.max(...w.px) - Math.min(...w.px);
+    assert(spread(before) > 1,
+      `the columns are already equal before anything opened: ${JSON.stringify(before.px)}`);
+
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.press("S-TAB");
+    await draftEditor(p, "title", "the walk to close the title cell and open another");
+    const walked = await columnWidths(p);
+    assert(sameWidths(before, walked),
+      `the editor closing rebuilt the head bare: ${JSON.stringify(walked.px)} `
+      + `against ${JSON.stringify(before.px)}, written `
+      + `${JSON.stringify(walked.style)} against ${JSON.stringify(before.style)}`);
+    assert(walked.style.every((w, i) => w === before.style[i]),
+      `the colgroup came back without its widths: ${JSON.stringify(walked.style)}`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer"),
+                  "ESC to drop the draft and close its editor");
+    const shut = await columnWidths(p);
+    assert(sameWidths(before, shut),
+      `ESC out of the editor rebuilt the head bare: ${JSON.stringify(shut.px)} `
+      + `against ${JSON.stringify(before.px)}`);
+    return [`TAB and ESC each closed an editor and left all ${before.px.length} `
+      + `columns at ${JSON.stringify(before.px)} (spread ${spread(before).toFixed(1)}px)`];
+  } },
+
+{ name: "a row arriving with a longer value moves no column",
+  async run(p, base) {
+    // A SET NO ROW OF WHICH IS SCHEDULED, so the date column is fitted to its
+    // header alone and the first stamp to arrive is longer than it.
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:hide")}`);
+    const row = await p.until(() => {
+      const tr = document.querySelector("#app tbody tr[data-id]");
+      return tr ? tr.dataset.id : false;
+    }, "the filtered table to mount its row");
+    const before = await columnWidths(p);
+
+    // NOTHING IN THIS SET IS SCHEDULED, so the column stands at its HEADER's
+    // measure and the first date to land in it is a value longer than anything
+    // the fit ever saw -- the column widened by exactly that under the old
+    // policy, every cell right of it sliding along.
+    const dates = await p.eval(() => {
+      const keys = [...document.querySelectorAll("#app thead th")].map((e) => e.dataset.key);
+      const at = keys.indexOf("scheduled");
+      return [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .map((tr) => tr.children[at].textContent.trim());
+    });
+    assert(dates.every((d) => !d),
+      `the set already carries a date: ${JSON.stringify(dates)}`);
+    // A REAL WRITE, the shipped recipe for a settle: the watch nudges, the
+    // socket ticks and the page asks for the whole answer again.
+    const wrote = await p.eval(async (id) => {
+      const r = await fetch("/command", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "set-planning", ids: [id],
+                               args: { keyword: "SCHEDULED", date: "2026-12-01" } }) });
+      return r.status;
+    }, row);
+    assert(wrote === 200, `the write answered ${wrote}`);
+    await p.until(() => /2026-12-01/
+      .test(document.querySelector("#app tbody").textContent),
+      "the fresh answer to reach the table", 20_000);
+
+    // THE VALUE IS LONGER THAN THE HEADER THE COLUMN WAS FITTED TO, which is
+    // the whole of what "arrived longer" means here.
+    const drew = await p.eval(() => {
+      const th = [...document.querySelectorAll("#app thead th")];
+      const at = th.findIndex((e) => e.dataset.key === "scheduled");
+      // THE HEADER WORD, not the cell: the sort mark rides beside it and is
+      // paid for outside the measure the value is compared against.
+      return { head: th[at].querySelector(".tv-hn").textContent.trim(),
+               cell: document.querySelector("#app tbody tr[data-id]")
+                       .children[at].textContent.trim() };
+    });
+    assert(drew.cell.length > drew.head.length,
+      `the arriving value ${JSON.stringify(drew.cell)} is no longer than the `
+      + `header ${JSON.stringify(drew.head)} the column was fitted to`);
+    const after = await columnWidths(p);
+    assert(sameWidths(before, after),
+      `a longer value arriving moved the columns: ${JSON.stringify(after.px)} `
+      + `against ${JSON.stringify(before.px)}, written `
+      + `${JSON.stringify(after.style)} against ${JSON.stringify(before.style)}`);
+    assert(JSON.stringify(after.lefts) === JSON.stringify(before.lefts),
+      `the row's cells moved sideways: ${JSON.stringify(after.lefts)} against `
+      + `${JSON.stringify(before.lefts)}`);
+    return [`${JSON.stringify(drew.cell)} landed in a column fitted to `
+      + `${JSON.stringify(drew.head)} alone and moved 0px of ${before.px.length} `
+      + `columns (${JSON.stringify(before.style)})`];
+  } },
+
+{ name: "a query change refits the columns once",
+  async run(p, base) {
+    // THE WHOLE TREE FIRST, whose widest tag run and widest title the columns
+    // are fitted to, and then a question that answers one short row.
+    await tableUp(p, base);
+    await p.until(() => document.querySelectorAll("#app tbody tr[data-id]").length > 3,
+                  "the whole tree to mount its rows");
+    const all = await columnWidths(p);
+    const booted = (await p.eval(stripText)).length;   // the boot view's own chips
+
+    // A DIFFERENT QUESTION, asked the way a reader asks it: the filter box.
+    await filterUp(p, "the filter box on `/'");
+    await p.type("tag:hid");
+    await p.until(acOpen, "the value list to open behind the tag key");
+    await p.type("e");
+    await committed(p, booted + 1, "the chip to land on the strip");
+    await p.until(() => document.querySelectorAll("#app tbody tr[data-id]").length === 1,
+                  "the narrow set to be the answer on show", 20_000);
+    const narrow = await columnWidths(p);
+    assert(!sameWidths(all, narrow),
+      `the query change refitted nothing: ${JSON.stringify(narrow.style)} is still `
+      + `${JSON.stringify(all.style)}`);
+    // NARROWER, which is the direction a re-fit can only reach by MEASURING the
+    // new set: a widen-only cache (the policy this replaced) could not.
+    const chOf = (w) => +((/(\d+)ch/.exec(w) || [0, 0])[1]);
+    assert(narrow.style.some((w, i) => chOf(w) < chOf(all.style[i])),
+      `no column came in: ${JSON.stringify(narrow.style)} against `
+      + `${JSON.stringify(all.style)}`);
+
+    // ONCE, AND NOT AGAIN: a settle over the SAME question's rows moves nothing,
+    // however much longer the value it carries is.
+    const row = await p.eval(() =>
+      document.querySelector("#app tbody tr[data-id]").dataset.id);
+    const wrote = await p.eval(async (id) => {
+      const r = await fetch("/command", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "set-planning", ids: [id],
+                               args: { keyword: "SCHEDULED", date: "2026-12-01" } }) });
+      return r.status;
+    }, row);
+    assert(wrote === 200, `the write answered ${wrote}`);
+    await p.until(() => /2026-12-01/
+      .test(document.querySelector("#app tbody").textContent),
+      "the settle to reach the table", 20_000);
+    const settled = await columnWidths(p);
+    assert(sameWidths(narrow, settled),
+      `a settle on the same question's rows refitted again: `
+      + `${JSON.stringify(settled.style)} against ${JSON.stringify(narrow.style)}`);
+    return [`the whole tree fitted ${JSON.stringify(all.style)}, tag:hide refitted `
+      + `to ${JSON.stringify(narrow.style)}, and a settle on that set moved nothing`];
+  } },
+
+{ name: "a long value clips with its full text on hover",
+  async run(p, base) {
+    // THE TREE'S LONGEST ROW, alone, in a window too narrow to draw it: the
+    // fill column meets its own floor (TITLE_MIN_CH) and the title is cut.
+    // NARROWED BEFORE THE MOUNT, so the FIRST paint is the clipped one: a
+    // resize refits and re-marks on a frame of its own, and a reading taken
+    // between the layout and that frame would catch the cell unmarked.
+    await p.size(700, 800);
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:wide")}`);
+    await p.until(() => !!document.querySelector("#app tbody tr[data-id]"),
+                  "the wide row to mount");
+    const read = await p.until(() => {
+      const tds = [...document.querySelectorAll("#app tbody tr[data-id] td:not(.tv-box)")];
+      const cut = tds.filter((td) => td.scrollWidth > td.clientWidth + 1);
+      if (!cut.length) return false;
+      const seen = getComputedStyle(cut[0]);
+      return { n: cut.length,
+               title: cut[0].title, text: cut[0].textContent,
+               clip: seen.textOverflow, wrap: seen.whiteSpace, over: seen.overflow,
+               // NOTHING WIDE IS DRAWN WIDE: the whole table stays inside its
+               // scroller, which is what "clips" means at the table's own edge.
+               spill: document.querySelector("#app .tv-table").scrollWidth
+                        - document.querySelector("#app .tv-table").clientWidth };
+    }, "a cell its column cannot hold");
+
+    assert(read.clip === "ellipsis" && read.wrap === "nowrap" && read.over === "hidden",
+      `the clipped cell is dressed ${JSON.stringify([read.clip, read.wrap, read.over])} `
+      + `rather than nowrap/hidden/ellipsis`);
+    assert(read.title === read.text && read.title.length > 0,
+      `the clipped cell's hover text is ${JSON.stringify(read.title)} where it draws `
+      + `${JSON.stringify(read.text)}`);
+    assert(read.spill <= 1,
+      `the table itself spills ${read.spill}px past its own box`);
+    // A CELL THAT FITS CARRIES NO HOVER TEXT: the attribute says "there is more
+    // here than you can see", so an unclipped cell wearing one says nothing.
+    const whole = await p.eval(() =>
+      [...document.querySelectorAll("#app tbody tr[data-id] td:not(.tv-box)")]
+        .filter((td) => td.scrollWidth <= td.clientWidth + 1 && td.title)
+        .map((td) => td.title));
+    assert(whole.length === 0,
+      `cells that fit carry hover text anyway: ${JSON.stringify(whole)}`);
+    return [`${read.n} cell(s) clipped, the first carrying its whole `
+      + `${read.text.length} characters as hover text`];
+  } },
+
+// USER CALL 2026-09-13.  THE CELL CURSOR IS A RING, NOT A GROUND: the row keeps
+// the one gold, the column band keeps its wash, and the cell inside them writes
+// NO BACKGROUND SLOT AT ALL -- which is what makes it free of "one gold at a
+// time" (docs/invariants.md).  A ring cannot stack with the row's gold, the
+// mark, the flag or the zebra, and needs no contrast budget from the ground
+// under it; the ground-on-ground cell it replaces had to be held at 9% in dark.
+{ name: "the selected cell is a ring and writes no ground of its own",
+  async run(p, base) {
+    await tableUp(p, base);
+    // POINT ONTO A CELL: `f' takes the column cursor into the row's first cell,
+    // which is what dresses one `tv-cell-sel'.
+    await p.press("f");
+    await p.until(() => !!document.querySelector("#app tbody td.tv-cell-sel"),
+                  "the column cursor to dress a cell");
+    const dressed = async (theme) => {
+      await p.eval((t) => {
+        if (t) document.documentElement.setAttribute("data-theme", t);
+        else document.documentElement.removeAttribute("data-theme");
+      }, theme);
+      return p.until(() => {
+        const td = document.querySelector("#app tbody td.tv-cell-sel");
+        const tr = td && td.closest("tr");
+        if (!tr || !tr.classList.contains("tv-sel")) return false;
+        const cell = getComputedStyle(td), row = getComputedStyle(tr);
+        return { cell: cell.backgroundColor, ring: cell.boxShadow,
+                 row: row.backgroundColor };
+      }, `the cursor cell to draw in the ${theme} theme`);
+    };
+    const clear = /^(transparent|rgba\(0, 0, 0, 0\))$/;
+    const out = [];
+    for (const theme of ["light", "dark"]) {
+      const seen = await dressed(theme);
+      assert(clear.test(seen.cell),
+        `the ${theme} cell writes a ground of its own: ${JSON.stringify(seen.cell)}`);
+      assert(/inset/.test(seen.ring) && /\d/.test(seen.ring),
+        `the ${theme} cell draws no ring: ${JSON.stringify(seen.ring)}`);
+      // THE ONE GOLD IS THE ROW'S and nothing is laid over it.
+      assert(!clear.test(seen.row),
+        `the ${theme} cursor row lost its gold: ${JSON.stringify(seen.row)}`);
+      out.push(`${theme}: row ${seen.row}, cell ${seen.cell}, ring ${seen.ring}`);
+    }
+    await p.eval(() => document.documentElement.removeAttribute("data-theme"));
+    return out;
   } },
 
 // PROPOSAL 2026-08-26.  An org table in the doc is drawn by the table-view

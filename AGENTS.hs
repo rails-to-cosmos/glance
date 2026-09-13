@@ -3835,7 +3835,7 @@ linkWalls = [LinkNewline, InSubtree, EdgeToEdge, Reparses]
 
 data Role = RBg | RFg | RSurface | RMuted | RBorder | RAccent | RSel | RPoint | RPointDim | RPointOff | RHover | RLink
           | RFrost | RCol | ROk | RWarn | RBad | RVeil | RShadow | RChipWash | RChipEdge
-          | RMarkWash | RFlagWash | RColWash | RCellWash | RSortWash | RColsWash
+          | RMarkWash | RFlagWash | RColWash | RSortWash | RColsWash
   deriving (Eq, Ord, Show, Enum, Bounded)
 roles :: [Role]
 roles = [minBound .. maxBound]
@@ -3853,7 +3853,6 @@ pageToken RPointDim = Just "--g-point-dim"
 pageToken RPointOff = Just "--g-point-off"
 pageToken RLink = Just "--g-link"
 pageToken RCol = Just "--g-col"
-pageToken RCellWash = Just "--g-cell-wash"
 pageToken RFlagWash = Just "--g-flag-wash"
 pageToken ROk = Just "--g-ok"
 pageToken RWarn = Just "--g-warn"
@@ -3893,7 +3892,6 @@ tableToken RChipEdge = Just "--tv-chip-edge"
 tableToken RMarkWash = Just "--tv-mark-wash"
 tableToken RFlagWash = Just "--tv-flag-wash"
 tableToken RColWash = Just "--tv-col-wash"
-tableToken RCellWash = Just "--tv-cell-wash"
 tableToken RSortWash = Just "--tv-sort-wash"
 tableToken RColsWash = Just "--tv-cols-wash"
 tableToken ROk = Nothing
@@ -3973,6 +3971,9 @@ cmdNotes =
   , Note "The renderer ships its palette at ZERO specificity (:where(.tv-root)), which is what lets the page's ordinary rules win whatever order the stylesheets land in." [Docs]
   , Note "A pill draws its hue as INK over a 15% wash of itself over the ROW's ground, so a theme picks hues readable over its own pBg AND pSelection." [Docs]
   , Note "A COLUMN'S TEXT IS `ch' AND ITS GROUNDS ARE `px', each in the unit the stylesheet spends it in: a pill's 16px of padding allowed for as 2 characters is exact at one font size and short at every other. The allowance carries a further px because a column width lands DOWN on the engine's 1/64 grid, and a pill is an inline-block `text-overflow' cannot cut — so a hair short draws the whole badge with an ellipsis behind it." [Browser]
+  , Note "COLUMNS ARE FITTED ONCE PER VIEW. The measure is the one it always was — the header word, the widest value in the result set AT THAT MOMENT, the `ch'/`px' units above — and what changed is that its answer is DURABLE. It is taken at the first rows paint after a mount or a `setView', at a window resize, and at a QUERY CHANGE, which the PRODUCER asks for (`fitColumns' on the handle): every answer reaches the widget through the one `setRows' door, so the widget cannot tell a new result set from a WAL tick and the asking side says which it was. Nothing else measures: a draft typed into, a row arriving with a longer value, a delta, a producer row spliced in and a sort all move 0px. A value longer than its column was fitted to is CLIPPED and carries its whole text in the cell's `title', which is the one cost and where it is paid." [Browser]
+  , Note "THE HEAD OWNS THE COLGROUP and returns it sized: `renderHead' ends in `applyWidths'. A bare colgroup is authoritative under `table-layout:fixed' — the engine divides the table equally — so a head rebuilt without its widths drew six EQUAL columns on every editor close, `closeCellEditor' having written them one render earlier (docs/bugs/fixed/2026-09-13-a-cell-editor-closing-rebuilds-the-head-bare.md)." [Browser]
+  , Note "THE CELL CURSOR IS A RING AND WRITES NO BACKGROUND SLOT: the row keeps the one gold, the column band keeps its wash, and the cell inside them is `box-shadow:inset 0 0 0 1px var(--tv-col)' over nothing. A ring cannot stack with the cursor row's gold, the mark, the flag or the zebra and needs no contrast budget from the ground under it, so `one gold at a time' is satisfied by construction rather than by a narrow escape — the ground-on-ground cell it replaces had to be held at 9% in dark, one point more putting the tag ink under 4.5:1 on the cursor row. `--tv-cell-wash' had no other reader and is retired." [Browser]
   , Note "`paletteSweep' is the DERIVED oracle: it reads the served page and compares the two namespaces role by role, and counts the slots the served rows name." [Test]
   , Note "A tree's state hues are the SYSTEM layer's alone and are emitted per REQUEST after `themeCSS', coming off the store's config rather than out of the build." [Test]
   -- Tier two until the checks moved into the suite: what no gate asks.

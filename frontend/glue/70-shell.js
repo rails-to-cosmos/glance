@@ -492,7 +492,11 @@
         listen();
         if (!swap && a.total > (a.view.rows || []).length)
           load(asking(asked))
-            .then((b) => { if (table && query === asked) paint(b); arm(a.total); })
+            // THE BOOT'S SECOND LOAD IS THE FIRST WHOLE ANSWER to the question
+            // the mount opened on: the head fitted the columns to one page, and
+            // the widest value may be on any of the others.
+            .then((b) => { if (table && query === asked) { refitting = true; paint(b); }
+                           arm(a.total); })
             .catch(quiet);
         else arm(a.total);
       }).catch((e) => {

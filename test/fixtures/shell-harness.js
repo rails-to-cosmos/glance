@@ -451,7 +451,7 @@ globalThis.WebSocket = function () {
 // the STORE's — which is what lets an act move the store and the table follow.
 let mounts = 0, sets = 0, raises = 0;
 const doors = [];
-let lmounts = 0, tmounts = 0, tsets = 0;
+let lmounts = 0, tmounts = 0, tsets = 0, fits = 0;
 const paints = [];
 // THE STORE ROWS THE PAGE LAST HANDED THE TABLE.  A DRAFT is no store row and
 // is never among them: the widget holds it apart and places it.
@@ -603,6 +603,11 @@ const makeMount = (host, view, options, own) => {
       keep();
     },
     getQuery: () => m.held,
+    // THE COLUMNS ARE FITTED ONCE PER VIEW and the page asks for the refit when
+    // its QUERY changes.  This harness draws no columns, so there is no width
+    // to mirror -- the call is counted, and that the page makes it at all is
+    // what a shell case could read.
+    fitColumns: () => { fits += 1; },
     getRows: () => all().slice(),
     // The widget's own in-cell editor: a draft's cells are editable whatever
     // their column declares, and a view drawing no such column opens nothing.
@@ -1795,7 +1800,7 @@ const settle = async () => {
     lurlsel: [field("lurl").selectionStart, field("lurl").selectionEnd,
               field("lurl").value.length],
     tagpop: field("tags").className, thead: field("thead").textContent,
-    tfoot: field("tfoot").textContent, tmounts, tsets,
+    tfoot: field("tfoot").textContent, tmounts, tsets, tfits: fits,
     ttags: listCells("ttable"), tat: listAt("ttable"),
     tcols: listCols("ttable"), tflagged: listFlagged("ttable"),
     tflagHelp: listHint("ttable"),

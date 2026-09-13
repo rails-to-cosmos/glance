@@ -98,6 +98,16 @@ map. =т з о л= navigates on a Cyrillic layout.
 | =?=         | help                                                          |
 | =,=         | settings                                                      |
 
+** The table's own look
+
+Columns are *fitted once per view* -- to the header word and the widest value
+the result set holds at that moment -- and never from content again: typing a
+long title into a draft and a row arriving with a longer value both move 0px, a
+query change refits once, and a window resize refits.  A value its column cannot
+hold is clipped with an ellipsis and carries its whole text as hover.  The
+cursor is a row's gold, a column's band, and a 1px ring on the cell where the
+two cross.
+
 ** Capture
 
 =+= types a *draft row* into the table already on screen, below the row at

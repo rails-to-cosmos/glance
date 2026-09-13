@@ -6552,7 +6552,7 @@ paletteSweep shell = testCase "one palette, two namespaces, every theme" $ do
         , ("--g-surface", "--tv-alt"), ("--g-mute", "--tv-muted")
         , ("--g-border", "--tv-border"), ("--g-accent", "--tv-accent")
         , ("--g-sel", "--tv-sel"), ("--g-link", "--tv-link")
-        , ("--g-col", "--tv-col"), ("--g-cell-wash", "--tv-cell-wash")
+        , ("--g-col", "--tv-col")
         , ("--g-bad", "--tv-flag"), ("--g-flag-wash", "--tv-flag-wash")
         , ("--g-warn", "--tv-warn") ]
   -- A BADGE HUE IS THE THEME'S, so the wire carries a SLOT and the slots the served ROWS name are read off the view document.
@@ -6715,7 +6715,8 @@ shellGlue =
       [ "const PAGE = 100;", "swap ? asking(asked) : `${narrow}limit=${PAGE}`"
       , "r.headers.get(\"X-Glance-Total\")"
       , "if (!swap && a.total > (a.view.rows || []).length)"
-      , "if (table && query === asked) paint(b)" ]
+        -- THE FIRST WHOLE ANSWER refits the columns: the head fitted them to one page.
+      , "if (table && query === asked) { refitting = true; paint(b); }" ]
 
   -- SWAP ON THE ANSWER: the two-phase fetch is the BOOT's, and a re-application asks for the whole answer.
   , glue "a view already on screen is replaced in one mount"

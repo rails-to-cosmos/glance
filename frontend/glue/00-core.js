@@ -184,6 +184,9 @@
                                                     : setTimeout(fn, 0));
     let table = null, socket = null, backoff = 1000;
     let query = "", inflight = null, requeryAt = 0;
+    // THE NEXT ANSWER IS A NEW QUESTION'S, so `paint' refits the columns on it.
+    // Set where a question is asked and spent on the answer to it.
+    let refitting = false;
     let leaving = null;
     let arriving = null;
     let etag = null;
@@ -251,6 +254,11 @@
     const paint = (a) => {
       const rows = a.view.rows || [];
       table.setRows(rows);
+      // THE COLUMNS ARE FITTED ONCE PER VIEW, so the ONE answer that may move
+      // them says so: a NEW QUESTION'S. Every answer arrives through this door
+      // — a WAL tick's, a poll's, a capture's settle — and the widget cannot
+      // tell them apart, so the asking side does (`commit', `start').
+      if (refitting) { refitting = false; if (can(table, "fitColumns")) table.fitColumns(); }
       // A BOX LAID OVER A CELL IS PLACED AGAINST A ROW THAT JUST MOVED, so the
       // settle re-measures it; with nothing open this costs one early return.
       soon(placeEdit);
@@ -364,6 +372,7 @@
       if (q === query) return;
       query = q;
       leaving = arriving = null;   // both belonged to the view being left
+      refitting = true;            // a different question: the columns fit its answer
       remember(q);
       fetchRows();
     }

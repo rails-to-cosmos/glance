@@ -31,7 +31,6 @@ defaultLight = Palette
   , pMarkWash  = "8%"
   , pFlagWash  = "8%"
   , pColWash   = "35%"
-  , pCellWash  = "60%"
   , pSortWash  = "52%"
   , pColsWash  = "52%"
     -- DARK ENOUGH TO BE INK.  A pill draws its hue as text over a 15% wash of
@@ -68,7 +67,6 @@ defaultDark = Palette
   , pMarkWash  = "30%"
   , pFlagWash  = "30%"
   , pColWash   = "8%"
-  , pCellWash  = "9%"
   , pSortWash  = "18%"
   , pColsWash  = "18%"
   , pActive    = ["#E0AF68", "#FF9E64", "#F7768E", "#FFC777"]

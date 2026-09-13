@@ -36,7 +36,6 @@ data Palette = Palette
   , pMarkWash  :: !Text  -- ^ a marked row's ground.
   , pFlagWash  :: !Text  -- ^ a flagged row's.
   , pColWash   :: !Text  -- ^ the crosshair's column band.
-  , pCellWash  :: !Text  -- ^ and the cell the two bands cross in.
   , pSortWash  :: !Text  -- ^ the chip stating the ORDER.
   , pColsWash  :: !Text  -- ^ the chip stating the COLUMN SET.
     -- A hue is INK over a 15% wash of itself: it must read over 'pBg' AND 'pSelection'.

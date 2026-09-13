@@ -56,7 +56,6 @@ pageTokens p =
   , ("--g-point-off", pPointOff p)
   , ("--g-link",      pLink p)
   , ("--g-col",       pColumn p)
-  , ("--g-cell-wash", pCellWash p)
   , ("--g-flag-wash", pFlagWash p)
   , ("--g-ok",        pOk p)
   , ("--g-warn",      pWarn p)
@@ -100,7 +99,6 @@ tableTokens p =
   , ("--tv-mark-wash", pMarkWash p)
   , ("--tv-flag-wash", pFlagWash p)
   , ("--tv-col-wash",  pColWash p)
-  , ("--tv-cell-wash", pCellWash p)
   , ("--tv-sort-wash", pSortWash p)
   , ("--tv-cols-wash", pColsWash p)
   ]

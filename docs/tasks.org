@@ -592,11 +592,63 @@ branch):
   =token= through =editCell='s fourth and fifth arguments, so a repaint is the
   SAME open rather than a new one.
 
+- =fitColumns()= on the handle — THE COLUMN MEASURE RUNS ONCE PER VIEW and not
+  per republish.  =colWidths= (=:2988=) is unchanged; its CALLERS are what
+  moved: =growWidths= is GONE with its call in =upsertRow=, =ordered()=
+  (=:2908=) no longer nulls =widths=, and =dropOrder= drops the order alone.
+  The measure is driven by three occasions instead — the first rows paint after
+  a mount or a =setView=, a window resize (coalesced on a frame), and
+  =fitColumns()=, which a producer narrowing server-side calls when its QUERY
+  changes because every answer arrives through the one =setRows= door.  A
+  measure over NO ROWS is not cached, so a mount before its rows fits at the
+  first paint that has some.  =applyFilter= (the widget's OWN filter) refits by
+  name.  A value longer than its column was fitted to is clipped and carries its
+  whole text in the cell's =title= (=markClipped=).
+- =renderHead= ENDS IN =applyWidths()=: the head owns the colgroup and returns
+  it sized.  Without it =closeCellEditor= left a bare colgroup and a
+  fixed-layout table drew six EQUAL columns — see
+  =docs/bugs/fixed/2026-09-13-a-cell-editor-closing-rebuilds-the-head-bare.md=.
+- =td.tv-cell-sel= is a RING (=box-shadow:inset 0 0 0 1px var(--tv-col)= over
+  =background:transparent=) rather than a third ground, and =--tv-cell-wash= is
+  retired from the widget's four theme blocks and from the daemon's palette
+  (=Theme/Types.hs=, =Theme/Default.hs=, =Theme.hs=, =AGENTS.hs='s =RCellWash=).
+
 RETIRED ON REVIEW (2026-09-12): =editableKeys=, =onCellInput=, =refreshStrip=
 and the =tr.tv-strip= row were built for the date cell's reading and lost with
 it — a date is edited in the document's own box laid over the cell, so no
 standing row's cell opens an editor at all.  Nothing above was ever upstreamed,
 so they are gone rather than deprecated.
+
+* DONE A cell editor closing rebuilds the head bare
+Found by =spikes/2026-09-13-frozen-columns= (§5.1).  =closeCellEditor= ran
+=renderRows(true); renderHead();= — the rows write the fitted widths onto the
+=<col>=s and the head then rebuilt the colgroup with none, so a fixed-layout
+table divided the window into six EQUAL columns on every =TAB= out of a draft
+cell and every =ESC= out of an editor.  Fixed by giving the colgroup's owner the
+duty: =renderHead= ends in =applyWidths()=.  Filed as
+=docs/bugs/fixed/2026-09-13-a-cell-editor-closing-rebuilds-the-head-bare.md=,
+pinned by the browser case /TAB out of a draft cell leaves every column where it
+was/.
+
+* DONE Columns are fitted once per view
+User call (2026-09-13), variant D of =spikes/2026-09-13-frozen-columns=.  A
+column's width is measured at the first rows paint after a mount or a =setView=,
+at a window resize, and at a QUERY CHANGE the producer asks for (=fitColumns()=
+on the handle, called from =00-core.js='s =commit=) — and at no other moment.  A
+draft typed into, a row arriving with a longer value, a WAL tick, a delta and a
+sort all move 0px; a value the column cannot hold clips and carries its whole
+text in the cell's =title=.  The widget's own filter (=applyFilter=, for a
+consumer that narrows locally) refits by name.  Four browser cases, and the
+widget change is on the upstream list above.
+
+* DONE The selected cell is a ring
+User call (2026-09-13), =spikes/2026-09-13-frozen-columns= §6.  =td.tv-cell-sel=
+swapped its third ground for a 1px inset ring in =--tv-col=, the band's own hue.
+A ring writes no background slot, so it cannot stack with the cursor row's gold
+and needs no contrast budget — /one gold at a time/ is satisfied by construction
+rather than by the narrow escape the wash relied on, and dark's 9% ceiling on
+the cell stops being a constraint.  =--tv-cell-wash= had no other reader and is
+retired from the widget and from the daemon's palette.
 
 * DONE TAB resolves the phrase in the date widget
 User call (2026-09-13).  `TAB' inside the date box reads in ONE ORDER, and the
