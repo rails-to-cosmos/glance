@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C · a card below the cell, offers as chips</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* C — A CARD BELOW THE CELL.  Field on the first line, the resolution on the
+     second, the offers as horizontal chips on the third, at about two and a half
+     cells wide.
+
+       ┌──────────────────────────────────┐
+       │ 18 aug                           │
+       │ → <2026-08-18 Tue>               │
+       ├──────────────────────────────────┤
+       │ (18 august)(18 au)               │   ← chips, and NO hint column
+       └──────────────────────────────────┘
+
+     IT IS HERE TO BE ARGUED AGAINST, and it is drawn rather than described so
+     the argument has pixels under it.  The MARKUP is the same `#ddate' — that
+     much is free — but six rules fork to make it look like this, and the offers'
+     hint column goes: `18 august · <2026-08-18 Tue>' will not fit in a chip, and
+     the hint is the one thing a date vocabulary can do that a property one
+     cannot (2026-08-23 spike). */
+</style>
+</head>
+<body>
+  <h1>C · a card below the cell, offers as chips
+    <small>field, then <code>&#8594; &lt;stamp&gt;</code>, then chips — argued against, and drawn so it can be</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <span id="cdmeasure"></span>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> a row ·
+      <kbd>f</kbd><kbd>b</kbd> (<kbd>l</kbd><kbd>h</kbd>, arrows) SCHEDULED &#8646; DEADLINE ·
+      <kbd>RET</kbd> opens the cell · <kbd>C-c C-s</kbd>/<kbd>C-c C-d</kbd> open it over the row ·
+      type <code>18 aug</code>, <code>+3d</code>, <code>from 18 to 19 aug</code> ·
+      <kbd>&lt;down&gt;</kbd><kbd>&lt;up&gt;</kbd> walk the offers ·
+      <kbd>TAB</kbd> takes one ·
+      <kbd>S-&lt;left&gt;</kbd><kbd>S-&lt;right&gt;</kbd> a day ·
+      <kbd>S-&lt;up&gt;</kbd><kbd>S-&lt;down&gt;</kbd> a week ·
+      <kbd>RET</kbd> sets it · empty <kbd>RET</kbd> clears it · <kbd>ESC</kbd> leaves ·
+      <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="wire"></span>
+    <span id="align"></span>
+  </footer>
+
+<script src="dates.js"></script>
+<script src="rig.js"></script>
+<script>RIG.mount({ look: { place: "card", surface: "table", dress: "card" } });</script>
+</body>
+</html>

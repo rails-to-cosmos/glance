@@ -1831,7 +1831,6 @@ routes =
   , Route "/headline"   True  JsonRefusal [GET, POST]
   , Route "/command"    True  JsonRefusal [POST]
   , Route "/config"     True  JsonRefusal [GET, POST]
-  , Route "/capture"    True  TextRefusal [GET]
   , Route "/keywords"   True  TextRefusal [GET]
   , Route "/links"      True  TextRefusal [GET]
   , Route "/neighbors"  True  JsonRefusal [GET]
@@ -3738,10 +3737,10 @@ yearRule = Flat
 -- ** Capture
 --
 -- The ONE id-less command: it MAKES a row.  The answer is its own shape,
--- @{ok, file, digest, id}@, and @id@ is what the cursor lands on.  THE CAPTURE
--- DOC IS THE MATERIAL DOC: @GET \/capture@ answers a DRAFT in the very shape
--- @\/headline@ serves, the sheet opens over it, and @C-c C-c@ commits the
--- pane's cargo back through this one command.
+-- @{ok, file, digest, id}@, and @id@ is what the cursor lands on.  A CAPTURE IS
+-- A ROW: @+@ splices a DRAFT into the table already on screen,
+-- @GET \/keywords?tag=NAME@ answers the destination's cycle, and @RET@ from any
+-- of the draft's cells commits through this one command.
 
 data CaptureTo = ToInbox | ToBlob Tag deriving (Eq, Show)
 captureInto :: Maybe Tag -> CaptureTo   -- ^ ABSENT is the config's inbox, PRESENT a blob
@@ -3758,19 +3757,10 @@ captureText t = let s = rstrip (dropWhile (`elem` " \t") t)
 
 data CaptureRefusal = NoStore | OneHeadlineWall | NoPlaceholder | UnansweredAsk | TemplateNoHeadline
   deriving (Eq, Show)
-captureOrder :: [CaptureRefusal]        -- ^ coarsest first, every one of them ahead of a byte
+-- | Coarsest first, every one of them ahead of a byte — and every one of them
+-- at the COMMIT door, the read door answering a cycle no template can spoil.
+captureOrder :: [CaptureRefusal]
 captureOrder = [NoStore, OneHeadlineWall, NoPlaceholder, UnansweredAsk, TemplateNoHeadline]
-
-data CaptureDoor = DraftDoor | CommitDoor deriving (Eq, Show)
--- | WHICH DOOR EACH REFUSAL IS SPOKEN AT.  The two a TEMPLATE can be wrong in
--- are the draft door's as well, so a broken layer is named when @+@ OPENS
--- rather than after a reader has composed a whole entry over it.
-refusalAt :: CaptureRefusal -> [CaptureDoor]
-refusalAt NoStore            = [CommitDoor]
-refusalAt OneHeadlineWall    = [CommitDoor]
-refusalAt NoPlaceholder      = [DraftDoor, CommitDoor]
-refusalAt UnansweredAsk      = [CommitDoor]
-refusalAt TemplateNoHeadline = [DraftDoor, CommitDoor]
 
 data Code = Code String String
 captureCodes :: [Code]                  -- ^ the CONTRACT's window: the settings box completes over this
@@ -3783,34 +3773,15 @@ captureCodes =
 scanCodes :: [String]                   -- ^ @templateParts@ spells the same four as a CASE
 scanCodes = ["%?", "%U", "%T", "%^{PROMPT}"]
 
--- | @GET \/capture[?tag=NAME]@: the DRAFT.  @\/headline@'s own members off bytes
--- with no file behind them, and the three a doc that is not one yet owes.  NO
--- FILE IS CREATED; @id@ is null, @file@ empty and @digest@ @""@, which is the
--- CREATE PIN the commit that follows writes under.
-captureRead :: [String]
-captureRead = headlineFields <> ["point", "cycle", "tags"]
-
-data DraftPoint = AtHeadline | AtBodyLine Int deriving (Eq, Show)
--- ^ where @%?@ stood, in the coordinates @body@ is ALREADY read in — the ones
--- @ownLines@ and a child's @line@ use — so the pane lands by a reading it makes
--- anyway.  Line 0 IS the headline, so the body form never names it.
-draftPoint :: Maybe Int -> DraftPoint   -- ^ the wire is @point: <int> | null@
-draftPoint Nothing  = AtHeadline
-draftPoint (Just n) = AtBodyLine n
-
-data Lent = LentTag | LentState | LentPriority | LentTags | LentPlanning
-  deriving (Eq, Show)
--- | WHAT THE STANDING FILTER LENDS A DRAFT, and the gap each one fills.
--- TEMPLATE-FIRST: where the template speaks the filter is silent.  Only a fact
--- the query pins to ONE ordinary positive value is lent — never a negation,
--- never an alternation, never a meta — and a fact the draft's own walls turn
--- down is simply not inherited, so INHERITANCE NEVER REFUSES A CAPTURE.
+data Lent = LentTag | LentState | LentPriority | LentTags deriving (Eq, Show)
+-- | WHAT THE STANDING FILTER SEEDS A DRAFT ROW WITH.  Only a fact the query pins
+-- to ONE ordinary positive value is seeded — never a negation, never an
+-- alternation, never a meta — so SEEDING NEVER REFUSES A CAPTURE.
 lentInto :: Lent -> String
-lentInto LentTag      = "the destination, which is also the template and the cycle"
-lentInto LentState    = "the keyword, where the template spells none AND the draft's cycle declares it"
-lentInto LentPriority = "the priority, where the template spells none"
-lentInto LentTags     = "JOINS the run rather than filling a gap"
-lentInto LentPlanning = "one settable key pinned to one day, where the line has no such entry"
+lentInto LentTag      = "the destination, which is also the cycle"
+lentInto LentState    = "the keyword, where the destination's cycle declares it"
+lentInto LentPriority = "the priority, the cell wearing `[#A]' and the wire the letter"
+lentInto LentTags     = "every tag beyond the destination, as the draft's own run"
 
 data TplSrc = TplTag Tag | TplSystem | TplBare deriving (Eq, Show)
 templateChain :: Tag -> [TplSrc]        -- ^ ending at Config's `bareTemplate', so every case takes one path
@@ -3864,7 +3835,7 @@ linkWalls = [LinkNewline, InSubtree, EdgeToEdge, Reparses]
 
 data Role = RBg | RFg | RSurface | RMuted | RBorder | RAccent | RSel | RPoint | RPointDim | RPointOff | RHover | RLink
           | RFrost | RCol | ROk | RWarn | RBad | RVeil | RShadow | RChipWash | RChipEdge
-          | RMarkWash | RFlagWash | RColWash | RCellWash | RSortWash | RColsWash
+          | RMarkWash | RFlagWash | RColWash | RSortWash | RColsWash
   deriving (Eq, Ord, Show, Enum, Bounded)
 roles :: [Role]
 roles = [minBound .. maxBound]
@@ -3882,7 +3853,6 @@ pageToken RPointDim = Just "--g-point-dim"
 pageToken RPointOff = Just "--g-point-off"
 pageToken RLink = Just "--g-link"
 pageToken RCol = Just "--g-col"
-pageToken RCellWash = Just "--g-cell-wash"
 pageToken RFlagWash = Just "--g-flag-wash"
 pageToken ROk = Just "--g-ok"
 pageToken RWarn = Just "--g-warn"
@@ -3922,7 +3892,6 @@ tableToken RChipEdge = Just "--tv-chip-edge"
 tableToken RMarkWash = Just "--tv-mark-wash"
 tableToken RFlagWash = Just "--tv-flag-wash"
 tableToken RColWash = Just "--tv-col-wash"
-tableToken RCellWash = Just "--tv-cell-wash"
 tableToken RSortWash = Just "--tv-sort-wash"
 tableToken RColsWash = Just "--tv-cols-wash"
 tableToken ROk = Nothing
@@ -3986,26 +3955,26 @@ cmdNotes =
   , Note "KNOWN DIVERGENCE from org-glance: its renderer also rewrites the template heading's TITLE from the capture's title." [Corpus]
   , Note "A tagged capture's blob shard is unwatched for the daemon's life; it reaches the table because every write nudges its own path." [Test]
   , Note "ONE clock read covers both stamps a capture writes, so a template naming the moment and the creation time it is filed under can never name two." [Test]
-  , Note "`tags' rides GET /capture rather than /tags, that route answering about ROWS a caller names and a capture naming none." [Test]
-  , Note "THE CAPTURE DOC IS THE MATERIAL DOC: GET /capture answers a DRAFT in `headlineFields'' own shape off bytes with no file behind them, so the pane draws a capture with the doc code it already has rather than a second editor with rules of its own. `id' is null, `file' is empty and `digest' is \"\" — THE CREATE PIN, the very lock the write path already spells for a target that is not there, which is what makes the commit that follows an ordinary drift-locked write." [Test]
-  , Note "The draft is composed by ONE PARSE the commit reads back through (`draftRecord'), and a BLANK ENTRY IS KEPT where `recordsOf' drops one: `* ' with an empty title is exactly what the bare template opens as, so the row the table would refuse to show is the row capture starts from." [Test]
-  , Note "`point' is a LINE OF `body', the coordinates `ownLines' and a child's `line' are already in, and null is the headline itself — so the pane lands by a reading it makes anyway rather than by a second addressing scheme. It is measured on the EXPANDED doc before the filter's seeds are spliced, which is safe because a seed edits the headline line and the planning line and neither is a line `body' carries." [Test]
-  , Note "`cycle' rides the draft answer because /keywords is ROW-KEYED and a draft has no row: `draftKeywords' walks the same `keywordScopes' chain with an empty FILE scope, so the cycle the state door OFFERS is the list the commit door WALLS with, one fold (`flatKeywords') serving both." [Test]
+  , Note "THE COMMIT DOOR IS THE ONLY DOOR A DRAFT HAS: a capture is composed as a ROW in the table and the read door answers a cycle, so a template's own refusals are spoken where its bytes are written and nowhere earlier. `draftRecord' reads the composed entry back through ONE PARSE, and a BLANK ENTRY IS KEPT where `recordsOf' drops one: `* ' with an empty title is exactly what the bare template opens as." [Test]
+  , Note "THE DRAFT'S CYCLE RIDES /keywords, UNDER A SECOND ARM: that door is ROW-KEYED and a draft has no row, so `?tag=NAME' asks the same question for a row that does not exist yet -- `draftKeywords' walking the same `keywordScopes' chain with an empty FILE scope, flattened by `flatKeywords' into the very list the commit door WALLS with (`draftStates', one reading for the offer and the wall). The CHAIN'S TWO HALVES ride beside it, `keywordsPair' as every other keywords answer spells them: the flat list is the ORDER the state cell offers the cycle in and the halves say which word is a DONE one, which is the whole of what a hint column needs. It is composed off the DESTINATION alone, an empty tag being the inbox, and owes the template nothing. The page HOLDS that one answer: the wall a seeded keyword meets and the cell's whole vocabulary are the same list, so a second fetch cannot hand the menu a cycle the drop never saw. A door of its own answering the same fold under a second key is what this replaced." [Test]
   , Note "The prompting escapes DISSOLVED: `%^{PROMPT}' expands to its EMPTY VALUE — a drawer pair with none, a slot in the body — because a pre-form field existed only where the form could not edit structure. The stamping escapes still take the server's clock, the page spelling no org, and `%?' writes nothing at all: it is where point opens." [Test]
   , Note "TWO ROADS, EXACTLY ONE TAKEN: `text' (with `fields', through the tag's template) is the older wire and stays, the door being public and org-glance able to drive it; `title' opens the sheet's cargo. NAMING BOTH IS REFUSED rather than resolved, and both roads hand the SAME org to the same minting, which is why the shard path, the id, the creation drawer, the ledger note and the inbox split are untouched by the widening." [Test]
-  , Note "ONE WALL PER KEY AND EVERY ONE OF THEM THE ROW EDIT'S (`cargoWall'): planning through `plannedValue' with the KEY OUTRANKING THE VALUE, tags and the state through their charsets, the title through the headline reparse, and the state through the very cycle the draft door offered. A capture is ONE TOP ENTRY, so a body line opening a single star is refused rather than written — the one-headline wall reaching the widened road the way `captureText' reaches the older one." [Test]
+  , Note "ONE WALL PER KEY AND EVERY ONE OF THEM THE ROW EDIT'S (`cargoWall'): planning through `plannedValue' with the KEY OUTRANKING THE VALUE, tags and the state through their charsets, the title through the headline reparse, and the state through the very cycle the read door offered. A capture is ONE TOP ENTRY, so a body line opening a single star is refused rather than written — the one-headline wall reaching the widened road the way `captureText' reaches the older one." [Test]
   , Note "A BLOB IS A NEW FILE AND HAS NO LINE ENDING OF ITS OWN, so it takes the TEMPLATE'S — the bytes it is composed out of. The older road got this for nothing, `expandTemplate' copying the template verbatim; the widened road joins its head line with the same ending and RE-ENDS the pane's body into it, the page speaking `\\n' and knowing no other. A CRLF layer lands a CRLF blob rather than an entry ending one way over a body ending the other." [Test]
   , Note "The header is composed and READ BACK before it is written (`draftEntry'): a title carrying a tag run or a star reparses as something else, and is refused naming the part rather than written and misread on the next load." [Test]
   , Note "THE INBOX PATH GAINED THE BLOB PATH'S SPLICE AND NOTHING ELSE: `stampedEntry' joins the creation stamp to whatever drawer the entry has, `blobDocument' being that function with an id and a tag handed to it. No id, no tag and no ledger line for the inbox, and the old jot's bytes are unmoved." [Test]
-  , Note "WHAT THE FILTER LENDS IS TEMPLATE-FIRST (`lentInto'), and the tag seed is that rule's first case: only a fact the query pins to ONE ordinary positive value is lent, tags JOIN rather than fill, and a lent fact the draft's own walls turn down is simply not inherited — the draft door never 400s over one. The CLIENT extracts the facts and the SERVER merges them, so one composer owns precedence and a day word resolves under the door's one clock read." [Test]
-  , Note "THE DRAFT SAYS WHERE IT LANDS. Its tag cell is CONSTRUCTED (`draftCells') and owes no round trip through the org line: the DESTINATION leads it, the template's own run and the lent tags follow, and the cell is what the pane draws and what the commit carries out as the capture's `tags'. The minting joins the destination IDEMPOTENTLY (`addTagEditsIn' folds), so the blob wears each tag once. A lent tag the charset turns down is not worn, the never-refuse rule as everywhere; the destination is no lent fact and rides as the reader settled it, the file line already naming it." [Test]
-  , Note "KNOWN LIMIT, and it is the ORG LINE'S alone: a tag run needs a TITLE to stand after, this parser reading `* :work:' as the title itself, so the draft's own bytes carry no run until one is typed. The DISPLAY cell says the destination all the same, and the commit composes the header out of the cell rather than out of that line." [Test]
+  , Note "WHAT THE FILTER SEEDS IS THE PAGE'S ALONE (`lentInto'): only a fact the query pins to ONE ordinary positive value reaches the draft row, tags JOIN the run rather than filling a gap, and a fact the commit's own walls would turn down is simply never seeded — a template seeds nothing, the server ignoring it on the cargo road. So SEEDING NEVER REFUSES A CAPTURE." [Test]
+  , Note "THE DRAFT SAYS WHERE IT LANDS IN ITS TAG CELL AND NOWHERE ELSE: the DESTINATION leads the run and the seeded tags follow, and the cell is what the commit carries out as the capture's `tags'. The minting joins the destination IDEMPOTENTLY (`addTagEditsIn' folds), so the blob wears each tag once." [Test]
   , Note "DELETION IS A MOVE: the whole blob DIRECTORY is gzipped under the trash's mirror of its path, the copy landing before the original goes, a destination that already exists refused." [Test]
   , Note "KNOWN LIMIT: one blob, one tombstone — a hand-written blob's SECOND top-level entry loses its bytes and keeps its record." [Test]
   , Note "delete's three walls are checked on the SERVER as well as in the shell, because a request is a request whoever wrote it." [Test]
   , Note "The renderer ships its palette at ZERO specificity (:where(.tv-root)), which is what lets the page's ordinary rules win whatever order the stylesheets land in." [Docs]
   , Note "A pill draws its hue as INK over a 15% wash of itself over the ROW's ground, so a theme picks hues readable over its own pBg AND pSelection." [Docs]
   , Note "A COLUMN'S TEXT IS `ch' AND ITS GROUNDS ARE `px', each in the unit the stylesheet spends it in: a pill's 16px of padding allowed for as 2 characters is exact at one font size and short at every other. The allowance carries a further px because a column width lands DOWN on the engine's 1/64 grid, and a pill is an inline-block `text-overflow' cannot cut — so a hair short draws the whole badge with an ellipsis behind it." [Browser]
+  , Note "COLUMNS ARE FITTED ONCE PER VIEW. The measure is the one it always was — the header word, the widest value in the result set AT THAT MOMENT, the `ch'/`px' units above — and what changed is that its answer is DURABLE. It is taken at the first rows paint after a mount or a `setView', at a window resize, and at a QUERY CHANGE, which the PRODUCER asks for (`fitColumns' on the handle): every answer reaches the widget through the one `setRows' door, so the widget cannot tell a new result set from a WAL tick and the asking side says which it was. Nothing else measures: a draft typed into, a row arriving with a longer value, a delta, a producer row spliced in and a sort all move 0px. A value longer than its column was fitted to is CLIPPED and carries its whole text in the cell's `title', which is the one cost and where it is paid." [Browser]
+  , Note "THE HEAD OWNS THE COLGROUP and returns it sized: `renderHead' ends in `applyWidths'. A bare colgroup is authoritative under `table-layout:fixed' — the engine divides the table equally — so a head rebuilt without its widths drew six EQUAL columns on every editor close, `closeCellEditor' having written them one render earlier (docs/bugs/fixed/2026-09-13-a-cell-editor-closing-rebuilds-the-head-bare.md)." [Browser]
+  , Note "THE CURSOR IS A ROW AND A CELL WITHIN IT, AND THE ROWS CARRY NOTHING ELSE: the row keeps the one gold, the cell inside it is `box-shadow:inset 0 0 0 1px var(--tv-point)' over nothing, and the body draws NO column band — `tv-colsel' is still stamped on every body cell for tests and callers and dresses nothing, the header's wash being the only column locator off the row. A ring cannot stack with the cursor row's gold, the mark, the flag or the zebra and needs no contrast budget from the ground under it, so `one gold at a time' is satisfied by construction rather than by a narrow escape — the ground-on-ground cell it replaces had to be held at 9% in dark, one point more putting the tag ink under 4.5:1 on the cursor row. `--tv-cell-wash' had no other reader and is retired." [Browser]
+  , Note "`--tv-point' IS `--g-point', mapped in `tableTokens' the way `--tv-sel' is mapped from `--g-sel', so the table's cell ring and the document's point are ONE ink — #005A8D light, #FFC777 dark. The widget declares it in all four `:where' blocks as the default a consumer who themes nothing gets, and `paletteSweep' pins the pair." [Test]
   , Note "`paletteSweep' is the DERIVED oracle: it reads the served page and compares the two namespaces role by role, and counts the slots the served rows name." [Test]
   , Note "A tree's state hues are the SYSTEM layer's alone and are emitted per REQUEST after `themeCSS', coming off the store's config rather than out of the build." [Test]
   -- Tier two until the checks moved into the suite: what no gate asks.
@@ -4207,7 +4176,6 @@ surfaces =
   [ Surface "mint"    True  True  False False False False False
   , Surface "prompt"  True  True  False False False False False
   , Surface "refer"   True  True  False False False False False
-  , Surface "capture" True  True  True  False False False False
   , Surface "links"   True  True  True  True  True  True  False
   , Surface "tags"    True  True  True  True  True  True  False
   , Surface "sheet"   False False True  True  True  False False
@@ -4431,9 +4399,12 @@ washExempt = ["#log", "#keys"]                   -- where a reader finds out why
 -- | `ZRefer' stands OVER the sheet because it is drawn INTO it: the picker hangs
 -- at the caret of the box it is about to write to, so a level under the sheet
 -- would put it behind the prose it is completing.
-data Z = ZSpine | ZEcho | ZBackdrop | ZSheet | ZRefer deriving (Eq, Show, Enum, Bounded)
+-- | @ZOffers@ is the tag menu, which stands over every surface that raises it.
+data Z = ZSpine | ZEcho | ZBackdrop | ZSheet | ZRefer | ZOffers
+  deriving (Eq, Show, Enum, Bounded)
 zOf :: Z -> Int
-zOf ZSpine = 1 ; zOf ZEcho = 2 ; zOf ZBackdrop = 100 ; zOf ZSheet = 101 ; zOf ZRefer = 102
+zOf ZSpine = 1 ; zOf ZEcho = 2 ; zOf ZBackdrop = 100 ; zOf ZSheet = 101
+zOf ZRefer = 102 ; zOf ZOffers = 103
 zRetired :: Int ; zRetired = 3               -- ^ the status corner's, forbidden coming back
 tvHeader, tvCompletion :: Int
 tvHeader = 1 ; tvCompletion = 5              -- the renderer's, which the backdrop must clear
@@ -4551,6 +4522,52 @@ shellNotes =
          \ IS SPELLED AT THE CALL rather than read off the list, so the CLOSED\
          \ fields — the state palette and the capture template's code list — keep\
          \ no free-text door." [Test, Browser]
+  , Note "ONE OFFER MENU, THREE ANCHORS.  A word completes the way a date does\
+         \ -- the list under the field, a hint column, the arrows walking it and `TAB'\
+         \ taking what point stands on -- and three fields stand in NO BOX OF THEIR\
+         \ OWN: the draft's tag CELL and its state CELL are the renderer's in-cell input\
+         \ and the tags popup's rename field sits in a popup that scrolls.  So ONE element\
+         \ hangs at the page's ROOT (`#toffer') and is PLACED PER ANCHOR against the\
+         \ viewport, turning over above its anchor at the window's foot -- the date box's\
+         \ own flip, measured in the glue because there is no box to hang it inside.  The\
+         \ WIDGET gains nothing: the cell's rect is `cellRect', the seam the date box\
+         \ already asks through.  THE ANCHOR SAYS WHAT IT COMPLETES and the model is one:\
+         \ OFFERS answers the list, TAKE what the field becomes, RUN that the field holds\
+         \ a tag run rather than one word.  A take that leaves the value the field already\
+         \ holds is NO TAKE, so `TAB' falls through to the ring and `RET' to the commit\
+         \ exactly as before.  `ESC' is never the menu's: the surface goes down whole and\
+         \ the menu with it, which is the date box's rule." [Test, Browser]
+  , Note "THE STATE CELL COMPLETES OUT OF THE DESTINATION'S OWN CYCLE, which is a CLOSED\
+         \ vocabulary: `stated' refuses a keyword the destination's chain does not\
+         \ declare, so a line the menu could not offer is a line the capture could not\
+         \ carry -- there is no reader's own line here and a word the cycle lacks draws NO\
+         \ OFFER, leaving `TAB' the ring's own key.  The narrow is a PREFIX (the date\
+         \ offers' rule, where a tag's is the palette's substring), the hint is `done' for\
+         \ a word behind the bar, and the take REPLACES THE WHOLE FIELD -- a state is one\
+         \ word -- compared as it stands rather than folded, org's keywords being\
+         \ case-sensitive.  The `s' palette's `*empty*' STAYS THE PALETTE'S: a FIXED entry\
+         \ on `DEL' committing a null keyword over landed rows, where a whole-field\
+         \ completion reads the field AS the word -- so such an entry could only stand\
+         \ where the cell is already empty.  A cell clears by being emptied, the date\
+         \ cell's own rule." [Test, Browser]
+  , Note "A TAG RUN IS COLON-DELIMITED and a take KEEPS THAT SPELLING: the word the\
+         \ caret sits in is what stands between the colon behind it and the one ahead,\
+         \ and the take opens the word with a `:' where none stood behind it and always\
+         \ closes it with one -- `:a:b' and `book' make `:a:book:', the caret left after\
+         \ that colon where the next tag is typed.  ONE READING of the run, `cellTags''s\
+         \ own, so what the offers complete is what `capture''s `tags' carries.  THE\
+         \ CARET IS `selectionEnd': an open lays a WHOLE selection down, so the word the\
+         \ reader means is the one the run ENDS on." [Test, Browser]
+  , Note "THE TAG VOCABULARY A CAPTURE COMPLETES FROM IS THE STORE'S, off a door that\
+         \ NAMES NO ROW: `GET /tags?vocabulary=true' answers the tree's tags and the rows\
+         \ wearing each, the same two fields the ids door carries and built once\
+         \ (`tagVocabulary') -- `/keywords?tag=' is the same shape, ONE ROUTE and TWO\
+         \ QUESTIONS.  Asked ONCE and kept until the store settles, the HELD answer still\
+         \ drawing while a fresh one flies, or a menu under an open cell would empty on\
+         \ every settle.  The RENDERER's own `tagVocab()' stays the FILTER's and is a\
+         \ different question: a filter completes over what the view can narrow TO, and a\
+         \ tag no row on screen wears narrows to nothing, while a capture files a row\
+         \ under a tag the view need not draw." [Test, Browser]
   , Note "A rung with nothing under it falls through in SILENCE, and the pill says the command that RAN." [Test]
   , Note "M is markAll and it TOGGLES: the renderer only adds, so a count that did not move takes them all off, the marks a filter is hiding included." [Test]
   , Note "m and u take the renderer's word for where a mark landed and then step down, dired's rule, and this page keeps no set of its own." [Test]
@@ -4662,7 +4679,6 @@ popTiers = [ ("state palette",    PopBand)
            , ("tag manager",      PopBand)
            , ("materialize sheet", PopSheet)
            , ("link popup",       PopSheet)
-           , ("capture form",     PopSheet)
            , ("settings sheet",   PopSheet) ]
 
 -- | `--g-pop-max' in vh: the foot margin is the HEAD's, derived from the anchor.
@@ -5390,72 +5406,171 @@ sheetNotes :: [Note]
 sheetNotes =
   [ Note "`beforeunload' flushes with `keepalive' only when the sheet is dirty." [Test]
   , Note "The page holds no org parser and must not grow one." [Docs]
-  , Note "TWO RESOLVERS, ONE TRUTH. Because the page spells no org, the date field's client reading is for THE GHOST'S PREVIEW ALONE: the commit sends the RAW TYPED TEXT, the server transforms at the planning wall, and the pane redraws off that answer. The two are DRIFT-PINNED over one shared corpus, `test/fixtures/english-dates.json', which both suites read -- a vector added there is owed an answer by both halves, so neither can grow a reading the other lacks." [Test]
-  , Note "A DRAFT POSTS NOTHING, so a planning value it takes never comes back\
-         \ TRANSFORMED the way a row's does — the reader's phrase used to stand in the\
-         \ planning line until the capture landed.  `settleDraftPlan' is the draft's own\
-         \ stand-in for that round trip: the entry is redrawn as the GHOST'S OWN READER\
-         \ reads it, so the pane says what the file will hold.  WHAT TRAVELS IS STILL WHAT\
-         \ WAS TYPED (`typedPlan'): the wall transforms ONCE against the server's clock, and\
-         \ this reading is for ink, exactly as the ghost's is.  A phrase the resolver\
-         \ refuses stays raw and meets the wall's own sentence; CLOSED is not settable and\
-         \ keeps its verbatim value untouched." [Test]
+  , Note "TWO RESOLVERS, ONE TRUTH, AND THE CLIENT'S IS ONE FILE. The whole client grammar -- org's stamp, the phrase, the ghost and the step -- is `frontend/glue/15-dates.js', which the pane and the cell both read, a second reader of one phrase being the drift the corpus pin exists to catch. Because the page spells no org, that reading is for THE GHOST'S PREVIEW ALONE: the commit sends the RAW TYPED TEXT, the server transforms at the planning wall, and the pane redraws off that answer. The two are DRIFT-PINNED over one shared corpus, `test/fixtures/english-dates.json', which both suites read -- a vector added there is owed an answer by both halves, so neither can grow a reading the other lacks." [Test]
   , Note "Movement relocates attention alone and `RET'/`DEL' are the context axis, which\
          \ is why the movement keys are the ones left out of `ONCE'." [Docs]
   , Note "The materialize sheet is ONE file — both panes, the ladder and the opening —\
          \ and it owns the open entry, the shape, and the two baselines dirt is measured\
          \ against." [Test]
-  , Note "A CAPTURE IS THE SHEET OVER A SUBTREE THAT DOES NOT EXIST YET, and `capturing()'\
-         \ is a fact about the HANDLE (`editing.capture') rather than a second mutable, so\
-         \ every door below reads one flag.  NOTHING ABOUT A DRAFT IS OWED TO A FILE: it is\
-         \ never dirty, so the leave-flush, the `beforeunload' keepalive and the socket's\
-         \ reload all read it clean — which is the whole of what makes `ESC' free." [Test]
-  , Note "THE BARE-DRAFT LAW: where the draft is star-space and nothing else the title box\
-         \ IS the capture — `RET' on the typed title commits, so the inbox jot stays `+',\
-         \ the line, `RET', and `ESC' there drops the capture whole rather than coming back\
-         \ to a sheet standing over no file.  `bareCapture' is asked in ONE place, so the\
-         \ commit and the escape cannot part.  A template with more than a bare headline\
-         \ commits on `C-c C-c' alone, where `RET' just closes the title.  THE DESTINATION\
-         \ TAG IS NOT ONE OF THE THINGS THAT MAKE A DRAFT RICH (`tagsBeyond'): it is the\
-         \ address `+' already asked for, so a bare template under a tag is the bare draft\
-         \ and the tagged jot is four keys too." [Test]
-  , Note "EVERY DRAFT OPENS EDITING, at the place `%?' named (`showDraft', `openLanding'):\
-         \ a reader who asked for a capture is composing one, and a pane that made them\
-         \ press `RET' first asked a question `+' had answered.  Point on the HEADLINE is\
-         \ the title edit, opened at once off the handle's own cells; a BODY line is the\
-         \ paragraph editor over that line, opened when the fill settles, the row `%?'\
-         \ named landing a macrotask behind the send.  The caret rests at the line's end,\
-         \ `point' naming a LINE and no offset to aim at.  On the RICH draft the box is an\
-         \ ordinary sheet edit and the STANDING LADDER holds: `RET' closes it, `C-c C-c'\
-         \ behind it takes the capture, ESC closes it and the next ESC drops the draft." [Test]
+  , Note "CAPTURE IS A ROW, AND THE WIDGET OWNS THE ROW: `+' hands the table a\
+         \ PRODUCER-OWNED row — `producer', `under', `refused' — seeded from what\
+         \ the filter PINS, with its title cell's editor open, and the widget puts it\
+         \ back after the row `under' names through every pass it has: the sort, the\
+         \ local filter, a `setRows' (which replaces the STORE's rows and leaves the\
+         \ producer's standing, the open editor and its caret with them) and a socket\
+         \ delta, whose indices count the store's rows alone so no phantom shifts one or\
+         \ slides between an anchor and its row. ONE PREDICATE, `standing', is asked\
+         \ wherever the cursor or a pass reaches a row — the walk, the marks, a click,\
+         \ the kept selection — so a mouse reaches no row the keyboard cannot. Its cells\
+         \ are the only editable cells in the table: a per-COLUMN `editable' cannot carry\
+         \ that, the main table mounting no editable column, so opting the columns in\
+         \ would open a dead editor on every real row's double-click." [Browser]
+  , Note "THE DRAFT SAYS WHERE IT LANDS IN ITS TAG CELL, the destination leading the\
+         \ run; no note rides beside the row for it (a `\8594 book' hint did, and was\
+         \ dropped on review 2026-09-12). `+' asks the cycle as it draws the row, and only\
+         \ where the filter seeded a state, there being nothing else to check; a keyword\
+         \ that destination's `#+TODO:' lacks is DROPPED before the wire ever carries it,\
+         \ SILENTLY -- the cell empties and nothing else is said -- which leaves\
+         \ `stated''s 400 exactly as strict as it is for every other caller, the MCP tool\
+         \ included. A PRIORITY IS WORN AS ORG SPELLS IT, the seeded cell reading `[#A]'\
+         \ the way every landed row's does, and the wire taking the letter alone.\
+         \ THREE CHANNELS say producer and hue is none of them alone: the accent edge,\
+         \ the dashed rule and the ghost ink, all three in the widget's own sheet beside\
+         \ every other `tv-' class." [Browser]
+  , Note "A DRAFT'S KEYS BELONG TO THE EDITOR AND CAN BE BOUND NOWHERE ELSE: the open cell\
+         \ stops every key it sees, so the shell's dispatch never hears one and `Keymap.hs'\
+         \ gains no row and no scope.  The seam the widget owes is one mount option,\
+         \ `onCellKey(e, {id, col, key, value})', asked at the HEAD of the cell editor's\
+         \ keydown, a `true' answer meaning the producer took the key; the COLUMN'S KEY\
+         \ rides beside its index, so the walk names its cells rather than counting them,\
+         \ and `getEditing' answers the same pair to a caller holding no event.  Over the\
+         \ draft alone `TAB' walks the draft's own cells IN THE ORDER THE HEADER DRAWS\
+         \ THEM (`draftWalk' filters `cols' by the six a draft owns -- state, priority,\
+         \ title, the two dates and tags in this table) and `S-TAB' walks them\
+         \ back, wrapping at either end, the TITLE still opening first whatever that\
+         \ order is; the CLOSING cell's value is written\
+         \ into the phantom row BEFORE the next cell opens, `closeCellEditor' redrawing\
+         \ the rows on its way out, and the\
+         \ ROW's value is what the next editor opens on — so a cell walked through\
+         \ untouched keeps what it held.  A DATE STOP OPENS THE DATE BOX over that cell\
+         \ instead of the in-cell input (`openDateBox'), and the ring is one ring either\
+         \ way: `TAB' there takes the OFFER that stands, and with none -- or once it has\
+         \ been taken -- RESOLVES the phrase to its stamp and folds THAT into the cell on\
+         \ the way on, so the cell shows the concrete day and `capture''s `planning'\
+         \ carries the stamp; `S-TAB' walks back and resolves nothing,\
+         \ `RET' commits the WHOLE capture and `ESC' drops the draft.  `ESC' from an\
+         \ ordinary cell drops the draft and leaves the CLOSE to the widget, whose own\
+         \ reading of that key is exactly that, and whose own `deleteRow' drops the editor\
+         \ standing in the row it takes away, so none is left holding a node the redraw\
+         \ has orphaned.  Every OTHER row keeps the shipped reading, which costs nothing\
+         \ while no other row is editable." [Browser]
+  , Note "A DATE IS EDITED WHERE IT IS DRAWN, WITH THE WIDGET THE MATERIAL DOCUMENT HAS.\
+         \ ONE WIDGET AND ONE CODE PATH: `#ddate' -- the field, the ghost, the OFFERS over\
+         \ `DATE_VOCAB' and the month words, the step keys and RET/ESC -- is laid over a\
+         \ table cell as an OVERLAY, so the cell can lack nothing the pane has.  The box\
+         \ therefore hangs at the PAGE's root rather than in the doc pane, which is\
+         \ `display:none' while the table is up, and is placed against the VIEWPORT: where\
+         \ it stands is the OPEN's rather than the box's.  `openDateBox({rect, initial,\
+         \ today, foot, onCommit, onCancel, onWalk})' is that one door -- RECT answers what\
+         \ it stands over, element or rect alike; over the PANE it covers the planning\
+         \ value's slot to the entry's edge and lifts that row's wash (`tight'), and over a\
+         \ CELL it stands IN THAT CELL'S OWN PLACE -- its top, its left and its height --\
+         \ growing right past the cell's edge with the cell's width as the floor, so the\
+         \ ghost runs on over the neighbour as a tail and the reader's eye never leaves the\
+         \ line the question was asked on.  A date column is 125px against a 148px ghost,\
+         \ which is why the answer uses no column measure at all (spikes\
+         \ 2026-09-12-date-cell and 2026-09-12-date-overlay, B): an overlay negotiates\
+         \ against none.  THE BOX NEVER FLIPS, BEING THE CELL; only the OFFERS turn over,\
+         \ hanging above it where the viewport's foot leaves them no room.  The widget owes\
+         \ ONE seam for it -- `cellRect(id, col)', WHERE a cell is drawn, the widget\
+         \ knowing where its rows are -- and `closeEditor()' beside `editCell', so no\
+         \ in-cell input stands under the box.  NO STANDING ROW'S CELL OPENS AN EDITOR\
+         \ AT ALL; a producer's own row stays editable whole.  THE OPEN IS THE WIDGET'S\
+         \ FACT and rides on the cell: `raw' is the value the editor OPENED on and `token'\
+         \ counts the opens, so a repaint's re-open is the SAME open.  The caret rule\
+         \ follows: a held line rides in the HANDLE and never enters `r.cells' -- a\
+         \ standing row's being the store's and a producer's own being drawn by the input\
+         \ in it.  EVERY redraw goes through `repaint', the frame tick's among them, or a\
+         \ window that moved wipes an open editor." [Browser]
+  , Note "THE CELL IS THE FOURTH CALLER OF `set-planning''s ONE ROAD.  `RET' in the table is\
+         \ COLUMN-SENSITIVE the way `^' is -- it reads the shipped column cursor\
+         \ (`getSelection().col'), opens the editor over a SCHEDULED or DEADLINE cell and\
+         \ materializes over every other column -- so no binding and no scope is added.\
+         \ The editor opens on the cell's own ISO day WHOLLY SELECTED, stamping the\
+         \ reader's day ONCE at that moment and spending it on INK: the ghost and the\
+         \ offers are the pane's own, silence and all.  `S-<arrows>' write the stepped\
+         \ day into the field,\
+         \ ±1d and ±7d, and `TAB' with no offer left to take writes the GHOST'S OWN\
+         \ READING there -- one order, offer then resolve -- and a phrase no reading takes\
+         \ is left alone since the `✗' is already said, so what the reader sees is what\
+         \ travels.  THE RESOLVE IS SPELLED THE WAY THE SURFACE DRAWS A DAY (`spell', an\
+         \ open's own): over the PANE org's stamp, which is what its planning slot draws\
+         \ and behind which the ghost falls silent; over a TABLE CELL, a standing row's\
+         \ and a draft's alike, the ISO DAY that cell itself draws -- so the box says what\
+         \ the reader will see there once the settle lands, the ghost staying lit over the\
+         \ stamp the FILE will take.  A CELL SHOWS ONE DAY, so a range resolves to its\
+         \ start there and stays whole in the pane; either spelling travels, the server\
+         \ reading a bare `2026-09-13' exactly as it reads org's bracket.\
+         \  A CELL HAS NO RING, so the resolve is the whole press and the box stays.\
+         \  `RET' posts the FIELD'S\
+         \ OWN BYTES as `{keyword, date}' and an emptied field posts `null' -- `\"\"' is no\
+         \ date and would meet the wall's 400 rather than clear the entry -- while a phrase\
+         \ no reading takes REFUSES IN PLACE, the box standing, the ghost wearing the\
+         \ mark and nothing posted.  THE BOX PAINTS NO STAMP: the wire's cell is ISO and\
+         \ the file's value is org's, so the close redraws off the store and the settle\
+         \ brings the day.  `C-c C-s' and `C-c C-d' split on the MARKS, where `targets()'\
+         \ splits already -- the prompt over a marked set, which has no cell to stand in,\
+         \ and the box over the row at point, the column cursor moved onto it -- so\
+         \ `takesRows' says the same thing it always did and only the surface differs." [Browser]
+  , Note "`RET' FROM ANY OF THE DRAFT'S CELLS IS THE COMMIT.  The open editor's value is\
+         \ folded into the phantom first, the walk having accumulated and posted nothing,\
+         \ and the whole capture then goes out at ONE press through the one command that\
+         \ mints a blob.  A ROW CARRIES NO BODY AND NO DRAWER,\
+         \ so the args are the title, the DESTINATION as `tag' (the capture's address), the\
+         \ row's own run as `tags', the two scalars and `planning' -- one entry per date\
+         \ cell that holds something, carrying THE PHRASE and never the stamp the ghost\
+         \ drew, `plannedEntry' resolving it against the request's one clock read; an empty\
+         \ cell is no entry and no entry is no line.  The state among them is\
+         \ already the destination's own, `+' having dropped what that cycle lacks.  THE ROW\
+         \ ARRIVES BEHIND ITS OWN 200: a command publishes nothing and the watch's nudge is\
+         \ what reloads the store, so the draft is spliced out, the server's order is asked\
+         \ for at once, and `arriving' carries point onto the id on the FIRST settle that\
+         \ holds the row -- wherever `sort:' puts it, which under `sort:scheduled' is among\
+         \ the days where the draft filled its SCHEDULED cell and the undated tail where it\
+         \ did not.  THE HOLD IS BOUNDED at both ends: the id is dropped with\
+         \ the view it belonged to and after ten settles that never held the row, since a\
+         \ capture the standing filter hides never arrives and an id left standing would\
+         \ spend the NEXT write's settle." [Browser]
+  , Note "A REFUSED CAPTURE REFUSES IN PLACE: the draft STAYS, a row that cannot commit\
+         \ being a row the reader would otherwise have to retype. The editor comes back\
+         \ to the title with its text selected, and the word — `nothing to capture', the\
+         \ shipped sentence for an empty title, and the server's own for its 400 — is the\
+         \ ECHO PILL's, while the two channels that fence the row off, the dashed rule and\
+         \ the accent edge, turn warn.  ONE NOTE MECHANISM AND NO SECOND SLOT: the refusal\
+         \ is about the ROW, so it belongs to no column at all and survives the walk, and\
+         \ the drawn cells stay the cells they are — a note written into the last free\
+         \ column drew over the tag cell after one TAB round, the row having filled every\
+         \ column by then.  The next CONTENT keystroke takes the dress back ONE FRAME\
+         \ BEHIND the key that answered it, the redraw rebuilding the very cell that key\
+         \ is still landing in; a walk and a movement leave it standing, and only `ESC'\
+         \ dismisses the draft." [Browser]
   , Note "A HEADLINE ALWAYS DRAWS ITS TITLE CELL, empty or not (`drawnCells', Doc.elm):\
          \ that cell is the SLOT the title edit anchors in (`dTitleAt'), and a row that drew\
          \ none left the box anchored on the whole line — swallowing the star, the state,\
          \ the priority and the tag run it stands among.  Every other cell is drawn only\
          \ when it says something.  The capture surfaced this and never owned it: any\
          \ headline with an empty title wore it." [Browser]
-  , Note "AN EMPTY TITLE IS NO COMMIT AND THE BOX STAYS UP behind the word, the wall every\
-         \ other sheet edit's is asked at: above the shut, while what was typed is still on\
-         \ screen to be fixed.  A REFUSED capture leaves the SHEET standing for the same\
-         \ reason, and `C-c C-c' retries it." [Test]
-  , Note "Over a bare draft that box FINALIZES A CAPTURE, so the pill names\
-         \ `org-capture-finalize' under whichever key reached it rather than the title-write\
-         \ it is not." [Test]
+  , Note "`RET' OVER A DRAFT CELL NAMES `org-capture-finalize' in the pill, under whichever\
+         \ key reached it: the verb is org-capture's rather than any row-write, and the key\
+         \ belongs to the editor, so no binding is added for it." [Test]
   , Note "ONE `note' SHORTHAND PER SHEET, each bound to the sheet it speaks for (`sync',\
-         \ `capnote', `cnote'): `note' writes the sheet's own `state', so a verb reaching\
-         \ for another sheet's shorthand moves a state its caller never owned." [Test]
-  , Note "A CAPTURE SHEET IS A GHOST in `SURFACES': it stands over a draft no row id in a\
-         \ URL could bring back, so it is remembered as NOTHING and the address stays the\
-         \ view's own." [Test]
-  , Note "A ROW-ADDRESSING COMMAND OVER A DRAFT LANDS IN THE HANDLE (`draftWrote'), which\
-         \ answers in the wire's own shape: the state palette, the tags popup and the title\
-         \ and priority doors are the doors they always were, and the empty digest rides\
-         \ back untouched, being the create pin." [Test]
+         \ `cnote'): `note' writes the sheet's own `state', so a verb reaching for another\
+         \ sheet's shorthand moves a state its caller never owned." [Test]
   , Note "The browser fixture tree carries a REAL `.org-glance' store and one tag layer\
-         \ with a `#+TODO:' cycle and a template, so the capture cases read the org a\
-         \ reader's own keystrokes wrote rather than a stub's answer — template expanded,\
-         \ pair filled, date summoned, blob minted with its id, its shard path, its\
-         \ creation drawer and its ledger line." [Browser]
+         \ with a `#+TODO:' cycle, so the capture cases read the org a reader's own\
+         \ keystrokes wrote rather than a stub's answer — the destination's cycle asked\
+         \ for, the blob minted with its id, its shard path, its creation drawer and its\
+         \ ledger line." [Browser]
   , Note "A `repo: true' case is served a SECOND copy of that tree, `git init'ed with one\
          \ commit, no remote and an identity of the repo's own, and a fresh one per case:\
          \ a mounted git control fills `#ghead', whose 22px row moves every table row\
@@ -6100,8 +6215,12 @@ gluePartFiles :: [Path]
 gluePartFiles =
   [ "00-core.js"      -- the config blob, the log strip, the wash, fetching, the query, the crumbs
   , "05-keys.js"      -- key naming and the echo pill
+  , "15-dates.js"     -- the date grammar: org's stamp, the phrase, the ghost, the step
   , "20-sheet.js"     -- the materialize sheet: both panes, the ladder, the opening
-  , "30-capture.js"   -- the capture form and the value palette
+  , "30-palette.js"   -- the value palette and the link door
+  , "35-draft.js"     -- the draft row: the seeding rule, the phantom, the walk
+  , "36-date-cell.js" -- the date in the cell: the box over the cell, and `C-c C-s's split
+  , "37-tags.js"      -- the offer menu, the tag vocabulary and the run's own spelling
   , "40-popups.js"    -- the link popup and the tags popup
   , "50-settings.js"  -- tabs, saved views, the states table, the theme
   , "60-refer.js"     -- `@' in the sheet: the reference picker over /refer

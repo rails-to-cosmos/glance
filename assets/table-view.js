@@ -51,7 +51,8 @@
  *             editable?: boolean,
  *             compare?: string }} Column
  *          `editable' opts the column into cell editing (`editCell'/double-
- *          click / `onEdit'); columns are read-only by default.
+ *          click / `onEdit') AND into header editing; columns are read-only by
+ *          default, and a `producer' row is editable whole.
  * @typedef {{ key?: string, command: string, label?: string }} Action
  * @typedef {{ column: string, ascending?: boolean, direction?: string,
  *             nullsFirst?: boolean }} Sort
@@ -59,9 +60,18 @@
  *          `getSort' answers with, so a chain survives a read and a put back.
  * @typedef {{ column: string, ascending: boolean, nullsFirst: boolean }} SortKey
  *          A normalized sort key (internal).
- * @typedef {{ id: string, cells?: Record<string, Cell>, linked?: boolean }} Row
+ * @typedef {{ id: string, cells?: Record<string, Cell>, linked?: boolean,
+ *             producer?: boolean, under?: string|null,
+ *             refused?: string }} Row
  *          `linked' says the row leads somewhere; its `title' cell is
  *          underlined, and a view with no such column shows nothing.
+ *          `producer' says the row is the PRODUCER'S OWN and is no data: it
+ *          stands where `under' names — after that row, or first where it is
+ *          null — through every sort, filter, page and delta; it is dressed
+ *          `tv-producer', never marked, never stepped onto, and its cells are
+ *          editable whatever their column declares.  `refused' DRESSES that row
+ *          `tv-refused' and says nothing of its own: what it was refused FOR is
+ *          the producer's to say, wherever it says such things.
  * @typedef {{ name: string, query?: string }} SavedView
  *          A view the producer has named, which `view:NAME' completes from.
  *          What applying one MEANS is the producer's: this side offers the
@@ -79,11 +89,19 @@
  *          One step of a drill-down trail: what to show, and the query that
  *          gets back to it. The renderer draws the label and never reads the
  *          query — applying one is the consumer's, who owns the fetching.
+ * @typedef {{ id: string | null, col: number, key: string, value: string,
+ *             raw: string, token: number }} OpenCell
+ *          THE OPEN CELL AS THE PRODUCER SEES IT. `value' is what stands in the
+ *          box now; `raw' is what the editor OPENED on, which a repaint carries
+ *          across unchanged; `token' counts the opens, so a producer tells one
+ *          edit from the next where the id and the column repeat, and a repaint's
+ *          re-open is the SAME open wearing the same number.
  * @typedef {{ onAction?: (command: string, id: string, row: Row) => void,
  *             onLink?: (target: string, row: Row | null) => void,
  *             onFilter?: (q: string) => void,
  *             onEdit?: (id: string | null, col: number, value: string,
  *                       kind: "cell" | "header") => void,
+ *             onCellKey?: (e: KeyboardEvent, cell: OpenCell) => boolean,
  *             omnibox?: boolean,
  *             palette?: boolean,
  *             marks?: boolean,
@@ -99,6 +117,12 @@
  *             onPin?: () => void,
  *             onRefused?: (token: string) => void,
  *             pinned?: boolean }} MountOptions
+ *          `onCellKey' is asked at the HEAD of an open cell's keydown, before
+ *          the widget's own reading of it; `true' means the producer took the
+ *          key. An open input stops propagation, so a key typed in a cell
+ *          reaches no other dispatch — a `producer' row can bind its keys here
+ *          and nowhere else. The cell carries the column's `key' beside its
+ *          index, so a producer reads its own cells by name.
  * @typedef {{ el: HTMLElement,
  *             setView: (v: View) => void,
  *             setRows: (rows: Row[]) => void,
@@ -107,9 +131,14 @@
  *             applyDelta: (ops: Op[]) => void,
  *             getRows: () => Row[],
  *             getVisible: () => Row[],
+ *             fitColumns: () => void,
  *             select: (id: string, col?: number) => boolean,
  *             getSelection: () => { id: string|null, col: number|null },
  *             editCell: (id: string, col: number) => boolean,
+ *             closeEditor: () => void,
+ *             cellRect: (id: string, col: number) => DOMRect|null,
+ *             getEditing: () => { id: string|null, col: number,
+ *                                 key: string } | null,
  *             editHeader: (col: number) => boolean,
  *             getQuery: () => string,
  *             setCrumbs: (list: Crumb[]) => void,
@@ -1079,9 +1108,12 @@
     // palette & contrast (identity consts): docs/web-renderer.org
     const FROST = "#D0E1F9";
     const FLAG = "#E74C3C";
+    const WARN = "#FFA500";
     const COL = "#FFF3D0";
     const LINK_LIGHT = "#30739B";
     const LINK_DARK = "#7CC9F8";
+    const POINT_LIGHT = "#005A8D";
+    const POINT_DARK = "#FFC777";
     const css = `
 /* Both palettes are the author's Emacs theme, mapped role for role from its
    default faces for dark, its light-* block for light. Three values are
@@ -1114,6 +1146,7 @@
   --tv-border:#E3E6EA;
   --tv-accent:#31769F;
   --tv-sel:#FFD600;
+  --tv-point:${POINT_LIGHT};
   --tv-hover:#FAFAFA;
   --tv-link:${LINK_LIGHT};
   --tv-frost:${FROST};
@@ -1122,11 +1155,11 @@
   --tv-mark-wash:8%;
   --tv-flag:${FLAG};
   --tv-flag-wash:8%;
+  --tv-warn:${WARN};
   --tv-col:${COL};
   --tv-veil:#00000066;
   --tv-shadow:#00000033;
   --tv-col-wash:35%;
-  --tv-cell-wash:60%;
   --tv-sort-wash:52%;
   --tv-cols-wash:52%;
 }
@@ -1150,6 +1183,7 @@
     --tv-border:#2a2d3d;
     --tv-accent:#4CB5F5;
     --tv-sel:#373D4F;
+    --tv-point:${POINT_DARK};
     --tv-link:${LINK_DARK};
     --tv-hover:#1F1F1F;
     --tv-veil:#00000099;
@@ -1159,7 +1193,6 @@
     --tv-mark-wash:30%;
     --tv-flag-wash:30%;
     --tv-col-wash:8%;
-    --tv-cell-wash:9%;
     --tv-sort-wash:18%;
     --tv-cols-wash:18%;
   }
@@ -1172,6 +1205,7 @@
   --tv-border:#2a2d3d;
   --tv-accent:#4CB5F5;
   --tv-sel:#373D4F;
+  --tv-point:${POINT_DARK};
   --tv-link:${LINK_DARK};
   --tv-hover:#1F1F1F;
   --tv-veil:#00000099;
@@ -1181,7 +1215,6 @@
   --tv-mark-wash:30%;
   --tv-flag-wash:30%;
   --tv-col-wash:8%;
-  --tv-cell-wash:9%;
   --tv-sort-wash:18%;
   --tv-cols-wash:18%;
 }
@@ -1193,6 +1226,7 @@
   --tv-border:#E3E6EA;
   --tv-accent:#31769F;
   --tv-sel:#FFD600;
+  --tv-point:${POINT_LIGHT};
   --tv-hover:#FAFAFA;
   --tv-link:${LINK_LIGHT};
   --tv-veil:#00000066;
@@ -1202,7 +1236,6 @@
   --tv-mark-wash:8%;
   --tv-flag-wash:8%;
   --tv-col-wash:35%;
-  --tv-cell-wash:60%;
   --tv-sort-wash:52%;
   --tv-cols-wash:52%;
 }
@@ -1621,7 +1654,10 @@
   border-collapse:collapse;
   width:100%;
 }
-/* THE TITLE COLUMN FILLS; EVERY OTHER COLUMN IS EXACTLY ITS CONTENT.
+/* THE TITLE COLUMN FILLS; EVERY OTHER COLUMN IS EXACTLY ITS CONTENT, AS IT WAS
+   FITTED — once per view, and never from content after that. A draft typed into
+   and a row arriving with a longer value both move 0px; a query change refits
+   (fitColumns), and so does a window resize.
    table-layout:fixed is what makes that real. Under auto a col width is a hint
    and the browser hands the window's slack to every column in proportion, so
    the gutter and the date columns grew with the window while the one column
@@ -1755,6 +1791,40 @@
 .tv-table tbody tr.tv-flagged td:first-child{
   box-shadow:inset 3px 0 0 var(--tv-flag);
 }
+/* A PRODUCER'S OWN ROW SAYS SO IN THREE CHANNELS, hue being none of them on its
+   own: the ACCENT EDGE down its left, the DASHED RULE fencing it off the rows it
+   stands among, and GHOST INK -- muted and italic -- over the cells it was
+   handed rather than typed. The cell grounds are cleared with it: the row is no
+   data, so no wash that says something about a row may speak for it. */
+.tv-table tbody tr.tv-producer>td{
+  color:var(--tv-muted);
+  font-style:italic;
+  background-color:transparent;
+  border-top:1px dashed var(--tv-border);
+  border-bottom:1px dashed var(--tv-border);
+}
+.tv-table tbody tr.tv-producer>td:first-child{
+  box-shadow:inset 3px 0 0 var(--tv-accent);
+}
+/* A badge it was handed is ghosted like the ink beside it; the pill's hue rides
+   an inline custom property, so the dimming is all that is left to say it. */
+.tv-table tbody tr.tv-producer .tv-pill{
+  opacity:.6;
+}
+/* The open editor is the reader's own line and stands upright in the ghost. */
+.tv-table tbody tr.tv-producer .tv-cell-edit{
+  font-style:normal;
+  color:var(--tv-fg);
+}
+/* A REFUSED ROW SAYS WHAT IT WANTS: the word leads the note in its last cell,
+   and the two channels that fence the row off turn warn. */
+.tv-table tbody tr.tv-producer.tv-refused>td{
+  border-top-color:var(--tv-warn);
+  border-bottom-color:var(--tv-warn);
+}
+.tv-table tbody tr.tv-producer.tv-refused>td:first-child{
+  box-shadow:inset 3px 0 0 var(--tv-warn);
+}
 /* The gutter is chrome, the way the pager is: a fixed leading box that no
    producer sent and no width measurement sees. It is the CHECKBOX's alone —
    the flag's edge rides the row's FIRST cell whichever that is (the gutter
@@ -1792,36 +1862,30 @@
 .tv-calm .tv-table tbody tr,.tv-calm .tv-table tbody td{
   transition:none;
 }
-/* A cell selection draws two bands and their crossing, and all three are
-   grounds — no outline, no border, no shadow anywhere in the selection. The
-   column's band is a wash of the amber over whatever the ROW painted: the row
-   states write the tr and these write the td, which the table paints above it,
-   so the two never contest a slot, and the film being translucent is what
-   leaves the zebra, the mark, the flag and the cursor all still reading
-   through it, quieter inside the band than out. The one contest is here,
-   between these two rules on the one td, and it is settled the way the row
-   stack settles its own: equal specificity, source order, cell after column.
+/* THE CURSOR IS A ROW AND A CELL WITHIN IT, and the rows carry nothing else.
+   The cell is a 1px inset ring in --tv-point — the page's own point ink,
+   #005A8D light and #FFC777 dark — over no ground at all: no radius, no
+   border, the cell's own rect. The body draws no column band; tv-colsel is
+   still stamped on every body cell of the column for tests and callers and
+   dresses nothing.
 
-   The header is the same wash mixed into the page's ground rather than laid
-   over it — the same colour, arrived at opaquely, because the header is sticky
-   and rows scroll under it.
+   THE HEADER'S WASH IS THE COLUMN LOCATOR off the row: the amber mixed into
+   the page's ground rather than laid over it, arrived at opaquely because the
+   header is sticky and rows scroll under it. Its strength is measured against
+   the grounds it can land on, a locator staying quieter than a state.
 
-   Both strengths are measured against the grounds they can land on, and those
-   grounds differ: the film lands on the page, the stripe, a mark and a flag,
-   while the cell lands on the cursor row alone. Light is set by what reads —
-   the band moving a ground between half and nine tenths as far as a mark moves
-   the page, since a locator must stay quieter than a state — and dark's cell by
-   what the ink allows: 9% leaves the tag ink at 4.61:1 on the cursor row and
-   one point more puts it under 4.5, so the dark crosshair reads by the ground
-   beneath it rather than by the point of wash above it. */
+   THE CELL WRITES NO BACKGROUND SLOT, which is what makes it free of
+   "one gold at a time" (docs/invariants.md): a ring cannot stack with the
+   cursor row's gold, with the mark, flag or zebra washes, and it needs no
+   contrast budget from the ground under it. The ground-on-ground cell this
+   replaced had to be held at 9% in dark — one point more put the tag ink under
+   4.5:1 on the cursor row — and the ring has no such ceiling. */
 .tv-table th.tv-colsel{
   background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),var(--tv-bg));
 }
-.tv-table tbody td.tv-colsel{
-  background:color-mix(in srgb,var(--tv-col) var(--tv-col-wash),transparent);
-}
 .tv-table tbody td.tv-cell-sel{
-  background:color-mix(in srgb,var(--tv-col) var(--tv-cell-wash),transparent);
+  box-shadow:inset 0 0 0 1px var(--tv-point);
+  background:transparent;
 }
 /* WHAT A LINK LOOKS LIKE, spelled once for the two places one is drawn: the
    anchor a cell's own Org markup produces, and the whole title cell of a row a
@@ -2097,6 +2161,11 @@
       sortKeys: normalizeSort(view && view.sort),
     };
 
+    /** The producer's own rows among the store's, in the order they were
+     * handed over. They are no data: a `setRows' replaces the data and leaves
+     * these standing, and every pass puts each back where its `under' names. */
+    const ownRows = () => state.rows.filter((r) => !standing(r));
+
     // two row lists between store and window: 'sorted' (all, in sort order) and 'order'
     // ('sorted' under the filter). Filter re-derives 'order' only; upsert/delete splice both; rows/sort drops both.
 
@@ -2116,11 +2185,14 @@
      */
     let orderCmp = null;
     /**
-     * Per column over `order': max display length in characters, and the ground
-     * its cells sit on in px. Null when stale.
+     * THE VIEW'S FITTED COLUMNS: per column, max display length in characters
+     * and the ground its cells sit on in px.  FITTED ONCE PER VIEW and never
+     * from content again — `fitColumns' is the one door that drops them.
      * @type {{ch: number, ground: number}[]|null}
      */
     let widths = null;
+    /** A pending refit, so a burst of resize events costs one measure. */
+    let fitWait = 0;
     /** @type {Map<string, RowText>} */
     const texts = new Map();
     /**
@@ -2242,17 +2314,20 @@
       const at = multiColumn();
       const ids = new Map();
       if (at !== -1)
-        for (const r of state.rows)
+        for (const r of state.rows) {
+          if (!standing(r)) continue;   // a producer's own row is no data
           for (const tag of tagsIn(rowText(r).cells[at])) {
             const held = ids.get(tag);
             if (held) held.add(r.id); else ids.set(tag, new Set([r.id]));
           }
+        }
       vocab = { list: Array.from(ids.keys()).sort(), ids };
       return vocab;
     }
 
-    /** Drop the filtered list (and the widths it implies). */
-    function dropOrder() { order = null; widths = null; cancelEase(); }
+    /** Drop the filtered list.  THE WIDTHS STAND: they are the VIEW's, not the
+     * set's, and only `fitColumns' drops them. */
+    function dropOrder() { order = null; cancelEase(); }
     /** Drop the sort too: the rows, the columns or the sort keys moved. */
     function dropSorted() { dropOrder(); sorted = null; orderCmp = null; }
 
@@ -2802,17 +2877,38 @@
       };
     }
 
-    /** The rows to display: sorted, then filtered. Cached. @returns {Row[]} */
+    /**
+     * Put every producer row where its `under' names — after that row, or first
+     * where it is null or gone — in the list ARR, rewritten in place. ONE
+     * PLACEMENT FOR EVERY PASS: a sort would park a half-typed row in the blanks
+     * at the end, and a store delta arriving between an anchor and its phantom
+     * would slide the two apart.
+     * @param {Row[]} arr
+     */
+    function placeProducers(arr) {
+      for (const p of ownRows()) {
+        const was = arr.indexOf(p);
+        if (was !== -1) arr.splice(was, 1);
+        const at = p.under === null || p.under === undefined
+          ? -1 : arr.findIndex((r) => r.id === p.under);
+        arr.splice(at + 1, 0, p);
+      }
+    }
+
+    /** The rows to display: sorted, then filtered. Cached. A producer's own row
+     * survives both — it is no data, so no local query speaks about it and no
+     * order may carry it off the row it stands under. @returns {Row[]} */
     function ordered() {
       if (order) return order;
       if (!sorted) {
         orderCmp = chainComparator();
         sorted = state.rows.slice();     // never sort the store itself
         if (orderCmp) sorted.sort(orderCmp);
+        placeProducers(sorted);
       }
       orderTest = queryMatcher(state.filter);
-      order = orderTest ? sorted.filter(orderTest) : sorted.slice();
-      widths = null;
+      order = orderTest ? sorted.filter((r) => !standing(r) || orderTest(r))
+                        : sorted.slice();
       return order;
     }
 
@@ -2890,22 +2986,27 @@
      * allowed for in characters is right at one font size and short at the rest.
      * The multi-valued column is measured on what it DRAWS (`tagsCh'), middots
      * and smaller type and all, so a run of values is paid for as it reads.
+     *
+     * THE ANSWER IS THE VIEW'S AND IS KEPT: this runs at the first rows paint,
+     * at a `fitColumns' and nowhere else.  A MEASURE OVER NO ROWS IS NOT KEPT —
+     * a mount before its rows and a filter matching none both look like this,
+     * and the headers alone are no answer to freeze a view on.
      * @returns {{ch: number, ground: number}[]}
      */
     function colWidths() {
       if (widths) return widths;
       const cols = columns(), chain = sortChain(), fill = titleColumn() !== -1;
-      const multi = multiColumn();
+      const multi = multiColumn(), rows = ordered();
       /** The widest CELL each column holds, in characters; 0 where it holds none. */
       const cell = cols.map(() => 0);
-      for (const r of ordered()) {
+      for (const r of rows) {
         const t = rowText(r);
         for (let i = 0; i < cell.length; i++) {
           const n = i === multi ? tagsCh(t.cells[i]) : t.len[i];
           if (n > cell[i]) cell[i] = n;
         }
       }
-      widths = cols.map((c, i) => {
+      const fitted = cols.map((c, i) => {
         const at = chain.findIndex(({ key }) => key.column === c.key);
         // column geometry (header marks paid outside the cells' measure): docs/web-renderer.org
         const mark = at === -1 ? 0 : sortMark(chain, at).length + 1;
@@ -2915,20 +3016,22 @@
                           : Math.max(head + mark, cell[i]),
                  ground: CELL_PAD + pill };
       });
-      return widths;
+      if (rows.length) widths = fitted;
+      return fitted;
     }
 
-    /** Widen the cached widths for ROW (an upsert can only add text). */
-    function growWidths(r) {
-      if (!widths) return;
-      const t = rowText(r), cols = columns(), multi = multiColumn();
-      for (let i = 0; i < widths.length; i++) {
-        const n = i === multi ? tagsCh(t.cells[i]) : t.len[i];
-        if (n > widths[i].ch) widths[i].ch = n;
-        if (t.len[i] && cols[i].type === "badge")
-          widths[i].ground = CELL_PAD + PILL_PAD;
-      }
-    }
+    /**
+     * FIT THE COLUMNS TO THE SET THE TABLE NOW HOLDS, and leave them there.
+     * The widths are otherwise the view's for its life: nothing a reader types
+     * and no row that arrives moves a column, so a 60-character title typed
+     * into a draft and a row landing with a longer run both move 0px.
+     *
+     * The occasions are the first rows paint after a mount or a `setView', a
+     * window resize, and a NEW RESULT SET.  A producer narrowing server-side
+     * asks for that last one here: every answer arrives through `setRows', so
+     * the widget cannot tell a new query's rows from a store tick's.
+     */
+    function fitColumns() { widths = null; repaint(true); }
 
     /**
      * Characters the multi-valued column's cells may draw in — the width its
@@ -2972,7 +3075,16 @@
     }
 
 
-    /** Rebuild the colgroup and the header row (mount, and a view change). */
+    /**
+     * Rebuild the colgroup and the header row (a mount, a view change, and a
+     * cell editor closing over a header a producer may have renamed).
+     *
+     * THE HEAD OWNS THE COLGROUP, so it puts the widths back on it before it
+     * returns: the `<col>' nodes it just built carry none, and under the fixed
+     * layout a bare colgroup is six EQUAL columns — which is what every TAB out
+     * of a draft cell and every ESC out of an editor used to draw
+     * (docs/bugs/fixed/2026-09-13-a-cell-editor-closing-rebuilds-the-head-bare.md).
+     */
     function renderHead() {
       colgroup.innerHTML = "";
       headRow.innerHTML = "";
@@ -3011,6 +3123,7 @@
         arrowEls.push(arrow);
       }
       renderArrows();
+      applyWidths();          // the colgroup is new; the widths are not on it
     }
 
     /**
@@ -3056,6 +3169,23 @@
      */
     function linkedCell(r) { return r.linked ? titleColumn() : -1; }
 
+    /** A row the cursor, the marks and a local query may reach: never a
+     * PRODUCER'S OWN, which has no id the store answers for and whose open
+     * editor holds every key a walk would spend. THE ONE PREDICATE — every pass
+     * that reaches a row asks it, or a mouse reaches what the keyboard cannot.
+     * @param {Row} r */
+    const standing = (r) => !r.producer;
+
+    /** The first row from AT going DIR the cursor may stand on, -1 past either
+     * end. The skip is INSIDE the walk: a filtered copy of the page would
+     * renumber every index the caller holds.
+     * @param {Row[]} rows  @param {number} at  @param {number} dir */
+    function standingFrom(rows, at, dir) {
+      for (let i = at; i >= 0 && i < rows.length; i += dir)
+        if (standing(rows[i])) return i;
+      return -1;
+    }
+
     /**
      * The classes row R wears at display index I. Zebra striping is index-borne,
      * since `:nth-child' sees only the window.
@@ -3063,6 +3193,8 @@
      */
     function rowClasses(r, i) {
       return [["tv-alt", i % 2 === 1],
+              ["tv-producer", !!r.producer],
+              ["tv-refused", !!(r.producer && r.refused)],
               ["tv-marked", markSet.shows(r.id)],
               ["tv-flagged", flagSet.shows(r.id)],
               ["tv-sel", r.id === state.selected]];
@@ -3158,10 +3290,30 @@
       tbody.innerHTML = html;
 
       applyWidths();
+      markClipped();
       table.style.display = total ? "" : "none";
       empty.style.display = total ? "none" : "";
       renderHint();
       measure();
+    }
+
+    /**
+     * A CELL ITS COLUMN CANNOT HOLD CARRIES ITS WHOLE TEXT, so a hover reveals
+     * what the ellipsis took.  The columns are fitted once per view, so a value
+     * longer than the one they were fitted to is drawn clipped and stays that
+     * way until the next fit — which is the one cost of the frozen policy, and
+     * this is what pays it.
+     *
+     * READ IN ONE PASS AND WRITTEN IN A SECOND: `scrollWidth' forces layout, so
+     * every cell is asked before any is touched and the window costs one.
+     */
+    function markClipped() {
+      const tds = tbody.querySelectorAll("td:not(.tv-box)");
+      const over = [];
+      for (let i = 0; i < tds.length; i++)
+        over.push(tds[i].scrollWidth > tds[i].clientWidth + 1);
+      for (let i = 0; i < tds.length; i++)
+        if (over[i]) tds[i].title = tds[i].textContent;
     }
 
     /** The status line, off the state it reads; clears whoever asked for it. */
@@ -3294,6 +3446,10 @@
      * @param {string|null} id  @param {number|null} [col]
      */
     function setSelected(id, col) {
+      // A CLICK REACHES NO ROW THE KEYBOARD CANNOT: a producer's own row is
+      // outside the cursor's set whichever gesture arrives at it.
+      const on = state.rows.find((r) => r.id === id);
+      if (on && !standing(on)) return;
       state.selected = id ?? null;
       state.selCol = id === null || id === undefined ? null : cellCol(col);
       selAt = indexOfSelected();
@@ -3313,7 +3469,12 @@
       if (!rows.length) { state.selected = null; state.selCol = null; selAt = -1; return; }
       if (selAt >= 0 && rows[selAt] && rows[selAt].id === state.selected) return;
       if (rows.some((r) => r.id === state.selected)) return;
-      selAt = Math.max(0, Math.min(rows.length - 1, selAt));
+      const want = Math.max(0, Math.min(rows.length - 1, selAt));
+      // The PLACE may now hold a producer's own row, which the cursor may not
+      // stand on; the nearest one it may, either way, is where it lands.
+      const at = standingFrom(rows, want, 1);
+      selAt = at === -1 ? standingFrom(rows, want, -1) : at;
+      if (selAt === -1) { state.selected = null; state.selCol = null; return; }
       state.selected = rows[selAt].id;
     }
 
@@ -3427,7 +3588,7 @@
      * @returns {number} how many rows carry a mark afterwards
      */
     function markAll() {
-      return marks ? markSet.addAll(ordered()) : 0;
+      return marks ? markSet.addAll(ordered().filter(standing)) : 0;
     }
 
     /**
@@ -3458,7 +3619,7 @@
     function selectRow(id, col) {
       const rows = paged();
       const i = rows.findIndex((r) => r.id === id);
-      if (i === -1) return false;
+      if (i === -1 || !standing(rows[i])) return false;
       const was = selAt;
       state.selected = id;
       state.selCol = cellCol(col);
@@ -3514,7 +3675,10 @@
         }
         wantWindow = true;
       }
-      if (wantWindow || wantSelection) renderRows();
+      // THROUGH `repaint', never a bare `renderRows': a window this frame moved
+      // rebuilds the tbody, and an open editor standing in it is held across
+      // that the way every other redraw holds it.
+      if (wantWindow || wantSelection) repaint();
       if (wantSelection) stampSelection();
       if (wantHint) renderHint();
       wantWindow = wantSelection = false;
@@ -3699,15 +3863,15 @@
       const col = state.selCol;
       const at = state.selected === null
         ? -1 : rows.findIndex((r) => r.id === state.selected);
-      if (at === -1) return selectRow(rows[dir > 0 ? 0 : rows.length - 1].id, col ?? undefined);
-      const next = at + dir;
-      if (next >= 0 && next < rows.length) return selectRow(rows[next].id, col ?? undefined);
+      const from = at === -1 ? (dir > 0 ? 0 : rows.length - 1) : at + dir;
+      const next = standingFrom(rows, from, dir);
+      if (next !== -1) return selectRow(rows[next].id, col ?? undefined);
       if (!pageSize || continuous) return false;         // the true end of the set
       goContinuous();
       rows = paged();
       const here = rows.findIndex((r) => r.id === state.selected);
-      const across = here + dir;
-      if (across < 0 || across >= rows.length) return false;
+      const across = standingFrom(rows, here + dir, dir);
+      if (across === -1) return false;
       return selectRow(rows[across].id, col ?? undefined);
     }
 
@@ -3876,9 +4040,15 @@
     // edits its `[[..]]'), committed as an `onEdit' + `tableview-edit'.  The
     // producer owns the write: the widget REPORTS and does not touch its own
     // view -- the consumer writes and feeds the new view back.  One editor at a
-    // time; a column opts in with `editable'.
-    /** @type {{ cell: any, id: string|null, col: number, kind: "cell"|"header", input: any } | null} */
+    // time; a column opts in with `editable', and a `producer' row is opted in
+    // whole, its cells being the producer's rather than the store's.
+    /** @type {{ cell: any, id: string|null, col: number, kind: "cell"|"header",
+     *           input: any, raw: string, token: number } | null} */
     let cellEdit = null;
+    /** BUMPED PER OPEN, so the producer tells one edit from the next where the id
+     * and the column repeat.  A repaint's re-open KEEPS the number it held: the
+     * editor never closed, the node under it was rebuilt. */
+    let cellToken = 0;
     const columnEditable = (col) => { const c = columns()[col]; return !!(c && c.editable); };
     const cellRaw = (id, col) => {
       const r = state.rows.find((x) => x.id === id), c = columns()[col];
@@ -3901,36 +4071,120 @@
       root.dispatchEvent(new CustomEvent("tableview-edit",
         { detail: { id, col, value, kind } }));
     }
-    function openCellEditor(cell, id, col, kind, raw) {
+    /** THE CALLER CLOSES: both doors close before they look a cell up, a close
+     * redrawing the rows under whatever node was found first.
+     * @param {[number, number]|null} [sel]  what to leave selected, the WHOLE
+     * value where none is named.
+     * @param {{raw: string, token: number}|null} [keep]  a HELD editor's own
+     * open, put back: the value it opened on and the number that open wears. */
+    function openCellEditor(cell, id, col, kind, raw, sel, keep) {
       if (!cell) return false;
-      closeCellEditor();
       const input = document.createElement("input");
       input.className = "tv-cell-edit";
       input.value = raw;
       cell.innerHTML = "";
       cell.appendChild(input);
-      cellEdit = { cell, id, col, kind, input };
+      const open = keep || { raw, token: ++cellToken };
+      cellEdit = { cell, id, col, kind, input, raw: open.raw, token: open.token };
       input.focus();
-      if (input.select) input.select();
+      if (sel) input.setSelectionRange(sel[0], sel[1]);
+      else if (input.select) input.select();
       input.addEventListener("keydown", (e) => {
         // The input takes its own keys; a driver's key map does not see them.
         e.stopPropagation();
+        // THE PRODUCER IS ASKED FIRST, this being the only dispatch a key inside
+        // a cell reaches: a row it owns has keys of its own, and `true' says it
+        // took this one.
+        if (o.onCellKey && cellEdit && o.onCellKey(e, openCell())) return;
         if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); commitCellEditor(); }
         else if (e.key === "Escape") { e.preventDefault(); closeCellEditor(); }
       });
       return true;
     }
-    function editCell(id, col) {
-      if (!columnEditable(col)) return false;
+    /** The open cell as the producer sees it: what stands in the box, what it
+     * opened on, and which open this is. @returns {OpenCell} */
+    const openCell = () => ({
+      id: cellEdit.id, col: cellEdit.col, key: keyOf(cellEdit.col),
+      value: cellEdit.input.value, raw: cellEdit.raw, token: cellEdit.token });
+    /** COL's key, or `"" ' past the columns. */
+    const keyOf = (col) => { const c = columns()[col]; return c ? c.key : ""; };
+    /** Is ID a producer's own row? ITS CELLS ARE ALL EDITABLE: a per-column
+     * `editable' cannot carry this, since the column would then open a dead
+     * editor on every real row's double-click. */
+    const producerRow = (id) =>
+      !standing(state.rows.find((r) => r.id === id) || {});
+    // CLOSED BEFORE THE CELL IS LOOKED UP, never after: closing redraws the rows,
+    // so a node found first would be orphaned by the time the editor entered it.
+    /** @param {[number, number]|null} [sel]  @param {string|null} [raw]  the
+     * value to open on, the CELL'S OWN where none is named — which is how a held
+     * line comes back without ever entering `r.cells'.
+     * @param {{raw: string, token: number}|null} [keep]  `holdEditor''s own open. */
+    function editCell(id, col, sel, raw, keep) {
+      if (!producerRow(id) && !columnEditable(col)) return false;
+      closeCellEditor();
       const tr = /** @type {HTMLElement|null} */
         ([...tbody.querySelectorAll("tr[data-id]")]
           .find((x) => /** @type {HTMLElement} */ (x).dataset.id === id) || null);
       if (!tr) return false;
       const td = [...tr.querySelectorAll("td:not(.tv-box)")][col];
-      return openCellEditor(td, id, col, "cell", cellRaw(id, col));
+      return openCellEditor(td, id, col, "cell",
+                            raw == null ? cellRaw(id, col) : raw, sel, keep);
+    }
+    /** WHICH CELL IS OPEN, by index and by column key, or null. The widget owns
+     * that state, so a producer asks it rather than reading the DOM back. */
+    const getEditing = () =>
+      (cellEdit && cellEdit.kind === "cell"
+        ? { id: cellEdit.id, col: cellEdit.col, key: keyOf(cellEdit.col) } : null);
+
+    /** WHERE ID's COL CELL IS DRAWN, or null past the rows this page shows. The
+     * widget knows where a row stands, so a producer laying an overlay OVER a
+     * cell asks it rather than walking the table's own DOM.
+     * @param {string} id  @param {number} col */
+    function cellRect(id, col) {
+      const tr = /** @type {any} */
+        ([...tbody.querySelectorAll("tr[data-id]")]
+          .find((x) => /** @type {HTMLElement} */ (x).dataset.id === id) || null);
+      const td = tr && [...tr.querySelectorAll("td:not(.tv-box)")][col];
+      return td ? td.getBoundingClientRect() : null;
+    }
+
+    /**
+     * AN OPEN CELL EDITOR, HELD ACROSS A REPAINT: the caret comes back where it
+     * stood. THE TYPED LINE RIDES IN THE
+     * HANDLE, a producer's row and a standing one alike — one object holds it,
+     * never two — and the row is left as it was: a standing row's cells are the
+     * store's, and a producer's own cell is drawn by the input standing in it.
+     * The OPEN travels too, so the re-open is the same open rather than a new
+     * one. The handle is dropped rather than closed, the repaint being the close.
+     * @returns {{id: string, col: number, value: string, raw: string,
+     *            token: number, sel: [number, number]}|null}
+     */
+    function holdEditor() {
+      const at = getEditing();
+      if (!at || at.id === null) return null;
+      const { input, raw, token } = cellEdit;
+      cellEdit = null;
+      return { id: at.id, col: at.col, value: input.value, raw, token,
+               sel: [input.selectionStart ?? input.value.length,
+                     input.selectionEnd ?? input.value.length] };
+    }
+    /** The editor HELD put back, caret and all — never `select()'d: every store
+     * tick repaints, and a select-all there swallows the reader's next key.
+     * @param {{id: string, col: number, value: string, raw: string,
+     *          token: number, sel: [number, number]}|null} held */
+    function resumeEditor(held) {
+      if (held) editCell(held.id, held.col, held.sel, held.value, held);
+    }
+    /** Redraw under an open cell editor, which survives it.
+     * @param {boolean} [force]  redraw a window that has not moved. */
+    function repaint(force) {
+      const held = holdEditor();
+      renderRows(force);
+      resumeEditor(held);
     }
     function editHeader(col) {
       if (!columnEditable(col)) return false;
+      closeCellEditor();
       const th = [...headRow.querySelectorAll("th[data-key]")][col];
       const c = columns()[col];
       // Open on the TRIMMED name, so a header a producer left blank (a space, to
@@ -3969,6 +4223,9 @@
       if (!tr || !touch) return;
       // a press on the box stays the box; else the completing touchend swallows the toggle's click and the 44px target can't be checked.
       if (onBox(t)) return;
+      // A LONG PRESS IS A ROW'S DEFAULT COMMAND, and a producer's own row is no
+      // command's target — the same wall the cursor meets.
+      if (!standing(rowOf(state.rows, tr) || {})) return;
       cancelPress();
       pressRan = false;
       pressOn = tr.dataset.id ?? null;
@@ -4002,8 +4259,12 @@
       const t = hit(e);
       const tr = t && /** @type {HTMLElement|null} */ (t.closest("tr[data-id]"));
       if (!tr) return;
+      // A ROW'S DEFAULT COMMAND NAMES THE ROW, and a producer's own is no
+      // command's target — it opened its cell editor on the same click.
+      const r = rowOf(state.rows, tr);
+      if (!r || !standing(r)) return;
       const cmd = defaultCommand();
-      if (cmd) dispatch(cmd, rowOf(state.rows, tr));
+      if (cmd) dispatch(cmd, r);
     });
 
     scroll.addEventListener("scroll", () => { wantWindow = true; cancelPress(); schedule(); });
@@ -4301,12 +4562,17 @@
       return true;
     }
 
-    /** Adopt the query as it stands: re-filter, and redraw from the top. */
+    /** Adopt the query as it stands: re-filter, and redraw from the top.  A NEW
+     * QUESTION IS A NEW RESULT SET, so the columns are fitted to it — this is
+     * the refit `fitColumns' is for, named here because the widget can see the
+     * query change.  A producer narrowing server-side answers through `setRows'
+     * and asks for its own. */
     function applyFilter() {
       const v = effectiveQuery();
       if (v === state.filter) return;
       state.filter = v;
       dropOrder();                       // `sorted' stands: only the filter moved
+      widths = null;
       scroll.scrollTop = 0;
       renderRows(true);
     }
@@ -4408,6 +4674,7 @@
         const counts = new Map();
         const found = [];
         for (const r of state.rows) {
+          if (!standing(r)) continue;   // a producer's own row lends no value
           const lower = rowText(r).cells[i];
           if (!lower) continue;
           const n = counts.get(lower);
@@ -5010,6 +5277,15 @@
     if (themeWatch)
       themeWatch.observe(document.documentElement,
                          { attributes: true, attributeFilter: ["data-theme"] });
+    /** A RESIZE IS THE THIRD FIT: the sized columns are px and do not stretch,
+     * so the fill column alone absorbs the window — and its floor is what a
+     * narrowing eventually meets.  Coalesced on a frame: a drag fires a burst
+     * of these and one measure is what a settled resize is worth. */
+    const onResize = () => {
+      if (fitWait) return;
+      fitWait = frame(() => { fitWait = 0; fitColumns(); });
+    };
+    if (typeof addEventListener === "function") addEventListener("resize", onResize);
 
     return {
       el: root,
@@ -5030,6 +5306,7 @@
         renderChips();
         clearTexts();
         dropSorted();
+        widths = null;           // A NEW COLUMN SET: the head fits it (`renderHead')
         titleEl.textContent = state.view.title || "Table";
         renderHead();
         scroll.scrollTop = 0;
@@ -5041,14 +5318,21 @@
        * here, so an id that did not come back is HIDDEN rather than deleted and
        * must still be marked when the filter comes off.  A delta's `reset' is
        * the same op; `deleteRow' and a delta's `delete' do drop it.
+       *
+       * THE PRODUCER'S OWN ROWS STAND THROUGH IT: they are no part of the set
+       * being replaced, so each goes back under the row its `under' names and
+       * an open editor comes back with its caret.
        * @param {Row[]} rows
        */
       setRows(rows) {
-        state.rows = (rows || []).slice();
+        const held = holdEditor();
+        state.rows = (rows || []).slice().concat(ownRows());
+        placeProducers(state.rows);
         clearTexts();
         dropSorted();
         continuous = false;
         renderRows(true);
+        resumeEditor(held);
       },
       /** @param {Row} row */
       upsertRow(row) {
@@ -5056,33 +5340,45 @@
         if (i === -1) state.rows.push(row); else state.rows[i] = row;
         texts.delete(row.id);
         dropDomains();
-        if (sorted) place(sorted, row, false);
-        if (order && orderCmp) { place(order, row, true); growWidths(row); }
+        // PLACED AFTER THE INSERT, both lists: a delta landing between an anchor
+        // and its phantom would otherwise slide the two apart.
+        placeProducers(state.rows);
+        if (sorted) { place(sorted, row, false); placeProducers(sorted); }
+        if (order && orderCmp) { place(order, row, true); placeProducers(order); }
         else if (order) dropOrder();
-        renderRows(true);
+        repaint(true);
       },
       /** @param {string} id */
       deleteRow(id) {
+        // TAKEN BEFORE THE ROW GOES, so an editor standing in it is dropped
+        // here rather than left holding a node the redraw has orphaned.
+        const held = holdEditor();
         state.rows = state.rows.filter((r) => r.id !== id);
         markSet.ids.delete(id);  // the row is gone; a mark on it would outlive it
         flagSet.ids.delete(id);
         texts.delete(id);
         dropDomains();
-        if (sorted) unplace(sorted, id);
-        if (order) unplace(order, id);
+        if (sorted) { unplace(sorted, id); placeProducers(sorted); }
+        if (order) { unplace(order, id); placeProducers(order); }
         renderRows(true);                               // which keeps the place
+        resumeEditor(held && held.id !== id ? held : null);
       },
       /** @param {Op[]} ops */
       applyDelta(ops) {
+        const held = holdEditor();
         for (const op of ops || []) {
           if (op.op === "reset") {
-            state.rows = (op.rows || []).slice();
+            // A `reset' IS a `setRows': the producer's own rows are no part of
+            // the set it replaces.
+            state.rows = (op.rows || []).slice().concat(ownRows());
             clearTexts();
             dropSorted();
             continue;
           }
           // delta op indices count in the window (display order) per SCHEMA.md; with no local sort/filter/page that's the store's own order.
-          const win = paged();
+          // A PRODUCER'S OWN ROW IS NO PART OF THAT COUNT: the ops describe the
+          // store's rows, and a phantom among them would shift every index.
+          const win = paged().filter(standing);
           const store = (row) => state.rows.findIndex((r) => r.id === row.id);
           if (op.op === "insert") {
             const at = op.index < win.length ? store(win[op.index]) : -1;
@@ -5100,8 +5396,10 @@
           }
           dropSorted();
         }
+        placeProducers(state.rows);
         dropDomains();
         renderRows(true);
+        resumeEditor(held);
       },
       getRows() { return state.rows.slice(); },
       /**
@@ -5120,12 +5418,26 @@
        */
       getSelection() { return { id: state.selected, col: state.selCol }; },
       /**
-       * Open the in-cell editor on ID's COL cell, or on COL's header. The
-       * column must be `editable'; returns whether it opened. Commit reports
-       * through `onEdit' / `tableview-edit' and the producer owns the write.
+       * Open the in-cell editor on ID's COL cell. The row must be the
+       * producer's own or the column `editable'; returns whether it opened.
+       * Commit reports through `onEdit' / `tableview-edit' and the producer
+       * owns the write.
        * @param {string} id  @param {number} col  @returns {boolean}
        */
       editCell,
+      /** Take the open in-cell editor down, writing nothing — what `ESC' does,
+       * for a producer that has moved the reader somewhere else. */
+      closeEditor: closeCellEditor,
+      /** WHERE ID's COL CELL IS DRAWN, or null: what a producer lays its own
+       * overlay over. @param {string} id  @param {number} col */
+      cellRect,
+      /**
+       * Which cell the editor stands in, by index and by column key, or null.
+       * The widget owns that state, so a producer asks rather than reading the
+       * DOM back.
+       * @returns {{id: string|null, col: number, key: string}|null}
+       */
+      getEditing,
       /** Open the editor on COL's header. @param {number} col  @returns {boolean} */
       editHeader,
       /**
@@ -5190,7 +5502,16 @@
         if (themeQuery && themeQuery.removeEventListener)
           themeQuery.removeEventListener("change", onTheme);
         if (themeWatch) themeWatch.disconnect();
+        if (typeof removeEventListener === "function")
+          removeEventListener("resize", onResize);
       },
+      /**
+       * FIT THE COLUMNS TO THE ROWS THE TABLE NOW HOLDS.  The widths are the
+       * VIEW's and stand through every tick, delta, draft and keystroke; a
+       * producer that has just asked a NEW QUESTION says so here, every answer
+       * arriving through `setRows' whichever it was.
+       */
+      fitColumns,
       /**
        * Sort on COLUMN, ascending unless ASCENDING is false, replacing whatever
        * sort is in force.  A header click TOGGLES; this STATES an order.  It

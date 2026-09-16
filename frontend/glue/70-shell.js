@@ -10,7 +10,6 @@
      * @property {() => boolean} [narrow] is a `/' narrow open INSIDE its list.
      * @property {() => void} [wide]   clear that narrow and leave the surface up.
      * @property {(id?: string|null) => void} [open]  raise it from `?page='.
-     * @property {() => boolean} [ghost] it is standing over nothing the URL can name.
      * @property {boolean} [rowed]     it needs a row, so its URL carries one.
      * @property {() => string} [panel] the panel it is showing, as the fragment.
      */
@@ -24,8 +23,6 @@
       // The picker hangs at the caret and takes no tier, but it is momentary
       // like the rest: ESC walks out of it before anything else.
       { name: "refer", momentary: true, up: referUp, off: () => shutRefer(null) },
-      { name: "capture", momentary: true, up: capUp, off: shutCapture,
-        open: () => openCapture(RESTORED) },
       // The rowed three open over the row `bootPage' has already landed on.
       { name: "links", momentary: true, up: linking, off: shutLinks,
         edit: lediting, shut: cancelLinkEdit, rowed: true,
@@ -35,11 +32,8 @@
         edit: renaming, shut: cancelRename, rowed: true,
         narrow: () => narrowed(tagMount()), wide: () => widen(tagMount(), "ESC"),
         open: () => overTargets(RESTORED, "tags", askTags) },
-      // A CAPTURE SHEET IS A GHOST: it stands over a draft, and no row id in a
-      // URL could bring that draft back — so it is remembered as nothing and the
-      // address stays the view's own.
       { name: "sheet", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit,
-        rowed: true, ghost: capturing, open: (id) => materialize(id) },
+        rowed: true, open: (id) => materialize(id) },
       { name: "config", up: () => settings, edit: sediting,
         shut: () => shutEdit(SROW), open: () => openSettings(),
         narrow: () => narrowed(smount), wide: () => widen(smount, "ESC"),
@@ -49,7 +43,7 @@
     const surfaceUp = () => SURFACES.find((s) => s.up()) || null;
     function remembered() {
       const p = params(), s = surfaceUp();
-      if (!s || !s.open || (s.ghost && s.ghost())) { p.delete("page"); p.delete("row"); }
+      if (!s || !s.open) { p.delete("page"); p.delete("row"); }
       else {
         p.set("page", s.name);
         const id = s.rowed && focusedId();
@@ -140,10 +134,12 @@
         const chain = table.getSort() || [], head = chain[0];
         said(b, head ? `${named} ${head.ascending !== false ? "▲" : "▼"}` + (chain.length > 1 ? ` · ${chain.length} keys` : "") : named);
       },
+      // COLUMN-SENSITIVE, the way `^' is: over a date column `RET' opens that
+      // cell's own editor, and over every other column it materializes.
       materializeRow: () => {
         const id = focusedId();
-        if (id) materialize(id);
-        else append("cmd", "info", "no row focused — n or p picks one");
+        if (!id) { append("cmd", "info", "no row focused — n or p picks one"); return; }
+        if (!dateCellAt(id)) materialize(id);
       },
       markToggle: (b) => mark(b, true),
       unmarkRow: (b) => mark(b, false),
@@ -163,11 +159,7 @@
       refer: (b) => referKey(b),
       applyDefault, pinView, relations, focusFilter, focusQuery, toggleRaw, openSettings,
       save: saveSheet,
-      // `org-ctrl-c-ctrl-c', and org-capture's own finalize where the sheet
-      // stands over a draft: an OPEN EDIT commits first, as it always has, and
-      // the press behind it takes the whole capture.
       commitEdit: (b) => { if (sheetOpen()) commitDocEdit(b);
-                           else if (capturing()) commitCapture(b);
                            else if (editing && !raw && checkboxHere() !== null)
                              toggleCheckbox(b);
                            else said(b, "nothing open here"); },
@@ -175,7 +167,7 @@
       flaggedDelete: (b) => flagKey("x", XFLAGS(b), (what) => said(b, what)),
       setState: (b) => overTargets(b, "set state", askState),
       manageTags: (b) => overTargets(b, "tags", askTags),
-      capture: (b) => openCapture(b),
+      capture: (b) => openDraft(b),
       openLinks: (b) => {
         const id = focusedId();
         if (!id) { said(b, "no row"); return; }
@@ -183,8 +175,10 @@
           .catch(failed(b, "open"));
       },
       applyAgenda: (b) => applyView(b, savedQuery("agenda"), (total) => landedAgenda(b, total)),
-      schedulePlan: (b) => planRows(b, "SCHEDULED"),
-      deadlinePlan: (b) => planRows(b, "DEADLINE"),
+      // WITH ROWS MARKED THE PROMPT, WITH NONE THE CELL AT POINT: a set of
+      // rows has no cell to stand in (`planKey', 36-date-cell.js).
+      schedulePlan: (b) => planKey(b, "SCHEDULED"),
+      deadlinePlan: (b) => planKey(b, "DEADLINE"),
       // THE SAME PAIR OVER THE MATERIAL DOCUMENT, the one surface with a slot to
       // stand in: the widget over the row's own value, where the table has
       // marked rows and a prompt.  One command, two handlers -- `@''s split.
@@ -366,6 +360,9 @@
     popupKeys("tags", tagMount, {
       editing: renaming,
       editKeys: (k) => {
+        // THE OFFER THAT STANDS OUTRANKS THE COMMIT, the date box's own order:
+        // the menu claims the walk, and `RET' only where there is one to take.
+        if (offerKey(k)) return true;
         if (k !== "RET") return false;   // ESC is the keymap's, and puts the tag back
         renameTag(edit.row, el("tname").value);
         return true;
@@ -380,10 +377,8 @@
 
     function apply(frame) {
       const moved = frame.op === "delete-row" ? frame.id : (frame.row || {}).id;
-      // `reload' rebuilds both panes, so never over an open edit or unflushed
-      // work — and never over a DRAFT, which no row in the store is.
-      if (editing && !raw && !capturing() && !sheetOpen() && !dirty()
-          && moved === editing.id)
+      // `reload' rebuilds both panes, so never over an open edit or unflushed work.
+      if (editing && !raw && !sheetOpen() && !dirty() && moved === editing.id)
         reload();
       if (!table) return;
       // Only the server knows whether the changed row still matches.
@@ -500,7 +495,11 @@
         listen();
         if (!swap && a.total > (a.view.rows || []).length)
           load(asking(asked))
-            .then((b) => { if (table && query === asked) paint(b); arm(a.total); })
+            // THE BOOT'S SECOND LOAD IS THE FIRST WHOLE ANSWER to the question
+            // the mount opened on: the head fitted the columns to one page, and
+            // the widest value may be on any of the others.
+            .then((b) => { if (table && query === asked) { refitting = true; paint(b); }
+                           arm(a.total); })
             .catch(quiet);
         else arm(a.total);
       }).catch((e) => {

@@ -42,17 +42,24 @@ demoShell opts font colours views =
       <> docField "dkey" <> "<span class=\"dpunc\">:</span>" <> docField "dval"
       <> ghost "dvghost"
       <> "<div id=\"doffer\"></div></div>"
-      -- THE DATE WIDGET STANDS IN THE VALUE'S OWN SLOT, and carries no label of
-      -- its own: the row it is laid over already names the keyword.
-      <> "<div id=\"ddate\">"
-      <> docFieldSaying "dwhen" "2026-08-18 · today · +3d · 18 aug"
-      <> ghost "dghost"
-      <> "<div id=\"dwoffer\"></div></div>"
       <> "</div>"
   , "      </div>"
   , "      <pre id=\"mlog\"></pre>"
   , "    </div>"
   , "  </div>"
+  -- THE DATE WIDGET IS THE PAGE'S, not the pane's: ONE overlay stands over the
+  -- planning value's slot inside the sheet and over a date CELL in the table,
+  -- so it hangs at the ROOT and is placed against the viewport.  It carries no
+  -- label of its own: whatever it is laid over already names the keyword.
+  , "  <div id=\"ddate\">"
+      <> docFieldSaying "dwhen" "2026-08-18 · today · +3d · 18 aug"
+      <> ghost "dghost"
+      <> "<div id=\"dwoffer\"></div></div>"
+  -- THE TAG OFFERS, THE SAME MENU over a field that stands in no box of its own:
+  -- the draft's tag CELL, which is the renderer's in-cell input, and the tags
+  -- popup's rename field.  ONE ELEMENT, placed against the viewport per anchor
+  -- (`placeMenu'), so no surface carries a menu of its own.
+  , "  <div id=\"toffer\"></div>"
   ]
   <> tableFrame "tags" "t" ("<div id=\"tedit\">" <> field "tname" <> "</div>")
   <> popupFrame "prompt" "p" "" ""
@@ -86,13 +93,6 @@ demoShell opts font colours views =
   , "    </div>"
   , "  </div>"
   ]
-  -- ONE FIELD: the tag settles and the SHEET takes over, so the form holds the
-  -- destination question and nothing else (`docs/capture.md', The flow).
-  <> popupFrame "capture" "k" "" ""
-       [ "      <input id=\"ktag\" spellcheck=\"false\" autocomplete=\"off\""
-           <> " placeholder=\"tag — empty is the inbox\">"
-       , "      <div id=\"klist\"></div>"
-       ]
   -- Panel bodies wear `cpart'; glue.js's `SECTIONS' wraps them at boot.
   <>
   [ "  <div id=\"config\">"

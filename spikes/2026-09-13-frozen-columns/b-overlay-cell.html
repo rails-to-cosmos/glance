@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · frozen widths, the cell overflows</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* B — THE PIN, AND THE CELL SPILLS OVER ITS NEIGHBOURS.
+
+     Same pin.  The input is not in the td at all: it is a box at the cell's
+     rect, `position:absolute' in the scroller, the cell's width as a floor and
+     its own text's as the rest, z-indexed over the row.  The table under it
+     does not move a pixel — and the cells to the right of the open one, in
+     THAT ROW ONLY, are covered while it stands.
+
+     This is the date box's own move (`36-date-cell.js' anchors on
+     `table.cellRect'), which is half the argument for it: the widget already
+     lays one editor over a cell, and a reader has seen it.
+
+     WHAT IT COSTS: the covered neighbours.  Type past the title's width and
+     SCHEDULED, DEADLINE and the tag run go behind the box. */
+</style>
+</head>
+<body>
+  <h1>B · frozen widths, the cell overflows
+    <small>pin at open, the box laid over its neighbours in that row alone</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <span id="fzmeasure"></span>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> a row ·
+      <kbd>f</kbd><kbd>b</kbd> (arrows) a column ·
+      <kbd>RET</kbd> opens the cell ·
+      <kbd>+</kbd> a draft under point ·
+      <kbd>TAB</kbd><kbd>S-TAB</kbd> walk the draft ·
+      <kbd>RET</kbd> captures · <kbd>ESC</kbd> drops it ·
+      <kbd>a</kbd> a row arrives · <kbd>g</kbd> the ruler · <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="says"></span>
+  </footer>
+
+<script src="rig.js"></script>
+<script>RIG.mount({ mode: "overlay" });</script>
+</body>
+</html>

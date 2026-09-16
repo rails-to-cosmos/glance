@@ -9,6 +9,124 @@ and this project adheres to the
 Versions 0.1 through 0.4 were cut retroactively over one dense build: each
 section groups a feature arc, and its date is that arc's last commit.
 
+## Unreleased
+
+### Added
+
+- **A tag completes where a tag is typed.** The draft row's tag cell and the
+  tags popup's rename field carry the very offer menu the date box has — the
+  list under the field, a hint column, the arrows walking it and `TAB` taking
+  what point stands on — fed by the store's whole tag vocabulary rather than the
+  rows this view draws, since a capture files a row under a tag the view need
+  not show. One menu element, placed under whichever field raised it and
+  turning over above it at the window's foot. A take keeps the run's own
+  spelling: `:a:b` and `book` make `:a:book:`, with the caret after the closing
+  colon where the next tag is typed. With no offer to take, `TAB` is the ring's
+  own key and `RET` the commit, exactly as before. `GET /tags?vocabulary=true`
+  is the store-wide door behind it — the same two fields the per-row answer
+  carries, for a surface that names no row.
+
+- **And a state completes where a state is typed.** The draft's state cell is
+  the same menu's third anchor, completing out of the DESTINATION'S OWN
+  `#+TODO:` cycle — the answer `+` already asked for when it drew the row, held
+  rather than fetched twice, so the offers and the wall a seeded keyword meets
+  are one list. The typed word narrows it by prefix, a done word is hinted
+  `done`, and `TAB` replaces the whole cell: a state is one word, so there is no
+  run to splice into. The vocabulary is **closed** — the commit door refuses a
+  keyword the destination's chain does not declare — so a word the cycle lacks
+  draws no offer and `TAB` there walks the ring on. `GET /keywords?tag=NAME` now
+  answers the chain's two halves beside the flat list, which is what lets the
+  hint say which word is a done one.
+
+### Fixed
+
+- **`TAB` resolves a date into the surface's own spelling.** Over a table cell —
+  a standing row's and a draft's alike — it now writes the ISO day that cell
+  draws rather than org's stamp, so what stands in the box is what the reader
+  will see there once the settle lands; the pane's box keeps the stamp its
+  planning slot draws. The wire law is untouched: `RET` sends the field's own
+  bytes and the server reads a bare `2026-09-13` exactly as it reads
+  `<2026-09-13 Sun>`.
+
+- **A mounted table point has climbed out of draws no cell ring.** The
+  `gt-nosel` mask spelled a transparent background alone, and the cell cursor is
+  now a `box-shadow` ring that writes no ground — so the ring stayed drawn over
+  a table nothing was selected in.
+
+### Changed
+
+- **A table's columns are fitted once per view.** Each column's width is
+  measured from the header word and the widest value the result set holds at
+  that moment, and then left there: the fit runs at the first rows paint after a
+  mount or a `setView`, at a window resize, and at a query change the page asks
+  for (`fitColumns()` on the widget's handle — every answer reaches the widget
+  through one `setRows` door, so the asking side says which was which). Nothing
+  else moves a column: a 60-character title typed into a draft, a row arriving
+  over the socket with a longer value, a delta, a producer row spliced in and a
+  sort all move 0px. A value its column cannot hold is clipped with an ellipsis
+  and carries its whole text as the cell's hover.
+
+- **The selected cell is a ring rather than a third ground.** The row keeps its
+  gold, the column keeps its band, and the cell where the two cross wears a 1px
+  inset ring in the band's own hue over no background at all — so it cannot
+  stack with the row's wash, the mark, the flag or the zebra, and dark's 9%
+  ceiling on the old cell wash stops being a constraint.
+
+### Fixed
+
+- **A cell editor closing no longer rebuilds the head bare.** `renderHead` left
+  a colgroup with no widths on it, and under a fixed layout that is six equal
+  columns — every `TAB` out of a draft cell and every `ESC` out of an editor.
+  The head now returns its colgroup sized.
+
+### Added
+
+- **A capture is a row in the table.** `+` types a **draft row** into the table
+  already on screen, below the row at point, seeded from the standing filter,
+  with its title cell's editor open. `TAB` and `S-TAB` walk its cells in the
+  header's own order, `RET` commits the whole capture from any of them, and
+  `ESC` drops it leaving the rows byte for byte. The destination leads the tags
+  cell — `:book:` mints a real org-glance blob, an empty run appends to the
+  inbox — and a state the destination's cycle lacks is cleared before the wire.
+  A refusal keeps the draft standing, its word in the echo pill, so nothing typed
+  is retyped. The capture popup and the document sheet over a draft are gone:
+  the table already says everything a capture says.
+
+- **A date is edited where it is drawn, with the widget the material document
+  has.** With point on a `SCHEDULED` or `DEADLINE` cell, `RET` stands that box
+  in the cell's own place — the same field, ghost and offers menu the doc pane
+  raises — opened on the day the cell already holds and wholly selected. It
+  takes the cell's top, left and height and grows right, so the ghost runs on
+  over the neighbour; the offers drop below and turn over above at the window's
+  foot. `TAB` and the
+  arrows take an offer (`today`, `+1w`, `18 august`), `S-<left>`/`S-<right>` walk
+  the day and `S-<up>`/`S-<down>` the week, `RET` commits, an emptied field clears
+  the entry and `ESC` leaves the cell as it was. The grammar is the doc pane's,
+  unchanged: ISO, `today`, `tomorrow`, `+3d`, `18 aug`, `from 18 to 19 august` and
+  org's own bracket. What travels is the phrase the reader typed; the server
+  resolves it once against its own clock. `RET` over any other column still
+  materializes the row.
+
+- **`TAB` resolves the phrase in the date box.** With no offer left to take, the
+  key writes the ghost's own reading into the field — `today` becomes
+  `<2026-09-13 Sun>`, `from 18 to 19 aug` its range spelling — and the ghost
+  falls silent, the field being its own answer now. A phrase no reading takes is
+  left alone, its `✗` already said. The wire law is unchanged: `RET` still sends
+  the field's own bytes, which after a `TAB` are a stamp the server takes
+  verbatim, the way a `S-<arrow>` step's already were.
+
+- **`C-c C-s` and `C-c C-d` over the table open that box at point** when no rows
+  are marked, moving the column cursor onto that keyword's column. With rows
+  marked they raise today's bulk prompt, over the same rows as before.
+
+- **A capture can carry its dates.** The draft row's `TAB` walk now stops in the
+  `SCHEDULED` and `DEADLINE` cells, where the same box opens; `TAB` there takes
+  the offer that stands, else resolves the phrase and walks on at one press —
+  the cell it leaves shows the concrete day and the capture carries that stamp.
+  `RET` from any cell still commits the whole capture, and each date cell that
+  holds something rides out as a planning entry. Under `sort:scheduled` a dated
+  capture lands among the days rather than in the undated tail.
+
 ## 0.7.1.0 - 2026-08-31
 
 ### Added

@@ -35,9 +35,6 @@
     }
 
     let editing = null;
-    // A CAPTURE IS THE SHEET OVER A SUBTREE THAT DOES NOT EXIST YET -- a DRAFT.
-    const capturing = () => !!(editing && editing.capture);
-    const CAPTURE_WORD = "the capture";
     let base = "", baseProps = null, raw = false;
     // THE DOC PANE IS AN ELM PROGRAM; the MIRROR is a macrotask behind — AGENTS.hs.
     const DCELLS = CFG.dcells;
@@ -50,11 +47,6 @@
     let dhead = false;
     // POINT IS ON A HEADERLESS TABLE'S EPHEMERAL HEADER: RET materializes it.
     let dephem = false;
-    // A DRAFT WHOSE `%?' STOOD IN THE BODY still owes its editor: that row lands
-    // a macrotask behind the fill, so the open waits.  ONE SHOT.
-    let dlanding = false;
-    // What the reader typed per keyword for a RESOLVED entry; a fill empties it.
-    let dtyped = {};
     let dport = null, dtook = null, dwrote = null;
     const cellsOf = (o) => DCELLS.map((k) => {
       const val = (o || {})[k] || "";
@@ -82,7 +74,7 @@
         // Elm pushes a port BEFORE it paints, so these are read a turn later.
         soon(() => {
           seedInsert(now.caret); keepInView(docElAt()); placeEdit(); reselectDate();
-          openLanding(); tableSelSync();
+          tableSelSync();
         });
       });
       dport.docSaid.subscribe((what) => { if (dwrote) { dwrote(what); dwrote = null; } });
@@ -185,8 +177,7 @@
       followLinks(b, editing.id, { digest: editing.digest, links }, links);
     }
     const docTitle = () =>
-      ((editing && editing.cells && editing.cells.title)
-       || (capturing() ? CAPTURE_WORD : (editing || {}).id) || "");
+      ((editing && editing.cells && editing.cells.title) || (editing || {}).id || "");
     const docBinding = (command, seq) => ({ seq: seq || "RET", command });
     function docEnter(r = drows[dat]) {
       if (!r) return;
@@ -223,37 +214,8 @@
       const t = shown(r).find((x) => x.key === "title");
       openTitle(t ? t.val : "");
     }
-    /** THE TITLE EDIT over the head row.  OVER A BARE DRAFT IT IS THE CAPTURE
-     * ITSELF: `RET' writes the jot, `ESC' drops it, and the row says so as `bare'. */
-    const openTitle = (val) =>
-      openEdit(DTITLE,
-               { id: "CELL:title", val, bare: capturing() && bareDraft(editing) });
-    /** Is the draft the BARE DEFAULT -- star-space and nothing else?  Read off
-     * the ANSWER, INHERITED facts counting; the destination tag is its ADDRESS. */
-    const bareDraft = (h) =>
-      !String((h.cells || {}).title || "").trim()
-      && !String((h.cells || {}).state || "")
-      && !String((h.cells || {}).priority || "")
-      && !tagsBeyond(h).length
-      && !(h.properties || []).length && !(h.planning || []).length
-      && !(h.children || []).length && !bodyBelow(h.body).trim();
-    const tagsBeyond = (h) =>
-      cellTags((h.cells || {}).tags).filter((t) => t !== (h.capture || {}).tag);
-    // A subtree's `body' opens with its own headline, so the first line is cut.
-    const bodyBelow = (body) => String(body || "").split("\n").slice(1).join("\n");
-    /** THE EDITOR A DRAFT'S BODY POINT OWES, once the fill that placed it has
-     * settled.  A row no editor claims keeps point and opens nothing. */
-    function openLanding() {
-      if (!dlanding) return;
-      dlanding = false;
-      if (!capturing()) return;
-      const r = drows[dat];
-      if (!r || r.kind === "head") {
-        openTitle(String((editing.cells || {}).title || ""));
-        return;
-      }
-      if (r.kind === "para" || r.kind === "meta") openEdit(DPARA, r);
-    }
+    // THE TITLE EDIT over the head row.
+    const openTitle = (val) => openEdit(DTITLE, { id: "CELL:title", val });
     function atElement(act) {
       const r = drows[dat];
       if (!r || (r.kind !== "head" && r.kind !== "child"))
@@ -283,7 +245,6 @@
     }
     function docUp() {
       if (!editing) return;
-      if (capturing()) { echo("DEL → a capture has nowhere up — ESC leaves it"); return; }
       if (editing.child === null) { leaveSheet(); return; }
       const up = editing.parent;
       reread(up === null ? undefined : up, (h, fresh) => {
@@ -487,7 +448,9 @@
     let edit = null;
     function openEdit(o, row) {
       edit = { o, row };
-      el(o.box).className = "on";
+      // THE DRESS IS THE OPEN'S: one box over two surfaces wears what the
+      // surface it stands over asks for (`dateShape').
+      el(o.box).className = o.dress ? `on ${o.dress}` : "on";
       // A TIGHT BOX STANDS INSIDE THE ROW, which lifts its own wash (Style.hs).
       el(o.pane).classList.toggle("tight", !!o.tight);
       o.fill(row);
@@ -501,7 +464,9 @@
       el(ids[(at + 1) % ids.length]).focus();
     }
     // ONE `edit' OVER FOUR SURFACES: an unscoped shut would cancel a rename.
-    const editIn = (o) => !!edit && edit.o === o;
+    // The BOX is what names one, so a shape built per open (`dateShape') is the
+    // same surface as the shape it was built from.
+    const editIn = (o) => !!edit && edit.o.box === o.box;
     function shutEdit(o) {
       if (!editIn(o)) return;
       el(edit.o.box).className = "";
@@ -519,12 +484,30 @@
       const m = o.mount();
       return m ? m.el.querySelector("tbody tr.tv-sel") : null;
     };
+    /** WHAT AN ANCHOR MEASURES, element or rect alike: a box laid over a widget's
+     * own cell is handed the rect, the widget owning where its rows are. */
+    const rectOf = (at) =>
+      !at ? null
+      : typeof at.getBoundingClientRect === "function" ? at.getBoundingClientRect()
+      : typeof at.width === "number" ? at : null;
+    const EDGE = 8;   // what a box laid against the viewport keeps clear of it
+    // A FIXED BOX MEASURES AGAINST THE VIEWPORT, which is the origin it is placed in.
+    const viewRect = () =>
+      ({ top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight });
+    /** The height the offers claim under the box, 0 while the menu is shut.  The
+     * MODEL says whether it is up (`wmenu'); the DOM is only measured. */
+    const offersTall = () => {
+      const m = el("dwoffer");
+      return wmenu.list.length && typeof m.getBoundingClientRect === "function"
+        ? m.getBoundingClientRect().height : 0;
+    };
     function placeEdit() {
       if (!edit) return;
       const o = edit.o;
       const tr = anchorOf(o);
       // A page with no layout measures nothing and leaves the overlay put.
-      if (!tr || typeof tr.getBoundingClientRect !== "function") return;
+      const a = rectOf(tr);
+      if (!a) return;
       const span = o.cells && cellSpan(o.cells, o.cols);
       if (o.cells && !span) return;
       const tds = span && [...tr.querySelectorAll("td:not(.tv-box)")];
@@ -532,9 +515,33 @@
       if (o.cells && !(from && to)) return;
       const pane = el(o.pane);
       if (typeof pane.getBoundingClientRect !== "function") return;
-      const a = tr.getBoundingClientRect();
-      const b = pane.getBoundingClientRect();
+      // A BOX AT THE PAGE'S ROOT is placed against the viewport; one inside a
+      // pane against that pane's padding box, scroll and all.
+      const b = o.fixed ? viewRect() : pane.getBoundingClientRect();
+      const [inX, inY] = o.fixed ? [0, 0] : [pane.clientLeft, pane.clientTop];
+      const [byX, byY] = o.fixed ? [0, 0] : [pane.scrollLeft, pane.scrollTop];
       const s = el(o.box).style;
+      // A CELL'S BOX STANDS IN THE CELL'S OWN PLACE: its top, its left and its
+      // height, so the field replaces the value where the value stood and the
+      // reader's eye never leaves the line it asked the question on.  It
+      // shrink-wraps past the cell's right edge -- the ghost runs on over the
+      // neighbour as a tail -- with the cell's width as the floor, and the near
+      // edge gives way only where the far one would run off the viewport.
+      // ONLY THE OFFERS CAN WANT THE FLIP: the box itself IS the cell
+      // (spikes/2026-09-12-date-overlay, B).
+      if (o.over) {
+        const box = el(o.box);
+        box.classList.remove("flipped");
+        const wide = box.offsetWidth || a.width;
+        s.top = `${a.top - b.top}px`;
+        s.height = `${a.height}px`;
+        s.width = "";
+        s.minWidth = `${a.width}px`;
+        s.left = `${Math.max(b.left + EDGE,
+                             Math.min(a.left, b.right - wide - EDGE)) - b.left}px`;
+        if (a.bottom + offersTall() + EDGE > b.bottom) box.classList.add("flipped");
+        return;
+      }
       // THE ROW VOUCHES FOR A TIGHT BOX'S VERTICAL: an empty slot's rect has no height
       // (docs/bugs/fixed/2026-08-25-the-title-box-sits-on-the-baseline-when-the-title-is-empty.md).
       const row = o.tight && tr.closest ? tr.closest(".de") : null;
@@ -542,11 +549,11 @@
       const [padT, padB] = rowed ? rowPads(row) : [0, 0];
       const rr = rowed ? row.getBoundingClientRect() : a;
       // Absolute against the PADDING box: a scrolling pane owes clientTop+scrollTop.
-      s.top = `${(rowed ? rr.top + padT : a.top) - b.top - pane.clientTop + pane.scrollTop}px`;
+      s.top = `${(rowed ? rr.top + padT : a.top) - b.top - inY + byY}px`;
       s.height = `${rowed ? rr.height - padT - padB : a.height}px`;
       // THE BOX COVERS THE BLOCK ON EVERY EDGE, and EVERY field of a two-field box.
       if (o.block) {
-        s.left = `${a.left - b.left - pane.clientLeft + pane.scrollLeft}px`;
+        s.left = `${a.left - b.left - inX + byX}px`;
         s.width = `${a.width}px`;
         for (const id of o.fields) inset(el(id), tr);
         return;
@@ -561,6 +568,7 @@
             : b.right;
         s.left = `${a.left - b.left}px`;
         s.width = `${stop - a.left}px`;
+        s.minWidth = "";
         return;
       }
       if (!o.cells) return;
@@ -600,7 +608,9 @@
     // Typing is the third door; `placeEdit' after it, so a box that grew is re-laid.
     el("dtext").addEventListener("input", () => { sizeDocEdit(); placeEdit(); });
     window.addEventListener("resize", placeEdit);
-    el("mdoc").addEventListener("scroll", placeEdit, true);
+    // EVERY SCROLLER, IN THE CAPTURE PHASE: `scroll' does not bubble, and the box
+    // stands over a pane's row and over a mounted table's cell alike.
+    document.addEventListener("scroll", placeEdit, true);
     // A LEFT CLICK SELECTS the row it lands on, a DOUBLE CLICK edits it, waiting on
     // no round-trip.  Clicks inside the open edit box carry no row and are ignored.
     const deUnder = (e) => (e.target instanceof Element ? e.target.closest("#mdoc .de") : null);
@@ -787,23 +797,24 @@
     };
     // `viewPlanning' gives each value its own span (`Doc.elm'); the box lies there.
     const dPlanAt = () => {
-      const key = editIn(DDATE) ? edit.row.key : null;
+      const key = ddating() ? edit.row.key : null;
       return key ? el("dlist").querySelector(`.dpv[data-key="${key}"]`) : null;
     };
-    const DDATE = {
-      box: "ddate", pane: "mdoc", fields: ["dwhen"],
-      mount: () => null, anchor: dPlanAt, tight: true,
-      // Placed synchronously -- `soon(placeEdit)' would land a frame late.
-      fill: (r) => { el("dwhen").value = r.val; dateMoved(); placeEdit(); },
-      focus: () => selectWhole(el("dwhen")),
-    };
+    // THE DATE BOX IS NAMED BY ITS BOX ALONE: where it stands and what it wears
+    // are the OPEN's (`dateShape'), so this is what `editIn' and `shutEdit' match.
+    const DDATE = { box: "ddate" };
     const dediting = () => editIn(DTITLE);
     const dparaing = () => editIn(DPARA);
     const dpairing = () => editIn(DPAIR);
     const ddating = () => editIn(DDATE);
+    // WHICH SURFACE THE BOX STANDS OVER: the pane's open covers the planning
+    // slot inside a row and hands ESC to the sheet's own ladder; a cell's hangs
+    // under a table row, which is nobody's sheet and cancels itself.
+    const dateOverCell = () => ddating() && !edit.row.tight;
     // `edit' is shared with the table's rename, so this asks MEMBERSHIP of it.
     const DOCEDITS = [DTITLE, DPARA, DPAIR, DDATE];
-    const sheetOpen = () => !!edit && DOCEDITS.indexOf(edit.o) !== -1;
+    const sheetOpen = () =>
+      !!edit && DOCEDITS.some((o) => o.box === edit.o.box) && !dateOverCell();
     /** Answer the day the open edit reads against, stamped when it was summoned.
      * The ghost and the wall above the commit must never disagree on the day. */
     const editDay = () => (edit && edit.row.today) || dateNow();
@@ -903,16 +914,43 @@
       m.at = atIn(m.list, m.at + step);
       paintOffers(m.box, m.list, m.at);
     };
-    /** Take M's offer into FIELD; MOVED redraws it, since the take fires no input. */
-    const menuTake = (m, field, moved) => {
-      const want = m.at < 0 ? undefined : m.list[m.at].word;
-      const f = el(field);
-      if (want === undefined || want === f.value.trim()) return false;
-      f.value = want;
-      f.setSelectionRange(want.length, want.length);
+    /** Take M's offer into F, PUT saying what the field BECOMES and where the
+     * caret rests -- or `null' where the offer is ALREADY what stands there.  A
+     * TAKE THAT CHANGES NOTHING IS NO TAKE, so the press falls through to the
+     * surface's own key.  MOVED redraws it, since the take fires no `input'.
+     * ONE TAKE, TWO PUTS: a field that IS the offer, and a tag RUN the offer is
+     * spliced into (`tagAnchor', 37-tags.js). */
+    function menuTook(m, f, put, moved) {
+      const took = m.at < 0 ? null : put(m.list[m.at].word);
+      if (!took) return false;
+      const [value, at] = took;
+      f.value = value;
+      f.setSelectionRange(at, at);
       moved();
       return true;
-    };
+    }
+    /** THE WHOLE FIELD IS THE OFFER, which is what a one-value field takes. */
+    const menuTake = (m, field, moved) =>
+      menuTook(m, el(field),
+               (w) => (w === el(field).value.trim() ? null : [w, w.length]),
+               moved);
+    /** THE MENU UNDER RECT, or ABOVE it where the viewport's foot leaves no room.
+     * A menu hanging at the page's ROOT is placed against the viewport, the way
+     * the date box is; one living inside its own box needs none of this and
+     * flips in CSS (`#ddate.flipped #dwoffer').  MEASURED AFTER THE PAINT: the
+     * height is the drawn list's own. */
+    function placeMenu(m, rect) {
+      const box = el(m.box);
+      if (!rect || typeof box.getBoundingClientRect !== "function") return;
+      const s = box.style;
+      s.minWidth = `${rect.width}px`;
+      const v = viewRect(), r = box.getBoundingClientRect();
+      const over = m.list.length > 0 && rect.bottom + r.height + EDGE > v.bottom;
+      box.classList.toggle("flipped", over);
+      s.top = `${over ? Math.max(v.top + EDGE, rect.top - r.height) : rect.bottom}px`;
+      s.left = `${Math.max(v.left + EDGE,
+                           Math.min(rect.left, v.right - r.width - EDGE))}px`;
+    }
     function drawOffers() {
       dmenu.list = offersFor();
       menuPaint(dmenu);
@@ -998,6 +1036,10 @@
       wmenu.list = only ? [] : dateOffers(typed, today, r);
       menuPaint(wmenu);
       drawGhost("dwhen", "dghost", true, r);
+      // THE BOX IS RE-PLACED ON EVERY KEYSTROKE: the field grew or shrank by a
+      // `ch' and the offers came or went, and over a cell BOTH decide where the
+      // box's far edge lands and whether the menu has to turn over.
+      placeEdit();
     }
     /** Re-assert the VIRGIN selection: the port lands a macrotask behind the open. */
     function reselectDate() {
@@ -1027,53 +1069,106 @@
       const back = docCursor().at;
       if (drew) redraftPlan(keyword);
       // ONE CLOCK READ PER SUMMON: ghost, offers and commit all read this day.
-      openEdit(DDATE, { key: keyword, val: stood, add: drew, back, b,
-                        today: dateNow() });
-      said(b, "RET sets it · empty clears it · ESC leaves");
+      openDateBox({ rect: dPlanAt, tight: true, edge: null,
+                    key: keyword, initial: stood, add: drew, back, b,
+                    today: dateNow(), foot: DATE_FOOT,
+                    onCommit: (typed, k) => commitDate(k, typed) });
     }
+
+    /** THE DATE BOX'S SHAPE FOR ONE OPEN.  `#ddate' is ONE widget over two
+     * surfaces, so WHERE IT STANDS IS THE OPEN'S rather than the box's: over the
+     * pane it covers the planning value's slot to the entry's edge and lifts
+     * that row's wash (`tight', docs/invariants.md), and over a table cell it
+     * covers THAT cell -- same top, same left, same height -- at the cell's own
+     * width or wider.  Both are the box standing in the value's own slot; the
+     * box hangs at the page's root, so both are placed against the viewport. */
+    const dateShape = (o) => ({
+      box: "ddate", pane: "mdoc", fields: ["dwhen"], mount: () => null,
+      fixed: true, anchor: o.rect, edge: o.edge,
+      tight: !!o.tight, over: !o.tight, dress: o.tight ? "" : "cell",
+      // Placed synchronously by `dateMoved' -- `soon(placeEdit)' would land a
+      // frame late, and the offers decide the flip.
+      fill: (r) => { el("dwhen").value = r.val; dateMoved(); },
+      focus: () => selectWhole(el("dwhen")),
+    });
+    /** THE DATE WIDGET OVER WHAT RECT ANSWERS: the field, the ghost, the offers,
+     * the step keys and RET/ESC, wherever a date is owed.  ONE WIDGET AND ONE
+     * CODE PATH, so no surface can lack what another has.
+     *
+     * INITIAL fills the field, wholly selected -- org-read-date's own default.
+     * TODAY is the ONE CLOCK READ the ghost, the offers and the wall above the
+     * commit all spend, stamped here so they cannot disagree mid-edit; it is
+     * spent on INK alone and THE PHRASE is what travels (docs/invariants.md).
+     * ONCOMMIT takes the phrase that passed that wall AND THE KEY'S OWN BINDING,
+     * so the pill names the key that committed rather than the one that summoned;
+     * ONCANCEL the `ESC' where the surface owns it, and ONWALK `TAB''s step where
+     * the surface has a ring.  Every one of them owns the SHUT, the pane's
+     * undrafting its own line.
+     * SPELL is how the surface writes a day `TAB' resolved -- org's own stamp
+     * over the pane, the ISO day over a table cell, which is what that cell
+     * draws (`isoSpell', 15-dates.js).
+     * @param {{rect: () => any, initial?: string, today: any, b: any,
+     *          key?: string, tight?: boolean, edge?: (() => any)|null,
+     *          add?: boolean, back?: any, foot?: string,
+     *          spell?: (r: any) => string,
+     *          onCommit: (typed: string, b: any) => void, onCancel?: () => void,
+     *          onWalk?: (step: number, typed: string) => void}} o */
+    function openDateBox(o) {
+      openEdit(dateShape(o), Object.assign({ val: o.initial || "" }, o));
+      if (o.foot) said(o.b, o.foot);
+    }
+    /** `RET' INSIDE THE BOX: the offer that stands, else THE WALL and the open's
+     * own commit.  `datePassed' says the reader's own word and posts nothing
+     * where no reading takes the phrase, so the server's refusal is the backstop
+     * rather than the reader's first news. */
     function dateKey(b) {
       if (menuTake(wmenu, "dwhen", dateMoved)) return;
-      const typed = el("dwhen").value.trim();
-      if (typed) {
-        const r = readsWhen(typed);
-        if (!r.ok) { said(b, r.why); return; }
+      // The pane reads CLOSED verbatim, so the wall above ITS commit is `readsWhen'.
+      const typed = datePassed(b, el("dwhen").value, editDay(), readsWhen);
+      if (typed !== null) edit.row.onCommit(typed, b);
+    }
+    /** `TAB' INSIDE THE BOX, IN ONE ORDER: the offer that stands, else the phrase
+     * RESOLVED in place, and then the surface's own ring.  A box with no ring
+     * keeps the reader, which is where the pane's has always left them, so over
+     * the pane and a standing row's cell the resolve is the whole press; the
+     * draft's stop resolves AND walks on at one press, the cell it leaves
+     * holding the stamp.  `S-TAB' is the walk back alone and resolves nothing. */
+    function dateTab(step) {
+      const f = el("dwhen");
+      if (step > 0) {
+        if (menuTake(wmenu, "dwhen", dateMoved)) return;
+        if (dateResolveInto(f, readsWhen(f.value.trim()), edit.row.spell))
+          dateMoved();
       }
-      commitDate(b, typed);
+      const walk = edit.row.onWalk;
+      if (walk) walk(step, f.value.trim());
+    }
+    /** `ESC' OVER A BOX THAT IS NOBODY'S SHEET: the box down first, so whatever
+     * the open hands back to finds nothing standing over it. */
+    function cancelDateBox() {
+      const go = edit.row.onCancel;
+      shutEdit(DDATE);
+      go();
     }
     /** Send TYPED verbatim: ONE CLOCK READ, the server's own (docs/invariants.md).
-     * A CHILD or a DRAFT has no row id and rides `?child='. */
+     * A CHILD has no row id and rides `?child='. */
     function commitDate(b, typed) {
       const row = edit.row, keyword = row.key, h = editing;
       shutEdit(DDATE);
       if (row.add) undraftPlan(row);
-      if (h.child !== null || capturing()) {
+      if (h.child !== null) {
         answerOnce(() => said(b, typed || "cleared"), (what) => said(b, what));
         dsend({ kind: "addprop", key: keyword, value: typed });
         return;
       }
-      fire(b, "set-planning", [h.id], { keyword, date: typed || null },
-           typed || "cleared")
+      firePlanning(b, [h.id], keyword, typed)
         .then((results) => {
           if (editing === h && (results || []).some((x) => x.ok)) reload();
         });
     }
-    const dateStep = (k) =>
-      k === "S-<right>" ? 1 : k === "S-<left>" ? -1
-      : k === "S-<down>" ? 7 : k === "S-<up>" ? -7 : 0;
-    const dateStepped = (r, to) => {
-      if (!r.bracketed) return isoDay(to);
-      const stood = r.stamp;
-      const head = stood.indexOf("--") === -1 && STAMP_HEAD.exec(stood);
-      // The tail excludes the closing bracket: the one org-stamp writer adds it.
-      return stampOf(to, null, stood.charAt(0) === "[",
-                    head ? stood.slice(head[0].length, -1) : "");
-    };
     function dateAdjust(b, by) {
       const f = el("dwhen");
-      const r = readsWhen(f.value.trim());
-      if (!r.ok || !r.start) { said(b, "no date here to move"); return; }
-      f.value = dateStepped(r, addDays(r.start, by));
-      f.setSelectionRange(f.value.length, f.value.length);
+      if (!dateStepInto(f, readsWhen(f.value.trim()), by)) { said(b, NO_DATE_HERE); return; }
       dateMoved();
     }
     const docHolds = () => editing !== null;
@@ -1115,7 +1210,6 @@
       return box.value.slice(0, box.selectionStart).split("\n").length - 1;
     };
     const PLANNING = CFG.planning;
-    const DATED = CFG.settable;
     // Written as a key, a frame word TERMINATES the drawer -- AGENTS.hs.
     const DRAWER_FRAME = ["PROPERTIES", "END"];
     const IDENTITY_KEYS = ["ORG_GLANCE_ID", "ORG_GLANCE_CREATION_TIME"];
@@ -1123,323 +1217,6 @@
       const up = String(key || "").toUpperCase();
       return PLANNING.indexOf(up) === -1 ? null : up;
     };
-    // Month and day RANGE-CHECKED; the lookahead stops `32' reading as day `3'.
-    const DATE = "\\d+-(?:0?[1-9]|1[0-2])-(?:0?[1-9]|[12]\\d|3[01])(?!\\d)";
-    // ONE ORG STAMP, or two joined by `--' wearing the SAME bracket; kept no looser
-    // than the server's wall (`settledPlanning') and no wider until
-    // docs/proposals/proposed/2026-08-22-a-date-is-read-where-a-date-is-owed.md.
-    const ACTIVE = `<${DATE}[^<>\\n]*>`;
-    const INACTIVE = `\\[${DATE}[^\\[\\]\\n]*\\]`;
-    const STAMP = new RegExp(
-      `^(?:${ACTIVE}(?:--${ACTIVE})?|${INACTIVE}(?:--${INACTIVE})?)$`);
-    // Everything past the head is the stamp's TAIL; declared below `DATE' (TDZ).
-    const STAMP_HEAD = new RegExp(`^[<[]${DATE}(?:[ \\t]+[A-Za-z]+)?`);
-
-    // ================================================== THE DATE, READ FOR INK
-    // Wall's fourth spelling, DRIFT-PINNED over `test/fixtures/english-dates.json'.
-    const DAY_MS = 86400000;
-    // UTC THROUGHOUT: a local-midnight `Date' shifts a day across a DST boundary.
-    // The year is set explicitly since `Date.UTC' reads 0..99 as 1900+y.
-    const dnum = (c) => {
-      const t = new Date(0);
-      t.setUTCFullYear(c.y, c.m - 1, c.d);
-      t.setUTCHours(0, 0, 0, 0);
-      return Math.round(t.getTime() / DAY_MS);
-    };
-    const civil = (n) => {
-      const t = new Date(n * DAY_MS);
-      return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() };
-    };
-    const leapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-    const daysInMonth = (y, m) =>
-      [31, leapYear(y) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
-    // The wall `Time.fromGregorianValid' stands for: `31 feb' never reaches disk.
-    const dayReal = (c) => !!c && c.m >= 1 && c.m <= 12 && c.d >= 1 && c.d <= daysInMonth(c.y, c.m);
-    const addDays = (c, n) => civil(dnum(c) + n);
-    /** Is C finite and real on the calendar?  A shift off `Date''s range is `NaN'. */
-     const showable = (c) => !!c
-      && Number.isFinite(c.y)
-      && Number.isFinite(c.m)
-      && Number.isFinite(c.d)
-      && dayReal(c);
-    const addMonths = (c, n) => {
-      const k = c.m - 1 + n;
-      const y = c.y + Math.floor(k / 12);
-      const m = ((k % 12) + 12) % 12 + 1;
-      return { y, m, d: Math.min(c.d, daysInMonth(y, m)) };
-    };
-    const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const dowOf = (c) => DOW[new Date(dnum(c) * DAY_MS).getUTCDay()];
-    const pad2 = (n) => (n < 10 ? "0" : "") + n;
-    const isoDay = (c) => `${c.y}-${pad2(c.m)}-${pad2(c.d)}`;
-    const stampOf = (c, time, inactive, tail) =>
-      `${inactive ? "[" : "<"}${isoDay(c)} ${dowOf(c)}`
-      + `${time ? " " + time : ""}${tail || ""}${inactive ? "]" : ">"}`;
-    const MONTH_WORDS = {
-      jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
-      apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
-      aug: 8, august: 8, sep: 9, september: 9, oct: 10, october: 10,
-      nov: 11, november: 11, dec: 12, december: 12,
-    };
-    const MONTH_LIST = Object.keys(MONTH_WORDS);
-    // Offers spell a month in full: a three-letter form abbreviates its neighbour.
-    const MONTH_FULL = MONTH_LIST.filter((w) => w.length > 3 || w === "may");
-    const NOT_A_DATE = "not a date";
-    const INVERTED = "ends before it starts";
-    const NO_DATE_WHY = "not a date — try 2026-08-18, today, +3d, 18 aug,"
-      + " from 18 to 19 aug, or org's own <2026-08-05 Wed>";
-    const INVERTED_WHY = "ends before it starts — spell a year at each end,"
-      + " as in from 30 dec 2026 to 2 jan 2027";
-    // The server REPARSES CLOSED's value (`Glance.Web.Base.unreadable').
-    const NOT_A_STAMP = "not a timestamp";
-    const notReadBack = (key) => `${key} is not a timestamp org would read back`;
-    /** The reader's ONE refusal; HOW adds `hard' (dead) or `unfinished' (typing). */
-    const noDate = (how) => ({ ok: false, ...how, short: NOT_A_DATE, why: NO_DATE_WHY });
-    // Two-digit month and day, org's canonical spelling; `STAMP' stays liberal.
-    const dayOf = (s) => {
-      const m = /^(\d+)-(\d{2})-(\d{2})$/.exec(s);
-      if (!m) return null;
-      const c = { y: +m[1], m: +m[2], d: +m[3] };
-      return dayReal(c) ? c : false;          // `false' is spelled, no such day
-    };
-    /** Org's own spelling, KEPT VERBATIM once it reparses — the one form whose
-     * weekday is NOT recomputed, wrong weekday and all (pinned at
-     * test/TestQuery.hs:1791). */
-    function verbatimDate(s) {
-      if (!/^[<[]/.test(s)) return null;
-      if (STAMP.test(s)) {
-        // The RAW stamp rides along, so the step splices into THAT (`dateStepped').
-        const m = /^[<[](\d+)-(\d{1,2})-(\d{1,2})/.exec(s);
-        const c = m ? { y: +m[1], m: +m[2], d: +m[3] } : null;
-        return { ok: true, bracketed: true, stamp: s,
-                 start: c && dayReal(c) ? c : undefined };
-      }
-      // STILL BEING TYPED.  The text must END on the closer: an interval holds two.
-      if (!/[>\]]$/.test(s)) return noDate({ unfinished: true });
-      return { ok: false, hard: true, short: NOT_A_DATE,
-               why: "that bracket is no stamp org would read back" };
-    }
-    /** A shift's BASE: `null' where there is none, `false' where none is real. */
-    function shiftBase(t, today) {
-      // ONE ROSTER with the filter's (`Glance.Query.dayWords'); `*today*' is old.
-      if (t === "" || t === "today" || t === "*today*") return today;
-      if (t === "tomorrow") return addDays(today, 1);
-      // THE SAME DOOR AS THE BARE FORM: a second ISO regex here is drift.
-      const iso = dayOf(t);
-      if (iso !== null) return iso;
-      return null;
-    }
-    function shippedDate(s, today) {
-      const t = s.toLowerCase();
-      const tm = /^(\d{4}-\d{1,2}-\d{1,2})[ \t]+(\d{1,2}):([0-5]\d)$/.exec(t);
-      if (tm) {
-        const c = dayOf(tm[1]);
-        if (!c || +tm[2] > 23) return noDate({ hard: true });
-        return { ok: true, start: c, time: `${pad2(+tm[2])}:${tm[3]}` };
-      }
-      // ONE SHIFT GRAMMAR, THE FILTER'S OWN (`shiftIn', Glance.Query), read off the
-      // END, so `2026-09-15-7d' is the week before.  NO TRIM: the wall trims none.
-      const sh = /^(.*)([+-])(\d+)([dwmy])$/.exec(t);
-      if (sh) {
-        const base = shiftBase(sh[1], today);
-        if (base === null) return null;
-        if (base === false) return noDate({ hard: true });
-        const n = (sh[2] === "-" ? -1 : 1) * +sh[3], u = sh[4];
-        return { ok: true,
-                 start: u === "d" ? addDays(base, n)
-                      : u === "w" ? addDays(base, 7 * n)
-                      : u === "m" ? addMonths(base, n)
-                      : addMonths(base, 12 * n) };
-      }
-      const half = /^(.*?)[+-]\d*$/.exec(t);
-      if (half) {
-        const under = shiftBase(half[1], today);
-        if (under !== null && under !== false) return noDate({ unfinished: true });
-      }
-      const b = shiftBase(t, today);
-      if (b === null) return null;
-      if (b === false) return noDate({ hard: true });
-      return { ok: true, start: b };
-    }
-    /** `day month [year]' or `month day [year]'; an elided year is the clock's. */
-    function englishDay(w, today) {
-      if (w.length < 2 || w.length > 3) return null;
-      let y = null;
-      if (w.length === 3) {
-        if (!/^\d{4}$/.test(w[2])) return null;
-        y = +w[2];
-      }
-      let d = null, mo = null;
-      if (/^\d{1,2}$/.test(w[0]) && MONTH_WORDS[w[1]])
-        { d = +w[0]; mo = MONTH_WORDS[w[1]]; }
-      else if (MONTH_WORDS[w[0]] && /^\d{1,2}$/.test(w[1]))
-        { mo = MONTH_WORDS[w[0]]; d = +w[1]; }
-      else return null;
-      const c = { y: y === null ? today.y : y, m: mo, d };
-      return dayReal(c) ? { c } : { bad: true };
-    }
-    /** The interval's left end, a day alone or a whole date.  EACH ELIDED FIELD
-     * TAKES THE RIGHT END'S, or `from 18 to 19 august 2027' spans twelve months. */
-    function englishLeft(w, right) {
-      if (w.length === 1) {
-        if (!/^\d{1,2}$/.test(w[0])) return null;
-        const c = { y: right.y, m: right.m, d: +w[0] };
-        return dayReal(c) ? { c } : { bad: true };
-      }
-      return englishDay(w, right);
-    }
-    function englishDate(s, today) {
-      let w = s.toLowerCase().split(/[ \t]+/).filter(Boolean);
-      if (!w.length) return null;
-      if (w[0] === "from") w = w.slice(1);
-      const i = w.indexOf("to");
-      if (i > 0 && i < w.length - 1) {
-        const right = englishDay(w.slice(i + 1), today);
-        if (!right) return null;
-        if (right.bad) return noDate({ hard: true });
-        const left = englishLeft(w.slice(0, i), right.c);
-        if (!left) return null;
-        if (left.bad) return noDate({ hard: true });
-        const a = dnum(left.c), b = dnum(right.c);
-        // WITH NO TIMES `<D>--<D>' AND `<D>' ARE ONE INTERVAL: one spelling.
-        if (a === b) return { ok: true, start: left.c };
-        // Refused, which keeps the current-year default statable: spell both years.
-        if (a > b)
-          return { ok: false, hard: true, short: INVERTED, why: INVERTED_WHY };
-        return { ok: true, start: left.c, end: right.c };
-      }
-      const one = englishDay(w, today);
-      if (!one) return null;
-      if (one.bad) return noDate({ hard: true });
-      return { ok: true, start: one.c };
-    }
-    /** Resolve the phrase inside org's brackets, wearing THE ACTIVITY THE BRACKET
-     * NAMES.  THE INVERSION TRAVELS; every other refusal stays the bracket's. */
-    function wrappedDate(s, today) {
-      const inactive = s[0] === "[";
-      if (!s.endsWith(inactive ? "]" : ">")) return null;
-      const body = s.slice(1, -1).trim();
-      if (!body) return null;
-      const r = resolvedDate(body, today, inactive);
-      if (!r) return null;
-      if (!r.ok) return r.short === INVERTED ? r : null;
-      return { ...r, bracketed: true };
-    }
-    /** Resolve PHRASE by the grammar both readings share, stamped per INACTIVE. */
-    const resolvedDate = (phrase, today, inactive) => {
-      const g = englishDate(phrase, today) || shippedDate(phrase, today);
-      if (!g) return null;
-      if (!g.ok) return g;
-      if (!showable(g.start) || (g.end && !showable(g.end)))
-        return noDate({ hard: true });
-      const one = (c, time) => stampOf(c, time, inactive);
-      return { ok: true, start: g.start, end: g.end,
-               stamp: g.end ? `${one(g.start)}--${one(g.end)}`
-                            : one(g.start, g.time) };
-    };
-    /** TEXT read as a planning date against TODAY.  A declaration, so a direct
-     * `eval' of this glue reaches it: the drift pin drives it over the corpus
-     * `test/fixtures/english-dates.json' the server's own reader is driven over. */
-    function readsDate(text, today) {
-      const s = String(text == null ? "" : text).trim();
-      if (!s) return noDate();
-      // ORG'S OWN SPELLING OUTRANKS THE WRAPPED READING, as `planningTimestamp' does.
-      const v = verbatimDate(s);
-      if (v) return v.ok || v.unfinished ? v : (wrappedDate(s, today) || v);
-      return resolvedDate(s, today, false) || noDate();
-    }
-    /** TEXT read the way the plain stamp wall reads it, for KEY's own refusal.
-     * A SECOND READER AND NEVER A SECOND GRAMMAR, and NO CLOCK: nothing resolves. */
-    function readsStamp(text, key) {
-      const s = String(text == null ? "" : text).trim();
-      const v = s ? verbatimDate(s) : null;
-      if (v && v.ok) return v;
-      return { ok: false,
-               ...(s && !(v && v.unfinished) ? { hard: true } : { unfinished: true }),
-               short: NOT_A_STAMP, why: notReadBack(key) };
-    }
-    /** The reader's own day, civil, read for INK alone — the server's clock
-     * decides.  A summon pins it once at open (one clock read, docs/invariants.md). */
-    function dateNow() {
-      const n = new Date();
-      return { y: n.getFullYear(), m: n.getMonth() + 1, d: n.getDate() };
-    }
-    const extendsAny = (list, w) => list.some((x) => x.indexOf(w) === 0);
-    // `*today*' rides along unoffered, and last: `shiftBase' reads its prefixes.
-    const DATE_VOCAB = ["today", "tomorrow", "+1d", "+1w", "+2w", "+1m", "+3m",
-                        "+1y", "*today*"];
-    const partWriting = (p, hi) =>
-      p === undefined || p === ""
-      || (p.length === 1 ? +p <= Math.floor(hi / 10)
-                         : p.length === 2 && +p >= 1 && +p <= hi);
-    const dayAndMonthTyped = (a, b) =>
-      (/^\d{1,2}$/.test(a) && !!MONTH_WORDS[b])
-      || (!!MONTH_WORDS[a] && /^\d{1,2}$/.test(b));
-    const yearTyped = (y) => /^\d{1,3}$/.test(y);
-    /** Is TEXT still being WRITTEN?  R is the reader's own answer for TEXT. */
-    function dateWriting(text, r) {
-      if (r.hard) return false;
-      if (r.unfinished) return true;
-      const t = String(text).trim().toLowerCase();
-      if (!t) return false;
-      // `2026-08-1' is on the way to the 18th; `2026-8' is a refusal already.
-      const iso = /^(\d*)(?:-(\d*)(?:-(\d*))?)?$/.exec(t);
-      if (iso) {
-        const yy = iso[1], mm = iso[2], dd = iso[3];
-        const whole = !!yy && mm?.length === 2 && dd?.length === 2;
-        if (!whole && partWriting(mm, 12) && partWriting(dd, 31)) return true;
-      }
-      const tw = /^(\d+-\d{2}-\d{2})[ \t]+(\d{0,2})(:(\d{0,2}))?$/.exec(t);
-      if (tw && dayOf(tw[1])) {
-        const hh = tw[2], mm = tw[4] || "";
-        if (hh.length === 2 && +hh > 23) return false;
-        if (tw[3] === undefined) return true;      // no colon typed yet
-        return mm.length < 2 ? mm.length === 0 || +mm <= 5 : +mm <= 59;
-      }
-      if (extendsAny(DATE_VOCAB, t)) return true;
-      if ("from".indexOf(t) === 0) return true;
-      const w = t.replace(/^from[ \t]+/, "").split(/[ \t]+/);
-      const to = w.indexOf("to");
-      if (to > 0) {
-        const right = w.slice(to + 1);
-        if (!right.length) return true;
-        if (right.length === 1
-            && (/^\d{1,2}$/.test(right[0]) || extendsAny(MONTH_LIST, right[0])))
-          return true;
-        if (right.length === 2)
-          return (/^\d{1,2}$/.test(right[0]) && extendsAny(MONTH_LIST, right[1]))
-            || (!!MONTH_WORDS[right[0]] && /^\d{1,2}$/.test(right[1]));
-        return right.length === 3 && dayAndMonthTyped(right[0], right[1])
-          && yearTyped(right[2]);
-      }
-      const last = w[w.length - 1];
-      if (w.length > 1 && last !== "" && "to".indexOf(last) === 0) {
-        const left = w.slice(0, -1);
-        if ((left.length === 1 && /^\d{1,2}$/.test(left[0]))
-            || (left.length === 2 && dayAndMonthTyped(left[0], left[1]))
-            || (left.length === 3 && dayAndMonthTyped(left[0], left[1])
-                && /^\d{4}$/.test(left[2])))
-          return true;
-      }
-      if (w.length === 1)
-        return /^\d{1,2}$/.test(w[0]) || extendsAny(MONTH_LIST, w[0]);
-      if (w.length === 2 && /^\d{1,2}$/.test(w[0]))
-        return extendsAny(MONTH_LIST, w[1]);
-      // FOUR DIGITS ARE NO LONGER WRITING: `18 aug 1899' must show its answer.
-      if (w.length === 3 && dayAndMonthTyped(w[0], w[1])) return yearTyped(w[2]);
-      return false;
-    }
-    /** WHAT THE GHOST SAYS, or `""' for nothing.  READ is the caller's answer. */
-    function dateGhost(text, today, read) {
-      const t = String(text == null ? "" : text).trim();
-      if (!t) return { text: "", bad: false };
-      const r = read || readsDate(t, today);
-      if (!r.ok)
-        return dateWriting(t, r) ? { text: "", bad: false }
-                                 : { text: ` ✗ ${r.short}`, bad: true };
-      if (!r.stamp || r.stamp === t) return { text: "", bad: false };
-      return { text: ` → ${r.stamp}`, bad: false };
-    }
 
     /** Why this pair is not written, or `null'.  Asked above the shut, since a
      * wall the model alone knew would land with nothing left to fix it in. */
@@ -1516,19 +1293,7 @@
         return;
       }
       const val = el("dtin").value;
-      // READ BEFORE THE SHUT: `shutEdit' takes the box away.
-      const jot = bareCapture();
-      // Over a bare draft this FINALIZES A CAPTURE; there is no row to retitle.
-      const finalize = docBinding("org-capture-finalize", (b || {}).seq || "RET");
-      // NOTHING TO CAPTURE IS NO COMMIT, AND THE BOX STAYS UP behind the word.
-      if (jot && !String(val).trim()) { said(finalize, "nothing to capture"); return; }
       shutEdit(DTITLE);
-      if (jot) {
-        editing.cells.title = String(val).trim();
-        drawCells();
-        commitCapture(finalize);
-        return;
-      }
       retitle(val);
     }
     function retitle(val) {
@@ -1553,16 +1318,7 @@
       if (when && when.add) undraftPlan(when);
       return when ? "the planning line" : pair ? "the drawer" : "element";
     }
-    // In a BARE draft's title the edit IS the capture: ESC takes the sheet with it.
-    function cancelSheetEdit() {
-      if (bareCapture()) {
-        leaveSheet();
-        echo("ESC → keyboard-quit (nothing captured)");
-        return;
-      }
-      cancelEdit(restoreSheetEdit());
-    }
-    const bareCapture = () => capturing() && dediting() && !!edit.row.bare;
+    const cancelSheetEdit = () => cancelEdit(restoreSheetEdit());
 
     function ddelete(ids, how) {
       dtook = how;
@@ -1585,9 +1341,6 @@
     // THE CARGO IS THE CALLER'S: a flush reading mirrors would race the push.
     function commitDocWith(cargo, say) {
       if (!editing) return;
-      // A DRAFT'S CARGO IS HELD, NEVER POSTED: the model pushes to the mirrors
-      // a macrotask behind, so the word goes out FIRST and the settle rewrites.
-      if (capturing()) { say(cargo); settleDraftPlan(cargo); return; }
       const h = editing;
       sync("syncing");
       post(h.id, h.digest,
@@ -1596,51 +1349,6 @@
         .then(outcome)
         .then((a) => { if (editing === h && landed(h, say)(a)) reload(); })
         .catch((e) => stuck(subtreeSheet, e.message));
-    }
-    /** Redraw a draft's planning entries as `readsDate' reads them.  A row's
-     * value is posted raw and comes back transformed; a draft posts nothing, so
-     * the pane is made to show what the file will hold.  WHAT TRAVELS IS STILL
-     * WHAT WAS TYPED (`typedPlan'); a phrase the resolver refuses stays RAW. */
-    function settleDraftPlan(cargo) {
-      for (const [key, value] of cargo.planning || []) {
-        if (DATED.indexOf(key) === -1) continue;
-        const read = readsDate(value, dateNow());
-        // Org's own spelling passes through, so the settle reaches a fixed point.
-        if (!read.ok || read.stamp === value) continue;
-        dtyped[key] = { raw: value, shown: read.stamp };
-        dsend({ kind: "addprop", key, value: read.stamp });
-      }
-    }
-    const typedPlan = (plan) => (plan || []).map(([key, value]) => {
-      const was = dtyped[key];
-      return [key, was && was.shown === value ? was.raw : value];
-    });
-
-    /** `C-c C-c' OVER A DRAFT: the whole capture at one press, through the ONE
-     * command that mints a blob.  THE BODY STARTS UNDER THE HEADLINE LINE: the
-     * capture spells its own headline from the cells, so the whole cargo would
-     * spell it twice. */
-    function commitCapture(b) {
-      const h = editing, c = h.cells || {};
-      const tag = h.capture.tag;
-      const title = String(c.title || "").trim();
-      const body = bodyBelow(dbody);
-      if (!title && !body.trim()) { said(b, "nothing to capture"); return; }
-      const args = { title, body, properties: dprops, planning: typedPlan(dplan) };
-      if (tag) args.tag = tag;
-      if (c.state) args.state = c.state;
-      const priority = priorityIn(c.priority);
-      if (priority) args.priority = priority;
-      const tags = cellTags(c.tags);
-      if (tags.length) args.tags = tags;
-      postCommand({ name: "capture", args }).then((a) => {
-        // The cursor lands on the new row; `arrived' spends it on the next settle.
-        arriving = a.id || null;
-        shut();
-        said(b, tag ? `captured · :${tag}:` : `captured · ${a.file}`);
-        append("cmd", "info",
-               `headline ${JSON.stringify(title)} captured into ${a.file}`);
-      }).catch(failed(b, "capture"));
     }
     function docClear() {
       dlinks = [];
@@ -1652,10 +1360,7 @@
       // CONTENT SITS UNDER THE TITLE TEXT; the arithmetic is the stylesheet's.
       el("mdoc").style.setProperty("--g-doc-indent", String("* ".length));
       const body = String(h.body || "");
-      // WHERE `%?' STOOD, in the body's line coordinates; `null' is the headline row.
-      const at = h.capture ? h.capture.point : null;
       dsend({ kind: "fill",
-              ...(at === null ? {} : { landing: at }),
               lines: body.split("\n"),
               own: h.ownLines === undefined ? body.split("\n").length : h.ownLines,
               props: h.properties || [],
@@ -1769,7 +1474,9 @@
     }
     // Registers AHEAD of the dispatch, so it sees a key first — AGENTS.hs.
     // Without the guard the sheet claims the letter a palette was raised to read.
-    onKeys(() => editing && !raw && !momentary(), (k, e) => {
+    // THE DATE BOX IS THE ONE SURFACE THAT STANDS WITHOUT THE SHEET: over a
+    // table cell there is no document open, so the gate takes it on its own.
+    onKeys(() => ddating() || (editing && !raw && !momentary()), (k, e) => {
       // ANY OTHER KEY STARTS `C-l''s CYCLE OVER, org's own rule for it.
       if (k !== "C-l") recentres = 0;
       const once = (act) => { if (!repeating(e)) act(); };
@@ -1780,11 +1487,17 @@
         if (by) { e.preventDefault(); dateAdjust(dateBinding(k), by); return; }
         const walk = walkStep(k);
         if (walk) { e.preventDefault(); once(() => menuWalk(wmenu, walk)); return; }
-        if (k !== "TAB" && k !== "RET") return;
+        // A BOX OVER NOBODY'S SHEET CANCELS ITSELF; the pane's hands ESC to the
+        // sheet's own ladder, which is where it has always gone.
+        if (k === "ESC" && edit.row.onCancel)
+          { e.preventDefault(); once(cancelDateBox); return; }
+        if (k !== "TAB" && k !== "S-TAB" && k !== "RET") return;
         e.preventDefault();
         if (k === "RET") once(() => dateKey(dateBinding(k)));
+        else once(() => dateTab(k === "TAB" ? 1 : -1));
         return;
       }
+      if (!editing || raw || momentary()) return;
       if (dpairing()) {
         const step = walkStep(k);
         if (step) { e.preventDefault(); once(() => menuWalk(dmenu, step)); return; }
@@ -1907,23 +1620,10 @@
       },
       shut: () => shut(),
     };
-    /** THE CAPTURE SHEET'S OWN VERBS.  A draft owes nothing to a file: never
-     * dirty, never flushed, never refreshed, so `ESC' shuts it byte-identically. */
-    const captureSheet = {
-      noteId: "mnote", scope: "sync", state: "synced",
-      closed: "left · nothing was captured",
-      dirty: () => false,
-      flush: () => { capnote("synced", "C-c C-c captures · ESC leaves");
-                     return Promise.resolve(false); },
-      refresh: () => Promise.resolve(false),
-      shut: () => shut(),
-    };
     const activeSheet = () =>
-      (editing ? (capturing() ? captureSheet : subtreeSheet)
-       : settings ? configSheet : null);
+      (editing ? subtreeSheet : settings ? configSheet : null);
     // ONE SHORTHAND PER SHEET: reaching for another's moves a state you do not own.
     const sync = (next, message) => note(subtreeSheet, next, message);
-    const capnote = (next, message) => note(captureSheet, next, message);
     function shut() {
       el("modal").className = ""; editing = null; base = ""; baseProps = null;
       soon(remembered);
@@ -1973,8 +1673,6 @@
     // Re-materializes here, which keeps an org parser off this page.
     function toggleRaw(b) {
       if (!editing) return;
-      // RAW IS THE FILE'S OWN BYTES RE-READ, and a draft has no file to re-read.
-      if (capturing()) { said(b, "a capture has no file behind it yet"); return; }
       if (dirty()) { said(b, "sync first — C-x C-s"); return; }
       const want = !raw;
       reread(editing.child, (_h, fresh) => {
@@ -2016,34 +1714,8 @@
     // The caller's own word where no entry names one — every command names one.
     const verbed = (name, args, verb) => (VERBED[name] || ((_args, v) => v))(args, verb);
     const cellTags = (cell) => String(cell || "").split(":").filter(Boolean);
-    const tagCell = (list) => (list.length ? `:${list.join(":")}:` : "");
-    /** WHAT A ROW-ADDRESSING DOOR WRITES ON A DRAFT, or `null' where the command is
-     * not one a draft holds.  A CAPTURE NAMES NO ROW, so the four commands setting a
-     * headline's cells land here in the wire's shape, empty digest as create pin. */
-    function draftWrote(name, ids, args) {
-      if (!capturing() || ids.length !== 1 || ids[0] !== editing.id) return null;
-      const c = editing.cells;
-      const tags = cellTags(c.tags);
-      if (name === "set-title") c.title = String(args.title || "").trim();
-      else if (name === "set-state") c.state = args.keyword || "";
-      else if (name === "set-priority")
-        c.priority = args.priority ? `[#${args.priority}]` : "";
-      else if (name === "add-tag")
-        c.tags = tagCell(tags.concat(tags.indexOf(args.tag) === -1 ? [args.tag] : []));
-      else if (name === "remove-tag")
-        c.tags = tagCell(tags.filter((t) => t !== args.tag));
-      else if (name === "rename-tag")
-        // The server's rule (`renameTagEdits'): in place, deduplicated.
-        c.tags = tagCell([...new Set(tags.map((t) => (t === args.from ? args.to : t)))]);
-      else return null;
-      drawCells();
-      return Promise.resolve({ results: [{ ok: true, id: editing.id, digest: "" }] });
-    }
-    // THE HEAD LINE REDRAWN off the handle's own cells: a draft has no reread.
-    const drawCells = () => dsend({ kind: "cells", cells: cellsOf(editing.cells) });
     function fire(b, name, ids, args, verb, how, pin) {
-      const mine = draftWrote(name, ids, args);
-      return (mine || postCommand({ name, ids, args, digests: pin })).then((answer) => {
+      return postCommand({ name, ids, args, digests: pin }).then((answer) => {
         const results = answer.results || [];
         // The store lags this write, so the per-id 200's digest re-pins the sheet.
         if (editing) {
@@ -2054,12 +1726,7 @@
         const landed = results.length - bad.length;
         said(b, `${verb} · ${how ? how(landed) : landed}`);
         const what = verbed(name, args, verb);
-        // A DRAFT IS NO ROW, so the log says what it is; `titleOf' would name none.
-        for (const x of results)
-          if (x.ok) {
-            if (mine) append("cmd", "info", `${CAPTURE_WORD} ${what}`);
-            else noted(x.id, what);
-          }
+        for (const x of results) if (x.ok) noted(x.id, what);
         if (bad.length)
           append("cmd", "error", bad.map((x) => `${x.id}: ${x.error}`).join(" · "));
         return results;
@@ -2086,8 +1753,13 @@
       return { from, on, id: want.id,
                at: rows.filter((r) => !going(r.id)).indexOf(want) };
     }
-    // ALWAYS spent, so the anchor describes ONE watch step and outlives no other.
+    /** ONE SETTLE, TWO WATCHES, EACH ON ITS OWN RULE: the ANCHOR is spent every
+     * time, so it describes one watch step and outlives no other, while the
+     * ARRIVING id is HELD until the row it names is visible. */
     function settled() {
+      // THE STORE MOVED, so a vocabulary read off it is one answer behind; the
+      // held one keeps drawing until a fresh one lands (`askTagVocab').
+      staleTagVocab();
       arrived();
       const want = leaving;
       leaving = null;
@@ -2096,11 +1768,29 @@
       if (visible().some((r) => r.id === want.from)) return;
       land({ id: want.id, col: column() }, want.at);
     }
+    /** HOW MANY SETTLES A ROW HAS TO ARRIVE IN.  A capture the standing filter
+     * hides never comes, and an id left standing would take the NEXT write's
+     * settle with it.  The id it is counting is held beside the count, so a
+     * fresh arrival starts its own wait. */
+    const ARRIVAL_SETTLES = 10;
+    let awaited = null, arrivals = 0;
+    /** POINT ONTO THE ROW A WRITE PLACED, once it is there to stand on.  A
+     * capture's row arrives BEHIND its own 200 — `/command' publishes nothing,
+     * so the watch's nudge is what reloads the store — and the FIRST settle that
+     * carries the row is the one that spends this.  HELD UNTIL THEN, and dropped
+     * with the view it belonged to (`commit', 00-core.js) or after
+     * `ARRIVAL_SETTLES' settles that never held it. */
     function arrived() {
+      if (!arriving || !table) return;
+      if (awaited !== arriving) { awaited = arriving; arrivals = 0; }
+      if (!visible().some((r) => r.id === arriving)) {
+        arrivals += 1;
+        if (arrivals >= ARRIVAL_SETTLES) arriving = null;
+        return;
+      }
       const want = arriving;
       arriving = null;
-      if (!want || !table) return;
-      if (visible().some((r) => r.id === want)) land({ id: want, col: column() });
+      land({ id: want, col: column() });
     }
     // MINE is compared, since two archives can be out at once.
     const spent = (mine) => (results) => {
@@ -2174,53 +1864,9 @@
       soon(remembered);
       if (raw) el("mtext").focus(); else el("mtext").blur();
     }
-    /** THE SHEET OVER A SERVED DRAFT — the same open over an answer with no file
-     * behind it.  A is `GET /capture''s answer: `/headline''s shape with `id' null
-     * and `digest' "" — the create pin — plus the tag's cycle and `%?''s line.
-     * EVERY DRAFT OPENS EDITING at `%?''s place; on a BARE draft that box is the
-     * capture, so the reader's keys are `+', RET, the line, RET — AGENTS.hs. */
-    function showDraft(b, tag, a) {
-      editing = draftOf(tag, a);
-      raw = false;
-      el("mfile").textContent = captureWhere(tag, a);
-      fill(editing);
-      capnote("synced");
-      el("modal").className = "on";
-      soon(remembered);
-      el("mtext").blur();
-      // POINT ON THE HEADLINE OPENS NOW off the handle's cells.  A BODY LINE waits
-      // for the fill: the row that seeds the editor lands a macrotask behind the send.
-      if (editing.capture.point === null)
-        openTitle(String((editing.cells || {}).title || ""));
-      else dlanding = true;
-      said(b, bareDraft(editing) ? "a headline · RET captures it · ESC leaves"
-                                 : "C-c C-c captures · ESC leaves");
-    }
-    /** The editing handle a served draft stands behind: the answer's own fields, plus
-     * the three the capture's alone under `capture'.  THE SPANLESS SHAPE IS CORRECT
-     * for a file-less document: `spanAt' null makes every span null, so the links
-     * door opens nothing and no delete names a byte range that does not exist. */
-    const draftOf = (tag, a) => ({
-      id: a.id === undefined ? null : a.id,
-      file: a.file || "", child: null, parent: null,
-      path: a.path || [], level: a.level || 1,
-      cells: { ...(a.cells || {}) },
-      children: a.children || [],
-      org: a.org || "", body: a.body || "", ownLines: a.ownLines,
-      properties: a.properties || [], planning: a.planning || [],
-      logbook: "", digest: "", span: null, links: [], titleAt: null,
-      capture: { tag, cycle: a.cycle || [],
-                 point: typeof a.point === "number" ? a.point : null },
-    });
-    // The sheet's file line over a draft: WHERE IT WILL LAND, since there is no
-    // file and no id yet to name.
-    const captureWhere = (tag, a) =>
-      `${CAPTURE_WORD}  ·  ${tag ? `:${tag}:` : a.file || "the inbox"}`;
     function fill(h) {
       base = raw ? h.org : "";
       el("mtext").value = base;
-      // THE PLANNING PHRASES ARE THIS DOCUMENT'S: one kept across would misname a row.
-      dtyped = {};
       // Toggle it: the class also carries the sheet's size tier.
       el("sheet").classList.toggle("raw", raw);
       for (const o of DOCEDITS) shutEdit(o);
@@ -2251,7 +1897,6 @@
       el("mlog").textContent = inner;
       el("mlog").className = inner ? "on" : "";
     }
-    // A CAPTURE IS COMMITTED OR IT NEVER WAS: a draft reads clean, so ESC is free.
-    const dirty = () => editing !== null && !capturing()
+    const dirty = () => editing !== null
       && (raw ? el("mtext").value !== base : edited() !== baseProps);
 

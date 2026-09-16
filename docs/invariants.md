@@ -280,12 +280,29 @@ nothing catches it.
   standing INSIDE a coarser one is drawn on the colour already behind it unless
   the coarser lifts. Both lifts spell the same `background-color:transparent` on
   the OUTER ground: the pane wears `tight` while a box stands inside its row
-  (`page.css:772`, `20-sheet.js:492`), and the planning line drops its wash
-  while an entry is picked (`page.css:897`). Dropping either lift, or
+  (`page.css:809`, `20-sheet.js:455`), and the planning line drops its wash
+  while an entry is picked (`page.css:922`). Dropping either lift, or
   adding a third gold one grain finer without one, leaves the wash set, focused
   and invisible — a state only PIXELS see, which is why the entry's case counts
-  them (`cases.mjs:4026`, `:4460`) rather than reading a class.
-  *fragility: medium*
+  them (`cases.mjs:4185`, `:4624`) rather than reading a class. **A RING IS FREE
+  OF THIS,** writing no background slot at all: the table's cell cursor is
+  `box-shadow:inset 0 0 0 1px var(--tv-point)` over `background:transparent`
+  (`table-view.js:1887`), so it cannot stack with the cursor row's gold, the
+  mark, the flag or the zebra and needs no contrast budget from the ground under
+  it. `--tv-point` is `--g-point`, the page's own point ink, so the table's
+  finest cursor and the document's are ONE colour; the rows under it draw no
+  column band at all, the header's wash being the only locator. The third ground
+  it replaced was legal only because it was a different HUE over a different
+  element, which is why dark had to hold it at 9% — one point
+  more put the tag ink under 4.5:1 on the cursor row. The case that pins it reads
+  the computed ground, the shadow against the token, and the neighbours down the
+  column, in both themes
+  (`cases.mjs`, *the selected cell is a ring and writes no ground of its own*).
+  **A RING OWES EVERY MASK ITS OWN LINE**: `gt-nosel` — an in-doc table point has
+  climbed out of — spelled `background:transparent!important` and left the ring
+  standing, so it owes `box-shadow:none!important` beside it (`page.css`, and
+  *f and b walk the cells of a table row*, which now reads both grounds in
+  pixels rather than reading the class). *fragility: medium*
 
 - **The empty cell sits outside every date comparison, and negation is no
   mirror.** `dated` guards all four operators and both range ends, because `""`
@@ -293,12 +310,56 @@ nothing catches it.
   undated row; `*empty*` stays the one name for those rows. It follows that
   `-k:<D` serves the undated rows where `k:>=D` does not, so the operators do
   not pair off under the sign and no surface may rewrite one into the other.
-  `Filter.hs:644`, `table-view.js:702`, `AGENTS.hs:2681`. A tidying pass that
+  `Filter.hs:644`, `table-view.js:743`, `AGENTS.hs:2681`. A tidying pass that
   normalizes `-k:<D` into `k:>=D`, or drops the guard because byte order
   "already sorts an empty cell first", turns nothing red but the one case that
   names the pair (`TestFilter.hs:978`). **That case and its renderer twin are
   the whole guard: the rewrite is the kind a normalizer or a query optimizer
   makes on purpose.** *fragility: high*
+
+- **The phrase travels; the ghost is ink.** What a date surface sends is the
+  bytes standing in its field — `10 jan`, `+3d`, `[18 aug]`, the stamp a
+  `S-<arrow>` or a `TAB` wrote there — and the SERVER resolves them, once per
+  request, against its own clock. The client's reading is spent on the preview,
+  on the wall above the commit, and on the TWO KEYS that write it into the field
+  where the reader sees and may edit it — `S-<arrow>`'s step and `TAB`'s resolve
+  (`dateStepInto`, `dateResolveInto`, `15-dates.js`, `dateTab`, `20-sheet.js`) —
+  and never on the commit's own path. **Each of those two writes the SURFACE'S
+  OWN SPELLING**: org's stamp in the pane's planning slot, the ISO day in a
+  table cell, which is what that cell draws (`spell`, `stampSpell`/`isoSpell`,
+  `15-dates.js`). A cell shows one day, so a range resolves to its start there
+  and stays whole in the pane. Either spelling meets the wall unchanged — the
+  server reads a bare `2026-09-13` exactly as it reads org's bracket — so a
+  surface spelling the other one puts a day on screen the reader will never see
+  there, which is what the cell did until 2026-09-13. An emptied field commits
+  `null` rather than `""`. Four surfaces take the one road, and the first three are ONE
+  WIDGET over three rects (`openDateBox`, `20-sheet.js:1080`): the pane's slot
+  (`commitDate`, `20-sheet.js:1123`), the cell (`36-date-cell.js:36`) and the
+  draft's stop (`35-draft.js:99`) — plus the bulk prompt (`30-palette.js:48`)
+  and the draft's `planning` (`35-draft.js:276`), all
+  met by `plannedValue` (`Query.hs:1907`) under the request's single `today`
+  (`Commands.hs:350`). Pinned by the three cases that name it —
+  `TestServe.hs:2046`, `:4876`, `:4883` — and the resolve by its own three
+  (`TestServe.hs:5295`, `cases.mjs:5561`, `:6011`). Sending
+  `readsDate(typed, …).stamp` from the COMMIT instead hands the day to a clock
+  the server has never read and splits `set-planning`'s one argument into a
+  spelling per surface; it turns nothing red on any day the two clocks agree.
+  *fragility: high*
+
+- **A draft is the renderer's own row, and nothing else can reach it.** `+`'s
+  capture row carries an open FIELD at all times — the widget's in-cell editor,
+  or the date box laid over one of its two date stops (`35-draft.js:99`); a
+  field-less row would have no id, no span and no file for the movement keys to
+  stand on, and those keys would reach the table. It is never marked
+  (`table-view.js:3608`), never selected (`:3874`), never ordered with the rest
+  (`:3194`), and its reserved id never reaches `targets()` (`00-core.js:537`) or
+  a `/command`; `ESC` leaves the rows byte-identical, no file having been
+  written. The WIDGET places it, by the `under` its producer names
+  (`table-view.js:2914`), dresses it and repaints it through every sort, filter,
+  page and socket delta — so a `/headlines` answer arriving beneath it leaves it
+  standing with the caret where it was. Placing it from the glue instead puts a
+  phantom in the store's own row list, where the next settle drops it and the
+  sort parks it among the blanks. *fragility: medium*
 
 - **Closed sums are matched one equation per constructor, no wildcard,** so a
   new constructor is named by the compiler. `Filter.hs:302`, `Commands.hs:249`,
@@ -307,7 +368,7 @@ nothing catches it.
 
 - **The client issues one drift-locked write per file, awaited,** and re-asks
   for the digest rather than reusing a remembered one. `40-popups.js:177`,
-  `20-sheet.js:2160`, `50-settings.js:397`. Firing in parallel makes the second
+  `20-sheet.js:1693`, `50-settings.js:397`. Firing in parallel makes the second
   write drift against the first; a remembered digest across a reload is a silent
   overwrite. *fragility: medium*
 

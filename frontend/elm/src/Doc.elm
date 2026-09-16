@@ -491,7 +491,6 @@ type Msg
     | Shift Int
     | AddProp String String
     | SetMeta (List ( String, String )) (List ( String, String ))
-    | SetCells (List Cell)
     | Ignore
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -654,21 +653,6 @@ update msg model =
                 Just r -> spoke (foldAt r model)
         Shift by -> shifted by model
         SetMeta props plan -> told (remeta { model | props = props, plan = plan })
-        -- THE HEADLINE'S OWN CELLS, WRITTEN FROM OUTSIDE.  The pane draws the
-        -- head line and never writes it: a materialized row's state, priority,
-        -- title and tags leave through `/command' and come back on the reread.
-        -- A DRAFT HAS NO ROW FOR THAT REREAD, so the shell -- which holds the
-        -- draft's own cells -- hands them straight in.  Nothing else moves: the
-        -- body and the two lists are the model's and a redraw of the head line
-        -- must not cost them.
-        SetCells cells ->
-            told
-                { model
-                    | rows =
-                        List.map
-                            (\r -> if r.kind == Head then { r | cells = cells } else r)
-                            model.rows
-                }
         -- THE PAIR ARRIVES WHOLE -- the shell typed both halves -- so the write
         -- follows at once, and point lands on the new pair, drawer open.  THE
         -- DRAFT ROW GOES EITHER WAY: it became this pair, or the box that drew
@@ -1633,9 +1617,6 @@ msgD =
                         D.map2 SetMeta
                             (D.field "props" (D.list pairD))
                             (D.field "plan" (D.list pairD))
-                    -- The head line's cells, for a document with no row behind
-                    -- it to reread them off.
-                    "cells" -> D.map SetCells (D.field "cells" (D.list cellD))
                     _ -> D.succeed Ignore
             )
 

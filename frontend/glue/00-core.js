@@ -184,6 +184,9 @@
                                                     : setTimeout(fn, 0));
     let table = null, socket = null, backoff = 1000;
     let query = "", inflight = null, requeryAt = 0;
+    // THE NEXT ANSWER IS A NEW QUESTION'S, so `paint' refits the columns on it.
+    // Set where a question is asked and spent on the answer to it.
+    let refitting = false;
     let leaving = null;
     let arriving = null;
     let etag = null;
@@ -206,6 +209,11 @@
           command === "materialize" ? materialize(id)
                                      : append("cmd", "info", `action: ${command}  id=${id}`),
         onLink: (target) => append("cmd", "info", `link: ${target}`),
+        // The draft's own keys, which can be bound nowhere else (`onCellKey',
+        // assets/table-view.js).  A DATE is edited in the document's own widget
+        // laid over the cell rather than in one, so no standing row's cell opens
+        // an editor at all (36-date-cell.js).
+        onCellKey: draftKey,
         onFilter: filter,   // the server narrows; the renderer shows what it is given
         onRefused: refused, // a shaping token typed at `/', which the box keeps
         onPin: () => pinHere(),
@@ -240,9 +248,20 @@
       return p.finally(() => wash.step("view", -1));
     };
     let all = [], cols = [];
+    // A WAL tick, a poll and a filter change all land here.  `setRows' replaces
+    // the STORE's rows alone: a draft is the producer's own row and stands
+    // through the paint, editor and caret included (35-draft.js).
     const paint = (a) => {
       const rows = a.view.rows || [];
       table.setRows(rows);
+      // THE COLUMNS ARE FITTED ONCE PER VIEW, so the ONE answer that may move
+      // them says so: a NEW QUESTION'S. Every answer arrives through this door
+      // — a WAL tick's, a poll's, a capture's settle — and the widget cannot
+      // tell them apart, so the asking side does (`commit', `start').
+      if (refitting) { refitting = false; if (can(table, "fitColumns")) table.fitColumns(); }
+      // A BOX LAID OVER A CELL IS PLACED AGAINST A ROW THAT JUST MOVED, so the
+      // settle re-measures it; with nothing open this costs one early return.
+      soon(placeEdit);
       if (!query) all = rows;
       parity(a.total);
     };
@@ -353,6 +372,7 @@
       if (q === query) return;
       query = q;
       leaving = arriving = null;   // both belonged to the view being left
+      refitting = true;            // a different question: the columns fit its answer
       remember(q);
       fetchRows();
     }
@@ -523,8 +543,12 @@
       said(b, `${on ? "marked" : "unmarked"} · ${table.markedCount()}`);
       move(1);
     }
+    /** THE MARKED ROWS, or none where this table does no marking.  ONE READING:
+     * `targets()' and `C-c C-s''s split read the same answer, so which rows a key
+     * takes and which surface it opens cannot come apart (36-date-cell.js). */
+    const marks = () => (marking() ? table.getMarked() : []);
     const targets = () => {
-      const marked = marking() ? table.getMarked() : [];
+      const marked = marks();
       if (marked.length) return marked;
       const id = focusedId();
       return id ? [id] : [];

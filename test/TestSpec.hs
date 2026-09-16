@@ -1233,7 +1233,7 @@ specGroup10 = testGroup "Shell"
                   [ n | n <- [Spec.tvHeader, Spec.tvCompletion], n `notElem` asset ]
       assertEqual "the spec's z band and the page's own values have drifted"
                   band shell
-      assertEqual "the shell's own levels" [1, 2, 100, 101, 102] shell
+      assertEqual "the shell's own levels" [1, 2, 100, 101, 102, 103] shell
       assertBool "the status corner's retired level is back on the page"
                  (Spec.zRetired `notElem` shell)
 
@@ -1770,7 +1770,7 @@ specGroup12 = testGroup "Build and discipline"
       assertEqual "a splice input outside extra-source-files"
         [] [ p | p <- sdistExtras, p `notElem` extras ]
 
-  , testCase "the shell is eight parts, folded in their numbered order" $
+  , testCase "the shell is twelve parts, folded in their numbered order" $
       -- ORDER INCLUDED; the on-disk half is 'TestSelfContained''s.
       assertEqual "the shell's parts, as the spec and the build fold them"
         gluePartFiles WB.gluePartFiles

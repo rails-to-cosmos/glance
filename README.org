@@ -80,9 +80,11 @@ The keymap is data (=Glance.Web.Keymap=): the page's last line is the whole
 map. =т з о л= navigates on a Cyrillic layout.
 
 | =n= =p= / =f= =b= | rows / cells — and in the document, siblings / grain          |
-| =RET=       | materialize the row; in the document, edit the element        |
+| =RET=       | materialize the row; over a date cell, edit the date; in the document, edit the element |
 | =DEL=       | the ladder: unmark, else drop a query token, else pop a drill |
 | =t= =:=       | state palette · tag popup                                     |
+| =TAB=       | in an open field, take the offer standing under it — a tag, a state, a date |
+| =C-c C-s= =C-c C-d= | the date, in its own cell; over marked rows, one prompt        |
 | =d d= =D=     | flag-then-delete (archive)                                    |
 | =x=         | act on the flagged, after asking · =D= is the quick one         |
 | =m= =u= =M= =U=   | dired's marks; =SPC= aliases =m=                                                 |
@@ -97,14 +99,28 @@ map. =т з о л= navigates on a Cyrillic layout.
 | =?=         | help                                                          |
 | =,=         | settings                                                      |
 
+** The table's own look
+
+Columns are *fitted once per view* -- to the header word and the widest value
+the result set holds at that moment -- and never from content again: typing a
+long title into a draft and a row arriving with a longer value both move 0px, a
+query change refits once, and a window resize refits.  A value its column cannot
+hold is clipped with an ellipsis and carries its whole text as hover.  The
+cursor is a row's gold, a column's band, and a 1px ring on the cell where the
+two cross.
+
 ** Capture
 
-=+= is one form: a tag completing over the tree's vocabulary (empty = the
-inbox), the tag's template fields grown in place, the line last. A tagged
-capture mints a real org-glance blob -- id, shard path, =EXTERNAL.jsonl=
-note -- that Emacs adopts on its next refresh.
+=+= types a *draft row* into the table already on screen, below the row at
+point, seeded from the standing filter: =TAB= walks its cells in the header's
+own order, =RET= commits from any of them, =ESC= drops it. The destination is
+the filter's first =tag:=, leading the tags cell -- =:book:= mints a blob under
+that layer, an empty run appends to the inbox. The =SCHEDULED= and =DEADLINE=
+cells are stops on the walk, so a capture carries its dates out with it. A
+tagged capture mints a real org-glance blob -- id, shard path,
+=EXTERNAL.jsonl= note -- that Emacs adopts on its next refresh.
 
-The form, the template law and the =%=-code subset: [[file:docs/capture.md][docs/capture.md]].
+The draft's keys, the seeding rule and the two doors: [[file:docs/capture.md][docs/capture.md]].
 
 ** The material document
 
@@ -138,6 +154,19 @@ drawer and every child headline drawn in place.
   the standing value opens selected, =RET= commits,
   =ESC= leaves it, empty clears the entry. The drawer pair's value half wears
   the same field where its key routes to the planning line.
+- *A date is edited where it is drawn*, so the *table* gets THAT widget --
+  field, ghost and offers -- standing in the cell's own place: =RET= over a
+  =SCHEDULED= or =DEADLINE= cell, or =C-c C-s= / =C-c C-d= with nothing marked,
+  opens the box on the cell's own ISO value, over the cell it replaces. =TAB= and the arrows take an offer,
+  and =TAB= with none left to take *resolves the phrase in place* -- =today=
+  becomes =<2026-09-13 Sun>=, the ghost falling silent behind it.
+  =S-<left>= / =S-<right>= step a day and =S-<up>= / =S-<down>= a week, writing
+  the stepped stamp into the field. With rows *marked* the two sequences keep
+  the bulk prompt -- a set of rows has no cell to stand in. What goes down the
+  wire is what stands in the *field*, never a reading of its own: the server
+  resolves it once against its own clock and the settle brings the day back.
+  The draft row's two date stops open the same box; =RET= there captures the
+  whole row and =TAB= resolves and walks on at one press.
 - The pane ends on one empty line, shown only when the walk reaches it:
   =RET= there writes a fresh paragraph at the document's end, wherever =+=
   is owned by what point stands on.

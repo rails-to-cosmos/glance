@@ -56,7 +56,6 @@ pageTokens p =
   , ("--g-point-off", pPointOff p)
   , ("--g-link",      pLink p)
   , ("--g-col",       pColumn p)
-  , ("--g-cell-wash", pCellWash p)
   , ("--g-flag-wash", pFlagWash p)
   , ("--g-ok",        pOk p)
   , ("--g-warn",      pWarn p)
@@ -76,6 +75,7 @@ slots p prefix n hues =
   where filled = if null hues then [pFg p] else hues
 
 -- | The renderer's FLAG is 'pBad': the archive flag and an error are one red.
+-- Its WARN is the page's: a producer's refused row and a page warning are one amber.
 tableTokens :: Palette -> [(Text, Text)]
 tableTokens p =
   [ ("--tv-bg",        pBg p)
@@ -85,10 +85,14 @@ tableTokens p =
   , ("--tv-border",    pBorder p)
   , ("--tv-accent",    pAccent p)
   , ("--tv-sel",       pSelection p)
+  -- The cell cursor's RING is the page's point ink, so the table's finest
+  -- cursor and the doc's are one colour.
+  , ("--tv-point",     pPoint p)
   , ("--tv-hover",     pHover p)
   , ("--tv-link",      pLink p)
   , ("--tv-frost",     pFrost p)
   , ("--tv-flag",      pBad p)
+  , ("--tv-warn",      pWarn p)
   , ("--tv-col",       pColumn p)
   -- Reserved for an overlay dock; the main mount docks its box on the strip and draws no veil.
   , ("--tv-veil",      pVeil p)
@@ -98,7 +102,6 @@ tableTokens p =
   , ("--tv-mark-wash", pMarkWash p)
   , ("--tv-flag-wash", pFlagWash p)
   , ("--tv-col-wash",  pColWash p)
-  , ("--tv-cell-wash", pCellWash p)
   , ("--tv-sort-wash", pSortWash p)
   , ("--tv-cols-wash", pColsWash p)
   ]

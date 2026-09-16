@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>0 · as shipped</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* 0 — THE CONTROL.  `colWidths' / `growWidths' / `applyWidths'
+     (`assets/table-view.js:2988', `:3015', `:3050') transcribed and left alone,
+     doing on this page exactly what they do on `feat/capture-row' today.
+
+     THE LAW IT OBEYS.  A `title' column is present, so the FILL POLICY is on:
+     `table-layout:fixed', every column but the title carrying a measured
+     `calc(Nch + GROUNDpx)', and the title taking whatever they left.  N is the
+     WIDEST CELL the whole filtered set holds, capped at `COL_MAX_CH = 40'.
+
+     WHAT THAT MAKES TRUE, and what this tab is here to show:
+
+       · typing into an open input moves NOTHING.  Under fixed layout a
+         cell's content is not what sizes its column, so the input is clipped
+         by the width the column already had.
+       · the moment the row is REPUBLISHED (`upsertRow' → `growWidths',
+         `:5292') the sized columns grow to it — and the title, being the fill
+         column, pays for every one of them.  A draft's `TAB' republishes.
+       · a long TITLE costs nothing at all: the fill column has no width to
+         change.  A long TAG RUN costs the title everything it takes.
+       · `closeCellEditor' (`:4017') runs `renderRows(); renderHead();' in
+         that order — the widths are written onto cols the next line throws
+         away, and a fixed-layout table with a bare colgroup divides the window
+         EQUALLY.  Press `RET' then `ESC' and watch six equal columns. */
+</style>
+</head>
+<body>
+  <h1>0 · as shipped
+    <small>the widget's own arithmetic, untouched — the control</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <span id="fzmeasure"></span>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> a row ·
+      <kbd>f</kbd><kbd>b</kbd> (arrows) a column ·
+      <kbd>RET</kbd> opens the cell ·
+      <kbd>+</kbd> a draft under point ·
+      <kbd>TAB</kbd><kbd>S-TAB</kbd> walk the draft ·
+      <kbd>RET</kbd> captures · <kbd>ESC</kbd> drops it ·
+      <kbd>a</kbd> a row arrives · <kbd>g</kbd> the ruler · <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="says"></span>
+  </footer>
+
+<script src="rig.js"></script>
+<script>RIG.mount({ mode: "none" });</script>
+</body>
+</html>

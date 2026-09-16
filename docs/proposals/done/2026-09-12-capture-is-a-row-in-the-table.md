@@ -1,13 +1,13 @@
 # Capture is a row in the table
 
-**Status:** proposed · **Date:** 2026-09-12 · **Origin:** user — capture loses
+**Status:** done · 2026-09-12 · **Date:** 2026-09-12 · **Origin:** user — capture loses
 its popup and its sheet; `+` types a row into the table already on screen.
 
 *The standing flow is [../../capture.md](../../capture.md). The shapes were
 measured in [`spikes/2026-09-12-capture-in-table/`](../../../spikes/2026-09-12-capture-in-table/README.md)
 and the pick is that rig's **F** — `{ at: "point", settle: "now", tab: true }`
 (`f-at-point-on-tab.html:61`): B's placement, B's settle, E's `TAB`. This
-supersedes [`2026-08-24-the-capture-doc-is-the-material-doc.md`](2026-08-24-the-capture-doc-is-the-material-doc.md)
+supersedes [`2026-08-24-the-capture-doc-is-the-material-doc.md`](../proposed/2026-08-24-the-capture-doc-is-the-material-doc.md)
 for the capture FORM and leaves the capture COMMAND alone.*
 
 ## What stands
@@ -322,6 +322,8 @@ including `a state outside the capture's own cycle is refused, naming the cycle`
   decision names, and the SCHEDULED cell carries the destination hint instead.
 - **A draft that outlives `ESC`.** No autosave, no draft store; a capture is
   committed or it never was.
+- **The destination hint** — removed on review 2026-09-12; the tags cell says
+  the destination.
 
 ## Oracles, in one list
 
@@ -347,3 +349,67 @@ including `a state outside the capture's own cycle is refused, naming the cycle`
   draft stands with the state cleared, which is stage 5's machinery reused. The
   alternative — holding the editor until the answer arrives — costs the jot its
   19 keys' worth of immediacy.
+
+## Landed
+
+**done · 2026-09-12.** Seven stages and a review pass, each oracle red first.
+The draft's two date cells came after, with
+[`2026-09-12-the-date-widget-lives-in-the-cell.md`](2026-09-12-the-date-widget-lives-in-the-cell.md)
+stage 4.
+
+- **1. The read door.** `GET /capture` is gone rather than narrowed: the cycle
+  is the only thing a draft asks for, and `GET /keywords?tag=NAME`
+  (`Routes.hs:159`, `keywordsView` `:733`) is that question already — the same
+  answer `?ids=` gives, for a row that does not exist yet. `draftJSON`,
+  `draftCells`, `draftTagsCell`, `inheritedIn`, `inheritedTags`,
+  `draftTemplate`, `draftPointLine`, `Inherited` and `draftSeeded` went with it;
+  the capture COMMAND's own road is untouched.
+- **2. The draft row, and paint.** `frontend/glue/35-draft.js` — the seeding rule
+  (`pinned` `:16`, `soleValue` `:28`, `filteredTags` `:22`, `draftSeed` `:37`),
+  the phantom (`DRAFT_ID` `:60`, `openDraft` `:90`) and the cycle ask
+  (`askCycle` `:117`).
+- **3. The walk.** `onCellKey(e, {id, col, key, value})`
+  (`assets/table-view.js`, typedef `:122`–`:126`) is the widget's one new seam;
+  `draftKey` (`35-draft.js:154`) and `walkDraft` (`:175`) take `TAB`/`S-TAB` and
+  `ESC` over the draft alone. `Keymap.hs` gained no row: an open cell stops every
+  key it sees.
+- **4. The commit.** `commitDraft` (`:238`) folds the open editor's value into
+  the phantom and posts the whole capture at one `RET` through the one command
+  that mints a blob; `draftArgs` (`:209`) is the cargo. `arriving`
+  (`20-sheet.js:1629`–`:1637`) HOLDS the id until a settle carries the row, and
+  drops it after ten settles or a query change.
+- **5. The refusal in place.** `refuseDraft` (`35-draft.js:262`) keeps the draft
+  standing with the word beside it and the dress turned warn; the next content
+  keystroke clears both (`contentKey` `:148`, `clearRefusal` `:271`).
+- **6. The deletions.** The form and the sheet over a draft are gone.
+  `30-capture.js` kept only the value palette and the link door and was
+  `git mv`'d to `30-palette.js`; out with the rest went `#ktag`/`#klist`,
+  `captureShape`, `capturing()` and its ~20 branches, `commitCapture`,
+  `captureSheet`, `bareCapture`, `openLanding`, `draftWrote`/`drawCells` and,
+  with the last of them, `Doc.elm`'s `SetCells` port.
+- **7. The cases.** Ten browser cases plus the seeding cases; `promptKeySpec`
+  narrowed to `Shell reschedule`, `draftRowSpec` grew two drivable cases, and
+  the shell pins the door the draft asks — `/keywords?tag=book` and nothing else
+  (`TestServe.hs:2115`). `captureViewSpec` went with the route.
+
+### The review pass (2026-09-12)
+
+- **No destination hint.** `draftHint`, the row's `hint` field and `dropped` are
+  gone. The tags cell says where the capture lands — `:book:` leading the run —
+  and a state the destination's cycle lacks is dropped silently. The proposal's
+  "the hint says so" and its open question about a narrow SCHEDULED cell both
+  fall away with it, and the SCHEDULED cell is free for the date the draft now
+  carries.
+- **`[#A]` in the priority cell.** `draftSeed` seeds org's own spelling
+  (`priorityCell`, `35-draft.js:56`), the way every landed row's cell reads;
+  `draftArgs` still sends the bare letter through `priorityIn`.
+- **The walk follows the header.** `draftWalk` (`:142`) filters `cols` by the
+  cells a draft owns, so `TAB` goes left to right in the order the header draws
+  rather than a ring of its own — and the two date cells joined it with no walk
+  change at all.
+- **The row is the widget's.** The draft is a `producer` row carrying `under`
+  and `refused`; the WIDGET places it (`table-view.js:2914`), keeps it out of the
+  order (`standing`, `:3194`), the marks (`:3608`) and the selection (`:3874`),
+  and repaints it through every delta. Placing it from the glue instead puts a
+  phantom in the store's own row list, where the next settle drops it and the
+  sort parks it among the blanks; that is now `docs/invariants.md:318`.

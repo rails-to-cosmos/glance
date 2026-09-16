@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The date widget in a table cell — three places for the ghost</title>
+<style>
+  /* THE SHELL ONLY.  Each variant is its own page; what they share is `rig.js',
+     `dates.js' and `pane.css', which is the point — the tabs differ by WHERE
+     THE GHOST GOES and by nothing else.  One fixture, one grammar, one set of
+     commit/refuse/cancel laws, three placements. */
+  :root{
+    --mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --bg:#FFFFFF; --fg:#000000; --mute:#667071; --border:#E3E6EA;
+    --accent:#31769F; --surface:#F8F8FF;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --fg:#FFFFFF; --mute:#A4C2EB; --border:#2A2D3D;
+      --accent:#4CB5F5; --surface:#21252B;
+    }
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 var(--mono); display:flex; flex-direction:column;
+  }
+  header{flex:none; border-bottom:1px solid var(--border); background:var(--surface)}
+  h1{margin:0; padding:10px 20px 0; font-size:13px; font-weight:600; letter-spacing:.02em}
+  h1 small{font-weight:400; color:var(--mute); margin-left:8px}
+  nav{display:flex; flex-wrap:wrap; padding:0 20px}
+  nav a{
+    font-size:12px; color:var(--mute); text-decoration:none;
+    border-bottom:2px solid transparent; padding:10px 12px;
+  }
+  nav a:hover{color:var(--fg)}
+  nav a[aria-current="page"]{color:var(--fg); border-bottom-color:var(--accent)}
+  nav a:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  p.note{
+    margin:0; padding:8px 20px; font-size:11px; color:var(--mute);
+    border-bottom:1px solid var(--border); max-width:110ch;
+  }
+  p.note code,p.note kbd{font-size:11px}
+  iframe{flex:1 1 auto; width:100%; border:0; display:block; min-height:0}
+</style>
+</head>
+<body>
+  <header>
+    <h1>The date widget in a table cell
+      <small>three places for a ghost the cell cannot hold</small></h1>
+    <nav id="tabs" aria-label="variants">
+      <a href="#a" data-src="a-ghost-in-cell.html">A · ghost in the cell</a>
+      <a href="#b" data-src="b-ghost-in-neighbour.html">B · ghost in the neighbour</a>
+      <a href="#c" data-src="c-strip-under-row.html">C · strip under the row</a>
+    </nav>
+  </header>
+  <p class="note" id="note"></p>
+  <iframe id="stage" title="variant"></iframe>
+
+<script>
+(() => {
+  "use strict";
+  // CLICK THE PANE ONCE, THEN PRESS `RET'.  A `file://' iframe is an opaque
+  // origin, so the shell's own `contentWindow.focus()' is refused and the
+  // keyboard stays with the shell until the reader clicks in.  Opening a
+  // variant's own page directly needs no click.
+  const K = "<b>Click the pane, then press <kbd>RET</kbd>.</b> ";
+  const TAIL = " The footer prints what the ghost WANTS in pixels and what it "
+    + "was given, so \"clipped\" is a number. <kbd>+</kbd> opens a draft row and "
+    + "<kbd>TAB</kbd> walks it — the tags cell now leads to SCHEDULED.";
+  const NOTE = {
+    a: K + "The resolution draws as dim ghost text right-aligned INSIDE the "
+     + "cell being typed into, the input shrinking to make room. Both share one "
+     + "118px run, of which 94px is text. Type <code>18 aug</code> and read the "
+     + "cut off the footer." + TAIL,
+    b: K + "The cell to the right is lent to the edit for its duration: its own "
+     + "value steps aside dimmed and the ghost draws in its place, coming back "
+     + "on <kbd>RET</kbd> or <kbd>ESC</kbd>. Editing SCHEDULED borrows DEADLINE; "
+     + "editing DEADLINE borrows Tags, which is the wide one — press "
+     + "<kbd>f</kbd> first and compare." + TAIL,
+    c: K + "A single 20px strip opens beneath the edited row carrying "
+     + "<code>18 aug → &lt;2026-08-18 Tue&gt;</code> at the table's whole width. "
+     + "The rows below shift by the strip's height and come back to the pixel "
+     + "when it closes — the rig measures both ends." + TAIL,
+  };
+  const tabs = [...document.querySelectorAll("#tabs a")];
+  const stage = document.getElementById("stage");
+  const note = document.getElementById("note");
+
+  function show(key) {
+    const tab = tabs.find((t) => t.hash === "#" + key) || tabs[0];
+    for (const t of tabs) {
+      if (t === tab) t.setAttribute("aria-current", "page");
+      else t.removeAttribute("aria-current");
+    }
+    note.innerHTML = NOTE[tab.hash.slice(1)] || "";
+    const src = tab.dataset.src;
+    if (stage.getAttribute("src") !== src) stage.setAttribute("src", src);
+    stage.addEventListener("load", () => {
+      try { stage.contentWindow.focus(); } catch (e) { /* another origin */ }
+    }, { once: true });
+  }
+
+  addEventListener("hashchange", () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || "a");
+})();
+</script>
+</body>
+</html>

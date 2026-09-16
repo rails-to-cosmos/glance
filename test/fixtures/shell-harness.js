@@ -228,77 +228,19 @@ let stateHues = [];
 let captureLine = "";
 const captureTarget = "/o/inbox.org";
 const capturedId = "r3";
-/** GET /capture's DRAFT, per tag — the shape `/headline' serves, off bytes with
- * no file behind them.  The page holds no template grammar, so the whole of
- * what it knows about a template is what this answers.  `""' is the inbox and
- * its default template: ONE STAR AND A SPACE, which is the BARE draft the title
- * edit opens over.  `book' brings a drawer ask, a body point and a cycle of its
- * own, so it is the RICH draft that commits on `C-c C-c' alone.
- *
- * THE DESTINATION LEADS THE TAG CELL, and the template's own run and what the
- * filter LENT follow it (`inherit'): the cell says WHERE THE CAPTURE LANDS, the
- * draft's org line being unable to spell a run with no title in front of it. */
-const captureDrafts = {
-  "": { cells: { state: null, priority: null, title: "", tags: "" },
-        org: "* ", body: "* ", ownLines: 1, point: null,
-        properties: [], planning: [], children: [],
-        cycle: [{ source: "default", active: ["TODO"], inactive: ["DONE"] }] },
-  book: { cells: { state: null, priority: null, title: "Book", tags: "" },
-          org: "* Book\n:PROPERTIES:\n:AUTHOR:\n:END:\n\n",
-          body: "* Book\n", ownLines: 2, point: 1,
-          properties: [["AUTHOR", ""]], planning: [], children: [],
-          cycle: [{ source: "default", active: ["TODO"], inactive: ["DONE"] },
-                  { source: "book", active: ["READING"], inactive: ["READ"] }] },
-  // A TEMPLATE WHOSE PLANNING ENTRY IS NO PHRASE ANY READER READS: the draft
-  // leaves it as it stands and the WALL refuses it at the commit, with its own
-  // sentence and the sheet still up.
-  odd: { cells: { state: null, priority: null, title: "Odd", tags: "" },
-         org: "* Odd\nDEADLINE: someday\n", body: "* Odd\n", ownLines: 1, point: null,
-         properties: [], planning: [["DEADLINE", "someday"]], children: [],
-         cycle: [{ source: "default", active: ["TODO"], inactive: ["DONE"] }] },
-  // A TEMPLATE THAT SPEAKS FIRST, so template-first has something to stand on:
-  // the keyword is the layer's own and no filter argument may move it.
-  work: { cells: { state: "TODO", priority: null, title: "Work", tags: "" },
-          org: "* TODO Work\n", body: "* TODO Work\n", ownLines: 1, point: null,
-          properties: [], planning: [], children: [],
-          cycle: [{ source: "default", active: ["TODO"], inactive: ["DONE"] },
-                  { source: "work", active: ["TODO", "NEXT"], inactive: ["DONE"] }] },
+/** GET /keywords?tag='s ANSWER, per destination: the `#+TODO:' words a capture
+ * filed there may be stated in -- the FLAT list in the chain's own order, and
+ * the two halves that say which of them is a done word.  `""' is the inbox and
+ * the tree's own default cycle; a tag with a layer of its own adds to it, so
+ * the wider scope's pair leads the flat list and the layer's follows. */
+const captureCycles = {
+  "":   { states: ["TODO", "DONE"], active: ["TODO"], inactive: ["DONE"] },
+  book: { states: ["TODO", "DONE", "READING", "READ"],
+          active: ["TODO", "READING"], inactive: ["DONE", "READ"] },
+  work: { states: ["TODO", "DONE", "NEXT"],
+          active: ["TODO", "NEXT"], inactive: ["DONE"] },
 };
-// A TEMPLATE WITH NO `%?' IS REFUSED AT THE DOOR, the one 400 the tag field meets.
-const captureRefused = "film";
 const captureAsked = [];
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-/** WHAT THE STANDING FILTER LENDS THIS DRAFT, merged the way the real door
- * merges it: TEMPLATE-FIRST, so each argument fills a gap the expansion left
- * and moves nothing it spelled, and tags JOIN the run rather than filling one.
- * AN ARGUMENT THIS DOOR CANNOT READ IS DROPPED, never refused — the filter is
- * talking about other rows, and `+' opens either way. A stub knows no day
- * words, so a bare ISO is the whole of the date grammar it can honour. */
-function inherit(cells, planning, cycle, arg) {
-  const words = (cycle || []).flatMap((s) => (s.active || []).concat(s.inactive || []));
-  const state = arg("state");
-  if (!cells.state && words.indexOf(state) !== -1) cells.state = state;
-  const letter = arg("priority");
-  if (!cells.priority && /^[A-Za-z]$/.test(letter))
-    cells.priority = `[#${letter.toUpperCase()}]`;
-  // THE DESTINATION OPENS THE RUN, the template's own and the lent tags after
-  // it: the cell is CONSTRUCTED and says where this lands, whether or not the
-  // draft's headline could carry the run.  The DESTINATION is the address the
-  // reader settled and rides as typed; a LENT tag meets the charset.
-  const worn = [];
-  const join = (w) => { if (w && worn.indexOf(w) === -1) worn.push(w); };
-  join(arg("tag").trim().toLowerCase());
-  for (const t of String(cells.tags || "").split(":")) join(t.trim().toLowerCase());
-  for (const t of arg("tags").split(",").map((s) => s.trim().toLowerCase()))
-    if (/^[\w@#%]+$/.test(t)) join(t);
-  cells.tags = worn.length ? `:${worn.join(":")}:` : "";
-  for (const [key, name] of [["SCHEDULED", "scheduled"], ["DEADLINE", "deadline"]]) {
-    const day = arg(name);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
-    if (planning.some(([k]) => k === key)) continue;
-    planning.push([key, `<${day} ${WEEKDAYS[new Date(`${day}T00:00:00Z`).getUTCDay()]}>`]);
-  }
-}
 // GET /properties: what the tree spells, each with how often.  The counts are
 // the ORDER the offers come back in, so no two here share one.
 let propertyVocab = {
@@ -399,36 +341,12 @@ globalThis.fetch = (url, init) => {
     });
   }
   // Not gated on `refusing': what that flag stands for is a WRITE the server
-  // turns down, and a chain that could not resolve its tag would never reach one.
-  if (String(url) === "/capture" || String(url).startsWith("/capture?")) {
+  // turns down, and a read of a cycle could never reach one.
+  if (String(url).startsWith("/keywords?tag=")) {
     captureAsked.push(url);
-    const arg = (k) => {
-      const at = new RegExp(`[?&]${k}=([^&]*)`).exec(String(url));
-      return at ? decodeURIComponent(at[1].replace(/\+/g, " ")) : "";
-    };
-    const tag = arg("tag");
-    if (tag === captureRefused)
-      return answer(400, { error: `the ${tag} template spells no %?` });
-    const d = captureDrafts[tag] || captureDrafts[""];
-    const cells = { ...d.cells };
-    const planning = d.planning.map((p) => p.slice());
-    inherit(cells, planning, d.cycle, arg);
-    return answer(200, {
-      // THE THREE A DOC WITH NO FILE OWES, and `/headline''s own members beside
-      // them.  `id' null and `digest' "" are the create pin.
-      id: null, file: "", child: null, parent: null,
-      path: [cells.title], level: 1,
-      cells,
-      children: d.children, org: d.org, body: d.body, ownLines: d.ownLines,
-      properties: d.properties.map((p) => p.slice()),
-      planning,
-      logbook: "", digest: "", span: null, links: [], titleAt: null,
-      cycle: d.cycle, point: d.point,
-      // THE VOCABULARY RIDES HERE because a capture names no rows to ask about.
-      // The expansion CODES do not: they are the settings box's completion and
-      // come off the page's own `CFG', so this door never spelled them.
-      tags: vocabulary,
-    });
+    const at = /[?&]tag=([^&]*)/.exec(String(url));
+    const tag = at ? decodeURIComponent(at[1].replace(/\+/g, " ")) : "";
+    return answer(200, captureCycles[tag] || captureCycles[""]);
   }
   if (String(url).startsWith("/keywords?ids=")) {
     resolved.push(url);
@@ -444,6 +362,12 @@ globalThis.fetch = (url, init) => {
     propertiesAsked.push(url);
     return novocab ? answer(404, { error: "GET /properties" })
                    : answer(200, propertyVocab);
+  }
+  // THE STORE'S OWN TAG VOCABULARY, the door a surface that NAMES NO ROW reads:
+  // the same two fields the ids answer carries, and no `rows'.
+  if (String(url) === "/tags?vocabulary=true") {
+    tagged.push(url);
+    return answer(200, { vocabulary, counts: tagCounts });
   }
   if (String(url).startsWith("/tags?ids=")) {
     tagged.push(url);
@@ -537,8 +461,26 @@ globalThis.WebSocket = function () {
 // the STORE's — which is what lets an act move the store and the table follow.
 let mounts = 0, sets = 0, raises = 0;
 const doors = [];
-let lmounts = 0, tmounts = 0, tsets = 0;
+let lmounts = 0, tmounts = 0, tsets = 0, fits = 0;
 const paints = [];
+// THE STORE ROWS THE PAGE LAST HANDED THE TABLE.  A DRAFT is no store row and
+// is never among them: the widget holds it apart and places it.
+let painted = [];
+/** The producer's own rows the widget holds.  They are no part of the set a
+ * `setRows' replaces, and each stands after the row its `under' names. */
+let ownRows = [];
+/** LIST as the widget would draw it, the producer's own rows placed. */
+const placeOwn = (list) => {
+  const out = list.filter((r) => !r.producer);
+  for (const p of ownRows) {
+    const at = p.under === null || p.under === undefined
+      ? -1 : out.findIndex((r) => r.id === p.under);
+    out.splice(at + 1, 0, p);
+  }
+  return out;
+};
+// Which cell the in-cell editor was opened on, there being no table DOM here.
+let editedCell = null;
 // Row ops SPLICED, recorded as well as their effect: landing right without
 // splicing reads the same off the rows alone.
 const spliced = [];
@@ -638,25 +580,56 @@ const makeMount = (host, view, options, own) => {
     setRows: (list) => {
       if (m.own) {
         m.own = (list || []).slice();
-      } else { sets += 1; paints.push((list || []).length); }
+      } else { sets += 1; paints.push((list || []).length);
+               painted = (list || []).slice(); }
       keep();
     },
     upsertRow: (row) => {
       spliced.push(`upsert ${row.id}`);
+      // A PRODUCER'S OWN ROW IS NO DATA: it never joins the fixture's rows, so
+      // no cursor, mark or command can reach it.
+      if (row.producer) {
+        const held = ownRows.findIndex((r) => r.id === row.id);
+        if (held === -1) ownRows.push(row); else ownRows[held] = row;
+        return;
+      }
       const list = all(), at = list.findIndex((r) => r.id === row.id);
       if (at === -1) list.push(row); else list[at] = row;
       keep();
     },
     deleteRow: (id) => {
       spliced.push(`delete ${id}`);
+      if (ownRows.some((r) => r.id === id)) {
+        ownRows = ownRows.filter((r) => r.id !== id);
+        // The editor goes with the row it stood in, as the widget's own does.
+        if (editedCell && editedCell[0] === id) editedCell = null;
+        return;
+      }
       const list = all(), at = list.findIndex((r) => r.id === id);
       if (at !== -1) list.splice(at, 1);
+      painted = painted.filter((r) => r.id !== id);
       m.marks.delete(id);   // the row is gone; a mark on it would outlive it
       m.flags.delete(id);
       keep();
     },
     getQuery: () => m.held,
+    // THE COLUMNS ARE FITTED ONCE PER VIEW and the page asks for the refit when
+    // its QUERY changes.  This harness draws no columns, so there is no width
+    // to mirror -- the call is counted, and that the page makes it at all is
+    // what a shell case could read.
+    fitColumns: () => { fits += 1; },
     getRows: () => all().slice(),
+    // The widget's own in-cell editor: a draft's cells are editable whatever
+    // their column declares, and a view drawing no such column opens nothing.
+    editCell: (id, col) => {
+      if (col < 0 || col >= m.cols.length) return false;
+      editedCell = [id, col];
+      return true;
+    },
+    // WHICH CELL IS OPEN, the widget's own state and never the DOM's.
+    getEditing: () => (editedCell
+      ? { id: editedCell[0], col: editedCell[1],
+          key: (m.cols[editedCell[1]] || {}).key || "" } : null),
     setQuery: (q) => { m.held = String(q == null ? "" : q).trim(); },
     setPinned: (on) => { m.pinned = !!on; },
     stripLastToken: () => {
@@ -1200,6 +1173,12 @@ const dateReads = [];
 // flashes on the way in and is gone by the last keystroke; this walks the way
 // in.  `dateGhost' is a declaration like `readsDate', reached the same way.
 const dateFlashes = [];
+// THE TAG OFFERS AND THE RUN'S OWN SPELLING, driven PURE: both are declarations
+// like `readsDate', so a direct eval of the page's script reaches them here.
+const tagFits = [];
+const tagRuns = [];
+const stateFits = [];
+const stateTakes = [];
 const asDay = (iso) => {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
   if (!m) throw new Error(`not an ISO day: ${iso}`);
@@ -1272,7 +1251,7 @@ const narrows = () => LISTS.map((h) => [h, narrowIn(h)])
 const listCols = (host) =>
   field(host).querySelectorAll("thead .tv-hn").map((h) => h.textContent);
 const FOCUSABLE = ["mtext", "dtin", "dtext", "dkey", "dval", "dwhen", "ltitle",
-                   "lurl", "tname", "pinput", "ktag"];
+                   "lurl", "tname", "pinput"];
 const focused = () => {
   if (!active) return "";
   // Drawn by the program that holds the rows, so it carries no id of its own.
@@ -1469,13 +1448,6 @@ const ACTIONS = {
     if (!main.onPin) throw new Error("no onPin was wired: pinclick");
     main.onPin();
   },
-  ktag: (text) => {
-    if (field("capture").className !== "on")
-      throw new Error("the capture form is not open: ktag");
-    const box = field("ktag");
-    box.focus();
-    typed(box, text);
-  },
   ltitle: (text) => typeInto("ledit", "ltitle", text, true),
   lurl: (text) => typeInto("ledit", "lurl", text, true),
   dtin: (text) => typeIn("dtitle", "dtin", text),
@@ -1522,6 +1494,45 @@ const ACTIONS = {
       const g = dateGhost(phrase.slice(0, i), day);
       if (g.bad) dateFlashes.push(`${phrase.slice(0, i)} \u21d2${g.text}`);
     }
+  },
+  /** ONE VECTOR THROUGH THE OFFER FILTER: `WORD/TAG:N,TAG:N' -- the word at the
+   * caret, then the vocabulary with the rows wearing each. */
+  tagfit: (spec) => {
+    const [word, vocab] = String(spec).split("/");
+    const list = [], counts = {};
+    for (const pair of String(vocab || "").split(",").filter(Boolean)) {
+      const [w, n] = pair.split(":");
+      list.push(w);
+      counts[w] = Number(n);
+    }
+    tagFits.push(tagOffers(String(word).replace(/_/g, " "), { list, counts })
+      .map((o) => `${o.word}|${o.hint}`).join(" "));
+  },
+  /** ONE VECTOR THROUGH THE RUN'S SPELLING: `TEXT/AT/WORD', `-' for the caret at
+   * the end of TEXT and `.' for an empty TEXT. */
+  tagrun: (spec) => {
+    const [text, at, word] = String(spec).split("/");
+    const run = text === "." ? "" : text;
+    const [value, caret] =
+      tagRunTake(run, at === "-" ? undefined : Number(at), word);
+    tagRuns.push(`${value}|${caret}`);
+  },
+  /** ONE VECTOR THROUGH THE STATE FILTER: `WORD/STATES/INACTIVE' -- the word at
+   * the caret, then the two fields `GET /keywords?tag=' answers with, each
+   * comma-separated because an act splits on spaces. */
+  statefit: (spec) => {
+    const [word, states, inactive] = String(spec).split("/");
+    const list = (t) => String(t || "").split(",").filter(Boolean);
+    stateFits.push(
+      stateOffers(word, { states: list(states), inactive: list(inactive) })
+        .map((o) => `${o.word}|${o.hint}`).join(" "));
+  },
+  /** ONE VECTOR THROUGH THE STATE TAKE: `FIELD/WORD', `.' for an empty field.
+   * The answer is `VALUE|CARET', or `-' where the offer is no take at all. */
+  statetake: (spec) => {
+    const [text, word] = String(spec).split("/");
+    const took = stateTake(text === "." ? "" : text, word);
+    stateTakes.push(took === null ? "-" : `${took[0]}|${took[1]}`);
   },
   ctext: (text) => (onKeywords(), typeSetting("ctext", text)),
   // TAKING AN EDIT BACK: an act splits on spaces and a `#+TODO:' line is spaces.
@@ -1738,6 +1749,14 @@ const settle = async () => {
     dvghostbad: wears(field("dvghost"), "bad"),
     dateReads,
     dateFlashes,
+    // The tag offers as drawn, and which one point stands on — `-1' for none.
+    toffers: boxOffers("toffer"),
+    tofferat: field("toffer").children.findIndex((c) => wears(c, "dat")),
+    tofferon: field("toffer").className === "on",
+    tagFits,
+    tagRuns,
+    stateFits,
+    stateTakes,
     dprows: field("mdoc").style.getPropertyValue("--g-doc-rows"),
     dtin: field("dtin").value,
     dtext: field("dtext").value,
@@ -1831,10 +1850,6 @@ const settle = async () => {
     pfoot: field("pfoot").textContent, assigned, commands, span,
     linked, opened, sorted, sortCalls, chain: sortChain, tagged, propertiesAsked,
     pinned: main.pinned,
-    capture: field("capture").className, khead: field("khead").textContent,
-    ktag: field("ktag").value,
-    // What the tag field OFFERS, which is the whole of what the form now holds.
-    ktags: field("klist").children.map((e) => e.textContent),
     popup: field("links").className, lhead: field("lhead").textContent,
     lfoot: field("lfoot").textContent, lmounts,
     llinks: listCells("ltable"), lat: listAt("ltable"),
@@ -1848,7 +1863,7 @@ const settle = async () => {
     lurlsel: [field("lurl").selectionStart, field("lurl").selectionEnd,
               field("lurl").value.length],
     tagpop: field("tags").className, thead: field("thead").textContent,
-    tfoot: field("tfoot").textContent, tmounts, tsets,
+    tfoot: field("tfoot").textContent, tmounts, tsets, tfits: fits,
     ttags: listCells("ttable"), tat: listAt("ttable"),
     tcols: listCols("ttable"), tflagged: listFlagged("ttable"),
     tflagHelp: listHint("ttable"),
@@ -1865,6 +1880,15 @@ const settle = async () => {
     ccap: field("ctarget").value,
     served: viewQuery, servedAgenda: agendaQuery,
     servedCapture: captureLine, capturing: captureAsked,
+    // THE DRAFT ROW as the page spliced it: where it sits, the row it stands
+    // under, the cells the filter seeded and the cell whose editor opened.
+    draft: (() => {
+      const drawn = placeOwn(painted.length ? painted : rows);
+      const at = drawn.findIndex((r) => r.producer);
+      return at === -1 ? null
+        : { at, under: at ? drawn[at - 1].id : null, cells: drawn[at].cells,
+            refused: drawn[at].refused, editing: editedCell };
+    })(),
     chues: listCells("cstates").map((c) => c.join("|")),
     sat: listAt("cstates"), sflagged: listFlagged("cstates"),
     sedit: field("sedit").className,

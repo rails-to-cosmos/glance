@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C · frozen widths, the row reflows alone</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* C — THE PIN, AND THE EDITING ROW LEAVES THE GRID.
+
+     Same pin for every other row.  The editing row's `<tr>' stays standing as
+     a SPACER, blanked, and a one-row line is stacked exactly over its slot:
+     the cells start at the header's x-positions and each takes its own
+     content's width, so the open one may widen and the ones behind it slide.
+
+     Nothing above or below it moves.  The reader sees the whole of what they
+     typed AND the whole of every other cell in the row they are typing in.
+
+     WHAT IT COSTS: for the length of the edit, one row is not in the columns.
+     Its SCHEDULED no longer sits under SCHEDULED.  The rig's ruler (`g') draws
+     the header's x-positions over the rows so the drift can be seen rather
+     than argued about. */
+</style>
+</head>
+<body>
+  <h1>C · frozen widths, the row reflows alone
+    <small>pin every other row; the editing row is detached over its own slot</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <span id="fzmeasure"></span>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> a row ·
+      <kbd>f</kbd><kbd>b</kbd> (arrows) a column ·
+      <kbd>RET</kbd> opens the cell ·
+      <kbd>+</kbd> a draft under point ·
+      <kbd>TAB</kbd><kbd>S-TAB</kbd> walk the draft ·
+      <kbd>RET</kbd> captures · <kbd>ESC</kbd> drops it ·
+      <kbd>a</kbd> a row arrives · <kbd>g</kbd> the ruler · <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="says"></span>
+  </footer>
+
+<script src="rig.js"></script>
+<script>RIG.mount({ mode: "row" });</script>
+</body>
+</html>

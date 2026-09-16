@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The date widget as an overlay — one box, five rects</title>
+<style>
+  /* THE SHELL ONLY.  Each variant is its own page; what they share is `rig.js',
+     `dates.js', `pane.css' and — the point of the whole spike — ONE `#ddate',
+     built from the markup of `src-web/Glance/Web/Page.hs:46'. The tabs differ by
+     WHERE THAT BOX IS ANCHORED and by nothing else. */
+  :root{
+    --mono:"JetBrains Mono","Fira Code","SF Mono",Menlo,Consolas,monospace;
+    --bg:#FFFFFF; --fg:#000000; --mute:#667071; --border:#E3E6EA;
+    --accent:#31769F; --surface:#F8F8FF;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000; --fg:#FFFFFF; --mute:#A4C2EB; --border:#2A2D3D;
+      --accent:#4CB5F5; --surface:#21252B;
+    }
+  }
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:14px/1.5 var(--mono); display:flex; flex-direction:column;
+  }
+  header{flex:none; border-bottom:1px solid var(--border); background:var(--surface)}
+  h1{margin:0; padding:10px 20px 0; font-size:13px; font-weight:600; letter-spacing:.02em}
+  h1 small{font-weight:400; color:var(--mute); margin-left:8px}
+  nav{display:flex; flex-wrap:wrap; padding:0 20px}
+  nav a{
+    font-size:12px; color:var(--mute); text-decoration:none;
+    border-bottom:2px solid transparent; padding:10px 12px;
+  }
+  nav a:hover{color:var(--fg)}
+  nav a[aria-current="page"]{color:var(--fg); border-bottom-color:var(--accent)}
+  nav a.ref{color:var(--accent)}
+  nav a:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+  p.note{
+    margin:0; padding:8px 20px; font-size:11px; color:var(--mute);
+    border-bottom:1px solid var(--border); max-width:110ch;
+  }
+  p.note code,p.note kbd{font-size:11px}
+  iframe{flex:1 1 auto; width:100%; border:0; display:block; min-height:0}
+</style>
+</head>
+<body>
+  <header>
+    <h1>The date widget as an overlay
+      <small>one box, five rects — and the first of them is the one that already ships</small></h1>
+    <nav id="tabs" aria-label="variants">
+      <a href="#p" class="ref" data-src="0-pane-as-shipped.html">0 · the pane, as shipped</a>
+      <a href="#a" data-src="a-below-the-cell.html">A · below the cell</a>
+      <a href="#b" data-src="b-over-the-cell.html">B · over the cell</a>
+      <a href="#c" data-src="c-card-below.html">C · a card, chips</a>
+      <a href="#d" data-src="d-beside-the-cell.html">D · beside the cell</a>
+    </nav>
+  </header>
+  <p class="note" id="note"></p>
+  <iframe id="stage" title="variant"></iframe>
+
+<script>
+(() => {
+  "use strict";
+  // CLICK THE PANE ONCE, THEN PRESS `RET'.  A `file://' iframe is an opaque
+  // origin, so the shell's own `contentWindow.focus()' is refused and the
+  // keyboard stays with the shell until the reader clicks in.  Opening a
+  // variant's own page directly needs no click.
+  const K = "<b>Click the pane, then press <kbd>RET</kbd>.</b> ";
+  const TAIL = " The footer prints the box's footprint, how many cells wide and "
+    + "rows tall it is, how much of the surface it covers, and what runs off the "
+    + "viewport &mdash; so \"it fits\" is a number. Type <code>18 au</code> for the "
+    + "offers, <code>18 aug</code> for the ghost, <code>18 auk</code> for the refusal.";
+  const NOTE = {
+    p: "<b>Read this one first.</b> " + K + "This is the widget where it already "
+     + "lives &mdash; over the planning line of the material document, placed by "
+     + "<code>placeEdit</code>'s <code>tight</code> branch. The box starts at the "
+     + "value's own left edge and runs to the end of the line's block, so it "
+     + "already covers the entry beside it. Every other tab is this box over a "
+     + "different rect." + TAIL,
+    a: K + "The box hangs under the cell, left edges flush, no narrower than the "
+     + "cell and grown to fit its own field and ghost. <b>This is what the working "
+     + "tree does today</b> (<code>placeEdit</code>'s <code>under</code> branch) "
+     + "plus one thing it lacks: a flip above at the bottom edge. Walk to the last "
+     + "row with <kbd>n</kbd> and watch it turn over." + TAIL,
+    b: K + "The box covers the cell exactly &mdash; same top, left and height &mdash; "
+     + "and the ghost runs on past the cell's right edge over the neighbour. Press "
+     + "<kbd>f</kbd> first to edit DEADLINE and watch the tail run into Tags." + TAIL,
+    c: K + "A card about two and a half cells wide: field, then <code>&rarr; "
+     + "&lt;stamp&gt;</code>, then the offers as chips. Same markup, six forked "
+     + "rules, and no hint column &mdash; the argued-against variant, drawn so the "
+     + "argument has pixels under it." + TAIL,
+    d: K + "A popover to the LEFT of the cell, where a right-edge date column has "
+     + "room, with a pointer back at the cell. One forked rule, and the answer on "
+     + "the far side of the question." + TAIL,
+  };
+  const tabs = [...document.querySelectorAll("#tabs a")];
+  const stage = document.getElementById("stage");
+  const note = document.getElementById("note");
+
+  function show(key) {
+    const tab = tabs.find((t) => t.hash === "#" + key) || tabs[0];
+    for (const t of tabs) {
+      if (t === tab) t.setAttribute("aria-current", "page");
+      else t.removeAttribute("aria-current");
+    }
+    note.innerHTML = NOTE[tab.hash.slice(1)] || "";
+    const src = tab.dataset.src;
+    if (stage.getAttribute("src") !== src) stage.setAttribute("src", src);
+    stage.addEventListener("load", () => {
+      try { stage.contentWindow.focus(); } catch (e) { /* another origin */ }
+    }, { once: true });
+  }
+
+  addEventListener("hashchange", () => show(location.hash.slice(1)));
+  show(location.hash.slice(1) || "p");
+})();
+</script>
+</body>
+</html>

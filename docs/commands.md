@@ -119,16 +119,54 @@ The design, the prior art and the vector table are
 
 ## The date widget
 
-In the material document `C-c C-s` and `C-c C-d` raise a field rather than a
-blind prompt. It stands in the value's own slot — the planning line's, the
-line drawn if the row has none — reads the grammar above, and shows what it
-will write before it writes it.
+**A date is edited where it is drawn, with one widget.** `C-c C-s` and `C-c C-d`
+raise a field rather than a blind prompt. The same box — field, ghost and offers
+— covers the planning line's own slot in the material document and hangs over
+the date CELL in the table, reads the grammar above, and shows what it will
+write before it writes it.
 
 | key | what it opens | what `RET` sends |
 | --- | --- | --- |
 | `C-c C-s` | the row's SCHEDULED value, in the planning line's own slot | `set-planning {keyword: "SCHEDULED", date}` |
 | `C-c C-d` | the row's DEADLINE value, the same slot | `set-planning {keyword: "DEADLINE", date}` |
 | `RET` on a planning ENTRY | that entry's value — `f` walks into the line and along it, `b` back out | `set-planning {keyword: the entry's own, date}` |
+| `RET` on a date CELL | that cell's own ISO day, in the box hanging under the cell | `set-planning {keyword: the column's own, date}` |
+| `C-c C-s` / `C-c C-d`, nothing marked | the same box, the column cursor moved onto it | the same |
+| `C-c C-s` / `C-c C-d`, rows MARKED | one prompt over the marked set, which has no cell to stand in | one `set-planning` per file, over those ids |
+
+The box over a cell is the pane's box, standing in that cell's own place —
+same top, same left, same height — and growing right past the cell's edge, so
+the ghost runs on over the neighbour as a tail. The offers drop below it and
+turn over above it at the window's foot; the box itself never moves. The ghost
+reads the phrase back, the offers complete `today`, `+1w` and the month words
+with `TAB` and the arrows, and `S-<arrows>` step the day and the week. The commit paints no stamp: the
+wire's cell is ISO and the file's value is org's, so the settle brings the day.
+A draft row's two date stops open the same box — there `TAB` takes the offer
+that stands, else resolves the phrase and walks on at one press, `RET` captures
+the whole row and `ESC` drops the draft — and what they hold rides out in
+`capture`'s own `planning`.
+
+`TAB` inside the box reads in one order:
+
+| what stands | what `TAB` does |
+| --- | --- |
+| an offer under point in the menu | takes it into the field, writing nothing |
+| no offer, and the field reads as a date | rewrites the field to that reading, caret behind it, **in the surface's own spelling** |
+| no offer, and no reading takes the field | nothing — the ghost already wears the `✗` |
+
+**The resolve is spelled the way the surface draws a day.** Over the pane it is
+org's own stamp — the planning slot's spelling — and the ghost falls silent
+behind it, the field being its answer now. Over a table CELL, a standing row's
+and a draft's alike, it is the ISO day the cell itself draws, so the box says
+what the reader will see there once the settle lands; the ghost stays lit and
+reads the stamp the FILE will take. A cell shows one day, so a range resolves to
+its start there and stays whole in the pane. Either spelling travels: `RET`
+sends the field's own bytes and the server reads a bare `2026-09-13` exactly as
+it reads `<2026-09-13 Sun>`.
+
+Over the pane and a standing row's cell there is no ring, so the resolve is the
+whole press and the box stays; over a draft's date stop that one press resolves
+and walks on. `S-TAB` is the walk back alone and resolves nothing.
 
 `RET` on the whole planning line is inert and names the way in; the entry under
 point is what opens. Over `CLOSED` the box reads that key's own wall: org's
@@ -148,19 +186,93 @@ the box left standing to fix it in.
   the foot's own promise, kept. Over a standing offer `RET` takes the offer
   and writes nothing; over the finished value it applies. `S-←`/`S-→` adjust a
   day and `S-↑`/`S-↓` a week in place, the ghost following.
-- **What travels is what was TYPED.** The field's resolver draws the ghost and
-  writes nothing; the raw text comes to this door, the server resolves it once
-  against its own clock, and the pane redraws off that answer. The page spells
-  no org, and the two resolvers are pinned against one another over one corpus.
-- **One widget, every door.** A drawer pair whose key case-folds to
-  `scheduled` or `deadline` routes to the planning line already, and its value
-  half wears the same field and the same ghost. `CLOSED` opens the same box on
+- **What travels is what stands in the FIELD.** The field's resolver draws the
+  ghost and writes nothing; the text comes to this door, the server resolves it
+  once against its own clock, and the pane redraws off that answer. The reader's
+  own `TAB` or `S-<arrow>` may put a stamp there — the server then parses a
+  stamp — but no reading reaches the wire the reader has not seen. The page
+  spells no org, and the two resolvers are pinned against one another over one
+  corpus.
+- **One widget, every door.** The pane's field, the table's cell, the bulk
+  prompt and the draft's `planning` are four callers of ONE argument spelling. A
+  drawer pair whose key case-folds to `scheduled` or `deadline` routes to the
+  planning line already, and its value half wears the same field and the same
+  ghost. `CLOSED` opens the same box on
   its own wall — one widget, two readers, the mode asked in one place so the
   ghost, the offers and the commit cannot disagree. Date-shaped custom
   properties keep the plain box for now.
 
 The same keys over the TABLE are unchanged: they ask over the marked rows
 through the shipped prompt, and reach this door with the same grammar.
+
+## The offer menu
+
+**A word completes the way a date does.** The very menu the date box carries —
+the list under the field, a hint column, the arrows walking it and `TAB` taking
+what point stands on — hangs under the three fields that stand in no box of
+their own: the draft row's **tag cell**, its **state cell**, and the tags
+popup's **rename field**. One element (`#toffer`), placed under whichever rect
+the anchor names, turning over above it where the window's foot leaves no room.
+Each anchor says what a word is there, what it offers and what taking one does;
+the walk, the paint and the take are one model.
+
+| key | over the offers |
+| --- | --- |
+| `<down>` / `<up>` / `C-n` / `C-p` | walk them; the walk stops at each end, the date box's own rule |
+| `TAB` | take the offer point stands on; with none to take, the key is the surface's own — the draft's ring walks on |
+| `RET` | take the offer point stands on; with none to take, commit — the capture, or the rename |
+| `ESC` | the surface goes down whole and the menu with it — the date box's own rule |
+
+### The tag anchors
+
+- **The vocabulary is the STORE's.** `GET /tags?vocabulary=true` names no row
+  and answers the whole tree's tags with the rows wearing each, asked once and
+  kept until the store settles. A capture files a row under a tag the view need
+  not draw, so the view's own rows are the wrong list to complete from. The
+  renderer's filter keeps its own (`tagVocab()`, derived from the rows on
+  screen): a filter completes over what the view can narrow TO, and a tag no row
+  here wears narrows to nothing.
+- **The reader's own line leads**, hinted `new`, wherever the tree spells no
+  such tag; a word the tree does spell coincides with its own entry and is drawn
+  once, hinted with the rows wearing it. An open vocabulary's rule, the pair
+  box's and the tag palette's.
+- **A take keeps the run's own spelling.** A tag run is colon-delimited — how
+  `cellTags` reads one and how a draft's seed writes one — so the take swaps the
+  word the caret sits in and leaves the run colon-delimited: `:a:b` and `book`
+  make `:a:book:`, with the caret after that closing colon where the next tag is
+  typed. The rename field holds ONE tag rather than a run, so there the take is
+  the whole field.
+- **Taking is a completion and never a commit.** Nothing is posted until `RET`
+  over a field with no offer left to take.
+
+### The state cell's own vocabulary
+
+The draft's state cell completes out of **the destination's own `#+TODO:`
+cycle** — the answer `GET /keywords?tag=NAME` already gave the row when `+` drew
+it, held rather than asked for twice, so the offers and the wall a seeded
+keyword meets are one list. An empty destination is the inbox, whose cycle the
+route answers for an empty tag.
+
+| | the tag cell | the state cell |
+| --- | --- | --- |
+| vocabulary | the store's whole tag list | the destination's cycle |
+| open? | **open** — the reader's own line leads, hinted `new` | **closed** — a word the cycle lacks draws no offer at all |
+| narrows by | substring, the tag palette's own rule | prefix, case-insensitively |
+| hint | the rows wearing the tag | `done` for a word behind the `\|`, nothing for an active one |
+| a take | splices the caret's word into the run | replaces the whole field — a state is one word |
+
+The vocabulary is closed because the commit door is: `stated` refuses a keyword
+the destination's chain does not declare, so a line the menu could not offer is
+a line the capture could not carry. The `s` palette's `*empty*` stays the
+palette's own — a **fixed entry on `DEL`**, committing a null keyword over
+landed rows — and a whole-field completion reads the field *as* the word, so
+such an entry could only ever stand where the cell is already empty. A draft's
+cell clears by being emptied, which is the date cell's own rule.
+
+The `s` palette itself draws the same chain in its own shape — a `source |
+active | inactive` grid, one row per scope, with that fixed `*empty*` under it —
+so the menu's single column carries the `active`/`inactive` split in the hint
+instead.
 
 ## `delete`, the one destructive command
 
@@ -189,9 +301,9 @@ curl -s -X POST -H 'content-type: application/json' localhost:7777/command \
                                       "fields": {"Author": "Herbert"}}}'
 ```
 
-The two capture shapes are the same command: the first is the capture
-sheet's own cargo, the second the older raw line through the tag's
-template. Naming both `text` and `title` is refused rather than resolved.
+The two capture shapes are the same command: the first is the cargo road the
+draft row posts, the second the older raw line through the tag's template.
+Naming both `text` and `title` is refused rather than resolved.
 
 ## Health
 

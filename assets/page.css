@@ -615,9 +615,10 @@ code {
     box-shadow: inset 0 3px 0 var(--tv-flag);
 }
 
-/* The whole-table state picks no row: `b' off a row masks the renderer's own selection wash, so climbing out reads as nothing selected. */
+/* The whole-table state picks no row: `b' off a row masks the renderer's own selection wash, so climbing out reads as nothing selected. THE CELL CURSOR IS A RING and writes no ground at all (docs/invariants.md), so the mask owes the shadow too — a background alone left the ring drawn over a table point had climbed out of. */
 #mdoc glance-table.gt-nosel tbody tr.tv-sel,#mdoc glance-table.gt-nosel td.tv-colsel,#mdoc glance-table.gt-nosel td.tv-cell-sel {
     background: transparent !important;
+    box-shadow: none !important;
 }
 
 /* A headerless table draws no header until point climbs to it, when an ephemeral (ghosted, dashed) header appears; RET names a column and makes it real. */
@@ -736,7 +737,7 @@ code {
     margin-right: 0;
 }
 
-#dtitle,#dpara,#dpair,#ddate,#sedit,#tedit,#ledit {
+#dtitle,#dpara,#dpair,#sedit,#tedit,#ledit {
     display: none;
     position: absolute;
     background: var(--g-sel);
@@ -746,6 +747,30 @@ code {
 
 #dpara,#dpair,#ddate,#dtitle {
     background: var(--g-surface);
+}
+
+/* ONE DATE WIDGET, TWO SURFACES.  The box hangs at the PAGE's root — the sheet is `display:none' while the table is up — so it is placed against the VIEWPORT (`placeEdit' fixed) and carries the document's own face rather than inheriting the pane's.  102 clears the veiled surfaces (100) and their boxes (101). */
+#ddate {
+    display: none;
+    position: fixed;
+    z-index: 102;
+    --dk-mono: "Hack", var(--glance-mono);
+    font: var(--g-doc-fs)/var(--g-doc-lh) var(--dk-mono);
+    box-sizing: border-box;
+}
+
+/* OVER A TABLE CELL the box stands IN the cell's own place, covering it: it owes an edge and a shadow to be read as a field standing over a row it is not part of. The pane's box wears none of this — over a planning line the row's own wash lifts instead, which is the one place the two surfaces differ. */
+#ddate.cell {
+    padding: 0 var(--g-doc-pad);
+    border: 1px solid var(--g-accent);
+    border-radius: 4px;
+    box-shadow: 0 4px 14px var(--g-shadow);
+}
+
+/* THE FLIP, AND IT IS THE OFFERS' ALONE: the box IS the cell and never moves, so at the viewport's bottom edge the menu turns over and hangs above it (spikes/2026-09-12-date-overlay). */
+#ddate.flipped #dwoffer {
+    top: auto;
+    bottom: 100%;
 }
 
 #dtitle {
@@ -792,7 +817,7 @@ code {
 }
 
 /* The offers hang under the field, out of its flex row; no stacking number needed since the box is positioned after `#dlist'. */
-#doffer,#dwoffer {
+#doffer,#dwoffer,#toffer {
     display: none;
     position: absolute;
     top: 100%;
@@ -806,8 +831,16 @@ code {
     font-size: 11px;
 }
 
-#doffer.on,#dwoffer.on {
+#doffer.on,#dwoffer.on,#toffer.on {
     display: block;
+}
+
+/* THE TAG OFFERS STAND UNDER A FIELD THAT IS IN NO BOX: the draft's tag cell is the renderer's own input and the tags popup's rename field sits inside a popup that scrolls, so this menu hangs at the page's ROOT and is placed against the VIEWPORT (`placeMenu'), turning over above its anchor at the foot the way the date box's do. 103 clears the date box (102). */
+#toffer {
+    position: fixed;
+    z-index: 103;
+    --dk-mono: "Hack", var(--glance-mono);
+    font-family: var(--dk-mono);
 }
 
 .dof {
@@ -1005,7 +1038,7 @@ code {
     color: var(--g-mute);
 }
 
-#pinput,#ktag,#nbox .krow input,#nbox .krow select {
+#pinput,#nbox .krow input,#nbox .krow select {
     font: 12px/1.5 var(--dk-mono);
     padding: 5px 7px;
     border-radius: 4px;
@@ -1022,20 +1055,6 @@ code {
     max-height: 40vh;
     overflow-y: auto;
     font-size: 12px;
-}
-
-#klist {
-    overflow-y: auto;
-    font-size: 12px;
-    flex: 0 1 auto;
-}
-
-.ke {
-    padding: 2px 7px;
-}
-
-.ke.kh {
-    background: var(--g-sel);
 }
 
 .krow {
@@ -1468,7 +1487,7 @@ html.stale #app,{{WASHED_STALE}} {
     #mpanes {
         flex-direction: column;
     }
-    #mtext,#pinput,#dtin,#dpair input,#ddate input,#sedit input,#tedit input,#ledit input,#dpara textarea,#ktag,#app .tv-filter,.ctext,.cview {
+    #mtext,#pinput,#dtin,#dpair input,#ddate input,#sedit input,#tedit input,#ledit input,#dpara textarea,#app .tv-filter,.ctext,.cview {
         font-size: 16px;
     }
 }

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A · ghost inside the cell</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* A — THE GHOST STAYS HOME.  The input fills the date cell; the resolution
+     (or the refusal) draws as dim ghost text RIGHT-ALIGNED inside the same
+     cell, and the input's own text shrinks and scrolls to make room.
+
+       │ 18 aug      → <2026-08-1… │      ← 118px, and that is the whole story
+       │ 2026-09-15                │
+
+     ITS CLAIM.  Nothing outside the cell moves, nothing outside the cell is
+     borrowed, and the widget stands exactly where the value it is about
+     stands — which is the 2026-08-23 spike's D read into a table.
+
+     ITS COST IS A NUMBER, and the rig prints it in the footer at every
+     keystroke: the ghost WANTS ` → <2026-08-18 Tue>' and the cell's text run is
+     94px.  Type one character and watch the cut grow. */
+</style>
+</head>
+<body>
+  <h1>A · ghost inside the cell
+    <small>the input and the resolution share one 118px run</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <span id="cdmeasure"></span>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> a row · <kbd>f</kbd><kbd>b</kbd>
+      (<kbd>l</kbd><kbd>h</kbd>, arrows) SCHEDULED ⇄ DEADLINE ·
+      <kbd>RET</kbd> opens the cell · <kbd>C-c C-s</kbd>/<kbd>C-c C-d</kbd> open
+      it over the row · type <code>18 aug</code>, <code>+3d</code>,
+      <code>2026-09-15</code>, <code>from 18 to 19 aug</code> ·
+      <kbd>S-&lt;left&gt;</kbd><kbd>S-&lt;right&gt;</kbd> a day ·
+      <kbd>S-&lt;up&gt;</kbd><kbd>S-&lt;down&gt;</kbd> a week ·
+      <kbd>RET</kbd> sets it · empty <kbd>RET</kbd> clears it · <kbd>ESC</kbd>
+      leaves · <kbd>+</kbd> a draft row, <kbd>TAB</kbd> walks its cells ·
+      <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="wire"></span>
+    <span id="align"></span>
+  </footer>
+
+<script src="dates.js"></script>
+<script src="rig.js"></script>
+<script>RIG.mount({ look: { ghost: "cell" } });</script>
+</body>
+</html>

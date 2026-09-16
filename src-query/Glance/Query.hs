@@ -79,14 +79,10 @@ module Glance.Query ( BlobSeed (..)
                     , documentPath
                     , eolOf
                     , DraftCargo (..)
-                    , Inherited (..)
                     , draftEntry
                     , draftKeywords
-                    , draftPointLine
                     , draftRecord
-                    , draftSeeded
                     , draftStates
-                    , draftTemplate
                     , addLinkEdits
                     , editLinkEdits
                     , keywordText
@@ -229,7 +225,6 @@ module Glance.Query ( BlobSeed (..)
 
 import Control.Applicative ((<|>))
 import Control.Exception (evaluate)
-import Control.Monad (foldM)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair)
@@ -1792,9 +1787,8 @@ addLinkEdits InTitle link doc r = setTitleEdits (hrTitle r <> " " <> link) doc r
 -- lifted region, and only as far as its first child.  THE CHILD TEST IS
 -- 'headingStars', org-glance's own @^\*+ @, so a @*bold*@ line is body text.
 --
--- 'logbookSlice' cannot read this — it is what decides the logbook region this
--- subtracts — and 'draftPointLine' counts over EVERY line, a child's included,
--- which is the opposite cut.
+-- 'logbookSlice' cannot read this: it is what decides the logbook region this
+-- subtracts.
 ownBody :: Text -> HeadlineRecord -> [(Span, Text)]
 ownBody doc r = ownBodyIn (regionsOf doc r)
 
@@ -2204,22 +2198,6 @@ expandTemplate now answers text template
 noPointRefusal :: Text
 noPointRefusal = "this capture template has no %?, so there is nowhere for the text to go"
 
--- | TEMPLATE expanded for a DRAFT, and where @%?@ stood in what came back.  THE PROMPTING ESCAPES OPEN EMPTY
--- (@%^{PROMPT}@ becomes an empty pair or slot the pane edits), so nothing is asked before the doc exists.  The
--- STAMPING escapes still take the server's clock — the page spells no org.
-draftTemplate :: Time.ZonedTime -> Text -> Either Text (Text, Int)
-draftTemplate now template
-  | TplPoint `notElem` parts = Left noPointRefusal
-  | otherwise = Right (T.concat (map piece parts), T.length (T.concat (map piece ahead)))
-  where
-    parts = templateParts template
-    ahead = takeWhile (/= TplPoint) parts
-    piece part = case part of
-      TplText t       -> t
-      TplPoint        -> ""
-      TplStamp status -> zonedStamp status now
-      TplAsk _want    -> ""
-
 -- | Where DOC's capture template sits: first heading to EOF, which is
 -- @org-glance-tag-config--entry@'s rule verbatim rather than the outline extent.
 captureTemplateSpan :: Text -> Maybe Span
@@ -2323,65 +2301,6 @@ draftRecord cfg doc = maybe (Left noEntryRefusal) Right (listToMaybe entries)
     entries = [ recordWith id cfg declared "" 0 doc "" (metaCategory ctx)
                            (forcedKeywords (recognizedKeywords cfg declared)) h extent
               | (h, extent) <- outlineEntries doc elems, topLevel h ]
-
--- | Which line of R's BODY the offset AT stands in — @point@'s answer, 'Nothing' the head row.  Lifted regions are
--- NOT the body's, so a @%?@ in the planning line or drawer lands on the head row too.
-draftPointLine :: Text -> HeadlineRecord -> Int -> Maybe Int
-draftPointLine doc r at
-  | i > 0, not (lifted i) = Just (length [ j | j <- [0 .. i - 1], not (lifted j) ])
-  | otherwise             = Nothing
-  where
-    rg      = regionsOf doc r
-    here    = at - spanStart (hrSubtree r)
-    rows    = lineSpansIn (rgSubtree rg)
-    -- The LAST line where the offset is the text's end: a right-trimmed template's trailing @%?@ has no line to open on.
-    i = fromMaybe (length rows - 1)
-                  (listToMaybe [ k | (k, (sp, _l)) <- zip [0 ..] rows, here < spanEnd sp ])
-    cut = rgCut rg
-    lifted k = case drop k rows of
-      ((sp, _l) : _) -> any (\q -> spanStart sp >= spanStart q && spanEnd sp <= spanEnd q) cut
-      []             -> True
-
--- | What the standing filter LENDS a draft.  Template-first: each fills a gap the template left, moves nothing.
-data Inherited = Inherited
-  { inhState    :: !(Maybe Text)       -- ^ one ordinary positive keyword the filter pins.
-  , inhPriority :: !(Maybe Text)       -- ^ the bare letter, brackets the composer's.
-  , inhTags     :: ![Text]             -- ^ positive filter tags beyond the template's own.
-  , inhPlanning :: ![(Text, Text)]     -- ^ a settable key pinned to one day, ALREADY RESOLVED.
-  } deriving (Eq, Show)
-
--- | DOC with WHAT the filter lends filled into the gaps it left.  ONE SEED AT A TIME, each off a fresh parse: two tag
--- runs against one record open runs the other cannot see, and the second lands inside the first.
-draftSeeded :: ConfigLayers -> [Text] -> Inherited -> Text -> Either Text Text
-draftSeeded cfg cycleTags inh doc0 = foldM step doc0 seeds
-  where
-    seeds = [state, letter] <> map tag (inhTags inh) <> map planned (inhPlanning inh)
-    step doc seed = do
-      r <- draftRecord cfg doc
-      edits <- seed doc r
-      either (Left . spliceRefused) Right
-             (Edit.applyEdits doc [ Edit.Edit sp new | (sp, new) <- edits ])
-    -- AN INHERITED FACT IS NEVER A REFUSAL: a state outside the cycle, a bad letter, a tag outside the charset, an
-    -- unreadable day — each is the filter talking about other rows.  It fills the gap or not, and `+' opens either way.
-    state doc r = Right $ case inhState inh of
-      Just want | isNothing (hrState r), want `elem` draftStates cfg cycleTags ->
-        tokenEdits hsTodo (spanEnd . hsStars) (Just want) doc r
-      _spoken -> []
-    letter doc r = Right $ case inhPriority inh of
-      Just want | isNothing (hrPriority r) -> lends (setPriorityEdits (Just want) doc r)
-      _spoken -> []
-    -- A TAG RUN NEEDS A TITLE TO STAND AFTER: on a title-less draft @:work:@ reads as the title, so it waits for one.
-    tag want _doc r
-      | T.null (hrTitle r) = Right []
-      | otherwise          = Right (lends ((`addTagEdits` r) <$> tagText want))
-    planned (key, value) doc r
-      | isJust (unplanned key) = Right []
-      | key `elem` map fst (hpPlanning (headlineParts doc r)) = Right []
-      | otherwise = Right (lends (setPlanningEdits key (Just value) doc r))
-    lends = either (const []) id
-
-spliceRefused :: Edit.EditError -> Text
-spliceRefused err = "this capture draft does not splice: " <> T.pack (show err)
 
 -- | The draft as the pane hands it back: the header the doc pane edits by list,
 -- and the body it edits by span.

@@ -9,7 +9,7 @@ import Control.Concurrent (forkIO, killThread, newEmptyMVar, takeMVar, tryPutMVa
 import Control.Concurrent.STM (atomically, readTVarIO)
 import Control.Exception (SomeException, displayException, evaluate, finally, try)
 import Control.Monad (filterM, forever, void, when)
-import Data.Aeson (FromJSON (..), Value (Null, Object), encode, object, withObject, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (..), Value (Object), encode, object, withObject, (.:), (.:?), (.=))
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Text (encodeToLazyText)
 import Data.Aeson.Types (Pair, Parser)
@@ -23,7 +23,6 @@ import Data.FileEmbed (embedFile, makeRelativeToProject)
 import Language.Haskell.TH (listE)
 import Data.Text (Text)
 import GHC.Clock (getMonotonicTime)
-import qualified Data.Time as Time
 import Network.HTTP.Types ( Header, hCacheControl, hContentType, methodGet, methodHead
                           , methodPost, parseQuery, status200, status304, status400
                           , status404, status405, status409, status500, status503 )
@@ -63,24 +62,24 @@ import Glance.Query ( ConfigLayerFile (..), ConfigParts (..)
                     , TodoKeywords (..)
                     , SavedView (..), archived, configDirsIn, configPaths
                     , pinnedDocument, rowSnapshot
-                    , captureTemplateIn, captureTemplateOf
-                    , bareTemplate
-                    , Inherited (..)
-                    , draftKeywords, draftPointLine, draftRecord, draftSeeded, draftTemplate
+                    , captureTemplateOf
+                    , draftKeywords
+                    , draftStates
                     , ConfigLayers (clTree), TreeSettings (..), treeSettings
                     , configEdits, viewQuery, viewQueryIn
                     , headlineParts, keywordSources, linkShown, linkType
+                    , mergeKeywords
                     , mintableLayer
                     , kindSlug, refKind
                     , edgePairs, neighborDepth, neighborDepthCap, neighborLimit
                     , neighborhood
-                    , plannedEntry, plannedValue, readConfigLayers
+                    , plannedEntry, readConfigLayers
                     , unplanned
                     , untrailed
                     , recomposedSubtree
                     , ownBodyLines, sortedForViewWith
                     , subtreeEntries, subtreeEntryAt, subtreeLinks
-                    , subtreeText, tagText, tagsOfCell
+                    , subtreeText, tagsOfCell
                     , titleSpan, todoPragmas
                     , resolveColumns, savedViews, todoLines, viewColumns
                     , viewJSONFor )
@@ -159,7 +158,6 @@ httpApp opts hub request respond = route >>= respond
       , (["config"],     True,  jsonRefusal,
           [ (methodGet, configView opts hub)
           , (methodPost, configWrite opts hub request) ])
-      , (["capture"],    True,  textRefusal, [(methodGet, captureView opts hub request)])
       , (["keywords"],   True,  textRefusal, [(methodGet, keywordsView hub request)])
       , (["links"],      True,  textRefusal, [(methodGet, linksView hub (queryId request))])
       , (["neighbors"],  True,  jsonRefusal, [(methodGet, neighborsView hub request)])
@@ -728,14 +726,32 @@ settledPlanning day (SplitSubtree body ps pln)
 -- Keywords
 
 -- | @GET \/keywords?ids=A,B@: the states those rows may be set to, laid out as the chain that classifies them (AGENTS.hs).
+--
+-- @?tag=NAME@ IS THE SAME QUESTION FOR A ROW THAT DOES NOT EXIST YET -- a
+-- capture's draft filed under that layer, which no id names.  It answers the
+-- FLAT list, which is what a page checks a seeded keyword against and the very
+-- list the commit door walls with ('draftStates'); an EMPTY tag is the inbox,
+-- whose scope is the tree's own.  NO FILE IS CREATED.
+--
+-- The CHAIN'S TWO HALVES ride beside it, 'keywordsPair' as every other keywords
+-- answer spells them: the flat list is the order a surface offers the cycle in,
+-- and the halves say which word is a DONE one, which is all a hint needs.
 keywordsView :: Hub -> Request -> IO Response
-keywordsView hub request =
-  idsView hub request "GET /keywords?ids=<row id>,<row id>" $ \st _rows found unknown ->
-    [ "sources" .= map sourceJSON (keywordSources (stConfig st) found)
-    , "unknown" .= unknown
-    ]
+keywordsView hub request = case queryText request "tag" of
+  Just tag -> do
+    st <- readTVarIO (hubStore hub)
+    let cfg = stConfig st
+        worn = [ T.toLower tag | not (T.null tag) ]
+    pure (jsonResponse status200
+            ( "states" .= draftStates cfg worn
+            : keywordsPair (mergeKeywords (map snd (draftKeywords cfg worn))) ))
+  Nothing  ->
+    idsView hub request "GET /keywords?ids=<row id>,<row id>" $ \st _rows found unknown ->
+      [ "sources" .= map sourceJSON (keywordSources (stConfig st) found)
+      , "unknown" .= unknown
+      ]
 
--- | One scope as the wire spells it.  @\/keywords@ and the draft @cycle@ are ONE builder.
+-- | One scope as the wire spells it.
 sourceJSON :: (Text, TodoKeywords) -> Value
 sourceJSON (source, kw) = object ("source" .= source : keywordsPair kw)
 
@@ -759,15 +775,26 @@ withRow hub rid fields =
 -- Tags
 
 -- | @GET \/tags?ids=A,B@: what those rows are tagged with.  PER ROW, since the client needs WHICH rows lack a tag.
+--
+-- @?vocabulary=true@ IS THE SAME TWO STORE-WIDE FIELDS FOR A SURFACE THAT NAMES NO ROW -- a capture's tag cell,
+-- whose completion must reach a tag the view does not draw, and which has no id to ask under.  @\/keywords?tag=@ is
+-- the same shape: ONE ROUTE, TWO QUESTIONS, and 'tagVocabulary' spelled once so the two answers cannot part.
 tagsView :: Hub -> Request -> IO Response
-tagsView hub request =
-  idsView hub request "GET /tags?ids=<row id>,<row id>" $ \st rows found unknown ->
-    [ "rows"       .= [ object [ "id" .= hrId r, "tags" .= tagsOfCell (hrTags r) ]
-                      | r <- found ]
-    , "vocabulary" .= storeTags st
-    , "counts"     .= tagRowCounts rows
-    , "unknown"    .= unknown
-    ]
+tagsView hub request = case queryFlag request "vocabulary" "true" of
+  Left why   -> pure (jsonError status400 why)
+  Right True -> do
+    st <- readTVarIO (hubStore hub)
+    pure (jsonResponse status200 ("rows" .= ([] :: [Value]) : tagVocabulary st (storeRecords st)))
+  Right False ->
+    idsView hub request "GET /tags?ids=<row id>,<row id>" $ \st rows found unknown ->
+      [ "rows"    .= [ object [ "id" .= hrId r, "tags" .= tagsOfCell (hrTags r) ]
+                     | r <- found ]
+      , "unknown" .= unknown
+      ] <> tagVocabulary st rows
+
+-- | The store's own tag vocabulary and the ROWS wearing each: the two fields BOTH doors answer with.
+tagVocabulary :: Store -> [HeadlineRecord] -> [Pair]
+tagVocabulary st rows = [ "vocabulary" .= storeTags st, "counts" .= tagRowCounts rows ]
 
 tagRowCounts :: [HeadlineRecord] -> Map Text Int
 tagRowCounts = countedBy (tagsOfCell . hrTags)
@@ -803,97 +830,6 @@ valuesUnder :: [[(Text, Text)]] -> Map Text (Map Text Int)
 valuesUnder drawers = Map.fromListWith (Map.unionWith (+))
   [ (key, Map.singleton value n)
   | ((key, value), n) <- Map.toList (countedBy id drawers) ]
-
--- Capture
-
--- | @GET \/capture[?tag=NAME]@: the DRAFT a capture under that tag opens on.
---
--- THE SHAPE @\/headline@ SERVES, field for field, off bytes that exist only in this
--- answer, so the pane draws a draft as it draws any doc.  Three fields ride beside it:
--- the @cycle@ (a draft has no ROW), the @point@ @%?@ stood at, and the tree's @tags@.
--- NO FILE IS CREATED.
-captureView :: ServeOptions -> Hub -> Request -> IO Response
-captureView opts hub request = do
-  st <- readTVarIO (hubStore hub)
-  layers <- layersFor (soDir opts) st
-  -- One read, above the expansion ('Base.today''s rule): template stamps and a lent day name ONE instant.
-  now <- Time.getZonedTime
-  let cfg = stConfig st
-      tag = fromMaybe "" (queryText request "tag")
-      -- WHAT THE DRAFT WEARS.  THE DESTINATION LEADS; lent tags follow, each through
-      -- the CHARSET wall below — a lent tag org cannot read is filter noise, worn no
-      -- more here than written there.  Deduplicated: one tag named twice is one tag.
-      worn = nub ([ T.toLower tag | not (T.null tag) ] <> lent)
-      lent = [ T.toLower raw | raw <- inheritedTags request
-                             , Right _ <- [tagText raw] ]
-      day = Time.localDay (Time.zonedTimeToLocalTime now)
-      drafted = do
-        (expanded, at) <- draftTemplate now (fromMaybe bareTemplate (captureTemplateIn tag layers))
-        -- The point is read off the EXPANDED doc: seeding edits the headline and planning,
-        -- not body lines, so the line index survives the seeding measured before it.
-        opens <- draftPointLine expanded <$> draftRecord cfg expanded <*> pure at
-        seeded <- draftSeeded cfg worn (inheritedIn day request) expanded
-        r <- draftRecord cfg seeded
-        pure (draftJSON st worn seeded r opens)
-  pure (either (jsonError status400) (jsonResponse status200) drafted)
-
--- | A DRAFT as the wire carries it: 'subtreeJSON''s members plus the three a
--- fileless doc owes.  The empty digest is the CREATE PIN, walling the commit like a materialize's.
-draftJSON :: Store -> [Text] -> Text -> HeadlineRecord -> Maybe Int -> [Pair]
-draftJSON st worn doc r opens =
-  [ "id"         .= Null
-  , "file"       .= ("" :: Text)
-  , "child"      .= Null
-  , "parent"     .= Null
-  , "path"       .= [hrTitle r]
-  , "level"      .= (1 :: Int)
-  , "cells"      .= object (draftCells worn r)
-  ] <> docPairs doc r f <>
-  [ "digest"     .= ("" :: Text)
-  , "span"       .= Null
-  , "links"      .= ([] :: [Value])
-  , "titleAt"    .= Null
-  , "cycle"      .= map sourceJSON (draftKeywords (stConfig st) worn)
-  , "point"      .= opens
-  , "tags"       .= storeTags st
-  ]
-  where f = Focus st r (subtreeEntries (stConfig st) doc r) Nothing
-
--- | A DRAFT'S DISPLAY CELLS: 'cells', with the tag run saying WHERE THIS LANDS.
--- A DISPLAY CELL IS CONSTRUCTED, owing no round trip through the org line: a
--- title-less headline spells no run here, and the reader must see the destination.
-draftCells :: [Text] -> HeadlineRecord -> [Pair]
-draftCells worn r =
-  [ if k == "tags" then Key.fromText k .= draftTagsCell worn r
-                   else Key.fromText k .= f r
-  | (k, f) <- docCells ]
-
--- | WORN — destination and lent — then the draft's own line beyond them, as an org
--- tag cell.  THE COMMIT WEARS EACH ONCE: minting folds idempotently, so no twin.
-draftTagsCell :: [Text] -> HeadlineRecord -> Text
-draftTagsCell worn r
-  | null run  = ""
-  | otherwise = ":" <> T.intercalate ":" run <> ":"
-  where run = worn <> [ t | t <- tagsOfCell (hrTags r), t `notElem` worn ]
-
--- | What the standing filter LENDS this draft.  NEVER A REFUSAL: an unreadable
--- inherited fact is filter noise, so it fills the gap or not and @+@ opens either way.
-inheritedIn :: Day -> Request -> Inherited
-inheritedIn day request = Inherited
-  { inhState    = queryText request "state"
-  , inhPriority = queryText request "priority"
-  , inhTags     = inheritedTags request
-  , inhPlanning = [ (key, stamp)
-                  | (key, name) <- [("SCHEDULED", "scheduled"), ("DEADLINE", "deadline")]
-                  , Just value <- [queryText request name]
-                  , Right stamp <- [plannedValue day key value] ]
-  }
-
--- | @?tags=a,b@: the positive filter tags a draft wears beyond the template's.
-inheritedTags :: Request -> [Text]
-inheritedTags request =
-  [ t | raw <- maybe [] (T.splitOn ",") (queryText request "tags")
-      , let t = T.strip raw, not (T.null t) ]
 
 -- Links
 

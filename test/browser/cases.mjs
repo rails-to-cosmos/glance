@@ -88,27 +88,6 @@ async function walkBackTo(p, sel, what) {
   assert(false, `\`p' never reached ${what}`);
 }
 
-/** `+' with the tag field up, which every capture starts from. */
-async function captureForm(p, base) {
-  await tableUp(p, base);
-  await p.press("+");
-  await p.until(() => document.getElementById("capture").className === "on"
-                  && document.activeElement === document.getElementById("ktag"),
-                "the tag field to open and take the focus");
-}
-
-/** The sheet over the draft TAG's template expands to; `""' is the inbox and
- * its default template, which is star-space and nothing else. */
-async function draftOver(p, base, tag) {
-  await captureForm(p, base);
-  if (tag) await p.type(tag);
-  await p.press("RET");
-  await p.until(() => !!document.querySelector("#modal.on")
-                  && document.getElementById("capture").className !== "on",
-                `the sheet to open over the ${tag || "inbox"} draft`);
-  await settled(p);
-}
-
 /** The ids the STORE holds under QUERY, asked of the daemon rather than read off
  * the table: what a capture did or did not write is a fact about the tree. */
 const idsUnder = (p, q) => p.eval(async (query) => {
@@ -459,6 +438,314 @@ const orgSays = (p, row, re, why) => p.until(async (a) => {
   const h = await (await fetch(`/headline?id=${a.row}`)).json();
   return new RegExp(a.re).test(h.org || "") ? h.org : false;
 }, why, 15000, { row, re: re.source });
+
+/** THE DRAFT'S OPEN EDITOR, waited for by the cell it is NOT in: a walk's
+ * reading is the key's own outcome, so the gate is MOVEMENT off FROM rather than
+ * arrival at a cell the editor may not have left yet.  A null FROM waits for an
+ * editor at all.  ONE KEY PER CALL is what this buys: a fresh input takes focus
+ * a macrotask behind the press, so three TABs sent together advance two cells. */
+const draftEditor = (p, from, why) => p.until((left) => {
+  const tr = document.querySelector("#app tbody tr.tv-producer");
+  const box = tr && tr.querySelector("input.tv-cell-edit");
+  if (!box || document.activeElement !== box) return false;
+  const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+    .map((th) => th.dataset.key);
+  const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+  const at = keys[tds.indexOf(box.closest("td"))];
+  return at && at !== left
+    ? { col: at, value: box.value,
+        rows: document.querySelectorAll("#app tbody tr[data-id]").length,
+        cells: keys.map((k, i) => [k, tds[i].textContent]) }
+    : false;
+}, why, undefined, from);
+
+/** THE DRAFT'S OPEN STOP, whichever of the two it is: the widget's in-cell
+ * editor, or the DATE BOX laid over one of the row's two date cells.  The walk
+ * crosses between them, so a reading of it must too; gated on MOVEMENT off FROM
+ * the way `draftEditor' is. */
+const draftStop = (p, from, why) => p.until((left) => {
+  const tr = document.querySelector("#app tbody tr.tv-producer");
+  if (!tr) return false;
+  const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+    .map((th) => th.dataset.key);
+  const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+  const cells = keys.map((k, i) => [k, tds[i].textContent]);
+  const cell = tr.querySelector("input.tv-cell-edit");
+  const dbox = document.getElementById("ddate");
+  const f = /** @type {any} */ (document.getElementById("dwhen"));
+  let at = null, value = null;
+  if (cell && document.activeElement === cell) {
+    at = keys[tds.indexOf(cell.closest("td"))];
+    value = cell.value;
+  } else if (dbox.classList.contains("on") && document.activeElement === f
+               && dbox.style.top !== "") {
+    const r = dbox.getBoundingClientRect();
+    at = keys[tds.findIndex((td) => {
+      const c = td.getBoundingClientRect();
+      return Math.abs(c.left - r.left) <= 1 && Math.abs(c.top - r.top) <= 1;
+    })];
+    value = f.value;
+  }
+  return at && at !== left
+    ? { col: at, value, cells,
+        rows: document.querySelectorAll("#app tbody tr[data-id]").length }
+    : false;
+}, why, undefined, from);
+
+/** THE ONE ROW THE STORE HOLDS FOR WORD, polled: a capture's row arrives a watch
+ * tick behind its own 200, `/command' publishing nothing of its own. */
+const landedRow = (p, word, why) => p.until(async (w) => {
+  const r = await fetch(`/headlines?limit=500&q=${encodeURIComponent(w)}`);
+  const j = await r.json();
+  const rows = (j.view && j.view.rows) || j.rows || [];
+  return rows.length === 1 ? rows[0].id : false;
+}, why, 20_000, word);
+
+/** ROW's whole org off the daemon, once it matches RE.  `orgSays''s twin for an
+ * id that may spell a `#': the fragment would take the query with it unencoded. */
+const fileSays = (p, row, re, why) => p.until(async (a) => {
+  const h = await (await fetch(`/headline?id=${encodeURIComponent(a.row)}`)).json();
+  return new RegExp(a.re, "m").test(h.org || "") ? h.org : false;
+}, why, 20_000, { row, re: re.source });
+
+/** The draft's STATE cell reading WORD, polled.  `+' draws the row at once and
+ * asks the destination's cycle in the same breath, so a reading taken the moment
+ * the editor opens is taken before the answer that clears a dropped state — the
+ * cell emptying IS that answer arriving. */
+const draftState = (p, word, why) => p.until((want) => {
+  const tr = document.querySelector("#app tbody tr.tv-producer");
+  if (!tr) return false;
+  const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+    .map((th) => th.dataset.key);
+  const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+  return tds[keys.indexOf("state")].textContent === want;
+}, why, undefined, word);
+
+/** POINT'S COLUMN WALKED ONTO KEY by the table's own `f' — one press per column,
+ * the way a reader reaches a cell, and ONE KEY PER CDP CALL: each press is gated
+ * on the column cursor having arrived where the last one put it. */
+async function columnTo(p, key, why) {
+  const keys = await p.eval(() =>
+    [...document.querySelectorAll("#app thead th[data-key]")].map((th) => th.dataset.key));
+  const want = keys.indexOf(key);
+  assert(want !== -1, `${why}: the view draws no ${key} column: ${JSON.stringify(keys)}`);
+  for (let at = 0; at <= want; at += 1) {
+    await p.press("f");
+    await p.until((n) => [...document.querySelectorAll("#app thead th[data-key]")]
+        .findIndex((th) => th.classList.contains("tv-colsel")) === n,
+      `${why}: the column cursor to reach column ${at}`, undefined, at);
+  }
+  return want;
+}
+
+/** THE DATE BOX AS THE READER SEES IT, over whichever surface raised it: ONE
+ * widget, so one reading serves the pane's slot and the table's cell alike.
+ * Waited for by the box's own inline `top': `placeEdit' lands a frame behind the
+ * open, and a rect measured in that window reads the box's resting spot. */
+const dateBox = (p, why) => p.until(() => {
+  const box = document.getElementById("ddate");
+  const f = /** @type {any} */ (document.getElementById("dwhen"));
+  if (!box.classList.contains("on") || document.activeElement !== f) return false;
+  if (box.style.top === "" || !f.getBoundingClientRect().width) return false;
+  const r = box.getBoundingClientRect();
+  const menu = document.getElementById("dwoffer");
+  const gh = document.getElementById("dghost");
+  return { value: f.value, sel: [f.selectionStart, f.selectionEnd],
+           ghost: gh.textContent, bad: gh.className.indexOf("bad") !== -1,
+           overCell: box.classList.contains("cell"),
+           flipped: box.classList.contains("flipped"),
+           offers: [...menu.children].map((c) => c.querySelector(".dow").textContent),
+           offerAt: [...menu.children].findIndex((c) => /(^| )dat( |$)/.test(c.className)),
+           rect: { x: Math.round(r.left), y: Math.round(r.top),
+                   w: Math.round(r.width), h: Math.round(r.height) },
+           editors: document.querySelectorAll("#app input.tv-cell-edit").length,
+           sheet: !!document.querySelector("#modal.on") };
+}, why);
+
+/** The box once its ghost reads WHAT — matched whole, `""' for the silence the
+ * shipped reader keeps over a phrase that is its own answer or still half typed. */
+const ghostSays = (p, what, why) => p.until((want) => {
+  const f = /** @type {any} */ (document.getElementById("dwhen"));
+  const gh = document.getElementById("dghost");
+  if (!document.getElementById("ddate").classList.contains("on")) return false;
+  return gh.textContent === want
+    ? { value: f.value, said: gh.textContent, bad: gh.className.indexOf("bad") !== -1 }
+    : false;
+}, why, undefined, what);
+
+/** The box down, whatever took it. */
+const boxGone = (p, why) => p.until(() =>
+  !document.getElementById("ddate").classList.contains("on"), why || "the date box to go");
+
+/** RECORD WHAT THE PAGE POSTS TO `/command'. The phrase travelling rather than
+ * the ghost's own reading is a fact about the BODY, and the stamp the server
+ * writes is the same either way — so the body is what a case reads. */
+const watchPosts = (p) => p.eval(() => {
+  window["__posts"] = [];
+  const was = window.fetch;
+  window.fetch = function (url, init) {
+    if (init && init.method === "POST" && String(url).indexOf("/command") === 0)
+      window["__posts"].push(JSON.parse(String(init.body)));
+    return was.apply(this, arguments);
+  };
+});
+const postsSeen = (p) => p.eval(() => window["__posts"] || []);
+
+/** ROW's planning line as the daemon holds it. */
+const planningOf = (p, row) => p.eval(async (r) =>
+  (await (await fetch(`/headline?id=${encodeURIComponent(r)}`)).json()).planning || [], row);
+
+/** A planning entry put back through the command door, so a write case leaves
+ * the tree the bytes it found. */
+const putPlanning = async (p, row, keyword, date) => {
+  await p.eval(async (a) => {
+    await fetch("/command", { method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "set-planning", ids: [a.row],
+                             args: { keyword: a.keyword, date: a.date } }) });
+  }, { row, keyword, date });
+  await p.until(async (a) => {
+    const h = await (await fetch(`/headline?id=${encodeURIComponent(a.row)}`)).json();
+    const at = ((h.planning || []).find(([k]) => k === a.keyword) || [])[1] || null;
+    return at === a.date;
+  }, `${keyword} to go back to ${JSON.stringify(date)}`, 15000, { row, keyword, date });
+};
+
+/** The cell ROW draws for KEY, polled until it reads WANT. */
+const cellReads = (p, row, key, want, why) => p.until((a) => {
+  const tr = [...document.querySelectorAll("#app tbody tr[data-id]")]
+    .find((r) => r.dataset.id === a.row);
+  if (!tr) return false;
+  const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+    .map((th) => th.dataset.key);
+  const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+  const text = tds[keys.indexOf(a.key)].textContent.trim();
+  return text === a.want
+    ? { text, editors: document.querySelectorAll("#app input.tv-cell-edit").length,
+        boxes: document.querySelectorAll("#ddate.on").length }
+    : false;
+}, why, 20_000, { row, key, want });
+
+/** The one row QUERY draws, the table up and point on it. */
+async function oneRow(p, base, q, id) {
+  await p.goto(`${base}/?q=${encodeURIComponent(q)}`);
+  const seen = await p.until(() => {
+    const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+    const sel = document.querySelector("#app tbody tr.tv-sel");
+    return rows.length && sel ? rows.map((r) => r.dataset.id) : false;
+  }, `${JSON.stringify(q)} to draw its rows with point on one`);
+  assert(seen.length === 1 && seen[0] === id,
+    `${JSON.stringify(q)} drew ${JSON.stringify(seen)} rather than ${JSON.stringify([id])}`);
+}
+
+/** THE OFFERS AS DRAWN, once WORD is among them: ONE MENU serves all three
+ * anchors (`#toffer'), so one reading serves the draft's tag cell, its state
+ * cell and the tags popup's rename field alike. */
+const offerMenu = (p, word, why) => p.until((want) => {
+  const menu = document.getElementById("toffer");
+  if (!menu.classList.contains("on")) return false;
+  const rows = [...menu.children];
+  const words = rows.map((c) => c.querySelector(".dow").textContent);
+  if (words.indexOf(want) === -1) return false;
+  return { words,
+           hints: rows.map((c) => (c.querySelector(".dot") || {}).textContent || ""),
+           at: rows.findIndex((c) => /(^| )dat( |$)/.test(c.className)),
+           flipped: menu.classList.contains("flipped") };
+}, why, undefined, word);
+
+/** POINT WALKED DOWN THE TAG OFFERS TO AT.  The walk CLAMPS at the last offer
+ * (`atIn'), the date box's own rule, so a repeated press cannot overshoot — and
+ * a press landing in the frame a repaint has the input out of the document is
+ * simply pressed again rather than failing the case. */
+async function walkOffers(p, at, why) {
+  const on = () => p.eval(() => {
+    const menu = document.getElementById("toffer");
+    return [...menu.children].findIndex((c) => /(^| )dat( |$)/.test(c.className));
+  });
+  for (let i = 0; i < 6; i += 1) {
+    if ((await on()) === at) return at;
+    await p.press("<down>");
+    await p.until((n) => {
+      const menu = document.getElementById("toffer");
+      return [...menu.children].findIndex((c) => /(^| )dat( |$)/.test(c.className)) === n;
+    }, why, 1500, at).catch(() => null);
+  }
+  assert((await on()) === at, `${why}: point rests on ${await on()} rather than ${at}`);
+  return at;
+}
+
+/** POINT WALKED ALONG THE DRAFT'S RING to KEY, one `TAB' per call: a fresh stop
+ * takes focus a macrotask behind the press, so three sent together advance two. */
+async function draftWalkTo(p, key) {
+  let at = "title";
+  for (const want of ["scheduled", "deadline", "tag"]) {
+    await p.press("TAB");
+    const on = await draftStop(p, at, `TAB to reach the draft's ${want} stop`);
+    assert(on.col === want,
+      `TAB from ${JSON.stringify(at)} reached ${JSON.stringify(on.col)}`);
+    at = want;
+    if (want === key) return on;
+  }
+  throw new Error(`the draft's ring has no ${key} stop`);
+}
+
+/** THE DRAFT'S STATE STOP, walked BACK to: the header draws state and priority
+ * ahead of the title the draft opens on, so `S-TAB' twice is the way to it --
+ * one key per call, as `draftWalkTo' sends them. */
+async function draftBackToState(p) {
+  let at = "title";
+  for (const want of ["priority", "state"]) {
+    await p.press("S-TAB");
+    const on = await draftStop(p, at, `S-TAB to reach the draft's ${want} stop`);
+    assert(on.col === want,
+      `S-TAB from ${JSON.stringify(at)} reached ${JSON.stringify(on.col)}`);
+    at = want;
+  }
+}
+
+/** The weekday org spells for a fixed ISO day — the ghost's own `dowOf', so a
+ * case names the stamp the grammar builds rather than a calendar it guessed. */
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const orgStamp = (iso) => `<${iso} ${DOW[new Date(`${iso}T00:00:00Z`).getUTCDay()]}>`;
+
+// ── FROZEN COLUMNS ────────────────────────────────────────────────────────
+// USER CALL 2026-09-13, variant D of spikes/2026-09-13-frozen-columns.  THE
+// COLUMNS ARE FITTED ONCE PER VIEW and never from content again: the fit runs
+// at the first rows paint after a mount or a `setView', at a QUERY change
+// (`fitColumns', which the page asks for because every answer reaches the
+// widget through the one `setRows' door) and at a window resize.  Nothing else
+// may move a column -- not a keystroke, not a WAL tick, not a row that arrives
+// with a value longer than anything the fit ever saw.
+
+/** EVERY COLUMN'S WIDTH AS ONE READING: what the header measures, what the
+ * `<col>' was written at, and where each cell of the first row starts.  The px
+ * is what a reader would see move; the written style is what the widget meant;
+ * the lefts are the claim "the rows below did not move" in a reader's terms. */
+const columnWidths = (p) => p.eval(() => ({
+  px: [...document.querySelectorAll("#app thead th")]
+    .map((e) => +e.getBoundingClientRect().width.toFixed(1)),
+  keys: [...document.querySelectorAll("#app thead th")].map((e) => e.dataset.key || "·"),
+  style: [...document.querySelectorAll("#app colgroup col")].map((c) => c.style.width || ""),
+  // THE FIRST STANDING ROW'S OWN CELLS, never the window's: a draft spliced
+  // under it would otherwise add a row's worth of edges to the reading.
+  lefts: [...(document.querySelector("#app tbody tr[data-id]") || document.createElement("tr"))
+    .querySelectorAll("td")].map((e) => +e.getBoundingClientRect().left.toFixed(1)),
+}));
+const sameWidths = (a, b) =>
+  JSON.stringify(a.px) === JSON.stringify(b.px)
+    && JSON.stringify(a.style) === JSON.stringify(b.style);
+/** The draft's ring walked BACKWARD to KEY, one `S-TAB' per call and each gated
+ * on the editor having left the cell the last one put it in.  Backward, because
+ * the ring runs state · priority · title · scheduled · deadline · tag and the
+ * two date stops open the DATE BOX rather than an in-cell editor. */
+async function draftBackTo(p, from, key, why) {
+  let at = from;
+  for (let i = 0; i < 6 && at !== key; i += 1) {
+    await p.press("S-TAB");
+    at = (await draftEditor(p, at, why)).col;
+  }
+  assert(at === key, `the walk stopped on ${JSON.stringify(at)} rather than ${key}`);
+}
 
 export default [
 
@@ -3332,6 +3619,11 @@ export default [
       `the drawer reads ${JSON.stringify(routed.properties)} `
       + `against ${JSON.stringify(planless.props)}`);
     const end = await served();
+    // PUT THE TREE BACK.  This is the one case that leaves a DAY on a fixture
+    // row, and `sort:scheduled''s own cases count the rows carrying one -- so
+    // the entry goes back through the command door rather than by `clearSlot',
+    // which waits for an EMPTY planning list and drv-marks keeps a DEADLINE.
+    await putPlanning(p, "drv-marks", "SCHEDULED", null);
     return [`OWNER edited, EFFORT dropped, ROOM typed inline off `
       + `${JSON.stringify(keyOffers.map((o) => o.word))}; "OW" led them and `
       + `C-n completed it to ${JSON.stringify(completed)}; `
@@ -4498,301 +4790,684 @@ export default [
       + `${open.off}px off the slot, ESC left ${JSON.stringify(after)}`];
   } },
 
-// THE CAPTURE DOC IS THE MATERIAL DOC.  `+' asks the destination, the server
-// expands that tag's template into a DRAFT, and the sheet opens over it: the
-// same pane and the same doors, over a subtree that does not exist yet.  AGAINST
-// A REAL TREE AND A REAL STORE — the node harness serves a fabricated draft;
-// here the template is a config layer ON DISK and the blob is a FILE at the end,
-// so what these read is the org a reader's own keystrokes wrote.
-{ name: "a tagged capture opens as a document, and C-c C-c mints the blob it drew",
+// CAPTURE IS A ROW (PROPOSAL 2026-09-12).  `+' types a draft into the table
+// already on screen: a phantom spliced BELOW THE ROW AT POINT, seeded from the
+// standing filter, dressed in three channels, with its title cell's editor open
+// and taking every key it sees.  AGAINST A REAL TREE: the row, its place, its
+// dress and its focus are all paint, and a model-reading test sees none of them.
+{ name: "+ splices a draft row below the row at point, with its title cell open",
   async run(p, base) {
     await tableUp(p, base);
-    const before = await idsUnder(p, "tag:book");
-    assert(before.length === 0,
-      `the tree already holds ${JSON.stringify(before)} under :book:`);
-    await draftOver(p, base, "book");
+    // POINT MOVES FIRST, so "below the row at point" is a claim about a PLACE
+    // rather than about the head of the table.
+    await p.press("n");
+    const before = await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const sel = document.querySelector("#app tbody tr.tv-sel");
+      return sel && rows.indexOf(sel) === 1 && rows.length > 2
+        ? { at: 1, ids: rows.map((r) => r.dataset.id) } : false;
+    }, "point to step onto the second of at least three rows");
 
-    // ------- THE TEMPLATE ARRIVED EXPANDED: a state off the tag's OWN cycle
-    // (`#+TODO:' rides the very file the template does), a stamp the SERVER read
-    // its clock for, and a `%^{PROMPT}' opened as the pair with nothing in it.
-    const drew = await p.eval(() => {
-      const at = document.querySelector("#mdoc .de.dat");
+    await p.press("+");
+    const drew = await p.until(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      const box = tr && tr.querySelector("input.tv-cell-edit");
+      if (!box || document.activeElement !== box) return false;
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const at = rows.indexOf(tr);
+      const seen = getComputedStyle(tds[0]);
       return {
-        file: document.getElementById("mfile").textContent,
-        note: document.getElementById("mnote").textContent.trim(),
-        head: document.querySelector('#mdoc .de[data-id="H"]').textContent,
-        tags: (document.querySelector('#mdoc .de[data-id="H"] .dc-tags')
-                 || {}).textContent || "",
-        plan: (document.querySelector('#mdoc .de[data-id="PLN"]') || {}).textContent || "",
-        // THE FRAME ALONE, past the spine's `.fold' sign: the drawer's own line.
-        drawer: ((d) => d ? [...d.querySelectorAll(".dg")].map((g) => g.textContent).join("") : "")(
-          document.querySelector("#mdoc .d-drawer")),
-        // WHERE `%?' STOOD, spent as the fill's own landing: without it point
-        // would rest on row 0, the headline every other fill opens on.
-        atClass: at.className, atText: at.textContent, atIndex: docAtNow(),
-        // EVERY DRAFT OPENS EDITING, and this one's `%?' stood in the BODY.
-        para: document.getElementById("dpara").className,
-        slot: document.getElementById("dtext").value,
-        focus: document.activeElement.id,
-        rows: [...document.querySelectorAll("#mdoc .de.lvl-top")].length,
+        at, ids: rows.map((r) => r.dataset.id),
+        under: at > 0 ? rows[at - 1].dataset.id : null,
+        // WHICH CELL THE EDITOR STANDS IN, named rather than numbered.
+        col: keys[tds.indexOf(box.closest("td"))],
+        cells: keys.map((k, i) => [k, tds[i].textContent]),
+        sel: (document.querySelector("#app tbody tr.tv-sel") || { dataset: {} })
+               .dataset.id || null,
+        // THE THREE CHANNELS, none of them hue on its own: the dashed rule that
+        // fences the row off, the accent edge down its left, the ghost ink.
+        rule: seen.borderTopStyle, ink: seen.fontStyle,
+        edge: getComputedStyle(tr.children[0]).boxShadow,
+      };
+    }, "the draft row to splice in with its title cell open and focused");
+
+    assert(drew.at === before.at + 1,
+      `the draft landed at row ${drew.at} with point on row ${before.at}`);
+    assert(drew.under === before.ids[before.at],
+      `the draft stands under ${JSON.stringify(drew.under)} rather than under `
+      + `the row at point, ${JSON.stringify(before.ids[before.at])}`);
+    assert(drew.ids.length === before.ids.length + 1,
+      `the table went from ${before.ids.length} rows to ${drew.ids.length}`);
+    // A RESERVED ID NO STORE ANSWERS: the draft is the one row the server never
+    // named, so it can be no command's target.
+    const fresh = drew.ids.filter((id) => before.ids.indexOf(id) === -1);
+    assert(fresh.length === 1,
+      `the splice brought ${JSON.stringify(fresh)} rather than one phantom`);
+    const store = await idsUnder(p, "");
+    assert(store.indexOf(fresh[0]) === -1,
+      `the draft's id ${JSON.stringify(fresh[0])} names a row in the store`);
+    assert(drew.col === "title",
+      `the editor opened on the ${JSON.stringify(drew.col)} cell`);
+    // A DRAFT IS NEVER STEPPED ONTO: point stays on the row `+' was pressed at.
+    assert(drew.sel === before.ids[before.at],
+      `point moved to ${JSON.stringify(drew.sel)} when the draft spliced in`);
+    assert(drew.rule === "dashed" && drew.ink === "italic"
+             && /\d/.test(drew.edge) && drew.edge !== "none",
+      `the draft wears ${JSON.stringify([drew.rule, drew.ink, drew.edge])} — the `
+      + `dashed rule, the ghost ink and the accent edge must all say "draft"`);
+    return [`+ on row ${before.at} spliced a draft at row ${drew.at} under `
+      + `${JSON.stringify(drew.under)}, editor on ${drew.col}, cells `
+      + `${JSON.stringify(drew.cells)}, dressed ${drew.rule}/${drew.ink}`];
+  } },
+
+// THE SEEDING RULE, WHOLE, IN ONE ROW: the filter's POSITIVE PINNED atoms fill
+// the draft -- the FIRST `tag:' is the destination and leads the TAGS CELL, which
+// is where the row says where it lands; every later `tag:' rides after it, and the
+// one `state:' and the one `priority:' are worn as they stand.  `book' is the
+// tree's one tag layer and its cycle declares READING, so nothing is dropped
+// here; the DROPPED half is its own case below.
+{ name: "the draft wears what the filter pins",
+  async run(p, base) {
+    const q = "tag:book tag:work state:READING priority:B";
+    await p.goto(`${base}/?q=${encodeURIComponent(q)}`);
+    await p.until(() => !!document.querySelector("#app table tbody"),
+                  "the filtered table to mount");
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    // WAITED FOR RATHER THAN READ ONCE: `+' draws the row and asks the cycle in
+    // the same breath, and the answer lands behind it -- so a reading taken at
+    // the open could not tell a state that STANDS from one not yet dropped.
+    await draftState(p, "READING", "the cycle's answer to leave the state standing");
+    const drew = await p.eval(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+      const at = (key) => tds[keys.indexOf(key)];
+      return {
+        state: at("state").textContent,
+        priority: at("priority").textContent,
+        title: at("title").textContent,
+        // AN ORG RUN DRAWS AS ITS CHIPS, so the run is read as the names in it.
+        tags: [...at("tag").querySelectorAll(".tv-tag")].map((e) => e.textContent),
+        scheduled: at("scheduled").textContent,
       };
     });
-    assert(drew.file === "the capture  ·  :book:",
-      `the sheet's file line reads ${JSON.stringify(drew.file)} — it names no file `
-      + `and no id, there being neither yet`);
-    assert(/READING/.test(drew.head) && /Book/.test(drew.head),
-      `the drawn headline reads ${JSON.stringify(drew.head)}`);
-    // THE DRAFT SAYS WHERE IT LANDS: the destination is a CONSTRUCTED cell, so
-    // the head row wears it whether or not the org line could carry the run.
-    assert(drew.tags === ":book:",
-      `the head row's tag cell reads ${JSON.stringify(drew.tags)} — the reader is `
-      + `composing into :book: and the pane must say so`);
-    assert(/^SCHEDULED: <\d{4}-\d\d-\d\d/.test(drew.plan.trim()),
-      `the planning line reads ${JSON.stringify(drew.plan)}`);
-    assert(/^:PROPERTIES:/.test(drew.drawer.trim()),
-      `the drawer reads ${JSON.stringify(drew.drawer)}`);
-    // A DRAFT IS NEVER DIRTY: nothing about it is owed to a file, which is the
-    // whole of why ESC is free.
-    assert(/^synced/.test(drew.note),
-      `the sheet's note reads ${JSON.stringify(drew.note)}`);
-    assert(/\bd-para\b/.test(drew.atClass) && !/\bd-head\b/.test(drew.atClass),
-      `point opened on ${JSON.stringify(drew.atClass)} rather than the slot after %?`);
-
-    // ------- THE BODY, TYPED WHERE POINT OPENED — AND THE EDITOR WAS ALREADY
-    // THERE.  Every draft opens EDITING: a reader who asked for a capture is
-    // composing one, and a `RET' the pane makes them press first asks a question
-    // `+' already answered.  A draft's cargo is HELD: the model takes the edit
-    // and nothing is posted, there being no file to post to.
-    assert(/^Why this one:/.test(drew.atText),
-      `point opened on ${JSON.stringify(drew.atText)} rather than the %? slot`);
-    assert(drew.para === "on" && drew.focus === "dtext",
-      `the draft opened ${JSON.stringify([drew.para, drew.focus])} rather than in `
-      + `the editor over the line %? stood on`);
-    assert(/^Why this one:\s*$/.test(drew.slot),
-      `the slot seeded ${JSON.stringify(drew.slot)} — %? expands to nothing at all`);
-    await p.eval(() => {
-      document.getElementById("dtext").value = "Why this one: the spice must flow";
-    });
-    await p.press("RET");
-    await p.until(() => !document.getElementById("dpara").classList.contains("on"),
-                  "the edit to close over the typed body");
-    const held = await idsUnder(p, "tag:book");
-    assert(held.length === 0,
-      `an edit over a DRAFT reached the store: ${JSON.stringify(held)}`);
-
-    // ------- THE PAIR, FILLED THROUGH THE DOOR THE PANE ALREADY HAS.  This is
-    // the whole of what `%^{Author}' dissolved into.
-    await walkBackTo(p, ".d-drawer", "the drawer");
-    await p.press("f");
-    await p.until(() => {
-      const at = document.querySelector("#mdoc .de.dat");
-      return !!at && at.classList.contains("d-meta") && /AUTHOR/.test(at.textContent);
-    }, "f to open the drawer and land on the ask it drew");
-    await settled(p);
-    await p.press("RET");
-    await editUp(p, "the pair's own line edit");
-    const seeded = await p.eval(() => document.getElementById("dtext").value);
-    assert(/^:AUTHOR:\s*$/.test(seeded),
-      `the ask seeded ${JSON.stringify(seeded)} rather than an empty value`);
-    await p.eval(() => { document.getElementById("dtext").value = ":AUTHOR: Herbert"; });
-    await p.press("RET");
-    await p.until(() => {
-      const d = document.querySelector("#mdoc .d-drawer");
-      return !!d && /Herbert/.test(d.textContent);
-    }, "the filled pair to draw in the drawer");
-
-    // ------- THE DATE WIDGET OVER THE DRAFT'S OWN PLANNING LINE.  A draft has
-    // no row id, so the entry takes the COMMIT door the materialized child's
-    // does: the model holds it and the capture command is what writes it.
-    //
-    // AND THE DRAFT RESOLVES IT ITSELF.  A row's phrase is posted and comes back
-    // TRANSFORMED; a draft posts nothing, so the preview is made flesh in the
-    // line — the ghost's own reading, drift-pinned to the wall — while the RAW
-    // phrase is still what travels at `C-c C-c'.
-    await settled(p);
-    await summonDate(p, "SCHEDULED", "the widget over the draft's SCHEDULED slot");
-    await p.until(() => {
-      const f = document.getElementById("dwhen");
-      return f.value.length > 0 && f.selectionStart === 0
-        && f.selectionEnd === f.value.length;
-    }, "the stamp the template expanded to, wholly selected");
-    await p.type("18 aug");
-    const ghost = await p.until(() => {
-      const s = document.getElementById("dghost");
-      return s.textContent || false;
-    }, "the ghost to resolve the phrase");
-    await p.press("RET");
-    const drafted = await p.until(() => {
-      const at = document.querySelector('#mdoc .de[data-id="PLN"]');
-      return at && /<\d{4}-08-18 /.test(at.textContent) ? at.textContent.trim() : false;
-    }, "the phrase to stand RESOLVED in the draft's own planning line");
-    assert(!/18 aug/.test(drafted),
-      `the planning line still reads the raw phrase: ${JSON.stringify(drafted)}`);
-    assert(drafted.includes(ghost.replace(/^\s*→\s*/, "").trim()),
-      `the line reads ${JSON.stringify(drafted)} and the ghost previewed `
-      + `${JSON.stringify(ghost)} — one reader, one answer`);
-    const still = await idsUnder(p, "tag:book");
-    assert(still.length === 0,
-      `the widget wrote to the store over a draft: ${JSON.stringify(still)}`);
-
-    // ------- `C-c C-c' COMMITS THE WHOLE THING through the one door that mints
-    // a blob: its id, its shard path, its creation drawer and its ledger line.
-    await p.press("C-c");
-    await p.press("C-c");
-    const landed = await p.until(async () => {
-      const r = await fetch("/headlines?limit=500&q=tag%3Abook");
-      const j = await r.json();
-      const rows = (j.view && j.view.rows) || j.rows || [];
-      return rows.length === 1 ? rows[0].id : false;
-    }, "the minted blob to reach the store", 20000);
-    const org = await p.eval(async (id) =>
-      (await (await fetch(`/headline?id=${encodeURIComponent(id)}`)).json()).org, landed);
-    const lines = org.split("\n");
-    // EVERY PART, AND THE MINTING'S OWN TWO BESIDE THEM.  THE DESTINATION IS
-    // WORN ONCE: the draft's tag cell carried it out as the capture's `tags',
-    // and the minting joins it IDEMPOTENTLY (`addTagEditsIn' folds), so the run
-    // that reached the file is the run the pane drew.
-    assert(/^\* READING Book :book:$/.test(lines[0]),
-      `the blob opens ${JSON.stringify(lines[0])}`);
-    assert((lines[0].match(/book/g) || []).length === 1,
-      `the destination is worn twice: ${JSON.stringify(lines[0])}`);
-    assert(/^SCHEDULED: <\d{4}-08-18 /.test(lines[1]),
-      `the planning line reads ${JSON.stringify(lines[1])}`);
-    assert(org.includes(`:ORG_GLANCE_ID: ${landed}`),
-      `the drawer does not carry the minted id: ${JSON.stringify(org)}`);
-    assert(/:ORG_GLANCE_CREATION_TIME: \[/.test(org),
-      `the creation stamp is missing: ${JSON.stringify(org)}`);
-    assert(org.includes(":AUTHOR: Herbert"),
-      `the filled ask never reached the file: ${JSON.stringify(org)}`);
-    // THE WHOLE BODY, the line point opened in and the one the template left
-    // standing under it — `body' is everything UNDER the headline, children and all.
-    assert(org.includes("Why this one: the spice must flow") && org.includes("Notes:"),
-      `the body is not the one the pane held: ${JSON.stringify(org)}`);
-
-    // ------- AND THE CURSOR LANDS ON THE ROW THE CAPTURE MADE.
-    const sel = await p.until((id) => {
-      const tr = document.querySelector("#app tr.tv-sel");
-      return tr && tr.dataset.id === id ? tr.textContent.trim() : false;
-    }, "point to land on the row the watch delivered", 20000, landed);
-    const shut = await p.eval(() => document.getElementById("modal").className);
-    assert(shut !== "on", "the sheet is still up over a capture that landed");
-    return [`the ${JSON.stringify(drew.head.trim())} draft opened at row `
-      + `${drew.atIndex} (${JSON.stringify(drew.atText)}), its ask empty; `
-      + `"18 aug" ghosted ${JSON.stringify(ghost.trim())} and stood as `
-      + `${JSON.stringify(drafted)} with the store still empty; C-c C-c minted `
-      + `${landed} — ${JSON.stringify(lines.slice(0, 2))} — and point landed on `
-      + `${JSON.stringify(sel.slice(0, 40))}`];
+    assert(drew.state === "READING",
+      `the state cell reads ${JSON.stringify(drew.state)} where the filter pinned READING`);
+    // ORG'S OWN SPELLING, the one every landed row's priority cell wears; the
+    // wire takes the letter alone, which `draftArgs' folds back out of it.
+    assert(drew.priority === "[#B]",
+      `the priority cell reads ${JSON.stringify(drew.priority)} rather than the `
+      + `[#B] a landed row draws`);
+    // THE TITLE IS THE ONE CELL THE FILTER NEVER FILLS: the editor empties the
+    // cell it opens in, and a `title:' atom is no fact a row wears.
+    assert(drew.title === "",
+      `the title cell reads ${JSON.stringify(drew.title)} rather than nothing`);
+    assert(JSON.stringify(drew.tags) === JSON.stringify(["book", "work"]),
+      `the run reads ${JSON.stringify(drew.tags)} — the destination must lead it, `
+      + `with every later tag: after`);
+    // A FILTER-LENT DAY IS REFUSED BY THE DESIGN: a captured row carries no
+    // planning line, so no date cell is written at all.
+    assert(drew.scheduled === "",
+      `the SCHEDULED cell reads ${JSON.stringify(drew.scheduled)}`);
+    return [`under ${JSON.stringify(q)} the draft wore `
+      + `${JSON.stringify([drew.state, drew.priority, drew.tags])}`];
   } },
 
-// THE BARE-DRAFT LAW: the default template is star-space and nothing else, so
-// the title edit IS the capture and the four-key inbox jot is byte for byte the
-// gesture it always was — `+', RET, the line, RET.
-{ name: "the inbox jot is + RET the line RET, and lands the bytes it always did",
+// `setRows' RESETS the widget's rows, so a draft left out of the splice is
+// erased — and suppressing the paint instead would leave a stale table under a
+// live draft.  THE PHANTOM GOES BACK IN ON EVERY PAINT, and the editor with it.
+{ name: "a headlines answer arriving under a draft leaves it standing",
   async run(p, base) {
-    await draftOver(p, base, "");
-    const open = await p.eval(() => ({
-      box: document.getElementById("dtitle").className,
-      focus: document.activeElement.id,
-      file: document.getElementById("mfile").textContent,
-      head: document.querySelector('#mdoc .de[data-id="H"]').textContent,
-    }));
-    assert(open.box === "on" && open.focus === "dtin",
-      `the bare draft opened ${JSON.stringify(open)} rather than in its title`);
-    assert(/the inbox/.test(open.file),
-      `the sheet's file line reads ${JSON.stringify(open.file)}`);
-    assert(open.head.trim() === "*",
-      `the bare draft drew ${JSON.stringify(open.head)} rather than star-space`);
+    // UNDER A QUERY, where a socket tick sends the page back for a WHOLE fresh
+    // answer rather than splicing the one row itself (`apply', 70-shell.js).
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:driver")}`);
+    await p.until(() => document.querySelectorAll("#app tbody tr[data-id]").length > 1,
+                  "the filtered table to mount its rows");
+    await p.press("+");
+    const opened = await p.until(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      const box = tr && tr.querySelector("input.tv-cell-edit");
+      if (!box) return false;
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const at = rows.indexOf(tr);
+      return { at, n: rows.length, under: rows[at - 1].dataset.id };
+    }, "the draft row over the filtered table");
 
-    await p.type("buy milk");
-    await p.press("RET");
-    const landed = await p.until(() => {
-      const tr = [...document.querySelectorAll("#app tbody tr")]
-        .find((r) => /buy milk/.test(r.textContent));
-      return tr ? tr.dataset.id : false;
-    }, "the jot to reach the table", 20000);
-    const org = await p.eval(async (id) =>
-      (await (await fetch(`/headline?id=${encodeURIComponent(id)}`)).json()).org, landed);
-    const lines = org.trimEnd().split("\n")
-      .filter((l) => !/^:ORG_GLANCE_CREATION_TIME:/.test(l));
-    // NO ID, NO TAG AND NO LEDGER LINE: the inbox files a jot, it mints no identity.
-    assert(JSON.stringify(lines) === JSON.stringify(
-        ["* buy milk", ":PROPERTIES:", ":END:"]),
-      `the jot wrote ${JSON.stringify(org)}`);
-    assert(!/:ORG_GLANCE_ID:/.test(org),
-      `the inbox minted an identity: ${JSON.stringify(org)}`);
-    assert(/:ORG_GLANCE_CREATION_TIME: \[/.test(org),
-      `the creation stamp is missing: ${JSON.stringify(org)}`);
-    const sel = await p.until((id) => {
-      const tr = document.querySelector("#app tr.tv-sel");
-      return tr && tr.dataset.id === id;
-    }, "point to land on the jot", 20000, landed);
-    return [`+ RET "buy milk" RET wrote ${JSON.stringify(lines)} into `
-      + `${landed}, point on it: ${sel}`];
+    // A REAL WRITE ELSEWHERE IN THE TREE: the watch nudges, the socket ticks and
+    // the page asks for the whole answer again — which is the paint this is about.
+    const wrote = await p.eval(async (id) => {
+      const r = await fetch("/command", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "set-planning", ids: [id],
+                               args: { keyword: "SCHEDULED", date: "2026-12-01" } }) });
+      return r.status;
+    }, opened.under);
+    assert(wrote === 200, `the write answered ${wrote}`);
+    await p.until((id) => {
+      const tr = [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .find((r) => r.dataset.id === id);
+      return !!tr && /2026-12-01/.test(tr.textContent);
+    }, "the fresh answer to reach the table", 20_000, opened.under);
+
+    const after = await p.eval(() => {
+      const drafts = [...document.querySelectorAll("#app tbody tr.tv-producer")];
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const tr = drafts[0];
+      const at = tr ? rows.indexOf(tr) : -1;
+      const box = tr && tr.querySelector("input.tv-cell-edit");
+      return { drafts: drafts.length, n: rows.length, at,
+               under: at > 0 ? rows[at - 1].dataset.id : null,
+               open: !!box, focused: !!box && document.activeElement === box };
+    });
+    assert(after.drafts === 1,
+      `the paint left ${after.drafts} draft rows behind`);
+    assert(after.under === opened.under,
+      `the draft came back under ${JSON.stringify(after.under)} rather than `
+      + `${JSON.stringify(opened.under)}`);
+    assert(after.n === opened.n,
+      `the table holds ${after.n} rows against ${opened.n} before the paint`);
+    // A DRAFT ALWAYS CARRIES AN OPEN EDITOR: the tbody was rebuilt under it.
+    assert(after.open && after.focused,
+      `the editor is ${JSON.stringify([after.open, after.focused])} after the paint`);
+    // THE WRITE GOES BACK: a case that leaves a day on a fixture row hands the
+    // next `sort:scheduled' case a set it never agreed to.
+    await p.press("ESC");
+    await putPlanning(p, opened.under, "SCHEDULED", null);
+    return [`a /headlines answer rebuilt ${after.n} rows and the draft stood on `
+      + `at row ${after.at} under ${JSON.stringify(after.under)}, editor open`];
   } },
 
-// A CAPTURE IS COMMITTED OR IT NEVER WAS.  No file is created when the draft
-// opens, so there is nothing for ESC to undo: the born-at-open memory is
-// trivially empty, and this is what proves it against a real store.
-{ name: "ESC over a draft leaves nothing behind, on screen or on disk",
+// CAPTURE IS A ROW, STAGE 3: THE WALK.  The open cell stops every key it sees
+// from reaching the shell (`e.stopPropagation()'), so a draft's keys can be
+// bound nowhere but the editor -- `onCellKey' is the seam, asked at the head of
+// that keydown, and a `true' answer means the producer took the key.  `TAB'
+// walks the draft's cells IN THE ORDER THE HEADER DRAWS THEM, left to right and
+// wrapping -- state, priority, title, tags in this table, the dates skipped
+// because a captured row has no planning line -- `S-TAB' walks them back, and
+// the CLOSING cell's value is written into the phantom row BEFORE the next cell
+// opens, `closeCellEditor' redrawing the rows on its way out.
+{ name: "TAB walks the draft's cells and wraps, S-TAB walks them back",
+  async run(p, base) {
+    // UNDER A FILTER THAT PINS BOTH SCALARS, so the state and priority cells are
+    // SEEDED: what the editor offers there is a plain text input, and the seeded
+    // value is its INITIAL TEXT — which is how a cell walked through untouched
+    // keeps what it held.
+    await p.goto(`${base}/?q=${encodeURIComponent("state:TODO priority:A")}`);
+    await p.until(() => !!document.querySelector("#app tbody tr[data-id]"),
+                  "the filtered table to mount its row");
+    const rows = await p.eval(() =>
+      document.querySelectorAll("#app tbody tr[data-id]").length);
+    const order = await p.eval(() =>
+      [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key));
+    assert(JSON.stringify(order)
+             === JSON.stringify(["state", "priority", "title", "scheduled",
+                                 "deadline", "tag"]),
+      `the header draws ${JSON.stringify(order)}, which the walk below is written to`);
+    await p.press("+");
+    // THE TITLE OPENS FIRST whatever the header's order: a capture is a title,
+    // and the walk only leaves from there.
+    const open = await draftEditor(p, null, "the draft's title cell to open");
+    assert(open.col === "title", `the draft opened on ${JSON.stringify(open.col)}`);
+
+    // ONE KEY PER CALL, each gated on the reader having LEFT the cell they were
+    // in.  THE RING CROSSES TWO SURFACES: a date stop is the document's own box
+    // laid over the cell, every other cell the widget's in-cell editor, and
+    // `draftStop' reads whichever of the two is standing.
+    const walk = async (key, from, why) => { await p.press(key); return draftStop(p, from, why); };
+    const cellOf = (r, key) => (r.cells.find(([k]) => k === key) || [])[1];
+    // THE TWO DATE STOPS ARE ON THE RING, in the header's own order: a draft's
+    // date rides out in the capture's own `planning', so the cells it is typed
+    // into are the draft's like every other.
+    const toSched = await walk("TAB", "title", "TAB to move the editor off the title cell");
+    assert(toSched.col === "scheduled",
+      `TAB from the title reached ${JSON.stringify(toSched.col)} rather than the `
+      + `SCHEDULED cell, which is the next one the header draws`);
+    const toDead = await walk("TAB", "scheduled", "TAB to move the editor off the SCHEDULED cell");
+    assert(toDead.col === "deadline",
+      `TAB from SCHEDULED reached ${JSON.stringify(toDead.col)} rather than DEADLINE`);
+    const toTag = await walk("TAB", "deadline", "TAB to move the editor off the DEADLINE cell");
+    assert(toTag.col === "tag",
+      `TAB from DEADLINE reached ${JSON.stringify(toTag.col)} rather than the tags `
+      + `cell, which is the next one the header draws`);
+    const toState = await walk("TAB", "tag", "TAB at the last column to wrap the editor round");
+    assert(toState.col === "state",
+      `TAB from the tags cell reached ${JSON.stringify(toState.col)} rather than `
+      + `wrapping round to the first column`);
+    assert(toState.value === "TODO",
+      `the state cell opened on ${JSON.stringify(toState.value)} rather than the state `
+      + `the filter seeded it with`);
+    // TYPED WHERE THE WALK WILL LEAVE IT: the walk accumulates and posts nothing,
+    // so the value has to be in the phantom row before the redraw or the redraw
+    // shows it gone.
+    await p.typeKeys("NEXT");
+    const toPriority = await walk("TAB", "state", "TAB to move the editor off the state cell");
+    assert(toPriority.col === "priority",
+      `TAB from the state reached ${JSON.stringify(toPriority.col)}`);
+    assert(cellOf(toPriority, "state") === "NEXT",
+      `the state cell draws ${JSON.stringify(cellOf(toPriority, "state"))} after the `
+      + `walk left it, rather than what was typed there`);
+    // ORG'S OWN SPELLING, the one a landed row's priority cell wears.
+    assert(toPriority.value === "[#A]",
+      `the priority cell opened on ${JSON.stringify(toPriority.value)} rather than the `
+      + `[#A] the filter seeded it with`);
+    const backTitle = await walk("TAB", "priority", "TAB to bring the editor back to the title");
+    assert(backTitle.col === "title",
+      `TAB from the priority reached ${JSON.stringify(backTitle.col)} rather than the `
+      + `title, which is where the ring came round to`);
+    // AND THE TWO DATE CELLS WALKED THROUGH UNTOUCHED CARRY NOTHING: a draft
+    // opens with no planning line at all, so an untyped stop stays empty.
+    assert(cellOf(backTitle, "scheduled") === "" && cellOf(backTitle, "deadline") === "",
+      `the date cells draw ${JSON.stringify(cellOf(backTitle, "scheduled"))} and `
+      + `${JSON.stringify(cellOf(backTitle, "deadline"))} after the walk passed through`);
+    // WALKED THROUGH UNTOUCHED, and still wearing what it was seeded with.
+    assert(cellOf(backTitle, "priority") === "[#A]",
+      `the priority cell draws ${JSON.stringify(cellOf(backTitle, "priority"))} after the `
+      + `walk passed through it without a keystroke`);
+
+    const backPriority = await walk("S-TAB", "title", "S-TAB to walk back off the title");
+    assert(backPriority.col === "priority",
+      `S-TAB from the title reached ${JSON.stringify(backPriority.col)}`);
+    const backState = await walk("S-TAB", "priority", "S-TAB to walk back off the priority cell");
+    assert(backState.col === "state",
+      `S-TAB from the priority reached ${JSON.stringify(backState.col)}`);
+    // THE CELL'S VALUE IS THE INPUT'S INITIAL TEXT, so a cell the walk passes
+    // through untouched keeps what it held.
+    assert(backState.value === "NEXT",
+      `the state cell reopened on ${JSON.stringify(backState.value)} rather than the `
+      + `value the walk left in it`);
+    const backTag = await walk("S-TAB", "state", "S-TAB at the first column to wrap back round");
+    assert(backTag.col === "tag",
+      `S-TAB at the state cell reached ${JSON.stringify(backTag.col)} rather than `
+      + `wrapping back to the tags cell`);
+    assert(backTag.rows === rows + 1,
+      `the walk left ${backTag.rows} rows where the draft makes ${rows + 1}`);
+    return [`TAB walked title→scheduled→deadline→tag→state→priority→title, the `
+      + `header's own order, and S-TAB walked it back over ${backTag.rows} rows`,
+      `"NEXT" typed in the state cell drew as ${JSON.stringify(cellOf(toPriority, "state"))} `
+      + `and reopened as ${JSON.stringify(backState.value)}`];
+  } },
+
+// A DRAFT ALWAYS CARRIES AN OPEN EDITOR, and the open input takes every key it
+// sees: `n' and `p' are the table's own movement keys, and inside a draft's cell
+// they are two characters.  An editor-less draft would be a row with no id, no
+// span and no file that the movement keys could stand on.
+{ name: "n and p in an open draft cell type rather than walk",
   async run(p, base) {
     await tableUp(p, base);
-    const all = () => idsUnder(p, "");
-    const before = await all();
+    // POINT OFF THE HEAD FIRST, so a walk would have somewhere to show.
+    await p.press("n");
+    const before = await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const sel = document.querySelector("#app tbody tr.tv-sel");
+      return sel && rows.indexOf(sel) === 1 && rows.length > 2
+        ? { at: 1, id: sel.dataset.id, n: rows.length } : false;
+    }, "point to step onto the second of at least three rows");
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
 
-    // (1) OVER A DRAWN DRAFT: the STANDING LADDER, one rung per surface — the
-    // first ESC closes the box the landing opened and the second takes the
-    // sheet.  No command was sent at either.
-    await draftOver(p, base, "book");
-    await p.press("ESC");
-    await p.until(() => !document.getElementById("dpara").classList.contains("on")
-                    && document.getElementById("modal").className === "on",
-                  "ESC to close the landing's box and leave the sheet standing");
-    await p.press("ESC");
-    await p.until(() => document.getElementById("modal").className !== "on",
-                  "ESC to take the sheet over the templated draft");
-    const afterRich = await all();
-    assert(JSON.stringify(afterRich) === JSON.stringify(before),
-      `ESC over a templated draft moved the store: `
-      + `${JSON.stringify([before.length, afterRich.length])}`);
+    await p.press("n");
+    await p.press("p");
+    const typed = await p.until(() => {
+      const box = document.querySelector("#app tr.tv-producer input.tv-cell-edit");
+      if (!box || box.value.length !== 2) return false;
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const sel = document.querySelector("#app tbody tr.tv-sel");
+      return { value: box.value, start: box.selectionStart, end: box.selectionEnd,
+               id: sel ? sel.dataset.id : null, at: sel ? rows.indexOf(sel) : -1,
+               n: rows.length };
+    }, "the two keys to land in the title cell as text");
 
-    // (2) IN THE BARE DRAFT'S TITLE, where the box IS the capture: ESC drops the
-    // whole thing rather than coming back to a sheet standing over no file.
-    await draftOver(p, base, "");
-    await p.type("never captured");
+    assert(typed.value === "np",
+      `the title cell holds ${JSON.stringify(typed.value)} rather than the two characters`);
+    // POINT DID NOT MOVE: `n' would have stepped down a row and `p' back up.
+    assert(typed.id === before.id && typed.at === before.at,
+      `point is on ${JSON.stringify(typed.id)} at row ${typed.at}, against `
+      + `${JSON.stringify(before.id)} at row ${before.at}`);
+    // NOR DID THE SELECTION INSIDE THE BOX: the caret rests past what was typed,
+    // where an untouched `select()' would still cover the whole value.
+    assert(typed.start === 2 && typed.end === 2,
+      `the caret rests at ${typed.start}..${typed.end} rather than past the two characters`);
+    assert(typed.n === before.n + 1,
+      `the table holds ${typed.n} rows where the draft makes ${before.n + 1}`);
+    return [`n p typed ${JSON.stringify(typed.value)} into the draft's title, caret at `
+      + `${typed.end}, point unmoved on ${JSON.stringify(typed.id)} at row ${typed.at}`];
+  } },
+
+// `ESC' LEAVES THE ROWS BYTE-IDENTICAL.  No file was written, so nothing is put
+// back: the draft is spliced out whole and the count is the count it was.
+{ name: "ESC drops the draft and leaves the rows byte for byte",
+  async run(p, base) {
+    await tableUp(p, base);
+    // EVERY ROW AS IT IS DRAWN -- its id and its text, in order.
+    const read = () => p.eval(() =>
+      [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .map((tr) => [tr.dataset.id, tr.textContent]));
+    const before = await read();
+    assert(before.length > 1, `the fixture drew ${before.length} rows to compare`);
+
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    // TYPED, so what ESC drops is a draft carrying something.
+    await p.typeKeys("zzqq");
+    await p.until(() => {
+      const box = document.querySelector("#app tr.tv-producer input.tv-cell-edit");
+      return !!box && box.value === "zzqq";
+    }, "the jot to land in the draft's title cell");
+
     await p.press("ESC");
-    await p.until(() => document.getElementById("modal").className !== "on"
-                    && document.getElementById("dtitle").className !== "on",
-                  "ESC to take the title box and the sheet together");
-    const afterBare = await all();
-    assert(JSON.stringify(afterBare) === JSON.stringify(before),
-      `ESC in the bare title moved the store: `
-      + `${JSON.stringify([before.length, afterBare.length])}`);
-    const gone = await p.eval(async () => {
-      const r = await fetch("/headlines?limit=500&q=" + encodeURIComponent("never"));
-      const j = await r.json();
-      return ((j.view && j.view.rows) || j.rows || []).length;
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
+                     && !document.querySelector("#app input.tv-cell-edit"),
+                  "ESC to splice the draft out and take its editor with it");
+    const after = await read();
+    assert(JSON.stringify(after) === JSON.stringify(before),
+      `the rows came back as ${JSON.stringify(after)} against ${JSON.stringify(before)}`);
+    // AND THE TREE NEVER HEARD OF IT: a capture is committed or it never was.
+    const hits = await idsUnder(p, "zzqq");
+    assert(hits.length === 0,
+      `the store answers ${JSON.stringify(hits)} for the jot ESC dropped`);
+    return [`ESC dropped a typed draft and left ${after.length} rows byte for byte, the `
+      + `store answering nothing for the jot`];
+  } },
+
+// THE DRAFT'S CELLS ARE THE ONLY EDITABLE CELLS IN THE TABLE.  A per-COLUMN
+// `editable' cannot carry that: the main table mounts with no editable column
+// and no `onEdit' at all, so opting the columns in would open a dead editor on
+// every real row's double-click.
+{ name: "a landed row opens no cell editor, and the draft is the only row that does",
+  async run(p, base) {
+    await tableUp(p, base);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    const only = await p.eval(() => ({
+      all: document.querySelectorAll("#app input.tv-cell-edit").length,
+      inDraft: document.querySelectorAll("#app tr.tv-producer input.tv-cell-edit").length }));
+    assert(only.all === 1 && only.inDraft === 1,
+      `the table carries ${only.all} cell editors, ${only.inDraft} of them in the draft`);
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer"),
+                  "ESC to drop the draft again");
+
+    // A DOUBLE-CLICK ON A LANDED ROW'S TITLE CELL, the widget's other door into
+    // the editor.  The cell is NAMED rather than counted: the mark box is chrome
+    // and belongs to no column.
+    const target = await p.eval(() => {
+      const tr = document.querySelector("#app tbody tr[data-id]:not(.tv-producer)");
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const td = [...tr.querySelectorAll("td:not(.tv-box)")][keys.indexOf("title")];
+      td.id = "probe-cell";
+      return { id: tr.dataset.id, text: td.textContent };
     });
-    assert(gone === 0, `the typed title reached ${gone} row(s) all the same`);
+    await p.dblclick("#probe-cell");
+    const clicked = await p.until((a) => {
+      const td = document.getElementById("probe-cell");
+      const sel = document.querySelector("#app tbody tr.tv-sel");
+      // The click LANDED -- point moved onto the row it names -- and opened nothing.
+      return td && sel && sel.dataset.id === a.id
+        ? { editors: document.querySelectorAll("#app input.tv-cell-edit").length,
+            text: td.textContent } : false;
+    }, "the double-click to put point on the landed row", undefined, target);
+    assert(clicked.editors === 0,
+      `a double-click on a landed row opened ${clicked.editors} cell editors`);
+    assert(clicked.text === target.text,
+      `the cell reads ${JSON.stringify(clicked.text)} against `
+      + `${JSON.stringify(target.text)} before the click`);
 
-    // (3) AND AT THE TAG FIELD, before there is a draft at all.
-    await captureForm(p, base);
+    // AND `RET' ON IT MATERIALIZES, the landed row's own reading: the key reaches
+    // the shell because no editor is standing in its way.
+    await p.press("RET");
+    await p.until(() => !!document.querySelector("#modal.on"),
+                  "RET on the landed row to open its sheet");
+    const after = await p.eval(() =>
+      document.querySelectorAll("#app input.tv-cell-edit").length);
+    assert(after === 0, `RET on a landed row opened ${after} cell editors`);
+    return [`the draft carried the table's one cell editor; a double-click and RET on `
+      + `${JSON.stringify(target.id)} opened none, RET raising the sheet instead`];
+  } },
+
+// CAPTURE IS A ROW, STAGE 4: THE COMMIT.  `RET' from ANY cell folds the open
+// editor's value into the phantom and posts the whole capture through the one
+// command that mints a blob -- the same door `C-c C-c' used over the sheet, less
+// the body, the drawer and the planning line a row does not have.  THE ROW
+// ARRIVES BEHIND ITS OWN 200: `/command' publishes nothing, so the watch's nudge
+// is what reloads the store, and point is carried onto the id by `arriving'
+// (`arrived', 20-sheet.js) on the settle that first holds the row -- wherever
+// `sort:' puts it, which is the jump a capture with no SCHEDULED has to make.
+{ name: "RET from any cell captures, and point follows the row the server places",
+  async run(p, base) {
+    // ------- THE INBOX, from a view that pins no tag at all.
+    await tableUp(p, base);
+    const before = await p.eval(() =>
+      document.querySelectorAll("#app tbody tr[data-id]").length);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.typeKeys("zqinbox");
+    // COMMITTED FROM A CELL THAT IS NOT THE TITLE — the SCHEDULED stop, which is
+    // where the header's order puts TAB from the title and which opens the date
+    // BOX: `RET' from ANY cell captures, and the title it sends is the one the
+    // walk left in the row.  The stop is walked through untouched, so this
+    // capture carries no planning line.
+    await p.press("TAB");
+    await draftStop(p, "title", "TAB to carry the reader off the title cell");
+    await p.press("RET");
+
+    const inbox = await landedRow(p, "zqinbox", "the capture to reach the store");
+    const seen = await p.until((id) => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const at = rows.findIndex((r) => r.dataset.id === id);
+      return at === -1 ? false
+        : { n: rows.length, at, text: rows[at].textContent,
+            drafts: document.querySelectorAll("#app tbody tr.tv-producer").length,
+            editors: document.querySelectorAll("#app input.tv-cell-edit").length };
+    }, "the fresh row to reach the table", 20_000, inbox);
+    assert(seen.drafts === 0 && seen.editors === 0,
+      `the commit left ${seen.drafts} draft rows and ${seen.editors} cell editors behind`);
+    assert(seen.n === before + 1,
+      `the table went from ${before} rows to ${seen.n}, where one capture makes ${before + 1}`);
+    assert(/zqinbox/.test(seen.text),
+      `the landed row reads ${JSON.stringify(seen.text)}`);
+    // POINT FOLLOWS THE ROW THE SERVER PLACED, rather than the place it was typed at.
+    await p.until((id) => {
+      const sel = document.querySelector("#app tbody tr.tv-sel");
+      return !!sel && sel.dataset.id === id;
+    }, "point to land on the row the server placed", 20_000, inbox);
+    // AND THE TREE CARRIES IT: what a capture wrote is a fact about the file.
+    const jot = await fileSays(p, inbox, /^\* zqinbox$/m,
+                               "inbox.org to carry the headline the draft spelled");
+
+    // ------- THE BLOB, from a view whose FIRST tag names the destination.  The
+    // filter pins a state `book.org''s own `#+TODO: TODO READING | READ' lacks,
+    // so the wire never carries it and the blob lands stateless under its letter
+    // and its run.
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:book state:NEXT priority:A")}`);
+    await p.until(() => !!document.querySelector("#app table tbody"),
+                  "the filtered table to mount");
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await draftState(p, "", "the cycle's answer to clear the seeded state");
+    await p.typeKeys("zqbook");
+    await p.press("RET");
+
+    const blob = await landedRow(p, "zqbook", "the blob to reach the store");
+    const minted = await fileSays(p, blob, /^\* /m, "the blob's own file to carry the entry");
+    // ONE READING FOR ALL THREE: the letter, the run, and NO KEYWORD between the
+    // star and the letter -- which is the state the destination's cycle dropped.
+    const head = minted.split("\n")[0];
+    assert(head === "* [#A] zqbook :book:",
+      `the blob's headline is ${JSON.stringify(head)} rather than the priority, the `
+      + `title and the run with no keyword among them`);
+    const gone = await p.eval(() => ({
+      drafts: document.querySelectorAll("#app tbody tr.tv-producer").length,
+      editors: document.querySelectorAll("#app input.tv-cell-edit").length }));
+    assert(gone.drafts === 0 && gone.editors === 0,
+      `the blob commit left ${gone.drafts} draft rows and ${gone.editors} editors behind`);
+    return [`RET from the SCHEDULED cell captured ${JSON.stringify(jot.split("\n")[0])} into `
+      + `the inbox and point followed it to row ${seen.at} of ${seen.n}`,
+      `and under tag:book state:NEXT priority:A the blob landed as `
+      + `${JSON.stringify(head)}`];
+  } },
+
+// A SEEDED STATE MEETS THE DESTINATION'S OWN `#+TODO:' CYCLE, asked for at the
+// moment the row is drawn: a keyword that cycle lacks is DROPPED before the wire
+// ever carries it, SILENTLY -- the cell empties and nothing else is said.
+// `stated''s 400 is therefore exactly as strict as it is for every other caller,
+// the MCP tool included -- the page never asks the server to refuse what it can
+// drop itself.  THE BYTES ARE THE PROOF: the blob this commits carries no
+// keyword between its star and its title.
+{ name: "a state the destination's cycle lacks is dropped",
+  async run(p, base) {
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:book state:NEXT")}`);
+    await p.until(() => !!document.querySelector("#app table tbody"),
+                  "the filtered table to mount");
+    await p.press("+");
+    // THE ROW DRAWS AT ONCE AND THE CYCLE LANDS BEHIND IT: the draft opens
+    // wearing what the filter pinned, and the door's answer is what takes it off.
+    const seeded = await draftEditor(p, null, "the draft's title cell to open");
+    const cellOf = (r, key) => (r.cells.find(([k]) => k === key) || [])[1];
+    await draftState(p, "", "the cycle's answer to empty the state cell");
+    const after = await p.eval(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+      return { cells: keys.map((k, i) => [k, tds[i].textContent]),
+               open: !!tr.querySelector("input.tv-cell-edit") };
+    });
+    assert(cellOf(after, "state") === "",
+      `the state cell still reads ${JSON.stringify(cellOf(after, "state"))} after the `
+      + `cycle answered, where book's own chain is TODO READING | READ`);
+    // THE DESTINATION IS UNMOVED and the run it seeded stands — the widget draws
+    // an org run as its chips, so `:book:' reads as the one name in it — and only
+    // the keyword went.
+    assert(cellOf(after, "tag") === "book",
+      `the tag run reads ${JSON.stringify(cellOf(after, "tag"))}`);
+    assert(after.open,
+      `the draft lost its editor when the cycle's answer landed`);
+
+    // AND THE WIRE NEVER CARRIED IT: the committed blob's headline opens on its
+    // title, with no keyword the destination's cycle would have had to refuse.
+    await p.typeKeys("zqdrop");
+    await p.press("RET");
+    const blob = await landedRow(p, "zqdrop", "the blob to reach the store");
+    const head = (await fileSays(p, blob, /^\* /m, "the blob's own file to carry the entry"))
+                   .split("\n")[0];
+    assert(head === "* zqdrop :book:",
+      `the blob's headline is ${JSON.stringify(head)} rather than the title and the `
+      + `run with no keyword among them`);
+    return [`the draft opened wearing ${JSON.stringify(cellOf(seeded, "state"))} and the `
+      + `cycle left ${JSON.stringify(cellOf(after, "state"))}, the blob landing as `
+      + `${JSON.stringify(head)}`];
+  } },
+
+// CAPTURE IS A ROW, STAGE 5: THE REFUSAL REFUSES IN PLACE.  `RET' on a title
+// that holds nothing keeps the draft STANDING -- a row that cannot commit is a
+// row the reader would otherwise have to retype -- and the editor comes back to
+// the title with its text selected.  The word RIDES THE STRIP under the open
+// cell, the dress is the accent edge and the dashed rule turning `--g-warn',
+// and the next CONTENT keystroke takes both back; a movement leaves them, and
+// only `ESC' dismisses.
+{ name: "RET on an empty title keeps the draft and says what it wants",
+  async run(p, base) {
+    await tableUp(p, base);
+    const before = await p.eval(() =>
+      document.querySelectorAll("#app tbody tr[data-id]").length);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    // REFUSED FROM A STOP THAT IS NOT THE TITLE, so the come-back is a MOVE.
+    await p.press("TAB");
+    await draftStop(p, "title", "TAB to carry the reader off the title cell");
+    await p.press("RET");
+
+    const refused = await p.until(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      const box = tr && tr.querySelector("input.tv-cell-edit");
+      if (!box || document.activeElement !== box) return false;
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+      const at = keys[tds.indexOf(box.closest("td"))];
+      // THE EDGE IS TRANSITIONED (`transition: box-shadow', table-view's own
+      // sheet), so it is WAITED OUT rather than read once: a reading taken the
+      // moment the class lands still shows the colour it is moving off.
+      const want = g("warn");
+      const edge = getComputedStyle(tr.children[0]).boxShadow;
+      return at === "title" && edge.indexOf(want) !== -1
+        ? { n: document.querySelectorAll("#app tbody tr[data-id]").length,
+            pill: document.getElementById("echo").textContent,
+            cells: keys.map((k, i) => [k, tds[i].textContent]),
+            warn: tr.classList.contains("tv-refused"),
+            rule: getComputedStyle(tds[0]).borderTopColor, edge, want,
+            sel: [box.selectionStart, box.selectionEnd, box.value.length] }
+        : false;
+    }, "the refusal to bring the editor back to the title and dress the row warn");
+
+    assert(refused.n === before + 1,
+      `the table holds ${refused.n} rows where the standing draft makes ${before + 1}`);
+    // THE WORD IS THE ECHO PILL'S, and it is the shipped sentence: the refusal is
+    // about the ROW, so it belongs to no column and the cells are left as they are.
+    assert(/nothing to capture/.test(refused.pill),
+      `the pill reads ${JSON.stringify(refused.pill)} rather than the shipped word`);
+    assert(refused.cells.every(([, text]) => text !== "nothing to capture"),
+      `the refusal drew into a cell as well: ${JSON.stringify(refused.cells)}`);
+    assert(refused.warn && refused.rule === refused.want,
+      `the refused row wears ${JSON.stringify([refused.warn, refused.rule, refused.edge])} `
+      + `where the dashed rule and the accent edge must both be ${refused.want}`);
+    // THE TEXT IS SELECTED, so one keystroke replaces the whole of what stood there.
+    assert(refused.sel[0] === 0 && refused.sel[1] === refused.sel[2],
+      `the title opened selected ${refused.sel[0]}..${refused.sel[1]} of ${refused.sel[2]}`);
+
+    // A MOVEMENT LEAVES THE DRESS: the reader has not answered the refusal yet.
+    await p.press("<left>");
+    const moved = await p.eval(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      return { warn: tr.classList.contains("tv-refused") };
+    });
+    assert(moved.warn, `a movement key took the refusal's dress down`);
+
+    // AND THE NEXT CONTENT KEYSTROKE TAKES THE DRESS BACK.
+    await p.typeKeys("q");
+    const cleared = await p.until(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      const box = tr && tr.querySelector("input.tv-cell-edit");
+      if (!box) return false;
+      const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+      const want = g("warn");
+      const edge = getComputedStyle(tr.children[0]).boxShadow;
+      return !tr.classList.contains("tv-refused") && edge.indexOf(want) === -1
+        ? { value: box.value, edge, want,
+            rule: getComputedStyle(tds[0]).borderTopColor }
+        : false;
+    }, "the next content keystroke to clear the dress");
+    assert(cleared.value === "q",
+      `the title cell holds ${JSON.stringify(cleared.value)} after the keystroke`);
+    assert(cleared.rule !== cleared.want,
+      `the dashed rule is still ${cleared.rule} with the refusal answered`);
+
+    // ONLY `ESC' DISMISSES, and it leaves the count it found.
     await p.press("ESC");
-    await p.until(() => document.getElementById("capture").className !== "on"
-                    && document.getElementById("modal").className !== "on",
-                  "ESC to take the tag field with no sheet behind it");
-    const end = await all();
-    assert(JSON.stringify(end) === JSON.stringify(before),
-      `the three escapes left ${end.length} rows against ${before.length}`);
-    return [`three escapes — over the draft, in the bare title, at the tag `
-      + `field — left the store at ${before.length} rows and nothing on screen`];
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
+                     && !document.querySelector("#app input.tv-cell-edit"),
+                  "ESC to drop the refused draft whole");
+    const after = await p.eval(() =>
+      document.querySelectorAll("#app tbody tr[data-id]").length);
+    assert(after === before,
+      `ESC left ${after} rows where the table held ${before} before the draft`);
+    return [`RET on an empty title kept ${refused.n} rows, said `
+      + `${JSON.stringify(refused.pill)} and dressed the row ${refused.want}`,
+      `a movement left it, "q" cleared the dress, and ESC left ${after} rows`];
   } },
 
 // AN EMPTY TITLE DREW NO CELL, so the title edit fell back to the whole line and
 // the box swallowed the star, the state, the priority and the tag run it is
-// supposed to stand among.  The capture surfaced it — a fresh draft has no title
-// by definition — but the bug is the SHEET'S: any headline whose title is empty
-// wore it.  The headline now always draws its title cell, and the box stands in
-// that slot on both.
+// supposed to stand among.  A capture draft surfaced it, but the bug is the
+// SHEET'S: any headline whose title is empty wore it.  The headline now always
+// draws its title cell, and the box stands in that slot.
 { name: "an empty title still has a slot, and its edit stands tight in it",
   async run(p, base) {
     // `placeEdit' LAYS THE BOX A TURN AFTER THE RAISE: read before that and it
@@ -4855,43 +5530,10 @@ export default [
           + `x${s.edit.x + s.edit.w}`);
     };
 
-    // ------- ON A DRAFT, which is where a reader meets it: the filter pins a
-    // priority, so the draft is RICH and the box that opens is not the jot's.
+    // ON A REAL DOC whose title is empty, which is where a reader meets the bug:
+    // the row is made through the capture door and then emptied through the
+    // commit door, so nothing here fabricates markup.
     await tableUp(p, base);
-    await p.goto(`${base}/?q=${encodeURIComponent("priority:[#A]")}`);
-    await p.until(() => !!document.querySelector("#app table tbody tr"),
-                  "the filtered table");
-    await p.press("+");
-    await p.until(() => document.getElementById("capture").className === "on"
-                    && document.activeElement === document.getElementById("ktag"),
-                  "the tag field");
-    await p.eval(() => {
-      const f = document.getElementById("ktag");
-      f.value = "bicycle";
-      f.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await p.press("RET");
-    await p.until(() => !!document.querySelector("#modal.on")
-                    && document.getElementById("capture").className !== "on",
-                  "the sheet over the bicycle draft");
-    await titlePlaced(p, "the title box over the draft's empty slot");
-    const draft = await p.eval(read);
-    // THE WHOLE OF WHAT THE READER LOST: the priority the filter lent and the
-    // destination they typed both stand, around an editable slot.
-    assert(/\[#A\]/.test(draft.head) && /:bicycle:/.test(draft.head),
-      `the draft drew ${JSON.stringify(draft.head)} — the lent priority and the `
-      + `destination must both be on it`);
-    tight(draft, "the draft");
-    await p.press("ESC");
-    await p.until(() => document.getElementById("dtitle").className !== "on",
-                  "ESC to close the draft's title box");
-    await p.press("ESC");
-    await p.until(() => document.getElementById("modal").className !== "on",
-                  "ESC to drop the capture");
-
-    // ------- AND ON A REAL DOC whose title is empty, which is the same bug and
-    // was there before capture was: the row is made through the capture door and
-    // then emptied through the commit door, so nothing here fabricates markup.
     const id = await p.eval(async () => {
       const made = await (await fetch("/command", {
         method: "POST", headers: { "content-type": "application/json" },
@@ -4931,10 +5573,1640 @@ export default [
     assert(/TODO/.test(real.head),
       `the row drew ${JSON.stringify(real.head)} — its state must still stand`);
     tight(real, "a real doc with an empty title");
-    return [`the draft drew ${JSON.stringify(draft.head)}: slot x${draft.title.x}`
-      + ` w${draft.title.w}, box x${draft.edit.x} w${draft.edit.w} inside a `
-      + `${draft.row.w}px row; the real doc drew ${JSON.stringify(real.head)}: `
-      + `slot x${real.title.x} w${real.title.w}, box x${real.edit.x} w${real.edit.w}`];
+    return [`the real doc drew ${JSON.stringify(real.head)}: slot x${real.title.x}`
+      + ` w${real.title.w}, box x${real.edit.x} w${real.edit.w} inside a `
+      + `${real.row.w}px row`];
+  } },
+
+// THE DATE WIDGET LIVES IN THE CELL (PROPOSAL 2026-09-12, as reviewed).  A date
+// is edited where it is DRAWN, with THE WIDGET THE MATERIAL DOCUMENT HAS: the
+// `#ddate' box -- field, ghost, offers, step keys, RET/ESC -- laid over the
+// table's cell as an OVERLAY.  ONE WIDGET AND ONE CODE PATH, so the cell cannot
+// lack what the pane has.  THE PHRASE IS WHAT TRAVELS: the server resolves it
+// once, against its own clock (docs/invariants.md).
+{ name: "RET on a SCHEDULED cell opens the date box over the cell and sends the phrase",
+  async run(p, base) {
+    const ROW = "drv-unset-one", WAS = "<2026-09-02 Wed>";
+    await oneRow(p, base, "title:undated", ROW);
+    await watchPosts(p);
+    const at = await columnTo(p, "scheduled", "RET over a date cell");
+    const cell = await p.eval((col) => {
+      const tr = document.querySelector("#app tbody tr.tv-sel");
+      const td = [...tr.querySelectorAll("td:not(.tv-box)")][col];
+      const r = td.getBoundingClientRect();
+      return { x: Math.round(r.left), y: Math.round(r.top),
+               w: Math.round(r.width), h: Math.round(r.height) };
+    }, at);
+    await p.press("RET");
+    const open = await dateBox(p, "RET to open the date box over the cell");
+    // ON THE CELL'S OWN ISO DAY, WHOLLY SELECTED: one keystroke replaces it, and
+    // `RET' with none recommits it -- org-read-date's own default.
+    assert(open.value === "2026-09-02",
+      `the box opened on ${JSON.stringify(open.value)} rather than the cell's own day`);
+    assert(open.sel[0] === 0 && open.sel[1] === open.value.length,
+      `the opening value is selected ${JSON.stringify(open.sel)} of ${open.value.length}`);
+    // AND `RET' DID NOT MATERIALIZE: over a date column the key is the cell's.
+    assert(!open.sheet, "RET over the date cell raised the sheet as well");
+    // IT STANDS IN THE CELL'S OWN PLACE and no in-cell editor was opened under
+    // it: the box takes the cell's TOP, its LEFT and its HEIGHT, and grows right
+    // past the cell's edge -- the ghost runs on over the neighbour as a tail.
+    assert(open.overCell && open.editors === 0,
+      `the box is dressed ${JSON.stringify(open.overCell)} with ${open.editors} `
+      + "in-cell editors under it");
+    assert(Math.abs(open.rect.x - cell.x) <= 1 && Math.abs(open.rect.y - cell.y) <= 1,
+      `the box stands at x${open.rect.x} y${open.rect.y} against the cell's own `
+      + `x${cell.x} y${cell.y}`);
+    assert(open.rect.w >= cell.w - 1 && Math.abs(open.rect.h - cell.h) <= 1,
+      `the box is ${open.rect.w}x${open.rect.h} against the cell's `
+      + `${cell.w}x${cell.h} — it takes the cell's height and the cell's width `
+      + "as its floor");
+    // AND IT IS NOT FLIPPED here: the row is nowhere near the viewport's foot.
+    assert(!open.flipped, "the box flipped its offers over a row in mid-table");
+
+    // THE ENGLISH PHRASE, previewed in the pane's own ghost.
+    await p.typeKeys("18 aug");
+    const Y = new Date().getFullYear();   // `18 aug''s elided year is the clock's
+    const STAMP = orgStamp(`${Y}-08-18`);
+    const drew = await ghostSays(p, ` → ${STAMP}`,
+      "the ghost to read the day the phrase resolves to");
+    assert(drew.value === "18 aug" && !drew.bad,
+      `the field holds ${JSON.stringify(drew.value)} under a ghost reading `
+      + JSON.stringify(drew.said));
+
+    await p.press("RET");
+    const landed = await p.until(async (a) => {
+      const h = await (await fetch(`/headline?id=${a.row}`)).json();
+      const on = ((h.planning || []).find(([k]) => k === "SCHEDULED") || [])[1];
+      return on && on !== a.was ? on : false;
+    }, "the phrase to reach the planning line", 15000, { row: ROW, was: WAS });
+    assert(landed === STAMP,
+      `the server wrote ${JSON.stringify(landed)} where the ghost promised `
+      + JSON.stringify(STAMP));
+    // WHAT WENT DOWN THE WIRE IS THE BYTES THAT STOOD IN THE FIELD.  The stamp
+    // the server wrote is the same either way, so the BODY is the evidence: the
+    // ghost is ink, and the phrase is what travels.
+    const posts = await postsSeen(p);
+    assert(posts.length === 1 && posts[0].name === "set-planning",
+      `the cell posted ${JSON.stringify(posts)}`);
+    assert(JSON.stringify(posts[0].ids) === JSON.stringify([ROW]),
+      `over ${JSON.stringify(posts[0].ids)} rather than the row at point`);
+    assert(posts[0].args.keyword === "SCHEDULED" && posts[0].args.date === "18 aug",
+      `carrying ${JSON.stringify(posts[0].args)} rather than the phrase that was typed`);
+    // AND THE CELL WAITS FOR THE SETTLE: the wire's cell is ISO, so the box
+    // paints no stamp of its own and the reload brings the day.
+    const drawn = await cellReads(p, ROW, "scheduled", `${Y}-08-18`,
+      "the settle to bring the ISO day into the cell");
+    assert(drawn.editors === 0 && drawn.boxes === 0,
+      `the commit left ${drawn.editors} editors and ${drawn.boxes} boxes behind`);
+
+    await putPlanning(p, ROW, "SCHEDULED", WAS);
+    return [`RET opened ${JSON.stringify(open.value)} wholly selected at x${open.rect.x}`
+      + ` under the cell, the ghost read ${JSON.stringify(drew.said)}, the wire carried `
+      + `${JSON.stringify(posts[0].args.date)} and the file took ${JSON.stringify(landed)}`];
+  } },
+
+// `TAB' IS THE RESOLVER, AND IT RESOLVES INTO THE SURFACE'S OWN SPELLING.  With
+// no offer left to take, the key writes the reading into the field -- over a
+// TABLE CELL as the ISO day the cell itself draws (`isoStamp', Query.hs), so what
+// stands in the box is what the reader will see there once the settle brings it;
+// the pane's box keeps org's stamp, which is what its planning slot draws.  A
+// CELL HAS NO RING, so the resolve is the whole press and the box stays.  THE
+// WIRE LAW IS UNTOUCHED: `RET' still sends the field's own bytes, and the server
+// reads a bare ISO day exactly as it reads a stamp
+// (test/fixtures/english-dates.json).
+{ name: "TAB in a cell's date box resolves the phrase in place",
+  async run(p, base) {
+    const ROW = "drv-unset-one", WAS = "<2026-09-02 Wed>";
+    await oneRow(p, base, "title:undated", ROW);
+    await watchPosts(p);
+    // THE READER'S OWN DAY, read the way the box reads it: `today' is the one
+    // phrase whose answer moves with the calendar the suite runs on.
+    const TODAY = await p.eval(() => {
+      const n = new Date(), pad = (x) => (x < 10 ? "0" : "") + x;
+      return `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`;
+    });
+    const STAMP = orgStamp(TODAY);
+    await columnTo(p, "scheduled", "TAB over a cell's box");
+    await p.press("RET");
+    await dateBox(p, "RET to open the date box over the cell");
+    await p.typeKeys("today");
+    const drew = await ghostSays(p, ` → ${STAMP}`, "the ghost to read the clock day");
+    assert(drew.value === "today",
+      `the field holds ${JSON.stringify(drew.value)} under the ghost`);
+
+    await p.press("TAB");
+    // THE CELL'S OWN SPELLING: the ISO day, which is the very text the cell under
+    // the box draws.  The ghost stays lit and reads the STAMP the file will take
+    // — the field says what the reader will see, the ghost what will be written.
+    const took = await ghostSays(p, ` → ${STAMP}`,
+      "TAB to resolve the phrase into the cell's own spelling");
+    assert(took.value === TODAY,
+      `TAB left ${JSON.stringify(took.value)} rather than the ISO day `
+      + JSON.stringify(TODAY));
+    const still = await dateBox(p, "the box to stand on after the resolve");
+    assert(still.overCell && still.sel[0] === TODAY.length
+             && still.sel[1] === TODAY.length,
+      `the box stands ${JSON.stringify([still.overCell, still.sel])} with the caret `
+      + "behind the day");
+    assert((await postsSeen(p)).length === 0,
+      `the resolve posted ${JSON.stringify(await postsSeen(p))}`);
+
+    await p.press("RET");
+    const landed = await p.until(async (a) => {
+      const h = await (await fetch(`/headline?id=${a.row}`)).json();
+      const on = ((h.planning || []).find(([k]) => k === "SCHEDULED") || [])[1];
+      return on && on !== a.was ? on : false;
+    }, "the resolved day to reach the planning line", 15000, { row: ROW, was: WAS });
+    assert(landed === STAMP, `the file took ${JSON.stringify(landed)}`);
+    const posts = await postsSeen(p);
+    assert(posts.length === 1 && posts[0].args.date === TODAY,
+      `the wire carried ${JSON.stringify(posts[0] && posts[0].args)} rather than the `
+      + "bytes that stood in the field");
+    // AND THE CELL DRAWS WHAT THE FIELD HELD, byte for byte, once the settle
+    // brings the day — which is the whole reason the spelling is the cell's.
+    await cellReads(p, ROW, "scheduled", TODAY,
+                    "the settle to bring the ISO day into the cell");
+
+    await putPlanning(p, ROW, "SCHEDULED", WAS);
+    return [`"today" resolved to ${JSON.stringify(took.value)} in place, the wire carried `
+      + `${JSON.stringify(posts[0].args.date)} and the file took ${JSON.stringify(landed)}`];
+  } },
+
+// THE REVIEW'S WHOLE POINT.  The strip that shipped first had no offers -- the
+// menu is the pane's box, and a cell had no room for it -- so completion was the
+// one thing the cell lacked.  With the pane's own box laid over the cell, the
+// menu comes with it: `18 au' offers `18 august' and TAB takes it.
+{ name: "the offers complete a month word in the cell's box",
+  async run(p, base) {
+    const ROW = "drv-plan";
+    await oneRow(p, base, "title:Ship", ROW);
+    await watchPosts(p);
+    const before = await planningOf(p, ROW);
+    await columnTo(p, "scheduled", "the offers under a cell's box");
+    await p.press("RET");
+    await dateBox(p, "RET to open the date box over the cell");
+    // A BARE MONTH IS REFUSED BY THE GRAMMAR, so the month words wait for a day:
+    // `18 au' is a day with a month halfway typed, which is what completes.
+    await p.typeKeys("18 au");
+    const offered = await p.until(() => {
+      const menu = document.getElementById("dwoffer");
+      if (!menu.classList.contains("on")) return false;
+      const words = [...menu.children].map((c) => c.querySelector(".dow").textContent);
+      return words.indexOf("18 august") !== -1
+        ? { words, at: [...menu.children].findIndex((c) => /(^| )dat( |$)/.test(c.className)),
+            hint: [...menu.children]
+              .find((c) => c.querySelector(".dow").textContent === "18 august")
+              .querySelector(".dot").textContent }
+        : false;
+    }, "the month word to be offered under the cell's box");
+    // THE READER'S OWN LINE LEADS AND POINT STANDS ON IT, which is the pane's
+    // own rule (`the offers resolve, and a finished term carries none').
+    assert(offered.words[0] === "18 au" && offered.at === 0,
+      `the offers stand ${JSON.stringify(offered.words)} with point on ${offered.at}`);
+    // EACH OFFER IS HINTED WITH THE DAY IT LANDS, which is the pane's own dress.
+    const Y = new Date().getFullYear();
+    assert(offered.hint === orgStamp(`${Y}-08-18`),
+      `the offer is hinted ${JSON.stringify(offered.hint)}`);
+
+    // THE WALK MOVES POINT ONTO THE WORD, and TAB takes it into the field —
+    // posting nothing, an offer being a completion and not a commit.
+    await p.press("<down>");
+    await p.until(() => {
+      const menu = document.getElementById("dwoffer");
+      const at = [...menu.children].findIndex((c) => /(^| )dat( |$)/.test(c.className));
+      return at === 1;
+    }, "the walk to move point onto the month word");
+    await p.press("TAB");
+    const took = await ghostSays(p, ` → ${orgStamp(`${Y}-08-18`)}`,
+      "TAB to take the offer into the field");
+    assert(took.value === "18 august",
+      `TAB left ${JSON.stringify(took.value)} in the field`);
+    assert((await postsSeen(p)).length === 0,
+      `taking an offer posted ${JSON.stringify(await postsSeen(p))}`);
+
+    await p.press("ESC");
+    await boxGone(p, "ESC to take the completed box away");
+    assert(JSON.stringify(await planningOf(p, ROW)) === JSON.stringify(before),
+      "the completion changed the planning line");
+    return [`"18 au" offered ${JSON.stringify(offered.words)} hinted `
+      + `${JSON.stringify(offered.hint)}, and TAB took ${JSON.stringify(took.value)}`];
+  } },
+
+// THE FLIP IS THE OFFERS' ALONE.  The box IS the cell and never moves, so where
+// the window's foot leaves the menu no room the menu turns over and hangs ABOVE
+// the box instead of running off the screen (spikes/2026-09-12-date-overlay, B).
+// DRIVEN AT BOTH ENDS OF ONE VIEW: a row in the middle keeps the menu below it,
+// and the last row -- which `G' reaches and which sits at the foot by
+// definition -- turns it over.
+{ name: "on the bottom row the offers flip above the box", async run(p, base) {
+    await p.goto(`${base}/?q=`);
+    await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      return rows.length > 6 && !!document.querySelector("#app tbody tr.tv-sel");
+    }, "the table to draw with point on a row");
+    // THE LOG STRIP IS WHAT DECIDES WHETHER THE OFFERS FIT: it is a stored
+    // preference (`--g-logn', the settings sheet's own property) and at its
+    // default it leaves more room under the table than the menu wants.  Set to
+    // one line — which a reader can do — the last row reaches the foot and the
+    // flip is owed.  The fixture is 23 rows, so a taller tree cannot be leant on.
+    await p.eval(() => document.getElementById("log").style.setProperty("--g-logn", "1"));
+
+    /** The box, the menu and the room under the cell, as one reading. */
+    const stack = (why) => p.until(() => {
+      const box = document.getElementById("ddate");
+      const menu = document.getElementById("dwoffer");
+      if (!box.classList.contains("on") || !menu.classList.contains("on")) return false;
+      const b = box.getBoundingClientRect(), m = menu.getBoundingClientRect();
+      if (!m.height) return false;
+      // THE CELL THE BOX COVERS, by the edge they share: the box IS that cell,
+      // so its own rect is what the flip must leave alone.
+      const tr = document.querySelector("#app tbody tr.tv-sel");
+      const td = tr && [...tr.querySelectorAll("td:not(.tv-box)")]
+        .find((c) => Math.abs(c.getBoundingClientRect().left - b.left) <= 1);
+      const cell = td && td.getBoundingClientRect();
+      return { flipped: box.classList.contains("flipped"), words: menu.children.length,
+               boxTop: Math.round(b.top), boxBottom: Math.round(b.bottom),
+               cellTop: cell ? Math.round(cell.top) : null,
+               cellBottom: cell ? Math.round(cell.bottom) : null,
+               menuTop: Math.round(m.top), menuBottom: Math.round(m.bottom),
+               menuH: Math.round(m.height), foot: window.innerHeight };
+    }, why);
+
+    // ── THE MENU HANGS BELOW wherever there is room for it.
+    await columnTo(p, "scheduled", "the menu under a row in mid-table");
+    await p.press("RET");
+    await dateBox(p, "RET to open the box in mid-table");
+    // AN EMPTY FIELD OFFERS THE WHOLE VOCABULARY, and the opening value is wholly
+    // selected -- so one `DEL' puts the menu up whatever the cell held.
+    await p.press("DEL");
+    const below = await stack("the offers to hang under the box in mid-table");
+    assert(!below.flipped && below.menuTop >= below.boxBottom - 1,
+      `in mid-table the menu stands ${below.menuTop}..${below.menuBottom} against a `
+      + `box ending at ${below.boxBottom} (flipped: ${below.flipped})`);
+    await p.press("ESC");
+    await boxGone(p, "ESC to close the mid-table box");
+
+    // ── AND TURNS OVER ON THE LAST ROW.  `G' is `last-row', the table's own key.
+    await p.press("G");
+    const last = await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const sel = document.querySelector("#app tbody tr.tv-sel");
+      return sel && rows.indexOf(sel) === rows.length - 1
+        ? { id: sel.dataset.id, n: rows.length,
+            bottom: Math.round(sel.getBoundingClientRect().bottom),
+            foot: window.innerHeight } : false;
+    }, "G to put point on the last drawn row");
+    // THE SCROLL EASES (`tick', assets/table-view.js), so the row is still moving
+    // a frame after the key: waited out by two readings that agree, or the box is
+    // laid over a rect the row has since left.
+    await p.until(() => {
+      const tr = document.querySelector("#app tbody tr.tv-sel");
+      if (!tr) return false;
+      const y = Math.round(tr.getBoundingClientRect().top);
+      const was = window["__restY"];
+      window["__restY"] = y;
+      return was === y ? { y } : false;
+    }, "the eased scroll to come to rest on the last row");
+    await p.press("RET");
+    await dateBox(p, "RET to open the box over the last row's cell");
+    await p.press("DEL");
+    const over = await stack("the offers to turn over above the box");
+    // THE PREMISE, MEASURED AT THE BOX rather than at the row it was aimed from:
+    // the table scrolls the last row into view behind the key, so a rect read
+    // before the open is a rect the open no longer stands on.  The menu plus the
+    // box's own 8px margin off the window's edge does not fit under it.
+    assert(over.foot - over.boxBottom < over.menuH + 8,
+      `the box ends ${over.foot - over.boxBottom}px off the foot and the menu is `
+      + `${over.menuH}px — it would have fitted, so this case proves nothing`);
+    assert(over.flipped && over.words > 0,
+      `the menu stands ${over.menuTop}..${over.menuBottom} unflipped over ${over.words} offers`);
+    // ABOVE THE BOX, and inside the window: the whole point of turning over.
+    assert(over.menuBottom <= over.boxTop + 1,
+      `the menu runs ${over.menuTop}..${over.menuBottom} where the box starts at `
+      + `${over.boxTop} — it did not turn over`);
+    assert(over.menuTop >= 0 && over.menuBottom <= over.foot,
+      `the flipped menu stands ${over.menuTop}..${over.menuBottom} in a ${over.foot}px window`);
+    // AND THE BOX ITSELF DID NOT MOVE FOR IT: it still covers the cell exactly,
+    // which is the whole reason only the menu turns over.
+    assert(Math.abs(over.boxTop - over.cellTop) <= 1
+             && Math.abs(over.boxBottom - over.cellBottom) <= 1,
+      `the flipped box stands ${over.boxTop}..${over.boxBottom} over a cell at `
+      + `${over.cellTop}..${over.cellBottom}`);
+
+    await p.press("ESC");
+    await boxGone(p, "ESC to close the flipped box");
+    return [`in mid-table the ${below.words} offers hung ${below.menuTop}..`
+      + `${below.menuBottom} under a box ending at ${below.boxBottom}`,
+      `on the last of ${last.n} rows, its box ${over.foot - over.boxBottom}px off the `
+      + `foot, the ${over.menuH}px menu turned over to ${over.menuTop}..`
+      + `${over.menuBottom} above a box that never moved from ${over.boxTop}`];
+  } },
+
+{ name: "an unreadable date refuses in the box",
+  async run(p, base) {
+    const ROW = "drv-plan";
+    await oneRow(p, base, "title:Ship", ROW);
+    await watchPosts(p);
+    const before = await planningOf(p, ROW);
+    await columnTo(p, "scheduled", "a phrase no reading takes");
+    await p.press("RET");
+    await dateBox(p, "RET to open the date box");
+    // `18 au' IS A MONTH HALFWAY TYPED and says nothing; `18 auk' is a refusal
+    // no further character rescues, and it is the reader's own word.
+    await p.typeKeys("18 auk");
+    const bad = await ghostSays(p, " ✗ not a date",
+      "the ghost to refuse the phrase in the refusal's own word");
+    assert(bad.bad,
+      `the ghost reads ${JSON.stringify(bad.said)} without the refusal's own ink`);
+
+    // AND `RET' REFUSES IN PLACE: the box stands where the phrase can be fixed,
+    // the ghost keeps the mark, and no command is posted.
+    await p.press("RET");
+    const held = await dateBox(p, "the box to stand through the refused RET");
+    assert(held.value === "18 auk" && held.ghost === " ✗ not a date" && held.bad,
+      `the refused RET left ${JSON.stringify([held.value, held.ghost, held.bad])}`);
+    assert((await postsSeen(p)).length === 0,
+      `a phrase the reader cannot spell reached the server: `
+      + `${JSON.stringify(await postsSeen(p))}`);
+    // THE PILL CARRIES THE LONG WORD, the one the reader's own grammar gives.
+    const pill = await p.eval(() => document.getElementById("echo").textContent);
+    assert(pill.indexOf("→ org-glance-overview:schedule (not a date — try") !== -1,
+      `the pill says ${JSON.stringify(pill)}`);
+
+    await p.press("ESC");
+    await boxGone(p, "ESC to close the refused box");
+    assert(JSON.stringify(await planningOf(p, ROW)) === JSON.stringify(before),
+      "the refused phrase changed the planning line");
+    return [`"18 auk" drew ${JSON.stringify(bad.said)} in the refusal's ink, RET kept `
+      + `the box open, posted nothing and said ${JSON.stringify(pill.slice(0, 60))}`];
+  } },
+
+{ name: "S-<right> steps the box a day",
+  async run(p, base) {
+    const ROW = "drv-plan";
+    await oneRow(p, base, "title:Ship", ROW);
+    await watchPosts(p);
+    const before = await planningOf(p, ROW);
+    await columnTo(p, "deadline", "the step over the DEADLINE cell");
+    await p.press("RET");
+    const open = await dateBox(p, "RET to open the date box on the DEADLINE cell");
+    assert(open.value === "2026-08-20",
+      `the box opened on ${JSON.stringify(open.value)}`);
+    // TWO GRAINS, org-read-date's own: the sideways pair walks a DAY and the
+    // upright pair a WEEK, and the ghost follows what stands in the field.
+    const step = async (key, want, why) => {
+      await p.press(key);
+      const seen = await ghostSays(p, ` → ${orgStamp(want)}`, why);
+      assert(seen.value === want,
+        `${key} left ${JSON.stringify(seen.value)} where the day is ${JSON.stringify(want)}`);
+      return seen;
+    };
+    await step("S-<right>", "2026-08-21", "the ghost a day on");
+    await step("S-<down>", "2026-08-28", "the ghost a week on");
+    await step("S-<up>", "2026-08-21", "the ghost a week back");
+    const back = await step("S-<left>", "2026-08-20", "the ghost back where it began");
+
+    await p.press("ESC");
+    await boxGone(p, "ESC to close the walked box");
+    assert((await postsSeen(p)).length === 0, "the walk posted a command of its own");
+    assert(JSON.stringify(await planningOf(p, ROW)) === JSON.stringify(before),
+      "the walk wrote to the file");
+    return [`the DEADLINE cell walked 2026-08-20 → 21 → 28 → 21 → ${back.value} on the `
+      + "shifted arrows, the ghost following each step, and wrote nothing"];
+  } },
+
+// THE BOX IS AN OVERLAY, so it costs the rows under it NOTHING: the strip that
+// shipped first spliced a `<tr>' and pushed every row below it down 21px.
+{ name: "ESC leaves the cell's date as it was",
+  async run(p, base) {
+    const ROW = "drv-plan", OWN = "2026-08-18";
+    await oneRow(p, base, "title:Ship", ROW);
+    await watchPosts(p);
+    const before = await planningOf(p, ROW);
+    const tops = () => p.eval(() =>
+      [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .map((r) => [r.dataset.id, Math.round(r.getBoundingClientRect().top)]));
+    const stood = await tops();
+    await columnTo(p, "scheduled", "ESC over a typed date");
+    await p.press("RET");
+    await dateBox(p, "RET to open the date box");
+    // THE OPEN MOVED NO ROW: an overlay negotiates against no column measure and
+    // splices nothing into the table.
+    assert(JSON.stringify(await tops()) === JSON.stringify(stood),
+      `the open moved the rows to ${JSON.stringify(await tops())} from `
+      + JSON.stringify(stood));
+    await p.typeKeys("2026-12-25");
+    const drew = await ghostSays(p, ` → ${orgStamp("2026-12-25")}`,
+      "the ghost to resolve the typed day");
+    assert(drew.value === "2026-12-25", `the field holds ${JSON.stringify(drew.value)}`);
+
+    await p.press("ESC");
+    await boxGone(p, "ESC to close the box");
+    // THE CELL IS THE CELL IT WAS: a standing row's cells are the STORE's, so the
+    // phrase stood in the box and never entered the row.
+    const cell = await cellReads(p, ROW, "scheduled", OWN,
+                                 "the cell to draw the day it drew before the open");
+    assert(cell.boxes === 0, `ESC left ${cell.boxes} boxes standing`);
+    assert(JSON.stringify(await tops()) === JSON.stringify(stood),
+      `ESC left the rows at ${JSON.stringify(await tops())} against ${JSON.stringify(stood)}`);
+    assert((await postsSeen(p)).length === 0, "ESC posted a command");
+    assert(JSON.stringify(await planningOf(p, ROW)) === JSON.stringify(before),
+      `ESC changed the planning line to ${JSON.stringify(await planningOf(p, ROW))}`);
+    return [`"2026-12-25" previewed ${JSON.stringify(drew.said)} and ESC left the cell `
+      + `reading ${JSON.stringify(cell.text)}, every row at the pixel it began on`];
+  } },
+
+// LAW 4.  An empty date commits `null' and never `""': an empty cell is `""' and
+// sits outside every date comparison (docs/invariants.md), and `""' down the wire
+// meets `planningTimestamp''s refusal as a 400 rather than a clear.
+{ name: "an empty date clears the planning line",
+  async run(p, base) {
+    const ROW = "drv-unset-one", WAS = "<2026-09-02 Wed>";
+    await oneRow(p, base, "title:undated", ROW);
+    await watchPosts(p);
+    await columnTo(p, "scheduled", "an emptied date cell");
+    await p.press("RET");
+    const open = await dateBox(p, "RET to open the date box");
+    assert(open.value === "2026-09-02", `the box opened on ${JSON.stringify(open.value)}`);
+    // ONE `DEL' TAKES THE WHOLE OF IT, the opening value being wholly selected.
+    await p.press("DEL");
+    const empty = await ghostSays(p, "", "the emptied field to draw no ghost at all");
+    assert(empty.value === "", `DEL left ${JSON.stringify(empty.value)} in the field`);
+
+    await p.press("RET");
+    const gone = await p.until(async (r) => {
+      const h = await (await fetch(`/headline?id=${r}`)).json();
+      return (h.planning || []).length === 0 ? (h.org || "") : false;
+    }, "the planning line to go off the file", 15000, ROW);
+    assert(gone.indexOf("SCHEDULED") === -1,
+      `the file still reads ${JSON.stringify(gone.split("\n").slice(0, 3))}`);
+    const posts = await postsSeen(p);
+    assert(posts.length === 1 && posts[0].args.keyword === "SCHEDULED"
+             && posts[0].args.date === null,
+      `the emptied cell posted ${JSON.stringify(posts)} rather than a null date`);
+    const cell = await cellReads(p, ROW, "scheduled", "",
+                                 "the cell to empty behind the settle");
+    assert(cell.boxes === 0, `the clear left ${cell.boxes} boxes behind`);
+
+    await putPlanning(p, ROW, "SCHEDULED", WAS);
+    return [`DEL emptied the field, RET posted ${JSON.stringify(posts[0].args)} and the `
+      + `planning line left the file; set back to ${JSON.stringify(WAS)}`];
+  } },
+
+// THE DRAFT'S DATE STOPS.  A draft has no id and no span for a per-cell verb to
+// name, so its date rides out in `capture''s own `planning' and `RET' anywhere in
+// the row is the capture.  `TAB' is the ring: the offer that stands, else the
+// phrase folded into the cell and the walk on.
+{ name: "the draft's date stop opens the box, TAB with no offer walks on",
+  async run(p, base) {
+    await tableUp(p, base);
+    await watchPosts(p);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.typeKeys("zqstop");
+    await p.press("TAB");
+    const box = await dateBox(p, "TAB to carry the reader into the draft's date stop");
+    // THE DATE STOP IS THE BOX AND NOT THE IN-CELL EDITOR, and it stands over the
+    // draft's own row.
+    assert(box.overCell && box.editors === 0,
+      `the stop opened ${JSON.stringify([box.overCell, box.editors])}`);
+    const under = await p.eval(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const r = document.getElementById("ddate").getBoundingClientRect();
+      const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+      const hit = tds.findIndex((td) => {
+        const c = td.getBoundingClientRect();
+        return Math.abs(c.left - r.left) <= 1 && Math.abs(c.top - r.top) <= 1;
+      });
+      return { key: keys[hit], title: tds[keys.indexOf("title")].textContent };
+    });
+    assert(under.key === "scheduled",
+      `the box stands over the draft's ${JSON.stringify(under.key)} cell`);
+    assert(under.title === "zqstop",
+      `the walk lost the title, which reads ${JSON.stringify(under.title)}`);
+
+    // TAB WITH NO OFFER OPEN RESOLVES THE PHRASE AND WALKS ON IN ONE PRESS:
+    // `2026-08-20' is a whole reading, so `dateOffers' offers nothing to take
+    // first, and what folds into the cell is the ISO DAY the cell itself draws —
+    // a box over a table cell spells its answer the cell's way.
+    const DAY = "2026-08-20", STAMP = orgStamp(DAY);
+    await p.typeKeys(DAY);
+    await ghostSays(p, ` → ${STAMP}`, "the typed day to resolve");
+    await p.press("TAB");
+    const on = await dateBox(p, "TAB to walk on to the DEADLINE stop");
+    assert(on.value === "" ,
+      `the next stop opened on ${JSON.stringify(on.value)} rather than an empty cell`);
+    const kept = await p.eval(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+      return tds[keys.indexOf("scheduled")].textContent.trim();
+    });
+    assert(kept === DAY,
+      `the walk folded ${JSON.stringify(kept)} into the SCHEDULED cell rather than `
+      + `the day ${JSON.stringify(DAY)} it resolved to`);
+
+    // S-TAB WALKS BACK, onto the day it left standing there — and resolves
+    // nothing of its own: the walk back is the whole key.
+    await p.press("S-TAB");
+    const back = await dateBox(p, "S-TAB to walk back to the SCHEDULED stop");
+    assert(back.value === DAY,
+      `S-TAB came back to ${JSON.stringify(back.value)}`);
+
+    // AND `ESC' IN THE BOX DROPS THE WHOLE DRAFT, as it does from every cell.
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
+                     && !document.getElementById("ddate").classList.contains("on"),
+                  "ESC in the box to drop the draft whole");
+    assert((await postsSeen(p)).length === 0,
+      `the walk posted ${JSON.stringify(await postsSeen(p))}`);
+    return [`TAB opened the box over the draft's SCHEDULED cell, TAB folded `
+      + `${JSON.stringify(kept)} in and walked on, S-TAB came back to `
+      + `${JSON.stringify(back.value)} and ESC dropped the draft`];
+  } },
+
+// AND WHAT A `TAB' RESOLVED IS WHAT THE CAPTURE CARRIES.  A draft's date cell
+// holds the field's own bytes, so a stop the reader TABbed out of rides out in
+// `capture''s `planning' as the ISO DAY the cell draws -- which `plannedEntry'
+// resolves against the request's one clock read, landing the stamp in the file.
+// THE DEADLINE STOP carries it: a dated SCHEDULED would join `sort:scheduled''s
+// own view and move the case that counts its rows.
+{ name: "a TAB-resolved draft stop captures the day it shows",
+  async run(p, base) {
+    await tableUp(p, base);
+    await watchPosts(p);
+    const Y = new Date().getFullYear();   // `18 aug''s elided year is the clock's
+    const DAY = `${Y}-08-18`, STAMP = orgStamp(DAY);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.typeKeys("zqtabbed");
+    await p.press("TAB");
+    await draftStop(p, "title", "TAB to carry the reader into the SCHEDULED stop");
+    // AN EMPTY STOP HAS NOTHING TO RESOLVE AND WALKS ALL THE SAME: the clear is
+    // the widget's own law and never the grammar's.
+    await p.press("TAB");
+    const dead = await draftStop(p, "scheduled", "TAB to walk on to the DEADLINE stop");
+    assert(dead.col === "deadline" && dead.value === "",
+      `the walk landed on ${JSON.stringify([dead.col, dead.value])}`);
+    await p.typeKeys("18 aug");
+    await ghostSays(p, ` → ${STAMP}`, "the ghost to read the phrase");
+    await p.press("TAB");
+    // ONE PRESS RESOLVES AND WALKS: the ring's next stop is an ordinary cell, so
+    // the box goes down behind it.
+    const past = await draftStop(p, "deadline", "TAB to resolve and walk off the dates");
+    const kept = (past.cells.find(([k]) => k === "deadline") || [])[1];
+    assert(kept === DAY,
+      `the walk folded ${JSON.stringify(kept)} into the DEADLINE cell`);
+
+    await p.press("RET");
+    const landed = await landedRow(p, "zqtabbed", "the capture to reach the store");
+    const posts = await postsSeen(p);
+    assert(posts.length === 1 && posts[0].name === "capture",
+      `the draft posted ${JSON.stringify(posts.map((x) => x.name))}`);
+    assert(JSON.stringify(posts[0].args.planning) === JSON.stringify([["DEADLINE", DAY]]),
+      `the capture carried ${JSON.stringify(posts[0].args.planning)} rather than the day `
+      + `the cell shows`);
+    // AND THE FILE TAKES THE RESOLVED STAMP either way: the phrase travels and
+    // the server resolves it once, against its own clock.
+    const org = await fileSays(p, landed, /^DEADLINE: /m,
+                               "the captured entry to carry its planning line");
+    assert(org.indexOf(`DEADLINE: ${STAMP}`) !== -1,
+      `the entry reads ${JSON.stringify(org.split("\n").slice(0, 3))}`);
+    return [`TAB resolved the draft's DEADLINE stop to ${JSON.stringify(kept)}, the capture `
+      + `carried ${JSON.stringify(posts[0].args.planning)} and the blob took `
+      + `${JSON.stringify(STAMP)}`];
+  } },
+
+// ── TAG COMPLETION ────────────────────────────────────────────────────────
+// USER CALL 2026-09-13.  A TAG COMPLETES THE WAY A DATE DOES: the very menu the
+// date box carries — the list under the field, a hint column, the arrows walking
+// it and `TAB' taking what point stands on — over the STORE's own tag vocabulary
+// (`GET /tags?vocabulary=true') rather than this view's rows, since a capture
+// files a row under a tag the view need not draw.  ONE MENU ELEMENT (`#toffer'),
+// placed per anchor: the draft's tag CELL and the tags popup's rename field.
+
+// THE TAKE KEEPS THE RUN'S OWN SPELLING.  A tag run is colon-delimited — how
+// `cellTags' reads one and how the draft's seed writes one — so the word the
+// caret sits in is swapped and the run left colon-delimited, the caret resting
+// after the closing colon where the next tag is typed.
+{ name: "the tag cell's offers complete a word, and TAB takes it",
+  async run(p, base) {
+    await tableUp(p, base);
+    await watchPosts(p);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.typeKeys("zqtagged");
+    await draftWalkTo(p, "tag");
+
+    await p.typeKeys(":dr");
+    const offered = await offerMenu(p, "driver", "the tag to be offered under the cell");
+    // THE READER'S OWN LINE LEADS AND POINT STANDS ON IT, hinted `new' — the
+    // pane's own rule for an open vocabulary, kept here byte for byte.
+    assert(offered.words[0] === "dr" && offered.at === 0 && offered.hints[0] === "new",
+      `the offers stand ${JSON.stringify(offered.words)} hinted `
+      + `${JSON.stringify(offered.hints)} with point on ${offered.at}`);
+    // AND EACH TAG IS HINTED WITH THE ROWS WEARING IT, which is what `/tags'
+    // counts — the one fact a vocabulary can add beside the word.
+    const drv = offered.words.indexOf("driver");
+    assert(offered.hints[drv] === "10",
+      `"driver" is hinted ${JSON.stringify(offered.hints[drv])} rather than its rows`);
+
+    await walkOffers(p, drv, "the walk to move point onto the tag");
+    await p.press("TAB");
+    const took = await p.until(() => {
+      const box = document.querySelector("#app tr.tv-producer input.tv-cell-edit");
+      return box && box.value === ":driver:"
+        ? { value: box.value, at: box.selectionStart } : false;
+    }, "TAB to take the offer into the run");
+    assert(took.at === ":driver:".length,
+      `the caret rests at ${took.at} rather than after the run's closing colon`);
+    // A TAKE IS A COMPLETION: it posts nothing and the draft stands.
+    assert((await postsSeen(p)).length === 0,
+      `taking an offer posted ${JSON.stringify(await postsSeen(p))}`);
+    const still = await p.eval(() =>
+      !!document.querySelector("#app tbody tr.tv-producer"));
+    assert(still, "the take dropped the draft");
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
+                     && !document.getElementById("toffer").classList.contains("on"),
+                  "ESC to drop the draft and take the menu with it");
+    assert((await postsSeen(p)).length === 0,
+      `the completed draft posted ${JSON.stringify(await postsSeen(p))}`);
+    return [`":dr" offered ${JSON.stringify(offered.words)} hinted `
+      + `${JSON.stringify(offered.hints)}, TAB took ${JSON.stringify(took.value)} with `
+      + `the caret at ${took.at}`];
+  } },
+
+// AND THE WALK IS UNTOUCHED WHERE THERE IS NOTHING TO TAKE.  A word the tree
+// spells no tag like leaves the reader's own line standing alone, and taking
+// that leaves the field the value it already holds — which is no take, so `TAB'
+// is the ring's own key exactly as it was.
+{ name: "TAB with no tag offer walks on",
+  async run(p, base) {
+    await tableUp(p, base);
+    await watchPosts(p);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.typeKeys("zqwalk");
+    await draftWalkTo(p, "tag");
+
+    await p.typeKeys(":zqx");
+    const offered = await offerMenu(p, "zqx", "the reader's own line to stand alone");
+    assert(offered.words.length === 1 && offered.hints[0] === "new",
+      `the offers stand ${JSON.stringify(offered.words)} hinted `
+      + JSON.stringify(offered.hints));
+
+    await p.press("TAB");
+    const on = await draftStop(p, "tag", "TAB to wrap the walk round off the tag cell");
+    assert(on.col === "state",
+      `TAB from the tags cell reached ${JSON.stringify(on.col)} rather than wrapping `
+      + `round to the first column`);
+    // THE TAGS COLUMN DRAWS WHOLE TAGS and no colons, so the run is read back
+    // off the CELL ITSELF: `S-TAB' comes round to it and reopens on its value.
+    const drawn = (on.cells.find(([k]) => k === "tag") || [])[1];
+    assert(drawn === "zqx",
+      `the tags cell draws ${JSON.stringify(drawn)} after the walk left it`);
+    // AND THE MENU WENT WITH THE CELL: ONE MENU, standing under one field.  The
+    // state stop the walk wrapped round to raises its own, off the destination's
+    // cycle, so what the tag cell offered is gone out of it.
+    const menu = await p.eval(() =>
+      [...document.getElementById("toffer").children]
+        .map((c) => c.querySelector(".dow").textContent));
+    assert(menu.indexOf("zqx") === -1,
+      `the tag cell's own offers still stand under the cell the walk reached: `
+      + JSON.stringify(menu));
+
+    await p.press("S-TAB");
+    const back = await draftStop(p, "state", "S-TAB to come back round to the tags cell");
+    assert(back.col === "tag" && back.value === ":zqx",
+      `the tags cell reopened on ${JSON.stringify([back.col, back.value])} rather than `
+      + `the run the walk left in it`);
+    const kept = back.value;
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer"),
+                  "ESC to drop the draft");
+    assert((await postsSeen(p)).length === 0,
+      `the walk posted ${JSON.stringify(await postsSeen(p))}`);
+    return [`":zqx" offered only the reader's own line, TAB walked on to `
+      + `${JSON.stringify(on.col)} leaving ${JSON.stringify(kept)} in the tags cell`];
+  } },
+
+// THE MENU HANGS UNDER THE CELL AND TURNS OVER AT THE FOOT, which is the date
+// box's own rule for its offers — the same measurement, over a menu that stands
+// at the page's root rather than inside a box.  DRIVEN AT BOTH ENDS OF ONE VIEW:
+// a draft in mid-table keeps the menu below it, and a draft under the LAST row —
+// which `G' reaches and which sits at the foot by definition — turns it over.
+{ name: "the tag offers draw under the cell and flip above at the bottom edge",
+  async run(p, base) {
+    await p.goto(`${base}/?q=`);
+    await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      return rows.length > 6 && !!document.querySelector("#app tbody tr.tv-sel");
+    }, "the table to draw with point on a row");
+    // THE LOG STRIP DECIDES WHETHER THE OFFERS FIT, exactly as it does for the
+    // date box's menu: at one line the last row reaches the foot.
+    await p.eval(() => document.getElementById("log").style.setProperty("--g-logn", "1"));
+
+    /** The open tag cell and the menu under it, as one reading. */
+    const stack = (why) => p.until(() => {
+      const menu = document.getElementById("toffer");
+      const box = document.querySelector("#app tr.tv-producer input.tv-cell-edit");
+      if (!menu.classList.contains("on") || !box) return false;
+      const m = menu.getBoundingClientRect();
+      const c = box.closest("td").getBoundingClientRect();
+      if (!m.height) return false;
+      return { flipped: menu.classList.contains("flipped"), words: menu.children.length,
+               cellTop: Math.round(c.top), cellBottom: Math.round(c.bottom),
+               menuTop: Math.round(m.top), menuBottom: Math.round(m.bottom),
+               menuH: Math.round(m.height), foot: window.innerHeight };
+    }, why);
+
+    // TYPED SO THE MENU STANDS AT ITS CAP: an offer list short of the cap leaves
+    // room under the last row and the flip is owed nowhere, which would make the
+    // measurement below prove nothing.  `e' is in most of the fixture's tags.
+    const fill = async (why) => {
+      await p.typeKeys(":e");
+      return offerMenu(p, "e", why);
+    };
+
+    // ── UNDER THE CELL wherever there is room for it.
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open in mid-table");
+    await draftWalkTo(p, "tag");
+    await fill("the offers to fill under a tag cell in mid-table");
+    const below = await stack("the offers to hang under a tag cell in mid-table");
+    assert(below.words >= 7,
+      `the menu drew ${below.words} offers, short of its cap — the flip below `
+      + `would prove nothing against a menu that fits anywhere`);
+    assert(!below.flipped && below.menuTop >= below.cellBottom - 1,
+      `in mid-table the menu stands ${below.menuTop}..${below.menuBottom} against a `
+      + `cell ending at ${below.cellBottom} (flipped: ${below.flipped})`);
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer"),
+                  "ESC to drop the mid-table draft");
+
+    // ── AND TURNS OVER UNDER THE LAST ROW.  `G' is `last-row', the table's own
+    // key, and `+' splices the draft BELOW the row at point.
+    await p.press("G");
+    await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      const sel = document.querySelector("#app tbody tr.tv-sel");
+      return sel && rows.indexOf(sel) === rows.length - 1;
+    }, "G to put point on the last drawn row");
+    // THE SCROLL EASES, so the row is still moving a frame after the key.
+    await p.until(() => {
+      const tr = document.querySelector("#app tbody tr.tv-sel");
+      if (!tr) return false;
+      const y = Math.round(tr.getBoundingClientRect().top);
+      const was = window["__tagRestY"];
+      window["__tagRestY"] = y;
+      return was === y ? { y } : false;
+    }, "the eased scroll to come to rest on the last row");
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open under the last row");
+    await draftWalkTo(p, "tag");
+    await fill("the offers to fill under the last row's tag cell");
+    const over = await stack("the offers to turn over above the tag cell");
+    // THE PREMISE, MEASURED AT THE CELL: the menu plus its 8px margin off the
+    // window's edge does not fit under it, or this case proves nothing.
+    assert(over.foot - over.cellBottom < over.menuH + 8,
+      `the cell ends ${over.foot - over.cellBottom}px off the foot and the menu is `
+      + `${over.menuH}px — it would have fitted, so this case proves nothing`);
+    assert(over.flipped && over.words > 0,
+      `the menu stands ${over.menuTop}..${over.menuBottom} unflipped over ${over.words} offers`);
+    assert(over.menuBottom <= over.cellTop + 1,
+      `the menu runs ${over.menuTop}..${over.menuBottom} where the cell starts at `
+      + `${over.cellTop} — it did not turn over`);
+    assert(over.menuTop >= 0 && over.menuBottom <= over.foot,
+      `the flipped menu stands ${over.menuTop}..${over.menuBottom} in a ${over.foot}px window`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
+                     && !document.getElementById("toffer").classList.contains("on"),
+                  "ESC to drop the draft at the foot");
+    return [`in mid-table the ${below.words} offers hung ${below.menuTop}..`
+      + `${below.menuBottom} under a cell ending at ${below.cellBottom}`,
+      `under the last row, its cell ${over.foot - over.cellBottom}px off the foot, the `
+      + `${over.menuH}px menu turned over to ${over.menuTop}..${over.menuBottom}`];
+  } },
+
+// THE SECOND ANCHOR, AND THE SAME MENU: the tags popup's rename field stands in
+// no box of its own either, so the offers are placed under it the same way.  The
+// field holds ONE TAG rather than a run, so the take is the whole field — and
+// `RET' still renames, the menu only outranking it where an offer stands.
+{ name: "the tags popup completes a tag on TAB",
+  async run(p, base) {
+    await oneRow(p, base, "title:Ship", "drv-plan");
+    await watchPosts(p);
+    await p.press(":");
+    await p.until(() => document.getElementById("tags").classList.contains("on")
+      && document.querySelectorAll("#ttable tbody tr[data-id]").length > 0,
+      "the tags popup to draw the row's own tags");
+    await p.press("RET");
+    await p.until(() => document.getElementById("tedit").classList.contains("on")
+      && document.activeElement === document.getElementById("tname"),
+      "RET to open the rename field over the tag at point");
+    // THE TAG THE RENAME OPENED ON coincides with its own entry: a word the tree
+    // spells is never drawn twice, once as itself and once hinted `new'.  WAITED
+    // FOR BY THE HINT: the menu draws the moment the field opens and the store's
+    // vocabulary lands a fetch later, so a reading taken at the first paint reads
+    // the reader's own line before the tree has answered.
+    const own = await p.until(() => {
+      const menu = document.getElementById("toffer");
+      if (!menu.classList.contains("on")) return false;
+      const rows = [...menu.children];
+      const words = rows.map((c) => c.querySelector(".dow").textContent);
+      const hints = rows.map((c) => (c.querySelector(".dot") || {}).textContent || "");
+      return hints[0] === "10" ? { words, hints } : false;
+    }, "the store's own vocabulary to land under the rename field");
+    assert(own.words.length === 1 && own.words[0] === "driver",
+      `the field opened over ${JSON.stringify(own.words)} hinted `
+      + JSON.stringify(own.hints));
+
+    await p.type("sur");
+    const offered = await offerMenu(p, "survey", "the typed line to narrow the offers");
+    assert(offered.words[0] === "sur" && offered.at === 0,
+      `the offers stand ${JSON.stringify(offered.words)} with point on ${offered.at}`);
+    await walkOffers(p, 1, "the walk to move point onto the tag");
+    await p.press("TAB");
+    const took = await p.until(() => {
+      const f = document.getElementById("tname");
+      return f.value === "survey" ? { value: f.value, at: f.selectionStart } : false;
+    }, "TAB to take the offer into the rename field");
+    assert(took.at === "survey".length,
+      `the caret rests at ${took.at} rather than behind the tag`);
+    // A TAKE IS A COMPLETION: nothing is written until `RET'.
+    assert((await postsSeen(p)).length === 0,
+      `taking an offer posted ${JSON.stringify(await postsSeen(p))}`);
+
+    await p.press("ESC");
+    await p.until(() => !document.getElementById("tedit").classList.contains("on")
+                     && !document.getElementById("toffer").classList.contains("on"),
+                  "ESC to put the tag back and take the menu with it");
+    await p.press("ESC");
+    await p.until(() => !document.getElementById("tags").classList.contains("on"),
+                  "ESC to leave the tags popup");
+    const tags = await p.eval(async () =>
+      ((await (await fetch("/tags?ids=drv-plan")).json()).rows[0] || {}).tags || []);
+    assert(JSON.stringify(tags) === JSON.stringify(["driver", "plan"]),
+      `the completion changed the row's tags to ${JSON.stringify(tags)}`);
+    return [`the rename field drew ${JSON.stringify(own.words)}, "sur" narrowed to `
+      + `${JSON.stringify(offered.words)} and TAB took ${JSON.stringify(took.value)} `
+      + `without writing`];
+  } },
+
+// THE THIRD ANCHOR, AND THE SAME MENU: the draft's STATE cell completes out of
+// the DESTINATION'S OWN CYCLE -- the very answer `askCycle' already holds, so
+// the offers and the wall a seeded keyword meets are one fetch and one list.
+// The vocabulary is CLOSED: a state outside the cycle is refused by the commit
+// door, so there is no reader's own line here.  Book's layer declares
+// `#+TODO: TODO READING | READ' over the tree's own TODO|DONE, so the chain is
+// TODO DONE READING READ with the two done words hinted.
+{ name: "the state cell's offers are the destination's cycle, and TAB takes one",
+  async run(p, base) {
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:book")}`);
+    await p.until(() => !!document.querySelector("#app table tbody"),
+                  "the filtered table to mount");
+    await watchPosts(p);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.typeKeys("zqstate");
+    await draftBackToState(p);
+
+    await p.typeKeys("re");
+    const offered = await offerMenu(p, "READING", "book's own cycle under the state cell");
+    assert(JSON.stringify(offered.words) === JSON.stringify(["READING", "READ"]),
+      `"re" offered ${JSON.stringify(offered.words)} rather than the two the cycle `
+      + `spells with that prefix`);
+    // THE DONE HALF IS HINTED and the active half wears nothing, which is the
+    // one fact the `s' palette draws as a column of its own.
+    assert(JSON.stringify(offered.hints) === JSON.stringify(["", "done"]),
+      `the offers are hinted ${JSON.stringify(offered.hints)}`);
+    assert(offered.at === 0,
+      `point rests on ${offered.at} rather than the first offer`);
+
+    // `TAB' TAKES THE WHOLE FIELD: a state is one word, so the cell BECOMES the
+    // offer with the caret behind it -- there is no run to splice into.
+    await p.press("TAB");
+    const took = await p.until(() => {
+      const box = document.querySelector("#app tr.tv-producer input.tv-cell-edit");
+      return box && box.value === "READING"
+        ? { value: box.value, at: box.selectionStart } : false;
+    }, "TAB to take the offer into the state cell");
+    assert(took.at === "READING".length,
+      `the caret rests at ${took.at} rather than behind the word`);
+    assert((await postsSeen(p)).length === 0,
+      `taking an offer posted ${JSON.stringify(await postsSeen(p))}`);
+
+    // AND THE NEXT `TAB' WALKS ON: the offer that stands IS what the cell holds,
+    // so there is nothing to take and the key is the ring's own.
+    await p.press("TAB");
+    const on = await draftStop(p, "state", "TAB to walk the ring on off the state cell");
+    assert(on.col === "priority",
+      `TAB from the state cell reached ${JSON.stringify(on.col)}`);
+    const drawn = (on.cells.find(([k]) => k === "state") || [])[1];
+    assert(drawn === "READING",
+      `the state cell draws ${JSON.stringify(drawn)} after the walk left it`);
+
+    // AND THE WIRE CARRIES THE WORD THE OFFER NAMED: the blob's headline opens
+    // on the keyword the destination's own cycle declares.
+    await p.press("RET");
+    const blob = await landedRow(p, "zqstate", "the blob to reach the store");
+    const head = (await fileSays(p, blob, /^\* /m, "the blob's own file to carry the entry"))
+                   .split("\n")[0];
+    assert(head === "* READING zqstate :book:",
+      `the blob's headline is ${JSON.stringify(head)} rather than the completed `
+      + `keyword, the title and the run`);
+    return [`"re" offered ${JSON.stringify(offered.words)} hinted `
+      + `${JSON.stringify(offered.hints)}, TAB took ${JSON.stringify(took.value)} and the `
+      + `blob landed as ${JSON.stringify(head)}`];
+  } },
+
+// A CLOSED VOCABULARY DRAWS NOTHING FOR A WORD IT LACKS.  `stated' refuses a
+// state outside the destination's cycle, so the menu never offers the reader's
+// own line the way the tag cell does -- and with no offer standing, `TAB' is the
+// ring's own key exactly as it was.
+{ name: "a state the cycle lacks draws no offer",
+  async run(p, base) {
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:book")}`);
+    await p.until(() => !!document.querySelector("#app table tbody"),
+                  "the filtered table to mount");
+    await watchPosts(p);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await draftBackToState(p);
+
+    // WAITED FOR AT THE CYCLE: the menu draws the moment the cell opens and the
+    // answer lands a fetch later, so an empty menu read at the first paint would
+    // pass whatever the cycle turned out to hold.  READ AGAINST THE DOOR'S OWN
+    // ANSWER rather than a list written here: a case earlier in the run mints a
+    // keyword into this tree's system layer, and the claim is that the offers
+    // ARE the destination's cycle, whatever the tree has grown.
+    const whole = await offerMenu(p, "READ", "the destination's cycle to land under the cell");
+    const cycle = await p.eval(async () =>
+      await (await fetch("/keywords?tag=book")).json());
+    assert(JSON.stringify(whole.words) === JSON.stringify(cycle.states),
+      `the empty cell offered ${JSON.stringify(whole.words)} where the door answers `
+      + JSON.stringify(cycle.states));
+    assert(JSON.stringify(whole.hints)
+             === JSON.stringify(cycle.states.map((w) =>
+                  (cycle.inactive.indexOf(w) === -1 ? "" : "done"))),
+      `the chain is hinted ${JSON.stringify(whole.hints)} against the door's own `
+      + `${JSON.stringify(cycle.inactive)}`);
+    assert(cycle.states.indexOf("READING") !== -1 && cycle.inactive.indexOf("READ") !== -1,
+      `book's layer is meant to declare READING | READ: ${JSON.stringify(cycle)}`);
+    // POINT STANDS ON NO OFFER where nothing is typed, the date box's own rule.
+    assert(whole.at === -1, `point rests on ${whole.at} over an untyped cell`);
+
+    await p.typeKeys("zq");
+    const gone = await p.until(() => {
+      const menu = document.getElementById("toffer");
+      return menu.classList.contains("on")
+        ? false : { words: menu.children.length };
+    }, "the offers to go down over a word the cycle lacks");
+    assert(gone.words === 0,
+      `the menu drew ${gone.words} offers over a word no state prefixes`);
+
+    await p.press("TAB");
+    const on = await draftStop(p, "state", "TAB to walk the ring on with no offer to take");
+    assert(on.col === "priority",
+      `TAB from the state cell reached ${JSON.stringify(on.col)}`);
+    const drawn = (on.cells.find(([k]) => k === "state") || [])[1];
+    assert(drawn === "zq",
+      `the state cell draws ${JSON.stringify(drawn)} after the walk left it`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
+                     && !document.getElementById("toffer").classList.contains("on"),
+                  "ESC to drop the draft and take the menu with it");
+    assert((await postsSeen(p)).length === 0,
+      `the walk posted ${JSON.stringify(await postsSeen(p))}`);
+    return [`book's cycle stood ${JSON.stringify(whole.words)}, "zq" drew none of it and `
+      + `TAB walked on to ${JSON.stringify(on.col)}`];
+  } },
+
+// AND A DRAFT WITH NO DESTINATION IS THE INBOX, whose cycle is the tree's own --
+// which is what `/keywords?tag=' answers for an EMPTY tag.  The fixture declares
+// no system layer, so the default scope stands alone: TODO | DONE.
+{ name: "the default cycle serves the inbox draft",
+  async run(p, base) {
+    await tableUp(p, base);
+    await watchPosts(p);
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await draftBackToState(p);
+
+    const whole = await offerMenu(p, "DONE", "the tree's own cycle under the state cell");
+    // THE DOOR'S OWN ANSWER FOR AN EMPTY TAG is what the menu must draw: a case
+    // earlier in the run mints a keyword into this tree's system layer, so the
+    // default cycle is read rather than written down here.
+    const cycle = await p.eval(async () =>
+      await (await fetch("/keywords?tag=")).json());
+    assert(JSON.stringify(whole.words) === JSON.stringify(cycle.states),
+      `the inbox draft offered ${JSON.stringify(whole.words)} where the door answers `
+      + JSON.stringify(cycle.states));
+    assert(JSON.stringify(whole.hints)
+             === JSON.stringify(cycle.states.map((w) =>
+                  (cycle.inactive.indexOf(w) === -1 ? "" : "done"))),
+      `the default cycle is hinted ${JSON.stringify(whole.hints)} against the door's own `
+      + JSON.stringify(cycle.inactive));
+    assert(whole.words[0] === "TODO" && cycle.inactive.indexOf("DONE") !== -1,
+      `the tree's own cycle is meant to open on TODO and call DONE done: `
+      + JSON.stringify(cycle));
+
+    await p.typeKeys("do");
+    const want = cycle.states.filter((w) => w.toLowerCase().indexOf("do") === 0);
+    const narrowed = await offerMenu(p, "DONE", "the typed letters to narrow the cycle");
+    assert(JSON.stringify(narrowed.words) === JSON.stringify(want) && narrowed.at === 0,
+      `"do" left ${JSON.stringify(narrowed.words)} with point on ${narrowed.at}, where the `
+      + `cycle prefixes ${JSON.stringify(want)}`);
+    await p.press("TAB");
+    const took = await p.until(() => {
+      const box = document.querySelector("#app tr.tv-producer input.tv-cell-edit");
+      return box && box.value === "DONE"
+        ? { value: box.value, at: box.selectionStart } : false;
+    }, "TAB to take the tree's own done word into the cell");
+    assert(took.at === "DONE".length,
+      `the caret rests at ${took.at} rather than behind the word`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
+                     && !document.getElementById("toffer").classList.contains("on"),
+                  "ESC to drop the draft and take the menu with it");
+    assert((await postsSeen(p)).length === 0,
+      `the completed draft posted ${JSON.stringify(await postsSeen(p))}`);
+    return [`the inbox draft's state cell offered ${JSON.stringify(whole.words)} hinted `
+      + `${JSON.stringify(whole.hints)}, and "do" completed to ${JSON.stringify(took.value)}`];
+  } },
+
+// STAGE 4, AND F's PREMISE.  The capture-in-table spike measured a landed capture
+// jumping five rows and 145px precisely because a capture had no date; with the
+// two date stops on the draft's ring it lands where `sort:scheduled' puts it.
+{ name: "the draft's SCHEDULED stop lands the row where the sort puts it",
+  async run(p, base) {
+    const DAY = "2026-08-20";
+    await p.goto(`${base}/?q=${encodeURIComponent("-scheduled:*empty* sort:scheduled")}`);
+    const order = await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      return rows.length && document.querySelector("#app tbody tr.tv-sel")
+        ? rows.map((r) => r.dataset.id) : false;
+    }, "the dated rows to draw in the sort's own order");
+    assert(JSON.stringify(order) === JSON.stringify(["drv-plan", "drv-date-walk", "drv-unset-one"]),
+      `the sorted view drew ${JSON.stringify(order)}`);
+    await watchPosts(p);
+
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.typeKeys("zqdated");
+    await p.press("TAB");
+    await dateBox(p, "TAB to carry the reader to the SCHEDULED stop");
+    await p.typeKeys(DAY);
+    const drew = await ghostSays(p, ` → ${orgStamp(DAY)}`,
+      "the box under the draft to resolve the typed day");
+    assert(drew.value === DAY, `the draft's date stop holds ${JSON.stringify(drew.value)}`);
+
+    // `RET' IN A DRAFT'S DATE STOP COMMITS THE CAPTURE: a draft has no id and no
+    // span for a per-cell verb to name, so the date rides out in `planning'.
+    await p.press("RET");
+    const landed = await landedRow(p, "zqdated", "the dated capture to reach the store");
+    const posts = await postsSeen(p);
+    assert(posts.length === 1 && posts[0].name === "capture",
+      `the draft posted ${JSON.stringify(posts.map((x) => x.name))}`);
+    assert(JSON.stringify(posts[0].args.planning) === JSON.stringify([["SCHEDULED", DAY]]),
+      `the capture carried ${JSON.stringify(posts[0].args.planning)} rather than the phrase`);
+    // THE SERVER RESOLVED IT, through `plannedEntry''s own wall.
+    const org = await fileSays(p, landed, /^SCHEDULED: /m,
+                               "the captured entry to carry its planning line");
+    assert(org.indexOf(`SCHEDULED: ${orgStamp(DAY)}`) !== -1,
+      `the entry reads ${JSON.stringify(org.split("\n").slice(0, 3))}`);
+    // AND IT LANDS WHERE THE SORT PUTS IT, between the two days it falls between.
+    const placed = await p.until((id) => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .map((r) => r.dataset.id);
+      return rows.indexOf(id) === -1 ? false : rows;
+    }, "the dated capture to arrive in the sorted view", 20_000, landed);
+    assert(JSON.stringify(placed)
+             === JSON.stringify(["drv-plan", landed, "drv-date-walk", "drv-unset-one"]),
+      `the capture landed in ${JSON.stringify(placed)} rather than between 2026-08-18 `
+      + `and 2026-08-24`);
+    return [`the draft's SCHEDULED stop sent ${JSON.stringify(posts[0].args.planning)}, the `
+      + `server wrote ${JSON.stringify(orgStamp(DAY))} and the row landed at index `
+      + `${placed.indexOf(landed)} of ${placed.length}`];
+  } },
+
+// STAGE 5's SPLIT, and the reason for it: a SET of rows has no cell to stand in,
+// which is the whole reason the prompt exists.  `targets()' splits exactly there,
+// so which rows the key takes is unchanged and only the surface differs.
+{ name: "C-c C-s with nothing marked opens the box at point",
+  async run(p, base) {
+    const ROW = "drv-plan";
+    await oneRow(p, base, "title:Ship", ROW);
+    await p.press("C-c");
+    await p.press("C-s");
+    const open = await dateBox(p, "C-c C-s to open the box over the SCHEDULED cell");
+    assert(open.value === "2026-08-18" && open.overCell,
+      `C-c C-s opened ${JSON.stringify([open.value, open.overCell])}`);
+    // THE COLUMN CURSOR FOLLOWED THE KEY: the reader is left standing in the
+    // column the command names.
+    const at = await p.eval(() =>
+      [...document.querySelectorAll("#app thead th[data-key]")]
+        .findIndex((th) => th.classList.contains("tv-colsel")));
+    const keys = await p.eval(() =>
+      [...document.querySelectorAll("#app thead th[data-key]")].map((th) => th.dataset.key));
+    assert(keys[at] === "scheduled",
+      `the column cursor stands on ${JSON.stringify(keys[at])}`);
+    assert(!(await p.eval(() => document.getElementById("prompt").className === "on")),
+      "C-c C-s over one row raised the prompt as well as the box");
+    await p.press("ESC");
+    await boxGone(p, "ESC to close the box");
+
+    // AND WITH A ROW MARKED IT IS THE PROMPT, today's bulk surface, unchanged.
+    await p.press("m");
+    await p.until(() => document.querySelectorAll("#app tbody tr.tv-marked").length === 1,
+                  "m to mark the row at point");
+    await p.press("C-c");
+    await p.press("C-s");
+    const asked = await p.until(() =>
+      document.getElementById("prompt").className === "on"
+        ? { head: document.getElementById("phead").textContent,
+            boxes: document.querySelectorAll("#ddate.on").length }
+        : false, "C-c C-s over a marked row to raise the prompt");
+    assert(asked.head === "scheduled · 1 row",
+      `the prompt is titled ${JSON.stringify(asked.head)}`);
+    assert(asked.boxes === 0,
+      `the marked set opened ${asked.boxes} date boxes as well as the prompt`);
+    await p.press("ESC");
+    return [`C-c C-s with nothing marked opened ${JSON.stringify(open.value)} over the `
+      + `SCHEDULED cell; with the row marked it raised ${JSON.stringify(asked.head)}`];
+  } },
+
+// THE BOX IS THE PAGE'S AND THE ROWS ARE THE WIDGET'S.  A settle under an open
+// draft rebuilds the tbody; the box stands over it and is re-measured against the
+// row that moved, so the phrase and its reading survive the tick.
+{ name: "a store settle under an open draft leaves its date box standing",
+  async run(p, base) {
+    const DAY = "2026-08-20", OTHER = "drv-unset-one", WAS = "<2026-09-02 Wed>";
+    await p.goto(`${base}/?q=${encodeURIComponent("-scheduled:*empty* sort:scheduled")}`);
+    await p.until(() => {
+      const rows = [...document.querySelectorAll("#app tbody tr[data-id]")];
+      return rows.length > 1 && !!document.querySelector("#app tbody tr.tv-sel");
+    }, "the dated rows to draw with point on one");
+
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.press("TAB");
+    await dateBox(p, "TAB to carry the reader to the draft's date stop");
+    await p.typeKeys(DAY);
+    const lit = await ghostSays(p, ` → ${orgStamp(DAY)}`,
+      "the box under the draft to resolve the typed day");
+    assert(lit.value === DAY, `the draft's date stop holds ${JSON.stringify(lit.value)}`);
+
+    // A REAL WRITE ELSEWHERE IN THE TREE: the watch nudges, the socket ticks and
+    // the page asks for the whole answer again -- which repaints under the draft.
+    const wrote = await p.eval(async (id) => {
+      const r = await fetch("/command", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "set-planning", ids: [id],
+                               args: { keyword: "SCHEDULED", date: "2026-12-01" } }) });
+      return r.status;
+    }, OTHER);
+    assert(wrote === 200, `the write answered ${wrote}`);
+    await p.until((id) => {
+      const tr = [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .find((r) => r.dataset.id === id);
+      return !!tr && /2026-12-01/.test(tr.textContent);
+    }, "the fresh answer to reach the table", 20_000, OTHER);
+
+    // THE BOX IS STILL UP, still holding the phrase and still reading it back,
+    // and it still stands over the draft's own cell.
+    const after = await dateBox(p, "the draft's date box to stand through the settle");
+    assert(after.value === DAY && after.ghost === ` → ${orgStamp(DAY)}`,
+      `the settle left the box at ${JSON.stringify([after.value, after.ghost])}`);
+    const over = await p.eval(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      if (!tr) return null;
+      const r = document.getElementById("ddate").getBoundingClientRect();
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const td = [...tr.querySelectorAll("td:not(.tv-box)")][keys.indexOf("scheduled")];
+      const c = td.getBoundingClientRect();
+      return { dx: Math.round(r.left - c.left), dy: Math.round(r.top - c.top) };
+    });
+    assert(over && Math.abs(over.dx) <= 1 && Math.abs(over.dy) <= 1,
+      `the box sits ${JSON.stringify(over)} off the draft's cell after the settle`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer"),
+                  "ESC to drop the draft");
+    await putPlanning(p, OTHER, "SCHEDULED", WAS);
+    return [`a settle under the open draft left the box holding `
+      + `${JSON.stringify(after.value)} reading ${JSON.stringify(after.ghost)}, `
+      + `${JSON.stringify(over)} off the cell it stands over`];
+  } },
+
+// ONE NOTE MECHANISM.  The refusal used to ride the LAST column the row carried
+// no cell for -- and one TAB round fills every one of them, so the second refusal
+// drew `nothing to capture' OVER THE TAG CELL, taking that fact off the screen.
+// It rode a strip next, which the review took out with the rest of it.  The word
+// is the ECHO PILL's, which belongs to no column at all.
+{ name: "a refusal after a full TAB round is said in the pill, never a cell",
+  async run(p, base) {
+    await tableUp(p, base);
+    await p.press("+");
+    let seen = await draftEditor(p, null, "the draft's title cell to open");
+    assert(seen.col === "title", `the draft opened in ${JSON.stringify(seen.col)}`);
+    // THE WHOLE RING, ONE KEY PER CALL: a fresh input takes focus a macrotask
+    // behind the press, so TABs sent together advance fewer cells than they name.
+    // A DATE STOP IS THE BOX rather than an in-cell editor, so the walk is read
+    // off whichever of the two is standing.
+    const ring = [seen.col];
+    for (let i = 0; i < 8 && (ring.length === 1 || seen.col !== "title"); i += 1) {
+      await p.press("TAB");
+      seen = await draftStop(p, seen.col, `TAB ${i + 1} to move the reader on`);
+      ring.push(seen.col);
+    }
+    assert(ring.length > 2 && ring[ring.length - 1] === "title",
+      `the walk went ${JSON.stringify(ring)} rather than a full round`);
+    assert(ring.indexOf("scheduled") !== -1 && ring.indexOf("deadline") !== -1,
+      `the ring missed a date stop: ${JSON.stringify(ring)}`);
+    const stood = seen.cells;
+
+    await p.press("RET");
+    const refused = await p.until(() => {
+      const tr = document.querySelector("#app tbody tr.tv-producer");
+      const box = tr && tr.querySelector("input.tv-cell-edit");
+      if (!box || document.activeElement !== box) return false;
+      const keys = [...document.querySelectorAll("#app thead th[data-key]")]
+        .map((th) => th.dataset.key);
+      const tds = [...tr.querySelectorAll("td:not(.tv-box)")];
+      const pill = document.getElementById("echo").textContent;
+      return /nothing to capture/.test(pill) ? {
+        pill, warn: tr.classList.contains("tv-refused"),
+        cells: keys.map((k, i) => [k, tds[i].textContent]),
+        at: keys[tds.indexOf(box.closest("td"))],
+      } : false;
+    }, "the refusal after the walk to reach the pill");
+
+    assert(refused.warn && refused.at === "title",
+      `the refused row is dressed ${refused.warn} with the editor in `
+      + `${JSON.stringify(refused.at)}`);
+    // EVERY CELL IS THE CELL IT WAS: the walk filled them all, and the refusal
+    // has no column to take one of them over with.
+    assert(JSON.stringify(refused.cells) === JSON.stringify(stood),
+      `the refusal rewrote the row's cells: ${JSON.stringify(refused.cells)} `
+      + `against ${JSON.stringify(stood)}`);
+    assert(refused.cells.every(([, text]) => text !== "nothing to capture"),
+      `the refusal drew into a cell as well: ${JSON.stringify(refused.cells)}`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer")
+                     && !document.getElementById("ddate").classList.contains("on"),
+                  "ESC to drop the refused draft whole");
+    return [`the walk ${ring.join(" → ")} filled every cell, and the refusal said `
+      + `${JSON.stringify(refused.pill)} in the pill with all `
+      + `${refused.cells.length} cells untouched`];
+  } },
+
+{ name: "typing into a draft moves no column",
+  async run(p, base) {
+    // UNDER A NARROW QUERY, so the set the columns were fitted to is small and
+    // what is typed into it is far longer than anything the fit ever saw.
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:hide")}`);
+    await p.until(() => !!document.querySelector("#app tbody tr[data-id]"),
+                  "the filtered table to mount its row");
+    const before = await columnWidths(p);
+    assert(before.px.length > 3 && before.style.some((w) => /ch/.test(w)),
+      `the columns are not pinned at all: ${JSON.stringify(before.style)}`);
+
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    // A REAL KEYDOWN PER CHARACTER, the reader's own path: `Input.insertText'
+    // plants a line without ever running the shell's handler.
+    await p.typeKeys("A sixty character title typed into a draft, and no more");
+    const typed = await columnWidths(p);
+    assert(sameWidths(before, typed),
+      `typing the title moved the columns: ${JSON.stringify(typed.px)} against `
+      + `${JSON.stringify(before.px)}, written ${JSON.stringify(typed.style)} `
+      + `against ${JSON.stringify(before.style)}`);
+
+    // THE TAG RUN IS THE COLUMN THAT USED TO MOVE: `growWidths' widened the
+    // cached measure on the `upsertRow' the walk republishes the row with, so
+    // the tag column jumped at the moment the reader left the cell.
+    await draftBackTo(p, "title", "tag", "the walk back to the tags cell");
+    await p.typeKeys("alongtagnobodyeversizedacolumnfor");
+    // FORWARD OFF THE TAGS CELL, which wraps to `state': the walk folds the
+    // closing cell's value into the row and republishes it, and `growWidths'
+    // widened the cached measure on exactly that `upsertRow'.
+    await p.press("TAB");
+    await draftEditor(p, "tag", "the walk to leave the tags cell, folding the run in");
+    const run = await columnWidths(p);
+    assert(sameWidths(before, run),
+      `a 33-character tag run moved the columns: ${JSON.stringify(run.px)} `
+      + `against ${JSON.stringify(before.px)}`);
+    assert(JSON.stringify(run.lefts) === JSON.stringify(before.lefts),
+      `the rows moved sideways under the draft: ${JSON.stringify(run.lefts)} `
+      + `against ${JSON.stringify(before.lefts)}`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer"),
+                  "ESC to drop the draft");
+    const after = await columnWidths(p);
+    assert(sameWidths(before, after),
+      `dropping the draft moved the columns: ${JSON.stringify(after.px)} against `
+      + `${JSON.stringify(before.px)}`);
+    return [`a 56-character title and a 33-character tag run moved 0px of `
+      + `${before.px.length} columns, written ${JSON.stringify(before.style)}`];
+  } },
+
+// BUG 2026-09-13, docs/bugs/fixed/2026-09-13-a-cell-editor-closing-rebuilds-the-head-bare.md.
+// `closeCellEditor' ran `renderRows(true); renderHead();' -- the rows write the
+// widths onto the `<col>'s and the head then rebuilt the colgroup BARE, so a
+// fixed-layout table divided the window into six EQUAL columns on every TAB out
+// of a draft cell and every ESC out of an editor.  The head owns the colgroup
+// and now puts the widths back on it.
+{ name: "TAB out of a draft cell leaves every column where it was",
+  async run(p, base) {
+    await tableUp(p, base);
+    const before = await columnWidths(p);
+    // SIX EQUAL COLUMNS IS THE SYMPTOM, so the reading that catches it is the
+    // SPREAD: a fitted table's columns differ, a bare colgroup's do not.
+    const spread = (w) => Math.max(...w.px) - Math.min(...w.px);
+    assert(spread(before) > 1,
+      `the columns are already equal before anything opened: ${JSON.stringify(before.px)}`);
+
+    await p.press("+");
+    await draftEditor(p, null, "the draft's title cell to open");
+    await p.press("S-TAB");
+    await draftEditor(p, "title", "the walk to close the title cell and open another");
+    const walked = await columnWidths(p);
+    assert(sameWidths(before, walked),
+      `the editor closing rebuilt the head bare: ${JSON.stringify(walked.px)} `
+      + `against ${JSON.stringify(before.px)}, written `
+      + `${JSON.stringify(walked.style)} against ${JSON.stringify(before.style)}`);
+    assert(walked.style.every((w, i) => w === before.style[i]),
+      `the colgroup came back without its widths: ${JSON.stringify(walked.style)}`);
+
+    await p.press("ESC");
+    await p.until(() => !document.querySelector("#app tbody tr.tv-producer"),
+                  "ESC to drop the draft and close its editor");
+    const shut = await columnWidths(p);
+    assert(sameWidths(before, shut),
+      `ESC out of the editor rebuilt the head bare: ${JSON.stringify(shut.px)} `
+      + `against ${JSON.stringify(before.px)}`);
+    return [`TAB and ESC each closed an editor and left all ${before.px.length} `
+      + `columns at ${JSON.stringify(before.px)} (spread ${spread(before).toFixed(1)}px)`];
+  } },
+
+{ name: "a row arriving with a longer value moves no column",
+  async run(p, base) {
+    // A SET NO ROW OF WHICH IS SCHEDULED, so the date column is fitted to its
+    // header alone and the first stamp to arrive is longer than it.
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:hide")}`);
+    const row = await p.until(() => {
+      const tr = document.querySelector("#app tbody tr[data-id]");
+      return tr ? tr.dataset.id : false;
+    }, "the filtered table to mount its row");
+    const before = await columnWidths(p);
+
+    // NOTHING IN THIS SET IS SCHEDULED, so the column stands at its HEADER's
+    // measure and the first date to land in it is a value longer than anything
+    // the fit ever saw -- the column widened by exactly that under the old
+    // policy, every cell right of it sliding along.
+    const dates = await p.eval(() => {
+      const keys = [...document.querySelectorAll("#app thead th")].map((e) => e.dataset.key);
+      const at = keys.indexOf("scheduled");
+      return [...document.querySelectorAll("#app tbody tr[data-id]")]
+        .map((tr) => tr.children[at].textContent.trim());
+    });
+    assert(dates.every((d) => !d),
+      `the set already carries a date: ${JSON.stringify(dates)}`);
+    // A REAL WRITE, the shipped recipe for a settle: the watch nudges, the
+    // socket ticks and the page asks for the whole answer again.
+    const wrote = await p.eval(async (id) => {
+      const r = await fetch("/command", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "set-planning", ids: [id],
+                               args: { keyword: "SCHEDULED", date: "2026-12-01" } }) });
+      return r.status;
+    }, row);
+    assert(wrote === 200, `the write answered ${wrote}`);
+    await p.until(() => /2026-12-01/
+      .test(document.querySelector("#app tbody").textContent),
+      "the fresh answer to reach the table", 20_000);
+
+    // THE VALUE IS LONGER THAN THE HEADER THE COLUMN WAS FITTED TO, which is
+    // the whole of what "arrived longer" means here.
+    const drew = await p.eval(() => {
+      const th = [...document.querySelectorAll("#app thead th")];
+      const at = th.findIndex((e) => e.dataset.key === "scheduled");
+      // THE HEADER WORD, not the cell: the sort mark rides beside it and is
+      // paid for outside the measure the value is compared against.
+      return { head: th[at].querySelector(".tv-hn").textContent.trim(),
+               cell: document.querySelector("#app tbody tr[data-id]")
+                       .children[at].textContent.trim() };
+    });
+    assert(drew.cell.length > drew.head.length,
+      `the arriving value ${JSON.stringify(drew.cell)} is no longer than the `
+      + `header ${JSON.stringify(drew.head)} the column was fitted to`);
+    const after = await columnWidths(p);
+    assert(sameWidths(before, after),
+      `a longer value arriving moved the columns: ${JSON.stringify(after.px)} `
+      + `against ${JSON.stringify(before.px)}, written `
+      + `${JSON.stringify(after.style)} against ${JSON.stringify(before.style)}`);
+    assert(JSON.stringify(after.lefts) === JSON.stringify(before.lefts),
+      `the row's cells moved sideways: ${JSON.stringify(after.lefts)} against `
+      + `${JSON.stringify(before.lefts)}`);
+    return [`${JSON.stringify(drew.cell)} landed in a column fitted to `
+      + `${JSON.stringify(drew.head)} alone and moved 0px of ${before.px.length} `
+      + `columns (${JSON.stringify(before.style)})`];
+  } },
+
+{ name: "a query change refits the columns once",
+  async run(p, base) {
+    // THE WHOLE TREE FIRST, whose widest tag run and widest title the columns
+    // are fitted to, and then a question that answers one short row.
+    await tableUp(p, base);
+    await p.until(() => document.querySelectorAll("#app tbody tr[data-id]").length > 3,
+                  "the whole tree to mount its rows");
+    const all = await columnWidths(p);
+    const booted = (await p.eval(stripText)).length;   // the boot view's own chips
+
+    // A DIFFERENT QUESTION, asked the way a reader asks it: the filter box.
+    await filterUp(p, "the filter box on `/'");
+    await p.type("tag:hid");
+    await p.until(acOpen, "the value list to open behind the tag key");
+    await p.type("e");
+    await committed(p, booted + 1, "the chip to land on the strip");
+    await p.until(() => document.querySelectorAll("#app tbody tr[data-id]").length === 1,
+                  "the narrow set to be the answer on show", 20_000);
+    const narrow = await columnWidths(p);
+    assert(!sameWidths(all, narrow),
+      `the query change refitted nothing: ${JSON.stringify(narrow.style)} is still `
+      + `${JSON.stringify(all.style)}`);
+    // NARROWER, which is the direction a re-fit can only reach by MEASURING the
+    // new set: a widen-only cache (the policy this replaced) could not.
+    const chOf = (w) => +((/(\d+)ch/.exec(w) || [0, 0])[1]);
+    assert(narrow.style.some((w, i) => chOf(w) < chOf(all.style[i])),
+      `no column came in: ${JSON.stringify(narrow.style)} against `
+      + `${JSON.stringify(all.style)}`);
+
+    // ONCE, AND NOT AGAIN: a settle over the SAME question's rows moves nothing,
+    // however much longer the value it carries is.
+    const row = await p.eval(() =>
+      document.querySelector("#app tbody tr[data-id]").dataset.id);
+    const wrote = await p.eval(async (id) => {
+      const r = await fetch("/command", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "set-planning", ids: [id],
+                               args: { keyword: "SCHEDULED", date: "2026-12-01" } }) });
+      return r.status;
+    }, row);
+    assert(wrote === 200, `the write answered ${wrote}`);
+    await p.until(() => /2026-12-01/
+      .test(document.querySelector("#app tbody").textContent),
+      "the settle to reach the table", 20_000);
+    const settled = await columnWidths(p);
+    assert(sameWidths(narrow, settled),
+      `a settle on the same question's rows refitted again: `
+      + `${JSON.stringify(settled.style)} against ${JSON.stringify(narrow.style)}`);
+    return [`the whole tree fitted ${JSON.stringify(all.style)}, tag:hide refitted `
+      + `to ${JSON.stringify(narrow.style)}, and a settle on that set moved nothing`];
+  } },
+
+{ name: "a long value clips with its full text on hover",
+  async run(p, base) {
+    // THE TREE'S LONGEST ROW, alone, in a window too narrow to draw it: the
+    // fill column meets its own floor (TITLE_MIN_CH) and the title is cut.
+    // NARROWED BEFORE THE MOUNT, so the FIRST paint is the clipped one: a
+    // resize refits and re-marks on a frame of its own, and a reading taken
+    // between the layout and that frame would catch the cell unmarked.
+    await p.size(700, 800);
+    await p.goto(`${base}/?q=${encodeURIComponent("tag:wide")}`);
+    await p.until(() => !!document.querySelector("#app tbody tr[data-id]"),
+                  "the wide row to mount");
+    const read = await p.until(() => {
+      const tds = [...document.querySelectorAll("#app tbody tr[data-id] td:not(.tv-box)")];
+      const cut = tds.filter((td) => td.scrollWidth > td.clientWidth + 1);
+      if (!cut.length) return false;
+      const seen = getComputedStyle(cut[0]);
+      return { n: cut.length,
+               title: cut[0].title, text: cut[0].textContent,
+               clip: seen.textOverflow, wrap: seen.whiteSpace, over: seen.overflow,
+               // NOTHING WIDE IS DRAWN WIDE: the whole table stays inside its
+               // scroller, which is what "clips" means at the table's own edge.
+               spill: document.querySelector("#app .tv-table").scrollWidth
+                        - document.querySelector("#app .tv-table").clientWidth };
+    }, "a cell its column cannot hold");
+
+    assert(read.clip === "ellipsis" && read.wrap === "nowrap" && read.over === "hidden",
+      `the clipped cell is dressed ${JSON.stringify([read.clip, read.wrap, read.over])} `
+      + `rather than nowrap/hidden/ellipsis`);
+    assert(read.title === read.text && read.title.length > 0,
+      `the clipped cell's hover text is ${JSON.stringify(read.title)} where it draws `
+      + `${JSON.stringify(read.text)}`);
+    assert(read.spill <= 1,
+      `the table itself spills ${read.spill}px past its own box`);
+    // A CELL THAT FITS CARRIES NO HOVER TEXT: the attribute says "there is more
+    // here than you can see", so an unclipped cell wearing one says nothing.
+    const whole = await p.eval(() =>
+      [...document.querySelectorAll("#app tbody tr[data-id] td:not(.tv-box)")]
+        .filter((td) => td.scrollWidth <= td.clientWidth + 1 && td.title)
+        .map((td) => td.title));
+    assert(whole.length === 0,
+      `cells that fit carry hover text anyway: ${JSON.stringify(whole)}`);
+    return [`${read.n} cell(s) clipped, the first carrying its whole `
+      + `${read.text.length} characters as hover text`];
+  } },
+
+// USER CALL 2026-09-13.  THE CURSOR IS A ROW AND A CELL WITHIN IT, and nothing
+// else: the row keeps the one gold, the cell inside it is a 1px inset ring in
+// the page's POINT ink (`--g-point', #005A8D light and #FFC777 dark), and the
+// rows carry NO COLUMN BAND.  The cell writes no background slot at all, which
+// is what makes it free of "one gold at a time" (docs/invariants.md) -- a ring
+// cannot stack with the row's gold, the mark, the flag or the zebra, and needs
+// no contrast budget from the ground under it; the ground-on-ground cell it
+// replaces had to be held at 9% in dark.  Read in PIXELS, both themes, because
+// the invariant's own note says a stacked wash is a state only pixels see.
+{ name: "the selected cell is a ring and writes no ground of its own",
+  async run(p, base) {
+    await tableUp(p, base);
+    // POINT ONTO A CELL: `f' takes the column cursor into the row's first cell,
+    // which is what dresses one `tv-cell-sel'.
+    await p.press("f");
+    await p.until(() => !!document.querySelector("#app tbody td.tv-cell-sel"),
+                  "the column cursor to dress a cell");
+    // The dress crossfades (`table-view.js', `transition:background-color'), so
+    // a reading taken across a theme change would catch the fade.  Stilled for
+    // the measurement and only for it.
+    await p.eval(() => {
+      const st = document.createElement("style");
+      st.id = "case-still";
+      st.textContent = "*{transition:none !important}";
+      document.head.appendChild(st);
+    });
+    // THE PAGE HAS NO THEME KEY -- `~' is unbound.  The settings sheet's own
+    // `setTheme' writes `data-theme' on the root (`50-settings.js:779'), and
+    // this is that write.
+    const dressed = async (theme) => {
+      await p.eval((t) => document.documentElement.setAttribute("data-theme", t),
+                   theme);
+      return p.until(() => {
+        const td = document.querySelector("#app tbody td.tv-cell-sel");
+        const tr = td && td.closest("tr");
+        if (!tr || !tr.classList.contains("tv-sel")) return false;
+        const cell = getComputedStyle(td), row = getComputedStyle(tr);
+        // The page's point ink, normalised through the UA rather than compared
+        // as a hex string: the ring is measured against the TOKEN, not a value
+        // copied into the test.
+        const probe = document.createElement("span");
+        probe.style.color = getComputedStyle(document.documentElement)
+          .getPropertyValue("--g-point").trim();
+        document.body.appendChild(probe);
+        const point = getComputedStyle(probe).color;
+        probe.remove();
+        // THE NEIGHBOURS DOWN THE COLUMN: every other body cell in the selected
+        // cell's column, which the retired band used to wash.
+        const at = [...td.parentElement.children].indexOf(td);
+        const grounds = [...document.querySelectorAll("#app tbody tr")]
+          .map((r) => r.children[at])
+          .filter((c) => c && c !== td)
+          .map((c) => getComputedStyle(c).backgroundColor);
+        return { cell: cell.backgroundColor, ring: cell.boxShadow,
+                 row: row.backgroundColor, point,
+                 neighbours: grounds.length, band: [...new Set(grounds)] };
+      }, `the cursor cell to draw in the ${theme} theme`);
+    };
+    const clear = /^(transparent|rgba\(0, 0, 0, 0\))$/;
+    const out = [];
+    for (const theme of ["light", "dark"]) {
+      const seen = await dressed(theme);
+      assert(clear.test(seen.cell),
+        `the ${theme} cell writes a ground of its own: ${JSON.stringify(seen.cell)}`);
+      // THE RING IS THE POINT INK, 1px, inset, and no radius or border with it.
+      assert(seen.ring.startsWith(seen.point + " ") && /1px inset$/.test(seen.ring),
+        `the ${theme} ring is ${JSON.stringify(seen.ring)}, `
+        + `not a 1px inset ${seen.point}`);
+      // THE ONE GOLD IS THE ROW'S and nothing is laid over it.
+      assert(!clear.test(seen.row),
+        `the ${theme} cursor row lost its gold: ${JSON.stringify(seen.row)}`);
+      // NO BAND: the cell's neighbours down its column draw no ground at all.
+      assert(seen.neighbours > 0 && seen.band.every((g) => clear.test(g)),
+        `the ${theme} column still washes its cells: ${JSON.stringify(seen.band)}`);
+      out.push(`${theme}: row ${seen.row}, cell ${seen.cell}, `
+        + `ring ${seen.ring}, ${seen.neighbours} neighbours down the column `
+        + `wearing ${JSON.stringify(seen.band)}`);
+    }
+    await p.eval(() => {
+      document.documentElement.removeAttribute("data-theme");
+      const st = document.getElementById("case-still");
+      if (st) st.remove();
+    });
+    return out;
   } },
 
 // PROPOSAL 2026-08-26.  An org table in the doc is drawn by the table-view
@@ -5011,7 +7283,25 @@ export default [
     assert((await at()) !== id, "b off the whole row did not climb out of the table");
     await p.until(() => document.querySelector("#mdoc glance-table").classList.contains("gt-nosel"),
       "the table to mask its row wash once point climbed out");
-    return [`f/b crossed the cells of ${id} and climbed out, the row wash cleared`];
+    // THE MASK IS READ IN PIXELS, because the CELL CURSOR IS A RING that writes
+    // no ground at all (docs/invariants.md): a mask spelling `background' alone
+    // cleared the wash and left the ring drawn over a table point had climbed
+    // out of, so the shadow is the half a class name cannot see.
+    const masked = await p.eval(() => {
+      const host = document.querySelector("#mdoc glance-table");
+      const shadow = (sel) => {
+        const e = host.querySelector(sel);
+        return e ? getComputedStyle(e).boxShadow : null;
+      };
+      return { cell: shadow("td.tv-cell-sel"), col: shadow("td.tv-colsel") };
+    });
+    for (const [what, drawn] of Object.entries(masked)) {
+      if (drawn === null) continue;
+      assert(drawn === "none",
+        `the masked ${what} still draws ${JSON.stringify(drawn)}`);
+    }
+    return [`f/b crossed the cells of ${id} and climbed out, the row wash cleared `
+      + `and the cell ring with it (${JSON.stringify(masked)})`];
   } },
 
 // PHASE 3b.  A column name is the header cell: p above row 1 climbs to it,

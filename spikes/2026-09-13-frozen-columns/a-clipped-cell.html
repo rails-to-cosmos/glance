@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A · frozen widths, clipped cell</title>
+<link rel="stylesheet" href="pane.css">
+<style>
+  /* A — THE PIN, AND THE INPUT LIVES INSIDE IT.
+
+     At the open every column's CURRENT drawn width is read off the header and
+     written onto its `<col>' in px — the fill column among them, and the
+     table's own width with them, or fixed layout hands the slack back in
+     proportion and the pin pins five columns out of six.
+
+     The editor is the shipped one, `width:100%' of a cell that cannot grow, so
+     it scrolls its own text horizontally the way any input does.  On close the
+     pin is lifted, the measure runs once, and whatever the reader added lands
+     in ONE jump the rig reports in px per column.
+
+     WHAT IT COSTS: the reader sees a window onto what they typed.  A 60-char
+     title in a 40-char box shows the tail and hides the head. */
+</style>
+</head>
+<body>
+  <h1>A · frozen widths, clipped cell
+    <small>pin at open, the input scrolls inside its cell, one re-fit on close</small></h1>
+  <div id="stage">
+    <div id="frame">
+      <div class="tv-bar"><input id="filter" class="tv-filter" readonly></div>
+      <div class="tv-chips" id="chips"></div>
+      <div id="tablewrap"></div>
+    </div>
+  </div>
+  <span id="fzmeasure"></span>
+  <footer>
+    <span class="keys"><kbd>n</kbd><kbd>p</kbd> a row ·
+      <kbd>f</kbd><kbd>b</kbd> (arrows) a column ·
+      <kbd>RET</kbd> opens the cell ·
+      <kbd>+</kbd> a draft under point ·
+      <kbd>TAB</kbd><kbd>S-TAB</kbd> walk the draft ·
+      <kbd>RET</kbd> captures · <kbd>ESC</kbd> drops it ·
+      <kbd>a</kbd> a row arrives · <kbd>g</kbd> the ruler · <kbd>~</kbd> theme</span>
+    <span id="state"></span>
+    <span id="truth"></span>
+    <span id="says"></span>
+  </footer>
+
+<script src="rig.js"></script>
+<script>RIG.mount({ mode: "clip" });</script>
+</body>
+</html>

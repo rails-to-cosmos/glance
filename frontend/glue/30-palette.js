@@ -1,138 +1,9 @@
-// THE CAPTURE'S TAG FIELD AND THE VALUE PALETTE, behind an argument list (AGENTS.hs).
+// THE VALUE PALETTE AND THE LINK DOOR, behind an argument list (AGENTS.hs).
 // What it takes from the shell arrives as accessors: a handle cannot carry a `let'.
-const Capture = ((deps) => {
-    const { CFG, EMPTY, NEW_HINT, active, append, askFailed, atIn, badgeColor,
-            cellTags, clamp, docTitle, el, onKeys,
-            failed, fire, getJSON, keyName, leadTyped, materialize, part,
-            said, showDraft, targetOf, targets, walkStep } = deps;
-    const { queryNow, colsNow, entryNow } = deps;
-    let capping = null;   // the tag field's state while it is up
-    const capUp = () => !!capping;
-    function shutCapture() {
-      capping = null;
-      el("klist").textContent = "";
-      el("ktag").value = "";
-      shutPopup("capture");
-      const held = active();
-      if (held && held.blur) held.blur();
-    }
-    /** `+' ASKS THE DESTINATION FIRST, and nothing else: the tag picks the
-     * template, the `#+TODO:' cycle and where the blob lands, so it is settled
-     * before there is a document to draw.  The field is SEEDED from the standing
-     * filter and never settled by it — a suggestion the reader may back out of
-     * in one keystroke. */
-    function openCapture(b) {
-      sole("capture");
-      capping = { b, vocab: [], hot: -1, tag: null };
-      el("ktag").value = filteredTags()[0] || "";   // a capture goes under ONE tag
-      el("klist").textContent = "";
-      showPopup("capture", "k", "capture",
-                `RET opens the capture · ${EMPTY} tag is the inbox · ESC leaves`);
-      el("ktag").focus();
-      captureShape(null).then((a) => {
-        if (!capping) return;
-        capping.vocab = a.tags || [];
-        drawTagList(el("ktag").value);
-      }).catch(failed(b, "capture"));
-    }
-
-    // THE APPLIED QUERY'S OWN PREDICATES, or none where there is no query and no
-    // renderer to read one.  EVERY inheritance below reads this one parse.
-    const filterTerms = () =>
-      (queryNow() && typeof TableView.parseQuery === "function"
-        ? TableView.parseQuery(queryNow(), colsNow().map((c) => c.key)) : []);
-    /** A FACT THE FILTER PINS TO ONE CONCRETE POSITIVE VALUE, or `""'.  A
-     * negated predicate, a WIDENING (an alternative, never a facet every shown
-     * row carries), an alternation and a meta (`*active*') each describe a SET
-     * of rows rather than a value a capture could wear. */
-    const pinned = (t) =>
-      !t.negated && !t.added && t.value
-      && !t.value.includes("|") && !/^\*.*\*$/.test(t.value);
-    const pinnedTo = (key) => filterTerms().filter((t) => t.key === key && pinned(t));
-    // EVERY tag the applied query names, in the order it names them.
-    const filteredTags = () => pinnedTo("tag").map((t) => t.value);
-    /** THE ONE ORDINARY POSITIVE VALUE the filter pins KEY to, or `""'.  Named
-     * ONCE is the whole rule: two `state:' predicates describe a union, and a
-     * capture inherits from a filter only what that filter leaves no choice
-     * about. */
-    const soleValue = (key) => {
-      const hits = pinnedTo(key);
-      return hits.length === 1 ? String(hits[0].value) : "";
-    };
-    // A DAY THE FILTER PINS: a bare ISO or one word the server resolves.  A
-    // comparison, a range or an alternation names a SPAN of days, and a planning
-    // entry is one day — so those seed nothing.  READ SYNTACTICALLY: the day
-    // WORDS are the server's vocabulary and this page holds no copy of them.
-    const ONE_DAY = /^(?:\d{4}-\d{2}-\d{2}|[A-Za-z]+)$/;
-    /** WHAT THE STANDING FILTER LENDS A CAPTURE, as the read door's own args.
-     * TEMPLATE-FIRST IS THE SERVER'S: these are what the filter leaves no choice
-     * about, and the composer there fills only the silences the template left.
-     * The destination TAG rides apart, being the capture's address rather than
-     * one of its facts. */
-    function inherited(tag) {
-      const args = [];
-      const state = soleValue("state");
-      if (state) args.push(["state", state]);
-      const priority = soleValue("priority");
-      // ORG'S OWN SPELLING IS `[#B]' and the wire takes the letter.
-      if (priority) args.push(["priority", priority.replace(/^\[#(.)\]$/, "$1")]);
-      // EVERY POSITIVE TAG BEYOND THE DESTINATION joins the draft's own.
-      const more = filteredTags().filter((t) => t !== tag);
-      if (more.length) args.push(["tags", more.join(",")]);
-      for (const word of CFG.settable) {
-        const day = soleValue(word.toLowerCase());
-        if (day && ONE_DAY.test(day)) args.push([word.toLowerCase(), day]);
-      }
-      return args;
-    }
-    function drawTagList(typed) {
-      if (!capping) return;
-      const want = foldTag(typed);
-      capping.shown = capping.vocab
-        .filter((t) => !want || foldTag(t).indexOf(want) !== -1).slice(0, 8);
-      if (capping.hot >= capping.shown.length) capping.hot = -1;
-      const box = el("klist");
-      box.textContent = "";
-      capping.shown.forEach((t, i) =>
-        part(box, "div", i === capping.hot ? "ke kh" : "ke", t));
-    }
-    /** THE TAG SETTLES AND THE DOCUMENT OPENS.  The server expands the tag's
-     * template and answers a DRAFT — the shape `/headline' serves, from bytes
-     * that exist only in that answer — and the sheet draws it as it draws any
-     * doc.  The form is DOWN by then: there is one editor, and this was the
-     * question that had to precede it. */
-    function settleTag() {
-      const picked = capping.hot >= 0 ? capping.shown[capping.hot] : null;
-      if (picked) el("ktag").value = picked;
-      const tag = foldTag(el("ktag").value);
-      capping.tag = tag; capping.hot = -1;
-      el("klist").textContent = "";
-      const b = capping.b;
-      captureShape(tag || null, inherited(tag)).then((a) => {
-        if (!capping || capping.tag !== tag) return;
-        shutCapture();
-        showDraft(b, tag, a);
-      }).catch(failed(b, "capture"));
-    }
-    // Behind the dispatch; a key another surface claimed is left alone.
-    onKeys((e) => capping && !e.defaultPrevented, (k, e) => {
-      if (active() === el("ktag")) {
-        const walk = walkStep(k);
-        if (walk) {
-          capping.hot = clamp(capping.hot + walk, -1,
-                              (capping.shown || []).length - 1);
-          drawTagList(el("ktag").value); e.preventDefault(); return;
-        }
-        // THE ONE FIELD, and RET carries it: dry over an offer, final over the
-        // line the reader typed — the shipped tag field's own rule.
-        if (k === "RET" || k === "TAB") { settleTag(); e.preventDefault(); }
-      }
-    });
-    el("ktag").addEventListener("input", () => {
-      if (!capping) return;
-      capping.hot = -1; capping.tag = null;
-      drawTagList(el("ktag").value);
-    });
+const Palette = ((deps) => {
+    const { CFG, EMPTY, NEW_HINT, append, askFailed, atIn, badgeColor, docTitle,
+            el, entryNow, failed, fire, getJSON, leadTyped, materialize, part,
+            said, targetOf, targets } = deps;
     const rowsWord = (n) => `${n} row${n === 1 ? "" : "s"}`;
     const foldTag = (t) => String(t || "").trim().toLowerCase();
     const tagFrom = (c) => foldTag(c.tag);
@@ -150,7 +21,7 @@ const Capture = ((deps) => {
         "a letter sets it · + adds one · / to search · ESC leaves");
       // WHAT `+' NEEDS: the rows to set it on once the state has been declared.
       mine.states = { b, ids, title };
-      statesFor(ids, false).then((answer) => {
+      keywordSources(ids).then((answer) => {
         if (prompting === mine) setChoices(answer.sources);
       }).catch(askFailed(mine, "keywords"));
     }
@@ -158,59 +29,43 @@ const Capture = ((deps) => {
     function restate() {
       const mine = prompting;
       if (!mine || !mine.states) return Promise.resolve(false);
-      return statesFor(mine.states.ids, true).then((answer) => {
+      return keywordSources(mine.states.ids).then((answer) => {
         if (prompting !== mine) return false;
         setChoices(answer.sources);
         return true;
       }).catch(askFailed(mine, "keywords"));
     }
-    /** THE DRAFT THOSE IDS NAME, or `null'.  A capture names no row, so the two
-     * doors keyed by row id — the state palette and the tags popup — read the
-     * handle instead, and this is the one place the reading is made. */
-    const draftIn = (ids) => {
-      const h = entryNow();
-      return h && h.capture && ids.length === 1 && ids[0] === h.id ? h : null;
-    };
-    /** THE STATES IDS MAY BE SET TO.  A DRAFT'S CYCLE CAME WITH ITS ANSWER: the
-     * tag's own `#+TODO:' rides the very config file its template does, so the
-     * door that expanded the draft is the door that classified it, and no row is
-     * named for a read no row could answer.  FRESH RE-ASKS that door, which is
-     * what a state MINTED from this very palette needs — the mint wrote the
-     * layer, and nothing carried on the draft would have seen it. */
-    function statesFor(ids, fresh) {
-      const h = draftIn(ids);
-      if (!h) return keywordSources(ids);
-      if (!fresh) return Promise.resolve({ sources: h.capture.cycle });
-      return captureShape(h.capture.tag || null).then((a) => {
-        h.capture.cycle = a.cycle || h.capture.cycle;
-        return { sources: h.capture.cycle };
-      });
-    }
     function askTags(b, ids, title) {
-      tagsFor(ids).then((answer) => {
+      askIds("/tags", ids).then((answer) => {
         if (!(answer.rows || []).length) { said(b, "no such row"); return; }
         showTags(b, title, answer);
       }).catch(failed(b, "tags"));
     }
-    /** WHAT `/tags' ANSWERS FOR A DRAFT.  The VOCABULARY is the whole store's and
-     * rides the capture answer already; the one ROW is the draft's own cell.
-     * Every write the popup makes goes back out through `fire', where the draft
-     * is written — so the popup itself knows nothing about any of this.  NO
-     * COUNTS: those are rows per tag, and a draft is in nobody's count yet. */
-    function tagsFor(ids) {
-      const h = draftIn(ids);
-      if (!h) return askIds("/tags", ids);
-      return captureShape(h.capture.tag || null).then((a) => ({
-        rows: [{ id: h.id, tags: cellTags((h.cells || {}).tags) }],
-        vocabulary: a.tags || [], counts: {}, unknown: [],
-      }));
+    /** `set-planning''s ONE ROAD, from every surface that spells a date: the
+     * FIELD'S OWN BYTES go out and the server resolves them once against its own
+     * clock, an emptied field committing `null' -- `""' is no date and would meet
+     * the wall's 400 rather than clear the entry (docs/invariants.md). */
+    const firePlanning = (b, ids, keyword, typed) =>
+      fire(b, "set-planning", ids, { keyword, date: typed || null },
+           typed || "cleared");
+    /** THE WALL ABOVE EVERY COMMIT: TEXT trimmed, read against TODAY, and the
+     * reader's own word said on B where no reading takes it -- so the server's
+     * refusal is the backstop rather than the reader's first news.  Answers the
+     * phrase to commit, `""' for the clear, and `null' for what was refused.
+     * READ is a surface with a stricter reader than the day's (`readsWhen'). */
+    function datePassed(b, text, today, read) {
+      const typed = String(text == null ? "" : text).trim();
+      if (!typed) return "";
+      const r = read ? read(typed) : readsDate(typed, today);
+      if (r.ok) return typed;
+      said(b, r.why);
+      return null;
     }
     function planRows(b, keyword) {
       overTargets(b, keyword.toLowerCase(), (bind, ids, title) =>
-        askText(title, "RET sets it · empty clears it · ESC leaves", (c) => {
-          const date = c.text.trim();
-          fire(bind, "set-planning", ids, { keyword, date: date || null },
-               date || "cleared");
+        askText(title, DATE_FOOT, (c) => {
+          const typed = datePassed(bind, c.text, dateNow());
+          if (typed !== null) firePlanning(bind, ids, keyword, typed);
         }));
     }
     let prompting = null;
@@ -409,15 +264,6 @@ const Capture = ((deps) => {
         + ids.map((i) => "ids=" + encodeURIComponent(i)).join("&"));
     const keywordSources = (ids) => askIds("/keywords", ids);
     const linksOf = (id) => getJSON(`/links?id=${encodeURIComponent(id)}`);
-    /** `GET /capture': the expanded DRAFT for TAG, with what the standing filter
-     * LENDS it riding as MORE.  A null tag is the inbox and its default
-     * template.  THE READ CREATES NO FILE — a capture is committed or it never
-     * was. */
-    const captureShape = (tag, more) => {
-      const args = (tag === null ? [] : [["tag", tag]]).concat(more || []);
-      return getJSON("/capture" + (args.length ? "?" : "")
-        + args.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&"));
-    };
     // The server's list (`Glance.Query.followableTypes'), spliced like `CODES'.
     const FOLLOWABLE = CFG.followable;
     const MATERIAL = CFG.material;
@@ -456,25 +302,21 @@ const Capture = ((deps) => {
 
     // `prompting' is this widget's own, so it leaves as an answer.
     const promptNow = () => prompting;
-    return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags, askText,
-             capUp, docTargets, entry,
-             fieldMode, filteredTags, foldTag, followLinks, linksOf, offer,
-             keywordSources,
-             openCapture, openLink, overTargets, planRows, promptNow, raise,
-             restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
-             walkChoices };
-})({ CFG, EMPTY, NEW_HINT, active, append, askFailed, atIn, badgeColor,
-     cellTags, clamp, docTitle, el, onKeys,
-     failed, fire, getJSON, keyName, leadTyped, materialize, part,
-     said, showDraft, targetOf, targets, walkStep,
-     // A `let' cannot ride in as itself: these three arrive as accessors.
-     queryNow: () => query, colsNow: () => cols, entryNow: () => editing });
-const { CODES, ask, askFrom, askState, askTags, askText, capUp, docTargets, entry,
-        fieldMode, filteredTags, foldTag, followLinks, linksOf, offer,
-        keywordSources,
-        openCapture, openLink, overTargets, planRows, promptNow, raise,
-        restate, rowsWord, shortly, shutCapture, tagFrom, takeChoice, unask,
-        walkChoices } = Capture;
+    return { whichKeys, letterAt, CODES, ask, askFrom, askState, askTags,
+             askText, datePassed, docTargets, entry, fieldMode, firePlanning,
+             foldTag, followLinks, keywordSources, linksOf, offer, openLink,
+             overTargets, planRows, promptNow, raise, restate, rowsWord,
+             shortly, tagFrom, takeChoice, unask, walkChoices };
+})({ CFG, EMPTY, NEW_HINT, append, askFailed, atIn, badgeColor, docTitle,
+     el, failed, fire, getJSON, leadTyped, materialize, part,
+     said, targetOf, targets,
+     // A `let' cannot ride in as itself: the open sheet arrives as an accessor.
+     entryNow: () => editing });
+const { CODES, ask, askFrom, askState, askTags, askText, datePassed, docTargets,
+        entry, fieldMode, firePlanning, foldTag, followLinks, keywordSources,
+        linksOf, offer, openLink, overTargets, planRows, promptNow, raise,
+        restate, rowsWord, shortly, tagFrom, takeChoice, unask,
+        walkChoices } = Palette;
 // The suite drives these two as the pure functions they are, through a direct
 // `eval' -- where a `var' reaches the caller's scope and a `const' does not.
-var whichKeys = Capture.whichKeys, letterAt = Capture.letterAt;
+var whichKeys = Palette.whichKeys, letterAt = Palette.letterAt;
