@@ -106,6 +106,7 @@ library glance-internal
     , haskeline
     , megaparsec
     , mtl
+    , process
     , text
     , text-show
     , time

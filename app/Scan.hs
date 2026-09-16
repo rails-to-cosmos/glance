@@ -48,6 +48,8 @@ report c = do
     , row "headlines"       (num (tHeadlines t))
     , row "span violations" (num (docSpanViolations doc))
     , row "id collisions"   (num (docIdCollisions doc))
+    , row "tracked notices" (num (docTrackedNotifications doc))
+    , row "broad merge rules" (num (docBroadMergeRules doc))
     , row "walk seconds"    (fixed 2 walkSecs)
     , row "wall seconds"    (fixed 2 secs)
     , row "files/sec"       (fixed 1 rate)
@@ -64,6 +66,8 @@ report c = do
   section "derived skipped" (length derived) (map T.pack (take sampleLimit derived))
   section "config skipped" (length configDirs) (map T.pack (take sampleLimit configDirs))
   section "config keywords" (length keywords) [T.unwords keywords]
+  section "tracked notification ledgers" (length tracked) (map T.pack tracked)
+  section "retired *.jsonl merge rules" (length broad) (map T.pack broad)
   mapM_ (\d -> TIO.putStrLn "" >> mapM_ TIO.putStrLn (indexReportLines d)) drifts
   where
     roots      = coRoots c
@@ -74,6 +78,8 @@ report c = do
     configDirs = coConfigDirs c
     seed       = coSeed c
     drifts     = coDrifts c
+    tracked    = coTrackedNotifications c
+    broad      = coBroadMergeRules c
     walkSecs   = coWalkSecs c
     secs       = coWallSecs c
     doc        = corpusDoctor c

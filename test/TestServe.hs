@@ -60,6 +60,7 @@ import Glance.Query ( ConfigSetting (csName), QueryResult (qrRecords)
                     , linkColumns, loadDir, loadFile, prioritySlots, stateSlots
                     , segmentEnd, segmentIn, storeRootIn, tagColumns, todoLines
                     , trashPathFor, viewJSON )
+import qualified Glance.Query as Q
 import Glance.Web ( ServeOptions (..), application, bannerLines, bootstrapWanted
                   , defaultPort, viewTitleFor )
 import Glance.Web.Page.Popups ( Popup (..), Tier (..), popups, tierClass
@@ -729,6 +730,27 @@ doctorSpec = testGroup "The startup doctor rides the view JSON"
         block <- field "doctor" =<< decoded =<< getFrom a "/headlines"
         assertEqual "GET /doctor is the envelope's doctor block, verbatim" block door
         assertEqual "and it names the decode failure" 1 =<< intAt "decodeFailures" door
+
+  , testCase "tracked notification ledgers and the retired merge glob make doctor unclean" $
+      withTempDir $ \dir -> do
+        let meta = dir </> ".org-glance" </> "meta"
+        createDirectoryIfMissing True meta
+        TIO.writeFile (meta </> "EXTERNAL.jsonl") ""
+        TIO.writeFile (meta </> "COMPLETIONS.jsonl") ""
+        TIO.writeFile (meta </> ".gitattributes") "*.jsonl merge=union\n"
+        (initCode, _initOut, initErr) <-
+          readProcessWithExitCode "git" ["-C", dir, "init", "-q"] ""
+        assertEqual ("git init: " <> initErr) ExitSuccess initCode
+        (addCode, _addOut, addErr) <- readProcessWithExitCode "git"
+          [ "-C", dir, "add", "-f", "--"
+          , ".org-glance/meta/EXTERNAL.jsonl"
+          , ".org-glance/meta/COMPLETIONS.jsonl"
+          , ".org-glance/meta/.gitattributes" ] ""
+        assertEqual ("git add: " <> addErr) ExitSuccess addCode
+        d <- diagnose defaultWalk [dir] =<< loadDir dir
+        assertEqual "both local ledgers are tracked" 2 (Q.docTrackedNotifications d)
+        assertEqual "the broad merge rule is one finding" 1 (Q.docBroadMergeRules d)
+        assertBool "either finding makes the verdict unclean" (not (Q.doctorClean d))
   ]
 
 -- | One boot of the shell's glue, RUN: a call written and never reached matches a text search too.
@@ -7070,8 +7092,10 @@ shellGlue =
       [ "for (const r of ttargets) for (const t of r.tags)"
       , "if (seen.indexOf(t) === -1) seen.push(t);"
       -- `/command' never writes the store, so a re-read here would answer with what the files said BEFORE the write.
+      , "const okRows = (results) => (results || []).filter((x) => x.ok);"
       , "const landedIds = (results) =>"
-      , "new Set((results || []).filter((x) => x.ok).map((x) => x.id));" ]
+      , "new Set(okRows(results).flatMap((x) => (x.from ? [x.from, x.id] : [x.id])));"
+      , "apply(landedIds(results), okRows(results).length);" ]
       ["seen.sort(", "tagsOf(over", "tagsOf(prompting", "tagsOf(ttargets"]
 
   -- The tags popup is a MOUNT and a mutable one, with the rename overlay laid over the tag CELL.
@@ -9842,6 +9866,23 @@ noteLinesIn root = do
   if there then T.lines <$> document note else pure []
   where note = storeRootIn root </> "meta" </> "EXTERNAL.jsonl"
 
+withInboxJot :: (Application -> Hub -> FilePath -> T.Text -> T.Text -> Assertion) -> Assertion
+withInboxJot k = withStoreTree $ \a hub dir -> do
+  _ <- ok =<< postTo a "/command" (capture "a first jot")
+  drainNow dir hub
+  kept <- document (dir </> "inbox.org")
+  answer <- decoded =<< ok =<< postTo a "/command" (capture "read the docs")
+  rid <- textAt "id" answer
+  drainNow dir hub
+  k a hub dir kept rid
+
+stampsIn :: T.Text -> [T.Text]
+stampsIn source =
+  [ T.strip value
+  | line <- T.lines source
+  , Just value <- [T.stripPrefix ":ORG_GLANCE_CREATION_TIME:" (T.strip line)]
+  ]
+
 -- | A tree with the three shapes @delete@ tells apart.  K is handed the ROOT, which is what every trash function takes.
 withDeletable :: (Application -> FilePath -> FilePath -> FilePath -> FilePath -> Assertion)
               -> Assertion
@@ -9920,6 +9961,34 @@ tagCommandSpec = testGroup "POST /command add-tag and remove-tag"
         assertContains "the row that had it is untouched" "* NEXT First :one:" here
         assertContains "and the one that lacked it has it" "* Second :one:" here
         assertContains "across the file boundary too" "* TODO Third :one:" =<< document other
+
+  , testCase "a tag on an inbox jot moves it under the tag's layer" $
+      withInboxJot $ \a hub dir kept rid -> do
+        stamp <- last . stampsIn <$> document (dir </> "inbox.org")
+        answer <- decoded =<< ok =<< postTo a "/command"
+                    (command "add-tag" [rid] (tagArg "book"))
+        results <- listAt "results" answer
+        v <- case results of
+          [one] -> pure one
+          many  -> assertFailure ("one result, got " <> show (length many))
+        ident <- textAt "id" v
+        assertEqual "the answer names the id it arrives under" [8, 4, 4, 4, 12]
+                    (map T.length (T.splitOn "-" ident))
+        assertEqual "and says which inbox id left" rid =<< textAt "from" v
+        blob <- textAt "file" v
+        written <- document (T.unpack blob)
+        assertContains "the tag joined the title line" "* read the docs :book:" written
+        assertContains "the id is in the drawer" (":ORG_GLANCE_ID: " <> ident) written
+        assertEqual "the original creation stamp is kept once" [stamp] (stampsIn written)
+        assertEqual "the inbox keeps only its earlier jot" kept
+          =<< document (dir </> "inbox.org")
+        notes <- noteLinesIn dir
+        assertEqual "one ledger line" 1 (length notes)
+        assertContains "the ledger names the new id" ("\"id\":\"" <> ident <> "\"")
+                       (head notes)
+        drainNow dir hub
+        assertContains "the new id is served" "read the docs"
+          =<< textAt "org" =<< decoded =<< ok =<< getFrom a (headlinePath ident)
 
   , testCase "a tag no parser reads refuses the request, naming it" $
       withCommandable $ \a _hub path _other -> do

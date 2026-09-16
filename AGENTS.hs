@@ -1896,7 +1896,8 @@ pageHeaders = ["X-Glance-Total", "X-Glance-Has-Next", "X-Glance-Archived"]
 doctorFields :: [String]
 doctorFields = [ "clean", "warnings", "parseFailures", "decodeFailures"
                , "readFailures", "spanViolations", "idCollisions", "drift"
-               , "unindexed", "recordless" ]
+               , "unindexed", "recordless", "trackedNotifications"
+               , "broadMergeRules" ]
 
 data Answered = A200 | A304 deriving (Eq, Show)
 headersOn :: Answered -> [String]

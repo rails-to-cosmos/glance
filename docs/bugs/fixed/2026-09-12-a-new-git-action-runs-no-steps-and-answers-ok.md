@@ -1,6 +1,6 @@
 # Bug — a new git action runs no steps and answers ok
 
-**Status:** open · **Reported:** 2026-09-12 (`/generalizer` sweep over the
+**Status:** fixed 2026-09-16 · **Reported:** 2026-09-12 (`/generalizer` sweep over the
 git-sync UI; latent, no user-visible instance yet) · **Surface:** `POST
 /git/sync`, `Glance.Web.Git.stepsFor`
 
@@ -91,3 +91,10 @@ compiler names every site a ninth constructor touches.
 A smaller patch, if the split is not taken: make `stepsFor` total by writing the
 three `AutoOn`/`AutoOff`/`Arm` equations out, export it, and add the case above.
 That closes the symptom and leaves the two hand-written splits standing.
+
+## Resolution
+
+The structural fix landed. `SyncStep` and `AutoSet` are separate closed sums,
+joined only by `GitPost` at the HTTP boundary. `stepsFor` is total over
+`SyncStep`, every constructor has at least one command, and the auto-sync
+dispatch is a total case over `AutoSet`.

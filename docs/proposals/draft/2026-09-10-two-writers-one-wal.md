@@ -1,6 +1,7 @@
 # Proposal — two writers, one WAL: the relay is the design, finish it
 
-**Status:** draft · **Date:** 2026-09-10 · **Origin:** user, after
+**Status:** draft — retained as a migration fallback; target architecture decided in
+`../done/2026-09-16-the-files-are-the-log.md` · **Date:** 2026-09-10 · **Origin:** user, after
 `2026-09-10-the-graph-an-agent-can-walk.md` — *"would it be fine to build the
 graph from the WAL instead of the walk?"* then *"what if we adapt the system
 so both write to it?"*

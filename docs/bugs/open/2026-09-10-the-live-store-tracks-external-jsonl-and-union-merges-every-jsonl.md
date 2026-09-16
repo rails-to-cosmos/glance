@@ -44,3 +44,11 @@ second host
   that carries the retired glob, or at least warn.
 - In glance: `doctor` grows a check — *notification files tracked by git* —
   with the `git ls-files` answer, so a synced store says so.
+
+## Progress — 2026-09-16
+
+Glance's doctor now reports tracked `EXTERNAL.jsonl` and `COMPLETIONS.jsonl`
+files and the broad `*.jsonl merge=union` rule with their paths. Auto-sync's
+add step explicitly excludes both local ledgers, preventing a clean store from
+newly staging them. Repairing an already-tracked live store and teaching the
+peer to repair `.gitattributes` remain open parts of this bug.

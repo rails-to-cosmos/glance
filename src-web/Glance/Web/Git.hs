@@ -6,29 +6,36 @@ module Glance.Web.Git
   ( GitStatus (..)
   , emptyStatus
   , parsePorcelain
-  , SyncAction (..)
+  , gitStatus
+  , SyncStep (..)
+  , AutoSet (..)
+  , GitPost (..)
   , syncActionOf
   , actionFor
+  , stepsFor
   , AutoSync
   , newAutoSync
+  , stopAutoSync
   , autoSyncPoke
   , gitStatusView
   , gitSyncRoute
   ) where
 
-import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, takeMVar, tryPutMVar, tryTakeMVar)
-import Control.Monad (forever, void, when)
+import Control.Concurrent (forkFinally, threadDelay)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, tryPutMVar, tryTakeMVar)
+import Control.Monad (unless, void, when)
 import Data.Aeson (Value, decode, object, (.=))
 import Data.Char (isDigit)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (foldl')
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import Data.Text (Text)
+import Data.Time (UTCTime)
 import Network.HTTP.Types (status200, status400)
 import Network.Wai (Request, Response)
-import System.Directory (canonicalizePath)
+import System.Directory (canonicalizePath, doesFileExist, getModificationTime)
 import System.Exit (ExitCode (ExitSuccess))
+import System.FilePath (isAbsolute, (</>))
 import System.Process (readProcessWithExitCode)
 import Text.Read (readMaybe)
 
@@ -50,10 +57,11 @@ data GitStatus = GitStatus
   , gsStaged    :: !Int
   , gsUnstaged  :: !Int
   , gsUntracked :: !Int
+  , gsLocked    :: !(Maybe UTCTime) -- ^ an index.lock exists; its modification time.
   } deriving (Eq, Show)
 
 emptyStatus :: GitStatus
-emptyStatus = GitStatus False Nothing Nothing False 0 0 0 0 0
+emptyStatus = GitStatus False Nothing Nothing False 0 0 0 0 0 Nothing
 
 -- | Fold @git status --porcelain=v2 --branch@ lines into a 'GitStatus'; the caller has confirmed the dir is a repo, so 'gsRepo' starts 'True'.
 parsePorcelain :: [Text] -> GitStatus
@@ -86,29 +94,54 @@ gitStatus dir = do
     then pure emptyStatus
     else do
       (_, out, _) <- readGit dir ["status", "--porcelain=v2", "--branch"]
-      pure (parsePorcelain (T.lines (T.pack out)))
+      locked <- indexLockTime dir
+      pure (parsePorcelain (T.lines (T.pack out))) { gsLocked = locked }
+
+-- | The index lock Git itself names for DIR, and when it last moved.  Glance
+-- never deletes it: an active git and a stale lock have the same pathname, so
+-- the status tells the reader and leaves the recovery decision to them.
+indexLockTime :: FilePath -> IO (Maybe UTCTime)
+indexLockTime dir = do
+  (code, out, _) <- readGit dir ["rev-parse", "--git-path", "index.lock"]
+  let named = T.unpack (T.strip (T.pack out))
+      path = if isAbsolute named then named else dir </> named
+  exists <- doesFileExist path
+  if code == ExitSuccess && exists then Just <$> getModificationTime path else pure Nothing
 
 
--- | The action a click runs.
-data SyncAction = Fetch | Pull | Push | CommitPush | Sync | AutoOn | AutoOff | Arm
+-- | A git job: one or more commands run in order, stopping at the first failure.
+data SyncStep = Fetch | Pull | Push | CommitPush | Sync
+  deriving (Eq, Show, Enum, Bounded)
+
+-- | A change to the auto-sync handle.  No git command runs.
+data AutoSet = AutoOn | AutoOff | Arm
+  deriving (Eq, Show, Enum, Bounded)
+
+-- | What POST /git/sync was asked for.  The route's two roads are the type's.
+data GitPost = Step !SyncStep | Auto !AutoSet
   deriving (Eq, Show)
 
-syncActionOf :: Text -> Maybe SyncAction
-syncActionOf t = case t of
-  "fetch"        -> Just Fetch
-  "pull"         -> Just Pull
-  "push"         -> Just Push
-  "commit-push"  -> Just CommitPush
-  "sync"         -> Just Sync
-  "autosync-on"  -> Just AutoOn
-  "autosync-off" -> Just AutoOff
-  "arm"          -> Just Arm
-  _              -> Nothing
+postWord :: GitPost -> Text
+postWord (Step Fetch)      = "fetch"
+postWord (Step Pull)       = "pull"
+postWord (Step Push)       = "push"
+postWord (Step CommitPush) = "commit-push"
+postWord (Step Sync)       = "sync"
+postWord (Auto AutoOn)     = "autosync-on"
+postWord (Auto AutoOff)    = "autosync-off"
+postWord (Auto Arm)        = "arm"
+
+gitPosts :: [GitPost]
+gitPosts = map Step [minBound .. maxBound] <> map Auto [minBound .. maxBound]
+
+syncActionOf :: Text -> Maybe GitPost
+syncActionOf word = listToMaybe [ post | post <- gitPosts, postWord post == word ]
 
 -- | The one safe step for a state, which auto-sync runs; 'Nothing' when none is safe (detached, no upstream).
-actionFor :: GitStatus -> Maybe SyncAction
+actionFor :: GitStatus -> Maybe SyncStep
 actionFor s
   | not (gsRepo s)                           = Nothing
+  | isJust (gsLocked s)                      = Nothing
   | gsDetached s || isNothing (gsUpstream s) = Nothing
   | dirty > 0 && ahead == 0 && behind == 0   = Just CommitPush
   | ahead > 0 && behind > 0                  = Just Sync
@@ -127,8 +160,8 @@ data SyncResult = SyncResult
   , srOutput :: !Text
   }
 
--- | Perform a git 'SyncAction' in DIR step by step, stopping at the first failure.
-runSync :: FilePath -> SyncAction -> IO SyncResult
+-- | Perform a 'SyncStep' in DIR command by command, stopping at the first failure.
+runSync :: FilePath -> SyncStep -> IO SyncResult
 runSync dir action = go (stepsFor action) (SyncResult True [] "")
   where
     go [] acc = pure acc
@@ -144,14 +177,18 @@ runSync dir action = go (stepsFor action) (SyncResult True [] "")
     tolerable ("commit" : _) msg = "nothing to commit" `T.isInfixOf` T.pack msg
     tolerable _              _   = False
 
-stepsFor :: SyncAction -> [[String]]
-stepsFor a = case a of
-  Fetch      -> [["fetch"]]
-  Pull       -> [["pull", "--ff-only"]]
-  Push       -> [["push"]]
-  CommitPush -> [["add", "-A"], ["commit", "-m", "glance: sync"], ["push"]]
-  Sync       -> [["pull", "--rebase"], ["push"]]
-  _          -> []  -- AutoOn/AutoOff/Arm are the route's, never git steps.
+stepsFor :: SyncStep -> [[String]]
+stepsFor Fetch      = [["fetch"]]
+stepsFor Pull       = [["pull", "--ff-only"]]
+stepsFor Push       = [["push"]]
+stepsFor CommitPush =
+  [ [ "add", "-A", "--", "."
+    , ":(exclude).org-glance/meta/EXTERNAL.jsonl"
+    , ":(exclude).org-glance/meta/COMPLETIONS.jsonl" ]
+  , ["commit", "-m", "glance: sync"]
+  , ["push"]
+  ]
+stepsFor Sync       = [["pull", "--rebase"], ["push"]]
 
 
 -- | Model B state: the on/armed flags mirror @git config@ so they survive a restart;
@@ -161,6 +198,8 @@ data AutoSync = AutoSync
   , asOn    :: !(IORef Bool)
   , asArmed :: !(IORef Bool)
   , asPoke  :: !(MVar ())
+  , asStopping :: !(IORef Bool)
+  , asDone  :: !(MVar ())
   }
 
 -- | Build the handle and fork its debounced worker.
@@ -169,21 +208,38 @@ newAutoSync dir = do
   on    <- newIORef =<< configBool dir "glance.autosync"
   armed <- newIORef =<< configBool dir "glance.autosync-armed"
   poke  <- newEmptyMVar
-  let as = AutoSync dir on armed poke
-  _ <- forkIO (worker as)
+  stopping <- newIORef False
+  done <- newEmptyMVar
+  let as = AutoSync dir on armed poke stopping done
+  _ <- forkFinally (worker as) (const (putMVar done ()))
   pure as
   where
-    worker as = forever $ do
+    worker as = do
       takeMVar (asPoke as)            -- wait for a write to land.
-      threadDelay 3000000            -- 3 s: coalesce a burst into one sync.
-      _ <- tryTakeMVar (asPoke as)    -- drop pokes gathered during the wait.
-      on    <- readIORef (asOn as)
-      armed <- readIORef (asArmed as)
-      when (on && armed) (void (runSync (asDir as) CommitPush))  -- best-effort, like the ledgers.
+      stopping <- readIORef (asStopping as)
+      unless stopping $ do
+        threadDelay 3000000           -- 3 s: coalesce a burst into one sync.
+        _ <- tryTakeMVar (asPoke as)   -- drop pokes gathered during the wait.
+        stopping' <- readIORef (asStopping as)
+        unless stopping' $ do
+          on    <- readIORef (asOn as)
+          armed <- readIORef (asArmed as)
+          when (on && armed) (void (runSync (asDir as) CommitPush))
+          worker as
+
+-- | Stop accepting work and join the worker.  If git is already running the
+-- daemon waits for that child, so process shutdown cannot abandon index.lock.
+stopAutoSync :: AutoSync -> IO ()
+stopAutoSync as = do
+  writeIORef (asStopping as) True
+  void (tryPutMVar (asPoke as) ())
+  takeMVar (asDone as)
 
 -- | Non-blocking nudge from the write path: a full slot means a sync is already owed.
 autoSyncPoke :: AutoSync -> IO ()
-autoSyncPoke as = void (tryPutMVar (asPoke as) ())
+autoSyncPoke as = do
+  stopping <- readIORef (asStopping as)
+  unless stopping (void (tryPutMVar (asPoke as) ()))
 
 autoSyncState :: AutoSync -> IO (Bool, Bool)  -- ^ (on, armed)
 autoSyncState as = (,) <$> readIORef (asOn as) <*> readIORef (asArmed as)
@@ -212,28 +268,27 @@ gitSyncRoute :: ServeOptions -> Maybe AutoSync -> Request -> IO Response
 gitSyncRoute opts mas request = withBody request $ \raw ->
   case actionOf raw of
     Nothing -> pure (jsonError status400 "git sync: unknown or missing action")
-    Just a  -> handle a
+    Just post -> handle post
   where
     actionOf raw = do
       obj <- decode raw
       A.Object o <- pure (obj :: Value)
       A.String t <- KM.lookup "action" o
       syncActionOf t
-    handle a
-      | a `elem` [AutoOn, AutoOff, Arm] = case mas of
-          Nothing -> pure (jsonError status400 "auto-sync unavailable in this mode")
-          Just as -> do
-            case a of
-              AutoOn  -> autoSyncSet as True
-              AutoOff -> autoSyncSet as False
-              _arm    -> autoSyncArm as
-            (on, armed) <- autoSyncState as
-            pure . sized status200 [jsonType] . A.encode
-                 $ object ["ok" .= True, "autosync" .= on, "armed" .= armed]
-      | otherwise = do
-          r <- runSync (soDir opts) a
-          pure . sized status200 [jsonType] . A.encode
-               $ object ["ok" .= srOk r, "steps" .= srSteps r, "output" .= srOutput r]
+    handle (Step step) = do
+      r <- runSync (soDir opts) step
+      pure . sized status200 [jsonType] . A.encode
+           $ object ["ok" .= srOk r, "steps" .= srSteps r, "output" .= srOutput r]
+    handle (Auto setting) = case mas of
+      Nothing -> pure (jsonError status400 "auto-sync unavailable in this mode")
+      Just as -> do
+        case setting of
+          AutoOn  -> autoSyncSet as True
+          AutoOff -> autoSyncSet as False
+          Arm     -> autoSyncArm as
+        (on, armed) <- autoSyncState as
+        pure . sized status200 [jsonType] . A.encode
+             $ object ["ok" .= True, "autosync" .= on, "armed" .= armed]
 
 statusJSON :: FilePath -> GitStatus -> Bool -> Bool -> Value
 statusJSON dir s on armed
@@ -243,8 +298,53 @@ statusJSON dir s on armed
       , "branch" .= gsBranch s, "upstream" .= gsUpstream s, "detached" .= gsDetached s
       , "ahead" .= gsAhead s, "behind" .= gsBehind s
       , "staged" .= gsStaged s, "unstaged" .= gsUnstaged s, "untracked" .= gsUntracked s
+      , "locked" .= gsLocked s
+      , "action" .= fmap (postWord . Step) (actionFor s)
+      , "glyph" .= glyphOf s, "cls" .= classOf s, "label" .= labelOf s
       , "autosync" .= on, "armed" .= armed
       ]
+
+glyphOf :: GitStatus -> Text
+glyphOf s
+  | isJust (gsLocked s)           = "⚠"
+  | gsDetached s || noUpstream    = "⚠"
+  | dirty > 0 && gsAhead s == 0 && gsBehind s == 0 = "●"
+  | gsAhead s > 0 && gsBehind s > 0 = "↕"
+  | dirty > 0                     = "●"
+  | gsBehind s > 0                = "↓"
+  | gsAhead s > 0                 = "↑"
+  | otherwise                     = "✓"
+  where dirty = gsStaged s + gsUnstaged s + gsUntracked s
+        noUpstream = isNothing (gsUpstream s)
+
+classOf :: GitStatus -> Text
+classOf s
+  | isJust (gsLocked s)              = "g-detached"
+  | gsDetached s || isNothing (gsUpstream s) = "g-detached"
+  | dirty > 0 && gsAhead s == 0 && gsBehind s == 0 = "g-dirty"
+  | gsAhead s > 0 && gsBehind s > 0  = "g-diverged"
+  | dirty > 0                        = "g-dirty"
+  | gsBehind s > 0                   = "g-behind"
+  | gsAhead s > 0                    = "g-ahead"
+  | otherwise                        = "g-clean"
+  where dirty = gsStaged s + gsUnstaged s + gsUntracked s
+
+labelOf :: GitStatus -> Text
+labelOf s = T.intercalate " · " (base : facts)
+  where
+    dirty = gsStaged s + gsUnstaged s + gsUntracked s
+    headName | gsDetached s = "detached HEAD"
+             | otherwise = fromMaybe "no branch" (gsBranch s)
+    base = maybe headName (\up -> headName <> " tracking " <> up) (gsUpstream s)
+    facts = [ "index.lock exists since " <> T.pack (show at) | Just at <- [gsLocked s] ]
+         <> [ "no upstream" | isNothing (gsUpstream s) ]
+         <> [ T.pack (show dirty) <> " uncommitted (" <> T.pack (show (gsStaged s))
+              <> " staged, " <> T.pack (show (gsUnstaged s)) <> " unstaged, "
+              <> T.pack (show (gsUntracked s)) <> " untracked)" | dirty > 0 ]
+         <> [ T.pack (show (gsBehind s)) <> " behind" | gsBehind s > 0 ]
+         <> [ T.pack (show (gsAhead s)) <> " ahead" | gsAhead s > 0 ]
+         <> [ "up to date" | isNothing (gsLocked s), isJust (gsUpstream s)
+                          , dirty == 0, gsAhead s == 0, gsBehind s == 0 ]
 
 
 -- Shelling git, all through one door: @-C dir@ so the cwd never matters.

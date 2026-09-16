@@ -1,11 +1,20 @@
 module TestGit (spec) where
 
 import Data.Text (Text)
+import Data.Maybe (isJust)
+import System.Directory (createDirectoryIfMissing)
+import System.Exit (ExitCode (ExitSuccess))
+import System.FilePath ((</>))
+import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertEqual, testCase)
+import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import TestDefaults (withTempDir)
+
+import qualified Data.ByteString as BS
 
 import Glance.Web.Git
-  ( GitStatus (..), SyncAction (..), actionFor, emptyStatus, parsePorcelain, syncActionOf )
+  ( AutoSet (..), GitPost (..), GitStatus (..), SyncStep (..), actionFor
+  , emptyStatus, gitStatus, parsePorcelain, stepsFor, syncActionOf )
 
 -- | The porcelain=v2 --branch lines a status is folded from.
 porc :: [Text] -> GitStatus
@@ -91,13 +100,34 @@ spec = testGroup "Git"
     ]
 
   , testGroup "syncActionOf"
-    [ testCase "fetch"        $ eq (Just Fetch)      (syncActionOf "fetch")
-    , testCase "commit-push"  $ eq (Just CommitPush) (syncActionOf "commit-push")
-    , testCase "sync"         $ eq (Just Sync)       (syncActionOf "sync")
-    , testCase "autosync-on"  $ eq (Just AutoOn)     (syncActionOf "autosync-on")
-    , testCase "arm"          $ eq (Just Arm)        (syncActionOf "arm")
+    [ testCase "fetch"        $ eq (Just (Step Fetch))      (syncActionOf "fetch")
+    , testCase "commit-push"  $ eq (Just (Step CommitPush)) (syncActionOf "commit-push")
+    , testCase "sync"         $ eq (Just (Step Sync))       (syncActionOf "sync")
+    , testCase "autosync-on"  $ eq (Just (Auto AutoOn))     (syncActionOf "autosync-on")
+    , testCase "arm"          $ eq (Just (Auto Arm))        (syncActionOf "arm")
     , testCase "unknown"      $ eq Nothing           (syncActionOf "nope")
     ]
+
+  , testCase "every git step runs at least one command" $
+      assertBool "a step with no commands would answer ok without acting"
+        (all (not . null . stepsFor) [minBound .. maxBound])
+
+  , testCase "auto-sync never stages the local notification ledgers" $ do
+      let add = head (stepsFor CommitPush)
+      assertBool "EXTERNAL is excluded"
+        (":(exclude).org-glance/meta/EXTERNAL.jsonl" `elem` add)
+      assertBool "COMPLETIONS is excluded"
+        (":(exclude).org-glance/meta/COMPLETIONS.jsonl" `elem` add)
+
+  , testCase "an index.lock is visible and disables the one-click action" $
+      withTempDir $ \dir -> do
+        (code, _out, err) <- readProcessWithExitCode "git" ["-C", dir, "init", "-q"] ""
+        assertEqual ("git init: " <> err) ExitSuccess code
+        createDirectoryIfMissing True (dir </> ".git")
+        BS.writeFile (dir </> ".git" </> "index.lock") ""
+        s <- gitStatus dir
+        assertBool "the lock's mtime rides status" (isJust (gsLocked s))
+        assertEqual "a locked repository offers no action" Nothing (actionFor s)
   ]
   where
     eq :: (Eq a, Show a) => a -> a -> IO ()

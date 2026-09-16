@@ -8,36 +8,6 @@
           elDot = null, elN = null, elAuto = null, elFlash = null;
       /** @type {any} */ let status = null;
 
-      // The dot, the count and the colour class per state; the order mirrors
-      // the backend's `actionFor'.
-      const glyphFor = (s) => {
-        const dirty = s.staged + s.unstaged + s.untracked;
-        if (s.detached || !s.upstream) return { dot: "⚠", n: "", cls: "g-detached" };
-        if (dirty > 0 && !s.ahead && !s.behind)
-          return { dot: "●", n: String(dirty), cls: "g-dirty" };
-        if (s.ahead && s.behind)
-          return { dot: "↕", n: `${s.behind}↓ ${s.ahead}↑`, cls: "g-diverged" };
-        if (dirty > 0) return { dot: "●", n: String(dirty), cls: "g-dirty" };
-        if (s.behind) return { dot: "↓", n: String(s.behind), cls: "g-behind" };
-        if (s.ahead) return { dot: "↑", n: String(s.ahead), cls: "g-ahead" };
-        return { dot: "✓", n: "", cls: "g-clean" };
-      };
-
-      // The glyph's hover text, spelled out of the `/git' fields.
-      const titleFor = (s) => {
-        const dirty = s.staged + s.unstaged + s.untracked;
-        const hd = s.detached ? "detached HEAD" : s.branch || "no branch";
-        const parts = [s.upstream ? `${hd} tracking ${s.upstream}` : hd];
-        if (!s.upstream) parts.push("no upstream");
-        if (dirty)
-          parts.push(`${dirty} uncommitted (${s.staged} staged, `
-            + `${s.unstaged} unstaged, ${s.untracked} untracked)`);
-        if (s.behind) parts.push(`${s.behind} behind`);
-        if (s.ahead) parts.push(`${s.ahead} ahead`);
-        if (s.upstream && !dirty && !s.ahead && !s.behind) parts.push("up to date");
-        return parts.join(" · ");
-      };
-
       const baseName = (p) => {
         const parts = String(p || "").split("/").filter(Boolean);
         return parts.length ? parts[parts.length - 1] : "";
@@ -72,11 +42,16 @@
         const s = status;
         elDir.textContent = baseName(s.dir);
         elBranch.textContent = s.branch || "(detached)";
-        const g = glyphFor(s);
-        elGlyph.className = "g-glyph " + g.cls;
-        elDot.textContent = g.dot;
-        elN.textContent = g.n;
-        elGlyph.title = titleFor(s);
+        const dirty = s.staged + s.unstaged + s.untracked;
+        const count = s.locked ? ""
+          : dirty ? String(dirty)
+          : s.ahead && s.behind ? `${s.behind}↓ ${s.ahead}↑`
+          : s.behind ? String(s.behind)
+          : s.ahead ? String(s.ahead) : "";
+        elGlyph.className = "g-glyph " + s.cls;
+        elDot.textContent = s.glyph;
+        elN.textContent = count;
+        elGlyph.title = s.label;
         const on = !!(s.autosync && s.armed);
         elAuto.className = "g-auto" + (on ? " g-on" : "");
         elAuto.title = on ? "auto-sync on — click to turn off"

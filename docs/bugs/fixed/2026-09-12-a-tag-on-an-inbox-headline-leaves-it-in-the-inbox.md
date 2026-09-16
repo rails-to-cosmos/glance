@@ -1,6 +1,6 @@
 # Bug — a tag on an inbox headline leaves it in the inbox
 
-**Status:** open · **Reported:** 2026-09-12 (live use: a jot captured to
+**Status:** fixed 2026-09-16 · **Reported:** 2026-09-12 (live use: a jot captured to
 `inbox.org`, tagged from the table, still served from the inbox) ·
 **Surface:** `add-tag`, the tags cell, `set-title` with a `:tag:` run
 
@@ -56,3 +56,11 @@ the answered id; a browser case asserts point follows the moved row.
 
 Open: the second tag on an already-moved row stays an in-place edit (first
 tag wins); `remove-tag` of the last tag does not move it back.
+
+## Resolution
+
+The command planner now recognizes a top-level, id-less inbox row whose edited
+headline gains a tag run. It writes the edited subtree as a stamped blob first,
+then cuts the source subtree under the inbox digest lock. The response names
+both the source and destination IDs so the UI follows the moved row. Rows with
+an existing ID and rows outside the inbox continue to edit in place.

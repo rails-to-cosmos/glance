@@ -109,6 +109,13 @@ blob under that layer, an empty run appends to the inbox. The row draws no
 other note for it — a destination hint beside the row was tried and dropped on
 review (2026-09-12).
 
+An id-less top-level row already in `inbox.org` follows the same rule when an
+edit first gives it a tag run. The edited subtree is written as a stamped blob
+under the first tag, then removed from the inbox under its digest lock. The
+blob is written first, so an interrupted two-file move can leave a duplicate
+but cannot lose the entry. Once the row has an `ORG_GLANCE_ID`, later tag edits
+stay in that blob; removing its last tag does not return it to the inbox.
+
 **A state the destination's cycle lacks is dropped, silently.** `+` asks
 `GET /keywords?tag=NAME` for the cycle at the same moment it draws the row, and
 **holds the answer**: it is both the wall a seeded keyword meets and the whole

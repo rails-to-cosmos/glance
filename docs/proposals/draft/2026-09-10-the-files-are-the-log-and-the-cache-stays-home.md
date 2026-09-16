@@ -1,7 +1,7 @@
 # Proposal — the files are the log, and the cache stays home
 
-**Status:** draft — a direction, argued against the industry's answers, with
-a cheaper middle stop named · **Date:** 2026-09-10 · **Origin:** user, after
+**Status:** draft — superseded by
+`../done/2026-09-16-the-files-are-the-log.md` · **Date:** 2026-09-10 · **Origin:** user, after
 `2026-09-10-two-writers-one-wal.md` — *"what do you think of the design
 overall? Can it be better? What does the industry do — RocksDB, the best
 people?"*

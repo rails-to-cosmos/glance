@@ -85,6 +85,7 @@ module Glance.Query ( BlobSeed (..)
                     , draftStates
                     , addLinkEdits
                     , editLinkEdits
+                    , editedEntry
                     , keywordText
                     , monthWords
                     , expandTemplate
@@ -973,6 +974,21 @@ sortedForView records =
 -- | R's outline extent cut out of DOC — read by path and pinned ('pinnedDocument'), since a record keeps none of it.
 subtreeText :: Text -> HeadlineRecord -> Text
 subtreeText doc r = sliceSpan doc (hrSubtree r)
+
+-- | R's subtree in DOC as EDITS leave it, and the tags its headline then wears.
+-- Reading the composed line is what lets a set-title that spells a tag run take
+-- the same filing path as add-tag.
+editedEntry :: Text -> [(Span, Text)] -> HeadlineRecord -> Maybe (Text, [Text])
+editedEntry doc edits r = case Edit.applyEdits (subtreeText doc r) rebased of
+  Left _refused -> Nothing
+  Right entry   -> Just (entry, tagsOfCell (runIn entry))
+  where
+    rebased = [ Edit.Edit (shiftSpan (negate (spanStart (hrSubtree r))) sp) new
+              | (sp, new) <- edits ]
+    runIn entry = case firstHeadlineOf elems of
+      Just h  -> maybe "" (sliceSpan entry) (hsTags (spans h))
+      Nothing -> ""
+      where (elems, _ctx, _err) = orgParse defaultContext entry
 
 data SubtreeEntry = SubtreeEntry
   { seLevel  :: !Int             -- ^ org's outline level; the row's own is 1.
@@ -2262,7 +2278,19 @@ stampedEntry eol pairs tag given = case firstHeadlineOf elems of
     spliced hs = either (Left . refused) (Right . untrailed)
                         (Edit.applyEdits entry [ Edit.Edit sp new | (sp, new) <- edits hs ])
     edits hs = concat [ addTagEditsIn (cellOf (hsTags hs)) t hs | Just t <- [tag] ]
-                 <> [ drawerInsertEdit entry eol pairs hs ]
+                 <> [ drawerInsertEdit entry eol (owed hs) hs | not (null (owed hs)) ]
+                 <> [ (sp, "") | sp <- claimed hs ]
+    -- Keep an existing creation stamp, but replace an identity claimed by the
+    -- entry: the minted path, answer and drawer must name one id.
+    owed hs = [ p | p@(key, _v) <- pairs, T.toCaseFold key `notElem` kept hs ]
+    kept hs = [ T.toCaseFold key | (key, _value) <- drawerPairs entry (hsProperties hs)
+                                 , T.toCaseFold key `notElem` minted ]
+    minted = [ T.toCaseFold key | (key, _v) <- pairs, key == headlineIdProperty ]
+    claimed hs = [ sp | (sp, raw) <- drawerLines hs
+                 , T.toCaseFold (fst (propertyOf raw)) `elem` minted ]
+    drawerLines hs = [ (shiftSpan (spanStart sp) lsp, raw)
+                     | Just sp <- [hsProperties hs]
+                     , (lsp, raw) <- lineSpansIn (sliceSpan entry sp) ]
     refused err = "this capture template does not splice: " <> T.pack (show err)
     cellOf = maybe "" (sliceSpan entry)
 

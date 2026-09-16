@@ -146,13 +146,14 @@ const Popups = ((deps) => {
     }
     // The model steps off the command's OWN answer: `/command' never writes the
     // store, so a `/tags' re-read here would answer with the pre-write files.
+    const okRows = (results) => (results || []).filter((x) => x.ok);
     const landedIds = (results) =>
-      new Set((results || []).filter((x) => x.ok).map((x) => x.id));
+      new Set(okRows(results).flatMap((x) => (x.from ? [x.from, x.id] : [x.id])));
     const stepCount = (tag, by) =>
       (tcount[tag] = Math.max(0, (tcount[tag] || 0) + by));
     const landing = (at, apply) => (results) => {
       if (!managing()) return;
-      apply(landedIds(results));
+      apply(landedIds(results), okRows(results).length);
       repaintTags(at);
     };
     // OPEN: a tag the tree has never held is a tag, so the typed line stands as
@@ -165,11 +166,11 @@ const Popups = ((deps) => {
       const over = ttargets.filter((r) => r.tags.indexOf(tag) === -1);
       if (!over.length) { said(tagging, `:${tag}: is on every row already`); return; }
       fire(tagging, "add-tag", over.map((r) => r.id), { tag },
-           `tagged :${tag}:`).then(landing(tag, (landed) => {
+           `tagged :${tag}:`).then(landing(tag, (landed, rows) => {
         for (const r of ttargets)
           if (landed.has(r.id) && r.tags.indexOf(tag) === -1) r.tags.push(tag);
-        if (landed.size && tvocab.indexOf(tag) === -1) tvocab.push(tag);
-        stepCount(tag, landed.size);
+        if (rows && tvocab.indexOf(tag) === -1) tvocab.push(tag);
+        stepCount(tag, rows);
       }));
     }
     // Awaited: two tags over one file are two writes against one drift lock.

@@ -1717,6 +1717,8 @@
     function fire(b, name, ids, args, verb, how, pin) {
       return postCommand({ name, ids, args, digests: pin }).then((answer) => {
         const results = answer.results || [];
+        const left = results.find((x) => x.ok && x.from);
+        if (left) arriving = left.id;
         // The store lags this write, so the per-id 200's digest re-pins the sheet.
         if (editing) {
           const held = results.find((x) => x.ok && x.id === editing.id && x.digest);
@@ -1726,16 +1728,18 @@
         const landed = results.length - bad.length;
         said(b, `${verb} · ${how ? how(landed) : landed}`);
         const what = verbed(name, args, verb);
-        for (const x of results) if (x.ok) noted(x.id, what);
+        for (const x of results) if (x.ok) noted(x.from || x.id, what);
         if (bad.length)
-          append("cmd", "error", bad.map((x) => `${x.id}: ${x.error}`).join(" · "));
+          append("cmd", "error", bad.map((x) => `${x.from || x.id}: ${x.error}`).join(" · "));
         return results;
       }).catch(failed(b, name));
     }
     // An archived row SPENDS its mark, or it stays marked invisibly behind the filter.
     function unmark(results) {
-      for (const x of results || [])
-        if (x.ok && isMarked(x.id)) table.toggleMark(x.id);
+      for (const x of results || []) {
+        const id = x.from || x.id;
+        if (x.ok && isMarked(id)) table.toggleMark(id);
+      }
     }
     // Taken at FIRE time: once the rows have gone, a later read cannot see the gap.
     function anchorFor(ids) {
@@ -1899,4 +1903,3 @@
     }
     const dirty = () => editing !== null
       && (raw ? el("mtext").value !== base : edited() !== baseProps);
-

@@ -3,6 +3,8 @@ module Glance.Web.Base ( ServeOptions (..)
                        , walkFor
                          -- * The one clock read
                        , Day
+                       , now
+                       , dayAt
                        , today
                        , defaultPort
                        , logLinesDefault
@@ -47,7 +49,7 @@ import Data.Aeson (Object, ToJSON, Value, eitherDecode', encode, object, toJSON,
 import Data.Aeson.Types (Pair, Parser, parseEither)
 import Data.Bifunctor (first)
 import Data.Text (Text)
-import Data.Time (Day, getZonedTime, localDay, zonedTimeToLocalTime)
+import Data.Time (Day, ZonedTime, getZonedTime, localDay, zonedTimeToLocalTime)
 import Network.HTTP.Types ( Header, Status, hContentType, status200, status409
                           , status413, status500 )
 import Network.HTTP.Types.Header (hContentLength)
@@ -75,11 +77,15 @@ data ServeOptions = ServeOptions
 walkFor :: ServeOptions -> WalkOptions
 walkFor opts = WalkOptions { woIncludeDerived = soDerived opts }
 
--- | The server's own day, off the local clock.  ONE CLOCK READ PER REQUEST and
--- ONE SPELLING OF IT, taken before any row: every reader takes the day from here,
--- so a request spanning midnight cannot mean two (docs\/invariants.md).
+-- | The server's own clock, read once per request.
+now :: IO ZonedTime
+now = getZonedTime
+
+dayAt :: ZonedTime -> Day
+dayAt = localDay . zonedTimeToLocalTime
+
 today :: IO Day
-today = localDay . zonedTimeToLocalTime <$> getZonedTime
+today = dayAt <$> now
 
 defaultPort :: Int
 defaultPort = 7777

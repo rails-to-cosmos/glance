@@ -1,7 +1,7 @@
 -- | The corpus scan's ENGINE and its one summary.  A scan parses every .org
 -- file under a set of roots and measures parse coverage, span-invariant
 -- violations and how far each org-glance index has drifted from its blobs; the
--- 'Doctor' is that measurement folded to eight counts.  The @glance doctor@ CLI
+-- 'Doctor' is that measurement folded to ten counts.  The @glance doctor@ CLI
 -- prints a full human report over the same 'Corpus', and the daemon caches a
 -- 'Doctor' at startup, so the two never disagree.
 module Data.Org.Doctor
@@ -32,9 +32,12 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Time (diffUTCTime, getCurrentTime)
 import System.Directory (doesDirectoryExist, doesFileExist)
+import System.Exit (ExitCode (ExitSuccess))
 import System.FilePath (takeDirectory, takeFileName, (</>))
+import System.Process (readProcessWithExitCode)
 
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified TextShow as TS
@@ -56,7 +59,7 @@ sampleLimit :: Int
 sampleLimit = 20
 
 
--- | The doctor's verdict on a corpus: eight counts, all zero on a clean tree.
+-- | The doctor's verdict on a corpus: ten counts, all zero on a clean tree.
 -- 'docDrift' is rows disagreeing with the org-glance index; 'docUnindexed' and
 -- 'docRecordless' are the two set differences the scan reports.
 data Doctor = Doctor
@@ -68,11 +71,13 @@ data Doctor = Doctor
   , docDrift          :: !Int
   , docUnindexed      :: !Int
   , docRecordless     :: !Int
+  , docTrackedNotifications :: !Int
+  , docBroadMergeRules :: !Int
   } deriving (Eq, Show)
 
 -- | A clean verdict, and the seed a hub holds before its first scan.
 cleanDoctor :: Doctor
-cleanDoctor = Doctor 0 0 0 0 0 0 0 0
+cleanDoctor = Doctor 0 0 0 0 0 0 0 0 0 0
 
 -- | THE FINDINGS, ONE TABLE: each is a wire key, the count it reads, and the
 -- plural-correct boot-log sentence its nonzero count shows.  'doctorClean',
@@ -87,6 +92,10 @@ findings =
   , ("drift",          docDrift,          \n -> plur n "row" <> disagree n <> " with the org-glance index")
   , ("unindexed",      docUnindexed,      \n -> plur n "unindexed blob")
   , ("recordless",     docRecordless,     \n -> plur n "org-glance record" <> " with no blob")
+  , ("trackedNotifications", docTrackedNotifications,
+       \n -> plur n "notification ledger" <> isare n <> " tracked by git")
+  , ("broadMergeRules", docBroadMergeRules,
+       \n -> plur n "retired *.jsonl merge rule")
   ]
   where
     plur n one = TS.showt n <> " " <> one <> (if n == 1 then "" else "s")
@@ -98,7 +107,7 @@ doctorClean :: Doctor -> Bool
 doctorClean d = all (\(_k, count, _s) -> count d == 0) findings
 
 -- | The verdict as the wire carries it: the @clean@ flag, the sentences the
--- client logs, and the eight counts by their keys.
+-- client logs, and the ten counts by their keys.
 doctorJSON :: Doctor -> Value
 doctorJSON d = object $
   [ "clean" .= doctorClean d, "warnings" .= doctorWarnings d ]
@@ -122,6 +131,8 @@ data Corpus = Corpus
   , coConfigDirs :: ![FilePath]
   , coSeed       :: !TodoKeywords
   , coDrifts     :: ![IndexDrift]
+  , coTrackedNotifications :: ![FilePath]
+  , coBroadMergeRules :: ![FilePath]
   , coWalkSecs   :: !Double
   , coWallSecs   :: !Double
   }
@@ -143,6 +154,9 @@ scanCorpus opts roots = do
   let totals = foldl' visitFile emptyTotals (zip paths results)
   finished <- totals `seq` getCurrentTime
   drifts <- indexDrifts roots derived (blobsOf totals)
+  let metas = storeMetaDirs roots derived
+  tracked <- concat <$> mapM trackedNotifications metas
+  broad <- filterM broadMergeRule metas
   pure Corpus
     { coRoots      = roots
     , coFiles      = length paths
@@ -152,17 +166,22 @@ scanCorpus opts roots = do
     , coConfigDirs = configDirs
     , coSeed       = clSeed config
     , coDrifts     = drifts
+    , coTrackedNotifications = tracked
+    , coBroadMergeRules = broad
     , coWalkSecs   = elapsed started walked
     , coWallSecs   = elapsed started finished
     }
   where visitFile t (path, result) = merge t path result
         elapsed from to = realToFrac (diffUTCTime to from) :: Double
 
--- | A CORPUS folded to its eight counts.  The daemon takes failures and
+-- | A CORPUS folded to its ten counts.  The daemon takes failures and
 -- collisions from the store it already holds; this is the CLI's own reading and
 -- the two agree, both parsing the same tree under the same config.
 corpusDoctor :: Corpus -> Doctor
-corpusDoctor c = tallyDoctor (coTotals c) (length (coDirErrs c)) (coDrifts c)
+corpusDoctor c = (tallyDoctor (coTotals c) (length (coDirErrs c)) (coDrifts c))
+  { docTrackedNotifications = length (coTrackedNotifications c)
+  , docBroadMergeRules = length (coBroadMergeRules c)
+  }
 
 -- | The tally, DIRERRS and the drifts as a 'Doctor'.  Read failures count the
 -- files that could not be read AND the directories that could not be listed,
@@ -177,6 +196,8 @@ tallyDoctor t dirErrCount drifts = Doctor
   , docDrift          = sum (map dfRows drifts)
   , docUnindexed      = sum (map dfUnindexed drifts)
   , docRecordless     = sum (map dfRecordless drifts)
+  , docTrackedNotifications = 0
+  , docBroadMergeRules = 0
   }
 
 
@@ -401,6 +422,31 @@ storeMetaDirs :: [FilePath] -> [FilePath] -> [FilePath]
 storeMetaDirs roots derived =
   nub ([ metaIn root | root <- roots ]
         ++ [ d | d <- derived, takeFileName d == metaDir ])
+
+-- | Notification ledgers under META that the containing git repository tracks.
+-- They are local hints: once tracked, another host may fold a note before its
+-- blob arrives.  Git is optional, so a missing executable or non-repository is
+-- simply no finding.
+trackedNotifications :: FilePath -> IO [FilePath]
+trackedNotifications meta = do
+  let store = takeDirectory meta
+      names = ["meta/EXTERNAL.jsonl", "meta/COMPLETIONS.jsonl"]
+  asked <- try (readProcessWithExitCode "git" (["-C", store, "ls-files", "--"] <> names) "")
+             :: IO (Either SomeException (ExitCode, String, String))
+  pure $ case asked of
+    Right (ExitSuccess, out, _err) ->
+      [ store </> line | line <- lines out, not (null line) ]
+    _unavailable -> []
+
+-- | Does META's attributes file still assign the union driver to every JSONL
+-- file?  Only headlines.jsonl and seg-*.jsonl are index segments; the broad
+-- rule also catches the local notification family.
+broadMergeRule :: FilePath -> IO Bool
+broadMergeRule meta = do
+  bytes <- bytesOf (meta </> ".gitattributes")
+  pure $ case bytes of
+    Nothing -> False
+    Just raw -> any ((== ["*.jsonl", "merge=union"]) . BSC.words) (BSC.lines raw)
 
 -- | PATH's bytes, or 'Nothing' when it cannot be read: an index it cannot open is an index it says nothing about.
 bytesOf :: FilePath -> IO (Maybe BS.ByteString)

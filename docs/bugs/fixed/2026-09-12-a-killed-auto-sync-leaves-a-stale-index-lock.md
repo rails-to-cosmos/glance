@@ -1,6 +1,6 @@
 # Bug — a killed auto-sync leaves a stale `index.lock`, and every later git call fails
 
-**Status:** open · **Reported:** 2026-09-12 (`~/sync/views`) · **Surface:**
+**Status:** fixed 2026-09-16 · **Reported:** 2026-09-12 (`~/sync/views`) · **Surface:**
 `Git.hs` auto-sync (Model B), `GET /git`, any other git user of the store
 
 ## Symptom
@@ -48,6 +48,14 @@ spelling; glance runs `add -A`).
 - **Test.** TestGit: a fixture repo with a planted `index.lock` reads as
   locked; the worker's stop path is exercised with a slow fake `git` on PATH
   and leaves no lock behind.
+
+## Resolution
+
+The auto-sync worker now has an explicit stop-and-join path used during server
+shutdown, so an in-flight Git child completes before the process exits.
+`GET /git` also reports the lock path's modification time, disables automatic
+actions while it exists, and presents the condition in the Git readout. Glance
+only reports the lock; it never removes it.
 
 ## Not this bug
 

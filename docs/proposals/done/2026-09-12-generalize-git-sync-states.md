@@ -1,6 +1,6 @@
 # Proposal — one sum per git job, and the client's mirror derived
 
-**Status:** proposed · **Date:** 2026-09-12 · **Origin:** `/generalizer`, the
+**Status:** done 2026-09-16 · **Date:** 2026-09-12 · **Origin:** `/generalizer`, the
 variant-cost sweep over the git-sync UI after the browser fixture landed.
 
 ## Pattern
