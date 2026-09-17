@@ -34,16 +34,60 @@
         open: () => overTargets(RESTORED, "tags", askTags) },
       { name: "sheet", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit,
         rowed: true, open: (id) => materialize(id) },
-      { name: "config", up: () => settings, edit: settingsEditing,
-        shut: cancelSettingsEdit, open: () => openSettings(),
-        narrow: () => narrowed(settingsTable),
-        wide: () => widen(settingsTable, "ESC") },
     ];
+    const PAGE_ROUTES = [settingsRoute];
+    /** @type {PageCoordinator} */
+    const Pages = (() => {
+      /** @type {PageRoute | null} */ let current = null;
+      /** @type {TableViewSelection | null} */ let back = null;
+      let swapped = false;
+      const changed = () => {
+        remembered();
+        GitControl.pageChanged();
+      };
+      const finish = (route) => {
+        if (route !== current) return;
+        const mounted = swapped, selection = back;
+        if (mounted && table && table.destroy) table.destroy();
+        route.leave();
+        current = null; back = null; swapped = false;
+        changed();
+        if (mounted) start(() => land(selection));
+      };
+      return {
+        current: () => current,
+        named: (name) => PAGE_ROUTES.find((route) => route.name === name) || null,
+        address: () => ({ label: current ? current.address : "default",
+                          back: !!current }),
+        session: () => current ? current.session : null,
+        open(route) {
+          if (current || editing) return;
+          current = route;
+          route.enter();
+          changed();
+        },
+        mount(route, view, options) {
+          if (route !== current) throw new Error(`inactive page route: ${route.name}`);
+          if (!swapped) {
+            back = cells() ? table.getSelection() : null;
+            if (socket) { socket.onclose = null; socket.close(); socket = null; }
+            if (table && table.destroy) table.destroy();
+            swapped = true;
+          }
+          table = TableView.mount(el("app"), view, options);
+          changed();
+          return table;
+        },
+        finish,
+        fail: finish,
+      };
+    })();
     const RESTORED = { seq: "?page", command: "restore-view" };
     const surfaceUp = () => SURFACES.find((s) => s.up()) || null;
     function remembered() {
-      const p = params(), s = surfaceUp();
-      if (!s || !s.open) { p.delete("page"); p.delete("row"); }
+      const p = params(), page = Pages.current(), s = surfaceUp();
+      if (page) { p.set("page", page.name); p.delete("row"); }
+      else if (!s || !s.open) { p.delete("page"); p.delete("row"); }
       else {
         p.set("page", s.name);
         const id = s.rowed && focusedId();
@@ -54,6 +98,8 @@
     }
     function bootPage() {
       const want = params().get("page");
+      const route = Pages.named(want);
+      if (route) { Pages.open(route); return; }
       const s = SURFACES.find((x) => x.name === want && x.open);
       if (!s) return;
       const id = params().get("row");
@@ -73,7 +119,7 @@
     }
     const typing = () => {
       const a = active();
-      return SURFACES.some((s) => s.up())
+      return !!Pages.current() || SURFACES.some((s) => s.up())
         || (!!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA"
                      || a.tagName === "SELECT" || a.isContentEditable));
     };
@@ -84,6 +130,7 @@
     // `typing()' walks every surface to answer it.
     const liveIn = (now, win) => (b) => b.scope === "any"
       || (b.scope === "modal" && SURFACES.some((s) => !s.momentary && s.up()))
+      || (b.scope === "session" && !!activeSession())
       || (b.scope === "table" && now)
       || (b.scope === "window" && win);
     // A live selection makes C-c and C-x copy and cut, so no prefix claims them.
@@ -156,7 +203,7 @@
       priorityDown: (b) => cyclePriority(b, -1),
       refer: (b) => referKey(b),
       applyDefault, pinView, relations, focusFilter, focusQuery, toggleRaw, openSettings,
-      save: saveSheet,
+      save: saveSession,
       commitEdit: (b) => { if (sheetOpen()) commitDocEdit(b);
                            else if (editing && !raw && checkboxHere() !== null)
                              toggleCheckbox(b);
@@ -191,7 +238,7 @@
       textScaleDecrease: (b) => said(b, `${zoomedBy(-1)}%`),
       textScaleSet: (b) => said(b, `${wearZoom(ZOOM.def)}%`),
       quitWindow: () => {
-        if (editing) { leaveSheet(); return; }
+        if (editing) { leaveSession(); return; }
         const host = hosted("quit");
         if (host) { host.postMessage("quit"); return; }
         append("cmd", "info", "q quits the native window; a browser tab closes itself");
@@ -203,7 +250,10 @@
           if (s.up() && s.narrow && s.narrow()) { s.wide(); return; }
           if (s.off && s.up()) { s.off(); return; }
         }
-        if (activeSheet()) leaveSheet();
+        const page = Pages.current();
+        if (page && page.editing()) { page.cancelEdit(); return; }
+        if (page && page.narrowed()) { page.widen(); return; }
+        if (activeSession()) leaveSession();
         else if (typing()) active().blur();
       },
       filterDrop: (b) => {

@@ -1,6 +1,6 @@
 # Proposal — page routes are not overlay surfaces
 
-**Status:** proposed · **Date:** 2026-09-17 · **Origin:** flat settings route follow-up
+**Status:** done · **Date:** 2026-09-17 · **Origin:** flat settings route follow-up
 
 ## Pattern
 
@@ -60,3 +60,19 @@ changes.
 (`frontend/glue/70-shell.js:17-73`). The new `Pages` registry applies the same
 data-owned lifecycle to a distinct kind of surface. Keep the Haskell popup
 registry limited to actual popup chrome.
+
+## Outcome
+
+`Pages` now owns the active route, URL page value, main-table replacement,
+socket suspension, selection restoration and breadcrumb address. Settings is
+the first `PageRoute`; it no longer appears in `SURFACES` and no longer keeps a
+second boolean copy of route state.
+
+The write ladder is now named for its actual abstraction: `SaveSession` and
+`saveSession`/`leaveSession` serve both the material overlay and settings page.
+The keymap gained a `session` scope for `C-x C-s`, so settings receives the one
+shared save command without inheriting material-document commands from modal
+scope.
+
+The git control is an explicit factory over `pageAddress` and `onPageBack`.
+It reads no settings state and calls no document-sheet navigation function.

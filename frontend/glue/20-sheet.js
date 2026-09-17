@@ -241,11 +241,11 @@
       if (!editing) return;
       const h = editing;
       headline(h.id, child).then((fresh) => { if (editing === h) k(h, fresh); })
-        .catch((e) => stuck(subtreeSheet, e.message));
+        .catch((e) => stuck(subtreeSession, e.message));
     }
     function docUp() {
       if (!editing) return;
-      if (editing.child === null) { leaveSheet(); return; }
+      if (editing.child === null) { leaveSession(); return; }
       const up = editing.parent;
       reread(up === null ? undefined : up, (h, fresh) => {
         show(fresh, raw);
@@ -274,7 +274,7 @@
         }
         // A 409 naming `planning' is a refused entry rather than a moved file.
         if (a.status === 409 && a.body.reason !== "planning") sync("conflict");
-        else stuck(subtreeSheet, a.body.error || `sync failed (${a.status})`);
+        else stuck(subtreeSession, a.body.error || `sync failed (${a.status})`);
         return false;
       };
     }
@@ -441,7 +441,7 @@
         editing = fresh;
         fill(fresh);
         sync("synced");
-      }).catch((e) => stuck(subtreeSheet, e.message));
+      }).catch((e) => stuck(subtreeSession, e.message));
       read(true);
     }
     // SNAPSHOTTED AT OPEN — a mouse click moves the cursor under an open edit.
@@ -1348,7 +1348,7 @@
            null, h.child)
         .then(outcome)
         .then((a) => { if (editing === h && landed(h, say)(a)) reload(); })
-        .catch((e) => stuck(subtreeSheet, e.message));
+        .catch((e) => stuck(subtreeSession, e.message));
     }
     function docClear() {
       dlinks = [];
@@ -1464,7 +1464,7 @@
       // `q' IS `quit-window' ONE WINDOW IN, dead inside an open edit.
       if (k === "q" && !dediting()) {
         e.preventDefault();
-        once(() => { said(quitBinding, ""); leaveSheet(); });
+        once(() => { said(quitBinding, ""); leaveSession(); });
         return;
       }
       if (dediting()) {
@@ -1551,7 +1551,8 @@
       el(s.noteId).textContent = message || WORDS[next];
     }
     const stuck = (s, why) => note(s, "error", why && `${why}${RETRY}`);
-    const subtreeSheet = {
+    /** @type {SaveSession} */
+    const subtreeSession = {
       noteId: "mnote", scope: "sync", state: "synced",
       closed: "closed without writing — the file is as it was",
       dirty: () => dirty(),
@@ -1566,10 +1567,9 @@
       },
       shut: () => shut(),
     };
-    const activeSheet = () =>
-      (editing ? subtreeSheet : settings ? configSheet : null);
-    // ONE SHORTHAND PER SHEET: reaching for another's moves a state you do not own.
-    const sync = (next, message) => note(subtreeSheet, next, message);
+    const activeSession = () => editing ? subtreeSession : Pages.session();
+    // ONE SHORTHAND PER SESSION: reaching for another's moves a state you do not own.
+    const sync = (next, message) => note(subtreeSession, next, message);
     function shut() {
       el("modal").className = ""; editing = null; base = ""; baseProps = null;
       soon(remembered);
@@ -1587,17 +1587,17 @@
           base = raw ? sent.org : base;
           baseProps = raw ? null : stamp(sent.properties, sent.planning);
         }))
-        .catch((e) => { stuck(subtreeSheet, e.message); return false; });
+        .catch((e) => { stuck(subtreeSession, e.message); return false; });
     }
-    function saveSheet(b) {
+    function saveSession(b) {
       if (sheetOpen()) { commitDocEdit(b); return; }
-      const s = activeSheet();
+      const s = activeSession();
       if (!s || s.state === "syncing") return;
       if (s.state !== "conflict") { s.flush(); return; }
       s.refresh().then((ok) => ok && s.flush()).catch((e) => stuck(s, e.message));
     }
-    function leaveSheet() {
-      const s = activeSheet();
+    function leaveSession() {
+      const s = activeSession();
       if (!s) return;
       if (s.state === "conflict" || s.state === "error") {
         s.shut();
@@ -1608,7 +1608,7 @@
       if (s.state !== "syncing") s.flush().then((ok) => ok && s.shut());
     }
     el("modal").addEventListener("click",
-      (e) => { if (e.target === el("modal")) leaveSheet(); });
+      (e) => { if (e.target === el("modal")) leaveSession(); });
     /** @type {[string, () => void][]} */
     // CALLED at click time: the wrapped widget's `const' is in TDZ while this runs.
     const backdrops = [["links", () => shutLinks()], ["tags", () => shutTags()]];

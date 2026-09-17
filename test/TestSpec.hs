@@ -1279,9 +1279,9 @@ specGroup10 = testGroup "Shell"
     jsWord src t = firstQuoted (if "\"" `T.isPrefixOf` t then t else jsDecl t src)
       where firstQuoted = T.takeWhile (/= '"') . T.drop 1 . T.dropWhile (/= '"')
 
--- | Sheets, the Elm document pane, and compact table-view lists; each case compares two copies of one figure.
+-- | Save sessions, the Elm document pane, and compact table-view lists; each case compares two copies of one figure.
 specGroup11 :: TestTree
-specGroup11 = testGroup "Sheets, document pane, Elm"
+specGroup11 = testGroup "Save sessions, document pane, Elm"
   [ -- @drawText@ walks the segments in order and SILENTLY drops a link opening
     -- inside the one before it, so what it rests on is spans ascending and pairwise disjoint.
     testCase "a link opening inside the previous one is dropped" $ do

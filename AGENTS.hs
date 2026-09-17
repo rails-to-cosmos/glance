@@ -4038,7 +4038,7 @@ press k = Press k Nothing False False False
 
 -- | @SWindow@ is the NATIVE WINDOW'S OWN: live only where a window stands behind
 --   the page, which is what leaves the browser's zoom chords to the browser.
-data KeyScope = STable | SModal | SWindow | SAny deriving (Eq, Ord, Show, Enum, Bounded)
+data KeyScope = STable | SModal | SSession | SWindow | SAny deriving (Eq, Ord, Show, Enum, Bounded)
 newtype Elisp = Elisp String deriving (Eq, Ord, Show)
 -- ^ commands are elisp function names and the echo speaks them verbatim.
 data Binding = Binding [String] Elisp KeyScope
@@ -4103,7 +4103,7 @@ bindings =
   -- ONE KEY, TWO SURFACES: `@' READS the edges from the table and WRITES one
   -- from the sheet, so the scope is what tells the two apart.
   , Binding ["@"]           (Elisp "org-glance-material:refer")       SModal
-  , Binding ["C-x", "C-s"]  (Elisp "save-buffer")                     SModal
+  , Binding ["C-x", "C-s"]  (Elisp "save-buffer")                     SSession
   , Binding ["C-c", "C-c"]  (Elisp "org-ctrl-c-ctrl-c")               SModal
   , Binding ["C-c", "'"]    (Elisp "org-edit-special")                SModal
   -- `+' WANTS THE SHIFT on most layouts, and a browser reads the unshifted key
@@ -4167,7 +4167,7 @@ once = map Elisp
 reserved :: [String]                         -- ^ left to the browser unless a sequence completes
 reserved = ["C-l", "C-r", "C-t", "C-u", "C-w", "C-n", "C-p", "<f5>"]
 
--- ** The modal surfaces are ONE list, and four readers take everything off it.
+-- ** The overlay surfaces are ONE list, and four readers take everything off it.
 
 data Surface = Surface { sName :: String, sMomentary, sOff, sOpens, sRowed :: Bool
                        , sEdit, sNarrow, sPanelled :: Bool }
@@ -4180,20 +4180,29 @@ surfaces =
   , Surface "links"   True  True  True  True  True  True  False
   , Surface "tags"    True  True  True  True  True  True  False
   , Surface "sheet"   False False True  True  True  False False
-  , Surface "config"  False False True  False True  True  False
   ]
+
+-- | A page replaces the main mount and owns navigation; its save session is a
+-- capability rather than a reason to join the overlay registry.
+data PageRoute = PageRoute { prName, prAddress :: String, prSaves :: Bool }
+  deriving (Eq, Show)
+
+pageRoutes :: [PageRoute]
+pageRoutes = [PageRoute "config" "main -> settings" True]
+
 momentaryUp :: [Surface] -> Maybe Surface    -- ^ the list ORDER breaks the one tie
 momentaryUp = listToMaybe . filter sMomentary
 sole :: [Surface] -> [Surface]               -- ^ a raise closes every momentary one
 sole = filter (not . sMomentary)
-live :: Bool -> [Surface] -> KeyScope -> Bool -- ^ WINDOWED, the surfaces up, the row's scope
-live _   _  SAny    = True
-live _   up SModal  = any (not . sMomentary) up
-live _   up STable  = null up                 -- plus a focused control: `typing()'
+live :: Bool -> Bool -> [Surface] -> KeyScope -> Bool -- ^ WINDOWED, save session, surfaces up, the row's scope
+live _   _       _  SAny     = True
+live _   _       up SModal   = any (not . sMomentary) up
+live _   session _  SSession = session
+live _   _       up STable   = null up        -- plus a focused control: `typing()'
 -- THE ONE SEAM THAT LEAVES A KEY TO THE BROWSER: `run' is reached only past a
 -- `preventDefault', so a handler cannot decline a press.  A row that is never
 -- LIVE is never matched, and the dispatch claims nothing.
-live win _  SWindow = win
+live win _ _ SWindow = win
 
 data Rung = REdit | RNarrow | RSurf deriving (Eq, Show)
 escAt :: Bool -> Bool -> Rung                -- ^ ESC: three rungs per surface, innermost first
@@ -4587,33 +4596,33 @@ shellNotes =
   , Note "A side table out of step is dropped whole." [Unguarded]
   , Note "The value palette is a keystroke's answer rather than a place." [Unguarded]
   ]
--- * Sheets, document pane, Elm
+-- * Save sessions, document pane, Elm
 
--- ** ONE BUTTONLESS SHEET, and there are two of them
---
--- Both run the ladder written once (`saveSheet'/`leaveSheet'/`note') over a sheet
--- object; what differs stays in the verbs.
+-- ** ONE SAVE LADDER over an overlay and a page route
 
-data SheetName  = ShMaterialize | ShSettings deriving (Eq, Ord, Show)
+-- Both run the ladder written once (`saveSession'/`leaveSession'/`note') over a
+-- session object; navigation stays with the surface that owns it.
+
+data SessionName  = SsMaterialize | SsSettings deriving (Eq, Ord, Show)
 data FlushShape = OneHeadlinePost | PostPerMovedLayer deriving (Eq, Show)
 data SheetState = Synced | Syncing | Conflict | Errored deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | `{dirty, flush, refresh, shut, scope}' plus its own state word; the name, the log
 --   scope its `note' writes under, and what ONE flush is.
-data Sheet = Sh SheetName String FlushShape
-shName  (Sh n _ _) = n
-shScope (Sh _ s _) = s
-shFlush (Sh _ _ f) = f
+data SaveSession = Ss SessionName String FlushShape
+ssName  (Ss n _ _) = n
+ssScope (Ss _ s _) = s
+ssFlush (Ss _ _ f) = f
 
-sheets :: [Sheet]
-sheets = [ Sh ShMaterialize "sync"   OneHeadlinePost
-         , Sh ShSettings    "config" PostPerMovedLayer ]
+saveSessions :: [SaveSession]
+saveSessions = [ Ss SsMaterialize "sync"   OneHeadlinePost
+               , Ss SsSettings    "config" PostPerMovedLayer ]
 
--- | `activeSheet' is total because neither sheet opens over the other.
-activeSheet :: Bool -> Bool -> Maybe Sheet
-activeSheet True  _    = Just (head sheets)
-activeSheet False True = Just (last sheets)
-activeSheet False False = Nothing
+-- | One material overlay or one page route can own the active save session.
+activeSession :: Bool -> Bool -> Maybe SaveSession
+activeSession True  _    = Just (head saveSessions)
+activeSession False True = Just (last saveSessions)
+activeSession False False = Nothing
 
 -- | The header word; the two that WAIT for a keystroke each spell the key that clears it.
 headerWord :: SheetState -> String
@@ -4632,21 +4641,21 @@ sheetDirty listsMoved rawMoved = listsMoved || rawMoved
 
 data Leave = ShutQuiet | FlushThenShut | ShutDiscarding | LeaveWaits deriving (Eq, Show)
 -- | ESC or the backdrop, over state and dirt.  A conflict or an error discards.
-leaveSheet :: SheetState -> Bool -> Leave
-leaveSheet Conflict _    = ShutDiscarding
-leaveSheet Errored  _    = ShutDiscarding
-leaveSheet _       False = ShutQuiet
-leaveSheet Syncing True  = LeaveWaits
-leaveSheet Synced  True  = FlushThenShut
+leaveSession :: SheetState -> Bool -> Leave
+leaveSession Conflict _    = ShutDiscarding
+leaveSession Errored  _    = ShutDiscarding
+leaveSession _       False = ShutQuiet
+leaveSession Syncing True  = LeaveWaits
+leaveSession Synced  True  = FlushThenShut
 
 data Save = CommitElement | FlushIt | RefreshThenFlush | SaveWaits deriving (Eq, Show)
 -- | `C-x C-s', over an open element and the state: mid-edit it commits, on a conflict it
 --   overwrites, otherwise it flushes the sheet.
-saveSheet :: Bool -> SheetState -> Save
-saveSheet True  _        = CommitElement
-saveSheet False Syncing  = SaveWaits
-saveSheet False Conflict = RefreshThenFlush
-saveSheet False _        = FlushIt
+saveSession :: Bool -> SheetState -> Save
+saveSession True  _        = CommitElement
+saveSession False Syncing  = SaveWaits
+saveSession False Conflict = RefreshThenFlush
+saveSession False _        = FlushIt
 
 data CommitKey = SaveBuffer | OrgCommit deriving (Eq, Show)
 -- | `C-c C-c' stops where the ELEMENT does; `C-x C-s' is the BUFFER's and reaches the

@@ -15,7 +15,7 @@ data KeyBinding = KeyBinding
   { kbKeys    :: ![Text]        -- ^ the keys in order; what the dispatch matches.
   , kbCommand :: !Text          -- ^ the command name the echo widget shows.
   , kbHandler :: !(Maybe Text)  -- ^ the shell function running it; 'Nothing' is staged.
-  , kbScope   :: !Text          -- ^ @table@, @modal@, @window@ or @any@ — where it is live.
+  , kbScope   :: !Text          -- ^ @table@, @modal@, @session@, @window@ or @any@ — where it is live.
   , kbHelp    :: !(Maybe Text)  -- ^ what it does, when the command name does not say; see 'helps'.
   }
 
@@ -120,7 +120,7 @@ keyBindings = concat
   -- run at point when point is in a list, across every list when it is not.
   , bind ["X"]          "org-glance-material:hide-done"   (Just "hideDoneHere")   "modal"
       `helps` hideDoneHelp
-  , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "modal"
+  , bind ["C-x", "C-s"] "save-buffer"                     (Just "save")           "session"
       `helps` "sync the sheet now; again to overwrite a conflict"
   , bind ["C-c", "C-c"] "org-ctrl-c-ctrl-c"               (Just "commitEdit")     "modal"
       `helps` "commit the element being edited"

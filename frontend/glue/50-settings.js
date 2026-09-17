@@ -1,11 +1,11 @@
     // Settings is a route over the same table-view used by the main catalogue.
     /** @type {LayerRow[]} */
     let crows = [];
-    let settings = false;
-    let configData = null, settingsTable = null, settingsBack = null;
+    let configData = null, settingsTable = null;
     const settingStates = new Map();
     let settingModels = new Map();
-    const configSheet = {
+    /** @type {SaveSession} */
+    const configSession = {
       noteId: "cnote", scope: "config", state: "synced",
       closed: "settings closed — the files are as they were",
       dirty: () => cdirty(),
@@ -17,7 +17,7 @@
         }
         return true;
       }),
-      shut: () => shutSettings(),
+      shut: () => Pages.finish(settingsRoute),
     };
 
     const encodedLines = (text) => String(text || "")
@@ -26,27 +26,23 @@
       .replace(/\\(n|\\)/g, (_m, c) => c === "n" ? "\n" : "\\");
     const systemLayer = () => crows.find((r) => r.tag === null) || null;
     const settingState = (r) => r.err
-      ? (configSheet.state === "conflict" ? "conflict" : "error")
+      ? (configSession.state === "conflict" ? "conflict" : "error")
       : cmoved(r) ? "changed" : "saved";
     const settingsEditing = () => !!(settingsTable && settingsTable.getEditing
       && settingsTable.getEditing());
     const cancelSettingsEdit = () => {
       if (settingsTable && settingsTable.closeEditor) settingsTable.closeEditor();
     };
+    const settingsUp = () => Pages.current() === settingsRoute;
 
-    function renderPageCrumbs() {
-      const ctl = document.getElementById("gitctl");
-      if (!ctl) return;
-      const page = ctl.querySelector(".g-page");
-      if (page) {
-        const routed = !!settingsTable;
-        page.textContent = routed ? "main -> settings" : "default";
-        if (routed) page.removeAttribute("disabled");
-        else page.setAttribute("disabled", "");
-        page.setAttribute("title", routed ? "back to the default view" : "");
-      }
-    }
-    renderPageCrumbs();
+    /** @type {PageRoute} */
+    const settingsRoute = {
+      name: "config", address: "main -> settings", session: configSession,
+      enter: enterSettings, leave: resetSettings,
+      editing: settingsEditing, cancelEdit: cancelSettingsEdit,
+      narrowed: () => narrowed(settingsTable),
+      widen: () => widen(settingsTable, "ESC"),
+    };
 
     function settingsRows() {
       /** @type {any[]} */ const rows = [];
@@ -176,18 +172,13 @@
       }
     }
     function mountSettings() {
-      settingsBack = cells() ? table.getSelection() : null;
-      if (socket) { socket.onclose = null; socket.close(); socket = null; }
-      if (table && table.destroy) table.destroy();
-      table = TableView.mount(el("app"), settingsView(), {
+      settingsTable = Pages.mount(settingsRoute, settingsView(), {
         filterDock: "strip", pageSize: PAGE, actionHints: false,
         onEdit: settingEdited,
       });
-      settingsTable = table;
       cols = SETTINGS_COLUMNS;
       const first = table.getVisible()[0];
       if (first) table.select(first.id);
-      renderPageCrumbs();
     }
     function openSetting() {
       const id = selectedId(settingsTable), model = id && settingModels.get(id);
@@ -195,7 +186,7 @@
       if (!model.write) { echo(`${model.setting} is read-only`); return; }
       settingsTable.editCell(id, 1);
     }
-    onKeys(() => settings && !momentary(), (k, e) => {
+    onKeys(() => settingsUp() && !momentary(), (k, e) => {
       if (narrowTyping(settingsTable)) {
         if (narrowPress(k, settingsTable)) e.preventDefault();
         return;
@@ -204,24 +195,24 @@
       if (step) stepIn(settingsTable, step);
       else if (k === "RET") openSetting();
       else if (k === "/") settingsTable.openFilter({ narrow: true });
-      else if (k === "DEL") leaveSheet();
+      else if (k === "DEL") leaveSession();
       else return;
       e.preventDefault();
     });
 
     function openSettings() {
-      if (activeSheet()) return;
-      settings = true;
+      Pages.open(settingsRoute);
+    }
+    function enterSettings() {
       config().then((b) => {
-        if (!settings) return;   // an ESC arrived while the layers were out
+        if (!settingsUp()) return;   // an ESC arrived while the layers were out
         configData = b;
         drawLayers(b);
         mountSettings();
         cnote("synced");
         soon(remembered);
       }).catch((e) => {
-        settings = false;
-        renderPageCrumbs();
+        Pages.fail(settingsRoute);
         append("config", "error", `settings failed: ${e.message}`);
       });
     }
@@ -309,7 +300,7 @@
     ];
     const cfmoved = (r) => CFIELDS.filter((f) => f.on(r) && f.now(r) !== f.was(r));
     const cnote = (next, message) => {
-      note(configSheet, next, message);
+      note(configSession, next, message);
       if (settingsTable) repaintSettings();
     };
     const cdirty = () => crows.some(cmoved);
@@ -490,18 +481,12 @@
       }
     }, true);
 
-    function shutSettings() {
-      const mounted = settingsTable;
-      const back = settingsBack;
+    function resetSettings() {
       const held = active();
       if (held) held.blur();
-      if (mounted && mounted.destroy) mounted.destroy();
-      settingsTable = null; settings = false;
-      configData = null; crows = []; settingsBack = null;
-      configSheet.state = "synced";
-      renderPageCrumbs();
-      remembered();
-      if (mounted) start(() => land(back));
+      settingsTable = null;
+      configData = null; crows = [];
+      configSession.state = "synced";
     }
     const summons = () => can(table, "openFilter");
     /** Raise the filter box on DOOR; `{narrow: true}' is the filter half alone.

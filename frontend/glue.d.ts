@@ -144,6 +144,51 @@ type StoreFrame =
   | { op: "upsert-row"; row: TableViewRow }
   | { op: "delete-row"; id: string };
 
+type SaveState = "synced" | "syncing" | "conflict" | "error";
+
+interface SaveSession {
+  noteId: string;
+  scope: string;
+  state: SaveState;
+  closed: string;
+  dirty(): boolean;
+  flush(): Promise<boolean>;
+  refresh(): Promise<boolean>;
+  shut(): void;
+}
+
+interface PageRoute {
+  name: string;
+  address: string;
+  session: SaveSession;
+  enter(): void;
+  leave(): void;
+  editing(): boolean;
+  cancelEdit(): void;
+  narrowed(): boolean;
+  widen(): void;
+}
+
+interface PageAddress {
+  label: string;
+  back: boolean;
+}
+
+interface PageCoordinator {
+  current(): PageRoute | null;
+  named(name: string | null): PageRoute | null;
+  address(): PageAddress;
+  session(): SaveSession | null;
+  open(route: PageRoute): void;
+  mount(
+    route: PageRoute,
+    view: TableViewView,
+    options?: TableViewMountOptions
+  ): TableViewHandle;
+  finish(route: PageRoute): void;
+  fail(route: PageRoute): void;
+}
+
 // Injected by the native window, and only there.
 interface Window {
   webkit?: { messageHandlers?: Record<string, { postMessage(v: any): void }> };

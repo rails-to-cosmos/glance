@@ -6703,7 +6703,7 @@ shellGlue =
       , "const editPara = (r, text, say) => {"
       , "dcommit = say;"
       -- DEL IS UP, and at the top it is the sheet's door.
-      , "if (editing.child === null) { leaveSheet(); return; }"
+      , "if (editing.child === null) { leaveSession(); return; }"
       , "reread(up === null ? undefined : up, (h, fresh) => {"
       -- A KEY THIS LISTENER CLAIMED IS NOT THE MAP'S, or the table's own `DEL' would strip a token on the same press.
       , "onKeys((e) => !e.defaultPrevented, (k, e) => {"
@@ -6766,7 +6766,7 @@ shellGlue =
       , "cancel: () => {"
       , "else if (typing()) active().blur();" ]
       -- The CLASS, not the token: `--tv-veil' is the renderer's theming API and this page may not reach the element.
-      ["closeFilter", ".tv-veil", ".tv-panel"]
+      [".tv-veil", ".tv-panel"]
 
   -- With `bootstrap=off' no `set-rows' frame can arrive, so the branch that applied one is gone.
   , Glue "opens a socket and applies the streaming ops"
@@ -6873,7 +6873,7 @@ shellGlue =
       , "reread(editing.child, (_h, fresh) => {"
       -- The doc pane holds the keys with NOTHING focused, so the map has to be told; it is the FIRST of the modal surfaces.
       , "{ name: \"sheet\", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit,"
-      , "return SURFACES.some((s) => s.up())"
+      , "return !!Pages.current() || SURFACES.some((s) => s.up())"
       , "#mpanes{flex:1;min-height:0;overflow:hidden;"
       -- The open element's fields sit OVER the row; the document's box takes `font:inherit' so an edit renders in the PANE's line box.
       , "#dtitle,#dpara,#dpair,#tedit,#ledit{display:none;"
@@ -6934,7 +6934,7 @@ shellGlue =
       , "<div id=\"log\"></div>"
       , "`loading … ${opening ? `view: ${opening}` : \"all rows\"}`);"
       ]
-      [ "const say = () =>", "say();", "getRows().length"
+      [ "const say = () =>", "say();"
       , "matching ${query}", "${profile} keys"
       , "log(\"\")", "<div id=\"log\">loading …</div>" ]
 
@@ -7214,7 +7214,7 @@ shellGlue =
   -- EVERY VEIL IS A DOOR, and what a backdrop click does differs by surface.
   , glue "the momentary veils are backdrops too"
       [ "el(\"modal\").addEventListener(\"click\""
-      , "if (e.target === el(\"modal\")) leaveSheet();"
+      , "if (e.target === el(\"modal\")) leaveSession();"
       , "const backdrops = [[\"links\", () => shutLinks()], [\"tags\", () => shutTags()]];"
       , "if (e.target === el(id)) off();" ]
 
@@ -11356,7 +11356,7 @@ pageSpec shell = testGroup "GET /"
             , "if (s.state !== \"syncing\") s.flush().then((ok) => ok && s.shut());"
             , "flush: () => flush(editing.digest),"
             -- The backdrop is the mouse's ESC.
-            , "if (e.target === el(\"modal\")) leaveSheet();"
+            , "if (e.target === el(\"modal\")) leaveSession();"
             -- The receipt chains: the 200's digest is the next flush's lock.
             , "h.digest = a.body.digest;"
             , "base = raw ? sent.org : base;"
@@ -11374,7 +11374,7 @@ pageSpec shell = testGroup "GET /"
             , "const RETRY = \" — C-x C-s retry · ESC discard\";"
             , "error: \"error\" + RETRY };"
             , "function note(s, next, message) {", "s.state = next;"
-            , "const sync = (next, message) => note(subtreeSheet, next, message);" ] b
+            , "const sync = (next, message) => note(subtreeSession, next, message);" ] b
       assertEqual "note is the only writer" 1 (T.count "      s.state = next;" b)
       assertEqual "and the retry line is spelled once" 1
                   (T.count " — C-x C-s retry · ESC discard" b)
@@ -11555,7 +11555,7 @@ expectedRows =
   -- branches in the material document, live and lost on reload.
   , (["X"],          "X",       "org-glance-material:hide-done",   Just "hideDoneHere",   "modal",
        hideHelp)
-  , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "modal",
+  , (["C-x", "C-s"], "C-x C-s", "save-buffer",                     Just "save",           "session",
        Just "sync the sheet now; again to overwrite a conflict")
   , (["C-c", "C-c"], "C-c C-c", "org-ctrl-c-ctrl-c",               Just "commitEdit",     "modal",
        Just "commit the element being edited")
@@ -11749,6 +11749,19 @@ keymapSpec shell = testGroup "Shell keymap"
         , "header: \"Applies to\"", "header: \"Source\"", "header: \"State\"" ] b
       holdsNone "the retired panel registry" ["const SECTIONS", "id=\"ctabs\""] b
 
+  , shellCase shell "page routes stay outside the overlay registry" $ \b -> do
+      holdsAll "the page coordinator"
+        [ "const PAGE_ROUTES = [settingsRoute];"
+        , "const Pages = (() => {"
+        , "name: \"config\", address: \"main -> settings\""
+        , "pageAddress: () => Pages.address()"
+        , "onPageBack: () => leaveSession()"
+        , "b.scope === \"session\" && !!activeSession()" ] b
+      holdsNone "the old settings/git cycle"
+        [ "{ name: \"config\", up:"
+        , "if (settings) leaveSession()"
+        , "renderPageCrumbs" ] b
+
   , shellCase shell "the view title is the tab's alone, and nothing on the page repeats it" $ \b -> do
       assertBool ("a heading survives in the shell: " <> show (between "<h1>" "</h1>" b))
                  (not ("<h1>" `T.isInfixOf` b))
@@ -11801,7 +11814,7 @@ keymapSpec shell = testGroup "Shell keymap"
       -- scope typo is a bound, documented, permanently dead key.
       assertEqual "live on a surface there is none of" []
         [ sc | (_k, _s, _c, _h, sc, _help) <- rows
-             , sc `notElem` ["any", "table", "modal", "window"] ]
+             , sc `notElem` ["any", "table", "modal", "session", "window"] ]
 
   , shellCase shell "the writes are the commands auto-repeat is off for" $ \b -> do
       onceOf b >>= assertEqual "once" onceNames

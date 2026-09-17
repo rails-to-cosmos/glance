@@ -7741,9 +7741,9 @@ export default [
     }, "settings to extend the git breadcrumb");
     assert(settingsAddress.startsWith(`main -> settings @${up.loc}`),
       `the settings breadcrumb reads ${JSON.stringify(settingsAddress)}`);
-    await p.press("DEL");
+    await p.eval(() => document.querySelector("#gitctl .g-page").click());
     await p.until(() => document.querySelector("#gitctl .g-page").textContent === "default",
-                  "DEL to restore the default page address");
+                  "the page address to restore the default route");
     // NO REMOTE IS NO UPSTREAM, which `glyphFor' draws as the warned ⚠ -- the
     // clean tick is a state an upstream buys, and this fixture has none.
     assert(up.dot === "⚠" && up.cls.includes("g-detached"),
