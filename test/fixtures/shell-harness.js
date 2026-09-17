@@ -504,8 +504,10 @@ const cellCol = (cols, col) => {
 let markless = false, pagerless = false, sortnone = false, crumbless = false;
 const makeMount = (host, view, options, own) => {
   const o = options || {};
+  const modelRows = ((view || {}).columns || []).some((c) => c.key === "setting");
   const m = {
     own,
+    viewRows: !own && modelRows ? (view.rows || []).slice() : null,
     // Per instance and never a second copy: a hardcoded pair would go on agreeing.
     cols: (view || {}).columns || [],
     // The chain in force is the QUERY's where it names a `sort:' token, else the
@@ -529,9 +531,10 @@ const makeMount = (host, view, options, own) => {
     marks: new Set(), flags: new Set(), crumbs: [],
     pinned: !!o.pinned, onPin: typeof o.onPin === "function" ? o.onPin : null,
     onFilter: typeof o.onFilter === "function" ? o.onFilter : null,
+    onEdit: typeof o.onEdit === "function" ? o.onEdit : null,
     onRefused: typeof o.onRefused === "function" ? o.onRefused : null,
   };
-  const all = () => (m.own ? m.own : rows);
+  const all = () => (m.own ? m.own : m.viewRows || rows);
   const pageMax = () =>
     (m.pageSize ? Math.max(1, Math.ceil(all().length / m.pageSize)) : 1);
   const onPage = () => {
@@ -576,10 +579,18 @@ const makeMount = (host, view, options, own) => {
   m.sit = sit;
   m.handle = {
     el: host || { querySelector: () => null },
+    setView: (next) => {
+      m.cols = (next || {}).columns || [];
+      m.viewRows = ((next || {}).rows || []).slice();
+      m.rowId = null; m.selCol = null; m.cursor = 0; m.pageAt = 0;
+      editedCell = null;
+    },
     // A count for the table, whose rows are the store's; a model mount keeps them.
     setRows: (list) => {
       if (m.own) {
         m.own = (list || []).slice();
+      } else if (m.viewRows) {
+        m.viewRows = (list || []).slice();
       } else { sets += 1; paints.push((list || []).length);
                painted = (list || []).slice(); }
       keep();
@@ -630,6 +641,8 @@ const makeMount = (host, view, options, own) => {
     getEditing: () => (editedCell
       ? { id: editedCell[0], col: editedCell[1],
           key: (m.cols[editedCell[1]] || {}).key || "" } : null),
+    closeEditor: () => { editedCell = null; },
+    destroy: () => {},
     setQuery: (q) => { m.held = String(q == null ? "" : q).trim(); },
     setPinned: (on) => { m.pinned = !!on; },
     stripLastToken: () => {
@@ -686,6 +699,7 @@ const makeMount = (host, view, options, own) => {
     clearFlags: () => m.flags.clear(),
     // THE DOOR IS RECORDED, not just the raise: `/' asks for the filter half
     // and `.' for the whole expression, and nothing else tells the two apart.
+    filtering: () => active === field("filter"),
     openFilter: (door) => { raises += 1;
       doors.push(door && door.narrow === true ? "narrow" : "whole");
       field("filter").focus(); },
@@ -1535,6 +1549,17 @@ const ACTIONS = {
     stateTakes.push(took === null ? "-" : `${took[0]}|${took[1]}`);
   },
   ctext: (text) => (onKeywords(), typeSetting("ctext", text)),
+  svalue: (spec) => {
+    const at = String(spec).indexOf("/");
+    const setting = (at === -1 ? String(spec) : String(spec).slice(0, at)).replace(/_/g, " ");
+    const value = (at === -1 ? "" : String(spec).slice(at + 1)).replace(/_/g, " ");
+    if (!main.onEdit) throw new Error("settings table has no edit callback");
+    const row = main.handle.getRows().find((r) => (r.cells || {}).setting === setting);
+    if (!row) throw new Error(`no setting row called ${setting}`);
+    const id = row.id;
+    main.handle.select(id);
+    main.onEdit(id, 1, value, "cell");
+  },
   // TAKING AN EDIT BACK: an act splits on spaces and a `#+TODO:' line is spaces.
   crevert: () => {
     onKeywords();
@@ -1870,7 +1895,10 @@ const settle = async () => {
     trename: field("tedit").className === "on", tname: field("tname").value,
     crumbs: main.crumbs.map((c) => c.label),
     prevented,
-    settings: field("config").className, cstate: field("cnote").className,
+    settings: main.cols.some((c) => c.key === "setting") ? "on" : "",
+    settingsRows: main.handle.getRows().map((r) => r.cells || {}),
+    settingsColumns: main.cols.map((c) => c.key),
+    cstate: field("cnote").className,
     clayers: field("clayer").children.map((o) => o.textContent),
     cat: field("clayer").value, cshown: field("ctext").value,
     clab: field("clab").textContent, clerr: field("clerr").textContent,

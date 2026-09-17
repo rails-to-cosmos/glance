@@ -71,7 +71,6 @@ import Glance.Web.Base (gluePartFiles, today)
 import Glance.Web.Commands (commandNames)
 import Glance.Web.Mcp (mcpDaemonAt, mcpWriteToolNames)
 import qualified Network.Wai.Handler.Warp as Warp
-import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Store ( Hub, applyFile, finishLoading, frameJSON, hubStore
                        , loadStore, newLoadingHub, publish
                        , stashDoctor, storeResult, subscribe )
@@ -2565,14 +2564,6 @@ narrowSpec shell =
         assertEqual "the field is gone" [] =<< pairsAt "narrows" answer
         assertEqual "and the list came back whole" 3 . length
           =<< pairsAt "llinks" answer
-
-  , keyed shell "the states table narrows too, over the cells it draws"
-      "," "ctab:ui press:/ narrow:read" $ \answer -> do
-        assertEqual "the two states spelling it, in the layer's own order"
-                    ["tag:book|READING|active|", "tag:book|READ|inactive|"]
-          =<< textsAt "chues" answer
-        assertEqual "and it is the states table's own field"
-                    [["cstates", "read"]] =<< pairsAt "narrows" answer
 
     -- A NARROW MATCHING NOTHING has no cursor to offer, and the surface says so.
   , keyed shell "a narrow that matches nothing leaves no row to act on"
@@ -5624,551 +5615,81 @@ stateOfferSpec shell = testGroup "Shell state offers"
 intsAt :: T.Text -> Value -> IO [Int]
 intsAt = decodedAt
 
--- | The settings sheet as keys: PANELS over the layers @\/config@ served, one box holding the SELECTED file's lines.
+-- | The settings route: one flat table over browser preferences and the layers
+-- @\/config@ serves, with the ordinary table cursor, filter and cell editor.
 settingsSpec :: IO T.Text -> TestTree
 settingsSpec shell =
   overBoot shell "," "" $ \settings ->
   testGroup "Shell settings"
-  [ atBoot settings ", opens it over the layers the server serves" $ \answer -> do
-        assertEqual "the sheet is up" "on" =<< textAt "settings" answer
-        assertEqual "the first layer's lines, verbatim" "#+TODO: TODO | DONE"
-          =<< textAt "cshown" answer
-        assertEqual "the union is previewed" "TODO | DONE" =<< textAt "ceff" answer
-        assertEqual "and it opens synced" "synced" =<< textAt "cstate" answer
-        assertEqual "with nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
-
-    -- The server's order is the walk's, so the sheet's is its own: the fixture serves `film' ahead of `book'.
-  , atBoot settings "the layers are a select: system first, then the tags in alphabet"
-      $ \answer -> do
-        assertEqual "system, then book, then film"
-                    ["system", "tag:book", "tag:film"] =<< textsAt "clayers" answer
-        assertEqual "opening on the first" "0" =<< textAt "cat" answer
-        assertEqual "and the label names the file it is"
-                    "system · /o/.org-glance/config/system.org · not created yet"
-          =<< textAt "clab" answer
-
-  , keyed shell "picking a layer swaps the box to that file's lines" "," "clayer:1" $ \answer -> do
-        assertEqual "book's lines" "#+TODO: TODO READING | READ"
-          =<< textAt "cshown" answer
-        assertEqual "and book's label" "tag:book · /o/.org-glance/config/tags/book.org"
-          =<< textAt "clab" answer
-        assertEqual "with nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
-
-  , keyed shell "a switch away and back keeps the edit"
-      "," "ctext:#+TODO:_A_|_B clayer:1 clayer:0" $ \answer -> do
-        assertEqual "the edit is still there" "#+TODO:_A_|_B" =<< textAt "cshown" answer
-        assertEqual "and nothing was written on the way" ([] :: [Value])
+  [ atBoot settings ", replaces the main view with the flat catalogue" $ \answer -> do
+        assertEqual "the route is up" "on" =<< textAt "settings" answer
+        assertEqual "the chosen columns, in order"
+          ["setting", "value", "area", "applies", "source", "state"]
+          =<< textsAt "settingsColumns" answer
+        names <- mapM (textAt "setting") =<< listAt "settingsRows" answer
+        assertBool ("no Theme row among " <> show names) ("Theme" `elem` names)
+        assertBool ("no system cycle among " <> show names)
+          ("system TODO cycle" `elem` names)
+        assertBool ("no effective union among " <> show names)
+          ("Effective keywords" `elem` names)
+        assertEqual "opening writes nothing" ([] :: [Value])
           =<< listAt "configWrites" answer
 
-    -- READING A LAYER IS NOT EDITING IT: every layer's bytes go through the box and nothing may be written.
-  , keyed shell "walking every layer and back writes nothing"
-      "," "clayer:1 clayer:2 clayer:0 press:Escape" $ \answer -> do
-        assertEqual "no write" ([] :: [Value]) =<< listAt "configWrites" answer
-        assertEqual "the sheet is down" "" =<< textAt "settings" answer
-  , keyed shell "and the box shows a layer's lines byte for byte" "," "clayer:2 clayer:1" $
-        assertEqual "book's line, spacing and bar included"
-                    "#+TODO: TODO READING | READ" <=< textAt "cshown"
+  , keyed shell "the route is remembered without a popup panel fragment"
+      "," "" $ urlIs "" "?q=state%3A*active*&page=config"
 
-    -- Every layer edited on the way is written, one drift-locked call per FILE.
-  , keyed shell "every layer edited is written, one call each"
-      "," "ctext:#+TODO:_A_|_B clayer:2 ctext:#+TODO:_C_|_D press:Escape" $
-        \answer -> do
-          writes <- listAt "configWrites" answer
-          assertEqual "two writes, one per file" 2 (length writes)
-          paths <- traverse (textAt "path") writes
-          assertEqual "the system layer and the one tag layer that moved"
-                      [ "/o/.org-glance/config/system.org"
-                      , "/o/.org-glance/config/tags/film.org" ] paths
-          assertEqual "each carrying its own lines"
-                      [["#+TODO:_A_|_B"], ["#+TODO:_C_|_D"]]
-            =<< traverse (textsAt "lines") writes
-
-    -- ONE list draws the tabs and the order, and a panel that is not showing is out of the flow with its fields.
-  , atBoot settings "it is two panels, each named by its own tab" $
-        assertEqual "ui, keywords" ["ui", "keywords"]
-          <=< textsAt "csecs"
-
-  , atBoot settings "and the sheet opens on the first of them" $
-        assertEqual "ui" "ui" <=< textAt "ctab"
-
-    -- THE THEME SELECT IS THE REGISTRY'S: a DERIVED oracle, so a hard-coded option here fails.
-  , shellCase shell "the theme select is one option per theme this build carries" $ \page -> do
-      holdsAll "auto leads, then the registry in its own order"
-        (  ["<option value=\"auto\">auto</option>"]
-        <> [ "<option value=\"" <> thId t <> "\">" <> thLabel t <> "</option>"
-           | t <- themes ]) page
-
-    -- EVERY POPUP HAS A URL: `?page=NAME' beside `q', with the panel as the FRAGMENT.
-  , keyed shell "the settings sheet says so in the URL, panel and all"
-      "," "ctab:ui" $ \answer -> do
-        urlIs "the surface, and the panel it is showing"
-              "?q=state%3A*active*&page=config#ui" answer
-
-  , keyed shell "and closing it takes the parameter off"
-      "," "press:Escape" $ \answer ->
-        urlIs "the query alone again" "?q=state%3A*active*" answer
-
-    -- ONE WRITER means one door at each end: a raise that wrote `?page=' and no
-    -- close left it standing.  The capture form's own pair went with `+': the
-    -- key types a DRAFT ROW now, which is no surface and wears no `?page='.
-
-  , keyed shell "TAB walks the panels and wraps"
-      "," "press:Tab" $ \answer ->
-        assertEqual "one on from ui" "keywords" =<< textAt "ctab" answer
-  , keyed shell "and S-TAB walks back, wrapping the other way"
-      "," "press:S-Tab" $ \answer ->
-        assertEqual "the last panel" "keywords" =<< textAt "ctab" answer
-  , keyed shell "two presses come home"
-      "," "press:Tab press:Tab" $ \answer ->
-        assertEqual "ui again" "ui" =<< textAt "ctab" answer
-
-    -- WHICH theme the hues describe is DERIVED from the reader's own pick; the table is by LAYER, then cycle order.
-  , keyed shell "the states table is every keyword the tree knows, by layer"
-      "," "ctab:ui" $ \answer -> do
-        -- A word TWO layers declare is TWO rows: a state belongs to a file.
-        assertEqual "every layer's cycle, in its own order" ["system|TODO|active|", "system|DONE|inactive|"
-                    , "tag:book|TODO|active|", "tag:book|READING|active|"
-                    , "tag:book|READ|inactive|", "tag:film|WATCHING|active|"
-                    , "tag:film|WATCHED|inactive|"]
-          =<< textsAt "chues" answer
-
-    -- A colour is the TREE's, so it lands in `system.org''s line whatever layer the state belongs to.
-  , keyed shell "RET edits a state's colour, and it rides the system write"
-      "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2 press:Enter press:Escape"
-      $ \answer -> do
-        assertEqual "carrying the one hue, flat"
-                    [["light", "TODO", "#7B1FA2"]]
-          =<< coloursOf =<< oneConfigWrite answer
-
-  , keyed shell "and the colour column follows the theme on screen"
-      "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2 press:Enter theme:dark"
-      $ \answer -> do
-        assertEqual "dark names no hue of its own yet" ["system|TODO|active|", "system|DONE|inactive|"
-                    , "tag:book|TODO|active|", "tag:book|READING|active|"
-                    , "tag:book|READ|inactive|", "tag:film|WATCHING|active|"
-                    , "tag:film|WATCHED|inactive|"]
-          =<< textsAt "chues" answer
-        assertEqual "and nothing was written on the way" ([] :: [Value])
+  , keyed shell "a browser preference edits through the Value cell"
+      "," "svalue:Theme/dark" $ \answer -> do
+        assertEqual "the theme is applied" "dark" =<< textAt "theme" answer
+        assertEqual "and persisted" "dark" =<< textAt "themeStored" answer
+        assertEqual "with no tree write" ([] :: [Value])
           =<< listAt "configWrites" answer
 
-    -- ONE FIELD PER THEME: the colour config is keyed by theme, so a form with one
-    -- field would edit whichever theme was on and leave the other on a palette slot.
-  , keyed shell "a state's hue is asked for once per theme, and both are written"
-      "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2/#D0A0FF press:Enter press:Escape"
-      $ \answer -> do
-        assertEqual "carrying a line's worth per theme"
-                    [["light", "TODO", "#7B1FA2"], ["dark", "TODO", "#D0A0FF"]]
-          =<< coloursOf =<< oneConfigWrite answer
+  , keyed shell "a tree value becomes changed in the table"
+      "," "svalue:system_TODO_cycle/#+TODO:_A_|_B" $ \answer ->
+        assertEqual "the row says changed" "changed"
+          =<< settingCell "system TODO cycle" "state" answer
 
-  , keyed shell "and the form reads back both, whichever theme is on"
-      "," "ctab:ui sat:TODO press:Enter sfields://#7B1FA2/#D0A0FF press:Enter theme:dark sat:TODO press:Enter"
-      $ \answer ->
-        assertEqual "the two hues, beside the name and the group"
-                    ["TODO", "active", "#7B1FA2", "#D0A0FF"] =<< textsAt "sfields" answer
-
-  , keyed shell "+ adds a state to its layer's cycle"
-      "," "ctab:ui sat:TODO press:+ sfields:WAITING/active/ press:Enter press:Escape"
-      $ \answer -> do
-        assertEqual "the cycle carries it now" ["#+TODO: TODO WAITING | DONE"]
-          =<< textsAt "lines" =<< oneConfigWrite answer
-
-  , keyed shell "dd removes a state from its layer's cycle"
-      "," "ctab:ui sat:TODO press:d press:d press:Escape" $ \answer -> do
-        assertEqual "the cycle is short one keyword" ["#+TODO:  | DONE"]
-          =<< textsAt "lines" =<< oneConfigWrite answer
-
-  , keyed shell "an untouched states table rides no write"
-      "," "ctab:ui press:Escape" $ \answer ->
-        assertEqual "pristine, so nothing went" ([] :: [Value])
-          =<< listAt "configWrites" answer
-
-  , atBoot settings "and it opens on seven, with nothing stored" $ \answer -> do
-        assertEqual "the boot wrote the default" "7" =<< textAt "logn" answer
-        assertEqual "and the key is not there" "«unset»" =<< textAt "logStored" answer
-
-    -- THE BOOT READS THE PREFERENCE, which no act can reach: the browser has to arrive remembering one.
-  , keyedWith shell "glance-log=21" "" 500 "a browser that remembers one boots at it"
-      "" "" $ \answer -> do
-        assertEqual "the cap is the stored one" "21" =<< textAt "logn" answer
-
-  , keyedWith shell "glance-log=900" "" 500 "a stored value outside the band boots at the default"
-      "" "" $
-        assertEqual "the default" "7" <=< textAt "logn"
-
-  , keyed shell "the theme panel applies and persists without closing the sheet"
-      "," "theme:dark" $ \answer -> do
-        assertEqual "stamped on the document element" "dark" =<< textAt "theme" answer
-        assertEqual "and remembered" "dark" =<< textAt "themeStored" answer
-        assertEqual "the sheet is still up" "on" =<< textAt "settings" answer
-        assertEqual "and nothing was written" ([] :: [Value])
-          =<< listAt "configWrites" answer
-
-    -- `auto' is the attribute coming OFF rather than a third value written into it.
-  , keyed shell "and auto takes the attribute back off" "," "theme:dark theme:auto" $ \answer -> do
-        assertEqual "no attribute" "" =<< textAt "theme" answer
-        assertEqual "but the choice is remembered" "auto" =<< textAt "themeStored" answer
-
-    -- THE ZOOM IS THE WINDOW'S, and a browser tab already owns these three keys.
-    -- `run' is reached only past a `preventDefault', so declining is something
-    -- only `live' can do: the rows are dead where no window stands.
-  , keyed shell "with no window behind the page the zoom keys are left alone"
-      "C-+ C-- C-0" "" $ \answer -> do
-        assertEqual "nothing was posted" ([] :: [T.Text]) =<< textsAt "zoomed" answer
-        assertBool "a key the browser owns was claimed"
-          . all (`notElem` ["C-+", "C--", "C-0"]) =<< textsAt "prevented" answer
-        assertEqual "and no level was stored" "«unset»" =<< textAt "zoomStored" answer
-
-  , keyed shell "and the settings row says whose the zoom is"
-      "," "" $
-        assertEqual "the browser's, and the keys that reach it"
-                    "the browser's own · C-+ / C-- / C-0 reach it directly"
-          <=< textAt "czoom"
-
-    -- ONE POST AT BOOT, since the window opens at its own level and the page is
-    -- the only side that remembers one.
-  , keyedIn shell "native" "" "a window behind the page is worn at boot"
-      "" "" $ \answer -> do
-        assertEqual "the default, said once" ["1"] =<< textsAt "zoomed" answer
-        assertEqual "and nothing stored, since it is the default" "«unset»"
-          =<< textAt "zoomStored" answer
-
-    -- The band is the SERVER's; a stored value outside it is CLAMPED where the
-    -- log's height is declined, because a press at the ceiling is still a press.
-    -- AND THE STORE IS LEFT AS THE READER WROTE IT: the clamp is applied on
-    -- every read, so a boot that wrote it back would be a write per boot for a
-    -- level nothing else reads.
-  , keyedIn shell "native" "glance-zoom=900" "a remembered level outside the band lands on the edge"
-      "" "" $ \answer -> do
-        assertEqual "the ceiling" ["3"] =<< textsAt "zoomed" answer
-        assertEqual "and the boot wrote nothing" "900" =<< textAt "zoomStored" answer
-
-    -- The step is the level's own tenth, so the ladder compounds the way a
-    -- browser's does.  ONE PRESS IS THE PREFIX OF TWO, the first press's level
-    -- being the second element here.
-    -- `wait' IS THE COALESCED WRITE'S OWN SETTLE: the window is posted to on the
-    -- press and the store is written once the walk stops, a held key being some
-    -- thirty synchronous writes a second otherwise.
-  , keyedIn shell "native" "" "C-+ steps a tenth up, says the level, remembers it and compounds"
-      "C-+ C-+" "wait:300" $ \answer -> do
-        assertEqual "the boot's, then 110, then 121" ["1", "1.1", "1.21"]
-          =<< textsAt "zoomed" answer
-        echoIs "named as the command it is" "C-+ → text-scale-increase (121%)" answer
-        assertEqual "remembered as a whole percent" "121" =<< textAt "zoomStored" answer
-
-    -- `+' WANTS THE SHIFT on most layouts, which is why the unshifted key is bound too.
-  , keyedIn shell "native" "" "C-= is the same command" "C-=" "" $ \answer -> do
-        assertEqual "one step up" ["1", "1.1"] =<< textsAt "zoomed" answer
-        echoIs "" "C-= → text-scale-increase (110%)" answer
-
-  , keyedIn shell "native" "" "C-- steps a tenth down" "C--" "" $ \answer -> do
-        assertEqual "the boot's, then the press's" ["1", "0.91"]
-          =<< textsAt "zoomed" answer
-        echoIs "" "C-- → text-scale-decrease (91%)" answer
-
-  , keyedIn shell "native" "glance-zoom=290" "a press at the ceiling stays at the ceiling"
-      "C-+ C-+" "" $ \answer -> do
-        assertEqual "held at 300" ["2.9", "3", "3"] =<< textsAt "zoomed" answer
-        echoIs "" "C-+ → text-scale-increase (300%)" answer
-
-    -- Blank REMOVES the key, the log height's own reading of "back to the
-    -- default".  THE BOOT AHEAD OF THE PRESS is where a REMEMBERED level is
-    -- worn, and it is this run's first element.
-  , keyedIn shell "native" "glance-zoom=150"
-      "a remembered level is worn at boot, and C-0 puts it back and forgets it"
-      "C-0" "wait:300" $ \answer -> do
-        assertEqual "the stored level as a level, then 100%" ["1.5", "1"]
-          =<< textsAt "zoomed" answer
-        echoIs "" "C-0 → text-scale-set (100%)" answer
-        assertEqual "the key is gone" "«unset»" =<< textAt "zoomStored" answer
-
-  , keyedIn shell "native" "glance-zoom=150" "and the settings row reads the level back"
-      "C-+" "press:," $
-        assertEqual "the level, and the keys that move it"
-                    "165% · C-+ / C-- / C-0" <=< textAt "czoom"
-
-    -- THE FOURTH THING A WINDOW OWNS: `quit-window' POSTS where one stands, and
-    -- the desktop shell closes on that post.  Without a window the same key only
-    -- prints the line saying whose the door is, so the post is the whole of what
-    -- the native path adds -- and nothing else in the suite reads it.
-  , keyedIn shell "native" "" "q asks the native window behind the page to close"
-      "q" "" $ \answer -> do
-        assertEqual "the window was asked, once" ["quit"] =<< textsAt "quitted" answer
-        echoIs "named as the command it is" "q → quit-window" answer
-
-    -- A `SELECT' inside a popup KEEPS the focus, and closing the popup is how the keys come back.
-  , keyed shell "the sheet's theme select keeps the keys away from the table"
-      "," "theme:dark press:n" $ \answer -> do
-        assertEqual "the select holds the keyboard" "SELECT" =<< textAt "holding" answer
-        rowIs "and the table did not move" "r1" answer
-  , keyed shell "and closing it is what gives them back"
-      "," "theme:dark press:Escape press:n" $ \answer -> do
-        assertEqual "the sheet is down" "" =<< textAt "settings" answer
-        assertEqual "nothing holds the keyboard" "" =<< textAt "holding" answer
-        rowIs "and the key moved the cursor" "r2" answer
-
-    -- The way out is the save, and only the layer that moved is written.
-  , keyed shell "ESC syncs the layers that moved and closes"
-      "," "ctext:#+TODO:_TODO_STARTED_|_DONE press:Escape" $
-        \answer -> do
-          wrote <- oneConfigWrite answer
-          assertEqual "the system layer" "/o/.org-glance/config/system.org"
-            =<< textAt "path" wrote
-          assertEqual "its lines, as typed" ["#+TODO:_TODO_STARTED_|_DONE"]
-            =<< textsAt "lines" wrote
-          -- The empty digest is the pin an absent file carries, handed straight back.
-          assertEqual "pinned to the digest it was read with" ""
-            =<< textAt "digest" wrote
-          assertEqual "and the sheet is down" "" =<< textAt "settings" answer
-
-  , keyed shell "a pristine sheet closes without asking the server for anything"
-      "," "press:Escape" $ \answer -> do
-        assertEqual "no write" ([] :: [Value]) =<< listAt "configWrites" answer
-        assertEqual "the sheet is down" "" =<< textAt "settings" answer
-
-    -- `P' IS THE PIN, and it ASKS WHICH SAVED VIEW the applied query becomes.  Nothing is written by the raise.
-  , keyed shell "P asks which saved view the applied query becomes"
-      "" "press:P" $ \answer -> do
-        assertEqual "the palette is up" "on" =<< textAt "prompt" answer
-        assertEqual "naming what is being pinned" "pin · state:*active*"
-          =<< textAt "phead" answer
-        assertEqual "the registry in order, what each holds, then the reset flag"
-                    [ ("[d]efault", "state:*active*")
-                    , ("[a]genda", "state:*active* -planned:*empty* sort:scheduled")
-                    , ("a[r]chive", "tag:archive")
-                    , ("reset", "off · put a view's built-in back") ]
-          =<< paletteHints answer
-        assertEqual "and the question wrote nothing" ([] :: [Value])
-          =<< listAt "configWrites" answer
-
-  , keyed shell "and a letter pins the query into that view"
-      "" "press:P press:d" $ \answer -> do
+  , keyed shell "ESC saves a changed tree value and returns to the main table"
+      "," "svalue:system_TODO_cycle/#+TODO:_A_|_B press:Escape" $ \answer -> do
         wrote <- oneConfigWrite answer
-        assertEqual "at the system path" "/o/.org-glance/config/system.org"
+        assertEqual "the system layer" "/o/.org-glance/config/system.org"
           =<< textAt "path" wrote
-        assertEqual "carrying the applied query" "state:*active*"
-          =<< wroteView "default" wrote
-        assertEqual "and the server holds it now" "state:*active*"
-          =<< textAt "served" answer
-        echoIs "the pill names the view it landed in"
-          "P → set-saved-view (default · state:*active*)" answer
-        assertEqual "and the badge is on" True =<< boolAt "pinned" answer
+        assertEqual "the edited cycle" ["#+TODO: A | B"] =<< textsAt "lines" wrote
+        assertEqual "the route is down" "" =<< textAt "settings" answer
 
-  , keyed shell "ESC over the question pins nothing"
-      "" "press:P press:Escape" $ \answer -> do
-        assertEqual "nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
-        assertEqual "and the palette is down" "" =<< textAt "prompt" answer
-
-    -- A palette no entry of which claims DEL is a surface with no inner ladder, so the backspace steps out.
-  , keyed shell "DEL steps out of the question the way it leaves a popup"
-      "" "press:P press:Backspace" $ \answer -> do
-        assertEqual "nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
-        assertEqual "and the palette is down" "" =<< textAt "prompt" answer
-        echoIs "and said so" "DEL → keyboard-quit" answer
-
-  , keyed shell "DEL over the state palette still commits *empty*"
-      "" "press:t press:Backspace" $ \answer -> do
-        assertEqual "the keyword came off" [Nothing] =<< keywordsOf answer
-        assertEqual "and the palette is down" "" =<< textAt "prompt" answer
-
-    -- AND `-' IS A FLAG over that list, magit's own shape: armed, a letter puts that view's BUILT-IN back.
-  , keyedAt shell "?q=tag%3Awork" 500 "- arms the reset, and a letter puts the built-in back"
-      "" "press:P press:d press:P press:- press:d" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "the pin, then the reset" 2 (length writes)
-        assertEqual "the reset writes the empty query" ""
-          =<< wroteView "default" (writes !! 1)
-        assertEqual "and the server is back on the built-in" "state:*active*"
-          =<< textAt "served" answer
-        echoIs "the pill says which half ran, and what landed"
-          "P → set-saved-view (default reset · state:*active*)" answer
-
-  , keyed shell "- toggles, and the list under it does not move"
-      "" "press:P press:-" $ \answer -> do
-        assertEqual "the question says what a letter will do now"
-                    "reset · which view" =<< textAt "phead" answer
-        assertEqual "the views stand, and the rung says it is on"
-                    [ ("[d]efault", "state:*active*")
-                    , ("[a]genda", "state:*active* -planned:*empty* sort:scheduled")
-                    , ("a[r]chive", "tag:archive")
-                    , ("reset", "on · a letter puts the built-in back") ]
-          =<< paletteHints answer
-        assertEqual "and nothing written by the flag" ([] :: [Value])
-          =<< listAt "configWrites" answer
-
-  , keyed shell "and a second - puts the pin back"
-      "" "press:P press:- press:-" $ \answer -> do
-        assertEqual "the pin question again" "pin · state:*active*"
-          =<< textAt "phead" answer
-        assertEqual "nothing written" ([] :: [Value]) =<< listAt "configWrites" answer
-
-    -- AND THE FLAG DIES WITH THE QUESTION IT WAS SET ON: a commit closes the palette.
-  , keyedAt shell "?q=tag%3Awork" 500 "the flag is off again on the next raise"
-      "" "press:P press:- press:d press:P" $ \answer ->
-        assertEqual "the pin question, with the flag spent"
-                    "pin · tag:work" =<< textAt "phead" answer
-
-  , keyed shell "/ falls back to the completing read over the same list"
-      "" "press:P press:/ type:agen press:Enter" $ \answer -> do
-        assertEqual "into the view the typing left" "state:*active*"
-          =<< wroteView "agenda" =<< oneConfigWrite answer
-
-    -- EVERY REGISTRY ENTRY TAKES THE PIN, and the write names that view ALONE.
-  , keyedAt shell "?q=tag%3Awork" 500 "another letter pins it into the agenda"
-      "" "press:P press:a" $ \answer -> do
-        wrote <- oneConfigWrite answer
-        assertEqual "carrying the agenda alone" "tag:work"
-          =<< wroteView "agenda" wrote
-        assertEqual "the default view is not named" Nothing
-          =<< (field "views" wrote >>= sparseTextAt "default")
-        assertEqual "and the server holds the agenda now" "tag:work"
-          =<< textAt "servedAgenda" answer
-        assertEqual "with the default where it was" "state:*active*"
-          =<< textAt "served" answer
-        echoIs "and the pill names the agenda"
-          "P → set-saved-view (agenda · tag:work)" answer
-
-    -- The FIRST `a' is the pin palette's own which-key letter inside `P'; the SECOND is this binding, live once the palette shut.
-  , keyedAt shell "?q=tag%3Awork" 500 "A applies the agenda the pin just wrote"
-      "" "press:P press:a press:g press:a" $ \answer ->
-        urlIs "the freshly pinned agenda, not the built-in"
-              "?q=tag%3Awork" answer
-
-    -- THE SORT RIDES THE PIN, and `g' applies the LIVE pinned query rather than the boot-baked constant.
-  , keyedAt shell "?q=tag%3Awork%20sort%3Adeadline" 500
-      "the pinned view keeps its sort, and g applies it live"
-      "" "press:P press:d press:g" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "the write carries the order too" "tag:work sort:deadline"
-          =<< wroteView "default" (head writes)
-        urlIs "g applied the freshly pinned view, sort and all"
-          "?q=tag%3Awork+sort%3Adeadline" answer
-        assertEqual "and the badge held" True =<< boolAt "pinned" answer
-
-    -- The query is the ONE carrier of a view — filter, order, column set — and nothing here knows a token from a token.
-  , keyedAt shell "?q=tag%3Awork%20columns%3Astate%2Ctitle%20sort%3Adeadline" 500
-      "the pinned view keeps its columns too, and g applies the whole view"
-      "" "press:P press:d press:g" $ \answer -> do
-        writes <- listAt "configWrites" answer
-        assertEqual "the write carries filter, columns and order"
-                    "tag:work columns:state,title sort:deadline"
-          =<< wroteView "default" (head writes)
-        urlIs "g applied the freshly pinned view whole"
-          "?q=tag%3Awork+columns%3Astate%2Ctitle+sort%3Adeadline" answer
-        assertEqual "and the badge held" True =<< boolAt "pinned" answer
-
-    -- THE BADGE IS A BOOLEAN OVER THE APPLIED VIEW, off the moment the query diverges.
-  , keyedAt shell "?q=tag%3Awork" 500 "the badge follows the applied view"
-      "" "press:P press:d press:Backspace" $ \answer ->
-        assertEqual "a diverged query takes the badge off" False
-          =<< boolAt "pinned" answer
-
-    -- `q' IS THE OTHER DOOR OUT OF A BROWSING POPUP, dired's own; the value palette keeps its letters.
-  , keyed shell "q closes a browsing popup, and the palette keeps its letters"
-      "" "press:o press:q" $ \answer -> do
-        assertEqual "the link popup is gone" "" =<< textAt "popup" answer
-        echoIs "and said so" "q → keyboard-quit" answer
-  , keyed shell "q in the state palette is a letter, not a door"
-      "" "press:t press:q" $ \answer ->
-        assertBool "the palette stands" . not . T.null =<< textAt "prompt" answer
-
-    -- A CLICK has no keydown behind it for the raising guard to spend, so this door clears it by hand.
-  , keyed shell "the pin button asks the same question, and the next letter answers"
-      "" "pinclick press:d" $ \answer -> do
-        assertEqual "carrying the applied query" "state:*active*"
-          =<< wroteView "default" =<< oneConfigWrite answer
-        assertEqual "the badge is on" True =<< boolAt "pinned" answer
-        assertEqual "and the echo names the command"
-                    "pin → set-saved-view (default · state:*active*)"
-          =<< textAt "echo" answer
-
-    -- `typing()' is not what keeps the two sheets apart, so the refusal is stated in `openSettings'.
-  , keyed shell "it will not open over the materialize sheet" "Enter" "blur press:," $ \answer -> do
-        assertEqual "the settings sheet stayed down" "" =<< textAt "settings" answer
-        assertEqual "and the subtree is still the one open" "on"
-          =<< textAt "modal" answer
-
-    -- AND IT IS A SURFACE WHILE IT STANDS, whether or not anything in it is focused.
-  , keyed shell "the settings sheet holds the keys with its fields blurred"
-      "," "blur press:d" $ \answer -> do
-        assertEqual "the sheet is up" "on" =<< textAt "settings" answer
-        assertEqual "with nothing focused" "" =<< textAt "focus" answer
-        assertEqual "and no row flagged behind it"
-                    ([] :: [T.Text]) =<< textsAt "flagged" answer
-        assertEqual "nor anything written" [] =<< postedOf answer
-
-  , keyed shell "C-x C-s syncs mid-edit and leaves the sheet open"
-      "," "clayer:1 ctext:#+TODO:_A_|_B press:C-x press:C-s" $
+  , keyed shell "C-x C-s saves in place"
+      "," "svalue:system_TODO_cycle/#+TODO:_A_|_B press:C-x press:C-s" $
         \answer -> do
           assertEqual "one write" 1 . length =<< listAt "configWrites" answer
-          assertEqual "the sheet is still up" "on" =<< textAt "settings" answer
-          assertEqual "and it is synced again" "synced" =<< textAt "cstate" answer
+          assertEqual "the route remains up" "on" =<< textAt "settings" answer
+          assertEqual "and the row is saved" "saved"
+            =<< settingCell "system TODO cycle" "state" answer
 
-  , keyed shell "a layer that moved underneath lands at conflict, and ESC discards"
-      "," "clayer:1 ctext:#+TODO:_A_|_B cmoved press:C-x press:C-s" $
-        \answer -> do
-          assertEqual "the write was refused" 1 . length =<< listAt "configWrites" answer
-          assertEqual "the sheet waits" "conflict" =<< textAt "cstate" answer
-          assertEqual "and is still up" "on" =<< textAt "settings" answer
-  , keyed shell "and the second ESC there closes it without writing"
-      "," "clayer:1 ctext:#+TODO:_A_|_B cmoved press:C-x press:C-s press:Escape" $
-        \answer -> do
-          assertEqual "no second write" 1 . length =<< listAt "configWrites" answer
-          assertEqual "the sheet is down" "" =<< textAt "settings" answer
+  , keyed shell "the settings table owns its narrow door"
+      "," "press:/" $ \answer ->
+        assertEqual "the table filter opened" ["narrow"] =<< textsAt "doors" answer
 
-    -- `C-x C-s' SYNCS MID-EDIT, so a flush that landed must leave the box exactly as the reader left it.
-  , keyed shell "a sync that lands does not paint over what is being typed"
-      "," "clayer:1 ctext:#+TODO:_A_|_B chang press:C-x press:C-s\
-          \ ctext:#+TODO:_A_|_B_C cdeliver" $ \answer -> do
-        assertEqual "one write went out" 1 . length =<< listAt "configWrites" answer
-        assertEqual "and the keystrokes behind it stand" "#+TODO:_A_|_B_C"
-          =<< textAt "cshown" answer
-        assertEqual "the sheet is up" "on" =<< textAt "settings" answer
+  , keyed shell "a resolved row refuses edits"
+      "," "svalue:Effective_keywords/NOPE" $ \answer -> do
+        assertEqual "the resolved value remains"
+          "TODO | DONE" =<< settingCell "Effective keywords" "value" answer
+        assertEqual "and no write went out" ([] :: [Value])
+          =<< listAt "configWrites" answer
 
-    -- WITH ONE BOX, a refusal SELECTS the file it refused: a message under another layer describes a file the reader cannot see.
-  , keyed shell "a 409 selects the layer it refused and names it"
-      "," "clayer:1 ctext:#+TODO:_A_|_B clayer:2 cmoved press:C-x press:C-s" $
-        \answer -> do
-          assertEqual "the sheet came back to book" "1" =<< textAt "cat" answer
-          assertEqual "showing the edit that was refused" "#+TODO:_A_|_B"
-            =<< textAt "cshown" answer
-          assertContains "with the server's own words under it" "changed on disk"
-            =<< textAt "clerr" answer
-          assertEqual "and the sheet waits" "conflict" =<< textAt "cstate" answer
-          strip <- logOf answer
-          assertBool "the log names the refused layer"
-            (any (T.isInfixOf "tags/book.org" . snd) strip)
-
-    -- The label carries the DIGEST, so a layer this sheet just created must stop saying it is not there yet.
-  , atBoot settings "a layer the sheet creates stops saying it is not there yet" $
-        assertEqual "the system layer has no file behind it"
-                    "system · /o/.org-glance/config/system.org · not created yet"
-          <=< textAt "clab"
-  , keyed shell "and the write is what takes the words off"
-      "," "ctext:#+TODO:_A_|_B press:C-x press:C-s" $ \answer -> do
-        assertEqual "the label is the path alone"
-                    "system · /o/.org-glance/config/system.org" =<< textAt "clab" answer
-        assertEqual "and the box was left as it was" "#+TODO:_A_|_B"
-          =<< textAt "cshown" answer
-
-  , keyed shell "reverting an edit drops the refusal it earned"
-      "," "ctext:#+TODO:_A_|_B cmoved press:C-x press:C-s\
-           \ crevert press:C-x press:C-s" $
-        \answer -> do
-          assertEqual "one write, the refused one" 1 . length
-            =<< listAt "configWrites" answer
-          assertEqual "the line under the box is gone" "" =<< textAt "clerr" answer
-          assertEqual "and the sheet is synced" "synced" =<< textAt "cstate" answer
-
-    -- The sheet is a sibling of `#app' and outlives the remount by where it sits — a layout fact.
-  , keyed shell "a view-changed remount leaves the sheet standing"
-      "," "clayer:1 ctext:#+TODO:_A_|_B close:view-changed" $
-        \answer -> do
-          assertEqual "the mount was rebuilt" 2 =<< intAt "mounts" answer
-          assertEqual "the sheet is still up" "on" =<< textAt "settings" answer
-          assertEqual "with the edit still in it" "#+TODO:_A_|_B"
-            =<< textAt "cshown" answer
-          assertEqual "on the layer it was made in" "1" =<< textAt "cat" answer
+  , keyed shell "returning remounts the main view at its prior row"
+      "n ," "press:Escape" $ \answer -> do
+        assertEqual "main, settings, main" 3 =<< intAt "mounts" answer
+        rowIs "the prior row is restored" "r2" answer
   ]
+
+settingCell :: T.Text -> T.Text -> Value -> IO T.Text
+settingCell name key answer = do
+  rows <- listAt "settingsRows" answer
+  named <- filterM (fmap (== name) . textAt "setting") rows
+  case named of
+    row : _ -> textAt key row
+    []      -> assertFailure ("no setting row called " <> T.unpack name) >> pure ""
 
 -- | The event strip: the shape of a line, the ring, the counted repeat, and a write naming the rows it landed on.
 logSpec :: IO T.Text -> TestTree
@@ -6698,7 +6219,6 @@ containSweep shell = testCase "every popup clamps, and scrolls inside" $ do
       , ("#mdoc", ["min-height:0", "overflow:auto"])
       , ("#tpane", ["min-height:0", "overflow:hidden"])
       , ("#ltable", ["min-height:0", "overflow:hidden"])
-      , ("#cbox", ["overflow-y:auto"])
       , ("#plist", ["max-height:40vh", "overflow-y:auto"])
       , ("#mlog", ["flex:0 0 auto", "max-height:22vh", "overflow:auto"])
       ]
@@ -6924,10 +6444,10 @@ shellGlue =
   , Glue "the wash dims the table and the overlays, and exempts what explains"
       -- EVERY VEILED SURFACE, in the order `Popups.popups' names them: the list is
       -- joined from the registry, so a surface added there joins the wash by itself.
-      [ "html.stale #app,html.stale #modal,html.stale #prompt,html.stale #config,"
+      [ "html.stale #app,html.stale #modal,html.stale #prompt,"
           <> "html.stale #links,html.stale #tags,"
           <> "html.stale #mint{opacity:.55}"
-      , "#app,#modal,#prompt,#config,#links,#tags,#mint"
+      , "#app,#modal,#prompt,#links,#tags,#mint"
           <> "{transition:opacity .18s ease}" ]
       [ "html.stale #log", "html.stale #kbd"
       , "html.stale #echo", "html.stale body", "stale #app{filter", "filter:blur"
@@ -7071,10 +6591,9 @@ shellGlue =
       , "? [{ label: typed, tag: typed, hint: NEW_HINT }].concat(shown) : shown;"
       , "const minted = leadTyped(typed, words);"
       , "return (minted ? [{ word: typed, hint: NEW_HINT }]"
-      -- The three call sites, each saying which vocabulary it opened over.
+      -- The remaining call sites say which vocabulary they opened over.
       , "addable(), \"RET adds it · C-n/C-p walks · ESC leaves\", addTag, \"open\");"
-      , "}, \"open\");"
-      , "(c) => insertCode(at, to, String(c.tag || \"\")), \"closed\");" ]
+      , "}, \"open\");" ]
       -- The free-text back door that committed a value no entry ever drew.
       ["freely", "prompting.wider &&", "|| { tag:"]
 
@@ -7132,8 +6651,8 @@ shellGlue =
 
   -- ONE EDIT OVERLAY: the class, the anchor, the blur and the SNAPSHOT are one
   -- implementation, and a shape declares its differences from it and no more.
-  -- The doc pane declares FOUR of the seven -- title, paragraph, pair, date.
-  , Glue "the edit overlay is one mechanism, seven shapes over four surfaces"
+  -- The doc pane declares title, paragraph, pair and date.
+  , Glue "the edit overlay is one mechanism across the remaining surfaces"
       [ "function openEdit(o, row) {"
       , "edit = { o, row };"
       , "el(o.box).className = o.dress ? `on ${o.dress}` : \"on\";"
@@ -7152,7 +6671,7 @@ shellGlue =
       , "window.addEventListener(\"resize\", placeEdit);"
       -- THE SNAPSHOT: a commit reads the row the overlay OPENED over, never the cursor.
       , "const r = edit.row;"
-      -- The seven, each named by the predicate or the commit that asks for it.
+      -- Each shape is named by the predicate or commit that asks for it.
       -- THE BOX NAMES THE SURFACE, so a shape built PER OPEN (the date box, which
       -- stands over the pane's slot and over a table cell) is the same surface.
       , "const editIn = (o) => !!edit && edit.o.box === o.box;"
@@ -7160,7 +6679,6 @@ shellGlue =
       , "const dparaing = () => editIn(DPARA);"
       , "const dpairing = () => editIn(DPAIR);"
       , "const ddating = () => editIn(DDATE);"
-      , "const sediting = () => editIn(SROW);"
       -- SHARING THE STATE MUST NOT SHARE THE SHUTTER: an unscoped shut would cancel another surface's open edit.
       , "function shutEdit(o) {"
       , "if (!editIn(o)) return;"
@@ -7357,11 +6875,11 @@ shellGlue =
       , "return SURFACES.some((s) => s.up())"
       , "#mpanes{flex:1;min-height:0;overflow:hidden;"
       -- The open element's fields sit OVER the row; the document's box takes `font:inherit' so an edit renders in the PANE's line box.
-      , "#dtitle,#dpara,#dpair,#sedit,#tedit,#ledit{display:none;"
+      , "#dtitle,#dpara,#dpair,#tedit,#ledit{display:none;"
       -- THE DATE BOX HANGS AT THE PAGE'S ROOT, the pane being `display:none' while
       -- the table is up, so it is FIXED and carries the document's face itself.
       , "#ddate{display:none;position:fixed;z-index:102;"
-      , "#sedit input,#tedit input,#ledit input{"
+      , "#tedit input,#ledit input{"
       -- ONE FOCUS LANGUAGE: the browser can only dress the one pane that takes a real focus.
       , "#mtext:focus{outline:none;border-color:var(--g-accent)}"
       , "#mdoc.on{border-color:var(--g-accent)}" ]
@@ -7434,29 +6952,24 @@ shellGlue =
       , "#echo{position:fixed;right:14px;bottom:12px;z-index:2;" ]
       [ "z-index:3" ]
 
-  , glue "the theme is a three-way switch the page honours"
-      [ "id=\"themesel\""
-      , "<option value=\"auto\">auto</option><option value=\"light\">light</option>"
-      , "<option value=\"dark\">dark</option>"
+  , glue "the theme setting is a table row the page honours"
+      [ "add(\"local:theme\", \"Theme\", themed.get()"
+      , "const themeNames = [\"auto\", ..."
       , ":root[data-theme=\"light\"]{", ":root[data-theme=\"dark\"]{"
       , ":root[data-theme=\"light\"] .tv-root{"
       , ":root[data-theme=\"dark\"] .tv-root{"
       , "if (name === \"auto\") delete document.documentElement.dataset.theme;"
       , "else document.documentElement.dataset.theme = name;"
       , "const themed = pref(\"glance-theme\", \"auto\");"
-      , "el(\"themesel\").addEventListener(\"change\""
       , "<script>try{var v=localStorage.getItem(\"glance-theme\");" ]
 
   -- THE PANE RESTS POINT'S ROW ON A LINE, and where that line is drawn is the
   -- reader's, browser-local like the theme and banded so a band always stands.
-  , glue "the reading line is a stored preference the pane rests point on"
-      [ "id=\"readsel\"", "<option value=\"40\">40%</option>"
-      , "<option value=\"60\">60%</option>", "<option value=\"80\">80%</option>"
+  , glue "the reading line is a stored preference and settings row"
+      [ "add(\"local:reading-line\", \"Reading line\""
       , "const READ = { key: \"glance-reading-line\", def: 60, min: 20, max: 90 };"
       , "const readPref = pref(READ.key, String(READ.def));"
       , "return clamp(+t, READ.min, READ.max);"
-      , "el(\"readsel\").addEventListener(\"change\""
-      , "echo(`reading line: ${readingLine()}%`);"
       -- 20-sheet loads first, so the preference goes in as a THUNK.
       , "line: (b) => b.height * readingLine() / 100 };" ]
 
@@ -7497,42 +7010,37 @@ shellGlue =
       , "(window.webkit && window.webkit.messageHandlers"
       , "&& window.webkit.messageHandlers[name]) || null;"
       , "const host = hosted(\"quit\");"
-      -- The row reads the level back and names the keys the MAP spells.
-      , "id=\"czoom\"", ".cval{font:12px/1.5 var(--dk-mono)}"
-      , "`${zoomAt}% · ${ZOOM_KEYS}`"
-      , "`the browser's own · ${ZOOM_KEYS} reach it directly`"
+      -- The row reads the level back.
+      , "add(\"local:zoom\", \"Zoom\""
+      , "hosted(\"zoom\") ? `${zoomAt}%` : \"browser controlled\""
       , "const seqOf = (command, scope) => {"
       , ".map((c) => seqOf(c, \"window\")).filter(Boolean).join(\" / \");"
       , "textScaleIncrease: (b) => said(b, `${zoomedBy(1)}%`)," ]
       -- CSS zoom in any spelling, and the window test spelled inline.
       [ "style.zoom", "transform:scale(", "window.webkit.messageHandlers.quit" ]
 
-  -- THE KEYWORDS PANEL IS ONE SELECT AND ONE BOX: the text lives on the LAYER, which is what makes a switch free.
-  , Glue "the keyword layers are a select over one box"
-      [ "id=\"clayer\"", "<textarea id=\"ctext\" class=\"ctext\""
+  , Glue "tree settings are rows in the flat catalogue"
+      [ "const SETTINGS_COLUMNS = ["
+      , "{ key: \"setting\", header: \"Setting\""
+      , "{ key: \"value\", header: \"Value\""
+      , "{ key: \"area\", header: \"Area\""
+      , "{ key: \"applies\", header: \"Applies to\""
+      , "{ key: \"source\", header: \"Source\""
+      , "{ key: \"state\", header: \"State\""
       , "crows = (b.layers || []).map(layerRow).sort(byLayer);"
-      , "const byLayer = (a, b) => (a.tag === null ? 0 : 1) - (b.tag === null ? 0 : 1)"
-      , "|| String(a.tag).localeCompare(String(b.tag));"
-      , "crows[cat].text = el(\"ctext\").value;"
-      , "el(\"clayer\").addEventListener(\"change\""
-      , "const cdirty = () => (takeLayer(), crows.some(cmoved));"
-      -- ONE LIST for every setting the sheet writes beside the cycle: `cmoved' and the flush fold `CFIELDS'.
+      , "add(`cycle:${r.path}`, `${prefix} TODO cycle`"
+      , "add(`template:${r.path}`, `${prefix} capture template`"
+      , "const cdirty = () => crows.some(cmoved);"
       , "const cmoved = (r) => r.text !== r.base || cfmoved(r).length > 0;"
       , "const cfmoved = (r) => CFIELDS.filter((f) => f.on(r) && f.now(r) !== f.was(r));"
-      , "<textarea id=\"ctpl\" class=\"ctext\""
-      , "crows[cat].tpl = el(\"ctpl\").value;"
       , "tpl: layer.template || \"\", tplBase: layer.template || \"\","
       , "{ key: \"template\", on: () => true,"
-      -- One POST per layer that moved, each under its own digest.
       , "if (!cmoved(r)) { r.err = \"\"; continue; }"
       , "postJSON(\"/config\", body)"
       , "for (const m of moved) body[m.f.key] = m.body;"
-      -- A flush that refused nothing leaves the box alone: `C-x C-s' syncs mid-edit and a redraw would paint over the typing.
       , "if (landed === -1) landed = crows.indexOf(r);"
-      , "      if (landed === -1) showAround();"
-      , "      else { takeLayer(); showLayer(landed); }"
-      , "+ (r.digest ? \"\" : \" · not created yet\") : \"\";" ]
-      [ "createElement(\"textarea\")", "r.box.value", "r.note.textContent" ]
+      , "if (landed !== -1) repaintSettings(`cycle:${crows[landed].path}`);" ]
+      [ "id=\"config\"", "id=\"clayer\"", "id=\"ctext\"", "id=\"ctpl\"" ]
 
   , Glue "the dispatch and the echo widget read that blob and no other map"
       [ "<script id=\"keys\" type=\"application/json\">"
@@ -7704,8 +7212,8 @@ shellGlue =
 
   -- EVERY VEIL IS A DOOR, and what a backdrop click does differs by surface.
   , glue "the momentary veils are backdrops too"
-      [ "for (const id of [\"modal\", \"config\"])"
-      , "if (e.target === el(id)) leaveSheet();"
+      [ "el(\"modal\").addEventListener(\"click\""
+      , "if (e.target === el(\"modal\")) leaveSheet();"
       , "const backdrops = [[\"links\", () => shutLinks()], [\"tags\", () => shutTags()]];"
       , "if (e.target === el(id)) off();" ]
 
@@ -7816,12 +7324,10 @@ shellGlue =
   -- Under 16px, focusing a field zooms the page in and nothing zooms it back out.
   , glue "a coarse pointer gets fields iOS will not zoom into"
       [ "#mtext,#pinput,#dtin,#dpair input,"
-      , "#sedit input,#tedit input,#ledit input,"
+      , "#tedit input,#ledit input,"
       , "#dpara textarea,"
-      -- The DOCKED box is a field on this page's own row and takes the guard
-      -- with the rest.
-      , "#app .tv-filter,"
-      , ".ctext,.cview{font-size:16px}}"
+      -- The docked box is a field on this page's own row and takes the guard.
+      , "#app .tv-filter{font-size:16px}"
       , "#mpanes{flex-direction:column}" ]
 
   -- These four boxes write ORG into the user's own files, so a remembered value, a
@@ -11849,7 +11355,7 @@ pageSpec shell = testGroup "GET /"
             , "if (s.state !== \"syncing\") s.flush().then((ok) => ok && s.shut());"
             , "flush: () => flush(editing.digest),"
             -- The backdrop is the mouse's ESC.
-            , "if (e.target === el(id)) leaveSheet();"
+            , "if (e.target === el(\"modal\")) leaveSheet();"
             -- The receipt chains: the 200's digest is the next flush's lock.
             , "h.digest = a.body.digest;"
             , "base = raw ? sent.org : base;"
@@ -12034,7 +11540,7 @@ expectedRows =
        planHelp)
   -- Emacs's own name, since org-glance has no settings command and inventing one would put a name in this table no map carries.
   , ([","],          ",",       "customize",                       Just "openSettings",   "table",
-       Just "the settings sheet: general, theme, keyword cycles")
+       Just "the settings table: local preferences and tree configuration")
   , (["@"],          "@",       "org-glance-material:refer",       Just "refer",          "modal",
        Just "link a headline into the prose; at a word boundary, so an address stays text")
   -- ONE COMMAND, TWO SURFACES, `@'-fashion: in the MATERIAL DOCUMENT the pair
@@ -12229,20 +11735,18 @@ keymapSpec shell = testGroup "Shell keymap"
                      (between "<div id=\"echo\"" "<script id=\"keys\"" b)
       holdsNone "under the popups"
         ["<select", "<input", "<textarea", "<button", "<a "] after
-      sheet <- maybe (assertFailure "no settings sheet in the shell") pure
-                     (between "<div id=\"config\">" "<div id=\"echo\"" b)
-      holdsAll "the theme panel"
-        ["id=\"ctheme\"", "id=\"themesel\"", "id=\"readsel\""] sheet
+      holdsAll "the route's shell host"
+        ["id=\"ghead\"", "id=\"app\"", "id=\"cnote\" hidden"] b
+      holdsNone "the retired settings popup"
+        ["id=\"config\"", "id=\"themesel\"", "id=\"readsel\""] b
       holdsNone "the shell" ["e.target.blur();"] b
 
-    -- A `parts' id the markup does not carry throws at boot and takes the inline script with it, and the harness cannot see it.
-  , shellCase shell "every panel body the sections list names is an id the markup carries" $ \b -> do
-      let named = concatMap quotedIn (drop 1 (T.splitOn "parts: [" b))
-          quotedIn seg = [ q | (i, q) <- zip [0 :: Int ..]
-                                             (T.splitOn "\"" (T.takeWhile (/= ']') seg))
-                             , odd i ]
-      assertBool "the sections list names no panel bodies" (not (null named))
-      holdsAll "panel bodies" [ "id=\"" <> i <> "\"" | i <- named ] b
+  , shellCase shell "settings declares one flat table schema and no panels" $ \b -> do
+      holdsAll "the settings schema"
+        [ "const SETTINGS_COLUMNS = ["
+        , "header: \"Setting\"", "header: \"Value\"", "header: \"Area\""
+        , "header: \"Applies to\"", "header: \"Source\"", "header: \"State\"" ] b
+      holdsNone "the retired panel registry" ["const SECTIONS", "id=\"ctabs\""] b
 
   , shellCase shell "the view title is the tab's alone, and nothing on the page repeats it" $ \b -> do
       assertBool ("a heading survives in the shell: " <> show (between "<h1>" "</h1>" b))
@@ -12415,7 +11919,7 @@ touchSpec shell = testGroup "Touch"
                           (nz needle `T.isInfixOf` nc)
                assertBool ("a touch rule outside the query: " <> show needle)
                           (not (nz needle `T.isInfixOf` nb)))
-            ["min-height:44px", ".ctext,.cview{font-size:16px}", "tv-chips:empty"]
+            ["min-height:44px", "#app .tv-filter{font-size:16px}", "tv-chips:empty"]
       assertEqual "one coarse block, and one gate on it" 1
                   (T.count "@media (pointer:coarse)" b)
   ]

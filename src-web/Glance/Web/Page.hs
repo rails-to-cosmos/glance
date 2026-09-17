@@ -9,7 +9,6 @@ import qualified Data.Text as T
 import Glance.Web.Base ( ServeOptions (..), escape, glueAsset
                        , elmAsset, rendererAsset, viewTitleFor )
 import Glance.Web.Keymap (keyBindingsJSON)
-import Glance.Web.Theme (Theme (..), themes)
 import Glance.Web.Page.Glue (glueConfig)
 import Glance.Web.Page.Style (fontFace, page)
 
@@ -93,55 +92,8 @@ demoShell opts font colours views =
   , "    </div>"
   , "  </div>"
   ]
-  -- Panel bodies wear `cpart'; glue.js's `SECTIONS' wraps them at boot.
   <>
-  [ "  <div id=\"config\">"
-  , boxOpen "cbox"
-  , "      <div id=\"chead\"><span id=\"ctitle\">settings</span>"
-      <> "<span id=\"cnote\"></span></div>"
-  , "      <div id=\"ctabs\"></div>"
-  , "      <div id=\"csecs\"></div>"
-  , "      <div id=\"ctheme\" class=\"cpart\">"
-  , crow (clab "theme")
-         ("<select id=\"themesel\" class=\"cview\" title=\"theme\">"
-            <> "<option value=\"auto\">auto</option>"
-            <> T.concat [ "<option value=\"" <> thId t <> "\">" <> escape (thLabel t)
-                            <> "</option>" | t <- themes ]
-            <> "</select>")
-  -- THE READING LINE the document pane rests point's row on, browser-local like
-  -- the theme.  PRESETS: the band is a taste rather than a measurement.
-  , crow (clab "reading line")
-         ("<select id=\"readsel\" class=\"cview\" title=\"reading line\">"
-            <> T.concat [ "<option value=\"" <> p <> "\">" <> p <> "%</option>"
-                        | p <- ["40", "50", "60", "70", "80"] ]
-            <> "</select>")
-  -- READ-ONLY, and the keys beside it: the level is the keymap's to move, and
-  -- this panel's editable rows are a closed select or a file the server owns.
-  , crow (clab "zoom") "<div id=\"czoom\" class=\"cval\"></div>"
-  , "      <div id=\"chues\" class=\"cpart\"><div id=\"cstates\"></div>"
-      <> "<div id=\"sedit\"><input id=\"sname\" spellcheck=\"false\">"
-      <> "<input id=\"sgroup\" spellcheck=\"false\">"
-      <> "<input id=\"shue\" spellcheck=\"false\" title=\"light hue\">"
-      <> "<input id=\"sdark\" spellcheck=\"false\" title=\"dark hue\"></div></div>"
-  , "      </div>"
-  , "      <div id=\"clayers\" class=\"cpart\">"
-  , crow (clab "layer")
-         "<select id=\"clayer\" class=\"cview\" title=\"config layer\"></select>"
-  , crow "<div id=\"clab\" class=\"clab\"></div>"
-         ("<textarea id=\"ctext\" class=\"ctext\" spellcheck=\"false\""
-            <> " placeholder=\"#+TODO: TODO STARTED | DONE\"></textarea>"
-            <> "<div id=\"clerr\" class=\"cerr\"></div>")
-  , crow (clab "capture template")
-         ("<textarea id=\"ctpl\" class=\"ctext\" spellcheck=\"false\""
-            <> " placeholder=\"* %?\"></textarea>"
-            <> "<div id=\"ctplf\">% offers the codes a capture expands</div>")
-  , "      </div>"
-  , "      <div id=\"ceff\"></div>"
-  , "      <div id=\"cfoot\">read-only: the union every file is parsed with."
-      <> " A file's own #+TODO: line adds to it and outranks these for that"
-      <> " file's own headlines.</div>"
-  , "    </div>"
-  , "  </div>"
+  [ "  <span id=\"cnote\" hidden></span>"
   , "  <div id=\"echo\" role=\"status\" aria-live=\"polite\"></div>"
   , "  <script id=\"keys\" type=\"application/json\">" <> keyBindingsJSON <> "</script>"
   , "  <script id=\"cfg\" type=\"application/json\">" <> glueConfig views <> "</script>"
@@ -208,12 +160,6 @@ hueField :: Text -> Text
 hueField name =
   "<input id=\"" <> name <> "\" spellcheck=\"false\" autocomplete=\"off\""
     <> " placeholder=\"#RRGGBB — empty keeps the palette's own\">"
-
-crow :: Text -> Text -> Text
-crow label control = "        <div class=\"crow\">" <> label <> control <> "</div>"
-
-clab :: Text -> Text
-clab word = "<div class=\"clab\">" <> word <> "</div>"
 
 
 -- | The page served when DIR — the @--assets@ directory — holds no renderer.

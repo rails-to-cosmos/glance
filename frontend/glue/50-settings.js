@@ -1,66 +1,10 @@
-    // The settings sheet: panels, config layers, state hues.  Rules in AGENTS.hs.
-const SECTIONS = [
-    // THE PANEL REPAINTS ON ARRIVAL: both its read-only rows move while another
-    // panel shows -- the hues under a theme change, the level under the zoom
-    // keys, which are live wherever a window stands.
-    { title: "ui", parts: ["ctheme"],
-      enter: () => { showZoom(); if (srows.length) repaintStates(null); } },
-    { title: "keywords", parts: ["clayers", "ceff", "cfoot"],
-      enter: () => { if (crows[cat]) showLayer(cat); } },
-];
-
-    // A GUARD ASKS FOR THE PART IT NEEDS, never a tab's LABEL: a part id the
-    // markup lacks throws at boot, where a renamed label fails in silence.
-    const showingPart = (id) => ((SECTIONS[ctab] || {}).parts || []).includes(id);
-    const csecs = el("csecs"), ctabs = el("ctabs");
-    const cpanes = SECTIONS.map((s) => {
-      const sec = part(csecs, "div", "csec");
-      for (const id of s.parts) sec.appendChild(el(id));
-      return sec;
-    });
-    const ctabels = SECTIONS.map((s, i) => {
-      const b = part(ctabs, "button", "ctab", s.title);
-      b.addEventListener("click", () => pickTab(i));
-      b.addEventListener("keydown", (e) => {
-        const k = keyName(e);
-        const step = k === "<right>" ? 1 : k === "<left>" ? -1 : 0;
-        if (!step) return;
-        e.preventDefault();
-        const at = (i + step + SECTIONS.length) % SECTIONS.length;
-        pickTab(at);
-        ctabels[at].focus();
-      });
-      return b;
-    });
-    let ctab = -1;
-    function showTab(i) {
-      ctab = i;
-      cpanes.forEach((p, k) => { p.className = k === i ? "csec on" : "csec"; });
-      ctabels.forEach((t, k) => { t.className = k === i ? "ctab on" : "ctab"; });
-    }
-    // `takeLayer' first: the panel being left may be a view of the same cycle.
-    function pickTab(i) {
-      takeLayer();
-      showTab(i);
-      if (SECTIONS[i].enter) SECTIONS[i].enter();
-      remembered();
-    }
-    // TAB walks the panels; its listener registers ahead of the key dispatch.
-    function stepTab(step) {
-      pickTab((ctab + step + SECTIONS.length) % SECTIONS.length);
-      const first = cpanes[ctab].querySelector("input, select, textarea");
-      if (first) first.focus(); else ctabels[ctab].focus();
-    }
-    onKeys(() => settings && !momentary(), (k, e) => {
-      if (k !== "TAB" && k !== "S-TAB") return;
-      e.preventDefault();
-      stepTab(k === "TAB" ? 1 : -1);
-    });
-    showTab(0);
+    // Settings is a route over the same table-view used by the main catalogue.
     /** @type {LayerRow[]} */
     let crows = [];
-    let settings = false, cat = 0;
-    let wantPanel = "";
+    let settings = false;
+    let configData = null, settingsTable = null, settingsBack = null;
+    const settingStates = new Map();
+    let settingModels = new Map();
     const configSheet = {
       noteId: "cnote", scope: "config", state: "synced",
       closed: "settings closed — the files are as they were",
@@ -75,206 +19,235 @@ const SECTIONS = [
       }),
       shut: () => shutSettings(),
     };
-    // `typing()' misses the other sheet — a click on its header blurs the textarea.
+
+    const encodedLines = (text) => String(text || "")
+      .replace(/\\/g, "\\\\").replace(/\n/g, "\\n");
+    const decodedLines = (text) => String(text || "")
+      .replace(/\\(n|\\)/g, (_m, c) => c === "n" ? "\n" : "\\");
+    const systemLayer = () => crows.find((r) => r.tag === null) || null;
+    const settingState = (r) => r.err
+      ? (configSheet.state === "conflict" ? "conflict" : "error")
+      : cmoved(r) ? "changed" : "saved";
+    const settingsEditing = () => !!(settingsTable && settingsTable.getEditing
+      && settingsTable.getEditing());
+    const cancelSettingsEdit = () => {
+      if (settingsTable && settingsTable.closeEditor) settingsTable.closeEditor();
+    };
+
+    function renderPageCrumbs() {
+      const ctl = document.getElementById("gitctl");
+      if (!ctl) return;
+      const page = ctl.querySelector(".g-page");
+      if (page) {
+        const routed = !!settingsTable;
+        page.textContent = routed ? "main -> settings" : "default";
+        if (routed) page.removeAttribute("disabled");
+        else page.setAttribute("disabled", "");
+        page.setAttribute("title", routed ? "back to the default view" : "");
+      }
+    }
+    renderPageCrumbs();
+
+    function settingsRows() {
+      /** @type {any[]} */ const rows = [];
+      settingModels = new Map();
+      const add = (id, setting, value, area, applies, source, state, write) => {
+        settingModels.set(id, { setting, write, readOnly: !write });
+        rows.push({ id, cells: { setting, value, area, applies, source, state } });
+      };
+      const themeNames = ["auto", ...((configData && configData.themes) || [])];
+      add("local:theme", "Theme", themed.get(), "Interface", "this browser",
+          "glance-theme", "saved", (value) => {
+            if (!themeNames.includes(value)) throw new Error(`theme is one of ${themeNames.join(", ")}`);
+            setTheme(value);
+          });
+      add("local:reading-line", "Reading line", `${readingLine()}%`, "Interface",
+          "material document", READ.key, "saved", (value) => {
+            const text = String(value).trim().replace(/%$/, "");
+            if (!/^[0-9]+$/.test(text) || +text < READ.min || +text > READ.max)
+              throw new Error(`reading line is ${READ.min}–${READ.max}%`);
+            setReadingLine(+text);
+          });
+      add("local:zoom", "Zoom", hosted("zoom") ? `${zoomAt}%` : "browser controlled",
+          "Interface", "this window", ZOOM.key,
+          hosted("zoom") ? "saved" : "read-only", hosted("zoom") ? (value) => {
+            const text = String(value).trim().replace(/%$/, "");
+            if (!/^[0-9]+$/.test(text)) throw new Error("zoom is a whole percent");
+            wearZoom(+text);
+          } : null);
+      add("local:log-lines", "Log panel rows", String(logLines(logPref.get()) || LOG.def),
+          "Interface", "this browser", LOG.key, "saved", (value) => {
+            const count = logLines(value);
+            if (count === null) throw new Error(`log rows is ${LOG.min}–${LOG.max}`);
+            logPref.set(count === LOG.def ? "" : String(count));
+            setLogLines(count);
+          });
+
+      const sys = systemLayer();
+      for (const view of (configData && configData.views) || []) {
+        const id = `view:${view.id}`;
+        add(id, `${view.id} view`, view.query || "", "Views", "whole tree",
+            sys ? sys.path : "system.org", settingStates.get(id) || "saved",
+            (value) => {
+              settingStates.set(id, "syncing");
+              repaintSettings(id);
+              return writeView(view.id, String(value).trim(), (message) => echo(message))
+                .then(() => { view.query = String(value).trim(); settingStates.set(id, "saved"); });
+            });
+      }
+
+      for (const r of crows) {
+        const scope = r.tag ? `tag:${r.tag}` : "whole tree";
+        const prefix = r.tag ? `tag:${r.tag}` : "system";
+        add(`cycle:${r.path}`, `${prefix} TODO cycle`, encodedLines(r.text), "Keywords",
+            scope, r.path, settingState(r), (value) => { r.text = decodedLines(value); });
+        add(`template:${r.path}`, `${prefix} capture template`, encodedLines(r.tpl),
+            "Capture", r.tag ? `captures tagged ${r.tag}` : "capture fallback",
+            r.path, settingState(r), (value) => { r.tpl = decodedLines(value); });
+      }
+
+      const words = new Set(knownStates);
+      for (const theme of Object.keys(hues))
+        for (const keyword of Object.keys(hues[theme])) words.add(keyword);
+      const hueBase = (() => { try { return JSON.parse(huesBase || "{}"); }
+                               catch (_e) { return {}; } })();
+      for (const theme of ["light", "dark"])
+        for (const keyword of [...words].sort()) {
+          const id = `hue:${theme}:${keyword}`;
+          const value = (hues[theme] || {})[keyword] || "";
+          const was = (hueBase[theme] || {})[keyword] || "";
+          add(id, `${keyword} hue`, value, "Colours", `${theme} · ${keyword}`,
+              sys ? sys.path : "system.org", value === was ? "saved" : "changed",
+              (next) => {
+                const at = (hues[theme] = hues[theme] || {});
+                if (String(next).trim()) at[keyword] = String(next).trim();
+                else delete at[keyword];
+              });
+        }
+
+      const kw = (configData && configData.keywords) || {};
+      add("effective:keywords", "Effective keywords",
+          `${(kw.active || []).join(" ")} | ${(kw.inactive || []).join(" ")}`,
+          "Keywords", "every parsed file", "resolved union", "read-only", null);
+      return rows;
+    }
+
+    const SETTINGS_COLUMNS = [
+      { key: "setting", header: "Setting", sortable: true },
+      { key: "value", header: "Value", sortable: true, editable: true },
+      { key: "area", header: "Area", sortable: true },
+      { key: "applies", header: "Applies to", sortable: true },
+      { key: "source", header: "Source", sortable: true },
+      { key: "state", header: "State", sortable: true },
+    ];
+    const settingsView = () => ({ title: "settings", columns: SETTINGS_COLUMNS,
+                                  rows: settingsRows() });
+    function repaintSettings(id) {
+      if (!settingsTable) return;
+      const selected = id || selectedId(settingsTable);
+      settingsTable.setView(settingsView());
+      cols = SETTINGS_COLUMNS;
+      if (selected) settingsTable.select(selected);
+    }
+    function settingEdited(id, col, value, kind) {
+      if (kind !== "cell" || col !== 1 || !id) return;
+      const model = settingModels.get(id);
+      if (!model || !model.write) {
+        repaintSettings(id);
+        echo(`${model ? model.setting : "setting"} is read-only`);
+        return;
+      }
+      try {
+        const work = model.write(value);
+        repaintSettings(id);
+        echo(`${model.setting}: changed`);
+        if (work && typeof work.then === "function")
+          work.then(() => { repaintSettings(id); echo(`${model.setting}: saved`); })
+            .catch((e) => {
+              settingStates.set(id, "error");
+              repaintSettings(id);
+              append("config", "error", `${model.setting}: ${e.message}`);
+            });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        repaintSettings(id);
+        append("config", "warn", `${model.setting}: ${message}`);
+        echo(`${model.setting}: ${message}`);
+      }
+    }
+    function mountSettings() {
+      settingsBack = cells() ? table.getSelection() : null;
+      if (socket) { socket.onclose = null; socket.close(); socket = null; }
+      if (table && table.destroy) table.destroy();
+      table = TableView.mount(el("app"), settingsView(), {
+        filterDock: "strip", pageSize: PAGE, actionHints: false,
+        onEdit: settingEdited,
+      });
+      settingsTable = table;
+      cols = SETTINGS_COLUMNS;
+      const first = table.getVisible()[0];
+      if (first) table.select(first.id);
+      renderPageCrumbs();
+    }
+    function openSetting() {
+      const id = selectedId(settingsTable), model = id && settingModels.get(id);
+      if (!model) return;
+      if (!model.write) { echo(`${model.setting} is read-only`); return; }
+      settingsTable.editCell(id, 1);
+    }
+    onKeys(() => settings && !momentary(), (k, e) => {
+      if (narrowTyping(settingsTable)) {
+        if (narrowPress(k, settingsTable)) e.preventDefault();
+        return;
+      }
+      const step = rowStep(k);
+      if (step) stepIn(settingsTable, step);
+      else if (k === "RET") openSetting();
+      else if (k === "/") settingsTable.openFilter({ narrow: true });
+      else if (k === "DEL") leaveSheet();
+      else return;
+      e.preventDefault();
+    });
+
     function openSettings() {
       if (activeSheet()) return;
       settings = true;
       config().then((b) => {
         if (!settings) return;   // an ESC arrived while the layers were out
+        configData = b;
         drawLayers(b);
-        // The read-only rows the SHEET does not own are drawn on the way up:
-        // the level moved while there was no row to say so.
-        showZoom();
+        mountSettings();
         cnote("synced");
-        el("config").className = "on";
-        if (wantPanel) {
-          const at = SECTIONS.findIndex((x) => x.title === wantPanel);
-          wantPanel = "";
-          if (at !== -1) pickTab(at);
-        }
         soon(remembered);
-        el("themesel").focus();
       }).catch((e) => {
         settings = false;
+        renderPageCrumbs();
         append("config", "error", `settings failed: ${e.message}`);
       });
     }
     const config = () => getJSON("/config");
     function drawLayers(b) {
       crows = (b.layers || []).map(layerRow).sort(byLayer);
-      const pick = el("clayer");
-      pick.textContent = "";
-      crows.forEach((r, i) => {
-        const o = part(pick, "option", "", layerName(r));
-        o.value = String(i);
-      });
-      showLayer(0);
-      const kw = b.keywords || {};
-      el("ceff").textContent =
-        `${(kw.active || []).join(" ")} | ${(kw.inactive || []).join(" ")}`;
-      drawHues(b, kw);
+      drawHues(b, b.keywords || {});
     }
-    /**
-     * @typedef {object} StateRow
-     * @property {string} id
-     * @property {LayerRow|null} layer  null where a plain org file declares it.
-     * @property {string} state
-     * @property {"active"|"inactive"} group
-     * @property {boolean} fixed  no layer owns it, so this sheet cannot move it.
-     */
     /** @type {Record<string, Record<string, string>>} */
     let hues = {};
-    /** @type {StateRow[]} */
-    let srows = [];
-    let huesBase = "", sseq = 0, smount = null;
-    const SCOLS = [ { key: "tag", header: "Tag" }
-                  , { key: "state", header: "State" }
-                  , { key: "group", header: "Group" }
-                  , { key: "colour", header: "Colour" } ];
+    let knownStates = [], huesBase = "";
     function drawHues(b, kw) {
       hues = {};
       for (const c of b.colors || []) {
         (hues[c.theme] = hues[c.theme] || {})[c.keyword] = c.hue;
       }
       huesBase = JSON.stringify(hues);
-      srows = []; sseq = 0;
       const owned = new Set();
       crows.forEach((r) => {
         /** @type {("active"|"inactive")[]} */ (["active", "inactive"]).forEach((group) => {
-          (r.kw[group] || []).forEach((state) => {
-            owned.add(state);
-            srows.push({ id: `S${sseq++}`, layer: r, state, group, fixed: false });
-          });
+          (r.kw[group] || []).forEach((state) => owned.add(state));
         });
       });
-      (kw.active || []).concat(kw.inactive || []).forEach((state) => {
-        if (owned.has(state)) return;
-        owned.add(state);
-        srows.push({ id: `S${sseq++}`, layer: null,
-                     state, group: (kw.inactive || []).includes(state)
-                                     ? "inactive" : "active", fixed: true });
-      });
-      repaintStates(srows.length ? srows[0].id : null);
+      (kw.active || []).concat(kw.inactive || []).forEach((state) => owned.add(state));
+      knownStates = [...owned];
     }
-    function statesMounted() {
-      if (smount) return smount;
-      smount = listing("cstates", SCOLS, "d/D remove · u unflag", "cstates");
-      return smount;
-    }
-    const stateLabel = (r) => (r.layer ? layerName(r.layer) : "file");
-    const srowsOf = () => srows.map((r) => ({
-      id: r.id,
-      cells: { tag: stateLabel(r), state: r.state, group: r.group,
-               colour: (hues[hueTheme()] || {})[r.state] || "" },
-    }));
-    function repaintStates(at) {
-      const m = statesMounted();
-      m.setRows(srowsOf());
-      if (at) m.select(at);
-    }
-    const hueTheme = () => {
-      const want = themed.get();
-      if (want !== "auto") return want;
-      return matchMedia && matchMedia("(prefers-color-scheme:dark)").matches
-        ? "dark" : "light";
-    };
-    const showHues = () => { if (srows.length) repaintStates(null); };
-    const satAt = () => srows.findIndex((r) => r.id === selectedId(smount));
-    // THE HUE IS PER THEME, so the form asks for each: one field would edit
-    // whichever theme happened to be on and leave the other on a palette slot.
-    const HUE_FIELDS = [["light", "shue"], ["dark", "sdark"]];
-    const SROW = {
-      box: "sedit", pane: "cstates", fields: ["sname", "sgroup", "shue", "sdark"],
-      mount: () => smount,
-      fill: (r) => {
-        el("sname").value = r.state;
-        el("sgroup").value = r.group;
-        for (const [theme, id] of HUE_FIELDS)
-          el(id).value = (hues[theme] || {})[r.state] || "";
-        el("sname").readOnly = r.fixed;
-        el("sgroup").readOnly = r.fixed;
-      },
-      focus: (r) => (r.fixed || r.state ? el("shue") : el("sname")).focus(),
-    };
-    const sediting = () => editIn(SROW);
-    function commitState() {
-      const r = edit.row, was = r.state;
-      if (!r.fixed) {
-        const name = el("sname").value.trim();
-        const group = el("sgroup").value.trim().toLowerCase() === "inactive"
-                        ? "inactive" : "active";
-        r.layer.kw.active = r.layer.kw.active.filter((k) => k !== was);
-        r.layer.kw.inactive = r.layer.kw.inactive.filter((k) => k !== was);
-        r.state = name; r.group = group;
-        if (name) r.layer.kw[group].push(name);
-        writeCycle(r.layer);
-      }
-      for (const [theme, id] of HUE_FIELDS) {
-        const at = (hues[theme] = hues[theme] || {});
-        const hue = el(id).value.trim();
-        delete at[was];
-        if (hue && r.state) at[r.state] = hue;
-      }
-      shutEdit(SROW);
-      repaintStates(r.id);
-    }
-    function addState() {
-      const at = satAt();
-      const host = (at !== -1 && srows[at].layer) || crows.find((r) => !r.tag);
-      if (!host) { append("config", "warn", "no config layer to add a state to"); return; }
-      /** @type {StateRow} */
-      const r = { id: `S${sseq++}`, layer: host, state: "", group: "active",
-                  fixed: false };
-      srows.splice(at === -1 ? srows.length : at + 1, 0, r);
-      repaintStates(r.id);
-      openEdit(SROW, r);
-    }
-    function sdelete(ids, how) {
-      const gone = new Set(ids);
-      const named = srows.filter((r) => gone.has(r.id));
-      const stuck = named.filter((r) => r.fixed);
-      for (const r of named) {
-        if (r.fixed) continue;
-        r.layer.kw.active = r.layer.kw.active.filter((k) => k !== r.state);
-        r.layer.kw.inactive = r.layer.kw.inactive.filter((k) => k !== r.state);
-        writeCycle(r.layer);
-      }
-      srows = srows.filter((r) => r.fixed || !gone.has(r.id));
-      repaintStates(null);
-      const held = stuck.map((r) => r.state).join(", ");
-      echo(`D → org-todo-remove-state (${how(ids.length - stuck.length)}`
-             + `${held ? ` · ${held} is a file's own` : ""})`);
-    }
-    const SFLAGS = {
-      ...FLAG_WORDS,
-      mount: () => smount, take: sdelete,
-      walk: () => stepIn(smount, 1),
-      none: "org-todo-remove-state (no row)",
-      verb: "remove",
-      flag: "delete-flag (d again removes)",
-      at: () => selectedId(smount),
-    };
-    onKeys(() => settings && !momentary() && smount && showingPart("ctheme"), (k, e) => {
-      if (narrowTyping(smount)) {
-        if (narrowPress(k, smount)) e.preventDefault();
-        return;
-      }
-      if (sediting()) {
-        if (k === "TAB" || k === "S-TAB") { e.preventDefault(); hop(); }
-        else if (k === "RET" && !repeating(e)) { e.preventDefault(); commitState(); }
-        return;
-      }
-      if (k === "RET") {
-        const at = satAt();
-        if (at !== -1) { e.preventDefault(); openEdit(SROW, srows[at]); }
-        return;
-      }
-      if (k === "+") { e.preventDefault(); addState(); return; }
-      if (narrowPress(k, smount)) { e.preventDefault(); return; }
-      if (flagPress(k, e, SFLAGS)) { e.preventDefault(); return; }
-      const step = rowStep(k);
-      if (step) { e.preventDefault(); stepIn(smount, step); }
-    });
     const hueList = () =>
       Object.keys(hues).flatMap((theme) =>
         Object.keys(hues[theme]).map((keyword) =>
@@ -313,47 +286,6 @@ const SECTIONS = [
     const byLayer = (a, b) => (a.tag === null ? 0 : 1) - (b.tag === null ? 0 : 1)
       || String(a.tag).localeCompare(String(b.tag));
     const layerName = (r) => (r.tag ? `tag:${r.tag}` : "system");
-    // Read back only while its panel shows: the states table writes the same `text'.
-    function takeLayer() {
-      if (!crows[cat] || !showingPart("clayers")) return;
-      crows[cat].text = el("ctext").value;
-      crows[cat].tpl = el("ctpl").value;
-    }
-    function showAround() {
-      const r = crows[cat];
-      el("clab").textContent = r ? `${layerName(r)} · ${r.path}`
-        + (r.digest ? "" : " · not created yet") : "";
-      el("clerr").textContent = r ? r.err : "";
-    }
-    function showLayer(i) {
-      cat = atIn(crows, i);
-      el("clayer").value = String(cat);
-      el("ctext").value = crows[cat] ? crows[cat].text : "";
-      el("ctpl").value = crows[cat] ? crows[cat].tpl : "";
-      showAround();
-    }
-    el("clayer").addEventListener("change", (e) => {
-      takeLayer();
-      showLayer(Number(targetOf(e).value));
-    });
-    el("ctpl").addEventListener("keydown", (e) => {
-      if (keyName(e) !== "%") return;
-      e.preventDefault();
-      const box = el("ctpl"), at = box.selectionStart, to = box.selectionEnd;
-      // CLOSED: the codes are the SERVER's list, so the completion cannot offer
-      // one the expansion does not know — AGENTS.hs.  No free-text door here.
-      askFrom("capture template · which code",
-              CODES.map((c) => ({ label: c.code, hint: c.means, tag: c.code })),
-              "RET writes it · C-n/C-p walks · ESC leaves",
-              (c) => insertCode(at, to, String(c.tag || "")), "closed");
-    });
-    // The palette blurred the box on its way up, so the caret is put back by hand.
-    function insertCode(at, to, code) {
-      const box = el("ctpl");
-      box.focus();
-      spliceIn(box, at, to, code);
-      takeLayer();
-    }
     /**
      * @typedef {object} CField
      * @property {string} key  the field a `POST /config` names it by.
@@ -373,8 +305,11 @@ const SECTIONS = [
         send: () => hueList(), kept: (_r, was) => { huesBase = was; } },
     ];
     const cfmoved = (r) => CFIELDS.filter((f) => f.on(r) && f.now(r) !== f.was(r));
-    const cnote = (next, message) => note(configSheet, next, message);
-    const cdirty = () => (takeLayer(), crows.some(cmoved));
+    const cnote = (next, message) => {
+      note(configSheet, next, message);
+      if (settingsTable) repaintSettings();
+    };
+    const cdirty = () => crows.some(cmoved);
     const cmoved = (r) => r.text !== r.base || cfmoved(r).length > 0;
     function viewLanded(id, q) {
       saved[id] = q;
@@ -382,7 +317,6 @@ const SECTIONS = [
         table.setPinned(table.getQuery().trim() === q);
     }
     async function flushConfig() {
-      takeLayer();
       cnote("syncing");
       let ok = true, clashed = false, landed = -1;
       for (const r of crows) {
@@ -407,8 +341,7 @@ const SECTIONS = [
           append("config", "error", `${layerName(r)} · ${r.path}: ${r.err}`);
         }
       }
-      if (landed === -1) showAround();
-      else { takeLayer(); showLayer(landed); }
+      if (landed !== -1) repaintSettings(`cycle:${crows[landed].path}`);
       cnote(ok ? "synced" : clashed ? "conflict" : "error");
       return ok;
     }
@@ -552,11 +485,17 @@ const SECTIONS = [
     }, true);
 
     function shutSettings() {
-      el("config").className = ""; settings = false; crows = []; cat = 0;
-      unnarrow(smount);
-      soon(remembered);
+      const mounted = settingsTable;
+      const back = settingsBack;
+      const held = active();
+      if (held) held.blur();
+      if (mounted && mounted.destroy) mounted.destroy();
+      settingsTable = null; settings = false;
+      configData = null; crows = []; settingsBack = null;
       configSheet.state = "synced";
-      if (typing()) active().blur();
+      renderPageCrumbs();
+      remembered();
+      if (mounted) start(() => land(back));
     }
     const summons = () => can(table, "openFilter");
     /** Raise the filter box on DOOR; `{narrow: true}' is the filter half alone.
@@ -780,14 +719,8 @@ const SECTIONS = [
       if (name === "auto") delete document.documentElement.dataset.theme;
       else document.documentElement.dataset.theme = name;
       themed.set(name);
-      el("themesel").value = name;
     }
     setTheme(themed.get());
-    el("themesel").addEventListener("change", (e) => {
-      setTheme(targetOf(e).value);
-      if (settings) showHues();
-      echo(`theme: ${targetOf(e).value}`);
-    });
     // THE READING LINE the document pane rests point's row on: a per-machine
     // display preference like the theme, held as a WHOLE PERCENT of the pane's
     // visible height.  BANDED 20-90 -- outside that there is no band above the
@@ -801,13 +734,8 @@ const SECTIONS = [
     };
     function setReadingLine(pct) {
       readPref.set(String(pct));
-      el("readsel").value = String(readingLine());
     }
     setReadingLine(readingLine());
-    el("readsel").addEventListener("change", (e) => {
-      setReadingLine(targetOf(e).value);
-      echo(`reading line: ${readingLine()}%`);
-    });
     const LOG = CFG.log;
     const logLines = (text) => {
       const t = String(text).trim();
@@ -831,12 +759,11 @@ const SECTIONS = [
     };
     let zoomAt = zoomStored();
     // The POST IS THE WHOLE APPLICATION: this page draws nothing at its own
-    // scale.  The settings row is repainted only while the sheet SHOWS it; the
-    // panels draw it on the way in, the way the hues beside it are drawn.
+    // scale.  The settings row is repainted while the catalogue shows it.
     function applyZoom() {
       const door = hosted("zoom");
       if (door) door.postMessage(String(zoomAt / 100));
-      if (settings) showZoom();
+      if (settingsTable) repaintSettings("local:zoom");
     }
     // A HELD `C-+' REPEATS SOME THIRTY TIMES A SECOND and `localStorage' is
     // synchronous, so the store's write TRAILS the walk while the window's own
@@ -865,11 +792,6 @@ const SECTIONS = [
     const ZOOM_KEYS =
       ["text-scale-increase", "text-scale-decrease", "text-scale-set"]
         .map((c) => seqOf(c, "window")).filter(Boolean).join(" / ");
-    const showZoom = () => {
-      el("czoom").textContent = hosted("zoom")
-        ? `${zoomAt}% · ${ZOOM_KEYS}`
-        : `the browser's own · ${ZOOM_KEYS} reach it directly`;
-    };
     // WORN AT BOOT and only where there is a window to wear it: a browser tab
     // keeps whatever zoom its own reader gave it.  BOOT APPLIES WITHOUT
     // STORING: the band is clamped on every read, so writing the clamp back

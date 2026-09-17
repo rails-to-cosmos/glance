@@ -34,10 +34,10 @@
         open: () => overTargets(RESTORED, "tags", askTags) },
       { name: "sheet", up: docHolds, edit: sheetOpen, shut: cancelSheetEdit,
         rowed: true, open: (id) => materialize(id) },
-      { name: "config", up: () => settings, edit: sediting,
-        shut: () => shutEdit(SROW), open: () => openSettings(),
-        narrow: () => narrowed(smount), wide: () => widen(smount, "ESC"),
-        panel: () => (SECTIONS[ctab] || {}).title },
+      { name: "config", up: () => settings, edit: settingsEditing,
+        shut: cancelSettingsEdit, open: () => openSettings(),
+        narrow: () => narrowed(settingsTable),
+        wide: () => widen(settingsTable, "ESC") },
     ];
     const RESTORED = { seq: "?page", command: "restore-view" };
     const surfaceUp = () => SURFACES.find((s) => s.up()) || null;
@@ -57,8 +57,6 @@
       const s = SURFACES.find((x) => x.name === want && x.open);
       if (!s) return;
       const id = params().get("row");
-      const at = (location.hash || "").replace(/^#/, "");
-      if (at && s.panel) wantPanel = at;
       if (s.rowed) {
         if (!id) { append("boot", "warn", `${want} needs a row: add &row=ID`); return; }
         if (!can(table, "select") || !table.select(id))

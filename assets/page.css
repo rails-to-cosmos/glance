@@ -153,18 +153,18 @@ code {
 }
 
 #sheet {
-    gap: 8px;
+    gap: 0;
     padding: 14px;
 }
 
-#mhead,#chead {
+#mhead {
     display: flex;
     justify-content: space-between;
     gap: 12px;
     font-size: 12px;
 }
 
-#mfile,#ctitle {
+#mfile {
     color: var(--g-mute);
 }
 
@@ -737,7 +737,7 @@ code {
     margin-right: 0;
 }
 
-#dtitle,#dpara,#dpair,#sedit,#tedit,#ledit {
+#dtitle,#dpara,#dpair,#tedit,#ledit {
     display: none;
     position: absolute;
     background: var(--g-sel);
@@ -777,27 +777,13 @@ code {
     min-width: 8em;
 }
 
-#sedit {
-    left: 0;
-    right: 0;
-}
-
-#chues {
-    position: relative;
-}
-
-#cstates {
-    overflow: auto;
-    max-height: 40vh;
-}
-
 /* Fallback only; `placeEdit' places from the ROW's own box. */
 #dpara,#dpair {
     left: var(--g-doc-padx);
     right: var(--g-doc-padx);
 }
 
-#dtitle.on,#dpair.on,#ddate.on,#sedit.on,#tedit.on,#ledit.on {
+#dtitle.on,#dpair.on,#ddate.on,#tedit.on,#ledit.on {
     display: flex;
     align-items: center;
 }
@@ -865,7 +851,7 @@ code {
     color: var(--g-mute);
 }
 
-#sedit input,#tedit input,#ledit input {
+#tedit input,#ledit input {
     font: var(--g-edit-fs)/var(--g-edit-lh) var(--dk-mono);
     padding: 5px 12px;
     border: none;
@@ -971,7 +957,7 @@ code {
     height: 0;
 }
 
-#sedit input:focus,#tedit input:focus,#ledit input:focus {
+#tedit input:focus,#ledit input:focus {
     outline: none;
     border-bottom-color: var(--g-border);
 }
@@ -981,7 +967,7 @@ code {
     border: none;
 }
 
-#dtin::selection,#dpair input::selection,#ddate input::selection,#sedit input::selection,#tedit input::selection,#ledit input::selection,#dpara textarea::selection {
+#dtin::selection,#dpair input::selection,#ddate input::selection,#tedit input::selection,#ledit input::selection,#dpara textarea::selection {
     background: var(--g-sel);
     color: var(--g-fg);
 }
@@ -1032,8 +1018,7 @@ code {
     color: var(--g-mute);
 }
 
-/* `#ctplf' is the capture-template hint inside config, and no popup's part. */
-{{CHROME_FEET}},#ctplf {
+{{CHROME_FEET}} {
     font-size: 11px;
     color: var(--g-mute);
 }
@@ -1178,12 +1163,6 @@ code {
     color: var(--g-fg)!important;
 }
 
-#cbox {
-    gap: 10px;
-    padding: 14px;
-    overflow-y: auto;
-}
-
 #cnote {
     text-align: right;
     color: var(--g-ok);
@@ -1197,109 +1176,17 @@ code {
     color: var(--g-bad);
 }
 
-/* Panel bodies match by CLASS; a panel added to `SECTIONS' needs none here. */
-#csecs {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-#ctabs {
-    display: flex;
-    gap: 4px;
-    border-bottom: 1px solid var(--g-border);
-    margin-bottom: 4px;
-}
-
-.ctab {
-    font: 11px/1.5 var(--dk-mono);
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--g-mute);
-    padding: 6px 10px;
-    border-bottom: 2px solid transparent;
-}
-
-.ctab.on {
-    color: var(--g-fg);
-    border-bottom-color: var(--g-accent);
-}
-
-.csec {
-    display: none;
-}
-
-.csec.on,.cpart {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.crow {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.clab {
-    font-size: 11px;
-    color: var(--g-mute);
-    overflow-wrap: anywhere;
-}
-
-.ctext,.cview {
-    font: 12px/1.5 var(--dk-mono);
-    padding: 6px;
-    border-radius: 4px;
-    border: 1px solid var(--g-border);
-    background: transparent;
-    color: inherit;
-}
-
-.ctext {
-    height: 7em;
-    resize: vertical;
-}
-
-.ctext::selection {
-    background: var(--g-sel);
-    color: var(--g-fg);
-}
-
 /* Every <select> says its ground; a transparent one keeps the UA's control paint. */
-#themesel,#clayer,#nspace,#ngroup {
+#nspace,#ngroup {
     background: var(--g-bg);
     align-self: flex-start;
     max-width: 100%;
     min-width: 10em;
 }
 
-#themesel option,#clayer option,#nspace option,#ngroup option {
+#nspace option,#ngroup option {
     background: var(--g-bg);
     color: var(--g-fg);
-}
-
-/* A read-only value drawn in the boxes' own type so it reads as a value, not a second label. */
-.cval {
-    font: 12px/1.5 var(--dk-mono);
-}
-
-.cerr {
-    font-size: 11px;
-    color: var(--g-bad);
-}
-
-.cerr:empty {
-    display: none;
-}
-
-#ceff {
-    font-size: 12px;
-    padding-top: 8px;
-    border-top: 1px solid var(--g-border);
 }
 
 #ltable,#ttable {
@@ -1403,10 +1290,10 @@ html.stale #app,{{WASHED_STALE}} {
     pointer-events: none;
 }
 
-/* The git sync control lives in its own shell-owned row (`#ghead') above the table, so table-view's re-mounts never touch it; empty, it collapses. */
+/* The git control owns the shell breadcrumb above the table. */
 #ghead {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
 }
 #ghead:empty {
     display: none;
@@ -1419,7 +1306,20 @@ html.stale #app,{{WASHED_STALE}} {
     font-size: 13px;
 }
 #gitctl[hidden] { display: none; }
+#gitctl.g-norepo .g-at,
+#gitctl.g-norepo .g-loc,
+#gitctl.g-norepo .g-glyph,
+#gitctl.g-norepo .g-auto { display: none; }
 #gitctl .g-at { color: var(--g-mute); opacity: .55; }
+#gitctl .g-page {
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: var(--g-fg);
+    background: transparent;
+}
+#gitctl .g-page:enabled { cursor: pointer; }
+#gitctl .g-page:enabled:hover { color: var(--g-link); }
 #gitctl .g-loc { color: var(--g-fg); opacity: .9; }
 #gitctl .g-loc .g-vc { color: var(--g-mute); opacity: .8; }
 #gitctl .g-loc .g-dir { color: var(--g-mute); }
@@ -1434,6 +1334,7 @@ html.stale #app,{{WASHED_STALE}} {
     cursor: pointer;
     line-height: 1.4;
 }
+#gitctl .g-glyph,#gitctl .g-auto,#gitctl .g-flash { margin-left: 8px; }
 #gitctl .g-auto:hover { background: var(--g-surface); }
 #gitctl .g-glyph { display: inline-flex; align-items: center; gap: 5px; cursor: default; }
 #gitctl .g-glyph .g-n { font-variant-numeric: tabular-nums; }
@@ -1487,7 +1388,7 @@ html.stale #app,{{WASHED_STALE}} {
     #mpanes {
         flex-direction: column;
     }
-    #mtext,#pinput,#dtin,#dpair input,#ddate input,#sedit input,#tedit input,#ledit input,#dpara textarea,#app .tv-filter,.ctext,.cview {
+    #mtext,#pinput,#dtin,#dpair input,#ddate input,#tedit input,#ledit input,#dpara textarea,#app .tv-filter {
         font-size: 16px;
     }
 }

@@ -30,6 +30,7 @@ staleEach = T.intercalate "," . map ("html.stale " <>) . T.splitOn ","
 
 -- | @assets\/page.css@ as it ships, embedded at COMPILE time like the renderer.
 rawPageCss :: ByteString
+-- Recompiled with the shell geometry, including the page-at-repository row.
 rawPageCss = $(makeRelativeToProject "assets/page.css" >>= embedFile)
 
 -- | The stylesheet ready to splice: @page.css@ with its @\/* … *\/@ comments and

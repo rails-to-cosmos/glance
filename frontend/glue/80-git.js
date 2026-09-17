@@ -16,29 +16,36 @@
       function build() {
         ctl = document.createElement("span");
         ctl.id = "gitctl";
-        ctl.innerHTML =
-          '<span class="g-at">@</span>'
-          + '<span class="g-loc"><span class="g-vc">⎇</span> '
-          + '<span class="g-dir"></span>:<span class="g-branch"></span></span>'
-          + '<span class="g-glyph">'
-          + '<span class="g-dot"></span><span class="g-n"></span></span>'
-          + '<button class="g-auto" type="button">⇄</button>'
-          + '<span class="g-flash"></span>';
-        elDir = ctl.querySelector(".g-dir");
-        elBranch = ctl.querySelector(".g-branch");
-        elGlyph = ctl.querySelector(".g-glyph");
-        elDot = ctl.querySelector(".g-dot");
-        elN = ctl.querySelector(".g-n");
-        elAuto = ctl.querySelector(".g-auto");
-        elFlash = ctl.querySelector(".g-flash");
+        const page = part(ctl, "button", "g-page", "default");
+        page.type = "button"; page.disabled = true;
+        part(ctl, "span", "g-at", " @");
+        const loc = part(ctl, "span", "g-loc");
+        part(loc, "span", "g-vc", "⎇");
+        loc.appendChild(document.createTextNode(" "));
+        elDir = part(loc, "span", "g-dir");
+        loc.appendChild(document.createTextNode(":"));
+        elBranch = part(loc, "span", "g-branch");
+        elGlyph = part(ctl, "span", "g-glyph");
+        elDot = part(elGlyph, "span", "g-dot");
+        elN = part(elGlyph, "span", "g-n");
+        elAuto = part(ctl, "button", "g-auto", "⇄");
+        elAuto.type = "button";
+        elFlash = part(ctl, "span", "g-flash");
         elAuto.addEventListener("click", toggleAuto);
+        page.addEventListener("click", () => {
+          if (settings) leaveSheet();
+        });
         head.appendChild(ctl);
+        renderPageCrumbs();
       }
 
       function render() {
         if (!head) return;
-        if (!status || !status.repo) { if (ctl) { ctl.remove(); ctl = null; } return; }
+        if (!status) return;
         if (!ctl) build();
+        ctl.classList.toggle("g-norepo", !status.repo);
+        renderPageCrumbs();
+        if (!status.repo) return;
         const s = status;
         elDir.textContent = baseName(s.dir);
         elBranch.textContent = s.branch || "(detached)";
@@ -57,6 +64,7 @@
         elAuto.title = on ? "auto-sync on — click to turn off"
           : s.autosync ? "auto-sync set — click again to allow the first push"
           : "auto-sync off — click to enable";
+        renderPageCrumbs();
       }
 
       function flash(msg) {
@@ -81,6 +89,7 @@
         poll();
       }
 
+      build();
       poll();
       window.addEventListener("focus", poll);
       setInterval(poll, GIT_POLL);

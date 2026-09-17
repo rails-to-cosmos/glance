@@ -1,4 +1,4 @@
--- | THE POPUP SURFACES, ONE LIST, because six hand-spelled copies drifted —
+-- | THE POPUP SURFACES, ONE LIST, because hand-spelled copies drifted —
 --   docs\/proposals\/partial/2026-08-18-generalize-popup-surface-registry.md.
 module Glance.Web.Page.Popups
   ( Popup (..)
@@ -37,7 +37,6 @@ popups :: [Popup]
 popups =
   [ Popup "modal"   "m" "sheet" Sheet     True  True  []
   , Popup "prompt"  "p" "pbox"  Band      True  True  everyPart
-  , Popup "config"  "c" "cbox"  Sheet     True  True  ["foot"]
   , Popup "links"   "l" "lbox"  Sheet     True  True  everyPart
   , Popup "tags"    "t" "tbox"  Band      True  True  everyPart
   , Popup "mint"    "n" "nbox"  Band      True  True  everyPart

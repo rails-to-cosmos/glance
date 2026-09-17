@@ -1410,7 +1410,7 @@ export default [
 { name: "the page never scrolls, sideways or down, at any width or surface",
   async run(p, base) {
     // A SURFACE THAT NEVER ROSE would measure the table again and report ok.
-    const HOST = { sheet: "#modal", config: "#config", tags: "#tags", links: "#links" };
+    const HOST = { sheet: "#modal", tags: "#tags", links: "#links" };
     const seen = [];
     for (const [w, h] of [[360, 720], [800, 900], [1400, 900]]) {
       await p.size(w, h);
@@ -1419,8 +1419,11 @@ export default [
         await p.goto(`${base}/${q}`);
         await p.until(() => !!document.querySelector("#app table tbody tr"),
                       `the table to mount at ${w}px`);
-        if (page) await p.until((host) => !!document.querySelector(`${host}.on`),
-                                `${page} to raise at ${w}px`, 12_000, HOST[page]);
+        if (page === "config")
+          await p.until(() => document.querySelector("#gitctl .g-page").textContent.includes("settings"),
+                        `settings to replace the table at ${w}px`, 12_000);
+        else if (page) await p.until((host) => !!document.querySelector(`${host}.on`),
+                                     `${page} to raise at ${w}px`, 12_000, HOST[page]);
         const at = await p.eval(() => {
           const e = document.scrollingElement;
           const past = [...document.querySelectorAll("body *")]
@@ -1448,7 +1451,7 @@ export default [
     const seen = [];
     for (const [w, h] of [[1400, 900], [900, 480], [700, 360]]) {
       await p.size(w, h);
-      for (const page of ["sheet", "config"]) {
+      for (const page of ["sheet"]) {
         await p.goto(`${base}/?page=${page}&row=drv-box`);
         await p.until(() => { const n = document.querySelector("#modal.on #sheet, #config.on #cbox");
                               return !!n && n.getBoundingClientRect().height > 0; },
@@ -1469,6 +1472,43 @@ export default [
       }
     }
     return [seen.join("  ")];
+  } },
+
+{ name: "settings is a flat table route with the chosen context columns",
+  async run(p, base) {
+    await p.goto(`${base}/?page=config`);
+    await p.until(() => document.querySelector("#gitctl .g-page")?.textContent.includes("settings")
+                        && [...document.querySelectorAll("#app th")]
+                          .some((n) => n.textContent.trim() === "Setting"),
+                  "the settings breadcrumb to appear");
+    await p.until(() => document.querySelectorAll("#app tbody tr").length > 8,
+                  "the settings catalogue to draw");
+    const opened = await p.eval(() => ({
+      columns: [...document.querySelectorAll("#app th")]
+        .map((n) => n.textContent.trim()).filter(Boolean),
+      names: [...document.querySelectorAll("#app tbody tr td:first-of-type")]
+        .map((n) => n.textContent.trim()),
+      popup: !!document.getElementById("config"),
+      crumbs: document.getElementById("gitctl").textContent.trim(),
+    }));
+    for (const name of ["Setting", "Value", "Area", "Applies to", "Source", "State"])
+      assert(opened.columns.includes(name), `settings lost the ${name} column: ${opened.columns}`);
+    assert(opened.names.includes("Theme") && opened.names.includes("system TODO cycle"),
+      `the flat catalogue lacks its local or tree rows: ${opened.names.join(", ")}`);
+    assert(!opened.popup, "the retired #config popup rose around the catalogue");
+
+    await p.press("RET");
+    await p.until(() => !!document.querySelector("#app .tv-cell-edit"),
+                  "RET on Theme to open table-view's Value editor");
+    await p.type("dark");
+    await p.press("RET");
+    await p.until(() => document.documentElement.dataset.theme === "dark",
+                  "the edited Theme value to apply");
+    await p.press("DEL");
+    await p.until(() => !document.querySelector("#gitctl .g-page").textContent.includes("settings"),
+                  "DEL to return to the main table");
+    return [`${opened.columns.length} columns · ${opened.names.length} settings · `
+      + `${JSON.stringify(opened.crumbs)} · Theme edited in table-view`];
   } },
 
 // 80c3732.  ONE KEYWORD, TWO SURFACES, ONE PAINTED COLOUR.
@@ -2427,7 +2467,7 @@ export default [
 { name: "every dropdown declares the scheme its platform paints it in",
   async run(p, base) {
     await tableUp(p, base);
-    const SELECTS = ["themesel", "clayer", "nspace", "ngroup"];
+    const SELECTS = ["nspace", "ngroup"];
     const read = (theme, ids) => {
       const root = document.documentElement;
       const was = root.dataset.theme;
@@ -3984,8 +4024,6 @@ export default [
       assert(off.length === 0,
         `the stored 40% was not honoured: `
         + off.map((s) => `${JSON.stringify(s.text)} at ${Math.round(s.at * 100)}%`).join(", "));
-      const shown = await p.eval(() => document.getElementById("readsel").value);
-      assert(shown === "40", `the settings select reads ${JSON.stringify(shown)}`);
       return [`${seen.length} rows rested at `
         + `${seen.map((s) => Math.round(s.at * 100) + "%").join(", ")}`];
     } finally {
@@ -7680,8 +7718,8 @@ export default [
   } },
 
 // UI 2026-09-12.  `repo: true' serves the GIT FIXTURE (`drive.mjs'), the only
-// tree `/git' answers `repo:true' over, so the control mounts at all.  The bug
-// it exists for:
+// tree `/git' answers `repo:true' over, so the breadcrumb gains its repo address
+// and git status.  The bug it exists for:
 // ../../docs/bugs/fixed/2026-09-10-the-git-control-vanishes-on-a-view-re-apply.md
 { name: "the git control mounts over a repo and survives a view re-apply",
   repo: true,
@@ -7690,6 +7728,22 @@ export default [
     const up = await gitRead(p, "the control to mount off the first /git poll");
     assert(/^⎇ .+:main$/.test(up.loc),
       `the control reads ${JSON.stringify(up.loc)}, not the served dir and its branch`);
+    const mainAddress = await p.eval(() => document.getElementById("gitctl").textContent
+      .replace(/\s+/g, " ").trim());
+    assert(mainAddress.startsWith(`default @${up.loc}`),
+      `the main breadcrumb reads ${JSON.stringify(mainAddress)}`);
+    await p.press(",");
+    const settingsAddress = await p.until(() => {
+      const ctl = document.getElementById("gitctl");
+      const page = ctl && ctl.querySelector(".g-page");
+      if (!page || page.textContent !== "main -> settings") return false;
+      return ctl.textContent.replace(/\s+/g, " ").trim();
+    }, "settings to extend the git breadcrumb");
+    assert(settingsAddress.startsWith(`main -> settings @${up.loc}`),
+      `the settings breadcrumb reads ${JSON.stringify(settingsAddress)}`);
+    await p.press("DEL");
+    await p.until(() => document.querySelector("#gitctl .g-page").textContent === "default",
+                  "DEL to restore the default page address");
     // NO REMOTE IS NO UPSTREAM, which `glyphFor' draws as the warned ⚠ -- the
     // clean tick is a state an upstream buys, and this fixture has none.
     assert(up.dot === "⚠" && up.cls.includes("g-detached"),
@@ -7703,9 +7757,8 @@ export default [
     const said = await gitSaid(p);
     assert(said.repo && said.branch === "main" && said.upstream === null && !said.dirty,
       `the fixture is not a clean unborn-upstream repo: ${JSON.stringify(said)}`);
-    // THE ROW IS DRAWN, and drawn is what costs the table its top: `#ghead' is
-    // `display:flex' and collapses only `:empty', so a mounted control moves
-    // every row below it -- the reason the other cases keep a non-repo tree.
+    // THE ROW IS DRAWN: every page gets its address, and a repo fills in the
+    // location and status portion without moving the shell-owned node.
     assert(up.row > 0, "the mounted control draws a #ghead row of no height");
     // `g' RE-MOUNTS THE TABLE (`applyDefault' -> `remount'), which is what used
     // to take the control with it: the mark proves the SAME node came through.
@@ -7726,8 +7779,7 @@ export default [
       `the re-mount changed the control: ${JSON.stringify(up)} -> ${JSON.stringify(after)}`);
     return [`the control reads ${JSON.stringify(up.loc)} on a repo with no upstream: `
       + `${up.dot} in a static span ("${up.title}")`,
-      `#ghead costs ${px(up.row)} above the table, which is why only \`repo' cases `
-      + `are served a git tree`,
+      `the shell-owned breadcrumb row is ${px(up.row)} high`,
       "`g' re-mounted the table and the same #gitctl node came through"];
   } },
 

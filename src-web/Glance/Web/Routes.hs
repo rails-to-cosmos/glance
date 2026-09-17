@@ -113,7 +113,8 @@ import Glance.Web.Watch (reload, writeSpans)
 embeddedRenderer :: BS.ByteString
 embeddedRenderer = $(makeRelativeToProject "assets/table-view.js" >>= embedFile)
 
--- | The shell, embedded in PARTS: FRAGMENTS of one script scope, joined in 'gluePartFiles' order.
+-- | The shell, including the page-at-repository address, is embedded in
+-- fragments of one script scope and joined in 'gluePartFiles' order.
 embeddedGlue :: BS.ByteString
 embeddedGlue = BS.concat
   $(listE [ makeRelativeToProject ("frontend/glue/" <> part) >>= embedFile

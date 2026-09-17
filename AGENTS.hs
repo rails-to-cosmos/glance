@@ -1648,8 +1648,8 @@ configNotes =
   , Note "The daemon embeds the tree's default view into the served page as DEFAULT_QUERY, read off the STORE at request time." [Test]
   , Note "P (set-saved-view) writes ONE view under the digest GET /config just served and with no lines key, so the #+TODO: block stands." [Test]
   , Note "- over that palette arms RESET: a letter then writes the EMPTY query, which takes the line off, and the write re-reads /config for the built-in it now lives with." [Browser]
-  , Note "The states table's STATE rides its layer's write and its COLOUR rides system.org's, so one row moves two files in one flush; a keyword no layer declares is listed under file, colourable and immovable." [Browser]
-  , Note "Two editors, one cycle: the states table and the keywords box are both views of the layer's text, so takeLayer reads the box only while its own panel shows." [Browser]
+  , Note "The flat settings catalogue edits each layer's TODO cycle, capture template and per-theme hues as ordinary key-value rows; every changed file leaves in the same drift-locked flush." [Browser]
+  , Note "A setting row names its area, scope, source and write state beside its value, so filtering the shared table replaces settings-only panels." [Browser]
   , Note "The client names a part only where it MOVED — always sending the template puts every layer's first heading through the one-top-entry wall." [Browser]
   , Note "One drift-locked POST /config per FILE that moved, each awaited, each under its own digest; a refusal SELECTS its layer." [Browser]
   , Note "Creating the FIRST .org-glance/config in a tree is two directories at once, which fsnotify arms and never enters, so writeLayer reseeds through Watch.writeSpans." [Test]
@@ -3902,7 +3902,7 @@ data ThemeMode = TLight | TDark deriving (Eq, Show)
 data Theme = Theme String String ThemeMode   -- ^ id, label, which system preference it answers
 themes :: [Theme]                            -- ^ in the order the sheet offers them
 themes = [Theme "light" "light" TLight, Theme "dark" "dark" TDark]
-themeIds :: [String]                         -- ^ the boot script's test and @#themesel@'s options beside `auto'
+themeIds :: [String]                         -- ^ the settings table's accepted theme values beside `auto'
 themeIds = [i | Theme i _ _ <- themes]
 
 stateSlots, prioritySlots :: Int             -- ^ the WIRE's counts, the same for every theme
@@ -4148,7 +4148,7 @@ keyHelps =
   , (["t"],                 "set the state of the marked rows, or the row at point")
   , (["C-c C-t"],           "the org spelling, where the browser lets it through")
   , (["C-c C-s", "C-c C-d"], "a date over the marked rows, or the row at point; empty clears it")
-  , ([","],                 "the settings sheet: theme, keyword cycles")
+  , ([","],                 "the settings table: local preferences and tree configuration")
   , (["C-x C-s"],           "sync the sheet now; again to overwrite a conflict")
   , (["C-c C-c"],           "commit the element being edited")
   , (["C-c '"],             "the sheet as raw org, or as body and properties; sync an edited one first")
@@ -4180,7 +4180,7 @@ surfaces =
   , Surface "links"   True  True  True  True  True  True  False
   , Surface "tags"    True  True  True  True  True  True  False
   , Surface "sheet"   False False True  True  True  False False
-  , Surface "config"  False False True  False True  True  True
+  , Surface "config"  False False True  False True  True  False
   ]
 momentaryUp :: [Surface] -> Maybe Surface    -- ^ the list ORDER breaks the one tie
 momentaryUp = listToMaybe . filter sMomentary
@@ -4430,7 +4430,8 @@ bootQuery (Just q) _   = q
 
 shellNotes :: [Note]
 shellNotes =
-  [ Note "MOVEMENT NEVER CHANGES CONTEXT: n/p, f/b and the grain relocate attention alone, RET goes deeper and DEL comes back out, which is why movement is what ONCE leaves out." [Docs]
+  [ Note "WIDGET REUSE IS A HIGH-PRIORITY PRODUCT RULE: a front-end surface first maps its rows, cursor, editing, filtering and navigation onto a shipped widget whose interaction has proved itself; custom chrome is justified by domain behavior that the shared widget cannot express.  Settings is key-value data, so its front-end is a table-view route in the main mount, with navigation in the page breadcrumb." [Docs]
+  , Note "MOVEMENT NEVER CHANGES CONTEXT: n/p, f/b and the grain relocate attention alone, RET goes deeper and DEL comes back out, which is why movement is what ONCE leaves out." [Docs]
   , Note "The echo speaks SEQ then the command verbatim, anything else in brackets after it; the resident key line is curated prose naming a group." [Test]
   , Note "Chromium handles Ctrl+T/N/W above the document, so C-c C-t is dead in the browser however correctly it is dispatched; C-x C-s works because Ctrl+S is a page default action." [Unguarded]
   , Note "A reserved chord reaches the browser unless it completes a bound sequence; what the list buys is the abandoned prefix." [Test]
@@ -4679,8 +4680,7 @@ popTiers :: [(String, PopTier)]
 popTiers = [ ("state palette",    PopBand)
            , ("tag manager",      PopBand)
            , ("materialize sheet", PopSheet)
-           , ("link popup",       PopSheet)
-           , ("settings sheet",   PopSheet) ]
+           , ("link popup",       PopSheet) ]
 
 -- | `--g-pop-max' in vh: the foot margin is the HEAD's, derived from the anchor.
 popMax :: Double -> Double
@@ -5070,12 +5070,11 @@ lineReadMs = [("List.drop", 75), ("Array.get", 11)]
 --   with a cursor, optional delete flags, a click that selects and a `/' narrow.
 data Mount = Mount { mHost :: String, mCols :: [String], mHint :: String, mPane :: String }
 
--- | The THREE mounts; what a row MEANS stays with the surface, so each keeps its own rows.
+-- | The two secondary mounts; the main and settings catalogues share `tableHost'.
 mounts :: [Mount]
 mounts =
   [ Mount "ltable"  ["title", "url"]                     ""                      "lpane"
-  , Mount "ttable"  ["title", "on", "rows"]              "d/D remove · u unflag" "tpane"
-  , Mount "cstates" ["tag", "state", "group", "colour"]  "d/D remove · u unflag" "cstates" ]
+  , Mount "ttable"  ["title", "on", "rows"]              "d/D remove · u unflag" "tpane" ]
 
 -- | THE ONE LIST THAT IS NOT ELM'S is the table at this host: the renderer's own job.
 tableHost :: String
@@ -5260,51 +5259,36 @@ decimalAt s = case span isDigit s of
   ([], _)    -> Nothing
   (ds, rest) -> Just (read ds, rest)
 
--- ** The settings sheet
+-- ** The settings table
 
--- | `SECTIONS' owns the names and the ORDER: the tab order, the URL FRAGMENT, and the
---   strip of buttons over one pane at a time.  A panel fills itself from the model on
---   arrival through its `enter' hook, and NO caller indexes this list by number.
-data Sec = Sec { secTitle :: String, secParts :: [String], secEnter :: Bool }
+data SettingColumn = Setting | Value | Area | AppliesTo | Source | State
+  deriving (Eq, Show, Enum, Bounded)
 
-secs :: [Sec]
-secs = [ Sec "ui"       ["ctheme"]                   True
-       , Sec "keywords" ["clayers", "ceff", "cfoot"] True ]
+settingsColumns :: [SettingColumn]
+settingsColumns = [Setting, Value, Area, AppliesTo, Source, State]
 
--- | The fields each panel draws.
-secFields :: [(String, [String])]
-secFields = [ ("ui",       ["#themesel", "#readsel", "#czoom", "the tree's own state hues"])
-            , ("keywords", ["the layer select", "#ctext", "#ctpl", "#ceff", "#clab", "#clerr"]) ]
+data SettingState = SettingSaved | SettingChanged | SettingSyncing
+                  | SettingConflict | SettingError | SettingReadOnly
+  deriving (Eq, Show)
 
-data SCol = SColTag | SColState | SColGroup | SColColour deriving (Eq, Show, Enum, Bounded)
-data WriteTo = ItsLayer | SystemOrg deriving (Eq, Show)
--- | THE STATES TABLE, the fourth `listing' mount and the second MUTABLE one.  A STATE
---   rides its layer's write and a COLOUR rides `system.org''s, so one row can move two
---   files and both leave in the one flush; the tag is the layer and is read-only, which
---   is why `#sedit' has three fields.
-statesWrite :: SCol -> Maybe WriteTo
-statesWrite SColTag    = Nothing
-statesWrite SColState  = Just ItsLayer
-statesWrite SColGroup  = Just ItsLayer
-statesWrite SColColour = Just SystemOrg
+-- | Local preferences and tree configuration are one flat key-value catalogue.
+--   Context columns keep similar values distinguishable and make every dimension
+--   available to the table widget's existing filter and sort language.
+data SettingRow = SettingRow
+  { srSetting :: String
+  , srValue :: String
+  , srArea :: String
+  , srAppliesTo :: String
+  , srSource :: String
+  , srState :: SettingState
+  } deriving (Eq, Show)
 
--- | One row per keyword the tree knows, BY LAYER then cycle order (system first, then the
---   tags alphabetically), actives before the done-like.  A word two layers declare is TWO
---   rows: a state belongs to a FILE.
-data StateRow = StateRow { srLayer :: String, srKw :: Kw, srGroup :: String, srHue :: Maybe String }
-
--- | A keyword no config layer declares is listed under the tag `file': the tree
---   recognizes it and this sheet cannot move it, so it is there to be COLOURED and `d'
---   says so and leaves it standing.
-movable :: StateRow -> Bool
-movable r = srLayer r /= "file"
-
--- | ONE THEME CONTROL and the hues follow it: which theme they describe is DERIVED from
---   the reader's choice, `auto' resolving through the media query the boot line reads.
---   Storage stays per theme because READABILITY is.
-hueTheme :: String -> String -> String
-hueTheme "auto" sys = sys
-hueTheme t     _    = t
+-- | Multiline values stay in a single editable table cell by escaping backslash
+--   and newline on display, then decoding them before a config write.
+settingLines :: [String] -> String
+settingLines = intercalate "\\n" . map (concatMap escapeSlash)
+  where escapeSlash '\\' = "\\\\"
+        escapeSlash c    = [c]
 
 -- | The wire carries a hue FLAT in both directions, so nothing iterates keys to read back
 --   what it wrote; the model is `{theme: {keyword: hue}}' on the SYSTEM layer.
@@ -6026,23 +6010,16 @@ sheetNotes =
          \ they do not claim; `preventDefault' fires only where a binding does, and only\
          \ over an open subtree sheet." [Test]
   , Note "The sheet keeps exactly one variable of its own, `--dk-mono' (Hack first)." [Test]
-  , Note "The settings sheet's TAB walks the panels and wraps, `S-TAB' back, the newly\
-         \ shown panel's first control taking the focus; a hidden panel is out of the\
-         \ flow, so its fields leave the tab order with it.  It opens on the theme\
-         \ panel's first field and blurs on the way out." [Test]
-  , Note "The horizontal arrows walk the tab strip while a tab button holds the focus, and\
-         \ the sheet's listener claims nothing while the sheet is shut or a momentary\
-         \ popup stands over it." [Test]
-  , Note "A `parts' id the markup lacks throws at boot: the panels are markup wrapped at\
-         \ boot rather than built from the list, laid out by class." [Test]
-  , Note "TWO EDITORS, ONE CYCLE: `takeLayer' reads the keywords box only while its own\
-         \ panel is showing, and the page renders the one `#+TODO:' line." [Test]
-  , Note "`%' in the template box raises the value palette over the SERVER's code list, so\
-         \ the completion cannot offer a code the expansion does not know: the call declares\
-         \ that vocabulary CLOSED, which is what keeps the typed line out of the list." [Test]
-  , Note "A refusal SELECTS its layer, so the box shows the file the message describes." [Test]
-  , Note "KNOWN GAP: the gear was the coarse pointer's only settings door and went with\
-         \ the corner; `,' cannot be typed there." [Unguarded]
+  , Note "Settings replaces the main table at `?page=config' and uses table-view's row\
+         \ movement, narrowing and Value-cell editor; DEL or the page address restores\
+         \ the prior query and selection." [Test]
+  , Note "The flat catalogue columns are Setting, Value, Area, Applies to, Source and\
+         \ State; local preferences apply immediately and changed tree rows share the\
+         \ existing drift-locked batch save." [Test]
+  , Note "The git control is also the page breadcrumb: `default @⎇ dir:branch' on the\
+         \ main table and `main -> settings @⎇ dir:branch' on the settings route." [Browser]
+  , Note "Multiline TODO cycles and capture templates render with escaped `\\n' inside\
+         \ one Value cell and decode losslessly before they are written." [Test]
   , Note "`assets/elm.js' is a committed BUILD INPUT carrying both programs, embedded by\
          \ its own splice and named as the page's THIRD script; `make elm' reproduces the\
          \ committed bytes over an ephemeral `npx --yes elm', and `elm.json' must say\

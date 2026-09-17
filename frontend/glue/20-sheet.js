@@ -1661,9 +1661,8 @@
       if (!s.dirty()) { s.shut(); return; }
       if (s.state !== "syncing") s.flush().then((ok) => ok && s.shut());
     }
-    for (const id of ["modal", "config"])
-      el(id).addEventListener("click",
-        (e) => { if (e.target === el(id)) leaveSheet(); });
+    el("modal").addEventListener("click",
+      (e) => { if (e.target === el("modal")) leaveSheet(); });
     /** @type {[string, () => void][]} */
     // CALLED at click time: the wrapped widget's `const' is in TDZ while this runs.
     const backdrops = [["links", () => shutLinks()], ["tags", () => shutTags()]];

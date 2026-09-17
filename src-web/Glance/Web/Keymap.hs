@@ -102,7 +102,7 @@ keyBindings = concat
   , bind ["C-c", "C-d"] "org-glance-overview:deadline"    (Just "deadlinePlan")   "table"
       `helps` planningHelp
   , bind [","]          "customize"                       (Just "openSettings")   "table"
-      `helps` "the settings sheet: general, theme, keyword cycles"
+      `helps` "the settings table: local preferences and tree configuration"
   -- ONE KEY, TWO SURFACES, which is the peer's own split: `@' READS the edges
   -- from the table and WRITES one from the sheet.
   , bind ["@"]          "org-glance-material:refer"       (Just "refer")          "modal"

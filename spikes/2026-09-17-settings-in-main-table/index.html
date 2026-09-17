@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings in the main table — spike</title>
+  <link rel="stylesheet" href="spike.css">
+</head>
+<body>
+  <header class="lab">
+    <div>
+      <p class="eyebrow">glance · interaction spike</p>
+      <h1>Settings in the main table</h1>
+      <p id="variant-note"></p>
+    </div>
+    <nav class="variants" aria-label="Spike variants">
+      <button data-variant="flat"><b>A</b> Flat catalogue <span>selected</span></button>
+      <button data-variant="category"><b>B</b> Category drill</button>
+      <button data-variant="source"><b>C</b> Source drill</button>
+    </nav>
+  </header>
+
+  <main class="frame">
+    <section class="browser" aria-label="Glance settings prototype">
+      <div class="browser-top"><span></span><span></span><span></span><strong>glance · /notes</strong></div>
+      <div id="ghead">
+        <nav id="crumbs" aria-label="Page breadcrumb"></nav>
+        <div class="git">⑂ glance:master <i>clean</i></div>
+      </div>
+      <div id="mount"></div>
+      <div class="keys"><b>,</b> settings/main <b>n p</b> move <b>RET</b> open/edit <b>DEL</b> up <b>/</b> narrow <span id="echo"></span></div>
+    </section>
+    <aside class="measure">
+      <div><b>0</b><span>popup nodes</span></div>
+      <div><b id="depth">1</b><span>route depth</span></div>
+      <div><b>1</b><span>navigation model</span></div>
+    </aside>
+  </main>
+
+  <script src="../../assets/table-view.js"></script>
+  <script src="rig.js"></script>
+</body>
+</html>

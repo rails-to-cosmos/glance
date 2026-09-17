@@ -2,8 +2,19 @@
 
 Everything a tree configures lives in org files under
 `<root>/.org-glance/config/` — plain pragmas a person can edit in Emacs or
-through the settings sheet (`,`), and the walk reads none of them as rows.
+through the settings table (`,`), and the walk reads none of them as rows.
 The README's Config section is the crib; this page is the whole law.
+
+Settings replaces the main catalogue at `?page=config` and keeps the same
+table-view navigation, filtering, sorting and cell editor. Its flat schema is
+`Setting | Value | Area | Applies to | Source | State`. Browser preferences
+apply as soon as their Value cell commits. Tree values remain changed until
+`C-x C-s` or leaving the route completes the drift-locked write. `DEL` or the
+`main` page address returns to the previous query and row. Multiline org values
+use `\n` in the cell and decode back to newlines when written.
+
+The shell-owned git control is also the page address. It reads
+`default @⎇ dir:branch` here and `main -> settings @⎇ dir:branch` in settings.
 
 ## The layers
 
@@ -34,7 +45,7 @@ the heading is the pragma region, so the two never overlap.
   `TODO` cannot make it done-like; a tag layer cannot flip what system
   settled. Each tag keeps its **first** config; the union keeps them all.
 - A tag with no layer has no `#+TODO:` cycle of its own — worth minting one
-  (the settings sheet is the one place that creates a layer file) before
+  (the settings table is the one place that creates a layer file) before
   giving its rows custom states.
 
 ## Saved views
@@ -97,7 +108,7 @@ One line per theme is the shape; **every** line is read, and a keyword named
 twice in a theme takes its **last** spelling — so appending a line overrides
 without editing history. Shape alone is validated: an unknown theme declares
 tokens nothing reads, a non-colour is a value CSS ignores — both the
-author's business. The settings sheet edits hues per theme with a picker,
+author's business. The settings table exposes one Value row per theme and keyword,
 and unlike the views, colors gather across **every** layer.
 
 ## What the page remembers outside the tree

@@ -145,8 +145,9 @@ A tag's capture template is the **first `*` heading of its config layer to
 the end of the file**, verbatim — the same `.org-glance/config/tags/TAG.org`
 that carries the tag's `#+TODO:` cycle; everything above the first heading
 is the pragma region. The default template lives in `system.org` the same
-way. The layer file *is* the template file: the settings sheet shows and
-edits it beside the cycle box, one drift-locked write per file.
+way. The layer file *is* the template file: the settings table shows its
+template and TODO cycle as rows with the same Source, one drift-locked write
+per file.
 
 ```org
 # .org-glance/config/tags/book.org
@@ -284,7 +285,7 @@ can spoil. Each is a spoken refusal — nothing is written.
   children arrive as the draft's children, but the template contributes one
   headline.
 - **Template logic on the page.** The page renders a draft; it never expands.
-- **Editing the template from a capture.** The settings sheet owns the layer
+- **Editing the template from a capture.** The settings table owns the layer
   file; the older road consumes it.
 - **A draft that outlives `ESC`.** No autosave, no draft store; a capture is
   committed or it never was.
