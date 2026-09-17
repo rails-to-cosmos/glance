@@ -70,6 +70,7 @@ major minor patch:
 	@tools/cut $@
 
 RENDERER := ../table-view/web/table-view.js
+RENDERER_TYPES := ../table-view/web/table-view.d.ts
 # Committed like the renderer, so the bytes a build embeds are the bytes in the tree.
 elm:
 	@if command -v npx >/dev/null 2>&1; then \
@@ -153,6 +154,14 @@ sync-renderer:
 	else \
 	  cp "$(RENDERER)" assets/table-view.js; \
 	  echo "sync-renderer: copied $(RENDERER) -> assets/table-view.js"; \
+	fi
+	@if [ ! -f "$(RENDERER_TYPES)" ]; then \
+	  echo "sync-renderer: no renderer contract at $(RENDERER_TYPES) -- nothing copied"; \
+	elif git diff --stat --no-index -- frontend/table-view.d.ts "$(RENDERER_TYPES)"; then \
+	  echo "sync-renderer: frontend/table-view.d.ts is already current"; \
+	else \
+	  cp "$(RENDERER_TYPES)" frontend/table-view.d.ts; \
+	  echo "sync-renderer: copied $(RENDERER_TYPES) -> frontend/table-view.d.ts"; \
 	fi
 
 # ITS OWN BUILD DIR: both project files name the same package, so without it each

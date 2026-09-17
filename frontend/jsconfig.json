@@ -38,6 +38,7 @@
     "glue/60-refer.js",
     "glue/70-shell.js",
     "glue/80-git.js",
+    "table-view.d.ts",
     "glue.d.ts"
   ]
 }

@@ -6,7 +6,7 @@
       /** @type {any} */ let ctl = null;
       let elDir = null, elBranch = null, elGlyph = null,
           elDot = null, elN = null, elAuto = null, elFlash = null;
-      /** @type {any} */ let status = null;
+      /** @type {GitStatus | null} */ let status = null;
 
       const baseName = (p) => {
         const parts = String(p || "").split("/").filter(Boolean);
@@ -74,7 +74,9 @@
       }
 
       async function poll() {
-        try { status = await getJSON("/git"); } catch (e) { return; /* keep the last glyph */ }
+        try {
+          status = await /** @type {Promise<GitStatus>} */ (getJSON("/git"));
+        } catch (e) { return; /* keep the last glyph */ }
         render();
       }
 

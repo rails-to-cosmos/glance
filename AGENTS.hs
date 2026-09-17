@@ -6180,10 +6180,12 @@ data BuildAsset = BuildAsset
 buildAssets :: [BuildAsset]
 buildAssets =
   [ BuildAsset "assets/table-view.js"   Sibling (Just "make sync-renderer") (Just WRoutes)
+  , BuildAsset "frontend/table-view.d.ts" Sibling (Just "make sync-renderer") Nothing
   , BuildAsset "assets/elm.js"          Built   (Just "make elm")           (Just WRoutes)
   , BuildAsset "assets/page.css"        Hand    Nothing                     (Just WStyle)
   , BuildAsset "assets/mcp.html"        Hand    Nothing                     (Just WRoutes)
   , BuildAsset "frontend/glue/*.js"     Hand    Nothing                     (Just WRoutes)
+  , BuildAsset "frontend/glue.d.ts"     Hand    Nothing                     Nothing
   , BuildAsset "frontend/jsconfig.json" Hand    Nothing                     Nothing
   ]
 
@@ -6207,10 +6209,13 @@ gluePartFiles =
   ]
 -- | The same list as `tsc' reads it: a part named once cannot drift into two.
 jsconfigFiles :: [Path]
-jsconfigFiles = map ("glue/" <>) gluePartFiles <> ["glue.d.ts"]
+jsconfigFiles = map ("glue/" <>) gluePartFiles <> ["table-view.d.ts", "glue.d.ts"]
 
 sdistExtras :: [Path]
-sdistExtras = ["assets/table-view.js", "assets/elm.js", "assets/page.css"]
+sdistExtras =
+  [ "assets/table-view.js", "assets/elm.js", "assets/page.css"
+  , "frontend/jsconfig.json", "frontend/table-view.d.ts", "frontend/glue.d.ts"
+  ]
 
 -- | `openBinaryTempFile' splits at the LAST dot, so the suffix IS the
 -- leftover's extension and a half-written document is out of the walk's reach.
@@ -6430,7 +6435,7 @@ buildNotes =
   , Note "The vendored packages keep upstream's name and version, so a local package shadows every Hackage version of it and `cabal get NAME-VERSION && diff -r' is the whole diff." [Typed]
   , Note "`vendored/gir/' holds the hand-written GIRs this machine has only -runtime of; haskell-gi searches the env path FIRST, so a distribution copy makes the directory dead weight." [Typed]
   , Note "`make native' rather than a cabal line, because a project file cannot supply the GIR search path." [Docs]
-  , Note "`make sync-renderer' copies from the sibling checkout and prints `git diff --stat --no-index'; with no sibling it copies nothing, which keeps a bare clone buildable. Editing the vendored copy by hand is a fork." [Test]
+  , Note "`make sync-renderer' copies the renderer and its declaration from the sibling checkout and prints `git diff --stat --no-index'; with no sibling it copies nothing, which keeps a bare clone buildable. Glance-only extensions augment the shared declaration in `frontend/glue.d.ts'. Editing the vendored copy by hand is a fork." [Test]
   , Note "`Data.Org.Edit.tempSuffix' is asserted against `isDocument', the string being interesting only for what the walk does with it." [Test]
   , Note "The glue parts are the only source: no whole `glue.js' in the repo, and `--assets DIR' takes either shape." [Test]
   , Note "`TestSelfContained' compares `jsconfig.json' against `gluePartFiles': tsc reports clean over whatever it was handed, so a part named in one and not the other is checked by nothing." [Test]

@@ -1,6 +1,8 @@
 // The shell.  Rules and consequences: AGENTS.hs; grammar: SCHEMA.md.
 
-    const CFG = JSON.parse(document.getElementById("cfg").textContent);
+    const CFG = /** @type {GlueConfig} */ (
+      JSON.parse(document.getElementById("cfg").textContent)
+    );
     const part = (into, tag, cls, text) => {
       const e = document.createElement(tag);
       e.className = cls;
@@ -225,6 +227,7 @@
       restore();
     }
     // `no-store' steps around the browser cache, so the 304 arrives as itself.
+    /** @returns {Promise<{view: TableViewView | null, total: number}>} */
     function load(params, tag) {
       if (inflight) inflight.abort();
       inflight = new AbortController();
@@ -251,6 +254,7 @@
     // A WAL tick, a poll and a filter change all land here.  `setRows' replaces
     // the STORE's rows alone: a draft is the producer's own row and stands
     // through the paint, editor and caret included (35-draft.js).
+    /** @param {{view: TableViewView, total: number}} a */
     const paint = (a) => {
       const rows = a.view.rows || [];
       table.setRows(rows);
@@ -419,6 +423,7 @@
 
     const at = (id, child) => `/headline?id=${encodeURIComponent(id)}`
       + (child === null || child === undefined ? "" : `&child=${child}`);
+    /** @returns {Promise<HeadlineResponse>} */
     const headline = (id, child) => getJSON(at(id, child));
     const post = (id, digest, asked, extra, child) =>
       postJSON(at(id, child), { ...asked, digest }, extra);

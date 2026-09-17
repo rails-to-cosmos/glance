@@ -73,6 +73,11 @@ spec = testGroup "Self-containment"
       assertEqual "a part the build reads and jsconfig.json does not" []
                   [ part | part <- gluePartFiles
                          , not (T.pack ("glue/" <> part) `T.isInfixOf` conf) ]
+      holdsAll "the type checker no longer reads both boundary declarations"
+               ["table-view.d.ts", "glue.d.ts"] conf
+      types <- TIO.readFile "frontend/glue.d.ts"
+      assertBool "TableView has fallen back to an unchecked ambient any"
+                 (not ("declare const TableView: any" `T.isInfixOf` types))
 
     -- The NAME is the second place each fact is written, so both are checked.
   , testCase "every proposal sits in its status's directory, dated by name" $ do
@@ -164,7 +169,10 @@ spec = testGroup "Self-containment"
   , testCase "the vendored renderer has a target that refreshes it" $ do
       makefile <- TIO.readFile "Makefile"
       holdsAll "the Makefile no longer refreshes the vendored renderer"
-               ["sync-renderer:", "../table-view/web/table-view.js", "assets/table-view.js"]
+               [ "sync-renderer:"
+               , "../table-view/web/table-view.js", "assets/table-view.js"
+               , "../table-view/web/table-view.d.ts", "frontend/table-view.d.ts"
+               ]
                makefile
 
     -- The splice door is 'Glance.Web.Watch.writeSpans'; comments are exempt.

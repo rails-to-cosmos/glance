@@ -373,6 +373,7 @@
       },
     });
 
+    /** @param {StoreFrame} frame */
     function apply(frame) {
       const moved = frame.op === "delete-row" ? frame.id : (frame.row || {}).id;
       // `reload' rebuilds both panes, so never over an open edit or unflushed work.
@@ -394,7 +395,8 @@
       socket.onopen = () => {
         backoff = 1000; wash.want("socket", 0);
       };
-      socket.onmessage = (e) => apply(JSON.parse(e.data));
+      socket.onmessage = (e) =>
+        apply(/** @type {StoreFrame} */ (JSON.parse(e.data)));
       socket.onclose = (e) => {
         socket = null;
         wash.want("socket", 1);
@@ -436,7 +438,7 @@
     // default is RE-APPLIED only where the reader has not made the query theirs.
     function adopt() {
       blind = false;
-      getJSON("/config").then((cfg) => {
+      getJSON("/config").then((/** @type {ConfigResponse} */ cfg) => {
         logConfig(cfg);
         const was = savedQuery("default");
         seedViews(cfg.views);

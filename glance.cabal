@@ -33,6 +33,10 @@ extra-source-files:
     assets/page.css
     -- And the shell, one widget per file, in `Glance.Web.Base.gluePartFiles' order.
     frontend/glue/*.js
+    -- The checked-JavaScript inputs and the renderer's shared contract.
+    frontend/jsconfig.json
+    frontend/table-view.d.ts
+    frontend/glue.d.ts
     -- The Elm programs, compiled to one file by `make elm'.
     assets/elm.js
     -- The GET /mcp explorer page, embedded by `Glance.Web.Routes'.

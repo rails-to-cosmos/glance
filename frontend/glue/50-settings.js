@@ -225,14 +225,17 @@
         append("config", "error", `settings failed: ${e.message}`);
       });
     }
+    /** @returns {Promise<ConfigResponse>} */
     const config = () => getJSON("/config");
+    /** @param {ConfigResponse} b */
     function drawLayers(b) {
       crows = (b.layers || []).map(layerRow).sort(byLayer);
-      drawHues(b, b.keywords || {});
+      drawHues(b, b.keywords);
     }
     /** @type {Record<string, Record<string, string>>} */
     let hues = {};
     let knownStates = [], huesBase = "";
+    /** @param {ConfigResponse} b @param {ConfigKeywords} kw */
     function drawHues(b, kw) {
       hues = {};
       for (const c of b.colors || []) {
@@ -266,7 +269,7 @@
      * @property {{active: string[], inactive: string[]}} kw  the same lines PARSED.
      */
     /**
-     * @param {any} layer  one entry of `GET /config`'s `layers`.
+     * @param {ConfigLayer} layer  one entry of `GET /config`'s `layers`.
      * @returns {LayerRow}
      */
     const layerRow = (layer) => ({
@@ -364,6 +367,7 @@
     // rows that filter chose — then any tag layer the tree already has.  FOLDED,
     // because `tagOf' lowercases a layer's basename into its tag: `Book' and
     // `book' name one layer, and offering both would mint the file twice.
+    /** @param {ConfigResponse} cfg */
     function mintSpaces(cfg) {
       const held = (cfg.layers || []).map((l) => l.tag).filter(Boolean);
       const named = filteredTags();
@@ -393,6 +397,7 @@
     }
     // The layer the namespace names, MINTED where the tag has no file: an absent
     // layer is a path and an empty digest, which is what a write reads as "create".
+    /** @param {ConfigResponse} cfg */
     function mintLayer(cfg, space) {
       const layers = cfg.layers || [];
       if (space === "system") return layers.find((l) => !l.tag) || null;
@@ -405,6 +410,7 @@
     }
     // A HUE PER THEME, over the colours already declared: the write replaces the
     // whole `#+GLANCE_STATE_COLORS:' block, so what is kept is sent again.
+    /** @param {ConfigResponse} cfg */
     function mintHues(cfg, name) {
       const want = [["light", el("nlight").value.trim()], ["dark", el("ndark").value.trim()]]
         .filter(([, hue]) => hue);
@@ -631,9 +637,10 @@
       mine.raising = byKey;
       const views = (CFG.views || []).map((v) =>
         ({ label: v.id, hint: savedQuery(v.id) || "all rows", tag: v.id }));
-      offer(views.concat([{ label: "reset", key: "-", cut: -1, fixed: true, reset: true,
-                            hint: back ? "on · a letter puts the built-in back"
-                                       : "off · put a view's built-in back" }]));
+      offer([...views,
+             { label: "reset", key: "-", cut: -1, fixed: true, reset: true,
+               hint: back ? "on · a letter puts the built-in back"
+                          : "off · put a view's built-in back" }]);
     }
     function writeView(id, q, spoke) {
       return getJSON("/config").then((a) => {

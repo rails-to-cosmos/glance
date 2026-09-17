@@ -1,9 +1,9 @@
 # Proposal — a boundary the language enforces, and which language
 
-**Status:** proposed · **Date:** 2026-08-14 · **Origin:** user — "the glue is
+**Status:** partial · **Date:** 2026-08-14 · **Origin:** user — "the glue is
 hard to read spaghetti hell; rewrite it in TypeScript" and "any parts that could
 benefit from migrating to Elm?" · **Successor to:**
-[../partial/2026-08-08-widget-files.md](../partial/2026-08-08-widget-files.md), whose
+[2026-08-08-widget-files.md](2026-08-08-widget-files.md), whose
 own words this answers: *what is missing is a boundary the language enforces.*
 
 ## The measurement, and what it says about the last attempt
@@ -130,7 +130,7 @@ measurable, and any of them worth stopping after.
 2. **Break one cycle without moving a line into another language.** The
    surfaces reach into each other because there is no registry to coordinate
    through — which
-   [2026-08-06-overlay-registry.md](2026-08-06-overlay-registry.md)
+   [2026-08-06-overlay-registry.md](../proposed/2026-08-06-overlay-registry.md)
    already proposes for the edit shapes. Land that, measure how many of the ten
    pairs it dissolves, and re-count before doing more.
 3. **Move `05-keys.js` to Elm as the worked example.** 59 lines, nearly pure,
@@ -180,3 +180,24 @@ Global browser shortcuts and overlay routing belong in the typed adapter. The
 document-local key state machine belongs with `Doc.elm`, where its row, cursor,
 and flag state already lives. Move one document key family first and measure the
 deleted mirror and port traffic before expanding the boundary.
+
+## 2026-09-17 implementation
+
+The first enforceable boundary is in place. The sibling renderer owns
+`web/table-view.d.ts`; glance vendors it as `frontend/table-view.d.ts`, and
+`make sync-renderer` carries the JavaScript and declaration together. The
+declaration covers the renderer's cells, columns, rows, views, mount options,
+handle, query tokens, sorting, and operations. Glance's extra producer-row and
+cell-geometry methods are an interface augmentation in `glue.d.ts`, which makes
+the remaining renderer fork visible instead of widening the whole API to
+`any`.
+
+The same local declaration now names the server values at the high-fan-out
+doors: the page configuration blob, headline and config responses, git status,
+and websocket store frames. `CFG`, `/headlines`, `/headline`, `/config`, `/git`,
+and the websocket parser are checked against those shapes. This caught two
+implicit shape assumptions in settings during the change.
+
+The wider proposal remains partial. Per-file null and implicit-any strictness,
+cycle removal, and a measured Elm key-family extraction remain separate review
+steps.
