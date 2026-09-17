@@ -1,6 +1,6 @@
 # Proposal — settings are typed descriptors
 
-**Status:** proposed · **Date:** 2026-09-17 · **Origin:** flat catalogue maintainability audit
+**Status:** done · **Date:** 2026-09-17 · **Origin:** flat catalogue maintainability audit
 
 ## Pattern
 
@@ -72,3 +72,19 @@ tests because their current paths differ.
 `CFIELDS` already puts dirty comparison, wire encoding and receipt handling in
 behavior-owning records (`frontend/glue/50-settings.js:290-307`). `AGENTS.hs`
 already models the closed setting columns and states (`AGENTS.hs:5262-5284`).
+
+## Outcome
+
+`SettingDescriptor` is now the catalogue's typed model. Its `read`, `state` and
+optional `commit` functions derive each six-column row directly; the parallel
+row/model structures and positional eight-argument builder are gone. One editor
+owns synchronous validation and asynchronous syncing, saved and error states.
+
+The catalogue concatenates `Preferences.settings()`, `Views.settings()` and
+`Config.settings()`. Their state owners now live in separate glue parts:
+`55-preferences.js`, `45-views.js` and `50-settings.js`. The shared descriptor
+contract and row projection live in `42-setting-descriptors.js`.
+
+The harness covers a refused synchronous preference and a rejected asynchronous
+saved-view write. Existing settings route and browser cases preserve row ids,
+labels, columns, persistence behavior and tree-write timing.

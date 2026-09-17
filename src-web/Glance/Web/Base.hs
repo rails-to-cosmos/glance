@@ -130,7 +130,10 @@ gluePartFiles =
   , "36-date-cell.js"  -- the date in the cell: the box over the cell, and `C-c C-s's split
   , "37-tags.js"       -- the offer menu, the tag vocabulary and the run's own spelling
   , "40-popups.js"     -- the link popup and the tags popup
-  , "50-settings.js"   -- the settings table: local preferences and tree configuration
+  , "42-setting-descriptors.js" -- the six-column setting contract
+  , "45-views.js"      -- main-table navigation and saved-view settings
+  , "50-settings.js"    -- the settings route and tree configuration
+  , "55-preferences.js" -- browser and native-window preferences
   , "60-refer.js"      -- `@' in the sheet: the reference picker, a table-view over /refer
   , "70-shell.js"      -- the modal surfaces, the dispatch and the boot
   , "80-git.js"        -- the page breadcrumb and git sync control above table-view

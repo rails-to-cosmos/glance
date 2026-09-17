@@ -397,6 +397,8 @@ globalThis.fetch = (url, init) => {
                            keywords: { active: ["TODO"], inactive: ["DONE"] } });
     const sent = JSON.parse((init || {}).body || "{}");
     configWrites.push(sent);
+    if (refusing)
+      return answer(409, { reason: "drift", error: "system.org changed on disk" });
     // A TAG LAYER IS MINTED BY BEING WRITTEN TO, as `mintableLayer' does it: only
     // under this tree's own `tags/', and only where org can read the basename back.
     let layer = layers.find((l) => l.path === sent.path);

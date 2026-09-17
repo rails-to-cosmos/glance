@@ -7188,7 +7188,7 @@ export default [
       document.head.appendChild(st);
     });
     // THE PAGE HAS NO THEME KEY -- `~' is unbound.  The settings sheet's own
-    // `setTheme' writes `data-theme' on the root (`50-settings.js:779'), and
+    // `setTheme' writes `data-theme' on the root (`55-preferences.js'), and
     // this is that write.
     const dressed = async (theme) => {
       await p.eval((t) => document.documentElement.setAttribute("data-theme", t),

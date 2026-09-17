@@ -5646,6 +5646,27 @@ settingsSpec shell =
         assertEqual "with no tree write" ([] :: [Value])
           =<< listAt "configWrites" answer
 
+  , keyedIn shell "native" "" "native preferences initialize before the route opens"
+      "," "" $ \answer -> do
+        assertEqual "the stored zoom is worn at boot" ["1"] =<< textsAt "zoomed" answer
+        assertEqual "the native zoom row is editable" "100%"
+          =<< settingCell "Zoom" "value" answer
+
+  , keyed shell "a synchronous descriptor keeps its value when validation refuses it"
+      "," "svalue:Theme/neon" $ \answer -> do
+        assertEqual "the theme is unchanged" "" =<< textAt "theme" answer
+        assertEqual "the stored preference is unchanged" "auto" =<< textAt "themeStored" answer
+        assertEqual "the row still reads the owned value" "auto"
+          =<< settingCell "Theme" "value" answer
+
+  , keyed shell "an asynchronous descriptor owns its error state"
+      "," "refuse svalue:default_view/state:DONE" $ \answer -> do
+        assertEqual "one refused write" 1 . length =<< listAt "configWrites" answer
+        assertEqual "the served view is unchanged" "state:*active*"
+          =<< textAt "served" answer
+        assertEqual "the descriptor says error" "error"
+          =<< settingCell "default view" "state" answer
+
   , keyed shell "a tree value becomes changed in the table"
       "," "svalue:system_TODO_cycle/#+TODO:_A_|_B" $ \answer ->
         assertEqual "the row says changed" "changed"
@@ -6954,8 +6975,8 @@ shellGlue =
       [ "z-index:3" ]
 
   , glue "the theme setting is a table row the page honours"
-      [ "add(\"local:theme\", \"Theme\", themed.get()"
-      , "const themeNames = [\"auto\", ..."
+      [ "id: \"local:theme\", label: \"Theme\""
+      , "const themeNames = [\"auto\", ...((config && config.themes) || [])];"
       , ":root[data-theme=\"light\"]{", ":root[data-theme=\"dark\"]{"
       , ":root[data-theme=\"light\"] .tv-root{"
       , ":root[data-theme=\"dark\"] .tv-root{"
@@ -6967,7 +6988,7 @@ shellGlue =
   -- THE PANE RESTS POINT'S ROW ON A LINE, and where that line is drawn is the
   -- reader's, browser-local like the theme and banded so a band always stands.
   , glue "the reading line is a stored preference and settings row"
-      [ "add(\"local:reading-line\", \"Reading line\""
+      [ "id: \"local:reading-line\", label: \"Reading line\""
       , "const READ = { key: \"glance-reading-line\", def: 60, min: 20, max: 90 };"
       , "const readPref = pref(READ.key, String(READ.def));"
       , "return clamp(+t, READ.min, READ.max);"
@@ -7012,8 +7033,8 @@ shellGlue =
       , "&& window.webkit.messageHandlers[name]) || null;"
       , "const host = hosted(\"quit\");"
       -- The row reads the level back.
-      , "add(\"local:zoom\", \"Zoom\""
-      , "hosted(\"zoom\") ? `${zoomAt}%` : \"browser controlled\""
+      , "id: \"local:zoom\", label: \"Zoom\""
+      , "read: () => hosted(\"zoom\") ? `${zoomAt}%` : \"browser controlled\""
       , "const seqOf = (command, scope) => {"
       , ".map((c) => seqOf(c, \"window\")).filter(Boolean).join(\" / \");"
       , "textScaleIncrease: (b) => said(b, `${zoomedBy(1)}%`)," ]
@@ -7029,8 +7050,8 @@ shellGlue =
       , "{ key: \"source\", header: \"Source\""
       , "{ key: \"state\", header: \"State\""
       , "crows = (b.layers || []).map(layerRow).sort(byLayer);"
-      , "add(`cycle:${r.path}`, `${prefix} TODO cycle`"
-      , "add(`template:${r.path}`, `${prefix} capture template`"
+      , "id: `cycle:${layer.path}`, label: `${prefix} TODO cycle`"
+      , "id: `template:${layer.path}`, label: `${prefix} capture template`"
       , "const cdirty = () => crows.some(cmoved);"
       , "const cmoved = (r) => r.text !== r.base || cfmoved(r).length > 0;"
       , "const cfmoved = (r) => CFIELDS.filter((f) => f.on(r) && f.now(r) !== f.was(r));"
@@ -11746,8 +11767,16 @@ keymapSpec shell = testGroup "Shell keymap"
       holdsAll "the settings schema"
         [ "const SETTINGS_COLUMNS = ["
         , "header: \"Setting\"", "header: \"Value\"", "header: \"Area\""
-        , "header: \"Applies to\"", "header: \"Source\"", "header: \"State\"" ] b
-      holdsNone "the retired panel registry" ["const SECTIONS", "id=\"ctabs\""] b
+        , "header: \"Applies to\"", "header: \"Source\"", "header: \"State\""
+        , "const settingDescriptor = (descriptor) => descriptor;"
+        , "const Preferences = {", "const Views = {", "const Config = {"
+        , ".concat(Views.settings(configData"
+        , ".concat(Config.settings())"
+        , "const work = descriptor.commit(value);"
+        , "Promise.resolve(work).then(() => {" ] b
+      holdsNone "the retired parallel model and positional builder"
+        [ "const SECTIONS", "id=\"ctabs\"", "settingModels", "const add = (id"
+        , "typeof work.then" ] b
 
   , shellCase shell "page routes stay outside the overlay registry" $ \b -> do
       holdsAll "the page coordinator"

@@ -146,6 +146,25 @@ type StoreFrame =
 
 type SaveState = "synced" | "syncing" | "conflict" | "error";
 
+type SettingState =
+  | "saved"
+  | "changed"
+  | "syncing"
+  | "conflict"
+  | "error"
+  | "read-only";
+
+interface SettingDescriptor {
+  id: string;
+  label: string;
+  area: string;
+  appliesTo: string;
+  source: string;
+  read(): string;
+  state(): SettingState;
+  commit?: (raw: string) => void | Promise<void>;
+}
+
 interface SaveSession {
   noteId: string;
   scope: string;
