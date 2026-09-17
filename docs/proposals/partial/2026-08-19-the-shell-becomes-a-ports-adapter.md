@@ -120,8 +120,8 @@ while following the stronger widget-reuse rule.
 The independent bundle step is complete. `make elm` compiles an optimized
 temporary program, compresses it with the Elm runtime's pure curry/apply
 helpers, then mangles it in a separate pass. Both passes use
-`terser@5.44.0`; after the first key-family move the committed result is 77,490
-bytes raw and 26,166 bytes gzipped, down from 318,232 and 63,657 bytes
+`terser@5.44.0`; after the current key-family moves the committed result is
+77,851 bytes raw and 26,291 bytes gzipped, down from 318,232 and 63,657 bytes
 respectively.
 
 The offline suite now checks the pinned two-pass recipe, the bundle size, and
@@ -142,3 +142,10 @@ second semantic registry. JavaScript owns the synchronous DOM decision; Elm
 owns what the claimed key means. Programmatic table walks retain the explicit
 `step` message and do not arm a keyboard echo. The remaining document key
 families and state mirrors keep this proposal partial.
+
+TAB folding and `M-<left>`/`M-<right>` subtree shifts now use the same binding
+table. Elm also publishes which keys reject auto-repeat and which may answer on
+the write port. The adapter uses those two protocol facts to preserve one-shot
+dispatch and connect the response, while the fold/shift meaning and direction
+exist only in Elm. The old `tab` and `shift` messages and `shiftHere` dispatcher
+are gone.

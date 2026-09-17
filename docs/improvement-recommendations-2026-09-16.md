@@ -10,10 +10,9 @@ large modules that implement them.
    `proposals/done/2026-09-16-the-files-are-the-log.md`.
 2. **Clear the data-integrity bugs.** Keep `EXTERNAL.jsonl` and
    `COMPLETIONS.jsonl` out of git and out of the union merge driver; make a
-   stale `index.lock` visible and let auto-sync finish its child on shutdown;
-   make git actions a closed, total sum; move a newly tagged inbox jot into its
-   blob; and preserve the peer-adoption interop oracle until org-glance lands
-   its half.
+   stale `index.lock` visible; make git actions a closed, total sum; move a newly
+   tagged inbox jot into its blob; and preserve the peer-adoption interop oracle
+   until org-glance lands its half.
 3. **Make printed registries verifiable.** Compare the model's key and popup
    registries directly with `Glance.Web.Keymap` and
    `Glance.Web.Page.Popups` in `TestSpec`.

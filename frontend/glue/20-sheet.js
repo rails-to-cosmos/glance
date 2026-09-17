@@ -39,6 +39,7 @@
     // THE DOC PANE IS AN ELM PROGRAM; the MIRROR is a macrotask behind — AGENTS.hs.
     const DCELLS = CFG.dcells;
     let drows = [], dat = 0, dkeys = new Set();
+    let donceKeys = new Set(), dwritingKeys = new Set();
     let dflags = [], dbody = "", dlinks = [], dprops = [], dplan = [];
     // WHICH PLANNING ENTRY POINT STANDS IN, by KEYWORD; `null' is the whole line.
     let dplankey = null;
@@ -66,6 +67,8 @@
       dport.docState.subscribe((now) => {
         drows = now.rows; dat = now.at;
         dkeys = new Set(now.keys || []);
+        donceKeys = new Set(now.onceKeys || []);
+        dwritingKeys = new Set(now.writingKeys || []);
         dflags = now.flags; dbody = now.body;
         dprops = now.properties; dplan = now.planning;
         dplankey = now.planKey || null;
@@ -159,12 +162,13 @@
     var docAtNow = () => (drows[dat] || {}).id || "";
     // The programmatic walk stays quiet; Elm publishes and interprets key movement.
     const docStep = (step) => dsend({ kind: "step", by: step });
-    /** `M-<left>'/`M-<right>': org's `org-promote-subtree'/`org-demote-subtree'.
-     * THE MODEL OWNS ROWS, WALLS AND WORD; write and refusal come back named. */
-    function shiftHere(k, by) {
+    // A model write answers on `docBody`; ordinary key movement answers on `docSaid`.
+    function docKey(k) {
+      const message = { kind: "key", key: k };
+      if (!dwritingKeys.has(k)) { dsay(k, message); return; }
       const say = keySaid(k);
       answerOnce((cargo) => say(cargo.said), say);
-      dsend({ kind: "shift", by });
+      dsend(message);
     }
     function openHere() {
       const r = docRowAt(), b = docBinding("org-glance-overview:open");
@@ -1416,18 +1420,16 @@
         if (k === "RET") once(commitDocEdit);
         else if (k !== "TAB") return;   // ESC is the keymap's, puts the element back
       } else {
-        if (dkeys.has(k)) dsay(k, { kind: "key", key: k });
+        if (dkeys.has(k)) {
+          if (donceKeys.has(k)) once(() => docKey(k)); else docKey(k);
+        }
         else if (k === "RET") once(docEnter);
         else if (k === "DEL") once(docUp);
-        else if (k === "TAB")
-          once(() => dsay(k, { kind: "tab" }));
         else if (k === "S-<up>" || k === "S-<down>")
           once(() => atElement(() => cycleHere(k === "S-<up>" ? 1 : -1)));
         else if (k === "o" || k === "!") once(openHere);
         // THE BROWSER OWNS `C-l' FOR ITS ADDRESS BAR, so the key is claimed.
         else if (k === "C-l") once(() => recenterHere(k));
-        else if (k === "M-<left>" || k === "M-<right>")
-          once(() => shiftHere(k, k === "M-<right>" ? 1 : -1));
         else if (k === "t") once(() => atElement(stateHere));
         else if (k === ":") once(() => atElement(tagsHere));
         else if (k === "SPC")

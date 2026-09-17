@@ -11,6 +11,13 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## 0.7.2.0 - 2026-09-17
 
+### Removed
+
+- **The auto-sync worker and header toggle are gone.** The git breadcrumb is a
+  passive repository-state readout. Git writes remain available only as
+  explicit `POST /git` actions; document writes no longer enqueue background
+  commits or pushes.
+
 ### Added
 
 - **A tag completes where a tag is typed.** The draft row's tag cell and the

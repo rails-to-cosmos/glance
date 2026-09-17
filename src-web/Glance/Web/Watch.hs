@@ -34,9 +34,8 @@ import Glance.Query ( LoadFailure (..), Span, TailCursor, WalkOptions (..)
                     , WriteFailure, blobPathIn, configPath, derivedPath
                     , documentPath, loadFileWith, replaceSpans, segmentEnd
                     , segmentIn, storeRootIn, tailFrom, tailedFile )
-import Glance.Web.Git (autoSyncPoke)
 import Glance.Web.Store ( CloseReason (ViewChanged), Frame (..)
-                        , Hub (hubAutoSync, hubPending, hubStore)
+                        , Hub (hubPending, hubStore)
                         , RowOp (..), Store (stConfig)
                         , applyFile, dropFile, loadStoreWith, publish, reseeded )
 
@@ -93,9 +92,7 @@ writeSpans opts hub path digest edits = do
   either (const (pure ())) (const landed) written
   pure written
   where
-    -- On the success branch only: nudge the re-read, then poke Model B (a no-op
-    -- unless auto-sync is on and armed).  Off the request path; never blocks the write.
-    landed = nudge opts hub path >> (readTVarIO (hubAutoSync hub) >>= mapM_ autoSyncPoke)
+    landed = nudge opts hub path
 
 -- | The ripe PATHS folded into HUB; a config file among them makes it a reseed.
 settle :: WalkOptions -> FilePath -> Hub -> [FilePath] -> IO ()

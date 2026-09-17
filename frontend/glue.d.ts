@@ -164,8 +164,6 @@ interface GitRepoStatus {
   glyph: string;
   cls: string;
   label: string;
-  autosync: boolean;
-  armed: boolean;
 }
 
 type GitStatus = GitOutsideRepo | GitRepoStatus;
@@ -266,6 +264,8 @@ interface DocState {
   at: number;
   id: string;
   keys: string[];
+  onceKeys: string[];
+  writingKeys: string[];
   grain: string;
   flags: string[];
   lines: number;

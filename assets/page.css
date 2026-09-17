@@ -1326,20 +1326,7 @@ html.stale #app,{{WASHED_STALE}} {
 #gitctl .g-loc { color: var(--g-fg); opacity: .9; }
 #gitctl .g-loc .g-vc { color: var(--g-mute); opacity: .8; }
 #gitctl .g-loc .g-dir { color: var(--g-mute); }
-/* The auto-sync toggle is the row's only button; the glyph is a static readout. */
-#gitctl .g-auto {
-    font: inherit;
-    color: var(--g-fg);
-    background: transparent;
-    border: 1px solid var(--g-border);
-    border-radius: 6px;
-    padding: 1px 7px;
-    cursor: pointer;
-    line-height: 1.4;
-}
-#gitctl .g-glyph,#gitctl .g-auto,#gitctl .g-flash { margin-left: 8px; }
-#gitctl .g-auto:hover { background: var(--g-surface); }
-#gitctl .g-glyph { display: inline-flex; align-items: center; gap: 5px; cursor: default; }
+#gitctl .g-glyph { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; cursor: default; }
 #gitctl .g-glyph .g-n { font-variant-numeric: tabular-nums; }
 /* The dot carries the state's colour; the count follows it. */
 #gitctl .g-clean    .g-dot, #gitctl .g-clean    .g-n { color: var(--g-mute); }
@@ -1348,10 +1335,6 @@ html.stale #app,{{WASHED_STALE}} {
 #gitctl .g-ahead    .g-dot, #gitctl .g-ahead    .g-n { color: var(--g-ok); }
 #gitctl .g-dirty    .g-dot, #gitctl .g-dirty    .g-n { color: var(--g-warn); }
 #gitctl .g-diverged .g-dot, #gitctl .g-diverged .g-n { color: var(--g-bad); }
-/* Auto-sync (Model B): lit only when on AND armed. */
-#gitctl .g-auto.g-on { color: var(--g-ok); border-color: var(--g-ok); }
-#gitctl .g-flash { color: var(--g-mute); font-size: 12px; opacity: .85; }
-
 /* The view-pin badge stays at the whole panel's right edge: the chips span the full row (col2 idle) and the pin is absolute to its right edge, centred on the chip row; `padding-right' keeps a wrapping chip clear of it. */
 #app .tv-dock > .tv-chips {
     grid-column: 1 / -1;

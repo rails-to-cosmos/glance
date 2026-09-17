@@ -102,7 +102,7 @@ import Glance.Web.Theme (themeIds)
 import Glance.Web.Store ( Client, CloseReason (Resync), Frame (Close), Hub
                         , LoadState (..), closeReason
                         , Store (stConfig, stEdges, stGen, stPrint), frameText, layersFor
-                        , hubAutoSync, hubDoctor, hubLoad, hubStore, nextFrame
+                        , hubDoctor, hubLoad, hubStore, nextFrame
                         , headlinesIn
                         , storeKeywords
                         , storeRecords, storeResult
@@ -171,8 +171,8 @@ httpApp opts hub request respond = route >>= respond
                                              , (methodPost, mcpRoute (mcpToolsFor opts hub) request) ])
       -- git is independent of the org walk, so it answers while the store loads.
       , (["git"],        False, jsonRefusal,
-          [ (methodGet,  readTVarIO (hubAutoSync hub) >>= gitStatusView opts)
-          , (methodPost, readTVarIO (hubAutoSync hub) >>= \mas -> gitSyncRoute opts mas request) ])
+          [ (methodGet,  gitStatusView opts)
+          , (methodPost, gitSyncRoute opts request) ])
       ]
     route = case [ r | r@(path, _, _, _) <- named, path == pathInfo request ] of
       ((path, needs, refuse, methods) : _) -> do

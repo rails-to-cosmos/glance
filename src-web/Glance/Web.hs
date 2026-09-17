@@ -24,10 +24,9 @@ import Glance.Query ( IdCollision (..), QueryResult (..), captureTargetIn, diagn
                    , segmentEnd, segmentIn )
 import Glance.Web.Base ( ServeOptions (..), defaultPort, tenths, viewTitleFor
                        , walkFor )
-import Glance.Web.Git (newAutoSync, stopAutoSync)
 import Glance.Web.Routes (application, bootstrapWanted, hasRenderer)
 import Glance.Web.Store ( Hub, Store, finishLoading, loadStoreWith
-                        , newLoadingHub, setAutoSync, stashDoctor, storeResult )
+                        , newLoadingHub, stashDoctor, storeResult )
 import Glance.Web.Watch (say, watchOrgTree)
 
 
@@ -43,11 +42,9 @@ serveAs mode opts listening = do
   assets <- hasRenderer opts
   started <- getMonotonicTime
   hub <- newLoadingHub started
-  auto <- newAutoSync (soDir opts)  -- Model B: reads git config; worker idle until poked.
-  setAutoSync hub auto
   loader <- forkIO (indexTree opts hub started)
   Warp.runSettings (settings (announce assets)) (application opts hub)
-    `finally` (killThread loader >> stopAutoSync auto)
+    `finally` killThread loader
   where
     settings ready = Warp.setHost "127.0.0.1"
                    . Warp.setPort (soPort opts)

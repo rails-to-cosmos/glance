@@ -1,7 +1,7 @@
 port module Doc exposing
     ( BoxFace(..)
     , Model
-    , Movement(..)
+    , KeyAction(..)
     , compactedRun
     , cookieIn
     , cookieKind
@@ -10,8 +10,10 @@ port module Doc exposing
     , findCookie
     , hiddenDone
     , main
-    , movementFor
-    , movementKeys
+    , keyActionFor
+    , keyKeys
+    , keyOnceKeys
+    , keyWritingKeys
     , rollUp
     )
 
@@ -462,29 +464,49 @@ elementSpan m r =
 
 -- UPDATE
 
-type Movement
-    = RowMove Int
-    | FinerMove
-    | BroaderMove
-    | ClimbMove
+type KeyAction
+    = MoveRow Int
+    | MoveFiner
+    | MoveBroader
+    | MoveClimb
+    | FoldPoint
+    | ShiftBy Int
 
-movementKeys : List String
-movementKeys =
-    List.map Tuple.first movementBindings
+keyKeys : List String
+keyKeys =
+    List.map .key keyBindings
 
-movementFor : String -> Maybe Movement
-movementFor key =
-    List.filter (\( candidate, _ ) -> candidate == key) movementBindings
+keyWritingKeys : List String
+keyWritingKeys =
+    List.filterMap (\binding -> if binding.writes then Just binding.key else Nothing) keyBindings
+
+keyOnceKeys : List String
+keyOnceKeys =
+    List.filterMap (\binding -> if binding.once then Just binding.key else Nothing) keyBindings
+
+keyActionFor : String -> Maybe KeyAction
+keyActionFor key =
+    List.filter (\binding -> binding.key == key) keyBindings
         |> List.head
-        |> Maybe.map Tuple.second
+        |> Maybe.map .action
 
-movementBindings : List ( String, Movement )
-movementBindings =
-    List.map (\key -> ( key, RowMove 1 )) [ "<down>", "n", "j", "C-n" ]
-        ++ List.map (\key -> ( key, RowMove -1 )) [ "<up>", "p", "k", "C-p" ]
-        ++ List.map (\key -> ( key, FinerMove )) [ "f", "l", "<right>" ]
-        ++ List.map (\key -> ( key, BroaderMove )) [ "b", "h", "<left>" ]
-        ++ [ ( "B", ClimbMove ) ]
+type alias KeyBinding =
+    { key : String, action : KeyAction, writes : Bool, once : Bool }
+
+bindings : List String -> KeyAction -> Bool -> Bool -> List KeyBinding
+bindings keys action writes once =
+    List.map (\key -> { key = key, action = action, writes = writes, once = once }) keys
+
+keyBindings : List KeyBinding
+keyBindings =
+    bindings [ "<down>", "n", "j", "C-n" ] (MoveRow 1) False False
+        ++ bindings [ "<up>", "p", "k", "C-p" ] (MoveRow -1) False False
+        ++ bindings [ "f", "l", "<right>" ] MoveFiner False False
+        ++ bindings [ "b", "h", "<left>" ] MoveBroader False False
+        ++ bindings [ "B" ] MoveClimb False False
+        ++ bindings [ "TAB" ] FoldPoint False True
+        ++ bindings [ "M-<left>" ] (ShiftBy -1) True True
+        ++ bindings [ "M-<right>" ] (ShiftBy 1) True True
 
 type Msg
     = Fill Model
@@ -542,11 +564,13 @@ update msg model =
             in
             told (reveal { landed | col = col })
         MoveKey key ->
-            case movementFor key of
-                Just (RowMove by) -> update (Step by) model
-                Just FinerMove -> update Finer model
-                Just BroaderMove -> update Broader model
-                Just ClimbMove -> update Climb model
+            case keyActionFor key of
+                Just (MoveRow by) -> update (Step by) model
+                Just MoveFiner -> update Finer model
+                Just MoveBroader -> update Broader model
+                Just MoveClimb -> update Climb model
+                Just FoldPoint -> update Tab model
+                Just (ShiftBy by) -> update (Shift by) model
                 Nothing -> ( model, Cmd.none )
         Step by ->
             -- A ROW STEP OWES ITS WORD too, so `n'/`p' echo like `f'/`b'; the
@@ -1421,7 +1445,9 @@ stateJSON m =
         ([ ( "rows", E.list (rowJSON m) m.rows )
         , ( "at", E.int m.at )
         , ( "id", E.string (Maybe.withDefault "" (Maybe.map .id (rowAt m))) )
-        , ( "keys", E.list E.string movementKeys )
+        , ( "keys", E.list E.string keyKeys )
+        , ( "onceKeys", E.list E.string keyOnceKeys )
+        , ( "writingKeys", E.list E.string keyWritingKeys )
 
         -- WHICH ENTRY OF THE PLANNING LINE POINT STANDS IN, by its KEYWORD:
         -- null is the whole line, and the shell reads no index of its own.
@@ -1636,15 +1662,11 @@ msgD =
                     -- which slot on it the widget is standing in.
                     "draftplan" -> D.map DraftPlan (D.field "key" D.string)
                     "undraftplan" -> D.map UndraftPlan (D.field "id" D.string)
-                    "tab" -> D.succeed Tab
                     -- The id the spine sign carries: the drawer the reader clicked.
                     "fold" -> D.map Fold (D.field "id" D.string)
                     -- No id: the row at point names the run, or its absence the
                     -- master toggle across every list -- the model's to decide.
                     "hidedone" -> D.succeed HideDone
-                    -- The DIRECTION and nothing else: which row it moves, and
-                    -- whether it may, is the model's to say.
-                    "shift" -> D.map Shift (D.field "by" D.int)
                     "addprop" -> D.map2 AddProp (D.field "key" D.string) (D.field "value" D.string)
                     -- The stash coming back: lists edited before a detour survive it.
                     "meta" ->

@@ -6729,7 +6729,10 @@ shellGlue =
       -- A KEY THIS LISTENER CLAIMED IS NOT THE MAP'S, or the table's own `DEL' would strip a token on the same press.
       , "onKeys((e) => !e.defaultPrevented, (k, e) => {"
       , "let drows = [], dat = 0, dkeys = new Set();"
+      , "let donceKeys = new Set(), dwritingKeys = new Set();"
       , "dkeys = new Set(now.keys || []);"
+      , "donceKeys = new Set(now.onceKeys || []);"
+      , "dwritingKeys = new Set(now.writingKeys || []);"
       , "dflags = now.flags; dbody = now.body;"
       -- THE LIFTED HEADER RIDES THE SAME PUSH: the mirrors are the write's lists.
       , "dprops = now.properties; dplan = now.planning;"
@@ -6859,14 +6862,14 @@ shellGlue =
       -- THE DOCUMENT IS NOT A MOUNT: the renderer's list widget draws RECORDS and this is a list of KINDS.
       , "dport = Elm.Doc.init({ node: part(el(\"dlist\"), \"div\", \"\") }).ports;"
       , "drows = now.rows; dat = now.at;"
-      -- Elm publishes the navigation capability; the adapter claims and forwards it
-      -- without keeping a second map from browser keys to document commands.
-      , "if (dkeys.has(k)) dsay(k, { kind: \"key\", key: k });"
+      -- Elm publishes the key, repeat and reply capabilities; the adapter claims
+      -- and forwards without keeping a second map to document commands.
+      , "const message = { kind: \"key\", key: k };"
+      , "if (donceKeys.has(k)) once(() => docKey(k)); else docKey(k);"
+      , "if (!dwritingKeys.has(k)) { dsay(k, message); return; }"
       -- CHILDREN ARE DRAWN WHOLE: every descendant, with its headline's line in body coordinates.
       , "kids: (h.children || []).map((c) =>"
       , "({ index: c.index, level: c.level, line: c.line,"
-      -- TAB FOLDS, as it does in org: the model says whether anything did.
-      , "once(() => dsay(k, { kind: \"tab\" }));"
       -- A drawer's own line is its frame; what RET edits is a pair inside.
       , "if (r.fold) { echo(\"RET → f reaches the rows inside — TAB folds\"); return; }"
       -- THE SAME RULE ONE GRAIN FINER: the planning line is a line of ENTRIES,
@@ -6916,6 +6919,7 @@ shellGlue =
       , "pedit", "pkey", "pval", "props()", "planning()"
       , "enterPanel", "leavePanel", "PFLAGS"
       , "grainStep", "kind: \"finer\"", "kind: \"broader\"", "kind: \"climb\""
+      , "kind: \"tab\"", "kind: \"shift\"", "shiftHere"
       , "askText(\"property key\"", "value for :${key}:" ]
 
   , Glue "the page wears the default theme and the sheet wears Hack"

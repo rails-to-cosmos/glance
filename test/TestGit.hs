@@ -13,7 +13,7 @@ import TestDefaults (withTempDir)
 import qualified Data.ByteString as BS
 
 import Glance.Web.Git
-  ( AutoSet (..), GitPost (..), GitStatus (..), SyncStep (..), actionFor
+  ( GitStatus (..), SyncStep (..), actionFor
   , emptyStatus, gitStatus, parsePorcelain, stepsFor, syncActionOf )
 
 -- | The porcelain=v2 --branch lines a status is folded from.
@@ -100,11 +100,9 @@ spec = testGroup "Git"
     ]
 
   , testGroup "syncActionOf"
-    [ testCase "fetch"        $ eq (Just (Step Fetch))      (syncActionOf "fetch")
-    , testCase "commit-push"  $ eq (Just (Step CommitPush)) (syncActionOf "commit-push")
-    , testCase "sync"         $ eq (Just (Step Sync))       (syncActionOf "sync")
-    , testCase "autosync-on"  $ eq (Just (Auto AutoOn))     (syncActionOf "autosync-on")
-    , testCase "arm"          $ eq (Just (Auto Arm))        (syncActionOf "arm")
+    [ testCase "fetch"        $ eq (Just Fetch)      (syncActionOf "fetch")
+    , testCase "commit-push"  $ eq (Just CommitPush) (syncActionOf "commit-push")
+    , testCase "sync"         $ eq (Just Sync)       (syncActionOf "sync")
     , testCase "unknown"      $ eq Nothing           (syncActionOf "nope")
     ]
 
@@ -112,7 +110,7 @@ spec = testGroup "Git"
       assertBool "a step with no commands would answer ok without acting"
         (all (not . null . stepsFor) [minBound .. maxBound])
 
-  , testCase "auto-sync never stages the local notification ledgers" $ do
+  , testCase "commit-push never stages the local notification ledgers" $ do
       let add = head (stepsFor CommitPush)
       assertBool "EXTERNAL is excluded"
         (":(exclude).org-glance/meta/EXTERNAL.jsonl" `elem` add)

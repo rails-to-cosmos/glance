@@ -1,32 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | @GET \/git@ and @POST \/git\/sync@: a one-glance git status of the served
--- dir, the one safe action per state, and Model B auto-sync, which fires only once BOTH @glance.autosync@ is set AND a push is armed in the UI.
+-- | @GET \/git@ and @POST \/git@: a one-glance git status of the served
+-- directory and the one safe manual action per state.
 module Glance.Web.Git
   ( GitStatus (..)
   , emptyStatus
   , parsePorcelain
   , gitStatus
   , SyncStep (..)
-  , AutoSet (..)
-  , GitPost (..)
   , syncActionOf
   , actionFor
   , stepsFor
-  , AutoSync
-  , newAutoSync
-  , stopAutoSync
-  , autoSyncPoke
   , gitStatusView
   , gitSyncRoute
   ) where
 
-import Control.Concurrent (forkFinally, threadDelay)
-import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, tryPutMVar, tryTakeMVar)
-import Control.Monad (unless, void, when)
 import Data.Aeson (Value, decode, object, (.=))
 import Data.Char (isDigit)
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (foldl')
 import Data.Maybe (fromMaybe, isJust, isNothing, listToMaybe)
 import Data.Text (Text)
@@ -113,31 +103,17 @@ indexLockTime dir = do
 data SyncStep = Fetch | Pull | Push | CommitPush | Sync
   deriving (Eq, Show, Enum, Bounded)
 
--- | A change to the auto-sync handle.  No git command runs.
-data AutoSet = AutoOn | AutoOff | Arm
-  deriving (Eq, Show, Enum, Bounded)
+postWord :: SyncStep -> Text
+postWord Fetch      = "fetch"
+postWord Pull       = "pull"
+postWord Push       = "push"
+postWord CommitPush = "commit-push"
+postWord Sync       = "sync"
 
--- | What POST /git/sync was asked for.  The route's two roads are the type's.
-data GitPost = Step !SyncStep | Auto !AutoSet
-  deriving (Eq, Show)
+syncActionOf :: Text -> Maybe SyncStep
+syncActionOf word = listToMaybe [ step | step <- [minBound .. maxBound], postWord step == word ]
 
-postWord :: GitPost -> Text
-postWord (Step Fetch)      = "fetch"
-postWord (Step Pull)       = "pull"
-postWord (Step Push)       = "push"
-postWord (Step CommitPush) = "commit-push"
-postWord (Step Sync)       = "sync"
-postWord (Auto AutoOn)     = "autosync-on"
-postWord (Auto AutoOff)    = "autosync-off"
-postWord (Auto Arm)        = "arm"
-
-gitPosts :: [GitPost]
-gitPosts = map Step [minBound .. maxBound] <> map Auto [minBound .. maxBound]
-
-syncActionOf :: Text -> Maybe GitPost
-syncActionOf word = listToMaybe [ post | post <- gitPosts, postWord post == word ]
-
--- | The one safe step for a state, which auto-sync runs; 'Nothing' when none is safe (detached, no upstream).
+-- | The one safe manual step for a state; 'Nothing' when none is safe (detached, no upstream).
 actionFor :: GitStatus -> Maybe SyncStep
 actionFor s
   | not (gsRepo s)                           = Nothing
@@ -173,7 +149,7 @@ runSync dir action = go (stepsFor action) (SyncResult True [] "")
       if code == ExitSuccess || tolerable args (out <> err)
         then go rest acc'
         else pure acc' { srOk = False }
-    -- @commit@ with nothing staged exits non-zero; auto-sync must carry past it.
+    -- @commit@ with nothing staged exits non-zero; the compound step carries past it.
     tolerable ("commit" : _) msg = "nothing to commit" `T.isInfixOf` T.pack msg
     tolerable _              _   = False
 
@@ -191,107 +167,31 @@ stepsFor CommitPush =
 stepsFor Sync       = [["pull", "--rebase"], ["push"]]
 
 
--- | Model B state: the on/armed flags mirror @git config@ so they survive a restart;
--- the single-slot poke channel debounces a burst of edits into one commit + push.
-data AutoSync = AutoSync
-  { asDir   :: !FilePath
-  , asOn    :: !(IORef Bool)
-  , asArmed :: !(IORef Bool)
-  , asPoke  :: !(MVar ())
-  , asStopping :: !(IORef Bool)
-  , asDone  :: !(MVar ())
-  }
-
--- | Build the handle and fork its debounced worker.
-newAutoSync :: FilePath -> IO AutoSync
-newAutoSync dir = do
-  on    <- newIORef =<< configBool dir "glance.autosync"
-  armed <- newIORef =<< configBool dir "glance.autosync-armed"
-  poke  <- newEmptyMVar
-  stopping <- newIORef False
-  done <- newEmptyMVar
-  let as = AutoSync dir on armed poke stopping done
-  _ <- forkFinally (worker as) (const (putMVar done ()))
-  pure as
-  where
-    worker as = do
-      takeMVar (asPoke as)            -- wait for a write to land.
-      stopping <- readIORef (asStopping as)
-      unless stopping $ do
-        threadDelay 3000000           -- 3 s: coalesce a burst into one sync.
-        _ <- tryTakeMVar (asPoke as)   -- drop pokes gathered during the wait.
-        stopping' <- readIORef (asStopping as)
-        unless stopping' $ do
-          on    <- readIORef (asOn as)
-          armed <- readIORef (asArmed as)
-          when (on && armed) (void (runSync (asDir as) CommitPush))
-          worker as
-
--- | Stop accepting work and join the worker.  If git is already running the
--- daemon waits for that child, so process shutdown cannot abandon index.lock.
-stopAutoSync :: AutoSync -> IO ()
-stopAutoSync as = do
-  writeIORef (asStopping as) True
-  void (tryPutMVar (asPoke as) ())
-  takeMVar (asDone as)
-
--- | Non-blocking nudge from the write path: a full slot means a sync is already owed.
-autoSyncPoke :: AutoSync -> IO ()
-autoSyncPoke as = do
-  stopping <- readIORef (asStopping as)
-  unless stopping (void (tryPutMVar (asPoke as) ()))
-
-autoSyncState :: AutoSync -> IO (Bool, Bool)  -- ^ (on, armed)
-autoSyncState as = (,) <$> readIORef (asOn as) <*> readIORef (asArmed as)
-
-autoSyncSet :: AutoSync -> Bool -> IO ()
-autoSyncSet as on = do
-  setConfigBool (asDir as) "glance.autosync" on
-  writeIORef (asOn as) on
-
-autoSyncArm :: AutoSync -> IO ()
-autoSyncArm as = do
-  setConfigBool (asDir as) "glance.autosync-armed" True
-  writeIORef (asArmed as) True
-
-
--- | @GET \/git@: the status plus the served dir and the two Model B flags.
-gitStatusView :: ServeOptions -> Maybe AutoSync -> IO Response
-gitStatusView opts mas = do
+-- | @GET \/git@: the status plus the served directory.
+gitStatusView :: ServeOptions -> IO Response
+gitStatusView opts = do
   dir <- canonicalizePath (soDir opts)
   st  <- gitStatus (soDir opts)
-  (on, armed) <- maybe (pure (False, False)) autoSyncState mas
-  pure . sized status200 [jsonType] . A.encode $ statusJSON dir st on armed
+  pure . sized status200 [jsonType] . A.encode $ statusJSON dir st
 
--- | @POST \/git\/sync@: body @{"action":"…"}@ runs that one action; unknown or missing is a 400.
-gitSyncRoute :: ServeOptions -> Maybe AutoSync -> Request -> IO Response
-gitSyncRoute opts mas request = withBody request $ \raw ->
+-- | @POST \/git@: body @{"action":"…"}@ runs that one action; unknown or missing is a 400.
+gitSyncRoute :: ServeOptions -> Request -> IO Response
+gitSyncRoute opts request = withBody request $ \raw ->
   case actionOf raw of
     Nothing -> pure (jsonError status400 "git sync: unknown or missing action")
-    Just post -> handle post
+    Just step -> do
+      r <- runSync (soDir opts) step
+      pure . sized status200 [jsonType] . A.encode
+           $ object ["ok" .= srOk r, "steps" .= srSteps r, "output" .= srOutput r]
   where
     actionOf raw = do
       obj <- decode raw
       A.Object o <- pure (obj :: Value)
       A.String t <- KM.lookup "action" o
       syncActionOf t
-    handle (Step step) = do
-      r <- runSync (soDir opts) step
-      pure . sized status200 [jsonType] . A.encode
-           $ object ["ok" .= srOk r, "steps" .= srSteps r, "output" .= srOutput r]
-    handle (Auto setting) = case mas of
-      Nothing -> pure (jsonError status400 "auto-sync unavailable in this mode")
-      Just as -> do
-        case setting of
-          AutoOn  -> autoSyncSet as True
-          AutoOff -> autoSyncSet as False
-          Arm     -> autoSyncArm as
-        (on, armed) <- autoSyncState as
-        pure . sized status200 [jsonType] . A.encode
-             $ object ["ok" .= True, "autosync" .= on, "armed" .= armed]
 
-statusJSON :: FilePath -> GitStatus -> Bool -> Bool -> Value
-statusJSON dir s on armed
+statusJSON :: FilePath -> GitStatus -> Value
+statusJSON dir s
   | not (gsRepo s) = object ["repo" .= False, "dir" .= dir]
   | otherwise = object
       [ "repo" .= True, "dir" .= dir
@@ -299,9 +199,8 @@ statusJSON dir s on armed
       , "ahead" .= gsAhead s, "behind" .= gsBehind s
       , "staged" .= gsStaged s, "unstaged" .= gsUnstaged s, "untracked" .= gsUntracked s
       , "locked" .= gsLocked s
-      , "action" .= fmap (postWord . Step) (actionFor s)
+      , "action" .= fmap postWord (actionFor s)
       , "glyph" .= glyphOf s, "cls" .= classOf s, "label" .= labelOf s
-      , "autosync" .= on, "armed" .= armed
       ]
 
 glyphOf :: GitStatus -> Text
@@ -356,12 +255,3 @@ gitBool :: FilePath -> [String] -> IO Bool
 gitBool dir args = do
   (code, out, _) <- readGit dir args
   pure (code == ExitSuccess && T.strip (T.pack out) == "true")
-
-configBool :: FilePath -> String -> IO Bool
-configBool dir key = do
-  (code, out, _) <- readGit dir ["config", "--bool", "--get", key]
-  pure (code == ExitSuccess && T.strip (T.pack out) == "true")
-
-setConfigBool :: FilePath -> String -> Bool -> IO ()
-setConfigBool dir key on =
-  void (readGit dir ["config", key, if on then "true" else "false"])

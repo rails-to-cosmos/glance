@@ -102,15 +102,14 @@ daemon stays optional so org-glance still ships standalone); only blobs travel.
 Retires =org-glance-graph.el= (1806 lines) and invariants 1/7/8/34.  The middle
 stop is =two-writers-one-wal.md=; pick one before either lands.
 
-* WAITING Review the git sync UI (branch =feat/git-sync=)
+* WAITING Review the git status UI (branch =feat/git-sync=)
 From =spikes/2026-09-10-git-sync/=, now wired into the daemon.  =GET /git= reads
-the work tree (=git status --porcelain=v2=), =POST /git/sync= runs the one action
+the work tree (=git status --porcelain=v2=), =POST /git= runs the one action
 per state; =Glance.Web.Git= shells git in =soDir=, loopback only.  A control at
 the end of table-view's chip strip (=80-git.js=): =@ ⎇ dir:branch= then a state
 glyph — clean fetches, behind pulls, ahead pushes, dirty commits + pushes,
-diverged syncs.  Model B (auto-sync) commits + pushes after each write, off the
-request path, gated behind =git config glance.autosync= AND a UI arm (=⟳=).
-Tests: =TestGit= (parse + one-step); manual browser probe.  NOT merged.
+diverged syncs. Tests: =TestGit= (parse + one-step); manual browser probe. NOT
+merged.
 UPDATE 2026-09-10: the control was redesigned to a shell-owned row (=#ghead=,
 above the table) after it kept vanishing on =g= — see
 [[file:bugs/fixed/2026-09-10-the-git-control-vanishes-on-a-view-re-apply.md]].
@@ -133,7 +132,7 @@ names the count.  =BREAK=ghead-row= turns the first red.  100/100, four full run
 UPDATE 2026-09-12: the glyph stopped being a button.  It is a =span= the state
 colours, its =title= a sentence built from the =/git= fields (=main tracking
 origin/main · 3 uncommitted (1 staged, 2 unstaged, 0 untracked) · 2 behind · 1
-ahead=); only the auto-sync toggle takes a click.
+ahead=). The widget is a readout with no button.
 
 * TODO Fold the three lazy list mounts in the glue onto one helper
 =linksMounted= (=40-popups.js=), =tagsMounted= (=40-popups.js=) and
@@ -535,11 +534,6 @@ See [[file:bugs/open/2026-09-12-a-tag-on-an-inbox-headline-leaves-it-in-the-inbo
 =add-tag= edits the title line only; the tagged road (=captureBlob=) exists at
 capture time alone. Two-file write through the one door: blob first, then the
 inbox cut, ledger noted, both paths nudged. After the capture-row build.
-
-* TODO A killed auto-sync leaves a stale index.lock; the readout says nothing
-See [[file:bugs/open/2026-09-12-a-killed-auto-sync-leaves-a-stale-index-lock.md]].
-Bracket each git step so shutdown never abandons a child; =gitStatus= reads a
-stale lock as a state the glyph wears; never delete it from glance.
 
 * TODO Upstream the producer row, =getEditing= and =onCellKey= to =../table-view= before the next sync-renderer
 =assets/table-view.js= is documented above as byte-identical to

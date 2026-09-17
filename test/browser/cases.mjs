@@ -362,6 +362,7 @@ const gitRead = (p, why) => p.until(() => {
            dot: c.querySelector(".g-dot").textContent,
            n: c.querySelector(".g-n").textContent,
            cls: b.className, title: b.title, tag: b.tagName,
+           buttons: c.querySelectorAll("button").length,
            mark: c.dataset.mark || "",
            row: document.getElementById("ghead").getBoundingClientRect().height };
 }, why || "the git control to mount and fill");
@@ -7761,6 +7762,8 @@ export default [
     // click on it to run anything.
     assert(up.tag === "SPAN",
       `the glyph draws as <${up.tag.toLowerCase()}>; the readout is a span`);
+    assert(up.buttons === 0,
+      `the git readout still contains ${up.buttons} button(s)`);
     assert(/no upstream/.test(up.title) && !/\(click\)/.test(up.title),
       `the hover text does not read as a state: ${JSON.stringify(up.title)}`);
     const said = await gitSaid(p);

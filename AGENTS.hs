@@ -5571,8 +5571,8 @@ sheetNotes =
          \ below it, so the position-sensitive cases keep the plain tree." [Browser]
   , Note "THE GLYPH IS A READOUT: a span the state colours, whose HOVER TEXT spells the\
          \ branch, its upstream or the want of one, the staged/unstaged/untracked counts\
-         \ and the ahead/behind pair.  Only the auto-sync toggle takes a click, so no\
-         \ reading of the row can start a push.  NO REMOTE IS NO UPSTREAM, so the fixture\
+         \ and the ahead/behind pair.  The widget has no button, so no reading of the row\
+         \ can start a push.  NO REMOTE IS NO UPSTREAM, so the fixture\
          \ wears the warned ⚠ dirty and clean alike and the title is what tells them\
          \ apart; the tick is a state an upstream buys." [Browser]
   , Note "The sheet is one `SURFACES' entry, the fourth `flagKey' surface and the fourth\
@@ -6018,10 +6018,10 @@ sheetNotes =
   , Note "The sheet's keys register AHEAD of the dispatch and fall through on every key\
          \ they do not claim; `preventDefault' fires only where a binding does, and only\
          \ over an open subtree sheet." [Test]
-  , Note "DOCUMENT NAVIGATION IS ONE ELM BINDING TABLE: row movement, finer and\
-         \ broader grain movement and climb publish their accepted key roster with\
-         \ `docState'; the JS adapter checks that capability to claim the synchronous\
-         \ browser event and forwards the unchanged key, without interpreting it." [Elm, Typed, Test]
+  , Note "DOCUMENT-LOCAL KEYS ARE ONE ELM BINDING TABLE: movement, folding and\
+         \ subtree shifts publish their accepted keys plus repeat and reply-channel\
+         \ capabilities with `docState'; the JS adapter claims the synchronous browser\
+         \ event and connects the response without interpreting the key." [Elm, Typed, Test]
   , Note "The sheet keeps exactly one variable of its own, `--dk-mono' (Hack first)." [Test]
   , Note "Settings replaces the main table at `?page=config' and uses table-view's row\
          \ movement, narrowing and Value-cell editor; DEL or the page address restores\
