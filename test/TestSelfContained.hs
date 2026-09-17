@@ -17,6 +17,8 @@ wrappedWidgets :: [(FilePath, [T.Text])]
 wrappedWidgets =
   [ ("05-keys.js", [ "table.", "cols", "query", "editing", "prompting"
                    , "SURFACES", "MAPS", "socket" ])
+  , ("18-completion-menu.js", [ "table.", "query", "SURFACES", "socket"
+                              , "dmenu", "wmenu", "tmenu", "el(" ])
     -- `!!edit' and `edit.o' name the `let'; `openEdit' merely holds the letters.
   , ("40-popups.js", [ "table.", "query", "prompting", "SURFACES", "MAPS"
                      , "socket", "!!edit", "edit.o", "drows", "crows" ])

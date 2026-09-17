@@ -490,15 +490,14 @@
       !at ? null
       : typeof at.getBoundingClientRect === "function" ? at.getBoundingClientRect()
       : typeof at.width === "number" ? at : null;
-    const EDGE = 8;   // what a box laid against the viewport keeps clear of it
+    const EDGE = CompletionMenus.edge;
     // A FIXED BOX MEASURES AGAINST THE VIEWPORT, which is the origin it is placed in.
-    const viewRect = () =>
-      ({ top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight });
+    const viewRect = CompletionMenus.viewport;
     /** The height the offers claim under the box, 0 while the menu is shut.  The
      * MODEL says whether it is up (`wmenu'); the DOM is only measured. */
     const offersTall = () => {
       const m = el("dwoffer");
-      return wmenu.list.length && typeof m.getBoundingClientRect === "function"
+      return wmenu.count() && typeof m.getBoundingClientRect === "function"
         ? m.getBoundingClientRect().height : 0;
     };
     function placeEdit() {
@@ -893,67 +892,19 @@
       return (minted ? [{ word: typed, hint: NEW_HINT }]
               : folds ? [dress(folds)] : []).concat(shown.map(dress));
     }
-    function paintOffers(boxId, list, at) {
-      const box = el(boxId);
-      box.textContent = "";
-      box.className = list.length ? "on" : "";
-      list.forEach((o, i) => {
-        const row = part(box, "div", i === at ? "dof dat" : "dof");
-        part(row, "span", "dow", o.word);
-        if (o.hint) part(row, "span", "dot", o.hint);
-      });
-    }
-    const dmenu = { box: "doffer", list: [], at: -1 };   // `-1' is point on NO offer
-    const wmenu = { box: "dwoffer", list: [], at: -1 };
-    const menuPaint = (m) => {
-      if (m.at >= m.list.length) m.at = m.list.length - 1;
-      paintOffers(m.box, m.list, m.at);
-    };
-    const menuWalk = (m, step) => {
-      if (!m.list.length) return;
-      m.at = atIn(m.list, m.at + step);
-      paintOffers(m.box, m.list, m.at);
-    };
-    /** Take M's offer into F, PUT saying what the field BECOMES and where the
-     * caret rests -- or `null' where the offer is ALREADY what stands there.  A
-     * TAKE THAT CHANGES NOTHING IS NO TAKE, so the press falls through to the
-     * surface's own key.  MOVED redraws it, since the take fires no `input'.
-     * ONE TAKE, TWO PUTS: a field that IS the offer, and a tag RUN the offer is
-     * spliced into (`tagAnchor', 37-tags.js). */
-    function menuTook(m, f, put, moved) {
-      const took = m.at < 0 ? null : put(m.list[m.at].word);
-      if (!took) return false;
-      const [value, at] = took;
-      f.value = value;
-      f.setSelectionRange(at, at);
-      moved();
-      return true;
-    }
     /** THE WHOLE FIELD IS THE OFFER, which is what a one-value field takes. */
-    const menuTake = (m, field, moved) =>
-      menuTook(m, el(field),
-               (w) => (w === el(field).value.trim() ? null : [w, w.length]),
-               moved);
-    /** THE MENU UNDER RECT, or ABOVE it where the viewport's foot leaves no room.
-     * A menu hanging at the page's ROOT is placed against the viewport, the way
-     * the date box is; one living inside its own box needs none of this and
-     * flips in CSS (`#ddate.flipped #dwoffer').  MEASURED AFTER THE PAINT: the
-     * height is the drawn list's own. */
-    function placeMenu(m, rect) {
-      const box = el(m.box);
-      if (!rect || typeof box.getBoundingClientRect !== "function") return;
-      const s = box.style;
-      s.minWidth = `${rect.width}px`;
-      const v = viewRect(), r = box.getBoundingClientRect();
-      const over = m.list.length > 0 && rect.bottom + r.height + EDGE > v.bottom;
-      box.classList.toggle("flipped", over);
-      s.top = `${over ? Math.max(v.top + EDGE, rect.top - r.height) : rect.bottom}px`;
-      s.left = `${Math.max(v.left + EDGE,
-                           Math.min(rect.left, v.right - r.width - EDGE))}px`;
-    }
-    function drawOffers() {
-      dmenu.list = offersFor();
-      menuPaint(dmenu);
+    /** @param {CompletionItem} item @param {HTMLInputElement} field
+     *  @returns {[string, number] | null} */
+    const wholeOffer = (item, field) =>
+      item.word === field.value.trim() ? null : [item.word, item.word.length];
+    const dmenu = CompletionMenus.create({
+      element: () => el("doffer"), apply: wholeOffer, changed: () => pairMoved(),
+    });
+    const wmenu = CompletionMenus.create({
+      element: () => el("dwoffer"), apply: wholeOffer, changed: dateMoved,
+    });
+    function drawOffers(point) {
+      dmenu.setItems(offersFor(), point === undefined ? dmenu.point() : point);
     }
     /** Answer what a date-owed field offers over TEXT, each hinted with its date.
      * Resolved against TODAY; READ reuses a reading of TEXT the caller has. */
@@ -986,14 +937,13 @@
       if (f.style.width !== w) f.style.width = w;
     };
     const pairMoved = () => {
-      dmenu.at = el(onPairKey() ? "dkey" : "dval").value.trim() ? 0 : -1;
-      drawOffers();
+      drawOffers(el(onPairKey() ? "dkey" : "dval").value.trim() ? 0 : -1);
       // The key field hugs its text, so the closing colon stands flush.
       fitCh(el("dkey"), el("dkey").value.length);
       drawGhost("dval", "dvghost", valueOwesDate());
     };
     const takeOffer = () =>
-      menuTake(dmenu, onPairKey() ? "dkey" : "dval", pairMoved);
+      dmenu.take(el(onPairKey() ? "dkey" : "dval"));
     // An assigned value fires neither door, so those callers redraw by hand.
     for (const id of ["dkey", "dval"])
       for (const ev of ["input", "focus"]) el(id).addEventListener(ev, pairMoved);
@@ -1032,9 +982,7 @@
       const typed = el("dwhen").value.trim(), today = editDay();
       const only = verbatimOnly();
       const r = readsWhen(typed);
-      wmenu.at = typed ? 0 : -1;
-      wmenu.list = only ? [] : dateOffers(typed, today, r);
-      menuPaint(wmenu);
+      wmenu.setItems(only ? [] : dateOffers(typed, today, r), typed ? 0 : -1);
       drawGhost("dwhen", "dghost", true, r);
       // THE BOX IS RE-PLACED ON EVERY KEYSTROKE: the field grew or shrank by a
       // `ch' and the offers came or went, and over a cell BOTH decide where the
@@ -1122,7 +1070,7 @@
      * where no reading takes the phrase, so the server's refusal is the backstop
      * rather than the reader's first news. */
     function dateKey(b) {
-      if (menuTake(wmenu, "dwhen", dateMoved)) return;
+      if (wmenu.take(el("dwhen"))) return;
       // The pane reads CLOSED verbatim, so the wall above ITS commit is `readsWhen'.
       const typed = datePassed(b, el("dwhen").value, editDay(), readsWhen);
       if (typed !== null) edit.row.onCommit(typed, b);
@@ -1136,7 +1084,7 @@
     function dateTab(step) {
       const f = el("dwhen");
       if (step > 0) {
-        if (menuTake(wmenu, "dwhen", dateMoved)) return;
+        if (wmenu.take(el("dwhen"))) return;
         if (dateResolveInto(f, readsWhen(f.value.trim()), edit.row.spell))
           dateMoved();
       }
@@ -1432,7 +1380,7 @@
         const by = dateStep(k);
         if (by) { e.preventDefault(); dateAdjust(dateBinding(k), by); return; }
         const walk = walkStep(k);
-        if (walk) { e.preventDefault(); once(() => menuWalk(wmenu, walk)); return; }
+        if (walk) { e.preventDefault(); once(() => wmenu.move(walk)); return; }
         // A BOX OVER NOBODY'S SHEET CANCELS ITSELF; the pane's hands ESC to the
         // sheet's own ladder, which is where it has always gone.
         if (k === "ESC" && edit.row.onCancel)
@@ -1446,7 +1394,7 @@
       if (!editing || raw || momentary()) return;
       if (dpairing()) {
         const step = walkStep(k);
-        if (step) { e.preventDefault(); once(() => menuWalk(dmenu, step)); return; }
+        if (step) { e.preventDefault(); once(() => dmenu.move(step)); return; }
         if (k !== "TAB" && k !== "RET" && !(k === ":" && onPairKey())) return;
         e.preventDefault();
         once(() => pairKey(k));

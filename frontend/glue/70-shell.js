@@ -57,7 +57,7 @@
       return {
         current: () => current,
         named: (name) => PAGE_ROUTES.find((route) => route.name === name) || null,
-        address: () => ({ label: current ? current.address : "default",
+        address: () => ({ label: current ? current.address : "⌂",
                           back: !!current }),
         session: () => current ? current.session : null,
         open(route) {

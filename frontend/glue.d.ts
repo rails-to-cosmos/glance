@@ -26,6 +26,36 @@ interface TableViewHandle {
   getEditing(): TableViewOpenCell | null;
 }
 
+interface CompletionItem {
+  word: string;
+  hint?: string;
+}
+
+interface CompletionMenuOptions {
+  element(): HTMLElement;
+  anchor?: () => DOMRect | null;
+  renderItem?: (
+    element: HTMLElement,
+    item: CompletionItem,
+    selected: boolean
+  ) => void;
+  apply(
+    item: CompletionItem,
+    field: HTMLInputElement
+  ): [string, number] | null;
+  changed(): void;
+}
+
+interface CompletionMenu {
+  setItems(items: CompletionItem[], initialPoint?: number): void;
+  move(step: number): void;
+  take(field: HTMLInputElement): boolean;
+  place(): void;
+  close(): void;
+  count(): number;
+  point(): number;
+}
+
 interface GlueBand {
   key: string;
   def: number;

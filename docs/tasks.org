@@ -718,13 +718,13 @@ place/, /the draft's date stop opens the box, TAB with no offer walks on/ and
 
 * DONE Autocomplete for the state, like tags
 User call (2026-09-13).  THE MENU'S THIRD ANCHOR is the draft's STATE cell, and
-it is the same one: =#toffer= at the page's root, =placeMenu= against the cell's
-rect, =menuPaint= / =menuWalk= / =menuTook=.  What the anchors stopped sharing is
-what each one COMPLETES, so the descriptor now carries it -- =offers= answers the
-list for the word under the caret, =take= what the field becomes, =run= that the
-field holds a tag run rather than one word -- and the plumbing lost its "tag" in
-the name (=openOffers= / =shutOffers= / =offerKey=, =tagAnchor= spelling the two
-tag surfaces at once).
+it is the same one: =#toffer= at the page's root, owned and placed by a
+=CompletionMenus= instance against the cell's rect.  What the anchors stopped
+sharing is what each one COMPLETES, so the descriptor now carries it -- =offers=
+answers the list for the word under the caret, =take= what the field becomes,
+=run= that the field holds a tag run rather than one word -- and the plumbing
+lost its "tag" in the name (=openOffers= / =shutOffers= / =offerKey=,
+=tagAnchor= spelling the two tag surfaces at once).
 
 The vocabulary is THE DESTINATION'S CYCLE and the same answer =askCycle= already
 holds: =GET /keywords?tag== is asked once when =+= draws the row, and the held
@@ -757,8 +757,8 @@ User call (2026-09-13).  ONE OFFER MENU, TWO ANCHORS: the draft's tag CELL and
 the tags popup's rename field both stand in no box of their own, so =#toffer=
 hangs at the page's root and is placed per anchor against the viewport, turning
 over above it at the window's foot.  The menu MODEL, paint, walk and take are
-the date box's (=menuPaint= / =menuWalk= / =menuTook=, =20-sheet.js=); =menuTake=
-is the same take with the whole-field put.
+the shared =CompletionMenus= widget's (=18-completion-menu.js=); the date box,
+property offers and this root menu are three instances with different applies.
 
 The vocabulary is the STORE's, off a second door on =/tags=:
 =GET /tags?vocabulary=true= names no row and answers the tree's tags with the
@@ -772,8 +772,8 @@ A take keeps the RUN's spelling -- colon-delimited, =:a:b= + =book= = =:a:book:=
 the caret after the closing colon.  =ESC= is never the menu's (the date box's
 rule): the surface goes down whole and the menu with it.
 
-Code: =frontend/glue/37-tags.js= (new part), =placeMenu= / =menuTook=
-(=20-sheet.js=), =openDraftAt= / =draftKey= (=35-draft.js=), =openRename=
+Code: =frontend/glue/37-tags.js=, =CompletionMenus=
+(=18-completion-menu.js=), =openDraftAt= / =draftKey= (=35-draft.js=), =openRename=
 (=40-popups.js=), the tags popup's =editKeys= (=70-shell.js=),
 =#toffer= (=Page.hs=, =page.css=), =tagsView= (=Routes.hs=).
 =assets/table-view.js= is UNTOUCHED -- the menu is glue over =cellRect=, which

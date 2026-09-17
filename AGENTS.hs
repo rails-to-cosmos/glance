@@ -4188,7 +4188,7 @@ data PageRoute = PageRoute { prName, prAddress :: String, prSaves :: Bool }
   deriving (Eq, Show)
 
 pageRoutes :: [PageRoute]
-pageRoutes = [PageRoute "config" "main -> settings" True]
+pageRoutes = [PageRoute "config" "⌂ → settings" True]
 
 momentaryUp :: [Surface] -> Maybe Surface    -- ^ the list ORDER breaks the one tie
 momentaryUp = listToMaybe . filter sMomentary
@@ -6025,8 +6025,11 @@ sheetNotes =
   , Note "The flat catalogue columns are Setting, Value, Area, Applies to, Source and\
          \ State; local preferences apply immediately and changed tree rows share the\
          \ existing drift-locked batch save." [Test]
-  , Note "The git control is also the page breadcrumb: `default @⎇ dir:branch' on the\
-         \ main table and `main -> settings @⎇ dir:branch' on the settings route." [Browser]
+  , Note "The git control is also the page breadcrumb: `⌂ @⎇ dir:branch' on the\
+         \ main table and `⌂ → settings @⎇ dir:branch' on the settings route." [Browser]
+  , Note "`CompletionMenus' owns offer state, painting, movement, taking and viewport\
+         \ placement; properties, dates, tags and states supply vocabulary and the\
+         \ synchronous field transformation." [Typed, Test]
   , Note "Multiline TODO cycles and capture templates render with escaped `\\n' inside\
          \ one Value cell and decode losslessly before they are written." [Test]
   , Note "`assets/elm.js' is a committed BUILD INPUT carrying both programs, embedded by\
@@ -6205,6 +6208,7 @@ gluePartFiles =
   [ "00-core.js"      -- the config blob, the log strip, the wash, fetching, the query, the crumbs
   , "05-keys.js"      -- key naming and the echo pill
   , "15-dates.js"     -- the date grammar: org's stamp, the phrase, the ghost, the step
+  , "18-completion-menu.js" -- synchronous completion-list interaction and placement
   , "20-sheet.js"     -- the materialize sheet: both panes, the ladder, the opening
   , "30-palette.js"   -- the value palette and the link door
   , "35-draft.js"     -- the draft row: the seeding rule, the phantom, the walk

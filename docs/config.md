@@ -10,11 +10,11 @@ table-view navigation, filtering, sorting and cell editor. Its flat schema is
 `Setting | Value | Area | Applies to | Source | State`. Browser preferences
 apply as soon as their Value cell commits. Tree values remain changed until
 `C-x C-s` or leaving the route completes the drift-locked write. `DEL` or the
-`main` page address returns to the previous query and row. Multiline org values
+home page address returns to the previous query and row. Multiline org values
 use `\n` in the cell and decode back to newlines when written.
 
 The shell-owned git control is also the page address. It reads
-`default @⎇ dir:branch` here and `main -> settings @⎇ dir:branch` in settings.
+`⌂ @⎇ dir:branch` here and `⌂ → settings @⎇ dir:branch` in settings.
 
 ## The layers
 

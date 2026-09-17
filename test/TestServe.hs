@@ -11782,7 +11782,7 @@ keymapSpec shell = testGroup "Shell keymap"
       holdsAll "the page coordinator"
         [ "const PAGE_ROUTES = [settingsRoute];"
         , "const Pages = (() => {"
-        , "name: \"config\", address: \"main -> settings\""
+        , "name: \"config\", address: \"⌂ → settings\""
         , "pageAddress: () => Pages.address()"
         , "onPageBack: () => leaveSession()"
         , "b.scope === \"session\" && !!activeSession()" ] b

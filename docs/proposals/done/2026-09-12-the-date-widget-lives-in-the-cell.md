@@ -429,9 +429,9 @@ binding is added, no scope is added, and `Keymap.hs:100`–`:103` and
 - **Weekday words.** `next fri` refuses, per law 6. Growing `englishDate` to
   make a placement work would leave the server's own reader behind and the
   corpus unpinned.
-- **An offers menu in the cell.** `dateOffers` (`20-sheet.js:883`) paints into
-  `#dwoffer` through `menuPaint`, a box the pane owns and a cell has no room
-  for. The cell gets the strip. The pane keeps its menu.
+- **An offers menu in the cell.** `dateOffers` paints into `#dwoffer` through
+  the shared `CompletionMenus` widget, a box the pane owns and a cell has no
+  room for. The cell gets the strip. The pane keeps its menu.
 - **A cell cursor.** The table has one already (`getSelection().col`,
   `f`/`b` and their aliases, `Keymap.hs:43`–`:45`); building a second is the
   spike's one correctable claim.

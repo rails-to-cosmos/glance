@@ -18,7 +18,7 @@
       function build() {
         ctl = document.createElement("span");
         ctl.id = "gitctl";
-        elPage = part(ctl, "button", "g-page", "default");
+        elPage = part(ctl, "button", "g-page", "⌂");
         elPage.type = "button"; elPage.disabled = true;
         part(ctl, "span", "g-at", " @");
         const loc = part(ctl, "span", "g-loc");
@@ -44,7 +44,7 @@
         const address = pageAddress();
         elPage.textContent = address.label;
         elPage.disabled = !address.back;
-        elPage.title = address.back ? "back to the default view" : "";
+        elPage.title = address.back ? "back home" : "";
       }
 
       function render() {

@@ -1,7 +1,7 @@
     // THE OFFER MENU AND THE TAG VOCABULARY.  A WORD COMPLETES THE WAY A DATE
-    // DOES: the very menu the date box carries -- the list under the field, the
-    // hint column, the arrows walking it and `TAB' taking what point stands on
-    // (`wmenu', 20-sheet.js).  THREE SURFACES STAND IN NO BOX OF THEIR OWN --
+    // DOES: the shared completion-menu widget -- the list under the field, the
+    // hint column, the arrows walking it and `TAB' taking what point stands on.
+    // THREE SURFACES STAND IN NO BOX OF THEIR OWN --
     // the draft's tag CELL and its state CELL, which are the renderer's in-cell
     // input, and the tags popup's rename field -- so ONE menu element hangs at
     // the page's root and is placed under whichever rect the anchor names.  The
@@ -83,7 +83,6 @@
               : folds ? [dress(folds)] : []).concat(shown.map(dress));
     }
 
-    const tmenu = { box: "toffer", list: [], at: -1 };   // `-1' is point on NO offer
     /** WHICH SURFACE THE OFFERS STAND UNDER, or null.  FIELD and RECT are ASKED
      * rather than held: the draft's in-cell input is rebuilt by every repaint
      * (`resumeEditor', assets/table-view.js) and a held reference would dangle
@@ -124,6 +123,12 @@
           : run ? tagRunTake(f.value, caretIn(f), w) : [w, w.length];
       },
     });
+    const tmenu = CompletionMenus.create({
+      element: () => el("toffer"),
+      anchor: () => toffering ? toffering.rect() : null,
+      apply: (item, field) => toffering ? toffering.take(item.word, field) : null,
+      changed: () => redrawOffers(),
+    });
     function openOffers(o) {
       toffering = o;
       // THE FIELD'S OWN `input' REDRAWS SYNCHRONOUSLY, so the list a `TAB' reads
@@ -136,9 +141,7 @@
     function shutOffers() {
       toffering = null;
       tword = null;
-      tmenu.list = [];
-      tmenu.at = -1;
-      paintOffers(tmenu.box, [], -1);
+      tmenu.close();
     }
     /** The offers over the word the caret sits in, painted and then placed.
      * POINT STANDS ON THE FIRST OFFER where anything is typed and on NO OFFER
@@ -147,14 +150,11 @@
       if (!offering()) return;
       const word = wordIn(toffering.field());
       tword = word;
-      tmenu.list = toffering.offers(word);
-      tmenu.at = word ? 0 : -1;
-      menuPaint(tmenu);
-      placeMenu(tmenu, toffering.rect());
+      tmenu.setItems(toffering.offers(word), word ? 0 : -1);
     }
     /** THE OFFER THAT STANDS, taken the way THIS ANCHOR spells one: a tag run
      * keeps its colons, a one-word field becomes the offer, `*empty*' clears the
-     * cell.  A TAKE THAT CHANGES NOTHING IS NO TAKE (`menuTook'), so `TAB' falls
+     * cell.  A TAKE THAT CHANGES NOTHING IS NO TAKE, so `TAB' falls
      * through to the ring and `RET' to the commit. */
     const takeStanding = () => {
       if (!offering()) return false;
@@ -162,7 +162,7 @@
       // THE READER WALKED THE LIST THE WORD ASKED FOR: a word that has outrun
       // it redraws instead, and the press stays the surface's own.
       if (wordIn(f) !== tword) { redrawOffers(); return false; }
-      return menuTook(tmenu, f, (w) => toffering.take(w, f), redrawOffers);
+      return tmenu.take(f);
     };
     /** THE KEYS THE MENU CLAIMS wherever it stands, and whether it spent one: the
      * walk, and the take.  `ESC' IS NEVER ONE OF THEM -- the date box's own rule
@@ -170,7 +170,7 @@
     function offerKey(k) {
       if (!offering()) return false;
       const step = walkStep(k);
-      if (step) { menuWalk(tmenu, step); return true; }
+      if (step) { tmenu.move(step); return true; }
       return (k === "TAB" || k === "RET") && takeStanding();
     }
     // A FIELD THIS PAGE OWNS REDRAWS ON ITS OWN `input'; the draft's cell is the
@@ -178,7 +178,6 @@
     el("tname").addEventListener("input", redrawOffers);
     // AND THE MENU FOLLOWS ITS ANCHOR, the way the date box does: every scroller
     // in the capture phase, since `scroll' does not bubble.
-    const anchorMoved = () =>
-      { if (offering()) placeMenu(tmenu, toffering.rect()); };
+    const anchorMoved = () => { if (offering()) tmenu.place(); };
     window.addEventListener("resize", anchorMoved);
     document.addEventListener("scroll", anchorMoved, true);

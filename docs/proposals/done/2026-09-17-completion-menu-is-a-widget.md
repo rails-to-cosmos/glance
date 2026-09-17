@@ -1,6 +1,6 @@
 # Proposal — completion menu is a widget
 
-**Status:** proposed · **Date:** 2026-09-17 · **Origin:** glue cross-cut audit
+**Status:** done · **Date:** 2026-09-17 · **Origin:** glue cross-cut audit
 
 ## Pattern
 
@@ -56,3 +56,16 @@ the current rule that ESC belongs to the containing surface.
 `Palette`, `Popups` and `Keys` are already factories with explicit dependency
 lists. The menu should become the next low-level factory because its consumers
 already cross feature files.
+
+## Outcome
+
+`frontend/glue/18-completion-menu.js` now owns offer state, rendering, movement,
+taking, closing and viewport placement. The property, date and shared tag/state
+menus construct separate instances and provide only their vocabulary, anchor
+and field transformation. The old cross-file helpers and mutable menu records
+were removed from the material sheet.
+
+The widget remains synchronous JavaScript so a taken offer updates the field
+and caret during the key event. Type checking covers its public contract;
+focused shell and Chromium cases cover completion, unchanged takes, movement,
+and below/above placement.

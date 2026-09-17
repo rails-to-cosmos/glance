@@ -39,7 +39,7 @@
 
     /** @type {PageRoute} */
     const settingsRoute = {
-      name: "config", address: "main -> settings", session: configSession,
+      name: "config", address: "⌂ → settings", session: configSession,
       enter: enterSettings, leave: resetSettings,
       editing: settingsEditing, cancelEdit: cancelSettingsEdit,
       narrowed: () => narrowed(settingsTable),

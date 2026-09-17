@@ -7730,20 +7730,20 @@ export default [
       `the control reads ${JSON.stringify(up.loc)}, not the served dir and its branch`);
     const mainAddress = await p.eval(() => document.getElementById("gitctl").textContent
       .replace(/\s+/g, " ").trim());
-    assert(mainAddress.startsWith(`default @${up.loc}`),
+    assert(mainAddress.startsWith(`⌂ @${up.loc}`),
       `the main breadcrumb reads ${JSON.stringify(mainAddress)}`);
     await p.press(",");
     const settingsAddress = await p.until(() => {
       const ctl = document.getElementById("gitctl");
       const page = ctl && ctl.querySelector(".g-page");
-      if (!page || page.textContent !== "main -> settings") return false;
+      if (!page || page.textContent !== "⌂ → settings") return false;
       return ctl.textContent.replace(/\s+/g, " ").trim();
     }, "settings to extend the git breadcrumb");
-    assert(settingsAddress.startsWith(`main -> settings @${up.loc}`),
+    assert(settingsAddress.startsWith(`⌂ → settings @${up.loc}`),
       `the settings breadcrumb reads ${JSON.stringify(settingsAddress)}`);
     await p.eval(() => document.querySelector("#gitctl .g-page").click());
-    await p.until(() => document.querySelector("#gitctl .g-page").textContent === "default",
-                  "the page address to restore the default route");
+    await p.until(() => document.querySelector("#gitctl .g-page").textContent === "⌂",
+                  "the page address to restore the home route");
     // NO REMOTE IS NO UPSTREAM, which `glyphFor' draws as the warned ⚠ -- the
     // clean tick is a state an upstream buys, and this fixture has none.
     assert(up.dot === "⚠" && up.cls.includes("g-detached"),
