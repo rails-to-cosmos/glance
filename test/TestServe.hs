@@ -6920,6 +6920,7 @@ shellGlue =
       , "enterPanel", "leavePanel", "PFLAGS"
       , "grainStep", "kind: \"finer\"", "kind: \"broader\"", "kind: \"climb\""
       , "kind: \"tab\"", "kind: \"shift\"", "shiftHere"
+      , "const CHECKBOX", "checkboxAt", "checkboxHere", "toggleCheckbox"
       , "askText(\"property key\"", "value for :${key}:" ]
 
   , Glue "the page wears the default theme and the sheet wears Hack"

@@ -121,7 +121,7 @@ The independent bundle step is complete. `make elm` compiles an optimized
 temporary program, compresses it with the Elm runtime's pure curry/apply
 helpers, then mangles it in a separate pass. Both passes use
 `terser@5.44.0`; after the current key-family moves the committed result is
-77,851 bytes raw and 26,291 bytes gzipped, down from 318,232 and 63,657 bytes
+78,285 bytes raw and 26,502 bytes gzipped, down from 318,232 and 63,657 bytes
 respectively.
 
 The offline suite now checks the pinned two-pass recipe, the bundle size, and
@@ -149,3 +149,11 @@ the write port. The adapter uses those two protocol facts to preserve one-shot
 dispatch and connect the response, while the fold/shift meaning and direction
 exist only in Elm. The old `tab` and `shift` messages and `shiftHere` dispatcher
 are gone.
+
+Checkbox toggling is the next state-bearing command on that protocol. Elm now
+owns both `SPC` and the material-sheet meaning of `C-c C-c`: it reads the row,
+rejects a derived parent, rewrites a leaf, and returns the exact write result.
+The adapter retains the browser/keymap presentation of each gesture and no
+longer contains `CHECKBOX`, `checkboxAt`, `checkboxHere`, or
+`toggleCheckbox`. `boxState` and the toggle also share the live `Row.text`
+reader, preserving a second rapid toggle before the server refill arrives.

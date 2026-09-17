@@ -470,6 +470,7 @@ type KeyAction
     | MoveBroader
     | MoveClimb
     | FoldPoint
+    | ToggleCheckbox String
     | ShiftBy Int
 
 keyKeys : List String
@@ -505,6 +506,8 @@ keyBindings =
         ++ bindings [ "b", "h", "<left>" ] MoveBroader False False
         ++ bindings [ "B" ] MoveClimb False False
         ++ bindings [ "TAB" ] FoldPoint False True
+        ++ bindings [ "SPC" ] (ToggleCheckbox "no checkbox here") True True
+        ++ bindings [ "C-c C-c" ] (ToggleCheckbox "nothing open here") True True
         ++ bindings [ "M-<left>" ] (ShiftBy -1) True True
         ++ bindings [ "M-<right>" ] (ShiftBy 1) True True
 
@@ -570,6 +573,7 @@ update msg model =
                 Just MoveBroader -> update Broader model
                 Just MoveClimb -> update Climb model
                 Just FoldPoint -> update Tab model
+                Just (ToggleCheckbox absent) -> toggleCheckbox absent model
                 Just (ShiftBy by) -> update (Shift by) model
                 Nothing -> ( model, Cmd.none )
         Step by ->
@@ -2076,19 +2080,8 @@ boxLen rest =
 for a ticked box, `Just False` for an empty or partial one, `Nothing` when the
 row is no checkbox item at all.  The one reading the hide-done mode is built on.
 -}
-boxState : Model -> Row -> Maybe Bool
-boxState m r =
-    let
-        op = openerAt m r
-        line = lineOf m r
-        opened = openedLen op
-        k = markerOf op line
-        box = String.slice opened k line
-    in
-    if k <= opened || String.isEmpty (String.trim box) then
-        Nothing
-    else
-        Just (String.contains "X" box || String.contains "x" box)
+boxState : Row -> Maybe Bool
+boxState r = Maybe.map ((==) 'X') (boxChar r)
 
 {-| Is ID the OUTERMOST composite of a list run -- the root a hide-done toggle
 keys on?  Nested sublists carry no composite of their own, so a run has exactly
@@ -2118,7 +2111,7 @@ listRootOf m id = List.head (List.filter (isListRoot m) (ownersOf m id))
 composite, an interim item's nested ones under it.
 -}
 checkKids : Model -> String -> List Row
-checkKids m id = List.filter (\r -> r.owner == Just id && boxState m r /= Nothing) m.rows
+checkKids m id = List.filter (\r -> r.owner == Just id && boxState r /= Nothing) m.rows
 
 {-| Is R's whole checkbox subtree done?  A LEAF is done when it is ticked; an
 INTERIM item when every descendant leaf is -- so an item with one empty box
@@ -2127,7 +2120,7 @@ anywhere under it stays visible, and it and its ancestors with it.
 subtreeDone : Model -> Row -> Bool
 subtreeDone m r =
     case checkKids m r.id of
-        [] -> boxState m r == Just True
+        [] -> boxState r == Just True
         kids -> List.all (subtreeDone m) kids
 
 {-| The FACE a checkbox item shows, org's three states rolled up from its
@@ -2135,8 +2128,8 @@ children: `Full' (`[X]') when the whole subtree is done, `Empty' (`[ ]') when
 nothing in it is, `Part' (`[-]') when some but not all.  `Full' is exactly
 `subtreeDone', so the derived box and the hide-done mode agree on a run.  A LEAF
 wears its own literal box; only an item WITH checkbox children derives its face,
-and so is read-only -- `toggleCheckbox' (20-sheet.js) refuses to tick a derived
-box, its state being its children's to tell.
+and so is read-only -- the toggle refuses to tick a derived box, its state being
+its children's to tell.
 -}
 type BoxFace
     = BoxEmpty
@@ -2147,11 +2140,11 @@ type BoxFace
 in), `-' (a hand-written partial), else a space.  Nothing when the row is no
 checkbox item.
 -}
-boxChar : Model -> Row -> Maybe Char
-boxChar m r =
+boxChar : Row -> Maybe Char
+boxChar r =
     let
-        op = openerAt m r
-        line = lineOf m r
+        line = Maybe.withDefault "" (List.head (String.lines r.text))
+        op = if r.grain == Leaf && r.kind == Para then Scan.listOpener line else Nothing
         opened = openedLen op
         k = markerOf op line
         box = String.slice opened k line
@@ -2167,12 +2160,32 @@ boxChar m r =
 
 boxFace : Model -> Row -> Maybe BoxFace
 boxFace m r =
-    case boxChar m r of
+    case boxChar r of
         Nothing -> Nothing
         Just c ->
             case checkKids m r.id of
                 [] -> Just (leafFace c)
                 kids -> Just (rollUp (List.filterMap (boxFace m) kids))
+
+toggleCheckbox : String -> Model -> ( Model, Cmd Msg )
+toggleCheckbox absent m =
+    case rowAt m of
+        Nothing -> spoke ( m, absent )
+        Just r ->
+            case boxChar r of
+                Nothing -> spoke ( m, absent )
+                Just old ->
+                    case checkKids m r.id of
+                        _ :: _ -> spoke ( m, "derived from children" )
+                        [] ->
+                            let
+                                next = if old == ' ' || old == '-' then 'X' else ' '
+                                write row =
+                                    if row.id == r.id then { row | text = setBox next row.text } else row
+                            in
+                            composedWith
+                                (Just ("[" ++ String.fromChar next ++ "]"))
+                                { m | rows = List.map write m.rows }
 
 leafFace : Char -> BoxFace
 leafFace c =
@@ -2352,7 +2365,7 @@ hiddenDone m =
                         else
                             Nothing
                     else
-                        case ( boxState m r, listRootOf m r.id ) of
+                        case ( boxState r, listRootOf m r.id ) of
                             ( Just _, Just root ) ->
                                 if Set.member root m.hideDone && subtreeDone m r then
                                     Just r.id

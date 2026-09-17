@@ -111,22 +111,24 @@ suite =
                     , "f", "l", "<right>"
                     , "b", "h", "<left>"
                     , "B"
-                    , "TAB", "M-<left>", "M-<right>"
+                    , "TAB", "SPC", "C-c C-c", "M-<left>", "M-<right>"
                     ] keyKeys
             , test "maps movement, folding, and structural aliases" <|
                 \_ -> Expect.equal
                     [ Just (MoveRow 1), Just (MoveRow -1), Just MoveFiner
                     , Just MoveBroader, Just MoveClimb, Just FoldPoint
+                    , Just (ToggleCheckbox "no checkbox here")
+                    , Just (ToggleCheckbox "nothing open here")
                     , Just (ShiftBy -1), Just (ShiftBy 1), Nothing
                     ]
                     (List.map keyActionFor
-                        [ "j", "C-p", "<right>", "h", "B", "TAB"
+                        [ "j", "C-p", "<right>", "h", "B", "TAB", "SPC", "C-c C-c"
                         , "M-<left>", "M-<right>", "RET"
                         ])
             , test "publishes the keys whose answers may arrive with a write" <|
-                \_ -> Expect.equal [ "M-<left>", "M-<right>" ] keyWritingKeys
+                \_ -> Expect.equal [ "SPC", "C-c C-c", "M-<left>", "M-<right>" ] keyWritingKeys
             , test "publishes the keys that reject browser auto-repeat" <|
-                \_ -> Expect.equal [ "TAB", "M-<left>", "M-<right>" ] keyOnceKeys
+                \_ -> Expect.equal [ "TAB", "SPC", "C-c C-c", "M-<left>", "M-<right>" ] keyOnceKeys
             ]
         , describe "rollUp — a parent's face from its children's"
             [ test "every child empty rolls up empty" <|

@@ -229,8 +229,8 @@
       applyDefault, pinView, relations, focusFilter, focusQuery, toggleRaw, openSettings,
       save: saveSession,
       commitEdit: (b) => { if (sheetOpen()) commitDocEdit(b);
-                           else if (editing && !raw && checkboxHere() !== null)
-                             toggleCheckbox(b);
+                           else if (editing && !raw)
+                             docKey("C-c C-c", (what) => said(b, what));
                            else said(b, "nothing open here"); },
       archiveRows: (b) => flagKey("D", XFLAGS(b), (what) => said(b, what)),
       flaggedDelete: (b) => flagKey("x", XFLAGS(b), (what) => said(b, what)),

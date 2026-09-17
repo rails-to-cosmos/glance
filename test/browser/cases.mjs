@@ -1186,8 +1186,8 @@ export default [
 
 { name: "SPC ticks a checkbox item the same at the root and under a child",
   async run(p, base) {
-    // A leaf box toggles through the same `Edit' the shell rewrites its marker
-    // with (`toggleCheckbox').  Point on the box at the root or under a child:
+    // A leaf box toggles through the document model's key action. Point on the
+    // box at the root or under a child:
     // the box flips to `[X]' and the door echoes `[X]' either way.
     const tickAt = async (text) => {
       await sheet(p, base, "drv-pairs");

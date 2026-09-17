@@ -6018,10 +6018,11 @@ sheetNotes =
   , Note "The sheet's keys register AHEAD of the dispatch and fall through on every key\
          \ they do not claim; `preventDefault' fires only where a binding does, and only\
          \ over an open subtree sheet." [Test]
-  , Note "DOCUMENT-LOCAL KEYS ARE ONE ELM BINDING TABLE: movement, folding and\
-         \ subtree shifts publish their accepted keys plus repeat and reply-channel\
+  , Note "DOCUMENT-LOCAL KEYS ARE ONE ELM BINDING TABLE: movement, folding, checkbox\
+         \ toggling and subtree shifts publish their accepted keys plus repeat and reply-channel\
          \ capabilities with `docState'; the JS adapter claims the synchronous browser\
-         \ event and connects the response without interpreting the key." [Elm, Typed, Test]
+         \ event and connects the response without interpreting the key.  The model reads,\
+         \ refuses and rewrites the checkbox from its row; the adapter parses no org." [Elm, Typed, Test]
   , Note "The sheet keeps exactly one variable of its own, `--dk-mono' (Hack first)." [Test]
   , Note "Settings replaces the main table at `?page=config' and uses table-view's row\
          \ movement, narrowing and Value-cell editor; DEL or the page address restores\

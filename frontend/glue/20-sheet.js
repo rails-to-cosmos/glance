@@ -163,11 +163,10 @@
     // The programmatic walk stays quiet; Elm publishes and interprets key movement.
     const docStep = (step) => dsend({ kind: "step", by: step });
     // A model write answers on `docBody`; ordinary key movement answers on `docSaid`.
-    function docKey(k) {
+    function docKey(k, answer = keySaid(k)) {
       const message = { kind: "key", key: k };
       if (!dwritingKeys.has(k)) { dsay(k, message); return; }
-      const say = keySaid(k);
-      answerOnce((cargo) => say(cargo.said), say);
+      answerOnce((cargo) => answer(cargo.said), answer);
       dsend(message);
     }
     function openHere() {
@@ -295,22 +294,6 @@
       dcommit = say;
       dsend({ kind: "edit", id: r.id, text });
     };
-    const CHECKBOX = /^(\s*(?:[-+*]|\d+[.)])\s+)\[( |X|x|-)\]/;
-    const checkboxAt = (r) =>
-      r && r.kind === "para"
-        ? (CHECKBOX.exec((r.text || "").split("\n")[0]) || [])[2] ?? null
-        : null;
-    function toggleCheckbox(b) {
-      const r = docRowAt();
-      const was = checkboxAt(r);
-      if (was === null) { said(b, "no checkbox here"); return; }
-      // A DERIVED BOX IS ITS CHILDREN'S TO TELL (`boxFace', Doc.elm): toggle a leaf.
-      if (drows.some((x) => x.owner === r.id && checkboxAt(x) !== null)) {
-        said(b, "derived from children"); return;
-      }
-      const now = was === " " || was === "-" ? "X" : " ";
-      editPara(r, r.text.replace(CHECKBOX, `$1[${now}]`), () => said(b, `[${now}]`));
-    }
     /** `X' — HIDE DONE CHECKBOXES, a display-only mode the Elm side owns; the model
      * decides the scope.  `X' IS A CHARACTER FIRST: a doc field takes the letter. */
     function hideDoneHere(b) {
@@ -1335,7 +1318,6 @@
       if (back !== -1) dat = back;
     }
     const docRowById = (id) => drows.find((x) => x.id === id);
-    const checkboxHere = () => checkboxAt(drows[dat]);
     /** `/' NARROWS A SMALL LIST, one gesture over every mount — AGENTS.hs. */
     const narrows = (m) => can(m, "openNarrow", "shutNarrow", "narrowing");
     const narrowed = (m) => narrows(m) && m.narrowing() !== null;
@@ -1420,7 +1402,10 @@
         if (k === "RET") once(commitDocEdit);
         else if (k !== "TAB") return;   // ESC is the keymap's, puts the element back
       } else {
-        if (dkeys.has(k)) {
+        if (k === "SPC" && dkeys.has(k))
+          once(() => docKey(k, (what) =>
+            said(docBinding("org-toggle-checkbox", k), what)));
+        else if (dkeys.has(k)) {
           if (donceKeys.has(k)) once(() => docKey(k)); else docKey(k);
         }
         else if (k === "RET") once(docEnter);
@@ -1432,8 +1417,6 @@
         else if (k === "C-l") once(() => recenterHere(k));
         else if (k === "t") once(() => atElement(stateHere));
         else if (k === ":") once(() => atElement(tagsHere));
-        else if (k === "SPC")
-          once(() => toggleCheckbox(docBinding("org-toggle-checkbox", "SPC")));
         // `S-RET' IS `+' WHEREVER IT IS PRESSED; none of the three reads a caret here.
         else if (k === "+" || k === "S-RET" || k === "M-RET") once(insertHere);
         // `d' FLAGS a selected column, dired-style; a second `d' deletes it.

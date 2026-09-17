@@ -102,12 +102,12 @@ just made. It survives only because `caretLine` clamps.
 reader's second line under a bullet it never wore."* The chained insert is the
 one place it is not applied.
 
-## 6. The shell still spells one piece of org grammar
+## 6. The checkbox grammar has moved out of the shell
 
-`20-sheet.js`'s `CHECKBOX` regex carries org's bullet grammar and its four box
-states — the facts `Scan.listOpener` and `Scan.boxAfter` own. `insertWord` was
-deleted this session for exactly this; `CHECKBOX` is the remaining instance in
-the same file.
+Completed 2026-09-17: checkbox toggling moved behind Elm's document-key port.
+`20-sheet.js` no longer carries `CHECKBOX`, `checkboxAt`, `checkboxHere`, or
+`toggleCheckbox`; `Doc.elm` reads and rewrites the live row through the scanner.
+The remaining live-text parsers in the shell serve open editor fields.
 
 Also: the shell finds the draft with a literal `"D"` where `Scan.draftId` is
 exported and never crosses the wire.

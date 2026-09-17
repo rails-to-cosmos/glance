@@ -11,6 +11,14 @@ section groups a feature arc, and its date is that arc's last commit.
 
 ## 0.7.2.0 - 2026-09-17
 
+### Changed
+
+- **Checkbox commands now live with the material-document model.** Elm owns
+  the `SPC` and `C-c C-c` actions, reads the checkbox tree, refuses derived
+  parents, rewrites leaf rows, and returns the write result. The JavaScript
+  shell only claims the browser gesture and connects the response; its org
+  checkbox regex and mirrored tree decision are gone.
+
 ### Removed
 
 - **The auto-sync worker and header toggle are gone.** The git breadcrumb is a
