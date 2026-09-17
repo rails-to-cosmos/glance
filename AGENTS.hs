@@ -6200,10 +6200,10 @@ gluePartFiles =
   , "36-date-cell.js" -- the date in the cell: the box over the cell, and `C-c C-s's split
   , "37-tags.js"      -- the offer menu, the tag vocabulary and the run's own spelling
   , "40-popups.js"    -- the link popup and the tags popup
-  , "50-settings.js"  -- tabs, saved views, the states table, the theme
+  , "50-settings.js"  -- the settings table, main views and browser preferences
   , "60-refer.js"     -- `@' in the sheet: the reference picker over /refer
   , "70-shell.js"     -- the modal surfaces, the dispatch and the boot
-  , "80-git.js"       -- the git sync control at the end of table-view's chip strip
+  , "80-git.js"       -- the page breadcrumb and git sync control above table-view
   ]
 -- | The same list as `tsc' reads it: a part named once cannot drift into two.
 jsconfigFiles :: [Path]

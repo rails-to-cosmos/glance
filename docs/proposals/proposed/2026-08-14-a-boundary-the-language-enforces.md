@@ -157,3 +157,26 @@ An argument that TypeScript is the wrong language. It is already the language,
 it is already checked, and the plumbing that remains should be TypeScript with
 strictness on. The argument is only that the **file rename is not the fix**, and
 that the boundary `widget-files` asked for is a `port`, not a `.ts` extension.
+
+## 2026-09-17 reassessment
+
+The direction still holds, with a sharper first boundary. A fresh check reports
+1,566 `noImplicitAny` errors and 403 `strictNullChecks` errors across 5,818 glue
+lines. Enabling either option for the whole shared script would produce a large,
+low-signal migration. The highest-fan-out dependency, `TableView`, is currently
+declared as `any`, while the sibling renderer already documents `Cell`, `Column`,
+`Row`, `View`, `MountOptions`, and `Handle` in JSDoc. Publish that contract as a
+renderer-owned declaration and use it here before tightening internal files.
+
+Keep the glue as checked JavaScript during this step. Renaming it to TypeScript
+would also require an emit or bundle stage, which would disturb the current
+identity between served fragments, embedded assets, and `--assets` live editing
+without improving the ambient shared scope. If module isolation later justifies
+a build step, introduce ES modules, one reproducible bundle, and source maps as
+one deliberate change.
+
+The earlier recommendation to move `05-keys.js` wholesale is also too broad.
+Global browser shortcuts and overlay routing belong in the typed adapter. The
+document-local key state machine belongs with `Doc.elm`, where its row, cursor,
+and flag state already lives. Move one document key family first and measure the
+deleted mirror and port traffic before expanding the boundary.

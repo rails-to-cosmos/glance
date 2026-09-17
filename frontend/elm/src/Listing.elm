@@ -1,7 +1,6 @@
 port module Listing exposing (main)
 
-{-| THE SHELL'S SMALL LISTS: the link popup, the tags popup and the settings
-sheet's states table — records under declared columns,
+{-| THE SHELL'S SMALL LISTS: the link and tags popups — records under declared columns,
 with a cursor, flags and a `/` narrow. The markup is the renderer's class for
 class, because the served stylesheet is written against it. AGENTS.hs.
 -}

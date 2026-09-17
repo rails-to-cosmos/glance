@@ -96,3 +96,20 @@ The minify step is independent and cheap: first.  Step 1 (keys into Elm) is
 the highest-value move and the next one after this proposal is accepted; each
 later step stands alone behind a green gate.  No step is a rewrite, and the
 table's bridge is the boundary that never moves.
+
+## 2026-09-17 reassessment
+
+The new front-end rule is to reuse widgets whose interaction has already been
+proved. That changes the destination for ordinary lists. `Listing.elm` now
+duplicates the shared renderer's table, cursor, flags, and narrowing model for
+only the links and tags popups; settings and refer already demonstrate that
+`TableView` can host these shapes. Retire `Listing.elm` after a compact inline
+TableView spike instead of extending it. Apply the same test to the prompt
+palette before porting that custom widget to Elm.
+
+The durable Elm boundary is narrower: `Doc.elm` owns the material document and
+its custom editing state machine. The next Elm move remains the document-local
+key family because it deletes a JS mirror of Elm-owned state. TableView surfaces,
+page routing, fetch, WebSocket, storage, focus, caret and viewport geometry stay
+in a typed browser adapter. This preserves the proposal's state-ownership goal
+while following the stronger widget-reuse rule.
