@@ -1420,7 +1420,7 @@ export default [
         await p.until(() => !!document.querySelector("#app table tbody tr"),
                       `the table to mount at ${w}px`);
         if (page === "config")
-          await p.until(() => document.querySelector("#gitctl .g-page").textContent.includes("settings"),
+          await p.until(() => document.querySelector("#pagectl .g-page").textContent.includes("settings"),
                         `settings to replace the table at ${w}px`, 12_000);
         else if (page) await p.until((host) => !!document.querySelector(`${host}.on`),
                                      `${page} to raise at ${w}px`, 12_000, HOST[page]);
@@ -1477,7 +1477,7 @@ export default [
 { name: "settings is a flat table route with the chosen context columns",
   async run(p, base) {
     await p.goto(`${base}/?page=config`);
-    await p.until(() => document.querySelector("#gitctl .g-page")?.textContent.includes("settings")
+    await p.until(() => document.querySelector("#pagectl .g-page")?.textContent.includes("settings")
                         && [...document.querySelectorAll("#app th")]
                           .some((n) => n.textContent.trim() === "Setting"),
                   "the settings breadcrumb to appear");
@@ -1489,13 +1489,15 @@ export default [
       names: [...document.querySelectorAll("#app tbody tr td:first-of-type")]
         .map((n) => n.textContent.trim()),
       popup: !!document.getElementById("config"),
-      crumbs: document.getElementById("gitctl").textContent.trim(),
+      crumbs: document.getElementById("pagectl").textContent.trim(),
+      gitHidden: document.getElementById("gitctl").hidden,
     }));
     for (const name of ["Setting", "Value", "Area", "Applies to", "Source", "State"])
       assert(opened.columns.includes(name), `settings lost the ${name} column: ${opened.columns}`);
     assert(opened.names.includes("Theme") && opened.names.includes("system TODO cycle"),
       `the flat catalogue lacks its local or tree rows: ${opened.names.join(", ")}`);
     assert(!opened.popup, "the retired #config popup rose around the catalogue");
+    assert(opened.gitHidden, "the git widget is visible over a directory that is not a repo");
 
     await p.press("RET");
     await p.until(() => !!document.querySelector("#app .tv-cell-edit"),
@@ -1505,7 +1507,7 @@ export default [
     await p.until(() => document.documentElement.dataset.theme === "dark",
                   "the edited Theme value to apply");
     await p.press("DEL");
-    await p.until(() => !document.querySelector("#gitctl .g-page").textContent.includes("settings"),
+    await p.until(() => !document.querySelector("#pagectl .g-page").textContent.includes("settings"),
                   "DEL to return to the main table");
     return [`${opened.columns.length} columns · ${opened.names.length} settings · `
       + `${JSON.stringify(opened.crumbs)} · Theme edited in table-view`];
@@ -7728,21 +7730,28 @@ export default [
     const up = await gitRead(p, "the control to mount off the first /git poll");
     assert(/^⎇ .+:main$/.test(up.loc),
       `the control reads ${JSON.stringify(up.loc)}, not the served dir and its branch`);
-    const mainAddress = await p.eval(() => document.getElementById("gitctl").textContent
+    const mainAddress = await p.eval(() => document.getElementById("ghead").textContent
       .replace(/\s+/g, " ").trim());
     assert(mainAddress.startsWith(`⌂ @${up.loc}`),
       `the main breadcrumb reads ${JSON.stringify(mainAddress)}`);
+    const icon = await p.eval(() => {
+      const home = document.querySelector("#pagectl .g-home").getBoundingClientRect();
+      const git = document.querySelector("#gitctl .g-vc").getBoundingClientRect();
+      return { home: home.height, git: git.height };
+    });
+    assert(icon.home >= icon.git,
+      `the ${icon.home}px home icon is smaller than the ${icon.git}px git glyph`);
     await p.press(",");
     const settingsAddress = await p.until(() => {
-      const ctl = document.getElementById("gitctl");
-      const page = ctl && ctl.querySelector(".g-page");
+      const ctl = document.getElementById("ghead");
+      const page = document.querySelector("#pagectl .g-page");
       if (!page || page.textContent !== "⌂ → settings") return false;
       return ctl.textContent.replace(/\s+/g, " ").trim();
     }, "settings to extend the git breadcrumb");
     assert(settingsAddress.startsWith(`⌂ → settings @${up.loc}`),
       `the settings breadcrumb reads ${JSON.stringify(settingsAddress)}`);
-    await p.eval(() => document.querySelector("#gitctl .g-page").click());
-    await p.until(() => document.querySelector("#gitctl .g-page").textContent === "⌂",
+    await p.eval(() => document.querySelector("#pagectl .g-page").click());
+    await p.until(() => document.querySelector("#pagectl .g-page").textContent === "⌂",
                   "the page address to restore the home route");
     // NO REMOTE IS NO UPSTREAM, which `glyphFor' draws as the warned ⚠ -- the
     // clean tick is a state an upstream buys, and this fixture has none.

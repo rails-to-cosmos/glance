@@ -38,7 +38,7 @@
     let base = "", baseProps = null, raw = false;
     // THE DOC PANE IS AN ELM PROGRAM; the MIRROR is a macrotask behind — AGENTS.hs.
     const DCELLS = CFG.dcells;
-    let drows = [], dat = 0;
+    let drows = [], dat = 0, dkeys = new Set();
     let dflags = [], dbody = "", dlinks = [], dprops = [], dplan = [];
     // WHICH PLANNING ENTRY POINT STANDS IN, by KEYWORD; `null' is the whole line.
     let dplankey = null;
@@ -65,6 +65,7 @@
       dport = Elm.Doc.init({ node: part(el("dlist"), "div", "") }).ports;
       dport.docState.subscribe((now) => {
         drows = now.rows; dat = now.at;
+        dkeys = new Set(now.keys || []);
         dflags = now.flags; dbody = now.body;
         dprops = now.properties; dplan = now.planning;
         dplankey = now.planKey || null;
@@ -156,12 +157,8 @@
     // `var', so the suite's direct eval reaches the caller's scope.  The DOM
     // paints on rAF and the port lands a macrotask apart: a driver sees both.
     var docAtNow = () => (drows[dat] || {}).id || "";
-    // MOVEMENT IS TWO AXES, and `l'/`h' and the arrows ALIAS `f'/`b' — AGENTS.hs.
-    const grainStep = (k) => (k === "f" || k === "l" || k === "<right>" ? 1
-                            : k === "b" || k === "h" || k === "<left>" ? -1 : 0);
-    // A KEY ARMS THE ECHO (`dsay'); the programmatic walk (`dsend') stays quiet.
-    const docStep = (step, k) =>
-      k ? dsay(k, { kind: "step", by: step }) : dsend({ kind: "step", by: step });
+    // The programmatic walk stays quiet; Elm publishes and interprets key movement.
+    const docStep = (step) => dsend({ kind: "step", by: step });
     /** `M-<left>'/`M-<right>': org's `org-promote-subtree'/`org-demote-subtree'.
      * THE MODEL OWNS ROWS, WALLS AND WORD; write and refusal come back named. */
     function shiftHere(k, by) {
@@ -1419,12 +1416,7 @@
         if (k === "RET") once(commitDocEdit);
         else if (k !== "TAB") return;   // ESC is the keymap's, puts the element back
       } else {
-        const step = rowStep(k), depth = grainStep(k);
-        if (step) docStep(step, k);
-        else if (depth > 0) dsay(k, { kind: "finer" });
-        else if (depth < 0) dsay(k, { kind: "broader" });
-        // `B' climbs the grain to the owner; `b' is `f' reversed and steps back.
-        else if (k === "B") dsay(k, { kind: "climb" });
+        if (dkeys.has(k)) dsay(k, { kind: "key", key: k });
         else if (k === "RET") once(docEnter);
         else if (k === "DEL") once(docUp);
         else if (k === "TAB")

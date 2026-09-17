@@ -71,10 +71,19 @@ major minor patch:
 
 RENDERER := ../table-view/web/table-view.js
 RENDERER_TYPES := ../table-view/web/table-view.d.ts
+ELM_MINIFIER := terser@5.44.0
+ELM_PURE := F2,F3,F4,F5,F6,F7,F8,F9,A2,A3,A4,A5,A6,A7,A8,A9
 # Committed like the renderer, so the bytes a build embeds are the bytes in the tree.
 elm:
 	@if command -v npx >/dev/null 2>&1; then \
-	  cd frontend/elm && npx --yes elm make src/Doc.elm --optimize --output=../../assets/elm.js; \
+	  work=$$(mktemp -d); raw="$$work/elm.js"; compressed="$$work/compressed.js"; \
+	  trap 'rm -rf "$$work"' EXIT; \
+	  cd frontend/elm && \
+	  npx --yes elm make src/Doc.elm --optimize --output="$$raw" && \
+	  npx --yes $(ELM_MINIFIER) "$$raw" \
+	    --compress 'pure_funcs=[$(ELM_PURE)],pure_getters=true,keep_fargs=false,unsafe_comps=true,unsafe=true' \
+	    --output="$$compressed" && \
+	  npx --yes $(ELM_MINIFIER) "$$compressed" --mangle --output=../../assets/elm.js; \
 	else echo "elm: no npx on PATH -- assets/elm.js left as committed"; fi
 
 # OUT of `cabal test': elm-test fetches its dependency at run time.

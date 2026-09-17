@@ -265,6 +265,7 @@ interface DocState {
   rows: DocRow[];
   at: number;
   id: string;
+  keys: string[];
   grain: string;
   flags: string[];
   lines: number;

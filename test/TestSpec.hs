@@ -1063,7 +1063,7 @@ specGroup09 = testGroup "Commands and writes"
       assertBool "Doc.elm no longer draws the bullet's own span"
                  ("class \"dbul\"" `T.isInfixOf` doc)
       assertBool "assets/elm.js draws no `.dbul' -- `make elm' has not been run"
-                 ("'dbul'" `T.isInfixOf` built)
+                 ("dbul" `T.isInfixOf` built)
       assertBool "a stylesheet empties the bullet again"
         (not ("dbul{color:transparent" `T.isInfixOf` page "" [] "t" ""))
 

@@ -6018,6 +6018,10 @@ sheetNotes =
   , Note "The sheet's keys register AHEAD of the dispatch and fall through on every key\
          \ they do not claim; `preventDefault' fires only where a binding does, and only\
          \ over an open subtree sheet." [Test]
+  , Note "DOCUMENT NAVIGATION IS ONE ELM BINDING TABLE: row movement, finer and\
+         \ broader grain movement and climb publish their accepted key roster with\
+         \ `docState'; the JS adapter checks that capability to claim the synchronous\
+         \ browser event and forwards the unchanged key, without interpreting it." [Elm, Typed, Test]
   , Note "The sheet keeps exactly one variable of its own, `--dk-mono' (Hack first)." [Test]
   , Note "Settings replaces the main table at `?page=config' and uses table-view's row\
          \ movement, narrowing and Value-cell editor; DEL or the page address restores\
@@ -6025,17 +6029,19 @@ sheetNotes =
   , Note "The flat catalogue columns are Setting, Value, Area, Applies to, Source and\
          \ State; local preferences apply immediately and changed tree rows share the\
          \ existing drift-locked batch save." [Test]
-  , Note "The git control is also the page breadcrumb: `⌂ @⎇ dir:branch' on the\
-         \ main table and `⌂ → settings @⎇ dir:branch' on the settings route." [Browser]
+  , Note "The shell-owned page control reads `⌂' on the main table and `⌂ → settings'\
+         \ on settings; a separate git widget appends `@⎇ dir:branch' only for repos." [Browser]
+  , Note "The breadcrumb's home glyph has its own span and optical size, at least the\
+         \ height of the neighbouring git glyph on the rendered row." [Browser]
   , Note "`CompletionMenus' owns offer state, painting, movement, taking and viewport\
          \ placement; properties, dates, tags and states supply vocabulary and the\
          \ synchronous field transformation." [Typed, Test]
   , Note "Multiline TODO cycles and capture templates render with escaped `\\n' inside\
          \ one Value cell and decode losslessly before they are written." [Test]
-  , Note "`assets/elm.js' is a committed BUILD INPUT carrying both programs, embedded by\
-         \ its own splice and named as the page's THIRD script; `make elm' reproduces the\
-         \ committed bytes over an ephemeral `npx --yes elm', and `elm.json' must say\
-         \ 0.19.2, 0.19.1 being a hard refusal." [Typed]
+  , Note "`assets/elm.js' is a committed BUILD INPUT carrying `Doc', embedded by its\
+         \ own splice and named as the page's THIRD script; `make elm' compiles it and\
+         \ runs pinned Terser 5.44.0 in separate compress and mangle passes, while\
+         \ `elm.json' must say 0.19.2, 0.19.1 being a hard refusal." [Typed, Test]
   , Note "Nothing in the Haskell suite rebuilds the Elm, so what is asserted offline is\
          \ that the bundle carries every program the target NAMES and that each source is\
          \ on disk." [Test]
@@ -6046,9 +6052,8 @@ sheetNotes =
          \ it cannot survive is a leaf splice that CHANGES THE LINE COUNT under it." [Elm]
   , Note "The harness reads every small list off what it DREW, the counters asking WHICH\
          \ list an init was for, off the host element." [Test]
-  , Note "The wire carries 38 KB gzipped of Elm runtime (182 KB raw), under the renderer's\
-         \ 78 KB and the shell's 41 KB; minifying would take it to 13 KB and nothing\
-         \ does." [Docs]
+  , Note "The committed Elm program is 77 KB raw and 26 KB gzipped after the pinned\
+         \ two-pass minification; the unminified optimized compiler output is 318 KB." [Test]
   , Note "`--dry-run' resolves and exits BEFORE binding, the native path replacing one\
          \ line of the same output rather than writing its own." [Test]
   , Note "GTK owns the main thread, so `runNative' forks the daemon and hands this thread\

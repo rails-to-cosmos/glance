@@ -150,7 +150,18 @@ spec = testGroup "Self-containment"
         assertBool ("the target names src/" <> T.unpack m <> ".elm, which is not there") there
         assertBool ("assets/elm.js carries no " <> T.unpack m
                       <> " — `make elm' has not been run since it was named")
-                   (("'" <> m <> "':") `T.isInfixOf` built)
+                   ((m <> ":{init:") `T.isInfixOf` built)
+
+    -- The committed bundle is reviewable only if its opaque transform is fixed.
+  , testCase "the Elm bundle uses one pinned, two-pass minifier" $ do
+      makefile <- TIO.readFile "Makefile"
+      built <- TIO.readFile "assets/elm.js"
+      assertBool "the Terser version is not pinned"
+                 ("ELM_MINIFIER := terser@5.44.0" `T.isInfixOf` makefile)
+      assertEqual "compression and mangling are not separate pinned passes" 2
+                  (T.count "npx --yes $(ELM_MINIFIER)" makefile)
+      assertBool ("the committed Elm bundle is still " <> show (T.length built) <> " bytes")
+                 (T.length built < 100000)
 
     -- `tsc' READS ONE SIDE.  It catches the glue calling a port Elm lacks; a
     -- port DECLARED here and absent there typechecks and dies at boot with

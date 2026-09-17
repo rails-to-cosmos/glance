@@ -1290,36 +1290,39 @@ html.stale #app,{{WASHED_STALE}} {
     pointer-events: none;
 }
 
-/* The git control owns the shell breadcrumb above the table. */
+/* The shell owns its page address; git may extend the same row. */
 #ghead {
     display: flex;
-    align-items: center;
-}
-#ghead:empty {
-    display: none;
-}
-#gitctl {
-    display: inline-flex;
     align-items: center;
     gap: 8px;
     white-space: nowrap;
     font-size: 13px;
 }
+#ghead:empty {
+    display: none;
+}
+#pagectl,#gitctl {
+    display: inline-flex;
+    align-items: center;
+}
+#gitctl { gap: 8px; }
 #gitctl[hidden] { display: none; }
-#gitctl.g-norepo .g-at,
-#gitctl.g-norepo .g-loc,
-#gitctl.g-norepo .g-glyph,
-#gitctl.g-norepo .g-auto { display: none; }
 #gitctl .g-at { color: var(--g-mute); opacity: .55; }
-#gitctl .g-page {
+#pagectl .g-page {
     border: 0;
     padding: 0;
     font: inherit;
     color: var(--g-fg);
     background: transparent;
 }
-#gitctl .g-page:enabled { cursor: pointer; }
-#gitctl .g-page:enabled:hover { color: var(--g-link); }
+#pagectl .g-home {
+    display: inline-block;
+    font-size: 17px;
+    line-height: 1;
+    transform: translateY(1px);
+}
+#pagectl .g-page:enabled { cursor: pointer; }
+#pagectl .g-page:enabled:hover { color: var(--g-link); }
 #gitctl .g-loc { color: var(--g-fg); opacity: .9; }
 #gitctl .g-loc .g-vc { color: var(--g-mute); opacity: .8; }
 #gitctl .g-loc .g-dir { color: var(--g-mute); }

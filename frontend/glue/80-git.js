@@ -1,12 +1,10 @@
     // Lives in #ghead OUTSIDE #app, so table-view re-renders/re-mounts never touch it.
     // The glyph is a static readout; only the auto-sync toggle takes a click.
-    /** @param {{pageAddress: () => PageAddress, onPageBack: () => void}} deps */
-    const createGitControl = (deps) => {
-      const { pageAddress, onPageBack } = deps;
+    const createGitControl = () => {
       const GIT_POLL = 15000;   // ms between background re-reads
       const head = document.getElementById("ghead");
       /** @type {any} */ let ctl = null;
-      let elPage = null, elDir = null, elBranch = null, elGlyph = null,
+      let elDir = null, elBranch = null, elGlyph = null,
           elDot = null, elN = null, elAuto = null, elFlash = null;
       /** @type {GitStatus | null} */ let status = null;
 
@@ -18,8 +16,7 @@
       function build() {
         ctl = document.createElement("span");
         ctl.id = "gitctl";
-        elPage = part(ctl, "button", "g-page", "⌂");
-        elPage.type = "button"; elPage.disabled = true;
+        ctl.hidden = true;
         part(ctl, "span", "g-at", " @");
         const loc = part(ctl, "span", "g-loc");
         part(loc, "span", "g-vc", "⎇");
@@ -34,25 +31,14 @@
         elAuto.type = "button";
         elFlash = part(ctl, "span", "g-flash");
         elAuto.addEventListener("click", toggleAuto);
-        elPage.addEventListener("click", onPageBack);
         head.appendChild(ctl);
-        renderPage();
-      }
-
-      function renderPage() {
-        if (!elPage) return;
-        const address = pageAddress();
-        elPage.textContent = address.label;
-        elPage.disabled = !address.back;
-        elPage.title = address.back ? "back home" : "";
       }
 
       function render() {
         if (!head) return;
         if (!status) return;
         if (!ctl) build();
-        ctl.classList.toggle("g-norepo", !status.repo);
-        renderPage();
+        ctl.hidden = !status.repo;
         if (!status.repo) return;
         const s = status;
         elDir.textContent = baseName(s.dir);
@@ -72,7 +58,6 @@
         elAuto.title = on ? "auto-sync on — click to turn off"
           : s.autosync ? "auto-sync set — click again to allow the first push"
           : "auto-sync off — click to enable";
-        renderPage();
       }
 
       function flash(msg) {
@@ -103,7 +88,5 @@
       poll();
       window.addEventListener("focus", poll);
       setInterval(poll, GIT_POLL);
-      return { pageChanged: renderPage };
     };
-    const GitControl = createGitControl(
-      { pageAddress: () => Pages.address(), onPageBack: () => leaveSession() });
+    createGitControl();

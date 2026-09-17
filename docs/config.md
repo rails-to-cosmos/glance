@@ -13,8 +13,9 @@ apply as soon as their Value cell commits. Tree values remain changed until
 home page address returns to the previous query and row. Multiline org values
 use `\n` in the cell and decode back to newlines when written.
 
-The shell-owned git control is also the page address. It reads
-`⌂ @⎇ dir:branch` here and `⌂ → settings @⎇ dir:branch` in settings.
+The shell owns the page address: `⌂` here and `⌂ → settings` in settings. When
+the directory is a git repository, the separate git widget extends that row
+with `@⎇ dir:branch` and its synchronization state.
 
 ## The layers
 

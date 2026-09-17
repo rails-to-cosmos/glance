@@ -12,12 +12,15 @@ import Doc
     exposing
         ( BoxFace(..)
         , Model
+        , Movement(..)
         , compactedRun
         , cookieIn
         , cookieKind
         , empty
         , findCookie
         , hiddenDone
+        , movementFor
+        , movementKeys
         , rollUp
         )
 import Expect
@@ -98,7 +101,23 @@ allDone =
 suite : Test
 suite =
     describe "Doc — the editor's pure core"
-        [ describe "rollUp — a parent's face from its children's"
+        [ describe "movement — one Elm-owned key family"
+            [ test "publishes every key the shell may claim" <|
+                \_ -> Expect.equal
+                    [ "<down>", "n", "j", "C-n"
+                    , "<up>", "p", "k", "C-p"
+                    , "f", "l", "<right>"
+                    , "b", "h", "<left>"
+                    , "B"
+                    ] movementKeys
+            , test "maps row, grain, and climb aliases" <|
+                \_ -> Expect.equal
+                    [ Just (RowMove 1), Just (RowMove -1), Just FinerMove
+                    , Just BroaderMove, Just ClimbMove, Nothing
+                    ]
+                    (List.map movementFor [ "j", "C-p", "<right>", "h", "B", "RET" ])
+            ]
+        , describe "rollUp — a parent's face from its children's"
             [ test "every child empty rolls up empty" <|
                 \_ -> Expect.equal BoxEmpty (rollUp [ BoxEmpty, BoxEmpty ])
             , test "every child full rolls up full" <|

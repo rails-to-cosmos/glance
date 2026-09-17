@@ -33,9 +33,9 @@ both `PageRoute` and `SaveSession`. The material document remains an overlay
 that implements `SaveSession`. `saveSheet` can be renamed `saveSession` without
 making the two surfaces share navigation.
 
-`GitControl` receives a page-address reader and an `onPageBack` callback. It
-does not read settings state or call a sheet closer. `renderPageCrumbs` moves
-to `Pages`, which supplies `{ page, repo }` to the git control.
+`PageControl` receives a page-address reader and an `onPageBack` callback. It
+does not read settings state or call a sheet closer. `GitControl` is a sibling
+that contributes repository location and status only when `/git` reports one.
 
 `SURFACES` then contains overlays only: mint, prompt, refer, links, tags and
 the material document. A later full-page table becomes one `PageRoute` entry
@@ -74,5 +74,7 @@ The keymap gained a `session` scope for `C-x C-s`, so settings receives the one
 shared save command without inheriting material-document commands from modal
 scope.
 
-The git control is an explicit factory over `pageAddress` and `onPageBack`.
-It reads no settings state and calls no document-sheet navigation function.
+The shell now renders `PageControl` from `Pages.address()` and owns its back
+action. `GitControl` is a separate optional sibling: it renders only repository
+location and synchronization state, and stays hidden when `/git` says the
+directory is not a repository.

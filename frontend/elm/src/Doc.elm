@@ -1,6 +1,7 @@
 port module Doc exposing
     ( BoxFace(..)
     , Model
+    , Movement(..)
     , compactedRun
     , cookieIn
     , cookieKind
@@ -9,6 +10,8 @@ port module Doc exposing
     , findCookie
     , hiddenDone
     , main
+    , movementFor
+    , movementKeys
     , rollUp
     )
 
@@ -459,11 +462,36 @@ elementSpan m r =
 
 -- UPDATE
 
+type Movement
+    = RowMove Int
+    | FinerMove
+    | BroaderMove
+    | ClimbMove
+
+movementKeys : List String
+movementKeys =
+    List.map Tuple.first movementBindings
+
+movementFor : String -> Maybe Movement
+movementFor key =
+    List.filter (\( candidate, _ ) -> candidate == key) movementBindings
+        |> List.head
+        |> Maybe.map Tuple.second
+
+movementBindings : List ( String, Movement )
+movementBindings =
+    List.map (\key -> ( key, RowMove 1 )) [ "<down>", "n", "j", "C-n" ]
+        ++ List.map (\key -> ( key, RowMove -1 )) [ "<up>", "p", "k", "C-p" ]
+        ++ List.map (\key -> ( key, FinerMove )) [ "f", "l", "<right>" ]
+        ++ List.map (\key -> ( key, BroaderMove )) [ "b", "h", "<left>" ]
+        ++ [ ( "B", ClimbMove ) ]
+
 type Msg
     = Fill Model
     | Clear
     | Select String (Maybe Int)
     | SelectCell String (Maybe Int)
+    | MoveKey String
     | Step Int
     | Finer
     | Broader
@@ -513,6 +541,13 @@ update msg model =
                 landed = landAt (placeOf model id) model
             in
             told (reveal { landed | col = col })
+        MoveKey key ->
+            case movementFor key of
+                Just (RowMove by) -> update (Step by) model
+                Just FinerMove -> update Finer model
+                Just BroaderMove -> update Broader model
+                Just ClimbMove -> update Climb model
+                Nothing -> ( model, Cmd.none )
         Step by ->
             -- A ROW STEP OWES ITS WORD too, so `n'/`p' echo like `f'/`b'; the
             -- programmatic walk sends this keyless and arms no `dwrote', so its
@@ -1386,6 +1421,7 @@ stateJSON m =
         ([ ( "rows", E.list (rowJSON m) m.rows )
         , ( "at", E.int m.at )
         , ( "id", E.string (Maybe.withDefault "" (Maybe.map .id (rowAt m))) )
+        , ( "keys", E.list E.string movementKeys )
 
         -- WHICH ENTRY OF THE PLANNING LINE POINT STANDS IN, by its KEYWORD:
         -- null is the whole line, and the shell reads no index of its own.
@@ -1574,10 +1610,8 @@ msgD =
                     "clear" -> D.succeed Clear
                     "select" -> D.map2 Select (D.field "id" D.string) (D.maybe (D.field "plan" D.int))
                     "selectcell" -> D.map2 SelectCell (D.field "id" D.string) (D.maybe (D.field "col" D.int))
+                    "key" -> D.map MoveKey (D.field "key" D.string)
                     "step" -> D.map Step (D.field "by" D.int)
-                    "finer" -> D.succeed Finer
-                    "broader" -> D.succeed Broader
-                    "climb" -> D.succeed Climb
                     "flag" -> D.map Flag (D.field "id" D.string)
                     "unflag" -> D.map Unflag (D.field "id" D.string)
                     "clearFlags" -> D.succeed ClearFlags

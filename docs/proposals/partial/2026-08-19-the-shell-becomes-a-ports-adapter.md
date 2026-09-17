@@ -1,6 +1,6 @@
 # Proposal — the shell becomes a ports adapter
 
-**Status:** proposed · **Date:** 2026-08-19 · **Origin:** user — *"our
+**Status:** partial · **Date:** 2026-08-19 · **Origin:** user — *"our
 front-end could be elm fully, right?  For pure javascript we can use elm's
 'require' and organize our app as an Elm application… also uglify+compact?"*
 
@@ -22,9 +22,9 @@ stays on the far side of a port, so "fully Elm" is not a reachable end state —
 
 - `docs/bugs/fixed/2026-08-19-a-key-after-a-drawn-step-acts-on-the-row-behind-it.md`:
   the shell's keys act on a MIRROR that lands a macrotask behind the draw.
-  Three of four full runs failed, rotating cases.  The fix (`data-id`,
-  `docAtNow`, settled walks) is a discipline; keys subscribed inside Elm
-  (`Browser.Events.onKeyDown`) delete the mirror and the discipline with it.
+  Three of four full runs failed, rotating cases. The fix (`data-id`,
+  `docAtNow`, settled walks) is a discipline. Moving each operation behind an
+  Elm command removes its dependence on that mirror.
 - The dirty-baseline bug (fixed in `a74685c`'s follow-up) was the same gap:
   `fill()` read mirrors that had not landed.  THE COMMIT CARRIES ITS OWN CARGO
   and THE BASELINE COMES OFF THE FILL are both compensations for state living
@@ -45,11 +45,12 @@ stays on the far side of a port, so "fully Elm" is not a reachable end state —
 
 ## The sequence, one widget per step, gate green between
 
-1. **The doc pane's keys into Elm.**  `Browser.Events.onKeyDown` behind a
-   "pane holds the keys" flag the shell still owns (`#mdoc.on`).  Deletes the
-   mirror (`drows`/`dat`/`dflags`), `docAtNow`, `dsay`/`dwrote`, and the
-   settled-walk discipline in the harness.  The keydown dispatch in
-   `20-sheet.js` shrinks to the overlay commits and the sheet chrome.
+1. **The doc pane's keys into Elm.** Elm publishes the keys it accepts with
+   each state message. The shell uses that capability only to claim the DOM
+   event synchronously, then forwards the unchanged key. Key meaning and the
+   resulting state transition live together in Elm. Move the remaining key
+   families the same way until the keydown dispatch contains only overlay
+   commits and sheet chrome; mirrors retire as their last platform reader does.
 2. **The prompt palette as an Elm widget.**  It is a list with a cursor and a
    narrow — `Listing.elm`'s own shape; `askText`'s `raising` flag (the eaten
    first key) is another mirror-gap compensation that dies here.
@@ -113,3 +114,31 @@ key family because it deletes a JS mirror of Elm-owned state. TableView surfaces
 page routing, fetch, WebSocket, storage, focus, caret and viewport geometry stay
 in a typed browser adapter. This preserves the proposal's state-ownership goal
 while following the stronger widget-reuse rule.
+
+## 2026-09-17 implementation — reproducible bundle compaction
+
+The independent bundle step is complete. `make elm` compiles an optimized
+temporary program, compresses it with the Elm runtime's pure curry/apply
+helpers, then mangles it in a separate pass. Both passes use
+`terser@5.44.0`; after the first key-family move the committed result is 77,490
+bytes raw and 26,166 bytes gzipped, down from 318,232 and 63,657 bytes
+respectively.
+
+The offline suite now checks the pinned two-pass recipe, the bundle size, and
+program exports and semantic string markers that survive mangling. It no
+longer relies on generated Elm symbol names or a minifier's quote style.
+
+## 2026-09-17 implementation — document navigation keys
+
+The first complete key family now belongs to Elm: row movement, finer and
+broader grain movement, their aliases, and `B` to climb. One Elm binding table
+both interprets these keys and publishes its key roster in `docState`. The
+shell turns that roster into a `Set`, uses membership to call
+`preventDefault()` in the browser event, and forwards `{ kind: "key", key }`.
+It contains no map from those keys to document commands.
+
+This capability handshake resolves the event-ownership problem without a
+second semantic registry. JavaScript owns the synchronous DOM decision; Elm
+owns what the claimed key means. Programmatic table walks retain the explicit
+`step` message and do not arm a keyboard echo. The remaining document key
+families and state mirrors keep this proposal partial.

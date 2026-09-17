@@ -43,7 +43,7 @@
       let swapped = false;
       const changed = () => {
         remembered();
-        GitControl.pageChanged();
+        PageControl.pageChanged();
       };
       const finish = (route) => {
         if (route !== current) return;
@@ -82,6 +82,30 @@
         fail: finish,
       };
     })();
+    // Page identity belongs to the shell. The optional git widget only extends
+    // this row when the served directory is a repository.
+    const createPageControl = (deps) => {
+      const { pageAddress, onPageBack } = deps;
+      const HOME = "⌂";
+      const ctl = part(document.getElementById("ghead"), "span", "", "");
+      ctl.id = "pagectl";
+      const button = part(ctl, "button", "g-page");
+      button.type = "button";
+      button.addEventListener("click", onPageBack);
+      const render = () => {
+        const address = pageAddress();
+        button.textContent = "";
+        part(button, "span", "g-home", HOME);
+        if (address.label !== HOME)
+          button.appendChild(document.createTextNode(address.label.slice(HOME.length)));
+        button.disabled = !address.back;
+        button.title = address.back ? "back home" : "";
+      };
+      render();
+      return { pageChanged: render };
+    };
+    const PageControl = createPageControl(
+      { pageAddress: () => Pages.address(), onPageBack: () => leaveSession() });
     const RESTORED = { seq: "?page", command: "restore-view" };
     const surfaceUp = () => SURFACES.find((s) => s.up()) || null;
     function remembered() {
