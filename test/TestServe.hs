@@ -1679,12 +1679,13 @@ tagKeySpec shell =
                     "RET renames · d flags · D removes · + adds · / narrows · ESC leaves"
           =<< textAt "tfoot" answer
 
-    -- MUTABLE, and the flag gesture says so: no mark column and no page.
-  , atBoot tagged "the list is mutable: it flags, and says which keys do it" $ \answer -> do
+    -- MUTABLE, with its keys in the popup's persistent foot: compact table-view
+    -- deliberately draws no second action-hint line.
+  , atBoot tagged "the compact list leaves its flag keys in the popup foot" $ \answer -> do
         assertEqual "nothing flagged before a key says so" []
           =<< textsAt "tflagged" answer
-        assertEqual "and the flag's own hint names the two keys that answer it"
-                    "d/D remove · u unflag" =<< textAt "tflagHelp" answer
+        assertEqual "and draws no duplicate action hint" ""
+          =<< textAt "tflagHelp" answer
 
   , keyed shell "over a marked set it names the whole set, in one request"
       "m m :" "" $ \answer -> do
@@ -6620,7 +6621,7 @@ shellGlue =
   -- The tags popup is a MOUNT and a mutable one, with the rename overlay laid over the tag CELL.
   , Glue "the tags popup is a mutable mount with a rename overlay"
       [ "const TCOLS = "
-      , "tmount = listing(\"ttable\", TCOLS, \"d/D remove · u unflag\", \"tpane\");"
+      , "tmount = popupTable(\"ttable\", TCOLS, \"d/D remove · u unflag\", \"tpane\");"
       , "const managing = () => !!tagging;"
       , "cells: [\"title\"], cols: TCOLS,"
       , "const renaming = () => editIn(TROW);"
@@ -7079,7 +7080,7 @@ shellGlue =
       , "showLinks(b, id, a);"
       , "window.open(link.target, \"_blank\", \"noopener\");"
       , "append(\"cmd\", \"info\", `link ${JSON.stringify(link.target)} opened`);"
-      , "lmount = listing(\"ltable\", LCOLS, \"\", \"lpane\");"
+      , "lmount = popupTable(\"ltable\", LCOLS, \"\", \"lpane\");"
       , "const followable = (l) => FOLLOWABLE.indexOf(l.type) !== -1;" ]
       [ "\\\\[\\\\[", "linkAt("
       , "linkChoices", "a letter opens it", "c.target" ]

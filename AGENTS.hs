@@ -5064,19 +5064,19 @@ landsOn = jLine
 lineReadMs :: [(String, Int)]
 lineReadMs = [("List.drop", 75), ("Array.get", 11)]
 
--- ** THE SMALL LISTS ARE ONE ELM PROGRAM
+-- ** THE SMALL LISTS REUSE TABLE-VIEW
 
--- | `listing(host, cols, hint, pane)'.  Each is a list of RECORDS under declared columns
---   with a cursor, optional delete flags, a click that selects and a `/' narrow.
+-- | `popupTable(host, cols, hint, pane)'. Each is the shared renderer under declared
+--   columns with a cursor, optional delete flags, click selection and a `/' narrow.
 data Mount = Mount { mHost :: String, mCols :: [String], mHint :: String, mPane :: String }
 
--- | The two secondary mounts; the main and settings catalogues share `tableHost'.
+-- | The two compact secondary mounts; the main and settings catalogues share `tableHost'.
 mounts :: [Mount]
 mounts =
   [ Mount "ltable"  ["title", "url"]                     ""                      "lpane"
   , Mount "ttable"  ["title", "on", "rows"]              "d/D remove · u unflag" "tpane" ]
 
--- | THE ONE LIST THAT IS NOT ELM'S is the table at this host: the renderer's own job.
+-- | The full-page table host; the secondary mounts above use the same renderer inline.
 tableHost :: String
 tableHost = "app"
 

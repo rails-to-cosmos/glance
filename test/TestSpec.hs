@@ -1279,7 +1279,7 @@ specGroup10 = testGroup "Shell"
     jsWord src t = firstQuoted (if "\"" `T.isPrefixOf` t then t else jsDecl t src)
       where firstQuoted = T.takeWhile (/= '"') . T.drop 1 . T.dropWhile (/= '"')
 
--- | Sheets, the document pane, and the small lists Elm draws; each case compares two copies of one figure.
+-- | Sheets, the Elm document pane, and compact table-view lists; each case compares two copies of one figure.
 specGroup11 :: TestTree
 specGroup11 = testGroup "Sheets, document pane, Elm"
   [ -- @drawText@ walks the segments in order and SILENTLY drops a link opening

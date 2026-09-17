@@ -1387,60 +1387,6 @@
     }
     const docRowById = (id) => drows.find((x) => x.id === id);
     const checkboxHere = () => checkboxAt(drows[dat]);
-    // THE SHELL'S SMALL LISTS ARE ONE ELM PROGRAM, one per surface — AGENTS.hs.
-    function listing(host, cols, hint, pane) {
-      // `Browser.element' REPLACES its node, so HOST survives as the anchor container.
-      const ports = Elm.Listing.init({ node: part(el(host), "div", ""),
-                                       flags: { cols, hint: hint || "" } }).ports;
-      const seen = { at: -1, id: "", ids: [], flags: [], narrow: null, all: 0 };
-      /** @returns {(HTMLInputElement & HTMLElement) | null} */
-      const narrowBox = () =>
-        /** @type {any} */ (el(host).querySelector("input.tv-filter"));
-      let owed = false;
-      ports.listState.subscribe((now) => {
-        Object.assign(seen, now);
-      // ELM PUSHES ITS STATE BEFORE IT PAINTS: the field is reachable a turn later.
-        if (!owed || seen.narrow === null) return;
-        owed = false;
-        soon(() => { const b = narrowBox(); if (b) b.focus(); });
-      });
-      // Caught in the CAPTURE phase, so the scroller inside PANE need not be named.
-      if (pane) el(pane).addEventListener("scroll", placeEdit, true);
-      // SEEDED WITH WHAT IS BEING SENT: a port round trip costs a macrotask.
-      const landed = (id) => {
-        const at = seen.ids.indexOf(id);
-        if (at === -1) return;
-        seen.at = at; seen.id = id;
-      };
-      const send = (m) => ports.listIn.send(m);
-      return {
-        ...flagPort(send, () => seen.flags),
-        get el() { return el(host); },
-        at: () => seen.at,
-        onClick: (f) => ports.listClicked.subscribe(f),
-        setRows: (rows, at) => {
-          seen.ids = rows.map((r) => r.id);
-          if (at) landed(at);
-          send({ kind: "setRows", rows, at: at === undefined ? null : at });
-        },
-        select: (id) => { landed(id); send({ kind: "select", id }); },
-        getSelection: () => ({ id: seen.id || null }),
-        narrowing: () => seen.narrow,
-        narrowBox,
-        counted: () => ({ shown: seen.ids.length, all: seen.all }),
-        openNarrow: () => {
-          seen.narrow = seen.narrow || "";
-          owed = true;
-          send({ kind: "narrow", text: seen.narrow });
-        },
-        shutNarrow: () => {
-          const b = narrowBox();
-          if (b) b.blur();
-          seen.narrow = null;
-          send({ kind: "narrow", text: null });
-        },
-      };
-    }
     /** `/' NARROWS A SMALL LIST, one gesture over every mount — AGENTS.hs. */
     const narrows = (m) => can(m, "openNarrow", "shutNarrow", "narrowing");
     const narrowed = (m) => narrows(m) && m.narrowing() !== null;

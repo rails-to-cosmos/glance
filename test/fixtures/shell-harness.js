@@ -462,6 +462,7 @@ globalThis.WebSocket = function () {
 let mounts = 0, sets = 0, raises = 0;
 const doors = [];
 let lmounts = 0, tmounts = 0, tsets = 0, fits = 0;
+const popupMounts = {};
 const paints = [];
 // THE STORE ROWS THE PAGE LAST HANDED THE TABLE.  A DRAFT is no store row and
 // is never among them: the widget holds it apart and places it.
@@ -504,6 +505,7 @@ const cellCol = (cols, col) => {
 let markless = false, pagerless = false, sortnone = false, crumbless = false;
 const makeMount = (host, view, options, own) => {
   const o = options || {};
+  const popup = !!host && (host.id === "ltable" || host.id === "ttable");
   const modelRows = ((view || {}).columns || []).some((c) => c.key === "setting");
   const m = {
     own,
@@ -533,14 +535,22 @@ const makeMount = (host, view, options, own) => {
     onFilter: typeof o.onFilter === "function" ? o.onFilter : null,
     onEdit: typeof o.onEdit === "function" ? o.onEdit : null,
     onRefused: typeof o.onRefused === "function" ? o.onRefused : null,
+    host, popup, filterBox: null, narrowed: false, render: () => {},
   };
   const all = () => (m.own ? m.own : m.viewRows || rows);
+  const visible = () => {
+    if (!popup || !m.held) return all();
+    const want = m.held.toLowerCase();
+    return all().filter((r) => m.cols.some((c) =>
+      String((r.cells || {})[c.key] == null ? "" : (r.cells || {})[c.key])
+        .toLowerCase().includes(want)));
+  };
   const pageMax = () =>
-    (m.pageSize ? Math.max(1, Math.ceil(all().length / m.pageSize)) : 1);
+    (m.pageSize ? Math.max(1, Math.ceil(visible().length / m.pageSize)) : 1);
   const onPage = () => {
-    if (!m.pageSize) return all();
+    if (!m.pageSize) return visible();
     m.pageAt = Math.max(0, Math.min(m.pageAt, pageMax() - 1));
-    return all().slice(m.pageAt * m.pageSize, (m.pageAt + 1) * m.pageSize);
+    return visible().slice(m.pageAt * m.pageSize, (m.pageAt + 1) * m.pageSize);
   };
   /** `keepSelection' verbatim: the place is the last index something landed on
    * and is NOT re-derived while the row is there, so rows going from ABOVE
@@ -594,6 +604,8 @@ const makeMount = (host, view, options, own) => {
       } else { sets += 1; paints.push((list || []).length);
                painted = (list || []).slice(); }
       keep();
+      if (popup && host.id === "ttable") tsets += 1;
+      m.render();
     },
     upsertRow: (row) => {
       spliced.push(`upsert ${row.id}`);
@@ -643,7 +655,11 @@ const makeMount = (host, view, options, own) => {
           key: (m.cols[editedCell[1]] || {}).key || "" } : null),
     closeEditor: () => { editedCell = null; },
     destroy: () => {},
-    setQuery: (q) => { m.held = String(q == null ? "" : q).trim(); },
+    setQuery: (q) => {
+      m.held = String(q == null ? "" : q).trim();
+      if (m.filterBox) m.filterBox.value = m.held;
+      keep(); m.render();
+    },
     setPinned: (on) => { m.pinned = !!on; },
     stripLastToken: () => {
       if (!m.held) return false;
@@ -660,10 +676,10 @@ const makeMount = (host, view, options, own) => {
       const on = onPage();
       if (!on.length) return false;
       const at = held();
-      if (at === -1) { sit(step < 0 ? on.length - 1 : 0); return true; }
+      if (at === -1) { sit(step < 0 ? on.length - 1 : 0); m.render(); return true; }
       const to = at + step;
       if (to < 0 || to >= on.length) return false;
-      sit(to);
+      sit(to); m.render();
       return true;
     },
     // A column index OUTSIDE the table is a WHOLE-ROW selection, which makes
@@ -672,7 +688,7 @@ const makeMount = (host, view, options, own) => {
       const at = onPage().findIndex((r) => r.id === id);
       if (at === -1) return false;
       sit(at);
-      m.selCol = cellCol(m.cols, col);
+      m.selCol = cellCol(m.cols, col); m.render();
       return true;
     },
     nextPage: () => pageTo(m.pageAt + 1, true),
@@ -693,16 +709,26 @@ const makeMount = (host, view, options, own) => {
     markedCount: () => m.marks.size,
     // The count AFTER, which is the handle's documented answer.
     markAll: () => { for (const r of all()) m.marks.add(r.id); return m.marks.size; },
-    flagRow: (id) => m.flags.add(id),
-    unflagRow: (id) => m.flags.delete(id),
+    flagRow: (id) => {
+      const on = !m.flags.has(id);
+      if (on) m.flags.add(id); else m.flags.delete(id);
+      m.render(); return on;
+    },
+    unflagRow: (id) => { m.flags.delete(id); m.render(); },
     getFlagged: () => [...m.flags],
-    clearFlags: () => m.flags.clear(),
+    clearFlags: () => { m.flags.clear(); m.render(); },
     // THE DOOR IS RECORDED, not just the raise: `/' asks for the filter half
     // and `.' for the whole expression, and nothing else tells the two apart.
-    filtering: () => active === field("filter"),
+    filtering: () => active === (m.filterBox || field("filter")),
     openFilter: (door) => { raises += 1;
       doors.push(door && door.narrow === true ? "narrow" : "whole");
-      field("filter").focus(); },
+      m.narrowed = !!(door && door.narrow === true);
+      (m.filterBox || field("filter")).focus(); },
+    closeFilter: () => {
+      const box = m.filterBox || field("filter");
+      m.narrowed = false;
+      box.blur();
+    },
     sortBy: (column, ascending) => { sorted = { column, ascending }; sortCalls += 1;
       sortChain = [{ column, ascending }]; },
     // The promotion rule verbatim, and it WRITES THE QUERY: the press arrives at
@@ -740,8 +766,49 @@ const makeMount = (host, view, options, own) => {
 main = makeMount(null, null, {}, null);
 globalThis.TableView = {
   mount: (host, view, options) => {
-    const inst = makeMount(host, view, options, null);
-    {
+    const popup = !!host && (host.id === "ltable" || host.id === "ttable");
+    const inst = makeMount(host, view, options, popup ? [] : null);
+    if (popup) {
+      popupMounts[host.id] = inst;
+      if (host.id === "ltable") lmounts += 1; else tmounts += 1;
+      host.textContent = "";
+      const root = host.appendChild(make("div")); root.className = "tv-root tv-inline";
+      const bar = root.appendChild(make("div")); bar.className = "tv-bar";
+      const box = bar.appendChild(make("input")); box.className = "tv-filter";
+      const scroll = root.appendChild(make("div")); scroll.className = "tv-scroll";
+      const table = scroll.appendChild(make("table")); table.className = "tv-table";
+      const thead = table.appendChild(make("thead"));
+      const head = thead.appendChild(make("tr"));
+      const tbody = table.appendChild(make("tbody"));
+      inst.filterBox = box;
+      inst.render = () => {
+        head.textContent = "";
+        for (const c of inst.cols) {
+          const th = head.appendChild(make("th"));
+          const label = th.appendChild(make("span")); label.className = "tv-hn";
+          label.textContent = c.header || c.key;
+        }
+        tbody.textContent = "";
+        inst.onPage().forEach((row, i) => {
+          const tr = tbody.appendChild(make("tr"));
+          tr.className = [i % 2 ? "tv-alt" : "", row.id === inst.rowId ? "tv-sel" : "",
+                          inst.flags.has(row.id) ? "tv-flagged" : ""]
+            .filter(Boolean).join(" ");
+          tr.setAttribute("data-id", row.id);
+          tr.addEventListener("click", () => inst.handle.select(row.id));
+          for (const c of inst.cols) {
+            const td = tr.appendChild(make("td"));
+            td.textContent = String((row.cells || {})[c.key] == null
+              ? "" : (row.cells || {})[c.key]);
+          }
+        });
+      };
+      box.addEventListener("input", () => {
+        inst.held = String(box.value || "").trim();
+        inst.sit(0); inst.render();
+      });
+      inst.render();
+    } else {
       mounts += 1; main = inst; paints.push(((view || {}).rows || []).length);
       // The renderer draws its filter box inside the mount and the page finds it
       // by selector.
@@ -1063,22 +1130,8 @@ if (hosting === "native")
     Object.keys(posted).map((name) =>
       [name, { postMessage: (v) => posted[name].push(String(v)) }])) };
 
-/** THE SMALL LISTS ARE ONE ELM PROGRAM; indirect eval, its output publishing
- * onto `this'. */
+/** The document pane is Elm; indirect eval publishes it onto `this'. */
 (0, eval)(fs.readFileSync(dir + "/elm.js", "utf8"));
-const elmInit = globalThis.Elm.Listing.init;
-globalThis.Elm.Listing.init = (opts) => {
-  const host = opts && opts.node && opts.node.up ? opts.node.up.id : "";
-  if (host === "ltable") lmounts += 1;
-  if (host === "ttable") tmounts += 1;
-  const app = elmInit(opts);
-  const send = app.ports.listIn.send;
-  app.ports.listIn.send = (m) => {
-    if (m && m.kind === "setRows" && host === "ttable") tsets += 1;
-    return send(m);
-  };
-  return app;
-};
 // THE DOC PANE'S MIRROR, subscribed the way the glue subscribes: the lifted
 // header rides `docState' as lists, and the probe reads them off the port.
 // AN OUTGOING PORT MANAGER OPENS ON `Process.sleep 0': under node that lands a
@@ -1259,7 +1312,10 @@ const listFlagged = (host) => listEls(host).filter((tr) => wears(tr, "tv-flagged
 const listHint = (host) =>
   (field(host).querySelector(".tv-hint") || { textContent: "" }).textContent;
 const LISTS = ["ltable", "ttable", "cstates"];
-const narrowIn = (host) => field(host).querySelector("input.tv-filter");
+const narrowIn = (host) => {
+  const popup = popupMounts[host];
+  return popup && !popup.narrowed ? null : field(host).querySelector("input.tv-filter");
+};
 const narrows = () => LISTS.map((h) => [h, narrowIn(h)])
   .filter(([, box]) => box).map(([h, box]) => [h, String(box.value)]);
 const listCols = (host) =>

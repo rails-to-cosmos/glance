@@ -90,16 +90,12 @@ spec = testGroup "Self-containment"
                | declaredDate /= Just (day stem) ]
       assertEqual "a proposal whose home and header disagree" [] wrong
 
-    -- Both decoders end `_ -> D.succeed Ignore', so a mis-spelt kind is dropped
-    -- without a word.  A UNION on purpose: `flagPort' serves whichever program
-    -- holds its rows, so four kinds are legitimately sent to both.
+    -- The decoder ends `_ -> D.succeed Ignore', so a mis-spelt kind is dropped
+    -- without a word.
   , testCase "every port kind the shell sends is one an Elm program decodes" $ do
       doc <- kindsIn "frontend/elm/src/Doc.elm"
-      list <- kindsIn "frontend/elm/src/Listing.elm"
       sent <- concat <$> mapM (sendsIn . ("frontend/glue" </>)) gluePartFiles
-      -- NUB BOTH SIDES: `\\\\' drops ONE occurrence per element, and four kinds are
-      -- decoded by both programs.
-      let decoded = nub (doc <> list)
+      let decoded = nub doc
       -- A sweep over nothing passes, so it says what it swept first.
       assertBool ("too few kinds swept: " <> show (length decoded, length sent))
                  (length decoded >= 10 && length sent >= 15)
@@ -140,7 +136,7 @@ spec = testGroup "Self-containment"
           mains = [ T.drop 4 (T.dropEnd 4 w)
                   | w <- T.words target, "src/" `T.isPrefixOf` w, ".elm" `T.isSuffixOf` w ]
       assertBool ("no Elm sources named in the target: " <> show target)
-                 (length mains >= 2)
+                 (not (null mains))
       built <- TIO.readFile "assets/elm.js"
       forM_ mains $ \m -> do
         there <- doesFileExist ("frontend/elm/src" </> T.unpack m <> ".elm")
@@ -154,7 +150,7 @@ spec = testGroup "Self-containment"
     -- `undefined.subscribe is not a function', so the two lists are joined.
   , testCase "the ports the glue is typed against are the ports Elm declares" $ do
       declared <- portsIn <$> TIO.readFile "frontend/glue.d.ts"
-      elmSrc <- mapM (TIO.readFile . ("frontend/elm/src" </>)) ["Doc.elm", "Listing.elm"]
+      elmSrc <- mapM (TIO.readFile . ("frontend/elm/src" </>)) ["Doc.elm"]
       let exposed = [ T.takeWhile (/= ' ') (T.strip rest)
                     | l <- concatMap T.lines elmSrc
                     , Just rest <- [T.stripPrefix "port " l]

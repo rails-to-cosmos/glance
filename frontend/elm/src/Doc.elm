@@ -599,7 +599,7 @@ update msg model =
             -- steps a row back, uppercase leaves the run for what holds it.
             spoke (broader model)
         Flag id ->
-            -- OLDEST FIRST, the rule for every flag surface; `Listing' spells it so.
+            -- OLDEST FIRST, the rule shared with table-view's flagged rows.
             told { model | flags = List.filter ((/=) id) model.flags ++ [ id ] }
         Unflag id -> told { model | flags = List.filter ((/=) id) model.flags }
         ClearFlags -> told { model | flags = [] }

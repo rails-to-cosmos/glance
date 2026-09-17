@@ -6,26 +6,6 @@ interface Window {
   webkit?: { messageHandlers?: Record<string, { postMessage(v: any): void }> };
 }
 
-interface ListRow {
-  id: string;
-  cells: Record<string, string | number>;
-  colour?: string;
-}
-
-/** Where point is and what is flagged, pushed back after every change. */
-interface ListState {
-  at: number;
-  id: string;
-  ids: string[];
-  flags: string[];
-}
-
-interface ListPorts {
-  listIn: { send(m: { kind: string } & Record<string, any>): void };
-  listState: { subscribe(f: (s: ListState) => void): void };
-  listClicked: { subscribe(f: (id: string) => void): void };
-}
-
 interface DocRow {
   id: string;
   kind: string;
@@ -76,11 +56,5 @@ interface DocPorts {
 
 // Compiled from `assets/elm', served beside the shell.
 declare const Elm: {
-  Listing: {
-    init(opts: {
-      node: any;
-      flags: { cols: { key: string; header: string }[]; hint: string };
-    }): { ports: ListPorts };
-  };
   Doc: { init(opts: { node: any }): { ports: DocPorts } };
 };

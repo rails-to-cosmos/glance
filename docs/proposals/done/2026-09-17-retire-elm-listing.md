@@ -1,6 +1,14 @@
 # Proposal — retire Elm.Listing in favour of table-view
 
-**Status:** proposed · **Date:** 2026-09-17 · **Origin:** front-end maintainability audit after widget reuse became a high-priority rule
+**Status:** done · **Date:** 2026-09-17 · **Origin:** front-end maintainability audit after widget reuse became a high-priority rule
+
+## Outcome
+
+Links and tags now mount the shared renderer through `popupTable`, using its
+inline layout, local narrowing, cursor and ordered flag state. The sibling
+renderer needed no change. `Listing.elm`, its JavaScript port mirror and its
+declarations are gone; `assets/elm.js` now contains `Doc` alone. The handwritten
+runtime source change removes 374 net lines outside tests and generated assets.
 
 ## Pattern
 

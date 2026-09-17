@@ -56,7 +56,7 @@ typecheck:
 	cabal build all
 	@$(MAKE) --no-print-directory check-glue
 	@if command -v npx >/dev/null 2>&1; then \
-	  cd frontend/elm && npx --yes elm make src/Listing.elm src/Doc.elm \
+	  cd frontend/elm && npx --yes elm make src/Doc.elm \
 	    --output=/dev/null && echo "typecheck: elm clean"; \
 	else echo "typecheck: no npx on PATH -- elm skipped"; fi
 
@@ -73,7 +73,7 @@ RENDERER := ../table-view/web/table-view.js
 # Committed like the renderer, so the bytes a build embeds are the bytes in the tree.
 elm:
 	@if command -v npx >/dev/null 2>&1; then \
-	  cd frontend/elm && npx --yes elm make src/Listing.elm src/Doc.elm --optimize --output=../../assets/elm.js; \
+	  cd frontend/elm && npx --yes elm make src/Doc.elm --optimize --output=../../assets/elm.js; \
 	else echo "elm: no npx on PATH -- assets/elm.js left as committed"; fi
 
 # OUT of `cabal test': elm-test fetches its dependency at run time.

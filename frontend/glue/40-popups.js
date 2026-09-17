@@ -1,16 +1,45 @@
 // THE LINK AND TAGS POPUPS, and the popup chrome both wear (AGENTS.hs).
 // `editIn' reads the shared `edit', which is a `let' the panel reassigns.
 const Popups = ((deps) => {
-    const { CFG, askFrom, cancelEdit, echo, editIn, el, failed, fire, FLAG_WORDS,
-            foldTag, listing, openEdit, openOffers, rectOf, remembered,
+    const { CFG, askFrom, cancelEdit, echo, editIn, el, failed, findIn, fire, FLAG_WORDS,
+            foldTag, openEdit, openOffers, placeEdit, rectOf, remembered,
             rowsWord, said, selectedId, shortly, shutEdit, shutOffers, sole,
-            soon, stepIn, tagAnchor, tagFrom, unnarrow } = deps;
+            soon, stepIn, TableView, tagAnchor, tagFrom, unnarrow } = deps;
+    /** The shared renderer wearing the popup key vocabulary. */
+    function popupTable(host, cols, flagHelp, pane) {
+      let narrow = null;
+      const mount = TableView.mount(el(host), { columns: cols, rows: [] }, {
+        inline: true,
+        flags: !!flagHelp,
+        actionHints: false,
+        flagHelp,
+      });
+      /** @returns {(HTMLInputElement & HTMLElement) | null} */
+      const narrowBox = () =>
+        /** @type {any} */ (findIn(el(host), "input.tv-filter"));
+      if (pane) el(pane).addEventListener("scroll", placeEdit, true);
+      return {
+        ...mount,
+        narrowing: () => narrow,
+        narrowBox,
+        counted: () => ({ shown: mount.getVisible().length, all: mount.getRows().length }),
+        openNarrow: () => {
+          narrow = "";
+          mount.openFilter({ narrow: true });
+        },
+        shutNarrow: () => {
+          mount.closeFilter();
+          mount.setQuery("");
+          narrow = null;
+        },
+      };
+    }
     const LCOLS = CFG.lcols;
     let lmount = null, lrows = [], opening = null, lfor = null, lpin = "";
     const linking = () => !!opening;
     function linksMounted() {
       if (lmount) return lmount;
-      lmount = listing("ltable", LCOLS, "", "lpane");
+      lmount = popupTable("ltable", LCOLS, "", "lpane");
       return lmount;
     }
     function showLinks(b, id, answer) {
@@ -89,7 +118,7 @@ const Popups = ((deps) => {
     const managing = () => !!tagging;
     function tagsMounted() {
       if (tmount) return tmount;
-      tmount = listing("ttable", TCOLS, "d/D remove · u unflag", "tpane");
+      tmount = popupTable("ttable", TCOLS, "d/D remove · u unflag", "tpane");
       return tmount;
     }
     // First-seen order: an alphabetical insert would move rows under the cursor.
@@ -248,10 +277,11 @@ const Popups = ((deps) => {
              linking, managing, openLinkEdit, openRename, pointedLink,
              renameTag, renaming, showLinks, showPopup, showTags, shutLinks,
              shutPopup, shutTags, TFLAGS };
-})({ CFG, askFrom, cancelEdit, echo, editIn, el, failed, fire, FLAG_WORDS,
-     foldTag, listing, openEdit, openOffers, rectOf, remembered,
+})({ CFG, askFrom, cancelEdit, echo, editIn, el, failed,
+     findIn: (root, selector) => root.querySelector(selector), fire, FLAG_WORDS,
+     foldTag, openEdit, openOffers, placeEdit, rectOf, remembered,
      rowsWord, said, selectedId, shortly, shutEdit, shutOffers, sole,
-     soon, stepIn, tagAnchor, tagFrom, unnarrow });
+     soon, stepIn, TableView, tagAnchor, tagFrom, unnarrow });
 const { openedBy, linkMount, tagMount, addFlow, cancelLinkEdit, cancelRename, commitLink, landing, lediting,
         linking, managing, openLinkEdit, openRename, pointedLink,
         renameTag, renaming, showLinks, showPopup, showTags, shutLinks,
